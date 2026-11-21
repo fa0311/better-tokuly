@@ -1,0 +1,305 @@
+# Tokuly — the whole stack on one machine.
+#
+#   tools/init-env.sh          # once: writes .env with fresh secrets
+#   docker compose up -d       # then open http://localhost
+#
+# Layout of a request:
+#
+#   browser ──▶ edge (Caddy: HTTP/1.1, HTTP/2, HTTP/3)
+#                 ├─ /api/*         ▶ api        Connect RPC, gRPC, gRPC-Web
+#                 ├─ /rt/ws         ▶ realtime   WebSocket fallback of the realtime gateway
+#                 ├─ /media/*       ▶ storage    public media bucket
+#                 ├─ /tiles/*       ▶ tiles      vector map tiles (PMTiles)
+#                 ├─ /map-assets/*  ▶ files      map fonts and icons
+#                 └─ everything else▶ web        TanStack Start server
+#   browser ══▶ realtime :4433/udp   WebTransport (QUIC), straight to the gateway
+#   browser ──▶ storage  :9000       uploads with presigned URLs
+#   browser ══▶ livekit  :7880-7882  voice and video calls (WebRTC)
+#
+# Outgoing mail is caught by Mailpit (http://localhost:8025) until TOKULY_SMTP_URL
+# points at a real mail server.
+#
+# Optional parts are Compose profiles (set COMPOSE_PROFILES in .env):
+#   observability  Grafana + OpenTelemetry collector + Loki/Tempo/Prometheus at http://localhost:3001
+#
+# Every setting has a default here except the secrets, which tools/init-env.sh
+# generates. `.env.example` documents all of them; any TOKULY_* variable put in
+# .env reaches the backend.
+
+name: tokuly
+
+x-backend: &backend
+  image: tokuly/backend:${TOKULY_VERSION:-local}
+  build:
+    context: .
+    dockerfile: infra/docker/backend.Dockerfile
+  restart: unless-stopped
+  # Everything in .env (feature settings such as TOKULY_VAPID_PRIVATE_KEY) ...
+  env_file:
+    - path: .env
+      required: false
+  # ... and what this file decides: where the other services are.
+  environment:
+    TOKULY_ENV: production
+    TOKULY_PUBLIC_URL: ${TOKULY_PUBLIC_URL:-http://localhost}
+    TOKULY_SECRET: ${TOKULY_SECRET:?run tools/init-env.sh first (it writes .env)}
+    TOKULY_ADMIN_USER: ${TOKULY_ADMIN_USER:-}
+    TOKULY_REGISTRATION_OPEN: ${TOKULY_REGISTRATION_OPEN:-true}
+    TOKULY_DATABASE_URL: postgres://tokuly:${POSTGRES_PASSWORD:?run tools/init-env.sh first}@postgres:5432/tokuly
+    TOKULY_VALKEY_URL: redis://valkey:6379
+    TOKULY_NATS_URL: nats://nats:4222
+    TOKULY_S3_ENDPOINT: http://storage:9000
+    # Where browsers send uploads (presigned URLs). Must reach the storage service from outside.
+    TOKULY_S3_PUBLIC_ENDPOINT: ${TOKULY_S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+    TOKULY_S3_ACCESS_KEY: ${STORAGE_ACCESS_KEY:-tokuly}
+    TOKULY_S3_SECRET_KEY: ${STORAGE_SECRET_KEY:?run tools/init-env.sh first}
+    TOKULY_CLICKHOUSE_URL: http://clickhouse:8123
+    TOKULY_CLICKHOUSE_USER: tokuly
+    TOKULY_CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?run tools/init-env.sh first}
+    TOKULY_MEILI_URL: http://search:7700
+    TOKULY_MEILI_KEY: ${MEILI_MASTER_KEY:?run tools/init-env.sh first}
+    TOKULY_SMTP_URL: ${TOKULY_SMTP_URL:-smtp://mailpit:1025}
+    TOKULY_MAIL_FROM: ${TOKULY_MAIL_FROM:-Tokuly <no-reply@tokuly.localhost>}
+    TOKULY_LIVEKIT_URL: http://livekit:7880
+    TOKULY_LIVEKIT_PUBLIC_URL: ${TOKULY_LIVEKIT_PUBLIC_URL:-ws://localhost:7880}
+    TOKULY_LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-tokuly}
+    TOKULY_LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?run tools/init-env.sh first}
+    TOKULY_OTLP_ENDPOINT: ${TOKULY_OTLP_ENDPOINT:-}
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
+
+services:
+  # ── Entry point ────────────────────────────────────────────────────────────
+  edge:
+    image: caddy:2.11.9-alpine
+    restart: unless-stopped
+    environment:
+      # `:80` serves plain HTTP on every name (fine for http://localhost).
+      # Set a domain (`tokuly.example.com`) for automatic HTTPS and HTTP/3.
+      TOKULY_SITE_ADDRESS: ${TOKULY_SITE_ADDRESS:-:80}
+    ports:
+      - "${TOKULY_HTTP_PORT:-80}:80"
+      - "${TOKULY_HTTPS_PORT:-443}:443"
+      - "${TOKULY_HTTPS_PORT:-443}:443/udp" # HTTP/3
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - map-assets:/srv/map-assets:ro
+      - edge-data:/data
+      - edge-config:/config
+    depends_on:
+      web:
+        condition: service_started
+      api:
+        condition: service_healthy
+
+  web:
+    image: tokuly/web:${TOKULY_VERSION:-local}
+    build:
+      context: .
+      dockerfile: infra/docker/web.Dockerfile
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+
+  # ── Backend: one image, one role per container ─────────────────────────────
+  migrate:
+    <<: *backend
+    command: ["migrate"]
+    restart: "no"
+    depends_on:
+      postgres: { condition: service_healthy }
+      valkey: { condition: service_healthy }
+      nats: { condition: service_healthy }
+      storage: { condition: service_healthy }
+      clickhouse: { condition: service_healthy }
+      search: { condition: service_healthy }
+
+  api:
+    <<: *backend
+    command: ["api"]
+    healthcheck:
+      test: ["CMD", "tokuly", "healthcheck", "http://127.0.0.1:8081/readyz"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+
+  realtime:
+    <<: *backend
+    command: ["realtime"]
+    # WebTransport (QUIC) goes straight to this container, which brings its own
+    # short-lived certificate; the WebSocket fallback goes through the edge.
+    ports:
+      - "${TOKULY_WEBTRANSPORT_PORT:-4433}:4433/udp"
+    healthcheck:
+      test: ["CMD", "tokuly", "healthcheck", "http://127.0.0.1:8082/healthz"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+
+  worker:
+    <<: *backend
+    command: ["worker"]
+
+  # ── Data ───────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgis/postgis:18-3.7
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tokuly
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run tools/init-env.sh first}
+      POSTGRES_DB: tokuly
+    command: ["postgres", "-c", "max_connections=200", "-c", "shared_buffers=${POSTGRES_SHARED_BUFFERS:-512MB}"]
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tokuly -d tokuly"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  valkey:
+    image: valkey/valkey:9.2-alpine
+    restart: unless-stopped
+    # Presence, rate limits and caches. Never evict: sessions being revoked live here too.
+    command: ["valkey-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - valkey-data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  nats:
+    image: nats:2.15.3-alpine
+    restart: unless-stopped
+    command: ["--jetstream", "--store_dir", "/data", "--http_port", "8222"]
+    volumes:
+      - nats-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  storage:
+    image: rustfs/rustfs:1.0.6
+    restart: unless-stopped
+    environment:
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: ":9000"
+      RUSTFS_ACCESS_KEY: ${STORAGE_ACCESS_KEY:-tokuly}
+      RUSTFS_SECRET_KEY: ${STORAGE_SECRET_KEY:?run tools/init-env.sh first}
+      RUSTFS_CONSOLE_ENABLE: "false"
+    ports:
+      - "${TOKULY_STORAGE_PORT:-9000}:9000"
+    volumes:
+      - storage-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9000/health || curl -fsS -o /dev/null http://127.0.0.1:9000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.9-alpine
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_USER: tokuly
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?run tools/init-env.sh first}
+      CLICKHOUSE_DB: tokuly
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "0"
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8123/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  search:
+    image: getmeili/meilisearch:v1.57.0
+    restart: unless-stopped
+    environment:
+      MEILI_ENV: production
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?run tools/init-env.sh first}
+      MEILI_NO_ANALYTICS: "true"
+    volumes:
+      - search-data:/meili_data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:7700/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  # ── Map ────────────────────────────────────────────────────────────────────
+  # Self-hosted basemap: on first start this downloads a low-zoom world map and
+  # a street-level extract of TOKULY_MAP_REGION_BBOX (default: greater Tokyo),
+  # plus the map fonts and icons. Later starts reuse what is in the volumes.
+  tiles:
+    image: tokuly/tiles:${TOKULY_VERSION:-local}
+    build:
+      context: infra/tiles
+    restart: unless-stopped
+    environment:
+      TOKULY_MAP_REGION_BBOX: ${TOKULY_MAP_REGION_BBOX:-139.2,35.2,140.3,36.0}
+      TOKULY_MAP_REGION_MAXZOOM: ${TOKULY_MAP_REGION_MAXZOOM:-15}
+      TOKULY_MAP_SOURCE: ${TOKULY_MAP_SOURCE:-}
+    volumes:
+      - tiles-data:/data
+      - map-assets:/assets
+
+  # ── Calls ──────────────────────────────────────────────────────────────────
+  livekit:
+    image: livekit/livekit-server:v1.13.11
+    restart: unless-stopped
+    command: ["--config", "/etc/livekit.yaml"]
+    environment:
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:-tokuly}: ${LIVEKIT_API_SECRET:?run tools/init-env.sh first}"
+    ports:
+      - "${TOKULY_LIVEKIT_PORT:-7880}:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+    volumes:
+      - ./infra/livekit/livekit.yaml:/etc/livekit.yaml:ro
+
+  # ── Mail ───────────────────────────────────────────────────────────────────
+  # Catches everything the backend sends (verification, password reset) and
+  # shows it at http://localhost:8025. Unused once TOKULY_SMTP_URL is set.
+  mailpit:
+    image: axllent/mailpit:v1.34.0
+    restart: unless-stopped
+    environment:
+      MP_MAX_MESSAGES: "5000"
+    ports:
+      - "127.0.0.1:${TOKULY_MAILPIT_PORT:-8025}:8025"
+
+  # ── Optional ───────────────────────────────────────────────────────────────
+  # Traces, logs and metrics. Also set TOKULY_OTLP_ENDPOINT=http://observability:4317.
+  observability:
+    profiles: ["observability"]
+    image: grafana/otel-lgtm:0.41.1
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${TOKULY_GRAFANA_PORT:-3001}:3000"
+    volumes:
+      - observability-data:/data
+
+volumes:
+  postgres-data:
+  valkey-data:
+  nats-data:
+  storage-data:
+  clickhouse-data:
+  search-data:
+  tiles-data:
+  map-assets:
+  edge-data:
+  edge-config:
+  observability-data:

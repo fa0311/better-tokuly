@@ -1,0 +1,11 @@
+# LiveKit carries voice and video calls. The API key and secret come from the
+# LIVEKIT_KEYS environment variable (see compose.yaml).
+port: 7880
+rtc:
+  tcp_port: 7881
+  udp_port: 7882
+  # On a server with a public address set this to true so clients are told
+  # that address; on a laptop or LAN the container's view of itself is enough.
+  use_external_ip: false
+logging:
+  level: info

@@ -1,0 +1,46 @@
+# The edge: the one address browsers talk to. It speaks HTTP/1.1, HTTP/2 and
+# (with HTTPS) HTTP/3, and hands each path to the service behind it.
+#
+# TOKULY_SITE_ADDRESS decides how it listens:
+#   :80                  plain HTTP on every name (the default; right for http://localhost)
+#   tokuly.example.com   automatic HTTPS for that domain, HTTP/3 included
+#   https://localhost    HTTPS with a locally generated certificate (browsers will warn)
+
+{$TOKULY_SITE_ADDRESS::80} {
+	encode zstd gzip
+
+	# Connect RPC, gRPC and gRPC-Web. The API speaks cleartext HTTP/2, so
+	# streaming calls pass through unbuffered.
+	handle_path /api/* {
+		reverse_proxy h2c://api:8081 {
+			flush_interval -1
+		}
+	}
+
+	# WebSocket fallback of the realtime gateway (WebTransport bypasses the edge).
+	handle /rt/ws {
+		reverse_proxy realtime:8082
+	}
+
+	# Public media: /media/<key> is the object <key> of the public bucket.
+	handle_path /media/* {
+		rewrite * /tokuly-media{uri}
+		reverse_proxy storage:9000
+		header Cache-Control "public, max-age=31536000, immutable"
+	}
+
+	# Vector map tiles, and the fonts and icons the map style refers to.
+	handle_path /tiles/* {
+		reverse_proxy tiles:8080
+	}
+	handle_path /map-assets/* {
+		root * /srv/map-assets
+		file_server
+		header Cache-Control "public, max-age=604800"
+	}
+
+	# Everything else is the web app.
+	handle {
+		reverse_proxy web:3000
+	}
+}
