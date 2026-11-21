@@ -8,7 +8,7 @@ import { Dialog } from "#/components/ui/dialog";
 import { TextArea } from "#/components/ui/field";
 import { SwitchRow } from "#/components/ui/switch";
 import { Tabs } from "#/components/ui/tabs";
-import { errorMessage } from "#/lib/errors";
+import { errorMessage } from "../errors";
 import { userAdminClient } from "../api";
 import { roleKey } from "../labels";
 import { STAFF_ROLES } from "../roles";
@@ -49,7 +49,7 @@ export function WarnDialog({ account, open, onOpenChange, onDone }: DialogProps)
       confirmLabel={t("users.warn.confirm")}
       danger
       loading={warn.isPending}
-      reason="required"
+      requireReason
       onConfirm={(texts) => warn.mutate(texts)}
     />
   );
@@ -77,7 +77,7 @@ export function SuspendDialog({ account, open, onOpenChange, onDone }: DialogPro
       confirmLabel={t(permanent ? "users.suspend.confirmBan" : "users.suspend.confirm")}
       danger
       loading={suspend.isPending}
-      reason="required"
+      requireReason
       onConfirm={(texts) => suspend.mutate(texts)}
     >
       <Tabs<"timed" | "permanent">

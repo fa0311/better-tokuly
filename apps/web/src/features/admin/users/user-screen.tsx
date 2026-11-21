@@ -126,7 +126,7 @@ function Identity({ account }: { account: admin.AdminUser }) {
   const user = account.user;
   if (!user) return null;
   return (
-    <Section>
+    <Section label={t("users.columns.user")}>
       <div className="flex flex-wrap items-center gap-4 p-4">
         <Avatar user={user} size="lg" outlined />
         <div className="min-w-0 flex-1">
@@ -141,7 +141,7 @@ function Identity({ account }: { account: admin.AdminUser }) {
           </div>
         </div>
         {!user.deleted && (
-          <Link to="/u/$handle" params={{ handle: user.handle }} className="inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-bold text-brand hover:bg-surface-2">
+          <Link to="/u/$handle" params={{ handle: user.handle }} className="-ml-3 inline-flex h-9 w-full items-center gap-1.5 rounded-full px-3 text-sm font-bold text-brand hover:bg-surface-2 sm:ml-0 sm:w-auto">
             <ExternalLink className="size-4" />
             {t("users.openProfile")}
           </Link>

@@ -27,7 +27,7 @@ export function ActionDialog({
   confirmLabel,
   danger,
   loading,
-  reason,
+  requireReason,
   note = true,
   noteLabel,
   validate,
@@ -41,8 +41,8 @@ export function ActionDialog({
   confirmLabel: string;
   danger?: boolean;
   loading?: boolean;
-  /** Ask for the text shown to the user: `required` blocks confirming without it. */
-  reason?: "required" | "optional";
+  /** Ask for the text shown to the user; the action cannot be confirmed without it. */
+  requireReason?: boolean;
   /** Ask for an internal note (default on). */
   note?: boolean;
   noteLabel?: string;
@@ -67,7 +67,7 @@ export function ActionDialog({
 
   const confirm = () => {
     const ownFieldsOk = validate?.() ?? true;
-    if (reason === "required" && !reasonText.trim()) {
+    if (requireReason && !reasonText.trim()) {
       setMissing(true);
       return;
     }
@@ -79,9 +79,9 @@ export function ActionDialog({
     <ConfirmDialog open={open} onOpenChange={onOpenChange} title={title} description={description} confirmLabel={confirmLabel} danger={danger} loading={loading} onConfirm={confirm}>
       <div className="flex flex-col gap-4">
         {children}
-        {reason && (
+        {requireReason && (
           <TextArea
-            label={reason === "required" ? t("common.reason") : t("common.reasonOptional")}
+            label={t("common.reason")}
             hint={t("common.reasonHint")}
             error={missing ? t("errors.REASON_REQUIRED") : undefined}
             value={reasonText}

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
-import { admin, type common, fromDate, isApiError, media, toDate } from "@tokuly/api";
-import { CalendarClock, ImagePlus, Save, Send, Trash2, Undo2 } from "lucide-react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { admin, type common, fromDate, isApiError, isNotFound, media } from "@tokuly/api";
+import { CalendarClock, ExternalLink, ImagePlus, Save, Send, Trash2, Undo2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -12,7 +12,7 @@ import { EmptyState, Skeleton } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
 import { Tabs } from "#/components/ui/tabs";
 import { ANNOUNCEMENT_CATEGORIES, AnnouncementArticle, AnnouncementCard, type AnnouncementContent, announcementCategoryKey, markdownExcerpt } from "#/features/announcements";
-import { errorMessage } from "#/lib/errors";
+import { errorMessage } from "../errors";
 import { uploadAndProcess } from "#/lib/upload";
 import { announcementAdminClient } from "../api";
 import { formatDateTime, fromLocalInput } from "../format";
@@ -84,7 +84,7 @@ export function AnnouncementEditorScreen({ announcementId }: { announcementId?: 
   if (!announcement) {
     return (
       <ConsolePage title={t("announcements.title")} back="/admin/announcements">
-        {detail.isError && !(isApiError(detail.error) && detail.error.code === 5) ? <ErrorState error={detail.error} onRetry={() => detail.refetch()} /> : <EmptyState emoji="🧭" title={t("announcements.notFound")} />}
+        {detail.isError && !isNotFound(detail.error) ? <ErrorState error={detail.error} onRetry={() => detail.refetch()} /> : <EmptyState emoji="🧭" title={t("announcements.notFound")} />}
       </ConsolePage>
     );
   }
@@ -373,7 +373,13 @@ function PublishPanel({ announcement, dirty, onStored }: { announcement: admin.M
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2 border-t-2 border-line p-4">
+      <div className="flex flex-wrap items-center gap-2 border-t-2 border-line p-4">
+        {isPublished && (
+          <Link to="/announcements/$announcementId" params={{ announcementId: announcement.id }} className="inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-bold text-brand hover:bg-surface-2">
+            <ExternalLink className="size-4" />
+            {t("announcements.publish.view")}
+          </Link>
+        )}
         {!isDraft && (
           <Button size="sm" variant="secondary" icon={<Undo2 className="size-4" />} onClick={() => setConfirming("unpublish")}>
             {t(isScheduled ? "announcements.unpublish.openScheduled" : "announcements.unpublish.open")}

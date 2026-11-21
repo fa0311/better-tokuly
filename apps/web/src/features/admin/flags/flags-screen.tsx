@@ -2,7 +2,7 @@ import { type InfiniteData, useInfiniteQuery, useMutation, useQueryClient } from
 import { useNavigate } from "@tanstack/react-router";
 import { type admin, toMillis } from "@tokuly/api";
 import { Pencil, Plus, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
@@ -11,7 +11,7 @@ import { ConfirmDialog } from "#/components/ui/confirm";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
-import { errorMessage } from "#/lib/errors";
+import { errorMessage } from "../errors";
 import { compactAge } from "#/lib/format";
 import { flagClient } from "../api";
 import { formatDateTime } from "../format";
@@ -19,7 +19,7 @@ import { parseText } from "../params";
 import { ConsolePage } from "../ui/console-page";
 import { type Column, DataTable } from "../ui/data-table";
 import { SearchBox } from "../ui/filters";
-import { useDebounced, useIsWide } from "../ui/hooks";
+import { useIsWide, useSearchText } from "../ui/hooks";
 import { ErrorState, RowsSkeleton } from "../ui/states";
 import { Toggle } from "../ui/toggle";
 import { EvaluatePanel } from "./evaluate-panel";
@@ -43,24 +43,19 @@ export function FlagsScreen({ search }: { search: FlagsSearch }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const wide = useIsWide();
-  const update = (changes: Partial<FlagsSearch>) => navigate({ to: "/admin/flags", search: { ...search, ...changes }, replace: true });
-
-  const [text, setText] = useState(search.q ?? "");
-  const settled = useDebounced(text.trim());
-  // biome-ignore lint/correctness/useExhaustiveDependencies: only a settled change of the text moves the address.
-  useEffect(() => {
-    if (settled !== (search.q ?? "")) void update({ q: settled || undefined });
-  }, [settled]);
+  // The list follows the typing; the address takes the search over once the typing is done.
+  const typed = useSearchText(search.q, (q) => navigate({ to: "/admin/flags", search: { ...search, q }, replace: true }));
+  const update = (changes: Partial<FlagsSearch>) => navigate({ to: "/admin/flags", search: { ...search, q: typed.query, ...changes }, replace: true });
 
   const [tab, setTab] = useState<"flags" | "evaluate">(search.evaluate ? "evaluate" : "flags");
   // The editor is mounted anew for each opening (`session`), so it always starts from the flag as listed.
   const [editor, setEditor] = useState<{ flag?: admin.FeatureFlag; session: number; open: boolean }>({ session: 0, open: false });
   const [deleting, setDeleting] = useState<admin.FeatureFlag | null>(null);
 
-  const listKey = ["admin", "flags", "list", search.q ?? ""];
+  const listKey = ["admin", "flags", "list", typed.query ?? ""];
   const flags = useInfiniteQuery({
     queryKey: listKey,
-    queryFn: ({ pageParam }) => flagClient().listFlags({ page: { cursor: pageParam, limit: 50 }, query: search.q }),
+    queryFn: ({ pageParam }) => flagClient().listFlags({ page: { cursor: pageParam, limit: 50 }, query: typed.query }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
@@ -171,13 +166,13 @@ export function FlagsScreen({ search }: { search: FlagsSearch }) {
 
   const list = (
     <div className="flex min-w-0 flex-col gap-3">
-      <SearchBox label={t("flags.search")} placeholder={t("flags.search")} value={text} onChange={setText} />
+      <SearchBox label={t("flags.search")} placeholder={t("flags.search")} value={typed.text} onChange={typed.setText} onCommit={typed.commit} />
       {flags.isPending ? (
         <RowsSkeleton />
       ) : flags.isError ? (
         <ErrorState error={flags.error} onRetry={() => flags.refetch()} />
       ) : rows.length === 0 ? (
-        <EmptyState emoji="🚩" title={t(search.q ? "flags.emptySearch" : "flags.empty")} body={search.q ? undefined : t("flags.emptyBody")} />
+        <EmptyState emoji="🚩" title={t(typed.query ? "flags.emptySearch" : "flags.empty")} body={typed.query ? undefined : t("flags.emptyBody")} />
       ) : (
         <>
           <DataTable label={t("flags.title")} columns={columns} rows={rows} rowKey={(row) => row.name} />

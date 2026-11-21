@@ -28,3 +28,22 @@ export function useDebounced<T>(value: T, delayMs = 300): T {
   }, [value, delayMs]);
   return debounced;
 }
+
+/**
+ * Search-as-you-type for a list whose filters live in the address: `text` is
+ * what the field shows, `query` (debounced) is what the list asks the server
+ * for, and `commit` hands the text over to be written to the address once the
+ * typing is done (the field calls it on Enter and on blur).
+ *
+ * The address is deliberately not moved while typing: a navigation started
+ * from a timer could cancel the one a click on a result has just begun.
+ */
+export function useSearchText(applied: string | undefined, onCommit: (text: string | undefined) => void) {
+  const [text, setText] = useState(applied ?? "");
+  const query = useDebounced(text.trim()) || undefined;
+  const commit = () => {
+    const next = text.trim() || undefined;
+    if (next !== applied) onCommit(next);
+  };
+  return { text, setText, query, commit };
+}

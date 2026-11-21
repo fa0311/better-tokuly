@@ -52,8 +52,7 @@ function ConsoleNav({ access }: { access: StaffAccess }) {
   const current = useRef<HTMLAnchorElement>(null);
   const isActive = (to: string) => (to === "/admin" ? pathname === "/admin" || pathname === "/admin/" : pathname === to || pathname.startsWith(`${to}/`));
 
-  // On phones the navigation scrolls sideways: keep the open section in view.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-run when the page changes.
+  // On phones the navigation scrolls sideways: keep the open section in view whenever the page changes.
   useEffect(() => {
     current.current?.scrollIntoView({ block: "nearest", inline: "center" });
   }, [pathname]);

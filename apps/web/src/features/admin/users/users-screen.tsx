@@ -1,7 +1,6 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { admin, toMillis } from "@tokuly/api";
-import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState } from "#/components/ui/page";
@@ -14,7 +13,7 @@ import { STAFF_ROLES, type StaffRole } from "../roles";
 import { ConsolePage } from "../ui/console-page";
 import { type Column, DataTable } from "../ui/data-table";
 import { FilterSelect, SearchBox } from "../ui/filters";
-import { useDebounced } from "../ui/hooks";
+import { useSearchText } from "../ui/hooks";
 import { ErrorState, RowsSkeleton } from "../ui/states";
 import { ToneChip } from "../ui/tone";
 import { UserCell } from "../ui/user";
@@ -43,24 +42,19 @@ export function parseUsersSearch(search: Record<string, unknown>): UsersSearch {
 export function UsersScreen({ search }: { search: UsersSearch }) {
   const { t } = useTranslation("admin");
   const navigate = useNavigate();
-  const update = (changes: Partial<UsersSearch>) => navigate({ to: "/admin/users", search: { ...search, ...changes }, replace: true });
-
-  // The field follows typing at once; the address (and with it the search) a moment later.
-  const [text, setText] = useState(search.q ?? "");
-  const settled = useDebounced(text.trim());
-  // biome-ignore lint/correctness/useExhaustiveDependencies: only a settled change of the text moves the address.
-  useEffect(() => {
-    if (settled !== (search.q ?? "")) void update({ q: settled || undefined });
-  }, [settled]);
+  // The list follows the typing; the address takes the search over once the typing is done.
+  const typed = useSearchText(search.q, (q) => navigate({ to: "/admin/users", search: { ...search, q }, replace: true }));
+  const filters: UsersSearch = { ...search, q: typed.query };
+  const update = (changes: Partial<UsersSearch>) => navigate({ to: "/admin/users", search: { ...filters, ...changes }, replace: true });
 
   const users = useInfiniteQuery({
-    queryKey: ["admin", "users", "search", search],
-    queryFn: ({ pageParam }) => userAdminClient().searchUsers({ page: { cursor: pageParam, limit: 30 }, query: search.q, state: search.state, role: search.role, verifiedOnly: search.verified }),
+    queryKey: ["admin", "users", "search", filters],
+    queryFn: ({ pageParam }) => userAdminClient().searchUsers({ page: { cursor: pageParam, limit: 30 }, query: filters.q, state: filters.state, role: filters.role, verifiedOnly: filters.verified }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
   const accounts = users.data?.pages.flatMap((page) => page.users) ?? [];
-  const filtered = Boolean(search.q || search.state || search.role || search.verified);
+  const filtered = Boolean(filters.q || filters.state || filters.role || filters.verified);
 
   const columns: Column<admin.AdminUser>[] = [
     { key: "user", header: t("users.columns.user"), card: "title", cell: (row) => <UserCell user={row.user} /> },
@@ -89,7 +83,7 @@ export function UsersScreen({ search }: { search: UsersSearch }) {
   return (
     <ConsolePage title={t("users.title")}>
       <div className="mb-3 grid grid-cols-2 gap-2 md:grid-cols-[minmax(0,1fr)_10rem_10rem_10rem] md:items-end">
-        <SearchBox className="col-span-2 md:col-span-1" label={t("users.search")} placeholder={t("users.searchPlaceholder")} value={text} onChange={setText} />
+        <SearchBox className="col-span-2 md:col-span-1" label={t("users.search")} placeholder={t("users.searchPlaceholder")} value={typed.text} onChange={typed.setText} onCommit={typed.commit} />
         <FilterSelect
           label={t("users.columns.state")}
           value={String(search.state ?? "")}

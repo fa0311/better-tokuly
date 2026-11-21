@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { TextField } from "#/components/ui/field";
-import { errorMessage } from "#/lib/errors";
+import { errorMessage } from "../errors";
 import { moderationClient } from "../api";
 import { SUBJECT_TYPES, subjectTypeKey } from "../labels";
 import { ActionDialog, type ActionTexts } from "../ui/action-dialog";
@@ -44,7 +44,7 @@ export function TakedownDialog({ open, onOpenChange }: { open: boolean; onOpenCh
       confirmLabel={t("moderation.takedown.confirm")}
       danger
       loading={takedown.isPending}
-      reason="required"
+      requireReason
       validate={() => {
         setIdMissing(!id.trim());
         return Boolean(id.trim());

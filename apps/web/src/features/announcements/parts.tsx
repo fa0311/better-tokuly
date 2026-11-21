@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { admin, type common, type Timestamp, toDate } from "@tokuly/api";
 import { CalendarDays, Megaphone, PartyPopper, Pin, Sparkles, Wrench } from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
@@ -68,11 +69,15 @@ export interface AnnouncementContent {
   publishedAt?: Timestamp;
 }
 
-/** An announcement as a card of the update log's list (the list wraps it in a link). */
-export function AnnouncementCard({ announcement, className }: { announcement: AnnouncementContent; className?: string }) {
+/**
+ * An announcement as a card of the update log's list. With `linkTo` (the
+ * announcement's ID) the title links to the full announcement and the whole
+ * card is its click target; without it the card is inert (the editor's preview).
+ */
+export function AnnouncementCard({ announcement, linkTo, className }: { announcement: AnnouncementContent; linkTo?: string; className?: string }) {
   const image = imageUrl(announcement.image, 640);
   return (
-    <article className={cn("sticker flex h-full flex-col overflow-hidden rounded-card bg-surface", announcement.pinned && "bg-brand-soft", className)}>
+    <article className={cn("sticker relative flex h-full flex-col overflow-hidden rounded-card bg-surface", announcement.pinned && "bg-brand-soft", linkTo && "pressable", className)}>
       {image && (
         <div className="aspect-[16/7] w-full border-b-[2.5px] border-ink bg-surface-3" style={{ background: announcement.image?.dominantColor || undefined }}>
           <img src={image} alt="" className="size-full object-cover" loading="lazy" decoding="async" />
@@ -84,7 +89,16 @@ export function AnnouncementCard({ announcement, className }: { announcement: An
           <CategoryBadge category={announcement.category} />
           <PublishedDate at={announcement.publishedAt} />
         </div>
-        <h2 className="text-lg leading-snug font-black">{announcement.title}</h2>
+        <h2 className="text-lg leading-snug font-black">
+          {linkTo ? (
+            // The link is named by the title alone; its ::after stretches it over the card.
+            <Link to="/announcements/$announcementId" params={{ announcementId: linkTo }} className="rounded-card after:absolute after:inset-0 after:content-['']">
+              {announcement.title}
+            </Link>
+          ) : (
+            announcement.title
+          )}
+        </h2>
         {announcement.summary && <p className="line-clamp-3 text-sm leading-relaxed text-ink-soft">{announcement.summary}</p>}
       </div>
     </article>

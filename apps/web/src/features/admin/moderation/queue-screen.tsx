@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type admin, toMillis } from "@tokuly/api";
-import { History, Trash2 } from "lucide-react";
+import { History, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
@@ -79,12 +79,14 @@ export function ModerationQueueScreen({ search }: { search: QueueSearch }) {
       title={t("moderation.title")}
       actions={
         <>
-          <Link to="/admin/moderation/log" className="inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-bold hover:bg-surface-2">
+          {/* Reports arrive without a live feed: the queue is re-read on request. On phones the actions are icons, so the page title keeps its room. */}
+          <Button size="icon-sm" variant="ghost" aria-label={t("common.refresh")} loading={queue.isRefetching} icon={<RefreshCw className="size-4" />} onClick={() => queue.refetch()} />
+          <Link to="/admin/moderation/log" aria-label={t("moderation.log.link")} className="inline-flex h-9 items-center gap-1.5 rounded-full px-2.5 text-sm font-bold hover:bg-surface-2 sm:px-3">
             <History className="size-4" />
-            {t("moderation.log.link")}
+            <span className="hidden sm:inline">{t("moderation.log.link")}</span>
           </Link>
-          <Button size="sm" variant="secondary" icon={<Trash2 className="size-4" />} onClick={() => setTakedownOpen(true)}>
-            {t("moderation.takedown.open")}
+          <Button size="sm" variant="secondary" className="px-3 sm:px-4" aria-label={t("moderation.takedown.open")} icon={<Trash2 className="size-4" />} onClick={() => setTakedownOpen(true)}>
+            <span className="hidden sm:inline">{t("moderation.takedown.open")}</span>
           </Button>
         </>
       }

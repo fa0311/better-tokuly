@@ -97,7 +97,7 @@ function CardList<T>({ label, columns, rows, rowKey, onRowClick, expanded }: Dat
         const details = expanded?.(row);
         return (
           <li key={rowKey(row)} className="rounded-2xl border-2 border-line bg-surface text-sm">
-            {/* biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noStaticElementInteractions: a convenience target; the title holds the real link. */}
+            {/* The click is a convenience target; the title holds the real link. */}
             <div onClick={onRowClick ? (event) => !fromControl(event) && onRowClick(row) : undefined} className={cn("flex flex-col gap-2 p-3", onRowClick && "cursor-pointer")}>
               {title.map((column) => (
                 <div key={column.key} className="min-w-0 font-bold">

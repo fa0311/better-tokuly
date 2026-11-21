@@ -100,8 +100,8 @@ export function ModerationLogScreen({ search }: { search: LogSearch }) {
       title={t("moderation.log.title")}
       back="/admin/moderation"
       actions={
-        <Button size="sm" variant="secondary" icon={<Trash2 className="size-4" />} onClick={() => setTakedownOpen(true)}>
-          {t("moderation.takedown.open")}
+        <Button size="sm" variant="secondary" className="px-3 sm:px-4" aria-label={t("moderation.takedown.open")} icon={<Trash2 className="size-4" />} onClick={() => setTakedownOpen(true)}>
+          <span className="hidden sm:inline">{t("moderation.takedown.open")}</span>
         </Button>
       }
     >

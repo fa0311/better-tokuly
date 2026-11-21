@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { ChevronLeft } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
-import { errorMessage } from "#/lib/errors";
+import { errorMessage } from "#/features/admin";
 import { announcementClient } from "./api";
 import { AnnouncementArticle } from "./parts";
 

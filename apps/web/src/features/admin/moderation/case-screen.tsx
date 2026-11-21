@@ -10,7 +10,7 @@ import { TextArea } from "#/components/ui/field";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
-import { errorMessage } from "#/lib/errors";
+import { errorMessage } from "../errors";
 import { compactAge } from "#/lib/format";
 import { useMe } from "#/stores/session";
 import { moderationClient } from "../api";
@@ -157,7 +157,7 @@ function SubjectCard({ moderationCase, ownerRecord }: { moderationCase: admin.Mo
   const { t } = useTranslation("admin");
   const caseTitle = useCaseTitle();
   return (
-    <Section>
+    <Section label={t("moderation.columns.subject")}>
       <div className="flex flex-col gap-3 p-4">
         <div className="flex flex-wrap items-center gap-2">
           <SubjectTypeChip type={moderationCase.subject?.type} />

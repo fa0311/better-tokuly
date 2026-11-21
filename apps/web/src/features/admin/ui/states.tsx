@@ -2,7 +2,7 @@ import { RotateCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { Skeleton } from "#/components/ui/page";
-import { errorMessage } from "#/lib/errors";
+import { errorMessage } from "../errors";
 
 /** Shown in place of content that failed to load. */
 export function ErrorState({ error, onRetry }: { error: unknown; onRetry?(): void }) {
@@ -25,7 +25,6 @@ export function RowsSkeleton({ rows = 6 }: { rows?: number }) {
   return (
     <div className="flex flex-col gap-2" aria-busy>
       {Array.from({ length: rows }, (_, index) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: identical placeholders.
         <Skeleton key={index} className="h-12" />
       ))}
     </div>

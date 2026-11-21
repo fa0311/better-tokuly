@@ -2,7 +2,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type admin, fromDate } from "@tokuly/api";
 import { ChevronDown, ChevronRight, FilterX } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { LoadMore } from "#/components/ui/load-more";
@@ -13,8 +13,7 @@ import { SUBJECT_TYPES, subjectTypeKey } from "../labels";
 import { parseChoice, parseText } from "../params";
 import { ConsolePage } from "../ui/console-page";
 import { type Column, DataTable } from "../ui/data-table";
-import { FilterField, FilterInput, FilterSelect, FilterToken } from "../ui/filters";
-import { useDebounced } from "../ui/hooks";
+import { FilterField, FilterInput, FilterSelect, FilterTextInput, FilterToken } from "../ui/filters";
 import { ErrorState, RowsSkeleton } from "../ui/states";
 import { ToneChip } from "../ui/tone";
 import { UserCell } from "../ui/user";
@@ -237,14 +236,6 @@ function EntryDetails({ entry }: { entry: admin.AuditEntry }) {
 
 function AuditFilters({ search, onChange }: { search: AuditSearch; onChange(changes: Partial<AuditSearch>): void }) {
   const { t } = useTranslation("admin");
-  // The target ID is typed, so it reaches the address (and the query) once typing pauses.
-  const [targetId, setTargetId] = useState(search.targetId ?? "");
-  const settledTargetId = useDebounced(targetId.trim(), 400);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: only a settled change of the text moves the address.
-  useEffect(() => {
-    if (settledTargetId !== (search.targetId ?? "")) onChange({ targetId: settledTargetId || undefined });
-  }, [settledTargetId]);
-
   const actionOptions = [
     { value: "", label: t("common.all") },
     ...Object.entries(ACTIONS).flatMap(([prefix, actions]) => [{ value: prefix, label: t("audit.actionGroup", { group: t(`audit.groups.${prefix.slice(0, -1)}`) }) }, ...actions.map((action) => ({ value: action, label: `　${t(`audit.actions.${action}`)}` }))]),
@@ -279,7 +270,7 @@ function AuditFilters({ search, onChange }: { search: AuditSearch; onChange(chan
         onChange={(value) => onChange({ targetType: value || undefined })}
         options={[{ value: "", label: t("common.all") }, ...TARGET_TYPES.map((type) => ({ value: type, label: t(`audit.targetTypes.${type}`) }))]}
       />
-      <FilterInput label={t("audit.filters.targetId")} value={targetId} onChange={setTargetId} placeholder={t("audit.filters.targetIdPlaceholder")} />
+      <FilterTextInput label={t("audit.filters.targetId")} value={search.targetId ?? ""} onCommit={(targetId) => onChange({ targetId: targetId || undefined })} placeholder={t("audit.filters.targetIdPlaceholder")} />
       <FilterInput type="datetime-local" label={t("audit.filters.since")} value={search.since ?? ""} onChange={(value) => onChange({ since: value || undefined })} />
       <FilterInput type="datetime-local" label={t("audit.filters.until")} value={search.until ?? ""} onChange={(value) => onChange({ until: value || undefined })} />
     </div>

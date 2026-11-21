@@ -1,12 +1,11 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
 import type { admin } from "@tokuly/api";
 import { useTranslation } from "react-i18next";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { cn } from "#/lib/cn";
-import { errorMessage } from "#/lib/errors";
+import { errorMessage } from "#/features/admin";
 import { ANNOUNCEMENT_CATEGORIES, type AnnouncementCategory, announcementClient, categoryKey } from "./api";
 import { AnnouncementCard } from "./parts";
 
@@ -55,9 +54,7 @@ export function AnnouncementsScreen({ category, onCategoryChange }: { category?:
             <ul className="grid gap-4 md:grid-cols-2">
               {announcements.map((announcement: admin.Announcement, index) => (
                 <li key={announcement.id} className={cn(spansRow(index) && "md:col-span-2")}>
-                  <Link to="/announcements/$announcementId" params={{ announcementId: announcement.id }} className="pressable block h-full rounded-card">
-                    <AnnouncementCard announcement={announcement} />
-                  </Link>
+                  <AnnouncementCard announcement={announcement} linkTo={announcement.id} />
                 </li>
               ))}
             </ul>

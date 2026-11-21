@@ -1,5 +1,5 @@
 import { Search, X } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useId, useState } from "react";
 import { cn } from "#/lib/cn";
 
 export interface FilterOption<T extends string> {
@@ -23,32 +23,76 @@ export function FilterField({ label, children, className }: { label: string; chi
 
 /** A compact dropdown for filter rows (the big `SelectField` is for settings). */
 export function FilterSelect<T extends string>({ label, value, onChange, options, className }: { label: string; value: T; onChange(value: T): void; options: FilterOption<T>[]; className?: string }) {
+  const id = useId();
   return (
-    <label className={cn("flex min-w-0 flex-col gap-1", className)}>
-      <span className={caption}>{label}</span>
-      <select value={value} onChange={(event) => onChange(event.target.value as T)} className={cn(control, "px-3")}>
+    <div className={cn("flex min-w-0 flex-col gap-1", className)}>
+      <label htmlFor={id} className={caption}>
+        {label}
+      </label>
+      <select id={id} value={value} onChange={(event) => onChange(event.target.value as T)} className={cn(control, "px-3")}>
         {options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}
           </option>
         ))}
       </select>
-    </label>
+    </div>
   );
 }
 
-/** A plain text or date-time input in a filter row. */
-export function FilterInput({ label, value, onChange, type = "text", placeholder, className }: { label: string; value: string; onChange(value: string): void; type?: "text" | "datetime-local"; placeholder?: string; className?: string }) {
+/** A date-time input in a filter row; every change applies at once. */
+export function FilterInput({ label, value, onChange, type, className }: { label: string; value: string; onChange(value: string): void; type: "datetime-local"; className?: string }) {
+  const id = useId();
   return (
-    <label className={cn("flex min-w-0 flex-col gap-1", className)}>
-      <span className={caption}>{label}</span>
-      <input type={type} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className={cn(control, "px-3 font-medium placeholder:text-ink-faint")} autoCapitalize="none" spellCheck={false} />
-    </label>
+    <div className={cn("flex min-w-0 flex-col gap-1", className)}>
+      <label htmlFor={id} className={caption}>
+        {label}
+      </label>
+      <input id={id} type={type} value={value} onChange={(event) => onChange(event.target.value)} className={cn(control, "px-3 font-medium")} />
+    </div>
   );
 }
 
-/** The search field at the top of a list. */
-export function SearchBox({ label, value, onChange, placeholder, className }: { label: string; value: string; onChange(value: string): void; placeholder?: string; className?: string }) {
+/**
+ * A typed filter (an ID, a name) that applies when the typing is done: on
+ * Enter or when the field is left. Applying on every keystroke would move the
+ * address while someone is still typing.
+ */
+export function FilterTextInput({ label, value, onCommit, placeholder, className }: { label: string; /** The applied value. */ value: string; onCommit(value: string): void; placeholder?: string; className?: string }) {
+  const id = useId();
+  const [text, setText] = useState(value);
+  // A filter cleared or set from elsewhere (reset, a link) shows in the field.
+  useEffect(() => setText(value), [value]);
+  const commit = () => {
+    if (text.trim() !== value) onCommit(text.trim());
+  };
+  return (
+    <div className={cn("flex min-w-0 flex-col gap-1", className)}>
+      <label htmlFor={id} className={caption}>
+        {label}
+      </label>
+      <input
+        id={id}
+        type="text"
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => event.key === "Enter" && commit()}
+        placeholder={placeholder}
+        className={cn(control, "px-3 font-medium placeholder:text-ink-faint")}
+        autoCapitalize="none"
+        spellCheck={false}
+      />
+    </div>
+  );
+}
+
+/**
+ * The search field at the top of a list. `onChange` follows the typing;
+ * `onCommit` fires on Enter and when the field is left — the moment to put
+ * the search into the address.
+ */
+export function SearchBox({ label, value, onChange, onCommit, placeholder, className }: { label: string; value: string; onChange(value: string): void; onCommit?(): void; placeholder?: string; className?: string }) {
   return (
     <label className={cn("flex h-10 items-center gap-2 rounded-control border-2 border-line bg-surface px-3 focus-within:border-brand", className)}>
       <Search className="size-4 shrink-0 text-ink-faint" />
@@ -57,6 +101,8 @@ export function SearchBox({ label, value, onChange, placeholder, className }: { 
         aria-label={label}
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        onBlur={onCommit}
+        onKeyDown={(event) => event.key === "Enter" && onCommit?.()}
         placeholder={placeholder}
         className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-ink-faint [&::-webkit-search-cancel-button]:hidden"
         autoCapitalize="none"
