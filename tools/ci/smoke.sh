@@ -28,8 +28,13 @@ rpc() {
 step "The web app is served through the edge"
 page="$(curl -fsS "$ORIGIN/")" || fail "the landing page did not load"
 grep -q '<html' <<<"$page" || fail "the landing page is not HTML"
-asset="$(grep -oE '(src|href)="/[^"]+\.(js|css)"' <<<"$page" | head -1 | cut -d'"' -f2)"
-[ -n "$asset" ] && curl -fsS -o /dev/null "$ORIGIN$asset" || fail "a script or stylesheet of the page did not load ($asset)"
+# Every script and stylesheet the page links must exist (a build whose server and client
+# halves disagree about file names renders a page without styles).
+assets="$(grep -oE '(src|href)="/[^"]+\.(js|css)"' <<<"$page" | cut -d'"' -f2 | sort -u)"
+[ -n "$assets" ] || fail "the landing page links no scripts or stylesheets"
+for asset in $assets; do
+  curl -fsS -o /dev/null "$ORIGIN$asset" || fail "$asset, linked by the landing page, did not load"
+done
 
 step "Sign-up, sign-in and an authenticated call"
 handle="smoke_$(date +%s)_$RANDOM"

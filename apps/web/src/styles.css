@@ -1,4 +1,11 @@
-@import "tailwindcss";
+/*
+ * Class names are collected from this directory only. Left to detect sources
+ * by itself, Tailwind also reads the build output that appears between the
+ * client and the server build (wherever no .gitignore tells it not to, as in
+ * the Docker image build), and the two builds end up with different
+ * stylesheets: the page then links a CSS file that does not exist.
+ */
+@import "tailwindcss" source(".");
 @import "@fontsource/m-plus-rounded-1c/400.css";
 @import "@fontsource/m-plus-rounded-1c/500.css";
 @import "@fontsource/m-plus-rounded-1c/700.css";
