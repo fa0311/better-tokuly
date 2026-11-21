@@ -127,7 +127,6 @@ function CoinStack({ coins }: { coins: bigint }) {
   return (
     <span aria-hidden className="flex h-[4.5rem] flex-col-reverse items-center justify-start">
       {Array.from({ length: height }, (_, level) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: identical decorative coins.
         <CoinIcon key={level} className={cn("size-10 text-lg", level > 0 && "-mb-8")} />
       ))}
     </span>

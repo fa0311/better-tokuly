@@ -62,7 +62,7 @@ function BalanceHero() {
         )}
       </div>
       {earnings !== undefined && earnings > 0n && (
-        <Link to="/wallet/earnings" className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-black/15 py-1 pr-2 pl-3 text-sm font-black">
+        <Link to="/wallet/earnings" className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-on-brand/15 py-1 pr-2 pl-3 text-sm font-black">
           {t("home.earnings")}
           <Coins amount={earnings} size="sm" />
           <ChevronRight className="size-4" />

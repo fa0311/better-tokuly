@@ -40,7 +40,7 @@ function saleState(pkg: wallet.CoinPackage, now: number): { key: string; tone: T
   return { key: "onSale", tone: "good" };
 }
 
-const COLUMNS = "minmax(0,1.4fr) 5rem 5rem 6rem 5.5rem 3.5rem minmax(0,1.4fr) 5.5rem 10.5rem";
+const COLUMNS = "minmax(10rem,1.6fr) 4.5rem 4.5rem 5.5rem 4.5rem 3.5rem minmax(0,1fr) 5.5rem 10.5rem";
 
 /** The coin shop's shelf as staff sees it: every package, on sale or not, with create / edit / retire (admins only). */
 export function PackageManager() {
@@ -94,7 +94,7 @@ export function PackageManager() {
               return (
                 <li key={pkg.id} className={RECORD_ROW} style={{ gridTemplateColumns: COLUMNS }}>
                   <Cell full label={heads[0] ?? ""}>
-                    <span className="font-mono font-bold">{pkg.sku}</span>
+                    <span className="font-mono font-bold break-all">{pkg.sku}</span>
                   </Cell>
                   <Cell label={heads[1] ?? ""}>{formatCoins(pkg.coins)}</Cell>
                   <Cell label={heads[2] ?? ""}>{pkg.bonusCoins > 0n ? `+${formatCoins(pkg.bonusCoins)}` : "—"}</Cell>

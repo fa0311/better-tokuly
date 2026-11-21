@@ -45,7 +45,7 @@ export function AdjustmentsLog({ onOpenUser }: { onOpenUser(userId: string): voi
 /** Corrections as a table on wide screens and as labelled cards on narrow ones (one set of rows, two layouts). */
 export function AdjustmentRows({ adjustments, showUser, onOpenUser }: { adjustments: wallet.Adjustment[]; /** Off inside one user's wallet, where every row is theirs. */ showUser: boolean; onOpenUser?(userId: string): void }) {
   const { t, i18n } = useTranslation("wallet");
-  const columns = showUser ? "9.5rem minmax(0,1.2fr) 4.5rem 7rem minmax(0,2fr) minmax(0,1fr)" : "9.5rem 4.5rem 7rem minmax(0,2fr) minmax(0,1fr)";
+  const columns = showUser ? "9.5rem minmax(0,1.2fr) 4rem 6.5rem minmax(0,2fr) minmax(7.5rem,1fr)" : "9.5rem 4rem 6.5rem minmax(0,2fr) minmax(7.5rem,1fr)";
   const heads = [t("staff.adjustments.when"), ...(showUser ? [t("staff.adjustments.user")] : []), t("staff.adjustments.account"), t("staff.adjustments.delta"), t("staff.adjustments.reason"), t("staff.adjustments.admin")];
 
   return (
@@ -74,7 +74,7 @@ export function AdjustmentRows({ adjustments, showUser, onOpenUser }: { adjustme
               <span className="whitespace-pre-wrap">{adjustment.reason}</span>
             </Cell>
             <Cell label={t("staff.adjustments.admin")}>
-              <span className="text-ink-soft">{adjustment.admin ? `@${adjustment.admin.handle}` : "—"}</span>
+              <span className="break-all text-ink-soft">{adjustment.admin ? `@${adjustment.admin.handle}` : "—"}</span>
             </Cell>
           </li>
         ))}

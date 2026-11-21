@@ -20,7 +20,7 @@ function entryVisual(entry: wallet.LedgerEntry): { icon: LucideIcon; tint: strin
   if (topic === "live") return { icon: Radio, tint: "bg-pink" };
   if (topic === "stamp") return { icon: Smile, tint: "bg-sky" };
   if (topic === "payout") return { icon: Landmark, tint: "bg-mint" };
-  if (entry.kind === wallet.EntryKind.ADJUSTMENT) return { icon: Wrench, tint: "bg-surface-3" };
+  if (entry.kind === wallet.EntryKind.ADJUSTMENT) return { icon: Wrench, tint: "bg-surface-3 text-ink" };
   if (entry.kind === wallet.EntryKind.TRANSFER) return { icon: ArrowLeftRight, tint: "bg-pink" };
   if (entry.kind === wallet.EntryKind.SPEND) return { icon: ShoppingCart, tint: "bg-sky" };
   return { icon: CircleDollarSign, tint: "bg-sun" };
@@ -66,14 +66,15 @@ export function LedgerRow({ entry, when, onOpen }: { entry: wallet.LedgerEntry; 
       <span className="min-w-0 flex-1">
         <span className={cn("line-clamp-2 leading-snug font-bold break-words", entry.refunded && "text-ink-soft line-through")}>{entry.description || t(kindKey(entry))}</span>
         <span className="mt-0.5 flex items-center gap-1.5 text-sm text-ink-soft">
-          {entry.counterpart && (
+          {/* Who it was with when there is someone; otherwise what kind of movement it was. */}
+          {entry.counterpart ? (
             <>
               <Avatar user={entry.counterpart} size="xs" />
               <span className="truncate">{entry.counterpart.displayName}</span>
-              <span aria-hidden>·</span>
             </>
+          ) : (
+            <span className="truncate">{t(kindKey(entry))}</span>
           )}
-          <span className="shrink-0">{t(kindKey(entry))}</span>
           <span aria-hidden>·</span>
           <span className="shrink-0">{time}</span>
         </span>
@@ -92,15 +93,17 @@ export function LedgerRow({ entry, when, onOpen }: { entry: wallet.LedgerEntry; 
   );
 }
 
-/** Memo fields that are shown as a link (or not at all) instead of a raw value. */
-const MEMO_LINKS = new Set(["purchase_id", "payout_id"]);
+/** Memo fields holding an ID are for deep links (see below), not for reading. */
+const isReference = (key: string) => key === "id" || key.endsWith("_id");
 
 /** Everything about one movement. */
 function EntryDialog({ entry, open, onOpenChange, links }: { entry: wallet.LedgerEntry; open: boolean; onOpenChange(open: boolean): void; links: boolean }) {
   const { t, i18n } = useTranslation("wallet");
   const memo = parseMemo(entry.memoJson);
   const created = toDate(entry.createdAt);
-  const details = Object.entries(memo).filter(([key]) => !MEMO_LINKS.has(key));
+  const details = Object.entries(memo).filter(([key]) => !isReference(key));
+  // The platform fee comes out of what the recipient gets; the payer simply paid the amount.
+  const showFee = entry.fee > 0n && entry.earningsDelta !== 0n;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange} title={entry.description || t(kindKey(entry))} description={t(kindKey(entry))}>
@@ -115,7 +118,7 @@ function EntryDialog({ entry, open, onOpenChange, links }: { entry: wallet.Ledge
             <Coins amount={entry.earningsDelta} signed />
           </Fact>
         )}
-        {entry.fee > 0n && (
+        {showFee && (
           <>
             <Fact label={t("entry.amount")}>
               <Coins amount={entry.amount} />
@@ -126,7 +129,7 @@ function EntryDialog({ entry, open, onOpenChange, links }: { entry: wallet.Ledge
           </>
         )}
         {entry.counterpart && (
-          <Fact label={entry.coinsDelta < 0n ? t("entry.to") : t("entry.from")}>
+          <Fact label={t("entry.with")}>
             <Link to="/u/$handle" params={{ handle: entry.counterpart.handle }} className="inline-flex max-w-full items-center gap-2 underline decoration-2 underline-offset-2">
               <Avatar user={entry.counterpart} size="xs" />
               <span className="truncate">{entry.counterpart.displayName}</span>
@@ -149,20 +152,23 @@ function EntryDialog({ entry, open, onOpenChange, links }: { entry: wallet.Ledge
           </Fact>
         )}
       </dl>
-      {links && (memo.purchase_id || memo.payout_id) && (
-        <div className="mt-4 flex flex-wrap gap-2">
-          {memo.purchase_id && (
-            <Link to="/wallet/purchases/$purchaseId" params={{ purchaseId: memo.purchase_id }} className="font-bold text-brand underline decoration-2 underline-offset-2">
-              {t("entry.openPurchase")}
-            </Link>
-          )}
-          {memo.payout_id && (
-            <Link to="/wallet/payouts/$payoutId" params={{ payoutId: memo.payout_id }} className="font-bold text-brand underline decoration-2 underline-offset-2">
-              {t("entry.openPayout")}
-            </Link>
-          )}
-        </div>
-      )}
+      <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 empty:hidden">
+        {links && memo.purchase_id && (
+          <Link to="/wallet/purchases/$purchaseId" params={{ purchaseId: memo.purchase_id }} className="font-bold text-brand underline decoration-2 underline-offset-2">
+            {t("entry.openPurchase")}
+          </Link>
+        )}
+        {links && memo.payout_id && (
+          <Link to="/wallet/payouts/$payoutId" params={{ payoutId: memo.payout_id }} className="font-bold text-brand underline decoration-2 underline-offset-2">
+            {t("entry.openPayout")}
+          </Link>
+        )}
+        {memo.pack_id && (
+          <Link to="/stamps/$packId" params={{ packId: memo.pack_id }} className="font-bold text-brand underline decoration-2 underline-offset-2">
+            {t("entry.openPack")}
+          </Link>
+        )}
+      </div>
     </Dialog>
   );
 }
@@ -223,5 +229,9 @@ export function LedgerList({ entries, grouped, links = true }: { entries: wallet
 /** Rows of an infinite list, without the duplicates that a row pushed live can cause on the next page. */
 export function uniqueById<T extends { id: string }>(items: T[]): T[] {
   const seen = new Set<string>();
-  return items.filter((item) => (seen.has(item.id) ? false : (seen.add(item.id), true)));
+  return items.filter((item) => {
+    if (seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
 }

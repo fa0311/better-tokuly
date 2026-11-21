@@ -40,7 +40,7 @@ export function UserWallets({ userId, onSelect }: { userId?: string; onSelect(us
   const query = useDebounced(text.trim());
   const search = useQuery({
     queryKey: walletKeys.admin.userSearch(query),
-    queryFn: () => userAdminClient().searchUsers({ query, page: { limit: 25 } }),
+    queryFn: () => userAdminClient().searchUsers({ query, page: { limit: query ? 25 : 10 } }),
   });
   const users = (search.data?.users ?? []).flatMap((found) => (found.user ? [{ ...found, user: found.user }] : []));
 

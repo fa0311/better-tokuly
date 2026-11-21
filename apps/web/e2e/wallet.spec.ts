@@ -49,6 +49,17 @@ async function withdraw(request: APIRequestContext, as: Account, payoutId: strin
   await rpc(request, `${EARNINGS}/CancelPayoutRequest`, { payoutId }, as).catch(() => {});
 }
 
+/**
+ * An RPC answer for `page.route(...).fulfill`, in the binary encoding the app
+ * speaks. Only for states this server cannot be brought into (see the tests
+ * that use it); everything else goes through the real API.
+ */
+const proto = (schema: Parameters<typeof toBinary>[0], message: Parameters<typeof toBinary>[1]) => ({
+  status: 200,
+  contentType: "application/proto",
+  body: Buffer.from(toBinary(schema, message)),
+});
+
 test.describe("wallet home", () => {
   test("claiming the daily bonus pays out once and shows in the balance and the history", async ({ page, request, me }) => {
     await page.goto("/wallet");
@@ -61,7 +72,7 @@ test.describe("wallet home", () => {
     await expect(bonus.getByText("ゲット！")).toBeVisible();
     await expect(bonus.getByText(coins(10, true)).first()).toBeVisible();
     await expect(bonus.getByRole("button", { name: /受け取る/ })).toHaveCount(0);
-    await expect(bonus.getByText("1日連続")).toBeVisible();
+    await expect(bonus.getByText("1日連続", { exact: true })).toBeVisible();
     await expect(bonus.getByText(/次は.+後/)).toBeVisible();
     await expect(hero(page).getByText(coins(10))).toBeVisible();
     expect((await balanceOf(request, me)).coins).toBe("10");
@@ -148,11 +159,6 @@ test.describe("buying coins", () => {
   // hosted checkout takes: pay elsewhere, come back, confirm (or give up).
   test.describe("with a provider that has a hosted checkout (its answers are simulated)", () => {
     const PURCHASE_ID = "01900000-0000-7000-8000-00000000e2e0";
-    const proto = (schema: Parameters<typeof toBinary>[0], message: Parameters<typeof toBinary>[1]) => ({
-      status: 200,
-      contentType: "application/proto",
-      body: Buffer.from(toBinary(schema, message)),
-    });
     const purchase = (status: wallet.PurchaseStatus) =>
       create(wallet.PurchaseSchema, {
         id: PURCHASE_ID,
@@ -302,6 +308,52 @@ test.describe("earnings", () => {
     await expect(page.getByRole("heading", { name: "収益の推移" })).toBeVisible();
     await page.getByRole("tab", { name: "12か月" }).click();
     await expect(page.getByText("この期間の収益はまだないよ", { exact: true })).toBeVisible();
+  });
+
+  // Earnings by period come from transfers between users (stamp sales, live
+  // gifts), which only other domains can make. The summary is simulated here
+  // to show the period view with numbers in it.
+  test("the period view charts what was earned and breaks it down by source (summary simulated)", async ({ page, me: _me }) => {
+    const totals = (gross: bigint, count: number) => ({ gross, fee: (gross * 30n) / 100n, net: gross - (gross * 30n) / 100n, count });
+    const today = new Date();
+    const day = (ago: number) => fromDate(new Date(today.getFullYear(), today.getMonth(), today.getDate() - ago));
+    const perDay = [0n, 120n, 0n, 240n, 100n, 0n, 120n];
+    await page.route(`**/api/${EARNINGS}/GetEarningsSummary`, (route) =>
+      route.fulfill(
+        proto(
+          wallet.GetEarningsSummaryResponseSchema,
+          create(wallet.GetEarningsSummaryResponseSchema, {
+            available: 406n,
+            lifetimeEarned: 406n,
+            period: totals(580n, 6),
+            byReason: [
+              { reason: "stamp.pack", label: "スタンプパックの売上", totals: totals(480n, 4) },
+              { reason: "live.gift", label: "ライブギフト", totals: totals(100n, 2) },
+            ],
+            series: perDay.map((gross, index) => ({ periodStart: day(perDay.length - 1 - index), totals: totals(gross, gross > 0n ? 1 : 0) })),
+            payoutTerms: { minCoins: 1000n, currency: "JPY", minorPer100Coins: 100n, platformFeePercent: 30 },
+          }),
+        ),
+      ),
+    );
+    await page.goto("/wallet/earnings");
+
+    await expect(page.getByRole("region", { name: "出金できる収益" }).getByText(coins(406))).toBeVisible();
+    await expect(page.getByText("手数料 (30%)")).toBeVisible();
+    // The sources, largest first, each with what reached the creator.
+    const sources = page.getByRole("listitem").filter({ hasText: /売上|ギフト/ });
+    await expect(sources).toHaveText([/スタンプパックの売上.*4件.*336/, /ライブギフト.*2件.*70/]);
+
+    // The chart reads out the latest day, and the arrow keys walk back through the others.
+    const chart = page.getByRole("slider", { name: /収益のグラフ/ });
+    await expect(chart).toHaveAttribute("aria-valuetext", /: 84コイン$/);
+    await chart.focus();
+    await chart.press("ArrowLeft");
+    await expect(chart).toHaveAttribute("aria-valuetext", /: 0コイン$/);
+    await chart.press("ArrowLeft");
+    await expect(chart).toHaveAttribute("aria-valuetext", /: 70コイン$/);
+    // The same numbers exist as a table for screen readers.
+    await expect(page.getByRole("table", { name: "収益の推移" }).getByRole("row")).toHaveCount(perDay.length + 1);
   });
 
   test("a decision by staff reaches the open payout page with its reason", async ({ page, request, me }) => {
@@ -473,9 +525,10 @@ test.describe("staff", () => {
       await expect(page.getByText("販売終了にしました")).toBeVisible();
       await expect(row.getByRole("button", { name: `${sku} の販売を再開する` })).toBeVisible();
 
-      await page.goto("/wallet/buy");
-      await expect(page.getByRole("button", { name: /^520コインのパック/ })).toBeVisible();
-      await expect(page.getByRole("button", { name: /^90コインのパック/ })).toHaveCount(0);
+      // Buyers no longer get it (the shop's own view of this was checked above).
+      const shop = await rpc<{ packages: { sku: string }[] }>(request, `${WALLET}/ListCoinPackages`, {}, admin);
+      expect(shop.packages.map((pkg) => pkg.sku)).not.toContain(sku);
+      expect(shop.packages.map((pkg) => pkg.sku)).toContain("coins_500");
     } finally {
       // Never leave a test package on sale in the shared shop.
       const all = await rpc<{ packages: { id: string; sku: string; active?: boolean }[] }>(request, `${WALLET_ADMIN}/ListAllCoinPackages`, {}, admin);

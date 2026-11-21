@@ -245,8 +245,8 @@ function PeriodTotals({ summary }: { summary: wallet.GetEarningsSummaryResponse 
   const fee = summary.payoutTerms?.platformFeePercent;
   return (
     <Card className="p-4">
-      <dl className="grid grid-cols-2 gap-x-3 gap-y-4 sm:grid-cols-4">
-        <Stat label={t("earnings.totals.net")} className="col-span-2 sm:col-span-1">
+      <dl className="grid grid-cols-3 gap-x-3 gap-y-4 sm:grid-cols-4">
+        <Stat label={t("earnings.totals.net")} className="col-span-3 sm:col-span-1">
           <Coins amount={totals?.net ?? 0n} className="text-2xl" />
         </Stat>
         <Stat label={t("earnings.totals.gross")}>{formatCoins(totals?.gross ?? 0n)}</Stat>

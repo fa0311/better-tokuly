@@ -23,6 +23,17 @@ interface Burst {
 
 const SPARKLES = ["✨", "🎉", "💜", "⭐"];
 
+/**
+ * How lively script-driven motion may be right now: the ドパガキ度 factor, and
+ * 0 whenever the device asks for reduced motion. (The stylesheet silences CSS
+ * animations for that preference, but its `--dopa` still reads as the chosen
+ * level there, so the preference is checked here as well.)
+ */
+function motionFactor(): number {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return 0;
+  return dopamineFactor();
+}
+
 /** A burst sized by the ドパガキ度: none at 0 (or reduced motion), a few coins when calm, a shower at the top. */
 function makeBurst(id: number, factor: number): Burst {
   const coins = Math.round(10 * factor);
@@ -55,7 +66,7 @@ export function useCoinBurst(): { fire(): void; burst: Burst | null } {
   const [burst, setBurst] = useState<Burst | null>(null);
   const count = useRef(0);
   const fire = () => {
-    const factor = dopamineFactor();
+    const factor = motionFactor();
     if (factor <= 0) return;
     count.current += 1;
     setBurst(makeBurst(count.current, factor));
@@ -107,7 +118,7 @@ export function useCountUp(target: bigint | undefined): bigint | undefined {
 
   useEffect(() => {
     const from = current.current;
-    const factor = dopamineFactor();
+    const factor = motionFactor();
     if (target === undefined || from === undefined || from === target || factor <= 0) {
       current.current = target;
       setShown(target);

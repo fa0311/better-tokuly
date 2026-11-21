@@ -71,7 +71,7 @@ export function DailyBonusCard() {
           <p className="text-sm leading-snug text-ink-soft">{bonus.claimable ? t("bonus.leadClaimable") : t("bonus.leadClaimed")}</p>
         </div>
         {bonus.streak > 0 && (
-          <span className="sticker-sm inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-coral px-3 text-sm font-black text-white">
+          <span className="sticker-sm inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-coral px-3 text-sm font-black text-[#17122b]">
             <Flame className="size-4" />
             {t("bonus.streak", { count: bonus.streak })}
           </span>
@@ -113,7 +113,7 @@ function Ladder({ bonus, collected }: { bonus: wallet.DailyBonus; collected: num
         const next = bonus.claimable && day === bonus.nextCycleDay;
         return (
           <li
-            // biome-ignore lint/suspicious/noArrayIndexKey: the ladder is a fixed sequence; the position is the identity.
+            // The ladder is a fixed sequence: the position is the identity.
             key={index}
             aria-current={next ? "step" : undefined}
             className={cn(
@@ -123,8 +123,8 @@ function Ladder({ bonus, collected }: { bonus: wallet.DailyBonus; collected: num
           >
             <span className="text-[10px] font-black leading-none">{t("bonus.day", { day })}</span>
             {done ? (
-              <span className="grid size-5 place-items-center rounded-full bg-[#17122b] text-lime" role="img" aria-label={t("bonus.collected")}>
-                <Check className="size-3.5" strokeWidth={4} />
+              <span className="grid size-5 place-items-center" role="img" aria-label={t("bonus.collected")}>
+                <Check className="size-5" strokeWidth={4} />
               </span>
             ) : (
               <CoinIcon className={cn("size-5 text-[11px]", !next && "opacity-60")} />

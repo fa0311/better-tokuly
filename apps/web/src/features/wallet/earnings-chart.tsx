@@ -35,7 +35,7 @@ export function EarningsChart({ series, bucket }: { series: wallet.EarningsPoint
       <div className="flex flex-wrap items-baseline justify-between gap-x-3">
         <h3 className="font-black">{t("earnings.chart.title")}</h3>
         {shown && (
-          <p className="text-sm font-bold text-ink-soft" aria-live="polite">
+          <p className="text-sm font-bold text-ink-soft">
             <span className="font-black text-ink tabular-nums">{formatCoins(shown.totals?.net ?? 0n)}</span>
             <span className="mx-1.5" aria-hidden>
               ·
@@ -65,18 +65,28 @@ export function EarningsChart({ series, bucket }: { series: wallet.EarningsPoint
             <div className="absolute inset-x-0 top-0 border-t border-line" />
             <div className="absolute inset-x-0 top-1/2 border-t border-line" />
             <div className="absolute inset-x-0 bottom-0 border-t border-ink-faint" />
-            {empty && <p className="absolute inset-0 grid place-items-center px-4 text-center text-sm font-bold text-ink-faint">{t("earnings.chart.empty")}</p>}
+            {empty && (
+              <p className="absolute inset-0 grid place-items-center px-4 text-center text-sm font-bold text-ink-faint">
+                {/* A patch of surface under the words, so the gridline does not strike them through. */}
+                <span className="bg-surface px-2">{t("earnings.chart.empty")}</span>
+              </p>
+            )}
             <div
-              role="group"
-              // One tab stop for the whole plot; the arrow keys walk the columns.
+              // For the keyboard the plot is a slider over its buckets: one tab stop, the
+              // arrow keys walk the columns, and each stop is announced as "date: coins".
+              role="slider"
               tabIndex={0}
               aria-label={t("earnings.chart.keyboard")}
+              aria-valuemin={0}
+              aria-valuemax={Math.max(0, series.length - 1)}
+              aria-valuenow={shownIndex}
+              aria-valuetext={shown ? t("earnings.chart.point", { date: longDate(toDate(shown.periodStart)), coins: formatCoins(shown.totals?.net ?? 0n) }) : undefined}
               className="absolute inset-0 flex items-stretch rounded-lg"
               onKeyDown={(event) => {
-                if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                const step = event.key === "ArrowLeft" || event.key === "ArrowDown" ? -1 : event.key === "ArrowRight" || event.key === "ArrowUp" ? 1 : 0;
+                if (step === 0) return;
                 event.preventDefault();
-                const from = active ?? series.length - 1;
-                setActive(Math.min(series.length - 1, Math.max(0, from + (event.key === "ArrowLeft" ? -1 : 1))));
+                setActive(Math.min(series.length - 1, Math.max(0, shownIndex + step)));
               }}
               onBlur={() => setActive(null)}
               // A finger leaves the plot as soon as it lifts: keep what was tapped.
@@ -84,7 +94,6 @@ export function EarningsChart({ series, bucket }: { series: wallet.EarningsPoint
             >
               {series.map((_point, index) => (
                 <span
-                  // biome-ignore lint/suspicious/noArrayIndexKey: buckets are a fixed sequence in time.
                   key={index}
                   aria-hidden
                   // The whole column is the target, not just the painted bar.
@@ -102,7 +111,6 @@ export function EarningsChart({ series, bucket }: { series: wallet.EarningsPoint
           </div>
           <div className="mt-1.5 flex text-[10px] leading-none font-bold text-ink-faint">
             {series.map((point, index) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: buckets are a fixed sequence in time.
               <span key={index} className="relative min-w-0 flex-1">
                 {labelled.has(index) && (
                   <span className={cn("absolute top-0 whitespace-nowrap", index === 0 ? "left-0" : index === series.length - 1 ? "right-0" : "left-1/2 -translate-x-1/2")}>{shortDate(toDate(point.periodStart))}</span>
@@ -125,7 +133,6 @@ export function EarningsChart({ series, bucket }: { series: wallet.EarningsPoint
         </thead>
         <tbody>
           {series.map((point, index) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: buckets are a fixed sequence in time.
             <tr key={index}>
               <th scope="row">{longDate(toDate(point.periodStart))}</th>
               <td>{formatCoins(point.totals?.net ?? 0n)}</td>
