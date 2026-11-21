@@ -1,0 +1,143 @@
+-- Notify: the notification inbox, preferences, mutes and push devices.
+
+-- One inbox entry. Titles and bodies are stored in both languages and picked
+-- when read, so a user who switches language sees their whole inbox in it.
+CREATE TABLE notifications (
+    id           uuid PRIMARY KEY DEFAULT uuidv7(),
+    user_id      uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    -- Dotted kind chosen by the producing domain, e.g. `chat.message`.
+    kind         text        NOT NULL,
+    -- Preference category derived from the kind (see `categories.rs`).
+    category     text        NOT NULL,
+    -- Who caused it. No foreign key: a request naming an unknown actor must
+    -- not poison the consumer; rows are removed on `identity.user.deleted`.
+    actor_id     uuid,
+    title_ja     text        NOT NULL,
+    title_en     text        NOT NULL,
+    body_ja      text        NOT NULL,
+    body_en      text        NOT NULL,
+    image_url    text,
+    -- Path in the app to open when tapped.
+    path         text        NOT NULL,
+    -- tokuly.common.v1.SubjectType and the subject's ID, when given.
+    subject_type integer,
+    subject_id   uuid,
+    -- Entries of one user sharing a key replace each other.
+    collapse_key text,
+    -- Extra structured data from the producing domain.
+    data         jsonb       NOT NULL DEFAULT 'null',
+    -- The producing domain marked it urgent (incoming call, SOS): its push
+    -- was sent even during quiet hours and while pushes were paused.
+    urgent       boolean     NOT NULL DEFAULT false,
+    -- Events folded into this entry since it was last read.
+    group_count  integer     NOT NULL DEFAULT 1 CHECK (group_count >= 1),
+    read_at      timestamptz,
+    -- Time of the latest event folded into the entry; the inbox sorts by it.
+    occurred_at  timestamptz NOT NULL DEFAULT now(),
+    created_at   timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX notifications_collapse ON notifications (user_id, collapse_key) WHERE collapse_key IS NOT NULL;
+CREATE INDEX notifications_inbox ON notifications (user_id, occurred_at DESC, id DESC);
+CREATE INDEX notifications_unread ON notifications (user_id, category) WHERE read_at IS NULL;
+CREATE INDEX notifications_actor ON notifications (actor_id) WHERE actor_id IS NOT NULL;
+-- Retention sweep.
+CREATE INDEX notifications_age ON notifications (occurred_at);
+
+-- IDs of `notify.requested` events that were already handled. Event delivery
+-- is at-least-once; a row here makes a redelivery a no-op. Rows outlive the
+-- event stream's retention (7 days) and are then swept.
+CREATE TABLE notify_processed_events (
+    event_id     uuid PRIMARY KEY,
+    processed_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX notify_processed_events_age ON notify_processed_events (processed_at);
+
+-- Per-user settings that are not per category. A missing row means defaults:
+-- push not paused, no quiet hours.
+CREATE TABLE notify_settings (
+    user_id            uuid PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
+    push_paused        boolean     NOT NULL DEFAULT false,
+    -- When a pause ends by itself; NULL while paused = until resumed.
+    push_paused_until  timestamptz,
+    quiet_enabled      boolean     NOT NULL DEFAULT false,
+    -- Minutes after midnight in the user's time zone (`users.time_zone`).
+    quiet_start_minute smallint    NOT NULL DEFAULT 1320 CHECK (quiet_start_minute BETWEEN 0 AND 1439),
+    quiet_end_minute   smallint    NOT NULL DEFAULT 420 CHECK (quiet_end_minute BETWEEN 0 AND 1439),
+    attrs              jsonb       NOT NULL DEFAULT '{}',
+    created_at         timestamptz NOT NULL DEFAULT now(),
+    updated_at         timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TRIGGER notify_settings_updated_at
+    BEFORE UPDATE ON notify_settings
+    FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+-- Per-category toggles. A missing row means both are on.
+CREATE TABLE notify_category_prefs (
+    user_id    uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    category   text        NOT NULL,
+    inbox      boolean     NOT NULL DEFAULT true,
+    push       boolean     NOT NULL DEFAULT true,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, category)
+);
+
+-- "Do not notify me about what this person does." Written by the mute RPCs
+-- and kept in sync with the friend preference of the social domain.
+CREATE TABLE notify_mutes (
+    user_id       uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    muted_user_id uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, muted_user_id),
+    CHECK (user_id <> muted_user_id)
+);
+
+CREATE INDEX notify_mutes_list ON notify_mutes (user_id, created_at DESC, muted_user_id DESC);
+CREATE INDEX notify_mutes_muted ON notify_mutes (muted_user_id);
+
+-- Where push notifications go: one registration per session and channel.
+-- Rows die with their session (cascade on purge; swept when it is revoked or
+-- expires) and when the push service reports the token as gone.
+CREATE TABLE push_devices (
+    id                uuid PRIMARY KEY DEFAULT uuidv7(),
+    user_id           uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    session_id        uuid        NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
+    -- tokuly.notify.v1.PushChannelKind
+    channel           integer     NOT NULL,
+    -- tokuly.common.v1.Platform
+    platform          integer     NOT NULL DEFAULT 0,
+    -- Web Push endpoint URL, FCM registration token or APNs device token (hex).
+    token             text        NOT NULL,
+    -- SHA-256 of the token, written by the application. Tokens can be long
+    -- (endpoint URLs); uniqueness is enforced on the digest.
+    token_hash        bytea       NOT NULL,
+    -- Web Push only: the browser's P-256 public key (65 bytes) and auth secret (16 bytes).
+    p256dh            bytea,
+    auth              bytea,
+    -- APNs only: the token belongs to the sandbox environment.
+    apns_sandbox      boolean     NOT NULL DEFAULT false,
+    -- Language of the device; empty = the account's language.
+    locale            text        NOT NULL DEFAULT '',
+    device_name       text        NOT NULL DEFAULT '',
+    -- Consecutive deliveries the push service refused, and what it last
+    -- said: for diagnosing a device that stopped receiving. Reset on success.
+    rejections        integer     NOT NULL DEFAULT 0,
+    last_error        text        NOT NULL DEFAULT '',
+    last_delivered_at timestamptz,
+    attrs             jsonb       NOT NULL DEFAULT '{}',
+    created_at        timestamptz NOT NULL DEFAULT now(),
+    updated_at        timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (channel, token_hash),
+    UNIQUE (session_id, channel),
+    CHECK (channel <> 1 OR (p256dh IS NOT NULL AND auth IS NOT NULL))
+);
+
+CREATE INDEX push_devices_user ON push_devices (user_id);
+
+CREATE TRIGGER push_devices_updated_at
+    BEFORE UPDATE ON push_devices
+    FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();

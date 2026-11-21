@@ -1,0 +1,187 @@
+# notify — events, jobs and configuration
+
+Crate `tokuly-notify`, migration `1200_notify.sql`, API `tokuly.notify.v1`
+(`InboxService`, `PreferencesService`, `PushService`).
+
+## How a notification travels
+
+```
+any domain ── outbound::notify(tx, NotificationRequest) ──▶ notify.requested
+                                                               │
+                              consumer "notify" (events::consume, worker processes)
+                                                               │
+        ┌──────────────────────────────┬───────────────────────┴───────────┐
+   inbox entry                    realtime NotifyEvent                notify.push job
+ (notifications table,       (ServerFrame.notify.received,        (one per notification;
+  collapsed by key)           only with an inbox entry)            fans out to devices)
+```
+
+Rules the consumer applies, in order:
+
+1. Malformed requests (kind not `[a-z0-9_.]{1,64}`, empty title) and requests
+   about the recipient's own action are dropped.
+2. A recipient who muted the actor gets nothing: no inbox entry, no push.
+3. Category toggles: `inbox` off → no inbox entry (and no realtime event);
+   `push` off → no push. The `system` category's inbox toggle is locked on.
+4. Global push pause and quiet hours (in `users.time_zone`) suppress the push
+   only. The inbox still records.
+5. No push registration → no push job. More than
+   `TOKULY_PUSH_RATE_PER_MINUTE` pushes for one user in a minute → the push is
+   skipped, the inbox still records.
+
+**Urgent requests** (`NotificationRequest::urgent()`: incoming calls, SOS)
+skip rule 4 and the per-minute cap of rule 5: they are pushed during quiet
+hours and while pushes are paused. Rules 2 and 3 still apply — a muted person
+and a category whose push is switched off stay silent. They are delivered at
+the highest priority of every channel (table below), and the inbox entry
+carries `urgent = true`.
+
+The consumer is idempotent on the event ID (`notify_processed_events`, written
+in the same transaction as the inbox entry). Events with the same collapse key
+handled out of order: the older one is discarded.
+
+Texts are stored in Japanese and English and picked when read: `users.locale`
+for the inbox and realtime, the device's locale (falling back to the
+account's) for push.
+
+## Events consumed
+
+| Topic | Payload | Effect |
+|---|---|---|
+| `notify.requested` | `tokuly_core::outbound::NotificationRequest` | inbox entry, realtime event, push job (see above) |
+| `social.friend.prefs_changed` | `{ user_id, friend_id, muted }` (`tokuly_notify::events::FriendPrefsChanged`) | `muted = true` adds a mute of `friend_id` for `user_id`, `false` removes it |
+| `identity.user.deleted` | `{ user_id }` | deletes the user's inbox, preferences, mutes and push registrations, inbox entries they caused for others, and mutes on them |
+
+## Events emitted
+
+| Topic | Payload | When |
+|---|---|---|
+| `notify.mute.changed` | `{ user_id, muted_user_id, muted }` (`tokuly_notify::events::MuteChanged`) | a mute was added or removed through `PreferencesService.MuteUser` / `UnmuteUser` (not when mirrored from `social.friend.prefs_changed`) |
+
+The social domain can consume `notify.mute.changed` to keep a friend's
+`muted` flag in step with mutes made from the notification settings.
+
+## Notification kinds
+
+Kinds are chosen by the producing domain. The segment before the first dot
+selects the preference category:
+
+| Category | Kind prefixes | Delivery priority |
+|---|---|---|
+| `social` | `social.`, `friend.` | high |
+| `chat` | `chat.`, `call.` | high |
+| `geo` | `geo.`, `map.`, `place.` | high |
+| `notes` | `notes.`, `note.`, `story.`, `stories.` | normal |
+| `video` | `video.`, `channel.`, `playlist.` | normal |
+| `live` | `live.` | high |
+| `shorts` | `shorts.`, `short.` | normal |
+| `engagement` | `engagement.`, `comment.`, `reaction.` | normal |
+| `stamp` | `stamp.`, `stamps.` | normal |
+| `wallet` | `wallet.` | normal |
+| `feed` | `feed.`, `news.`, `announcement.` | normal |
+| `system` | `system.`, `identity.`, `account.`, `security.`, `admin.`, `media.`, `search.` and every unknown prefix | high |
+
+How the three delivery priorities map to each channel:
+
+| Priority | When | Web Push | FCM | APNs |
+|---|---|---|---|---|
+| normal | categories marked normal above | `Urgency: normal` | `android.priority: NORMAL` | `apns-priority: 5` |
+| high | categories marked high above | `Urgency: high` | `android.priority: HIGH` | `apns-priority: 10` |
+| urgent | the request is marked urgent, whatever its category | `Urgency: high`, `requireInteraction: true` | `android.priority: HIGH`, `notification_priority: PRIORITY_MAX` | `apns-priority: 10`, `aps.interruption-level: time-sensitive` |
+
+"Normal" lets the push service wait for a moment that suits the device;
+"high" wakes a sleeping device. The category only decides delivery speed: it
+never gets a push past quiet hours or the pause. Urgent pushes also carry
+`urgent` in their data (`notification.data.urgent`, FCM `data.urgent =
+"true"`, APNs top-level `urgent`) so apps can present them differently, e.g.
+a call screen.
+
+Kinds this domain produces itself:
+
+| Kind | When |
+|---|---|
+| `system.test` | `PushService.SendTestPush` (push only, ignores preferences) |
+
+## Realtime (`tokuly.realtime.v1.ServerFrame.notify`)
+
+Sent to every connection of the user:
+
+- `received` — a new inbox entry, or a collapsed entry replaced by a newer
+  event (same `id`), with the unread counts.
+- `read` / `removed` — entries were marked read / deleted (possibly on another
+  device). Lists the IDs, or sets `bulk` when more than 200 changed.
+
+## Background work
+
+| What | Name | Notes |
+|---|---|---|
+| Event consumer | durable `notify` | topics above |
+| Push delivery job | `notify.push` (`tokuly_notify::delivery::PushJob`) | one job per notification; up to 5 attempts with the job queue's backoff; devices already reached are remembered in Valkey (`notify:push:delivered:{job}`) so a retry only reaches the rest |
+| Retention sweep | hourly timer | inbox entries older than `TOKULY_NOTIFY_RETENTION_DAYS`; handled-event markers older than 8 days; push registrations of revoked or expired sessions |
+
+Push outcomes: accepted → `last_delivered_at`; token gone (Web Push 404/410,
+FCM `UNREGISTERED` / `SENDER_ID_MISMATCH`, APNs 410 / `BadDeviceToken` /
+`DeviceTokenNotForTopic`) → registration deleted; 429/5xx/network → retried;
+anything else → logged on the registration (`rejections`, `last_error`), not
+retried.
+
+Session revocation: identity publishes no event for it, so registrations are
+checked against `sessions.revoked_at` / `expires_at` when a push is sent (a
+revoked session's device gets nothing and its row is deleted) and swept hourly.
+
+## Push payloads
+
+Collapse keys are sent to push services as a 32-character digest (Web Push
+`Topic`, FCM `collapse_key` and `android.notification.tag`, APNs
+`apns-collapse-id` and `thread-id`). The badge is the unread inbox count. The
+click target is `core.web_url(path)`.
+
+**Web Push** (RFC 8030 / 8291 / 8292, `aes128gcm`): the decrypted body is a
+declarative push message, which the service worker can also read in its
+`push` handler:
+
+```json
+{
+  "web_push": 8030,
+  "notification": {
+    "title": "…", "body": "…", "lang": "ja",
+    "navigate": "https://tokuly.example/chat/42",
+    "tag": "<collapse key, else the notification id>",
+    "image": "https://…",
+    "timestamp": 1800000000000,
+    "data": { "id": "<notification id>", "kind": "chat.message", "category": "chat", "path": "/chat/42", "extra": { } }
+  },
+  "app_badge": 3
+}
+```
+
+**FCM** (`POST /v1/projects/{project}/messages:send`): a notification message
+with `data` = `{ kind, category, path, url, badge, notification_id, data }`
+(all strings; `data` is the producer's JSON, serialized), `android.notification.channel_id`
+= the category.
+
+**APNs** (`POST /3/device/{token}`, `apns-push-type: alert`): `aps.alert`,
+`aps.badge`, `aps.sound`, `aps.thread-id`, `aps.mutable-content` (when there
+is an image), plus top-level `kind`, `category`, `path`, `url`,
+`notification_id`, `image_url`, `data`. `aps.interruption-level:
+time-sensitive` takes effect only when the iOS app has the Time Sensitive
+Notifications capability; without it iOS treats the notification as a normal
+alert.
+
+## Configuration
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `TOKULY_VAPID_PRIVATE_KEY` | empty | Web Push application-server key (raw P-256 scalar, base64url). Empty derives it from `TOKULY_SECRET` (`keys.derive("webpush/vapid")`) |
+| `TOKULY_VAPID_SUBJECT` | empty | Contact URI in VAPID tokens. Empty: the public URL when https, else `mailto:` + the `TOKULY_MAIL_FROM` address |
+| `TOKULY_WEBPUSH_ALLOWED_HOSTS` | `fcm.googleapis.com,updates.push.services.mozilla.com,notify.windows.com,push.apple.com` | Hosts (and their subdomains) a Web Push endpoint may point to; `*` = any public https host |
+| `TOKULY_WEBPUSH_ALLOW_INSECURE` | `false` | Development/tests: accept `http://` endpoints on any host. Startup fails if set in production |
+| `TOKULY_FCM_SERVICE_ACCOUNT_JSON` | empty | Firebase service-account JSON; empty disables FCM |
+| `TOKULY_APNS_KEY_P8`, `TOKULY_APNS_KEY_ID`, `TOKULY_APNS_TEAM_ID`, `TOKULY_APNS_TOPIC` | empty | APNs token-auth key (`.p8` content, `\n` escapes accepted), key ID, team ID, bundle ID; all four enable APNs |
+| `TOKULY_PUSH_TTL_SECONDS` | `86400` | How long push services keep a notification for an offline device |
+| `TOKULY_PUSH_RATE_PER_MINUTE` | `30` | Pushes per user per minute; 0 = no cap |
+| `TOKULY_NOTIFY_RETENTION_DAYS` | `90` | Days an inbox entry is kept |
+
+FCM and APNs are implemented against the documented wire formats and tested
+against local stand-ins only; they have not been run against Google's or
+Apple's servers.

@@ -1,0 +1,52 @@
+[package]
+name = "tokuly-notify"
+description = "Notifications inbox, push delivery and preferences."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+tokuly-core.workspace = true
+tokuly-proto.workspace = true
+tokuly-identity.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+connectrpc.workspace = true
+buffa.workspace = true
+sqlx.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+url.workspace = true
+clap.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+parking_lot.workspace = true
+reqwest.workspace = true
+redis.workspace = true
+rand.workspace = true
+base64.workspace = true
+hex.workspace = true
+hkdf.workspace = true
+sha2.workspace = true
+# PEM parsing for the FCM service-account key (RSA) and the APNs .p8 key (EC).
+jsonwebtoken = { workspace = true, features = ["use_pem"] }
+# Web Push (RFC 8291): ECDH on P-256 and AES-128-GCM. Same versions the rest
+# of the dependency tree already uses.
+p256 = { version = "0.14", features = ["ecdh", "pkcs8"] }
+aes-gcm = "0.11"
+
+[dev-dependencies]
+tokuly-testkit.workspace = true
+# A local HTTP server stands in for push services.
+axum.workspace = true
+http.workspace = true
+# Generates the throwaway RSA key the FCM tests sign with.
+aws-lc-rs = "1"
