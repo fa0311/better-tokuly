@@ -1,0 +1,39 @@
+[package]
+name = "tokuly-stamp"
+description = "Stamp (sticker) packs: creation, store, installs and usage."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+tokuly-core.workspace = true
+tokuly-proto.workspace = true
+tokuly-identity.workspace = true
+tokuly-media.workspace = true
+tokuly-wallet.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
+connectrpc.workspace = true
+buffa.workspace = true
+sqlx.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+clap.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+unicode-segmentation.workspace = true
+unicode-normalization.workspace = true
+# Official stamp art is drawn in code and encoded as WebP.
+image.workspace = true
+thumbhash.workspace = true
+base64.workspace = true
+
+[dev-dependencies]
+tokuly-testkit.workspace = true
+futures.workspace = true
