@@ -22,6 +22,7 @@ COPY --chmod=0755 entrypoint.sh /usr/local/bin/entrypoint.sh
 USER tiles
 VOLUME ["/data", "/assets"]
 EXPOSE 8080
+# Healthy once the world archive is there and a tile can be read from it.
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30m \
-  CMD curl -fsS -o /dev/null http://127.0.0.1:8080/world.json || exit 1
+  CMD curl -fsS -o /dev/null http://127.0.0.1:8080/world/0/0/0.mvt || exit 1
 ENTRYPOINT ["entrypoint.sh"]
