@@ -1,0 +1,189 @@
+syntax = "proto3";
+
+// The realtime gateway protocol.
+//
+// One long-lived connection per client carries location reports up and every
+// kind of live event down. Two transports speak the same frames:
+//
+// - WebTransport (HTTP/3 over QUIC), preferred. One client-opened
+//   bidirectional stream carries reliable frames, each prefixed with a 4-byte
+//   big-endian length. Location samples (up) and friend locations (down) may
+//   also travel as datagrams — a datagram is exactly one frame, no prefix —
+//   because the latest position supersedes older ones anyway.
+// - WebSocket fallback. Each binary message is exactly one frame.
+//
+// After `Hello` the server answers `Welcome`. Authenticated connections
+// automatically receive all user-scoped events (friends' locations, chat,
+// notifications, social...). Topic-scoped events (a live stream's chat, a
+// watch party...) are delivered only for topics the client subscribed to.
+// Anonymous connections may subscribe to public topics.
+package tokuly.realtime.v1;
+
+import "google/protobuf/timestamp.proto";
+import "tokuly/chat/v1/chat.proto";
+import "tokuly/common/v1/common.proto";
+import "tokuly/engagement/v1/engagement.proto";
+import "tokuly/geo/v1/geo.proto";
+import "tokuly/live/v1/live.proto";
+import "tokuly/media/v1/media.proto";
+import "tokuly/notes/v1/notes.proto";
+import "tokuly/notify/v1/notify.proto";
+import "tokuly/social/v1/social.proto";
+import "tokuly/video/v1/video.proto";
+import "tokuly/wallet/v1/wallet.proto";
+
+// Connection bootstrap info for clients.
+service RealtimeService {
+  // Where and how to connect. Public; the token is sent in the Hello frame.
+  rpc GetEndpoints(GetEndpointsRequest) returns (GetEndpointsResponse);
+}
+
+message GetEndpointsRequest {}
+
+message GetEndpointsResponse {
+  // e.g. "https://rt.example.com:4433/rt". Empty when WebTransport is disabled.
+  string webtransport_url = 1;
+  // SHA-256 hashes of the gateway's certificate, for
+  // `serverCertificateHashes` when it is self-signed (development,
+  // self-hosting without a public CA). Empty when the certificate is
+  // publicly trusted.
+  repeated bytes webtransport_cert_hashes = 2;
+  // e.g. "wss://example.com/rt/ws".
+  string websocket_url = 3;
+}
+
+// ───────────────────────────── Client → server ─────────────────────────────
+
+message ClientFrame {
+  // Client-chosen non-zero ID; echoed as `reply_to` in the Ack/Error answer.
+  // 0 for frames that need no answer (location samples, pings).
+  uint64 id = 1;
+  oneof body {
+    Hello hello = 2;
+    Ping ping = 3;
+    // A location sample; equivalent to LocationService.ReportLocations.
+    tokuly.geo.v1.LocationSample location = 4;
+    Subscribe subscribe = 5;
+    Unsubscribe unsubscribe = 6;
+    AppState app_state = 7;
+    Typing typing = 8;
+    ConversationPresence conversation_presence = 9;
+  }
+}
+
+message Hello {
+  // Access token. Empty for an anonymous connection.
+  string access_token = 1;
+  tokuly.common.v1.Platform platform = 2;
+  string app_version = 3;
+  string device_id = 4;
+  // App is visible to the user right now.
+  bool foreground = 5;
+  // Topics to subscribe to right away.
+  repeated string topics = 6;
+}
+
+message Ping {
+  // Echoed back for round-trip measurement.
+  uint64 nonce = 1;
+}
+
+// Topic names:
+//   live:{stream_id}            live chat, gifts and stream state
+//   party:{party_id}            watch party playback sync and chat
+//   subject:{type}:{id}         live comment / reaction counters of a subject
+//   share:{token}               positions of a public live share
+//   asset:{asset_id}            processing progress of an upload
+message Subscribe {
+  repeated string topics = 1;
+}
+
+message Unsubscribe {
+  repeated string topics = 1;
+}
+
+// Foreground/background transitions drive the "in app" halo.
+message AppState {
+  bool foreground = 1;
+}
+
+message Typing {
+  string conversation_id = 1;
+  // False = stopped typing.
+  bool typing = 2;
+}
+
+// The user opened or left a conversation screen (live co-presence in chat).
+message ConversationPresence {
+  string conversation_id = 1;
+  bool present = 2;
+}
+
+// ───────────────────────────── Server → client ─────────────────────────────
+
+message ServerFrame {
+  // The ClientFrame.id this frame answers; 0 for pushed events.
+  uint64 reply_to = 1;
+  // Topic for topic-scoped events; empty for user-scoped ones.
+  string topic = 2;
+  oneof body {
+    Welcome welcome = 3;
+    Pong pong = 4;
+    Ack ack = 5;
+    Error error = 6;
+    PresenceEvent presence = 7;
+    TopicStats topic_stats = 8;
+
+    tokuly.geo.v1.GeoEvent geo = 10;
+    tokuly.social.v1.SocialEvent social = 11;
+    tokuly.chat.v1.ChatEvent chat = 12;
+    tokuly.notify.v1.NotifyEvent notify = 13;
+    tokuly.live.v1.LiveEvent live = 14;
+    tokuly.video.v1.VideoEvent video = 15;
+    tokuly.notes.v1.NotesEvent notes = 16;
+    tokuly.media.v1.MediaEvent media = 17;
+    tokuly.wallet.v1.WalletEvent wallet = 18;
+    tokuly.engagement.v1.EngagementEvent engagement = 19;
+  }
+}
+
+message Welcome {
+  string connection_id = 1;
+  // Empty for anonymous connections.
+  string user_id = 2;
+  google.protobuf.Timestamp server_time = 3;
+  // Send a Ping at least this often; the server drops silent connections.
+  int32 ping_interval_seconds = 4;
+  // "webtransport" | "websocket".
+  string transport = 5;
+  // Suggested location report cadence.
+  int32 moving_interval_seconds = 6;
+  int32 stationary_interval_seconds = 7;
+}
+
+message Pong {
+  uint64 nonce = 1;
+  google.protobuf.Timestamp server_time = 2;
+}
+
+message Ack {}
+
+message Error {
+  // Connect-style code name, e.g. "unauthenticated", "permission_denied".
+  string code = 1;
+  string message = 2;
+  // The connection will be closed by the server after this frame.
+  bool fatal = 3;
+}
+
+// A friend came online / went offline, or moved between foreground and background.
+message PresenceEvent {
+  string user_id = 1;
+  bool online = 2;
+  google.protobuf.Timestamp last_seen_at = 3;
+}
+
+// Audience size of a subscribed topic (e.g. live viewer count).
+message TopicStats {
+  int64 subscriber_count = 1;
+}

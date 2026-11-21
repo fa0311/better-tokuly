@@ -1,0 +1,748 @@
+syntax = "proto3";
+
+// Coins: balances, the ledger history, purchases, the daily login bonus,
+// creator earnings and payouts.
+//
+// Every user has two balances that never mix:
+// - coins: spendable. Bought through a payment provider or granted (daily
+//   bonus, admin adjustment). Spent on gifts and paid stamp packs.
+// - earnings: coins received from other users (gifts, stamp sales), minus the
+//   platform fee. Earnings cannot be spent; creators turn them into money
+//   with a payout request that staff reviews.
+//
+// Every movement is one ledger entry. Amounts are whole coins (int64).
+// Money (package prices, payout amounts) is given in the minor unit of an
+// ISO 4217 currency: 1000 JPY = ¥1,000, 499 USD = $4.99.
+package tokuly.wallet.v1;
+
+import "google/protobuf/timestamp.proto";
+import "tokuly/common/v1/common.proto";
+
+// ───────────────────────────── Wallet ─────────────────────────────
+
+// The signed-in user's coins: balance, history, buying coins, daily bonus.
+service WalletService {
+  // Current balances.
+  rpc GetBalance(GetBalanceRequest) returns (GetBalanceResponse);
+  // The caller's ledger history, newest first.
+  // Errors: INVALID_CURSOR.
+  rpc ListLedgerEntries(ListLedgerEntriesRequest) returns (ListLedgerEntriesResponse);
+
+  // Coin packages currently on sale and the payment providers that can sell
+  // them. Public (prices are shown to guests too).
+  rpc ListCoinPackages(ListCoinPackagesRequest) returns (ListCoinPackagesResponse);
+  // Starts buying a package: creates the purchase and the provider's
+  // checkout. Providers that settle instantly (the development provider)
+  // return the purchase already COMPLETED with the coins granted; otherwise
+  // the client completes the provider's checkout and calls ConfirmPurchase.
+  // Errors: PACKAGE_NOT_FOUND, PURCHASES_UNAVAILABLE (no provider enabled),
+  // PROVIDER_UNKNOWN, IDEMPOTENCY_KEY_INVALID, IDEMPOTENCY_KEY_REUSED (same
+  // key, different package or provider), PAYMENT_PROVIDER_ERROR, RATE_LIMITED.
+  rpc StartPurchase(StartPurchaseRequest) returns (StartPurchaseResponse);
+  // Asks the provider whether a purchase was paid and, if so, grants the
+  // coins (exactly once, however often this is called). Returns the purchase
+  // in whatever state it is in; a still-unpaid purchase stays PENDING. A
+  // payment always wins: a FAILED, CANCELLED or EXPIRED purchase the provider
+  // reports as paid after all becomes COMPLETED.
+  // Errors: PURCHASE_NOT_FOUND, PAYMENT_PROVIDER_ERROR, RATE_LIMITED.
+  rpc ConfirmPurchase(ConfirmPurchaseRequest) returns (ConfirmPurchaseResponse);
+  // Abandons a purchase that has not been paid.
+  // Errors: PURCHASE_NOT_FOUND, PURCHASE_NOT_PENDING.
+  rpc CancelPurchase(CancelPurchaseRequest) returns (CancelPurchaseResponse);
+  // One of the caller's purchases.
+  // Errors: PURCHASE_NOT_FOUND.
+  rpc GetPurchase(GetPurchaseRequest) returns (GetPurchaseResponse);
+  // The caller's purchases, newest first.
+  // Errors: INVALID_CURSOR.
+  rpc ListPurchases(ListPurchasesRequest) returns (ListPurchasesResponse);
+
+  // State of the daily login bonus: claimable or not, streak, next reward.
+  rpc GetDailyBonus(GetDailyBonusRequest) returns (GetDailyBonusResponse);
+  // Claims today's bonus. One claim per calendar day in the caller's time
+  // zone; claiming on consecutive days grows the streak and the reward.
+  // Errors: DAILY_BONUS_ALREADY_CLAIMED, DAILY_BONUS_DISABLED, RATE_LIMITED.
+  rpc ClaimDailyBonus(ClaimDailyBonusRequest) returns (ClaimDailyBonusResponse);
+}
+
+// A balance snapshot.
+message Balance {
+  // Spendable coins.
+  int64 coins = 1;
+  // Coins earned from other users; payable out, not spendable.
+  int64 earnings = 2;
+  // Grows with every movement on the account. Snapshots reach a client over
+  // several paths (RPC responses, realtime pushes) and may arrive out of
+  // order: keep the one with the highest revision.
+  int64 revision = 3;
+}
+
+// Which of a user's balances a ledger entry touched.
+enum LedgerAccount {
+  LEDGER_ACCOUNT_UNSPECIFIED = 0;
+  LEDGER_ACCOUNT_COINS = 1;
+  LEDGER_ACCOUNT_EARNINGS = 2;
+}
+
+// What kind of movement a ledger entry is.
+enum EntryKind {
+  ENTRY_KIND_UNSPECIFIED = 0;
+  // Coins issued by the platform: a purchase, a bonus.
+  ENTRY_KIND_GRANT = 1;
+  // Coins spent on something the platform sells.
+  ENTRY_KIND_SPEND = 2;
+  // Coins sent to another user; the recipient's earnings grow by the amount
+  // minus the platform fee. Both sides see the entry.
+  ENTRY_KIND_TRANSFER = 3;
+  // An earlier entry reversed (see `refund_of_entry_id`), including a
+  // rejected or cancelled payout request returning to earnings.
+  ENTRY_KIND_REFUND = 4;
+  // Earnings locked for a payout request.
+  ENTRY_KIND_PAYOUT = 5;
+  // A correction made by staff.
+  ENTRY_KIND_ADJUSTMENT = 6;
+}
+
+// One line of the ledger history, from the point of view of the user whose
+// history it is.
+message LedgerEntry {
+  string id = 1;
+  EntryKind kind = 2;
+  // What the movement was for, as named by the domain that made it. Dotted
+  // lowercase: `purchase`, `daily_bonus`, `live.gift`, `stamp.pack`, `payout`,
+  // `payout.rejected`, `payout.cancelled`, `adjustment`, ... New reasons can
+  // appear at any time; fall back to `description`.
+  string reason = 3;
+  // Ready-to-show text for the history list in the viewer's language, e.g.
+  // "ライブギフトを送りました".
+  string description = 4;
+  // Signed change of this user's spendable coins (0 when untouched).
+  int64 coins_delta = 5;
+  // Signed change of this user's earnings (0 when untouched).
+  int64 earnings_delta = 6;
+  // The full amount moved, before any platform fee.
+  int64 amount = 7;
+  // Platform fee withheld from `amount` on transfers.
+  int64 fee = 8;
+  // The other user of a transfer or its refund. Unset for movements between
+  // the user and the platform, and when the other account was deleted.
+  tokuly.common.v1.UserSummary counterpart = 9;
+  // This entry was reversed later.
+  bool refunded = 10;
+  // For refunds: the entry that was reversed.
+  string refund_of_entry_id = 11;
+  // Context attached by the domain that made the movement, as a JSON object
+  // (IDs for deep links such as the stream of a gift). "{}" when there is none.
+  string memo_json = 12;
+  google.protobuf.Timestamp created_at = 13;
+}
+
+message GetBalanceRequest {}
+
+message GetBalanceResponse {
+  Balance balance = 1;
+}
+
+message ListLedgerEntriesRequest {
+  // Only entries that touched this balance; unspecified = both.
+  LedgerAccount account = 1;
+  // Maximum 100 per page.
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListLedgerEntriesResponse {
+  repeated LedgerEntry entries = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// ───────────────────────────── Purchases ─────────────────────────────
+
+// Highlight shown on a package in the coin shop.
+enum PackageBadge {
+  PACKAGE_BADGE_UNSPECIFIED = 0;
+  // "人気"
+  PACKAGE_BADGE_POPULAR = 1;
+  // "おトク"
+  PACKAGE_BADGE_BEST_VALUE = 2;
+  // "期間限定"
+  PACKAGE_BADGE_LIMITED = 3;
+}
+
+// A bundle of coins sold for money.
+message CoinPackage {
+  string id = 1;
+  // Stable identifier, also used as the product ID at payment providers,
+  // e.g. "coins_1000". Lowercase letters, digits, `_`, `-`, `.`; 3-64 chars.
+  string sku = 2;
+  // Coins bought.
+  int64 coins = 3;
+  // Extra coins given on top ("+80 ボーナス").
+  int64 bonus_coins = 4;
+  // Price in the minor unit of `currency`.
+  int64 price_minor = 5;
+  // ISO 4217 code, e.g. "JPY".
+  string currency = 6;
+  PackageBadge badge = 7;
+  // Position in the shop (ascending).
+  int32 sort_order = 8;
+  // False hides the package from the shop; existing purchases are unaffected.
+  bool active = 9;
+  // Limited-time packages: the sale window. Unset bounds are open.
+  google.protobuf.Timestamp available_from = 10;
+  google.protobuf.Timestamp available_until = 11;
+}
+
+enum PurchaseStatus {
+  PURCHASE_STATUS_UNSPECIFIED = 0;
+  // Checkout created; waiting for the payment.
+  PURCHASE_STATUS_PENDING = 1;
+  // Paid; the coins were granted.
+  PURCHASE_STATUS_COMPLETED = 2;
+  // The provider declined the payment.
+  PURCHASE_STATUS_FAILED = 3;
+  // Abandoned by the user before paying.
+  PURCHASE_STATUS_CANCELLED = 4;
+  // Not paid before `expires_at`.
+  PURCHASE_STATUS_EXPIRED = 5;
+}
+
+// One attempt to buy a coin package. Keeps a snapshot of the package as it
+// was sold, so later price changes do not rewrite history.
+message Purchase {
+  string id = 1;
+  PurchaseStatus status = 2;
+  string package_id = 3;
+  string sku = 4;
+  int64 coins = 5;
+  int64 bonus_coins = 6;
+  int64 price_minor = 7;
+  string currency = 8;
+  // Name of the payment provider handling it, e.g. "development".
+  string provider = 9;
+  // The provider's hosted checkout page to send the user to; empty when the
+  // provider has none (in-app purchase SDKs, instant settlement).
+  string checkout_url = 10;
+  // Provider's code for why it FAILED; empty otherwise.
+  string failure_reason = 11;
+  // The ledger entry that granted the coins, once COMPLETED.
+  string entry_id = 12;
+  google.protobuf.Timestamp created_at = 13;
+  google.protobuf.Timestamp completed_at = 14;
+  // A PENDING purchase not paid by then becomes EXPIRED.
+  google.protobuf.Timestamp expires_at = 15;
+}
+
+message ListCoinPackagesRequest {}
+
+message ListCoinPackagesResponse {
+  // On sale now, in shop order.
+  repeated CoinPackage packages = 1;
+  // Enabled payment providers; the first is the default. Empty means coins
+  // cannot be bought on this server.
+  repeated string providers = 2;
+}
+
+message StartPurchaseRequest {
+  string package_id = 1;
+  // One of ListCoinPackagesResponse.providers; empty = the default provider.
+  string provider = 2;
+  // Client-generated key (up to 200 chars) making retries safe: starting
+  // again with the same key returns the same purchase. Empty = no
+  // de-duplication.
+  string idempotency_key = 3;
+}
+
+message StartPurchaseResponse {
+  Purchase purchase = 1;
+  // The caller's balance after this call.
+  Balance balance = 2;
+}
+
+message ConfirmPurchaseRequest {
+  string purchase_id = 1;
+  // Whatever the provider's client SDK handed the app as proof of payment
+  // (a receipt, a session ID). Empty when the provider needs none.
+  string provider_proof = 2;
+}
+
+message ConfirmPurchaseResponse {
+  Purchase purchase = 1;
+  Balance balance = 2;
+}
+
+message CancelPurchaseRequest {
+  string purchase_id = 1;
+}
+
+message CancelPurchaseResponse {
+  Purchase purchase = 1;
+}
+
+message GetPurchaseRequest {
+  string purchase_id = 1;
+}
+
+message GetPurchaseResponse {
+  Purchase purchase = 1;
+}
+
+message ListPurchasesRequest {
+  // Maximum 100 per page.
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListPurchasesResponse {
+  repeated Purchase purchases = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// ───────────────────────────── Daily bonus ─────────────────────────────
+
+// The daily login bonus as it stands for one user.
+message DailyBonus {
+  // The bonus can be claimed right now.
+  bool claimable = 1;
+  // Consecutive days claimed so far. 0 when the streak is broken (a day was
+  // missed) or nothing was ever claimed.
+  int32 streak = 2;
+  // Coins the next claim grants.
+  int64 next_coins = 3;
+  // 1-based position in `cycle` of the next claim.
+  int32 next_cycle_day = 4;
+  // When the next bonus unlocks: the start of the user's next calendar day.
+  // Unset while `claimable`.
+  google.protobuf.Timestamp next_claim_at = 5;
+  // The reward ladder: coins for streak day 1, 2, ... After the last step it
+  // starts over. Empty when the bonus is disabled on this server.
+  repeated int64 cycle = 6;
+  // Best streak ever reached.
+  int32 longest_streak = 7;
+  // Number of bonuses claimed in total.
+  int32 total_claims = 8;
+}
+
+message GetDailyBonusRequest {}
+
+message GetDailyBonusResponse {
+  DailyBonus bonus = 1;
+}
+
+message ClaimDailyBonusRequest {}
+
+message ClaimDailyBonusResponse {
+  // Coins granted by this claim.
+  int64 coins = 1;
+  // The state after claiming (streak includes today).
+  DailyBonus bonus = 2;
+  Balance balance = 3;
+}
+
+// ───────────────────────────── Earnings & payouts ─────────────────────────────
+
+// The creator side: what the signed-in user earned and getting it paid out.
+service EarningsService {
+  // Earnings totals plus a breakdown by reason and over time for a period.
+  // Errors: PERIOD_INVALID (`to` not after `from`), PERIOD_TOO_LONG (more
+  // than 400 buckets).
+  rpc GetEarningsSummary(GetEarningsSummaryRequest) returns (GetEarningsSummaryResponse);
+  // Asks for earnings to be paid out. The coins leave the earnings balance
+  // immediately and stay locked while staff reviews the request; a rejected
+  // or cancelled request returns them. One open request per user.
+  // Errors: AMOUNT_INVALID, PAYOUT_BELOW_MINIMUM, INSUFFICIENT_EARNINGS,
+  // PAYOUT_ALREADY_OPEN, PAYOUT_METHOD_INVALID, PAYOUT_DESTINATION_INVALID,
+  // PAYOUT_NOTE_TOO_LONG, IDEMPOTENCY_KEY_INVALID, RATE_LIMITED.
+  rpc RequestPayout(RequestPayoutRequest) returns (RequestPayoutResponse);
+  // Withdraws the caller's own request while it is still PENDING.
+  // Errors: PAYOUT_NOT_FOUND, PAYOUT_NOT_PENDING.
+  rpc CancelPayoutRequest(CancelPayoutRequestRequest) returns (CancelPayoutRequestResponse);
+  // The caller's payout requests, newest first.
+  // Errors: INVALID_CURSOR.
+  rpc ListPayoutRequests(ListPayoutRequestsRequest) returns (ListPayoutRequestsResponse);
+}
+
+// Width of the buckets of an earnings time series.
+enum EarningsBucket {
+  EARNINGS_BUCKET_UNSPECIFIED = 0;
+  EARNINGS_BUCKET_DAY = 1;
+  // Weeks start on Monday.
+  EARNINGS_BUCKET_WEEK = 2;
+  EARNINGS_BUCKET_MONTH = 3;
+}
+
+// Sums over a set of received transfers. Refunded transfers are left out.
+message EarningsTotals {
+  // What senders paid.
+  int64 gross = 1;
+  // Platform fee withheld.
+  int64 fee = 2;
+  // What reached the earnings balance (`gross - fee`).
+  int64 net = 3;
+  // Number of transfers.
+  int32 count = 4;
+}
+
+message EarningsByReason {
+  // Ledger reason, e.g. `live.gift`, `stamp.pack`.
+  string reason = 1;
+  // Label in the caller's language, e.g. "ライブギフト".
+  string label = 2;
+  EarningsTotals totals = 3;
+}
+
+message EarningsPoint {
+  // Start of the bucket (in the caller's time zone).
+  google.protobuf.Timestamp period_start = 1;
+  EarningsTotals totals = 2;
+}
+
+// The rules for payouts on this server.
+message PayoutTerms {
+  // Smallest amount of earned coins a request may ask for.
+  int64 min_coins = 1;
+  // Currency payouts are made in (ISO 4217).
+  string currency = 2;
+  // Money paid per 100 earned coins, in the currency's minor unit.
+  int64 minor_per_100_coins = 3;
+  // Share of every transfer the platform keeps before it reaches earnings.
+  int32 platform_fee_percent = 4;
+}
+
+message GetEarningsSummaryRequest {
+  // Start of the period (inclusive). Default: 30 days before `to`.
+  google.protobuf.Timestamp from = 1;
+  // End of the period (exclusive). Default: now.
+  google.protobuf.Timestamp to = 2;
+  // Bucket width of `series`; default DAY. Buckets follow the caller's time zone.
+  EarningsBucket bucket = 3;
+}
+
+message GetEarningsSummaryResponse {
+  // Earned coins that can be requested for payout right now.
+  int64 available = 1;
+  // Earned coins locked in an open payout request.
+  int64 pending_payout = 2;
+  // Net earnings ever received.
+  int64 lifetime_earned = 3;
+  // Earned coins already paid out.
+  int64 lifetime_paid_out = 4;
+  // Totals of the requested period.
+  EarningsTotals period = 5;
+  // The period split by reason, largest first.
+  repeated EarningsByReason by_reason = 6;
+  // The period over time; buckets without earnings are included as zeros.
+  repeated EarningsPoint series = 7;
+  PayoutTerms payout_terms = 8;
+}
+
+enum PayoutStatus {
+  PAYOUT_STATUS_UNSPECIFIED = 0;
+  // Waiting for review; the coins are locked.
+  PAYOUT_STATUS_PENDING = 1;
+  // Accepted; the money has not been sent yet.
+  PAYOUT_STATUS_APPROVED = 2;
+  // Declined by staff; the coins returned to earnings.
+  PAYOUT_STATUS_REJECTED = 3;
+  // The money was sent.
+  PAYOUT_STATUS_PAID = 4;
+  // Withdrawn by the requester; the coins returned to earnings.
+  PAYOUT_STATUS_CANCELLED = 5;
+}
+
+// How the creator wants to receive the money.
+enum PayoutMethod {
+  PAYOUT_METHOD_UNSPECIFIED = 0;
+  PAYOUT_METHOD_BANK_TRANSFER = 1;
+  PAYOUT_METHOD_PAYPAL = 2;
+  // A gift card code sent by email.
+  PAYOUT_METHOD_GIFT_CARD = 3;
+  // Anything else, described in `destination`.
+  PAYOUT_METHOD_OTHER = 4;
+}
+
+message PayoutRequest {
+  string id = 1;
+  PayoutStatus status = 2;
+  // Earned coins being paid out.
+  int64 coins = 3;
+  // Money to send for them, fixed at the rate in force when requested.
+  int64 payout_minor = 4;
+  string currency = 5;
+  PayoutMethod method = 6;
+  // Where to send the money (bank account, PayPal address...). Stored
+  // encrypted; only the requester and reviewers ever receive it.
+  string destination = 7;
+  // The requester's message to the reviewer.
+  string note = 8;
+  // The reviewer's message to the requester, e.g. why it was rejected.
+  string review_note = 9;
+  // Proof of payment recorded when it was marked PAID (a transfer ID).
+  string payment_reference = 10;
+  google.protobuf.Timestamp created_at = 11;
+  // When it was approved or rejected.
+  google.protobuf.Timestamp reviewed_at = 12;
+  google.protobuf.Timestamp paid_at = 13;
+  // Who asked. Only set in staff views; unset once the account is deleted.
+  tokuly.common.v1.UserSummary user = 14;
+  // Who approved or rejected. Only set in staff views.
+  tokuly.common.v1.UserSummary reviewer = 15;
+}
+
+message RequestPayoutRequest {
+  // Earned coins to pay out.
+  int64 coins = 1;
+  PayoutMethod method = 2;
+  // 1-500 characters.
+  string destination = 3;
+  // Optional, up to 500 characters.
+  string note = 4;
+  // Client-generated key (up to 200 chars) making retries safe: requesting
+  // again with the same key returns the same request. Empty = no
+  // de-duplication.
+  string idempotency_key = 5;
+}
+
+message RequestPayoutResponse {
+  PayoutRequest payout = 1;
+  Balance balance = 2;
+}
+
+message CancelPayoutRequestRequest {
+  string payout_id = 1;
+}
+
+message CancelPayoutRequestResponse {
+  PayoutRequest payout = 1;
+  Balance balance = 2;
+}
+
+message ListPayoutRequestsRequest {
+  // Maximum 100 per page.
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListPayoutRequestsResponse {
+  repeated PayoutRequest payouts = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// ───────────────────────────── Administration ─────────────────────────────
+
+// Staff tools. Payout review and wallet lookups need the `moderator` role;
+// balance adjustments and the coin shop need `admin`. Every RPC answers
+// FORBIDDEN to anyone else.
+service WalletAdminService {
+  // The payout review queue, oldest first so nobody waits forever.
+  // Errors: INVALID_CURSOR.
+  rpc ListPayoutQueue(ListPayoutQueueRequest) returns (ListPayoutQueueResponse);
+  // One payout request with the requester, reviewer and destination.
+  // Errors: PAYOUT_NOT_FOUND.
+  rpc GetPayoutRequest(GetPayoutRequestRequest) returns (GetPayoutRequestResponse);
+  // PENDING → APPROVED. The requester is notified.
+  // Errors: PAYOUT_NOT_FOUND, PAYOUT_NOT_PENDING, SELF_REVIEW (staff cannot
+  // review their own request), REVIEW_NOTE_TOO_LONG.
+  rpc ApprovePayout(ApprovePayoutRequest) returns (ApprovePayoutResponse);
+  // PENDING or APPROVED → REJECTED; the coins return to the requester's
+  // earnings and they are notified with the reason.
+  // Errors: PAYOUT_NOT_FOUND, PAYOUT_NOT_OPEN, SELF_REVIEW,
+  // REVIEW_NOTE_REQUIRED, REVIEW_NOTE_TOO_LONG.
+  rpc RejectPayout(RejectPayoutRequest) returns (RejectPayoutResponse);
+  // APPROVED → PAID, once the money was sent. The requester is notified.
+  // Errors: PAYOUT_NOT_FOUND, PAYOUT_NOT_APPROVED, SELF_REVIEW,
+  // PAYMENT_REFERENCE_TOO_LONG.
+  rpc MarkPayoutPaid(MarkPayoutPaidRequest) returns (MarkPayoutPaidResponse);
+
+  // A user's wallet at a glance, for support.
+  // Errors: USER_NOT_FOUND.
+  rpc GetUserWallet(GetUserWalletRequest) returns (GetUserWalletResponse);
+  // A user's ledger history, newest first.
+  // Errors: USER_NOT_FOUND, INVALID_CURSOR.
+  rpc ListUserLedgerEntries(ListUserLedgerEntriesRequest) returns (ListUserLedgerEntriesResponse);
+
+  // Adds or removes coins or earnings by hand (role `admin`). Recorded in
+  // the adjustment log with the admin and the reason; a balance can never
+  // be pushed below zero.
+  // Errors: USER_NOT_FOUND, ACCOUNT_INVALID, AMOUNT_INVALID (zero or beyond
+  // ±100,000,000), REASON_REQUIRED, REASON_TOO_LONG, INSUFFICIENT_COINS,
+  // INSUFFICIENT_EARNINGS, IDEMPOTENCY_KEY_INVALID, IDEMPOTENCY_KEY_REUSED
+  // (same key, different adjustment).
+  rpc AdjustBalance(AdjustBalanceRequest) returns (AdjustBalanceResponse);
+  // The adjustment log, newest first (role `admin`).
+  // Errors: INVALID_CURSOR.
+  rpc ListAdjustments(ListAdjustmentsRequest) returns (ListAdjustmentsResponse);
+
+  // Every coin package, including inactive ones (role `admin`).
+  rpc ListAllCoinPackages(ListAllCoinPackagesRequest) returns (ListAllCoinPackagesResponse);
+  // Creates a package (empty `id`) or replaces an existing one (role `admin`).
+  // Errors: PACKAGE_NOT_FOUND, SKU_INVALID, SKU_TAKEN, COINS_INVALID,
+  // BONUS_INVALID, PRICE_INVALID, CURRENCY_INVALID, BADGE_INVALID,
+  // AVAILABILITY_INVALID (`available_until` not after `available_from`).
+  rpc SaveCoinPackage(SaveCoinPackageRequest) returns (SaveCoinPackageResponse);
+}
+
+message ListPayoutQueueRequest {
+  // Only requests in this status; unspecified = PENDING.
+  PayoutStatus status = 1;
+  // Maximum 100 per page.
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListPayoutQueueResponse {
+  repeated PayoutRequest payouts = 1;
+  tokuly.common.v1.PageInfo page = 2;
+  // Requests waiting for review right now, whatever the filter.
+  int32 pending_count = 3;
+}
+
+message GetPayoutRequestRequest {
+  string payout_id = 1;
+}
+
+message GetPayoutRequestResponse {
+  PayoutRequest payout = 1;
+}
+
+message ApprovePayoutRequest {
+  string payout_id = 1;
+  // Optional message to the requester, up to 500 characters.
+  string review_note = 2;
+}
+
+message ApprovePayoutResponse {
+  PayoutRequest payout = 1;
+}
+
+message RejectPayoutRequest {
+  string payout_id = 1;
+  // Why, shown to the requester. Required, up to 500 characters.
+  string review_note = 2;
+}
+
+message RejectPayoutResponse {
+  PayoutRequest payout = 1;
+}
+
+message MarkPayoutPaidRequest {
+  string payout_id = 1;
+  // Proof of payment (transfer ID, gift card order...), up to 200 characters.
+  string payment_reference = 2;
+}
+
+message MarkPayoutPaidResponse {
+  PayoutRequest payout = 1;
+}
+
+message GetUserWalletRequest {
+  string user_id = 1;
+}
+
+message GetUserWalletResponse {
+  tokuly.common.v1.UserSummary user = 1;
+  Balance balance = 2;
+  // Earned coins locked in an open payout request.
+  int64 pending_payout = 3;
+  // Net earnings ever received.
+  int64 lifetime_earned = 4;
+  // Earned coins already paid out.
+  int64 lifetime_paid_out = 5;
+  // Coins bought in completed purchases, bonus coins included.
+  int64 lifetime_purchased = 6;
+}
+
+message ListUserLedgerEntriesRequest {
+  string user_id = 1;
+  // Only entries that touched this balance; unspecified = both.
+  LedgerAccount account = 2;
+  // Maximum 100 per page.
+  tokuly.common.v1.PageRequest page = 3;
+}
+
+message ListUserLedgerEntriesResponse {
+  repeated LedgerEntry entries = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// One manual correction of a balance, as kept in the adjustment log.
+message Adjustment {
+  string id = 1;
+  // Whose balance changed; unset once the account is deleted.
+  tokuly.common.v1.UserSummary user = 2;
+  // Who made the adjustment.
+  tokuly.common.v1.UserSummary admin = 3;
+  LedgerAccount account = 4;
+  // Signed number of coins added (positive) or removed (negative).
+  int64 delta = 5;
+  // Why. Internal: never shown to the user.
+  string reason = 6;
+  // The ledger entry that carried it out.
+  string entry_id = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+message AdjustBalanceRequest {
+  string user_id = 1;
+  LedgerAccount account = 2;
+  // Signed number of coins: positive adds, negative removes.
+  int64 delta = 3;
+  // Required, up to 500 characters.
+  string reason = 4;
+  // Client-generated key (up to 200 chars) making retries safe: repeating
+  // the call with the same key returns the first adjustment. Empty = no
+  // de-duplication.
+  string idempotency_key = 5;
+}
+
+message AdjustBalanceResponse {
+  Adjustment adjustment = 1;
+  // The user's balance after the adjustment.
+  Balance balance = 2;
+}
+
+message ListAdjustmentsRequest {
+  // Only adjustments of this user's balances; empty = everyone.
+  string user_id = 1;
+  // Maximum 100 per page.
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListAdjustmentsResponse {
+  repeated Adjustment adjustments = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListAllCoinPackagesRequest {}
+
+message ListAllCoinPackagesResponse {
+  // In shop order, inactive ones included.
+  repeated CoinPackage packages = 1;
+}
+
+message SaveCoinPackageRequest {
+  // Empty `id` creates; otherwise every field of that package is replaced.
+  CoinPackage package = 1;
+}
+
+message SaveCoinPackageResponse {
+  CoinPackage package = 1;
+}
+
+// ───────────────────────────── Realtime ─────────────────────────────
+
+// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.wallet)
+// to the user whose wallet changed.
+message WalletEvent {
+  oneof event {
+    // A balance changed: coins bought, spent, sent, received, refunded...
+    BalanceChanged balance_changed = 1;
+    // One of the user's purchases changed status (completed, failed, expired).
+    Purchase purchase_updated = 2;
+    // One of the user's payout requests changed status.
+    PayoutRequest payout_updated = 3;
+  }
+}
+
+message BalanceChanged {
+  // The balance right after `entry`. Apply it only if its revision is higher
+  // than the one on screen.
+  Balance balance = 1;
+  // The movement that caused the change, ready for the history list.
+  LedgerEntry entry = 2;
+}

@@ -1,0 +1,1025 @@
+syntax = "proto3";
+
+// Administration and moderation: the reports queue, account sanctions,
+// content takedowns, feature flags, announcements (the product update log),
+// server stats and the audit log.
+//
+// Roles. Every RPC names the role it needs: `moderator` or `admin` (admins
+// hold every role). A signed-in caller without the role gets
+// PERMISSION_DENIED / `FORBIDDEN`; an anonymous caller gets UNAUTHENTICATED /
+// `SIGN_IN_REQUIRED`. Only AnnouncementService.ListAnnouncements and
+// GetAnnouncement are public.
+//
+// Every state-changing RPC here is written to the audit log
+// (SystemService.ListAuditLog).
+package tokuly.admin.v1;
+
+import "google/protobuf/timestamp.proto";
+import "tokuly/common/v1/common.proto";
+
+// ───────────────────────────── Moderation ─────────────────────────────
+
+// The reports queue. Reports filed through the engagement domain are grouped
+// into one open case per reported subject; a moderator resolves the case with
+// an action. Every RPC needs the `moderator` role.
+service ModerationService {
+  // The queue, filtered and sorted. Lists open cases unless `status` says
+  // otherwise. Role: `moderator`.
+  // Errors: INVALID_CURSOR (a cursor from a different sort order).
+  rpc ListCases(ListCasesRequest) returns (ListCasesResponse);
+  // One case with its latest reports, internal notes, the actions taken on it
+  // and the moderation record of the content owner. Role: `moderator`.
+  // Errors: CASE_NOT_FOUND.
+  rpc GetCase(GetCaseRequest) returns (GetCaseResponse);
+  // All reports grouped into a case, newest first. Role: `moderator`.
+  // Errors: CASE_NOT_FOUND.
+  rpc ListCaseReports(ListCaseReportsRequest) returns (ListCaseReportsResponse);
+  // Assigns an open case to a moderator (default: the caller) or clears the
+  // assignment. Assignment is advisory: any moderator may still resolve it.
+  // Role: `moderator`.
+  // Errors: CASE_NOT_FOUND, CASE_ALREADY_RESOLVED, ASSIGNEE_NOT_MODERATOR.
+  rpc AssignCase(AssignCaseRequest) returns (AssignCaseResponse);
+  // Adds an internal note to a case (never shown to users). Role: `moderator`.
+  // Errors: CASE_NOT_FOUND, NOTE_INVALID.
+  rpc AddCaseNote(AddCaseNoteRequest) returns (AddCaseNoteResponse);
+  // Closes an open case with an action. Depending on the action the content
+  // is taken down, the owner is warned, suspended or banned, and every
+  // reporter is told their report was handled. Role: `moderator`.
+  // Errors: CASE_NOT_FOUND, CASE_ALREADY_RESOLVED, ACTION_INVALID,
+  // ACTION_NOT_APPLICABLE (content removal of an account, or an owner action
+  // when the owner is gone), REASON_REQUIRED, REASON_TOO_LONG, NOTE_INVALID,
+  // SUSPENSION_DURATION_INVALID, CONFLICT_OF_INTEREST (the case is about the
+  // caller's own content), TARGET_IS_STAFF (only admins sanction staff),
+  // RATE_LIMITED.
+  rpc ResolveCase(ResolveCaseRequest) returns (ResolveCaseResponse);
+  // Puts a resolved case back into the queue (e.g. after a mistaken
+  // dismissal). Actions already taken are not undone. Role: `moderator`.
+  // Errors: CASE_NOT_FOUND, CASE_NOT_RESOLVED, CASE_SUPERSEDED (a newer open
+  // case exists for the same subject).
+  rpc ReopenCase(ReopenCaseRequest) returns (ReopenCaseResponse);
+  // Takes content down by reference, without a report. The owning domain
+  // removes it and the owner is notified. An open case about the same subject
+  // is resolved along the way. Role: `moderator`.
+  // Errors: SUBJECT_INVALID, SUBJECT_NOT_FOUND, ACTION_NOT_APPLICABLE (accounts
+  // are suspended, not removed), REASON_REQUIRED, REASON_TOO_LONG,
+  // NOTE_INVALID, CONFLICT_OF_INTEREST, RATE_LIMITED.
+  rpc TakedownContent(TakedownContentRequest) returns (TakedownContentResponse);
+  // The moderation log: every action taken, newest first. Filter by
+  // `user_id` for one account's moderation history. Role: `moderator`.
+  rpc ListModerationActions(ListModerationActionsRequest) returns (ListModerationActionsResponse);
+}
+
+enum CaseStatus {
+  CASE_STATUS_UNSPECIFIED = 0;
+  // Waiting for a moderator.
+  CASE_STATUS_OPEN = 1;
+  CASE_STATUS_RESOLVED = 2;
+}
+
+// Why something was reported. Mirrors the categories of the engagement domain.
+enum ReportCategory {
+  REPORT_CATEGORY_UNSPECIFIED = 0;
+  REPORT_CATEGORY_SPAM = 1;
+  REPORT_CATEGORY_HARASSMENT = 2;
+  REPORT_CATEGORY_HATE = 3;
+  REPORT_CATEGORY_SEXUAL = 4;
+  REPORT_CATEGORY_VIOLENCE = 5;
+  REPORT_CATEGORY_SELF_HARM = 6;
+  REPORT_CATEGORY_ILLEGAL = 7;
+  REPORT_CATEGORY_IMPERSONATION = 8;
+  REPORT_CATEGORY_COPYRIGHT = 9;
+  REPORT_CATEGORY_OTHER = 10;
+}
+
+// What a moderator (or the system) did.
+enum ModerationActionKind {
+  MODERATION_ACTION_KIND_UNSPECIFIED = 0;
+  // The reports were reviewed and nothing was done.
+  MODERATION_ACTION_KIND_DISMISS = 1;
+  // The content was taken down.
+  MODERATION_ACTION_KIND_REMOVE_CONTENT = 2;
+  // The owner received a warning.
+  MODERATION_ACTION_KIND_WARN = 3;
+  // The account was suspended for a limited time.
+  MODERATION_ACTION_KIND_SUSPEND = 4;
+  // The account was suspended permanently.
+  MODERATION_ACTION_KIND_BAN = 5;
+  // A suspension or ban was lifted, by staff or automatically at its expiry.
+  MODERATION_ACTION_KIND_UNSUSPEND = 6;
+}
+
+// Which assignments ListCases returns.
+enum AssigneeFilter {
+  // Every case, assigned or not.
+  ASSIGNEE_FILTER_UNSPECIFIED = 0;
+  // Cases assigned to the caller.
+  ASSIGNEE_FILTER_MINE = 1;
+  // Cases nobody has taken yet.
+  ASSIGNEE_FILTER_UNASSIGNED = 2;
+}
+
+enum CaseSort {
+  // Most recently reported first.
+  CASE_SORT_UNSPECIFIED = 0;
+  // Longest waiting first.
+  CASE_SORT_OLDEST = 1;
+  // Most reports first.
+  CASE_SORT_MOST_REPORTED = 2;
+}
+
+// Reports about one subject, handled together.
+message ModerationCase {
+  string id = 1;
+  tokuly.common.v1.SubjectRef subject = 2;
+  // Title or excerpt of the subject, captured with the latest report.
+  string subject_title = 3;
+  // Path of the subject in the app, e.g. `/watch/dQw4w9WgXcQ`.
+  string subject_path = 4;
+  // Owner of the reported content. Unset once their account is deleted.
+  tokuly.common.v1.UserSummary subject_owner = 5;
+  CaseStatus status = 6;
+  int32 report_count = 7;
+  // Distinct categories the reporters chose, in the order first seen.
+  repeated ReportCategory categories = 8;
+  // Moderator working on the case, if any.
+  tokuly.common.v1.UserSummary assignee = 9;
+  google.protobuf.Timestamp assigned_at = 10;
+  // When the first report arrived.
+  google.protobuf.Timestamp created_at = 11;
+  google.protobuf.Timestamp last_reported_at = 12;
+  // The fields below are set once the case is resolved. `resolution` stays
+  // UNSPECIFIED for a case that was closed automatically because the owner's
+  // account was deleted (`resolution_reason` then says so).
+  ModerationActionKind resolution = 13;
+  // Whether the content was taken down as part of the resolution.
+  bool content_removed = 14;
+  // Reason given to the owner (empty for dismissals).
+  string resolution_reason = 15;
+  tokuly.common.v1.UserSummary resolved_by = 16;
+  google.protobuf.Timestamp resolved_at = 17;
+}
+
+// One user's report inside a case.
+message CaseReport {
+  // The report ID assigned by the engagement domain.
+  string id = 1;
+  // Unset when the reporter's account was deleted.
+  tokuly.common.v1.UserSummary reporter = 2;
+  ReportCategory category = 3;
+  // What the reporter wrote.
+  string text = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+// Internal remark on a case.
+message CaseNote {
+  string id = 1;
+  tokuly.common.v1.UserSummary author = 2;
+  string body = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+// An entry of the moderation log.
+message ModerationAction {
+  string id = 1;
+  ModerationActionKind kind = 2;
+  // Staff member who acted. Unset for automatic actions (an expired
+  // suspension) and for deleted staff accounts.
+  tokuly.common.v1.UserSummary moderator = 3;
+  // The account the action was taken against, when there is one.
+  tokuly.common.v1.UserSummary target_user = 4;
+  // The content concerned, when there is one.
+  tokuly.common.v1.SubjectRef subject = 5;
+  string subject_title = 6;
+  // The case this action belongs to; empty for direct actions.
+  string case_id = 7;
+  // Reason shown to the affected user.
+  string reason = 8;
+  // Internal note, only visible to staff.
+  string note = 9;
+  // SUSPEND only: when the suspension ends on its own.
+  google.protobuf.Timestamp expires_at = 10;
+  google.protobuf.Timestamp created_at = 11;
+}
+
+// An account's moderation record in numbers.
+message UserModerationSummary {
+  // Reports filed against this account or its content.
+  int32 reports_received = 1;
+  // Reports this account filed against others.
+  int32 reports_filed = 2;
+  // Open cases about this account or its content.
+  int32 open_cases = 3;
+  int32 warnings = 4;
+  int32 content_removals = 5;
+  // Suspensions and bans, including lifted ones.
+  int32 suspensions = 6;
+}
+
+message ListCasesRequest {
+  tokuly.common.v1.PageRequest page = 1;
+  // UNSPECIFIED lists open cases.
+  CaseStatus status = 2;
+  AssigneeFilter assignee = 3;
+  // Cases assigned to this moderator (overrides `assignee`).
+  string assignee_id = 4;
+  // Only cases about this kind of subject.
+  tokuly.common.v1.SubjectType subject_type = 5;
+  // Only cases with at least one report in this category.
+  ReportCategory category = 6;
+  // Only cases about content owned by this account.
+  string owner_id = 7;
+  CaseSort sort = 8;
+}
+
+message ListCasesResponse {
+  repeated ModerationCase cases = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message GetCaseRequest {
+  string case_id = 1;
+}
+
+message GetCaseResponse {
+  ModerationCase moderation_case = 1;
+  // The 20 most recent reports; page through ListCaseReports for the rest.
+  repeated CaseReport reports = 2;
+  // Internal notes, oldest first.
+  repeated CaseNote notes = 3;
+  // Actions taken on this case, newest first.
+  repeated ModerationAction actions = 4;
+  // Moderation record of the content owner; unset when the owner is gone.
+  UserModerationSummary owner_record = 5;
+}
+
+message ListCaseReportsRequest {
+  string case_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListCaseReportsResponse {
+  repeated CaseReport reports = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message AssignCaseRequest {
+  string case_id = 1;
+  // Moderator to assign. Empty assigns the caller ("take this case").
+  string assignee_id = 2;
+  // Clears the assignment instead; `assignee_id` is ignored.
+  bool unassign = 3;
+}
+
+message AssignCaseResponse {
+  ModerationCase moderation_case = 1;
+}
+
+message AddCaseNoteRequest {
+  string case_id = 1;
+  // 1-2000 characters.
+  string body = 2;
+}
+
+message AddCaseNoteResponse {
+  CaseNote note = 1;
+}
+
+message ResolveCaseRequest {
+  string case_id = 1;
+  // DISMISS, REMOVE_CONTENT, WARN, SUSPEND or BAN.
+  ModerationActionKind action = 2;
+  // Also take the content down when `action` is WARN, SUSPEND or BAN.
+  bool remove_content = 3;
+  // Shown to the content owner (warning text, takedown or suspension
+  // reason). Required for every action except DISMISS; at most 500 characters.
+  string reason = 4;
+  // Internal note for the moderation log; at most 2000 characters.
+  string note = 5;
+  // SUSPEND only: length of the suspension, from 1 hour to 365 days.
+  int64 suspension_seconds = 6;
+}
+
+message ResolveCaseResponse {
+  ModerationCase moderation_case = 1;
+  // The log entries written for this resolution.
+  repeated ModerationAction actions = 2;
+}
+
+message ReopenCaseRequest {
+  string case_id = 1;
+  // Why the case is reopened; kept as an internal note. At most 2000 characters.
+  string note = 2;
+}
+
+message ReopenCaseResponse {
+  ModerationCase moderation_case = 1;
+}
+
+message TakedownContentRequest {
+  // The content to remove. `id` is its UUID or, for shareable content, its
+  // short ID. `SUBJECT_TYPE_USER` is rejected: suspend the account instead.
+  tokuly.common.v1.SubjectRef subject = 1;
+  // Shown to the owner; 1-500 characters.
+  string reason = 2;
+  // Internal note; at most 2000 characters.
+  string note = 3;
+}
+
+message TakedownContentResponse {
+  ModerationAction action = 1;
+  // The open case about this subject that the takedown resolved, if there was one.
+  ModerationCase resolved_case = 2;
+}
+
+message ListModerationActionsRequest {
+  tokuly.common.v1.PageRequest page = 1;
+  // Only actions against this account (its moderation history).
+  string user_id = 2;
+  // Only actions taken by this staff member.
+  string moderator_id = 3;
+  // Only actions of this kind.
+  ModerationActionKind kind = 4;
+  // Only actions belonging to this case.
+  string case_id = 5;
+}
+
+message ListModerationActionsResponse {
+  repeated ModerationAction actions = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// ───────────────────────────── Users ─────────────────────────────
+
+// Account administration. Role: `moderator`, except SetUserRoles (`admin`).
+// Moderators cannot sanction staff accounts (admins and moderators); admins can.
+service UserAdminService {
+  // Finds accounts by handle, display name, email address or ID; an empty
+  // query lists the newest accounts. Role: `moderator`.
+  // Errors: QUERY_TOO_LONG, ROLE_INVALID.
+  rpc SearchUsers(SearchUsersRequest) returns (SearchUsersResponse);
+  // The staff view of one account with its moderation record and latest
+  // moderation actions. Role: `moderator`.
+  // Errors: USER_NOT_FOUND.
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+  // Sends the account a warning (notification kind `system.warning`).
+  // Role: `moderator`.
+  // Errors: USER_NOT_FOUND, REASON_REQUIRED, REASON_TOO_LONG, NOTE_INVALID,
+  // CANNOT_SANCTION_SELF, TARGET_IS_STAFF, RATE_LIMITED.
+  rpc WarnUser(WarnUserRequest) returns (WarnUserResponse);
+  // Suspends the account for a period or bans it permanently. The user is
+  // signed out everywhere and cannot sign in; a timed suspension is lifted
+  // automatically. Suspending an already suspended account replaces the
+  // current suspension. Role: `moderator`.
+  // Errors: USER_NOT_FOUND, REASON_REQUIRED, REASON_TOO_LONG, NOTE_INVALID,
+  // SUSPENSION_DURATION_INVALID, CANNOT_SANCTION_SELF, TARGET_IS_STAFF,
+  // RATE_LIMITED.
+  rpc SuspendUser(SuspendUserRequest) returns (SuspendUserResponse);
+  // Lifts a suspension or ban. Role: `moderator`.
+  // Errors: USER_NOT_FOUND, USER_NOT_SUSPENDED, NOTE_INVALID, TARGET_IS_STAFF.
+  rpc UnsuspendUser(UnsuspendUserRequest) returns (UnsuspendUserResponse);
+  // Grants or removes the verified badge. Role: `moderator`.
+  // Errors: USER_NOT_FOUND, NOTE_INVALID.
+  rpc SetUserVerified(SetUserVerifiedRequest) returns (SetUserVerifiedResponse);
+  // Replaces the account's roles. Granted roles apply when the user's access
+  // token is next refreshed; when a role is removed the user is signed out so
+  // it stops applying at once. Role: `admin`.
+  // Errors: USER_NOT_FOUND, ROLE_INVALID, CANNOT_DEMOTE_SELF (an admin cannot
+  // drop their own admin role), NOTE_INVALID.
+  rpc SetUserRoles(SetUserRolesRequest) returns (SetUserRolesResponse);
+  // Signs the account out of every device (e.g. after a compromise).
+  // Role: `moderator`.
+  // Errors: USER_NOT_FOUND, NOTE_INVALID, TARGET_IS_STAFF.
+  rpc RevokeUserSessions(RevokeUserSessionsRequest) returns (RevokeUserSessionsResponse);
+}
+
+enum AccountState {
+  ACCOUNT_STATE_UNSPECIFIED = 0;
+  ACCOUNT_STATE_ACTIVE = 1;
+  // Suspended or banned; cannot sign in.
+  ACCOUNT_STATE_SUSPENDED = 2;
+  // The owner asked for deletion; the grace period is running.
+  ACCOUNT_STATE_DELETION_SCHEDULED = 3;
+  // Erased; only an anonymous tombstone remains.
+  ACCOUNT_STATE_DELETED = 4;
+}
+
+// A suspension or ban currently in force.
+message Suspension {
+  // Empty when the account was suspended outside the admin console.
+  string id = 1;
+  // Reason given to the user.
+  string reason = 2;
+  // Staff member who imposed it; unset when unknown or deleted.
+  tokuly.common.v1.UserSummary moderator = 3;
+  google.protobuf.Timestamp started_at = 4;
+  // When it is lifted automatically. Unset for a permanent ban.
+  google.protobuf.Timestamp expires_at = 5;
+  bool permanent = 6;
+  // The case that led to it; empty for direct suspensions.
+  string case_id = 7;
+}
+
+// An account as staff see it.
+message AdminUser {
+  // A placeholder with `deleted = true` once the account is erased.
+  tokuly.common.v1.UserSummary user = 1;
+  string email = 2;
+  bool email_verified = 3;
+  // `admin`, `moderator`, `staff`.
+  repeated string roles = 4;
+  AccountState state = 5;
+  // Set while `state` is SUSPENDED.
+  Suspension suspension = 6;
+  google.protobuf.Timestamp created_at = 7;
+  // When the account will be erased, while deletion is scheduled.
+  google.protobuf.Timestamp deletion_scheduled_at = 8;
+  google.protobuf.Timestamp deleted_at = 9;
+  // Latest activity of any signed-in device; unset when there is none.
+  google.protobuf.Timestamp last_active_at = 10;
+  // Devices currently signed in.
+  int32 active_session_count = 11;
+  // Preferred language (BCP 47).
+  string locale = 12;
+}
+
+message SearchUsersRequest {
+  tokuly.common.v1.PageRequest page = 1;
+  // A user ID, an email address (or its beginning), or part of a handle or
+  // display name. At most 100 characters; empty lists the newest accounts.
+  string query = 2;
+  // Only accounts in this state.
+  AccountState state = 3;
+  // Only accounts holding this role (`admin`, `moderator`, `staff`).
+  string role = 4;
+  // Only accounts with the verified badge.
+  bool verified_only = 5;
+}
+
+message SearchUsersResponse {
+  repeated AdminUser users = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message GetUserRequest {
+  string user_id = 1;
+}
+
+message GetUserResponse {
+  AdminUser user = 1;
+  UserModerationSummary moderation = 2;
+  // The 10 latest moderation actions against the account; the full history
+  // is ModerationService.ListModerationActions with `user_id`.
+  repeated ModerationAction recent_actions = 3;
+}
+
+message WarnUserRequest {
+  string user_id = 1;
+  // The warning shown to the user; 1-500 characters.
+  string reason = 2;
+  // Internal note; at most 2000 characters.
+  string note = 3;
+}
+
+message WarnUserResponse {
+  ModerationAction action = 1;
+}
+
+message SuspendUserRequest {
+  string user_id = 1;
+  // Shown to the user; 1-500 characters.
+  string reason = 2;
+  // Internal note; at most 2000 characters.
+  string note = 3;
+  // Ban permanently. Exactly one of `permanent` and `suspension_seconds` must be set.
+  bool permanent = 4;
+  // Length of a timed suspension, from 1 hour to 365 days.
+  int64 suspension_seconds = 5;
+}
+
+message SuspendUserResponse {
+  AdminUser user = 1;
+  ModerationAction action = 2;
+}
+
+message UnsuspendUserRequest {
+  string user_id = 1;
+  // Why the suspension is lifted (internal); at most 2000 characters.
+  string note = 2;
+}
+
+message UnsuspendUserResponse {
+  AdminUser user = 1;
+}
+
+message SetUserVerifiedRequest {
+  string user_id = 1;
+  bool verified = 2;
+  // Internal note for the audit log; at most 2000 characters.
+  string note = 3;
+}
+
+message SetUserVerifiedResponse {
+  AdminUser user = 1;
+}
+
+message SetUserRolesRequest {
+  string user_id = 1;
+  // The complete new set: any of `admin`, `moderator`, `staff`. Empty removes every role.
+  repeated string roles = 2;
+  // Internal note for the audit log; at most 2000 characters.
+  string note = 3;
+}
+
+message SetUserRolesResponse {
+  AdminUser user = 1;
+}
+
+message RevokeUserSessionsRequest {
+  string user_id = 1;
+  // Internal note for the audit log; at most 2000 characters.
+  string note = 2;
+}
+
+message RevokeUserSessionsResponse {
+  // Sessions that were signed out.
+  int32 revoked_count = 1;
+}
+
+// ───────────────────────────── Feature flags ─────────────────────────────
+
+// Feature flags, evaluated per user by every service and sent to clients with
+// their account (`Me.features`). Every RPC needs the `admin` role.
+service FeatureFlagService {
+  // All flags by name, optionally filtered by a name fragment. Role: `admin`.
+  rpc ListFlags(ListFlagsRequest) returns (ListFlagsResponse);
+  // Creates a flag. Role: `admin`.
+  // Errors: FLAG_NAME_INVALID, FLAG_EXISTS, FLAG_DESCRIPTION_TOO_LONG,
+  // ROLLOUT_INVALID, ALLOW_LIST_TOO_LONG, USER_NOT_FOUND (allow-list entry).
+  rpc CreateFlag(CreateFlagRequest) returns (CreateFlagResponse);
+  // Changes the given fields of a flag; takes effect within seconds.
+  // Role: `admin`.
+  // Errors: FLAG_NOT_FOUND, FLAG_DESCRIPTION_TOO_LONG, ROLLOUT_INVALID,
+  // ALLOW_LIST_TOO_LONG, USER_NOT_FOUND (allow-list entry).
+  rpc UpdateFlag(UpdateFlagRequest) returns (UpdateFlagResponse);
+  // Deletes a flag; it is off for everyone from then on. Role: `admin`.
+  // Errors: FLAG_NOT_FOUND.
+  rpc DeleteFlag(DeleteFlagRequest) returns (DeleteFlagResponse);
+  // Preview: how every flag evaluates for one user, and why. Role: `admin`.
+  // Errors: USER_NOT_FOUND.
+  rpc EvaluateFlags(EvaluateFlagsRequest) returns (EvaluateFlagsResponse);
+}
+
+message FeatureFlag {
+  // Unique key: 2-64 characters of `a-z`, `0-9`, `_`, `-`, `.`, starting with a letter.
+  string name = 1;
+  string description = 2;
+  // Master switch. Allow-listed users get the flag even when it is off.
+  bool enabled = 3;
+  // 0-100: share of users (stable per user and flag) who get the flag while it is enabled.
+  int32 rollout_percent = 4;
+  // Users who always get the flag.
+  repeated tokuly.common.v1.UserSummary allow_users = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message ListFlagsRequest {
+  tokuly.common.v1.PageRequest page = 1;
+  // Only flags whose name contains this text.
+  string query = 2;
+}
+
+message ListFlagsResponse {
+  repeated FeatureFlag flags = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message CreateFlagRequest {
+  string name = 1;
+  // At most 500 characters.
+  string description = 2;
+  bool enabled = 3;
+  // Defaults to 100 when not set.
+  optional int32 rollout_percent = 4;
+  // At most 1000 users.
+  repeated string allow_user_ids = 5;
+}
+
+message CreateFlagResponse {
+  FeatureFlag flag = 1;
+}
+
+message UpdateFlagRequest {
+  string name = 1;
+  optional string description = 2;
+  optional bool enabled = 3;
+  optional int32 rollout_percent = 4;
+  // Users to add to the allow-list.
+  repeated string add_allow_user_ids = 5;
+  // Users to remove from the allow-list.
+  repeated string remove_allow_user_ids = 6;
+}
+
+message UpdateFlagResponse {
+  FeatureFlag flag = 1;
+}
+
+message DeleteFlagRequest {
+  string name = 1;
+}
+
+message DeleteFlagResponse {}
+
+// Why a flag is on or off for a user.
+enum FlagDecision {
+  FLAG_DECISION_UNSPECIFIED = 0;
+  // On: the user is on the allow-list.
+  FLAG_DECISION_ALLOW_LISTED = 1;
+  // Off: the flag is disabled.
+  FLAG_DECISION_DISABLED = 2;
+  // On: the flag is enabled for everyone.
+  FLAG_DECISION_EVERYONE = 3;
+  // On: the user falls inside the rollout percentage.
+  FLAG_DECISION_IN_ROLLOUT = 4;
+  // Off: the user falls outside the rollout percentage.
+  FLAG_DECISION_OUT_OF_ROLLOUT = 5;
+}
+
+message FlagEvaluation {
+  string name = 1;
+  bool on = 2;
+  FlagDecision decision = 3;
+}
+
+message EvaluateFlagsRequest {
+  string user_id = 1;
+}
+
+message EvaluateFlagsResponse {
+  // One entry per flag, by name.
+  repeated FlagEvaluation evaluations = 1;
+}
+
+// ───────────────────────────── Announcements ─────────────────────────────
+
+// The product update log ("お知らせ") shown to every user, and its editor.
+service AnnouncementService {
+  // Published announcements: pinned ones first, then newest first. Texts come
+  // in the requested language. Role: none (public, no sign-in needed).
+  // Errors: RATE_LIMITED.
+  rpc ListAnnouncements(ListAnnouncementsRequest) returns (ListAnnouncementsResponse);
+  // One published announcement. Role: none (public, no sign-in needed).
+  // Errors: ANNOUNCEMENT_NOT_FOUND, RATE_LIMITED.
+  rpc GetAnnouncement(GetAnnouncementRequest) returns (GetAnnouncementResponse);
+
+  // Every announcement including drafts and scheduled ones, newest first.
+  // Role: `admin`.
+  rpc ListManagedAnnouncements(ListManagedAnnouncementsRequest) returns (ListManagedAnnouncementsResponse);
+  // One announcement in any state, as its editors see it. Role: `admin`.
+  // Errors: ANNOUNCEMENT_NOT_FOUND.
+  rpc GetManagedAnnouncement(GetManagedAnnouncementRequest) returns (GetManagedAnnouncementResponse);
+  // Creates a draft. Role: `admin`.
+  // Errors: TITLE_INVALID, BODY_INVALID, SUMMARY_TOO_LONG, IMAGE_INVALID,
+  // CATEGORY_INVALID.
+  rpc CreateAnnouncement(CreateAnnouncementRequest) returns (CreateAnnouncementResponse);
+  // Changes the given fields; allowed in every state. Role: `admin`.
+  // Errors: ANNOUNCEMENT_NOT_FOUND, TITLE_INVALID, BODY_INVALID,
+  // SUMMARY_TOO_LONG, IMAGE_INVALID, CATEGORY_INVALID.
+  rpc UpdateAnnouncement(UpdateAnnouncementRequest) returns (UpdateAnnouncementResponse);
+  // Publishes now or schedules for later, optionally notifying every active
+  // user (kind `announcement.published`) once it is visible. An announcement is
+  // broadcast at most once. Role: `admin`.
+  // Errors: ANNOUNCEMENT_NOT_FOUND, ANNOUNCEMENT_ALREADY_PUBLISHED,
+  // PUBLISH_TIME_INVALID (more than a year ahead).
+  rpc PublishAnnouncement(PublishAnnouncementRequest) returns (PublishAnnouncementResponse);
+  // Takes a published or scheduled announcement back to draft. Role: `admin`.
+  // Errors: ANNOUNCEMENT_NOT_FOUND, ANNOUNCEMENT_NOT_PUBLISHED.
+  rpc UnpublishAnnouncement(UnpublishAnnouncementRequest) returns (UnpublishAnnouncementResponse);
+  // Deletes an announcement in any state. Role: `admin`.
+  // Errors: ANNOUNCEMENT_NOT_FOUND.
+  rpc DeleteAnnouncement(DeleteAnnouncementRequest) returns (DeleteAnnouncementResponse);
+}
+
+// The label an announcement carries in the update log.
+enum AnnouncementCategory {
+  ANNOUNCEMENT_CATEGORY_UNSPECIFIED = 0;
+  // New features and improvements.
+  ANNOUNCEMENT_CATEGORY_UPDATE = 1;
+  // Planned or ongoing maintenance and incidents.
+  ANNOUNCEMENT_CATEGORY_MAINTENANCE = 2;
+  // Campaigns and events.
+  ANNOUNCEMENT_CATEGORY_EVENT = 3;
+  // Terms, policy and security notices.
+  ANNOUNCEMENT_CATEGORY_IMPORTANT = 4;
+}
+
+enum AnnouncementStatus {
+  ANNOUNCEMENT_STATUS_UNSPECIFIED = 0;
+  ANNOUNCEMENT_STATUS_DRAFT = 1;
+  // Has a publish time in the future.
+  ANNOUNCEMENT_STATUS_SCHEDULED = 2;
+  ANNOUNCEMENT_STATUS_PUBLISHED = 3;
+}
+
+// An announcement as users see it, in one language.
+message Announcement {
+  string id = 1;
+  AnnouncementCategory category = 2;
+  string title = 3;
+  // One or two plain-text sentences for list rows and notifications.
+  string summary = 4;
+  // Markdown (CommonMark). Clients render it without raw HTML.
+  string body = 5;
+  tokuly.common.v1.Image image = 6;
+  bool pinned = 7;
+  google.protobuf.Timestamp published_at = 8;
+  // Language of the texts returned: `ja` or `en`.
+  string locale = 9;
+}
+
+// Text in the two supported languages. Japanese is required wherever a text
+// is; English is optional and falls back to Japanese.
+message LocalizedText {
+  string ja = 1;
+  string en = 2;
+}
+
+// An announcement as its editors see it.
+message ManagedAnnouncement {
+  string id = 1;
+  AnnouncementCategory category = 2;
+  LocalizedText title = 3;
+  LocalizedText summary = 4;
+  // Markdown.
+  LocalizedText body = 5;
+  tokuly.common.v1.Image image = 6;
+  bool pinned = 7;
+  AnnouncementStatus status = 8;
+  // When it became or will become visible; unset for drafts.
+  google.protobuf.Timestamp published_at = 9;
+  // Whether publishing notifies every active user.
+  bool notify_users = 10;
+  // When the notification broadcast finished; unset until then.
+  google.protobuf.Timestamp notified_at = 11;
+  // Users notified so far.
+  int32 notified_count = 12;
+  tokuly.common.v1.UserSummary author = 13;
+  google.protobuf.Timestamp created_at = 14;
+  google.protobuf.Timestamp updated_at = 15;
+}
+
+message ListAnnouncementsRequest {
+  // Default 20, at most 50 per page.
+  tokuly.common.v1.PageRequest page = 1;
+  // Preferred language (BCP 47). Empty uses the Accept-Language header, then Japanese.
+  string locale = 2;
+  // Only announcements of this category.
+  AnnouncementCategory category = 3;
+}
+
+message ListAnnouncementsResponse {
+  repeated Announcement announcements = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message GetAnnouncementRequest {
+  string id = 1;
+  // Preferred language (BCP 47). Empty uses the Accept-Language header, then Japanese.
+  string locale = 2;
+}
+
+message GetAnnouncementResponse {
+  Announcement announcement = 1;
+}
+
+message ListManagedAnnouncementsRequest {
+  tokuly.common.v1.PageRequest page = 1;
+  // Only announcements in this state.
+  AnnouncementStatus status = 2;
+}
+
+message ListManagedAnnouncementsResponse {
+  repeated ManagedAnnouncement announcements = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message GetManagedAnnouncementRequest {
+  string id = 1;
+}
+
+message GetManagedAnnouncementResponse {
+  ManagedAnnouncement announcement = 1;
+}
+
+message CreateAnnouncementRequest {
+  // Defaults to UPDATE.
+  AnnouncementCategory category = 1;
+  // 1-120 characters per language.
+  LocalizedText title = 2;
+  // At most 300 characters per language. When empty, the beginning of the body is used.
+  LocalizedText summary = 3;
+  // Markdown, 1-20000 characters per language.
+  LocalizedText body = 4;
+  // Optional header image: pass the `Image` of an upload made through
+  // tokuly.media.v1.MediaService. Its URLs must be http(s).
+  tokuly.common.v1.Image image = 5;
+  bool pinned = 6;
+}
+
+message CreateAnnouncementResponse {
+  ManagedAnnouncement announcement = 1;
+}
+
+message UpdateAnnouncementRequest {
+  string id = 1;
+  optional AnnouncementCategory category = 2;
+  // Each text replaces both languages when set.
+  LocalizedText title = 3;
+  LocalizedText summary = 4;
+  LocalizedText body = 5;
+  // Replaces the image when set.
+  tokuly.common.v1.Image image = 6;
+  // Removes the image; `image` is ignored.
+  bool clear_image = 7;
+  optional bool pinned = 8;
+}
+
+message UpdateAnnouncementResponse {
+  ManagedAnnouncement announcement = 1;
+}
+
+message PublishAnnouncementRequest {
+  string id = 1;
+  // When it becomes visible. Unset or in the past publishes immediately; a
+  // scheduled announcement can be rescheduled by publishing it again.
+  google.protobuf.Timestamp publish_at = 2;
+  // Notify every active user when it becomes visible.
+  bool notify_users = 3;
+}
+
+message PublishAnnouncementResponse {
+  ManagedAnnouncement announcement = 1;
+}
+
+message UnpublishAnnouncementRequest {
+  string id = 1;
+}
+
+message UnpublishAnnouncementResponse {
+  ManagedAnnouncement announcement = 1;
+}
+
+message DeleteAnnouncementRequest {
+  string id = 1;
+}
+
+message DeleteAnnouncementResponse {}
+
+// ───────────────────────────── System ─────────────────────────────
+
+// Operations dashboard and the audit trail. Every RPC needs the `admin` role.
+service SystemService {
+  // A snapshot of the deployment: accounts, content volume, the moderation
+  // queue, event/job backlogs and whether the backing services respond.
+  // Role: `admin`.
+  // Errors: RATE_LIMITED.
+  rpc GetServerStats(GetServerStatsRequest) returns (GetServerStatsResponse);
+  // Every administrative action (who, what, on what, why, before/after),
+  // newest first. Role: `admin`.
+  // Errors: TIME_RANGE_INVALID.
+  rpc ListAuditLog(ListAuditLogRequest) returns (ListAuditLogResponse);
+}
+
+message GetServerStatsRequest {}
+
+message UserStats {
+  // Accounts that are not deleted.
+  int64 total = 1;
+  // Accounts created since midnight in the stats time zone.
+  int64 new_today = 2;
+  // Accounts created in the last 7 days.
+  int64 new_7d = 3;
+  // Signed-in devices (sessions that are neither revoked nor expired).
+  int64 active_sessions = 4;
+  // Distinct accounts active since midnight in the stats time zone (DAU).
+  int64 active_today = 5;
+  // Distinct accounts active in the last 7 / 30 days.
+  int64 active_7d = 6;
+  int64 active_30d = 7;
+  int64 suspended = 8;
+  int64 deletion_scheduled = 9;
+  int64 verified = 10;
+}
+
+// Row count of one content table.
+message ContentCount {
+  // Stable key, e.g. `notes`, `videos`, `chat_messages`.
+  string name = 1;
+  int64 count = 2;
+  // True when the number is the database's estimate (very large tables).
+  bool approximate = 3;
+}
+
+message ModerationStats {
+  int64 open_cases = 1;
+  // Open cases nobody has taken.
+  int64 unassigned_cases = 2;
+  // Reports received in the last 24 hours.
+  int64 reports_24h = 3;
+  // Cases resolved in the last 7 days.
+  int64 resolved_7d = 4;
+  // When the longest-waiting open case was created; unset when the queue is empty.
+  google.protobuf.Timestamp oldest_open_case_at = 5;
+}
+
+// A durable consumer of a stream and how far behind it is.
+message ConsumerStats {
+  string name = 1;
+  // Messages not yet delivered to the consumer (its lag).
+  int64 pending = 2;
+  // Messages delivered but not yet acknowledged.
+  int64 ack_pending = 3;
+  // Messages being redelivered after a failure or timeout.
+  int64 redelivered = 4;
+}
+
+// A JetStream stream (`EVENTS`, `JOBS`, `ANALYTICS`, `LOCATIONS`).
+message StreamStats {
+  string name = 1;
+  int64 messages = 2;
+  int64 bytes = 3;
+  repeated ConsumerStats consumers = 4;
+}
+
+message QueueStats {
+  // Events committed to the database but not yet relayed to the event stream.
+  int64 outbox_pending = 1;
+  // Age of the oldest such event.
+  int64 outbox_oldest_age_seconds = 2;
+  repeated StreamStats streams = 3;
+}
+
+// Whether a backing service answered a health probe.
+message DependencyStatus {
+  // `postgres`, `valkey`, `nats`, `clickhouse`, `meilisearch`.
+  string name = 1;
+  bool reachable = 2;
+  // How long the probe took.
+  int64 latency_ms = 3;
+  // The error when unreachable.
+  string detail = 4;
+}
+
+message GetServerStatsResponse {
+  UserStats users = 1;
+  // One entry per content table that exists in this deployment.
+  repeated ContentCount content = 2;
+  ModerationStats moderation = 3;
+  QueueStats queues = 4;
+  repeated DependencyStatus dependencies = 5;
+  google.protobuf.Timestamp generated_at = 6;
+}
+
+// One administrative action.
+message AuditEntry {
+  string id = 1;
+  // Who did it. Unset for automatic actions and deleted staff accounts.
+  tokuly.common.v1.UserSummary actor = 2;
+  // Dotted name, e.g. `case.resolved`, `user.suspended`, `flag.updated`,
+  // `announcement.published`.
+  string action = 3;
+  // Kind of thing acted on: `user`, `case`, `subject`, `flag`, `announcement`.
+  string target_type = 4;
+  // Its ID (a flag's name; `<subject type number>:<id>` for subjects).
+  string target_id = 5;
+  // The account affected, when there is one.
+  tokuly.common.v1.UserSummary target_user = 6;
+  // The reason or note the staff member gave.
+  string reason = 7;
+  // JSON snapshots of the relevant state before and after; empty when not applicable.
+  string before_json = 8;
+  string after_json = 9;
+  // Client IP of the request.
+  string ip = 10;
+  google.protobuf.Timestamp created_at = 11;
+}
+
+message ListAuditLogRequest {
+  tokuly.common.v1.PageRequest page = 1;
+  // Only actions by this staff member.
+  string actor_id = 2;
+  // An exact action (`user.suspended`) or a prefix ending in a dot (`user.`).
+  string action = 3;
+  string target_type = 4;
+  string target_id = 5;
+  // Only actions affecting this account.
+  string target_user_id = 6;
+  // Only actions at or after / before these times.
+  google.protobuf.Timestamp since = 7;
+  google.protobuf.Timestamp until = 8;
+}
+
+message ListAuditLogResponse {
+  repeated AuditEntry entries = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}

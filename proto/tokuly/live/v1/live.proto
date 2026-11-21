@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+// Live streams, ingest, live chat, gifts, clips, moderation.
+//
+// SKELETON: the owning domain implements this file. Keep the package name
+// and the realtime event message name stable; everything else is yours.
+package tokuly.live.v1;
+
+import "tokuly/common/v1/common.proto";
+
+// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.live).
+message LiveEvent {
+  // Placeholder so the realtime envelope compiles; replace with a oneof of real events.
+  tokuly.common.v1.SubjectRef subject = 1;
+}

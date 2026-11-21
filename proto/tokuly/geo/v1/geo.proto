@@ -1,0 +1,1159 @@
+syntax = "proto3";
+
+// Location sharing: the live friend map, ghost mode, places, visit history,
+// footprints (scratch map), trips/ETA, place alerts and public live shares.
+package tokuly.geo.v1;
+
+import "google/protobuf/timestamp.proto";
+import "tokuly/common/v1/common.proto";
+import "tokuly/identity/v1/identity.proto";
+
+// ───────────────────────────── Live locations ─────────────────────────────
+
+service LocationService {
+  // Uploads one or more samples. Foreground clients normally stream samples
+  // over the realtime gateway instead; this RPC is the path for background
+  // uploads and the fallback when no realtime transport is available.
+  // Unusable samples (bad coordinates or accuracy, timestamps in the future
+  // or older than the server accepts), duplicates and samples older than the
+  // newest one already processed are skipped, not rejected: see
+  // `accepted_count`.
+  // Errors: TOO_MANY_SAMPLES, RATE_LIMITED.
+  rpc ReportLocations(ReportLocationsRequest) returns (ReportLocationsResponse);
+  // Tells the server the device stopped sharing (permission revoked, signed
+  // out, sharing paused) so friends see a stale pin right away.
+  rpc StopSharing(StopSharingRequest) returns (StopSharingResponse);
+
+  // Snapshot of every friend the caller is allowed to see.
+  rpc ListFriendLocations(ListFriendLocationsRequest) returns (ListFriendLocationsResponse);
+  // Server-streaming fallback for clients without WebTransport/WebSocket.
+  rpc WatchFriendLocations(WatchFriendLocationsRequest) returns (stream WatchFriendLocationsResponse);
+  // The caller's own latest state as the server sees it.
+  rpc GetMyLocation(GetMyLocationRequest) returns (GetMyLocationResponse);
+
+  // Ghost mode: how precisely each friend sees the caller.
+  rpc GetGhostSettings(GetGhostSettingsRequest) returns (GetGhostSettingsResponse);
+  // Errors: INVALID_GHOST_MODE, INVALID_DURATION (negative or more than 30
+  // days), TOO_MANY_USERS (more than 200 overrides per call), NOT_FRIENDS (an
+  // override for someone who is not a friend), INVALID_ID.
+  rpc SetGhostMode(SetGhostModeRequest) returns (SetGhostModeResponse);
+
+  // Groups of friends currently in the same spot ("N人が集合中!").
+  rpc ListGatherings(ListGatheringsRequest) returns (ListGatheringsResponse);
+
+  // Live shares: a time-limited public link showing the caller's live
+  // location to anyone, no account needed.
+  // Errors: INVALID_DURATION, LABEL_TOO_LONG, TOO_MANY_SHARES, RATE_LIMITED.
+  rpc CreateLiveShare(CreateLiveShareRequest) returns (CreateLiveShareResponse);
+  rpc ListLiveShares(ListLiveSharesRequest) returns (ListLiveSharesResponse);
+  // Errors: SHARE_NOT_FOUND.
+  rpc RevokeLiveShare(RevokeLiveShareRequest) returns (RevokeLiveShareResponse);
+  // Public (unauthenticated).
+  // Errors: SHARE_NOT_FOUND (unknown, expired or revoked token), RATE_LIMITED.
+  rpc GetLiveShare(GetLiveShareRequest) returns (GetLiveShareResponse);
+  // Public (unauthenticated) stream of positions for a live share. The same
+  // events are published on the realtime topic `share:<token>`.
+  // Errors: SHARE_NOT_FOUND, RATE_LIMITED.
+  rpc WatchLiveShare(WatchLiveShareRequest) returns (stream WatchLiveShareResponse);
+}
+
+// Detected motion activity.
+enum Activity {
+  ACTIVITY_UNSPECIFIED = 0;
+  ACTIVITY_STILL = 1;
+  ACTIVITY_WALKING = 2;
+  ACTIVITY_RUNNING = 3;
+  ACTIVITY_CYCLING = 4;
+  ACTIVITY_DRIVING = 5;
+  ACTIVITY_TRAIN = 6;
+  ACTIVITY_FLYING = 7;
+  ACTIVITY_BOAT = 8;
+}
+
+// One device reading.
+message LocationSample {
+  tokuly.common.v1.LatLng position = 1;
+  // Horizontal accuracy radius (68%).
+  double accuracy_meters = 2;
+  optional double altitude_meters = 3;
+  // Ground speed in m/s.
+  optional double speed_mps = 4;
+  // Direction of travel, degrees clockwise from north.
+  optional double heading_degrees = 5;
+  google.protobuf.Timestamp recorded_at = 6;
+  optional int32 battery_percent = 7;
+  optional bool charging = 8;
+  Activity activity = 9;
+  // The OS reported a mock/simulated location.
+  bool mocked = 10;
+  // The app was in the foreground when the sample was taken.
+  bool foreground = 11;
+}
+
+message ReportLocationsRequest {
+  // Oldest first. Up to 500 per call.
+  repeated LocationSample samples = 1;
+}
+
+message ReportLocationsResponse {
+  // Server hint for the next upload interval while moving / still.
+  int32 moving_interval_seconds = 1;
+  int32 stationary_interval_seconds = 2;
+  // How many of the uploaded samples were accepted. The rest were unusable,
+  // duplicates or older than a sample the server already had.
+  int32 accepted_count = 3;
+}
+
+message StopSharingRequest {}
+
+message StopSharingResponse {}
+
+// How precisely a viewer sees someone.
+enum GhostMode {
+  GHOST_MODE_UNSPECIFIED = 0;
+  // Exact, live position.
+  GHOST_MODE_PRECISE = 1;
+  // A point randomly offset by up to ~1 km, visibly marked as approximate.
+  GHOST_MODE_BLURRED = 2;
+  // The pin stays at the last position before freezing and looks merely stale.
+  GHOST_MODE_FROZEN = 3;
+}
+
+// Well-known place roles.
+enum PlaceLabel {
+  PLACE_LABEL_UNSPECIFIED = 0;
+  PLACE_LABEL_HOME = 1;
+  PLACE_LABEL_WORK = 2;
+  PLACE_LABEL_SCHOOL = 3;
+  PLACE_LABEL_CUSTOM = 4;
+}
+
+// A friend's position as the caller is allowed to see it.
+message FriendLocation {
+  string user_id = 1;
+  tokuly.common.v1.LatLng position = 2;
+  double accuracy_meters = 3;
+  double speed_mps = 4;
+  double heading_degrees = 5;
+  // When the device recorded this position. Old values mean a stale pin.
+  google.protobuf.Timestamp recorded_at = 6;
+  optional int32 battery_percent = 7;
+  bool charging = 8;
+  Activity activity = 9;
+  // PRECISE or BLURRED. FROZEN is never revealed: a frozen pin just looks stale.
+  GhostMode precision = 10;
+  // Since when they have been in this spot (time on the spot).
+  google.protobuf.Timestamp stationary_since = 11;
+  // Badge for home/work/school; the address itself is never shared.
+  PlaceLabel place_label = 12;
+  // Name of a custom or public place they are at, when shared.
+  string place_name = 13;
+  string place_emoji = 14;
+  // Coarse area name, e.g. "渋谷区" or "Shibuya, Tokyo".
+  string locality = 15;
+  // ISO 3166-1 alpha-2 country code of the position.
+  string country_code = 16;
+  // App is open right now (green halo).
+  bool online = 17;
+  // Asleep (inferred from night-time stillness and inactivity).
+  bool sleeping = 18;
+  google.protobuf.Timestamp sleeping_since = 19;
+  // IANA time zone at the position, for showing local time.
+  string time_zone = 20;
+  // Current weather at the position, when a weather provider is configured.
+  optional double temperature_celsius = 21;
+  string weather_icon = 22;
+  // Short status emoji shown next to the pin.
+  tokuly.identity.v1.Status status = 23;
+  // Active trip ("on my way"), if shared with the caller.
+  string trip_id = 24;
+  // The device said it stopped sharing (StopSharing): the pin stays where it
+  // was and is stale whatever `recorded_at` says.
+  bool sharing_paused = 25;
+}
+
+message ListFriendLocationsRequest {}
+
+message ListFriendLocationsResponse {
+  repeated FriendLocation locations = 1;
+  google.protobuf.Timestamp server_time = 2;
+}
+
+message WatchFriendLocationsRequest {}
+
+message WatchFriendLocationsResponse {
+  oneof update {
+    // First message: full snapshot.
+    ListFriendLocationsResponse snapshot = 1;
+    FriendLocation location = 2;
+    // The user is no longer visible to the caller (unfriended, blocked).
+    string removed_user_id = 3;
+  }
+}
+
+message GetMyLocationRequest {}
+
+message GetMyLocationResponse {
+  // Unset when the server has no recent sample.
+  FriendLocation location = 1;
+  bool sharing = 2;
+}
+
+message GhostSetting {
+  GhostMode mode = 1;
+  google.protobuf.Timestamp since = 2;
+  // Unset = until changed.
+  google.protobuf.Timestamp until = 3;
+}
+
+message GetGhostSettingsRequest {}
+
+message GetGhostSettingsResponse {
+  // Applies to every friend without an override.
+  GhostSetting everyone = 1;
+  // Per-friend overrides keyed by user ID.
+  map<string, GhostSetting> overrides = 2;
+}
+
+message SetGhostModeRequest {
+  // Empty = the default for everyone; otherwise per-friend overrides.
+  repeated string user_ids = 1;
+  // PRECISE on an override removes it. While the default for everyone is
+  // not PRECISE it is kept instead, as an exception: that friend goes on
+  // seeing the precise location.
+  GhostMode mode = 2;
+  // 0 = until changed.
+  int32 duration_seconds = 3;
+}
+
+message SetGhostModeResponse {
+  GetGhostSettingsResponse settings = 1;
+}
+
+message Gathering {
+  // Stable while the gathering lasts.
+  string id = 1;
+  tokuly.common.v1.LatLng center = 2;
+  repeated GatheringMember members = 3;
+  string place_name = 4;
+  google.protobuf.Timestamp started_at = 5;
+  // At someone's home/work/school: clients suppress the "party" flame.
+  bool at_private_place = 6;
+}
+
+message GatheringMember {
+  tokuly.common.v1.UserSummary user = 1;
+  google.protobuf.Timestamp arrived_at = 2;
+}
+
+message ListGatheringsRequest {}
+
+message ListGatheringsResponse {
+  repeated Gathering gatherings = 1;
+}
+
+message LiveShare {
+  string id = 1;
+  string label = 2;
+  // Public URL containing the secret token.
+  string url = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp expires_at = 5;
+  int32 view_count = 6;
+}
+
+message CreateLiveShareRequest {
+  // 5 minutes to 24 hours.
+  int32 duration_seconds = 1;
+  string label = 2;
+}
+
+message CreateLiveShareResponse {
+  LiveShare share = 1;
+}
+
+message ListLiveSharesRequest {}
+
+message ListLiveSharesResponse {
+  repeated LiveShare shares = 1;
+}
+
+message RevokeLiveShareRequest {
+  string share_id = 1;
+}
+
+message RevokeLiveShareResponse {}
+
+message GetLiveShareRequest {
+  string token = 1;
+}
+
+message GetLiveShareResponse {
+  tokuly.common.v1.UserSummary user = 1;
+  string label = 2;
+  google.protobuf.Timestamp expires_at = 3;
+  // Unset when no recent position is known.
+  FriendLocation location = 4;
+}
+
+message WatchLiveShareRequest {
+  string token = 1;
+}
+
+message WatchLiveShareResponse {
+  FriendLocation location = 1;
+  // True when the share expired or was revoked; the stream ends afterwards.
+  bool ended = 2;
+}
+
+// ───────────────────────────── Places ─────────────────────────────
+
+service PlaceService {
+  rpc ListMyPlaces(ListMyPlacesRequest) returns (ListMyPlacesResponse);
+  // Errors: INVALID_NAME, INVALID_EMOJI, INVALID_LOCATION, INVALID_RADIUS
+  // (25-1000 m; 0 = default), INVALID_LABEL, INVALID_VISIBILITY (public,
+  // friends or private), INVALID_CATEGORY, LABEL_TAKEN (one home, one work and
+  // one school per account), TOO_MANY_PLACES, ASSET_NOT_FOUND, NOT_AN_IMAGE.
+  rpc CreatePlace(CreatePlaceRequest) returns (CreatePlaceResponse);
+  // Errors: PLACE_NOT_FOUND plus those of CreatePlace.
+  rpc UpdatePlace(UpdatePlaceRequest) returns (UpdatePlaceResponse);
+  // Errors: PLACE_NOT_FOUND.
+  rpc DeletePlace(DeletePlaceRequest) returns (DeletePlaceResponse);
+  // Place card: details, the caller's visit stats, regulars and friends who have been.
+  // Errors: PLACE_NOT_FOUND (also for places the caller may not see).
+  rpc GetPlace(GetPlaceRequest) returns (GetPlaceResponse);
+  // Searches the caller's places, friends'/public places and the geocoder.
+  // An empty query with `near` lists places around that point.
+  // Errors: QUERY_TOO_LONG, INVALID_LOCATION, RATE_LIMITED.
+  rpc SearchPlaces(SearchPlacesRequest) returns (SearchPlacesResponse);
+  // Frequent stays that are not a place yet ("よく行く場所を登録しますか?").
+  rpc ListPlaceSuggestions(ListPlaceSuggestionsRequest) returns (ListPlaceSuggestionsResponse);
+
+  // Errors: PLACE_NOT_FOUND, TOO_MANY_SAVED.
+  rpc SavePlace(SavePlaceRequest) returns (SavePlaceResponse);
+  rpc UnsavePlace(UnsavePlaceRequest) returns (UnsavePlaceResponse);
+  rpc ListSavedPlaces(ListSavedPlacesRequest) returns (ListSavedPlacesResponse);
+
+  // Errors: INVALID_LOCATION.
+  rpc ReverseGeocode(ReverseGeocodeRequest) returns (ReverseGeocodeResponse);
+  // Manual "I'm here" with optional friend tags; notifies friends.
+  // Errors: MISSING_TARGET, PLACE_NOT_FOUND, INVALID_LOCATION,
+  // MESSAGE_TOO_LONG, TOO_MANY_USERS, NOT_FRIENDS (a tagged user is not a
+  // friend), RATE_LIMITED.
+  rpc CheckIn(CheckInRequest) returns (CheckInResponse);
+}
+
+message Place {
+  string id = 1;
+  string owner_id = 2;
+  string name = 3;
+  string emoji = 4;
+  PlaceLabel label = 5;
+  tokuly.common.v1.LatLng center = 6;
+  double radius_meters = 7;
+  // PRIVATE (only me), FRIENDS or PUBLIC. Home/work/school are always private;
+  // friends only ever see the badge.
+  tokuly.common.v1.Visibility visibility = 8;
+  string address = 9;
+  // Free-form category, e.g. "cafe", "park", "station".
+  string category = 10;
+  // Created automatically from stay patterns rather than by hand.
+  bool auto_detected = 11;
+  google.protobuf.Timestamp created_at = 12;
+  // Caller-specific stats.
+  int32 my_visit_count = 13;
+  google.protobuf.Timestamp my_last_visit_at = 14;
+  bool saved = 15;
+  tokuly.common.v1.Image photo = 16;
+}
+
+message ListMyPlacesRequest {}
+
+message ListMyPlacesResponse {
+  repeated Place places = 1;
+}
+
+message CreatePlaceRequest {
+  string name = 1;
+  string emoji = 2;
+  PlaceLabel label = 3;
+  tokuly.common.v1.LatLng center = 4;
+  double radius_meters = 5;
+  tokuly.common.v1.Visibility visibility = 6;
+  string category = 7;
+  string photo_asset_id = 8;
+}
+
+message CreatePlaceResponse {
+  Place place = 1;
+}
+
+message UpdatePlaceRequest {
+  string place_id = 1;
+  optional string name = 2;
+  optional string emoji = 3;
+  optional PlaceLabel label = 4;
+  tokuly.common.v1.LatLng center = 5;
+  optional double radius_meters = 6;
+  optional tokuly.common.v1.Visibility visibility = 7;
+  optional string category = 8;
+  optional string photo_asset_id = 9;
+}
+
+message UpdatePlaceResponse {
+  Place place = 1;
+}
+
+message DeletePlaceRequest {
+  string place_id = 1;
+}
+
+message DeletePlaceResponse {}
+
+message GetPlaceRequest {
+  string place_id = 1;
+}
+
+message GetPlaceResponse {
+  Place place = 1;
+  // Most frequent visitors ("regulars") among people allowed to see the place.
+  repeated PlaceRegular regulars = 2;
+  // Friends who have been here.
+  repeated tokuly.common.v1.UserSummary friends_visited = 3;
+  int32 total_visit_count = 4;
+  // Tags such as GOOD_FOR_GROUPS, BEST_FRIENDS_HANG_HERE, LOYAL_REGULARS.
+  repeated string badges = 5;
+}
+
+message PlaceRegular {
+  tokuly.common.v1.UserSummary user = 1;
+  int32 visit_count = 2;
+  int32 rank = 3;
+}
+
+message SearchPlacesRequest {
+  string query = 1;
+  // Bias results toward this point.
+  tokuly.common.v1.LatLng near = 2;
+  int32 limit = 3;
+}
+
+message SearchPlacesResponse {
+  repeated PlaceSearchResult results = 1;
+}
+
+message PlaceSearchResult {
+  // Set for Tokuly places; unset for raw geocoder hits.
+  Place place = 1;
+  string name = 2;
+  string address = 3;
+  tokuly.common.v1.LatLng position = 4;
+  optional double distance_meters = 5;
+  // Friends who have visited (Tokuly places only).
+  repeated tokuly.common.v1.UserSummary friends_visited = 6;
+}
+
+message ListPlaceSuggestionsRequest {}
+
+message ListPlaceSuggestionsResponse {
+  repeated PlaceSuggestion suggestions = 1;
+}
+
+message PlaceSuggestion {
+  tokuly.common.v1.LatLng center = 1;
+  string suggested_name = 2;
+  // Guessed role (e.g. HOME after several consecutive nights).
+  PlaceLabel suggested_label = 3;
+  int32 visit_count = 4;
+  int64 total_seconds = 5;
+}
+
+message SavePlaceRequest {
+  string place_id = 1;
+}
+
+message SavePlaceResponse {}
+
+message UnsavePlaceRequest {
+  string place_id = 1;
+}
+
+message UnsavePlaceResponse {}
+
+message ListSavedPlacesRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListSavedPlacesResponse {
+  repeated Place places = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ReverseGeocodeRequest {
+  tokuly.common.v1.LatLng position = 1;
+  // BCP 47 language for names; defaults to the account locale.
+  string language = 2;
+}
+
+message ReverseGeocodeResponse {
+  GeocodeResult result = 1;
+}
+
+message GeocodeResult {
+  // Best short display name, e.g. "渋谷区".
+  string name = 1;
+  string locality = 2;
+  string region = 3;
+  string country = 4;
+  string country_code = 5;
+  string time_zone = 6;
+}
+
+message CheckInRequest {
+  oneof where {
+    string place_id = 1;
+    tokuly.common.v1.LatLng position = 2;
+  }
+  string message = 3;
+  repeated string with_user_ids = 4;
+}
+
+message CheckInResponse {
+  Visit visit = 1;
+}
+
+// ───────────────────────────── History ─────────────────────────────
+
+// The caller's own location log: visits, daily timelines, nights and stats.
+service HistoryService {
+  // Newest first.
+  // Errors: INVALID_RANGE, INVALID_ID, INVALID_CURSOR.
+  rpc ListVisits(ListVisitsRequest) returns (ListVisitsResponse);
+  // Calendar view: which days of a month have activity.
+  // Errors: INVALID_DATE, INVALID_TIME_ZONE.
+  rpc ListActiveDays(ListActiveDaysRequest) returns (ListActiveDaysResponse);
+  // One day: the path travelled, visits, distance and people met.
+  // Errors: INVALID_DATE, INVALID_TIME_ZONE.
+  rpc GetDay(GetDayRequest) returns (GetDayResponse);
+  // Raw-ish points for an animated route replay.
+  // Errors: INVALID_RANGE (both ends are required; at most 31 days).
+  rpc GetRoute(GetRouteRequest) returns (GetRouteResponse);
+  // Diary entry for a day (text and photos). Empty text and no photos
+  // removes the entry.
+  // Errors: INVALID_DATE, TEXT_TOO_LONG, TOO_MANY_PHOTOS, ASSET_NOT_FOUND,
+  // NOT_AN_IMAGE.
+  rpc SetDayMemo(SetDayMemoRequest) returns (SetDayMemoResponse);
+  // Nights: where the caller slept and which friends were there.
+  rpc ListNights(ListNightsRequest) returns (ListNightsResponse);
+  // Errors: INVALID_RANGE.
+  rpc GetStats(GetStatsRequest) returns (GetStatsResponse);
+  // Permanently deletes raw history, visits and footprints in a time range.
+  // An unset end is open: no `from` and no `to` deletes everything.
+  // Errors: INVALID_RANGE.
+  rpc DeleteHistory(DeleteHistoryRequest) returns (DeleteHistoryResponse);
+}
+
+message Visit {
+  string id = 1;
+  // Set when the stay matched a known place.
+  Place place = 2;
+  string name = 3;
+  tokuly.common.v1.LatLng center = 4;
+  google.protobuf.Timestamp arrived_at = 5;
+  // Unset while the visit is ongoing.
+  google.protobuf.Timestamp departed_at = 6;
+  int64 duration_seconds = 7;
+  repeated tokuly.common.v1.UserSummary with_friends = 8;
+  // Created by a manual check-in.
+  bool check_in = 9;
+  string message = 10;
+  string locality = 11;
+}
+
+message ListVisitsRequest {
+  google.protobuf.Timestamp from = 1;
+  google.protobuf.Timestamp to = 2;
+  // Optional: visits to one place.
+  string place_id = 3;
+  tokuly.common.v1.PageRequest page = 4;
+}
+
+message ListVisitsResponse {
+  repeated Visit visits = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListActiveDaysRequest {
+  int32 year = 1;
+  // 1-12.
+  int32 month = 2;
+  // IANA time zone used to cut days; defaults to the account time zone.
+  string time_zone = 3;
+}
+
+message ListActiveDaysResponse {
+  repeated DaySummary days = 1;
+}
+
+message DaySummary {
+  // YYYY-MM-DD.
+  string date = 1;
+  double distance_meters = 2;
+  int32 visit_count = 3;
+  int32 new_cell_count = 4;
+  bool has_memo = 5;
+  // First memo photo, if any.
+  tokuly.common.v1.Image thumbnail = 6;
+  string top_locality = 7;
+}
+
+message GetDayRequest {
+  // YYYY-MM-DD.
+  string date = 1;
+  string time_zone = 2;
+}
+
+message GetDayResponse {
+  DaySummary summary = 1;
+  // Google encoded polyline (precision 5) of the simplified path.
+  string path_polyline = 2;
+  repeated Visit visits = 3;
+  repeated tokuly.common.v1.UserSummary friends_met = 4;
+  DayMemo memo = 5;
+  tokuly.common.v1.BoundingBox bounds = 6;
+  double max_speed_mps = 7;
+}
+
+message DayMemo {
+  string text = 1;
+  repeated tokuly.common.v1.Image photos = 2;
+  google.protobuf.Timestamp updated_at = 3;
+}
+
+message GetRouteRequest {
+  google.protobuf.Timestamp from = 1;
+  google.protobuf.Timestamp to = 2;
+  // Server downsamples to at most this many points (default 2000).
+  int32 max_points = 3;
+}
+
+message GetRouteResponse {
+  repeated RoutePoint points = 1;
+}
+
+message RoutePoint {
+  tokuly.common.v1.LatLng position = 1;
+  google.protobuf.Timestamp recorded_at = 2;
+  double speed_mps = 3;
+  Activity activity = 4;
+}
+
+message SetDayMemoRequest {
+  string date = 1;
+  string text = 2;
+  repeated string photo_asset_ids = 3;
+}
+
+message SetDayMemoResponse {
+  DayMemo memo = 1;
+}
+
+message Night {
+  // The evening's date (YYYY-MM-DD).
+  string date = 1;
+  Place place = 2;
+  string name = 3;
+  tokuly.common.v1.LatLng center = 4;
+  google.protobuf.Timestamp from = 5;
+  google.protobuf.Timestamp to = 6;
+  repeated tokuly.common.v1.UserSummary with_friends = 7;
+  bool at_home = 8;
+}
+
+message ListNightsRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListNightsResponse {
+  repeated Night nights = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message GetStatsRequest {
+  // Unset = all time.
+  google.protobuf.Timestamp from = 1;
+  google.protobuf.Timestamp to = 2;
+}
+
+message GetStatsResponse {
+  double distance_meters = 1;
+  int32 visit_count = 2;
+  int32 place_count = 3;
+  int32 country_count = 4;
+  int32 region_count = 5;
+  int64 cell_count = 6;
+  int32 bump_count = 7;
+  int32 nights_away = 8;
+  double max_speed_mps = 9;
+  // Distance split by activity (walking, driving...).
+  repeated ActivityDistance by_activity = 10;
+  repeated string country_codes = 11;
+}
+
+message ActivityDistance {
+  Activity activity = 1;
+  double distance_meters = 2;
+  int64 duration_seconds = 3;
+}
+
+message DeleteHistoryRequest {
+  google.protobuf.Timestamp from = 1;
+  google.protobuf.Timestamp to = 2;
+  // Also remove footprint cells first uncovered in the range.
+  bool include_footprints = 3;
+}
+
+message DeleteHistoryResponse {}
+
+// ───────────────────────────── Footprints ─────────────────────────────
+
+// The scratch map: every hexagon (H3 cell) a user has ever been in.
+service FootprintService {
+  // Uncovered cells inside a viewport, for drawing fog of war.
+  // Errors: INVALID_BOUNDS, USER_NOT_FOUND, FOOTPRINTS_PRIVATE (the owner
+  // does not show their scratch map to the caller; stats stay available).
+  rpc GetCells(GetCellsRequest) returns (GetCellsResponse);
+  // Percent explored per region (country / prefecture). City-level regions
+  // are not bundled with the server, so REGION_KIND_CITY yields nothing.
+  // Errors: USER_NOT_FOUND, INVALID_LOCATION.
+  rpc GetStats(GetFootprintStatsRequest) returns (GetFootprintStatsResponse);
+  // Ranks the caller's friends, or everyone who shows their scratch map
+  // publicly, by explored share of a region.
+  // Errors: REGION_NOT_FOUND.
+  rpc GetLeaderboard(GetLeaderboardRequest) returns (GetLeaderboardResponse);
+  // What was newly uncovered since the caller last looked.
+  rpc GetRecap(GetRecapRequest) returns (GetRecapResponse);
+}
+
+message GetCellsRequest {
+  // Empty = the caller. Friends see each other's cells; others only stats.
+  string user_id = 1;
+  tokuly.common.v1.BoundingBox bounds = 2;
+  // Map zoom level; the server picks a matching H3 resolution.
+  double zoom = 3;
+}
+
+message GetCellsResponse {
+  // H3 cell indexes as 15-char hex strings.
+  repeated string cells = 1;
+  // H3 resolution of `cells`.
+  int32 resolution = 2;
+  // True when the viewport holds more cells than the server returns at once.
+  bool truncated = 3;
+}
+
+enum RegionKind {
+  REGION_KIND_UNSPECIFIED = 0;
+  REGION_KIND_WORLD = 1;
+  REGION_KIND_COUNTRY = 2;
+  // First-level subdivision: prefecture, state, province.
+  REGION_KIND_ADMIN1 = 3;
+  REGION_KIND_CITY = 4;
+}
+
+message Region {
+  string id = 1;
+  RegionKind kind = 2;
+  string name = 3;
+  // Localized name for the caller's language, when known.
+  string local_name = 4;
+  string country_code = 5;
+  double area_km2 = 6;
+  tokuly.common.v1.LatLng center = 7;
+}
+
+message RegionStat {
+  Region region = 1;
+  // 0-100.
+  double percent = 2;
+  int64 cell_count = 3;
+  double explored_km2 = 4;
+  // Caller's rank among friends in this region (1 = top); 0 when unknown.
+  int32 friend_rank = 5;
+}
+
+message GetFootprintStatsRequest {
+  string user_id = 1;
+  // Optional: restrict to regions of one kind.
+  RegionKind kind = 2;
+  // Optional: only regions containing this point (current map center).
+  tokuly.common.v1.LatLng at = 3;
+}
+
+message GetFootprintStatsResponse {
+  RegionStat world = 1;
+  // Sorted by percent, descending.
+  repeated RegionStat regions = 2;
+  int64 total_cell_count = 3;
+  int32 country_count = 4;
+}
+
+enum LeaderboardScope {
+  LEADERBOARD_SCOPE_UNSPECIFIED = 0;
+  LEADERBOARD_SCOPE_FRIENDS = 1;
+  LEADERBOARD_SCOPE_GLOBAL = 2;
+}
+
+message GetLeaderboardRequest {
+  // Region ID; empty = world.
+  string region_id = 1;
+  LeaderboardScope scope = 2;
+  int32 limit = 3;
+}
+
+message GetLeaderboardResponse {
+  Region region = 1;
+  repeated LeaderboardEntry entries = 2;
+  // The caller's own entry (may be outside the returned top list).
+  LeaderboardEntry me = 3;
+}
+
+message LeaderboardEntry {
+  int32 rank = 1;
+  tokuly.common.v1.UserSummary user = 2;
+  double percent = 3;
+  int64 cell_count = 4;
+}
+
+message GetRecapRequest {
+  // Mark the recap as seen so the next one starts from now.
+  bool mark_seen = 1;
+}
+
+message GetRecapResponse {
+  google.protobuf.Timestamp since = 1;
+  // Newly uncovered cells (finest resolution), capped.
+  repeated string new_cells = 2;
+  int64 new_cell_count = 3;
+  repeated RegionStat regions = 4;
+  // Regions entered for the first time.
+  repeated Region new_regions = 5;
+  double distance_meters = 6;
+  tokuly.common.v1.BoundingBox bounds = 7;
+}
+
+// ───────────────────────────── Trips ─────────────────────────────
+
+// "On my way": live ETA sharing and directions.
+service TripService {
+  // Starts a trip from the caller's current position; an earlier active trip
+  // is cancelled. An unspecified mode means walking.
+  // Errors: MISSING_DESTINATION, INVALID_LOCATION, PLACE_NOT_FOUND,
+  // NOT_FRIENDS (the destination friend or someone the trip is shared with),
+  // DESTINATION_UNAVAILABLE (the friend has no position the caller may see),
+  // LOCATION_UNKNOWN (the server has no position for the caller),
+  // TOO_MANY_USERS, RATE_LIMITED.
+  rpc StartTrip(StartTripRequest) returns (StartTripResponse);
+  // Cancels the caller's trip; a trip that already ended is returned as is.
+  // Errors: TRIP_NOT_FOUND.
+  rpc EndTrip(EndTripRequest) returns (EndTripResponse);
+  // Errors: TRIP_NOT_FOUND (also for trips not shared with the caller).
+  rpc GetTrip(GetTripRequest) returns (GetTripResponse);
+  // The caller's active trip plus friends' trips shared with the caller.
+  rpc ListActiveTrips(ListActiveTripsRequest) returns (ListActiveTripsResponse);
+  // `origin` defaults to the caller's current position.
+  // Errors: MISSING_DESTINATION, INVALID_LOCATION, PLACE_NOT_FOUND,
+  // NOT_FRIENDS, DESTINATION_UNAVAILABLE, LOCATION_UNKNOWN, RATE_LIMITED.
+  rpc GetDirections(GetDirectionsRequest) returns (GetDirectionsResponse);
+}
+
+enum TravelMode {
+  TRAVEL_MODE_UNSPECIFIED = 0;
+  TRAVEL_MODE_WALK = 1;
+  TRAVEL_MODE_BICYCLE = 2;
+  TRAVEL_MODE_DRIVE = 3;
+  TRAVEL_MODE_TRANSIT = 4;
+}
+
+enum TripStatus {
+  TRIP_STATUS_UNSPECIFIED = 0;
+  TRIP_STATUS_ACTIVE = 1;
+  TRIP_STATUS_ARRIVED = 2;
+  TRIP_STATUS_CANCELLED = 3;
+}
+
+message Destination {
+  oneof target {
+    // Heading to a friend: the destination follows them.
+    string user_id = 1;
+    string place_id = 2;
+    tokuly.common.v1.LatLng position = 3;
+  }
+  string name = 4;
+  // Resolved coordinates (filled by the server).
+  tokuly.common.v1.LatLng resolved = 5;
+}
+
+message Trip {
+  string id = 1;
+  tokuly.common.v1.UserSummary user = 2;
+  Destination destination = 3;
+  TravelMode mode = 4;
+  TripStatus status = 5;
+  google.protobuf.Timestamp started_at = 6;
+  google.protobuf.Timestamp eta = 7;
+  double distance_remaining_meters = 8;
+  // Encoded polyline (precision 5) of the planned route.
+  string route_polyline = 9;
+  google.protobuf.Timestamp ended_at = 10;
+  // Empty = shared with all friends.
+  repeated string shared_with_user_ids = 11;
+  // The people the trip is shared with are notified on arrival.
+  bool notify_on_arrival = 12;
+}
+
+message StartTripRequest {
+  Destination destination = 1;
+  TravelMode mode = 2;
+  repeated string share_with_user_ids = 3;
+  // Notify the sharees on arrival.
+  bool notify_on_arrival = 4;
+}
+
+message StartTripResponse {
+  Trip trip = 1;
+}
+
+message EndTripRequest {
+  string trip_id = 1;
+}
+
+message EndTripResponse {
+  Trip trip = 1;
+}
+
+message GetTripRequest {
+  string trip_id = 1;
+}
+
+message GetTripResponse {
+  Trip trip = 1;
+}
+
+message ListActiveTripsRequest {}
+
+message ListActiveTripsResponse {
+  repeated Trip trips = 1;
+}
+
+message GetDirectionsRequest {
+  tokuly.common.v1.LatLng origin = 1;
+  Destination destination = 2;
+  TravelMode mode = 3;
+}
+
+message GetDirectionsResponse {
+  double distance_meters = 1;
+  int32 duration_seconds = 2;
+  string polyline = 3;
+  // "valhalla" when a routing engine is configured, otherwise "estimate"
+  // (straight-line distance with a typical speed for the mode).
+  string provider = 4;
+  repeated DirectionStep steps = 5;
+}
+
+message DirectionStep {
+  string instruction = 1;
+  double distance_meters = 2;
+  int32 duration_seconds = 3;
+}
+
+// ───────────────────────────── Safety ─────────────────────────────
+
+// Place alerts ("tell me when Aoi gets home") and SOS.
+service SafetyService {
+  // One-time alerts take effect immediately and the friend is told; recurring
+  // alerts need the friend's approval first. Alerts never fire while the
+  // friend hides their precise location from the caller (ghost mode).
+  // Errors: NOT_FRIENDS, MISSING_TARGET, PLACE_NOT_FOUND, INVALID_LOCATION,
+  // INVALID_RADIUS (25-1000 m; 0 = default), INVALID_TRIGGER, INVALID_NAME,
+  // SUBJECT_PLACE_UNAVAILABLE (the friend has no such labelled place, or
+  // does not share place labels), TOO_MANY_ALERTS, RATE_LIMITED.
+  rpc CreatePlaceAlert(CreatePlaceAlertRequest) returns (CreatePlaceAlertResponse);
+  // The subject approves or declines a recurring alert.
+  // Errors: ALERT_NOT_FOUND, ALERT_NOT_PENDING.
+  rpc RespondPlaceAlert(RespondPlaceAlertRequest) returns (RespondPlaceAlertResponse);
+  rpc ListPlaceAlerts(ListPlaceAlertsRequest) returns (ListPlaceAlertsResponse);
+  // The owner removes their alert, or the subject removes one about them.
+  // Errors: ALERT_NOT_FOUND.
+  rpc DeletePlaceAlert(DeletePlaceAlertRequest) returns (DeletePlaceAlertResponse);
+
+  // SOS: alerts chosen friends with the caller's precise live location,
+  // overriding ghost mode until resolved. Calling it again while an SOS is
+  // active returns that SOS.
+  // Errors: MESSAGE_TOO_LONG, TOO_MANY_USERS, NOT_FRIENDS, NO_RECIPIENTS (the
+  // caller has no friends to alert), RATE_LIMITED.
+  rpc TriggerSos(TriggerSosRequest) returns (TriggerSosResponse);
+  // Errors: SOS_NOT_FOUND.
+  rpc ResolveSos(ResolveSosRequest) returns (ResolveSosResponse);
+  rpc GetActiveSos(GetActiveSosRequest) returns (GetActiveSosResponse);
+}
+
+enum AlertTrigger {
+  ALERT_TRIGGER_UNSPECIFIED = 0;
+  ALERT_TRIGGER_ARRIVE = 1;
+  ALERT_TRIGGER_LEAVE = 2;
+}
+
+enum AlertStatus {
+  ALERT_STATUS_UNSPECIFIED = 0;
+  ALERT_STATUS_PENDING_APPROVAL = 1;
+  ALERT_STATUS_ACTIVE = 2;
+  ALERT_STATUS_DECLINED = 3;
+  // A one-time alert that already fired.
+  ALERT_STATUS_FIRED = 4;
+  ALERT_STATUS_EXPIRED = 5;
+}
+
+message PlaceAlert {
+  string id = 1;
+  // Who set the alert.
+  tokuly.common.v1.UserSummary owner = 2;
+  // Whose movement triggers it.
+  tokuly.common.v1.UserSummary subject = 3;
+  string place_name = 4;
+  tokuly.common.v1.LatLng center = 5;
+  double radius_meters = 6;
+  AlertTrigger trigger = 7;
+  bool recurring = 8;
+  AlertStatus status = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp last_fired_at = 11;
+  // The subject's own home/work/school by label, without revealing the
+  // address (`center` and `radius_meters` are unset for such alerts).
+  PlaceLabel subject_place_label = 12;
+  // When an alert that is waiting (for approval, or to fire once) lapses.
+  // Unset for approved recurring alerts.
+  google.protobuf.Timestamp expires_at = 13;
+}
+
+message CreatePlaceAlertRequest {
+  string subject_user_id = 1;
+  oneof where {
+    // One of the caller's places.
+    string place_id = 2;
+    tokuly.common.v1.LatLng center = 3;
+    // The subject's own labelled place (e.g. their HOME).
+    PlaceLabel subject_place_label = 4;
+  }
+  double radius_meters = 5;
+  string place_name = 6;
+  AlertTrigger trigger = 7;
+  bool recurring = 8;
+}
+
+message CreatePlaceAlertResponse {
+  PlaceAlert alert = 1;
+}
+
+message RespondPlaceAlertRequest {
+  string alert_id = 1;
+  bool approve = 2;
+}
+
+message RespondPlaceAlertResponse {
+  PlaceAlert alert = 1;
+}
+
+message ListPlaceAlertsRequest {}
+
+message ListPlaceAlertsResponse {
+  // Alerts the caller set on friends.
+  repeated PlaceAlert mine = 1;
+  // Alerts friends set on the caller.
+  repeated PlaceAlert about_me = 2;
+}
+
+message DeletePlaceAlertRequest {
+  string alert_id = 1;
+}
+
+message DeletePlaceAlertResponse {}
+
+message Sos {
+  string id = 1;
+  tokuly.common.v1.UserSummary user = 2;
+  string message = 3;
+  google.protobuf.Timestamp started_at = 4;
+  google.protobuf.Timestamp resolved_at = 5;
+  FriendLocation location = 6;
+  // Who was alerted. Only filled in for the person who triggered the SOS.
+  repeated string notified_user_ids = 7;
+}
+
+message TriggerSosRequest {
+  string message = 1;
+  // Empty = all friends.
+  repeated string notify_user_ids = 2;
+}
+
+message TriggerSosResponse {
+  Sos sos = 1;
+}
+
+message ResolveSosRequest {
+  string sos_id = 1;
+}
+
+message ResolveSosResponse {}
+
+message GetActiveSosRequest {}
+
+message GetActiveSosResponse {
+  // The caller's own active SOS, if any.
+  Sos mine = 1;
+  // Active SOS alerts from friends.
+  repeated Sos friends = 2;
+}
+
+// ───────────────────────────── Realtime events ─────────────────────────────
+
+// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.geo).
+message GeoEvent {
+  oneof event {
+    FriendLocation location = 1;
+    // The user is no longer visible to the recipient.
+    string location_removed_user_id = 2;
+    Gathering gathering_updated = 3;
+    // Gathering dissolved.
+    string gathering_ended_id = 4;
+    Trip trip_updated = 5;
+    PlaceAlert place_alert_updated = 6;
+    PlaceAlertFired place_alert_fired = 7;
+    Sos sos_updated = 8;
+    // A friend arrived at / left a labelled or shared place.
+    VisitEvent visit = 9;
+    // The recipient uncovered new footprint cells.
+    FootprintProgress footprint_progress = 10;
+  }
+}
+
+message PlaceAlertFired {
+  PlaceAlert alert = 1;
+  google.protobuf.Timestamp fired_at = 2;
+}
+
+message VisitEvent {
+  string user_id = 1;
+  bool arrived = 2;
+  PlaceLabel place_label = 3;
+  string place_name = 4;
+  google.protobuf.Timestamp at = 5;
+}
+
+message FootprintProgress {
+  repeated string new_cells = 1;
+  int64 total_cell_count = 2;
+  // Set when a region was entered for the first time.
+  Region new_region = 3;
+}

@@ -1,0 +1,890 @@
+syntax = "proto3";
+
+// Notes (ノート: short posts, "今何してる?") and stories (記憶: a titled set of
+// photos and videos that friends can see for a day).
+//
+// Who may see a note is decided in one place for every RPC here:
+// - the author always sees their own notes;
+// - nobody sees the notes of someone they blocked or who blocked them, nor
+//   those of a suspended account;
+// - PUBLIC notes are visible to everyone, signed in or not;
+// - FRIENDS notes are visible to the author's friends, and a FRIENDS reply
+//   also to the author of the note it answers;
+// - PRIVATE notes are visible to nobody else.
+// A note the caller may not see is indistinguishable from one that does not
+// exist (NOTE_NOT_FOUND, or it is simply absent from lists).
+//
+// Stories are for friends only: see StoryService.
+package tokuly.notes.v1;
+
+import "google/protobuf/timestamp.proto";
+import "tokuly/common/v1/common.proto";
+import "tokuly/media/v1/media.proto";
+
+// ───────────────────────────── Notes ─────────────────────────────
+
+// Posting, reading and reacting to notes, and the note timelines.
+//
+// Reading public notes, user timelines, threads and hashtags works without
+// signing in; everything that changes something needs a signed-in caller.
+// Timelines are cursor-paginated newest first; `page.has_more = false` is
+// where clients show 「最後まで読み切りました」.
+service NoteService {
+  // The posting rules everyone agrees to before their first note, in the
+  // caller's language, and whether the caller has agreed to the current
+  // version. Works anonymously (`agreed` is then false).
+  rpc GetNoteRules(GetNoteRulesRequest) returns (GetNoteRulesResponse);
+  // Records that the caller agrees to the rules. `version` must be the
+  // current one, so nobody agrees to a text they were not shown.
+  // Errors: RULES_VERSION_MISMATCH.
+  rpc AgreeToNoteRules(AgreeToNoteRulesRequest) returns (AgreeToNoteRulesResponse);
+
+  // Posts a note, a reply (`reply_to_id`) or a quote note (`quote_of_id`).
+  // A note needs text, media or a stamp. Notes cannot be edited afterwards:
+  // delete and post again.
+  // Errors: RULES_NOT_ACCEPTED, NOTE_EMPTY, NOTE_TOO_LONG,
+  // TOO_MANY_ATTACHMENTS (more than 4), ATTACHMENTS_MIXED (a video comes
+  // alone), ATTACHMENT_UNSUPPORTED (not an image or a video), ASSET_NOT_FOUND,
+  // ASSET_WRONG_PURPOSE, ASSET_NOT_READY, ASSET_FAILED, STAMP_NOT_USABLE,
+  // INVALID_PLACE, INVALID_VISIBILITY, INVALID_IDEMPOTENCY_KEY, NOTE_NOT_FOUND
+  // (the note replied to or quoted), NOTE_NOT_PUBLIC (only public notes can
+  // be quoted), RATE_LIMITED.
+  rpc CreateNote(CreateNoteRequest) returns (CreateNoteResponse);
+  // Deletes one of the caller's notes. Replies to it stay (they show the
+  // note they answered as unavailable); renotes of it disappear.
+  // Errors: NOTE_NOT_FOUND, NOT_NOTE_AUTHOR.
+  rpc DeleteNote(DeleteNoteRequest) returns (DeleteNoteResponse);
+  // Changes who may see one of the caller's notes. A reply is never shown
+  // more widely than the note it answers; the visibility actually applied is
+  // in the returned note.
+  // Errors: NOTE_NOT_FOUND, NOT_NOTE_AUTHOR, INVALID_VISIBILITY.
+  rpc SetNoteVisibility(SetNoteVisibilityRequest) returns (SetNoteVisibilityResponse);
+  // Pins one of the caller's notes to the top of their profile, replacing
+  // the note pinned before. Errors: NOTE_NOT_FOUND, NOT_NOTE_AUTHOR.
+  rpc PinNote(PinNoteRequest) returns (PinNoteResponse);
+  // Removes the caller's pinned note from their profile, if there is one.
+  rpc UnpinNote(UnpinNoteRequest) returns (UnpinNoteResponse);
+
+  // One note. Errors: NOTE_NOT_FOUND.
+  rpc GetNote(GetNoteRequest) returns (GetNoteResponse);
+  // Several notes at once (at most 100), in the order asked for. Notes that
+  // do not exist or that the caller may not see are left out.
+  // Errors: TOO_MANY_NOTES.
+  rpc BatchGetNotes(BatchGetNotesRequest) returns (BatchGetNotesResponse);
+  // A note in its conversation: the notes it answers, the note itself and
+  // its direct replies (oldest first, paginated). Opening a thread counts
+  // as a view of the note. Errors: NOTE_NOT_FOUND.
+  rpc GetNoteThread(GetNoteThreadRequest) returns (GetNoteThreadResponse);
+  // Quote notes of a note, newest first. Errors: NOTE_NOT_FOUND.
+  rpc ListNoteQuotes(ListNoteQuotesRequest) returns (ListNoteQuotesResponse);
+  // Reports that notes were shown on screen (at most 100 per call). Each
+  // viewer counts once per note every few hours; authors never count
+  // towards their own notes. Works anonymously. Errors: TOO_MANY_NOTES.
+  rpc RecordNoteViews(RecordNoteViewsRequest) returns (RecordNoteViewsResponse);
+
+  // Likes a note. Liking twice changes nothing.
+  // Errors: NOTE_NOT_FOUND, RATE_LIMITED.
+  rpc LikeNote(LikeNoteRequest) returns (LikeNoteResponse);
+  // Takes a like back. Succeeds when the note was not liked.
+  // Errors: NOTE_NOT_FOUND.
+  rpc UnlikeNote(UnlikeNoteRequest) returns (UnlikeNoteResponse);
+  // Renotes (Reノート) a public note to the caller's friends: once per note,
+  // undoable. Renoting twice changes nothing.
+  // Errors: NOTE_NOT_FOUND, NOTE_NOT_PUBLIC, RATE_LIMITED.
+  rpc RenoteNote(RenoteNoteRequest) returns (RenoteNoteResponse);
+  // Takes a renote back. Succeeds when the note was not renoted.
+  // Errors: NOTE_NOT_FOUND.
+  rpc UndoRenote(UndoRenoteRequest) returns (UndoRenoteResponse);
+  // Who liked a note, most recent first. Errors: NOTE_NOT_FOUND.
+  rpc ListNoteLikers(ListNoteLikersRequest) returns (ListNoteLikersResponse);
+  // Who renoted a note, most recent first. Errors: NOTE_NOT_FOUND.
+  rpc ListNoteRenoters(ListNoteRenotersRequest) returns (ListNoteRenotersResponse);
+
+  // The caller's home timeline: notes, quotes and renotes by the caller and
+  // their friends, plus replies exchanged between those people.
+  rpc GetHomeTimeline(GetHomeTimelineRequest) returns (GetHomeTimelineResponse);
+  // Every public note that is not a reply. Works anonymously.
+  rpc GetGlobalTimeline(GetGlobalTimelineRequest) returns (GetGlobalTimelineResponse);
+  // One user's notes as the caller may see them. Works anonymously.
+  // Errors: USER_NOT_FOUND (also when either side blocked the other).
+  rpc GetUserTimeline(GetUserTimelineRequest) returns (GetUserTimelineResponse);
+  // Notes carrying a hashtag. Works anonymously. An unused hashtag gives an
+  // empty timeline. Errors: INVALID_HASHTAG.
+  rpc GetHashtagTimeline(GetHashtagTimelineRequest) returns (GetHashtagTimelineResponse);
+  // Notes that mention the caller or answer one of the caller's notes.
+  rpc GetMentionsTimeline(GetMentionsTimelineRequest) returns (GetMentionsTimelineResponse);
+  // Hashtags that many different people are using in public notes right
+  // now, best first. Recomputed every few minutes. Works anonymously.
+  rpc ListTrendingHashtags(ListTrendingHashtagsRequest) returns (ListTrendingHashtagsResponse);
+  // Hashtags starting with what the user typed, most used first: completion
+  // while writing a note. Works anonymously. Errors: RATE_LIMITED.
+  rpc SearchHashtags(SearchHashtagsRequest) returns (SearchHashtagsResponse);
+}
+
+// A short post.
+message Note {
+  string id = 1;
+  tokuly.common.v1.UserSummary author = 2;
+  // At most 300 characters. May be empty when the note has media or a stamp.
+  string text = 3;
+  // Up to 4 images, or exactly one video.
+  repeated tokuly.media.v1.Attachment attachments = 4;
+  // Unset when the note has no stamp or the stamp is no longer available.
+  tokuly.common.v1.StampRef stamp = 5;
+  PlaceTag place = 6;
+  // PUBLIC, FRIENDS or PRIVATE.
+  tokuly.common.v1.Visibility visibility = 7;
+  // The author marked the note as sensitive: clients hide text and media
+  // behind a tap.
+  bool content_warning = 8;
+  // Set when the note is a reply.
+  ReplyTarget reply_to = 9;
+  // Set when the note quotes another note.
+  QuotedNote quote = 10;
+  // Hashtags found in the text, normalized (lowercase, no '#'), in order of
+  // appearance. Clients link `#tag` in the text to the hashtag timeline.
+  repeated string hashtags = 11;
+  // `@handle` mentions in the text that name existing users.
+  repeated Mention mentions = 12;
+  // Preview of the first link in the text. It may arrive a moment after the
+  // note was posted (NotesEvent.link_preview_resolved).
+  tokuly.media.v1.LinkPreview link_preview = 13;
+  NoteCounters counters = 14;
+  // What the caller did with the note. Unset for anonymous callers.
+  NoteViewerState viewer = 15;
+  // The author pinned this note to their profile.
+  bool pinned = 16;
+  google.protobuf.Timestamp created_at = 17;
+}
+
+// A place a note is tagged with. The client supplies it (from the map or a
+// place search); the server only checks its shape.
+message PlaceTag {
+  // Display name, 1–100 characters.
+  string name = 1;
+  tokuly.common.v1.LatLng location = 2;
+  // ID of the place in the map's place directory when the user picked one
+  // there, so the tag can open the place page. Optional.
+  string place_id = 3;
+}
+
+// Engagement numbers of a note. Also pushed live (NotesEvent.counters_changed).
+message NoteCounters {
+  string note_id = 1;
+  int64 reply_count = 2;
+  int64 renote_count = 3;
+  int64 quote_count = 4;
+  int64 like_count = 5;
+  int64 view_count = 6;
+}
+
+message NoteViewerState {
+  bool liked = 1;
+  bool renoted = 2;
+}
+
+// An `@handle` in a note's text that names a user.
+message Mention {
+  // The handle as written in the text, lowercased, without '@'.
+  string handle = 1;
+  string user_id = 2;
+}
+
+// The note a reply answers.
+message ReplyTarget {
+  string note_id = 1;
+  // Author of that note; known even after the note was deleted, so
+  // 「返信先: @handle」 keeps rendering.
+  tokuly.common.v1.UserSummary author = 2;
+  // The note was deleted or the caller may not see it.
+  bool unavailable = 3;
+}
+
+// The note a quote note shows underneath its own text.
+message QuotedNote {
+  string note_id = 1;
+  // The quoted note (without the note it quotes in turn). Unset when
+  // `unavailable`.
+  Note note = 2;
+  // The note was deleted or the caller may not see it.
+  bool unavailable = 3;
+}
+
+// One row of a timeline: a note, possibly there because someone renoted it.
+message TimelineEntry {
+  Note note = 1;
+  // Set when this row is a renote: who renoted the note, and when.
+  RenoteInfo renote = 2;
+}
+
+message RenoteInfo {
+  tokuly.common.v1.UserSummary user = 1;
+  google.protobuf.Timestamp renoted_at = 2;
+}
+
+// One rule of the posting rules.
+message NoteRule {
+  string title = 1;
+  string body = 2;
+}
+
+message GetNoteRulesRequest {}
+
+message GetNoteRulesResponse {
+  // Version of the rules below. Agreeing names it.
+  int32 version = 1;
+  repeated NoteRule rules = 2;
+  // The caller agreed to this version and may post.
+  bool agreed = 3;
+  // The version the caller agreed to last (0 = never). When it is older
+  // than `version` the rules changed since: 「ルールが更新されたよ」.
+  int32 agreed_version = 4;
+  google.protobuf.Timestamp agreed_at = 5;
+}
+
+message AgreeToNoteRulesRequest {
+  // The version shown to the user (GetNoteRulesResponse.version).
+  int32 version = 1;
+}
+
+message AgreeToNoteRulesResponse {
+  google.protobuf.Timestamp agreed_at = 1;
+}
+
+message CreateNoteRequest {
+  string text = 1;
+  // Uploads made for notes (NOTE_IMAGE / NOTE_VIDEO), in display order.
+  repeated string asset_ids = 2;
+  // A stamp the caller may send. Optional.
+  string stamp_id = 3;
+  PlaceTag place = 4;
+  // PUBLIC, FRIENDS or PRIVATE. UNSPECIFIED uses the caller's default
+  // (privacy setting `default_note_visibility`). A reply is narrowed to the
+  // visibility of the note it answers.
+  tokuly.common.v1.Visibility visibility = 5;
+  // Makes the note a reply to this note.
+  string reply_to_id = 6;
+  // Makes the note a quote of this (public) note.
+  string quote_of_id = 7;
+  bool content_warning = 8;
+  // Optional client-generated key (at most 64 characters) that makes a
+  // retried request safe: posting again with the same key within 10
+  // minutes returns the note created the first time.
+  string idempotency_key = 9;
+}
+
+message CreateNoteResponse {
+  Note note = 1;
+}
+
+message DeleteNoteRequest {
+  string note_id = 1;
+}
+
+message DeleteNoteResponse {}
+
+message SetNoteVisibilityRequest {
+  string note_id = 1;
+  tokuly.common.v1.Visibility visibility = 2;
+}
+
+message SetNoteVisibilityResponse {
+  Note note = 1;
+}
+
+message PinNoteRequest {
+  string note_id = 1;
+}
+
+message PinNoteResponse {}
+
+message UnpinNoteRequest {}
+
+message UnpinNoteResponse {}
+
+message GetNoteRequest {
+  string note_id = 1;
+}
+
+message GetNoteResponse {
+  Note note = 1;
+}
+
+message BatchGetNotesRequest {
+  repeated string note_ids = 1;
+}
+
+message BatchGetNotesResponse {
+  repeated Note notes = 1;
+}
+
+message GetNoteThreadRequest {
+  string note_id = 1;
+  // Pages through the replies.
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message GetNoteThreadResponse {
+  // The notes this one answers, the start of the conversation first. The
+  // chain ends early at a note that was deleted or that the caller may not
+  // see. Only on the first page.
+  repeated Note ancestors = 1;
+  Note note = 2;
+  // Direct replies, oldest first.
+  repeated Note replies = 3;
+  tokuly.common.v1.PageInfo page = 4;
+}
+
+message ListNoteQuotesRequest {
+  string note_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListNoteQuotesResponse {
+  repeated Note notes = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message RecordNoteViewsRequest {
+  repeated string note_ids = 1;
+}
+
+message RecordNoteViewsResponse {}
+
+message LikeNoteRequest {
+  string note_id = 1;
+}
+
+message LikeNoteResponse {
+  NoteCounters counters = 1;
+}
+
+message UnlikeNoteRequest {
+  string note_id = 1;
+}
+
+message UnlikeNoteResponse {
+  NoteCounters counters = 1;
+}
+
+message RenoteNoteRequest {
+  string note_id = 1;
+}
+
+message RenoteNoteResponse {
+  NoteCounters counters = 1;
+}
+
+message UndoRenoteRequest {
+  string note_id = 1;
+}
+
+message UndoRenoteResponse {
+  NoteCounters counters = 1;
+}
+
+message ListNoteLikersRequest {
+  string note_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListNoteLikersResponse {
+  repeated tokuly.common.v1.UserSummary users = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListNoteRenotersRequest {
+  string note_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListNoteRenotersResponse {
+  repeated tokuly.common.v1.UserSummary users = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message GetHomeTimelineRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message GetHomeTimelineResponse {
+  repeated TimelineEntry entries = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message GetGlobalTimelineRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message GetGlobalTimelineResponse {
+  repeated TimelineEntry entries = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// The tabs of a profile's note list.
+enum UserTimelineFilter {
+  // Same as NOTES.
+  USER_TIMELINE_FILTER_UNSPECIFIED = 0;
+  // Notes, quotes and renotes; no replies.
+  USER_TIMELINE_FILTER_NOTES = 1;
+  // Everything the user posted or renoted, replies included.
+  USER_TIMELINE_FILTER_WITH_REPLIES = 2;
+  // The user's notes that carry images or a video.
+  USER_TIMELINE_FILTER_MEDIA = 3;
+  // Notes the user liked, most recently liked first.
+  USER_TIMELINE_FILTER_LIKES = 4;
+}
+
+message GetUserTimelineRequest {
+  string user_id = 1;
+  UserTimelineFilter filter = 2;
+  tokuly.common.v1.PageRequest page = 3;
+}
+
+message GetUserTimelineResponse {
+  repeated TimelineEntry entries = 1;
+  tokuly.common.v1.PageInfo page = 2;
+  // The user's pinned note, when the caller may see it. Only on the first
+  // page of the NOTES tab; the note may appear again in `entries`.
+  Note pinned_note = 3;
+}
+
+// A hashtag and how much it is used.
+message Hashtag {
+  // Normalized: lowercase, no '#'.
+  string tag = 1;
+  // Public notes carrying it.
+  int64 note_count = 2;
+}
+
+message GetHashtagTimelineRequest {
+  // With or without the leading '#'; any case.
+  string tag = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message GetHashtagTimelineResponse {
+  Hashtag hashtag = 1;
+  repeated TimelineEntry entries = 2;
+  tokuly.common.v1.PageInfo page = 3;
+}
+
+message GetMentionsTimelineRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message GetMentionsTimelineResponse {
+  repeated TimelineEntry entries = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message TrendingHashtag {
+  Hashtag hashtag = 1;
+  // 1 = hottest.
+  int32 rank = 2;
+  // Public notes carrying it within the trend window (the last day).
+  int64 recent_note_count = 3;
+}
+
+message ListTrendingHashtagsRequest {
+  // 0 = 10; at most 50.
+  int32 limit = 1;
+}
+
+message ListTrendingHashtagsResponse {
+  repeated TrendingHashtag hashtags = 1;
+  // When the ranking was computed.
+  google.protobuf.Timestamp computed_at = 2;
+}
+
+message SearchHashtagsRequest {
+  // What the user typed after '#'.
+  string prefix = 1;
+  // 0 = 10; at most 30.
+  int32 limit = 2;
+}
+
+message SearchHashtagsResponse {
+  repeated Hashtag hashtags = 1;
+}
+
+// ───────────────────────────── Stories ─────────────────────────────
+
+// Stories (記憶): a title plus 1–10 photos or videos, shown to the owner's
+// friends for 24 hours and then kept in the owner's archive.
+//
+// Who may see a story:
+// - the owner, always (the archive);
+// - friends of the owner (never across a block), while the story is live
+//   or for as long as the owner keeps it in a highlight — and, for a
+//   CLOSE_FRIENDS story, only the friends the owner chose.
+// Everyone else gets STORY_NOT_FOUND. Every RPC needs a signed-in caller.
+// Replies to a story are ordinary direct messages (tokuly.chat.v1) that
+// quote it.
+service StoryService {
+  // Posts a story.
+  // Errors: STORY_EMPTY, TOO_MANY_ITEMS (more than 10), TITLE_TOO_LONG,
+  // CAPTION_TOO_LONG, ATTACHMENT_UNSUPPORTED (not an image or a video),
+  // ASSET_NOT_FOUND, ASSET_WRONG_PURPOSE, ASSET_NOT_READY, ASSET_FAILED,
+  // AUDIENCE_EMPTY, AUDIENCE_TOO_LARGE, AUDIENCE_NOT_FRIENDS,
+  // INVALID_IDEMPOTENCY_KEY, RATE_LIMITED.
+  rpc CreateStory(CreateStoryRequest) returns (CreateStoryResponse);
+  // Deletes one of the caller's stories, live or archived, from everywhere
+  // (highlights included). Errors: STORY_NOT_FOUND.
+  rpc DeleteStory(DeleteStoryRequest) returns (DeleteStoryResponse);
+  // One story. Errors: STORY_NOT_FOUND.
+  rpc GetStory(GetStoryRequest) returns (GetStoryResponse);
+  // The story tray: the caller and every friend with live stories the
+  // caller may see. The caller's own reel comes first, then friends with
+  // stories the caller has not seen, then the rest; newest first within
+  // each group.
+  rpc GetStoryTray(GetStoryTrayRequest) returns (GetStoryTrayResponse);
+  // The live stories of one user that the caller may see, oldest first
+  // (the order they play in). Empty when there are none to show.
+  rpc ListUserStories(ListUserStoriesRequest) returns (ListUserStoriesResponse);
+  // Records that the caller watched a story. The first time counts as a
+  // view and adds the caller to the owner's viewer list; the owner's own
+  // views are ignored. Errors: STORY_NOT_FOUND.
+  rpc MarkStoryViewed(MarkStoryViewedRequest) returns (MarkStoryViewedResponse);
+  // Who watched one of the caller's stories and how they reacted, most
+  // recent first. Errors: STORY_NOT_FOUND (also for other people's stories).
+  rpc ListStoryViewers(ListStoryViewersRequest) returns (ListStoryViewersResponse);
+  // Reacts to a friend's story with one emoji; reacting again replaces the
+  // emoji. Reacting also counts as having watched the story.
+  // Errors: STORY_NOT_FOUND, INVALID_REACTION, CANNOT_REACT_TO_OWN_STORY,
+  // RATE_LIMITED.
+  rpc ReactToStory(ReactToStoryRequest) returns (ReactToStoryResponse);
+  // Takes the caller's reaction back. Succeeds when there was none.
+  // Errors: STORY_NOT_FOUND.
+  rpc RemoveStoryReaction(RemoveStoryReactionRequest) returns (RemoveStoryReactionResponse);
+
+  // The days of one month on which the caller posted stories, for the
+  // archive calendar. Days are counted in the caller's time zone.
+  // Errors: INVALID_MONTH.
+  rpc GetStoryCalendar(GetStoryCalendarRequest) returns (GetStoryCalendarResponse);
+  // The caller's own stories, live and archived, newest first; optionally
+  // only those of one day. Errors: INVALID_DATE.
+  rpc ListArchivedStories(ListArchivedStoriesRequest) returns (ListArchivedStoriesResponse);
+
+  // Creates a highlight: a titled group of the caller's stories that stays
+  // on their profile.
+  // Errors: TITLE_INVALID, HIGHLIGHT_EMPTY, TOO_MANY_STORIES,
+  // TOO_MANY_HIGHLIGHTS, STORY_NOT_FOUND (a story that is not the caller's).
+  rpc CreateHighlight(CreateHighlightRequest) returns (CreateHighlightResponse);
+  // Replaces the title and the stories of a highlight.
+  // Errors: HIGHLIGHT_NOT_FOUND, TITLE_INVALID, HIGHLIGHT_EMPTY,
+  // TOO_MANY_STORIES, STORY_NOT_FOUND.
+  rpc UpdateHighlight(UpdateHighlightRequest) returns (UpdateHighlightResponse);
+  // Removes a highlight from the profile. Its stories stay in the archive.
+  // Errors: HIGHLIGHT_NOT_FOUND.
+  rpc DeleteHighlight(DeleteHighlightRequest) returns (DeleteHighlightResponse);
+  // Sets the order of the caller's highlights on their profile. The request
+  // must name each of them exactly once. Errors: HIGHLIGHTS_MISMATCH.
+  rpc ReorderHighlights(ReorderHighlightsRequest) returns (ReorderHighlightsResponse);
+  // The highlights on a user's profile that hold at least one story the
+  // caller may see. Empty for people who are not the user's friends.
+  rpc ListHighlights(ListHighlightsRequest) returns (ListHighlightsResponse);
+  // One highlight with the stories in it that the caller may see.
+  // Errors: HIGHLIGHT_NOT_FOUND.
+  rpc GetHighlight(GetHighlightRequest) returns (GetHighlightResponse);
+}
+
+// Who a story is shown to.
+enum StoryAudience {
+  // Same as FRIENDS.
+  STORY_AUDIENCE_UNSPECIFIED = 0;
+  // Every friend of the owner.
+  STORY_AUDIENCE_FRIENDS = 1;
+  // Only the friends the owner picked for this story ("親しい友達").
+  STORY_AUDIENCE_CLOSE_FRIENDS = 2;
+}
+
+// A story (記憶).
+message Story {
+  string id = 1;
+  tokuly.common.v1.UserSummary owner = 2;
+  // At most 140 characters; may be empty.
+  string title = 3;
+  // 1–10 photos or videos, in playing order.
+  repeated StoryItem items = 4;
+  StoryAudience audience = 5;
+  google.protobuf.Timestamp created_at = 6;
+  // When the story leaves the tray (24 hours after posting).
+  google.protobuf.Timestamp expires_at = 7;
+  // The story is past `expires_at`: only its owner sees it, plus friends
+  // through a highlight.
+  bool expired = 8;
+  // The caller watched the story.
+  bool viewed = 9;
+  // The caller's reaction emoji; empty when none.
+  string my_reaction = 10;
+  // The fields below are filled in for the owner only.
+  //
+  // People who watched the story.
+  int32 view_count = 11;
+  // People who reacted to it.
+  int32 reaction_count = 12;
+  // The chosen friends of a CLOSE_FRIENDS story.
+  repeated string audience_user_ids = 13;
+  // The story is in at least one highlight.
+  bool highlighted = 14;
+}
+
+// One photo or video of a story.
+message StoryItem {
+  tokuly.media.v1.Attachment media = 1;
+  // At most 200 characters; may be empty.
+  string caption = 2;
+}
+
+// The live stories of one person, as shown in the story tray.
+message StoryReel {
+  tokuly.common.v1.UserSummary user = 1;
+  // Oldest first (the order they play in).
+  repeated Story stories = 2;
+  // At least one of the stories was not watched by the caller yet.
+  bool has_unseen = 3;
+  // When the newest story was posted.
+  google.protobuf.Timestamp latest_at = 4;
+}
+
+// One entry of a story's viewer list.
+message StoryViewer {
+  tokuly.common.v1.UserSummary user = 1;
+  google.protobuf.Timestamp viewed_at = 2;
+  // Their reaction emoji; empty when none.
+  string reaction = 3;
+}
+
+// One day of the archive calendar.
+message StoryDay {
+  // Calendar date in the caller's time zone, `YYYY-MM-DD`.
+  string date = 1;
+  int32 story_count = 2;
+  // Picture of the day: the first photo (or video poster) posted that day.
+  tokuly.common.v1.Image cover = 3;
+}
+
+// A titled group of stories pinned to a profile.
+message Highlight {
+  string id = 1;
+  string owner_id = 2;
+  // 1–30 characters.
+  string title = 3;
+  // First photo (or video poster) of the first story the caller may see.
+  tokuly.common.v1.Image cover = 4;
+  // Stories in the highlight that the caller may see.
+  int32 story_count = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message StoryItemInput {
+  // An upload made for stories (purpose STORY): an image or a video.
+  string asset_id = 1;
+  string caption = 2;
+}
+
+message CreateStoryRequest {
+  string title = 1;
+  repeated StoryItemInput items = 2;
+  StoryAudience audience = 3;
+  // For CLOSE_FRIENDS: the friends who may see the story (1–150, all of
+  // them friends of the caller). Ignored otherwise.
+  repeated string audience_user_ids = 4;
+  // Optional client-generated key (at most 64 characters): posting again
+  // with the same key within 10 minutes returns the first story.
+  // INVALID_IDEMPOTENCY_KEY when longer.
+  string idempotency_key = 5;
+}
+
+message CreateStoryResponse {
+  Story story = 1;
+}
+
+message DeleteStoryRequest {
+  string story_id = 1;
+}
+
+message DeleteStoryResponse {}
+
+message GetStoryRequest {
+  string story_id = 1;
+}
+
+message GetStoryResponse {
+  Story story = 1;
+}
+
+message GetStoryTrayRequest {}
+
+message GetStoryTrayResponse {
+  repeated StoryReel reels = 1;
+}
+
+message ListUserStoriesRequest {
+  string user_id = 1;
+}
+
+message ListUserStoriesResponse {
+  repeated Story stories = 1;
+}
+
+message MarkStoryViewedRequest {
+  string story_id = 1;
+}
+
+message MarkStoryViewedResponse {}
+
+message ListStoryViewersRequest {
+  string story_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListStoryViewersResponse {
+  repeated StoryViewer viewers = 1;
+  tokuly.common.v1.PageInfo page = 2;
+  int32 view_count = 3;
+  int32 reaction_count = 4;
+}
+
+message ReactToStoryRequest {
+  string story_id = 1;
+  // Exactly one emoji.
+  string emoji = 2;
+}
+
+message ReactToStoryResponse {}
+
+message RemoveStoryReactionRequest {
+  string story_id = 1;
+}
+
+message RemoveStoryReactionResponse {}
+
+message GetStoryCalendarRequest {
+  int32 year = 1;
+  // 1–12.
+  int32 month = 2;
+}
+
+message GetStoryCalendarResponse {
+  // Days with at least one story, in ascending order.
+  repeated StoryDay days = 1;
+}
+
+message ListArchivedStoriesRequest {
+  tokuly.common.v1.PageRequest page = 1;
+  // Only stories posted on this day (`YYYY-MM-DD`, the caller's time zone).
+  // Empty = all of them.
+  string date = 2;
+}
+
+message ListArchivedStoriesResponse {
+  repeated Story stories = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message CreateHighlightRequest {
+  string title = 1;
+  // The caller's stories, in playing order (1–100).
+  repeated string story_ids = 2;
+}
+
+message CreateHighlightResponse {
+  Highlight highlight = 1;
+}
+
+message UpdateHighlightRequest {
+  string highlight_id = 1;
+  string title = 2;
+  // The complete new list of stories, in playing order (1–100).
+  repeated string story_ids = 3;
+}
+
+message UpdateHighlightResponse {
+  Highlight highlight = 1;
+}
+
+message DeleteHighlightRequest {
+  string highlight_id = 1;
+}
+
+message DeleteHighlightResponse {}
+
+message ReorderHighlightsRequest {
+  // Every highlight of the caller, in the new order.
+  repeated string highlight_ids = 1;
+}
+
+message ReorderHighlightsResponse {}
+
+message ListHighlightsRequest {
+  string user_id = 1;
+}
+
+message ListHighlightsResponse {
+  repeated Highlight highlights = 1;
+}
+
+message GetHighlightRequest {
+  string highlight_id = 1;
+}
+
+message GetHighlightResponse {
+  Highlight highlight = 1;
+  // In playing order.
+  repeated Story stories = 2;
+}
+
+// ───────────────────────────── Realtime ─────────────────────────────
+
+// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.notes).
+//
+// The first three events are topic-scoped: clients showing a note subscribe
+// to `subject:3:<note_id>` (3 = SUBJECT_TYPE_NOTE) and get its numbers live.
+// The topic is open to anyone who knows the note's ID, so it only ever
+// carries numbers and IDs, plus content that is public anyway.
+// The story events are user-scoped and need no subscription.
+message NotesEvent {
+  oneof event {
+    // Topic: likes, renotes, replies or quotes of the note changed. Views
+    // alone do not trigger a push; the view count rides along with the next
+    // one.
+    NoteCounters counters_changed = 1;
+    // Topic: the note was deleted. The value is its ID.
+    string note_deleted_id = 2;
+    // The preview of the note's first link is ready. Sent to the author, and
+    // to the topic when the note is public.
+    NoteLinkPreview link_preview_resolved = 3;
+    // To everyone a new story is shown to: a friend posted it.
+    Story story_posted = 4;
+    // To the same people: the story was deleted before it expired.
+    StoryRef story_deleted = 5;
+    // To the owner: someone reacted to their story.
+    StoryReaction story_reaction = 6;
+    // To the owner: someone new watched their story.
+    StoryViewCount story_viewed = 7;
+  }
+}
+
+message NoteLinkPreview {
+  string note_id = 1;
+  tokuly.media.v1.LinkPreview link_preview = 2;
+}
+
+message StoryRef {
+  string story_id = 1;
+  string owner_id = 2;
+}
+
+message StoryReaction {
+  string story_id = 1;
+  tokuly.common.v1.UserSummary user = 2;
+  string emoji = 3;
+  google.protobuf.Timestamp reacted_at = 4;
+}
+
+message StoryViewCount {
+  string story_id = 1;
+  int32 view_count = 2;
+}

@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+// Vertical short videos and the swipe feed.
+//
+// SKELETON: the owning domain implements this file. Keep the package name
+// and the realtime event message name stable; everything else is yours.
+package tokuly.shorts.v1;
+
+import "tokuly/common/v1/common.proto";
+
+// Placeholder message so the file is a valid module member.
+message ShortsPlaceholder {
+  tokuly.common.v1.SubjectRef subject = 1;
+}

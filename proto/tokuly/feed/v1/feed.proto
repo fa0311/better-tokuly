@@ -1,0 +1,751 @@
+syntax = "proto3";
+
+// Feed: the activity log ("ログ"), map stories, the home feed, personalised
+// news and recaps.
+//
+// Nothing here is written by clients directly. Every backend domain reports
+// what a user did through the `activity.recorded` event; this domain stores
+// it once and serves it in several shapes:
+//
+// - the user's own log (everything, private entries included);
+// - the profile activity list and the friends' feed, filtered by each entry's
+//   audience and by the owner's per-kind visibility preferences;
+// - map stories: entries with a location from the last 48 hours, grouped per
+//   friend into reels;
+// - the home feed: friends' entries that point at content, as typed cards;
+// - recaps: monthly / yearly numbers computed from the user's own log.
+//
+// Activity kinds are dotted names chosen by the producing domain
+// (`account.joined`, `social.bumped`, `note.posted`, `live.started`...).
+// Wherever a "kind prefix" is accepted, `social` matches `social.bumped` and
+// `social.friend_added`, and `social.bumped` matches only itself.
+//
+// News is separate from activities: articles come from RSS/Atom sources
+// managed by admins and are ranked per user from their click history.
+// Product announcements (the update log) live in `tokuly.admin.v1`.
+package tokuly.feed.v1;
+
+import "google/protobuf/timestamp.proto";
+import "tokuly/common/v1/common.proto";
+
+// ───────────────────────────── Activity log ─────────────────────────────
+
+// The activity log, the profile activity list and the friends' feed.
+service ActivityService {
+  // The caller's own log: everything they did, private entries included,
+  // newest first. Clients group the entries by day.
+  // Errors: INVALID_CURSOR, INVALID_KIND, INVALID_RANGE.
+  rpc ListMyActivity(ListMyActivityRequest) returns (ListMyActivityResponse);
+  // Removes one entry of the caller's log. It disappears everywhere: the
+  // profile, friends' feeds, map stories and recaps.
+  // Errors: INVALID_ID, ACTIVITY_NOT_FOUND.
+  rpc DeleteActivity(DeleteActivityRequest) returns (DeleteActivityResponse);
+  // Removes the caller's entries inside a time range, optionally only those
+  // of one kind. Errors: RANGE_REQUIRED, INVALID_RANGE, INVALID_KIND,
+  // RATE_LIMITED.
+  rpc ClearActivity(ClearActivityRequest) returns (ClearActivityResponse);
+  // The activity list on a profile, newest first, as far as the caller may
+  // see it: the owner sees everything, friends see friends-only and public
+  // entries, everyone else (signed in or not) only public ones. Kinds the
+  // owner hid are left out for everyone but the owner.
+  // Errors: INVALID_ID, INVALID_CURSOR, INVALID_KIND, USER_NOT_FOUND (also
+  // when either side blocked the other).
+  rpc ListUserActivity(ListUserActivityRequest) returns (ListUserActivityResponse);
+  // What the caller's friends have been doing, newest first. Entries of the
+  // same kind by the same friend in quick succession are collapsed into one
+  // card. Errors: INVALID_CURSOR, INVALID_KIND.
+  rpc ListFriendsActivity(ListFriendsActivityRequest) returns (ListFriendsActivityResponse);
+  // Which kinds of the caller's activity friends get to see.
+  rpc GetActivityPreferences(GetActivityPreferencesRequest) returns (GetActivityPreferencesResponse);
+  // Hides a kind of activity from everyone but the caller, or shows it
+  // again. Applies to past entries too; nothing is deleted. Hiding a kind
+  // prefix (`geo`) covers everything below it; a kind covered that way can
+  // only be shown again by showing the prefix.
+  // Errors: INVALID_KIND, TOO_MANY_HIDDEN_KINDS, KIND_HIDDEN_BY_PREFIX,
+  // RATE_LIMITED.
+  rpc SetActivityKindVisibility(SetActivityKindVisibilityRequest) returns (SetActivityKindVisibilityResponse);
+}
+
+// Who may see an activity entry.
+enum ActivityAudience {
+  ACTIVITY_AUDIENCE_UNSPECIFIED = 0;
+  // Only the person who did it (their own log).
+  ACTIVITY_AUDIENCE_PRIVATE = 1;
+  // Their friends.
+  ACTIVITY_AUDIENCE_FRIENDS = 2;
+  // Anyone.
+  ACTIVITY_AUDIENCE_PUBLIC = 3;
+}
+
+// Something a user did.
+message Activity {
+  string id = 1;
+  // Who did it.
+  tokuly.common.v1.UserSummary actor = 2;
+  // Dotted kind chosen by the producing domain, e.g. `social.bumped`.
+  string kind = 3;
+  // Name of the kind in the caller's language, e.g. "バンプ".
+  string kind_label = 4;
+  ActivityAudience audience = 5;
+  // What it is about, when the producing domain said so. This domain does
+  // not load the subject; clients link to it through `path`.
+  tokuly.common.v1.SubjectRef subject = 6;
+  // Other people involved (e.g. the friend who was bumped). People hidden
+  // from the caller by a block are left out.
+  repeated tokuly.common.v1.UserSummary with_users = 7;
+  // One-line description in the caller's language, shown as-is by clients
+  // that have no template of their own for `kind`.
+  string summary = 8;
+  // Path in the app to open when tapped, e.g. `/watch/<id>`. May be empty.
+  string path = 9;
+  // Optional preview image.
+  string image_url = 10;
+  // Where it happened; unset when the entry has no location.
+  tokuly.common.v1.LatLng location = 11;
+  // Extra structured data from the producing domain as a JSON document;
+  // empty when there is none.
+  string data_json = 12;
+  google.protobuf.Timestamp occurred_at = 13;
+  // Only set in the caller's own log: the caller hid this kind, so nobody
+  // else sees the entry whatever its audience.
+  bool hidden_from_others = 14;
+}
+
+// What a feed card is about, so clients can pick a layout and a link target
+// without parsing kinds.
+enum ActivityCardType {
+  // No special layout: show the summary.
+  ACTIVITY_CARD_TYPE_UNSPECIFIED = 0;
+  ACTIVITY_CARD_TYPE_NOTE = 1;
+  ACTIVITY_CARD_TYPE_STORY = 2;
+  ACTIVITY_CARD_TYPE_VIDEO = 3;
+  ACTIVITY_CARD_TYPE_SHORT = 4;
+  ACTIVITY_CARD_TYPE_LIVE = 5;
+  ACTIVITY_CARD_TYPE_CLIP = 6;
+  ACTIVITY_CARD_TYPE_PLAYLIST = 7;
+  // Two friends bumped.
+  ACTIVITY_CARD_TYPE_BUMP = 8;
+  // Two people became friends.
+  ACTIVITY_CARD_TYPE_FRIENDSHIP = 9;
+  // A place: first visit, check-in, a new favourite...
+  ACTIVITY_CARD_TYPE_PLACE = 10;
+  // A newly explored region (country, prefecture, city).
+  ACTIVITY_CARD_TYPE_REGION = 11;
+  ACTIVITY_CARD_TYPE_STAMP_PACK = 12;
+  ACTIVITY_CARD_TYPE_CHANNEL = 13;
+  // Someone joined Tokuly.
+  ACTIVITY_CARD_TYPE_JOINED = 14;
+}
+
+// One card of the friends' feed or the home feed: an entry, plus the older
+// entries of the same kind by the same person that were collapsed into it.
+message ActivityCard {
+  ActivityCardType type = 1;
+  // The newest entry of the burst.
+  Activity activity = 2;
+  // How many entries the card stands for (1 when nothing was collapsed).
+  int32 count = 3;
+  // The next few older entries of the burst, newest first (at most 4), for
+  // layouts such as a row of thumbnails.
+  repeated Activity more = 4;
+}
+
+message ListMyActivityRequest {
+  // Optional: only kinds matching this prefix (see the file comment).
+  string kind_prefix = 1;
+  // Optional time range: `from` inclusive, `to` exclusive.
+  google.protobuf.Timestamp from = 2;
+  google.protobuf.Timestamp to = 3;
+  tokuly.common.v1.PageRequest page = 4;
+}
+
+message ListMyActivityResponse {
+  repeated Activity activities = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message DeleteActivityRequest {
+  string activity_id = 1;
+}
+
+message DeleteActivityResponse {}
+
+message ClearActivityRequest {
+  // `from` inclusive, `to` exclusive. Either may be left unset for an open
+  // end; leaving both unset needs `everything`.
+  google.protobuf.Timestamp from = 1;
+  google.protobuf.Timestamp to = 2;
+  // Optional: only kinds matching this prefix.
+  string kind_prefix = 3;
+  // Confirms that the whole log is meant when no range is given.
+  bool everything = 4;
+}
+
+message ClearActivityResponse {
+  int32 deleted_count = 1;
+}
+
+message ListUserActivityRequest {
+  string user_id = 1;
+  // Optional: only kinds matching this prefix.
+  string kind_prefix = 2;
+  tokuly.common.v1.PageRequest page = 3;
+}
+
+message ListUserActivityResponse {
+  repeated Activity activities = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListFriendsActivityRequest {
+  // Optional: only kinds matching this prefix.
+  string kind_prefix = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListFriendsActivityResponse {
+  repeated ActivityCard cards = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// Whether one kind of the caller's activity is shown to other people.
+message ActivityKindPreference {
+  // A kind (`social.bumped`) or a kind prefix (`geo`).
+  string kind = 1;
+  // Name of the kind in the caller's language.
+  string label = 2;
+  // False: only the caller sees entries of this kind.
+  bool visible_to_others = 3;
+  // How many entries of this kind the caller's log holds.
+  int32 entry_count = 4;
+}
+
+message GetActivityPreferencesRequest {}
+
+message GetActivityPreferencesResponse {
+  // Well-known kinds, every kind found in the caller's log and every kind
+  // the caller hid, sorted by label.
+  repeated ActivityKindPreference kinds = 1;
+}
+
+message SetActivityKindVisibilityRequest {
+  // A kind or a kind prefix.
+  string kind = 1;
+  bool visible_to_others = 2;
+}
+
+message SetActivityKindVisibilityResponse {
+  // The preferences after the change.
+  repeated ActivityKindPreference kinds = 1;
+}
+
+// ───────────────────────────── Map stories ─────────────────────────────
+
+// Map stories: what friends did somewhere during the last 48 hours, built
+// automatically from their activity. Nobody is told who watched.
+service MapStoryService {
+  // The reels of the caller's friends: reels with something unseen first,
+  // then by recency. Also returns the caller's own reel, as friends see it.
+  // Errors: INVALID_ID, USER_NOT_FOUND (the requested user is neither the
+  // caller nor a friend of theirs; a friend without stories gives an empty
+  // list).
+  rpc ListMapStories(ListMapStoriesRequest) returns (ListMapStoriesResponse);
+  // Which friends have map stories, and how many the caller has not seen:
+  // the row of avatars above the map.
+  rpc GetMapStoryTray(GetMapStoryTrayRequest) returns (GetMapStoryTrayResponse);
+  // Remembers that the caller watched these story items. Items that are not
+  // (or no longer) visible to the caller as a map story are ignored.
+  // Errors: IDS_REQUIRED, TOO_MANY_IDS, INVALID_ID, RATE_LIMITED.
+  rpc MarkMapStorySeen(MarkMapStorySeenRequest) returns (MarkMapStorySeenResponse);
+}
+
+// One activity in a reel.
+message MapStoryItem {
+  // Always has a location.
+  Activity activity = 1;
+  // The caller watched it before.
+  bool seen = 2;
+}
+
+// One person's map stories.
+message MapStoryReel {
+  tokuly.common.v1.UserSummary user = 1;
+  // Oldest first, the order a reel plays in.
+  repeated MapStoryItem items = 2;
+  int32 unseen_count = 3;
+  // Time and place of the newest item: where the reel sits on the map.
+  google.protobuf.Timestamp latest_at = 4;
+  tokuly.common.v1.LatLng latest_location = 5;
+}
+
+message ListMapStoriesRequest {
+  // Optional: only the reel of this friend (or of the caller).
+  string user_id = 1;
+}
+
+message ListMapStoriesResponse {
+  repeated MapStoryReel reels = 1;
+  // The caller's own reel as their friends see it; unset when empty. Its
+  // items are never counted as unseen.
+  MapStoryReel my_reel = 2;
+  // How far back map stories reach, in hours.
+  int32 window_hours = 3;
+}
+
+// A friend in the story tray.
+message MapStoryTrayEntry {
+  tokuly.common.v1.UserSummary user = 1;
+  int32 item_count = 2;
+  int32 unseen_count = 3;
+  google.protobuf.Timestamp latest_at = 4;
+  tokuly.common.v1.LatLng latest_location = 5;
+  // Image of the newest item that has one; may be empty.
+  string preview_image_url = 6;
+}
+
+message GetMapStoryTrayRequest {}
+
+message GetMapStoryTrayResponse {
+  // Friends with something unseen first, then by recency.
+  repeated MapStoryTrayEntry entries = 1;
+  // How many friends have at least one unseen item (the badge).
+  int32 unseen_reel_count = 2;
+}
+
+message MarkMapStorySeenRequest {
+  // At most 200 activity IDs.
+  repeated string activity_ids = 1;
+}
+
+message MarkMapStorySeenResponse {
+  // Items newly marked as seen.
+  int32 marked_count = 1;
+}
+
+// ───────────────────────────── Home feed ─────────────────────────────
+
+// The home screen timeline.
+service HomeFeedService {
+  // One mixed timeline of the caller's friends' notes, stories, lives,
+  // videos, shorts, bumps and new places, as typed cards. Ordered by recency,
+  // with bursts collapsed, duplicates of the same subject dropped and cards
+  // of one person spread out so nobody fills the screen alone.
+  // Errors: INVALID_CURSOR.
+  rpc ListHomeFeed(ListHomeFeedRequest) returns (ListHomeFeedResponse);
+}
+
+message ListHomeFeedRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListHomeFeedResponse {
+  // Every card has a type other than UNSPECIFIED.
+  repeated ActivityCard cards = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// ───────────────────────────── News ─────────────────────────────
+
+// News articles collected from RSS/Atom feeds, ranked for each reader.
+//
+// Opening an article (`RecordNewsClick`) and explicit feedback raise or lower
+// the reader's interest in the article's tags; interests fade over time. The
+// recommended order mixes in a share of random recent articles, each flagged
+// `random_pick`, so readers keep seeing things outside their bubble.
+service NewsService {
+  // A page of articles. Signed-in readers get the recommended order unless
+  // they ask for the latest; anonymous readers, and any request filtered by
+  // tag or source, get the latest first. A cursor continues the list it came
+  // from: keep the order and the filters the same while paging.
+  // Errors: INVALID_CURSOR, INVALID_ID, INVALID_TAG, INVALID_LANGUAGE.
+  rpc ListNews(ListNewsRequest) returns (ListNewsResponse);
+  // One article with its tags and source (the "about this news" sheet).
+  // Public. Errors: INVALID_ID, NEWS_ARTICLE_NOT_FOUND.
+  rpc GetNewsArticle(GetNewsArticleRequest) returns (GetNewsArticleResponse);
+  // Records that the reader opened an article. For signed-in readers the
+  // first click on an article raises their interest in its tags. Public.
+  // Errors: INVALID_ID, NEWS_ARTICLE_NOT_FOUND, RATE_LIMITED.
+  rpc RecordNewsClick(RecordNewsClickRequest) returns (RecordNewsClickResponse);
+  // "More like this" / "less like this" on an article; UNSPECIFIED takes the
+  // feedback back. Errors: INVALID_ID, INVALID_FEEDBACK,
+  // NEWS_ARTICLE_NOT_FOUND, RATE_LIMITED.
+  rpc SendNewsFeedback(SendNewsFeedbackRequest) returns (SendNewsFeedbackResponse);
+  // The reader's strongest interests (signed in), and the tags most common
+  // among recent articles (everyone).
+  rpc ListNewsTags(ListNewsTagsRequest) returns (ListNewsTagsResponse);
+  // Forgets the reader's interests and feedback, optionally the click
+  // history too. Recommendations start from scratch.
+  rpc ResetNewsInterests(ResetNewsInterestsRequest) returns (ResetNewsInterestsResponse);
+  // The sources articles come from, for filters. Public.
+  rpc ListNewsSources(ListNewsSourcesRequest) returns (ListNewsSourcesResponse);
+}
+
+// Where an article comes from.
+message NewsSource {
+  string id = 1;
+  // Name of the site, e.g. "ITmedia NEWS".
+  string name = 2;
+  // Home page of the site.
+  string site_url = 3;
+  // Icon of the site; may be empty.
+  string favicon_url = 4;
+  // Language of the source as a BCP 47 tag, e.g. "ja".
+  string language = 5;
+}
+
+// Explicit feedback on an article.
+enum NewsFeedback {
+  NEWS_FEEDBACK_UNSPECIFIED = 0;
+  // "More like this".
+  NEWS_FEEDBACK_MORE = 1;
+  // "Less like this".
+  NEWS_FEEDBACK_LESS = 2;
+}
+
+message NewsArticle {
+  string id = 1;
+  string title = 2;
+  // The article on the source's site.
+  string url = 3;
+  // Plain-text excerpt; may be empty.
+  string summary = 4;
+  // Lead image taken from the feed; may be empty.
+  string image_url = 5;
+  NewsSource source = 6;
+  // Lowercase tags: the source's tags, the feed's categories and keyword matches.
+  repeated string tags = 7;
+  google.protobuf.Timestamp published_at = 8;
+  // The article was picked at random rather than for the reader's interests
+  // ("このニュースはあなたの好みとは別にランダムに取得されたニュースです。").
+  bool random_pick = 9;
+  // The reader opened it before.
+  bool clicked = 10;
+  // The reader's explicit feedback.
+  NewsFeedback feedback = 11;
+  // Path of the article page in the app: `/news/articles/<id>`.
+  string path = 12;
+  // How often the article was opened.
+  int64 click_count = 13;
+  int64 like_count = 14;
+  int64 comment_count = 15;
+}
+
+// How a list of articles is ordered.
+enum NewsOrder {
+  // RECOMMENDED for signed-in readers, LATEST for anonymous ones.
+  NEWS_ORDER_UNSPECIFIED = 0;
+  // Ranked by the reader's interests and freshness, with random picks mixed in.
+  NEWS_ORDER_RECOMMENDED = 1;
+  // Newest first.
+  NEWS_ORDER_LATEST = 2;
+}
+
+message ListNewsRequest {
+  tokuly.common.v1.PageRequest page = 1;
+  NewsOrder order = 2;
+  // Optional: only articles carrying this tag (always newest first).
+  string tag = 3;
+  // Optional: only articles of this source (always newest first).
+  string source_id = 4;
+  // Optional: only articles of sources in this language, e.g. "ja".
+  string language = 5;
+}
+
+message ListNewsResponse {
+  repeated NewsArticle articles = 1;
+  tokuly.common.v1.PageInfo page = 2;
+  // The page is in the recommended order.
+  bool recommended = 3;
+}
+
+message GetNewsArticleRequest {
+  string article_id = 1;
+}
+
+message GetNewsArticleResponse {
+  NewsArticle article = 1;
+}
+
+message RecordNewsClickRequest {
+  string article_id = 1;
+}
+
+message RecordNewsClickResponse {}
+
+message SendNewsFeedbackRequest {
+  string article_id = 1;
+  NewsFeedback feedback = 2;
+}
+
+message SendNewsFeedbackResponse {}
+
+// How much a reader cares about a tag.
+message NewsInterest {
+  string tag = 1;
+  // Current strength after time decay; negative for tags the reader asked to
+  // see less of.
+  double score = 2;
+}
+
+// How common a tag is among recent articles.
+message NewsTagCount {
+  string tag = 1;
+  int32 article_count = 2;
+}
+
+message ListNewsTagsRequest {
+  // Most entries per list; 0 means 20, at most 100.
+  int32 limit = 1;
+}
+
+message ListNewsTagsResponse {
+  // The reader's interests, strongest first. Empty for anonymous readers.
+  repeated NewsInterest interests = 1;
+  // Tags the reader asked to see less of, most avoided first.
+  repeated NewsInterest avoided = 2;
+  // Most common tags among recent articles.
+  repeated NewsTagCount popular = 3;
+}
+
+message ResetNewsInterestsRequest {
+  // Also forget which articles the reader opened.
+  bool clear_history = 1;
+}
+
+message ResetNewsInterestsResponse {}
+
+message ListNewsSourcesRequest {}
+
+message ListNewsSourcesResponse {
+  // Enabled sources by name.
+  repeated NewsSource sources = 1;
+}
+
+// News source management. Every RPC needs the `admin` role, except
+// `RemoveNewsArticle`, which moderators may call too.
+service NewsAdminService {
+  // Every source with its fetch state (at most 500 exist).
+  rpc ListManagedNewsSources(ListManagedNewsSourcesRequest) returns (ListManagedNewsSourcesResponse);
+  // Adds an RSS/Atom feed and queues its first fetch.
+  // Errors: INVALID_FEED_URL, FEED_URL_NOT_ALLOWED (not http(s), credentials
+  // in the URL, a non-default port, or a private address), INVALID_NAME,
+  // INVALID_SITE_URL, INVALID_LANGUAGE, INVALID_TAG, TOO_MANY_TAGS,
+  // NEWS_SOURCE_EXISTS, TOO_MANY_NEWS_SOURCES.
+  rpc CreateNewsSource(CreateNewsSourceRequest) returns (CreateNewsSourceResponse);
+  // Changes a source. A new feed URL forgets the conditional-request state
+  // and queues a fetch; so does switching a source back on. An empty name or
+  // site URL hands that field back to the feed. Errors: INVALID_ID,
+  // NEWS_SOURCE_NOT_FOUND plus those of CreateNewsSource.
+  rpc UpdateNewsSource(UpdateNewsSourceRequest) returns (UpdateNewsSourceResponse);
+  // Removes a source together with its articles.
+  // Errors: NEWS_SOURCE_NOT_FOUND.
+  rpc DeleteNewsSource(DeleteNewsSourceRequest) returns (DeleteNewsSourceResponse);
+  // Queues a fetch of one source, or of every enabled source, right away.
+  // Errors: INVALID_ID, NEWS_SOURCE_NOT_FOUND, NEWS_SOURCE_DISABLED,
+  // RATE_LIMITED.
+  rpc RefreshNewsSources(RefreshNewsSourcesRequest) returns (RefreshNewsSourcesResponse);
+  // Takes one article out of every list and out of search (roles: `admin`,
+  // `moderator`). It is not fetched again. Errors: NEWS_ARTICLE_NOT_FOUND.
+  rpc RemoveNewsArticle(RemoveNewsArticleRequest) returns (RemoveNewsArticleResponse);
+}
+
+// A source as admins see it.
+message ManagedNewsSource {
+  string id = 1;
+  string name = 2;
+  // The RSS/Atom feed that is fetched.
+  string feed_url = 3;
+  string site_url = 4;
+  string favicon_url = 5;
+  string language = 6;
+  // Tags given to every article of the source.
+  repeated string default_tags = 7;
+  // Disabled sources are not fetched and their articles are not listed.
+  bool enabled = 8;
+  // The source was created from `TOKULY_NEWS_FEEDS`.
+  bool from_config = 9;
+  // Last attempt, successful or not.
+  google.protobuf.Timestamp last_fetched_at = 10;
+  google.protobuf.Timestamp last_success_at = 11;
+  // Why the last attempt failed; empty after a success.
+  string last_error = 12;
+  int32 consecutive_failures = 13;
+  google.protobuf.Timestamp next_fetch_at = 14;
+  // Articles currently stored for the source.
+  int32 article_count = 15;
+  google.protobuf.Timestamp created_at = 16;
+  google.protobuf.Timestamp updated_at = 17;
+}
+
+message ListManagedNewsSourcesRequest {}
+
+message ListManagedNewsSourcesResponse {
+  repeated ManagedNewsSource sources = 1;
+}
+
+message CreateNewsSourceRequest {
+  string feed_url = 1;
+  // Empty: the feed's host name until the first fetch, then the feed's title.
+  string name = 2;
+  // Empty: taken from the feed on the first fetch.
+  string site_url = 3;
+  // BCP 47 tag; empty means "ja".
+  string language = 4;
+  // At most 10 tags.
+  repeated string default_tags = 5;
+  // Create the source without fetching it yet.
+  bool disabled = 6;
+}
+
+message CreateNewsSourceResponse {
+  ManagedNewsSource source = 1;
+}
+
+// A list of tags that can be told apart from "not set".
+message NewsTagList {
+  repeated string tags = 1;
+}
+
+message UpdateNewsSourceRequest {
+  string source_id = 1;
+  optional string name = 2;
+  optional string feed_url = 3;
+  optional string site_url = 4;
+  optional string language = 5;
+  // Replaces the default tags when set.
+  NewsTagList default_tags = 6;
+  optional bool enabled = 7;
+}
+
+message UpdateNewsSourceResponse {
+  ManagedNewsSource source = 1;
+}
+
+message DeleteNewsSourceRequest {
+  string source_id = 1;
+}
+
+message DeleteNewsSourceResponse {}
+
+message RefreshNewsSourcesRequest {
+  // Empty: every enabled source.
+  string source_id = 1;
+}
+
+message RefreshNewsSourcesResponse {
+  // Fetches queued.
+  int32 queued_count = 1;
+}
+
+message RemoveNewsArticleRequest {
+  string article_id = 1;
+}
+
+message RemoveNewsArticleResponse {}
+
+// ───────────────────────────── Recaps ─────────────────────────────
+
+// "Your month / your year on Tokuly": numbers and highlights from the
+// caller's own activity log.
+service RecapService {
+  // The recap of the month or year containing `anchor_date`, in the caller's
+  // time zone. A period that is still running is recapped so far.
+  // Errors: PERIOD_REQUIRED, INVALID_DATE, RECAP_IN_FUTURE.
+  rpc GetRecap(GetRecapRequest) returns (GetRecapResponse);
+}
+
+enum RecapPeriod {
+  RECAP_PERIOD_UNSPECIFIED = 0;
+  RECAP_PERIOD_MONTH = 1;
+  RECAP_PERIOD_YEAR = 2;
+}
+
+message GetRecapRequest {
+  RecapPeriod period = 1;
+  // Any day inside the period as `YYYY-MM-DD`; empty means today.
+  string anchor_date = 2;
+}
+
+message GetRecapResponse {
+  Recap recap = 1;
+}
+
+message Recap {
+  RecapPeriod period = 1;
+  // Title in the caller's language, e.g. "2026年10月のまとめ".
+  string title = 2;
+  // First and last day of the period (`YYYY-MM-DD`, both inclusive) in `time_zone`.
+  string start_date = 3;
+  string end_date = 4;
+  // IANA time zone the days are counted in (the caller's).
+  string time_zone = 5;
+  // The period is over; the numbers will not grow anymore.
+  bool complete = 6;
+  // Entries in the caller's log during the period.
+  int32 activity_count = 7;
+  // Days with at least one entry.
+  int32 active_day_count = 8;
+  // Entries per kind, most frequent first.
+  repeated RecapKindCount kinds = 9;
+  int32 bump_count = 10;
+  // The friend the caller bumped most; unset without bumps.
+  RecapFriend most_bumped_friend = 11;
+  // Up to 5 friends by number of bumps, the most bumped first.
+  repeated RecapFriend top_bump_friends = 12;
+  int32 new_friend_count = 13;
+  // Up to 12 of the new friends, the most recent first.
+  repeated tokuly.common.v1.UserSummary new_friends = 14;
+  // Distinct places the caller's entries refer to.
+  int32 place_count = 15;
+  // Names of up to 10 of those places, the most frequent first.
+  repeated string place_names = 16;
+  // Distinct regions newly explored.
+  int32 region_count = 17;
+  repeated string region_names = 18;
+  // Distinct areas (roughly 1 km cells) where something happened.
+  int32 area_count = 19;
+  // The day with the most entries; unset for an empty period.
+  RecapDay busiest_day = 20;
+  // Every day with at least one entry, in order (for a calendar heat map).
+  repeated RecapDay days = 21;
+  // Ready-made sentences in the caller's language, most interesting first.
+  repeated RecapHighlight highlights = 22;
+  google.protobuf.Timestamp generated_at = 23;
+}
+
+message RecapKindCount {
+  string kind = 1;
+  // Name of the kind in the caller's language.
+  string label = 2;
+  int32 count = 3;
+}
+
+message RecapFriend {
+  tokuly.common.v1.UserSummary user = 1;
+  int32 count = 2;
+}
+
+message RecapDay {
+  // `YYYY-MM-DD` in the recap's time zone.
+  string date = 1;
+  int32 count = 2;
+}
+
+enum RecapHighlightType {
+  RECAP_HIGHLIGHT_TYPE_UNSPECIFIED = 0;
+  RECAP_HIGHLIGHT_TYPE_TOTAL_ACTIVITY = 1;
+  RECAP_HIGHLIGHT_TYPE_TOP_KIND = 2;
+  RECAP_HIGHLIGHT_TYPE_MOST_BUMPED_FRIEND = 3;
+  RECAP_HIGHLIGHT_TYPE_NEW_FRIENDS = 4;
+  RECAP_HIGHLIGHT_TYPE_PLACES = 5;
+  RECAP_HIGHLIGHT_TYPE_REGIONS = 6;
+  RECAP_HIGHLIGHT_TYPE_BUSIEST_DAY = 7;
+}
+
+// One line of a recap, e.g. "一番バンプした友達はさくらさん！(12回)".
+message RecapHighlight {
+  RecapHighlightType type = 1;
+  string text = 2;
+  // The number the sentence is about, for count-up animations.
+  int32 value = 3;
+}

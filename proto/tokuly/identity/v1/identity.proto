@@ -1,0 +1,724 @@
+syntax = "proto3";
+
+// Accounts, authentication, sessions, profiles and per-account settings.
+package tokuly.identity.v1;
+
+import "google/protobuf/timestamp.proto";
+import "tokuly/common/v1/common.proto";
+
+// ───────────────────────────── Auth ─────────────────────────────
+
+// Unauthenticated entry points plus token lifecycle.
+//
+// Token model: a short-lived access token (JWT, EdDSA, ~15 min) sent as
+// `Authorization: Bearer`, and a rotating opaque refresh token. Web clients
+// send `x-tokuly-client: web`; the server then stores the refresh token in an
+// HttpOnly cookie and leaves `refresh_token` empty in responses.
+service AuthService {
+  rpc SignUp(SignUpRequest) returns (AuthResponse);
+  rpc SignIn(SignInRequest) returns (AuthResponse);
+  // Exchanges a refresh token (body or cookie) for a new token pair.
+  rpc RefreshToken(RefreshTokenRequest) returns (AuthResponse);
+  rpc SignOut(SignOutRequest) returns (SignOutResponse);
+
+  rpc CheckHandle(CheckHandleRequest) returns (CheckHandleResponse);
+
+  // Passkeys (WebAuthn). Option/response payloads are the standard WebAuthn
+  // JSON objects, passed through as strings.
+  rpc BeginPasskeyRegistration(BeginPasskeyRegistrationRequest) returns (BeginPasskeyRegistrationResponse);
+  rpc FinishPasskeyRegistration(FinishPasskeyRegistrationRequest) returns (FinishPasskeyRegistrationResponse);
+  rpc BeginPasskeySignIn(BeginPasskeySignInRequest) returns (BeginPasskeySignInResponse);
+  rpc FinishPasskeySignIn(FinishPasskeySignInRequest) returns (AuthResponse);
+
+  rpc RequestEmailVerification(RequestEmailVerificationRequest) returns (RequestEmailVerificationResponse);
+  rpc VerifyEmail(VerifyEmailRequest) returns (VerifyEmailResponse);
+  rpc RequestPasswordReset(RequestPasswordResetRequest) returns (RequestPasswordResetResponse);
+  rpc ResetPassword(ResetPasswordRequest) returns (ResetPasswordResponse);
+
+  // Device login: an app without a browser session (desktop Studio, TV, CLI)
+  // shows `user_code` / a QR of `verification_url`, the user approves it from a
+  // signed-in client, and the app polls until tokens are issued. Tokens never
+  // travel through URLs.
+  rpc StartDeviceLogin(StartDeviceLoginRequest) returns (StartDeviceLoginResponse);
+  rpc PollDeviceLogin(PollDeviceLoginRequest) returns (PollDeviceLoginResponse);
+  rpc GetDeviceLogin(GetDeviceLoginRequest) returns (GetDeviceLoginResponse);
+  rpc ApproveDeviceLogin(ApproveDeviceLoginRequest) returns (ApproveDeviceLoginResponse);
+}
+
+message ClientInfo {
+  tokuly.common.v1.Platform platform = 1;
+  // Human readable device name, e.g. "Pixel 10" or "Chrome on macOS".
+  string device_name = 2;
+  string app_version = 3;
+  // Stable per-install identifier used to de-duplicate sessions.
+  string device_id = 4;
+  // BCP 47 language tag preferred by the device.
+  string locale = 5;
+  // IANA time zone, e.g. "Asia/Tokyo".
+  string time_zone = 6;
+}
+
+message SignUpRequest {
+  string email = 1;
+  string password = 2;
+  string handle = 3;
+  string display_name = 4;
+  // ISO date (YYYY-MM-DD). Used for the minimum-age check.
+  string birthdate = 5;
+  ClientInfo client = 6;
+  // Optional invite code; the inviter gets an "intro" and a friend suggestion.
+  string invite_code = 7;
+  // The user accepted the terms of service and community rules.
+  bool accept_terms = 8;
+}
+
+message SignInRequest {
+  // Email address or handle.
+  string identifier = 1;
+  string password = 2;
+  // Required when the account has TOTP enabled and `mfa_required` was returned.
+  string totp_code = 3;
+  ClientInfo client = 4;
+}
+
+message AuthResponse {
+  string access_token = 1;
+  // Empty for web clients (stored in an HttpOnly cookie instead).
+  string refresh_token = 2;
+  google.protobuf.Timestamp access_token_expires_at = 3;
+  Me me = 4;
+  // Set instead of tokens when a second factor is needed.
+  bool mfa_required = 5;
+  string session_id = 6;
+}
+
+message RefreshTokenRequest {
+  // Empty for web clients (cookie is used).
+  string refresh_token = 1;
+}
+
+message SignOutRequest {
+  // Also revoke every other session of this account.
+  bool all_sessions = 1;
+}
+
+message SignOutResponse {}
+
+message CheckHandleRequest {
+  string handle = 1;
+}
+
+message CheckHandleResponse {
+  bool available = 1;
+  // Normalized form the server would store.
+  string normalized = 2;
+  // INVALID_FORMAT | TAKEN | RESERVED when not available.
+  string reason = 3;
+}
+
+message BeginPasskeyRegistrationRequest {
+  // Label shown in the passkey list, e.g. "MacBook Touch ID".
+  string name = 1;
+}
+
+message BeginPasskeyRegistrationResponse {
+  string challenge_id = 1;
+  // PublicKeyCredentialCreationOptions as JSON.
+  string options_json = 2;
+}
+
+message FinishPasskeyRegistrationRequest {
+  string challenge_id = 1;
+  // RegistrationResponseJSON from navigator.credentials.create().
+  string credential_json = 2;
+}
+
+message FinishPasskeyRegistrationResponse {
+  Passkey passkey = 1;
+}
+
+message BeginPasskeySignInRequest {
+  // Optional: narrows allowed credentials. Empty enables discoverable login.
+  string identifier = 1;
+}
+
+message BeginPasskeySignInResponse {
+  string challenge_id = 1;
+  // PublicKeyCredentialRequestOptions as JSON.
+  string options_json = 2;
+}
+
+message FinishPasskeySignInRequest {
+  string challenge_id = 1;
+  // AuthenticationResponseJSON from navigator.credentials.get().
+  string credential_json = 2;
+  ClientInfo client = 3;
+}
+
+message RequestEmailVerificationRequest {}
+
+message RequestEmailVerificationResponse {}
+
+message VerifyEmailRequest {
+  string token = 1;
+}
+
+message VerifyEmailResponse {}
+
+message RequestPasswordResetRequest {
+  string email = 1;
+}
+
+// Always succeeds to avoid leaking whether an email is registered.
+message RequestPasswordResetResponse {}
+
+message ResetPasswordRequest {
+  string token = 1;
+  string new_password = 2;
+}
+
+message ResetPasswordResponse {}
+
+message StartDeviceLoginRequest {
+  ClientInfo client = 1;
+}
+
+message StartDeviceLoginResponse {
+  // Secret held by the device; used for polling.
+  string device_code = 1;
+  // Short code the user confirms, e.g. "TKLY-4827".
+  string user_code = 2;
+  // URL to open (or encode as QR) on a signed-in device.
+  string verification_url = 3;
+  int32 expires_in_seconds = 4;
+  int32 poll_interval_seconds = 5;
+}
+
+message PollDeviceLoginRequest {
+  string device_code = 1;
+}
+
+message PollDeviceLoginResponse {
+  DeviceLoginStatus status = 1;
+  // Present when status is APPROVED.
+  AuthResponse auth = 2;
+}
+
+enum DeviceLoginStatus {
+  DEVICE_LOGIN_STATUS_UNSPECIFIED = 0;
+  DEVICE_LOGIN_STATUS_PENDING = 1;
+  DEVICE_LOGIN_STATUS_APPROVED = 2;
+  DEVICE_LOGIN_STATUS_DENIED = 3;
+  DEVICE_LOGIN_STATUS_EXPIRED = 4;
+}
+
+message GetDeviceLoginRequest {
+  string user_code = 1;
+}
+
+message GetDeviceLoginResponse {
+  ClientInfo client = 1;
+  DeviceLoginStatus status = 2;
+  google.protobuf.Timestamp expires_at = 3;
+}
+
+message ApproveDeviceLoginRequest {
+  string user_code = 1;
+  // False denies the request.
+  bool approve = 2;
+}
+
+message ApproveDeviceLoginResponse {}
+
+// ───────────────────────────── Account ─────────────────────────────
+
+// Everything about the signed-in account itself.
+service AccountService {
+  rpc GetMe(GetMeRequest) returns (GetMeResponse);
+  rpc UpdateProfile(UpdateProfileRequest) returns (UpdateProfileResponse);
+  rpc SetStatus(SetStatusRequest) returns (SetStatusResponse);
+
+  rpc GetSettings(GetSettingsRequest) returns (GetSettingsResponse);
+  rpc UpdateSettings(UpdateSettingsRequest) returns (UpdateSettingsResponse);
+
+  rpc ChangePassword(ChangePasswordRequest) returns (ChangePasswordResponse);
+  rpc ChangeEmail(ChangeEmailRequest) returns (ChangeEmailResponse);
+
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+  rpc RevokeSession(RevokeSessionRequest) returns (RevokeSessionResponse);
+
+  rpc ListPasskeys(ListPasskeysRequest) returns (ListPasskeysResponse);
+  rpc DeletePasskey(DeletePasskeyRequest) returns (DeletePasskeyResponse);
+
+  // TOTP two-factor authentication.
+  rpc BeginTotpSetup(BeginTotpSetupRequest) returns (BeginTotpSetupResponse);
+  rpc EnableTotp(EnableTotpRequest) returns (EnableTotpResponse);
+  rpc DisableTotp(DisableTotpRequest) returns (DisableTotpResponse);
+
+  // Security log: sign-ins, password changes, new devices, etc.
+  rpc ListSecurityEvents(ListSecurityEventsRequest) returns (ListSecurityEventsResponse);
+
+  // Account deletion has a 30 day grace period during which signing in
+  // cancels it.
+  rpc RequestAccountDeletion(RequestAccountDeletionRequest) returns (RequestAccountDeletionResponse);
+  rpc CancelAccountDeletion(CancelAccountDeletionRequest) returns (CancelAccountDeletionResponse);
+
+  // Starts an asynchronous export of all personal data; the finished archive
+  // is delivered as a notification with a download link.
+  rpc RequestDataExport(RequestDataExportRequest) returns (RequestDataExportResponse);
+
+  // Third-party connections (e.g. Spotify for "now playing").
+  rpc ListConnections(ListConnectionsRequest) returns (ListConnectionsResponse);
+  rpc BeginConnection(BeginConnectionRequest) returns (BeginConnectionResponse);
+  rpc FinishConnection(FinishConnectionRequest) returns (FinishConnectionResponse);
+  rpc DeleteConnection(DeleteConnectionRequest) returns (DeleteConnectionResponse);
+}
+
+// The signed-in user's full account.
+message Me {
+  tokuly.common.v1.UserSummary user = 1;
+  string email = 2;
+  bool email_verified = 3;
+  string bio = 4;
+  tokuly.common.v1.Image banner = 5;
+  google.protobuf.Timestamp created_at = 6;
+  bool totp_enabled = 7;
+  int32 passkey_count = 8;
+  bool has_password = 9;
+  // Account roles: "admin", "moderator", "staff".
+  repeated string roles = 10;
+  // Set while the account is scheduled for deletion.
+  google.protobuf.Timestamp deletion_scheduled_at = 11;
+  Status status = 12;
+  string birthdate = 13;
+  // Feature flags evaluated for this user (name -> enabled).
+  map<string, bool> features = 14;
+  string locale = 15;
+  string time_zone = 16;
+}
+
+// Ephemeral mood/status shown on the profile and next to the map pin.
+message Status {
+  string emoji = 1;
+  string text = 2;
+  google.protobuf.Timestamp expires_at = 3;
+  google.protobuf.Timestamp set_at = 4;
+}
+
+message GetMeRequest {}
+
+message GetMeResponse {
+  Me me = 1;
+}
+
+message UpdateProfileRequest {
+  optional string display_name = 1;
+  optional string handle = 2;
+  optional string bio = 3;
+  // Media asset IDs from tokuly.media.v1.MediaService uploads. Empty string clears.
+  optional string avatar_asset_id = 4;
+  optional string avatar_video_asset_id = 5;
+  optional string banner_asset_id = 6;
+  optional string locale = 7;
+  optional string time_zone = 8;
+  // School shown as a badge on the profile and used for "same school"
+  // friend suggestions. Empty string clears it.
+  optional string school_name = 9;
+}
+
+message UpdateProfileResponse {
+  Me me = 1;
+}
+
+message SetStatusRequest {
+  // Empty emoji and text clears the status.
+  string emoji = 1;
+  string text = 2;
+  // 0 keeps the status until cleared.
+  int32 expires_in_seconds = 3;
+}
+
+message SetStatusResponse {
+  Status status = 1;
+}
+
+// Who is allowed to do something.
+enum Audience {
+  AUDIENCE_UNSPECIFIED = 0;
+  AUDIENCE_EVERYONE = 1;
+  AUDIENCE_FRIENDS_OF_FRIENDS = 2;
+  AUDIENCE_FRIENDS = 3;
+  AUDIENCE_NOBODY = 4;
+}
+
+message PrivacySettings {
+  // Who may send friend requests.
+  Audience friend_requests_from = 1;
+  // Who may see the friend list.
+  Audience friend_list_visible_to = 2;
+  // Who may see the scratch map (footprints) in full; others get percentages only.
+  Audience footprints_visible_to = 3;
+  // Appear in "people you may know" and contact matching.
+  bool discoverable = 4;
+  // Appear in nearby discovery (within ~50 m) while the add-friend screen is open.
+  bool nearby_discoverable = 5;
+  // Share battery level / charging state with friends.
+  bool share_battery = 6;
+  // Share speed and activity (walking, driving...).
+  bool share_activity = 7;
+  // Show the online ("in app") halo.
+  bool share_online_status = 8;
+  // Show home/work/school badges to friends.
+  bool share_place_labels = 9;
+  // Share what is playing (connected music service).
+  bool share_now_playing = 10;
+  // Days of raw location history to keep (0 = keep forever, minimum 1).
+  int32 location_history_days = 11;
+  // Record footprints (scratch map) and visits.
+  bool record_history = 12;
+  // Tell people when I look at their location / profile.
+  bool share_views = 13;
+  // Who may message me directly.
+  Audience direct_messages_from = 14;
+  // Who may call me.
+  Audience calls_from = 15;
+  // Notes default visibility.
+  tokuly.common.v1.Visibility default_note_visibility = 16;
+}
+
+message AppearanceSettings {
+  // "system" | "light" | "dark".
+  string theme = 1;
+  // Map style ID, e.g. "tokuly", "light", "dark", "mono", "satellite".
+  string map_style = 2;
+  // Accent color as #rrggbb.
+  string accent_color = 3;
+  // ドパガキ度: 0 (calm, reduced motion) .. 5 (maximum sparkle).
+  int32 dopamine_level = 4;
+  // Play interface sounds.
+  bool sounds = 5;
+  // Vibrate on interactions.
+  bool haptics = 6;
+  // "km" | "mi".
+  string distance_unit = 7;
+  // Autoplay videos in feeds.
+  bool autoplay = 8;
+}
+
+message Settings {
+  PrivacySettings privacy = 1;
+  AppearanceSettings appearance = 2;
+}
+
+message GetSettingsRequest {}
+
+message GetSettingsResponse {
+  Settings settings = 1;
+}
+
+message UpdateSettingsRequest {
+  // Fields present replace the stored group as a whole.
+  PrivacySettings privacy = 1;
+  AppearanceSettings appearance = 2;
+}
+
+message UpdateSettingsResponse {
+  Settings settings = 1;
+}
+
+message ChangePasswordRequest {
+  // Empty when the account has no password yet (passkey-only).
+  string current_password = 1;
+  string new_password = 2;
+}
+
+message ChangePasswordResponse {}
+
+message ChangeEmailRequest {
+  string new_email = 1;
+  string current_password = 2;
+}
+
+// A verification mail is sent to the new address; the change applies on verify.
+message ChangeEmailResponse {}
+
+message Session {
+  string id = 1;
+  ClientInfo client = 2;
+  string ip = 3;
+  // Coarse location derived from the IP (may be empty).
+  string location = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp last_active_at = 6;
+  bool current = 7;
+}
+
+message ListSessionsRequest {}
+
+message ListSessionsResponse {
+  repeated Session sessions = 1;
+}
+
+message RevokeSessionRequest {
+  string session_id = 1;
+}
+
+message RevokeSessionResponse {}
+
+message Passkey {
+  string id = 1;
+  string name = 2;
+  google.protobuf.Timestamp created_at = 3;
+  google.protobuf.Timestamp last_used_at = 4;
+}
+
+message ListPasskeysRequest {}
+
+message ListPasskeysResponse {
+  repeated Passkey passkeys = 1;
+}
+
+message DeletePasskeyRequest {
+  string passkey_id = 1;
+}
+
+message DeletePasskeyResponse {}
+
+message BeginTotpSetupRequest {}
+
+message BeginTotpSetupResponse {
+  // Base32 secret for manual entry.
+  string secret = 1;
+  // otpauth:// URI to render as a QR code.
+  string otpauth_url = 2;
+}
+
+message EnableTotpRequest {
+  string code = 1;
+}
+
+message EnableTotpResponse {
+  // One-time recovery codes; shown once.
+  repeated string recovery_codes = 1;
+}
+
+message DisableTotpRequest {
+  string code = 1;
+}
+
+message DisableTotpResponse {}
+
+message SecurityEvent {
+  string id = 1;
+  // SIGN_IN | SIGN_IN_FAILED | SIGN_OUT | PASSWORD_CHANGED | EMAIL_CHANGED |
+  // PASSKEY_ADDED | PASSKEY_REMOVED | TOTP_ENABLED | TOTP_DISABLED |
+  // SESSION_REVOKED | DEVICE_LOGIN_APPROVED | DELETION_REQUESTED | ...
+  string type = 2;
+  string ip = 3;
+  string device_name = 4;
+  string location = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+message ListSecurityEventsRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListSecurityEventsResponse {
+  repeated SecurityEvent events = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message RequestAccountDeletionRequest {
+  string current_password = 1;
+  string reason = 2;
+}
+
+message RequestAccountDeletionResponse {
+  google.protobuf.Timestamp deletion_scheduled_at = 1;
+}
+
+message CancelAccountDeletionRequest {}
+
+message CancelAccountDeletionResponse {}
+
+message RequestDataExportRequest {}
+
+message RequestDataExportResponse {
+  string export_id = 1;
+}
+
+message Connection {
+  // "spotify" | ...
+  string provider = 1;
+  string account_name = 2;
+  google.protobuf.Timestamp connected_at = 3;
+}
+
+message ListConnectionsRequest {}
+
+message ListConnectionsResponse {
+  repeated Connection connections = 1;
+  // Providers the server is configured for.
+  repeated string available_providers = 2;
+}
+
+message BeginConnectionRequest {
+  string provider = 1;
+  // Where the provider should send the user back to.
+  string redirect_uri = 2;
+}
+
+message BeginConnectionResponse {
+  // Provider authorization URL to open.
+  string authorization_url = 1;
+  string state = 2;
+}
+
+message FinishConnectionRequest {
+  string provider = 1;
+  string code = 2;
+  string state = 3;
+}
+
+message FinishConnectionResponse {
+  Connection connection = 1;
+}
+
+message DeleteConnectionRequest {
+  string provider = 1;
+}
+
+message DeleteConnectionResponse {}
+
+// ───────────────────────────── Profiles ─────────────────────────────
+
+// Public-facing profiles of any user.
+service ProfileService {
+  // Look up by ID or handle. Works anonymously for public data.
+  rpc GetProfile(GetProfileRequest) returns (GetProfileResponse);
+  rpc BatchGetUsers(BatchGetUsersRequest) returns (BatchGetUsersResponse);
+  rpc SearchUsers(SearchUsersRequest) returns (SearchUsersResponse);
+  // Records that the caller viewed a profile (deduplicated per day).
+  rpc RecordProfileView(RecordProfileViewRequest) returns (RecordProfileViewResponse);
+  // Who viewed my profile: cumulative count plus recent viewers who share views.
+  rpc GetProfileViews(GetProfileViewsRequest) returns (GetProfileViewsResponse);
+}
+
+// What the viewer is to the profile owner.
+enum Relationship {
+  RELATIONSHIP_UNSPECIFIED = 0;
+  RELATIONSHIP_NONE = 1;
+  RELATIONSHIP_SELF = 2;
+  RELATIONSHIP_FRIENDS = 3;
+  // The viewer sent a request that is still pending.
+  RELATIONSHIP_REQUEST_SENT = 4;
+  // The profile owner sent the viewer a request.
+  RELATIONSHIP_REQUEST_RECEIVED = 5;
+  // The viewer blocked this user.
+  RELATIONSHIP_BLOCKED = 6;
+}
+
+message Profile {
+  tokuly.common.v1.UserSummary user = 1;
+  string bio = 2;
+  tokuly.common.v1.Image banner = 3;
+  google.protobuf.Timestamp joined_at = 4;
+  Status status = 5;
+  Relationship relationship = 6;
+  ProfileStats stats = 7;
+  // Now playing track, when shared.
+  NowPlaying now_playing = 8;
+  // Distance in meters between viewer and owner (friends only, when both share location).
+  optional double distance_meters = 9;
+  // Mutual friends preview (up to 6) and total.
+  repeated tokuly.common.v1.UserSummary mutual_friends = 10;
+  int32 mutual_friend_count = 11;
+  // Friendship details when relationship is FRIENDS.
+  google.protobuf.Timestamp friends_since = 12;
+  bool best_friend = 13;
+  // School badge (optional).
+  string school_name = 14;
+}
+
+message ProfileStats {
+  int32 friend_count = 1;
+  // People who joined through this user's invite links ("intros").
+  int32 intro_count = 2;
+  int64 profile_view_count = 3;
+  int32 note_count = 4;
+  int32 bump_count = 5;
+  // Percentage of the home country uncovered on the scratch map (0-100).
+  double explored_percent = 6;
+  int32 visited_country_count = 7;
+  int32 stamp_pack_count = 8;
+  int32 days_since_joined = 9;
+}
+
+message NowPlaying {
+  string provider = 1;
+  string title = 2;
+  string artist = 3;
+  string album = 4;
+  string artwork_url = 5;
+  string track_url = 6;
+  int32 duration_ms = 7;
+  int32 progress_ms = 8;
+  bool playing = 9;
+  google.protobuf.Timestamp updated_at = 10;
+}
+
+message GetProfileRequest {
+  oneof by {
+    string user_id = 1;
+    string handle = 2;
+  }
+}
+
+message GetProfileResponse {
+  Profile profile = 1;
+}
+
+message BatchGetUsersRequest {
+  repeated string user_ids = 1;
+}
+
+message BatchGetUsersResponse {
+  repeated tokuly.common.v1.UserSummary users = 1;
+}
+
+message SearchUsersRequest {
+  string query = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message SearchUsersResponse {
+  repeated UserSearchResult results = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message UserSearchResult {
+  tokuly.common.v1.UserSummary user = 1;
+  Relationship relationship = 2;
+  int32 mutual_friend_count = 3;
+}
+
+message RecordProfileViewRequest {
+  string user_id = 1;
+}
+
+message RecordProfileViewResponse {}
+
+message GetProfileViewsRequest {}
+
+message GetProfileViewsResponse {
+  int64 total = 1;
+  int32 last_24h = 2;
+  // Recent viewers who allow their views to be shown.
+  repeated ProfileViewer viewers = 3;
+}
+
+message ProfileViewer {
+  tokuly.common.v1.UserSummary user = 1;
+  google.protobuf.Timestamp viewed_at = 2;
+}

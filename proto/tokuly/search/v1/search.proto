@@ -1,0 +1,414 @@
+syntax = "proto3";
+
+// Unified search across users, channels, notes, videos, shorts, live streams,
+// clips, playlists, stamp packs, places, hashtags and news.
+//
+// No client writes to the index. Every backend domain publishes the documents
+// everyone may find through the `search.changed` event
+// (`tokuly_core::outbound::index` / `unindex`); this domain keeps one
+// Meilisearch index per kind in step with them. Only public content is
+// searchable, so every RPC of `SearchService` except the caller's own history
+// also works without signing in.
+//
+// What the caller never sees, whatever the index holds: content of users they
+// blocked or who blocked them, and content of suspended or deleted accounts.
+package tokuly.search.v1;
+
+import "google/protobuf/timestamp.proto";
+import "tokuly/common/v1/common.proto";
+
+// ───────────────────────────── Search ─────────────────────────────
+
+// Searching, typeahead, trending queries and the caller's search history.
+service SearchService {
+  // Full search with one tab per kind. A document matches when it contains
+  // every word of the query, in its title, handle, tags or body; the last
+  // word may be the beginning of a word and longer words may be misspelt.
+  // Words in double quotes must appear together, in that order.
+  // Works anonymously. On the first page a signed-in caller's query is
+  // remembered in their recent searches (unless paused or `skip_history`)
+  // and counts towards trending.
+  // Errors: QUERY_REQUIRED, QUERY_TOO_LONG, KIND_UNKNOWN, SORT_UNKNOWN,
+  // INVALID_ID (`owner_id`), INVALID_CURSOR, RATE_LIMITED, SEARCH_UNAVAILABLE.
+  rpc Search(SearchRequest) returns (SearchResponse);
+  // Typeahead while the user types: query completions and a few top hits.
+  // Clients debounce (~150 ms) and drop responses to superseded input. An
+  // empty query returns an empty response. Works anonymously. Nothing is
+  // remembered. Errors: QUERY_TOO_LONG, KIND_UNKNOWN, RATE_LIMITED,
+  // SEARCH_UNAVAILABLE.
+  rpc Suggest(SuggestRequest) returns (SuggestResponse);
+  // What many people are searching for right now. A query only trends once
+  // enough different signed-in users searched it, and never when it matches
+  // the moderators' blocklist. Works anonymously. Errors: RATE_LIMITED.
+  rpc GetTrending(GetTrendingRequest) returns (GetTrendingResponse);
+  // The caller's recent searches, newest first (at most 50 are kept).
+  // Errors: INVALID_CURSOR.
+  rpc ListRecentSearches(ListRecentSearchesRequest) returns (ListRecentSearchesResponse);
+  // Forgets one recent search. Errors: INVALID_ID, RECENT_SEARCH_NOT_FOUND.
+  rpc DeleteRecentSearch(DeleteRecentSearchRequest) returns (DeleteRecentSearchResponse);
+  // Forgets every recent search of the caller.
+  rpc ClearRecentSearches(ClearRecentSearchesRequest) returns (ClearRecentSearchesResponse);
+  // Pauses or resumes the caller's search history. While paused nothing new
+  // is remembered and the caller's searches do not count towards trending;
+  // what was remembered before stays until deleted.
+  rpc SetHistoryPaused(SetHistoryPausedRequest) returns (SetHistoryPausedResponse);
+}
+
+// What a search document is. Each kind has its own tab and its own index.
+enum SearchKind {
+  // In requests: every kind (the "すべて" tab).
+  SEARCH_KIND_UNSPECIFIED = 0;
+  SEARCH_KIND_USER = 1;
+  SEARCH_KIND_CHANNEL = 2;
+  SEARCH_KIND_NOTE = 3;
+  SEARCH_KIND_VIDEO = 4;
+  SEARCH_KIND_SHORT = 5;
+  SEARCH_KIND_LIVE = 6;
+  SEARCH_KIND_CLIP = 7;
+  SEARCH_KIND_PLAYLIST = 8;
+  SEARCH_KIND_STAMP_PACK = 9;
+  SEARCH_KIND_PLACE = 10;
+  SEARCH_KIND_HASHTAG = 11;
+  SEARCH_KIND_NEWS = 12;
+}
+
+// Result order.
+enum SearchSort {
+  // Same as RELEVANCE.
+  SEARCH_SORT_UNSPECIFIED = 0;
+  // Best match first; equally good matches are ordered by a blend of
+  // popularity and recency.
+  SEARCH_SORT_RELEVANCE = 1;
+  // Newest first among the matches.
+  SEARCH_SORT_NEWEST = 2;
+  // Most popular first among the matches.
+  SEARCH_SORT_POPULAR = 3;
+}
+
+// A run of text that either matched the query or did not. Texts with matches
+// are returned as segments instead of markup, so clients style the
+// highlighted runs themselves and never interpret user-written text as HTML.
+message TextSegment {
+  string text = 1;
+  // True when this run matched the query.
+  bool highlighted = 2;
+}
+
+// One search result.
+message SearchHit {
+  SearchKind kind = 1;
+  // ID of the user, video, note... in its own domain.
+  string id = 2;
+  // Display title: a user's display name, a video title, a place name...
+  string title = 3;
+  // `title` split into matching and non-matching runs.
+  repeated TextSegment title_segments = 4;
+  // Excerpt of the body text (description, note text, bio) around the first
+  // match, or its beginning when only the title matched. Empty when the
+  // document has no body. Cut-off ends are marked with "…".
+  repeated TextSegment snippet = 5;
+  // Thumbnail, avatar or cover; empty when there is none.
+  string image_url = 6;
+  // Path in the app, e.g. `/watch/<short_id>` or `/@handle`.
+  string path = 7;
+  // Who owns the document; for a user hit, the user. Unset for content
+  // without an owning account (official content, places, hashtags).
+  tokuly.common.v1.UserSummary owner = 8;
+  google.protobuf.Timestamp created_at = 9;
+  repeated string tags = 10;
+  // Kind-specific fields from the publishing domain as a JSON object
+  // (a user's `handle`, a pack's `price`, a video's `duration_seconds`...).
+  // "{}" when there are none.
+  string extra_json = 11;
+}
+
+// How many documents of a kind match the query.
+message KindCount {
+  SearchKind kind = 1;
+  // An estimate; exact for small result sets.
+  int64 count = 2;
+}
+
+message SearchRequest {
+  // 1-100 characters after trimming. A leading '#' searches tags only.
+  string query = 1;
+  // The tab: only this kind. Unspecified searches every kind at once.
+  SearchKind kind = 2;
+  SearchSort sort = 3;
+  // Default 20, at most 50 hits per page. Results beyond the first 1000 of a
+  // query are not reachable.
+  tokuly.common.v1.PageRequest page = 4;
+  // Only documents owned by this user ("search this profile"). Empty = anyone.
+  string owner_id = 5;
+  // Do not remember this query in the caller's recent searches and do not
+  // count it towards trending (e.g. a query replayed from a shared link).
+  bool skip_history = 6;
+}
+
+message SearchResponse {
+  repeated SearchHit hits = 1;
+  tokuly.common.v1.PageInfo page = 2;
+  // Matches per kind, for the tab badges; kinds without matches are absent.
+  // Only filled on the first page (empty cursor): the counts belong to the
+  // query, not to the page.
+  repeated KindCount counts = 3;
+  // Estimated number of matches in the selected tab.
+  int64 total = 4;
+  // The query as it was searched (trimmed, Unicode-normalized).
+  string query = 5;
+}
+
+// Where a completion comes from.
+enum CompletionSource {
+  COMPLETION_SOURCE_UNSPECIFIED = 0;
+  // One of the caller's own recent searches.
+  COMPLETION_SOURCE_RECENT = 1;
+  // A query many people searched.
+  COMPLETION_SOURCE_POPULAR = 2;
+}
+
+// A query the search box offers to complete the input with.
+message Completion {
+  string query = 1;
+  CompletionSource source = 2;
+  // For RECENT completions: the recent search's ID, so the dropdown can
+  // offer to forget it (`DeleteRecentSearch`).
+  string recent_search_id = 3;
+}
+
+message SuggestRequest {
+  // What the user typed so far; at most 100 characters.
+  string query = 1;
+  // Restricts the top hits to one kind (the active tab). Unspecified = all.
+  SearchKind kind = 2;
+  // Top hits wanted: 0 = default (6), at most 10.
+  int32 hit_limit = 3;
+  // Completions wanted: 0 = default (8), at most 10.
+  int32 completion_limit = 4;
+}
+
+message SuggestResponse {
+  // The caller's matching recent searches first, then popular queries.
+  repeated Completion completions = 1;
+  // Best matches by title, handle and tag, without snippets.
+  repeated SearchHit hits = 2;
+}
+
+// A query that is trending.
+message TrendingQuery {
+  string query = 1;
+  // 1 = the most searched.
+  int32 rank = 2;
+}
+
+message GetTrendingRequest {
+  // 0 = default (10), at most 20.
+  int32 limit = 1;
+}
+
+message GetTrendingResponse {
+  repeated TrendingQuery queries = 1;
+  // When the list was last computed; unset before the first computation.
+  google.protobuf.Timestamp updated_at = 2;
+}
+
+// A query the caller searched.
+message RecentSearch {
+  string id = 1;
+  string query = 2;
+  // The tab it was last searched in; unspecified = all kinds.
+  SearchKind kind = 3;
+  google.protobuf.Timestamp searched_at = 4;
+}
+
+message ListRecentSearchesRequest {
+  // Default 20, at most 50.
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListRecentSearchesResponse {
+  repeated RecentSearch searches = 1;
+  tokuly.common.v1.PageInfo page = 2;
+  // Whether the caller paused their search history.
+  bool history_paused = 3;
+}
+
+message DeleteRecentSearchRequest {
+  string id = 1;
+}
+
+message DeleteRecentSearchResponse {}
+
+message ClearRecentSearchesRequest {}
+
+message ClearRecentSearchesResponse {
+  int32 deleted_count = 1;
+}
+
+message SetHistoryPausedRequest {
+  bool paused = 1;
+}
+
+message SetHistoryPausedResponse {
+  bool paused = 1;
+}
+
+// ───────────────────────────── Administration ─────────────────────────────
+
+// Index operations and the word lists moderators maintain. Every RPC needs
+// the `admin` role (FORBIDDEN otherwise, SIGN_IN_REQUIRED when anonymous).
+service SearchAdminService {
+  // State of every index next to what it should contain.
+  rpc GetIndexStats(GetIndexStatsRequest) returns (GetIndexStatsResponse);
+  // Rebuilds one kind: every document the search domain holds for the kind is
+  // written to its index again, and `search.reindex.requested { kind }` asks
+  // the owning domain to publish its documents afresh (users are republished
+  // by the search domain itself). Runs in the background.
+  // Errors: KIND_REQUIRED, KIND_UNKNOWN.
+  rpc Reindex(ReindexRequest) returns (ReindexResponse);
+  // Takes one document out of the index. It returns when the owning domain
+  // publishes it again; to remove content for good, remove it in its domain.
+  // Errors: KIND_REQUIRED, KIND_UNKNOWN, INVALID_ID.
+  rpc DeleteDocument(DeleteDocumentRequest) returns (DeleteDocumentResponse);
+  // Words that keep a query out of trending and out of popular completions.
+  // Alphabetical. Errors: INVALID_CURSOR.
+  rpc ListBlockedTerms(ListBlockedTermsRequest) returns (ListBlockedTermsResponse);
+  // Blocks every query containing the term (case and width insensitive).
+  // Adding a term that is already blocked updates its note.
+  // Errors: TERM_INVALID (empty or longer than 64 characters), NOTE_TOO_LONG.
+  rpc AddBlockedTerm(AddBlockedTermRequest) returns (AddBlockedTermResponse);
+  // Errors: TERM_NOT_FOUND.
+  rpc RemoveBlockedTerm(RemoveBlockedTermRequest) returns (RemoveBlockedTermResponse);
+  // Groups of words that find each other's documents.
+  rpc ListSynonymGroups(ListSynonymGroupsRequest) returns (ListSynonymGroupsResponse);
+  // Creates a group (empty `id`) or replaces the words of an existing one,
+  // then applies the synonyms to every index in the background.
+  // Errors: SYNONYMS_INVALID (fewer than 2 or more than 20 distinct words, or
+  // a word that is empty or longer than 64 characters), INVALID_ID,
+  // SYNONYM_GROUP_NOT_FOUND, TOO_MANY_SYNONYM_GROUPS (500).
+  rpc SaveSynonymGroup(SaveSynonymGroupRequest) returns (SaveSynonymGroupResponse);
+  // Errors: INVALID_ID, SYNONYM_GROUP_NOT_FOUND.
+  rpc DeleteSynonymGroup(DeleteSynonymGroupRequest) returns (DeleteSynonymGroupResponse);
+}
+
+// One kind's index.
+message IndexStats {
+  SearchKind kind = 1;
+  // Name of the index in Meilisearch.
+  string index_uid = 2;
+  // False when the index does not exist yet (setup has not run).
+  bool exists = 3;
+  // Documents the index holds.
+  int64 indexed_documents = 4;
+  // The engine is still working through writes to this index.
+  bool indexing = 5;
+  // Documents the search domain holds for the kind, i.e. what the index
+  // should contain (documents of suspended owners are held but not indexed).
+  int64 registered_documents = 6;
+  // Changes not yet written to the index. Stays above zero when the engine
+  // is unreachable or rejects writes.
+  int64 pending_documents = 7;
+  // When a document of this kind last changed; unset when there are none.
+  google.protobuf.Timestamp last_changed_at = 8;
+}
+
+message GetIndexStatsRequest {}
+
+message GetIndexStatsResponse {
+  // One entry per kind, in `SearchKind` order.
+  repeated IndexStats indexes = 1;
+  // Whether Meilisearch answered. When false the engine-side numbers
+  // (`exists`, `indexed_documents`, `indexing`) are not filled.
+  bool healthy = 2;
+  string engine_version = 3;
+  // Disk space the engine uses for all its indexes.
+  int64 database_size_bytes = 4;
+}
+
+message ReindexRequest {
+  SearchKind kind = 1;
+}
+
+message ReindexResponse {
+  // Documents queued to be written to the index again.
+  int64 queued_documents = 1;
+}
+
+message DeleteDocumentRequest {
+  SearchKind kind = 1;
+  string id = 2;
+}
+
+message DeleteDocumentResponse {
+  // Whether the search domain held the document.
+  bool existed = 1;
+}
+
+// A term moderators keep out of trending and completions.
+message BlockedTerm {
+  // Normalized: lowercase, width-folded, single spaces.
+  string term = 1;
+  // Why it is blocked; for other moderators.
+  string note = 2;
+  tokuly.common.v1.UserSummary added_by = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+message ListBlockedTermsRequest {
+  // Default 30, at most 100.
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListBlockedTermsResponse {
+  repeated BlockedTerm terms = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message AddBlockedTermRequest {
+  // 1-64 characters.
+  string term = 1;
+  // At most 200 characters.
+  string note = 2;
+}
+
+message AddBlockedTermResponse {
+  BlockedTerm term = 1;
+}
+
+message RemoveBlockedTermRequest {
+  string term = 1;
+}
+
+message RemoveBlockedTermResponse {}
+
+// Words that mean the same for search: a query for one finds documents
+// containing any of the others ("スタンプ", "ステッカー", "sticker").
+message SynonymGroup {
+  string id = 1;
+  // 2-20 words, normalized like blocked terms.
+  repeated string words = 2;
+  google.protobuf.Timestamp updated_at = 3;
+}
+
+message ListSynonymGroupsRequest {}
+
+message ListSynonymGroupsResponse {
+  // Oldest first; at most 500 exist.
+  repeated SynonymGroup groups = 1;
+}
+
+message SaveSynonymGroupRequest {
+  // Empty creates a group.
+  string id = 1;
+  repeated string words = 2;
+}
+
+message SaveSynonymGroupResponse {
+  SynonymGroup group = 1;
+}
+
+message DeleteSynonymGroupRequest {
+  string id = 1;
+}
+
+message DeleteSynonymGroupResponse {}

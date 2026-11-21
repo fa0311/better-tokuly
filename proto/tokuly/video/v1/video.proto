@@ -1,0 +1,1628 @@
+syntax = "proto3";
+
+// Video (動画): channels, long-form videos, subtitles, playlists, watch
+// history, feeds, watch parties and creator analytics.
+//
+// Channels. An account owns up to five channels and publishes as one of
+// them; one of them is the default ("posting identity"). Channel handles are
+// a namespace of their own (a channel and a user may share a handle) with
+// the same format as user handles. Every `channel_id` field accepts the
+// channel's UUID or its handle, with or without a leading '@'.
+//
+// Videos. A video is created from a media upload (`ASSET_PURPOSE_VIDEO`) and
+// moves through two independent states:
+// - `ProcessingState`: PROCESSING → READY or FAILED, following the upload;
+// - `VideoStatus`: DRAFT → (SCHEDULED →) PUBLISHED. Publishing a video that
+//   is still processing schedules it "as soon as it is ready".
+// Only PUBLISHED videos are visible to anyone but the owner. Who sees a
+// published video is its `Visibility`:
+//   PUBLIC    everyone; listed in feeds, trending, recommendations, search
+//   NO_FEED   everyone; listed on the channel page only
+//   UNLISTED  everyone with the link; listed nowhere
+//   FRIENDS   friends of the channel's owner; listed for them on the channel
+//             page and in their subscriptions feed. With `allow_link` anyone
+//             who has the link may watch too (the original Tokuly's
+//             「フレンド/リンク限定」); the listing stays friends-only
+//   PRIVATE   the owner
+// Every `video_id` field accepts the UUID or the 11-character `short_id`.
+// A `?t=` deep link is resolved by the client (seek after loading).
+//
+// Playlists have a UUID and a `short_id`; `playlist_id` fields also accept
+// `WL` (the caller's watch-later list) and `LL` (the caller's liked videos).
+//
+// Blocks: nothing owned by a user in a block relation with the caller is
+// ever returned; it reads as not found. The same goes for everything owned by
+// a suspended account, for everyone but that account.
+package tokuly.video.v1;
+
+import "google/protobuf/timestamp.proto";
+import "tokuly/common/v1/common.proto";
+import "tokuly/media/v1/media.proto";
+
+// ───────────────────────────── Channels ─────────────────────────────
+
+// Channels, their pages and subscriptions.
+service ChannelService {
+  // Creates a channel for the caller. The first channel becomes the default.
+  // Errors: CHANNEL_LIMIT_REACHED, HANDLE_INVALID, HANDLE_RESERVED,
+  // HANDLE_TAKEN, CHANNEL_NAME_INVALID, CHANNEL_DESCRIPTION_TOO_LONG,
+  // CHANNEL_LINKS_INVALID, ASSET_NOT_FOUND, ASSET_WRONG_PURPOSE, ASSET_NOT_READY,
+  // ASSET_NOT_IMAGE, RATE_LIMITED.
+  rpc CreateChannel(CreateChannelRequest) returns (CreateChannelResponse);
+  // Changes a channel of the caller. Unset fields stay as they are.
+  // Errors: CHANNEL_NOT_FOUND, plus the validation errors of CreateChannel,
+  // TRAILER_NOT_FOUND (the trailer must be a public video of the channel).
+  rpc UpdateChannel(UpdateChannelRequest) returns (UpdateChannelResponse);
+  // Deletes a channel of the caller with everything on it: videos, playlists,
+  // subscriptions. If it was the default, the oldest remaining channel
+  // becomes the default. Errors: CHANNEL_NOT_FOUND.
+  rpc DeleteChannel(DeleteChannelRequest) returns (DeleteChannelResponse);
+  // The caller's channels, default first.
+  rpc ListMyChannels(ListMyChannelsRequest) returns (ListMyChannelsResponse);
+  // Makes a channel the caller's default posting identity.
+  // Errors: CHANNEL_NOT_FOUND.
+  rpc SetDefaultChannel(SetDefaultChannelRequest) returns (SetDefaultChannelResponse);
+  // Whether a channel handle can be taken. Public; never an error for a
+  // well-formed request (the answer is in the response).
+  rpc CheckChannelHandle(CheckChannelHandleRequest) returns (CheckChannelHandleResponse);
+  // A channel by ID or handle. Public. Errors: CHANNEL_NOT_FOUND.
+  rpc GetChannel(GetChannelRequest) returns (GetChannelResponse);
+  // The channel's home tab: trailer, latest and popular videos, live
+  // archives, playlists. Sections without content are omitted. Shorts and
+  // live streams come from their own services. Public.
+  // Errors: CHANNEL_NOT_FOUND.
+  rpc GetChannelPage(GetChannelPageRequest) returns (GetChannelPageResponse);
+  // Videos of a channel that the caller may see listed. Public.
+  // Errors: CHANNEL_NOT_FOUND.
+  rpc ListChannelVideos(ListChannelVideosRequest) returns (ListChannelVideosResponse);
+  // Subscribes the caller to a channel, or changes the notification level of
+  // an existing subscription. Errors: CHANNEL_NOT_FOUND,
+  // CANNOT_SUBSCRIBE_TO_OWN_CHANNEL, RATE_LIMITED.
+  rpc Subscribe(SubscribeRequest) returns (SubscribeResponse);
+  // Ends the caller's subscription. Not being subscribed is not an error.
+  // Errors: CHANNEL_NOT_FOUND.
+  rpc Unsubscribe(UnsubscribeRequest) returns (UnsubscribeResponse);
+  // Channels the caller subscribes to, most recently subscribed first.
+  rpc ListSubscriptions(ListSubscriptionsRequest) returns (ListSubscriptionsResponse);
+  // Subscribers of one of the caller's channels, newest first.
+  // Errors: CHANNEL_NOT_FOUND.
+  rpc ListSubscribers(ListSubscribersRequest) returns (ListSubscribersResponse);
+  // Channels worth a look: popular ones the caller does not subscribe to.
+  // Public.
+  rpc ListRecommendedChannels(ListRecommendedChannelsRequest) returns (ListRecommendedChannelsResponse);
+}
+
+// How much a subscriber wants to hear from a channel.
+enum NotificationLevel {
+  NOTIFICATION_LEVEL_UNSPECIFIED = 0;
+  // Subscribed, never notified.
+  NOTIFICATION_LEVEL_NONE = 1;
+  // Every upload lands in the inbox; a push is sent only while the
+  // subscriber has recently watched the channel. The default.
+  NOTIFICATION_LEVEL_PERSONALIZED = 2;
+  // Every upload (and live stream) is pushed.
+  NOTIFICATION_LEVEL_ALL = 3;
+}
+
+// A link shown on the channel's about tab.
+message ChannelLink {
+  // At most 30 characters.
+  string title = 1;
+  // http(s) URL, at most 500 characters.
+  string url = 2;
+}
+
+// What the caller has to do with a channel. Unset for anonymous callers.
+message ChannelViewerState {
+  // The channel belongs to the caller.
+  bool is_owner = 1;
+  bool subscribed = 2;
+  // Only meaningful while `subscribed`.
+  NotificationLevel notification_level = 3;
+  google.protobuf.Timestamp subscribed_at = 4;
+  // The channel is the caller's default posting identity.
+  bool is_default = 5;
+}
+
+// A channel page header and about tab.
+message Channel {
+  tokuly.common.v1.ChannelSummary summary = 1;
+  string description = 2;
+  tokuly.common.v1.Image banner = 3;
+  repeated ChannelLink links = 4;
+  // Videos listed on the channel page for everyone (PUBLIC and NO_FEED).
+  int64 video_count = 5;
+  // Views of all the channel's videos.
+  int64 view_count = 6;
+  google.protobuf.Timestamp created_at = 7;
+  // Short ID of the video featured at the top of the page; empty when none.
+  string trailer_video_id = 8;
+  ChannelViewerState viewer = 9;
+}
+
+message CreateChannelRequest {
+  // 3-24 characters: a-z, 0-9, `_`, `-`; unique among channels.
+  string handle = 1;
+  // 1-50 characters.
+  string name = 2;
+  // At most 1000 characters.
+  string description = 3;
+  // A READY image upload with `ASSET_PURPOSE_CHANNEL_ICON`; empty = none.
+  string icon_asset_id = 4;
+  // A READY image upload with `ASSET_PURPOSE_CHANNEL_BANNER`; empty = none.
+  string banner_asset_id = 5;
+  // At most 5.
+  repeated ChannelLink links = 6;
+}
+
+message CreateChannelResponse {
+  Channel channel = 1;
+}
+
+// Wrapper so "replace the links" can be told apart from "leave them".
+message ChannelLinkList {
+  repeated ChannelLink links = 1;
+}
+
+message UpdateChannelRequest {
+  string channel_id = 1;
+  optional string handle = 2;
+  optional string name = 3;
+  optional string description = 4;
+  // Empty string removes the icon.
+  optional string icon_asset_id = 5;
+  // Empty string removes the banner.
+  optional string banner_asset_id = 6;
+  ChannelLinkList links = 7;
+  // A public video of this channel to feature; empty string = none.
+  optional string trailer_video_id = 8;
+}
+
+message UpdateChannelResponse {
+  Channel channel = 1;
+}
+
+message DeleteChannelRequest {
+  string channel_id = 1;
+}
+
+message DeleteChannelResponse {}
+
+message ListMyChannelsRequest {}
+
+message ListMyChannelsResponse {
+  repeated Channel channels = 1;
+  // How many channels one account may own.
+  int32 max_channels = 2;
+}
+
+message SetDefaultChannelRequest {
+  string channel_id = 1;
+}
+
+message SetDefaultChannelResponse {
+  Channel channel = 1;
+}
+
+message CheckChannelHandleRequest {
+  string handle = 1;
+}
+
+message CheckChannelHandleResponse {
+  bool available = 1;
+  // The handle as it would be stored (lowercase, no '@'); empty when invalid.
+  string normalized = 2;
+  // Why it is not available: HANDLE_INVALID, HANDLE_RESERVED or HANDLE_TAKEN.
+  string reason = 3;
+}
+
+message GetChannelRequest {
+  string channel_id = 1;
+}
+
+message GetChannelResponse {
+  Channel channel = 1;
+}
+
+// What a section of the channel home tab shows.
+enum ChannelSectionKind {
+  CHANNEL_SECTION_KIND_UNSPECIFIED = 0;
+  // The featured video (`videos` holds exactly one).
+  CHANNEL_SECTION_KIND_TRAILER = 1;
+  // Newest uploads.
+  CHANNEL_SECTION_KIND_LATEST = 2;
+  // Most viewed videos.
+  CHANNEL_SECTION_KIND_POPULAR = 3;
+  // Archives of past live streams.
+  CHANNEL_SECTION_KIND_LIVE_ARCHIVES = 4;
+  // Public playlists of the channel.
+  CHANNEL_SECTION_KIND_PLAYLISTS = 5;
+}
+
+message ChannelSection {
+  ChannelSectionKind kind = 1;
+  repeated VideoSummary videos = 2;
+  repeated Playlist playlists = 3;
+}
+
+message GetChannelPageRequest {
+  string channel_id = 1;
+}
+
+message GetChannelPageResponse {
+  Channel channel = 1;
+  repeated ChannelSection sections = 2;
+}
+
+enum ChannelVideoSort {
+  CHANNEL_VIDEO_SORT_UNSPECIFIED = 0;
+  // Most recently published first (the default).
+  CHANNEL_VIDEO_SORT_NEWEST = 1;
+  // Most viewed first.
+  CHANNEL_VIDEO_SORT_POPULAR = 2;
+  // Oldest first.
+  CHANNEL_VIDEO_SORT_OLDEST = 3;
+}
+
+message ListChannelVideosRequest {
+  string channel_id = 1;
+  ChannelVideoSort sort = 2;
+  // Only videos of this origin; unspecified = all.
+  VideoOrigin origin = 3;
+  tokuly.common.v1.PageRequest page = 4;
+}
+
+message ListChannelVideosResponse {
+  repeated VideoSummary videos = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message SubscribeRequest {
+  string channel_id = 1;
+  // Unspecified = PERSONALIZED for a new subscription, unchanged for an
+  // existing one.
+  NotificationLevel notification_level = 2;
+  // The video the caller was watching when they subscribed, for the
+  // creator's analytics. Optional.
+  string source_video_id = 3;
+}
+
+message SubscribeResponse {
+  Channel channel = 1;
+}
+
+message UnsubscribeRequest {
+  string channel_id = 1;
+}
+
+message UnsubscribeResponse {
+  Channel channel = 1;
+}
+
+message ListSubscriptionsRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message Subscription {
+  tokuly.common.v1.ChannelSummary channel = 1;
+  NotificationLevel notification_level = 2;
+  google.protobuf.Timestamp subscribed_at = 3;
+}
+
+message ListSubscriptionsResponse {
+  repeated Subscription subscriptions = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListSubscribersRequest {
+  string channel_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message Subscriber {
+  tokuly.common.v1.UserSummary user = 1;
+  google.protobuf.Timestamp subscribed_at = 2;
+}
+
+message ListSubscribersResponse {
+  repeated Subscriber subscribers = 1;
+  tokuly.common.v1.PageInfo page = 2;
+  int64 subscriber_count = 3;
+}
+
+message ListRecommendedChannelsRequest {
+  // 1-50, default 12.
+  int32 limit = 1;
+}
+
+message ListRecommendedChannelsResponse {
+  repeated tokuly.common.v1.ChannelSummary channels = 1;
+}
+
+// ───────────────────────────── Videos ─────────────────────────────
+
+// Videos: the studio side (create, edit, publish, subtitles) and the watch
+// page (get, rate).
+service VideoService {
+  // Creates a draft video on one of the caller's channels from an upload,
+  // which may still be processing. Errors: CHANNEL_REQUIRED (the caller has
+  // no channel), CHANNEL_NOT_FOUND, ASSET_NOT_FOUND, ASSET_WRONG_PURPOSE,
+  // ASSET_FAILED, ASSET_ALREADY_USED, plus the validation errors of
+  // UpdateVideo, RATE_LIMITED.
+  rpc CreateVideo(CreateVideoRequest) returns (CreateVideoResponse);
+  // Changes a video of the caller. Unset fields stay as they are.
+  // Errors: VIDEO_NOT_FOUND, TITLE_INVALID, DESCRIPTION_TOO_LONG,
+  // TAGS_INVALID, GAME_INVALID, CHAPTERS_INVALID, VISIBILITY_INVALID,
+  // ASSET_NOT_FOUND, ASSET_WRONG_PURPOSE, ASSET_NOT_READY, ASSET_NOT_IMAGE.
+  rpc UpdateVideo(UpdateVideoRequest) returns (UpdateVideoResponse);
+  // Publishes a video now or at `publish_at`. A video still processing is
+  // published as soon as it is ready (or at `publish_at`, whichever is
+  // later). Errors: VIDEO_NOT_FOUND, VIDEO_PROCESSING_FAILED,
+  // SCHEDULE_INVALID (in the past or more than a year ahead).
+  rpc PublishVideo(PublishVideoRequest) returns (PublishVideoResponse);
+  // Takes a video back to DRAFT (also cancels a schedule).
+  // Errors: VIDEO_NOT_FOUND.
+  rpc UnpublishVideo(UnpublishVideoRequest) returns (UnpublishVideoResponse);
+  // Deletes a video of the caller with its upload. Errors: VIDEO_NOT_FOUND.
+  rpc DeleteVideo(DeleteVideoRequest) returns (DeleteVideoResponse);
+  // A video for the watch page. Public. An age-restricted video is returned
+  // without `playback` to callers who may not watch it (`playback_block`
+  // says why). Errors: VIDEO_NOT_FOUND.
+  rpc GetVideo(GetVideoRequest) returns (GetVideoResponse);
+  // Cards for up to 100 videos, in request order (e.g. to render activity
+  // feed entries or chat embeds). Videos that do not exist or that the
+  // caller may not watch are left out. Public. Errors: TOO_MANY_IDS.
+  rpc BatchGetVideos(BatchGetVideosRequest) returns (BatchGetVideosResponse);
+  // Every video on the caller's channels, in any state, newest first.
+  // Errors: CHANNEL_NOT_FOUND.
+  rpc ListStudioVideos(ListStudioVideosRequest) returns (ListStudioVideosResponse);
+  // Likes or dislikes a video, or takes the rating back. Liked videos appear
+  // in the caller's `LL` playlist. Errors: VIDEO_NOT_FOUND, RATE_LIMITED.
+  rpc RateVideo(RateVideoRequest) returns (RateVideoResponse);
+  // Game titles that start with or resemble `query`, most used first. Public.
+  rpc SuggestGames(SuggestGamesRequest) returns (SuggestGamesResponse);
+  // Adds a subtitle track from a WebVTT or SRT file (SRT is converted).
+  // Errors: VIDEO_NOT_FOUND, SUBTITLE_SOURCE_REQUIRED,
+  // SUBTITLE_LANGUAGE_INVALID, SUBTITLE_LANGUAGE_EXISTS,
+  // SUBTITLE_LABEL_INVALID, SUBTITLE_INVALID (not WebVTT/SRT, no cues or
+  // malformed timings), SUBTITLE_TOO_LARGE, SUBTITLE_LIMIT_REACHED,
+  // ASSET_NOT_FOUND, ASSET_WRONG_PURPOSE, ASSET_NOT_READY, RATE_LIMITED.
+  rpc AddSubtitle(AddSubtitleRequest) returns (AddSubtitleResponse);
+  // Changes a track's label, language, default flag or content.
+  // Errors: SUBTITLE_NOT_FOUND, plus the validation errors of AddSubtitle.
+  rpc UpdateSubtitle(UpdateSubtitleRequest) returns (UpdateSubtitleResponse);
+  // Errors: SUBTITLE_NOT_FOUND.
+  rpc DeleteSubtitle(DeleteSubtitleRequest) returns (DeleteSubtitleResponse);
+  // The subtitle tracks of a video the caller may watch. Public.
+  // Errors: VIDEO_NOT_FOUND.
+  rpc ListSubtitles(ListSubtitlesRequest) returns (ListSubtitlesResponse);
+}
+
+// Where a video is on its way to the public.
+enum VideoStatus {
+  VIDEO_STATUS_UNSPECIFIED = 0;
+  // Only the owner sees it.
+  VIDEO_STATUS_DRAFT = 1;
+  // Goes live at `scheduled_at`, or as soon as processing finishes after that.
+  VIDEO_STATUS_SCHEDULED = 2;
+  VIDEO_STATUS_PUBLISHED = 3;
+}
+
+// State of the video's upload in the media pipeline.
+enum ProcessingState {
+  PROCESSING_STATE_UNSPECIFIED = 0;
+  PROCESSING_STATE_PROCESSING = 1;
+  PROCESSING_STATE_READY = 2;
+  // `VideoStudioInfo.processing_error` says why.
+  PROCESSING_STATE_FAILED = 3;
+}
+
+// How a video came to be.
+enum VideoOrigin {
+  VIDEO_ORIGIN_UNSPECIFIED = 0;
+  VIDEO_ORIGIN_UPLOAD = 1;
+  // The archive of a live stream.
+  VIDEO_ORIGIN_LIVE_ARCHIVE = 2;
+}
+
+// Genre of a video. Clients localize the names.
+enum VideoCategory {
+  VIDEO_CATEGORY_UNSPECIFIED = 0;
+  VIDEO_CATEGORY_GAMING = 1;
+  // 雑談
+  VIDEO_CATEGORY_TALK = 2;
+  VIDEO_CATEGORY_MUSIC = 3;
+  VIDEO_CATEGORY_ENTERTAINMENT = 4;
+  // 日常 / vlog
+  VIDEO_CATEGORY_DAILY_LIFE = 5;
+  VIDEO_CATEGORY_TRAVEL = 6;
+  VIDEO_CATEGORY_FOOD = 7;
+  VIDEO_CATEGORY_SPORTS = 8;
+  VIDEO_CATEGORY_EDUCATION = 9;
+  VIDEO_CATEGORY_TECH = 10;
+  VIDEO_CATEGORY_ART = 11;
+  VIDEO_CATEGORY_PETS = 12;
+  VIDEO_CATEGORY_NEWS = 13;
+  VIDEO_CATEGORY_OTHER = 14;
+}
+
+// The caller's rating of a video.
+enum Rating {
+  RATING_UNSPECIFIED = 0;
+  RATING_NONE = 1;
+  RATING_LIKE = 2;
+  RATING_DISLIKE = 3;
+}
+
+// Why `Video.playback` is missing.
+enum PlaybackBlock {
+  // Playback is available.
+  PLAYBACK_BLOCK_UNSPECIFIED = 0;
+  // Age-restricted and the caller is not signed in.
+  PLAYBACK_BLOCK_SIGN_IN_REQUIRED = 1;
+  // Age-restricted and the caller is under 18 (or has no birthdate).
+  PLAYBACK_BLOCK_AGE_RESTRICTED = 2;
+  // The upload is not ready (only the owner can see such a video).
+  PLAYBACK_BLOCK_NOT_READY = 3;
+}
+
+// A named position in a video.
+message Chapter {
+  double start_seconds = 1;
+  // 1-100 characters.
+  string title = 2;
+}
+
+// A video as shown on cards and in lists.
+message VideoSummary {
+  string id = 1;
+  string short_id = 2;
+  string title = 3;
+  // The custom thumbnail, otherwise the poster frame. Unset while processing.
+  tokuly.common.v1.Image thumbnail = 4;
+  double duration_seconds = 5;
+  tokuly.common.v1.ChannelSummary channel = 6;
+  int64 view_count = 7;
+  int64 like_count = 8;
+  int64 comment_count = 9;
+  // When it (first) went public. Unset for drafts.
+  google.protobuf.Timestamp published_at = 10;
+  tokuly.common.v1.Visibility visibility = 11;
+  VideoStatus status = 12;
+  ProcessingState processing = 13;
+  // Short muted animated preview for hover cards; may be empty.
+  string preview_url = 14;
+  bool age_restricted = 15;
+  VideoOrigin origin = 16;
+  VideoCategory category = 17;
+  // Where the caller left off (0 = from the start), for progress bars.
+  double resume_position_seconds = 18;
+  // The caller watched it to the end.
+  bool watched = 19;
+  google.protobuf.Timestamp created_at = 20;
+  // Set while `status` is SCHEDULED.
+  google.protobuf.Timestamp scheduled_at = 21;
+}
+
+// What the caller has to do with a video. Unset for anonymous callers.
+message VideoViewerState {
+  bool is_owner = 1;
+  Rating rating = 2;
+  bool in_watch_later = 3;
+  // The caller's subscription to the video's channel.
+  bool subscribed = 4;
+  NotificationLevel notification_level = 5;
+}
+
+// Details only the owner sees.
+message VideoStudioInfo {
+  // The upload the video plays.
+  string asset_id = 1;
+  // Media failure reason (e.g. CORRUPT_MEDIA) while processing FAILED.
+  string processing_error = 2;
+  // A custom thumbnail is set (otherwise the poster frame is used).
+  bool has_custom_thumbnail = 3;
+  // Subscribers are notified when the video goes public.
+  bool notify_subscribers = 4;
+  int64 dislike_count = 5;
+  // The live stream this video is the archive of; empty for uploads.
+  string origin_id = 6;
+}
+
+// A video with everything the watch page (or the studio editor) shows.
+message Video {
+  VideoSummary summary = 1;
+  // At most 5000 characters.
+  string description = 2;
+  // Lowercase, without '#'.
+  repeated string tags = 3;
+  // Game title; may be empty.
+  string game = 4;
+  // Sorted by `start_seconds`; empty or starting at 0.
+  repeated Chapter chapters = 5;
+  // Comments (engagement service, `SUBJECT_TYPE_VIDEO`) are accepted.
+  bool comments_enabled = 6;
+  // Streams, poster, storyboard and preview of the processed upload. Unset
+  // when `playback_block` is set.
+  tokuly.media.v1.VideoInfo playback = 7;
+  PlaybackBlock playback_block = 8;
+  repeated SubtitleTrack subtitles = 9;
+  VideoViewerState viewer = 10;
+  // Only set for the owner.
+  VideoStudioInfo studio = 11;
+  // FRIENDS visibility only: anyone who has the link may watch, while the
+  // video is still listed for friends only.
+  bool allow_link = 12;
+}
+
+// Wrapper so "replace the tags" can be told apart from "leave them".
+message TagList {
+  // At most 20 tags of at most 30 characters each; '#' is stripped.
+  repeated string tags = 1;
+}
+
+// Wrapper so "replace the chapters" can be told apart from "leave them".
+message ChapterList {
+  // At most 100. If any are given the first must start at 0, each must
+  // start at least 5 s after the previous one and before the video ends.
+  repeated Chapter chapters = 1;
+}
+
+message CreateVideoRequest {
+  // Empty = the caller's default channel.
+  string channel_id = 1;
+  // An upload with `ASSET_PURPOSE_VIDEO` owned by the caller.
+  string asset_id = 2;
+  // 1-100 characters. Empty = the upload's file name.
+  string title = 3;
+  string description = 4;
+  repeated string tags = 5;
+  VideoCategory category = 6;
+  string game = 7;
+  // Unspecified = PRIVATE.
+  tokuly.common.v1.Visibility visibility = 8;
+  bool age_restricted = 9;
+  // Unset = comments enabled.
+  optional bool comments_enabled = 10;
+  // Unset = subscribers are notified.
+  optional bool notify_subscribers = 11;
+  // A READY image upload with `ASSET_PURPOSE_THUMBNAIL`; empty = poster frame.
+  string thumbnail_asset_id = 12;
+  repeated Chapter chapters = 13;
+  // See `Video.allow_link`.
+  bool allow_link = 14;
+}
+
+message CreateVideoResponse {
+  Video video = 1;
+}
+
+message UpdateVideoRequest {
+  string video_id = 1;
+  optional string title = 2;
+  optional string description = 3;
+  TagList tags = 4;
+  optional VideoCategory category = 5;
+  optional string game = 6;
+  optional tokuly.common.v1.Visibility visibility = 7;
+  optional bool age_restricted = 8;
+  optional bool comments_enabled = 9;
+  optional bool notify_subscribers = 10;
+  // Empty string goes back to the poster frame.
+  optional string thumbnail_asset_id = 11;
+  ChapterList chapters = 12;
+  optional bool allow_link = 13;
+}
+
+message UpdateVideoResponse {
+  Video video = 1;
+}
+
+message PublishVideoRequest {
+  string video_id = 1;
+  // Unset = now.
+  google.protobuf.Timestamp publish_at = 2;
+  // Applied before publishing when set.
+  optional tokuly.common.v1.Visibility visibility = 3;
+}
+
+message PublishVideoResponse {
+  Video video = 1;
+}
+
+message UnpublishVideoRequest {
+  string video_id = 1;
+}
+
+message UnpublishVideoResponse {
+  Video video = 1;
+}
+
+message DeleteVideoRequest {
+  string video_id = 1;
+}
+
+message DeleteVideoResponse {}
+
+message GetVideoRequest {
+  string video_id = 1;
+}
+
+message GetVideoResponse {
+  Video video = 1;
+}
+
+message BatchGetVideosRequest {
+  // UUIDs or short IDs, at most 100.
+  repeated string video_ids = 1;
+}
+
+message BatchGetVideosResponse {
+  repeated VideoSummary videos = 1;
+}
+
+message ListStudioVideosRequest {
+  // One of the caller's channels; empty = all of them.
+  string channel_id = 1;
+  // Only videos in this status; unspecified = all.
+  VideoStatus status = 2;
+  tokuly.common.v1.PageRequest page = 3;
+}
+
+message ListStudioVideosResponse {
+  repeated VideoSummary videos = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message RateVideoRequest {
+  string video_id = 1;
+  // LIKE, DISLIKE or NONE (take the rating back).
+  Rating rating = 2;
+}
+
+message RateVideoResponse {
+  Rating rating = 1;
+  int64 like_count = 2;
+}
+
+message SuggestGamesRequest {
+  // May be empty: the most used titles.
+  string query = 1;
+  // 1-20, default 10.
+  int32 limit = 2;
+}
+
+message SuggestGamesResponse {
+  repeated string games = 1;
+}
+
+// ───────────────────────────── Subtitles ─────────────────────────────
+
+// Format a subtitle file was uploaded in. Tracks are always served as WebVTT.
+enum SubtitleFormat {
+  SUBTITLE_FORMAT_UNSPECIFIED = 0;
+  SUBTITLE_FORMAT_VTT = 1;
+  SUBTITLE_FORMAT_SRT = 2;
+}
+
+message SubtitleTrack {
+  string id = 1;
+  // BCP 47 tag, lowercase language: `ja`, `en`, `zh-Hant`, `pt-BR`.
+  string language = 2;
+  // Shown in the player's menu, e.g. "日本語".
+  string label = 3;
+  // WebVTT file in the media bucket.
+  string url = 4;
+  // Shown by default when the viewer has no preference. At most one track
+  // of a video is the default; a video may have none (subtitles start off).
+  bool is_default = 5;
+  SubtitleFormat original_format = 6;
+  int32 cue_count = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+message AddSubtitleRequest {
+  string video_id = 1;
+  // The file: either an upload with `ASSET_PURPOSE_SUBTITLE`, or its text.
+  oneof source {
+    string asset_id = 2;
+    // WebVTT or SRT text, at most 1 MiB.
+    string content = 3;
+  }
+  string language = 4;
+  // 1-40 characters. Empty = the language tag.
+  string label = 5;
+  // Make this the default track (the previous default stops being one).
+  bool is_default = 6;
+}
+
+message AddSubtitleResponse {
+  SubtitleTrack subtitle = 1;
+}
+
+message UpdateSubtitleRequest {
+  string subtitle_id = 1;
+  optional string language = 2;
+  optional string label = 3;
+  // True makes it the default track (the previous default stops being
+  // one); false leaves the video without a default track.
+  optional bool is_default = 4;
+  // Replaces the content when set.
+  oneof source {
+    string asset_id = 5;
+    string content = 6;
+  }
+}
+
+message UpdateSubtitleResponse {
+  SubtitleTrack subtitle = 1;
+}
+
+message DeleteSubtitleRequest {
+  string subtitle_id = 1;
+}
+
+message DeleteSubtitleResponse {}
+
+message ListSubtitlesRequest {
+  string video_id = 1;
+}
+
+message ListSubtitlesResponse {
+  repeated SubtitleTrack subtitles = 1;
+}
+
+// ───────────────────────────── Playback & history ─────────────────────────────
+
+// Playback sessions (view counting, watch time, resume position) and the
+// watch history built from them.
+service PlaybackService {
+  // Call when playback starts. Opens a session for `ReportPlayback` and
+  // returns where to resume. Public (anonymous viewers are counted by
+  // network address). Errors: VIDEO_NOT_FOUND, PLAYBACK_BLOCKED,
+  // RATE_LIMITED.
+  rpc StartPlayback(StartPlaybackRequest) returns (StartPlaybackResponse);
+  // Call every `report_interval_seconds` while the session lasts and once
+  // when playback pauses, seeks or ends. Feeds watch time, the resume
+  // position and audience retention; a view is counted once the session
+  // accumulated `min_view_seconds` of watching, at most once per viewer and
+  // video within the de-duplication period. Public.
+  // Errors: PLAYBACK_SESSION_NOT_FOUND (expired: start a new one).
+  rpc ReportPlayback(ReportPlaybackRequest) returns (ReportPlaybackResponse);
+  // The caller's watch history, most recently watched first.
+  rpc ListWatchHistory(ListWatchHistoryRequest) returns (ListWatchHistoryResponse);
+  // Removes one video from the history (and forgets its resume position).
+  rpc RemoveWatchHistoryItem(RemoveWatchHistoryItemRequest) returns (RemoveWatchHistoryItemResponse);
+  // Removes everything from the history.
+  rpc ClearWatchHistory(ClearWatchHistoryRequest) returns (ClearWatchHistoryResponse);
+  // Whether recording is paused.
+  rpc GetWatchHistorySettings(GetWatchHistorySettingsRequest) returns (GetWatchHistorySettingsResponse);
+  // Pauses or resumes recording. While paused nothing is added and resume
+  // positions do not move.
+  rpc SetWatchHistoryPaused(SetWatchHistoryPausedRequest) returns (SetWatchHistoryPausedResponse);
+}
+
+// Where a viewer came from, as reported by the client.
+enum TrafficSource {
+  TRAFFIC_SOURCE_UNSPECIFIED = 0;
+  // Opened by URL, bookmark or without a known referrer.
+  TRAFFIC_SOURCE_DIRECT = 1;
+  TRAFFIC_SOURCE_HOME = 2;
+  TRAFFIC_SOURCE_SUBSCRIPTIONS = 3;
+  TRAFFIC_SOURCE_TRENDING = 4;
+  // "Up next" / related videos.
+  TRAFFIC_SOURCE_RELATED = 5;
+  TRAFFIC_SOURCE_SEARCH = 6;
+  TRAFFIC_SOURCE_CHANNEL = 7;
+  TRAFFIC_SOURCE_PLAYLIST = 8;
+  TRAFFIC_SOURCE_NOTIFICATION = 9;
+  // The friends' activity feed, a chat message or a note.
+  TRAFFIC_SOURCE_FRIENDS = 10;
+  TRAFFIC_SOURCE_WATCH_PARTY = 11;
+  // Another website or an embed.
+  TRAFFIC_SOURCE_EXTERNAL = 12;
+  TRAFFIC_SOURCE_HISTORY = 13;
+}
+
+message StartPlaybackRequest {
+  string video_id = 1;
+  TrafficSource source = 2;
+  // Where playback starts (the resume position, a `?t=` value, or 0).
+  double position_seconds = 3;
+}
+
+message StartPlaybackResponse {
+  // Opaque; pass to ReportPlayback. Valid until two hours without a report.
+  string session_id = 1;
+  // Where the caller left off earlier; 0 when unknown or watched to the end.
+  double resume_position_seconds = 2;
+  // Seconds of watching after which the view counts.
+  double min_view_seconds = 3;
+  // How often to report while playing.
+  int32 report_interval_seconds = 4;
+  int64 view_count = 5;
+}
+
+message ReportPlaybackRequest {
+  string session_id = 1;
+  // Current position.
+  double position_seconds = 2;
+  // The player is playing right now (false: paused, buffering, hidden).
+  bool playing = 3;
+  // Playback reached the end.
+  bool ended = 4;
+}
+
+message ReportPlaybackResponse {
+  // This session's view has been counted (now or earlier).
+  bool view_counted = 1;
+  int64 view_count = 2;
+}
+
+message WatchHistoryItem {
+  VideoSummary video = 1;
+  google.protobuf.Timestamp last_watched_at = 2;
+  // Seconds the caller spent watching it, over all sessions.
+  double watched_seconds = 3;
+}
+
+message ListWatchHistoryRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListWatchHistoryResponse {
+  repeated WatchHistoryItem items = 1;
+  tokuly.common.v1.PageInfo page = 2;
+  bool paused = 3;
+}
+
+message RemoveWatchHistoryItemRequest {
+  string video_id = 1;
+}
+
+message RemoveWatchHistoryItemResponse {}
+
+message ClearWatchHistoryRequest {}
+
+message ClearWatchHistoryResponse {}
+
+message GetWatchHistorySettingsRequest {}
+
+message GetWatchHistorySettingsResponse {
+  bool paused = 1;
+}
+
+message SetWatchHistoryPausedRequest {
+  bool paused = 1;
+}
+
+message SetWatchHistoryPausedResponse {
+  bool paused = 1;
+}
+
+// ───────────────────────────── Playlists ─────────────────────────────
+
+// Playlists, including the two built-in ones: watch later (`WL`) and liked
+// videos (`LL`, maintained by `VideoService.RateVideo`).
+service PlaylistService {
+  // Errors: PLAYLIST_LIMIT_REACHED, PLAYLIST_TITLE_INVALID,
+  // PLAYLIST_DESCRIPTION_TOO_LONG, VISIBILITY_INVALID (playlists are PUBLIC,
+  // UNLISTED or PRIVATE), CHANNEL_NOT_FOUND, RATE_LIMITED.
+  rpc CreatePlaylist(CreatePlaylistRequest) returns (CreatePlaylistResponse);
+  // Errors: PLAYLIST_NOT_FOUND, PLAYLIST_BUILT_IN (built-in lists cannot be
+  // edited), plus the validation errors of CreatePlaylist.
+  rpc UpdatePlaylist(UpdatePlaylistRequest) returns (UpdatePlaylistResponse);
+  // Errors: PLAYLIST_NOT_FOUND, PLAYLIST_BUILT_IN.
+  rpc DeletePlaylist(DeletePlaylistRequest) returns (DeletePlaylistResponse);
+  // A playlist the caller may see. Public for PUBLIC and UNLISTED lists.
+  // Errors: PLAYLIST_NOT_FOUND.
+  rpc GetPlaylist(GetPlaylistRequest) returns (GetPlaylistResponse);
+  // The caller's playlists (built-in ones first), optionally with whether
+  // each contains a given video ("save to..." dialog).
+  rpc ListMyPlaylists(ListMyPlaylistsRequest) returns (ListMyPlaylistsResponse);
+  // Public playlists shown on a channel's page. Public.
+  // Errors: CHANNEL_NOT_FOUND.
+  rpc ListChannelPlaylists(ListChannelPlaylistsRequest) returns (ListChannelPlaylistsResponse);
+  // Videos of a playlist in order (built-in lists: newest first). Videos the
+  // caller may not see are left out. Errors: PLAYLIST_NOT_FOUND.
+  rpc ListPlaylistItems(ListPlaylistItemsRequest) returns (ListPlaylistItemsResponse);
+  // Appends a video the caller may watch. Adding a video twice is a no-op.
+  // Errors: PLAYLIST_NOT_FOUND, PLAYLIST_FULL, VIDEO_NOT_FOUND,
+  // PLAYLIST_READ_ONLY (`LL` changes only through RateVideo).
+  rpc AddPlaylistItem(AddPlaylistItemRequest) returns (AddPlaylistItemResponse);
+  // Errors: PLAYLIST_NOT_FOUND, PLAYLIST_READ_ONLY.
+  rpc RemovePlaylistItem(RemovePlaylistItemRequest) returns (RemovePlaylistItemResponse);
+  // Moves a video to a new place in the list.
+  // Errors: PLAYLIST_NOT_FOUND, PLAYLIST_ITEM_NOT_FOUND, PLAYLIST_READ_ONLY.
+  rpc MovePlaylistItem(MovePlaylistItemRequest) returns (MovePlaylistItemResponse);
+}
+
+enum PlaylistKind {
+  PLAYLIST_KIND_UNSPECIFIED = 0;
+  // Made by a user.
+  PLAYLIST_KIND_CUSTOM = 1;
+  // The built-in "watch later" list (`WL`); always private.
+  PLAYLIST_KIND_WATCH_LATER = 2;
+  // The built-in list of liked videos (`LL`); always private.
+  PLAYLIST_KIND_LIKED = 3;
+}
+
+message Playlist {
+  string id = 1;
+  string short_id = 2;
+  PlaylistKind kind = 3;
+  // Empty for built-in lists (clients show a localized name).
+  string title = 4;
+  string description = 5;
+  // PUBLIC, UNLISTED or PRIVATE.
+  tokuly.common.v1.Visibility visibility = 6;
+  // Videos in the list, including ones the caller cannot see.
+  int32 item_count = 7;
+  // Thumbnail of the first video the caller may see.
+  tokuly.common.v1.Image thumbnail = 8;
+  // The account that made the playlist. Unset for a playlist published on a
+  // channel (channels do not reveal their owner), except to the owner.
+  tokuly.common.v1.UserSummary owner = 9;
+  // The channel the playlist is published on; unset for personal playlists.
+  tokuly.common.v1.ChannelSummary channel = 10;
+  int64 like_count = 11;
+  google.protobuf.Timestamp created_at = 12;
+  google.protobuf.Timestamp updated_at = 13;
+  // The caller owns the playlist.
+  bool is_owner = 14;
+  // Only in ListMyPlaylists with `contains_video_id`: the list has that video.
+  bool contains_video = 15;
+}
+
+message CreatePlaylistRequest {
+  // 1-100 characters.
+  string title = 1;
+  // At most 1000 characters.
+  string description = 2;
+  // Unspecified = PRIVATE.
+  tokuly.common.v1.Visibility visibility = 3;
+  // One of the caller's channels to publish the playlist on; empty = a
+  // personal playlist.
+  string channel_id = 4;
+  // A video to start the list with. Optional.
+  string video_id = 5;
+}
+
+message CreatePlaylistResponse {
+  Playlist playlist = 1;
+}
+
+message UpdatePlaylistRequest {
+  string playlist_id = 1;
+  optional string title = 2;
+  optional string description = 3;
+  optional tokuly.common.v1.Visibility visibility = 4;
+  // Empty string makes it a personal playlist.
+  optional string channel_id = 5;
+}
+
+message UpdatePlaylistResponse {
+  Playlist playlist = 1;
+}
+
+message DeletePlaylistRequest {
+  string playlist_id = 1;
+}
+
+message DeletePlaylistResponse {}
+
+message GetPlaylistRequest {
+  string playlist_id = 1;
+}
+
+message GetPlaylistResponse {
+  Playlist playlist = 1;
+}
+
+message ListMyPlaylistsRequest {
+  // Fills `Playlist.contains_video` for this video. Optional.
+  string contains_video_id = 1;
+}
+
+message ListMyPlaylistsResponse {
+  repeated Playlist playlists = 1;
+}
+
+message ListChannelPlaylistsRequest {
+  string channel_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListChannelPlaylistsResponse {
+  repeated Playlist playlists = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message PlaylistItem {
+  VideoSummary video = 1;
+  google.protobuf.Timestamp added_at = 2;
+}
+
+message ListPlaylistItemsRequest {
+  string playlist_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListPlaylistItemsResponse {
+  repeated PlaylistItem items = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message AddPlaylistItemRequest {
+  string playlist_id = 1;
+  string video_id = 2;
+}
+
+message AddPlaylistItemResponse {
+  Playlist playlist = 1;
+}
+
+message RemovePlaylistItemRequest {
+  string playlist_id = 1;
+  string video_id = 2;
+}
+
+message RemovePlaylistItemResponse {
+  Playlist playlist = 1;
+}
+
+message MovePlaylistItemRequest {
+  string playlist_id = 1;
+  string video_id = 2;
+  // The video it should come right after; empty = move to the front.
+  string after_video_id = 3;
+}
+
+message MovePlaylistItemResponse {}
+
+// ───────────────────────────── Feeds ─────────────────────────────
+
+// Video discovery: home, subscriptions, trending, related.
+service VideoFeedService {
+  // Recommendations: a mix of the caller's subscriptions, what their friends
+  // publish and like, and what is popular — without videos they finished or
+  // marked "not interested". Anonymous callers get popular and new videos.
+  // Public.
+  rpc GetHomeFeed(GetHomeFeedRequest) returns (GetHomeFeedResponse);
+  // Newest videos of the channels the caller subscribes to.
+  rpc GetSubscriptionsFeed(GetSubscriptionsFeedRequest) returns (GetSubscriptionsFeedResponse);
+  // Public videos ranked by recent views and likes with time decay. Public.
+  rpc ListTrending(ListTrendingRequest) returns (ListTrendingResponse);
+  // Videos to watch next: same channel, shared tags, same game or category.
+  // Public. Errors: VIDEO_NOT_FOUND.
+  rpc ListRelatedVideos(ListRelatedVideosRequest) returns (ListRelatedVideosResponse);
+  // Keeps a video, or everything of a channel, out of the caller's home feed.
+  // Errors: VIDEO_NOT_FOUND, CHANNEL_NOT_FOUND, TARGET_REQUIRED.
+  rpc MarkNotInterested(MarkNotInterestedRequest) returns (MarkNotInterestedResponse);
+  // Takes a "not interested" back. Errors: TARGET_REQUIRED.
+  rpc UndoNotInterested(UndoNotInterestedRequest) returns (UndoNotInterestedResponse);
+}
+
+message GetHomeFeedRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message GetHomeFeedResponse {
+  repeated VideoSummary videos = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message GetSubscriptionsFeedRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message GetSubscriptionsFeedResponse {
+  repeated VideoSummary videos = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListTrendingRequest {
+  // Only this category; unspecified = all.
+  VideoCategory category = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListTrendingResponse {
+  repeated VideoSummary videos = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListRelatedVideosRequest {
+  string video_id = 1;
+  // 1-50, default 20.
+  int32 limit = 2;
+}
+
+message ListRelatedVideosResponse {
+  repeated VideoSummary videos = 1;
+}
+
+message MarkNotInterestedRequest {
+  // What to keep out of the feed.
+  oneof target {
+    string video_id = 1;
+    // "Don't recommend this channel".
+    string channel_id = 2;
+  }
+}
+
+message MarkNotInterestedResponse {}
+
+message UndoNotInterestedRequest {
+  oneof target {
+    string video_id = 1;
+    string channel_id = 2;
+  }
+}
+
+message UndoNotInterestedResponse {}
+
+// ───────────────────────────── Watch parties ─────────────────────────────
+
+// Watch parties (一緒に見る): a host plays a video and everyone in the party
+// follows. Up to 100 members, guests by link.
+//
+// Joining returns the realtime topic that carries the party's `VideoEvent`s:
+// `party:{party_id}` for signed-in members (the gateway admits members
+// only), `party:{party_id}:{key}` for a guest, where the key is a secret of
+// that guest's seat — knowing the party ID is not enough to listen, and a
+// guest who leaves or is removed stops receiving events at once.
+//
+// Playback is authoritative on the server: `PartyPlayback` says where the
+// video was (`position_seconds`) at `updated_at` server time and whether and
+// how fast it has been moving since. Clients estimate their clock offset
+// from `server_time` in responses and seek to
+// `position_seconds + (now - updated_at) * rate` while `playing`.
+//
+// Guests act with the `guest_token` they got from JoinParty; signed-in
+// members leave it empty.
+service WatchPartyService {
+  // Starts a party for a video the caller may watch and joins as host.
+  // Errors: VIDEO_NOT_FOUND, PLAYBACK_BLOCKED, PLAYLIST_NOT_FOUND,
+  // PARTY_LIMIT_REACHED (the caller hosts too many parties), RATE_LIMITED.
+  rpc CreateParty(CreatePartyRequest) returns (CreatePartyResponse);
+  // What an invite link shows before joining. Public; by join code only.
+  // Errors: PARTY_NOT_FOUND.
+  rpc PreviewParty(PreviewPartyRequest) returns (PreviewPartyResponse);
+  // Joins by join code — signed in, or as a guest with a display name.
+  // Joining again returns the existing seat. Public.
+  // Errors: PARTY_NOT_FOUND, PARTY_FULL, PARTY_GUESTS_NOT_ALLOWED,
+  // GUEST_NAME_INVALID, PARTY_BANNED (removed by the host), VIDEO_NOT_FOUND
+  // or PLAYBACK_BLOCKED (the caller may not watch the video), RATE_LIMITED.
+  rpc JoinParty(JoinPartyRequest) returns (JoinPartyResponse);
+  // The party as a member sees it: playback, members, recent chat.
+  // Errors: PARTY_NOT_FOUND, NOT_A_PARTY_MEMBER.
+  rpc GetParty(GetPartyRequest) returns (GetPartyResponse);
+  // Keeps the caller's seat (members silent for a minute are dropped) and
+  // returns the current playback state. Call every 20 s.
+  // Errors: PARTY_NOT_FOUND, NOT_A_PARTY_MEMBER.
+  rpc HeartbeatParty(HeartbeatPartyRequest) returns (HeartbeatPartyResponse);
+  // Leaves the party. When the host leaves, the longest-present co-host (or
+  // else signed-in member) becomes host; a party without signed-in members
+  // ends. Errors: PARTY_NOT_FOUND.
+  rpc LeaveParty(LeavePartyRequest) returns (LeavePartyResponse);
+  // Play, pause, seek or change speed. Host and co-hosts only.
+  // Errors: PARTY_NOT_FOUND, NOT_A_PARTY_MEMBER, NOT_PARTY_HOST,
+  // PLAYBACK_INVALID (position or rate out of range).
+  rpc SetPartyPlayback(SetPartyPlaybackRequest) returns (SetPartyPlaybackResponse);
+  // Switches the party to another video (e.g. the next playlist item).
+  // Host and co-hosts only. Errors: as SetPartyPlayback, VIDEO_NOT_FOUND.
+  rpc SetPartyVideo(SetPartyVideoRequest) returns (SetPartyVideoResponse);
+  // Makes a signed-in member a co-host or a plain member again, or hands the
+  // party over (role HOST: the caller becomes a co-host). Host only.
+  // Errors: PARTY_NOT_FOUND, NOT_PARTY_HOST, PARTY_MEMBER_NOT_FOUND,
+  // GUESTS_CANNOT_HOST, ROLE_INVALID.
+  rpc SetPartyMemberRole(SetPartyMemberRoleRequest) returns (SetPartyMemberRoleResponse);
+  // Removes a member. A removed account cannot rejoin; a removed guest is
+  // refused from the same network address. Host and co-hosts (co-hosts
+  // cannot remove the host or other co-hosts).
+  // Errors: PARTY_NOT_FOUND, NOT_PARTY_HOST, PARTY_MEMBER_NOT_FOUND.
+  rpc RemovePartyMember(RemovePartyMemberRequest) returns (RemovePartyMemberResponse);
+  // Changes whether guests may join. Host only.
+  // Errors: PARTY_NOT_FOUND, NOT_PARTY_HOST.
+  rpc UpdateParty(UpdatePartyRequest) returns (UpdatePartyResponse);
+  // Sends a chat message: text of at most 500 characters and/or, for
+  // signed-in members, a stamp. Errors: PARTY_NOT_FOUND, NOT_A_PARTY_MEMBER,
+  // MESSAGE_EMPTY, MESSAGE_TOO_LONG, STAMP_NOT_USABLE (also for guests and
+  // when the server has no stamp service), RATE_LIMITED.
+  rpc SendPartyMessage(SendPartyMessageRequest) returns (SendPartyMessageResponse);
+  // Notifies friends of the caller with a link to the party.
+  // Errors: PARTY_NOT_FOUND, NOT_A_PARTY_MEMBER, NOT_FRIENDS, TOO_MANY_INVITES,
+  // RATE_LIMITED.
+  rpc InviteToParty(InviteToPartyRequest) returns (InviteToPartyResponse);
+  // Ends the party for everyone. Host only.
+  // Errors: PARTY_NOT_FOUND, NOT_PARTY_HOST.
+  rpc EndParty(EndPartyRequest) returns (EndPartyResponse);
+}
+
+enum PartyRole {
+  PARTY_ROLE_UNSPECIFIED = 0;
+  // Controls playback, roles and the party itself. Exactly one.
+  PARTY_ROLE_HOST = 1;
+  // May control playback and remove members.
+  PARTY_ROLE_COHOST = 2;
+  PARTY_ROLE_MEMBER = 3;
+}
+
+// Why a member is gone.
+enum PartyLeaveReason {
+  PARTY_LEAVE_REASON_UNSPECIFIED = 0;
+  PARTY_LEAVE_REASON_LEFT = 1;
+  // Removed by the host or a co-host.
+  PARTY_LEAVE_REASON_REMOVED = 2;
+  // No heartbeat for a minute.
+  PARTY_LEAVE_REASON_TIMED_OUT = 3;
+}
+
+// Why a party is over.
+enum PartyEndReason {
+  PARTY_END_REASON_UNSPECIFIED = 0;
+  PARTY_END_REASON_ENDED_BY_HOST = 1;
+  // The last signed-in member left.
+  PARTY_END_REASON_EMPTY = 2;
+  // Open for longer than a party may last.
+  PARTY_END_REASON_EXPIRED = 3;
+  // The video was deleted or made unavailable.
+  PARTY_END_REASON_VIDEO_UNAVAILABLE = 4;
+}
+
+// The authoritative playback state of a party.
+message PartyPlayback {
+  bool playing = 1;
+  // Position at `updated_at`.
+  double position_seconds = 2;
+  // Playback speed, 0.25-2.
+  double rate = 3;
+  // Server time the state was set.
+  google.protobuf.Timestamp updated_at = 4;
+  // Grows with every change; ignore states older than the one applied.
+  int64 sequence = 5;
+  // Member who made the change; empty for the initial state.
+  string changed_by_member_id = 6;
+}
+
+// Someone in a party.
+message PartyMember {
+  // ID of the seat (not the user ID).
+  string id = 1;
+  // Unset for guests.
+  tokuly.common.v1.UserSummary user = 2;
+  // Display name: the user's, or the one a guest chose.
+  string name = 3;
+  PartyRole role = 4;
+  bool is_guest = 5;
+  google.protobuf.Timestamp joined_at = 6;
+}
+
+message PartyMessage {
+  string id = 1;
+  // The sender's seat as it was when the message was sent.
+  PartyMember sender = 2;
+  string text = 3;
+  // Unset when the message has no stamp.
+  tokuly.common.v1.StampRef stamp = 4;
+  google.protobuf.Timestamp sent_at = 5;
+}
+
+message Party {
+  string id = 1;
+  // Join code; the invite link is `invite_url`.
+  string code = 2;
+  string invite_url = 3;
+  VideoSummary video = 4;
+  // The playlist the party is going through; empty when none.
+  string playlist_id = 5;
+  PartyPlayback playback = 6;
+  bool allow_guests = 7;
+  int32 member_count = 8;
+  // Most members a party takes.
+  int32 max_members = 9;
+  google.protobuf.Timestamp created_at = 10;
+  // Set once the party is over.
+  google.protobuf.Timestamp ended_at = 11;
+}
+
+message CreatePartyRequest {
+  string video_id = 1;
+  // The playlist the video is played from. Optional.
+  string playlist_id = 2;
+  // Unset = guests may join.
+  optional bool allow_guests = 3;
+  // Where playback starts.
+  double position_seconds = 4;
+}
+
+// A member's view of the party, returned by create, join and get.
+message PartySession {
+  Party party = 1;
+  // The caller's seat.
+  PartyMember self = 2;
+  // Everyone present, host first.
+  repeated PartyMember members = 3;
+  // The latest messages, oldest first (at most 50).
+  repeated PartyMessage recent_messages = 4;
+  // Realtime topic to subscribe to (see the service comment).
+  string realtime_topic = 5;
+  // For estimating the client's clock offset.
+  google.protobuf.Timestamp server_time = 6;
+  // Guests only, and only from JoinParty: the secret proving the seat.
+  string guest_token = 7;
+}
+
+message CreatePartyResponse {
+  PartySession session = 1;
+}
+
+message PreviewPartyRequest {
+  string code = 1;
+}
+
+message PreviewPartyResponse {
+  Party party = 1;
+  PartyMember host = 2;
+}
+
+message JoinPartyRequest {
+  string code = 1;
+  // Guests: 1-24 characters. Ignored for signed-in callers.
+  string guest_name = 2;
+  // A guest rejoining with the same seat (e.g. after a reload). Optional.
+  string guest_token = 3;
+}
+
+message JoinPartyResponse {
+  PartySession session = 1;
+}
+
+message GetPartyRequest {
+  string party_id = 1;
+  string guest_token = 2;
+}
+
+message GetPartyResponse {
+  PartySession session = 1;
+}
+
+message HeartbeatPartyRequest {
+  string party_id = 1;
+  string guest_token = 2;
+}
+
+message HeartbeatPartyResponse {
+  PartyPlayback playback = 1;
+  google.protobuf.Timestamp server_time = 2;
+  int32 member_count = 3;
+}
+
+message LeavePartyRequest {
+  string party_id = 1;
+  string guest_token = 2;
+}
+
+message LeavePartyResponse {}
+
+message SetPartyPlaybackRequest {
+  string party_id = 1;
+  bool playing = 2;
+  double position_seconds = 3;
+  // 0 = keep the current rate.
+  double rate = 4;
+}
+
+message SetPartyPlaybackResponse {
+  PartyPlayback playback = 1;
+  google.protobuf.Timestamp server_time = 2;
+}
+
+message SetPartyVideoRequest {
+  string party_id = 1;
+  string video_id = 2;
+  // Unset keeps the party's playlist; empty string clears it.
+  optional string playlist_id = 3;
+}
+
+message SetPartyVideoResponse {
+  Party party = 1;
+}
+
+message SetPartyMemberRoleRequest {
+  string party_id = 1;
+  string member_id = 2;
+  PartyRole role = 3;
+}
+
+message SetPartyMemberRoleResponse {
+  repeated PartyMember members = 1;
+}
+
+message RemovePartyMemberRequest {
+  string party_id = 1;
+  string member_id = 2;
+}
+
+message RemovePartyMemberResponse {}
+
+message UpdatePartyRequest {
+  string party_id = 1;
+  optional bool allow_guests = 2;
+}
+
+message UpdatePartyResponse {
+  Party party = 1;
+}
+
+message SendPartyMessageRequest {
+  string party_id = 1;
+  string guest_token = 2;
+  string text = 3;
+  // Signed-in members only. Optional.
+  string stamp_id = 4;
+}
+
+message SendPartyMessageResponse {
+  PartyMessage message = 1;
+}
+
+message InviteToPartyRequest {
+  string party_id = 1;
+  // Friends of the caller, at most 20 per call.
+  repeated string user_ids = 2;
+}
+
+message InviteToPartyResponse {}
+
+message EndPartyRequest {
+  string party_id = 1;
+}
+
+message EndPartyResponse {}
+
+// ───────────────────────────── Creator analytics ─────────────────────────────
+
+// Studio analytics for the owner of a channel.
+service StudioAnalyticsService {
+  // Totals, a daily series, traffic sources and top videos of a channel
+  // over a date range. Errors: CHANNEL_NOT_FOUND, DATE_RANGE_INVALID,
+  // TIME_ZONE_INVALID, ANALYTICS_UNAVAILABLE.
+  rpc GetChannelAnalytics(GetChannelAnalyticsRequest) returns (GetChannelAnalyticsResponse);
+  // The same for one video, plus its audience retention curve.
+  // Errors: VIDEO_NOT_FOUND, DATE_RANGE_INVALID, TIME_ZONE_INVALID,
+  // ANALYTICS_UNAVAILABLE.
+  rpc GetVideoAnalytics(GetVideoAnalyticsRequest) returns (GetVideoAnalyticsResponse);
+  // Views of the last 48 hours (per hour) and 60 minutes (per minute) for a
+  // channel or one video. Errors: CHANNEL_NOT_FOUND, VIDEO_NOT_FOUND,
+  // TARGET_REQUIRED, ANALYTICS_UNAVAILABLE.
+  rpc GetRealtimeAnalytics(GetRealtimeAnalyticsRequest) returns (GetRealtimeAnalyticsResponse);
+}
+
+// An inclusive range of calendar days.
+message DateRange {
+  // `YYYY-MM-DD`.
+  string start_date = 1;
+  // `YYYY-MM-DD`; at most 366 days after `start_date`.
+  string end_date = 2;
+  // IANA zone the days are cut in, e.g. `Asia/Tokyo`. Empty = UTC.
+  string time_zone = 3;
+}
+
+message AnalyticsTotals {
+  int64 views = 1;
+  // Distinct viewers (accounts, and network addresses of anonymous viewers).
+  int64 unique_viewers = 2;
+  double watch_time_seconds = 3;
+  // `watch_time_seconds / views`; 0 without views.
+  double average_view_duration_seconds = 4;
+  int64 subscribers_gained = 5;
+  int64 subscribers_lost = 6;
+  int64 likes = 7;
+  int64 dislikes = 8;
+}
+
+message DailyAnalytics {
+  // `YYYY-MM-DD` in the requested time zone.
+  string date = 1;
+  int64 views = 2;
+  int64 unique_viewers = 3;
+  double watch_time_seconds = 4;
+  int64 subscribers_gained = 5;
+  int64 subscribers_lost = 6;
+}
+
+message TrafficSourceStats {
+  TrafficSource source = 1;
+  int64 views = 2;
+  double watch_time_seconds = 3;
+}
+
+message VideoStats {
+  VideoSummary video = 1;
+  int64 views = 2;
+  double watch_time_seconds = 3;
+}
+
+message GetChannelAnalyticsRequest {
+  string channel_id = 1;
+  DateRange range = 2;
+}
+
+message GetChannelAnalyticsResponse {
+  AnalyticsTotals totals = 1;
+  // One entry per day of the range, including days without activity.
+  repeated DailyAnalytics daily = 2;
+  repeated TrafficSourceStats traffic_sources = 3;
+  // The ten most viewed videos of the range.
+  repeated VideoStats top_videos = 4;
+  // Current number of subscribers.
+  int64 subscriber_count = 5;
+}
+
+message GetVideoAnalyticsRequest {
+  string video_id = 1;
+  DateRange range = 2;
+}
+
+message GetVideoAnalyticsResponse {
+  AnalyticsTotals totals = 1;
+  repeated DailyAnalytics daily = 2;
+  repeated TrafficSourceStats traffic_sources = 3;
+  // 100 values: the share (0-1) of playback sessions that watched each
+  // hundredth of the video. Empty without sessions.
+  repeated double retention = 4;
+}
+
+message GetRealtimeAnalyticsRequest {
+  oneof target {
+    string channel_id = 1;
+    string video_id = 2;
+  }
+}
+
+message GetRealtimeAnalyticsResponse {
+  // 48 values, oldest first; the last is the current hour.
+  repeated int64 views_per_hour = 1;
+  // 60 values, oldest first; the last is the current minute.
+  repeated int64 views_per_minute = 2;
+  int64 views_last_48_hours = 3;
+  int64 views_last_60_minutes = 4;
+  // Channel target only: the most viewed videos of the last 48 hours.
+  repeated VideoStats top_videos = 5;
+}
+
+// ───────────────────────────── Realtime ─────────────────────────────
+
+// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.video).
+//
+// `video_updated` is sent to the owner (user-scoped). The `party_*` events
+// are sent on the party's topic (see WatchPartyService).
+message VideoEvent {
+  oneof event {
+    // A video of the caller changed state: processing finished or failed,
+    // or a scheduled video went live.
+    VideoSummary video_updated = 1;
+    PartyPlayback party_playback = 2;
+    PartyMember party_member_joined = 3;
+    PartyMemberLeft party_member_left = 4;
+    // A member's role changed.
+    PartyMember party_member_updated = 5;
+    PartyMessage party_message = 6;
+    // The party switched videos or its settings changed; `playback` restarts.
+    Party party_updated = 7;
+    PartyEnded party_ended = 8;
+  }
+}
+
+message PartyMemberLeft {
+  string member_id = 1;
+  PartyLeaveReason reason = 2;
+  int32 member_count = 3;
+}
+
+message PartyEnded {
+  string party_id = 1;
+  PartyEndReason reason = 2;
+}

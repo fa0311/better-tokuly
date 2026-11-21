@@ -1,0 +1,588 @@
+syntax = "proto3";
+
+// The friend graph and everything playful that happens between friends:
+// requests, best friends, invites, nearby discovery, bumps, buzzes, knocks
+// and map reactions ("supersends").
+package tokuly.social.v1;
+
+import "google/protobuf/timestamp.proto";
+import "tokuly/common/v1/common.proto";
+import "tokuly/identity/v1/identity.proto";
+
+// ───────────────────────────── Friends ─────────────────────────────
+
+// The friend graph: requests, friends, best friends, suggestions, blocks,
+// invites and nearby discovery.
+//
+// Every RPC except ResolveInvite needs a signed-in caller. Blocking is
+// silent: a user who was blocked gets the same errors as for a user that does
+// not exist (USER_NOT_FOUND).
+service FriendService {
+  // Sends a friend request. When the target had already requested the caller
+  // the two become friends right away (crossed requests auto-accept). Sending
+  // the same request again returns the pending one.
+  // Errors: MISSING_TARGET, USER_NOT_FOUND, CANNOT_FRIEND_SELF, USER_BLOCKED
+  // (the caller blocked the target), ALREADY_FRIENDS,
+  // FRIEND_REQUESTS_RESTRICTED (the target's privacy), FRIEND_LIMIT_REACHED,
+  // TOO_MANY_PENDING_REQUESTS, MESSAGE_TOO_LONG, RATE_LIMITED, REQUEST_CHANGED
+  // (aborted: the other side withdrew their request at the same moment; retry).
+  rpc SendFriendRequest(SendFriendRequestRequest) returns (SendFriendRequestResponse);
+  // Withdraws a request the caller sent. Errors: REQUEST_NOT_FOUND.
+  rpc CancelFriendRequest(CancelFriendRequestRequest) returns (CancelFriendRequestResponse);
+  // Accepts or declines a request addressed to the caller. Declining is
+  // silent: the sender keeps seeing the request as pending.
+  // Errors: REQUEST_NOT_FOUND, FRIEND_LIMIT_REACHED.
+  rpc RespondFriendRequest(RespondFriendRequestRequest) returns (RespondFriendRequestResponse);
+  // Pending requests in one direction, newest first.
+  rpc ListFriendRequests(ListFriendRequestsRequest) returns (ListFriendRequestsResponse);
+
+  // Friends of the caller, or of another user when their privacy allows it,
+  // newest friendships first.
+  // Errors: USER_NOT_FOUND, FRIEND_LIST_PRIVATE, QUERY_TOO_LONG.
+  rpc ListFriends(ListFriendsRequest) returns (ListFriendsResponse);
+  // Ends a friendship (both sides). Errors: NOT_FRIENDS.
+  rpc RemoveFriend(RemoveFriendRequest) returns (RemoveFriendResponse);
+  // Relationship details between the caller and one friend. Errors: NOT_FRIENDS.
+  rpc GetFriendship(GetFriendshipRequest) returns (GetFriendshipResponse);
+  // Per-friend preferences (nickname, favorite, mute).
+  // Errors: NOT_FRIENDS, NICKNAME_TOO_LONG, TOO_MANY_FAVORITES.
+  rpc UpdateFriendPrefs(UpdateFriendPrefsRequest) returns (UpdateFriendPrefsResponse);
+
+  // Automatically ranked closest friends plus manually starred ones.
+  // Errors: NOT_FRIENDS (someone else's list is shown to their friends only).
+  rpc ListBestFriends(ListBestFriendsRequest) returns (ListBestFriendsResponse);
+  // "もしかして、友達!?" — friends of friends, contacts, and people met via invites.
+  rpc ListSuggestions(ListSuggestionsRequest) returns (ListSuggestionsResponse);
+  // Hides a suggested user from the caller's suggestions for good.
+  // Errors: USER_NOT_FOUND.
+  rpc DismissSuggestion(DismissSuggestionRequest) returns (DismissSuggestionResponse);
+  // Matches hashed emails from the address book against discoverable accounts
+  // with a verified email. The uploaded hashes are not stored.
+  // Errors: TOO_MANY_CONTACTS (more than 2000), INVALID_CONTACT_HASH, RATE_LIMITED.
+  rpc MatchContacts(MatchContactsRequest) returns (MatchContactsResponse);
+
+  // Blocks a user silently: ends the friendship, drops pending requests in
+  // both directions and hides both users from each other everywhere.
+  // Errors: USER_NOT_FOUND, CANNOT_BLOCK_SELF, RATE_LIMITED.
+  rpc BlockUser(BlockUserRequest) returns (BlockUserResponse);
+  // Lifts a block (the friendship is not restored). Succeeds when not blocked.
+  rpc UnblockUser(UnblockUserRequest) returns (UnblockUserResponse);
+  // Users the caller blocked, most recent first.
+  rpc ListBlockedUsers(ListBlockedUsersRequest) returns (ListBlockedUsersResponse);
+
+  // Invite links and QR codes. Signing up through one counts as an "intro".
+  //
+  // The caller's invite, created on first use.
+  rpc GetMyInvite(GetMyInviteRequest) returns (GetMyInviteResponse);
+  // Replaces the caller's code; the old link stops working. Errors: RATE_LIMITED.
+  rpc ResetMyInvite(ResetMyInviteRequest) returns (ResetMyInviteResponse);
+  // Who an invite code belongs to. Works anonymously, so the sign-up page can
+  // show the inviter. Errors: INVITE_NOT_FOUND, RATE_LIMITED.
+  rpc ResolveInvite(ResolveInviteRequest) returns (ResolveInviteResponse);
+  // People who joined through a user's invites, newest first. Someone else's
+  // list follows their friend list privacy.
+  // Errors: USER_NOT_FOUND, FRIEND_LIST_PRIVATE.
+  rpc ListIntros(ListIntrosRequest) returns (ListIntrosResponse);
+
+  // Nearby discovery: while a client keeps this stream open it is visible to,
+  // and receives, other users with the add-friend screen open within ~50 m.
+  // The first message arrives immediately (possibly empty). The server ends
+  // the stream after 10 minutes; reopen it to keep going or after moving.
+  // Errors: INVALID_LOCATION, NEARBY_DISCOVERY_DISABLED (the caller switched
+  // off `nearby_discoverable`), RATE_LIMITED.
+  rpc DiscoverNearby(DiscoverNearbyRequest) returns (stream DiscoverNearbyResponse);
+}
+
+// How a friend request or friendship came to be.
+enum FriendSource {
+  FRIEND_SOURCE_UNSPECIFIED = 0;
+  FRIEND_SOURCE_HANDLE = 1;
+  FRIEND_SOURCE_QR = 2;
+  FRIEND_SOURCE_INVITE_LINK = 3;
+  FRIEND_SOURCE_NEARBY = 4;
+  FRIEND_SOURCE_BUMP = 5;
+  FRIEND_SOURCE_SUGGESTION = 6;
+  FRIEND_SOURCE_CONTACTS = 7;
+  FRIEND_SOURCE_PROFILE = 8;
+}
+
+message SendFriendRequestRequest {
+  oneof target {
+    string user_id = 1;
+    string handle = 2;
+  }
+  FriendSource source = 3;
+  // Optional short greeting shown with the request.
+  string message = 4;
+}
+
+message SendFriendRequestResponse {
+  // FRIENDS when the other side had already sent a request (auto-accept),
+  // otherwise REQUEST_SENT.
+  tokuly.identity.v1.Relationship relationship = 1;
+  FriendRequest request = 2;
+}
+
+message CancelFriendRequestRequest {
+  string request_id = 1;
+}
+
+message CancelFriendRequestResponse {}
+
+message RespondFriendRequestRequest {
+  string request_id = 1;
+  bool accept = 2;
+}
+
+message RespondFriendRequestResponse {
+  // Set when accepted.
+  Friend friend = 1;
+}
+
+message FriendRequest {
+  string id = 1;
+  tokuly.common.v1.UserSummary from = 2;
+  tokuly.common.v1.UserSummary to = 3;
+  FriendSource source = 4;
+  string message = 5;
+  google.protobuf.Timestamp created_at = 6;
+  int32 mutual_friend_count = 7;
+}
+
+enum FriendRequestDirection {
+  FRIEND_REQUEST_DIRECTION_UNSPECIFIED = 0;
+  // Requests waiting for my answer ("リクエスト").
+  FRIEND_REQUEST_DIRECTION_INCOMING = 1;
+  // Requests I sent that are pending ("保留中").
+  FRIEND_REQUEST_DIRECTION_OUTGOING = 2;
+}
+
+message ListFriendRequestsRequest {
+  FriendRequestDirection direction = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListFriendRequestsResponse {
+  repeated FriendRequest requests = 1;
+  tokuly.common.v1.PageInfo page = 2;
+  int32 incoming_count = 3;
+}
+
+message Friend {
+  tokuly.common.v1.UserSummary user = 1;
+  google.protobuf.Timestamp friends_since = 2;
+  // Private nickname set by the caller.
+  string nickname = 3;
+  // Manually starred.
+  bool favorite = 4;
+  // Rank among best friends (1 = closest); 0 when not a best friend.
+  int32 best_friend_rank = 5;
+  // Muted friends do not trigger notifications.
+  bool muted = 6;
+  tokuly.identity.v1.Status status = 7;
+  // The friend has the app open right now. Always false when they do not
+  // share their online status. Later changes arrive as
+  // tokuly.realtime.v1.PresenceEvent.
+  bool online = 8;
+  // When the friend was last online; unset when unknown or not shared.
+  google.protobuf.Timestamp last_seen_at = 9;
+}
+
+message ListFriendsRequest {
+  // Empty = the caller.
+  string user_id = 1;
+  // Optional name/handle filter.
+  string query = 2;
+  tokuly.common.v1.PageRequest page = 3;
+}
+
+message ListFriendsResponse {
+  repeated Friend friends = 1;
+  tokuly.common.v1.PageInfo page = 2;
+  int32 total = 3;
+}
+
+message RemoveFriendRequest {
+  string user_id = 1;
+}
+
+message RemoveFriendResponse {}
+
+message GetFriendshipRequest {
+  string user_id = 1;
+}
+
+message GetFriendshipResponse {
+  Friendship friendship = 1;
+}
+
+// Shared history between the caller and a friend.
+message Friendship {
+  Friend friend = 1;
+  FriendSource source = 2;
+  int32 bump_count = 3;
+  google.protobuf.Timestamp last_bump_at = 4;
+  // Total time physically spent together.
+  int64 time_together_seconds = 5;
+  // Number of nights spent at the same place.
+  int32 nights_together = 6;
+  // Consecutive weeks with interaction (the best-friend counter).
+  int32 streak_weeks = 7;
+  // Relationship titles such as "MUTUAL_LOVE" (each other's top time-together)
+  // and "PARTY_PEOPLE" (frequent night meetups). The full set:
+  // BFF (each other's closest friend), MUTUAL_LOVE, PARTY_PEOPLE,
+  // BUMP_BUDDIES (5+ bumps in 30 days), CHATTERBOX (200+ messages and stamps
+  // in 30 days), ON_FIRE (streak of 4+ weeks), NEW_FRIENDS (first week).
+  repeated string titles = 8;
+  int32 mutual_friend_count = 9;
+  // Messages + stamps exchanged in the last 30 days.
+  int32 interaction_score = 10;
+}
+
+message UpdateFriendPrefsRequest {
+  string user_id = 1;
+  optional string nickname = 2;
+  optional bool favorite = 3;
+  optional bool muted = 4;
+}
+
+message UpdateFriendPrefsResponse {
+  Friend friend = 1;
+}
+
+message ListBestFriendsRequest {
+  // Empty = the caller. Other users' best friends are visible to their friends.
+  string user_id = 1;
+}
+
+message ListBestFriendsResponse {
+  repeated Friend friends = 1;
+}
+
+message Suggestion {
+  tokuly.common.v1.UserSummary user = 1;
+  // FRIEND_OF_FRIEND | CONTACT | INVITED_BY (they invited the caller) |
+  // INVITED (they joined through the caller's invite) | SAME_SCHOOL |
+  // NEARBY_OFTEN
+  string reason = 2;
+  int32 mutual_friend_count = 3;
+  repeated tokuly.common.v1.UserSummary mutual_friends = 4;
+}
+
+message ListSuggestionsRequest {
+  // 0 = 20; at most 50.
+  int32 limit = 1;
+}
+
+message ListSuggestionsResponse {
+  repeated Suggestion suggestions = 1;
+}
+
+message DismissSuggestionRequest {
+  string user_id = 1;
+}
+
+message DismissSuggestionResponse {}
+
+message MatchContactsRequest {
+  // SHA-256 (hex) of normalized E.164 phone numbers or lowercased emails.
+  // Accounts are matched by verified email; phone hashes are accepted so
+  // clients can send the whole address book, but never match.
+  repeated string contact_hashes = 1;
+}
+
+message MatchContactsResponse {
+  repeated ContactMatch matches = 1;
+}
+
+message ContactMatch {
+  string contact_hash = 1;
+  tokuly.common.v1.UserSummary user = 2;
+  tokuly.identity.v1.Relationship relationship = 3;
+}
+
+message BlockUserRequest {
+  string user_id = 1;
+}
+
+message BlockUserResponse {}
+
+message UnblockUserRequest {
+  string user_id = 1;
+}
+
+message UnblockUserResponse {}
+
+message ListBlockedUsersRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListBlockedUsersResponse {
+  repeated tokuly.common.v1.UserSummary users = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message Invite {
+  string code = 1;
+  // Full URL, also what the QR code encodes.
+  string url = 2;
+  int32 intro_count = 3;
+}
+
+message GetMyInviteRequest {}
+
+message GetMyInviteResponse {
+  Invite invite = 1;
+}
+
+message ResetMyInviteRequest {}
+
+message ResetMyInviteResponse {
+  Invite invite = 1;
+}
+
+message ResolveInviteRequest {
+  // The invite code, or the whole invite link.
+  string code = 1;
+}
+
+message ResolveInviteResponse {
+  tokuly.common.v1.UserSummary inviter = 1;
+  // What the caller is to the inviter; UNSPECIFIED for anonymous callers.
+  tokuly.identity.v1.Relationship relationship = 2;
+}
+
+message ListIntrosRequest {
+  // Empty = the caller.
+  string user_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListIntrosResponse {
+  repeated tokuly.common.v1.UserSummary users = 1;
+  tokuly.common.v1.PageInfo page = 2;
+  int32 total = 3;
+}
+
+message DiscoverNearbyRequest {
+  // Where the caller is. Never shown to other users; they only get a distance.
+  tokuly.common.v1.LatLng location = 1;
+  // Reported GPS accuracy; widens the search radius a little (capped).
+  double accuracy_meters = 2;
+}
+
+message DiscoverNearbyResponse {
+  // Full current set of nearby users; sent whenever it changes.
+  repeated NearbyUser users = 1;
+}
+
+message NearbyUser {
+  tokuly.common.v1.UserSummary user = 1;
+  double distance_meters = 2;
+  tokuly.identity.v1.Relationship relationship = 3;
+}
+
+// ───────────────────────────── Interactions ─────────────────────────────
+
+// Physical-world and map interactions between friends. Every RPC needs a
+// signed-in caller; the ones aimed at a user answer NOT_FRIENDS unless that
+// user is a friend.
+service InteractionService {
+  // Call when the phone detects a shake. Two attempts within a few seconds and
+  // ~30 m of each other become a bump; mutual friends are told
+  // "A and B bumped!". Bumping a non-friend creates a friend request. The
+  // other participant learns about the bump through SocialEvent.bump.
+  // Calling again within a few seconds returns the same bump, not a new one.
+  // Errors: INVALID_LOCATION, RATE_LIMITED.
+  rpc Bump(BumpRequest) returns (BumpResponse);
+  // The caller's bumps, newest first. Errors: INVALID_ID.
+  rpc ListBumps(ListBumpsRequest) returns (ListBumpsResponse);
+
+  // Buzz: a burst of notifications/vibration; only allowed while physically near.
+  // Errors: NOT_FRIENDS, NOT_NEARBY (farther than 200 m apart, or one of the
+  // two has no location from the last 10 minutes), RATE_LIMITED.
+  rpc Buzz(BuzzRequest) returns (BuzzResponse);
+  // Knock: a 3D knock on the friend's map screen. Repeated knocks stack.
+  // Errors: NOT_FRIENDS, INVALID_KNOCK_COUNT, RATE_LIMITED.
+  rpc Knock(KnockRequest) returns (KnockResponse);
+
+  // Map reactions ("supersends"): animated emoji or stamps thrown at a friend's
+  // pin or a whole gathering. They play immediately when the recipient is
+  // online and are replayed on next app open otherwise.
+  // Errors: NO_RECIPIENTS, TOO_MANY_RECIPIENTS (more than 50), NOT_FRIENDS,
+  // INVALID_REACTION_KIND, INVALID_EMOJI, INVALID_ID (stamp), INVALID_INTENSITY,
+  // RATE_LIMITED.
+  rpc SendMapReaction(SendMapReactionRequest) returns (SendMapReactionResponse);
+  // Reactions the caller has not acknowledged yet (oldest first, last 7 days).
+  rpc ListPendingMapReactions(ListPendingMapReactionsRequest) returns (ListPendingMapReactionsResponse);
+  // Marks reactions as played so they are not replayed. Unknown IDs and
+  // reactions addressed to someone else are ignored.
+  // Errors: INVALID_ID, TOO_MANY_IDS (more than 500).
+  rpc AckMapReactions(AckMapReactionsRequest) returns (AckMapReactionsResponse);
+
+  // Records that the caller opened a friend's pin ("eyes" / map views).
+  // Repeats within a minute count once. Errors: NOT_FRIENDS.
+  rpc RecordMapView(RecordMapViewRequest) returns (RecordMapViewResponse);
+  // Who looked at my location in the last 24 h (count only unless shared).
+  rpc GetMapViews(GetMapViewsRequest) returns (GetMapViewsResponse);
+}
+
+message BumpRequest {
+  tokuly.common.v1.LatLng location = 1;
+  double accuracy_meters = 2;
+  // Device time of the shake.
+  google.protobuf.Timestamp shaken_at = 3;
+  // Peak acceleration magnitude in g, for ranking simultaneous candidates.
+  double intensity = 4;
+}
+
+message BumpResponse {
+  // Empty when nobody else shook nearby (clients may retry for a few seconds).
+  repeated Bump bumps = 1;
+}
+
+message Bump {
+  string id = 1;
+  repeated tokuly.common.v1.UserSummary participants = 2;
+  tokuly.common.v1.LatLng location = 3;
+  string place_name = 4;
+  google.protobuf.Timestamp created_at = 5;
+  // Total bumps between the caller and the other participant so far.
+  int32 pair_count = 6;
+  // True when this bump created a friend request instead (not yet friends).
+  bool friend_request_created = 7;
+}
+
+message ListBumpsRequest {
+  // Optional: only bumps involving this friend.
+  string with_user_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListBumpsResponse {
+  repeated Bump bumps = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message BuzzRequest {
+  string user_id = 1;
+}
+
+message BuzzResponse {}
+
+message KnockRequest {
+  string user_id = 1;
+  // Number of knocks in this burst (1-20).
+  int32 count = 2;
+}
+
+message KnockResponse {}
+
+enum MapReactionKind {
+  MAP_REACTION_KIND_UNSPECIFIED = 0;
+  // Shower of hearts (tap) or one giant heart (hold).
+  MAP_REACTION_KIND_HEARTS = 1;
+  // "I checked on you".
+  MAP_REACTION_KIND_EYES = 2;
+  // "Let's hang out".
+  MAP_REACTION_KIND_DRINKS = 3;
+  // Any emoji, rained over the screen.
+  MAP_REACTION_KIND_EMOJI = 4;
+  // A stamp thrown at the pin.
+  MAP_REACTION_KIND_STAMP = 5;
+}
+
+message SendMapReactionRequest {
+  // One friend, or several at once (e.g. every member of a gathering).
+  repeated string user_ids = 1;
+  reserved 2;
+  MapReactionKind kind = 3;
+  // For EMOJI.
+  string emoji = 4;
+  // For STAMP.
+  string stamp_id = 5;
+  // 1 (tap) .. 5 (long press): scales the animation.
+  int32 intensity = 6;
+}
+
+message SendMapReactionResponse {
+  repeated MapReaction reactions = 1;
+}
+
+message MapReaction {
+  string id = 1;
+  tokuly.common.v1.UserSummary from = 2;
+  string to_user_id = 3;
+  MapReactionKind kind = 4;
+  string emoji = 5;
+  tokuly.common.v1.StampRef stamp = 6;
+  int32 intensity = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+message ListPendingMapReactionsRequest {}
+
+message ListPendingMapReactionsResponse {
+  repeated MapReaction reactions = 1;
+}
+
+message AckMapReactionsRequest {
+  repeated string reaction_ids = 1;
+}
+
+message AckMapReactionsResponse {}
+
+message RecordMapViewRequest {
+  string user_id = 1;
+}
+
+message RecordMapViewResponse {}
+
+message GetMapViewsRequest {}
+
+message GetMapViewsResponse {
+  // Distinct friends who looked in the last 24 h.
+  int32 viewer_count = 1;
+  int32 view_count = 2;
+  // Viewers who share their views.
+  repeated tokuly.common.v1.UserSummary viewers = 3;
+}
+
+// ───────────────────────────── Realtime events ─────────────────────────────
+
+// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.social).
+message SocialEvent {
+  oneof event {
+    FriendRequest friend_request_received = 1;
+    Friend friend_request_accepted = 2;
+    // A friendship ended or a user blocked the recipient; drop them from the map.
+    string friend_removed_user_id = 3;
+    Bump bump = 4;
+    // A bump between two of the recipient's friends ("A and B bumped!").
+    Bump friends_bumped = 5;
+    BuzzEvent buzz = 6;
+    KnockEvent knock = 7;
+    MapReaction map_reaction = 8;
+    // Someone opened the recipient's pin.
+    MapViewEvent map_view = 9;
+    // ID of a request to the recipient that its sender withdrew.
+    string friend_request_cancelled_id = 10;
+  }
+}
+
+message BuzzEvent {
+  tokuly.common.v1.UserSummary from = 1;
+  google.protobuf.Timestamp created_at = 2;
+}
+
+message KnockEvent {
+  tokuly.common.v1.UserSummary from = 1;
+  int32 count = 2;
+  google.protobuf.Timestamp created_at = 3;
+}
+
+message MapViewEvent {
+  // Set only when the viewer shares views.
+  tokuly.common.v1.UserSummary viewer = 1;
+  int32 viewer_count_24h = 2;
+}

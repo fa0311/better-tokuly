@@ -1,0 +1,971 @@
+syntax = "proto3";
+
+// Stamps (スタンプ): stickers usable in chat, live chat, comments, notes and
+// map reactions.
+//
+// Two kinds of stamps exist:
+// - pack stamps belong to a pack, which is either official (owned by the
+//   platform) or made by a creator in the studio;
+// - personal stamps ("quick stamps") belong to one user: any image they save
+//   becomes a stamp of their own, without a pack and without review.
+//
+// A stamp's picture never changes after it is created: to replace one, the
+// creator removes the stamp and adds a new one. A message that carries a
+// stamp therefore shows what was sent for as long as the stamp exists.
+// Stamps are made from media uploads (`ASSET_PURPOSE_STAMP`) and keep them
+// in use: while a stamp exists, its upload cannot be deleted by its uploader
+// (`MediaService.DeleteAsset` answers `ASSET_IN_USE`).
+//
+// Pack lifecycle: DRAFT → IN_REVIEW → PUBLISHED or REJECTED. Trusted creators
+// and official packs skip the review. A published pack can be unpublished
+// (back to DRAFT) and a moderator can take one down (REMOVED). People who
+// installed or bought a pack keep it when it is unpublished, but lose it when
+// it is taken down.
+//
+// Who may send a stamp (everything else fails with `STAMP_NOT_USABLE`):
+// - a personal stamp: its owner;
+// - a pack stamp: the pack's creator; anyone, when the pack is published and
+//   free; anyone who installed or bought the pack. People other than the
+//   creator only ever get stamps that passed review.
+//
+// IDs: packs have a UUID and an 11-character `short_id`; every `pack_id`
+// field accepts either. Stamp IDs are UUIDs.
+package tokuly.stamp.v1;
+
+import "google/protobuf/timestamp.proto";
+import "tokuly/common/v1/common.proto";
+
+// ───────────────────────────── Shared messages ─────────────────────────────
+
+// Where a pack is in its lifecycle.
+enum PackStatus {
+  PACK_STATUS_UNSPECIFIED = 0;
+  // Not in the store: a new pack being put together, or one its creator
+  // unpublished. Visible to its creator and to people who already hold it.
+  PACK_STATUS_DRAFT = 1;
+  // Waiting for a moderator. Nothing can be changed until it is decided or withdrawn.
+  PACK_STATUS_IN_REVIEW = 2;
+  // Listed in the store.
+  PACK_STATUS_PUBLISHED = 3;
+  // A moderator declined it; `PackReview.note` says why. The creator can fix and resubmit.
+  PACK_STATUS_REJECTED = 4;
+  // Taken down by moderation. Nobody can use its stamps; the creator can
+  // fix and resubmit (always reviewed again).
+  PACK_STATUS_REMOVED = 5;
+}
+
+// Where a stamp was sent.
+enum UsageContext {
+  USAGE_CONTEXT_UNSPECIFIED = 0;
+  USAGE_CONTEXT_CHAT = 1;
+  USAGE_CONTEXT_LIVE_CHAT = 2;
+  USAGE_CONTEXT_COMMENT = 3;
+  USAGE_CONTEXT_NOTE = 4;
+  USAGE_CONTEXT_MAP = 5;
+}
+
+// A stamp with everything a picker or a pack page shows.
+message Stamp {
+  // The compact form other domains embed: ID, pack, name, URLs, format, size.
+  // `stamp_ref.pack_id` is empty for personal stamps.
+  tokuly.common.v1.StampRef stamp_ref = 1;
+  // The processed image: smaller variants for grids and a thumbhash placeholder.
+  tokuly.common.v1.Image image = 2;
+  // One emoji this stamp stands for. Pickers suggest the stamp when the user
+  // types it. May be empty.
+  string emoji = 3;
+  // Search words, lowercase, at most 10.
+  repeated string keywords = 4;
+  // True for a personal stamp.
+  bool personal = 5;
+  // The caller marked it as a favourite.
+  bool favorited = 6;
+  // The caller may send it right now.
+  bool usable = 7;
+  // Added since the last review: only the creator and moderators see it until
+  // the pack is approved.
+  bool pending_review = 8;
+  google.protobuf.Timestamp created_at = 9;
+}
+
+// What the caller has to do with a pack.
+message PackViewerState {
+  // In the caller's library (shown in their picker).
+  bool installed = 1;
+  // Bought with coins. Stays true after uninstalling.
+  bool owned = 2;
+  // The caller may edit the pack: its creator, or an admin for official packs.
+  bool can_manage = 3;
+  // The caller may send the pack's stamps.
+  bool usable = 4;
+}
+
+// A pack as shown on store shelves, in search results and in the library.
+message PackSummary {
+  string id = 1;
+  string short_id = 2;
+  string name = 3;
+  // The cover stamp's image (the creator's pick, otherwise the first stamp).
+  // Unset while the pack has no stamps.
+  tokuly.common.v1.Image cover = 4;
+  // Unset for official packs.
+  tokuly.common.v1.UserSummary creator = 5;
+  // Made by the Tokuly team.
+  bool official = 6;
+  // Price in coins; 0 = free.
+  int32 price = 7;
+  // Stamps the caller can see (creators also count stamps awaiting review).
+  int32 stamp_count = 8;
+  // At least one stamp is animated or Lottie.
+  bool animated = 9;
+  // Lowercase tags without '#'.
+  repeated string tags = 10;
+  PackStatus status = 11;
+  // Picked by the team for the store's featured shelf.
+  bool featured = 12;
+  // People who currently have the pack installed (the creator is not counted).
+  int64 install_count = 13;
+  // Times its stamps were sent by people other than its creator. Refreshed
+  // every few minutes.
+  int64 send_count = 14;
+  int64 like_count = 15;
+  int64 comment_count = 16;
+  // When it last went live in the store. Unset if it never did.
+  google.protobuf.Timestamp published_at = 17;
+  // The first few stamps, for cards.
+  repeated tokuly.common.v1.StampRef previews = 18;
+  // Unset for anonymous callers.
+  PackViewerState viewer = 19;
+}
+
+// Review state of a pack. Only sent to people who may manage the pack and to moderators.
+message PackReview {
+  google.protobuf.Timestamp submitted_at = 1;
+  // When a moderator last decided on it.
+  google.protobuf.Timestamp reviewed_at = 2;
+  // The moderator's reason when the pack is REJECTED or REMOVED; empty otherwise.
+  string note = 3;
+  // Stamps not yet approved.
+  int32 pending_stamp_count = 4;
+  // Submitting will send the pack to a moderator (false: it publishes immediately).
+  bool needs_review = 5;
+}
+
+// A pack with its stamps.
+message Pack {
+  PackSummary summary = 1;
+  string description = 2;
+  // In the creator's order. People who cannot manage the pack only get approved stamps.
+  repeated Stamp stamps = 3;
+  // The stamp chosen as cover; empty when the first stamp is used.
+  string cover_stamp_id = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+  // Unset for ordinary viewers.
+  PackReview review = 7;
+}
+
+// A list of tags, as a message so that "not sent" differs from "empty".
+message TagList {
+  repeated string tags = 1;
+}
+
+// A list of stamp keywords, as a message so that "not sent" differs from "empty".
+message KeywordList {
+  repeated string keywords = 1;
+}
+
+// ───────────────────────────── Store ─────────────────────────────
+
+// Browsing the stamp store. Every RPC works without signing in; signed-in
+// callers additionally get their `viewer` state on each pack.
+service StampStoreService {
+  // The store's landing page in one call: featured, popular and new packs
+  // (12 each) plus the most used tags.
+  rpc GetStoreHome(GetStoreHomeRequest) returns (GetStoreHomeResponse);
+  // One store shelf, paginated. Errors: `TAGS_INVALID`.
+  rpc ListStorePacks(ListStorePacksRequest) returns (ListStorePacksResponse);
+  // Searches published packs by name, description and tag. An empty query
+  // returns nothing. Errors: `QUERY_TOO_LONG`, `RATE_LIMITED`.
+  rpc SearchPacks(SearchPacksRequest) returns (SearchPacksResponse);
+  // The tags used by the most published packs.
+  rpc ListPopularTags(ListPopularTagsRequest) returns (ListPopularTagsResponse);
+  // Published packs of one creator, newest first. Errors: `USER_NOT_FOUND`
+  // (also when the creator blocked the caller).
+  rpc ListCreatorPacks(ListCreatorPacksRequest) returns (ListCreatorPacksResponse);
+  // A pack with its stamps. Published packs are public; other packs are
+  // visible to people who manage, installed or bought them, and to
+  // moderators. Errors: `PACK_NOT_FOUND`.
+  rpc GetPack(GetPackRequest) returns (GetPackResponse);
+  // One stamp and the pack it belongs to — what a client shows when a
+  // received stamp is tapped. Errors: `STAMP_NOT_FOUND` (also for stamps of
+  // a pack that was taken down, and for stamps that are not reviewed yet).
+  rpc GetStamp(GetStampRequest) returns (GetStampResponse);
+}
+
+// A shelf of the store.
+enum StoreSection {
+  // Same as NEW.
+  STORE_SECTION_UNSPECIFIED = 0;
+  // Picked by the team, most recently featured first.
+  STORE_SECTION_FEATURED = 1;
+  // Most recently published first.
+  STORE_SECTION_NEW = 2;
+  // Ranked by installs, purchases and sends of the last 7 days.
+  STORE_SECTION_POPULAR = 3;
+  // Official packs, newest first.
+  STORE_SECTION_OFFICIAL = 4;
+}
+
+enum PriceFilter {
+  // Free and paid.
+  PRICE_FILTER_UNSPECIFIED = 0;
+  PRICE_FILTER_FREE = 1;
+  PRICE_FILTER_PAID = 2;
+}
+
+message TagCount {
+  string tag = 1;
+  // Published packs carrying the tag.
+  int32 pack_count = 2;
+}
+
+message GetStoreHomeRequest {}
+
+message GetStoreHomeResponse {
+  repeated PackSummary featured = 1;
+  repeated PackSummary popular = 2;
+  repeated PackSummary newest = 3;
+  repeated TagCount tags = 4;
+}
+
+message ListStorePacksRequest {
+  StoreSection section = 1;
+  // Only packs with this tag. Empty = all.
+  string tag = 2;
+  PriceFilter price = 3;
+  // At most 50 per page.
+  tokuly.common.v1.PageRequest page = 4;
+}
+
+message ListStorePacksResponse {
+  repeated PackSummary packs = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message SearchPacksRequest {
+  // 1-64 characters. A leading '#' searches tags only.
+  string query = 1;
+  PriceFilter price = 2;
+  // At most 50 per page.
+  tokuly.common.v1.PageRequest page = 3;
+}
+
+message SearchPacksResponse {
+  repeated PackSummary packs = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListPopularTagsRequest {
+  // 0 = 30; at most 100.
+  int32 limit = 1;
+}
+
+message ListPopularTagsResponse {
+  repeated TagCount tags = 1;
+}
+
+message ListCreatorPacksRequest {
+  string user_id = 1;
+  // At most 50 per page.
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListCreatorPacksResponse {
+  tokuly.common.v1.UserSummary creator = 1;
+  repeated PackSummary packs = 2;
+  tokuly.common.v1.PageInfo page = 3;
+}
+
+message GetPackRequest {
+  // UUID or short ID.
+  string pack_id = 1;
+}
+
+message GetPackResponse {
+  Pack pack = 1;
+}
+
+message GetStampRequest {
+  string stamp_id = 1;
+}
+
+message GetStampResponse {
+  Stamp stamp = 1;
+  // Unset for personal stamps.
+  PackSummary pack = 2;
+  // SaveStamp would add something to the caller's library (false when they
+  // already have it, when it would need a purchase first, or when signed out).
+  bool can_save = 3;
+}
+
+// ───────────────────────────── Library ─────────────────────────────
+
+// The signed-in user's own stamps: installed packs, purchases, favourites,
+// recently used, personal stamps and the history of what they sent.
+// Every RPC requires sign-in.
+service StampLibraryService {
+  // Everything a stamp picker needs when it opens, in one call: installed
+  // packs (first 100, in the user's order), recently used stamps (40),
+  // favourites (first 60) and personal stamps (first 60). The paginated RPCs
+  // below continue each list.
+  rpc GetLibrary(GetLibraryRequest) returns (GetLibraryResponse);
+
+  // Installed packs in the user's order (new installs go first).
+  rpc ListInstalledPacks(ListInstalledPacksRequest) returns (ListInstalledPacksResponse);
+  // Adds a pack to the library. Idempotent. Paid packs must be bought first.
+  // Errors: `PACK_NOT_FOUND`, `PURCHASE_REQUIRED`, `INSTALL_LIMIT_REACHED`.
+  rpc InstallPack(InstallPackRequest) returns (InstallPackResponse);
+  // Removes a pack from the library; a purchase stays valid. Idempotent.
+  rpc UninstallPack(UninstallPackRequest) returns (UninstallPackResponse);
+  // Puts the listed packs first, in the given order; packs not listed keep
+  // their relative order after them. Errors: `ORDER_MISMATCH` (a listed pack
+  // is not installed, or one is listed twice).
+  rpc ReorderInstalledPacks(ReorderInstalledPacksRequest) returns (ReorderInstalledPacksResponse);
+
+  // Buys a paid pack with coins and installs it. Safe to retry: a pack is
+  // never charged twice, and buying a pack that is already owned succeeds
+  // without charging. Errors: `PACK_NOT_FOUND`, `PACK_NOT_FOR_SALE` (free or
+  // the caller's own), `PRICE_CHANGED` (`expected_price` is stale),
+  // `INSUFFICIENT_COINS`, `INSTALL_LIMIT_REACHED`, `RATE_LIMITED`.
+  rpc PurchasePack(PurchasePackRequest) returns (PurchasePackResponse);
+  // Packs the user bought, most recent first (including uninstalled ones, so
+  // they can be installed again).
+  rpc ListPurchasedPacks(ListPurchasedPacksRequest) returns (ListPurchasedPacksResponse);
+
+  // Favourite stamps, most recently added first.
+  rpc ListFavoriteStamps(ListFavoriteStampsRequest) returns (ListFavoriteStampsResponse);
+  // Marks a stamp the user may send as a favourite. Idempotent.
+  // Errors: `STAMP_NOT_FOUND`, `STAMP_NOT_USABLE`, `FAVORITE_LIMIT_REACHED`.
+  rpc FavoriteStamp(FavoriteStampRequest) returns (FavoriteStampResponse);
+  // Idempotent.
+  rpc UnfavoriteStamp(UnfavoriteStampRequest) returns (UnfavoriteStampResponse);
+
+  // Stamps the user sent lately (at most 64 are remembered), skipping ones
+  // they can no longer send.
+  rpc ListRecentStamps(ListRecentStampsRequest) returns (ListRecentStampsResponse);
+  // Forgets one recently used stamp, or all of them.
+  rpc ClearRecentStamps(ClearRecentStampsRequest) returns (ClearRecentStampsResponse);
+
+  // "Save a stamp I received". A stamp from a pack installs that pack (or
+  // reports that it has to be bought first); someone else's personal stamp is
+  // copied into the caller's personal stamps. The response says what happened.
+  // A copy is the caller's own: it stays when the original stamp is deleted,
+  // and when the account it came from is.
+  // Errors: `STAMP_NOT_FOUND`, `STAMP_NOT_SAVABLE` (its pack is not in the
+  // store), `INSTALL_LIMIT_REACHED`, `PERSONAL_STAMP_LIMIT_REACHED`,
+  // `RATE_LIMITED`.
+  rpc SaveStamp(SaveStampRequest) returns (SaveStampResponse);
+
+  // Turns an uploaded image (`ASSET_PURPOSE_STAMP`, cut out on the client)
+  // into a personal stamp. Errors: `ASSET_NOT_FOUND`, `ASSET_WRONG_PURPOSE`,
+  // `ASSET_NOT_READY`, `ASSET_FAILED`, `STAMP_ASSET_INVALID`,
+  // `STAMP_NAME_INVALID`, `STAMP_EMOJI_INVALID`, `KEYWORDS_INVALID`,
+  // `PERSONAL_STAMP_LIMIT_REACHED`, `RATE_LIMITED`.
+  rpc CreatePersonalStamp(CreatePersonalStampRequest) returns (CreatePersonalStampResponse);
+  // Personal stamps in the user's order (new ones go first).
+  rpc ListPersonalStamps(ListPersonalStampsRequest) returns (ListPersonalStampsResponse);
+  // Errors: `STAMP_NOT_FOUND`, `STAMP_NAME_INVALID`, `STAMP_EMOJI_INVALID`, `KEYWORDS_INVALID`.
+  rpc UpdatePersonalStamp(UpdatePersonalStampRequest) returns (UpdatePersonalStampResponse);
+  // Deletes a personal stamp; messages that used it lose the picture. Copies
+  // other people saved are not affected. Errors: `STAMP_NOT_FOUND`.
+  rpc DeletePersonalStamp(DeletePersonalStampRequest) returns (DeletePersonalStampResponse);
+  // Sets the order of all personal stamps. Errors: `ORDER_MISMATCH` (the list
+  // is not exactly the user's personal stamps).
+  rpc ReorderPersonalStamps(ReorderPersonalStampsRequest) returns (ReorderPersonalStampsResponse);
+
+  // Finds stamps the user can send (personal, installed and own packs) by
+  // name, keyword or emoji, most recently used first. Meant to be called
+  // while typing. Errors: `QUERY_TOO_LONG`, `RATE_LIMITED`.
+  rpc SearchLibraryStamps(SearchLibraryStampsRequest) returns (SearchLibraryStampsResponse);
+
+  // The user's own sending history, newest first.
+  rpc ListUsageLog(ListUsageLogRequest) returns (ListUsageLogResponse);
+}
+
+message GetLibraryRequest {}
+
+message GetLibraryResponse {
+  repeated PackSummary installed = 1;
+  repeated Stamp recents = 2;
+  repeated Stamp favorites = 3;
+  repeated Stamp personal = 4;
+  // True when the corresponding list has more than was returned here.
+  bool more_installed = 5;
+  bool more_favorites = 6;
+  bool more_personal = 7;
+}
+
+message ListInstalledPacksRequest {
+  // Default 100, at most 200 per page.
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListInstalledPacksResponse {
+  repeated PackSummary packs = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message InstallPackRequest {
+  string pack_id = 1;
+}
+
+message InstallPackResponse {
+  PackSummary pack = 1;
+}
+
+message UninstallPackRequest {
+  string pack_id = 1;
+}
+
+message UninstallPackResponse {}
+
+message ReorderInstalledPacksRequest {
+  // Pack UUIDs (not short IDs).
+  repeated string pack_ids = 1;
+}
+
+message ReorderInstalledPacksResponse {}
+
+message PurchasePackRequest {
+  string pack_id = 1;
+  // The price the user was shown and agreed to.
+  int32 expected_price = 2;
+}
+
+message PurchasePackResponse {
+  PackSummary pack = 1;
+  // Coins charged by this call; 0 when the pack was already owned.
+  int32 charged = 2;
+}
+
+message ListPurchasedPacksRequest {
+  // At most 100 per page.
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListPurchasedPacksResponse {
+  repeated PackSummary packs = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListFavoriteStampsRequest {
+  // At most 100 per page.
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListFavoriteStampsResponse {
+  repeated Stamp stamps = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message FavoriteStampRequest {
+  string stamp_id = 1;
+}
+
+message FavoriteStampResponse {}
+
+message UnfavoriteStampRequest {
+  string stamp_id = 1;
+}
+
+message UnfavoriteStampResponse {}
+
+enum RecentOrder {
+  // Same as LAST_USED.
+  RECENT_ORDER_UNSPECIFIED = 0;
+  // Most recently sent first.
+  RECENT_ORDER_LAST_USED = 1;
+  // Most often sent first ("よく使う").
+  RECENT_ORDER_MOST_USED = 2;
+}
+
+message ListRecentStampsRequest {
+  RecentOrder order = 1;
+  // 0 = 40; at most 64.
+  int32 limit = 2;
+}
+
+message ListRecentStampsResponse {
+  repeated Stamp stamps = 1;
+}
+
+message ClearRecentStampsRequest {
+  // The stamp to forget. Empty = forget all.
+  string stamp_id = 1;
+}
+
+message ClearRecentStampsResponse {}
+
+// What SaveStamp did.
+enum SaveOutcome {
+  SAVE_OUTCOME_UNSPECIFIED = 0;
+  // The stamp's pack was added to the library.
+  SAVE_OUTCOME_PACK_INSTALLED = 1;
+  // The stamp was copied into the caller's personal stamps.
+  SAVE_OUTCOME_SAVED_AS_PERSONAL = 2;
+  // Nothing to do: the caller already has it.
+  SAVE_OUTCOME_ALREADY_IN_LIBRARY = 3;
+  // The stamp's pack is paid: show `pack` and offer PurchasePack.
+  SAVE_OUTCOME_PURCHASE_REQUIRED = 4;
+}
+
+message SaveStampRequest {
+  string stamp_id = 1;
+}
+
+message SaveStampResponse {
+  SaveOutcome outcome = 1;
+  // The stamp as the caller now has it (for SAVED_AS_PERSONAL: the new copy).
+  Stamp stamp = 2;
+  // The stamp's pack; unset for personal stamps.
+  PackSummary pack = 3;
+}
+
+message CreatePersonalStampRequest {
+  // A READY upload with `ASSET_PURPOSE_STAMP` owned by the caller: a still
+  // image, an animated WebP/APNG/GIF or a dotLottie file.
+  string asset_id = 1;
+  // Alt text, at most 40 characters. May be empty.
+  string name = 2;
+  // At most one emoji. May be empty.
+  string emoji = 3;
+  // At most 10 words of at most 24 characters.
+  repeated string keywords = 4;
+}
+
+message CreatePersonalStampResponse {
+  Stamp stamp = 1;
+}
+
+message ListPersonalStampsRequest {
+  // At most 100 per page.
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListPersonalStampsResponse {
+  repeated Stamp stamps = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message UpdatePersonalStampRequest {
+  string stamp_id = 1;
+  // Fields that are not set stay as they are.
+  optional string name = 2;
+  optional string emoji = 3;
+  KeywordList keywords = 4;
+}
+
+message UpdatePersonalStampResponse {
+  Stamp stamp = 1;
+}
+
+message DeletePersonalStampRequest {
+  string stamp_id = 1;
+}
+
+message DeletePersonalStampResponse {}
+
+message ReorderPersonalStampsRequest {
+  // Every personal stamp of the user, in the new order.
+  repeated string stamp_ids = 1;
+}
+
+message ReorderPersonalStampsResponse {}
+
+message SearchLibraryStampsRequest {
+  // A word (matches names and keywords) or an emoji. 1-64 characters; empty returns nothing.
+  string query = 1;
+  // 0 = 30; at most 60.
+  int32 limit = 2;
+}
+
+message SearchLibraryStampsResponse {
+  repeated Stamp stamps = 1;
+}
+
+// One send recorded in the usage log.
+message UsageEntry {
+  string id = 1;
+  Stamp stamp = 2;
+  UsageContext context = 3;
+  google.protobuf.Timestamp sent_at = 4;
+}
+
+message ListUsageLogRequest {
+  // At most 100 per page.
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListUsageLogResponse {
+  // Sends of stamps that were deleted since are left out.
+  repeated UsageEntry entries = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// ───────────────────────────── Studio ─────────────────────────────
+
+// The creator studio: making packs and following how they do. Every RPC
+// requires sign-in and, for a specific pack, the right to manage it (its
+// creator; an admin for official packs) — anyone else gets `PACK_NOT_FOUND`.
+//
+// Editing rules:
+// - while a pack is IN_REVIEW nothing can be changed (`PACK_LOCKED`);
+//   UnpublishPack withdraws it first;
+// - stamps can be added to a PUBLISHED pack only by trusted creators and for
+//   official packs (they go live immediately); everyone else unpublishes,
+//   edits and submits again (`PACK_LOCKED`);
+// - a pack somebody bought can lose neither stamps nor itself (`PACK_HAS_BUYERS`).
+service StampStudioService {
+  // The caller as a creator: trust flag, totals and the limits that apply.
+  rpc GetCreatorProfile(GetCreatorProfileRequest) returns (GetCreatorProfileResponse);
+  // The caller's packs in every status, newest first. Admins can list the
+  // official packs instead. Errors: `FORBIDDEN`.
+  rpc ListMyPacks(ListMyPacksRequest) returns (ListMyPacksResponse);
+
+  // Creates an empty draft and installs it for the creator so they can try
+  // the stamps while working on it. Official packs need the admin role.
+  // Errors: `PACK_NAME_INVALID`, `PACK_DESCRIPTION_INVALID`, `TAGS_INVALID`,
+  // `PRICE_INVALID`, `PACK_LIMIT_REACHED`, `FORBIDDEN`, `RATE_LIMITED`.
+  rpc CreatePack(CreatePackRequest) returns (CreatePackResponse);
+  // Changes the listing: name, description, tags, price, cover. Allowed in
+  // every status but IN_REVIEW. People who installed the pack while it was
+  // free keep it when a price is set.
+  // Errors: `PACK_NOT_FOUND`, `PACK_LOCKED`, `PACK_NAME_INVALID`,
+  // `PACK_DESCRIPTION_INVALID`, `TAGS_INVALID`, `PRICE_INVALID`, `COVER_INVALID`.
+  rpc UpdatePack(UpdatePackRequest) returns (UpdatePackResponse);
+  // Deletes a pack and its stamps for everyone.
+  // Errors: `PACK_NOT_FOUND`, `PACK_HAS_BUYERS`.
+  rpc DeletePack(DeletePackRequest) returns (DeletePackResponse);
+
+  // Adds up to 30 stamps from uploads (`ASSET_PURPOSE_STAMP`) to the end of
+  // the pack. Errors: `PACK_NOT_FOUND`, `PACK_LOCKED`, `PACK_FULL` (120
+  // stamps), `STAMPS_REQUIRED`, `TOO_MANY_STAMPS`, the `ASSET_*` reasons,
+  // `STAMP_ASSET_INVALID`, `STAMP_NAME_INVALID`, `STAMP_EMOJI_INVALID`,
+  // `KEYWORDS_INVALID`, `RATE_LIMITED`.
+  rpc AddStamps(AddStampsRequest) returns (AddStampsResponse);
+  // Changes a pack stamp's name, emoji or keywords (never its picture).
+  // Errors: `STAMP_NOT_FOUND`, `PACK_LOCKED`, `STAMP_NAME_INVALID`,
+  // `STAMP_EMOJI_INVALID`, `KEYWORDS_INVALID`.
+  rpc UpdateStamp(UpdateStampRequest) returns (UpdateStampResponse);
+  // Deletes a stamp from its pack, everywhere. Errors: `STAMP_NOT_FOUND`,
+  // `PACK_LOCKED`, `PACK_HAS_BUYERS`, `PACK_EMPTY` (the last stamp of a
+  // published pack: unpublish or delete the pack instead).
+  rpc RemoveStamp(RemoveStampRequest) returns (RemoveStampResponse);
+  // Sets the order of all stamps in the pack. Errors: `PACK_NOT_FOUND`,
+  // `PACK_LOCKED`, `ORDER_MISMATCH` (the list is not exactly the pack's stamps).
+  rpc ReorderStamps(ReorderStampsRequest) returns (ReorderStampsResponse);
+
+  // Sends a DRAFT, REJECTED or REMOVED pack to review, or publishes it right
+  // away when no review is needed (`Pack.review.needs_review`).
+  // Errors: `PACK_NOT_FOUND`, `PACK_NOT_SUBMITTABLE` (already in review or
+  // published), `PACK_EMPTY`, `RATE_LIMITED`.
+  rpc SubmitPack(SubmitPackRequest) returns (SubmitPackResponse);
+  // Takes a PUBLISHED pack out of the store, or withdraws one that is
+  // IN_REVIEW; either way it becomes a DRAFT again. People who installed or
+  // bought it keep it. Errors: `PACK_NOT_FOUND`, `PACK_NOT_PUBLISHED`.
+  rpc UnpublishPack(UnpublishPackRequest) returns (UnpublishPackResponse);
+
+  // Numbers for one pack: totals, a day-by-day series and its most sent
+  // stamps. Errors: `PACK_NOT_FOUND`.
+  rpc GetPackStats(GetPackStatsRequest) returns (GetPackStatsResponse);
+}
+
+// The caller as a stamp creator.
+message CreatorProfile {
+  // Packs are published without review.
+  bool trusted = 1;
+  int32 pack_count = 2;
+  int32 published_pack_count = 3;
+  // Current installs across all packs.
+  int64 install_count = 4;
+  // Sends across all packs.
+  int64 send_count = 5;
+  // Packs sold.
+  int64 sale_count = 6;
+  // Coins earned from sales, after the platform fee.
+  int64 earnings = 7;
+  // Share of each sale kept by the platform, in percent.
+  int32 fee_percent = 8;
+  // Limits the studio should show.
+  int32 max_packs = 9;
+  int32 max_stamps_per_pack = 10;
+  int32 min_price = 11;
+  int32 max_price = 12;
+}
+
+message GetCreatorProfileRequest {}
+
+message GetCreatorProfileResponse {
+  CreatorProfile profile = 1;
+}
+
+message ListMyPacksRequest {
+  // Only packs in this status. UNSPECIFIED = all.
+  PackStatus status = 1;
+  // At most 100 per page.
+  tokuly.common.v1.PageRequest page = 2;
+  // List the official packs instead of the caller's own (admins only).
+  bool official = 3;
+}
+
+message ListMyPacksResponse {
+  repeated PackSummary packs = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message CreatePackRequest {
+  // 1-40 characters.
+  string name = 1;
+  // At most 500 characters.
+  string description = 2;
+  // At most 10 tags of at most 24 characters; '#' and case are ignored.
+  repeated string tags = 3;
+  // Coins; 0 = free, otherwise between `min_price` and `max_price`.
+  int32 price = 4;
+  // Create an official pack (admins only).
+  bool official = 5;
+}
+
+message CreatePackResponse {
+  Pack pack = 1;
+}
+
+message UpdatePackRequest {
+  string pack_id = 1;
+  // Fields that are not set stay as they are.
+  optional string name = 2;
+  optional string description = 3;
+  TagList tags = 4;
+  optional int32 price = 5;
+  // A stamp of this pack to use as cover; empty string = the first stamp.
+  optional string cover_stamp_id = 6;
+}
+
+message UpdatePackResponse {
+  Pack pack = 1;
+}
+
+message DeletePackRequest {
+  string pack_id = 1;
+}
+
+message DeletePackResponse {}
+
+// A stamp to add to a pack.
+message NewStamp {
+  // A READY upload with `ASSET_PURPOSE_STAMP` owned by the caller: a still
+  // image, an animated WebP/APNG/GIF or a dotLottie file.
+  string asset_id = 1;
+  // Alt text, at most 40 characters. May be empty.
+  string name = 2;
+  // At most one emoji. May be empty.
+  string emoji = 3;
+  // At most 10 words of at most 24 characters.
+  repeated string keywords = 4;
+}
+
+message AddStampsRequest {
+  string pack_id = 1;
+  repeated NewStamp stamps = 2;
+}
+
+message AddStampsResponse {
+  Pack pack = 1;
+}
+
+message UpdateStampRequest {
+  string stamp_id = 1;
+  // Fields that are not set stay as they are.
+  optional string name = 2;
+  optional string emoji = 3;
+  KeywordList keywords = 4;
+}
+
+message UpdateStampResponse {
+  Stamp stamp = 1;
+}
+
+message RemoveStampRequest {
+  string stamp_id = 1;
+}
+
+message RemoveStampResponse {
+  Pack pack = 1;
+}
+
+message ReorderStampsRequest {
+  string pack_id = 1;
+  // Every stamp of the pack, in the new order.
+  repeated string stamp_ids = 2;
+}
+
+message ReorderStampsResponse {
+  Pack pack = 1;
+}
+
+message SubmitPackRequest {
+  string pack_id = 1;
+}
+
+message SubmitPackResponse {
+  // IN_REVIEW, or PUBLISHED when no review was needed.
+  Pack pack = 1;
+}
+
+message UnpublishPackRequest {
+  string pack_id = 1;
+}
+
+message UnpublishPackResponse {
+  Pack pack = 1;
+}
+
+// Numbers of one pack on one day (days are counted in Japan time). The
+// creator's own sends and installs are never counted.
+message DailyPackStats {
+  // ISO date, YYYY-MM-DD.
+  string date = 1;
+  int64 sends = 2;
+  // New installs, net of installs undone the same day.
+  int64 installs = 3;
+  int64 sales = 4;
+  // Coins earned that day, after the platform fee.
+  int64 earnings = 5;
+}
+
+// How often a pack's stamps were sent in one place.
+message ContextSends {
+  UsageContext context = 1;
+  int64 sends = 2;
+}
+
+// How often one stamp was sent.
+message StampSends {
+  Stamp stamp = 1;
+  int64 sends = 2;
+}
+
+message GetPackStatsRequest {
+  string pack_id = 1;
+  // Length of the daily series, ending today. 0 = 30; at most 90.
+  int32 days = 2;
+}
+
+message GetPackStatsResponse {
+  // All-time totals.
+  int64 install_count = 1;
+  int64 send_count = 2;
+  int64 sale_count = 3;
+  int64 earnings = 4;
+  int64 like_count = 5;
+  // One entry per day, oldest first, including days without activity.
+  repeated DailyPackStats daily = 6;
+  // All-time sends by place.
+  repeated ContextSends contexts = 7;
+  // The 10 most sent stamps.
+  repeated StampSends top_stamps = 8;
+}
+
+// ───────────────────────────── Review ─────────────────────────────
+
+// Moderation of the store. Every RPC requires the `moderator` role
+// (`FORBIDDEN` otherwise).
+service StampReviewService {
+  // Packs waiting for review, oldest submission first, with their stamps.
+  rpc ListReviewQueue(ListReviewQueueRequest) returns (ListReviewQueueResponse);
+  // Publishes a pack that is IN_REVIEW and tells its creator.
+  // Errors: `PACK_NOT_FOUND`, `PACK_NOT_IN_REVIEW`.
+  rpc ApprovePack(ApprovePackRequest) returns (ApprovePackResponse);
+  // Declines a pack that is IN_REVIEW and tells its creator why.
+  // Errors: `PACK_NOT_FOUND`, `PACK_NOT_IN_REVIEW`, `REASON_REQUIRED`.
+  rpc RejectPack(RejectPackRequest) returns (RejectPackResponse);
+  // Flags a creator as trusted (their packs publish without review) or
+  // removes the flag. Errors: `USER_NOT_FOUND`.
+  rpc SetCreatorTrusted(SetCreatorTrustedRequest) returns (SetCreatorTrustedResponse);
+  // Puts a published pack on the store's featured shelf or takes it off.
+  // Errors: `PACK_NOT_FOUND`, `PACK_NOT_PUBLISHED`.
+  rpc SetPackFeatured(SetPackFeaturedRequest) returns (SetPackFeaturedResponse);
+}
+
+enum ReviewDecision {
+  REVIEW_DECISION_UNSPECIFIED = 0;
+  REVIEW_DECISION_APPROVED = 1;
+  REVIEW_DECISION_REJECTED = 2;
+  // Taken down after publication.
+  REVIEW_DECISION_REMOVED = 3;
+}
+
+// An earlier moderation decision on a pack.
+message ReviewRecord {
+  ReviewDecision decision = 1;
+  // The reason given to the creator; empty for approvals.
+  string note = 2;
+  // Unset when the moderator's account is gone.
+  tokuly.common.v1.UserSummary moderator = 3;
+  google.protobuf.Timestamp decided_at = 4;
+}
+
+// A pack in the review queue.
+message ReviewItem {
+  // With every stamp; the ones to look at have `pending_review` set.
+  Pack pack = 1;
+  // Earlier decisions on this pack, newest first.
+  repeated ReviewRecord history = 2;
+}
+
+message ListReviewQueueRequest {
+  // Default 10, at most 30 per page.
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListReviewQueueResponse {
+  repeated ReviewItem items = 1;
+  tokuly.common.v1.PageInfo page = 2;
+  // Packs waiting in total.
+  int32 pending_count = 3;
+}
+
+message ApprovePackRequest {
+  string pack_id = 1;
+}
+
+message ApprovePackResponse {
+  Pack pack = 1;
+}
+
+message RejectPackRequest {
+  string pack_id = 1;
+  // Shown to the creator. 1-500 characters.
+  string reason = 2;
+}
+
+message RejectPackResponse {
+  Pack pack = 1;
+}
+
+message SetCreatorTrustedRequest {
+  string user_id = 1;
+  bool trusted = 2;
+}
+
+message SetCreatorTrustedResponse {}
+
+message SetPackFeaturedRequest {
+  string pack_id = 1;
+  bool featured = 2;
+}
+
+message SetPackFeaturedResponse {
+  PackSummary pack = 1;
+}

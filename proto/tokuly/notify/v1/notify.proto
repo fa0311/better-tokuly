@@ -1,0 +1,450 @@
+syntax = "proto3";
+
+// Notifications: the in-app inbox, push delivery and notification preferences.
+//
+// No client creates notifications. Every backend domain asks for one through
+// the `notify.requested` event; this domain stores it in the recipient's
+// inbox, pushes a `NotifyEvent` over the realtime gateway and delivers a push
+// notification to the recipient's registered devices (Web Push, FCM, APNs),
+// honouring the preferences below.
+//
+// Notification kinds are dotted names chosen by the producing domain
+// (`chat.message`, `social.friend_request`, `live.started`...). The part
+// before the first dot selects the preference category.
+package tokuly.notify.v1;
+
+import "google/protobuf/timestamp.proto";
+import "tokuly/common/v1/common.proto";
+
+// ───────────────────────────── Inbox ─────────────────────────────
+
+// The signed-in user's notification inbox. Entries older than 90 days are
+// removed automatically.
+service InboxService {
+  // Newest first. Errors: INVALID_CURSOR, CATEGORY_UNKNOWN.
+  rpc ListNotifications(ListNotificationsRequest) returns (ListNotificationsResponse);
+  // Unread entries in total and per category (the app badge).
+  rpc GetUnreadCount(GetUnreadCountRequest) returns (GetUnreadCountResponse);
+  // Marks entries as read: specific ones, everything up to an entry, or all.
+  // Other devices of the user learn about it through `NotifyEvent.read`.
+  // Errors: TARGET_REQUIRED, TOO_MANY_IDS, INVALID_ID, CATEGORY_UNKNOWN,
+  // NOTIFICATION_NOT_FOUND (the `up_to_id` entry is not in the caller's inbox).
+  rpc MarkRead(MarkReadRequest) returns (MarkReadResponse);
+  // Removes specific entries. IDs that are not in the caller's inbox are
+  // ignored. Errors: IDS_REQUIRED, TOO_MANY_IDS, INVALID_ID.
+  rpc DeleteNotifications(DeleteNotificationsRequest) returns (DeleteNotificationsResponse);
+  // Empties the inbox, optionally only one category and/or only read entries.
+  // Errors: CATEGORY_UNKNOWN.
+  rpc ClearNotifications(ClearNotificationsRequest) returns (ClearNotificationsResponse);
+}
+
+// One inbox entry.
+message Notification {
+  string id = 1;
+  // Dotted kind chosen by the producing domain, e.g. `chat.message`.
+  string kind = 2;
+  // Preference category the kind belongs to (`CategoryPreference.category`).
+  string category = 3;
+  // Who caused it (their avatar is shown); unset for system notices.
+  tokuly.common.v1.UserSummary actor = 4;
+  // Title and body in the recipient's language.
+  string title = 5;
+  string body = 6;
+  // Optional preview image.
+  string image_url = 7;
+  // Path in the app to open when tapped, e.g. `/chat/<id>`.
+  string path = 8;
+  // What the notification is about, when the producing domain said so.
+  tokuly.common.v1.SubjectRef subject = 9;
+  // Entries sharing a key replace each other (e.g. one entry per chat).
+  // Empty when the entry stands alone.
+  string collapse_key = 10;
+  // How many events were folded into this entry since it was last read (>= 1).
+  int32 group_count = 11;
+  bool read = 12;
+  // Unset while unread.
+  google.protobuf.Timestamp read_at = 13;
+  // Time of the latest event folded into this entry; the inbox is sorted by it.
+  google.protobuf.Timestamp occurred_at = 14;
+  // Extra structured data from the producing domain as a JSON document;
+  // empty when there is none.
+  string data_json = 15;
+  // The producing domain marked it urgent (an incoming call, an SOS): its
+  // push was sent even during quiet hours and while pushes were paused.
+  // Clients may present it more prominently.
+  bool urgent = 16;
+}
+
+// Unread inbox entries. A grouped entry counts once.
+message UnreadCount {
+  int32 total = 1;
+  // Per category; categories without unread entries are absent.
+  map<string, int32> by_category = 2;
+}
+
+message ListNotificationsRequest {
+  tokuly.common.v1.PageRequest page = 1;
+  // Only this category; empty = all.
+  string category = 2;
+  // Only unread entries.
+  bool unread_only = 3;
+}
+
+message ListNotificationsResponse {
+  repeated Notification notifications = 1;
+  tokuly.common.v1.PageInfo page = 2;
+  UnreadCount unread = 3;
+}
+
+message GetUnreadCountRequest {}
+
+message GetUnreadCountResponse {
+  UnreadCount unread = 1;
+}
+
+message NotificationIds {
+  // At most 200.
+  repeated string ids = 1;
+}
+
+message MarkReadRequest {
+  oneof target {
+    // Exactly these entries.
+    NotificationIds ids = 1;
+    // This entry and everything older: what the user saw when they opened the
+    // inbox, without touching entries that arrived since.
+    string up_to_id = 2;
+    // Everything.
+    bool all = 3;
+  }
+  // Restricts `up_to_id` and `all` to one category; empty = every category.
+  string category = 4;
+}
+
+message MarkReadResponse {
+  // Entries that changed from unread to read.
+  int32 marked_count = 1;
+  UnreadCount unread = 2;
+}
+
+message DeleteNotificationsRequest {
+  // 1 to 200 IDs.
+  repeated string notification_ids = 1;
+}
+
+message DeleteNotificationsResponse {
+  int32 deleted_count = 1;
+  UnreadCount unread = 2;
+}
+
+message ClearNotificationsRequest {
+  // Only this category; empty = all.
+  string category = 1;
+  // Keep unread entries.
+  bool read_only = 2;
+}
+
+message ClearNotificationsResponse {
+  int32 deleted_count = 1;
+  UnreadCount unread = 2;
+}
+
+// ───────────────────────────── Preferences ─────────────────────────────
+
+// What the signed-in user wants to be notified about, and when. Everything is
+// on by default.
+service PreferencesService {
+  rpc GetPreferences(GetPreferencesRequest) returns (GetPreferencesResponse);
+  // Changes category toggles and/or quiet hours; anything not mentioned keeps
+  // its value. Errors: CATEGORY_UNKNOWN, CATEGORY_LOCKED (the inbox toggle of
+  // that category cannot be turned off), QUIET_HOURS_INVALID.
+  rpc UpdatePreferences(UpdatePreferencesRequest) returns (UpdatePreferencesResponse);
+  // Stops push notifications for a while or until `ResumePush`. The inbox
+  // keeps recording, and urgent notifications (incoming calls, SOS) are
+  // still pushed. Errors: PAUSE_DURATION_INVALID.
+  rpc PausePush(PausePushRequest) returns (PausePushResponse);
+  rpc ResumePush(ResumePushRequest) returns (ResumePushResponse);
+  // Stops notifications caused by one person: nothing they do reaches the
+  // caller's inbox or devices, urgent notifications included. Muting a
+  // friend in the friends list
+  // (`SocialService.UpdateFriendPrefs`) has the same effect and shows up
+  // here. Idempotent. Errors: INVALID_ID, CANNOT_MUTE_SELF, USER_NOT_FOUND,
+  // RATE_LIMITED.
+  rpc MuteUser(MuteUserRequest) returns (MuteUserResponse);
+  // Idempotent. Errors: INVALID_ID.
+  rpc UnmuteUser(UnmuteUserRequest) returns (UnmuteUserResponse);
+  // Most recently muted first. Errors: INVALID_CURSOR.
+  rpc ListMutedUsers(ListMutedUsersRequest) returns (ListMutedUsersResponse);
+}
+
+message Preferences {
+  // One entry per category, in display order.
+  repeated CategoryPreference categories = 1;
+  QuietHours quiet_hours = 2;
+  PushPause push_pause = 3;
+  // IANA time zone the quiet hours are evaluated in: the account's time zone
+  // (changed with `AccountService.UpdateProfile`).
+  string time_zone = 4;
+  // Whether quiet hours are in effect right now.
+  bool quiet_now = 5;
+}
+
+message CategoryPreference {
+  // Stable ID: `social`, `chat`, `geo`, `notes`, `video`, `live`, `shorts`,
+  // `engagement`, `stamp`, `wallet`, `feed` or `system`.
+  string category = 1;
+  // Name and one-line explanation in the caller's language.
+  string label = 2;
+  string description = 3;
+  // Keep notifications of this category in the inbox.
+  bool inbox = 4;
+  // Deliver push notifications for this category. Off means off: urgent
+  // notifications of the category are not pushed either.
+  bool push = 5;
+  // The inbox toggle cannot be turned off (account and security notices).
+  bool inbox_locked = 6;
+}
+
+// A daily window, in the user's time zone, during which push notifications
+// are suppressed. The inbox keeps recording. Notifications the producing
+// domain marks urgent (incoming calls, SOS) are pushed regardless, unless
+// their category's push toggle is off or the person behind them is muted.
+message QuietHours {
+  bool enabled = 1;
+  // Minutes after local midnight (0-1439). When the end is before the start
+  // the window wraps past midnight: 22:00-07:00 is 1320 and 420.
+  int32 start_minute = 2;
+  int32 end_minute = 3;
+}
+
+// The global pause. Like quiet hours, it does not hold back urgent
+// notifications.
+message PushPause {
+  bool paused = 1;
+  // When pushes resume by themselves; unset while paused until `ResumePush`.
+  google.protobuf.Timestamp until = 2;
+}
+
+message GetPreferencesRequest {}
+
+message GetPreferencesResponse {
+  Preferences preferences = 1;
+}
+
+// One category's toggles; unset toggles keep their value.
+message CategoryChange {
+  string category = 1;
+  optional bool inbox = 2;
+  optional bool push = 3;
+}
+
+message UpdatePreferencesRequest {
+  repeated CategoryChange categories = 1;
+  // Replaces the quiet hours when set. A disabled window keeps its times so
+  // the user can switch it back on.
+  QuietHours quiet_hours = 2;
+}
+
+message UpdatePreferencesResponse {
+  Preferences preferences = 1;
+}
+
+message PausePushRequest {
+  // How long to pause, up to 30 days. 0 = until `ResumePush`.
+  int32 duration_seconds = 1;
+}
+
+message PausePushResponse {
+  Preferences preferences = 1;
+}
+
+message ResumePushRequest {}
+
+message ResumePushResponse {
+  Preferences preferences = 1;
+}
+
+message MuteUserRequest {
+  string user_id = 1;
+}
+
+message MuteUserResponse {}
+
+message UnmuteUserRequest {
+  string user_id = 1;
+}
+
+message UnmuteUserResponse {}
+
+message MutedUser {
+  tokuly.common.v1.UserSummary user = 1;
+  google.protobuf.Timestamp muted_at = 2;
+}
+
+message ListMutedUsersRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListMutedUsersResponse {
+  repeated MutedUser users = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// ───────────────────────────── Push devices ─────────────────────────────
+
+// Where push notifications go. A registration belongs to the session that
+// made it and disappears when that session signs out or is revoked.
+service PushService {
+  // Public: which push channels this server offers and the key browsers
+  // subscribe with.
+  rpc GetPushConfig(GetPushConfigRequest) returns (GetPushConfigResponse);
+  // Registers (or refreshes) the push token of the calling session. A session
+  // holds one registration per channel; registering again replaces it, and a
+  // token that was registered by another session moves to this one.
+  // Errors: TOKEN_REQUIRED, PUSH_CHANNEL_UNAVAILABLE (FCM/APNs credentials
+  // are not configured), ENDPOINT_INVALID, ENDPOINT_NOT_ALLOWED (not a known
+  // push service), SUBSCRIPTION_KEYS_INVALID, TOKEN_INVALID, LOCALE_INVALID,
+  // DEVICE_NAME_TOO_LONG, SESSION_REVOKED (the calling session has ended),
+  // RATE_LIMITED.
+  rpc RegisterDevice(RegisterDeviceRequest) returns (RegisterDeviceResponse);
+  // Removes one registration of the caller, or every registration of the
+  // calling session when `device_id` is empty (call it before signing out).
+  // Errors: INVALID_ID, DEVICE_NOT_FOUND.
+  rpc UnregisterDevice(UnregisterDeviceRequest) returns (UnregisterDeviceResponse);
+  // The caller's registrations across all of their sessions.
+  rpc ListDevices(ListDevicesRequest) returns (ListDevicesResponse);
+  // Sends a test notification to the caller's devices, ignoring quiet hours,
+  // the push pause and category toggles; it leaves no inbox entry.
+  // Errors: NO_PUSH_DEVICES, RATE_LIMITED.
+  rpc SendTestPush(SendTestPushRequest) returns (SendTestPushResponse);
+}
+
+// How a device is reached.
+enum PushChannelKind {
+  PUSH_CHANNEL_KIND_UNSPECIFIED = 0;
+  // Browsers, through the W3C Push API (RFC 8030, VAPID).
+  PUSH_CHANNEL_KIND_WEB_PUSH = 1;
+  // Firebase Cloud Messaging (Android).
+  PUSH_CHANNEL_KIND_FCM = 2;
+  // Apple Push Notification service (iOS).
+  PUSH_CHANNEL_KIND_APNS = 3;
+}
+
+message GetPushConfigRequest {}
+
+message GetPushConfigResponse {
+  // VAPID public key (uncompressed P-256 point, base64url) to pass as
+  // `applicationServerKey` to `PushManager.subscribe`.
+  string vapid_public_key = 1;
+  // Channels this server can deliver through. Web Push is always available;
+  // FCM and APNs only when the server has credentials for them.
+  repeated PushChannelKind channels = 2;
+}
+
+// A browser `PushSubscription`.
+message WebPushSubscription {
+  // `PushSubscription.endpoint`.
+  string endpoint = 1;
+  // `PushSubscription.getKey("p256dh")`, base64url.
+  string p256dh = 2;
+  // `PushSubscription.getKey("auth")`, base64url.
+  string auth = 3;
+}
+
+message ApnsToken {
+  // Device token as hex.
+  string token = 1;
+  // The token comes from a development build (APNs sandbox environment).
+  bool sandbox = 2;
+}
+
+message RegisterDeviceRequest {
+  oneof token {
+    WebPushSubscription web_push = 1;
+    // Firebase Cloud Messaging registration token.
+    string fcm_token = 2;
+    ApnsToken apns = 3;
+  }
+  tokuly.common.v1.Platform platform = 4;
+  // BCP 47 language of the device; its notifications are written in it.
+  // Empty = the account's language.
+  string locale = 5;
+  // Shown in the device list, e.g. "Pixel 10" or "Chrome on macOS".
+  // Empty = the name of the session's device.
+  string device_name = 6;
+}
+
+message RegisterDeviceResponse {
+  PushDevice device = 1;
+}
+
+// A push registration. Tokens are never returned.
+message PushDevice {
+  string id = 1;
+  PushChannelKind channel = 2;
+  tokuly.common.v1.Platform platform = 3;
+  string locale = 4;
+  string device_name = 5;
+  // Registered by the session making the call.
+  bool current = 6;
+  google.protobuf.Timestamp created_at = 7;
+  // Last time a push service accepted a notification for this device.
+  google.protobuf.Timestamp last_delivered_at = 8;
+}
+
+message UnregisterDeviceRequest {
+  // Empty = every registration of the calling session.
+  string device_id = 1;
+}
+
+message UnregisterDeviceResponse {}
+
+message ListDevicesRequest {}
+
+message ListDevicesResponse {
+  repeated PushDevice devices = 1;
+}
+
+message SendTestPushRequest {}
+
+message SendTestPushResponse {
+  // Devices the test notification was queued for.
+  int32 device_count = 1;
+}
+
+// ───────────────────────────── Realtime ─────────────────────────────
+
+// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.notify) to
+// every connection of the user.
+message NotifyEvent {
+  oneof event {
+    NotificationReceived received = 1;
+    NotificationsRead read = 2;
+    NotificationsRemoved removed = 3;
+  }
+}
+
+// A notification arrived, or an existing grouped entry was replaced by a
+// newer event (same `id`: move it to the top).
+message NotificationReceived {
+  Notification notification = 1;
+  UnreadCount unread = 2;
+}
+
+// Entries were marked read, possibly on another device.
+message NotificationsRead {
+  // The entries that became read. Empty when `bulk` is set.
+  repeated string notification_ids = 1;
+  // More entries changed than fit in this event; refetch the inbox.
+  bool bulk = 2;
+  UnreadCount unread = 3;
+}
+
+// Entries were deleted, possibly on another device.
+message NotificationsRemoved {
+  // The removed entries. Empty when `bulk` is set.
+  repeated string notification_ids = 1;
+  // More entries were removed than fit in this event; refetch the inbox.
+  bool bulk = 2;
+  UnreadCount unread = 3;
+}

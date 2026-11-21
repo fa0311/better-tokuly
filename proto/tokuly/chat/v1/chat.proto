@@ -1,0 +1,1446 @@
+syntax = "proto3";
+
+// Direct and group conversations, messages, reactions, read state, POV
+// requests, voice/video calls and the optional AI writing assistant.
+//
+// How the pieces fit:
+// - A conversation is either DIRECT (exactly two people, unique per pair) or a
+//   GROUP (up to 100 members with owner/admin/member roles).
+// - Every message has a per-conversation sequence number (`seq`). Read
+//   cursors, unread counts and pagination are all expressed in `seq`.
+// - Everything that changes is pushed as a `ChatEvent` over the realtime
+//   gateway to every device of every member, including the sender's other
+//   devices. Events are best-effort: after a reconnect, clients list the
+//   conversations again and fetch messages after the last `seq` they hold.
+// - Typing and "has the conversation open" signals travel over the realtime
+//   gateway (`ClientFrame.typing`, `ClientFrame.conversation_presence`), not
+//   through RPCs. A client that keeps a conversation open repeats its
+//   presence signal every 30 seconds; the server forgets it after 75 seconds
+//   of silence.
+// - Drafts are a client-side concern and are not stored by the server.
+// - Blocks: a direct conversation between two users of whom one blocked the
+//   other becomes read-only for both. A group is shared ground: members who
+//   blocked each other still see each other's messages there, but nothing the
+//   one does in the group ever notifies the other.
+//
+// Every RPC in this file needs a signed-in caller. A conversation the caller
+// is not a member of is indistinguishable from one that does not exist
+// (CONVERSATION_NOT_FOUND); the same holds for messages (MESSAGE_NOT_FOUND).
+package tokuly.chat.v1;
+
+import "google/protobuf/timestamp.proto";
+import "tokuly/common/v1/common.proto";
+import "tokuly/media/v1/media.proto";
+
+// ───────────────────────────── Conversations ─────────────────────────────
+
+// Conversations, their members and each member's private state (unread
+// counts, pin, mute, archive, hide, message requests).
+service ConversationService {
+  // Limits and optional features of this server, so clients can adapt their
+  // UI (hide the call button, the AI assistant…).
+  rpc GetCapabilities(GetCapabilitiesRequest) returns (GetCapabilitiesResponse);
+
+  // Returns the direct conversation between the caller and another user,
+  // creating it when the two never talked. Whether a new one may be started
+  // is decided by the other user's `direct_messages_from` privacy setting.
+  // When the two are not friends but the setting allows the caller, the
+  // conversation starts as a message request on the other side.
+  // An existing conversation is always returned, whatever the settings (it
+  // may be read-only).
+  // Errors: USER_NOT_FOUND (unknown or deleted user, or a block in either
+  // direction when the two have no conversation yet), CANNOT_MESSAGE_SELF,
+  // DM_NOT_ALLOWED (the other user's privacy), RATE_LIMITED.
+  rpc OpenDirect(OpenDirectRequest) returns (OpenDirectResponse);
+  // Creates a group with the caller as owner. Every initial member must be a
+  // friend of the caller.
+  // Errors: GROUP_NAME_INVALID (empty, longer than 50 characters or containing
+  // control characters), NO_MEMBERS, TOO_MANY_MEMBERS, NOT_FRIENDS,
+  // ASSET_NOT_FOUND / ASSET_WRONG_PURPOSE / ASSET_NOT_READY / ASSET_NOT_IMAGE
+  // (the icon), RATE_LIMITED.
+  rpc CreateGroup(CreateGroupRequest) returns (CreateGroupResponse);
+  // One conversation with the extras a chat screen needs when it opens: read
+  // cursors, who has it open right now, the open POV request and the live call.
+  // Errors: CONVERSATION_NOT_FOUND.
+  rpc GetConversation(GetConversationRequest) returns (GetConversationResponse);
+  // The caller's conversations: pinned ones first, then by latest activity.
+  // Direct conversations without any message are not listed.
+  rpc ListConversations(ListConversationsRequest) returns (ListConversationsResponse);
+
+  // Renames a group or changes its icon. Owner and admins only.
+  // Errors: CONVERSATION_NOT_FOUND, NOT_A_GROUP, NOT_ALLOWED,
+  // GROUP_NAME_INVALID, ASSET_* (the icon).
+  rpc UpdateGroup(UpdateGroupRequest) returns (UpdateGroupResponse);
+  // Members of a conversation: owner first, then admins, then by join time.
+  // Errors: CONVERSATION_NOT_FOUND.
+  rpc ListMembers(ListMembersRequest) returns (ListMembersResponse);
+  // Adds friends of the caller to a group. Any member may add their own
+  // friends; users who are already members are skipped. New members see the
+  // history from the moment they join.
+  // Errors: CONVERSATION_NOT_FOUND, NOT_A_GROUP, NO_MEMBERS, NOT_FRIENDS,
+  // TOO_MANY_MEMBERS.
+  rpc AddMembers(AddMembersRequest) returns (AddMembersResponse);
+  // Removes a member from a group. The owner may remove anyone; admins may
+  // remove plain members.
+  // Errors: CONVERSATION_NOT_FOUND, NOT_A_GROUP, NOT_ALLOWED, MEMBER_NOT_FOUND,
+  // CANNOT_REMOVE_SELF (use LeaveConversation).
+  rpc RemoveMember(RemoveMemberRequest) returns (RemoveMemberResponse);
+  // Changes a member's role. Owner only. Setting OWNER hands the group over:
+  // the caller becomes an admin.
+  // Errors: CONVERSATION_NOT_FOUND, NOT_A_GROUP, NOT_ALLOWED, MEMBER_NOT_FOUND,
+  // ROLE_INVALID, CANNOT_CHANGE_OWN_ROLE.
+  rpc SetMemberRole(SetMemberRoleRequest) returns (SetMemberRoleResponse);
+  // Leaves a group. When the owner leaves, ownership passes to the longest
+  // standing admin, or else the longest standing member; a group nobody is
+  // left in is deleted.
+  // Errors: CONVERSATION_NOT_FOUND, NOT_A_GROUP (direct conversations are
+  // hidden, not left).
+  rpc LeaveConversation(LeaveConversationRequest) returns (LeaveConversationResponse);
+
+  // Changes the caller's private preferences for a conversation: pin to the
+  // top, mute notifications (optionally until a time), archive.
+  // Errors: CONVERSATION_NOT_FOUND, TOO_MANY_PINNED (more than 20),
+  // MUTE_UNTIL_INVALID (in the past).
+  rpc UpdatePreferences(UpdatePreferencesRequest) returns (UpdatePreferencesResponse);
+  // Takes a conversation out of the caller's list until the next message
+  // arrives. With `clear_history` the messages so far are gone for the caller
+  // for good (nobody else is affected).
+  // Errors: CONVERSATION_NOT_FOUND.
+  rpc HideConversation(HideConversationRequest) returns (HideConversationResponse);
+  // Answers a message request. Accepting moves the conversation to the inbox.
+  // Declining is silent: the conversation disappears for the caller, the
+  // sender is not told, and their later messages stay unnoticed.
+  // Errors: CONVERSATION_NOT_FOUND, NO_PENDING_REQUEST.
+  rpc RespondToRequest(RespondToRequestRequest) returns (RespondToRequestResponse);
+
+  // Moves the caller's read cursor forward (it never moves back) and tells
+  // the other members, who show "read" (direct) or a read count (group).
+  // Reading a message request does not produce a read receipt.
+  // Errors: CONVERSATION_NOT_FOUND, MESSAGE_NOT_FOUND.
+  rpc MarkRead(MarkReadRequest) returns (MarkReadResponse);
+  // Unread totals for the app badge and the tab bar.
+  rpc GetUnreadCounts(GetUnreadCountsRequest) returns (GetUnreadCountsResponse);
+}
+
+enum ConversationKind {
+  CONVERSATION_KIND_UNSPECIFIED = 0;
+  // Exactly two people; unique per pair.
+  CONVERSATION_KIND_DIRECT = 1;
+  CONVERSATION_KIND_GROUP = 2;
+}
+
+enum MemberRole {
+  MEMBER_ROLE_UNSPECIFIED = 0;
+  MEMBER_ROLE_MEMBER = 1;
+  // May rename the group, change its icon, remove plain members and delete
+  // any message.
+  MEMBER_ROLE_ADMIN = 2;
+  // Everything an admin may do, plus removing admins, changing roles and
+  // handing the group over. Exactly one per group.
+  MEMBER_ROLE_OWNER = 3;
+}
+
+// Where a conversation stands for one member.
+enum RequestState {
+  REQUEST_STATE_UNSPECIFIED = 0;
+  // A normal conversation in the member's inbox.
+  REQUEST_STATE_ACCEPTED = 1;
+  // A message request from someone who is not a friend, waiting for the
+  // member's answer. It does not notify like a normal message and is listed
+  // under CONVERSATION_FILTER_REQUESTS.
+  REQUEST_STATE_PENDING = 2;
+  // The member declined the request. Only the member sees this state.
+  REQUEST_STATE_DECLINED = 3;
+}
+
+message Conversation {
+  string id = 1;
+  ConversationKind kind = 2;
+  // Group name. Empty for direct conversations: clients show the other member.
+  string name = 3;
+  // Group icon, when one was set.
+  tokuly.common.v1.Image icon = 4;
+  int32 member_count = 5;
+  // Direct: both members. Group: up to four members (longest standing first)
+  // for an avatar collage; the full list comes from ListMembers.
+  repeated tokuly.common.v1.UserSummary members = 6;
+  // Latest message the viewer may see, for the list preview ("あなた: …" is
+  // built by comparing `last_message.sender.id` with the viewer). Unset when
+  // there is none.
+  Message last_message = 7;
+  // Sequence number of the latest message.
+  int64 last_seq = 8;
+  google.protobuf.Timestamp last_activity_at = 9;
+  google.protobuf.Timestamp created_at = 10;
+  // Direct only: nobody can send here, because one of the two blocked the
+  // other or the other account no longer exists.
+  bool read_only = 11;
+  // The call currently ringing or running in this conversation, if any.
+  string active_call_id = 12;
+  // The viewer's private state. Set in RPC responses and in events built for
+  // one user (see `ConversationUpdated`).
+  ViewerState viewer = 15;
+}
+
+// What only the viewing member knows about a conversation.
+message ViewerState {
+  MemberRole role = 1;
+  RequestState request_state = 2;
+  // Messages after the read cursor that other people sent.
+  int32 unread_count = 3;
+  // Unread messages that mention the viewer (or everyone).
+  int32 unread_mention_count = 4;
+  // The viewer's read cursor.
+  int64 read_seq = 5;
+  bool pinned = 6;
+  // A muted conversation still counts unread messages but does not notify,
+  // with one exception: a message that mentions the viewer by `@handle`
+  // (not `@all`) notifies anyway.
+  bool muted = 7;
+  // When the mute ends by itself; unset for "until I unmute".
+  google.protobuf.Timestamp muted_until = 8;
+  bool archived = 9;
+  // Hidden until the next message arrives.
+  bool hidden = 10;
+  google.protobuf.Timestamp joined_at = 11;
+  // Messages with `seq` at or below this are not visible to the viewer
+  // (they joined later, or cleared the history).
+  int64 history_from_seq = 12;
+  // Direct only, while the other side has not accepted the viewer's message
+  // request: how many more messages the viewer may send. -1 = no limit.
+  int32 request_messages_left = 13;
+}
+
+message Member {
+  tokuly.common.v1.UserSummary user = 1;
+  MemberRole role = 2;
+  google.protobuf.Timestamp joined_at = 3;
+  // Who added the member; empty for the creator and direct conversations.
+  string added_by_id = 4;
+}
+
+// How far one member has read.
+message ReadCursor {
+  string user_id = 1;
+  int64 read_seq = 2;
+  google.protobuf.Timestamp read_at = 3;
+}
+
+// Unread totals of one user.
+message UnreadCounts {
+  // Unread messages in inbox conversations that are not muted: the app badge.
+  int32 badge = 1;
+  // Inbox conversations with unread messages, muted ones included.
+  int32 unread_conversations = 2;
+  // Message requests waiting for an answer.
+  int32 pending_requests = 3;
+  // Unread messages in archived conversations.
+  int32 archived_unread = 4;
+}
+
+// Limits and optional features of this server.
+message Capabilities {
+  int32 max_text_length = 1;
+  int32 max_attachments = 2;
+  int32 max_group_members = 3;
+  // How long after sending a message its text can still be edited.
+  int32 edit_window_seconds = 4;
+  // Messages a non-friend may send before their request is accepted.
+  int32 request_message_limit = 5;
+  int32 max_pinned_messages = 6;
+  // How long a POV request can be answered, and how long an unsaved answer lives.
+  int32 pov_answer_seconds = 7;
+  int32 pov_reply_seconds = 8;
+  // Voice/video calls are configured (CallService works).
+  bool calls_enabled = 9;
+  // How long an unanswered call rings.
+  int32 ring_seconds = 10;
+  // The AI assistant is configured (AssistService works).
+  bool assist_enabled = 11;
+}
+
+message GetCapabilitiesRequest {}
+
+message GetCapabilitiesResponse {
+  Capabilities capabilities = 1;
+}
+
+message OpenDirectRequest {
+  string user_id = 1;
+}
+
+message OpenDirectResponse {
+  Conversation conversation = 1;
+}
+
+message CreateGroupRequest {
+  // 1-50 characters.
+  string name = 1;
+  // Friends of the caller to start with (the caller is added automatically).
+  repeated string member_ids = 2;
+  // Optional icon: an image uploaded with ASSET_PURPOSE_AVATAR.
+  string icon_asset_id = 3;
+}
+
+message CreateGroupResponse {
+  Conversation conversation = 1;
+}
+
+message GetConversationRequest {
+  string conversation_id = 1;
+}
+
+message GetConversationResponse {
+  Conversation conversation = 1;
+  // Read cursors of the members who accepted the conversation (at most 100),
+  // the viewer's own included.
+  repeated ReadCursor read_cursors = 2;
+  // Members who have the conversation open right now.
+  repeated string present_user_ids = 3;
+  // The POV request currently waiting for an answer, if any.
+  PovRequest open_pov_request = 4;
+  // The call currently ringing or running, if any.
+  Call active_call = 5;
+}
+
+enum ConversationFilter {
+  // Same as INBOX.
+  CONVERSATION_FILTER_UNSPECIFIED = 0;
+  // Accepted conversations that are neither archived nor hidden.
+  CONVERSATION_FILTER_INBOX = 1;
+  // Message requests waiting for the caller's answer.
+  CONVERSATION_FILTER_REQUESTS = 2;
+  CONVERSATION_FILTER_ARCHIVED = 3;
+}
+
+message ListConversationsRequest {
+  ConversationFilter filter = 1;
+  // Default 30, at most 100.
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListConversationsResponse {
+  repeated Conversation conversations = 1;
+  tokuly.common.v1.PageInfo page = 2;
+  UnreadCounts unread = 3;
+}
+
+message UpdateGroupRequest {
+  string conversation_id = 1;
+  optional string name = 2;
+  // A new icon (ASSET_PURPOSE_AVATAR image); the empty string removes it.
+  optional string icon_asset_id = 3;
+}
+
+message UpdateGroupResponse {
+  Conversation conversation = 1;
+}
+
+message ListMembersRequest {
+  string conversation_id = 1;
+  // Default 50, at most 100.
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListMembersResponse {
+  repeated Member members = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message AddMembersRequest {
+  string conversation_id = 1;
+  repeated string user_ids = 2;
+}
+
+message AddMembersResponse {
+  Conversation conversation = 1;
+  // The members that were actually added.
+  repeated Member added = 2;
+}
+
+message RemoveMemberRequest {
+  string conversation_id = 1;
+  string user_id = 2;
+}
+
+message RemoveMemberResponse {
+  Conversation conversation = 1;
+}
+
+message SetMemberRoleRequest {
+  string conversation_id = 1;
+  string user_id = 2;
+  MemberRole role = 3;
+}
+
+message SetMemberRoleResponse {
+  Member member = 1;
+}
+
+message LeaveConversationRequest {
+  string conversation_id = 1;
+}
+
+message LeaveConversationResponse {}
+
+message UpdatePreferencesRequest {
+  string conversation_id = 1;
+  optional bool pinned = 2;
+  optional bool muted = 3;
+  // Only read together with `muted = true`: when the mute ends by itself.
+  // Unset mutes until the caller unmutes.
+  google.protobuf.Timestamp muted_until = 4;
+  optional bool archived = 5;
+}
+
+message UpdatePreferencesResponse {
+  Conversation conversation = 1;
+}
+
+message HideConversationRequest {
+  string conversation_id = 1;
+  // Also forget the messages so far (for the caller only).
+  bool clear_history = 2;
+}
+
+message HideConversationResponse {}
+
+message RespondToRequestRequest {
+  string conversation_id = 1;
+  bool accept = 2;
+}
+
+message RespondToRequestResponse {
+  // Set when accepted.
+  Conversation conversation = 1;
+}
+
+message MarkReadRequest {
+  string conversation_id = 1;
+  // Read up to and including this message; empty reads everything.
+  string message_id = 2;
+}
+
+message MarkReadResponse {
+  int64 read_seq = 1;
+  // Unread messages left in this conversation.
+  int32 unread_count = 2;
+  UnreadCounts unread = 3;
+}
+
+message GetUnreadCountsRequest {}
+
+message GetUnreadCountsResponse {
+  UnreadCounts unread = 1;
+}
+
+// ───────────────────────────── Messages ─────────────────────────────
+
+// Sending, editing, deleting, listing and searching messages; reactions,
+// pins and read receipts.
+service MessageService {
+  // Sends a message. Exactly one kind of content per message: text, a stamp,
+  // media attachments (with an optional caption in `text`), or a location.
+  //
+  // `client_id` makes retries safe: sending the same `client_id` again in the
+  // same conversation returns the message stored the first time
+  // (`duplicate = true`) instead of sending a second one.
+  //
+  // In a direct conversation the other side has not accepted yet (a message
+  // request), only text and stamps can be sent, and only
+  // `Capabilities.request_message_limit` of them.
+  //
+  // Errors: CONVERSATION_NOT_FOUND, CONVERSATION_READ_ONLY (a block between
+  // the two, or the other account is gone), REQUEST_PENDING (the limit or the
+  // content rule above), CLIENT_ID_INVALID (empty or longer than 64
+  // characters), MESSAGE_EMPTY, MESSAGE_CONTENT_CONFLICT (more than one kind
+  // of content), TEXT_TOO_LONG, TOO_MANY_ATTACHMENTS, ASSET_NOT_FOUND,
+  // ASSET_WRONG_PURPOSE, ASSET_NOT_READY (only videos may still be
+  // processing), ASSET_FAILED, STAMP_NOT_USABLE, LOCATION_INVALID,
+  // REPLY_NOT_FOUND, RATE_LIMITED.
+  rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
+  // "First hello": waves at a user the caller never exchanged a message
+  // with, opening the direct conversation if needed (same rules as
+  // ConversationService.OpenDirect).
+  // Errors: USER_NOT_FOUND, CANNOT_MESSAGE_SELF, DM_NOT_ALLOWED,
+  // HELLO_NOT_FIRST (the two already talked), CONVERSATION_READ_ONLY,
+  // RATE_LIMITED.
+  rpc SendHello(SendHelloRequest) returns (SendHelloResponse);
+  // Replaces the text of one of the caller's own text messages or the
+  // caption of a media message, within `Capabilities.edit_window_seconds` of
+  // sending. The message is marked as edited; mentions and the link preview
+  // are worked out again.
+  // Errors: MESSAGE_NOT_FOUND, NOT_ALLOWED (someone else's message),
+  // MESSAGE_NOT_EDITABLE (not text/media, deleted or forwarded),
+  // EDIT_WINDOW_CLOSED, MESSAGE_EMPTY, TEXT_TOO_LONG, CONVERSATION_READ_ONLY.
+  rpc EditMessage(EditMessageRequest) returns (EditMessageResponse);
+  // Deletes a message for everyone. It stays in the conversation as an empty
+  // tombstone (`deleted = true`). The sender may delete their own messages;
+  // a group's owner and admins may delete anyone's. Deleting twice succeeds.
+  // Errors: MESSAGE_NOT_FOUND, NOT_ALLOWED, MESSAGE_NOT_DELETABLE (system,
+  // call and POV request messages).
+  rpc DeleteMessage(DeleteMessageRequest) returns (DeleteMessageResponse);
+  // One message. Errors: MESSAGE_NOT_FOUND.
+  rpc GetMessage(GetMessageRequest) returns (GetMessageResponse);
+  // A window of messages, oldest first, with cursors to continue in both
+  // directions. Without a position: the newest messages.
+  // Errors: CONVERSATION_NOT_FOUND, MESSAGE_NOT_FOUND (`around_message_id`),
+  // INVALID_CURSOR.
+  rpc ListMessages(ListMessagesRequest) returns (ListMessagesResponse);
+  // Finds messages of one conversation whose text contains the query
+  // (case-insensitive substring match), newest first.
+  // Errors: CONVERSATION_NOT_FOUND, QUERY_INVALID (empty or longer than 100
+  // characters), RATE_LIMITED.
+  rpc SearchMessages(SearchMessagesRequest) returns (SearchMessagesResponse);
+  // Copies up to 10 messages into up to 10 conversations, marked as
+  // forwarded. Text, stamp, media and location messages can be forwarded;
+  // a stamp only if the caller may use it. Idempotent on `client_id`.
+  // Errors: MESSAGE_NOT_FOUND, MESSAGE_NOT_FORWARDABLE, CONVERSATION_NOT_FOUND,
+  // CONVERSATION_READ_ONLY, REQUEST_PENDING, TOO_MANY_MESSAGES,
+  // TOO_MANY_CONVERSATIONS, NOTHING_TO_FORWARD, CLIENT_ID_INVALID,
+  // STAMP_NOT_USABLE, RATE_LIMITED.
+  rpc ForwardMessages(ForwardMessagesRequest) returns (ForwardMessagesResponse);
+
+  // Adds an emoji reaction of the caller to a message. Adding the same emoji
+  // twice changes nothing.
+  // Errors: MESSAGE_NOT_FOUND, EMOJI_INVALID (not a single emoji),
+  // TOO_MANY_REACTIONS (more than 20 different emoji on the message),
+  // MESSAGE_NOT_REACTABLE (deleted or system message), CONVERSATION_READ_ONLY,
+  // RATE_LIMITED.
+  rpc AddReaction(AddReactionRequest) returns (AddReactionResponse);
+  // Removes one of the caller's reactions. Succeeds when it is not there.
+  // Errors: MESSAGE_NOT_FOUND, EMOJI_INVALID.
+  rpc RemoveReaction(RemoveReactionRequest) returns (RemoveReactionResponse);
+  // Who reacted to a message, newest first; optionally one emoji only.
+  // Errors: MESSAGE_NOT_FOUND.
+  rpc ListReactions(ListReactionsRequest) returns (ListReactionsResponse);
+
+  // Pins a message for everyone in the conversation (any member may).
+  // Pinning a pinned message changes nothing.
+  // Errors: MESSAGE_NOT_FOUND, MESSAGE_NOT_PINNABLE (deleted, system, call or
+  // POV messages), TOO_MANY_PINNED (more than
+  // `Capabilities.max_pinned_messages`), CONVERSATION_READ_ONLY.
+  rpc PinMessage(PinMessageRequest) returns (PinMessageResponse);
+  // Unpins a message. Succeeds when it is not pinned.
+  // Errors: MESSAGE_NOT_FOUND.
+  rpc UnpinMessage(UnpinMessageRequest) returns (UnpinMessageResponse);
+  // Pinned messages of a conversation, most recently pinned first.
+  // Errors: CONVERSATION_NOT_FOUND.
+  rpc ListPinnedMessages(ListPinnedMessagesRequest) returns (ListPinnedMessagesResponse);
+
+  // Which members have read a message (everyone except its sender whose read
+  // cursor is at or past it), most recent reader first.
+  // Errors: MESSAGE_NOT_FOUND.
+  rpc ListReadReceipts(ListReadReceiptsRequest) returns (ListReadReceiptsResponse);
+  // The photos, videos, voice messages and files shared in a conversation,
+  // newest first ("写真・動画" / "ファイル" tabs).
+  // Errors: CONVERSATION_NOT_FOUND.
+  rpc ListSharedMedia(ListSharedMediaRequest) returns (ListSharedMediaResponse);
+}
+
+enum MessageKind {
+  MESSAGE_KIND_UNSPECIFIED = 0;
+  // `text`, possibly with mentions and a link preview.
+  MESSAGE_KIND_TEXT = 1;
+  // `stamp`.
+  MESSAGE_KIND_STAMP = 2;
+  // `attachments` (images, videos, voice messages, files), optional caption in `text`.
+  MESSAGE_KIND_MEDIA = 3;
+  // `location`.
+  MESSAGE_KIND_LOCATION = 4;
+  // A wave ("👋"): the first hello between two people.
+  MESSAGE_KIND_HELLO = 5;
+  // `system`: something that happened to the conversation. Has no sender.
+  MESSAGE_KIND_SYSTEM = 6;
+  // `call`: one entry per call, updated as the call progresses.
+  MESSAGE_KIND_CALL = 7;
+  // `pov_request`: someone asked for a live photo/video.
+  MESSAGE_KIND_POV_REQUEST = 8;
+}
+
+message Message {
+  string id = 1;
+  string conversation_id = 2;
+  // Position in the conversation; increases by one per message.
+  int64 seq = 3;
+  // Who sent it. Unset for system messages; a placeholder with
+  // `deleted = true` when the account no longer exists.
+  tokuly.common.v1.UserSummary sender = 4;
+  MessageKind kind = 5;
+  // The idempotency key the sender chose; lets the sender's devices match
+  // the stored message with their optimistic copy.
+  string client_id = 6;
+  string text = 7;
+  // Members mentioned in `text` as `@handle`.
+  repeated Mention mentions = 8;
+  // `text` contains `@all` (groups only): every member is mentioned.
+  bool mentions_everyone = 9;
+  // 1-3 when `text` is nothing but that many emoji, which clients draw
+  // large; 0 otherwise.
+  int32 big_emoji_count = 10;
+  // STAMP messages. Unset when the stamp no longer exists: show "this stamp
+  // is no longer available".
+  tokuly.common.v1.StampRef stamp = 11;
+  // MEDIA messages. A video may still be processing (`status`); a
+  // `message_updated` event follows when it is ready. Voice messages carry
+  // their `waveform`.
+  repeated tokuly.media.v1.Attachment attachments = 12;
+  LocationShare location = 13;
+  // Preview of the first link in `text`. Filled in shortly after sending
+  // (`message_updated` event); YouTube and Spotify links carry an embed.
+  tokuly.media.v1.LinkPreview link_preview = 14;
+  // The message this one answers.
+  ReplyReference reply_to = 15;
+  bool forwarded = 16;
+  SystemEvent system = 17;
+  CallSummary call = 18;
+  // POV_REQUEST messages: the request and its current state.
+  PovRequest pov_request = 19;
+  // Set on the media message that answers a POV request.
+  PovReply pov_reply = 20;
+  // Emoji reactions, in the order each emoji first appeared.
+  repeated ReactionCount reactions = 21;
+  bool pinned = 22;
+  // How many other members have read the message. In RPC responses only;
+  // events carry 0 and clients keep the number current from `read_receipt`
+  // events.
+  int32 read_count = 23;
+  google.protobuf.Timestamp created_at = 24;
+  // Set when the text was edited.
+  google.protobuf.Timestamp edited_at = 25;
+  // Deleted for everyone: a tombstone without content.
+  bool deleted = 26;
+}
+
+message Mention {
+  tokuly.common.v1.UserSummary user = 1;
+  // The handle as written in the text, without the `@`.
+  string handle = 2;
+}
+
+// A place dropped into the conversation (not a live location).
+message LocationShare {
+  tokuly.common.v1.LatLng position = 1;
+  // Optional place name, at most 100 characters.
+  string name = 2;
+  // Optional address, at most 200 characters.
+  string address = 3;
+}
+
+// Enough of the answered message to draw the quote above a reply.
+message ReplyReference {
+  string message_id = 1;
+  int64 seq = 2;
+  tokuly.common.v1.UserSummary sender = 3;
+  MessageKind kind = 4;
+  // Up to 120 characters of the text.
+  string text = 5;
+  // First image, video poster or stamp picture of the answered message.
+  string thumbnail_url = 6;
+  // The answered message was deleted or is not visible to the viewer.
+  bool unavailable = 7;
+}
+
+enum SystemEventType {
+  SYSTEM_EVENT_TYPE_UNSPECIFIED = 0;
+  // `actor` created the group with `targets`; `text` is the name.
+  SYSTEM_EVENT_TYPE_GROUP_CREATED = 1;
+  // `actor` added `targets`.
+  SYSTEM_EVENT_TYPE_MEMBERS_ADDED = 2;
+  // `actor` left.
+  SYSTEM_EVENT_TYPE_MEMBER_LEFT = 3;
+  // `actor` removed `targets`.
+  SYSTEM_EVENT_TYPE_MEMBER_REMOVED = 4;
+  // `actor` renamed the group to `text`.
+  SYSTEM_EVENT_TYPE_GROUP_RENAMED = 5;
+  // `actor` changed (or removed) the group icon.
+  SYSTEM_EVENT_TYPE_ICON_CHANGED = 6;
+  // `targets[0]` is the new owner (handed over by `actor`, or inherited when
+  // the owner left: then `actor` is unset).
+  SYSTEM_EVENT_TYPE_OWNER_CHANGED = 7;
+  // `actor` made `targets` admins.
+  SYSTEM_EVENT_TYPE_ADMIN_ADDED = 8;
+  // `actor` made `targets` plain members again.
+  SYSTEM_EVENT_TYPE_ADMIN_REMOVED = 9;
+  // `actor` pinned the message `message_id`.
+  SYSTEM_EVENT_TYPE_MESSAGE_PINNED = 10;
+}
+
+// Content of a system message. Clients build the sentence from the type.
+message SystemEvent {
+  SystemEventType type = 1;
+  tokuly.common.v1.UserSummary actor = 2;
+  repeated tokuly.common.v1.UserSummary targets = 3;
+  string text = 4;
+  string message_id = 5;
+}
+
+message ReactionCount {
+  string emoji = 1;
+  int32 count = 2;
+  // In RPC responses: whether the caller reacted with this emoji. Always
+  // false in events (clients compare `ReactionChanged.user_id` with themselves).
+  bool reacted_by_me = 3;
+}
+
+message Reaction {
+  tokuly.common.v1.UserSummary user = 1;
+  string emoji = 2;
+  google.protobuf.Timestamp created_at = 3;
+}
+
+message SendMessageRequest {
+  string conversation_id = 1;
+  // Idempotency key chosen by the client, 1-64 characters (a UUID works well).
+  string client_id = 2;
+  // The message text, or the caption of a media message. At most 4000 characters.
+  string text = 3;
+  string stamp_id = 4;
+  // Up to 10 uploads of the caller with purpose CHAT_IMAGE, CHAT_VIDEO,
+  // CHAT_AUDIO or CHAT_FILE.
+  repeated string attachment_asset_ids = 5;
+  LocationShare location = 6;
+  // Makes the message a reply to another message of the same conversation.
+  string reply_to_message_id = 7;
+}
+
+message SendMessageResponse {
+  Message message = 1;
+  // The message had already been sent with this `client_id`.
+  bool duplicate = 2;
+}
+
+message SendHelloRequest {
+  string user_id = 1;
+}
+
+message SendHelloResponse {
+  Message message = 1;
+  Conversation conversation = 2;
+}
+
+message EditMessageRequest {
+  string message_id = 1;
+  string text = 2;
+}
+
+message EditMessageResponse {
+  Message message = 1;
+}
+
+message DeleteMessageRequest {
+  string message_id = 1;
+}
+
+message DeleteMessageResponse {
+  // The tombstone.
+  Message message = 1;
+}
+
+message GetMessageRequest {
+  string message_id = 1;
+}
+
+message GetMessageResponse {
+  Message message = 1;
+}
+
+message ListMessagesRequest {
+  string conversation_id = 1;
+  // Default 30, at most 100.
+  int32 limit = 2;
+  // Where the window sits. Unset: the newest messages.
+  oneof position {
+    // Messages older than this cursor (`older_cursor` of an earlier response).
+    string before = 3;
+    // Messages newer than this cursor (`newer_cursor` of an earlier response).
+    string after = 4;
+    // A window centred on this message: jump to a reply, a search hit, a pin.
+    string around_message_id = 5;
+    // A window centred on the viewer's first unread message.
+    bool around_unread = 6;
+  }
+}
+
+message ListMessagesResponse {
+  // Oldest first.
+  repeated Message messages = 1;
+  // Pass as `before` to continue towards older messages.
+  string older_cursor = 2;
+  bool has_older = 3;
+  // Pass as `after` to continue towards newer messages (or to catch up
+  // after a reconnect).
+  string newer_cursor = 4;
+  bool has_newer = 5;
+  // Read cursors of the members who accepted the conversation, for "read"
+  // marks under the viewer's own messages.
+  repeated ReadCursor read_cursors = 6;
+}
+
+message SearchMessagesRequest {
+  string conversation_id = 1;
+  string query = 2;
+  // Default 30, at most 50.
+  tokuly.common.v1.PageRequest page = 3;
+}
+
+message SearchMessagesResponse {
+  repeated Message messages = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ForwardMessagesRequest {
+  // Messages the caller can see, forwarded in conversation order.
+  repeated string message_ids = 1;
+  // Where to; the caller must be able to send there.
+  repeated string conversation_ids = 2;
+  // Idempotency key for the whole request, 1-48 characters.
+  string client_id = 3;
+}
+
+message ForwardMessagesResponse {
+  // The new messages (one per source message and target conversation).
+  repeated Message messages = 1;
+}
+
+message AddReactionRequest {
+  string message_id = 1;
+  // One emoji.
+  string emoji = 2;
+}
+
+message AddReactionResponse {
+  // All reactions of the message after the change.
+  repeated ReactionCount reactions = 1;
+}
+
+message RemoveReactionRequest {
+  string message_id = 1;
+  string emoji = 2;
+}
+
+message RemoveReactionResponse {
+  repeated ReactionCount reactions = 1;
+}
+
+message ListReactionsRequest {
+  string message_id = 1;
+  // Only this emoji; empty for all.
+  string emoji = 2;
+  // Default 50, at most 100.
+  tokuly.common.v1.PageRequest page = 3;
+}
+
+message ListReactionsResponse {
+  repeated Reaction reactions = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message PinMessageRequest {
+  string message_id = 1;
+}
+
+message PinMessageResponse {
+  Message message = 1;
+}
+
+message UnpinMessageRequest {
+  string message_id = 1;
+}
+
+message UnpinMessageResponse {
+  Message message = 1;
+}
+
+message ListPinnedMessagesRequest {
+  string conversation_id = 1;
+  // Default 30, at most 50.
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListPinnedMessagesResponse {
+  repeated Message messages = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListReadReceiptsRequest {
+  string message_id = 1;
+}
+
+message ReadReceipt {
+  tokuly.common.v1.UserSummary user = 1;
+  google.protobuf.Timestamp read_at = 2;
+}
+
+message ListReadReceiptsResponse {
+  repeated ReadReceipt receipts = 1;
+  // Members (other than the sender) who have not read it yet.
+  int32 unread_member_count = 2;
+}
+
+enum SharedMediaFilter {
+  // Everything.
+  SHARED_MEDIA_FILTER_UNSPECIFIED = 0;
+  // Images, animations and videos.
+  SHARED_MEDIA_FILTER_VISUAL = 1;
+  // Voice messages.
+  SHARED_MEDIA_FILTER_AUDIO = 2;
+  SHARED_MEDIA_FILTER_FILES = 3;
+}
+
+message ListSharedMediaRequest {
+  string conversation_id = 1;
+  SharedMediaFilter filter = 2;
+  // Default 30, at most 100.
+  tokuly.common.v1.PageRequest page = 3;
+}
+
+message SharedMedia {
+  string message_id = 1;
+  int64 seq = 2;
+  string sender_id = 3;
+  tokuly.media.v1.Attachment attachment = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message ListSharedMediaResponse {
+  repeated SharedMedia items = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// ───────────────────────────── POV requests ─────────────────────────────
+
+// "POV" (Bump): ask a friend to show where they are right now with a photo
+// or video taken on the spot.
+//
+// A request can be answered for two hours and there is one open request per
+// conversation at a time. The answer is a media message that disappears
+// after 24 hours unless the requester saves it; the person who answered is
+// told when it is saved.
+service PovService {
+  // Asks the other member of a direct conversation for a POV. Appears in the
+  // conversation as a POV_REQUEST message.
+  // Errors: CONVERSATION_NOT_FOUND, NOT_A_DIRECT_CONVERSATION, NOT_FRIENDS,
+  // CONVERSATION_READ_ONLY, POV_ALREADY_OPEN, NOTE_TOO_LONG, RATE_LIMITED.
+  rpc RequestPov(RequestPovRequest) returns (RequestPovResponse);
+  // Answers a request with one to four photos/videos uploaded after the
+  // request was made (the server cannot verify more than that they are new).
+  // Only the person asked may answer. Idempotent on `client_id`.
+  // Errors: POV_NOT_FOUND, POV_NOT_OPEN (answered, declined, cancelled or
+  // expired), NO_ATTACHMENTS, TOO_MANY_ATTACHMENTS, ASSET_NOT_FOUND,
+  // ASSET_WRONG_PURPOSE (not CHAT_IMAGE / CHAT_VIDEO), ASSET_NOT_READY,
+  // ASSET_FAILED, POV_NOT_LIVE (an upload older than the request),
+  // CLIENT_ID_INVALID, CONVERSATION_READ_ONLY.
+  rpc AnswerPov(AnswerPovRequest) returns (AnswerPovResponse);
+  // The person asked says no. Errors: POV_NOT_FOUND, POV_NOT_OPEN.
+  rpc DeclinePov(DeclinePovRequest) returns (DeclinePovResponse);
+  // The requester withdraws an open request.
+  // Errors: POV_NOT_FOUND, POV_NOT_OPEN.
+  rpc CancelPov(CancelPovRequest) returns (CancelPovResponse);
+  // The requester keeps the answer: it no longer expires, and the person who
+  // answered is notified. Saving twice succeeds.
+  // Errors: POV_NOT_FOUND, POV_NOT_ANSWERED, POV_REPLY_EXPIRED.
+  rpc SavePov(SavePovRequest) returns (SavePovResponse);
+}
+
+enum PovState {
+  POV_STATE_UNSPECIFIED = 0;
+  // Waiting for an answer.
+  POV_STATE_OPEN = 1;
+  POV_STATE_ANSWERED = 2;
+  POV_STATE_DECLINED = 3;
+  // Withdrawn by the requester.
+  POV_STATE_CANCELLED = 4;
+  // Nobody answered in time.
+  POV_STATE_EXPIRED = 5;
+}
+
+message PovRequest {
+  string id = 1;
+  string conversation_id = 2;
+  string requester_id = 3;
+  // The person asked.
+  string target_id = 4;
+  // Optional short note ("今どこ？"), at most 200 characters.
+  string note = 5;
+  PovState state = 6;
+  // Until when it can be answered.
+  google.protobuf.Timestamp expires_at = 7;
+  // The POV_REQUEST message in the conversation.
+  string request_message_id = 8;
+  // The media message that answered it, once answered.
+  string reply_message_id = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp answered_at = 11;
+  // The requester saved the answer.
+  bool saved = 12;
+  // When the unsaved answer disappears.
+  google.protobuf.Timestamp reply_expires_at = 13;
+  // The answer was not saved in time and is gone.
+  bool reply_expired = 14;
+}
+
+// Marks a media message as the answer to a POV request.
+message PovReply {
+  string request_id = 1;
+  // When the content disappears; unset once saved.
+  google.protobuf.Timestamp expires_at = 2;
+  bool saved = 3;
+  // The content is gone (`attachments` is empty).
+  bool expired = 4;
+}
+
+message RequestPovRequest {
+  string conversation_id = 1;
+  string note = 2;
+}
+
+message RequestPovResponse {
+  PovRequest request = 1;
+  // The POV_REQUEST message.
+  Message message = 2;
+}
+
+message AnswerPovRequest {
+  string request_id = 1;
+  // Uploads with purpose CHAT_IMAGE or CHAT_VIDEO.
+  repeated string attachment_asset_ids = 2;
+  // Idempotency key, 1-64 characters.
+  string client_id = 3;
+  // Optional caption.
+  string text = 4;
+}
+
+message AnswerPovResponse {
+  PovRequest request = 1;
+  // The answer.
+  Message message = 2;
+}
+
+message DeclinePovRequest {
+  string request_id = 1;
+}
+
+message DeclinePovResponse {
+  PovRequest request = 1;
+}
+
+message CancelPovRequest {
+  string request_id = 1;
+}
+
+message CancelPovResponse {
+  PovRequest request = 1;
+}
+
+message SavePovRequest {
+  string request_id = 1;
+}
+
+message SavePovResponse {
+  PovRequest request = 1;
+}
+
+// ───────────────────────────── Calls ─────────────────────────────
+
+// Voice and video calls on LiveKit, one live call per conversation.
+//
+// Flow: StartCall rings the other members (realtime `call` event plus an
+// urgent push) and returns credentials for the caller → a callee JoinCalls
+// (accept) or DeclineCalls → participants LeaveCall → the call ends.
+//
+// - A direct call ends when either side leaves, when the callee declines, or
+//   as missed when the callee does not answer within
+//   `Capabilities.ring_seconds`.
+// - A group call rings for `Capabilities.ring_seconds`; members who did not
+//   answer by then are marked missed, but the call stays open for any member
+//   to join until everybody has left (or everybody declined). In groups of
+//   more than 8 members nobody is rung: the members get an ordinary
+//   notification and join from the conversation.
+// - A participant whose connection to the media server is gone for about a
+//   minute is treated as having left.
+//
+// The conversation shows one CALL message per call, updated with the outcome
+// (duration, missed, declined, cancelled).
+//
+// Clients connect to `CallCredentials.url` with `CallCredentials.token` using
+// a LiveKit client SDK; media never passes through this API.
+//
+// StartCall, JoinCall, DeclineCall and LeaveCall fail with CALLS_DISABLED
+// (unimplemented) when the server has no LiveKit configuration.
+service CallService {
+  // Starts a call and rings the other members. In a direct conversation the
+  // callee's `calls_from` privacy setting must allow the caller.
+  // Errors: CALLS_DISABLED, CONVERSATION_NOT_FOUND, CONVERSATION_READ_ONLY,
+  // REQUEST_PENDING (a message request that was not accepted),
+  // CALL_NOT_ALLOWED (the callee's privacy), CALL_IN_PROGRESS (the
+  // conversation already has a live call: JoinCall it), CALL_UNAVAILABLE (the
+  // media server cannot be reached; retry later), RATE_LIMITED.
+  rpc StartCall(StartCallRequest) returns (StartCallResponse);
+  // Accepts a ringing call or joins a running group call, and returns the
+  // credentials to connect. Joining again (another device, a reconnect)
+  // returns fresh credentials.
+  // Errors: CALLS_DISABLED, CALL_NOT_FOUND, CALL_ENDED.
+  rpc JoinCall(JoinCallRequest) returns (JoinCallResponse);
+  // Declines a ringing call. A direct call ends; a group call goes on for
+  // the others. Declining twice succeeds.
+  // Errors: CALLS_DISABLED, CALL_NOT_FOUND, CALL_ENDED, ALREADY_JOINED (use
+  // LeaveCall).
+  rpc DeclineCall(DeclineCallRequest) returns (DeclineCallResponse);
+  // Hangs up. The caller hanging up before anyone answered cancels the call.
+  // Succeeds when the call already ended.
+  // Errors: CALLS_DISABLED, CALL_NOT_FOUND.
+  rpc LeaveCall(LeaveCallRequest) returns (LeaveCallResponse);
+  // One call. Does not need LiveKit to be configured.
+  // Errors: CALL_NOT_FOUND.
+  rpc GetCall(GetCallRequest) returns (GetCallResponse);
+  // The caller's call history across conversations, newest first. Does not
+  // need LiveKit to be configured.
+  rpc ListCalls(ListCallsRequest) returns (ListCallsResponse);
+}
+
+enum CallState {
+  CALL_STATE_UNSPECIFIED = 0;
+  // Ringing; nobody but the caller is connected.
+  CALL_STATE_RINGING = 1;
+  // At least one callee joined.
+  CALL_STATE_ACTIVE = 2;
+  CALL_STATE_ENDED = 3;
+}
+
+enum CallEndReason {
+  CALL_END_REASON_UNSPECIFIED = 0;
+  // People talked and hung up.
+  CALL_END_REASON_COMPLETED = 1;
+  // Nobody answered in time (direct), or nobody had answered when the
+  // caller gave up after the ringing time (group).
+  CALL_END_REASON_MISSED = 2;
+  // The callee (or every callee) declined.
+  CALL_END_REASON_DECLINED = 3;
+  // The caller hung up before anyone answered.
+  CALL_END_REASON_CANCELLED = 4;
+  // The call could not be kept up (e.g. the conversation became read-only).
+  CALL_END_REASON_FAILED = 5;
+}
+
+enum CallParticipantState {
+  CALL_PARTICIPANT_STATE_UNSPECIFIED = 0;
+  // Being rung.
+  CALL_PARTICIPANT_STATE_RINGING = 1;
+  CALL_PARTICIPANT_STATE_JOINED = 2;
+  CALL_PARTICIPANT_STATE_DECLINED = 3;
+  // Was in the call and hung up.
+  CALL_PARTICIPANT_STATE_LEFT = 4;
+  // Did not answer.
+  CALL_PARTICIPANT_STATE_MISSED = 5;
+}
+
+message Call {
+  string id = 1;
+  string conversation_id = 2;
+  tokuly.common.v1.UserSummary started_by = 3;
+  // Started as a video call (participants can still toggle their camera).
+  bool video = 4;
+  CallState state = 5;
+  CallEndReason end_reason = 6;
+  google.protobuf.Timestamp started_at = 7;
+  // When the first callee joined.
+  google.protobuf.Timestamp answered_at = 8;
+  google.protobuf.Timestamp ended_at = 9;
+  // Time from `answered_at` to `ended_at`; 0 for calls nobody answered.
+  int32 duration_seconds = 10;
+  // Until when the call rings.
+  google.protobuf.Timestamp ring_expires_at = 11;
+  repeated CallParticipant participants = 12;
+  // The CALL message in the conversation.
+  string message_id = 13;
+}
+
+message CallParticipant {
+  tokuly.common.v1.UserSummary user = 1;
+  CallParticipantState state = 2;
+  google.protobuf.Timestamp joined_at = 3;
+  google.protobuf.Timestamp left_at = 4;
+}
+
+// The call as shown in the conversation timeline.
+message CallSummary {
+  string call_id = 1;
+  bool video = 2;
+  CallState state = 3;
+  CallEndReason end_reason = 4;
+  int32 duration_seconds = 5;
+  string started_by_id = 6;
+}
+
+// What a client needs to connect to the call's LiveKit room.
+message CallCredentials {
+  // LiveKit server URL (`ws://` / `wss://`).
+  string url = 1;
+  // LiveKit access token for this user and room.
+  string token = 2;
+  string room = 3;
+  // The token must be used to connect before this time.
+  google.protobuf.Timestamp expires_at = 4;
+}
+
+message StartCallRequest {
+  string conversation_id = 1;
+  bool video = 2;
+}
+
+message StartCallResponse {
+  Call call = 1;
+  CallCredentials credentials = 2;
+}
+
+message JoinCallRequest {
+  string call_id = 1;
+}
+
+message JoinCallResponse {
+  Call call = 1;
+  CallCredentials credentials = 2;
+}
+
+message DeclineCallRequest {
+  string call_id = 1;
+}
+
+message DeclineCallResponse {
+  Call call = 1;
+}
+
+message LeaveCallRequest {
+  string call_id = 1;
+}
+
+message LeaveCallResponse {
+  Call call = 1;
+}
+
+message GetCallRequest {
+  string call_id = 1;
+}
+
+message GetCallResponse {
+  Call call = 1;
+}
+
+message ListCallsRequest {
+  // Default 30, at most 100.
+  tokuly.common.v1.PageRequest page = 1;
+  // Only calls the caller did not answer.
+  bool missed_only = 2;
+}
+
+message ListCallsResponse {
+  repeated Call calls = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// ───────────────────────────── AI assistant ─────────────────────────────
+
+// Optional writing help ("AI搭載でチャットがより盛り上がる!"): rewrite a draft
+// in another tone, suggest quick replies, translate a message.
+//
+// PRIVACY: these RPCs send message text to Anthropic's API (a third party
+// outside this server). RewriteDraft sends the draft; SuggestReplies sends
+// the text of the last few text messages of the conversation, labelled only
+// "me" / "other" (no names, handles, IDs or attachments); TranslateMessage
+// sends the text of that one message.
+// Nothing is sent unless one of these RPCs is called, and clients must make
+// that clear to the user before offering them.
+//
+// Available only when the server has an Anthropic API key configured
+// (`Capabilities.assist_enabled`); otherwise every RPC fails with AI_DISABLED
+// (unimplemented). Other shared errors: AI_UNAVAILABLE (the AI service
+// failed or timed out; retry later), AI_REFUSED (the model declined the
+// text), RATE_LIMITED (per user and hour).
+service AssistService {
+  // Rewrites a draft in the chosen tone, keeping its meaning and language.
+  // Errors: TEXT_EMPTY, TEXT_TOO_LONG (more than 2000 characters), TONE_INVALID.
+  rpc RewriteDraft(RewriteDraftRequest) returns (RewriteDraftResponse);
+  // Up to three short replies the caller could send next, in the language of
+  // the conversation. Empty when there is no recent text to reply to.
+  // Errors: CONVERSATION_NOT_FOUND.
+  rpc SuggestReplies(SuggestRepliesRequest) returns (SuggestRepliesResponse);
+  // Translates the text of a message. Results are cached for a while.
+  // Errors: MESSAGE_NOT_FOUND, NOTHING_TO_TRANSLATE (no text),
+  // LANGUAGE_INVALID.
+  rpc TranslateMessage(TranslateMessageRequest) returns (TranslateMessageResponse);
+}
+
+enum RewriteTone {
+  REWRITE_TONE_UNSPECIFIED = 0;
+  // Relaxed, between friends (タメ口).
+  REWRITE_TONE_CASUAL = 1;
+  // Polite (敬語).
+  REWRITE_TONE_POLITE = 2;
+  // Sweet and playful (かわいく).
+  REWRITE_TONE_CUTE = 3;
+  // With a joke (おもしろく).
+  REWRITE_TONE_FUNNY = 4;
+  // Dry and brief (クールに).
+  REWRITE_TONE_COOL = 5;
+  // High energy (テンション高め).
+  REWRITE_TONE_EXCITED = 6;
+  // The same thing in fewer words (短く).
+  REWRITE_TONE_SHORTER = 7;
+  // Kansai dialect (関西弁).
+  REWRITE_TONE_KANSAI = 8;
+}
+
+message RewriteDraftRequest {
+  string text = 1;
+  RewriteTone tone = 2;
+}
+
+message RewriteDraftResponse {
+  string text = 1;
+}
+
+message SuggestRepliesRequest {
+  string conversation_id = 1;
+}
+
+message SuggestRepliesResponse {
+  repeated string replies = 1;
+}
+
+message TranslateMessageRequest {
+  string message_id = 1;
+  // Language to translate into, as a BCP 47 tag ("ja", "en", "ko",
+  // "zh-Hant"…). Empty: the language of the caller's account.
+  string target_language = 2;
+}
+
+message TranslateMessageResponse {
+  string text = 1;
+  // Detected language of the original, as a BCP 47 tag; empty when unknown.
+  string source_language = 2;
+  string target_language = 3;
+}
+
+// ───────────────────────────── Realtime ─────────────────────────────
+
+// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.chat) to
+// every device of the members concerned.
+//
+// Events carry no per-recipient state unless stated: `Message.read_count`
+// and `ReactionCount.reacted_by_me` are zero/false, and `Conversation.viewer`
+// is only set in events built for one user. Clients keep unread counts
+// current themselves (a `message_created` from someone else adds one) and
+// resynchronize from the RPCs after a reconnect.
+message ChatEvent {
+  oneof event {
+    MessageCreated message_created = 1;
+    MessageUpdated message_updated = 2;
+    ReactionChanged reaction_changed = 3;
+    ReadReceiptChanged read_receipt = 4;
+    TypingChanged typing = 5;
+    PresenceChanged presence = 6;
+    ConversationUpdated conversation_updated = 7;
+    ConversationRemoved conversation_removed = 8;
+    CallChanged call = 9;
+  }
+}
+
+// A new message. If the client does not know the conversation yet (a new
+// one, or one it had hidden), it fetches it with GetConversation.
+message MessageCreated {
+  Message message = 1;
+}
+
+enum MessageUpdateReason {
+  MESSAGE_UPDATE_REASON_UNSPECIFIED = 0;
+  MESSAGE_UPDATE_REASON_EDITED = 1;
+  // Deleted for everyone: `message` is the tombstone.
+  MESSAGE_UPDATE_REASON_DELETED = 2;
+  // The link preview arrived.
+  MESSAGE_UPDATE_REASON_LINK_PREVIEW = 3;
+  // An attachment finished (or failed) processing, or was removed.
+  MESSAGE_UPDATE_REASON_ATTACHMENT = 4;
+  MESSAGE_UPDATE_REASON_PINNED = 5;
+  MESSAGE_UPDATE_REASON_UNPINNED = 6;
+  // The call behind a CALL message changed state.
+  MESSAGE_UPDATE_REASON_CALL = 7;
+  // A POV request was answered, declined, cancelled, saved or expired.
+  MESSAGE_UPDATE_REASON_POV = 8;
+}
+
+// A message changed; replace the local copy.
+message MessageUpdated {
+  Message message = 1;
+  MessageUpdateReason reason = 2;
+}
+
+message ReactionChanged {
+  string conversation_id = 1;
+  string message_id = 2;
+  string emoji = 3;
+  // Who added or removed the reaction.
+  string user_id = 4;
+  bool added = 5;
+  // How many people now react with this emoji.
+  int32 count = 6;
+}
+
+// A member read up to `read_seq`. Also sent to the reader's own devices, so
+// unread badges clear everywhere.
+message ReadReceiptChanged {
+  string conversation_id = 1;
+  string user_id = 2;
+  int64 read_seq = 3;
+  google.protobuf.Timestamp read_at = 4;
+}
+
+// Someone started or stopped typing. Clients drop a typing indicator that
+// was not refreshed for 6 seconds.
+message TypingChanged {
+  string conversation_id = 1;
+  string user_id = 2;
+  bool typing = 3;
+}
+
+// Who has the conversation open right now, sent whenever that set changes.
+message PresenceChanged {
+  string conversation_id = 1;
+  // The complete current set.
+  repeated string present_user_ids = 2;
+}
+
+// The conversation changed: name, icon, members, roles, read-only state, or
+// the recipient's own state (joined, request accepted, preferences changed
+// on another device). `conversation.viewer` is set when the event was built
+// for the recipient alone; otherwise only the shared fields changed and the
+// client keeps its viewer state.
+message ConversationUpdated {
+  Conversation conversation = 1;
+}
+
+enum ConversationRemovalReason {
+  CONVERSATION_REMOVAL_REASON_UNSPECIFIED = 0;
+  // The recipient left the group.
+  CONVERSATION_REMOVAL_REASON_LEFT = 1;
+  // The recipient was removed from the group.
+  CONVERSATION_REMOVAL_REASON_REMOVED = 2;
+  // The recipient hid the conversation (on another device).
+  CONVERSATION_REMOVAL_REASON_HIDDEN = 3;
+  // The recipient declined the message request.
+  CONVERSATION_REMOVAL_REASON_DECLINED = 4;
+}
+
+// The conversation left the recipient's list.
+message ConversationRemoved {
+  string conversation_id = 1;
+  ConversationRemovalReason reason = 2;
+}
+
+// A call started ringing, was answered, lost or gained a participant, or
+// ended. A client rings when `call.state` is RINGING and its user is among
+// the participants in state RINGING; it stops when that changes (the user
+// answered on another device, declined, or the call ended).
+message CallChanged {
+  Call call = 1;
+}

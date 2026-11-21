@@ -1,0 +1,1070 @@
+syntax = "proto3";
+
+// Engagement (コメント・リアクション・通報): comments, reactions, bookmarks,
+// shares and reports on any subject.
+//
+// This domain knows nothing about videos, notes or stamps. Everything hangs
+// off a `tokuly.common.v1.SubjectRef`, and the domain that owns the subject
+// decides who may see it, who owns it and whether it accepts interactions.
+//
+// Subject IDs: wherever a request takes a `SubjectRef`, `id` may be the
+// subject's UUID or its short ID. Responses always carry the UUID.
+//
+// Errors every RPC taking a subject can return:
+// - SUBJECT_NOT_FOUND (not found): the subject does not exist, is not visible
+//   to the caller, or belongs to someone who blocked the caller (or whom the
+//   caller blocked).
+// - UNSUPPORTED_SUBJECT (invalid argument): no domain serves this subject type.
+// RPCs that need a signed-in caller answer SIGN_IN_REQUIRED (unauthenticated)
+// otherwise; RPCs marked "Public" also work for guests.
+//
+// Blocks: two users with a block between them (either direction) never see
+// each other's comments or reactions, and cannot interact with each other's
+// subjects or comments. Reporting is the exception: a subject the caller can
+// still resolve can be reported whatever blocks exist.
+//
+// Identities: a comment is written either as the user or as one of their
+// channels. A comment written as a channel does not reveal which account is
+// behind it: `Comment.author.user` is then unset for everyone but the author.
+// To show a "creator" badge, compare `Comment.author` with the subject's own
+// public author.
+//
+// Realtime: `EngagementEvent`s are published on the topic
+// `subject:{type number}:{subject uuid}`, e.g. `subject:5:0190d4f6-…`. Only
+// people who may see the subject can subscribe (others get TOPIC_FORBIDDEN).
+// Comments that are held for review or hidden never appear on a topic.
+package tokuly.engagement.v1;
+
+import "google/protobuf/timestamp.proto";
+import "tokuly/common/v1/common.proto";
+
+// ───────────────────────────── Shared messages ─────────────────────────────
+
+// What this domain knows about a subject: enough for a list row and a link.
+// Clients fetch the full item from the domain that owns it.
+message SubjectPreview {
+  // Always the subject's UUID.
+  tokuly.common.v1.SubjectRef subject = 1;
+  // Short description, e.g. a video title or the start of a note.
+  string title = 2;
+  // Path of the subject in the web app, e.g. `/watch/dQw4w9WgXcQ`.
+  string path = 3;
+  // Thumbnail; may be empty.
+  string image_url = 4;
+  // False when the subject was deleted or the caller may no longer see it.
+  // `title`, `path` and `image_url` are then empty; show "no longer
+  // available" and let the user remove the entry.
+  bool available = 5;
+}
+
+// ───────────────────────────── Comments ─────────────────────────────
+
+// Whether a comment is publicly visible.
+enum CommentStatus {
+  COMMENT_STATUS_UNSPECIFIED = 0;
+  // Visible to everyone who can see the subject.
+  COMMENT_STATUS_PUBLISHED = 1;
+  // Waiting for the subject owner's review. Only its author and the subject
+  // owner see it.
+  COMMENT_STATUS_HELD = 2;
+  // Hidden by the subject owner. Only its author and the subject owner see it.
+  //
+  // One case is never shown as such: a comment hidden because the owner
+  // blocked its author from commenting reads PUBLISHED to that author, who
+  // is not told about the block.
+  COMMENT_STATUS_HIDDEN = 3;
+}
+
+// Why a comment is not published. Only the subject owner is told.
+enum HoldReason {
+  HOLD_REASON_UNSPECIFIED = 0;
+  // The owner reviews every comment before it appears.
+  HOLD_REASON_REVIEW_ALL = 1;
+  // The text contains one of the owner's blocked words.
+  HOLD_REASON_BLOCKED_WORD = 2;
+  // The text contains a link and the owner holds comments with links.
+  HOLD_REASON_LINK = 3;
+  // The owner hid this comment by hand.
+  HOLD_REASON_HIDDEN_BY_OWNER = 4;
+  // The owner blocked its author: from commenting (BlockCommenter), or
+  // altogether (a user block).
+  HOLD_REASON_BLOCKED_COMMENTER = 5;
+}
+
+// Order of top-level comments.
+enum CommentSort {
+  // Same as TOP.
+  COMMENT_SORT_UNSPECIFIED = 0;
+  // Best first: likes, replies and the creator's heart count, and newer
+  // comments need fewer of them than older ones.
+  COMMENT_SORT_TOP = 1;
+  // Newest first.
+  COMMENT_SORT_NEWEST = 2;
+}
+
+// Which identity a comment was written with (a filter for owners).
+enum AuthorKind {
+  AUTHOR_KIND_UNSPECIFIED = 0;
+  // Written as the user.
+  AUTHOR_KIND_USER = 1;
+  // Written as a channel.
+  AUTHOR_KIND_CHANNEL = 2;
+}
+
+// What the caller has to do with a comment. Unset in realtime events.
+message CommentViewerState {
+  // The caller's like or dislike; unset when they left none.
+  Reaction reaction = 1;
+  // The caller wrote it.
+  bool is_author = 2;
+  // The caller may change its text (authors only).
+  bool can_edit = 3;
+  // The caller may delete it (its author and the subject owner).
+  bool can_delete = 4;
+  // The caller owns the subject: pin, heart, hide, approve.
+  bool can_moderate = 5;
+}
+
+// A comment on a subject, or a reply to one. Threads are one level deep.
+message Comment {
+  string id = 1;
+  // What it was written on (`id` is the subject's UUID).
+  tokuly.common.v1.SubjectRef subject = 2;
+  // The top-level comment this replies to; empty for top-level comments.
+  string parent_id = 3;
+  // Who wrote it. For a comment written as a channel, `user` is unset unless
+  // the caller is the author.
+  tokuly.common.v1.Author author = 4;
+  // Up to 1000 characters. May be empty when a stamp or an image is attached.
+  string text = 5;
+  // The users `@handle`s in the text refer to, for rendering links.
+  repeated tokuly.common.v1.UserSummary mentions = 6;
+  // The attached stamp. When the stamp has since been deleted only `id` is
+  // set: render "this stamp is no longer available".
+  tokuly.common.v1.StampRef stamp = 7;
+  // The attached image. A comment has a stamp or an image, never both.
+  tokuly.common.v1.Image image = 8;
+  // A moment of the video the comment refers to, in seconds from the start.
+  optional int32 timestamp_seconds = 9;
+  CommentStatus status = 10;
+  int64 like_count = 11;
+  int64 dislike_count = 12;
+  // Published replies; always 0 for replies.
+  int32 reply_count = 13;
+  // Pinned to the top of the subject's comments by its owner.
+  bool pinned = 14;
+  // The subject owner gave it a heart.
+  bool hearted = 15;
+  // The text was changed after posting; `edited_at` says when.
+  bool edited = 16;
+  google.protobuf.Timestamp created_at = 17;
+  google.protobuf.Timestamp edited_at = 18;
+  // For a reply written in answer to another reply: that reply's author.
+  // Unset when it answers the top-level comment.
+  tokuly.common.v1.Author reply_to = 19;
+  // Unset for guests and in realtime events.
+  CommentViewerState viewer = 20;
+  // Why it is held or hidden. Only set for the subject owner.
+  HoldReason hold_reason = 21;
+}
+
+// A comment together with what it was written on, for lists that span
+// subjects (my comments, comments on my content).
+message CommentInContext {
+  Comment comment = 1;
+  SubjectPreview subject = 2;
+}
+
+service CommentService {
+  // Top-level comments of a subject. The first page starts with the pinned
+  // comment, if any. The caller's own comments that are held or hidden are
+  // included (with their status); nobody else's are.
+  //
+  // While the subject does not accept comments the list is empty for
+  // everyone but its owner and `comments_enabled` is false.
+  //
+  // Public. Errors: SUBJECT_NOT_FOUND, UNSUPPORTED_SUBJECT, INVALID_CURSOR.
+  rpc ListComments(ListCommentsRequest) returns (ListCommentsResponse);
+
+  // Replies to a top-level comment, oldest first.
+  //
+  // Public. Errors: COMMENT_NOT_FOUND, INVALID_CURSOR.
+  rpc ListReplies(ListRepliesRequest) returns (ListRepliesResponse);
+
+  // One comment, e.g. to open the thread a notification points at
+  // (`?comment=<id>`). For a reply, `parent` is its top-level comment.
+  //
+  // Public. Errors: COMMENT_NOT_FOUND (also for comments the caller may not see).
+  rpc GetComment(GetCommentRequest) returns (GetCommentResponse);
+
+  // Writes a comment or a reply. The comment needs text, a stamp or an
+  // image; a stamp and an image cannot be combined. Comments cannot be
+  // written on comments (`SUBJECT_TYPE_COMMENT`): reply with `parent_id`.
+  //
+  // The result may come back with status HELD: the subject owner reviews
+  // comments, or the text tripped one of their filters. Such a comment is
+  // visible to its author and the owner only, until the owner approves it.
+  //
+  // Errors: SUBJECT_NOT_FOUND, UNSUPPORTED_SUBJECT, COMMENT_NOT_FOUND (the
+  // parent), COMMENT_NOT_PUBLISHED (failed precondition: the parent is held
+  // or hidden), COMMENTS_DISABLED (failed precondition), COMMENT_EMPTY,
+  // COMMENT_TOO_LONG, TOO_MANY_MENTIONS, ATTACHMENT_CONFLICT,
+  // TIMESTAMP_INVALID, STAMP_NOT_USABLE, ASSET_NOT_FOUND, ASSET_NOT_READY,
+  // ASSET_FAILED, ASSET_WRONG_PURPOSE, ASSET_NOT_IMAGE, CHANNEL_NOT_FOUND,
+  // DUPLICATE_COMMENT (already exists: the same comment was just posted
+  // here), RATE_LIMITED.
+  rpc CreateComment(CreateCommentRequest) returns (CreateCommentResponse);
+
+  // Changes the text of the caller's own comment and marks it as edited.
+  // The attachment stays. The new text passes the owner's filters again, so
+  // a published comment can come back HELD; editing never publishes a
+  // comment that is held or hidden. Newly mentioned users are notified.
+  //
+  // Errors: COMMENT_NOT_FOUND, NOT_COMMENT_AUTHOR (permission denied),
+  // COMMENT_EMPTY, COMMENT_TOO_LONG, TOO_MANY_MENTIONS, RATE_LIMITED.
+  rpc UpdateComment(UpdateCommentRequest) returns (UpdateCommentResponse);
+
+  // Deletes a comment and, for a top-level comment, all of its replies.
+  // Allowed for the comment's author and for the subject owner.
+  //
+  // Errors: COMMENT_NOT_FOUND, COMMENT_DELETE_FORBIDDEN (permission denied).
+  rpc DeleteComment(DeleteCommentRequest) returns (DeleteCommentResponse);
+
+  // Pins a published top-level comment to the top of its subject. A subject
+  // has one pinned comment: pinning another replaces it. Subject owner only.
+  //
+  // Errors: COMMENT_NOT_FOUND, NOT_SUBJECT_OWNER (permission denied),
+  // COMMENT_NOT_PINNABLE (failed precondition: a reply, or not published).
+  rpc PinComment(PinCommentRequest) returns (PinCommentResponse);
+
+  // Removes the pin from a comment. Subject owner only.
+  //
+  // Errors: COMMENT_NOT_FOUND, NOT_SUBJECT_OWNER (permission denied).
+  rpc UnpinComment(UnpinCommentRequest) returns (UnpinCommentResponse);
+
+  // Gives a comment the creator's heart, or takes it back. Subject owner
+  // only; the comment's author is notified of a new heart.
+  //
+  // Errors: COMMENT_NOT_FOUND, NOT_SUBJECT_OWNER (permission denied),
+  // COMMENT_NOT_PUBLISHED (failed precondition).
+  rpc SetCommentHeart(SetCommentHeartRequest) returns (SetCommentHeartResponse);
+
+  // Everything the caller has commented, newest first, with the subject each
+  // comment is on.
+  //
+  // Errors: INVALID_CURSOR.
+  rpc ListMyComments(ListMyCommentsRequest) returns (ListMyCommentsResponse);
+}
+
+message ListCommentsRequest {
+  tokuly.common.v1.SubjectRef subject = 1;
+  CommentSort sort = 2;
+  // Default 20, at most 50.
+  tokuly.common.v1.PageRequest page = 3;
+}
+
+message ListCommentsResponse {
+  repeated Comment comments = 1;
+  tokuly.common.v1.PageInfo page = 2;
+  // Published comments on the subject, replies included.
+  int64 total_count = 3;
+  // Whether the subject accepts new comments right now.
+  bool comments_enabled = 4;
+  // The caller owns the subject and may moderate its comments.
+  bool viewer_can_moderate = 5;
+}
+
+message ListRepliesRequest {
+  // The top-level comment.
+  string comment_id = 1;
+  // Default 20, at most 50.
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListRepliesResponse {
+  repeated Comment replies = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message GetCommentRequest {
+  string comment_id = 1;
+}
+
+message GetCommentResponse {
+  Comment comment = 1;
+  // The top-level comment, when `comment` is a reply.
+  Comment parent = 2;
+  // What the comment is on.
+  SubjectPreview subject = 3;
+}
+
+message CreateCommentRequest {
+  // What to comment on. Ignored for replies, which go where their parent is.
+  tokuly.common.v1.SubjectRef subject = 1;
+  // The comment to reply to. Replying to a reply adds to the same thread.
+  string parent_id = 2;
+  // Up to 1000 characters; `@handle` mentions a user (at most 10).
+  string text = 3;
+  // A stamp the caller may send (see tokuly.stamp.v1).
+  string stamp_id = 4;
+  // An uploaded image of the caller (purpose NOTE_IMAGE or CHAT_IMAGE).
+  string image_asset_id = 5;
+  // A moment of the video, in seconds from its start.
+  optional int32 timestamp_seconds = 6;
+  // Write as this channel of the caller instead of as the user.
+  string channel_id = 7;
+}
+
+message CreateCommentResponse {
+  Comment comment = 1;
+}
+
+message UpdateCommentRequest {
+  string comment_id = 1;
+  string text = 2;
+}
+
+message UpdateCommentResponse {
+  Comment comment = 1;
+}
+
+message DeleteCommentRequest {
+  string comment_id = 1;
+}
+
+message DeleteCommentResponse {
+  // Comments removed: the comment itself plus its replies.
+  int32 removed_count = 1;
+}
+
+message PinCommentRequest {
+  string comment_id = 1;
+}
+
+message PinCommentResponse {
+  Comment comment = 1;
+}
+
+message UnpinCommentRequest {
+  string comment_id = 1;
+}
+
+message UnpinCommentResponse {
+  Comment comment = 1;
+}
+
+message SetCommentHeartRequest {
+  string comment_id = 1;
+  bool hearted = 2;
+}
+
+message SetCommentHeartResponse {
+  Comment comment = 1;
+}
+
+message ListMyCommentsRequest {
+  // Default 30, at most 50.
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListMyCommentsResponse {
+  repeated CommentInContext comments = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// ───────────────────────────── Comment moderation ─────────────────────────────
+
+// How a user wants comments on their own subjects screened. The owner's own
+// comments are never screened.
+message ModerationSettings {
+  // Every comment waits for the owner's approval.
+  bool hold_all = 1;
+  // Comments containing a link wait for approval.
+  bool hold_links = 2;
+  // Comments containing one of these words or phrases wait for approval.
+  // Matching ignores case and character width. At most 200 entries of up to
+  // 50 characters each.
+  repeated string blocked_words = 3;
+}
+
+// Someone the caller stopped from commenting on their subjects.
+message BlockedCommenter {
+  // ID of the block, for UnblockCommenter.
+  string id = 1;
+  // The identity they were blocked under. For someone blocked through a
+  // comment written as a channel, only `channel` is set.
+  tokuly.common.v1.Author commenter = 2;
+  google.protobuf.Timestamp created_at = 3;
+}
+
+// For owners: the comments on their subjects, the review queue and the
+// screening rules. Everything here concerns the caller's own subjects.
+service CommentModerationService {
+  // Comments other people wrote on the subjects the caller owns, newest
+  // first: the studio's comment manager. Filter by `status` HELD for the
+  // review queue. Comments of blocked commenters and of people with a block
+  // between them and the caller are left out.
+  //
+  // Errors: SUBJECT_NOT_FOUND, NOT_SUBJECT_OWNER (permission denied: the
+  // `subject` filter names someone else's subject), COMMENT_NOT_FOUND (the
+  // `author_of_comment_id` filter), INVALID_CURSOR.
+  rpc ListReceivedComments(ListReceivedCommentsRequest) returns (ListReceivedCommentsResponse);
+
+  // Publishes a held or hidden comment. People it replies to or mentions are
+  // notified now.
+  //
+  // Errors: COMMENT_NOT_FOUND, NOT_SUBJECT_OWNER (permission denied).
+  rpc ApproveComment(ApproveCommentRequest) returns (ApproveCommentResponse);
+
+  // Takes a comment out of public view without deleting it; ApproveComment
+  // brings it back. Hiding a top-level comment keeps its replies but they
+  // are not reachable while it is hidden. To reject a comment for good, use
+  // CommentService.DeleteComment.
+  //
+  // Errors: COMMENT_NOT_FOUND, NOT_SUBJECT_OWNER (permission denied).
+  rpc HideComment(HideCommentRequest) returns (HideCommentResponse);
+
+  // The caller's screening rules.
+  rpc GetModerationSettings(GetModerationSettingsRequest) returns (GetModerationSettingsResponse);
+
+  // Replaces the caller's screening rules. They apply to comments written
+  // from now on; comments already published stay.
+  //
+  // Errors: BLOCKED_WORDS_INVALID (too many entries, or one that is empty or
+  // too long).
+  rpc UpdateModerationSettings(UpdateModerationSettingsRequest) returns (UpdateModerationSettingsResponse);
+
+  // Stops someone from commenting on the caller's subjects. They are not
+  // told: their comments still appear to themselves, and to nobody else.
+  // The account is blocked whichever identity it comments with. Comments
+  // they already wrote under the blocked identity are hidden.
+  //
+  // Errors: USER_NOT_FOUND, COMMENT_NOT_FOUND, NOT_SUBJECT_OWNER (permission
+  // denied: the comment is not on the caller's subject), CANNOT_BLOCK_SELF.
+  rpc BlockCommenter(BlockCommenterRequest) returns (BlockCommenterResponse);
+
+  // Lifts a block. Comments hidden by it stay hidden until approved.
+  //
+  // Errors: BLOCK_NOT_FOUND.
+  rpc UnblockCommenter(UnblockCommenterRequest) returns (UnblockCommenterResponse);
+
+  // People the caller blocked from commenting, most recent first.
+  //
+  // Errors: INVALID_CURSOR.
+  rpc ListBlockedCommenters(ListBlockedCommentersRequest) returns (ListBlockedCommentersResponse);
+}
+
+message ListReceivedCommentsRequest {
+  // Only comments with this status; unspecified = all of them.
+  CommentStatus status = 1;
+  // Only comments on this subject of the caller.
+  tokuly.common.v1.SubjectRef subject = 2;
+  // Only comments whose text contains this (case-insensitive, up to 100 characters).
+  string query = 3;
+  // Only comments written under the same identity as this comment.
+  string author_of_comment_id = 4;
+  // Only comments written as a user / as a channel.
+  AuthorKind author_kind = 5;
+  // Only comments written at or after this time.
+  google.protobuf.Timestamp created_after = 6;
+  // Only comments written before this time.
+  google.protobuf.Timestamp created_before = 7;
+  // Default 30, at most 100.
+  tokuly.common.v1.PageRequest page = 8;
+}
+
+message ListReceivedCommentsResponse {
+  repeated CommentInContext comments = 1;
+  tokuly.common.v1.PageInfo page = 2;
+  // Comments waiting for the caller's review, across all their subjects
+  // (regardless of the filters).
+  int64 held_count = 3;
+}
+
+message ApproveCommentRequest {
+  string comment_id = 1;
+}
+
+message ApproveCommentResponse {
+  Comment comment = 1;
+}
+
+message HideCommentRequest {
+  string comment_id = 1;
+}
+
+message HideCommentResponse {
+  Comment comment = 1;
+}
+
+message GetModerationSettingsRequest {}
+
+message GetModerationSettingsResponse {
+  ModerationSettings settings = 1;
+}
+
+message UpdateModerationSettingsRequest {
+  ModerationSettings settings = 1;
+}
+
+message UpdateModerationSettingsResponse {
+  // The stored rules (blocked words trimmed and de-duplicated).
+  ModerationSettings settings = 1;
+}
+
+message BlockCommenterRequest {
+  oneof target {
+    // The user to block.
+    string user_id = 1;
+    // Block whoever wrote this comment on one of the caller's subjects. The
+    // way to block someone who comments as a channel.
+    string comment_id = 2;
+  }
+}
+
+message BlockCommenterResponse {
+  BlockedCommenter blocked = 1;
+}
+
+message UnblockCommenterRequest {
+  // `BlockedCommenter.id`.
+  string block_id = 1;
+}
+
+message UnblockCommenterResponse {}
+
+message ListBlockedCommentersRequest {
+  // Default 30, at most 100.
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListBlockedCommentersResponse {
+  repeated BlockedCommenter commenters = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// ───────────────────────────── Reactions ─────────────────────────────
+
+enum ReactionKind {
+  REACTION_KIND_UNSPECIFIED = 0;
+  REACTION_KIND_LIKE = 1;
+  REACTION_KIND_DISLIKE = 2;
+  // An emoji, named in `Reaction.emoji`.
+  REACTION_KIND_EMOJI = 3;
+}
+
+// One user's reaction to a subject. A user has at most one per subject: a
+// like, a dislike or one emoji.
+message Reaction {
+  ReactionKind kind = 1;
+  // A single emoji, e.g. "🎉"; only for kind EMOJI.
+  string emoji = 2;
+}
+
+message EmojiCount {
+  string emoji = 1;
+  int64 count = 2;
+}
+
+// Reaction counts of a subject, plus the caller's own reaction.
+message ReactionSummary {
+  int64 like_count = 1;
+  int64 dislike_count = 2;
+  // The most used emoji first; at most 20.
+  repeated EmojiCount emoji_counts = 3;
+  // Total emoji reactions, including emoji beyond the listed ones.
+  int64 emoji_total = 4;
+  // Unset for guests, in realtime events, and when the caller did not react.
+  Reaction viewer_reaction = 5;
+}
+
+// Someone who reacted to a subject.
+message Reactor {
+  tokuly.common.v1.UserSummary user = 1;
+  Reaction reaction = 2;
+  google.protobuf.Timestamp reacted_at = 3;
+}
+
+// A subject the caller reacted to.
+message ReactedSubject {
+  SubjectPreview subject = 1;
+  Reaction reaction = 2;
+  google.protobuf.Timestamp reacted_at = 3;
+}
+
+service ReactionService {
+  // Reacts to a subject, replacing the caller's previous reaction to it.
+  // Comments are subjects too (`SUBJECT_TYPE_COMMENT`); they take likes and
+  // dislikes but no emoji. The subject's owner is notified of likes and
+  // emoji, never of dislikes.
+  //
+  // Errors: SUBJECT_NOT_FOUND, UNSUPPORTED_SUBJECT, INTERACTIONS_DISABLED
+  // (failed precondition), REACTION_INVALID (no kind), EMOJI_INVALID (not a
+  // single emoji), EMOJI_NOT_ALLOWED (emoji on a comment), RATE_LIMITED.
+  rpc SetReaction(SetReactionRequest) returns (SetReactionResponse);
+
+  // Takes the caller's reaction back. Does nothing when there is none. Works
+  // by UUID even after the subject stopped being visible to the caller.
+  //
+  // Errors: SUBJECT_NOT_FOUND, UNSUPPORTED_SUBJECT, RATE_LIMITED.
+  rpc RemoveReaction(RemoveReactionRequest) returns (RemoveReactionResponse);
+
+  // Who reacted to a subject, most recent first. Emoji reactions are public
+  // to everyone who can see the subject; who liked is only shown to the
+  // subject's owner; who disliked is shown to nobody.
+  //
+  // Public. Errors: SUBJECT_NOT_FOUND, UNSUPPORTED_SUBJECT,
+  // REACTION_LIST_PRIVATE (permission denied), INVALID_CURSOR.
+  rpc ListReactions(ListReactionsRequest) returns (ListReactionsResponse);
+
+  // Subjects the caller reacted to, most recent first — e.g. "liked videos"
+  // with subject type VIDEO and kind LIKE.
+  //
+  // Errors: INVALID_CURSOR.
+  rpc ListMyReactions(ListMyReactionsRequest) returns (ListMyReactionsResponse);
+}
+
+message SetReactionRequest {
+  tokuly.common.v1.SubjectRef subject = 1;
+  Reaction reaction = 2;
+}
+
+message SetReactionResponse {
+  ReactionSummary reactions = 1;
+}
+
+message RemoveReactionRequest {
+  tokuly.common.v1.SubjectRef subject = 1;
+}
+
+message RemoveReactionResponse {
+  ReactionSummary reactions = 1;
+}
+
+message ListReactionsRequest {
+  tokuly.common.v1.SubjectRef subject = 1;
+  // LIKE (owner only), EMOJI, or unspecified for everything the caller may
+  // see: emoji reactions, plus likes for the owner.
+  ReactionKind kind = 2;
+  // With kind EMOJI: only this emoji.
+  string emoji = 3;
+  // Default 30, at most 100.
+  tokuly.common.v1.PageRequest page = 4;
+}
+
+message ListReactionsResponse {
+  repeated Reactor reactors = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListMyReactionsRequest {
+  // Only subjects of this type; unspecified = every type.
+  tokuly.common.v1.SubjectType subject_type = 1;
+  // Only reactions of this kind; unspecified = every kind.
+  ReactionKind kind = 2;
+  // Default 30, at most 100.
+  tokuly.common.v1.PageRequest page = 3;
+}
+
+message ListMyReactionsResponse {
+  repeated ReactedSubject subjects = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// ───────────────────────────── Bookmarks ─────────────────────────────
+
+// A named list of saved subjects. Collections are private to their owner.
+// Every user has a default collection that holds everything they saved;
+// collections they create are subsets of it.
+message Collection {
+  string id = 1;
+  // The default collection is called "saved"; clients show a localized name
+  // for it ("保存済み").
+  string name = 2;
+  bool is_default = 3;
+  int32 item_count = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+  // Whether the subject named in ListCollectionsRequest is in this collection.
+  bool contains_subject = 7;
+}
+
+// A saved subject.
+message Bookmark {
+  SubjectPreview subject = 1;
+  // When it was added to the listed collection.
+  google.protobuf.Timestamp saved_at = 2;
+}
+
+service BookmarkService {
+  // Saves a subject. With a collection it is added there and to the default
+  // collection; without one, to the default collection only. Saving what is
+  // already saved changes nothing.
+  //
+  // Errors: SUBJECT_NOT_FOUND, UNSUPPORTED_SUBJECT, COLLECTION_NOT_FOUND,
+  // BOOKMARK_LIMIT (failed precondition: the collection is full), RATE_LIMITED.
+  rpc AddBookmark(AddBookmarkRequest) returns (AddBookmarkResponse);
+
+  // Removes a saved subject: from one collection, or — without a collection
+  // or with the default one — from everywhere. Works by UUID even after the
+  // subject stopped being visible to the caller.
+  //
+  // Errors: SUBJECT_NOT_FOUND, UNSUPPORTED_SUBJECT, COLLECTION_NOT_FOUND, RATE_LIMITED.
+  rpc RemoveBookmark(RemoveBookmarkRequest) returns (RemoveBookmarkResponse);
+
+  // Saved subjects of a collection (the default one when none is named),
+  // most recently saved first, optionally of one subject type.
+  //
+  // Errors: COLLECTION_NOT_FOUND, INVALID_CURSOR.
+  rpc ListBookmarks(ListBookmarksRequest) returns (ListBookmarksResponse);
+
+  // The caller's collections: the default one first, then the others by
+  // name. With a subject, `contains_subject` tells which ones hold it.
+  //
+  // Errors: SUBJECT_NOT_FOUND, UNSUPPORTED_SUBJECT.
+  rpc ListCollections(ListCollectionsRequest) returns (ListCollectionsResponse);
+
+  // Creates an empty collection.
+  //
+  // Errors: COLLECTION_NAME_INVALID (empty or longer than 50 characters),
+  // COLLECTION_NAME_TAKEN (already exists), COLLECTION_LIMIT (failed precondition).
+  rpc CreateCollection(CreateCollectionRequest) returns (CreateCollectionResponse);
+
+  // Renames a collection.
+  //
+  // Errors: COLLECTION_NOT_FOUND, DEFAULT_COLLECTION (failed precondition),
+  // COLLECTION_NAME_INVALID, COLLECTION_NAME_TAKEN (already exists).
+  rpc UpdateCollection(UpdateCollectionRequest) returns (UpdateCollectionResponse);
+
+  // Deletes a collection. What it held stays saved in the default collection.
+  //
+  // Errors: COLLECTION_NOT_FOUND, DEFAULT_COLLECTION (failed precondition).
+  rpc DeleteCollection(DeleteCollectionRequest) returns (DeleteCollectionResponse);
+}
+
+message AddBookmarkRequest {
+  tokuly.common.v1.SubjectRef subject = 1;
+  // Empty = the default collection.
+  string collection_id = 2;
+}
+
+message AddBookmarkResponse {
+  // Users who saved the subject.
+  int64 bookmark_count = 1;
+}
+
+message RemoveBookmarkRequest {
+  tokuly.common.v1.SubjectRef subject = 1;
+  // Empty or the default collection = remove from every collection.
+  string collection_id = 2;
+}
+
+message RemoveBookmarkResponse {
+  // Whether the subject is still saved (in the default collection).
+  bool bookmarked = 1;
+  // Users who saved the subject.
+  int64 bookmark_count = 2;
+}
+
+message ListBookmarksRequest {
+  // Empty = the default collection (everything saved).
+  string collection_id = 1;
+  // Only subjects of this type; unspecified = every type.
+  tokuly.common.v1.SubjectType subject_type = 2;
+  // Default 30, at most 100.
+  tokuly.common.v1.PageRequest page = 3;
+}
+
+message ListBookmarksResponse {
+  repeated Bookmark bookmarks = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListCollectionsRequest {
+  // Optional: fill `Collection.contains_subject` for this subject.
+  tokuly.common.v1.SubjectRef subject = 1;
+}
+
+message ListCollectionsResponse {
+  repeated Collection collections = 1;
+}
+
+message CreateCollectionRequest {
+  // 1 to 50 characters; unique among the caller's collections (ignoring case).
+  string name = 1;
+}
+
+message CreateCollectionResponse {
+  Collection collection = 1;
+}
+
+message UpdateCollectionRequest {
+  string collection_id = 1;
+  string name = 2;
+}
+
+message UpdateCollectionResponse {
+  Collection collection = 1;
+}
+
+message DeleteCollectionRequest {
+  string collection_id = 1;
+}
+
+message DeleteCollectionResponse {}
+
+// ───────────────────────────── Summary and shares ─────────────────────────────
+
+// How a subject was shared.
+enum ShareTarget {
+  SHARE_TARGET_UNSPECIFIED = 0;
+  // The link was copied.
+  SHARE_TARGET_LINK_COPY = 1;
+  // Sent into a Tokuly chat.
+  SHARE_TARGET_CHAT = 2;
+  // Handed to another app (share sheet, social networks).
+  SHARE_TARGET_EXTERNAL = 3;
+}
+
+// Every engagement number of a subject, plus the caller's own state.
+message SubjectEngagement {
+  // The subject's UUID.
+  tokuly.common.v1.SubjectRef subject = 1;
+  // The ID as the request gave it (possibly a short ID), to match batch
+  // results with what was asked.
+  string requested_id = 2;
+  ReactionSummary reactions = 3;
+  // Published comments, replies included.
+  int64 comment_count = 4;
+  // Users who saved it.
+  int64 bookmark_count = 5;
+  int64 share_count = 6;
+  // The caller saved it. False for guests.
+  bool bookmarked = 7;
+  // Whether the subject accepts comments and reactions right now.
+  bool interactions_enabled = 8;
+}
+
+message ShareTargetCount {
+  ShareTarget target = 1;
+  int64 count = 2;
+}
+
+service EngagementService {
+  // Counts and the caller's own reaction and bookmark for one subject.
+  //
+  // Public. Errors: SUBJECT_NOT_FOUND, UNSUPPORTED_SUBJECT.
+  rpc GetEngagement(GetEngagementRequest) returns (GetEngagementResponse);
+
+  // The same for up to 100 subjects at once, e.g. the items of a feed page.
+  // Subjects the caller cannot see are left out of the result.
+  //
+  // Public. Errors: TOO_MANY_SUBJECTS, UNSUPPORTED_SUBJECT.
+  rpc BatchGetEngagement(BatchGetEngagementRequest) returns (BatchGetEngagementResponse);
+
+  // Records that the caller shared a subject and returns the link to share.
+  //
+  // Public. Errors: SUBJECT_NOT_FOUND, UNSUPPORTED_SUBJECT,
+  // SHARE_TARGET_INVALID, RATE_LIMITED.
+  rpc RecordShare(RecordShareRequest) returns (RecordShareResponse);
+
+  // How often a subject was shared, by target. Subject owner only.
+  //
+  // Errors: SUBJECT_NOT_FOUND, UNSUPPORTED_SUBJECT, NOT_SUBJECT_OWNER
+  // (permission denied).
+  rpc GetShareStats(GetShareStatsRequest) returns (GetShareStatsResponse);
+}
+
+message GetEngagementRequest {
+  tokuly.common.v1.SubjectRef subject = 1;
+}
+
+message GetEngagementResponse {
+  SubjectEngagement engagement = 1;
+}
+
+message BatchGetEngagementRequest {
+  // At most 100.
+  repeated tokuly.common.v1.SubjectRef subjects = 1;
+}
+
+message BatchGetEngagementResponse {
+  // In request order, without the subjects the caller cannot see.
+  repeated SubjectEngagement engagements = 1;
+}
+
+message RecordShareRequest {
+  tokuly.common.v1.SubjectRef subject = 1;
+  ShareTarget target = 2;
+}
+
+message RecordShareResponse {
+  int64 share_count = 1;
+  // Absolute URL of the subject in the web app.
+  string url = 2;
+}
+
+message GetShareStatsRequest {
+  tokuly.common.v1.SubjectRef subject = 1;
+}
+
+message GetShareStatsResponse {
+  int64 share_count = 1;
+  // One entry per target that was used at least once.
+  repeated ShareTargetCount targets = 2;
+}
+
+// ───────────────────────────── Reports ─────────────────────────────
+
+// What is wrong with the reported subject.
+enum ReportCategory {
+  REPORT_CATEGORY_UNSPECIFIED = 0;
+  REPORT_CATEGORY_SPAM = 1;
+  REPORT_CATEGORY_HARASSMENT = 2;
+  REPORT_CATEGORY_HATE = 3;
+  REPORT_CATEGORY_SEXUAL = 4;
+  REPORT_CATEGORY_VIOLENCE = 5;
+  REPORT_CATEGORY_SELF_HARM = 6;
+  REPORT_CATEGORY_ILLEGAL = 7;
+  REPORT_CATEGORY_IMPERSONATION = 8;
+  REPORT_CATEGORY_COPYRIGHT = 9;
+  REPORT_CATEGORY_OTHER = 10;
+}
+
+// Where a report stands.
+enum ReportStatus {
+  REPORT_STATUS_UNSPECIFIED = 0;
+  // Received; the moderation team has not decided yet.
+  REPORT_STATUS_SUBMITTED = 1;
+  // Reviewed, and action was taken (e.g. the content was removed).
+  REPORT_STATUS_ACTION_TAKEN = 2;
+  // Reviewed; no rule was found to be broken.
+  REPORT_STATUS_NO_ACTION = 3;
+  // Replaced by a newer report of the same user about the same subject.
+  REPORT_STATUS_SUPERSEDED = 4;
+}
+
+// A report the caller filed.
+message Report {
+  string id = 1;
+  // What was reported (`id` is the subject's UUID).
+  tokuly.common.v1.SubjectRef subject = 2;
+  // Title and path of the subject when it was reported; it may be gone by now.
+  string subject_title = 3;
+  string subject_path = 4;
+  ReportCategory category = 5;
+  string text = 6;
+  ReportStatus status = 7;
+  google.protobuf.Timestamp created_at = 8;
+  // When the report stopped being open; unset while SUBMITTED.
+  google.protobuf.Timestamp resolved_at = 9;
+}
+
+service ReportService {
+  // Reports a subject — content, a comment (`SUBJECT_TYPE_COMMENT`) or a
+  // user (`SUBJECT_TYPE_USER`, by UUID or handle) — to the moderation team.
+  // A user has one open report per subject. A report that has gone
+  // unanswered for a week no longer stands in the way: reporting the subject
+  // again then replaces it (the old one becomes SUPERSEDED).
+  //
+  // Errors: SUBJECT_NOT_FOUND, UNSUPPORTED_SUBJECT, REPORT_CATEGORY_INVALID,
+  // REPORT_TEXT_TOO_LONG (more than 1000 characters), CANNOT_REPORT_OWN
+  // (failed precondition), ALREADY_REPORTED (already exists), RATE_LIMITED.
+  rpc CreateReport(CreateReportRequest) returns (CreateReportResponse);
+
+  // The caller's reports, newest first, with their status.
+  //
+  // Errors: INVALID_CURSOR.
+  rpc ListMyReports(ListMyReportsRequest) returns (ListMyReportsResponse);
+}
+
+message CreateReportRequest {
+  tokuly.common.v1.SubjectRef subject = 1;
+  ReportCategory category = 2;
+  // Optional details, up to 1000 characters.
+  string text = 3;
+}
+
+message CreateReportResponse {
+  Report report = 1;
+}
+
+message ListMyReportsRequest {
+  // Default 30, at most 100.
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListMyReportsResponse {
+  repeated Report reports = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// ───────────────────────────── Realtime ─────────────────────────────
+
+// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.engagement).
+//
+// Subject events travel on the topic `subject:{type number}:{subject uuid}`;
+// `review_queue_changed` goes to the subject owner's own connections.
+message EngagementEvent {
+  // The subject the event is about (`id` is its UUID).
+  tokuly.common.v1.SubjectRef subject = 1;
+  oneof event {
+    CommentAdded comment_added = 2;
+    CommentUpdated comment_updated = 3;
+    CommentRemoved comment_removed = 4;
+    CommentPinned comment_pinned = 5;
+    CountersChanged counters_changed = 6;
+    ReviewQueueChanged review_queue_changed = 7;
+  }
+}
+
+// A comment was published: newly written, or approved by the owner.
+message CommentAdded {
+  string comment_id = 1;
+  // Empty for a top-level comment.
+  string parent_id = 2;
+  // The comment, without viewer state. Unset when its author has blocks in
+  // place: fetch it with CommentService.GetComment, which answers
+  // COMMENT_NOT_FOUND for subscribers who must not see it.
+  Comment comment = 3;
+}
+
+// A published comment changed: its text was edited, or it gained or lost
+// the creator's heart.
+message CommentUpdated {
+  string comment_id = 1;
+  string parent_id = 2;
+  // As in CommentAdded: unset when the author has blocks in place.
+  Comment comment = 3;
+}
+
+// A comment left public view: deleted, hidden, or held again after an edit.
+message CommentRemoved {
+  string comment_id = 1;
+  string parent_id = 2;
+  // Published comments that disappeared with it: itself plus its replies.
+  int32 removed_count = 3;
+}
+
+// The subject's pinned comment changed.
+message CommentPinned {
+  string comment_id = 1;
+  // False when the pin was removed from this comment.
+  bool pinned = 2;
+}
+
+// The subject's numbers changed. Sent at most about once a second per
+// subject, with the totals at that moment.
+message CountersChanged {
+  // Without `viewer_reaction`.
+  ReactionSummary reactions = 1;
+  int64 comment_count = 2;
+  int64 bookmark_count = 3;
+  int64 share_count = 4;
+}
+
+// Sent to a subject owner when the number of comments waiting for their
+// review changes.
+message ReviewQueueChanged {
+  int64 held_count = 1;
+}

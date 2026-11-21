@@ -1,0 +1,342 @@
+syntax = "proto3";
+
+// Binary assets: resumable uploads straight to object storage, image
+// processing, and the video transcoding pipeline shared by videos, shorts,
+// stories, chat attachments and live archives.
+package tokuly.media.v1;
+
+import "google/protobuf/timestamp.proto";
+import "tokuly/common/v1/common.proto";
+
+// Every RPC requires a signed-in caller.
+//
+// Upload flow: CreateUpload -> PUT the bytes straight to object storage (one
+// request, or part by part) -> CompleteUpload -> wait for READY through
+// WatchAsset, the realtime `MediaEvent`, or the `asset:{asset_id}` topic.
+service MediaService {
+  // Starts an upload. Small files get a single presigned PUT; large files a
+  // multipart upload whose parts are requested with GetUploadParts.
+  //
+  // The declared content type only selects the upload recipe; the real type
+  // is detected from the bytes when the upload completes.
+  //
+  // Errors: PURPOSE_INVALID, PURPOSE_NOT_ALLOWED (purposes only the server
+  // creates, e.g. live archives), FILE_EMPTY, FILE_TOO_LARGE,
+  // UNSUPPORTED_CONTENT_TYPE, SHA256_INVALID, TOO_MANY_UPLOADS (too many
+  // unfinished uploads), RATE_LIMITED.
+  rpc CreateUpload(CreateUploadRequest) returns (CreateUploadResponse);
+  // Signs part URLs of a multipart upload and reports which parts the store
+  // already holds, so an interrupted upload resumes where it stopped.
+  //
+  // Errors: UPLOAD_NOT_FOUND, UPLOAD_NOT_ACTIVE (already completed),
+  // UPLOAD_NOT_MULTIPART, PART_NUMBER_INVALID, TOO_MANY_PARTS.
+  rpc GetUploadParts(GetUploadPartsRequest) returns (GetUploadPartsResponse);
+  // Finalizes the upload and queues processing. Idempotent: completing an
+  // upload again returns the asset in its current state.
+  //
+  // Errors: UPLOAD_NOT_FOUND, UPLOAD_INCOMPLETE (bytes or parts missing),
+  // PART_ETAG_MISMATCH, SIZE_MISMATCH, CHECKSUM_MISMATCH and
+  // UNSUPPORTED_CONTENT (the bytes are not what the purpose accepts). The
+  // last three also mark the asset FAILED.
+  rpc CompleteUpload(CompleteUploadRequest) returns (CompleteUploadResponse);
+  // Cancels an unfinished upload and discards its bytes. Idempotent.
+  //
+  // Errors: UPLOAD_NOT_FOUND, UPLOAD_NOT_ACTIVE (use DeleteAsset instead),
+  // ASSET_IN_USE (something already refers to the upload).
+  rpc AbortUpload(AbortUploadRequest) returns (AbortUploadResponse);
+
+  // One asset. The owner sees it in every state; everyone else only once it
+  // is READY, without the file name and without the URL of private files.
+  //
+  // Errors: ASSET_NOT_FOUND.
+  rpc GetAsset(GetAssetRequest) returns (GetAssetResponse);
+  // Up to 100 assets, in request order; unknown or invisible IDs are skipped.
+  //
+  // Errors: TOO_MANY_ASSETS.
+  rpc BatchGetAssets(BatchGetAssetsRequest) returns (BatchGetAssetsResponse);
+  // Stream of processing progress for one of the caller's assets: the current
+  // state first, then every change until it is READY or FAILED.
+  //
+  // Errors: ASSET_NOT_FOUND.
+  rpc WatchAsset(WatchAssetRequest) returns (stream WatchAssetResponse);
+  // Deletes one of the caller's assets and every stored rendition of it.
+  // Only assets that nothing uses can be deleted: one that is somebody's
+  // avatar, in a message, part of a stamp pack… is released by removing or
+  // replacing that. Uploads that are never used are deleted automatically
+  // after a while, so clients need not clean up after abandoned uploads.
+  //
+  // Errors: ASSET_NOT_FOUND, ASSET_IN_USE (failed precondition).
+  rpc DeleteAsset(DeleteAssetRequest) returns (DeleteAssetResponse);
+
+  // Fetches Open Graph metadata for a URL (link previews in chat and notes).
+  // `preview` is unset when the page offers nothing to show or cannot be
+  // reached; both outcomes are cached.
+  //
+  // Errors: URL_INVALID, RATE_LIMITED.
+  rpc GetLinkPreview(GetLinkPreviewRequest) returns (GetLinkPreviewResponse);
+}
+
+// What an upload is for. Determines size limits and the processing recipe.
+enum AssetPurpose {
+  ASSET_PURPOSE_UNSPECIFIED = 0;
+  ASSET_PURPOSE_AVATAR = 1;
+  ASSET_PURPOSE_AVATAR_VIDEO = 2;
+  ASSET_PURPOSE_BANNER = 3;
+  ASSET_PURPOSE_CHAT_IMAGE = 4;
+  ASSET_PURPOSE_CHAT_VIDEO = 5;
+  ASSET_PURPOSE_CHAT_AUDIO = 6;
+  ASSET_PURPOSE_CHAT_FILE = 7;
+  ASSET_PURPOSE_NOTE_IMAGE = 8;
+  ASSET_PURPOSE_NOTE_VIDEO = 9;
+  ASSET_PURPOSE_STORY = 10;
+  ASSET_PURPOSE_STAMP = 11;
+  ASSET_PURPOSE_VIDEO = 12;
+  ASSET_PURPOSE_SHORT = 13;
+  ASSET_PURPOSE_THUMBNAIL = 14;
+  ASSET_PURPOSE_SUBTITLE = 15;
+  ASSET_PURPOSE_PLACE_PHOTO = 16;
+  ASSET_PURPOSE_DAY_MEMO = 17;
+  ASSET_PURPOSE_CHANNEL_ICON = 18;
+  ASSET_PURPOSE_CHANNEL_BANNER = 19;
+  ASSET_PURPOSE_LIVE_ARCHIVE = 20;
+}
+
+// What the uploaded bytes turned out to be (detected, never taken from the client).
+enum AssetKind {
+  ASSET_KIND_UNSPECIFIED = 0;
+  // Still image; served as WebP variants.
+  ASSET_KIND_IMAGE = 1;
+  // Video; served as HLS plus poster, storyboard and preview.
+  ASSET_KIND_VIDEO = 2;
+  // Audio (voice messages); served as AAC and Opus with waveform peaks.
+  ASSET_KIND_AUDIO = 3;
+  // Stored untouched: chat files and subtitles (private, presigned URL) and
+  // dotLottie stamps (public URL).
+  ASSET_KIND_FILE = 4;
+  // Animated GIF / WebP / APNG; served as an animated WebP plus a still poster.
+  ASSET_KIND_ANIMATION = 5;
+}
+
+enum AssetStatus {
+  ASSET_STATUS_UNSPECIFIED = 0;
+  // Upload created, bytes not complete yet.
+  ASSET_STATUS_UPLOADING = 1;
+  // Bytes stored; waiting for or undergoing processing.
+  ASSET_STATUS_PROCESSING = 2;
+  ASSET_STATUS_READY = 3;
+  ASSET_STATUS_FAILED = 4;
+}
+
+message Asset {
+  string id = 1;
+  string owner_id = 2;
+  AssetPurpose purpose = 3;
+  AssetKind kind = 4;
+  AssetStatus status = 5;
+  string content_type = 6;
+  int64 size_bytes = 7;
+  string file_name = 8;
+  google.protobuf.Timestamp created_at = 9;
+  // Processing progress 0-100 while PROCESSING.
+  int32 progress = 10;
+  // Machine-readable failure reason when FAILED: UNSUPPORTED_CONTENT,
+  // CORRUPT_MEDIA, NOT_A_VIDEO, NO_AUDIO, IMAGE_TOO_LARGE, ANIMATION_TOO_LARGE,
+  // VIDEO_TOO_LARGE, MEDIA_TOO_LONG, SIZE_MISMATCH, CHECKSUM_MISMATCH, or
+  // PROCESSING_FAILED (our fault, after retries).
+  string error = 11;
+
+  // Main rendition: the largest image variant, the animated WebP, the MP4 of
+  // a short clip (else the HLS playlist), the AAC file of a voice message.
+  // For private files (chat files, subtitles) a presigned download URL valid
+  // for about an hour, issued on every read and only to the owner.
+  string url = 12;
+  // Set for images, video posters and animation previews.
+  tokuly.common.v1.Image image = 13;
+  // Set for video and audio.
+  VideoInfo video = 14;
+  // Audio waveform peaks (0-255), ~64 samples; set for audio.
+  bytes waveform = 15;
+}
+
+message VideoInfo {
+  double duration_seconds = 1;
+  int32 width = 2;
+  int32 height = 3;
+  double frame_rate = 4;
+  // Adaptive HLS (CMAF) master playlist.
+  string hls_url = 5;
+  // Progressive MP4 (fast start) for short clips and downloads.
+  string mp4_url = 6;
+  tokuly.common.v1.Image poster = 7;
+  // WebVTT thumbnail track (sprite sheets) for seek previews.
+  string storyboard_url = 8;
+  repeated Rendition renditions = 9;
+  bool has_audio = 10;
+  // Short muted looping preview (animated WebP) for hover/feed cards.
+  string preview_url = 11;
+  // Integrated loudness in LUFS, for normalization.
+  double loudness_lufs = 12;
+}
+
+message Rendition {
+  // e.g. "1080p", "720p", "audio".
+  string name = 1;
+  int32 width = 2;
+  int32 height = 3;
+  int32 bitrate_kbps = 4;
+  // "h264", "av1", "hevc", "aac", "opus".
+  string codec = 5;
+  // The rendition on its own: an HLS media playlist for video rungs, the
+  // file itself for audio renditions.
+  string url = 6;
+}
+
+message CreateUploadRequest {
+  AssetPurpose purpose = 1;
+  string file_name = 2;
+  string content_type = 3;
+  int64 size_bytes = 4;
+  // Optional hex SHA-256 of the whole file, verified after upload.
+  string sha256 = 5;
+}
+
+message CreateUploadResponse {
+  string asset_id = 1;
+  string upload_id = 2;
+  // Single-request upload: PUT exactly `size_bytes` bytes here. Empty for
+  // multipart uploads.
+  string put_url = 3;
+  // Headers that must accompany the PUT (the signature covers them).
+  map<string, string> put_headers = 4;
+  // Multipart upload: part size in bytes and total number of parts. Every
+  // part is exactly `part_size_bytes` long except the last, which holds the
+  // remainder; the store rejects parts of any other length.
+  int64 part_size_bytes = 5;
+  int32 part_count = 6;
+  // After this the unfinished upload is discarded.
+  google.protobuf.Timestamp expires_at = 7;
+}
+
+message GetUploadPartsRequest {
+  string upload_id = 1;
+  // 1-based part numbers to (re)sign. Up to 100 per call; may be empty to
+  // only ask which parts are already stored.
+  repeated int32 part_numbers = 2;
+}
+
+message GetUploadPartsResponse {
+  repeated UploadPart parts = 1;
+  // Parts the server already has (for resuming).
+  repeated int32 completed_part_numbers = 2;
+}
+
+message UploadPart {
+  int32 part_number = 1;
+  string put_url = 2;
+}
+
+message CompletedPart {
+  int32 part_number = 1;
+  // ETag returned by the storage PUT.
+  string etag = 2;
+}
+
+message CompleteUploadRequest {
+  string upload_id = 1;
+  // Multipart uploads: the parts as the client saw them stored. Optional (the
+  // server asks the store, so a resumed upload needs no remembered ETags);
+  // when given, each ETag is checked against the stored part.
+  repeated CompletedPart parts = 2;
+}
+
+message CompleteUploadResponse {
+  Asset asset = 1;
+}
+
+message AbortUploadRequest {
+  string upload_id = 1;
+}
+
+message AbortUploadResponse {}
+
+message GetAssetRequest {
+  string asset_id = 1;
+}
+
+message GetAssetResponse {
+  Asset asset = 1;
+}
+
+message BatchGetAssetsRequest {
+  repeated string asset_ids = 1;
+}
+
+message BatchGetAssetsResponse {
+  repeated Asset assets = 1;
+}
+
+message WatchAssetRequest {
+  string asset_id = 1;
+}
+
+message WatchAssetResponse {
+  Asset asset = 1;
+}
+
+message DeleteAssetRequest {
+  string asset_id = 1;
+}
+
+message DeleteAssetResponse {}
+
+message GetLinkPreviewRequest {
+  string url = 1;
+}
+
+message GetLinkPreviewResponse {
+  LinkPreview preview = 1;
+}
+
+// Open Graph style preview of a web page. Also embedded in chat messages and notes.
+message LinkPreview {
+  string url = 1;
+  string title = 2;
+  string description = 3;
+  string site_name = 4;
+  string image_url = 5;
+  string favicon_url = 6;
+  // "youtube" | "spotify" | "tokuly" | "" — known providers get rich inline embeds.
+  string embed_provider = 7;
+  // Provider-specific embed ID: the YouTube video ID; `{type}/{id}` for
+  // Spotify (`track/…`, `album/…`, `playlist/…`, `episode/…`, `show/…`,
+  // `artist/…`) and for this instance's own pages (`video/…`, `short/…`,
+  // `live/…`, `clip/…`, `note/…`, `playlist/…`, `stamps/…`, `user/…`,
+  // `channel/…`), which clients render natively through the API.
+  string embed_id = 8;
+  // Pixel size of `image_url` when the page declares it; 0 when unknown.
+  int32 image_width = 9;
+  int32 image_height = 10;
+}
+
+// Attachment as embedded in messages, notes and stories.
+message Attachment {
+  string asset_id = 1;
+  AssetKind kind = 2;
+  string url = 3;
+  string content_type = 4;
+  int64 size_bytes = 5;
+  string file_name = 6;
+  tokuly.common.v1.Image image = 7;
+  VideoInfo video = 8;
+  // Audio waveform peaks (0-255), ~64 samples, for voice messages.
+  bytes waveform = 9;
+  AssetStatus status = 10;
+}
+
+// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.media).
+message MediaEvent {
+  oneof event {
+    // Processing progress or completion of one of the recipient's assets.
+    Asset asset_updated = 1;
+  }
+}

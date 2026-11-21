@@ -1,0 +1,177 @@
+syntax = "proto3";
+
+// Shared building blocks used by every Tokuly domain.
+//
+// Conventions for the whole API (all packages):
+// - IDs are opaque strings (UUIDv7 in canonical text form). Shareable content
+//   (videos, shorts, live streams, clips, stamp packs, playlists) additionally
+//   has a `short_id` (11 chars, URL safe); every RPC taking such an ID accepts
+//   either form.
+// - Times are google.protobuf.Timestamp (UTC). Durations are explicit
+//   `*_seconds` / `*_ms` integers.
+// - Lists are cursor-paginated with PageRequest / PageInfo.
+// - Errors use Connect codes. A machine-readable reason (SCREAMING_SNAKE_CASE,
+//   e.g. `HANDLE_TAKEN`) is sent in the `x-tokuly-error` response header /
+//   trailer so clients can localize; the error message is English for logs.
+package tokuly.common.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Cursor pagination request. `limit` 0 means the server default (usually 30);
+// the server clamps to a per-RPC maximum.
+message PageRequest {
+  int32 limit = 1;
+  string cursor = 2;
+}
+
+// Cursor pagination result. `next_cursor` is empty when there is no more data.
+message PageInfo {
+  string next_cursor = 1;
+  bool has_more = 2;
+}
+
+// WGS84 coordinate.
+message LatLng {
+  double lat = 1;
+  double lng = 2;
+}
+
+message BoundingBox {
+  LatLng south_west = 1;
+  LatLng north_east = 2;
+}
+
+// A processed image with responsive variants.
+message Image {
+  // Media asset ID (tokuly.media.v1). Empty for external images.
+  string asset_id = 1;
+  // Canonical URL (largest variant).
+  string url = 2;
+  int32 width = 3;
+  int32 height = 4;
+  // ThumbHash placeholder (base64) for instant blurry previews.
+  string thumbhash = 5;
+  // Dominant color as #rrggbb, used for tinted cards and banners.
+  string dominant_color = 6;
+  // Smaller renditions keyed by longest-edge size.
+  repeated ImageVariant variants = 7;
+}
+
+message ImageVariant {
+  int32 size = 1;
+  string url = 2;
+}
+
+// Compact user representation embedded in other messages.
+message UserSummary {
+  string id = 1;
+  // Unique handle without the leading '@'.
+  string handle = 2;
+  string display_name = 3;
+  Image avatar = 4;
+  // Optional short looping face video used as an animated avatar.
+  string avatar_video_url = 5;
+  bool verified = 6;
+  // True when the account is deactivated/deleted; other fields are placeholders.
+  bool deleted = 7;
+}
+
+// A creator identity. One account owns up to 5 channels and can act as any of
+// them when publishing, commenting, chatting or sending gifts.
+message ChannelSummary {
+  string id = 1;
+  string handle = 2;
+  string name = 3;
+  Image icon = 4;
+  bool verified = 5;
+  int64 subscriber_count = 6;
+}
+
+// Who performed an action: always a user, optionally acting as a channel.
+message Author {
+  UserSummary user = 1;
+  // Set when the user acted with a channel identity.
+  ChannelSummary channel = 2;
+}
+
+// Audience of a piece of content.
+enum Visibility {
+  VISIBILITY_UNSPECIFIED = 0;
+  // Everyone; listed in feeds, search and recommendations.
+  VISIBILITY_PUBLIC = 1;
+  // Everyone who has the page URL; not shown in feeds ("フィードに表示しない").
+  VISIBILITY_NO_FEED = 2;
+  // Only people with the link ("リンク限定"); not listed anywhere.
+  VISIBILITY_UNLISTED = 3;
+  // Friends of the owner (and people with the link if `allow_link` is set by the domain).
+  VISIBILITY_FRIENDS = 4;
+  // Only the owner.
+  VISIBILITY_PRIVATE = 5;
+}
+
+// Kinds of things that can be commented on, reacted to, reported, bookmarked or shared.
+enum SubjectType {
+  SUBJECT_TYPE_UNSPECIFIED = 0;
+  SUBJECT_TYPE_USER = 1;
+  SUBJECT_TYPE_CHANNEL = 2;
+  SUBJECT_TYPE_NOTE = 3;
+  SUBJECT_TYPE_STORY = 4;
+  SUBJECT_TYPE_VIDEO = 5;
+  SUBJECT_TYPE_SHORT = 6;
+  SUBJECT_TYPE_LIVE_STREAM = 7;
+  SUBJECT_TYPE_CLIP = 8;
+  SUBJECT_TYPE_PLAYLIST = 9;
+  SUBJECT_TYPE_COMMENT = 10;
+  SUBJECT_TYPE_CHAT_MESSAGE = 11;
+  SUBJECT_TYPE_LIVE_CHAT_MESSAGE = 12;
+  SUBJECT_TYPE_STAMP_PACK = 13;
+  SUBJECT_TYPE_STAMP = 14;
+  SUBJECT_TYPE_PLACE = 15;
+  SUBJECT_TYPE_NEWS_ARTICLE = 16;
+}
+
+// Polymorphic reference to a subject.
+message SubjectRef {
+  SubjectType type = 1;
+  string id = 2;
+}
+
+// A stamp (sticker) as embedded in messages, comments, notes and map reactions.
+message StampRef {
+  string id = 1;
+  string pack_id = 2;
+  // Display name / alt text.
+  string name = 3;
+  // Static preview (WebP).
+  string image_url = 4;
+  // Animated source when `format` is not STATIC.
+  string animation_url = 5;
+  StampFormat format = 6;
+  int32 width = 7;
+  int32 height = 8;
+}
+
+enum StampFormat {
+  STAMP_FORMAT_UNSPECIFIED = 0;
+  // Still image (WebP/PNG).
+  STAMP_FORMAT_STATIC = 1;
+  // Animated WebP / APNG.
+  STAMP_FORMAT_ANIMATED = 2;
+  // dotLottie vector animation.
+  STAMP_FORMAT_LOTTIE = 3;
+}
+
+// Client platform, reported at sign-in and by the realtime Hello frame.
+enum Platform {
+  PLATFORM_UNSPECIFIED = 0;
+  PLATFORM_WEB = 1;
+  PLATFORM_IOS = 2;
+  PLATFORM_ANDROID = 3;
+  PLATFORM_DESKTOP = 4;
+}
+
+// Generic counter snapshot returned alongside content.
+message Timestamps {
+  google.protobuf.Timestamp created_at = 1;
+  google.protobuf.Timestamp updated_at = 2;
+}
