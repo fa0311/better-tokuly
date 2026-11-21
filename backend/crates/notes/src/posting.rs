@@ -5,7 +5,10 @@
 //! hashtags, mentions, counters on the notes it answers or quotes, the
 //! search document, the activity entry and the notifications — is written
 //! in the transaction that stores the note.
-use std::{collections::HashMap, time::Duration};
+use std::{
+    collections::{HashMap, hash_map::Entry},
+    time::Duration,
+};
 
 use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
@@ -378,8 +381,8 @@ impl Notes {
             .map(|note| note.author_id)
             .chain(mentioned.iter().map(|(user_id, _)| *user_id));
         for user_id in candidates.filter(|user_id| *user_id != author) {
-            if !audience.contains_key(&user_id) {
-                audience.insert(user_id, Viewer::load(core, Some(user_id)).await?);
+            if let Entry::Vacant(slot) = audience.entry(user_id) {
+                slot.insert(Viewer::load(core, Some(user_id)).await?);
             }
         }
 
@@ -481,22 +484,21 @@ impl Notes {
 
         // From here on nothing can fail the post.
         self.push_counters(touched).await;
-        if let Some(stamp_id) = note.stamp_id {
-            if let Err(e) = tokuly_stamp::record_send(core, author, stamp_id, SendContext::Note).await {
-                tracing::warn!(error = %e, "recording a stamp sent in a note failed");
-            }
+        if let Some(stamp_id) = note.stamp_id
+            && let Err(e) = tokuly_stamp::record_send(core, author, stamp_id, SendContext::Note).await
+        {
+            tracing::warn!(error = %e, "recording a stamp sent in a note failed");
         }
         if let Some(parent) = parent.as_ref().filter(|_| answered) {
             self.record_interaction(author, parent.author_id, InteractionKind::Message).await;
         }
-        if note.link_url.is_some() {
-            if let Err(e) = core
+        if note.link_url.is_some()
+            && let Err(e) = core
                 .jobs
                 .enqueue_unique(JOB_LINK_PREVIEW, &note.id.to_string(), &LinkPreviewJob { note_id: note.id })
                 .await
-            {
-                tracing::warn!(error = %e, note_id = %note.id, "queueing the link preview failed");
-            }
+        {
+            tracing::warn!(error = %e, note_id = %note.id, "queueing the link preview failed");
         }
         core.analytics
             .track(AnalyticsEvent::new("note.post").user(Some(author)).subject("note", note.id).props(

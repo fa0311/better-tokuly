@@ -85,10 +85,11 @@ pub fn parse(text: &str) -> Parsed {
         if (c == '#' || c == '＃') && starts_hashtag {
             let end = run_end(&chars, i + 1, is_hashtag_char);
             let tag: String = chars[i + 1..end].iter().collect();
-            if let Some(tag) = normalize_hashtag(&tag) {
-                if !parsed.hashtags.contains(&tag) && parsed.hashtags.len() < MAX_HASHTAGS {
-                    parsed.hashtags.push(tag);
-                }
+            if let Some(tag) = normalize_hashtag(&tag)
+                && !parsed.hashtags.contains(&tag)
+                && parsed.hashtags.len() < MAX_HASHTAGS
+            {
+                parsed.hashtags.push(tag);
             }
             i = end.max(i + 1);
             continue;

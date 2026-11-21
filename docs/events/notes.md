@@ -170,7 +170,7 @@ attachments), `note.like`, `note.renote` (owner = note author), `story.post`
 | `notes:notified:<like\|renote>:<note>:<user>` | 24 h | Keeps repeated likes/renotes of one person from being announced again. |
 
 Rate limits (`rl:` keys): posting `TOKULY_NOTES_POSTS_PER_MINUTE` per minute
-and 1000 per day per user; likes and renotes (taking back included) 120/min;
+and 1000 per day per user; likes and renotes 120/min (taking one back is never refused);
 view reports 120/min per viewer (excess reports are ignored, not refused);
 stories `TOKULY_NOTES_STORIES_PER_HOUR` per hour; story reactions 60/min;
 hashtag completion 120/min per user or IP.

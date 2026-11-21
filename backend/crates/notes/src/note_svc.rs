@@ -203,10 +203,10 @@ impl NoteService for Notes {
             let page = Page::from_view(request.page.as_option(), MAX_PAGE);
             let (ancestors, note, replies, info) = self.thread(&viewer, note_id, &page).await?;
             // Opening a thread is a view of its note (once, not per page of replies).
-            if page.cursor.is_none() {
-                if let Err(e) = self.record_views(&viewer, &ctx.client().ip, &[note_id]).await {
-                    tracing::warn!(error = %e, "counting a thread view failed");
-                }
+            if page.cursor.is_none()
+                && let Err(e) = self.record_views(&viewer, &ctx.client().ip, &[note_id]).await
+            {
+                tracing::warn!(error = %e, "counting a thread view failed");
             }
             ok(GetNoteThreadResponse { ancestors, note: note.into(), replies, page: info.into(), ..Default::default() })
         })

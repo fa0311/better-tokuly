@@ -15,7 +15,7 @@ use crate::{
     visibility::{Viewer, not_hidden, sees_note},
 };
 
-/// Likes and renotes (taken back ones included) one user may make per minute.
+/// Likes and renotes one user may make per minute.
 const REACTIONS_PER_MINUTE: u32 = 120;
 /// `RecordNoteViews` calls one viewer may make per minute.
 const VIEW_REPORTS_PER_MINUTE: u32 = 120;
@@ -121,8 +121,8 @@ impl Notes {
     /// A reaction can be taken back from a note the user can no longer see
     /// (its author made it private since); the counters are then not returned.
     pub(crate) async fn unreact(&self, user_id: Uuid, note_id: Uuid, reaction: Reaction) -> AppResult<NoteCounters> {
+        // Not rate-limited: there is never more to take back than was given.
         let core = &self.core;
-        core.cache.rate_limit(&format!("notes:react:{user_id}"), REACTIONS_PER_MINUTE, Duration::from_secs(60)).await?;
         let viewer = Viewer::load(core, Some(user_id)).await?;
         let visible = self.find_note(&viewer, note_id).await?;
         let (table, counter) = (reaction.table(), reaction.counter());
