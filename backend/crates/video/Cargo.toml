@@ -1,0 +1,43 @@
+[package]
+name = "tokuly-video"
+description = "Channels, videos, playlists, subtitles, watch history and watch parties."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+tokuly-core.workspace = true
+tokuly-proto.workspace = true
+tokuly-identity.workspace = true
+tokuly-social.workspace = true
+tokuly-media.workspace = true
+tokio.workspace = true
+futures.workspace = true
+async-trait.workspace = true
+connectrpc.workspace = true
+buffa.workspace = true
+sqlx.workspace = true
+redis.workspace = true
+clickhouse.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+clap.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+parking_lot.workspace = true
+url.workspace = true
+hex.workspace = true
+unicode-segmentation.workspace = true
+
+[dev-dependencies]
+tokuly-testkit.workspace = true
+reqwest.workspace = true
+tempfile.workspace = true
+tracing-subscriber.workspace = true

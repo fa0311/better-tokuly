@@ -1,0 +1,44 @@
+[package]
+name = "tokuly-feed"
+description = "Activity logs, map stories, personalized news and home feeds."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+tokuly-core.workspace = true
+tokuly-proto.workspace = true
+tokuly-identity.workspace = true
+tokuly-social.workspace = true
+tokio.workspace = true
+futures.workspace = true
+async-trait.workspace = true
+connectrpc.workspace = true
+buffa.workspace = true
+sqlx.workspace = true
+redis.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+clap.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+url.workspace = true
+reqwest.workspace = true
+bytes.workspace = true
+unicode-normalization.workspace = true
+# RSS / Atom / JSON Feed parsing for the news fetcher.
+feed-rs = "3.0.0"
+# One extra pass over feed documents for item thumbnails feed-rs drops
+# (the version feed-rs itself uses, so nothing is compiled twice).
+quick-xml = { version = "0.42.0", features = ["encoding"] }
+
+[dev-dependencies]
+tokuly-testkit.workspace = true
+axum.workspace = true

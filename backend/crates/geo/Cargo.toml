@@ -1,0 +1,50 @@
+[package]
+name = "tokuly-geo"
+description = "Location ingest, ghost mode, places, visits, footprints, trips and safety."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+tokuly-core.workspace = true
+tokuly-proto.workspace = true
+tokuly-identity.workspace = true
+tokuly-social.workspace = true
+# Place photos and day-memo photos are media assets (already a dependency of identity).
+tokuly-media.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+tokio-util.workspace = true
+futures.workspace = true
+async-trait.workspace = true
+connectrpc.workspace = true
+buffa.workspace = true
+sqlx.workspace = true
+redis.workspace = true
+clickhouse.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+clap.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+moka.workspace = true
+parking_lot.workspace = true
+h3o.workspace = true
+geo.workspace = true
+polyline.workspace = true
+tzf-rs.workspace = true
+# Bundled boundary and gazetteer data is gzip-compressed.
+flate2 = "1.1"
+
+[dev-dependencies]
+tokuly-testkit.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
+rand.workspace = true

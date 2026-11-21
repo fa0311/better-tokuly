@@ -1,0 +1,269 @@
+//! Showing people each other's pins: realtime pushes and snapshots.
+//!
+//! Everything here builds its messages with [`crate::visibility`]; nothing
+//! else in the crate turns a [`Pin`] into a `FriendLocation`.
+use std::collections::{HashMap, HashSet};
+
+use chrono::{DateTime, Utc};
+use tokuly_core::{prelude::*, presence};
+use tokuly_proto::{
+    geo::{FriendLocation, GeoEvent, VisitEvent, geo_event::Event},
+    realtime::server_frame::Body,
+};
+use tokuly_social::graph;
+
+use crate::{
+    Geo,
+    ctx::OwnerCtx,
+    geocode::Gazetteer,
+    math::Point,
+    state::{Area, Pin, StayPlace},
+    visibility::{self, Sight, Subject, ViewEnv, Viewer},
+};
+
+/// Label under which the blur key is derived from the server secret.
+const BLUR_KEY: &str = "geo.blur";
+
+fn area_lookup(lat: f64, lng: f64) -> Area {
+    Gazetteer::shared().area(lat, lng)
+}
+
+static AREA_LOOKUP: fn(f64, f64) -> Area = area_lookup;
+
+pub(crate) fn frame(event: Event) -> Body {
+    Body::Geo(Box::new(GeoEvent { event: Some(event), ..Default::default() }))
+}
+
+/// Who a pin update goes to.
+pub(crate) enum Audience<'a> {
+    /// Every friend of the owner.
+    Friends,
+    /// These users (the caller made sure they are friends).
+    Only(&'a [Uuid]),
+}
+
+/// Something that happened at a place, to tell friends about.
+#[derive(Debug, Clone)]
+pub(crate) struct VisitNews {
+    pub arrived: bool,
+    pub at: DateTime<Utc>,
+    pub place: Option<StayPlace>,
+}
+
+impl Geo {
+    /// The surroundings the visibility functions need.
+    pub(crate) fn view_env(&self, now: DateTime<Utc>) -> ViewEnv<'_> {
+        ViewEnv { now, mac: &*self.blur_mac, area_at: &AREA_LOOKUP }
+    }
+
+    pub(crate) fn make_blur_mac(core: &Core) -> Box<dyn Fn(&[u8]) -> [u8; 32] + Send + Sync> {
+        let core = core.clone();
+        Box::new(move |data| core.keys.mac(BLUR_KEY, data))
+    }
+
+    /// Pushes a geo event to every connected device of one user.
+    pub(crate) async fn push(&self, user_id: Uuid, event: Event) {
+        self.core.rt.notify_user(user_id, frame(event)).await;
+    }
+
+    /// Pushes the same geo event to several users.
+    pub(crate) async fn push_many(&self, user_ids: impl IntoIterator<Item = Uuid>, event: Event) {
+        self.core.rt.notify_users(user_ids, frame(event)).await;
+    }
+
+    /// Whether each user's account language is Japanese (cached for a few minutes).
+    pub(crate) async fn languages(&self, user_ids: &[Uuid]) -> AppResult<HashMap<Uuid, bool>> {
+        let mut out = HashMap::with_capacity(user_ids.len());
+        let mut unknown = Vec::new();
+        for user_id in user_ids {
+            match self.locales.get(user_id) {
+                Some(ja) => {
+                    out.insert(*user_id, ja);
+                }
+                None => unknown.push(*user_id),
+            }
+        }
+        if !unknown.is_empty() {
+            let rows: Vec<(Uuid, String)> = sqlx::query_as("SELECT id, locale FROM users WHERE id = ANY($1)").bind(&unknown).fetch_all(&self.core.db).await?;
+            for (user_id, locale) in rows {
+                let ja = locale.to_ascii_lowercase().starts_with("ja");
+                self.locales.insert(user_id, ja);
+                out.insert(user_id, ja);
+            }
+        }
+        Ok(out)
+    }
+
+    pub(crate) async fn speaks_japanese(&self, user_id: Uuid) -> AppResult<bool> {
+        // Japanese first: an account we know nothing about gets Japanese names.
+        Ok(self.languages(&[user_id]).await?.get(&user_id).copied().unwrap_or(true))
+    }
+
+    /// Forgets a cached account language (the account changed or was deleted).
+    pub(crate) fn forget_language(&self, user_id: Uuid) {
+        self.locales.invalidate(&user_id);
+    }
+
+    /// Pushes the owner's pin to friends, each seeing it through their own
+    /// ghost rule. Friends who see a frozen pin get nothing — a frozen pin
+    /// does not move — unless `refresh` is set, which re-sends everyone their
+    /// current view (after a change to ghost rules, privacy or status).
+    pub(crate) async fn fan_out(&self, owner: Uuid, pin: Option<&Pin>, ctx: &OwnerCtx, audience: Audience<'_>, refresh: bool) -> AppResult<()> {
+        let friends = match audience {
+            Audience::Friends => graph::friend_ids(&self.core, owner).await?,
+            Audience::Only(ids) => ids.to_vec(),
+        };
+        if friends.is_empty() || !ctx.active {
+            return Ok(());
+        }
+        let online = presence::is_online(&self.core.cache, owner).await.unwrap_or(false);
+        let weather = self.weather_at(&[pin.map(Pin::position)]).await.pop().flatten();
+        let languages = self.languages(&friends).await?;
+        let now = Utc::now();
+        let env = self.view_env(now);
+        let subject = Subject { id: owner, pin, ctx, online, weather: weather.as_ref() };
+        for viewer in friends {
+            if !refresh && matches!(visibility::sight(ctx, viewer, now), Sight::Frozen(_)) {
+                continue;
+            }
+            let viewer = Viewer { id: viewer, ja: languages.get(&viewer).copied().unwrap_or(true) };
+            if let Some(view) = visibility::friend_view(&env, &subject, viewer) {
+                self.push(viewer.id, Event::Location(Box::new(view))).await;
+            }
+        }
+        Ok(())
+    }
+
+    /// Re-sends every friend their current view of the owner's pin.
+    pub(crate) async fn refresh_friends(&self, owner: Uuid) -> AppResult<()> {
+        let ctx = self.ctx_of(owner).await?;
+        let state = self.load_state(owner).await?;
+        let pin = state.as_ref().filter(|state| state.located()).map(|state| &state.pin);
+        self.fan_out(owner, pin, &ctx, Audience::Friends, true).await
+    }
+
+    /// Re-sends some friends their current view of the owner's pin.
+    pub(crate) async fn refresh_viewers(&self, owner: Uuid, viewers: &[Uuid]) -> AppResult<()> {
+        if viewers.is_empty() {
+            return Ok(());
+        }
+        let ctx = self.ctx_of(owner).await?;
+        let state = self.load_state(owner).await?;
+        let pin = state.as_ref().filter(|state| state.located()).map(|state| &state.pin);
+        self.fan_out(owner, pin, &ctx, Audience::Only(viewers), true).await
+    }
+
+    /// Publishes the owner's pin on the topic of each of their live shares.
+    pub(crate) async fn publish_shares(&self, owner: Uuid, pin: &Pin, ctx: &OwnerCtx) {
+        let now = Utc::now();
+        let live: Vec<&str> = ctx.shares.iter().filter(|share| share.expires_ms > now.timestamp_millis()).map(|share| share.token.as_str()).collect();
+        if live.is_empty() {
+            return;
+        }
+        let subject = Subject { id: owner, pin: Some(pin), ctx, online: false, weather: None };
+        let Some(view) = visibility::share_view(&self.view_env(now), &subject, ctx.ja) else { return };
+        for token in live {
+            self.core.rt.notify_topic(&crate::shares::topic(token), frame(Event::Location(Box::new(view.clone())))).await;
+        }
+    }
+
+    /// Tells friends that the owner arrived at or left a place — those who
+    /// see the precise pin, and only what each may know about the place.
+    pub(crate) async fn push_visit_news(&self, owner: Uuid, ctx: &OwnerCtx, news: &[VisitNews]) -> AppResult<()> {
+        let with_place: Vec<(&VisitNews, &StayPlace)> = news.iter().filter_map(|item| item.place.as_ref().map(|place| (item, place))).collect();
+        if with_place.is_empty() || !ctx.active {
+            return Ok(());
+        }
+        let now = Utc::now();
+        for viewer in graph::friend_ids(&self.core, owner).await? {
+            if !visibility::sees_precisely(ctx, viewer, now) {
+                continue;
+            }
+            let share_labels = ctx.privacy.share_place_labels || ctx.sos_for(viewer);
+            for (item, place) in &with_place {
+                let Some(shown) = visibility::shown_place(owner, place, share_labels, Some(viewer), true) else { continue };
+                let event = VisitEvent {
+                    user_id: owner.to_string(),
+                    arrived: item.arrived,
+                    place_label: shown.label.into(),
+                    place_name: shown.name,
+                    at: ts(item.at),
+                    ..Default::default()
+                };
+                self.push(viewer, Event::Visit(Box::new(event))).await;
+            }
+        }
+        Ok(())
+    }
+
+    /// Every friend's pin as `viewer` may see it.
+    pub(crate) async fn friend_locations(&self, viewer: Uuid) -> AppResult<Vec<FriendLocation>> {
+        let friends = graph::friend_ids(&self.core, viewer).await?;
+        if friends.is_empty() {
+            return Ok(Vec::new());
+        }
+        let states = self.load_states(&friends).await?;
+        let contexts = self.ctx_many(&friends).await?;
+        let online: HashSet<Uuid> = presence::online_among(&self.core.cache, &friends).await?.into_iter().collect();
+        let positions: Vec<Option<Point>> = states.iter().map(|state| state.as_ref().filter(|s| s.located()).map(|s| s.pin.position())).collect();
+        let weather = self.weather_at(&positions).await;
+        let now = Utc::now();
+        let env = self.view_env(now);
+        let viewer = Viewer { id: viewer, ja: self.speaks_japanese(viewer).await? };
+        let mut out = Vec::new();
+        for ((friend, state), weather) in friends.iter().zip(&states).zip(&weather) {
+            let Some(ctx) = contexts.get(friend) else { continue };
+            let pin = state.as_ref().filter(|state| state.located()).map(|state| &state.pin);
+            let subject = Subject { id: *friend, pin, ctx, online: online.contains(friend), weather: weather.as_ref() };
+            if let Some(view) = visibility::friend_view(&env, &subject, viewer) {
+                out.push(view);
+            }
+        }
+        Ok(out)
+    }
+
+    /// One friend's pin as `viewer` may see it. The caller checked the friendship.
+    pub(crate) async fn location_as_seen(&self, owner: Uuid, viewer: Uuid) -> AppResult<Option<FriendLocation>> {
+        let ctx = self.ctx_of(owner).await?;
+        let state = self.load_state(owner).await?;
+        let pin = state.as_ref().filter(|state| state.located()).map(|state| &state.pin);
+        let online = presence::is_online(&self.core.cache, owner).await.unwrap_or(false);
+        let weather = self.weather_at(&[pin.map(Pin::position)]).await.pop().flatten();
+        let now = Utc::now();
+        let subject = Subject { id: owner, pin, ctx: &ctx, online, weather: weather.as_ref() };
+        let viewer = Viewer { id: viewer, ja: self.speaks_japanese(viewer).await? };
+        Ok(visibility::friend_view(&self.view_env(now), &subject, viewer))
+    }
+
+    /// The owner's own pin, with nothing withheld.
+    pub(crate) async fn own_location(&self, owner: Uuid) -> AppResult<(Option<FriendLocation>, bool)> {
+        let ctx = self.ctx_of(owner).await?;
+        let state = self.load_state(owner).await?;
+        let pin = state.as_ref().filter(|state| state.located()).map(|state| &state.pin);
+        let online = presence::is_online(&self.core.cache, owner).await.unwrap_or(false);
+        let weather = self.weather_at(&[pin.map(Pin::position)]).await.pop().flatten();
+        let subject = Subject { id: owner, pin, ctx: &ctx, online, weather: weather.as_ref() };
+        let sharing = pin.is_some_and(|pin| pin.sharing);
+        Ok((visibility::own_view(&self.view_env(Utc::now()), &subject), sharing))
+    }
+
+    /// Where `viewer` believes their friend `owner` is (see
+    /// [`visibility::seen_position`]): the point, and whether it is exact.
+    pub(crate) async fn seen_position(&self, owner: Uuid, viewer: Uuid) -> AppResult<Option<(Point, bool)>> {
+        let ctx = self.ctx_of(owner).await?;
+        let state = self.load_state(owner).await?;
+        let pin = state.as_ref().filter(|state| state.located()).map(|state| &state.pin);
+        let subject = Subject { id: owner, pin, ctx: &ctx, online: false, weather: None };
+        Ok(visibility::seen_position(&self.view_env(Utc::now()), &subject, viewer))
+    }
+
+    /// The friends of `viewer` whose precise, live location `viewer` sees:
+    /// the only people whose whereabouts (past visits, gatherings) may be
+    /// shown to them.
+    pub(crate) async fn precise_friends(&self, viewer: Uuid) -> AppResult<Vec<Uuid>> {
+        let friends = graph::friend_ids(&self.core, viewer).await?;
+        let contexts = self.ctx_many(&friends).await?;
+        let now = Utc::now();
+        Ok(friends.into_iter().filter(|friend| contexts.get(friend).is_some_and(|ctx| visibility::sees_precisely(ctx, viewer, now))).collect())
+    }
+}
