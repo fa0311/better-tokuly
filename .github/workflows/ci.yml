@@ -1,4 +1,4 @@
-# Checks every pull request and every push to the long-lived branches.
+# Checks every pull request and every push to main.
 #
 # Each job runs only when the files it is about changed. The backend job
 # builds and tests against real backing services (compose.dev.yaml), for the
@@ -8,7 +8,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main, feat/tokuly-rebuild]
+    branches: [main]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -85,9 +85,8 @@ jobs:
     env:
       PACKAGES: ${{ needs.changes.outputs.packages }}
       CARGO_INCREMENTAL: "0"
-      # The generated API crate is enormous; without debug info it fits the runner's memory.
+      # The generated API crate is enormous; without debug info it builds faster and in less memory.
       CARGO_PROFILE_DEV_DEBUG: "0"
-      CARGO_BUILD_JOBS: "2"
     steps:
       - uses: actions/checkout@v7
       - uses: bufbuild/buf-action@v1

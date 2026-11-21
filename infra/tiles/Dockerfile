@@ -14,6 +14,9 @@ RUN apk add --no-cache curl tar \
     | tar -xz -C /usr/local/bin pmtiles
 
 FROM alpine:3.24
+LABEL org.opencontainers.image.source="https://github.com/fa0311/better-tokuly" \
+      org.opencontainers.image.title="Tokuly tiles" \
+      org.opencontainers.image.description="Self-hosted basemap for Tokuly: PMTiles server that fetches its own map data."
 RUN apk add --no-cache ca-certificates curl tar \
  && adduser -D -u 10001 tiles \
  && mkdir -p /data /assets && chown tiles:tiles /data /assets

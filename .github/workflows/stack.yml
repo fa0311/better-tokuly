@@ -1,13 +1,18 @@
 # Builds the Docker images, brings the whole Compose stack up the way a
 # self-hoster would, and checks it end to end (tools/ci/smoke.sh): sign-up,
 # mail, an upload through object storage and the worker, map tiles, realtime.
-# When that passes on a long-lived branch, the images are published to GHCR.
+# When that passes on main, the images are published to the
+# GitHub Container Registry as `edge` — what `docker compose up` pulls by default.
 name: Stack
 
 on:
   workflow_dispatch:
+  # Every night (04:00 JST), so `edge` follows the code without a long build on every push.
+  schedule:
+    - cron: "0 19 * * *"
+  # At once when the stack definition itself changes.
   push:
-    branches: [main, feat/tokuly-rebuild]
+    branches: [main]
     paths:
       - compose.yaml
       - infra/**
@@ -15,6 +20,7 @@ on:
       - .dockerignore
       - tools/init-env.sh
       - tools/ci/smoke.sh
+      - tools/ci/stack-up.sh
       - .github/workflows/stack.yml
 
 concurrency:
@@ -30,6 +36,8 @@ jobs:
     name: Compose stack
     runs-on: ubuntu-latest
     timeout-minutes: 240
+    env:
+      TOKULY_VERSION: edge
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
@@ -44,23 +52,7 @@ jobs:
         run: docker compose build
 
       - name: Start the stack
-        run: docker compose up -d
-
-      - name: Wait until every service is healthy
-        run: |
-          deadline=$((SECONDS + 900))
-          while :; do
-            states="$(docker compose ps -a --format '{{.Service}} {{.State}} {{.Health}} {{.ExitCode}}')"
-            # Anything that exited is a failure, except the one-shot migration finishing cleanly.
-            if grep -Ev '^migrate exited  ?0$' <<<"$states" | grep -q ' exited '; then
-              echo "$states"; echo "a service exited"; exit 1
-            fi
-            if ! grep -Eq ' (starting|unhealthy) ' <<<"$states" && grep -q '^migrate exited' <<<"$states"; then
-              echo "$states"; break
-            fi
-            if [ "$SECONDS" -ge "$deadline" ]; then echo "$states"; echo "timed out"; exit 1; fi
-            sleep 5
-          done
+        run: tools/ci/stack-up.sh
 
       - name: End-to-end checks
         run: tools/ci/smoke.sh http://localhost
@@ -68,8 +60,7 @@ jobs:
       - name: Data survives a restart
         run: |
           docker compose down
-          docker compose up -d
-          for _ in $(seq 1 60); do curl -fsS -o /dev/null http://localhost/api/readyz 2>/dev/null && break; sleep 5; done
+          tools/ci/stack-up.sh
           tools/ci/smoke.sh http://localhost
 
       - name: Diagnostics
@@ -78,17 +69,14 @@ jobs:
           docker compose ps -a
           docker compose logs --tail 120
 
-      - name: Publish the images
-        if: github.event_name == 'push' && success()
+      - name: Publish the images as `edge`
+        if: github.event_name != 'pull_request' && github.ref_name == 'main'
         env:
           REGISTRY: ghcr.io/${{ github.repository }}
-          BRANCH: ${{ github.ref_name }}
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          tag="$(tr '/' '-' <<<"$BRANCH")"
           for image in backend web tiles; do
-            for target in "$REGISTRY/$image:$tag" "$REGISTRY/$image:sha-${GITHUB_SHA::12}"; do
-              docker tag "tokuly/$image:local" "$target"
-              docker push "$target"
-            done
+            docker tag "$REGISTRY/$image:edge" "$REGISTRY/$image:sha-${GITHUB_SHA::12}"
+            docker push "$REGISTRY/$image:edge"
+            docker push "$REGISTRY/$image:sha-${GITHUB_SHA::12}"
           done

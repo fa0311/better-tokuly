@@ -24,6 +24,9 @@ RUN pnpm --filter @tokuly/api run generate \
  && pnpm --filter @tokuly/web run build
 
 FROM node:${NODE_VERSION}-trixie-slim AS runtime
+LABEL org.opencontainers.image.source="https://github.com/fa0311/better-tokuly" \
+      org.opencontainers.image.title="Tokuly web" \
+      org.opencontainers.image.description="The Tokuly web app (TanStack Start server)."
 ENV NODE_ENV=production PORT=3000 HOST=0.0.0.0
 WORKDIR /app
 COPY --from=build /src/apps/web/.output ./

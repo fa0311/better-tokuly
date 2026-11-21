@@ -30,6 +30,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
 FROM mwader/static-ffmpeg:8.0 AS ffmpeg
 
 FROM debian:trixie-slim AS runtime
+LABEL org.opencontainers.image.source="https://github.com/fa0311/better-tokuly" \
+      org.opencontainers.image.title="Tokuly backend" \
+      org.opencontainers.image.description="The Tokuly server: API, realtime gateway, workers and migrations in one binary."
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates tini \
  && rm -rf /var/lib/apt/lists/* \

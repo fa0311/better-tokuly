@@ -3,6 +3,11 @@
 #   tools/init-env.sh          # once: writes .env with fresh secrets
 #   docker compose up -d       # then open http://localhost
 #
+# The application images come prebuilt from the GitHub Container Registry
+# (TOKULY_VERSION picks the build: a release such as 0.1.0, or `edge`, the
+# newest build of `main` that passed the end-to-end checks).
+# `docker compose up -d --build` builds them from this checkout instead.
+#
 # Layout of a request:
 #
 #   browser ──▶ edge (Caddy: HTTP/1.1, HTTP/2, HTTP/3)
@@ -29,10 +34,12 @@
 name: tokuly
 
 x-backend: &backend
-  image: tokuly/backend:${TOKULY_VERSION:-local}
+  image: ${TOKULY_IMAGES:-ghcr.io/fa0311/better-tokuly}/backend:${TOKULY_VERSION:-edge}
   build:
     context: .
     dockerfile: infra/docker/backend.Dockerfile
+  # Pull the published image; without access to the registry, build from source.
+  pull_policy: ${TOKULY_PULL_POLICY:-missing}
   restart: unless-stopped
   # Everything in .env (feature settings such as TOKULY_VAPID_PRIVATE_KEY) ...
   env_file:
@@ -94,10 +101,11 @@ services:
         condition: service_healthy
 
   web:
-    image: tokuly/web:${TOKULY_VERSION:-local}
+    image: ${TOKULY_IMAGES:-ghcr.io/fa0311/better-tokuly}/web:${TOKULY_VERSION:-edge}
     build:
       context: .
       dockerfile: infra/docker/web.Dockerfile
+    pull_policy: ${TOKULY_PULL_POLICY:-missing}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
@@ -243,9 +251,10 @@ services:
   # a street-level extract of TOKULY_MAP_REGION_BBOX (default: greater Tokyo),
   # plus the map fonts and icons. Later starts reuse what is in the volumes.
   tiles:
-    image: tokuly/tiles:${TOKULY_VERSION:-local}
+    image: ${TOKULY_IMAGES:-ghcr.io/fa0311/better-tokuly}/tiles:${TOKULY_VERSION:-edge}
     build:
       context: infra/tiles
+    pull_policy: ${TOKULY_PULL_POLICY:-missing}
     restart: unless-stopped
     environment:
       TOKULY_MAP_REGION_BBOX: ${TOKULY_MAP_REGION_BBOX:-139.2,35.2,140.3,36.0}

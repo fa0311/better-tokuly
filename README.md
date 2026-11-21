@@ -2,10 +2,13 @@
 
 # Tokuly
 
+[![CI](https://github.com/fa0311/better-tokuly/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/fa0311/better-tokuly/actions/workflows/ci.yml)
+[![Stack](https://github.com/fa0311/better-tokuly/actions/workflows/stack.yml/badge.svg?branch=main)](https://github.com/fa0311/better-tokuly/actions/workflows/stack.yml)
+
 友達と位置情報共有を楽しもう! — 位置情報共有・チャット・ノート・動画・ライブ・ショートがひとつになったスーパーアプリ。
 Bump（旧 Zenly）のような地図を中心に、初代 Tokuly の機能をすべて引き継いで作り直しています。
 
-> **開発中です。** `feat/tokuly-rebuild` ブランチで毎日大きく変わります。
+> **開発中です。** 毎日大きく変わります。
 > コミットメッセージが "Work in progress" の領域はレビュー前のスナップショットです。
 
 ## いま動くもの / 作っているもの
@@ -25,7 +28,7 @@ Bump（旧 Zenly）のような地図を中心に、初代 Tokuly の機能を�
 | Web アプリ（地図、認証、フレンド、プロフィール） | 動作中 |
 | Web アプリ（通知、スタンプ、ウォレット、設定、管理画面） | 実装中 |
 | モバイルアプリ（Expo）、配信スタジオ（Tauri） | 未着手 |
-| Docker Compose | 構成は書いたが、一括起動は未検証 |
+| Docker Compose | GitHub Actions で通し検証中 |
 
 ## 構成
 
@@ -46,17 +49,23 @@ proto・マイグレーション・クレートを 1 つずつ足します（`ba
 
 ## 動かす
 
-Docker Compose（**まだ一括起動を検証していません**）:
+Docker Compose:
 
 ```sh
 tools/init-env.sh        # .env に秘密鍵を生成
 docker compose up -d     # http://localhost
 ```
 
-開発（インフラをネイティブに起動）:
+アプリのイメージは GitHub Container Registry のビルド済みのもの（`edge` = 通し検証を通った最新ビルド、
+またはリリース版）を取得します。手元のソースからビルドする場合は `docker compose up -d --build`。
+スタック全体の起動確認は GitHub Actions の [Stack](.github/workflows/stack.yml) ワークフローが
+`tools/ci/smoke.sh`（サインアップ、メール、アップロード、地図、リアルタイム接続）で行っています。
+
+開発（インフラだけ Docker で、または Docker なしでネイティブに起動）:
 
 ```sh
-tools/dev/infra.sh install && tools/dev/infra.sh up
+docker compose -f compose.dev.yaml up -d --wait          # Docker がある場合
+tools/dev/infra.sh install && tools/dev/infra.sh up      # ない場合
 eval "$(tools/dev/infra.sh env)"
 (cd backend && cargo run -p tokuly-server -- all)      # API + リアルタイム + ワーカー
 pnpm install && pnpm proto:gen && pnpm dev:web         # http://localhost:3000
