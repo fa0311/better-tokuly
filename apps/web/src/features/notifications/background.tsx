@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { realtime } from "#/lib/realtime";
 import { setBadge } from "#/stores/badges";
 import { useSessionStore } from "#/stores/session";
-import { applyUnread, notifyKeys, updateInboxLists, useUnread } from "./api";
+import { applyInboxChange, applyUnread, notifyKeys, rereadInbox, useUnread } from "./api";
 import { openNotification } from "./inbox-actions";
 import { withReceived, withRead, withRemoved } from "./inbox-cache";
 import { NotificationFace } from "./notification-face";
@@ -54,7 +54,7 @@ export default function NotificationsBackground() {
       if (frame.body.case === "welcome") {
         // Whatever was sent while the connection was down (or not up yet) is caught up here.
         void queryClient.invalidateQueries({ queryKey: notifyKeys.unread });
-        void queryClient.invalidateQueries({ queryKey: notifyKeys.inbox });
+        rereadInbox(queryClient);
         return;
       }
       if (frame.body.case !== "notify") return;
@@ -63,24 +63,24 @@ export default function NotificationsBackground() {
         case "received": {
           const entry = event.value.notification;
           if (!entry) break;
-          updateInboxLists(queryClient, (pages, filter) => withReceived(pages, entry, filter));
+          applyInboxChange(queryClient, (pages, filter) => withReceived(pages, entry, filter));
           if (shouldAnnounce(entry, router.state.location.pathname)) announce(entry);
           break;
         }
         case "read": {
-          if (event.value.bulk) void queryClient.invalidateQueries({ queryKey: notifyKeys.inbox });
+          if (event.value.bulk) rereadInbox(queryClient);
           else {
             const ids = new Set(event.value.notificationIds);
-            updateInboxLists(queryClient, (pages, filter) => withRead(pages, ids, filter));
+            applyInboxChange(queryClient, (pages, filter) => withRead(pages, ids, filter));
           }
           void closeShownNotifications(event.value.bulk ? undefined : event.value.notificationIds);
           break;
         }
         case "removed": {
-          if (event.value.bulk) void queryClient.invalidateQueries({ queryKey: notifyKeys.inbox });
+          if (event.value.bulk) rereadInbox(queryClient);
           else {
             const ids = new Set(event.value.notificationIds);
-            updateInboxLists(queryClient, (pages) => withRemoved(pages, ids));
+            applyInboxChange(queryClient, (pages) => withRemoved(pages, ids));
           }
           void closeShownNotifications(event.value.bulk ? undefined : event.value.notificationIds);
           break;

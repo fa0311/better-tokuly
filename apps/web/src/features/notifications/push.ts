@@ -72,10 +72,14 @@ export function serviceWorker(): Promise<ServiceWorkerRegistration | null> {
   return worker;
 }
 
-/** The endpoint of this browser's push subscription, if it has one. */
+/**
+ * This browser's push subscription, if it has one. Throws while the service
+ * worker cannot be reached: "not known yet" must not pass for "none".
+ */
 export async function currentSubscription(): Promise<PushSubscription | null> {
   const registration = await serviceWorker();
-  return (await registration?.pushManager.getSubscription()) ?? null;
+  if (!registration) throw new PushError("unsupported");
+  return registration.pushManager.getSubscription();
 }
 
 function base64UrlToBytes(value: string): Uint8Array<ArrayBuffer> {
@@ -191,7 +195,11 @@ export async function enablePush(owner: PushOwner): Promise<notify.PushDevice | 
 export async function disablePush(): Promise<void> {
   window.localStorage.removeItem(REGISTRATION_KEY);
   await pushClient().unregisterDevice({ deviceId: "" });
-  await (await currentSubscription())?.unsubscribe().catch(() => false);
+  try {
+    await (await currentSubscription())?.unsubscribe();
+  } catch {
+    // The server no longer sends here; an orphaned subscription is replaced the next time push is turned on.
+  }
 }
 
 /**

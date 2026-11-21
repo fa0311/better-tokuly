@@ -6,6 +6,12 @@ import { errorMessage } from "#/lib/errors";
 import { notifyKeys, preferencesClient } from "./api";
 
 const MUTATION_KEY = ["notify", "preferences"] as const;
+/**
+ * Changes are sent one after another, in the order they were made: two saves
+ * racing each other could otherwise land in the wrong order and the server
+ * would keep the older one.
+ */
+const IN_ORDER = { id: "notify.preferences" } as const;
 
 export interface QuietHoursValue {
   enabled: boolean;
@@ -34,6 +40,7 @@ export function usePreferenceActions() {
 
   const setCategory = useMutation({
     mutationKey: MUTATION_KEY,
+    scope: IN_ORDER,
     mutationFn: (change: { category: string; inbox?: boolean; push?: boolean }) => preferencesClient().updatePreferences({ categories: [change] }),
     onMutate: (change) =>
       guess((preferences) => ({
@@ -48,6 +55,7 @@ export function usePreferenceActions() {
 
   const setQuietHours = useMutation({
     mutationKey: MUTATION_KEY,
+    scope: IN_ORDER,
     mutationFn: (quietHours: QuietHoursValue) => preferencesClient().updatePreferences({ quietHours }),
     onMutate: (quietHours) => guess((preferences) => ({ ...preferences, quietHours: create(notify.QuietHoursSchema, quietHours) })),
     onSuccess: (response) => settle(response.preferences),
@@ -56,6 +64,7 @@ export function usePreferenceActions() {
 
   const pause = useMutation({
     mutationKey: MUTATION_KEY,
+    scope: IN_ORDER,
     /** 0 = until resumed. */
     mutationFn: (durationSeconds: number) => preferencesClient().pausePush({ durationSeconds }),
     onSuccess: (response) => {
@@ -67,6 +76,7 @@ export function usePreferenceActions() {
 
   const resume = useMutation({
     mutationKey: MUTATION_KEY,
+    scope: IN_ORDER,
     mutationFn: () => preferencesClient().resumePush({}),
     onSuccess: (response) => {
       settle(response.preferences);

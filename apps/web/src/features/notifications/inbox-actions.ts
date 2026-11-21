@@ -3,24 +3,44 @@ import type { AnyRouter } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { errorMessage } from "#/lib/errors";
-import { applyUnread, inboxClient, notifyKeys, updateInboxLists } from "./api";
-import { withRead, withRemoved } from "./inbox-cache";
+import { applyUnread, inboxClient, rereadInbox, updateInboxLists } from "./api";
+import { type InboxFilter, type InboxPages, withRead, withRemoved } from "./inbox-cache";
 import { openTargetPath } from "./target";
 
 /**
- * Marks entries read: the lists change at once, the server follows. When the
- * server refuses, the lists are re-read so they show the truth again.
+ * Runs a write to the inbox with its effect on the lists shown at once.
+ *
+ * A list that is read while the write is on its way can bring the old state
+ * back. So when the server has answered, an edit that names its entries is
+ * applied once more, and a sweeping one ("everything", which by then may
+ * cover entries that arrived since) has the lists re-read instead. They are
+ * also re-read when a reading was interrupted, or the server refused.
  */
+async function writeAhead<T>(
+  queryClient: QueryClient,
+  edit: { apply(pages: InboxPages, filter: InboxFilter): InboxPages; sweeping?: boolean },
+  write: () => Promise<T>,
+): Promise<T> {
+  let reread = updateInboxLists(queryClient, edit.apply);
+  try {
+    const result = await write();
+    reread = edit.sweeping || updateInboxLists(queryClient, edit.apply) || reread;
+    return result;
+  } catch (error) {
+    reread = true;
+    throw error;
+  } finally {
+    if (reread) rereadInbox(queryClient);
+  }
+}
+
+/** Marks entries read. */
 export async function markRead(queryClient: QueryClient, ids: string[]): Promise<void> {
   const set = new Set(ids);
-  updateInboxLists(queryClient, (pages, filter) => withRead(pages, set, filter));
-  try {
-    const response = await inboxClient().markRead({ target: { case: "ids", value: { ids } } });
-    applyUnread(queryClient, response.unread);
-  } catch (error) {
-    void queryClient.invalidateQueries({ queryKey: notifyKeys.inbox });
-    throw error;
-  }
+  const response = await writeAhead(queryClient, { apply: (pages, filter) => withRead(pages, set, filter) }, () =>
+    inboxClient().markRead({ target: { case: "ids", value: { ids } } }),
+  );
+  applyUnread(queryClient, response.unread);
 }
 
 /**
@@ -34,22 +54,20 @@ export function openNotification(queryClient: QueryClient, router: AnyRouter, en
   return openTargetPath(router, entry.path, options);
 }
 
-/** The inbox's write actions, with their optimistic list edits and toasts. */
+/** The inbox's write actions, with their toasts. */
 export function useInboxActions() {
   const { t } = useTranslation("notifications");
   const queryClient = useQueryClient();
-  const onError = (error: unknown) => {
-    toast.error(errorMessage(error));
-    void queryClient.invalidateQueries({ queryKey: notifyKeys.inbox });
-  };
+  const onError = (error: unknown) => toast.error(errorMessage(error));
 
-  const read = useMutation({ mutationFn: (ids: string[]) => markRead(queryClient, ids), onError: (error) => toast.error(errorMessage(error)) });
+  const read = useMutation({ mutationFn: (ids: string[]) => markRead(queryClient, ids), onError });
 
   const readAll = useMutation({
     /** `upToId` = the newest entry on screen, so nothing that arrives meanwhile is swept along unseen. */
     mutationFn: ({ category, upToId }: { category: string; upToId?: string }) =>
-      inboxClient().markRead({ target: upToId ? { case: "upToId", value: upToId } : { case: "all", value: true }, category }),
-    onMutate: ({ category }) => updateInboxLists(queryClient, (pages, filter) => withRead(pages, "all", filter, category)),
+      writeAhead(queryClient, { apply: (pages, filter) => withRead(pages, "all", filter, category), sweeping: true }, () =>
+        inboxClient().markRead({ target: upToId ? { case: "upToId", value: upToId } : { case: "all", value: true }, category }),
+      ),
     onSuccess: (response) => {
       applyUnread(queryClient, response.unread);
       if (response.markedCount > 0) toast.success(t("toast.markedRead", { count: response.markedCount }));
@@ -58,23 +76,20 @@ export function useInboxActions() {
   });
 
   const remove = useMutation({
-    mutationFn: (ids: string[]) => inboxClient().deleteNotifications({ notificationIds: ids }),
-    onMutate: (ids) => {
+    mutationFn: (ids: string[]) => {
       const set = new Set(ids);
-      updateInboxLists(queryClient, (pages) => withRemoved(pages, set));
+      return writeAhead(queryClient, { apply: (pages) => withRemoved(pages, set) }, () => inboxClient().deleteNotifications({ notificationIds: ids }));
     },
     onSuccess: (response) => applyUnread(queryClient, response.unread),
     onError,
   });
 
   const clear = useMutation({
-    mutationFn: (target: { category: string; readOnly: boolean }) => inboxClient().clearNotifications(target),
-    onMutate: (target) => updateInboxLists(queryClient, (pages) => withRemoved(pages, target)),
+    mutationFn: (target: { category: string; readOnly: boolean }) =>
+      writeAhead(queryClient, { apply: (pages) => withRemoved(pages, target), sweeping: true }, () => inboxClient().clearNotifications(target)),
     onSuccess: (response) => {
       applyUnread(queryClient, response.unread);
       toast.success(response.deletedCount > 0 ? t("toast.cleared", { count: response.deletedCount }) : t("toast.nothingToClear"));
-      // Entries beyond the loaded pages are gone too; start the lists afresh.
-      return queryClient.invalidateQueries({ queryKey: notifyKeys.inbox });
     },
     onError,
   });

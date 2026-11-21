@@ -138,7 +138,7 @@ function MuteDialog({ mutedIds, onClose }: { mutedIds: ReadonlySet<string>; onCl
       <label className="flex h-12 items-center gap-2 rounded-control border-2 border-line bg-surface px-4 focus-within:border-brand">
         <Search className="size-5 shrink-0 text-ink-faint" />
         <input
-          // biome-ignore lint/a11y/noAutofocus: the dialog exists to type a name into this field.
+          // The dialog exists to type a name into this field.
           autoFocus
           value={query}
           onChange={(event) => setQuery(event.target.value)}

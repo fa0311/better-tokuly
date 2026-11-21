@@ -1,6 +1,12 @@
 import { createECDH, randomBytes } from "node:crypto";
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
-import { type Account, befriend, createAccount, expect, rpc, test } from "./support";
+import { type Account, expect as baseExpect, befriend, createAccount, rpc, test } from "./support";
+
+// These tests share a machine with many other builds and browsers: a cold page
+// or a busy API can take a while to answer. Waiting longer costs nothing when
+// things are quick.
+const expect = baseExpect.configure({ timeout: 20_000 });
+test.describe.configure({ timeout: 90_000 });
 
 const INBOX = "tokuly.notify.v1.InboxService";
 const PREFERENCES = "tokuly.notify.v1.PreferencesService";
