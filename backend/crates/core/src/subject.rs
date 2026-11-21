@@ -91,7 +91,10 @@ impl Subjects {
         counter: &str,
         delta: i64,
     ) -> AppResult<()> {
-        match self.resolvers.read().get(&(subject_type as i32)).cloned() {
+        // Take the resolver out first: the lock guard must not live across the
+        // await (it would make this future !Send, unusable in spawned tasks).
+        let resolver = self.resolvers.read().get(&(subject_type as i32)).cloned();
+        match resolver {
             Some(resolver) => resolver.counter_changed(id, counter, delta).await,
             None => Ok(()),
         }
