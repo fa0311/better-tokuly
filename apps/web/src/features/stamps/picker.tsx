@@ -41,6 +41,8 @@ export function StampPicker({ onPick, trigger, keepOpen }: StampPickerProps) {
   const { t } = useTranslation("stamps");
   const [open, setOpen] = useState(false);
   const wide = useMediaQuery("(min-width: 640px)");
+  // Focus goes to the panel, not into its search box: on a phone that would raise the keyboard over the stamps.
+  const popup = useRef<HTMLDivElement>(null);
   const panel = open && (
     <PickerPanel
       onPick={(picked) => {
@@ -58,6 +60,8 @@ export function StampPicker({ onPick, trigger, keepOpen }: StampPickerProps) {
         <Popover.Portal>
           <Popover.Positioner side="top" align="end" sideOffset={10} collisionPadding={12} className="z-50 outline-none">
             <Popover.Popup
+              ref={popup}
+              initialFocus={popup}
               aria-label={t("picker.title")}
               data-testid="stamp-picker"
               className={cn(
@@ -78,6 +82,8 @@ export function StampPicker({ onPick, trigger, keepOpen }: StampPickerProps) {
       <BaseDialog.Portal>
         <BaseDialog.Backdrop className="fixed inset-0 z-50 bg-overlay transition-opacity duration-200 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />
         <BaseDialog.Popup
+          ref={popup}
+          initialFocus={popup}
           data-testid="stamp-picker"
           className={cn(
             "sticker-lg fixed inset-x-0 bottom-0 z-50 flex h-[min(30rem,68dvh)] flex-col overflow-hidden rounded-t-[2rem] bg-surface pb-safe outline-none",
@@ -107,7 +113,6 @@ function useMediaQuery(query: string): boolean {
 
 /** Tabs that are not packs. Pack tabs are keyed by the pack's ID. */
 const SHELVES = ["recents", "favorites", "personal"] as const;
-type Shelf = (typeof SHELVES)[number];
 
 function PickerPanel({ onPick, onLeave }: { onPick(stamp: common.StampRef): void; onLeave(): void }) {
   const { t } = useTranslation("stamps");

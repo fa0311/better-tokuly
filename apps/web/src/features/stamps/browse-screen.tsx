@@ -1,4 +1,4 @@
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { stamp } from "@tokuly/api";
 import { X } from "lucide-react";
@@ -8,7 +8,7 @@ import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Page } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { stampKeys, storeClient } from "./api";
-import { PackCard, PackGridSkeleton, SearchField } from "./parts";
+import { PackCard, PackGridSkeleton, SearchField, TagLink } from "./parts";
 
 const SECTIONS = ["popular", "new", "featured", "official"] as const;
 const PRICES = ["all", "free", "paid"] as const;
@@ -87,6 +87,8 @@ export function BrowseScreen({ search }: { search: BrowseSearch }) {
     getNextPageParam: (last) => last.next || undefined,
   });
   const items = packs.data?.pages.flatMap((page) => page.packs) ?? [];
+  // Tags to narrow a shelf by, offered until one is chosen.
+  const tags = useQuery({ queryKey: stampKeys.tags, queryFn: () => storeClient().listPopularTags({ limit: 30 }), enabled: !query && !tag, staleTime: 5 * 60_000 });
 
   return (
     <Page title={query ? t("browse.searchTitle") : tag ? `#${tag}` : t(`browse.sections.${section}`)} back="/stamps" wide>
@@ -117,6 +119,13 @@ export function BrowseScreen({ search }: { search: BrowseSearch }) {
             </button>
           )}
         </div>
+        {!query && !tag && tags.data && tags.data.tags.length > 0 && (
+          <nav aria-label={t("browse.tags")} className="scrollbar-none -mx-4 flex gap-2 overflow-x-auto px-4 pb-1 md:mx-0 md:flex-wrap md:px-0">
+            {tags.data.tags.map((item) => (
+              <TagLink key={item.tag} tag={item.tag} count={item.packCount} />
+            ))}
+          </nav>
+        )}
 
         {packs.isPending ? (
           <PackGridSkeleton count={12} />

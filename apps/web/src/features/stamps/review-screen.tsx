@@ -157,7 +157,7 @@ function ReviewCard({ item }: { item: stamp.ReviewItem }) {
     <article className="rounded-2xl border-2 border-line bg-surface" data-testid="review-item" aria-label={summary.name}>
       <header className="flex flex-wrap items-center gap-3 border-b-2 border-line p-4">
         <PackCover pack={summary} className="size-16 shrink-0 rounded-xl" />
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 basis-48">
           <h2 className="truncate text-lg font-black">{summary.name}</h2>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
             {summary.official ? (
@@ -178,7 +178,8 @@ function ReviewCard({ item }: { item: stamp.ReviewItem }) {
             {submitted && <span className="text-xs text-ink-faint">{t("review.submitted", { date: submitted.toLocaleString(i18n.language, { dateStyle: "medium", timeStyle: "short" }) })}</span>}
           </div>
         </div>
-        <div className="flex shrink-0 gap-2">
+        {/* On phones the two decisions get a row of their own, so the pack's details keep their room. */}
+        <div className="flex w-full shrink-0 justify-end gap-2 sm:w-auto">
           <Button variant="secondary" icon={<X className="size-4" />} onClick={() => setRejecting(true)}>
             {t("review.reject")}
           </Button>

@@ -1,4 +1,4 @@
-import { Eraser, Hand, Maximize, Redo2, RotateCcw, Sparkles, Undo2, Wand2, ZoomIn, ZoomOut } from "lucide-react";
+import { Eraser, Hand, Maximize, Paintbrush, Redo2, RotateCcw, Sparkles, Undo2, Wand2, ZoomIn, ZoomOut } from "lucide-react";
 import { type ComponentType, type PointerEvent, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -413,7 +413,8 @@ export function CutoutEditor({ file, onBack, onDone }: { file: Blob; onBack(): v
   const brushing = tool === "erase" || tool === "restore";
   return (
     <div className="flex flex-col gap-3">
-      <div className="relative mx-auto aspect-square w-full max-w-[26rem]">
+      {/* As large as the sheet allows while every control below still fits without scrolling. */}
+      <div className="relative mx-auto aspect-square w-full" style={{ maxWidth: "min(26rem, max(11rem, calc(92dvh - 26.5rem)))" }}>
         {/* The checkerboard shows what is transparent. */}
         <div
           className="sticker absolute inset-0 overflow-hidden rounded-[1.75rem] bg-surface"
@@ -459,7 +460,7 @@ export function CutoutEditor({ file, onBack, onDone }: { file: Blob; onBack(): v
         <div role="radiogroup" aria-label={t("editor.tools")} className="inline-flex gap-1 rounded-full bg-surface-2 p-1">
           <ToolButton current={tool} value="move" icon={Hand} label={t("editor.tool.move")} onSelect={setTool} />
           <ToolButton current={tool} value="erase" icon={Eraser} label={t("editor.tool.erase")} onSelect={setTool} />
-          <ToolButton current={tool} value="restore" icon={RotateCcw} label={t("editor.tool.restore")} onSelect={setTool} />
+          <ToolButton current={tool} value="restore" icon={Paintbrush} label={t("editor.tool.restore")} onSelect={setTool} />
           <ToolButton current={tool} value="wand" icon={Wand2} label={t("editor.tool.wand")} onSelect={setTool} />
         </div>
         <div className="flex gap-1">
@@ -468,6 +469,9 @@ export function CutoutEditor({ file, onBack, onDone }: { file: Blob; onBack(): v
           </Button>
           <Button size="icon-sm" variant="ghost" aria-label={t("editor.redo")} disabled={!steps.redo} onClick={() => undo(true)}>
             <Redo2 className="size-5" />
+          </Button>
+          <Button size="icon-sm" variant="ghost" aria-label={t("editor.reset")} title={t("editor.reset")} disabled={status !== "ready"} onClick={reset}>
+            <RotateCcw className="size-5" />
           </Button>
         </div>
       </div>
@@ -489,36 +493,28 @@ export function CutoutEditor({ file, onBack, onDone }: { file: Blob; onBack(): v
         ) : brushing ? (
           <LabelledSlider label={t("editor.brushSize")} min={8} max={140} value={brush} onChange={setBrush} />
         ) : (
-          <LabelledSlider label={t("editor.tolerance")} min={4} max={120} value={tolerance} onChange={setTolerance} />
+          <p className="min-w-0 flex-1 text-sm font-bold text-ink-soft">{t("editor.wandHint")}</p>
         )}
       </div>
 
-      <div className="flex flex-col gap-1 rounded-2xl border-2 border-line p-2">
-        <div className="flex items-center gap-2">
-          <Button variant="lime" size="sm" icon={<Sparkles className="size-4" />} disabled={status !== "ready"} onClick={() => magic(tolerance, false)}>
-            {t("editor.magic")}
-          </Button>
-          <p className="min-w-0 flex-1 text-xs leading-snug text-ink-soft">{t("editor.magicHint")}</p>
-          <Button size="sm" variant="ghost" onClick={reset} disabled={status !== "ready"}>
-            {t("editor.reset")}
-          </Button>
-        </div>
-        {tool !== "wand" && (
-          <div className="flex min-h-9 items-center px-1">
-            <LabelledSlider
-              label={t("editor.tolerance")}
-              min={4}
-              max={120}
-              value={tolerance}
-              onChange={(value) => {
-                setTolerance(value);
-                // Still on the magic removal: the slider tunes it live.
-                if (session.current?.magicBase) magic(value, true);
-              }}
-            />
-          </div>
-        )}
-        <SwitchRow label={t("editor.outline")} hint={t("editor.outlineHint")} checked={outline} onChange={setOutline} />
+      <div className="flex items-center gap-3 rounded-2xl border-2 border-line py-0.5 pr-3 pl-2">
+        <Button variant="lime" size="sm" className="shrink-0" icon={<Sparkles className="size-4" />} disabled={status !== "ready"} onClick={() => magic(tolerance, false)}>
+          {t("editor.magic")}
+        </Button>
+        <LabelledSlider
+          label={t("editor.tolerance")}
+          min={4}
+          max={120}
+          value={tolerance}
+          onChange={(value) => {
+            setTolerance(value);
+            // Still on the magic removal: the slider tunes it live.
+            if (session.current?.magicBase) magic(value, true);
+          }}
+        />
+      </div>
+      <div className="rounded-2xl border-2 border-line">
+        <SwitchRow label={t("editor.outline")} checked={outline} onChange={setOutline} />
       </div>
 
       <div className="flex justify-end gap-2">
@@ -555,7 +551,7 @@ function ToolButton({ current, value, icon: Icon, label, onSelect }: { current: 
 /** A slider with its name written beside it. */
 function LabelledSlider({ label, min, max, value, onChange }: { label: string; min: number; max: number; value: number; onChange(value: number): void }) {
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-3 text-sm font-bold text-ink-soft">
+    <div className="flex min-w-0 flex-1 items-center gap-2.5 text-sm font-bold text-ink-soft">
       <span className="shrink-0">{label}</span>
       <Slider label={label} min={min} max={max} value={value} onChange={onChange} className="min-w-0 flex-1" />
     </div>

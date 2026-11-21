@@ -11,6 +11,7 @@ import {
   floodErase,
   fullMask,
   History,
+  outsideOfShape,
   paintMask,
   toPicture,
   zoomPlacement,
@@ -211,6 +212,32 @@ describe("sticker outline", () => {
     expect(pixel(1, 1)[3]).toBe(0);
     // The outline grows the visible area by its thickness on every side.
     expect(contentBounds(bitmap)).toEqual({ x: 5, y: 5, width: 14, height: 14 });
+  });
+
+  it("leaves holes inside the subject open", () => {
+    // A red ring: the hole in its middle was erased and must stay see-through.
+    const bitmap = picture(30, 30, CLEAR, { x: 8, y: 8, width: 14, height: 14, color: RED });
+    for (let y = 13; y < 17; y++) for (let x = 13; x < 17; x++) bitmap.data.set(CLEAR, (y * 30 + x) * 4);
+    const outside = outsideOfShape(bitmap);
+    expect(outside[0]).toBe(1);
+    expect(outside[15 * 30 + 15]).toBe(0);
+    expect(outside[10 * 30 + 10]).toBe(0);
+
+    addOutline(bitmap, 3);
+    const alpha = (x: number, y: number) => bitmap.data[(y * 30 + x) * 4 + 3];
+    expect(alpha(15, 15)).toBe(0);
+    expect(alpha(6, 15)).toBe(255);
+  });
+
+  it("puts the subject's own soft edge onto the outline", () => {
+    const bitmap = picture(12, 12, CLEAR, { x: 4, y: 4, width: 4, height: 4, color: RED });
+    // A half-transparent edge pixel, as anti-aliasing leaves it.
+    bitmap.data.set([220, 30, 40, 140], (5 * 12 + 4) * 4);
+    addOutline(bitmap, 2);
+    const edge = [...bitmap.data.slice((5 * 12 + 4) * 4, (5 * 12 + 4) * 4 + 4)];
+    expect(edge[3]).toBe(255);
+    // Red over white: lighter than the subject, not see-through any more.
+    expect(edge[1]).toBeGreaterThan(100);
   });
 
   it("does nothing without a thickness", () => {

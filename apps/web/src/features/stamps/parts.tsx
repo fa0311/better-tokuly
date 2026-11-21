@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
-import { type common, stamp } from "@tokuly/api";
+import { stamp } from "@tokuly/api";
 import { BadgeCheck, Check, Clapperboard, Heart, Search, Sparkles, X } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Chip } from "#/components/ui/card";
 import { Coins } from "#/components/ui/coins";
@@ -157,9 +157,13 @@ export function SearchField({
   className?: string;
 }) {
   const { t } = useTranslation("stamps");
+  const input = useRef<HTMLInputElement>(null);
+  // Arriving with a search already typed, the cursor is in the box to keep typing.
+  useEffect(() => {
+    if (autoFocus) input.current?.focus();
+  }, [autoFocus]);
   return (
     <form
-      role="search"
       className={cn("flex h-12 items-center gap-2 rounded-control border-2 border-line bg-surface px-4 focus-within:border-brand", className)}
       onSubmit={(event) => {
         event.preventDefault();
@@ -173,7 +177,7 @@ export function SearchField({
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         aria-label={placeholder}
-        autoFocus={autoFocus}
+        ref={input}
         maxLength={64}
         enterKeyHint="search"
         className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-ink-faint [&::-webkit-search-cancel-button]:hidden"
@@ -260,15 +264,6 @@ export function TagLink({ tag, count }: { tag: string; count?: number }) {
       <span className="text-brand">#</span>
       {tag}
       {count !== undefined && <span className="text-xs text-ink-faint">{count}</span>}
-    </Link>
-  );
-}
-
-/** A creator, linking to their packs. */
-export function CreatorLink({ creator, children, className }: { creator: common.UserSummary; children: ReactNode; className?: string }) {
-  return (
-    <Link to="/stamps/creator/$userId" params={{ userId: creator.id }} className={className}>
-      {children}
     </Link>
   );
 }

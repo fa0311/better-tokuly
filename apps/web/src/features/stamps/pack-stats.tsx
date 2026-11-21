@@ -152,6 +152,8 @@ function DailyChart({ daily, metric }: { daily: stamp.DailyPackStats[]; metric: 
   const tick = (value: number) => (value >= 10_000 ? formatCount(value) : value.toLocaleString("en-US"));
 
   const shown = active === null ? undefined : daily[active];
+  // What a screen reader hears for the slider's position: the pointed-at day, or the latest one.
+  const spoken = shown ?? daily[daily.length - 1];
   const labelled = new Set([0, Math.floor((daily.length - 1) / 2), daily.length - 1]);
 
   return (
@@ -170,7 +172,8 @@ function DailyChart({ daily, metric }: { daily: stamp.DailyPackStats[]; metric: 
       <div className="mt-4 flex gap-2">
         <div className="flex h-36 w-9 shrink-0 flex-col justify-between text-right text-[10px] leading-none font-bold text-ink-faint tabular-nums">
           <span className="-translate-y-1/2">{tick(top)}</span>
-          <span>{tick(top / 2)}</span>
+          {/* Counts are whole numbers: no "0.5" on a scale that only reaches 1. */}
+          <span>{Number.isInteger(top / 2) ? tick(top / 2) : ""}</span>
           <span className="translate-y-1/2">0</span>
         </div>
         <div className="min-w-0 flex-1">
@@ -178,12 +181,22 @@ function DailyChart({ daily, metric }: { daily: stamp.DailyPackStats[]; metric: 
             <div className="absolute inset-x-0 top-0 border-t border-line" />
             <div className="absolute inset-x-0 top-1/2 border-t border-line" />
             <div className="absolute inset-x-0 bottom-0 border-t border-ink-faint" />
-            {peak === 0 && <p className="absolute inset-0 grid place-items-center px-4 text-center text-sm font-bold text-ink-faint">{t("stats.chartEmpty")}</p>}
+            {peak === 0 && (
+              <p className="absolute inset-0 grid place-items-center px-4 text-center text-sm font-bold text-ink-faint">
+                {/* A patch of surface under the words, so the gridline does not strike them through. */}
+                <span className="bg-bg px-2">{t("stats.chartEmpty")}</span>
+              </p>
+            )}
             <div
-              role="group"
-              // One tab stop for the whole plot; the arrow keys walk the days.
+              // For the keyboard the plot is a slider over its days: one tab stop, the arrow
+              // keys walk the columns, and each stop is announced as "date: value".
+              role="slider"
               tabIndex={0}
               aria-label={t("stats.chartKeyboard")}
+              aria-valuemin={0}
+              aria-valuemax={Math.max(0, daily.length - 1)}
+              aria-valuenow={active ?? Math.max(0, daily.length - 1)}
+              aria-valuetext={spoken ? `${long(spoken)}: ${metricValue(spoken, metric).toLocaleString("en-US")}` : undefined}
               className="absolute inset-0 flex items-stretch rounded-lg"
               onKeyDown={(event) => {
                 if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;

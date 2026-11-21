@@ -68,6 +68,7 @@ export function LibraryScreen({ tab }: { tab: LibraryTab }) {
         ) : (
           <>
             <Tabs<LibraryTab>
+              className="self-start"
               value={tab}
               onChange={(next) => navigate({ to: "/stamps/library", search: { tab: next === "packs" ? undefined : next }, replace: true })}
               items={LIBRARY_TABS.map((value) => ({ value, label: t(`library.tabs.${value}`) }))}

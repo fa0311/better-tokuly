@@ -286,18 +286,64 @@ export function distanceToShape(bitmap: Bitmap, threshold = 128): Float64Array {
 }
 
 /**
+ * Marks what lies outside the shape: the empty pixels (alpha below
+ * `threshold`) that are connected to the border of the picture. Holes
+ * enclosed by the shape are not outside.
+ */
+export function outsideOfShape(bitmap: Bitmap, threshold = 128): Uint8Array {
+  const { width, height, data } = bitmap;
+  const outside = new Uint8Array(width * height);
+  const stack = new Int32Array(width * height);
+  let size = 0;
+  const visit = (index: number) => {
+    if (outside[index] || data[index * 4 + 3]! >= threshold) return;
+    outside[index] = 1;
+    stack[size++] = index;
+  };
+  for (let x = 0; x < width; x++) {
+    visit(x);
+    visit((height - 1) * width + x);
+  }
+  for (let y = 0; y < height; y++) {
+    visit(y * width);
+    visit(y * width + width - 1);
+  }
+  while (size > 0) {
+    const index = stack[--size]!;
+    const x = index % width;
+    if (x > 0) visit(index - 1);
+    if (x < width - 1) visit(index + 1);
+    if (index >= width) visit(index - width);
+    if (index < width * (height - 1)) visit(index + width);
+  }
+  return outside;
+}
+
+/**
  * The sticker look: paints an outline of `thickness` pixels in `color`
- * around the shape, underneath the picture, with a smooth outer edge.
- * Changes `bitmap` in place.
+ * around the outer edge of the shape, underneath the picture, with a smooth
+ * rim. Holes inside the shape stay open: what was erased there is not
+ * painted over. Changes `bitmap` in place.
  */
 export function addOutline(bitmap: Bitmap, thickness: number, color: readonly [number, number, number] = [255, 255, 255]): void {
   if (thickness <= 0) return;
-  const { data } = bitmap;
+  const { width, height, data } = bitmap;
   const distances = distanceToShape(bitmap);
+  const outside = outsideOfShape(bitmap);
+  const touchesOutside = (index: number) => {
+    const x = index % width;
+    return (
+      (x > 0 && outside[index - 1] === 1) ||
+      (x < width - 1 && outside[index + 1] === 1) ||
+      (index >= width && outside[index - width] === 1) ||
+      (index < width * (height - 1) && outside[index + width] === 1)
+    );
+  };
   for (let index = 0, offset = 0; index < distances.length; index++, offset += 4) {
     const alpha = data[offset + 3]! / 255;
     if (alpha >= 1) continue;
-    const coverage = Math.min(1, Math.max(0, thickness + 0.5 - Math.sqrt(distances[index]!)));
+    // Outside, the outline fades out at its thickness. The shape's own soft outer edge sits fully on it.
+    const coverage = outside[index] ? Math.min(1, Math.max(0, thickness + 0.5 - Math.sqrt(distances[index]!))) : touchesOutside(index) ? 1 : 0;
     if (coverage <= 0) continue;
     // The picture over the outline colour.
     const outAlpha = alpha + coverage * (1 - alpha);

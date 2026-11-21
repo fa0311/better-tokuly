@@ -120,7 +120,7 @@ export function PackScreen({ packId }: { packId: string }) {
             {pack.stamps.length === 0 ? (
               <EmptyState emoji="🫙" title={t("pack.noStamps")} />
             ) : (
-              <StampGrid className="sticker rounded-card bg-surface p-2">
+              <StampGrid className="sticker rounded-card bg-surface p-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
                 {pack.stamps.map((item) => (
                   <StampTile key={item.stampRef?.id} item={item} onPress={(pressed) => setOpenStamp(pressed.stampRef?.id)} />
                 ))}
