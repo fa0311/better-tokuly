@@ -463,7 +463,7 @@ async fn publishing_with_notify_reaches_every_active_user_exactly_once() {
     let notice = sent.iter().find(|n| n.user_id == active[0].id).unwrap();
     assert_eq!((notice.title.ja.as_str(), notice.title.en.as_str()), ("新機能のお知らせ!", "New feature!"));
     assert_eq!((notice.body.ja.as_str(), notice.body.en.as_str()), ("スタンプを作ろう!", "Create stamps!"));
-    assert_eq!(notice.path, format!("/news/{}", created.id));
+    assert_eq!(notice.path, format!("/announcements/{}", created.id));
     assert_eq!(notice.image_url.as_deref(), Some("https://cdn.tokuly.example/news.webp"));
     assert!(notice.inbox && notice.push);
 

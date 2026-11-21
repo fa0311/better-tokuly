@@ -90,7 +90,7 @@ pub(crate) fn report_resolved(reporter_id: Uuid, case_id: Uuid, action_taken: bo
 /// "There is news" — sent to every active user when an announcement is
 /// published with the notify option.
 pub(crate) fn announcement(user_id: Uuid, announcement_id: Uuid, title: Localized, summary: Localized, image_url: Option<&str>) -> NotificationRequest {
-    let request = NotificationRequest::new(user_id, KIND_ANNOUNCEMENT, title, summary, format!("/news/{announcement_id}"))
+    let request = NotificationRequest::new(user_id, KIND_ANNOUNCEMENT, title, summary, format!("/announcements/{announcement_id}"))
         .collapse(format!("announcement:{announcement_id}"))
         .data(serde_json::json!({ "announcement_id": announcement_id }));
     match image_url {
@@ -233,7 +233,7 @@ mod tests {
     fn announcement_links_to_the_news_page() {
         let id = Uuid::now_v7();
         let n = announcement(Uuid::now_v7(), id, Localized::new("新機能!", "New!"), Localized::same("s"), Some("https://x/i.webp"));
-        assert_eq!(n.path, format!("/news/{id}"));
+        assert_eq!(n.path, format!("/announcements/{id}"));
         assert_eq!(n.image_url.as_deref(), Some("https://x/i.webp"));
         assert_eq!(n.collapse_key.as_deref(), Some(format!("announcement:{id}").as_str()));
     }
