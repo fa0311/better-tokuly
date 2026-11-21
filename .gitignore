@@ -1,0 +1,50 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+.output/
+.nitro/
+.tanstack/
+.turbo/
+.vite/
+*.tsbuildinfo
+backend/target/
+apps/studio/src-tauri/target/
+apps/studio/src-tauri/gen/
+
+# generated code (regenerate with `pnpm proto:gen`)
+packages/api/src/gen/
+
+# expo / react native
+.expo/
+apps/mobile/ios/
+apps/mobile/android/
+web-build/
+
+# env & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p8
+
+# local data
+.data/
+.dev/
+*.pmtiles
+*.log
+
+# editor / os
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# test artifacts
+coverage/
+playwright-report/
+test-results/

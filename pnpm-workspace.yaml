@@ -1,0 +1,94 @@
+packages:
+  - apps/*
+  - packages/*
+
+# Packages allowed to run install scripts.
+allowBuilds:
+  '@biomejs/biome': true
+  '@bufbuild/buf': true
+  '@tailwindcss/oxide': true
+  esbuild: true
+  sharp: true
+
+# Single source of truth for dependency versions shared across the monorepo.
+# Reference with `"<pkg>": "catalog:"` in a package.json.
+catalog:
+  # --- language & tooling ---
+  typescript: 7.0.2
+  "@biomejs/biome": 2.6.8
+  turbo: 2.11.13
+  vite: 8.3.8
+  vitest: 5.1.1
+  "@playwright/test": 1.65.1
+  "@types/node": 26.6.6
+
+  # --- protobuf / Connect RPC ---
+  "@bufbuild/buf": 1.75.0
+  "@bufbuild/protobuf": 2.17.0
+  "@bufbuild/protoc-gen-es": 2.17.0
+  "@connectrpc/connect": 2.3.0
+  "@connectrpc/connect-web": 2.3.0
+  "@connectrpc/connect-node": 2.3.0
+
+  # --- react ---
+  react: 19.3.1
+  react-dom: 19.3.1
+  "@types/react": 19.3.0
+  "@types/react-dom": 19.3.0
+  babel-plugin-react-compiler: 1.0.0
+  "@vitejs/plugin-react": 6.3.0
+
+  # --- tanstack ---
+  "@tanstack/react-start": 1.169.7
+  "@tanstack/react-router": 1.170.46
+  "@tanstack/router-plugin": 1.169.0
+  "@tanstack/react-query": 5.108.1
+  "@tanstack/react-form": 1.33.5
+  "@tanstack/react-virtual": 3.14.26
+
+  # --- ui ---
+  tailwindcss: 4.3.5
+  "@tailwindcss/vite": 4.3.5
+  "@base-ui/react": 1.9.0
+  motion: 14.14.0
+  lucide-react: 1.77.0
+  clsx: 2.1.1
+  tailwind-merge: 3.7.1
+  class-variance-authority: 0.7.1
+  sonner: 2.0.8
+  vaul: 1.1.2
+  cmdk: 1.1.1
+
+  # --- state / data / i18n ---
+  zustand: 5.1.0
+  zod: 4.6.7
+  i18next: 27.2.2
+  react-i18next: 18.0.3
+  date-fns: 4.4.0
+  idb-keyval: 6.3.0
+
+  # --- maps ---
+  maplibre-gl: 6.19.0
+  pmtiles: 4.5.0
+  "@protomaps/basemaps": 5.7.2
+  h3-js: 4.5.0
+  supercluster: 9.1.0
+
+  # --- media ---
+  hls.js: 1.7.4
+  "@lottiefiles/dotlottie-web": 0.83.2
+  "@lottiefiles/dotlottie-react": 0.22.3
+  mediabunny: 1.66.2
+  "@huggingface/transformers": 4.3.2
+  qrcode: 1.5.4
+  "@simplewebauthn/browser": 14.0.0
+  livekit-client: 2.24.1
+
+minimumReleaseAgeExclude:
+  - "@tanstack/query-core@5.108.1"
+  - "@tanstack/react-query@5.108.1"
+  - "@tanstack/react-start-rsc@0.1.68"
+  - "@tanstack/react-start@1.169.7"
+  - "@tanstack/start-plugin-core@1.172.0"
+  - lucide-react@1.77.0
+  - tailwind-merge@3.7.1

@@ -1,0 +1,32 @@
+{
+  "name": "tokuly",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Tokuly — your now to your friends. Location sharing, chat, notes, video, live and shorts in one app.",
+  "type": "module",
+  "packageManager": "pnpm@12.21.0",
+  "engines": {
+    "node": ">=26.0.0"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "dev:web": "turbo run dev --filter=@tokuly/web",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "proto:lint": "buf lint",
+    "proto:format": "buf format -w",
+    "proto:gen": "pnpm --filter @tokuly/api run generate",
+    "up": "docker compose up --build -d",
+    "down": "docker compose down"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "catalog:",
+    "@bufbuild/buf": "catalog:",
+    "turbo": "catalog:",
+    "typescript": "catalog:",
+    "@playwright/test": "catalog:"
+  }
+}

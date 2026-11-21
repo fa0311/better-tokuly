@@ -1,0 +1,18 @@
+# Keep build contexts small and free of local state.
+.git
+**/node_modules
+**/target
+**/.output
+**/.nitro
+**/.tanstack
+**/.turbo
+**/dist
+**/.expo
+packages/api/src/gen
+.env
+.env.*
+!.env.example
+.data
+*.pmtiles
+*.log
+docs
