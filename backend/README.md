@@ -34,7 +34,7 @@ Domains and their migration numbers:
 | notify | 1200 | identity |
 | feed | 1300 | identity |
 | wallet | 1400 | identity |
-| search | 1500 | identity |
+| search | 1500 | identity, social |
 | admin | 1600 | identity |
 | emoji | 1700 | identity, media |
 | ask | 1800 | social, media, stamp, wallet |

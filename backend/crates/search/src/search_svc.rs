@@ -219,10 +219,10 @@ impl SearchService for Search {
             let hits = self.present_hits(&hidden, answer.hits).await?;
 
             if first_page {
-                if let Some(user_id) = caller {
-                    if !request.skip_history {
-                        self.note_search(user_id, &parsed, kind, answer.total > 0).await;
-                    }
+                if let Some(user_id) = caller
+                    && !request.skip_history
+                {
+                    self.note_search(user_id, &parsed, kind, answer.total > 0).await;
                 }
                 self.core
                     .analytics

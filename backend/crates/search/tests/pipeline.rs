@@ -12,7 +12,6 @@ use std::time::{Duration, Instant};
 use tokuly_core::outbound;
 use tokuly_proto::search::*;
 
-#[allow(dead_code)]
 #[path = "search/common.rs"]
 mod common;
 use common::*;
