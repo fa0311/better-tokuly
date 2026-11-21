@@ -1,0 +1,307 @@
+//! Domain events: the transactional outbox and durable consumers.
+//!
+//! A domain emits an event inside the same database transaction as the state
+//! change ([`emit`]). The outbox relay ([`run_outbox_relay`]) moves rows to the
+//! `EVENTS` JetStream stream, and any number of services consume them with
+//! [`consume`] — notifications, the activity log, search indexing, analytics.
+//! Delivery is at-least-once; consumers must be idempotent (event IDs are
+//! stable).
+//!
+//! Topics are dotted lowercase names `<domain>.<entity>.<verb>`, e.g.
+//! `social.friend.accepted`. The payload is JSON; the producing crate exposes
+//! the payload struct in its `events` module. See `docs/events.md`.
+use std::{future::Future, time::Duration};
+
+use async_nats::jetstream::{self, AckKind};
+use chrono::{DateTime, Utc};
+use futures::StreamExt as _;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use sqlx::{PgExecutor, PgPool};
+use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
+
+use crate::{
+    bus::{Bus, STREAM_EVENTS},
+    error::{AppError, AppResult},
+};
+
+const OUTBOX_CHANNEL: &str = "tokuly_outbox";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Event {
+    pub id: Uuid,
+    pub topic: String,
+    /// The user who caused the event, when there is one.
+    pub actor_id: Option<Uuid>,
+    pub occurred_at: DateTime<Utc>,
+    pub data: serde_json::Value,
+}
+
+impl Event {
+    /// Deserializes the payload into the consumer's view of it.
+    pub fn data<T: DeserializeOwned>(&self) -> AppResult<T> {
+        serde_json::from_value(self.data.clone()).map_err(|e| {
+            AppError::internal(anyhow::anyhow!(
+                "event {} payload mismatch: {e}",
+                self.topic
+            ))
+        })
+    }
+}
+
+/// Records an event in the outbox. Pass the open transaction so the event is
+/// published if and only if the surrounding change commits.
+pub async fn emit<'e, E, T>(
+    executor: E,
+    topic: &str,
+    actor_id: Option<Uuid>,
+    data: &T,
+) -> AppResult<()>
+where
+    E: PgExecutor<'e>,
+    T: Serialize + ?Sized,
+{
+    debug_assert!(
+        topic.split('.').count() >= 2
+            && topic
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'_'),
+        "event topics look like `domain.entity.verb`: {topic}"
+    );
+    let data = serde_json::to_value(data)
+        .map_err(|e| AppError::internal(anyhow::anyhow!("event serialize: {e}")))?;
+    sqlx::query("INSERT INTO outbox (topic, actor_id, data) VALUES ($1, $2, $3)")
+        .bind(topic)
+        .bind(actor_id)
+        .bind(data)
+        .execute(executor)
+        .await?;
+    Ok(())
+}
+
+#[derive(sqlx::FromRow)]
+struct OutboxRow {
+    id: Uuid,
+    topic: String,
+    actor_id: Option<Uuid>,
+    data: serde_json::Value,
+    occurred_at: DateTime<Utc>,
+}
+
+/// Moves outbox rows to JetStream until cancelled. Several instances may run
+/// concurrently (`SKIP LOCKED`); each event is published at least once.
+pub async fn run_outbox_relay(db: PgPool, bus: Bus, cancel: CancellationToken) {
+    let mut listener = match sqlx::postgres::PgListener::connect_with(&db).await {
+        Ok(mut l) => match l.listen(OUTBOX_CHANNEL).await {
+            Ok(()) => Some(l),
+            Err(e) => {
+                tracing::warn!(error = %e, "outbox LISTEN failed; falling back to polling");
+                None
+            }
+        },
+        Err(e) => {
+            tracing::warn!(error = %e, "outbox listener unavailable; falling back to polling");
+            None
+        }
+    };
+    tracing::info!("outbox relay started");
+    loop {
+        match relay_batch(&db, &bus).await {
+            Ok(n) if n >= BATCH => continue, // more waiting
+            Ok(_) => {}
+            Err(e) => {
+                tracing::error!(error = %e, "outbox relay batch failed");
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        }
+        let wake = async {
+            match listener.as_mut() {
+                Some(l) => {
+                    // A lost notification connection just degrades to the poll interval.
+                    let _ = tokio::time::timeout(Duration::from_secs(2), l.recv()).await;
+                }
+                None => tokio::time::sleep(Duration::from_millis(250)).await,
+            }
+        };
+        tokio::select! {
+            _ = cancel.cancelled() => break,
+            _ = wake => {}
+        }
+    }
+    tracing::info!("outbox relay stopped");
+}
+
+const BATCH: usize = 200;
+
+async fn relay_batch(db: &PgPool, bus: &Bus) -> AppResult<usize> {
+    let mut tx = db.begin().await?;
+    let rows: Vec<OutboxRow> = sqlx::query_as(
+        "DELETE FROM outbox WHERE id IN (
+             SELECT id FROM outbox ORDER BY id LIMIT $1 FOR UPDATE SKIP LOCKED
+         ) RETURNING id, topic, actor_id, data, occurred_at",
+    )
+    .bind(BATCH as i64)
+    .fetch_all(&mut *tx)
+    .await?;
+    if rows.is_empty() {
+        return Ok(0);
+    }
+    let mut rows = rows;
+    rows.sort_by_key(|r| r.id);
+    let count = rows.len();
+    for row in rows {
+        let event = Event {
+            id: row.id,
+            topic: row.topic,
+            actor_id: row.actor_id,
+            occurred_at: row.occurred_at,
+            data: row.data,
+        };
+        let payload = serde_json::to_vec(&event)
+            .map_err(|e| AppError::internal(anyhow::anyhow!("event encode: {e}")))?;
+        // If publishing fails the transaction rolls back and the rows are retried.
+        bus.publish_durable(
+            format!("evt.{}", event.topic),
+            payload,
+            Some(&event.id.to_string()),
+        )
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(count)
+}
+
+/// Options for a durable event consumer.
+#[derive(Debug, Clone)]
+pub struct ConsumeOptions {
+    /// How long a handler may run before the event is redelivered.
+    pub ack_wait: Duration,
+    /// Deliveries before the event is dropped (and logged).
+    pub max_deliver: i64,
+    /// Events handled concurrently.
+    pub concurrency: usize,
+}
+
+impl Default for ConsumeOptions {
+    fn default() -> Self {
+        Self {
+            ack_wait: Duration::from_secs(30),
+            max_deliver: 8,
+            concurrency: 8,
+        }
+    }
+}
+
+/// Consumes events matching `topics` (NATS wildcards allowed, e.g.
+/// `"chat.>"`, `"*.*.created"`) under the durable name `durable` until
+/// cancelled. Instances sharing a durable name share the work.
+pub async fn consume<F, Fut>(
+    bus: Bus,
+    durable: &str,
+    topics: &[&str],
+    options: ConsumeOptions,
+    cancel: CancellationToken,
+    handler: F,
+) where
+    F: Fn(Event) -> Fut + Send + Sync + Clone + 'static,
+    Fut: Future<Output = AppResult<()>> + Send + 'static,
+{
+    let filters: Vec<String> = topics.iter().map(|t| format!("evt.{t}")).collect();
+    loop {
+        if cancel.is_cancelled() {
+            return;
+        }
+        let consumer = match bus
+            .durable_consumer(
+                STREAM_EVENTS,
+                durable,
+                filters.clone(),
+                options.ack_wait,
+                options.max_deliver,
+            )
+            .await
+        {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(durable, error = %e, "event consumer setup failed; retrying");
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                continue;
+            }
+        };
+        let mut messages = match consumer.messages().await {
+            Ok(m) => m,
+            Err(e) => {
+                tracing::error!(durable, error = %e, "event consumer stream failed; retrying");
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                continue;
+            }
+        };
+        tracing::info!(durable, ?topics, "event consumer started");
+        let limiter = std::sync::Arc::new(tokio::sync::Semaphore::new(options.concurrency.max(1)));
+        loop {
+            let next = tokio::select! {
+                _ = cancel.cancelled() => return,
+                next = messages.next() => next,
+            };
+            let message = match next {
+                Some(Ok(m)) => m,
+                Some(Err(e)) => {
+                    tracing::warn!(durable, error = %e, "event consumer error; reconnecting");
+                    break;
+                }
+                None => break,
+            };
+            let permit = limiter
+                .clone()
+                .acquire_owned()
+                .await
+                .expect("semaphore is never closed");
+            let handler = handler.clone();
+            let durable = durable.to_owned();
+            let max_deliver = options.max_deliver;
+            tokio::spawn(async move {
+                let _permit = permit;
+                handle_message(message, &durable, max_deliver, handler).await;
+            });
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+}
+
+async fn handle_message<F, Fut>(
+    message: jetstream::Message,
+    durable: &str,
+    max_deliver: i64,
+    handler: F,
+) where
+    F: Fn(Event) -> Fut,
+    Fut: Future<Output = AppResult<()>>,
+{
+    let event: Event = match serde_json::from_slice(&message.payload) {
+        Ok(e) => e,
+        Err(e) => {
+            tracing::error!(durable, subject = %message.subject, error = %e, "undecodable event dropped");
+            let _ = message.ack_with(AckKind::Term).await;
+            return;
+        }
+    };
+    let delivered = message.info().map(|i| i.delivered).unwrap_or(1);
+    let topic = event.topic.clone();
+    let id = event.id;
+    match handler(event).await {
+        Ok(()) => {
+            if let Err(e) = message.ack().await {
+                tracing::warn!(durable, %topic, error = %e, "event ack failed");
+            }
+        }
+        Err(e) if delivered >= max_deliver => {
+            tracing::error!(durable, %topic, %id, error = %e, "event failed permanently; dropped");
+            let _ = message.ack_with(AckKind::Term).await;
+        }
+        Err(e) => {
+            let delay = Duration::from_secs((1u64 << delivered.clamp(0, 6)).min(60));
+            tracing::warn!(durable, %topic, %id, delivered, error = %e, "event handler failed; will retry");
+            let _ = message.ack_with(AckKind::Nak(Some(delay))).await;
+        }
+    }
+}

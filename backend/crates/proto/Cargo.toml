@@ -1,0 +1,20 @@
+[package]
+name = "tokuly-proto"
+description = "Generated protobuf messages and Connect RPC service stubs for the Tokuly API."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+connectrpc.workspace = true
+buffa.workspace = true
+buffa-types.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[build-dependencies]
+connectrpc-build.workspace = true

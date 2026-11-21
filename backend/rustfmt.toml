@@ -1,0 +1,3 @@
+# One formatting style for the whole workspace.
+max_width = 120
+use_small_heuristics = "Max"

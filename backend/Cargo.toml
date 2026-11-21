@@ -1,0 +1,150 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+
+[workspace.lints.rust]
+# Service impls return concrete types where the generated traits declare
+# `impl Encodable<T>`; the refinement is intentional (see connectrpc docs).
+refining_impl_trait_internal = "allow"
+refining_impl_trait_reachable = "allow"
+unsafe_code = "forbid"
+
+[workspace.lints.cargo]
+# The workspace table doubles as the version catalog for crates that are still
+# being filled in, so unused entries are expected.
+unused_workspace_dependencies = "allow"
+unused_dependencies = "allow"
+
+[workspace.lints.clippy]
+too_many_arguments = "allow"
+type_complexity = "allow"
+large_enum_variant = "allow"
+result_large_err = "allow"
+
+[workspace.dependencies]
+# ── internal crates ──
+tokuly-proto = { path = "crates/proto" }
+tokuly-core = { path = "crates/core" }
+tokuly-identity = { path = "crates/identity" }
+tokuly-social = { path = "crates/social" }
+tokuly-geo = { path = "crates/geo" }
+tokuly-realtime = { path = "crates/realtime" }
+tokuly-media = { path = "crates/media" }
+tokuly-chat = { path = "crates/chat" }
+tokuly-stamp = { path = "crates/stamp" }
+tokuly-notes = { path = "crates/notes" }
+tokuly-video = { path = "crates/video" }
+tokuly-live = { path = "crates/live" }
+tokuly-shorts = { path = "crates/shorts" }
+tokuly-engagement = { path = "crates/engagement" }
+tokuly-notify = { path = "crates/notify" }
+tokuly-feed = { path = "crates/feed" }
+tokuly-wallet = { path = "crates/wallet" }
+tokuly-search = { path = "crates/search" }
+tokuly-admin = { path = "crates/admin" }
+tokuly-testkit = { path = "crates/testkit" }
+
+# ── async runtime & http ──
+tokio = { version = "1.54", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt", "io"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+futures = "0.3"
+async-trait = "0.1"
+axum = { version = "0.8.9", features = ["ws", "http2", "macros"] }
+tower = { version = "0.5", features = ["util", "timeout", "limit"] }
+tower-http = { version = "0.7", features = ["cors", "trace", "compression-gzip", "request-id", "limit", "timeout"] }
+http = "1.5"
+http-body-util = "0.1"
+bytes = "1.12"
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "form", "query", "stream", "gzip", "http2"] }
+
+# ── rpc / protobuf ──
+connectrpc = { version = "0.9.1", features = ["axum", "server", "client"] }
+connectrpc-build = "0.9.0"
+buffa = { version = "0.9.2", features = ["json"] }
+buffa-types = { version = "0.9.2", features = ["json", "chrono"] }
+
+# ── realtime transports ──
+wtransport = "0.7.2"
+
+# ── data stores ──
+sqlx = { version = "0.9.1", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-webpki", "postgres", "uuid", "chrono", "json", "migrate", "macros", "derive"] }
+redis = { version = "1.8", features = ["tokio-comp", "connection-manager", "script", "geospatial"] }
+async-nats = "0.53"
+aws-sdk-s3 = "1.161"
+clickhouse = { version = "0.15", features = ["uuid", "chrono", "inserter"] }
+meilisearch-sdk = "0.33"
+
+# ── auth & crypto ──
+argon2 = "0.6"
+jsonwebtoken = { version = "12", default-features = false, features = ["aws_lc_rs"] }
+ed25519-dalek = { version = "3", features = ["pkcs8", "pem"] }
+webauthn-rs = { version = "0.6.2", features = ["danger-allow-state-serialisation", "conditional-ui"] }
+totp-rs = { version = "6", features = ["otpauth", "gen_secret"] }
+hkdf = "0.13"
+hmac = "0.13"
+sha2 = "0.11"
+rand = "0.10"
+base64 = "0.23"
+hex = "0.4"
+subtle = "2.6"
+chacha20poly1305 = "0.11"
+
+# ── serde & data ──
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1.29", features = ["v4", "v7", "serde"] }
+chrono = { version = "0.4.45", default-features = false, features = ["std", "clock", "serde"] }
+chrono-tz = "0.10"
+url = "2.5"
+regex = "1.13"
+unicode-segmentation = "1.13"
+unicode-normalization = "0.1"
+itertools = "0.15"
+
+# ── geo ──
+h3o = { version = "0.11", features = ["geo"] }
+geo = "0.33"
+polyline = "0.11"
+tzf-rs = "2.3"
+
+# ── errors, cli, logs ──
+thiserror = "2"
+anyhow = "1"
+clap = { version = "4.6", features = ["derive", "env"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-opentelemetry = "0.34"
+opentelemetry = "0.33"
+opentelemetry_sdk = { version = "0.33", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.33", features = ["grpc-tonic"] }
+
+# ── misc ──
+dashmap = "6.2"
+parking_lot = "0.13"
+arc-swap = "1.9"
+moka = { version = "0.12", features = ["future"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
+thumbhash = "0.1"
+tempfile = "3.27"
+lettre = { version = "0.11", default-features = false, features = ["tokio1-rustls", "ring", "webpki-roots", "smtp-transport", "builder", "hostname"] }
+infer = "0.22"
+
+[profile.dev]
+debug = "line-tables-only"
+split-debuginfo = "unpacked"
+
+# Keep dependencies reasonably fast in dev builds (crypto, image, protobuf).
+[profile.dev.package."*"]
+opt-level = 1
+
+[profile.release]
+lto = "thin"
+codegen-units = 8
+strip = "debuginfo"
