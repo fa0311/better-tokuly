@@ -1,0 +1,54 @@
+[package]
+name = "tokuly-media"
+description = "Uploads, assets, image processing and the video transcoding pipeline."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+tokuly-core.workspace = true
+tokuly-proto.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+futures.workspace = true
+async-trait.workspace = true
+connectrpc.workspace = true
+buffa.workspace = true
+sqlx.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+bytes.workspace = true
+url.workspace = true
+reqwest.workspace = true
+aws-sdk-s3.workspace = true
+async-nats.workspace = true
+sha2.workspace = true
+hex.workspace = true
+base64.workspace = true
+tempfile.workspace = true
+infer.workspace = true
+image.workspace = true
+thumbhash.workspace = true
+# Lossy and animated WebP encoding (libwebp); the `image` crate only writes lossless WebP.
+webp = { version = "0.3.1", default-features = false }
+# ICC colour management: wide-gamut photos (Display P3 from phones) are
+# converted to sRGB, since the profile is stripped with the other metadata.
+# Already in the dependency tree through `image`.
+moxcms = "0.8.1"
+# Decoding of non-UTF-8 pages (Shift_JIS, EUC-JP...) for link previews.
+encoding_rs = "0.8.44"
+
+[dev-dependencies]
+tokuly-testkit.workspace = true
+tracing-subscriber.workspace = true
+# APNG fixtures (the `image` crate reads APNG but cannot write it).
+png = "0.18"
