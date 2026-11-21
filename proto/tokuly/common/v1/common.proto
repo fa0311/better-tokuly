@@ -109,6 +109,13 @@ enum Visibility {
   VISIBILITY_PRIVATE = 5;
 }
 
+// Server-written text in both languages of the app; clients show the one
+// matching their language.
+message LocalizedText {
+  string ja = 1;
+  string en = 2;
+}
+
 // Kinds of things that can be commented on, reacted to, reported, bookmarked or shared.
 enum SubjectType {
   SUBJECT_TYPE_UNSPECIFIED = 0;
@@ -128,6 +135,19 @@ enum SubjectType {
   SUBJECT_TYPE_STAMP = 14;
   SUBJECT_TYPE_PLACE = 15;
   SUBJECT_TYPE_NEWS_ARTICLE = 16;
+  SUBJECT_TYPE_CUSTOM_EMOJI = 17;
+  // A question in someone's question box, together with its answer.
+  SUBJECT_TYPE_QUESTION = 18;
+  SUBJECT_TYPE_PLAN = 19;
+  // An audio room.
+  SUBJECT_TYPE_SPACE = 20;
+  SUBJECT_TYPE_COMMUNITY = 21;
+  SUBJECT_TYPE_COMMUNITY_THREAD = 22;
+  SUBJECT_TYPE_COMMUNITY_REPLY = 23;
+  SUBJECT_TYPE_COMMUNITY_EVENT = 24;
+  SUBJECT_TYPE_STUDY_ROOM = 25;
+  // A third-party application registered on the developer platform.
+  SUBJECT_TYPE_APP = 26;
 }
 
 // Polymorphic reference to a subject.

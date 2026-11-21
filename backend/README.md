@@ -36,6 +36,14 @@ Domains and their migration numbers:
 | wallet | 1400 | identity |
 | search | 1500 | identity |
 | admin | 1600 | identity |
+| emoji | 1700 | identity, media |
+| ask | 1800 | social, media, stamp, wallet |
+| quest | 1900 | social, wallet |
+| plans | 2000 | social |
+| school | 2100 | social |
+| spaces | 2200 | social |
+| community | 2300 | social, media, stamp |
+| dev | 2400 | identity |
 | realtime | — | identity |
 
 A crate may only depend on crates listed for it (plus `core`, `proto`,

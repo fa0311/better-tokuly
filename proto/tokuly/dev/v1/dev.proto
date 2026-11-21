@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+// Developer platform: access tokens, OAuth apps, bots and webhooks.
+//
+// SKELETON: the owning domain implements this file. Keep the package name
+// stable; everything else is yours.
+package tokuly.dev.v1;
+
+import "tokuly/common/v1/common.proto";
+
+// Placeholder message so the file is a valid module member.
+message DevPlaceholder {
+  tokuly.common.v1.SubjectRef subject = 1;
+}

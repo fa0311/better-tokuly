@@ -20,15 +20,22 @@ syntax = "proto3";
 package tokuly.realtime.v1;
 
 import "google/protobuf/timestamp.proto";
+import "tokuly/ask/v1/ask.proto";
 import "tokuly/chat/v1/chat.proto";
 import "tokuly/common/v1/common.proto";
+import "tokuly/community/v1/community.proto";
+import "tokuly/emoji/v1/emoji.proto";
 import "tokuly/engagement/v1/engagement.proto";
 import "tokuly/geo/v1/geo.proto";
 import "tokuly/live/v1/live.proto";
 import "tokuly/media/v1/media.proto";
 import "tokuly/notes/v1/notes.proto";
 import "tokuly/notify/v1/notify.proto";
+import "tokuly/plans/v1/plans.proto";
+import "tokuly/quest/v1/quest.proto";
+import "tokuly/school/v1/school.proto";
 import "tokuly/social/v1/social.proto";
+import "tokuly/spaces/v1/spaces.proto";
 import "tokuly/video/v1/video.proto";
 import "tokuly/wallet/v1/wallet.proto";
 
@@ -94,6 +101,10 @@ message Ping {
 //   subject:{type}:{id}         live comment / reaction counters of a subject
 //   share:{token}               positions of a public live share
 //   asset:{asset_id}            processing progress of an upload
+//   space:{space_id}            an audio room: stage, hands, reactions
+//   community:{community_id}    new threads and replies of a community
+//   study:{room_id}             the shared timer and presence of a study room
+//   emoji:catalog               the custom emoji catalogue changed
 message Subscribe {
   repeated string topics = 1;
 }
@@ -144,6 +155,13 @@ message ServerFrame {
     tokuly.media.v1.MediaEvent media = 17;
     tokuly.wallet.v1.WalletEvent wallet = 18;
     tokuly.engagement.v1.EngagementEvent engagement = 19;
+    tokuly.quest.v1.QuestEvent quest = 20;
+    tokuly.plans.v1.PlansEvent plans = 21;
+    tokuly.school.v1.SchoolEvent school = 22;
+    tokuly.spaces.v1.SpacesEvent spaces = 23;
+    tokuly.community.v1.CommunityEvent community = 24;
+    tokuly.ask.v1.AskEvent ask = 25;
+    tokuly.emoji.v1.EmojiEvent emoji = 26;
   }
 }
 

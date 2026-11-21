@@ -35,6 +35,11 @@ pub use users::{UserRow, summaries, summaries_ordered, summary};
 pub trait ProfileExtension: Send + Sync + 'static {
     /// Fills in the parts of `profile` this domain owns (relationship,
     /// counters, distance...). `viewer` is `None` for anonymous requests.
+    ///
+    /// A domain without a field of its own on the profile pushes a
+    /// `ProfileCard` onto `profile.cards` (kind `"<domain>.<thing>"`, text
+    /// in both languages); respect the owner's privacy when deciding
+    /// whether `viewer` gets to see it.
     async fn enrich_profile(
         &self,
         _viewer: Option<Uuid>,

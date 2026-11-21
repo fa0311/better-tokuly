@@ -58,6 +58,8 @@ impl Identity {
                 .enrich_profile(viewer, user.id, &mut profile)
                 .await?;
         }
+        // Cards come from several domains; their own `order` decides the layout.
+        profile.cards.sort_by_key(|card| card.order);
         // Music is shared with friends (and shown to yourself), like the map pin.
         let close = matches!(
             profile.relationship.as_known(),

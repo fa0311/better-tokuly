@@ -48,6 +48,14 @@ tokuly-feed = { path = "crates/feed" }
 tokuly-wallet = { path = "crates/wallet" }
 tokuly-search = { path = "crates/search" }
 tokuly-admin = { path = "crates/admin" }
+tokuly-emoji = { path = "crates/emoji" }
+tokuly-ask = { path = "crates/ask" }
+tokuly-quest = { path = "crates/quest" }
+tokuly-plans = { path = "crates/plans" }
+tokuly-school = { path = "crates/school" }
+tokuly-spaces = { path = "crates/spaces" }
+tokuly-community = { path = "crates/community" }
+tokuly-dev = { path = "crates/dev" }
 tokuly-testkit = { path = "crates/testkit" }
 
 # ── async runtime & http ──

@@ -639,6 +639,28 @@ message Profile {
   bool best_friend = 13;
   // School badge (optional).
   string school_name = 14;
+  // Pieces contributed by other domains, in display order.
+  repeated ProfileCard cards = 15;
+}
+
+// A piece of a profile contributed by another domain: a level badge, a
+// "studying now" line, a link to the question box. Clients render the kinds
+// they know richly and every other kind as a plain titled row, so a new
+// feature shows up on profiles without a client release.
+message ProfileCard {
+  // "<domain>.<thing>", e.g. "quest.level", "school.studying", "ask.box".
+  string kind = 1;
+  tokuly.common.v1.LocalizedText title = 2;
+  tokuly.common.v1.LocalizedText text = 3;
+  // A single emoji standing in for an icon; empty when `image` is set.
+  string emoji = 4;
+  tokuly.common.v1.Image image = 5;
+  // Where tapping the card leads inside the app (a path); empty if nowhere.
+  string path = 6;
+  // Kind-specific values for clients that render the kind richly.
+  map<string, string> data = 7;
+  // Position among the cards: lower comes first.
+  int32 order = 8;
 }
 
 message ProfileStats {
