@@ -1,0 +1,495 @@
+//! The protocol of one connection (`tokuly.realtime.v1`), independent of
+//! the transport it runs over.
+//!
+//! A session starts anonymous and unwelcomed. `Hello` signs it in (or keeps
+//! it anonymous) and is answered by `Welcome`; from then on the client may
+//! subscribe to topics, report locations and send chat signals, and must
+//! ping at least every `ping_interval`. `Hello` may be repeated on the same
+//! connection to present a fresh access token before (or shortly after) the
+//! old one expires.
+use std::{collections::HashSet, sync::Arc};
+
+use buffa::Message as _;
+use chrono::Utc;
+use serde::Serialize;
+use tokio::time::Instant;
+use tokuly_core::{
+    presence::{self, CONVERSATION_PRESENCE_SUBJECT, ConversationPresenceSignal, LocationReport, TYPING_SUBJECT, TypingSignal},
+    time::{now, ts},
+};
+use tokuly_proto::{
+    geo::LocationSample,
+    realtime::{ClientFrame, Hello, Welcome, client_frame::Body},
+};
+use uuid::Uuid;
+
+use crate::{
+    GatewayInner,
+    client::Client,
+    connection::{FrameSource, Inbound, RecvError},
+    frames::{self, Code, Delivery, Rejection},
+    hub::RouteKey,
+    limits::TokenBucket,
+    location,
+    outbox::CloseReason,
+    topics,
+};
+
+const FRAME_INVALID: Rejection = Rejection::new(Code::InvalidArgument, "FRAME_INVALID");
+const FRAME_TOO_LARGE: Rejection = Rejection::new(Code::InvalidArgument, "FRAME_TOO_LARGE");
+const BINARY_FRAMES_ONLY: Rejection = Rejection::new(Code::InvalidArgument, "BINARY_FRAMES_ONLY");
+const DATAGRAM_NOT_ALLOWED: Rejection = Rejection::new(Code::InvalidArgument, "DATAGRAM_NOT_ALLOWED");
+const CONVERSATION_ID_INVALID: Rejection = Rejection::new(Code::InvalidArgument, "CONVERSATION_ID_INVALID");
+const HELLO_REQUIRED: Rejection = Rejection::new(Code::FailedPrecondition, "HELLO_REQUIRED");
+const HELLO_TIMEOUT: Rejection = Rejection::new(Code::FailedPrecondition, "HELLO_TIMEOUT");
+const IDLE_TIMEOUT: Rejection = Rejection::new(Code::FailedPrecondition, "IDLE_TIMEOUT");
+const SIGN_IN_REQUIRED: Rejection = Rejection::new(Code::Unauthenticated, "SIGN_IN_REQUIRED");
+const TOKEN_EXPIRED: Rejection = Rejection::new(Code::Unauthenticated, "TOKEN_EXPIRED");
+const SESSION_REVOKED: Rejection = Rejection::new(Code::Unauthenticated, "SESSION_REVOKED");
+const USER_MISMATCH: Rejection = Rejection::new(Code::PermissionDenied, "USER_MISMATCH");
+const RATE_LIMITED: Rejection = Rejection::new(Code::ResourceExhausted, "RATE_LIMITED");
+const TOO_MANY_TOPICS: Rejection = Rejection::new(Code::ResourceExhausted, "TOO_MANY_TOPICS");
+const BUS_UNAVAILABLE: Rejection = Rejection::new(Code::Unavailable, "BUS_UNAVAILABLE");
+const SHUTTING_DOWN: Rejection = Rejection::new(Code::Unavailable, "SHUTTING_DOWN");
+
+/// Frames of any kind per connection: far above what an honest client
+/// sends, low enough that a flood costs the gateway next to nothing.
+const FRAME_BURST: u32 = 200;
+const FRAME_RATE: f64 = 50.0;
+/// Typing and conversation presence signals.
+const SIGNAL_BURST: u32 = 20;
+const SIGNAL_RATE: f64 = 5.0;
+
+/// The signed-in state of a connection.
+struct Auth {
+    user_id: Uuid,
+    session_id: Uuid,
+    expires_at: Instant,
+    /// Set once the token expired: until when a fresh `Hello` is awaited.
+    grace_until: Option<Instant>,
+    next_revocation_check: Instant,
+}
+
+pub(crate) struct Session<'g> {
+    gateway: &'g GatewayInner,
+    client: Arc<Client>,
+    connected_at: Instant,
+    last_inbound: Instant,
+    /// A `Hello` was accepted.
+    welcomed: bool,
+    auth: Option<Auth>,
+    /// The app is visible to the user (from `Hello` / `AppState`).
+    foreground: bool,
+    /// This connection currently counts towards its user being online.
+    counted_online: bool,
+    topics: HashSet<String>,
+    frame_limit: TokenBucket,
+    location_limit: TokenBucket,
+    signal_limit: TokenBucket,
+}
+
+impl<'g> Session<'g> {
+    pub(crate) fn new(gateway: &'g GatewayInner, client: Arc<Client>) -> Self {
+        let now = Instant::now();
+        Self {
+            gateway,
+            client,
+            connected_at: now,
+            last_inbound: now,
+            welcomed: false,
+            auth: None,
+            foreground: false,
+            counted_online: false,
+            topics: HashSet::new(),
+            frame_limit: TokenBucket::new(FRAME_BURST, FRAME_RATE),
+            location_limit: TokenBucket::new(gateway.cfg.location_burst, gateway.cfg.location_rate),
+            signal_limit: TokenBucket::new(SIGNAL_BURST, SIGNAL_RATE),
+        }
+    }
+
+    /// Serves the connection until it has to end; says why.
+    pub(crate) async fn run(&mut self, source: &mut impl FrameSource) -> CloseReason {
+        loop {
+            let deadline = self.next_deadline();
+            tokio::select! {
+                _ = self.gateway.closing.cancelled() => {
+                    self.client.reply(frames::error(0, SHUTTING_DOWN, true));
+                    return CloseReason::ShuttingDown;
+                }
+                // The writer gave up (peer gone) or the outbox overflowed.
+                _ = self.client.outbox.closed() => return self.client.outbox.close_reason().unwrap_or(CloseReason::PeerClosed),
+                _ = tokio::time::sleep_until(deadline) => {
+                    if let Some(reason) = self.on_deadline(Instant::now()) {
+                        return reason;
+                    }
+                }
+                received = source.recv() => match received {
+                    Ok(Some(inbound)) => {
+                        if let Some(reason) = self.on_inbound(inbound).await {
+                            return reason;
+                        }
+                    }
+                    Ok(None) | Err(RecvError::Lost) => return CloseReason::PeerClosed,
+                    Err(RecvError::FrameTooLarge) => return self.fatal(0, FRAME_TOO_LARGE),
+                    Err(RecvError::NotBinary) => return self.fatal(0, BINARY_FRAMES_ONLY),
+                },
+            }
+        }
+    }
+
+    /// Releases everything the connection held. Call once, after [`Self::run`].
+    pub(crate) fn finish(&mut self) {
+        self.set_foreground(false);
+        for topic in self.topics.drain() {
+            self.gateway.hub.leave(&RouteKey::Topic(topic.clone()), &self.client);
+            self.gateway.audience.touch(&topic);
+        }
+        if let Some(auth) = self.auth.take() {
+            self.gateway.hub.leave(&RouteKey::User(auth.user_id), &self.client);
+            self.gateway.counters.authenticated_connections.decr();
+        }
+    }
+
+    // ── Timers ──
+
+    /// The next moment something has to happen without a frame arriving.
+    fn next_deadline(&self) -> Instant {
+        let cfg = &self.gateway.cfg;
+        let mut deadline = if self.welcomed { self.last_inbound + cfg.idle_timeout } else { self.connected_at + cfg.hello_timeout };
+        if let Some(auth) = &self.auth {
+            deadline = deadline.min(auth.next_revocation_check).min(auth.grace_until.unwrap_or(auth.expires_at));
+        }
+        deadline
+    }
+
+    fn on_deadline(&mut self, now: Instant) -> Option<CloseReason> {
+        let cfg = &self.gateway.cfg;
+        if !self.welcomed {
+            if now >= self.connected_at + cfg.hello_timeout {
+                return Some(self.fatal(0, HELLO_TIMEOUT));
+            }
+        } else if now >= self.last_inbound + cfg.idle_timeout {
+            self.client.reply(frames::error(0, IDLE_TIMEOUT, true));
+            return Some(CloseReason::Idle);
+        }
+
+        let auth = self.auth.as_mut()?;
+        let mut verdict = None;
+        if now >= auth.next_revocation_check {
+            auth.next_revocation_check = now + cfg.revocation_check;
+            if self.gateway.core.tokens.is_revoked(auth.session_id) {
+                verdict = Some((SESSION_REVOKED, true));
+            }
+        }
+        if verdict.is_none() {
+            match auth.grace_until {
+                // The token just expired: ask for a new one, keep serving meanwhile.
+                None if now >= auth.expires_at => {
+                    auth.grace_until = Some(now + cfg.auth_grace);
+                    verdict = Some((TOKEN_EXPIRED, false));
+                }
+                Some(until) if now >= until => verdict = Some((TOKEN_EXPIRED, true)),
+                _ => {}
+            }
+        }
+        match verdict {
+            Some((rejection, true)) => Some(self.fatal(0, rejection)),
+            Some((rejection, false)) => {
+                self.client.reply(frames::error(0, rejection, false));
+                None
+            }
+            None => None,
+        }
+    }
+
+    // ── Inbound frames ──
+
+    async fn on_inbound(&mut self, inbound: Inbound) -> Option<CloseReason> {
+        let counters = &self.gateway.counters;
+        self.last_inbound = Instant::now();
+        counters.frames_in.incr();
+        if inbound.datagram {
+            counters.datagrams_in.incr();
+        }
+        let Ok(frame) = ClientFrame::decode_from_slice(&inbound.frame) else {
+            counters.frames_rejected.incr();
+            // The ID is unreadable too, so this error answers "frame 0".
+            // A broken datagram gets no answer: datagrams are best effort.
+            if !inbound.datagram {
+                self.client.reply(frames::error(0, FRAME_INVALID, false));
+            }
+            return None;
+        };
+        let id = frame.id;
+        if !self.frame_limit.allow() {
+            self.answer(id, Err(RATE_LIMITED));
+            return None;
+        }
+        let Some(body) = frame.body else {
+            self.answer(id, Err(FRAME_INVALID));
+            return None;
+        };
+        if inbound.datagram && !matches!(body, Body::Location(_) | Body::Ping(_)) {
+            self.answer(id, Err(DATAGRAM_NOT_ALLOWED));
+            return None;
+        }
+        match body {
+            Body::Hello(hello) => return self.on_hello(id, *hello).await,
+            Body::Ping(ping) => {
+                // Answered the way it came, so clients can measure both paths.
+                let delivery = if inbound.datagram { Delivery::Droppable } else { Delivery::Reliable };
+                self.client.send(delivery, frames::pong(id, ping.nonce));
+            }
+            _ if !self.welcomed => self.answer(id, Err(HELLO_REQUIRED)),
+            Body::Location(sample) => {
+                let result = self.on_location(*sample).await;
+                self.answer(id, result);
+            }
+            Body::Subscribe(subscribe) => {
+                let result = self.subscribe(&subscribe.topics).await;
+                self.answer(id, result);
+            }
+            Body::Unsubscribe(unsubscribe) => {
+                self.unsubscribe(&unsubscribe.topics);
+                self.answer(id, Ok(()));
+            }
+            Body::AppState(state) => {
+                self.set_foreground(state.foreground);
+                self.answer(id, Ok(()));
+            }
+            Body::Typing(typing) => {
+                let result = self
+                    .forward_signal(TYPING_SUBJECT, &typing.conversation_id, |user_id, conversation_id| TypingSignal {
+                        user_id,
+                        conversation_id,
+                        typing: typing.typing,
+                    })
+                    .await;
+                self.answer(id, result);
+            }
+            Body::ConversationPresence(presence) => {
+                let result = self
+                    .forward_signal(CONVERSATION_PRESENCE_SUBJECT, &presence.conversation_id, |user_id, conversation_id| {
+                        ConversationPresenceSignal { user_id, conversation_id, present: presence.present }
+                    })
+                    .await;
+                self.answer(id, result);
+            }
+        }
+        None
+    }
+
+    /// Answers a client frame: `Ack` or `Error` echoing its ID. Frames sent
+    /// with ID 0 asked for no answer and get none.
+    fn answer(&self, id: u64, result: Result<(), Rejection>) {
+        if result.is_err() {
+            self.gateway.counters.frames_rejected.incr();
+        }
+        if id == 0 {
+            return;
+        }
+        match result {
+            Ok(()) => self.client.reply(frames::ack(id)),
+            Err(rejection) => self.client.reply(frames::error(id, rejection, false)),
+        }
+    }
+
+    /// Queues a fatal `Error`; the caller ends the session with the result.
+    fn fatal(&self, reply_to: u64, rejection: Rejection) -> CloseReason {
+        self.gateway.counters.frames_rejected.incr();
+        self.client.reply(frames::error(reply_to, rejection, true));
+        CloseReason::Fatal
+    }
+
+    // ── Hello ──
+
+    async fn on_hello(&mut self, id: u64, hello: Hello) -> Option<CloseReason> {
+        let claimed = match self.authenticate(&hello.access_token) {
+            Ok(claimed) => claimed,
+            // The reason (TOKEN_EXPIRED, TOKEN_INVALID, SESSION_REVOKED)
+            // tells the client whether refreshing its token will help.
+            Err(reason) => return Some(self.fatal(id, Rejection::new(Code::Unauthenticated, reason))),
+        };
+        // A connection may sign in, and refresh its token, but never become
+        // someone else: routes and presence are bound to the user.
+        if let Some(current) = &self.auth
+            && claimed.as_ref().map(|claimed| claimed.user_id) != Some(current.user_id)
+        {
+            return Some(self.fatal(id, USER_MISMATCH));
+        }
+        let subscriber = claimed.as_ref().map(|claimed| claimed.user_id);
+        let new_topics = match self.plan_subscriptions(&hello.topics, subscriber).await {
+            Ok(new_topics) => new_topics,
+            Err(rejection) => {
+                // Nothing was applied; the client may correct its Hello.
+                self.gateway.counters.frames_rejected.incr();
+                self.client.reply(frames::error(id, rejection, false));
+                return None;
+            }
+        };
+
+        if let Some(claimed) = claimed {
+            if self.auth.is_none() {
+                // Before `Welcome` goes out, so that a client which then
+                // fetches a snapshot cannot miss an event in between.
+                if self.gateway.hub.join(RouteKey::User(claimed.user_id), &self.client).await.is_err() {
+                    return Some(self.fatal(id, BUS_UNAVAILABLE));
+                }
+                self.gateway.counters.authenticated_connections.incr();
+            }
+            self.auth = Some(claimed);
+        }
+        if let Err(rejection) = self.join_topics(new_topics).await {
+            return Some(self.fatal(id, rejection));
+        }
+        self.welcomed = true;
+        self.set_foreground(hello.foreground);
+        self.client.reply(frames::welcome(id, self.welcome()));
+        tracing::debug!(
+            connection = %self.client.id,
+            user = subscriber.map(|user_id| user_id.to_string()),
+            platform = ?hello.platform,
+            app_version = hello.app_version,
+            foreground = hello.foreground,
+            "realtime hello accepted"
+        );
+        None
+    }
+
+    fn authenticate(&self, access_token: &str) -> Result<Option<Auth>, &'static str> {
+        if access_token.is_empty() {
+            return Ok(None);
+        }
+        let verified = self.gateway.core.tokens.verify(access_token)?;
+        let lifetime = (verified.expires_at - Utc::now()).to_std().unwrap_or_default();
+        let now = Instant::now();
+        Ok(Some(Auth {
+            user_id: verified.user_id,
+            session_id: verified.session_id,
+            expires_at: now + lifetime,
+            grace_until: None,
+            next_revocation_check: now + self.gateway.cfg.revocation_check,
+        }))
+    }
+
+    fn welcome(&self) -> Welcome {
+        let cfg = &self.gateway.cfg;
+        let seconds = |duration: std::time::Duration| duration.as_secs().clamp(1, i32::MAX as u64) as i32;
+        Welcome {
+            connection_id: self.client.id.to_string(),
+            user_id: self.auth.as_ref().map(|auth| auth.user_id.to_string()).unwrap_or_default(),
+            server_time: ts(now()),
+            ping_interval_seconds: seconds(cfg.ping_interval),
+            transport: self.client.transport.as_str().to_owned(),
+            moving_interval_seconds: seconds(cfg.moving_interval),
+            stationary_interval_seconds: seconds(cfg.stationary_interval),
+            ..Default::default()
+        }
+    }
+
+    // ── Presence ──
+
+    fn set_foreground(&mut self, foreground: bool) {
+        self.foreground = foreground;
+        let Some(auth) = &self.auth else { return };
+        match (foreground, self.counted_online) {
+            (true, false) => self.gateway.presence.foreground_started(auth.user_id),
+            (false, true) => self.gateway.presence.foreground_ended(auth.user_id),
+            _ => return,
+        }
+        self.counted_online = foreground;
+    }
+
+    // ── Topics ──
+
+    async fn subscribe(&mut self, requested: &[String]) -> Result<(), Rejection> {
+        let subscriber = self.auth.as_ref().map(|auth| auth.user_id);
+        let new_topics = self.plan_subscriptions(requested, subscriber).await?;
+        self.join_topics(new_topics).await
+    }
+
+    /// Validates a subscription request as a whole and returns the topics it
+    /// would add. Nothing is changed yet.
+    async fn plan_subscriptions(&self, requested: &[String], subscriber: Option<Uuid>) -> Result<Vec<String>, Rejection> {
+        let max_topics = self.gateway.cfg.max_topics;
+        if requested.len() > max_topics {
+            return Err(TOO_MANY_TOPICS);
+        }
+        let mut new_topics: Vec<String> = Vec::new();
+        for topic in requested {
+            topics::validate(topic)?;
+            if !self.topics.contains(topic) && !new_topics.contains(topic) {
+                new_topics.push(topic.clone());
+            }
+        }
+        if self.topics.len() + new_topics.len() > max_topics {
+            return Err(TOO_MANY_TOPICS);
+        }
+        for topic in &new_topics {
+            topics::authorize(&self.gateway.core.topic_guards, subscriber, topic).await?;
+        }
+        Ok(new_topics)
+    }
+
+    /// Joins all the given topics, or none of them.
+    async fn join_topics(&mut self, new_topics: Vec<String>) -> Result<(), Rejection> {
+        let hub = &self.gateway.hub;
+        for (joined, topic) in new_topics.iter().enumerate() {
+            if hub.join(RouteKey::Topic(topic.clone()), &self.client).await.is_err() {
+                for topic in &new_topics[..joined] {
+                    hub.leave(&RouteKey::Topic(topic.clone()), &self.client);
+                }
+                return Err(BUS_UNAVAILABLE);
+            }
+        }
+        for topic in new_topics {
+            self.gateway.audience.touch(&topic);
+            self.topics.insert(topic);
+        }
+        Ok(())
+    }
+
+    fn unsubscribe(&mut self, topics: &[String]) {
+        for topic in topics {
+            if self.topics.remove(topic) {
+                self.gateway.hub.leave(&RouteKey::Topic(topic.clone()), &self.client);
+                self.gateway.audience.touch(topic);
+            }
+        }
+    }
+
+    // ── Signals passed on to the domains ──
+
+    fn user_id(&self) -> Result<Uuid, Rejection> {
+        self.auth.as_ref().map(|auth| auth.user_id).ok_or(SIGN_IN_REQUIRED)
+    }
+
+    async fn on_location(&mut self, sample: LocationSample) -> Result<(), Rejection> {
+        let user_id = self.user_id()?;
+        if !self.location_limit.allow() {
+            return Err(RATE_LIMITED);
+        }
+        let received_at = Utc::now();
+        let sample = location::validate(sample, received_at)?;
+        presence::submit_location(&self.gateway.core.bus, &LocationReport { user_id, received_at, sample }).await.map_err(|_| BUS_UNAVAILABLE)?;
+        self.gateway.counters.locations_forwarded.incr();
+        Ok(())
+    }
+
+    /// Publishes a typing / conversation presence signal for the chat domain,
+    /// which knows whether the user is in that conversation at all.
+    async fn forward_signal<T: Serialize>(
+        &mut self,
+        subject: &'static str,
+        conversation_id: &str,
+        signal: impl FnOnce(Uuid, Uuid) -> T,
+    ) -> Result<(), Rejection> {
+        let user_id = self.user_id()?;
+        if !self.signal_limit.allow() {
+            return Err(RATE_LIMITED);
+        }
+        let conversation_id = Uuid::parse_str(conversation_id).map_err(|_| CONVERSATION_ID_INVALID)?;
+        let payload = serde_json::to_vec(&signal(user_id, conversation_id)).map_err(|_| FRAME_INVALID)?;
+        self.gateway.core.bus.publish(subject, payload).await.map_err(|_| BUS_UNAVAILABLE)
+    }
+}

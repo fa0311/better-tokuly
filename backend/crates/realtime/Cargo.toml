@@ -1,0 +1,47 @@
+[package]
+name = "tokuly-realtime"
+description = "Realtime gateway: WebTransport + WebSocket fan-out of live events."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+tokuly-core.workspace = true
+tokuly-proto.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+futures.workspace = true
+axum.workspace = true
+http.workspace = true
+bytes.workspace = true
+connectrpc.workspace = true
+buffa.workspace = true
+# `quinn` exposes the QUIC transport settings (stream and datagram limits).
+wtransport = { workspace = true, features = ["quinn"] }
+redis.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+url.workspace = true
+clap.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+parking_lot.workspace = true
+dashmap.workspace = true
+hex.workspace = true
+
+[dev-dependencies]
+tokuly-testkit.workspace = true
+# The version axum uses, so the tests add no second copy of it.
+tokio-tungstenite = "0.29"
+async-nats.workspace = true
+# Tests mint short-lived access tokens to exercise token expiry.
+ed25519-dalek.workspace = true
+tempfile.workspace = true
+# Tests implement `tokuly_core::realtime::TopicGuard`.
+async-trait.workspace = true
