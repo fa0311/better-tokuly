@@ -2,8 +2,9 @@
 //!
 //! Both paths run in one transaction that locks the case, applies the
 //! action (see [`crate::sanctions`] for account sanctions), emits
-//! `admin.content.removed` for takedowns, notifies the owner and the
-//! reporters, and writes the moderation and audit logs.
+//! `admin.content.removed` for takedowns and `admin.report.resolved` for the
+//! reports it settles, notifies the owner and the reporters, and writes the
+//! moderation and audit logs.
 use buffa::EnumValue;
 use chrono::{DateTime, Utc};
 use sqlx::PgConnection;
@@ -15,7 +16,7 @@ use crate::{
     actions::{ActionRow, NewAction},
     audit::Audit,
     cases::{CaseRow, STATUS_RESOLVED, case_columns},
-    events::{CONTENT_REMOVED, ContentRemoved},
+    events::{CONTENT_REMOVED, ContentRemoved, REPORT_RESOLVED, ReportResolved},
     notices,
     sanctions::{Sanction, Target},
     staff::{Staff, note_text, reason_text, suspension_duration},
@@ -151,7 +152,7 @@ impl Admin {
             };
             actions.push(self.remove_content(&mut tx, staff, removal).await?);
         }
-        self.notify_reporters(&mut tx, case.id, resolution.action != DISMISS).await?;
+        self.settle_reports(&mut tx, staff, case.id, resolution.action != DISMISS).await?;
 
         let resolved: CaseRow = sqlx::query_as(concat!(
             "UPDATE moderation_cases
@@ -282,15 +283,22 @@ impl Admin {
         Ok(action)
     }
 
-    /// Tells everyone who reported the subject that the case was handled.
-    async fn notify_reporters(&self, conn: &mut PgConnection, case_id: Uuid, action_taken: bool) -> AppResult<()> {
-        let reporters: Vec<Uuid> = sqlx::query_scalar("SELECT DISTINCT reporter_id FROM moderation_reports WHERE case_id = $1 AND reporter_id IS NOT NULL")
-            .bind(case_id)
-            .fetch_all(&mut *conn)
-            .await?;
+    /// Tells everyone who reported the subject that the case was handled, and
+    /// the domain that took the reports which of them are settled and how.
+    async fn settle_reports(&self, conn: &mut PgConnection, staff: &Staff, case_id: Uuid, action_taken: bool) -> AppResult<()> {
+        let reports: Vec<(Uuid, Option<Uuid>)> =
+            sqlx::query_as("SELECT id, reporter_id FROM moderation_reports WHERE case_id = $1 ORDER BY created_at, id").bind(case_id).fetch_all(&mut *conn).await?;
+        if reports.is_empty() {
+            return Ok(());
+        }
+        let mut reporters: Vec<Uuid> = reports.iter().filter_map(|(_, reporter_id)| *reporter_id).collect();
+        reporters.sort_unstable();
+        reporters.dedup();
         for reporter_id in reporters {
             outbound::notify(&mut *conn, &notices::report_resolved(reporter_id, case_id, action_taken)).await?;
         }
+        let settled = ReportResolved { report_ids: reports.into_iter().map(|(report_id, _)| report_id).collect(), action_taken };
+        core_events::emit(&mut *conn, REPORT_RESOLVED, Some(staff.id), &settled).await?;
         Ok(())
     }
 

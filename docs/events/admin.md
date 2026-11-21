@@ -39,6 +39,7 @@ commits in one transaction. The account lock itself is committed by identity
 | Topic | Payload | When |
 |---|---|---|
 | `admin.content.removed` | `{ subject_type, subject_id, reason, moderator_id }` (`tokuly_admin::events::ContentRemoved`) | A moderator took content down (case resolution or direct takedown). `subject_type` is `tokuly.common.v1.SubjectType` as its number. Actor: the moderator. |
+| `admin.report.resolved` | `{ report_ids, action_taken }` (`tokuly_admin::events::ReportResolved`) | A moderator resolved a case. `report_ids` are the `report_id`s of every `engagement.report.created` filed into it; `action_taken` is false for a dismissal. Actor: the moderator. The engagement domain uses it to show reporters the outcome. |
 
 **What the owning domain does with it:** delete or hide the subject (and
 whatever hangs off it), unindex it, and treat an unknown or already removed

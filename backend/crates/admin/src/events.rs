@@ -3,6 +3,8 @@
 //! Emitted:
 //! - [`CONTENT_REMOVED`] — [`ContentRemoved`]: the domain owning the subject
 //!   deletes or hides it.
+//! - [`REPORT_RESOLVED`] — [`ReportResolved`]: the reports of a case were
+//!   decided, so the domain that took them can show their outcome.
 //!
 //! Consumed:
 //! - [`REPORT_CREATED`] — [`ReportCreated`], from the engagement domain.
@@ -13,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 pub const CONTENT_REMOVED: &str = "admin.content.removed";
+pub const REPORT_RESOLVED: &str = "admin.report.resolved";
 pub const REPORT_CREATED: &str = "engagement.report.created";
 pub const USER_CREATED: &str = "identity.user.created";
 pub const USER_DELETED: &str = "identity.user.deleted";
@@ -26,6 +29,16 @@ pub struct ContentRemoved {
     /// The reason shown to the owner.
     pub reason: String,
     pub moderator_id: Uuid,
+}
+
+/// A moderator decided a case: every report filed into it is settled.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReportResolved {
+    /// The `report_id`s of the `engagement.report.created` events in the case.
+    pub report_ids: Vec<Uuid>,
+    /// False for a dismissal; true when content was removed or the owner was
+    /// warned, suspended or banned.
+    pub action_taken: bool,
 }
 
 /// A user reported a subject (our view of engagement's payload).

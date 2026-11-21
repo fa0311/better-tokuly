@@ -52,6 +52,11 @@ async fn dismissing_closes_the_case_and_only_tells_the_reporters() {
         assert!(notices[0].inbox && !notices[0].push);
         assert_eq!(notices[0].data["action_taken"], false);
     }
+    // Every report of the case is settled in one event, without action.
+    let settled = app.events_by("admin.report.resolved", moderator.id).await;
+    assert_eq!(settled.len(), 1);
+    assert_eq!(settled[0].data["action_taken"], false);
+    assert_eq!(settled[0].data["report_ids"].as_array().map(Vec::len), Some(3));
     // The owner is left alone and nothing is taken down.
     assert!(notifications_for(&app, owner.id).await.is_empty());
     assert!(removals(&app, &moderator, &subject.1.to_string()).await.is_empty());
@@ -91,6 +96,12 @@ async fn removing_content_emits_the_takedown_event_and_notifies_owner_and_report
             "moderator_id": moderator.id,
         })
     );
+
+    // The reports of the case are settled, with action taken.
+    let settled = app.events_by("admin.report.resolved", moderator.id).await;
+    let settled = settled.last().expect("report resolution event");
+    assert_eq!(settled.data["action_taken"], true);
+    assert_eq!(settled.data["report_ids"].as_array().map(Vec::len), Some(1));
 
     let owner_notices = notifications_for(&app, owner.id).await;
     assert_eq!(owner_notices.len(), 1);
