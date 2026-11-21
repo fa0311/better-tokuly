@@ -96,7 +96,7 @@ idempotent.
 | Topic | Reaction |
 |---|---|
 | `admin.content.removed` `{ subject_type, subject_id, … }` | `SUBJECT_TYPE_COMMENT`: the comment is deleted with its replies (counters, realtime and `engagement.comment.deleted` as for any deletion). Any other type: everything engagement kept about the subject is purged — comments with their uploads and likes, reactions, bookmarks, share counts, counters. Either way the open reports about the subject become `ACTION_TAKEN`. |
-| `admin.report.resolved` `{ report_ids: [uuid], action_taken: bool }` | The named reports become `ACTION_TAKEN` / `NO_ACTION`. **The admin domain does not emit this today** (see "Gaps"); the handler is ready for when it does. |
+| `admin.report.resolved` `{ report_ids: [uuid], action_taken: bool }` | The named reports become `ACTION_TAKEN` / `NO_ACTION`. Emitted by the admin domain when a moderator resolves the case the reports were filed into. |
 | `identity.user.deleted` `{ user_id }` | Erased: the user's comments (threads go with their replies), reactions, bookmarks and collections, reports they filed, screening rules, comment blocks (as owner and as blocked), mentions of them. Purged: everything on the subjects they owned. Reports about them or their content stay, without the owner reference. Counters of other people's subjects follow, with callbacks. Works in batches of 200 per transaction. |
 | `social.user.blocked` `{ user_id, blocked_id }` | Everything the blocked user wrote on the blocker's subjects is hidden (`HIDDEN`, reason `BLOCKED_COMMENTER`) for everyone and leaves the blocker's review queue. Unblocking restores nothing; the owner can approve the comments. |
 | `media.asset.deleted` `{ asset_id, … }` | Safety net for forced deletions (a comment holds its image as `engagement:comment:<id>`, so owners and the janitor cannot delete it). A comment with text loses the image; a comment that was only the image is deleted. |
@@ -201,11 +201,6 @@ in `core.topic_guards`.
 
 ## Gaps and requests
 
-- **Report outcomes.** Admin emits no event when a case is resolved, so a
-  dismissed report stays `SUBMITTED` (and is superseded after
-  `TOKULY_ENGAGEMENT_REPORT_REPEAT_DAYS` if the user reports again). If
-  admin emitted `admin.report.resolved { report_ids, action_taken }` from
-  its resolution transaction, statuses would follow without a change here.
 - **Deleted content.** Engagement cannot tell a deleted subject from one the
   viewer may not see, so rows of content deleted by its owner stay (shown as
   unavailable in "my comments", "my reactions" and bookmarks; counted

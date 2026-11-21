@@ -269,26 +269,8 @@ impl Engagement {
         if delta == 0 {
             return;
         }
-        // `Subjects::counter_changed` keeps its registry lock across the
-        // resolver's await, which makes its future `!Send` — and with it
-        // every RPC handler that awaited it. Driving it on a blocking thread
-        // keeps that out of the handlers' futures.
-        let core = self.core.clone();
-        let runtime = tokio::runtime::Handle::current();
-        let called = tokio::task::spawn_blocking(move || {
-            runtime.block_on(async move {
-                core.subjects.counter_changed(key.subject_type(), key.id, counter.name(), delta).await
-            })
-        })
-        .await;
-        match called {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) => {
-                tracing::warn!(subject_type = key.kind, subject_id = %key.id, counter = counter.name(), %error, "counter callback failed")
-            }
-            Err(error) => {
-                tracing::warn!(subject_type = key.kind, subject_id = %key.id, counter = counter.name(), %error, "counter callback panicked")
-            }
+        if let Err(error) = self.core.subjects.counter_changed(key.subject_type(), key.id, counter.name(), delta).await {
+            tracing::warn!(subject_type = key.kind, subject_id = %key.id, counter = counter.name(), %error, "counter callback failed");
         }
     }
 

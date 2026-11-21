@@ -99,8 +99,8 @@ pub const USER_DELETED: &str = "identity.user.deleted";
 pub const USER_BLOCKED: &str = "social.user.blocked";
 pub const ASSET_DELETED: &str = "media.asset.deleted";
 pub const CONTENT_REMOVED: &str = "admin.content.removed";
-/// Not emitted by the admin domain today; consumed so that report statuses
-/// follow as soon as it is. Payload: [`ReportResolved`].
+/// A moderator resolved the case the reports were filed into. Payload:
+/// [`ReportResolved`].
 pub const REPORT_RESOLVED: &str = "admin.report.resolved";
 
 /// `admin.content.removed`: a moderator took content down.
