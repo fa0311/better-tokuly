@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Tokuly web app (TanStack Start).",
+  "license": "MIT",
   "imports": {
     "#/*": "./src/*"
   },

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Generated TypeScript API (Protobuf + Connect RPC) and client helpers shared by web, mobile and desktop.",
+  "license": "MIT",
   "exports": {
     ".": "./src/index.ts",
     "./gen/*": "./src/gen/*"

@@ -74,6 +74,11 @@ pnpm install && pnpm proto:gen && pnpm dev:web         # http://localhost:3000
 バックエンドの規約は [`backend/README.md`](backend/README.md)、Web の規約は
 [`apps/web/README.md`](apps/web/README.md)、機能の範囲は [`docs/domains.md`](docs/domains.md) にあります。
 
+## ライセンス
+
+[MIT](LICENSE)。同梱している地名・境界データの出典とライセンスは
+[`backend/crates/geo/data/README.md`](backend/crates/geo/data/README.md) を参照してください。
+
 ---
 
 **English.** Tokuly is a super app built around a live map of your friends (in the spirit of Bump / Zenly):

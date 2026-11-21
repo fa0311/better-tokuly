@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Realtime client: WebTransport with WebSocket fallback, speaking tokuly.realtime.v1 frames.",
+  "license": "MIT",
   "exports": {
     ".": "./src/index.ts"
   },

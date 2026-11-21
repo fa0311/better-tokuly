@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "description": "Tokuly — your now to your friends. Location sharing, chat, notes, video, live and shorts in one app.",
+  "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@12.21.0",
   "engines": {
