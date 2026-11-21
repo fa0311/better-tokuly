@@ -152,7 +152,7 @@ impl PushService for Notify {
                     "Push notifications are working 🎉",
                 ),
                 image_url: None,
-                path: "/settings/notifications".to_owned(),
+                path: "/notifications/settings".to_owned(),
                 collapse_key: Some("notify:test".to_owned()),
                 badge: i64::from(inbox::unread_count(&self.core.db, user_id).await?.total),
                 data: serde_json::Value::Null,

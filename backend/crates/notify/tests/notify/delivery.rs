@@ -506,7 +506,7 @@ async fn a_test_push_reaches_the_device_even_during_quiet_hours() {
     assert_eq!(message["notification"]["title"], "テスト通知だよ！");
     assert_eq!(
         message["notification"]["navigate"],
-        "http://localhost:8080/settings/notifications"
+        "http://localhost:8080/notifications/settings"
     );
 }
 
