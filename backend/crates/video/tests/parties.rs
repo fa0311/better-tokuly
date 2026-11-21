@@ -315,6 +315,9 @@ async fn guests_join_by_link_and_listen_on_a_topic_of_their_own() {
     // A second guest gets a different topic.
     let other = join_as_guest(&ctx, &session, "ゲスト花子").await;
     assert_ne!(other.realtime_topic, guest.realtime_topic);
+    assert!(
+        matches!(next_push(&mut member_topic).await, Push::PartyMemberJoined(member) if member.name == "ゲスト花子")
+    );
 
     // Guests act with their token: get, heartbeat, chat. Events reach every topic.
     let get =
@@ -846,7 +849,14 @@ async fn friends_can_be_invited() {
         )
         .await
         .unwrap();
-    let invitations = ctx.app.events_by("notify.requested", alice.id).await;
+    // (Alice's friend requests are in the outbox, too.)
+    let invitations: Vec<_> = ctx
+        .app
+        .events_by("notify.requested", alice.id)
+        .await
+        .into_iter()
+        .filter(|event| event.data["kind"] == "video.party_invite")
+        .collect();
     assert_eq!(invitations.len(), 1, "one per friend, and none for those already inside");
     let invitation = &invitations[0].data;
     assert_eq!(

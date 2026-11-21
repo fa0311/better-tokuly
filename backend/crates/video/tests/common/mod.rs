@@ -119,10 +119,10 @@ pub fn pushes(frames: Vec<tokuly_proto::realtime::ServerFrame>) -> Vec<Push> {
 pub async fn next_push(listener: &mut FrameListener) -> Push {
     loop {
         let frame = listener.next(SOON).await.expect("a realtime frame should arrive");
-        if let Some(Body::Video(event)) = frame.body {
-            if let Some(push) = event.event {
-                return push;
-            }
+        if let Some(Body::Video(event)) = frame.body
+            && let Some(push) = event.event
+        {
+            return push;
         }
     }
 }

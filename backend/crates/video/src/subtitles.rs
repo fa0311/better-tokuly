@@ -487,10 +487,10 @@ pub async fn update(core: &Core, owner_id: Uuid, track: &SubtitleRow, edit: Subt
     }
     tx.commit().await?;
     // The previous file is no longer referenced.
-    if content.as_ref().is_some_and(|(key, _)| *key != track.object_key) {
-        if let Err(error) = core.storage.delete(Bucket::Media, &track.object_key).await {
-            tracing::warn!(key = %track.object_key, %error, "could not delete a replaced subtitle file");
-        }
+    if content.as_ref().is_some_and(|(key, _)| *key != track.object_key)
+        && let Err(error) = core.storage.delete(Bucket::Media, &track.object_key).await
+    {
+        tracing::warn!(key = %track.object_key, %error, "could not delete a replaced subtitle file");
     }
     Ok(find(core, track.id).await?.to_proto(core))
 }

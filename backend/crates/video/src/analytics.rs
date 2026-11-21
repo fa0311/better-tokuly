@@ -350,16 +350,31 @@ pub async fn retention(core: &Core, video: &VideoRow, range: &Range) -> AppResul
 /// Views of the recent past: per hour for the last 48 hours and per minute
 /// for the last 60 minutes, oldest first (the last entry is the current
 /// hour / minute).
+///
+/// Slots are cut on the Unix clock (`timestamp / slot length`), not with
+/// `dateDiff`, which compares wall-clock fields and so depends on the time
+/// zones of its arguments and of the ClickHouse server.
 pub async fn realtime(core: &Core, scope: Scope) -> AppResult<(Vec<i64>, Vec<i64>)> {
     let target = scope.target().to_string();
-    let series = |unit: &'static str, window: &'static str, slots: usize| {
+    let series = |slot_seconds: i64, slots: usize| {
         let sql = format!(
-            "SELECT toInt64(dateDiff('{unit}', at, now64(3))) AS ago, toUInt64(count()) AS views FROM events
-             WHERE owner_id = toUUID(?) AND name = 'video.view' AND at > now64(3) - INTERVAL {window} AND {}
+            "SELECT toInt64(intDiv(toInt64(toUnixTimestamp(now())), ?) - intDiv(toInt64(toUnixTimestamp(at)), ?)) AS ago,
+                    toUInt64(count()) AS views
+             FROM events
+             WHERE owner_id = toUUID(?) AND name = 'video.view' AND at > now() - toIntervalSecond(?) AND {}
              GROUP BY ago",
             scope.predicate()
         );
-        let query = core.analytics.ch.query(&sql).bind(scope.owner_id().to_string()).bind(&target).bind(&target);
+        let query = core
+            .analytics
+            .ch
+            .query(&sql)
+            .bind(slot_seconds)
+            .bind(slot_seconds)
+            .bind(scope.owner_id().to_string())
+            .bind(slot_seconds * slots as i64)
+            .bind(&target)
+            .bind(&target);
         async move {
             let rows: Vec<(i64, u64)> = query.fetch_all().await.map_err(unavailable)?;
             let mut out = vec![0i64; slots];
@@ -371,7 +386,7 @@ pub async fn realtime(core: &Core, scope: Scope) -> AppResult<(Vec<i64>, Vec<i64
             AppResult::Ok(out)
         }
     };
-    let (hours, minutes) = tokio::try_join!(series("hour", "48 HOUR", 48), series("minute", "60 MINUTE", 60))?;
+    let (hours, minutes) = tokio::try_join!(series(3600, 48), series(60, 60))?;
     Ok((hours, minutes))
 }
 

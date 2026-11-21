@@ -543,10 +543,8 @@ pub async fn create_from_asset(core: &Core, new: NewVideo) -> AppResult<Uuid> {
 
     // The asset may have finished between our read and the insert, in which
     // case its `ready` event found no video to update: catch up now.
-    if !ready {
-        if let Some(row) = find_by_id(core, video_id).await? {
-            sync_processing(core, &row).await?;
-        }
+    if !ready && let Some(row) = find_by_id(core, video_id).await? {
+        sync_processing(core, &row).await?;
     }
     Ok(video_id)
 }
@@ -773,10 +771,8 @@ async fn apply_ready(core: &Core, video: &VideoRow, asset: &AssetRow) -> AppResu
     }
     let mut row = find_in(&mut tx, video.id).await?.ok_or_else(not_found)?;
     let due = row.status == SCHEDULED && row.scheduled_at.is_none_or(|at| at <= now());
-    if due {
-        if let Some(published) = publish_now_in(&mut tx, row.id).await? {
-            row = published;
-        }
+    if due && let Some(published) = publish_now_in(&mut tx, row.id).await? {
+        row = published;
     }
     let (ja, en) = if row.is_published() {
         (

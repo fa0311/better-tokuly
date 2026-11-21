@@ -233,15 +233,16 @@ async fn a_suspended_account_disappears_until_it_is_reinstated() {
         ctx.call(PLAYLISTS, "CreatePlaylist", Some(&alice), &playlist).await.unwrap();
     let playlist_id = playlist.playlist.id.clone();
 
-    ctx.deliver_event("identity.user.banned", None, serde_json::json!({ "user_id": alice.id })).await;
-    assert_eq!(ctx.get_channel(Some(&bob), &channel_id).await.unwrap_err().reason, "CHANNEL_NOT_FOUND");
-    assert_eq!(ctx.get_video(None, &video_id).await.unwrap_err().reason, "VIDEO_NOT_FOUND");
-    let get = GetPlaylistRequest { playlist_id: playlist_id.clone(), ..Default::default() };
+    // What identity does when a moderator suspends the account: the flag, then the event.
     sqlx::query("UPDATE users SET banned_at = now() WHERE id = $1")
         .bind(alice.id)
         .execute(&ctx.app.core.db)
         .await
         .unwrap();
+    ctx.deliver_event("identity.user.banned", None, serde_json::json!({ "user_id": alice.id })).await;
+    assert_eq!(ctx.get_channel(Some(&bob), &channel_id).await.unwrap_err().reason, "CHANNEL_NOT_FOUND");
+    assert_eq!(ctx.get_video(None, &video_id).await.unwrap_err().reason, "VIDEO_NOT_FOUND");
+    let get = GetPlaylistRequest { playlist_id: playlist_id.clone(), ..Default::default() };
     assert_eq!(ctx.reason(PLAYLISTS, "GetPlaylist", Some(&bob), &get).await, "PLAYLIST_NOT_FOUND");
     let batch: BatchGetVideosResponse = ctx
         .call(

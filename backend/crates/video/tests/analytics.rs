@@ -70,8 +70,11 @@ async fn channel_and_video_reports_add_up() {
         .unwrap();
     assert!(ctx.app.flush_analytics().await > 0);
 
-    let request =
-        GetChannelAnalyticsRequest { channel_id: channel_id.clone(), range: around_today().into(), ..Default::default() };
+    let request = GetChannelAnalyticsRequest {
+        channel_id: channel_id.clone(),
+        range: around_today().into(),
+        ..Default::default()
+    };
     let report: GetChannelAnalyticsResponse =
         ctx.call(ANALYTICS, "GetChannelAnalytics", Some(&alice), &request).await.unwrap();
     let totals = report.totals.as_option().unwrap();
@@ -122,8 +125,11 @@ async fn channel_and_video_reports_add_up() {
     assert_eq!((report.retention[40], report.retention[99]), (0.0, 0.0));
     // A video nobody watched has no curve.
     let unwatched = ctx.public_video(&alice, &channel, "unwatched").await;
-    let request =
-        GetVideoAnalyticsRequest { video_id: card(&unwatched).id.clone(), range: around_today().into(), ..Default::default() };
+    let request = GetVideoAnalyticsRequest {
+        video_id: card(&unwatched).id.clone(),
+        range: around_today().into(),
+        ..Default::default()
+    };
     let report: GetVideoAnalyticsResponse =
         ctx.call(ANALYTICS, "GetVideoAnalytics", Some(&alice), &request).await.unwrap();
     assert!(report.retention.is_empty() && report.totals.views == 0 && report.daily.len() == 3);

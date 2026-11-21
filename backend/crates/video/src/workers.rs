@@ -102,7 +102,7 @@ impl Video {
                             Err(error) => tracing::error!(%error, "publishing scheduled videos failed"),
                         }
                         runs += 1;
-                        if runs % RECONCILE_EVERY == 0 {
+                        if runs.is_multiple_of(RECONCILE_EVERY) {
                             match videos::reconcile_processing(&video.core).await {
                                 Ok(0) => {}
                                 Ok(count) => tracing::info!(count, "caught up videos with their processed uploads"),
@@ -350,12 +350,12 @@ impl Video {
             if let Some(channel) = channels::find_by_id(core, removed.subject_id).await? {
                 channels::delete(core, &channel, None, true).await?;
             }
-        } else if removed.subject_type == SubjectType::SUBJECT_TYPE_PLAYLIST as i32 {
-            if let Some(playlist) = playlists::find_by_id(core, removed.subject_id).await? {
-                let mut tx = core.db.begin().await?;
-                playlists::delete_in(&mut tx, playlist.id, playlist.owner_id, None).await?;
-                tx.commit().await?;
-            }
+        } else if removed.subject_type == SubjectType::SUBJECT_TYPE_PLAYLIST as i32
+            && let Some(playlist) = playlists::find_by_id(core, removed.subject_id).await?
+        {
+            let mut tx = core.db.begin().await?;
+            playlists::delete_in(&mut tx, playlist.id, playlist.owner_id, None).await?;
+            tx.commit().await?;
         }
         Ok(())
     }

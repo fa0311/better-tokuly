@@ -138,11 +138,11 @@ impl Video {
     }
 
     /// Reloads a party and pushes it to everyone in it.
-    async fn push_party_updated(&self, party_id: Uuid) -> AppResult<Party> {
+    async fn push_party_updated(&self, party_id: Uuid) -> AppResult<()> {
         let row = party::find(&self.core, party_id).await?.ok_or_else(party::not_found)?;
         let pushed = self.party_push_proto(&row).await?;
         party::push_to_party(&self.core, party_id, Push::PartyUpdated(Box::new(pushed))).await;
-        Ok(self.party_push_proto(&row).await?)
+        Ok(())
     }
 }
 
@@ -286,13 +286,17 @@ impl WatchPartyService for Video {
                 (None, "") => None,
                 (None, token) => Some(Caller::Guest(token.to_owned())),
             };
-            if let Some(caller) = &returning {
-                if let Some(seat) = party::seat_in(&mut tx, core, row.id, caller).await? {
-                    sqlx::query("UPDATE watch_party_members SET last_seen_at = now() WHERE id = $1").bind(seat.id).execute(&mut *tx).await?;
-                    tx.commit().await?;
-                    let token = user_id.is_none().then(|| req.guest_token.trim().to_owned());
-                    return ok(JoinPartyResponse { session: self.party_session(&viewer, &row, &seat, token).await?.into(), ..Default::default() });
-                }
+            if let Some(caller) = &returning
+                && let Some(seat) = party::seat_in(&mut tx, core, row.id, caller).await?
+            {
+                sqlx::query("UPDATE watch_party_members SET last_seen_at = now() WHERE id = $1")
+                    .bind(seat.id)
+                    .execute(&mut *tx)
+                    .await?;
+                tx.commit().await?;
+                let token = user_id.is_none().then(|| req.guest_token.trim().to_owned());
+                let session = self.party_session(&viewer, &row, &seat, token).await?;
+                return ok(JoinPartyResponse { session: session.into(), ..Default::default() });
             }
 
             let ip_hash = self.party_ip_hash(&client.ip);

@@ -205,20 +205,19 @@ pub fn chapters(inputs: &[Chapter], duration: Option<f64>) -> AppResult<Vec<Chap
         chapters.push(Chapter { start_seconds: input.start_seconds, title: title.to_owned(), ..Default::default() });
     }
     chapters.sort_by(|a, b| a.start_seconds.total_cmp(&b.start_seconds));
-    if let Some(first) = chapters.first() {
-        if first.start_seconds != 0.0 {
-            return Err(bad("the first chapter must start at 0"));
-        }
+    if chapters.first().is_some_and(|first| first.start_seconds != 0.0) {
+        return Err(bad("the first chapter must start at 0"));
     }
     for pair in chapters.windows(2) {
         if pair[1].start_seconds - pair[0].start_seconds < MIN_CHAPTER_SECONDS {
             return Err(bad("chapters must be at least 5 seconds apart"));
         }
     }
-    if let (Some(last), Some(duration)) = (chapters.last(), duration) {
-        if chapters.len() > 1 && last.start_seconds >= duration {
-            return Err(bad("chapters must start before the video ends"));
-        }
+    if let (Some(last), Some(duration)) = (chapters.last(), duration)
+        && chapters.len() > 1
+        && last.start_seconds >= duration
+    {
+        return Err(bad("chapters must start before the video ends"));
     }
     Ok(chapters)
 }
