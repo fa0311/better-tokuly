@@ -1,0 +1,22 @@
+{
+  "name": "@tokuly/realtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Realtime client: WebTransport with WebSocket fallback, speaking tokuly.realtime.v1 frames.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "catalog:",
+    "@tokuly/api": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

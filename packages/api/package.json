@@ -1,0 +1,25 @@
+{
+  "name": "@tokuly/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Generated TypeScript API (Protobuf + Connect RPC) and client helpers shared by web, mobile and desktop.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./gen/*": "./src/gen/*"
+  },
+  "scripts": {
+    "generate": "buf generate --template buf.gen.yaml ../..",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "catalog:",
+    "@connectrpc/connect": "catalog:",
+    "@connectrpc/connect-web": "catalog:"
+  },
+  "devDependencies": {
+    "@bufbuild/buf": "catalog:",
+    "@bufbuild/protoc-gen-es": "catalog:",
+    "typescript": "catalog:"
+  }
+}
