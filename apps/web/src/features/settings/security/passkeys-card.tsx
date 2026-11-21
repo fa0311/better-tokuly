@@ -11,8 +11,8 @@ import { Dialog } from "#/components/ui/dialog";
 import { TextField } from "#/components/ui/field";
 import { ListRow, Skeleton } from "#/components/ui/page";
 import { accountClient, authClient } from "#/lib/api";
-import { errorMessage } from "#/lib/errors";
 import { keys, refreshMe } from "../data";
+import { errorMessage } from "../errors";
 import { Group } from "../shell/settings-page";
 
 /** A starting name for a new passkey, from what the browser says it runs on. */
@@ -32,7 +32,8 @@ export function PasskeysCard() {
   const supported = browserSupportsWebAuthn();
 
   // The account carries the passkey count and whether a password exists.
-  const changed = () => Promise.all([queryClient.invalidateQueries({ queryKey: keys.passkeys }), refreshMe().catch(() => {})]);
+  const changed = () =>
+    Promise.all([queryClient.invalidateQueries({ queryKey: keys.passkeys }), queryClient.invalidateQueries({ queryKey: keys.securityEvents }), refreshMe().catch(() => {})]);
 
   const remove = useMutation({
     mutationFn: (passkeyId: string) => accountClient().deletePasskey({ passkeyId }),

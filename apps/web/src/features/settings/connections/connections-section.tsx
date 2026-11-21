@@ -9,8 +9,8 @@ import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
 import { Skeleton } from "#/components/ui/page";
 import { accountClient } from "#/lib/api";
-import { errorMessage } from "#/lib/errors";
 import { keys } from "../data";
+import { errorMessage } from "../errors";
 import { SettingsPage, StateChip } from "../shell/settings-page";
 
 /** Services Tokuly can connect to; names and blurbs are `connections.providers.<id>`. */

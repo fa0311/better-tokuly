@@ -8,8 +8,8 @@ import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, ListRow, Skeleton } from "#/components/ui/page";
-import { errorMessage } from "#/lib/errors";
 import { friendClient, keys } from "../data";
+import { errorMessage } from "../errors";
 import { SettingsPage } from "../shell/settings-page";
 
 /** `/settings/privacy/blocked`: the people you blocked, most recent first, each with "unblock". */

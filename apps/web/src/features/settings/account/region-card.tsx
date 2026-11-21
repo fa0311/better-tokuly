@@ -8,9 +8,9 @@ import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { SelectField } from "#/components/ui/select";
 import { accountClient } from "#/lib/api";
-import { errorMessage } from "#/lib/errors";
 import { type Language, normalizeLanguage, setLanguage } from "#/lib/i18n";
 import { adoptMe } from "../data";
+import { errorMessage } from "../errors";
 import { Group } from "../shell/settings-page";
 import { allTimeZones, deviceTimeZone, searchTimeZones, zoneLabel, zoneOffset } from "./time-zone";
 
@@ -88,7 +88,9 @@ export function RegionCard({ me }: { me: identity.Me }) {
 function TimeZoneDialog({ current, onPick, onClose }: { current: string; onPick(zone: string): void; onClose(): void }) {
   const { t } = useTranslation("settings");
   const [query, setQuery] = useState("");
-  const matches = searchTimeZones(allTimeZones(), query);
+  // Before anything is typed, the zones most likely wanted lead the list: the current one and this device's.
+  const likely = query.trim() ? [] : [...new Set([current, deviceTimeZone()])];
+  const matches = [...likely, ...searchTimeZones(allTimeZones(), query).filter((zone) => !likely.includes(zone))];
   const shown = matches.slice(0, MAX_ZONES_SHOWN);
 
   return (

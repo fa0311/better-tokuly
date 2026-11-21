@@ -8,9 +8,9 @@ import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
 import { accountClient } from "#/lib/api";
-import { errorMessage } from "#/lib/errors";
 import { uploadAndProcess } from "#/lib/upload";
 import { adoptMe } from "../data";
+import { errorMessage } from "../errors";
 import { AVATAR_FRAME, BANNER_FRAME } from "./crop";
 import { ImageCropDialog } from "./image-crop-dialog";
 
@@ -73,7 +73,7 @@ export function ProfileImages({ me }: { me: identity.Me }) {
   const hasAvatar = Boolean(user?.avatar?.url);
 
   return (
-    <div className="sticker overflow-hidden rounded-card bg-surface">
+    <div className="sticker overflow-hidden rounded-card bg-surface" data-testid="profile-images">
       {/* Without a banner the profile shows the avatar's main colour, so this does too. */}
       <div
         data-testid="banner-preview"

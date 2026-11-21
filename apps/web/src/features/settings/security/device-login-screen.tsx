@@ -8,9 +8,9 @@ import { Card } from "#/components/ui/card";
 import { TextField } from "#/components/ui/field";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { authClient } from "#/lib/api";
-import { errorMessage } from "#/lib/errors";
 import { compactDuration } from "#/lib/format";
 import { keys } from "../data";
+import { errorMessage } from "../errors";
 import { SettingsPage } from "../shell/settings-page";
 
 const PLATFORM_KEYS: Record<number, "web" | "ios" | "android" | "desktop"> = {

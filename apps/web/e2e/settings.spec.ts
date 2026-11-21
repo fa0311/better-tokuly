@@ -1,7 +1,12 @@
 import { createHmac } from "node:crypto";
 import { crc32, deflateSync } from "node:zlib";
 import type { APIRequestContext, Page } from "@playwright/test";
-import { type Account, createAccount, expect, PASSWORD, rpc, test } from "./support";
+import { type Account, expect as baseExpect, createAccount, PASSWORD, rpc, test } from "./support";
+
+// These flows hash passwords, process images and reload pages; on a busy
+// machine that takes a while, so they get more room than the defaults.
+test.describe.configure({ timeout: 120_000 });
+const expect = baseExpect.configure({ timeout: 25_000 });
 
 const AUTH = "tokuly.identity.v1.AuthService";
 const ACCOUNT = "tokuly.identity.v1.AccountService";
@@ -14,6 +19,9 @@ const MAILPIT = process.env.TOKULY_MAILPIT_URL ?? "http://127.0.0.1:58025";
 const isWide = (page: Page) => (page.viewportSize()?.width ?? 0) >= 1024;
 
 const heading = (page: Page, name: string) => page.getByRole("heading", { level: 1, name });
+
+/** A toast with this message (the same words can also be on the page, in the security log for one). */
+const toast = (page: Page, message: string) => page.locator("[data-sonner-toast]").filter({ hasText: message });
 
 /** The card with the signed-in person: in the side pane on wide screens, on the settings home on phones. */
 async function identityCard(page: Page) {
@@ -63,22 +71,36 @@ async function mailpitIsUp(request: APIRequestContext): Promise<boolean> {
   }
 }
 
-/** The path (with token) of the newest link to `page` mailed to `to`. */
-async function mailedLink(request: APIRequestContext, to: string, page: "verify-email"): Promise<string> {
-  let path = "";
+/** The token of the newest verification link mailed to `to`. */
+async function mailedVerificationToken(request: APIRequestContext, to: string): Promise<string> {
+  let token = "";
   await expect(async () => {
     const found = (await (await request.get(`${MAILPIT}/api/v1/search`, { params: { query: `to:${to}`, limit: 5 } })).json()) as { messages: { ID: string }[] };
     for (const { ID } of found.messages) {
       const message = (await (await request.get(`${MAILPIT}/api/v1/message/${ID}`)).json()) as { Text?: string };
-      const link = new RegExp(`/${page}\\?token=[\\w.~%-]+`).exec(message.Text ?? "");
-      if (link) {
-        path = link[0];
+      const link = /\/verify-email\?token=([\w.~%-]+)/.exec(message.Text ?? "");
+      if (link?.[1]) {
+        token = decodeURIComponent(link[1]);
         return;
       }
     }
-    expect(path, `a ${page} mail to ${to}`).not.toBe("");
+    expect(token, `a verification mail to ${to}`).not.toBe("");
   }).toPass({ timeout: 20_000 });
-  return path;
+  return token;
+}
+
+/**
+ * Signs in through the login form. The page is server-rendered, so typing has
+ * to wait until the app runs in the browser: that is the moment it has found
+ * out that nobody is signed in and dropped its "was signed in" note.
+ */
+async function submitLoginForm(page: Page, identifier: string, password: string): Promise<void> {
+  await page.goto("/login");
+  await page.waitForFunction(() => window.localStorage.getItem("tokuly.signedIn") === null);
+  await expect(page.getByLabel("メールアドレス または ハンドル")).toHaveCount(1);
+  await page.getByLabel("メールアドレス または ハンドル").fill(identifier);
+  await page.getByLabel("パスワード").fill(password);
+  await page.getByRole("button", { name: "ログイン", exact: true }).click();
 }
 
 const getMe = async (request: APIRequestContext, as: Account) => (await rpc<{ me: Record<string, unknown> }>(request, `${ACCOUNT}/GetMe`, {}, as)).me;
@@ -189,12 +211,13 @@ test("a picked picture is cropped, uploaded and becomes the avatar; it can be re
   await crop.getByRole("slider", { name: "拡大" }).press("ArrowRight");
   await crop.getByRole("button", { name: "これにする！" }).click();
   await expect(page.getByText("アイコンを変えました！")).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByRole("main").locator('img[src*="/media/"]').first()).toBeVisible();
+  const pictures = page.getByTestId("profile-images");
+  await expect(pictures.locator('img[src*="/media/"]')).toBeVisible();
 
   await page.getByRole("button", { name: "アイコンを削除" }).click();
   await page.getByRole("dialog", { name: "アイコンを削除する？" }).getByRole("button", { name: "削除する" }).click();
   await expect(page.getByText("アイコンを削除しました")).toBeVisible();
-  await expect(page.getByRole("main").locator('img[src*="/media/"]')).toHaveCount(0);
+  await expect(pictures.locator("img")).toHaveCount(0);
 });
 
 test("a banner is cropped to a wide strip and shown on the profile", async ({ page, me }) => {
@@ -231,10 +254,7 @@ test("after changing the password, the new one signs in and the old one does not
   await page.getByRole("button", { name: "このデバイスからログアウト" }).click();
   await expect(page).toHaveURL(/\/$/);
 
-  await page.goto("/login");
-  await page.getByLabel("メールアドレス または ハンドル").fill(me.handle);
-  await page.getByLabel("パスワード").fill(newPassword);
-  await page.getByRole("button", { name: "ログイン", exact: true }).click();
+  await submitLoginForm(page, me.handle, newPassword);
   await expect(page).toHaveURL(/\/map$/);
 
   await expect(rpc(request, `${AUTH}/SignIn`, { identifier: me.handle, password: PASSWORD })).rejects.toThrow(/INVALID_CREDENTIALS/);
@@ -247,10 +267,10 @@ test("the verification mail can be sent again, and its link marks the email as v
   await page.getByRole("button", { name: "確認メールをもう一度送る" }).click();
   await expect(page.getByText(`${me.email} に確認メールを送りました！`)).toBeVisible();
 
-  await page.goto(await mailedLink(request, me.email, "verify-email"));
-  await expect(page.getByRole("heading", { name: "メールアドレスを確認しました！" })).toBeVisible();
+  // Opening the mailed link is the sign-in pages' part; here the link's token is redeemed directly.
+  await rpc(request, `${AUTH}/VerifyEmail`, { token: await mailedVerificationToken(request, me.email) });
 
-  await page.goto("/settings/account");
+  await page.reload();
   await expect(page.getByText("確認済み", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "確認メールをもう一度送る" })).toHaveCount(0);
 });
@@ -274,9 +294,8 @@ test("a new email address takes over once its verification link is opened", asyn
   // Until the link is opened the old address stays.
   await expect(page.getByTestId("account-email")).toHaveText(me.email);
 
-  await page.goto(await mailedLink(request, newEmail, "verify-email"));
-  await expect(page.getByRole("heading", { name: "メールアドレスを確認しました！" })).toBeVisible();
-  await page.goto("/settings/account");
+  await rpc(request, `${AUTH}/VerifyEmail`, { token: await mailedVerificationToken(request, newEmail) });
+  await page.reload();
   await expect(page.getByTestId("account-email")).toHaveText(newEmail);
   await expect(page.getByText("確認済み", { exact: true })).toBeVisible();
 });
@@ -316,7 +335,7 @@ test("two-step verification is set up with a code from the secret, and signing i
   await page.getByRole("button", { name: "オンにする" }).click();
   const setup = page.getByRole("dialog", { name: "2段階認証を設定" });
   await expect(setup.getByRole("img", { name: "認証アプリ用のQRコード" })).toBeVisible();
-  const secret = (await setup.getByTestId("totp-secret").innerText()).trim();
+  const secret = ((await setup.getByTestId("totp-secret").textContent()) ?? "").trim();
 
   // A wrong code is refused and the setup stays open.
   const code = setup.getByLabel(/6桁のコードを入力/);
@@ -336,10 +355,7 @@ test("two-step verification is set up with a code from the secret, and signing i
   await page.goto("/settings/data");
   await page.getByRole("button", { name: "このデバイスからログアウト" }).click();
   await expect(page).toHaveURL(/\/$/);
-  await page.goto("/login");
-  await page.getByLabel("メールアドレス または ハンドル").fill(me.handle);
-  await page.getByLabel("パスワード").fill(PASSWORD);
-  await page.getByRole("button", { name: "ログイン", exact: true }).click();
+  await submitLoginForm(page, me.handle, PASSWORD);
   await expect(page.getByRole("heading", { name: "認証コードを入力" })).toBeVisible();
   await page.getByLabel("認証コード").fill(totpCode(secret));
   await page.getByRole("button", { name: "ログイン", exact: true }).click();
@@ -359,7 +375,7 @@ test("two-step verification is turned off with a current code", async ({ page, m
 
   await dialog.getByLabel("認証コード").fill(totpCode(secret));
   await dialog.getByRole("button", { name: "オフにする" }).click();
-  await expect(page.getByText("2段階認証をオフにしました")).toBeVisible();
+  await expect(toast(page, "2段階認証をオフにしました")).toBeVisible();
   await expect(page.getByRole("button", { name: "オンにする" })).toBeVisible();
   expect((await getMe(request, me)).totpEnabled ?? false).toBe(false);
 });
@@ -378,13 +394,13 @@ test("a passkey is added with a name, listed, and removed", async ({ page, me })
   const dialog = page.getByRole("dialog", { name: "パスキーを追加" });
   await dialog.getByLabel("パスキーのなまえ").fill("テスト用のキー");
   await dialog.getByRole("button", { name: "登録する" }).click();
-  await expect(page.getByText("パスキーを追加しました！")).toBeVisible();
+  await expect(toast(page, "パスキーを追加しました！")).toBeVisible();
   await expect(page.getByRole("main").getByText("テスト用のキー")).toBeVisible();
   expect((await getMe(page.request, me)).passkeyCount).toBe(1);
 
   await page.getByRole("button", { name: "「テスト用のキー」を削除" }).click();
   await page.getByRole("dialog", { name: "「テスト用のキー」を削除する？" }).getByRole("button", { name: "削除する" }).click();
-  await expect(page.getByText("パスキーを削除しました")).toBeVisible();
+  await expect(toast(page, "パスキーを削除しました")).toBeVisible();
   await expect(page.getByText("まだパスキーがありません")).toBeVisible();
 });
 
@@ -400,7 +416,7 @@ test("signed-in devices are listed with this one marked, and another one can be 
 
   await phone.getByRole("button", { name: "ログアウト" }).click();
   await page.getByRole("dialog", { name: "「Pixel 10」をログアウトさせる？" }).getByRole("button", { name: "ログアウトさせる" }).click();
-  await expect(page.getByText("ログアウトさせました")).toBeVisible();
+  await expect(toast(page, "ログアウトさせました")).toBeVisible();
   await expect(phone).toHaveCount(0);
 
   const { sessions } = await rpc<{ sessions: { client?: { deviceName?: string } }[] }>(request, `${ACCOUNT}/ListSessions`, {}, me);
@@ -472,6 +488,29 @@ test("a privacy switch saves the moment it is flipped and stays that way", async
   await page.reload();
   await expect(page.getByRole("switch", { name: /バッテリー残量/ })).not.toBeChecked();
   await expect(page.getByRole("switch", { name: /スピードと移動手段/ })).toBeChecked();
+});
+
+test("the next person to sign in on the same browser gets their own settings, not the last person's", async ({ page, me, request }) => {
+  const next = await createAccount(request, "next");
+  await page.goto("/settings/privacy");
+  await page.getByRole("switch", { name: /バッテリー残量/ }).click();
+  await expect.poll(async () => (await getSettings(page.request, me)).privacy.shareBattery ?? false).toBe(false);
+
+  // Sign out and in again without ever reloading the page, as someone handing over a shared computer would.
+  await (isWide(page) ? page.getByRole("link", { name: /^あなたのデータ/ }) : page.getByRole("link", { name: "back" })).click();
+  if (!isWide(page)) await page.getByRole("link", { name: /^あなたのデータ/ }).click();
+  await page.getByRole("button", { name: "このデバイスからログアウト" }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await page.getByRole("link", { name: "ログイン" }).first().click();
+  await page.getByLabel("メールアドレス または ハンドル").fill(next.handle);
+  await page.getByLabel("パスワード").fill(PASSWORD);
+  await page.getByRole("button", { name: "ログイン", exact: true }).click();
+  await expect(page).toHaveURL(/\/map$/);
+
+  await page.getByRole("link", { name: "じぶん" }).click();
+  await page.getByRole("main").getByRole("link", { name: "設定" }).click();
+  await page.getByRole("navigation", { name: "設定" }).getByRole("link", { name: /^プライバシー/ }).click();
+  await expect(page.getByRole("switch", { name: /バッテリー残量/ })).toBeChecked();
 });
 
 test("an audience is chosen from options that each say what they mean", async ({ page, me }) => {

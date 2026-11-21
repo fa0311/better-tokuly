@@ -210,8 +210,8 @@ export default {
     sessions: {
       title: "ログイン中のデバイス",
       lead: "心当たりのないデバイスがあったら、ログアウトさせてパスワードを変えてね。",
-      activeNow: "いま使っています",
-      lastActive: "最後に使ったのは{{age}}",
+      activeNow: "使用中",
+      lastActive: "{{age}}",
       current: "このデバイス",
       revoke: "ログアウト",
       revokeOthers: "ほかのデバイスをすべてログアウト",

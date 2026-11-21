@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { identity } from "@tokuly/api";
 import { Copy, Download, ShieldCheck, ShieldOff } from "lucide-react";
 import QRCode from "qrcode";
@@ -11,8 +11,8 @@ import { TextField } from "#/components/ui/field";
 import { Skeleton } from "#/components/ui/page";
 import { accountClient } from "#/lib/api";
 import { cn } from "#/lib/cn";
-import { errorMessage } from "#/lib/errors";
-import { refreshMe } from "../data";
+import { keys, refreshMe } from "../data";
+import { errorMessage } from "../errors";
 import { Group, StateChip } from "../shell/settings-page";
 
 /** Two-step verification with an authenticator app: turn on (QR, code, recovery codes) and off. */
@@ -51,6 +51,7 @@ const digitsOnly = (value: string) => value.replace(/[^\d\s]/g, "").slice(0, 7);
 
 function TotpSetupDialog({ onClose }: { onClose(): void }) {
   const { t } = useTranslation(["settings", "common"]);
+  const queryClient = useQueryClient();
   const [code, setCode] = useState("");
   const [codeError, setCodeError] = useState<string | null>(null);
   const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
@@ -74,6 +75,7 @@ function TotpSetupDialog({ onClose }: { onClose(): void }) {
     mutationFn: () => accountClient().enableTotp({ code }),
     onSuccess: async (response) => {
       setRecoveryCodes(response.recoveryCodes);
+      void queryClient.invalidateQueries({ queryKey: keys.securityEvents });
       await refreshMe().catch(() => {});
     },
     onError: (error) => setCodeError(errorMessage(error)),
@@ -193,6 +195,7 @@ function RecoveryCodesDialog({ codes, onClose }: { codes: string[]; onClose(): v
 
 function TotpDisableDialog({ onClose }: { onClose(): void }) {
   const { t } = useTranslation(["settings", "common"]);
+  const queryClient = useQueryClient();
   const [code, setCode] = useState("");
   const [codeError, setCodeError] = useState<string | null>(null);
 
@@ -200,6 +203,7 @@ function TotpDisableDialog({ onClose }: { onClose(): void }) {
     mutationFn: () => accountClient().disableTotp({ code: code.trim() }),
     onSuccess: async () => {
       toast.success(t("settings:security.totp.disabled"));
+      void queryClient.invalidateQueries({ queryKey: keys.securityEvents });
       await refreshMe().catch(() => {});
       onClose();
     },

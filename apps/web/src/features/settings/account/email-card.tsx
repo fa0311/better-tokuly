@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { errorReason, type identity } from "@tokuly/api";
+import type { identity } from "@tokuly/api";
 import { BadgeCheck, MailWarning } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,7 +8,7 @@ import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { TextField } from "#/components/ui/field";
 import { accountClient, authClient } from "#/lib/api";
-import { errorMessage } from "#/lib/errors";
+import { errorMessage, reasonOf } from "../errors";
 import { Group, StateChip } from "../shell/settings-page";
 import { PasswordField } from "./password-field";
 
@@ -84,7 +84,7 @@ function ChangeEmailDialog({ me, onClose, onRequested }: { me: identity.Me; onCl
       onRequested(email.trim().toLowerCase());
     },
     onError: (failure) => {
-      const reason = errorReason(failure);
+      const reason = reasonOf(failure);
       if (reason === "INVALID_CREDENTIALS") setError({ field: "password", message: t("settings:account.password.wrongCurrent") });
       else if (reason?.startsWith("EMAIL_")) setError({ field: "email", message: errorMessage(failure) });
       else toast.error(errorMessage(failure));

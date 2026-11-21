@@ -8,9 +8,9 @@ import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
 import { Skeleton } from "#/components/ui/page";
 import { accountClient } from "#/lib/api";
-import { errorMessage } from "#/lib/errors";
 import { compactAge } from "#/lib/format";
 import { keys } from "../data";
+import { errorMessage } from "../errors";
 import { Group, StateChip } from "../shell/settings-page";
 
 function PlatformIcon({ platform }: { platform: common.Platform }) {
@@ -64,8 +64,10 @@ export function SessionsCard() {
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-bold">{name}</p>
+                  {/* Where it signed in from, then when it was last used; a line break only falls between the two. */}
                   <p className="text-sm leading-snug text-ink-soft">
-                    {[place, session.current ? t("security.sessions.activeNow") : t("security.sessions.lastActive", { age: compactAge(toMillis(session.lastActiveAt)) })].filter(Boolean).join(" ・ ")}
+                    {place && <span className="whitespace-nowrap">{place} ・ </span>}
+                    <span className="whitespace-nowrap">{session.current ? t("security.sessions.activeNow") : t("security.sessions.lastActive", { age: compactAge(toMillis(session.lastActiveAt)) })}</span>
                   </p>
                 </div>
                 {session.current ? (

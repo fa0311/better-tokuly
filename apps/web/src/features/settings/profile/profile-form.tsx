@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { errorReason, type identity } from "@tokuly/api";
+import type { identity } from "@tokuly/api";
 import { Check, X } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -9,8 +9,8 @@ import { TextArea, TextField } from "#/components/ui/field";
 import { Skeleton } from "#/components/ui/page";
 import { Spinner } from "#/components/ui/spinner";
 import { accountClient, authClient, profileClient } from "#/lib/api";
-import { errorMessage } from "#/lib/errors";
 import { adoptMe, keys } from "../data";
+import { errorMessage, reasonOf } from "../errors";
 import { Group } from "../shell/settings-page";
 import { graphemes } from "./graphemes";
 
@@ -114,7 +114,7 @@ export function ProfileForm({ me }: { me: identity.Me }) {
       toast.success(t("settings:profile.saved"));
     },
     onError: (error) => {
-      const field = FIELD_OF_REASON[errorReason(error) ?? ""];
+      const field = FIELD_OF_REASON[reasonOf(error) ?? ""];
       if (field) setFieldError({ field, message: errorMessage(error) });
       else toast.error(errorMessage(error));
     },

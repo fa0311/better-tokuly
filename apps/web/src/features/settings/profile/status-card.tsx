@@ -8,9 +8,9 @@ import { Dialog } from "#/components/ui/dialog";
 import { TextField } from "#/components/ui/field";
 import { accountClient } from "#/lib/api";
 import { cn } from "#/lib/cn";
-import { errorMessage } from "#/lib/errors";
 import { compactDuration } from "#/lib/format";
 import { adoptMe } from "../data";
+import { errorMessage } from "../errors";
 import { Group } from "../shell/settings-page";
 import { graphemes } from "./graphemes";
 

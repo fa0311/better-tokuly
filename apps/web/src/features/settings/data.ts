@@ -3,7 +3,7 @@ import { create, identity, social } from "@tokuly/api";
 import { useEffect } from "react";
 import { toast } from "sonner";
 import { accountClient, api } from "#/lib/api";
-import { errorMessage } from "#/lib/errors";
+import { errorMessage } from "./errors";
 
 export const friendClient = () => api().service(social.FriendService);
 
@@ -18,6 +18,9 @@ export const keys = {
   /** Shared with the profile screen, so an edit shows there at once. */
   profile: (handle: string) => ["identity", "profile", handle] as const,
 };
+
+/** Everything cached here that belongs to the signed-in account alone (the profile is public). */
+export const PRIVATE_KEYS = [keys.settings, keys.sessions, keys.passkeys, keys.securityEvents, keys.connections, keys.blocked];
 
 /** The account's privacy and appearance settings. */
 export function useSettings() {

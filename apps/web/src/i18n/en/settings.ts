@@ -210,8 +210,8 @@ export default {
     sessions: {
       title: "Signed-in devices",
       lead: "See a device you do not recognise? Sign it out and change your password.",
-      activeNow: "In use now",
-      lastActive: "Last used {{age}}",
+      activeNow: "In use",
+      lastActive: "{{age}}",
       current: "This device",
       revoke: "Sign out",
       revokeOthers: "Sign out all other devices",

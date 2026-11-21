@@ -6,8 +6,8 @@ import { toast } from "sonner";
 import { EmptyState } from "#/components/ui/page";
 import { Spinner } from "#/components/ui/spinner";
 import { accountClient } from "#/lib/api";
-import { errorMessage } from "#/lib/errors";
 import { keys } from "../data";
+import { errorMessage } from "../errors";
 import { SettingsPage } from "../shell/settings-page";
 import { PROVIDERS, type Provider } from "./connections-section";
 

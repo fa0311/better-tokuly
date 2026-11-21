@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { errorReason, type identity, toDate } from "@tokuly/api";
+import { type identity, toDate } from "@tokuly/api";
 import { CalendarClock } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,9 +8,9 @@ import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { TextArea, TextField } from "#/components/ui/field";
 import { accountClient } from "#/lib/api";
-import { errorMessage } from "#/lib/errors";
 import { PasswordField } from "../account/password-field";
 import { adoptMe } from "../data";
+import { errorMessage, reasonOf } from "../errors";
 import { Group } from "../shell/settings-page";
 
 /**
@@ -75,7 +75,7 @@ function DeletionDialog({ me, onClose }: { me: identity.Me; onClose(): void }) {
       onClose();
     },
     onError: (error) => {
-      if (errorReason(error) === "INVALID_CREDENTIALS") setPasswordError(t("settings:account.password.wrongCurrent"));
+      if (reasonOf(error) === "INVALID_CREDENTIALS") setPasswordError(t("settings:account.password.wrongCurrent"));
       else toast.error(errorMessage(error));
     },
   });
