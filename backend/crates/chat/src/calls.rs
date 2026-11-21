@@ -322,7 +322,11 @@ impl Chat {
         let call_id = new_id();
         let room = room_name(call_id);
         livekit.create_room(&room, access.conv.member_count.max(2) as u32).await.map_err(|e| {
-            tracing::error!(error = %e, "LiveKit room could not be created");
+            if e.is_unauthorized() {
+                tracing::error!(error = %e, "LiveKit rejected the server's token; check TOKULY_LIVEKIT_API_KEY / _SECRET");
+            } else {
+                tracing::error!(error = %e, "LiveKit room could not be created");
+            }
             AppError::unavailable("CALL_UNAVAILABLE", "calls are unavailable right now")
         })?;
 

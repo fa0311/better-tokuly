@@ -151,10 +151,7 @@ async fn livekit_accepts_the_tokens_minted_here() {
     let forged = ChatConfig { livekit_api_secret: "not-the-secret-livekit-was-started-with".into(), ..cfg };
     let impostor = tokuly_chat::livekit::LiveKit::from_config(&forged).unwrap().unwrap();
     let refused = impostor.create_room(&room, 4).await.unwrap_err();
-    assert!(
-        matches!(&refused, tokuly_chat::livekit::LiveKitError::Api { code, .. } if code == "unauthenticated"),
-        "{refused}"
-    );
+    assert!(refused.is_unauthorized(), "{refused}");
 }
 
 #[tokio::test]

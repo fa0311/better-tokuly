@@ -76,8 +76,11 @@ pub struct Claims {
 #[derive(Debug)]
 pub enum LiveKitError {
     /// LiveKit answered with a Twirp error (`code` as in the Twirp spec:
-    /// `not_found`, `unauthenticated`, `permission_denied`…).
+    /// `not_found`, `invalid_argument`…).
     Api { code: String, message: String },
+    /// LiveKit answered with an HTTP error that is not a Twirp error. A
+    /// token it does not accept is one: a plain `401`.
+    Http { status: u16, body: String },
     /// LiveKit could not be reached or answered nonsense.
     Transport(String),
 }
@@ -86,6 +89,7 @@ impl std::fmt::Display for LiveKitError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Api { code, message } => write!(f, "LiveKit error {code}: {message}"),
+            Self::Http { status, body } => write!(f, "LiveKit answered HTTP {status}: {body}"),
             Self::Transport(message) => write!(f, "LiveKit unreachable: {message}"),
         }
     }
@@ -93,7 +97,13 @@ impl std::fmt::Display for LiveKitError {
 
 impl LiveKitError {
     pub fn is_not_found(&self) -> bool {
-        matches!(self, Self::Api { code, .. } if code == "not_found")
+        matches!(self, Self::Api { code, .. } if code == "not_found") || matches!(self, Self::Http { status: 404, .. })
+    }
+
+    /// LiveKit did not accept the token: the API key or secret is wrong.
+    pub fn is_unauthorized(&self) -> bool {
+        matches!(self, Self::Api { code, .. } if code == "unauthenticated" || code == "permission_denied")
+            || matches!(self, Self::Http { status: 401 | 403, .. })
     }
 }
 
@@ -220,7 +230,10 @@ impl LiveKit {
         if !status.is_success() {
             return Err(match serde_json::from_slice::<TwirpError>(&bytes) {
                 Ok(error) if !error.code.is_empty() => LiveKitError::Api { code: error.code, message: error.msg },
-                _ => LiveKitError::Transport(format!("HTTP {status}")),
+                _ => LiveKitError::Http {
+                    status: status.as_u16(),
+                    body: String::from_utf8_lossy(&bytes).trim().chars().take(200).collect(),
+                },
             });
         }
         serde_json::from_slice(&bytes)
@@ -246,7 +259,10 @@ impl LiveKit {
     /// an empty list for unknown rooms (older versions: `not_found`).
     pub async fn list_participants(&self, room: &str) -> Result<Vec<String>, LiveKitError> {
         let grant = VideoGrant { room: room.to_owned(), room_admin: true, ..Default::default() };
-        match self.call::<ListParticipantsResponse>("ListParticipants", grant, serde_json::json!({ "room": room })).await {
+        match self
+            .call::<ListParticipantsResponse>("ListParticipants", grant, serde_json::json!({ "room": room }))
+            .await
+        {
             Ok(response) => Ok(response.participants.into_iter().map(|participant| participant.identity).collect()),
             Err(e) if e.is_not_found() => Ok(Vec::new()),
             Err(e) => Err(e),
@@ -289,6 +305,18 @@ mod tests {
         validation.set_required_spec_claims(&["exp", "iss", "nbf"]);
         jsonwebtoken::decode::<Claims>(token, &DecodingKey::from_secret(secret.as_bytes())?, &validation)
             .map(|data| data.claims)
+    }
+
+    #[test]
+    fn rejected_tokens_and_missing_rooms_are_recognised() {
+        // What LiveKit answers to a token it does not accept.
+        let rejected = LiveKitError::Http { status: 401, body: "invalid authorization token".into() };
+        assert!(rejected.is_unauthorized() && !rejected.is_not_found());
+        assert_eq!(rejected.to_string(), "LiveKit answered HTTP 401: invalid authorization token");
+        assert!(LiveKitError::Api { code: "permission_denied".into(), message: String::new() }.is_unauthorized());
+        assert!(LiveKitError::Api { code: "not_found".into(), message: String::new() }.is_not_found());
+        let down = LiveKitError::Transport("connection refused".into());
+        assert!(!down.is_unauthorized() && !down.is_not_found());
     }
 
     #[test]

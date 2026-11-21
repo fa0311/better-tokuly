@@ -123,7 +123,9 @@ pub(crate) async fn summary_in_tx(tx: &mut Transaction<'_, Postgres>, user_id: U
             .fetch_optional(&mut **tx)
             .await?;
     Ok(match row {
-        Some((handle, display_name, false)) => UserSummary { id: user_id.to_string(), handle, display_name, ..Default::default() },
+        Some((handle, display_name, false)) => {
+            UserSummary { id: user_id.to_string(), handle, display_name, ..Default::default() }
+        }
         _ => UserSummary { id: user_id.to_string(), handle: "deleted".into(), deleted: true, ..Default::default() },
     })
 }

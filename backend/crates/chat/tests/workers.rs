@@ -44,10 +44,20 @@ async fn the_workers_pick_up_signals_jobs_and_events() {
     // What the realtime gateway publishes when a client types or opens a conversation.
     let typing = TypingSignal { user_id: taro.id, conversation_id, typing: true };
     bus.publish(TYPING_SUBJECT, serde_json::to_vec(&typing).unwrap()).await.unwrap();
-    wait_for(&mut hanako_events, "typing indicator", |event| matches!(event, Push::Typing(typing) if typing.user_id == taro.id.to_string())).await;
+    wait_for(
+        &mut hanako_events,
+        "typing indicator",
+        |event| matches!(event, Push::Typing(typing) if typing.user_id == taro.id.to_string()),
+    )
+    .await;
     let present = ConversationPresenceSignal { user_id: taro.id, conversation_id, present: true };
     bus.publish(CONVERSATION_PRESENCE_SUBJECT, serde_json::to_vec(&present).unwrap()).await.unwrap();
-    wait_for(&mut hanako_events, "presence", |event| matches!(event, Push::Presence(presence) if presence.present_user_ids == vec![taro.id.to_string()])).await;
+    wait_for(
+        &mut hanako_events,
+        "presence",
+        |event| matches!(event, Push::Presence(presence) if presence.present_user_ids == vec![taro.id.to_string()]),
+    )
+    .await;
 
     // Sending a message with a link queues the preview job.
     let message = ctx.text(&taro, &direct.id, "http://localhost:8080/watch/dQw4w9WgXcQ").await;
@@ -68,7 +78,18 @@ async fn the_workers_pick_up_signals_jobs_and_events() {
         occurred_at: chrono::Utc::now(),
         data: serde_json::json!({ "user_id": hanako.id, "blocked_id": taro.id }),
     };
-    bus.publish_durable("evt.social.user.blocked", serde_json::to_vec(&blocked).unwrap(), Some(&blocked.id.to_string())).await.unwrap();
-    wait_for(&mut hanako_events, "read-only conversation", |event| matches!(event, Push::ConversationUpdated(updated) if updated.conversation.read_only)).await;
+    bus.publish_durable(
+        "evt.social.user.blocked",
+        serde_json::to_vec(&blocked).unwrap(),
+        Some(&blocked.id.to_string()),
+    )
+    .await
+    .unwrap();
+    wait_for(
+        &mut hanako_events,
+        "read-only conversation",
+        |event| matches!(event, Push::ConversationUpdated(updated) if updated.conversation.read_only),
+    )
+    .await;
     assert!(ctx.conversation(&taro, &direct.id).await.conversation.read_only);
 }

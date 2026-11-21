@@ -297,7 +297,10 @@ impl Chat {
             Some(asset_id) => Some(Some(self.resolve_icon(user_id, asset_id).await?)),
         };
         // Every change adds a line to the conversation.
-        self.core.cache.rate_limit(&format!("chat-group-update:{user_id}"), 60, std::time::Duration::from_secs(3600)).await?;
+        self.core
+            .cache
+            .rate_limit(&format!("chat-group-update:{user_id}"), 60, std::time::Duration::from_secs(3600))
+            .await?;
 
         let mut tx = self.core.db.begin().await?;
         let conv = access::lock_conversation(&mut tx, conversation_id).await?;

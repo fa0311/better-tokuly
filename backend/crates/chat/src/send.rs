@@ -174,8 +174,11 @@ impl Chat {
         let core = &self.core;
         let sender = tokuly_identity::summary(core, sender_id).await?;
         let present = self.present_users(conv.id).await.unwrap_or_default().into_iter().collect();
-        let hidden =
-            if conv.is_group() { graph::blocked_ids_either(core, sender_id).await?.into_iter().collect() } else { HashSet::new() };
+        let hidden = if conv.is_group() {
+            graph::blocked_ids_either(core, sender_id).await?.into_iter().collect()
+        } else {
+            HashSet::new()
+        };
         draft.notify = Notify::Standard(Box::new(NotifyContext { sender, present, hidden }));
         Ok(draft)
     }
@@ -325,7 +328,8 @@ impl Chat {
 
         if let (Notify::Standard(context), Some(sender_id)) = (&draft.notify, draft.sender_id) {
             let first_request = draft.is_request && before.as_ref().is_some_and(|before| before.request_messages == 0);
-            request_message_notifications(tx, context, conv, &row, sender_id, &recipients, &mentioned, first_request).await?;
+            request_message_notifications(tx, context, conv, &row, sender_id, &recipients, &mentioned, first_request)
+                .await?;
         }
 
         let read_skipped = before.as_ref().is_some_and(|before| before.read_seq < seq - 1);

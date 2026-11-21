@@ -736,9 +736,14 @@ impl Chat {
 
         let mut forwarded = Vec::with_capacity(drafts.len() * destinations.len());
         for (access, is_request) in destinations {
-            let mut copies = Vec::with_capacity(drafts.len());
+            // One look at who is to be notified in this conversation serves every copy.
+            let mut copies: Vec<Draft> = Vec::with_capacity(drafts.len());
             for draft in &drafts {
-                copies.push(self.with_notifications(&access.conv, Draft { is_request, ..draft.clone() }).await?);
+                let copy = Draft { is_request, ..draft.clone() };
+                copies.push(match copies.first() {
+                    Some(first) => Draft { notify: first.notify.clone(), ..copy },
+                    None => self.with_notifications(&access.conv, copy).await?,
+                });
             }
             let mut tx = core.db.begin().await?;
             let mut conv = access::lock_conversation(&mut tx, access.conv.id).await?;

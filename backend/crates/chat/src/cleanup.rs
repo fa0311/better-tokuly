@@ -47,7 +47,8 @@ impl Chat {
     /// and closes an open POV request.
     pub(crate) async fn refresh_direct_state(&self, conversation_id: Uuid) -> AppResult<()> {
         let core = &self.core;
-        let Some((lo, hi)) = access::find_conversation(core, conversation_id).await?.and_then(|conv| conv.pair()) else {
+        let Some((lo, hi)) = access::find_conversation(core, conversation_id).await?.and_then(|conv| conv.pair())
+        else {
             return Ok(());
         };
         let blocked = graph::is_blocked_either(core, lo, hi).await?;
