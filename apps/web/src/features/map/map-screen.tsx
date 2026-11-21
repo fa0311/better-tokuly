@@ -2,12 +2,13 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type common, geo, social, toMillis } from "@tokuly/api";
 import { Bell, Eye, GlassWater, Hand, Heart, LocateFixed, MessageCircle, Navigation, UserRound, Users, X } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { api } from "#/lib/api";
+import { dopamineFactor } from "#/lib/appearance";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { compactAge, compactDuration, distanceMeters, formatDistance, kmh } from "#/lib/format";
@@ -29,16 +30,18 @@ const TOKYO: [number, number] = [139.767125, 35.681236];
 interface SavedView {
   center: [number, number];
   zoom: number;
+  /** False on a first visit, when the view is only a placeholder until we know where the user is. */
+  remembered: boolean;
 }
 
 function loadSavedView(): SavedView {
   try {
     const saved = JSON.parse(window.localStorage.getItem(LAST_VIEW_KEY) ?? "null") as SavedView | null;
-    if (saved && Array.isArray(saved.center) && typeof saved.zoom === "number") return saved;
+    if (saved && Array.isArray(saved.center) && typeof saved.zoom === "number") return { ...saved, remembered: true };
   } catch {
     // Fall through to the default view.
   }
-  return { center: TOKYO, zoom: 11 };
+  return { center: TOKYO, zoom: 11, remembered: false };
 }
 
 /** The home screen: the live friend map with its floating chrome. */
@@ -51,6 +54,7 @@ export function MapScreen() {
   return (
     <MapView styleId="tokuly" initialCenter={view.center} initialZoom={view.zoom}>
       <RememberView />
+      {!view.remembered && <CenterOnFirstFix />}
       <FriendLayer focusedId={focusedId} onFocus={setFocusedId} />
       <OwnMarker />
       <MapTitle />
@@ -75,6 +79,19 @@ function RememberView() {
       map.off("moveend", save);
     };
   }, [map]);
+  return null;
+}
+
+/** On a first visit there is no remembered view: go to the user as soon as their position is known. */
+function CenterOnFirstFix() {
+  const map = useMap();
+  const own = useLocations((s) => s.own);
+  const centered = useRef(false);
+  useEffect(() => {
+    if (!own || centered.current) return;
+    centered.current = true;
+    map.easeTo({ center: [own.lng, own.lat], zoom: 15, duration: 800 * dopamineFactor(), essential: true });
+  }, [map, own]);
   return null;
 }
 
@@ -220,13 +237,15 @@ function FriendCarousel({ focusedId, onFocus }: { focusedId: string | null; onFo
   if (entries.length === 0) {
     return (
       <div className="absolute inset-x-0 bottom-24 z-20 flex justify-center px-4 md:bottom-8">
-        <div className="glass sticker flex max-w-sm items-center gap-4 rounded-3xl p-4">
-          <div className="text-4xl">🫡</div>
-          <div className="min-w-0 flex-1">
-            <p className="font-black">{t("noFriendsTitle")}</p>
-            <p className="text-sm text-ink-soft">{t("noFriendsBody")}</p>
+        <div className="glass sticker w-full max-w-sm rounded-3xl p-4">
+          <div className="flex items-center gap-3">
+            <div className="text-4xl">🫡</div>
+            <div className="min-w-0 flex-1">
+              <p className="font-black">{t("noFriendsTitle")}</p>
+              <p className="text-sm text-ink-soft">{t("noFriendsBody")}</p>
+            </div>
           </div>
-          <Link to="/friends" className="pressable sticker-sm shrink-0 rounded-full bg-lime px-4 py-2 text-sm font-black text-[#17122b]">
+          <Link to="/friends" className="pressable sticker-sm mt-3 flex h-11 w-full items-center justify-center rounded-full bg-lime text-sm font-black text-[#17122b]">
             {t("addFriends")}
           </Link>
         </div>
