@@ -37,17 +37,65 @@ pub const EVERGREEN: f64 = 3650.0;
 
 /// Every kind, in `SearchKind` order.
 pub const KINDS: &[Kind] = &[
-    Kind { name: "user", proto: SearchKind::SEARCH_KIND_USER, decade_days: EVERGREEN, weight: 1.05, typeahead_weight: 1.15 },
-    Kind { name: "channel", proto: SearchKind::SEARCH_KIND_CHANNEL, decade_days: EVERGREEN, weight: 1.04, typeahead_weight: 1.1 },
+    Kind {
+        name: "user",
+        proto: SearchKind::SEARCH_KIND_USER,
+        decade_days: EVERGREEN,
+        weight: 1.05,
+        typeahead_weight: 1.15,
+    },
+    Kind {
+        name: "channel",
+        proto: SearchKind::SEARCH_KIND_CHANNEL,
+        decade_days: EVERGREEN,
+        weight: 1.04,
+        typeahead_weight: 1.1,
+    },
     Kind { name: "note", proto: SearchKind::SEARCH_KIND_NOTE, decade_days: TIMELY, weight: 1.0, typeahead_weight: 1.0 },
-    Kind { name: "video", proto: SearchKind::SEARCH_KIND_VIDEO, decade_days: TIMELY, weight: 1.0, typeahead_weight: 1.0 },
-    Kind { name: "short", proto: SearchKind::SEARCH_KIND_SHORT, decade_days: TIMELY, weight: 1.0, typeahead_weight: 1.0 },
+    Kind {
+        name: "video",
+        proto: SearchKind::SEARCH_KIND_VIDEO,
+        decade_days: TIMELY,
+        weight: 1.0,
+        typeahead_weight: 1.0,
+    },
+    Kind {
+        name: "short",
+        proto: SearchKind::SEARCH_KIND_SHORT,
+        decade_days: TIMELY,
+        weight: 1.0,
+        typeahead_weight: 1.0,
+    },
     Kind { name: "live", proto: SearchKind::SEARCH_KIND_LIVE, decade_days: TIMELY, weight: 1.0, typeahead_weight: 1.0 },
     Kind { name: "clip", proto: SearchKind::SEARCH_KIND_CLIP, decade_days: TIMELY, weight: 1.0, typeahead_weight: 1.0 },
-    Kind { name: "playlist", proto: SearchKind::SEARCH_KIND_PLAYLIST, decade_days: EVERGREEN, weight: 1.0, typeahead_weight: 1.0 },
-    Kind { name: "stamp_pack", proto: SearchKind::SEARCH_KIND_STAMP_PACK, decade_days: EVERGREEN, weight: 1.0, typeahead_weight: 1.0 },
-    Kind { name: "place", proto: SearchKind::SEARCH_KIND_PLACE, decade_days: EVERGREEN, weight: 1.02, typeahead_weight: 1.05 },
-    Kind { name: "hashtag", proto: SearchKind::SEARCH_KIND_HASHTAG, decade_days: EVERGREEN, weight: 1.02, typeahead_weight: 1.05 },
+    Kind {
+        name: "playlist",
+        proto: SearchKind::SEARCH_KIND_PLAYLIST,
+        decade_days: EVERGREEN,
+        weight: 1.0,
+        typeahead_weight: 1.0,
+    },
+    Kind {
+        name: "stamp_pack",
+        proto: SearchKind::SEARCH_KIND_STAMP_PACK,
+        decade_days: EVERGREEN,
+        weight: 1.0,
+        typeahead_weight: 1.0,
+    },
+    Kind {
+        name: "place",
+        proto: SearchKind::SEARCH_KIND_PLACE,
+        decade_days: EVERGREEN,
+        weight: 1.02,
+        typeahead_weight: 1.05,
+    },
+    Kind {
+        name: "hashtag",
+        proto: SearchKind::SEARCH_KIND_HASHTAG,
+        decade_days: EVERGREEN,
+        weight: 1.02,
+        typeahead_weight: 1.05,
+    },
     Kind { name: "news", proto: SearchKind::SEARCH_KIND_NEWS, decade_days: TIMELY, weight: 1.0, typeahead_weight: 1.0 },
 ];
 
@@ -93,7 +141,11 @@ mod tests {
             assert_eq!(kind.proto as i32, position as i32 + 1, "{} is out of SearchKind order", kind.name);
             assert_eq!(by_name(kind.name), Some(kind));
             assert_eq!(by_proto(kind.proto), Some(kind));
-            assert!(kind.decade_days == TIMELY || kind.decade_days == EVERGREEN, "{} needs a shared time scale", kind.name);
+            assert!(
+                kind.decade_days == TIMELY || kind.decade_days == EVERGREEN,
+                "{} needs a shared time scale",
+                kind.name
+            );
             assert!(kind.weight > 0.0 && kind.typeahead_weight > 0.0);
         }
         assert!(by_proto(SearchKind::SEARCH_KIND_UNSPECIFIED).is_none());

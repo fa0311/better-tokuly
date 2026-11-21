@@ -16,12 +16,13 @@ export function IdentityCard() {
   if (!me?.user) return null;
   return (
     <Link to="/u/$handle" params={{ handle: me.user.handle }} className="pressable sticker flex items-center gap-3 rounded-card bg-surface p-3">
-      <Avatar user={me.user} outlined />
+      <Avatar user={me.user} size="lg" outlined />
       <span className="min-w-0 flex-1">
         <span className="block truncate font-black">{me.user.displayName}</span>
         <span className="block truncate text-sm font-bold text-ink-soft">@{me.user.handle}</span>
+        <span className="mt-0.5 block text-xs font-bold text-brand">{t("home.viewProfile")}</span>
       </span>
-      <span className="shrink-0 text-xs font-bold text-brand">{t("home.viewProfile")}</span>
+      <ChevronRight className="size-5 shrink-0 text-ink-faint" />
     </Link>
   );
 }
@@ -32,7 +33,7 @@ export function SettingsNav({ activeId }: { activeId?: SectionId }) {
   const me = useMe();
   // Sections that want the person's attention get a dot.
   const attention: Partial<Record<SectionId, string>> = {};
-  if (me && me.email && !me.emailVerified) attention.account = t("home.attention.emailUnverified");
+  if (me?.email && !me.emailVerified) attention.account = t("home.attention.emailUnverified");
   if (me?.deletionScheduledAt) attention.data = t("home.attention.deletionScheduled");
 
   return (

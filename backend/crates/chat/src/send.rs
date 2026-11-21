@@ -12,6 +12,10 @@
 //! 4. notifications are requested (respecting mutes, blocks, message
 //!    requests and who has the conversation open right now).
 //!
+//! Nothing in there waits for a second database connection: what the
+//! notification rules need to know from elsewhere is gathered before the
+//! transaction starts ([`Chat::with_notifications`]).
+//!
 //! After the commit, [`Chat::announce`] pushes the message to the members'
 //! devices and reports it to the other domains (best-friend ranking, stamp
 //! statistics, the link preview job, analytics).
@@ -21,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
 use tokuly_core::{analytics::AnalyticsEvent, outbound, prelude::*};
 use tokuly_media::assets::{self, AssetRow};
-use tokuly_proto::chat as pb;
+use tokuly_proto::{chat as pb, common::UserSummary};
 use tokuly_social::{InteractionKind, graph};
 use tokuly_stamp::SendContext;
 
@@ -50,11 +54,22 @@ pub(crate) fn message_holder(message_id: Uuid) -> String {
     format!("chat:message:{message_id}")
 }
 
+/// What the notification rules need to know about the sender and the
+/// moment a message is sent.
+#[derive(Debug, Clone)]
+pub(crate) struct NotifyContext {
+    sender: UserSummary,
+    /// Members looking at the conversation right now: they see the message arrive.
+    present: HashSet<Uuid>,
+    /// In a group: people in a block with the sender, who hear nothing from them.
+    hidden: HashSet<Uuid>,
+}
+
 /// Whether a message asks for the ordinary message notifications.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub(crate) enum Notify {
     /// `chat.message` / `chat.mention` / `chat.request`, as the rules allow.
-    Standard,
+    Standard(Box<NotifyContext>),
     /// Nothing: system messages, and flows that notify in their own words
     /// (calls, POV requests).
     Silent,
@@ -88,7 +103,8 @@ pub(crate) struct Draft {
 }
 
 impl Draft {
-    /// A message of `kind` from a user, without content yet.
+    /// A message of `kind` from a user, without content yet. It notifies
+    /// nobody unless [`Chat::with_notifications`] says so.
     pub fn from_user(kind: i16, sender_id: Uuid) -> Self {
         Self {
             kind,
@@ -107,19 +123,14 @@ impl Draft {
             system: None,
             call_id: None,
             pov_request_id: None,
-            notify: Notify::Standard,
+            notify: Notify::Silent,
             is_request: false,
         }
     }
 
     /// A system message: something that happened to the conversation.
     pub fn system(payload: SystemPayload) -> Self {
-        Self { sender_id: None, system: Some(payload), notify: Notify::Silent, ..Self::from_user(msg::SYSTEM, Uuid::nil()) }
-    }
-
-    pub fn silent(mut self) -> Self {
-        self.notify = Notify::Silent;
-        self
+        Self { sender_id: None, system: Some(payload), ..Self::from_user(msg::SYSTEM, Uuid::nil()) }
     }
 }
 
@@ -154,11 +165,31 @@ struct SenderBefore {
 }
 
 impl Chat {
+    /// Gives a user's draft the ordinary message notifications. Call it
+    /// before the transaction that posts the draft begins: it looks up the
+    /// sender, who has the conversation open and (for groups) who is in a
+    /// block with the sender.
+    pub(crate) async fn with_notifications(&self, conv: &ConversationRow, mut draft: Draft) -> AppResult<Draft> {
+        let Some(sender_id) = draft.sender_id else { return Ok(draft) };
+        let core = &self.core;
+        let sender = tokuly_identity::summary(core, sender_id).await?;
+        let present = self.present_users(conv.id).await.unwrap_or_default().into_iter().collect();
+        let hidden =
+            if conv.is_group() { graph::blocked_ids_either(core, sender_id).await?.into_iter().collect() } else { HashSet::new() };
+        draft.notify = Notify::Standard(Box::new(NotifyContext { sender, present, hidden }));
+        Ok(draft)
+    }
+
     /// Stores a message in `conv`, which the caller locked in `tx` (see
     /// [`access::lock_conversation`]); `conv` is advanced to the new message,
     /// so several messages can be posted in a row. Call [`Chat::announce`]
     /// with the result once the transaction has committed.
-    pub(crate) async fn post(&self, tx: &mut Transaction<'_, Postgres>, conv: &mut ConversationRow, draft: Draft) -> AppResult<Posted> {
+    pub(crate) async fn post(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        conv: &mut ConversationRow,
+        draft: Draft,
+    ) -> AppResult<Posted> {
         if let (Some(sender_id), Some(client_id)) = (draft.sender_id, &draft.client_id) {
             let existing: Option<MessageRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
                 "SELECT {MSG} FROM chat_messages x WHERE x.conversation_id = $1 AND x.sender_id = $2 AND x.client_id = $3"
@@ -169,14 +200,24 @@ impl Chat {
             .fetch_optional(&mut **tx)
             .await?;
             if let Some(row) = existing {
-                return Ok(Posted { row, duplicate: true, conv: conv.clone(), read_skipped: false, accepted_now: false, reply_sender: None });
+                return Ok(Posted {
+                    row,
+                    duplicate: true,
+                    conv: conv.clone(),
+                    read_skipped: false,
+                    accepted_now: false,
+                    reply_sender: None,
+                });
             }
         }
 
         let message_id = new_id();
         let seq = conv.last_seq + 1;
-        let json = |value: Result<serde_json::Value, serde_json::Error>| value.map_err(|e| AppError::internal(anyhow::anyhow!("message encode: {e}")));
-        let attachments = json(serde_json::to_value(draft.attachments.iter().map(AssetRow::to_attachment).collect::<Vec<_>>()))?;
+        let json = |value: Result<serde_json::Value, serde_json::Error>| {
+            value.map_err(|e| AppError::internal(anyhow::anyhow!("message encode: {e}")))
+        };
+        let attachments =
+            json(serde_json::to_value(draft.attachments.iter().map(AssetRow::to_attachment).collect::<Vec<_>>()))?;
         let mentions = json(serde_json::to_value(&draft.mentions))?;
         let location = draft.location.as_ref().map(|location| json(serde_json::to_value(location))).transpose()?;
         let system = draft.system.as_ref().map(|system| json(serde_json::to_value(system))).transpose()?;
@@ -227,12 +268,14 @@ impl Chat {
             assets::attach(&mut **tx, asset.id, &holder).await?;
         }
 
-        sqlx::query("UPDATE chat_conversations SET last_seq = $2, last_message_id = $3, last_activity_at = now() WHERE id = $1")
-            .bind(conv.id)
-            .bind(seq)
-            .bind(message_id)
-            .execute(&mut **tx)
-            .await?;
+        sqlx::query(
+            "UPDATE chat_conversations SET last_seq = $2, last_message_id = $3, last_activity_at = now() WHERE id = $1",
+        )
+        .bind(conv.id)
+        .bind(seq)
+        .bind(message_id)
+        .execute(&mut **tx)
+        .await?;
 
         // The other members: unread counters move, a hidden conversation comes back.
         let counts = i32::from(row.counts_as_unread());
@@ -280,11 +323,9 @@ impl Chat {
             None => None,
         };
 
-        if let (Notify::Standard, Some(sender_id)) = (draft.notify, draft.sender_id) {
-            if !recipients.is_empty() {
-                let first_request = draft.is_request && before.as_ref().is_some_and(|before| before.request_messages == 0);
-                self.request_message_notifications(tx, conv, &row, sender_id, &recipients, &mentioned, first_request).await?;
-            }
+        if let (Notify::Standard(context), Some(sender_id)) = (&draft.notify, draft.sender_id) {
+            let first_request = draft.is_request && before.as_ref().is_some_and(|before| before.request_messages == 0);
+            request_message_notifications(tx, context, conv, &row, sender_id, &recipients, &mentioned, first_request).await?;
         }
 
         let read_skipped = before.as_ref().is_some_and(|before| before.read_seq < seq - 1);
@@ -293,49 +334,6 @@ impl Chat {
         conv.last_message_id = Some(message_id);
         let reply_sender = draft.reply_to.and_then(|(_, sender)| sender);
         Ok(Posted { row, duplicate: false, conv: conv.clone(), read_skipped, accepted_now, reply_sender })
-    }
-
-    /// Decides, member by member, who is told about a new message.
-    async fn request_message_notifications(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        conv: &ConversationRow,
-        row: &MessageRow,
-        sender_id: Uuid,
-        recipients: &[Recipient],
-        mentioned: &[Uuid],
-        first_request: bool,
-    ) -> AppResult<()> {
-        let core = &self.core;
-        let sender = tokuly_identity::summary(core, sender_id).await?;
-        // Members looking at the conversation right now see the message arrive.
-        let present: HashSet<Uuid> = self.present_users(conv.id).await.unwrap_or_default().into_iter().collect();
-        // In a group, people in a block with the sender hear nothing from them.
-        let hidden: HashSet<Uuid> =
-            if conv.is_group() { graph::blocked_ids_either(core, sender_id).await?.into_iter().collect() } else { HashSet::new() };
-        let image = render::thumbnail_of(row, &Default::default());
-        for recipient in recipients {
-            let kind = if recipient.request_state == request::PENDING {
-                // A message request announces itself once, not with every message.
-                if !first_request {
-                    continue;
-                }
-                notices::KIND_REQUEST
-            } else {
-                if present.contains(&recipient.user_id) || hidden.contains(&recipient.user_id) {
-                    continue;
-                }
-                let by_name = mentioned.contains(&recipient.user_id);
-                let muted = muted_now(recipient.muted, recipient.muted_until);
-                if muted && !by_name {
-                    continue;
-                }
-                if by_name || row.mention_all { notices::KIND_MENTION } else { notices::KIND_MESSAGE }
-            };
-            let request = notices::message(recipient.user_id, kind, &sender, sender_id, conv, row, image.clone());
-            outbound::notify(&mut **tx, &request).await?;
-        }
-        Ok(())
     }
 
     /// Pushes a stored message to the members and reports it to the other
@@ -383,7 +381,8 @@ impl Chat {
             let targets: Vec<Uuid> = match conv.other_of(sender_id) {
                 Some(other) => vec![other],
                 None => {
-                    let mut addressed: Vec<Uuid> = posted.reply_sender.into_iter().chain(row.mentions().into_iter().map(|m| m.user_id)).collect();
+                    let mut addressed: Vec<Uuid> =
+                        posted.reply_sender.into_iter().chain(row.mentions().into_iter().map(|m| m.user_id)).collect();
                     addressed.retain(|user_id| *user_id != sender_id);
                     addressed.sort_unstable();
                     addressed.dedup();
@@ -399,7 +398,9 @@ impl Chat {
             tokuly_stamp::record_send(core, sender_id, stamp_id, SendContext::Chat).await?;
         }
         if row.link_url.is_some() && row.link_checked_at.is_none() {
-            core.jobs.enqueue_unique(JOB_LINK_PREVIEW, &row.id.to_string(), &LinkPreviewJob { message_id: row.id }).await?;
+            core.jobs
+                .enqueue_unique(JOB_LINK_PREVIEW, &row.id.to_string(), &LinkPreviewJob { message_id: row.id })
+                .await?;
         }
         if interaction.is_some() {
             let event = AnalyticsEvent::new("chat.message.send")
@@ -421,4 +422,41 @@ impl Chat {
         self.announce(&posted).await;
         Ok(posted)
     }
+}
+
+/// Decides, member by member, who is told about a new message, and requests
+/// those notifications in the message's transaction.
+async fn request_message_notifications(
+    tx: &mut Transaction<'_, Postgres>,
+    context: &NotifyContext,
+    conv: &ConversationRow,
+    row: &MessageRow,
+    sender_id: Uuid,
+    recipients: &[Recipient],
+    mentioned: &[Uuid],
+    first_request: bool,
+) -> AppResult<()> {
+    let image = render::thumbnail_of(row, &Default::default());
+    for recipient in recipients {
+        let kind = if recipient.request_state == request::PENDING {
+            // A message request announces itself once, not with every message.
+            if !first_request {
+                continue;
+            }
+            notices::KIND_REQUEST
+        } else {
+            if context.present.contains(&recipient.user_id) || context.hidden.contains(&recipient.user_id) {
+                continue;
+            }
+            let by_name = mentioned.contains(&recipient.user_id);
+            let muted = muted_now(recipient.muted, recipient.muted_until);
+            if muted && !by_name {
+                continue;
+            }
+            if by_name || row.mention_all { notices::KIND_MENTION } else { notices::KIND_MESSAGE }
+        };
+        let request = notices::message(recipient.user_id, kind, &context.sender, sender_id, conv, row, image.clone());
+        outbound::notify(&mut **tx, &request).await?;
+    }
+    Ok(())
 }

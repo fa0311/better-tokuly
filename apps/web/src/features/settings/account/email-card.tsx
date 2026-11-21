@@ -28,7 +28,7 @@ export function EmailCard({ me }: { me: identity.Me }) {
   return (
     <Group title={t("account.email.title")}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <p className="min-w-0 flex-1 truncate text-lg font-black" data-testid="account-email">
+        <p className="min-w-0 break-all text-lg font-black leading-snug" data-testid="account-email">
           {me.email}
         </p>
         {me.emailVerified ? (

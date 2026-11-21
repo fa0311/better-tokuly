@@ -68,12 +68,12 @@ export function StatusChip({ tone, children, className }: { tone: Tone; children
   return <span className={cn("inline-flex h-6 shrink-0 items-center rounded-full px-2.5 text-xs font-black", TONES[tone], className)}>{children}</span>;
 }
 
-/** One "label: value" line of a details block. */
-export function Fact({ label, children, className }: { label: ReactNode; children: ReactNode; className?: string }) {
+/** One "label: value" line of a details block. `stack` puts the label above the value, for long text (addresses, messages, IDs). */
+export function Fact({ label, children, className, stack }: { label: ReactNode; children: ReactNode; className?: string; stack?: boolean }) {
   return (
-    <div className={cn("flex items-baseline justify-between gap-4 py-2", className)}>
+    <div className={cn("py-2", stack ? "flex flex-col gap-0.5" : "flex items-baseline justify-between gap-4", className)}>
       <dt className="shrink-0 text-sm font-bold text-ink-soft">{label}</dt>
-      <dd className="min-w-0 break-words text-right font-bold">{children}</dd>
+      <dd className={cn("min-w-0 font-bold break-words", !stack && "text-right")}>{children}</dd>
     </div>
   );
 }

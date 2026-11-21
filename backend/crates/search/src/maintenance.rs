@@ -194,8 +194,14 @@ impl Search {
         sqlx::query("DELETE FROM search_recent WHERE user_id = $1").bind(user_id).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM search_user_settings WHERE user_id = $1").bind(user_id).execute(&mut *tx).await?;
         // The word lists stay; who entered them is forgotten.
-        sqlx::query("UPDATE search_blocked_terms SET added_by = NULL WHERE added_by = $1").bind(user_id).execute(&mut *tx).await?;
-        sqlx::query("UPDATE search_synonym_groups SET updated_by = NULL WHERE updated_by = $1").bind(user_id).execute(&mut *tx).await?;
+        sqlx::query("UPDATE search_blocked_terms SET added_by = NULL WHERE added_by = $1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("UPDATE search_synonym_groups SET updated_by = NULL WHERE updated_by = $1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
         tx.commit().await?;
         self.indexer_wake.notify_one();
         Ok(())
@@ -214,15 +220,17 @@ impl DataExporter for SearchExporter {
     }
 
     async fn export(&self, user_id: Uuid) -> AppResult<serde_json::Value> {
-        let recent: Vec<(String, String, Time)> =
-            sqlx::query_as("SELECT query, kind, searched_at FROM search_recent WHERE user_id = $1 ORDER BY searched_at DESC, id DESC")
+        let recent: Vec<(String, String, Time)> = sqlx::query_as(
+            "SELECT query, kind, searched_at FROM search_recent WHERE user_id = $1 ORDER BY searched_at DESC, id DESC",
+        )
+        .bind(user_id)
+        .fetch_all(&self.core.db)
+        .await?;
+        let paused: Option<bool> =
+            sqlx::query_scalar("SELECT history_paused FROM search_user_settings WHERE user_id = $1")
                 .bind(user_id)
-                .fetch_all(&self.core.db)
+                .fetch_optional(&self.core.db)
                 .await?;
-        let paused: Option<bool> = sqlx::query_scalar("SELECT history_paused FROM search_user_settings WHERE user_id = $1")
-            .bind(user_id)
-            .fetch_optional(&self.core.db)
-            .await?;
         Ok(serde_json::json!({
             "history_paused": paused.unwrap_or(false),
             "recent_searches": recent

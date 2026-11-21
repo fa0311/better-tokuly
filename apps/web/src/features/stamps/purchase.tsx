@@ -7,8 +7,9 @@ import { Button } from "#/components/ui/button";
 import { Coins } from "#/components/ui/coins";
 import { Dialog } from "#/components/ui/dialog";
 import { Skeleton } from "#/components/ui/page";
+import { useBalance } from "#/features/wallet";
 import { errorMessage } from "#/lib/errors";
-import { libraryClient, patchPack, refreshHoldings, stampKeys, useCoinBalance } from "./api";
+import { libraryClient, patchPack, refreshHoldings, stampKeys } from "./api";
 import { PackCover, PackMaker } from "./parts";
 
 /**
@@ -19,8 +20,8 @@ import { PackCover, PackMaker } from "./parts";
 export function PurchaseDialog({ pack, open, onOpenChange }: { pack: stamp.PackSummary; open: boolean; onOpenChange(open: boolean): void }) {
   const { t } = useTranslation("stamps");
   const queryClient = useQueryClient();
-  const balance = useCoinBalance(open);
-  const coins = balance.data?.coins;
+  // Kept current by the wallet: coins bought in another tab show up here on their own.
+  const { coins, refresh: refreshBalance } = useBalance();
   const price = BigInt(pack.price);
   const short = coins !== undefined && coins < price ? price - coins : 0n;
 
@@ -31,14 +32,14 @@ export function PurchaseDialog({ pack, open, onOpenChange }: { pack: stamp.PackS
       if (bought) patchPack(queryClient, bought.id, () => bought);
       toast.success(t("toast.purchased", { name: pack.name }));
       onOpenChange(false);
-      return Promise.all([refreshHoldings(queryClient), queryClient.invalidateQueries({ queryKey: ["wallet"] })]);
+      return Promise.all([refreshHoldings(queryClient), refreshBalance()]);
     },
     onError: (error) => {
       toast.error(errorMessage(error));
       const reason = errorReason(error);
       // The price or the balance on screen is out of date: show the real ones.
       if (reason === "PRICE_CHANGED") void queryClient.invalidateQueries({ queryKey: stampKeys.all });
-      if (reason === "INSUFFICIENT_COINS") void queryClient.invalidateQueries({ queryKey: stampKeys.balance });
+      if (reason === "INSUFFICIENT_COINS") void refreshBalance();
     },
   });
 
@@ -54,7 +55,7 @@ export function PurchaseDialog({ pack, open, onOpenChange }: { pack: stamp.PackS
             {t("purchase.cancel")}
           </Button>
           {short > 0n ? (
-            <Link to="/wallet" className="pressable sticker inline-flex h-11 items-center justify-center rounded-full bg-lime px-5 text-[15px] font-bold text-[#17122b]">
+            <Link to="/wallet/buy" className="pressable sticker inline-flex h-11 items-center justify-center rounded-full bg-lime px-5 text-[15px] font-bold text-[#17122b]">
               {t("purchase.topUp")}
             </Link>
           ) : (

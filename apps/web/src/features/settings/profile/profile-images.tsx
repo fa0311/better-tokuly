@@ -91,24 +91,26 @@ export function ProfileImages({ me }: { me: identity.Me }) {
           </Button>
         </div>
       </div>
-      <div className="flex items-end gap-3 px-4 pb-4">
-        <div className="relative -mt-10 shrink-0">
-          <Avatar user={user} size="xl" outlined />
-          <button
-            type="button"
-            aria-label={t("profile.avatar.change")}
-            onClick={() => inputs.avatar.current?.click()}
-            className="pressable sticker-sm absolute -right-2 -bottom-2 grid size-10 place-items-center rounded-full bg-brand text-on-brand"
-          >
-            <Camera className="size-5" />
-          </button>
-        </div>
-        <div className="min-w-0 flex-1 pb-0.5">
-          <p className="truncate text-lg font-black">{user?.displayName}</p>
-          <p className="truncate text-sm font-bold text-ink-soft">@{user?.handle}</p>
+      <div className="px-4 pb-4">
+        <div className="flex items-end gap-3">
+          <div className="relative -mt-10 shrink-0">
+            <Avatar user={user} size="xl" outlined />
+            <button
+              type="button"
+              aria-label={t("profile.avatar.change")}
+              onClick={() => inputs.avatar.current?.click()}
+              className="pressable sticker-sm absolute -right-2 -bottom-2 grid size-10 place-items-center rounded-full bg-brand text-on-brand"
+            >
+              <Camera className="size-5" />
+            </button>
+          </div>
+          <div className="min-w-0 flex-1 pb-0.5">
+            <p className="truncate text-lg font-black">{user?.displayName}</p>
+            <p className="truncate text-sm font-bold text-ink-soft">@{user?.handle}</p>
+          </div>
         </div>
         {hasAvatar && (
-          <Button size="sm" variant="ghost" className="shrink-0 text-ink-soft" onClick={() => askRemove("avatar")}>
+          <Button size="sm" variant="ghost" className="mt-3 -ml-2 text-ink-soft" icon={<Trash2 className="size-4" />} onClick={() => askRemove("avatar")}>
             {t("profile.avatar.remove")}
           </Button>
         )}

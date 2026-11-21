@@ -126,7 +126,8 @@ impl SearchAdminService for Search {
             )
             .fetch_all(&self.core.db)
             .await?;
-            let registry: HashMap<String, KindRegistryStats> = registry.into_iter().map(|row| (row.kind.clone(), row)).collect();
+            let registry: HashMap<String, KindRegistryStats> =
+                registry.into_iter().map(|row| (row.kind.clone(), row)).collect();
 
             // The registry numbers are worth showing even when the engine is down.
             let client = &self.core.search;
@@ -178,7 +179,11 @@ impl SearchAdminService for Search {
         .await
     }
 
-    async fn reindex(&self, ctx: RequestContext, request: ServiceRequest<'_, ReindexRequest>) -> ServiceResult<ReindexResponse> {
+    async fn reindex(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, ReindexRequest>,
+    ) -> ServiceResult<ReindexResponse> {
         handle(async {
             let admin = ctx.require_role(ROLE)?.user_id;
             let kind = required_kind(request.kind)?;
@@ -239,7 +244,11 @@ impl SearchAdminService for Search {
             .fetch_all(&self.core.db)
             .await?;
             let info = page.finish(&mut rows, |row| row.term.clone());
-            ok(ListBlockedTermsResponse { terms: self.blocked_term_messages(rows).await?, page: info.into(), ..Default::default() })
+            ok(ListBlockedTermsResponse {
+                terms: self.blocked_term_messages(rows).await?,
+                page: info.into(),
+                ..Default::default()
+            })
         })
         .await
     }
@@ -255,7 +264,12 @@ impl SearchAdminService for Search {
                 bail!(invalid, "TERM_INVALID", "a blocked term is 1-{MAX_TERM_CHARS} characters")
             };
             let note = clean(request.note, MAX_NOTE_CHARS + 1);
-            ensure!(note.chars().count() <= MAX_NOTE_CHARS, invalid, "NOTE_TOO_LONG", "a note is at most {MAX_NOTE_CHARS} characters");
+            ensure!(
+                note.chars().count() <= MAX_NOTE_CHARS,
+                invalid,
+                "NOTE_TOO_LONG",
+                "a note is at most {MAX_NOTE_CHARS} characters"
+            );
             let mut tx = self.core.db.begin().await?;
             let row: BlockedTermRow = sqlx::query_as(
                 "INSERT INTO search_blocked_terms (term, note, added_by) VALUES ($1, $2, $3)
@@ -268,7 +282,10 @@ impl SearchAdminService for Search {
             .fetch_one(&mut *tx)
             .await?;
             // What is already popular or trending and now blocked goes at once.
-            sqlx::query("DELETE FROM search_popular_queries WHERE position($1 in query) > 0").bind(&term).execute(&mut *tx).await?;
+            sqlx::query("DELETE FROM search_popular_queries WHERE position($1 in query) > 0")
+                .bind(&term)
+                .execute(&mut *tx)
+                .await?;
             tx.commit().await?;
             self.invalidate_blocklist();
             let term = self.blocked_term_messages(vec![row]).await?.pop();
@@ -285,7 +302,10 @@ impl SearchAdminService for Search {
         handle(async {
             ctx.require_role(ROLE)?;
             let term = normalize_term(request.term);
-            let done = sqlx::query("DELETE FROM search_blocked_terms WHERE term = $1").bind(&term).execute(&self.core.db).await?;
+            let done = sqlx::query("DELETE FROM search_blocked_terms WHERE term = $1")
+                .bind(&term)
+                .execute(&self.core.db)
+                .await?;
             ensure!(done.rows_affected() > 0, not_found, "TERM_NOT_FOUND", "this term is not blocked");
             self.invalidate_blocklist();
             ok(RemoveBlockedTermResponse::default())
@@ -301,7 +321,9 @@ impl SearchAdminService for Search {
         handle(async {
             ctx.require_role(ROLE)?;
             let rows: Vec<SynonymGroupRow> =
-                sqlx::query_as("SELECT id, words, updated_at FROM search_synonym_groups ORDER BY id").fetch_all(&self.core.db).await?;
+                sqlx::query_as("SELECT id, words, updated_at FROM search_synonym_groups ORDER BY id")
+                    .fetch_all(&self.core.db)
+                    .await?;
             ok(ListSynonymGroupsResponse { groups: rows.into_iter().map(Into::into).collect(), ..Default::default() })
         })
         .await
@@ -331,7 +353,9 @@ impl SearchAdminService for Search {
                 None => {
                     // The cap keeps the engine's synonym table small; it is a
                     // guard against runaway imports, not an exact quota.
-                    let existing: i64 = sqlx::query_scalar("SELECT count(*) FROM search_synonym_groups").fetch_one(&self.core.db).await?;
+                    let existing: i64 = sqlx::query_scalar("SELECT count(*) FROM search_synonym_groups")
+                        .fetch_one(&self.core.db)
+                        .await?;
                     ensure!(
                         existing < MAX_SYNONYM_GROUPS,
                         precondition,
@@ -363,7 +387,8 @@ impl SearchAdminService for Search {
         handle(async {
             ctx.require_role(ROLE)?;
             let id = parse_id(request.id)?;
-            let done = sqlx::query("DELETE FROM search_synonym_groups WHERE id = $1").bind(id).execute(&self.core.db).await?;
+            let done =
+                sqlx::query("DELETE FROM search_synonym_groups WHERE id = $1").bind(id).execute(&self.core.db).await?;
             ensure!(done.rows_affected() > 0, not_found, "SYNONYM_GROUP_NOT_FOUND", "synonym group not found");
             self.queue_synonyms().await?;
             ok(DeleteSynonymGroupResponse::default())

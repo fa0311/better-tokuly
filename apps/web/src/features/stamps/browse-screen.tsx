@@ -76,14 +76,15 @@ export function BrowseScreen({ search }: { search: BrowseSearch }) {
 
   const packs = useInfiniteQuery({
     queryKey: query ? stampKeys.storeSearch(query, PRICE_VALUE[price]) : stampKeys.storeList(SECTION_VALUE[section], tag, PRICE_VALUE[price]),
-    queryFn: ({ pageParam }) => {
+    queryFn: async ({ pageParam }) => {
       const page = { limit: PAGE_SIZE, cursor: pageParam };
-      return query
-        ? storeClient().searchPacks({ query, price: PRICE_VALUE[price], page })
-        : storeClient().listStorePacks({ section: SECTION_VALUE[section], tag, price: PRICE_VALUE[price], page });
+      const response = query
+        ? await storeClient().searchPacks({ query, price: PRICE_VALUE[price], page })
+        : await storeClient().listStorePacks({ section: SECTION_VALUE[section], tag, price: PRICE_VALUE[price], page });
+      return { packs: response.packs, next: response.page?.nextCursor ?? "" };
     },
     initialPageParam: "",
-    getNextPageParam: (last) => last.page?.nextCursor || undefined,
+    getNextPageParam: (last) => last.next || undefined,
   });
   const items = packs.data?.pages.flatMap((page) => page.packs) ?? [];
 

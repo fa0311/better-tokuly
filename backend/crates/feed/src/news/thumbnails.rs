@@ -18,7 +18,9 @@ fn is_item(local_name: &str) -> bool {
 /// its first `thumbnail` element, if it has one. `None` when the document is
 /// not XML or cannot be read to the end (the caller then goes without).
 pub fn item_thumbnails(body: &[u8]) -> Option<Vec<Option<String>>> {
-    if body.iter().find(|byte| !byte.is_ascii_whitespace() && **byte != 0xEF && **byte != 0xBB && **byte != 0xBF) != Some(&b'<') {
+    if body.iter().find(|byte| !byte.is_ascii_whitespace() && **byte != 0xEF && **byte != 0xBB && **byte != 0xBF)
+        != Some(&b'<')
+    {
         return None;
     }
     let mut reader = Reader::from_reader(DecodingReader::new(body));
@@ -50,11 +52,17 @@ pub fn item_thumbnails(body: &[u8]) -> Option<Vec<Option<String>>> {
                             && let Some(slot) = items.last_mut()
                             && slot.is_none()
                         {
-                            *slot = start.attributes().flatten().find(|attribute| attribute.key.local_name().as_ref() == "url").and_then(|attribute| {
-                                let value = quick_xml::escape::unescape(&attribute.value).map(|value| value.into_owned()).unwrap_or_else(|_| attribute.value.to_string());
-                                let value = value.trim().to_owned();
-                                (!value.is_empty()).then_some(value)
-                            });
+                            *slot = start
+                                .attributes()
+                                .flatten()
+                                .find(|attribute| attribute.key.local_name().as_ref() == "url")
+                                .and_then(|attribute| {
+                                    let value = quick_xml::escape::unescape(&attribute.value)
+                                        .map(|value| value.into_owned())
+                                        .unwrap_or_else(|_| attribute.value.to_string());
+                                    let value = value.trim().to_owned();
+                                    (!value.is_empty()).then_some(value)
+                                });
                         }
                     }
                 }
@@ -93,7 +101,12 @@ mod tests {
 </rss>"#;
         assert_eq!(
             item_thumbnails(rss.as_bytes()),
-            Some(vec![Some("https://cdn.example/1.jpg?a=1&b=2".to_owned()), None, Some("https://cdn.example/3a.jpg".to_owned()), None])
+            Some(vec![
+                Some("https://cdn.example/1.jpg?a=1&b=2".to_owned()),
+                None,
+                Some("https://cdn.example/3a.jpg".to_owned()),
+                None
+            ])
         );
     }
 
@@ -104,7 +117,11 @@ mod tests {
   <entry><title>A</title><media:thumbnail url="https://cdn.example/a.jpg"/></entry>
   <entry><title>B</title></entry>
 </feed>"#;
-        assert_eq!(item_thumbnails(atom.as_bytes()), Some(vec![Some("https://cdn.example/a.jpg".to_owned()), None]), "a thumbnail outside of entries belongs to nobody");
+        assert_eq!(
+            item_thumbnails(atom.as_bytes()),
+            Some(vec![Some("https://cdn.example/a.jpg".to_owned()), None]),
+            "a thumbnail outside of entries belongs to nobody"
+        );
     }
 
     #[test]

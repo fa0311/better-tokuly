@@ -17,11 +17,17 @@ const RESOLVE_CONCURRENCY: usize = 8;
 impl Engagement {
     /// The engagement of subjects the viewer may see, in the given order.
     /// Each comes with the ID the request named it by.
-    async fn engagement_of(&self, subjects: Vec<(String, Subject)>, viewer: Option<Uuid>) -> AppResult<Vec<SubjectEngagement>> {
+    async fn engagement_of(
+        &self,
+        subjects: Vec<(String, Subject)>,
+        viewer: Option<Uuid>,
+    ) -> AppResult<Vec<SubjectEngagement>> {
         let keys: Vec<SubjectKey> = subjects.iter().map(|(_, subject)| subject.key).collect();
         let numbers = stats::load(&self.core, &keys).await?;
         let (mut own_reactions, saved) = match viewer {
-            Some(viewer) => (reactions::of_user(&self.core, viewer, &keys).await?, self.saved_among(viewer, &keys).await?),
+            Some(viewer) => {
+                (reactions::of_user(&self.core, viewer, &keys).await?, self.saved_among(viewer, &keys).await?)
+            }
             None => Default::default(),
         };
         Ok(subjects
@@ -70,7 +76,12 @@ impl EngagementService for Engagement {
         handle(async {
             let viewer = ctx.maybe_user_id()?;
             let request = request.to_owned_message();
-            ensure!(request.subjects.len() <= MAX_BATCH, invalid, "TOO_MANY_SUBJECTS", "at most {MAX_BATCH} subjects per call");
+            ensure!(
+                request.subjects.len() <= MAX_BATCH,
+                invalid,
+                "TOO_MANY_SUBJECTS",
+                "at most {MAX_BATCH} subjects per call"
+            );
             let mut wanted = Vec::with_capacity(request.subjects.len());
             for subject in request.subjects {
                 wanted.push((requested_type(subject.r#type)?, subject.id));
@@ -95,7 +106,10 @@ impl EngagementService for Engagement {
                 }
             }
             drop(resolving);
-            ok(BatchGetEngagementResponse { engagements: self.engagement_of(visible, viewer).await?, ..Default::default() })
+            ok(BatchGetEngagementResponse {
+                engagements: self.engagement_of(visible, viewer).await?,
+                ..Default::default()
+            })
         })
         .await
     }
@@ -125,7 +139,12 @@ impl EngagementService for Engagement {
             let user_id = ctx.user_id()?;
             let request = request.to_owned_message();
             let subject = self.requested_subject(request.subject.as_option(), Some(user_id)).await?;
-            ensure!(subject.is_owned_by(user_id), denied, "NOT_SUBJECT_OWNER", "only the owner of the content can see this");
+            ensure!(
+                subject.is_owned_by(user_id),
+                denied,
+                "NOT_SUBJECT_OWNER",
+                "only the owner of the content can see this"
+            );
             let (share_count, targets) = self.share_stats(&subject).await?;
             ok(GetShareStatsResponse { share_count, targets, ..Default::default() })
         })

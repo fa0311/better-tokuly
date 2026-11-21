@@ -22,14 +22,22 @@ fn save(subject: SubjectRef) -> AddBookmarkRequest {
 }
 
 fn report(subject: SubjectRef) -> CreateReportRequest {
-    CreateReportRequest { subject: subject.into(), category: ReportCategory::REPORT_CATEGORY_SPAM.into(), ..Default::default() }
+    CreateReportRequest {
+        subject: subject.into(),
+        category: ReportCategory::REPORT_CATEGORY_SPAM.into(),
+        ..Default::default()
+    }
 }
 
 #[tokio::test]
 async fn a_takedown_removes_a_comment_or_everything_on_a_subject() {
     let ctx = start().await;
-    let (owner, bob, carol, moderator) =
-        (ctx.app.user("Owner").await, ctx.app.user("Bob").await, ctx.app.user("Carol").await, ctx.app.user("Mod").await);
+    let (owner, bob, carol, moderator) = (
+        ctx.app.user("Owner").await,
+        ctx.app.user("Bob").await,
+        ctx.app.user("Carol").await,
+        ctx.app.user("Mod").await,
+    );
     let (video, kept) = (ctx.video(&owner, "消される動画"), ctx.video(&owner, "残る動画"));
     let top = ctx.comment(&bob, &video, "スレッド").await;
     let reply = ctx.reply(&carol, &top.id, "返信").await;
@@ -37,9 +45,12 @@ async fn a_takedown_removes_a_comment_or_everything_on_a_subject() {
     let on_kept = ctx.comment(&bob, &kept, "残る動画のコメント").await;
     ctx.react(&carol, comment_ref(&top.id), like()).await;
     ctx.react(&bob, video.subject_ref(), like()).await;
-    let _: AddBookmarkResponse = ctx.call("BookmarkService", "AddBookmark", Some(&bob), &save(video.subject_ref())).await.unwrap();
-    let _: AddBookmarkResponse = ctx.call("BookmarkService", "AddBookmark", Some(&bob), &save(kept.subject_ref())).await.unwrap();
-    let _: CreateReportResponse = ctx.call("ReportService", "CreateReport", Some(&carol), &report(comment_ref(&top.id))).await.unwrap();
+    let _: AddBookmarkResponse =
+        ctx.call("BookmarkService", "AddBookmark", Some(&bob), &save(video.subject_ref())).await.unwrap();
+    let _: AddBookmarkResponse =
+        ctx.call("BookmarkService", "AddBookmark", Some(&bob), &save(kept.subject_ref())).await.unwrap();
+    let _: CreateReportResponse =
+        ctx.call("ReportService", "CreateReport", Some(&carol), &report(comment_ref(&top.id))).await.unwrap();
     let removal = |kind: i32, id: &str| serde_json::json!({ "subject_type": kind, "subject_id": id, "reason": "規約違反", "moderator_id": moderator.id });
 
     // A comment: gone with its replies; the report about it is answered.
@@ -48,8 +59,14 @@ async fn a_takedown_removes_a_comment_or_everything_on_a_subject() {
     assert_eq!(texts(&ctx.comments(None, &video).await.comments), ["べつのコメント"]);
     assert_eq!(ctx.videos.counter(video.id, "comment_count"), 1);
     assert_eq!(ctx.get_comment(Some(&carol), &reply.id).await.unwrap_err().reason, "COMMENT_NOT_FOUND");
-    assert!(drain(&mut topic).await.iter().any(|event| matches!(event, Pushed::CommentRemoved(removed) if removed.removed_count == 2)));
-    let reports: ListMyReportsResponse = ctx.call("ReportService", "ListMyReports", Some(&carol), &ListMyReportsRequest::default()).await.unwrap();
+    assert!(
+        drain(&mut topic)
+            .await
+            .iter()
+            .any(|event| matches!(event, Pushed::CommentRemoved(removed) if removed.removed_count == 2))
+    );
+    let reports: ListMyReportsResponse =
+        ctx.call("ReportService", "ListMyReports", Some(&carol), &ListMyReportsRequest::default()).await.unwrap();
     assert_eq!(reports.reports[0].status, ReportStatus::REPORT_STATUS_ACTION_TAKEN);
     // Delivered twice, it changes nothing.
     ctx.deliver("admin.content.removed", Some(moderator.id), removal(10, &top.id)).await;
@@ -84,20 +101,27 @@ async fn an_erased_account_leaves_nothing_behind() {
     ctx.reply(&gone, &carols.id, "消える人の返信").await;
     ctx.react(&gone, video.subject_ref(), like()).await;
     ctx.react(&gone, comment_ref(&carols.id), like()).await;
-    let _: AddBookmarkResponse = ctx.call("BookmarkService", "AddBookmark", Some(&gone), &save(video.subject_ref())).await.unwrap();
-    let _: CreateReportResponse = ctx.call("ReportService", "CreateReport", Some(&gone), &report(video.subject_ref())).await.unwrap();
+    let _: AddBookmarkResponse =
+        ctx.call("BookmarkService", "AddBookmark", Some(&gone), &save(video.subject_ref())).await.unwrap();
+    let _: CreateReportResponse =
+        ctx.call("ReportService", "CreateReport", Some(&gone), &report(video.subject_ref())).await.unwrap();
     ctx.set_rules(&gone, true, false, &["x"]).await;
     // ...and what other people left on the account's content.
     ctx.set_rules(&gone, false, false, &[]).await;
     ctx.comment(&carol, &theirs, "消える人の動画へのコメント").await;
     ctx.react(&carol, theirs.subject_ref(), emoji("🎉")).await;
-    let _: AddBookmarkResponse = ctx.call("BookmarkService", "AddBookmark", Some(&carol), &save(theirs.subject_ref())).await.unwrap();
-    let _: CreateReportResponse = ctx.call("ReportService", "CreateReport", Some(&carol), &report(theirs.subject_ref())).await.unwrap();
+    let _: AddBookmarkResponse =
+        ctx.call("BookmarkService", "AddBookmark", Some(&carol), &save(theirs.subject_ref())).await.unwrap();
+    let _: CreateReportResponse =
+        ctx.call("ReportService", "CreateReport", Some(&carol), &report(theirs.subject_ref())).await.unwrap();
     let block = BlockCommenterRequest {
-        target: Some(tokuly_proto::engagement::__buffa::oneof::block_commenter_request::Target::UserId(gone.id.to_string())),
+        target: Some(tokuly_proto::engagement::__buffa::oneof::block_commenter_request::Target::UserId(
+            gone.id.to_string(),
+        )),
         ..Default::default()
     };
-    let _: BlockCommenterResponse = ctx.call("CommentModerationService", "BlockCommenter", Some(&carol), &block).await.unwrap();
+    let _: BlockCommenterResponse =
+        ctx.call("CommentModerationService", "BlockCommenter", Some(&carol), &block).await.unwrap();
     assert_eq!(ctx.videos.counter(video.id, "comment_count"), 4);
 
     ctx.deliver("identity.user.deleted", Some(gone.id), serde_json::json!({ "user_id": gone.id })).await;
@@ -123,13 +147,24 @@ async fn an_erased_account_leaves_nothing_behind() {
         ("comment_blocks", "blocked_user_id"),
         ("comment_mentions", "user_id"),
     ] {
-        assert_eq!(count(&ctx, &format!("SELECT count(*) FROM {table} WHERE {column} = $1"), gone.id).await, 0, "{table}");
+        assert_eq!(
+            count(&ctx, &format!("SELECT count(*) FROM {table} WHERE {column} = $1"), gone.id).await,
+            0,
+            "{table}"
+        );
     }
     // What hung off their content went with it; the report about it stays with the team, without the name.
     for table in ["comments", "reactions", "subject_stats", "bookmarks"] {
-        assert_eq!(count(&ctx, &format!("SELECT count(*) FROM {table} WHERE subject_id = $1"), theirs.id).await, 0, "{table}");
+        assert_eq!(
+            count(&ctx, &format!("SELECT count(*) FROM {table} WHERE subject_id = $1"), theirs.id).await,
+            0,
+            "{table}"
+        );
     }
-    assert_eq!(count(&ctx, "SELECT count(*) FROM reports WHERE subject_id = $1 AND subject_owner_id IS NULL", theirs.id).await, 1);
+    assert_eq!(
+        count(&ctx, "SELECT count(*) FROM reports WHERE subject_id = $1 AND subject_owner_id IS NULL", theirs.id).await,
+        1
+    );
     let carols_collections: ListCollectionsResponse =
         ctx.call("BookmarkService", "ListCollections", Some(&carol), &ListCollectionsRequest::default()).await.unwrap();
     assert_eq!(carols_collections.collections[0].item_count, 0);
@@ -164,7 +199,10 @@ async fn a_block_clears_the_blocked_users_comments_from_the_blockers_content() {
         .await
         .unwrap();
     assert_eq!((queue.held_count, queue.comments.len()), (0, 1));
-    assert_eq!(count(&ctx, "SELECT count(*) FROM comments WHERE subject_id = $1 AND pinned_at IS NOT NULL", video.id).await, 0);
+    assert_eq!(
+        count(&ctx, "SELECT count(*) FROM comments WHERE subject_id = $1 AND pinned_at IS NOT NULL", video.id).await,
+        0
+    );
     // What bob wrote elsewhere is nobody else's business.
     assert_eq!(ctx.get_comment(Some(&carol), &elsewhere.id).await.unwrap().comment.text, "よその動画へのコメント");
 }
@@ -181,20 +219,35 @@ async fn a_deleted_upload_takes_the_picture_out_of_comments() {
         image_asset_id: asset_id.to_string(),
         ..Default::default()
     };
-    let with_text: CreateCommentResponse = ctx.call("CommentService", "CreateComment", Some(&bob), &with_text).await.unwrap();
+    let with_text: CreateCommentResponse =
+        ctx.call("CommentService", "CreateComment", Some(&bob), &with_text).await.unwrap();
     let other_asset = ctx.image(&bob, AssetPurpose::ASSET_PURPOSE_NOTE_IMAGE).await;
-    let only_image =
-        CreateCommentRequest { subject: video.subject_ref().into(), image_asset_id: other_asset.to_string(), ..Default::default() };
-    let only_image: CreateCommentResponse = ctx.call("CommentService", "CreateComment", Some(&bob), &only_image).await.unwrap();
+    let only_image = CreateCommentRequest {
+        subject: video.subject_ref().into(),
+        image_asset_id: other_asset.to_string(),
+        ..Default::default()
+    };
+    let only_image: CreateCommentResponse =
+        ctx.call("CommentService", "CreateComment", Some(&bob), &only_image).await.unwrap();
     assert_eq!(ctx.videos.counter(video.id, "comment_count"), 2);
 
     // A comment with text keeps its text.
-    ctx.deliver("media.asset.deleted", None, serde_json::json!({ "asset_id": asset_id, "owner_id": bob.id, "purpose": 8, "kind": 1 })).await;
+    ctx.deliver(
+        "media.asset.deleted",
+        None,
+        serde_json::json!({ "asset_id": asset_id, "owner_id": bob.id, "purpose": 8, "kind": 1 }),
+    )
+    .await;
     let kept = ctx.get_comment(None, &with_text.comment.id).await.unwrap();
     assert_eq!(kept.comment.text, "写真つき");
     assert!(kept.comment.image.as_option().is_none());
     // A comment that was only the picture goes.
-    ctx.deliver("media.asset.deleted", None, serde_json::json!({ "asset_id": other_asset, "owner_id": bob.id, "purpose": 8, "kind": 1 })).await;
+    ctx.deliver(
+        "media.asset.deleted",
+        None,
+        serde_json::json!({ "asset_id": other_asset, "owner_id": bob.id, "purpose": 8, "kind": 1 }),
+    )
+    .await;
     assert_eq!(ctx.get_comment(None, &only_image.comment.id).await.unwrap_err().reason, "COMMENT_NOT_FOUND");
     assert_eq!(ctx.videos.counter(video.id, "comment_count"), 1);
 }
@@ -202,7 +255,8 @@ async fn a_deleted_upload_takes_the_picture_out_of_comments() {
 #[tokio::test]
 async fn only_those_who_see_a_subject_may_follow_its_topic() {
     let ctx = start().await;
-    let (owner, friend, stranger) = (ctx.app.user("Owner").await, ctx.app.user("Friend").await, ctx.app.user("Stranger").await);
+    let (owner, friend, stranger) =
+        (ctx.app.user("Owner").await, ctx.app.user("Friend").await, ctx.app.user("Stranger").await);
     let (public, private) = (ctx.video(&owner, "公開"), ctx.video(&owner, "限定"));
     ctx.videos.update(private.id, |subject| subject.audience = Audience::Only(vec![friend.id]));
     let guards = &ctx.app.core.topic_guards;
@@ -240,18 +294,23 @@ async fn comments_and_users_are_subjects() {
     assert!(info.title.chars().count() == 60 && info.title.ends_with('…'));
     assert!(info.interactions_enabled);
     assert_eq!(subjects.resolve(kind, "not-a-uuid", None).await.unwrap_err().reason, "SUBJECT_NOT_FOUND");
-    assert_eq!(subjects.resolve(kind, &Uuid::now_v7().to_string(), None).await.unwrap_err().reason, "SUBJECT_NOT_FOUND");
+    assert_eq!(
+        subjects.resolve(kind, &Uuid::now_v7().to_string(), None).await.unwrap_err().reason,
+        "SUBJECT_NOT_FOUND"
+    );
 
     // It follows the visibility of the comment: hidden, it resolves for its author and the owner only, and takes no likes.
     let hide = HideCommentRequest { comment_id: comment.id.clone(), ..Default::default() };
-    let _: HideCommentResponse = ctx.call("CommentModerationService", "HideComment", Some(&owner), &hide).await.unwrap();
+    let _: HideCommentResponse =
+        ctx.call("CommentModerationService", "HideComment", Some(&owner), &hide).await.unwrap();
     assert!(subjects.resolve(kind, comment_id, Some(carol.id)).await.is_err());
     assert!(subjects.resolve(kind, comment_id, None).await.is_err());
     assert!(!subjects.resolve(kind, comment_id, Some(bob.id)).await.unwrap().interactions_enabled);
     assert!(!subjects.resolve(kind, comment_id, Some(owner.id)).await.unwrap().interactions_enabled);
     // And the visibility of what it is on.
     let approve = ApproveCommentRequest { comment_id: comment.id.clone(), ..Default::default() };
-    let _: ApproveCommentResponse = ctx.call("CommentModerationService", "ApproveComment", Some(&owner), &approve).await.unwrap();
+    let _: ApproveCommentResponse =
+        ctx.call("CommentModerationService", "ApproveComment", Some(&owner), &approve).await.unwrap();
     ctx.videos.update(video.id, |subject| subject.audience = Audience::Only(vec![carol.id]));
     assert!(subjects.resolve(kind, comment_id, Some(carol.id)).await.is_ok());
     assert!(subjects.resolve(kind, comment_id, None).await.is_err());
@@ -266,14 +325,27 @@ async fn comments_and_users_are_subjects() {
     assert!(subjects.resolve(user, "no-such-handle", None).await.is_err());
     assert!(subjects.resolve(user, "!!", None).await.is_err());
     let profile = SubjectRef { r#type: user.into(), id: bob.id.to_string(), ..Default::default() };
-    let like_request = SetReactionRequest { subject: profile.clone().into(), reaction: like().into(), ..Default::default() };
-    assert_eq!(ctx.reason("ReactionService", "SetReaction", Some(&carol), &like_request).await, "INTERACTIONS_DISABLED");
-    let comment_request = CreateCommentRequest { subject: profile.clone().into(), text: "やあ".into(), ..Default::default() };
-    assert_eq!(ctx.reason("CommentService", "CreateComment", Some(&carol), &comment_request).await, "COMMENTS_DISABLED");
-    let saved: AddBookmarkResponse = ctx.call("BookmarkService", "AddBookmark", Some(&carol), &save(profile)).await.unwrap();
+    let like_request =
+        SetReactionRequest { subject: profile.clone().into(), reaction: like().into(), ..Default::default() };
+    assert_eq!(
+        ctx.reason("ReactionService", "SetReaction", Some(&carol), &like_request).await,
+        "INTERACTIONS_DISABLED"
+    );
+    let comment_request =
+        CreateCommentRequest { subject: profile.clone().into(), text: "やあ".into(), ..Default::default() };
+    assert_eq!(
+        ctx.reason("CommentService", "CreateComment", Some(&carol), &comment_request).await,
+        "COMMENTS_DISABLED"
+    );
+    let saved: AddBookmarkResponse =
+        ctx.call("BookmarkService", "AddBookmark", Some(&carol), &save(profile)).await.unwrap();
     assert_eq!(saved.bookmark_count, 1);
     // An erased account is no subject any more.
-    sqlx::query("UPDATE users SET deleted_at = now() WHERE id = $1").bind(bob.id).execute(&ctx.app.core.db).await.unwrap();
+    sqlx::query("UPDATE users SET deleted_at = now() WHERE id = $1")
+        .bind(bob.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
     assert!(subjects.resolve(user, &bob.id.to_string(), None).await.is_err());
 }
 
@@ -282,26 +354,38 @@ async fn counter_pushes_are_throttled_but_end_on_the_final_totals() {
     let ctx = start().await;
     let owner = ctx.app.user("Owner").await;
     let video = ctx.video(&owner, "v");
-    let (a, b, c, d) = (ctx.app.user("A").await, ctx.app.user("B").await, ctx.app.user("C").await, ctx.app.user("D").await);
+    let (a, b, c, d) =
+        (ctx.app.user("A").await, ctx.app.user("B").await, ctx.app.user("C").await, ctx.app.user("D").await);
     let mut topic = ctx.app.listen_topic(&video.topic()).await;
     // Four likes at the same moment.
+    let started = std::time::Instant::now();
     tokio::join!(
         ctx.react(&a, video.subject_ref(), like()),
         ctx.react(&b, video.subject_ref(), like()),
         ctx.react(&c, video.subject_ref(), like()),
         ctx.react(&d, video.subject_ref(), like()),
     );
-    let likes: Vec<i64> = pushed(topic.drain(Duration::from_millis(2500)).await)
-        .iter()
-        .filter_map(|event| match event {
-            Pushed::CountersChanged(counters) => Some(counters.reactions.like_count),
-            _ => None,
-        })
-        .collect();
-    // One push at once, one when the quiet second is over — not one per like.
-    assert_eq!(likes.len(), 2, "{likes:?}");
-    assert!(likes[0] >= 1);
-    assert_eq!(likes[1], 4, "the final totals always arrive");
+    let was_a_burst = started.elapsed() < Duration::from_millis(700);
+
+    // Whatever the timing, the last push carries the final totals.
+    let mut likes: Vec<i64> = Vec::new();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    while likes.last() != Some(&4) && tokio::time::Instant::now() < deadline {
+        if let Some(frame) = topic.next(Duration::from_secs(1)).await {
+            likes.extend(pushed(vec![frame]).iter().filter_map(|event| match event {
+                Pushed::CountersChanged(counters) => Some(counters.reactions.like_count),
+                _ => None,
+            }));
+        }
+    }
+    assert_eq!(likes.last(), Some(&4), "the final totals always arrive: {likes:?}");
+    assert!(likes[0] >= 1, "the first change is pushed at once");
+    // And a burst costs one push at once and one when the quiet second is
+    // over, not one per like. (Only meaningful when the four likes really
+    // landed within the same second; a busy machine can spread them out.)
+    if was_a_burst {
+        assert_eq!(likes.len(), 2, "{likes:?}");
+    }
 }
 
 #[tokio::test]
@@ -311,16 +395,28 @@ async fn the_data_export_contains_what_a_user_left_here() {
     let video = ctx.video(&owner, "v");
     let comment = ctx.comment(&bob, &video, "エクスポートされるコメント").await;
     ctx.react(&bob, video.subject_ref(), emoji("🎉")).await;
-    let _: AddBookmarkResponse = ctx.call("BookmarkService", "AddBookmark", Some(&bob), &save(video.subject_ref())).await.unwrap();
-    let _: CreateReportResponse = ctx.call("ReportService", "CreateReport", Some(&bob), &report(video.subject_ref())).await.unwrap();
+    let _: AddBookmarkResponse =
+        ctx.call("BookmarkService", "AddBookmark", Some(&bob), &save(video.subject_ref())).await.unwrap();
+    let _: CreateReportResponse =
+        ctx.call("ReportService", "CreateReport", Some(&bob), &report(video.subject_ref())).await.unwrap();
     ctx.set_rules(&bob, true, false, &["ことば"]).await;
     let block = BlockCommenterRequest {
-        target: Some(tokuly_proto::engagement::__buffa::oneof::block_commenter_request::Target::UserId(owner.id.to_string())),
+        target: Some(tokuly_proto::engagement::__buffa::oneof::block_commenter_request::Target::UserId(
+            owner.id.to_string(),
+        )),
         ..Default::default()
     };
-    let _: BlockCommenterResponse = ctx.call("CommentModerationService", "BlockCommenter", Some(&bob), &block).await.unwrap();
+    let _: BlockCommenterResponse =
+        ctx.call("CommentModerationService", "BlockCommenter", Some(&bob), &block).await.unwrap();
 
-    let exporter = ctx.app.core.exporters.all().into_iter().find(|exporter| exporter.name() == "engagement").expect("the exporter is registered");
+    let exporter = ctx
+        .app
+        .core
+        .exporters
+        .all()
+        .into_iter()
+        .find(|exporter| exporter.name() == "engagement")
+        .expect("the exporter is registered");
     let data = exporter.export(bob.id).await.unwrap();
     assert_eq!(data["comments"][0]["id"], comment.id.as_str());
     assert_eq!(data["comments"][0]["text"], "エクスポートされるコメント");

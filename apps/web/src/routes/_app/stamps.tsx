@@ -1,7 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Outlet } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/_app/stamps")({ component: Page });
-
-function Page() {
-  return <div className="p-6 text-xl font-black">stamps</div>;
-}
+// Layout of the stamps area: its pages are the `stamps.*.tsx` routes.
+export const Route = createFileRoute("/_app/stamps")({ component: Outlet });

@@ -32,19 +32,10 @@ export function CategoriesCard({ preferences }: { preferences: notify.Preference
 
       <ul className="flex flex-col">
         {preferences.categories.map((category) => (
-          <li key={category.category} className="flex items-center gap-3 rounded-2xl px-2 py-2.5 hover:bg-surface-2 sm:-mx-2" data-category={category.category}>
-            <CategoryIcon category={category.category} size="sm" className="self-start" />
-            <div className="min-w-0 flex-1">
-              <p className="flex items-center gap-1.5 font-bold leading-snug">
-                {category.label}
-                {category.inboxLocked && (
-                  <span title={t("categories.locked")}>
-                    <Lock className="size-3.5 text-ink-faint" aria-hidden />
-                  </span>
-                )}
-              </p>
-              <p className="text-xs leading-snug text-ink-soft">{category.inboxLocked ? `${category.description} ・ ${t("categories.locked")}` : category.description}</p>
-            </div>
+          // The description runs under the switches too, so narrow screens keep it to a line or two.
+          <li key={category.category} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 rounded-2xl px-2 py-2.5 hover:bg-surface-2 sm:-mx-2" data-category={category.category}>
+            <CategoryIcon category={category.category} size="sm" />
+            <p className="font-bold leading-snug">{category.label}</p>
             <div className="flex shrink-0 gap-2">
               <Toggle
                 label={t("categories.inboxOf", { category: category.label })}
@@ -53,6 +44,15 @@ export function CategoriesCard({ preferences }: { preferences: notify.Preference
                 onChange={(inbox) => actions.setCategory.mutate({ category: category.category, inbox })}
               />
               <Toggle label={t("categories.pushOf", { category: category.label })} checked={category.push} onChange={(push) => actions.setCategory.mutate({ category: category.category, push })} />
+            </div>
+            <div className="col-span-2 col-start-2 mt-1 text-xs leading-snug text-ink-soft">
+              <p>{category.description}</p>
+              {category.inboxLocked && (
+                <p className="mt-0.5 flex items-center gap-1 font-bold text-ink-faint">
+                  <Lock className="size-3.5 shrink-0" aria-hidden />
+                  {t("categories.locked")}
+                </p>
+              )}
             </div>
           </li>
         ))}

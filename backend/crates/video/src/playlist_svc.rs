@@ -32,8 +32,9 @@ fn read_only() -> AppError {
 
 impl Video {
     async fn playlist_response(&self, viewer: &Viewer, playlist_id: Uuid) -> AppResult<Playlist> {
-        let playlist =
-            playlists::find_by_id(&self.core, playlist_id).await?.or_not_found("PLAYLIST_NOT_FOUND", "playlist not found")?;
+        let playlist = playlists::find_by_id(&self.core, playlist_id)
+            .await?
+            .or_not_found("PLAYLIST_NOT_FOUND", "playlist not found")?;
         playlists::to_proto(&self.core, viewer, &playlist).await
     }
 
@@ -47,7 +48,11 @@ impl Video {
 }
 
 impl PlaylistService for Video {
-    async fn create_playlist(&self, ctx: RequestContext, request: ServiceRequest<'_, CreatePlaylistRequest>) -> ServiceResult<CreatePlaylistResponse> {
+    async fn create_playlist(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, CreatePlaylistRequest>,
+    ) -> ServiceResult<CreatePlaylistResponse> {
         handle(async {
             let core = &self.core;
             let user_id = ctx.user_id()?;
@@ -93,12 +98,19 @@ impl PlaylistService for Video {
             }
             playlists::sync_search_in(&mut tx, false, playlist_id).await?;
             tx.commit().await?;
-            ok(CreatePlaylistResponse { playlist: self.playlist_response(&viewer, playlist_id).await?.into(), ..Default::default() })
+            ok(CreatePlaylistResponse {
+                playlist: self.playlist_response(&viewer, playlist_id).await?.into(),
+                ..Default::default()
+            })
         })
         .await
     }
 
-    async fn update_playlist(&self, ctx: RequestContext, request: ServiceRequest<'_, UpdatePlaylistRequest>) -> ServiceResult<UpdatePlaylistResponse> {
+    async fn update_playlist(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, UpdatePlaylistRequest>,
+    ) -> ServiceResult<UpdatePlaylistResponse> {
         handle(async {
             let core = &self.core;
             let user_id = ctx.user_id()?;
@@ -141,12 +153,19 @@ impl PlaylistService for Video {
             playlists::sync_search_in(&mut tx, playlist.is_public(), playlist.id).await?;
             tx.commit().await?;
             let viewer = Viewer { user_id: Some(user_id), ..Default::default() };
-            ok(UpdatePlaylistResponse { playlist: self.playlist_response(&viewer, playlist.id).await?.into(), ..Default::default() })
+            ok(UpdatePlaylistResponse {
+                playlist: self.playlist_response(&viewer, playlist.id).await?.into(),
+                ..Default::default()
+            })
         })
         .await
     }
 
-    async fn delete_playlist(&self, ctx: RequestContext, request: ServiceRequest<'_, DeletePlaylistRequest>) -> ServiceResult<DeletePlaylistResponse> {
+    async fn delete_playlist(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, DeletePlaylistRequest>,
+    ) -> ServiceResult<DeletePlaylistResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let playlist = playlists::resolve_owned(&self.core, user_id, request.playlist_id).await?;
@@ -161,23 +180,36 @@ impl PlaylistService for Video {
         .await
     }
 
-    async fn get_playlist(&self, ctx: RequestContext, request: ServiceRequest<'_, GetPlaylistRequest>) -> ServiceResult<GetPlaylistResponse> {
+    async fn get_playlist(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, GetPlaylistRequest>,
+    ) -> ServiceResult<GetPlaylistResponse> {
         handle(async {
             let viewer = Viewer::load(&self.core, ctx.maybe_user_id()?).await?;
             let playlist = playlists::resolve(&self.core, &viewer, request.playlist_id).await?;
-            ok(GetPlaylistResponse { playlist: playlists::to_proto(&self.core, &viewer, &playlist).await?.into(), ..Default::default() })
+            ok(GetPlaylistResponse {
+                playlist: playlists::to_proto(&self.core, &viewer, &playlist).await?.into(),
+                ..Default::default()
+            })
         })
         .await
     }
 
-    async fn list_my_playlists(&self, ctx: RequestContext, request: ServiceRequest<'_, ListMyPlaylistsRequest>) -> ServiceResult<ListMyPlaylistsResponse> {
+    async fn list_my_playlists(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, ListMyPlaylistsRequest>,
+    ) -> ServiceResult<ListMyPlaylistsResponse> {
         handle(async {
             let core = &self.core;
             let user_id = ctx.user_id()?;
             let viewer = Viewer::load(core, Some(user_id)).await?;
             let contains = match request.contains_video_id.trim() {
                 "" => None,
-                reference => Some(videos::find_ref(core, reference).await?.or_not_found("VIDEO_NOT_FOUND", "video not found")?.id),
+                reference => Some(
+                    videos::find_ref(core, reference).await?.or_not_found("VIDEO_NOT_FOUND", "video not found")?.id,
+                ),
             };
             // The built-in lists exist from the first time they are looked at.
             let mut tx = core.db.begin().await?;
@@ -195,7 +227,10 @@ impl PlaylistService for Video {
             .bind(user_id)
             .fetch_all(&core.db)
             .await?;
-            ok(ListMyPlaylistsResponse { playlists: playlists::to_protos(core, &viewer, &rows, contains).await?, ..Default::default() })
+            ok(ListMyPlaylistsResponse {
+                playlists: playlists::to_protos(core, &viewer, &rows, contains).await?,
+                ..Default::default()
+            })
         })
         .await
     }
@@ -227,7 +262,11 @@ impl PlaylistService for Video {
             .fetch_all(&core.db)
             .await?;
             let info = page.finish(&mut rows, |row| (row.updated_at, row.id));
-            ok(ListChannelPlaylistsResponse { playlists: playlists::to_protos(core, &viewer, &rows, None).await?, page: info.into(), ..Default::default() })
+            ok(ListChannelPlaylistsResponse {
+                playlists: playlists::to_protos(core, &viewer, &rows, None).await?,
+                page: info.into(),
+                ..Default::default()
+            })
         })
         .await
     }
@@ -269,14 +308,22 @@ impl PlaylistService for Video {
             let items = rows
                 .iter()
                 .zip(summaries)
-                .map(|(row, video)| PlaylistItem { video: video.into(), added_at: ts(row.added_at), ..Default::default() })
+                .map(|(row, video)| PlaylistItem {
+                    video: video.into(),
+                    added_at: ts(row.added_at),
+                    ..Default::default()
+                })
                 .collect();
             ok(ListPlaylistItemsResponse { items, page: info.into(), ..Default::default() })
         })
         .await
     }
 
-    async fn add_playlist_item(&self, ctx: RequestContext, request: ServiceRequest<'_, AddPlaylistItemRequest>) -> ServiceResult<AddPlaylistItemResponse> {
+    async fn add_playlist_item(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, AddPlaylistItemRequest>,
+    ) -> ServiceResult<AddPlaylistItemResponse> {
         handle(async {
             let core = &self.core;
             let user_id = ctx.user_id()?;
@@ -287,19 +334,31 @@ impl PlaylistService for Video {
             }
             let video = videos::find_watchable(core, &viewer, request.video_id).await?;
             let mut tx = core.db.begin().await?;
-            let locked = playlists::find_in(&mut tx, playlist.id).await?.or_not_found("PLAYLIST_NOT_FOUND", "playlist not found")?;
+            let locked = playlists::find_in(&mut tx, playlist.id)
+                .await?
+                .or_not_found("PLAYLIST_NOT_FOUND", "playlist not found")?;
             let max = self.cfg.max_playlist_items;
-            let present: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM playlist_items WHERE playlist_id = $1 AND video_id = $2)")
-                .bind(playlist.id)
-                .bind(video.id)
-                .fetch_one(&mut *tx)
-                .await?;
-            ensure!(present || i64::from(locked.item_count) < max, precondition, "PLAYLIST_FULL", "a playlist holds at most {max} videos");
+            let present: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM playlist_items WHERE playlist_id = $1 AND video_id = $2)",
+            )
+            .bind(playlist.id)
+            .bind(video.id)
+            .fetch_one(&mut *tx)
+            .await?;
+            ensure!(
+                present || i64::from(locked.item_count) < max,
+                precondition,
+                "PLAYLIST_FULL",
+                "a playlist holds at most {max} videos"
+            );
             if playlists::add_item_in(&mut tx, playlist.id, video.id).await? {
                 playlists::sync_search_in(&mut tx, locked.is_public(), playlist.id).await?;
             }
             tx.commit().await?;
-            ok(AddPlaylistItemResponse { playlist: self.playlist_response(&viewer, playlist.id).await?.into(), ..Default::default() })
+            ok(AddPlaylistItemResponse {
+                playlist: self.playlist_response(&viewer, playlist.id).await?.into(),
+                ..Default::default()
+            })
         })
         .await
     }
@@ -325,18 +384,30 @@ impl PlaylistService for Video {
                 tx.commit().await?;
             }
             let viewer = Viewer { user_id: Some(user_id), ..Default::default() };
-            ok(RemovePlaylistItemResponse { playlist: self.playlist_response(&viewer, playlist.id).await?.into(), ..Default::default() })
+            ok(RemovePlaylistItemResponse {
+                playlist: self.playlist_response(&viewer, playlist.id).await?.into(),
+                ..Default::default()
+            })
         })
         .await
     }
 
-    async fn move_playlist_item(&self, ctx: RequestContext, request: ServiceRequest<'_, MovePlaylistItemRequest>) -> ServiceResult<MovePlaylistItemResponse> {
+    async fn move_playlist_item(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, MovePlaylistItemRequest>,
+    ) -> ServiceResult<MovePlaylistItemResponse> {
         handle(async {
             let core = &self.core;
             let user_id = ctx.user_id()?;
             let playlist = playlists::resolve_owned(core, user_id, request.playlist_id).await?;
             // Built-in lists are ordered by when things were added.
-            ensure!(playlist.kind == KIND_CUSTOM, precondition, "PLAYLIST_READ_ONLY", "built-in playlists cannot be reordered");
+            ensure!(
+                playlist.kind == KIND_CUSTOM,
+                precondition,
+                "PLAYLIST_READ_ONLY",
+                "built-in playlists cannot be reordered"
+            );
             let missing = || AppError::not_found("PLAYLIST_ITEM_NOT_FOUND", "the video is not in this playlist");
             let video = videos::find_ref(core, request.video_id).await?.ok_or_else(missing)?;
             let after = match request.after_video_id.trim() {

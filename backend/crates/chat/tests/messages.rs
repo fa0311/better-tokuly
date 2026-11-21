@@ -12,7 +12,12 @@ use tokuly_testkit::TestUser;
 use uuid::Uuid;
 
 fn text_request(conversation_id: &str, text: &str) -> SendMessageRequest {
-    SendMessageRequest { conversation_id: conversation_id.to_owned(), client_id: client_id(), text: text.to_owned(), ..Default::default() }
+    SendMessageRequest {
+        conversation_id: conversation_id.to_owned(),
+        client_id: client_id(),
+        text: text.to_owned(),
+        ..Default::default()
+    }
 }
 
 fn media_request(conversation_id: &str, asset_ids: &[&str]) -> SendMessageRequest {
@@ -107,33 +112,66 @@ async fn message_content_is_validated() {
 
     assert_eq!(reason(text_request(&id, "   ")).await, "MESSAGE_EMPTY");
     assert_eq!(reason(text_request(&id, &"あ".repeat(4001))).await, "TEXT_TOO_LONG");
-    assert_eq!(reason(SendMessageRequest { client_id: String::new(), ..text_request(&id, "hi") }).await, "CLIENT_ID_INVALID");
-    assert_eq!(reason(SendMessageRequest { client_id: "x".repeat(65), ..text_request(&id, "hi") }).await, "CLIENT_ID_INVALID");
-    assert_eq!(reason(SendMessageRequest { conversation_id: "nope".into(), ..text_request(&id, "hi") }).await, "INVALID_ID");
+    assert_eq!(
+        reason(SendMessageRequest { client_id: String::new(), ..text_request(&id, "hi") }).await,
+        "CLIENT_ID_INVALID"
+    );
+    assert_eq!(
+        reason(SendMessageRequest { client_id: "x".repeat(65), ..text_request(&id, "hi") }).await,
+        "CLIENT_ID_INVALID"
+    );
+    assert_eq!(
+        reason(SendMessageRequest { conversation_id: "nope".into(), ..text_request(&id, "hi") }).await,
+        "INVALID_ID"
+    );
 
     // One kind of content per message.
     let stamp = ctx.stamp(&taro).await;
-    assert_eq!(reason(SendMessageRequest { stamp_id: stamp.clone(), ..text_request(&id, "スタンプと文字") }).await, "MESSAGE_CONTENT_CONFLICT");
+    assert_eq!(
+        reason(SendMessageRequest { stamp_id: stamp.clone(), ..text_request(&id, "スタンプと文字") }).await,
+        "MESSAGE_CONTENT_CONFLICT"
+    );
     let photo = ctx.photo(&taro).await;
     let stamp_and_photo = SendMessageRequest { stamp_id: stamp, ..media_request(&id, &[&photo]) };
     assert_eq!(reason(stamp_and_photo).await, "MESSAGE_CONTENT_CONFLICT");
-    let place = LocationShare { position: LatLng { lat: 35.0, lng: 139.0, ..Default::default() }.into(), ..Default::default() };
-    assert_eq!(reason(SendMessageRequest { location: place.into(), ..text_request(&id, "ここ") }).await, "MESSAGE_CONTENT_CONFLICT");
+    let place =
+        LocationShare { position: LatLng { lat: 35.0, lng: 139.0, ..Default::default() }.into(), ..Default::default() };
+    assert_eq!(
+        reason(SendMessageRequest { location: place.into(), ..text_request(&id, "ここ") }).await,
+        "MESSAGE_CONTENT_CONFLICT"
+    );
 
     // Stamps, uploads, places and answered messages must be real and usable.
-    assert_eq!(reason(SendMessageRequest { stamp_id: Uuid::now_v7().to_string(), ..text_request(&id, "") }).await, "STAMP_NOT_USABLE");
+    assert_eq!(
+        reason(SendMessageRequest { stamp_id: Uuid::now_v7().to_string(), ..text_request(&id, "") }).await,
+        "STAMP_NOT_USABLE"
+    );
     let hanakos_stamp = ctx.stamp(&hanako).await;
-    assert_eq!(reason(SendMessageRequest { stamp_id: hanakos_stamp, ..text_request(&id, "") }).await, "STAMP_NOT_USABLE");
+    assert_eq!(
+        reason(SendMessageRequest { stamp_id: hanakos_stamp, ..text_request(&id, "") }).await,
+        "STAMP_NOT_USABLE"
+    );
     assert_eq!(reason(media_request(&id, &[&Uuid::now_v7().to_string()])).await, "ASSET_NOT_FOUND");
     let hanakos_photo = ctx.photo(&hanako).await;
     assert_eq!(reason(media_request(&id, &[&hanakos_photo])).await, "ASSET_NOT_FOUND");
     let avatar = ctx.upload(&taro, AssetPurpose::ASSET_PURPOSE_AVATAR, AssetKind::ASSET_KIND_IMAGE).await;
     assert_eq!(reason(media_request(&id, &[&avatar])).await, "ASSET_WRONG_PURPOSE");
     let eleven: Vec<String> = (0..11).map(|_| Uuid::now_v7().to_string()).collect();
-    assert_eq!(reason(media_request(&id, &eleven.iter().map(String::as_str).collect::<Vec<_>>())).await, "TOO_MANY_ATTACHMENTS");
-    let nowhere = LocationShare { position: LatLng { lat: 123.0, lng: 0.0, ..Default::default() }.into(), ..Default::default() };
-    assert_eq!(reason(SendMessageRequest { location: nowhere.into(), ..text_request(&id, "") }).await, "LOCATION_INVALID");
-    assert_eq!(reason(SendMessageRequest { reply_to_message_id: Uuid::now_v7().to_string(), ..text_request(&id, "返信") }).await, "REPLY_NOT_FOUND");
+    assert_eq!(
+        reason(media_request(&id, &eleven.iter().map(String::as_str).collect::<Vec<_>>())).await,
+        "TOO_MANY_ATTACHMENTS"
+    );
+    let nowhere =
+        LocationShare { position: LatLng { lat: 123.0, lng: 0.0, ..Default::default() }.into(), ..Default::default() };
+    assert_eq!(
+        reason(SendMessageRequest { location: nowhere.into(), ..text_request(&id, "") }).await,
+        "LOCATION_INVALID"
+    );
+    assert_eq!(
+        reason(SendMessageRequest { reply_to_message_id: Uuid::now_v7().to_string(), ..text_request(&id, "返信") })
+            .await,
+        "REPLY_NOT_FOUND"
+    );
 
     // Uploads still being processed: only a video may be sent early.
     let unfinished = ctx.photo(&taro).await;
@@ -162,7 +200,12 @@ async fn text_carries_mentions_links_and_big_emoji() {
     let _: UpdatePreferencesResponse = ctx.call("Conversation", "UpdatePreferences", hanako, &mute).await.unwrap();
 
     // A mention by name: resolved against the members, and it gets through a mute.
-    let mentioning = sent(&ctx, &owner, &text_request(&group.id, &format!("@{} 明日ひま？ @nobody_here も", hanako.handle.to_uppercase()))).await;
+    let mentioning = sent(
+        &ctx,
+        &owner,
+        &text_request(&group.id, &format!("@{} 明日ひま？ @nobody_here も", hanako.handle.to_uppercase())),
+    )
+    .await;
     assert_eq!(mentioning.mentions.len(), 1, "only members can be mentioned");
     assert_eq!(mentioning.mentions[0].user.id, hanako.id.to_string());
     assert_eq!(mentioning.mentions[0].handle, hanako.handle);
@@ -185,7 +228,8 @@ async fn text_carries_mentions_links_and_big_emoji() {
 
     // The first link gets a preview shortly after sending.
     let mut jiro_events = ctx.listen(jiro).await;
-    let linking = sent(&ctx, &owner, &text_request(&group.id, "これ見て！http://localhost:8080/watch/dQw4w9WgXcQ。すごい")).await;
+    let linking =
+        sent(&ctx, &owner, &text_request(&group.id, "これ見て！http://localhost:8080/watch/dQw4w9WgXcQ。すごい")).await;
     assert!(linking.link_preview.is_unset(), "the preview arrives later");
     ctx.chat.resolve_link_preview(linking.id.parse().unwrap()).await.unwrap();
     let updates = updated_messages(&ctx.events(&mut jiro_events).await);
@@ -222,11 +266,24 @@ async fn stamps_media_and_locations_are_sent() {
 
     // Photos with a caption: several uploads in one message, all held.
     let (first, second) = (ctx.photo(&taro).await, ctx.photo(&taro).await);
-    let photos = sent(&ctx, &taro, &SendMessageRequest { text: "昨日の！".into(), ..media_request(&id, &[&first, &second, &first]) }).await;
+    let photos = sent(
+        &ctx,
+        &taro,
+        &SendMessageRequest { text: "昨日の！".into(), ..media_request(&id, &[&first, &second, &first]) },
+    )
+    .await;
     assert_eq!(photos.kind, MessageKind::MESSAGE_KIND_MEDIA);
     assert_eq!(photos.text, "昨日の！");
-    assert_eq!(photos.attachments.iter().map(|attachment| attachment.asset_id.as_str()).collect::<Vec<_>>(), vec![first.as_str(), second.as_str()]);
-    assert!(photos.attachments.iter().all(|attachment| attachment.kind == AssetKind::ASSET_KIND_IMAGE && attachment.image.is_set()));
+    assert_eq!(
+        photos.attachments.iter().map(|attachment| attachment.asset_id.as_str()).collect::<Vec<_>>(),
+        vec![first.as_str(), second.as_str()]
+    );
+    assert!(
+        photos
+            .attachments
+            .iter()
+            .all(|attachment| attachment.kind == AssetKind::ASSET_KIND_IMAGE && attachment.image.is_set())
+    );
     assert!(tokuly_media::assets::is_attached(&ctx.app.core, first.parse().unwrap()).await.unwrap());
     let notification = ctx.notifications(&hanako).await.pop().unwrap();
     assert_eq!(notification.body.ja, "📷 昨日の！");
@@ -256,7 +313,12 @@ async fn stamps_media_and_locations_are_sent() {
     assert_eq!(video.attachments[0].status, AssetStatus::ASSET_STATUS_PROCESSING);
 
     // A place.
-    let place = LocationShare { position: LatLng { lat: 35.658, lng: 139.7016, ..Default::default() }.into(), name: " 渋谷駅 ".into(), address: "東京都渋谷区".into(), ..Default::default() };
+    let place = LocationShare {
+        position: LatLng { lat: 35.658, lng: 139.7016, ..Default::default() }.into(),
+        name: " 渋谷駅 ".into(),
+        address: "東京都渋谷区".into(),
+        ..Default::default()
+    };
     let location = sent(&ctx, &taro, &SendMessageRequest { location: place.into(), ..text_request(&id, "") }).await;
     assert_eq!(location.kind, MessageKind::MESSAGE_KIND_LOCATION);
     assert_eq!(location.location.name, "渋谷駅");
@@ -279,7 +341,12 @@ async fn replies_quote_the_message_they_answer() {
     let photo_id = ctx.photo(&owner).await;
     let photo = sent(&ctx, &owner, &media_request(&group.id, &[&photo_id])).await;
 
-    let answer = sent(&ctx, member, &SendMessageRequest { reply_to_message_id: question.id.clone(), ..text_request(&group.id, "10時で！") }).await;
+    let answer = sent(
+        &ctx,
+        member,
+        &SendMessageRequest { reply_to_message_id: question.id.clone(), ..text_request(&group.id, "10時で！") },
+    )
+    .await;
     let quote = answer.reply_to.as_option().expect("a quote");
     assert_eq!(quote.message_id, question.id);
     assert_eq!(quote.seq, question.seq);
@@ -287,36 +354,65 @@ async fn replies_quote_the_message_they_answer() {
     assert_eq!(quote.kind, MessageKind::MESSAGE_KIND_TEXT);
     assert_eq!(quote.text, "明日の集合、何時にする？");
     assert!(!quote.unavailable);
-    let about_photo = sent(&ctx, member, &SendMessageRequest { reply_to_message_id: photo.id.clone(), ..text_request(&group.id, "いい写真！") }).await;
+    let about_photo = sent(
+        &ctx,
+        member,
+        &SendMessageRequest { reply_to_message_id: photo.id.clone(), ..text_request(&group.id, "いい写真！") },
+    )
+    .await;
     assert!(about_photo.reply_to.thumbnail_url.starts_with("http"), "a media quote shows a thumbnail");
 
     // Someone who joins later never sees quotes of what was said before.
     let newcomer = ctx.app.user("newcomer").await;
     ctx.befriend(&owner, &newcomer).await;
-    let add = AddMembersRequest { conversation_id: group.id.clone(), user_ids: vec![newcomer.id.to_string()], ..Default::default() };
+    let add = AddMembersRequest {
+        conversation_id: group.id.clone(),
+        user_ids: vec![newcomer.id.to_string()],
+        ..Default::default()
+    };
     let _: AddMembersResponse = ctx.call("Conversation", "AddMembers", &owner, &add).await.unwrap();
     let mut newcomer_events = ctx.listen(&newcomer).await;
     let mut owner_events = ctx.listen(&owner).await;
-    let late = sent(&ctx, member, &SendMessageRequest { reply_to_message_id: question.id.clone(), ..text_request(&group.id, "やっぱり11時") }).await;
+    let late = sent(
+        &ctx,
+        member,
+        &SendMessageRequest {
+            reply_to_message_id: question.id.clone(), ..text_request(&group.id, "やっぱり11時")
+        },
+    )
+    .await;
     let for_newcomer = created_messages(&ctx.events(&mut newcomer_events).await);
     assert_eq!(for_newcomer.len(), 1);
-    assert!(for_newcomer[0].reply_to.unavailable && for_newcomer[0].reply_to.text.is_empty(), "the quote is withheld in the push");
+    assert!(
+        for_newcomer[0].reply_to.unavailable && for_newcomer[0].reply_to.text.is_empty(),
+        "the quote is withheld in the push"
+    );
     let for_owner = created_messages(&ctx.events(&mut owner_events).await);
     assert_eq!(for_owner[0].reply_to.text, "明日の集合、何時にする？");
     let listed = ctx.message(&newcomer, &late.id).await;
     assert!(listed.reply_to.unavailable && listed.reply_to.text.is_empty(), "and when they load the message");
 
     // A reply cannot answer what the sender cannot see, nor another conversation.
-    let hidden = SendMessageRequest { reply_to_message_id: question.id.clone(), ..text_request(&group.id, "何の話？") };
+    let hidden =
+        SendMessageRequest { reply_to_message_id: question.id.clone(), ..text_request(&group.id, "何の話？") };
     assert_eq!(ctx.send(&newcomer, &hidden).await.unwrap_err().reason, "REPLY_NOT_FOUND");
     let (taro, hanako) = ctx.friends("taro", "hanako").await;
     let elsewhere = ctx.direct(&taro, &hanako).await;
     let foreign = ctx.text(&taro, &elsewhere.id, "別の会話").await;
-    let cross = SendMessageRequest { reply_to_message_id: foreign.id.clone(), ..text_request(&group.id, "混ざった") };
+    let cross =
+        SendMessageRequest { reply_to_message_id: foreign.id.clone(), ..text_request(&group.id, "混ざった") };
     assert_eq!(ctx.send(&owner, &cross).await.unwrap_err().reason, "REPLY_NOT_FOUND");
 
     // Once the answered message is deleted the quote is gone.
-    let _: DeleteMessageResponse = ctx.call("Message", "DeleteMessage", &owner, &DeleteMessageRequest { message_id: question.id.clone(), ..Default::default() }).await.unwrap();
+    let _: DeleteMessageResponse = ctx
+        .call(
+            "Message",
+            "DeleteMessage",
+            &owner,
+            &DeleteMessageRequest { message_id: question.id.clone(), ..Default::default() },
+        )
+        .await
+        .unwrap();
     let after = ctx.message(&owner, &answer.id).await;
     assert!(after.reply_to.unavailable && after.reply_to.text.is_empty());
     assert_eq!(after.reply_to.message_id, question.id);
@@ -332,7 +428,10 @@ async fn a_block_makes_a_direct_conversation_read_only_at_once() {
 
     // Checked live: no event has been processed yet.
     for sender in [&taro, &hanako] {
-        assert_eq!(ctx.send(sender, &text_request(&conversation.id, "届く？")).await.unwrap_err().reason, "CONVERSATION_READ_ONLY");
+        assert_eq!(
+            ctx.send(sender, &text_request(&conversation.id, "届く？")).await.unwrap_err().reason,
+            "CONVERSATION_READ_ONLY"
+        );
     }
     let edit = EditMessageRequest { message_id: message.id.clone(), text: "書き換え".into(), ..Default::default() };
     assert_eq!(ctx.reason("Message", "EditMessage", &hanako, &edit).await, "CONVERSATION_READ_ONLY");
@@ -340,10 +439,21 @@ async fn a_block_makes_a_direct_conversation_read_only_at_once() {
     assert_eq!(ctx.reason("Message", "AddReaction", &taro, &react).await, "CONVERSATION_READ_ONLY");
     let pin = PinMessageRequest { message_id: message.id.clone(), ..Default::default() };
     assert_eq!(ctx.reason("Message", "PinMessage", &taro, &pin).await, "CONVERSATION_READ_ONLY");
-    assert_eq!(ctx.chat.post_text(conversation.id.parse().unwrap(), taro.id, "サーバーから").await.unwrap_err().reason, "CONVERSATION_READ_ONLY");
+    assert_eq!(
+        ctx.chat.post_text(conversation.id.parse().unwrap(), taro.id, "サーバーから").await.unwrap_err().reason,
+        "CONVERSATION_READ_ONLY"
+    );
     // What was said stays readable, and one's own messages can still be deleted.
     assert_eq!(texts(&ctx.latest(&taro, &conversation.id).await), vec!["ブロックする前"]);
-    let _: DeleteMessageResponse = ctx.call("Message", "DeleteMessage", &hanako, &DeleteMessageRequest { message_id: message.id, ..Default::default() }).await.unwrap();
+    let _: DeleteMessageResponse = ctx
+        .call(
+            "Message",
+            "DeleteMessage",
+            &hanako,
+            &DeleteMessageRequest { message_id: message.id, ..Default::default() },
+        )
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -382,10 +492,22 @@ async fn own_messages_can_be_edited_for_a_while() {
     let (taro, hanako) = ctx.friends("taro", "hanako").await;
     let conversation = ctx.direct(&taro, &hanako).await;
     let message = ctx.text(&taro, &conversation.id, "あしたの10時に").await;
-    let edit = |message_id: &str, text: &str| EditMessageRequest { message_id: message_id.to_owned(), text: text.to_owned(), ..Default::default() };
+    let edit = |message_id: &str, text: &str| EditMessageRequest {
+        message_id: message_id.to_owned(),
+        text: text.to_owned(),
+        ..Default::default()
+    };
 
     let mut hanako_events = ctx.listen(&hanako).await;
-    let edited: EditMessageResponse = ctx.call("Message", "EditMessage", &taro, &edit(&message.id, "あしたの11時に！ http://localhost:8080/notes/abc123")).await.unwrap();
+    let edited: EditMessageResponse = ctx
+        .call(
+            "Message",
+            "EditMessage",
+            &taro,
+            &edit(&message.id, "あしたの11時に！ http://localhost:8080/notes/abc123"),
+        )
+        .await
+        .unwrap();
     assert_eq!(edited.message.text, "あしたの11時に！ http://localhost:8080/notes/abc123");
     assert!(edited.message.edited_at.is_set());
     assert_eq!(edited.message.seq, message.seq, "an edit does not move the message");
@@ -397,12 +519,16 @@ async fn own_messages_can_be_edited_for_a_while() {
     ctx.chat.resolve_link_preview(message.id.parse().unwrap()).await.unwrap();
     assert_eq!(ctx.message(&hanako, &message.id).await.link_preview.embed_id, "note/abc123");
     // Without the link, the preview goes too.
-    let plain: EditMessageResponse = ctx.call("Message", "EditMessage", &taro, &edit(&message.id, "あしたの11時に！")).await.unwrap();
+    let plain: EditMessageResponse =
+        ctx.call("Message", "EditMessage", &taro, &edit(&message.id, "あしたの11時に！")).await.unwrap();
     assert!(plain.message.link_preview.is_unset());
 
     assert_eq!(ctx.reason("Message", "EditMessage", &hanako, &edit(&message.id, "乗っ取り")).await, "NOT_ALLOWED");
     assert_eq!(ctx.reason("Message", "EditMessage", &taro, &edit(&message.id, "  ")).await, "MESSAGE_EMPTY");
-    assert_eq!(ctx.reason("Message", "EditMessage", &taro, &edit(&message.id, &"あ".repeat(4001))).await, "TEXT_TOO_LONG");
+    assert_eq!(
+        ctx.reason("Message", "EditMessage", &taro, &edit(&message.id, &"あ".repeat(4001))).await,
+        "TEXT_TOO_LONG"
+    );
     let outsider = ctx.app.user("outsider").await;
     assert_eq!(ctx.reason("Message", "EditMessage", &outsider, &edit(&message.id, "x")).await, "MESSAGE_NOT_FOUND");
     assert_eq!(ctx.anonymous_reason("Message", "EditMessage", &edit(&message.id, "x")).await, "SIGN_IN_REQUIRED");
@@ -413,13 +539,19 @@ async fn own_messages_can_be_edited_for_a_while() {
     assert_eq!(ctx.reason("Message", "EditMessage", &taro, &edit(&stamp.id, "文字に")).await, "MESSAGE_NOT_EDITABLE");
     let photo_id = ctx.photo(&taro).await;
     let photo = sent(&ctx, &taro, &media_request(&conversation.id, &[&photo_id])).await;
-    let captioned: EditMessageResponse = ctx.call("Message", "EditMessage", &taro, &edit(&photo.id, "キャプション")).await.unwrap();
+    let captioned: EditMessageResponse =
+        ctx.call("Message", "EditMessage", &taro, &edit(&photo.id, "キャプション")).await.unwrap();
     assert_eq!(captioned.message.text, "キャプション");
-    let uncaptioned: EditMessageResponse = ctx.call("Message", "EditMessage", &taro, &edit(&photo.id, "")).await.unwrap();
+    let uncaptioned: EditMessageResponse =
+        ctx.call("Message", "EditMessage", &taro, &edit(&photo.id, "")).await.unwrap();
     assert!(uncaptioned.message.text.is_empty(), "a caption may be removed");
 
     // The window closes 15 minutes after sending.
-    sqlx::query("UPDATE chat_messages SET created_at = now() - interval '16 minutes' WHERE id = $1::uuid").bind(&message.id).execute(&ctx.app.core.db).await.unwrap();
+    sqlx::query("UPDATE chat_messages SET created_at = now() - interval '16 minutes' WHERE id = $1::uuid")
+        .bind(&message.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
     assert_eq!(ctx.reason("Message", "EditMessage", &taro, &edit(&message.id, "遅すぎた")).await, "EDIT_WINDOW_CLOSED");
 }
 
@@ -429,11 +561,24 @@ async fn deleting_for_everyone_leaves_a_tombstone() {
     let (taro, hanako) = ctx.friends("taro", "hanako").await;
     let conversation = ctx.direct(&taro, &hanako).await;
     let photo_id = ctx.photo(&taro).await;
-    let message = sent(&ctx, &taro, &SendMessageRequest { text: "間違えた".into(), ..media_request(&conversation.id, &[&photo_id]) }).await;
+    let message = sent(
+        &ctx,
+        &taro,
+        &SendMessageRequest { text: "間違えた".into(), ..media_request(&conversation.id, &[&photo_id]) },
+    )
+    .await;
     ctx.text(&taro, &conversation.id, "こっちが正しい").await;
     let react = AddReactionRequest { message_id: message.id.clone(), emoji: "😂".into(), ..Default::default() };
     let _: AddReactionResponse = ctx.call("Message", "AddReaction", &hanako, &react).await.unwrap();
-    let _: PinMessageResponse = ctx.call("Message", "PinMessage", &hanako, &PinMessageRequest { message_id: message.id.clone(), ..Default::default() }).await.unwrap();
+    let _: PinMessageResponse = ctx
+        .call(
+            "Message",
+            "PinMessage",
+            &hanako,
+            &PinMessageRequest { message_id: message.id.clone(), ..Default::default() },
+        )
+        .await
+        .unwrap();
     assert_eq!(ctx.unread(&hanako).await.badge, 2);
     let delete = DeleteMessageRequest { message_id: message.id.clone(), ..Default::default() };
 
@@ -445,8 +590,17 @@ async fn deleting_for_everyone_leaves_a_tombstone() {
     let deleted: DeleteMessageResponse = ctx.call("Message", "DeleteMessage", &taro, &delete).await.unwrap();
     let tombstone = deleted.message.as_option().unwrap();
     assert!(tombstone.deleted);
-    assert!(tombstone.text.is_empty() && tombstone.attachments.is_empty() && tombstone.reactions.is_empty() && !tombstone.pinned);
-    assert_eq!((tombstone.seq, tombstone.sender.id.as_str()), (message.seq, taro.id.to_string().as_str()), "it keeps its place and its sender");
+    assert!(
+        tombstone.text.is_empty()
+            && tombstone.attachments.is_empty()
+            && tombstone.reactions.is_empty()
+            && !tombstone.pinned
+    );
+    assert_eq!(
+        (tombstone.seq, tombstone.sender.id.as_str()),
+        (message.seq, taro.id.to_string().as_str()),
+        "it keeps its place and its sender"
+    );
     let updates = updated_messages(&ctx.events(&mut hanako_events).await);
     assert_eq!(updates.len(), 1);
     assert_eq!(updates[0].1, MessageUpdateReason::MESSAGE_UPDATE_REASON_DELETED);
@@ -455,10 +609,22 @@ async fn deleting_for_everyone_leaves_a_tombstone() {
     // Gone from the unread count, the gallery and the pins; the upload is released.
     assert_eq!(ctx.unread(&hanako).await.badge, 1);
     assert!(!tokuly_media::assets::is_attached(&ctx.app.core, photo_id.parse().unwrap()).await.unwrap());
-    let stored: (String, serde_json::Value) = sqlx::query_as("SELECT text, attachments FROM chat_messages WHERE id = $1::uuid").bind(&message.id).fetch_one(&ctx.app.core.db).await.unwrap();
+    let stored: (String, serde_json::Value) =
+        sqlx::query_as("SELECT text, attachments FROM chat_messages WHERE id = $1::uuid")
+            .bind(&message.id)
+            .fetch_one(&ctx.app.core.db)
+            .await
+            .unwrap();
     assert_eq!(stored, (String::new(), serde_json::json!([])), "the content is erased, not just hidden");
-    let pinned: ListPinnedMessagesResponse =
-        ctx.call("Message", "ListPinnedMessages", &hanako, &ListPinnedMessagesRequest { conversation_id: conversation.id.clone(), ..Default::default() }).await.unwrap();
+    let pinned: ListPinnedMessagesResponse = ctx
+        .call(
+            "Message",
+            "ListPinnedMessages",
+            &hanako,
+            &ListPinnedMessagesRequest { conversation_id: conversation.id.clone(), ..Default::default() },
+        )
+        .await
+        .unwrap();
     assert!(pinned.messages.is_empty());
     let events = ctx.app.events_by("chat.message.deleted", taro.id).await;
     assert_eq!(events.len(), 1);
@@ -481,13 +647,19 @@ async fn group_managers_delete_anyones_messages_but_not_the_story() {
     let delete = |message_id: &str| DeleteMessageRequest { message_id: message_id.to_owned(), ..Default::default() };
 
     assert_eq!(ctx.reason("Message", "DeleteMessage", second, &delete(&message.id)).await, "NOT_ALLOWED");
-    let deleted: DeleteMessageResponse = ctx.call("Message", "DeleteMessage", &owner, &delete(&message.id)).await.unwrap();
+    let deleted: DeleteMessageResponse =
+        ctx.call("Message", "DeleteMessage", &owner, &delete(&message.id)).await.unwrap();
     assert!(deleted.message.deleted);
     let events = ctx.app.events_by("chat.message.deleted", owner.id).await;
     assert_eq!(events[0].data["sender_id"], first.id.to_string());
 
     // System messages tell what happened to the group and stay.
-    let system = ctx.latest(&owner, &group.id).await.into_iter().find(|message| message.kind == MessageKind::MESSAGE_KIND_SYSTEM).unwrap();
+    let system = ctx
+        .latest(&owner, &group.id)
+        .await
+        .into_iter()
+        .find(|message| message.kind == MessageKind::MESSAGE_KIND_SYSTEM)
+        .unwrap();
     assert_eq!(ctx.reason("Message", "DeleteMessage", &owner, &delete(&system.id)).await, "MESSAGE_NOT_DELETABLE");
 }
 
@@ -500,7 +672,12 @@ async fn messages_page_in_both_directions() {
     for index in 1..=25 {
         all.push(ctx.text(&taro, &conversation.id, &format!("m{index}")).await);
     }
-    let list = |position: Option<Position>, limit: i32| ListMessagesRequest { conversation_id: conversation.id.clone(), limit, position, ..Default::default() };
+    let list = |position: Option<Position>, limit: i32| ListMessagesRequest {
+        conversation_id: conversation.id.clone(),
+        limit,
+        position,
+        ..Default::default()
+    };
     let range = |from: usize, to: usize| (from..=to).map(|index| format!("m{index}")).collect::<Vec<_>>();
 
     // Without a position: the newest messages, oldest first.
@@ -536,7 +713,11 @@ async fn messages_page_in_both_directions() {
     assert!(!edge.has_older);
 
     // Around the first unread message.
-    let up_to = MarkReadRequest { conversation_id: conversation.id.clone(), message_id: all[19].id.clone(), ..Default::default() };
+    let up_to = MarkReadRequest {
+        conversation_id: conversation.id.clone(),
+        message_id: all[19].id.clone(),
+        ..Default::default()
+    };
     let _: MarkReadResponse = ctx.call("Conversation", "MarkRead", &hanako, &up_to).await.unwrap();
     let unread = ctx.messages(&hanako, &list(Some(Position::AroundUnread(true)), 4)).await;
     assert_eq!(texts(&unread.messages), range(19, 22), "two read messages, then the unread ones");
@@ -547,14 +728,20 @@ async fn messages_page_in_both_directions() {
     // Limits and bad input.
     assert_eq!(ctx.messages(&hanako, &list(None, 0)).await.messages.len(), 26, "the default page holds 30");
     assert_eq!(ctx.messages(&hanako, &list(None, 1000)).await.messages.len(), 26);
-    assert_eq!(ctx.reason("Message", "ListMessages", &hanako, &list(Some(Position::Before("???".into())), 10)).await, "INVALID_CURSOR");
+    assert_eq!(
+        ctx.reason("Message", "ListMessages", &hanako, &list(Some(Position::Before("???".into())), 10)).await,
+        "INVALID_CURSOR"
+    );
     let unknown = list(Some(Position::AroundMessageId(Uuid::now_v7().to_string())), 10);
     assert_eq!(ctx.reason("Message", "ListMessages", &hanako, &unknown).await, "MESSAGE_NOT_FOUND");
     let outsider = ctx.app.user("outsider").await;
     assert_eq!(ctx.reason("Message", "ListMessages", &outsider, &list(None, 10)).await, "CONVERSATION_NOT_FOUND");
     assert_eq!(ctx.anonymous_reason("Message", "ListMessages", &list(None, 10)).await, "SIGN_IN_REQUIRED");
     assert_eq!(ctx.reason("Message", "GetMessage", &outsider, &by_id(&all[0].id)).await, "MESSAGE_NOT_FOUND");
-    assert_eq!(ctx.reason("Message", "GetMessage", &hanako, &by_id(&Uuid::now_v7().to_string())).await, "MESSAGE_NOT_FOUND");
+    assert_eq!(
+        ctx.reason("Message", "GetMessage", &hanako, &by_id(&Uuid::now_v7().to_string())).await,
+        "MESSAGE_NOT_FOUND"
+    );
 }
 
 #[tokio::test]
@@ -566,20 +753,28 @@ async fn search_finds_text_within_one_conversation() {
     ctx.text(&hanako, &conversation.id, "Shibuya LUNCH sounds great").await;
     let sale = ctx.text(&taro, &conversation.id, "セールで100%オフだって").await;
     let deleted = ctx.text(&taro, &conversation.id, "渋谷は取り消し").await;
-    let _: DeleteMessageResponse = ctx.call("Message", "DeleteMessage", &taro, &DeleteMessageRequest { message_id: deleted.id, ..Default::default() }).await.unwrap();
+    let _: DeleteMessageResponse = ctx
+        .call("Message", "DeleteMessage", &taro, &DeleteMessageRequest { message_id: deleted.id, ..Default::default() })
+        .await
+        .unwrap();
     // The same words elsewhere are not found here.
     let jiro = ctx.app.user("jiro").await;
     ctx.befriend(&taro, &jiro).await;
     let elsewhere = ctx.direct(&taro, &jiro).await;
     ctx.text(&taro, &elsewhere.id, "渋谷の話は内緒").await;
 
-    let search = |query: &str| SearchMessagesRequest { conversation_id: conversation.id.clone(), query: query.to_owned(), ..Default::default() };
+    let search = |query: &str| SearchMessagesRequest {
+        conversation_id: conversation.id.clone(),
+        query: query.to_owned(),
+        ..Default::default()
+    };
     let found = |query: &'static str| {
         let ctx = &ctx;
         let hanako = &hanako;
         let request = search(query);
         async move {
-            let response: SearchMessagesResponse = ctx.call("Message", "SearchMessages", hanako, &request).await.unwrap();
+            let response: SearchMessagesResponse =
+                ctx.call("Message", "SearchMessages", hanako, &request).await.unwrap();
             response.messages.into_iter().map(|message| message.text).collect::<Vec<_>>()
         }
     };
@@ -593,11 +788,15 @@ async fn search_finds_text_within_one_conversation() {
     for index in 0..3 {
         ctx.text(&taro, &conversation.id, &format!("たこ焼き{index}")).await;
     }
-    let page = |cursor: &str| SearchMessagesRequest { page: PageRequest { limit: 2, cursor: cursor.to_owned(), ..Default::default() }.into(), ..search("たこ焼き") };
+    let page = |cursor: &str| SearchMessagesRequest {
+        page: PageRequest { limit: 2, cursor: cursor.to_owned(), ..Default::default() }.into(),
+        ..search("たこ焼き")
+    };
     let first: SearchMessagesResponse = ctx.call("Message", "SearchMessages", &hanako, &page("")).await.unwrap();
     assert_eq!(texts(&first.messages), vec!["たこ焼き2", "たこ焼き1"]);
     assert!(first.page.has_more);
-    let second: SearchMessagesResponse = ctx.call("Message", "SearchMessages", &hanako, &page(&first.page.next_cursor)).await.unwrap();
+    let second: SearchMessagesResponse =
+        ctx.call("Message", "SearchMessages", &hanako, &page(&first.page.next_cursor)).await.unwrap();
     assert_eq!(texts(&second.messages), vec!["たこ焼き0"]);
 
     assert_eq!(ctx.reason("Message", "SearchMessages", &hanako, &search("  ")).await, "QUERY_INVALID");
@@ -620,7 +819,9 @@ async fn messages_are_forwarded_into_other_conversations() {
     let text = ctx.text(&hanako, &source.id, "来週のライブ行く？ http://localhost:8080/live/abc123").await;
     ctx.chat.resolve_link_preview(text.id.parse().unwrap()).await.unwrap();
     let photo_id = ctx.photo(&hanako).await;
-    let photo = sent(&ctx, &hanako, &SendMessageRequest { text: "チケット".into(), ..media_request(&source.id, &[&photo_id]) }).await;
+    let photo =
+        sent(&ctx, &hanako, &SendMessageRequest { text: "チケット".into(), ..media_request(&source.id, &[&photo_id]) })
+            .await;
 
     let mut jiro_events = ctx.listen(&jiro).await;
     let forward = ForwardMessagesRequest {
@@ -642,35 +843,96 @@ async fn messages_are_forwarded_into_other_conversations() {
     assert_eq!(forwarded.messages[2].conversation_id, group.id);
     assert_eq!(created_messages(&ctx.events(&mut jiro_events).await).len(), 4);
     // The upload now also belongs to the copies.
-    let _: DeleteMessageResponse = ctx.call("Message", "DeleteMessage", &hanako, &DeleteMessageRequest { message_id: photo.id.clone(), ..Default::default() }).await.unwrap();
+    let _: DeleteMessageResponse = ctx
+        .call(
+            "Message",
+            "DeleteMessage",
+            &hanako,
+            &DeleteMessageRequest { message_id: photo.id.clone(), ..Default::default() },
+        )
+        .await
+        .unwrap();
     assert!(tokuly_media::assets::is_attached(&ctx.app.core, photo_id.parse().unwrap()).await.unwrap());
 
     // A retry forwards nothing twice.
     let retried: ForwardMessagesResponse = ctx
-        .call("Message", "ForwardMessages", &taro, &ForwardMessagesRequest { message_ids: vec![text.id.clone()], conversation_ids: vec![direct.id.clone()], ..forward.clone() })
+        .call(
+            "Message",
+            "ForwardMessages",
+            &taro,
+            &ForwardMessagesRequest {
+                message_ids: vec![text.id.clone()],
+                conversation_ids: vec![direct.id.clone()],
+                ..forward.clone()
+            },
+        )
         .await
         .unwrap();
     assert_eq!(retried.messages[0].id, forwarded.messages[0].id);
     assert_eq!(ctx.latest(&jiro, &direct.id).await.len(), 2);
 
     // What cannot be forwarded, and where to.
-    let request = |message_ids: Vec<String>, conversation_ids: Vec<String>| ForwardMessagesRequest { message_ids, conversation_ids, client_id: client_id(), ..Default::default() };
-    let system = ctx.latest(&taro, &group.id).await.into_iter().find(|message| message.kind == MessageKind::MESSAGE_KIND_SYSTEM).unwrap();
-    assert_eq!(ctx.reason("Message", "ForwardMessages", &taro, &request(vec![system.id], vec![direct.id.clone()])).await, "MESSAGE_NOT_FORWARDABLE");
-    assert_eq!(ctx.reason("Message", "ForwardMessages", &taro, &request(vec![photo.id.clone()], vec![direct.id.clone()])).await, "MESSAGE_NOT_FORWARDABLE");
-    assert_eq!(ctx.reason("Message", "ForwardMessages", &jiro, &request(vec![text.id.clone()], vec![direct.id.clone()])).await, "MESSAGE_NOT_FOUND");
-    assert_eq!(ctx.reason("Message", "ForwardMessages", &hanako, &request(vec![text.id.clone()], vec![direct.id.clone()])).await, "CONVERSATION_NOT_FOUND");
-    assert_eq!(ctx.reason("Message", "ForwardMessages", &taro, &request(vec![], vec![direct.id.clone()])).await, "NOTHING_TO_FORWARD");
-    assert_eq!(ctx.reason("Message", "ForwardMessages", &taro, &request(vec![text.id.clone()], vec![])).await, "NOTHING_TO_FORWARD");
+    let request = |message_ids: Vec<String>, conversation_ids: Vec<String>| ForwardMessagesRequest {
+        message_ids,
+        conversation_ids,
+        client_id: client_id(),
+        ..Default::default()
+    };
+    let system = ctx
+        .latest(&taro, &group.id)
+        .await
+        .into_iter()
+        .find(|message| message.kind == MessageKind::MESSAGE_KIND_SYSTEM)
+        .unwrap();
+    assert_eq!(
+        ctx.reason("Message", "ForwardMessages", &taro, &request(vec![system.id], vec![direct.id.clone()])).await,
+        "MESSAGE_NOT_FORWARDABLE"
+    );
+    assert_eq!(
+        ctx.reason("Message", "ForwardMessages", &taro, &request(vec![photo.id.clone()], vec![direct.id.clone()]))
+            .await,
+        "MESSAGE_NOT_FORWARDABLE"
+    );
+    assert_eq!(
+        ctx.reason("Message", "ForwardMessages", &jiro, &request(vec![text.id.clone()], vec![direct.id.clone()])).await,
+        "MESSAGE_NOT_FOUND"
+    );
+    assert_eq!(
+        ctx.reason("Message", "ForwardMessages", &hanako, &request(vec![text.id.clone()], vec![direct.id.clone()]))
+            .await,
+        "CONVERSATION_NOT_FOUND"
+    );
+    assert_eq!(
+        ctx.reason("Message", "ForwardMessages", &taro, &request(vec![], vec![direct.id.clone()])).await,
+        "NOTHING_TO_FORWARD"
+    );
+    assert_eq!(
+        ctx.reason("Message", "ForwardMessages", &taro, &request(vec![text.id.clone()], vec![])).await,
+        "NOTHING_TO_FORWARD"
+    );
     let many = |count: usize| (0..count).map(|_| Uuid::now_v7().to_string()).collect::<Vec<_>>();
-    assert_eq!(ctx.reason("Message", "ForwardMessages", &taro, &request(many(11), vec![direct.id.clone()])).await, "TOO_MANY_MESSAGES");
-    assert_eq!(ctx.reason("Message", "ForwardMessages", &taro, &request(vec![text.id.clone()], many(11))).await, "TOO_MANY_CONVERSATIONS");
-    let long_key = ForwardMessagesRequest { client_id: "k".repeat(49), ..request(vec![text.id.clone()], vec![direct.id.clone()]) };
+    assert_eq!(
+        ctx.reason("Message", "ForwardMessages", &taro, &request(many(11), vec![direct.id.clone()])).await,
+        "TOO_MANY_MESSAGES"
+    );
+    assert_eq!(
+        ctx.reason("Message", "ForwardMessages", &taro, &request(vec![text.id.clone()], many(11))).await,
+        "TOO_MANY_CONVERSATIONS"
+    );
+    let long_key =
+        ForwardMessagesRequest { client_id: "k".repeat(49), ..request(vec![text.id.clone()], vec![direct.id.clone()]) };
     assert_eq!(ctx.reason("Message", "ForwardMessages", &taro, &long_key).await, "CLIENT_ID_INVALID");
-    assert_eq!(ctx.anonymous_reason("Message", "ForwardMessages", &request(vec![text.id.clone()], vec![direct.id.clone()])).await, "SIGN_IN_REQUIRED");
+    assert_eq!(
+        ctx.anonymous_reason("Message", "ForwardMessages", &request(vec![text.id.clone()], vec![direct.id.clone()]))
+            .await,
+        "SIGN_IN_REQUIRED"
+    );
     // A blocked conversation takes no forwards either.
     ctx.block(&jiro, &taro).await;
-    assert_eq!(ctx.reason("Message", "ForwardMessages", &taro, &request(vec![text.id.clone()], vec![direct.id.clone()])).await, "CONVERSATION_READ_ONLY");
+    assert_eq!(
+        ctx.reason("Message", "ForwardMessages", &taro, &request(vec![text.id.clone()], vec![direct.id.clone()])).await,
+        "CONVERSATION_READ_ONLY"
+    );
 }
 
 #[tokio::test]
@@ -679,9 +941,22 @@ async fn reactions_are_counted_per_emoji() {
     let (taro, hanako) = ctx.friends("taro", "hanako").await;
     let conversation = ctx.direct(&taro, &hanako).await;
     let message = ctx.text(&taro, &conversation.id, "合格した！").await;
-    let react = |emoji: &str| AddReactionRequest { message_id: message.id.clone(), emoji: emoji.to_owned(), ..Default::default() };
-    let unreact = |emoji: &str| RemoveReactionRequest { message_id: message.id.clone(), emoji: emoji.to_owned(), ..Default::default() };
-    let summary = |reactions: &[ReactionCount]| reactions.iter().map(|reaction| (reaction.emoji.clone(), reaction.count, reaction.reacted_by_me)).collect::<Vec<_>>();
+    let react = |emoji: &str| AddReactionRequest {
+        message_id: message.id.clone(),
+        emoji: emoji.to_owned(),
+        ..Default::default()
+    };
+    let unreact = |emoji: &str| RemoveReactionRequest {
+        message_id: message.id.clone(),
+        emoji: emoji.to_owned(),
+        ..Default::default()
+    };
+    let summary = |reactions: &[ReactionCount]| {
+        reactions
+            .iter()
+            .map(|reaction| (reaction.emoji.clone(), reaction.count, reaction.reacted_by_me))
+            .collect::<Vec<_>>()
+    };
 
     let mut taro_events = ctx.listen(&taro).await;
     let added: AddReactionResponse = ctx.call("Message", "AddReaction", &hanako, &react("🎉")).await.unwrap();
@@ -703,28 +978,72 @@ async fn reactions_are_counted_per_emoji() {
     assert!(ctx.events(&mut taro_events).await.is_empty());
     let _: AddReactionResponse = ctx.call("Message", "AddReaction", &hanako, &react("👍🏽")).await.unwrap();
     let own: AddReactionResponse = ctx.call("Message", "AddReaction", &taro, &react("🎉")).await.unwrap();
-    assert_eq!(summary(&own.reactions), vec![("🎉".to_owned(), 2, true), ("👍🏽".to_owned(), 1, false)], "in the order the emoji first appeared");
-    assert_eq!(summary(&ctx.message(&hanako, &message.id).await.reactions), vec![("🎉".to_owned(), 2, true), ("👍🏽".to_owned(), 1, true)]);
-    assert_eq!(ctx.notifications(&hanako).await.iter().filter(|n| n.kind == "chat.reaction").count(), 0, "reacting to your own message notifies nobody");
+    assert_eq!(
+        summary(&own.reactions),
+        vec![("🎉".to_owned(), 2, true), ("👍🏽".to_owned(), 1, false)],
+        "in the order the emoji first appeared"
+    );
+    assert_eq!(
+        summary(&ctx.message(&hanako, &message.id).await.reactions),
+        vec![("🎉".to_owned(), 2, true), ("👍🏽".to_owned(), 1, true)]
+    );
+    assert_eq!(
+        ctx.notifications(&hanako).await.iter().filter(|n| n.kind == "chat.reaction").count(),
+        0,
+        "reacting to your own message notifies nobody"
+    );
 
     // Who reacted, newest first, optionally one emoji only.
-    let everyone: ListReactionsResponse = ctx.call("Message", "ListReactions", &taro, &ListReactionsRequest { message_id: message.id.clone(), ..Default::default() }).await.unwrap();
-    let listed: Vec<(String, String)> = everyone.reactions.iter().map(|reaction| (reaction.user.id.clone(), reaction.emoji.clone())).collect();
-    assert_eq!(listed, vec![(taro.id.to_string(), "🎉".to_owned()), (hanako.id.to_string(), "👍🏽".to_owned()), (hanako.id.to_string(), "🎉".to_owned())]);
-    let party: ListReactionsResponse =
-        ctx.call("Message", "ListReactions", &taro, &ListReactionsRequest { message_id: message.id.clone(), emoji: "🎉".into(), ..Default::default() }).await.unwrap();
+    let everyone: ListReactionsResponse = ctx
+        .call(
+            "Message",
+            "ListReactions",
+            &taro,
+            &ListReactionsRequest { message_id: message.id.clone(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    let listed: Vec<(String, String)> =
+        everyone.reactions.iter().map(|reaction| (reaction.user.id.clone(), reaction.emoji.clone())).collect();
+    assert_eq!(
+        listed,
+        vec![
+            (taro.id.to_string(), "🎉".to_owned()),
+            (hanako.id.to_string(), "👍🏽".to_owned()),
+            (hanako.id.to_string(), "🎉".to_owned())
+        ]
+    );
+    let party: ListReactionsResponse = ctx
+        .call(
+            "Message",
+            "ListReactions",
+            &taro,
+            &ListReactionsRequest { message_id: message.id.clone(), emoji: "🎉".into(), ..Default::default() },
+        )
+        .await
+        .unwrap();
     assert_eq!(party.reactions.len(), 2);
 
     // Removing: only one's own, and removing nothing is fine.
     let mut taro_events = ctx.listen(&taro).await;
     let removed: RemoveReactionResponse = ctx.call("Message", "RemoveReaction", &hanako, &unreact("🎉")).await.unwrap();
-    assert_eq!(summary(&removed.reactions), vec![("👍🏽".to_owned(), 1, true), ("🎉".to_owned(), 1, false)], "ordered by the earliest reaction still there");
-    assert!(matches!(ctx.events(&mut taro_events).await.as_slice(), [Push::ReactionChanged(change)] if !change.added && change.count == 1));
+    assert_eq!(
+        summary(&removed.reactions),
+        vec![("👍🏽".to_owned(), 1, true), ("🎉".to_owned(), 1, false)],
+        "ordered by the earliest reaction still there"
+    );
+    assert!(
+        matches!(ctx.events(&mut taro_events).await.as_slice(), [Push::ReactionChanged(change)] if !change.added && change.count == 1)
+    );
     let _: RemoveReactionResponse = ctx.call("Message", "RemoveReaction", &hanako, &unreact("🎉")).await.unwrap();
     assert_eq!(ctx.message(&taro, &message.id).await.reactions.len(), 2);
 
     for invalid in ["", "ab", "🎉🎉", "いいね"] {
-        assert_eq!(ctx.reason("Message", "AddReaction", &hanako, &react(invalid)).await, "EMOJI_INVALID", "{invalid:?}");
+        assert_eq!(
+            ctx.reason("Message", "AddReaction", &hanako, &react(invalid)).await,
+            "EMOJI_INVALID",
+            "{invalid:?}"
+        );
     }
     assert_eq!(ctx.reason("Message", "RemoveReaction", &hanako, &unreact("x")).await, "EMOJI_INVALID");
     let outsider = ctx.app.user("outsider").await;
@@ -736,15 +1055,21 @@ async fn reactions_are_counted_per_emoji() {
 
     // At most twenty different emoji on one message.
     let crowded = ctx.text(&taro, &conversation.id, "人気者").await;
-    let emoji = ["😀", "😁", "😂", "🤣", "😃", "😄", "😅", "😆", "😉", "😊", "😋", "😎", "😍", "😘", "🥰", "😗", "😙", "😚", "🙂", "🤗", "🤩"];
+    let emoji = [
+        "😀", "😁", "😂", "🤣", "😃", "😄", "😅", "😆", "😉", "😊", "😋", "😎", "😍", "😘", "🥰", "😗", "😙", "😚",
+        "🙂", "🤗", "🤩",
+    ];
     for emoji in &emoji[..20] {
-        let request = AddReactionRequest { message_id: crowded.id.clone(), emoji: emoji.to_string(), ..Default::default() };
+        let request =
+            AddReactionRequest { message_id: crowded.id.clone(), emoji: emoji.to_string(), ..Default::default() };
         let _: AddReactionResponse = ctx.call("Message", "AddReaction", &hanako, &request).await.unwrap();
     }
-    let one_more = AddReactionRequest { message_id: crowded.id.clone(), emoji: emoji[20].to_owned(), ..Default::default() };
+    let one_more =
+        AddReactionRequest { message_id: crowded.id.clone(), emoji: emoji[20].to_owned(), ..Default::default() };
     assert_eq!(ctx.reason("Message", "AddReaction", &hanako, &one_more).await, "TOO_MANY_REACTIONS");
     // An emoji already on the message is always welcome.
-    let joining = AddReactionRequest { message_id: crowded.id.clone(), emoji: emoji[0].to_owned(), ..Default::default() };
+    let joining =
+        AddReactionRequest { message_id: crowded.id.clone(), emoji: emoji[0].to_owned(), ..Default::default() };
     let joined: AddReactionResponse = ctx.call("Message", "AddReaction", &taro, &joining).await.unwrap();
     assert_eq!(joined.reactions[0].count, 2);
 }
@@ -779,7 +1104,8 @@ async fn messages_are_pinned_for_everyone() {
 
     let second = ctx.text(member, &group.id, "持ち物: 水筒").await;
     let _: PinMessageResponse = ctx.call("Message", "PinMessage", &owner, &pin(&second.id)).await.unwrap();
-    let listed: ListPinnedMessagesResponse = ctx.call("Message", "ListPinnedMessages", &owner, &pinned_list).await.unwrap();
+    let listed: ListPinnedMessagesResponse =
+        ctx.call("Message", "ListPinnedMessages", &owner, &pinned_list).await.unwrap();
     assert_eq!(texts(&listed.messages), vec!["持ち物: 水筒", "集合は駅前に10時"], "most recently pinned first");
     assert!(listed.messages.iter().all(|message| message.pinned));
 
@@ -791,10 +1117,16 @@ async fn messages_are_pinned_for_everyone() {
     let updates = updated_messages(&ctx.events(&mut owner_events).await);
     assert_eq!(updates[0].1, MessageUpdateReason::MESSAGE_UPDATE_REASON_UNPINNED);
     let _: UnpinMessageResponse = ctx.call("Message", "UnpinMessage", member, &unpin).await.unwrap();
-    let listed: ListPinnedMessagesResponse = ctx.call("Message", "ListPinnedMessages", member, &pinned_list).await.unwrap();
+    let listed: ListPinnedMessagesResponse =
+        ctx.call("Message", "ListPinnedMessages", member, &pinned_list).await.unwrap();
     assert_eq!(texts(&listed.messages), vec!["持ち物: 水筒"]);
 
-    let system = ctx.latest(&owner, &group.id).await.into_iter().find(|message| message.kind == MessageKind::MESSAGE_KIND_SYSTEM).unwrap();
+    let system = ctx
+        .latest(&owner, &group.id)
+        .await
+        .into_iter()
+        .find(|message| message.kind == MessageKind::MESSAGE_KIND_SYSTEM)
+        .unwrap();
     assert_eq!(ctx.reason("Message", "PinMessage", &owner, &pin(&system.id)).await, "MESSAGE_NOT_PINNABLE");
     let outsider = ctx.app.user("outsider").await;
     assert_eq!(ctx.reason("Message", "PinMessage", &outsider, &pin(&message.id)).await, "MESSAGE_NOT_FOUND");
@@ -817,42 +1149,88 @@ async fn shared_media_is_listed_by_kind() {
     let video_id = ctx.upload(member, AssetPurpose::ASSET_PURPOSE_CHAT_VIDEO, AssetKind::ASSET_KIND_VIDEO).await;
     let video = sent(&ctx, member, &media_request(&group.id, &[&video_id])).await;
 
-    let media = |filter: SharedMediaFilter| ListSharedMediaRequest { conversation_id: group.id.clone(), filter: filter.into(), ..Default::default() };
-    let assets = |response: &ListSharedMediaResponse| response.items.iter().map(|item| item.attachment.asset_id.clone()).collect::<Vec<_>>();
+    let media = |filter: SharedMediaFilter| ListSharedMediaRequest {
+        conversation_id: group.id.clone(),
+        filter: filter.into(),
+        ..Default::default()
+    };
+    let assets = |response: &ListSharedMediaResponse| {
+        response.items.iter().map(|item| item.attachment.asset_id.clone()).collect::<Vec<_>>()
+    };
 
-    let everything: ListSharedMediaResponse = ctx.call("Message", "ListSharedMedia", &owner, &media(SharedMediaFilter::SHARED_MEDIA_FILTER_UNSPECIFIED)).await.unwrap();
-    assert_eq!(assets(&everything), vec![video_id.clone(), file_id.clone(), voice_id.clone(), second.clone(), first.clone()], "newest first");
-    let visual: ListSharedMediaResponse = ctx.call("Message", "ListSharedMedia", &owner, &media(SharedMediaFilter::SHARED_MEDIA_FILTER_VISUAL)).await.unwrap();
+    let everything: ListSharedMediaResponse = ctx
+        .call("Message", "ListSharedMedia", &owner, &media(SharedMediaFilter::SHARED_MEDIA_FILTER_UNSPECIFIED))
+        .await
+        .unwrap();
+    assert_eq!(
+        assets(&everything),
+        vec![video_id.clone(), file_id.clone(), voice_id.clone(), second.clone(), first.clone()],
+        "newest first"
+    );
+    let visual: ListSharedMediaResponse = ctx
+        .call("Message", "ListSharedMedia", &owner, &media(SharedMediaFilter::SHARED_MEDIA_FILTER_VISUAL))
+        .await
+        .unwrap();
     assert_eq!(assets(&visual), vec![video_id.clone(), second.clone(), first.clone()]);
-    assert_eq!((visual.items[0].message_id.as_str(), visual.items[0].sender_id.as_str()), (video.id.as_str(), member.id.to_string().as_str()));
+    assert_eq!(
+        (visual.items[0].message_id.as_str(), visual.items[0].sender_id.as_str()),
+        (video.id.as_str(), member.id.to_string().as_str())
+    );
     assert_eq!(visual.items[1].seq, photos.seq);
-    let audio: ListSharedMediaResponse = ctx.call("Message", "ListSharedMedia", &owner, &media(SharedMediaFilter::SHARED_MEDIA_FILTER_AUDIO)).await.unwrap();
+    let audio: ListSharedMediaResponse = ctx
+        .call("Message", "ListSharedMedia", &owner, &media(SharedMediaFilter::SHARED_MEDIA_FILTER_AUDIO))
+        .await
+        .unwrap();
     assert_eq!(assets(&audio), vec![voice_id.clone()]);
     assert!(!audio.items[0].attachment.waveform.is_empty());
-    let files: ListSharedMediaResponse = ctx.call("Message", "ListSharedMedia", &owner, &media(SharedMediaFilter::SHARED_MEDIA_FILTER_FILES)).await.unwrap();
+    let files: ListSharedMediaResponse = ctx
+        .call("Message", "ListSharedMedia", &owner, &media(SharedMediaFilter::SHARED_MEDIA_FILTER_FILES))
+        .await
+        .unwrap();
     assert_eq!(assets(&files), vec![file_id.clone()]);
     assert!(files.items[0].attachment.url.starts_with("http"));
 
     // In pages.
-    let page = |cursor: &str| ListSharedMediaRequest { page: PageRequest { limit: 2, cursor: cursor.to_owned(), ..Default::default() }.into(), ..media(SharedMediaFilter::SHARED_MEDIA_FILTER_VISUAL) };
+    let page = |cursor: &str| ListSharedMediaRequest {
+        page: PageRequest { limit: 2, cursor: cursor.to_owned(), ..Default::default() }.into(),
+        ..media(SharedMediaFilter::SHARED_MEDIA_FILTER_VISUAL)
+    };
     let first_page: ListSharedMediaResponse = ctx.call("Message", "ListSharedMedia", &owner, &page("")).await.unwrap();
     assert_eq!(assets(&first_page), vec![video_id.clone(), second.clone()]);
-    let second_page: ListSharedMediaResponse = ctx.call("Message", "ListSharedMedia", &owner, &page(&first_page.page.next_cursor)).await.unwrap();
+    let second_page: ListSharedMediaResponse =
+        ctx.call("Message", "ListSharedMedia", &owner, &page(&first_page.page.next_cursor)).await.unwrap();
     assert_eq!(assets(&second_page), vec![first.clone()]);
     assert!(!second_page.page.has_more);
 
     // Deleted messages leave the gallery; newcomers see only what came after them.
-    let _: DeleteMessageResponse = ctx.call("Message", "DeleteMessage", member, &DeleteMessageRequest { message_id: voice.id, ..Default::default() }).await.unwrap();
-    let audio: ListSharedMediaResponse = ctx.call("Message", "ListSharedMedia", &owner, &media(SharedMediaFilter::SHARED_MEDIA_FILTER_AUDIO)).await.unwrap();
+    let _: DeleteMessageResponse = ctx
+        .call("Message", "DeleteMessage", member, &DeleteMessageRequest { message_id: voice.id, ..Default::default() })
+        .await
+        .unwrap();
+    let audio: ListSharedMediaResponse = ctx
+        .call("Message", "ListSharedMedia", &owner, &media(SharedMediaFilter::SHARED_MEDIA_FILTER_AUDIO))
+        .await
+        .unwrap();
     assert!(audio.items.is_empty());
     let newcomer = ctx.app.user("newcomer").await;
     ctx.befriend(&owner, &newcomer).await;
-    let add = AddMembersRequest { conversation_id: group.id.clone(), user_ids: vec![newcomer.id.to_string()], ..Default::default() };
+    let add = AddMembersRequest {
+        conversation_id: group.id.clone(),
+        user_ids: vec![newcomer.id.to_string()],
+        ..Default::default()
+    };
     let _: AddMembersResponse = ctx.call("Conversation", "AddMembers", &owner, &add).await.unwrap();
-    let seen: ListSharedMediaResponse = ctx.call("Message", "ListSharedMedia", &newcomer, &media(SharedMediaFilter::SHARED_MEDIA_FILTER_UNSPECIFIED)).await.unwrap();
+    let seen: ListSharedMediaResponse = ctx
+        .call("Message", "ListSharedMedia", &newcomer, &media(SharedMediaFilter::SHARED_MEDIA_FILTER_UNSPECIFIED))
+        .await
+        .unwrap();
     assert!(seen.items.is_empty());
     let outsider = ctx.app.user("outsider").await;
-    assert_eq!(ctx.reason("Message", "ListSharedMedia", &outsider, &media(SharedMediaFilter::SHARED_MEDIA_FILTER_UNSPECIFIED)).await, "CONVERSATION_NOT_FOUND");
+    assert_eq!(
+        ctx.reason("Message", "ListSharedMedia", &outsider, &media(SharedMediaFilter::SHARED_MEDIA_FILTER_UNSPECIFIED))
+            .await,
+        "CONVERSATION_NOT_FOUND"
+    );
 }
 
 #[tokio::test]
@@ -877,7 +1255,12 @@ async fn messages_feed_the_best_friend_ranking_and_stamp_statistics() {
     .await
     .unwrap();
     assert_eq!(recorded, vec![(1, 2), (2, 1)]);
-    let sends: i64 = sqlx::query_scalar("SELECT count(*) FROM stamp_usage WHERE stamp_id = $1::uuid AND user_id = $2").bind(&stamp_id).bind(hanako.id).fetch_one(&ctx.app.core.db).await.unwrap();
+    let sends: i64 = sqlx::query_scalar("SELECT count(*) FROM stamp_usage WHERE stamp_id = $1::uuid AND user_id = $2")
+        .bind(&stamp_id)
+        .bind(hanako.id)
+        .fetch_one(&ctx.app.core.db)
+        .await
+        .unwrap();
     assert_eq!(sends, 1, "the stamp domain counts the send");
 
     // In a group only the people a message addresses are reported.

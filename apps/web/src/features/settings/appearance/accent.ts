@@ -55,6 +55,8 @@ const BLACK: Rgb = [0, 0, 0];
 const INK = "#17122b";
 /** The dark theme's page background. */
 const NIGHT: Rgb = [13, 11, 20];
+/** A colour at least this light has a 4.5:1 contrast against the dark theme's surfaces. */
+const DARK_THEME_MIN_LUMINANCE = 0.24;
 
 export interface AccentTokens {
   brand: string;
@@ -70,7 +72,10 @@ export interface AccentTokens {
  */
 export function accentTokens(color: string): { light: AccentTokens; dark: AccentTokens } {
   const accent = parse(color);
-  const tint = mix(accent, WHITE, 0.25);
+  // Lightened until it reads as text on the dark surfaces, however deep the colour is.
+  let lightening = 0.25;
+  while (luminance(mix(accent, WHITE, lightening)) < DARK_THEME_MIN_LUMINANCE && lightening < 1) lightening += 0.05;
+  const tint = mix(accent, WHITE, lightening);
   return {
     light: {
       brand: format(accent),
@@ -80,7 +85,7 @@ export function accentTokens(color: string): { light: AccentTokens; dark: Accent
     },
     dark: {
       brand: format(tint),
-      brandStrong: format(mix(accent, WHITE, 0.45)),
+      brandStrong: format(mix(tint, WHITE, 0.3)),
       brandSoft: format(mix(accent, NIGHT, 0.72)),
       onBrand: luminance(tint) > 0.2 ? "#120c2b" : "#ffffff",
     },

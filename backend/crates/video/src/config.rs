@@ -171,10 +171,7 @@ impl VideoConfig {
             self.trending_half_life_hours.is_finite() && self.trending_half_life_hours > 0.0,
             "TOKULY_VIDEO_TRENDING_HALF_LIFE_HOURS must be positive"
         );
-        anyhow::ensure!(
-            self.max_playlists > 0 && self.max_playlist_items > 0,
-            "the playlist limits must be positive"
-        );
+        anyhow::ensure!(self.max_playlists > 0 && self.max_playlist_items > 0, "the playlist limits must be positive");
         anyhow::ensure!(self.announce_batch_size > 0, "TOKULY_VIDEO_ANNOUNCE_BATCH_SIZE must be positive");
         anyhow::ensure!(
             self.party_max_members >= 2 && self.party_max_hosted > 0 && self.party_max_hours > 0,

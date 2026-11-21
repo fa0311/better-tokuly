@@ -55,7 +55,7 @@ pub struct Session {
     pub counted: bool,
 }
 
-fn session_key(session_id: &str) -> String {
+pub(crate) fn session_key(session_id: &str) -> String {
     format!("video:playback:{session_id}")
 }
 
@@ -93,7 +93,8 @@ pub struct Progress {
 /// playing forward for that long can produce (not a seek).
 pub fn advance(session: &mut Session, now_ms: i64, position: f64, playing: bool, max_gap: f64) -> Progress {
     let elapsed = ((now_ms - session.last_report_ms) as f64 / 1000.0).clamp(0.0, max_gap);
-    let position = if position.is_finite() { position.clamp(0.0, session.duration.max(0.0)) } else { session.last_position };
+    let position =
+        if position.is_finite() { position.clamp(0.0, session.duration.max(0.0)) } else { session.last_position };
     let mut progress = Progress { watched: 0.0, covered: None };
     if session.playing {
         progress.watched = elapsed;
@@ -101,7 +102,9 @@ pub fn advance(session: &mut Session, now_ms: i64, position: f64, playing: bool,
         // Up to double speed, plus slack for timer jitter.
         let plausible = moved > 0.0 && moved <= elapsed * 2.0 + 2.0;
         if plausible && session.duration > 0.0 {
-            let bucket = |at: f64| ((at / session.duration * RETENTION_BUCKETS as f64) as usize).min(RETENTION_BUCKETS - 1) as u8;
+            let bucket = |at: f64| {
+                ((at / session.duration * RETENTION_BUCKETS as f64) as usize).min(RETENTION_BUCKETS - 1) as u8
+            };
             // The end position is exclusive: a report at exactly 50% has not watched bucket 50 yet.
             let last = bucket((position - 0.001).max(session.last_position));
             progress.covered = Some((bucket(session.last_position), last));
@@ -120,7 +123,8 @@ pub fn is_completed(position: f64, duration: f64, ended: bool) -> bool {
 }
 
 pub async fn load(core: &Core, session_id: &str) -> AppResult<Option<Session>> {
-    let plausible = (8..=64).contains(&session_id.len()) && session_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+    let plausible = (8..=64).contains(&session_id.len())
+        && session_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
     if !plausible {
         return Ok(None);
     }
@@ -132,7 +136,14 @@ pub async fn save(core: &Core, session_id: &str, session: &Session) -> AppResult
 }
 
 /// Opens a session for `video` and returns its ID.
-pub async fn start(core: &Core, video: &VideoRow, user_id: Option<Uuid>, ip: &str, source: i32, position: f64) -> AppResult<String> {
+pub async fn start(
+    core: &Core,
+    video: &VideoRow,
+    user_id: Option<Uuid>,
+    ip: &str,
+    source: i32,
+    position: f64,
+) -> AppResult<String> {
     let session = Session {
         video_id: video.id,
         channel_id: video.channel_id,
@@ -156,12 +167,14 @@ pub async fn start(core: &Core, video: &VideoRow, user_id: Option<Uuid>, ip: &st
 }
 
 fn event(name: &str, session: &Session, session_id: &str) -> AnalyticsEvent {
-    AnalyticsEvent::new(name).user(session.user_id).subject("video", session.video_id).owner(session.owner_id).props(serde_json::json!({
-        "channel_id": session.channel_id,
-        "session": session_id,
-        "viewer": session.viewer,
-        "source": session.source,
-    }))
+    AnalyticsEvent::new(name).user(session.user_id).subject("video", session.video_id).owner(session.owner_id).props(
+        serde_json::json!({
+            "channel_id": session.channel_id,
+            "session": session_id,
+            "viewer": session.viewer,
+            "source": session.source,
+        }),
+    )
 }
 
 /// Records what a report added: the `video.watch` analytics event.
@@ -180,7 +193,13 @@ pub async fn track_progress(core: &Core, session: &Session, session_id: &str, pr
 /// Counts the session's view if it is due: enough watch time, not the
 /// owner, and no counted view by the same viewer within the de-duplication
 /// period. Marks the session so the check is not repeated.
-pub async fn count_view(core: &Core, session: &mut Session, session_id: &str, min_seconds: f64, dedupe: Duration) -> AppResult<()> {
+pub async fn count_view(
+    core: &Core,
+    session: &mut Session,
+    session_id: &str,
+    min_seconds: f64,
+    dedupe: Duration,
+) -> AppResult<()> {
     if session.counted || session.watched < min_seconds {
         return Ok(());
     }
@@ -192,9 +211,15 @@ pub async fn count_view(core: &Core, session: &mut Session, session_id: &str, mi
         return Ok(()); // a repeat within the period
     }
     let mut tx = core.db.begin().await?;
-    let counted = sqlx::query("UPDATE videos SET view_count = view_count + 1 WHERE id = $1").bind(session.video_id).execute(&mut *tx).await?;
+    let counted = sqlx::query("UPDATE videos SET view_count = view_count + 1 WHERE id = $1")
+        .bind(session.video_id)
+        .execute(&mut *tx)
+        .await?;
     if counted.rows_affected() == 1 {
-        sqlx::query("UPDATE channels SET view_count = view_count + 1 WHERE id = $1").bind(session.channel_id).execute(&mut *tx).await?;
+        sqlx::query("UPDATE channels SET view_count = view_count + 1 WHERE id = $1")
+            .bind(session.channel_id)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query(
             "INSERT INTO video_hourly_stats (video_id, hour, views) VALUES ($1, date_trunc('hour', now()), 1)
              ON CONFLICT (video_id, hour) DO UPDATE SET views = video_hourly_stats.views + 1",
@@ -212,7 +237,8 @@ pub async fn count_view(core: &Core, session: &mut Session, session_id: &str, mi
 pub async fn touch_history(core: &Core, user_id: Uuid, video_id: Uuid) -> AppResult<()> {
     sqlx::query(
         "INSERT INTO watch_history (user_id, video_id)
-         SELECT $1, $2 WHERE NOT EXISTS (SELECT 1 FROM video_user_settings WHERE user_id = $1 AND history_paused)
+         SELECT $1, v.id FROM videos v
+         WHERE v.id = $2 AND NOT EXISTS (SELECT 1 FROM video_user_settings WHERE user_id = $1 AND history_paused)
          ON CONFLICT (user_id, video_id) DO UPDATE SET last_watched_at = now()",
     )
     .bind(user_id)
@@ -224,11 +250,19 @@ pub async fn touch_history(core: &Core, user_id: Uuid, video_id: Uuid) -> AppRes
 
 /// Stores where a signed-in viewer is in a video and how long they watched
 /// (unless their history is paused).
-pub async fn record_history(core: &Core, user_id: Uuid, session: &Session, position: f64, watched: f64, ended: bool) -> AppResult<()> {
+pub async fn record_history(
+    core: &Core,
+    user_id: Uuid,
+    session: &Session,
+    position: f64,
+    watched: f64,
+    ended: bool,
+) -> AppResult<()> {
     let completed = is_completed(position, session.duration, ended);
     sqlx::query(
         "INSERT INTO watch_history (user_id, video_id, position_seconds, watched_seconds, completed)
-         SELECT $1, $2, $3, $4, $5 WHERE NOT EXISTS (SELECT 1 FROM video_user_settings WHERE user_id = $1 AND history_paused)
+         SELECT $1, v.id, $3, $4, $5 FROM videos v
+         WHERE v.id = $2 AND NOT EXISTS (SELECT 1 FROM video_user_settings WHERE user_id = $1 AND history_paused)
          ON CONFLICT (user_id, video_id) DO UPDATE SET
              position_seconds = EXCLUDED.position_seconds,
              watched_seconds = watch_history.watched_seconds + EXCLUDED.watched_seconds,
@@ -258,8 +292,10 @@ pub async fn resume_position(core: &Core, user_id: Uuid, video_id: Uuid) -> AppR
 }
 
 pub async fn history_paused(core: &Core, user_id: Uuid) -> AppResult<bool> {
-    let paused: Option<bool> =
-        sqlx::query_scalar("SELECT history_paused FROM video_user_settings WHERE user_id = $1").bind(user_id).fetch_optional(&core.db).await?;
+    let paused: Option<bool> = sqlx::query_scalar("SELECT history_paused FROM video_user_settings WHERE user_id = $1")
+        .bind(user_id)
+        .fetch_optional(&core.db)
+        .await?;
     Ok(paused.unwrap_or(false))
 }
 

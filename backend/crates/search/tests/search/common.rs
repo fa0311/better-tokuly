@@ -132,7 +132,11 @@ async fn delete_stale_indexes(client: &Client) {
     let Ok(indexes) = query.execute().await else { return };
     let now = unix_now();
     for index in indexes.results {
-        let created = index.uid.strip_prefix(TEST_PREFIX).and_then(|rest| rest.split('_').next()).and_then(|t| t.parse::<u64>().ok());
+        let created = index
+            .uid
+            .strip_prefix(TEST_PREFIX)
+            .and_then(|rest| rest.split('_').next())
+            .and_then(|t| t.parse::<u64>().ok());
         if created.is_some_and(|created| now.saturating_sub(created) > STALE_AFTER.as_secs()) {
             let _ = client.delete_index(&index.uid).await;
         }
@@ -296,7 +300,11 @@ impl Ctx {
         self.app.call(&format!("{service}/{method}"), user, request).await
     }
 
-    pub async fn try_search(&self, user: Option<&TestUser>, request: &SearchRequest) -> Result<SearchResponse, RpcError> {
+    pub async fn try_search(
+        &self,
+        user: Option<&TestUser>,
+        request: &SearchRequest,
+    ) -> Result<SearchResponse, RpcError> {
         self.call(SEARCH, "Search", user, request).await
     }
 
@@ -312,7 +320,8 @@ impl Ctx {
     /// Searches every kind for `query` among one owner's documents: how tests
     /// with everyday words (渋谷) keep other tests' documents out.
     pub async fn find_owned(&self, user: Option<&TestUser>, owner: Uuid, query: &str) -> SearchResponse {
-        self.search(user, &SearchRequest { query: query.to_owned(), owner_id: owner.to_string(), ..Default::default() }).await
+        self.search(user, &SearchRequest { query: query.to_owned(), owner_id: owner.to_string(), ..Default::default() })
+            .await
     }
 
     pub async fn suggest(&self, user: Option<&TestUser>, query: &str) -> SuggestResponse {

@@ -3,11 +3,7 @@ use std::time::Duration;
 
 use tokuly_core::{analytics::AnalyticsEvent, events, prelude::*};
 use tokuly_media::assets;
-use tokuly_proto::{
-    common::SubjectType,
-    engagement::CreateCommentRequest,
-    media::AssetPurpose,
-};
+use tokuly_proto::{common::SubjectType, engagement::CreateCommentRequest, media::AssetPurpose};
 use tokuly_stamp::SendContext;
 
 use super::{
@@ -31,7 +27,8 @@ const DUPLICATE_WINDOW: Duration = Duration::from_secs(60);
 const EDITS_PER_MINUTE: u32 = 30;
 /// Uploads a comment image may come from. There is no purpose of its own
 /// for comment images; both of these are processed as plain pictures.
-const IMAGE_PURPOSES: [AssetPurpose; 2] = [AssetPurpose::ASSET_PURPOSE_NOTE_IMAGE, AssetPurpose::ASSET_PURPOSE_CHAT_IMAGE];
+const IMAGE_PURPOSES: [AssetPurpose; 2] =
+    [AssetPurpose::ASSET_PURPOSE_NOTE_IMAGE, AssetPurpose::ASSET_PURPOSE_CHAT_IMAGE];
 
 /// The domain event payload about a comment.
 pub(crate) fn comment_event(row: &CommentRow) -> CommentEvent {
@@ -95,7 +92,11 @@ impl Engagement {
     }
 
     /// Writes a comment or a reply (`CommentService.CreateComment`).
-    pub(crate) async fn create_comment(&self, user_id: Uuid, request: &CreateCommentRequest) -> AppResult<(CommentRow, Subject)> {
+    pub(crate) async fn create_comment(
+        &self,
+        user_id: Uuid,
+        request: &CreateCommentRequest,
+    ) -> AppResult<(CommentRow, Subject)> {
         let parent_id = parse_opt_id(&request.parent_id)?;
         let stamp_id = parse_opt_id(&request.stamp_id)?;
         let image_asset_id = parse_opt_id(&request.image_asset_id)?;
@@ -108,7 +109,12 @@ impl Engagement {
         );
         let text = text::comment_text(&request.text, stamp_id.is_some() || image_asset_id.is_some())?;
         if let Some(seconds) = request.timestamp_seconds {
-            ensure!((0..=MAX_TIMESTAMP_SECONDS).contains(&seconds), invalid, "TIMESTAMP_INVALID", "the timestamp is out of range");
+            ensure!(
+                (0..=MAX_TIMESTAMP_SECONDS).contains(&seconds),
+                invalid,
+                "TIMESTAMP_INVALID",
+                "the timestamp is out of range"
+            );
         }
 
         // Where it goes: below a comment, or onto a subject.
@@ -122,7 +128,8 @@ impl Engagement {
                     (true, None) => return Err(comment_not_found()),
                 };
                 ensure!(
-                    thread.reads_published_to(user_id) && reply_to.as_ref().is_none_or(|reply| reply.reads_published_to(user_id)),
+                    thread.reads_published_to(user_id)
+                        && reply_to.as_ref().is_none_or(|reply| reply.reads_published_to(user_id)),
                     precondition,
                     "COMMENT_NOT_PUBLISHED",
                     "this comment cannot be replied to while it is not published"
@@ -146,8 +153,20 @@ impl Engagement {
             self.owned_channel(user_id, channel_id).await?;
         }
         let cache = &self.core.cache;
-        cache.rate_limit(&format!("engagement:comment:minute:{user_id}"), self.cfg.comments_per_minute, Duration::from_secs(60)).await?;
-        cache.rate_limit(&format!("engagement:comment:hour:{user_id}"), self.cfg.comments_per_hour, Duration::from_secs(3600)).await?;
+        cache
+            .rate_limit(
+                &format!("engagement:comment:minute:{user_id}"),
+                self.cfg.comments_per_minute,
+                Duration::from_secs(60),
+            )
+            .await?;
+        cache
+            .rate_limit(
+                &format!("engagement:comment:hour:{user_id}"),
+                self.cfg.comments_per_hour,
+                Duration::from_secs(3600),
+            )
+            .await?;
 
         let mentioned = self.mentioned_users(user_id, &text).await?;
         if let Some(stamp_id) = stamp_id {
@@ -290,10 +309,18 @@ impl Engagement {
     }
 
     /// Changes the text of the caller's own comment (`CommentService.UpdateComment`).
-    pub(crate) async fn update_comment(&self, user_id: Uuid, comment_id: &str, new_text: &str) -> AppResult<(CommentRow, Subject)> {
+    pub(crate) async fn update_comment(
+        &self,
+        user_id: Uuid,
+        comment_id: &str,
+        new_text: &str,
+    ) -> AppResult<(CommentRow, Subject)> {
         let found = self.require_comment(comment_id, Some(user_id)).await?;
         ensure!(found.row.author_id == user_id, denied, "NOT_COMMENT_AUTHOR", "only the author can edit a comment");
-        self.core.cache.rate_limit(&format!("engagement:comment:edit:{user_id}"), EDITS_PER_MINUTE, Duration::from_secs(60)).await?;
+        self.core
+            .cache
+            .rate_limit(&format!("engagement:comment:edit:{user_id}"), EDITS_PER_MINUTE, Duration::from_secs(60))
+            .await?;
         let has_attachment = found.row.stamp_id.is_some() || found.row.image_asset_id.is_some();
         let text = text::comment_text(new_text, has_attachment)?;
         if text == found.row.text {
@@ -321,11 +348,12 @@ impl Engagement {
         let mut tx = self.core.db.begin().await?;
         let mut effects = Effects::default();
         let (mut row, mut parent) = lock_thread(&mut tx, found.row.id).await?.ok_or_else(comment_not_found)?;
-        let edited_at: Time = sqlx::query_scalar("UPDATE comments SET text = $2, edited_at = now() WHERE id = $1 RETURNING edited_at")
-            .bind(row.id)
-            .bind(&text)
-            .fetch_one(&mut *tx)
-            .await?;
+        let edited_at: Time =
+            sqlx::query_scalar("UPDATE comments SET text = $2, edited_at = now() WHERE id = $1 RETURNING edited_at")
+                .bind(row.id)
+                .bind(&text)
+                .fetch_one(&mut *tx)
+                .await?;
         row.text = text;
         row.edited_at = Some(edited_at);
         sqlx::query("DELETE FROM comment_mentions WHERE comment_id = $1").bind(row.id).execute(&mut *tx).await?;
@@ -333,7 +361,8 @@ impl Engagement {
         if row.is_published() && !verdict.is_published() {
             // The new text trips one of the owner's rules. The other way
             // round never happens: an edit does not publish a comment.
-            lifecycle::set_status(&mut tx, &mut effects, &mut row, parent.as_mut(), verdict.status, verdict.reason).await?;
+            lifecycle::set_status(&mut tx, &mut effects, &mut row, parent.as_mut(), verdict.status, verdict.reason)
+                .await?;
             if row.is_held() {
                 self.announce_held(&mut tx, &row, &found.subject).await?;
             }
@@ -378,10 +407,12 @@ async fn save_mentions(conn: &mut sqlx::PgConnection, comment_id: Uuid, user_ids
     if user_ids.is_empty() {
         return Ok(());
     }
-    sqlx::query("INSERT INTO comment_mentions (comment_id, user_id) SELECT $1, unnest($2::uuid[]) ON CONFLICT DO NOTHING")
-        .bind(comment_id)
-        .bind(user_ids)
-        .execute(conn)
-        .await?;
+    sqlx::query(
+        "INSERT INTO comment_mentions (comment_id, user_id) SELECT $1, unnest($2::uuid[]) ON CONFLICT DO NOTHING",
+    )
+    .bind(comment_id)
+    .bind(user_ids)
+    .execute(conn)
+    .await?;
     Ok(())
 }

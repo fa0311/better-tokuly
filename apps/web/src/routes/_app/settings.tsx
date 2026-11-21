@@ -1,7 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { SettingsLayout } from "#/features/settings/shell/settings-layout";
 
-export const Route = createFileRoute("/_app/settings")({ component: Page });
-
-function Page() {
-  return <div className="p-6 text-xl font-black">settings</div>;
-}
+// Layout of the settings: its pages are the `settings.*.tsx` routes.
+export const Route = createFileRoute("/_app/settings")({ component: SettingsLayout });

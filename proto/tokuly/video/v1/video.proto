@@ -47,7 +47,7 @@ service ChannelService {
   // Errors: CHANNEL_LIMIT_REACHED, HANDLE_INVALID, HANDLE_RESERVED,
   // HANDLE_TAKEN, CHANNEL_NAME_INVALID, CHANNEL_DESCRIPTION_TOO_LONG,
   // CHANNEL_LINKS_INVALID, ASSET_NOT_FOUND, ASSET_WRONG_PURPOSE, ASSET_NOT_READY,
-  // ASSET_NOT_IMAGE, RATE_LIMITED.
+  // ASSET_NOT_IMAGE, INVALID_ID, RATE_LIMITED.
   rpc CreateChannel(CreateChannelRequest) returns (CreateChannelResponse);
   // Changes a channel of the caller. Unset fields stay as they are.
   // Errors: CHANNEL_NOT_FOUND, plus the validation errors of CreateChannel,
@@ -73,11 +73,11 @@ service ChannelService {
   // Errors: CHANNEL_NOT_FOUND.
   rpc GetChannelPage(GetChannelPageRequest) returns (GetChannelPageResponse);
   // Videos of a channel that the caller may see listed. Public.
-  // Errors: CHANNEL_NOT_FOUND.
+  // Errors: CHANNEL_NOT_FOUND, SORT_INVALID, ORIGIN_INVALID.
   rpc ListChannelVideos(ListChannelVideosRequest) returns (ListChannelVideosResponse);
   // Subscribes the caller to a channel, or changes the notification level of
   // an existing subscription. Errors: CHANNEL_NOT_FOUND,
-  // CANNOT_SUBSCRIBE_TO_OWN_CHANNEL, RATE_LIMITED.
+  // CANNOT_SUBSCRIBE_TO_OWN_CHANNEL, NOTIFICATION_LEVEL_INVALID, RATE_LIMITED.
   rpc Subscribe(SubscribeRequest) returns (SubscribeResponse);
   // Ends the caller's subscription. Not being subscribed is not an error.
   // Errors: CHANNEL_NOT_FOUND.
@@ -347,12 +347,14 @@ service VideoService {
   // Creates a draft video on one of the caller's channels from an upload,
   // which may still be processing. Errors: CHANNEL_REQUIRED (the caller has
   // no channel), CHANNEL_NOT_FOUND, ASSET_NOT_FOUND, ASSET_WRONG_PURPOSE,
-  // ASSET_FAILED, ASSET_ALREADY_USED, plus the validation errors of
-  // UpdateVideo, RATE_LIMITED.
+  // ASSET_FAILED, ASSET_NOT_READY (the upload itself is unfinished),
+  // ASSET_ALREADY_USED, plus the validation errors of UpdateVideo,
+  // RATE_LIMITED.
   rpc CreateVideo(CreateVideoRequest) returns (CreateVideoResponse);
   // Changes a video of the caller. Unset fields stay as they are.
   // Errors: VIDEO_NOT_FOUND, TITLE_INVALID, DESCRIPTION_TOO_LONG,
-  // TAGS_INVALID, GAME_INVALID, CHAPTERS_INVALID, VISIBILITY_INVALID,
+  // TAGS_INVALID, GAME_INVALID, CATEGORY_INVALID, CHAPTERS_INVALID,
+  // VISIBILITY_INVALID,
   // ASSET_NOT_FOUND, ASSET_WRONG_PURPOSE, ASSET_NOT_READY, ASSET_NOT_IMAGE.
   rpc UpdateVideo(UpdateVideoRequest) returns (UpdateVideoResponse);
   // Publishes a video now or at `publish_at`. A video still processing is
@@ -374,12 +376,14 @@ service VideoService {
   // caller may not watch are left out. Public. Errors: TOO_MANY_IDS.
   rpc BatchGetVideos(BatchGetVideosRequest) returns (BatchGetVideosResponse);
   // Every video on the caller's channels, in any state, newest first.
-  // Errors: CHANNEL_NOT_FOUND.
+  // Errors: CHANNEL_NOT_FOUND, STATUS_INVALID.
   rpc ListStudioVideos(ListStudioVideosRequest) returns (ListStudioVideosResponse);
   // Likes or dislikes a video, or takes the rating back. Liked videos appear
-  // in the caller's `LL` playlist. Errors: VIDEO_NOT_FOUND, RATE_LIMITED.
+  // in the caller's `LL` playlist. Errors: VIDEO_NOT_FOUND, RATING_INVALID,
+  // RATE_LIMITED.
   rpc RateVideo(RateVideoRequest) returns (RateVideoResponse);
   // Game titles that start with or resemble `query`, most used first. Public.
+  // Errors: QUERY_TOO_LONG, RATE_LIMITED.
   rpc SuggestGames(SuggestGamesRequest) returns (SuggestGamesResponse);
   // Adds a subtitle track from a WebVTT or SRT file (SRT is converted).
   // Errors: VIDEO_NOT_FOUND, SUBTITLE_SOURCE_REQUIRED,
@@ -779,15 +783,17 @@ message ListSubtitlesResponse {
 service PlaybackService {
   // Call when playback starts. Opens a session for `ReportPlayback` and
   // returns where to resume. Public (anonymous viewers are counted by
-  // network address). Errors: VIDEO_NOT_FOUND, PLAYBACK_BLOCKED,
-  // RATE_LIMITED.
+  // network address). Errors: VIDEO_NOT_FOUND, PLAYBACK_BLOCKED (not ready,
+  // or age-restricted for this caller), SOURCE_INVALID, RATE_LIMITED.
   rpc StartPlayback(StartPlaybackRequest) returns (StartPlaybackResponse);
   // Call every `report_interval_seconds` while the session lasts and once
   // when playback pauses, seeks or ends. Feeds watch time, the resume
   // position and audience retention; a view is counted once the session
   // accumulated `min_view_seconds` of watching, at most once per viewer and
-  // video within the de-duplication period. Public.
-  // Errors: PLAYBACK_SESSION_NOT_FOUND (expired: start a new one).
+  // video within the de-duplication period. Views of the channel's owner
+  // are never counted. Public.
+  // Errors: PLAYBACK_SESSION_NOT_FOUND (expired, someone else's, or the
+  // video is gone: start a new one), RATE_LIMITED.
   rpc ReportPlayback(ReportPlaybackRequest) returns (ReportPlaybackResponse);
   // The caller's watch history, most recently watched first.
   rpc ListWatchHistory(ListWatchHistoryRequest) returns (ListWatchHistoryResponse);
@@ -919,6 +925,7 @@ service PlaylistService {
   rpc GetPlaylist(GetPlaylistRequest) returns (GetPlaylistResponse);
   // The caller's playlists (built-in ones first), optionally with whether
   // each contains a given video ("save to..." dialog).
+  // Errors: VIDEO_NOT_FOUND (`contains_video_id` names no video).
   rpc ListMyPlaylists(ListMyPlaylistsRequest) returns (ListMyPlaylistsResponse);
   // Public playlists shown on a channel's page. Public.
   // Errors: CHANNEL_NOT_FOUND.
@@ -933,7 +940,8 @@ service PlaylistService {
   // Errors: PLAYLIST_NOT_FOUND, PLAYLIST_READ_ONLY.
   rpc RemovePlaylistItem(RemovePlaylistItemRequest) returns (RemovePlaylistItemResponse);
   // Moves a video to a new place in the list.
-  // Errors: PLAYLIST_NOT_FOUND, PLAYLIST_ITEM_NOT_FOUND, PLAYLIST_READ_ONLY.
+  // Errors: PLAYLIST_NOT_FOUND, PLAYLIST_ITEM_NOT_FOUND, PLAYLIST_READ_ONLY
+  // (built-in lists are ordered by when things were added).
   rpc MovePlaylistItem(MovePlaylistItemRequest) returns (MovePlaylistItemResponse);
 }
 
@@ -1087,11 +1095,14 @@ service VideoFeedService {
   // Recommendations: a mix of the caller's subscriptions, what their friends
   // publish and like, and what is popular — without videos they finished or
   // marked "not interested". Anonymous callers get popular and new videos.
-  // Public.
+  // The ranking is fixed for a visit: following `next_cursor` never repeats
+  // or skips a video; a request without a cursor starts a fresh visit.
+  // Public. Errors: RATE_LIMITED.
   rpc GetHomeFeed(GetHomeFeedRequest) returns (GetHomeFeedResponse);
   // Newest videos of the channels the caller subscribes to.
   rpc GetSubscriptionsFeed(GetSubscriptionsFeedRequest) returns (GetSubscriptionsFeedResponse);
   // Public videos ranked by recent views and likes with time decay. Public.
+  // Errors: CATEGORY_INVALID, INVALID_CURSOR.
   rpc ListTrending(ListTrendingRequest) returns (ListTrendingResponse);
   // Videos to watch next: same channel, shared tags, same game or category.
   // Public. Errors: VIDEO_NOT_FOUND.
@@ -1184,6 +1195,7 @@ message UndoNotInterestedResponse {}
 service WatchPartyService {
   // Starts a party for a video the caller may watch and joins as host.
   // Errors: VIDEO_NOT_FOUND, PLAYBACK_BLOCKED, PLAYLIST_NOT_FOUND,
+  // PLAYBACK_INVALID (the start position is outside the video),
   // PARTY_LIMIT_REACHED (the caller hosts too many parties), RATE_LIMITED.
   rpc CreateParty(CreatePartyRequest) returns (CreatePartyResponse);
   // What an invite link shows before joining. Public; by join code only.
@@ -1195,7 +1207,9 @@ service WatchPartyService {
   // GUEST_NAME_INVALID, PARTY_BANNED (removed by the host), VIDEO_NOT_FOUND
   // or PLAYBACK_BLOCKED (the caller may not watch the video), RATE_LIMITED.
   rpc JoinParty(JoinPartyRequest) returns (JoinPartyResponse);
-  // The party as a member sees it: playback, members, recent chat.
+  // The party as a member sees it: playback, members, recent chat. A party
+  // that ended stays readable (with `ended_at`) for those who were in it
+  // until it is deleted a day later.
   // Errors: PARTY_NOT_FOUND, NOT_A_PARTY_MEMBER.
   rpc GetParty(GetPartyRequest) returns (GetPartyResponse);
   // Keeps the caller's seat (members silent for a minute are dropped) and
@@ -1211,7 +1225,9 @@ service WatchPartyService {
   // PLAYBACK_INVALID (position or rate out of range).
   rpc SetPartyPlayback(SetPartyPlaybackRequest) returns (SetPartyPlaybackResponse);
   // Switches the party to another video (e.g. the next playlist item).
-  // Host and co-hosts only. Errors: as SetPartyPlayback, VIDEO_NOT_FOUND.
+  // Playback restarts paused at the beginning. Host and co-hosts only.
+  // Errors: as SetPartyPlayback, VIDEO_NOT_FOUND, PLAYBACK_BLOCKED,
+  // PLAYLIST_NOT_FOUND.
   rpc SetPartyVideo(SetPartyVideoRequest) returns (SetPartyVideoResponse);
   // Makes a signed-in member a co-host or a plain member again, or hands the
   // party over (role HOST: the caller becomes a co-host). Host only.
@@ -1221,7 +1237,8 @@ service WatchPartyService {
   // Removes a member. A removed account cannot rejoin; a removed guest is
   // refused from the same network address. Host and co-hosts (co-hosts
   // cannot remove the host or other co-hosts).
-  // Errors: PARTY_NOT_FOUND, NOT_PARTY_HOST, PARTY_MEMBER_NOT_FOUND.
+  // Errors: PARTY_NOT_FOUND, NOT_A_PARTY_MEMBER, NOT_PARTY_HOST,
+  // PARTY_MEMBER_NOT_FOUND, CANNOT_REMOVE_SELF.
   rpc RemovePartyMember(RemovePartyMemberRequest) returns (RemovePartyMemberResponse);
   // Changes whether guests may join. Host only.
   // Errors: PARTY_NOT_FOUND, NOT_PARTY_HOST.

@@ -14,11 +14,7 @@ use tokuly_proto::{
 };
 use tokuly_social::graph;
 
-use crate::{
-    Engagement, comments,
-    stats::Counter,
-    subjects::SubjectKey,
-};
+use crate::{Engagement, comments, stats::Counter, subjects::SubjectKey};
 
 /// A realtime event about a comment, as far as it is known inside the
 /// transaction. Events carrying the comment itself are filled in from the
@@ -26,12 +22,27 @@ use crate::{
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Push {
     /// The comment entered public view.
-    Added { key: SubjectKey, comment_id: Uuid },
+    Added {
+        key: SubjectKey,
+        comment_id: Uuid,
+    },
     /// A comment in public view changed.
-    Updated { key: SubjectKey, comment_id: Uuid },
+    Updated {
+        key: SubjectKey,
+        comment_id: Uuid,
+    },
     /// The comment left public view, with `removed_count` comments in all.
-    Removed { key: SubjectKey, comment_id: Uuid, parent_id: Option<Uuid>, removed_count: i32 },
-    Pinned { key: SubjectKey, comment_id: Uuid, pinned: bool },
+    Removed {
+        key: SubjectKey,
+        comment_id: Uuid,
+        parent_id: Option<Uuid>,
+        removed_count: i32,
+    },
+    Pinned {
+        key: SubjectKey,
+        comment_id: Uuid,
+        pinned: bool,
+    },
 }
 
 #[derive(Debug, Default)]
@@ -138,7 +149,10 @@ impl Engagement {
     /// (`Some((_, None))`) when its author has blocks in place: a topic
     /// cannot tell its subscribers apart, so they fetch it and the blocked
     /// ones are refused.
-    async fn public_comment(&self, comment_id: Uuid) -> AppResult<Option<(Option<Uuid>, Option<tokuly_proto::engagement::Comment>)>> {
+    async fn public_comment(
+        &self,
+        comment_id: Uuid,
+    ) -> AppResult<Option<(Option<Uuid>, Option<tokuly_proto::engagement::Comment>)>> {
         let Some(row) = comments::find(&self.core.db, comment_id).await? else { return Ok(None) };
         let parent = match row.parent_id {
             Some(parent_id) => comments::find(&self.core.db, parent_id).await?,
@@ -173,8 +187,10 @@ mod tests {
 
     #[test]
     fn counter_deltas_of_one_subject_add_up() {
-        let (a, b) =
-            (SubjectKey::new(SubjectType::SUBJECT_TYPE_VIDEO, Uuid::now_v7()), SubjectKey::new(SubjectType::SUBJECT_TYPE_NOTE, Uuid::now_v7()));
+        let (a, b) = (
+            SubjectKey::new(SubjectType::SUBJECT_TYPE_VIDEO, Uuid::now_v7()),
+            SubjectKey::new(SubjectType::SUBJECT_TYPE_NOTE, Uuid::now_v7()),
+        );
         let mut effects = Effects::default();
         effects.count(a, Counter::Comment, 3);
         effects.count(a, Counter::Comment, -1);

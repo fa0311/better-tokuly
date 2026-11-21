@@ -5,25 +5,50 @@ use clap::Args;
 pub struct FeedConfig {
     /// Days an activity entry is kept before the retention sweep deletes it.
     /// 0 keeps entries forever.
-    #[arg(id = "feed_activity_retention_days", long = "feed-activity-retention-days", env = "TOKULY_FEED_ACTIVITY_RETENTION_DAYS", default_value_t = 400)]
+    #[arg(
+        id = "feed_activity_retention_days",
+        long = "feed-activity-retention-days",
+        env = "TOKULY_FEED_ACTIVITY_RETENTION_DAYS",
+        default_value_t = 400
+    )]
     pub activity_retention_days: u32,
 
     /// How far back map stories reach, in hours.
-    #[arg(id = "feed_map_story_hours", long = "feed-map-story-hours", env = "TOKULY_FEED_MAP_STORY_HOURS", default_value_t = 48)]
+    #[arg(
+        id = "feed_map_story_hours",
+        long = "feed-map-story-hours",
+        env = "TOKULY_FEED_MAP_STORY_HOURS",
+        default_value_t = 48
+    )]
     pub map_story_hours: u32,
 
     /// Entries of the same kind by the same person that are no further apart
     /// than this many minutes become one card in the friends' and home feeds.
-    #[arg(id = "feed_burst_minutes", long = "feed-burst-minutes", env = "TOKULY_FEED_BURST_MINUTES", default_value_t = 60)]
+    #[arg(
+        id = "feed_burst_minutes",
+        long = "feed-burst-minutes",
+        env = "TOKULY_FEED_BURST_MINUTES",
+        default_value_t = 60
+    )]
     pub burst_minutes: u32,
 
     /// Seconds the recap of a period that is still running stays cached.
     /// Finished periods are cached for six hours.
-    #[arg(id = "feed_recap_cache_seconds", long = "feed-recap-cache-seconds", env = "TOKULY_FEED_RECAP_CACHE_SECONDS", default_value_t = 300)]
+    #[arg(
+        id = "feed_recap_cache_seconds",
+        long = "feed-recap-cache-seconds",
+        env = "TOKULY_FEED_RECAP_CACHE_SECONDS",
+        default_value_t = 300
+    )]
     pub recap_cache_seconds: u64,
 
     /// Entries a user needs in a month to be told that their recap is ready.
-    #[arg(id = "feed_recap_min_activities", long = "feed-recap-min-activities", env = "TOKULY_FEED_RECAP_MIN_ACTIVITIES", default_value_t = 5)]
+    #[arg(
+        id = "feed_recap_min_activities",
+        long = "feed-recap-min-activities",
+        env = "TOKULY_FEED_RECAP_MIN_ACTIVITIES",
+        default_value_t = 5
+    )]
     pub recap_min_activities: u32,
 
     /// RSS/Atom feed URLs, comma separated, that exist as news sources from
@@ -32,11 +57,21 @@ pub struct FeedConfig {
     pub news_feeds: String,
 
     /// Seconds between two fetches of the same news source.
-    #[arg(id = "news_fetch_interval_seconds", long = "news-fetch-interval-seconds", env = "TOKULY_NEWS_FETCH_INTERVAL_SECONDS", default_value_t = 900)]
+    #[arg(
+        id = "news_fetch_interval_seconds",
+        long = "news-fetch-interval-seconds",
+        env = "TOKULY_NEWS_FETCH_INTERVAL_SECONDS",
+        default_value_t = 900
+    )]
     pub news_fetch_interval_seconds: u64,
 
     /// Seconds one fetch may take, redirects included.
-    #[arg(id = "news_fetch_timeout_seconds", long = "news-fetch-timeout-seconds", env = "TOKULY_NEWS_FETCH_TIMEOUT_SECONDS", default_value_t = 15)]
+    #[arg(
+        id = "news_fetch_timeout_seconds",
+        long = "news-fetch-timeout-seconds",
+        env = "TOKULY_NEWS_FETCH_TIMEOUT_SECONDS",
+        default_value_t = 15
+    )]
     pub news_fetch_timeout_seconds: u64,
 
     /// Largest feed document accepted, in bytes (after decompression).
@@ -50,16 +85,31 @@ pub struct FeedConfig {
     pub news_allow_loopback: bool,
 
     /// Days a news article is kept after it was published (and left its feed).
-    #[arg(id = "news_retention_days", long = "news-retention-days", env = "TOKULY_NEWS_RETENTION_DAYS", default_value_t = 30)]
+    #[arg(
+        id = "news_retention_days",
+        long = "news-retention-days",
+        env = "TOKULY_NEWS_RETENTION_DAYS",
+        default_value_t = 30
+    )]
     pub news_retention_days: u32,
 
     /// Share of the recommended news order filled with random recent
     /// articles, in percent (0-100).
-    #[arg(id = "news_random_share_percent", long = "news-random-share-percent", env = "TOKULY_NEWS_RANDOM_SHARE_PERCENT", default_value_t = 20)]
+    #[arg(
+        id = "news_random_share_percent",
+        long = "news-random-share-percent",
+        env = "TOKULY_NEWS_RANDOM_SHARE_PERCENT",
+        default_value_t = 20
+    )]
     pub news_random_share_percent: u32,
 
     /// Days after which a reader's interest in a tag has faded to half.
-    #[arg(id = "news_affinity_half_life_days", long = "news-affinity-half-life-days", env = "TOKULY_NEWS_AFFINITY_HALF_LIFE_DAYS", default_value_t = 30)]
+    #[arg(
+        id = "news_affinity_half_life_days",
+        long = "news-affinity-half-life-days",
+        env = "TOKULY_NEWS_AFFINITY_HALF_LIFE_DAYS",
+        default_value_t = 30
+    )]
     pub news_affinity_half_life_days: u32,
 
     /// Keyword dictionary for tagging articles: `tag=keyword|keyword;tag=...`.
@@ -99,11 +149,17 @@ impl FeedConfig {
             "TOKULY_NEWS_ALLOW_LOOPBACK is for development and tests; it must be off in production"
         );
         anyhow::ensure!(self.map_story_hours > 0, "TOKULY_FEED_MAP_STORY_HOURS must be positive");
-        anyhow::ensure!(self.news_fetch_interval_seconds >= 60, "TOKULY_NEWS_FETCH_INTERVAL_SECONDS must be at least 60");
+        anyhow::ensure!(
+            self.news_fetch_interval_seconds >= 60,
+            "TOKULY_NEWS_FETCH_INTERVAL_SECONDS must be at least 60"
+        );
         anyhow::ensure!(self.news_fetch_timeout_seconds > 0, "TOKULY_NEWS_FETCH_TIMEOUT_SECONDS must be positive");
         anyhow::ensure!(self.news_max_feed_bytes >= 1024, "TOKULY_NEWS_MAX_FEED_BYTES must be at least 1024");
         anyhow::ensure!(self.news_retention_days > 0, "TOKULY_NEWS_RETENTION_DAYS must be positive");
-        anyhow::ensure!(self.news_random_share_percent <= 100, "TOKULY_NEWS_RANDOM_SHARE_PERCENT must be between 0 and 100");
+        anyhow::ensure!(
+            self.news_random_share_percent <= 100,
+            "TOKULY_NEWS_RANDOM_SHARE_PERCENT must be between 0 and 100"
+        );
         anyhow::ensure!(self.news_affinity_half_life_days > 0, "TOKULY_NEWS_AFFINITY_HALF_LIFE_DAYS must be positive");
         Ok(())
     }
@@ -146,7 +202,10 @@ mod tests {
 
     #[test]
     fn seed_urls_are_split_and_trimmed() {
-        let cfg = FeedConfig { news_feeds: " https://a.example/rss , ,https://b.example/atom.xml,".into(), ..Default::default() };
+        let cfg = FeedConfig {
+            news_feeds: " https://a.example/rss , ,https://b.example/atom.xml,".into(),
+            ..Default::default()
+        };
         assert_eq!(cfg.seed_feed_urls(), vec!["https://a.example/rss", "https://b.example/atom.xml"]);
         assert!(FeedConfig::default().seed_feed_urls().is_empty());
     }

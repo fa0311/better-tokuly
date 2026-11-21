@@ -103,14 +103,21 @@ async fn lock_collection(conn: &mut PgConnection, user_id: Uuid, collection_id: 
 }
 
 /// Puts a subject into a collection. Returns whether it was not in it yet.
-async fn put(conn: &mut PgConnection, user_id: Uuid, collection: &CollectionRow, key: SubjectKey, limit: i32) -> AppResult<bool> {
-    let present: bool =
-        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM bookmarks WHERE collection_id = $1 AND subject_type = $2 AND subject_id = $3)")
-            .bind(collection.id)
-            .bind(key.kind)
-            .bind(key.id)
-            .fetch_one(&mut *conn)
-            .await?;
+async fn put(
+    conn: &mut PgConnection,
+    user_id: Uuid,
+    collection: &CollectionRow,
+    key: SubjectKey,
+    limit: i32,
+) -> AppResult<bool> {
+    let present: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM bookmarks WHERE collection_id = $1 AND subject_type = $2 AND subject_id = $3)",
+    )
+    .bind(collection.id)
+    .bind(key.kind)
+    .bind(key.id)
+    .fetch_one(&mut *conn)
+    .await?;
     if present {
         return Ok(false);
     }
@@ -122,7 +129,10 @@ async fn put(conn: &mut PgConnection, user_id: Uuid, collection: &CollectionRow,
         .bind(key.id)
         .execute(&mut *conn)
         .await?;
-    sqlx::query("UPDATE bookmark_collections SET item_count = item_count + 1 WHERE id = $1").bind(collection.id).execute(conn).await?;
+    sqlx::query("UPDATE bookmark_collections SET item_count = item_count + 1 WHERE id = $1")
+        .bind(collection.id)
+        .execute(conn)
+        .await?;
     Ok(true)
 }
 
@@ -161,12 +171,20 @@ async fn take(conn: &mut PgConnection, user_id: Uuid, key: SubjectKey, only: Opt
 
 impl Engagement {
     async fn bookmark_rate_limit(&self, user_id: Uuid) -> AppResult<()> {
-        self.core.cache.rate_limit(&format!("engagement:bookmark:{user_id}"), CHANGES_PER_MINUTE, Duration::from_secs(60)).await
+        self.core
+            .cache
+            .rate_limit(&format!("engagement:bookmark:{user_id}"), CHANGES_PER_MINUTE, Duration::from_secs(60))
+            .await
     }
 
     /// Saves a subject (`BookmarkService.AddBookmark`): into the default
     /// collection, and into `collection_id` when one is named.
-    pub(crate) async fn add_bookmark(&self, user_id: Uuid, subject: &Subject, collection_id: Option<Uuid>) -> AppResult<()> {
+    pub(crate) async fn add_bookmark(
+        &self,
+        user_id: Uuid,
+        subject: &Subject,
+        collection_id: Option<Uuid>,
+    ) -> AppResult<()> {
         self.bookmark_rate_limit(user_id).await?;
         let limit = self.cfg.max_bookmarks;
         let mut tx = self.core.db.begin().await?;
@@ -180,7 +198,8 @@ impl Engagement {
         if put(&mut tx, user_id, &default, subject.key, limit).await? {
             stats::add(&mut tx, subject.key, Some(subject.info.owner_id), Counter::Bookmark, 1).await?;
             effects.count(subject.key, Counter::Bookmark, 1);
-            let event = BookmarkChanged { user_id, subject_type: subject.key.kind, subject_id: subject.key.id, saved: true };
+            let event =
+                BookmarkChanged { user_id, subject_type: subject.key.kind, subject_id: subject.key.id, saved: true };
             events::emit(&mut *tx, BOOKMARK_CHANGED, Some(user_id), &event).await?;
         }
         if let Some(named) = &named {
@@ -194,7 +213,12 @@ impl Engagement {
     /// Removes a saved subject (`BookmarkService.RemoveBookmark`): from one
     /// collection, or — without one, or with the default one — from
     /// everything. Returns whether the subject is still saved.
-    pub(crate) async fn remove_bookmark(&self, user_id: Uuid, subject: &LooseSubject, collection_id: Option<Uuid>) -> AppResult<bool> {
+    pub(crate) async fn remove_bookmark(
+        &self,
+        user_id: Uuid,
+        subject: &LooseSubject,
+        collection_id: Option<Uuid>,
+    ) -> AppResult<bool> {
         self.bookmark_rate_limit(user_id).await?;
         let key = subject.key;
         let mut tx = self.core.db.begin().await?;
@@ -255,16 +279,19 @@ impl Engagement {
         page: &Page,
     ) -> AppResult<(Vec<BookmarkRow>, PageInfo)> {
         let collection: Option<Uuid> = match collection_id {
-            Some(collection_id) => sqlx::query_scalar("SELECT id FROM bookmark_collections WHERE id = $1 AND user_id = $2")
-                .bind(collection_id)
-                .bind(user_id)
-                .fetch_optional(&self.core.db)
-                .await?,
-            None => {
-                let default: Option<Uuid> = sqlx::query_scalar("SELECT id FROM bookmark_collections WHERE user_id = $1 AND is_default")
+            Some(collection_id) => {
+                sqlx::query_scalar("SELECT id FROM bookmark_collections WHERE id = $1 AND user_id = $2")
+                    .bind(collection_id)
                     .bind(user_id)
                     .fetch_optional(&self.core.db)
-                    .await?;
+                    .await?
+            }
+            None => {
+                let default: Option<Uuid> =
+                    sqlx::query_scalar("SELECT id FROM bookmark_collections WHERE user_id = $1 AND is_default")
+                        .bind(user_id)
+                        .fetch_optional(&self.core.db)
+                        .await?;
                 // Nothing saved yet: an empty list, not an error.
                 match default {
                     Some(default) => Some(default),
@@ -294,7 +321,11 @@ impl Engagement {
 
     /// The user's collections — the default one first, then the others by
     /// name — each with whether it holds `subject`.
-    pub(crate) async fn collections(&self, user_id: Uuid, subject: Option<SubjectKey>) -> AppResult<Vec<(CollectionRow, bool)>> {
+    pub(crate) async fn collections(
+        &self,
+        user_id: Uuid,
+        subject: Option<SubjectKey>,
+    ) -> AppResult<Vec<(CollectionRow, bool)>> {
         // Listing is how clients learn the default collection's ID, so it
         // exists from the first look.
         let mut tx = self.core.db.begin().await?;
@@ -306,15 +337,18 @@ impl Engagement {
         .bind(user_id)
         .fetch_all(&self.core.db)
         .await?;
-        let holding: Vec<Uuid> = match subject {
-            Some(key) => sqlx::query_scalar("SELECT collection_id FROM bookmarks WHERE user_id = $1 AND subject_type = $2 AND subject_id = $3")
+        let holding: Vec<Uuid> =
+            match subject {
+                Some(key) => sqlx::query_scalar(
+                    "SELECT collection_id FROM bookmarks WHERE user_id = $1 AND subject_type = $2 AND subject_id = $3",
+                )
                 .bind(user_id)
                 .bind(key.kind)
                 .bind(key.id)
                 .fetch_all(&self.core.db)
                 .await?,
-            None => Vec::new(),
-        };
+                None => Vec::new(),
+            };
         Ok(rows
             .into_iter()
             .map(|row| {
@@ -331,8 +365,10 @@ impl Engagement {
         let mut tx = self.core.db.begin().await?;
         // Locking the default collection serializes the count below.
         default_collection(&mut tx, user_id).await?;
-        let count: i64 =
-            sqlx::query_scalar("SELECT count(*) FROM bookmark_collections WHERE user_id = $1").bind(user_id).fetch_one(&mut *tx).await?;
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM bookmark_collections WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_one(&mut *tx)
+            .await?;
         ensure!(
             count < self.cfg.max_collections,
             precondition,
@@ -350,24 +386,32 @@ impl Engagement {
         .bind(&name_key)
         .fetch_optional(&mut *tx)
         .await?;
-        let created = created.ok_or_else(|| AppError::already_exists("COLLECTION_NAME_TAKEN", "you already have a collection with this name"))?;
+        let created = created.ok_or_else(|| {
+            AppError::already_exists("COLLECTION_NAME_TAKEN", "you already have a collection with this name")
+        })?;
         tx.commit().await?;
         Ok(created)
     }
 
     /// Renames a collection (`BookmarkService.UpdateCollection`).
-    pub(crate) async fn rename_collection(&self, user_id: Uuid, collection_id: Uuid, name: &str) -> AppResult<CollectionRow> {
+    pub(crate) async fn rename_collection(
+        &self,
+        user_id: Uuid,
+        collection_id: Uuid,
+        name: &str,
+    ) -> AppResult<CollectionRow> {
         let mut tx = self.core.db.begin().await?;
         let collection = lock_collection(&mut tx, user_id, collection_id).await?;
         ensure!(!collection.is_default, precondition, "DEFAULT_COLLECTION", "the default collection cannot be renamed");
         let (name, name_key) = text::collection_name(name)?;
-        let taken: bool =
-            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM bookmark_collections WHERE user_id = $1 AND name_key = $2 AND id <> $3)")
-                .bind(user_id)
-                .bind(&name_key)
-                .bind(collection_id)
-                .fetch_one(&mut *tx)
-                .await?;
+        let taken: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM bookmark_collections WHERE user_id = $1 AND name_key = $2 AND id <> $3)",
+        )
+        .bind(user_id)
+        .bind(&name_key)
+        .bind(collection_id)
+        .fetch_one(&mut *tx)
+        .await?;
         ensure!(!taken, already_exists, "COLLECTION_NAME_TAKEN", "you already have a collection with this name");
         let renamed: CollectionRow = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "UPDATE bookmark_collections SET name = $2, name_key = $3 WHERE id = $1 RETURNING {COLLECTION_COLUMNS}"

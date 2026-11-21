@@ -178,7 +178,10 @@ impl Feed {
             return Ok(Vec::new());
         }
         let rows: Vec<ArticleRow> =
-            sqlx::query_as(concat!("SELECT ", article_columns!(), visible_articles!(), " AND n.id = ANY($1)")).bind(ids).fetch_all(&self.core.db).await?;
+            sqlx::query_as(concat!("SELECT ", article_columns!(), visible_articles!(), " AND n.id = ANY($1)"))
+                .bind(ids)
+                .fetch_all(&self.core.db)
+                .await?;
         let mut by_id: HashMap<Uuid, ArticleRow> = rows.into_iter().map(|row| (row.id, row)).collect();
         Ok(ids.iter().filter_map(|id| by_id.remove(id)).collect())
     }
@@ -189,16 +192,19 @@ impl Feed {
         if ids.is_empty() {
             return Ok(ReaderMarks::default());
         }
-        let clicked: Vec<Uuid> = sqlx::query_scalar("SELECT article_id FROM news_clicks WHERE user_id = $1 AND article_id = ANY($2)")
-            .bind(viewer)
-            .bind(ids)
-            .fetch_all(&self.core.db)
-            .await?;
-        let feedback: Vec<(Uuid, i16)> = sqlx::query_as("SELECT article_id, feedback FROM news_feedback WHERE user_id = $1 AND article_id = ANY($2)")
-            .bind(viewer)
-            .bind(ids)
-            .fetch_all(&self.core.db)
-            .await?;
+        let clicked: Vec<Uuid> =
+            sqlx::query_scalar("SELECT article_id FROM news_clicks WHERE user_id = $1 AND article_id = ANY($2)")
+                .bind(viewer)
+                .bind(ids)
+                .fetch_all(&self.core.db)
+                .await?;
+        let feedback: Vec<(Uuid, i16)> = sqlx::query_as(
+            "SELECT article_id, feedback FROM news_feedback WHERE user_id = $1 AND article_id = ANY($2)",
+        )
+        .bind(viewer)
+        .bind(ids)
+        .fetch_all(&self.core.db)
+        .await?;
         Ok(ReaderMarks { clicked: clicked.into_iter().collect(), feedback: feedback.into_iter().collect() })
     }
 }
@@ -214,7 +220,11 @@ pub(crate) struct NewsSubjects {
 impl SubjectResolver for NewsSubjects {
     async fn resolve(&self, id: &str, _viewer: Option<Uuid>) -> AppResult<Option<SubjectInfo>> {
         let Ok(id) = Uuid::parse_str(id) else { return Ok(None) };
-        let row: Option<(String, String)> = sqlx::query_as(concat!("SELECT n.title, n.image_url", visible_articles!(), " AND n.id = $1")).bind(id).fetch_optional(&self.core.db).await?;
+        let row: Option<(String, String)> =
+            sqlx::query_as(concat!("SELECT n.title, n.image_url", visible_articles!(), " AND n.id = $1"))
+                .bind(id)
+                .fetch_optional(&self.core.db)
+                .await?;
         Ok(row.map(|(title, image_url)| SubjectInfo {
             id,
             owner_id: Uuid::nil(),
@@ -267,7 +277,10 @@ mod tests {
         let article = row.to_proto(&marks, true);
         assert_eq!(article.tags, vec!["ゲーム", "tech"]);
         let source = article.source.as_option().unwrap();
-        assert_eq!((source.name.as_str(), source.site_url.as_str(), source.language.as_str()), ("Example News", "https://news.example/", "ja"));
+        assert_eq!(
+            (source.name.as_str(), source.site_url.as_str(), source.language.as_str()),
+            ("Example News", "https://news.example/", "ja")
+        );
         assert!(article.random_pick && article.clicked);
         assert_eq!(article.feedback, NewsFeedback::NEWS_FEEDBACK_LESS);
         assert_eq!(article.path, format!("/news/articles/{}", row.id));

@@ -81,16 +81,15 @@ function BalanceHero() {
 }
 
 interface Shortcut {
-  to: "/wallet/buy" | "/wallet/history" | "/wallet/earnings" | "/wallet/purchases";
+  to: "/wallet/earnings" | "/wallet/purchases";
   labelKey: string;
   hintKey: string;
   icon: LucideIcon;
   tint: string;
 }
 
+/** The places the hero's two buttons do not already lead to. */
 const SHORTCUTS: Shortcut[] = [
-  { to: "/wallet/buy", labelKey: "home.shortcuts.buy", hintKey: "home.shortcuts.buyHint", icon: ShoppingBag, tint: "bg-lime" },
-  { to: "/wallet/history", labelKey: "home.shortcuts.history", hintKey: "home.shortcuts.historyHint", icon: History, tint: "bg-sky" },
   { to: "/wallet/earnings", labelKey: "home.shortcuts.earnings", hintKey: "home.shortcuts.earningsHint", icon: PiggyBank, tint: "bg-pink" },
   { to: "/wallet/purchases", labelKey: "home.shortcuts.purchases", hintKey: "home.shortcuts.purchasesHint", icon: ReceiptText, tint: "bg-sun" },
 ];
@@ -102,13 +101,13 @@ function Shortcuts() {
       <ul className="grid grid-cols-2 gap-3">
         {SHORTCUTS.map((shortcut) => (
           <li key={shortcut.to}>
-            <Link to={shortcut.to} className="pressable sticker flex h-full items-center gap-3 rounded-card bg-surface p-3">
+            <Link to={shortcut.to} className="pressable sticker flex h-full flex-col gap-3 rounded-card bg-surface p-4">
               <span className={cn("grid size-11 shrink-0 place-items-center rounded-2xl border-2 border-ink text-[#17122b]", shortcut.tint)}>
                 <shortcut.icon className="size-5" />
               </span>
               <span className="min-w-0">
-                <span className="block truncate font-black">{t(shortcut.labelKey)}</span>
-                <span className="block truncate text-xs font-bold text-ink-soft">{t(shortcut.hintKey)}</span>
+                <span className="block font-black">{t(shortcut.labelKey)}</span>
+                <span className="block text-xs leading-snug font-bold text-ink-soft">{t(shortcut.hintKey)}</span>
               </span>
             </Link>
           </li>

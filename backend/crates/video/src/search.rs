@@ -79,7 +79,12 @@ pub async fn sync_video(tx: &mut Tx<'_>, was_public: bool, video: &VideoRow, cha
 
 /// Like [`sync_video`], for a playlist. `image_url` is the thumbnail of its
 /// first public video, if the caller has it at hand.
-pub async fn sync_playlist(tx: &mut Tx<'_>, was_public: bool, playlist: &PlaylistRow, image_url: Option<String>) -> AppResult<()> {
+pub async fn sync_playlist(
+    tx: &mut Tx<'_>,
+    was_public: bool,
+    playlist: &PlaylistRow,
+    image_url: Option<String>,
+) -> AppResult<()> {
     if !(playlist.is_public() || was_public) {
         return Ok(());
     }

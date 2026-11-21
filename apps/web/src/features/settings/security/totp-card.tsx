@@ -28,7 +28,6 @@ export function TotpCard({ me }: { me: identity.Me }) {
         </span>
         <div className="min-w-0 flex-1">
           <StateChip tone={me.totpEnabled ? "good" : "off"}>{me.totpEnabled ? t("security.totp.on") : t("security.totp.off")}</StateChip>
-          <p className="mt-1 text-sm text-ink-soft">{me.totpEnabled ? t("security.totp.onHint") : t("security.totp.offHint")}</p>
         </div>
         {me.totpEnabled ? (
           <Button size="sm" variant="secondary" className="shrink-0" onClick={() => setDialog("disable")}>
@@ -40,6 +39,7 @@ export function TotpCard({ me }: { me: identity.Me }) {
           </Button>
         )}
       </div>
+      <p className="mt-3 text-sm leading-relaxed text-ink-soft">{me.totpEnabled ? t("security.totp.onHint") : t("security.totp.offHint")}</p>
       {dialog === "setup" && <TotpSetupDialog onClose={() => setDialog(null)} />}
       {dialog === "disable" && <TotpDisableDialog onClose={() => setDialog(null)} />}
     </Group>

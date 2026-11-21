@@ -23,7 +23,8 @@ fn ids(conversations: &[Conversation]) -> Vec<String> {
 async fn capabilities_describe_the_server() {
     let ctx = start().await;
     let user = ctx.app.user("taro").await;
-    let response: GetCapabilitiesResponse = ctx.call("Conversation", "GetCapabilities", &user, &GetCapabilitiesRequest::default()).await.unwrap();
+    let response: GetCapabilitiesResponse =
+        ctx.call("Conversation", "GetCapabilities", &user, &GetCapabilitiesRequest::default()).await.unwrap();
     let capabilities = response.capabilities.as_option().unwrap();
     assert_eq!(capabilities.max_text_length, 4000);
     assert_eq!(capabilities.max_attachments, 10);
@@ -32,7 +33,10 @@ async fn capabilities_describe_the_server() {
     assert_eq!(capabilities.pov_answer_seconds, 7200);
     assert_eq!(capabilities.pov_reply_seconds, 86400);
     assert!(!capabilities.calls_enabled && !capabilities.assist_enabled, "neither is configured in this test");
-    assert_eq!(ctx.anonymous_reason("Conversation", "GetCapabilities", &GetCapabilitiesRequest::default()).await, "SIGN_IN_REQUIRED");
+    assert_eq!(
+        ctx.anonymous_reason("Conversation", "GetCapabilities", &GetCapabilitiesRequest::default()).await,
+        "SIGN_IN_REQUIRED"
+    );
 }
 
 #[tokio::test]
@@ -67,7 +71,8 @@ async fn strangers_get_in_only_when_the_recipient_allows_it() {
     let ctx = start().await;
     let taro = ctx.app.user("taro").await;
     let hanako = ctx.app.user("hanako").await;
-    let open = |user: &tokuly_testkit::TestUser| OpenDirectRequest { user_id: user.id.to_string(), ..Default::default() };
+    let open =
+        |user: &tokuly_testkit::TestUser| OpenDirectRequest { user_id: user.id.to_string(), ..Default::default() };
 
     // By default only friends may message someone.
     assert_eq!(ctx.reason("Conversation", "OpenDirect", &taro, &open(&hanako)).await, "DM_NOT_ALLOWED");
@@ -107,8 +112,12 @@ async fn a_message_request_waits_until_it_is_accepted() {
 
     // Only plain content, and only a few messages, before the request is accepted.
     let photo = ctx.photo(&stranger).await;
-    let with_photo =
-        SendMessageRequest { conversation_id: conversation.id.clone(), client_id: client_id(), attachment_asset_ids: vec![photo], ..Default::default() };
+    let with_photo = SendMessageRequest {
+        conversation_id: conversation.id.clone(),
+        client_id: client_id(),
+        attachment_asset_ids: vec![photo],
+        ..Default::default()
+    };
     assert_eq!(ctx.send(&stranger, &with_photo).await.unwrap_err().reason, "REQUEST_PENDING");
     ctx.text(&stranger, &conversation.id, "はじめまして！").await;
     ctx.text(&stranger, &conversation.id, "友達の友達です").await;
@@ -129,13 +138,20 @@ async fn a_message_request_waits_until_it_is_accepted() {
     assert!(ctx.events(&mut stranger_events).await.is_empty(), "no read receipt for a request");
 
     ctx.text(&stranger, &conversation.id, "三通目").await;
-    let fourth = SendMessageRequest { conversation_id: conversation.id.clone(), client_id: client_id(), text: "四通目".into(), ..Default::default() };
+    let fourth = SendMessageRequest {
+        conversation_id: conversation.id.clone(),
+        client_id: client_id(),
+        text: "四通目".into(),
+        ..Default::default()
+    };
     assert_eq!(ctx.send(&stranger, &fourth).await.unwrap_err().reason, "REQUEST_PENDING");
 
     // Accepting moves it to the inbox and lifts the sender's allowance.
     let mut stranger_events = ctx.listen(&stranger).await;
-    let respond = RespondToRequestRequest { conversation_id: conversation.id.clone(), accept: true, ..Default::default() };
-    let accepted: RespondToRequestResponse = ctx.call("Conversation", "RespondToRequest", &hanako, &respond).await.unwrap();
+    let respond =
+        RespondToRequestRequest { conversation_id: conversation.id.clone(), accept: true, ..Default::default() };
+    let accepted: RespondToRequestResponse =
+        ctx.call("Conversation", "RespondToRequest", &hanako, &respond).await.unwrap();
     assert_eq!(accepted.conversation.viewer.request_state, RequestState::REQUEST_STATE_ACCEPTED);
     let updates: Vec<i32> = ctx
         .events(&mut stranger_events)
@@ -147,7 +163,10 @@ async fn a_message_request_waits_until_it_is_accepted() {
         })
         .collect();
     assert_eq!(updates, vec![-1], "the sender learns that the request was accepted");
-    assert_eq!(ids(&ctx.list(&hanako, ConversationFilter::CONVERSATION_FILTER_INBOX).await.conversations), vec![conversation.id.clone()]);
+    assert_eq!(
+        ids(&ctx.list(&hanako, ConversationFilter::CONVERSATION_FILTER_INBOX).await.conversations),
+        vec![conversation.id.clone()]
+    );
     ctx.send(&stranger, &fourth).await.expect("no allowance after acceptance");
     assert_eq!(ctx.reason("Conversation", "RespondToRequest", &hanako, &respond).await, "NO_PENDING_REQUEST");
     assert_eq!(ctx.reason("Conversation", "RespondToRequest", &stranger, &respond).await, "NO_PENDING_REQUEST");
@@ -166,8 +185,10 @@ async fn declining_a_request_is_silent_and_answering_one_accepts_it() {
     ctx.text(&pest, &conversation.id, "ねえねえ").await;
     let mut hanako_events = ctx.listen(&hanako).await;
     let mut pest_events = ctx.listen(&pest).await;
-    let decline = RespondToRequestRequest { conversation_id: conversation.id.clone(), accept: false, ..Default::default() };
-    let declined: RespondToRequestResponse = ctx.call("Conversation", "RespondToRequest", &hanako, &decline).await.unwrap();
+    let decline =
+        RespondToRequestRequest { conversation_id: conversation.id.clone(), accept: false, ..Default::default() };
+    let declined: RespondToRequestResponse =
+        ctx.call("Conversation", "RespondToRequest", &hanako, &decline).await.unwrap();
     assert!(declined.conversation.is_unset());
     let removed: Vec<_> = ctx.events(&mut hanako_events).await;
     assert!(
@@ -183,7 +204,12 @@ async fn declining_a_request_is_silent_and_answering_one_accepts_it() {
     assert_eq!(ctx.unread(&hanako).await.pending_requests, 0);
     assert_eq!(ctx.notification_kinds(&hanako).await, vec!["chat.request"], "only the very first message notified");
     ctx.text(&pest, &conversation.id, "三通目").await;
-    let more = SendMessageRequest { conversation_id: conversation.id.clone(), client_id: client_id(), text: "四通目".into(), ..Default::default() };
+    let more = SendMessageRequest {
+        conversation_id: conversation.id.clone(),
+        client_id: client_id(),
+        text: "四通目".into(),
+        ..Default::default()
+    };
     assert_eq!(ctx.send(&pest, &more).await.unwrap_err().reason, "REQUEST_PENDING");
 
     // Answered: replying to a request accepts it.
@@ -191,7 +217,10 @@ async fn declining_a_request_is_silent_and_answering_one_accepts_it() {
     let conversation = ctx.direct(&nice, &hanako).await;
     ctx.text(&nice, &conversation.id, "こんにちは").await;
     ctx.text(&hanako, &conversation.id, "こんにちは！").await;
-    assert_eq!(ctx.conversation(&hanako, &conversation.id).await.conversation.viewer.request_state, RequestState::REQUEST_STATE_ACCEPTED);
+    assert_eq!(
+        ctx.conversation(&hanako, &conversation.id).await.conversation.viewer.request_state,
+        RequestState::REQUEST_STATE_ACCEPTED
+    );
     assert_eq!(ctx.conversation(&nice, &conversation.id).await.conversation.viewer.request_messages_left, -1);
 }
 
@@ -219,7 +248,10 @@ async fn groups_are_created_with_friends() {
     assert_eq!(group.icon.asset_id, avatar);
     assert_eq!(group.viewer.role, MemberRole::MEMBER_ROLE_OWNER);
     assert_eq!(group.members[0].id, owner.id.to_string(), "the avatar collage starts with the longest standing member");
-    assert!(tokuly_media::assets::is_attached(&ctx.app.core, avatar.parse().unwrap()).await.unwrap(), "the icon upload is held");
+    assert!(
+        tokuly_media::assets::is_attached(&ctx.app.core, avatar.parse().unwrap()).await.unwrap(),
+        "the icon upload is held"
+    );
 
     // The story starts with a system message, which everyone receives.
     let system = group.last_message.system.as_option().expect("a system message");
@@ -256,17 +288,29 @@ async fn group_creation_is_validated() {
     };
 
     assert_eq!(ctx.reason("Conversation", "CreateGroup", &owner, &group("  ", &[&friend])).await, "GROUP_NAME_INVALID");
-    assert_eq!(ctx.reason("Conversation", "CreateGroup", &owner, &group(&"あ".repeat(51), &[&friend])).await, "GROUP_NAME_INVALID");
+    assert_eq!(
+        ctx.reason("Conversation", "CreateGroup", &owner, &group(&"あ".repeat(51), &[&friend])).await,
+        "GROUP_NAME_INVALID"
+    );
     assert_eq!(ctx.reason("Conversation", "CreateGroup", &owner, &group("ひとり", &[])).await, "NO_MEMBERS");
     assert_eq!(ctx.reason("Conversation", "CreateGroup", &owner, &group("ひとり", &[&owner])).await, "NO_MEMBERS");
-    assert_eq!(ctx.reason("Conversation", "CreateGroup", &owner, &group("知らない人", &[&friend, &stranger])).await, "NOT_FRIENDS");
-    assert_eq!(ctx.anonymous_reason("Conversation", "CreateGroup", &group("だれ", &[&friend])).await, "SIGN_IN_REQUIRED");
+    assert_eq!(
+        ctx.reason("Conversation", "CreateGroup", &owner, &group("知らない人", &[&friend, &stranger])).await,
+        "NOT_FRIENDS"
+    );
+    assert_eq!(
+        ctx.anonymous_reason("Conversation", "CreateGroup", &group("だれ", &[&friend])).await,
+        "SIGN_IN_REQUIRED"
+    );
 
     // Three members at most in this test: the creator and two others.
     let (second, third) = (ctx.app.user("second").await, ctx.app.user("third").await);
     ctx.befriend(&owner, &second).await;
     ctx.befriend(&owner, &third).await;
-    assert_eq!(ctx.reason("Conversation", "CreateGroup", &owner, &group("多すぎ", &[&friend, &second, &third])).await, "TOO_MANY_MEMBERS");
+    assert_eq!(
+        ctx.reason("Conversation", "CreateGroup", &owner, &group("多すぎ", &[&friend, &second, &third])).await,
+        "TOO_MANY_MEMBERS"
+    );
 
     // The icon must be an avatar upload of the caller.
     let chat_photo = ctx.photo(&owner).await;
@@ -279,7 +323,11 @@ async fn group_creation_is_validated() {
     let created = ctx.group(&owner, "ちょうど", &[&friend, &second]).await;
     assert_eq!(created.member_count, 3);
     // Full: nobody else fits.
-    let add = AddMembersRequest { conversation_id: created.id.clone(), user_ids: vec![third.id.to_string()], ..Default::default() };
+    let add = AddMembersRequest {
+        conversation_id: created.id.clone(),
+        user_ids: vec![third.id.to_string()],
+        ..Default::default()
+    };
     assert_eq!(ctx.reason("Conversation", "AddMembers", &owner, &add).await, "TOO_MANY_MEMBERS");
 }
 
@@ -291,24 +339,40 @@ async fn conversations_exist_only_for_their_members() {
     let conversation = ctx.direct(&taro, &hanako).await;
     let id = conversation.id.clone();
 
-    assert_eq!(ctx.reason("Conversation", "GetConversation", &outsider, &conversation_request(&id)).await, "CONVERSATION_NOT_FOUND");
+    assert_eq!(
+        ctx.reason("Conversation", "GetConversation", &outsider, &conversation_request(&id)).await,
+        "CONVERSATION_NOT_FOUND"
+    );
     assert_eq!(
         ctx.reason("Conversation", "GetConversation", &taro, &conversation_request(&Uuid::now_v7().to_string())).await,
         "CONVERSATION_NOT_FOUND"
     );
-    assert_eq!(ctx.anonymous_reason("Conversation", "GetConversation", &conversation_request(&id)).await, "SIGN_IN_REQUIRED");
+    assert_eq!(
+        ctx.anonymous_reason("Conversation", "GetConversation", &conversation_request(&id)).await,
+        "SIGN_IN_REQUIRED"
+    );
     let members = ListMembersRequest { conversation_id: id.clone(), ..Default::default() };
     assert_eq!(ctx.reason("Conversation", "ListMembers", &outsider, &members).await, "CONVERSATION_NOT_FOUND");
     let read = MarkReadRequest { conversation_id: id.clone(), ..Default::default() };
     assert_eq!(ctx.reason("Conversation", "MarkRead", &outsider, &read).await, "CONVERSATION_NOT_FOUND");
-    let preferences = UpdatePreferencesRequest { conversation_id: id.clone(), pinned: Some(true), ..Default::default() };
-    assert_eq!(ctx.reason("Conversation", "UpdatePreferences", &outsider, &preferences).await, "CONVERSATION_NOT_FOUND");
+    let preferences =
+        UpdatePreferencesRequest { conversation_id: id.clone(), pinned: Some(true), ..Default::default() };
+    assert_eq!(
+        ctx.reason("Conversation", "UpdatePreferences", &outsider, &preferences).await,
+        "CONVERSATION_NOT_FOUND"
+    );
     let hide = HideConversationRequest { conversation_id: id.clone(), ..Default::default() };
     assert_eq!(ctx.reason("Conversation", "HideConversation", &outsider, &hide).await, "CONVERSATION_NOT_FOUND");
     let respond = RespondToRequestRequest { conversation_id: id.clone(), accept: true, ..Default::default() };
     assert_eq!(ctx.reason("Conversation", "RespondToRequest", &outsider, &respond).await, "CONVERSATION_NOT_FOUND");
-    assert_eq!(ctx.anonymous_reason("Conversation", "ListConversations", &ListConversationsRequest::default()).await, "SIGN_IN_REQUIRED");
-    assert_eq!(ctx.anonymous_reason("Conversation", "GetUnreadCounts", &GetUnreadCountsRequest::default()).await, "SIGN_IN_REQUIRED");
+    assert_eq!(
+        ctx.anonymous_reason("Conversation", "ListConversations", &ListConversationsRequest::default()).await,
+        "SIGN_IN_REQUIRED"
+    );
+    assert_eq!(
+        ctx.anonymous_reason("Conversation", "GetUnreadCounts", &GetUnreadCountsRequest::default()).await,
+        "SIGN_IN_REQUIRED"
+    );
     assert!(ctx.list(&outsider, ConversationFilter::CONVERSATION_FILTER_UNSPECIFIED).await.conversations.is_empty());
 }
 
@@ -348,28 +412,60 @@ async fn the_list_shows_pinned_conversations_first_then_the_latest() {
     assert_eq!(inbox.unread.badge, 2);
 
     // Pinned conversations lead, whatever happens later.
-    let pin = UpdatePreferencesRequest { conversation_id: conversations[1].0.clone(), pinned: Some(true), ..Default::default() };
+    let pin = UpdatePreferencesRequest {
+        conversation_id: conversations[1].0.clone(),
+        pinned: Some(true),
+        ..Default::default()
+    };
     let pinned: UpdatePreferencesResponse = ctx.call("Conversation", "UpdatePreferences", &me, &pin).await.unwrap();
     assert!(pinned.conversation.viewer.pinned);
     ctx.text(&conversations[2].1, &conversations[2].0, "もう一通").await;
     let inbox = ctx.list(&me, ConversationFilter::CONVERSATION_FILTER_INBOX).await;
-    assert_eq!(ids(&inbox.conversations), vec![conversations[1].0.clone(), conversations[2].0.clone(), conversations[0].0.clone()]);
+    assert_eq!(
+        ids(&inbox.conversations),
+        vec![conversations[1].0.clone(), conversations[2].0.clone(), conversations[0].0.clone()]
+    );
 
     // Pages follow the same order.
     let first_page: ListConversationsResponse = ctx
-        .call("Conversation", "ListConversations", &me, &ListConversationsRequest { page: tokuly_proto::common::PageRequest { limit: 2, ..Default::default() }.into(), ..Default::default() })
+        .call(
+            "Conversation",
+            "ListConversations",
+            &me,
+            &ListConversationsRequest {
+                page: tokuly_proto::common::PageRequest { limit: 2, ..Default::default() }.into(),
+                ..Default::default()
+            },
+        )
         .await
         .unwrap();
     assert_eq!(ids(&first_page.conversations), vec![conversations[1].0.clone(), conversations[2].0.clone()]);
     assert!(first_page.page.has_more);
-    let next = tokuly_proto::common::PageRequest { limit: 2, cursor: first_page.page.next_cursor.clone(), ..Default::default() };
-    let second_page: ListConversationsResponse =
-        ctx.call("Conversation", "ListConversations", &me, &ListConversationsRequest { page: next.into(), ..Default::default() }).await.unwrap();
+    let next = tokuly_proto::common::PageRequest {
+        limit: 2,
+        cursor: first_page.page.next_cursor.clone(),
+        ..Default::default()
+    };
+    let second_page: ListConversationsResponse = ctx
+        .call(
+            "Conversation",
+            "ListConversations",
+            &me,
+            &ListConversationsRequest { page: next.into(), ..Default::default() },
+        )
+        .await
+        .unwrap();
     assert_eq!(ids(&second_page.conversations), vec![conversations[0].0.clone()]);
     assert!(!second_page.page.has_more);
     let bad_cursor = tokuly_proto::common::PageRequest { cursor: "???".into(), ..Default::default() };
     assert_eq!(
-        ctx.reason("Conversation", "ListConversations", &me, &ListConversationsRequest { page: bad_cursor.into(), ..Default::default() }).await,
+        ctx.reason(
+            "Conversation",
+            "ListConversations",
+            &me,
+            &ListConversationsRequest { page: bad_cursor.into(), ..Default::default() }
+        )
+        .await,
         "INVALID_CURSOR"
     );
 }
@@ -379,7 +475,11 @@ async fn groups_are_renamed_and_get_icons_by_those_who_manage_them() {
     let ctx = start().await;
     let (group, owner, members) = ctx.group_of("旧名", 2).await;
     let member = &members[0];
-    let rename = |name: &str| UpdateGroupRequest { conversation_id: group.id.clone(), name: Some(name.to_owned()), ..Default::default() };
+    let rename = |name: &str| UpdateGroupRequest {
+        conversation_id: group.id.clone(),
+        name: Some(name.to_owned()),
+        ..Default::default()
+    };
 
     assert_eq!(ctx.reason("Conversation", "UpdateGroup", member, &rename("乗っ取り")).await, "NOT_ALLOWED");
     assert_eq!(ctx.reason("Conversation", "UpdateGroup", &owner, &rename("")).await, "GROUP_NAME_INVALID");
@@ -387,7 +487,8 @@ async fn groups_are_renamed_and_get_icons_by_those_who_manage_them() {
     assert_eq!(ctx.reason("Conversation", "UpdateGroup", &outsider, &rename("x")).await, "CONVERSATION_NOT_FOUND");
 
     let mut member_events = ctx.listen(member).await;
-    let renamed: UpdateGroupResponse = ctx.call("Conversation", "UpdateGroup", &owner, &rename("新しい名前")).await.unwrap();
+    let renamed: UpdateGroupResponse =
+        ctx.call("Conversation", "UpdateGroup", &owner, &rename("新しい名前")).await.unwrap();
     assert_eq!(renamed.conversation.name, "新しい名前");
     let events = ctx.events(&mut member_events).await;
     assert!(events.iter().any(|event| matches!(event, Push::ConversationUpdated(updated) if updated.conversation.name == "新しい名前" && updated.conversation.viewer.is_unset())));
@@ -402,16 +503,29 @@ async fn groups_are_renamed_and_get_icons_by_those_who_manage_them() {
     assert!(ctx.events(&mut member_events).await.is_empty());
 
     // An admin may change the icon; removing it releases the upload.
-    let promote = SetMemberRoleRequest { conversation_id: group.id.clone(), user_id: member.id.to_string(), role: MemberRole::MEMBER_ROLE_ADMIN.into(), ..Default::default() };
+    let promote = SetMemberRoleRequest {
+        conversation_id: group.id.clone(),
+        user_id: member.id.to_string(),
+        role: MemberRole::MEMBER_ROLE_ADMIN.into(),
+        ..Default::default()
+    };
     let _: SetMemberRoleResponse = ctx.call("Conversation", "SetMemberRole", &owner, &promote).await.unwrap();
     let avatar = ctx.upload(member, AssetPurpose::ASSET_PURPOSE_AVATAR, AssetKind::ASSET_KIND_IMAGE).await;
-    let with_icon = UpdateGroupRequest { conversation_id: group.id.clone(), icon_asset_id: Some(avatar.clone()), ..Default::default() };
+    let with_icon = UpdateGroupRequest {
+        conversation_id: group.id.clone(),
+        icon_asset_id: Some(avatar.clone()),
+        ..Default::default()
+    };
     let updated: UpdateGroupResponse = ctx.call("Conversation", "UpdateGroup", member, &with_icon).await.unwrap();
     assert_eq!(updated.conversation.icon.asset_id, avatar);
     assert_eq!(updated.conversation.last_message.system.r#type, SystemEventType::SYSTEM_EVENT_TYPE_ICON_CHANGED);
     let avatar_id: Uuid = avatar.parse().unwrap();
     assert!(tokuly_media::assets::is_attached(&ctx.app.core, avatar_id).await.unwrap());
-    let without_icon = UpdateGroupRequest { conversation_id: group.id.clone(), icon_asset_id: Some(String::new()), ..Default::default() };
+    let without_icon = UpdateGroupRequest {
+        conversation_id: group.id.clone(),
+        icon_asset_id: Some(String::new()),
+        ..Default::default()
+    };
     let updated: UpdateGroupResponse = ctx.call("Conversation", "UpdateGroup", &owner, &without_icon).await.unwrap();
     assert!(updated.conversation.icon.is_unset());
     assert!(!tokuly_media::assets::is_attached(&ctx.app.core, avatar_id).await.unwrap());
@@ -443,7 +557,8 @@ async fn friends_are_added_and_see_the_conversation_from_then_on() {
     ctx.befriend(member, &newcomer).await;
 
     let mut newcomer_events = ctx.listen(&newcomer).await;
-    let added: AddMembersResponse = ctx.call("Conversation", "AddMembers", member, &add(&[&newcomer, &owner])).await.unwrap();
+    let added: AddMembersResponse =
+        ctx.call("Conversation", "AddMembers", member, &add(&[&newcomer, &owner])).await.unwrap();
     assert_eq!(added.conversation.member_count, 3);
     assert_eq!(added.added.len(), 1, "people who are already members are skipped");
     assert_eq!(added.added[0].user.id, newcomer.id.to_string());
@@ -453,7 +568,11 @@ async fn friends_are_added_and_see_the_conversation_from_then_on() {
 
     // The newcomer is told, with their own view of the conversation.
     let events = ctx.events(&mut newcomer_events).await;
-    assert!(events.iter().any(|event| matches!(event, Push::ConversationUpdated(updated) if updated.conversation.viewer.is_set())));
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Push::ConversationUpdated(updated) if updated.conversation.viewer.is_set()))
+    );
     let system = created_messages(&events);
     assert_eq!(system[0].system.r#type, SystemEventType::SYSTEM_EVENT_TYPE_MEMBERS_ADDED);
     assert_eq!(ctx.notification_kinds(&newcomer).await, vec!["chat.group"]);
@@ -481,8 +600,13 @@ async fn members_are_removed_by_those_above_them() {
         role: role.into(),
         ..Default::default()
     };
-    let _: SetMemberRoleResponse = ctx.call("Conversation", "SetMemberRole", &owner, &role(admin, MemberRole::MEMBER_ROLE_ADMIN)).await.unwrap();
-    let remove = |user: &tokuly_testkit::TestUser| RemoveMemberRequest { conversation_id: group.id.clone(), user_id: user.id.to_string(), ..Default::default() };
+    let _: SetMemberRoleResponse =
+        ctx.call("Conversation", "SetMemberRole", &owner, &role(admin, MemberRole::MEMBER_ROLE_ADMIN)).await.unwrap();
+    let remove = |user: &tokuly_testkit::TestUser| RemoveMemberRequest {
+        conversation_id: group.id.clone(),
+        user_id: user.id.to_string(),
+        ..Default::default()
+    };
 
     assert_eq!(ctx.reason("Conversation", "RemoveMember", plain, &remove(other)).await, "NOT_ALLOWED");
     assert_eq!(ctx.reason("Conversation", "RemoveMember", admin, &remove(&owner)).await, "NOT_ALLOWED");
@@ -504,10 +628,17 @@ async fn members_are_removed_by_those_above_them() {
     assert_eq!(story[0].system.r#type, SystemEventType::SYSTEM_EVENT_TYPE_MEMBER_REMOVED);
     assert_eq!(story[0].system.actor.id, admin.id.to_string());
     assert_eq!(story[0].system.targets[0].id, plain.id.to_string());
-    assert_eq!(ctx.reason("Conversation", "GetConversation", plain, &conversation_request(&group.id)).await, "CONVERSATION_NOT_FOUND");
+    assert_eq!(
+        ctx.reason("Conversation", "GetConversation", plain, &conversation_request(&group.id)).await,
+        "CONVERSATION_NOT_FOUND"
+    );
     assert!(ctx.list(plain, ConversationFilter::CONVERSATION_FILTER_INBOX).await.conversations.is_empty());
     let left = ctx.app.events("chat.member.left").await;
-    assert!(left.iter().any(|event| event.data["user_id"] == plain.id.to_string() && event.data["removed_by"] == admin.id.to_string()));
+    assert!(
+        left.iter()
+            .any(|event| event.data["user_id"] == plain.id.to_string()
+                && event.data["removed_by"] == admin.id.to_string())
+    );
 
     // The owner removes an admin.
     let _: RemoveMemberResponse = ctx.call("Conversation", "RemoveMember", &owner, &remove(admin)).await.unwrap();
@@ -526,23 +657,44 @@ async fn roles_change_and_the_group_can_be_handed_over() {
         ..Default::default()
     };
 
-    assert_eq!(ctx.reason("Conversation", "SetMemberRole", first, &role(second, MemberRole::MEMBER_ROLE_ADMIN)).await, "NOT_ALLOWED");
-    assert_eq!(ctx.reason("Conversation", "SetMemberRole", &owner, &role(&owner, MemberRole::MEMBER_ROLE_ADMIN)).await, "CANNOT_CHANGE_OWN_ROLE");
-    assert_eq!(ctx.reason("Conversation", "SetMemberRole", &owner, &role(first, MemberRole::MEMBER_ROLE_UNSPECIFIED)).await, "ROLE_INVALID");
+    assert_eq!(
+        ctx.reason("Conversation", "SetMemberRole", first, &role(second, MemberRole::MEMBER_ROLE_ADMIN)).await,
+        "NOT_ALLOWED"
+    );
+    assert_eq!(
+        ctx.reason("Conversation", "SetMemberRole", &owner, &role(&owner, MemberRole::MEMBER_ROLE_ADMIN)).await,
+        "CANNOT_CHANGE_OWN_ROLE"
+    );
+    assert_eq!(
+        ctx.reason("Conversation", "SetMemberRole", &owner, &role(first, MemberRole::MEMBER_ROLE_UNSPECIFIED)).await,
+        "ROLE_INVALID"
+    );
     let outsider = ctx.app.user("outsider").await;
-    assert_eq!(ctx.reason("Conversation", "SetMemberRole", &owner, &role(&outsider, MemberRole::MEMBER_ROLE_ADMIN)).await, "MEMBER_NOT_FOUND");
+    assert_eq!(
+        ctx.reason("Conversation", "SetMemberRole", &owner, &role(&outsider, MemberRole::MEMBER_ROLE_ADMIN)).await,
+        "MEMBER_NOT_FOUND"
+    );
 
     let mut first_events = ctx.listen(first).await;
-    let promoted: SetMemberRoleResponse = ctx.call("Conversation", "SetMemberRole", &owner, &role(first, MemberRole::MEMBER_ROLE_ADMIN)).await.unwrap();
+    let promoted: SetMemberRoleResponse =
+        ctx.call("Conversation", "SetMemberRole", &owner, &role(first, MemberRole::MEMBER_ROLE_ADMIN)).await.unwrap();
     assert_eq!(promoted.member.role, MemberRole::MEMBER_ROLE_ADMIN);
     let events = ctx.events(&mut first_events).await;
     assert!(events.iter().any(|event| matches!(event, Push::ConversationUpdated(updated) if updated.conversation.viewer.role == MemberRole::MEMBER_ROLE_ADMIN)));
     assert_eq!(created_messages(&events)[0].system.r#type, SystemEventType::SYSTEM_EVENT_TYPE_ADMIN_ADDED);
 
     // Owner first, then admins, then members in the order they joined.
-    let listed: ListMembersResponse =
-        ctx.call("Conversation", "ListMembers", second, &ListMembersRequest { conversation_id: group.id.clone(), ..Default::default() }).await.unwrap();
-    let order: Vec<(String, MemberRole)> = listed.members.iter().map(|member| (member.user.id.clone(), member.role.as_known().unwrap())).collect();
+    let listed: ListMembersResponse = ctx
+        .call(
+            "Conversation",
+            "ListMembers",
+            second,
+            &ListMembersRequest { conversation_id: group.id.clone(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    let order: Vec<(String, MemberRole)> =
+        listed.members.iter().map(|member| (member.user.id.clone(), member.role.as_known().unwrap())).collect();
     assert_eq!(
         order,
         vec![
@@ -551,11 +703,20 @@ async fn roles_change_and_the_group_can_be_handed_over() {
             (second.id.to_string(), MemberRole::MEMBER_ROLE_MEMBER),
         ]
     );
-    let paged = ListMembersRequest { conversation_id: group.id.clone(), page: tokuly_proto::common::PageRequest { limit: 2, ..Default::default() }.into(), ..Default::default() };
+    let paged = ListMembersRequest {
+        conversation_id: group.id.clone(),
+        page: tokuly_proto::common::PageRequest { limit: 2, ..Default::default() }.into(),
+        ..Default::default()
+    };
     let first_page: ListMembersResponse = ctx.call("Conversation", "ListMembers", second, &paged).await.unwrap();
     assert_eq!(first_page.members.len(), 2);
     let rest = ListMembersRequest {
-        page: tokuly_proto::common::PageRequest { limit: 2, cursor: first_page.page.next_cursor.clone(), ..Default::default() }.into(),
+        page: tokuly_proto::common::PageRequest {
+            limit: 2,
+            cursor: first_page.page.next_cursor.clone(),
+            ..Default::default()
+        }
+        .into(),
         ..paged
     };
     let second_page: ListMembersResponse = ctx.call("Conversation", "ListMembers", second, &rest).await.unwrap();
@@ -563,12 +724,20 @@ async fn roles_change_and_the_group_can_be_handed_over() {
     assert_eq!(second_page.members[0].user.id, second.id.to_string());
 
     // Handing the group over makes the old owner an admin.
-    let handed: SetMemberRoleResponse = ctx.call("Conversation", "SetMemberRole", &owner, &role(second, MemberRole::MEMBER_ROLE_OWNER)).await.unwrap();
+    let handed: SetMemberRoleResponse =
+        ctx.call("Conversation", "SetMemberRole", &owner, &role(second, MemberRole::MEMBER_ROLE_OWNER)).await.unwrap();
     assert_eq!(handed.member.role, MemberRole::MEMBER_ROLE_OWNER);
     assert_eq!(ctx.conversation(&owner, &group.id).await.conversation.viewer.role, MemberRole::MEMBER_ROLE_ADMIN);
-    assert_eq!(ctx.conversation(&owner, &group.id).await.conversation.last_message.system.r#type, SystemEventType::SYSTEM_EVENT_TYPE_OWNER_CHANGED);
-    assert_eq!(ctx.reason("Conversation", "SetMemberRole", &owner, &role(first, MemberRole::MEMBER_ROLE_MEMBER)).await, "NOT_ALLOWED");
-    let demoted: SetMemberRoleResponse = ctx.call("Conversation", "SetMemberRole", second, &role(first, MemberRole::MEMBER_ROLE_MEMBER)).await.unwrap();
+    assert_eq!(
+        ctx.conversation(&owner, &group.id).await.conversation.last_message.system.r#type,
+        SystemEventType::SYSTEM_EVENT_TYPE_OWNER_CHANGED
+    );
+    assert_eq!(
+        ctx.reason("Conversation", "SetMemberRole", &owner, &role(first, MemberRole::MEMBER_ROLE_MEMBER)).await,
+        "NOT_ALLOWED"
+    );
+    let demoted: SetMemberRoleResponse =
+        ctx.call("Conversation", "SetMemberRole", second, &role(first, MemberRole::MEMBER_ROLE_MEMBER)).await.unwrap();
     assert_eq!(demoted.member.role, MemberRole::MEMBER_ROLE_MEMBER);
 }
 
@@ -579,7 +748,12 @@ async fn leaving_passes_the_group_on_and_an_empty_group_is_deleted() {
     let (first, second) = (&members[0], &members[1]);
     let leave = LeaveConversationRequest { conversation_id: group.id.clone(), ..Default::default() };
     let photo = ctx.photo(&owner).await;
-    let with_photo = SendMessageRequest { conversation_id: group.id.clone(), client_id: client_id(), attachment_asset_ids: vec![photo.clone()], ..Default::default() };
+    let with_photo = SendMessageRequest {
+        conversation_id: group.id.clone(),
+        client_id: client_id(),
+        attachment_asset_ids: vec![photo.clone()],
+        ..Default::default()
+    };
     ctx.send(&owner, &with_photo).await.unwrap();
 
     // The owner leaves: the longest standing member inherits the group.
@@ -591,8 +765,12 @@ async fn leaving_passes_the_group_on_and_an_empty_group_is_deleted() {
         [Push::ConversationRemoved(event)] if event.reason == ConversationRemovalReason::CONVERSATION_REMOVAL_REASON_LEFT
     ));
     let events = ctx.events(&mut first_events).await;
-    let story: Vec<SystemEventType> = created_messages(&events).iter().map(|message| message.system.r#type.as_known().unwrap()).collect();
-    assert_eq!(story, vec![SystemEventType::SYSTEM_EVENT_TYPE_MEMBER_LEFT, SystemEventType::SYSTEM_EVENT_TYPE_OWNER_CHANGED]);
+    let story: Vec<SystemEventType> =
+        created_messages(&events).iter().map(|message| message.system.r#type.as_known().unwrap()).collect();
+    assert_eq!(
+        story,
+        vec![SystemEventType::SYSTEM_EVENT_TYPE_MEMBER_LEFT, SystemEventType::SYSTEM_EVENT_TYPE_OWNER_CHANGED]
+    );
     let view = ctx.conversation(first, &group.id).await;
     assert_eq!(view.conversation.viewer.role, MemberRole::MEMBER_ROLE_OWNER);
     assert_eq!(view.conversation.member_count, 2);
@@ -602,9 +780,16 @@ async fn leaving_passes_the_group_on_and_an_empty_group_is_deleted() {
     let _: LeaveConversationResponse = ctx.call("Conversation", "LeaveConversation", first, &leave).await.unwrap();
     assert_eq!(ctx.conversation(second, &group.id).await.conversation.viewer.role, MemberRole::MEMBER_ROLE_OWNER);
     let _: LeaveConversationResponse = ctx.call("Conversation", "LeaveConversation", second, &leave).await.unwrap();
-    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM chat_conversations WHERE id = $1::uuid").bind(&group.id).fetch_one(&ctx.app.core.db).await.unwrap();
+    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM chat_conversations WHERE id = $1::uuid")
+        .bind(&group.id)
+        .fetch_one(&ctx.app.core.db)
+        .await
+        .unwrap();
     assert_eq!(rows, 0);
-    assert!(!tokuly_media::assets::is_attached(&ctx.app.core, photo.parse().unwrap()).await.unwrap(), "uploads of deleted messages are released");
+    assert!(
+        !tokuly_media::assets::is_attached(&ctx.app.core, photo.parse().unwrap()).await.unwrap(),
+        "uploads of deleted messages are released"
+    );
 
     // A direct conversation cannot be left, only hidden.
     let (taro, hanako) = ctx.friends("taro", "hanako").await;
@@ -618,22 +803,38 @@ async fn preferences_are_private_to_each_member() {
     let ctx = start().await;
     let (taro, hanako) = ctx.friends("taro", "hanako").await;
     let conversation = ctx.direct(&taro, &hanako).await;
-    let preferences = |change: UpdatePreferencesRequest| UpdatePreferencesRequest { conversation_id: conversation.id.clone(), ..change };
+    let preferences = |change: UpdatePreferencesRequest| UpdatePreferencesRequest {
+        conversation_id: conversation.id.clone(),
+        ..change
+    };
 
     // Mute: unread still counts, but nothing notifies and the badge ignores it.
     let mut taro_events = ctx.listen(&taro).await;
-    let muted: UpdatePreferencesResponse =
-        ctx.call("Conversation", "UpdatePreferences", &taro, &preferences(UpdatePreferencesRequest { muted: Some(true), ..Default::default() })).await.unwrap();
+    let muted: UpdatePreferencesResponse = ctx
+        .call(
+            "Conversation",
+            "UpdatePreferences",
+            &taro,
+            &preferences(UpdatePreferencesRequest { muted: Some(true), ..Default::default() }),
+        )
+        .await
+        .unwrap();
     assert!(muted.conversation.viewer.muted && muted.conversation.viewer.muted_until.is_unset());
     assert!(
-        ctx.events(&mut taro_events).await.iter().any(|event| matches!(event, Push::ConversationUpdated(updated) if updated.conversation.viewer.muted)),
+        ctx.events(&mut taro_events)
+            .await
+            .iter()
+            .any(|event| matches!(event, Push::ConversationUpdated(updated) if updated.conversation.viewer.muted)),
         "the caller's other devices follow"
     );
     ctx.text(&hanako, &conversation.id, "聞こえる？").await;
     assert!(ctx.notifications(&taro).await.is_empty());
     let unread = ctx.unread(&taro).await;
     assert_eq!((unread.badge, unread.unread_conversations), (0, 1));
-    assert!(!ctx.conversation(&hanako, &conversation.id).await.conversation.viewer.muted, "the other side has its own settings");
+    assert!(
+        !ctx.conversation(&hanako, &conversation.id).await.conversation.viewer.muted,
+        "the other side has its own settings"
+    );
 
     // A timed mute must end in the future.
     let past = tokuly_core::time::ts(chrono::Utc::now() - chrono::Duration::minutes(1));
@@ -641,28 +842,57 @@ async fn preferences_are_private_to_each_member() {
     assert_eq!(ctx.reason("Conversation", "UpdatePreferences", &taro, &invalid).await, "MUTE_UNTIL_INVALID");
     let later = tokuly_core::time::ts(chrono::Utc::now() + chrono::Duration::hours(8));
     let timed: UpdatePreferencesResponse = ctx
-        .call("Conversation", "UpdatePreferences", &taro, &preferences(UpdatePreferencesRequest { muted: Some(true), muted_until: later, ..Default::default() }))
+        .call(
+            "Conversation",
+            "UpdatePreferences",
+            &taro,
+            &preferences(UpdatePreferencesRequest { muted: Some(true), muted_until: later, ..Default::default() }),
+        )
         .await
         .unwrap();
     assert!(timed.conversation.viewer.muted && timed.conversation.viewer.muted_until.is_set());
-    let unmuted: UpdatePreferencesResponse =
-        ctx.call("Conversation", "UpdatePreferences", &taro, &preferences(UpdatePreferencesRequest { muted: Some(false), ..Default::default() })).await.unwrap();
+    let unmuted: UpdatePreferencesResponse = ctx
+        .call(
+            "Conversation",
+            "UpdatePreferences",
+            &taro,
+            &preferences(UpdatePreferencesRequest { muted: Some(false), ..Default::default() }),
+        )
+        .await
+        .unwrap();
     assert!(!unmuted.conversation.viewer.muted);
     ctx.text(&hanako, &conversation.id, "今度は？").await;
     assert_eq!(ctx.notification_kinds(&taro).await, vec!["chat.message"]);
     assert_eq!(ctx.unread(&taro).await.badge, 2);
 
     // Archive: out of the inbox, into the archive, with its own unread total.
-    let archived: UpdatePreferencesResponse =
-        ctx.call("Conversation", "UpdatePreferences", &taro, &preferences(UpdatePreferencesRequest { archived: Some(true), ..Default::default() })).await.unwrap();
+    let archived: UpdatePreferencesResponse = ctx
+        .call(
+            "Conversation",
+            "UpdatePreferences",
+            &taro,
+            &preferences(UpdatePreferencesRequest { archived: Some(true), ..Default::default() }),
+        )
+        .await
+        .unwrap();
     assert!(archived.conversation.viewer.archived);
     assert!(ctx.list(&taro, ConversationFilter::CONVERSATION_FILTER_INBOX).await.conversations.is_empty());
-    assert_eq!(ids(&ctx.list(&taro, ConversationFilter::CONVERSATION_FILTER_ARCHIVED).await.conversations), vec![conversation.id.clone()]);
+    assert_eq!(
+        ids(&ctx.list(&taro, ConversationFilter::CONVERSATION_FILTER_ARCHIVED).await.conversations),
+        vec![conversation.id.clone()]
+    );
     let unread = ctx.unread(&taro).await;
     assert_eq!((unread.badge, unread.archived_unread), (0, 2));
     // Pinning brings it back.
-    let pinned: UpdatePreferencesResponse =
-        ctx.call("Conversation", "UpdatePreferences", &taro, &preferences(UpdatePreferencesRequest { pinned: Some(true), ..Default::default() })).await.unwrap();
+    let pinned: UpdatePreferencesResponse = ctx
+        .call(
+            "Conversation",
+            "UpdatePreferences",
+            &taro,
+            &preferences(UpdatePreferencesRequest { pinned: Some(true), ..Default::default() }),
+        )
+        .await
+        .unwrap();
     assert!(pinned.conversation.viewer.pinned && !pinned.conversation.viewer.archived);
 }
 
@@ -675,15 +905,26 @@ async fn at_most_twenty_conversations_can_be_pinned() {
         let other = ctx.app.user(&format!("other{index}")).await;
         conversation_ids.push(ctx.chat.open_direct(me.id, other.id).await.unwrap().to_string());
     }
-    let pin = |conversation_id: &str, pinned: bool| UpdatePreferencesRequest { conversation_id: conversation_id.to_owned(), pinned: Some(pinned), ..Default::default() };
+    let pin = |conversation_id: &str, pinned: bool| UpdatePreferencesRequest {
+        conversation_id: conversation_id.to_owned(),
+        pinned: Some(pinned),
+        ..Default::default()
+    };
     for conversation_id in &conversation_ids[..20] {
-        let _: UpdatePreferencesResponse = ctx.call("Conversation", "UpdatePreferences", &me, &pin(conversation_id, true)).await.unwrap();
+        let _: UpdatePreferencesResponse =
+            ctx.call("Conversation", "UpdatePreferences", &me, &pin(conversation_id, true)).await.unwrap();
     }
-    assert_eq!(ctx.reason("Conversation", "UpdatePreferences", &me, &pin(&conversation_ids[20], true)).await, "TOO_MANY_PINNED");
+    assert_eq!(
+        ctx.reason("Conversation", "UpdatePreferences", &me, &pin(&conversation_ids[20], true)).await,
+        "TOO_MANY_PINNED"
+    );
     // Pinning a pinned one again is fine, and unpinning makes room.
-    let _: UpdatePreferencesResponse = ctx.call("Conversation", "UpdatePreferences", &me, &pin(&conversation_ids[0], true)).await.unwrap();
-    let _: UpdatePreferencesResponse = ctx.call("Conversation", "UpdatePreferences", &me, &pin(&conversation_ids[0], false)).await.unwrap();
-    let _: UpdatePreferencesResponse = ctx.call("Conversation", "UpdatePreferences", &me, &pin(&conversation_ids[20], true)).await.unwrap();
+    let _: UpdatePreferencesResponse =
+        ctx.call("Conversation", "UpdatePreferences", &me, &pin(&conversation_ids[0], true)).await.unwrap();
+    let _: UpdatePreferencesResponse =
+        ctx.call("Conversation", "UpdatePreferences", &me, &pin(&conversation_ids[0], false)).await.unwrap();
+    let _: UpdatePreferencesResponse =
+        ctx.call("Conversation", "UpdatePreferences", &me, &pin(&conversation_ids[20], true)).await.unwrap();
 }
 
 #[tokio::test]
@@ -704,7 +945,10 @@ async fn hiding_takes_a_conversation_out_until_the_next_message() {
     assert!(ctx.events(&mut hanako_events).await.is_empty(), "hiding is nobody else's business");
     assert!(ctx.list(&taro, ConversationFilter::CONVERSATION_FILTER_INBOX).await.conversations.is_empty());
     assert_eq!(ctx.unread(&taro).await.badge, 0);
-    assert_eq!(ids(&ctx.list(&hanako, ConversationFilter::CONVERSATION_FILTER_INBOX).await.conversations), vec![conversation.id.clone()]);
+    assert_eq!(
+        ids(&ctx.list(&hanako, ConversationFilter::CONVERSATION_FILTER_INBOX).await.conversations),
+        vec![conversation.id.clone()]
+    );
 
     // The next message brings it back, history included.
     ctx.text(&hanako, &conversation.id, "新しい話").await;
@@ -714,7 +958,8 @@ async fn hiding_takes_a_conversation_out_until_the_next_message() {
     assert_eq!(ctx.latest(&taro, &conversation.id).await.len(), 2);
 
     // Clearing the history forgets everything so far, for the caller only.
-    let clear = HideConversationRequest { conversation_id: conversation.id.clone(), clear_history: true, ..Default::default() };
+    let clear =
+        HideConversationRequest { conversation_id: conversation.id.clone(), clear_history: true, ..Default::default() };
     let _: HideConversationResponse = ctx.call("Conversation", "HideConversation", &taro, &clear).await.unwrap();
     assert!(ctx.latest(&taro, &conversation.id).await.is_empty());
     let gone = GetMessageRequest { message_id: old.id.clone(), ..Default::default() };
@@ -741,7 +986,11 @@ async fn reading_moves_the_cursor_forward_and_clears_what_was_unread() {
     // Read up to the second message.
     let mut hanako_events = ctx.listen(&hanako).await;
     let mut taro_events = ctx.listen(&taro).await;
-    let up_to = |message: &Message| MarkReadRequest { conversation_id: conversation.id.clone(), message_id: message.id.clone(), ..Default::default() };
+    let up_to = |message: &Message| MarkReadRequest {
+        conversation_id: conversation.id.clone(),
+        message_id: message.id.clone(),
+        ..Default::default()
+    };
     let read: MarkReadResponse = ctx.call("Conversation", "MarkRead", &taro, &up_to(&second)).await.unwrap();
     assert_eq!((read.read_seq, read.unread_count, read.unread.badge), (second.seq, 1, 1));
     for events in [ctx.events(&mut hanako_events).await, ctx.events(&mut taro_events).await] {
@@ -763,8 +1012,15 @@ async fn reading_moves_the_cursor_forward_and_clears_what_was_unread() {
     assert_eq!(cursor.read_seq, third.seq);
     assert!(cursor.read_at.is_set());
     assert_eq!(ctx.message(&hanako, &third.id).await.read_count, 1);
-    let receipts: ListReadReceiptsResponse =
-        ctx.call("Message", "ListReadReceipts", &hanako, &ListReadReceiptsRequest { message_id: third.id.clone(), ..Default::default() }).await.unwrap();
+    let receipts: ListReadReceiptsResponse = ctx
+        .call(
+            "Message",
+            "ListReadReceipts",
+            &hanako,
+            &ListReadReceiptsRequest { message_id: third.id.clone(), ..Default::default() },
+        )
+        .await
+        .unwrap();
     assert_eq!(receipts.receipts.len(), 1);
     assert_eq!(receipts.receipts[0].user.id, taro.id.to_string());
     assert_eq!(receipts.unread_member_count, 0);
@@ -786,10 +1042,21 @@ async fn groups_count_readers() {
     ctx.mark_read(&members[1], &group.id).await;
 
     assert_eq!(ctx.message(&owner, &message.id).await.read_count, 2);
-    let receipts: ListReadReceiptsResponse =
-        ctx.call("Message", "ListReadReceipts", &owner, &ListReadReceiptsRequest { message_id: message.id.clone(), ..Default::default() }).await.unwrap();
+    let receipts: ListReadReceiptsResponse = ctx
+        .call(
+            "Message",
+            "ListReadReceipts",
+            &owner,
+            &ListReadReceiptsRequest { message_id: message.id.clone(), ..Default::default() },
+        )
+        .await
+        .unwrap();
     let readers: Vec<&str> = receipts.receipts.iter().map(|receipt| receipt.user.id.as_str()).collect();
-    assert_eq!(readers, vec![members[1].id.to_string().as_str(), members[0].id.to_string().as_str()], "most recent reader first");
+    assert_eq!(
+        readers,
+        vec![members[1].id.to_string().as_str(), members[0].id.to_string().as_str()],
+        "most recent reader first"
+    );
     assert_eq!(receipts.unread_member_count, 1);
     let outsider = ctx.app.user("outsider").await;
     let request = ListReadReceiptsRequest { message_id: message.id.clone(), ..Default::default() };
@@ -818,7 +1085,10 @@ async fn the_server_can_open_conversations_and_post_in_them() {
 
     // The sender must be a member, and there must be something to say.
     let outsider = ctx.app.user("outsider").await;
-    assert_eq!(ctx.chat.post_text(conversation_id, outsider.id, "hi").await.unwrap_err().reason, "CONVERSATION_NOT_FOUND");
+    assert_eq!(
+        ctx.chat.post_text(conversation_id, outsider.id, "hi").await.unwrap_err().reason,
+        "CONVERSATION_NOT_FOUND"
+    );
     assert_eq!(ctx.chat.post_text(conversation_id, shop.id, "   ").await.unwrap_err().reason, "MESSAGE_EMPTY");
     assert_eq!(ctx.chat.open_direct(shop.id, shop.id).await.unwrap_err().reason, "CANNOT_MESSAGE_SELF");
     assert_eq!(ctx.chat.open_direct(shop.id, Uuid::now_v7()).await.unwrap_err().reason, "USER_NOT_FOUND");
@@ -828,5 +1098,8 @@ async fn the_server_can_open_conversations_and_post_in_them() {
     ctx.open_to_everyone(&customer).await;
     let requested = ctx.direct(&stranger, &customer).await;
     assert_eq!(ctx.chat.open_direct(customer.id, stranger.id).await.unwrap().to_string(), requested.id);
-    assert_eq!(ctx.conversation(&customer, &requested.id).await.conversation.viewer.request_state, RequestState::REQUEST_STATE_ACCEPTED);
+    assert_eq!(
+        ctx.conversation(&customer, &requested.id).await.conversation.viewer.request_state,
+        RequestState::REQUEST_STATE_ACCEPTED
+    );
 }

@@ -6,6 +6,7 @@
 use sqlx::{Postgres, Transaction};
 use tokuly_core::{events, outbound, prelude::*};
 use tokuly_proto::chat as pb;
+use tokuly_social::graph;
 
 use crate::{
     Chat,
@@ -37,7 +38,12 @@ pub(crate) struct Departure {
 
 impl Chat {
     /// Adds friends of `user_id` to a group; returns the members actually added.
-    pub(crate) async fn add_members(&self, user_id: Uuid, conversation_id: Uuid, user_ids: &[Uuid]) -> AppResult<(Access, Vec<pb::Member>)> {
+    pub(crate) async fn add_members(
+        &self,
+        user_id: Uuid,
+        conversation_id: Uuid,
+        user_ids: &[Uuid],
+    ) -> AppResult<(Access, Vec<pb::Member>)> {
         let core = &self.core;
         let access = self.access(user_id, conversation_id).await?;
         ensure_group(&access.conv)?;
@@ -51,20 +57,27 @@ impl Chat {
         ensure!(!wanted.is_empty(), invalid, "NO_MEMBERS", "name at least one user to add");
         core.cache.rate_limit(&format!("chat-add-members:{user_id}"), 60, std::time::Duration::from_secs(3600)).await?;
         let adder = tokuly_identity::summary(core, user_id).await?;
+        let friends = graph::friend_ids(core, user_id).await?;
 
         let mut tx = core.db.begin().await?;
         let mut conv = access::lock_conversation(&mut tx, conversation_id).await?;
         access::member_in_tx(&mut tx, conversation_id, user_id).await?.ok_or_else(conversation_not_found)?;
-        let existing: Vec<Uuid> = sqlx::query_scalar("SELECT user_id FROM chat_members WHERE conversation_id = $1 AND user_id = ANY($2)")
-            .bind(conversation_id)
-            .bind(&wanted)
-            .fetch_all(&mut *tx)
-            .await?;
+        let existing: Vec<Uuid> =
+            sqlx::query_scalar("SELECT user_id FROM chat_members WHERE conversation_id = $1 AND user_id = ANY($2)")
+                .bind(conversation_id)
+                .bind(&wanted)
+                .fetch_all(&mut *tx)
+                .await?;
         let new: Vec<Uuid> = wanted.into_iter().filter(|id| !existing.contains(id)).collect();
         if new.is_empty() {
             return Ok((access, Vec::new()));
         }
-        self.ensure_friends(user_id, &new).await?;
+        ensure!(
+            new.iter().all(|id| friends.contains(id)),
+            precondition,
+            "NOT_FRIENDS",
+            "you can only add your friends to a group"
+        );
         ensure!(
             conv.member_count as usize + new.len() <= self.cfg.max_group_members as usize,
             precondition,
@@ -92,10 +105,17 @@ impl Chat {
             .execute(&mut *tx)
             .await?;
         conv.member_count += new.len() as i32;
-        let payload = SystemPayload::new(pb::SystemEventType::SYSTEM_EVENT_TYPE_MEMBERS_ADDED, Some(user_id)).targets(new.clone());
+        let payload = SystemPayload::new(pb::SystemEventType::SYSTEM_EVENT_TYPE_MEMBERS_ADDED, Some(user_id))
+            .targets(new.clone());
         let posted = self.post(&mut tx, &mut conv, Draft::system(payload)).await?;
         for member in &new {
-            events::emit(&mut *tx, MEMBER_JOINED, Some(user_id), &MemberJoined { conversation_id, user_id: *member, added_by: user_id }).await?;
+            events::emit(
+                &mut *tx,
+                MEMBER_JOINED,
+                Some(user_id),
+                &MemberJoined { conversation_id, user_id: *member, added_by: user_id },
+            )
+            .await?;
             outbound::notify(&mut *tx, &notices::added_to_group(*member, &adder, user_id, &conv)).await?;
         }
         tx.commit().await?;
@@ -123,12 +143,26 @@ impl Chat {
     ) -> AppResult<Departure> {
         let conversation_id = conv.id;
         let user_id = member.user_id;
-        sqlx::query("DELETE FROM chat_members WHERE conversation_id = $1 AND user_id = $2").bind(conversation_id).bind(user_id).execute(&mut **tx).await?;
-        sqlx::query("UPDATE chat_conversations SET member_count = member_count - 1 WHERE id = $1").bind(conversation_id).execute(&mut **tx).await?;
+        sqlx::query("DELETE FROM chat_members WHERE conversation_id = $1 AND user_id = $2")
+            .bind(conversation_id)
+            .bind(user_id)
+            .execute(&mut **tx)
+            .await?;
+        sqlx::query("UPDATE chat_conversations SET member_count = member_count - 1 WHERE id = $1")
+            .bind(conversation_id)
+            .execute(&mut **tx)
+            .await?;
         conv.member_count -= 1;
         let call = self.drop_from_live_call(tx, conv, user_id).await?;
-        events::emit(&mut **tx, MEMBER_LEFT, removed_by.or(Some(user_id)), &MemberLeft { conversation_id, user_id, removed_by }).await?;
-        let mut departure = Departure { conversation_id, user_id, deleted: false, new_owner: None, posted: Vec::new(), call };
+        events::emit(
+            &mut **tx,
+            MEMBER_LEFT,
+            removed_by.or(Some(user_id)),
+            &MemberLeft { conversation_id, user_id, removed_by },
+        )
+        .await?;
+        let mut departure =
+            Departure { conversation_id, user_id, deleted: false, new_owner: None, posted: Vec::new(), call };
 
         if conv.member_count <= 0 {
             delete_conversation(tx, conversation_id).await?;
@@ -136,7 +170,8 @@ impl Chat {
             return Ok(departure);
         }
         let payload = match removed_by {
-            Some(actor) => SystemPayload::new(pb::SystemEventType::SYSTEM_EVENT_TYPE_MEMBER_REMOVED, Some(actor)).targets([user_id]),
+            Some(actor) => SystemPayload::new(pb::SystemEventType::SYSTEM_EVENT_TYPE_MEMBER_REMOVED, Some(actor))
+                .targets([user_id]),
             None => SystemPayload::new(pb::SystemEventType::SYSTEM_EVENT_TYPE_MEMBER_LEFT, Some(user_id)),
         };
         departure.posted.push(self.post(tx, conv, Draft::system(payload)).await?);
@@ -157,7 +192,8 @@ impl Chat {
             .fetch_optional(&mut **tx)
             .await?;
             if let Some(heir) = heir {
-                let payload = SystemPayload::new(pb::SystemEventType::SYSTEM_EVENT_TYPE_OWNER_CHANGED, None).targets([heir]);
+                let payload =
+                    SystemPayload::new(pb::SystemEventType::SYSTEM_EVENT_TYPE_OWNER_CHANGED, None).targets([heir]);
                 departure.posted.push(self.post(tx, conv, Draft::system(payload)).await?);
                 departure.new_owner = Some(heir);
             }
@@ -223,7 +259,13 @@ impl Chat {
 
     /// Changes a member's role (owner only). Making someone the owner hands
     /// the group over: the caller becomes an admin.
-    pub(crate) async fn set_member_role(&self, user_id: Uuid, conversation_id: Uuid, target: Uuid, new_role: pb::MemberRole) -> AppResult<pb::Member> {
+    pub(crate) async fn set_member_role(
+        &self,
+        user_id: Uuid,
+        conversation_id: Uuid,
+        target: Uuid,
+        new_role: pb::MemberRole,
+    ) -> AppResult<pb::Member> {
         let access = self.access(user_id, conversation_id).await?;
         ensure_group(&access.conv)?;
         let new_role = match new_role {
@@ -233,6 +275,8 @@ impl Chat {
             _ => bail!(invalid, "ROLE_INVALID", "the role must be member, admin or owner"),
         };
         ensure!(target != user_id, invalid, "CANNOT_CHANGE_OWN_ROLE", "you cannot change your own role");
+        // Every change adds a line to the conversation.
+        self.core.cache.rate_limit(&format!("chat-role:{user_id}"), 60, std::time::Duration::from_secs(3600)).await?;
 
         let mut tx = self.core.db.begin().await?;
         let mut conv = access::lock_conversation(&mut tx, conversation_id).await?;

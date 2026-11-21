@@ -28,21 +28,50 @@ import { Route as AppStampsRouteImport } from './routes/_app/stamps'
 import { Route as AppWalletRouteImport } from './routes/_app/wallet'
 import { Route as AppWatchRouteImport } from './routes/_app/watch'
 import { Route as AppAdminIndexRouteImport } from './routes/_app/admin.index'
+import { Route as AppAdminAuditRouteImport } from './routes/_app/admin.audit'
+import { Route as AppAdminFlagsRouteImport } from './routes/_app/admin.flags'
 import { Route as AppAdminStampsRouteImport } from './routes/_app/admin.stamps'
 import { Route as AppAdminWalletRouteImport } from './routes/_app/admin.wallet'
+import { Route as AppAnnouncementsIndexRouteImport } from './routes/_app/announcements.index'
+import { Route as AppAnnouncementsAnnouncementIdRouteImport } from './routes/_app/announcements.$announcementId'
+import { Route as AppNotificationsIndexRouteImport } from './routes/_app/notifications.index'
+import { Route as AppNotificationsOpenRouteImport } from './routes/_app/notifications.open'
+import { Route as AppNotificationsSettingsRouteImport } from './routes/_app/notifications.settings'
+import { Route as AppSettingsIndexRouteImport } from './routes/_app/settings.index'
+import { Route as AppSettingsAccountRouteImport } from './routes/_app/settings.account'
+import { Route as AppSettingsAppearanceRouteImport } from './routes/_app/settings.appearance'
+import { Route as AppSettingsDataRouteImport } from './routes/_app/settings.data'
+import { Route as AppSettingsProfileRouteImport } from './routes/_app/settings.profile'
+import { Route as AppStampsIndexRouteImport } from './routes/_app/stamps.index'
+import { Route as AppStampsPackIdRouteImport } from './routes/_app/stamps.$packId'
+import { Route as AppStampsBrowseRouteImport } from './routes/_app/stamps.browse'
+import { Route as AppStampsLibraryRouteImport } from './routes/_app/stamps.library'
 import { Route as AppUHandleRouteImport } from './routes/_app/u.$handle'
 import { Route as AppWalletIndexRouteImport } from './routes/_app/wallet.index'
 import { Route as AppWalletBuyRouteImport } from './routes/_app/wallet.buy'
 import { Route as AppWalletEarningsRouteImport } from './routes/_app/wallet.earnings'
 import { Route as AppWalletHistoryRouteImport } from './routes/_app/wallet.history'
+import { Route as AppAdminAnnouncementsIndexRouteImport } from './routes/_app/admin.announcements.index'
+import { Route as AppAdminAnnouncementsAnnouncementIdRouteImport } from './routes/_app/admin.announcements.$announcementId'
+import { Route as AppAdminAnnouncementsNewRouteImport } from './routes/_app/admin.announcements.new'
 import { Route as AppAdminModerationIndexRouteImport } from './routes/_app/admin.moderation.index'
 import { Route as AppAdminModerationCaseIdRouteImport } from './routes/_app/admin.moderation.$caseId'
 import { Route as AppAdminModerationLogRouteImport } from './routes/_app/admin.moderation.log'
 import { Route as AppAdminUsersIndexRouteImport } from './routes/_app/admin.users.index'
 import { Route as AppAdminUsersUserIdRouteImport } from './routes/_app/admin.users.$userId'
+import { Route as AppSettingsConnectionsIndexRouteImport } from './routes/_app/settings.connections.index'
+import { Route as AppSettingsPrivacyIndexRouteImport } from './routes/_app/settings.privacy.index'
+import { Route as AppSettingsPrivacyBlockedRouteImport } from './routes/_app/settings.privacy.blocked'
+import { Route as AppSettingsSecurityIndexRouteImport } from './routes/_app/settings.security.index'
+import { Route as AppSettingsSecurityDeviceRouteImport } from './routes/_app/settings.security.device'
+import { Route as AppSettingsSecurityLogRouteImport } from './routes/_app/settings.security.log'
+import { Route as AppStampsCreatorUserIdRouteImport } from './routes/_app/stamps.creator.$userId'
+import { Route as AppStampsStudioIndexRouteImport } from './routes/_app/stamps.studio.index'
+import { Route as AppStampsStudioPackIdRouteImport } from './routes/_app/stamps.studio.$packId'
 import { Route as AppWalletPayoutsPayoutIdRouteImport } from './routes/_app/wallet.payouts.$payoutId'
 import { Route as AppWalletPurchasesIndexRouteImport } from './routes/_app/wallet.purchases.index'
 import { Route as AppWalletPurchasesPurchaseIdRouteImport } from './routes/_app/wallet.purchases.$purchaseId'
+import { Route as AppSettingsConnectionsCallbackProviderRouteImport } from './routes/_app/settings.connections.callback.$provider'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -138,6 +167,16 @@ const AppAdminIndexRoute = AppAdminIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppAdminRoute,
 } as any)
+const AppAdminAuditRoute = AppAdminAuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
+  getParentRoute: () => AppAdminRoute,
+} as any)
+const AppAdminFlagsRoute = AppAdminFlagsRouteImport.update({
+  id: '/flags',
+  path: '/flags',
+  getParentRoute: () => AppAdminRoute,
+} as any)
 const AppAdminStampsRoute = AppAdminStampsRouteImport.update({
   id: '/stamps',
   path: '/stamps',
@@ -147,6 +186,78 @@ const AppAdminWalletRoute = AppAdminWalletRouteImport.update({
   id: '/wallet',
   path: '/wallet',
   getParentRoute: () => AppAdminRoute,
+} as any)
+const AppAnnouncementsIndexRoute = AppAnnouncementsIndexRouteImport.update({
+  id: '/announcements/',
+  path: '/announcements/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAnnouncementsAnnouncementIdRoute =
+  AppAnnouncementsAnnouncementIdRouteImport.update({
+    id: '/announcements/$announcementId',
+    path: '/announcements/$announcementId',
+    getParentRoute: () => AppRoute,
+  } as any)
+const AppNotificationsIndexRoute = AppNotificationsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppNotificationsRoute,
+} as any)
+const AppNotificationsOpenRoute = AppNotificationsOpenRouteImport.update({
+  id: '/open',
+  path: '/open',
+  getParentRoute: () => AppNotificationsRoute,
+} as any)
+const AppNotificationsSettingsRoute =
+  AppNotificationsSettingsRouteImport.update({
+    id: '/settings',
+    path: '/settings',
+    getParentRoute: () => AppNotificationsRoute,
+  } as any)
+const AppSettingsIndexRoute = AppSettingsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
+const AppSettingsAccountRoute = AppSettingsAccountRouteImport.update({
+  id: '/account',
+  path: '/account',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
+const AppSettingsAppearanceRoute = AppSettingsAppearanceRouteImport.update({
+  id: '/appearance',
+  path: '/appearance',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
+const AppSettingsDataRoute = AppSettingsDataRouteImport.update({
+  id: '/data',
+  path: '/data',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
+const AppSettingsProfileRoute = AppSettingsProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
+const AppStampsIndexRoute = AppStampsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppStampsRoute,
+} as any)
+const AppStampsPackIdRoute = AppStampsPackIdRouteImport.update({
+  id: '/$packId',
+  path: '/$packId',
+  getParentRoute: () => AppStampsRoute,
+} as any)
+const AppStampsBrowseRoute = AppStampsBrowseRouteImport.update({
+  id: '/browse',
+  path: '/browse',
+  getParentRoute: () => AppStampsRoute,
+} as any)
+const AppStampsLibraryRoute = AppStampsLibraryRouteImport.update({
+  id: '/library',
+  path: '/library',
+  getParentRoute: () => AppStampsRoute,
 } as any)
 const AppUHandleRoute = AppUHandleRouteImport.update({
   id: '/u/$handle',
@@ -173,6 +284,24 @@ const AppWalletHistoryRoute = AppWalletHistoryRouteImport.update({
   path: '/history',
   getParentRoute: () => AppWalletRoute,
 } as any)
+const AppAdminAnnouncementsIndexRoute =
+  AppAdminAnnouncementsIndexRouteImport.update({
+    id: '/announcements/',
+    path: '/announcements/',
+    getParentRoute: () => AppAdminRoute,
+  } as any)
+const AppAdminAnnouncementsAnnouncementIdRoute =
+  AppAdminAnnouncementsAnnouncementIdRouteImport.update({
+    id: '/announcements/$announcementId',
+    path: '/announcements/$announcementId',
+    getParentRoute: () => AppAdminRoute,
+  } as any)
+const AppAdminAnnouncementsNewRoute =
+  AppAdminAnnouncementsNewRouteImport.update({
+    id: '/announcements/new',
+    path: '/announcements/new',
+    getParentRoute: () => AppAdminRoute,
+  } as any)
 const AppAdminModerationIndexRoute = AppAdminModerationIndexRouteImport.update({
   id: '/moderation/',
   path: '/moderation/',
@@ -199,6 +328,55 @@ const AppAdminUsersUserIdRoute = AppAdminUsersUserIdRouteImport.update({
   path: '/users/$userId',
   getParentRoute: () => AppAdminRoute,
 } as any)
+const AppSettingsConnectionsIndexRoute =
+  AppSettingsConnectionsIndexRouteImport.update({
+    id: '/connections/',
+    path: '/connections/',
+    getParentRoute: () => AppSettingsRoute,
+  } as any)
+const AppSettingsPrivacyIndexRoute = AppSettingsPrivacyIndexRouteImport.update({
+  id: '/privacy/',
+  path: '/privacy/',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
+const AppSettingsPrivacyBlockedRoute =
+  AppSettingsPrivacyBlockedRouteImport.update({
+    id: '/privacy/blocked',
+    path: '/privacy/blocked',
+    getParentRoute: () => AppSettingsRoute,
+  } as any)
+const AppSettingsSecurityIndexRoute =
+  AppSettingsSecurityIndexRouteImport.update({
+    id: '/security/',
+    path: '/security/',
+    getParentRoute: () => AppSettingsRoute,
+  } as any)
+const AppSettingsSecurityDeviceRoute =
+  AppSettingsSecurityDeviceRouteImport.update({
+    id: '/security/device',
+    path: '/security/device',
+    getParentRoute: () => AppSettingsRoute,
+  } as any)
+const AppSettingsSecurityLogRoute = AppSettingsSecurityLogRouteImport.update({
+  id: '/security/log',
+  path: '/security/log',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
+const AppStampsCreatorUserIdRoute = AppStampsCreatorUserIdRouteImport.update({
+  id: '/creator/$userId',
+  path: '/creator/$userId',
+  getParentRoute: () => AppStampsRoute,
+} as any)
+const AppStampsStudioIndexRoute = AppStampsStudioIndexRouteImport.update({
+  id: '/studio/',
+  path: '/studio/',
+  getParentRoute: () => AppStampsRoute,
+} as any)
+const AppStampsStudioPackIdRoute = AppStampsStudioPackIdRouteImport.update({
+  id: '/studio/$packId',
+  path: '/studio/$packId',
+  getParentRoute: () => AppStampsRoute,
+} as any)
 const AppWalletPayoutsPayoutIdRoute =
   AppWalletPayoutsPayoutIdRouteImport.update({
     id: '/payouts/$payoutId',
@@ -216,6 +394,12 @@ const AppWalletPurchasesPurchaseIdRoute =
     path: '/purchases/$purchaseId',
     getParentRoute: () => AppWalletRoute,
   } as any)
+const AppSettingsConnectionsCallbackProviderRoute =
+  AppSettingsConnectionsCallbackProviderRouteImport.update({
+    id: '/connections/callback/$provider',
+    path: '/connections/callback/$provider',
+    getParentRoute: () => AppSettingsRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -229,28 +413,57 @@ export interface FileRoutesByFullPath {
   '/map': typeof AppMapRoute
   '/me': typeof AppMeRoute
   '/notes': typeof AppNotesRoute
-  '/notifications': typeof AppNotificationsRoute
+  '/notifications': typeof AppNotificationsRouteWithChildren
   '/search': typeof AppSearchRoute
-  '/settings': typeof AppSettingsRoute
-  '/stamps': typeof AppStampsRoute
+  '/settings': typeof AppSettingsRouteWithChildren
+  '/stamps': typeof AppStampsRouteWithChildren
   '/wallet': typeof AppWalletRouteWithChildren
   '/watch': typeof AppWatchRoute
+  '/admin/audit': typeof AppAdminAuditRoute
+  '/admin/flags': typeof AppAdminFlagsRoute
   '/admin/stamps': typeof AppAdminStampsRoute
   '/admin/wallet': typeof AppAdminWalletRoute
+  '/announcements/$announcementId': typeof AppAnnouncementsAnnouncementIdRoute
+  '/notifications/open': typeof AppNotificationsOpenRoute
+  '/notifications/settings': typeof AppNotificationsSettingsRoute
+  '/settings/account': typeof AppSettingsAccountRoute
+  '/settings/appearance': typeof AppSettingsAppearanceRoute
+  '/settings/data': typeof AppSettingsDataRoute
+  '/settings/profile': typeof AppSettingsProfileRoute
+  '/stamps/$packId': typeof AppStampsPackIdRoute
+  '/stamps/browse': typeof AppStampsBrowseRoute
+  '/stamps/library': typeof AppStampsLibraryRoute
   '/u/$handle': typeof AppUHandleRoute
   '/wallet/buy': typeof AppWalletBuyRoute
   '/wallet/earnings': typeof AppWalletEarningsRoute
   '/wallet/history': typeof AppWalletHistoryRoute
   '/admin/': typeof AppAdminIndexRoute
+  '/announcements/': typeof AppAnnouncementsIndexRoute
+  '/notifications/': typeof AppNotificationsIndexRoute
+  '/settings/': typeof AppSettingsIndexRoute
+  '/stamps/': typeof AppStampsIndexRoute
   '/wallet/': typeof AppWalletIndexRoute
+  '/admin/announcements/$announcementId': typeof AppAdminAnnouncementsAnnouncementIdRoute
+  '/admin/announcements/new': typeof AppAdminAnnouncementsNewRoute
   '/admin/moderation/$caseId': typeof AppAdminModerationCaseIdRoute
   '/admin/moderation/log': typeof AppAdminModerationLogRoute
   '/admin/users/$userId': typeof AppAdminUsersUserIdRoute
+  '/settings/privacy/blocked': typeof AppSettingsPrivacyBlockedRoute
+  '/settings/security/device': typeof AppSettingsSecurityDeviceRoute
+  '/settings/security/log': typeof AppSettingsSecurityLogRoute
+  '/stamps/creator/$userId': typeof AppStampsCreatorUserIdRoute
+  '/stamps/studio/$packId': typeof AppStampsStudioPackIdRoute
   '/wallet/payouts/$payoutId': typeof AppWalletPayoutsPayoutIdRoute
   '/wallet/purchases/$purchaseId': typeof AppWalletPurchasesPurchaseIdRoute
+  '/admin/announcements/': typeof AppAdminAnnouncementsIndexRoute
   '/admin/moderation/': typeof AppAdminModerationIndexRoute
   '/admin/users/': typeof AppAdminUsersIndexRoute
+  '/settings/connections/': typeof AppSettingsConnectionsIndexRoute
+  '/settings/privacy/': typeof AppSettingsPrivacyIndexRoute
+  '/settings/security/': typeof AppSettingsSecurityIndexRoute
+  '/stamps/studio/': typeof AppStampsStudioIndexRoute
   '/wallet/purchases/': typeof AppWalletPurchasesIndexRoute
+  '/settings/connections/callback/$provider': typeof AppSettingsConnectionsCallbackProviderRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -263,27 +476,53 @@ export interface FileRoutesByTo {
   '/map': typeof AppMapRoute
   '/me': typeof AppMeRoute
   '/notes': typeof AppNotesRoute
-  '/notifications': typeof AppNotificationsRoute
   '/search': typeof AppSearchRoute
-  '/settings': typeof AppSettingsRoute
-  '/stamps': typeof AppStampsRoute
   '/watch': typeof AppWatchRoute
+  '/admin/audit': typeof AppAdminAuditRoute
+  '/admin/flags': typeof AppAdminFlagsRoute
   '/admin/stamps': typeof AppAdminStampsRoute
   '/admin/wallet': typeof AppAdminWalletRoute
+  '/announcements/$announcementId': typeof AppAnnouncementsAnnouncementIdRoute
+  '/notifications/open': typeof AppNotificationsOpenRoute
+  '/notifications/settings': typeof AppNotificationsSettingsRoute
+  '/settings/account': typeof AppSettingsAccountRoute
+  '/settings/appearance': typeof AppSettingsAppearanceRoute
+  '/settings/data': typeof AppSettingsDataRoute
+  '/settings/profile': typeof AppSettingsProfileRoute
+  '/stamps/$packId': typeof AppStampsPackIdRoute
+  '/stamps/browse': typeof AppStampsBrowseRoute
+  '/stamps/library': typeof AppStampsLibraryRoute
   '/u/$handle': typeof AppUHandleRoute
   '/wallet/buy': typeof AppWalletBuyRoute
   '/wallet/earnings': typeof AppWalletEarningsRoute
   '/wallet/history': typeof AppWalletHistoryRoute
   '/admin': typeof AppAdminIndexRoute
+  '/announcements': typeof AppAnnouncementsIndexRoute
+  '/notifications': typeof AppNotificationsIndexRoute
+  '/settings': typeof AppSettingsIndexRoute
+  '/stamps': typeof AppStampsIndexRoute
   '/wallet': typeof AppWalletIndexRoute
+  '/admin/announcements/$announcementId': typeof AppAdminAnnouncementsAnnouncementIdRoute
+  '/admin/announcements/new': typeof AppAdminAnnouncementsNewRoute
   '/admin/moderation/$caseId': typeof AppAdminModerationCaseIdRoute
   '/admin/moderation/log': typeof AppAdminModerationLogRoute
   '/admin/users/$userId': typeof AppAdminUsersUserIdRoute
+  '/settings/privacy/blocked': typeof AppSettingsPrivacyBlockedRoute
+  '/settings/security/device': typeof AppSettingsSecurityDeviceRoute
+  '/settings/security/log': typeof AppSettingsSecurityLogRoute
+  '/stamps/creator/$userId': typeof AppStampsCreatorUserIdRoute
+  '/stamps/studio/$packId': typeof AppStampsStudioPackIdRoute
   '/wallet/payouts/$payoutId': typeof AppWalletPayoutsPayoutIdRoute
   '/wallet/purchases/$purchaseId': typeof AppWalletPurchasesPurchaseIdRoute
+  '/admin/announcements': typeof AppAdminAnnouncementsIndexRoute
   '/admin/moderation': typeof AppAdminModerationIndexRoute
   '/admin/users': typeof AppAdminUsersIndexRoute
+  '/settings/connections': typeof AppSettingsConnectionsIndexRoute
+  '/settings/privacy': typeof AppSettingsPrivacyIndexRoute
+  '/settings/security': typeof AppSettingsSecurityIndexRoute
+  '/stamps/studio': typeof AppStampsStudioIndexRoute
   '/wallet/purchases': typeof AppWalletPurchasesIndexRoute
+  '/settings/connections/callback/$provider': typeof AppSettingsConnectionsCallbackProviderRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -299,28 +538,57 @@ export interface FileRoutesById {
   '/_app/map': typeof AppMapRoute
   '/_app/me': typeof AppMeRoute
   '/_app/notes': typeof AppNotesRoute
-  '/_app/notifications': typeof AppNotificationsRoute
+  '/_app/notifications': typeof AppNotificationsRouteWithChildren
   '/_app/search': typeof AppSearchRoute
-  '/_app/settings': typeof AppSettingsRoute
-  '/_app/stamps': typeof AppStampsRoute
+  '/_app/settings': typeof AppSettingsRouteWithChildren
+  '/_app/stamps': typeof AppStampsRouteWithChildren
   '/_app/wallet': typeof AppWalletRouteWithChildren
   '/_app/watch': typeof AppWatchRoute
+  '/_app/admin/audit': typeof AppAdminAuditRoute
+  '/_app/admin/flags': typeof AppAdminFlagsRoute
   '/_app/admin/stamps': typeof AppAdminStampsRoute
   '/_app/admin/wallet': typeof AppAdminWalletRoute
+  '/_app/announcements/$announcementId': typeof AppAnnouncementsAnnouncementIdRoute
+  '/_app/notifications/open': typeof AppNotificationsOpenRoute
+  '/_app/notifications/settings': typeof AppNotificationsSettingsRoute
+  '/_app/settings/account': typeof AppSettingsAccountRoute
+  '/_app/settings/appearance': typeof AppSettingsAppearanceRoute
+  '/_app/settings/data': typeof AppSettingsDataRoute
+  '/_app/settings/profile': typeof AppSettingsProfileRoute
+  '/_app/stamps/$packId': typeof AppStampsPackIdRoute
+  '/_app/stamps/browse': typeof AppStampsBrowseRoute
+  '/_app/stamps/library': typeof AppStampsLibraryRoute
   '/_app/u/$handle': typeof AppUHandleRoute
   '/_app/wallet/buy': typeof AppWalletBuyRoute
   '/_app/wallet/earnings': typeof AppWalletEarningsRoute
   '/_app/wallet/history': typeof AppWalletHistoryRoute
   '/_app/admin/': typeof AppAdminIndexRoute
+  '/_app/announcements/': typeof AppAnnouncementsIndexRoute
+  '/_app/notifications/': typeof AppNotificationsIndexRoute
+  '/_app/settings/': typeof AppSettingsIndexRoute
+  '/_app/stamps/': typeof AppStampsIndexRoute
   '/_app/wallet/': typeof AppWalletIndexRoute
+  '/_app/admin/announcements/$announcementId': typeof AppAdminAnnouncementsAnnouncementIdRoute
+  '/_app/admin/announcements/new': typeof AppAdminAnnouncementsNewRoute
   '/_app/admin/moderation/$caseId': typeof AppAdminModerationCaseIdRoute
   '/_app/admin/moderation/log': typeof AppAdminModerationLogRoute
   '/_app/admin/users/$userId': typeof AppAdminUsersUserIdRoute
+  '/_app/settings/privacy/blocked': typeof AppSettingsPrivacyBlockedRoute
+  '/_app/settings/security/device': typeof AppSettingsSecurityDeviceRoute
+  '/_app/settings/security/log': typeof AppSettingsSecurityLogRoute
+  '/_app/stamps/creator/$userId': typeof AppStampsCreatorUserIdRoute
+  '/_app/stamps/studio/$packId': typeof AppStampsStudioPackIdRoute
   '/_app/wallet/payouts/$payoutId': typeof AppWalletPayoutsPayoutIdRoute
   '/_app/wallet/purchases/$purchaseId': typeof AppWalletPurchasesPurchaseIdRoute
+  '/_app/admin/announcements/': typeof AppAdminAnnouncementsIndexRoute
   '/_app/admin/moderation/': typeof AppAdminModerationIndexRoute
   '/_app/admin/users/': typeof AppAdminUsersIndexRoute
+  '/_app/settings/connections/': typeof AppSettingsConnectionsIndexRoute
+  '/_app/settings/privacy/': typeof AppSettingsPrivacyIndexRoute
+  '/_app/settings/security/': typeof AppSettingsSecurityIndexRoute
+  '/_app/stamps/studio/': typeof AppStampsStudioIndexRoute
   '/_app/wallet/purchases/': typeof AppWalletPurchasesIndexRoute
+  '/_app/settings/connections/callback/$provider': typeof AppSettingsConnectionsCallbackProviderRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -342,22 +610,51 @@ export interface FileRouteTypes {
     | '/stamps'
     | '/wallet'
     | '/watch'
+    | '/admin/audit'
+    | '/admin/flags'
     | '/admin/stamps'
     | '/admin/wallet'
+    | '/announcements/$announcementId'
+    | '/notifications/open'
+    | '/notifications/settings'
+    | '/settings/account'
+    | '/settings/appearance'
+    | '/settings/data'
+    | '/settings/profile'
+    | '/stamps/$packId'
+    | '/stamps/browse'
+    | '/stamps/library'
     | '/u/$handle'
     | '/wallet/buy'
     | '/wallet/earnings'
     | '/wallet/history'
     | '/admin/'
+    | '/announcements/'
+    | '/notifications/'
+    | '/settings/'
+    | '/stamps/'
     | '/wallet/'
+    | '/admin/announcements/$announcementId'
+    | '/admin/announcements/new'
     | '/admin/moderation/$caseId'
     | '/admin/moderation/log'
     | '/admin/users/$userId'
+    | '/settings/privacy/blocked'
+    | '/settings/security/device'
+    | '/settings/security/log'
+    | '/stamps/creator/$userId'
+    | '/stamps/studio/$packId'
     | '/wallet/payouts/$payoutId'
     | '/wallet/purchases/$purchaseId'
+    | '/admin/announcements/'
     | '/admin/moderation/'
     | '/admin/users/'
+    | '/settings/connections/'
+    | '/settings/privacy/'
+    | '/settings/security/'
+    | '/stamps/studio/'
     | '/wallet/purchases/'
+    | '/settings/connections/callback/$provider'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -370,27 +667,53 @@ export interface FileRouteTypes {
     | '/map'
     | '/me'
     | '/notes'
-    | '/notifications'
     | '/search'
-    | '/settings'
-    | '/stamps'
     | '/watch'
+    | '/admin/audit'
+    | '/admin/flags'
     | '/admin/stamps'
     | '/admin/wallet'
+    | '/announcements/$announcementId'
+    | '/notifications/open'
+    | '/notifications/settings'
+    | '/settings/account'
+    | '/settings/appearance'
+    | '/settings/data'
+    | '/settings/profile'
+    | '/stamps/$packId'
+    | '/stamps/browse'
+    | '/stamps/library'
     | '/u/$handle'
     | '/wallet/buy'
     | '/wallet/earnings'
     | '/wallet/history'
     | '/admin'
+    | '/announcements'
+    | '/notifications'
+    | '/settings'
+    | '/stamps'
     | '/wallet'
+    | '/admin/announcements/$announcementId'
+    | '/admin/announcements/new'
     | '/admin/moderation/$caseId'
     | '/admin/moderation/log'
     | '/admin/users/$userId'
+    | '/settings/privacy/blocked'
+    | '/settings/security/device'
+    | '/settings/security/log'
+    | '/stamps/creator/$userId'
+    | '/stamps/studio/$packId'
     | '/wallet/payouts/$payoutId'
     | '/wallet/purchases/$purchaseId'
+    | '/admin/announcements'
     | '/admin/moderation'
     | '/admin/users'
+    | '/settings/connections'
+    | '/settings/privacy'
+    | '/settings/security'
+    | '/stamps/studio'
     | '/wallet/purchases'
+    | '/settings/connections/callback/$provider'
   id:
     | '__root__'
     | '/'
@@ -411,22 +734,51 @@ export interface FileRouteTypes {
     | '/_app/stamps'
     | '/_app/wallet'
     | '/_app/watch'
+    | '/_app/admin/audit'
+    | '/_app/admin/flags'
     | '/_app/admin/stamps'
     | '/_app/admin/wallet'
+    | '/_app/announcements/$announcementId'
+    | '/_app/notifications/open'
+    | '/_app/notifications/settings'
+    | '/_app/settings/account'
+    | '/_app/settings/appearance'
+    | '/_app/settings/data'
+    | '/_app/settings/profile'
+    | '/_app/stamps/$packId'
+    | '/_app/stamps/browse'
+    | '/_app/stamps/library'
     | '/_app/u/$handle'
     | '/_app/wallet/buy'
     | '/_app/wallet/earnings'
     | '/_app/wallet/history'
     | '/_app/admin/'
+    | '/_app/announcements/'
+    | '/_app/notifications/'
+    | '/_app/settings/'
+    | '/_app/stamps/'
     | '/_app/wallet/'
+    | '/_app/admin/announcements/$announcementId'
+    | '/_app/admin/announcements/new'
     | '/_app/admin/moderation/$caseId'
     | '/_app/admin/moderation/log'
     | '/_app/admin/users/$userId'
+    | '/_app/settings/privacy/blocked'
+    | '/_app/settings/security/device'
+    | '/_app/settings/security/log'
+    | '/_app/stamps/creator/$userId'
+    | '/_app/stamps/studio/$packId'
     | '/_app/wallet/payouts/$payoutId'
     | '/_app/wallet/purchases/$purchaseId'
+    | '/_app/admin/announcements/'
     | '/_app/admin/moderation/'
     | '/_app/admin/users/'
+    | '/_app/settings/connections/'
+    | '/_app/settings/privacy/'
+    | '/_app/settings/security/'
+    | '/_app/stamps/studio/'
     | '/_app/wallet/purchases/'
+    | '/_app/settings/connections/callback/$provider'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -573,6 +925,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAdminIndexRouteImport
       parentRoute: typeof AppAdminRoute
     }
+    '/_app/admin/audit': {
+      id: '/_app/admin/audit'
+      path: '/audit'
+      fullPath: '/admin/audit'
+      preLoaderRoute: typeof AppAdminAuditRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/flags': {
+      id: '/_app/admin/flags'
+      path: '/flags'
+      fullPath: '/admin/flags'
+      preLoaderRoute: typeof AppAdminFlagsRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
     '/_app/admin/stamps': {
       id: '/_app/admin/stamps'
       path: '/stamps'
@@ -586,6 +952,104 @@ declare module '@tanstack/react-router' {
       fullPath: '/admin/wallet'
       preLoaderRoute: typeof AppAdminWalletRouteImport
       parentRoute: typeof AppAdminRoute
+    }
+    '/_app/announcements/': {
+      id: '/_app/announcements/'
+      path: '/announcements'
+      fullPath: '/announcements/'
+      preLoaderRoute: typeof AppAnnouncementsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/announcements/$announcementId': {
+      id: '/_app/announcements/$announcementId'
+      path: '/announcements/$announcementId'
+      fullPath: '/announcements/$announcementId'
+      preLoaderRoute: typeof AppAnnouncementsAnnouncementIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/notifications/': {
+      id: '/_app/notifications/'
+      path: '/'
+      fullPath: '/notifications/'
+      preLoaderRoute: typeof AppNotificationsIndexRouteImport
+      parentRoute: typeof AppNotificationsRoute
+    }
+    '/_app/notifications/open': {
+      id: '/_app/notifications/open'
+      path: '/open'
+      fullPath: '/notifications/open'
+      preLoaderRoute: typeof AppNotificationsOpenRouteImport
+      parentRoute: typeof AppNotificationsRoute
+    }
+    '/_app/notifications/settings': {
+      id: '/_app/notifications/settings'
+      path: '/settings'
+      fullPath: '/notifications/settings'
+      preLoaderRoute: typeof AppNotificationsSettingsRouteImport
+      parentRoute: typeof AppNotificationsRoute
+    }
+    '/_app/settings/': {
+      id: '/_app/settings/'
+      path: '/'
+      fullPath: '/settings/'
+      preLoaderRoute: typeof AppSettingsIndexRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
+    '/_app/settings/account': {
+      id: '/_app/settings/account'
+      path: '/account'
+      fullPath: '/settings/account'
+      preLoaderRoute: typeof AppSettingsAccountRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
+    '/_app/settings/appearance': {
+      id: '/_app/settings/appearance'
+      path: '/appearance'
+      fullPath: '/settings/appearance'
+      preLoaderRoute: typeof AppSettingsAppearanceRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
+    '/_app/settings/data': {
+      id: '/_app/settings/data'
+      path: '/data'
+      fullPath: '/settings/data'
+      preLoaderRoute: typeof AppSettingsDataRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
+    '/_app/settings/profile': {
+      id: '/_app/settings/profile'
+      path: '/profile'
+      fullPath: '/settings/profile'
+      preLoaderRoute: typeof AppSettingsProfileRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
+    '/_app/stamps/': {
+      id: '/_app/stamps/'
+      path: '/'
+      fullPath: '/stamps/'
+      preLoaderRoute: typeof AppStampsIndexRouteImport
+      parentRoute: typeof AppStampsRoute
+    }
+    '/_app/stamps/$packId': {
+      id: '/_app/stamps/$packId'
+      path: '/$packId'
+      fullPath: '/stamps/$packId'
+      preLoaderRoute: typeof AppStampsPackIdRouteImport
+      parentRoute: typeof AppStampsRoute
+    }
+    '/_app/stamps/browse': {
+      id: '/_app/stamps/browse'
+      path: '/browse'
+      fullPath: '/stamps/browse'
+      preLoaderRoute: typeof AppStampsBrowseRouteImport
+      parentRoute: typeof AppStampsRoute
+    }
+    '/_app/stamps/library': {
+      id: '/_app/stamps/library'
+      path: '/library'
+      fullPath: '/stamps/library'
+      preLoaderRoute: typeof AppStampsLibraryRouteImport
+      parentRoute: typeof AppStampsRoute
     }
     '/_app/u/$handle': {
       id: '/_app/u/$handle'
@@ -622,6 +1086,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWalletHistoryRouteImport
       parentRoute: typeof AppWalletRoute
     }
+    '/_app/admin/announcements/': {
+      id: '/_app/admin/announcements/'
+      path: '/announcements'
+      fullPath: '/admin/announcements/'
+      preLoaderRoute: typeof AppAdminAnnouncementsIndexRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/announcements/$announcementId': {
+      id: '/_app/admin/announcements/$announcementId'
+      path: '/announcements/$announcementId'
+      fullPath: '/admin/announcements/$announcementId'
+      preLoaderRoute: typeof AppAdminAnnouncementsAnnouncementIdRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/announcements/new': {
+      id: '/_app/admin/announcements/new'
+      path: '/announcements/new'
+      fullPath: '/admin/announcements/new'
+      preLoaderRoute: typeof AppAdminAnnouncementsNewRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
     '/_app/admin/moderation/': {
       id: '/_app/admin/moderation/'
       path: '/moderation'
@@ -657,6 +1142,69 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAdminUsersUserIdRouteImport
       parentRoute: typeof AppAdminRoute
     }
+    '/_app/settings/connections/': {
+      id: '/_app/settings/connections/'
+      path: '/connections'
+      fullPath: '/settings/connections/'
+      preLoaderRoute: typeof AppSettingsConnectionsIndexRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
+    '/_app/settings/privacy/': {
+      id: '/_app/settings/privacy/'
+      path: '/privacy'
+      fullPath: '/settings/privacy/'
+      preLoaderRoute: typeof AppSettingsPrivacyIndexRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
+    '/_app/settings/privacy/blocked': {
+      id: '/_app/settings/privacy/blocked'
+      path: '/privacy/blocked'
+      fullPath: '/settings/privacy/blocked'
+      preLoaderRoute: typeof AppSettingsPrivacyBlockedRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
+    '/_app/settings/security/': {
+      id: '/_app/settings/security/'
+      path: '/security'
+      fullPath: '/settings/security/'
+      preLoaderRoute: typeof AppSettingsSecurityIndexRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
+    '/_app/settings/security/device': {
+      id: '/_app/settings/security/device'
+      path: '/security/device'
+      fullPath: '/settings/security/device'
+      preLoaderRoute: typeof AppSettingsSecurityDeviceRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
+    '/_app/settings/security/log': {
+      id: '/_app/settings/security/log'
+      path: '/security/log'
+      fullPath: '/settings/security/log'
+      preLoaderRoute: typeof AppSettingsSecurityLogRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
+    '/_app/stamps/creator/$userId': {
+      id: '/_app/stamps/creator/$userId'
+      path: '/creator/$userId'
+      fullPath: '/stamps/creator/$userId'
+      preLoaderRoute: typeof AppStampsCreatorUserIdRouteImport
+      parentRoute: typeof AppStampsRoute
+    }
+    '/_app/stamps/studio/': {
+      id: '/_app/stamps/studio/'
+      path: '/studio'
+      fullPath: '/stamps/studio/'
+      preLoaderRoute: typeof AppStampsStudioIndexRouteImport
+      parentRoute: typeof AppStampsRoute
+    }
+    '/_app/stamps/studio/$packId': {
+      id: '/_app/stamps/studio/$packId'
+      path: '/studio/$packId'
+      fullPath: '/stamps/studio/$packId'
+      preLoaderRoute: typeof AppStampsStudioPackIdRouteImport
+      parentRoute: typeof AppStampsRoute
+    }
     '/_app/wallet/payouts/$payoutId': {
       id: '/_app/wallet/payouts/$payoutId'
       path: '/payouts/$payoutId'
@@ -678,33 +1226,125 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWalletPurchasesPurchaseIdRouteImport
       parentRoute: typeof AppWalletRoute
     }
+    '/_app/settings/connections/callback/$provider': {
+      id: '/_app/settings/connections/callback/$provider'
+      path: '/connections/callback/$provider'
+      fullPath: '/settings/connections/callback/$provider'
+      preLoaderRoute: typeof AppSettingsConnectionsCallbackProviderRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
   }
 }
 
 interface AppAdminRouteChildren {
+  AppAdminAuditRoute: typeof AppAdminAuditRoute
+  AppAdminFlagsRoute: typeof AppAdminFlagsRoute
   AppAdminStampsRoute: typeof AppAdminStampsRoute
   AppAdminWalletRoute: typeof AppAdminWalletRoute
   AppAdminIndexRoute: typeof AppAdminIndexRoute
+  AppAdminAnnouncementsAnnouncementIdRoute: typeof AppAdminAnnouncementsAnnouncementIdRoute
+  AppAdminAnnouncementsNewRoute: typeof AppAdminAnnouncementsNewRoute
   AppAdminModerationCaseIdRoute: typeof AppAdminModerationCaseIdRoute
   AppAdminModerationLogRoute: typeof AppAdminModerationLogRoute
   AppAdminUsersUserIdRoute: typeof AppAdminUsersUserIdRoute
+  AppAdminAnnouncementsIndexRoute: typeof AppAdminAnnouncementsIndexRoute
   AppAdminModerationIndexRoute: typeof AppAdminModerationIndexRoute
   AppAdminUsersIndexRoute: typeof AppAdminUsersIndexRoute
 }
 
 const AppAdminRouteChildren: AppAdminRouteChildren = {
+  AppAdminAuditRoute: AppAdminAuditRoute,
+  AppAdminFlagsRoute: AppAdminFlagsRoute,
   AppAdminStampsRoute: AppAdminStampsRoute,
   AppAdminWalletRoute: AppAdminWalletRoute,
   AppAdminIndexRoute: AppAdminIndexRoute,
+  AppAdminAnnouncementsAnnouncementIdRoute:
+    AppAdminAnnouncementsAnnouncementIdRoute,
+  AppAdminAnnouncementsNewRoute: AppAdminAnnouncementsNewRoute,
   AppAdminModerationCaseIdRoute: AppAdminModerationCaseIdRoute,
   AppAdminModerationLogRoute: AppAdminModerationLogRoute,
   AppAdminUsersUserIdRoute: AppAdminUsersUserIdRoute,
+  AppAdminAnnouncementsIndexRoute: AppAdminAnnouncementsIndexRoute,
   AppAdminModerationIndexRoute: AppAdminModerationIndexRoute,
   AppAdminUsersIndexRoute: AppAdminUsersIndexRoute,
 }
 
 const AppAdminRouteWithChildren = AppAdminRoute._addFileChildren(
   AppAdminRouteChildren,
+)
+
+interface AppNotificationsRouteChildren {
+  AppNotificationsOpenRoute: typeof AppNotificationsOpenRoute
+  AppNotificationsSettingsRoute: typeof AppNotificationsSettingsRoute
+  AppNotificationsIndexRoute: typeof AppNotificationsIndexRoute
+}
+
+const AppNotificationsRouteChildren: AppNotificationsRouteChildren = {
+  AppNotificationsOpenRoute: AppNotificationsOpenRoute,
+  AppNotificationsSettingsRoute: AppNotificationsSettingsRoute,
+  AppNotificationsIndexRoute: AppNotificationsIndexRoute,
+}
+
+const AppNotificationsRouteWithChildren =
+  AppNotificationsRoute._addFileChildren(AppNotificationsRouteChildren)
+
+interface AppSettingsRouteChildren {
+  AppSettingsAccountRoute: typeof AppSettingsAccountRoute
+  AppSettingsAppearanceRoute: typeof AppSettingsAppearanceRoute
+  AppSettingsDataRoute: typeof AppSettingsDataRoute
+  AppSettingsProfileRoute: typeof AppSettingsProfileRoute
+  AppSettingsIndexRoute: typeof AppSettingsIndexRoute
+  AppSettingsPrivacyBlockedRoute: typeof AppSettingsPrivacyBlockedRoute
+  AppSettingsSecurityDeviceRoute: typeof AppSettingsSecurityDeviceRoute
+  AppSettingsSecurityLogRoute: typeof AppSettingsSecurityLogRoute
+  AppSettingsConnectionsIndexRoute: typeof AppSettingsConnectionsIndexRoute
+  AppSettingsPrivacyIndexRoute: typeof AppSettingsPrivacyIndexRoute
+  AppSettingsSecurityIndexRoute: typeof AppSettingsSecurityIndexRoute
+  AppSettingsConnectionsCallbackProviderRoute: typeof AppSettingsConnectionsCallbackProviderRoute
+}
+
+const AppSettingsRouteChildren: AppSettingsRouteChildren = {
+  AppSettingsAccountRoute: AppSettingsAccountRoute,
+  AppSettingsAppearanceRoute: AppSettingsAppearanceRoute,
+  AppSettingsDataRoute: AppSettingsDataRoute,
+  AppSettingsProfileRoute: AppSettingsProfileRoute,
+  AppSettingsIndexRoute: AppSettingsIndexRoute,
+  AppSettingsPrivacyBlockedRoute: AppSettingsPrivacyBlockedRoute,
+  AppSettingsSecurityDeviceRoute: AppSettingsSecurityDeviceRoute,
+  AppSettingsSecurityLogRoute: AppSettingsSecurityLogRoute,
+  AppSettingsConnectionsIndexRoute: AppSettingsConnectionsIndexRoute,
+  AppSettingsPrivacyIndexRoute: AppSettingsPrivacyIndexRoute,
+  AppSettingsSecurityIndexRoute: AppSettingsSecurityIndexRoute,
+  AppSettingsConnectionsCallbackProviderRoute:
+    AppSettingsConnectionsCallbackProviderRoute,
+}
+
+const AppSettingsRouteWithChildren = AppSettingsRoute._addFileChildren(
+  AppSettingsRouteChildren,
+)
+
+interface AppStampsRouteChildren {
+  AppStampsPackIdRoute: typeof AppStampsPackIdRoute
+  AppStampsBrowseRoute: typeof AppStampsBrowseRoute
+  AppStampsLibraryRoute: typeof AppStampsLibraryRoute
+  AppStampsIndexRoute: typeof AppStampsIndexRoute
+  AppStampsCreatorUserIdRoute: typeof AppStampsCreatorUserIdRoute
+  AppStampsStudioPackIdRoute: typeof AppStampsStudioPackIdRoute
+  AppStampsStudioIndexRoute: typeof AppStampsStudioIndexRoute
+}
+
+const AppStampsRouteChildren: AppStampsRouteChildren = {
+  AppStampsPackIdRoute: AppStampsPackIdRoute,
+  AppStampsBrowseRoute: AppStampsBrowseRoute,
+  AppStampsLibraryRoute: AppStampsLibraryRoute,
+  AppStampsIndexRoute: AppStampsIndexRoute,
+  AppStampsCreatorUserIdRoute: AppStampsCreatorUserIdRoute,
+  AppStampsStudioPackIdRoute: AppStampsStudioPackIdRoute,
+  AppStampsStudioIndexRoute: AppStampsStudioIndexRoute,
+}
+
+const AppStampsRouteWithChildren = AppStampsRoute._addFileChildren(
+  AppStampsRouteChildren,
 )
 
 interface AppWalletRouteChildren {
@@ -738,13 +1378,15 @@ interface AppRouteChildren {
   AppMapRoute: typeof AppMapRoute
   AppMeRoute: typeof AppMeRoute
   AppNotesRoute: typeof AppNotesRoute
-  AppNotificationsRoute: typeof AppNotificationsRoute
+  AppNotificationsRoute: typeof AppNotificationsRouteWithChildren
   AppSearchRoute: typeof AppSearchRoute
-  AppSettingsRoute: typeof AppSettingsRoute
-  AppStampsRoute: typeof AppStampsRoute
+  AppSettingsRoute: typeof AppSettingsRouteWithChildren
+  AppStampsRoute: typeof AppStampsRouteWithChildren
   AppWalletRoute: typeof AppWalletRouteWithChildren
   AppWatchRoute: typeof AppWatchRoute
+  AppAnnouncementsAnnouncementIdRoute: typeof AppAnnouncementsAnnouncementIdRoute
   AppUHandleRoute: typeof AppUHandleRoute
+  AppAnnouncementsIndexRoute: typeof AppAnnouncementsIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -754,13 +1396,15 @@ const AppRouteChildren: AppRouteChildren = {
   AppMapRoute: AppMapRoute,
   AppMeRoute: AppMeRoute,
   AppNotesRoute: AppNotesRoute,
-  AppNotificationsRoute: AppNotificationsRoute,
+  AppNotificationsRoute: AppNotificationsRouteWithChildren,
   AppSearchRoute: AppSearchRoute,
-  AppSettingsRoute: AppSettingsRoute,
-  AppStampsRoute: AppStampsRoute,
+  AppSettingsRoute: AppSettingsRouteWithChildren,
+  AppStampsRoute: AppStampsRouteWithChildren,
   AppWalletRoute: AppWalletRouteWithChildren,
   AppWatchRoute: AppWatchRoute,
+  AppAnnouncementsAnnouncementIdRoute: AppAnnouncementsAnnouncementIdRoute,
   AppUHandleRoute: AppUHandleRoute,
+  AppAnnouncementsIndexRoute: AppAnnouncementsIndexRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

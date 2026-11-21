@@ -313,7 +313,9 @@ impl PovRow {
     pub fn reply_proto(&self) -> pb::PovReply {
         pb::PovReply {
             request_id: self.id.to_string(),
-            expires_at: opt_ts(self.reply_expires_at.filter(|_| self.saved_at.is_none() && self.reply_expired_at.is_none())),
+            expires_at: opt_ts(
+                self.reply_expires_at.filter(|_| self.saved_at.is_none() && self.reply_expired_at.is_none()),
+            ),
             saved: self.saved_at.is_some(),
             expired: self.reply_expired_at.is_some(),
             ..Default::default()
@@ -417,7 +419,8 @@ mod tests {
     fn system_payloads_roundtrip_through_json() {
         let actor = new_id();
         let target = new_id();
-        let payload = SystemPayload::new(pb::SystemEventType::SYSTEM_EVENT_TYPE_MEMBERS_ADDED, Some(actor)).targets([target]);
+        let payload =
+            SystemPayload::new(pb::SystemEventType::SYSTEM_EVENT_TYPE_MEMBERS_ADDED, Some(actor)).targets([target]);
         let json = serde_json::to_value(&payload).unwrap();
         let back: SystemPayload = serde_json::from_value(json).unwrap();
         assert_eq!(back.r#type, pb::SystemEventType::SYSTEM_EVENT_TYPE_MEMBERS_ADDED as i32);

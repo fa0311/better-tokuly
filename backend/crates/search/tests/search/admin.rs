@@ -10,14 +10,20 @@ async fn admin(ctx: &Ctx) -> TestUser {
     ctx.app.user_with_roles("admin", &["admin"]).await
 }
 
-async fn admin_call<Req: serde::Serialize, Resp: serde::de::DeserializeOwned>(ctx: &Ctx, method: &str, user: Option<&TestUser>, request: &Req) -> Result<Resp, RpcError> {
+async fn admin_call<Req: serde::Serialize, Resp: serde::de::DeserializeOwned>(
+    ctx: &Ctx,
+    method: &str,
+    user: Option<&TestUser>,
+    request: &Req,
+) -> Result<Resp, RpcError> {
     ctx.call(ADMIN, method, user, request).await
 }
 
 #[tokio::test]
 async fn every_rpc_needs_the_admin_role() {
     let ctx = start().await;
-    let (member, moderator) = (ctx.app.user("member").await, ctx.app.user_with_roles("moderator", &["moderator"]).await);
+    let (member, moderator) =
+        (ctx.app.user("member").await, ctx.app.user_with_roles("moderator", &["moderator"]).await);
     let empty = serde_json::json!({});
     for method in [
         "GetIndexStats",
@@ -31,10 +37,18 @@ async fn every_rpc_needs_the_admin_role() {
         "DeleteSynonymGroup",
     ] {
         let anonymous = admin_call::<_, serde_json::Value>(&ctx, method, None, &empty).await.unwrap_err();
-        assert_eq!((anonymous.code.as_str(), anonymous.reason.as_str()), ("unauthenticated", "SIGN_IN_REQUIRED"), "{method}");
+        assert_eq!(
+            (anonymous.code.as_str(), anonymous.reason.as_str()),
+            ("unauthenticated", "SIGN_IN_REQUIRED"),
+            "{method}"
+        );
         for user in [&member, &moderator] {
             let refused = admin_call::<_, serde_json::Value>(&ctx, method, Some(user), &empty).await.unwrap_err();
-            assert_eq!((refused.code.as_str(), refused.reason.as_str()), ("permission_denied", "FORBIDDEN"), "{method}");
+            assert_eq!(
+                (refused.code.as_str(), refused.reason.as_str()),
+                ("permission_denied", "FORBIDDEN"),
+                "{method}"
+            );
         }
     }
 }
@@ -46,7 +60,8 @@ async fn index_stats_show_the_engine_next_to_the_registry() {
     let word = unique("stats");
     ctx.index(&[doc("clip", None, &word), doc("clip", None, &word), doc("playlist", None, &word)]).await;
 
-    let stats: GetIndexStatsResponse = admin_call(&ctx, "GetIndexStats", Some(&admin), &GetIndexStatsRequest::default()).await.unwrap();
+    let stats: GetIndexStatsResponse =
+        admin_call(&ctx, "GetIndexStats", Some(&admin), &GetIndexStatsRequest::default()).await.unwrap();
     assert!(stats.healthy);
     assert!(!stats.engine_version.is_empty());
     assert!(stats.database_size_bytes > 0);
@@ -76,7 +91,8 @@ async fn pending_changes_show_up_in_the_stats() {
         .unwrap();
     ctx.publish(&doc("news", None, &unique("pending"))).await;
 
-    let stats: GetIndexStatsResponse = admin_call(&ctx, "GetIndexStats", Some(&admin), &GetIndexStatsRequest::default()).await.unwrap();
+    let stats: GetIndexStatsResponse =
+        admin_call(&ctx, "GetIndexStats", Some(&admin), &GetIndexStatsRequest::default()).await.unwrap();
     let news = stats.indexes.iter().find(|i| i.kind.as_known() == Some(SearchKind::SEARCH_KIND_NEWS)).unwrap();
     assert!(news.pending_documents >= 1 && news.registered_documents >= 1, "{news:?}");
 
@@ -91,7 +107,8 @@ async fn a_reindex_repairs_the_index_and_asks_the_owning_domain_to_republish() {
     let word = unique("repair");
     let docs = [doc("playlist", None, &format!("{word} a")), doc("playlist", None, &format!("{word} b"))];
     ctx.index(&docs).await;
-    let playlists = SearchRequest { query: word.clone(), kind: SearchKind::SEARCH_KIND_PLAYLIST.into(), ..Default::default() };
+    let playlists =
+        SearchRequest { query: word.clone(), kind: SearchKind::SEARCH_KIND_PLAYLIST.into(), ..Default::default() };
     assert_eq!(ctx.search(None, &playlists).await.hits.len(), 2);
 
     // The engine loses the documents behind the registry's back.
@@ -104,8 +121,14 @@ async fn a_reindex_repairs_the_index_and_asks_the_owning_domain_to_republish() {
     ctx.flush().await; // the registry believes everything is written
     assert!(ctx.search(None, &playlists).await.hits.is_empty());
 
-    let response: ReindexResponse =
-        admin_call(&ctx, "Reindex", Some(&admin), &ReindexRequest { kind: SearchKind::SEARCH_KIND_PLAYLIST.into(), ..Default::default() }).await.unwrap();
+    let response: ReindexResponse = admin_call(
+        &ctx,
+        "Reindex",
+        Some(&admin),
+        &ReindexRequest { kind: SearchKind::SEARCH_KIND_PLAYLIST.into(), ..Default::default() },
+    )
+    .await
+    .unwrap();
     assert!(response.queued_documents >= 2);
     ctx.flush().await;
     assert_eq!(ctx.search(None, &playlists).await.hits.len(), 2);
@@ -133,7 +156,14 @@ async fn reindex_and_delete_validate_their_target() {
         assert_eq!((error.code.as_str(), error.reason.as_str()), ("invalid_argument", reason), "{method} {request}");
     }
     // Reindexing users is accepted as well (the search domain republishes them itself).
-    let _: ReindexResponse = admin_call(&ctx, "Reindex", Some(&admin), &ReindexRequest { kind: SearchKind::SEARCH_KIND_USER.into(), ..Default::default() }).await.unwrap();
+    let _: ReindexResponse = admin_call(
+        &ctx,
+        "Reindex",
+        Some(&admin),
+        &ReindexRequest { kind: SearchKind::SEARCH_KIND_USER.into(), ..Default::default() },
+    )
+    .await
+    .unwrap();
     assert_eq!(ctx.app.events_by("search.reindex.requested", admin.id).await[0].data["kind"], "user");
 }
 
@@ -142,13 +172,18 @@ async fn a_deleted_document_stays_out_until_it_is_published_again() {
     let ctx = start().await;
     let admin = admin(&ctx).await;
     let word = unique("delete");
-    let (target, bystander) = (doc("short", None, &format!("{word} target")), doc("short", None, &format!("{word} bystander")));
+    let (target, bystander) =
+        (doc("short", None, &format!("{word} target")), doc("short", None, &format!("{word} bystander")));
     let publication = event(tokuly_core::outbound::SEARCH_TOPIC, upsert_of(&target));
     ctx.deliver(publication.clone()).await;
     ctx.index(std::slice::from_ref(&bystander)).await;
     assert_eq!(ctx.find(None, &word).await.hits.len(), 2);
 
-    let request = DeleteDocumentRequest { kind: SearchKind::SEARCH_KIND_SHORT.into(), id: target.id.to_string(), ..Default::default() };
+    let request = DeleteDocumentRequest {
+        kind: SearchKind::SEARCH_KIND_SHORT.into(),
+        id: target.id.to_string(),
+        ..Default::default()
+    };
     let deleted: DeleteDocumentResponse = admin_call(&ctx, "DeleteDocument", Some(&admin), &request).await.unwrap();
     assert!(deleted.existed);
     ctx.flush().await;
@@ -185,7 +220,11 @@ async fn deleting_reaches_the_engine_even_when_the_registry_never_held_the_docum
         &ctx,
         "DeleteDocument",
         Some(&admin),
-        &DeleteDocumentRequest { kind: SearchKind::SEARCH_KIND_CLIP.into(), id: stray.id.to_string(), ..Default::default() },
+        &DeleteDocumentRequest {
+            kind: SearchKind::SEARCH_KIND_CLIP.into(),
+            id: stray.id.to_string(),
+            ..Default::default()
+        },
     )
     .await
     .unwrap();
@@ -200,16 +239,24 @@ async fn blocked_terms_are_normalized_listed_and_removed() {
     let admin = admin(&ctx).await;
     let stem = unique("term");
     let add = async |term: &str, note: &str| {
-        admin_call::<_, AddBlockedTermResponse>(&ctx, "AddBlockedTerm", Some(&admin), &AddBlockedTermRequest { term: term.to_owned(), note: note.to_owned(), ..Default::default() }).await
+        admin_call::<_, AddBlockedTermResponse>(
+            &ctx,
+            "AddBlockedTerm",
+            Some(&admin),
+            &AddBlockedTermRequest { term: term.to_owned(), note: note.to_owned(), ..Default::default() },
+        )
+        .await
     };
 
-    let added = add(&format!("  {}　ＢＡＤ ", stem.to_uppercase()), "abuse").await.unwrap().term.as_option().cloned().unwrap();
+    let added =
+        add(&format!("  {}　ＢＡＤ ", stem.to_uppercase()), "abuse").await.unwrap().term.as_option().cloned().unwrap();
     assert_eq!(added.term, format!("{stem} bad"), "lowercase, width-folded, single spaces");
     assert_eq!(added.note, "abuse");
     assert_eq!(added.added_by.as_option().unwrap().id, admin.id.to_string());
     assert!(added.created_at.as_option().is_some());
     // Adding it again only updates the note.
-    let updated = add(&format!("{stem} bad"), "abuse, reported twice").await.unwrap().term.as_option().cloned().unwrap();
+    let updated =
+        add(&format!("{stem} bad"), "abuse, reported twice").await.unwrap().term.as_option().cloned().unwrap();
     assert_eq!((updated.note.as_str(), updated.created_at == added.created_at), ("abuse, reported twice", true));
     for n in 0..4 {
         add(&format!("{stem} {n}"), "").await.unwrap();
@@ -223,7 +270,10 @@ async fn blocked_terms_are_normalized_listed_and_removed() {
             &ctx,
             "ListBlockedTerms",
             Some(&admin),
-            &ListBlockedTermsRequest { page: Some(PageRequest { limit: 2, cursor, ..Default::default() }).into(), ..Default::default() },
+            &ListBlockedTermsRequest {
+                page: Some(PageRequest { limit: 2, cursor, ..Default::default() }).into(),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -244,11 +294,22 @@ async fn blocked_terms_are_normalized_listed_and_removed() {
     assert_eq!(bad.note, "abuse, reported twice");
 
     // Removal, by any spelling of the term.
-    let _: RemoveBlockedTermResponse =
-        admin_call(&ctx, "RemoveBlockedTerm", Some(&admin), &RemoveBlockedTermRequest { term: format!("{} BAD", stem.to_uppercase()), ..Default::default() }).await.unwrap();
-    let gone = admin_call::<_, RemoveBlockedTermResponse>(&ctx, "RemoveBlockedTerm", Some(&admin), &RemoveBlockedTermRequest { term: format!("{stem} bad"), ..Default::default() })
-        .await
-        .unwrap_err();
+    let _: RemoveBlockedTermResponse = admin_call(
+        &ctx,
+        "RemoveBlockedTerm",
+        Some(&admin),
+        &RemoveBlockedTermRequest { term: format!("{} BAD", stem.to_uppercase()), ..Default::default() },
+    )
+    .await
+    .unwrap();
+    let gone = admin_call::<_, RemoveBlockedTermResponse>(
+        &ctx,
+        "RemoveBlockedTerm",
+        Some(&admin),
+        &RemoveBlockedTermRequest { term: format!("{stem} bad"), ..Default::default() },
+    )
+    .await
+    .unwrap_err();
     assert_eq!((gone.code.as_str(), gone.reason.as_str()), ("not_found", "TERM_NOT_FOUND"));
 
     // Validation.
@@ -259,7 +320,10 @@ async fn blocked_terms_are_normalized_listed_and_removed() {
         &ctx,
         "ListBlockedTerms",
         Some(&admin),
-        &ListBlockedTermsRequest { page: Some(PageRequest { cursor: "garbage".into(), ..Default::default() }).into(), ..Default::default() },
+        &ListBlockedTermsRequest {
+            page: Some(PageRequest { cursor: "garbage".into(), ..Default::default() }).into(),
+            ..Default::default()
+        },
     )
     .await
     .unwrap_err();
@@ -275,8 +339,13 @@ async fn synonym_groups_make_words_find_each_other() {
     ctx.index(std::slice::from_ref(&pack)).await;
     assert!(ctx.find(None, &sticker).await.hits.is_empty());
     let save = async |id: &str, words: Vec<String>| {
-        admin_call::<_, SaveSynonymGroupResponse>(&ctx, "SaveSynonymGroup", Some(&admin), &SaveSynonymGroupRequest { id: id.to_owned(), words, ..Default::default() })
-            .await
+        admin_call::<_, SaveSynonymGroupResponse>(
+            &ctx,
+            "SaveSynonymGroup",
+            Some(&admin),
+            &SaveSynonymGroupRequest { id: id.to_owned(), words, ..Default::default() },
+        )
+        .await
     };
     // What the `search.synonyms.apply` job does in a worker.
     let apply = async || {
@@ -284,11 +353,21 @@ async fn synonym_groups_make_words_find_each_other() {
         ctx.search.wait_until_idle(std::time::Duration::from_secs(60)).await.unwrap();
     };
 
-    let group = save("", vec![stamp.to_uppercase(), sticker.clone(), sticker.clone()]).await.unwrap().group.as_option().cloned().unwrap();
+    let group = save("", vec![stamp.to_uppercase(), sticker.clone(), sticker.clone()])
+        .await
+        .unwrap()
+        .group
+        .as_option()
+        .cloned()
+        .unwrap();
     assert_eq!(group.words, vec![stamp.clone(), sticker.clone()], "normalized and deduplicated");
     assert!(!group.id.is_empty() && group.updated_at.as_option().is_some());
     apply().await;
-    assert_eq!(hit_ids(&ctx.find(None, &sticker).await.hits), vec![pack.id.to_string()], "a synonym finds the document");
+    assert_eq!(
+        hit_ids(&ctx.find(None, &sticker).await.hits),
+        vec![pack.id.to_string()],
+        "a synonym finds the document"
+    );
     assert!(ctx.find(None, &seal).await.hits.is_empty());
 
     // Replacing the words of the group.
@@ -298,20 +377,32 @@ async fn synonym_groups_make_words_find_each_other() {
     assert_eq!(ctx.find(None, &seal).await.hits.len(), 1);
     assert!(ctx.find(None, &sticker).await.hits.is_empty());
 
-    let listed: ListSynonymGroupsResponse = admin_call(&ctx, "ListSynonymGroups", Some(&admin), &ListSynonymGroupsRequest::default()).await.unwrap();
+    let listed: ListSynonymGroupsResponse =
+        admin_call(&ctx, "ListSynonymGroups", Some(&admin), &ListSynonymGroupsRequest::default()).await.unwrap();
     assert_eq!(listed.groups.iter().find(|g| g.id == group.id).unwrap().words, vec![stamp.clone(), seal.clone()]);
 
     // Deleting the group takes the synonyms away.
-    let _: DeleteSynonymGroupResponse =
-        admin_call(&ctx, "DeleteSynonymGroup", Some(&admin), &DeleteSynonymGroupRequest { id: group.id.clone(), ..Default::default() }).await.unwrap();
+    let _: DeleteSynonymGroupResponse = admin_call(
+        &ctx,
+        "DeleteSynonymGroup",
+        Some(&admin),
+        &DeleteSynonymGroupRequest { id: group.id.clone(), ..Default::default() },
+    )
+    .await
+    .unwrap();
     apply().await;
     assert!(ctx.find(None, &seal).await.hits.is_empty());
     assert_eq!(ctx.find(None, &stamp).await.hits.len(), 1);
 
     // Validation.
-    let missing = admin_call::<_, DeleteSynonymGroupResponse>(&ctx, "DeleteSynonymGroup", Some(&admin), &DeleteSynonymGroupRequest { id: group.id.clone(), ..Default::default() })
-        .await
-        .unwrap_err();
+    let missing = admin_call::<_, DeleteSynonymGroupResponse>(
+        &ctx,
+        "DeleteSynonymGroup",
+        Some(&admin),
+        &DeleteSynonymGroupRequest { id: group.id.clone(), ..Default::default() },
+    )
+    .await
+    .unwrap_err();
     assert_eq!((missing.code.as_str(), missing.reason.as_str()), ("not_found", "SYNONYM_GROUP_NOT_FOUND"));
     assert_eq!(save(&group.id, vec![stamp.clone(), seal.clone()]).await.unwrap_err().reason, "SYNONYM_GROUP_NOT_FOUND");
     assert_eq!(save("not-an-id", vec![stamp.clone(), seal.clone()]).await.unwrap_err().reason, "INVALID_ID");

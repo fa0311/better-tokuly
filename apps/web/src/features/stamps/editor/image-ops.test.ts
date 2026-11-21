@@ -147,6 +147,17 @@ describe("cut-out", () => {
     expect([...out]).toEqual([220, 30, 40, 255, 220, 30, 40, 0]);
   });
 
+  it("can redraw just the touched area", () => {
+    const source = picture(4, 4, RED);
+    const out = new Uint8ClampedArray(4 * 4 * 4);
+    applyMask(source, fullMask(4, 4), out, { x: 1, y: 1, width: 2, height: 2 });
+    const alpha = (x: number, y: number) => out[(y * 4 + x) * 4 + 3];
+    expect(alpha(1, 1)).toBe(255);
+    expect(alpha(2, 2)).toBe(255);
+    expect(alpha(0, 0)).toBe(0);
+    expect(alpha(3, 2)).toBe(0);
+  });
+
   it("finds the bounds of what is left", () => {
     const source = picture(20, 20, WHITE, { x: 6, y: 7, width: 8, height: 5, color: RED });
     const mask = fullMask(20, 20);
@@ -226,6 +237,14 @@ describe("history", () => {
     history.push("c");
     expect(history.canRedo).toBe(false);
     expect(history.undo()).toBe("a");
+  });
+
+  it("amends the latest step in place", () => {
+    const history = new History("start");
+    history.push("draft");
+    history.amend("final");
+    expect(history.undo()).toBe("start");
+    expect(history.redo()).toBe("final");
   });
 
   it("keeps a bounded number of steps", () => {

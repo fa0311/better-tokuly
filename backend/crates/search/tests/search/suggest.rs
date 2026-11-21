@@ -5,7 +5,11 @@ use tokuly_testkit::TestUser;
 
 use crate::common::*;
 
-async fn try_suggest(ctx: &Ctx, user: Option<&TestUser>, request: &SuggestRequest) -> Result<SuggestResponse, tokuly_testkit::RpcError> {
+async fn try_suggest(
+    ctx: &Ctx,
+    user: Option<&TestUser>,
+    request: &SuggestRequest,
+) -> Result<SuggestResponse, tokuly_testkit::RpcError> {
     ctx.call(SEARCH, "Suggest", user, request).await
 }
 
@@ -76,14 +80,23 @@ async fn suggestions_can_be_limited_to_a_tab_and_in_number() {
 
     let default = ctx.suggest(None, &stem).await;
     assert_eq!(default.hits.len(), 6);
-    let wide = try_suggest(&ctx, None, &SuggestRequest { query: stem.clone(), hit_limit: 99, ..Default::default() }).await.unwrap();
+    let wide = try_suggest(&ctx, None, &SuggestRequest { query: stem.clone(), hit_limit: 99, ..Default::default() })
+        .await
+        .unwrap();
     assert_eq!(wide.hits.len(), 10);
-    let two = try_suggest(&ctx, None, &SuggestRequest { query: stem.clone(), hit_limit: 2, ..Default::default() }).await.unwrap();
+    let two = try_suggest(&ctx, None, &SuggestRequest { query: stem.clone(), hit_limit: 2, ..Default::default() })
+        .await
+        .unwrap();
     assert_eq!(two.hits.len(), 2);
     let shorts = try_suggest(
         &ctx,
         None,
-        &SuggestRequest { query: stem.clone(), kind: SearchKind::SEARCH_KIND_SHORT.into(), hit_limit: 10, ..Default::default() },
+        &SuggestRequest {
+            query: stem.clone(),
+            kind: SearchKind::SEARCH_KIND_SHORT.into(),
+            hit_limit: 10,
+            ..Default::default()
+        },
     )
     .await
     .unwrap();
@@ -135,7 +148,10 @@ async fn completions_offer_the_callers_history_first_and_then_popular_queries() 
     assert_eq!(completions(&narrowed), vec![(popular_too.as_str(), CompletionSource::COMPLETION_SOURCE_POPULAR)]);
     assert!(ctx.suggest(None, &popular).await.completions.is_empty());
 
-    let one = try_suggest(&ctx, None, &SuggestRequest { query: stem.clone(), completion_limit: 1, ..Default::default() }).await.unwrap();
+    let one =
+        try_suggest(&ctx, None, &SuggestRequest { query: stem.clone(), completion_limit: 1, ..Default::default() })
+            .await
+            .unwrap();
     assert_eq!(one.completions.len(), 1);
 }
 
@@ -162,7 +178,8 @@ async fn empty_and_invalid_input() {
     // A lone '#' is a tag search without a tag yet.
     assert!(ctx.suggest(None, "#").await.hits.is_empty());
 
-    let too_long = try_suggest(&ctx, None, &SuggestRequest { query: "a".repeat(101), ..Default::default() }).await.unwrap_err();
+    let too_long =
+        try_suggest(&ctx, None, &SuggestRequest { query: "a".repeat(101), ..Default::default() }).await.unwrap_err();
     assert_eq!((too_long.code.as_str(), too_long.reason.as_str()), ("invalid_argument", "QUERY_TOO_LONG"));
     let unknown_kind = ctx
         .call::<_, SuggestResponse>(SEARCH, "Suggest", None, &serde_json::json!({ "query": "ok", "kind": 250 }))

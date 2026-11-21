@@ -42,7 +42,12 @@ pub struct ChatConfig {
     pub livekit_api_secret: String,
 
     /// Seconds an unanswered call rings.
-    #[arg(id = "chat_ring_seconds", long = "chat-ring-seconds", env = "TOKULY_CHAT_RING_SECONDS", default_value_t = 45)]
+    #[arg(
+        id = "chat_ring_seconds",
+        long = "chat-ring-seconds",
+        env = "TOKULY_CHAT_RING_SECONDS",
+        default_value_t = 45
+    )]
     pub ring_seconds: i64,
 
     // ── AI assistant (Anthropic) ──
@@ -97,7 +102,12 @@ pub struct ChatConfig {
     pub ai_refusal_fallback: bool,
 
     /// AI assistant requests one user may make per hour.
-    #[arg(id = "chat_ai_hourly_limit", long = "chat-ai-hourly-limit", env = "TOKULY_AI_HOURLY_LIMIT", default_value_t = 60)]
+    #[arg(
+        id = "chat_ai_hourly_limit",
+        long = "chat-ai-hourly-limit",
+        env = "TOKULY_AI_HOURLY_LIMIT",
+        default_value_t = 60
+    )]
     pub ai_hourly_limit: u32,
 
     /// Seconds to wait for one answer of the AI service.
@@ -230,8 +240,7 @@ impl ChatConfig {
             "the POV answer and reply lifetimes must be positive"
         );
         anyhow::ensure!(self.ai_timeout_seconds >= 1, "TOKULY_AI_TIMEOUT_SECONDS must be at least 1");
-        let livekit =
-            [&self.livekit_url, &self.livekit_public_url, &self.livekit_api_key, &self.livekit_api_secret];
+        let livekit = [&self.livekit_url, &self.livekit_public_url, &self.livekit_api_key, &self.livekit_api_secret];
         let set = livekit.iter().filter(|value| !value.is_empty()).count();
         anyhow::ensure!(
             set == 0 || set == livekit.len(),

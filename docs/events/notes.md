@@ -1,0 +1,233 @@
+# notes — events, jobs and configuration
+
+Crate `tokuly-notes`, migration `0700_notes.sql`, API `tokuly.notes.v1`
+(`NoteService`, `StoryService`, realtime `NotesEvent`). Depends on `identity`,
+`social`, `stamp` and `media`.
+
+Notes are short posts (「今何してる?」); stories are 「記憶」: a title plus 1–10
+photos or videos that the owner's friends see for a day and that stay in the
+owner's archive afterwards.
+
+## Who may see what
+
+Every read goes through two SQL conditions in `tokuly_notes::visibility`
+(`sees_note`, `sees_story`); there is no second implementation.
+
+| | visible to |
+|---|---|
+| any note | its author, always |
+| PUBLIC note | everyone, signed in or not |
+| FRIENDS note | the author's friends; a FRIENDS reply also the author of the note it answers |
+| PRIVATE note | nobody else |
+| story | its owner (the archive); the owner's friends while it is live or for as long as it is in a highlight — a close-friends story only the friends chosen for it |
+
+Nobody sees anything across a block (either direction), and nobody else sees
+content of a suspended or deleted account. A reply is never shown more widely
+than the note it answers (narrowed when posted and when its visibility is
+changed). Friends and blocks are read from `tokuly_social::graph` on every
+request, so an unfriend or a block takes effect at once.
+
+Web paths used in notifications, activity entries, search documents and
+reports: `/notes/<note_id>`, `/notes/tags/<tag>`, `/stories/<story_id>`.
+
+## Events emitted
+
+Payload structs live in `tokuly_notes::events`. All are written in the
+transaction that makes the change.
+
+| Topic | Payload | When |
+|---|---|---|
+| `notes.note.created` | `{ note_id, author_id, visibility, reply_to_id, quote_of_id }` | A note, reply or quote note was posted. `visibility` is `tokuly.common.v1.Visibility` as its number (1 public, 4 friends, 5 private). |
+| `notes.note.deleted` | `{ note_id, author_id, reason }` | A note is gone for good. `reason`: `author`, `moderation`, `account_deleted`, `media_deleted`. Actor: the author, the moderator, the erased user, or nobody. |
+| `notes.note.visibility_changed` | `{ note_id, author_id, visibility }` | The author changed who may see a note (not emitted when nothing changed). |
+| `notes.story.created` | `{ story_id, owner_id, audience, expires_at }` | A story was posted. `audience` is `tokuly.notes.v1.StoryAudience` as its number (1 friends, 2 close friends). |
+| `notes.story.deleted` | `{ story_id, owner_id, reason }` | A story was deleted (same reasons as notes). Not emitted for an expiry. |
+| `notes.story.expired` | `{ story_id, owner_id }` | A story's day is over: it left the tray and is archive-only. Emitted exactly once per story by the expiry worker, shortly after `expires_at`. |
+
+Likes, renotes and views emit no domain event (they happen constantly); see
+"Analytics" below. The feed domain can consume `notes.note.deleted` /
+`notes.story.deleted` to drop activity entries of content that is gone.
+
+## Events consumed
+
+Durable consumer `notes` (`tokuly_notes::Notes::handle_event`). Every handler
+is idempotent.
+
+| Topic | Reaction |
+|---|---|
+| `identity.user.deleted` `{ user_id }` | Deletes the user's notes and stories with everything on them (uploads released, search documents removed, hashtag counts put right, `notes.note.deleted` / `notes.story.deleted` with reason `account_deleted`), their likes, renotes, story views and reactions (the counters they added go down again), their highlights and rules agreement, and takes them out of other people's mentions and close-friends audiences. Replies other people wrote to the erased notes stay and show what they answered as unavailable. |
+| `admin.content.removed` `{ subject_type, subject_id, reason, moderator_id }` | `SUBJECT_TYPE_NOTE` / `SUBJECT_TYPE_STORY`: the content is deleted like its author would delete it (reason `moderation`, actor = the moderator). Nobody is notified here: the admin domain tells the owner. Unknown or already removed subjects and other subject types are ignored. |
+| `media.asset.deleted` `{ asset_id, … }` | Safety net for forced deletions (notes and stories hold their uploads, so owners cannot delete those and the janitor leaves them alone). The picture or video is taken out of the notes and stories that show it; a note left with nothing (no text, no stamp, no other media) and a story left without items are deleted (reason `media_deleted`). Public notes get a fresh search document. |
+| `social.user.blocked` `{ user_id, blocked_id }` | Nothing has to be hidden (every read asks the social domain who is blocked). The handler removes the one standing grant between the two: being among the chosen friends of the other's close-friends stories. |
+
+## Realtime pushes
+
+`ServerFrame.notes` (`NotesEvent`).
+
+Topic `subject:3:<note_id>` (3 = `SUBJECT_TYPE_NOTE`; the topic kind `subject`
+is the engagement domain's, whose guard lets a client subscribe only to a note
+it can see at that moment):
+
+| Event | When |
+|---|---|
+| `counters_changed` (`NoteCounters`) | Likes, renotes, replies or quotes of the note changed. Views alone do not push; the view count rides along with the next change. |
+| `note_deleted_id` | The note was deleted. |
+| `link_preview_resolved` | The preview of the note's first link was fetched. To the topic only when the note is public; always to the author (user-scoped). |
+
+User-scoped:
+
+| Event | Sent to | When |
+|---|---|---|
+| `story_posted` (`Story`) | everyone the story is shown to (all friends, or the chosen friends), as they will see it; the owner's devices get the owner's view | A story was posted. |
+| `story_deleted` (`StoryRef`) | the same people, if the story was still live; always the owner | A story was deleted. |
+| `story_viewed` (`StoryViewCount`) | the owner | Someone watched the story for the first time. |
+| `story_reaction` (`StoryReaction`) | the owner | Someone reacted, or changed their reaction. |
+
+## Notification kinds
+
+All in the `notes` preference category. The actor is always the other user,
+so per-friend mutes apply. Only people who may see the note are notified, and
+each person at most once per note (reply, then quote, then mention).
+
+| Kind | Recipient | Notes |
+|---|---|---|
+| `notes.like` | note author | Collapsed per note (`notes.like:<note_id>`). The same person liking, unliking and liking again within 24 h is announced once. |
+| `notes.renote` | note author | Collapsed per note and renoter; announced once per 24 h like likes. |
+| `notes.reply` | author of the note answered | Body is the reply's text. |
+| `notes.quote` | author of the quoted note | |
+| `notes.mention` | each mentioned user | At most 10 mentions per note are resolved. People in a block with the author are not mentioned at all. |
+| `notes.story_reaction` | story owner | Collapsed per story and person: a changed emoji replaces the earlier notification. `data = { story_id, emoji }`. |
+
+`subject` is `(SUBJECT_TYPE_NOTE, note_id)` or `(SUBJECT_TYPE_STORY, story_id)`;
+`path` opens the note (for replies, quotes and mentions: the new note) or the story.
+
+## Activity entries
+
+| Kind | Audience | Notes |
+|---|---|---|
+| `note.posted` | matches the note: public / friends / private | Notes and quote notes. `data = { note_id, text, reply_to_id, quote_of_id, content_warning }`; image = first picture unless the note carries a content warning; location = the place tag. |
+| `note.replied` | matches the reply | Same data; `with_user_ids = [author of the note answered]`. |
+| `story.posted` | friends — private for a close-friends story (the feed cannot know who was chosen) | `data = { story_id, title, item_count, expires_at }`; image = the story's cover. |
+
+## Search documents
+
+| Kind | ID | Indexed while | Notes |
+|---|---|---|---|
+| `note` | note ID | the note is public (replies included) | `title` = one-line excerpt, `text`, `tags` = hashtags, `owner_id` = author, `score` = likes + 2·renotes + replies + quotes at indexing time, `extra = { author_handle, author_name, reply_to_id, content_warning, attachment_count }`. Removed when the note is deleted or stops being public. |
+| `hashtag` | hashtag ID | at least one public note carries it | `title` = `#tag`, `score` = public note count, `path` = `/notes/tags/<tag>`. The trending worker re-sends documents whose count moved since they were last indexed. |
+
+## Subjects, profiles, export
+
+- `SUBJECT_TYPE_NOTE` and `SUBJECT_TYPE_STORY` resolvers, visibility-aware.
+  Notes: `interactions_enabled = true` (likes and replies are native; the
+  generic domains add emoji reactions, bookmarks, shares and reports).
+  Stories: `false` (own reactions; replies are DMs), still reportable.
+  `counter_changed` is not implemented: every counter of a note is this
+  domain's own.
+- `ProfileExtension`: fills `ProfileStats.note_count` with the owner's notes
+  (replies aside) that the viewer may see.
+- `DataExporter` named `notes`: rules agreement, notes, likes, renotes,
+  stories, story views, highlights.
+
+## Other domains' APIs used
+
+- `tokuly_media::assets::{require_ready, attach, detach_holder}` — holders
+  `notes:note:<note_id>` and `notes:story:<story_id>`; purposes
+  `NOTE_IMAGE` / `NOTE_VIDEO` (notes) and `STORY` (stories).
+- `tokuly_media::link_preview` for the first link of a note (background job).
+- `tokuly_stamp::{ensure_usable, record_send(.., SendContext::Note), stamp_refs}`.
+- `tokuly_social::graph::{friend_ids, blocked_ids_either, record_interaction}`.
+  Interactions between friends are reported with weight 1: a reply as
+  `InteractionKind::Message`, a like or renote as `InteractionKind::MapReaction`
+  (the social domain has no kind of its own for note reactions).
+- `tokuly_identity::settings::privacy_of` (`default_note_visibility`),
+  `summaries`, and read-only lookups on `users` (handles for mentions, time
+  zone for the story calendar, account status).
+
+## Background work
+
+`Notes::spawn_workers` starts:
+
+| Worker | Schedule | What it does |
+|---|---|---|
+| event consumer | on events | See "Events consumed". |
+| job `notes.link_preview` | payload `LinkPreviewJob { note_id }`, concurrency 4, 3 attempts | Fetches the preview of a note's first link, stores it and pushes `link_preview_resolved` (`Notes::resolve_link_preview`). A link with nothing to show leaves the note without a preview. |
+| story expiry (`Notes::expire_stories`) | every `TOKULY_NOTES_STORY_EXPIRY_INTERVAL_SECONDS` | Marks stories past `expires_at` as archived and emits `notes.story.expired` once each. Visibility never depends on this pass. |
+| trending hashtags (`Notes::refresh_trends`) | every `TOKULY_NOTES_TREND_INTERVAL_SECONDS` | Recomputes `hashtag_trends` (top 50): hashtags used in public notes by at least `TOKULY_NOTES_TREND_MIN_AUTHORS` different people within the window; each person counts once per hashtag, by their latest use, halved every 6 hours. Also refreshes stale hashtag search documents. Safe to run in several processes (advisory lock). |
+
+## Analytics
+
+`core.analytics.track`: `note.post` (props: visibility, reply, quote,
+attachments), `note.like`, `note.renote` (owner = note author), `story.post`
+(props: items, close_friends), `story.view` (owner = story owner).
+
+## Valkey keys
+
+| Key | TTL | Purpose |
+|---|---|---|
+| `notes:idem:note:<user>:<key>` / `notes:idem:story:<user>:<key>` | 10 min | Idempotency keys of `CreateNote` / `CreateStory` → the ID created. |
+| `notes:view:<note>:<viewer>` | `TOKULY_NOTES_VIEW_WINDOW_HOURS` | One view per viewer (user ID, or `ip:<address>` for anonymous viewers) and note within the window. |
+| `notes:notified:<like\|renote>:<note>:<user>` | 24 h | Keeps repeated likes/renotes of one person from being announced again. |
+
+Rate limits (`rl:` keys): posting `TOKULY_NOTES_POSTS_PER_MINUTE` per minute
+and 1000 per day per user; likes and renotes (taking back included) 120/min;
+view reports 120/min per viewer (excess reports are ignored, not refused);
+stories `TOKULY_NOTES_STORIES_PER_HOUR` per hour; story reactions 60/min;
+hashtag completion 120/min per user or IP.
+
+## Configuration (`NotesConfig`)
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `TOKULY_NOTES_STORY_TTL_HOURS` | `24` | Hours a story stays visible to friends. |
+| `TOKULY_NOTES_POSTS_PER_MINUTE` | `30` | Notes (replies and quotes included) one user may post per minute. |
+| `TOKULY_NOTES_STORIES_PER_HOUR` | `30` | Stories one user may post per hour. |
+| `TOKULY_NOTES_VIEW_WINDOW_HOURS` | `6` | Hours within which repeated views by one viewer count once. |
+| `TOKULY_NOTES_TREND_INTERVAL_SECONDS` | `300` | Pause between trending recomputations. |
+| `TOKULY_NOTES_TREND_WINDOW_HOURS` | `24` | Hours of public notes the ranking looks at. |
+| `TOKULY_NOTES_TREND_MIN_AUTHORS` | `2` | Different people needed for a hashtag to trend. |
+| `TOKULY_NOTES_STORY_EXPIRY_INTERVAL_SECONDS` | `60` | Pause between story expiry passes. |
+
+The posting rules (`GetNoteRules`) are text in `tokuly_notes::rules`, Japanese
+and English; raising `RULES_VERSION` there asks everyone to agree again before
+their next note.
+
+## Limits
+
+Note: 300 characters (user-perceived; at most 40 bytes each on average), 4
+images or 1 video, 10 hashtags and 10 mentions resolved per note, place name
+100 characters. Story: title 140, 1–10 items, caption 200, at most 150 chosen
+friends. Highlight: title 1–30, 1–100 stories, 50 highlights per profile.
+
+## Public Rust API
+
+```rust
+impl Notes {
+    pub fn new(core: Core, identity: Identity, cfg: NotesConfig) -> anyhow::Result<Self>;
+    pub fn register(&self, router: connectrpc::Router) -> connectrpc::Router;
+    pub fn spawn_workers(&self);
+    /// For the demo simulator: posts a public-by-default note, recording the
+    /// author's agreement to the rules and skipping the posting rate limits.
+    pub async fn post_note(&self, author: Uuid, text: &str) -> AppResult<Uuid>;
+    // Worker entry points, public for tools and tests:
+    pub async fn handle_event(&self, event: Event) -> AppResult<()>;
+    pub async fn refresh_trends(&self) -> AppResult<usize>;
+    pub async fn expire_stories(&self) -> AppResult<u64>;
+    pub async fn resolve_link_preview(&self, note_id: Uuid) -> AppResult<()>;
+}
+```
+
+## Schema notes
+
+- A note is immutable apart from its visibility, pin and counters. Replies
+  and quotes point at their target without a foreign key, so they outlive it.
+- `note_likes.id` / `note_renotes.id` are time-ordered and are the keyset of
+  "who liked this" and "what did this user like"; a renote's ID also places it
+  among notes in timelines. A note appears once per timeline: where its latest
+  renote by someone in the list's scope puts it, or at its own position.
+- `hashtags.note_count` counts public notes only; `note_hashtags` links every
+  note, so friends-only notes still appear in a hashtag timeline for the
+  people who may see them.
+- `story_views` holds one row per viewer: when they watched and their
+  reaction (`''` = none). `stories.archived_at` only records that the expiry
+  was announced.

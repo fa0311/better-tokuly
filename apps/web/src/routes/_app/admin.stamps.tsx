@@ -1,7 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { ReviewScreen } from "#/features/stamps/review-screen";
 
-export const Route = createFileRoute("/_app/admin/stamps")({ component: Page });
-
-function Page() {
-  return <div className="p-6 text-xl font-black">admin stamps</div>;
-}
+export const Route = createFileRoute("/_app/admin/stamps")({ component: ReviewScreen });

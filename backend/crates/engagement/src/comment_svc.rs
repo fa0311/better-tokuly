@@ -96,6 +96,12 @@ impl CommentService for Engagement {
                 Some(page) => Page::new(page.limit, page.cursor, THREAD_PAGE, THREAD_PAGE_MAX),
                 None => Page::new(0, "", THREAD_PAGE, THREAD_PAGE_MAX),
             };
+            let is_owner = viewer.is_some_and(|viewer| found.subject.is_owned_by(viewer));
+            if !found.subject.info.interactions_enabled && !is_owner {
+                // Comments are turned off: like the top-level list, this one is empty.
+                page.decode::<serde_json::Value>()?;
+                return ok(ListRepliesResponse::default());
+            }
             let (rows, info) = self.replies(found.row.id, viewer, &found.hidden, &page).await?;
             let owners = Owners::from([(found.subject.key, found.owner_id())]);
             ok(ListRepliesResponse {

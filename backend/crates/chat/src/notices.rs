@@ -64,17 +64,28 @@ pub(crate) fn teaser(row: &MessageRow) -> Localized {
         msg::MEDIA => {
             let attachments = row.attachments();
             let count = attachments.len();
-            let first = attachments.first().and_then(|attachment| attachment.kind.as_known()).unwrap_or(AssetKind::ASSET_KIND_FILE);
+            let first = attachments
+                .first()
+                .and_then(|attachment| attachment.kind.as_known())
+                .unwrap_or(AssetKind::ASSET_KIND_FILE);
             let (icon, ja, en) = match first {
                 AssetKind::ASSET_KIND_IMAGE | AssetKind::ASSET_KIND_ANIMATION if count > 1 => {
                     ("📷", format!("写真を{count}枚送信しました"), format!("Sent {count} photos"))
                 }
-                AssetKind::ASSET_KIND_IMAGE | AssetKind::ASSET_KIND_ANIMATION => ("📷", "写真を送信しました".to_owned(), "Sent a photo".to_owned()),
+                AssetKind::ASSET_KIND_IMAGE | AssetKind::ASSET_KIND_ANIMATION => {
+                    ("📷", "写真を送信しました".to_owned(), "Sent a photo".to_owned())
+                }
                 AssetKind::ASSET_KIND_VIDEO => ("🎬", "動画を送信しました".to_owned(), "Sent a video".to_owned()),
-                AssetKind::ASSET_KIND_AUDIO => ("🎤", "ボイスメッセージを送信しました".to_owned(), "Sent a voice message".to_owned()),
+                AssetKind::ASSET_KIND_AUDIO => {
+                    ("🎤", "ボイスメッセージを送信しました".to_owned(), "Sent a voice message".to_owned())
+                }
                 _ => ("📎", "ファイルを送信しました".to_owned(), "Sent a file".to_owned()),
             };
-            if caption.is_empty() { Localized::new(format!("{icon} {ja}"), format!("{icon} {en}")) } else { Localized::same(format!("{icon} {caption}")) }
+            if caption.is_empty() {
+                Localized::new(format!("{icon} {ja}"), format!("{icon} {en}"))
+            } else {
+                Localized::same(format!("{icon} {caption}"))
+            }
         }
         _ => Localized::same(caption),
     }
@@ -103,7 +114,10 @@ pub(crate) fn message(
     let (title, body) = match kind {
         KIND_REQUEST => (
             Localized::same(sender_name.clone()),
-            Localized::new(format!("メッセージリクエストが届きました！「{}」", said.ja), format!("Message request: {}", said.en)),
+            Localized::new(
+                format!("メッセージリクエストが届きました！「{}」", said.ja),
+                format!("Message request: {}", said.en),
+            ),
         ),
         KIND_MENTION => (
             Localized::same(conv.name.clone()),
@@ -130,7 +144,14 @@ pub(crate) fn message(
 }
 
 /// "A reacted to your message".
-pub(crate) fn reaction(recipient: Uuid, reactor: &UserSummary, reactor_id: Uuid, conv: &ConversationRow, row: &MessageRow, emoji: &str) -> NotificationRequest {
+pub(crate) fn reaction(
+    recipient: Uuid,
+    reactor: &UserSummary,
+    reactor_id: Uuid,
+    conv: &ConversationRow,
+    row: &MessageRow,
+    emoji: &str,
+) -> NotificationRequest {
     let name = name_of(reactor);
     let said = teaser(row);
     let title = if conv.is_group() { Localized::same(conv.name.clone()) } else { Localized::same(name.clone()) };
@@ -147,7 +168,12 @@ pub(crate) fn reaction(recipient: Uuid, reactor: &UserSummary, reactor_id: Uuid,
 }
 
 /// "A added you to the group X".
-pub(crate) fn added_to_group(recipient: Uuid, adder: &UserSummary, adder_id: Uuid, conv: &ConversationRow) -> NotificationRequest {
+pub(crate) fn added_to_group(
+    recipient: Uuid,
+    adder: &UserSummary,
+    adder_id: Uuid,
+    conv: &ConversationRow,
+) -> NotificationRequest {
     let name = name_of(adder);
     NotificationRequest::new(
         recipient,
@@ -188,26 +214,49 @@ pub(crate) fn incoming_call(
     let body = match (conv.is_group(), video) {
         (false, false) => Localized::new("📞 音声通話の着信です！", "📞 Incoming voice call"),
         (false, true) => Localized::new("📹 ビデオ通話の着信です！", "📹 Incoming video call"),
-        (true, false) => Localized::new(format!("📞 {name}さんがグループ通話を始めました！"), format!("📞 {name} started a group call")),
-        (true, true) => {
-            Localized::new(format!("📹 {name}さんがグループビデオ通話を始めました！"), format!("📹 {name} started a group video call"))
-        }
+        (true, false) => Localized::new(
+            format!("📞 {name}さんがグループ通話を始めました！"),
+            format!("📞 {name} started a group call"),
+        ),
+        (true, true) => Localized::new(
+            format!("📹 {name}さんがグループビデオ通話を始めました！"),
+            format!("📹 {name} started a group video call"),
+        ),
     };
-    let request = NotificationRequest::new(recipient, KIND_CALL, call_title(caller, conv), body, conversation_path(conv.id))
-        .actor(caller_id)
-        .collapse(call_collapse_key(call_id))
-        .push_only()
-        .data(serde_json::json!({ "conversation_id": conv.id, "call_id": call_id, "video": video, "ringing": ringing }));
+    let request = NotificationRequest::new(
+        recipient,
+        KIND_CALL,
+        call_title(caller, conv),
+        body,
+        conversation_path(conv.id),
+    )
+    .actor(caller_id)
+    .collapse(call_collapse_key(call_id))
+    .push_only()
+    .data(serde_json::json!({ "conversation_id": conv.id, "call_id": call_id, "video": video, "ringing": ringing }));
     if ringing { request.urgent() } else { request }
 }
 
 /// A call the recipient did not answer.
-pub(crate) fn missed_call(recipient: Uuid, caller: &UserSummary, caller_id: Uuid, conv: &ConversationRow, call_id: Uuid, video: bool) -> NotificationRequest {
+pub(crate) fn missed_call(
+    recipient: Uuid,
+    caller: &UserSummary,
+    caller_id: Uuid,
+    conv: &ConversationRow,
+    call_id: Uuid,
+    video: bool,
+) -> NotificationRequest {
     let name = name_of(caller);
     let body = if video {
-        Localized::new(format!("{name}さんからのビデオ通話に出られませんでした"), format!("Missed video call from {name}"))
+        Localized::new(
+            format!("{name}さんからのビデオ通話に出られませんでした"),
+            format!("Missed video call from {name}"),
+        )
     } else {
-        Localized::new(format!("{name}さんからの音声通話に出られませんでした"), format!("Missed voice call from {name}"))
+        Localized::new(
+            format!("{name}さんからの音声通話に出られませんでした"),
+            format!("Missed voice call from {name}"),
+        )
     };
     NotificationRequest::new(recipient, KIND_CALL, call_title(caller, conv), body, conversation_path(conv.id))
         .actor(caller_id)
@@ -223,11 +272,21 @@ pub(crate) enum PovNotice {
     Saved,
 }
 
-pub(crate) fn pov(recipient: Uuid, notice: PovNotice, actor: &UserSummary, actor_id: Uuid, conversation_id: Uuid, request_id: Uuid) -> NotificationRequest {
+pub(crate) fn pov(
+    recipient: Uuid,
+    notice: PovNotice,
+    actor: &UserSummary,
+    actor_id: Uuid,
+    conversation_id: Uuid,
+    request_id: Uuid,
+) -> NotificationRequest {
     let name = name_of(actor);
     let (body, what) = match notice {
         PovNotice::Requested => (
-            Localized::new("📸 POVリクエストが届きました！今いる場所を見せてね", "📸 wants your POV — show where you are right now!"),
+            Localized::new(
+                "📸 POVリクエストが届きました！今いる場所を見せてね",
+                "📸 wants your POV — show where you are right now!",
+            ),
             "requested",
         ),
         PovNotice::Answered => (
@@ -311,8 +370,14 @@ mod tests {
         let photos = vec![attachment(AssetKind::ASSET_KIND_IMAGE), attachment(AssetKind::ASSET_KIND_IMAGE)];
         assert_eq!(teaser(&row(msg::MEDIA, "", photos.clone())).ja, "📷 写真を2枚送信しました");
         assert_eq!(teaser(&row(msg::MEDIA, "見て！", photos)).en, "📷 見て！");
-        assert_eq!(teaser(&row(msg::MEDIA, "", vec![attachment(AssetKind::ASSET_KIND_AUDIO)])).en, "🎤 Sent a voice message");
-        assert_eq!(teaser(&row(msg::MEDIA, "", vec![attachment(AssetKind::ASSET_KIND_FILE)])).ja, "📎 ファイルを送信しました");
+        assert_eq!(
+            teaser(&row(msg::MEDIA, "", vec![attachment(AssetKind::ASSET_KIND_AUDIO)])).en,
+            "🎤 Sent a voice message"
+        );
+        assert_eq!(
+            teaser(&row(msg::MEDIA, "", vec![attachment(AssetKind::ASSET_KIND_FILE)])).ja,
+            "📎 ファイルを送信しました"
+        );
     }
 
     #[test]
@@ -332,7 +397,8 @@ mod tests {
         assert_eq!((in_group.title.ja.as_str(), in_group.body.ja.as_str()), ("放課後", "たろう: やっほー"));
         assert_eq!(in_group.collapse_key.as_deref(), Some(format!("chat:{}", group.id).as_str()));
 
-        let request = message(recipient, KIND_REQUEST, &sender, sender_id, &conversation(kind::DIRECT, ""), &text, None);
+        let request =
+            message(recipient, KIND_REQUEST, &sender, sender_id, &conversation(kind::DIRECT, ""), &text, None);
         assert!(request.inbox && request.push);
         assert!(request.body.en.starts_with("Message request"));
     }
@@ -345,7 +411,8 @@ mod tests {
         let direct = conversation(kind::DIRECT, "");
         let ringing = incoming_call(new_id(), &caller, caller_id, &direct, call_id, true, true);
         assert!(ringing.urgent && !ringing.inbox);
-        let quiet = incoming_call(new_id(), &caller, caller_id, &conversation(kind::GROUP, "部活"), call_id, false, false);
+        let quiet =
+            incoming_call(new_id(), &caller, caller_id, &conversation(kind::GROUP, "部活"), call_id, false, false);
         assert!(!quiet.urgent);
         let missed = missed_call(new_id(), &caller, caller_id, &direct, call_id, true);
         assert!(!missed.urgent && missed.inbox);

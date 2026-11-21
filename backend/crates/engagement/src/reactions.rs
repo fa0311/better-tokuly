@@ -73,7 +73,8 @@ impl Stored {
 
 /// Checks the reaction of a `SetReaction` request.
 pub(crate) fn requested(reaction: Option<&Reaction>) -> AppResult<Stored> {
-    let kind = reaction.and_then(|reaction| reaction.kind.as_known()).unwrap_or(ReactionKind::REACTION_KIND_UNSPECIFIED);
+    let kind =
+        reaction.and_then(|reaction| reaction.kind.as_known()).unwrap_or(ReactionKind::REACTION_KIND_UNSPECIFIED);
     match kind {
         ReactionKind::REACTION_KIND_LIKE => Ok(Stored { kind: LIKE, emoji: String::new() }),
         ReactionKind::REACTION_KIND_DISLIKE => Ok(Stored { kind: DISLIKE, emoji: String::new() }),
@@ -88,7 +89,11 @@ pub(crate) fn requested(reaction: Option<&Reaction>) -> AppResult<Stored> {
 }
 
 /// The reactions of `user_id` to `keys`.
-pub(crate) async fn of_user(core: &Core, user_id: Uuid, keys: &[SubjectKey]) -> AppResult<HashMap<SubjectKey, Reaction>> {
+pub(crate) async fn of_user(
+    core: &Core,
+    user_id: Uuid,
+    keys: &[SubjectKey],
+) -> AppResult<HashMap<SubjectKey, Reaction>> {
     if keys.is_empty() {
         return Ok(HashMap::new());
     }
@@ -104,12 +109,18 @@ pub(crate) async fn of_user(core: &Core, user_id: Uuid, keys: &[SubjectKey]) -> 
     .await?;
     Ok(rows
         .into_iter()
-        .map(|(subject_type, subject_id, kind, emoji)| (SubjectKey { kind: subject_type, id: subject_id }, Stored { kind, emoji }.to_proto()))
+        .map(|(subject_type, subject_id, kind, emoji)| {
+            (SubjectKey { kind: subject_type, id: subject_id }, Stored { kind, emoji }.to_proto())
+        })
         .collect())
 }
 
 /// The reactions of `user_id` to comments, by comment ID.
-pub(crate) async fn of_user_on_comments(core: &Core, user_id: Uuid, comment_ids: &[Uuid]) -> AppResult<HashMap<Uuid, Reaction>> {
+pub(crate) async fn of_user_on_comments(
+    core: &Core,
+    user_id: Uuid,
+    comment_ids: &[Uuid],
+) -> AppResult<HashMap<Uuid, Reaction>> {
     let keys: Vec<SubjectKey> = comment_ids.iter().map(|id| SubjectKey::of_comment(*id)).collect();
     Ok(of_user(core, user_id, &keys).await?.into_iter().map(|(key, reaction)| (key.id, reaction)).collect())
 }
@@ -117,7 +128,8 @@ pub(crate) async fn of_user_on_comments(core: &Core, user_id: Uuid, comment_ids:
 /// A reaction entered (`delta` 1) or left (`delta` -1) the counters of its
 /// subject. A comment's own counts go first: every path locks the comment
 /// row before the statistics row. Returns `false` when the subject is a
-/// comment that no longer exists (nothing is counted then).
+/// comment that no longer exists (nothing is counted then; only possible
+/// when the reaction's row was removed by other means).
 async fn count(
     conn: &mut PgConnection,
     effects: &mut Effects,
@@ -140,17 +152,23 @@ async fn count(
             return Ok(false);
         }
     }
-    stats::add(conn, key, owner_id, reaction.counter(), delta).await?;
+    // The statistics row is always the last lock taken.
     if reaction.kind == EMOJI {
         stats::add_emoji(conn, key, &reaction.emoji, delta).await?;
     }
+    stats::add(conn, key, owner_id, reaction.counter(), delta).await?;
     effects.count(key, reaction.counter(), delta);
     Ok(true)
 }
 
 /// Takes a reaction whose row was deleted by other means (its user's
 /// account was erased) out of the counters of its subject.
-pub(crate) async fn uncount(conn: &mut PgConnection, effects: &mut Effects, key: SubjectKey, reaction: &Stored) -> AppResult<()> {
+pub(crate) async fn uncount(
+    conn: &mut PgConnection,
+    effects: &mut Effects,
+    key: SubjectKey,
+    reaction: &Stored,
+) -> AppResult<()> {
     count(conn, effects, key, None, reaction, -1).await?;
     Ok(())
 }
@@ -173,13 +191,29 @@ pub(crate) async fn replace(
         .bind(format!("engagement:reaction:{user_id}:{}:{}", key.kind, key.id))
         .execute(&mut *conn)
         .await?;
-    let previous: Option<Stored> =
-        sqlx::query_as("SELECT kind, emoji FROM reactions WHERE user_id = $1 AND subject_type = $2 AND subject_id = $3")
-            .bind(user_id)
-            .bind(key.kind)
+    if key.is_comment() {
+        // A comment is locked before anything that hangs off it, here as in
+        // its deletion — which this reaction therefore either precedes
+        // (and is purged by) or follows (and is refused).
+        let comment: Option<Uuid> = sqlx::query_scalar("SELECT id FROM comments WHERE id = $1 FOR UPDATE")
             .bind(key.id)
             .fetch_optional(&mut *conn)
             .await?;
+        ensure!(
+            comment.is_some() || new.is_none(),
+            not_found,
+            "SUBJECT_NOT_FOUND",
+            "the item does not exist or is not visible to you"
+        );
+    }
+    let previous: Option<Stored> = sqlx::query_as(
+        "SELECT kind, emoji FROM reactions WHERE user_id = $1 AND subject_type = $2 AND subject_id = $3",
+    )
+    .bind(user_id)
+    .bind(key.kind)
+    .bind(key.id)
+    .fetch_optional(&mut *conn)
+    .await?;
     if previous.as_ref() == new {
         return Ok(previous);
     }
@@ -210,19 +244,18 @@ pub(crate) async fn replace(
         count(conn, effects, key, owner_id, previous, -1).await?;
     }
     if let Some(new) = new {
-        // The comment was deleted while this reaction was on its way: the
-        // error rolls the reaction back with the rest of the transaction.
-        ensure!(
-            count(conn, effects, key, owner_id, new, 1).await?,
-            not_found,
-            "SUBJECT_NOT_FOUND",
-            "the item does not exist or is not visible to you"
-        );
+        count(conn, effects, key, owner_id, new, 1).await?;
     }
     Ok(previous)
 }
 
-fn changed(user_id: Uuid, key: SubjectKey, owner_id: Option<Uuid>, new: Option<&Stored>, previous: Option<&Stored>) -> ReactionChanged {
+fn changed(
+    user_id: Uuid,
+    key: SubjectKey,
+    owner_id: Option<Uuid>,
+    new: Option<&Stored>,
+    previous: Option<&Stored>,
+) -> ReactionChanged {
     ReactionChanged {
         user_id,
         subject_type: key.kind,
@@ -236,18 +269,33 @@ fn changed(user_id: Uuid, key: SubjectKey, owner_id: Option<Uuid>, new: Option<&
 }
 
 /// The notification a subject's owner gets about a like or an emoji.
-fn applause(owner_id: Uuid, actor_id: Uuid, actor_name: &str, subject: &Subject, reaction: &Stored) -> NotificationRequest {
+fn applause(
+    owner_id: Uuid,
+    actor_id: Uuid,
+    actor_name: &str,
+    subject: &Subject,
+    reaction: &Stored,
+) -> NotificationRequest {
     let title = if reaction.kind == EMOJI {
-        Localized::new(format!("{actor_name}が{}でリアクションしたよ!", reaction.emoji), format!("{actor_name} reacted {}", reaction.emoji))
+        Localized::new(
+            format!("{actor_name}が{}でリアクションしたよ!", reaction.emoji),
+            format!("{actor_name} reacted {}", reaction.emoji),
+        )
     } else if subject.key.is_comment() {
         Localized::new(format!("{actor_name}がコメントにいいねしたよ!"), format!("{actor_name} liked your comment"))
     } else {
         Localized::new(format!("{actor_name}がいいねしたよ!"), format!("{actor_name} liked your post"))
     };
-    let mut request = NotificationRequest::new(owner_id, KIND_LIKE, title, Localized::same(text::excerpt(&subject.info.title, 100)), &subject.info.path)
-        .actor(actor_id)
-        .subject(subject.key.subject_type(), subject.key.id)
-        .collapse(format!("{KIND_LIKE}:{}:{}", subject.key.kind, subject.key.id));
+    let mut request = NotificationRequest::new(
+        owner_id,
+        KIND_LIKE,
+        title,
+        Localized::same(text::excerpt(&subject.info.title, 100)),
+        &subject.info.path,
+    )
+    .actor(actor_id)
+    .subject(subject.key.subject_type(), subject.key.id)
+    .collapse(format!("{KIND_LIKE}:{}:{}", subject.key.kind, subject.key.id));
     if let Some(image_url) = &subject.info.image_url {
         request = request.image(image_url);
     }
@@ -283,14 +331,22 @@ impl Engagement {
     /// Reacts to a subject, replacing the caller's previous reaction
     /// (`ReactionService.SetReaction`).
     pub(crate) async fn set_reaction(&self, user_id: Uuid, subject: &Subject, new: &Stored) -> AppResult<()> {
-        ensure!(subject.info.interactions_enabled, precondition, "INTERACTIONS_DISABLED", "reactions are turned off here");
+        ensure!(
+            subject.info.interactions_enabled,
+            precondition,
+            "INTERACTIONS_DISABLED",
+            "reactions are turned off here"
+        );
         ensure!(
             !(subject.key.is_comment() && new.kind == EMOJI),
             invalid,
             "EMOJI_NOT_ALLOWED",
             "comments take likes and dislikes, not emoji"
         );
-        self.core.cache.rate_limit(&format!("engagement:reaction:{user_id}"), CHANGES_PER_MINUTE, Duration::from_secs(60)).await?;
+        self.core
+            .cache
+            .rate_limit(&format!("engagement:reaction:{user_id}"), CHANGES_PER_MINUTE, Duration::from_secs(60))
+            .await?;
         let owner_to_tell = subject.owner().filter(|owner_id| *owner_id != user_id && new.is_applause());
         let actor_name = match owner_to_tell {
             Some(_) => {
@@ -334,7 +390,10 @@ impl Engagement {
     /// Takes the caller's reaction back (`ReactionService.RemoveReaction`).
     /// Works on a subject that no longer resolves, by its UUID.
     pub(crate) async fn remove_reaction(&self, user_id: Uuid, subject: &LooseSubject) -> AppResult<()> {
-        self.core.cache.rate_limit(&format!("engagement:reaction:{user_id}"), CHANGES_PER_MINUTE, Duration::from_secs(60)).await?;
+        self.core
+            .cache
+            .rate_limit(&format!("engagement:reaction:{user_id}"), CHANGES_PER_MINUTE, Duration::from_secs(60))
+            .await?;
         let owner_id = subject.subject.as_ref().map(|subject| subject.info.owner_id);
         let mut tx = self.core.db.begin().await?;
         let mut effects = Effects::default();
@@ -406,7 +465,13 @@ impl Engagement {
     /// The subjects `user_id` reacted to, most recent first
     /// (`ReactionService.ListMyReactions`). `subject_type` and `kind` of 0
     /// mean "any".
-    pub(crate) async fn reacted_subjects(&self, user_id: Uuid, subject_type: i32, kind: i32, page: &Page) -> AppResult<(Vec<ReactedRow>, PageInfo)> {
+    pub(crate) async fn reacted_subjects(
+        &self,
+        user_id: Uuid,
+        subject_type: i32,
+        kind: i32,
+        page: &Page,
+    ) -> AppResult<(Vec<ReactedRow>, PageInfo)> {
         let after: Option<(DateTime<Utc>, Uuid)> = page.decode()?;
         let (after_time, after_subject) = after.unzip();
         let mut rows: Vec<ReactedRow> = sqlx::query_as(
@@ -441,12 +506,27 @@ mod tests {
 
     #[test]
     fn requests_are_checked_and_normalized() {
-        assert_eq!(requested(Some(&reaction(ReactionKind::REACTION_KIND_LIKE, "🎉"))).unwrap(), Stored { kind: LIKE, emoji: String::new() });
+        assert_eq!(
+            requested(Some(&reaction(ReactionKind::REACTION_KIND_LIKE, "🎉"))).unwrap(),
+            Stored { kind: LIKE, emoji: String::new() }
+        );
         assert_eq!(requested(Some(&reaction(ReactionKind::REACTION_KIND_DISLIKE, ""))).unwrap().kind, DISLIKE);
-        assert_eq!(requested(Some(&reaction(ReactionKind::REACTION_KIND_EMOJI, " 🎉 "))).unwrap(), Stored { kind: EMOJI, emoji: "🎉".into() });
-        assert_eq!(requested(Some(&reaction(ReactionKind::REACTION_KIND_EMOJI, "nope"))).unwrap_err().reason, "EMOJI_INVALID");
-        assert_eq!(requested(Some(&reaction(ReactionKind::REACTION_KIND_EMOJI, ""))).unwrap_err().reason, "EMOJI_INVALID");
-        assert_eq!(requested(Some(&reaction(ReactionKind::REACTION_KIND_UNSPECIFIED, ""))).unwrap_err().reason, "REACTION_INVALID");
+        assert_eq!(
+            requested(Some(&reaction(ReactionKind::REACTION_KIND_EMOJI, " 🎉 "))).unwrap(),
+            Stored { kind: EMOJI, emoji: "🎉".into() }
+        );
+        assert_eq!(
+            requested(Some(&reaction(ReactionKind::REACTION_KIND_EMOJI, "nope"))).unwrap_err().reason,
+            "EMOJI_INVALID"
+        );
+        assert_eq!(
+            requested(Some(&reaction(ReactionKind::REACTION_KIND_EMOJI, ""))).unwrap_err().reason,
+            "EMOJI_INVALID"
+        );
+        assert_eq!(
+            requested(Some(&reaction(ReactionKind::REACTION_KIND_UNSPECIFIED, ""))).unwrap_err().reason,
+            "REACTION_INVALID"
+        );
         assert_eq!(requested(None).unwrap_err().reason, "REACTION_INVALID");
     }
 
@@ -488,7 +568,10 @@ mod tests {
         };
         let note = subject(SubjectType::SUBJECT_TYPE_NOTE);
         let like = applause(owner, actor, "アリス", &note, &Stored { kind: LIKE, emoji: String::new() });
-        assert_eq!((like.kind.as_str(), like.title.ja.as_str(), like.body.ja.as_str()), (KIND_LIKE, "アリスがいいねしたよ!", "今日のランチ"));
+        assert_eq!(
+            (like.kind.as_str(), like.title.ja.as_str(), like.body.ja.as_str()),
+            (KIND_LIKE, "アリスがいいねしたよ!", "今日のランチ")
+        );
         assert_eq!(like.collapse_key.as_deref(), Some(format!("engagement.like:3:{}", note.key.id).as_str()));
         assert_eq!((like.actor_id, like.user_id, like.path.as_str()), (Some(actor), owner, "/notes/abc"));
         assert_eq!(like.image_url.as_deref(), Some("https://media.test/a.webp"));

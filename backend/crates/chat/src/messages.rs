@@ -76,7 +76,13 @@ impl Chat {
     /// Resolves the uploads of a message. Images, voice messages and files
     /// must be processed; a video may still be transcoding (the message is
     /// updated when it finishes).
-    pub(crate) async fn resolve_attachments(&self, user_id: Uuid, asset_ids: &[String], purposes: &[AssetPurpose], max: usize) -> AppResult<Vec<AssetRow>> {
+    pub(crate) async fn resolve_attachments(
+        &self,
+        user_id: Uuid,
+        asset_ids: &[String],
+        purposes: &[AssetPurpose],
+        max: usize,
+    ) -> AppResult<Vec<AssetRow>> {
         ensure!(asset_ids.len() <= max, invalid, "TOO_MANY_ATTACHMENTS", "a message can carry at most {max} uploads");
         let mut resolved: Vec<AssetRow> = Vec::with_capacity(asset_ids.len());
         for asset_id in asset_ids {
@@ -85,9 +91,14 @@ impl Chat {
                 continue;
             }
             let asset = assets::require(&self.core, asset_id, user_id, purposes, false).await?;
-            let transcoding =
-                asset.has_status(AssetStatus::ASSET_STATUS_PROCESSING) && asset.asset_purpose() == AssetPurpose::ASSET_PURPOSE_CHAT_VIDEO;
-            ensure!(asset.is_ready() || transcoding, precondition, "ASSET_NOT_READY", "the upload is still being processed");
+            let transcoding = asset.has_status(AssetStatus::ASSET_STATUS_PROCESSING)
+                && asset.asset_purpose() == AssetPurpose::ASSET_PURPOSE_CHAT_VIDEO;
+            ensure!(
+                asset.is_ready() || transcoding,
+                precondition,
+                "ASSET_NOT_READY",
+                "the upload is still being processed"
+            );
             resolved.push(asset);
         }
         Ok(resolved)
@@ -95,7 +106,11 @@ impl Chat {
 
     /// Members mentioned by `@handle` in `text`, in order of appearance, and
     /// whether `@all` addresses everyone (groups only).
-    pub(crate) async fn resolve_mentions(&self, conv: &ConversationRow, text: &str) -> AppResult<(Vec<MentionRef>, bool)> {
+    pub(crate) async fn resolve_mentions(
+        &self,
+        conv: &ConversationRow,
+        text: &str,
+    ) -> AppResult<(Vec<MentionRef>, bool)> {
         let found = content::parse_mentions(text);
         let everyone = found.everyone && conv.is_group();
         if found.handles.is_empty() {
@@ -114,7 +129,12 @@ impl Chat {
         let mentions = found
             .handles
             .iter()
-            .filter_map(|handle| members.iter().find(|(_, member)| member == handle).map(|(user_id, _)| MentionRef { user_id: *user_id, handle: handle.clone() }))
+            .filter_map(|handle| {
+                members
+                    .iter()
+                    .find(|(_, member)| member == handle)
+                    .map(|(user_id, _)| MentionRef { user_id: *user_id, handle: handle.clone() })
+            })
             .collect();
         Ok((mentions, everyone))
     }
@@ -125,7 +145,10 @@ impl Chat {
         let not_found = || AppError::not_found("REPLY_NOT_FOUND", "the message you are replying to does not exist");
         let message_id = parse_id(message_id)?;
         let answered = access::find_message(&self.core, message_id).await?.ok_or_else(not_found)?;
-        let usable = answered.conversation_id == access.conv.id && access.sees(answered.seq) && !answered.is_deleted() && answered.kind != msg::SYSTEM;
+        let usable = answered.conversation_id == access.conv.id
+            && access.sees(answered.seq)
+            && !answered.is_deleted()
+            && answered.kind != msg::SYSTEM;
         if !usable {
             return Err(not_found());
         }
@@ -155,7 +178,9 @@ impl Chat {
         } else if let Some(location) = location {
             Draft { location: Some(validate_location(location)?), ..Draft::from_user(msg::LOCATION, user_id) }
         } else {
-            let attachments = self.resolve_attachments(user_id, &req.attachment_asset_ids, CHAT_PURPOSES, content::MAX_ATTACHMENTS).await?;
+            let attachments = self
+                .resolve_attachments(user_id, &req.attachment_asset_ids, CHAT_PURPOSES, content::MAX_ATTACHMENTS)
+                .await?;
             let message_kind = if attachments.is_empty() { msg::TEXT } else { msg::MEDIA };
             let (mentions, mention_all) = self.resolve_mentions(&access.conv, &text).await?;
             let link_url = content::first_url(&text);
@@ -167,7 +192,12 @@ impl Chat {
         Ok(draft)
     }
 
-    async fn find_by_client_id(&self, conversation_id: Uuid, sender_id: Uuid, client_id: &str) -> AppResult<Option<MessageRow>> {
+    async fn find_by_client_id(
+        &self,
+        conversation_id: Uuid,
+        sender_id: Uuid,
+        client_id: &str,
+    ) -> AppResult<Option<MessageRow>> {
         Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "SELECT {MSG} FROM chat_messages x WHERE x.conversation_id = $1 AND x.sender_id = $2 AND x.client_id = $3"
         )))
@@ -179,14 +209,21 @@ impl Chat {
     }
 
     async fn limit_sending(&self, user_id: Uuid) -> AppResult<()> {
-        self.core.cache.rate_limit(&format!("chat-send:{user_id}"), self.cfg.messages_per_minute, Duration::from_secs(60)).await
+        self.core
+            .cache
+            .rate_limit(&format!("chat-send:{user_id}"), self.cfg.messages_per_minute, Duration::from_secs(60))
+            .await
     }
 
     // ───────────────────────────── sending ─────────────────────────────
 
     /// Sends a message. Returns the stored message and whether it had been
     /// sent before under the same `client_id`.
-    pub(crate) async fn send_message(&self, user_id: Uuid, req: &pb::SendMessageRequest) -> AppResult<(Access, MessageRow, bool)> {
+    pub(crate) async fn send_message(
+        &self,
+        user_id: Uuid,
+        req: &pb::SendMessageRequest,
+    ) -> AppResult<(Access, MessageRow, bool)> {
         let conversation_id = parse_id(&req.conversation_id)?;
         content::validate_client_id(&req.client_id, content::MAX_CLIENT_ID_LEN)?;
         let access = self.access(user_id, conversation_id).await?;
@@ -200,6 +237,7 @@ impl Chat {
         self.limit_sending(user_id).await?;
         draft.client_id = Some(req.client_id.clone());
         draft.is_request = permit.is_request;
+        let draft = self.with_notifications(&access.conv, draft).await?;
         let posted = self.post_and_announce(conversation_id, draft).await?;
         Ok((access, posted.row, posted.duplicate))
     }
@@ -213,12 +251,13 @@ impl Chat {
         }
         let permit = self.ensure_can_send(&access, Content::Plain).await?;
         self.limit_sending(user_id).await?;
+        let draft = Draft { is_request: permit.is_request, ..Draft::from_user(msg::HELLO, user_id) };
+        let draft = self.with_notifications(&access.conv, draft).await?;
         let mut tx = self.core.db.begin().await?;
         let mut conv = access::lock_conversation(&mut tx, access.conv.id).await?;
         if conv.last_seq > 0 {
             return Err(not_first());
         }
-        let draft = Draft { is_request: permit.is_request, ..Draft::from_user(msg::HELLO, user_id) };
         let posted = self.post(&mut tx, &mut conv, draft).await?;
         tx.commit().await?;
         self.announce(&posted).await;
@@ -237,27 +276,42 @@ impl Chat {
         let (mentions, mention_all) = self.resolve_mentions(&access.conv, &text).await?;
         let link_url = content::first_url(&text);
         let draft = Draft { text, mentions, mention_all, link_url, ..Draft::from_user(msg::TEXT, sender) };
+        let draft = self.with_notifications(&access.conv, draft).await?;
         Ok(self.post_and_announce(conversation_id, draft).await?.row.id)
     }
 
     // ───────────────────────────── editing and deleting ─────────────────────────────
 
-    pub(crate) async fn edit_message(&self, user_id: Uuid, message_id: Uuid, text: &str) -> AppResult<(Access, MessageRow)> {
+    pub(crate) async fn edit_message(
+        &self,
+        user_id: Uuid,
+        message_id: Uuid,
+        text: &str,
+    ) -> AppResult<(Access, MessageRow)> {
         let (access, row) = self.message_access(user_id, message_id).await?;
         ensure!(row.sender_id == Some(user_id), denied, "NOT_ALLOWED", "you can only edit your own messages");
-        let editable = !row.is_deleted() && !row.forwarded && matches!(row.kind, msg::TEXT | msg::MEDIA) && !row.is_pov_reply();
+        let editable =
+            !row.is_deleted() && !row.forwarded && matches!(row.kind, msg::TEXT | msg::MEDIA) && !row.is_pov_reply();
         ensure!(editable, precondition, "MESSAGE_NOT_EDITABLE", "this message cannot be edited");
         let age = (now() - row.created_at).num_seconds();
-        ensure!(age <= self.cfg.edit_window_seconds, precondition, "EDIT_WINDOW_CLOSED", "this message is too old to be edited");
+        ensure!(
+            age <= self.cfg.edit_window_seconds,
+            precondition,
+            "EDIT_WINDOW_CLOSED",
+            "this message is too old to be edited"
+        );
         let text = content::normalize_text(text)?;
         ensure!(!text.is_empty() || row.kind == msg::MEDIA, invalid, "MESSAGE_EMPTY", "the message is empty");
         self.ensure_writable(&access).await?;
         if text == row.text {
             return Ok((access, row));
         }
+        // An edit reaches every member like a message does.
+        self.limit_sending(user_id).await?;
         let (mentions, mention_all) = self.resolve_mentions(&access.conv, &text).await?;
         let link_url = content::first_url(&text);
-        let mentions = serde_json::to_value(&mentions).map_err(|e| AppError::internal(anyhow::anyhow!("mentions encode: {e}")))?;
+        let mentions =
+            serde_json::to_value(&mentions).map_err(|e| AppError::internal(anyhow::anyhow!("mentions encode: {e}")))?;
         // The preview is kept when the link is the same, and fetched again otherwise.
         let updated: MessageRow = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "UPDATE chat_messages x SET
@@ -312,12 +366,19 @@ impl Chat {
     /// released, its reactions and pin removed, and members who had not read
     /// it yet lose it from their unread count. Returns the tombstone, or
     /// `None` when the message does not exist or was deleted before.
-    pub(crate) async fn tombstone(&self, message_id: Uuid, deleted_by: Option<Uuid>, moderated: bool) -> AppResult<Option<MessageRow>> {
+    pub(crate) async fn tombstone(
+        &self,
+        message_id: Uuid,
+        deleted_by: Option<Uuid>,
+        moderated: bool,
+    ) -> AppResult<Option<MessageRow>> {
         let mut tx = self.core.db.begin().await?;
-        let row: Option<MessageRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {MSG} FROM chat_messages x WHERE x.id = $1 FOR UPDATE")))
-            .bind(message_id)
-            .fetch_optional(&mut *tx)
-            .await?;
+        let row: Option<MessageRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT {MSG} FROM chat_messages x WHERE x.id = $1 FOR UPDATE"
+        )))
+        .bind(message_id)
+        .fetch_optional(&mut *tx)
+        .await?;
         let Some(row) = row.filter(|row| !row.is_deleted()) else { return Ok(None) };
         if row.counts_as_unread() {
             let mentioned: Vec<Uuid> = row.mentions().iter().map(|mention| mention.user_id).collect();
@@ -364,13 +425,20 @@ impl Chat {
         } else {
             None
         };
-        let deleted = MessageDeleted { message_id, conversation_id: row.conversation_id, sender_id: row.sender_id, deleted_by, moderated };
+        let deleted = MessageDeleted {
+            message_id,
+            conversation_id: row.conversation_id,
+            sender_id: row.sender_id,
+            deleted_by,
+            moderated,
+        };
         events::emit(&mut *tx, MESSAGE_DELETED, deleted_by, &deleted).await?;
         tx.commit().await?;
 
         self.push_message_updated(&tombstone, pb::MessageUpdateReason::MESSAGE_UPDATE_REASON_DELETED).await;
         if let Some(request_message_id) = pov_request_message {
-            self.push_message_updated_by_id(request_message_id, pb::MessageUpdateReason::MESSAGE_UPDATE_REASON_POV).await;
+            self.push_message_updated_by_id(request_message_id, pb::MessageUpdateReason::MESSAGE_UPDATE_REASON_POV)
+                .await;
         }
         Ok(Some(tombstone))
     }
@@ -402,7 +470,12 @@ impl Chat {
     }
 
     /// A window of the conversation at `position`; without one, the newest messages.
-    pub(crate) async fn message_window(&self, access: &Access, position: Option<&Position>, limit: i32) -> AppResult<MessageWindow> {
+    pub(crate) async fn message_window(
+        &self,
+        access: &Access,
+        position: Option<&Position>,
+        limit: i32,
+    ) -> AppResult<MessageWindow> {
         let limit = if limit <= 0 { Page::DEFAULT_LIMIT } else { i64::from(limit).min(MAX_MESSAGES_PAGE) };
         // A window centred on a message: `limit` messages in all, the centre
         // sitting just past the middle.
@@ -427,14 +500,24 @@ impl Chat {
                 let has_older = rows.len() as i64 > limit;
                 rows.truncate(limit as usize);
                 rows.reverse();
-                Ok(MessageWindow::new(rows, has_older, before <= access.conv.last_seq, (before, before.saturating_sub(1))))
+                Ok(MessageWindow::new(
+                    rows,
+                    has_older,
+                    before <= access.conv.last_seq,
+                    (before, before.saturating_sub(1)),
+                ))
             }
             Some(Position::After(cursor)) => {
                 let after: i64 = page::decode_cursor(cursor)?;
                 let mut rows = self.messages_from(access, after.saturating_add(1), limit + 1).await?;
                 let has_newer = rows.len() as i64 > limit;
                 rows.truncate(limit as usize);
-                Ok(MessageWindow::new(rows, after > access.me.history_from_seq, has_newer, (after.saturating_add(1), after)))
+                Ok(MessageWindow::new(
+                    rows,
+                    after > access.me.history_from_seq,
+                    has_newer,
+                    (after.saturating_add(1), after),
+                ))
             }
             Some(Position::AroundMessageId(message_id)) => {
                 let centre = access::find_message(&self.core, parse_id(message_id)?)
@@ -456,7 +539,12 @@ impl Chat {
     }
 
     /// Messages of a conversation whose text contains `query`, newest first.
-    pub(crate) async fn search_messages(&self, access: &Access, query: &str, page: &Page) -> AppResult<(Vec<MessageRow>, PageInfo)> {
+    pub(crate) async fn search_messages(
+        &self,
+        access: &Access,
+        query: &str,
+        page: &Page,
+    ) -> AppResult<(Vec<MessageRow>, PageInfo)> {
         let pattern = content::search_pattern(query)?;
         self.core.cache.rate_limit(&format!("chat-search:{}", access.me.user_id), 60, Duration::from_secs(60)).await?;
         let before: Option<i64> = page.decode()?;
@@ -478,9 +566,16 @@ impl Chat {
     }
 
     /// The uploads shared in a conversation, newest first.
-    pub(crate) async fn shared_media(&self, access: &Access, filter: pb::SharedMediaFilter, page: &Page) -> AppResult<(Vec<pb::SharedMedia>, PageInfo)> {
+    pub(crate) async fn shared_media(
+        &self,
+        access: &Access,
+        filter: pb::SharedMediaFilter,
+        page: &Page,
+    ) -> AppResult<(Vec<pb::SharedMedia>, PageInfo)> {
         let kinds: &[AssetKind] = match filter {
-            pb::SharedMediaFilter::SHARED_MEDIA_FILTER_VISUAL => &[AssetKind::ASSET_KIND_IMAGE, AssetKind::ASSET_KIND_VIDEO, AssetKind::ASSET_KIND_ANIMATION],
+            pb::SharedMediaFilter::SHARED_MEDIA_FILTER_VISUAL => {
+                &[AssetKind::ASSET_KIND_IMAGE, AssetKind::ASSET_KIND_VIDEO, AssetKind::ASSET_KIND_ANIMATION]
+            }
             pb::SharedMediaFilter::SHARED_MEDIA_FILTER_AUDIO => &[AssetKind::ASSET_KIND_AUDIO],
             pb::SharedMediaFilter::SHARED_MEDIA_FILTER_FILES => &[AssetKind::ASSET_KIND_FILE],
             _ => &[],
@@ -493,7 +588,10 @@ impl Chat {
         );
         query.push_bind(access.conv.id).push(" AND a.seq > ").push_bind(access.me.history_from_seq);
         if !kinds.is_empty() {
-            query.push(" AND a.kind = ANY(").push_bind(kinds.iter().map(|kind| *kind as i16).collect::<Vec<i16>>()).push(")");
+            query
+                .push(" AND a.kind = ANY(")
+                .push_bind(kinds.iter().map(|kind| *kind as i16).collect::<Vec<i16>>())
+                .push(")");
         }
         if let Some((seq, position)) = cursor {
             query.push(" AND (a.seq, a.position) < (").push_bind(seq).push(", ").push_bind(position).push(")");
@@ -504,9 +602,12 @@ impl Chat {
 
         let mut items = Vec::with_capacity(rows.len());
         for row in rows {
-            let attachments: Vec<tokuly_proto::media::Attachment> = serde_json::from_value(row.attachments).unwrap_or_default();
+            let attachments: Vec<tokuly_proto::media::Attachment> =
+                serde_json::from_value(row.attachments).unwrap_or_default();
             let asset_id = row.asset_id.to_string();
-            let Some(attachment) = attachments.into_iter().find(|attachment| attachment.asset_id == asset_id) else { continue };
+            let Some(attachment) = attachments.into_iter().find(|attachment| attachment.asset_id == asset_id) else {
+                continue;
+            };
             let mut attachment = [attachment];
             assets::refresh_attachments(&self.core, &mut attachment).await?;
             let [attachment] = attachment;
@@ -526,7 +627,13 @@ impl Chat {
 
     /// Copies messages the caller can see into conversations the caller
     /// can send to. Returns the new messages with their conversations.
-    pub(crate) async fn forward_messages(&self, user_id: Uuid, message_ids: &[Uuid], conversation_ids: &[Uuid], client_id: &str) -> AppResult<Vec<(Access, MessageRow)>> {
+    pub(crate) async fn forward_messages(
+        &self,
+        user_id: Uuid,
+        message_ids: &[Uuid],
+        conversation_ids: &[Uuid],
+        client_id: &str,
+    ) -> AppResult<Vec<(Access, MessageRow)>> {
         let core = &self.core;
         content::validate_client_id(client_id, MAX_FORWARD_CLIENT_ID_LEN)?;
         let mut sources: Vec<Uuid> = Vec::new();
@@ -541,9 +648,24 @@ impl Chat {
                 targets.push(*id);
             }
         }
-        ensure!(!sources.is_empty() && !targets.is_empty(), invalid, "NOTHING_TO_FORWARD", "name the messages to forward and where to");
-        ensure!(sources.len() <= MAX_FORWARD_MESSAGES, invalid, "TOO_MANY_MESSAGES", "at most {MAX_FORWARD_MESSAGES} messages can be forwarded at once");
-        ensure!(targets.len() <= MAX_FORWARD_TARGETS, invalid, "TOO_MANY_CONVERSATIONS", "messages can be forwarded to at most {MAX_FORWARD_TARGETS} conversations at once");
+        ensure!(
+            !sources.is_empty() && !targets.is_empty(),
+            invalid,
+            "NOTHING_TO_FORWARD",
+            "name the messages to forward and where to"
+        );
+        ensure!(
+            sources.len() <= MAX_FORWARD_MESSAGES,
+            invalid,
+            "TOO_MANY_MESSAGES",
+            "at most {MAX_FORWARD_MESSAGES} messages can be forwarded at once"
+        );
+        ensure!(
+            targets.len() <= MAX_FORWARD_TARGETS,
+            invalid,
+            "TOO_MANY_CONVERSATIONS",
+            "messages can be forwarded to at most {MAX_FORWARD_TARGETS} conversations at once"
+        );
 
         // The copies, in the order the originals were sent.
         let mut originals: Vec<MessageRow> = Vec::with_capacity(sources.len());
@@ -554,7 +676,9 @@ impl Chat {
         let mut drafts: Vec<Draft> = Vec::with_capacity(originals.len());
         let mut rich = false;
         for (index, original) in originals.iter().enumerate() {
-            let forwardable = !original.is_deleted() && !original.is_pov_reply() && matches!(original.kind, msg::TEXT | msg::STAMP | msg::MEDIA | msg::LOCATION);
+            let forwardable = !original.is_deleted()
+                && !original.is_pov_reply()
+                && matches!(original.kind, msg::TEXT | msg::STAMP | msg::MEDIA | msg::LOCATION);
             ensure!(forwardable, precondition, "MESSAGE_NOT_FORWARDABLE", "this message cannot be forwarded");
             let mut draft = Draft {
                 client_id: Some(format!("fwd:{client_id}:{index}")),
@@ -571,7 +695,11 @@ impl Chat {
             }
             if original.kind == msg::MEDIA {
                 // The uploads as they are now; ones deleted since are left out.
-                let asset_ids: Vec<Uuid> = original.attachments().iter().filter_map(|attachment| Uuid::parse_str(&attachment.asset_id).ok()).collect();
+                let asset_ids: Vec<Uuid> = original
+                    .attachments()
+                    .iter()
+                    .filter_map(|attachment| Uuid::parse_str(&attachment.asset_id).ok())
+                    .collect();
                 draft.attachments = assets::find_many(core, &asset_ids)
                     .await?
                     .into_iter()
@@ -608,11 +736,15 @@ impl Chat {
 
         let mut forwarded = Vec::with_capacity(drafts.len() * destinations.len());
         for (access, is_request) in destinations {
+            let mut copies = Vec::with_capacity(drafts.len());
+            for draft in &drafts {
+                copies.push(self.with_notifications(&access.conv, Draft { is_request, ..draft.clone() }).await?);
+            }
             let mut tx = core.db.begin().await?;
             let mut conv = access::lock_conversation(&mut tx, access.conv.id).await?;
-            let mut posted = Vec::with_capacity(drafts.len());
-            for draft in &drafts {
-                posted.push(self.post(&mut tx, &mut conv, Draft { is_request, ..draft.clone() }).await?);
+            let mut posted = Vec::with_capacity(copies.len());
+            for copy in copies {
+                posted.push(self.post(&mut tx, &mut conv, copy).await?);
             }
             tx.commit().await?;
             for posted in posted {
@@ -633,7 +765,10 @@ impl Chat {
 fn validate_location(location: &pb::LocationShare) -> AppResult<pb::LocationShare> {
     let invalid = |message: &'static str| AppError::invalid("LOCATION_INVALID", message);
     let position = location.position.as_option().ok_or_else(|| invalid("a location needs a position"))?;
-    let on_earth = position.lat.is_finite() && position.lng.is_finite() && (-90.0..=90.0).contains(&position.lat) && (-180.0..=180.0).contains(&position.lng);
+    let on_earth = position.lat.is_finite()
+        && position.lng.is_finite()
+        && (-90.0..=90.0).contains(&position.lat)
+        && (-180.0..=180.0).contains(&position.lng);
     if !on_earth {
         return Err(invalid("the position is not a valid coordinate"));
     }
@@ -643,7 +778,12 @@ fn validate_location(location: &pb::LocationShare) -> AppResult<pb::LocationShar
     if !clean(name, 100) || !clean(address, 200) {
         return Err(invalid("the place name or address is too long"));
     }
-    Ok(pb::LocationShare { position: position.clone().into(), name: name.to_owned(), address: address.to_owned(), ..Default::default() })
+    Ok(pb::LocationShare {
+        position: position.clone().into(),
+        name: name.to_owned(),
+        address: address.to_owned(),
+        ..Default::default()
+    })
 }
 
 #[cfg(test)]
@@ -653,7 +793,11 @@ mod tests {
     use super::*;
 
     fn location(lat: f64, lng: f64, name: &str) -> pb::LocationShare {
-        pb::LocationShare { position: LatLng { lat, lng, ..Default::default() }.into(), name: name.to_owned(), ..Default::default() }
+        pb::LocationShare {
+            position: LatLng { lat, lng, ..Default::default() }.into(),
+            name: name.to_owned(),
+            ..Default::default()
+        }
     }
 
     #[test]

@@ -115,7 +115,12 @@ impl FakeDomain {
 
     /// The sum of the deltas engagement reported for a counter of a subject.
     pub fn counter(&self, id: Uuid, name: &str) -> i64 {
-        self.counters.lock().iter().filter(|(subject, counter, _)| *subject == id && counter == name).map(|(_, _, delta)| delta).sum()
+        self.counters
+            .lock()
+            .iter()
+            .filter(|(subject, counter, _)| *subject == id && counter == name)
+            .map(|(_, _, delta)| delta)
+            .sum()
     }
 }
 
@@ -123,7 +128,8 @@ impl FakeDomain {
 impl SubjectResolver for FakeDomain {
     async fn resolve(&self, id: &str, viewer: Option<Uuid>) -> AppResult<Option<SubjectInfo>> {
         let subjects = self.subjects.lock();
-        let Some(subject) = subjects.values().find(|subject| subject.id.to_string() == id || subject.short_id == id) else {
+        let Some(subject) = subjects.values().find(|subject| subject.id.to_string() == id || subject.short_id == id)
+        else {
             return Ok(None);
         };
         let visible = viewer == Some(subject.owner_id)
@@ -173,7 +179,12 @@ impl FakeChannels {
 #[async_trait]
 impl ChannelDirectory for FakeChannels {
     async fn owned_channel(&self, user_id: Uuid, channel_id: Uuid) -> AppResult<Option<ChannelSummary>> {
-        Ok(self.channels.lock().get(&channel_id).filter(|(owner_id, _)| *owner_id == user_id).map(|(_, summary)| summary.clone()))
+        Ok(self
+            .channels
+            .lock()
+            .get(&channel_id)
+            .filter(|(owner_id, _)| *owner_id == user_id)
+            .map(|(_, summary)| summary.clone()))
     }
 
     async fn summaries(&self, ids: &[Uuid]) -> AppResult<HashMap<Uuid, ChannelSummary>> {
@@ -193,7 +204,12 @@ pub struct Ctx {
 
 /// Settings for tests: the comment rate limits are out of the way.
 pub fn test_config() -> EngagementConfig {
-    EngagementConfig { comments_per_minute: 1000, comments_per_hour: 10_000, reports_per_hour: 1000, ..Default::default() }
+    EngagementConfig {
+        comments_per_minute: 1000,
+        comments_per_hour: 10_000,
+        reports_per_hour: 1000,
+        ..Default::default()
+    }
 }
 
 pub async fn start() -> Ctx {
@@ -209,8 +225,9 @@ pub async fn start_with(cfg: EngagementConfig) -> Ctx {
         core.subjects.register(SubjectType::SUBJECT_TYPE_VIDEO, videos.clone());
         core.subjects.register(SubjectType::SUBJECT_TYPE_NOTE, notes.clone());
         let social = Social::new(core.clone(), identity.clone(), SocialConfig::default()).expect("social domain");
-        let stamp = Stamp::new(core.clone(), identity.clone(), StampConfig { seed_official: false, ..Default::default() })
-            .expect("stamp domain");
+        let stamp =
+            Stamp::new(core.clone(), identity.clone(), StampConfig { seed_official: false, ..Default::default() })
+                .expect("stamp domain");
         let engagement = Engagement::new(core.clone(), identity.clone(), cfg).expect("engagement domain");
         engagement.set_channel_directory(channels.clone());
         let router = engagement.register(stamp.register(social.register(router)));
@@ -255,7 +272,13 @@ impl Ctx {
     }
 
     /// The reason an RPC is rejected with.
-    pub async fn reason<Req: Serialize>(&self, service: &str, method: &str, user: Option<&TestUser>, request: &Req) -> String {
+    pub async fn reason<Req: Serialize>(
+        &self,
+        service: &str,
+        method: &str,
+        user: Option<&TestUser>,
+        request: &Req,
+    ) -> String {
         match self.call::<_, serde_json::Value>(service, method, user, request).await {
             Ok(response) => panic!("{service}/{method} should fail, got {response}"),
             Err(error) => error.reason,
@@ -272,15 +295,19 @@ impl Ctx {
 
     /// Writes a top-level text comment.
     pub async fn comment(&self, user: &TestUser, subject: &FakeSubject, text: &str) -> Comment {
-        let request = CreateCommentRequest { subject: subject.subject_ref().into(), text: text.to_owned(), ..Default::default() };
-        let response: CreateCommentResponse = self.call("CommentService", "CreateComment", Some(user), &request).await.unwrap();
+        let request =
+            CreateCommentRequest { subject: subject.subject_ref().into(), text: text.to_owned(), ..Default::default() };
+        let response: CreateCommentResponse =
+            self.call("CommentService", "CreateComment", Some(user), &request).await.unwrap();
         response.comment.as_option().expect("a comment").clone()
     }
 
     /// Replies to a comment (or to a reply).
     pub async fn reply(&self, user: &TestUser, parent_id: &str, text: &str) -> Comment {
-        let request = CreateCommentRequest { parent_id: parent_id.to_owned(), text: text.to_owned(), ..Default::default() };
-        let response: CreateCommentResponse = self.call("CommentService", "CreateComment", Some(user), &request).await.unwrap();
+        let request =
+            CreateCommentRequest { parent_id: parent_id.to_owned(), text: text.to_owned(), ..Default::default() };
+        let response: CreateCommentResponse =
+            self.call("CommentService", "CreateComment", Some(user), &request).await.unwrap();
         response.comment.as_option().expect("a comment").clone()
     }
 
@@ -294,19 +321,31 @@ impl Ctx {
         self.call("CommentService", "ListComments", viewer, &request).await.unwrap()
     }
 
-    pub async fn get_comment(&self, viewer: Option<&TestUser>, comment_id: &str) -> Result<GetCommentResponse, RpcError> {
-        self.call("CommentService", "GetComment", viewer, &GetCommentRequest { comment_id: comment_id.to_owned(), ..Default::default() }).await
+    pub async fn get_comment(
+        &self,
+        viewer: Option<&TestUser>,
+        comment_id: &str,
+    ) -> Result<GetCommentResponse, RpcError> {
+        self.call(
+            "CommentService",
+            "GetComment",
+            viewer,
+            &GetCommentRequest { comment_id: comment_id.to_owned(), ..Default::default() },
+        )
+        .await
     }
 
     pub async fn react(&self, user: &TestUser, subject: SubjectRef, reaction: Reaction) -> ReactionSummary {
         let request = SetReactionRequest { subject: subject.into(), reaction: reaction.into(), ..Default::default() };
-        let response: SetReactionResponse = self.call("ReactionService", "SetReaction", Some(user), &request).await.unwrap();
+        let response: SetReactionResponse =
+            self.call("ReactionService", "SetReaction", Some(user), &request).await.unwrap();
         response.reactions.as_option().expect("a summary").clone()
     }
 
     pub async fn engagement_of(&self, viewer: Option<&TestUser>, subject: &FakeSubject) -> SubjectEngagement {
         let request = GetEngagementRequest { subject: subject.subject_ref().into(), ..Default::default() };
-        let response: GetEngagementResponse = self.call("EngagementService", "GetEngagement", viewer, &request).await.unwrap();
+        let response: GetEngagementResponse =
+            self.call("EngagementService", "GetEngagement", viewer, &request).await.unwrap();
         response.engagement.as_option().expect("engagement").clone()
     }
 
@@ -329,22 +368,36 @@ impl Ctx {
         let request = tokuly_proto::social::BlockUserRequest { user_id: blocked.id.to_string(), ..Default::default() };
         let _: tokuly_proto::social::BlockUserResponse =
             self.app.call("tokuly.social.v1.FriendService/BlockUser", Some(blocker), &request).await.unwrap();
-        self.deliver("social.user.blocked", Some(blocker.id), serde_json::json!({ "user_id": blocker.id, "blocked_id": blocked.id })).await;
+        self.deliver(
+            "social.user.blocked",
+            Some(blocker.id),
+            serde_json::json!({ "user_id": blocker.id, "blocked_id": blocked.id }),
+        )
+        .await;
     }
 
     /// Hands engagement an event as the consumer would.
     pub async fn deliver(&self, topic: &str, actor_id: Option<Uuid>, data: serde_json::Value) {
-        let event = Event { id: Uuid::now_v7(), topic: topic.to_owned(), actor_id, occurred_at: chrono::Utc::now(), data };
+        let event =
+            Event { id: Uuid::now_v7(), topic: topic.to_owned(), actor_id, occurred_at: chrono::Utc::now(), data };
         self.engagement.handle_event(event).await.unwrap_or_else(|error| panic!("{topic} handler failed: {error}"));
     }
 
     /// A personal stamp `user` may send, by ID.
     pub async fn stamp(&self, user: &TestUser) -> String {
-        let asset = tokuly_media::testing::ready_image(&self.app.core, user.id, AssetPurpose::ASSET_PURPOSE_STAMP).await.unwrap();
-        let request =
-            tokuly_proto::stamp::CreatePersonalStampRequest { asset_id: asset.id.to_string(), name: "やあ".into(), ..Default::default() };
-        let response: tokuly_proto::stamp::CreatePersonalStampResponse =
-            self.app.call("tokuly.stamp.v1.StampLibraryService/CreatePersonalStamp", Some(user), &request).await.unwrap();
+        let asset = tokuly_media::testing::ready_image(&self.app.core, user.id, AssetPurpose::ASSET_PURPOSE_STAMP)
+            .await
+            .unwrap();
+        let request = tokuly_proto::stamp::CreatePersonalStampRequest {
+            asset_id: asset.id.to_string(),
+            name: "やあ".into(),
+            ..Default::default()
+        };
+        let response: tokuly_proto::stamp::CreatePersonalStampResponse = self
+            .app
+            .call("tokuly.stamp.v1.StampLibraryService/CreatePersonalStamp", Some(user), &request)
+            .await
+            .unwrap();
         response.stamp.stamp_ref.id.clone()
     }
 
@@ -398,9 +451,17 @@ pub fn pushed(frames: Vec<ServerFrame>) -> Vec<Pushed> {
         .collect()
 }
 
-/// Everything pushed to a listener within a short window.
+/// Everything pushed to a listener by what just happened: waits generously
+/// for the first frame (the machine may be busy), then until the stream has
+/// been quiet for a moment. Expecting nothing therefore takes the full wait.
 pub async fn drain(listener: &mut FrameListener) -> Vec<Pushed> {
-    pushed(listener.drain(Duration::from_millis(400)).await)
+    let mut frames = Vec::new();
+    let mut patience = Duration::from_secs(3);
+    while let Some(frame) = listener.next(patience).await {
+        frames.push(frame);
+        patience = Duration::from_millis(400);
+    }
+    pushed(frames)
 }
 
 /// IDs of comments, for comparing lists.

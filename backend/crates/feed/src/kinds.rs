@@ -22,7 +22,9 @@ const MAX_KIND_LEN: usize = 64;
 pub fn is_valid(kind: &str) -> bool {
     !kind.is_empty()
         && kind.len() <= MAX_KIND_LEN
-        && kind.split('.').all(|segment| !segment.is_empty() && segment.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_'))
+        && kind.split('.').all(|segment| {
+            !segment.is_empty() && segment.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        })
 }
 
 /// An optional kind-prefix filter from a request: empty means "everything".
@@ -80,7 +82,8 @@ const LABELS: &[(&str, &str, &str)] = &[
 
 /// Kinds and kind families every user can switch off for other people, even
 /// before their log holds an entry of that kind.
-pub const WELL_KNOWN: &[&str] = &[ACCOUNT_JOINED, BUMPED, FRIEND_ADDED, "geo", "note", "story", "video", "short", "live", "stamp.pack.published"];
+pub const WELL_KNOWN: &[&str] =
+    &[ACCOUNT_JOINED, BUMPED, FRIEND_ADDED, "geo", "note", "story", "video", "short", "live", "stamp.pack.published"];
 
 /// The display name of a kind: its own label, else the label of the closest
 /// family it belongs to, else the kind itself.
@@ -135,14 +138,22 @@ const CARD_FAMILIES: &[(&str, Card)] = &[
 ];
 
 fn longest_match(table: &[(&'static str, Card)], kind: &str) -> Option<Card> {
-    table.iter().filter(|(prefix, _)| matches(kind, prefix)).max_by_key(|(prefix, _)| prefix.len()).map(|(_, card)| *card)
+    table
+        .iter()
+        .filter(|(prefix, _)| matches(kind, prefix))
+        .max_by_key(|(prefix, _)| prefix.len())
+        .map(|(_, card)| *card)
 }
 
 /// The card type of an entry: what layout and link target a client picks.
 /// `UNSPECIFIED` means "no special layout, show the summary".
 pub fn card_type(kind: &str, subject_type: Option<i32>) -> Card {
     longest_match(CARD_KINDS, kind)
-        .or_else(|| subject_type.and_then(|subject| CARD_SUBJECTS.iter().find(|(known, _)| *known as i32 == subject).map(|(_, card)| *card)))
+        .or_else(|| {
+            subject_type.and_then(|subject| {
+                CARD_SUBJECTS.iter().find(|(known, _)| *known as i32 == subject).map(|(_, card)| *card)
+            })
+        })
         .or_else(|| longest_match(CARD_FAMILIES, kind))
         .unwrap_or(Card::ACTIVITY_CARD_TYPE_UNSPECIFIED)
 }
@@ -189,7 +200,18 @@ mod tests {
         for kind in ["a", "social.bumped", "stamp.pack.published", "geo.new_region", "x1.y_2"] {
             assert!(is_valid(kind), "{kind}");
         }
-        for kind in ["", ".", "social.", ".bumped", "social..bumped", "Social.bumped", "social bumped", "ノート", "a-b", &"a".repeat(65)] {
+        for kind in [
+            "",
+            ".",
+            "social.",
+            ".bumped",
+            "social..bumped",
+            "Social.bumped",
+            "social bumped",
+            "ノート",
+            "a-b",
+            &"a".repeat(65),
+        ] {
             assert!(!is_valid(kind), "{kind}");
         }
     }
@@ -230,12 +252,24 @@ mod tests {
         assert_eq!(card_type(FRIEND_ADDED, user), Card::ACTIVITY_CARD_TYPE_FRIENDSHIP);
         assert_eq!(card_type(ACCOUNT_JOINED, None), Card::ACTIVITY_CARD_TYPE_JOINED);
         assert_eq!(card_type("geo.new_region", None), Card::ACTIVITY_CARD_TYPE_REGION);
-        assert_eq!(card_type("geo.new_place", Some(SubjectType::SUBJECT_TYPE_PLACE as i32)), Card::ACTIVITY_CARD_TYPE_PLACE);
+        assert_eq!(
+            card_type("geo.new_place", Some(SubjectType::SUBJECT_TYPE_PLACE as i32)),
+            Card::ACTIVITY_CARD_TYPE_PLACE
+        );
         // The subject wins over the family: a renote is still a note card.
-        assert_eq!(card_type("note.renoted", Some(SubjectType::SUBJECT_TYPE_NOTE as i32)), Card::ACTIVITY_CARD_TYPE_NOTE);
-        assert_eq!(card_type("live.started", Some(SubjectType::SUBJECT_TYPE_LIVE_STREAM as i32)), Card::ACTIVITY_CARD_TYPE_LIVE);
+        assert_eq!(
+            card_type("note.renoted", Some(SubjectType::SUBJECT_TYPE_NOTE as i32)),
+            Card::ACTIVITY_CARD_TYPE_NOTE
+        );
+        assert_eq!(
+            card_type("live.started", Some(SubjectType::SUBJECT_TYPE_LIVE_STREAM as i32)),
+            Card::ACTIVITY_CARD_TYPE_LIVE
+        );
         assert_eq!(card_type("video.published", None), Card::ACTIVITY_CARD_TYPE_VIDEO);
-        assert_eq!(card_type("stamp.pack.published", Some(SubjectType::SUBJECT_TYPE_STAMP_PACK as i32)), Card::ACTIVITY_CARD_TYPE_STAMP_PACK);
+        assert_eq!(
+            card_type("stamp.pack.published", Some(SubjectType::SUBJECT_TYPE_STAMP_PACK as i32)),
+            Card::ACTIVITY_CARD_TYPE_STAMP_PACK
+        );
         // Things without a layout of their own.
         assert_eq!(card_type("social.poked", user), Card::ACTIVITY_CARD_TYPE_UNSPECIFIED);
         assert_eq!(card_type("wallet.bonus", None), Card::ACTIVITY_CARD_TYPE_UNSPECIFIED);
@@ -247,7 +281,9 @@ mod tests {
     fn the_sql_side_lists_agree_with_card_type() {
         let prefixes = card_kind_prefixes();
         let subjects = card_subject_types();
-        let listed = |kind: &str, subject: Option<i32>| prefixes.iter().any(|p| matches(kind, p)) || subject.is_some_and(|s| subjects.contains(&s));
+        let listed = |kind: &str, subject: Option<i32>| {
+            prefixes.iter().any(|p| matches(kind, p)) || subject.is_some_and(|s| subjects.contains(&s))
+        };
         let subjects_to_try: Vec<Option<i32>> = std::iter::once(None).chain((0..=20).map(Some)).collect();
         for kind in [
             "account.joined",

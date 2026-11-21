@@ -7,6 +7,7 @@
 //! or cleared their history.
 use sqlx::{Postgres, Transaction};
 use tokuly_core::prelude::*;
+use tokuly_proto::common::UserSummary;
 use tokuly_social::graph;
 
 use crate::{
@@ -76,7 +77,10 @@ pub(crate) async fn find_conversation(core: &Core, conversation_id: Uuid) -> App
 /// Locks a conversation for the rest of the transaction. Everything that
 /// adds a message, changes the member list or starts a call takes this lock
 /// first, which is what orders those changes.
-pub(crate) async fn lock_conversation(tx: &mut Transaction<'_, Postgres>, conversation_id: Uuid) -> AppResult<ConversationRow> {
+pub(crate) async fn lock_conversation(
+    tx: &mut Transaction<'_, Postgres>,
+    conversation_id: Uuid,
+) -> AppResult<ConversationRow> {
     sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {CONV} FROM chat_conversations c WHERE c.id = $1 FOR UPDATE")))
         .bind(conversation_id)
         .fetch_optional(&mut **tx)
@@ -95,7 +99,11 @@ pub(crate) async fn find_member(core: &Core, conversation_id: Uuid, user_id: Uui
 }
 
 /// The member row inside a transaction (after the conversation was locked).
-pub(crate) async fn member_in_tx(tx: &mut Transaction<'_, Postgres>, conversation_id: Uuid, user_id: Uuid) -> AppResult<Option<MemberRow>> {
+pub(crate) async fn member_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    conversation_id: Uuid,
+    user_id: Uuid,
+) -> AppResult<Option<MemberRow>> {
     Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT {MEMBER} FROM chat_members m WHERE m.conversation_id = $1 AND m.user_id = $2"
     )))
@@ -103,6 +111,21 @@ pub(crate) async fn member_in_tx(tx: &mut Transaction<'_, Postgres>, conversatio
     .bind(user_id)
     .fetch_optional(&mut **tx)
     .await?)
+}
+
+/// Who a user is, as far as the wording of a notification needs it, read
+/// through the open transaction (which must not wait for a second
+/// connection). Unknown and deleted users come back as a placeholder.
+pub(crate) async fn summary_in_tx(tx: &mut Transaction<'_, Postgres>, user_id: Uuid) -> AppResult<UserSummary> {
+    let row: Option<(String, String, bool)> =
+        sqlx::query_as("SELECT handle::text, display_name, deleted_at IS NOT NULL FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+    Ok(match row {
+        Some((handle, display_name, false)) => UserSummary { id: user_id.to_string(), handle, display_name, ..Default::default() },
+        _ => UserSummary { id: user_id.to_string(), handle: "deleted".into(), deleted: true, ..Default::default() },
+    })
 }
 
 pub(crate) async fn find_message(core: &Core, message_id: Uuid) -> AppResult<Option<MessageRow>> {

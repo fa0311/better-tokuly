@@ -156,7 +156,8 @@ impl Engagement {
         page: &Page,
     ) -> AppResult<(Vec<CommentRow>, PageInfo)> {
         let after: Option<Uuid> = page.decode()?;
-        let mut query: QueryBuilder<Postgres> = QueryBuilder::new(concat!("SELECT ", comment_columns!(), " FROM comments c WHERE c.subject_owner_id = "));
+        let mut query: QueryBuilder<Postgres> =
+            QueryBuilder::new(concat!("SELECT ", comment_columns!(), " FROM comments c WHERE c.subject_owner_id = "));
         query.push_bind(owner_id);
         query.push(" AND c.author_id <> ").push_bind(owner_id);
         query.push(" AND c.author_id <> ALL(").push_bind(hidden).push(")");

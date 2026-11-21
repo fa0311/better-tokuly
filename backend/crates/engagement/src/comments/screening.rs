@@ -36,7 +36,11 @@ pub(crate) async fn settings_of<'e, E: PgExecutor<'e>>(executor: E, owner_id: Uu
     Ok(row.unwrap_or_default())
 }
 
-pub(crate) async fn save_settings<'e, E: PgExecutor<'e>>(executor: E, owner_id: Uuid, settings: &SettingsRow) -> AppResult<()> {
+pub(crate) async fn save_settings<'e, E: PgExecutor<'e>>(
+    executor: E,
+    owner_id: Uuid,
+    settings: &SettingsRow,
+) -> AppResult<()> {
     sqlx::query(
         "INSERT INTO comment_settings (user_id, hold_all, hold_links, blocked_words) VALUES ($1, $2, $3, $4)
          ON CONFLICT (user_id) DO UPDATE SET hold_all = $2, hold_links = $3, blocked_words = $4",
@@ -52,7 +56,11 @@ pub(crate) async fn save_settings<'e, E: PgExecutor<'e>>(executor: E, owner_id: 
 
 /// Whether `owner_id` stopped the account `user_id` from commenting, under
 /// whichever identity.
-pub(crate) async fn is_blocked_commenter<'e, E: PgExecutor<'e>>(executor: E, owner_id: Uuid, user_id: Uuid) -> AppResult<bool> {
+pub(crate) async fn is_blocked_commenter<'e, E: PgExecutor<'e>>(
+    executor: E,
+    owner_id: Uuid,
+    user_id: Uuid,
+) -> AppResult<bool> {
     Ok(sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM comment_blocks WHERE owner_id = $1 AND blocked_user_id = $2)")
         .bind(owner_id)
         .bind(user_id)

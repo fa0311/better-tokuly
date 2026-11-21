@@ -98,7 +98,8 @@ impl Search {
         if let Some(terms) = fresh {
             return Ok(terms);
         }
-        let terms: Vec<String> = sqlx::query_scalar("SELECT term FROM search_blocked_terms").fetch_all(&self.core.db).await?;
+        let terms: Vec<String> =
+            sqlx::query_scalar("SELECT term FROM search_blocked_terms").fetch_all(&self.core.db).await?;
         let terms = Arc::new(terms);
         *self.blocklist.loaded.write().expect("blocklist lock") = Some((Instant::now(), terms.clone()));
         Ok(terms)
@@ -196,14 +197,23 @@ impl Search {
         let mut qualified: Vec<PopularQuery> = candidates
             .into_iter()
             .zip(searchers)
-            .filter(|((query, _), searchers)| *searchers >= self.cfg.trending_min_users as u64 && !is_blocked(&blocked, query))
-            .map(|((query, weight), searchers)| PopularQuery { query, searchers: searchers.min(u32::MAX as u64) as u32, weight, rank: None })
+            .filter(|((query, _), searchers)| {
+                *searchers >= self.cfg.trending_min_users as u64 && !is_blocked(&blocked, query)
+            })
+            .map(|((query, weight), searchers)| PopularQuery {
+                query,
+                searchers: searchers.min(u32::MAX as u64) as u32,
+                weight,
+                rank: None,
+            })
             .collect();
         for (position, entry) in qualified.iter_mut().take(self.cfg.trending_size as usize).enumerate() {
             entry.rank = Some(position as i32 + 1);
         }
 
-        sqlx::query("UPDATE search_popular_queries SET trending_rank = NULL WHERE trending_rank IS NOT NULL").execute(&mut *tx).await?;
+        sqlx::query("UPDATE search_popular_queries SET trending_rank = NULL WHERE trending_rank IS NOT NULL")
+            .execute(&mut *tx)
+            .await?;
         if !qualified.is_empty() {
             let queries: Vec<&str> = qualified.iter().map(|q| q.query.as_str()).collect();
             let counts: Vec<i32> = qualified.iter().map(|q| q.searchers.min(i32::MAX as u32) as i32).collect();
@@ -243,11 +253,13 @@ impl Search {
         .bind(self.cfg.trending_size as i64)
         .fetch_all(&self.core.db)
         .await?;
-        let updated_at: Option<Time> =
-            sqlx::query_scalar("SELECT updated_at FROM search_state WHERE key = 'trending'").fetch_optional(&self.core.db).await?;
+        let updated_at: Option<Time> = sqlx::query_scalar("SELECT updated_at FROM search_state WHERE key = 'trending'")
+            .fetch_optional(&self.core.db)
+            .await?;
         // The list may predate the newest blocked term.
         let blocked = self.blocked_terms().await?;
-        let queries = queries.into_iter().filter(|query| !is_blocked(&blocked, query)).take(limit.max(0) as usize).collect();
+        let queries =
+            queries.into_iter().filter(|query| !is_blocked(&blocked, query)).take(limit.max(0) as usize).collect();
         Ok((queries, updated_at))
     }
 
@@ -274,10 +286,11 @@ impl Search {
 
     /// Removes popular queries that have not qualified for `days` days.
     pub(crate) async fn sweep_popular_queries(&self, days: i32) -> AppResult<u64> {
-        let done = sqlx::query("DELETE FROM search_popular_queries WHERE last_seen_at < now() - make_interval(days => $1)")
-            .bind(days)
-            .execute(&self.core.db)
-            .await?;
+        let done =
+            sqlx::query("DELETE FROM search_popular_queries WHERE last_seen_at < now() - make_interval(days => $1)")
+                .bind(days)
+                .execute(&self.core.db)
+                .await?;
         Ok(done.rows_affected())
     }
 }

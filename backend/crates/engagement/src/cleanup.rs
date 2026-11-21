@@ -8,7 +8,7 @@ use tokuly_media::assets;
 
 use crate::{
     Engagement,
-    comments::{image_holder, lifecycle, lock_thread, status, write::comment_event},
+    comments::{image_holder, lifecycle, lock_thread, lock_threads_of, status, write::comment_event},
     effects::{Effects, Push},
     events::{COMMENT_DELETED, ContentRemoved, ReportResolved},
     reactions::{self, Stored},
@@ -21,21 +21,17 @@ use crate::{
 const ERASE_BATCH: i64 = 200;
 
 /// Drops the engagement data that has one of these subjects as its target:
-/// reactions, counters, share counts and bookmarks. Comments written on the
+/// bookmarks, reactions, share counts and counters. Comments written on the
 /// subjects are the caller's business.
+///
+/// The order is the one every change follows — bookmark collections (by
+/// ID), then the rows counted, then the statistics row — so a purge and a
+/// user's tap on the same subject wait for each other instead of
+/// deadlocking.
 pub(crate) async fn forget_subjects(conn: &mut PgConnection, kind: i32, subject_ids: &[Uuid]) -> AppResult<()> {
     if subject_ids.is_empty() {
         return Ok(());
     }
-    for table in ["reactions", "reaction_emoji_counts", "share_counts", "subject_stats"] {
-        sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM {table} WHERE subject_type = $1 AND subject_id = ANY($2)")))
-            .bind(kind)
-            .bind(subject_ids)
-            .execute(&mut *conn)
-            .await?;
-    }
-    // Collections are locked in ID order, as everywhere, before their
-    // item counts follow the bookmarks that go.
     sqlx::query(
         "SELECT id FROM bookmark_collections
          WHERE id IN (SELECT collection_id FROM bookmarks WHERE subject_type = $1 AND subject_id = ANY($2))
@@ -55,8 +51,17 @@ pub(crate) async fn forget_subjects(conn: &mut PgConnection, kind: i32, subject_
     )
     .bind(kind)
     .bind(subject_ids)
-    .execute(conn)
+    .execute(&mut *conn)
     .await?;
+    for table in ["reactions", "reaction_emoji_counts", "share_counts", "subject_stats"] {
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DELETE FROM {table} WHERE subject_type = $1 AND subject_id = ANY($2)"
+        )))
+        .bind(kind)
+        .bind(subject_ids)
+        .execute(&mut *conn)
+        .await?;
+    }
     Ok(())
 }
 
@@ -137,10 +142,11 @@ impl Engagement {
     /// A safety net: a comment holds its upload, so this only happens when
     /// some domain deleted the upload regardless of holders (a takedown).
     pub(crate) async fn on_asset_deleted(&self, asset_id: Uuid) -> AppResult<()> {
-        let comment_ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM comments WHERE image_asset_id = $1 ORDER BY id")
-            .bind(asset_id)
-            .fetch_all(&self.core.db)
-            .await?;
+        let comment_ids: Vec<Uuid> =
+            sqlx::query_scalar("SELECT id FROM comments WHERE image_asset_id = $1 ORDER BY id")
+                .bind(asset_id)
+                .fetch_all(&self.core.db)
+                .await?;
         for comment_id in comment_ids {
             let mut tx = self.core.db.begin().await?;
             let mut effects = Effects::default();
@@ -152,7 +158,10 @@ impl Engagement {
                 lifecycle::delete(&mut tx, &mut effects, &row, parent.as_mut()).await?;
                 events::emit(&mut *tx, COMMENT_DELETED, None, &comment_event(&row)).await?;
             } else {
-                sqlx::query("UPDATE comments SET image = NULL, image_asset_id = NULL WHERE id = $1").bind(row.id).execute(&mut *tx).await?;
+                sqlx::query("UPDATE comments SET image = NULL, image_asset_id = NULL WHERE id = $1")
+                    .bind(row.id)
+                    .execute(&mut *tx)
+                    .await?;
                 assets::detach(&mut *tx, asset_id, &image_holder(row.id)).await?;
                 if row.in_public_view(parent.as_ref()) {
                     effects.push(Push::Updated { key: row.key(), comment_id: row.id });
@@ -197,16 +206,18 @@ impl Engagement {
     async fn erase_comments_of(&self, user_id: Uuid) -> AppResult<()> {
         loop {
             // Oldest first, so threads go before the replies inside them.
-            let comment_ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM comments WHERE author_id = $1 ORDER BY id LIMIT $2")
-                .bind(user_id)
-                .bind(ERASE_BATCH)
-                .fetch_all(&self.core.db)
-                .await?;
+            let comment_ids: Vec<Uuid> =
+                sqlx::query_scalar("SELECT id FROM comments WHERE author_id = $1 ORDER BY id LIMIT $2")
+                    .bind(user_id)
+                    .bind(ERASE_BATCH)
+                    .fetch_all(&self.core.db)
+                    .await?;
             if comment_ids.is_empty() {
                 return Ok(());
             }
             let mut tx = self.core.db.begin().await?;
             let mut effects = Effects::default();
+            lock_threads_of(&mut tx, &comment_ids).await?;
             for comment_id in comment_ids {
                 if let Some((row, mut parent)) = lock_thread(&mut tx, comment_id).await? {
                     lifecycle::delete(&mut tx, &mut effects, &row, parent.as_mut()).await?;
@@ -221,20 +232,39 @@ impl Engagement {
         loop {
             let mut tx = self.core.db.begin().await?;
             let mut effects = Effects::default();
-            let mut removed: Vec<(i32, Uuid, i32, String)> = sqlx::query_as(
-                "DELETE FROM reactions
-                 WHERE user_id = $1 AND (subject_type, subject_id) IN (
-                     SELECT subject_type, subject_id FROM reactions WHERE user_id = $1 ORDER BY subject_type, subject_id LIMIT $2)
-                 RETURNING subject_type, subject_id, kind, emoji",
+            // Subjects are handled in one order by everyone who handles several.
+            let batch: Vec<(i32, Uuid)> = sqlx::query_as(
+                "SELECT subject_type, subject_id FROM reactions WHERE user_id = $1 ORDER BY subject_type, subject_id LIMIT $2",
             )
             .bind(user_id)
             .bind(ERASE_BATCH)
             .fetch_all(&mut *tx)
             .await?;
-            if removed.is_empty() {
+            if batch.is_empty() {
                 return Ok(());
             }
-            // Counters are touched in one order by everyone who touches several.
+            // Liked comments are locked before their reactions go, as in every other change to them.
+            let comment_ids: Vec<Uuid> = batch
+                .iter()
+                .map(|(kind, id)| SubjectKey { kind: *kind, id: *id })
+                .filter(SubjectKey::is_comment)
+                .map(|key| key.id)
+                .collect();
+            sqlx::query("SELECT id FROM comments WHERE id = ANY($1) ORDER BY id FOR UPDATE")
+                .bind(&comment_ids)
+                .execute(&mut *tx)
+                .await?;
+            let (kinds, ids): (Vec<i32>, Vec<Uuid>) = batch.into_iter().unzip();
+            let mut removed: Vec<(i32, Uuid, i32, String)> = sqlx::query_as(
+                "DELETE FROM reactions
+                 WHERE user_id = $1 AND (subject_type, subject_id) IN (SELECT * FROM unnest($2::integer[], $3::uuid[]))
+                 RETURNING subject_type, subject_id, kind, emoji",
+            )
+            .bind(user_id)
+            .bind(&kinds)
+            .bind(&ids)
+            .fetch_all(&mut *tx)
+            .await?;
             removed.sort();
             for (kind, id, reaction_kind, emoji) in removed {
                 let key = SubjectKey { kind, id };
@@ -248,6 +278,11 @@ impl Engagement {
     async fn erase_bookmarks_of(&self, user_id: Uuid) -> AppResult<()> {
         let mut tx = self.core.db.begin().await?;
         let mut effects = Effects::default();
+        // Collections first, then the counters of what they held.
+        sqlx::query("SELECT id FROM bookmark_collections WHERE user_id = $1 ORDER BY id FOR UPDATE")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
         // A subject is saved when it is in the default collection.
         let saved: Vec<(i32, Uuid)> = sqlx::query_as(
             "SELECT b.subject_type, b.subject_id FROM bookmarks b JOIN bookmark_collections c ON c.id = b.collection_id

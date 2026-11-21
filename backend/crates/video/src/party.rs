@@ -30,8 +30,8 @@ use tokuly_proto::{
     common::StampRef,
     realtime::server_frame::Body,
     video::{
-        PartyEndReason, PartyEnded, PartyLeaveReason, PartyMember, PartyMemberLeft, PartyMessage, PartyPlayback, PartyRole,
-        VideoEvent as VideoPush, video_event::Event as Push,
+        PartyEndReason, PartyEnded, PartyLeaveReason, PartyMember, PartyMemberLeft, PartyMessage, PartyPlayback,
+        PartyRole, VideoEvent as VideoPush, video_event::Event as Push,
     },
 };
 
@@ -193,11 +193,14 @@ pub async fn find_by_code(core: &Core, code: &str) -> AppResult<Option<PartyRow>
 /// Locks an open party for the rest of the transaction: every change to its
 /// membership or state goes through this, so they happen one at a time.
 pub(crate) async fn lock_open(tx: &mut Tx<'_>, party_id: Uuid) -> AppResult<PartyRow> {
-    let party: Option<PartyRow> =
-        sqlx::query_as(concat!("SELECT ", party_columns!(), " FROM watch_parties p WHERE p.id = $1 AND p.ended_at IS NULL FOR UPDATE"))
-            .bind(party_id)
-            .fetch_optional(&mut **tx)
-            .await?;
+    let party: Option<PartyRow> = sqlx::query_as(concat!(
+        "SELECT ",
+        party_columns!(),
+        " FROM watch_parties p WHERE p.id = $1 AND p.ended_at IS NULL FOR UPDATE"
+    ))
+    .bind(party_id)
+    .fetch_optional(&mut **tx)
+    .await?;
     party.ok_or_else(not_found)
 }
 
@@ -221,14 +224,23 @@ impl Caller {
 }
 
 /// The caller's seat in a party, if they have one.
-pub(crate) async fn seat_in(tx: &mut Tx<'_>, core: &Core, party_id: Uuid, caller: &Caller) -> AppResult<Option<MemberRow>> {
+pub(crate) async fn seat_in(
+    tx: &mut Tx<'_>,
+    core: &Core,
+    party_id: Uuid,
+    caller: &Caller,
+) -> AppResult<Option<MemberRow>> {
     Ok(match caller {
         Caller::User(user_id) => {
-            sqlx::query_as(concat!("SELECT ", member_columns!(), " FROM watch_party_members m WHERE m.party_id = $1 AND m.user_id = $2"))
-                .bind(party_id)
-                .bind(user_id)
-                .fetch_optional(&mut **tx)
-                .await?
+            sqlx::query_as(concat!(
+                "SELECT ",
+                member_columns!(),
+                " FROM watch_party_members m WHERE m.party_id = $1 AND m.user_id = $2"
+            ))
+            .bind(party_id)
+            .bind(user_id)
+            .fetch_optional(&mut **tx)
+            .await?
         }
         Caller::Guest(token) => {
             sqlx::query_as(concat!(
@@ -252,11 +264,15 @@ pub async fn seat(core: &Core, party_id: Uuid, caller: &Caller) -> AppResult<Opt
 }
 
 pub(crate) async fn member_in(tx: &mut Tx<'_>, party_id: Uuid, member_id: Uuid) -> AppResult<Option<MemberRow>> {
-    Ok(sqlx::query_as(concat!("SELECT ", member_columns!(), " FROM watch_party_members m WHERE m.party_id = $1 AND m.id = $2"))
-        .bind(party_id)
-        .bind(member_id)
-        .fetch_optional(&mut **tx)
-        .await?)
+    Ok(sqlx::query_as(concat!(
+        "SELECT ",
+        member_columns!(),
+        " FROM watch_party_members m WHERE m.party_id = $1 AND m.id = $2"
+    ))
+    .bind(party_id)
+    .bind(member_id)
+    .fetch_optional(&mut **tx)
+    .await?)
 }
 
 /// Everyone present, host first, then co-hosts, then by arrival.
@@ -272,7 +288,10 @@ pub async fn members(core: &Core, party_id: Uuid) -> AppResult<Vec<MemberRow>> {
 }
 
 pub async fn member_count(core: &Core, party_id: Uuid) -> AppResult<i32> {
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM watch_party_members WHERE party_id = $1").bind(party_id).fetch_one(&core.db).await?;
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM watch_party_members WHERE party_id = $1")
+        .bind(party_id)
+        .fetch_one(&core.db)
+        .await?;
     Ok(count as i32)
 }
 
@@ -377,10 +396,11 @@ pub async fn audience(core: &Core, party_id: Uuid) -> AppResult<Audience> {
 /// The audiences of the open parties watching a video (to tell them it is
 /// going away).
 pub(crate) async fn audiences_of_video_in(tx: &mut Tx<'_>, video_id: Uuid) -> AppResult<Vec<Audience>> {
-    let party_ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM watch_parties WHERE video_id = $1 AND ended_at IS NULL")
-        .bind(video_id)
-        .fetch_all(&mut **tx)
-        .await?;
+    let party_ids: Vec<Uuid> =
+        sqlx::query_scalar("SELECT id FROM watch_parties WHERE video_id = $1 AND ended_at IS NULL")
+            .bind(video_id)
+            .fetch_all(&mut **tx)
+            .await?;
     let mut audiences = Vec::with_capacity(party_ids.len());
     for party_id in party_ids {
         audiences.push(audience_in(tx, party_id).await?);
@@ -556,10 +576,11 @@ pub async fn end(core: &Core, party_id: Uuid, reason: PartyEndReason) -> AppResu
 
 /// Ends every open party on a video (it was unpublished or became private).
 pub async fn end_for_video(core: &Core, video_id: Uuid) -> AppResult<()> {
-    let party_ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM watch_parties WHERE video_id = $1 AND ended_at IS NULL")
-        .bind(video_id)
-        .fetch_all(&core.db)
-        .await?;
+    let party_ids: Vec<Uuid> =
+        sqlx::query_scalar("SELECT id FROM watch_parties WHERE video_id = $1 AND ended_at IS NULL")
+            .bind(video_id)
+            .fetch_all(&core.db)
+            .await?;
     for party_id in party_ids {
         end(core, party_id, PartyEndReason::PARTY_END_REASON_VIDEO_UNAVAILABLE).await?;
     }
@@ -618,14 +639,21 @@ pub async fn sweep(core: &Core, member_timeout_seconds: u64, max_hours: i64) -> 
         }
     }
 
-    sweep.purged = sqlx::query("DELETE FROM watch_parties WHERE ended_at < now() - interval '1 day'").execute(&core.db).await?.rows_affected();
+    sweep.purged = sqlx::query("DELETE FROM watch_parties WHERE ended_at < now() - interval '1 day'")
+        .execute(&core.db)
+        .await?
+        .rows_affected();
     Ok(sweep)
 }
 
 /// Whether `position` and `rate` describe a playback state a party can be in
 /// for a video of `duration` seconds.
 pub fn valid_playback(position: f64, rate: f64, duration: f64) -> bool {
-    position.is_finite() && position >= 0.0 && position <= duration + 1.0 && rate.is_finite() && (MIN_RATE..=MAX_RATE).contains(&rate)
+    position.is_finite()
+        && position >= 0.0
+        && position <= duration + 1.0
+        && rate.is_finite()
+        && (MIN_RATE..=MAX_RATE).contains(&rate)
 }
 
 #[cfg(test)]

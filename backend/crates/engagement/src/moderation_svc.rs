@@ -26,9 +26,14 @@ const SETTINGS_CHANGES_PER_MINUTE: u32 = 30;
 impl Engagement {
     /// Blocks as the owner sees them: under the identity they blocked.
     async fn blocked_commenters_proto(&self, blocks: &[BlockRow]) -> AppResult<Vec<BlockedCommenter>> {
-        let user_ids: Vec<Uuid> = blocks.iter().filter(|block| block.channel_id.is_none()).map(|block| block.blocked_user_id).collect();
+        let user_ids: Vec<Uuid> =
+            blocks.iter().filter(|block| block.channel_id.is_none()).map(|block| block.blocked_user_id).collect();
         let channel_ids: Vec<Uuid> = blocks.iter().filter_map(|block| block.channel_id).collect();
-        let users = if user_ids.is_empty() { HashMap::new() } else { tokuly_identity::summaries(&self.core, &user_ids).await? };
+        let users = if user_ids.is_empty() {
+            HashMap::new()
+        } else {
+            tokuly_identity::summaries(&self.core, &user_ids).await?
+        };
         let channels = self.channel_summaries(&channel_ids).await?;
         Ok(blocks
             .iter()
@@ -67,7 +72,12 @@ impl CommentModerationService for Engagement {
             };
             if let Some(subject) = request.subject.as_option() {
                 let subject = self.requested_subject(Some(subject), Some(user_id)).await?;
-                ensure!(subject.is_owned_by(user_id), denied, "NOT_SUBJECT_OWNER", "only the owner of the content can do this");
+                ensure!(
+                    subject.is_owned_by(user_id),
+                    denied,
+                    "NOT_SUBJECT_OWNER",
+                    "only the owner of the content can do this"
+                );
                 filter.subject = Some(subject.key);
             }
             if !request.author_of_comment_id.is_empty() {
@@ -142,7 +152,11 @@ impl CommentModerationService for Engagement {
             };
             self.core
                 .cache
-                .rate_limit(&format!("engagement:comment:settings:{user_id}"), SETTINGS_CHANGES_PER_MINUTE, Duration::from_secs(60))
+                .rate_limit(
+                    &format!("engagement:comment:settings:{user_id}"),
+                    SETTINGS_CHANGES_PER_MINUTE,
+                    Duration::from_secs(60),
+                )
                 .await?;
             screening::save_settings(&self.core.db, user_id, &settings).await?;
             ok(UpdateModerationSettingsResponse { settings: settings.to_proto().into(), ..Default::default() })

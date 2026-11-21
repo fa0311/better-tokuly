@@ -54,8 +54,15 @@ impl Engagement {
         let mut effects = Effects::default();
         let (mut row, mut parent) = lock_thread(&mut tx, found.row.id).await?.ok_or_else(comment_not_found)?;
         if !row.is_published() {
-            lifecycle::set_status(&mut tx, &mut effects, &mut row, parent.as_mut(), status::PUBLISHED, HoldReason::HOLD_REASON_UNSPECIFIED)
-                .await?;
+            lifecycle::set_status(
+                &mut tx,
+                &mut effects,
+                &mut row,
+                parent.as_mut(),
+                status::PUBLISHED,
+                HoldReason::HOLD_REASON_UNSPECIFIED,
+            )
+            .await?;
             if row.in_public_view(parent.as_ref()) {
                 if row.notified_at.is_none() {
                     self.announce_published(&mut tx, &row, &found.subject, &audience, &sender).await?;
@@ -78,8 +85,15 @@ impl Engagement {
         let (mut row, mut parent) = lock_thread(&mut tx, found.row.id).await?.ok_or_else(comment_not_found)?;
         // A comment already hidden keeps its reason (it may be hidden behind a block).
         if row.status != status::HIDDEN {
-            lifecycle::set_status(&mut tx, &mut effects, &mut row, parent.as_mut(), status::HIDDEN, HoldReason::HOLD_REASON_HIDDEN_BY_OWNER)
-                .await?;
+            lifecycle::set_status(
+                &mut tx,
+                &mut effects,
+                &mut row,
+                parent.as_mut(),
+                status::HIDDEN,
+                HoldReason::HOLD_REASON_HIDDEN_BY_OWNER,
+            )
+            .await?;
         }
         tx.commit().await?;
         self.apply(effects).await;
@@ -94,6 +108,7 @@ impl Engagement {
         let mut found = self.require_moderated_comment(comment_id, user_id).await?;
         let mut tx = self.core.db.begin().await?;
         let mut effects = Effects::default();
+        lifecycle::lock_pin(&mut tx, found.row.key()).await?;
         let (mut row, parent) = lock_thread(&mut tx, found.row.id).await?.ok_or_else(comment_not_found)?;
         if pinned {
             ensure!(
@@ -119,11 +134,21 @@ impl Engagement {
         let mut tx = self.core.db.begin().await?;
         let mut effects = Effects::default();
         let (mut row, parent) = lock_thread(&mut tx, found.row.id).await?.ok_or_else(comment_not_found)?;
-        ensure!(!hearted || row.is_published(), precondition, "COMMENT_NOT_PUBLISHED", "only a published comment can get a heart");
+        ensure!(
+            !hearted || row.is_published(),
+            precondition,
+            "COMMENT_NOT_PUBLISHED",
+            "only a published comment can get a heart"
+        );
         let gained = lifecycle::set_heart(&mut tx, &mut effects, &mut row, parent.as_ref(), hearted).await?;
         // Taking a heart back and giving it again is not news twice.
         if gained
-            && self.core.cache.set_nx(&format!("engagement:heart:{}", row.id), "1", HEART_NOTICE_WINDOW).await.unwrap_or(true)
+            && self
+                .core
+                .cache
+                .set_nx(&format!("engagement:heart:{}", row.id), "1", HEART_NOTICE_WINDOW)
+                .await
+                .unwrap_or(true)
         {
             self.announce_heart(&mut tx, &row, &found.subject).await?;
         }
@@ -152,7 +177,10 @@ impl Engagement {
                 (found.row.author_id, found.row.channel_id)
             }
         };
-        self.core.cache.rate_limit(&format!("engagement:comment:block:{owner_id}"), BLOCKS_PER_HOUR, Duration::from_secs(3600)).await?;
+        self.core
+            .cache
+            .rate_limit(&format!("engagement:comment:block:{owner_id}"), BLOCKS_PER_HOUR, Duration::from_secs(3600))
+            .await?;
 
         let mut tx = self.core.db.begin().await?;
         let mut effects = Effects::default();
@@ -186,7 +214,11 @@ impl Engagement {
     }
 
     /// The people `owner_id` blocked from commenting, most recent first.
-    pub(crate) async fn blocked_commenters(&self, owner_id: Uuid, page: &Page) -> AppResult<(Vec<BlockRow>, tokuly_proto::common::PageInfo)> {
+    pub(crate) async fn blocked_commenters(
+        &self,
+        owner_id: Uuid,
+        page: &Page,
+    ) -> AppResult<(Vec<BlockRow>, tokuly_proto::common::PageInfo)> {
         let after: Option<Uuid> = page.decode()?;
         let mut rows: Vec<BlockRow> = sqlx::query_as(
             "SELECT id, blocked_user_id, channel_id, created_at FROM comment_blocks

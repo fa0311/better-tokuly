@@ -117,7 +117,15 @@ impl Feed {
                     continue;
                 }
             };
-            let new = NewSource { feed_url, name: String::new(), site_url: String::new(), language: "ja".to_owned(), default_tags: Vec::new(), enabled: true, from_config: true };
+            let new = NewSource {
+                feed_url,
+                name: String::new(),
+                site_url: String::new(),
+                language: "ja".to_owned(),
+                default_tags: Vec::new(),
+                enabled: true,
+                from_config: true,
+            };
             let mut tx = self.core.db.begin().await?;
             let inserted = self.insert_source(&mut tx, &new).await?;
             tx.commit().await?;
@@ -153,7 +161,10 @@ impl Feed {
             Ok(url) => url,
             Err(error) => return self.record_failure(source, format!("the feed URL is not valid: {error}")).await,
         };
-        let limits = Limits { timeout: Duration::from_secs(self.cfg.news_fetch_timeout_seconds), max_bytes: self.cfg.news_max_feed_bytes };
+        let limits = Limits {
+            timeout: Duration::from_secs(self.cfg.news_fetch_timeout_seconds),
+            max_bytes: self.cfg.news_max_feed_bytes,
+        };
         let validators = Validators { etag: source.etag.clone(), last_modified: source.last_modified.clone() };
         let document = match fetch::fetch(&self.news_http, self.news_policy, limits, url, &validators).await {
             Ok(Fetched::NotModified) => {
@@ -167,7 +178,9 @@ impl Feed {
         // Parsing megabytes of XML is CPU work: off the async threads.
         let fetched_at = now();
         let Document { url: document_url, body, validators } = document;
-        let parsed = tokio::task::spawn_blocking(move || parse::parse_feed(&body, &document_url, fetched_at)).await.map_err(|e| AppError::internal(anyhow::anyhow!("feed parser task: {e}")))?;
+        let parsed = tokio::task::spawn_blocking(move || parse::parse_feed(&body, &document_url, fetched_at))
+            .await
+            .map_err(|e| AppError::internal(anyhow::anyhow!("feed parser task: {e}")))?;
         let parsed = match parsed {
             Ok(parsed) => parsed,
             Err(error) => return self.record_failure(source, format!("the document is not a feed: {error}")).await,
@@ -178,13 +191,24 @@ impl Feed {
 
     /// Stores the articles of a freshly read feed and marks the source as
     /// fetched, in one transaction.
-    async fn store_feed(&self, source: &SourceRow, feed: ParsedFeed, validators: &Validators, fetched_at: Time) -> AppResult<(usize, usize)> {
+    async fn store_feed(
+        &self,
+        source: &SourceRow,
+        feed: ParsedFeed,
+        validators: &Validators,
+        fetched_at: Time,
+    ) -> AppResult<(usize, usize)> {
         // What would be pruned right away is not imported.
         let oldest = fetched_at - Span::days(i64::from(self.cfg.news_retention_days));
-        let articles: Vec<ParsedArticle> = feed.articles.into_iter().filter(|article| article.published_at.is_none_or(|at| at >= oldest)).collect();
+        let articles: Vec<ParsedArticle> =
+            feed.articles.into_iter().filter(|article| article.published_at.is_none_or(|at| at >= oldest)).collect();
         let canonical_urls: Vec<String> = articles.iter().map(|article| article.canonical_url.clone()).collect();
         // The feed may have told us what the source is called.
-        let source_name = if source.name_from_feed && !feed.info.title.is_empty() { feed.info.title.as_str() } else { source.name.as_str() };
+        let source_name = if source.name_from_feed && !feed.info.title.is_empty() {
+            feed.info.title.as_str()
+        } else {
+            source.name.as_str()
+        };
 
         let mut tx = self.core.db.begin().await?;
         let existing: Vec<ExistingArticle> = sqlx::query_as(
@@ -194,7 +218,8 @@ impl Feed {
         .bind(&canonical_urls)
         .fetch_all(&mut *tx)
         .await?;
-        let existing: HashMap<&str, &ExistingArticle> = existing.iter().map(|row| (row.canonical_url.as_str(), row)).collect();
+        let existing: HashMap<&str, &ExistingArticle> =
+            existing.iter().map(|row| (row.canonical_url.as_str(), row)).collect();
 
         let (mut new, mut updated) = (0, 0);
         for article in &articles {
@@ -240,7 +265,10 @@ impl Feed {
                 }
                 Some(known) => {
                     let ours = known.source_id == source.id && known.removed_at.is_none();
-                    let changed = known.title != article.title || known.summary != article.summary || known.image_url != article.image_url || known.tags != tags;
+                    let changed = known.title != article.title
+                        || known.summary != article.summary
+                        || known.image_url != article.image_url
+                        || known.tags != tags;
                     if ours && changed {
                         sqlx::query("UPDATE news_articles SET url = $2, title = $3, summary = $4, image_url = $5, tags = $6 WHERE id = $1")
                             .bind(known.id)
@@ -291,14 +319,20 @@ impl Feed {
     }
 
     async fn published_at_of(&self, tx: &mut Transaction<'_, Postgres>, article_id: Uuid) -> AppResult<Time> {
-        Ok(sqlx::query_scalar("SELECT published_at FROM news_articles WHERE id = $1").bind(article_id).fetch_one(&mut **tx).await?)
+        Ok(sqlx::query_scalar("SELECT published_at FROM news_articles WHERE id = $1")
+            .bind(article_id)
+            .fetch_one(&mut **tx)
+            .await?)
     }
 
     /// The tags of an article: the source's, the feed's categories, and
     /// keyword matches in the title and summary.
     fn article_tags(&self, source: &SourceRow, article: &ParsedArticle) -> Vec<String> {
         let keyword_tags = self.dictionary.tags_for(&format!("{} {}", article.title, article.summary));
-        merge_tags(source.default_tags.iter().chain(article.categories.iter()).chain(keyword_tags.iter()), MAX_ARTICLE_TAGS)
+        merge_tags(
+            source.default_tags.iter().chain(article.categories.iter()).chain(keyword_tags.iter()),
+            MAX_ARTICLE_TAGS,
+        )
     }
 
     /// "304 Not Modified": the source is fine and the feed unchanged, so the

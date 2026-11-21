@@ -16,8 +16,8 @@ export function useMediaQuery(query: string): boolean {
 /** Tables turn into cards below this width. */
 export const useIsWide = () => useMediaQuery("(min-width: 1024px)");
 
-/** Room for a second pane next to the main one (queue beside a case). */
-export const useIsExtraWide = () => useMediaQuery("(min-width: 1280px)");
+/** Room for a pane beside a two-column page (the queue next to a case). */
+export const useIsExtraWide = () => useMediaQuery("(min-width: 1536px)");
 
 /** `value`, but only after it stopped changing for `delayMs` (search-as-you-type). */
 export function useDebounced<T>(value: T, delayMs = 300): T {

@@ -8,6 +8,7 @@ import { Coins } from "#/components/ui/coins";
 import { Dialog } from "#/components/ui/dialog";
 import { TextArea, TextField } from "#/components/ui/field";
 import { SelectField } from "#/components/ui/select";
+import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { earningsClient, rememberBalance, walletKeys } from "./api";
 import { formatCoins, formatMoney, parseCoins, payoutMoney, payoutProblem } from "./format";
@@ -188,12 +189,12 @@ export function useCancelPayout() {
 }
 
 /** Coins of a payout with the money they turn into. */
-export function PayoutAmount({ payout, className }: { payout: wallet.PayoutRequest; className?: string }) {
+export function PayoutAmount({ payout, large, className }: { payout: wallet.PayoutRequest; /** For the head of a page or pane. */ large?: boolean; className?: string }) {
   const { i18n } = useTranslation("wallet");
   return (
-    <span className={`inline-flex flex-wrap items-baseline gap-x-2 ${className ?? ""}`}>
-      <Coins amount={payout.coins} />
-      <span className="text-sm font-bold text-ink-soft">→ {formatMoney(payout.payoutMinor, payout.currency, i18n.language)}</span>
+    <span className={cn("inline-flex flex-wrap items-baseline gap-x-2", className)}>
+      <Coins amount={payout.coins} className={cn(large && "text-2xl")} />
+      <span className={cn("font-bold text-ink-soft", large ? "text-base" : "text-sm")}>→ {formatMoney(payout.payoutMinor, payout.currency, i18n.language)}</span>
     </span>
   );
 }

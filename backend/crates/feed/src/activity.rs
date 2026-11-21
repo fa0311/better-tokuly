@@ -60,7 +60,11 @@ pub(crate) use kind_shown;
 /// SQL condition: the author of the entry aliased `$a` is an active account.
 macro_rules! author_active {
     ($a:literal) => {
-        concat!("EXISTS (SELECT 1 FROM users au WHERE au.id = ", $a, ".user_id AND au.deleted_at IS NULL AND au.banned_at IS NULL)")
+        concat!(
+            "EXISTS (SELECT 1 FROM users au WHERE au.id = ",
+            $a,
+            ".user_id AND au.deleted_at IS NULL AND au.banned_at IS NULL)"
+        )
     };
 }
 pub(crate) use author_active;
@@ -150,7 +154,10 @@ fn clean_line(text: &str, max: usize) -> String {
 /// An in-app path: starts with a single `/`, no control characters.
 fn clean_path(path: &str) -> String {
     let path = path.trim();
-    let ok = path.starts_with('/') && !path.starts_with("//") && path.len() <= MAX_PATH_LEN && !path.chars().any(|c| c.is_control() || c.is_whitespace());
+    let ok = path.starts_with('/')
+        && !path.starts_with("//")
+        && path.len() <= MAX_PATH_LEN
+        && !path.chars().any(|c| c.is_control() || c.is_whitespace());
     if ok { path.to_owned() } else { String::new() }
 }
 
@@ -160,7 +167,9 @@ fn clean_image_url(url: &str) -> Option<String> {
     if url.is_empty() || url.len() > MAX_IMAGE_URL_LEN || url.chars().any(|c| c.is_control() || c.is_whitespace()) {
         return None;
     }
-    let absolute = url::Url::parse(url).ok().is_some_and(|parsed| matches!(parsed.scheme(), "http" | "https") && parsed.host().is_some());
+    let absolute = url::Url::parse(url)
+        .ok()
+        .is_some_and(|parsed| matches!(parsed.scheme(), "http" | "https") && parsed.host().is_some());
     let relative = url.starts_with('/') && !url.starts_with("//");
     (absolute || relative).then(|| url.to_owned())
 }
@@ -171,7 +180,8 @@ pub fn sanitize(entry: ActivityEntry, occurred_at: Time, now: Time) -> Option<Ne
     if !kinds::is_valid(&entry.kind) {
         return None;
     }
-    let (mut ja, mut en) = (clean_line(&entry.summary.ja, MAX_SUMMARY_CHARS), clean_line(&entry.summary.en, MAX_SUMMARY_CHARS));
+    let (mut ja, mut en) =
+        (clean_line(&entry.summary.ja, MAX_SUMMARY_CHARS), clean_line(&entry.summary.en, MAX_SUMMARY_CHARS));
     if ja.is_empty() && en.is_empty() {
         // Better a generic line than an empty card.
         let label = kinds::label(&entry.kind);
@@ -183,10 +193,20 @@ pub fn sanitize(entry: ActivityEntry, occurred_at: Time, now: Time) -> Option<Ne
     }
 
     let mut seen = HashSet::new();
-    let with_user_ids: Vec<Uuid> =
-        entry.with_user_ids.into_iter().filter(|id| *id != entry.user_id && !id.is_nil() && seen.insert(*id)).take(MAX_WITH_USERS).collect();
-    let location = entry.location.filter(|(lat, lng)| lat.is_finite() && lng.is_finite() && (-90.0..=90.0).contains(lat) && (-180.0..=180.0).contains(lng));
-    let data = if entry.data.is_null() || entry.data.to_string().len() <= MAX_DATA_BYTES { entry.data } else { serde_json::Value::Null };
+    let with_user_ids: Vec<Uuid> = entry
+        .with_user_ids
+        .into_iter()
+        .filter(|id| *id != entry.user_id && !id.is_nil() && seen.insert(*id))
+        .take(MAX_WITH_USERS)
+        .collect();
+    let location = entry.location.filter(|(lat, lng)| {
+        lat.is_finite() && lng.is_finite() && (-90.0..=90.0).contains(lat) && (-180.0..=180.0).contains(lng)
+    });
+    let data = if entry.data.is_null() || entry.data.to_string().len() <= MAX_DATA_BYTES {
+        entry.data
+    } else {
+        serde_json::Value::Null
+    };
 
     Some(NewActivity {
         user_id: entry.user_id,
@@ -217,7 +237,12 @@ pub enum IngestOutcome {
 
 /// The entry recorded for a new account ("Tokulyに参加しました！").
 fn joined_entry(user_id: Uuid, handle: &str) -> ActivityEntry {
-    let entry = ActivityEntry::new(user_id, kinds::ACCOUNT_JOINED, EntryAudience::Public, Localized::new("Tokulyに参加しました！", "Joined Tokuly!"));
+    let entry = ActivityEntry::new(
+        user_id,
+        kinds::ACCOUNT_JOINED,
+        EntryAudience::Public,
+        Localized::new("Tokulyに参加しました！", "Joined Tokuly!"),
+    );
     if handle.is_empty() { entry } else { entry.path(format!("/u/{handle}")) }
 }
 
@@ -243,7 +268,10 @@ impl Feed {
             return Ok(IngestOutcome::Dropped);
         };
         let mut tx = self.core.db.begin().await?;
-        let claimed = sqlx::query("INSERT INTO feed_processed_events (event_id) VALUES ($1) ON CONFLICT DO NOTHING").bind(event.id).execute(&mut *tx).await?;
+        let claimed = sqlx::query("INSERT INTO feed_processed_events (event_id) VALUES ($1) ON CONFLICT DO NOTHING")
+            .bind(event.id)
+            .execute(&mut *tx)
+            .await?;
         if claimed.rows_affected() == 0 {
             return Ok(IngestOutcome::Duplicate);
         }
@@ -327,16 +355,27 @@ impl Feed {
             Some(user_id) => self.reader_for(user_id).await,
             None => {
                 let language = ctx.client().language;
-                Ok(Reader { viewer: None, locale: if language.is_empty() { "ja".to_owned() } else { language }, hidden: Vec::new() })
+                Ok(Reader {
+                    viewer: None,
+                    locale: if language.is_empty() { "ja".to_owned() } else { language },
+                    hidden: Vec::new(),
+                })
             }
         }
     }
 
     /// The reader context of a signed-in user.
     pub(crate) async fn reader_for(&self, user_id: Uuid) -> AppResult<Reader> {
-        let locale: Option<String> = sqlx::query_scalar("SELECT locale FROM users WHERE id = $1").bind(user_id).fetch_optional(&self.core.db).await?;
+        let locale: Option<String> = sqlx::query_scalar("SELECT locale FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_optional(&self.core.db)
+            .await?;
         let hidden = tokuly_social::graph::blocked_ids_either(&self.core, user_id).await?;
-        Ok(Reader { viewer: Some(user_id), locale: locale.filter(|l| !l.is_empty()).unwrap_or_else(|| "ja".to_owned()), hidden })
+        Ok(Reader {
+            viewer: Some(user_id),
+            locale: locale.filter(|l| !l.is_empty()).unwrap_or_else(|| "ja".to_owned()),
+            hidden,
+        })
     }
 
     /// Summaries of everyone the rows show.
@@ -350,23 +389,40 @@ impl Feed {
     /// Entries as API messages, in the reader's language. `own_hidden_kinds`
     /// is set when the reader is looking at their own log: entries of those
     /// kinds are flagged `hidden_from_others`.
-    pub(crate) async fn to_activities(&self, reader: &Reader, rows: &[ActivityRow], own_hidden_kinds: Option<&[String]>) -> AppResult<Vec<Activity>> {
+    pub(crate) async fn to_activities(
+        &self,
+        reader: &Reader,
+        rows: &[ActivityRow],
+        own_hidden_kinds: Option<&[String]>,
+    ) -> AppResult<Vec<Activity>> {
         let people = self.people_of(&rows.iter().collect::<Vec<_>>()).await?;
         Ok(rows.iter().map(|row| to_activity(row, reader, &people, own_hidden_kinds)).collect())
     }
 }
 
 /// One entry as an API message.
-pub(crate) fn to_activity(row: &ActivityRow, reader: &Reader, people: &HashMap<Uuid, UserSummary>, own_hidden_kinds: Option<&[String]>) -> Activity {
+pub(crate) fn to_activity(
+    row: &ActivityRow,
+    reader: &Reader,
+    people: &HashMap<Uuid, UserSummary>,
+    own_hidden_kinds: Option<&[String]>,
+) -> Activity {
     let subject = match (row.subject_type, row.subject_id) {
-        (Some(subject_type), Some(id)) => Some(SubjectRef { r#type: subject_type.into(), id: id.to_string(), ..Default::default() }),
+        (Some(subject_type), Some(id)) => {
+            Some(SubjectRef { r#type: subject_type.into(), id: id.to_string(), ..Default::default() })
+        }
         _ => None,
     };
     let location = match (row.lat, row.lng) {
         (Some(lat), Some(lng)) => Some(LatLng { lat, lng, ..Default::default() }),
         _ => None,
     };
-    let with_users = row.with_user_ids.iter().filter(|id| !reader.is_hidden(**id)).filter_map(|id| people.get(id).cloned()).collect();
+    let with_users = row
+        .with_user_ids
+        .iter()
+        .filter(|id| !reader.is_hidden(**id))
+        .filter_map(|id| people.get(id).cloned())
+        .collect();
     Activity {
         id: row.id.to_string(),
         actor: tokuly_identity::users::pick(people, row.user_id).into(),
@@ -381,7 +437,8 @@ pub(crate) fn to_activity(row: &ActivityRow, reader: &Reader, people: &HashMap<U
         location: location.into(),
         data_json: if row.data.is_null() { String::new() } else { row.data.to_string() },
         occurred_at: ts(row.occurred_at),
-        hidden_from_others: own_hidden_kinds.is_some_and(|hidden| hidden.iter().any(|prefix| kinds::matches(&row.kind, prefix))),
+        hidden_from_others: own_hidden_kinds
+            .is_some_and(|hidden| hidden.iter().any(|prefix| kinds::matches(&row.kind, prefix))),
         ..Default::default()
     }
 }
@@ -402,7 +459,12 @@ mod tests {
     use super::*;
 
     fn entry(kind: &str) -> ActivityEntry {
-        ActivityEntry::new(Uuid::now_v7(), kind, EntryAudience::Friends, Localized::new("ノートを投稿しました", "Posted a note"))
+        ActivityEntry::new(
+            Uuid::now_v7(),
+            kind,
+            EntryAudience::Friends,
+            Localized::new("ノートを投稿しました", "Posted a note"),
+        )
     }
 
     fn clean(entry: ActivityEntry) -> NewActivity {
@@ -444,7 +506,11 @@ mod tests {
 
     #[test]
     fn audiences_map_to_their_stored_numbers() {
-        for (audience, stored) in [(EntryAudience::Private, AUDIENCE_PRIVATE), (EntryAudience::Friends, AUDIENCE_FRIENDS), (EntryAudience::Public, AUDIENCE_PUBLIC)] {
+        for (audience, stored) in [
+            (EntryAudience::Private, AUDIENCE_PRIVATE),
+            (EntryAudience::Friends, AUDIENCE_FRIENDS),
+            (EntryAudience::Public, AUDIENCE_PUBLIC),
+        ] {
             let entry = ActivityEntry::new(Uuid::now_v7(), "note.posted", audience, Localized::same("x"));
             assert_eq!(clean(entry).audience, stored);
             assert_eq!(audience_of(stored) as i32, i32::from(stored));
@@ -479,7 +545,14 @@ mod tests {
 
     #[test]
     fn only_in_app_paths_and_loadable_images_are_kept() {
-        for (path, kept) in [("/watch/abc", "/watch/abc"), ("watch/abc", ""), ("//evil.example/x", ""), ("https://evil.example", ""), ("/a b", ""), ("", "")] {
+        for (path, kept) in [
+            ("/watch/abc", "/watch/abc"),
+            ("watch/abc", ""),
+            ("//evil.example/x", ""),
+            ("https://evil.example", ""),
+            ("/a b", ""),
+            ("", ""),
+        ] {
             assert_eq!(clean(entry("video.published").path(path)).path, kept, "{path:?}");
         }
         for (url, kept) in [
@@ -503,7 +576,8 @@ mod tests {
         let author = original.user_id;
         let friend = Uuid::now_v7();
         let crowd: Vec<Uuid> = (0..40).map(|_| Uuid::now_v7()).collect();
-        let stored = clean(original.with([friend, author, friend, Uuid::nil()].into_iter().chain(crowd.iter().copied())));
+        let stored =
+            clean(original.with([friend, author, friend, Uuid::nil()].into_iter().chain(crowd.iter().copied())));
         assert_eq!(stored.with_user_ids.len(), MAX_WITH_USERS);
         assert_eq!(stored.with_user_ids[0], friend);
         assert!(!stored.with_user_ids.contains(&author) && !stored.with_user_ids.contains(&Uuid::nil()));
@@ -617,8 +691,13 @@ mod tests {
     #[test]
     fn own_entries_of_hidden_kinds_are_flagged() {
         let hidden = vec!["social".to_owned()];
-        assert!(to_activity(&row("social.bumped"), &reader("ja", vec![]), &HashMap::new(), Some(&hidden)).hidden_from_others);
-        assert!(!to_activity(&row("note.posted"), &reader("ja", vec![]), &HashMap::new(), Some(&hidden)).hidden_from_others);
+        assert!(
+            to_activity(&row("social.bumped"), &reader("ja", vec![]), &HashMap::new(), Some(&hidden))
+                .hidden_from_others
+        );
+        assert!(
+            !to_activity(&row("note.posted"), &reader("ja", vec![]), &HashMap::new(), Some(&hidden)).hidden_from_others
+        );
         assert!(!to_activity(&row("social.bumped"), &reader("ja", vec![]), &HashMap::new(), None).hidden_from_others);
         assert!(to_activity(&row("note.posted"), &reader("ja", vec![]), &HashMap::new(), None).data_json.is_empty());
     }

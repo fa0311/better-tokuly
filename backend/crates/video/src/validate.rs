@@ -133,7 +133,8 @@ pub fn tags<S: AsRef<str>>(inputs: &[S]) -> AppResult<Vec<String>> {
             continue;
         }
         ensure!(
-            length(&tag) <= MAX_TAG && !tag.chars().any(|c| c.is_control() || c.is_whitespace() || c == '#' || c == ','),
+            length(&tag) <= MAX_TAG
+                && !tag.chars().any(|c| c.is_control() || c.is_whitespace() || c == '#' || c == ','),
             invalid,
             "TAGS_INVALID",
             "tags are at most {MAX_TAG} characters without spaces"
@@ -176,9 +177,9 @@ pub fn visibility(value: buffa::EnumValue<Visibility>, default: Visibility) -> A
 pub fn playlist_visibility(value: buffa::EnumValue<Visibility>) -> AppResult<i32> {
     match value.as_known() {
         Some(Visibility::VISIBILITY_UNSPECIFIED) => Ok(Visibility::VISIBILITY_PRIVATE as i32),
-        Some(known @ (Visibility::VISIBILITY_PUBLIC | Visibility::VISIBILITY_UNLISTED | Visibility::VISIBILITY_PRIVATE)) => {
-            Ok(known as i32)
-        }
+        Some(
+            known @ (Visibility::VISIBILITY_PUBLIC | Visibility::VISIBILITY_UNLISTED | Visibility::VISIBILITY_PRIVATE),
+        ) => Ok(known as i32),
         _ => Err(AppError::invalid("VISIBILITY_INVALID", "playlists are public, unlisted or private")),
     }
 }
@@ -343,7 +344,12 @@ mod tests {
         let link = |title: &str, url: &str| ChannelLink { title: title.into(), url: url.into(), ..Default::default() };
         let ok = channel_links(&[link(" X ", " https://x.com/tokuly ")]).unwrap();
         assert_eq!((ok[0].title.as_str(), ok[0].url.as_str()), ("X", "https://x.com/tokuly"));
-        for bad in [link("", "https://example.com"), link("site", "javascript:alert(1)"), link("site", "ftp://example.com"), link("site", "not a url")] {
+        for bad in [
+            link("", "https://example.com"),
+            link("site", "javascript:alert(1)"),
+            link("site", "ftp://example.com"),
+            link("site", "not a url"),
+        ] {
             assert_eq!(channel_links(&[bad]).unwrap_err().reason, "CHANNEL_LINKS_INVALID");
         }
         let many: Vec<ChannelLink> = (0..6).map(|i| link("a", &format!("https://example.com/{i}"))).collect();
@@ -352,7 +358,10 @@ mod tests {
 
     #[test]
     fn tags_are_normalized_and_deduplicated() {
-        assert_eq!(tags(&["#Minecraft", "minecraft", " ＃実況 ", "", "ASMR"]).unwrap(), vec!["minecraft", "実況", "asmr"]);
+        assert_eq!(
+            tags(&["#Minecraft", "minecraft", " ＃実況 ", "", "ASMR"]).unwrap(),
+            vec!["minecraft", "実況", "asmr"]
+        );
         assert_eq!(tags(&["two words"]).unwrap_err().reason, "TAGS_INVALID");
         assert_eq!(tags(&["x".repeat(31)]).unwrap_err().reason, "TAGS_INVALID");
         let many: Vec<String> = (0..21).map(|i| format!("tag{i}")).collect();
@@ -399,9 +408,15 @@ mod tests {
         use buffa::EnumValue;
         assert_eq!(visibility(Visibility::VISIBILITY_UNSPECIFIED.into(), Visibility::VISIBILITY_PRIVATE).unwrap(), 5);
         assert_eq!(visibility(Visibility::VISIBILITY_FRIENDS.into(), Visibility::VISIBILITY_PRIVATE).unwrap(), 4);
-        assert_eq!(visibility(EnumValue::from(42), Visibility::VISIBILITY_PRIVATE).unwrap_err().reason, "VISIBILITY_INVALID");
+        assert_eq!(
+            visibility(EnumValue::from(42), Visibility::VISIBILITY_PRIVATE).unwrap_err().reason,
+            "VISIBILITY_INVALID"
+        );
         assert_eq!(playlist_visibility(Visibility::VISIBILITY_UNSPECIFIED.into()).unwrap(), 5);
-        assert_eq!(playlist_visibility(Visibility::VISIBILITY_FRIENDS.into()).unwrap_err().reason, "VISIBILITY_INVALID");
+        assert_eq!(
+            playlist_visibility(Visibility::VISIBILITY_FRIENDS.into()).unwrap_err().reason,
+            "VISIBILITY_INVALID"
+        );
         assert_eq!(category(VideoCategory::VIDEO_CATEGORY_GAMING.into()).unwrap(), 1);
         assert_eq!(category(EnumValue::from(99)).unwrap_err().reason, "CATEGORY_INVALID");
     }

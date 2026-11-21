@@ -368,6 +368,20 @@ impl Notes {
             .and_then(|url| tokuly_media::link_preview::normalize_url(url).ok())
             .map(String::from);
         let actor = tokuly_identity::summary(core, author).await?;
+        // The people the note may be announced to, as viewers. Everything the
+        // transaction needs from elsewhere is fetched before it opens: while
+        // it holds its connection, nothing here waits for a second one.
+        let mut audience: HashMap<Uuid, Viewer> = HashMap::new();
+        let candidates = parent
+            .iter()
+            .chain(&quoted)
+            .map(|note| note.author_id)
+            .chain(mentioned.iter().map(|(user_id, _)| *user_id));
+        for user_id in candidates.filter(|user_id| *user_id != author) {
+            if !audience.contains_key(&user_id) {
+                audience.insert(user_id, Viewer::load(core, Some(user_id)).await?);
+            }
+        }
 
         let mut tx = core.db.begin().await?;
         let sql = format!(
@@ -440,25 +454,27 @@ impl Notes {
         // people who may see the new note.
         // (A private reply, say, is a note to oneself: the person answered
         // is not told about something they cannot open.)
-        let mut notified: Vec<Uuid> = vec![author];
-        let mut answered = false;
-        if let Some(parent) = &parent {
-            if !notified.contains(&parent.author_id) && self.user_sees_note(&mut tx, parent.author_id, note.id).await? {
-                notified.push(parent.author_id);
-                answered = true;
-                outbound::notify(&mut *tx, &copy::reply(&actor, parent.author_id, &note)).await?;
+        let mut readers: Vec<Uuid> = Vec::new();
+        for (user_id, viewer) in &audience {
+            if viewer.can_see_note(&mut *tx, note.id).await? {
+                readers.push(*user_id);
             }
         }
-        if let Some(quoted) = &quoted {
-            if !notified.contains(&quoted.author_id) && self.user_sees_note(&mut tx, quoted.author_id, note.id).await? {
-                notified.push(quoted.author_id);
-                outbound::notify(&mut *tx, &copy::quote(&actor, quoted.author_id, &note)).await?;
-            }
+        let mut tell = |user_id: Uuid| {
+            let position = readers.iter().position(|reader| *reader == user_id)?;
+            Some(readers.swap_remove(position))
+        };
+        let mut answered = false;
+        if let Some(recipient) = parent.as_ref().and_then(|parent| tell(parent.author_id)) {
+            answered = true;
+            outbound::notify(&mut *tx, &copy::reply(&actor, recipient, &note)).await?;
+        }
+        if let Some(recipient) = quoted.as_ref().and_then(|quoted| tell(quoted.author_id)) {
+            outbound::notify(&mut *tx, &copy::quote(&actor, recipient, &note)).await?;
         }
         for (user_id, _) in &mentioned {
-            if !notified.contains(user_id) && self.user_sees_note(&mut tx, *user_id, note.id).await? {
-                notified.push(*user_id);
-                outbound::notify(&mut *tx, &copy::mention(&actor, *user_id, &note)).await?;
+            if let Some(recipient) = tell(*user_id) {
+                outbound::notify(&mut *tx, &copy::mention(&actor, recipient, &note)).await?;
             }
         }
         tx.commit().await?;
@@ -493,17 +509,6 @@ impl Notes {
             ))
             .await;
         Ok(note)
-    }
-
-    /// Whether `user_id` may see a note that the open transaction just wrote.
-    async fn user_sees_note(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        user_id: Uuid,
-        note_id: Uuid,
-    ) -> AppResult<bool> {
-        let viewer = Viewer::load(&self.core, Some(user_id)).await?;
-        viewer.can_see_note(&mut **tx, note_id).await
     }
 
     /// Reports something one user did with another's note to the

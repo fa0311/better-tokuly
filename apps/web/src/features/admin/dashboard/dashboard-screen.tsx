@@ -93,13 +93,13 @@ function UsersBlock({ users }: { users?: admin.UserStats }) {
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatTile hero className="col-span-2 row-span-2" label={t("dashboard.users.total")} value={formatCompact(users.total)} detail={t("dashboard.users.totalDetail", { total: formatCount(users.total) })} />
+        <StatTile hero className="col-span-2" label={t("dashboard.users.total")} value={formatCompact(users.total)} detail={t("dashboard.users.totalDetail", { total: formatCount(users.total) })} />
         <StatTile label={t("dashboard.users.newToday")} value={formatCount(users.newToday)} />
         <StatTile label={t("dashboard.users.new7d")} value={formatCount(users.new7d)} />
         <StatTile label={t("dashboard.users.sessions")} value={formatCount(users.activeSessions)} />
         <StatTile label={t("dashboard.users.verified")} value={formatCount(users.verified)} />
-        <StatTile className="col-span-1" label={t("dashboard.users.suspended")} value={formatCount(users.suspended)} />
-        <StatTile className="col-span-1" label={t("dashboard.users.deletionScheduled")} value={formatCount(users.deletionScheduled)} />
+        <StatTile label={t("dashboard.users.suspended")} value={formatCount(users.suspended)} />
+        <StatTile label={t("dashboard.users.deletionScheduled")} value={formatCount(users.deletionScheduled)} />
       </div>
       <Section title={t("dashboard.users.activity")} aside={<span className="text-xs text-ink-faint">{t("dashboard.users.activityHint")}</span>}>
         <div className="py-2">

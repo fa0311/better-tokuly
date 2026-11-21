@@ -46,7 +46,8 @@ pub(crate) struct ReportRow {
     pub resolved_at: Option<DateTime<Utc>>,
 }
 
-const REPORT_COLUMNS: &str = "id, subject_type, subject_id, subject_title, subject_path, category, text, status, created_at, resolved_at";
+const REPORT_COLUMNS: &str =
+    "id, subject_type, subject_id, subject_title, subject_path, category, text, status, created_at, resolved_at";
 
 impl ReportRow {
     pub(crate) fn to_proto(&self) -> Report {
@@ -81,10 +82,28 @@ pub(crate) fn category_name(category: ReportCategory) -> &'static str {
 impl Engagement {
     /// Files a report (`ReportService.CreateReport`). `subject` was
     /// resolved without regard to blocks.
-    pub(crate) async fn create_report(&self, reporter_id: Uuid, subject: &Subject, category: ReportCategory, text: &str) -> AppResult<ReportRow> {
+    pub(crate) async fn create_report(
+        &self,
+        reporter_id: Uuid,
+        subject: &Subject,
+        category: ReportCategory,
+        text: &str,
+    ) -> AppResult<ReportRow> {
         let text = text::report_text(text)?;
-        ensure!(!subject.is_owned_by(reporter_id), precondition, "CANNOT_REPORT_OWN", "you cannot report yourself or your own content");
-        self.core.cache.rate_limit(&format!("engagement:report:{reporter_id}"), self.cfg.reports_per_hour, Duration::from_secs(3600)).await?;
+        ensure!(
+            !subject.is_owned_by(reporter_id),
+            precondition,
+            "CANNOT_REPORT_OWN",
+            "you cannot report yourself or your own content"
+        );
+        self.core
+            .cache
+            .rate_limit(
+                &format!("engagement:report:{reporter_id}"),
+                self.cfg.reports_per_hour,
+                Duration::from_secs(3600),
+            )
+            .await?;
 
         let key = subject.key;
         let mut tx = self.core.db.begin().await?;
@@ -118,7 +137,9 @@ impl Engagement {
         .bind(&text)
         .fetch_optional(&mut *tx)
         .await?;
-        let report = report.ok_or_else(|| AppError::already_exists("ALREADY_REPORTED", "you already reported this; the team is looking into it"))?;
+        let report = report.ok_or_else(|| {
+            AppError::already_exists("ALREADY_REPORTED", "you already reported this; the team is looking into it")
+        })?;
         let event = ReportCreated {
             report_id: report.id,
             reporter_id,
@@ -161,12 +182,13 @@ impl Engagement {
 
     /// The moderation team decided about these reports.
     pub(crate) async fn resolve_reports(&self, report_ids: &[Uuid], action_taken: bool) -> AppResult<u64> {
-        let resolved = sqlx::query("UPDATE reports SET status = $2, resolved_at = now() WHERE id = ANY($1) AND status = $3")
-            .bind(report_ids)
-            .bind(if action_taken { ACTION_TAKEN } else { NO_ACTION })
-            .bind(SUBMITTED)
-            .execute(&self.core.db)
-            .await?;
+        let resolved =
+            sqlx::query("UPDATE reports SET status = $2, resolved_at = now() WHERE id = ANY($1) AND status = $3")
+                .bind(report_ids)
+                .bind(if action_taken { ACTION_TAKEN } else { NO_ACTION })
+                .bind(SUBMITTED)
+                .execute(&self.core.db)
+                .await?;
         Ok(resolved.rows_affected())
     }
 }
@@ -212,8 +234,14 @@ mod tests {
 
     #[test]
     fn a_report_needs_a_known_category() {
-        assert_eq!(requested_category(ReportCategory::REPORT_CATEGORY_HATE.into()).unwrap(), ReportCategory::REPORT_CATEGORY_HATE);
-        assert_eq!(requested_category(ReportCategory::REPORT_CATEGORY_UNSPECIFIED.into()).unwrap_err().reason, "REPORT_CATEGORY_INVALID");
+        assert_eq!(
+            requested_category(ReportCategory::REPORT_CATEGORY_HATE.into()).unwrap(),
+            ReportCategory::REPORT_CATEGORY_HATE
+        );
+        assert_eq!(
+            requested_category(ReportCategory::REPORT_CATEGORY_UNSPECIFIED.into()).unwrap_err().reason,
+            "REPORT_CATEGORY_INVALID"
+        );
         assert_eq!(requested_category(buffa::EnumValue::from(77)).unwrap_err().reason, "REPORT_CATEGORY_INVALID");
     }
 }

@@ -43,7 +43,8 @@ async fn let_presence_run_out(ctx: &Ctx, conversation_id: &str) {
     for member in members {
         let user_id: Uuid = member.parse().unwrap();
         let _: () = conn.zadd(&key, &member, past).await.unwrap();
-        let _: () = conn.zadd(&due_key, format!("{}:{}", conversation_id.simple(), user_id.simple()), past).await.unwrap();
+        let _: () =
+            conn.zadd(&due_key, format!("{}:{}", conversation_id.simple(), user_id.simple()), past).await.unwrap();
     }
 }
 
@@ -68,7 +69,10 @@ async fn typing_reaches_the_other_members() {
     // The gateway forwards anything: signals from people outside are dropped.
     let outsider = ctx.app.user("outsider").await;
     ctx.chat.handle_typing(typing(&outsider, &group.id, true)).await.unwrap();
-    ctx.chat.handle_typing(TypingSignal { user_id: owner.id, conversation_id: Uuid::now_v7(), typing: true }).await.unwrap();
+    ctx.chat
+        .handle_typing(TypingSignal { user_id: owner.id, conversation_id: Uuid::now_v7(), typing: true })
+        .await
+        .unwrap();
     assert!(ctx.events(&mut hanako_events).await.is_empty());
 
     // People in a block with the typist hear nothing from them.
@@ -139,6 +143,7 @@ async fn co_presence_shows_who_has_the_conversation_open() {
 
     // Signals about conversations of other people are ignored.
     let outsider = ctx.app.user("outsider").await;
+    let mut hanako_events = ctx.listen(&hanako).await;
     ctx.chat.handle_conversation_presence(presence(&outsider, &conversation.id, true)).await.unwrap();
     assert!(ctx.events(&mut hanako_events).await.is_empty());
     assert_eq!(ctx.conversation(&taro, &conversation.id).await.present_user_ids, vec![hanako.id.to_string()]);
@@ -176,7 +181,11 @@ async fn presence_runs_out_when_a_client_goes_silent() {
     let_presence_run_out(&ctx, &conversation.id).await;
     assert!(ctx.conversation(&hanako, &conversation.id).await.present_user_ids.is_empty(), "stale entries never count");
     ctx.chat.sweep_presence().await.unwrap();
-    assert_eq!(presence_sets(&ctx.events(&mut hanako_events).await), vec![Vec::<String>::new()], "the sweeper tells the others");
+    assert_eq!(
+        presence_sets(&ctx.events(&mut hanako_events).await),
+        vec![Vec::<String>::new()],
+        "the sweeper tells the others"
+    );
     ctx.text(&hanako, &conversation.id, "落ちた？").await;
     assert_eq!(ctx.notification_kinds(&taro).await, vec!["chat.message"]);
 
@@ -192,7 +201,12 @@ fn pov_request(conversation_id: &str, note: &str) -> RequestPovRequest {
 }
 
 fn pov_answer(request_id: &str, asset_ids: &[&str]) -> AnswerPovRequest {
-    AnswerPovRequest { request_id: request_id.to_owned(), attachment_asset_ids: asset_ids.iter().map(|id| id.to_string()).collect(), client_id: client_id(), ..Default::default() }
+    AnswerPovRequest {
+        request_id: request_id.to_owned(),
+        attachment_asset_ids: asset_ids.iter().map(|id| id.to_string()).collect(),
+        client_id: client_id(),
+        ..Default::default()
+    }
 }
 
 async fn ask(ctx: &Ctx, requester: &TestUser, conversation_id: &str) -> RequestPovResponse {
@@ -209,7 +223,10 @@ async fn a_friend_is_asked_for_their_pov_and_answers() {
     let asked = ask(&ctx, &taro, &conversation.id).await;
     let request = asked.request.as_option().unwrap();
     assert_eq!(request.state, PovState::POV_STATE_OPEN);
-    assert_eq!((request.requester_id.as_str(), request.target_id.as_str()), (taro.id.to_string().as_str(), hanako.id.to_string().as_str()));
+    assert_eq!(
+        (request.requester_id.as_str(), request.target_id.as_str()),
+        (taro.id.to_string().as_str(), hanako.id.to_string().as_str())
+    );
     assert_eq!(request.note, "今どこ？");
     let answer_window = request.expires_at.seconds - request.created_at.seconds;
     assert!((7195..=7205).contains(&answer_window), "two hours to answer, got {answer_window}s");
@@ -270,8 +287,14 @@ async fn pov_requests_and_answers_are_validated() {
     let conversation = ctx.direct(&taro, &hanako).await;
     let outsider = ctx.app.user("outsider").await;
 
-    assert_eq!(ctx.reason("Pov", "RequestPov", &taro, &pov_request(&conversation.id, &"あ".repeat(201))).await, "NOTE_TOO_LONG");
-    assert_eq!(ctx.reason("Pov", "RequestPov", &outsider, &pov_request(&conversation.id, "")).await, "CONVERSATION_NOT_FOUND");
+    assert_eq!(
+        ctx.reason("Pov", "RequestPov", &taro, &pov_request(&conversation.id, &"あ".repeat(201))).await,
+        "NOTE_TOO_LONG"
+    );
+    assert_eq!(
+        ctx.reason("Pov", "RequestPov", &outsider, &pov_request(&conversation.id, "")).await,
+        "CONVERSATION_NOT_FOUND"
+    );
     assert_eq!(ctx.anonymous_reason("Pov", "RequestPov", &pov_request(&conversation.id, "")).await, "SIGN_IN_REQUIRED");
     let (group, owner, _) = ctx.group_of("部活", 1).await;
     assert_eq!(ctx.reason("Pov", "RequestPov", &owner, &pov_request(&group.id, "")).await, "NOT_A_DIRECT_CONVERSATION");
@@ -292,16 +315,38 @@ async fn pov_requests_and_answers_are_validated() {
     assert_eq!(ctx.reason("Pov", "AnswerPov", &hanako, &pov_answer(&request_id, &[&old_photo])).await, "POV_NOT_LIVE");
 
     let photo = ctx.photo(&hanako).await;
-    assert_eq!(ctx.reason("Pov", "AnswerPov", &taro, &pov_answer(&request_id, &[&photo])).await, "NOT_ALLOWED", "only the person asked answers");
+    assert_eq!(
+        ctx.reason("Pov", "AnswerPov", &taro, &pov_answer(&request_id, &[&photo])).await,
+        "NOT_ALLOWED",
+        "only the person asked answers"
+    );
     assert_eq!(ctx.reason("Pov", "AnswerPov", &outsider, &pov_answer(&request_id, &[&photo])).await, "POV_NOT_FOUND");
-    assert_eq!(ctx.reason("Pov", "AnswerPov", &hanako, &pov_answer(&Uuid::now_v7().to_string(), &[&photo])).await, "POV_NOT_FOUND");
+    assert_eq!(
+        ctx.reason("Pov", "AnswerPov", &hanako, &pov_answer(&Uuid::now_v7().to_string(), &[&photo])).await,
+        "POV_NOT_FOUND"
+    );
     assert_eq!(ctx.reason("Pov", "AnswerPov", &hanako, &pov_answer(&request_id, &[])).await, "NO_ATTACHMENTS");
     let five: Vec<String> = (0..5).map(|_| Uuid::now_v7().to_string()).collect();
-    assert_eq!(ctx.reason("Pov", "AnswerPov", &hanako, &pov_answer(&request_id, &five.iter().map(String::as_str).collect::<Vec<_>>())).await, "TOO_MANY_ATTACHMENTS");
+    assert_eq!(
+        ctx.reason(
+            "Pov",
+            "AnswerPov",
+            &hanako,
+            &pov_answer(&request_id, &five.iter().map(String::as_str).collect::<Vec<_>>())
+        )
+        .await,
+        "TOO_MANY_ATTACHMENTS"
+    );
     let voice = ctx.upload(&hanako, AssetPurpose::ASSET_PURPOSE_CHAT_AUDIO, AssetKind::ASSET_KIND_AUDIO).await;
-    assert_eq!(ctx.reason("Pov", "AnswerPov", &hanako, &pov_answer(&request_id, &[&voice])).await, "ASSET_WRONG_PURPOSE");
+    assert_eq!(
+        ctx.reason("Pov", "AnswerPov", &hanako, &pov_answer(&request_id, &[&voice])).await,
+        "ASSET_WRONG_PURPOSE"
+    );
     let taros_photo = ctx.photo(&taro).await;
-    assert_eq!(ctx.reason("Pov", "AnswerPov", &hanako, &pov_answer(&request_id, &[&taros_photo])).await, "ASSET_NOT_FOUND");
+    assert_eq!(
+        ctx.reason("Pov", "AnswerPov", &hanako, &pov_answer(&request_id, &[&taros_photo])).await,
+        "ASSET_NOT_FOUND"
+    );
     let no_key = AnswerPovRequest { client_id: String::new(), ..pov_answer(&request_id, &[&photo]) };
     assert_eq!(ctx.reason("Pov", "AnswerPov", &hanako, &no_key).await, "CLIENT_ID_INVALID");
     assert_eq!(ctx.anonymous_reason("Pov", "AnswerPov", &pov_answer(&request_id, &[&photo])).await, "SIGN_IN_REQUIRED");
@@ -318,7 +363,12 @@ async fn pov_requests_are_declined_cancelled_or_run_out() {
     let ctx = start().await;
     let (taro, hanako) = ctx.friends("taro", "hanako").await;
     let conversation = ctx.direct(&taro, &hanako).await;
-    let by_id = |request_id: &str| (DeclinePovRequest { request_id: request_id.to_owned(), ..Default::default() }, CancelPovRequest { request_id: request_id.to_owned(), ..Default::default() });
+    let by_id = |request_id: &str| {
+        (
+            DeclinePovRequest { request_id: request_id.to_owned(), ..Default::default() },
+            CancelPovRequest { request_id: request_id.to_owned(), ..Default::default() },
+        )
+    };
 
     // Declined by the person asked.
     let asked = ask(&ctx, &taro, &conversation.id).await;
@@ -344,20 +394,40 @@ async fn pov_requests_are_declined_cancelled_or_run_out() {
     // Nobody answers within two hours.
     let asked = ask(&ctx, &taro, &conversation.id).await;
     let (decline, _) = by_id(&asked.request.id);
-    sqlx::query("UPDATE chat_pov_requests SET expires_at = now() - interval '1 second' WHERE id = $1::uuid").bind(&asked.request.id).execute(&ctx.app.core.db).await.unwrap();
+    let sweeping = SWEEPS.lock().await;
+    let mut taro_events = ctx.listen(&taro).await;
+    sqlx::query("UPDATE chat_pov_requests SET expires_at = now() - interval '1 second' WHERE id = $1::uuid")
+        .bind(&asked.request.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
     let photo = ctx.photo(&hanako).await;
-    assert_eq!(ctx.reason("Pov", "AnswerPov", &hanako, &pov_answer(&asked.request.id, &[&photo])).await, "POV_NOT_OPEN");
+    assert_eq!(
+        ctx.reason("Pov", "AnswerPov", &hanako, &pov_answer(&asked.request.id, &[&photo])).await,
+        "POV_NOT_OPEN"
+    );
     assert_eq!(ctx.reason("Pov", "DeclinePov", &hanako, &decline).await, "POV_NOT_OPEN");
     assert!(ctx.conversation(&taro, &conversation.id).await.open_pov_request.is_unset());
-    let mut taro_events = ctx.listen(&taro).await;
-    assert!(ctx.chat.expire_povs().await.unwrap() >= 1);
+    assert_eq!(ctx.chat.expire_povs().await.unwrap(), 1);
+    drop(sweeping);
     let updates = updated_messages(&ctx.events(&mut taro_events).await);
-    assert!(updates.iter().any(|(message, _)| message.id == asked.message.id && message.pov_request.state == PovState::POV_STATE_EXPIRED));
+    assert!(
+        updates
+            .iter()
+            .any(|(message, _)| message.id == asked.message.id
+                && message.pov_request.state == PovState::POV_STATE_EXPIRED)
+    );
 
     // A request whose time is up does not block the next one, worker or not.
     let stale = ask(&ctx, &taro, &conversation.id).await;
-    sqlx::query("UPDATE chat_pov_requests SET expires_at = now() - interval '1 second' WHERE id = $1::uuid").bind(&stale.request.id).execute(&ctx.app.core.db).await.unwrap();
+    let sweeping = SWEEPS.lock().await;
+    sqlx::query("UPDATE chat_pov_requests SET expires_at = now() - interval '1 second' WHERE id = $1::uuid")
+        .bind(&stale.request.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
     let fresh = ask(&ctx, &hanako, &conversation.id).await;
+    drop(sweeping);
     assert_eq!(fresh.request.state, PovState::POV_STATE_OPEN);
     assert_eq!(ctx.message(&taro, &stale.message.id).await.pov_request.state, PovState::POV_STATE_EXPIRED);
 }
@@ -371,7 +441,13 @@ async fn an_answer_disappears_unless_the_requester_saves_it() {
     let expire_reply = |request_id: String| {
         let db = ctx.app.core.db.clone();
         async move {
-            sqlx::query("UPDATE chat_pov_requests SET reply_expires_at = now() - interval '1 second' WHERE id = $1::uuid").bind(request_id).execute(&db).await.unwrap();
+            sqlx::query(
+                "UPDATE chat_pov_requests SET reply_expires_at = now() - interval '1 second' WHERE id = $1::uuid",
+            )
+            .bind(request_id)
+            .execute(&db)
+            .await
+            .unwrap();
         }
     };
 
@@ -379,23 +455,36 @@ async fn an_answer_disappears_unless_the_requester_saves_it() {
     let asked = ask(&ctx, &taro, &conversation.id).await;
     assert_eq!(ctx.reason("Pov", "SavePov", &taro, &save(&asked.request.id)).await, "POV_NOT_ANSWERED");
     let photo = ctx.photo(&hanako).await;
-    let answered: AnswerPovResponse = ctx.call("Pov", "AnswerPov", &hanako, &pov_answer(&asked.request.id, &[&photo])).await.unwrap();
-    assert_eq!(ctx.reason("Pov", "SavePov", &hanako, &save(&asked.request.id)).await, "NOT_ALLOWED", "only the requester saves");
+    let answered: AnswerPovResponse =
+        ctx.call("Pov", "AnswerPov", &hanako, &pov_answer(&asked.request.id, &[&photo])).await.unwrap();
+    assert_eq!(
+        ctx.reason("Pov", "SavePov", &hanako, &save(&asked.request.id)).await,
+        "NOT_ALLOWED",
+        "only the requester saves"
+    );
     let mut hanako_events = ctx.listen(&hanako).await;
     let saved: SavePovResponse = ctx.call("Pov", "SavePov", &taro, &save(&asked.request.id)).await.unwrap();
     assert!(saved.request.saved && saved.request.reply_expires_at.is_unset());
     let updates = updated_messages(&ctx.events(&mut hanako_events).await);
     assert_eq!(updates.len(), 2, "the request and the answer both show it");
-    assert!(updates.iter().any(|(message, _)| message.id == answered.message.id && message.pov_reply.saved && message.pov_reply.expires_at.is_unset()));
+    assert!(updates.iter().any(|(message, _)| message.id == answered.message.id
+        && message.pov_reply.saved
+        && message.pov_reply.expires_at.is_unset()));
     let notification = ctx.notifications(&hanako).await.pop().unwrap();
     assert_eq!(notification.kind, "chat.pov");
     assert_eq!(notification.data["event"], "saved");
     let again: SavePovResponse = ctx.call("Pov", "SavePov", &taro, &save(&asked.request.id)).await.unwrap();
     assert!(again.request.saved);
-    assert_eq!(ctx.notifications(&hanako).await.iter().filter(|n| n.data["event"] == "saved").count(), 1, "saving twice tells once");
+    assert_eq!(
+        ctx.notifications(&hanako).await.iter().filter(|n| n.data["event"] == "saved").count(),
+        1,
+        "saving twice tells once"
+    );
+    let sweeping = SWEEPS.lock().await;
     expire_reply(asked.request.id.clone()).await;
-    ctx.chat.expire_povs().await.unwrap();
-    assert_eq!(ctx.message(&taro, &answered.message.id).await.attachments.len(), 1, "a saved answer never expires");
+    assert_eq!(ctx.chat.expire_povs().await.unwrap(), 0, "a saved answer never expires");
+    drop(sweeping);
+    assert_eq!(ctx.message(&taro, &answered.message.id).await.attachments.len(), 1);
 
     // Not saved: after 24 hours the content is gone for both.
     let asked = ask(&ctx, &taro, &conversation.id).await;
@@ -403,29 +492,57 @@ async fn an_answer_disappears_unless_the_requester_saves_it() {
     let answer = AnswerPovRequest { text: "見て！".into(), ..pov_answer(&asked.request.id, &[&photo]) };
     let answered: AnswerPovResponse = ctx.call("Pov", "AnswerPov", &hanako, &answer).await.unwrap();
     // Not something to pass around or pin while it lasts.
-    let forward = ForwardMessagesRequest { message_ids: vec![answered.message.id.clone()], conversation_ids: vec![conversation.id.clone()], client_id: client_id(), ..Default::default() };
+    let forward = ForwardMessagesRequest {
+        message_ids: vec![answered.message.id.clone()],
+        conversation_ids: vec![conversation.id.clone()],
+        client_id: client_id(),
+        ..Default::default()
+    };
     assert_eq!(ctx.reason("Message", "ForwardMessages", &taro, &forward).await, "MESSAGE_NOT_FORWARDABLE");
     let pin = PinMessageRequest { message_id: answered.message.id.clone(), ..Default::default() };
     assert_eq!(ctx.reason("Message", "PinMessage", &taro, &pin).await, "MESSAGE_NOT_PINNABLE");
 
-    expire_reply(asked.request.id.clone()).await;
+    let sweeping = SWEEPS.lock().await;
     let mut taro_events = ctx.listen(&taro).await;
-    assert!(ctx.chat.expire_povs().await.unwrap() >= 1);
+    expire_reply(asked.request.id.clone()).await;
+    assert_eq!(ctx.chat.expire_povs().await.unwrap(), 1);
+    drop(sweeping);
     let updates = updated_messages(&ctx.events(&mut taro_events).await);
-    assert!(updates.iter().any(|(message, reason)| message.id == answered.message.id && message.pov_reply.expired && *reason == MessageUpdateReason::MESSAGE_UPDATE_REASON_POV));
+    assert!(updates.iter().any(|(message, reason)| message.id == answered.message.id
+        && message.pov_reply.expired
+        && *reason == MessageUpdateReason::MESSAGE_UPDATE_REASON_POV));
     let gone = ctx.message(&hanako, &answered.message.id).await;
     assert!(gone.attachments.is_empty() && gone.text.is_empty() && gone.pov_reply.expired && !gone.deleted);
     assert!(ctx.message(&taro, &asked.message.id).await.pov_request.reply_expired);
-    assert!(!tokuly_media::assets::is_attached(&ctx.app.core, photo.parse().unwrap()).await.unwrap(), "the upload is released");
+    assert!(
+        !tokuly_media::assets::is_attached(&ctx.app.core, photo.parse().unwrap()).await.unwrap(),
+        "the upload is released"
+    );
     assert_eq!(ctx.reason("Pov", "SavePov", &taro, &save(&asked.request.id)).await, "POV_REPLY_EXPIRED");
-    let media: ListSharedMediaResponse =
-        ctx.call("Message", "ListSharedMedia", &taro, &ListSharedMediaRequest { conversation_id: conversation.id.clone(), ..Default::default() }).await.unwrap();
+    let media: ListSharedMediaResponse = ctx
+        .call(
+            "Message",
+            "ListSharedMedia",
+            &taro,
+            &ListSharedMediaRequest { conversation_id: conversation.id.clone(), ..Default::default() },
+        )
+        .await
+        .unwrap();
     assert_eq!(media.items.len(), 1, "only the saved POV is left in the gallery");
 
     // Deleting an answer counts as gone as well.
     let asked = ask(&ctx, &taro, &conversation.id).await;
     let photo = ctx.photo(&hanako).await;
-    let answered: AnswerPovResponse = ctx.call("Pov", "AnswerPov", &hanako, &pov_answer(&asked.request.id, &[&photo])).await.unwrap();
-    let _: DeleteMessageResponse = ctx.call("Message", "DeleteMessage", &hanako, &DeleteMessageRequest { message_id: answered.message.id, ..Default::default() }).await.unwrap();
+    let answered: AnswerPovResponse =
+        ctx.call("Pov", "AnswerPov", &hanako, &pov_answer(&asked.request.id, &[&photo])).await.unwrap();
+    let _: DeleteMessageResponse = ctx
+        .call(
+            "Message",
+            "DeleteMessage",
+            &hanako,
+            &DeleteMessageRequest { message_id: answered.message.id.clone(), ..Default::default() },
+        )
+        .await
+        .unwrap();
     assert_eq!(ctx.reason("Pov", "SavePov", &taro, &save(&asked.request.id)).await, "POV_REPLY_EXPIRED");
 }

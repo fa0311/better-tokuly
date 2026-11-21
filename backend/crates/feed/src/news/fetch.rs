@@ -115,14 +115,26 @@ fn validator(headers: &header::HeaderMap, name: header::HeaderName) -> Option<St
 }
 
 /// GETs `url`, following up to [`MAX_REDIRECTS`] checked redirects.
-pub async fn fetch(client: &reqwest::Client, policy: Policy, limits: Limits, url: Url, validators: &Validators) -> Result<Fetched, FetchError> {
+pub async fn fetch(
+    client: &reqwest::Client,
+    policy: Policy,
+    limits: Limits,
+    url: Url,
+    validators: &Validators,
+) -> Result<Fetched, FetchError> {
     match tokio::time::timeout(limits.timeout, fetch_unbounded(client, policy, limits, url, validators)).await {
         Ok(result) => result,
         Err(_) => Err(FetchError::Timeout),
     }
 }
 
-async fn fetch_unbounded(client: &reqwest::Client, policy: Policy, limits: Limits, mut url: Url, validators: &Validators) -> Result<Fetched, FetchError> {
+async fn fetch_unbounded(
+    client: &reqwest::Client,
+    policy: Policy,
+    limits: Limits,
+    mut url: Url,
+    validators: &Validators,
+) -> Result<Fetched, FetchError> {
     for _hop in 0..=MAX_REDIRECTS {
         check_url(&url, policy).map_err(FetchError::Refused)?;
         let mut request = client.get(url.clone()).header(header::ACCEPT, ACCEPT);
@@ -160,7 +172,10 @@ async fn fetch_unbounded(client: &reqwest::Client, policy: Policy, limits: Limit
         if response.content_length().is_some_and(|length| length > limits.max_bytes as u64) {
             return Err(FetchError::TooLarge(limits.max_bytes));
         }
-        let validators = Validators { etag: validator(response.headers(), header::ETAG), last_modified: validator(response.headers(), header::LAST_MODIFIED) };
+        let validators = Validators {
+            etag: validator(response.headers(), header::ETAG),
+            last_modified: validator(response.headers(), header::LAST_MODIFIED),
+        };
         let mut body = BytesMut::new();
         while let Some(chunk) = response.chunk().await.map_err(network_error)? {
             // A truncated feed would parse as garbage: over the limit is an error.

@@ -46,9 +46,9 @@ service NoteService {
   // TOO_MANY_ATTACHMENTS (more than 4), ATTACHMENTS_MIXED (a video comes
   // alone), ATTACHMENT_UNSUPPORTED (not an image or a video), ASSET_NOT_FOUND,
   // ASSET_WRONG_PURPOSE, ASSET_NOT_READY, ASSET_FAILED, STAMP_NOT_USABLE,
-  // INVALID_PLACE, INVALID_VISIBILITY, INVALID_IDEMPOTENCY_KEY, NOTE_NOT_FOUND
-  // (the note replied to or quoted), NOTE_NOT_PUBLIC (only public notes can
-  // be quoted), RATE_LIMITED.
+  // INVALID_PLACE, INVALID_VISIBILITY, INVALID_IDEMPOTENCY_KEY,
+  // REQUEST_IN_PROGRESS, NOTE_NOT_FOUND (the note replied to or quoted),
+  // NOTE_NOT_PUBLIC (only public notes can be quoted), RATE_LIMITED.
   rpc CreateNote(CreateNoteRequest) returns (CreateNoteResponse);
   // Deletes one of the caller's notes. Replies to it stay (they show the
   // note they answered as unavailable); renotes of it disappear.
@@ -269,7 +269,9 @@ message CreateNoteRequest {
   bool content_warning = 8;
   // Optional client-generated key (at most 64 characters) that makes a
   // retried request safe: posting again with the same key within 10
-  // minutes returns the note created the first time.
+  // minutes returns the note created the first time. A retry that arrives
+  // while the first request is still running fails with REQUEST_IN_PROGRESS
+  // (unavailable): try again shortly.
   string idempotency_key = 9;
 }
 
@@ -527,7 +529,7 @@ service StoryService {
   // CAPTION_TOO_LONG, ATTACHMENT_UNSUPPORTED (not an image or a video),
   // ASSET_NOT_FOUND, ASSET_WRONG_PURPOSE, ASSET_NOT_READY, ASSET_FAILED,
   // AUDIENCE_EMPTY, AUDIENCE_TOO_LARGE, AUDIENCE_NOT_FRIENDS,
-  // INVALID_IDEMPOTENCY_KEY, RATE_LIMITED.
+  // INVALID_IDEMPOTENCY_KEY, REQUEST_IN_PROGRESS, RATE_LIMITED.
   rpc CreateStory(CreateStoryRequest) returns (CreateStoryResponse);
   // Deletes one of the caller's stories, live or archived, from everywhere
   // (highlights included). Errors: STORY_NOT_FOUND.
@@ -692,8 +694,8 @@ message CreateStoryRequest {
   // them friends of the caller). Ignored otherwise.
   repeated string audience_user_ids = 4;
   // Optional client-generated key (at most 64 characters): posting again
-  // with the same key within 10 minutes returns the first story.
-  // INVALID_IDEMPOTENCY_KEY when longer.
+  // with the same key within 10 minutes returns the first story
+  // (REQUEST_IN_PROGRESS while the first request is still running).
   string idempotency_key = 5;
 }
 
@@ -842,8 +844,9 @@ message GetHighlightResponse {
 //
 // The first three events are topic-scoped: clients showing a note subscribe
 // to `subject:3:<note_id>` (3 = SUBJECT_TYPE_NOTE) and get its numbers live.
-// The topic is open to anyone who knows the note's ID, so it only ever
-// carries numbers and IDs, plus content that is public anyway.
+// Whether a client may follow the topic is checked once, when it subscribes
+// (it must be able to see the note then), so the topic only ever carries
+// numbers and IDs, plus content that is public anyway.
 // The story events are user-scoped and need no subscription.
 message NotesEvent {
   oneof event {

@@ -76,26 +76,48 @@ impl Chat {
     }
 
     /// Tells a member about a POV event unless they are looking at the conversation.
-    async fn notify_pov(&self, tx: &mut Transaction<'_, Postgres>, recipient: Uuid, notice: PovNotice, actor: Uuid, request: &PovRow) -> AppResult<()> {
+    async fn notify_pov(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        recipient: Uuid,
+        notice: PovNotice,
+        actor: Uuid,
+        request: &PovRow,
+    ) -> AppResult<()> {
         if self.present_users(request.conversation_id).await.unwrap_or_default().contains(&recipient) {
             return Ok(());
         }
-        let muted: Option<(bool, Option<Time>)> = sqlx::query_as("SELECT muted, muted_until FROM chat_members WHERE conversation_id = $1 AND user_id = $2")
-            .bind(request.conversation_id)
-            .bind(recipient)
-            .fetch_optional(&mut **tx)
-            .await?;
+        let muted: Option<(bool, Option<Time>)> =
+            sqlx::query_as("SELECT muted, muted_until FROM chat_members WHERE conversation_id = $1 AND user_id = $2")
+                .bind(request.conversation_id)
+                .bind(recipient)
+                .fetch_optional(&mut **tx)
+                .await?;
         if muted.is_none_or(|(muted, until)| crate::model::muted_now(muted, until)) {
             return Ok(());
         }
-        let summary = tokuly_identity::summary(&self.core, actor).await?;
-        outbound::notify(&mut **tx, &notices::pov(recipient, notice, &summary, actor, request.conversation_id, request.id)).await
+        let summary = access::summary_in_tx(tx, actor).await?;
+        outbound::notify(
+            &mut **tx,
+            &notices::pov(recipient, notice, &summary, actor, request.conversation_id, request.id),
+        )
+        .await
     }
 
-    pub(crate) async fn request_pov(&self, user_id: Uuid, conversation_id: Uuid, note: &str) -> AppResult<(Access, PovRow, MessageRow)> {
+    pub(crate) async fn request_pov(
+        &self,
+        user_id: Uuid,
+        conversation_id: Uuid,
+        note: &str,
+    ) -> AppResult<(Access, PovRow, MessageRow)> {
         let core = &self.core;
         let access = self.access(user_id, conversation_id).await?;
-        ensure!(access.conv.is_direct(), precondition, "NOT_A_DIRECT_CONVERSATION", "POV requests are for direct conversations");
+        ensure!(
+            access.conv.is_direct(),
+            precondition,
+            "NOT_A_DIRECT_CONVERSATION",
+            "POV requests are for direct conversations"
+        );
         let note = note.trim();
         ensure!(
             note.chars().count() <= MAX_NOTE_CHARS && !note.chars().any(|c| c.is_control() && c != '\n'),
@@ -105,7 +127,12 @@ impl Chat {
         );
         let other = access.other_user().ok_or_else(access::read_only)?;
         self.ensure_writable(&access).await?;
-        ensure!(graph::are_friends(core, user_id, other).await?, precondition, "NOT_FRIENDS", "you can only ask friends for their POV");
+        ensure!(
+            graph::are_friends(core, user_id, other).await?,
+            precondition,
+            "NOT_FRIENDS",
+            "you can only ask friends for their POV"
+        );
         // Friends never talk through a message request; this settles one left over.
         self.ensure_can_send(&access, Content::Rich).await?;
         core.cache.rate_limit(&format!("chat-pov:{user_id}"), 30, Duration::from_secs(3600)).await?;
@@ -121,11 +148,13 @@ impl Chat {
         .bind(pov::OPEN)
         .fetch_all(&mut *tx)
         .await?;
-        let open: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM chat_pov_requests WHERE conversation_id = $1 AND state = $2)")
-            .bind(conversation_id)
-            .bind(pov::OPEN)
-            .fetch_one(&mut *tx)
-            .await?;
+        let open: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM chat_pov_requests WHERE conversation_id = $1 AND state = $2)",
+        )
+        .bind(conversation_id)
+        .bind(pov::OPEN)
+        .fetch_one(&mut *tx)
+        .await?;
         ensure!(!open, precondition, "POV_ALREADY_OPEN", "there is already a POV request waiting in this conversation");
 
         let request_id = new_id();
@@ -141,7 +170,7 @@ impl Chat {
         .bind(self.cfg.pov_answer_seconds as f64)
         .execute(&mut *tx)
         .await?;
-        let draft = Draft { pov_request_id: Some(request_id), ..Draft::from_user(msg::POV_REQUEST, user_id) }.silent();
+        let draft = Draft { pov_request_id: Some(request_id), ..Draft::from_user(msg::POV_REQUEST, user_id) };
         let posted = self.post(&mut tx, &mut conv, draft).await?;
         let request: PovRow = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "UPDATE chat_pov_requests p SET request_message_id = $2 WHERE p.id = $1 RETURNING {POV}"
@@ -160,7 +189,14 @@ impl Chat {
         Ok((access, request, posted.row))
     }
 
-    pub(crate) async fn answer_pov(&self, user_id: Uuid, request_id: Uuid, asset_ids: &[String], client_id: &str, text: &str) -> AppResult<(Access, PovRow, MessageRow)> {
+    pub(crate) async fn answer_pov(
+        &self,
+        user_id: Uuid,
+        request_id: Uuid,
+        asset_ids: &[String],
+        client_id: &str,
+        text: &str,
+    ) -> AppResult<(Access, PovRow, MessageRow)> {
         let core = &self.core;
         content::validate_client_id(client_id, content::MAX_CLIENT_ID_LEN)?;
         let (access, request) = self.pov_access(user_id, request_id).await?;
@@ -169,7 +205,10 @@ impl Chat {
         }
         // A retried answer gets the stored message back.
         if let Some(reply_id) = request.reply_message_id {
-            if let Some(reply) = access::find_message(core, reply_id).await?.filter(|reply| reply.client_id.as_deref() == Some(client_id)) {
+            if let Some(reply) = access::find_message(core, reply_id)
+                .await?
+                .filter(|reply| reply.client_id.as_deref() == Some(client_id))
+            {
                 return Ok((access, request, reply));
             }
         }
@@ -194,8 +233,13 @@ impl Chat {
         if locked.state != pov::OPEN || locked.expires_at <= now() {
             return Err(pov_not_open());
         }
-        let draft = Draft { client_id: Some(client_id.to_owned()), text, attachments, pov_request_id: Some(request_id), ..Draft::from_user(msg::MEDIA, user_id) }
-            .silent();
+        let draft = Draft {
+            client_id: Some(client_id.to_owned()),
+            text,
+            attachments,
+            pov_request_id: Some(request_id),
+            ..Draft::from_user(msg::MEDIA, user_id)
+        };
         let posted = self.post(&mut tx, &mut conv, draft).await?;
         let answered: PovRow = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "UPDATE chat_pov_requests p SET state = $2, answered_at = now(), reply_message_id = $3,
@@ -262,7 +306,12 @@ impl Chat {
         if request.requester_id != user_id {
             return Err(not_yours());
         }
-        ensure!(request.state == pov::ANSWERED, precondition, "POV_NOT_ANSWERED", "this POV request has not been answered");
+        ensure!(
+            request.state == pov::ANSWERED,
+            precondition,
+            "POV_NOT_ANSWERED",
+            "this POV request has not been answered"
+        );
         if request.saved_at.is_some() {
             return Ok(request);
         }
@@ -335,7 +384,10 @@ impl Chat {
                 .bind(reply_id)
                 .execute(&mut *tx)
                 .await?;
-                sqlx::query("DELETE FROM chat_message_assets WHERE message_id = $1").bind(reply_id).execute(&mut *tx).await?;
+                sqlx::query("DELETE FROM chat_message_assets WHERE message_id = $1")
+                    .bind(reply_id)
+                    .execute(&mut *tx)
+                    .await?;
                 assets::detach_holder(&mut *tx, &message_holder(reply_id)).await?;
             }
             tx.commit().await?;
@@ -347,7 +399,11 @@ impl Chat {
 
     /// Closes the open request of a conversation nobody can write in any
     /// more (a block, a deleted account).
-    pub(crate) async fn cancel_open_pov(&self, tx: &mut Transaction<'_, Postgres>, conversation_id: Uuid) -> AppResult<Option<PovRow>> {
+    pub(crate) async fn cancel_open_pov(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        conversation_id: Uuid,
+    ) -> AppResult<Option<PovRow>> {
         Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "UPDATE chat_pov_requests p SET state = $2 WHERE p.conversation_id = $1 AND p.state = $3 RETURNING {POV}"
         )))

@@ -47,7 +47,12 @@ export function ImageCropDialog({
     element.onload = () => setImage(element);
     element.onerror = onUnreadable;
     element.src = url;
-    return () => URL.revokeObjectURL(url);
+    return () => {
+      // A load that is abandoned (the dialog closed, or the effect re-ran) must not report anything.
+      element.onload = null;
+      element.onerror = null;
+      URL.revokeObjectURL(url);
+    };
     // `onUnreadable` is only called from the load handlers of this file.
   }, [file]);
 

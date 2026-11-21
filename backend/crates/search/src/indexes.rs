@@ -57,7 +57,10 @@ pub(crate) fn engine_timeout(context: &'static str) -> AppError {
 }
 
 /// Runs an engine request with the request timeout.
-pub(crate) async fn engine<T>(context: &'static str, request: impl Future<Output = Result<T, EngineError>>) -> AppResult<T> {
+pub(crate) async fn engine<T>(
+    context: &'static str,
+    request: impl Future<Output = Result<T, EngineError>>,
+) -> AppResult<T> {
     match tokio::time::timeout(REQUEST_TIMEOUT, request).await {
         Ok(Ok(value)) => Ok(value),
         Ok(Err(error)) => Err(engine_error(context, error)),
@@ -186,7 +189,10 @@ pub fn synonym_map(groups: &[Vec<String>]) -> HashMap<String, Vec<String>> {
             others.extend(group.iter().filter(|other| *other != word).cloned());
         }
     }
-    map.into_iter().filter(|(_, others)| !others.is_empty()).map(|(word, others)| (word, others.into_iter().collect())).collect()
+    map.into_iter()
+        .filter(|(_, others)| !others.is_empty())
+        .map(|(word, others)| (word, others.into_iter().collect()))
+        .collect()
 }
 
 impl Search {
@@ -290,7 +296,10 @@ impl Search {
         let deadline = tokio::time::Instant::now() + timeout;
         loop {
             let mut query = TasksSearchQuery::new(&self.core.search);
-            query.with_index_uids(uids.iter().map(String::as_str)).with_statuses(["enqueued", "processing"]).with_limit(1);
+            query
+                .with_index_uids(uids.iter().map(String::as_str))
+                .with_statuses(["enqueued", "processing"])
+                .with_limit(1);
             let unfinished = engine("listing engine tasks", query.execute()).await?;
             if unfinished.results.is_empty() {
                 return Ok(());
@@ -313,7 +322,11 @@ mod tests {
 
     #[test]
     fn synonym_groups_expand_to_mutual_mappings() {
-        let map = synonym_map(&[group(&["スタンプ", "ステッカー", "sticker"]), group(&["sticker", "seal"]), group(&["alone"])]);
+        let map = synonym_map(&[
+            group(&["スタンプ", "ステッカー", "sticker"]),
+            group(&["sticker", "seal"]),
+            group(&["alone"]),
+        ]);
         assert_eq!(map["スタンプ"], vec!["sticker", "ステッカー"]);
         assert_eq!(map["sticker"], vec!["seal", "スタンプ", "ステッカー"]);
         assert_eq!(map["seal"], vec!["sticker"]);

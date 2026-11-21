@@ -18,7 +18,10 @@ use tokuly_social::graph;
 
 use crate::{
     Feed,
-    activity::{AUDIENCE_FRIENDS, ActivityRow, Reader, activity_columns, author_active, kind_shown, push_not_involving, to_activity},
+    activity::{
+        AUDIENCE_FRIENDS, ActivityRow, Reader, activity_columns, author_active, kind_shown, push_not_involving,
+        to_activity,
+    },
 };
 
 /// Items one reel shows at most (the newest ones).
@@ -90,7 +93,9 @@ impl Feed {
     /// Adds the conditions that make an entry `a` a map story the reader may
     /// see: a location, inside the window, shown to friends.
     fn push_story_conditions(&self, query: &mut QueryBuilder<Postgres>, hidden: &[Uuid]) {
-        query.push(" AND a.lat IS NOT NULL AND a.occurred_at > now() - make_interval(hours => ").push_bind(self.cfg.map_story_hours as i32);
+        query
+            .push(" AND a.lat IS NOT NULL AND a.occurred_at > now() - make_interval(hours => ")
+            .push_bind(self.cfg.map_story_hours as i32);
         query.push(") AND a.audience >= ").push_bind(AUDIENCE_FRIENDS);
         query.push(concat!(" AND ", kind_shown!("a"), " AND ", author_active!("a")));
         push_not_involving(query, "a", hidden);
@@ -137,7 +142,11 @@ fn reel_to_proto(reel: &Reel, reader: &Reader, people: &HashMap<Uuid, UserSummar
         items: reel
             .items
             .iter()
-            .map(|(row, seen)| MapStoryItem { activity: to_activity(row, reader, people, None).into(), seen: *seen, ..Default::default() })
+            .map(|(row, seen)| MapStoryItem {
+                activity: to_activity(row, reader, people, None).into(),
+                seen: *seen,
+                ..Default::default()
+            })
             .collect(),
         unseen_count: reel.unseen() as i32,
         latest_at: ts(latest.occurred_at),
@@ -160,7 +169,11 @@ fn tray_entry(reel: &Reel, people: &HashMap<Uuid, UserSummary>) -> MapStoryTrayE
 }
 
 impl MapStoryService for Feed {
-    async fn list_map_stories(&self, ctx: RequestContext, request: ServiceRequest<'_, ListMapStoriesRequest>) -> ServiceResult<ListMapStoriesResponse> {
+    async fn list_map_stories(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, ListMapStoriesRequest>,
+    ) -> ServiceResult<ListMapStoriesResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let only = parse_opt_id(request.user_id)?;
@@ -193,13 +206,19 @@ impl MapStoryService for Feed {
         .await
     }
 
-    async fn get_map_story_tray(&self, ctx: RequestContext, _request: ServiceRequest<'_, GetMapStoryTrayRequest>) -> ServiceResult<GetMapStoryTrayResponse> {
+    async fn get_map_story_tray(
+        &self,
+        ctx: RequestContext,
+        _request: ServiceRequest<'_, GetMapStoryTrayRequest>,
+    ) -> ServiceResult<GetMapStoryTrayResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let reader = self.reader_for(user_id).await?;
             let friends = self.visible_friends(user_id, &reader.hidden).await?;
             let reels = self.load_reels(user_id, &friends, &reader.hidden).await?;
-            let people = tokuly_identity::summaries(&self.core, &reels.iter().map(|reel| reel.user_id).collect::<Vec<_>>()).await?;
+            let people =
+                tokuly_identity::summaries(&self.core, &reels.iter().map(|reel| reel.user_id).collect::<Vec<_>>())
+                    .await?;
             ok(GetMapStoryTrayResponse {
                 entries: reels.iter().map(|reel| tray_entry(reel, &people)).collect(),
                 unseen_reel_count: reels.iter().filter(|reel| reel.unseen() > 0).count() as i32,
@@ -209,11 +228,20 @@ impl MapStoryService for Feed {
         .await
     }
 
-    async fn mark_map_story_seen(&self, ctx: RequestContext, request: ServiceRequest<'_, MarkMapStorySeenRequest>) -> ServiceResult<MarkMapStorySeenResponse> {
+    async fn mark_map_story_seen(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, MarkMapStorySeenRequest>,
+    ) -> ServiceResult<MarkMapStorySeenResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             ensure!(!request.activity_ids.is_empty(), invalid, "IDS_REQUIRED", "no story items given");
-            ensure!(request.activity_ids.len() <= MAX_SEEN_IDS, invalid, "TOO_MANY_IDS", "at most {MAX_SEEN_IDS} story items per request");
+            ensure!(
+                request.activity_ids.len() <= MAX_SEEN_IDS,
+                invalid,
+                "TOO_MANY_IDS",
+                "at most {MAX_SEEN_IDS} story items per request"
+            );
             let activity_ids = request.activity_ids.iter().map(|id| parse_id(id)).collect::<AppResult<Vec<Uuid>>>()?;
             self.core.cache.rate_limit(&format!("feed:story-seen:{user_id}"), 120, Duration::from_secs(60)).await?;
 
@@ -224,8 +252,12 @@ impl MapStoryService for Feed {
             }
             // Only what the caller could actually have watched is recorded:
             // a friend's item that is a map story for them right now.
-            let mut query: QueryBuilder<Postgres> = QueryBuilder::new("INSERT INTO map_story_views (viewer_id, activity_id, author_id) SELECT ");
-            query.push_bind(user_id).push(", a.id, a.user_id FROM activities a WHERE a.id = ANY(").push_bind(activity_ids);
+            let mut query: QueryBuilder<Postgres> =
+                QueryBuilder::new("INSERT INTO map_story_views (viewer_id, activity_id, author_id) SELECT ");
+            query
+                .push_bind(user_id)
+                .push(", a.id, a.user_id FROM activities a WHERE a.id = ANY(")
+                .push_bind(activity_ids);
             query.push(") AND a.user_id = ANY(").push_bind(friends).push(")");
             self.push_story_conditions(&mut query, &reader.hidden);
             query.push(" ON CONFLICT DO NOTHING");
@@ -280,7 +312,11 @@ mod tests {
             item(c, 10, false),
         ]);
         let reels = group_reels(rows);
-        assert_eq!(reels.iter().map(|reel| reel.user_id).collect::<Vec<_>>(), vec![c, b, a], "unseen first, then by recency");
+        assert_eq!(
+            reels.iter().map(|reel| reel.user_id).collect::<Vec<_>>(),
+            vec![c, b, a],
+            "unseen first, then by recency"
+        );
         let b_reel = &reels[1];
         assert_eq!(b_reel.unseen(), 1);
         assert!(b_reel.items[0].0.occurred_at < b_reel.items[1].0.occurred_at, "oldest first");

@@ -21,7 +21,8 @@ pub const CONTENT_REMOVED: &str = "admin.content.removed";
 /// Durable consumer name on the event stream.
 pub const CONSUMER_NAME: &str = "feed";
 /// Topics the consumer subscribes to.
-pub const TOPICS: &[&str] = &[ACTIVITY_TOPIC, USER_CREATED, USER_DELETED, FRIEND_REMOVED, USER_BLOCKED, CONTENT_REMOVED];
+pub const TOPICS: &[&str] =
+    &[ACTIVITY_TOPIC, USER_CREATED, USER_DELETED, FRIEND_REMOVED, USER_BLOCKED, CONTENT_REMOVED];
 
 /// `admin.content.removed`: a moderator took a piece of content down.
 #[derive(Debug, Clone, Serialize, Deserialize)]

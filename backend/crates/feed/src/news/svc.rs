@@ -103,7 +103,13 @@ impl Feed {
     /// Adds `delta` to the reader's interest in each tag. The stored value
     /// is first brought up to date (it fades with time), then moved and kept
     /// within bounds.
-    async fn bump_affinity<'e, E: sqlx::PgExecutor<'e>>(&self, executor: E, user_id: Uuid, tags: &[String], delta: f64) -> AppResult<()> {
+    async fn bump_affinity<'e, E: sqlx::PgExecutor<'e>>(
+        &self,
+        executor: E,
+        user_id: Uuid,
+        tags: &[String],
+        delta: f64,
+    ) -> AppResult<()> {
         if tags.is_empty() || delta == 0.0 {
             return Ok(());
         }
@@ -127,21 +133,38 @@ impl Feed {
 
     /// The recommended order of the recent articles for a reader.
     async fn build_recommendation(&self, user_id: Uuid, language: Option<&str>, token: &str) -> AppResult<Vec<Ranked>> {
-        let mut query: QueryBuilder<Postgres> =
-            QueryBuilder::new("SELECT n.id, n.tags, n.published_at, EXISTS(SELECT 1 FROM news_clicks c WHERE c.article_id = n.id AND c.user_id = ");
+        let mut query: QueryBuilder<Postgres> = QueryBuilder::new(
+            "SELECT n.id, n.tags, n.published_at, EXISTS(SELECT 1 FROM news_clicks c WHERE c.article_id = n.id AND c.user_id = ",
+        );
         query.push_bind(user_id).push(") AS clicked").push(visible_articles!());
         push_language(&mut query, language);
         query.push(" ORDER BY n.published_at DESC, n.id DESC LIMIT ").push_bind(POOL_SIZE);
         let rows: Vec<CandidateRow> = query.build_query_as().fetch_all(&self.core.db).await?;
-        let candidates = rows.into_iter().map(|row| Candidate { id: row.id, tags: row.tags, published_at: row.published_at, clicked: row.clicked }).collect();
+        let candidates = rows
+            .into_iter()
+            .map(|row| Candidate { id: row.id, tags: row.tags, published_at: row.published_at, clicked: row.clicked })
+            .collect();
         let affinity = self.affinity_of(user_id).await?;
-        Ok(ranking::recommend(candidates, &affinity, now(), self.cfg.news_random_share_percent, ranking::seed_of(token)))
+        Ok(ranking::recommend(
+            candidates,
+            &affinity,
+            now(),
+            self.cfg.news_random_share_percent,
+            ranking::seed_of(token),
+        ))
     }
 
-    async fn list_recommended(&self, user_id: Uuid, language: Option<&str>, page: &Page) -> AppResult<ListNewsResponse> {
+    async fn list_recommended(
+        &self,
+        user_id: Uuid,
+        language: Option<&str>,
+        page: &Page,
+    ) -> AppResult<ListNewsResponse> {
         let cursor = match page.decode::<RecommendedCursor>()? {
             Some(cursor) => {
-                let well_formed = cursor.t.len() == TOKEN_LEN && cursor.t.bytes().all(|b| b.is_ascii_alphanumeric()) && cursor.o <= POOL_SIZE as usize;
+                let well_formed = cursor.t.len() == TOKEN_LEN
+                    && cursor.t.bytes().all(|b| b.is_ascii_alphanumeric())
+                    && cursor.o <= POOL_SIZE as usize;
                 ensure!(well_formed, invalid, "INVALID_CURSOR", "invalid page cursor");
                 cursor
             }
@@ -168,9 +191,16 @@ impl Feed {
         let marks = self.reader_marks(Some(user_id), &ids).await?;
         let random: HashMap<Uuid, bool> = slice.iter().map(|ranked| (ranked.id, ranked.random_pick)).collect();
         Ok(ListNewsResponse {
-            articles: rows.iter().map(|row| row.to_proto(&marks, random.get(&row.id).copied().unwrap_or(false))).collect(),
+            articles: rows
+                .iter()
+                .map(|row| row.to_proto(&marks, random.get(&row.id).copied().unwrap_or(false)))
+                .collect(),
             page: tokuly_proto::common::PageInfo {
-                next_cursor: if has_more { tokuly_core::page::encode_cursor(&RecommendedCursor { t: cursor.t, o: next }) } else { String::new() },
+                next_cursor: if has_more {
+                    tokuly_core::page::encode_cursor(&RecommendedCursor { t: cursor.t, o: next })
+                } else {
+                    String::new()
+                },
                 has_more,
                 ..Default::default()
             }
@@ -180,9 +210,17 @@ impl Feed {
         })
     }
 
-    async fn list_latest(&self, viewer: Option<Uuid>, tag: Option<&str>, source_id: Option<Uuid>, language: Option<&str>, page: &Page) -> AppResult<ListNewsResponse> {
+    async fn list_latest(
+        &self,
+        viewer: Option<Uuid>,
+        tag: Option<&str>,
+        source_id: Option<Uuid>,
+        language: Option<&str>,
+        page: &Page,
+    ) -> AppResult<ListNewsResponse> {
         let after: Option<(Time, Uuid)> = page.decode()?;
-        let mut query: QueryBuilder<Postgres> = QueryBuilder::new(concat!("SELECT ", article_columns!(), visible_articles!()));
+        let mut query: QueryBuilder<Postgres> =
+            QueryBuilder::new(concat!("SELECT ", article_columns!(), visible_articles!()));
         if let Some(tag) = tag {
             query.push(" AND n.tags @> ARRAY[").push_bind(tag.to_owned()).push("]::text[]");
         }
@@ -197,7 +235,12 @@ impl Feed {
         let mut rows: Vec<ArticleRow> = query.build_query_as().fetch_all(&self.core.db).await?;
         let info = page.finish(&mut rows, |row| (row.published_at, row.id));
         let marks = self.reader_marks(viewer, &rows.iter().map(|row| row.id).collect::<Vec<_>>()).await?;
-        Ok(ListNewsResponse { articles: rows.iter().map(|row| row.to_proto(&marks, false)).collect(), page: info.into(), recommended: false, ..Default::default() })
+        Ok(ListNewsResponse {
+            articles: rows.iter().map(|row| row.to_proto(&marks, false)).collect(),
+            page: info.into(),
+            recommended: false,
+            ..Default::default()
+        })
     }
 
     /// The tags most common among recent articles, most common first.
@@ -227,16 +270,27 @@ fn client_key(ctx: &RequestContext) -> String {
 }
 
 impl NewsService for Feed {
-    async fn list_news(&self, ctx: RequestContext, request: ServiceRequest<'_, ListNewsRequest>) -> ServiceResult<ListNewsResponse> {
+    async fn list_news(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, ListNewsRequest>,
+    ) -> ServiceResult<ListNewsResponse> {
         handle(async {
             let viewer = ctx.maybe_user_id()?;
             let tag = tag_filter(request.tag)?;
             let source_id = parse_opt_id(request.source_id)?;
             let language = language_filter(request.language)?;
-            let page = Page::new(request.page.as_option().map_or(0, |p| p.limit), request.page.as_option().map_or("", |p| p.cursor), DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
+            let page = Page::new(
+                request.page.as_option().map_or(0, |p| p.limit),
+                request.page.as_option().map_or("", |p| p.cursor),
+                DEFAULT_PAGE_SIZE,
+                MAX_PAGE_SIZE,
+            );
             let wants_latest = request.order.as_known() == Some(NewsOrder::NEWS_ORDER_LATEST);
             let response = match viewer {
-                Some(user_id) if !wants_latest && tag.is_none() && source_id.is_none() => self.list_recommended(user_id, language.as_deref(), &page).await?,
+                Some(user_id) if !wants_latest && tag.is_none() && source_id.is_none() => {
+                    self.list_recommended(user_id, language.as_deref(), &page).await?
+                }
                 _ => self.list_latest(viewer, tag.as_deref(), source_id, language.as_deref(), &page).await?,
             };
             ok(response)
@@ -244,7 +298,11 @@ impl NewsService for Feed {
         .await
     }
 
-    async fn get_news_article(&self, ctx: RequestContext, request: ServiceRequest<'_, GetNewsArticleRequest>) -> ServiceResult<GetNewsArticleResponse> {
+    async fn get_news_article(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, GetNewsArticleRequest>,
+    ) -> ServiceResult<GetNewsArticleResponse> {
         handle(async {
             let viewer = ctx.maybe_user_id()?;
             let row = self.visible_article(parse_id(request.article_id)?).await?;
@@ -254,7 +312,11 @@ impl NewsService for Feed {
         .await
     }
 
-    async fn record_news_click(&self, ctx: RequestContext, request: ServiceRequest<'_, RecordNewsClickRequest>) -> ServiceResult<RecordNewsClickResponse> {
+    async fn record_news_click(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, RecordNewsClickRequest>,
+    ) -> ServiceResult<RecordNewsClickResponse> {
         handle(async {
             let viewer = ctx.maybe_user_id()?;
             let article_id = parse_id(request.article_id)?;
@@ -304,7 +366,11 @@ impl NewsService for Feed {
         .await
     }
 
-    async fn send_news_feedback(&self, ctx: RequestContext, request: ServiceRequest<'_, SendNewsFeedbackRequest>) -> ServiceResult<SendNewsFeedbackResponse> {
+    async fn send_news_feedback(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, SendNewsFeedbackRequest>,
+    ) -> ServiceResult<SendNewsFeedbackResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let article_id = parse_id(request.article_id)?;
@@ -356,16 +422,30 @@ impl NewsService for Feed {
         .await
     }
 
-    async fn list_news_tags(&self, ctx: RequestContext, request: ServiceRequest<'_, ListNewsTagsRequest>) -> ServiceResult<ListNewsTagsResponse> {
+    async fn list_news_tags(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, ListNewsTagsRequest>,
+    ) -> ServiceResult<ListNewsTagsResponse> {
         handle(async {
             let viewer = ctx.maybe_user_id()?;
-            let limit = if request.limit <= 0 { DEFAULT_TAG_LIMIT } else { i64::from(request.limit).min(MAX_TAG_LIMIT) } as usize;
+            let limit = if request.limit <= 0 { DEFAULT_TAG_LIMIT } else { i64::from(request.limit).min(MAX_TAG_LIMIT) }
+                as usize;
             let (mut interests, mut avoided) = (Vec::new(), Vec::new());
             if let Some(user_id) = viewer {
-                let mut affinity: Vec<(String, f64)> = self.affinity_of(user_id).await?.into_iter().filter(|(_, score)| score.abs() >= AFFINITY_EPSILON).collect();
+                let mut affinity: Vec<(String, f64)> = self
+                    .affinity_of(user_id)
+                    .await?
+                    .into_iter()
+                    .filter(|(_, score)| score.abs() >= AFFINITY_EPSILON)
+                    .collect();
                 // Strongest feelings first; ties in a stable order.
                 affinity.sort_by(|a, b| b.1.abs().total_cmp(&a.1.abs()).then_with(|| a.0.cmp(&b.0)));
-                let interest = |(tag, score): &(String, f64)| NewsInterest { tag: tag.clone(), score: *score, ..Default::default() };
+                let interest = |(tag, score): &(String, f64)| NewsInterest {
+                    tag: tag.clone(),
+                    score: *score,
+                    ..Default::default()
+                };
                 interests = affinity.iter().filter(|(_, score)| *score > 0.0).take(limit).map(interest).collect();
                 avoided = affinity.iter().filter(|(_, score)| *score < 0.0).take(limit).map(interest).collect();
             }
@@ -374,14 +454,22 @@ impl NewsService for Feed {
                 .await?
                 .into_iter()
                 .take(limit)
-                .map(|(tag, articles)| NewsTagCount { tag, article_count: articles.min(i64::from(i32::MAX)) as i32, ..Default::default() })
+                .map(|(tag, articles)| NewsTagCount {
+                    tag,
+                    article_count: articles.min(i64::from(i32::MAX)) as i32,
+                    ..Default::default()
+                })
                 .collect();
             ok(ListNewsTagsResponse { interests, avoided, popular, ..Default::default() })
         })
         .await
     }
 
-    async fn reset_news_interests(&self, ctx: RequestContext, request: ServiceRequest<'_, ResetNewsInterestsRequest>) -> ServiceResult<ResetNewsInterestsResponse> {
+    async fn reset_news_interests(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, ResetNewsInterestsRequest>,
+    ) -> ServiceResult<ResetNewsInterestsResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let mut tx = self.core.db.begin().await?;
@@ -396,11 +484,23 @@ impl NewsService for Feed {
         .await
     }
 
-    async fn list_news_sources(&self, _ctx: RequestContext, _request: ServiceRequest<'_, ListNewsSourcesRequest>) -> ServiceResult<ListNewsSourcesResponse> {
+    async fn list_news_sources(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, ListNewsSourcesRequest>,
+    ) -> ServiceResult<ListNewsSourcesResponse> {
         handle(async {
-            let rows: Vec<SourceRow> =
-                sqlx::query_as(concat!("SELECT ", source_columns!(), " FROM news_sources s WHERE s.enabled ORDER BY lower(s.name), s.id")).fetch_all(&self.core.db).await?;
-            ok(ListNewsSourcesResponse { sources: rows.iter().map(SourceRow::to_proto).collect(), ..Default::default() })
+            let rows: Vec<SourceRow> = sqlx::query_as(concat!(
+                "SELECT ",
+                source_columns!(),
+                " FROM news_sources s WHERE s.enabled ORDER BY lower(s.name), s.id"
+            ))
+            .fetch_all(&self.core.db)
+            .await?;
+            ok(ListNewsSourcesResponse {
+                sources: rows.iter().map(SourceRow::to_proto).collect(),
+                ..Default::default()
+            })
         })
         .await
     }

@@ -37,17 +37,23 @@ const SUSPICIOUS = new Set(["SIGN_IN_FAILED", "REFRESH_TOKEN_REUSE"]);
 
 function EventRow({ event }: { event: identity.SecurityEvent }) {
   const { t, i18n } = useTranslation("settings");
-  const when = toDate(event.createdAt)?.toLocaleString(i18n.language, { dateStyle: "medium", timeStyle: "short" });
+  const at = toDate(event.createdAt);
   const where = [event.deviceName, event.location || event.ip].filter(Boolean).join(" ・ ");
   return (
-    <li data-testid="security-event" className="flex items-center gap-3 rounded-2xl px-3 py-2.5">
-      <span className={cn("grid size-10 shrink-0 place-items-center rounded-xl text-xl", SUSPICIOUS.has(event.type) ? "bg-sun" : "bg-surface-2")}>{EVENT_EMOJI[event.type] ?? "📝"}</span>
+    <li data-testid="security-event" className="flex items-start gap-3 rounded-2xl px-3 py-2.5">
+      <span aria-hidden className={cn("grid size-10 shrink-0 place-items-center rounded-xl text-xl", SUSPICIOUS.has(event.type) ? "bg-sun" : "bg-surface-2")}>
+        {EVENT_EMOJI[event.type] ?? "📝"}
+      </span>
       <div className="min-w-0 flex-1">
         {/* Kinds added on the server later show their code until they get a translation. */}
-        <p className="truncate font-bold">{t(`security.log.types.${event.type}`, { defaultValue: event.type })}</p>
-        <p className="truncate text-sm text-ink-soft">{where}</p>
+        <p className="font-bold leading-snug">{t(`security.log.types.${event.type}`, { defaultValue: event.type })}</p>
+        <p className="text-sm leading-snug text-ink-soft">{where}</p>
+        {at && (
+          <time dateTime={at.toISOString()} className="text-xs font-bold text-ink-faint">
+            {at.toLocaleString(i18n.language, { dateStyle: "medium", timeStyle: "short" })}
+          </time>
+        )}
       </div>
-      <time className="shrink-0 text-right text-xs font-bold text-ink-faint">{when}</time>
     </li>
   );
 }

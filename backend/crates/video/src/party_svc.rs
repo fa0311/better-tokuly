@@ -39,7 +39,11 @@ fn playback_blocked(message: &'static str) -> AppError {
 impl Video {
     /// Keyed hash of a network address, for guest bans.
     fn party_ip_hash(&self, ip: &str) -> String {
-        if ip.is_empty() { String::new() } else { hex::encode(self.core.keys.mac("video/party-ip", ip.as_bytes()))[..32].to_owned() }
+        if ip.is_empty() {
+            String::new()
+        } else {
+            hex::encode(self.core.keys.mac("video/party-ip", ip.as_bytes()))[..32].to_owned()
+        }
     }
 
     /// Fails unless `viewer` could press play on `video` right now.
@@ -53,6 +57,17 @@ impl Video {
         }
     }
 
+    /// Whether `viewer` may take a seat in a party playing `video_id`: they
+    /// must be able to watch the video and to play it.
+    async fn party_admission(&self, viewer: &Viewer, video_id: Uuid) -> AppResult<()> {
+        let missing = || AppError::not_found("VIDEO_NOT_FOUND", "video not found");
+        let video = videos::find_by_id(&self.core, video_id)
+            .await?
+            .filter(|video| viewer.can_watch(&video.facts()))
+            .ok_or_else(missing)?;
+        self.ensure_playable(viewer, &video).await
+    }
+
     /// The party as `viewer` sees it. The video card is only filled in for
     /// viewers who may watch the video.
     async fn party_proto(&self, viewer: &Viewer, row: &PartyRow) -> AppResult<Party> {
@@ -62,7 +77,12 @@ impl Video {
             _ => None,
         };
         let playlist_id: Option<String> = match row.playlist_id {
-            Some(playlist_id) => sqlx::query_scalar("SELECT short_id FROM playlists WHERE id = $1").bind(playlist_id).fetch_optional(&core.db).await?,
+            Some(playlist_id) => {
+                sqlx::query_scalar("SELECT short_id FROM playlists WHERE id = $1")
+                    .bind(playlist_id)
+                    .fetch_optional(&core.db)
+                    .await?
+            }
             None => None,
         };
         Ok(Party {
@@ -88,7 +108,13 @@ impl Video {
         self.party_proto(&Viewer::anonymous(), row).await
     }
 
-    async fn party_session(&self, viewer: &Viewer, row: &PartyRow, me: &MemberRow, guest_token: Option<String>) -> AppResult<PartySession> {
+    async fn party_session(
+        &self,
+        viewer: &Viewer,
+        row: &PartyRow,
+        me: &MemberRow,
+        guest_token: Option<String>,
+    ) -> AppResult<PartySession> {
         let core = &self.core;
         let seats = party::members(core, row.id).await?;
         Ok(PartySession {
@@ -121,7 +147,11 @@ impl Video {
 }
 
 impl WatchPartyService for Video {
-    async fn create_party(&self, ctx: RequestContext, request: ServiceRequest<'_, CreatePartyRequest>) -> ServiceResult<CreatePartyResponse> {
+    async fn create_party(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, CreatePartyRequest>,
+    ) -> ServiceResult<CreatePartyResponse> {
         handle(async {
             let core = &self.core;
             let user_id = ctx.user_id()?;
@@ -196,13 +226,20 @@ impl WatchPartyService for Video {
         .await
     }
 
-    async fn preview_party(&self, ctx: RequestContext, request: ServiceRequest<'_, PreviewPartyRequest>) -> ServiceResult<PreviewPartyResponse> {
+    async fn preview_party(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, PreviewPartyRequest>,
+    ) -> ServiceResult<PreviewPartyResponse> {
         handle(async {
             let core = &self.core;
             let viewer = Viewer::load(core, ctx.maybe_user_id()?).await?;
             let limiter = viewer.user_id.map(|id| id.to_string()).unwrap_or_else(|| ctx.client().ip);
             core.cache.rate_limit(&format!("video-party-preview:{limiter}"), 60, Duration::from_secs(60)).await?;
-            let row = party::find_by_code(core, request.code.trim()).await?.filter(PartyRow::is_open).ok_or_else(party::not_found)?;
+            let row = party::find_by_code(core, request.code.trim())
+                .await?
+                .filter(PartyRow::is_open)
+                .ok_or_else(party::not_found)?;
             let seats = party::members(core, row.id).await?;
             let host = seats.iter().find(|seat| seat.is_host());
             // A host who is hidden from the viewer hosts no party for them.
@@ -213,12 +250,20 @@ impl WatchPartyService for Video {
                 Some(host) => Some(party::member_proto(core, host).await?),
                 None => None,
             };
-            ok(PreviewPartyResponse { party: self.party_proto(&viewer, &row).await?.into(), host: host.into(), ..Default::default() })
+            ok(PreviewPartyResponse {
+                party: self.party_proto(&viewer, &row).await?.into(),
+                host: host.into(),
+                ..Default::default()
+            })
         })
         .await
     }
 
-    async fn join_party(&self, ctx: RequestContext, request: ServiceRequest<'_, JoinPartyRequest>) -> ServiceResult<JoinPartyResponse> {
+    async fn join_party(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, JoinPartyRequest>,
+    ) -> ServiceResult<JoinPartyResponse> {
         handle(async {
             let core = &self.core;
             let user_id = ctx.maybe_user_id()?;
@@ -228,6 +273,10 @@ impl WatchPartyService for Video {
             let limiter = user_id.map(|id| id.to_string()).unwrap_or_else(|| client.ip.clone());
             core.cache.rate_limit(&format!("video-party-join:{limiter}"), 30, Duration::from_secs(60)).await?;
             let found = party::find_by_code(core, req.code.trim()).await?.filter(PartyRow::is_open).ok_or_else(party::not_found)?;
+            // Whether the caller may watch what is playing is settled before
+            // the party is locked (it needs lookups of its own) and applied
+            // below, after the checks that take precedence.
+            let admission = self.party_admission(&viewer, found.video_id).await;
 
             let mut tx = core.db.begin().await?;
             let row = party::lock_open(&mut tx, found.id).await?;
@@ -246,7 +295,6 @@ impl WatchPartyService for Video {
                 }
             }
 
-            let video = videos::find_by_id(core, row.video_id).await?.ok_or_else(|| AppError::not_found("VIDEO_NOT_FOUND", "video not found"))?;
             let ip_hash = self.party_ip_hash(&client.ip);
             let seat_id = new_id();
             let mut guest_token = None;
@@ -264,8 +312,6 @@ impl WatchPartyService for Video {
                         return Err(party::not_found());
                     }
                     ensure!(!banned, denied, "PARTY_BANNED", "you were removed from this watch party");
-                    ensure!(viewer.can_watch(&video.facts()), not_found, "VIDEO_NOT_FOUND", "video not found");
-                    self.ensure_playable(&viewer, &video).await?;
                 }
                 None => {
                     ensure!(row.allow_guests, denied, "PARTY_GUESTS_NOT_ALLOWED", "sign in to join this watch party");
@@ -277,10 +323,11 @@ impl WatchPartyService for Video {
                     .fetch_one(&mut *tx)
                     .await?;
                     ensure!(!banned, denied, "PARTY_BANNED", "you were removed from this watch party");
-                    ensure!(viewer.can_watch(&video.facts()), not_found, "VIDEO_NOT_FOUND", "video not found");
-                    self.ensure_playable(&viewer, &video).await?;
                 }
             }
+            // In the rare case that the party switched videos since the check
+            // above, the new one is what counts.
+            if row.video_id == found.video_id { admission? } else { self.party_admission(&viewer, row.video_id).await? }
             let guest_name = if user_id.is_none() { validate::guest_name(&req.guest_name)? } else { String::new() };
             let seated: i64 = sqlx::query_scalar("SELECT count(*) FROM watch_party_members WHERE party_id = $1").bind(row.id).fetch_one(&mut *tx).await?;
             ensure!(seated < self.cfg.party_max_members, precondition, "PARTY_FULL", "this watch party is full");
@@ -322,7 +369,11 @@ impl WatchPartyService for Video {
         .await
     }
 
-    async fn get_party(&self, ctx: RequestContext, request: ServiceRequest<'_, GetPartyRequest>) -> ServiceResult<GetPartyResponse> {
+    async fn get_party(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, GetPartyRequest>,
+    ) -> ServiceResult<GetPartyResponse> {
         handle(async {
             let core = &self.core;
             let viewer = Viewer::load(core, ctx.maybe_user_id()?).await?;
@@ -331,17 +382,27 @@ impl WatchPartyService for Video {
             let party_id = Uuid::parse_str(request.party_id.trim()).map_err(|_| party::not_found())?;
             let row = party::find(core, party_id).await?.ok_or_else(party::not_found)?;
             let seat = party::seat(core, party_id, &caller).await?.ok_or_else(party::not_a_member)?;
-            ok(GetPartyResponse { session: self.party_session(&viewer, &row, &seat, None).await?.into(), ..Default::default() })
+            ok(GetPartyResponse {
+                session: self.party_session(&viewer, &row, &seat, None).await?.into(),
+                ..Default::default()
+            })
         })
         .await
     }
 
-    async fn heartbeat_party(&self, ctx: RequestContext, request: ServiceRequest<'_, HeartbeatPartyRequest>) -> ServiceResult<HeartbeatPartyResponse> {
+    async fn heartbeat_party(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, HeartbeatPartyRequest>,
+    ) -> ServiceResult<HeartbeatPartyResponse> {
         handle(async {
             let core = &self.core;
             let caller = Caller::new(ctx.maybe_user_id()?, request.guest_token)?;
             let (row, seat) = self.party_seat(request.party_id, &caller).await?;
-            sqlx::query("UPDATE watch_party_members SET last_seen_at = now() WHERE id = $1").bind(seat.id).execute(&core.db).await?;
+            sqlx::query("UPDATE watch_party_members SET last_seen_at = now() WHERE id = $1")
+                .bind(seat.id)
+                .execute(&core.db)
+                .await?;
             ok(HeartbeatPartyResponse {
                 playback: row.playback().into(),
                 server_time: ts(now()),
@@ -352,7 +413,11 @@ impl WatchPartyService for Video {
         .await
     }
 
-    async fn leave_party(&self, ctx: RequestContext, request: ServiceRequest<'_, LeavePartyRequest>) -> ServiceResult<LeavePartyResponse> {
+    async fn leave_party(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, LeavePartyRequest>,
+    ) -> ServiceResult<LeavePartyResponse> {
         handle(async {
             let core = &self.core;
             let caller = Caller::new(ctx.maybe_user_id()?, request.guest_token)?;
@@ -360,7 +425,9 @@ impl WatchPartyService for Video {
             let mut tx = core.db.begin().await?;
             let row = party::lock_open(&mut tx, party_id).await?;
             // Leaving twice is fine.
-            let Some(seat) = party::seat_in(&mut tx, core, party_id, &caller).await? else { return ok(LeavePartyResponse::default()) };
+            let Some(seat) = party::seat_in(&mut tx, core, party_id, &caller).await? else {
+                return ok(LeavePartyResponse::default());
+            };
             let departure = party::remove_member_in(&mut tx, &row, &seat).await?;
             tx.commit().await?;
             party::announce_departure(core, &departure, PartyLeaveReason::PARTY_LEAVE_REASON_LEFT).await;
@@ -382,7 +449,10 @@ impl WatchPartyService for Video {
             let row = party::lock_open(&mut tx, party_id).await?;
             let seat = party::seat_in(&mut tx, core, party_id, &caller).await?.ok_or_else(party::not_a_member)?;
             ensure!(seat.can_control(), denied, "NOT_PARTY_HOST", "only the host and co-hosts control playback");
-            let duration: f64 = sqlx::query_scalar("SELECT duration_seconds FROM videos WHERE id = $1").bind(row.video_id).fetch_one(&mut *tx).await?;
+            let duration: f64 = sqlx::query_scalar("SELECT duration_seconds FROM videos WHERE id = $1")
+                .bind(row.video_id)
+                .fetch_one(&mut *tx)
+                .await?;
             let rate = if request.rate == 0.0 { row.rate } else { request.rate };
             ensure!(
                 party::valid_playback(request.position_seconds, rate, duration),
@@ -407,12 +477,20 @@ impl WatchPartyService for Video {
             .await?;
             tx.commit().await?;
             party::push_to_party(core, party_id, Push::PartyPlayback(Box::new(updated.playback()))).await;
-            ok(SetPartyPlaybackResponse { playback: updated.playback().into(), server_time: ts(now()), ..Default::default() })
+            ok(SetPartyPlaybackResponse {
+                playback: updated.playback().into(),
+                server_time: ts(now()),
+                ..Default::default()
+            })
         })
         .await
     }
 
-    async fn set_party_video(&self, ctx: RequestContext, request: ServiceRequest<'_, SetPartyVideoRequest>) -> ServiceResult<SetPartyVideoResponse> {
+    async fn set_party_video(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, SetPartyVideoRequest>,
+    ) -> ServiceResult<SetPartyVideoResponse> {
         handle(async {
             let core = &self.core;
             let user_id = ctx.user_id()?;
@@ -472,22 +550,37 @@ impl WatchPartyService for Video {
 
             let mut tx = core.db.begin().await?;
             party::lock_open(&mut tx, party_id).await?;
-            let me = party::seat_in(&mut tx, core, party_id, &Caller::User(user_id)).await?.ok_or_else(party::not_a_member)?;
+            let me = party::seat_in(&mut tx, core, party_id, &Caller::User(user_id))
+                .await?
+                .ok_or_else(party::not_a_member)?;
             if !me.is_host() {
                 return Err(not_host());
             }
             let target = party::member_in(&mut tx, party_id, target_id).await?.ok_or_else(member_not_found)?;
             // The host changes their own role only by handing the party over.
             ensure!(target.id != me.id, invalid, "ROLE_INVALID", "hand the party over to change your own role");
-            ensure!(!target.is_guest() || role == ROLE_MEMBER, precondition, "GUESTS_CANNOT_HOST", "guests cannot host or co-host");
+            ensure!(
+                !target.is_guest() || role == ROLE_MEMBER,
+                precondition,
+                "GUESTS_CANNOT_HOST",
+                "guests cannot host or co-host"
+            );
             let mut changed = Vec::new();
             if role == ROLE_HOST {
                 // Step down first: a party has exactly one host at any moment.
-                sqlx::query("UPDATE watch_party_members SET role = $2 WHERE id = $1").bind(me.id).bind(ROLE_COHOST).execute(&mut *tx).await?;
+                sqlx::query("UPDATE watch_party_members SET role = $2 WHERE id = $1")
+                    .bind(me.id)
+                    .bind(ROLE_COHOST)
+                    .execute(&mut *tx)
+                    .await?;
                 changed.push(me.id);
             }
             if target.role != role {
-                sqlx::query("UPDATE watch_party_members SET role = $2 WHERE id = $1").bind(target.id).bind(role).execute(&mut *tx).await?;
+                sqlx::query("UPDATE watch_party_members SET role = $2 WHERE id = $1")
+                    .bind(target.id)
+                    .bind(role)
+                    .execute(&mut *tx)
+                    .await?;
                 changed.push(target.id);
             }
             tx.commit().await?;
@@ -516,7 +609,9 @@ impl WatchPartyService for Video {
             let target_id = Uuid::parse_str(request.member_id.trim()).map_err(|_| member_not_found())?;
             let mut tx = core.db.begin().await?;
             let row = party::lock_open(&mut tx, party_id).await?;
-            let me = party::seat_in(&mut tx, core, party_id, &Caller::User(user_id)).await?.ok_or_else(party::not_a_member)?;
+            let me = party::seat_in(&mut tx, core, party_id, &Caller::User(user_id))
+                .await?
+                .ok_or_else(party::not_a_member)?;
             if !me.can_control() {
                 return Err(not_host());
             }
@@ -557,7 +652,11 @@ impl WatchPartyService for Video {
         .await
     }
 
-    async fn update_party(&self, ctx: RequestContext, request: ServiceRequest<'_, UpdatePartyRequest>) -> ServiceResult<UpdatePartyResponse> {
+    async fn update_party(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, UpdatePartyRequest>,
+    ) -> ServiceResult<UpdatePartyResponse> {
         handle(async {
             let core = &self.core;
             let user_id = ctx.user_id()?;
@@ -565,7 +664,9 @@ impl WatchPartyService for Video {
             let party_id = Uuid::parse_str(request.party_id.trim()).map_err(|_| party::not_found())?;
             let mut tx = core.db.begin().await?;
             party::lock_open(&mut tx, party_id).await?;
-            let me = party::seat_in(&mut tx, core, party_id, &Caller::User(user_id)).await?.ok_or_else(party::not_a_member)?;
+            let me = party::seat_in(&mut tx, core, party_id, &Caller::User(user_id))
+                .await?
+                .ok_or_else(party::not_a_member)?;
             if !me.is_host() {
                 return Err(not_host());
             }
@@ -644,32 +745,50 @@ impl WatchPartyService for Video {
         .await
     }
 
-    async fn invite_to_party(&self, ctx: RequestContext, request: ServiceRequest<'_, InviteToPartyRequest>) -> ServiceResult<InviteToPartyResponse> {
+    async fn invite_to_party(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, InviteToPartyRequest>,
+    ) -> ServiceResult<InviteToPartyResponse> {
         handle(async {
             let core = &self.core;
             let user_id = ctx.user_id()?;
             let viewer = Viewer::load(core, Some(user_id)).await?;
             let (row, _seat) = self.party_seat(request.party_id, &Caller::User(user_id)).await?;
-            ensure!(request.user_ids.len() <= MAX_INVITES, invalid, "TOO_MANY_INVITES", "invite at most {MAX_INVITES} friends at a time");
+            ensure!(
+                request.user_ids.len() <= MAX_INVITES,
+                invalid,
+                "TOO_MANY_INVITES",
+                "invite at most {MAX_INVITES} friends at a time"
+            );
             let mut invited: Vec<Uuid> = request.user_ids.iter().map(|id| parse_id(id)).collect::<AppResult<_>>()?;
             invited.sort_unstable();
             invited.dedup();
-            ensure!(invited.iter().all(|id| viewer.friends.contains(id)), denied, "NOT_FRIENDS", "you can only invite friends");
+            ensure!(
+                invited.iter().all(|id| viewer.friends.contains(id)),
+                denied,
+                "NOT_FRIENDS",
+                "you can only invite friends"
+            );
             core.cache.rate_limit(&format!("video-party-invite:{user_id}"), 100, Duration::from_secs(3600)).await?;
 
             let me = tokuly_identity::summary(core, user_id).await?;
             let video = videos::find_by_id(core, row.video_id).await?;
             // The title is shared only when it is no secret.
-            let title = video.as_ref().filter(|video| Viewer::anonymous().can_watch(&video.facts())).map(|video| video.title.clone());
+            let title = video
+                .as_ref()
+                .filter(|video| Viewer::anonymous().can_watch(&video.facts()))
+                .map(|video| video.title.clone());
             let (ja, en) = match &title {
                 Some(title) => (format!("「{title}」を一緒に見よう!"), format!("Let's watch \"{title}\" together!")),
                 None => ("動画を一緒に見よう!".to_owned(), "Let's watch a video together!".to_owned()),
             };
-            let already: Vec<Uuid> = sqlx::query_scalar("SELECT user_id FROM watch_party_members WHERE party_id = $1 AND user_id = ANY($2)")
-                .bind(row.id)
-                .bind(&invited)
-                .fetch_all(&core.db)
-                .await?;
+            let already: Vec<Uuid> =
+                sqlx::query_scalar("SELECT user_id FROM watch_party_members WHERE party_id = $1 AND user_id = ANY($2)")
+                    .bind(row.id)
+                    .bind(&invited)
+                    .fetch_all(&core.db)
+                    .await?;
             let mut tx = core.db.begin().await?;
             for friend in invited.into_iter().filter(|id| !already.contains(id)) {
                 let invitation = outbound::NotificationRequest::new(
@@ -694,7 +813,11 @@ impl WatchPartyService for Video {
         .await
     }
 
-    async fn end_party(&self, ctx: RequestContext, request: ServiceRequest<'_, EndPartyRequest>) -> ServiceResult<EndPartyResponse> {
+    async fn end_party(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, EndPartyRequest>,
+    ) -> ServiceResult<EndPartyResponse> {
         handle(async {
             let core = &self.core;
             let (row, seat) = self.party_seat(request.party_id, &Caller::User(ctx.user_id()?)).await?;

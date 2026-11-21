@@ -102,7 +102,9 @@ impl Chat {
 
     /// Registers the five chat services on the Connect router.
     pub fn register(&self, router: connectrpc::Router) -> connectrpc::Router {
-        use tokuly_proto::chat::{AssistServiceExt, CallServiceExt, ConversationServiceExt, MessageServiceExt, PovServiceExt};
+        use tokuly_proto::chat::{
+            AssistServiceExt, CallServiceExt, ConversationServiceExt, MessageServiceExt, PovServiceExt,
+        };
         let me = Arc::new(self.clone());
         let router = ConversationServiceExt::register(me.clone(), router);
         let router = MessageServiceExt::register(me.clone(), router);

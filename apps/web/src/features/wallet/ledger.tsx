@@ -64,8 +64,8 @@ export function LedgerRow({ entry, when, onOpen }: { entry: wallet.LedgerEntry; 
         <Icon className="size-5" />
       </span>
       <span className="min-w-0 flex-1">
-        <span className={cn("block truncate font-bold", entry.refunded && "text-ink-soft line-through")}>{entry.description || t(kindKey(entry))}</span>
-        <span className="flex items-center gap-1.5 text-sm text-ink-soft">
+        <span className={cn("line-clamp-2 leading-snug font-bold break-words", entry.refunded && "text-ink-soft line-through")}>{entry.description || t(kindKey(entry))}</span>
+        <span className="mt-0.5 flex items-center gap-1.5 text-sm text-ink-soft">
           {entry.counterpart && (
             <>
               <Avatar user={entry.counterpart} size="xs" />
@@ -81,10 +81,10 @@ export function LedgerRow({ entry, when, onOpen }: { entry: wallet.LedgerEntry; 
       <span className="flex shrink-0 flex-col items-end gap-1">
         {entry.coinsDelta !== 0n && <Delta amount={entry.coinsDelta} />}
         {entry.earningsDelta !== 0n && (
-          <span className="flex items-center gap-1.5">
-            <span className="text-[11px] font-black text-ink-soft">{t("ledger.earnings")}</span>
+          <>
             <Delta amount={entry.earningsDelta} />
-          </span>
+            <span className="text-[11px] leading-none font-black text-ink-soft">{t("ledger.earnings")}</span>
+          </>
         )}
         {entry.refunded && <StatusChip tone="neutral">{t("ledger.refunded")}</StatusChip>}
       </span>
@@ -140,11 +140,11 @@ function EntryDialog({ entry, open, onOpenChange, links }: { entry: wallet.Ledge
             <span className="break-all">{value}</span>
           </Fact>
         ))}
-        <Fact label={t("entry.id")}>
+        <Fact stack label={t("entry.id")}>
           <span className="break-all font-mono text-xs font-medium text-ink-soft">{entry.id}</span>
         </Fact>
         {entry.refundOfEntryId && (
-          <Fact label={t("entry.refundOf")}>
+          <Fact stack label={t("entry.refundOf")}>
             <span className="break-all font-mono text-xs font-medium text-ink-soft">{entry.refundOfEntryId}</span>
           </Fact>
         )}

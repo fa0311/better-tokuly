@@ -153,10 +153,13 @@ impl Resolve for GuardedResolver {
         let policy = self.policy;
         Box::pin(async move {
             let resolved: Vec<SocketAddr> = tokio::net::lookup_host((name.as_str(), 0)).await?.collect();
-            let permitted: Vec<SocketAddr> = resolved.iter().copied().filter(|address| policy.permits(address.ip())).collect();
+            let permitted: Vec<SocketAddr> =
+                resolved.iter().copied().filter(|address| policy.permits(address.ip())).collect();
             match (permitted.is_empty(), resolved.first()) {
                 (false, _) => Ok(Box::new(permitted.into_iter()) as Addrs),
-                (true, Some(refused)) => Err(Box::new(Refusal::Address(refused.ip())) as Box<dyn std::error::Error + Send + Sync>),
+                (true, Some(refused)) => {
+                    Err(Box::new(Refusal::Address(refused.ip())) as Box<dyn std::error::Error + Send + Sync>)
+                }
                 (true, None) => Err(format!("{} does not resolve", name.as_str()).into()),
             }
         })
@@ -197,14 +200,36 @@ mod tests {
         ] {
             assert!(!public(ip), "{ip} must be refused");
         }
-        for ip in ["1.1.1.1", "8.8.8.8", "100.63.255.255", "100.128.0.1", "172.15.255.255", "172.32.0.1", "192.167.1.1", "198.20.0.1", "223.255.255.255"] {
+        for ip in [
+            "1.1.1.1",
+            "8.8.8.8",
+            "100.63.255.255",
+            "100.128.0.1",
+            "172.15.255.255",
+            "172.32.0.1",
+            "192.167.1.1",
+            "198.20.0.1",
+            "223.255.255.255",
+        ] {
             assert!(public(ip), "{ip} is public");
         }
     }
 
     #[test]
     fn private_and_special_ipv6_ranges_are_not_public() {
-        for ip in ["::", "::1", "fc00::1", "fd00:ec2::254", "fe80::1", "febf::1", "fec0::1", "ff02::1", "2001:db8::1", "2001:0:4136:e378:8000:63bf:3fff:fdd2", "100::1"] {
+        for ip in [
+            "::",
+            "::1",
+            "fc00::1",
+            "fd00:ec2::254",
+            "fe80::1",
+            "febf::1",
+            "fec0::1",
+            "ff02::1",
+            "2001:db8::1",
+            "2001:0:4136:e378:8000:63bf:3fff:fdd2",
+            "100::1",
+        ] {
             assert!(!public(ip), "{ip} must be refused");
         }
         for ip in ["2606:4700:4700::1111", "2001:4860:4860::8888", "2a00:1450:4001:81b::200e"] {
@@ -214,7 +239,15 @@ mod tests {
 
     #[test]
     fn ipv6_forms_embedding_ipv4_are_judged_by_the_ipv4_address() {
-        for ip in ["::ffff:127.0.0.1", "::ffff:10.0.0.1", "::ffff:169.254.169.254", "::10.0.0.1", "64:ff9b::192.168.0.1", "2002:7f00:1::1", "2002:a9fe:a9fe::1"] {
+        for ip in [
+            "::ffff:127.0.0.1",
+            "::ffff:10.0.0.1",
+            "::ffff:169.254.169.254",
+            "::10.0.0.1",
+            "64:ff9b::192.168.0.1",
+            "2002:7f00:1::1",
+            "2002:a9fe:a9fe::1",
+        ] {
             assert!(!public(ip), "{ip} must be refused");
         }
         for ip in ["::ffff:8.8.8.8", "64:ff9b::8.8.8.8", "2002:808:808::1"] {

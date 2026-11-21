@@ -5995,6 +5995,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokuly-ask"
+version = "0.1.0"
+dependencies = [
+ "tokuly-core",
+ "tokuly-proto",
+]
+
+[[package]]
 name = "tokuly-chat"
 version = "0.1.0"
 dependencies = [
@@ -6025,6 +6033,14 @@ dependencies = [
  "tracing",
  "unicode-segmentation",
  "uuid",
+]
+
+[[package]]
+name = "tokuly-community"
+version = "0.1.0"
+dependencies = [
+ "tokuly-core",
+ "tokuly-proto",
 ]
 
 [[package]]
@@ -6079,6 +6095,22 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "tokuly-dev"
+version = "0.1.0"
+dependencies = [
+ "tokuly-core",
+ "tokuly-proto",
+]
+
+[[package]]
+name = "tokuly-emoji"
+version = "0.1.0"
+dependencies = [
+ "tokuly-core",
+ "tokuly-proto",
 ]
 
 [[package]]
@@ -6148,6 +6180,7 @@ name = "tokuly-geo"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-nats",
  "async-trait",
  "buffa",
  "chrono",
@@ -6335,6 +6368,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokuly-plans"
+version = "0.1.0"
+dependencies = [
+ "tokuly-core",
+ "tokuly-proto",
+]
+
+[[package]]
 name = "tokuly-proto"
 version = "0.1.0"
 dependencies = [
@@ -6344,6 +6385,14 @@ dependencies = [
  "connectrpc-build",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "tokuly-quest"
+version = "0.1.0"
+dependencies = [
+ "tokuly-core",
+ "tokuly-proto",
 ]
 
 [[package]]
@@ -6379,6 +6428,14 @@ dependencies = [
  "url",
  "uuid",
  "wtransport",
+]
+
+[[package]]
+name = "tokuly-school"
+version = "0.1.0"
+dependencies = [
+ "tokuly-core",
+ "tokuly-proto",
 ]
 
 [[package]]
@@ -6478,6 +6535,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokuly-spaces"
+version = "0.1.0"
+dependencies = [
+ "tokuly-core",
+ "tokuly-proto",
+]
+
+[[package]]
 name = "tokuly-stamp"
 version = "0.1.0"
 dependencies = [
@@ -6546,10 +6611,8 @@ dependencies = [
  "clap",
  "clickhouse",
  "connectrpc",
- "futures",
  "hex",
  "parking_lot 0.13.0",
- "redis",
  "reqwest 0.13.5",
  "serde",
  "serde_json",

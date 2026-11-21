@@ -35,7 +35,11 @@ fn block_author_of(comment_id: &str) -> BlockCommenterRequest {
 }
 
 impl Ctx {
-    async fn received(&self, owner: &tokuly_testkit::TestUser, request: &ListReceivedCommentsRequest) -> ListReceivedCommentsResponse {
+    async fn received(
+        &self,
+        owner: &tokuly_testkit::TestUser,
+        request: &ListReceivedCommentsRequest,
+    ) -> ListReceivedCommentsResponse {
         self.call(SVC, "ListReceivedComments", Some(owner), request).await.unwrap()
     }
 }
@@ -61,13 +65,16 @@ async fn held_comments_wait_in_the_owners_review_queue() {
     assert!(for_guests.comments.is_empty() && for_guests.total_count == 0);
     assert_eq!(ctx.comments(Some(&bob), &video).await.comments[0].status, CommentStatus::COMMENT_STATUS_HELD);
     assert_eq!(ctx.get_comment(Some(&carol), &held.id).await.unwrap_err().reason, "COMMENT_NOT_FOUND");
-    assert_eq!(ctx.get_comment(Some(&owner), &held.id).await.unwrap().comment.hold_reason, HoldReason::HOLD_REASON_REVIEW_ALL);
+    assert_eq!(
+        ctx.get_comment(Some(&owner), &held.id).await.unwrap().comment.hold_reason,
+        HoldReason::HOLD_REASON_REVIEW_ALL
+    );
     assert_eq!(ctx.videos.counter(video.id, "comment_count"), 0);
     // Nothing went out on the public topic, and nobody mentioned was told yet.
     assert!(drain(&mut topic).await.is_empty());
     assert!(ctx.notification_kinds(carol.id).await.is_empty());
     // The owner's badge moved, and they got one "waiting for review" entry.
-    let badge = owner_frames.next(std::time::Duration::from_secs(2)).await.expect("a review queue push");
+    let badge = owner_frames.next(std::time::Duration::from_secs(10)).await.expect("a review queue push");
     match badge.body {
         Some(Body::Engagement(event)) => match &event.event {
             Some(Pushed::ReviewQueueChanged(queue)) => assert_eq!(queue.held_count, 1),
@@ -82,7 +89,10 @@ async fn held_comments_wait_in_the_owners_review_queue() {
     assert_eq!(ctx.comment(&owner, &video, "自分のコメント").await.status, CommentStatus::COMMENT_STATUS_PUBLISHED);
 
     // The queue.
-    assert_eq!(ctx.reason(SVC, "ListReceivedComments", None, &received(CommentStatus::COMMENT_STATUS_HELD)).await, "SIGN_IN_REQUIRED");
+    assert_eq!(
+        ctx.reason(SVC, "ListReceivedComments", None, &received(CommentStatus::COMMENT_STATUS_HELD)).await,
+        "SIGN_IN_REQUIRED"
+    );
     let queue = ctx.received(&owner, &received(CommentStatus::COMMENT_STATUS_HELD)).await;
     assert_eq!(queue.held_count, 1);
     assert_eq!(queue.comments.len(), 1);
@@ -90,17 +100,26 @@ async fn held_comments_wait_in_the_owners_review_queue() {
     assert_eq!((entry.comment.id.as_str(), entry.subject.title.as_str()), (held.id.as_str(), "v"));
     assert_eq!(entry.comment.hold_reason, HoldReason::HOLD_REASON_REVIEW_ALL);
     assert!(entry.comment.viewer.can_moderate);
-    assert!(ctx.received(&bob, &received(CommentStatus::COMMENT_STATUS_HELD)).await.comments.is_empty(), "bob owns nothing");
+    assert!(
+        ctx.received(&bob, &received(CommentStatus::COMMENT_STATUS_HELD)).await.comments.is_empty(),
+        "bob owns nothing"
+    );
 
     // Approval publishes it: counted, pushed, and announced only now.
     assert_eq!(ctx.reason(SVC, "ApproveComment", None, &by_id(&held.id)).await, "SIGN_IN_REQUIRED");
     assert_eq!(ctx.reason(SVC, "ApproveComment", Some(&bob), &by_id(&held.id)).await, "NOT_SUBJECT_OWNER");
     assert_eq!(ctx.reason(SVC, "ApproveComment", Some(&carol), &by_id(&held.id)).await, "COMMENT_NOT_FOUND");
-    let approved: ApproveCommentResponse = ctx.call(SVC, "ApproveComment", Some(&owner), &by_id(&held.id)).await.unwrap();
+    let approved: ApproveCommentResponse =
+        ctx.call(SVC, "ApproveComment", Some(&owner), &by_id(&held.id)).await.unwrap();
     assert_eq!(approved.comment.status, CommentStatus::COMMENT_STATUS_PUBLISHED);
     assert_eq!(ctx.comments(None, &video).await.total_count, 2);
     assert_eq!(ctx.videos.counter(video.id, "comment_count"), 2);
-    assert!(drain(&mut topic).await.iter().any(|event| matches!(event, Pushed::CommentAdded(added) if added.comment_id == held.id)));
+    assert!(
+        drain(&mut topic)
+            .await
+            .iter()
+            .any(|event| matches!(event, Pushed::CommentAdded(added) if added.comment_id == held.id))
+    );
     assert_eq!(ctx.notifications(carol.id, "engagement.mention").await.len(), 1);
     assert_eq!(ctx.received(&owner, &received(CommentStatus::COMMENT_STATUS_HELD)).await.held_count, 0);
     assert_eq!(ctx.events_about("engagement.comment.published", video.id).await.len(), 2);
@@ -118,7 +137,10 @@ async fn screening_rules_hold_words_and_links() {
     let video = ctx.video(&owner, "v");
 
     // Rules start empty and are stored trimmed and without duplicates.
-    assert_eq!(ctx.reason(SVC, "GetModerationSettings", None, &GetModerationSettingsRequest::default()).await, "SIGN_IN_REQUIRED");
+    assert_eq!(
+        ctx.reason(SVC, "GetModerationSettings", None, &GetModerationSettingsRequest::default()).await,
+        "SIGN_IN_REQUIRED"
+    );
     let initial: GetModerationSettingsResponse =
         ctx.call(SVC, "GetModerationSettings", Some(&owner), &GetModerationSettingsRequest::default()).await.unwrap();
     assert!(!initial.settings.hold_all && !initial.settings.hold_links && initial.settings.blocked_words.is_empty());
@@ -127,12 +149,26 @@ async fn screening_rules_hold_words_and_links() {
         ..Default::default()
     };
     assert_eq!(ctx.reason(SVC, "UpdateModerationSettings", None, &update(vec![], false)).await, "SIGN_IN_REQUIRED");
-    assert_eq!(ctx.reason(SVC, "UpdateModerationSettings", Some(&owner), &update(vec!["  ".into()], false)).await, "BLOCKED_WORDS_INVALID");
-    assert_eq!(ctx.reason(SVC, "UpdateModerationSettings", Some(&owner), &update(vec!["x".repeat(51)], false)).await, "BLOCKED_WORDS_INVALID");
+    assert_eq!(
+        ctx.reason(SVC, "UpdateModerationSettings", Some(&owner), &update(vec!["  ".into()], false)).await,
+        "BLOCKED_WORDS_INVALID"
+    );
+    assert_eq!(
+        ctx.reason(SVC, "UpdateModerationSettings", Some(&owner), &update(vec!["x".repeat(51)], false)).await,
+        "BLOCKED_WORDS_INVALID"
+    );
     let too_many: Vec<String> = (0..201).map(|index| format!("w{index}")).collect();
-    assert_eq!(ctx.reason(SVC, "UpdateModerationSettings", Some(&owner), &update(too_many, false)).await, "BLOCKED_WORDS_INVALID");
+    assert_eq!(
+        ctx.reason(SVC, "UpdateModerationSettings", Some(&owner), &update(too_many, false)).await,
+        "BLOCKED_WORDS_INVALID"
+    );
     let stored: UpdateModerationSettingsResponse = ctx
-        .call(SVC, "UpdateModerationSettings", Some(&owner), &update(vec![" スパム ".into(), "ｽﾊﾟﾑ".into(), "Buy Now".into()], true))
+        .call(
+            SVC,
+            "UpdateModerationSettings",
+            Some(&owner),
+            &update(vec![" スパム ".into(), "ｽﾊﾟﾑ".into(), "Buy Now".into()], true),
+        )
         .await
         .unwrap();
     assert_eq!(stored.settings.blocked_words, ["スパム", "Buy Now"]);
@@ -147,8 +183,11 @@ async fn screening_rules_hold_words_and_links() {
     let linky = ctx.comment(&bob, &video, "見てね example.com").await;
     assert!(wordy.status == CommentStatus::COMMENT_STATUS_HELD && linky.status == CommentStatus::COMMENT_STATUS_HELD);
     let queue = ctx.received(&owner, &received(CommentStatus::COMMENT_STATUS_HELD)).await;
-    let reasons: Vec<(&str, HoldReason)> =
-        queue.comments.iter().map(|entry| (entry.comment.id.as_str(), entry.comment.hold_reason.as_known().unwrap())).collect();
+    let reasons: Vec<(&str, HoldReason)> = queue
+        .comments
+        .iter()
+        .map(|entry| (entry.comment.id.as_str(), entry.comment.hold_reason.as_known().unwrap()))
+        .collect();
     assert_eq!(
         reasons,
         [(linky.id.as_str(), HoldReason::HOLD_REASON_LINK), (wordy.id.as_str(), HoldReason::HOLD_REASON_BLOCKED_WORD)]
@@ -159,14 +198,23 @@ async fn screening_rules_hold_words_and_links() {
     // back held, and leaves public view when it does.
     assert_eq!(ctx.videos.counter(video.id, "comment_count"), 1);
     let mut topic = ctx.app.listen_topic(&video.topic()).await;
-    let edit = UpdateCommentRequest { comment_id: clean.id.clone(), text: "やっぱりスパム".into(), ..Default::default() };
+    let edit =
+        UpdateCommentRequest {
+            comment_id: clean.id.clone(), text: "やっぱりスパム".into(), ..Default::default()
+        };
     let edited: UpdateCommentResponse = ctx.call("CommentService", "UpdateComment", Some(&bob), &edit).await.unwrap();
     assert_eq!(edited.comment.status, CommentStatus::COMMENT_STATUS_HELD);
     assert_eq!(ctx.videos.counter(video.id, "comment_count"), 0);
     assert!(ctx.comments(None, &video).await.comments.is_empty());
-    assert!(drain(&mut topic).await.iter().any(|event| matches!(event, Pushed::CommentRemoved(removed) if removed.comment_id == clean.id)));
+    assert!(
+        drain(&mut topic)
+            .await
+            .iter()
+            .any(|event| matches!(event, Pushed::CommentRemoved(removed) if removed.comment_id == clean.id))
+    );
     // But an edit never publishes: cleaning up a held comment leaves it held.
-    let cleaned = UpdateCommentRequest { comment_id: wordy.id.clone(), text: "きれいにした".into(), ..Default::default() };
+    let cleaned =
+        UpdateCommentRequest { comment_id: wordy.id.clone(), text: "きれいにした".into(), ..Default::default() };
     let still: UpdateCommentResponse = ctx.call("CommentService", "UpdateComment", Some(&bob), &cleaned).await.unwrap();
     assert_eq!(still.comment.status, CommentStatus::COMMENT_STATUS_HELD);
 }
@@ -186,7 +234,10 @@ async fn owners_hide_and_bring_back_comments() {
 
     assert_eq!(ctx.reason(SVC, "HideComment", None, &hide(&top.id)).await, "SIGN_IN_REQUIRED");
     assert_eq!(ctx.reason(SVC, "HideComment", Some(&bob), &hide(&top.id)).await, "NOT_SUBJECT_OWNER");
-    assert_eq!(ctx.reason(SVC, "HideComment", Some(&owner), &hide(&Uuid::now_v7().to_string())).await, "COMMENT_NOT_FOUND");
+    assert_eq!(
+        ctx.reason(SVC, "HideComment", Some(&owner), &hide(&Uuid::now_v7().to_string())).await,
+        "COMMENT_NOT_FOUND"
+    );
     let hidden: HideCommentResponse = ctx.call(SVC, "HideComment", Some(&owner), &hide(&top.id)).await.unwrap();
     assert_eq!(hidden.comment.status, CommentStatus::COMMENT_STATUS_HIDDEN);
     assert_eq!(hidden.comment.hold_reason, HoldReason::HOLD_REASON_HIDDEN_BY_OWNER);
@@ -195,14 +246,19 @@ async fn owners_hide_and_bring_back_comments() {
     // The thread left public view as a whole: the comment and its reply.
     assert_eq!(ctx.videos.counter(video.id, "comment_count"), 1);
     let removed = drain(&mut topic).await;
-    assert!(removed.iter().any(|event| matches!(event, Pushed::CommentRemoved(gone) if gone.comment_id == top.id && gone.removed_count == 2)));
+    assert!(removed.iter().any(
+        |event| matches!(event, Pushed::CommentRemoved(gone) if gone.comment_id == top.id && gone.removed_count == 2)
+    ));
     let for_guests = ctx.comments(None, &video).await;
     assert_eq!((texts(&for_guests.comments), for_guests.total_count), (vec!["のこるコメント"], 1));
     let replies = ListRepliesRequest { comment_id: top.id.clone(), ..Default::default() };
     assert_eq!(ctx.reason("CommentService", "ListReplies", None, &replies).await, "COMMENT_NOT_FOUND");
     assert_eq!(ctx.get_comment(None, &reply.id).await.unwrap_err().reason, "COMMENT_NOT_FOUND");
     // Its author still sees it, marked hidden; the reply's author keeps the reply but not the thread above it.
-    assert_eq!(ctx.get_comment(Some(&bob), &top.id).await.unwrap().comment.status, CommentStatus::COMMENT_STATUS_HIDDEN);
+    assert_eq!(
+        ctx.get_comment(Some(&bob), &top.id).await.unwrap().comment.status,
+        CommentStatus::COMMENT_STATUS_HIDDEN
+    );
     let orphan = ctx.get_comment(Some(&carol), &reply.id).await.unwrap();
     assert!(orphan.parent.as_option().is_none());
     // Nobody can add to a hidden thread.
@@ -238,11 +294,16 @@ async fn a_blocked_commenter_is_not_told() {
     assert_eq!(ctx.reason(SVC, "BlockCommenter", None, &block_user(bob.id)).await, "SIGN_IN_REQUIRED");
     assert_eq!(ctx.reason(SVC, "BlockCommenter", Some(&owner), &block_user(owner.id)).await, "CANNOT_BLOCK_SELF");
     assert_eq!(ctx.reason(SVC, "BlockCommenter", Some(&owner), &block_user(Uuid::now_v7())).await, "USER_NOT_FOUND");
-    assert_eq!(ctx.reason(SVC, "BlockCommenter", Some(&owner), &BlockCommenterRequest::default()).await, "USER_NOT_FOUND");
-    let blocked: BlockCommenterResponse = ctx.call(SVC, "BlockCommenter", Some(&owner), &block_user(bob.id)).await.unwrap();
+    assert_eq!(
+        ctx.reason(SVC, "BlockCommenter", Some(&owner), &BlockCommenterRequest::default()).await,
+        "USER_NOT_FOUND"
+    );
+    let blocked: BlockCommenterResponse =
+        ctx.call(SVC, "BlockCommenter", Some(&owner), &block_user(bob.id)).await.unwrap();
     assert_eq!(blocked.blocked.commenter.user.id, bob.id.to_string());
     // Blocking again returns the same block.
-    let again: BlockCommenterResponse = ctx.call(SVC, "BlockCommenter", Some(&owner), &block_user(bob.id)).await.unwrap();
+    let again: BlockCommenterResponse =
+        ctx.call(SVC, "BlockCommenter", Some(&owner), &block_user(bob.id)).await.unwrap();
     assert_eq!(again.blocked.id, blocked.blocked.id);
 
     // What bob wrote there is out of public view...
@@ -267,8 +328,14 @@ async fn a_blocked_commenter_is_not_told() {
     assert_eq!(ctx.get_comment(None, &self_reply.id).await.unwrap_err().reason, "COMMENT_NOT_FOUND");
 
     // The owner's manager leaves a blocked commenter out, and lists the block.
-    assert_eq!(received_texts(&ctx.received(&owner, &ListReceivedCommentsRequest::default()).await), ["キャロルのコメント"]);
-    assert_eq!(ctx.reason(SVC, "ListBlockedCommenters", None, &ListBlockedCommentersRequest::default()).await, "SIGN_IN_REQUIRED");
+    assert_eq!(
+        received_texts(&ctx.received(&owner, &ListReceivedCommentsRequest::default()).await),
+        ["キャロルのコメント"]
+    );
+    assert_eq!(
+        ctx.reason(SVC, "ListBlockedCommenters", None, &ListBlockedCommentersRequest::default()).await,
+        "SIGN_IN_REQUIRED"
+    );
     let blocks: ListBlockedCommentersResponse =
         ctx.call(SVC, "ListBlockedCommenters", Some(&owner), &ListBlockedCommentersRequest::default()).await.unwrap();
     assert_eq!(blocks.commenters.len(), 1);
@@ -298,17 +365,30 @@ async fn a_blocked_commenter_is_not_told() {
 #[tokio::test]
 async fn blocking_through_a_channel_comment_keeps_the_account_secret() {
     let ctx = start().await;
-    let (owner, bob, stranger) = (ctx.app.user("Owner").await, ctx.app.user("Bob").await, ctx.app.user("Stranger").await);
+    let (owner, bob, stranger) =
+        (ctx.app.user("Owner").await, ctx.app.user("Bob").await, ctx.app.user("Stranger").await);
     let (video, elsewhere) = (ctx.video(&owner, "v"), ctx.video(&stranger, "elsewhere"));
     let channel = ctx.channels.add(&bob, "Bob Games");
-    let as_channel = CreateCommentRequest { subject: video.subject_ref().into(), text: "チャンネルのコメント".into(), channel_id: channel.to_string(), ..Default::default() };
-    let as_channel: CreateCommentResponse = ctx.call("CommentService", "CreateComment", Some(&bob), &as_channel).await.unwrap();
+    let as_channel = CreateCommentRequest {
+        subject: video.subject_ref().into(),
+        text: "チャンネルのコメント".into(),
+        channel_id: channel.to_string(),
+        ..Default::default()
+    };
+    let as_channel: CreateCommentResponse =
+        ctx.call("CommentService", "CreateComment", Some(&bob), &as_channel).await.unwrap();
     let as_user = ctx.comment(&bob, &video, "本人のコメント").await;
     let on_other = ctx.comment(&bob, &elsewhere, "よその動画へ").await;
 
     // Only comments on one's own subjects can be used to block.
-    assert_eq!(ctx.reason(SVC, "BlockCommenter", Some(&owner), &block_author_of(&on_other.id)).await, "NOT_SUBJECT_OWNER");
-    assert_eq!(ctx.reason(SVC, "BlockCommenter", Some(&owner), &block_author_of(&Uuid::now_v7().to_string())).await, "COMMENT_NOT_FOUND");
+    assert_eq!(
+        ctx.reason(SVC, "BlockCommenter", Some(&owner), &block_author_of(&on_other.id)).await,
+        "NOT_SUBJECT_OWNER"
+    );
+    assert_eq!(
+        ctx.reason(SVC, "BlockCommenter", Some(&owner), &block_author_of(&Uuid::now_v7().to_string())).await,
+        "COMMENT_NOT_FOUND"
+    );
     let own = ctx.comment(&owner, &video, "じぶんの").await;
     assert_eq!(ctx.reason(SVC, "BlockCommenter", Some(&owner), &block_author_of(&own.id)).await, "CANNOT_BLOCK_SELF");
 
@@ -326,13 +406,19 @@ async fn blocking_through_a_channel_comment_keeps_the_account_secret() {
 
     // Blocking the same account under its other identity is a second block;
     // nothing tells the owner that the two are one person.
-    let second: BlockCommenterResponse = ctx.call(SVC, "BlockCommenter", Some(&owner), &block_author_of(&as_user.id)).await.unwrap();
+    let second: BlockCommenterResponse =
+        ctx.call(SVC, "BlockCommenter", Some(&owner), &block_author_of(&as_user.id)).await.unwrap();
     assert_ne!(second.blocked.id, blocked.blocked.id);
     assert_eq!(second.blocked.commenter.user.id, bob.id.to_string());
-    let blocks: ListBlockedCommentersResponse =
-        ctx.call(SVC, "ListBlockedCommenters", Some(&owner), &ListBlockedCommentersRequest { page: page(1, ""), ..Default::default() })
-            .await
-            .unwrap();
+    let blocks: ListBlockedCommentersResponse = ctx
+        .call(
+            SVC,
+            "ListBlockedCommenters",
+            Some(&owner),
+            &ListBlockedCommentersRequest { page: page(1, ""), ..Default::default() },
+        )
+        .await
+        .unwrap();
     assert_eq!(blocks.commenters.len(), 1);
     assert!(blocks.page.has_more);
     assert_eq!(blocks.commenters[0].id, second.blocked.id, "most recent first");
@@ -352,14 +438,25 @@ async fn blocking_through_a_channel_comment_keeps_the_account_secret() {
 #[tokio::test]
 async fn the_comment_manager_filters_what_was_received() {
     let ctx = start().await;
-    let (owner, bob, carol, other_owner) =
-        (ctx.app.user("Owner").await, ctx.app.user("Bob").await, ctx.app.user("Carol").await, ctx.app.user("Other").await);
-    let (video, note, foreign) = (ctx.video(&owner, "動画"), ctx.note(&owner, "ノート"), ctx.video(&other_owner, "よその"));
+    let (owner, bob, carol, other_owner) = (
+        ctx.app.user("Owner").await,
+        ctx.app.user("Bob").await,
+        ctx.app.user("Carol").await,
+        ctx.app.user("Other").await,
+    );
+    let (video, note, foreign) =
+        (ctx.video(&owner, "動画"), ctx.note(&owner, "ノート"), ctx.video(&other_owner, "よその"));
     let channel = ctx.channels.add(&carol, "Carol TV");
 
     let b1 = ctx.comment(&bob, &video, "りんごが好き").await;
-    let as_channel = CreateCommentRequest { subject: video.subject_ref().into(), text: "チャンネルから: 100%_本気".into(), channel_id: channel.to_string(), ..Default::default() };
-    let c1: CreateCommentResponse = ctx.call("CommentService", "CreateComment", Some(&carol), &as_channel).await.unwrap();
+    let as_channel = CreateCommentRequest {
+        subject: video.subject_ref().into(),
+        text: "チャンネルから: 100%_本気".into(),
+        channel_id: channel.to_string(),
+        ..Default::default()
+    };
+    let c1: CreateCommentResponse =
+        ctx.call("CommentService", "CreateComment", Some(&carol), &as_channel).await.unwrap();
     let c1 = c1.comment.as_option().unwrap().clone();
     let c2 = ctx.comment(&carol, &note, "ノートにAPPLEと書いた").await;
     let b2 = ctx.reply(&bob, &b1.id, "じぶんに返信").await;
@@ -386,19 +483,28 @@ async fn the_comment_manager_filters_what_was_received() {
     let literal = ListReceivedCommentsRequest { query: "100%_".into(), ..Default::default() };
     assert_eq!(ctx.received(&owner, &literal).await.comments.len(), 1);
     let wildcard = ListReceivedCommentsRequest { query: "%".into(), ..Default::default() };
-    assert_eq!(ctx.received(&owner, &wildcard).await.comments.len(), 1, "only the comment that contains a percent sign");
+    assert_eq!(
+        ctx.received(&owner, &wildcard).await.comments.len(),
+        1,
+        "only the comment that contains a percent sign"
+    );
 
     // By identity: everything the author of a comment wrote under the same identity.
     let same_as = |id: &str| ListReceivedCommentsRequest { author_of_comment_id: id.to_owned(), ..Default::default() };
     assert_eq!(ctx.received(&owner, &same_as(&b1.id)).await.comments.len(), 2);
     assert_eq!(received_texts(&ctx.received(&owner, &same_as(&c1.id)).await), ["チャンネルから: 100%_本気"]);
     assert_eq!(received_texts(&ctx.received(&owner, &same_as(&c2.id)).await), ["ノートにAPPLEと書いた"]);
-    assert_eq!(ctx.reason(SVC, "ListReceivedComments", Some(&owner), &same_as(&Uuid::now_v7().to_string())).await, "COMMENT_NOT_FOUND");
+    assert_eq!(
+        ctx.reason(SVC, "ListReceivedComments", Some(&owner), &same_as(&Uuid::now_v7().to_string())).await,
+        "COMMENT_NOT_FOUND"
+    );
 
     // By kind of identity.
-    let channels_only = ListReceivedCommentsRequest { author_kind: AuthorKind::AUTHOR_KIND_CHANNEL.into(), ..Default::default() };
+    let channels_only =
+        ListReceivedCommentsRequest { author_kind: AuthorKind::AUTHOR_KIND_CHANNEL.into(), ..Default::default() };
     assert_eq!(ctx.received(&owner, &channels_only).await.comments.len(), 1);
-    let users_only = ListReceivedCommentsRequest { author_kind: AuthorKind::AUTHOR_KIND_USER.into(), ..Default::default() };
+    let users_only =
+        ListReceivedCommentsRequest { author_kind: AuthorKind::AUTHOR_KIND_USER.into(), ..Default::default() };
     assert_eq!(ctx.received(&owner, &users_only).await.comments.len(), 3);
 
     // By time.
@@ -412,7 +518,9 @@ async fn the_comment_manager_filters_what_was_received() {
     let first = ctx.received(&owner, &ListReceivedCommentsRequest { page: page(3, ""), ..Default::default() }).await;
     assert_eq!(first.comments.len(), 3);
     assert!(first.page.has_more);
-    let rest = ctx.received(&owner, &ListReceivedCommentsRequest { page: page(3, &first.page.next_cursor), ..Default::default() }).await;
+    let rest = ctx
+        .received(&owner, &ListReceivedCommentsRequest { page: page(3, &first.page.next_cursor), ..Default::default() })
+        .await;
     assert_eq!(rest.comments.iter().map(|entry| entry.comment.id.as_str()).collect::<Vec<_>>(), [b1.id.as_str()]);
     let bad = ListReceivedCommentsRequest { page: page(3, "???"), ..Default::default() };
     assert_eq!(ctx.reason(SVC, "ListReceivedComments", Some(&owner), &bad).await, "INVALID_CURSOR");

@@ -24,8 +24,12 @@ pub const NOTIFICATION_SNIPPET_CHARS: usize = 100;
 /// characters other than newline and tab are dropped, surrounding whitespace
 /// is trimmed. Fails with `TEXT_TOO_LONG` past [`MAX_TEXT_CHARS`].
 pub fn normalize_text(input: &str) -> AppResult<String> {
-    let text: String =
-        input.replace("\r\n", "\n").replace('\r', "\n").chars().filter(|c| !c.is_control() || matches!(c, '\n' | '\t')).collect();
+    let text: String = input
+        .replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .chars()
+        .filter(|c| !c.is_control() || matches!(c, '\n' | '\t'))
+        .collect();
     let text = text.trim();
     ensure!(
         text.chars().count() <= MAX_TEXT_CHARS,
@@ -102,7 +106,10 @@ pub fn parse_mentions(text: &str) -> Mentions {
         let handle = rest[..length].trim_end_matches('-').to_ascii_lowercase();
         if handle == "all" {
             found.everyone = true;
-        } else if (3..=24).contains(&handle.len()) && !found.handles.contains(&handle) && found.handles.len() < MAX_MENTIONS {
+        } else if (3..=24).contains(&handle.len())
+            && !found.handles.contains(&handle)
+            && found.handles.len() < MAX_MENTIONS
+        {
             found.handles.push(handle);
         }
         // Continue after the handle.
@@ -138,16 +145,24 @@ pub fn first_url(text: &str) -> Option<String> {
         }
         let candidate = &text[start..];
         let end = candidate
-            .find(|c: char| !c.is_ascii() || c.is_ascii_whitespace() || c.is_ascii_control() || matches!(c, '<' | '>' | '"' | '`'))
+            .find(|c: char| {
+                !c.is_ascii() || c.is_ascii_whitespace() || c.is_ascii_control() || matches!(c, '<' | '>' | '"' | '`')
+            })
             .unwrap_or(candidate.len());
         let mut url = &candidate[..end];
         loop {
             let trimmed = url.trim_end_matches(['.', ',', '!', '?', ':', ';', '\'', '*', '~']);
             // A closing bracket belongs to the link only when it closes one opened inside it.
             let trimmed = match trimmed.chars().next_back() {
-                Some(')') if trimmed.matches(')').count() > trimmed.matches('(').count() => &trimmed[..trimmed.len() - 1],
-                Some(']') if trimmed.matches(']').count() > trimmed.matches('[').count() => &trimmed[..trimmed.len() - 1],
-                Some('}') if trimmed.matches('}').count() > trimmed.matches('{').count() => &trimmed[..trimmed.len() - 1],
+                Some(')') if trimmed.matches(')').count() > trimmed.matches('(').count() => {
+                    &trimmed[..trimmed.len() - 1]
+                }
+                Some(']') if trimmed.matches(']').count() > trimmed.matches('[').count() => {
+                    &trimmed[..trimmed.len() - 1]
+                }
+                Some('}') if trimmed.matches('}').count() > trimmed.matches('{').count() => {
+                    &trimmed[..trimmed.len() - 1]
+                }
                 _ => trimmed,
             };
             if trimmed.len() == url.len() {
@@ -201,7 +216,10 @@ fn is_emoji_cluster(cluster: &str) -> bool {
     if cluster.ends_with('\u{20E3}') {
         return first.is_ascii_digit() || first == '#' || first == '*';
     }
-    is_pictograph(first) || is_symbol(first) || is_emoji_presentation(first) || (has_selector && is_text_default_emoji(first))
+    is_pictograph(first)
+        || is_symbol(first)
+        || is_emoji_presentation(first)
+        || (has_selector && is_text_default_emoji(first))
 }
 
 /// Whether `text` is exactly one emoji (what a reaction must be).
@@ -252,7 +270,8 @@ pub fn search_pattern(query: &str) -> AppResult<String> {
 /// Validates a BCP 47 language tag ("ja", "en-US", "zh-Hant") and returns it
 /// in its conventional casing.
 pub fn normalize_language_tag(tag: &str) -> AppResult<String> {
-    let invalid = || AppError::invalid("LANGUAGE_INVALID", "the language must be a BCP 47 tag such as \"ja\" or \"en-US\"");
+    let invalid =
+        || AppError::invalid("LANGUAGE_INVALID", "the language must be a BCP 47 tag such as \"ja\" or \"en-US\"");
     let tag = tag.trim();
     if tag.is_empty() || tag.len() > 35 {
         return Err(invalid());
@@ -331,25 +350,39 @@ mod tests {
     #[test]
     fn the_first_link_is_found_without_its_punctuation() {
         assert_eq!(first_url("見て https://example.com/a?b=1。すごい").as_deref(), Some("https://example.com/a?b=1"));
-        assert_eq!(first_url("これhttps://youtu.be/dQw4w9WgXcQ見て！").as_deref(), Some("https://youtu.be/dQw4w9WgXcQ"));
+        assert_eq!(
+            first_url("これhttps://youtu.be/dQw4w9WgXcQ見て！").as_deref(),
+            Some("https://youtu.be/dQw4w9WgXcQ")
+        );
         assert_eq!(first_url("(see http://Example.com/x).").as_deref(), Some("http://example.com/x"));
         assert_eq!(
             first_url("wiki: https://en.wikipedia.org/wiki/Rust_(programming_language)!").as_deref(),
             Some("https://en.wikipedia.org/wiki/Rust_(programming_language)")
         );
-        assert_eq!(first_url("first https://a.example/1 then https://b.example/2").as_deref(), Some("https://a.example/1"));
+        assert_eq!(
+            first_url("first https://a.example/1 then https://b.example/2").as_deref(),
+            Some("https://a.example/1")
+        );
     }
 
     #[test]
     fn text_without_a_usable_link_has_none() {
-        for text in ["no link here", "xhttps://example.com", "https://", "http:// broken", "ftp://example.com/file", "httpsomething"] {
+        for text in [
+            "no link here",
+            "xhttps://example.com",
+            "https://",
+            "http:// broken",
+            "ftp://example.com/file",
+            "httpsomething",
+        ] {
             assert_eq!(first_url(text), None, "{text}");
         }
     }
 
     #[test]
     fn single_emoji_are_recognised() {
-        for emoji in ["😀", "👍", "👍🏽", "❤️", "❤", "🇯🇵", "👨‍👩‍👧‍👦", "1️⃣", "✨", "⭐", "☀️", "🫶", "🏳️‍🌈", "⌚", "©️"] {
+        for emoji in ["😀", "👍", "👍🏽", "❤️", "❤", "🇯🇵", "👨‍👩‍👧‍👦", "1️⃣", "✨", "⭐", "☀️", "🫶", "🏳️‍🌈", "⌚", "©️"]
+        {
             assert!(is_single_emoji(emoji), "{emoji} should be an emoji");
         }
         for text in ["", "a", "あ", "1", "😀😀", "😀a", ":)", " ", "→", "©", "#"] {

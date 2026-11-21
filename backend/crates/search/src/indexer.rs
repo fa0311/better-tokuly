@@ -75,7 +75,10 @@ impl Search {
     /// indexing right now.
     async fn lock_indexer(&self, tx: &mut Transaction<'_, Postgres>, wait: bool) -> AppResult<bool> {
         if wait {
-            sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))").bind(self.indexer_lock_key()).execute(&mut **tx).await?;
+            sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+                .bind(self.indexer_lock_key())
+                .execute(&mut **tx)
+                .await?;
             return Ok(true);
         }
         Ok(sqlx::query_scalar("SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))")

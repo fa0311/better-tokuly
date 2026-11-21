@@ -115,8 +115,9 @@ mod tests {
 
     #[test]
     fn flags_are_prefixed() {
-        let parsed = Cli::parse_from(["tokuly", "--engagement-comments-per-minute", "3", "--engagement-max-bookmarks", "9"])
-            .engagement;
+        let parsed =
+            Cli::parse_from(["tokuly", "--engagement-comments-per-minute", "3", "--engagement-max-bookmarks", "9"])
+                .engagement;
         assert_eq!((parsed.comments_per_minute, parsed.max_bookmarks), (3, 9));
     }
 }

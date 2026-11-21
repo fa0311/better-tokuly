@@ -162,7 +162,7 @@ export function PurchaseScreen({ purchaseId, proof }: { purchaseId: string; proo
               <Fact label={t("purchases.receipt.provider")}>{providerName(purchase.provider, t)}</Fact>
               <Fact label={t("purchases.receipt.created")}>{format(toDate(purchase.createdAt))}</Fact>
               {purchase.completedAt && <Fact label={t("purchases.receipt.completed")}>{format(toDate(purchase.completedAt))}</Fact>}
-              <Fact label={t("purchases.receipt.id")}>
+              <Fact stack label={t("purchases.receipt.id")}>
                 <span className="break-all font-mono text-xs font-medium text-ink-soft">{purchase.id}</span>
               </Fact>
             </dl>

@@ -53,7 +53,12 @@ struct ParsedQuery {
 /// Validates and normalizes a query. `None` when it is empty.
 fn parse_query(input: &str) -> AppResult<Option<ParsedQuery>> {
     let display = normalize_query(input);
-    ensure!(display.chars().count() <= MAX_QUERY_CHARS, invalid, "QUERY_TOO_LONG", "a query is at most {MAX_QUERY_CHARS} characters");
+    ensure!(
+        display.chars().count() <= MAX_QUERY_CHARS,
+        invalid,
+        "QUERY_TOO_LONG",
+        "a query is at most {MAX_QUERY_CHARS} characters"
+    );
     if display.is_empty() {
         return Ok(None);
     }
@@ -107,10 +112,18 @@ impl Search {
     /// Applies the rate limit of an RPC that works with and without signing
     /// in — per account when signed in, per client address otherwise — and
     /// returns the caller.
-    async fn limited_caller(&self, ctx: &RequestContext, action: &str, per_user: u32, anonymous: u32) -> AppResult<Option<Uuid>> {
+    async fn limited_caller(
+        &self,
+        ctx: &RequestContext,
+        action: &str,
+        per_user: u32,
+        anonymous: u32,
+    ) -> AppResult<Option<Uuid>> {
         let caller = ctx.maybe_user_id()?;
         match caller {
-            Some(user_id) => self.core.cache.rate_limit(&format!("search:{action}:u:{user_id}"), per_user, MINUTE).await?,
+            Some(user_id) => {
+                self.core.cache.rate_limit(&format!("search:{action}:u:{user_id}"), per_user, MINUTE).await?
+            }
             None => {
                 let ip = ctx.client().ip;
                 let address = if ip.is_empty() { "unknown" } else { ip.as_str() };
@@ -143,10 +156,15 @@ impl Search {
 }
 
 impl SearchService for Search {
-    async fn search(&self, ctx: RequestContext, request: ServiceRequest<'_, SearchRequest>) -> ServiceResult<SearchResponse> {
+    async fn search(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, SearchRequest>,
+    ) -> ServiceResult<SearchResponse> {
         handle(async {
-            let caller =
-                self.limited_caller(&ctx, "query", self.cfg.rate_per_minute, self.cfg.anonymous_rate_per_minute).await?;
+            let caller = self
+                .limited_caller(&ctx, "query", self.cfg.rate_per_minute, self.cfg.anonymous_rate_per_minute)
+                .await?;
             let parsed = parse_query(request.query)?.filter(|q| !q.text.is_empty());
             let Some(parsed) = parsed else { bail!(invalid, "QUERY_REQUIRED", "enter something to search for") };
             let kind = parse_kind(request.kind)?;
@@ -156,13 +174,24 @@ impl SearchService for Search {
 
             // A cursor only continues the query it was issued for.
             let fingerprint = sha256_hex(
-                format!("{}\u{1f}{}\u{1f}{}\u{1f}{}", query_key(&parsed.display), kind_name(kind), request.sort.to_i32(), owner.unwrap_or_default())
-                    .as_bytes(),
+                format!(
+                    "{}\u{1f}{}\u{1f}{}\u{1f}{}",
+                    query_key(&parsed.display),
+                    kind_name(kind),
+                    request.sort.to_i32(),
+                    owner.unwrap_or_default()
+                )
+                .as_bytes(),
             )[..16]
                 .to_owned();
             let offset = match page.decode::<Cursor>()? {
                 Some(cursor) => {
-                    ensure!(cursor.f == fingerprint && cursor.o <= MAX_TOTAL_HITS, invalid, "INVALID_CURSOR", "invalid page cursor");
+                    ensure!(
+                        cursor.f == fingerprint && cursor.o <= MAX_TOTAL_HITS,
+                        invalid,
+                        "INVALID_CURSOR",
+                        "invalid page cursor"
+                    );
                     cursor.o
                 }
                 None => 0,
@@ -197,19 +226,20 @@ impl SearchService for Search {
                 }
                 self.core
                     .analytics
-                    .track(
-                        AnalyticsEvent::new("search.query")
-                            .user(caller)
-                            .value(answer.total as f64)
-                            .props(serde_json::json!({ "kind": kind_name(kind), "tags_only": parsed.scope == Scope::Tags })),
-                    )
+                    .track(AnalyticsEvent::new("search.query").user(caller).value(answer.total as f64).props(
+                        serde_json::json!({ "kind": kind_name(kind), "tags_only": parsed.scope == Scope::Tags }),
+                    ))
                     .await;
             }
 
             ok(SearchResponse {
                 hits,
                 page: PageInfo {
-                    next_cursor: if has_more { encode_cursor(&Cursor { o: next_offset, f: fingerprint }) } else { String::new() },
+                    next_cursor: if has_more {
+                        encode_cursor(&Cursor { o: next_offset, f: fingerprint })
+                    } else {
+                        String::new()
+                    },
                     has_more,
                     ..Default::default()
                 }
@@ -223,15 +253,23 @@ impl SearchService for Search {
         .await
     }
 
-    async fn suggest(&self, ctx: RequestContext, request: ServiceRequest<'_, SuggestRequest>) -> ServiceResult<SuggestResponse> {
+    async fn suggest(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, SuggestRequest>,
+    ) -> ServiceResult<SuggestResponse> {
         handle(async {
             let per_user = self.cfg.suggest_rate_per_minute;
             let caller = self.limited_caller(&ctx, "suggest", per_user, (per_user / 2).max(1)).await?;
             let kind = parse_kind(request.kind)?;
             let Some(parsed) = parse_query(request.query)? else { return ok(SuggestResponse::default()) };
-            let hit_limit = if request.hit_limit <= 0 { DEFAULT_SUGGEST_HITS } else { request.hit_limit.min(MAX_SUGGEST_ITEMS) };
-            let completion_limit =
-                if request.completion_limit <= 0 { DEFAULT_COMPLETIONS } else { request.completion_limit.min(MAX_SUGGEST_ITEMS) };
+            let hit_limit =
+                if request.hit_limit <= 0 { DEFAULT_SUGGEST_HITS } else { request.hit_limit.min(MAX_SUGGEST_ITEMS) };
+            let completion_limit = if request.completion_limit <= 0 {
+                DEFAULT_COMPLETIONS
+            } else {
+                request.completion_limit.min(MAX_SUGGEST_ITEMS)
+            };
             let prefix = query_key(&parsed.display);
 
             let completions = async {
@@ -291,7 +329,11 @@ impl SearchService for Search {
         .await
     }
 
-    async fn get_trending(&self, ctx: RequestContext, request: ServiceRequest<'_, GetTrendingRequest>) -> ServiceResult<GetTrendingResponse> {
+    async fn get_trending(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, GetTrendingRequest>,
+    ) -> ServiceResult<GetTrendingResponse> {
         handle(async {
             let per_user = self.cfg.suggest_rate_per_minute;
             self.limited_caller(&ctx, "trending", per_user, (per_user / 2).max(1)).await?;
@@ -338,7 +380,12 @@ impl SearchService for Search {
         handle(async {
             let user_id = ctx.user_id()?;
             let id = parse_id(request.id)?;
-            ensure!(self.delete_recent(user_id, id).await?, not_found, "RECENT_SEARCH_NOT_FOUND", "recent search not found");
+            ensure!(
+                self.delete_recent(user_id, id).await?,
+                not_found,
+                "RECENT_SEARCH_NOT_FOUND",
+                "recent search not found"
+            );
             ok(DeleteRecentSearchResponse::default())
         })
         .await
@@ -378,7 +425,10 @@ mod tests {
     #[test]
     fn queries_are_normalized_and_tag_searches_recognized() {
         let plain = parse_query("  渋谷　カフェ ").unwrap().unwrap();
-        assert_eq!((plain.display.as_str(), plain.text.as_str(), plain.scope), ("渋谷 カフェ", "渋谷 カフェ", Scope::Everything));
+        assert_eq!(
+            (plain.display.as_str(), plain.text.as_str(), plain.scope),
+            ("渋谷 カフェ", "渋谷 カフェ", Scope::Everything)
+        );
 
         let tag = parse_query("＃散歩").unwrap().unwrap();
         assert_eq!((tag.display.as_str(), tag.text.as_str(), tag.scope), ("#散歩", "散歩", Scope::Tags));

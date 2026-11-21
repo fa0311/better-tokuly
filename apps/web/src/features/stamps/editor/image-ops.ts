@@ -157,14 +157,24 @@ export function paintMask(mask: Uint8Array, width: number, height: number, from:
   return { x: left, y: top, width: Math.max(0, right - left + 1), height: Math.max(0, bottom - top + 1) };
 }
 
-/** Writes `source` into `out` (same size) with its alpha scaled by the mask — the cut-out picture. */
-export function applyMask(source: Bitmap, mask: Uint8Array, out: Uint8ClampedArray): void {
-  const { data } = source;
-  for (let index = 0, offset = 0; index < mask.length; index++, offset += 4) {
-    out[offset] = data[offset]!;
-    out[offset + 1] = data[offset + 1]!;
-    out[offset + 2] = data[offset + 2]!;
-    out[offset + 3] = (data[offset + 3]! * mask[index]! + 127) / 255;
+/**
+ * Writes `source` into `out` (same size) with its alpha scaled by the mask —
+ * the cut-out picture. With `area`, only that part is written.
+ */
+export function applyMask(source: Bitmap, mask: Uint8Array, out: Uint8ClampedArray, area?: Rect): void {
+  const { data, width, height } = source;
+  const left = Math.max(0, area?.x ?? 0);
+  const top = Math.max(0, area?.y ?? 0);
+  const right = Math.min(width, area ? area.x + area.width : width);
+  const bottom = Math.min(height, area ? area.y + area.height : height);
+  for (let y = top; y < bottom; y++) {
+    for (let index = y * width + left, end = y * width + right; index < end; index++) {
+      const offset = index * 4;
+      out[offset] = data[offset]!;
+      out[offset + 1] = data[offset + 1]!;
+      out[offset + 2] = data[offset + 2]!;
+      out[offset + 3] = (data[offset + 3]! * mask[index]! + 127) / 255;
+    }
   }
 }
 
@@ -322,6 +332,11 @@ export class History<T> {
     if (this.past.length > this.limit) this.past.shift();
     this.current = state;
     this.future = [];
+  }
+
+  /** Replaces the latest state without adding a step (a setting of the last action was adjusted). */
+  amend(state: T): void {
+    this.current = state;
   }
 
   /** Steps back and returns the state to show, or `undefined` at the beginning. */

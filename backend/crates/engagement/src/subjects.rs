@@ -161,7 +161,12 @@ impl Engagement {
     /// Resolves a subject for `viewer` without looking at blocks. Reports
     /// use this: a block must not stop anyone from reporting what they can
     /// still see.
-    pub(crate) async fn subject_unguarded(&self, kind: SubjectType, id: &str, viewer: Option<Uuid>) -> AppResult<Subject> {
+    pub(crate) async fn subject_unguarded(
+        &self,
+        kind: SubjectType,
+        id: &str,
+        viewer: Option<Uuid>,
+    ) -> AppResult<Subject> {
         let id = id.trim();
         // No resolver takes anything but a UUID, a short ID or a handle.
         if id.is_empty() || id.len() > 64 {
@@ -187,20 +192,32 @@ impl Engagement {
     }
 
     /// [`Self::subject_unguarded`] for the `SubjectRef` of a request.
-    pub(crate) async fn requested_subject_unguarded(&self, subject: Option<&SubjectRef>, viewer: Option<Uuid>) -> AppResult<Subject> {
+    pub(crate) async fn requested_subject_unguarded(
+        &self,
+        subject: Option<&SubjectRef>,
+        viewer: Option<Uuid>,
+    ) -> AppResult<Subject> {
         let (kind, id) = requested(subject)?;
         self.subject_unguarded(kind, id, viewer).await
     }
 
     /// [`Self::subject`] for the `SubjectRef` of a request.
-    pub(crate) async fn requested_subject(&self, subject: Option<&SubjectRef>, viewer: Option<Uuid>) -> AppResult<Subject> {
+    pub(crate) async fn requested_subject(
+        &self,
+        subject: Option<&SubjectRef>,
+        viewer: Option<Uuid>,
+    ) -> AppResult<Subject> {
         let (kind, id) = requested(subject)?;
         self.subject(kind, id, viewer).await
     }
 
     /// Like [`Self::requested_subject`], but a subject named by UUID that no
     /// longer resolves is still returned, as its bare key.
-    pub(crate) async fn requested_subject_loose(&self, subject: Option<&SubjectRef>, viewer: Uuid) -> AppResult<LooseSubject> {
+    pub(crate) async fn requested_subject_loose(
+        &self,
+        subject: Option<&SubjectRef>,
+        viewer: Uuid,
+    ) -> AppResult<LooseSubject> {
         let (kind, id) = requested(subject)?;
         match self.subject(kind, id, Some(viewer)).await {
             Ok(subject) => Ok(LooseSubject { key: subject.key, subject: Some(subject) }),
@@ -215,7 +232,11 @@ impl Engagement {
     /// Resolves many stored subjects for the rows of a list. Subjects that
     /// are gone, hidden from the viewer or of a type nobody serves any more
     /// are simply absent from the result.
-    pub(crate) async fn subjects(&self, keys: &[SubjectKey], viewer: Option<Uuid>) -> AppResult<HashMap<SubjectKey, Subject>> {
+    pub(crate) async fn subjects(
+        &self,
+        keys: &[SubjectKey],
+        viewer: Option<Uuid>,
+    ) -> AppResult<HashMap<SubjectKey, Subject>> {
         let mut distinct = keys.to_vec();
         distinct.sort();
         distinct.dedup();
@@ -367,7 +388,10 @@ mod tests {
     #[test]
     fn requested_types_must_be_known_and_set() {
         assert_eq!(requested_type(SubjectType::SUBJECT_TYPE_NOTE.into()).unwrap(), SubjectType::SUBJECT_TYPE_NOTE);
-        assert_eq!(requested_type(SubjectType::SUBJECT_TYPE_UNSPECIFIED.into()).unwrap_err().reason, "UNSUPPORTED_SUBJECT");
+        assert_eq!(
+            requested_type(SubjectType::SUBJECT_TYPE_UNSPECIFIED.into()).unwrap_err().reason,
+            "UNSUPPORTED_SUBJECT"
+        );
         assert_eq!(requested_type(EnumValue::from(9999)).unwrap_err().reason, "UNSUPPORTED_SUBJECT");
         assert_eq!(requested(None).unwrap_err().reason, "UNSUPPORTED_SUBJECT");
     }

@@ -147,7 +147,8 @@ pub async fn resolve(core: &Core, viewer: &Viewer, reference: &str) -> AppResult
         _ => None,
     };
     if let Some(kind) = alias {
-        let user_id = viewer.user_id.ok_or_else(|| AppError::unauthenticated("SIGN_IN_REQUIRED", "sign in required"))?;
+        let user_id =
+            viewer.user_id.ok_or_else(|| AppError::unauthenticated("SIGN_IN_REQUIRED", "sign in required"))?;
         return builtin(core, user_id, kind).await;
     }
     let Ok(reference) = Ref::parse(reference) else { return Err(not_found()) };
@@ -157,7 +158,9 @@ pub async fn resolve(core: &Core, viewer: &Viewer, reference: &str) -> AppResult
 /// The playlist a client named, which must belong to `user_id`.
 pub async fn resolve_owned(core: &Core, user_id: Uuid, reference: &str) -> AppResult<PlaylistRow> {
     let viewer = Viewer { user_id: Some(user_id), ..Default::default() };
-    resolve(core, &viewer, reference).await.and_then(|playlist| if playlist.owner_id == user_id { Ok(playlist) } else { Err(not_found()) })
+    resolve(core, &viewer, reference)
+        .await
+        .and_then(|playlist| if playlist.owner_id == user_id { Ok(playlist) } else { Err(not_found()) })
 }
 
 /// Adds a video to a list (at the end of a custom list, at the top of a
@@ -190,30 +193,38 @@ pub(crate) async fn remove_item_in(tx: &mut Tx<'_>, playlist_id: Uuid, video_id:
 
 /// Moves `video_id` to right after `after` (`None`: to the front).
 /// Returns whether both items were found.
-pub(crate) async fn move_item_in(tx: &mut Tx<'_>, playlist_id: Uuid, video_id: Uuid, after: Option<Uuid>) -> AppResult<bool> {
-    let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM playlist_items WHERE playlist_id = $1 AND video_id = $2)")
-        .bind(playlist_id)
-        .bind(video_id)
-        .fetch_one(&mut **tx)
-        .await?;
+pub(crate) async fn move_item_in(
+    tx: &mut Tx<'_>,
+    playlist_id: Uuid,
+    video_id: Uuid,
+    after: Option<Uuid>,
+) -> AppResult<bool> {
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM playlist_items WHERE playlist_id = $1 AND video_id = $2)")
+            .bind(playlist_id)
+            .bind(video_id)
+            .fetch_one(&mut **tx)
+            .await?;
     if !exists {
         return Ok(false);
     }
     let position: i64 = match after {
         None => {
-            let first: Option<i64> = sqlx::query_scalar("SELECT min(position) FROM playlist_items WHERE playlist_id = $1")
-                .bind(playlist_id)
-                .fetch_one(&mut **tx)
-                .await?;
+            let first: Option<i64> =
+                sqlx::query_scalar("SELECT min(position) FROM playlist_items WHERE playlist_id = $1")
+                    .bind(playlist_id)
+                    .fetch_one(&mut **tx)
+                    .await?;
             first.unwrap_or(1) - 1
         }
         Some(after) if after == video_id => return Ok(true),
         Some(after) => {
-            let anchor: Option<i64> = sqlx::query_scalar("SELECT position FROM playlist_items WHERE playlist_id = $1 AND video_id = $2")
-                .bind(playlist_id)
-                .bind(after)
-                .fetch_optional(&mut **tx)
-                .await?;
+            let anchor: Option<i64> =
+                sqlx::query_scalar("SELECT position FROM playlist_items WHERE playlist_id = $1 AND video_id = $2")
+                    .bind(playlist_id)
+                    .bind(after)
+                    .fetch_optional(&mut **tx)
+                    .await?;
             let Some(anchor) = anchor else { return Ok(false) };
             // Open a gap after the anchor. Items sharing the anchor's position
             // (never produced here, but allowed by the schema) move with the rest.
@@ -260,7 +271,12 @@ pub(crate) async fn sync_search_in(tx: &mut Tx<'_>, was_public: bool, playlist_i
 }
 
 /// Deletes a playlist inside `tx`.
-pub(crate) async fn delete_in(tx: &mut Tx<'_>, playlist_id: Uuid, owner_id: Uuid, actor: Option<Uuid>) -> AppResult<()> {
+pub(crate) async fn delete_in(
+    tx: &mut Tx<'_>,
+    playlist_id: Uuid,
+    owner_id: Uuid,
+    actor: Option<Uuid>,
+) -> AppResult<()> {
     let deleted = sqlx::query("DELETE FROM playlists WHERE id = $1").bind(playlist_id).execute(&mut **tx).await?;
     if deleted.rows_affected() == 1 {
         outbound::unindex(&mut **tx, "playlist", playlist_id).await?;
@@ -271,7 +287,12 @@ pub(crate) async fn delete_in(tx: &mut Tx<'_>, playlist_id: Uuid, owner_id: Uuid
 
 /// Playlists as `viewer` sees them, in order. `contains_video` fills
 /// `Playlist.contains_video` for that video.
-pub async fn to_protos(core: &Core, viewer: &Viewer, rows: &[PlaylistRow], contains_video: Option<Uuid>) -> AppResult<Vec<Playlist>> {
+pub async fn to_protos(
+    core: &Core,
+    viewer: &Viewer,
+    rows: &[PlaylistRow],
+    contains_video: Option<Uuid>,
+) -> AppResult<Vec<Playlist>> {
     if rows.is_empty() {
         return Ok(Vec::new());
     }
@@ -307,7 +328,8 @@ pub async fn to_protos(core: &Core, viewer: &Viewer, rows: &[PlaylistRow], conta
     let channel_summaries = channels::summaries(core, &channel_ids).await?;
     // Channels do not reveal their owner: only personal playlists (and the
     // viewer's own) name the account.
-    let owner_ids: Vec<Uuid> = rows.iter().filter(|row| row.channel_id.is_none() || viewer.is(row.owner_id)).map(|row| row.owner_id).collect();
+    let owner_ids: Vec<Uuid> =
+        rows.iter().filter(|row| row.channel_id.is_none() || viewer.is(row.owner_id)).map(|row| row.owner_id).collect();
     let owners = tokuly_identity::summaries(core, &owner_ids).await?;
     Ok(rows
         .iter()

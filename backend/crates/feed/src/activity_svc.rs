@@ -10,7 +10,10 @@ use tokuly_social::graph;
 
 use crate::{
     Feed,
-    activity::{AUDIENCE_FRIENDS, AUDIENCE_PRIVATE, AUDIENCE_PUBLIC, ActivityRow, activity_columns, kind_shown, push_kind_filter, push_not_involving},
+    activity::{
+        AUDIENCE_FRIENDS, AUDIENCE_PRIVATE, AUDIENCE_PUBLIC, ActivityRow, activity_columns, kind_shown,
+        push_kind_filter, push_not_involving,
+    },
     cards::CardQuery,
     kinds,
 };
@@ -30,12 +33,22 @@ pub(crate) fn time_range(from: Option<&Timestamp>, to: Option<&Timestamp>) -> Ap
 
 /// The preference list: well-known kinds, every kind in the user's log and
 /// every hidden kind, each with its label, visibility and entry count.
-pub(crate) fn build_preferences(log_counts: &[(String, i64)], hidden: &[String], locale: &str) -> Vec<ActivityKindPreference> {
-    let listed: BTreeSet<&str> = kinds::WELL_KNOWN.iter().copied().chain(log_counts.iter().map(|(kind, _)| kind.as_str())).chain(hidden.iter().map(String::as_str)).collect();
+pub(crate) fn build_preferences(
+    log_counts: &[(String, i64)],
+    hidden: &[String],
+    locale: &str,
+) -> Vec<ActivityKindPreference> {
+    let listed: BTreeSet<&str> = kinds::WELL_KNOWN
+        .iter()
+        .copied()
+        .chain(log_counts.iter().map(|(kind, _)| kind.as_str()))
+        .chain(hidden.iter().map(String::as_str))
+        .collect();
     let mut preferences: Vec<ActivityKindPreference> = listed
         .into_iter()
         .map(|kind| {
-            let entries: i64 = log_counts.iter().filter(|(logged, _)| kinds::matches(logged, kind)).map(|(_, count)| count).sum();
+            let entries: i64 =
+                log_counts.iter().filter(|(logged, _)| kinds::matches(logged, kind)).map(|(_, count)| count).sum();
             ActivityKindPreference {
                 kind: kind.to_owned(),
                 label: kinds::label(kind).pick(locale).to_owned(),
@@ -52,12 +65,18 @@ pub(crate) fn build_preferences(log_counts: &[(String, i64)], hidden: &[String],
 impl Feed {
     /// Kinds (or kind prefixes) the user hides from other people.
     pub(crate) async fn hidden_kinds(&self, user_id: Uuid) -> AppResult<Vec<String>> {
-        Ok(sqlx::query_scalar("SELECT kind FROM activity_hidden_kinds WHERE user_id = $1 ORDER BY kind").bind(user_id).fetch_all(&self.core.db).await?)
+        Ok(sqlx::query_scalar("SELECT kind FROM activity_hidden_kinds WHERE user_id = $1 ORDER BY kind")
+            .bind(user_id)
+            .fetch_all(&self.core.db)
+            .await?)
     }
 
     async fn preferences_of(&self, user_id: Uuid, locale: &str) -> AppResult<Vec<ActivityKindPreference>> {
         let log_counts: Vec<(String, i64)> =
-            sqlx::query_as("SELECT kind, count(*) FROM activities WHERE user_id = $1 GROUP BY kind").bind(user_id).fetch_all(&self.core.db).await?;
+            sqlx::query_as("SELECT kind, count(*) FROM activities WHERE user_id = $1 GROUP BY kind")
+                .bind(user_id)
+                .fetch_all(&self.core.db)
+                .await?;
         let hidden = self.hidden_kinds(user_id).await?;
         Ok(build_preferences(&log_counts, &hidden, locale))
     }
@@ -71,7 +90,11 @@ impl Feed {
 }
 
 impl ActivityService for Feed {
-    async fn list_my_activity(&self, ctx: RequestContext, request: ServiceRequest<'_, ListMyActivityRequest>) -> ServiceResult<ListMyActivityResponse> {
+    async fn list_my_activity(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, ListMyActivityRequest>,
+    ) -> ServiceResult<ListMyActivityResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let request = request.to_owned_message();
@@ -80,7 +103,8 @@ impl ActivityService for Feed {
             let page = Page::from_request(request.page.as_option(), MAX_PAGE_SIZE);
             let after: Option<(Time, Uuid)> = page.decode()?;
 
-            let mut query: QueryBuilder<Postgres> = QueryBuilder::new(concat!("SELECT ", activity_columns!(), " FROM activities a WHERE a.user_id = "));
+            let mut query: QueryBuilder<Postgres> =
+                QueryBuilder::new(concat!("SELECT ", activity_columns!(), " FROM activities a WHERE a.user_id = "));
             query.push_bind(user_id);
             push_kind_filter(&mut query, "a", prefix.as_deref());
             if let Some(from) = from {
@@ -98,17 +122,29 @@ impl ActivityService for Feed {
 
             let reader = self.reader_for(user_id).await?;
             let hidden_kinds = self.hidden_kinds(user_id).await?;
-            ok(ListMyActivityResponse { activities: self.to_activities(&reader, &rows, Some(&hidden_kinds)).await?, page: info.into(), ..Default::default() })
+            ok(ListMyActivityResponse {
+                activities: self.to_activities(&reader, &rows, Some(&hidden_kinds)).await?,
+                page: info.into(),
+                ..Default::default()
+            })
         })
         .await
     }
 
-    async fn delete_activity(&self, ctx: RequestContext, request: ServiceRequest<'_, DeleteActivityRequest>) -> ServiceResult<DeleteActivityResponse> {
+    async fn delete_activity(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, DeleteActivityRequest>,
+    ) -> ServiceResult<DeleteActivityResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let activity_id = parse_id(request.activity_id)?;
             // Someone else's entry is "not found": whether it exists is not the caller's business.
-            let deleted = sqlx::query("DELETE FROM activities WHERE id = $1 AND user_id = $2").bind(activity_id).bind(user_id).execute(&self.core.db).await?;
+            let deleted = sqlx::query("DELETE FROM activities WHERE id = $1 AND user_id = $2")
+                .bind(activity_id)
+                .bind(user_id)
+                .execute(&self.core.db)
+                .await?;
             ensure!(deleted.rows_affected() > 0, not_found, "ACTIVITY_NOT_FOUND", "activity not found");
             self.invalidate_recaps(user_id).await;
             ok(DeleteActivityResponse::default())
@@ -116,7 +152,11 @@ impl ActivityService for Feed {
         .await
     }
 
-    async fn clear_activity(&self, ctx: RequestContext, request: ServiceRequest<'_, ClearActivityRequest>) -> ServiceResult<ClearActivityResponse> {
+    async fn clear_activity(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, ClearActivityRequest>,
+    ) -> ServiceResult<ClearActivityResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let request = request.to_owned_message();
@@ -148,7 +188,11 @@ impl ActivityService for Feed {
         .await
     }
 
-    async fn list_user_activity(&self, ctx: RequestContext, request: ServiceRequest<'_, ListUserActivityRequest>) -> ServiceResult<ListUserActivityResponse> {
+    async fn list_user_activity(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, ListUserActivityRequest>,
+    ) -> ServiceResult<ListUserActivityResponse> {
         handle(async {
             let reader = self.reader(&ctx).await?;
             let owner_id = parse_id(request.user_id)?;
@@ -159,10 +203,12 @@ impl ActivityService for Feed {
 
             if !own {
                 // A blocked or blocking owner looks exactly like a missing one.
-                let active: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND deleted_at IS NULL AND banned_at IS NULL)")
-                    .bind(owner_id)
-                    .fetch_one(&self.core.db)
-                    .await?;
+                let active: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND deleted_at IS NULL AND banned_at IS NULL)",
+                )
+                .bind(owner_id)
+                .fetch_one(&self.core.db)
+                .await?;
                 ensure!(active && !reader.is_hidden(owner_id), not_found, "USER_NOT_FOUND", "user not found");
             }
             let friends = match reader.viewer {
@@ -177,7 +223,8 @@ impl ActivityService for Feed {
                 AUDIENCE_PUBLIC
             };
 
-            let mut query: QueryBuilder<Postgres> = QueryBuilder::new(concat!("SELECT ", activity_columns!(), " FROM activities a WHERE a.user_id = "));
+            let mut query: QueryBuilder<Postgres> =
+                QueryBuilder::new(concat!("SELECT ", activity_columns!(), " FROM activities a WHERE a.user_id = "));
             query.push_bind(owner_id).push(" AND a.audience >= ").push_bind(least_audience);
             if !own {
                 query.push(concat!(" AND ", kind_shown!("a")));
@@ -192,7 +239,11 @@ impl ActivityService for Feed {
             let info = page.finish(&mut rows, ActivityRow::key);
 
             let hidden_kinds = if own { Some(self.hidden_kinds(owner_id).await?) } else { None };
-            ok(ListUserActivityResponse { activities: self.to_activities(&reader, &rows, hidden_kinds.as_deref()).await?, page: info.into(), ..Default::default() })
+            ok(ListUserActivityResponse {
+                activities: self.to_activities(&reader, &rows, hidden_kinds.as_deref()).await?,
+                page: info.into(),
+                ..Default::default()
+            })
         })
         .await
     }
@@ -211,11 +262,22 @@ impl ActivityService for Feed {
             let friends = self.visible_friends(user_id, &reader.hidden).await?;
 
             let mut heads = self
-                .card_heads(&CardQuery { authors: &friends, hidden: &reader.hidden, kind_prefix: prefix.as_deref(), after, limit: page.fetch(), home: false })
+                .card_heads(&CardQuery {
+                    authors: &friends,
+                    hidden: &reader.hidden,
+                    kind_prefix: prefix.as_deref(),
+                    after,
+                    limit: page.fetch(),
+                    home: false,
+                })
                 .await?;
             let info = page.finish(&mut heads, ActivityRow::key);
             let bursts = self.bursts(heads, &reader.hidden).await?;
-            ok(ListFriendsActivityResponse { cards: self.to_cards(&reader, &bursts).await?, page: info.into(), ..Default::default() })
+            ok(ListFriendsActivityResponse {
+                cards: self.to_cards(&reader, &bursts).await?,
+                page: info.into(),
+                ..Default::default()
+            })
         })
         .await
     }
@@ -228,7 +290,10 @@ impl ActivityService for Feed {
         handle(async {
             let user_id = ctx.user_id()?;
             let reader = self.reader_for(user_id).await?;
-            ok(GetActivityPreferencesResponse { kinds: self.preferences_of(user_id, &reader.locale).await?, ..Default::default() })
+            ok(GetActivityPreferencesResponse {
+                kinds: self.preferences_of(user_id, &reader.locale).await?,
+                ..Default::default()
+            })
         })
         .await
     }
@@ -245,20 +310,43 @@ impl ActivityService for Feed {
 
             let mut tx = self.core.db.begin().await?;
             // One user's changes are applied one after the other, so the limit holds.
-            sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))").bind(format!("feed:hidden-kinds:{user_id}")).execute(&mut *tx).await?;
-            let hidden: Vec<String> = sqlx::query_scalar("SELECT kind FROM activity_hidden_kinds WHERE user_id = $1").bind(user_id).fetch_all(&mut *tx).await?;
+            sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+                .bind(format!("feed:hidden-kinds:{user_id}"))
+                .execute(&mut *tx)
+                .await?;
+            let hidden: Vec<String> = sqlx::query_scalar("SELECT kind FROM activity_hidden_kinds WHERE user_id = $1")
+                .bind(user_id)
+                .fetch_all(&mut *tx)
+                .await?;
             // Entries below `kind` say nothing new once `kind` itself is decided.
             let narrower: Vec<String> = hidden.iter().filter(|entry| kinds::matches(entry, &kind)).cloned().collect();
             if request.visible_to_others {
                 // Showing a kind never widens what a broader hidden family covers.
                 if let Some(broader) = hidden.iter().find(|entry| **entry != kind && kinds::matches(&kind, entry)) {
-                    bail!(precondition, "KIND_HIDDEN_BY_PREFIX", "{kind} is hidden through {broader}; show {broader} instead");
+                    bail!(
+                        precondition,
+                        "KIND_HIDDEN_BY_PREFIX",
+                        "{kind} is hidden through {broader}; show {broader} instead"
+                    );
                 }
-                sqlx::query("DELETE FROM activity_hidden_kinds WHERE user_id = $1 AND kind = ANY($2)").bind(user_id).bind(&narrower).execute(&mut *tx).await?;
+                sqlx::query("DELETE FROM activity_hidden_kinds WHERE user_id = $1 AND kind = ANY($2)")
+                    .bind(user_id)
+                    .bind(&narrower)
+                    .execute(&mut *tx)
+                    .await?;
             } else if !hidden.iter().any(|entry| kinds::matches(&kind, entry)) {
                 let remaining = hidden.len() - narrower.len();
-                ensure!(remaining < MAX_HIDDEN_KINDS, invalid, "TOO_MANY_HIDDEN_KINDS", "at most {MAX_HIDDEN_KINDS} kinds can be hidden");
-                sqlx::query("DELETE FROM activity_hidden_kinds WHERE user_id = $1 AND kind = ANY($2)").bind(user_id).bind(&narrower).execute(&mut *tx).await?;
+                ensure!(
+                    remaining < MAX_HIDDEN_KINDS,
+                    invalid,
+                    "TOO_MANY_HIDDEN_KINDS",
+                    "at most {MAX_HIDDEN_KINDS} kinds can be hidden"
+                );
+                sqlx::query("DELETE FROM activity_hidden_kinds WHERE user_id = $1 AND kind = ANY($2)")
+                    .bind(user_id)
+                    .bind(&narrower)
+                    .execute(&mut *tx)
+                    .await?;
                 sqlx::query("INSERT INTO activity_hidden_kinds (user_id, kind) VALUES ($1, $2) ON CONFLICT DO NOTHING")
                     .bind(user_id)
                     .bind(&kind)
@@ -268,7 +356,10 @@ impl ActivityService for Feed {
             tx.commit().await?;
 
             let reader = self.reader_for(user_id).await?;
-            ok(SetActivityKindVisibilityResponse { kinds: self.preferences_of(user_id, &reader.locale).await?, ..Default::default() })
+            ok(SetActivityKindVisibilityResponse {
+                kinds: self.preferences_of(user_id, &reader.locale).await?,
+                ..Default::default()
+            })
         })
         .await
     }
@@ -298,7 +389,12 @@ mod tests {
 
     #[test]
     fn preferences_list_well_known_logged_and_hidden_kinds() {
-        let log = vec![("social.bumped".to_owned(), 3), ("geo.new_region".to_owned(), 2), ("geo.visit".to_owned(), 5), ("mystery.thing".to_owned(), 1)];
+        let log = vec![
+            ("social.bumped".to_owned(), 3),
+            ("geo.new_region".to_owned(), 2),
+            ("geo.visit".to_owned(), 5),
+            ("mystery.thing".to_owned(), 1),
+        ];
         let hidden = vec!["geo".to_owned(), "wallet.bonus".to_owned()];
         let preferences = build_preferences(&log, &hidden, "ja");
 
@@ -322,7 +418,11 @@ mod tests {
         let mut sorted = labels.clone();
         sorted.sort();
         assert_eq!(labels, sorted, "sorted by label");
-        assert_eq!(preferences.iter().map(|p| p.kind.as_str()).collect::<BTreeSet<_>>().len(), preferences.len(), "no kind twice");
+        assert_eq!(
+            preferences.iter().map(|p| p.kind.as_str()).collect::<BTreeSet<_>>().len(),
+            preferences.len(),
+            "no kind twice"
+        );
     }
 
     #[test]

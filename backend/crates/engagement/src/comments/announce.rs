@@ -52,9 +52,10 @@ pub(crate) struct Concerned {
 /// Who is told about a comment by `author_id`, and why. `excluded` are the
 /// people in a block with the author.
 pub(crate) fn audience(author_id: Uuid, concerned: &Concerned, excluded: &[Uuid]) -> Vec<(Uuid, Reason)> {
-    let candidates = (concerned.thread_author.into_iter().chain(concerned.replied_author).map(|id| (id, Reason::Reply)))
-        .chain(concerned.mentioned.iter().map(|id| (*id, Reason::Mention)))
-        .chain(concerned.subject_owner.map(|id| (id, Reason::Comment)));
+    let candidates =
+        (concerned.thread_author.into_iter().chain(concerned.replied_author).map(|id| (id, Reason::Reply)))
+            .chain(concerned.mentioned.iter().map(|id| (*id, Reason::Mention)))
+            .chain(concerned.subject_owner.map(|id| (id, Reason::Comment)));
     let mut audience: Vec<(Uuid, Reason)> = Vec::new();
     for (user_id, reason) in candidates {
         let told = user_id != author_id
@@ -95,9 +96,10 @@ fn title_of(reason: Reason, sender: &str, subject_title: &str) -> Localized {
     let subject_title = text::excerpt(subject_title, 30);
     match reason {
         Reason::Reply => Localized::new(format!("{sender}が返信したよ!"), format!("{sender} replied to your comment")),
-        Reason::Mention => {
-            Localized::new(format!("{sender}がコメントであなたをメンションしたよ!"), format!("{sender} mentioned you in a comment"))
-        }
+        Reason::Mention => Localized::new(
+            format!("{sender}がコメントであなたをメンションしたよ!"),
+            format!("{sender} mentioned you in a comment"),
+        ),
         Reason::Comment if subject_title.is_empty() => {
             Localized::new(format!("{sender}がコメントしたよ!"), format!("{sender} commented"))
         }
@@ -143,10 +145,18 @@ impl Engagement {
 
     /// The people an existing comment concerns, from what is stored: used
     /// when a held comment is approved.
-    pub(crate) async fn concerned_by(&self, row: &CommentRow, parent: Option<&CommentRow>, subject: &Subject) -> AppResult<Concerned> {
+    pub(crate) async fn concerned_by(
+        &self,
+        row: &CommentRow,
+        parent: Option<&CommentRow>,
+        subject: &Subject,
+    ) -> AppResult<Concerned> {
         let replied_author: Option<Uuid> = match row.reply_to_id {
             Some(reply_to_id) => {
-                sqlx::query_scalar("SELECT author_id FROM comments WHERE id = $1").bind(reply_to_id).fetch_optional(&self.core.db).await?
+                sqlx::query_scalar("SELECT author_id FROM comments WHERE id = $1")
+                    .bind(reply_to_id)
+                    .fetch_optional(&self.core.db)
+                    .await?
             }
             None => None,
         };
@@ -165,7 +175,12 @@ impl Engagement {
     /// Who is to be told about a comment of `author_id` on `subject`.
     /// People mentioned in a comment on something they cannot see are left
     /// out.
-    pub(crate) async fn comment_audience(&self, author_id: Uuid, concerned: &Concerned, subject: &Subject) -> AppResult<Vec<(Uuid, Reason)>> {
+    pub(crate) async fn comment_audience(
+        &self,
+        author_id: Uuid,
+        concerned: &Concerned,
+        subject: &Subject,
+    ) -> AppResult<Vec<(Uuid, Reason)>> {
         let excluded = self.hidden_from(Some(author_id)).await?;
         let mut told = Vec::new();
         for (user_id, reason) in audience(author_id, concerned, &excluded) {
@@ -209,7 +224,13 @@ impl Engagement {
         let path = comment_path(&subject.info.path, row.id);
         for (user_id, reason) in audience {
             let mut request = about(
-                NotificationRequest::new(*user_id, kind_of(*reason), title_of(*reason, &sender.name, &subject.info.title), body_of(row), &path),
+                NotificationRequest::new(
+                    *user_id,
+                    kind_of(*reason),
+                    title_of(*reason, &sender.name, &subject.info.title),
+                    body_of(row),
+                    &path,
+                ),
                 row,
                 subject,
             );
@@ -226,7 +247,12 @@ impl Engagement {
 
     /// Tells the subject owner that a comment waits for their review. One
     /// entry per subject, however many comments wait.
-    pub(crate) async fn announce_held(&self, conn: &mut PgConnection, row: &CommentRow, subject: &Subject) -> AppResult<()> {
+    pub(crate) async fn announce_held(
+        &self,
+        conn: &mut PgConnection,
+        row: &CommentRow,
+        subject: &Subject,
+    ) -> AppResult<()> {
         let Some(owner_id) = subject.owner().filter(|owner_id| *owner_id != row.author_id) else { return Ok(()) };
         let request = about(
             NotificationRequest::new(
@@ -246,7 +272,12 @@ impl Engagement {
     /// Tells the author that the creator gave their comment a heart. The
     /// notification names no actor: the owner of a channel's content is not
     /// necessarily known to its audience as a person.
-    pub(crate) async fn announce_heart(&self, conn: &mut PgConnection, row: &CommentRow, subject: &Subject) -> AppResult<()> {
+    pub(crate) async fn announce_heart(
+        &self,
+        conn: &mut PgConnection,
+        row: &CommentRow,
+        subject: &Subject,
+    ) -> AppResult<()> {
         if subject.is_owned_by(row.author_id) {
             return Ok(());
         }
@@ -275,7 +306,8 @@ mod tests {
 
     #[test]
     fn a_reply_tells_the_people_it_answers_before_those_it_mentions() {
-        let (author, thread, replied, mentioned, owner) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+        let (author, thread, replied, mentioned, owner) =
+            (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
         let concerned = Concerned {
             thread_author: Some(thread),
             replied_author: Some(replied),
@@ -324,6 +356,9 @@ mod tests {
         assert_eq!(title_of(Reason::Comment, "Alice", "").en, "Alice commented");
         assert_eq!(title_of(Reason::Reply, "Alice", "x").en, "Alice replied to your comment");
         assert_eq!(title_of(Reason::Mention, "アリス", "x").ja, "アリスがコメントであなたをメンションしたよ!");
-        assert_eq!((kind_of(Reason::Reply), kind_of(Reason::Mention), kind_of(Reason::Comment)), (KIND_REPLY, KIND_MENTION, KIND_COMMENT));
+        assert_eq!(
+            (kind_of(Reason::Reply), kind_of(Reason::Mention), kind_of(Reason::Comment)),
+            (KIND_REPLY, KIND_MENTION, KIND_COMMENT)
+        );
     }
 }

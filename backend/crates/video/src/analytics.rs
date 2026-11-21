@@ -46,7 +46,9 @@ impl Range {
         } else {
             range.time_zone.trim().parse().map_err(|_| AppError::invalid("TIME_ZONE_INVALID", "unknown time zone"))?
         };
-        let date = |text: &str| NaiveDate::parse_from_str(text.trim(), "%Y-%m-%d").map_err(|_| bad("dates must be YYYY-MM-DD"));
+        let date = |text: &str| {
+            NaiveDate::parse_from_str(text.trim(), "%Y-%m-%d").map_err(|_| bad("dates must be YYYY-MM-DD"))
+        };
         let (start, end) = (date(&range.start_date)?, date(&range.end_date)?);
         if end < start {
             return Err(bad("the range ends before it starts"));
@@ -118,7 +120,8 @@ impl Scope {
     }
 }
 
-const NAMES: &str = "('video.view', 'video.watch', 'video.like', 'video.dislike', 'channel.subscribe', 'channel.unsubscribe')";
+const NAMES: &str =
+    "('video.view', 'video.watch', 'video.like', 'video.dislike', 'channel.subscribe', 'channel.unsubscribe')";
 
 const AGGREGATES: &str = "toUInt64(countIf(name = 'video.view')), \
      toUInt64(uniqExactIf(JSONExtractString(props, 'viewer'), name = 'video.view')), \
@@ -245,7 +248,13 @@ pub async fn traffic_sources(core: &Core, scope: Scope, range: &Range) -> AppRes
 
 /// The most viewed videos of a channel between two instants:
 /// `(video, views, watch seconds)`.
-pub async fn top_videos(core: &Core, channel: &ChannelRow, from_ms: i64, until_ms: i64, limit: u32) -> AppResult<Vec<(Uuid, i64, f64)>> {
+pub async fn top_videos(
+    core: &Core,
+    channel: &ChannelRow,
+    from_ms: i64,
+    until_ms: i64,
+    limit: u32,
+) -> AppResult<Vec<(Uuid, i64, f64)>> {
     let rows: Vec<(String, u64, f64)> = core
         .analytics
         .ch
@@ -270,7 +279,10 @@ pub async fn top_videos(core: &Core, channel: &ChannelRow, from_ms: i64, until_m
         .fetch_all()
         .await
         .map_err(unavailable)?;
-    Ok(rows.into_iter().filter_map(|(video, views, watch)| Some((Uuid::parse_str(&video).ok()?, views as i64, watch))).collect())
+    Ok(rows
+        .into_iter()
+        .filter_map(|(video, views, watch)| Some((Uuid::parse_str(&video).ok()?, views as i64, watch)))
+        .collect())
 }
 
 /// Turns per-bucket session counts into the retention curve: for each
@@ -367,7 +379,13 @@ pub async fn realtime(core: &Core, scope: Scope) -> AppResult<(Vec<i64>, Vec<i64
 
 /// Records that `user_id` subscribed to (or left) a channel, crediting the
 /// video they were watching when they did.
-pub async fn track_subscription(core: &Core, channel: &ChannelRow, user_id: Uuid, subscribed: bool, source_video: Option<Uuid>) {
+pub async fn track_subscription(
+    core: &Core,
+    channel: &ChannelRow,
+    user_id: Uuid,
+    subscribed: bool,
+    source_video: Option<Uuid>,
+) {
     let name = if subscribed { "channel.subscribe" } else { "channel.unsubscribe" };
     let event = AnalyticsEvent::new(name)
         .user(Some(user_id))
@@ -392,16 +410,30 @@ mod tests {
     use super::*;
 
     fn range(start: &str, end: &str, zone: &str) -> AppResult<Range> {
-        Range::parse(Some(&DateRange { start_date: start.into(), end_date: end.into(), time_zone: zone.into(), ..Default::default() }))
+        Range::parse(Some(&DateRange {
+            start_date: start.into(),
+            end_date: end.into(),
+            time_zone: zone.into(),
+            ..Default::default()
+        }))
     }
 
     #[test]
     fn ranges_are_cut_at_local_midnights() {
         let tokyo = range("2026-11-01", "2026-11-03", "Asia/Tokyo").unwrap();
         // Midnight in Tokyo is 15:00 UTC the day before.
-        assert_eq!(tokyo.from_ms, chrono::DateTime::parse_from_rfc3339("2026-10-31T15:00:00Z").unwrap().timestamp_millis());
-        assert_eq!(tokyo.until_ms, chrono::DateTime::parse_from_rfc3339("2026-11-03T15:00:00Z").unwrap().timestamp_millis());
-        assert_eq!(tokyo.days().map(|d| d.to_string()).collect::<Vec<_>>(), vec!["2026-11-01", "2026-11-02", "2026-11-03"]);
+        assert_eq!(
+            tokyo.from_ms,
+            chrono::DateTime::parse_from_rfc3339("2026-10-31T15:00:00Z").unwrap().timestamp_millis()
+        );
+        assert_eq!(
+            tokyo.until_ms,
+            chrono::DateTime::parse_from_rfc3339("2026-11-03T15:00:00Z").unwrap().timestamp_millis()
+        );
+        assert_eq!(
+            tokyo.days().map(|d| d.to_string()).collect::<Vec<_>>(),
+            vec!["2026-11-01", "2026-11-02", "2026-11-03"]
+        );
         let utc = range("2026-11-21", "2026-11-21", "").unwrap();
         assert_eq!(utc.until_ms - utc.from_ms, 86_400_000);
         // A day with a clock change is 23 or 25 hours long.

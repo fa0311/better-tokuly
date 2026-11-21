@@ -171,9 +171,14 @@ async fn lock(conn: &mut PgConnection, comment_id: Uuid) -> AppResult<Option<Com
 /// now — together with its top-level comment when it is a reply, which is
 /// locked first. Every change to a thread takes its locks through here, in
 /// that order, so two of them queue up instead of deadlocking.
-pub(crate) async fn lock_thread(conn: &mut PgConnection, comment_id: Uuid) -> AppResult<Option<(CommentRow, Option<CommentRow>)>> {
-    let parent_id: Option<Option<Uuid>> =
-        sqlx::query_scalar("SELECT parent_id FROM comments WHERE id = $1").bind(comment_id).fetch_optional(&mut *conn).await?;
+pub(crate) async fn lock_thread(
+    conn: &mut PgConnection,
+    comment_id: Uuid,
+) -> AppResult<Option<(CommentRow, Option<CommentRow>)>> {
+    let parent_id: Option<Option<Uuid>> = sqlx::query_scalar("SELECT parent_id FROM comments WHERE id = $1")
+        .bind(comment_id)
+        .fetch_optional(&mut *conn)
+        .await?;
     let Some(parent_id) = parent_id else { return Ok(None) };
     let parent = match parent_id {
         // A reply cannot outlive its thread, so a missing parent means the
@@ -185,6 +190,24 @@ pub(crate) async fn lock_thread(conn: &mut PgConnection, comment_id: Uuid) -> Ap
         None => None,
     };
     Ok(lock(conn, comment_id).await?.map(|row| (row, parent)))
+}
+
+/// Locks the top-level comments of the threads `comment_ids` are in, in ID
+/// order. Code that changes many comments in one transaction calls this
+/// first: threads are where such transactions meet, and taking them all in
+/// one order up front keeps two of them from waiting on each other in a
+/// circle. The comments themselves are then locked one by one with
+/// [`lock_thread`].
+pub(crate) async fn lock_threads_of(conn: &mut PgConnection, comment_ids: &[Uuid]) -> AppResult<()> {
+    sqlx::query(
+        "SELECT id FROM comments
+         WHERE id IN (SELECT COALESCE(parent_id, id) FROM comments WHERE id = ANY($1))
+         ORDER BY id FOR UPDATE",
+    )
+    .bind(comment_ids)
+    .execute(conn)
+    .await?;
+    Ok(())
 }
 
 /// Comments waiting for `owner_id`'s review, across all their subjects.
@@ -269,7 +292,12 @@ impl Engagement {
     /// `NOT_SUBJECT_OWNER` when they can but do not own the subject.
     pub(crate) async fn require_moderated_comment(&self, comment_id: &str, user_id: Uuid) -> AppResult<Found> {
         let found = self.require_comment(comment_id, Some(user_id)).await?;
-        ensure!(found.subject.is_owned_by(user_id), denied, "NOT_SUBJECT_OWNER", "only the owner of the content can do this");
+        ensure!(
+            found.subject.is_owned_by(user_id),
+            denied,
+            "NOT_SUBJECT_OWNER",
+            "only the owner of the content can do this"
+        );
         Ok(found)
     }
 }
@@ -352,8 +380,11 @@ mod tests {
         assert_eq!(shadowed.status_for(Some(owner)), CommentStatus::COMMENT_STATUS_HIDDEN);
         assert!(shadowed.reads_published_to(author) && !shadowed.reads_published_to(owner));
 
-        let hidden_by_hand =
-            CommentRow { status: status::HIDDEN, hold_reason: HoldReason::HOLD_REASON_HIDDEN_BY_OWNER as i32, ..comment(author) };
+        let hidden_by_hand = CommentRow {
+            status: status::HIDDEN,
+            hold_reason: HoldReason::HOLD_REASON_HIDDEN_BY_OWNER as i32,
+            ..comment(author)
+        };
         assert_eq!(hidden_by_hand.status_for(Some(author)), CommentStatus::COMMENT_STATUS_HIDDEN);
         assert!(!hidden_by_hand.reads_published_to(author));
         let held = CommentRow { status: status::HELD, ..comment(author) };

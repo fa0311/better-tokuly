@@ -93,10 +93,11 @@ impl Search {
     /// Brings one user's document in line with the account as it is now:
     /// stored when searchable, removed otherwise (also for unknown users).
     pub async fn index_user(&self, version: Uuid, user_id: Uuid) -> AppResult<()> {
-        let row: Option<UserDocRow> = sqlx::query_as(concat!("SELECT ", user_doc_columns!(), " FROM users WHERE id = $1"))
-            .bind(user_id)
-            .fetch_optional(&self.core.db)
-            .await?;
+        let row: Option<UserDocRow> =
+            sqlx::query_as(concat!("SELECT ", user_doc_columns!(), " FROM users WHERE id = $1"))
+                .bind(user_id)
+                .fetch_optional(&self.core.db)
+                .await?;
         match row.as_ref().and_then(UserDocRow::document) {
             Some(doc) => self.store_document(version, doc).await?,
             None => self.remove_document(version, kinds::USER, user_id).await?,
@@ -200,7 +201,8 @@ mod tests {
         assert!(banned.document().is_none());
         let deleted = UserDocRow { deleted_at: Some(Utc::now()), ..row() };
         assert!(deleted.document().is_none());
-        let hidden = UserDocRow { privacy: serde_json::json!({ "discoverable": false, "shareBattery": true }), ..row() };
+        let hidden =
+            UserDocRow { privacy: serde_json::json!({ "discoverable": false, "shareBattery": true }), ..row() };
         assert!(hidden.document().is_none());
         let explicit = UserDocRow { privacy: serde_json::json!({ "discoverable": true }), ..row() };
         assert!(explicit.document().is_some());

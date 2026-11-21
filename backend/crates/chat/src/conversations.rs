@@ -98,14 +98,16 @@ impl Chat {
             drop(tx);
             return self.find_direct(a, b).await?.map(|conv| conv.id).ok_or_else(conversation_not_found);
         };
-        sqlx::query("INSERT INTO chat_members (conversation_id, user_id, request_state) VALUES ($1, $2, $3), ($1, $4, $5)")
-            .bind(conversation_id)
-            .bind(a)
-            .bind(request::ACCEPTED)
-            .bind(b)
-            .bind(other_state)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "INSERT INTO chat_members (conversation_id, user_id, request_state) VALUES ($1, $2, $3), ($1, $4, $5)",
+        )
+        .bind(conversation_id)
+        .bind(a)
+        .bind(request::ACCEPTED)
+        .bind(b)
+        .bind(other_state)
+        .execute(&mut *tx)
+        .await?;
         let created = ConversationCreated { conversation_id, kind: i32::from(kind::DIRECT), member_ids: vec![a, b] };
         events::emit(&mut *tx, CONVERSATION_CREATED, actor, &created).await?;
         tx.commit().await?;
@@ -121,7 +123,8 @@ impl Chat {
             return self.access(me, existing.id).await;
         }
         let user_not_found = || AppError::not_found("USER_NOT_FOUND", "user not found");
-        let target = users::find_by_id(core, other).await?.filter(|user| user.is_active()).ok_or_else(user_not_found)?;
+        let target =
+            users::find_by_id(core, other).await?.filter(|user| user.is_active()).ok_or_else(user_not_found)?;
         if graph::is_blocked_either(core, me, other).await? {
             return Err(user_not_found());
         }
@@ -167,7 +170,8 @@ impl Chat {
     /// Resolves an upload as a group icon: `(image JSON, asset ID)`.
     async fn resolve_icon(&self, user_id: Uuid, asset_id: &str) -> AppResult<(serde_json::Value, Uuid)> {
         let asset_id = parse_id(asset_id)?;
-        let image = assets::require_image_json(&self.core, asset_id, user_id, &[AssetPurpose::ASSET_PURPOSE_AVATAR]).await?;
+        let image =
+            assets::require_image_json(&self.core, asset_id, user_id, &[AssetPurpose::ASSET_PURPOSE_AVATAR]).await?;
         Ok((image, asset_id))
     }
 
@@ -183,7 +187,13 @@ impl Chat {
         Ok(())
     }
 
-    pub(crate) async fn create_group(&self, user_id: Uuid, name: &str, member_ids: &[Uuid], icon_asset_id: &str) -> AppResult<Access> {
+    pub(crate) async fn create_group(
+        &self,
+        user_id: Uuid,
+        name: &str,
+        member_ids: &[Uuid],
+        icon_asset_id: &str,
+    ) -> AppResult<Access> {
         let core = &self.core;
         let name = content::validate_group_name(name)?;
         let mut others: Vec<Uuid> = Vec::new();
@@ -202,7 +212,9 @@ impl Chat {
         );
         self.ensure_friends(user_id, &others).await?;
         let icon = if icon_asset_id.is_empty() { None } else { Some(self.resolve_icon(user_id, icon_asset_id).await?) };
-        core.cache.rate_limit(&format!("chat-group-create:{user_id}"), 20, std::time::Duration::from_secs(3600)).await?;
+        core.cache
+            .rate_limit(&format!("chat-group-create:{user_id}"), 20, std::time::Duration::from_secs(3600))
+            .await?;
         let creator = tokuly_identity::summary(core, user_id).await?;
 
         let conversation_id = new_id();
@@ -236,14 +248,27 @@ impl Chat {
             .bind(user_id)
             .execute(&mut *tx)
             .await?;
-        let payload = SystemPayload::new(pb::SystemEventType::SYSTEM_EVENT_TYPE_GROUP_CREATED, Some(user_id)).targets(others.clone()).text(&name);
+        let payload = SystemPayload::new(pb::SystemEventType::SYSTEM_EVENT_TYPE_GROUP_CREATED, Some(user_id))
+            .targets(others.clone())
+            .text(&name);
         let posted = self.post(&mut tx, &mut conv, Draft::system(payload)).await?;
         let mut member_ids = vec![user_id];
         member_ids.extend(&others);
-        events::emit(&mut *tx, CONVERSATION_CREATED, Some(user_id), &ConversationCreated { conversation_id, kind: i32::from(kind::GROUP), member_ids })
-            .await?;
+        events::emit(
+            &mut *tx,
+            CONVERSATION_CREATED,
+            Some(user_id),
+            &ConversationCreated { conversation_id, kind: i32::from(kind::GROUP), member_ids },
+        )
+        .await?;
         for other in &others {
-            events::emit(&mut *tx, MEMBER_JOINED, Some(user_id), &MemberJoined { conversation_id, user_id: *other, added_by: user_id }).await?;
+            events::emit(
+                &mut *tx,
+                MEMBER_JOINED,
+                Some(user_id),
+                &MemberJoined { conversation_id, user_id: *other, added_by: user_id },
+            )
+            .await?;
             outbound::notify(&mut *tx, &notices::added_to_group(*other, &creator, user_id, &conv)).await?;
         }
         tx.commit().await?;
@@ -253,7 +278,13 @@ impl Chat {
 
     /// Renames a group and/or changes its icon. `icon_asset_id` of
     /// `Some("")` removes the icon.
-    pub(crate) async fn update_group(&self, user_id: Uuid, conversation_id: Uuid, name: Option<&str>, icon_asset_id: Option<&str>) -> AppResult<Access> {
+    pub(crate) async fn update_group(
+        &self,
+        user_id: Uuid,
+        conversation_id: Uuid,
+        name: Option<&str>,
+        icon_asset_id: Option<&str>,
+    ) -> AppResult<Access> {
         let access = self.access(user_id, conversation_id).await?;
         ensure_group(&access.conv)?;
         if !access.me.manages() {
@@ -265,6 +296,8 @@ impl Chat {
             Some("") => Some(None),
             Some(asset_id) => Some(Some(self.resolve_icon(user_id, asset_id).await?)),
         };
+        // Every change adds a line to the conversation.
+        self.core.cache.rate_limit(&format!("chat-group-update:{user_id}"), 60, std::time::Duration::from_secs(3600)).await?;
 
         let mut tx = self.core.db.begin().await?;
         let conv = access::lock_conversation(&mut tx, conversation_id).await?;
@@ -275,8 +308,13 @@ impl Chat {
         let mut announcements: Vec<Posted> = Vec::new();
         let mut current = conv.clone();
         if let Some(name) = name.filter(|name| *name != conv.name) {
-            sqlx::query("UPDATE chat_conversations SET name = $2 WHERE id = $1").bind(conversation_id).bind(&name).execute(&mut *tx).await?;
-            let payload = SystemPayload::new(pb::SystemEventType::SYSTEM_EVENT_TYPE_GROUP_RENAMED, Some(user_id)).text(&name);
+            sqlx::query("UPDATE chat_conversations SET name = $2 WHERE id = $1")
+                .bind(conversation_id)
+                .bind(&name)
+                .execute(&mut *tx)
+                .await?;
+            let payload =
+                SystemPayload::new(pb::SystemEventType::SYSTEM_EVENT_TYPE_GROUP_RENAMED, Some(user_id)).text(&name);
             announcements.push(self.post(&mut tx, &mut current, Draft::system(payload)).await?);
         }
         if let Some(icon) = icon {
@@ -313,7 +351,8 @@ impl Chat {
 
     /// One conversation as its member sees it.
     pub(crate) async fn conversation_for(&self, access: &Access) -> AppResult<pb::Conversation> {
-        let mut rendered = self.conversations_for(access.me.user_id, vec![(access.conv.clone(), access.me.clone())]).await?;
+        let mut rendered =
+            self.conversations_for(access.me.user_id, vec![(access.conv.clone(), access.me.clone())]).await?;
         rendered.pop().ok_or_else(conversation_not_found)
     }
 
@@ -326,13 +365,22 @@ impl Chat {
     }
 
     /// Conversations as `viewer` sees them, in the order given.
-    pub(crate) async fn conversations_for(&self, viewer: Uuid, items: Vec<(ConversationRow, MemberRow)>) -> AppResult<Vec<pb::Conversation>> {
+    pub(crate) async fn conversations_for(
+        &self,
+        viewer: Uuid,
+        items: Vec<(ConversationRow, MemberRow)>,
+    ) -> AppResult<Vec<pb::Conversation>> {
         let (convs, members): (Vec<ConversationRow>, Vec<MemberRow>) = items.into_iter().unzip();
-        let members: HashMap<Uuid, MemberRow> = members.into_iter().map(|member| (member.conversation_id, member)).collect();
+        let members: HashMap<Uuid, MemberRow> =
+            members.into_iter().map(|member| (member.conversation_id, member)).collect();
         self.render_conversations(&convs, Some((viewer, &members))).await
     }
 
-    async fn render_conversations(&self, convs: &[ConversationRow], viewer: Option<(Uuid, &HashMap<Uuid, MemberRow>)>) -> AppResult<Vec<pb::Conversation>> {
+    async fn render_conversations(
+        &self,
+        convs: &[ConversationRow],
+        viewer: Option<(Uuid, &HashMap<Uuid, MemberRow>)>,
+    ) -> AppResult<Vec<pb::Conversation>> {
         if convs.is_empty() {
             return Ok(Vec::new());
         }
@@ -387,10 +435,12 @@ impl Chat {
                 .filter_map(|conv| conv.last_message_id)
                 .collect();
             if !visible.is_empty() {
-                let rows: Vec<MessageRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {MSG} FROM chat_messages x WHERE x.id = ANY($1)")))
-                    .bind(&visible)
-                    .fetch_all(&core.db)
-                    .await?;
+                let rows: Vec<MessageRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+                    "SELECT {MSG} FROM chat_messages x WHERE x.id = ANY($1)"
+                )))
+                .bind(&visible)
+                .fetch_all(&core.db)
+                .await?;
                 let view = View::user(viewer_id, members.values().map(|me| (me.conversation_id, me.history_from_seq)));
                 for (row, message) in rows.iter().zip(self.render_messages(&rows, &view).await?) {
                     last_messages.insert(row.conversation_id, message);
@@ -412,11 +462,15 @@ impl Chat {
 
         let mut rendered = Vec::with_capacity(convs.len());
         for conv in convs {
-            let members = preview.get(&conv.id).map(|ids| ids.iter().map(|id| users::pick(&summaries, *id)).collect()).unwrap_or_default();
+            let members = preview
+                .get(&conv.id)
+                .map(|ids| ids.iter().map(|id| users::pick(&summaries, *id)).collect())
+                .unwrap_or_default();
             let viewer_state = viewer.and_then(|(_, members)| members.get(&conv.id)).map(|me| {
                 // While the other side has not accepted, the viewer's
                 // messages are a request with a limited allowance.
-                let requesting = conv.is_direct() && other_states.get(&conv.id).is_some_and(|state| *state != request::ACCEPTED);
+                let requesting =
+                    conv.is_direct() && other_states.get(&conv.id).is_some_and(|state| *state != request::ACCEPTED);
                 let muted = me.muted_now();
                 pb::ViewerState {
                     role: i32::from(me.role).into(),
@@ -431,7 +485,11 @@ impl Chat {
                     hidden: me.hidden_at.is_some(),
                     joined_at: ts(me.joined_at),
                     history_from_seq: me.history_from_seq,
-                    request_messages_left: if requesting { (self.cfg.request_message_limit - me.request_messages).max(0) } else { -1 },
+                    request_messages_left: if requesting {
+                        (self.cfg.request_message_limit - me.request_messages).max(0)
+                    } else {
+                        -1
+                    },
                     ..Default::default()
                 }
             });
@@ -458,7 +516,7 @@ impl Chat {
     /// Read cursors of the members who accepted a conversation.
     pub(crate) async fn read_cursors(&self, conversation_id: Uuid) -> AppResult<Vec<pb::ReadCursor>> {
         let rows: Vec<(Uuid, i64, Option<Time>)> = sqlx::query_as(
-            "SELECT user_id, read_seq, read_at FROM chat_members WHERE conversation_id = $1 AND request_state = $2 ORDER BY joined_at, user_id LIMIT 200",
+            "SELECT user_id, read_seq, read_at FROM chat_members WHERE conversation_id = $1 AND request_state = $2 ORDER BY joined_at, user_id LIMIT 100",
         )
         .bind(conversation_id)
         .bind(request::ACCEPTED)
@@ -466,13 +524,23 @@ impl Chat {
         .await?;
         Ok(rows
             .into_iter()
-            .map(|(user_id, read_seq, read_at)| pb::ReadCursor { user_id: user_id.to_string(), read_seq, read_at: opt_ts(read_at), ..Default::default() })
+            .map(|(user_id, read_seq, read_at)| pb::ReadCursor {
+                user_id: user_id.to_string(),
+                read_seq,
+                read_at: opt_ts(read_at),
+                ..Default::default()
+            })
             .collect())
     }
 
     // ───────────────────────────── lists ─────────────────────────────
 
-    pub(crate) async fn list_conversations(&self, user_id: Uuid, filter: pb::ConversationFilter, page: &Page) -> AppResult<(Vec<pb::Conversation>, tokuly_proto::common::PageInfo)> {
+    pub(crate) async fn list_conversations(
+        &self,
+        user_id: Uuid,
+        filter: pb::ConversationFilter,
+        page: &Page,
+    ) -> AppResult<(Vec<pb::Conversation>, tokuly_proto::common::PageInfo)> {
         let scope = match filter {
             pb::ConversationFilter::CONVERSATION_FILTER_REQUESTS => "m.request_state = 2",
             pb::ConversationFilter::CONVERSATION_FILTER_ARCHIVED => "m.request_state = 1 AND m.archived_at IS NOT NULL",
@@ -500,12 +568,20 @@ impl Chat {
         .bind(page.fetch())
         .fetch_all(&self.core.db)
         .await?;
-        let info = page.finish(&mut rows, |row| ListCursor(i32::from(row.me.pinned_at.is_some()), row.conv.last_activity_at, row.conv.id));
-        let conversations = self.conversations_for(user_id, rows.into_iter().map(|row| (row.conv, row.me)).collect()).await?;
+        let info = page.finish(&mut rows, |row| {
+            ListCursor(i32::from(row.me.pinned_at.is_some()), row.conv.last_activity_at, row.conv.id)
+        });
+        let conversations =
+            self.conversations_for(user_id, rows.into_iter().map(|row| (row.conv, row.me)).collect()).await?;
         Ok((conversations, info))
     }
 
-    pub(crate) async fn list_members(&self, user_id: Uuid, conversation_id: Uuid, page: &Page) -> AppResult<(Vec<pb::Member>, tokuly_proto::common::PageInfo)> {
+    pub(crate) async fn list_members(
+        &self,
+        user_id: Uuid,
+        conversation_id: Uuid,
+        page: &Page,
+    ) -> AppResult<(Vec<pb::Member>, tokuly_proto::common::PageInfo)> {
         self.access(user_id, conversation_id).await?;
         let cursor: Option<MemberCursor> = page.decode()?;
         let (after_role, after_joined, after_id) = match cursor {
@@ -531,7 +607,8 @@ impl Chat {
     }
 
     pub(crate) async fn members_to_proto(&self, rows: &[MemberRow]) -> AppResult<Vec<pb::Member>> {
-        let summaries = tokuly_identity::summaries(&self.core, &rows.iter().map(|row| row.user_id).collect::<Vec<_>>()).await?;
+        let summaries =
+            tokuly_identity::summaries(&self.core, &rows.iter().map(|row| row.user_id).collect::<Vec<_>>()).await?;
         Ok(rows
             .iter()
             .map(|row| pb::Member {
@@ -552,10 +629,11 @@ pub(crate) fn ensure_group(conv: &ConversationRow) -> AppResult<()> {
 /// Deletes a group nobody is left in, releasing every upload its messages
 /// and its icon held.
 pub(crate) async fn delete_conversation(tx: &mut Transaction<'_, Postgres>, conversation_id: Uuid) -> AppResult<()> {
-    let message_ids: Vec<Uuid> = sqlx::query_scalar("SELECT DISTINCT message_id FROM chat_message_assets WHERE conversation_id = $1")
-        .bind(conversation_id)
-        .fetch_all(&mut **tx)
-        .await?;
+    let message_ids: Vec<Uuid> =
+        sqlx::query_scalar("SELECT DISTINCT message_id FROM chat_message_assets WHERE conversation_id = $1")
+            .bind(conversation_id)
+            .fetch_all(&mut **tx)
+            .await?;
     for message_id in message_ids {
         assets::detach_holder(&mut **tx, &crate::send::message_holder(message_id)).await?;
     }

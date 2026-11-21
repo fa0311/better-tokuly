@@ -1,7 +1,6 @@
 import { wallet } from "@tokuly/api";
 import { describe, expect, it } from "vitest";
 import {
-  bonusPercent,
   checkoutStep,
   collectedSteps,
   countdown,
@@ -130,14 +129,6 @@ describe("safeCheckoutUrl", () => {
     expect(safeCheckoutUrl("https://pay.example/c/1")).toBe("https://pay.example/c/1");
     expect(safeCheckoutUrl("javascript:alert(1)")).toBeUndefined();
     expect(safeCheckoutUrl("not a url")).toBeUndefined();
-  });
-});
-
-describe("bonusPercent", () => {
-  it("is the bonus relative to the coins bought", () => {
-    expect(bonusPercent(1000n, 60n)).toBe(6);
-    expect(bonusPercent(10000n, 1500n)).toBe(15);
-    expect(bonusPercent(100n, 0n)).toBe(0);
   });
 });
 

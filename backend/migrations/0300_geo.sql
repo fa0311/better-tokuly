@@ -227,14 +227,19 @@ CREATE TABLE geo_cells (
     -- Cell center, for viewport filtering.
     lat        double precision NOT NULL,
     lng        double precision NOT NULL,
-    first_at   timestamptz      NOT NULL,
+    -- When the user was first there (device time of the sample)...
+    first_at     timestamptz    NOT NULL,
+    -- ...and when the server learned of it (a backlog upload arrives later):
+    -- the recap reports what was uncovered since it was last looked at.
+    uncovered_at timestamptz    NOT NULL DEFAULT now(),
     -- Regions containing the cell center (resolution 9 only; '' = none).
     country_id text             NOT NULL DEFAULT '',
     admin1_id  text             NOT NULL DEFAULT '',
     PRIMARY KEY (user_id, res, cell)
 );
 
-CREATE INDEX geo_cells_recent ON geo_cells (user_id, first_at) WHERE res = 9;
+CREATE INDEX geo_cells_first ON geo_cells (user_id, first_at) WHERE res = 9;
+CREATE INDEX geo_cells_uncovered ON geo_cells (user_id, uncovered_at) WHERE res = 9;
 
 -- Explored cells per user and region.
 CREATE TABLE geo_region_stats (

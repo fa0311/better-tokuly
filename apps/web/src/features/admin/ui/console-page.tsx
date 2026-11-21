@@ -19,7 +19,8 @@ export function ConsolePage({
   title: ReactNode;
   /** Path of the page one level up; shows a back arrow. */
   back?: string;
-  backSearch?: Record<string, unknown>;
+  /** Search parameters for the back link (filters to return to). */
+  backSearch?: object;
   actions?: ReactNode;
   children: ReactNode;
 }) {
@@ -42,10 +43,10 @@ export function ConsolePage({
   );
 }
 
-/** A titled block inside a console page. */
-export function Section({ title, aside, children, className }: { title?: ReactNode; aside?: ReactNode; children: ReactNode; className?: string }) {
+/** A titled block inside a console page; a region named after its title (or `label`) for assistive technology. */
+export function Section({ title, label, aside, children, className }: { title?: ReactNode; /** Name of the region when there is no text title. */ label?: string; aside?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <section className={cn("rounded-2xl border-2 border-line bg-surface", className)}>
+    <section aria-label={label ?? (typeof title === "string" ? title : undefined)} className={cn("rounded-2xl border-2 border-line bg-surface", className)}>
       {(title || aside) && (
         <header className="flex min-h-11 items-center gap-2 border-b-2 border-line px-4 py-2">
           <h2 className="min-w-0 flex-1 truncate text-sm font-black">{title}</h2>

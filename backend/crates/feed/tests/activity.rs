@@ -17,12 +17,26 @@ async fn an_event_is_stored_once_and_a_deleted_entry_stays_deleted() {
     let posted = note(&alice);
     let event = activity_event(&posted, Utc::now());
 
-    let IngestOutcome::Stored(id) = ctx.feed.handle_activity_recorded(&event).await.unwrap() else { panic!("the first delivery stores the entry") };
-    assert_eq!(ctx.feed.handle_activity_recorded(&event).await.unwrap(), IngestOutcome::Duplicate, "a redelivery changes nothing");
+    let IngestOutcome::Stored(id) = ctx.feed.handle_activity_recorded(&event).await.unwrap() else {
+        panic!("the first delivery stores the entry")
+    };
+    assert_eq!(
+        ctx.feed.handle_activity_recorded(&event).await.unwrap(),
+        IngestOutcome::Duplicate,
+        "a redelivery changes nothing"
+    );
     assert_eq!(ids(&ctx.my_log(&alice).await), vec![id.to_string()]);
 
     // Once the owner deleted the entry, a late redelivery does not bring it back.
-    let _: DeleteActivityResponse = ctx.call(ACTIVITY, "DeleteActivity", Some(&alice), &DeleteActivityRequest { activity_id: id.to_string(), ..Default::default() }).await.unwrap();
+    let _: DeleteActivityResponse = ctx
+        .call(
+            ACTIVITY,
+            "DeleteActivity",
+            Some(&alice),
+            &DeleteActivityRequest { activity_id: id.to_string(), ..Default::default() },
+        )
+        .await
+        .unwrap();
     assert_eq!(ctx.feed.handle_activity_recorded(&event).await.unwrap(), IngestOutcome::Duplicate);
     assert!(ctx.my_log(&alice).await.is_empty());
 }
@@ -38,7 +52,11 @@ async fn unusable_entries_are_dropped_without_failing_the_consumer() {
 
     let mut nobody = note(&alice);
     nobody.user_id = Uuid::now_v7();
-    assert_eq!(ctx.deliver(&nobody, Utc::now()).await, IngestOutcome::Dropped, "an entry of an unknown account is skipped");
+    assert_eq!(
+        ctx.deliver(&nobody, Utc::now()).await,
+        IngestOutcome::Dropped,
+        "an entry of an unknown account is skipped"
+    );
 
     // The consumer entry point swallows both and keeps going.
     ctx.feed.handle_event(activity_event(&malformed, Utc::now())).await.unwrap();
@@ -50,7 +68,11 @@ async fn unusable_entries_are_dropped_without_failing_the_consumer() {
 async fn joining_tokuly_is_the_first_log_entry() {
     let ctx = start().await;
     let alice = ctx.app.user("alice").await;
-    let created = event("identity.user.created", Some(alice.id), serde_json::json!({ "user_id": alice.id, "handle": alice.handle, "invite_code": "" }));
+    let created = event(
+        "identity.user.created",
+        Some(alice.id),
+        serde_json::json!({ "user_id": alice.id, "handle": alice.handle, "invite_code": "" }),
+    );
     ctx.feed.handle_event(created.clone()).await.unwrap();
     ctx.feed.handle_event(created).await.unwrap();
 
@@ -73,10 +95,18 @@ async fn my_log_holds_everything_and_filters_by_kind_and_time() {
     let ctx = start().await;
     let (alice, bob) = (ctx.app.user("alice").await, ctx.app.user("bob").await);
     let now = Utc::now();
-    let private = ctx.record_at(entry(&alice, "geo.visit", ActivityAudience::Private).at(35.0, 139.0), now - Duration::days(3)).await;
+    let private = ctx
+        .record_at(entry(&alice, "geo.visit", ActivityAudience::Private).at(35.0, 139.0), now - Duration::days(3))
+        .await;
     let bumped = ctx.record_at(bump(&alice, &bob, 35.1, 139.1), now - Duration::days(2)).await;
     let noted = ctx.record_at(note(&alice), now - Duration::days(1)).await;
-    let region = ctx.record_at(entry(&alice, "geo.new_region", ActivityAudience::Public).data(serde_json::json!({ "region_name": "大阪府" })), now - Duration::hours(1)).await;
+    let region = ctx
+        .record_at(
+            entry(&alice, "geo.new_region", ActivityAudience::Public)
+                .data(serde_json::json!({ "region_name": "大阪府" })),
+            now - Duration::hours(1),
+        )
+        .await;
     // Somebody else's entry never shows up in my log.
     ctx.record(note(&bob), 5).await;
 
@@ -103,7 +133,13 @@ async fn my_log_holds_everything_and_filters_by_kind_and_time() {
     assert_eq!(ids(&geo.activities), [region, private].map(|id| id.to_string()));
     let exact = list(ListMyActivityRequest { kind_prefix: "geo.visit".into(), ..Default::default() }).await.unwrap();
     assert_eq!(ids(&exact.activities), vec![private.to_string()]);
-    assert!(list(ListMyActivityRequest { kind_prefix: "ge".into(), ..Default::default() }).await.unwrap().activities.is_empty());
+    assert!(
+        list(ListMyActivityRequest { kind_prefix: "ge".into(), ..Default::default() })
+            .await
+            .unwrap()
+            .activities
+            .is_empty()
+    );
 
     // `from` is inclusive, `to` exclusive.
     let window = list(ListMyActivityRequest {
@@ -120,16 +156,30 @@ async fn my_log_holds_everything_and_filters_by_kind_and_time() {
     assert_eq!(ids(&first.activities), [region, noted].map(|id| id.to_string()));
     let info = first.page.as_option().unwrap();
     assert!(info.has_more);
-    let second = list(ListMyActivityRequest { page: page(2, &info.next_cursor).into(), ..Default::default() }).await.unwrap();
+    let second =
+        list(ListMyActivityRequest { page: page(2, &info.next_cursor).into(), ..Default::default() }).await.unwrap();
     assert_eq!(ids(&second.activities), [bumped, private].map(|id| id.to_string()));
     assert!(!second.page.as_option().unwrap().has_more);
 
     // Validation.
-    assert_eq!(list(ListMyActivityRequest { kind_prefix: "Geo!".into(), ..Default::default() }).await.unwrap_err().reason, "INVALID_KIND");
-    let backwards = ListMyActivityRequest { from: tokuly_core::time::ts(now), to: tokuly_core::time::ts(now - Duration::days(1)), ..Default::default() };
+    assert_eq!(
+        list(ListMyActivityRequest { kind_prefix: "Geo!".into(), ..Default::default() }).await.unwrap_err().reason,
+        "INVALID_KIND"
+    );
+    let backwards = ListMyActivityRequest {
+        from: tokuly_core::time::ts(now),
+        to: tokuly_core::time::ts(now - Duration::days(1)),
+        ..Default::default()
+    };
     assert_eq!(list(backwards).await.unwrap_err().reason, "INVALID_RANGE");
-    assert_eq!(list(ListMyActivityRequest { page: page(2, "garbage").into(), ..Default::default() }).await.unwrap_err().reason, "INVALID_CURSOR");
-    let anonymous = ctx.call::<_, ListMyActivityResponse>(ACTIVITY, "ListMyActivity", None, &ListMyActivityRequest::default()).await.unwrap_err();
+    assert_eq!(
+        list(ListMyActivityRequest { page: page(2, "garbage").into(), ..Default::default() }).await.unwrap_err().reason,
+        "INVALID_CURSOR"
+    );
+    let anonymous = ctx
+        .call::<_, ListMyActivityResponse>(ACTIVITY, "ListMyActivity", None, &ListMyActivityRequest::default())
+        .await
+        .unwrap_err();
     assert_eq!((anonymous.code.as_str(), anonymous.reason.as_str()), ("unauthenticated", "SIGN_IN_REQUIRED"));
 }
 
@@ -138,7 +188,12 @@ async fn summaries_and_labels_follow_the_readers_language() {
     let ctx = start().await;
     let (alice, bob) = (ctx.app.user("alice").await, ctx.app.user("bob").await);
     ctx.befriend(&alice, &bob).await;
-    let posted = ActivityEntry::new(alice.id, "social.bumped", ActivityAudience::Public, Localized::new("ボブさんとバンプしました！", "Bumped with Bob!"));
+    let posted = ActivityEntry::new(
+        alice.id,
+        "social.bumped",
+        ActivityAudience::Public,
+        Localized::new("ボブさんとバンプしました！", "Bumped with Bob!"),
+    );
     ctx.record(posted, 1).await;
 
     let japanese = &ctx.my_log(&alice).await[0];
@@ -168,7 +223,15 @@ async fn entries_can_be_deleted_one_by_one_or_by_range() {
 
     let delete = |user: &TestUser, id: String| {
         let (ctx, user) = (&ctx, user.clone());
-        async move { ctx.call::<_, DeleteActivityResponse>(ACTIVITY, "DeleteActivity", Some(&user), &DeleteActivityRequest { activity_id: id, ..Default::default() }).await }
+        async move {
+            ctx.call::<_, DeleteActivityResponse>(
+                ACTIVITY,
+                "DeleteActivity",
+                Some(&user),
+                &DeleteActivityRequest { activity_id: id, ..Default::default() },
+            )
+            .await
+        }
     };
     // Someone else's entry is "not found", and stays.
     assert_eq!(delete(&alice, bobs.to_string()).await.unwrap_err().reason, "ACTIVITY_NOT_FOUND");
@@ -184,12 +247,28 @@ async fn entries_can_be_deleted_one_by_one_or_by_range() {
     };
     // Clearing everything by accident is not possible.
     assert_eq!(clear(ClearActivityRequest::default()).await.unwrap_err().reason, "RANGE_REQUIRED");
-    let backwards = ClearActivityRequest { from: tokuly_core::time::ts(now), to: tokuly_core::time::ts(now - Duration::days(1)), ..Default::default() };
+    let backwards = ClearActivityRequest {
+        from: tokuly_core::time::ts(now),
+        to: tokuly_core::time::ts(now - Duration::days(1)),
+        ..Default::default()
+    };
     assert_eq!(clear(backwards).await.unwrap_err().reason, "INVALID_RANGE");
-    assert_eq!(clear(ClearActivityRequest { kind_prefix: "!".into(), everything: true, ..Default::default() }).await.unwrap_err().reason, "INVALID_KIND");
+    assert_eq!(
+        clear(ClearActivityRequest { kind_prefix: "!".into(), everything: true, ..Default::default() })
+            .await
+            .unwrap_err()
+            .reason,
+        "INVALID_KIND"
+    );
 
     // Only notes older than a week.
-    let cleared = clear(ClearActivityRequest { to: tokuly_core::time::ts(now - Duration::days(7)), kind_prefix: "note".into(), ..Default::default() }).await.unwrap();
+    let cleared = clear(ClearActivityRequest {
+        to: tokuly_core::time::ts(now - Duration::days(7)),
+        kind_prefix: "note".into(),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
     assert_eq!(cleared.deleted_count, 1);
     assert_eq!(ids(&ctx.my_log(&alice).await), [new_note, old_visit].map(|id| id.to_string()));
     let _ = old_note;
@@ -204,7 +283,8 @@ async fn entries_can_be_deleted_one_by_one_or_by_range() {
 #[tokio::test]
 async fn a_profile_shows_each_viewer_what_the_audience_allows() {
     let ctx = start().await;
-    let (owner, friend, stranger) = (ctx.app.user("owner").await, ctx.app.user("friend").await, ctx.app.user("stranger").await);
+    let (owner, friend, stranger) =
+        (ctx.app.user("owner").await, ctx.app.user("friend").await, ctx.app.user("stranger").await);
     ctx.befriend(&owner, &friend).await;
     let private = ctx.record(entry(&owner, "geo.visit", ActivityAudience::Private), 30).await;
     let friends_only = ctx.record(note(&owner), 20).await;
@@ -215,36 +295,83 @@ async fn a_profile_shows_each_viewer_what_the_audience_allows() {
         let (ctx, viewer) = (&ctx, viewer.cloned());
         async move { ctx.profile(viewer.as_ref(), owner_id).await.map(|activities| ids(&activities)) }
     };
-    assert_eq!(seen_by(Some(&owner)).await.unwrap(), [public, friends_only, private].map(|id| id.to_string()), "the owner sees everything");
+    assert_eq!(
+        seen_by(Some(&owner)).await.unwrap(),
+        [public, friends_only, private].map(|id| id.to_string()),
+        "the owner sees everything"
+    );
     assert_eq!(seen_by(Some(&friend)).await.unwrap(), [public, friends_only].map(|id| id.to_string()));
     assert_eq!(seen_by(Some(&stranger)).await.unwrap(), vec![public.to_string()]);
     assert_eq!(seen_by(None).await.unwrap(), vec![public.to_string()]);
 
     // Kind filter and paging work for visitors too.
     let videos: ListUserActivityResponse = ctx
-        .call(ACTIVITY, "ListUserActivity", Some(&friend), &ListUserActivityRequest { user_id: owner.id.to_string(), kind_prefix: "video".into(), ..Default::default() })
+        .call(
+            ACTIVITY,
+            "ListUserActivity",
+            Some(&friend),
+            &ListUserActivityRequest {
+                user_id: owner.id.to_string(),
+                kind_prefix: "video".into(),
+                ..Default::default()
+            },
+        )
         .await
         .unwrap();
     assert_eq!(ids(&videos.activities), vec![public.to_string()]);
-    let first: ListUserActivityResponse =
-        ctx.call(ACTIVITY, "ListUserActivity", Some(&friend), &ListUserActivityRequest { user_id: owner.id.to_string(), page: page(1, "").into(), ..Default::default() }).await.unwrap();
+    let first: ListUserActivityResponse = ctx
+        .call(
+            ACTIVITY,
+            "ListUserActivity",
+            Some(&friend),
+            &ListUserActivityRequest { user_id: owner.id.to_string(), page: page(1, "").into(), ..Default::default() },
+        )
+        .await
+        .unwrap();
     assert_eq!(ids(&first.activities), vec![public.to_string()]);
     let cursor = first.page.as_option().unwrap().next_cursor.clone();
-    let second: ListUserActivityResponse =
-        ctx.call(ACTIVITY, "ListUserActivity", Some(&friend), &ListUserActivityRequest { user_id: owner.id.to_string(), page: page(1, &cursor).into(), ..Default::default() }).await.unwrap();
+    let second: ListUserActivityResponse = ctx
+        .call(
+            ACTIVITY,
+            "ListUserActivity",
+            Some(&friend),
+            &ListUserActivityRequest {
+                user_id: owner.id.to_string(),
+                page: page(1, &cursor).into(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
     assert_eq!(ids(&second.activities), vec![friends_only.to_string()]);
     assert!(!second.page.as_option().unwrap().has_more);
 
     // Unknown users, bad IDs, and anyone behind a block.
     assert_eq!(ctx.profile(Some(&friend), Uuid::now_v7()).await.unwrap_err().reason, "USER_NOT_FOUND");
-    let bad_id = ctx.call::<_, ListUserActivityResponse>(ACTIVITY, "ListUserActivity", None, &ListUserActivityRequest { user_id: "nope".into(), ..Default::default() }).await.unwrap_err();
+    let bad_id = ctx
+        .call::<_, ListUserActivityResponse>(
+            ACTIVITY,
+            "ListUserActivity",
+            None,
+            &ListUserActivityRequest { user_id: "nope".into(), ..Default::default() },
+        )
+        .await
+        .unwrap_err();
     assert_eq!(bad_id.reason, "INVALID_ID");
     ctx.block(&owner, &stranger).await;
     assert_eq!(seen_by(Some(&stranger)).await.unwrap_err().reason, "USER_NOT_FOUND", "the blocked person cannot look");
-    assert_eq!(ctx.profile(Some(&owner), stranger.id).await.unwrap_err().reason, "USER_NOT_FOUND", "and neither can the blocker");
+    assert_eq!(
+        ctx.profile(Some(&owner), stranger.id).await.unwrap_err().reason,
+        "USER_NOT_FOUND",
+        "and neither can the blocker"
+    );
 
     // A banned or deleted owner has no profile list.
-    sqlx::query("UPDATE users SET banned_at = now() WHERE id = $1").bind(owner.id).execute(&ctx.app.core.db).await.unwrap();
+    sqlx::query("UPDATE users SET banned_at = now() WHERE id = $1")
+        .bind(owner.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
     assert_eq!(seen_by(Some(&friend)).await.unwrap_err().reason, "USER_NOT_FOUND");
     assert_eq!(seen_by(None).await.unwrap_err().reason, "USER_NOT_FOUND");
 }
@@ -279,7 +406,12 @@ async fn entries_that_name_someone_blocked_do_not_reach_the_blocker() {
 #[tokio::test]
 async fn the_friends_feed_shows_friends_only_and_collapses_bursts() {
     let ctx = start().await;
-    let (me, anna, ben, stranger) = (ctx.app.user("me").await, ctx.app.user("anna").await, ctx.app.user("ben").await, ctx.app.user("stranger").await);
+    let (me, anna, ben, stranger) = (
+        ctx.app.user("me").await,
+        ctx.app.user("anna").await,
+        ctx.app.user("ben").await,
+        ctx.app.user("stranger").await,
+    );
     ctx.befriend(&me, &anna).await;
     ctx.befriend(&ben, &me).await;
 
@@ -298,10 +430,18 @@ async fn the_friends_feed_shows_friends_only_and_collapses_bursts() {
     ctx.record(note(&me), 2).await;
 
     let feed = ctx.friends_feed(&me).await;
-    assert_eq!(feed.iter().map(head_of).collect::<Vec<_>>(), [ben_bump, anna_burst_3, anna_video, anna_old].map(|id| id.to_string()), "newest first, one card per burst");
+    assert_eq!(
+        feed.iter().map(head_of).collect::<Vec<_>>(),
+        [ben_bump, anna_burst_3, anna_video, anna_old].map(|id| id.to_string()),
+        "newest first, one card per burst"
+    );
     let burst = &feed[1];
     assert_eq!(burst.count, 3);
-    assert_eq!(ids(&burst.more), [anna_burst_2, anna_burst_1].map(|id| id.to_string()), "the older entries of the burst, newest first");
+    assert_eq!(
+        ids(&burst.more),
+        [anna_burst_2, anna_burst_1].map(|id| id.to_string()),
+        "the older entries of the burst, newest first"
+    );
     assert_eq!(burst.r#type, ActivityCardType::ACTIVITY_CARD_TYPE_NOTE);
     assert_eq!(feed[0].r#type, ActivityCardType::ACTIVITY_CARD_TYPE_BUMP);
     assert_eq!((feed[0].count, feed[0].more.len()), (1, 0));
@@ -309,24 +449,69 @@ async fn the_friends_feed_shows_friends_only_and_collapses_bursts() {
     assert_eq!(actor_of(&feed[0]), ben.id);
 
     // Kind filter.
-    let notes: ListFriendsActivityResponse = ctx.call(ACTIVITY, "ListFriendsActivity", Some(&me), &ListFriendsActivityRequest { kind_prefix: "note".into(), ..Default::default() }).await.unwrap();
+    let notes: ListFriendsActivityResponse = ctx
+        .call(
+            ACTIVITY,
+            "ListFriendsActivity",
+            Some(&me),
+            &ListFriendsActivityRequest { kind_prefix: "note".into(), ..Default::default() },
+        )
+        .await
+        .unwrap();
     assert_eq!(notes.cards.iter().map(head_of).collect::<Vec<_>>(), [anna_burst_3, anna_old].map(|id| id.to_string()));
 
     // Pages are pages of cards: nothing is repeated or skipped.
-    let first: ListFriendsActivityResponse = ctx.call(ACTIVITY, "ListFriendsActivity", Some(&me), &ListFriendsActivityRequest { page: page(2, "").into(), ..Default::default() }).await.unwrap();
+    let first: ListFriendsActivityResponse = ctx
+        .call(
+            ACTIVITY,
+            "ListFriendsActivity",
+            Some(&me),
+            &ListFriendsActivityRequest { page: page(2, "").into(), ..Default::default() },
+        )
+        .await
+        .unwrap();
     assert_eq!(first.cards.iter().map(head_of).collect::<Vec<_>>(), [ben_bump, anna_burst_3].map(|id| id.to_string()));
     assert_eq!(first.cards[1].count, 3);
     let cursor = first.page.as_option().unwrap().next_cursor.clone();
-    let second: ListFriendsActivityResponse = ctx.call(ACTIVITY, "ListFriendsActivity", Some(&me), &ListFriendsActivityRequest { page: page(2, &cursor).into(), ..Default::default() }).await.unwrap();
+    let second: ListFriendsActivityResponse = ctx
+        .call(
+            ACTIVITY,
+            "ListFriendsActivity",
+            Some(&me),
+            &ListFriendsActivityRequest { page: page(2, &cursor).into(), ..Default::default() },
+        )
+        .await
+        .unwrap();
     assert_eq!(second.cards.iter().map(head_of).collect::<Vec<_>>(), [anna_video, anna_old].map(|id| id.to_string()));
     assert!(!second.page.as_option().unwrap().has_more);
 
     // Validation and authentication.
-    let bad = ctx.call::<_, ListFriendsActivityResponse>(ACTIVITY, "ListFriendsActivity", Some(&me), &ListFriendsActivityRequest { kind_prefix: "No!".into(), ..Default::default() }).await;
+    let bad = ctx
+        .call::<_, ListFriendsActivityResponse>(
+            ACTIVITY,
+            "ListFriendsActivity",
+            Some(&me),
+            &ListFriendsActivityRequest { kind_prefix: "No!".into(), ..Default::default() },
+        )
+        .await;
     assert_eq!(bad.unwrap_err().reason, "INVALID_KIND");
-    let bad = ctx.call::<_, ListFriendsActivityResponse>(ACTIVITY, "ListFriendsActivity", Some(&me), &ListFriendsActivityRequest { page: page(2, "garbage").into(), ..Default::default() }).await;
+    let bad = ctx
+        .call::<_, ListFriendsActivityResponse>(
+            ACTIVITY,
+            "ListFriendsActivity",
+            Some(&me),
+            &ListFriendsActivityRequest { page: page(2, "garbage").into(), ..Default::default() },
+        )
+        .await;
     assert_eq!(bad.unwrap_err().reason, "INVALID_CURSOR");
-    let anonymous = ctx.call::<_, ListFriendsActivityResponse>(ACTIVITY, "ListFriendsActivity", None, &ListFriendsActivityRequest::default()).await;
+    let anonymous = ctx
+        .call::<_, ListFriendsActivityResponse>(
+            ACTIVITY,
+            "ListFriendsActivity",
+            None,
+            &ListFriendsActivityRequest::default(),
+        )
+        .await;
     assert_eq!(anonymous.unwrap_err().code, "unauthenticated");
 
     // Someone without friends has an empty feed.
@@ -344,12 +529,19 @@ async fn the_friends_feed_follows_the_graph_without_any_fan_out() {
 
     // A new friend's earlier entries appear; a former friend's disappear.
     ctx.befriend(&me, &ben).await;
-    assert_eq!(ctx.friends_feed(&me).await.iter().map(head_of).collect::<Vec<_>>(), [ben_note, anna_note].map(|id| id.to_string()));
+    assert_eq!(
+        ctx.friends_feed(&me).await.iter().map(head_of).collect::<Vec<_>>(),
+        [ben_note, anna_note].map(|id| id.to_string())
+    );
     ctx.unfriend(&me, &anna).await;
     assert_eq!(ctx.friends_feed(&me).await.iter().map(head_of).collect::<Vec<_>>(), vec![ben_note.to_string()]);
 
     // A banned friend's entries are not shown either.
-    sqlx::query("UPDATE users SET banned_at = now() WHERE id = $1").bind(ben.id).execute(&ctx.app.core.db).await.unwrap();
+    sqlx::query("UPDATE users SET banned_at = now() WHERE id = $1")
+        .bind(ben.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
     assert!(ctx.friends_feed(&me).await.is_empty());
 }
 
@@ -363,19 +555,43 @@ async fn hidden_kinds_disappear_for_everyone_but_the_owner() {
     let noted = ctx.record(note(&owner), 10).await;
 
     let set = |kind: &str, visible: bool| {
-        let request = SetActivityKindVisibilityRequest { kind: kind.to_owned(), visible_to_others: visible, ..Default::default() };
+        let request = SetActivityKindVisibilityRequest {
+            kind: kind.to_owned(),
+            visible_to_others: visible,
+            ..Default::default()
+        };
         let (ctx, owner) = (&ctx, &owner);
-        async move { ctx.call::<_, SetActivityKindVisibilityResponse>(ACTIVITY, "SetActivityKindVisibility", Some(owner), &request).await }
+        async move {
+            ctx.call::<_, SetActivityKindVisibilityResponse>(
+                ACTIVITY,
+                "SetActivityKindVisibility",
+                Some(owner),
+                &request,
+            )
+            .await
+        }
     };
-    let preference = |kinds: &[ActivityKindPreference], kind: &str| kinds.iter().find(|p| p.kind == kind).cloned().unwrap_or_else(|| panic!("{kind} is listed"));
+    let preference = |kinds: &[ActivityKindPreference], kind: &str| {
+        kinds.iter().find(|p| p.kind == kind).cloned().unwrap_or_else(|| panic!("{kind} is listed"))
+    };
 
     // Before: everything visible, counts per kind, well-known kinds listed.
-    let before: GetActivityPreferencesResponse = ctx.call(ACTIVITY, "GetActivityPreferences", Some(&owner), &GetActivityPreferencesRequest::default()).await.unwrap();
+    let before: GetActivityPreferencesResponse = ctx
+        .call(ACTIVITY, "GetActivityPreferences", Some(&owner), &GetActivityPreferencesRequest::default())
+        .await
+        .unwrap();
     assert!(before.kinds.iter().all(|p| p.visible_to_others));
     assert_eq!(preference(&before.kinds, "geo").entry_count, 2);
     assert_eq!(preference(&before.kinds, "geo.new_region").entry_count, 1);
-    assert_eq!((preference(&before.kinds, "note.posted").entry_count, preference(&before.kinds, "note.posted").label.as_str()), (1, "ノート"));
-    assert_eq!(preference(&before.kinds, "social.bumped").entry_count, 0, "well-known kinds are listed without entries");
+    assert_eq!(
+        (preference(&before.kinds, "note.posted").entry_count, preference(&before.kinds, "note.posted").label.as_str()),
+        (1, "ノート")
+    );
+    assert_eq!(
+        preference(&before.kinds, "social.bumped").entry_count,
+        0,
+        "well-known kinds are listed without entries"
+    );
 
     // Hide the whole map family.
     let after = set("geo", false).await.unwrap();
@@ -389,7 +605,11 @@ async fn hidden_kinds_disappear_for_everyone_but_the_owner() {
     assert_eq!(ctx.friends_feed(&friend).await.iter().map(head_of).collect::<Vec<_>>(), vec![noted.to_string()]);
     let own = ctx.my_log(&owner).await;
     assert_eq!(ids(&own), [noted, visit, region].map(|id| id.to_string()));
-    assert_eq!(own.iter().map(|a| a.hidden_from_others).collect::<Vec<_>>(), vec![false, true, true], "the owner sees which entries are hidden");
+    assert_eq!(
+        own.iter().map(|a| a.hidden_from_others).collect::<Vec<_>>(),
+        vec![false, true, true],
+        "the owner sees which entries are hidden"
+    );
     let own_profile = ctx.profile(Some(&owner), owner.id).await.unwrap();
     assert_eq!(own_profile.iter().filter(|a| a.hidden_from_others).count(), 2);
 
@@ -400,18 +620,32 @@ async fn hidden_kinds_disappear_for_everyone_but_the_owner() {
     set("geo.visit", false).await.unwrap();
     let shown = set("geo", true).await.unwrap();
     assert!(shown.kinds.iter().all(|p| p.visible_to_others));
-    assert_eq!(ids(&ctx.profile(Some(&friend), owner.id).await.unwrap()), [noted, visit, region].map(|id| id.to_string()));
+    assert_eq!(
+        ids(&ctx.profile(Some(&friend), owner.id).await.unwrap()),
+        [noted, visit, region].map(|id| id.to_string())
+    );
 
     // Hiding a family replaces narrower entries below it.
     set("geo.visit", false).await.unwrap();
     set("geo", false).await.unwrap();
-    let stored: Vec<String> = sqlx::query_scalar("SELECT kind FROM activity_hidden_kinds WHERE user_id = $1").bind(owner.id).fetch_all(&ctx.app.core.db).await.unwrap();
+    let stored: Vec<String> = sqlx::query_scalar("SELECT kind FROM activity_hidden_kinds WHERE user_id = $1")
+        .bind(owner.id)
+        .fetch_all(&ctx.app.core.db)
+        .await
+        .unwrap();
     assert_eq!(stored, vec!["geo"]);
 
     // Validation.
     assert_eq!(set("", false).await.unwrap_err().reason, "INVALID_KIND");
     assert_eq!(set("Geo Stuff", false).await.unwrap_err().reason, "INVALID_KIND");
-    let anonymous = ctx.call::<_, GetActivityPreferencesResponse>(ACTIVITY, "GetActivityPreferences", None, &GetActivityPreferencesRequest::default()).await;
+    let anonymous = ctx
+        .call::<_, GetActivityPreferencesResponse>(
+            ACTIVITY,
+            "GetActivityPreferences",
+            None,
+            &GetActivityPreferencesRequest::default(),
+        )
+        .await;
     assert_eq!(anonymous.unwrap_err().code, "unauthenticated");
 }
 
@@ -422,15 +656,29 @@ async fn only_so_many_kinds_can_be_hidden() {
     // Fill the list directly (the RPC is rate limited per minute).
     sqlx::query("INSERT INTO activity_hidden_kinds (user_id, kind) SELECT $1, 'custom.kind' || n FROM generate_series(1, 50) AS n").bind(owner.id).execute(&ctx.app.core.db).await.unwrap();
     let hide = |kind: &str| {
-        let request = SetActivityKindVisibilityRequest { kind: kind.to_owned(), visible_to_others: false, ..Default::default() };
+        let request =
+            SetActivityKindVisibilityRequest { kind: kind.to_owned(), visible_to_others: false, ..Default::default() };
         let (ctx, owner) = (&ctx, &owner);
-        async move { ctx.call::<_, SetActivityKindVisibilityResponse>(ACTIVITY, "SetActivityKindVisibility", Some(owner), &request).await }
+        async move {
+            ctx.call::<_, SetActivityKindVisibilityResponse>(
+                ACTIVITY,
+                "SetActivityKindVisibility",
+                Some(owner),
+                &request,
+            )
+            .await
+        }
     };
     assert_eq!(hide("one.more").await.unwrap_err().reason, "TOO_MANY_HIDDEN_KINDS");
     // One that is already covered is fine, and a family that replaces many makes room.
     hide("custom.kind7").await.unwrap();
     hide("custom").await.unwrap();
     hide("one.more").await.unwrap();
-    let stored: Vec<String> = sqlx::query_scalar("SELECT kind FROM activity_hidden_kinds WHERE user_id = $1 ORDER BY kind").bind(owner.id).fetch_all(&ctx.app.core.db).await.unwrap();
+    let stored: Vec<String> =
+        sqlx::query_scalar("SELECT kind FROM activity_hidden_kinds WHERE user_id = $1 ORDER BY kind")
+            .bind(owner.id)
+            .fetch_all(&ctx.app.core.db)
+            .await
+            .unwrap();
     assert_eq!(stored, vec!["custom", "one.more"]);
 }

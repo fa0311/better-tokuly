@@ -37,7 +37,7 @@ export function AdminWalletScreen({ search, onSearch }: { search: StaffWalletSea
     enabled: access.moderator,
   });
 
-  const tabs = access.admin ? STAFF_TABS : STAFF_TABS.filter((tab) => tab === "payouts" || tab === "users");
+  const tabs: readonly StaffTab[] = access.admin ? STAFF_TABS : ["payouts", "users"];
   const tab = search.tab && tabs.includes(search.tab) ? search.tab : "payouts";
 
   return (

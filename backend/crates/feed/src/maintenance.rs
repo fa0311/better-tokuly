@@ -16,7 +16,10 @@ use tokuly_social::events::{BlockChanged, FriendRemoved};
 
 use crate::{
     Feed,
-    events::{ACTIVITY_TOPIC, CONSUMER_NAME, CONTENT_REMOVED, ContentRemoved, FETCH_JOB, FRIEND_REMOVED, FetchSourceJob, TOPICS, USER_BLOCKED, USER_CREATED, USER_DELETED},
+    events::{
+        ACTIVITY_TOPIC, CONSUMER_NAME, CONTENT_REMOVED, ContentRemoved, FETCH_JOB, FRIEND_REMOVED, FetchSourceJob,
+        TOPICS, USER_BLOCKED, USER_CREATED, USER_DELETED,
+    },
     news::ranking::AFFINITY_EPSILON,
 };
 
@@ -53,10 +56,17 @@ impl Feed {
         let feed = self.clone();
         tokio::spawn(async move {
             let handler = feed.clone();
-            events::consume(feed.core.bus.clone(), CONSUMER_NAME, TOPICS, ConsumeOptions::default(), feed.core.shutdown.clone(), move |event| {
-                let feed = handler.clone();
-                async move { feed.handle_event(event).await }
-            })
+            events::consume(
+                feed.core.bus.clone(),
+                CONSUMER_NAME,
+                TOPICS,
+                ConsumeOptions::default(),
+                feed.core.shutdown.clone(),
+                move |event| {
+                    let feed = handler.clone();
+                    async move { feed.handle_event(event).await }
+                },
+            )
             .await;
         });
 
@@ -64,7 +74,11 @@ impl Feed {
         tokio::spawn(async move {
             let handler = feed.clone();
             // A fetch is bounded by the fetch timeout; the lease only has to outlast it.
-            let options = JobOptions { concurrency: 4, lease: Duration::from_secs(feed.cfg.news_fetch_timeout_seconds + 60), max_deliver: 3 };
+            let options = JobOptions {
+                concurrency: 4,
+                lease: Duration::from_secs(feed.cfg.news_fetch_timeout_seconds + 60),
+                max_deliver: 3,
+            };
             feed.core
                 .jobs
                 .run(FETCH_JOB, options, feed.core.shutdown.clone(), move |job: FetchSourceJob| {
@@ -81,7 +95,10 @@ impl Feed {
                 Ok(created) => tracing::info!(created, "news sources created from TOKULY_NEWS_FEEDS"),
                 Err(error) => tracing::error!(%error, "could not create the news sources of TOKULY_NEWS_FEEDS"),
             }
-            feed.run_periodically("news scheduler", SCHEDULER_INTERVAL, |feed| async move { feed.enqueue_due_fetches().await.map(|_| ()) }).await;
+            feed.run_periodically("news scheduler", SCHEDULER_INTERVAL, |feed| async move {
+                feed.enqueue_due_fetches().await.map(|_| ())
+            })
+            .await;
         });
 
         let feed = self.clone();
@@ -179,11 +196,12 @@ impl Feed {
         if removed.subject_type == SubjectType::SUBJECT_TYPE_USER as i32 {
             return Ok(());
         }
-        let owners: Vec<Uuid> = sqlx::query_scalar("DELETE FROM activities WHERE subject_type = $1 AND subject_id = $2 RETURNING user_id")
-            .bind(removed.subject_type)
-            .bind(removed.subject_id)
-            .fetch_all(&self.core.db)
-            .await?;
+        let owners: Vec<Uuid> =
+            sqlx::query_scalar("DELETE FROM activities WHERE subject_type = $1 AND subject_id = $2 RETURNING user_id")
+                .bind(removed.subject_type)
+                .bind(removed.subject_id)
+                .fetch_all(&self.core.db)
+                .await?;
         let mut owners = owners;
         owners.sort_unstable();
         owners.dedup();
@@ -232,11 +250,22 @@ impl Feed {
 
     /// Deletes rows matching `condition` from `table` in batches. Both are
     /// constants of this module, never user input.
-    async fn sweep(&self, table: &'static str, key: &'static str, condition: &'static str, days_or_hours: i32) -> AppResult<u64> {
-        let statement = format!("DELETE FROM {table} WHERE {key} IN (SELECT {key} FROM {table} WHERE {condition} LIMIT $2)");
+    async fn sweep(
+        &self,
+        table: &'static str,
+        key: &'static str,
+        condition: &'static str,
+        days_or_hours: i32,
+    ) -> AppResult<u64> {
+        let statement =
+            format!("DELETE FROM {table} WHERE {key} IN (SELECT {key} FROM {table} WHERE {condition} LIMIT $2)");
         let mut total = 0;
         loop {
-            let done = sqlx::query(sqlx::AssertSqlSafe(statement.clone())).bind(days_or_hours).bind(SWEEP_BATCH).execute(&self.core.db).await?;
+            let done = sqlx::query(sqlx::AssertSqlSafe(statement.clone()))
+                .bind(days_or_hours)
+                .bind(SWEEP_BATCH)
+                .execute(&self.core.db)
+                .await?;
             total += done.rows_affected();
             if done.rows_affected() < SWEEP_BATCH as u64 {
                 return Ok(total);
@@ -251,16 +280,37 @@ impl Feed {
     pub async fn run_retention(&self) -> AppResult<RetentionReport> {
         let mut report = RetentionReport::default();
         if self.cfg.activity_retention_days > 0 {
-            report.activities = self.sweep("activities", "id", "occurred_at < now() - make_interval(days => $1)", self.cfg.activity_retention_days as i32).await?;
+            report.activities = self
+                .sweep(
+                    "activities",
+                    "id",
+                    "occurred_at < now() - make_interval(days => $1)",
+                    self.cfg.activity_retention_days as i32,
+                )
+                .await?;
         }
         // Seen marks are keyed by (viewer, activity): sweep by the row's physical ID.
         report.story_views = self
-            .sweep("map_story_views", "ctid", "seen_at < now() - make_interval(hours => $1)", self.cfg.map_story_hours as i32 + STORY_VIEW_GRACE_HOURS)
+            .sweep(
+                "map_story_views",
+                "ctid",
+                "seen_at < now() - make_interval(hours => $1)",
+                self.cfg.map_story_hours as i32 + STORY_VIEW_GRACE_HOURS,
+            )
             .await?;
-        report.processed_events = self.sweep("feed_processed_events", "event_id", "processed_at < now() - make_interval(days => $1)", PROCESSED_EVENT_DAYS).await?;
+        report.processed_events = self
+            .sweep(
+                "feed_processed_events",
+                "event_id",
+                "processed_at < now() - make_interval(days => $1)",
+                PROCESSED_EVENT_DAYS,
+            )
+            .await?;
         report.articles = self.prune_articles(SWEEP_BATCH).await?;
         report.interests = self.sweep_faded_interests().await?;
-        report.recap_notices = self.sweep("feed_recap_notices", "ctid", "created_at < now() - make_interval(days => $1)", RECAP_NOTICE_DAYS).await?;
+        report.recap_notices = self
+            .sweep("feed_recap_notices", "ctid", "created_at < now() - make_interval(days => $1)", RECAP_NOTICE_DAYS)
+            .await?;
         Ok(report)
     }
 
@@ -318,7 +368,12 @@ impl DataExporter for FeedExporter {
             user_id,
         )
         .await?;
-        let hidden_kinds = json(core, "SELECT COALESCE(jsonb_agg(kind ORDER BY kind), '[]'::jsonb) FROM activity_hidden_kinds WHERE user_id = $1", user_id).await?;
+        let hidden_kinds = json(
+            core,
+            "SELECT COALESCE(jsonb_agg(kind ORDER BY kind), '[]'::jsonb) FROM activity_hidden_kinds WHERE user_id = $1",
+            user_id,
+        )
+        .await?;
         // What the user watched is theirs; the authors are not told.
         let map_story_views = json(
             core,

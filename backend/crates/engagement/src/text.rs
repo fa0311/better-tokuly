@@ -124,7 +124,12 @@ pub fn blocked_words(input: &[String]) -> AppResult<Vec<String>> {
             words.push(word);
         }
     }
-    ensure!(words.len() <= MAX_BLOCKED_WORDS, invalid, "BLOCKED_WORDS_INVALID", "at most {MAX_BLOCKED_WORDS} blocked words");
+    ensure!(
+        words.len() <= MAX_BLOCKED_WORDS,
+        invalid,
+        "BLOCKED_WORDS_INVALID",
+        "at most {MAX_BLOCKED_WORDS} blocked words"
+    );
     Ok(words)
 }
 
@@ -178,7 +183,12 @@ pub fn single_emoji(input: &str) -> AppResult<String> {
     let single = graphemes.next().is_some() && graphemes.next().is_none();
     let keycap = emoji.ends_with('\u{20E3}') && emoji.starts_with(|c: char| c.is_ascii_digit() || c == '#' || c == '*');
     let pictographic = emoji.chars().any(is_pictograph) && !emoji.chars().any(|c| c.is_alphanumeric());
-    ensure!(single && emoji.len() <= 64 && (keycap || pictographic), invalid, "EMOJI_INVALID", "a reaction is a single emoji");
+    ensure!(
+        single && emoji.len() <= 64 && (keycap || pictographic),
+        invalid,
+        "EMOJI_INVALID",
+        "a reaction is a single emoji"
+    );
     Ok(emoji.to_owned())
 }
 
@@ -230,7 +240,9 @@ pub fn contains_pattern(query: &str) -> Option<String> {
 /// A stable 64-bit fingerprint (FNV-1a) of what makes two comments "the
 /// same" for the duplicate check: the folded text.
 pub fn fingerprint(text: &str) -> u64 {
-    fold(text).bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3))
+    fold(text)
+        .bytes()
+        .fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3))
 }
 
 #[cfg(test)]
@@ -315,7 +327,8 @@ mod tests {
         ] {
             assert!(contains_link(text), "{text}");
         }
-        for text in ["version 1.2.3", "e.g. this", "おはよう。元気?", "3.com", "end of sentence.next", "a..com"] {
+        for text in ["version 1.2.3", "e.g. this", "おはよう。元気?", "3.com", "end of sentence.next", "a..com"]
+        {
             assert!(!contains_link(text), "{text}");
         }
     }

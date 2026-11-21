@@ -12,7 +12,7 @@ import { useMe } from "#/stores/session";
 import { userAdminClient } from "../api";
 import { formatDateTime } from "../format";
 import { ActionList } from "../moderation/action-list";
-import { OwnerRecord } from "../moderation/case-screen";
+import { ModerationRecord } from "../moderation/parts";
 import { useStaffAccess } from "../roles";
 import { ConsolePage, Fact, Section } from "../ui/console-page";
 import { CopyableId } from "../ui/copy";
@@ -73,7 +73,7 @@ export function UserScreen({ userId }: { userId: string }) {
                 </Link>
               }
             >
-              <div className="p-4">{detail.data.moderation ? <OwnerRecord record={detail.data.moderation} /> : <span className="text-sm text-ink-faint">—</span>}</div>
+              <div className="p-4">{detail.data.moderation ? <ModerationRecord record={detail.data.moderation} /> : <span className="text-sm text-ink-faint">—</span>}</div>
             </Section>
             <Section
               title={t("users.recentActions.title")}
@@ -156,7 +156,7 @@ function SuspensionCard({ suspension, onLift }: { suspension: admin.Suspension; 
   return (
     <Section title={t(suspension.permanent ? "users.suspension.banTitle" : "users.suspension.title")} className="border-danger">
       <dl className="divide-y divide-line">
-        <Fact label={t("common.reason")}>
+        <Fact label={t("common.reasonShort")}>
           <span className="whitespace-pre-wrap">{suspension.reason || "—"}</span>
         </Fact>
         <Fact label={t("users.suspension.by")}>

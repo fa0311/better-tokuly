@@ -162,7 +162,11 @@ impl Search {
     /// Removes every document of an owner (account deletion). Their versions
     /// move up to `version`, so nothing published before the deletion can
     /// return.
-    pub(crate) async fn remove_owner_documents<'e, E: PgExecutor<'e>>(executor: E, version: Uuid, owner_id: Uuid) -> AppResult<u64> {
+    pub(crate) async fn remove_owner_documents<'e, E: PgExecutor<'e>>(
+        executor: E,
+        version: Uuid,
+        owner_id: Uuid,
+    ) -> AppResult<u64> {
         let done = sqlx::query(
             "UPDATE search_documents
              SET version = GREATEST(version, $2), owner_id = NULL, doc = NULL,
@@ -193,12 +197,13 @@ impl Search {
     /// document. Returns whether the row held a live document before.
     pub(crate) async fn force_remove(&self, version: Uuid, kind: &str, id: Uuid) -> AppResult<bool> {
         let mut tx = self.core.db.begin().await?;
-        let was_live: Option<bool> =
-            sqlx::query_scalar("SELECT doc IS NOT NULL FROM search_documents WHERE kind = $1 AND doc_id = $2 FOR UPDATE")
-                .bind(kind)
-                .bind(id)
-                .fetch_optional(&mut *tx)
-                .await?;
+        let was_live: Option<bool> = sqlx::query_scalar(
+            "SELECT doc IS NOT NULL FROM search_documents WHERE kind = $1 AND doc_id = $2 FOR UPDATE",
+        )
+        .bind(kind)
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?;
         sqlx::query(REMOVE_SQL).bind(kind).bind(id).bind(version).execute(&mut *tx).await?;
         sqlx::query(
             "UPDATE search_documents SET generation = generation + 1, queued_at = now()

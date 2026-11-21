@@ -77,16 +77,3 @@ export function usePreferenceActions() {
 
   return { setCategory, setQuietHours, pause, resume };
 }
-
-/** Minutes after midnight ⇄ the "HH:MM" of a time input. */
-export function minutesToTime(minutes: number): string {
-  const clamped = ((Math.round(minutes) % 1440) + 1440) % 1440;
-  return `${String(Math.floor(clamped / 60)).padStart(2, "0")}:${String(clamped % 60).padStart(2, "0")}`;
-}
-
-export function timeToMinutes(time: string): number | null {
-  const match = /^(\d{1,2}):(\d{2})/.exec(time);
-  if (!match) return null;
-  const minutes = Number(match[1]) * 60 + Number(match[2]);
-  return minutes >= 0 && minutes < 1440 ? minutes : null;
-}

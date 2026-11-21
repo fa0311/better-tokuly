@@ -90,7 +90,8 @@ impl ReactionService for Engagement {
                 Some(page) => Page::new(page.limit, page.cursor, PAGE, PAGE_MAX),
                 None => Page::new(0, "", PAGE, PAGE_MAX),
             };
-            let (rows, info) = self.reacted_subjects(user_id, request.subject_type.to_i32(), request.kind.to_i32(), &page).await?;
+            let (rows, info) =
+                self.reacted_subjects(user_id, request.subject_type.to_i32(), request.kind.to_i32(), &page).await?;
             let keys: Vec<SubjectKey> = rows.iter().map(ReactedRow::key).collect();
             let resolved = self.subjects(&keys, Some(user_id)).await?;
             let subjects = rows

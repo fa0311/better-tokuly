@@ -9,7 +9,10 @@ use common::*;
 use tokuly_core::storage::Bucket;
 use tokuly_proto::{
     common::Visibility,
-    media::{Asset, AssetPurpose, AssetStatus, CompleteUploadRequest, CompleteUploadResponse, CreateUploadRequest, CreateUploadResponse},
+    media::{
+        Asset, AssetPurpose, AssetStatus, CompleteUploadRequest, CompleteUploadResponse, CreateUploadRequest,
+        CreateUploadResponse,
+    },
     video::*,
 };
 use tokuly_testkit::TestUser;
@@ -40,7 +43,8 @@ async fn upload(ctx: &Ctx, user: &TestUser, file_name: &str, bytes: Vec<u8>) -> 
         size_bytes: bytes.len() as i64,
         ..Default::default()
     };
-    let created: CreateUploadResponse = ctx.app.call("tokuly.media.v1.MediaService/CreateUpload", Some(user), &request).await.expect("CreateUpload");
+    let created: CreateUploadResponse =
+        ctx.app.call("tokuly.media.v1.MediaService/CreateUpload", Some(user), &request).await.expect("CreateUpload");
     assert!(!created.put_url.is_empty(), "small fixtures are single-request uploads");
     let mut put = reqwest::Client::new().put(&created.put_url).body(bytes);
     for (name, value) in &created.put_headers {
@@ -49,7 +53,11 @@ async fn upload(ctx: &Ctx, user: &TestUser, file_name: &str, bytes: Vec<u8>) -> 
     let stored = put.send().await.expect("PUT to object store");
     assert!(stored.status().is_success(), "upload PUT failed: {}", stored.status());
     let request = CompleteUploadRequest { upload_id: created.upload_id.clone(), ..Default::default() };
-    let completed: CompleteUploadResponse = ctx.app.call("tokuly.media.v1.MediaService/CompleteUpload", Some(user), &request).await.expect("CompleteUpload");
+    let completed: CompleteUploadResponse = ctx
+        .app
+        .call("tokuly.media.v1.MediaService/CompleteUpload", Some(user), &request)
+        .await
+        .expect("CompleteUpload");
     completed.asset.as_option().cloned().expect("the uploaded asset")
 }
 
@@ -78,7 +86,12 @@ async fn an_upload_becomes_a_published_video_once_it_is_processed() {
     assert_eq!(asset.status, AssetStatus::ASSET_STATUS_PROCESSING);
 
     // The video can be created (and set up) while the upload is still being processed.
-    let request = CreateVideoRequest { channel_id: channel.summary.id.clone(), asset_id: asset.id.clone(), visibility: Visibility::VISIBILITY_PUBLIC.into(), ..Default::default() };
+    let request = CreateVideoRequest {
+        channel_id: channel.summary.id.clone(),
+        asset_id: asset.id.clone(),
+        visibility: Visibility::VISIBILITY_PUBLIC.into(),
+        ..Default::default()
+    };
     let draft = ctx.create_video(&alice, &request).await.unwrap();
     let video_id = card(&draft).id.clone();
     assert_eq!(card(&draft).title, "はじめての動画", "the title defaults to the file name");
@@ -100,7 +113,10 @@ async fn an_upload_becomes_a_published_video_once_it_is_processed() {
 
     let live = ctx.get_video(Some(&bob), &video_id).await.expect("the video went live");
     let summary = card(&live);
-    assert_eq!((summary.status, summary.processing), (VideoStatus::VIDEO_STATUS_PUBLISHED.into(), ProcessingState::PROCESSING_STATE_READY.into()));
+    assert_eq!(
+        (summary.status, summary.processing),
+        (VideoStatus::VIDEO_STATUS_PUBLISHED.into(), ProcessingState::PROCESSING_STATE_READY.into())
+    );
     assert!((summary.duration_seconds - 2.0).abs() < 0.3, "{}", summary.duration_seconds);
     assert_eq!(summary.thumbnail.as_option().expect("the poster frame").asset_id, asset.id);
     assert!(summary.published_at.as_option().is_some() && !summary.preview_url.is_empty());
@@ -114,9 +130,15 @@ async fn an_upload_becomes_a_published_video_once_it_is_processed() {
     let told = notifications(&ctx, alice.id).await;
     assert_eq!(told.len(), 1);
     assert_eq!((told[0].0.as_str(), told[0].1["published"].as_bool()), ("video.processing_done", Some(true)));
-    let updates: Vec<VideoSummary> = pushes(frames.drain(QUIET).await).into_iter().filter_map(|push| if let Push::VideoUpdated(v) = push { Some(*v) } else { None }).collect();
+    let updates: Vec<VideoSummary> = pushes(frames.drain(QUIET).await)
+        .into_iter()
+        .filter_map(|push| if let Push::VideoUpdated(v) = push { Some(*v) } else { None })
+        .collect();
     assert_eq!(updates.len(), 1);
-    assert_eq!((updates[0].id.as_str(), updates[0].status), (video_id.as_str(), VideoStatus::VIDEO_STATUS_PUBLISHED.into()));
+    assert_eq!(
+        (updates[0].id.as_str(), updates[0].status),
+        (video_id.as_str(), VideoStatus::VIDEO_STATUS_PUBLISHED.into())
+    );
     assert_eq!(ctx.app.events_by("video.video.published", alice.id).await.len(), 1);
 
     // A redelivered event changes nothing.
@@ -142,7 +164,12 @@ async fn a_draft_stays_a_draft_when_its_upload_is_processed() {
         Chapter { start_seconds: 0.0, title: "OP".into(), ..Default::default() },
         Chapter { start_seconds: 600.0, title: "far beyond the end".into(), ..Default::default() },
     ];
-    let request = CreateVideoRequest { channel_id: channel.summary.id.clone(), asset_id: asset.id.clone(), chapters, ..Default::default() };
+    let request = CreateVideoRequest {
+        channel_id: channel.summary.id.clone(),
+        asset_id: asset.id.clone(),
+        chapters,
+        ..Default::default()
+    };
     let draft = ctx.create_video(&alice, &request).await.unwrap();
     assert_eq!(draft.chapters.len(), 2);
 
@@ -150,11 +177,18 @@ async fn a_draft_stays_a_draft_when_its_upload_is_processed() {
     // Nobody delivers the event this time: the worker that catches missed
     // results only looks at videos that have been waiting for a while.
     assert_eq!(videos::reconcile_processing(&ctx.app.core).await.unwrap(), 0);
-    sqlx::query("UPDATE videos SET created_at = now() - interval '5 minutes' WHERE id = $1").bind(id(&card(&draft).id)).execute(&ctx.app.core.db).await.unwrap();
+    sqlx::query("UPDATE videos SET created_at = now() - interval '5 minutes' WHERE id = $1")
+        .bind(id(&card(&draft).id))
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
     assert!(videos::reconcile_processing(&ctx.app.core).await.unwrap() >= 1);
 
     let ready = ctx.get_video(Some(&alice), &card(&draft).id).await.unwrap();
-    assert_eq!((card(&ready).status, card(&ready).processing), (VideoStatus::VIDEO_STATUS_DRAFT.into(), ProcessingState::PROCESSING_STATE_READY.into()));
+    assert_eq!(
+        (card(&ready).status, card(&ready).processing),
+        (VideoStatus::VIDEO_STATUS_DRAFT.into(), ProcessingState::PROCESSING_STATE_READY.into())
+    );
     assert!(ready.playback.as_option().is_some());
     assert!(ready.chapters.is_empty(), "chapters past the end are dropped once the length is known");
     let told = notifications(&ctx, alice.id).await;
@@ -173,7 +207,12 @@ async fn a_failed_upload_fails_the_video_and_cancels_its_publication() {
     let asset = upload(&ctx, &alice, "broken.mp4", bytes).await;
     assert_eq!(asset.status, AssetStatus::ASSET_STATUS_PROCESSING);
 
-    let request = CreateVideoRequest { channel_id: channel.summary.id.clone(), asset_id: asset.id.clone(), title: "壊れてる".into(), ..Default::default() };
+    let request = CreateVideoRequest {
+        channel_id: channel.summary.id.clone(),
+        asset_id: asset.id.clone(),
+        title: "壊れてる".into(),
+        ..Default::default()
+    };
     let draft = ctx.create_video(&alice, &request).await.unwrap();
     let video_id = card(&draft).id.clone();
     ctx.publish(&alice, &video_id).await;
@@ -189,12 +228,19 @@ async fn a_failed_upload_fails_the_video_and_cancels_its_publication() {
     assert!(!failed.studio.as_option().unwrap().processing_error.is_empty());
     let told = notifications(&ctx, alice.id).await;
     assert_eq!(told.iter().map(|(kind, _)| kind.as_str()).collect::<Vec<_>>(), vec!["video.processing_failed"]);
-    assert!(pushes(frames.drain(QUIET).await).iter().any(|push| matches!(push, Push::VideoUpdated(v) if v.processing == ProcessingState::PROCESSING_STATE_FAILED)));
+    assert!(
+        pushes(frames.drain(QUIET).await).iter().any(
+            |push| matches!(push, Push::VideoUpdated(v) if v.processing == ProcessingState::PROCESSING_STATE_FAILED)
+        )
+    );
 
     // It cannot be published, and an upload that already failed cannot become a video.
     let publish = PublishVideoRequest { video_id: video_id.clone(), ..Default::default() };
     assert_eq!(ctx.reason(VIDEOS, "PublishVideo", Some(&alice), &publish).await, "VIDEO_PROCESSING_FAILED");
-    let _: DeleteVideoResponse = ctx.call(VIDEOS, "DeleteVideo", Some(&alice), &DeleteVideoRequest { video_id, ..Default::default() }).await.unwrap();
+    let _: DeleteVideoResponse = ctx
+        .call(VIDEOS, "DeleteVideo", Some(&alice), &DeleteVideoRequest { video_id, ..Default::default() })
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -208,7 +254,15 @@ async fn a_live_archive_becomes_a_video_through_the_rust_api() {
     let recording = fixture(dir.path(), 1).await;
 
     // What the live domain does when a stream ends.
-    let archive = tokuly_media::create_asset_from_file(core, alice.id, AssetPurpose::ASSET_PURPOSE_LIVE_ARCHIVE, &recording, "配信アーカイブ.mp4").await.unwrap();
+    let archive = tokuly_media::create_asset_from_file(
+        core,
+        alice.id,
+        AssetPurpose::ASSET_PURPOSE_LIVE_ARCHIVE,
+        &recording,
+        "配信アーカイブ.mp4",
+    )
+    .await
+    .unwrap();
     let stream_id = uuid::Uuid::now_v7();
     let new = NewVideo {
         description: "ライブ配信のアーカイブだよ!".into(),
@@ -234,21 +288,46 @@ async fn a_live_archive_becomes_a_video_through_the_rust_api() {
     ctx.media.process_now(archive.id).await.unwrap();
     ctx.deliver("media.asset.ready", alice.id).await;
     let live = ctx.get_video(None, &video_id.to_string()).await.expect("the archive is public");
-    assert_eq!((card(&live).origin, card(&live).status), (VideoOrigin::VIDEO_ORIGIN_LIVE_ARCHIVE.into(), VideoStatus::VIDEO_STATUS_PUBLISHED.into()));
-    assert_eq!(ctx.get_video(Some(&alice), &video_id.to_string()).await.unwrap().studio.as_option().unwrap().origin_id, stream_id.to_string());
+    assert_eq!(
+        (card(&live).origin, card(&live).status),
+        (VideoOrigin::VIDEO_ORIGIN_LIVE_ARCHIVE.into(), VideoStatus::VIDEO_STATUS_PUBLISHED.into())
+    );
+    assert_eq!(
+        ctx.get_video(Some(&alice), &video_id.to_string()).await.unwrap().studio.as_option().unwrap().origin_id,
+        stream_id.to_string()
+    );
 
     // Archives have their own row on the channel page and can be listed on their own.
-    let home: GetChannelPageResponse = ctx.call(CHANNELS, "GetChannelPage", None, &GetChannelPageRequest { channel_id: channel.summary.id.clone(), ..Default::default() }).await.unwrap();
-    let archives = home.sections.iter().find(|section| section.kind == ChannelSectionKind::CHANNEL_SECTION_KIND_LIVE_ARCHIVES).expect("an archives section");
+    let home: GetChannelPageResponse = ctx
+        .call(
+            CHANNELS,
+            "GetChannelPage",
+            None,
+            &GetChannelPageRequest { channel_id: channel.summary.id.clone(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    let archives = home
+        .sections
+        .iter()
+        .find(|section| section.kind == ChannelSectionKind::CHANNEL_SECTION_KIND_LIVE_ARCHIVES)
+        .expect("an archives section");
     assert_eq!(titles(&archives.videos), vec!["深夜の雑談配信"]);
     let upload = ctx.public_video(&alice, &channel, "ふつうの動画").await;
-    let only = |origin: VideoOrigin| ListChannelVideosRequest { channel_id: channel.summary.id.clone(), origin: origin.into(), ..Default::default() };
-    let listed: ListChannelVideosResponse = ctx.call(CHANNELS, "ListChannelVideos", None, &only(VideoOrigin::VIDEO_ORIGIN_LIVE_ARCHIVE)).await.unwrap();
+    let only = |origin: VideoOrigin| ListChannelVideosRequest {
+        channel_id: channel.summary.id.clone(),
+        origin: origin.into(),
+        ..Default::default()
+    };
+    let listed: ListChannelVideosResponse =
+        ctx.call(CHANNELS, "ListChannelVideos", None, &only(VideoOrigin::VIDEO_ORIGIN_LIVE_ARCHIVE)).await.unwrap();
     assert_eq!(titles(&listed.videos), vec!["深夜の雑談配信"]);
-    let listed: ListChannelVideosResponse = ctx.call(CHANNELS, "ListChannelVideos", None, &only(VideoOrigin::VIDEO_ORIGIN_UPLOAD)).await.unwrap();
+    let listed: ListChannelVideosResponse =
+        ctx.call(CHANNELS, "ListChannelVideos", None, &only(VideoOrigin::VIDEO_ORIGIN_UPLOAD)).await.unwrap();
     assert_eq!(titles(&listed.videos), vec![card(&upload).title.as_str()]);
 
     // `find` resolves both ID forms for other domains.
-    let by_short = videos::find(core, &tokuly_core::ids::Ref::parse(&card(&live).short_id).unwrap()).await.unwrap().unwrap();
+    let by_short =
+        videos::find(core, &tokuly_core::ids::Ref::parse(&card(&live).short_id).unwrap()).await.unwrap().unwrap();
     assert_eq!(by_short.id, video_id);
 }

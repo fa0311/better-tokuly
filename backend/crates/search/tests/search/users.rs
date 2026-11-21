@@ -9,7 +9,11 @@ use crate::common::*;
 
 /// Searches the user tab.
 async fn find_users(ctx: &Ctx, query: &str) -> SearchResponse {
-    ctx.search(None, &SearchRequest { query: query.to_owned(), kind: SearchKind::SEARCH_KIND_USER.into(), ..Default::default() }).await
+    ctx.search(
+        None,
+        &SearchRequest { query: query.to_owned(), kind: SearchKind::SEARCH_KIND_USER.into(), ..Default::default() },
+    )
+    .await
 }
 
 async fn set_profile(ctx: &Ctx, user: &TestUser, display_name: &str, bio: &str) {
@@ -147,8 +151,15 @@ async fn a_deleted_account_takes_its_documents_and_history_with_it() {
     ctx.index(std::slice::from_ref(&others)).await;
     ctx.find(Some(&leaver), &word).await; // remembered in their history
     assert_eq!(ctx.recent(&leaver).await.searches.len(), 1);
-    let _: SetHistoryPausedResponse =
-        ctx.call(SEARCH, "SetHistoryPaused", Some(&leaver), &SetHistoryPausedRequest { paused: true, ..Default::default() }).await.unwrap();
+    let _: SetHistoryPausedResponse = ctx
+        .call(
+            SEARCH,
+            "SetHistoryPaused",
+            Some(&leaver),
+            &SetHistoryPausedRequest { paused: true, ..Default::default() },
+        )
+        .await
+        .unwrap();
 
     // Identity purges the account and announces it.
     sqlx::query("UPDATE users SET deletion_scheduled_at = now() - interval '1 minute' WHERE id = $1")
@@ -189,7 +200,8 @@ async fn a_deleted_account_takes_its_documents_and_history_with_it() {
 #[tokio::test]
 async fn the_user_reindex_backfills_everyone_who_may_be_found() {
     let ctx = start().await;
-    let (visible, hidden, banned) = (ctx.app.user("visible").await, ctx.app.user("hidden").await, ctx.app.user("banned").await);
+    let (visible, hidden, banned) =
+        (ctx.app.user("visible").await, ctx.app.user("hidden").await, ctx.app.user("banned").await);
     let word = unique("backfill");
     for user in [&visible, &hidden, &banned] {
         set_profile(&ctx, user, &format!("{word} {}", handle_suffix(user)), "").await;
@@ -197,7 +209,11 @@ async fn the_user_reindex_backfills_everyone_who_may_be_found() {
     // `hidden` was searchable once, and has hidden since without the event
     // ever reaching us.
     ctx.index_user(&hidden).await;
-    sqlx::query("UPDATE users SET privacy = '{\"discoverable\": false}' WHERE id = $1").bind(hidden.id).execute(&ctx.app.core.db).await.unwrap();
+    sqlx::query("UPDATE users SET privacy = '{\"discoverable\": false}' WHERE id = $1")
+        .bind(hidden.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
     ctx.app.identity.set_banned(banned.id, Some("spam")).await.unwrap();
 
     // None of them was ever announced by an event.
@@ -222,7 +238,13 @@ async fn the_user_reindex_backfills_everyone_who_may_be_found() {
 async fn an_event_about_an_unknown_user_is_harmless() {
     let ctx = start().await;
     let nobody = Uuid::now_v7();
-    for topic in ["identity.user.created", "identity.user.updated", "identity.user.banned", "identity.user.unbanned", "identity.user.deleted"] {
+    for topic in [
+        "identity.user.created",
+        "identity.user.updated",
+        "identity.user.banned",
+        "identity.user.unbanned",
+        "identity.user.deleted",
+    ] {
         ctx.deliver(event(topic, user_ref(nobody))).await;
     }
     ctx.flush().await;

@@ -76,7 +76,9 @@ fn ai_refused() -> AppError {
 /// How a tone is described to the model.
 fn tone_instruction(tone: pb::RewriteTone) -> Option<&'static str> {
     Some(match tone {
-        pb::RewriteTone::REWRITE_TONE_CASUAL => "casual and relaxed, the way close friends text each other (in Japanese: タメ口)",
+        pb::RewriteTone::REWRITE_TONE_CASUAL => {
+            "casual and relaxed, the way close friends text each other (in Japanese: タメ口)"
+        }
         pb::RewriteTone::REWRITE_TONE_POLITE => "polite and respectful (in Japanese: です・ます調, 敬語 where it fits)",
         pb::RewriteTone::REWRITE_TONE_CUTE => "sweet, playful and cute (in Japanese: かわいい感じ)",
         pb::RewriteTone::REWRITE_TONE_FUNNY => "funny, with a light joke or a playful twist",
@@ -91,7 +93,8 @@ fn tone_instruction(tone: pb::RewriteTone) -> Option<&'static str> {
 }
 
 fn object_schema(properties: serde_json::Value) -> serde_json::Value {
-    let required: Vec<String> = properties.as_object().map(|object| object.keys().cloned().collect()).unwrap_or_default();
+    let required: Vec<String> =
+        properties.as_object().map(|object| object.keys().cloned().collect()).unwrap_or_default();
     serde_json::json!({ "type": "object", "properties": properties, "required": required, "additionalProperties": false })
 }
 
@@ -142,7 +145,11 @@ impl Assistant {
             return Ok(None);
         }
         let timeout = Duration::from_secs(cfg.ai_timeout_seconds);
-        let http = reqwest::Client::builder().user_agent("Tokuly/1.0").timeout(timeout).build().map_err(|e| anyhow::anyhow!("AI http client: {e}"))?;
+        let http = reqwest::Client::builder()
+            .user_agent("Tokuly/1.0")
+            .timeout(timeout)
+            .build()
+            .map_err(|e| anyhow::anyhow!("AI http client: {e}"))?;
         Ok(Some(Self {
             http,
             endpoint: format!("{}/v1/messages", cfg.anthropic_base_url.trim_end_matches('/')),
@@ -186,7 +193,8 @@ impl Assistant {
         if self.refusal_fallback {
             request = request.header("anthropic-beta", FALLBACK_BETA);
         }
-        let response = request.json(body).send().await.map_err(|e| Failure::Transient(format!("request failed: {e}")))?;
+        let response =
+            request.json(body).send().await.map_err(|e| Failure::Transient(format!("request failed: {e}")))?;
         let status = response.status();
         let bytes = response.bytes().await.map_err(|e| Failure::Transient(format!("answer could not be read: {e}")))?;
         if status.is_success() {
@@ -269,7 +277,8 @@ fn parse_answer<T: DeserializeOwned>(answer: &serde_json::Value) -> Result<T, Fa
                 .collect()
         })
         .unwrap_or_default();
-    serde_json::from_str(text.trim()).map_err(|e| Failure::Permanent(format!("the answer is not the requested JSON: {e}")))
+    serde_json::from_str(text.trim())
+        .map_err(|e| Failure::Permanent(format!("the answer is not the requested JSON: {e}")))
 }
 
 /// A cache key for the translation of `text` into `language`.
@@ -301,19 +310,36 @@ impl Chat {
     }
 
     async fn limit_assist(&self, user_id: Uuid) -> AppResult<()> {
-        self.core.cache.rate_limit(&format!("chat-ai:{user_id}"), self.cfg.ai_hourly_limit, Duration::from_secs(3600)).await
+        self.core
+            .cache
+            .rate_limit(&format!("chat-ai:{user_id}"), self.cfg.ai_hourly_limit, Duration::from_secs(3600))
+            .await
     }
 
     /// Rewrites a draft in another tone. Sends the draft to the AI service.
-    pub(crate) async fn rewrite_draft(&self, user_id: Uuid, text: &str, tone: Option<pb::RewriteTone>) -> AppResult<String> {
+    pub(crate) async fn rewrite_draft(
+        &self,
+        user_id: Uuid,
+        text: &str,
+        tone: Option<pb::RewriteTone>,
+    ) -> AppResult<String> {
         let assistant = self.assistant()?;
         let text = text.trim();
         ensure!(!text.is_empty(), invalid, "TEXT_EMPTY", "there is nothing to rewrite");
-        ensure!(text.chars().count() <= MAX_DRAFT_CHARS, invalid, "TEXT_TOO_LONG", "a draft can be at most {MAX_DRAFT_CHARS} characters");
-        let tone = tone.and_then(tone_instruction).ok_or_else(|| AppError::invalid("TONE_INVALID", "choose a tone to rewrite in"))?;
+        ensure!(
+            text.chars().count() <= MAX_DRAFT_CHARS,
+            invalid,
+            "TEXT_TOO_LONG",
+            "a draft can be at most {MAX_DRAFT_CHARS} characters"
+        );
+        let tone = tone
+            .and_then(tone_instruction)
+            .ok_or_else(|| AppError::invalid("TONE_INVALID", "choose a tone to rewrite in"))?;
         self.limit_assist(user_id).await?;
         let prompt = format!("Tone: {tone}\n\n<draft>\n{text}\n</draft>");
-        let schema = object_schema(serde_json::json!({ "text": { "type": "string", "description": "The rewritten draft, ready to send." } }));
+        let schema = object_schema(
+            serde_json::json!({ "text": { "type": "string", "description": "The rewritten draft, ready to send." } }),
+        );
         let rewritten: Rewritten = assistant.complete(REWRITE_SYSTEM, &prompt, schema).await?;
         let rewritten = rewritten.text.trim();
         if rewritten.is_empty() {
@@ -362,13 +388,26 @@ impl Chat {
 
     /// Translates the text of a message: `(translation, source language,
     /// target language)`. Sends the text of that message to the AI service.
-    pub(crate) async fn translate_message(&self, user_id: Uuid, message_id: Uuid, target_language: &str) -> AppResult<(String, String, String)> {
+    pub(crate) async fn translate_message(
+        &self,
+        user_id: Uuid,
+        message_id: Uuid,
+        target_language: &str,
+    ) -> AppResult<(String, String, String)> {
         let assistant = self.assistant()?;
         let (_, row) = self.message_access(user_id, message_id).await?;
-        ensure!(!row.is_deleted() && !row.text.trim().is_empty(), precondition, "NOTHING_TO_TRANSLATE", "this message has no text");
+        ensure!(
+            !row.is_deleted() && !row.text.trim().is_empty(),
+            precondition,
+            "NOTHING_TO_TRANSLATE",
+            "this message has no text"
+        );
         let target = if target_language.trim().is_empty() {
             // The language of the caller's account.
-            let locale: Option<String> = sqlx::query_scalar("SELECT locale FROM users WHERE id = $1").bind(user_id).fetch_optional(&self.core.db).await?;
+            let locale: Option<String> = sqlx::query_scalar("SELECT locale FROM users WHERE id = $1")
+                .bind(user_id)
+                .fetch_optional(&self.core.db)
+                .await?;
             locale.and_then(|locale| content::normalize_language_tag(&locale).ok()).unwrap_or_else(|| "ja".to_owned())
         } else {
             content::normalize_language_tag(target_language)?
@@ -478,7 +517,15 @@ mod tests {
 
     #[test]
     fn suggestions_are_tidied() {
-        let replies = vec!["  いいね！ ".to_owned(), String::new(), "いいね！".to_owned(), "x".repeat(201), "また今度".to_owned(), "了解".to_owned(), "四つ目".to_owned()];
+        let replies = vec![
+            "  いいね！ ".to_owned(),
+            String::new(),
+            "いいね！".to_owned(),
+            "x".repeat(201),
+            "また今度".to_owned(),
+            "了解".to_owned(),
+            "四つ目".to_owned(),
+        ];
         assert_eq!(tidy_suggestions(replies), vec!["いいね！", "また今度", "了解"]);
     }
 

@@ -93,13 +93,14 @@ impl Chat {
         if present.is_empty() {
             return Ok(Vec::new());
         }
-        let mut accepted: Vec<Uuid> =
-            sqlx::query_scalar("SELECT user_id FROM chat_members WHERE conversation_id = $1 AND request_state = $2 AND user_id = ANY($3)")
-                .bind(conversation_id)
-                .bind(request::ACCEPTED)
-                .bind(&present)
-                .fetch_all(&self.core.db)
-                .await?;
+        let mut accepted: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT user_id FROM chat_members WHERE conversation_id = $1 AND request_state = $2 AND user_id = ANY($3)",
+        )
+        .bind(conversation_id)
+        .bind(request::ACCEPTED)
+        .bind(&present)
+        .fetch_all(&self.core.db)
+        .await?;
         let privacy = settings::privacy_of_many(&self.core, &accepted).await?;
         accepted.retain(|user_id| privacy.get(user_id).is_none_or(|privacy| privacy.share_online_status));
         accepted.sort_unstable();
@@ -127,7 +128,12 @@ impl Chat {
     pub async fn handle_conversation_presence(&self, signal: ConversationPresenceSignal) -> AppResult<()> {
         let core = &self.core;
         let ConversationPresenceSignal { user_id, conversation_id, present } = signal;
-        if core.cache.rate_limit(&format!("chat-presence:{user_id}"), PRESENCE_SIGNALS_PER_MINUTE, Duration::from_secs(60)).await.is_err() {
+        if core
+            .cache
+            .rate_limit(&format!("chat-presence:{user_id}"), PRESENCE_SIGNALS_PER_MINUTE, Duration::from_secs(60))
+            .await
+            .is_err()
+        {
             return Ok(());
         }
         let Some(member) = access::find_member(core, conversation_id, user_id).await? else { return Ok(()) };
@@ -137,20 +143,38 @@ impl Chat {
         let key = presence_key(conversation_id);
         let now = Utc::now().timestamp();
         let mut conn = core.cache.conn();
-        let previous: Option<i64> = redis::cmd("ZSCORE").arg(&key).arg(user_id.to_string()).query_async(&mut conn).await?;
+        let previous: Option<i64> =
+            redis::cmd("ZSCORE").arg(&key).arg(user_id.to_string()).query_async(&mut conn).await?;
         let was_present = previous.is_some_and(|expires| expires > now);
         if present {
             let expires = now + PRESENCE_TTL_SECONDS;
             redis::pipe()
-                .cmd("ZADD").arg(&key).arg(expires).arg(user_id.to_string()).ignore()
-                .cmd("EXPIRE").arg(&key).arg(PRESENCE_TTL_SECONDS * 2).ignore()
-                .cmd("ZADD").arg(self.due_key()).arg(expires).arg(due_member(conversation_id, user_id)).ignore()
+                .cmd("ZADD")
+                .arg(&key)
+                .arg(expires)
+                .arg(user_id.to_string())
+                .ignore()
+                .cmd("EXPIRE")
+                .arg(&key)
+                .arg(PRESENCE_TTL_SECONDS * 2)
+                .ignore()
+                .cmd("ZADD")
+                .arg(self.due_key())
+                .arg(expires)
+                .arg(due_member(conversation_id, user_id))
+                .ignore()
                 .query_async::<()>(&mut conn)
                 .await?;
         } else {
             redis::pipe()
-                .cmd("ZREM").arg(&key).arg(user_id.to_string()).ignore()
-                .cmd("ZREM").arg(self.due_key()).arg(due_member(conversation_id, user_id)).ignore()
+                .cmd("ZREM")
+                .arg(&key)
+                .arg(user_id.to_string())
+                .ignore()
+                .cmd("ZREM")
+                .arg(self.due_key())
+                .arg(due_member(conversation_id, user_id))
+                .ignore()
                 .query_async::<()>(&mut conn)
                 .await?;
         }
@@ -165,8 +189,13 @@ impl Chat {
         let forgotten: AppResult<()> = async {
             let mut conn = self.core.cache.conn();
             let (removed,): (i64,) = redis::pipe()
-                .cmd("ZREM").arg(presence_key(conversation_id)).arg(user_id.to_string())
-                .cmd("ZREM").arg(self.due_key()).arg(due_member(conversation_id, user_id)).ignore()
+                .cmd("ZREM")
+                .arg(presence_key(conversation_id))
+                .arg(user_id.to_string())
+                .cmd("ZREM")
+                .arg(self.due_key())
+                .arg(due_member(conversation_id, user_id))
+                .ignore()
                 .query_async(&mut conn)
                 .await?;
             if removed > 0 {
@@ -186,13 +215,23 @@ impl Chat {
         let core = &self.core;
         let now = Utc::now().timestamp();
         let mut conn = core.cache.conn();
-        let due: Vec<String> = redis::Script::new(POP_DUE).key(self.due_key()).arg(now).arg(500).invoke_async(&mut conn).await?;
-        let mut conversations: Vec<Uuid> = due.iter().filter_map(|member| parse_due_member(member)).map(|(conversation_id, _)| conversation_id).collect();
+        let due: Vec<String> =
+            redis::Script::new(POP_DUE).key(self.due_key()).arg(now).arg(500).invoke_async(&mut conn).await?;
+        let mut conversations: Vec<Uuid> = due
+            .iter()
+            .filter_map(|member| parse_due_member(member))
+            .map(|(conversation_id, _)| conversation_id)
+            .collect();
         conversations.sort_unstable();
         conversations.dedup();
         for conversation_id in &conversations {
             // Only what really ran out: a signal repeated since has a later score.
-            redis::cmd("ZREMRANGEBYSCORE").arg(presence_key(*conversation_id)).arg("-inf").arg(now).query_async::<()>(&mut conn).await?;
+            redis::cmd("ZREMRANGEBYSCORE")
+                .arg(presence_key(*conversation_id))
+                .arg("-inf")
+                .arg(now)
+                .query_async::<()>(&mut conn)
+                .await?;
             self.push_presence(*conversation_id).await?;
         }
         Ok(conversations.len())
@@ -204,7 +243,12 @@ impl Chat {
     pub async fn handle_typing(&self, signal: TypingSignal) -> AppResult<()> {
         let core = &self.core;
         let TypingSignal { user_id, conversation_id, typing } = signal;
-        if core.cache.rate_limit(&format!("chat-typing:{user_id}"), TYPING_SIGNALS_PER_MINUTE, Duration::from_secs(60)).await.is_err() {
+        if core
+            .cache
+            .rate_limit(&format!("chat-typing:{user_id}"), TYPING_SIGNALS_PER_MINUTE, Duration::from_secs(60))
+            .await
+            .is_err()
+        {
             return Ok(());
         }
         let Ok(access) = self.access(user_id, conversation_id).await else { return Ok(()) };
@@ -215,22 +259,31 @@ impl Chat {
         // People in a block with the typist hear nothing from them.
         let hidden = graph::blocked_ids_either(core, user_id).await?;
         recipients.retain(|recipient| *recipient != user_id && !hidden.contains(recipient));
-        let event =
-            pb::TypingChanged { conversation_id: conversation_id.to_string(), user_id: user_id.to_string(), typing, ..Default::default() };
+        let event = pb::TypingChanged {
+            conversation_id: conversation_id.to_string(),
+            user_id: user_id.to_string(),
+            typing,
+            ..Default::default()
+        };
         self.push_to(recipients, event).await;
         Ok(())
     }
 
     /// Consumes typing signals until shutdown.
     pub(crate) async fn run_typing_fanout(&self) {
-        self.run_signal_consumer(TYPING_SUBJECT, TYPING_QUEUE, |chat, signal: TypingSignal| async move { chat.handle_typing(signal).await }).await;
+        self.run_signal_consumer(TYPING_SUBJECT, TYPING_QUEUE, |chat, signal: TypingSignal| async move {
+            chat.handle_typing(signal).await
+        })
+        .await;
     }
 
     /// Consumes co-presence signals until shutdown.
     pub(crate) async fn run_presence_fanout(&self) {
-        self.run_signal_consumer(CONVERSATION_PRESENCE_SUBJECT, PRESENCE_QUEUE, |chat, signal: ConversationPresenceSignal| async move {
-            chat.handle_conversation_presence(signal).await
-        })
+        self.run_signal_consumer(
+            CONVERSATION_PRESENCE_SUBJECT,
+            PRESENCE_QUEUE,
+            |chat, signal: ConversationPresenceSignal| async move { chat.handle_conversation_presence(signal).await },
+        )
         .await;
     }
 

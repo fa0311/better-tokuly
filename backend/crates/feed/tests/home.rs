@@ -10,8 +10,16 @@ use tokuly_testkit::TestUser;
 use uuid::Uuid;
 
 /// An entry of `kind` about a piece of content.
-fn about(user: &TestUser, kind: &str, subject_type: SubjectType, subject_id: Uuid) -> tokuly_core::outbound::ActivityEntry {
-    entry(user, kind, ActivityAudience::Friends).subject(subject_type, subject_id).path(format!("/x/{subject_id}")).image("https://cdn.example/thumb.webp")
+fn about(
+    user: &TestUser,
+    kind: &str,
+    subject_type: SubjectType,
+    subject_id: Uuid,
+) -> tokuly_core::outbound::ActivityEntry {
+    entry(user, kind, ActivityAudience::Friends)
+        .subject(subject_type, subject_id)
+        .path(format!("/x/{subject_id}"))
+        .image("https://cdn.example/thumb.webp")
 }
 
 fn types_of(cards: &[ActivityCard]) -> Vec<ActivityCardType> {
@@ -22,7 +30,12 @@ fn types_of(cards: &[ActivityCard]) -> Vec<ActivityCardType> {
 async fn the_home_feed_is_made_of_typed_cards() {
     use ActivityCardType as T;
     let ctx = start().await;
-    let (me, anna, ben, stranger) = (ctx.app.user("me").await, ctx.app.user("anna").await, ctx.app.user("ben").await, ctx.app.user("stranger").await);
+    let (me, anna, ben, stranger) = (
+        ctx.app.user("me").await,
+        ctx.app.user("anna").await,
+        ctx.app.user("ben").await,
+        ctx.app.user("stranger").await,
+    );
     ctx.befriend(&me, &anna).await;
     ctx.befriend(&me, &ben).await;
 
@@ -34,7 +47,12 @@ async fn the_home_feed_is_made_of_typed_cards() {
         ctx.record(about(&ben, "short.posted", SubjectType::SUBJECT_TYPE_SHORT, Uuid::now_v7()), 60).await,
         ctx.record(bump(&anna, &stranger, 35.0, 139.0), 50).await,
         ctx.record(about(&ben, "geo.new_place", SubjectType::SUBJECT_TYPE_PLACE, Uuid::now_v7()), 40).await,
-        ctx.record(entry(&anna, "geo.new_region", ActivityAudience::Friends).data(serde_json::json!({ "region_name": "北海道" })), 30).await,
+        ctx.record(
+            entry(&anna, "geo.new_region", ActivityAudience::Friends)
+                .data(serde_json::json!({ "region_name": "北海道" })),
+            30,
+        )
+        .await,
         ctx.record(about(&ben, "stamp.pack.published", SubjectType::SUBJECT_TYPE_STAMP_PACK, Uuid::now_v7()), 20).await,
         ctx.record(note(&anna), 10).await,
     ];
@@ -71,7 +89,10 @@ async fn the_home_feed_is_made_of_typed_cards() {
     let video_card = feed[7].activity.as_option().unwrap();
     assert_eq!(video_card.kind, "video.published");
     let subject = video_card.subject.as_option().unwrap();
-    assert_eq!((subject.r#type.as_known(), subject.id.as_str()), (Some(SubjectType::SUBJECT_TYPE_VIDEO), video.to_string().as_str()));
+    assert_eq!(
+        (subject.r#type.as_known(), subject.id.as_str()),
+        (Some(SubjectType::SUBJECT_TYPE_VIDEO), video.to_string().as_str())
+    );
     assert_eq!(video_card.actor.as_option().unwrap().id, ben.id.to_string());
     assert_eq!(video_card.summary, "video.published しました");
     assert_eq!(video_card.image_url, "https://cdn.example/thumb.webp");
@@ -79,9 +100,17 @@ async fn the_home_feed_is_made_of_typed_cards() {
     assert!(video_card.occurred_at.as_option().is_some());
 
     // Signed-in users only; cursors are checked.
-    let anonymous = ctx.call::<_, ListHomeFeedResponse>(HOME, "ListHomeFeed", None, &ListHomeFeedRequest::default()).await;
+    let anonymous =
+        ctx.call::<_, ListHomeFeedResponse>(HOME, "ListHomeFeed", None, &ListHomeFeedRequest::default()).await;
     assert_eq!(anonymous.unwrap_err().code, "unauthenticated");
-    let bad = ctx.call::<_, ListHomeFeedResponse>(HOME, "ListHomeFeed", Some(&me), &ListHomeFeedRequest { page: page(5, "garbage").into(), ..Default::default() }).await;
+    let bad = ctx
+        .call::<_, ListHomeFeedResponse>(
+            HOME,
+            "ListHomeFeed",
+            Some(&me),
+            &ListHomeFeedRequest { page: page(5, "garbage").into(), ..Default::default() },
+        )
+        .await;
     assert_eq!(bad.unwrap_err().reason, "INVALID_CURSOR");
     assert!(ctx.home_feed(&stranger).await.is_empty(), "no friends, no home feed");
 }
@@ -89,7 +118,8 @@ async fn the_home_feed_is_made_of_typed_cards() {
 #[tokio::test]
 async fn duplicates_of_the_same_event_or_content_become_one_card() {
     let ctx = start().await;
-    let (me, anna, ben, carol) = (ctx.app.user("me").await, ctx.app.user("anna").await, ctx.app.user("ben").await, ctx.app.user("carol").await);
+    let (me, anna, ben, carol) =
+        (ctx.app.user("me").await, ctx.app.user("anna").await, ctx.app.user("ben").await, ctx.app.user("carol").await);
     for friend in [&anna, &ben] {
         ctx.befriend(&me, friend).await;
     }
@@ -107,7 +137,11 @@ async fn duplicates_of_the_same_event_or_content_become_one_card() {
     let feed = ctx.home_feed(&me).await;
     let heads: Vec<&str> = feed.iter().map(head_of).collect();
     let kept_bump = if anna.id < ben.id { anna_side } else { ben_side };
-    assert_eq!(heads, [kept_bump, renoted, with_carol].map(|id| id.to_string()), "one card per bump, the newest card per note");
+    assert_eq!(
+        heads,
+        [kept_bump, renoted, with_carol].map(|id| id.to_string()),
+        "one card per bump, the newest card per note"
+    );
     let _ = posted;
 
     // The friends' feed is the complete log: it keeps all five.
@@ -123,7 +157,8 @@ async fn duplicates_of_the_same_event_or_content_become_one_card() {
 #[tokio::test]
 async fn bursts_collapse_and_one_persons_cards_are_spread_out() {
     let ctx = start().await;
-    let (me, anna, ben, carol) = (ctx.app.user("me").await, ctx.app.user("anna").await, ctx.app.user("ben").await, ctx.app.user("carol").await);
+    let (me, anna, ben, carol) =
+        (ctx.app.user("me").await, ctx.app.user("anna").await, ctx.app.user("ben").await, ctx.app.user("carol").await);
     for friend in [&anna, &ben, &carol] {
         ctx.befriend(&me, friend).await;
     }
@@ -139,8 +174,10 @@ async fn bursts_collapse_and_one_persons_cards_are_spread_out() {
         anna_cards.push(ctx.record(about(&anna, kind, subject, Uuid::now_v7()), minutes_ago).await);
     }
     // Before that, Ben and Carol each did one thing; and Ben posted three notes in a burst.
-    let ben_video = ctx.record(about(&ben, "video.published", SubjectType::SUBJECT_TYPE_VIDEO, Uuid::now_v7()), 60).await;
-    let carol_story = ctx.record(about(&carol, "story.posted", SubjectType::SUBJECT_TYPE_STORY, Uuid::now_v7()), 70).await;
+    let ben_video =
+        ctx.record(about(&ben, "video.published", SubjectType::SUBJECT_TYPE_VIDEO, Uuid::now_v7()), 60).await;
+    let carol_story =
+        ctx.record(about(&carol, "story.posted", SubjectType::SUBJECT_TYPE_STORY, Uuid::now_v7()), 70).await;
     let mut ben_notes = Vec::new();
     for minutes_ago in [130, 110, 90] {
         ben_notes.push(ctx.record(note(&ben), minutes_ago).await);
@@ -149,7 +186,11 @@ async fn bursts_collapse_and_one_persons_cards_are_spread_out() {
     let feed = ctx.home_feed(&me).await;
     assert_eq!(feed.len(), 8, "five of Anna's, Ben's video, Carol's story, Ben's burst of notes");
     let actors: Vec<Uuid> = feed.iter().map(actor_of).collect();
-    assert_eq!(actors, vec![anna.id, ben.id, anna.id, carol.id, anna.id, ben.id, anna.id, anna.id], "other people's cards are pulled between Anna's");
+    assert_eq!(
+        actors,
+        vec![anna.id, ben.id, anna.id, carol.id, anna.id, ben.id, anna.id, anna.id],
+        "other people's cards are pulled between Anna's"
+    );
     // Anna's own cards keep their order, newest first.
     let annas: Vec<&str> = feed.iter().filter(|card| actor_of(card) == anna.id).map(head_of).collect();
     assert_eq!(annas, anna_cards.iter().rev().map(Uuid::to_string).collect::<Vec<_>>());
@@ -172,8 +213,16 @@ async fn paging_through_the_home_feed_shows_every_card_exactly_once() {
     // 23 cards, two hours apart so nothing collapses; one friend is much busier than the others.
     let mut all = HashSet::new();
     for n in 0..23_i64 {
-        let author = &friends[if n % 5 == 0 { 1 } else if n % 7 == 0 { 2 } else { 0 }];
-        let id = ctx.record(about(author, "video.published", SubjectType::SUBJECT_TYPE_VIDEO, Uuid::now_v7()), n * 120 + 1).await;
+        let author = &friends[if n % 5 == 0 {
+            1
+        } else if n % 7 == 0 {
+            2
+        } else {
+            0
+        }];
+        let id = ctx
+            .record(about(author, "video.published", SubjectType::SUBJECT_TYPE_VIDEO, Uuid::now_v7()), n * 120 + 1)
+            .await;
         all.insert(id.to_string());
     }
 
@@ -181,7 +230,15 @@ async fn paging_through_the_home_feed_shows_every_card_exactly_once() {
     let mut cursor = String::new();
     let mut pages = 0;
     loop {
-        let response: ListHomeFeedResponse = ctx.call(HOME, "ListHomeFeed", Some(&me), &ListHomeFeedRequest { page: page(5, &cursor).into(), ..Default::default() }).await.unwrap();
+        let response: ListHomeFeedResponse = ctx
+            .call(
+                HOME,
+                "ListHomeFeed",
+                Some(&me),
+                &ListHomeFeedRequest { page: page(5, &cursor).into(), ..Default::default() },
+            )
+            .await
+            .unwrap();
         pages += 1;
         assert!(response.cards.len() <= 5);
         seen.extend(response.cards.iter().map(|card| head_of(card).to_owned()));

@@ -5,7 +5,7 @@ import type { notify } from "@tokuly/api";
  * The inbox as it sits in the query cache, and the pure edits that keep it in
  * step with what the user does and what the realtime connection reports.
  */
-export type InboxPages = InfiniteData<notify.ListNotificationsResponse, string>;
+export type InboxPages = InfiniteData<notify.ListNotificationsResponse>;
 
 /** Which entries a view of the inbox shows. */
 export interface InboxFilter {
@@ -14,7 +14,8 @@ export interface InboxFilter {
   unreadOnly: boolean;
 }
 
-export const PAGE_SIZE = 30;
+/** Entries fetched per page: a few screens' worth; the next page loads before the end is reached. */
+export const PAGE_SIZE = 20;
 
 type Entry = notify.Notification;
 
@@ -56,6 +57,6 @@ export function withRead(pages: InboxPages, ids: ReadonlySet<string> | "all", fi
 /** Entries were deleted: specific ones, or (cleared) all / all read ones of a category. */
 export function withRemoved(pages: InboxPages, target: ReadonlySet<string> | { category: string; readOnly: boolean }): InboxPages {
   const removed = (entry: Entry) =>
-    target instanceof Set ? target.has(entry.id) : (!target.category || entry.category === target.category) && (!target.readOnly || entry.read);
+    "has" in target ? target.has(entry.id) : (!target.category || entry.category === target.category) && (!target.readOnly || entry.read);
   return mapEntries(pages, (entries) => entries.filter((entry) => !removed(entry)));
 }

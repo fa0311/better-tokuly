@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Coins } from "#/components/ui/coins";
+import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { rememberBalance, rememberPurchase, walletClient } from "./api";
 import { CoinBurst, useCoinBurst } from "./celebration";
@@ -40,7 +41,7 @@ export function PurchaseStatusChip({ purchase }: { purchase: wallet.Purchase }) 
 export function DevelopmentNote({ className }: { className?: string }) {
   const { t } = useTranslation("wallet");
   return (
-    <p className={`flex items-start gap-2 rounded-2xl border-2 border-dashed border-ink-faint bg-surface-2 px-3 py-2.5 text-sm font-bold text-ink-soft ${className ?? ""}`}>
+    <p className={cn("flex items-start gap-2 rounded-2xl border-2 border-dashed border-ink-faint bg-surface-2 px-3 py-2.5 text-sm font-bold text-ink-soft", className)}>
       <FlaskConical className="mt-0.5 size-4 shrink-0" />
       {t("provider.developmentNote")}
     </p>

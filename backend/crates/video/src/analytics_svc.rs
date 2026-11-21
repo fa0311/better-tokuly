@@ -17,7 +17,13 @@ const TOP_VIDEOS: u32 = 10;
 impl Video {
     /// The most viewed videos of a channel between two instants, as the
     /// owner sees them. Videos deleted since are left out.
-    async fn top_videos(&self, owner: &Viewer, channel: &ChannelRow, from_ms: i64, until_ms: i64) -> AppResult<Vec<VideoStats>> {
+    async fn top_videos(
+        &self,
+        owner: &Viewer,
+        channel: &ChannelRow,
+        from_ms: i64,
+        until_ms: i64,
+    ) -> AppResult<Vec<VideoStats>> {
         let top = analytics::top_videos(&self.core, channel, from_ms, until_ms, TOP_VIDEOS).await?;
         let ids: Vec<Uuid> = top.iter().map(|(id, _, _)| *id).collect();
         let rows = feeds::watchable_in_order(&self.core, owner, &ids).await?;
@@ -27,7 +33,12 @@ impl Video {
             .zip(summaries)
             .filter_map(|(row, summary)| {
                 let (_, views, watch_seconds) = top.iter().find(|(id, _, _)| *id == row.id)?;
-                Some(VideoStats { video: summary.into(), views: *views, watch_time_seconds: *watch_seconds, ..Default::default() })
+                Some(VideoStats {
+                    video: summary.into(),
+                    views: *views,
+                    watch_time_seconds: *watch_seconds,
+                    ..Default::default()
+                })
             })
             .collect())
     }
@@ -83,7 +94,13 @@ impl StudioAnalyticsService for Video {
                 analytics::traffic_sources(core, scope, &range),
                 analytics::retention(core, &video, &range),
             )?;
-            ok(GetVideoAnalyticsResponse { totals: totals.into(), daily, traffic_sources, retention, ..Default::default() })
+            ok(GetVideoAnalyticsResponse {
+                totals: totals.into(),
+                daily,
+                traffic_sources,
+                retention,
+                ..Default::default()
+            })
         })
         .await
     }
@@ -103,7 +120,9 @@ impl StudioAnalyticsService for Video {
                     let channel = channels::require_owned_ref(core, user_id, reference).await?;
                     (Scope::channel(&channel), Some(channel))
                 }
-                Some(Target::VideoId(reference)) => (Scope::video(&videos::find_owned(core, user_id, reference).await?), None),
+                Some(Target::VideoId(reference)) => {
+                    (Scope::video(&videos::find_owned(core, user_id, reference).await?), None)
+                }
                 None => bail!(invalid, "TARGET_REQUIRED", "a channel or a video is required"),
             };
             let (views_per_hour, views_per_minute) = analytics::realtime(core, scope).await?;

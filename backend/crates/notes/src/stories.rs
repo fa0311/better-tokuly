@@ -621,6 +621,9 @@ impl Notes {
             .rate_limit(&format!("notes:story-react:{user_id}"), REACTIONS_PER_MINUTE, Duration::from_secs(60))
             .await?;
 
+        // Looked up before the transaction opens: while it holds its
+        // connection nothing here waits for a second one.
+        let actor = tokuly_identity::summary(core, user_id).await?;
         let mut tx = core.db.begin().await?;
         // The story row serializes its counters: two taps arriving together
         // count one view and one reaction.
@@ -655,7 +658,6 @@ impl Notes {
             .bind(i32::from(first_reaction))
             .fetch_one(&mut *tx)
             .await?;
-        let actor = tokuly_identity::summary(core, user_id).await?;
         outbound::notify(&mut *tx, &copy::story_reaction(&actor, user_id, &story, emoji)).await?;
         tx.commit().await?;
 

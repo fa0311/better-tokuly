@@ -115,11 +115,13 @@ async fn republishing_an_unchanged_document_is_not_written_to_the_engine_again()
     let generation = |id: Uuid| {
         let db = ctx.app.core.db.clone();
         async move {
-            sqlx::query_as::<_, (i64, i64)>("SELECT generation, synced_generation FROM search_documents WHERE kind = 'video' AND doc_id = $1")
-                .bind(id)
-                .fetch_one(&db)
-                .await
-                .unwrap()
+            sqlx::query_as::<_, (i64, i64)>(
+                "SELECT generation, synced_generation FROM search_documents WHERE kind = 'video' AND doc_id = $1",
+            )
+            .bind(id)
+            .fetch_one(&db)
+            .await
+            .unwrap()
         }
     };
     let (before, synced) = generation(video.id).await;
@@ -191,7 +193,9 @@ async fn the_indexer_writes_many_kinds_in_one_pass() {
     }
     ctx.index(&docs).await;
 
-    let found = ctx.search(None, &SearchRequest { query: word.clone(), page: Some(page(50)).into(), ..Default::default() }).await;
+    let found = ctx
+        .search(None, &SearchRequest { query: word.clone(), page: Some(page(50)).into(), ..Default::default() })
+        .await;
     assert_eq!(found.hits.len(), 33);
     assert_eq!(found.total, 33);
     for kind in KINDS.iter().filter(|kind| kind.name != "user") {
@@ -229,6 +233,52 @@ async fn a_pass_is_skipped_while_another_process_is_indexing() {
 }
 
 #[tokio::test]
+async fn an_engine_outage_fails_the_pass_and_loses_nothing() {
+    let ctx = start().await;
+    // A worker whose Meilisearch is unreachable (nothing listens on port 9),
+    // with its own index prefix and therefore its own indexer lock.
+    let mut cfg = ctx.app.core.cfg.clone();
+    cfg.meili_url = "http://127.0.0.1:9".to_owned();
+    let offline_core = tokuly_core::Core::connect(cfg).await.unwrap();
+    let offline = tokuly_search::Search::new(
+        offline_core,
+        ctx.app.identity.clone(),
+        tokuly_search::SearchConfig { index_prefix: format!("{}off", *PREFIX), ..ctx.search.cfg.clone() },
+    )
+    .unwrap();
+
+    let setup = offline.ensure_indexes().await.unwrap_err();
+    assert_eq!((setup.code, setup.reason.as_ref()), (connectrpc::ErrorCode::Unavailable, "SEARCH_UNAVAILABLE"));
+
+    // A change arrives during the outage. The healthy indexers are kept
+    // away, so the pass that fails is certain to include it.
+    let word = unique("outage");
+    let video = doc("video", None, &word);
+    let mut healthy_indexers = ctx.app.core.db.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(format!("search:indexer:{}", ctx.search.cfg.index_prefix))
+        .execute(&mut *healthy_indexers)
+        .await
+        .unwrap();
+    offline.handle_event(event(SEARCH_TOPIC, upsert_of(&video))).await.expect("the registry does not need the engine");
+    let failed = offline.flush_once().await.unwrap_err();
+    assert_eq!(failed.reason, "SEARCH_UNAVAILABLE");
+    let (generation, synced): (i64, i64) = sqlx::query_as(
+        "SELECT generation, synced_generation FROM search_documents WHERE kind = 'video' AND doc_id = $1",
+    )
+    .bind(video.id)
+    .fetch_one(&ctx.app.core.db)
+    .await
+    .unwrap();
+    assert!(synced < generation, "a failed pass marks nothing as written");
+
+    // When an engine is reachable again the change is written.
+    healthy_indexers.rollback().await.unwrap();
+    ctx.flush().await;
+    assert_eq!(hit_ids(&ctx.find(None, &word).await.hits), vec![video.id.to_string()]);
+}
+
+#[tokio::test]
 async fn index_setup_is_idempotent_and_applies_the_settings() {
     let ctx = start().await;
     // The harness already ran it; again and again changes nothing.
@@ -256,7 +306,11 @@ async fn index_setup_is_idempotent_and_applies_the_settings() {
 #[tokio::test]
 async fn the_retention_sweep_removes_only_tombstones_past_their_keep_by_date() {
     let ctx = start().await;
-    let (old, recent, pending) = (doc("clip", None, &unique("oldtomb")), doc("clip", None, &unique("newtomb")), doc("clip", None, &unique("pendtomb")));
+    let (old, recent, pending) = (
+        doc("clip", None, &unique("oldtomb")),
+        doc("clip", None, &unique("newtomb")),
+        doc("clip", None, &unique("pendtomb")),
+    );
     ctx.index(&[old.clone(), recent.clone(), pending.clone()]).await;
     ctx.unpublish("clip", old.id).await;
     ctx.unpublish("clip", recent.id).await;

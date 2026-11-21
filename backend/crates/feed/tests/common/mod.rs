@@ -13,7 +13,11 @@ use tokuly_feed::{Feed, FeedConfig, IngestOutcome};
 use tokuly_proto::{
     common::{PageRequest, SubjectType},
     feed::*,
-    social::{BlockUserRequest, BlockUserResponse, FriendSource, RemoveFriendRequest, RemoveFriendResponse, RespondFriendRequestRequest, RespondFriendRequestResponse, SendFriendRequestRequest, SendFriendRequestResponse, send_friend_request_request},
+    social::{
+        BlockUserRequest, BlockUserResponse, FriendSource, RemoveFriendRequest, RemoveFriendResponse,
+        RespondFriendRequestRequest, RespondFriendRequestResponse, SendFriendRequestRequest, SendFriendRequestResponse,
+        send_friend_request_request,
+    },
 };
 use tokuly_social::{Social, SocialConfig};
 use tokuly_testkit::{RpcError, TestApp, TestUser};
@@ -38,7 +42,12 @@ pub struct Ctx {
 /// Settings for tests: the news fetcher may reach the local feed server,
 /// and its limits are small enough to hit quickly.
 pub fn test_config() -> FeedConfig {
-    FeedConfig { news_allow_loopback: true, news_fetch_timeout_seconds: 3, news_max_feed_bytes: 64 * 1024, ..Default::default() }
+    FeedConfig {
+        news_allow_loopback: true,
+        news_fetch_timeout_seconds: 3,
+        news_max_feed_bytes: 64 * 1024,
+        ..Default::default()
+    }
 }
 
 pub async fn start() -> Ctx {
@@ -60,7 +69,13 @@ pub async fn start_with(cfg: FeedConfig) -> Ctx {
 
 impl Ctx {
     /// Calls an RPC of `service` as `user` (`None`: anonymously).
-    pub async fn call<Req: Serialize, Resp: DeserializeOwned>(&self, service: &str, method: &str, user: Option<&TestUser>, request: &Req) -> Result<Resp, RpcError> {
+    pub async fn call<Req: Serialize, Resp: DeserializeOwned>(
+        &self,
+        service: &str,
+        method: &str,
+        user: Option<&TestUser>,
+        request: &Req,
+    ) -> Result<Resp, RpcError> {
         self.app.call(&format!("{service}/{method}"), user, request).await
     }
 
@@ -71,18 +86,42 @@ impl Ctx {
             source: FriendSource::FRIEND_SOURCE_PROFILE.into(),
             ..Default::default()
         };
-        let sent: SendFriendRequestResponse = self.call(FRIENDS, "SendFriendRequest", Some(a), &request).await.expect("send friend request");
+        let sent: SendFriendRequestResponse =
+            self.call(FRIENDS, "SendFriendRequest", Some(a), &request).await.expect("send friend request");
         let request_id = sent.request.as_option().expect("a pending request").id.clone();
-        let _: RespondFriendRequestResponse =
-            self.call(FRIENDS, "RespondFriendRequest", Some(b), &RespondFriendRequestRequest { request_id, accept: true, ..Default::default() }).await.expect("accept");
+        let _: RespondFriendRequestResponse = self
+            .call(
+                FRIENDS,
+                "RespondFriendRequest",
+                Some(b),
+                &RespondFriendRequestRequest { request_id, accept: true, ..Default::default() },
+            )
+            .await
+            .expect("accept");
     }
 
     pub async fn unfriend(&self, a: &TestUser, b: &TestUser) {
-        let _: RemoveFriendResponse = self.call(FRIENDS, "RemoveFriend", Some(a), &RemoveFriendRequest { user_id: b.id.to_string(), ..Default::default() }).await.expect("remove friend");
+        let _: RemoveFriendResponse = self
+            .call(
+                FRIENDS,
+                "RemoveFriend",
+                Some(a),
+                &RemoveFriendRequest { user_id: b.id.to_string(), ..Default::default() },
+            )
+            .await
+            .expect("remove friend");
     }
 
     pub async fn block(&self, blocker: &TestUser, blocked: &TestUser) {
-        let _: BlockUserResponse = self.call(FRIENDS, "BlockUser", Some(blocker), &BlockUserRequest { user_id: blocked.id.to_string(), ..Default::default() }).await.expect("block");
+        let _: BlockUserResponse = self
+            .call(
+                FRIENDS,
+                "BlockUser",
+                Some(blocker),
+                &BlockUserRequest { user_id: blocked.id.to_string(), ..Default::default() },
+            )
+            .await
+            .expect("block");
     }
 
     /// Delivers an `activity.recorded` event that happened at `at`, the way
@@ -105,36 +144,79 @@ impl Ctx {
     }
 
     pub async fn set_locale(&self, user: &TestUser, locale: &str) {
-        sqlx::query("UPDATE users SET locale = $2 WHERE id = $1").bind(user.id).bind(locale).execute(&self.app.core.db).await.expect("set locale");
+        sqlx::query("UPDATE users SET locale = $2 WHERE id = $1")
+            .bind(user.id)
+            .bind(locale)
+            .execute(&self.app.core.db)
+            .await
+            .expect("set locale");
     }
 
     pub async fn set_time_zone(&self, user: &TestUser, time_zone: &str) {
-        sqlx::query("UPDATE users SET time_zone = $2 WHERE id = $1").bind(user.id).bind(time_zone).execute(&self.app.core.db).await.expect("set time zone");
+        sqlx::query("UPDATE users SET time_zone = $2 WHERE id = $1")
+            .bind(user.id)
+            .bind(time_zone)
+            .execute(&self.app.core.db)
+            .await
+            .expect("set time zone");
     }
 
     /// The caller's own log, newest first (first page of up to 100).
     pub async fn my_log(&self, user: &TestUser) -> Vec<Activity> {
-        let response: ListMyActivityResponse = self.call(ACTIVITY, "ListMyActivity", Some(user), &ListMyActivityRequest { page: page(100, "").into(), ..Default::default() }).await.expect("my log");
+        let response: ListMyActivityResponse = self
+            .call(
+                ACTIVITY,
+                "ListMyActivity",
+                Some(user),
+                &ListMyActivityRequest { page: page(100, "").into(), ..Default::default() },
+            )
+            .await
+            .expect("my log");
         response.activities
     }
 
     /// A profile's activity list as `viewer` sees it.
     pub async fn profile(&self, viewer: Option<&TestUser>, owner: Uuid) -> Result<Vec<Activity>, RpcError> {
-        let response: ListUserActivityResponse =
-            self.call(ACTIVITY, "ListUserActivity", viewer, &ListUserActivityRequest { user_id: owner.to_string(), page: page(100, "").into(), ..Default::default() }).await?;
+        let response: ListUserActivityResponse = self
+            .call(
+                ACTIVITY,
+                "ListUserActivity",
+                viewer,
+                &ListUserActivityRequest {
+                    user_id: owner.to_string(),
+                    page: page(100, "").into(),
+                    ..Default::default()
+                },
+            )
+            .await?;
         Ok(response.activities)
     }
 
     /// The friends' feed of `user` (first page of up to 100 cards).
     pub async fn friends_feed(&self, user: &TestUser) -> Vec<ActivityCard> {
-        let response: ListFriendsActivityResponse =
-            self.call(ACTIVITY, "ListFriendsActivity", Some(user), &ListFriendsActivityRequest { page: page(100, "").into(), ..Default::default() }).await.expect("friends feed");
+        let response: ListFriendsActivityResponse = self
+            .call(
+                ACTIVITY,
+                "ListFriendsActivity",
+                Some(user),
+                &ListFriendsActivityRequest { page: page(100, "").into(), ..Default::default() },
+            )
+            .await
+            .expect("friends feed");
         response.cards
     }
 
     /// The home feed of `user` (first page of up to 50 cards).
     pub async fn home_feed(&self, user: &TestUser) -> Vec<ActivityCard> {
-        let response: ListHomeFeedResponse = self.call(HOME, "ListHomeFeed", Some(user), &ListHomeFeedRequest { page: page(50, "").into(), ..Default::default() }).await.expect("home feed");
+        let response: ListHomeFeedResponse = self
+            .call(
+                HOME,
+                "ListHomeFeed",
+                Some(user),
+                &ListHomeFeedRequest { page: page(50, "").into(), ..Default::default() },
+            )
+            .await
+            .expect("home feed");
         response.cards
     }
 }
@@ -147,18 +229,30 @@ impl Ctx {
 
     /// Creates a news source through the admin API.
     pub async fn create_source(&self, admin: &TestUser, request: CreateNewsSourceRequest) -> ManagedNewsSource {
-        let response: CreateNewsSourceResponse = self.call(NEWS_ADMIN, "CreateNewsSource", Some(admin), &request).await.expect("create news source");
+        let response: CreateNewsSourceResponse =
+            self.call(NEWS_ADMIN, "CreateNewsSource", Some(admin), &request).await.expect("create news source");
         response.source.into_option().expect("the created source")
     }
 
     /// A source for `feed_url` with a language of its own, so that lists
     /// filtered by it only hold this test's articles.
     pub async fn source_for(&self, admin: &TestUser, feed_url: &str, language: &str) -> ManagedNewsSource {
-        self.create_source(admin, CreateNewsSourceRequest { feed_url: feed_url.to_owned(), language: language.to_owned(), ..Default::default() }).await
+        self.create_source(
+            admin,
+            CreateNewsSourceRequest {
+                feed_url: feed_url.to_owned(),
+                language: language.to_owned(),
+                ..Default::default()
+            },
+        )
+        .await
     }
 
     pub async fn managed_source(&self, admin: &TestUser, source_id: &str) -> ManagedNewsSource {
-        let response: ListManagedNewsSourcesResponse = self.call(NEWS_ADMIN, "ListManagedNewsSources", Some(admin), &ListManagedNewsSourcesRequest::default()).await.expect("list sources");
+        let response: ListManagedNewsSourcesResponse = self
+            .call(NEWS_ADMIN, "ListManagedNewsSources", Some(admin), &ListManagedNewsSourcesRequest::default())
+            .await
+            .expect("list sources");
         response.sources.into_iter().find(|source| source.id == source_id).expect("the source is listed")
     }
 
@@ -168,12 +262,22 @@ impl Ctx {
 
     /// Every article of a source, newest first.
     pub async fn articles_of(&self, source_id: &str) -> Vec<NewsArticle> {
-        self.list_news(None, ListNewsRequest { source_id: source_id.to_owned(), page: page(50, "").into(), ..Default::default() }).await.articles
+        self.list_news(
+            None,
+            ListNewsRequest { source_id: source_id.to_owned(), page: page(50, "").into(), ..Default::default() },
+        )
+        .await
+        .articles
     }
 
     /// `search.changed` events about one document, oldest first.
     pub async fn search_changes(&self, id: &str) -> Vec<Event> {
-        self.app.events("search.changed").await.into_iter().filter(|event| event.data["id"] == serde_json::json!(id)).collect()
+        self.app
+            .events("search.changed")
+            .await
+            .into_iter()
+            .filter(|event| event.data["id"] == serde_json::json!(id))
+            .collect()
     }
 }
 
@@ -185,7 +289,13 @@ pub fn token() -> String {
 
 /// The event the outbox relay would deliver for an activity entry.
 pub fn activity_event(entry: &ActivityEntry, at: DateTime<Utc>) -> Event {
-    Event { id: Uuid::now_v7(), topic: "activity.recorded".to_owned(), actor_id: Some(entry.user_id), occurred_at: at, data: serde_json::to_value(entry).expect("entry serializes") }
+    Event {
+        id: Uuid::now_v7(),
+        topic: "activity.recorded".to_owned(),
+        actor_id: Some(entry.user_id),
+        occurred_at: at,
+        data: serde_json::to_value(entry).expect("entry serializes"),
+    }
 }
 
 /// Any other event, as the relay would deliver it now.
@@ -205,7 +315,9 @@ pub fn entry(user: &TestUser, kind: &str, audience: ActivityAudience) -> Activit
 /// A note posted to friends, pointing at a fresh note.
 pub fn note(user: &TestUser) -> ActivityEntry {
     let note_id = Uuid::now_v7();
-    entry(user, "note.posted", ActivityAudience::Friends).subject(SubjectType::SUBJECT_TYPE_NOTE, note_id).path(format!("/notes/{note_id}"))
+    entry(user, "note.posted", ActivityAudience::Friends)
+        .subject(SubjectType::SUBJECT_TYPE_NOTE, note_id)
+        .path(format!("/notes/{note_id}"))
 }
 
 /// A bump of `user` with `partner`, as the social domain records it for `user`.
@@ -228,7 +340,13 @@ pub fn kinds_of(activities: &[Activity]) -> Vec<&str> {
 
 /// The actor of a card's newest entry.
 pub fn actor_of(card: &ActivityCard) -> Uuid {
-    card.activity.as_option().and_then(|activity| activity.actor.as_option()).expect("a card has an actor").id.parse().expect("user id")
+    card.activity
+        .as_option()
+        .and_then(|activity| activity.actor.as_option())
+        .expect("a card has an actor")
+        .id
+        .parse()
+        .expect("user id")
 }
 
 /// The ID of a card's newest entry.

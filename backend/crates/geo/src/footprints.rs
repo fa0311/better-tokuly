@@ -618,42 +618,52 @@ impl FootprintService for Geo {
             let ja = self.speaks_japanese(user_id).await?;
             let index = self.region_index().await?;
             let now = Utc::now();
-            let marker: Option<(Option<DateTime<Utc>>, DateTime<Utc>)> =
-                sqlx::query_as("SELECT recap_seen_at, created_at FROM geo_users WHERE user_id = $1").bind(user_id).fetch_optional(db).await?;
             // Never looked before: everything since the first footprint.
-            let since = marker.map_or(now, |(seen, created)| seen.unwrap_or(created - chrono::Duration::seconds(1)));
+            let marker: Option<(Option<DateTime<Utc>>, DateTime<Utc>, Option<DateTime<Utc>>)> = sqlx::query_as(
+                "SELECT recap_seen_at, created_at, (SELECT min(first_at) FROM geo_cells WHERE user_id = $1 AND res = 9) FROM geo_users WHERE user_id = $1",
+            )
+            .bind(user_id)
+            .fetch_optional(db)
+            .await?;
+            let since = match marker {
+                Some((Some(seen), _, _)) => seen,
+                Some((None, created, first)) => first.map_or(created, |first| first.min(created)) - chrono::Duration::seconds(1),
+                None => now,
+            };
 
-            let new_cells: Vec<i64> = sqlx::query_scalar("SELECT cell FROM geo_cells WHERE user_id = $1 AND res = 9 AND first_at > $2 ORDER BY first_at DESC, cell LIMIT $3")
+            // "New" is what the server learned since then (a backlog upload counts when it arrives).
+            let new_cells: Vec<i64> = sqlx::query_scalar("SELECT cell FROM geo_cells WHERE user_id = $1 AND res = 9 AND uncovered_at > $2 ORDER BY uncovered_at DESC, cell LIMIT $3")
                 .bind(user_id)
                 .bind(since)
                 .bind(RECAP_CELLS)
                 .fetch_all(db)
                 .await?;
             let (new_cell_count, south, west, north, east): (i64, Option<f64>, Option<f64>, Option<f64>, Option<f64>) =
-                sqlx::query_as("SELECT count(*), min(lat), min(lng), max(lat), max(lng) FROM geo_cells WHERE user_id = $1 AND res = 9 AND first_at > $2")
+                sqlx::query_as("SELECT count(*), min(lat), min(lng), max(lat), max(lng) FROM geo_cells WHERE user_id = $1 AND res = 9 AND uncovered_at > $2")
                     .bind(user_id)
                     .bind(since)
                     .fetch_one(db)
                     .await?;
             // Regions that gained cells, with their totals as they stand now.
-            let regions: Vec<(String, i64, f64)> = sqlx::query_as(
-                "SELECT s.region_id, s.cell_count, s.explored_km2 FROM geo_region_stats s
-                 WHERE s.user_id = $1 AND s.region_id IN (
-                     SELECT country_id FROM geo_cells WHERE user_id = $1 AND res = 9 AND first_at > $2
-                     UNION SELECT admin1_id FROM geo_cells WHERE user_id = $1 AND res = 9 AND first_at > $2)",
+            // A region all of whose cells are new was entered for the first time.
+            let gained: Vec<(String, i64, i64, f64)> = sqlx::query_as(
+                "SELECT s.region_id, n.cells, s.cell_count, s.explored_km2
+                 FROM (SELECT region_id, count(*) AS cells FROM (
+                           SELECT country_id AS region_id FROM geo_cells WHERE user_id = $1 AND res = 9 AND uncovered_at > $2
+                           UNION ALL
+                           SELECT admin1_id FROM geo_cells WHERE user_id = $1 AND res = 9 AND uncovered_at > $2) c
+                       WHERE region_id <> '' GROUP BY region_id) n
+                 JOIN geo_region_stats s ON s.user_id = $1 AND s.region_id = n.region_id
+                 ORDER BY s.first_at, s.region_id",
             )
             .bind(user_id)
             .bind(since)
             .fetch_all(db)
             .await?;
-            let mut regions: Vec<RegionStat> =
-                regions.iter().filter_map(|(id, cells, km2)| index.get(id).map(|meta| region_stat(meta, *cells, *km2, 0, ja))).collect();
+            let new_regions: Vec<Region> =
+                gained.iter().filter(|(_, new, total, _)| new == total).filter_map(|(id, _, _, _)| index.get(id)).map(|meta| meta.to_proto(ja)).collect();
+            let mut regions: Vec<RegionStat> = gained.iter().filter_map(|(id, _, cells, km2)| index.get(id).map(|meta| region_stat(meta, *cells, *km2, 0, ja))).collect();
             regions.sort_by(|a, b| b.percent.total_cmp(&a.percent));
-            let new_regions: Vec<String> = sqlx::query_scalar("SELECT region_id FROM geo_region_stats WHERE user_id = $1 AND first_at > $2 ORDER BY first_at")
-                .bind(user_id)
-                .bind(since)
-                .fetch_all(db)
-                .await?;
             let distance_meters: f64 = sqlx::query_scalar("SELECT COALESCE(sum(distance_m), 0)::float8 FROM geo_activity_hours WHERE user_id = $1 AND hour >= date_trunc('hour', $2::timestamptz)")
                 .bind(user_id)
                 .bind(since)
@@ -682,7 +692,7 @@ impl FootprintService for Geo {
                 new_cells: new_cells.into_iter().map(math::cell_hex).collect(),
                 new_cell_count,
                 regions,
-                new_regions: new_regions.iter().filter_map(|id| index.get(id)).map(|meta| meta.to_proto(ja)).collect(),
+                new_regions,
                 distance_meters,
                 bounds: bounds.into(),
                 ..Default::default()

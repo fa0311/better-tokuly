@@ -144,7 +144,11 @@ fn home_key(viewer: &Viewer, token: &str) -> String {
 pub async fn home_page(core: &Core, viewer: &Viewer, page: &Page) -> AppResult<(Vec<VideoRow>, Option<String>)> {
     let cursor: Option<HomeCursor> = page.decode()?;
     let cached: Option<(String, usize, Vec<Uuid>)> = match cursor {
-        Some(cursor) => core.cache.get_json::<Vec<Uuid>>(&home_key(viewer, &cursor.token)).await?.map(|ids| (cursor.token, cursor.offset, ids)),
+        Some(cursor) => core
+            .cache
+            .get_json::<Vec<Uuid>>(&home_key(viewer, &cursor.token))
+            .await?
+            .map(|ids| (cursor.token, cursor.offset, ids)),
         None => None,
     };
     // A first page, or a cursor whose list expired: rank afresh from the top.
@@ -160,12 +164,17 @@ pub async fn home_page(core: &Core, viewer: &Viewer, page: &Page) -> AppResult<(
     let end = (offset + page.limit as usize).min(ids.len());
     let slice = ids.get(offset..end).unwrap_or_default();
     // Visibility may have changed since the list was ranked: check again.
-    let mut rows: Vec<VideoRow> = sqlx::query_as(concat!("SELECT ", video_columns!(), " FROM videos v WHERE v.id = ANY($1) AND ", in_feed!(2, 3)))
-        .bind(slice)
-        .bind(&viewer.friends)
-        .bind(&viewer.blocked)
-        .fetch_all(&core.db)
-        .await?;
+    let mut rows: Vec<VideoRow> = sqlx::query_as(concat!(
+        "SELECT ",
+        video_columns!(),
+        " FROM videos v WHERE v.id = ANY($1) AND ",
+        in_feed!(2, 3)
+    ))
+    .bind(slice)
+    .bind(&viewer.friends)
+    .bind(&viewer.blocked)
+    .fetch_all(&core.db)
+    .await?;
     rows.sort_by_key(|row| slice.iter().position(|id| *id == row.id).unwrap_or(usize::MAX));
     let next = (end < ids.len()).then(|| tokuly_core::page::encode_cursor(&HomeCursor { token, offset: end }));
     Ok((rows, next))
@@ -173,7 +182,13 @@ pub async fn home_page(core: &Core, viewer: &Viewer, page: &Page) -> AppResult<(
 
 /// Newest videos of the channels `user_id` subscribes to, with the keyset
 /// `(published_at, id)` of the last row returned by the previous page.
-pub async fn subscriptions_page(core: &Core, viewer: &Viewer, user_id: Uuid, before: Option<(Time, Uuid)>, limit: i64) -> AppResult<Vec<VideoRow>> {
+pub async fn subscriptions_page(
+    core: &Core,
+    viewer: &Viewer,
+    user_id: Uuid,
+    before: Option<(Time, Uuid)>,
+    limit: i64,
+) -> AppResult<Vec<VideoRow>> {
     Ok(sqlx::query_as(concat!(
         "SELECT ",
         video_columns!(),
@@ -195,7 +210,13 @@ pub async fn subscriptions_page(core: &Core, viewer: &Viewer, user_id: Uuid, bef
 }
 
 /// Public videos by trending score. `category` 0 = all.
-pub async fn trending_page(core: &Core, viewer: &Viewer, category: i32, offset: i64, limit: i64) -> AppResult<Vec<VideoRow>> {
+pub async fn trending_page(
+    core: &Core,
+    viewer: &Viewer,
+    category: i32,
+    offset: i64,
+    limit: i64,
+) -> AppResult<Vec<VideoRow>> {
     Ok(sqlx::query_as(concat!(
         "SELECT ",
         video_columns!(),
@@ -274,13 +295,18 @@ pub async fn watchable_in_order(core: &Core, viewer: &Viewer, ids: &[Uuid]) -> A
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    let mut rows: Vec<VideoRow> = sqlx::query_as(concat!("SELECT ", video_columns!(), " FROM videos v WHERE v.id = ANY($1) AND ", watchable!(2, 3, 4)))
-        .bind(ids)
-        .bind(viewer.user_id)
-        .bind(&viewer.friends)
-        .bind(&viewer.blocked)
-        .fetch_all(&core.db)
-        .await?;
+    let mut rows: Vec<VideoRow> = sqlx::query_as(concat!(
+        "SELECT ",
+        video_columns!(),
+        " FROM videos v WHERE v.id = ANY($1) AND ",
+        watchable!(2, 3, 4)
+    ))
+    .bind(ids)
+    .bind(viewer.user_id)
+    .bind(&viewer.friends)
+    .bind(&viewer.blocked)
+    .fetch_all(&core.db)
+    .await?;
     rows.sort_by_key(|row| ids.iter().position(|id| *id == row.id).unwrap_or(usize::MAX));
     Ok(rows)
 }
@@ -321,7 +347,15 @@ mod tests {
         let (a, b) = (Uuid::now_v7(), Uuid::now_v7());
         let videos: Vec<Uuid> = (0..7).map(|_| Uuid::now_v7()).collect();
         // Ranked: a a a a b a b
-        let ranked = vec![(videos[0], a), (videos[1], a), (videos[2], a), (videos[3], a), (videos[4], b), (videos[5], a), (videos[6], b)];
+        let ranked = vec![
+            (videos[0], a),
+            (videos[1], a),
+            (videos[2], a),
+            (videos[3], a),
+            (videos[4], b),
+            (videos[5], a),
+            (videos[6], b),
+        ];
         let out = diversify(ranked);
         // a a [b moved up] a a [b moved up] a
         assert_eq!(out, vec![videos[0], videos[1], videos[4], videos[2], videos[3], videos[6], videos[5]]);

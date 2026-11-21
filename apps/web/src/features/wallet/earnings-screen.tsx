@@ -170,7 +170,7 @@ function EarningsHero({ summary, hasOpenRequest, requestsLoaded }: { summary: wa
       </div>
 
       {terms && (
-        <p className="mt-4 text-center text-xs font-bold text-ink-faint">
+        <p className="mt-4 text-center text-xs font-bold text-balance text-ink-faint">
           {t("earnings.terms", {
             minimum: formatCoins(terms.minCoins),
             rate: formatMoney(terms.minorPer100Coins, terms.currency, i18n.language),

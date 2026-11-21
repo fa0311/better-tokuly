@@ -11,8 +11,9 @@ import { api } from "#/lib/api";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { notifyKeys } from "../api";
-import { minutesToTime, type QuietHoursValue, timeToMinutes, usePreferenceActions } from "../preferences";
+import { type QuietHoursValue, usePreferenceActions } from "../preferences";
 import { Toggle } from "../toggle";
+import { minutesToTime, timeToMinutes } from "../when";
 
 /** Quiet hours: a nightly window without pushes, in the account's time zone. */
 export function QuietHoursCard({ preferences }: { preferences: notify.Preferences }) {
@@ -44,19 +45,17 @@ export function QuietHoursCard({ preferences }: { preferences: notify.Preference
 
   return (
     <Card>
-      <div className="flex items-start gap-3">
+      <div className="flex items-center gap-3">
         <span className={cn("sticker-sm grid size-12 shrink-0 place-items-center rounded-2xl", quiet.enabled ? "bg-brand text-on-brand" : "bg-surface-3 text-ink")}>
           <Moon className="size-6" />
         </span>
-        <div className="min-w-0 flex-1">
-          <h2 className="flex flex-wrap items-center gap-2 text-lg font-black leading-snug">
-            {t("quiet.title")}
-            {preferences.quietNow && <Chip className="bg-brand-soft text-brand-strong">{t("quiet.now")}</Chip>}
-          </h2>
-          <p className="mt-1 text-sm leading-relaxed text-ink-soft">{t("quiet.lead")}</p>
-        </div>
+        <h2 className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-lg font-black leading-snug">
+          {t("quiet.title")}
+          {preferences.quietNow && <Chip className="bg-brand-soft text-brand-strong">{t("quiet.now")}</Chip>}
+        </h2>
         <Toggle label={t("quiet.title")} checked={quiet.enabled} onChange={(enabled) => actions.setQuietHours.mutate({ ...quiet, enabled })} />
       </div>
+      <p className="mt-3 text-sm leading-relaxed text-ink-soft">{t("quiet.lead")}</p>
 
       <div className={cn("mt-4 grid grid-cols-2 gap-3 transition-opacity", !quiet.enabled && "opacity-60")}>
         <TextField type="time" label={t("quiet.start")} value={start} onChange={(event) => change("start", event.target.value)} />

@@ -81,7 +81,11 @@ impl FeedServer {
     pub fn publish(&self, name: &str, body: impl Into<Vec<u8>>) {
         let mut versions = self.shared.versions.lock().unwrap();
         *versions += 1;
-        let document = Document { body: body.into(), etag: format!("\"v{}\"", *versions), last_modified: format!("Thu, 19 Nov 2026 10:00:{:02} GMT", *versions % 60) };
+        let document = Document {
+            body: body.into(),
+            etag: format!("\"v{}\"", *versions),
+            last_modified: format!("Thu, 19 Nov 2026 10:00:{:02} GMT", *versions % 60),
+        };
         self.shared.documents.lock().unwrap().insert(name.to_owned(), document);
     }
 
@@ -101,18 +105,33 @@ fn redirect(location: &str) -> Response {
 
 async fn feed(State(shared): State<Arc<Shared>>, Path(name): Path<String>, headers: HeaderMap) -> Response {
     let document = shared.documents.lock().unwrap().get(&name).cloned();
-    let (if_none_match, if_modified_since) = (text(&headers, header::IF_NONE_MATCH), text(&headers, header::IF_MODIFIED_SINCE));
+    let (if_none_match, if_modified_since) =
+        (text(&headers, header::IF_NONE_MATCH), text(&headers, header::IF_MODIFIED_SINCE));
     let response = match document {
         None => StatusCode::NOT_FOUND.into_response(),
-        Some(document) if if_none_match.as_deref() == Some(document.etag.as_str()) || if_modified_since.as_deref() == Some(document.last_modified.as_str()) => {
+        Some(document)
+            if if_none_match.as_deref() == Some(document.etag.as_str())
+                || if_modified_since.as_deref() == Some(document.last_modified.as_str()) =>
+        {
             StatusCode::NOT_MODIFIED.into_response()
         }
-        Some(document) => {
-            (StatusCode::OK, [(header::CONTENT_TYPE, "application/xml".to_owned()), (header::ETAG, document.etag), (header::LAST_MODIFIED, document.last_modified)], document.body)
-                .into_response()
-        }
+        Some(document) => (
+            StatusCode::OK,
+            [
+                (header::CONTENT_TYPE, "application/xml".to_owned()),
+                (header::ETAG, document.etag),
+                (header::LAST_MODIFIED, document.last_modified),
+            ],
+            document.body,
+        )
+            .into_response(),
     };
-    shared.hits.lock().unwrap().push(Hit { path: format!("/feeds/{name}"), if_none_match, if_modified_since, status: response.status().as_u16() });
+    shared.hits.lock().unwrap().push(Hit {
+        path: format!("/feeds/{name}"),
+        if_none_match,
+        if_modified_since,
+        status: response.status().as_u16(),
+    });
     response
 }
 
@@ -128,7 +147,11 @@ async fn slow() -> Response {
 /// A megabyte in chunks, without a Content-Length to give it away.
 async fn stream_big() -> Response {
     let chunks = futures::stream::iter((0..256).map(|_| Ok::<_, std::io::Error>(vec![b'x'; 4096])));
-    Response::builder().status(StatusCode::OK).header(header::CONTENT_TYPE, "application/xml").body(Body::from_stream(chunks)).expect("response")
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/xml")
+        .body(Body::from_stream(chunks))
+        .expect("response")
 }
 
 async fn status(Path(code): Path<u16>) -> Response {
@@ -183,9 +206,18 @@ pub fn rss(title: &str, site: &str, items: &[Item]) -> String {
     let items: String = items
         .iter()
         .map(|item| {
-            let categories: String = item.categories.iter().map(|c| format!("<category>{}</category>", escape(c))).collect();
-            let date = if item.published.is_empty() { String::new() } else { format!("<dc:date>{}</dc:date>", item.published) };
-            let image = if item.image.is_empty() { String::new() } else { format!("<media:thumbnail url=\"{}\"/>", escape(&item.image)) };
+            let categories: String =
+                item.categories.iter().map(|c| format!("<category>{}</category>", escape(c))).collect();
+            let date = if item.published.is_empty() {
+                String::new()
+            } else {
+                format!("<dc:date>{}</dc:date>", item.published)
+            };
+            let image = if item.image.is_empty() {
+                String::new()
+            } else {
+                format!("<media:thumbnail url=\"{}\"/>", escape(&item.image))
+            };
             format!(
                 "<item><title>{}</title><link>{}</link><description>{}</description>{categories}{date}{image}</item>",
                 escape(&item.title),

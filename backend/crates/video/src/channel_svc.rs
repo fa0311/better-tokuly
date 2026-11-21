@@ -107,25 +107,38 @@ impl Video {
             .bind(viewer.user_id)
             .bind(&viewer.friends)
             .bind(&viewer.blocked);
-        let query = if by_views { query.bind(after.map(|cursor| cursor.views)) } else { query.bind(after.and_then(|cursor| cursor.at)) };
+        let query = if by_views {
+            query.bind(after.map(|cursor| cursor.views))
+        } else {
+            query.bind(after.and_then(|cursor| cursor.at))
+        };
         Ok(query.bind(after.map(|cursor| cursor.id)).bind(limit).fetch_all(&self.core.db).await?)
     }
 
     async fn channel_response(&self, viewer: &Viewer, channel_id: Uuid) -> AppResult<Channel> {
-        let channel = channels::find_by_id(&self.core, channel_id).await?.or_not_found("CHANNEL_NOT_FOUND", "channel not found")?;
+        let channel = channels::find_by_id(&self.core, channel_id)
+            .await?
+            .or_not_found("CHANNEL_NOT_FOUND", "channel not found")?;
         channels::to_proto(&self.core, viewer, &channel).await
     }
 }
 
 impl ChannelService for Video {
-    async fn create_channel(&self, ctx: RequestContext, request: ServiceRequest<'_, CreateChannelRequest>) -> ServiceResult<CreateChannelResponse> {
+    async fn create_channel(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, CreateChannelRequest>,
+    ) -> ServiceResult<CreateChannelResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let req = request.to_owned_message();
             // Check what people get wrong first, so a typo does not use up the hourly allowance.
             validate::handle(&req.handle)?;
             validate::channel_name(&req.name)?;
-            self.core.cache.rate_limit(&format!("video-channel-create:{user_id}"), 10, Duration::from_secs(3600)).await?;
+            self.core
+                .cache
+                .rate_limit(&format!("video-channel-create:{user_id}"), 10, Duration::from_secs(3600))
+                .await?;
             let edit = ChannelEdit {
                 handle: Some(req.handle),
                 name: Some(req.name),
@@ -137,12 +150,19 @@ impl ChannelService for Video {
             };
             let channel = channels::create(&self.core, user_id, self.cfg.max_channels, edit).await?;
             let viewer = Viewer { user_id: Some(user_id), ..Default::default() };
-            ok(CreateChannelResponse { channel: channels::to_proto(&self.core, &viewer, &channel).await?.into(), ..Default::default() })
+            ok(CreateChannelResponse {
+                channel: channels::to_proto(&self.core, &viewer, &channel).await?.into(),
+                ..Default::default()
+            })
         })
         .await
     }
 
-    async fn update_channel(&self, ctx: RequestContext, request: ServiceRequest<'_, UpdateChannelRequest>) -> ServiceResult<UpdateChannelResponse> {
+    async fn update_channel(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, UpdateChannelRequest>,
+    ) -> ServiceResult<UpdateChannelResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let req = request.to_owned_message();
@@ -169,12 +189,19 @@ impl ChannelService for Video {
             };
             let updated = channels::update(&self.core, user_id, &channel, edit).await?;
             let viewer = Viewer { user_id: Some(user_id), ..Default::default() };
-            ok(UpdateChannelResponse { channel: channels::to_proto(&self.core, &viewer, &updated).await?.into(), ..Default::default() })
+            ok(UpdateChannelResponse {
+                channel: channels::to_proto(&self.core, &viewer, &updated).await?.into(),
+                ..Default::default()
+            })
         })
         .await
     }
 
-    async fn delete_channel(&self, ctx: RequestContext, request: ServiceRequest<'_, DeleteChannelRequest>) -> ServiceResult<DeleteChannelResponse> {
+    async fn delete_channel(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, DeleteChannelRequest>,
+    ) -> ServiceResult<DeleteChannelResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let channel = channels::require_owned_ref(&self.core, user_id, request.channel_id).await?;
@@ -184,7 +211,11 @@ impl ChannelService for Video {
         .await
     }
 
-    async fn list_my_channels(&self, ctx: RequestContext, _request: ServiceRequest<'_, ListMyChannelsRequest>) -> ServiceResult<ListMyChannelsResponse> {
+    async fn list_my_channels(
+        &self,
+        ctx: RequestContext,
+        _request: ServiceRequest<'_, ListMyChannelsRequest>,
+    ) -> ServiceResult<ListMyChannelsResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let viewer = Viewer { user_id: Some(user_id), ..Default::default() };
@@ -207,7 +238,10 @@ impl ChannelService for Video {
             let channel = channels::require_owned_ref(&self.core, user_id, request.channel_id).await?;
             channels::set_default(&self.core, user_id, channel.id).await?;
             let viewer = Viewer { user_id: Some(user_id), ..Default::default() };
-            ok(SetDefaultChannelResponse { channel: self.channel_response(&viewer, channel.id).await?.into(), ..Default::default() })
+            ok(SetDefaultChannelResponse {
+                channel: self.channel_response(&viewer, channel.id).await?.into(),
+                ..Default::default()
+            })
         })
         .await
     }
@@ -237,16 +271,27 @@ impl ChannelService for Video {
         .await
     }
 
-    async fn get_channel(&self, ctx: RequestContext, request: ServiceRequest<'_, GetChannelRequest>) -> ServiceResult<GetChannelResponse> {
+    async fn get_channel(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, GetChannelRequest>,
+    ) -> ServiceResult<GetChannelResponse> {
         handle(async {
             let viewer = Viewer::load(&self.core, ctx.maybe_user_id()?).await?;
             let channel = channels::find_visible(&self.core, &viewer, request.channel_id).await?;
-            ok(GetChannelResponse { channel: channels::to_proto(&self.core, &viewer, &channel).await?.into(), ..Default::default() })
+            ok(GetChannelResponse {
+                channel: channels::to_proto(&self.core, &viewer, &channel).await?.into(),
+                ..Default::default()
+            })
         })
         .await
     }
 
-    async fn get_channel_page(&self, ctx: RequestContext, request: ServiceRequest<'_, GetChannelPageRequest>) -> ServiceResult<GetChannelPageResponse> {
+    async fn get_channel_page(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, GetChannelPageRequest>,
+    ) -> ServiceResult<GetChannelPageResponse> {
         handle(async {
             let core = &self.core;
             let viewer = Viewer::load(core, ctx.maybe_user_id()?).await?;
@@ -259,21 +304,42 @@ impl ChannelService for Video {
             };
 
             let trailer = match channel.trailer_video_id {
-                Some(video_id) => videos::find_by_id(core, video_id).await?.filter(|video| video.is_public() && !viewer.hides(video.owner_id)),
+                Some(video_id) => videos::find_by_id(core, video_id)
+                    .await?
+                    .filter(|video| video.is_public() && !viewer.hides(video.owner_id)),
                 None => None,
             };
-            video_section(ChannelSectionKind::CHANNEL_SECTION_KIND_TRAILER, videos::summaries(core, &viewer, trailer.as_slice()).await?);
+            video_section(
+                ChannelSectionKind::CHANNEL_SECTION_KIND_TRAILER,
+                videos::summaries(core, &viewer, trailer.as_slice()).await?,
+            );
             let latest = self.channel_videos(&viewer, channel.id, SORT_NEWEST, 0, None, SECTION_SIZE).await?;
-            video_section(ChannelSectionKind::CHANNEL_SECTION_KIND_LATEST, videos::summaries(core, &viewer, &latest).await?);
+            video_section(
+                ChannelSectionKind::CHANNEL_SECTION_KIND_LATEST,
+                videos::summaries(core, &viewer, &latest).await?,
+            );
             let popular = self.channel_videos(&viewer, channel.id, SORT_POPULAR, 0, None, SECTION_SIZE).await?;
             // A "popular" row that merely repeats the latest uploads adds nothing.
             if popular.len() > 1 && popular.iter().any(|video| video.view_count > 0) {
-                video_section(ChannelSectionKind::CHANNEL_SECTION_KIND_POPULAR, videos::summaries(core, &viewer, &popular).await?);
+                video_section(
+                    ChannelSectionKind::CHANNEL_SECTION_KIND_POPULAR,
+                    videos::summaries(core, &viewer, &popular).await?,
+                );
             }
             let archives = self
-                .channel_videos(&viewer, channel.id, SORT_NEWEST, VideoOrigin::VIDEO_ORIGIN_LIVE_ARCHIVE as i32, None, SECTION_SIZE)
+                .channel_videos(
+                    &viewer,
+                    channel.id,
+                    SORT_NEWEST,
+                    VideoOrigin::VIDEO_ORIGIN_LIVE_ARCHIVE as i32,
+                    None,
+                    SECTION_SIZE,
+                )
                 .await?;
-            video_section(ChannelSectionKind::CHANNEL_SECTION_KIND_LIVE_ARCHIVES, videos::summaries(core, &viewer, &archives).await?);
+            video_section(
+                ChannelSectionKind::CHANNEL_SECTION_KIND_LIVE_ARCHIVES,
+                videos::summaries(core, &viewer, &archives).await?,
+            );
 
             let listed: Vec<PlaylistRow> = sqlx::query_as(concat!(
                 "SELECT ",
@@ -292,7 +358,11 @@ impl ChannelService for Video {
                     ..Default::default()
                 });
             }
-            ok(GetChannelPageResponse { channel: channels::to_proto(core, &viewer, &channel).await?.into(), sections, ..Default::default() })
+            ok(GetChannelPageResponse {
+                channel: channels::to_proto(core, &viewer, &channel).await?.into(),
+                sections,
+                ..Default::default()
+            })
         })
         .await
     }
@@ -313,14 +383,24 @@ impl ChannelService for Video {
             ensure!(request.origin.as_known().is_some(), invalid, "ORIGIN_INVALID", "unknown video origin");
             let page = Page::from_view(request.page.as_option(), 100);
             let after: Option<VideoCursor> = page.decode()?;
-            let mut rows = self.channel_videos(&viewer, channel.id, sort, request.origin.to_i32(), after.as_ref(), page.fetch()).await?;
+            let mut rows = self
+                .channel_videos(&viewer, channel.id, sort, request.origin.to_i32(), after.as_ref(), page.fetch())
+                .await?;
             let info = page.finish(&mut rows, VideoCursor::of);
-            ok(ListChannelVideosResponse { videos: videos::summaries(&self.core, &viewer, &rows).await?, page: info.into(), ..Default::default() })
+            ok(ListChannelVideosResponse {
+                videos: videos::summaries(&self.core, &viewer, &rows).await?,
+                page: info.into(),
+                ..Default::default()
+            })
         })
         .await
     }
 
-    async fn subscribe(&self, ctx: RequestContext, request: ServiceRequest<'_, SubscribeRequest>) -> ServiceResult<SubscribeResponse> {
+    async fn subscribe(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, SubscribeRequest>,
+    ) -> ServiceResult<SubscribeResponse> {
         handle(async {
             let core = &self.core;
             let user_id = ctx.user_id()?;
@@ -332,26 +412,41 @@ impl ChannelService for Video {
                 // Credit the video they were watching, if it is one of this channel's.
                 let source = match request.source_video_id.trim() {
                     "" => None,
-                    reference => videos::find_ref(core, reference).await?.filter(|video| video.channel_id == channel.id).map(|video| video.id),
+                    reference => videos::find_ref(core, reference)
+                        .await?
+                        .filter(|video| video.channel_id == channel.id)
+                        .map(|video| video.id),
                 };
                 analytics::track_subscription(core, &channel, user_id, true, source).await;
             }
-            ok(SubscribeResponse { channel: self.channel_response(&viewer, channel.id).await?.into(), ..Default::default() })
+            ok(SubscribeResponse {
+                channel: self.channel_response(&viewer, channel.id).await?.into(),
+                ..Default::default()
+            })
         })
         .await
     }
 
-    async fn unsubscribe(&self, ctx: RequestContext, request: ServiceRequest<'_, UnsubscribeRequest>) -> ServiceResult<UnsubscribeResponse> {
+    async fn unsubscribe(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, UnsubscribeRequest>,
+    ) -> ServiceResult<UnsubscribeResponse> {
         handle(async {
             let core = &self.core;
             let user_id = ctx.user_id()?;
             let viewer = Viewer::load(core, Some(user_id)).await?;
             // No visibility check: one can always leave, also a channel that has since been hidden.
-            let channel = channels::find(core, request.channel_id).await?.or_not_found("CHANNEL_NOT_FOUND", "channel not found")?;
+            let channel = channels::find(core, request.channel_id)
+                .await?
+                .or_not_found("CHANNEL_NOT_FOUND", "channel not found")?;
             if channels::unsubscribe(core, user_id, &channel).await? {
                 analytics::track_subscription(core, &channel, user_id, false, None).await;
             }
-            ok(UnsubscribeResponse { channel: self.channel_response(&viewer, channel.id).await?.into(), ..Default::default() })
+            ok(UnsubscribeResponse {
+                channel: self.channel_response(&viewer, channel.id).await?.into(),
+                ..Default::default()
+            })
         })
         .await
     }
@@ -398,7 +493,11 @@ impl ChannelService for Video {
         .await
     }
 
-    async fn list_subscribers(&self, ctx: RequestContext, request: ServiceRequest<'_, ListSubscribersRequest>) -> ServiceResult<ListSubscribersResponse> {
+    async fn list_subscribers(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, ListSubscribersRequest>,
+    ) -> ServiceResult<ListSubscribersResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let channel = channels::require_owned_ref(&self.core, user_id, request.channel_id).await?;
@@ -421,9 +520,18 @@ impl ChannelService for Video {
             let users = tokuly_identity::summaries(&self.core, &ids).await?;
             let subscribers = rows
                 .into_iter()
-                .map(|(id, at)| Subscriber { user: tokuly_identity::users::pick(&users, id).into(), subscribed_at: ts(at), ..Default::default() })
+                .map(|(id, at)| Subscriber {
+                    user: tokuly_identity::users::pick(&users, id).into(),
+                    subscribed_at: ts(at),
+                    ..Default::default()
+                })
                 .collect();
-            ok(ListSubscribersResponse { subscribers, page: info.into(), subscriber_count: channel.subscriber_count, ..Default::default() })
+            ok(ListSubscribersResponse {
+                subscribers,
+                page: info.into(),
+                subscriber_count: channel.subscriber_count,
+                ..Default::default()
+            })
         })
         .await
     }
@@ -454,7 +562,10 @@ impl ChannelService for Video {
             .bind(limit)
             .fetch_all(&self.core.db)
             .await?;
-            ok(ListRecommendedChannelsResponse { channels: rows.iter().map(ChannelRow::summary).collect(), ..Default::default() })
+            ok(ListRecommendedChannelsResponse {
+                channels: rows.iter().map(ChannelRow::summary).collect(),
+                ..Default::default()
+            })
         })
         .await
     }

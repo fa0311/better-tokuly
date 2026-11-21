@@ -186,9 +186,13 @@ service CommentService {
   // Public. Errors: SUBJECT_NOT_FOUND, UNSUPPORTED_SUBJECT, INVALID_CURSOR.
   rpc ListComments(ListCommentsRequest) returns (ListCommentsResponse);
 
-  // Replies to a top-level comment, oldest first.
+  // Replies to a top-level comment, oldest first. Like ListComments, the
+  // list includes the caller's own held or hidden replies, and is empty for
+  // everyone but the subject owner while the subject does not accept
+  // comments.
   //
-  // Public. Errors: COMMENT_NOT_FOUND, INVALID_CURSOR.
+  // Public. Errors: COMMENT_NOT_FOUND (also for a reply: only top-level
+  // comments have replies), INVALID_CURSOR.
   rpc ListReplies(ListRepliesRequest) returns (ListRepliesResponse);
 
   // One comment, e.g. to open the thread a notification points at

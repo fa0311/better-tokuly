@@ -97,13 +97,25 @@ impl Counter {
 /// Moves a counter of a subject. `owner_id` is the subject's owner, written
 /// when this is the first number the subject gets; without one (a subject
 /// that no longer resolves) only an existing row is changed.
-pub(crate) async fn add(conn: &mut PgConnection, key: SubjectKey, owner_id: Option<Uuid>, counter: Counter, delta: i64) -> AppResult<()> {
+pub(crate) async fn add(
+    conn: &mut PgConnection,
+    key: SubjectKey,
+    owner_id: Option<Uuid>,
+    counter: Counter,
+    delta: i64,
+) -> AppResult<()> {
     if delta == 0 {
         return Ok(());
     }
     match owner_id {
         Some(owner_id) => {
-            sqlx::query(counter.insert_sql()).bind(key.kind).bind(key.id).bind(owner_id).bind(delta).execute(conn).await?
+            sqlx::query(counter.insert_sql())
+                .bind(key.kind)
+                .bind(key.id)
+                .bind(owner_id)
+                .bind(delta)
+                .execute(conn)
+                .await?
         }
         None => sqlx::query(counter.update_sql()).bind(key.kind).bind(key.id).bind(delta).execute(conn).await?,
     };
@@ -233,11 +245,11 @@ pub(crate) async fn load(core: &Core, keys: &[SubjectKey]) -> AppResult<Stats> {
         stats.rows.insert(SubjectKey { kind: row.subject_type, id: row.subject_id }, row);
     }
     for row in emoji {
-        stats
-            .emoji
-            .entry(SubjectKey { kind: row.subject_type, id: row.subject_id })
-            .or_default()
-            .push(EmojiCount { emoji: row.emoji, count: row.count, ..Default::default() });
+        stats.emoji.entry(SubjectKey { kind: row.subject_type, id: row.subject_id }).or_default().push(EmojiCount {
+            emoji: row.emoji,
+            count: row.count,
+            ..Default::default()
+        });
     }
     Ok(stats)
 }
@@ -264,7 +276,9 @@ impl Engagement {
         let core = self.core.clone();
         let runtime = tokio::runtime::Handle::current();
         let called = tokio::task::spawn_blocking(move || {
-            runtime.block_on(async move { core.subjects.counter_changed(key.subject_type(), key.id, counter.name(), delta).await })
+            runtime.block_on(async move {
+                core.subjects.counter_changed(key.subject_type(), key.id, counter.name(), delta).await
+            })
         })
         .await;
         match called {
@@ -337,13 +351,20 @@ mod tests {
 
     #[test]
     fn every_counter_has_its_own_column_and_name() {
-        let all = [Counter::Like, Counter::Dislike, Counter::Emoji, Counter::Comment, Counter::Bookmark, Counter::Share];
+        let all =
+            [Counter::Like, Counter::Dislike, Counter::Emoji, Counter::Comment, Counter::Bookmark, Counter::Share];
         let names: std::collections::HashSet<&str> = all.iter().map(|c| c.name()).collect();
         let inserts: std::collections::HashSet<&str> = all.iter().map(|c| c.insert_sql()).collect();
         let updates: std::collections::HashSet<&str> = all.iter().map(|c| c.update_sql()).collect();
         assert_eq!((names.len(), inserts.len(), updates.len()), (6, 6, 6));
-        assert!(Counter::Comment.insert_sql().contains("comment_count = GREATEST(subject_stats.comment_count + $4, 0)"));
-        assert!(Counter::Share.update_sql().starts_with("UPDATE subject_stats SET share_count = GREATEST(share_count + $3, 0)"));
+        assert!(
+            Counter::Comment.insert_sql().contains("comment_count = GREATEST(subject_stats.comment_count + $4, 0)")
+        );
+        assert!(
+            Counter::Share
+                .update_sql()
+                .starts_with("UPDATE subject_stats SET share_count = GREATEST(share_count + $3, 0)")
+        );
     }
 
     #[test]

@@ -142,12 +142,6 @@ export function safeCheckoutUrl(url: string): string | undefined {
   }
 }
 
-/** Extra coins of a package as a whole percentage of the coins bought (0 when there is no bonus). */
-export function bonusPercent(coins: bigint, bonusCoins: bigint): number {
-  if (coins <= 0n || bonusCoins <= 0n) return 0;
-  return Number((bonusCoins * 100n) / coins);
-}
-
 /** The top of a value axis: the next "clean" number at or above `value`, whose half is clean too (0 / 500 / 1,000). */
 export function niceCeiling(value: number): number {
   if (value <= 2) return 2;

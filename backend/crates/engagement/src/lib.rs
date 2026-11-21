@@ -44,8 +44,12 @@
 //!   out before it opens.
 //! - Counters move in the transaction that changes what they count; realtime
 //!   pushes and counter callbacks happen after the commit ([`effects`]).
-//! - Locks are taken in one order: top-level comment, reply, bookmark
-//!   collections by ID, then the subject's statistics row.
+//! - Locks are taken in one order: comments (the top-level comment before
+//!   its replies), bookmark collections by ID, the rows being counted
+//!   (reactions, bookmarks, per-emoji and per-target counts), and last the
+//!   subject's statistics row. Transactions that change many comments lock
+//!   every thread involved first, in ID order
+//!   ([`comments::lock_threads_of`]).
 use std::{collections::HashMap, ops::Deref, sync::Arc};
 
 use async_trait::async_trait;
@@ -141,8 +145,8 @@ impl Engagement {
     /// Registers the six engagement services on the Connect router.
     pub fn register(&self, router: connectrpc::Router) -> connectrpc::Router {
         use tokuly_proto::engagement::{
-            BookmarkServiceExt, CommentModerationServiceExt, CommentServiceExt, EngagementServiceExt, ReactionServiceExt,
-            ReportServiceExt,
+            BookmarkServiceExt, CommentModerationServiceExt, CommentServiceExt, EngagementServiceExt,
+            ReactionServiceExt, ReportServiceExt,
         };
         let me = Arc::new(self.clone());
         let router = CommentServiceExt::register(me.clone(), router);

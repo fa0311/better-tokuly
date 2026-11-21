@@ -106,7 +106,12 @@ struct ManagedRow {
 /// A feed URL the fetcher will accept, in its normalized spelling.
 pub fn validate_feed_url(raw: &str, policy: Policy) -> AppResult<Url> {
     let raw = raw.trim();
-    ensure!(!raw.is_empty() && raw.len() <= MAX_URL_LEN, invalid, "INVALID_FEED_URL", "the feed URL is empty or too long");
+    ensure!(
+        !raw.is_empty() && raw.len() <= MAX_URL_LEN,
+        invalid,
+        "INVALID_FEED_URL",
+        "the feed URL is empty or too long"
+    );
     let mut url = match Url::parse(raw) {
         Ok(url) => url,
         Err(_) => bail!(invalid, "INVALID_FEED_URL", "the feed URL is not a valid URL"),
@@ -121,7 +126,12 @@ pub fn validate_feed_url(raw: &str, policy: Policy) -> AppResult<Url> {
 /// A source name; empty means "take it from the feed".
 pub fn validate_name(raw: &str) -> AppResult<String> {
     let name = raw.trim();
-    ensure!(name.chars().count() <= MAX_NAME_CHARS && !name.chars().any(char::is_control), invalid, "INVALID_NAME", "the name is too long or contains control characters");
+    ensure!(
+        name.chars().count() <= MAX_NAME_CHARS && !name.chars().any(char::is_control),
+        invalid,
+        "INVALID_NAME",
+        "the name is too long or contains control characters"
+    );
     Ok(name.to_owned())
 }
 
@@ -131,7 +141,8 @@ pub fn validate_site_url(raw: &str) -> AppResult<String> {
     if raw.is_empty() {
         return Ok(String::new());
     }
-    let ok = raw.len() <= MAX_URL_LEN && Url::parse(raw).is_ok_and(|url| matches!(url.scheme(), "http" | "https") && url.host().is_some());
+    let ok = raw.len() <= MAX_URL_LEN
+        && Url::parse(raw).is_ok_and(|url| matches!(url.scheme(), "http" | "https") && url.host().is_some());
     ensure!(ok, invalid, "INVALID_SITE_URL", "the site URL must be an http(s) URL");
     Ok(raw.to_owned())
 }
@@ -143,9 +154,17 @@ pub fn validate_language(raw: &str) -> AppResult<String> {
         return Ok(DEFAULT_LANGUAGE.to_owned());
     }
     let mut subtags = language.split('-');
-    let primary_ok = subtags.next().is_some_and(|primary| (2..=3).contains(&primary.len()) && primary.bytes().all(|b| b.is_ascii_lowercase()));
-    let rest_ok = subtags.all(|subtag| (1..=8).contains(&subtag.len()) && subtag.bytes().all(|b| b.is_ascii_alphanumeric()));
-    ensure!(primary_ok && rest_ok && language.len() <= 16, invalid, "INVALID_LANGUAGE", "the language must be a BCP 47 tag such as `ja` or `en-us`");
+    let primary_ok = subtags
+        .next()
+        .is_some_and(|primary| (2..=3).contains(&primary.len()) && primary.bytes().all(|b| b.is_ascii_lowercase()));
+    let rest_ok =
+        subtags.all(|subtag| (1..=8).contains(&subtag.len()) && subtag.bytes().all(|b| b.is_ascii_alphanumeric()));
+    ensure!(
+        primary_ok && rest_ok && language.len() <= 16,
+        invalid,
+        "INVALID_LANGUAGE",
+        "the language must be a BCP 47 tag such as `ja` or `en-us`"
+    );
     Ok(language)
 }
 
@@ -180,7 +199,11 @@ fn not_found() -> AppError {
 
 impl Feed {
     /// Creates a source; `None` when the feed URL is already a source.
-    pub(crate) async fn insert_source(&self, tx: &mut Transaction<'_, Postgres>, new: &NewSource) -> AppResult<Option<SourceRow>> {
+    pub(crate) async fn insert_source(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        new: &NewSource,
+    ) -> AppResult<Option<SourceRow>> {
         let name_from_feed = new.name.is_empty();
         let name = if name_from_feed { new.feed_url.host_str().unwrap_or("news").to_owned() } else { new.name.clone() };
         Ok(sqlx::query_as(concat!(
@@ -204,7 +227,10 @@ impl Feed {
     }
 
     pub(crate) async fn find_source(&self, id: Uuid) -> AppResult<Option<SourceRow>> {
-        Ok(sqlx::query_as(concat!("SELECT ", source_columns!(), " FROM news_sources s WHERE s.id = $1")).bind(id).fetch_optional(&self.core.db).await?)
+        Ok(sqlx::query_as(concat!("SELECT ", source_columns!(), " FROM news_sources s WHERE s.id = $1"))
+            .bind(id)
+            .fetch_optional(&self.core.db)
+            .await?)
     }
 
     async fn managed_source(&self, id: Uuid) -> AppResult<ManagedNewsSource> {
@@ -265,7 +291,11 @@ impl NewsAdminService for Feed {
         .await
     }
 
-    async fn create_news_source(&self, ctx: RequestContext, request: ServiceRequest<'_, CreateNewsSourceRequest>) -> ServiceResult<CreateNewsSourceResponse> {
+    async fn create_news_source(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, CreateNewsSourceRequest>,
+    ) -> ServiceResult<CreateNewsSourceResponse> {
         handle(async {
             ctx.require_role("admin")?;
             let request = request.to_owned_message();
@@ -281,9 +311,16 @@ impl NewsAdminService for Feed {
 
             let mut tx = self.core.db.begin().await?;
             // Creations are serialized so the cap cannot be overshot.
-            sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('feed:news-sources', 0))").execute(&mut *tx).await?;
+            sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('feed:news-sources', 0))")
+                .execute(&mut *tx)
+                .await?;
             let existing: i64 = sqlx::query_scalar("SELECT count(*) FROM news_sources").fetch_one(&mut *tx).await?;
-            ensure!(existing < MAX_SOURCES, precondition, "TOO_MANY_NEWS_SOURCES", "at most {MAX_SOURCES} news sources can exist");
+            ensure!(
+                existing < MAX_SOURCES,
+                precondition,
+                "TOO_MANY_NEWS_SOURCES",
+                "at most {MAX_SOURCES} news sources can exist"
+            );
             let Some(source) = self.insert_source(&mut tx, &new).await? else {
                 bail!(already_exists, "NEWS_SOURCE_EXISTS", "this feed is already a news source");
             };
@@ -297,23 +334,32 @@ impl NewsAdminService for Feed {
         .await
     }
 
-    async fn update_news_source(&self, ctx: RequestContext, request: ServiceRequest<'_, UpdateNewsSourceRequest>) -> ServiceResult<UpdateNewsSourceResponse> {
+    async fn update_news_source(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, UpdateNewsSourceRequest>,
+    ) -> ServiceResult<UpdateNewsSourceResponse> {
         handle(async {
             ctx.require_role("admin")?;
             let request = request.to_owned_message();
             let source_id = parse_id(&request.source_id)?;
-            let feed_url = request.feed_url.as_deref().map(|raw| validate_feed_url(raw, self.news_policy)).transpose()?;
+            let feed_url =
+                request.feed_url.as_deref().map(|raw| validate_feed_url(raw, self.news_policy)).transpose()?;
             let name = request.name.as_deref().map(validate_name).transpose()?;
             let site_url = request.site_url.as_deref().map(validate_site_url).transpose()?;
             let language = request.language.as_deref().map(validate_language).transpose()?;
             let default_tags = request.default_tags.as_option().map(|list| validate_tags(&list.tags)).transpose()?;
 
             let mut tx = self.core.db.begin().await?;
-            let before: SourceRow = sqlx::query_as(concat!("SELECT ", source_columns!(), " FROM news_sources s WHERE s.id = $1 FOR UPDATE"))
-                .bind(source_id)
-                .fetch_optional(&mut *tx)
-                .await?
-                .ok_or_else(not_found)?;
+            let before: SourceRow = sqlx::query_as(concat!(
+                "SELECT ",
+                source_columns!(),
+                " FROM news_sources s WHERE s.id = $1 FOR UPDATE"
+            ))
+            .bind(source_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(not_found)?;
 
             let feed_changed = feed_url.as_ref().is_some_and(|url| url.as_str() != before.feed_url);
             let enabled = request.enabled.unwrap_or(before.enabled);
@@ -374,15 +420,25 @@ impl NewsAdminService for Feed {
         .await
     }
 
-    async fn delete_news_source(&self, ctx: RequestContext, request: ServiceRequest<'_, DeleteNewsSourceRequest>) -> ServiceResult<DeleteNewsSourceResponse> {
+    async fn delete_news_source(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, DeleteNewsSourceRequest>,
+    ) -> ServiceResult<DeleteNewsSourceResponse> {
         handle(async {
             ctx.require_role("admin")?;
             let source_id = parse_id(request.source_id)?;
             let mut tx = self.core.db.begin().await?;
-            let exists: Option<Uuid> = sqlx::query_scalar("SELECT id FROM news_sources WHERE id = $1 FOR UPDATE").bind(source_id).fetch_optional(&mut *tx).await?;
+            let exists: Option<Uuid> = sqlx::query_scalar("SELECT id FROM news_sources WHERE id = $1 FOR UPDATE")
+                .bind(source_id)
+                .fetch_optional(&mut *tx)
+                .await?;
             ensure!(exists.is_some(), not_found, "NEWS_SOURCE_NOT_FOUND", "news source not found");
             // The articles go with the source: out of search first.
-            let article_ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM news_articles WHERE source_id = $1").bind(source_id).fetch_all(&mut *tx).await?;
+            let article_ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM news_articles WHERE source_id = $1")
+                .bind(source_id)
+                .fetch_all(&mut *tx)
+                .await?;
             for article_id in article_ids {
                 outbound::unindex(&mut *tx, SEARCH_KIND, article_id).await?;
             }
@@ -393,11 +449,18 @@ impl NewsAdminService for Feed {
         .await
     }
 
-    async fn refresh_news_sources(&self, ctx: RequestContext, request: ServiceRequest<'_, RefreshNewsSourcesRequest>) -> ServiceResult<RefreshNewsSourcesResponse> {
+    async fn refresh_news_sources(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, RefreshNewsSourcesRequest>,
+    ) -> ServiceResult<RefreshNewsSourcesResponse> {
         handle(async {
             let admin = ctx.require_role("admin")?;
             let only = parse_opt_id(request.source_id)?;
-            self.core.cache.rate_limit(&format!("feed:news-refresh:{}", admin.user_id), 10, Duration::from_secs(60)).await?;
+            self.core
+                .cache
+                .rate_limit(&format!("feed:news-refresh:{}", admin.user_id), 10, Duration::from_secs(60))
+                .await?;
 
             let source_ids: Vec<Uuid> = match only {
                 Some(source_id) => {
@@ -405,10 +468,17 @@ impl NewsAdminService for Feed {
                     ensure!(source.enabled, precondition, "NEWS_SOURCE_DISABLED", "this news source is switched off");
                     vec![source.id]
                 }
-                None => sqlx::query_scalar("SELECT id FROM news_sources WHERE enabled ORDER BY next_fetch_at").fetch_all(&self.core.db).await?,
+                None => {
+                    sqlx::query_scalar("SELECT id FROM news_sources WHERE enabled ORDER BY next_fetch_at")
+                        .fetch_all(&self.core.db)
+                        .await?
+                }
             };
             // Due now, so the scheduler picks them up even if a queued job is lost.
-            sqlx::query("UPDATE news_sources SET next_fetch_at = now() WHERE id = ANY($1)").bind(&source_ids).execute(&self.core.db).await?;
+            sqlx::query("UPDATE news_sources SET next_fetch_at = now() WHERE id = ANY($1)")
+                .bind(&source_ids)
+                .execute(&self.core.db)
+                .await?;
             for source_id in &source_ids {
                 self.enqueue_fetch(*source_id).await;
             }
@@ -417,11 +487,20 @@ impl NewsAdminService for Feed {
         .await
     }
 
-    async fn remove_news_article(&self, ctx: RequestContext, request: ServiceRequest<'_, RemoveNewsArticleRequest>) -> ServiceResult<RemoveNewsArticleResponse> {
+    async fn remove_news_article(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, RemoveNewsArticleRequest>,
+    ) -> ServiceResult<RemoveNewsArticleResponse> {
         handle(async {
             ctx.require_role("moderator")?;
             let article_id = parse_id(request.article_id)?;
-            ensure!(self.take_article_down(article_id).await?, not_found, "NEWS_ARTICLE_NOT_FOUND", "news article not found");
+            ensure!(
+                self.take_article_down(article_id).await?,
+                not_found,
+                "NEWS_ARTICLE_NOT_FOUND",
+                "news article not found"
+            );
             ok(RemoveNewsArticleResponse::default())
         })
         .await
@@ -434,14 +513,21 @@ impl Feed {
     /// Returns whether the article exists.
     pub(crate) async fn take_article_down(&self, article_id: Uuid) -> AppResult<bool> {
         let mut tx = self.core.db.begin().await?;
-        let removed_at: Option<Option<Time>> = sqlx::query_scalar("SELECT removed_at FROM news_articles WHERE id = $1 FOR UPDATE").bind(article_id).fetch_optional(&mut *tx).await?;
+        let removed_at: Option<Option<Time>> =
+            sqlx::query_scalar("SELECT removed_at FROM news_articles WHERE id = $1 FOR UPDATE")
+                .bind(article_id)
+                .fetch_optional(&mut *tx)
+                .await?;
         match removed_at {
             None => return Ok(false),
             // Already down: nothing to do.
             Some(Some(_)) => return Ok(true),
             Some(None) => {}
         }
-        sqlx::query("UPDATE news_articles SET removed_at = now() WHERE id = $1").bind(article_id).execute(&mut *tx).await?;
+        sqlx::query("UPDATE news_articles SET removed_at = now() WHERE id = $1")
+            .bind(article_id)
+            .execute(&mut *tx)
+            .await?;
         outbound::unindex(&mut *tx, SEARCH_KIND, article_id).await?;
         tx.commit().await?;
         Ok(true)
@@ -455,7 +541,10 @@ mod tests {
     #[test]
     fn feed_urls_must_be_fetchable() {
         let strict = Policy::default();
-        assert_eq!(validate_feed_url(" https://News.Example/rss.xml#top ", strict).unwrap().as_str(), "https://news.example/rss.xml");
+        assert_eq!(
+            validate_feed_url(" https://News.Example/rss.xml#top ", strict).unwrap().as_str(),
+            "https://news.example/rss.xml"
+        );
         for (raw, reason) in [
             ("", "INVALID_FEED_URL"),
             ("not a url", "INVALID_FEED_URL"),

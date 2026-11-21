@@ -24,7 +24,11 @@ use crate::{
 const MAX_PAGE_SIZE: i64 = 50;
 
 impl HomeFeedService for Feed {
-    async fn list_home_feed(&self, ctx: RequestContext, request: ServiceRequest<'_, ListHomeFeedRequest>) -> ServiceResult<ListHomeFeedResponse> {
+    async fn list_home_feed(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, ListHomeFeedRequest>,
+    ) -> ServiceResult<ListHomeFeedResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let page = Page::from_view(request.page.as_option(), MAX_PAGE_SIZE);
@@ -32,11 +36,23 @@ impl HomeFeedService for Feed {
             let reader = self.reader_for(user_id).await?;
             let friends = self.visible_friends(user_id, &reader.hidden).await?;
 
-            let mut heads =
-                self.card_heads(&CardQuery { authors: &friends, hidden: &reader.hidden, kind_prefix: None, after, limit: page.fetch(), home: true }).await?;
+            let mut heads = self
+                .card_heads(&CardQuery {
+                    authors: &friends,
+                    hidden: &reader.hidden,
+                    kind_prefix: None,
+                    after,
+                    limit: page.fetch(),
+                    home: true,
+                })
+                .await?;
             let info = page.finish(&mut heads, ActivityRow::key);
             let bursts = spread(self.bursts(heads, &reader.hidden).await?, |burst| burst.head.user_id);
-            ok(ListHomeFeedResponse { cards: self.to_cards(&reader, &bursts).await?, page: info.into(), ..Default::default() })
+            ok(ListHomeFeedResponse {
+                cards: self.to_cards(&reader, &bursts).await?,
+                page: info.into(),
+                ..Default::default()
+            })
         })
         .await
     }

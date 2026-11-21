@@ -23,7 +23,10 @@ use tokuly_proto::{
 
 use crate::{
     access::Viewer,
-    events::{CHANNEL_CREATED, CHANNEL_DELETED, CHANNEL_SUBSCRIBED, CHANNEL_UNSUBSCRIBED, CHANNEL_UPDATED, ChannelEvent, SubscriptionEvent},
+    events::{
+        CHANNEL_CREATED, CHANNEL_DELETED, CHANNEL_SUBSCRIBED, CHANNEL_UNSUBSCRIBED, CHANNEL_UPDATED, ChannelEvent,
+        SubscriptionEvent,
+    },
     search, validate,
     videos::{self, Aftermath},
 };
@@ -153,7 +156,8 @@ pub async fn find(core: &Core, reference: &str) -> AppResult<Option<ChannelRow>>
         return find_by_id(core, id).await;
     }
     let handle = reference.trim_start_matches('@');
-    let plausible = (1..=64).contains(&handle.len()) && handle.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+    let plausible =
+        (1..=64).contains(&handle.len()) && handle.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
     if !plausible {
         return Ok(None);
     }
@@ -164,7 +168,10 @@ pub async fn find(core: &Core, reference: &str) -> AppResult<Option<ChannelRow>>
 /// suspended accounts and of users in a block relation with the viewer read
 /// as not found.
 pub async fn find_visible(core: &Core, viewer: &Viewer, reference: &str) -> AppResult<ChannelRow> {
-    find(core, reference).await?.filter(|channel| viewer.may_see_owner(channel.owner_id, channel.suspended)).ok_or_else(not_found)
+    find(core, reference)
+        .await?
+        .filter(|channel| viewer.may_see_owner(channel.owner_id, channel.suspended))
+        .ok_or_else(not_found)
 }
 
 /// Summaries of the given channels, keyed by ID. Unknown IDs are absent.
@@ -172,10 +179,11 @@ pub async fn summaries(core: &Core, ids: &[Uuid]) -> AppResult<HashMap<Uuid, Cha
     if ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows: Vec<ChannelRow> = sqlx::query_as(concat!("SELECT ", channel_columns!(), " FROM channels c WHERE c.id = ANY($1)"))
-        .bind(ids)
-        .fetch_all(&core.db)
-        .await?;
+    let rows: Vec<ChannelRow> =
+        sqlx::query_as(concat!("SELECT ", channel_columns!(), " FROM channels c WHERE c.id = ANY($1)"))
+            .bind(ids)
+            .fetch_all(&core.db)
+            .await?;
     Ok(rows.into_iter().map(|row| (row.id, row.summary())).collect())
 }
 
@@ -205,19 +213,25 @@ pub async fn default_for(core: &Core, user_id: Uuid) -> AppResult<Option<Channel
 
 /// Every channel of a user, the default one first, then oldest first.
 pub async fn owned_by(core: &Core, user_id: Uuid) -> AppResult<Vec<ChannelRow>> {
-    Ok(sqlx::query_as(concat!("SELECT ", channel_columns!(), " FROM channels c WHERE c.owner_id = $1 ORDER BY c.is_default DESC, c.id"))
-        .bind(user_id)
-        .fetch_all(&core.db)
-        .await?)
+    Ok(sqlx::query_as(concat!(
+        "SELECT ",
+        channel_columns!(),
+        " FROM channels c WHERE c.owner_id = $1 ORDER BY c.is_default DESC, c.id"
+    ))
+    .bind(user_id)
+    .fetch_all(&core.db)
+    .await?)
 }
 
 /// IDs of the users subscribed to a channel with at least `min_level`.
 pub async fn subscriber_ids(core: &Core, channel_id: Uuid, min_level: NotifyLevel) -> AppResult<Vec<Uuid>> {
-    Ok(sqlx::query_scalar("SELECT user_id FROM channel_subscriptions WHERE channel_id = $1 AND notify_level >= $2 ORDER BY user_id")
-        .bind(channel_id)
-        .bind(min_level as i32)
-        .fetch_all(&core.db)
-        .await?)
+    Ok(sqlx::query_scalar(
+        "SELECT user_id FROM channel_subscriptions WHERE channel_id = $1 AND notify_level >= $2 ORDER BY user_id",
+    )
+    .bind(channel_id)
+    .bind(min_level as i32)
+    .fetch_all(&core.db)
+    .await?)
 }
 
 pub async fn is_subscribed(core: &Core, user_id: Uuid, channel_id: Uuid) -> AppResult<bool> {
@@ -232,7 +246,11 @@ pub async fn is_subscribed(core: &Core, user_id: Uuid, channel_id: Uuid) -> AppR
 /// channel of a verified account shows the badge regardless).
 pub async fn set_verified(core: &Core, channel_id: Uuid, verified: bool) -> AppResult<()> {
     let mut tx = core.db.begin().await?;
-    sqlx::query("UPDATE channels SET verified = $2 WHERE id = $1").bind(channel_id).bind(verified).execute(&mut *tx).await?;
+    sqlx::query("UPDATE channels SET verified = $2 WHERE id = $1")
+        .bind(channel_id)
+        .bind(verified)
+        .execute(&mut *tx)
+        .await?;
     if let Some(channel) = find_in(&mut tx, channel_id).await? {
         search::index_channel(&mut tx, &channel).await?;
     }
@@ -240,7 +258,10 @@ pub async fn set_verified(core: &Core, channel_id: Uuid, verified: bool) -> AppR
     Ok(())
 }
 
-pub(crate) async fn find_in(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, channel_id: Uuid) -> AppResult<Option<ChannelRow>> {
+pub(crate) async fn find_in(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    channel_id: Uuid,
+) -> AppResult<Option<ChannelRow>> {
     Ok(sqlx::query_as(concat!("SELECT ", channel_columns!(), " FROM channels c WHERE c.id = $1"))
         .bind(channel_id)
         .fetch_optional(&mut **tx)
@@ -275,12 +296,13 @@ pub async fn to_proto(core: &Core, viewer: &Viewer, channel: &ChannelRow) -> App
     let viewer_state = match viewer.user_id {
         None => None,
         Some(user_id) => {
-            let subscription: Option<SubscriptionState> =
-                sqlx::query_as("SELECT notify_level, created_at FROM channel_subscriptions WHERE channel_id = $1 AND user_id = $2")
-                    .bind(channel.id)
-                    .bind(user_id)
-                    .fetch_optional(&core.db)
-                    .await?;
+            let subscription: Option<SubscriptionState> = sqlx::query_as(
+                "SELECT notify_level, created_at FROM channel_subscriptions WHERE channel_id = $1 AND user_id = $2",
+            )
+            .bind(channel.id)
+            .bind(user_id)
+            .fetch_optional(&core.db)
+            .await?;
             let is_owner = channel.owner_id == user_id;
             Some(ChannelViewerState {
                 is_owner,
@@ -328,7 +350,12 @@ struct Art {
     image: serde_json::Value,
 }
 
-async fn resolve_art(core: &Core, owner_id: Uuid, asset_id: Option<Uuid>, purpose: AssetPurpose) -> AppResult<Option<Art>> {
+async fn resolve_art(
+    core: &Core,
+    owner_id: Uuid,
+    asset_id: Option<Uuid>,
+    purpose: AssetPurpose,
+) -> AppResult<Option<Art>> {
     match asset_id {
         None => Ok(None),
         Some(asset_id) => {
@@ -353,7 +380,11 @@ async fn lock_owner(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, owner_id: Uu
 }
 
 fn handle_taken(error: AppError) -> AppError {
-    if error.is_already_exists() { AppError::already_exists("HANDLE_TAKEN", "this channel handle is taken") } else { error }
+    if error.is_already_exists() {
+        AppError::already_exists("HANDLE_TAKEN", "this channel handle is taken")
+    } else {
+        error
+    }
 }
 
 /// Creates a channel for `owner_id`. The first channel of an account
@@ -363,17 +394,28 @@ pub async fn create(core: &Core, owner_id: Uuid, max_channels: i64, edit: Channe
     let name = validate::channel_name(edit.name.as_deref().unwrap_or_default())?;
     let description = validate::channel_description(edit.description.as_deref().unwrap_or_default())?;
     let links = validate::channel_links(edit.links.as_deref().unwrap_or_default())?;
-    let icon = resolve_art(core, owner_id, edit.icon_asset_id.flatten(), AssetPurpose::ASSET_PURPOSE_CHANNEL_ICON).await?;
-    let banner = resolve_art(core, owner_id, edit.banner_asset_id.flatten(), AssetPurpose::ASSET_PURPOSE_CHANNEL_BANNER).await?;
+    let icon =
+        resolve_art(core, owner_id, edit.icon_asset_id.flatten(), AssetPurpose::ASSET_PURPOSE_CHANNEL_ICON).await?;
+    let banner =
+        resolve_art(core, owner_id, edit.banner_asset_id.flatten(), AssetPurpose::ASSET_PURPOSE_CHANNEL_BANNER).await?;
 
     let mut tx = core.db.begin().await?;
     lock_owner(&mut tx, owner_id).await?;
-    let owned: i64 = sqlx::query_scalar("SELECT count(*) FROM channels WHERE owner_id = $1").bind(owner_id).fetch_one(&mut *tx).await?;
-    ensure!(owned < max_channels, precondition, "CHANNEL_LIMIT_REACHED", "an account can have at most {max_channels} channels");
-    let suspended: bool = sqlx::query_scalar("SELECT COALESCE((SELECT banned_at IS NOT NULL FROM users WHERE id = $1), false)")
+    let owned: i64 = sqlx::query_scalar("SELECT count(*) FROM channels WHERE owner_id = $1")
         .bind(owner_id)
         .fetch_one(&mut *tx)
         .await?;
+    ensure!(
+        owned < max_channels,
+        precondition,
+        "CHANNEL_LIMIT_REACHED",
+        "an account can have at most {max_channels} channels"
+    );
+    let suspended: bool =
+        sqlx::query_scalar("SELECT COALESCE((SELECT banned_at IS NOT NULL FROM users WHERE id = $1), false)")
+            .bind(owner_id)
+            .fetch_one(&mut *tx)
+            .await?;
     let channel_id = new_id();
     sqlx::query(
         "INSERT INTO channels (id, owner_id, handle, name, description, icon, icon_asset_id, banner, banner_asset_id, links, is_default, suspended)
@@ -418,7 +460,9 @@ pub async fn update(core: &Core, owner_id: Uuid, channel: &ChannelRow, edit: Cha
         None => None,
     };
     let banner = match edit.banner_asset_id {
-        Some(asset_id) => Some(resolve_art(core, owner_id, asset_id, AssetPurpose::ASSET_PURPOSE_CHANNEL_BANNER).await?),
+        Some(asset_id) => {
+            Some(resolve_art(core, owner_id, asset_id, AssetPurpose::ASSET_PURPOSE_CHANNEL_BANNER).await?)
+        }
         None => None,
     };
 
@@ -435,7 +479,11 @@ pub async fn update(core: &Core, owner_id: Uuid, channel: &ChannelRow, edit: Cha
             .await?;
             ensure!(fits, not_found, "TRAILER_NOT_FOUND", "the trailer must be a public video of this channel");
         }
-        sqlx::query("UPDATE channels SET trailer_video_id = $2 WHERE id = $1").bind(channel.id).bind(trailer).execute(&mut *tx).await?;
+        sqlx::query("UPDATE channels SET trailer_video_id = $2 WHERE id = $1")
+            .bind(channel.id)
+            .bind(trailer)
+            .execute(&mut *tx)
+            .await?;
     }
     sqlx::query(
         "UPDATE channels SET handle = COALESCE($2::citext, handle), name = COALESCE($3, name),
@@ -450,7 +498,8 @@ pub async fn update(core: &Core, owner_id: Uuid, channel: &ChannelRow, edit: Cha
     .execute(&mut *tx)
     .await
     .map_err(|e| handle_taken(e.into()))?;
-    for (slot, change, current) in [("icon", icon, channel.icon_asset_id), ("banner", banner, channel.banner_asset_id)] {
+    for (slot, change, current) in [("icon", icon, channel.icon_asset_id), ("banner", banner, channel.banner_asset_id)]
+    {
         let Some(art) = change else { continue };
         let holder = art_holder(slot, channel.id);
         if let Some(previous) = current {
@@ -514,7 +563,10 @@ pub async fn delete_in(
     for video in &video_rows {
         aftermath.merge(videos::delete_in(tx, video, actor, force_assets).await?);
     }
-    let playlist_ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM playlists WHERE channel_id = $1").bind(channel.id).fetch_all(&mut **tx).await?;
+    let playlist_ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM playlists WHERE channel_id = $1")
+        .bind(channel.id)
+        .fetch_all(&mut **tx)
+        .await?;
     for playlist_id in playlist_ids {
         crate::playlists::delete_in(tx, playlist_id, channel.owner_id, actor).await?;
     }
@@ -550,8 +602,19 @@ pub async fn delete(core: &Core, channel: &ChannelRow, actor: Option<Uuid>, forc
 /// Subscribes `user_id` to `channel`, or changes the level of an existing
 /// subscription (`level` of `None`: PERSONALIZED for a new one, unchanged
 /// otherwise). Returns whether a new subscription was created.
-pub async fn subscribe(core: &Core, user_id: Uuid, channel: &ChannelRow, level: Option<NotifyLevel>) -> AppResult<bool> {
-    ensure!(channel.owner_id != user_id, invalid, "CANNOT_SUBSCRIBE_TO_OWN_CHANNEL", "you cannot subscribe to your own channel");
+pub async fn subscribe(
+    core: &Core,
+    user_id: Uuid,
+    channel: &ChannelRow,
+    level: Option<NotifyLevel>,
+) -> AppResult<bool> {
+    ensure!(
+        channel.owner_id != user_id,
+        invalid,
+        "CANNOT_SUBSCRIBE_TO_OWN_CHANNEL",
+        "you cannot subscribe to your own channel"
+    );
+    let subscriber = tokuly_identity::summary(core, user_id).await?;
     let mut tx = core.db.begin().await?;
     let created: bool = sqlx::query_scalar(
         "INSERT INTO channel_subscriptions (channel_id, user_id, notify_level) VALUES ($1, $2, COALESCE($3, 2))
@@ -565,10 +628,12 @@ pub async fn subscribe(core: &Core, user_id: Uuid, channel: &ChannelRow, level: 
     .fetch_one(&mut *tx)
     .await?;
     if created {
-        sqlx::query("UPDATE channels SET subscriber_count = subscriber_count + 1 WHERE id = $1").bind(channel.id).execute(&mut *tx).await?;
+        sqlx::query("UPDATE channels SET subscriber_count = subscriber_count + 1 WHERE id = $1")
+            .bind(channel.id)
+            .execute(&mut *tx)
+            .await?;
         let event = SubscriptionEvent { channel_id: channel.id, owner_id: channel.owner_id, user_id };
         core_events::emit(&mut *tx, CHANNEL_SUBSCRIBED, Some(user_id), &event).await?;
-        let subscriber = tokuly_identity::summary(core, user_id).await?;
         let request = outbound::NotificationRequest::new(
             channel.owner_id,
             "video.subscribed",
@@ -642,7 +707,10 @@ mod tests {
         assert_eq!(NotifyLevel::from_i32(3), Some(NotifyLevel::All));
         assert_eq!(NotifyLevel::from_i32(0), None);
         assert_eq!(requested_level(NotificationLevel::NOTIFICATION_LEVEL_UNSPECIFIED.into()).unwrap(), None);
-        assert_eq!(requested_level(NotificationLevel::NOTIFICATION_LEVEL_NONE.into()).unwrap(), Some(NotifyLevel::None));
+        assert_eq!(
+            requested_level(NotificationLevel::NOTIFICATION_LEVEL_NONE.into()).unwrap(),
+            Some(NotifyLevel::None)
+        );
         assert_eq!(requested_level(buffa::EnumValue::from(9)).unwrap_err().reason, "NOTIFICATION_LEVEL_INVALID");
     }
 }

@@ -1,5 +1,5 @@
 import { type notify, toMillis } from "@tokuly/api";
-import { BellOff, Play } from "lucide-react";
+import { CirclePause, Play } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { Card, Chip } from "#/components/ui/card";
@@ -30,7 +30,7 @@ export function PauseCard({ preferences }: { preferences: notify.Preferences }) 
     <Card>
       <div className="flex items-start gap-3">
         <span className={cn("sticker-sm grid size-12 shrink-0 place-items-center rounded-2xl", paused ? "bg-sun text-[#17122b]" : "bg-surface-3 text-ink")}>
-          <BellOff className="size-6" />
+          <CirclePause className="size-6" />
         </span>
         <div className="min-w-0 flex-1">
           <h2 className="flex flex-wrap items-center gap-2 text-lg font-black leading-snug">

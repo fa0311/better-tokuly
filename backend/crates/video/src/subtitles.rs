@@ -60,7 +60,9 @@ fn parse_timestamp(input: &str) -> Option<u64> {
     let millis = fraction.parse::<u64>().ok()? * 10u64.pow(3 - fraction.len() as u32);
     let parts: Vec<&str> = clock.split(':').collect();
     let number = |part: &str, max_len: usize| -> Option<u64> {
-        (!part.is_empty() && part.len() <= max_len && part.bytes().all(|b| b.is_ascii_digit())).then(|| part.parse().ok()).flatten()
+        (!part.is_empty() && part.len() <= max_len && part.bytes().all(|b| b.is_ascii_digit()))
+            .then(|| part.parse().ok())
+            .flatten()
     };
     let (hours, minutes, seconds) = match parts.as_slice() {
         [minutes, seconds] => (0, number(minutes, 2)?, number(seconds, 2)?),
@@ -105,7 +107,12 @@ fn clean_settings(settings: &str) -> String {
 /// Cue text as it goes into the WebVTT file: no arrows (they would start a
 /// new cue) and no blank lines (they would end it).
 fn clean_text(lines: &[&str]) -> String {
-    lines.iter().map(|line| line.trim_end().replace("-->", "→")).filter(|line| !line.trim().is_empty()).collect::<Vec<_>>().join("\n")
+    lines
+        .iter()
+        .map(|line| line.trim_end().replace("-->", "→"))
+        .filter(|line| !line.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Removes what SubRip files carry that WebVTT does not know: `{\an8}`
@@ -123,7 +130,8 @@ fn clean_srt_line(line: &str) -> String {
                 let tag = &tail[..=end];
                 let inner = tag[1..tag.len() - 1].trim().to_ascii_lowercase();
                 let keep = close == '>' && matches!(inner.as_str(), "b" | "/b" | "i" | "/i" | "u" | "/u");
-                let drop = (close == '}' && inner.starts_with('\\')) || (close == '>' && (inner.starts_with("font") || inner == "/font"));
+                let drop = (close == '}' && inner.starts_with('\\'))
+                    || (close == '>' && (inner.starts_with("font") || inner == "/font"));
                 if keep || !drop {
                     out.push_str(tag);
                 }
@@ -140,7 +148,9 @@ fn clean_srt_line(line: &str) -> String {
 }
 
 fn blocks(text: &str) -> impl Iterator<Item = Vec<&str>> {
-    text.split("\n\n").map(|block| block.lines().filter(|line| !line.trim().is_empty()).collect::<Vec<_>>()).filter(|lines| !lines.is_empty())
+    text.split("\n\n")
+        .map(|block| block.lines().filter(|line| !line.trim().is_empty()).collect::<Vec<_>>())
+        .filter(|lines| !lines.is_empty())
 }
 
 fn parse_vtt(text: &str) -> AppResult<Vec<Cue>> {
@@ -240,7 +250,8 @@ pub struct SubtitleRow {
     pub created_at: Time,
 }
 
-const COLUMNS: &str = "s.id, s.video_id, s.language, s.label, s.object_key, s.is_default, s.original_format, s.cue_count, s.created_at";
+const COLUMNS: &str =
+    "s.id, s.video_id, s.language, s.label, s.object_key, s.is_default, s.original_format, s.cue_count, s.created_at";
 
 impl SubtitleRow {
     pub fn to_proto(&self, core: &Core) -> SubtitleTrack {
@@ -269,7 +280,13 @@ fn object_key(video_id: Uuid, subtitle_id: Uuid, vtt: &str) -> String {
 
 async fn store(core: &Core, key: &str, vtt: String) -> AppResult<()> {
     core.storage
-        .put_with_cache(Bucket::Media, key, vtt.into_bytes(), "text/vtt; charset=utf-8", Some("public, max-age=31536000, immutable"))
+        .put_with_cache(
+            Bucket::Media,
+            key,
+            vtt.into_bytes(),
+            "text/vtt; charset=utf-8",
+            Some("public, max-age=31536000, immutable"),
+        )
         .await
 }
 
@@ -288,8 +305,14 @@ async fn load(core: &Core, owner_id: Uuid, source: Source) -> AppResult<Parsed> 
     match source {
         Source::Content(content) => parse(content.as_bytes()),
         Source::Asset(asset_id) => {
-            let asset = assets::require_ready(core, asset_id, owner_id, &[AssetPurpose::ASSET_PURPOSE_SUBTITLE]).await?;
-            ensure!(asset.size_bytes <= MAX_BYTES as i64, invalid, "SUBTITLE_TOO_LARGE", "subtitle files are at most 1 MiB");
+            let asset =
+                assets::require_ready(core, asset_id, owner_id, &[AssetPurpose::ASSET_PURPOSE_SUBTITLE]).await?;
+            ensure!(
+                asset.size_bytes <= MAX_BYTES as i64,
+                invalid,
+                "SUBTITLE_TOO_LARGE",
+                "subtitle files are at most 1 MiB"
+            );
             let bytes = assets::read_original(core, &asset, MAX_BYTES as i64).await?;
             let parsed = parse(&bytes)?;
             if let Err(error) = assets::delete(core, asset_id, Some(owner_id)).await {
@@ -342,7 +365,14 @@ fn language_exists(error: sqlx::Error) -> AppError {
 }
 
 /// Adds a track to `video` (which the caller owns).
-pub async fn add(core: &Core, video: &VideoRow, source: Source, language: &str, label: &str, is_default: bool) -> AppResult<SubtitleTrack> {
+pub async fn add(
+    core: &Core,
+    video: &VideoRow,
+    source: Source,
+    language: &str,
+    label: &str,
+    is_default: bool,
+) -> AppResult<SubtitleTrack> {
     let language = validate::subtitle_language(language)?;
     let label = validate::subtitle_label(label, &language)?;
     let (count, taken): (i64, bool) = sqlx::query_as(
@@ -353,7 +383,12 @@ pub async fn add(core: &Core, video: &VideoRow, source: Source, language: &str, 
     .fetch_one(&core.db)
     .await?;
     ensure!(!taken, already_exists, "SUBTITLE_LANGUAGE_EXISTS", "this video already has a track in that language");
-    ensure!(count < MAX_TRACKS, precondition, "SUBTITLE_LIMIT_REACHED", "a video can have at most {MAX_TRACKS} subtitle tracks");
+    ensure!(
+        count < MAX_TRACKS,
+        precondition,
+        "SUBTITLE_LIMIT_REACHED",
+        "a video can have at most {MAX_TRACKS} subtitle tracks"
+    );
     let parsed = load(core, video.owner_id, source).await?;
 
     let subtitle_id = new_id();
@@ -362,7 +397,10 @@ pub async fn add(core: &Core, video: &VideoRow, source: Source, language: &str, 
     store(core, &key, vtt).await?;
     let mut tx = core.db.begin().await?;
     if is_default {
-        sqlx::query("UPDATE video_subtitles SET is_default = false WHERE video_id = $1 AND is_default").bind(video.id).execute(&mut *tx).await?;
+        sqlx::query("UPDATE video_subtitles SET is_default = false WHERE video_id = $1 AND is_default")
+            .bind(video.id)
+            .execute(&mut *tx)
+            .await?;
     }
     let inserted = sqlx::query(
         "INSERT INTO video_subtitles (id, video_id, language, label, object_key, is_default, original_format, cue_count)

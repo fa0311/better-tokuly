@@ -146,6 +146,8 @@ impl Notes {
         for note in notes {
             let remaining: Vec<Attachment> =
                 note.attachments().into_iter().filter(|attachment| attachment.asset_id != asset).collect();
+            // For the search document; fetched before the transaction opens.
+            let author = tokuly_identity::summary(&self.core, note.author_id).await?;
             let mut tx = db.begin().await?;
             if remaining.is_empty() && note.text.is_empty() && note.stamp_id.is_none() {
                 let removed = self.delete_notes(&mut tx, &[note.id], RemovalReason::MediaDeleted, None).await?;
@@ -164,7 +166,6 @@ impl Notes {
                 .await?;
             if let Some(updated) = updated.filter(NoteRow::is_public) {
                 // The search result should not keep showing the removed picture.
-                let author = tokuly_identity::summary(&self.core, updated.author_id).await?;
                 outbound::index(&mut *tx, search_doc(&updated, &author)).await?;
             }
             tx.commit().await?;

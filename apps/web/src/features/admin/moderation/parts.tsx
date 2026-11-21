@@ -39,3 +39,25 @@ export function useCaseTitle(): (moderationCase: Pick<admin.ModerationCase, "sub
   const { t } = useTranslation("admin");
   return (moderationCase) => moderationCase.subjectTitle || t("moderation.untitled");
 }
+
+/** An account's moderation record in numbers, as chips. */
+export function ModerationRecord({ record }: { record: admin.UserModerationSummary }) {
+  const { t } = useTranslation("admin");
+  const figures: [string, number, boolean][] = [
+    ["reportsReceived", record.reportsReceived, false],
+    ["openCases", record.openCases, record.openCases > 0],
+    ["warnings", record.warnings, record.warnings > 0],
+    ["contentRemovals", record.contentRemovals, record.contentRemovals > 0],
+    ["suspensions", record.suspensions, record.suspensions > 0],
+    ["reportsFiled", record.reportsFiled, false],
+  ];
+  return (
+    <span className="flex flex-wrap gap-1.5">
+      {figures.map(([name, value, notable]) => (
+        <ToneChip key={name} tone={notable ? "warn" : "neutral"}>
+          {t(`users.record.${name}`)} <span className="font-black tabular-nums">{value}</span>
+        </ToneChip>
+      ))}
+    </span>
+  );
+}

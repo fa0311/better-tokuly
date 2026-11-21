@@ -21,7 +21,10 @@ use tokuly_proto::{common::SubjectType, feed::ActivityCard};
 
 use crate::{
     Feed,
-    activity::{AUDIENCE_FRIENDS, ActivityRow, Reader, activity_columns, author_active, kind_shown, push_kind_filter, push_not_involving, to_activity},
+    activity::{
+        AUDIENCE_FRIENDS, ActivityRow, Reader, activity_columns, author_active, kind_shown, push_kind_filter,
+        push_not_involving, to_activity,
+    },
     kinds,
 };
 
@@ -75,9 +78,13 @@ impl Feed {
         if q.authors.is_empty() {
             return Ok(Vec::new());
         }
-        let mut query: QueryBuilder<Postgres> = QueryBuilder::new(concat!("SELECT ", activity_columns!(), " FROM activities a WHERE a.user_id = ANY("));
+        // One index range per author, each cut off at the page size, then the
+        // newest of those. The cost depends on the number of friends and the
+        // page size, not on how much the friends ever logged.
+        let mut query: QueryBuilder<Postgres> =
+            QueryBuilder::new(concat!("SELECT ", activity_columns!(), " FROM unnest("));
         query.push_bind(q.authors.to_vec());
-        query.push(") AND a.audience >= ").push_bind(AUDIENCE_FRIENDS);
+        query.push("::uuid[]) AS author(id) CROSS JOIN LATERAL (SELECT a.* FROM activities a WHERE a.user_id = author.id AND a.audience >= ").push_bind(AUDIENCE_FRIENDS);
         query.push(concat!(" AND ", author_active!("a"), " AND ", kind_shown!("a")));
         push_not_involving(&mut query, "a", q.hidden);
         push_kind_filter(&mut query, "a", q.kind_prefix);
@@ -98,6 +105,7 @@ impl Feed {
             self.push_home_rules(&mut query, q);
         }
         query.push(" ORDER BY a.occurred_at DESC, a.id DESC LIMIT ").push_bind(q.limit);
+        query.push(") a ORDER BY a.occurred_at DESC, a.id DESC LIMIT ").push_bind(q.limit);
         Ok(query.build_query_as().fetch_all(&self.core.db).await?)
     }
 
@@ -115,7 +123,10 @@ impl Feed {
                    AND (d.occurred_at, d.id) > (a.occurred_at, a.id) AND d.audience >= 2 AND d.user_id = ANY(",
         );
         query.push_bind(q.authors.to_vec());
-        query.push(") AND d.occurred_at <= a.occurred_at + make_interval(days => ").push_bind(SAME_CONTENT_DAYS).push(")");
+        query
+            .push(") AND d.occurred_at <= a.occurred_at + make_interval(days => ")
+            .push_bind(SAME_CONTENT_DAYS)
+            .push(")");
         query.push(concat!(" AND ", kind_shown!("d")));
         push_not_involving(query, "d", q.hidden);
         query.push("))");
@@ -171,7 +182,10 @@ impl Feed {
 
     /// Bursts as API cards, in the reader's language.
     pub(crate) async fn to_cards(&self, reader: &Reader, bursts: &[Burst]) -> AppResult<Vec<ActivityCard>> {
-        let shown: Vec<&ActivityRow> = bursts.iter().flat_map(|burst| std::iter::once(&burst.head).chain(burst.older.iter().take(CARD_MORE))).collect();
+        let shown: Vec<&ActivityRow> = bursts
+            .iter()
+            .flat_map(|burst| std::iter::once(&burst.head).chain(burst.older.iter().take(CARD_MORE)))
+            .collect();
         let people = self.people_of(&shown).await?;
         Ok(bursts
             .iter()
@@ -251,7 +265,11 @@ mod tests {
         let minutes_before = |m: i64| row(head_at - Duration::minutes(m));
         // 50 and 100 minutes before the head are each within an hour of the
         // next newer entry; 170 is 70 minutes from the previous one.
-        let members = chain(head_at, vec![minutes_before(50), minutes_before(100), minutes_before(170), minutes_before(180)], window);
+        let members = chain(
+            head_at,
+            vec![minutes_before(50), minutes_before(100), minutes_before(170), minutes_before(180)],
+            window,
+        );
         assert_eq!(members.len(), 2);
         assert_eq!(members[1].occurred_at, head_at - Duration::minutes(100));
 

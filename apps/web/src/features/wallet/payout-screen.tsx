@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { toDate, wallet } from "@tokuly/api";
-import { Check } from "lucide-react";
+import { Check, X } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
@@ -51,17 +51,17 @@ export function PayoutScreen({ payoutId }: { payoutId: string }) {
         <div className="flex flex-col gap-5">
           <Card>
             <div className="flex items-start justify-between gap-3">
-              <PayoutAmount payout={payout} className="text-xl" />
+              <PayoutAmount payout={payout} large />
               <PayoutStatusChip status={payout.status} />
             </div>
             <ol className="mt-5">
               <Step done title={t("payout.steps.requested")} time={format(toDate(payout.createdAt))} />
               {payout.status === wallet.PayoutStatus.CANCELLED ? (
-                <Step done last title={t("payout.steps.cancelled")}>
+                <Step stopped last title={t("payout.steps.cancelled")}>
                   {t("payout.steps.returned", { coins: formatCoins(payout.coins) })}
                 </Step>
               ) : payout.status === wallet.PayoutStatus.REJECTED ? (
-                <Step done last title={t("payout.steps.rejected")} time={format(toDate(payout.reviewedAt))}>
+                <Step stopped last title={t("payout.steps.rejected")} time={format(toDate(payout.reviewedAt))}>
                   {payout.reviewNote && <Quote label={t("payout.rejectedReason")}>{payout.reviewNote}</Quote>}
                   <p className="mt-1">{t("payout.steps.returned", { coins: formatCoins(payout.coins) })}</p>
                 </Step>
@@ -88,16 +88,16 @@ export function PayoutScreen({ payoutId }: { payoutId: string }) {
             <dl className="divide-y-2 divide-line">
               <Fact label={t("payout.form.method")}>{t(payoutMethodKey(payout.method))}</Fact>
               {payout.destination && (
-                <Fact label={t("payout.form.destination")}>
+                <Fact stack label={t("payout.form.destination")}>
                   <span className="whitespace-pre-wrap">{payout.destination}</span>
                 </Fact>
               )}
               {payout.note && (
-                <Fact label={t("payout.form.note")}>
+                <Fact stack label={t("payout.note")}>
                   <span className="whitespace-pre-wrap">{payout.note}</span>
                 </Fact>
               )}
-              <Fact label={t("payout.id")}>
+              <Fact stack label={t("payout.id")}>
                 <span className="break-all font-mono text-xs font-medium text-ink-soft">{payout.id}</span>
               </Fact>
             </dl>
@@ -119,16 +119,18 @@ export function PayoutScreen({ payoutId }: { payoutId: string }) {
   );
 }
 
-/** One stage of a payout's journey: reached (ticked) or still ahead (hollow). */
-function Step({ done, last, title, time, children }: { done?: boolean; last?: boolean; title: string; time?: string; children?: ReactNode }) {
+/** One stage of a payout's journey: reached (ticked), where it was stopped (crossed), or still ahead (hollow). */
+function Step({ done, stopped, last, title, time, children }: { done?: boolean; stopped?: boolean; last?: boolean; title: string; time?: string; children?: ReactNode }) {
+  const reached = done || stopped;
   return (
     <li className="relative flex gap-3 pb-5 last:pb-0">
-      {!last && <span aria-hidden className={cn("absolute top-7 bottom-0 left-[13px] w-0.5", done ? "bg-ink" : "bg-line")} />}
-      <span className={cn("grid size-7 shrink-0 place-items-center rounded-full border-2", done ? "border-ink bg-lime text-[#17122b]" : "border-line bg-surface-2")}>
+      {!last && <span aria-hidden className={cn("absolute top-7 bottom-0 left-[13px] w-0.5", reached ? "bg-ink" : "bg-line")} />}
+      <span className={cn("grid size-7 shrink-0 place-items-center rounded-full border-2", done ? "border-ink bg-lime text-[#17122b]" : stopped ? "border-ink bg-surface-3 text-ink" : "border-line bg-surface-2")}>
         {done && <Check className="size-4" strokeWidth={3.5} />}
+        {stopped && <X className="size-4" strokeWidth={3.5} />}
       </span>
       <div className="min-w-0 flex-1 pt-0.5">
-        <p className={cn("font-black", !done && "text-ink-soft")}>{title}</p>
+        <p className={cn("font-black", !reached && "text-ink-soft")}>{title}</p>
         {time && <p className="text-sm text-ink-soft">{time}</p>}
         {children && <div className="mt-1 text-sm leading-relaxed text-ink-soft">{children}</div>}
       </div>

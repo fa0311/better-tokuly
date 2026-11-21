@@ -4,10 +4,10 @@ import type { stamp } from "@tokuly/api";
 import { BadgeCheck, ChevronRight, LibraryBig, Palette } from "lucide-react";
 import { type ComponentType, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Coins } from "#/components/ui/coins";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
+import { BalancePill } from "#/features/wallet";
 import { cn } from "#/lib/cn";
-import { stampKeys, storeClient, useCoinBalance } from "./api";
+import { stampKeys, storeClient } from "./api";
 import { PackCard, PackRow, SearchField, SectionHeading, TagLink } from "./parts";
 
 type BrowseSection = "featured" | "popular" | "new" | "official";
@@ -67,18 +67,6 @@ export function StoreScreen() {
         )}
       </div>
     </Page>
-  );
-}
-
-/** The user's coins, as a link to the wallet. */
-function BalancePill() {
-  const { t } = useTranslation("stamps");
-  const { data } = useCoinBalance();
-  if (!data) return null;
-  return (
-    <Link to="/wallet" aria-label={t("balance", { count: Number(data.coins) })} className="pressable sticker-sm inline-flex h-9 items-center rounded-full bg-surface px-3">
-      <Coins amount={data.coins} size="sm" />
-    </Link>
   );
 }
 

@@ -24,8 +24,8 @@ use crate::{
     Video, access,
     channels::{self, ChannelRow, channel_columns},
     events::{
-        ASSET_DELETED, ASSET_FAILED, ASSET_READY, AnnounceJob, CONTENT_REMOVED, ContentRemoved, JOB_ANNOUNCE, USER_BANNED, USER_BLOCKED,
-        USER_DELETED, USER_UNBANNED, UserBlocked, UserRef, VIDEO_PUBLISHED, VideoEvent,
+        ASSET_DELETED, ASSET_FAILED, ASSET_READY, AnnounceJob, CONTENT_REMOVED, ContentRemoved, JOB_ANNOUNCE,
+        USER_BANNED, USER_BLOCKED, USER_DELETED, USER_UNBANNED, UserBlocked, UserRef, VIDEO_PUBLISHED, VideoEvent,
     },
     feeds, party, playlists, search,
     videos::{self, VideoRow, video_columns},
@@ -168,10 +168,11 @@ impl Video {
 
     /// An upload finished processing (or failed): move the video that plays it.
     async fn on_asset_processed(&self, asset_id: Uuid) -> AppResult<()> {
-        let video: Option<VideoRow> = sqlx::query_as(concat!("SELECT ", video_columns!(), " FROM videos v WHERE v.asset_id = $1"))
-            .bind(asset_id)
-            .fetch_optional(&self.core.db)
-            .await?;
+        let video: Option<VideoRow> =
+            sqlx::query_as(concat!("SELECT ", video_columns!(), " FROM videos v WHERE v.asset_id = $1"))
+                .bind(asset_id)
+                .fetch_optional(&self.core.db)
+                .await?;
         match video {
             Some(video) => videos::sync_processing(&self.core, &video).await,
             None => Ok(()),
@@ -181,10 +182,11 @@ impl Video {
     /// An upload was deleted under us (a takedown of the file, or the media
     /// domain cleaning up): what showed it goes with it.
     async fn on_asset_deleted(&self, asset_id: Uuid) -> AppResult<()> {
-        let video: Option<VideoRow> = sqlx::query_as(concat!("SELECT ", video_columns!(), " FROM videos v WHERE v.asset_id = $1"))
-            .bind(asset_id)
-            .fetch_optional(&self.core.db)
-            .await?;
+        let video: Option<VideoRow> =
+            sqlx::query_as(concat!("SELECT ", video_columns!(), " FROM videos v WHERE v.asset_id = $1"))
+                .bind(asset_id)
+                .fetch_optional(&self.core.db)
+                .await?;
         if let Some(video) = video {
             videos::delete(&self.core, &video, None, false).await?;
         }
@@ -193,7 +195,10 @@ impl Video {
             .bind(asset_id)
             .execute(&self.core.db)
             .await?;
-        sqlx::query("UPDATE channels SET icon = NULL, icon_asset_id = NULL WHERE icon_asset_id = $1").bind(asset_id).execute(&self.core.db).await?;
+        sqlx::query("UPDATE channels SET icon = NULL, icon_asset_id = NULL WHERE icon_asset_id = $1")
+            .bind(asset_id)
+            .execute(&self.core.db)
+            .await?;
         sqlx::query("UPDATE channels SET banner = NULL, banner_asset_id = NULL WHERE banner_asset_id = $1")
             .bind(asset_id)
             .execute(&self.core.db)
@@ -223,11 +228,15 @@ impl Video {
             let Some(member) = party::member_in(&mut tx, party_id, member_id).await? else { continue };
             let departure = party::remove_member_in(&mut tx, &open, &member).await?;
             tx.commit().await?;
-            party::announce_departure(core, &departure, tokuly_proto::video::PartyLeaveReason::PARTY_LEAVE_REASON_LEFT).await;
+            party::announce_departure(core, &departure, tokuly_proto::video::PartyLeaveReason::PARTY_LEAVE_REASON_LEFT)
+                .await;
         }
 
         let mut tx = core.db.begin().await?;
-        let playlist_ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM playlists WHERE owner_id = $1").bind(user_id).fetch_all(&mut *tx).await?;
+        let playlist_ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM playlists WHERE owner_id = $1")
+            .bind(user_id)
+            .fetch_all(&mut *tx)
+            .await?;
         for playlist_id in playlist_ids {
             playlists::delete_in(&mut tx, playlist_id, user_id, None).await?;
         }
@@ -257,7 +266,10 @@ impl Video {
             "watch_party_messages",
             "watch_party_members",
         ] {
-            sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM {table} WHERE user_id = $1"))).bind(user_id).execute(&mut *tx).await?;
+            sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM {table} WHERE user_id = $1")))
+                .bind(user_id)
+                .execute(&mut *tx)
+                .await?;
         }
         tx.commit().await?;
         Ok(())
@@ -267,12 +279,21 @@ impl Video {
     /// on them disappear from (or return to) everyone else's view and search.
     async fn on_user_suspended(&self, user_id: Uuid, suspended: bool) -> AppResult<()> {
         let mut tx = self.core.db.begin().await?;
-        sqlx::query("UPDATE channels SET suspended = $2 WHERE owner_id = $1").bind(user_id).bind(suspended).execute(&mut *tx).await?;
-        sqlx::query("UPDATE videos SET suspended = $2 WHERE owner_id = $1").bind(user_id).bind(suspended).execute(&mut *tx).await?;
-        let owned: Vec<ChannelRow> = sqlx::query_as(concat!("SELECT ", channel_columns!(), " FROM channels c WHERE c.owner_id = $1"))
+        sqlx::query("UPDATE channels SET suspended = $2 WHERE owner_id = $1")
             .bind(user_id)
-            .fetch_all(&mut *tx)
+            .bind(suspended)
+            .execute(&mut *tx)
             .await?;
+        sqlx::query("UPDATE videos SET suspended = $2 WHERE owner_id = $1")
+            .bind(user_id)
+            .bind(suspended)
+            .execute(&mut *tx)
+            .await?;
+        let owned: Vec<ChannelRow> =
+            sqlx::query_as(concat!("SELECT ", channel_columns!(), " FROM channels c WHERE c.owner_id = $1"))
+                .bind(user_id)
+                .fetch_all(&mut *tx)
+                .await?;
         for channel in &owned {
             search::index_channel(&mut tx, channel).await?;
             let public: Vec<VideoRow> = sqlx::query_as(concat!(
@@ -288,10 +309,11 @@ impl Video {
                 search::sync_video(&mut tx, true, video, channel).await?;
             }
         }
-        let listed: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM playlists WHERE owner_id = $1 AND kind = 1 AND visibility = 1")
-            .bind(user_id)
-            .fetch_all(&mut *tx)
-            .await?;
+        let listed: Vec<Uuid> =
+            sqlx::query_scalar("SELECT id FROM playlists WHERE owner_id = $1 AND kind = 1 AND visibility = 1")
+                .bind(user_id)
+                .fetch_all(&mut *tx)
+                .await?;
         for playlist_id in listed {
             playlists::sync_search_in(&mut tx, true, playlist_id).await?;
         }
@@ -360,7 +382,8 @@ impl Video {
     pub async fn announce(&self, job: AnnounceJob) -> AppResult<u64> {
         let core = &self.core;
         let Some(video) = videos::find_by_id(core, job.video_id).await? else { return Ok(0) };
-        let audience_exists = video.is_published() && !video.suspended && matches!(video.visibility, access::PUBLIC | access::FRIENDS);
+        let audience_exists =
+            video.is_published() && !video.suspended && matches!(video.visibility, access::PUBLIC | access::FRIENDS);
         if !audience_exists || !video.notify_subscribers {
             return Ok(0);
         }
@@ -384,7 +407,11 @@ impl Video {
         let Some(last) = batch.last().map(|(user_id, _, _)| *user_id) else { return Ok(0) };
 
         let hidden = graph::blocked_ids_either(core, video.owner_id).await?;
-        let friends = if video.visibility == access::FRIENDS { Some(graph::friend_ids(core, video.owner_id).await?) } else { None };
+        let friends = if video.visibility == access::FRIENDS {
+            Some(graph::friend_ids(core, video.owner_id).await?)
+        } else {
+            None
+        };
         let mut tx = core.db.begin().await?;
         let mut notified = 0;
         for (user_id, level, engaged) in &batch {
@@ -397,7 +424,10 @@ impl Video {
                 *user_id,
                 "video.published",
                 outbound::Localized::same(channel.name.clone()),
-                outbound::Localized::new(format!("新しい動画を公開したよ!「{}」", video.title), format!("New video: {}", video.title)),
+                outbound::Localized::new(
+                    format!("新しい動画を公開したよ!「{}」", video.title),
+                    format!("New video: {}", video.title),
+                ),
                 video.path(),
             )
             .subject(SubjectType::SUBJECT_TYPE_VIDEO, video.id)

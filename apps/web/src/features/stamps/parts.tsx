@@ -17,13 +17,14 @@ export function PackCover({ pack, className }: { pack: Pick<stamp.PackSummary, "
   const url = cover ? (cover.variants.filter((variant) => variant.size >= 160).sort((a, b) => a.size - b.size)[0]?.url ?? cover.url) : undefined;
   return (
     <span
-      className={cn("grid aspect-square place-items-center overflow-hidden rounded-2xl bg-surface-2 p-[12%]", className)}
+      className={cn("relative block aspect-square overflow-hidden rounded-2xl bg-surface-2", className)}
       style={cover?.dominantColor ? { background: `color-mix(in srgb, ${cover.dominantColor} 24%, var(--surface-2))` } : undefined}
     >
+      {/* Placed by offsets, so the picture has its size whether the tile gets its own from a width, a height or its proportions. */}
       {url ? (
-        <img src={url} alt="" className="size-full object-contain drop-shadow-[0_2px_0_rgb(23_18_43/0.18)]" loading="lazy" decoding="async" draggable={false} />
+        <img src={url} alt="" className="absolute inset-[12%] h-[76%] w-[76%] object-contain drop-shadow-[0_2px_0_rgb(23_18_43/0.18)]" loading="lazy" decoding="async" draggable={false} />
       ) : (
-        <Sparkles className="size-1/2 text-ink-faint" aria-hidden />
+        <Sparkles className="absolute inset-1/4 size-1/2 text-ink-faint" aria-hidden />
       )}
     </span>
   );
@@ -83,8 +84,8 @@ export function PackCard({ pack, className }: { pack: stamp.PackSummary; classNa
         {pack.animated && <AnimatedMark className="absolute top-1.5 right-1.5" />}
       </span>
       <span className="flex min-w-0 flex-col px-1 pb-1">
-        <span className="truncate font-black leading-tight">{pack.name}</span>
-        <PackMaker pack={pack} className="text-xs" />
+        <span className="line-clamp-2 font-black leading-tight break-words">{pack.name}</span>
+        <PackMaker pack={pack} className="mt-0.5 text-xs" />
         <PriceTag pack={pack} className="mt-1.5" />
       </span>
     </Link>
@@ -191,11 +192,14 @@ export function StampTile({
   item,
   onPress,
   play,
+  hidePending,
   className,
   children,
 }: {
   item: stamp.Stamp;
   onPress?(item: stamp.Stamp): void;
+  /** Leave out the "awaiting review" mark (where every stamp would carry it). */
+  hidePending?: boolean;
   play?: "visible" | "always" | "never";
   className?: string;
   /** Extra marks drawn over the tile. */
@@ -219,7 +223,7 @@ export function StampTile({
           <Heart className="size-2.5 fill-current" aria-label={t("stamp.favorited")} />
         </span>
       )}
-      {item.pendingReview && (
+      {item.pendingReview && !hidePending && (
         <span className="pointer-events-none absolute bottom-0.5 left-1/2 -translate-x-1/2 rounded-full border-2 border-ink bg-sun px-1.5 text-[10px] font-black whitespace-nowrap text-[#17122b]">
           {t("stamp.pending")}
         </span>

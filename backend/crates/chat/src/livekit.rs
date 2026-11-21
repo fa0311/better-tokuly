@@ -176,8 +176,10 @@ impl LiveKit {
             name: name.to_owned(),
             video,
         };
-        let key = EncodingKey::from_secret(self.api_secret.as_bytes()).map_err(|e| AppError::internal(anyhow::anyhow!("LiveKit signing key: {e}")))?;
-        jsonwebtoken::encode(&Header::new(Algorithm::HS256), &claims, &key).map_err(|e| AppError::internal(anyhow::anyhow!("LiveKit token: {e}")))
+        let key = EncodingKey::from_secret(self.api_secret.as_bytes())
+            .map_err(|e| AppError::internal(anyhow::anyhow!("LiveKit signing key: {e}")))?;
+        jsonwebtoken::encode(&Header::new(Algorithm::HS256), &claims, &key)
+            .map_err(|e| AppError::internal(anyhow::anyhow!("LiveKit token: {e}")))
     }
 
     /// A token that lets `identity` join `room`, publish and subscribe.
@@ -198,7 +200,12 @@ impl LiveKit {
         self.sign("", "", grant, API_TOKEN_TTL)
     }
 
-    async fn call<T: DeserializeOwned>(&self, method: &str, grant: VideoGrant, body: serde_json::Value) -> Result<T, LiveKitError> {
+    async fn call<T: DeserializeOwned>(
+        &self,
+        method: &str,
+        grant: VideoGrant,
+        body: serde_json::Value,
+    ) -> Result<T, LiveKitError> {
         let token = self.api_token(grant).map_err(|e| LiveKitError::Transport(e.to_string()))?;
         let response = self
             .http
@@ -216,7 +223,8 @@ impl LiveKit {
                 _ => LiveKitError::Transport(format!("HTTP {status}")),
             });
         }
-        serde_json::from_slice(&bytes).map_err(|e| LiveKitError::Transport(format!("undecodable answer to {method}: {e}")))
+        serde_json::from_slice(&bytes)
+            .map_err(|e| LiveKitError::Transport(format!("undecodable answer to {method}: {e}")))
     }
 
     /// Creates a room (or returns the existing one of that name).
@@ -233,12 +241,14 @@ impl LiveKit {
         Ok(response.rooms.into_iter().map(|room| room.name).collect())
     }
 
-    /// Identities connected to a room; `None` when the room does not exist.
-    pub async fn list_participants(&self, room: &str) -> Result<Option<Vec<String>>, LiveKitError> {
+    /// Identities connected to a room. Empty when nobody is connected, which
+    /// is also what a room that no longer exists looks like: LiveKit answers
+    /// an empty list for unknown rooms (older versions: `not_found`).
+    pub async fn list_participants(&self, room: &str) -> Result<Vec<String>, LiveKitError> {
         let grant = VideoGrant { room: room.to_owned(), room_admin: true, ..Default::default() };
         match self.call::<ListParticipantsResponse>("ListParticipants", grant, serde_json::json!({ "room": room })).await {
-            Ok(response) => Ok(Some(response.participants.into_iter().map(|participant| participant.identity).collect())),
-            Err(e) if e.is_not_found() => Ok(None),
+            Ok(response) => Ok(response.participants.into_iter().map(|participant| participant.identity).collect()),
+            Err(e) if e.is_not_found() => Ok(Vec::new()),
             Err(e) => Err(e),
         }
     }
@@ -277,7 +287,8 @@ mod tests {
         validation.set_issuer(&["devkey"]);
         validation.validate_nbf = true;
         validation.set_required_spec_claims(&["exp", "iss", "nbf"]);
-        jsonwebtoken::decode::<Claims>(token, &DecodingKey::from_secret(secret.as_bytes())?, &validation).map(|data| data.claims)
+        jsonwebtoken::decode::<Claims>(token, &DecodingKey::from_secret(secret.as_bytes())?, &validation)
+            .map(|data| data.claims)
     }
 
     #[test]
@@ -301,7 +312,10 @@ mod tests {
         assert_eq!(claims.video.can_subscribe, Some(true));
         assert!(!claims.video.room_admin && !claims.video.room_create && !claims.video.room_list);
         let lifetime = claims.exp - jsonwebtoken::get_current_timestamp();
-        assert!((JOIN_TOKEN_TTL.as_secs() - 5..=JOIN_TOKEN_TTL.as_secs()).contains(&lifetime), "expires in ten minutes, got {lifetime}s");
+        assert!(
+            (JOIN_TOKEN_TTL.as_secs() - 5..=JOIN_TOKEN_TTL.as_secs()).contains(&lifetime),
+            "expires in ten minutes, got {lifetime}s"
+        );
     }
 
     #[test]
@@ -316,7 +330,8 @@ mod tests {
         let token = livekit.api_token(VideoGrant { room: "r".into(), room_admin: true, ..Default::default() }).unwrap();
         // The raw payload, as LiveKit reads it.
         let payload = token.split('.').nth(1).unwrap();
-        let claims: serde_json::Value = jsonwebtoken::dangerous::insecure_decode::<serde_json::Value>(&token).unwrap().claims;
+        let claims: serde_json::Value =
+            jsonwebtoken::dangerous::insecure_decode::<serde_json::Value>(&token).unwrap().claims;
         assert!(!payload.is_empty());
         assert_eq!(claims["video"], serde_json::json!({ "room": "r", "roomAdmin": true }));
         assert!(claims.get("sub").is_none(), "API tokens have no participant identity");

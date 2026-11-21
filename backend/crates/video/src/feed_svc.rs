@@ -1,4 +1,6 @@
 //! `VideoFeedService`: home, subscriptions, trending, related, "not interested".
+use std::time::Duration;
+
 use connectrpc::{RequestContext, ServiceRequest, ServiceResult};
 use tokuly_core::prelude::*;
 use tokuly_proto::{common::PageInfo, video::*};
@@ -14,11 +16,19 @@ enum Target {
 impl Video {
     /// Resolves the target of a "not interested" request. With `must_exist`
     /// the caller has to be able to see it; an undo only needs to name it.
-    async fn feed_target(&self, viewer: &Viewer, video: Option<&str>, channel: Option<&str>, must_exist: bool) -> AppResult<Option<Target>> {
+    async fn feed_target(
+        &self,
+        viewer: &Viewer,
+        video: Option<&str>,
+        channel: Option<&str>,
+        must_exist: bool,
+    ) -> AppResult<Option<Target>> {
         let core = &self.core;
         match (video, channel) {
             (Some(reference), _) => {
-                let found = videos::find_ref(core, reference).await?.filter(|video| !must_exist || viewer.can_watch(&video.facts()));
+                let found = videos::find_ref(core, reference)
+                    .await?
+                    .filter(|video| !must_exist || viewer.can_watch(&video.facts()));
                 match found {
                     Some(video) => Ok(Some(Target::Video(video.id))),
                     None if must_exist => Err(AppError::not_found("VIDEO_NOT_FOUND", "video not found")),
@@ -26,7 +36,9 @@ impl Video {
                 }
             }
             (None, Some(reference)) => {
-                let found = channels::find(core, reference).await?.filter(|channel| !must_exist || viewer.may_see_owner(channel.owner_id, channel.suspended));
+                let found = channels::find(core, reference)
+                    .await?
+                    .filter(|channel| !must_exist || viewer.may_see_owner(channel.owner_id, channel.suspended));
                 match found {
                     Some(channel) => Ok(Some(Target::Channel(channel.id))),
                     None if must_exist => Err(AppError::not_found("CHANNEL_NOT_FOUND", "channel not found")),
@@ -39,13 +51,25 @@ impl Video {
 }
 
 impl VideoFeedService for Video {
-    async fn get_home_feed(&self, ctx: RequestContext, request: ServiceRequest<'_, GetHomeFeedRequest>) -> ServiceResult<GetHomeFeedResponse> {
+    async fn get_home_feed(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, GetHomeFeedRequest>,
+    ) -> ServiceResult<GetHomeFeedResponse> {
         handle(async {
             let viewer = Viewer::load(&self.core, ctx.maybe_user_id()?).await?;
+            // Every visit ranks a feed of its own, which is not free.
+            let limiter = viewer.user_id.map(|id| id.to_string()).unwrap_or_else(|| ctx.client().ip);
+            self.core.cache.rate_limit(&format!("video-home:{limiter}"), 120, Duration::from_secs(60)).await?;
             let page = Page::from_view(request.page.as_option(), 50);
             let (rows, next) = feeds::home_page(&self.core, &viewer, &page).await?;
-            let info = PageInfo { has_more: next.is_some(), next_cursor: next.unwrap_or_default(), ..Default::default() };
-            ok(GetHomeFeedResponse { videos: videos::summaries(&self.core, &viewer, &rows).await?, page: info.into(), ..Default::default() })
+            let info =
+                PageInfo { has_more: next.is_some(), next_cursor: next.unwrap_or_default(), ..Default::default() };
+            ok(GetHomeFeedResponse {
+                videos: videos::summaries(&self.core, &viewer, &rows).await?,
+                page: info.into(),
+                ..Default::default()
+            })
         })
         .await
     }
@@ -62,24 +86,42 @@ impl VideoFeedService for Video {
             let before: Option<(Time, Uuid)> = page.decode()?;
             let mut rows = feeds::subscriptions_page(&self.core, &viewer, user_id, before, page.fetch()).await?;
             let info = page.finish(&mut rows, |row| (row.published_at.unwrap_or(row.created_at), row.id));
-            ok(GetSubscriptionsFeedResponse { videos: videos::summaries(&self.core, &viewer, &rows).await?, page: info.into(), ..Default::default() })
+            ok(GetSubscriptionsFeedResponse {
+                videos: videos::summaries(&self.core, &viewer, &rows).await?,
+                page: info.into(),
+                ..Default::default()
+            })
         })
         .await
     }
 
-    async fn list_trending(&self, ctx: RequestContext, request: ServiceRequest<'_, ListTrendingRequest>) -> ServiceResult<ListTrendingResponse> {
+    async fn list_trending(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, ListTrendingRequest>,
+    ) -> ServiceResult<ListTrendingResponse> {
         handle(async {
             let viewer = Viewer::load(&self.core, ctx.maybe_user_id()?).await?;
             let category = validate::category(request.category)?;
             let page = Page::from_view(request.page.as_option(), 50);
             let offset: i64 = page.decode()?.unwrap_or(0);
-            ensure!((0..=feeds::TRENDING_MAX_OFFSET).contains(&offset), invalid, "INVALID_CURSOR", "invalid page cursor");
+            ensure!(
+                (0..=feeds::TRENDING_MAX_OFFSET).contains(&offset),
+                invalid,
+                "INVALID_CURSOR",
+                "invalid page cursor"
+            );
             let mut rows = feeds::trending_page(&self.core, &viewer, category, offset, page.fetch()).await?;
             let has_more = rows.len() as i64 > page.limit && offset + page.limit <= feeds::TRENDING_MAX_OFFSET;
             rows.truncate(page.limit as usize);
-            let next_cursor = if has_more { tokuly_core::page::encode_cursor(&(offset + page.limit)) } else { String::new() };
+            let next_cursor =
+                if has_more { tokuly_core::page::encode_cursor(&(offset + page.limit)) } else { String::new() };
             let info = PageInfo { next_cursor, has_more, ..Default::default() };
-            ok(ListTrendingResponse { videos: videos::summaries(&self.core, &viewer, &rows).await?, page: info.into(), ..Default::default() })
+            ok(ListTrendingResponse {
+                videos: videos::summaries(&self.core, &viewer, &rows).await?,
+                page: info.into(),
+                ..Default::default()
+            })
         })
         .await
     }
@@ -94,7 +136,10 @@ impl VideoFeedService for Video {
             let video = videos::find_watchable(&self.core, &viewer, request.video_id).await?;
             let limit = if request.limit <= 0 { 20 } else { request.limit.min(50) } as i64;
             let rows = feeds::related(&self.core, &viewer, &video, limit).await?;
-            ok(ListRelatedVideosResponse { videos: videos::summaries(&self.core, &viewer, &rows).await?, ..Default::default() })
+            ok(ListRelatedVideosResponse {
+                videos: videos::summaries(&self.core, &viewer, &rows).await?,
+                ..Default::default()
+            })
         })
         .await
     }

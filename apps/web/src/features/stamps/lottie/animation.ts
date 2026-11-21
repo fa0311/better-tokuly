@@ -620,7 +620,10 @@ export function gradientStops(values: number[], count: number): GradientStop[] {
     return stops[stops.length - 1]!;
   };
   const colorAt = (offset: number) =>
-    sample(colors, offset, (a, b, t) => ({ offset, rgb: [a.rgb[0] + (b.rgb[0] - a.rgb[0]) * t, a.rgb[1] + (b.rgb[1] - a.rgb[1]) * t, a.rgb[2] + (b.rgb[2] - a.rgb[2]) * t] })).rgb;
+    sample(colors, offset, (a, b, t) => {
+      const rgb: [number, number, number] = [a.rgb[0] + (b.rgb[0] - a.rgb[0]) * t, a.rgb[1] + (b.rgb[1] - a.rgb[1]) * t, a.rgb[2] + (b.rgb[2] - a.rgb[2]) * t];
+      return { offset, rgb };
+    }).rgb;
   const alphaAt = (offset: number) => (alphas.length === 0 ? 1 : sample(alphas, offset, (a, b, t) => ({ offset, alpha: a.alpha + (b.alpha - a.alpha) * t })).alpha);
 
   const offsets = [...new Set([...colors.map((stop) => stop.offset), ...alphas.map((stop) => stop.offset)])].sort((a, b) => a - b);

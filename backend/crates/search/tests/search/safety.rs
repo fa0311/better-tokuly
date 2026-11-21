@@ -44,7 +44,12 @@ async fn a_block_hides_content_in_both_directions() {
     assert_eq!(seen_by(None).await, ids(&[&alices, &bobs, &carols]));
 
     // The video tab and the typeahead apply the same rule.
-    let videos = ctx.search(Some(&alice), &SearchRequest { query: word.clone(), kind: SearchKind::SEARCH_KIND_VIDEO.into(), ..Default::default() }).await;
+    let videos = ctx
+        .search(
+            Some(&alice),
+            &SearchRequest { query: word.clone(), kind: SearchKind::SEARCH_KIND_VIDEO.into(), ..Default::default() },
+        )
+        .await;
     assert_eq!(hit_ids(&videos.hits), vec![alices.id.to_string()]);
     let suggested = hit_ids(&ctx.suggest(Some(&alice), &word).await.hits);
     assert!(suggested.contains(&alices.id.to_string()) && !suggested.contains(&bobs.id.to_string()));
@@ -60,7 +65,8 @@ async fn a_blocked_user_cannot_be_found_as_a_user_either() {
     ctx.index_user(&bob).await;
     ctx.flush().await;
     let users = async |viewer: &tokuly_testkit::TestUser, handle: &str| {
-        let request = SearchRequest { query: handle.to_owned(), kind: SearchKind::SEARCH_KIND_USER.into(), ..Default::default() };
+        let request =
+            SearchRequest { query: handle.to_owned(), kind: SearchKind::SEARCH_KIND_USER.into(), ..Default::default() };
         hit_ids(&ctx.search(Some(viewer), &request).await.hits)
     };
     assert_eq!(users(&alice, &bob.handle).await, vec![bob.id.to_string()]);
@@ -79,7 +85,8 @@ async fn content_without_an_owning_account_survives_the_block_filter() {
     ctx.block(&alice, &bob).await;
     let word = unique("official");
     // Official content: no owner, or the nil UUID.
-    let (ownerless, official) = (doc("news", None, &format!("{word} news")), doc("stamp_pack", Some(Uuid::nil()), &format!("{word} pack")));
+    let (ownerless, official) =
+        (doc("news", None, &format!("{word} news")), doc("stamp_pack", Some(Uuid::nil()), &format!("{word} pack")));
     ctx.index(&[ownerless.clone(), official.clone()]).await;
 
     let found = ctx.find(Some(&alice), &word).await;
@@ -109,7 +116,10 @@ async fn markup_in_indexed_text_stays_text() {
     assert!(!marked.is_empty() && marked.iter().all(|run| *run == word), "{marked:?}");
     assert_eq!(highlighted(&hit.snippet), vec![word.as_str()]);
     let everything = serde_json::to_string(&hit).unwrap();
-    assert!(!everything.contains(HIGHLIGHT_START) && !everything.contains(HIGHLIGHT_END), "the engine's markers never leave the server");
+    assert!(
+        !everything.contains(HIGHLIGHT_START) && !everything.contains(HIGHLIGHT_END),
+        "the engine's markers never leave the server"
+    );
 }
 
 #[tokio::test]

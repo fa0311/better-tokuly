@@ -49,10 +49,16 @@ impl Chat {
         .fetch_all(&self.core.db)
         .await?;
         let answered_seq: Option<i64> = match row.reply_to_id.filter(|_| !row.is_deleted()) {
-            Some(answered) => sqlx::query_scalar("SELECT seq FROM chat_messages WHERE id = $1").bind(answered).fetch_optional(&self.core.db).await?,
+            Some(answered) => {
+                sqlx::query_scalar("SELECT seq FROM chat_messages WHERE id = $1")
+                    .bind(answered)
+                    .fetch_optional(&self.core.db)
+                    .await?
+            }
             None => None,
         };
-        let (blind, sighted): (Vec<_>, Vec<_>) = members.into_iter().partition(|(_, floor)| answered_seq.is_some_and(|seq| *floor >= seq));
+        let (blind, sighted): (Vec<_>, Vec<_>) =
+            members.into_iter().partition(|(_, floor)| answered_seq.is_some_and(|seq| *floor >= seq));
         if !sighted.is_empty() {
             let message = self.render_message(row, &View::event()).await?;
             self.push_to(sighted.into_iter().map(|(user_id, _)| user_id), wrap(message)).await;
@@ -66,7 +72,9 @@ impl Chat {
 
     /// Announces a new message.
     pub(crate) async fn push_message_created(&self, row: &MessageRow) {
-        let pushed = self.fan_out_message(row, |message| pb::MessageCreated { message: message.into(), ..Default::default() }.into()).await;
+        let pushed = self
+            .fan_out_message(row, |message| pb::MessageCreated { message: message.into(), ..Default::default() }.into())
+            .await;
         if let Err(e) = pushed {
             tracing::warn!(message_id = %row.id, error = %e, "chat message push failed");
         }
@@ -75,7 +83,9 @@ impl Chat {
     /// Announces a changed message.
     pub(crate) async fn push_message_updated(&self, row: &MessageRow, reason: pb::MessageUpdateReason) {
         let pushed = self
-            .fan_out_message(row, |message| pb::MessageUpdated { message: message.into(), reason: reason.into(), ..Default::default() }.into())
+            .fan_out_message(row, |message| {
+                pb::MessageUpdated { message: message.into(), reason: reason.into(), ..Default::default() }.into()
+            })
             .await;
         if let Err(e) = pushed {
             tracing::warn!(message_id = %row.id, error = %e, "chat message update push failed");
@@ -114,7 +124,11 @@ impl Chat {
         let pushed: AppResult<()> = async {
             let Ok(access) = self.access(user_id, conversation_id).await else { return Ok(()) };
             let conversation = self.conversation_for(&access).await?;
-            self.push_to([user_id], pb::ConversationUpdated { conversation: conversation.into(), ..Default::default() }).await;
+            self.push_to(
+                [user_id],
+                pb::ConversationUpdated { conversation: conversation.into(), ..Default::default() },
+            )
+            .await;
             Ok(())
         }
         .await;
@@ -124,8 +138,17 @@ impl Chat {
     }
 
     /// Tells a user that a conversation left their list.
-    pub(crate) async fn push_conversation_removed(&self, conversation_id: Uuid, user_id: Uuid, reason: pb::ConversationRemovalReason) {
-        let event = pb::ConversationRemoved { conversation_id: conversation_id.to_string(), reason: reason.into(), ..Default::default() };
+    pub(crate) async fn push_conversation_removed(
+        &self,
+        conversation_id: Uuid,
+        user_id: Uuid,
+        reason: pb::ConversationRemovalReason,
+    ) {
+        let event = pb::ConversationRemoved {
+            conversation_id: conversation_id.to_string(),
+            reason: reason.into(),
+            ..Default::default()
+        };
         self.push_to([user_id], event).await;
     }
 }

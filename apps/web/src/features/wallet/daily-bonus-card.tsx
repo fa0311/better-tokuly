@@ -68,7 +68,7 @@ export function DailyBonusCard() {
         </span>
         <div className="min-w-0 flex-1">
           <h2 className="font-black">{t("bonus.title")}</h2>
-          <p className="truncate text-sm text-ink-soft">{bonus.claimable ? t("bonus.leadClaimable") : t("bonus.leadClaimed")}</p>
+          <p className="text-sm leading-snug text-ink-soft">{bonus.claimable ? t("bonus.leadClaimable") : t("bonus.leadClaimed")}</p>
         </div>
         {bonus.streak > 0 && (
           <span className="sticker-sm inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-coral px-3 text-sm font-black text-white">

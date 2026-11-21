@@ -39,7 +39,10 @@ async fn a_hit_carries_everything_a_result_row_needs() {
     assert_eq!(hit.tags, vec!["散歩", "東京"]);
     assert_eq!(hit.created_at.as_option().unwrap().seconds, 1_750_000_000);
     let owner = hit.owner.as_option().expect("owner summary");
-    assert_eq!((owner.id.clone(), owner.handle.clone(), owner.display_name.as_str()), (creator.id.to_string(), creator.handle.clone(), "creator"));
+    assert_eq!(
+        (owner.id.clone(), owner.handle.clone(), owner.display_name.as_str()),
+        (creator.id.to_string(), creator.handle.clone(), "creator")
+    );
     let extra: serde_json::Value = serde_json::from_str(&hit.extra_json).unwrap();
     assert_eq!(extra["duration_seconds"], 754);
 }
@@ -90,7 +93,12 @@ async fn tabs_narrow_the_hits_while_counts_cover_every_kind() {
     assert!(order.is_sorted(), "counts come in SearchKind order");
 
     // One tab: only its hits, the same counts.
-    let videos = ctx.search(None, &SearchRequest { query: word.clone(), kind: SearchKind::SEARCH_KIND_VIDEO.into(), ..Default::default() }).await;
+    let videos = ctx
+        .search(
+            None,
+            &SearchRequest { query: word.clone(), kind: SearchKind::SEARCH_KIND_VIDEO.into(), ..Default::default() },
+        )
+        .await;
     assert_eq!((videos.hits.len(), videos.total), (2, 2));
     assert!(videos.hits.iter().all(|hit| kind_of(hit) == SearchKind::SEARCH_KIND_VIDEO));
     for (kind, count) in expected_counts {
@@ -98,7 +106,12 @@ async fn tabs_narrow_the_hits_while_counts_cover_every_kind() {
     }
 
     // A tab without matches still shows where the matches are.
-    let lives = ctx.search(None, &SearchRequest { query: word.clone(), kind: SearchKind::SEARCH_KIND_LIVE.into(), ..Default::default() }).await;
+    let lives = ctx
+        .search(
+            None,
+            &SearchRequest { query: word.clone(), kind: SearchKind::SEARCH_KIND_LIVE.into(), ..Default::default() },
+        )
+        .await;
     assert!(lives.hits.is_empty() && lives.total == 0);
     assert_eq!(count_of(&lives, SearchKind::SEARCH_KIND_VIDEO), 2);
 }
@@ -141,7 +154,8 @@ async fn paging_walks_every_result_exactly_once() {
     all_ids.sort();
 
     // Across every kind (the engine merges the indexes)...
-    let mut walked = walk(&ctx, None, SearchRequest { query: word.clone(), page: page(3, ""), ..Default::default() }, 3).await;
+    let mut walked =
+        walk(&ctx, None, SearchRequest { query: word.clone(), page: page(3, ""), ..Default::default() }, 3).await;
     assert_eq!(walked.len(), 7);
     walked.sort();
     assert_eq!(walked, all_ids);
@@ -150,7 +164,12 @@ async fn paging_walks_every_result_exactly_once() {
     let videos = walk(
         &ctx,
         None,
-        SearchRequest { query: word.clone(), kind: SearchKind::SEARCH_KIND_VIDEO.into(), page: page(3, ""), ..Default::default() },
+        SearchRequest {
+            query: word.clone(),
+            kind: SearchKind::SEARCH_KIND_VIDEO.into(),
+            page: page(3, ""),
+            ..Default::default()
+        },
         2,
     )
     .await;
@@ -173,19 +192,31 @@ async fn page_sizes_are_defaulted_and_clamped_and_cursors_belong_to_their_query(
     let default = ctx.find(None, &word).await;
     assert_eq!(default.hits.len(), 20);
     assert_eq!(default.total, 55);
-    let clamped = ctx.search(None, &SearchRequest { query: word.clone(), page: page(500, ""), ..Default::default() }).await;
+    let clamped =
+        ctx.search(None, &SearchRequest { query: word.clone(), page: page(500, ""), ..Default::default() }).await;
     assert_eq!(clamped.hits.len(), 50);
 
     let cursor = default.page.as_option().unwrap().next_cursor.clone();
     assert!(!cursor.is_empty());
     // The cursor continues its own query...
-    let second = ctx.search(None, &SearchRequest { query: word.clone(), page: page(0, &cursor), ..Default::default() }).await;
+    let second =
+        ctx.search(None, &SearchRequest { query: word.clone(), page: page(0, &cursor), ..Default::default() }).await;
     assert_eq!(second.hits.len(), 20);
     // ...and no other: not other words, another tab or another order.
     for request in [
         SearchRequest { query: other_word.clone(), page: page(0, &cursor), ..Default::default() },
-        SearchRequest { query: word.clone(), kind: SearchKind::SEARCH_KIND_NOTE.into(), page: page(0, &cursor), ..Default::default() },
-        SearchRequest { query: word.clone(), sort: SearchSort::SEARCH_SORT_NEWEST.into(), page: page(0, &cursor), ..Default::default() },
+        SearchRequest {
+            query: word.clone(),
+            kind: SearchKind::SEARCH_KIND_NOTE.into(),
+            page: page(0, &cursor),
+            ..Default::default()
+        },
+        SearchRequest {
+            query: word.clone(),
+            sort: SearchSort::SEARCH_SORT_NEWEST.into(),
+            page: page(0, &cursor),
+            ..Default::default()
+        },
         SearchRequest { query: word.clone(), page: page(0, "not-a-cursor"), ..Default::default() },
     ] {
         let error = ctx.try_search(None, &request).await.unwrap_err();
@@ -210,7 +241,12 @@ async fn results_can_be_ordered_by_relevance_recency_or_popularity() {
     (mention.created_at, mention.score, mention.text) = (now - day, 9_000_000.0, format!("see also {word}"));
     ctx.index(&[old_hit.clone(), fresh.clone(), middling.clone(), mention.clone()]).await;
     let sorted = async |sort: SearchSort| {
-        let request = SearchRequest { query: word.clone(), kind: SearchKind::SEARCH_KIND_VIDEO.into(), sort: sort.into(), ..Default::default() };
+        let request = SearchRequest {
+            query: word.clone(),
+            kind: SearchKind::SEARCH_KIND_VIDEO.into(),
+            sort: sort.into(),
+            ..Default::default()
+        };
         hit_ids(&ctx.search(None, &request).await.hits)
     };
     let ids = |docs: &[&tokuly_core::outbound::SearchDoc]| docs.iter().map(|d| d.id.to_string()).collect::<Vec<_>>();
@@ -289,7 +325,8 @@ async fn japanese_queries_find_japanese_titles() {
     assert_eq!(found("ｔｏｋｙｏ").await, ids(&[&english]));
 
     // The match is highlighted inside the Japanese sentence.
-    let hit = ctx.find_owned(None, owner.id, "渋谷").await.hits.into_iter().find(|h| h.id == night.id.to_string()).unwrap();
+    let hit =
+        ctx.find_owned(None, owner.id, "渋谷").await.hits.into_iter().find(|h| h.id == night.id.to_string()).unwrap();
     assert_eq!(highlighted(&hit.title_segments), vec!["渋谷"]);
     assert_eq!(joined(&hit.title_segments), "渋谷の夜を歩く");
 }
@@ -412,7 +449,10 @@ async fn a_broken_token_is_not_treated_as_a_guest() {
     let ctx = start().await;
     let user = ctx.app.user("expired").await;
     let broken = TestUser { token: "not.a.token".into(), ..user };
-    let error = ctx.try_search(Some(&broken), &SearchRequest { query: "anything".into(), ..Default::default() }).await.unwrap_err();
+    let error = ctx
+        .try_search(Some(&broken), &SearchRequest { query: "anything".into(), ..Default::default() })
+        .await
+        .unwrap_err();
     assert_eq!(error.code, "unauthenticated");
 }
 
@@ -441,6 +481,67 @@ async fn searches_are_rate_limited_per_account_and_per_address() {
 }
 
 #[tokio::test]
+async fn first_pages_are_tracked_for_analytics_without_the_query_text() {
+    let ctx = start().await;
+    let alice = ctx.app.user("alice").await;
+    let word = unique("tracked");
+    ctx.index(&[doc("video", None, &format!("{word} a")), doc("video", None, &format!("{word} b"))]).await;
+
+    let first = ctx
+        .search(
+            Some(&alice),
+            &SearchRequest {
+                query: word.clone(),
+                kind: SearchKind::SEARCH_KIND_VIDEO.into(),
+                page: page(1, ""),
+                ..Default::default()
+            },
+        )
+        .await;
+    let cursor = first.page.as_option().unwrap().next_cursor.clone();
+    ctx.search(
+        Some(&alice),
+        &SearchRequest {
+            query: word.clone(),
+            kind: SearchKind::SEARCH_KIND_VIDEO.into(),
+            page: page(1, &cursor),
+            ..Default::default()
+        },
+    )
+    .await;
+    ctx.suggest(Some(&alice), &word).await;
+    ctx.app.flush_analytics().await;
+
+    let events = &ctx.app.core.analytics.ch;
+    let user = alice.id.to_string();
+    let count: u64 = events
+        .query("SELECT count() FROM events WHERE name = 'search.query' AND toString(user_id) = ?")
+        .bind(&user)
+        .fetch_one()
+        .await
+        .unwrap();
+    assert_eq!(count, 1, "one event per search, not per page or keystroke");
+    let matches: f64 = events
+        .query("SELECT value FROM events WHERE name = 'search.query' AND toString(user_id) = ?")
+        .bind(&user)
+        .fetch_one()
+        .await
+        .unwrap();
+    assert_eq!(matches, 2.0, "the number of matches is the event's value");
+    let props: String = events
+        .query("SELECT props FROM events WHERE name = 'search.query' AND toString(user_id) = ?")
+        .bind(&user)
+        .fetch_one()
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&props).unwrap(),
+        serde_json::json!({ "kind": "video", "tags_only": false })
+    );
+    assert!(!props.contains(&word), "what people search for stays out of analytics");
+}
+
+#[tokio::test]
 async fn missing_indexes_are_created_on_the_first_search() {
     // A deployment whose setup never ran: its own prefix, nothing created.
     let prefix = format!("{}x", *PREFIX);
@@ -453,5 +554,8 @@ async fn missing_indexes_are_created_on_the_first_search() {
 
     let response = outcome.expect("the search succeeds after creating the indexes");
     assert!(response.hits.is_empty() && created);
-    assert!(ctx.app.core.search.get_index(format!("{prefix}_video")).await.is_err(), "the test cleaned up after itself");
+    assert!(
+        ctx.app.core.search.get_index(format!("{prefix}_video")).await.is_err(),
+        "the test cleaned up after itself"
+    );
 }

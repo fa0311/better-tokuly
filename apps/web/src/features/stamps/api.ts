@@ -1,17 +1,14 @@
 import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { stamp, wallet } from "@tokuly/api";
-import { useEffect } from "react";
+import { isApiError, stamp } from "@tokuly/api";
 import { toast } from "sonner";
 import { api } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import i18n from "#/lib/i18n";
-import { realtime } from "#/lib/realtime";
 
 export const storeClient = () => api().service(stamp.StampStoreService);
 export const libraryClient = () => api().service(stamp.StampLibraryService);
 export const studioClient = () => api().service(stamp.StampStudioService);
 export const reviewClient = () => api().service(stamp.StampReviewService);
-const walletClient = () => api().service(wallet.WalletService);
 
 /** Query keys of the stamp domain. Everything starts with `"stamp"`, so one invalidation reaches all of it. */
 export const stampKeys = {
@@ -39,8 +36,6 @@ export const stampKeys = {
   packStats: (packId: string, days: number) => ["stamp", "studio", "stats", packId, days] as const,
   review: ["stamp", "review"] as const,
   reviewQueue: ["stamp", "review", "queue"] as const,
-  // Under the wallet domain so the wallet's own invalidations refresh it, in an entry of its own.
-  balance: ["wallet", "balance", "stamps"] as const,
 };
 
 /** Refetches everything that depends on what the user holds: library lists, store cards, pack pages. */
@@ -161,8 +156,10 @@ export function useUninstallPack() {
 export function useToggleFavorite() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ stampId, favorited }: { stampId: string; favorited: boolean }) =>
-      favorited ? libraryClient().favoriteStamp({ stampId }) : libraryClient().unfavoriteStamp({ stampId }),
+    mutationFn: async ({ stampId, favorited }: { stampId: string; favorited: boolean }) => {
+      if (favorited) await libraryClient().favoriteStamp({ stampId });
+      else await libraryClient().unfavoriteStamp({ stampId });
+    },
     onMutate: ({ stampId, favorited }) => patchStamp(queryClient, stampId, { favorited }),
     onError: (error, { stampId, favorited }) => {
       patchStamp(queryClient, stampId, { favorited: !favorited });
@@ -173,36 +170,19 @@ export function useToggleFavorite() {
   });
 }
 
-// ───────────────────────────── Coins ─────────────────────────────
+// ───────────────────────────── Uploads ─────────────────────────────
 
 /**
- * The signed-in user's spendable coins, kept current by the wallet's realtime
- * pushes while something on screen shows it.
+ * What to tell someone whose stamp upload failed. An upload the server
+ * accepted but could not process fails with a plain error named after the
+ * asset's failure code (`ANIMATION_TOO_LARGE`…), which gets its own wording.
  */
-export function useCoinBalance(enabled = true) {
-  const queryClient = useQueryClient();
-  const query = useQuery({
-    queryKey: stampKeys.balance,
-    queryFn: async () => (await walletClient().getBalance({})).balance,
-    enabled,
-    staleTime: 0,
-  });
-
-  useEffect(() => {
-    if (!enabled) return;
-    const client = realtime();
-    const off = client.onFrame((frame) => {
-      if (frame.body.case !== "wallet" || frame.body.value.event.case !== "balanceChanged") return;
-      const pushed = frame.body.value.event.value.balance;
-      if (!pushed) return;
-      // Snapshots can arrive out of order: the highest revision wins.
-      queryClient.setQueryData<wallet.Balance>(stampKeys.balance, (current) => (current && current.revision >= pushed.revision ? current : pushed));
-    });
-    client.start();
-    return off;
-  }, [enabled, queryClient]);
-
-  return query;
+export function uploadErrorMessage(error: unknown): string {
+  if (error instanceof Error && !isApiError(error) && /^[A-Z_]+$/.test(error.message)) {
+    const key = `uploadErrors.${error.message}`;
+    return i18n.t(i18n.exists(key, { ns: "stamps" }) ? key : "uploadErrors.generic", { ns: "stamps" });
+  }
+  return errorMessage(error);
 }
 
 // ───────────────────────────── Formatting ─────────────────────────────

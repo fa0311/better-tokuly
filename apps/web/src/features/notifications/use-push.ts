@@ -83,10 +83,14 @@ export function usePush() {
 
   let status: PushStatus;
   if (!supported) status = "unsupported";
-  else if (config.isPending || devices.isPending || subscription.isPending) status = "loading";
+  else if (config.isPending || devices.isPending) status = "loading";
   else if (!offered) status = "unavailable";
   else if (permission === "denied") status = "denied";
-  else status = permission === "granted" && thisDevice && subscription.data ? "on" : "off";
+  else if (permission !== "granted" || !thisDevice) status = "off";
+  // Registered for this session: it is on if the browser still holds its subscription,
+  // which only the service worker can tell (and a cold one takes a moment to start).
+  else if (subscription.isPending) status = "loading";
+  else status = subscription.data ? "on" : "off";
 
   const refresh = () => {
     recheck();

@@ -49,7 +49,11 @@ async fn a_comment_is_published_counted_announced_and_pushed() {
     assert_eq!((listed.total_count, listed.comments_enabled, listed.viewer_can_moderate), (1, true, false));
     let as_owner = ctx.comments(Some(&owner), &video).await;
     assert!(as_owner.viewer_can_moderate);
-    assert!(as_owner.comments[0].viewer.can_moderate && as_owner.comments[0].viewer.can_delete && !as_owner.comments[0].viewer.can_edit);
+    assert!(
+        as_owner.comments[0].viewer.can_moderate
+            && as_owner.comments[0].viewer.can_delete
+            && !as_owner.comments[0].viewer.can_edit
+    );
 
     // The owning domain heard about its counter.
     assert_eq!(ctx.videos.counter(video.id, "comment_count"), 1);
@@ -101,20 +105,42 @@ async fn comments_are_validated() {
     assert_eq!(ctx.reason(SVC, "CreateComment", None, &create(&video, "hi")).await, "SIGN_IN_REQUIRED");
     assert_eq!(reason(create(&video, "   ")).await, "COMMENT_EMPTY");
     assert_eq!(reason(create(&video, &"あ".repeat(1001))).await, "COMMENT_TOO_LONG");
-    assert_eq!(reason(CreateCommentRequest { timestamp_seconds: Some(-1), ..create(&video, "t") }).await, "TIMESTAMP_INVALID");
+    assert_eq!(
+        reason(CreateCommentRequest { timestamp_seconds: Some(-1), ..create(&video, "t") }).await,
+        "TIMESTAMP_INVALID"
+    );
     assert_eq!(reason(CreateCommentRequest { parent_id: "nope".into(), ..create(&video, "t") }).await, "INVALID_ID");
-    assert_eq!(reason(CreateCommentRequest { parent_id: Uuid::now_v7().to_string(), ..create(&video, "t") }).await, "COMMENT_NOT_FOUND");
+    assert_eq!(
+        reason(CreateCommentRequest { parent_id: Uuid::now_v7().to_string(), ..create(&video, "t") }).await,
+        "COMMENT_NOT_FOUND"
+    );
 
     // Subjects: unset, unknown to every domain, missing, hidden, closed.
     assert_eq!(reason(CreateCommentRequest { text: "t".into(), ..Default::default() }).await, "UNSUPPORTED_SUBJECT");
-    let live = SubjectRef { r#type: SubjectType::SUBJECT_TYPE_LIVE_STREAM.into(), id: video.id.to_string(), ..Default::default() };
-    assert_eq!(reason(CreateCommentRequest { subject: live.into(), text: "t".into(), ..Default::default() }).await, "UNSUPPORTED_SUBJECT");
-    let missing = SubjectRef { r#type: SubjectType::SUBJECT_TYPE_VIDEO.into(), id: Uuid::now_v7().to_string(), ..Default::default() };
-    assert_eq!(reason(CreateCommentRequest { subject: missing.into(), text: "t".into(), ..Default::default() }).await, "SUBJECT_NOT_FOUND");
+    let live = SubjectRef {
+        r#type: SubjectType::SUBJECT_TYPE_LIVE_STREAM.into(),
+        id: video.id.to_string(),
+        ..Default::default()
+    };
+    assert_eq!(
+        reason(CreateCommentRequest { subject: live.into(), text: "t".into(), ..Default::default() }).await,
+        "UNSUPPORTED_SUBJECT"
+    );
+    let missing = SubjectRef {
+        r#type: SubjectType::SUBJECT_TYPE_VIDEO.into(),
+        id: Uuid::now_v7().to_string(),
+        ..Default::default()
+    };
+    assert_eq!(
+        reason(CreateCommentRequest { subject: missing.into(), text: "t".into(), ..Default::default() }).await,
+        "SUBJECT_NOT_FOUND"
+    );
     let private = ctx.video(&owner, "private");
     ctx.videos.update(private.id, |subject| subject.audience = Audience::Only(vec![carol.id]));
     assert_eq!(reason(create(&private, "t")).await, "SUBJECT_NOT_FOUND");
-    assert!(ctx.call::<_, CreateCommentResponse>(SVC, "CreateComment", Some(&carol), &create(&private, "t")).await.is_ok());
+    assert!(
+        ctx.call::<_, CreateCommentResponse>(SVC, "CreateComment", Some(&carol), &create(&private, "t")).await.is_ok()
+    );
     let closed = ctx.video(&owner, "closed");
     ctx.videos.update(closed.id, |subject| subject.interactions_enabled = false);
     assert_eq!(reason(create(&closed, "t")).await, "COMMENTS_DISABLED");
@@ -122,23 +148,49 @@ async fn comments_are_validated() {
     // Comments are not written on comments; they are replied to.
     let top = ctx.comment(&bob, &video, "top").await;
     assert_eq!(
-        reason(CreateCommentRequest { subject: comment_ref(&top.id).into(), text: "t".into(), ..Default::default() }).await,
+        reason(CreateCommentRequest { subject: comment_ref(&top.id).into(), text: "t".into(), ..Default::default() })
+            .await,
         "UNSUPPORTED_SUBJECT"
     );
 
     // Attachments and identities.
     let stamp = ctx.stamp(&bob).await;
     let image = ctx.image(&bob, AssetPurpose::ASSET_PURPOSE_NOTE_IMAGE).await;
-    let both = CreateCommentRequest { stamp_id: stamp.clone(), image_asset_id: image.to_string(), ..create(&video, "") };
+    let both =
+        CreateCommentRequest { stamp_id: stamp.clone(), image_asset_id: image.to_string(), ..create(&video, "") };
     assert_eq!(reason(both).await, "ATTACHMENT_CONFLICT");
     let carols_stamp = ctx.stamp(&carol).await;
     assert_eq!(reason(CreateCommentRequest { stamp_id: carols_stamp, ..create(&video, "") }).await, "STAMP_NOT_USABLE");
     let carols_image = ctx.image(&carol, AssetPurpose::ASSET_PURPOSE_NOTE_IMAGE).await;
-    assert_eq!(reason(CreateCommentRequest { image_asset_id: carols_image.to_string(), ..create(&video, "") }).await, "ASSET_NOT_FOUND");
+    assert_eq!(
+        reason(CreateCommentRequest { image_asset_id: carols_image.to_string(), ..create(&video, "") }).await,
+        "ASSET_NOT_FOUND"
+    );
     let avatar = ctx.image(&bob, AssetPurpose::ASSET_PURPOSE_AVATAR).await;
-    assert_eq!(reason(CreateCommentRequest { image_asset_id: avatar.to_string(), ..create(&video, "") }).await, "ASSET_WRONG_PURPOSE");
+    assert_eq!(
+        reason(CreateCommentRequest { image_asset_id: avatar.to_string(), ..create(&video, "") }).await,
+        "ASSET_WRONG_PURPOSE"
+    );
+    let clip = tokuly_media::testing::ready_video(&ctx.app.core, bob.id, AssetPurpose::ASSET_PURPOSE_NOTE_IMAGE)
+        .await
+        .unwrap();
+    assert_eq!(
+        reason(CreateCommentRequest { image_asset_id: clip.id.to_string(), ..create(&video, "") }).await,
+        "ASSET_NOT_IMAGE"
+    );
+    assert_eq!(
+        reason(CreateCommentRequest { image_asset_id: Uuid::now_v7().to_string(), ..create(&video, "") }).await,
+        "ASSET_NOT_FOUND"
+    );
+    assert_eq!(
+        reason(CreateCommentRequest { stamp_id: Uuid::now_v7().to_string(), ..create(&video, "") }).await,
+        "STAMP_NOT_USABLE"
+    );
     let carols_channel = ctx.channels.add(&carol, "Carol TV");
-    assert_eq!(reason(CreateCommentRequest { channel_id: carols_channel.to_string(), ..create(&video, "t") }).await, "CHANNEL_NOT_FOUND");
+    assert_eq!(
+        reason(CreateCommentRequest { channel_id: carols_channel.to_string(), ..create(&video, "t") }).await,
+        "CHANNEL_NOT_FOUND"
+    );
 
     // The same comment twice in a row, however it is typed.
     ctx.comment(&bob, &video, "Hello").await;
@@ -154,16 +206,26 @@ async fn too_many_mentions_are_refused() {
     for index in 0..11 {
         handles.push(format!("@{}", ctx.app.user(&format!("friend{index}")).await.handle));
     }
-    assert_eq!(ctx.reason(SVC, "CreateComment", Some(&bob), &create(&video, &handles.join(" "))).await, "TOO_MANY_MENTIONS");
+    assert_eq!(
+        ctx.reason(SVC, "CreateComment", Some(&bob), &create(&video, &handles.join(" "))).await,
+        "TOO_MANY_MENTIONS"
+    );
     let ten = ctx.comment(&bob, &video, &handles[..10].join(" ")).await;
     assert_eq!(ten.mentions.len(), 10);
+    // An edit is held to the same limit.
+    let edit = UpdateCommentRequest { comment_id: ten.id.clone(), text: handles.join(" "), ..Default::default() };
+    assert_eq!(ctx.reason(SVC, "UpdateComment", Some(&bob), &edit).await, "TOO_MANY_MENTIONS");
 }
 
 #[tokio::test]
 async fn replies_form_one_level_threads() {
     let ctx = start().await;
-    let (owner, bob, carol, dave) =
-        (ctx.app.user("Owner").await, ctx.app.user("Bob").await, ctx.app.user("Carol").await, ctx.app.user("Dave").await);
+    let (owner, bob, carol, dave) = (
+        ctx.app.user("Owner").await,
+        ctx.app.user("Bob").await,
+        ctx.app.user("Carol").await,
+        ctx.app.user("Dave").await,
+    );
     let video = ctx.video(&owner, "v");
     let top = ctx.comment(&bob, &video, "スレッドの先頭").await;
 
@@ -221,8 +283,12 @@ async fn replies_form_one_level_threads() {
 #[tokio::test]
 async fn mentions_are_linked_and_announced_to_those_who_can_see_the_subject() {
     let ctx = start().await;
-    let (owner, bob, carol, dave) =
-        (ctx.app.user("Owner").await, ctx.app.user("Bob").await, ctx.app.user("Carol").await, ctx.app.user("Dave").await);
+    let (owner, bob, carol, dave) = (
+        ctx.app.user("Owner").await,
+        ctx.app.user("Bob").await,
+        ctx.app.user("Carol").await,
+        ctx.app.user("Dave").await,
+    );
     let video = ctx.video(&owner, "friends only");
     ctx.videos.update(video.id, |subject| subject.audience = Audience::Only(vec![bob.id, carol.id]));
 
@@ -290,7 +356,8 @@ async fn a_comment_written_as_a_channel_hides_the_account() {
     let video = ctx.video(&owner, "v");
     let channel = ctx.channels.add(&bob, "Bob Games");
 
-    let request = CreateCommentRequest { channel_id: channel.to_string(), ..create(&video, "チャンネルから失礼!") };
+    let request =
+        CreateCommentRequest { channel_id: channel.to_string(), ..create(&video, "チャンネルから失礼!") };
     let created: CreateCommentResponse = ctx.call(SVC, "CreateComment", Some(&bob), &request).await.unwrap();
     // The author sees both of their identities.
     assert_eq!(created.comment.author.channel.name, "Bob Games");
@@ -328,7 +395,12 @@ async fn top_level_comments_sort_by_score_or_time_and_paginate() {
         let ctx = &ctx;
         let subject = video.subject_ref();
         async move {
-            let request = ListCommentsRequest { subject: subject.into(), sort: sort.into(), page: page(limit, &cursor), ..Default::default() };
+            let request = ListCommentsRequest {
+                subject: subject.into(),
+                sort: sort.into(),
+                page: page(limit, &cursor),
+                ..Default::default()
+            };
             ctx.call::<_, ListCommentsResponse>(SVC, "ListComments", None, &request).await.unwrap()
         }
     };
@@ -382,7 +454,8 @@ async fn authors_edit_their_own_comments() {
     assert_eq!(ctx.reason(SVC, "UpdateComment", Some(&owner), &edit("x".into())).await, "NOT_COMMENT_AUTHOR");
     assert_eq!(ctx.reason(SVC, "UpdateComment", Some(&bob), &edit("  ".into())).await, "COMMENT_EMPTY");
     assert_eq!(ctx.reason(SVC, "UpdateComment", Some(&bob), &edit("x".repeat(1001))).await, "COMMENT_TOO_LONG");
-    let missing = UpdateCommentRequest { comment_id: Uuid::now_v7().to_string(), text: "x".into(), ..Default::default() };
+    let missing =
+        UpdateCommentRequest { comment_id: Uuid::now_v7().to_string(), text: "x".into(), ..Default::default() };
     assert_eq!(ctx.reason(SVC, "UpdateComment", Some(&bob), &missing).await, "COMMENT_NOT_FOUND");
 
     let edited: UpdateCommentResponse =
@@ -393,7 +466,9 @@ async fn authors_edit_their_own_comments() {
     // The person newly mentioned hears about it; watchers get the new text.
     assert_eq!(ctx.notifications(carol.id, "engagement.mention").await.len(), 1);
     let events = drain(&mut topic).await;
-    assert!(events.iter().any(|event| matches!(event, Pushed::CommentUpdated(updated) if updated.comment.text.starts_with("なおした文"))));
+    assert!(events.iter().any(
+        |event| matches!(event, Pushed::CommentUpdated(updated) if updated.comment.text.starts_with("なおした文"))
+    ));
 
     // Saving the same text again changes nothing; mentioning the same person again is not news.
     let again: UpdateCommentResponse =
@@ -418,7 +493,10 @@ async fn authors_and_owners_delete_comments_with_their_replies() {
     let delete = |id: &str| DeleteCommentRequest { comment_id: id.to_owned(), ..Default::default() };
     assert_eq!(ctx.reason(SVC, "DeleteComment", None, &delete(&top.id)).await, "SIGN_IN_REQUIRED");
     assert_eq!(ctx.reason(SVC, "DeleteComment", Some(&carol), &delete(&top.id)).await, "COMMENT_DELETE_FORBIDDEN");
-    assert_eq!(ctx.reason(SVC, "DeleteComment", Some(&bob), &delete(&Uuid::now_v7().to_string())).await, "COMMENT_NOT_FOUND");
+    assert_eq!(
+        ctx.reason(SVC, "DeleteComment", Some(&bob), &delete(&Uuid::now_v7().to_string())).await,
+        "COMMENT_NOT_FOUND"
+    );
 
     // A reply goes alone.
     let one: DeleteCommentResponse = ctx.call(SVC, "DeleteComment", Some(&carol), &delete(&reply.id)).await.unwrap();
@@ -468,12 +546,18 @@ async fn owners_pin_one_comment_and_give_hearts() {
     assert_eq!(ctx.reason(SVC, "PinComment", None, &pin(&first.id)).await, "SIGN_IN_REQUIRED");
     assert_eq!(ctx.reason(SVC, "PinComment", Some(&bob), &pin(&first.id)).await, "NOT_SUBJECT_OWNER");
     assert_eq!(ctx.reason(SVC, "PinComment", Some(&owner), &pin(&reply.id)).await, "COMMENT_NOT_PINNABLE");
-    assert_eq!(ctx.reason(SVC, "PinComment", Some(&owner), &pin(&Uuid::now_v7().to_string())).await, "COMMENT_NOT_FOUND");
+    assert_eq!(
+        ctx.reason(SVC, "PinComment", Some(&owner), &pin(&Uuid::now_v7().to_string())).await,
+        "COMMENT_NOT_FOUND"
+    );
 
     let pinned: PinCommentResponse = ctx.call(SVC, "PinComment", Some(&owner), &pin(&first.id)).await.unwrap();
     assert!(pinned.comment.pinned);
     // The pinned comment leads the first page, whatever the order.
-    assert_eq!(ids(&ctx.comments(None, &video).await.comments), [first.id.as_str(), third.id.as_str(), second.id.as_str()]);
+    assert_eq!(
+        ids(&ctx.comments(None, &video).await.comments),
+        [first.id.as_str(), third.id.as_str(), second.id.as_str()]
+    );
     // Pinning another one replaces it.
     let _: PinCommentResponse = ctx.call(SVC, "PinComment", Some(&owner), &pin(&second.id)).await.unwrap();
     let listed = ctx.comments(None, &video).await;
@@ -490,28 +574,48 @@ async fn owners_pin_one_comment_and_give_hearts() {
     assert_eq!(pins, [(first.id.clone(), true), (first.id.clone(), false), (second.id.clone(), true)]);
 
     let unpin = UnpinCommentRequest { comment_id: second.id.clone(), ..Default::default() };
+    assert_eq!(ctx.reason(SVC, "UnpinComment", None, &unpin).await, "SIGN_IN_REQUIRED");
     assert_eq!(ctx.reason(SVC, "UnpinComment", Some(&carol), &unpin).await, "NOT_SUBJECT_OWNER");
+    let unknown = UnpinCommentRequest { comment_id: Uuid::now_v7().to_string(), ..Default::default() };
+    assert_eq!(ctx.reason(SVC, "UnpinComment", Some(&owner), &unknown).await, "COMMENT_NOT_FOUND");
     let unpinned: UnpinCommentResponse = ctx.call(SVC, "UnpinComment", Some(&owner), &unpin).await.unwrap();
     assert!(!unpinned.comment.pinned);
-    assert_eq!(ids(&ctx.comments(None, &video).await.comments), [third.id.as_str(), second.id.as_str(), first.id.as_str()]);
+    assert_eq!(
+        ids(&ctx.comments(None, &video).await.comments),
+        [third.id.as_str(), second.id.as_str(), first.id.as_str()]
+    );
 
     // Hearts.
-    let heart = |id: &str, hearted: bool| SetCommentHeartRequest { comment_id: id.to_owned(), hearted, ..Default::default() };
+    let heart =
+        |id: &str, hearted: bool| SetCommentHeartRequest { comment_id: id.to_owned(), hearted, ..Default::default() };
+    assert_eq!(ctx.reason(SVC, "SetCommentHeart", None, &heart(&first.id, true)).await, "SIGN_IN_REQUIRED");
     assert_eq!(ctx.reason(SVC, "SetCommentHeart", Some(&bob), &heart(&first.id, true)).await, "NOT_SUBJECT_OWNER");
-    let hearted: SetCommentHeartResponse = ctx.call(SVC, "SetCommentHeart", Some(&owner), &heart(&first.id, true)).await.unwrap();
+    assert_eq!(
+        ctx.reason(SVC, "SetCommentHeart", Some(&owner), &heart(&Uuid::now_v7().to_string(), true)).await,
+        "COMMENT_NOT_FOUND"
+    );
+    let hearted: SetCommentHeartResponse =
+        ctx.call(SVC, "SetCommentHeart", Some(&owner), &heart(&first.id, true)).await.unwrap();
     assert!(hearted.comment.hearted);
     let notices = ctx.notifications(bob.id, "engagement.heart").await;
     assert_eq!(notices.len(), 1);
     assert!(notices[0]["actor_id"].is_null(), "the creator is not named as a person");
     assert_eq!(notices[0]["body"]["ja"], "ひとつめ");
-    assert!(drain(&mut topic).await.iter().any(|event| matches!(event, Pushed::CommentUpdated(updated) if updated.comment.hearted)));
+    assert!(
+        drain(&mut topic)
+            .await
+            .iter()
+            .any(|event| matches!(event, Pushed::CommentUpdated(updated) if updated.comment.hearted))
+    );
     // A heart outweighs recency in the "top" order.
     let top = ListCommentsRequest { subject: video.subject_ref().into(), ..Default::default() };
     let top: ListCommentsResponse = ctx.call(SVC, "ListComments", None, &top).await.unwrap();
     assert_eq!(top.comments[0].id, first.id);
     // Taking it back and giving it again is not news twice.
-    let _: SetCommentHeartResponse = ctx.call(SVC, "SetCommentHeart", Some(&owner), &heart(&first.id, false)).await.unwrap();
-    let again: SetCommentHeartResponse = ctx.call(SVC, "SetCommentHeart", Some(&owner), &heart(&first.id, true)).await.unwrap();
+    let _: SetCommentHeartResponse =
+        ctx.call(SVC, "SetCommentHeart", Some(&owner), &heart(&first.id, false)).await.unwrap();
+    let again: SetCommentHeartResponse =
+        ctx.call(SVC, "SetCommentHeart", Some(&owner), &heart(&first.id, true)).await.unwrap();
     assert!(again.comment.hearted);
     assert_eq!(ctx.notifications(bob.id, "engagement.heart").await.len(), 1);
 }
@@ -526,7 +630,8 @@ async fn my_comments_come_with_what_they_are_on() {
     ctx.comment(&owner, &video, "ほかの人の").await;
 
     assert_eq!(ctx.reason(SVC, "ListMyComments", None, &ListMyCommentsRequest::default()).await, "SIGN_IN_REQUIRED");
-    let mine: ListMyCommentsResponse = ctx.call(SVC, "ListMyComments", Some(&bob), &ListMyCommentsRequest::default()).await.unwrap();
+    let mine: ListMyCommentsResponse =
+        ctx.call(SVC, "ListMyComments", Some(&bob), &ListMyCommentsRequest::default()).await.unwrap();
     let listed: Vec<(&str, &str, bool)> = mine
         .comments
         .iter()
@@ -552,8 +657,12 @@ async fn my_comments_come_with_what_they_are_on() {
 #[tokio::test]
 async fn blocked_users_neither_reach_nor_see_each_other() {
     let ctx = start().await;
-    let (owner, alice, bob, carol) =
-        (ctx.app.user("Owner").await, ctx.app.user("Alice").await, ctx.app.user("Bob").await, ctx.app.user("Carol").await);
+    let (owner, alice, bob, carol) = (
+        ctx.app.user("Owner").await,
+        ctx.app.user("Alice").await,
+        ctx.app.user("Bob").await,
+        ctx.app.user("Carol").await,
+    );
     let video = ctx.video(&owner, "v");
     let from_alice = ctx.comment(&alice, &video, "アリスのコメント").await;
     let from_bob = ctx.comment(&bob, &video, "ボブのコメント").await;

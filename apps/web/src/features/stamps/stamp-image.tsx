@@ -59,10 +59,10 @@ export function StampImage({ stamp, size, play = "visible", image, className }: 
       <span ref={box} style={style} className={boxClass}>
         {seen || play === "always" ? (
           <Suspense fallback={null}>
-            <LottiePlayer url={stamp.animationUrl} playing={moving} label={stamp.name} className="block size-full" onError={() => setFailed(true)} />
+            <LottiePlayer url={stamp.animationUrl} playing={moving} label={stamp.name} className="absolute inset-0 size-full" onError={() => setFailed(true)} />
           </Suspense>
         ) : (
-          stamp.imageUrl && <img src={stamp.imageUrl} alt={stamp.name} className="size-full object-contain" draggable={false} />
+          stamp.imageUrl && <img src={stamp.imageUrl} alt={stamp.name} className="absolute inset-0 size-full object-contain" draggable={false} />
         )}
       </span>
     );
@@ -74,7 +74,7 @@ export function StampImage({ stamp, size, play = "visible", image, className }: 
       <img
         src={moving && stamp.animationUrl ? stamp.animationUrl : still}
         alt={stamp.name}
-        className="size-full object-contain"
+        className="absolute inset-0 size-full object-contain"
         loading="lazy"
         decoding="async"
         draggable={false}

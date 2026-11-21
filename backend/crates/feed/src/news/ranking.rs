@@ -106,14 +106,22 @@ fn shuffle<T>(items: &mut [T], rng: &mut SplitMix64) {
 /// positions, evenly spaced, are instead filled from a seeded shuffle of the
 /// articles the reader has not opened, and flagged `random_pick`. Every
 /// candidate appears exactly once.
-pub fn recommend(mut candidates: Vec<Candidate>, affinity: &HashMap<String, f64>, now: Time, random_percent: u32, seed: u64) -> Vec<Ranked> {
+pub fn recommend(
+    mut candidates: Vec<Candidate>,
+    affinity: &HashMap<String, f64>,
+    now: Time,
+    random_percent: u32,
+    seed: u64,
+) -> Vec<Ranked> {
     // A stable starting order, so the result depends only on the inputs.
     candidates.sort_by(|a, b| b.published_at.cmp(&a.published_at).then_with(|| b.id.cmp(&a.id)));
 
-    let mut random: Vec<Uuid> = candidates.iter().filter(|candidate| !candidate.clicked).map(|candidate| candidate.id).collect();
+    let mut random: Vec<Uuid> =
+        candidates.iter().filter(|candidate| !candidate.clicked).map(|candidate| candidate.id).collect();
     shuffle(&mut random, &mut SplitMix64(seed));
 
-    let mut scored: Vec<(f64, Uuid)> = candidates.iter().map(|candidate| (score(candidate, affinity, now), candidate.id)).collect();
+    let mut scored: Vec<(f64, Uuid)> =
+        candidates.iter().map(|candidate| (score(candidate, affinity, now), candidate.id)).collect();
     // Stable sort: equal scores keep the newest-first order from above.
     scored.sort_by(|a, b| b.0.total_cmp(&a.0));
 
@@ -152,7 +160,12 @@ mod tests {
     use super::*;
 
     fn candidate(n: u128, tags: &[&str], hours_old: i64, now: Time) -> Candidate {
-        Candidate { id: Uuid::from_u128(n), tags: tags.iter().map(|t| (*t).to_owned()).collect(), published_at: now - Duration::hours(hours_old), clicked: false }
+        Candidate {
+            id: Uuid::from_u128(n),
+            tags: tags.iter().map(|t| (*t).to_owned()).collect(),
+            published_at: now - Duration::hours(hours_old),
+            clicked: false,
+        }
     }
 
     fn affinity(pairs: &[(&str, f64)]) -> HashMap<String, f64> {
@@ -227,7 +240,8 @@ mod tests {
     fn the_configured_share_of_positions_is_random() {
         let now = now();
         let order = recommend(pool(now), &HashMap::new(), now, 20, 99);
-        let random_positions: Vec<usize> = order.iter().enumerate().filter(|(_, r)| r.random_pick).map(|(i, _)| i).collect();
+        let random_positions: Vec<usize> =
+            order.iter().enumerate().filter(|(_, r)| r.random_pick).map(|(i, _)| i).collect();
         assert_eq!(random_positions, vec![4, 9, 14, 19, 24, 29, 34, 39, 44, 49], "every fifth position");
 
         assert!(recommend(pool(now), &HashMap::new(), now, 0, 99).iter().all(|r| !r.random_pick));
@@ -253,7 +267,11 @@ mod tests {
         let first = recommend(pool(now), &reader, now, 20, seed_of("tokenA"));
         let mut reversed_input = pool(now);
         reversed_input.reverse();
-        assert_eq!(first, recommend(reversed_input, &reader, now, 20, seed_of("tokenA")), "input order does not matter");
+        assert_eq!(
+            first,
+            recommend(reversed_input, &reader, now, 20, seed_of("tokenA")),
+            "input order does not matter"
+        );
         let other = recommend(pool(now), &reader, now, 20, seed_of("tokenB"));
         assert_ne!(first, other);
         let random_of = |order: &[Ranked]| order.iter().filter(|r| r.random_pick).map(|r| r.id).collect::<Vec<_>>();
@@ -270,7 +288,10 @@ mod tests {
         let order = recommend(candidates, &HashMap::new(), now, 50, 5);
         assert_eq!(order.len(), 50);
         let random: Vec<u128> = order.iter().filter(|r| r.random_pick).map(|r| r.id.as_u128()).collect();
-        assert!(!random.is_empty() && random.len() <= 10, "only the ten unopened articles can be picked at random: {random:?}");
+        assert!(
+            !random.is_empty() && random.len() <= 10,
+            "only the ten unopened articles can be picked at random: {random:?}"
+        );
         assert!(random.iter().all(|n| *n > 40));
     }
 

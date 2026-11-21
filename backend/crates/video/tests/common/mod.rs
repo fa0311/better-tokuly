@@ -16,8 +16,8 @@ use tokuly_proto::{
     media::{AssetKind, AssetPurpose},
     realtime::server_frame::Body,
     social::{
-        BlockUserRequest, BlockUserResponse, FriendSource, RespondFriendRequestRequest, RespondFriendRequestResponse, SendFriendRequestRequest,
-        SendFriendRequestResponse, send_friend_request_request::Target,
+        BlockUserRequest, BlockUserResponse, FriendSource, RespondFriendRequestRequest, RespondFriendRequestResponse,
+        SendFriendRequestRequest, SendFriendRequestResponse, send_friend_request_request::Target,
     },
     video::*,
 };
@@ -140,7 +140,13 @@ impl Ctx {
     }
 
     /// The reason an RPC is rejected with.
-    pub async fn reason<Req: Serialize>(&self, service: &str, method: &str, user: Option<&TestUser>, request: &Req) -> String {
+    pub async fn reason<Req: Serialize>(
+        &self,
+        service: &str,
+        method: &str,
+        user: Option<&TestUser>,
+        request: &Req,
+    ) -> String {
         match self.call::<_, serde_json::Value>(service, method, user, request).await {
             Ok(response) => panic!("{service}/{method} should fail, got {response}"),
             Err(error) => error.reason,
@@ -149,17 +155,30 @@ impl Ctx {
 
     /// Makes two users friends through the social API.
     pub async fn befriend(&self, a: &TestUser, b: &TestUser) {
-        let request = SendFriendRequestRequest { target: Some(Target::UserId(b.id.to_string())), source: FriendSource::FRIEND_SOURCE_PROFILE.into(), ..Default::default() };
-        let sent: SendFriendRequestResponse = self.app.call("tokuly.social.v1.FriendService/SendFriendRequest", Some(a), &request).await.expect("send friend request");
+        let request = SendFriendRequestRequest {
+            target: Some(Target::UserId(b.id.to_string())),
+            source: FriendSource::FRIEND_SOURCE_PROFILE.into(),
+            ..Default::default()
+        };
+        let sent: SendFriendRequestResponse = self
+            .app
+            .call("tokuly.social.v1.FriendService/SendFriendRequest", Some(a), &request)
+            .await
+            .expect("send friend request");
         let Some(request) = sent.request.as_option() else { return };
         let accept = RespondFriendRequestRequest { request_id: request.id.clone(), accept: true, ..Default::default() };
-        let _: RespondFriendRequestResponse = self.app.call("tokuly.social.v1.FriendService/RespondFriendRequest", Some(b), &accept).await.expect("accept friend request");
+        let _: RespondFriendRequestResponse = self
+            .app
+            .call("tokuly.social.v1.FriendService/RespondFriendRequest", Some(b), &accept)
+            .await
+            .expect("accept friend request");
     }
 
     /// `blocker` blocks `blocked` through the social API.
     pub async fn block(&self, blocker: &TestUser, blocked: &TestUser) {
         let request = BlockUserRequest { user_id: blocked.id.to_string(), ..Default::default() };
-        let _: BlockUserResponse = self.app.call("tokuly.social.v1.FriendService/BlockUser", Some(blocker), &request).await.expect("block");
+        let _: BlockUserResponse =
+            self.app.call("tokuly.social.v1.FriendService/BlockUser", Some(blocker), &request).await.expect("block");
     }
 
     /// Delivers the events `actor` caused so far (topic prefix `prefix`) to
@@ -176,7 +195,13 @@ impl Ctx {
 
     /// Delivers a hand-made event to the video domain's consumer.
     pub async fn deliver_event(&self, topic: &str, actor: Option<Uuid>, data: serde_json::Value) {
-        let event = Event { id: Uuid::now_v7(), topic: topic.to_owned(), actor_id: actor, occurred_at: chrono::Utc::now(), data };
+        let event = Event {
+            id: Uuid::now_v7(),
+            topic: topic.to_owned(),
+            actor_id: actor,
+            occurred_at: chrono::Utc::now(),
+            data,
+        };
         self.video.handle_event(event).await.expect("event handler");
     }
 
@@ -200,8 +225,13 @@ impl Ctx {
     }
 
     pub async fn subscribe(&self, user: &TestUser, channel_id: &str, level: NotificationLevel) -> Channel {
-        let request = SubscribeRequest { channel_id: channel_id.to_owned(), notification_level: level.into(), ..Default::default() };
-        let response: SubscribeResponse = self.call(CHANNELS, "Subscribe", Some(user), &request).await.expect("subscribe");
+        let request = SubscribeRequest {
+            channel_id: channel_id.to_owned(),
+            notification_level: level.into(),
+            ..Default::default()
+        };
+        let response: SubscribeResponse =
+            self.call(CHANNELS, "Subscribe", Some(user), &request).await.expect("subscribe");
         response.channel.as_option().cloned().expect("the channel")
     }
 
@@ -209,16 +239,28 @@ impl Ctx {
 
     /// A finished upload of `owner`, as the media domain leaves it.
     pub async fn upload(&self, owner: &TestUser, purpose: AssetPurpose, kind: AssetKind) -> String {
-        tokuly_media::testing::ready_asset(&self.app.core, owner.id, purpose, kind).await.expect("asset fixture").id.to_string()
+        tokuly_media::testing::ready_asset(&self.app.core, owner.id, purpose, kind)
+            .await
+            .expect("asset fixture")
+            .id
+            .to_string()
     }
 
     /// A processed video upload (12 seconds long).
     pub async fn video_upload(&self, owner: &TestUser) -> String {
-        tokuly_media::testing::ready_video(&self.app.core, owner.id, AssetPurpose::ASSET_PURPOSE_VIDEO).await.expect("video fixture").id.to_string()
+        tokuly_media::testing::ready_video(&self.app.core, owner.id, AssetPurpose::ASSET_PURPOSE_VIDEO)
+            .await
+            .expect("video fixture")
+            .id
+            .to_string()
     }
 
     pub async fn image_upload(&self, owner: &TestUser, purpose: AssetPurpose) -> String {
-        tokuly_media::testing::ready_image(&self.app.core, owner.id, purpose).await.expect("image fixture").id.to_string()
+        tokuly_media::testing::ready_image(&self.app.core, owner.id, purpose)
+            .await
+            .expect("image fixture")
+            .id
+            .to_string()
     }
 
     // ── videos ──
@@ -229,7 +271,13 @@ impl Ctx {
     }
 
     /// A draft on `channel` from a processed upload, built by `fill`.
-    pub async fn draft_with(&self, owner: &TestUser, channel: &Channel, title: &str, fill: impl FnOnce(&mut CreateVideoRequest)) -> Video {
+    pub async fn draft_with(
+        &self,
+        owner: &TestUser,
+        channel: &Channel,
+        title: &str,
+        fill: impl FnOnce(&mut CreateVideoRequest),
+    ) -> Video {
         let mut request = CreateVideoRequest {
             channel_id: channel.summary.id.clone(),
             asset_id: self.video_upload(owner).await,
@@ -246,7 +294,8 @@ impl Ctx {
 
     pub async fn publish(&self, owner: &TestUser, video_id: &str) -> Video {
         let request = PublishVideoRequest { video_id: video_id.to_owned(), ..Default::default() };
-        let response: PublishVideoResponse = self.call(VIDEOS, "PublishVideo", Some(owner), &request).await.expect("publish");
+        let response: PublishVideoResponse =
+            self.call(VIDEOS, "PublishVideo", Some(owner), &request).await.expect("publish");
         response.video.as_option().cloned().expect("the published video")
     }
 
@@ -290,19 +339,44 @@ impl Ctx {
 
     // ── playback ──
 
-    pub async fn start_playback(&self, viewer: Option<&TestUser>, video_id: &str, source: TrafficSource) -> StartPlaybackResponse {
-        let request = StartPlaybackRequest { video_id: video_id.to_owned(), source: source.into(), ..Default::default() };
+    pub async fn start_playback(
+        &self,
+        viewer: Option<&TestUser>,
+        video_id: &str,
+        source: TrafficSource,
+    ) -> StartPlaybackResponse {
+        let request =
+            StartPlaybackRequest { video_id: video_id.to_owned(), source: source.into(), ..Default::default() };
         self.call(PLAYBACK, "StartPlayback", viewer, &request).await.expect("start playback")
     }
 
-    pub async fn report(&self, viewer: Option<&TestUser>, session_id: &str, position: f64, playing: bool, ended: bool) -> ReportPlaybackResponse {
-        let request = ReportPlaybackRequest { session_id: session_id.to_owned(), position_seconds: position, playing, ended, ..Default::default() };
+    pub async fn report(
+        &self,
+        viewer: Option<&TestUser>,
+        session_id: &str,
+        position: f64,
+        playing: bool,
+        ended: bool,
+    ) -> ReportPlaybackResponse {
+        let request = ReportPlaybackRequest {
+            session_id: session_id.to_owned(),
+            position_seconds: position,
+            playing,
+            ended,
+            ..Default::default()
+        };
         self.call(PLAYBACK, "ReportPlayback", viewer, &request).await.expect("report playback")
     }
 
     /// Watches a video long enough for the view to count: starts a session,
     /// lets the minimum watch time pass, and reports once at `position`.
-    pub async fn watch(&self, viewer: Option<&TestUser>, video_id: &str, position: f64, source: TrafficSource) -> ReportPlaybackResponse {
+    pub async fn watch(
+        &self,
+        viewer: Option<&TestUser>,
+        video_id: &str,
+        position: f64,
+        source: TrafficSource,
+    ) -> ReportPlaybackResponse {
         let started = self.start_playback(viewer, video_id, source).await;
         tokio::time::sleep(Duration::from_millis(300)).await;
         self.report(viewer, &started.session_id, position, true, false).await

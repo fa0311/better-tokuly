@@ -63,7 +63,12 @@ impl Chat {
     }
 
     /// Applies preference changes of the caller to one conversation.
-    pub(crate) async fn update_preferences(&self, user_id: Uuid, conversation_id: Uuid, change: PreferenceChange) -> AppResult<Access> {
+    pub(crate) async fn update_preferences(
+        &self,
+        user_id: Uuid,
+        conversation_id: Uuid,
+        change: PreferenceChange,
+    ) -> AppResult<Access> {
         let access = self.access(user_id, conversation_id).await?;
         let me = &access.me;
         let mut pinned_at = me.pinned_at;
@@ -95,10 +100,12 @@ impl Chat {
         }
         match change.pinned {
             Some(true) if pinned_at.is_none() => {
-                let pinned: i64 = sqlx::query_scalar("SELECT count(*) FROM chat_members WHERE user_id = $1 AND pinned_at IS NOT NULL")
-                    .bind(user_id)
-                    .fetch_one(&self.core.db)
-                    .await?;
+                let pinned: i64 = sqlx::query_scalar(
+                    "SELECT count(*) FROM chat_members WHERE user_id = $1 AND pinned_at IS NOT NULL",
+                )
+                .bind(user_id)
+                .fetch_one(&self.core.db)
+                .await?;
                 ensure!(
                     pinned < MAX_PINNED_CONVERSATIONS,
                     precondition,
@@ -127,7 +134,12 @@ impl Chat {
 
     /// Takes a conversation out of the caller's list until the next message
     /// arrives; with `clear_history` everything so far is gone for them.
-    pub(crate) async fn hide_conversation(&self, user_id: Uuid, conversation_id: Uuid, clear_history: bool) -> AppResult<()> {
+    pub(crate) async fn hide_conversation(
+        &self,
+        user_id: Uuid,
+        conversation_id: Uuid,
+        clear_history: bool,
+    ) -> AppResult<()> {
         let access = self.access(user_id, conversation_id).await?;
         // The read cursor stays where it is: hiding must not tell the
         // others that the caller read anything.
@@ -142,12 +154,22 @@ impl Chat {
         .bind(access.conv.last_seq)
         .execute(&self.core.db)
         .await?;
-        self.push_conversation_removed(conversation_id, user_id, pb::ConversationRemovalReason::CONVERSATION_REMOVAL_REASON_HIDDEN).await;
+        self.push_conversation_removed(
+            conversation_id,
+            user_id,
+            pb::ConversationRemovalReason::CONVERSATION_REMOVAL_REASON_HIDDEN,
+        )
+        .await;
         Ok(())
     }
 
     /// Answers a message request. Returns the conversation when accepted.
-    pub(crate) async fn respond_to_request(&self, user_id: Uuid, conversation_id: Uuid, accept: bool) -> AppResult<Option<Access>> {
+    pub(crate) async fn respond_to_request(
+        &self,
+        user_id: Uuid,
+        conversation_id: Uuid,
+        accept: bool,
+    ) -> AppResult<Option<Access>> {
         let access = self.access(user_id, conversation_id).await?;
         let no_request = || AppError::precondition("NO_PENDING_REQUEST", "there is no message request to answer");
         if access.me.request_state != request::PENDING {
@@ -178,7 +200,12 @@ impl Chat {
             return Err(no_request());
         }
         self.forget_presence(conversation_id, user_id).await;
-        self.push_conversation_removed(conversation_id, user_id, pb::ConversationRemovalReason::CONVERSATION_REMOVAL_REASON_DECLINED).await;
+        self.push_conversation_removed(
+            conversation_id,
+            user_id,
+            pb::ConversationRemovalReason::CONVERSATION_REMOVAL_REASON_DECLINED,
+        )
+        .await;
         Ok(None)
     }
 
@@ -203,15 +230,21 @@ impl Chat {
 
     /// Moves the caller's read cursor forward to `message_id` (or to the
     /// latest message) and recounts what is still unread.
-    pub(crate) async fn mark_read(&self, user_id: Uuid, conversation_id: Uuid, message_id: Option<Uuid>) -> AppResult<pb::MarkReadResponse> {
+    pub(crate) async fn mark_read(
+        &self,
+        user_id: Uuid,
+        conversation_id: Uuid,
+        message_id: Option<Uuid>,
+    ) -> AppResult<pb::MarkReadResponse> {
         let access = self.access(user_id, conversation_id).await?;
         let target = match message_id {
             Some(message_id) => {
-                let seq: Option<i64> = sqlx::query_scalar("SELECT seq FROM chat_messages WHERE id = $1 AND conversation_id = $2")
-                    .bind(message_id)
-                    .bind(conversation_id)
-                    .fetch_optional(&self.core.db)
-                    .await?;
+                let seq: Option<i64> =
+                    sqlx::query_scalar("SELECT seq FROM chat_messages WHERE id = $1 AND conversation_id = $2")
+                        .bind(message_id)
+                        .bind(conversation_id)
+                        .fetch_optional(&self.core.db)
+                        .await?;
                 seq.filter(|seq| access.sees(*seq)).ok_or_else(message_not_found)?
             }
             None => access.conv.last_seq,
@@ -269,7 +302,12 @@ impl Chat {
     /// Who has read a message: every accepted member other than its sender
     /// whose cursor is at or past it, most recent reader first, and how many
     /// have not.
-    pub(crate) async fn read_receipts(&self, conversation_id: Uuid, seq: i64, sender_id: Option<Uuid>) -> AppResult<(Vec<pb::ReadReceipt>, i32)> {
+    pub(crate) async fn read_receipts(
+        &self,
+        conversation_id: Uuid,
+        seq: i64,
+        sender_id: Option<Uuid>,
+    ) -> AppResult<(Vec<pb::ReadReceipt>, i32)> {
         let members: Vec<MemberRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "SELECT {MEMBER} FROM chat_members m
              WHERE m.conversation_id = $1 AND m.request_state = $2 AND m.user_id IS DISTINCT FROM $3
@@ -280,11 +318,18 @@ impl Chat {
         .bind(sender_id)
         .fetch_all(&self.core.db)
         .await?;
-        let (readers, others): (Vec<&MemberRow>, Vec<&MemberRow>) = members.iter().partition(|member| member.read_seq >= seq);
-        let summaries = tokuly_identity::summaries(&self.core, &readers.iter().map(|member| member.user_id).collect::<Vec<_>>()).await?;
+        let (readers, others): (Vec<&MemberRow>, Vec<&MemberRow>) =
+            members.iter().partition(|member| member.read_seq >= seq);
+        let summaries =
+            tokuly_identity::summaries(&self.core, &readers.iter().map(|member| member.user_id).collect::<Vec<_>>())
+                .await?;
         let receipts = readers
             .into_iter()
-            .map(|member| pb::ReadReceipt { user: users::pick(&summaries, member.user_id).into(), read_at: opt_ts(member.read_at), ..Default::default() })
+            .map(|member| pb::ReadReceipt {
+                user: users::pick(&summaries, member.user_id).into(),
+                read_at: opt_ts(member.read_at),
+                ..Default::default()
+            })
             .collect();
         Ok((receipts, others.len() as i32))
     }

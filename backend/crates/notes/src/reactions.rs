@@ -69,6 +69,12 @@ impl Notes {
             ensure!(note.is_public(), precondition, "NOTE_NOT_PUBLIC", "only public notes can be renoted");
         }
         let (table, counter) = (reaction.table(), reaction.counter());
+        // Who to name in the notification, looked up before the transaction
+        // opens: while it holds its connection nothing waits for a second one.
+        let actor = match note.author_id == user_id {
+            true => None,
+            false => Some(tokuly_identity::summary(core, user_id).await?),
+        };
         let mut tx = core.db.begin().await?;
         let added = sqlx::query(sqlx::AssertSqlSafe(format!(
             "INSERT INTO {table} (note_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING"
@@ -84,19 +90,15 @@ impl Notes {
         }
         let sql = format!("UPDATE notes AS n SET {counter} = n.{counter} + 1 WHERE n.id = $1 RETURNING {NOTE_COLUMNS}");
         let note: NoteRow = sqlx::query_as(sqlx::AssertSqlSafe(sql)).bind(note.id).fetch_one(&mut *tx).await?;
-        let announce = note.author_id != user_id
-            && core
-                .cache
-                .set_nx(&format!("notes:notified:{}:{}:{user_id}", reaction.name(), note.id), "1", RENOTIFY_AFTER)
-                .await
-                .unwrap_or(true);
-        if announce {
-            let actor = tokuly_identity::summary(core, user_id).await?;
-            let request = match reaction {
-                Reaction::Like => copy::like(&actor, user_id, &note),
-                Reaction::Renote => copy::renote(&actor, user_id, &note),
-            };
-            outbound::notify(&mut *tx, &request).await?;
+        if let Some(actor) = &actor {
+            let marker = format!("notes:notified:{}:{}:{user_id}", reaction.name(), note.id);
+            if core.cache.set_nx(&marker, "1", RENOTIFY_AFTER).await.unwrap_or(true) {
+                let request = match reaction {
+                    Reaction::Like => copy::like(actor, user_id, &note),
+                    Reaction::Renote => copy::renote(actor, user_id, &note),
+                };
+                outbound::notify(&mut *tx, &request).await?;
+            }
         }
         tx.commit().await?;
 

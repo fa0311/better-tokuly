@@ -92,13 +92,19 @@ impl Feed {
         let dictionary = TagDictionary::from_config(&cfg.news_tag_keywords)?;
 
         core.exporters.register(Arc::new(maintenance::FeedExporter { core: core.clone() }));
-        core.subjects.register(SubjectType::SUBJECT_TYPE_NEWS_ARTICLE, Arc::new(news::articles::NewsSubjects { core: core.clone() }));
+        core.subjects.register(
+            SubjectType::SUBJECT_TYPE_NEWS_ARTICLE,
+            Arc::new(news::articles::NewsSubjects { core: core.clone() }),
+        );
         Ok(Self(Arc::new(FeedInner { core, cfg, news_policy, news_http, dictionary })))
     }
 
     /// Registers this domain's RPC services on the Connect router.
     pub fn register(&self, router: connectrpc::Router) -> connectrpc::Router {
-        use tokuly_proto::feed::{ActivityServiceExt, HomeFeedServiceExt, MapStoryServiceExt, NewsAdminServiceExt, NewsServiceExt, RecapServiceExt};
+        use tokuly_proto::feed::{
+            ActivityServiceExt, HomeFeedServiceExt, MapStoryServiceExt, NewsAdminServiceExt, NewsServiceExt,
+            RecapServiceExt,
+        };
         let me = Arc::new(self.clone());
         let router = ActivityServiceExt::register(me.clone(), router);
         let router = MapStoryServiceExt::register(me.clone(), router);

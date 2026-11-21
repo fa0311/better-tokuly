@@ -42,7 +42,11 @@ impl View {
 
     /// For an RPC answered to `me`, about `me`'s conversation.
     pub fn member(me: &MemberRow) -> Self {
-        Self { user_id: Some(me.user_id), floors: HashMap::from([(me.conversation_id, me.history_from_seq)]), read_counts: true }
+        Self {
+            user_id: Some(me.user_id),
+            floors: HashMap::from([(me.conversation_id, me.history_from_seq)]),
+            read_counts: true,
+        }
     }
 
     /// For an RPC answered to `user_id` spanning several conversations.
@@ -72,7 +76,10 @@ struct ReactionRow {
 /// The image that stands for an attachment in a small quote: a small
 /// variant of a photo, or the poster of a video.
 fn attachment_thumbnail(attachment: &Attachment) -> Option<String> {
-    let image = attachment.image.as_option().or_else(|| attachment.video.as_option().and_then(|video| video.poster.as_option()))?;
+    let image = attachment
+        .image
+        .as_option()
+        .or_else(|| attachment.video.as_option().and_then(|video| video.poster.as_option()))?;
     let small = image.variants.iter().filter(|variant| variant.size >= 256).min_by_key(|variant| variant.size);
     Some(small.map(|variant| variant.url.clone()).unwrap_or_else(|| image.url.clone())).filter(|url| !url.is_empty())
 }
@@ -100,18 +107,25 @@ impl Chat {
         let ids: Vec<Uuid> = rows.iter().map(|row| row.id).collect();
 
         // The messages answered by replies on this page.
-        let reply_ids: Vec<Uuid> =
-            rows.iter().filter(|row| !row.is_deleted()).filter_map(|row| row.reply_to_id).collect::<HashSet<_>>().into_iter().collect();
+        let reply_ids: Vec<Uuid> = rows
+            .iter()
+            .filter(|row| !row.is_deleted())
+            .filter_map(|row| row.reply_to_id)
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
         let replied: HashMap<Uuid, MessageRow> = if reply_ids.is_empty() {
             HashMap::new()
         } else {
-            sqlx::query_as::<_, MessageRow>(sqlx::AssertSqlSafe(format!("SELECT {MSG} FROM chat_messages x WHERE x.id = ANY($1)")))
-                .bind(&reply_ids)
-                .fetch_all(&core.db)
-                .await?
-                .into_iter()
-                .map(|row| (row.id, row))
-                .collect()
+            sqlx::query_as::<_, MessageRow>(sqlx::AssertSqlSafe(format!(
+                "SELECT {MSG} FROM chat_messages x WHERE x.id = ANY($1)"
+            )))
+            .bind(&reply_ids)
+            .fetch_all(&core.db)
+            .await?
+            .into_iter()
+            .map(|row| (row.id, row))
+            .collect()
         };
 
         let mut user_ids: HashSet<Uuid> = HashSet::new();
@@ -140,24 +154,28 @@ impl Chat {
         let calls: HashMap<Uuid, CallRow> = if call_ids.is_empty() {
             HashMap::new()
         } else {
-            sqlx::query_as::<_, CallRow>(sqlx::AssertSqlSafe(format!("SELECT {CALL} FROM chat_calls k WHERE k.id = ANY($1)")))
-                .bind(call_ids.into_iter().collect::<Vec<_>>())
-                .fetch_all(&core.db)
-                .await?
-                .into_iter()
-                .map(|call| (call.id, call))
-                .collect()
+            sqlx::query_as::<_, CallRow>(sqlx::AssertSqlSafe(format!(
+                "SELECT {CALL} FROM chat_calls k WHERE k.id = ANY($1)"
+            )))
+            .bind(call_ids.into_iter().collect::<Vec<_>>())
+            .fetch_all(&core.db)
+            .await?
+            .into_iter()
+            .map(|call| (call.id, call))
+            .collect()
         };
         let povs: HashMap<Uuid, PovRow> = if pov_ids.is_empty() {
             HashMap::new()
         } else {
-            sqlx::query_as::<_, PovRow>(sqlx::AssertSqlSafe(format!("SELECT {POV} FROM chat_pov_requests p WHERE p.id = ANY($1)")))
-                .bind(pov_ids.into_iter().collect::<Vec<_>>())
-                .fetch_all(&core.db)
-                .await?
-                .into_iter()
-                .map(|pov| (pov.id, pov))
-                .collect()
+            sqlx::query_as::<_, PovRow>(sqlx::AssertSqlSafe(format!(
+                "SELECT {POV} FROM chat_pov_requests p WHERE p.id = ANY($1)"
+            )))
+            .bind(pov_ids.into_iter().collect::<Vec<_>>())
+            .fetch_all(&core.db)
+            .await?
+            .into_iter()
+            .map(|pov| (pov.id, pov))
+            .collect()
         };
 
         let mut reactions: HashMap<Uuid, Vec<pb::ReactionCount>> = HashMap::new();
@@ -179,13 +197,18 @@ impl Chat {
             });
         }
 
-        let pinned: HashSet<Uuid> =
-            sqlx::query_scalar("SELECT message_id FROM chat_pins WHERE message_id = ANY($1)").bind(&ids).fetch_all(&core.db).await?.into_iter().collect();
+        let pinned: HashSet<Uuid> = sqlx::query_scalar("SELECT message_id FROM chat_pins WHERE message_id = ANY($1)")
+            .bind(&ids)
+            .fetch_all(&core.db)
+            .await?
+            .into_iter()
+            .collect();
 
         // Read cursors of the members who accepted, per conversation.
         let mut cursors: HashMap<Uuid, Vec<(Uuid, i64)>> = HashMap::new();
         if view.read_counts {
-            let conversation_ids: Vec<Uuid> = rows.iter().map(|row| row.conversation_id).collect::<HashSet<_>>().into_iter().collect();
+            let conversation_ids: Vec<Uuid> =
+                rows.iter().map(|row| row.conversation_id).collect::<HashSet<_>>().into_iter().collect();
             let rows: Vec<(Uuid, Uuid, i64)> = sqlx::query_as(
                 "SELECT conversation_id, user_id, read_seq FROM chat_members WHERE conversation_id = ANY($1) AND request_state = $2",
             )
@@ -220,7 +243,11 @@ impl Chat {
             message.mentions = row
                 .mentions()
                 .into_iter()
-                .map(|mention| pb::Mention { user: users::pick(&users, mention.user_id).into(), handle: mention.handle, ..Default::default() })
+                .map(|mention| pb::Mention {
+                    user: users::pick(&users, mention.user_id).into(),
+                    handle: mention.handle,
+                    ..Default::default()
+                })
                 .collect();
             message.mentions_everyone = row.mention_all;
             message.big_emoji_count = if row.kind == msg::TEXT { content::big_emoji_count(&row.text) } else { 0 };
@@ -231,9 +258,12 @@ impl Chat {
                 assets::refresh_attachments(core, &mut attachments).await?;
             }
             message.attachments = attachments;
-            message.location = row.location.clone().and_then(|value| serde_json::from_value::<pb::LocationShare>(value).ok()).into();
-            message.link_preview = row.link_preview.clone().and_then(|value| serde_json::from_value::<LinkPreview>(value).ok()).into();
-            message.reply_to = row.reply_to_id.map(|id| reply_reference(id, replied.get(&id), view, &users, &stamps)).into();
+            message.location =
+                row.location.clone().and_then(|value| serde_json::from_value::<pb::LocationShare>(value).ok()).into();
+            message.link_preview =
+                row.link_preview.clone().and_then(|value| serde_json::from_value::<LinkPreview>(value).ok()).into();
+            message.reply_to =
+                row.reply_to_id.map(|id| reply_reference(id, replied.get(&id), view, &users, &stamps)).into();
             message.forwarded = row.forwarded;
             message.system = row
                 .system()
@@ -258,7 +288,12 @@ impl Chat {
             message.pinned = pinned.contains(&row.id);
             message.read_count = cursors
                 .get(&row.conversation_id)
-                .map(|cursors| cursors.iter().filter(|(user_id, read_seq)| Some(*user_id) != row.sender_id && *read_seq >= row.seq).count() as i32)
+                .map(|cursors| {
+                    cursors
+                        .iter()
+                        .filter(|(user_id, read_seq)| Some(*user_id) != row.sender_id && *read_seq >= row.seq)
+                        .count() as i32
+                })
                 .unwrap_or(0);
             message.edited_at = opt_ts(row.edited_at);
             messages.push(message);
@@ -276,7 +311,8 @@ fn reply_reference(
     users: &HashMap<Uuid, UserSummary>,
     stamps: &HashMap<Uuid, StampRef>,
 ) -> pb::ReplyReference {
-    let unavailable = pb::ReplyReference { message_id: message_id.to_string(), unavailable: true, ..Default::default() };
+    let unavailable =
+        pb::ReplyReference { message_id: message_id.to_string(), unavailable: true, ..Default::default() };
     let Some(answered) = answered else { return unavailable };
     if answered.is_deleted() || !view.sees(answered.conversation_id, answered.seq) {
         return pb::ReplyReference { seq: answered.seq, ..unavailable };
@@ -309,12 +345,18 @@ mod tests {
 
     #[test]
     fn thumbnails_prefer_a_small_variant() {
-        let variant = |size: i32| ImageVariant { size, url: format!("https://media.test/{size}.webp"), ..Default::default() };
-        let image = Image { url: "https://media.test/full.webp".into(), variants: vec![variant(1024), variant(256), variant(96)], ..Default::default() };
+        let variant =
+            |size: i32| ImageVariant { size, url: format!("https://media.test/{size}.webp"), ..Default::default() };
+        let image = Image {
+            url: "https://media.test/full.webp".into(),
+            variants: vec![variant(1024), variant(256), variant(96)],
+            ..Default::default()
+        };
         let attachment = Attachment { image: image.into(), ..Default::default() };
         assert_eq!(attachment_thumbnail(&attachment).as_deref(), Some("https://media.test/256.webp"));
 
-        let only_tiny = Image { url: "https://media.test/full.webp".into(), variants: vec![variant(96)], ..Default::default() };
+        let only_tiny =
+            Image { url: "https://media.test/full.webp".into(), variants: vec![variant(96)], ..Default::default() };
         let attachment = Attachment { image: only_tiny.into(), ..Default::default() };
         assert_eq!(attachment_thumbnail(&attachment).as_deref(), Some("https://media.test/full.webp"));
         assert_eq!(attachment_thumbnail(&Attachment::default()), None);

@@ -15,11 +15,39 @@
 //! input ends is dropped rather than leaked as text.
 
 /// Elements whose content is not text for readers.
-const DROPPED_ELEMENTS: &[&str] = &["script", "style", "noscript", "template", "iframe", "object", "svg", "math", "head", "title"];
+const DROPPED_ELEMENTS: &[&str] =
+    &["script", "style", "noscript", "template", "iframe", "object", "svg", "math", "head", "title"];
 /// Elements that end a line or a block: they become a space.
 const BREAKING_ELEMENTS: &[&str] = &[
-    "br", "p", "div", "li", "ul", "ol", "tr", "td", "th", "table", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "pre", "hr", "section", "article",
-    "header", "footer", "figure", "figcaption", "dd", "dt", "dl", "img",
+    "br",
+    "p",
+    "div",
+    "li",
+    "ul",
+    "ol",
+    "tr",
+    "td",
+    "th",
+    "table",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "blockquote",
+    "pre",
+    "hr",
+    "section",
+    "article",
+    "header",
+    "footer",
+    "figure",
+    "figcaption",
+    "dd",
+    "dt",
+    "dl",
+    "img",
 ];
 
 /// Whether the text at a `<` starts markup (a tag, a comment, a declaration)
@@ -50,7 +78,12 @@ fn tag_len(rest: &str) -> Option<usize> {
 
 /// The lowercased element name of a tag (`<a href>` and `</a>` both give `a`).
 fn element_name(tag: &str) -> String {
-    tag.trim_start_matches('<').trim_start_matches('/').chars().take_while(|c| c.is_ascii_alphanumeric()).collect::<String>().to_ascii_lowercase()
+    tag.trim_start_matches('<')
+        .trim_start_matches('/')
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric())
+        .collect::<String>()
+        .to_ascii_lowercase()
 }
 
 /// Byte offset just past the closing tag of the dropped element `name`,
@@ -157,7 +190,10 @@ fn decode_entities(input: &str) -> String {
         text.push_str(&rest[..amp]);
         rest = &rest[amp..];
         // A reference is `&`, a short body, `;`.
-        let decoded = rest[1..].find(';').filter(|end| *end > 0 && *end <= 10).and_then(|end| decode_reference(&rest[1..=end]).map(|decoded| (decoded, end + 2)));
+        let decoded = rest[1..]
+            .find(';')
+            .filter(|end| *end > 0 && *end <= 10)
+            .and_then(|end| decode_reference(&rest[1..=end]).map(|decoded| (decoded, end + 2)));
         match decoded {
             Some((decoded, consumed)) => {
                 text.push_str(&decoded);
@@ -175,7 +211,8 @@ fn decode_entities(input: &str) -> String {
 
 /// Single spaces, no control characters, no leading or trailing space.
 pub fn collapse(input: &str) -> String {
-    let cleaned: String = input.chars().map(|c| if c.is_control() || c == '\u{a0}' || c == '\u{3000}' { ' ' } else { c }).collect();
+    let cleaned: String =
+        input.chars().map(|c| if c.is_control() || c == '\u{a0}' || c == '\u{3000}' { ' ' } else { c }).collect();
     cleaned.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
@@ -296,7 +333,10 @@ mod tests {
     fn references_are_decoded_once_after_the_markup_is_gone() {
         assert_eq!(html_to_text("Tom &amp; Jerry &lt;3"), "Tom & Jerry <3");
         assert_eq!(html_to_text("&#12354;&#x3044;&#X3046;"), "あいう");
-        assert_eq!(html_to_text("&quot;quoted&quot; &hellip; &unknown; &; & alone"), "\"quoted\" … &unknown; &; & alone");
+        assert_eq!(
+            html_to_text("&quot;quoted&quot; &hellip; &unknown; &; & alone"),
+            "\"quoted\" … &unknown; &; & alone"
+        );
         // An escaped ampersand followed by `lt;` is text, not a second reference.
         assert_eq!(html_to_text("&amp;lt;"), "&lt;");
         assert_eq!(html_to_text("&#0;&#xD800;&#99999999;"), "&#0;&#xD800;&#99999999;");
@@ -329,7 +369,11 @@ mod tests {
 
     #[test]
     fn the_first_image_of_a_body_is_found() {
-        assert_eq!(first_image("<p>text</p><img class=\"a\" src=\"https://cdn.example/a.jpg?x=1&amp;y=2\"><img src='b.png'>").as_deref(), Some("https://cdn.example/a.jpg?x=1&y=2"));
+        assert_eq!(
+            first_image("<p>text</p><img class=\"a\" src=\"https://cdn.example/a.jpg?x=1&amp;y=2\"><img src='b.png'>")
+                .as_deref(),
+            Some("https://cdn.example/a.jpg?x=1&y=2")
+        );
         assert_eq!(first_image("<IMG SRC='/relative/pic.png' alt=x>").as_deref(), Some("/relative/pic.png"));
         assert_eq!(first_image("<img src=unquoted.gif>").as_deref(), Some("unquoted.gif"));
         assert_eq!(first_image("<img data-src=\"lazy.jpg\" alt=\"no src\">"), None);

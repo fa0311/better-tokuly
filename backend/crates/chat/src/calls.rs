@@ -127,7 +127,10 @@ async fn lock_call(tx: &mut Transaction<'_, Postgres>, call_id: Uuid) -> AppResu
 }
 
 async fn participants_in_tx(tx: &mut Transaction<'_, Postgres>, call_id: Uuid) -> AppResult<Vec<(Uuid, i16, bool)>> {
-    Ok(sqlx::query_as("SELECT user_id, state, rung FROM chat_call_participants WHERE call_id = $1").bind(call_id).fetch_all(&mut **tx).await?)
+    Ok(sqlx::query_as("SELECT user_id, state, rung FROM chat_call_participants WHERE call_id = $1")
+        .bind(call_id)
+        .fetch_all(&mut **tx)
+        .await?)
 }
 
 /// Marks a connected participant as having left, adding the time they were
@@ -153,7 +156,13 @@ impl Chat {
         self.livekit.as_ref().ok_or_else(calls_disabled)
     }
 
-    fn credentials(&self, livekit: &LiveKit, call: &CallRow, user_id: Uuid, name: &str) -> AppResult<pb::CallCredentials> {
+    fn credentials(
+        &self,
+        livekit: &LiveKit,
+        call: &CallRow,
+        user_id: Uuid,
+        name: &str,
+    ) -> AppResult<pb::CallCredentials> {
         Ok(pb::CallCredentials {
             url: livekit.public_url().to_owned(),
             token: livekit.join_token(&call.room, &user_id.to_string(), name)?,
@@ -165,21 +174,24 @@ impl Chat {
 
     /// The call ringing or running in a conversation, if any.
     pub(crate) async fn live_call(&self, conversation_id: Uuid) -> AppResult<Option<CallRow>> {
-        Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {CALL} FROM chat_calls k WHERE k.conversation_id = $1 AND k.state <> $2")))
-            .bind(conversation_id)
-            .bind(call::ENDED)
-            .fetch_optional(&self.core.db)
-            .await?)
+        Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT {CALL} FROM chat_calls k WHERE k.conversation_id = $1 AND k.state <> $2"
+        )))
+        .bind(conversation_id)
+        .bind(call::ENDED)
+        .fetch_optional(&self.core.db)
+        .await?)
     }
 
     /// A call the caller may know about: they took part in it, or they are
     /// a member of its conversation.
     pub(crate) async fn call_for(&self, user_id: Uuid, call_id: Uuid) -> AppResult<CallRow> {
-        let call: CallRow = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {CALL} FROM chat_calls k WHERE k.id = $1")))
-            .bind(call_id)
-            .fetch_optional(&self.core.db)
-            .await?
-            .ok_or_else(call_not_found)?;
+        let call: CallRow =
+            sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {CALL} FROM chat_calls k WHERE k.id = $1")))
+                .bind(call_id)
+                .fetch_optional(&self.core.db)
+                .await?
+                .ok_or_else(call_not_found)?;
         let visible: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM chat_call_participants WHERE call_id = $1 AND user_id = $2)
                  OR EXISTS (SELECT 1 FROM chat_members WHERE conversation_id = $3 AND user_id = $2 AND request_state = $4)",
@@ -210,7 +222,13 @@ impl Chat {
         .bind(&ids)
         .fetch_all(&self.core.db)
         .await?;
-        let user_ids: Vec<Uuid> = participants.iter().map(|p| p.user_id).chain(calls.iter().filter_map(|call| call.started_by)).collect::<HashSet<_>>().into_iter().collect();
+        let user_ids: Vec<Uuid> = participants
+            .iter()
+            .map(|p| p.user_id)
+            .chain(calls.iter().filter_map(|call| call.started_by))
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
         let summaries = tokuly_identity::summaries(&self.core, &user_ids).await?;
         Ok(calls
             .iter()
@@ -244,7 +262,12 @@ impl Chat {
     }
 
     /// The caller's call history, newest first.
-    pub(crate) async fn list_calls(&self, user_id: Uuid, missed_only: bool, page: &Page) -> AppResult<(Vec<CallRow>, PageInfo)> {
+    pub(crate) async fn list_calls(
+        &self,
+        user_id: Uuid,
+        missed_only: bool,
+        page: &Page,
+    ) -> AppResult<(Vec<CallRow>, PageInfo)> {
         let before: Option<Uuid> = page.decode()?;
         let mut rows: Vec<CallRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "SELECT {CALL} FROM chat_call_participants p JOIN chat_calls k ON k.id = p.call_id
@@ -264,7 +287,12 @@ impl Chat {
 
     // ───────────────────────────── starting ─────────────────────────────
 
-    pub(crate) async fn start_call(&self, user_id: Uuid, conversation_id: Uuid, video: bool) -> AppResult<(CallRow, pb::CallCredentials)> {
+    pub(crate) async fn start_call(
+        &self,
+        user_id: Uuid,
+        conversation_id: Uuid,
+        video: bool,
+    ) -> AppResult<(CallRow, pb::CallCredentials)> {
         let core = &self.core;
         let livekit = self.require_livekit()?;
         let access = self.access(user_id, conversation_id).await?;
@@ -282,12 +310,14 @@ impl Chat {
                 "this user does not accept calls from you"
             );
         }
-        let in_progress = || AppError::precondition("CALL_IN_PROGRESS", "this conversation already has a call; join it instead");
+        let in_progress =
+            || AppError::precondition("CALL_IN_PROGRESS", "this conversation already has a call; join it instead");
         if self.live_call(conversation_id).await?.is_some() {
             return Err(in_progress());
         }
         core.cache.rate_limit(&format!("chat-call:{user_id}"), 20, Duration::from_secs(600)).await?;
         let caller = tokuly_identity::summary(core, user_id).await?;
+        let hidden = graph::blocked_ids_either(core, user_id).await?;
 
         let call_id = new_id();
         let room = room_name(call_id);
@@ -309,7 +339,6 @@ impl Chat {
             }
             // Who the call is for: the accepted members, without anyone in a
             // block with the caller. Small conversations ring.
-            let hidden = graph::blocked_ids_either(core, user_id).await?;
             let members: Vec<(Uuid, bool, Option<Time>)> = sqlx::query_as(
                 "SELECT user_id, muted, muted_until FROM chat_members WHERE conversation_id = $1 AND request_state = $2 AND user_id <> $3",
             )
@@ -350,7 +379,7 @@ impl Chat {
                     .await?;
             }
             // The call's entry in the conversation; the ringing itself is the notification.
-            let draft = Draft { call_id: Some(call_id), ..Draft::from_user(msg::CALL, user_id) }.silent();
+            let draft = Draft { call_id: Some(call_id), ..Draft::from_user(msg::CALL, user_id) };
             let posted = self.post(&mut tx, &mut conv, draft).await?;
             let call: CallRow = sqlx::query_as(sqlx::AssertSqlSafe(format!("UPDATE chat_calls k SET message_id = $2 WHERE k.id = $1 RETURNING {CALL}")))
                 .bind(call_id)
@@ -445,11 +474,12 @@ impl Chat {
         if !call.is_live() {
             return Err(call_ended());
         }
-        let state: Option<i16> = sqlx::query_scalar("SELECT state FROM chat_call_participants WHERE call_id = $1 AND user_id = $2")
-            .bind(call_id)
-            .bind(user_id)
-            .fetch_optional(&mut *tx)
-            .await?;
+        let state: Option<i16> =
+            sqlx::query_scalar("SELECT state FROM chat_call_participants WHERE call_id = $1 AND user_id = $2")
+                .bind(call_id)
+                .bind(user_id)
+                .fetch_optional(&mut *tx)
+                .await?;
         match state {
             Some(party::JOINED) => bail!(precondition, "ALREADY_JOINED", "you are in this call; leave it instead"),
             Some(party::RINGING | party::MISSED) => {
@@ -480,13 +510,15 @@ impl Chat {
         }
         if !mark_left(&mut tx, call_id, user_id).await? {
             // Hanging up on a call that is still ringing for you declines it.
-            sqlx::query("UPDATE chat_call_participants SET state = $3 WHERE call_id = $1 AND user_id = $2 AND state = $4")
-                .bind(call_id)
-                .bind(user_id)
-                .bind(party::DECLINED)
-                .bind(party::RINGING)
-                .execute(&mut *tx)
-                .await?;
+            sqlx::query(
+                "UPDATE chat_call_participants SET state = $3 WHERE call_id = $1 AND user_id = $2 AND state = $4",
+            )
+            .bind(call_id)
+            .bind(user_id)
+            .bind(party::DECLINED)
+            .bind(party::RINGING)
+            .execute(&mut *tx)
+            .await?;
         }
         let change = self.settle_call(&mut tx, call).await?;
         tx.commit().await?;
@@ -498,15 +530,19 @@ impl Chat {
 
     /// Applies the end rules to a live call after its participants changed.
     async fn settle_call(&self, tx: &mut Transaction<'_, Postgres>, call: CallRow) -> AppResult<CallChange> {
-        let conversation_kind: i16 =
-            sqlx::query_scalar("SELECT kind FROM chat_conversations WHERE id = $1").bind(call.conversation_id).fetch_one(&mut **tx).await?;
+        let conversation_kind: i16 = sqlx::query_scalar("SELECT kind FROM chat_conversations WHERE id = $1")
+            .bind(call.conversation_id)
+            .fetch_one(&mut **tx)
+            .await?;
         let participants = participants_in_tx(tx, call.id).await?;
         let facts = CallFacts {
             direct: conversation_kind == kind::DIRECT,
             answered: call.answered_at.is_some(),
             ring_expired: call.ring_expires_at <= now(),
             joined: participants.iter().filter(|(_, state, _)| *state == party::JOINED).count(),
-            starter_joined: participants.iter().any(|(user_id, state, _)| Some(*user_id) == call.started_by && *state == party::JOINED),
+            starter_joined: participants
+                .iter()
+                .any(|(user_id, state, _)| Some(*user_id) == call.started_by && *state == party::JOINED),
             rung: participants.iter().filter(|(_, _, rung)| *rung).count(),
             declined: participants.iter().filter(|(_, state, rung)| *rung && *state == party::DECLINED).count(),
             ringing: participants.iter().filter(|(_, state, _)| *state == party::RINGING).count(),
@@ -519,7 +555,12 @@ impl Chat {
 
     /// Ends a call: everyone still connected has left, everyone still being
     /// rung has missed it (and is told so).
-    async fn finish_call(&self, tx: &mut Transaction<'_, Postgres>, call: &CallRow, reason: i16) -> AppResult<CallChange> {
+    async fn finish_call(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        call: &CallRow,
+        reason: i16,
+    ) -> AppResult<CallChange> {
         sqlx::query(
             "UPDATE chat_call_participants SET
                  state = $2, left_at = now(), seconds = seconds + GREATEST(extract(epoch FROM now() - joined_at)::int, 0)
@@ -539,10 +580,12 @@ impl Chat {
         .bind(reason)
         .fetch_one(&mut **tx)
         .await?;
-        let participant_ids: Vec<Uuid> = sqlx::query_scalar("SELECT user_id FROM chat_call_participants WHERE call_id = $1 AND joined_at IS NOT NULL")
-            .bind(call.id)
-            .fetch_all(&mut **tx)
-            .await?;
+        let participant_ids: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT user_id FROM chat_call_participants WHERE call_id = $1 AND joined_at IS NOT NULL",
+        )
+        .bind(call.id)
+        .fetch_all(&mut **tx)
+        .await?;
         let payload = CallEnded {
             call_id: call.id,
             conversation_id: call.conversation_id,
@@ -557,29 +600,55 @@ impl Chat {
     /// Turns everyone still being rung into "missed" and requests their
     /// missed-call notifications. Returns how many there were.
     async fn mark_missed(&self, tx: &mut Transaction<'_, Postgres>, call: &CallRow) -> AppResult<usize> {
-        let missed: Vec<Uuid> = sqlx::query_scalar("UPDATE chat_call_participants SET state = $2 WHERE call_id = $1 AND state = $3 RETURNING user_id")
-            .bind(call.id)
-            .bind(party::MISSED)
-            .bind(party::RINGING)
-            .fetch_all(&mut **tx)
-            .await?;
+        let missed: Vec<Uuid> = sqlx::query_scalar(
+            "UPDATE chat_call_participants SET state = $2 WHERE call_id = $1 AND state = $3 RETURNING user_id",
+        )
+        .bind(call.id)
+        .bind(party::MISSED)
+        .bind(party::RINGING)
+        .fetch_all(&mut **tx)
+        .await?;
         let Some(caller_id) = call.started_by.filter(|_| !missed.is_empty()) else { return Ok(missed.len()) };
-        let conv: Option<ConversationRow> =
-            sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {} FROM chat_conversations c WHERE c.id = $1", crate::model::CONV)))
-                .bind(call.conversation_id)
-                .fetch_optional(&mut **tx)
-                .await?;
+        let conv: Option<ConversationRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT {} FROM chat_conversations c WHERE c.id = $1",
+            crate::model::CONV
+        )))
+        .bind(call.conversation_id)
+        .fetch_optional(&mut **tx)
+        .await?;
         let conv = conv.ok_or_else(conversation_not_found)?;
-        let caller = tokuly_identity::summary(&self.core, caller_id).await?;
-        for user_id in &missed {
-            outbound::notify(&mut **tx, &notices::missed_call(*user_id, &caller, caller_id, &conv, call.id, call.video)).await?;
+        // As with the ringing itself: members who muted a group hear nothing.
+        let silenced: Vec<Uuid> = if conv.is_group() {
+            sqlx::query_scalar(
+                "SELECT user_id FROM chat_members
+                 WHERE conversation_id = $1 AND user_id = ANY($2) AND muted AND (muted_until IS NULL OR muted_until > now())",
+            )
+            .bind(conv.id)
+            .bind(&missed)
+            .fetch_all(&mut **tx)
+            .await?
+        } else {
+            Vec::new()
+        };
+        let caller = access::summary_in_tx(tx, caller_id).await?;
+        for user_id in missed.iter().filter(|user_id| !silenced.contains(user_id)) {
+            outbound::notify(
+                &mut **tx,
+                &notices::missed_call(*user_id, &caller, caller_id, &conv, call.id, call.video),
+            )
+            .await?;
         }
         Ok(missed.len())
     }
 
     /// Takes a user who is no longer a member out of the live call of a
     /// conversation (which the caller has locked). Returns what to announce.
-    pub(crate) async fn drop_from_live_call(&self, tx: &mut Transaction<'_, Postgres>, conv: &ConversationRow, user_id: Uuid) -> AppResult<Option<CallChange>> {
+    pub(crate) async fn drop_from_live_call(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        conv: &ConversationRow,
+        user_id: Uuid,
+    ) -> AppResult<Option<CallChange>> {
         let Some(call) = self.lock_live_call(tx, conv.id).await? else { return Ok(None) };
         if !mark_left(tx, call.id, user_id).await? {
             let withdrawn = sqlx::query("UPDATE chat_call_participants SET state = $3, rung = false WHERE call_id = $1 AND user_id = $2 AND state = $4")
@@ -597,14 +666,22 @@ impl Chat {
     }
 
     /// Ends the live call of a conversation nobody can talk in any more.
-    pub(crate) async fn fail_live_call(&self, tx: &mut Transaction<'_, Postgres>, conversation_id: Uuid) -> AppResult<Option<CallChange>> {
+    pub(crate) async fn fail_live_call(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        conversation_id: Uuid,
+    ) -> AppResult<Option<CallChange>> {
         match self.lock_live_call(tx, conversation_id).await? {
             Some(call) => Ok(Some(self.finish_call(tx, &call, call_end::FAILED).await?)),
             None => Ok(None),
         }
     }
 
-    async fn lock_live_call(&self, tx: &mut Transaction<'_, Postgres>, conversation_id: Uuid) -> AppResult<Option<CallRow>> {
+    async fn lock_live_call(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        conversation_id: Uuid,
+    ) -> AppResult<Option<CallRow>> {
         Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "SELECT {CALL} FROM chat_calls k WHERE k.conversation_id = $1 AND k.state <> $2 FOR UPDATE"
         )))
@@ -618,7 +695,14 @@ impl Chat {
 
     async fn push_call(&self, call: &CallRow) {
         match self.call_to_proto(call).await {
-            Ok(proto) => self.push_members(call.conversation_id, Audience::Accepted, pb::CallChanged { call: proto.into(), ..Default::default() }).await,
+            Ok(proto) => {
+                self.push_members(
+                    call.conversation_id,
+                    Audience::Accepted,
+                    pb::CallChanged { call: proto.into(), ..Default::default() },
+                )
+                .await
+            }
             Err(e) => tracing::warn!(call_id = %call.id, error = %e, "call push failed"),
         }
     }
@@ -723,7 +807,7 @@ impl Chat {
         let mut changed = 0;
         for call in live {
             let connected: Vec<Uuid> = match livekit.list_participants(&call.room).await {
-                Ok(identities) => identities.unwrap_or_default().iter().filter_map(|identity| Uuid::parse_str(identity).ok()).collect(),
+                Ok(identities) => identities.iter().filter_map(|identity| Uuid::parse_str(identity).ok()).collect(),
                 Err(e) => {
                     tracing::warn!(call_id = %call.id, error = %e, "call could not be reconciled with LiveKit");
                     continue;
@@ -763,11 +847,29 @@ mod tests {
     use super::*;
 
     fn direct() -> CallFacts {
-        CallFacts { direct: true, answered: false, ring_expired: false, joined: 1, starter_joined: true, rung: 1, declined: 0, ringing: 1 }
+        CallFacts {
+            direct: true,
+            answered: false,
+            ring_expired: false,
+            joined: 1,
+            starter_joined: true,
+            rung: 1,
+            declined: 0,
+            ringing: 1,
+        }
     }
 
     fn group() -> CallFacts {
-        CallFacts { direct: false, answered: false, ring_expired: false, joined: 1, starter_joined: true, rung: 3, declined: 0, ringing: 3 }
+        CallFacts {
+            direct: false,
+            answered: false,
+            ring_expired: false,
+            joined: 1,
+            starter_joined: true,
+            rung: 3,
+            declined: 0,
+            ringing: 3,
+        }
     }
 
     #[test]
@@ -775,10 +877,16 @@ mod tests {
         assert_eq!(settle(direct()), Verdict::Continue);
         assert_eq!(settle(CallFacts { declined: 1, ringing: 0, ..direct() }), Verdict::End(call_end::DECLINED));
         // The caller gives up.
-        assert_eq!(settle(CallFacts { joined: 0, starter_joined: false, ..direct() }), Verdict::End(call_end::CANCELLED));
+        assert_eq!(
+            settle(CallFacts { joined: 0, starter_joined: false, ..direct() }),
+            Verdict::End(call_end::CANCELLED)
+        );
         // Nobody answered in time: the callee is no longer being rung.
         assert_eq!(settle(CallFacts { ring_expired: true, ringing: 0, ..direct() }), Verdict::End(call_end::MISSED));
-        assert_eq!(settle(CallFacts { joined: 0, starter_joined: false, ring_expired: true, ringing: 0, ..direct() }), Verdict::End(call_end::MISSED));
+        assert_eq!(
+            settle(CallFacts { joined: 0, starter_joined: false, ring_expired: true, ringing: 0, ..direct() }),
+            Verdict::End(call_end::MISSED)
+        );
     }
 
     #[test]
@@ -786,7 +894,10 @@ mod tests {
         let talking = CallFacts { answered: true, joined: 2, ..direct() };
         assert_eq!(settle(talking), Verdict::Continue);
         assert_eq!(settle(CallFacts { joined: 1, ..talking }), Verdict::End(call_end::COMPLETED));
-        assert_eq!(settle(CallFacts { joined: 1, starter_joined: false, ..talking }), Verdict::End(call_end::COMPLETED));
+        assert_eq!(
+            settle(CallFacts { joined: 1, starter_joined: false, ..talking }),
+            Verdict::End(call_end::COMPLETED)
+        );
     }
 
     #[test]
@@ -798,8 +909,15 @@ mod tests {
         // The ringing time passing does not end it: members may still join.
         assert_eq!(settle(CallFacts { ring_expired: true, ringing: 0, ..group() }), Verdict::Continue);
         let talking = CallFacts { answered: true, joined: 3, ..group() };
-        assert_eq!(settle(CallFacts { joined: 1, starter_joined: false, ..talking }), Verdict::Continue, "the caller may leave a group call");
-        assert_eq!(settle(CallFacts { joined: 0, starter_joined: false, ..talking }), Verdict::End(call_end::COMPLETED));
+        assert_eq!(
+            settle(CallFacts { joined: 1, starter_joined: false, ..talking }),
+            Verdict::Continue,
+            "the caller may leave a group call"
+        );
+        assert_eq!(
+            settle(CallFacts { joined: 0, starter_joined: false, ..talking }),
+            Verdict::End(call_end::COMPLETED)
+        );
     }
 
     #[test]

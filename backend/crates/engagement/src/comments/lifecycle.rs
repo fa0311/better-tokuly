@@ -17,7 +17,7 @@ use tokuly_core::prelude::*;
 use tokuly_media::assets;
 use tokuly_proto::{common::SubjectType, engagement::HoldReason};
 
-use super::{CommentRow, image_holder, lock_thread, status};
+use super::{CommentRow, image_holder, lock_thread, lock_threads_of, status};
 use crate::{
     cleanup,
     effects::{Effects, Push},
@@ -61,7 +61,12 @@ pub(crate) async fn inserted(
 
 /// `row` became published: counts and announces what entered public view
 /// with it.
-async fn entered(conn: &mut PgConnection, effects: &mut Effects, row: &CommentRow, parent: Option<&mut CommentRow>) -> AppResult<()> {
+async fn entered(
+    conn: &mut PgConnection,
+    effects: &mut Effects,
+    row: &CommentRow,
+    parent: Option<&mut CommentRow>,
+) -> AppResult<()> {
     match parent {
         None => {
             count_comments(conn, effects, row, 1 + i64::from(row.reply_count)).await?;
@@ -82,7 +87,12 @@ async fn entered(conn: &mut PgConnection, effects: &mut Effects, row: &CommentRo
 
 /// `row` stopped being published (or is being deleted while published):
 /// counts and announces what left public view with it.
-async fn left(conn: &mut PgConnection, effects: &mut Effects, row: &CommentRow, parent: Option<&mut CommentRow>) -> AppResult<()> {
+async fn left(
+    conn: &mut PgConnection,
+    effects: &mut Effects,
+    row: &CommentRow,
+    parent: Option<&mut CommentRow>,
+) -> AppResult<()> {
     match parent {
         None => {
             let gone = 1 + row.reply_count;
@@ -93,7 +103,12 @@ async fn left(conn: &mut PgConnection, effects: &mut Effects, row: &CommentRow, 
             add_replies(conn, parent, -1).await?;
             if parent.is_published() {
                 count_comments(conn, effects, row, -1).await?;
-                effects.push(Push::Removed { key: row.key(), comment_id: row.id, parent_id: Some(parent.id), removed_count: 1 });
+                effects.push(Push::Removed {
+                    key: row.key(),
+                    comment_id: row.id,
+                    parent_id: Some(parent.id),
+                    removed_count: 1,
+                });
                 effects.push(Push::Updated { key: row.key(), comment_id: parent.id });
             }
         }
@@ -144,11 +159,20 @@ pub(crate) async fn set_status(
 /// Deletes a comment and, for a top-level comment, its replies: releases
 /// their uploads, drops the reactions and other engagement data hanging off
 /// them, and settles the counters. Returns how many comments are gone.
-pub(crate) async fn delete(conn: &mut PgConnection, effects: &mut Effects, row: &CommentRow, parent: Option<&mut CommentRow>) -> AppResult<i32> {
+pub(crate) async fn delete(
+    conn: &mut PgConnection,
+    effects: &mut Effects,
+    row: &CommentRow,
+    parent: Option<&mut CommentRow>,
+) -> AppResult<i32> {
     let mut comment_ids: Vec<Uuid> = vec![row.id];
     if !row.is_reply() {
+        // Locked before anything hanging off them is touched, like the thread itself.
         let replies: Vec<Uuid> =
-            sqlx::query_scalar("SELECT id FROM comments WHERE parent_id = $1").bind(row.id).fetch_all(&mut *conn).await?;
+            sqlx::query_scalar("SELECT id FROM comments WHERE parent_id = $1 ORDER BY id FOR UPDATE")
+                .bind(row.id)
+                .fetch_all(&mut *conn)
+                .await?;
         comment_ids.extend(replies);
     }
     let held: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM comments WHERE id = ANY($1) AND status = $2)")
@@ -172,10 +196,11 @@ pub(crate) async fn delete(conn: &mut PgConnection, effects: &mut Effects, row: 
 /// uploads, and the engagement data that has them as its subject (likes,
 /// bookmarks, counters).
 pub(crate) async fn release(conn: &mut PgConnection, comment_ids: &[Uuid]) -> AppResult<()> {
-    let with_image: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM comments WHERE id = ANY($1) AND image_asset_id IS NOT NULL ORDER BY id")
-        .bind(comment_ids)
-        .fetch_all(&mut *conn)
-        .await?;
+    let with_image: Vec<Uuid> =
+        sqlx::query_scalar("SELECT id FROM comments WHERE id = ANY($1) AND image_asset_id IS NOT NULL ORDER BY id")
+            .bind(comment_ids)
+            .fetch_all(&mut *conn)
+            .await?;
     for comment_id in with_image {
         assets::detach_holder(&mut *conn, &image_holder(comment_id)).await?;
     }
@@ -183,9 +208,10 @@ pub(crate) async fn release(conn: &mut PgConnection, comment_ids: &[Uuid]) -> Ap
 }
 
 /// Serializes changes to a subject's pin for the rest of the transaction;
-/// without it two owners' devices pinning at once would both pass the
-/// "unpin the other" step.
-async fn lock_pin(conn: &mut PgConnection, key: SubjectKey) -> AppResult<()> {
+/// without it two of the owner's devices pinning at once would both pass
+/// the "unpin the other" step. Taken before any comment is locked: pinning
+/// touches two comments, and whoever holds this lock may take both.
+pub(crate) async fn lock_pin(conn: &mut PgConnection, key: SubjectKey) -> AppResult<()> {
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
         .bind(format!("engagement:pin:{}:{}", key.kind, key.id))
         .execute(conn)
@@ -194,8 +220,8 @@ async fn lock_pin(conn: &mut PgConnection, key: SubjectKey) -> AppResult<()> {
 }
 
 /// Pins a published top-level comment, replacing the subject's current pin.
+/// The caller holds [`lock_pin`].
 pub(crate) async fn pin(conn: &mut PgConnection, effects: &mut Effects, row: &mut CommentRow) -> AppResult<()> {
-    lock_pin(conn, row.key()).await?;
     let unpinned: Vec<Uuid> = sqlx::query_scalar(
         "UPDATE comments SET pinned_at = NULL
          WHERE subject_type = $1 AND subject_id = $2 AND pinned_at IS NOT NULL AND id <> $3
@@ -211,7 +237,10 @@ pub(crate) async fn pin(conn: &mut PgConnection, effects: &mut Effects, row: &mu
     }
     if row.pinned_at.is_none() {
         let pinned_at: Time =
-            sqlx::query_scalar("UPDATE comments SET pinned_at = now() WHERE id = $1 RETURNING pinned_at").bind(row.id).fetch_one(conn).await?;
+            sqlx::query_scalar("UPDATE comments SET pinned_at = now() WHERE id = $1 RETURNING pinned_at")
+                .bind(row.id)
+                .fetch_one(conn)
+                .await?;
         row.pinned_at = Some(pinned_at);
         effects.push(Push::Pinned { key: row.key(), comment_id: row.id, pinned: true });
     }
@@ -239,12 +268,13 @@ pub(crate) async fn set_heart(
     if row.hearted_at.is_some() == hearted {
         return Ok(false);
     }
-    let hearted_at: Option<Time> =
-        sqlx::query_scalar("UPDATE comments SET hearted_at = CASE WHEN $2 THEN now() END WHERE id = $1 RETURNING hearted_at")
-            .bind(row.id)
-            .bind(hearted)
-            .fetch_one(conn)
-            .await?;
+    let hearted_at: Option<Time> = sqlx::query_scalar(
+        "UPDATE comments SET hearted_at = CASE WHEN $2 THEN now() END WHERE id = $1 RETURNING hearted_at",
+    )
+    .bind(row.id)
+    .bind(hearted)
+    .fetch_one(conn)
+    .await?;
     row.hearted_at = hearted_at;
     if row.in_public_view(parent) {
         effects.push(Push::Updated { key: row.key(), comment_id: row.id });
@@ -282,13 +312,15 @@ pub(crate) async fn hide_comments_of(
     .bind(channel_id)
     .fetch_all(&mut *conn)
     .await?;
+    lock_threads_of(conn, &comment_ids).await?;
     let mut hidden = 0;
     for comment_id in comment_ids {
         let Some((mut row, mut parent)) = lock_thread(conn, comment_id).await? else { continue };
         if row.status == status::HIDDEN {
             continue;
         }
-        set_status(conn, effects, &mut row, parent.as_mut(), status::HIDDEN, HoldReason::HOLD_REASON_BLOCKED_COMMENTER).await?;
+        set_status(conn, effects, &mut row, parent.as_mut(), status::HIDDEN, HoldReason::HOLD_REASON_BLOCKED_COMMENTER)
+            .await?;
         hidden += 1;
     }
     Ok(hidden)

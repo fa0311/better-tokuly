@@ -31,8 +31,8 @@ use tokuly_proto::{
     media::{AssetKind, AssetStatus, VideoInfo},
     realtime::server_frame::Body,
     video::{
-        Chapter, PlaybackBlock, ProcessingState, Rating, Video, VideoEvent as VideoPush, VideoOrigin, VideoStatus, VideoStudioInfo,
-        VideoSummary, VideoViewerState, video_event,
+        Chapter, PlaybackBlock, ProcessingState, Rating, Video, VideoEvent as VideoPush, VideoOrigin, VideoStatus,
+        VideoStudioInfo, VideoSummary, VideoViewerState, video_event,
     },
 };
 
@@ -187,7 +187,10 @@ pub fn holder(video_id: Uuid) -> String {
 pub async fn find(core: &Core, reference: &Ref) -> AppResult<Option<VideoRow>> {
     Ok(match reference {
         Ref::Id(id) => {
-            sqlx::query_as(concat!("SELECT ", video_columns!(), " FROM videos v WHERE v.id = $1")).bind(id).fetch_optional(&core.db).await?
+            sqlx::query_as(concat!("SELECT ", video_columns!(), " FROM videos v WHERE v.id = $1"))
+                .bind(id)
+                .fetch_optional(&core.db)
+                .await?
         }
         Ref::Short(short_id) => {
             sqlx::query_as(concat!("SELECT ", video_columns!(), " FROM videos v WHERE v.short_id = $1"))
@@ -222,18 +225,28 @@ pub async fn find_owned(core: &Core, owner_id: Uuid, reference: &str) -> AppResu
     find_ref(core, reference).await?.filter(|video| video.owner_id == owner_id).ok_or_else(not_found)
 }
 
-pub(crate) async fn find_in(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, video_id: Uuid) -> AppResult<Option<VideoRow>> {
+pub(crate) async fn find_in(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    video_id: Uuid,
+) -> AppResult<Option<VideoRow>> {
     Ok(sqlx::query_as(concat!("SELECT ", video_columns!(), " FROM videos v WHERE v.id = $1 FOR UPDATE"))
         .bind(video_id)
         .fetch_optional(&mut **tx)
         .await?)
 }
 
-pub(crate) async fn of_channel_in(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, channel_id: Uuid) -> AppResult<Vec<VideoRow>> {
-    Ok(sqlx::query_as(concat!("SELECT ", video_columns!(), " FROM videos v WHERE v.channel_id = $1 ORDER BY v.id FOR UPDATE"))
-        .bind(channel_id)
-        .fetch_all(&mut **tx)
-        .await?)
+pub(crate) async fn of_channel_in(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    channel_id: Uuid,
+) -> AppResult<Vec<VideoRow>> {
+    Ok(sqlx::query_as(concat!(
+        "SELECT ",
+        video_columns!(),
+        " FROM videos v WHERE v.channel_id = $1 ORDER BY v.id FOR UPDATE"
+    ))
+    .bind(channel_id)
+    .fetch_all(&mut **tx)
+    .await?)
 }
 
 // ───────────────────────────── API representations ─────────────────────────────
@@ -361,7 +374,8 @@ pub async fn push_updated(core: &Core, row: &VideoRow) {
     let viewer = Viewer { user_id: Some(row.owner_id), ..Default::default() };
     match summary(core, &viewer, row).await {
         Ok(summary) => {
-            let event = VideoPush { event: Some(video_event::Event::VideoUpdated(Box::new(summary))), ..Default::default() };
+            let event =
+                VideoPush { event: Some(video_event::Event::VideoUpdated(Box::new(summary))), ..Default::default() };
             core.rt.notify_user(row.owner_id, Body::from(event)).await;
         }
         Err(error) => tracing::warn!(video_id = %row.id, %error, "could not push a video update"),
@@ -434,14 +448,29 @@ impl NewVideo {
 /// (`ASSET_ALREADY_USED`). With `publish`, the video goes live as soon as
 /// the asset is ready; otherwise it is a draft.
 pub async fn create_from_asset(core: &Core, new: NewVideo) -> AppResult<Uuid> {
-    let channel = channels::find_by_id(core, new.channel_id).await?.or_not_found("CHANNEL_NOT_FOUND", "channel not found")?;
+    let channel =
+        channels::find_by_id(core, new.channel_id).await?.or_not_found("CHANNEL_NOT_FOUND", "channel not found")?;
     let asset = assets::find(core, new.asset_id).await?.or_not_found("ASSET_NOT_FOUND", "asset not found")?;
     ensure!(asset.owner_id == channel.owner_id, not_found, "ASSET_NOT_FOUND", "asset not found");
     ensure!(asset.has_kind(AssetKind::ASSET_KIND_VIDEO), invalid, "ASSET_WRONG_PURPOSE", "a video upload is required");
-    ensure!(!asset.has_status(AssetStatus::ASSET_STATUS_FAILED), precondition, "ASSET_FAILED", "the upload could not be processed");
-    ensure!(!asset.has_status(AssetStatus::ASSET_STATUS_UPLOADING), precondition, "ASSET_NOT_READY", "finish the upload first");
+    ensure!(
+        !asset.has_status(AssetStatus::ASSET_STATUS_FAILED),
+        precondition,
+        "ASSET_FAILED",
+        "the upload could not be processed"
+    );
+    ensure!(
+        !asset.has_status(AssetStatus::ASSET_STATUS_UPLOADING),
+        precondition,
+        "ASSET_NOT_READY",
+        "finish the upload first"
+    );
 
-    let title = if new.title.trim().is_empty() { validate::title_from_file_name(&asset.file_name) } else { validate::title(&new.title)? };
+    let title = if new.title.trim().is_empty() {
+        validate::title_from_file_name(&asset.file_name)
+    } else {
+        validate::title(&new.title)?
+    };
     let description = validate::description(&new.description)?;
     let tags = validate::tags(&new.tags)?;
     let game = validate::game(&new.game)?;
@@ -452,8 +481,13 @@ pub async fn create_from_asset(core: &Core, new: NewVideo) -> AppResult<Uuid> {
     let chapters = validate::chapters(&new.chapters, ready.then_some(duration))?;
     let thumbnail = match new.thumbnail_asset_id {
         Some(asset_id) => Some(
-            assets::require_image_json(core, asset_id, channel.owner_id, &[tokuly_proto::media::AssetPurpose::ASSET_PURPOSE_THUMBNAIL])
-                .await?,
+            assets::require_image_json(
+                core,
+                asset_id,
+                channel.owner_id,
+                &[tokuly_proto::media::AssetPurpose::ASSET_PURPOSE_THUMBNAIL],
+            )
+            .await?,
         ),
         None => None,
     };
@@ -559,7 +593,10 @@ pub(crate) async fn request_publish_in(
 /// Makes a READY video PUBLISHED and does everything that follows from it.
 /// Returns the published row, or `None` when there was nothing to publish
 /// (already live, not ready, gone).
-pub(crate) async fn publish_now_in(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, video_id: Uuid) -> AppResult<Option<VideoRow>> {
+pub(crate) async fn publish_now_in(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    video_id: Uuid,
+) -> AppResult<Option<VideoRow>> {
     let published: Option<Uuid> = sqlx::query_scalar(
         "UPDATE videos SET status = 3, scheduled_at = NULL, published_at = COALESCE(published_at, now())
          WHERE id = $1 AND status <> 3 AND processing = 2
@@ -587,14 +624,19 @@ pub(crate) async fn after_visible_change_in(
     mut row: VideoRow,
     went_live: bool,
 ) -> AppResult<VideoRow> {
-    let channel = channels::find_in(tx, row.channel_id).await?.or_not_found("CHANNEL_NOT_FOUND", "channel not found")?;
+    let channel =
+        channels::find_in(tx, row.channel_id).await?.or_not_found("CHANNEL_NOT_FOUND", "channel not found")?;
     search::sync_video(tx, was_public, &row, &channel).await?;
-    let announce = row.is_published() && !row.suspended && row.announced_at.is_none() && matches!(row.visibility, access::PUBLIC | access::FRIENDS);
+    let announce = row.is_published()
+        && !row.suspended
+        && row.announced_at.is_none()
+        && matches!(row.visibility, access::PUBLIC | access::FRIENDS);
     if announce {
-        let at: Time = sqlx::query_scalar("UPDATE videos SET announced_at = now() WHERE id = $1 RETURNING announced_at")
-            .bind(row.id)
-            .fetch_one(&mut **tx)
-            .await?;
+        let at: Time =
+            sqlx::query_scalar("UPDATE videos SET announced_at = now() WHERE id = $1 RETURNING announced_at")
+                .bind(row.id)
+                .fetch_one(&mut **tx)
+                .await?;
         row.announced_at = Some(at);
         announce_activity_in(tx, &row, &channel).await?;
         if row.visibility == PUBLIC && !row.game.is_empty() {
@@ -610,12 +652,19 @@ pub(crate) async fn after_visible_change_in(
 /// The activity entry for a newly announced video. It goes to the owner's
 /// friends only, also for public videos: a channel does not reveal which
 /// account is behind it to strangers.
-async fn announce_activity_in(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, row: &VideoRow, channel: &ChannelRow) -> AppResult<()> {
+async fn announce_activity_in(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    row: &VideoRow,
+    channel: &ChannelRow,
+) -> AppResult<()> {
     let mut entry = outbound::ActivityEntry::new(
         row.owner_id,
         "video.published",
         outbound::ActivityAudience::Friends,
-        outbound::Localized::new(format!("動画「{}」を公開したよ!", row.title), format!("published a video: {}", row.title)),
+        outbound::Localized::new(
+            format!("動画「{}」を公開したよ!", row.title),
+            format!("published a video: {}", row.title),
+        ),
     )
     .subject(SubjectType::SUBJECT_TYPE_VIDEO, row.id)
     .path(row.path())
@@ -634,11 +683,19 @@ async fn announce_activity_in(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, ro
 }
 
 /// Takes a video back to DRAFT (cancelling a schedule).
-pub(crate) async fn unpublish_in(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, video: &VideoRow) -> AppResult<VideoRow> {
-    sqlx::query("UPDATE videos SET status = $2, scheduled_at = NULL WHERE id = $1").bind(video.id).bind(DRAFT).execute(&mut **tx).await?;
+pub(crate) async fn unpublish_in(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    video: &VideoRow,
+) -> AppResult<VideoRow> {
+    sqlx::query("UPDATE videos SET status = $2, scheduled_at = NULL WHERE id = $1")
+        .bind(video.id)
+        .bind(DRAFT)
+        .execute(&mut **tx)
+        .await?;
     let row = find_in(tx, video.id).await?.ok_or_else(not_found)?;
     if video.is_published() {
-        let channel = channels::find_in(tx, row.channel_id).await?.or_not_found("CHANNEL_NOT_FOUND", "channel not found")?;
+        let channel =
+            channels::find_in(tx, row.channel_id).await?.or_not_found("CHANNEL_NOT_FOUND", "channel not found")?;
         search::sync_video(tx, video.is_public(), &row, &channel).await?;
         core_events::emit(&mut **tx, VIDEO_UNPUBLISHED, Some(row.owner_id), &row.event(false)).await?;
     }
@@ -704,10 +761,15 @@ async fn apply_ready(core: &Core, video: &VideoRow, asset: &AssetRow) -> AppResu
         return Ok(()); // someone else got here first
     }
     // Chapters were accepted before the length was known; drop what does not fit.
-    let chapters: Vec<Chapter> = video.chapters().into_iter().filter(|chapter| chapter.start_seconds < duration).collect();
+    let chapters: Vec<Chapter> =
+        video.chapters().into_iter().filter(|chapter| chapter.start_seconds < duration).collect();
     if chapters.len() != video.chapters().len() {
         let kept = if chapters.len() > 1 { chapters } else { Vec::new() };
-        sqlx::query("UPDATE videos SET chapters = $2 WHERE id = $1").bind(video.id).bind(chapters_json(&kept)?).execute(&mut *tx).await?;
+        sqlx::query("UPDATE videos SET chapters = $2 WHERE id = $1")
+            .bind(video.id)
+            .bind(chapters_json(&kept)?)
+            .execute(&mut *tx)
+            .await?;
     }
     let mut row = find_in(&mut tx, video.id).await?.ok_or_else(not_found)?;
     let due = row.status == SCHEDULED && row.scheduled_at.is_none_or(|at| at <= now());
@@ -717,9 +779,15 @@ async fn apply_ready(core: &Core, video: &VideoRow, asset: &AssetRow) -> AppResu
         }
     }
     let (ja, en) = if row.is_published() {
-        (format!("「{}」の処理が終わって公開されたよ!", row.title), format!("\"{}\" finished processing and is now live", row.title))
+        (
+            format!("「{}」の処理が終わって公開されたよ!", row.title),
+            format!("\"{}\" finished processing and is now live", row.title),
+        )
     } else {
-        (format!("「{}」の処理が終わったよ! 公開できるよ!", row.title), format!("\"{}\" finished processing and is ready to publish", row.title))
+        (
+            format!("「{}」の処理が終わったよ! 公開できるよ!", row.title),
+            format!("\"{}\" finished processing and is ready to publish", row.title),
+        )
     };
     let mut request = outbound::NotificationRequest::new(
         row.owner_id,
@@ -822,7 +890,8 @@ impl Aftermath {
     /// janitor (unheld uploads) or is harmless (orphaned subtitle files).
     pub async fn run(self, core: &Core) {
         for audience in &self.parties {
-            party::push_ended(core, audience, tokuly_proto::video::PartyEndReason::PARTY_END_REASON_VIDEO_UNAVAILABLE).await;
+            party::push_ended(core, audience, tokuly_proto::video::PartyEndReason::PARTY_END_REASON_VIDEO_UNAVAILABLE)
+                .await;
         }
         for (asset_id, owner_id, force) in self.assets {
             // An upload something else still uses (a clip, a short) stays.
@@ -858,7 +927,11 @@ pub async fn delete_in(
         outbound::unindex(&mut **tx, "video", video.id).await?;
     }
     core_events::emit(&mut **tx, VIDEO_DELETED, actor, &video.event(false)).await?;
-    Ok(Aftermath { assets: vec![(video.asset_id, video.owner_id, force_assets)], prefixes: vec![subtitles::object_prefix(video.id)], parties })
+    Ok(Aftermath {
+        assets: vec![(video.asset_id, video.owner_id, force_assets)],
+        prefixes: vec![subtitles::object_prefix(video.id)],
+        parties,
+    })
 }
 
 /// Deletes a video in a transaction of its own and cleans up after it.
@@ -896,11 +969,12 @@ pub async fn rate(core: &Core, user_id: Uuid, video: &VideoRow, rating: Option<i
         .bind(format!("video:rate:{}:{}", video.id.simple(), user_id.simple()))
         .execute(&mut *tx)
         .await?;
-    let previous: Option<i32> = sqlx::query_scalar("SELECT rating FROM video_reactions WHERE video_id = $1 AND user_id = $2")
-        .bind(video.id)
-        .bind(user_id)
-        .fetch_optional(&mut *tx)
-        .await?;
+    let previous: Option<i32> =
+        sqlx::query_scalar("SELECT rating FROM video_reactions WHERE video_id = $1 AND user_id = $2")
+            .bind(video.id)
+            .bind(user_id)
+            .fetch_optional(&mut *tx)
+            .await?;
     let (likes, dislikes) = rating_deltas(previous, rating);
     match rating {
         Some(rating) => {
@@ -915,7 +989,11 @@ pub async fn rate(core: &Core, user_id: Uuid, video: &VideoRow, rating: Option<i
             .await?;
         }
         None => {
-            sqlx::query("DELETE FROM video_reactions WHERE video_id = $1 AND user_id = $2").bind(video.id).bind(user_id).execute(&mut *tx).await?;
+            sqlx::query("DELETE FROM video_reactions WHERE video_id = $1 AND user_id = $2")
+                .bind(video.id)
+                .bind(user_id)
+                .execute(&mut *tx)
+                .await?;
         }
     }
     let like_count: i64 = sqlx::query_scalar(

@@ -55,7 +55,9 @@ async fn documents_published_by_other_domains_become_searchable_through_the_work
     // It changes, then it is unpublished.
     let renamed = unique("renamed");
     let mut tx = core.db.begin().await.unwrap();
-    outbound::index(&mut *tx, tokuly_core::outbound::SearchDoc { title: renamed.clone(), ..video.clone() }).await.unwrap();
+    outbound::index(&mut *tx, tokuly_core::outbound::SearchDoc { title: renamed.clone(), ..video.clone() })
+        .await
+        .unwrap();
     tx.commit().await.unwrap();
     eventually("the new title to be searchable", async || ctx.find(None, &renamed).await.hits.len() == 1).await;
     assert!(ctx.find(None, &word).await.hits.is_empty());
@@ -67,20 +69,35 @@ async fn documents_published_by_other_domains_become_searchable_through_the_work
 
     // Users created before search existed are backfilled by the job an
     // administrator's reindex of the user kind starts.
-    let users = SearchRequest { query: creator.handle.clone(), kind: SearchKind::SEARCH_KIND_USER.into(), ..Default::default() };
+    let users = SearchRequest {
+        query: creator.handle.clone(),
+        kind: SearchKind::SEARCH_KIND_USER.into(),
+        ..Default::default()
+    };
     assert!(ctx.search(None, &users).await.hits.is_empty(), "no event ever announced this user");
-    let _: ReindexResponse =
-        ctx.call(ADMIN, "Reindex", Some(&admin), &ReindexRequest { kind: SearchKind::SEARCH_KIND_USER.into(), ..Default::default() }).await.unwrap();
-    eventually("the user to be backfilled", async || hit_ids(&ctx.search(None, &users).await.hits) == vec![creator.id.to_string()]).await;
+    let _: ReindexResponse = ctx
+        .call(
+            ADMIN,
+            "Reindex",
+            Some(&admin),
+            &ReindexRequest { kind: SearchKind::SEARCH_KIND_USER.into(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    eventually("the user to be backfilled", async || {
+        hit_ids(&ctx.search(None, &users).await.hits) == vec![creator.id.to_string()]
+    })
+    .await;
 
     // Identity's own events are consumed from the stream as well.
     ctx.app.identity.set_banned(creator.id, Some("spam")).await.unwrap();
     eventually("the suspended user's document to leave the index", async || {
-        let held: Option<bool> = sqlx::query_scalar("SELECT doc IS NOT NULL FROM search_documents WHERE kind = 'user' AND doc_id = $1")
-            .bind(creator.id)
-            .fetch_optional(&core.db)
-            .await
-            .unwrap();
+        let held: Option<bool> =
+            sqlx::query_scalar("SELECT doc IS NOT NULL FROM search_documents WHERE kind = 'user' AND doc_id = $1")
+                .bind(creator.id)
+                .fetch_optional(&core.db)
+                .await
+                .unwrap();
         held == Some(false)
     })
     .await;
@@ -91,7 +108,12 @@ async fn documents_published_by_other_domains_become_searchable_through_the_work
     outbound::index(&mut *tx, doc("note", None, &known)).await.unwrap();
     tx.commit().await.unwrap();
     let _: SaveSynonymGroupResponse = ctx
-        .call(ADMIN, "SaveSynonymGroup", Some(&admin), &SaveSynonymGroupRequest { words: vec![known.clone(), alias.clone()], ..Default::default() })
+        .call(
+            ADMIN,
+            "SaveSynonymGroup",
+            Some(&admin),
+            &SaveSynonymGroupRequest { words: vec![known.clone(), alias.clone()], ..Default::default() },
+        )
         .await
         .unwrap();
     eventually("the synonym to find the note", async || ctx.find(None, &alias).await.hits.len() == 1).await;

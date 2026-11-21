@@ -20,10 +20,11 @@ pub struct RecentRow {
 impl Search {
     /// Whether the user paused their search history.
     pub async fn history_paused(&self, user_id: Uuid) -> AppResult<bool> {
-        let paused: Option<bool> = sqlx::query_scalar("SELECT history_paused FROM search_user_settings WHERE user_id = $1")
-            .bind(user_id)
-            .fetch_optional(&self.core.db)
-            .await?;
+        let paused: Option<bool> =
+            sqlx::query_scalar("SELECT history_paused FROM search_user_settings WHERE user_id = $1")
+                .bind(user_id)
+                .fetch_optional(&self.core.db)
+                .await?;
         Ok(paused.unwrap_or(false))
     }
 
@@ -42,7 +43,13 @@ impl Search {
     /// Remembers a search unless the user paused their history. Searching
     /// the same words again moves the entry to the top. Returns whether the
     /// history is on, i.e. whether the search was remembered.
-    pub(crate) async fn remember_search(&self, user_id: Uuid, query: &str, query_key: &str, kind: &str) -> AppResult<bool> {
+    pub(crate) async fn remember_search(
+        &self,
+        user_id: Uuid,
+        query: &str,
+        query_key: &str,
+        kind: &str,
+    ) -> AppResult<bool> {
         let remembered: i64 = sqlx::query_scalar(
             "WITH remembered AS (
                  INSERT INTO search_recent (user_id, query, query_key, kind)
@@ -76,7 +83,12 @@ impl Search {
     }
 
     /// The user's recent searches starting with `prefix_key`, newest first.
-    pub(crate) async fn recent_completions(&self, user_id: Uuid, prefix_key: &str, limit: i64) -> AppResult<Vec<RecentRow>> {
+    pub(crate) async fn recent_completions(
+        &self,
+        user_id: Uuid,
+        prefix_key: &str,
+        limit: i64,
+    ) -> AppResult<Vec<RecentRow>> {
         if prefix_key.is_empty() {
             return Ok(Vec::new());
         }
@@ -123,7 +135,8 @@ impl Search {
 
     /// Forgets every recent search of the user; returns how many there were.
     pub(crate) async fn clear_recent(&self, user_id: Uuid) -> AppResult<u64> {
-        let done = sqlx::query("DELETE FROM search_recent WHERE user_id = $1").bind(user_id).execute(&self.core.db).await?;
+        let done =
+            sqlx::query("DELETE FROM search_recent WHERE user_id = $1").bind(user_id).execute(&self.core.db).await?;
         Ok(done.rows_affected())
     }
 }

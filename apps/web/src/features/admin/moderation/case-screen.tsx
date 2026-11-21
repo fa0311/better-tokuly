@@ -25,7 +25,7 @@ import { ToneChip } from "../ui/tone";
 import { UserCell } from "../ui/user";
 import { UserPicker } from "../ui/user-picker";
 import { ActionList } from "./action-list";
-import { CaseStateChip, CategoryChips, SubjectTypeChip, useCaseTitle } from "./parts";
+import { CaseStateChip, CategoryChips, ModerationRecord, SubjectTypeChip, useCaseTitle } from "./parts";
 import { type QueueSearch, useCaseQueue } from "./queue";
 import { type Resolution, ResolvePanel } from "./resolve-panel";
 
@@ -180,35 +180,13 @@ function SubjectCard({ moderationCase, ownerRecord }: { moderationCase: admin.Mo
         </Fact>
         {ownerRecord && (
           <Fact label={t("moderation.case.ownerRecord")}>
-            <OwnerRecord record={ownerRecord} />
+            <ModerationRecord record={ownerRecord} />
           </Fact>
         )}
         <Fact label={t("moderation.case.firstReported")}>{formatDateTime(moderationCase.createdAt)}</Fact>
         <Fact label={t("moderation.columns.lastReported")}>{formatDateTime(moderationCase.lastReportedAt)}</Fact>
       </dl>
     </Section>
-  );
-}
-
-/** An account's moderation record in numbers, as chips. */
-export function OwnerRecord({ record }: { record: admin.UserModerationSummary }) {
-  const { t } = useTranslation("admin");
-  const figures: [string, number, boolean][] = [
-    ["reportsReceived", record.reportsReceived, false],
-    ["openCases", record.openCases, record.openCases > 0],
-    ["warnings", record.warnings, record.warnings > 0],
-    ["contentRemovals", record.contentRemovals, record.contentRemovals > 0],
-    ["suspensions", record.suspensions, record.suspensions > 0],
-    ["reportsFiled", record.reportsFiled, false],
-  ];
-  return (
-    <span className="flex flex-wrap gap-1.5">
-      {figures.map(([name, value, notable]) => (
-        <ToneChip key={name} tone={notable ? "warn" : "neutral"}>
-          {t(`users.record.${name}`)} <span className="font-black tabular-nums">{value}</span>
-        </ToneChip>
-      ))}
-    </span>
   );
 }
 
@@ -279,7 +257,7 @@ function ResolutionCard({ moderationCase, onChanged }: { moderationCase: admin.M
         </Fact>
         <Fact label={t("moderation.resolution.content")}>{t(moderationCase.contentRemoved ? "moderation.resolution.removed" : "moderation.resolution.kept")}</Fact>
         {moderationCase.resolutionReason && (
-          <Fact label={t("common.reason")}>
+          <Fact label={t("common.reasonShort")}>
             <span className="whitespace-pre-wrap">{moderationCase.resolutionReason}</span>
           </Fact>
         )}
@@ -308,7 +286,10 @@ function ResolutionCard({ moderationCase, onChanged }: { moderationCase: admin.M
   );
 }
 
-/** The latest reports from the case itself; the rest are paged in on request. */
+/** How many reports a case shows before "show all": enough to judge, short enough to keep the actions close. */
+const REPORTS_SHOWN = 5;
+
+/** The newest few reports from the case itself; "show all" pages through every one of them. */
 function Reports({ caseId, total, latest }: { caseId: string; total: number; latest: admin.CaseReport[] }) {
   const { t } = useTranslation("admin");
   const [showAll, setShowAll] = useState(false);
@@ -319,7 +300,8 @@ function Reports({ caseId, total, latest }: { caseId: string; total: number; lat
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
     enabled: showAll,
   });
-  const reports = showAll && all.data ? all.data.pages.flatMap((page) => page.reports) : latest;
+  // Until the full list arrives, "show all" shows what the case came with.
+  const reports = !showAll ? latest.slice(0, REPORTS_SHOWN) : all.data ? all.data.pages.flatMap((page) => page.reports) : latest;
 
   return (
     <Section title={t("moderation.reports.title", { count: total })}>
@@ -342,7 +324,7 @@ function Reports({ caseId, total, latest }: { caseId: string; total: number; lat
       {showAll ? (
         <LoadMore query={all} />
       ) : (
-        total > latest.length && (
+        total > REPORTS_SHOWN && (
           <div className="border-t-2 border-line p-3">
             <Button size="sm" variant="ghost" block onClick={() => setShowAll(true)}>
               {t("moderation.reports.showAll", { count: total })}

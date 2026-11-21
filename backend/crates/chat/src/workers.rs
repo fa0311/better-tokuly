@@ -20,7 +20,10 @@ use tokuly_core::{
 
 use crate::{
     Chat,
-    events::{ASSET_DELETED, ASSET_FAILED, ASSET_READY, CONTENT_REMOVED, FRIEND_ACCEPTED, USER_BLOCKED, USER_DELETED, USER_UNBLOCKED},
+    events::{
+        ASSET_DELETED, ASSET_FAILED, ASSET_READY, CONTENT_REMOVED, FRIEND_ACCEPTED, USER_BLOCKED, USER_DELETED,
+        USER_UNBLOCKED,
+    },
     send::{JOB_LINK_PREVIEW, LinkPreviewJob},
 };
 
@@ -39,7 +42,16 @@ impl Chat {
             events::consume(
                 chat.core.bus.clone(),
                 "chat",
-                &[USER_DELETED, USER_BLOCKED, USER_UNBLOCKED, FRIEND_ACCEPTED, ASSET_READY, ASSET_FAILED, ASSET_DELETED, CONTENT_REMOVED],
+                &[
+                    USER_DELETED,
+                    USER_BLOCKED,
+                    USER_UNBLOCKED,
+                    FRIEND_ACCEPTED,
+                    ASSET_READY,
+                    ASSET_FAILED,
+                    ASSET_DELETED,
+                    CONTENT_REMOVED,
+                ],
                 // Removing a member of many groups takes a moment.
                 ConsumeOptions { ack_wait: Duration::from_secs(120), ..Default::default() },
                 chat.core.shutdown.clone(),
@@ -73,11 +85,23 @@ impl Chat {
                 .await;
         });
 
-        self.spawn_periodic("co-presence sweep", PRESENCE_SWEEP_INTERVAL, |chat| async move { chat.sweep_presence().await.map(|_| ()) });
-        self.spawn_periodic("call ringing time-out", RINGING_SWEEP_INTERVAL, |chat| async move { chat.expire_ringing_calls().await.map(|_| ()) });
-        self.spawn_periodic("call reconciliation", CALL_RECONCILE_INTERVAL, |chat| async move { chat.reconcile_calls().await.map(|_| ()) });
-        self.spawn_periodic("POV expiry", POV_SWEEP_INTERVAL, |chat| async move { chat.expire_povs().await.map(|_| ()) });
-        self.spawn_periodic("link preview sweep", LINK_SWEEP_INTERVAL, |chat| async move { chat.sweep_link_previews().await.map(|_| ()) });
+        self.spawn_periodic("co-presence sweep", PRESENCE_SWEEP_INTERVAL, |chat| async move {
+            chat.sweep_presence().await.map(|_| ())
+        });
+        self.spawn_periodic("call ringing time-out", RINGING_SWEEP_INTERVAL, |chat| async move {
+            chat.expire_ringing_calls().await.map(|_| ())
+        });
+        self.spawn_periodic("call reconciliation", CALL_RECONCILE_INTERVAL, |chat| async move {
+            chat.reconcile_calls().await.map(|_| ())
+        });
+        self.spawn_periodic(
+            "POV expiry",
+            POV_SWEEP_INTERVAL,
+            |chat| async move { chat.expire_povs().await.map(|_| ()) },
+        );
+        self.spawn_periodic("link preview sweep", LINK_SWEEP_INTERVAL, |chat| async move {
+            chat.sweep_link_previews().await.map(|_| ())
+        });
     }
 
     /// Runs `job` every `every` until shutdown, logging failures.

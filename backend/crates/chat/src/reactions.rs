@@ -38,7 +38,12 @@ impl Chat {
         .await?;
         Ok(rows
             .into_iter()
-            .map(|(emoji, count, reacted_by_me)| pb::ReactionCount { emoji, count: count as i32, reacted_by_me, ..Default::default() })
+            .map(|(emoji, count, reacted_by_me)| pb::ReactionCount {
+                emoji,
+                count: count as i32,
+                reacted_by_me,
+                ..Default::default()
+            })
             .collect())
     }
 
@@ -61,11 +66,21 @@ impl Chat {
         Ok(())
     }
 
-    pub(crate) async fn add_reaction(&self, user_id: Uuid, message_id: Uuid, emoji: &str) -> AppResult<Vec<pb::ReactionCount>> {
+    pub(crate) async fn add_reaction(
+        &self,
+        user_id: Uuid,
+        message_id: Uuid,
+        emoji: &str,
+    ) -> AppResult<Vec<pb::ReactionCount>> {
         let core = &self.core;
         check_emoji(emoji)?;
         let (access, row) = self.message_access(user_id, message_id).await?;
-        ensure!(!row.is_deleted() && row.kind != msg::SYSTEM, precondition, "MESSAGE_NOT_REACTABLE", "this message cannot be reacted to");
+        ensure!(
+            !row.is_deleted() && row.kind != msg::SYSTEM,
+            precondition,
+            "MESSAGE_NOT_REACTABLE",
+            "this message cannot be reacted to"
+        );
         self.ensure_accepted(&access)?;
         self.ensure_writable(&access).await?;
         core.cache.rate_limit(&format!("chat-react:{user_id}"), 120, Duration::from_secs(60)).await?;
@@ -124,7 +139,12 @@ impl Chat {
         outbound::notify(&core.db, &notices::reaction(author, &summary, reactor, &access.conv, row, emoji)).await
     }
 
-    pub(crate) async fn remove_reaction(&self, user_id: Uuid, message_id: Uuid, emoji: &str) -> AppResult<Vec<pb::ReactionCount>> {
+    pub(crate) async fn remove_reaction(
+        &self,
+        user_id: Uuid,
+        message_id: Uuid,
+        emoji: &str,
+    ) -> AppResult<Vec<pb::ReactionCount>> {
         check_emoji(emoji)?;
         let (_, row) = self.message_access(user_id, message_id).await?;
         let removed = sqlx::query("DELETE FROM chat_reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3")
@@ -142,7 +162,13 @@ impl Chat {
     }
 
     /// Who reacted to a message, newest first; `emoji` narrows it to one.
-    pub(crate) async fn list_reactions(&self, user_id: Uuid, message_id: Uuid, emoji: &str, page: &Page) -> AppResult<(Vec<pb::Reaction>, PageInfo)> {
+    pub(crate) async fn list_reactions(
+        &self,
+        user_id: Uuid,
+        message_id: Uuid,
+        emoji: &str,
+        page: &Page,
+    ) -> AppResult<(Vec<pb::Reaction>, PageInfo)> {
         self.message_access(user_id, message_id).await?;
         let cursor: Option<(Time, Uuid, String)> = page.decode()?;
         let (before_at, before_user, before_emoji) = match cursor {
@@ -165,10 +191,16 @@ impl Chat {
         .fetch_all(&self.core.db)
         .await?;
         let info = page.finish(&mut rows, |(user, emoji, at)| (*at, *user, emoji.clone()));
-        let summaries = tokuly_identity::summaries(&self.core, &rows.iter().map(|(user, _, _)| *user).collect::<Vec<_>>()).await?;
+        let summaries =
+            tokuly_identity::summaries(&self.core, &rows.iter().map(|(user, _, _)| *user).collect::<Vec<_>>()).await?;
         let reactions = rows
             .into_iter()
-            .map(|(user, emoji, at)| pb::Reaction { user: users::pick(&summaries, user).into(), emoji, created_at: ts(at), ..Default::default() })
+            .map(|(user, emoji, at)| pb::Reaction {
+                user: users::pick(&summaries, user).into(),
+                emoji,
+                created_at: ts(at),
+                ..Default::default()
+            })
             .collect();
         Ok((reactions, info))
     }
@@ -177,21 +209,34 @@ impl Chat {
 
     pub(crate) async fn pin_message(&self, user_id: Uuid, message_id: Uuid) -> AppResult<(Access, MessageRow)> {
         let (access, row) = self.message_access(user_id, message_id).await?;
-        let pinnable = !row.is_deleted() && matches!(row.kind, msg::TEXT | msg::STAMP | msg::MEDIA | msg::LOCATION | msg::HELLO) && !row.is_pov_reply();
+        let pinnable = !row.is_deleted()
+            && matches!(row.kind, msg::TEXT | msg::STAMP | msg::MEDIA | msg::LOCATION | msg::HELLO)
+            && !row.is_pov_reply();
         ensure!(pinnable, precondition, "MESSAGE_NOT_PINNABLE", "this message cannot be pinned");
         self.ensure_accepted(&access)?;
         self.ensure_writable(&access).await?;
+        // Every pin adds a line to the conversation.
+        self.core.cache.rate_limit(&format!("chat-pin:{user_id}"), 30, Duration::from_secs(60)).await?;
 
         let mut tx = self.core.db.begin().await?;
         let mut conv = access::lock_conversation(&mut tx, access.conv.id).await?;
-        let already: bool =
-            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM chat_pins WHERE message_id = $1)").bind(message_id).fetch_one(&mut *tx).await?;
+        let already: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM chat_pins WHERE message_id = $1)")
+            .bind(message_id)
+            .fetch_one(&mut *tx)
+            .await?;
         if already {
             return Ok((access, row));
         }
-        let pinned: i64 =
-            sqlx::query_scalar("SELECT count(*) FROM chat_pins WHERE conversation_id = $1").bind(conv.id).fetch_one(&mut *tx).await?;
-        ensure!(pinned < MAX_PINNED_MESSAGES, precondition, "TOO_MANY_PINNED", "at most {MAX_PINNED_MESSAGES} messages can be pinned");
+        let pinned: i64 = sqlx::query_scalar("SELECT count(*) FROM chat_pins WHERE conversation_id = $1")
+            .bind(conv.id)
+            .fetch_one(&mut *tx)
+            .await?;
+        ensure!(
+            pinned < MAX_PINNED_MESSAGES,
+            precondition,
+            "TOO_MANY_PINNED",
+            "at most {MAX_PINNED_MESSAGES} messages can be pinned"
+        );
         // The message may have been deleted since it was loaded.
         let stored = sqlx::query(
             "INSERT INTO chat_pins (message_id, conversation_id, pinned_by)
@@ -202,7 +247,8 @@ impl Chat {
         .execute(&mut *tx)
         .await?;
         ensure!(stored.rows_affected() > 0, precondition, "MESSAGE_NOT_PINNABLE", "this message cannot be pinned");
-        let payload = SystemPayload::new(pb::SystemEventType::SYSTEM_EVENT_TYPE_MESSAGE_PINNED, Some(user_id)).message(message_id);
+        let payload = SystemPayload::new(pb::SystemEventType::SYSTEM_EVENT_TYPE_MESSAGE_PINNED, Some(user_id))
+            .message(message_id);
         let posted = self.post(&mut tx, &mut conv, Draft::system(payload)).await?;
         tx.commit().await?;
         self.push_message_updated(&row, pb::MessageUpdateReason::MESSAGE_UPDATE_REASON_PINNED).await;
@@ -213,7 +259,12 @@ impl Chat {
     pub(crate) async fn unpin_message(&self, user_id: Uuid, message_id: Uuid) -> AppResult<(Access, MessageRow)> {
         let (access, row) = self.message_access(user_id, message_id).await?;
         self.ensure_accepted(&access)?;
-        let unpinned = sqlx::query("DELETE FROM chat_pins WHERE message_id = $1").bind(message_id).execute(&self.core.db).await?.rows_affected() > 0;
+        let unpinned = sqlx::query("DELETE FROM chat_pins WHERE message_id = $1")
+            .bind(message_id)
+            .execute(&self.core.db)
+            .await?
+            .rows_affected()
+            > 0;
         if unpinned {
             self.push_message_updated(&row, pb::MessageUpdateReason::MESSAGE_UPDATE_REASON_UNPINNED).await;
         }

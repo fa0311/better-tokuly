@@ -30,6 +30,12 @@ pub const MIGRATIONS: &[&str] = &["0001", "0100", "0200", "0400", "0500", "0600"
 /// How long to listen for the realtime frames an action should have produced.
 pub const SOON: Duration = Duration::from_millis(400);
 
+/// Held by a test while it makes something look overdue and runs the worker
+/// that deals with it. The tests of one binary share a database and run in
+/// parallel, so without it one test's sweep could do another test's work
+/// (and leave that test waiting for something that already happened).
+pub static SWEEPS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// A running app plus the chat domain behind it, for calling its
 /// cross-domain API, its workers and its event handlers directly.
 pub struct Ctx {
@@ -50,7 +56,9 @@ pub async fn start_with(cfg: ChatConfig) -> Ctx {
     let mut domain = None;
     let app = TestApp::start(MIGRATIONS, |core, identity, router| {
         let social = Social::new(core.clone(), identity.clone(), SocialConfig::default()).expect("social domain");
-        let stamp = Stamp::new(core.clone(), identity.clone(), StampConfig { seed_official: false, ..Default::default() }).expect("stamp domain");
+        let stamp =
+            Stamp::new(core.clone(), identity.clone(), StampConfig { seed_official: false, ..Default::default() })
+                .expect("stamp domain");
         let chat = Chat::new(core.clone(), identity.clone(), cfg).expect("chat domain");
         let router = chat.register(stamp.register(social.register(identity.register(router))));
         domain = Some(chat);
@@ -100,7 +108,13 @@ pub fn updated_messages(events: &[Push]) -> Vec<(Message, MessageUpdateReason)> 
 
 impl Ctx {
     /// Calls `tokuly.chat.v1.<service>Service/<method>`.
-    pub async fn call<Req: Serialize, Resp: DeserializeOwned>(&self, service: &str, method: &str, user: &TestUser, request: &Req) -> Result<Resp, RpcError> {
+    pub async fn call<Req: Serialize, Resp: DeserializeOwned>(
+        &self,
+        service: &str,
+        method: &str,
+        user: &TestUser,
+        request: &Req,
+    ) -> Result<Resp, RpcError> {
         self.app.call(&format!("tokuly.chat.v1.{service}Service/{method}"), Some(user), request).await
     }
 
@@ -114,7 +128,11 @@ impl Ctx {
 
     /// The reason an anonymous call is rejected with.
     pub async fn anonymous_reason<Req: Serialize>(&self, service: &str, method: &str, request: &Req) -> String {
-        match self.app.call::<_, serde_json::Value>(&format!("tokuly.chat.v1.{service}Service/{method}"), None, request).await {
+        match self
+            .app
+            .call::<_, serde_json::Value>(&format!("tokuly.chat.v1.{service}Service/{method}"), None, request)
+            .await
+        {
             Ok(response) => panic!("{service}/{method} should need a signed-in caller, got {response}"),
             Err(error) => error.reason,
         }
@@ -125,20 +143,29 @@ impl Ctx {
     /// Makes two users friends through the social API (crossed requests).
     pub async fn befriend(&self, a: &TestUser, b: &TestUser) {
         for (from, to) in [(a, b), (b, a)] {
-            let request = SendFriendRequestRequest { target: Some(Target::UserId(to.id.to_string())), ..Default::default() };
-            let _: serde_json::Value =
-                self.app.call("tokuly.social.v1.FriendService/SendFriendRequest", Some(from), &request).await.expect("friend request");
+            let request =
+                SendFriendRequestRequest { target: Some(Target::UserId(to.id.to_string())), ..Default::default() };
+            let _: serde_json::Value = self
+                .app
+                .call("tokuly.social.v1.FriendService/SendFriendRequest", Some(from), &request)
+                .await
+                .expect("friend request");
         }
     }
 
     pub async fn block(&self, blocker: &TestUser, blocked: &TestUser) {
         let request = BlockUserRequest { user_id: blocked.id.to_string(), ..Default::default() };
-        let _: serde_json::Value = self.app.call("tokuly.social.v1.FriendService/BlockUser", Some(blocker), &request).await.expect("block");
+        let _: serde_json::Value =
+            self.app.call("tokuly.social.v1.FriendService/BlockUser", Some(blocker), &request).await.expect("block");
     }
 
     pub async fn unblock(&self, blocker: &TestUser, blocked: &TestUser) {
         let request = UnblockUserRequest { user_id: blocked.id.to_string(), ..Default::default() };
-        let _: serde_json::Value = self.app.call("tokuly.social.v1.FriendService/UnblockUser", Some(blocker), &request).await.expect("unblock");
+        let _: serde_json::Value = self
+            .app
+            .call("tokuly.social.v1.FriendService/UnblockUser", Some(blocker), &request)
+            .await
+            .expect("unblock");
     }
 
     /// Changes a user's privacy settings through the identity API.
@@ -146,7 +173,11 @@ impl Ctx {
         let mut privacy = settings::default_privacy();
         change(&mut privacy);
         let request = UpdateSettingsRequest { privacy: privacy.into(), ..Default::default() };
-        let _: serde_json::Value = self.app.call("tokuly.identity.v1.AccountService/UpdateSettings", Some(user), &request).await.expect("update settings");
+        let _: serde_json::Value = self
+            .app
+            .call("tokuly.identity.v1.AccountService/UpdateSettings", Some(user), &request)
+            .await
+            .expect("update settings");
     }
 
     /// Lets everyone (not only friends) message and call `user`.
@@ -160,7 +191,11 @@ impl Ctx {
 
     /// A finished upload of `owner`; returns its asset ID.
     pub async fn upload(&self, owner: &TestUser, purpose: AssetPurpose, kind: AssetKind) -> String {
-        tokuly_media::testing::ready_asset(&self.app.core, owner.id, purpose, kind).await.expect("asset fixture").id.to_string()
+        tokuly_media::testing::ready_asset(&self.app.core, owner.id, purpose, kind)
+            .await
+            .expect("asset fixture")
+            .id
+            .to_string()
     }
 
     pub async fn photo(&self, owner: &TestUser) -> String {
@@ -171,8 +206,11 @@ impl Ctx {
     pub async fn stamp(&self, owner: &TestUser) -> String {
         let asset_id = self.upload(owner, AssetPurpose::ASSET_PURPOSE_STAMP, AssetKind::ASSET_KIND_IMAGE).await;
         let request = CreatePersonalStampRequest { asset_id, name: "にこ".into(), ..Default::default() };
-        let response: CreatePersonalStampResponse =
-            self.app.call("tokuly.stamp.v1.StampLibraryService/CreatePersonalStamp", Some(owner), &request).await.expect("personal stamp");
+        let response: CreatePersonalStampResponse = self
+            .app
+            .call("tokuly.stamp.v1.StampLibraryService/CreatePersonalStamp", Some(owner), &request)
+            .await
+            .expect("personal stamp");
         response.stamp.as_option().expect("stamp").stamp_ref.id.clone()
     }
 
@@ -187,15 +225,27 @@ impl Ctx {
 
     /// Opens (or returns) the direct conversation of `me` with `other`.
     pub async fn direct(&self, me: &TestUser, other: &TestUser) -> Conversation {
-        let response: OpenDirectResponse =
-            self.call("Conversation", "OpenDirect", me, &OpenDirectRequest { user_id: other.id.to_string(), ..Default::default() }).await.expect("open direct");
+        let response: OpenDirectResponse = self
+            .call(
+                "Conversation",
+                "OpenDirect",
+                me,
+                &OpenDirectRequest { user_id: other.id.to_string(), ..Default::default() },
+            )
+            .await
+            .expect("open direct");
         response.conversation.as_option().expect("conversation").clone()
     }
 
     /// Creates a group owned by `owner` with `members` (who must be the owner's friends).
     pub async fn group(&self, owner: &TestUser, name: &str, members: &[&TestUser]) -> Conversation {
-        let request = CreateGroupRequest { name: name.to_owned(), member_ids: members.iter().map(|member| member.id.to_string()).collect(), ..Default::default() };
-        let response: CreateGroupResponse = self.call("Conversation", "CreateGroup", owner, &request).await.expect("create group");
+        let request = CreateGroupRequest {
+            name: name.to_owned(),
+            member_ids: members.iter().map(|member| member.id.to_string()).collect(),
+            ..Default::default()
+        };
+        let response: CreateGroupResponse =
+            self.call("Conversation", "CreateGroup", owner, &request).await.expect("create group");
         response.conversation.as_option().expect("conversation").clone()
     }
 
@@ -213,15 +263,25 @@ impl Ctx {
     }
 
     pub async fn conversation(&self, viewer: &TestUser, conversation_id: &str) -> GetConversationResponse {
-        self.call("Conversation", "GetConversation", viewer, &GetConversationRequest { conversation_id: conversation_id.to_owned(), ..Default::default() })
-            .await
-            .expect("get conversation")
+        self.call(
+            "Conversation",
+            "GetConversation",
+            viewer,
+            &GetConversationRequest { conversation_id: conversation_id.to_owned(), ..Default::default() },
+        )
+        .await
+        .expect("get conversation")
     }
 
     pub async fn list(&self, viewer: &TestUser, filter: ConversationFilter) -> ListConversationsResponse {
-        self.call("Conversation", "ListConversations", viewer, &ListConversationsRequest { filter: filter.into(), ..Default::default() })
-            .await
-            .expect("list conversations")
+        self.call(
+            "Conversation",
+            "ListConversations",
+            viewer,
+            &ListConversationsRequest { filter: filter.into(), ..Default::default() },
+        )
+        .await
+        .expect("list conversations")
     }
 
     pub async fn send(&self, sender: &TestUser, request: &SendMessageRequest) -> Result<SendMessageResponse, RpcError> {
@@ -230,13 +290,25 @@ impl Ctx {
 
     /// Sends a text message and returns it.
     pub async fn text(&self, sender: &TestUser, conversation_id: &str, text: &str) -> Message {
-        let request = SendMessageRequest { conversation_id: conversation_id.to_owned(), client_id: client_id(), text: text.to_owned(), ..Default::default() };
+        let request = SendMessageRequest {
+            conversation_id: conversation_id.to_owned(),
+            client_id: client_id(),
+            text: text.to_owned(),
+            ..Default::default()
+        };
         self.send(sender, &request).await.expect("send text").message.as_option().expect("message").clone()
     }
 
     pub async fn message(&self, viewer: &TestUser, message_id: &str) -> Message {
-        let response: GetMessageResponse =
-            self.call("Message", "GetMessage", viewer, &GetMessageRequest { message_id: message_id.to_owned(), ..Default::default() }).await.expect("get message");
+        let response: GetMessageResponse = self
+            .call(
+                "Message",
+                "GetMessage",
+                viewer,
+                &GetMessageRequest { message_id: message_id.to_owned(), ..Default::default() },
+            )
+            .await
+            .expect("get message");
         response.message.as_option().expect("message").clone()
     }
 
@@ -246,17 +318,30 @@ impl Ctx {
 
     /// The newest messages of a conversation, oldest first.
     pub async fn latest(&self, viewer: &TestUser, conversation_id: &str) -> Vec<Message> {
-        self.messages(viewer, &ListMessagesRequest { conversation_id: conversation_id.to_owned(), ..Default::default() }).await.messages
+        self.messages(
+            viewer,
+            &ListMessagesRequest { conversation_id: conversation_id.to_owned(), ..Default::default() },
+        )
+        .await
+        .messages
     }
 
     pub async fn mark_read(&self, reader: &TestUser, conversation_id: &str) -> MarkReadResponse {
-        self.call("Conversation", "MarkRead", reader, &MarkReadRequest { conversation_id: conversation_id.to_owned(), ..Default::default() })
-            .await
-            .expect("mark read")
+        self.call(
+            "Conversation",
+            "MarkRead",
+            reader,
+            &MarkReadRequest { conversation_id: conversation_id.to_owned(), ..Default::default() },
+        )
+        .await
+        .expect("mark read")
     }
 
     pub async fn unread(&self, viewer: &TestUser) -> UnreadCounts {
-        let response: GetUnreadCountsResponse = self.call("Conversation", "GetUnreadCounts", viewer, &GetUnreadCountsRequest::default()).await.expect("unread counts");
+        let response: GetUnreadCountsResponse = self
+            .call("Conversation", "GetUnreadCounts", viewer, &GetUnreadCountsRequest::default())
+            .await
+            .expect("unread counts");
         response.unread.as_option().expect("unread").clone()
     }
 

@@ -35,8 +35,10 @@ pub(crate) fn author_for(
     match channel_id {
         None => Author { user: users::pick(users, author_id).into(), ..Default::default() },
         Some(channel_id) => {
-            let channel =
-                channels.get(&channel_id).cloned().unwrap_or_else(|| ChannelSummary { id: channel_id.to_string(), ..Default::default() });
+            let channel = channels
+                .get(&channel_id)
+                .cloned()
+                .unwrap_or_else(|| ChannelSummary { id: channel_id.to_string(), ..Default::default() });
             let user = (viewer == Some(author_id)).then(|| users::pick(users, author_id));
             Author { user: user.into(), channel: channel.into(), ..Default::default() }
         }
@@ -47,7 +49,12 @@ impl Engagement {
     /// Builds the API representation of `rows` for `viewer` (`None`: a
     /// guest, or the anonymous audience of a realtime topic). The caller
     /// has already decided that the viewer may see every row.
-    pub(crate) async fn render_comments(&self, rows: &[CommentRow], viewer: Option<Uuid>, owners: &Owners) -> AppResult<Vec<Comment>> {
+    pub(crate) async fn render_comments(
+        &self,
+        rows: &[CommentRow],
+        viewer: Option<Uuid>,
+        owners: &Owners,
+    ) -> AppResult<Vec<Comment>> {
         if rows.is_empty() {
             return Ok(Vec::new());
         }
@@ -55,11 +62,12 @@ impl Engagement {
         let comment_ids: Vec<Uuid> = rows.iter().map(|row| row.id).collect();
         let hidden = self.hidden_from(viewer).await?;
 
-        let mention_rows: Vec<(Uuid, Uuid)> =
-            sqlx::query_as("SELECT comment_id, user_id FROM comment_mentions WHERE comment_id = ANY($1) ORDER BY comment_id, user_id")
-                .bind(&comment_ids)
-                .fetch_all(&core.db)
-                .await?;
+        let mention_rows: Vec<(Uuid, Uuid)> = sqlx::query_as(
+            "SELECT comment_id, user_id FROM comment_mentions WHERE comment_id = ANY($1) ORDER BY comment_id, user_id",
+        )
+        .bind(&comment_ids)
+        .fetch_all(&core.db)
+        .await?;
         let mut mentions: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
         for (comment_id, user_id) in mention_rows {
             mentions.entry(comment_id).or_default().push(user_id);
@@ -70,10 +78,11 @@ impl Engagement {
         let answered: HashMap<Uuid, (Uuid, Option<Uuid>)> = if answered_ids.is_empty() {
             HashMap::new()
         } else {
-            let found: Vec<(Uuid, Uuid, Option<Uuid>)> = sqlx::query_as("SELECT id, author_id, channel_id FROM comments WHERE id = ANY($1)")
-                .bind(&answered_ids)
-                .fetch_all(&core.db)
-                .await?;
+            let found: Vec<(Uuid, Uuid, Option<Uuid>)> =
+                sqlx::query_as("SELECT id, author_id, channel_id FROM comments WHERE id = ANY($1)")
+                    .bind(&answered_ids)
+                    .fetch_all(&core.db)
+                    .await?;
             found.into_iter().map(|(id, author_id, channel_id)| (id, (author_id, channel_id))).collect()
         };
 
@@ -118,7 +127,10 @@ impl Engagement {
                     .collect();
                 let stamp = row.stamp_id.map(|stamp_id| {
                     // A deleted stamp leaves its ID: "this stamp is no longer available".
-                    stamps.get(&stamp_id).cloned().unwrap_or_else(|| StampRef { id: stamp_id.to_string(), ..Default::default() })
+                    stamps
+                        .get(&stamp_id)
+                        .cloned()
+                        .unwrap_or_else(|| StampRef { id: stamp_id.to_string(), ..Default::default() })
                 });
                 let reply_to = row
                     .reply_to_id
@@ -162,7 +174,12 @@ impl Engagement {
     }
 
     /// [`Self::render_comments`] for one comment on a subject owned by `owner_id`.
-    pub(crate) async fn render_comment(&self, row: &CommentRow, viewer: Option<Uuid>, owner_id: Uuid) -> AppResult<Comment> {
+    pub(crate) async fn render_comment(
+        &self,
+        row: &CommentRow,
+        viewer: Option<Uuid>,
+        owner_id: Uuid,
+    ) -> AppResult<Comment> {
         let owners = Owners::from([(row.key(), owner_id)]);
         let mut comments = self.render_comments(std::slice::from_ref(row), viewer, &owners).await?;
         Ok(comments.pop().unwrap_or_default())
@@ -190,7 +207,10 @@ mod tests {
     fn a_channel_comment_names_the_account_only_to_itself() {
         let (author, channel, stranger) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
         let users = HashMap::from([(author, user(author))]);
-        let channels = HashMap::from([(channel, ChannelSummary { id: channel.to_string(), name: "Ch".into(), ..Default::default() })]);
+        let channels = HashMap::from([(
+            channel,
+            ChannelSummary { id: channel.to_string(), name: "Ch".into(), ..Default::default() },
+        )]);
         for viewer in [None, Some(stranger)] {
             let shown = author_for(viewer, author, Some(channel), &users, &channels);
             assert!(shown.user.as_option().is_none());

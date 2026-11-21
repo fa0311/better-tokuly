@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
-import { ListRow, Skeleton } from "#/components/ui/page";
+import { Skeleton } from "#/components/ui/page";
 import { accountClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { compactAge } from "#/lib/format";
@@ -58,25 +58,23 @@ export function SessionsCard() {
             const name = session.client?.deviceName || t("security.unknownDevice");
             const place = session.location || session.ip;
             return (
-              <li key={session.id} data-testid="session-row">
-                <ListRow
-                  leading={
-                    <span className="grid size-10 shrink-0 place-items-center rounded-xl border-2 border-ink bg-sky text-[#17122b]">
-                      <PlatformIcon platform={session.client?.platform ?? common.Platform.UNSPECIFIED} />
-                    </span>
-                  }
-                  title={name}
-                  subtitle={[place, session.current ? t("security.sessions.activeNow") : t("security.sessions.lastActive", { age: compactAge(toMillis(session.lastActiveAt)) })].filter(Boolean).join(" ・ ")}
-                  trailing={
-                    session.current ? (
-                      <StateChip tone="good">{t("security.sessions.current")}</StateChip>
-                    ) : (
-                      <Button size="sm" variant="secondary" className="shrink-0" onClick={() => setConfirming({ target: { kind: "one", session }, open: true })}>
-                        {t("security.sessions.revoke")}
-                      </Button>
-                    )
-                  }
-                />
+              <li key={session.id} data-testid="session-row" className="flex items-center gap-3 rounded-2xl px-3 py-2.5">
+                <span className="grid size-10 shrink-0 place-items-center rounded-xl border-2 border-ink bg-sky text-[#17122b]">
+                  <PlatformIcon platform={session.client?.platform ?? common.Platform.UNSPECIFIED} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-bold">{name}</p>
+                  <p className="text-sm leading-snug text-ink-soft">
+                    {[place, session.current ? t("security.sessions.activeNow") : t("security.sessions.lastActive", { age: compactAge(toMillis(session.lastActiveAt)) })].filter(Boolean).join(" ・ ")}
+                  </p>
+                </div>
+                {session.current ? (
+                  <StateChip tone="good">{t("security.sessions.current")}</StateChip>
+                ) : (
+                  <Button size="sm" variant="secondary" className="shrink-0" onClick={() => setConfirming({ target: { kind: "one", session }, open: true })}>
+                    {t("security.sessions.revoke")}
+                  </Button>
+                )}
               </li>
             );
           })}

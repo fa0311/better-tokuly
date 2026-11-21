@@ -22,9 +22,15 @@ impl Chat {
     pub async fn resolve_link_preview(&self, message_id: Uuid) -> AppResult<()> {
         let core = &self.core;
         let Some(row) = access::find_message(core, message_id).await? else { return Ok(()) };
-        let Some(url) = row.link_url.clone().filter(|_| !row.is_deleted() && row.link_checked_at.is_none()) else { return Ok(()) };
+        let Some(url) = row.link_url.clone().filter(|_| !row.is_deleted() && row.link_checked_at.is_none()) else {
+            return Ok(());
+        };
         let within_limit = match row.sender_id {
-            Some(sender) => core.cache.rate_limit(&format!("chat-link:{sender}"), PREVIEWS_PER_MINUTE, Duration::from_secs(60)).await.is_ok(),
+            Some(sender) => core
+                .cache
+                .rate_limit(&format!("chat-link:{sender}"), PREVIEWS_PER_MINUTE, Duration::from_secs(60))
+                .await
+                .is_ok(),
             None => true,
         };
         let preview = if within_limit {
@@ -38,7 +44,10 @@ impl Chat {
         } else {
             None
         };
-        let preview = preview.map(|preview| serde_json::to_value(&preview)).transpose().map_err(|e| AppError::internal(anyhow::anyhow!("preview encode: {e}")))?;
+        let preview = preview
+            .map(|preview| serde_json::to_value(&preview))
+            .transpose()
+            .map_err(|e| AppError::internal(anyhow::anyhow!("preview encode: {e}")))?;
         // Only if the link is still the one that was looked up (the message
         // may have been edited meanwhile).
         let updated: Option<MessageRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
@@ -76,7 +85,9 @@ impl Chat {
         .fetch_all(&core.db)
         .await?;
         for message_id in &pending {
-            core.jobs.enqueue_unique(JOB_LINK_PREVIEW, &message_id.to_string(), &LinkPreviewJob { message_id: *message_id }).await?;
+            core.jobs
+                .enqueue_unique(JOB_LINK_PREVIEW, &message_id.to_string(), &LinkPreviewJob { message_id: *message_id })
+                .await?;
         }
         Ok(pending.len())
     }

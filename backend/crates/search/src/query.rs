@@ -156,11 +156,18 @@ fn index_query<'a>(index: &'a Index, query: &'a EngineQuery) -> SearchQuery<'a, 
         .with_query(&query.text)
         .with_locales(LOCALES)
         .with_attributes_to_retrieve(Selectors::Some(RETRIEVE))
-        .with_attributes_to_highlight(Selectors::Some(if query.snippets { HIGHLIGHT_TITLE_AND_TEXT } else { HIGHLIGHT_TITLE }))
+        .with_attributes_to_highlight(Selectors::Some(if query.snippets {
+            HIGHLIGHT_TITLE_AND_TEXT
+        } else {
+            HIGHLIGHT_TITLE
+        }))
         .with_highlight_pre_tag(START_TAG)
         .with_highlight_post_tag(END_TAG);
     if query.snippets {
-        built.with_attributes_to_crop(Selectors::Some(CROP_TEXT)).with_crop_length(SNIPPET_WORDS).with_crop_marker(CROP_MARKER);
+        built
+            .with_attributes_to_crop(Selectors::Some(CROP_TEXT))
+            .with_crop_length(SNIPPET_WORDS)
+            .with_crop_marker(CROP_MARKER);
     }
     scope_and_filter(&mut built, query);
     if let Some(sort) = query.sort {
@@ -172,7 +179,11 @@ fn index_query<'a>(index: &'a Index, query: &'a EngineQuery) -> SearchQuery<'a, 
 /// The engine query that only counts an index's matches.
 fn count_query<'a>(index: &'a Index, query: &'a EngineQuery) -> SearchQuery<'a, meilisearch_sdk::DefaultHttpClient> {
     let mut built = SearchQuery::new(index);
-    built.with_query(&query.text).with_locales(LOCALES).with_attributes_to_retrieve(Selectors::Some(COUNT_ONLY)).with_limit(0);
+    built
+        .with_query(&query.text)
+        .with_locales(LOCALES)
+        .with_attributes_to_retrieve(Selectors::Some(COUNT_ONLY))
+        .with_limit(0);
     scope_and_filter(&mut built, query);
     built
 }

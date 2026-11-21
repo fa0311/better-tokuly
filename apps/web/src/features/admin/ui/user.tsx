@@ -12,7 +12,7 @@ import { cn } from "#/lib/cn";
  */
 export function UserCell({ user, fallback, link = true, className }: { user?: common.UserSummary; fallback?: string; link?: boolean; className?: string }) {
   const { t } = useTranslation("admin");
-  if (!user) return <span className="text-ink-faint">{fallback ?? "—"}</span>;
+  if (!user) return <span className="whitespace-nowrap text-ink-faint">{fallback ?? "—"}</span>;
   const body = (
     <>
       <Avatar user={user} size="xs" />

@@ -26,6 +26,10 @@ syntax = "proto3";
 // Every RPC in this file needs a signed-in caller. A conversation the caller
 // is not a member of is indistinguishable from one that does not exist
 // (CONVERSATION_NOT_FOUND); the same holds for messages (MESSAGE_NOT_FOUND).
+// RPCs that reach other people (sending, editing, pinning, renaming, roles,
+// reactions, calls…) are rate limited per user and fail with RATE_LIMITED
+// (resource_exhausted) when the limit is hit, whether or not their comment
+// lists it.
 package tokuly.chat.v1;
 
 import "google/protobuf/timestamp.proto";
@@ -467,12 +471,13 @@ service MessageService {
   // RATE_LIMITED.
   rpc SendHello(SendHelloRequest) returns (SendHelloResponse);
   // Replaces the text of one of the caller's own text messages or the
-  // caption of a media message, within `Capabilities.edit_window_seconds` of
-  // sending. The message is marked as edited; mentions and the link preview
-  // are worked out again.
+  // caption of a media message (which may be emptied), within
+  // `Capabilities.edit_window_seconds` of sending. The message is marked as
+  // edited; mentions and the link preview are worked out again.
   // Errors: MESSAGE_NOT_FOUND, NOT_ALLOWED (someone else's message),
-  // MESSAGE_NOT_EDITABLE (not text/media, deleted or forwarded),
-  // EDIT_WINDOW_CLOSED, MESSAGE_EMPTY, TEXT_TOO_LONG, CONVERSATION_READ_ONLY.
+  // MESSAGE_NOT_EDITABLE (not text/media, deleted, forwarded, or the answer
+  // to a POV request), EDIT_WINDOW_CLOSED, MESSAGE_EMPTY, TEXT_TOO_LONG,
+  // CONVERSATION_READ_ONLY.
   rpc EditMessage(EditMessageRequest) returns (EditMessageResponse);
   // Deletes a message for everyone. It stays in the conversation as an empty
   // tombstone (`deleted = true`). The sender may delete their own messages;
@@ -493,8 +498,9 @@ service MessageService {
   // characters), RATE_LIMITED.
   rpc SearchMessages(SearchMessagesRequest) returns (SearchMessagesResponse);
   // Copies up to 10 messages into up to 10 conversations, marked as
-  // forwarded. Text, stamp, media and location messages can be forwarded;
-  // a stamp only if the caller may use it. Idempotent on `client_id`.
+  // forwarded. Text, stamp, media and location messages can be forwarded
+  // (not the answer to a POV request); a stamp only if the caller may use
+  // it. Idempotent on `client_id`.
   // Errors: MESSAGE_NOT_FOUND, MESSAGE_NOT_FORWARDABLE, CONVERSATION_NOT_FOUND,
   // CONVERSATION_READ_ONLY, REQUEST_PENDING, TOO_MANY_MESSAGES,
   // TOO_MANY_CONVERSATIONS, NOTHING_TO_FORWARD, CLIENT_ID_INVALID,
@@ -502,10 +508,11 @@ service MessageService {
   rpc ForwardMessages(ForwardMessagesRequest) returns (ForwardMessagesResponse);
 
   // Adds an emoji reaction of the caller to a message. Adding the same emoji
-  // twice changes nothing.
+  // twice changes nothing. The author of the message is notified.
   // Errors: MESSAGE_NOT_FOUND, EMOJI_INVALID (not a single emoji),
   // TOO_MANY_REACTIONS (more than 20 different emoji on the message),
   // MESSAGE_NOT_REACTABLE (deleted or system message), CONVERSATION_READ_ONLY,
+  // REQUEST_PENDING (the caller has not accepted the conversation),
   // RATE_LIMITED.
   rpc AddReaction(AddReactionRequest) returns (AddReactionResponse);
   // Removes one of the caller's reactions. Succeeds when it is not there.
@@ -515,14 +522,16 @@ service MessageService {
   // Errors: MESSAGE_NOT_FOUND.
   rpc ListReactions(ListReactionsRequest) returns (ListReactionsResponse);
 
-  // Pins a message for everyone in the conversation (any member may).
-  // Pinning a pinned message changes nothing.
+  // Pins a message for everyone in the conversation (any member may); a
+  // system message tells who pinned it. Pinning a pinned message changes
+  // nothing.
   // Errors: MESSAGE_NOT_FOUND, MESSAGE_NOT_PINNABLE (deleted, system, call or
   // POV messages), TOO_MANY_PINNED (more than
-  // `Capabilities.max_pinned_messages`), CONVERSATION_READ_ONLY.
+  // `Capabilities.max_pinned_messages`), CONVERSATION_READ_ONLY,
+  // REQUEST_PENDING (the caller has not accepted the conversation).
   rpc PinMessage(PinMessageRequest) returns (PinMessageResponse);
   // Unpins a message. Succeeds when it is not pinned.
-  // Errors: MESSAGE_NOT_FOUND.
+  // Errors: MESSAGE_NOT_FOUND, REQUEST_PENDING.
   rpc UnpinMessage(UnpinMessageRequest) returns (UnpinMessageResponse);
   // Pinned messages of a conversation, most recently pinned first.
   // Errors: CONVERSATION_NOT_FOUND.
@@ -598,7 +607,7 @@ message Message {
   PovRequest pov_request = 19;
   // Set on the media message that answers a POV request.
   PovReply pov_reply = 20;
-  // Emoji reactions, in the order each emoji first appeared.
+  // Emoji reactions, ordered by the earliest reaction still on the message.
   repeated ReactionCount reactions = 21;
   bool pinned = 22;
   // How many other members have read the message. In RPC responses only;
@@ -765,11 +774,12 @@ message ListMessagesRequest {
 message ListMessagesResponse {
   // Oldest first.
   repeated Message messages = 1;
-  // Pass as `before` to continue towards older messages.
+  // Pass as `before` to continue towards older messages. Both cursors are
+  // set even when `messages` is empty.
   string older_cursor = 2;
   bool has_older = 3;
   // Pass as `after` to continue towards newer messages (or to catch up
-  // after a reconnect).
+  // after a reconnect: an empty page returns a cursor that keeps working).
   string newer_cursor = 4;
   bool has_newer = 5;
   // Read cursors of the members who accepted the conversation, for "read"
@@ -926,20 +936,27 @@ service PovService {
   // Answers a request with one to four photos/videos uploaded after the
   // request was made (the server cannot verify more than that they are new).
   // Only the person asked may answer. Idempotent on `client_id`.
-  // Errors: POV_NOT_FOUND, POV_NOT_OPEN (answered, declined, cancelled or
-  // expired), NO_ATTACHMENTS, TOO_MANY_ATTACHMENTS, ASSET_NOT_FOUND,
-  // ASSET_WRONG_PURPOSE (not CHAT_IMAGE / CHAT_VIDEO), ASSET_NOT_READY,
-  // ASSET_FAILED, POV_NOT_LIVE (an upload older than the request),
-  // CLIENT_ID_INVALID, CONVERSATION_READ_ONLY.
+  // Errors: POV_NOT_FOUND (also for people outside the conversation),
+  // NOT_ALLOWED (the caller is the requester), POV_NOT_OPEN (answered,
+  // declined, cancelled or expired), NO_ATTACHMENTS, TOO_MANY_ATTACHMENTS,
+  // ASSET_NOT_FOUND, ASSET_WRONG_PURPOSE (not CHAT_IMAGE / CHAT_VIDEO),
+  // ASSET_NOT_READY (only videos may still be processing), ASSET_FAILED,
+  // POV_NOT_LIVE (an upload older than the request), CLIENT_ID_INVALID,
+  // CONVERSATION_READ_ONLY.
   rpc AnswerPov(AnswerPovRequest) returns (AnswerPovResponse);
-  // The person asked says no. Errors: POV_NOT_FOUND, POV_NOT_OPEN.
+  // The person asked says no.
+  // Errors: POV_NOT_FOUND, NOT_ALLOWED (the caller is the requester),
+  // POV_NOT_OPEN.
   rpc DeclinePov(DeclinePovRequest) returns (DeclinePovResponse);
   // The requester withdraws an open request.
-  // Errors: POV_NOT_FOUND, POV_NOT_OPEN.
+  // Errors: POV_NOT_FOUND, NOT_ALLOWED (the caller is the person asked),
+  // POV_NOT_OPEN.
   rpc CancelPov(CancelPovRequest) returns (CancelPovResponse);
   // The requester keeps the answer: it no longer expires, and the person who
   // answered is notified. Saving twice succeeds.
-  // Errors: POV_NOT_FOUND, POV_NOT_ANSWERED, POV_REPLY_EXPIRED.
+  // Errors: POV_NOT_FOUND, NOT_ALLOWED (the caller is the person asked),
+  // POV_NOT_ANSWERED, POV_REPLY_EXPIRED (not saved in time, or the answer
+  // was deleted).
   rpc SavePov(SavePovRequest) returns (SavePovResponse);
 }
 
@@ -1080,7 +1097,9 @@ service CallService {
   // Accepts a ringing call or joins a running group call, and returns the
   // credentials to connect. Joining again (another device, a reconnect)
   // returns fresh credentials.
-  // Errors: CALLS_DISABLED, CALL_NOT_FOUND, CALL_ENDED.
+  // Errors: CALLS_DISABLED, CALL_NOT_FOUND (also for people who are not, or
+  // no longer, accepted members of the conversation), CALL_ENDED,
+  // CONVERSATION_READ_ONLY.
   rpc JoinCall(JoinCallRequest) returns (JoinCallResponse);
   // Declines a ringing call. A direct call ends; a group call goes on for
   // the others. Declining twice succeeds.
@@ -1412,9 +1431,9 @@ message PresenceChanged {
 
 // The conversation changed: name, icon, members, roles, read-only state, or
 // the recipient's own state (joined, request accepted, preferences changed
-// on another device). `conversation.viewer` is set when the event was built
-// for the recipient alone; otherwise only the shared fields changed and the
-// client keeps its viewer state.
+// on another device). `conversation.viewer` and `conversation.last_message`
+// are set when the event was built for the recipient alone; otherwise only
+// the shared fields changed and the client keeps both as it has them.
 message ConversationUpdated {
   Conversation conversation = 1;
 }

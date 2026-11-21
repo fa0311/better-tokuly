@@ -19,7 +19,9 @@ export function zoneOffset(zone: string, at = new Date()): string {
   try {
     const parts = new Intl.DateTimeFormat("en-US", { timeZone: zone, timeZoneName: "shortOffset" }).formatToParts(at);
     const name = parts.find((part) => part.type === "timeZoneName")?.value ?? "";
-    return name.replace("GMT", "UTC");
+    // "GMT+9" / "GMT-3:30"; UTC itself comes as "GMT" or "GMT+0" depending on the browser.
+    const offset = name.replace("GMT", "");
+    return offset === "" || /^[+-]0$/.test(offset) ? "UTC" : `UTC${offset}`;
   } catch {
     return "";
   }

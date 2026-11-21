@@ -33,7 +33,11 @@ impl Video {
 }
 
 impl PlaybackService for Video {
-    async fn start_playback(&self, ctx: RequestContext, request: ServiceRequest<'_, StartPlaybackRequest>) -> ServiceResult<StartPlaybackResponse> {
+    async fn start_playback(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, StartPlaybackRequest>,
+    ) -> ServiceResult<StartPlaybackResponse> {
         handle(async {
             let core = &self.core;
             let user_id = ctx.maybe_user_id()?;
@@ -54,7 +58,9 @@ impl PlaybackService for Video {
                 }
                 None => 0.0,
             };
-            let session_id = playback::start(core, &video, user_id, &client.ip, request.source.to_i32(), request.position_seconds).await?;
+            let session_id =
+                playback::start(core, &video, user_id, &client.ip, request.source.to_i32(), request.position_seconds)
+                    .await?;
             ok(StartPlaybackResponse {
                 session_id,
                 resume_position_seconds: resume,
@@ -67,29 +73,65 @@ impl PlaybackService for Video {
         .await
     }
 
-    async fn report_playback(&self, ctx: RequestContext, request: ServiceRequest<'_, ReportPlaybackRequest>) -> ServiceResult<ReportPlaybackResponse> {
+    async fn report_playback(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, ReportPlaybackRequest>,
+    ) -> ServiceResult<ReportPlaybackResponse> {
         handle(async {
             let core = &self.core;
             let caller = ctx.maybe_user_id()?;
-            let gone = || AppError::not_found("PLAYBACK_SESSION_NOT_FOUND", "the playback session expired; start a new one");
+            let gone =
+                || AppError::not_found("PLAYBACK_SESSION_NOT_FOUND", "the playback session expired; start a new one");
             let session_id = request.session_id;
             let mut session = playback::load(core, session_id).await?.ok_or_else(gone)?;
+            // Players report every few seconds; anything much faster is not a player.
+            core.cache.rate_limit(&format!("video-report:{session_id}"), 120, Duration::from_secs(60)).await?;
             // A session belongs to whoever opened it.
-            ensure!(session.user_id.is_none() || session.user_id == caller, not_found, "PLAYBACK_SESSION_NOT_FOUND", "playback session not found");
+            ensure!(
+                session.user_id.is_none() || session.user_id == caller,
+                not_found,
+                "PLAYBACK_SESSION_NOT_FOUND",
+                "playback session not found"
+            );
+            // The video may have been deleted while it played: the session ends with it.
+            let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM videos WHERE id = $1)")
+                .bind(session.video_id)
+                .fetch_one(&core.db)
+                .await?;
+            if !exists {
+                core.cache.del(&playback::session_key(session_id)).await?;
+                return Err(gone());
+            }
 
             let playing = request.playing && !request.ended;
-            let progress = playback::advance(&mut session, now().timestamp_millis(), request.position_seconds, playing, self.max_report_gap());
+            let progress = playback::advance(
+                &mut session,
+                now().timestamp_millis(),
+                request.position_seconds,
+                playing,
+                self.max_report_gap(),
+            );
             let dedupe = Duration::from_secs(self.cfg.view_dedupe_seconds);
             let min_seconds = self.min_view_seconds(session.duration);
             playback::count_view(core, &mut session, session_id, min_seconds, dedupe).await?;
             playback::save(core, session_id, &session).await?;
             playback::track_progress(core, &session, session_id, progress).await;
             if let Some(user_id) = session.user_id {
-                playback::record_history(core, user_id, &session, session.last_position, progress.watched, request.ended).await?;
+                playback::record_history(
+                    core,
+                    user_id,
+                    &session,
+                    session.last_position,
+                    progress.watched,
+                    request.ended,
+                )
+                .await?;
             }
-            let view_count: Option<i64> =
-                sqlx::query_scalar("SELECT view_count FROM videos WHERE id = $1").bind(session.video_id).fetch_optional(&core.db).await?;
-            // The video was deleted while it played.
+            let view_count: Option<i64> = sqlx::query_scalar("SELECT view_count FROM videos WHERE id = $1")
+                .bind(session.video_id)
+                .fetch_optional(&core.db)
+                .await?;
             let view_count = view_count.ok_or_else(gone)?;
             ok(ReportPlaybackResponse { view_counted: session.counted, view_count, ..Default::default() })
         })
@@ -191,7 +233,10 @@ impl PlaybackService for Video {
     ) -> ServiceResult<GetWatchHistorySettingsResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
-            ok(GetWatchHistorySettingsResponse { paused: playback::history_paused(&self.core, user_id).await?, ..Default::default() })
+            ok(GetWatchHistorySettingsResponse {
+                paused: playback::history_paused(&self.core, user_id).await?,
+                ..Default::default()
+            })
         })
         .await
     }

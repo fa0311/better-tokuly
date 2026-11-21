@@ -98,7 +98,8 @@ impl TagDictionary {
             let Some(tag) = normalize_tag(tag) else {
                 anyhow::bail!("news tag dictionary: {tag:?} is not a usable tag");
             };
-            let keywords: Vec<String> = keywords.split('|').map(|keyword| fold(keyword.trim())).filter(|keyword| !keyword.is_empty()).collect();
+            let keywords: Vec<String> =
+                keywords.split('|').map(|keyword| fold(keyword.trim())).filter(|keyword| !keyword.is_empty()).collect();
             anyhow::ensure!(!keywords.is_empty(), "news tag dictionary: tag {tag:?} has no keywords");
             match entries.iter_mut().find(|(existing, _)| *existing == tag) {
                 Some((_, existing)) => existing.extend(keywords),
@@ -115,7 +116,11 @@ impl TagDictionary {
     /// Tags whose keywords occur in `text`, in dictionary order.
     pub fn tags_for(&self, text: &str) -> Vec<String> {
         let folded = fold(text);
-        self.entries.iter().filter(|(_, keywords)| keywords.iter().any(|keyword| contains_keyword(&folded, keyword))).map(|(tag, _)| tag.clone()).collect()
+        self.entries
+            .iter()
+            .filter(|(_, keywords)| keywords.iter().any(|keyword| contains_keyword(&folded, keyword)))
+            .map(|(tag, _)| tag.clone())
+            .collect()
     }
 }
 
@@ -175,7 +180,10 @@ mod tests {
     fn the_dictionary_format_is_parsed_and_validated() {
         let dictionary = TagDictionary::parse("Tech = AI | 人工知能 ;ゲーム=switch\nTech=robot").unwrap();
         assert_eq!(dictionary.entries.len(), 2);
-        assert_eq!(dictionary.entries[0], ("tech".to_owned(), vec!["ai".to_owned(), "人工知能".to_owned(), "robot".to_owned()]));
+        assert_eq!(
+            dictionary.entries[0],
+            ("tech".to_owned(), vec!["ai".to_owned(), "人工知能".to_owned(), "robot".to_owned()])
+        );
         assert!(TagDictionary::parse("no-equals-sign").is_err());
         assert!(TagDictionary::parse("=keyword").is_err());
         assert!(TagDictionary::parse("tag=").is_err());
@@ -195,7 +203,8 @@ mod tests {
     #[test]
     fn ascii_keywords_match_whole_words_only() {
         let dictionary = TagDictionary::parse("tech=ai|switch 2").unwrap();
-        for text in ["AI is everywhere", "The new AI.", "生成AIの時代", "ＡＩ特集", "(ai)", "Switch 2 review"] {
+        for text in ["AI is everywhere", "The new AI.", "生成AIの時代", "ＡＩ特集", "(ai)", "Switch 2 review"]
+        {
             assert_eq!(dictionary.tags_for(text), vec!["tech"], "{text}");
         }
         for text in ["It may rain in Spain", "Kaiju attack", "aint", "switch 20 ports", ""] {

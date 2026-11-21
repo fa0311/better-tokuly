@@ -66,15 +66,30 @@ async fn searches_that_do_not_count() {
     }
     // Searches flagged as not to be remembered.
     for user in &users {
-        ctx.search(Some(user), &SearchRequest { query: skipped.clone(), skip_history: true, ..Default::default() }).await;
+        ctx.search(Some(user), &SearchRequest { query: skipped.clone(), skip_history: true, ..Default::default() })
+            .await;
     }
     // Users who paused their history.
     for user in &users {
-        let _: SetHistoryPausedResponse =
-            ctx.call(SEARCH, "SetHistoryPaused", Some(user), &SetHistoryPausedRequest { paused: true, ..Default::default() }).await.unwrap();
+        let _: SetHistoryPausedResponse = ctx
+            .call(
+                SEARCH,
+                "SetHistoryPaused",
+                Some(user),
+                &SetHistoryPausedRequest { paused: true, ..Default::default() },
+            )
+            .await
+            .unwrap();
         ctx.find(Some(user), &paused).await;
-        let _: SetHistoryPausedResponse =
-            ctx.call(SEARCH, "SetHistoryPaused", Some(user), &SetHistoryPausedRequest { paused: false, ..Default::default() }).await.unwrap();
+        let _: SetHistoryPausedResponse = ctx
+            .call(
+                SEARCH,
+                "SetHistoryPaused",
+                Some(user),
+                &SetHistoryPausedRequest { paused: false, ..Default::default() },
+            )
+            .await
+            .unwrap();
     }
     // Queries that find nothing.
     for user in &users {
@@ -84,13 +99,32 @@ async fn searches_that_do_not_count() {
     // paging through results is one search.
     ctx.index(&[doc("video", None, &later_pages), doc("video", None, &later_pages)]).await;
     let first = ctx
-        .search(Some(&users[0]), &SearchRequest { query: later_pages.clone(), page: Some(tokuly_proto::common::PageRequest { limit: 1, ..Default::default() }).into(), ..Default::default() })
+        .search(
+            Some(&users[0]),
+            &SearchRequest {
+                query: later_pages.clone(),
+                page: Some(tokuly_proto::common::PageRequest { limit: 1, ..Default::default() }).into(),
+                ..Default::default()
+            },
+        )
         .await;
     let cursor = first.page.as_option().unwrap().next_cursor.clone();
     for user in &users[1..] {
         // A page reached with a cursor, by other users: not a new search.
-        ctx.search(Some(user), &SearchRequest { query: later_pages.clone(), page: Some(tokuly_proto::common::PageRequest { limit: 1, cursor: cursor.clone(), ..Default::default() }).into(), ..Default::default() })
-            .await;
+        ctx.search(
+            Some(user),
+            &SearchRequest {
+                query: later_pages.clone(),
+                page: Some(tokuly_proto::common::PageRequest {
+                    limit: 1,
+                    cursor: cursor.clone(),
+                    ..Default::default()
+                })
+                .into(),
+                ..Default::default()
+            },
+        )
+        .await;
     }
 
     let trending = refreshed(&ctx).await;
@@ -107,7 +141,11 @@ async fn queries_are_counted_regardless_of_case_width_and_tab() {
 
     ctx.find(Some(&users[0]), &word.to_uppercase()).await;
     ctx.find(Some(&users[1]), &format!("  {word}  ")).await;
-    ctx.search(Some(&users[2]), &SearchRequest { query: word.clone(), kind: SearchKind::SEARCH_KIND_VIDEO.into(), ..Default::default() }).await;
+    ctx.search(
+        Some(&users[2]),
+        &SearchRequest { query: word.clone(), kind: SearchKind::SEARCH_KIND_VIDEO.into(), ..Default::default() },
+    )
+    .await;
 
     assert!(refreshed(&ctx).await.contains(&word), "one query, three spellings");
 }
@@ -125,15 +163,24 @@ async fn more_searchers_rank_higher() {
     }
 
     let qualified = ctx.search.refresh_trending().await.unwrap();
-    let position = |query: &str| qualified.iter().position(|q| q.query == query).unwrap_or_else(|| panic!("{query} qualified"));
+    let position =
+        |query: &str| qualified.iter().position(|q| q.query == query).unwrap_or_else(|| panic!("{query} qualified"));
     assert!(position(&big) < position(&small));
     let (big_entry, small_entry) = (&qualified[position(&big)], &qualified[position(&small)]);
     assert_eq!((big_entry.searchers, small_entry.searchers), (5, 3));
     assert!(big_entry.weight > small_entry.weight);
 
     // The RPC returns them in the same order, ranked from 1.
-    let response: GetTrendingResponse = ctx.call(SEARCH, "GetTrending", None, &GetTrendingRequest { limit: 20, ..Default::default() }).await.unwrap();
-    let rank_of = |query: &str| response.queries.iter().find(|q| q.query == query).map(|q| q.rank).unwrap_or_else(|| panic!("{query} is trending"));
+    let response: GetTrendingResponse =
+        ctx.call(SEARCH, "GetTrending", None, &GetTrendingRequest { limit: 20, ..Default::default() }).await.unwrap();
+    let rank_of = |query: &str| {
+        response
+            .queries
+            .iter()
+            .find(|q| q.query == query)
+            .map(|q| q.rank)
+            .unwrap_or_else(|| panic!("{query} is trending"))
+    };
     assert!(rank_of(&big) < rank_of(&small));
     let ranks: Vec<i32> = response.queries.iter().map(|q| q.rank).collect();
     assert_eq!(ranks, (1..=response.queries.len() as i32).collect::<Vec<_>>());
@@ -154,11 +201,14 @@ async fn the_trending_list_is_public_and_bounded() {
     }
     ctx.search.refresh_trending().await.unwrap();
 
-    let limited: GetTrendingResponse = ctx.call(SEARCH, "GetTrending", None, &GetTrendingRequest { limit: 2, ..Default::default() }).await.unwrap();
+    let limited: GetTrendingResponse =
+        ctx.call(SEARCH, "GetTrending", None, &GetTrendingRequest { limit: 2, ..Default::default() }).await.unwrap();
     assert_eq!(limited.queries.len(), 2);
-    let default: GetTrendingResponse = ctx.call(SEARCH, "GetTrending", Some(&users[0]), &GetTrendingRequest::default()).await.unwrap();
+    let default: GetTrendingResponse =
+        ctx.call(SEARCH, "GetTrending", Some(&users[0]), &GetTrendingRequest::default()).await.unwrap();
     assert!((3..=10).contains(&default.queries.len()));
-    let huge: GetTrendingResponse = ctx.call(SEARCH, "GetTrending", None, &GetTrendingRequest { limit: 1000, ..Default::default() }).await.unwrap();
+    let huge: GetTrendingResponse =
+        ctx.call(SEARCH, "GetTrending", None, &GetTrendingRequest { limit: 1000, ..Default::default() }).await.unwrap();
     assert!(huge.queries.len() <= 20);
 }
 
@@ -178,7 +228,12 @@ async fn blocked_terms_never_trend_and_are_never_suggested() {
 
     // A moderator blocks the word: it is gone at once, in any casing...
     let _: AddBlockedTermResponse = ctx
-        .call(ADMIN, "AddBlockedTerm", Some(&admin), &AddBlockedTermRequest { term: bad.to_uppercase(), note: "test".into(), ..Default::default() })
+        .call(
+            ADMIN,
+            "AddBlockedTerm",
+            Some(&admin),
+            &AddBlockedTermRequest { term: bad.to_uppercase(), note: "test".into(), ..Default::default() },
+        )
         .await
         .unwrap();
     assert!(!ctx.trending(None).await.contains(&query));
@@ -192,8 +247,15 @@ async fn blocked_terms_never_trend_and_are_never_suggested() {
     assert!(!refreshed(&ctx).await.contains(&query));
 
     // Lifting the block lets it qualify again on the searches counted before.
-    let _: RemoveBlockedTermResponse =
-        ctx.call(ADMIN, "RemoveBlockedTerm", Some(&admin), &RemoveBlockedTermRequest { term: bad.clone(), ..Default::default() }).await.unwrap();
+    let _: RemoveBlockedTermResponse = ctx
+        .call(
+            ADMIN,
+            "RemoveBlockedTerm",
+            Some(&admin),
+            &RemoveBlockedTermRequest { term: bad.clone(), ..Default::default() },
+        )
+        .await
+        .unwrap();
     let qualified = ctx.search.refresh_trending().await.unwrap();
     let entry = qualified.iter().find(|q| q.query == query).expect("trending again");
     assert_eq!(entry.searchers, 3, "searches made while it was blocked were not counted");

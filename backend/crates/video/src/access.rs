@@ -13,8 +13,10 @@
 //!   subscriptions feed also FRIENDS ones for friends).
 //!
 //! The same rules exist twice: as methods of [`Viewer`] for single rows, and
-//! as SQL predicates ([`watchable!`], [`listed!`], [`in_feed!`]) for queries
-//! that select many. `tests/…` and the unit tests below keep them in step.
+//! as SQL predicates ([`watchable!`], [`listed!`], [`in_feed!`],
+//! [`public_video!`]) for queries that select many. The integration test
+//! `visibility_decides_who_can_watch_by_link` runs both over every
+//! visibility and kind of viewer and requires them to agree.
 use chrono::{Datelike as _, NaiveDate};
 use tokuly_core::prelude::*;
 use tokuly_proto::{common::Visibility, video::PlaybackBlock};
@@ -116,7 +118,8 @@ impl Viewer {
     /// Loads the viewer's friends and blocks (both cached by the social domain).
     pub async fn load(core: &Core, user_id: Option<Uuid>) -> AppResult<Self> {
         let Some(user_id) = user_id else { return Ok(Self::anonymous()) };
-        let (friends, blocked) = tokio::try_join!(graph::friend_ids(core, user_id), graph::blocked_ids_either(core, user_id))?;
+        let (friends, blocked) =
+            tokio::try_join!(graph::friend_ids(core, user_id), graph::blocked_ids_either(core, user_id))?;
         Ok(Self { user_id: Some(user_id), friends, blocked })
     }
 
@@ -179,7 +182,12 @@ pub fn age_on(birthdate: NaiveDate, today: NaiveDate) -> u32 {
 /// Why the viewer may not play an age-restricted video, if so. The owner
 /// always may; everyone else needs an account with a birthdate that makes
 /// them an adult.
-pub async fn age_block(core: &Core, viewer: &Viewer, owner_id: Uuid, age_restricted: bool) -> AppResult<Option<PlaybackBlock>> {
+pub async fn age_block(
+    core: &Core,
+    viewer: &Viewer,
+    owner_id: Uuid,
+    age_restricted: bool,
+) -> AppResult<Option<PlaybackBlock>> {
     if !age_restricted || viewer.is(owner_id) {
         return Ok(None);
     }
@@ -247,9 +255,15 @@ mod tests {
         let owner = Uuid::now_v7();
         let anyone = Viewer::anonymous();
         assert!(anyone.sees_listed(&facts(owner, PUBLISHED, NO_FEED)));
-        assert!(anyone.can_watch(&facts(owner, PUBLISHED, UNLISTED)) && !anyone.sees_listed(&facts(owner, PUBLISHED, UNLISTED)));
+        assert!(
+            anyone.can_watch(&facts(owner, PUBLISHED, UNLISTED))
+                && !anyone.sees_listed(&facts(owner, PUBLISHED, UNLISTED))
+        );
         let me = Viewer { user_id: Some(owner), ..Default::default() };
-        assert!(!me.sees_listed(&facts(owner, PUBLISHED, PRIVATE)), "private videos live in the studio, not on the page");
+        assert!(
+            !me.sees_listed(&facts(owner, PUBLISHED, PRIVATE)),
+            "private videos live in the studio, not on the page"
+        );
         assert!(!me.sees_listed(&facts(owner, 1, PUBLIC)), "drafts are not listed");
     }
 
