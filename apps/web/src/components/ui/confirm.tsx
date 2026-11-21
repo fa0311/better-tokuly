@@ -1,0 +1,54 @@
+import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
+import { Button } from "./button";
+import { Dialog } from "./dialog";
+
+/**
+ * Asks before doing something that cannot be undone (or costs coins).
+ * The caller owns `open` and closes it when `onConfirm` has finished.
+ */
+export function ConfirmDialog({
+  open,
+  onOpenChange,
+  title,
+  description,
+  confirmLabel,
+  danger,
+  loading,
+  onConfirm,
+  children,
+}: {
+  open: boolean;
+  onOpenChange(open: boolean): void;
+  title: ReactNode;
+  description?: ReactNode;
+  confirmLabel: string;
+  /** Styles the confirm button as destructive. */
+  danger?: boolean;
+  loading?: boolean;
+  onConfirm(): void;
+  /** Extra content between the description and the buttons (a summary, a reason field). */
+  children?: ReactNode;
+}) {
+  const { t } = useTranslation("common");
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={title}
+      description={description}
+      footer={
+        <>
+          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={loading}>
+            {t("actions.cancel")}
+          </Button>
+          <Button variant={danger ? "danger" : "primary"} onClick={onConfirm} loading={loading}>
+            {confirmLabel}
+          </Button>
+        </>
+      }
+    >
+      {children}
+    </Dialog>
+  );
+}

@@ -1,0 +1,260 @@
+@import "tailwindcss";
+@import "@fontsource/m-plus-rounded-1c/400.css";
+@import "@fontsource/m-plus-rounded-1c/500.css";
+@import "@fontsource/m-plus-rounded-1c/700.css";
+@import "@fontsource/m-plus-rounded-1c/800.css";
+@import "@fontsource/m-plus-rounded-1c/900.css";
+
+/*
+ * Tokuly design tokens.
+ *
+ * The look is "sticker pop": rounded shapes outlined in ink with a hard drop
+ * shadow, so everything reads like a sticker pressed onto the map. Colours are
+ * semantic variables that flip between the light and dark themes; components
+ * only ever use the Tailwind names declared in `@theme` below.
+ *
+ * `data-theme` on <html> is "light" or "dark" (resolved from the user's
+ * setting before first paint). `data-dopa` is the ドパガキ度 (0-5): it scales
+ * how bouncy and how sparkly the interface is; 0 turns motion off.
+ */
+:root {
+  --bg: #f4f1ff;
+  --surface: #ffffff;
+  --surface-2: #f0ecfb;
+  --surface-3: #e4def5;
+  --ink: #17122b;
+  --ink-soft: #5d5778;
+  --ink-faint: #9993ad;
+  --line: #ddd6ee;
+  --shadow: #17122b;
+  --overlay: rgb(23 18 43 / 0.45);
+
+  --brand: #7c5cff;
+  --brand-strong: #5f3df0;
+  --brand-soft: #e9e3ff;
+  --on-brand: #ffffff;
+
+  --lime: #c6f24e;
+  --pink: #ff5c9d;
+  --sky: #4fc3ff;
+  --sun: #ffd23f;
+  --coral: #ff7a59;
+  --mint: #3ddc97;
+
+  --danger: #f0425f;
+  --success: #1fb57a;
+  --live: #ff2d55;
+
+  --dopa: 1;
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --bg: #0d0b14;
+  --surface: #17132a;
+  --surface-2: #211c3a;
+  --surface-3: #2d274c;
+  --ink: #f6f3ff;
+  --ink-soft: #b4adcf;
+  --ink-faint: #7a7397;
+  --line: #322b52;
+  --shadow: #000000;
+  --overlay: rgb(0 0 0 / 0.6);
+
+  --brand: #9a82ff;
+  --brand-strong: #b7a5ff;
+  --brand-soft: #2a2152;
+  --on-brand: #120c2b;
+
+  color-scheme: dark;
+}
+
+/* ドパガキ度: 0 = calm … 5 = maximum sparkle. */
+:root[data-dopa="0"] { --dopa: 0; }
+:root[data-dopa="1"] { --dopa: 0.5; }
+:root[data-dopa="2"] { --dopa: 0.75; }
+:root[data-dopa="3"] { --dopa: 1; }
+:root[data-dopa="4"] { --dopa: 1.3; }
+:root[data-dopa="5"] { --dopa: 1.6; }
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+@theme inline {
+  --font-sans: "M PLUS Rounded 1c", ui-rounded, "Hiragino Maru Gothic ProN", "Hiragino Sans", "Yu Gothic UI", system-ui, sans-serif;
+
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-faint: var(--ink-faint);
+  --color-line: var(--line);
+  --color-overlay: var(--overlay);
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-soft: var(--brand-soft);
+  --color-on-brand: var(--on-brand);
+  --color-lime: var(--lime);
+  --color-pink: var(--pink);
+  --color-sky: var(--sky);
+  --color-sun: var(--sun);
+  --color-coral: var(--coral);
+  --color-mint: var(--mint);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  --color-live: var(--live);
+
+  --radius-card: 1.5rem;
+  --radius-control: 1rem;
+
+  --shadow-pop: 0 4px 0 0 var(--shadow);
+  --shadow-pop-sm: 0 2px 0 0 var(--shadow);
+  --shadow-pop-lg: 0 6px 0 0 var(--shadow);
+  --shadow-float: 0 12px 32px -8px rgb(23 18 43 / 0.28);
+
+  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+
+  --animate-pop-in: pop-in calc(260ms * var(--dopa)) var(--ease-bounce) both;
+  --animate-fade-in: fade-in 160ms ease-out both;
+  --animate-slide-up: slide-up calc(320ms * var(--dopa)) var(--ease-out-soft) both;
+  --animate-wiggle: wiggle calc(600ms * var(--dopa)) ease-in-out;
+  --animate-float: float 3s ease-in-out infinite;
+  --animate-pulse-ring: pulse-ring 1.8s ease-out infinite;
+}
+
+@keyframes pop-in {
+  from { opacity: 0; transform: scale(0.82); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  20% { transform: rotate(-8deg); }
+  40% { transform: rotate(7deg); }
+  60% { transform: rotate(-5deg); }
+  80% { transform: rotate(3deg); }
+}
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+@keyframes pulse-ring {
+  0% { transform: scale(1); opacity: 0.7; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    min-height: 100dvh;
+    overscroll-behavior-y: none;
+  }
+  /* A visible, on-brand focus ring for keyboard users everywhere. */
+  :focus-visible {
+    outline: 3px solid var(--brand);
+    outline-offset: 2px;
+    border-radius: 0.5rem;
+  }
+  ::selection {
+    background: var(--lime);
+    color: #17122b;
+  }
+  button, [role="button"], a, summary {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+}
+
+/* ── Signature shapes ─────────────────────────────────────────────── */
+
+/* A sticker: ink outline plus a hard shadow underneath. */
+@utility sticker {
+  border: 2.5px solid var(--ink);
+  box-shadow: var(--shadow-pop);
+}
+@utility sticker-sm {
+  border: 2px solid var(--ink);
+  box-shadow: var(--shadow-pop-sm);
+}
+@utility sticker-lg {
+  border: 3px solid var(--ink);
+  box-shadow: var(--shadow-pop-lg);
+}
+
+/* Something you can press: it sinks onto its shadow. */
+@utility pressable {
+  transition:
+    transform calc(120ms * var(--dopa)) var(--ease-bounce),
+    box-shadow calc(120ms * var(--dopa)) ease-out,
+    background-color 120ms ease-out;
+  &:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+  &:active:not(:disabled) {
+    transform: translateY(3px);
+    box-shadow: 0 1px 0 0 var(--shadow);
+  }
+}
+
+/* Frosted panel that floats above the map. */
+@utility glass {
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+}
+
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Safe-area aware paddings for the floating chrome on phones. */
+@utility pb-safe {
+  padding-bottom: max(env(safe-area-inset-bottom), 0.75rem);
+}
+@utility pt-safe {
+  padding-top: max(env(safe-area-inset-top), 0.75rem);
+}
+
+/* Respect the OS setting and ドパガキ度 0: no motion at all. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dopa: 0;
+  }
+}
+:root[data-dopa="0"] *,
+:root[data-dopa="0"] *::before,
+:root[data-dopa="0"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
