@@ -1,0 +1,41 @@
+[package]
+name = "tokuly-server"
+description = "The `tokuly` binary: API, realtime gateway, workers and tooling."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "tokuly"
+path = "src/main.rs"
+
+[dependencies]
+tokuly-core.workspace = true
+tokuly-proto.workspace = true
+tokuly-media.workspace = true
+tokuly-identity.workspace = true
+tokuly-social.workspace = true
+tokuly-stamp.workspace = true
+tokuly-wallet.workspace = true
+tokuly-notify.workspace = true
+tokuly-admin.workspace = true
+tokuly-realtime.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+futures.workspace = true
+axum.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+http.workspace = true
+connectrpc.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+sqlx.workspace = true
