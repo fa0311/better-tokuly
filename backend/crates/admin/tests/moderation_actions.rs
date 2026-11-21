@@ -1,0 +1,442 @@
+//! Acting on reports: every resolution with its side effects (takedown
+//! event, notifications, account locks), who may do what, reopening, and
+//! takedowns by reference.
+mod common;
+
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use common::*;
+use tokuly_core::{
+    AppResult,
+    subject::{SubjectInfo, SubjectResolver},
+};
+use tokuly_proto::{
+    admin::*,
+    common::{SubjectRef, SubjectType},
+};
+use uuid::Uuid;
+
+use ModerationActionKind::{
+    MODERATION_ACTION_KIND_BAN as BAN, MODERATION_ACTION_KIND_DISMISS as DISMISS, MODERATION_ACTION_KIND_REMOVE_CONTENT as REMOVE_CONTENT,
+    MODERATION_ACTION_KIND_SUSPEND as SUSPEND, MODERATION_ACTION_KIND_WARN as WARN,
+};
+
+#[tokio::test]
+async fn dismissing_closes_the_case_and_only_tells_the_reporters() {
+    let (app, admin) = start().await;
+    let moderator = app.user_with_roles("mod", &["moderator"]).await;
+    let (owner, alice, bob) = (app.user("owner").await, app.user("alice").await, app.user("bob").await);
+    let subject = (NOTE, Uuid::now_v7());
+    admin.handle_event(report_event(alice.id, subject, owner.id, "SPAM", "")).await.unwrap();
+    admin.handle_event(report_event(bob.id, subject, owner.id, "SPAM", "")).await.unwrap();
+    admin.handle_event(report_event(bob.id, subject, owner.id, "OTHER", "")).await.unwrap();
+    let case = case_of_owner(&app, &moderator, owner.id).await.remove(0);
+
+    let resolved = resolve(&app, &moderator, ResolveCaseRequest { note: "問題なし".into(), ..resolution(&case, DISMISS, "") }).await.unwrap();
+    let closed = &resolved.moderation_case;
+    assert_eq!(closed.status, CaseStatus::CASE_STATUS_RESOLVED);
+    assert_eq!(closed.resolution, DISMISS);
+    assert!(!closed.content_removed && closed.resolved_at.is_set());
+    assert_eq!(closed.resolved_by.id, moderator.id.to_string());
+    assert_eq!(resolved.actions.len(), 1);
+    assert_eq!(resolved.actions[0].kind, DISMISS);
+    assert_eq!(resolved.actions[0].note, "問題なし");
+    assert_eq!(resolved.actions[0].case_id, case.id);
+
+    // Each reporter hears back once (bob reported twice), in the inbox only.
+    for reporter in [&alice, &bob] {
+        let notices = notifications_for(&app, reporter.id).await;
+        assert_eq!(notices.len(), 1, "{}", reporter.handle);
+        assert_eq!(notices[0].kind, "system.report_resolved");
+        assert!(notices[0].inbox && !notices[0].push);
+        assert_eq!(notices[0].data["action_taken"], false);
+    }
+    // The owner is left alone and nothing is taken down.
+    assert!(notifications_for(&app, owner.id).await.is_empty());
+    assert!(removals(&app, &moderator, &subject.1.to_string()).await.is_empty());
+    assert!(!is_banned(&app, owner.id).await);
+
+    let again = resolve(&app, &moderator, resolution(&case, DISMISS, "")).await.unwrap_err();
+    assert_eq!((again.code.as_str(), again.reason.as_str()), ("failed_precondition", "CASE_ALREADY_RESOLVED"));
+}
+
+#[tokio::test]
+async fn removing_content_emits_the_takedown_event_and_notifies_owner_and_reporter() {
+    let (app, admin) = start().await;
+    let moderator = app.user_with_roles("mod", &["moderator"]).await;
+    let (owner, reporter) = (app.user("owner").await, app.user("rep").await);
+    let case = open_case(&app, &admin, &moderator, &reporter, &owner).await;
+
+    let resolved = resolve(&app, &moderator, resolution(&case, REMOVE_CONTENT, "スパム投稿のため")).await.unwrap();
+    assert!(resolved.moderation_case.content_removed);
+    assert_eq!(resolved.moderation_case.resolution, REMOVE_CONTENT);
+    assert_eq!(resolved.moderation_case.resolution_reason, "スパム投稿のため");
+    assert_eq!(resolved.actions.len(), 1);
+    let action = &resolved.actions[0];
+    assert_eq!(action.kind, REMOVE_CONTENT);
+    assert_eq!(action.target_user.id, owner.id.to_string());
+    assert_eq!(action.moderator.id, moderator.id.to_string());
+    assert_eq!(action.subject.id, case.subject.id);
+
+    // The cross-domain contract: exactly this payload on `admin.content.removed`.
+    let events = app.events_by("admin.content.removed", moderator.id).await;
+    let event = events.iter().find(|e| e.data["subject_id"] == case.subject.id.as_str()).expect("takedown event");
+    assert_eq!(
+        event.data,
+        serde_json::json!({
+            "subject_type": NOTE as i32,
+            "subject_id": case.subject.id,
+            "reason": "スパム投稿のため",
+            "moderator_id": moderator.id,
+        })
+    );
+
+    let owner_notices = notifications_for(&app, owner.id).await;
+    assert_eq!(owner_notices.len(), 1);
+    assert_eq!(owner_notices[0].kind, "system.content_removed");
+    assert!(owner_notices[0].inbox && owner_notices[0].push);
+    assert!(owner_notices[0].body.ja.contains("今日のランチ") && owner_notices[0].body.ja.contains("スパム投稿のため"));
+    assert_eq!(owner_notices[0].subject, Some((NOTE as i32, case.subject.id.parse().unwrap())));
+
+    let reporter_notices = notifications_for(&app, reporter.id).await;
+    assert_eq!(reporter_notices.len(), 1);
+    assert_eq!(reporter_notices[0].data["action_taken"], true);
+
+    let detail = get_case(&app, &moderator, &case.id).await;
+    assert_eq!(detail.actions.len(), 1);
+    assert_eq!(detail.owner_record.content_removals, 1);
+    assert_eq!(detail.owner_record.open_cases, 0);
+}
+
+#[tokio::test]
+async fn warning_can_also_remove_the_content() {
+    let (app, admin) = start().await;
+    let moderator = app.user_with_roles("mod", &["moderator"]).await;
+    let (owner, reporter) = (app.user("owner").await, app.user("rep").await);
+    let case = open_case(&app, &admin, &moderator, &reporter, &owner).await;
+
+    let resolved = resolve(&app, &moderator, ResolveCaseRequest { remove_content: true, ..resolution(&case, WARN, "誹謗中傷はやめましょう") }).await.unwrap();
+    assert_eq!(resolved.moderation_case.resolution, WARN);
+    assert!(resolved.moderation_case.content_removed);
+    assert_eq!(resolved.actions.iter().map(|a| a.kind.as_known().unwrap()).collect::<Vec<_>>(), vec![WARN, REMOVE_CONTENT]);
+
+    let mut kinds: Vec<String> = notifications_for(&app, owner.id).await.into_iter().map(|n| n.kind).collect();
+    kinds.sort();
+    assert_eq!(kinds, vec!["system.content_removed", "system.warning"]);
+    assert_eq!(removals(&app, &moderator, &case.subject.id).await.len(), 1);
+    assert!(!is_banned(&app, owner.id).await, "a warning does not lock the account");
+
+    let detail = get_case(&app, &moderator, &case.id).await;
+    assert_eq!((detail.owner_record.warnings, detail.owner_record.content_removals, detail.owner_record.suspensions), (1, 1, 0));
+}
+
+#[tokio::test]
+async fn suspending_and_banning_lock_the_owner_out() {
+    let (app, admin) = start().await;
+    let moderator = app.user_with_roles("mod", &["moderator"]).await;
+    let (owner, reporter) = (app.user("owner").await, app.user("rep").await);
+
+    // A one-day suspension.
+    let case = open_case(&app, &admin, &moderator, &reporter, &owner).await;
+    let before = chrono::Utc::now();
+    let resolved =
+        resolve(&app, &moderator, ResolveCaseRequest { suspension_seconds: 86_400, ..resolution(&case, SUSPEND, "繰り返しのスパム") }).await.unwrap();
+    assert_eq!(resolved.moderation_case.resolution, SUSPEND);
+    assert!(!resolved.moderation_case.content_removed);
+    let action = &resolved.actions[0];
+    assert_eq!(action.kind, SUSPEND);
+    let expires = tokuly_core::time::from_ts(action.expires_at.as_option().unwrap());
+    assert!((expires - before - chrono::Duration::days(1)).num_seconds().abs() < 60, "expires about a day from now: {expires}");
+
+    assert!(is_banned(&app, owner.id).await);
+    assert_eq!(app.events("identity.user.banned").await.iter().filter(|e| e.data["user_id"] == owner.id.to_string()).count(), 1);
+    // Their existing session is gone: any authenticated call is refused.
+    let refused = app.call::<_, ListCasesResponse>(&format!("{MODERATION}/ListCases"), Some(&owner), &ListCasesRequest::default()).await.unwrap_err();
+    assert_eq!(refused.code, "unauthenticated");
+    let (reason, expires_at, case_id): (String, Option<chrono::DateTime<chrono::Utc>>, Option<Uuid>) =
+        sqlx::query_as("SELECT reason, expires_at, case_id FROM user_suspensions WHERE user_id = $1 AND ended_at IS NULL")
+            .bind(owner.id)
+            .fetch_one(&app.core.db)
+            .await
+            .unwrap();
+    assert_eq!(reason, "繰り返しのスパム");
+    assert!(expires_at.is_some());
+    assert_eq!(case_id.unwrap().to_string(), case.id);
+
+    // A later case escalates to a permanent ban, replacing the suspension.
+    let second = open_case(&app, &admin, &moderator, &reporter, &owner).await;
+    let banned = resolve(&app, &moderator, ResolveCaseRequest { remove_content: true, ..resolution(&second, BAN, "規約違反の継続") }).await.unwrap();
+    assert_eq!(banned.actions.iter().map(|a| a.kind.as_known().unwrap()).collect::<Vec<_>>(), vec![BAN, REMOVE_CONTENT]);
+    assert!(banned.actions[0].expires_at.is_unset());
+    let active: Vec<(Option<chrono::DateTime<chrono::Utc>>,)> =
+        sqlx::query_as("SELECT expires_at FROM user_suspensions WHERE user_id = $1 AND ended_at IS NULL").bind(owner.id).fetch_all(&app.core.db).await.unwrap();
+    assert_eq!(active, vec![(None,)], "exactly one active suspension, now permanent");
+    let superseded: i64 = sqlx::query_scalar("SELECT count(*) FROM user_suspensions WHERE user_id = $1 AND end_cause = 'superseded'")
+        .bind(owner.id)
+        .fetch_one(&app.core.db)
+        .await
+        .unwrap();
+    assert_eq!(superseded, 1);
+
+    let detail = get_case(&app, &moderator, &second.id).await;
+    assert_eq!(detail.owner_record.suspensions, 2);
+}
+
+#[tokio::test]
+async fn resolutions_are_validated() {
+    let (app, admin) = start().await;
+    let moderator = app.user_with_roles("mod", &["moderator"]).await;
+    let (owner, reporter) = (app.user("owner").await, app.user("rep").await);
+    let case = open_case(&app, &admin, &moderator, &reporter, &owner).await;
+
+    let cases: Vec<(&str, ResolveCaseRequest)> = vec![
+        ("ACTION_INVALID", ResolveCaseRequest { case_id: case.id.clone(), reason: "x".into(), ..Default::default() }),
+        ("ACTION_INVALID", resolution(&case, ModerationActionKind::MODERATION_ACTION_KIND_UNSUSPEND, "x")),
+        ("ACTION_INVALID", ResolveCaseRequest { remove_content: true, ..resolution(&case, DISMISS, "") }),
+        ("REASON_REQUIRED", resolution(&case, REMOVE_CONTENT, "  ")),
+        ("REASON_REQUIRED", resolution(&case, WARN, "")),
+        ("REASON_TOO_LONG", resolution(&case, WARN, &"あ".repeat(501))),
+        ("NOTE_INVALID", ResolveCaseRequest { note: "x".repeat(2001), ..resolution(&case, WARN, "x") }),
+        ("SUSPENSION_DURATION_INVALID", resolution(&case, SUSPEND, "x")),
+        ("SUSPENSION_DURATION_INVALID", ResolveCaseRequest { suspension_seconds: 60, ..resolution(&case, SUSPEND, "x") }),
+        ("SUSPENSION_DURATION_INVALID", ResolveCaseRequest { suspension_seconds: 400 * 86_400, ..resolution(&case, SUSPEND, "x") }),
+        ("SUSPENSION_DURATION_INVALID", ResolveCaseRequest { suspension_seconds: 86_400, ..resolution(&case, BAN, "x") }),
+        ("INVALID_ID", ResolveCaseRequest { case_id: "not-a-uuid".into(), ..resolution(&case, DISMISS, "") }),
+        ("CASE_NOT_FOUND", ResolveCaseRequest { case_id: Uuid::now_v7().to_string(), ..resolution(&case, DISMISS, "") }),
+    ];
+    for (reason, request) in cases {
+        let err = resolve(&app, &moderator, request).await.unwrap_err();
+        assert_eq!(err.reason, reason, "{err}");
+    }
+    // None of the rejected requests touched the case.
+    assert_eq!(case_of_owner(&app, &moderator, owner.id).await.len(), 1);
+    assert!(notifications_for(&app, owner.id).await.is_empty());
+}
+
+#[tokio::test]
+async fn two_moderators_resolving_at_once_cannot_both_win() {
+    let (app, admin) = start().await;
+    let moderator = app.user_with_roles("mod", &["moderator"]).await;
+    let colleague = app.user_with_roles("colleague", &["moderator"]).await;
+    let (owner, reporter) = (app.user("owner").await, app.user("rep").await);
+    let case = open_case(&app, &admin, &moderator, &reporter, &owner).await;
+
+    let (first, second) =
+        tokio::join!(resolve(&app, &moderator, resolution(&case, REMOVE_CONTENT, "スパム")), resolve(&app, &colleague, resolution(&case, WARN, "注意")));
+    let (winners, losers): (Vec<_>, Vec<_>) = [first, second].into_iter().partition(|outcome| outcome.is_ok());
+    assert_eq!((winners.len(), losers.len()), (1, 1), "exactly one resolution is applied");
+    assert_eq!(losers[0].as_ref().unwrap_err().reason, "CASE_ALREADY_RESOLVED");
+
+    // The loser left no trace: one log entry, one notice to the owner, one to the reporter.
+    let detail = get_case(&app, &moderator, &case.id).await;
+    assert_eq!(detail.actions.len(), 1);
+    assert_eq!(detail.actions[0].kind, detail.moderation_case.resolution.as_known().unwrap());
+    assert_eq!(notifications_for(&app, owner.id).await.len(), 1);
+    assert_eq!(notifications_for(&app, reporter.id).await.len(), 1);
+}
+
+#[tokio::test]
+async fn moderators_cannot_judge_themselves_or_sanction_staff() {
+    let (app, admin) = start().await;
+    let moderator = app.user_with_roles("mod", &["moderator"]).await;
+    let colleague = app.user_with_roles("colleague", &["moderator"]).await;
+    let boss = app.user_with_roles("boss", &["admin"]).await;
+    let reporter = app.user("rep").await;
+
+    // A case about the moderator's own note: someone else has to handle it.
+    let own = open_case(&app, &admin, &moderator, &reporter, &moderator).await;
+    let conflict = resolve(&app, &moderator, resolution(&own, DISMISS, "")).await.unwrap_err();
+    assert_eq!((conflict.code.as_str(), conflict.reason.as_str()), ("permission_denied", "CONFLICT_OF_INTEREST"));
+
+    // A colleague may dismiss or take the content down, but not sanction a fellow moderator...
+    for action in [WARN, SUSPEND, BAN] {
+        let seconds = if action == SUSPEND { 3600 } else { 0 };
+        let denied = resolve(&app, &colleague, ResolveCaseRequest { suspension_seconds: seconds, ..resolution(&own, action, "x") }).await.unwrap_err();
+        assert_eq!((denied.code.as_str(), denied.reason.as_str()), ("permission_denied", "TARGET_IS_STAFF"), "{action:?}");
+    }
+    assert!(!is_banned(&app, moderator.id).await);
+    // ...an admin can.
+    let warned = resolve(&app, &boss, resolution(&own, WARN, "モデレーターも例外ではありません")).await.unwrap();
+    assert_eq!(warned.actions[0].kind, WARN);
+}
+
+#[tokio::test]
+async fn account_cases_cannot_remove_content_and_ownerless_cases_cannot_sanction() {
+    let (app, admin) = start().await;
+    let moderator = app.user_with_roles("mod", &["moderator"]).await;
+    let (owner, reporter) = (app.user("owner").await, app.user("rep").await);
+
+    // A reported profile: the subject is the account itself.
+    let profile = (SubjectType::SUBJECT_TYPE_USER, owner.id);
+    admin.handle_event(report_event(reporter.id, profile, owner.id, "IMPERSONATION", "なりすまし")).await.unwrap();
+    let case = case_of_owner(&app, &moderator, owner.id).await.remove(0);
+    for request in [resolution(&case, REMOVE_CONTENT, "x"), ResolveCaseRequest { remove_content: true, ..resolution(&case, WARN, "x") }] {
+        let err = resolve(&app, &moderator, request).await.unwrap_err();
+        assert_eq!((err.code.as_str(), err.reason.as_str()), ("invalid_argument", "ACTION_NOT_APPLICABLE"));
+    }
+    // Banning the account is the applicable action.
+    resolve(&app, &moderator, resolution(&case, BAN, "なりすまし")).await.unwrap();
+    assert!(is_banned(&app, owner.id).await);
+
+    // A case whose owner is unknown (account already erased) can be closed or taken down, not sanctioned.
+    let orphan = (NOTE, Uuid::now_v7());
+    admin.handle_event(report_event(reporter.id, orphan, Uuid::now_v7(), "SPAM", "")).await.unwrap();
+    let orphan_id: Uuid = sqlx::query_scalar("SELECT id FROM moderation_cases WHERE subject_id = $1").bind(orphan.1).fetch_one(&app.core.db).await.unwrap();
+    let orphan_case = get_case(&app, &moderator, &orphan_id.to_string()).await.moderation_case.into_option().unwrap();
+    assert!(orphan_case.subject_owner.is_unset());
+    let err = resolve(&app, &moderator, resolution(&orphan_case, WARN, "x")).await.unwrap_err();
+    assert_eq!((err.code.as_str(), err.reason.as_str()), ("failed_precondition", "ACTION_NOT_APPLICABLE"));
+    let removed = resolve(&app, &moderator, resolution(&orphan_case, REMOVE_CONTENT, "スパム")).await.unwrap();
+    assert!(removed.actions[0].target_user.is_unset());
+}
+
+#[tokio::test]
+async fn resolved_cases_can_be_reopened_unless_superseded() {
+    let (app, admin) = start().await;
+    let moderator = app.user_with_roles("mod", &["moderator"]).await;
+    let (owner, reporter) = (app.user("owner").await, app.user("rep").await);
+    let case = open_case(&app, &admin, &moderator, &reporter, &owner).await;
+    let subject = (NOTE, case.subject.id.parse::<Uuid>().unwrap());
+    let reopen = |case_id: String| {
+        let (app, moderator) = (&app, &moderator);
+        let request = ReopenCaseRequest { case_id, note: "判断を見直します".into(), ..Default::default() };
+        async move { app.call::<_, ReopenCaseResponse>(&format!("{MODERATION}/ReopenCase"), Some(moderator), &request).await }
+    };
+
+    let still_open = reopen(case.id.clone()).await.unwrap_err();
+    assert_eq!((still_open.code.as_str(), still_open.reason.as_str()), ("failed_precondition", "CASE_NOT_RESOLVED"));
+    assert_eq!(reopen(Uuid::now_v7().to_string()).await.unwrap_err().reason, "CASE_NOT_FOUND");
+
+    resolve(&app, &moderator, resolution(&case, DISMISS, "")).await.unwrap();
+    let reopened = reopen(case.id.clone()).await.unwrap().moderation_case;
+    assert_eq!(reopened.status, CaseStatus::CASE_STATUS_OPEN);
+    assert_eq!(reopened.resolution, ModerationActionKind::MODERATION_ACTION_KIND_UNSPECIFIED);
+    assert!(reopened.resolved_by.is_unset() && reopened.resolved_at.is_unset());
+    let detail = get_case(&app, &moderator, &case.id).await;
+    assert_eq!(detail.notes.last().unwrap().body, "判断を見直します");
+    assert_eq!(detail.actions.len(), 1, "the earlier dismissal stays in the log");
+
+    // Resolve again; a new report then opens a second case, which blocks reopening the first.
+    resolve(&app, &moderator, resolution(&case, DISMISS, "")).await.unwrap();
+    admin.handle_event(report_event(reporter.id, subject, owner.id, "SPAM", "まだ続いています")).await.unwrap();
+    let open_now = case_of_owner(&app, &moderator, owner.id).await;
+    assert_eq!(open_now.len(), 1);
+    assert_ne!(open_now[0].id, case.id, "a report after resolution opens a fresh case");
+    assert_eq!(open_now[0].report_count, 1);
+    let superseded = reopen(case.id.clone()).await.unwrap_err();
+    assert_eq!((superseded.code.as_str(), superseded.reason.as_str()), ("failed_precondition", "CASE_SUPERSEDED"));
+}
+
+/// Stands in for a content domain: knows one video by UUID and short ID.
+struct FakeVideos {
+    id: Uuid,
+    owner_id: Uuid,
+}
+
+#[async_trait]
+impl SubjectResolver for FakeVideos {
+    async fn resolve(&self, id: &str, _viewer: Option<Uuid>) -> AppResult<Option<SubjectInfo>> {
+        Ok((id == "dQw4w9WgXcQ" || id == self.id.to_string()).then(|| SubjectInfo {
+            id: self.id,
+            owner_id: self.owner_id,
+            title: "ゲーム実況 #12".into(),
+            path: "/watch/dQw4w9WgXcQ".into(),
+            image_url: None,
+            interactions_enabled: true,
+        }))
+    }
+}
+
+#[tokio::test]
+async fn takedown_by_reference_without_a_report() {
+    let (app, _admin) = start().await;
+    let moderator = app.user_with_roles("mod", &["moderator"]).await;
+    let owner = app.user("owner").await;
+    let video_id = Uuid::now_v7();
+    app.core.subjects.register(SubjectType::SUBJECT_TYPE_VIDEO, Arc::new(FakeVideos { id: video_id, owner_id: owner.id }));
+    let takedown = |subject: SubjectRef, reason: &str| {
+        let (app, moderator) = (&app, &moderator);
+        let request = TakedownContentRequest { subject: subject.into(), reason: reason.into(), note: "DMCA #4411".into(), ..Default::default() };
+        async move { app.call::<_, TakedownContentResponse>(&format!("{MODERATION}/TakedownContent"), Some(moderator), &request).await }
+    };
+
+    // By short ID: the owning domain's resolver supplies the UUID, owner and title.
+    let done = takedown(subject_ref(SubjectType::SUBJECT_TYPE_VIDEO, "dQw4w9WgXcQ"), "著作権侵害の申し立て").await.unwrap();
+    assert!(done.resolved_case.is_unset());
+    assert_eq!(done.action.kind, REMOVE_CONTENT);
+    assert_eq!(done.action.subject.id, video_id.to_string());
+    assert_eq!(done.action.target_user.id, owner.id.to_string());
+    assert_eq!((done.action.subject_title.as_str(), done.action.note.as_str()), ("ゲーム実況 #12", "DMCA #4411"));
+    assert!(done.action.case_id.is_empty());
+    let events = removals(&app, &moderator, &video_id.to_string()).await;
+    assert_eq!(events.len(), 1);
+    assert_eq!(
+        (events[0].subject_type, events[0].reason.as_str(), events[0].moderator_id),
+        (SubjectType::SUBJECT_TYPE_VIDEO as i32, "著作権侵害の申し立て", moderator.id)
+    );
+    let notices = notifications_for(&app, owner.id).await;
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].kind, "system.content_removed");
+    assert!(notices[0].body.ja.contains("ゲーム実況 #12"));
+
+    // By UUID with no resolver for the type and no earlier report: the event still goes out, nobody to notify.
+    let unknown_note = Uuid::now_v7();
+    let blind = takedown(subject_ref(NOTE, unknown_note), "違法な内容").await.unwrap();
+    assert!(blind.action.target_user.is_unset());
+    assert_eq!(removals(&app, &moderator, &unknown_note.to_string()).await.len(), 1);
+
+    // Validation.
+    let cases: Vec<(&str, &str, Option<SubjectRef>, &str)> = vec![
+        ("invalid_argument", "SUBJECT_INVALID", None, "x"),
+        ("invalid_argument", "SUBJECT_INVALID", Some(SubjectRef { id: unknown_note.to_string(), ..Default::default() }), "x"),
+        ("invalid_argument", "SUBJECT_INVALID", Some(subject_ref(NOTE, "")), "x"),
+        ("invalid_argument", "ACTION_NOT_APPLICABLE", Some(subject_ref(SubjectType::SUBJECT_TYPE_USER, owner.id)), "x"),
+        ("not_found", "SUBJECT_NOT_FOUND", Some(subject_ref(NOTE, "shortid1234")), "x"),
+        ("not_found", "SUBJECT_NOT_FOUND", Some(subject_ref(SubjectType::SUBJECT_TYPE_VIDEO, "unknownShort")), "x"),
+        ("invalid_argument", "REASON_REQUIRED", Some(subject_ref(NOTE, unknown_note)), " "),
+    ];
+    for (code, reason, subject, text) in cases {
+        let request = TakedownContentRequest { subject: subject.into(), reason: text.into(), ..Default::default() };
+        let err = app.call::<_, TakedownContentResponse>(&format!("{MODERATION}/TakedownContent"), Some(&moderator), &request).await.unwrap_err();
+        assert_eq!((err.code.as_str(), err.reason.as_str()), (code, reason), "{err}");
+    }
+}
+
+#[tokio::test]
+async fn takedown_resolves_the_open_case_about_the_subject() {
+    let (app, admin) = start().await;
+    let moderator = app.user_with_roles("mod", &["moderator"]).await;
+    let (owner, reporter) = (app.user("owner").await, app.user("rep").await);
+    let case = open_case(&app, &admin, &moderator, &reporter, &owner).await;
+
+    let done: TakedownContentResponse = app
+        .call(
+            &format!("{MODERATION}/TakedownContent"),
+            Some(&moderator),
+            &TakedownContentRequest { subject: case.subject.clone(), reason: "規約違反".into(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    assert_eq!(done.resolved_case.id, case.id);
+    assert_eq!(done.resolved_case.status, CaseStatus::CASE_STATUS_RESOLVED);
+    assert_eq!(done.resolved_case.resolution, REMOVE_CONTENT);
+    assert_eq!(done.action.case_id, case.id);
+    // Owner and title were taken from the case, and the reporter heard back.
+    assert_eq!(done.action.target_user.id, owner.id.to_string());
+    assert_eq!(notifications_for(&app, owner.id).await.len(), 1);
+    assert_eq!(notifications_for(&app, reporter.id).await.len(), 1);
+    assert_eq!(removals(&app, &moderator, &case.subject.id).await.len(), 1);
+
+    // A second takedown of the same subject finds no open case; it knows the owner from the old one.
+    let again: TakedownContentResponse = app
+        .call(
+            &format!("{MODERATION}/TakedownContent"),
+            Some(&moderator),
+            &TakedownContentRequest { subject: case.subject.clone(), reason: "再投稿".into(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    assert!(again.resolved_case.is_unset());
+    assert_eq!(again.action.target_user.id, owner.id.to_string());
+}
