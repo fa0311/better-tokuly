@@ -7,6 +7,29 @@ the features requested for the rebuild (stamps, shorts, logs).
 Shared API types live in `proto/tokuly/common/v1/common.proto`; conventions in
 `backend/README.md`.
 
+## Who it is for
+
+A super app with a live map of your friends at its centre.
+
+- **High-school students and Gen Z in Japan first.** School life, friend
+  groups, 推し活, streaks, anonymous questions, study sessions, hanging out in
+  voice rooms. Playful by default (the ドパガキ度 setting scales how much),
+  safe by default: friends-only audiences, ghost mode, reporting on
+  everything, anonymity that never shields abuse from moderators.
+- **Every generation.** Nothing requires knowing the slang; families use the
+  map, places and safety features without touching the rest.
+- **Engineers.** Every feature is an API (Connect RPC / gRPC), with personal
+  tokens, OAuth apps, bots and webhooks; custom emoji, rich text markup,
+  themes, keyboard-driven screens; self-hostable with one `docker compose up`.
+
+Where features come from: the original Tokuly (everything it had), Bump /
+Zenly (map), LINE (chat, stamps), Instagram (stories, close friends, photo
+grid), Twitter / X (timeline, quotes, trends, communities, audio rooms),
+Misskey (custom emoji, emoji reactions, markup, antennas, channels, clips,
+federation), YouTube / Twitch / TikTok (video, live, shorts), BeReal (POV),
+質問箱 / Gas (anonymous questions, compliment polls), Studyplus (study
+logs), 調整さん (date polls), Discord (communities, always-on voice rooms).
+
 ## identity (done) · social · geo · realtime · media — contracts written
 
 See their proto files. Summary of behaviour that is not obvious from the API:
@@ -217,3 +240,154 @@ Role-gated (`admin`, `moderator`).
 - Content takedown by subject; stamp pack review; payout review.
 - Feature flags CRUD; announcements; server stats (users, DAU, content
   counts, queue depths); audit log of admin actions.
+
+
+## emoji — カスタム絵文字
+
+Misskey-style custom emoji: small images with a `:shortcode:` that work in
+text, display names and reactions everywhere.
+
+- An emoji has a unique name (`a-z0-9_`), an image (static or animated),
+  a category, aliases for search (Japanese and English keywords), an author
+  and licence note, and a flag for "sensitive". Anyone may submit one; it is
+  usable once a moderator approves it (trusted submitters skip review);
+  staff add, edit, disable and delete directly.
+- Import and export of whole sets as a ZIP in Misskey's format (`meta.json`
+  plus images), so existing emoji packs can be brought over.
+- Catalogue for clients: the whole approved set with a version so clients
+  cache it and fetch only changes; search by name / alias / category.
+- Per user: a reaction deck (pinned emoji in order), recently used, usage
+  counts for "popular" sorting.
+- Public Rust API: does a name exist, resolve names to images.
+
+## ask — 質問箱・ほめ投票
+
+Anonymous questions and friendly anonymous polls, the way teenagers use
+質問箱 / Peing / NGL and Gas.
+
+- Question box per user: open or closed, who may ask (anyone signed in,
+  friends), a prompt line, shareable link. Questions are anonymous by
+  default (the asker may sign), ≤ 300 chars. The asker's identity is stored
+  for moderation only and never shown to the recipient; the recipient can
+  block "this sender" without learning who it is, filter words, and report.
+- Inbox: new / answered / archived. An answer (text ≤ 1000, optional image
+  or stamp) is published to the owner's Q&A page with an audience (public,
+  friends) or kept private; the asker is told when their question is
+  answered. Answers can be liked and commented through engagement.
+- Prompts (お題): the owner asks their friends something ("私の第一印象は?")
+  and collects anonymous or signed responses, choosing which to publish.
+- Compliment polls (ほめ投票): rounds of positive questions from a curated
+  bank ("一番おしゃれな人は?"), each with four of the voter's friends to
+  pick from (shuffle, skip). The picked friend receives an anonymous
+  "flame"; hints about the voter (first letter of the name…) cost coins.
+  Rounds refill on a timer; finishing one is rewarded.
+
+## quest — ミッション・バッジ・レベル・ストリーク
+
+Rewards for using the app with friends. Entirely event-driven: it listens to
+what the other domains emit.
+
+- XP and levels, with per-source daily caps so nothing can be farmed.
+- Daily and weekly missions drawn from a pool (send a stamp, visit a new
+  place, study 30 minutes, answer a question…), progress, claimable rewards
+  (coins, XP, a badge), one reroll a day.
+- Badges with tiers and rarity (share of users who own it), some secret;
+  a showcase on the profile; selectable titles (称号) next to the name.
+- Friend streaks 🔥: consecutive days two friends interacted; a warning
+  before a streak expires, milestones, one restore a month for coins.
+- Leaderboards among friends (weekly XP, longest streak, explored area,
+  study time), and monthly seasons with a season badge.
+- Realtime `QuestEvent` (XP gained, level up, badge unlocked) so clients
+  celebrate in proportion to the ドパガキ度.
+
+## plans — ひま・あそぶ予定・日程調整・記念日
+
+- "ひま" status: free now / today / this weekend, with a note, a time window
+  and an audience (friends, best friends, chosen people); friends see who is
+  free and can answer "あそぼ!" in one tap. Expires by itself.
+- Plans: title, emoji, time (or "to be decided"), place, invitees, RSVP
+  (going / maybe / no) with a comment, reminders, a checklist (持ち物), and
+  a cost split (割り勘: who paid what, who owes whom).
+- Date polls (調整さん): candidate dates or time slots, ○ △ × per
+  participant, the best slot suggested, finalising turns it into a plan.
+- Countdowns and anniversaries: to an exam, a festival, a concert, a
+  birthday; "days since" with milestones (100 days, half a year, a year) for
+  friendships and couples; shared with chosen people or pinned to the profile.
+- A calendar view: my month of plans, polls, countdowns and friends' birthdays.
+
+## school — 時間割・勉強・テスト
+
+- Timetable (時間割): terms, period times, subjects with colour / teacher /
+  room, weekly grid with A/B weeks and one-off changes; shared with chosen
+  friends; copy a classmate's as a starting point; "who shares my free
+  period" (空きコマ); the current / next class as a status.
+- Study sessions: a focus timer (stopwatch or pomodoro) per subject, daily
+  and weekly totals, a goal and streak, a heatmap calendar, "勉強中" shown to
+  friends, weekly ranking among friends.
+- Study rooms (もくもく部屋): a shared timer everyone in the room follows,
+  presence, cheers; public or friends-only.
+- Exams and assignments: exam periods with countdowns ("テスト期間" on the
+  profile), assignments with due dates and reminders.
+
+## spaces — たまり場（音声ルーム）
+
+Drop-in audio rooms on LiveKit: Twitter Spaces for public talk, an always-on
+Discord-style voice room for a friend group.
+
+- A room has a title, tags, an audience (public, friends, invited people),
+  a host, co-hosts, speakers on stage and listeners; raise a hand, invite to
+  the stage, mute, remove, ban; emoji bursts; a pinned note or link;
+  scheduled rooms with reminders.
+- たまり場: a persistent room owned by a group of friends that is simply
+  "open"; who is inside shows on friends' lists and the map.
+- Live now among friends and trending public rooms; notifications when a
+  friend opens one or invites you.
+
+## community — コミュニティ
+
+Places for a class, a club, a game, an 推し, a neighbourhood, a tech topic.
+
+- A community has a name, handle, icon, banner, description, rules, tags and
+  category; it is public, restricted (request, invite link / QR / code) or
+  hidden. Roles (owner, admin, moderator, member), bans, join questions.
+- Boards: channels holding threads (title, body with images / stamps / a
+  poll) and replies; pin, lock, announce; hot / new / top; optional
+  anonymous channels with a stable pseudonym per thread (moderators see the
+  author); slow mode, word filters, auto-hide on reports.
+- Events: time, place, capacity, RSVP with waitlist, reminders, check-in.
+- Announcements, per-member notification level, member directory.
+- Discovery: by category and tag, trending, from friends and school.
+
+## dev — 開発者プラットフォーム
+
+The whole API is open to the people who use it.
+
+- Personal access tokens with scopes and expiry; OAuth 2.1 apps
+  (authorization code + PKCE, device code for CLIs) with a consent screen
+  and a list of authorized apps; scopes are `<domain>:read` / `<domain>:write`
+  with location in a scope of its own.
+- Bots: accounts owned by a person, marked as bots, acting through the API.
+- Webhooks: signed deliveries of the owner's own events to a URL, retries,
+  a delivery log with replay, automatic disabling of dead endpoints.
+- An API reference generated from the proto files that the server itself
+  serves, and per-token usage statistics.
+
+## Planned extensions of existing domains
+
+Collected here so the next pass over each domain has its list:
+
+- **social**: follows (asymmetric, with locked accounts and follow
+  requests) next to friendships; circles (close friends and custom lists)
+  usable as audiences everywhere.
+- **notes**: polls, content warnings, longer text with markup (MFM-like)
+  and custom emoji, up to ten media with alt text, drafts and scheduled
+  notes, edit history, lists, antennas (saved keyword timelines), channels
+  (topic timelines), clips (curated public collections), muted words,
+  trends, a following timeline, circle audiences, a profile media grid.
+- **identity**: profile extras (MBTI, 推し, links, pronouns, プロフ帳 cards),
+  bot flag, linked accounts for quick switching.
+- **engagement**: custom emoji as reactions.
+- **federation** (new, after notes): ActivityPub, so accounts and notes
+  interoperate with Misskey and Mastodon.
+- **web**: deck layout, command palette, theme editor, API explorer.
+
