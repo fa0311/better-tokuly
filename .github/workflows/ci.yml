@@ -1,0 +1,140 @@
+# Checks every pull request and every push to the long-lived branches.
+#
+# Each job runs only when the files it is about changed. The backend job
+# builds and tests against real backing services (compose.dev.yaml), for the
+# crates the change touches — see tools/ci/backend-packages.sh.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, feat/tokuly-rebuild]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      proto: ${{ steps.filter.outputs.proto }}
+      backend: ${{ steps.filter.outputs.backend }}
+      web: ${{ steps.filter.outputs.web }}
+      packages: ${{ steps.packages.outputs.flags }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            proto:
+              - 'proto/**'
+              - 'buf.yaml'
+            backend:
+              - 'backend/**'
+              - 'proto/**'
+              - 'buf.yaml'
+              - 'compose.dev.yaml'
+              - 'tools/ci/**'
+              - '.github/workflows/ci.yml'
+            web:
+              - 'apps/web/**'
+              - 'packages/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - '.github/workflows/ci.yml'
+      - name: Choose the crates to build and test
+        id: packages
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ -n "$BASE" ]; then flags="$(tools/ci/backend-packages.sh "$BASE")"; else flags="$(tools/ci/backend-packages.sh)"; fi
+          echo "flags=$flags" >> "$GITHUB_OUTPUT"
+          echo "Crates: ${flags:-none}"
+
+  proto:
+    name: API contract
+    needs: changes
+    if: needs.changes.outputs.proto == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: bufbuild/buf-action@v1
+        with:
+          setup_only: true
+      - run: buf lint
+      - run: buf build -o /dev/null
+
+  backend:
+    name: Backend
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' && needs.changes.outputs.packages != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      PACKAGES: ${{ needs.changes.outputs.packages }}
+      CARGO_INCREMENTAL: "0"
+      # The generated API crate is enormous; without debug info it fits the runner's memory.
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_BUILD_JOBS: "2"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: bufbuild/buf-action@v1
+        with:
+          setup_only: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+          cache-on-failure: true
+      - name: Install ffmpeg (media pipeline tests)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg
+      - name: Start the backing services
+        run: docker compose -f compose.dev.yaml up -d --wait --wait-timeout 300
+      - name: Build
+        working-directory: backend
+        run: cargo build --locked --all-targets $PACKAGES
+      - name: Test
+        working-directory: backend
+        run: |
+          eval "$(../tools/dev/infra.sh env)"
+          cargo test --locked $PACKAGES
+      - name: Service logs
+        if: failure()
+        run: docker compose -f compose.dev.yaml logs --tail 80
+
+  web:
+    name: Web
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Generate the API client
+        run: pnpm proto:gen
+      - name: Client packages
+        run: pnpm --filter @tokuly/api --filter @tokuly/realtime run --if-present test
+      - name: Type check
+        run: pnpm --filter @tokuly/web typecheck
+      - name: Unit tests
+        run: pnpm --filter @tokuly/web test
+      - name: Build
+        run: pnpm --filter @tokuly/web build
