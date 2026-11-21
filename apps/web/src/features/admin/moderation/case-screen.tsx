@@ -10,7 +10,7 @@ import { TextArea } from "#/components/ui/field";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
-import { errorMessage } from "../errors";
+import { errorMessage } from "#/lib/errors";
 import { compactAge } from "#/lib/format";
 import { useMe } from "#/stores/session";
 import { moderationClient } from "../api";

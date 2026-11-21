@@ -8,6 +8,7 @@ export default {
     stamps: "スタンプ",
     wallet: "ウォレット",
     settings: "設定",
+    announcements: "アップデート情報",
     admin: "管理",
   },
 } as const;

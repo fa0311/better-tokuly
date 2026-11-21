@@ -12,7 +12,7 @@ import { EmptyState, Skeleton } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
 import { Tabs } from "#/components/ui/tabs";
 import { ANNOUNCEMENT_CATEGORIES, AnnouncementArticle, AnnouncementCard, type AnnouncementContent, announcementCategoryKey, markdownExcerpt } from "#/features/announcements";
-import { errorMessage } from "../errors";
+import { errorMessage } from "#/lib/errors";
 import { uploadAndProcess } from "#/lib/upload";
 import { announcementAdminClient } from "../api";
 import { formatDateTime, fromLocalInput } from "../format";

@@ -10,7 +10,8 @@ import { Skeleton } from "#/components/ui/page";
 import { Spinner } from "#/components/ui/spinner";
 import { accountClient, authClient, profileClient } from "#/lib/api";
 import { adoptMe, keys } from "../data";
-import { errorMessage, reasonOf } from "../errors";
+import { errorReason } from "@tokuly/api";
+import { errorMessage } from "#/lib/errors";
 import { Group } from "../shell/settings-page";
 import { graphemes } from "./graphemes";
 
@@ -114,7 +115,7 @@ export function ProfileForm({ me }: { me: identity.Me }) {
       toast.success(t("settings:profile.saved"));
     },
     onError: (error) => {
-      const field = FIELD_OF_REASON[reasonOf(error) ?? ""];
+      const field = FIELD_OF_REASON[errorReason(error) ?? ""];
       if (field) setFieldError({ field, message: errorMessage(error) });
       else toast.error(errorMessage(error));
     },

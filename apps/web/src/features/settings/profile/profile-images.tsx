@@ -10,7 +10,7 @@ import { ConfirmDialog } from "#/components/ui/confirm";
 import { accountClient } from "#/lib/api";
 import { uploadAndProcess } from "#/lib/upload";
 import { adoptMe } from "../data";
-import { errorMessage } from "../errors";
+import { errorMessage } from "#/lib/errors";
 import { AVATAR_FRAME, BANNER_FRAME } from "./crop";
 import { ImageCropDialog } from "./image-crop-dialog";
 

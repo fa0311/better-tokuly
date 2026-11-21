@@ -8,6 +8,7 @@ export default {
     stamps: "Stamps",
     wallet: "Wallet",
     settings: "Settings",
+    announcements: "What's new",
     admin: "Admin",
   },
 } as const;

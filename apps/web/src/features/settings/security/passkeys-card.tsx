@@ -12,7 +12,7 @@ import { TextField } from "#/components/ui/field";
 import { ListRow, Skeleton } from "#/components/ui/page";
 import { accountClient, authClient } from "#/lib/api";
 import { keys, refreshMe } from "../data";
-import { errorMessage } from "../errors";
+import { errorMessage } from "#/lib/errors";
 import { Group } from "../shell/settings-page";
 
 /** A starting name for a new passkey, from what the browser says it runs on. */

@@ -10,7 +10,7 @@ import { Skeleton } from "#/components/ui/page";
 import { accountClient } from "#/lib/api";
 import { compactAge } from "#/lib/format";
 import { keys } from "../data";
-import { errorMessage } from "../errors";
+import { errorMessage } from "#/lib/errors";
 import { Group, StateChip } from "../shell/settings-page";
 
 function PlatformIcon({ platform }: { platform: common.Platform }) {

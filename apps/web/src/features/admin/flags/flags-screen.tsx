@@ -11,7 +11,7 @@ import { ConfirmDialog } from "#/components/ui/confirm";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
-import { errorMessage } from "../errors";
+import { errorMessage } from "#/lib/errors";
 import { compactAge } from "#/lib/format";
 import { flagClient } from "../api";
 import { formatDateTime } from "../format";

@@ -4,7 +4,7 @@ import { type ReactNode, useEffect } from "react";
 import { I18nextProvider } from "react-i18next";
 import { Toaster } from "sonner";
 import { BOOT_SCRIPT } from "#/lib/appearance";
-import i18n, { createI18n } from "#/lib/i18n";
+import i18n, { createI18n, type Language, normalizeLanguage } from "#/lib/i18n";
 import { getRequestLanguage } from "#/lib/request-language";
 import { startSession } from "#/stores/session";
 import appCss from "../styles.css?url";
@@ -69,7 +69,10 @@ function NotFound() {
 }
 
 function RootDocument({ children }: { children: ReactNode }) {
-  const { language } = Route.useLoaderData();
+  // While this module is hot-reloaded in development the loader data can be
+  // missing for a moment; the document already says which language it is in.
+  const loaded = Route.useLoaderData() as { language: Language } | undefined;
+  const language = loaded?.language ?? normalizeLanguage(typeof document === "undefined" ? undefined : document.documentElement.lang);
   // Server: a fresh instance per request. Browser: the shared instance, which
   // booted in the same language from <html lang>.
   const instance = typeof window === "undefined" ? createI18n(language) : i18n;

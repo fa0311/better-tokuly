@@ -10,7 +10,8 @@ import { TextArea, TextField } from "#/components/ui/field";
 import { accountClient } from "#/lib/api";
 import { PasswordField } from "../account/password-field";
 import { adoptMe } from "../data";
-import { errorMessage, reasonOf } from "../errors";
+import { errorReason } from "@tokuly/api";
+import { errorMessage } from "#/lib/errors";
 import { Group } from "../shell/settings-page";
 
 /**
@@ -75,7 +76,7 @@ function DeletionDialog({ me, onClose }: { me: identity.Me; onClose(): void }) {
       onClose();
     },
     onError: (error) => {
-      if (reasonOf(error) === "INVALID_CREDENTIALS") setPasswordError(t("settings:account.password.wrongCurrent"));
+      if (errorReason(error) === "INVALID_CREDENTIALS") setPasswordError(t("settings:account.password.wrongCurrent"));
       else toast.error(errorMessage(error));
     },
   });

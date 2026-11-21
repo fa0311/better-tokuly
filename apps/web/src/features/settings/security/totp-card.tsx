@@ -12,7 +12,7 @@ import { Skeleton } from "#/components/ui/page";
 import { accountClient } from "#/lib/api";
 import { cn } from "#/lib/cn";
 import { keys, refreshMe } from "../data";
-import { errorMessage } from "../errors";
+import { errorMessage } from "#/lib/errors";
 import { Group, StateChip } from "../shell/settings-page";
 
 /** Two-step verification with an authenticator app: turn on (QR, code, recovery codes) and off. */

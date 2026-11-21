@@ -10,7 +10,7 @@ import { SelectField } from "#/components/ui/select";
 import { accountClient } from "#/lib/api";
 import { type Language, normalizeLanguage, setLanguage } from "#/lib/i18n";
 import { adoptMe } from "../data";
-import { errorMessage } from "../errors";
+import { errorMessage } from "#/lib/errors";
 import { Group } from "../shell/settings-page";
 import { allTimeZones, deviceTimeZone, searchTimeZones, zoneLabel, zoneOffset } from "./time-zone";
 

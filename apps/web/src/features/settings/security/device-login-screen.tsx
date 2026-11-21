@@ -10,7 +10,7 @@ import { EmptyState, Skeleton } from "#/components/ui/page";
 import { authClient } from "#/lib/api";
 import { compactDuration } from "#/lib/format";
 import { keys } from "../data";
-import { errorMessage } from "../errors";
+import { errorMessage } from "#/lib/errors";
 import { SettingsPage } from "../shell/settings-page";
 
 const PLATFORM_KEYS: Record<number, "web" | "ios" | "android" | "desktop"> = {

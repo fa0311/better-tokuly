@@ -8,7 +8,7 @@ import { Dialog } from "#/components/ui/dialog";
 import { TextArea } from "#/components/ui/field";
 import { SwitchRow } from "#/components/ui/switch";
 import { Tabs } from "#/components/ui/tabs";
-import { errorMessage } from "../errors";
+import { errorMessage } from "#/lib/errors";
 import { userAdminClient } from "../api";
 import { roleKey } from "../labels";
 import { STAFF_ROLES } from "../roles";

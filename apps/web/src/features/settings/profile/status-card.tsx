@@ -10,7 +10,7 @@ import { accountClient } from "#/lib/api";
 import { cn } from "#/lib/cn";
 import { compactDuration } from "#/lib/format";
 import { adoptMe } from "../data";
-import { errorMessage } from "../errors";
+import { errorMessage } from "#/lib/errors";
 import { Group } from "../shell/settings-page";
 import { graphemes } from "./graphemes";
 

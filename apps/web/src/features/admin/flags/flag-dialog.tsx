@@ -10,7 +10,7 @@ import { Dialog } from "#/components/ui/dialog";
 import { TextArea, TextField } from "#/components/ui/field";
 import { Slider } from "#/components/ui/slider";
 import { SwitchRow } from "#/components/ui/switch";
-import { errorMessage } from "../errors";
+import { errorMessage } from "#/lib/errors";
 import { flagClient } from "../api";
 import { UserPicker } from "../ui/user-picker";
 

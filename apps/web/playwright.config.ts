@@ -9,8 +9,15 @@ import { defineConfig } from "@playwright/test";
  *   pnpm --filter @tokuly/web e2e                       # everything, phone and desktop
  *   pnpm --filter @tokuly/web e2e stamps --project=phone
  */
+// Playwright empties its output directory when a run starts. Several runs on
+// one machine (people or agents working side by side) must not wipe each
+// other's traces, so outside CI each run gets a directory of its own. The
+// name is fixed here once: worker processes inherit it from the environment.
+process.env.TOKULY_E2E_RUN ??= `run-${Date.now()}`;
+
 export default defineConfig({
   testDir: "./e2e",
+  outputDir: process.env.CI ? "test-results" : `test-results/${process.env.TOKULY_E2E_RUN}`,
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,

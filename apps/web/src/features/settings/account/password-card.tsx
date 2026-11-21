@@ -6,7 +6,8 @@ import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { accountClient } from "#/lib/api";
 import { keys, refreshMe } from "../data";
-import { errorMessage, reasonOf } from "../errors";
+import { errorReason } from "@tokuly/api";
+import { errorMessage } from "#/lib/errors";
 import { Group } from "../shell/settings-page";
 import { PasswordField } from "./password-field";
 
@@ -30,7 +31,7 @@ export function PasswordCard({ me }: { me: identity.Me }) {
       await refreshMe().catch(() => {});
     },
     onError: (failure) => {
-      const reason = reasonOf(failure);
+      const reason = errorReason(failure);
       if (reason === "INVALID_CREDENTIALS") setError({ field: "current", message: t("account.password.wrongCurrent") });
       else if (reason?.startsWith("PASSWORD_")) setError({ field: "next", message: errorMessage(failure) });
       else toast.error(errorMessage(failure));

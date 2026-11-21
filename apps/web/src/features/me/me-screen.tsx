@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Bell, ChevronRight, LogOut, Settings, ShieldCheck, Smile, UserRound, Users, Wallet } from "lucide-react";
+import { Bell, ChevronRight, LogOut, Megaphone, Settings, ShieldCheck, Smile, UserRound, Users, Wallet } from "lucide-react";
 import type { ComponentType } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
@@ -12,7 +12,7 @@ import { type BadgeKey, useBadges } from "#/stores/badges";
 import { useMe } from "#/stores/session";
 
 interface Tile {
-  to: "/friends" | "/stamps" | "/wallet" | "/notifications" | "/settings" | "/admin";
+  to: "/friends" | "/stamps" | "/wallet" | "/notifications" | "/settings" | "/announcements" | "/admin";
   labelKey: string;
   icon: ComponentType<{ className?: string }>;
   /** Background of the icon bubble. */
@@ -26,6 +26,7 @@ const TILES: Tile[] = [
   { to: "/stamps", labelKey: "tiles.stamps", icon: Smile, tint: "bg-sun" },
   { to: "/wallet", labelKey: "tiles.wallet", icon: Wallet, tint: "bg-lime" },
   { to: "/settings", labelKey: "tiles.settings", icon: Settings, tint: "bg-mint" },
+  { to: "/announcements", labelKey: "tiles.announcements", icon: Megaphone, tint: "bg-brand-soft" },
 ];
 
 const STAFF_TILE: Tile = { to: "/admin", labelKey: "tiles.admin", icon: ShieldCheck, tint: "bg-coral" };

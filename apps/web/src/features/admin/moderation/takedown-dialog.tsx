@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { TextField } from "#/components/ui/field";
-import { errorMessage } from "../errors";
+import { errorMessage } from "#/lib/errors";
 import { moderationClient } from "../api";
 import { SUBJECT_TYPES, subjectTypeKey } from "../labels";
 import { ActionDialog, type ActionTexts } from "../ui/action-dialog";

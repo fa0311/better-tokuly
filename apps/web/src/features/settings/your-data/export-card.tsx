@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { accountClient } from "#/lib/api";
-import { errorMessage } from "../errors";
+import { errorMessage } from "#/lib/errors";
 import { Group } from "../shell/settings-page";
 
 /** The download link in the mail works for this long. */

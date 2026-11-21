@@ -18,6 +18,7 @@ test("the hub links to every personal area, and the admin console only for staff
     ["スタンプ", "/stamps"],
     ["ウォレット", "/wallet"],
     ["設定", "/settings"],
+    ["アップデート情報", "/announcements"],
   ] as const) {
     await expect(page.getByRole("main").getByRole("link", { name: label })).toHaveAttribute("href", path);
   }

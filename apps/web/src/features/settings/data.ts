@@ -3,7 +3,7 @@ import { create, identity, social } from "@tokuly/api";
 import { useEffect } from "react";
 import { toast } from "sonner";
 import { accountClient, api } from "#/lib/api";
-import { errorMessage } from "./errors";
+import { errorMessage } from "#/lib/errors";
 
 export const friendClient = () => api().service(social.FriendService);
 

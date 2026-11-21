@@ -5,7 +5,7 @@ import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { cn } from "#/lib/cn";
-import { errorMessage } from "#/features/admin";
+import { errorMessage } from "#/lib/errors";
 import { ANNOUNCEMENT_CATEGORIES, type AnnouncementCategory, announcementClient, categoryKey } from "./api";
 import { AnnouncementCard } from "./parts";
 
