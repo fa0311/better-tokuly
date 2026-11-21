@@ -1,0 +1,43 @@
+[package]
+name = "tokuly-identity"
+description = "Accounts, authentication, sessions, profiles and settings."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+tokuly-core.workspace = true
+tokuly-proto.workspace = true
+tokuly-media.workspace = true
+tokio.workspace = true
+futures.workspace = true
+async-trait.workspace = true
+connectrpc.workspace = true
+buffa.workspace = true
+sqlx.workspace = true
+redis.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+url.workspace = true
+clap.workspace = true
+tracing.workspace = true
+parking_lot.workspace = true
+argon2.workspace = true
+webauthn-rs.workspace = true
+totp-rs.workspace = true
+rand.workspace = true
+reqwest.workspace = true
+unicode-segmentation.workspace = true
+anyhow.workspace = true
+http.workspace = true
+
+[dev-dependencies]
+tokuly-testkit.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
