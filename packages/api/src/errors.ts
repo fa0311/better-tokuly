@@ -9,7 +9,10 @@ const REASON_HEADER = "x-tokuly-error";
  */
 export function errorReason(error: unknown): string | undefined {
   if (!(error instanceof ConnectError)) return undefined;
-  return error.metadata.get(REASON_HEADER) ?? undefined;
+  // The server sends the reason as a header and again as a trailer, and the
+  // metadata joins repeated values ("HANDLE_TAKEN, HANDLE_TAKEN"): take one.
+  const reason = error.metadata.get(REASON_HEADER)?.split(",")[0]?.trim();
+  return reason || undefined;
 }
 
 export function isApiError(error: unknown): error is ConnectError {

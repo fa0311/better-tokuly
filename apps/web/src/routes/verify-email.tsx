@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AuthLayout } from "#/components/auth-layout";
 import { Spinner } from "#/components/ui/spinner";
@@ -14,12 +14,17 @@ function VerifyEmail() {
   const { t } = useTranslation("auth");
   const { token } = Route.useSearch();
   const [state, setState] = useState<"working" | "done" | "failed">("working");
+  // The token can be spent once. React runs effects twice in development, and
+  // a second request would turn a successful verification into "failed".
+  const requested = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     if (!token) {
       setState("failed");
       return;
     }
+    if (requested.current === token) return;
+    requested.current = token;
     authClient()
       .verifyEmail({ token })
       .then(() => setState("done"))

@@ -13,6 +13,7 @@ export default {
     account: { title: "Account", hint: "Email, password, language" },
     security: { title: "Security", hint: "Passkeys, 2-step, devices" },
     privacy: { title: "Privacy", hint: "Who sees what" },
+    notifications: { title: "Notifications", hint: "Push, quiet hours, mutes" },
     appearance: { title: "Appearance", hint: "Theme, dopamine level, colour" },
     connections: { title: "Connections", hint: "Connect Spotify" },
     data: { title: "Your data", hint: "Export, delete account" },

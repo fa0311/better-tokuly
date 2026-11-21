@@ -1,11 +1,12 @@
-import { AtSign, EyeOff, HardDriveDownload, Link2, Palette, ShieldCheck, UserRound } from "lucide-react";
+import { AtSign, Bell, EyeOff, HardDriveDownload, Link2, Palette, ShieldCheck, UserRound } from "lucide-react";
 import type { ComponentType } from "react";
 
-export type SectionId = "profile" | "account" | "security" | "privacy" | "appearance" | "connections" | "data";
+export type SectionId = "profile" | "account" | "security" | "privacy" | "notifications" | "appearance" | "connections" | "data";
 
 export interface Section {
   id: SectionId;
-  to: `/settings/${SectionId}`;
+  /** Notification settings are a page of the notifications feature; the rest live under /settings. */
+  to: `/settings/${Exclude<SectionId, "notifications">}` | "/notifications/settings";
   icon: ComponentType<{ className?: string }>;
   /** Colours of the icon bubble. */
   tint: string;
@@ -19,6 +20,7 @@ export const SECTIONS: Section[] = [
   { id: "account", to: "/settings/account", icon: AtSign, tint: `bg-sun ${INK}` },
   { id: "security", to: "/settings/security", icon: ShieldCheck, tint: `bg-mint ${INK}` },
   { id: "privacy", to: "/settings/privacy", icon: EyeOff, tint: `bg-pink ${INK}` },
+  { id: "notifications", to: "/notifications/settings", icon: Bell, tint: "bg-surface text-ink" },
   { id: "appearance", to: "/settings/appearance", icon: Palette, tint: `bg-lime ${INK}` },
   { id: "connections", to: "/settings/connections", icon: Link2, tint: `bg-coral ${INK}` },
   { id: "data", to: "/settings/data", icon: HardDriveDownload, tint: "bg-brand text-on-brand" },

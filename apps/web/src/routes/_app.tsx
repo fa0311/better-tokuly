@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Outlet, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { AppShell } from "#/components/app-shell";
@@ -15,6 +16,12 @@ export const Route = createFileRoute("/_app")({ ssr: false, component: AppLayout
 function AppLayout() {
   const status = useSessionStatus();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  // Cached answers belong to the account that asked: none may outlive its session.
+  useEffect(() => {
+    if (status === "signedOut") queryClient.clear();
+  }, [status, queryClient]);
 
   // Send signed-out visitors to the login page, remembering where they were
   // headed. This runs once per sign-out: reading the address inside the effect

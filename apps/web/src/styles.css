@@ -238,7 +238,9 @@
 
 /* Respect the OS setting and ドパガキ度 0: no motion at all. */
 @media (prefers-reduced-motion: reduce) {
-  :root {
+  /* `[data-dopa]` so this outranks the level rules above. */
+  :root,
+  :root[data-dopa] {
     --dopa: 0;
   }
 }

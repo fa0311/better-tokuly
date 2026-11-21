@@ -13,6 +13,7 @@ export default {
     account: { title: "アカウント", hint: "メール・パスワード・ことば" },
     security: { title: "セキュリティ", hint: "パスキー・2段階認証・デバイス" },
     privacy: { title: "プライバシー", hint: "だれに、なにを見せる？" },
+    notifications: { title: "お知らせ", hint: "プッシュ通知・おやすみ時間・ミュート" },
     appearance: { title: "見た目", hint: "テーマ・ドパガキ度・カラー" },
     connections: { title: "連携サービス", hint: "Spotifyとつなぐ" },
     data: { title: "あなたのデータ", hint: "エクスポート・アカウント削除" },
