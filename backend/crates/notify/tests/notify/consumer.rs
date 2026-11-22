@@ -5,7 +5,7 @@ use std::time::Duration;
 use chrono::Utc;
 use tokuly_core::outbound::{Localized, NOTIFY_TOPIC, NotificationRequest};
 use tokuly_notify::consumer::{DropReason, PushDecision, PushSkip, RequestOutcome};
-use tokuly_proto::{common::SubjectType, notify::*, realtime::server_frame::Body};
+use tokuly_proto::{common::SubjectType, notify::*};
 use tokuly_testkit::TestUser;
 use uuid::Uuid;
 
@@ -66,7 +66,7 @@ async fn a_request_becomes_an_inbox_entry_and_a_realtime_event() {
     );
 
     let frame = frames.next(WAIT).await.expect("a realtime frame");
-    let Some(Body::Notify(event)) = frame.body else {
+    let Some(event) = frame.event::<NotifyEvent>() else {
         panic!("expected a notify frame")
     };
     let Some(notify_event::Event::Received(received)) = event.event else {
@@ -142,7 +142,7 @@ async fn text_follows_the_recipients_language() {
 
     ctx.deliver_to_inbox(&chat_message(&alice, &bob)).await;
 
-    let Some(Body::Notify(event)) = frames.next(WAIT).await.unwrap().body else {
+    let Some(event) = frames.next(WAIT).await.unwrap().event::<NotifyEvent>() else {
         panic!("expected a notify frame")
     };
     let Some(notify_event::Event::Received(received)) = event.event else {

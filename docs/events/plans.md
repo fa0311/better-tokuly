@@ -42,7 +42,7 @@ of the friendship, and an event about a row that is gone is not an error.
 
 ## Realtime pushes
 
-`ServerFrame.plans` (`PlansEvent`), always user-scoped. Plan and poll events
+`PlansEvent`, always user-scoped. Plan and poll events
 carry IDs and counters, never names or comments, so the same event is right
 for every participant.
 

@@ -4,7 +4,6 @@ use std::time::Duration;
 use tokuly_proto::{
     common::PageRequest,
     notify::{mark_read_request::Target, *},
-    realtime::server_frame::Body,
 };
 use tokuly_testkit::TestUser;
 use uuid::Uuid;
@@ -300,7 +299,7 @@ async fn bulk_changes_tell_other_devices_to_refetch() {
 
     let response = mark_read(&ctx, &alice, Target::All(true), "").await;
     assert_eq!(response.marked_count, 230);
-    let Some(Body::Notify(event)) = frames.next(WAIT).await.unwrap().body else {
+    let Some(event) = frames.next(WAIT).await.unwrap().event::<NotifyEvent>() else {
         panic!("expected a notify frame")
     };
     let Some(notify_event::Event::Read(read)) = event.event else {

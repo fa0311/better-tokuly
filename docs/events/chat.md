@@ -77,7 +77,7 @@ notifications; only accepted members who share their online status
 
 ## Realtime pushes
 
-`ServerFrame.chat` (`ChatEvent`), always user-scoped: to every device of the
+`ChatEvent`, always user-scoped: to every device of the
 members concerned, the actor's other devices included. Members who declined a
 conversation receive nothing from it.
 

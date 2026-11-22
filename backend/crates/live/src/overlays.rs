@@ -32,7 +32,6 @@ use tokuly_proto::{
         OverlayChanged, OverlayKind, OverlayPreset, OverlaySettings, PollWidgetSettings, live_event::Event,
         overlay_settings::Widget,
     },
-    realtime::server_frame::Body,
 };
 use tokuly_video::channels::{self, ChannelRow};
 use unicode_segmentation::UnicodeSegmentation as _;
@@ -567,7 +566,7 @@ pub async fn push_goal_progress(live: &Live, channel_id: Uuid) {
                     event: Some(Event::GoalProgress(Box::new(progress))),
                     ..Default::default()
                 };
-                live.core.rt.notify_topic(&topic, Body::from(event)).await;
+                live.core.rt.notify_topic(&topic, &event).await;
             }
         }
         AppResult::Ok(())
@@ -696,7 +695,7 @@ impl Live {
             event: Some(Event::OverlayChanged(Box::new(change))),
             ..Default::default()
         };
-        self.core.rt.notify_topic(&row.topic(), Body::from(event)).await;
+        self.core.rt.notify_topic(&row.topic(), &event).await;
     }
 
     pub async fn remove_overlay(&self, row: &OverlayRow) -> AppResult<()> {

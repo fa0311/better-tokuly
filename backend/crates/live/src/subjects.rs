@@ -18,7 +18,6 @@ use tokuly_core::{
 use tokuly_proto::{
     common::SubjectType,
     live::{LiveEvent, StreamStats, live_event::Event},
-    realtime::server_frame::Body,
 };
 use unicode_segmentation::UnicodeSegmentation as _;
 
@@ -85,7 +84,7 @@ impl SubjectResolver for StreamSubjects {
                 ..Default::default()
             };
             let event = LiveEvent { event: Some(Event::Stats(Box::new(stats))), ..Default::default() };
-            self.core.rt.notify_topic(&streams::topic(id), Body::from(event)).await;
+            self.core.rt.notify_topic(&streams::topic(id), &event).await;
         }
         Ok(())
     }

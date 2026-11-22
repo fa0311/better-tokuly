@@ -16,13 +16,12 @@ use tokuly_proto::{
     chat::{chat_event::Event as Push, *},
     identity::{Audience, PrivacySettings, UpdateSettingsRequest},
     media::{AssetKind, AssetPurpose},
-    realtime::{ServerFrame, server_frame::Body},
     social::{BlockUserRequest, SendFriendRequestRequest, UnblockUserRequest, send_friend_request_request::Target},
     stamp::{CreatePersonalStampRequest, CreatePersonalStampResponse},
 };
 use tokuly_social::{Social, SocialConfig};
 use tokuly_stamp::{Stamp, StampConfig};
-use tokuly_testkit::{FrameListener, RpcError, TestApp, TestUser};
+use tokuly_testkit::{FrameListener, RpcError, ServerFrame, TestApp, TestUser};
 use uuid::Uuid;
 
 pub const MIGRATIONS: &[&str] = &["0001", "0100", "0200", "0400", "0500", "0600", "1400"];
@@ -75,13 +74,7 @@ pub fn client_id() -> String {
 
 /// The chat events among realtime frames, in order.
 pub fn chat_events(frames: Vec<ServerFrame>) -> Vec<Push> {
-    frames
-        .into_iter()
-        .filter_map(|frame| match frame.body {
-            Some(Body::Chat(event)) => event.event,
-            _ => None,
-        })
-        .collect()
+    frames.iter().filter_map(|frame| frame.event::<ChatEvent>()?.event).collect()
 }
 
 /// The messages announced as new among chat events.

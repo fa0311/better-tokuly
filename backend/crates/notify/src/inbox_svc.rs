@@ -1,10 +1,7 @@
 //! `InboxService`: the signed-in user reading and tidying their inbox.
 use connectrpc::{RequestContext, ServiceRequest, ServiceResult};
 use tokuly_core::prelude::*;
-use tokuly_proto::{
-    notify::{mark_read_request::Target, notify_event::Event as NotifyEventKind, *},
-    realtime::server_frame::Body,
-};
+use tokuly_proto::notify::{mark_read_request::Target, notify_event::Event as NotifyEventKind, *};
 
 use crate::{
     Notify, categories,
@@ -85,11 +82,11 @@ impl Notify {
     }
 
     pub(crate) async fn publish(&self, user_id: Uuid, event: NotifyEventKind) {
-        let frame = NotifyEvent {
+        let event = NotifyEvent {
             event: Some(event),
             ..Default::default()
         };
-        self.core.rt.notify_user(user_id, Body::from(frame)).await;
+        self.core.rt.notify_user(user_id, &event).await;
     }
 }
 

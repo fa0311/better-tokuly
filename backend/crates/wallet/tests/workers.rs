@@ -7,7 +7,7 @@ mod common;
 use std::time::Duration;
 
 use common::*;
-use tokuly_proto::{realtime::server_frame::Body, wallet::*};
+use tokuly_proto::wallet::*;
 use tokuly_wallet::ledger;
 
 #[tokio::test]
@@ -23,7 +23,7 @@ async fn spawned_workers_push_balance_changes_and_close_deleted_wallets() {
 
     // The consumer picks the event up from the stream and pushes the balance.
     let frame = frames.next(Duration::from_secs(20)).await.expect("the consumer pushed the balance change");
-    let Some(Body::Wallet(event)) = frame.body else { panic!("not a wallet frame") };
+    let event: WalletEvent = frame.event().expect("not a wallet frame");
     let Some(wallet_event::Event::BalanceChanged(change)) = event.event else { panic!("not a balance change") };
     assert_eq!(change.balance.as_option().unwrap().earnings, 210);
 

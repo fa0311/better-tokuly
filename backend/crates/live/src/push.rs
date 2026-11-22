@@ -1,29 +1,26 @@
 //! Realtime pushes: `LiveEvent`s to a stream's topic, to single users and
 //! to the channel's OBS widgets.
 use tokuly_core::prelude::*;
-use tokuly_proto::{
-    live::{EncoderState, LiveEvent, OverlayKind, StreamStats, live_event::Event},
-    realtime::server_frame::Body,
-};
+use tokuly_proto::live::{EncoderState, LiveEvent, OverlayKind, StreamStats, live_event::Event};
 
 use crate::{
     Live, overlays,
     streams::{self, StreamRow, topic},
 };
 
-fn body(event: Event) -> Body {
-    Body::from(LiveEvent { event: Some(event), ..Default::default() })
+fn wrap(event: Event) -> LiveEvent {
+    LiveEvent { event: Some(event), ..Default::default() }
 }
 
 impl Live {
     /// Pushes an event to everyone following a stream.
     pub(crate) async fn push_to_stream(&self, stream_id: Uuid, event: Event) {
-        self.core.rt.notify_topic(&topic(stream_id), body(event)).await;
+        self.core.rt.notify_topic(&topic(stream_id), &wrap(event)).await;
     }
 
     /// Pushes an event to one user's devices.
     pub(crate) async fn push_to_user(&self, user_id: Uuid, event: Event) {
-        self.core.rt.notify_user(user_id, body(event)).await;
+        self.core.rt.notify_user(user_id, &wrap(event)).await;
     }
 
     /// Pushes an event to the channel's widgets of the given kinds.
@@ -32,7 +29,7 @@ impl Live {
             Ok(widgets) => {
                 for (kind, topic) in widgets.iter() {
                     if kinds.iter().any(|wanted| *wanted as i32 == *kind) {
-                        self.core.rt.notify_topic(topic, body(event.clone())).await;
+                        self.core.rt.notify_topic(topic, &wrap(event.clone())).await;
                     }
                 }
             }

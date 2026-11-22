@@ -44,7 +44,7 @@ Durable consumer `social`. Every handler is idempotent.
 
 ## Realtime pushes
 
-`ServerFrame.social` (`SocialEvent`), always user-scoped:
+`SocialEvent`, always user-scoped:
 
 | Event | Sent to | When |
 |---|---|---|

@@ -980,7 +980,7 @@ message CatalogChanged {
   int64 version = 1;
 }
 
-// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.emoji).
+// Pushed over the realtime gateway (as a tokuly.realtime.v1.Event).
 message EmojiEvent {
   oneof event {
     // To everyone subscribed to the public topic `emoji:catalog`.

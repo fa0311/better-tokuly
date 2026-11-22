@@ -1343,7 +1343,7 @@ message TranslateMessageResponse {
 
 // ───────────────────────────── Realtime ─────────────────────────────
 
-// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.chat) to
+// Pushed over the realtime gateway (as a tokuly.realtime.v1.Event) to
 // every device of the members concerned.
 //
 // Events carry no per-recipient state unless stated: `Message.read_count`

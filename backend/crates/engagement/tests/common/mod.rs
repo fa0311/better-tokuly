@@ -25,11 +25,10 @@ use tokuly_proto::{
     common::{ChannelSummary, Image, PageRequest, SubjectRef, SubjectType},
     engagement::{__buffa::oneof::engagement_event::Event as Pushed, *},
     media::AssetPurpose,
-    realtime::{ServerFrame, server_frame::Body},
 };
 use tokuly_social::{Social, SocialConfig};
 use tokuly_stamp::{Stamp, StampConfig};
-use tokuly_testkit::{FrameListener, RpcError, TestApp, TestUser};
+use tokuly_testkit::{FrameListener, RpcError, ServerFrame, TestApp, TestUser};
 
 pub const MIGRATIONS: &[&str] = &["0001", "0100", "0200", "0400", "0500", "1100", "1400"];
 
@@ -442,13 +441,7 @@ impl Ctx {
 
 /// The engagement events among realtime frames.
 pub fn pushed(frames: Vec<ServerFrame>) -> Vec<Pushed> {
-    frames
-        .into_iter()
-        .filter_map(|frame| match frame.body {
-            Some(Body::Engagement(event)) => event.event.clone(),
-            _ => None,
-        })
-        .collect()
+    frames.iter().filter_map(|frame| frame.event::<EngagementEvent>()?.event).collect()
 }
 
 /// Everything pushed to a listener by what just happened: waits generously

@@ -22,7 +22,6 @@ use tokuly_proto::{
     common::PageRequest,
     live::*,
     media::{AssetKind, AssetPurpose},
-    realtime::server_frame::Body,
     social::{
         BlockUserRequest, BlockUserResponse, FriendSource, RespondFriendRequestRequest, RespondFriendRequestResponse,
         SendFriendRequestRequest, SendFriendRequestResponse, send_friend_request_request::Target,
@@ -131,22 +130,14 @@ pub fn titles(streams: &[StreamSummary]) -> Vec<&str> {
 
 /// The `LiveEvent`s among realtime frames, in order.
 pub fn pushes(frames: Vec<tokuly_proto::realtime::ServerFrame>) -> Vec<Push> {
-    frames
-        .into_iter()
-        .filter_map(|frame| match frame.body {
-            Some(Body::Live(event)) => event.event,
-            _ => None,
-        })
-        .collect()
+    frames.into_iter().filter_map(|frame| frame.event::<LiveEvent>().and_then(|event| event.event)).collect()
 }
 
 /// Waits for the next `LiveEvent` on a listener.
 pub async fn next_push(listener: &mut FrameListener) -> Push {
     loop {
-        let frame = listener.next(SOON).await.expect("a realtime frame should arrive");
-        if let Some(Body::Live(event)) = frame.body
-            && let Some(push) = event.event
-        {
+        let event = listener.next_event::<LiveEvent>(SOON).await.expect("a realtime event should arrive");
+        if let Some(push) = event.event {
             return push;
         }
     }

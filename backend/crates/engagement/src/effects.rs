@@ -8,9 +8,8 @@
 //! change that was rolled back, and never inside it, so a slow subscriber
 //! cannot hold locks.
 use tokuly_core::prelude::*;
-use tokuly_proto::{
-    engagement::{CommentAdded, CommentPinned, CommentRemoved, CommentUpdated, EngagementEvent, ReviewQueueChanged},
-    realtime::server_frame::Body,
+use tokuly_proto::engagement::{
+    CommentAdded, CommentPinned, CommentRemoved, CommentUpdated, EngagementEvent, ReviewQueueChanged,
 };
 use tokuly_social::graph;
 
@@ -139,8 +138,8 @@ impl Engagement {
                 (key, CommentPinned { comment_id: comment_id.to_string(), pinned, ..Default::default() }.into())
             }
         };
-        let frame = EngagementEvent { subject: key.to_ref().into(), event: Some(event), ..Default::default() };
-        self.core.rt.notify_topic(&key.topic(), Body::from(frame)).await;
+        let event = EngagementEvent { subject: key.to_ref().into(), event: Some(event), ..Default::default() };
+        self.core.rt.notify_topic(&key.topic(), &event).await;
         Ok(())
     }
 
@@ -170,11 +169,11 @@ impl Engagement {
 
     async fn push_review_queue(&self, owner_id: Uuid) -> AppResult<()> {
         let held_count = comments::held_count(&self.core.db, owner_id).await?;
-        let frame = EngagementEvent {
+        let event = EngagementEvent {
             event: Some(ReviewQueueChanged { held_count, ..Default::default() }.into()),
             ..Default::default()
         };
-        self.core.rt.notify_user(owner_id, Body::from(frame)).await;
+        self.core.rt.notify_user(owner_id, &event).await;
         Ok(())
     }
 }

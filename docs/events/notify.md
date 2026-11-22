@@ -12,7 +12,7 @@ any domain ── outbound::notify(tx, NotificationRequest) ──▶ notify.req
                                                                │
         ┌──────────────────────────────┬───────────────────────┴───────────┐
    inbox entry                    realtime NotifyEvent                notify.push job
- (notifications table,       (ServerFrame.notify.received,        (one per notification;
+ (notifications table,       (the received event,                 (one per notification;
   collapsed by key)           only with an inbox entry)            fans out to devices)
 ```
 
@@ -102,7 +102,7 @@ Kinds this domain produces itself:
 |---|---|
 | `system.test` | `PushService.SendTestPush` (push only, ignores preferences) |
 
-## Realtime (`tokuly.realtime.v1.ServerFrame.notify`)
+## Realtime (`NotifyEvent`)
 
 Sent to every connection of the user:
 

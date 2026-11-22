@@ -18,10 +18,7 @@ use chrono_tz::Tz;
 use parking_lot::RwLock;
 use tokuly_core::prelude::*;
 use tokuly_identity::Identity;
-use tokuly_proto::{
-    realtime::server_frame::Body,
-    wallet::{WalletEvent, wallet_event::Event},
-};
+use tokuly_proto::wallet::{WalletEvent, wallet_event::Event};
 
 mod adjustments;
 mod admin_svc;
@@ -168,7 +165,7 @@ impl Wallet {
     /// Pushes a wallet event to every connected device of `user_id`.
     pub(crate) async fn push(&self, user_id: Uuid, event: Event) {
         let event = WalletEvent { event: Some(event), ..Default::default() };
-        self.core.rt.notify_user(user_id, Body::Wallet(Box::new(event))).await;
+        self.core.rt.notify_user(user_id, &event).await;
     }
 
     /// Locale and time zone of a user, or `USER_NOT_FOUND`.

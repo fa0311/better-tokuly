@@ -10,7 +10,7 @@ import { Page, Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
 import { hasGuide, type InstallWay, openInstallGuide, promptInstall, useInstall, useInstallWay, useIsStandalone } from "./install";
 import { isIos } from "./platform";
-import { applyUpdate, checkForUpdate, clearOfflineData, useWorker } from "./service-worker";
+import { applyUpdate, checkForUpdate, clearOfflineData, pageIsBehind, useWorker } from "./service-worker";
 import { formatBytes, offlineData, storageUse, usedPercent } from "./storage";
 
 /** Everything this page reads about the device; refetched after an action that changes it. */
@@ -195,7 +195,7 @@ function OfflineRow() {
 function VersionRow() {
   const { t } = useTranslation("pwa");
   const status = useWorker((state) => state.status);
-  const updateReady = useWorker((state) => state.updateReady || state.replaced);
+  const updateReady = useWorker(pageIsBehind);
   const [checking, setChecking] = useState(false);
 
   const check = async () => {

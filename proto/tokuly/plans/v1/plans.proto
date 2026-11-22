@@ -1454,7 +1454,7 @@ message GetCalendarResponse {
 
 // ───────────────────────────── Realtime ─────────────────────────────
 
-// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.plans),
+// Pushed over the realtime gateway (as a tokuly.realtime.v1.Event),
 // always to individual users. Plan and poll events carry IDs and counters,
 // never names or comments, so the same event is right for every participant.
 message PlansEvent {

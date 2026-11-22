@@ -77,7 +77,7 @@ built-in official art is stored by the stamp domain itself and has no asset.
 
 ## Realtime pushes
 
-None. `tokuly.realtime.v1.ServerFrame` has no stamp slot, and nothing in the
+None. There is no stamp event message, and nothing in the
 domain is time-critical: moderation outcomes and sales arrive as
 notifications, wallet changes as `WalletEvent`.
 

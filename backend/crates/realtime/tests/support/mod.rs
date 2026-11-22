@@ -24,6 +24,9 @@ use tokuly_testkit::{TestApp, TestUser};
 use uuid::Uuid;
 use wtransport::{ClientConfig, Connection, Endpoint, RecvStream, SendStream, tls::Sha256Digest};
 
+/// What the gateway puts on the bus for the geo pipeline.
+pub type LocationReport = tokuly_core::presence::LocationReport<tokuly_proto::geo::LocationSample>;
+
 /// How long a test waits for something that should happen promptly.
 pub const WAIT: Duration = Duration::from_secs(5);
 /// How long a test listens to be reasonably sure nothing arrives.

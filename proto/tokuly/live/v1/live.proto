@@ -1582,7 +1582,7 @@ message OverlayChanged {
   bool revoked = 2;
 }
 
-// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.live).
+// Pushed over the realtime gateway (as a tokuly.realtime.v1.Event).
 //
 // Topic `live:<stream id>`: stream_updated, stats, chat_message,
 // chat_message_deleted, chat_user_cleared, chat_pin_changed,

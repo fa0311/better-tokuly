@@ -269,7 +269,7 @@ owner) is held by the video it becomes.
 
 ## Realtime pushes
 
-`ServerFrame.live` (`LiveEvent`):
+`LiveEvent` (carried as a `tokuly.realtime.v1.Event`):
 
 | Event | Sent to | When |
 |---|---|---|

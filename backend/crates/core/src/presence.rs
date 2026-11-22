@@ -16,7 +16,6 @@
 //! [`topic_audience`].
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tokuly_proto::geo::LocationSample;
 use uuid::Uuid;
 
 use crate::{bus::Bus, cache::Cache, error::AppResult};
@@ -39,11 +38,15 @@ pub struct PresenceChange {
 }
 
 /// A location sample received from a device, on its way to the geo pipeline.
+///
+/// `S` is `tokuly_proto::geo::LocationSample`. The gateway and the geo
+/// pipeline name it; this crate does not, so that what every crate builds on
+/// does not compile the geo API.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LocationReport {
+pub struct LocationReport<S> {
     pub user_id: Uuid,
     pub received_at: DateTime<Utc>,
-    pub sample: LocationSample,
+    pub sample: S,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,7 +114,7 @@ pub async fn announce(bus: &Bus, change: &PresenceChange) -> AppResult<()> {
 }
 
 /// Hands a location sample to the geo pipeline (durable).
-pub async fn submit_location(bus: &Bus, report: &LocationReport) -> AppResult<()> {
+pub async fn submit_location<S: Serialize>(bus: &Bus, report: &LocationReport<S>) -> AppResult<()> {
     let subject = format!("{LOCATION_SUBJECT_PREFIX}.{}", report.user_id.simple());
     bus.publish(subject, serde_json::to_vec(report).unwrap_or_default()).await
 }

@@ -16,7 +16,6 @@ use serde::{Serialize, de::DeserializeOwned};
 use tokuly_core::events::Event;
 use tokuly_proto::{
     identity::{GetProfileRequest, GetProfileResponse, ProfileCard, get_profile_request},
-    realtime::{ServerFrame, server_frame::Body},
     school::{school_event::Event as Push, *},
     social::{
         BlockUserRequest, BlockUserResponse, FriendSource, RemoveFriendRequest, RemoveFriendResponse,
@@ -26,7 +25,7 @@ use tokuly_proto::{
 };
 use tokuly_school::{School, SchoolConfig};
 use tokuly_social::{Social, SocialConfig};
-use tokuly_testkit::{FrameListener, RpcError, TestApp, TestUser};
+use tokuly_testkit::{FrameListener, RpcError, ServerFrame, TestApp, TestUser};
 use uuid::Uuid;
 
 pub const MIGRATIONS: &[&str] = &["0001", "0100", "0200", "0400", "2100"];
@@ -83,13 +82,7 @@ pub fn id(value: &str) -> Uuid {
 
 /// The school events among some realtime frames, in order.
 pub fn pushes(frames: Vec<ServerFrame>) -> Vec<Push> {
-    frames
-        .into_iter()
-        .filter_map(|frame| match frame.body {
-            Some(Body::School(event)) => event.event,
-            _ => None,
-        })
-        .collect()
+    frames.iter().filter_map(|frame| frame.event::<SchoolEvent>()?.event).collect()
 }
 
 /// The school events a listener receives within [`QUIET`].

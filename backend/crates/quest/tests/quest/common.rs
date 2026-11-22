@@ -8,7 +8,6 @@ use serde_json::json;
 use tokuly_core::{analytics::AnalyticsEvent, events::Event, prelude::*};
 use tokuly_proto::{
     quest::{quest_event::Event as Push, *},
-    realtime::server_frame::Body,
     social::{
         FriendSource, RemoveFriendRequest, RemoveFriendResponse, RespondFriendRequestRequest,
         RespondFriendRequestResponse, SendFriendRequestRequest, SendFriendRequestResponse, send_friend_request_request,
@@ -411,15 +410,7 @@ impl Ctx {
 
 /// The quest events among the frames a listener received within [`SOON`].
 pub async fn pushes(listener: &mut FrameListener) -> Vec<Push> {
-    listener
-        .drain(SOON)
-        .await
-        .into_iter()
-        .filter_map(|frame| match frame.body {
-            Some(Body::Quest(event)) => event.event,
-            _ => None,
-        })
-        .collect()
+    listener.events::<QuestEvent>(SOON).await.into_iter().filter_map(|event| event.event).collect()
 }
 
 /// Asserts an RPC failed with this Connect code and reason.

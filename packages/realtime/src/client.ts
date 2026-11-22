@@ -1,5 +1,7 @@
-import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
-import { common, type geo, realtime } from "@tokuly/api";
+import { create, toBinary } from "@bufbuild/protobuf";
+import { type common, geo, realtime } from "@tokuly/api";
+import { decodeServerFrame, type ServerFrame } from "./events.js";
+import { clientIsOutdated } from "./protocol.js";
 import {
   connectWebSocket,
   connectWebTransport,
@@ -24,7 +26,7 @@ export interface RealtimeOptions {
   webTransport?: boolean;
 }
 
-type FrameListener = (frame: realtime.ServerFrame) => void;
+type FrameListener = (frame: ServerFrame) => void;
 type StatusListener = (status: ConnectionStatus, transport: FrameTransport["kind"] | null) => void;
 
 const CONNECT_TIMEOUT_MS = 5_000;
@@ -37,7 +39,8 @@ const WEBTRANSPORT_RETRY_AFTER_MS = 5 * 60_000;
  *
  * It prefers WebTransport (QUIC) and falls back to WebSocket, reconnects with
  * backoff, re-authenticates when the token expires and re-subscribes topics
- * after every reconnect. Consumers only ever see `ServerFrame`s.
+ * after every reconnect. Consumers only ever see `ServerFrame`s, in which a
+ * domain's event is already decoded (`frame.body.case === "chat"`).
  */
 export class RealtimeClient {
   private transport: FrameTransport | null = null;
@@ -53,6 +56,8 @@ export class RealtimeClient {
   private foreground = true;
   private readonly frameListeners = new Set<FrameListener>();
   private readonly statusListeners = new Set<StatusListener>();
+  private readonly outdatedListeners = new Set<() => void>();
+  private outdated = false;
   /** topic → number of active subscribers in this app. */
   private readonly topics = new Map<string, number>();
   /** Server-suggested location report cadence, from the last Welcome. */
@@ -77,6 +82,17 @@ export class RealtimeClient {
   onStatus(listener: StatusListener): () => void {
     this.statusListeners.add(listener);
     return () => this.statusListeners.delete(listener);
+  }
+
+  /**
+   * Tells the app that the server speaks a newer protocol than this client
+   * was built for: the page has to be loaded again. Called at most once per
+   * listener, right away if it is already known.
+   */
+  onOutdated(listener: () => void): () => void {
+    if (this.outdated) listener();
+    else this.outdatedListeners.add(listener);
+    return () => this.outdatedListeners.delete(listener);
   }
 
   private setStatus(status: ConnectionStatus): void {
@@ -192,12 +208,9 @@ export class RealtimeClient {
   }
 
   private handleFrame(bytes: Uint8Array): void {
-    let frame: realtime.ServerFrame;
-    try {
-      frame = fromBinary(realtime.ServerFrameSchema, bytes);
-    } catch {
-      return; // A frame from a newer server we cannot parse; ignore it.
-    }
+    // Something a newer server sent that this build cannot read is ignored.
+    const frame = decodeServerFrame(bytes);
+    if (!frame) return;
     switch (frame.body.case) {
       case "welcome":
         this.onWelcome(frame.body.value);
@@ -221,6 +234,11 @@ export class RealtimeClient {
       movingSeconds: welcome.movingIntervalSeconds || 5,
       stationarySeconds: welcome.stationaryIntervalSeconds || 60,
     };
+    if (!this.outdated && clientIsOutdated(welcome.protocolVersion)) {
+      this.outdated = true;
+      for (const listener of this.outdatedListeners) listener();
+      this.outdatedListeners.clear();
+    }
     const intervalMs = Math.max(5, welcome.pingIntervalSeconds || 25) * 1000;
     if (this.pingTimer) clearInterval(this.pingTimer);
     this.pingTimer = setInterval(() => {
@@ -293,7 +311,9 @@ export class RealtimeClient {
   /** Sends a location sample; dropped silently while disconnected. */
   sendLocation(sample: geo.LocationSample): boolean {
     if (!this.transport || this.status !== "connected") return false;
-    this.sendFrame({ case: "location", value: sample }, false, true);
+    // The frame carries the sample encoded: the gateway's protocol does not know the geo messages.
+    const encoded = toBinary(geo.LocationSampleSchema, sample);
+    this.sendFrame({ case: "location", value: encoded }, false, true);
     return true;
   }
 

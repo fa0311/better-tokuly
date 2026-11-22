@@ -15,7 +15,7 @@ use tokuly_core::{
     presence::{self, PRESENCE_SUBJECT, PresenceChange},
 };
 use tokuly_identity::settings;
-use tokuly_proto::realtime::{PresenceEvent, server_frame::Body};
+use tokuly_proto::realtime::PresenceEvent;
 
 use crate::{Social, graph};
 
@@ -93,6 +93,6 @@ impl Social {
     async fn push_presence(&self, user_id: Uuid, online: bool, at: Option<DateTime<Utc>>) -> AppResult<()> {
         let friends = graph::friend_ids(&self.core, user_id).await?;
         let event = PresenceEvent { user_id: user_id.to_string(), online, last_seen_at: opt_ts(at), ..Default::default() };
-        self.core.rt.to_users(friends, Body::Presence(Box::new(event))).await
+        self.core.rt.presence_to_users(friends, event).await
     }
 }
