@@ -117,11 +117,17 @@ async fn subjects_resolve_for_those_who_may_see_them() {
             .unwrap()
             .interactions_enabled
     );
-    assert!(subjects.resolve(SUBJECT_TYPE_COMMUNITY_THREAD, &open_thread.id, None).await.unwrap().interactions_enabled);
+    assert!(
+        subjects
+            .resolve(SUBJECT_TYPE_COMMUNITY_THREAD, &open_thread.id, Some(owner.id))
+            .await
+            .unwrap()
+            .interactions_enabled
+    );
 
     // Events: the organiser owns them; a cancelled one takes no more interactions.
     let event = ctx.event(&owner, &public).await;
-    let as_event = subjects.resolve(SUBJECT_TYPE_COMMUNITY_EVENT, &event.id, None).await.unwrap();
+    let as_event = subjects.resolve(SUBJECT_TYPE_COMMUNITY_EVENT, &event.id, Some(owner.id)).await.unwrap();
     assert_eq!(
         (as_event.owner_id, as_event.title.as_str(), as_event.path.as_str()),
         (owner.id, "オフ会", event.path.as_str())
@@ -129,7 +135,9 @@ async fn subjects_resolve_for_those_who_may_see_them() {
     assert!(as_event.interactions_enabled);
     let cancel = CancelEventRequest { event_id: event.id.clone(), ..Default::default() };
     let _: CancelEventResponse = ctx.call("CommunityEventService", "CancelEvent", Some(&owner), &cancel).await.unwrap();
-    assert!(!subjects.resolve(SUBJECT_TYPE_COMMUNITY_EVENT, &event.id, None).await.unwrap().interactions_enabled);
+    assert!(
+        !subjects.resolve(SUBJECT_TYPE_COMMUNITY_EVENT, &event.id, Some(owner.id)).await.unwrap().interactions_enabled
+    );
     let private_event = ctx.event(&owner, &restricted).await;
     assert!(subjects.resolve(SUBJECT_TYPE_COMMUNITY_EVENT, &private_event.id, Some(outsider.id)).await.is_err());
 }
@@ -616,4 +624,145 @@ async fn maintenance_prunes_what_ran_out() {
     .unwrap();
     assert_eq!(left, 0);
     assert_eq!(ctx.viewer(&declined, &community.id).await.status, MembershipStatus::MEMBERSHIP_STATUS_NONE);
+}
+
+#[tokio::test]
+async fn a_private_communitys_topic_carries_no_content() {
+    let ctx = start().await;
+    let owner = ctx.app.user("Owner").await;
+    let restricted = ctx.restricted(&owner).await;
+    let removed = ctx.member(&owner, &restricted, "Removed").await;
+    let general = ctx.general(&owner, &restricted).await;
+    // The member follows the topic while they are one (the guard lets them)…
+    assert!(
+        ctx.app
+            .core
+            .topic_guards
+            .may_subscribe(Some(removed.id), &format!("community:{}", restricted.id))
+            .await
+            .unwrap()
+    );
+    let mut topic = ctx.app.listen_topic(&format!("community:{}", restricted.id)).await;
+    // …and is removed. The subscription is still open.
+    let kick = RemoveMemberRequest {
+        community_id: restricted.id.clone(),
+        user_id: removed.id.to_string(),
+        ..Default::default()
+    };
+    let _: RemoveMemberResponse =
+        ctx.call("CommunityModerationService", "RemoveMember", Some(&owner), &kick).await.unwrap();
+
+    let thread = ctx.thread(&owner, &general, "部外秘のスレ", "ここだけの本文").await;
+    let reply = ctx.reply(&owner, &thread, "ここだけの返信").await;
+    let edit =
+        UpdateThreadRequest {
+            thread_id: thread.id.clone(), body: Some("書き直した秘密".into()), ..Default::default()
+        };
+    let _: UpdateThreadResponse = ctx.call(BOARD, "UpdateThread", Some(&owner), &edit).await.unwrap();
+    let edit =
+        UpdateReplyRequest { reply_id: reply.id.clone(), body: "書き直した返信".into(), ..Default::default() };
+    let _: UpdateReplyResponse = ctx.call(BOARD, "UpdateReply", Some(&owner), &edit).await.unwrap();
+    let event = ctx.event(&owner, &restricted).await;
+
+    // What still arrives says that something happened, and where to ask —
+    // and asking is refused.
+    let pushed = pushes(&mut topic).await;
+    assert!(pushed.iter().any(|push| matches!(push, Pushed::ThreadCreated(created)
+        if created.thread_id == thread.id && created.thread.as_option().is_none())));
+    assert!(pushed.iter().any(|push| matches!(push, Pushed::ReplyCreated(created)
+        if created.reply_id == reply.id && created.reply.as_option().is_none())));
+    assert!(pushed.iter().any(|push| matches!(push, Pushed::CalendarEventChanged(changed)
+        if changed.event_id == event.id && changed.event.as_option().is_none())));
+    for push in &pushed {
+        match push {
+            Pushed::ThreadCreated(created) => assert!(created.thread.as_option().is_none()),
+            Pushed::ThreadUpdated(updated) => assert!(updated.thread.as_option().is_none()),
+            Pushed::ReplyCreated(created) => assert!(created.reply.as_option().is_none()),
+            Pushed::ReplyUpdated(updated) => assert!(updated.reply.as_option().is_none()),
+            Pushed::CalendarEventChanged(changed) => assert!(changed.event.as_option().is_none()),
+            _ => {}
+        }
+    }
+    for secret in ["部外秘", "ここだけ", "書き直した", "オフ会", "駅前"] {
+        assert!(!mentions(&pushed, secret), "the topic of a private community carries content ({secret})");
+    }
+    assert_eq!(ctx.get_thread(Some(&removed), &thread.id).await.unwrap_err().reason, "NOT_A_MEMBER");
+    assert!(ctx.get_reply(Some(&removed), &reply.id).await.is_err());
+    assert!(ctx.get_event(Some(&removed), &event.id).await.is_err());
+
+    // The same when a public community closes its doors: whoever followed
+    // it before hears nothing more than IDs.
+    let public = ctx.public(&owner).await;
+    let lobby = ctx.general(&owner, &public).await;
+    let mut passer_by = ctx.app.listen_topic(&format!("community:{}", public.id)).await;
+    let open = ctx.thread(&owner, &lobby, "公開のスレ", "だれでも読める").await;
+    assert!(pushes(&mut passer_by).await.iter().any(|push| matches!(push, Pushed::ThreadCreated(created)
+        if created.thread_id == open.id && created.thread.as_option().is_some())));
+    let close = UpdateCommunityRequest {
+        community_id: public.id.clone(),
+        visibility: Some(CommunityVisibility::COMMUNITY_VISIBILITY_HIDDEN.into()),
+        ..Default::default()
+    };
+    let _: UpdateCommunityResponse =
+        ctx.call("CommunityService", "UpdateCommunity", Some(&owner), &close).await.unwrap();
+    let inside = ctx.thread(&owner, &lobby, "非公開になってからのスレ", "メンバーだけの本文").await;
+    ctx.reply(&owner, &inside, "メンバーだけの返信").await;
+    let pushed = pushes(&mut passer_by).await;
+    assert!(pushed.iter().any(|push| matches!(push, Pushed::ThreadCreated(created) if created.thread_id == inside.id)));
+    assert!(!mentions(&pushed, "非公開になってから") && !mentions(&pushed, "メンバーだけ"));
+}
+
+#[tokio::test]
+async fn comments_and_likes_on_posts_are_for_those_who_could_write_there() {
+    let ctx = start().await;
+    let subjects = &ctx.app.core.subjects;
+    let owner = ctx.app.user("Owner").await;
+    let community = ctx.public(&owner).await;
+    let member = ctx.member(&owner, &community, "Member").await;
+    let silenced = ctx.member(&owner, &community, "Silenced").await;
+    let moderator = ctx.moderator(&owner, &community).await;
+    let outsider = ctx.app.user("Outsider").await;
+    let general = ctx.general(&owner, &community).await;
+    let staff_only = CreateChannelRequest {
+        community_id: community.id.clone(),
+        name: "お知らせ".into(),
+        posting: PostingPolicy::POSTING_POLICY_MODERATORS.into(),
+        ..Default::default()
+    };
+    let notices: CreateChannelResponse = ctx.call(BOARD, "CreateChannel", Some(&owner), &staff_only).await.unwrap();
+    let thread = ctx.thread(&member, &general, "みんなのスレ", "x").await;
+    let reply = ctx.reply(&member, &thread, "返信").await;
+    let notice = ctx.thread(&owner, notices.channel.as_option().unwrap(), "運営からのお知らせ", "x").await;
+    let event = ctx.event(&owner, &community).await;
+    let timeout = TimeoutMemberRequest {
+        community_id: community.id.clone(),
+        user_id: silenced.id.to_string(),
+        duration_seconds: 600,
+        reason: "頭を冷やそう".into(),
+        ..Default::default()
+    };
+    let _: TimeoutMemberResponse =
+        ctx.call("CommunityModerationService", "TimeoutMember", Some(&owner), &timeout).await.unwrap();
+    use SubjectType::*;
+    let open = |kind: SubjectType, id: &str, viewer: Option<&TestUser>| {
+        let (id, viewer) = (id.to_owned(), viewer.map(|user| user.id));
+        async move { subjects.resolve(kind, &id, viewer).await.unwrap().interactions_enabled }
+    };
+
+    // Everyone reads a public community; an engagement comment is not a
+    // way to write in it without joining, or around a timeout.
+    for (kind, id) in [
+        (SUBJECT_TYPE_COMMUNITY_THREAD, &thread.id),
+        (SUBJECT_TYPE_COMMUNITY_REPLY, &reply.id),
+        (SUBJECT_TYPE_COMMUNITY_EVENT, &event.id),
+    ] {
+        assert!(open(kind, id, Some(&member)).await, "{kind:?} for a member");
+        assert!(open(kind, id, Some(&moderator)).await, "{kind:?} for the staff");
+        assert!(!open(kind, id, Some(&outsider)).await, "{kind:?} for someone who has not joined");
+        assert!(!open(kind, id, None).await, "{kind:?} for a guest");
+        assert!(!open(kind, id, Some(&silenced)).await, "{kind:?} for a timed-out member");
+    }
+    // Nor around "only the staff posts here".
+    assert!(!open(SUBJECT_TYPE_COMMUNITY_THREAD, &notice.id, Some(&member)).await);
+    assert!(open(SUBJECT_TYPE_COMMUNITY_THREAD, &notice.id, Some(&moderator)).await);
 }

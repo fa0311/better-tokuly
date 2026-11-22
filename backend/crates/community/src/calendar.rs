@@ -200,6 +200,9 @@ impl Community {
         if !Self::manages_event(access, event) {
             return Err(permission_denied());
         }
+        // A timeout silences: an organiser who is timed out does not edit,
+        // move or cancel (each of which tells every attendee) until it is over.
+        access.require_active()?;
         access.user_id.ok_or_else(permission_denied)
     }
 
@@ -304,8 +307,10 @@ impl Community {
             ban: None,
             requested: false,
         };
+        // Only a public community's events travel on the topic (see
+        // `pushable`); elsewhere followers fetch the event by its ID.
         let event = match self.event_by_id(event_id).await {
-            Ok(Some(row)) => self.render_event(&outsider, &row).await.ok(),
+            Ok(Some(row)) if community.is_public() => self.render_event(&outsider, &row).await.ok(),
             _ => None,
         };
         let push = pb::CalendarEventChanged {

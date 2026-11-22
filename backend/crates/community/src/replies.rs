@@ -315,7 +315,7 @@ impl Community {
     /// Announces a reply on the community's topic (see `push_thread_created`
     /// for when the reply itself is left out).
     pub(crate) async fn push_reply_created(&self, community: &CommunityRow, reply: &ReplyRow) {
-        let payload = match self.pushable(reply.author_id, reply.anonymous).await {
+        let payload = match self.pushable(community, reply.author_id, reply.anonymous).await {
             true => self.render_reply(None, reply).await.ok(),
             false => None,
         };
@@ -428,7 +428,7 @@ impl Community {
             self.push_reply_removed(&updated).await;
             self.push_staff_queues(community.id).await;
         } else if updated.is_visible() {
-            let payload = match self.pushable(updated.author_id, updated.anonymous).await {
+            let payload = match self.pushable(community, updated.author_id, updated.anonymous).await {
                 true => self.render_reply(None, &updated).await.ok(),
                 false => None,
             };

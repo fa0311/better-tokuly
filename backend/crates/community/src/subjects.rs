@@ -74,8 +74,20 @@ impl Community {
         })
     }
 
+    /// Whether the caller could write in the channel right now: a member
+    /// who is not timed out, of a role the channel's posting policy
+    /// admits. Comments and reactions of the engagement domain are open to
+    /// exactly these people — a comment under a thread must not be a way
+    /// to write where a reply would be refused. (A banned account is not a
+    /// member.)
+    async fn may_post_in(&self, access: &crate::access::Access, channel_id: Uuid) -> AppResult<bool> {
+        let Some(role) = access.role().filter(|_| access.timeout().is_none()) else { return Ok(false) };
+        Ok(self.channel_by_id(channel_id).await?.is_some_and(|channel| channel.open_to(role)))
+    }
+
     async fn thread_subject(&self, caller: &Caller, id: &str) -> AppResult<SubjectInfo> {
         let (thread, access, _) = self.open_thread(caller, id).await?;
+        let may_post = self.may_post_in(&access, thread.channel_id).await?;
         Ok(SubjectInfo {
             id: thread.id,
             owner_id: owner_of(thread.author_id, thread.anonymous),
@@ -83,15 +95,13 @@ impl Community {
             path: thread.path(&access.community),
             image_url: thread.image_url(),
             // A locked thread takes no comments; a hidden one nothing at all.
-            interactions_enabled: thread.is_visible()
-                && !thread.is_locked()
-                && access.ban.is_none()
-                && access.timeout().is_none(),
+            interactions_enabled: thread.is_visible() && !thread.is_locked() && may_post,
         })
     }
 
     async fn reply_subject(&self, caller: &Caller, id: &str) -> AppResult<SubjectInfo> {
         let (reply, access, _) = self.open_reply(caller, id).await?;
+        let may_post = self.may_post_in(&access, reply.channel_id).await?;
         let excerpt = text::excerpt(&reply.body, REPLY_TITLE_CHARS);
         Ok(SubjectInfo {
             id: reply.id,
@@ -99,10 +109,7 @@ impl Community {
             title: if excerpt.is_empty() { reply.thread_title.clone() } else { excerpt },
             path: reply.path(&access.community),
             image_url: reply.images().into_iter().next().map(|image| image.url).filter(|url| !url.is_empty()),
-            interactions_enabled: reply.is_visible()
-                && reply.thread_locked_at.is_none()
-                && access.ban.is_none()
-                && access.timeout().is_none(),
+            interactions_enabled: reply.is_visible() && reply.thread_locked_at.is_none() && may_post,
         })
     }
 
@@ -114,7 +121,8 @@ impl Community {
             title: event.title.clone(),
             path: event.path(&access.community),
             image_url: event.cover_url(),
-            interactions_enabled: !event.is_cancelled() && access.ban.is_none() && access.timeout().is_none(),
+            // Like answering the event: for members who are not timed out.
+            interactions_enabled: !event.is_cancelled() && access.is_member() && access.timeout().is_none(),
         })
     }
 

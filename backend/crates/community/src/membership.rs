@@ -66,6 +66,33 @@ impl RequestRow {
     }
 }
 
+/// An invite (aliased `i`) is good only while whoever created it may still
+/// invite: a member, and of a role that invites (`$2` = the moderator
+/// role) unless the community lets every member. An invite is its
+/// creator's word; it does not outlive their standing.
+macro_rules! creator_may_invite {
+    () => {
+        "EXISTS (SELECT 1 FROM community_members m JOIN communities c ON c.id = m.community_id
+                 WHERE m.community_id = i.community_id AND m.user_id = i.created_by
+                   AND (m.role >= $2 OR c.members_can_invite))"
+    };
+}
+const CREATOR_MAY_INVITE: &str = creator_may_invite!();
+
+/// Revokes the invites a member created in a community: when they leave,
+/// are removed or banned, or lose the right to invite.
+async fn revoke_invites_of(tx: &mut Transaction<'_, Postgres>, community_id: Uuid, user_id: Uuid) -> AppResult<()> {
+    sqlx::query(
+        "UPDATE community_invites SET revoked_at = now()
+         WHERE community_id = $1 AND created_by = $2 AND revoked_at IS NULL",
+    )
+    .bind(community_id)
+    .bind(user_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
 impl Community {
     /// `JOIN_LIMIT_REACHED` when `user_id` is in as many communities as one
     /// account may be.
@@ -135,12 +162,14 @@ impl Community {
         lock(tx, &format!("community:user:{user_id}")).await?;
         self.ensure_can_join_more(tx, user_id).await?;
         if let Some(invite) = invite {
-            let used = sqlx::query(
-                "UPDATE community_invites SET use_count = use_count + 1
-                 WHERE id = $1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())
-                   AND (max_uses = 0 OR use_count < max_uses)",
-            )
+            let used = sqlx::query(concat!(
+                "UPDATE community_invites i SET use_count = use_count + 1
+                     WHERE id = $1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())
+                       AND (max_uses = 0 OR use_count < max_uses) AND ",
+                creator_may_invite!()
+            ))
             .bind(invite.id)
+            .bind(Role::Moderator.code())
             .execute(&mut **tx)
             .await?;
             if used.rows_affected() == 0 {
@@ -204,6 +233,7 @@ impl Community {
         if removed.rows_affected() == 0 {
             return Ok(None);
         }
+        revoke_invites_of(tx, community.id, user_id).await?;
         sqlx::query("UPDATE communities SET member_count = greatest(member_count - 1, 0) WHERE id = $1")
             .bind(community.id)
             .execute(&mut **tx)
@@ -586,6 +616,10 @@ impl Community {
         .fetch_optional(&mut *tx)
         .await?;
         let updated = updated.ok_or_else(member_not_found)?;
+        if !permissions::allows(new_role, Permission::PERMISSION_CREATE_INVITE, community.grants()) {
+            // Demoted below the right to invite: the invites go with it.
+            revoke_invites_of(&mut tx, community.id, user_id).await?;
+        }
         if target.role() != new_role {
             let entry = LogEntry::new(community.id, ModerationAction::MODERATION_ACTION_ROLE_CHANGED)
                 .by(actor.user_id)
@@ -639,9 +673,10 @@ impl Community {
             return Err(invite_invalid());
         }
         let invite: Option<InviteRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "SELECT {INVITE_COLUMNS} FROM community_invites WHERE code = $1"
+            "SELECT {INVITE_COLUMNS} FROM community_invites i WHERE code = $1 AND {CREATOR_MAY_INVITE}"
         )))
         .bind(code)
+        .bind(Role::Moderator.code())
         .fetch_optional(&self.core.db)
         .await?;
         invite.filter(|invite| invite.is_usable(now())).ok_or_else(invite_invalid)

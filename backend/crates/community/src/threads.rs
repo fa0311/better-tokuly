@@ -412,7 +412,7 @@ impl Community {
     /// left out when its author has a block with anyone: followers of the
     /// topic then fetch it, and the fetch applies their blocks.
     pub(crate) async fn push_thread_created(&self, community: &CommunityRow, thread: &ThreadRow) {
-        let payload = match self.pushable(thread.author_id, thread.anonymous).await {
+        let payload = match self.pushable(community, thread.author_id, thread.anonymous).await {
             true => self.render_thread(community, None, thread).await.ok(),
             false => None,
         };
@@ -429,15 +429,21 @@ impl Community {
     /// Whether a post may travel on the topic as it is: anonymous posts
     /// always (nobody's blocks apply to them), others unless their author
     /// has a block with anyone.
-    pub(crate) async fn pushable(&self, author_id: Uuid, anonymous: bool) -> bool {
-        anonymous || self.blocked(Some(author_id)).await.is_ok_and(|blocked| blocked.is_empty())
+    pub(crate) async fn pushable(&self, community: &CommunityRow, author_id: Uuid, anonymous: bool) -> bool {
+        // The topic is guarded when it is subscribed to, not afterwards:
+        // someone removed from a restricted or hidden community (or
+        // subscribed while it was still public) keeps listening. So only
+        // a public community's content travels on its topic; everywhere
+        // else the topic carries IDs, and the fetch checks who is asking.
+        community.is_public()
+            && (anonymous || self.blocked(Some(author_id)).await.is_ok_and(|blocked| blocked.is_empty()))
     }
 
     pub(crate) async fn push_thread_updated(&self, community: &CommunityRow, thread: &ThreadRow) {
         if !thread.is_visible() {
             return;
         }
-        let payload = match self.pushable(thread.author_id, thread.anonymous).await {
+        let payload = match self.pushable(community, thread.author_id, thread.anonymous).await {
             true => self.render_thread(community, None, thread).await.ok(),
             false => None,
         };

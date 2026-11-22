@@ -377,6 +377,10 @@ impl Community {
         self.staff_limit(actor).await?;
         let community = &access.community;
         let mut tx = self.core.db.begin().await?;
+        let before: Vec<String> = sqlx::query_scalar("SELECT muted_words FROM communities WHERE id = $1 FOR UPDATE")
+            .bind(community.id)
+            .fetch_one(&mut *tx)
+            .await?;
         let (words, threshold): (Vec<String>, i32) = sqlx::query_as(
             "UPDATE communities SET muted_words = coalesce($2, muted_words),
                     auto_hide_reports = coalesce($3, auto_hide_reports)
@@ -387,9 +391,16 @@ impl Community {
         .bind(auto_hide_reports)
         .fetch_one(&mut *tx)
         .await?;
+        // Which words, not only how many: a filter that silently starts
+        // holding a member's name is something the rest of the staff must
+        // be able to see and trace.
+        let added: Vec<&str> = words.iter().filter(|word| !before.contains(word)).map(String::as_str).collect();
+        let removed: Vec<&str> = before.iter().filter(|word| !words.contains(word)).map(String::as_str).collect();
         let entry = LogEntry::new(community.id, ModerationAction::MODERATION_ACTION_SAFETY_SETTINGS_CHANGED)
             .by(actor)
             .detail("muted_words", words.len())
+            .detail("muted_words_added", added.join(", "))
+            .detail("muted_words_removed", removed.join(", "))
             .detail("auto_hide_reports", threshold);
         modlog::record(&mut *tx, &entry).await?;
         tx.commit().await?;
@@ -747,32 +758,37 @@ impl Community {
     /// it, is answered by it (the reply it quotes, the thread it replies
     /// in), or reported it.
     async fn is_party(&self, user_id: Uuid, post: &Post) -> AppResult<bool> {
-        let mentioned =
-            |mentions: Vec<pb::Mention>| mentions.iter().any(|mention| mention.user_id == user_id.to_string());
-        let (involved, subject_type, subject_id) = match post {
-            Post::Thread(thread) => (
-                thread.author_id == user_id || mentioned(thread.mentions()),
-                SubjectType::SUBJECT_TYPE_COMMUNITY_THREAD,
-                thread.id,
-            ),
-            Post::Reply(reply) => (
-                reply.author_id == user_id
-                    || reply.thread_author_id == user_id
-                    || reply.quoted_author_id == Some(user_id)
-                    || mentioned(reply.mentions()),
-                SubjectType::SUBJECT_TYPE_COMMUNITY_REPLY,
-                reply.id,
-            ),
-        };
-        if involved {
+        let (author_id, _) = post.author();
+        if author_id == user_id {
             return Ok(true);
         }
+        // Within a thread a pseudonym is one person, so the question is
+        // not about this post alone: looking up any post of that author
+        // unmasks all of them. The actor is a party when they took part in
+        // the thread themselves, or when anything that author wrote in it
+        // mentions them, answers them, or was reported by them.
+        let mentions_actor = serde_json::json!([{ "userId": user_id.to_string() }]);
         Ok(sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM community_reports WHERE subject_type = $1 AND subject_id = $2 AND reporter_id = $3)",
+            "SELECT EXISTS(SELECT 1 FROM community_threads t WHERE t.id = $1 AND t.author_id = $3)
+                 OR EXISTS(SELECT 1 FROM community_replies r WHERE r.thread_id = $1 AND r.author_id = $3)
+                 OR EXISTS(SELECT 1 FROM community_threads t
+                           WHERE t.id = $1 AND t.author_id = $2
+                             AND (t.mentions @> $4
+                                  OR EXISTS(SELECT 1 FROM community_reports p
+                                            WHERE p.subject_type = $5 AND p.subject_id = t.id AND p.reporter_id = $3)))
+                 OR EXISTS(SELECT 1 FROM community_replies r
+                           LEFT JOIN community_replies q ON q.id = r.reply_to_id
+                           WHERE r.thread_id = $1 AND r.author_id = $2
+                             AND (r.mentions @> $4 OR q.author_id = $3
+                                  OR EXISTS(SELECT 1 FROM community_reports p
+                                            WHERE p.subject_type = $6 AND p.subject_id = r.id AND p.reporter_id = $3)))",
         )
-        .bind(subject_type as i32)
-        .bind(subject_id)
+        .bind(post.thread_id())
+        .bind(author_id)
         .bind(user_id)
+        .bind(mentions_actor)
+        .bind(SubjectType::SUBJECT_TYPE_COMMUNITY_THREAD as i32)
+        .bind(SubjectType::SUBJECT_TYPE_COMMUNITY_REPLY as i32)
         .fetch_one(&self.core.db)
         .await?)
     }

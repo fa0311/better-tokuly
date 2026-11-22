@@ -768,3 +768,61 @@ async fn nobody_reviews_their_own_post() {
         "PERMISSION_DENIED"
     );
 }
+
+#[tokio::test]
+async fn accounts_that_joined_after_a_post_cannot_hide_it() {
+    let ctx = start().await;
+    let owner = ctx.app.user("Owner").await;
+    let community = ctx.public(&owner).await;
+    let author = ctx.member(&owner, &community, "Author").await;
+    let mut regulars = Vec::new();
+    for i in 0..3 {
+        regulars.push(ctx.member(&owner, &community, &format!("Regular{i}")).await);
+    }
+    let general = ctx.general(&owner, &community).await;
+    let thread = ctx.thread(&author, &general, "気に入らない人がいるスレ", "x").await;
+    let reply = ctx.reply(&author, &thread, "気に入らない人がいる返信").await;
+
+    // Four fresh accounts join the public community and report at once.
+    for i in 0..4 {
+        let fresh = ctx.app.user(&format!("Fresh{i}")).await;
+        ctx.join(&fresh, &community).await;
+        ctx.report(&fresh, SubjectType::SUBJECT_TYPE_COMMUNITY_THREAD, &thread.id).await;
+        ctx.report(&fresh, SubjectType::SUBJECT_TYPE_COMMUNITY_REPLY, &reply.id).await;
+    }
+    assert!(ctx.get_thread(None, &thread.id).await.is_ok());
+    assert!(ctx.get_reply(None, &reply.id).await.is_ok());
+    assert!(ctx.review_queue(&owner, &community).await.is_empty());
+
+    // Members who were there when it was written still can.
+    for regular in &regulars {
+        ctx.report(regular, SubjectType::SUBJECT_TYPE_COMMUNITY_THREAD, &thread.id).await;
+    }
+    assert_eq!(ctx.get_thread(None, &thread.id).await.unwrap_err().reason, "THREAD_NOT_FOUND");
+    assert_eq!(ctx.review_queue(&owner, &community).await[0].report_count, 3);
+}
+
+#[tokio::test]
+async fn the_log_says_which_words_were_muted() {
+    let ctx = start().await;
+    let owner = ctx.app.user("Owner").await;
+    let community = ctx.public(&owner).await;
+    let moderator = ctx.moderator(&owner, &community).await;
+    ctx.mute_words(&moderator, &community, &["バカ", "あほ"]).await;
+    ctx.mute_words(&moderator, &community, &["バカ", "たなか"]).await;
+    let log = ctx.moderation_log(&owner, &community).await;
+    let changes: Vec<_> = log
+        .iter()
+        .filter(|entry| entry.action == ModerationAction::MODERATION_ACTION_SAFETY_SETTINGS_CHANGED)
+        .collect();
+    // Newest first.
+    assert_eq!(changes.len(), 2);
+    assert_eq!(changes[0].actor.id, moderator.id.to_string());
+    assert_eq!(
+        (changes[0].details["muted_words_added"].as_str(), changes[0].details["muted_words_removed"].as_str()),
+        ("たなか", "あほ")
+    );
+    // (Words are stored the way they are matched: folded to hiragana.)
+    assert_eq!(changes[1].details["muted_words_added"], "ばか, あほ");
+    assert_eq!(changes[1].details["muted_words_removed"], "");
+}

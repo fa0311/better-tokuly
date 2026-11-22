@@ -78,8 +78,8 @@ service CommunityService {
   // files a request (answering the join questions) that the staff approves
   // or declines. A hidden community is joined by invite code only.
   // Joining again while a member returns the membership.
-  // Errors: COMMUNITY_NOT_FOUND, INVITE_INVALID (unknown, expired, revoked
-  // or used up), BANNED, COMMUNITY_FULL, JOIN_LIMIT_REACHED (the caller is in
+  // Errors: COMMUNITY_NOT_FOUND, INVITE_INVALID (unknown, expired, revoked,
+  // used up, or its creator left, was removed or may no longer invite), BANNED, COMMUNITY_FULL, JOIN_LIMIT_REACHED (the caller is in
   // as many communities as one account may), ANSWERS_REQUIRED,
   // ANSWER_TOO_LONG, RATE_LIMITED.
   rpc JoinCommunity(JoinCommunityRequest) returns (JoinCommunityResponse);
@@ -1280,6 +1280,7 @@ service CommunityModerationService {
   // Errors: COMMUNITY_NOT_FOUND, PERMISSION_DENIED.
   rpc GetSafetySettings(GetSafetySettingsRequest) returns (GetSafetySettingsResponse);
   // Changes muted words and the auto-hide threshold. Needs MANAGE_SAFETY.
+  // The moderation log records which words were added and removed.
   // Errors: COMMUNITY_NOT_FOUND, PERMISSION_DENIED, TOO_MANY_MUTED_WORDS,
   // MUTED_WORD_INVALID, THRESHOLD_INVALID.
   rpc UpdateSafetySettings(UpdateSafetySettingsRequest) returns (UpdateSafetySettingsResponse);
@@ -1303,9 +1304,10 @@ service CommunityModerationService {
   // was removed, for as long as it is retained. The use is written to the
   // moderation log (without the author's name) and announced to the rest
   // of the staff. Needs REVEAL_AUTHOR, or the site-wide moderator role.
-  // Refused for anyone involved in the post: its author, someone it
-  // mentions or answers, the author of the thread it replies in, and
-  // whoever reported it.
+  // Refused for anyone involved (a pseudonym is one person within a
+  // thread, so this is about the whole thread): whoever wrote in the
+  // thread themselves, and whoever is mentioned, answered or was reported
+  // against by anything that author wrote in it.
   // Errors: POST_REQUIRED, THREAD_NOT_FOUND, REPLY_NOT_FOUND,
   // PERMISSION_DENIED, CONFLICT_OF_INTEREST, POST_NOT_ANONYMOUS,
   // REASON_REQUIRED, REASON_TOO_LONG, RATE_LIMITED.
@@ -1631,15 +1633,15 @@ service CommunityEventService {
   // description, the place and the link said before stays on file for the
   // staff, and they can be reworded 30 times. The organiser, or a member
   // with MODERATE_CONTENT.
-  // Errors: EVENT_NOT_FOUND, PERMISSION_DENIED, EVENT_CANCELLED,
+  // Errors: EVENT_NOT_FOUND, PERMISSION_DENIED, TIMED_OUT, EVENT_CANCELLED,
   // TOO_MANY_EDITS, RATE_LIMITED, plus the validation errors of CreateEvent.
   rpc UpdateEvent(UpdateEventRequest) returns (UpdateEventResponse);
   // Calls an event off; it stays visible as cancelled and everyone who
   // answered is told. The organiser, or a member with MODERATE_CONTENT.
-  // Errors: EVENT_NOT_FOUND, PERMISSION_DENIED, REASON_TOO_LONG.
+  // Errors: EVENT_NOT_FOUND, PERMISSION_DENIED, TIMED_OUT, REASON_TOO_LONG.
   rpc CancelEvent(CancelEventRequest) returns (CancelEventResponse);
   // Removes an event. The organiser, or a member with MODERATE_CONTENT.
-  // Errors: EVENT_NOT_FOUND, PERMISSION_DENIED.
+  // Errors: EVENT_NOT_FOUND, PERMISSION_DENIED, TIMED_OUT.
   rpc DeleteEvent(DeleteEventRequest) returns (DeleteEventResponse);
   // One event. Errors: EVENT_NOT_FOUND, NOT_A_MEMBER.
   rpc GetEvent(GetEventRequest) returns (GetEventResponse);
@@ -2019,9 +2021,12 @@ message ListPopularTagsResponse {
 // which members may follow (anyone, for a public community). Membership and
 // staff events go straight to the users concerned.
 //
-// Posts on the topic carry no viewer state. A post is left out of its event
-// (only the IDs are sent) when its author has a block with anyone — clients
-// then fetch it with GetThread / GetReply, which apply the caller's blocks.
+// Posts on the topic carry no viewer state. A post or a calendar event is
+// left out of its push (only the IDs are sent) and must be fetched with
+// GetThread / GetReply / GetEvent, which check who is asking:
+// - always in a community that is not public — the topic is checked when it
+//   is followed, so someone removed afterwards may still be listening;
+// - in a public community, when the post's author has a block with anyone.
 // Hidden posts never appear on the topic.
 message CommunityEvent {
   oneof event {
@@ -2111,7 +2116,8 @@ message ChannelsChanged {
 message CalendarEventChanged {
   string community_id = 1;
   string event_id = 2;
-  // Unset when the event was removed.
+  // Unset when the event was removed, and always in a community that is
+  // not public: GetEvent then tells which (EVENT_NOT_FOUND = removed).
   CalendarEvent event = 3;
 }
 

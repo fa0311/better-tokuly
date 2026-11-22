@@ -146,7 +146,8 @@ impl Community {
     /// Someone reported a thread or a reply. When enough different members
     /// have, the post is hidden until the staff reviewed it. Reports by
     /// outsiders do not count (a public community must not be something
-    /// passers-by can silence), nor do reports against the staff's named
+    /// passers-by can silence), nor reports by members who joined after
+    /// the post was written, nor reports against the staff's named
     /// posts, nor against posts the staff already restored.
     async fn on_report_created(&self, report: ReportCreated) -> AppResult<()> {
         // Everything is read before the transaction opens: nothing below
@@ -159,7 +160,15 @@ impl Community {
         let Some(post) = post else { return Ok(()) };
         let (author_id, anonymous) = post.author();
         let Some(community) = self.community_by_id(post.community_id()).await? else { return Ok(()) };
-        if report.reporter_id == author_id || self.member(community.id, report.reporter_id).await?.is_none() {
+        // Only members who were there before the post was written count:
+        // otherwise three fresh accounts join a public community and
+        // silence whatever they like.
+        let written_at = match &post {
+            Post::Thread(thread) => thread.created_at,
+            Post::Reply(reply) => reply.created_at,
+        };
+        let reporter = self.member(community.id, report.reporter_id).await?;
+        if report.reporter_id == author_id || !reporter.is_some_and(|member| member.joined_at <= written_at) {
             return Ok(());
         }
         // The staff's own posts are not hidden by reports — except in an

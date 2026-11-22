@@ -34,6 +34,8 @@ pub const JOB_SWEEP: &str = "community.sweep";
 const ANNOUNCE_CHUNK: i64 = 500;
 /// Threads handled per transaction by a sweep.
 const SWEEP_CHUNK: i64 = 200;
+/// Threads scored per statement by the hot-score timer.
+const HOT_BATCH: i64 = 500;
 /// How long threads keep a hot score after their last activity.
 const HOT_DAYS: i32 = 30;
 /// The window the trending score looks at.
@@ -301,22 +303,54 @@ impl Community {
     /// lets older ones drop to zero. Returns how many threads were scored.
     pub async fn refresh_hot_scores(&self) -> AppResult<u64> {
         let db = &self.core.db;
-        let scored = sqlx::query(
-            "UPDATE community_threads SET hot_score = community_hot_score(
-                 reply_count, like_count, comment_count, created_at, last_activity_at, now())
-             WHERE deleted_at IS NULL AND last_activity_at > now() - make_interval(days => $1)",
-        )
-        .bind(HOT_DAYS)
-        .execute(db)
-        .await?;
-        sqlx::query(
-            "UPDATE community_threads SET hot_score = 0
-             WHERE hot_score > 0 AND last_activity_at <= now() - make_interval(days => $1)",
-        )
-        .bind(HOT_DAYS)
-        .execute(db)
-        .await?;
-        Ok(scored.rows_affected())
+        // In batches, each its own short statement: a reply waits for the
+        // row lock of its thread for one batch at most, never for a pass
+        // over every active thread.
+        let mut scored = 0;
+        let mut after: Option<Uuid> = None;
+        loop {
+            let batch: Vec<Uuid> = sqlx::query_scalar(
+                "SELECT id FROM community_threads
+                 WHERE deleted_at IS NULL AND last_activity_at > now() - make_interval(days => $1)
+                   AND ($2::uuid IS NULL OR id > $2)
+                 ORDER BY id LIMIT $3",
+            )
+            .bind(HOT_DAYS)
+            .bind(after)
+            .bind(HOT_BATCH)
+            .fetch_all(db)
+            .await?;
+            let Some(last) = batch.last() else { break };
+            after = Some(*last);
+            let updated = sqlx::query(
+                "UPDATE community_threads SET hot_score = community_hot_score(
+                     reply_count, like_count, comment_count, created_at, last_activity_at, now())
+                 WHERE id = ANY($1) AND deleted_at IS NULL",
+            )
+            .bind(&batch)
+            .execute(db)
+            .await?;
+            scored += updated.rows_affected();
+            if (batch.len() as i64) < HOT_BATCH {
+                break;
+            }
+        }
+        // Threads that fell out of the window: each is touched once.
+        loop {
+            let faded = sqlx::query(
+                "UPDATE community_threads SET hot_score = 0 WHERE id IN (
+                     SELECT id FROM community_threads
+                     WHERE hot_score > 0 AND last_activity_at <= now() - make_interval(days => $1) LIMIT $2)",
+            )
+            .bind(HOT_DAYS)
+            .bind(HOT_BATCH)
+            .execute(db)
+            .await?;
+            if (faded.rows_affected() as i64) < HOT_BATCH {
+                break;
+            }
+        }
+        Ok(scored)
     }
 
     /// Recomputes the trend score of every community that has (or had)

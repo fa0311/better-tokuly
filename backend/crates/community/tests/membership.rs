@@ -534,3 +534,60 @@ async fn other_domains_can_ask_who_is_a_member() {
     assert!(ctx.community.is_member(id, owner.id).await.unwrap());
     assert!(!ctx.community.is_member(id, outsider.id).await.unwrap());
 }
+
+#[tokio::test]
+async fn an_invite_does_not_outlive_its_creators_standing() {
+    let ctx = start().await;
+    let owner = ctx.app.user("Owner").await;
+    let community = ctx.hidden(&owner).await;
+    let open = |on: bool| UpdateCommunityRequest {
+        community_id: community.id.clone(),
+        settings: CommunitySettings { members_can_invite: on, ..Default::default() }.into(),
+        ..Default::default()
+    };
+    let _: UpdateCommunityResponse = ctx.call(SVC, "UpdateCommunity", Some(&owner), &open(true)).await.unwrap();
+    let kicked = ctx.member(&owner, &community, "Kicked").await;
+    let leaver = ctx.member(&owner, &community, "Leaver").await;
+    let demoted = ctx.moderator(&owner, &community).await;
+    let staying = ctx.member(&owner, &community, "Staying").await;
+    // Each of them keeps a way back in for later.
+    let (of_kicked, of_leaver) = (ctx.invite(&kicked, &community).await, ctx.invite(&leaver, &community).await);
+    let (of_demoted, of_staying) = (ctx.invite(&demoted, &community).await, ctx.invite(&staying, &community).await);
+    let join = |user: &TestUser, invite: &Invite| {
+        let (ctx, user, code) = (&ctx, user.clone(), invite.code.clone());
+        async move { ctx.try_join(&user, "", &code).await.map(|response| response.status) }
+    };
+
+    // Removed: the invite they made does not bring them (or anyone) back.
+    let kick = RemoveMemberRequest {
+        community_id: community.id.clone(),
+        user_id: kicked.id.to_string(),
+        ..Default::default()
+    };
+    let _: RemoveMemberResponse =
+        ctx.call("CommunityModerationService", "RemoveMember", Some(&owner), &kick).await.unwrap();
+    assert_eq!(join(&kicked, &of_kicked).await.unwrap_err().reason, "INVITE_INVALID");
+    assert_eq!(join(&ctx.app.user("Friend").await, &of_kicked).await.unwrap_err().reason, "INVITE_INVALID");
+    assert!(!ctx.community.is_member(community.id.parse().unwrap(), kicked.id).await.unwrap());
+    // Left: the same.
+    let leave = LeaveCommunityRequest { community_id: community.id.clone(), ..Default::default() };
+    let _: LeaveCommunityResponse = ctx.call(SVC, "LeaveCommunity", Some(&leaver), &leave).await.unwrap();
+    assert_eq!(join(&leaver, &of_leaver).await.unwrap_err().reason, "INVITE_INVALID");
+    let preview = PreviewInviteRequest { invite_code: of_leaver.code.clone(), ..Default::default() };
+    assert_eq!(ctx.reason(SVC, "PreviewInvite", None, &preview).await, "INVITE_INVALID");
+
+    // Members lose the right to invite: their invites stop working, the
+    // staff's keep working — and come back with the setting.
+    let _: UpdateCommunityResponse = ctx.call(SVC, "UpdateCommunity", Some(&owner), &open(false)).await.unwrap();
+    let guest = ctx.app.user("Guest").await;
+    assert_eq!(join(&guest, &of_staying).await.unwrap_err().reason, "INVITE_INVALID");
+    // Demoted below the right to invite: revoked for good.
+    ctx.set_role(&owner, &community, &demoted, MemberRole::MEMBER_ROLE_MEMBER).await;
+    assert_eq!(join(&guest, &of_demoted).await.unwrap_err().reason, "INVITE_INVALID");
+    let _: UpdateCommunityResponse = ctx.call(SVC, "UpdateCommunity", Some(&owner), &open(true)).await.unwrap();
+    assert_eq!(join(&guest, &of_demoted).await.unwrap_err().reason, "INVITE_INVALID");
+    assert_eq!(join(&guest, &of_staying).await.unwrap(), MembershipStatus::MEMBERSHIP_STATUS_MEMBER);
+    // The owner's invite still lets a removed member back in: that is the owner's call.
+    let again = ctx.invite(&owner, &community).await;
+    assert_eq!(join(&kicked, &again).await.unwrap(), MembershipStatus::MEMBERSHIP_STATUS_MEMBER);
+}

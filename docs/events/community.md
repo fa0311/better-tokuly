@@ -48,10 +48,12 @@ instead of its author.
   It needs a reason, writes a log entry (who looked, at which post, why — not
   the answer), and tells the rest of the staff at once (`community.author_revealed`
   notification and an `AuthorRevealed` push).
-  A moderator who is part of the matter — mentioned in the post, the author
-  of the thread or of the reply it answers, or the one who reported it —
-  gets `CONFLICT_OF_INTEREST`: someone else on the staff, or site
-  moderation, has to look. Removed posts can still be looked up while they
+  A moderator who is part of the matter gets `CONFLICT_OF_INTEREST`:
+  someone else on the staff, or site moderation, has to look. Because a
+  pseudonym is one person within a thread, the rule looks at the whole
+  thread: a party is whoever wrote in it themselves (thread or reply), and
+  whoever is mentioned, answered or was reported against by anything that
+  author wrote in it. Removed posts can still be looked up while they
   are retained.
 - **To the generic domains an anonymous post belongs to nobody.** Its
   subject resolves with the nil UUID as owner (like official content):
@@ -89,6 +91,14 @@ instead of its author.
   one author rings one member at most 5 times an hour (200 an hour in all);
   further mentions stay in the text and notify nobody.
 - A channel's mode cannot be changed once it has threads.
+
+## Invites
+
+An invite is its creator's word and does not outlive their standing: it
+works only while the creator is a member who may still invite. Invites are
+revoked when their creator leaves, is removed or banned, or is demoted
+below the right to invite; turning "members can invite" off disables
+members' invites until it is turned on again.
 
 ## Removed and edited content
 
@@ -197,7 +207,7 @@ idempotent.
 | Topic | Reaction |
 |---|---|
 | `identity.user.deleted` `{ user_id }` | Posts stay (rendered as "deleted user"; anonymous ones keep their pseudonym). Gone: memberships (member counts follow), answers to events that are not over (places go to the waitlist), join requests, follows, read markers, bans, poll votes. **Numbers others watch do not move**: polls keep their counts, and reports the account filed still count but no longer name it. Invites they created are revoked; log entries lose the reference, except entries about an anonymous post, which keep the key its pseudonym is made from. **A community they owned passes to the longest-serving admin — failing that the longest-serving moderator, then member — and is closed when nobody is left.** |
-| `engagement.report.created` `{ report_id, reporter_id, subject_type, subject_id, … }` | For `COMMUNITY_THREAD` / `COMMUNITY_REPLY`: counted once per reporting **member**. At the community's threshold (or `TOKULY_COMMUNITY_AUTO_HIDE_REPORTS`) the post is hidden pending review; reports on one post take turns, so it is hidden exactly once. Not counted: outsiders, the author. Never hidden: named posts of the staff, posts the staff already restored. |
+| `engagement.report.created` `{ report_id, reporter_id, subject_type, subject_id, … }` | For `COMMUNITY_THREAD` / `COMMUNITY_REPLY`: counted once per reporting **member who joined before the post was written** (fresh accounts cannot gang up on a post). At the community's threshold (or `TOKULY_COMMUNITY_AUTO_HIDE_REPORTS`) the post is hidden pending review; reports on one post take turns, so it is hidden exactly once. Not counted: outsiders, the author. Never hidden: named posts of the staff, posts the staff already restored. |
 | `admin.content.removed` `{ subject_type, subject_id, reason, moderator_id }` | `COMMUNITY` closes the community; `COMMUNITY_THREAD`, `COMMUNITY_REPLY`, `COMMUNITY_EVENT` remove the item and write `CONTENT_TAKEN_DOWN` into the community's log. What was removed is retained like anything removed. The owner is not notified here (admin does). |
 | `media.asset.deleted` `{ asset_id, … }` | Safety net for forced deletions (everything shown holds its upload). Icons, banners and covers are cleared; the image leaves posts; a reply that was only the image is deleted. |
 
@@ -248,9 +258,15 @@ moderation) otherwise.
 | `calendar_event_changed` | an event was created, edited, answered, cancelled or removed (`event` unset) |
 | `community_changed` | profile, member count, or closed |
 
-Posts on the topic carry no viewer state. A named post whose author has a
-block with anyone travels as IDs only (clients fetch it; the fetch applies
-the caller's blocks). Hidden posts never appear on the topic.
+Posts on the topic carry no viewer state. **In a community that is not
+public the topic carries IDs only** — no thread, reply or event content:
+the guard runs when a topic is followed, so someone kicked or banned
+afterwards (or who followed while the community was still public) may
+still be listening until the gateway can drop subscriptions (issue #51).
+Clients fetch by ID, and the fetch checks access. In a public community a
+named post whose author has a block with anyone also travels as IDs only
+(the fetch applies the caller's blocks). Hidden posts never appear on the
+topic.
 
 To single users: `membership_changed` (their own standing),
 `staff_queue_changed` and `author_revealed` (staff).
@@ -262,9 +278,14 @@ handle), `COMMUNITY_THREAD` (owner: the author; UUID or short ID),
 `COMMUNITY_REPLY` (owner: the author) and `COMMUNITY_EVENT` (owner: the
 organiser). **The owner of a post in an anonymous channel is the nil
 UUID.** Visibility follows the community's. `interactions_enabled` is
-false for locked or hidden threads and their replies, cancelled events,
-removed content (which keeps resolving while it is retained, see above),
-and for viewers who are banned or timed out. `counter_changed` keeps
+false for locked or hidden threads and their replies, cancelled events and
+removed content (which keeps resolving while it is retained, see above).
+**Comments and reactions on threads and replies are for those who could
+write there**: members who are not timed out, of a role the channel's
+posting policy admits — so an engagement comment is not a way around
+"members only", a ban, a timeout or a moderators-only channel. Events take
+them from members who are not timed out. (The flag covers comments and
+reactions together; see "Gaps and requests".) `counter_changed` keeps
 `like_count` and `comment_count` on threads, replies and events (the hot
 score of a thread moves with them).
 
@@ -284,7 +305,7 @@ No user is attached to events about anonymous posts.
 | Event consumer | durable `community` | topics above; `ack_wait` 120 s |
 | Announcement fan-out | job `community.announce` (`AnnounceJob { thread_id }`) | 500 members per transaction; the cursor is stored on the thread, so retries and duplicate jobs continue instead of repeating |
 | Sweep | job `community.sweep` (`SweepJob { community_id, channel_id }`) | after a community or channel was deleted, or a community changed visibility: the search documents of its threads; runs in-process when queueing fails |
-| Hot scores | timer, `TOKULY_COMMUNITY_HOT_INTERVAL_SECONDS` | `community_hot_score()` for threads active in the last 30 days; older ones drop to 0 |
+| Hot scores | timer, `TOKULY_COMMUNITY_HOT_INTERVAL_SECONDS` | `community_hot_score()` for threads active in the last 30 days, 500 threads per statement; older ones drop to 0 |
 | Trend scores | timer, `TOKULY_COMMUNITY_TREND_INTERVAL_SECONDS` | (3 × joins + 2 × threads + replies of the last 7 days) / (members + 10)^0.3 |
 | Event reminders | timer, every 60 s | safe on several workers (`FOR UPDATE SKIP LOCKED`) |
 | Maintenance | timer, every 10 min | deletes expired bans and declined join requests older than 7 days; purges removed content whose retention is over (200 per kind and pass); re-queues announcements whose job got lost |
@@ -370,6 +391,11 @@ migration `2300` to the server.
 - **Restored posts.** A post held by the word filter and later restored
   notifies nobody but its author (no mention or follower notifications are
   sent in hindsight).
-- **Hot scores at scale.** The hot-score worker updates every thread active
-  in the last 30 days in one statement; fine for a young product, a batched
-  walk when the table is large.
+- **Comments under threads (core, engagement).** `SubjectInfo` has one
+  switch for comments and reactions. This domain opens it only to members
+  who could write in the channel, which covers membership, bans, timeouts
+  and the posting policy — but the channel's word filter and slow mode
+  cannot reach text the engagement domain stores. With a separate
+  `comments_enabled` on `SubjectInfo`, threads would turn comments off
+  altogether (replies are the place to answer) and keep likes for every
+  reader.

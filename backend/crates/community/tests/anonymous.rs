@@ -843,3 +843,52 @@ async fn a_moderator_who_is_part_of_it_does_not_look_up_the_author() {
         .unwrap();
     assert_eq!(looked.author.id, s.author.id.to_string());
 }
+
+#[tokio::test]
+async fn the_conflict_rule_covers_everything_a_pseudonym_wrote_in_the_thread() {
+    let ctx = start().await;
+    let s = scene(&ctx).await;
+    let reveal = |post, user: &TestUser| {
+        let (ctx, user) = (&ctx, user.clone());
+        let request =
+            RevealAuthorRequest { post, reason: "だれが書いたか知りたい".into(), ..Default::default() };
+        async move { ctx.call::<_, RevealAuthorResponse>(MODERATION, "RevealAuthor", Some(&user), &request).await }
+    };
+
+    // The author attacks the moderator in one reply and writes harmless
+    // ones around it. Every one of them carries the same pseudonym, so
+    // looking up a harmless one would unmask the attacker just the same.
+    let thread = ctx.thread(&s.reader, &s.channel, "ふつうのスレ", "x").await;
+    let harmless = ctx.reply(&s.author, &thread, "いい天気ですね").await;
+    let attack = ctx.reply(&s.author, &thread, &format!("@{} は最低のモデレーター", s.moderator.handle)).await;
+    let later = ctx.reply(&s.author, &thread, "ではまた").await;
+    assert!(harmless.pseudonym.as_option() == attack.pseudonym.as_option());
+    for post in [&attack, &harmless, &later] {
+        assert_eq!(reveal(reply_ref(&post.id), &s.moderator).await.unwrap_err().reason, "CONFLICT_OF_INTEREST");
+    }
+    // Someone else's reply in the same thread is not that author's business.
+    let bystander = ctx.reply(&s.owner, &thread, "横から失礼").await;
+    assert_eq!(reveal(reply_ref(&bystander.id), &s.moderator).await.unwrap().author.id, s.owner.id.to_string());
+
+    // The same through a report: the moderator reported the thread, and
+    // may not look up the replies its author wrote under it either.
+    let reported = ctx.thread(&s.author, &s.channel, "通報されるスレ", "x").await;
+    let under = ctx.reply(&s.author, &reported, "同じ人の返信").await;
+    ctx.report(&s.moderator, SubjectType::SUBJECT_TYPE_COMMUNITY_THREAD, &reported.id).await;
+    assert_eq!(reveal(reply_ref(&under.id), &s.moderator).await.unwrap_err().reason, "CONFLICT_OF_INTEREST");
+
+    // And a moderator who took part in an anonymous thread is one of its
+    // voices: they do not look up the others, the thread's author included.
+    let debate = ctx.thread(&s.author, &s.channel, "議論のスレ", "x").await;
+    let opponent = ctx.reply(&s.reader, &debate, "反対です").await;
+    ctx.reply(&s.moderator, &debate, "モデレーターも匿名で参加").await;
+    assert_eq!(reveal(thread_ref(&debate.id), &s.moderator).await.unwrap_err().reason, "CONFLICT_OF_INTEREST");
+    assert_eq!(reveal(reply_ref(&opponent.id), &s.moderator).await.unwrap_err().reason, "CONFLICT_OF_INTEREST");
+
+    // Someone on the staff who stayed out of all of it decides.
+    let admin = ctx.staff(&s.owner, &s.community, "Admin", MemberRole::MEMBER_ROLE_ADMIN).await;
+    assert_eq!(reveal(reply_ref(&harmless.id), &admin).await.unwrap().author.id, s.author.id.to_string());
+    assert_eq!(reveal(thread_ref(&debate.id), &admin).await.unwrap().author.id, s.author.id.to_string());
+    // (The owner wrote in the first thread, and so is a voice in it too.)
+    assert_eq!(reveal(reply_ref(&harmless.id), &s.owner).await.unwrap_err().reason, "CONFLICT_OF_INTEREST");
+}

@@ -554,3 +554,41 @@ async fn reminders_go_out_a_day_and_an_hour_before() {
     ctx.community.send_due_reminders().await.unwrap();
     assert!(reminders(&declined).await.is_empty());
 }
+
+#[tokio::test]
+async fn a_timed_out_organiser_does_not_manage_their_event() {
+    let ctx = start().await;
+    let owner = ctx.app.user("Owner").await;
+    let community = ctx.public(&owner).await;
+    open_events_to_members(&ctx, &owner, &community).await;
+    let organizer = ctx.member(&owner, &community, "Organizer").await;
+    let guest = ctx.member(&owner, &community, "Guest").await;
+    let event = ctx.event(&organizer, &community).await;
+    ctx.rsvp(&guest, &event, RsvpAnswer::RSVP_ANSWER_GOING).await;
+    let timeout = TimeoutMemberRequest {
+        community_id: community.id.clone(),
+        user_id: organizer.id.to_string(),
+        duration_seconds: 600,
+        reason: "頭を冷やそう".into(),
+        ..Default::default()
+    };
+    let _: TimeoutMemberResponse =
+        ctx.call("CommunityModerationService", "TimeoutMember", Some(&owner), &timeout).await.unwrap();
+
+    // Each of these would tell every attendee something.
+    let moved =
+        UpdateEventRequest { event_id: by_id(&event), starts_at: ts(now() + Duration::days(5)), ..Default::default() };
+    assert_eq!(ctx.reason(SVC, "UpdateEvent", Some(&organizer), &moved).await, "TIMED_OUT");
+    let retitle =
+        UpdateEventRequest { event_id: by_id(&event), title: Some("腹いせの題".into()), ..Default::default() };
+    assert_eq!(ctx.reason(SVC, "UpdateEvent", Some(&organizer), &retitle).await, "TIMED_OUT");
+    let cancel = CancelEventRequest { event_id: by_id(&event), reason: "腹いせ".into(), ..Default::default() };
+    assert_eq!(ctx.reason(SVC, "CancelEvent", Some(&organizer), &cancel).await, "TIMED_OUT");
+    let delete = DeleteEventRequest { event_id: by_id(&event), ..Default::default() };
+    assert_eq!(ctx.reason(SVC, "DeleteEvent", Some(&organizer), &delete).await, "TIMED_OUT");
+    assert!(ctx.notifications(guest.id, "community.event_update").await.is_empty());
+    assert_eq!(ctx.get_event(Some(&guest), &event.id).await.unwrap().title, "オフ会");
+    // The staff still runs it meanwhile.
+    let _: UpdateEventResponse = ctx.call(SVC, "UpdateEvent", Some(&owner), &moved).await.unwrap();
+    assert_eq!(ctx.notifications(guest.id, "community.event_update").await.len(), 1);
+}
