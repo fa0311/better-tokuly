@@ -41,11 +41,13 @@ export function InboxScreen({ tab, onTabChange }: { tab: InboxTab; onTabChange(t
 
   // Seeing the new questions is reading them: the badge clears, the dots stay for this visit.
   const marked = useRef(new Set<string>());
-  const unreadIds = tab === "inbox" ? questions.filter((question) => !question.read && !marked.current.has(question.id)).map((question) => question.id) : [];
-  const unreadKey = unreadIds.join(",");
+  const unreadKey = tab === "inbox" ? questions.flatMap((question) => (question.read ? [] : [question.id])).join(",") : "";
   useEffect(() => {
-    if (!unreadKey) return;
-    const ids = unreadKey.split(",").slice(0, 100);
+    const ids = unreadKey
+      .split(",")
+      .filter((id) => id && !marked.current.has(id))
+      .slice(0, 100);
+    if (ids.length === 0) return;
     for (const id of ids) marked.current.add(id);
     boxClient()
       .markQuestionsRead({ questionIds: ids })

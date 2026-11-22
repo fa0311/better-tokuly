@@ -189,7 +189,7 @@ test("a question asked anonymously from a second account arrives live, without a
   await expect(page.getByRole("main")).not.toContainText(asker.handle);
 });
 
-test("asking on someone's box is anonymous by default and says what they will see", async ({ page, request, me }) => {
+test("asking on someone's box is anonymous by default and says what they will see", async ({ page, request, me: _me }) => {
   const owner = await createAccount(request, "hakonushi");
   await openBox(request, owner, { boxPrompt: "なんでもきいて!" });
   await open(page, `/ask/u/${owner.handle}`);
@@ -351,6 +351,38 @@ test("the asker sees their question turn answered live, and a private answer sta
   const seenByOutsider = await rpc<{ question: Question }>(request, `${BOX}/GetQuestion`, { questionId: question.id }, outsider).catch(() => undefined);
   expect(seenByOutsider?.question.answer).toBeUndefined();
   expect((await rpc<{ questions?: Question[] }>(request, `${BOX}/ListAnswers`, { user: owner.userId }, outsider)).questions ?? []).toHaveLength(0);
+});
+
+test("an answer can be edited, limited to friends and taken back", async ({ page, request, me }) => {
+  const asker = await createAccount(request, "asker");
+  await openBox(request, me);
+  const question = await ask(request, asker, me, "将来の夢は?");
+  await delivered(request, me, "将来の夢は?");
+  await rpc(request, `${BOX}/AnswerQuestion`, { questionId: question.id, text: "まだひみつ" }, me);
+
+  await open(page, "/ask/inbox?tab=answered");
+  const card = qaCard(page, "将来の夢は?");
+  await card.getByRole("button", { name: "その他" }).click();
+  await page.getByRole("menuitem", { name: "回答を編集" }).click();
+  const composer = page.getByRole("dialog");
+  await expect(composer.getByPlaceholder("回答を書いてね")).toHaveValue("まだひみつ");
+  await composer.getByPlaceholder("回答を書いてね").fill("ゲームをつくる人!");
+  await composer.getByRole("radio", { name: "ともだち" }).click();
+  await composer.getByRole("button", { name: "保存する" }).click();
+  await expect(page.getByText("回答を変えたよ!")).toBeVisible();
+  await expect(card).toContainText("ゲームをつくる人!");
+  await expect(card).toContainText("ともだち限定");
+  await expect(card).toContainText("編集済み");
+  // No longer for everyone: the public Q&A page is empty again.
+  await expect.poll(async () => ((await rpc<{ questions?: Question[] }>(request, `${BOX}/ListAnswers`, { user: me.userId })).questions ?? []).length).toBe(0);
+
+  await card.getByRole("button", { name: "その他" }).click();
+  await page.getByRole("menuitem", { name: "回答を取り消す" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "取り消す" }).click();
+  await expect(page.getByText("回答を取り消したよ")).toBeVisible();
+  await expect(card).toHaveCount(0);
+  await page.getByRole("tab", { name: /新着/ }).click();
+  await expect(questionRow(page, "将来の夢は?")).toBeVisible();
 });
 
 test("blocking a sender keeps their next question out, without saying who it was", async ({ page, request, me }) => {
