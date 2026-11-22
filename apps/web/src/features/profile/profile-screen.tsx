@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { identity, social, toDate } from "@tokuly/api";
+import { common, identity, social, toDate } from "@tokuly/api";
 import { Ban, LogOut, MessageCircle, Music, Settings, UserMinus, UserPlus } from "lucide-react";
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
@@ -9,6 +9,9 @@ import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Card } from "#/components/ui/card";
 import { EmptyState, Skeleton } from "#/components/ui/page";
+import { ReportButton } from "#/features/engagement";
+import { ProfileNotes } from "#/features/notes";
+import { ProfileHighlights, StoryRing } from "#/features/stories";
 import { api, profileClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { formatDistance } from "#/lib/format";
@@ -76,7 +79,10 @@ export function ProfileScreen({ handle }: { handle: string }) {
       {/* The banner falls back to the avatar's main colour, like the original app. */}
       <div className="h-40 w-full bg-cover bg-center md:h-52" style={banner ? { backgroundImage: `url(${banner})` } : { background: tint }} />
       <div className="mx-auto -mt-14 max-w-2xl px-4">
-        <Avatar user={user} size="xl" outlined className="[&>span]:size-28 [&>span]:rounded-[2rem]" />
+        {/* While the person has stories to show, their face is ringed and plays them. */}
+        <StoryRing user={user}>
+          <Avatar user={user} size="xl" outlined className="block [&>span]:size-28 [&>span]:rounded-[2rem]" />
+        </StoryRing>
         <h1 className="mt-3 truncate text-2xl font-black">
           {user.displayName} {user.verified && <span title="verified">✅</span>}
         </h1>
@@ -129,9 +135,12 @@ export function ProfileScreen({ handle }: { handle: string }) {
               <Button variant="ghost" icon={<Ban className="size-4" />} onClick={() => window.confirm(t("confirmBlock", { name: user.displayName })) && block.mutate()}>
                 {t("actions.block")}
               </Button>
+              <ReportButton subject={{ type: common.SubjectType.USER, id: user.id }} label={`@${user.handle}`} />
             </>
           )}
         </div>
+
+        <ProfileHighlights user={user} isSelf={isSelf} />
 
         {profile.distanceMeters !== undefined && (
           <p className="mt-5 rounded-2xl bg-lime px-4 py-3 font-black text-[#17122b] sticker-sm">{t("distance", { distance: formatDistance(profile.distanceMeters) })}</p>
@@ -180,6 +189,9 @@ export function ProfileScreen({ handle }: { handle: string }) {
             </p>
           )}
         </div>
+
+        {/* Nothing of a blocked person is shown, and the server would not hand it out. */}
+        {profile.relationship !== identity.Relationship.BLOCKED && <ProfileNotes userId={user.id} isSelf={isSelf} />}
       </div>
     </div>
   );
