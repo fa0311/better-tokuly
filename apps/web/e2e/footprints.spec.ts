@@ -13,7 +13,7 @@ interface Point {
   lng: number;
 }
 
-const somewhereInTokyo = (): Point => ({ lat: 35.6 + Math.random() * 0.1, lng: 139.55 + Math.random() * 0.15 });
+const somewhereInTokyo = (): Point => ({ lat: 35.66 + Math.random() * 0.08, lng: 139.6 + Math.random() * 0.15 });
 
 /** The point `meters` east of `from`. */
 function east(from: Point, meters: number): Point {

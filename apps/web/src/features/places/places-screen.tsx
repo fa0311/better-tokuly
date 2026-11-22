@@ -38,7 +38,7 @@ export function PlacesScreen({ tab, query }: { tab: PlacesTab; query: string }) 
   const { t } = useTranslation("places");
   const navigate = useNavigate();
   const [checkIn, setCheckIn] = useState<{ open: boolean; target?: CheckInTarget }>({ open: false });
-  const go = (next: PlacesTab, q = query) => void navigate({ to: "/places", search: { ...(next === "mine" ? {} : { tab: next }), ...(q ? { q } : {}) }, replace: true });
+  const go = (next: PlacesTab) => void navigate({ to: "/places", search: next === "mine" ? {} : { tab: next }, replace: true });
 
   return (
     <Page title={t("title")} back="/me">
@@ -66,7 +66,7 @@ export function PlacesScreen({ tab, query }: { tab: PlacesTab; query: string }) 
       <div className="mt-4">
         {tab === "mine" && <MyPlaces />}
         {tab === "saved" && <SavedPlaces />}
-        {tab === "search" && <PlaceSearch query={query} onQuery={(q) => go("search", q)} onCheckIn={(target) => setCheckIn({ open: true, target })} />}
+        {tab === "search" && <PlaceSearch initialQuery={query} onCheckIn={(target) => setCheckIn({ open: true, target })} />}
       </div>
 
       <CheckInDialog open={checkIn.open} target={checkIn.target} onOpenChange={(open) => setCheckIn((current) => ({ ...current, open }))} />
@@ -230,15 +230,28 @@ function SavedPlaces() {
   );
 }
 
-function PlaceSearch({ query, onQuery, onCheckIn }: { query: string; onQuery(query: string): void; onCheckIn(target: CheckInTarget): void }) {
+/**
+ * Where the last search is remembered, so that coming back from a place
+ * page finds the results still there. It lives in the query cache, which is
+ * emptied when the account signs out. (The address only carries a search
+ * someone linked to: rewriting it on every keystroke would race with the
+ * tap on a result.)
+ */
+const LAST_SEARCH_KEY = [...placeKeys.all, "last-search"] as const;
+
+function PlaceSearch({ initialQuery, onCheckIn }: { /** A search to start with (`/places?tab=search&q=…`). */ initialQuery: string; onCheckIn(target: CheckInTarget): void }) {
   const { t } = useTranslation("places");
-  const [text, setText] = useState(query);
-  // The address follows the typing with a short delay, and the search follows the address.
+  const queryClient = useQueryClient();
+  const [text, setText] = useState(() => initialQuery || (queryClient.getQueryData<string>(LAST_SEARCH_KEY) ?? ""));
+  const [query, setQuery] = useState(text.trim());
+  // The search follows the typing with a short delay.
   useEffect(() => {
-    if (text.trim() === query) return;
-    const timer = setTimeout(() => onQuery(text.trim()), 350);
+    const next = text.trim();
+    queryClient.setQueryData(LAST_SEARCH_KEY, next);
+    if (next === query) return;
+    const timer = setTimeout(() => setQuery(next), 350);
     return () => clearTimeout(timer);
-  }, [text, query, onQuery]);
+  }, [text, query, queryClient]);
 
   // Results near the person come first, when the device says where that is.
   const here = useQuery({ queryKey: ["geo", "device-position"], queryFn: currentPosition, staleTime: 30_000, retry: false });

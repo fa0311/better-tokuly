@@ -19,7 +19,7 @@ const DEVICE: Point = { lat: 35.6595, lng: 139.7005 };
 // Stays are reported somewhere of the test's own in Tokyo: the database is
 // shared, and a stay next to someone else's public place would be a visit
 // there instead of a spot worth suggesting.
-const somewhereInTokyo = (): Point => ({ lat: 35.6 + Math.random() * 0.1, lng: 139.55 + Math.random() * 0.15 });
+const somewhereInTokyo = (): Point => ({ lat: 35.66 + Math.random() * 0.08, lng: 139.6 + Math.random() * 0.15 });
 
 function east(from: Point, meters: number): Point {
   return { lat: from.lat, lng: from.lng + meters / (111_320 * Math.cos((from.lat * Math.PI) / 180)) };
