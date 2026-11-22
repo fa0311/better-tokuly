@@ -122,8 +122,7 @@ impl Deref for Quest {
     }
 }
 
-/// How long an account's time zone and privacy are remembered before they
-/// are read again.
+/// How long an account's time zone is remembered before it is read again.
 const ACCOUNT_TTL: Duration = Duration::from_secs(300);
 
 /// What the quest domain needs to know about an account to credit it.
@@ -131,19 +130,6 @@ const ACCOUNT_TTL: Duration = Duration::from_secs(300);
 pub(crate) struct Account {
     /// Defines the player's calendar day.
     pub zone: Tz,
-    /// The player shows their footprints to nobody. What follows from where
-    /// they have been must then not show in anything others can see.
-    pub hides_footprints: bool,
-}
-
-impl Account {
-    fn from_row(zone: &str, privacy: &serde_json::Value) -> Self {
-        let footprints = tokuly_identity::settings::privacy_from_json(privacy).footprints_visible_to;
-        Self {
-            zone: clock::parse_zone(zone),
-            hides_footprints: footprints.as_known() == Some(tokuly_proto::identity::Audience::AUDIENCE_NOBODY),
-        }
-    }
 }
 
 impl Quest {
@@ -214,13 +200,13 @@ impl Quest {
         if let Some(account) = self.accounts.get(&user_id).await {
             return Ok(account);
         }
-        let row: Option<(String, serde_json::Value)> = sqlx::query_as(
-            "SELECT time_zone, privacy FROM users WHERE id = $1 AND deleted_at IS NULL AND banned_at IS NULL",
+        let zone: Option<String> = sqlx::query_scalar(
+            "SELECT time_zone FROM users WHERE id = $1 AND deleted_at IS NULL AND banned_at IS NULL",
         )
         .bind(user_id)
         .fetch_optional(&self.core.db)
         .await?;
-        let account = row.map(|(zone, privacy)| Account::from_row(&zone, &privacy));
+        let account = zone.map(|zone| Account { zone: clock::parse_zone(&zone) });
         self.accounts.insert(user_id, account).await;
         Ok(account)
     }
@@ -233,14 +219,11 @@ impl Quest {
     /// The caller's time zone, read fresh: an RPC should follow a zone the
     /// player changed a moment ago.
     pub(crate) async fn caller_zone(&self, user_id: Uuid) -> AppResult<Tz> {
-        let row: Option<(String, serde_json::Value)> =
-            sqlx::query_as("SELECT time_zone, privacy FROM users WHERE id = $1")
-                .bind(user_id)
-                .fetch_optional(&self.core.db)
-                .await?;
-        let account = row.map_or(Account { zone: clock::DEFAULT_ZONE, hides_footprints: false }, |(zone, privacy)| {
-            Account::from_row(&zone, &privacy)
-        });
+        let zone: Option<String> = sqlx::query_scalar("SELECT time_zone FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_optional(&self.core.db)
+            .await?;
+        let account = Account { zone: zone.map_or(clock::DEFAULT_ZONE, |zone| clock::parse_zone(&zone)) };
         self.accounts.insert(user_id, Some(account)).await;
         Ok(account.zone)
     }

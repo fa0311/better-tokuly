@@ -74,9 +74,9 @@ async fn a_streak_day_needs_something_from_both_friends() {
     assert_eq!(ctx.streak(&alice, &bob).await.days, 1);
 
     ctx.flush(&[&alice, &bob]).await;
-    // Alice reacted three times (3 XP each), Bob twice; the streak day gave each 5 XP.
-    assert_eq!(ctx.source_today(&alice, "friends").await, (9, false));
-    assert_eq!(ctx.source_today(&bob, "friends").await, (6, false));
+    // Reacting to the same friend counts once a day (3 XP), however often; the streak day gave each 5 XP.
+    assert_eq!(ctx.source_today(&alice, "friends").await, (3, false));
+    assert_eq!(ctx.source_today(&bob, "friends").await, (3, false));
     for user in [&alice, &bob] {
         assert_eq!(ctx.source_today(user, "streaks").await, (5, false));
         assert_eq!(ctx.counter(user, "streak_days").await, 1);

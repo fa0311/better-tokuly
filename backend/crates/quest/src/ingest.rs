@@ -3,10 +3,12 @@
 //! [`Quest::handle_event`] (domain events) and [`Quest::handle_analytics`]
 //! (analytics events) look the event up in the rule table, let the rule's
 //! reader say who did what, and credit each deed to that player's day in
-//! Valkey. No PostgreSQL is touched for a deed, with two exceptions that
-//! happen once per player (and friend) and day rather than once per event:
-//! loading a day's counters the first time they are needed, and recording a
-//! player's part of a streak day.
+//! Valkey. The frequent deeds (messages, stamps) touch no PostgreSQL, with
+//! two exceptions that happen once per player (and friend) and day rather
+//! than once per event: loading a day's counters the first time they are
+//! needed, and recording a player's part of a streak day. Deeds that count
+//! only once (a like, a friend made — see `payloads::Once`) are claimed in
+//! `quest_once` first, one row each.
 //!
 //! Everything here can be repeated: a deed is applied once per event ID
 //! (events are redelivered after failures), and the streak machine ignores
@@ -14,7 +16,7 @@
 //! cannot be read, is a no-op.
 use std::time::{Duration, Instant};
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::Deserialize;
 use tokuly_core::{analytics::AnalyticsEvent, events::Event, prelude::*};
 use tokuly_social::graph;
@@ -22,7 +24,7 @@ use tokuly_social::graph;
 use crate::{
     Quest, clock,
     metrics::Metric,
-    payloads::{self, Deed, Target},
+    payloads::{self, Deed, Once, Target},
     rules::{self, Feed, Rule, Source},
     store::{Credit, SEEN_TTL_SECONDS},
 };
@@ -33,6 +35,9 @@ const CONVERSATION_CREATED: &str = "chat.conversation.created";
 
 /// `tokuly.chat.v1.ConversationKind.CONVERSATION_KIND_DIRECT`.
 const CONVERSATION_KIND_DIRECT: i32 = 1;
+
+/// Days a once-a-day key is kept past its day (late and redelivered events).
+const ONCE_DAYS_KEPT: i64 = 3;
 
 /// How often one process re-records that a rule is in use.
 const LIVE_MARK_EVERY: Duration = Duration::from_secs(600);
@@ -146,12 +151,15 @@ impl Quest {
     async fn credit_deed(&self, rule: &'static Rule, deed: &Deed, event: &Event, at: DateTime<Utc>) -> AppResult<()> {
         // Accounts that are gone (or banned) earn nothing.
         let Some(account) = self.account_of(deed.user).await? else { return Ok(()) };
-        // Nor does where somebody has been earn anything while they keep it to themselves.
-        if rule.location && account.hides_footprints {
-            return Ok(());
-        }
         let zone = account.zone;
         let day = clock::local_date(at, zone);
+        // Something that counts once and was counted before earns nothing
+        // again: no XP, no progress, no part of a streak.
+        if let Some(once) = &deed.once
+            && !self.first_time(deed.user, once, day, event.id).await?
+        {
+            return Ok(());
+        }
         let hour = clock::local_hour(at, zone);
         let counts: Vec<(Metric, i64)> =
             rule.counts.iter().map(|count| (count.metric(), count.for_amount(deed.amount))).collect();
@@ -195,6 +203,32 @@ impl Quest {
             }
         }
         Ok(())
+    }
+
+    /// Whether `event` is the one that gets the credit for a deed that
+    /// counts once: true for the first event to claim the key, and for that
+    /// same event delivered again (an earlier delivery may have stopped
+    /// before the credit, which is idempotent by itself). The primary key
+    /// decides between two events arriving together.
+    async fn first_time(&self, user: Uuid, once: &Once, day: NaiveDate, event_id: Uuid) -> AppResult<bool> {
+        let (key, expires_on) = if once.daily {
+            (format!("{}@{}", once.key, clock::date_text(day)), Some(day + chrono::Duration::days(ONCE_DAYS_KEPT)))
+        } else {
+            (once.key.clone(), None)
+        };
+        let claimed: Option<i32> = sqlx::query_scalar(
+            "INSERT INTO quest_once (user_id, key, event_id, about, expires_on) VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (user_id, key) DO UPDATE SET event_id = quest_once.event_id WHERE quest_once.event_id = $3
+             RETURNING 1",
+        )
+        .bind(user)
+        .bind(key)
+        .bind(event_id)
+        .bind(once.about)
+        .bind(expires_on)
+        .fetch_optional(&self.core.db)
+        .await?;
+        Ok(claimed.is_some())
     }
 
     /// The user a deed was aimed at, if that can be told and is somebody else.
@@ -312,10 +346,12 @@ mod tests {
             "social.bump.created",
             "notify.requested",
             "activity.recorded",
-            "school.session.completed",
+            "plans.plan.created",
         ] {
             assert!(topics.contains(&topic), "{topic} is not consumed");
         }
+        // School's own session event says nothing about who may see the studying.
+        assert!(!topics.iter().any(|topic| topic.starts_with("school.")));
         // Analytics names are consumed from the other stream.
         assert!(!topics.contains(&"chat.message.send"));
         let mut unique = topics.clone();

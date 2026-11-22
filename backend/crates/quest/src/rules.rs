@@ -191,10 +191,6 @@ pub struct Rule {
     /// Doing this towards a friend counts as the doer's part of the streak
     /// day (and as a friend reached).
     pub streak: bool,
-    /// The event follows from where the player has been, without them
-    /// choosing to share it. It is not counted for a player who shows their
-    /// footprints to nobody: XP, badges and boards would trace their steps.
-    pub location: bool,
     /// "How to earn XP" line.
     pub text: Text,
     /// What one unit is, for `Xp::PerUnit` rules.
@@ -213,7 +209,6 @@ impl Rule {
             xp: Xp::Flat(0),
             counts: &[],
             streak: false,
-            location: false,
             text: Text::EMPTY,
             unit: Text::EMPTY,
         }
@@ -258,11 +253,6 @@ impl Rule {
         self
     }
 
-    const fn from_location(mut self) -> Rule {
-        self.location = true;
-        self
-    }
-
     const fn text(mut self, ja: &'static str, en: &'static str) -> Rule {
         self.text = t(ja, en);
         self
@@ -278,12 +268,14 @@ use Count::{Amount, One};
 use Metric as M;
 use Source as S;
 
-/// The table. Topics marked "expected" belong to domains that are still
-/// being built: the rule is ready, and stays silent (and its missions
-/// undrawn) until the topic is emitted.
+/// The table. Every topic and kind in it is one a domain on `main` emits
+/// (`a_consumed_topic_is_one_its_domain_emits` below reads their sources).
+/// Rules for domains that do not exist yet (shorts, live, spaces,
+/// community) are not written ahead of them: a guessed topic is a rule
+/// that silently never fires.
 pub const RULES: &[Rule] = &[
     // ── showing up ──
-    Rule::event("daily.joined", "identity.user.created", payloads::user)
+    Rule::event("daily.joined", "identity.user.created", payloads::joined)
         .earns(S::Daily, 10)
         .counts(&[One(M::Joined)])
         .text("Tokulyをはじめる", "Join Tokuly"),
@@ -337,7 +329,7 @@ pub const RULES: &[Rule] = &[
         .earns(S::Stamps, 2)
         .counts(&[One(M::StampsSent)])
         .text("スタンプを送る", "Send a stamp"),
-    Rule::event("stamps.installed", "stamp.pack.installed", payloads::user)
+    Rule::event("stamps.installed", "stamp.pack.installed", payloads::pack_installed)
         .earns(S::Stamps, 5)
         .counts(&[One(M::PacksInstalled)])
         .text("スタンプパックを追加する", "Add a stamp pack"),
@@ -364,16 +356,6 @@ pub const RULES: &[Rule] = &[
         .earns(S::Creators, 40)
         .counts(&[One(M::PacksPublished)])
         .text("スタンプパックを公開する", "Publish a stamp pack"),
-    // expected
-    Rule::event("creators.short", "shorts.short.published", payloads::actor)
-        .earns(S::Creators, 20)
-        .counts(&[One(M::ShortsPosted)])
-        .text("ショートを投稿する", "Post a short"),
-    // expected
-    Rule::event("creators.live", "live.stream.started", payloads::actor)
-        .earns(S::Creators, 30)
-        .counts(&[One(M::LivesStarted)])
-        .text("ライブ配信をはじめる", "Go live"),
     // ── likes and comments ──
     Rule::tracked("reactions.note_like", "note.like", payloads::like_given)
         .earns(S::Reactions, 1)
@@ -393,39 +375,31 @@ pub const RULES: &[Rule] = &[
         .counts(&[One(M::Comments)])
         .towards_friend()
         .text("コメントする", "Write a comment"),
-    Rule::event("reactions.share", "engagement.share.recorded", payloads::user)
+    Rule::event("reactions.share", "engagement.share.recorded", payloads::share)
         .earns(S::Reactions, 2)
         .counts(&[One(M::Shares)])
         .text("シェアする", "Share something"),
     // ── map ──
-    Rule::event("map.checkin", "activity.recorded", payloads::activity)
+    Rule::event("map.checkin", "activity.recorded", payloads::check_in)
         .kind("geo.checkin")
         .earns(S::Map, 10)
         .counts(&[One(M::CheckIns)])
         .towards_friend()
         .text("チェックインする", "Check in somewhere"),
-    Rule::event("map.new_region", "activity.recorded", payloads::activity)
+    Rule::event("map.new_region", "activity.recorded", payloads::new_region)
         .kind("geo.new_region")
         .earns(S::Map, 30)
         .counts(&[One(M::RegionsExplored)])
         .text("新しい地域に行く", "Reach a new region"),
-    // expected
-    Rule::event("map.explored", "geo.footprint.expanded", payloads::footprint)
-        .earns_per(S::Map, 1, t("1マス", "map cell"))
-        .counts(&[Amount(M::ExploredCells)])
-        .from_location()
-        .text("マップを開拓する", "Uncover the map"),
-    // expected
-    Rule::event("map.new_place", "geo.visit.started", payloads::first_visit)
-        .earns(S::Map, 5)
-        .counts(&[One(M::PlacesVisited)])
-        .from_location()
-        .text("はじめての場所に行く", "Visit a place for the first time"),
-    // ── study ── (expected)
-    Rule::event("study.session", "school.session.completed", payloads::study_session)
+    // ── study ──
+    // Through the activity entry, not `school.study.session_ended`: the
+    // entry exists only for sessions the server timed, of players who show
+    // their studying (see `payloads::studied`).
+    Rule::event("study.session", "activity.recorded", payloads::studied)
+        .kind("school.studied")
         .earns_per(S::Study, 1, t("1分", "minute"))
         .counts(&[Amount(M::StudyMinutes), One(M::StudySessions)])
-        .text("勉強する", "Study"),
+        .text("タイマーで勉強する", "Study with the timer"),
     // ── together ──
     // Asking a question earns nothing, on purpose: questions are anonymous
     // and the ask domain does not say who asked. Anything a rule could give
@@ -438,23 +412,10 @@ pub const RULES: &[Rule] = &[
         .earns(S::Together, 5)
         .counts(&[Amount(M::ComplimentVotes)])
         .text("ほめ投票を1ラウンド終える", "Finish a round of compliment polls"),
-    // expected (the four below)
-    Rule::event("together.plan", "plans.plan.created", payloads::actor)
+    Rule::event("together.plan", "plans.plan.created", payloads::plan_created)
         .earns(S::Together, 10)
         .counts(&[One(M::PlansCreated)])
         .text("遊ぶ予定を立てる", "Make a plan"),
-    Rule::event("together.space_join", "spaces.room.joined", payloads::actor)
-        .earns(S::Together, 5)
-        .counts(&[One(M::SpacesJoined)])
-        .text("たまり場に入る", "Join an audio room"),
-    Rule::event("together.space_open", "spaces.room.opened", payloads::actor)
-        .earns(S::Together, 10)
-        .counts(&[One(M::SpacesHosted)])
-        .text("たまり場をひらく", "Open an audio room"),
-    Rule::event("together.thread", "community.thread.created", payloads::actor)
-        .earns(S::Together, 8)
-        .counts(&[One(M::ThreadsPosted)])
-        .text("コミュニティにスレッドを立てる", "Start a community thread"),
 ];
 
 /// What the quest domain credits by itself, outside the table of events:
@@ -566,6 +527,120 @@ mod tests {
         assert!(!topics(Feed::Events).contains(&"chat.message.send"));
         assert_eq!(rules_for(Feed::Events, "notify.requested").count(), 3);
         assert!(rules_counting(Metric::StudyMinutes).any(|rule| rule.key == "study.session"));
+        assert_eq!(rules_for(Feed::Events, "activity.recorded").count(), 4);
+    }
+
+    /// The Rust sources of a domain crate, concatenated.
+    fn sources_of(domain: &str) -> Option<String> {
+        fn collect(dir: &std::path::Path, into: &mut String) {
+            for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    collect(&path, into);
+                } else if path.extension().is_some_and(|extension| extension == "rs") {
+                    into.push_str(&std::fs::read_to_string(&path).unwrap_or_default());
+                }
+            }
+        }
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent()?.join(domain).join("src");
+        let mut text = String::new();
+        dir.is_dir().then(|| collect(&dir, &mut text))?;
+        Some(text)
+    }
+
+    /// Whether `text` holds `name` as a whole string literal.
+    fn has_literal(text: &str, name: &str) -> bool {
+        text.contains(&format!("\"{name}\""))
+    }
+
+    /// Whether `text` declares `topic` as a public constant.
+    fn has_constant(text: &str, topic: &str) -> bool {
+        text.lines().any(|line| line.trim_start().starts_with("pub const ") && has_literal(line, topic))
+    }
+
+    /// The crate of the domain a topic or kind is named after: its first
+    /// segment, except that the notes domain names its analytics and
+    /// activity kinds `note.*`.
+    fn crate_of(name: &str) -> &str {
+        match name.split('.').next().unwrap_or_default() {
+            "note" => "notes",
+            domain => domain,
+        }
+    }
+
+    /// Asserts that the domain `name` is named after emits it.
+    fn assert_emitted(name: &str, is_topic: bool) {
+        // The generic requests are declared once, in core.
+        if matches!(name, "notify.requested" | "activity.recorded") {
+            let core = sources_of("core").expect("the core crate");
+            assert!(has_constant(&core, name), "core does not declare {name}");
+            return;
+        }
+        let domain = crate_of(name);
+        let Some(source) = sources_of(domain) else {
+            panic!("{name}: there is no crate `{domain}` — a rule cannot be written ahead of its domain");
+        };
+        match (name, is_topic) {
+            // Identity writes its topics where it emits them.
+            (_, true) if domain == "identity" => {
+                assert!(has_literal(&source, name), "{name}: identity does not emit it");
+            }
+            (_, true) => {
+                assert!(
+                    has_constant(&source, name),
+                    "{name}: `{domain}` has no `pub const` for it — renamed, removed, or never emitted?"
+                );
+            }
+            // Notes builds the name from the reaction: `note.` + `like`.
+            ("note.like", false) => {
+                assert!(
+                    source.contains("\"note.{}\"") && source.contains("=> \"like\""),
+                    "notes no longer tracks note.like"
+                );
+            }
+            // Analytics names and activity / notification kinds are written where they are sent.
+            (_, false) => {
+                assert!(has_literal(&source, name), "{name}: `{domain}` does not send it — renamed or removed?");
+            }
+        }
+    }
+
+    /// A rule on a topic nobody emits never fires, and nothing says so. So
+    /// every domain event topic the quest consumer reads must be a `pub
+    /// const` of the crate it is named after, and every analytics name and
+    /// activity / notification kind must be written out in that crate. A
+    /// domain renaming an event breaks this test instead of a feature, and
+    /// a rule for a crate that is not there cannot be added.
+    #[test]
+    fn a_consumed_topic_is_one_its_domain_emits() {
+        for topic in crate::ingest::event_topics() {
+            assert_emitted(topic, true);
+        }
+        for name in topics(Feed::Analytics) {
+            assert_emitted(name, false);
+        }
+        for rule in RULES.iter().filter(|rule| !rule.kind.is_empty()) {
+            assert_emitted(rule.kind, false);
+        }
+    }
+
+    #[test]
+    fn topics_nobody_emits_are_noticed() {
+        // The guesses this table once held.
+        for (guess, is_topic) in [
+            ("school.session.completed", true),
+            ("geo.footprint.expanded", true),
+            ("geo.visit.started", true),
+            ("shorts.short.published", true),
+            ("live.stream.started", true),
+            ("spaces.room.joined", true),
+            ("community.thread.created", true),
+            ("nowhere.thing.happened", true),
+            ("geo.teleported", false),
+        ] {
+            let caught = std::panic::catch_unwind(|| assert_emitted(guess, is_topic)).is_err();
+            assert!(caught, "{guess} is emitted by nobody, and that went unnoticed");
+        }
     }
 
     #[test]

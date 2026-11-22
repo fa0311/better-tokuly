@@ -219,6 +219,84 @@ fn ensure_not_self(staff: Uuid, user_id: Uuid) -> AppResult<()> {
     Ok(())
 }
 
+/// Longest reason staff can give, in characters.
+const MAX_REASON_CHARS: usize = 500;
+/// `quest_badge_actions.action`.
+const ACTION_AWARDED: i16 = 1;
+const ACTION_REVOKED: i16 = 2;
+/// Default and largest page of the action log.
+const DEFAULT_ACTIONS: i64 = 50;
+const MAX_ACTIONS: i64 = 200;
+
+/// The reason staff gave, trimmed; it is required.
+fn reason_of(reason: &str) -> AppResult<&str> {
+    let reason = reason.trim();
+    ensure!(!reason.is_empty(), invalid, "REASON_REQUIRED", "say why the badge is given or taken");
+    ensure!(
+        reason.chars().count() <= MAX_REASON_CHARS,
+        invalid,
+        "REASON_TOO_LONG",
+        "a reason has at most {MAX_REASON_CHARS} characters"
+    );
+    Ok(reason)
+}
+
+impl Quest {
+    /// What a staff badge request is about, once it may go ahead: the
+    /// player (who must exist), the badge and the reason.
+    async fn staff_badge_request<'a>(
+        &self,
+        staff: Uuid,
+        user_id: &str,
+        badge_key: &str,
+        reason: &'a str,
+    ) -> AppResult<(Uuid, &'static catalog::BadgeDef, &'a str)> {
+        let user_id = parse_id(user_id)?;
+        ensure_not_self(staff, user_id)?;
+        let reason = reason_of(reason)?;
+        let badge = catalog::find(badge_key).or_not_found("BADGE_NOT_FOUND", "no such badge")?;
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND deleted_at IS NULL)")
+                .bind(user_id)
+                .fetch_one(&self.core.db)
+                .await?;
+        ensure!(exists, not_found, "USER_NOT_FOUND", "user not found");
+        Ok((user_id, badge, reason))
+    }
+
+    /// Records that `staff` is about to give or take a badge, and why. The
+    /// record comes first, so that no badge moves by hand without one.
+    async fn log_badge_action(
+        &self,
+        staff: Uuid,
+        user_id: Uuid,
+        badge_key: &str,
+        action: i16,
+        reason: &str,
+    ) -> AppResult<Uuid> {
+        Ok(sqlx::query_scalar(
+            "INSERT INTO quest_badge_actions (staff_id, user_id, badge_key, action, reason) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+        )
+        .bind(staff)
+        .bind(user_id)
+        .bind(badge_key)
+        .bind(action)
+        .bind(reason)
+        .fetch_one(&self.core.db)
+        .await?)
+    }
+
+    /// Completes the record with whether the player's badges changed.
+    async fn close_badge_action(&self, action_id: Uuid, changed: bool) -> AppResult<()> {
+        sqlx::query("UPDATE quest_badge_actions SET changed = $2 WHERE id = $1")
+            .bind(action_id)
+            .bind(changed)
+            .execute(&self.core.db)
+            .await?;
+        Ok(())
+    }
+}
+
 impl QuestAdminService for Quest {
     async fn award_badge(
         &self,
@@ -227,13 +305,12 @@ impl QuestAdminService for Quest {
     ) -> ServiceResult<AwardBadgeResponse> {
         handle(async {
             let staff = ctx.require_role("admin")?.user_id;
-            let user_id = parse_id(request.user_id)?;
-            ensure_not_self(staff, user_id)?;
-            let badge = catalog::find(request.badge_key).or_not_found("BADGE_NOT_FOUND", "no such badge")?;
+            let (user_id, badge, reason) =
+                self.staff_badge_request(staff, request.user_id, request.badge_key, request.reason).await?;
+            let action = self.log_badge_action(staff, user_id, badge.key, ACTION_AWARDED, reason).await?;
             let awarded = award(&self.core, user_id, badge.key).await?;
-            if awarded {
-                tracing::info!(%staff, %user_id, badge = badge.key, "quest: badge awarded by staff");
-            }
+            self.close_badge_action(action, awarded).await?;
+            tracing::info!(%staff, %user_id, badge = badge.key, awarded, "quest: badge awarded by staff");
             let held = owned(&self.core.db, user_id).await?;
             ok(AwardBadgeResponse {
                 awarded,
@@ -251,20 +328,53 @@ impl QuestAdminService for Quest {
     ) -> ServiceResult<RevokeBadgeResponse> {
         handle(async {
             let staff = ctx.require_role("admin")?.user_id;
-            let user_id = parse_id(request.user_id)?;
-            ensure_not_self(staff, user_id)?;
-            let badge = catalog::find(request.badge_key).or_not_found("BADGE_NOT_FOUND", "no such badge")?;
-            let exists: bool =
-                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND deleted_at IS NULL)")
-                    .bind(user_id)
-                    .fetch_one(&self.core.db)
-                    .await?;
-            ensure!(exists, not_found, "USER_NOT_FOUND", "user not found");
+            let (user_id, badge, reason) =
+                self.staff_badge_request(staff, request.user_id, request.badge_key, request.reason).await?;
+            let action = self.log_badge_action(staff, user_id, badge.key, ACTION_REVOKED, reason).await?;
             let revoked = self.take_badge(user_id, badge).await?;
-            if revoked {
-                tracing::info!(%staff, %user_id, badge = badge.key, "quest: badge revoked by staff");
-            }
+            self.close_badge_action(action, revoked).await?;
+            tracing::info!(%staff, %user_id, badge = badge.key, revoked, "quest: badge revoked by staff");
             ok(RevokeBadgeResponse { revoked, ..Default::default() })
+        })
+        .await
+    }
+
+    async fn list_badge_actions(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, ListBadgeActionsRequest>,
+    ) -> ServiceResult<ListBadgeActionsResponse> {
+        handle(async {
+            ctx.require_role("admin")?;
+            let user_id = if request.user_id.is_empty() { None } else { Some(parse_id(request.user_id)?) };
+            let limit = if request.limit <= 0 { DEFAULT_ACTIONS } else { (request.limit as i64).min(MAX_ACTIONS) };
+            let rows: Vec<(Uuid, Uuid, Uuid, String, i16, String, Option<bool>, Time)> = sqlx::query_as(
+                "SELECT id, staff_id, user_id, badge_key, action, reason, changed, created_at FROM quest_badge_actions
+                 WHERE ($1::uuid IS NULL OR user_id = $1) ORDER BY created_at DESC, id DESC LIMIT $2",
+            )
+            .bind(user_id)
+            .bind(limit)
+            .fetch_all(&self.core.db)
+            .await?;
+            let actions = rows
+                .into_iter()
+                .map(|(id, staff_id, user_id, badge_key, action, reason, changed, created_at)| BadgeAction {
+                    id: id.to_string(),
+                    staff_id: if staff_id.is_nil() { String::new() } else { staff_id.to_string() },
+                    user_id: user_id.to_string(),
+                    badge_key,
+                    kind: if action == ACTION_AWARDED {
+                        BadgeActionKind::BADGE_ACTION_KIND_AWARDED.into()
+                    } else {
+                        BadgeActionKind::BADGE_ACTION_KIND_REVOKED.into()
+                    },
+                    reason,
+                    changed: changed.unwrap_or(false),
+                    created_at: ts(created_at),
+                    ..Default::default()
+                })
+                .collect();
+            ok(ListBadgeActionsResponse { actions, ..Default::default() })
         })
         .await
     }

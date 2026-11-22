@@ -222,12 +222,12 @@ mod tests {
     #[test]
     fn creator_missions_are_only_for_people_who_have_created() {
         let viewer = player(5);
-        let streamer = Player { done: HashSet::from([Metric::LivesStarted, Metric::VideosPublished]), ..player(5) };
+        let creator = Player { done: HashSet::from([Metric::VideosPublished]), ..player(5) };
         let weekly = |player: &Player| -> HashSet<&str> {
             (0..2000).flat_map(|attempt| draw(WEEKLY, 1, player, attempt)).map(|mission| mission.key).collect()
         };
-        assert!(!weekly(&viewer).contains("w_live_1") && !weekly(&viewer).contains("w_video_1"));
-        assert!(weekly(&streamer).contains("w_live_1") && weekly(&streamer).contains("w_video_1"));
+        assert!(!weekly(&viewer).contains("w_video_1"));
+        assert!(weekly(&creator).contains("w_video_1"));
     }
 
     #[test]

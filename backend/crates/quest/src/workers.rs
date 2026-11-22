@@ -228,8 +228,13 @@ impl Quest {
             .execute(&self.core.db)
             .await?
             .rows_affected();
-        if missions > 0 || days > 0 {
-            tracing::info!(missions, metric_days = days, "quest: pruned old rows");
+        let once = sqlx::query("DELETE FROM quest_once WHERE expires_on < $1")
+            .bind(chrono::Utc::now().date_naive() - chrono::Duration::days(1))
+            .execute(&self.core.db)
+            .await?
+            .rows_affected();
+        if missions > 0 || days > 0 || once > 0 {
+            tracing::info!(missions, metric_days = days, once, "quest: pruned old rows");
         }
         Ok(())
     }

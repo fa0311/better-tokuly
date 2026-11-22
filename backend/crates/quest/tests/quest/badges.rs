@@ -542,10 +542,18 @@ async fn rarity_is_the_share_of_active_players_owning_a_badge() {
 async fn staff_award_and_revoke_badges_by_hand() {
     let ctx = start().await;
     let (alice, admin) = (ctx.app.user("alice").await, ctx.app.user_with_roles("admin", &["admin"]).await);
-    let award =
-        AwardBadgeRequest { user_id: alice.id.to_string(), badge_key: "early_adopter".into(), ..Default::default() };
-    let revoke =
-        RevokeBadgeRequest { user_id: alice.id.to_string(), badge_key: "early_adopter".into(), ..Default::default() };
+    let award = AwardBadgeRequest {
+        user_id: alice.id.to_string(),
+        badge_key: "early_adopter".into(),
+        reason: "spring event prize".into(),
+        ..Default::default()
+    };
+    let revoke = RevokeBadgeRequest {
+        user_id: alice.id.to_string(),
+        badge_key: "early_adopter".into(),
+        reason: "spring event prize".into(),
+        ..Default::default()
+    };
 
     assert_error(
         ctx.call::<_, AwardBadgeResponse>(ADMIN, "AwardBadge", Some(&alice), &award).await,
@@ -564,15 +572,23 @@ async fn staff_award_and_revoke_badges_by_hand() {
     );
 
     // Staff do not decorate themselves.
-    let own =
-        AwardBadgeRequest { user_id: admin.id.to_string(), badge_key: "early_adopter".into(), ..Default::default() };
+    let own = AwardBadgeRequest {
+        user_id: admin.id.to_string(),
+        badge_key: "early_adopter".into(),
+        reason: "spring event prize".into(),
+        ..Default::default()
+    };
     assert_error(
         ctx.call::<_, AwardBadgeResponse>(ADMIN, "AwardBadge", Some(&admin), &own).await,
         "permission_denied",
         "SELF_AWARD",
     );
-    let own =
-        RevokeBadgeRequest { user_id: admin.id.to_string(), badge_key: "early_adopter".into(), ..Default::default() };
+    let own = RevokeBadgeRequest {
+        user_id: admin.id.to_string(),
+        badge_key: "early_adopter".into(),
+        reason: "spring event prize".into(),
+        ..Default::default()
+    };
     assert_error(
         ctx.call::<_, RevokeBadgeResponse>(ADMIN, "RevokeBadge", Some(&admin), &own).await,
         "permission_denied",
@@ -597,8 +613,12 @@ async fn staff_award_and_revoke_badges_by_hand() {
     let again: RevokeBadgeResponse = ctx.call(ADMIN, "RevokeBadge", Some(&admin), &revoke).await.unwrap();
     assert!(!again.revoked);
 
-    let unknown_badge =
-        AwardBadgeRequest { user_id: alice.id.to_string(), badge_key: "no_such_badge".into(), ..Default::default() };
+    let unknown_badge = AwardBadgeRequest {
+        user_id: alice.id.to_string(),
+        badge_key: "no_such_badge".into(),
+        reason: "typo".into(),
+        ..Default::default()
+    };
     assert_error(
         ctx.call::<_, AwardBadgeResponse>(ADMIN, "AwardBadge", Some(&admin), &unknown_badge).await,
         "not_found",
@@ -607,6 +627,7 @@ async fn staff_award_and_revoke_badges_by_hand() {
     let unknown_user = AwardBadgeRequest {
         user_id: Uuid::now_v7().to_string(),
         badge_key: "early_adopter".into(),
+        reason: "wrong account".into(),
         ..Default::default()
     };
     assert_error(
@@ -617,12 +638,69 @@ async fn staff_award_and_revoke_badges_by_hand() {
     let unknown_user = RevokeBadgeRequest {
         user_id: Uuid::now_v7().to_string(),
         badge_key: "early_adopter".into(),
+        reason: "wrong account".into(),
         ..Default::default()
     };
     assert_error(
         ctx.call::<_, RevokeBadgeResponse>(ADMIN, "RevokeBadge", Some(&admin), &unknown_user).await,
         "not_found",
         "USER_NOT_FOUND",
+    );
+
+    // No badge moves by hand without a reason.
+    for reason in ["", "   "] {
+        let silent = AwardBadgeRequest { reason: reason.into(), ..award.clone() };
+        assert_error(
+            ctx.call::<_, AwardBadgeResponse>(ADMIN, "AwardBadge", Some(&admin), &silent).await,
+            "invalid_argument",
+            "REASON_REQUIRED",
+        );
+        let silent = RevokeBadgeRequest { reason: reason.into(), ..revoke.clone() };
+        assert_error(
+            ctx.call::<_, RevokeBadgeResponse>(ADMIN, "RevokeBadge", Some(&admin), &silent).await,
+            "invalid_argument",
+            "REASON_REQUIRED",
+        );
+    }
+    let wordy = AwardBadgeRequest { reason: "あ".repeat(501), ..award.clone() };
+    assert_error(
+        ctx.call::<_, AwardBadgeResponse>(ADMIN, "AwardBadge", Some(&admin), &wordy).await,
+        "invalid_argument",
+        "REASON_TOO_LONG",
+    );
+
+    // Who did what to whom, and why — including the calls that changed nothing.
+    let list = ListBadgeActionsRequest { user_id: alice.id.to_string(), ..Default::default() };
+    assert_error(
+        ctx.call::<_, ListBadgeActionsResponse>(ADMIN, "ListBadgeActions", Some(&alice), &list).await,
+        "permission_denied",
+        "FORBIDDEN",
+    );
+    let log: ListBadgeActionsResponse = ctx.call(ADMIN, "ListBadgeActions", Some(&admin), &list).await.unwrap();
+    let seen: Vec<(Option<BadgeActionKind>, bool, &str, &str)> = log
+        .actions
+        .iter()
+        .rev()
+        .map(|action| (action.kind.as_known(), action.changed, action.reason.as_str(), action.staff_id.as_str()))
+        .collect();
+    let staff = admin.id.to_string();
+    assert_eq!(
+        seen,
+        vec![
+            (Some(BadgeActionKind::BADGE_ACTION_KIND_AWARDED), true, "spring event prize", staff.as_str()),
+            (Some(BadgeActionKind::BADGE_ACTION_KIND_AWARDED), false, "spring event prize", staff.as_str()),
+            (Some(BadgeActionKind::BADGE_ACTION_KIND_REVOKED), true, "spring event prize", staff.as_str()),
+            (Some(BadgeActionKind::BADGE_ACTION_KIND_REVOKED), false, "spring event prize", staff.as_str()),
+        ]
+    );
+    assert!(
+        log.actions.iter().all(|action| action.badge_key == "early_adopter" && action.user_id == alice.id.to_string())
+    );
+    // Refused requests leave no record.
+    let all: ListBadgeActionsResponse =
+        ctx.call(ADMIN, "ListBadgeActions", Some(&admin), &ListBadgeActionsRequest::default()).await.unwrap();
+    assert!(
+        !all.actions.iter().any(|action| action.user_id == admin.id.to_string() || action.badge_key == "no_such_badge")
     );
 }
 

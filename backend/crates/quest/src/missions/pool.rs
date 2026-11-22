@@ -323,28 +323,6 @@ pub const POOL: &[MissionDef] = &[
         t("今いる場所にチェックインしよう!", "Check in where you are!"),
     )
     .at("/map"),
-    mission(
-        "new_place_1",
-        DAILY,
-        NORMAL,
-        M::PlacesVisited,
-        1,
-        "🏞️",
-        t("はじめての場所へ", "Visit a new place"),
-        t("行ったことのない場所に行ってみよう!", "Go somewhere you have never been!"),
-    )
-    .at("/map"),
-    mission(
-        "explore_3",
-        DAILY,
-        NORMAL,
-        M::ExploredCells,
-        3,
-        "🧭",
-        t("マップを開拓しよう", "Uncover the map"),
-        t("マップを3マス開拓しよう!", "Uncover three new cells of the map!"),
-    )
-    .at("/footprints"),
     // ── daily: study ──
     mission(
         "study_30",
@@ -404,40 +382,6 @@ pub const POOL: &[MissionDef] = &[
     )
     .at("/plans")
     .needs_friends(1),
-    mission(
-        "space_1",
-        DAILY,
-        NORMAL,
-        M::SpacesJoined,
-        1,
-        "🛋️",
-        t("たまり場に入ろう", "Join an audio room"),
-        t("たまり場に1回入ってみよう!", "Drop into an audio room!"),
-    )
-    .at("/spaces"),
-    mission(
-        "thread_1",
-        DAILY,
-        NORMAL,
-        M::ThreadsPosted,
-        1,
-        "🧵",
-        t("スレッドを立てよう", "Start a thread"),
-        t("コミュニティにスレッドを1つ立てよう!", "Start a thread in a community!"),
-    )
-    .at("/communities"),
-    mission(
-        "short_1",
-        DAILY,
-        HARD,
-        M::ShortsPosted,
-        1,
-        "📱",
-        t("ショートを投稿しよう", "Post a short"),
-        t("ショートを1本投稿しよう!", "Post a short!"),
-    )
-    .at("/shorts")
-    .for_experienced(M::ShortsPosted),
     // ── weekly ──
     mission(
         "w_xp_500",
@@ -586,18 +530,6 @@ pub const POOL: &[MissionDef] = &[
     )
     .at("/studio")
     .for_experienced(M::VideosPublished),
-    mission(
-        "w_live_1",
-        WEEKLY,
-        HARD,
-        M::LivesStarted,
-        1,
-        "📡",
-        t("ライブ配信しよう", "Go live"),
-        t("今週、1回ライブ配信しよう!", "Go live once this week!"),
-    )
-    .at("/studio/live")
-    .for_experienced(M::LivesStarted),
 ];
 
 /// The mission with this key, if it is still in the pool.

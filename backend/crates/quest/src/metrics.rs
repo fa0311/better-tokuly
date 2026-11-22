@@ -60,8 +60,6 @@ metrics! {
     NotesPosted => "notes_posted",
     StoriesPosted => "stories_posted",
     VideosPublished => "videos_published",
-    ShortsPosted => "shorts_posted",
-    LivesStarted => "lives_started",
     /// Likes and emoji reactions other people gave the player's content.
     LikesReceived => "likes_received",
 
@@ -74,10 +72,6 @@ metrics! {
     CheckIns => "check_ins",
     /// Prefectures / states and countries entered for the first time.
     RegionsExplored => "regions_explored",
-    /// Map cells uncovered on the scratch map.
-    ExploredCells => "explored_cells",
-    /// Places visited for the first time.
-    PlacesVisited => "places_visited",
 
     // ── study ──
     StudyMinutes => "study_minutes",
@@ -87,9 +81,6 @@ metrics! {
     QuestionsAnswered => "questions_answered",
     ComplimentVotes => "compliment_votes",
     PlansCreated => "plans_created",
-    SpacesJoined => "spaces_joined",
-    SpacesHosted => "spaces_hosted",
-    ThreadsPosted => "threads_posted",
 
     // ── the quest domain's own ──
     /// XP earned from events (mission rewards excluded, so "earn 50 XP"

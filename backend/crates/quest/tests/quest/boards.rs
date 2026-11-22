@@ -50,13 +50,15 @@ async fn xp_on(ctx: &Ctx, user: &TestUser, day: NaiveDate, xp: i32) {
         .unwrap();
 }
 
+/// A timed study session `user` shows their friends, as the school domain
+/// records it in the activity feed.
 async fn study(ctx: &Ctx, user: &TestUser, minutes: i64) {
-    ctx.feed(event(
-        "school.session.completed",
-        Some(user.id),
-        json!({ "user_id": user.id, "minutes": minutes, "subject": "math" }),
-    ))
-    .await;
+    let data = json!({
+        "user_id": user.id, "kind": "school.studied", "audience": "friends",
+        "summary": { "ja": "勉強しました", "en": "Studied" }, "path": "/school/study",
+        "data": { "session_id": uuid::Uuid::now_v7(), "minutes": minutes, "subject": "math", "in_room": false },
+    });
+    ctx.feed(event("activity.recorded", Some(user.id), data)).await;
 }
 
 #[tokio::test]
@@ -176,7 +178,7 @@ async fn the_streak_board_ranks_by_the_longest_running_streak() {
 }
 
 #[tokio::test]
-async fn metric_boards_exist_once_their_events_do() {
+async fn boards_rank_only_what_the_quest_domain_owns() {
     let ctx = start().await;
     let (alice, bob) = (ctx.app.user("alice").await, ctx.app.user("bob").await);
     ctx.befriend(&alice, &bob).await;
@@ -185,22 +187,24 @@ async fn metric_boards_exist_once_their_events_do() {
     study(&ctx, &bob, 30).await;
     ctx.flush(&[&alice, &bob]).await;
 
+    // Studying counts: a minute a point up to the day's cap, the minutes themselves uncapped.
+    assert_eq!(ctx.source_today(&bob, "study").await, (60, true));
+    assert_eq!((ctx.counter(&bob, "study_minutes").await, ctx.counter(&bob, "study_sessions").await), (120, 2));
+
+    // But there is no board of it, nor of where anybody has been: who may
+    // see those is another domain's setting, which a ranking kept here
+    // would not follow when it changes.
     let boards: ListLeaderboardsResponse =
         ctx.call(BOARDS, "ListLeaderboards", Some(&alice), &ListLeaderboardsRequest::default()).await.unwrap();
     let keys: Vec<&str> = boards.boards.iter().map(|board| board.key.as_str()).collect();
-    assert!(keys.contains(&"xp") && keys.contains(&"streak"), "{keys:?}");
-    assert!(keys.contains(&"study_time"), "study sessions were just reported on this server");
-    let study_board = boards.boards.iter().find(|board| board.key == "study_time").unwrap();
-    assert_eq!(study_board.unit.as_option().unwrap().en, "min");
-    assert_eq!(study_board.periods.len(), 3);
-
-    let minutes = board(&ctx, &alice, "study_time", LeaderboardPeriod::LEADERBOARD_PERIOD_WEEK, 0).await.unwrap();
-    assert_eq!(rows(&minutes), vec![(bob.id.to_string(), 120, 1), (alice.id.to_string(), 45, 2)]);
-    let all_time = board(&ctx, &alice, "study_time", LeaderboardPeriod::LEADERBOARD_PERIOD_ALL_TIME, 0).await.unwrap();
-    assert_eq!(rows(&all_time), rows(&minutes));
-    // Study XP is a minute a point, up to the day's cap; the minutes themselves are not capped.
-    assert_eq!(ctx.source_today(&bob, "study").await, (60, true));
-    assert_eq!(ctx.counter(&bob, "study_sessions").await, 2);
+    assert_eq!(keys, vec!["xp", "streak"]);
+    for gone in ["study_time", "explored_area"] {
+        assert_error(
+            board(&ctx, &alice, gone, LeaderboardPeriod::LEADERBOARD_PERIOD_WEEK, 0).await,
+            "not_found",
+            "BOARD_NOT_FOUND",
+        );
+    }
 }
 
 #[tokio::test]

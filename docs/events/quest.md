@@ -22,8 +22,12 @@ EVENTS stream (domain events)      ANALYTICS stream (analytics events)
         a reader (payloads.rs) says who did it, how much, towards whom
                        │
                        ▼
+   deeds that count once (a like, a friend made): claimed in quest_once,
+   or dropped when that player was already credited for the same thing
+                       │
+                       ▼
    Valkey: one script per deed — applied once per event ID, XP capped
-   per source and local day, counters added            (no PostgreSQL)
+   per source and local day, counters added
                        │  TOKULY_QUEST_FLUSH_DELAY_MS later, per player
                        ▼
    PostgreSQL, one transaction: XP, level, counters, mission progress,
@@ -41,8 +45,10 @@ Properties worth knowing:
 - **Idempotent.** A deed is applied once per event ID (`seen` markers, 48 h);
   events older than 47 h are not counted at all, so a replayed stream cannot
   pay twice. The streak machine ignores parts it already has, at any age.
-- **Cheap.** An event costs one Valkey script call. PostgreSQL is written
-  once per player and flush, not once per event.
+- **Cheap.** The frequent events (messages, stamps) cost one Valkey script
+  call; PostgreSQL is written once per player and flush. Deeds that count
+  once cost one `quest_once` row each.
+- **Not farmable by repeating.** See "Counting once" below.
 - **Tolerant.** A topic the table does not know and a payload that cannot be
   read are no-ops (the latter logged at `warn`). Payload structs are the
   crate's own, with every field optional.
@@ -54,10 +60,53 @@ Properties worth knowing:
   seen by other people (leaderboards, badge lists, the streak a friend
   watches), so an event whose producer hides who did it, or from whom, is
   not counted at all: private notes, close-friends stories, answers only the
-  asker may read, comments written as a channel, activity entries recorded
-  as private (a check-in in ghost mode, a new region while footprints are
-  hidden), and — for players who show their footprints to nobody — every
-  rule that follows from where they have been.
+  asker may read, comments written as a channel, videos that are not
+  public, and activity entries recorded as private (a check-in in ghost
+  mode, a new region while footprints are hidden). Studying counts only
+  through the activity entry school records for players who show it.
+
+### Counting once
+
+Only XP has a daily cap; the counters behind missions and badges have none.
+So for every rule the question is: can one action be repeated, undone and
+redone, or done on one's own content, to move a counter? Where it can, the
+reader gives the deed a key, and a key is credited once per player
+(`quest_once`, primary key `(user_id, key)`) — for good, or once per local
+day where doing it again tomorrow is honest. The event that claimed a key
+passes again when it is redelivered; any other event for the same key earns
+nothing at all (no XP, no count, no streak part).
+
+| Rule | Counts once per | For |
+|---|---|---|
+| `daily.joined` | account | ever |
+| `daily.bonus` | — | day |
+| `friends.added` | friend (unfriending and making up is not a new friend) | ever |
+| `friends.bump` | friend | day |
+| `friends.intro` | newcomer | ever |
+| `friends.map_reaction`, `.buzz`, `.knock` | recipient, per kind | day |
+| `stamps.installed`, `creators.stamp_pack` | pack | ever |
+| `creators.video` | video | ever |
+| `reactions.note_like`, `reactions.reaction` | note / subject liked (unlike and like again is one like) | ever |
+| `reactions.note_liked`, `reactions.reacted` | note / subject and the person who liked it | ever |
+| `reactions.comment` | subject commented on | day |
+| `reactions.share` | thing shared | ever |
+| `map.checkin` | place | day |
+| `map.new_region` | region | ever |
+| `study.session` | study session | ever |
+| `together.answer` | question | ever |
+| `together.vote` | poll round | ever |
+| `together.plan` | — (a plan can be called off and made again) | day |
+
+Nothing a player does to their own content counts: likes, reactions and
+comments on one's own notes, videos or stories yield no deed, for either
+side.
+
+Not keyed, because each one is a real, separate action that cannot be
+undone to be done again: messages and stamps sent, notes and stories posted
+(deleting one does not give the count back, and posting again is posting
+again), calls of a minute or more, and notes replied to. They are bounded
+by the XP cap of their source; their counters are what "send 5 stamps"
+means.
 
 ## Events consumed
 
@@ -76,30 +125,40 @@ Domain events (`EVENTS`):
 |---|---|---|---|---|---|---|
 | `daily.joined` | `identity.user.created` `{ user_id }` | the new user | 10 | daily | `joined` | |
 | `daily.bonus` | `wallet.balance.changed` with `reason = "daily_bonus"` | `user_id` | 10 | daily | `daily_bonuses` | |
-| `friends.added` | `social.friend.accepted` `{ user_id, friend_id }` | both | 20 | friends | `friends_added` | |
+| `friends.added` | `social.friend.accepted` `{ user_id, friend_id }`, the first time these two become friends | both | 20 | friends | `friends_added` | |
 | `friends.bump` | `social.bump.created` `{ user_ids, friends }`, only with `friends: true` | both | 15 | friends | `bumps` | each towards the other |
-| `friends.intro` | `social.intro.created` `{ inviter_id }` | the inviter | 30 | friends | `intros` | |
+| `friends.intro` | `social.intro.created` `{ inviter_id, user_id }` | the inviter | 30 | friends | `intros` | |
 | `friends.map_reaction` | `notify.requested`, kind `social.map_reaction` | `actor_id` | 3 | friends | `map_reactions` | towards `user_id` |
 | `friends.buzz` | `notify.requested`, kind `social.buzz` | `actor_id` | 1 | friends | | towards `user_id` |
 | `friends.knock` | `notify.requested`, kind `social.knock` | `actor_id` | 1 | friends | | towards `user_id` |
 | `chat.call` | `chat.call.ended` `{ duration_seconds, participant_ids }`, 60 s or longer, two or more participants | every participant | 10 | chat | `calls`, `call_minutes` (+minutes) | two-person calls: towards the other |
-| `stamps.installed` | `stamp.pack.installed` `{ user_id }` | `user_id` | 5 | stamps | `packs_installed` | |
+| `stamps.installed` | `stamp.pack.installed` `{ pack_id, user_id }` | `user_id` | 5 | stamps | `packs_installed` | |
 | `notes.posted` | `notes.note.created` `{ author_id, visibility, reply_to_id }`, not a reply, not private | `author_id` | 8 | notes | `notes_posted` | |
 | `notes.replied` | `activity.recorded`, kind `note.replied`, not private | `user_id` | 3 | notes | | towards `with_user_ids` |
 | `notes.story` | `notes.story.created` `{ owner_id, audience }`, not for close friends only (`audience = 2`) | `owner_id` | 8 | notes | `stories_posted` | |
-| `creators.video` | `video.video.published` `{ owner_id, first_publication }`, only with `first_publication: true` | `owner_id` | 40 | creators | `videos_published` | |
-| `creators.stamp_pack` | `stamp.pack.published` `{ creator_id, official }`, not official | `creator_id` | 40 | creators | `packs_published` | |
-| `reactions.reaction` | `engagement.reaction.changed`, a like or emoji where there was none (`previous_kind = 0`, `kind` 1 or 3) | `user_id` | 1 | reactions | `likes_given` | towards `subject_owner_id` |
+| `creators.video` | `video.video.published` `{ video_id, owner_id, visibility, first_publication }`, only public (`visibility = 1`) and with `first_publication: true` | `owner_id` | 40 | creators | `videos_published` | |
+| `creators.stamp_pack` | `stamp.pack.published` `{ pack_id, creator_id, official }`, not official | `creator_id` | 40 | creators | `packs_published` | |
+| `reactions.reaction` | `engagement.reaction.changed`, a like or emoji where there was none (`previous_kind = 0`, `kind` 1 or 3), not on one's own content | `user_id` | 1 | reactions | `likes_given` | towards `subject_owner_id` |
 | `reactions.reacted` | the same event | `subject_owner_id` | — | | `likes_received` | |
-| `reactions.comment` | `engagement.comment.published` `{ author_id, subject_owner_id, channel_id }`, not written as a channel | `author_id` | 3 | reactions | `comments` | towards `subject_owner_id` |
-| `reactions.share` | `engagement.share.recorded` `{ user_id }` | `user_id` | 2 | reactions | `shares` | |
-| `together.answer` | `ask.answer.published` `{ owner_id, audience, first }`, only with `first: true` and not private (`audience = 3`) | `owner_id` | 5 | together | `questions_answered` | |
-| `together.vote` | `ask.round.completed` `{ user_id, votes }`, at least one vote | `user_id` | 5 | together | `compliment_votes` (+votes, at most 50) | |
+| `reactions.comment` | `engagement.comment.published` `{ author_id, subject_id, subject_owner_id, channel_id }`, not written as a channel, not on one's own content | `author_id` | 3 | reactions | `comments` | towards `subject_owner_id` |
+| `reactions.share` | `engagement.share.recorded` `{ user_id, subject_id }` | `user_id` | 2 | reactions | `shares` | |
+| `together.answer` | `ask.answer.published` `{ question_id, owner_id, audience, first }`, only with `first: true` and not private (`audience = 3`) | `owner_id` | 5 | together | `questions_answered` | |
+| `together.vote` | `ask.round.completed` `{ user_id, round_id, votes }`, at least one vote | `user_id` | 5 | together | `compliment_votes` (+votes, at most 50) | |
 | `map.checkin` | `activity.recorded`, kind `geo.checkin`, not private | `user_id` | 10 | map | `check_ins` | towards the tagged `with_user_ids` (up to 8) |
-| `map.new_region` | `activity.recorded`, kind `geo.new_region`, not private | `user_id` | 30 | map | `regions_explored` | |
+| `map.new_region` | `activity.recorded`, kind `geo.new_region` (`data.region_id`), not private | `user_id` | 30 | map | `regions_explored` | |
+| `study.session` | `activity.recorded`, kind `school.studied` (`data = { session_id, minutes }`), at most 12 h | `user_id` | 1 per minute | study | `study_minutes` (+minutes), `study_sessions` | |
+| `together.plan` | `plans.plan.created` `{ host_id }` | `host_id` | 10 | together | `plans_created` | |
 
 The two `ask.*` rows follow what the ask domain documents in
 `docs/events/ask.md`.
+
+**Study** is read from the activity entry, not from
+`school.study.session_ended`: that event is emitted for every session,
+including those of players who hide their studying and time logged by hand.
+School records `school.studied` only for sessions the server timed (own
+timer or study room, 10 minutes or more) of players who share their study
+activity — exactly what may show up in XP and badges
+(`docs/events/school.md`).
 
 Analytics events (`ANALYTICS`, subject `an.<name>`; the consumer filters on
 exactly these names, so nothing else of the analytics traffic reaches it):
@@ -108,26 +167,24 @@ exactly these names, so nothing else of the analytics traffic reaches it):
 |---|---|---|---|---|---|---|
 | `chat.message` | `chat.message.send` (user = sender, subject = conversation, props `{ group }`) | the sender | 2 | chat | `messages` | direct conversations: towards the other member |
 | `stamps.sent` | `stamp.send` (user = sender) | the sender | 2 | stamps | `stamps_sent` | |
-| `reactions.note_like` | `note.like` (user = who liked, owner = the note's author) | who liked | 1 | reactions | `likes_given` | towards the author |
+| `reactions.note_like` | `note.like` (user = who liked, subject = the note, owner = its author), not one's own note | who liked | 1 | reactions | `likes_given` | towards the author |
 | `reactions.note_liked` | the same event | the author | — | | `likes_received` | |
 
-**Expected topics.** These rules are ready for domains that are still being
-built. They credit the event's *actor* (what the producer passes to
-`events::emit`), stay silent until the topic exists, and cost nothing until
-then. If a domain names its event differently, the fix is one row in
-`rules.rs`:
+**Every topic above is emitted on `main`.** A unit test
+(`rules::tests::a_consumed_topic_is_one_its_domain_emits`) reads the sources
+of the producing crates: each domain event topic must be a `pub const` of
+the crate it is named after, each analytics name and activity /
+notification kind must be written out there. A renamed event fails that
+test instead of silently stopping a rule.
 
-| Rule | Expected topic | Payload read | XP | Source | Counts |
-|---|---|---|---|---|---|
-| `creators.short` | `shorts.short.published` | actor | 20 | creators | `shorts_posted` |
-| `creators.live` | `live.stream.started` | actor | 30 | creators | `lives_started` |
-| `map.explored` | `geo.footprint.expanded` | `{ user_id, new_cells }`; not for players who hide their footprints | 1 per cell | map | `explored_cells` (+cells) |
-| `map.new_place` | `geo.visit.started` | `{ user_id, first_visit }` (counts unless `first_visit: false`); not for players who hide their footprints | 5 | map | `places_visited` |
-| `study.session` | `school.session.completed` | `{ user_id, minutes }` or `{ duration_seconds }`, a minute or more, at most 12 h | 1 per minute | study | `study_minutes` (+minutes), `study_sessions` |
-| `together.plan` | `plans.plan.created` | actor | 10 | together | `plans_created` |
-| `together.space_join` | `spaces.room.joined` | actor | 5 | together | `spaces_joined` |
-| `together.space_open` | `spaces.room.opened` | actor | 10 | together | `spaces_hosted` |
-| `together.thread` | `community.thread.created` | actor | 8 | together | `threads_posted` |
+**Parked.** There are no rules yet for domains without events: shorts,
+live, spaces and community (their crates are stubs), and geo's scratch-map
+cells and first visits to a place (geo emits neither; check-ins and new
+regions arrive as activity entries and are counted). Their rules, missions,
+badge lines (`area`, `places`, `shorts`, `streamer`, `host`, `familiar`,
+`threads`) and metrics were removed rather than left waiting on guessed
+topics; each comes back as a row in `rules.rs` plus its missions and badges
+once the domain documents an event.
 
 Two things earn nothing on purpose. Asking a question: questions are
 anonymous, the ask domain does not say who asked, and anything a rule gave
@@ -139,9 +196,9 @@ and `streak_days` +1 for each of two friends when a streak day completes;
 given friend.
 
 A rule is **live** while it fired for anyone within
-`TOKULY_QUEST_LIVE_RULE_DAYS` (`quest_rule_activity`). Missions and metric
-leaderboards are only offered for live rules, so a feature that does not
-exist on a server, or that nobody uses, never shows up there.
+`TOKULY_QUEST_LIVE_RULE_DAYS` (`quest_rule_activity`). Missions are only
+drawn for live rules, so a feature nobody uses on a server never shows up
+there.
 
 ### XP sources and daily caps
 
@@ -282,7 +339,7 @@ Through `tokuly_identity::ProfileExtension`:
 
 ## Badges
 
-`badges/catalog.rs`: 149 badges in 13 families (`friends`, `explore`, `chat`,
+`badges/catalog.rs`: 128 badges in 13 families (`friends`, `explore`, `chat`,
 `stamps`, `creators`, `study`, `streaks`, `seasons`, `journey`, `missions`,
 `together`, `secret`, `special`), most of them lines of bronze / silver /
 gold counted at three thresholds. Gold tiers and some single badges unlock a
@@ -303,16 +360,25 @@ title.
   players are active: below that a share says who owns a badge, not how
   rare it is.
 - Staff award and revoke by hand (`QuestAdminService`), never for
-  themselves (`SELF_AWARD`).
+  themselves (`SELF_AWARD`) and never without a reason (`REASON_REQUIRED`,
+  at most 500 characters). Each call is recorded in `quest_badge_actions` —
+  staff member, player, badge, action, reason, whether anything changed —
+  before the badge moves, and listed by `ListBadgeActions`. The record goes
+  with the player's account; a deleted staff account leaves its records
+  without the ID.
 
 ## Leaderboards and seasons
 
 - A board ranks the caller and their friends only. Players who switched
   `show_on_leaderboards` off are left out (and do not count in others'
   season groups); they still see their own row and get their own result.
-- Boards: `xp` (week, season, all time), `streak` (longest running streak),
-  and, while their events exist, `explored_area` (map cells) and
-  `study_time` (minutes).
+- Boards: `xp` (week, season, all time) and `streak` (longest running
+  streak). There is no board for what another domain measures (area
+  explored, time studied): who may see that is the owning domain's setting
+  and can change after the numbers were counted, so a ranking kept here
+  would go on showing a player who has since hidden their footprints or
+  their studying. School has its own study ranking, which follows its
+  settings.
 - A season is a calendar month, counted on each player's own calendar. It is
   finalized 12 hours after the month ended in UTC — when it is over in every
   time zone — with a snapshot of every participant's XP and rank among their
@@ -392,7 +458,7 @@ several processes):
 | payouts | every minute | Coins of mission claims and level-ups a stopped process left ungranted; streak restores it left unfinished |
 | seasons | every 10 minutes | Finalizes months that are over everywhere (looks back 3 months). No lock: each participant is settled by whichever process gets to them first |
 | badge rarity | every `TOKULY_QUEST_RARITY_INTERVAL_SECONDS` | |
-| pruning | every 6 hours | Missions past their claim window, per-day metric rows older than 70 days |
+| pruning | every 6 hours | Missions past their claim window, per-day metric rows older than 70 days, once-a-day keys past their day |
 
 No job-queue jobs.
 
@@ -474,9 +540,8 @@ quest.spawn_workers();                                                 // worker
   listening (it learns them from `chat.conversation.created`; a new consumer
   starts with the 7 days the stream keeps). Naming the recipient in the
   props of `chat.message.send` would do as well.
-- **geo**: footprint and visit events should not be emitted while a player
-  is in ghost mode (this domain can see the `footprints_visible_to` setting,
-  not ghost mode), or should say so in the payload.
-- **geo, school, plans, spaces, community, live, shorts**: the expected
-  topics above. Where a domain already emits something else for the same
-  thing, change the row in `rules.rs` rather than adding an event.
+- **geo**: an event (or activity entry) for scratch-map cells uncovered and
+  for first visits to a place, saying whether the player shows their
+  footprints, would bring back the `area` and `places` badges.
+- **shorts, live, spaces, community**: one documented event each for
+  "published", "went live", "opened / joined a room", "started a thread".

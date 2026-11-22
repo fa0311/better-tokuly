@@ -1,8 +1,7 @@
 //! What a player (or the domain an event comes from) keeps hidden must not
 //! show up in XP, counters, badges or streaks — all of which others can see.
 use serde_json::json;
-use tokuly_core::prelude::*;
-use tokuly_proto::identity::Audience;
+use tokuly_core::{events::Event, prelude::*};
 use tokuly_testkit::TestUser;
 
 use crate::common::*;
@@ -116,40 +115,76 @@ async fn what_hides_who_did_it_or_who_may_see_it_earns_nothing() {
     assert_eq!(ctx.progress(&alice).await.level.as_option().unwrap().total_xp, 3 + 8 + 5);
 }
 
+/// A region entered for the first time, as geo records it: private while
+/// the player shows their footprints to nobody.
+fn new_region(user: &TestUser, audience: &str) -> Event {
+    let data = json!({
+        "user_id": user.id, "kind": "geo.new_region", "audience": audience,
+        "summary": { "ja": "新しい地域!", "en": "A new region" }, "path": "/footprints",
+        "data": { "region_id": Uuid::now_v7(), "kind": 1, "country_code": "JP" },
+    });
+    event("activity.recorded", Some(user.id), data)
+}
+
 #[tokio::test]
 async fn where_somebody_has_been_earns_nothing_while_they_hide_their_footprints() {
     let ctx = start().await;
     let (hidden, open, friend) =
         (ctx.app.user("hidden").await, ctx.app.user("open").await, ctx.app.user("friend").await);
     ctx.befriend(&hidden, &friend).await;
-    let mut privacy = tokuly_identity::settings::default_privacy();
-    privacy.footprints_visible_to = Audience::AUDIENCE_NOBODY.into();
-    sqlx::query("UPDATE users SET privacy = $2 WHERE id = $1")
-        .bind(hidden.id)
-        .bind(serde_json::to_value(&privacy).unwrap())
-        .execute(&ctx.app.core.db)
-        .await
-        .unwrap();
 
-    for user in [&hidden, &open] {
-        ctx.feed(event("geo.footprint.expanded", Some(user.id), json!({ "user_id": user.id, "new_cells": 12 }))).await;
-        ctx.feed(event(
-            "geo.visit.started",
-            Some(user.id),
-            json!({ "user_id": user.id, "place_id": Uuid::now_v7(), "first_visit": true }),
-        ))
-        .await;
-    }
+    ctx.feed(new_region(&hidden, "private")).await;
+    ctx.feed(new_region(&open, "friends")).await;
     ctx.flush(&[&hidden, &open]).await;
 
     // Nothing the friends of the hidden player could read their movements from.
     assert_eq!(ctx.progress(&hidden).await.level.as_option().unwrap().total_xp, 0);
-    assert_eq!((ctx.counter(&hidden, "explored_cells").await, ctx.counter(&hidden, "places_visited").await), (0, 0));
-    assert_eq!(ctx.source_today(&open, "map").await, (12 + 5, false));
-    assert_eq!((ctx.counter(&open, "explored_cells").await, ctx.counter(&open, "places_visited").await), (12, 1));
+    assert_eq!(ctx.counter(&hidden, "regions_explored").await, 0);
+    assert_eq!(ctx.source_today(&open, "map").await, (30, false));
+    assert_eq!(ctx.counter(&open, "regions_explored").await, 1);
 
     // What they choose to share still counts: a check-in shown to friends.
     check_in(&ctx, &hidden, "friends", &[&friend]).await;
     ctx.flush(&[&hidden]).await;
     assert_eq!(ctx.source_today(&hidden, "map").await, (10, false));
+}
+
+#[tokio::test]
+async fn studying_counts_only_as_far_as_the_player_shows_it() {
+    let ctx = start().await;
+    let (shy, open) = (ctx.app.user("shy").await, ctx.app.user("open").await);
+    let session = |user: &TestUser, manual: bool| {
+        event(
+            "school.study.session_ended",
+            Some(user.id),
+            json!({
+                "user_id": user.id, "session_id": Uuid::now_v7(), "minutes": 50, "seconds": 3000, "subject": "math",
+                "source": if manual { 3 } else { 1 }, "manual": manual, "auto_stopped": false,
+            }),
+        )
+    };
+    // The school domain's own event reaches everybody's consumers, also for
+    // players who hide their studying and for time logged by hand. It is
+    // not what counts.
+    for user in [&shy, &open] {
+        ctx.feed(session(user, false)).await;
+        ctx.feed(session(user, true)).await;
+    }
+    // What counts is the entry school records for a timed session of a
+    // player who shows their studying: only `open` gets one.
+    let shown = json!({
+        "user_id": open.id, "kind": "school.studied", "audience": "friends",
+        "summary": { "ja": "50分勉強しました", "en": "Studied for 50 min" },
+        "data": { "session_id": Uuid::now_v7(), "minutes": 50, "subject": "math", "in_room": false },
+    });
+    let entry = event("activity.recorded", Some(open.id), shown);
+    ctx.feed(entry.clone()).await;
+    // The same session's entry recorded again (a retry on school's side) is still one session.
+    ctx.feed(event("activity.recorded", Some(open.id), entry.data.clone())).await;
+    ctx.flush(&[&shy, &open]).await;
+
+    assert_eq!(ctx.progress(&shy).await.level.as_option().unwrap().total_xp, 0);
+    assert_eq!(ctx.counter(&shy, "study_minutes").await, 0);
+    assert_eq!(ctx.source_today(&open, "study").await, (50, false));
+    assert_eq!((ctx.counter(&open, "study_minutes").await, ctx.counter(&open, "study_sessions").await), (50, 1));
 }

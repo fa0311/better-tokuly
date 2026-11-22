@@ -67,8 +67,14 @@ async fn a_redelivered_event_counts_once() {
         assert_eq!(ctx.progress(user).await.level.as_option().unwrap().total_xp, 15);
         assert_eq!(ctx.counter(user, "bumps").await, 1);
     }
-    // A different event of the same kind does count.
+    // Another bump of the same two today is not news (only XP is capped,
+    // so two phones tapped together all day must not fill a counter)...
     ctx.feed(event("social.bump.created", Some(alice.id), bump(alice.id, bob.id))).await;
+    ctx.flush(&[&alice]).await;
+    assert_eq!(ctx.counter(&alice, "bumps").await, 1);
+    // ...a bump with somebody else is.
+    let carol = ctx.app.user("carol").await;
+    ctx.feed(event("social.bump.created", Some(alice.id), bump(alice.id, carol.id))).await;
     ctx.flush(&[&alice]).await;
     assert_eq!(ctx.progress(&alice).await.level.as_option().unwrap().total_xp, 30);
     assert_eq!(ctx.counter(&alice, "bumps").await, 2);

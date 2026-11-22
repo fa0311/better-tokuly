@@ -670,7 +670,7 @@ enum LeaderboardPeriod {
 
 // A board that can be requested.
 message Leaderboard {
-  // `xp`, `streak`, `explored_area`, `study_time`, ...
+  // `xp` or `streak`.
   string key = 1;
   tokuly.common.v1.LocalizedText name = 2;
   string emoji = 3;
@@ -763,21 +763,31 @@ message ListSeasonResultsResponse {
 
 // ───────────────────────────────── Staff ─────────────────────────────────
 
-// Badge administration. Requires the `admin` role.
+// Badge administration. Requires the `admin` role. Every call is recorded
+// with the staff member and their reason, whether or not it changed
+// anything.
 service QuestAdminService {
   // Gives a player a badge by hand (event prizes, the `special` family).
   // Staff cannot award themselves.
-  // Errors: FORBIDDEN, SELF_AWARD, USER_NOT_FOUND, BADGE_NOT_FOUND.
+  // Errors: FORBIDDEN, SELF_AWARD, REASON_REQUIRED, REASON_TOO_LONG,
+  // USER_NOT_FOUND, BADGE_NOT_FOUND.
   rpc AwardBadge(AwardBadgeRequest) returns (AwardBadgeResponse);
   // Takes a badge away (awarded by mistake, or won by cheating). It also
   // leaves the showcase and stops being the title.
-  // Errors: FORBIDDEN, SELF_AWARD, USER_NOT_FOUND, BADGE_NOT_FOUND.
+  // Errors: FORBIDDEN, SELF_AWARD, REASON_REQUIRED, REASON_TOO_LONG,
+  // USER_NOT_FOUND, BADGE_NOT_FOUND.
   rpc RevokeBadge(RevokeBadgeRequest) returns (RevokeBadgeResponse);
+  // The record of badges given and taken by hand, newest first.
+  // Errors: FORBIDDEN.
+  rpc ListBadgeActions(ListBadgeActionsRequest) returns (ListBadgeActionsResponse);
 }
 
 message AwardBadgeRequest {
   string user_id = 1;
   string badge_key = 2;
+  // Why (the event it was a prize of, the ticket). Required, at most 500
+  // characters; kept with the record, never shown to the player.
+  string reason = 3;
 }
 
 message AwardBadgeResponse {
@@ -789,11 +799,45 @@ message AwardBadgeResponse {
 message RevokeBadgeRequest {
   string user_id = 1;
   string badge_key = 2;
+  // Why. Required, at most 500 characters; never shown to the player.
+  string reason = 3;
 }
 
 message RevokeBadgeResponse {
   // False when the player did not have it.
   bool revoked = 1;
+}
+
+enum BadgeActionKind {
+  BADGE_ACTION_KIND_UNSPECIFIED = 0;
+  BADGE_ACTION_KIND_AWARDED = 1;
+  BADGE_ACTION_KIND_REVOKED = 2;
+}
+
+// One award or revocation by staff.
+message BadgeAction {
+  string id = 1;
+  // Empty once the staff member's account was deleted.
+  string staff_id = 2;
+  string user_id = 3;
+  string badge_key = 4;
+  BadgeActionKind kind = 5;
+  string reason = 6;
+  // Whether the player's badges changed: false when they already had the
+  // badge (award) or did not have it (revoke).
+  bool changed = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+message ListBadgeActionsRequest {
+  // Only actions on this player; empty = everyone.
+  string user_id = 1;
+  // Default 50, at most 200.
+  int32 limit = 2;
+}
+
+message ListBadgeActionsResponse {
+  repeated BadgeAction actions = 1;
 }
 
 // ──────────────────────────────── Realtime ───────────────────────────────

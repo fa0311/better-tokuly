@@ -1,9 +1,16 @@
 //! Leaderboards among friends, and `LeaderboardService`.
 //!
-//! A board ranks the caller and their friends — never anybody else — by XP,
-//! by their longest running streak, or by a metric the events feed (map
-//! cells uncovered, minutes studied). Metric boards only exist while
-//! something on the server feeds their metric.
+//! A board ranks the caller and their friends — never anybody else — by XP
+//! or by their longest running streak: the two things the quest domain
+//! owns, and that every player on a board agreed to show (the leaderboard
+//! setting).
+//!
+//! There is deliberately no board for what another domain measures (area
+//! explored, time studied). Who may see that is the owning domain's
+//! setting, and it can change after the numbers were counted: a board here
+//! would keep showing a player who has since hidden their footprints or
+//! their studying. Those rankings belong to the domain that knows the
+//! setting (school has its own study ranking).
 //!
 //! Periods are counted in local days: "this week" is Monday to Sunday and
 //! "this season" the calendar month, both as of the caller's date. A friend
@@ -21,8 +28,6 @@ use tokuly_social::graph;
 
 use crate::{
     Quest, clock,
-    metrics::Metric,
-    missions::draw::Player,
     text::{Text, t},
 };
 
@@ -32,7 +37,6 @@ enum Ranked {
     Xp,
     /// The longest streak a player has running with anyone.
     Streak,
-    Metric(Metric),
 }
 
 struct BoardDef {
@@ -64,22 +68,6 @@ const BOARDS: &[BoardDef] = &[
         unit: t("日", "days"),
         ranked: Ranked::Streak,
         periods: &[ALL_TIME],
-    },
-    BoardDef {
-        key: "explored_area",
-        name: t("開拓したエリア", "Area explored"),
-        emoji: "🧭",
-        unit: t("マス", "cells"),
-        ranked: Ranked::Metric(Metric::ExploredCells),
-        periods: &[WEEK, SEASON, ALL_TIME],
-    },
-    BoardDef {
-        key: "study_time",
-        name: t("勉強時間", "Study time"),
-        emoji: "📚",
-        unit: t("分", "min"),
-        ranked: Ranked::Metric(Metric::StudyMinutes),
-        periods: &[WEEK, SEASON, ALL_TIME],
     },
 ];
 
@@ -159,29 +147,7 @@ impl Quest {
                 .fetch_all(db)
                 .await?
             }
-            (Ranked::Metric(metric), Some((from, to))) => {
-                sqlx::query_as("SELECT user_id, sum(value)::bigint FROM quest_metric_days WHERE user_id = ANY($1) AND metric = $2 AND day >= $3 AND day <= $4 GROUP BY user_id")
-                    .bind(users)
-                    .bind(metric.key())
-                    .bind(from)
-                    .bind(to)
-                    .fetch_all(db)
-                    .await?
-            }
-            (Ranked::Metric(metric), None) => sqlx::query_as("SELECT user_id, value FROM quest_counters WHERE user_id = ANY($1) AND metric = $2").bind(users).bind(metric.key()).fetch_all(db).await?,
         })
-    }
-
-    /// The boards that have something to show on this server.
-    async fn available_boards(&self) -> AppResult<Vec<&'static BoardDef>> {
-        let player = Player { live_rules: self.live_rule_keys().await?.as_ref().clone(), ..Default::default() };
-        Ok(BOARDS
-            .iter()
-            .filter(|board| match board.ranked {
-                Ranked::Metric(metric) => player.is_live(metric),
-                _ => true,
-            })
-            .collect())
     }
 }
 
@@ -193,7 +159,7 @@ impl LeaderboardService for Quest {
     ) -> ServiceResult<ListLeaderboardsResponse> {
         handle(async {
             ctx.user_id()?;
-            let boards = self.available_boards().await?.into_iter().map(BoardDef::to_proto).collect();
+            let boards = BOARDS.iter().map(BoardDef::to_proto).collect();
             ok(ListLeaderboardsResponse { boards, ..Default::default() })
         })
         .await
@@ -330,7 +296,7 @@ mod tests {
             assert!(!board.periods.is_empty());
             assert!(!board.name.ja.is_empty() && !board.unit.en.is_empty());
         }
-        for key in ["xp", "streak", "explored_area", "study_time"] {
+        for key in ["xp", "streak"] {
             assert!(keys.contains(key), "board {key} is missing");
         }
     }

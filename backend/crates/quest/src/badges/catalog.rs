@@ -242,26 +242,6 @@ const LINES: &[Line] = &[
         [3, 10, 47],
         t("全国制覇", "Been Everywhere")
     ),
-    line!(
-        "area",
-        Explore,
-        "🧭",
-        t("マップ開拓", "Trailblazer"),
-        t("マップを{n}マス開拓する", "Uncover {n} map cells"),
-        Of(M::ExploredCells),
-        [100, 1000, 10000],
-        t("冒険家", "Adventurer")
-    ),
-    line!(
-        "places",
-        Explore,
-        "🏞️",
-        t("新しい場所", "New Places"),
-        t("はじめての場所に{n}か所行く", "Visit {n} places for the first time"),
-        Of(M::PlacesVisited),
-        [10, 50, 200],
-        t("開拓者", "Pathfinder")
-    ),
     // ── chat ──
     line!(
         "chatter",
@@ -354,26 +334,6 @@ const LINES: &[Line] = &[
         Of(M::VideosPublished),
         [1, 10, 50],
         t("映像作家", "Director")
-    ),
-    line!(
-        "shorts",
-        Creators,
-        "📱",
-        t("ショート", "Short Maker"),
-        t("ショートを{n}本投稿する", "Post {n} shorts"),
-        Of(M::ShortsPosted),
-        [1, 20, 100],
-        t("ショートの星", "Shorts Star")
-    ),
-    line!(
-        "streamer",
-        Creators,
-        "📡",
-        t("ライブ配信", "Streamer"),
-        t("ライブ配信を{n}回する", "Go live {n} times"),
-        Of(M::LivesStarted),
-        [1, 10, 50],
-        t("配信者", "Broadcaster")
     ),
     line!(
         "popular",
@@ -512,26 +472,6 @@ const LINES: &[Line] = &[
         t("なんでも答える人", "Open Book")
     ),
     line!(
-        "host",
-        Together,
-        "🎙️",
-        t("たまり場", "Host"),
-        t("たまり場を{n}回ひらく", "Open {n} audio rooms"),
-        Of(M::SpacesHosted),
-        [1, 10, 50],
-        t("たまり場の主", "Host with the Most")
-    ),
-    line!(
-        "familiar",
-        Together,
-        "🛋️",
-        t("顔なじみ", "Familiar Face"),
-        t("たまり場に{n}回入る", "Join audio rooms {n} times"),
-        Of(M::SpacesJoined),
-        [5, 50, 200],
-        NO_TITLE
-    ),
-    line!(
         "planner",
         Together,
         "🗓️",
@@ -540,16 +480,6 @@ const LINES: &[Line] = &[
         Of(M::PlansCreated),
         [1, 10, 50],
         t("幹事", "Organizer")
-    ),
-    line!(
-        "threads",
-        Together,
-        "🧵",
-        t("スレ主", "Thread Starter"),
-        t("コミュニティにスレッドを{n}個立てる", "Start {n} community threads"),
-        Of(M::ThreadsPosted),
-        [5, 50, 200],
-        t("スレ主", "Thread Starter")
     ),
 ];
 

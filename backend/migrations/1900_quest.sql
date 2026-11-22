@@ -284,3 +284,47 @@ CREATE TABLE quest_direct_chats (
 
 CREATE INDEX quest_direct_chats_lo ON quest_direct_chats (user_lo);
 CREATE INDEX quest_direct_chats_hi ON quest_direct_chats (user_hi);
+
+-- Deeds that count once. Only XP has a daily cap; the counters behind
+-- missions and badges do not, and many things can be undone and done again
+-- with a new event each time (like, unlike, like; unfriend, befriend). A
+-- row says the player already got credit for `key` (`like:<note>`,
+-- `friend:<user>`): for good, or for one local day when `expires_on` is
+-- set (the key then ends in `@<date>`). The primary key is what decides
+-- between two deliveries racing.
+CREATE TABLE quest_once (
+    user_id    uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    key        text        NOT NULL,
+    -- The event that was credited. The same event delivered again passes
+    -- (its credit is idempotent by itself); any other event does not.
+    event_id   uuid        NOT NULL,
+    -- The other person the key names, so that their rows go when they do.
+    about      uuid,
+    -- Daily keys: when the row may be deleted.
+    expires_on date,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, key)
+);
+
+CREATE INDEX quest_once_about ON quest_once (about) WHERE about IS NOT NULL;
+CREATE INDEX quest_once_expiry ON quest_once (expires_on) WHERE expires_on IS NOT NULL;
+
+-- Badges given or taken by staff: who, to whom, and why. The row is
+-- written before the badge moves, so no action is without a record;
+-- `changed` is filled in once it is known whether anything changed.
+CREATE TABLE quest_badge_actions (
+    id         uuid PRIMARY KEY DEFAULT uuidv7(),
+    -- Not a foreign key: the record outlives the staff account (the ID is
+    -- blanked when that account is deleted).
+    staff_id   uuid        NOT NULL,
+    user_id    uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    badge_key  text        NOT NULL,
+    -- 1 awarded, 2 revoked.
+    action     smallint    NOT NULL CHECK (action IN (1, 2)),
+    reason     text        NOT NULL CHECK (length(reason) BETWEEN 1 AND 500),
+    -- Whether the player's badges changed (false: already owned / not owned).
+    changed    boolean,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX quest_badge_actions_user ON quest_badge_actions (user_id, created_at DESC);

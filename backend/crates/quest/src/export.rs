@@ -81,6 +81,8 @@ impl Quest {
             "quest_xp_days",
             "quest_streak_restores",
             "quest_season_results",
+            "quest_once",
+            "quest_badge_actions",
             "quest_profiles",
         ] {
             sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM {table} WHERE user_id = $1")))
@@ -96,6 +98,15 @@ impl Quest {
             .bind(user_id)
             .execute(&mut *tx)
             .await?;
+        // What others were credited once for doing with this player, and
+        // what this player did as staff, lose the reference.
+        sqlx::query("DELETE FROM quest_once WHERE about = $1").bind(user_id).execute(&mut *tx).await?;
+        sqlx::query(
+            "UPDATE quest_badge_actions SET staff_id = '00000000-0000-0000-0000-000000000000' WHERE staff_id = $1",
+        )
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
         // Restores other players paid for a streak with this one keep their
         // month (it is their allowance), without the name.
         sqlx::query(

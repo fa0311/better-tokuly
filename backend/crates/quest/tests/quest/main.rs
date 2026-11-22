@@ -8,6 +8,7 @@ mod badges;
 mod boards;
 mod common;
 mod concurrency;
+mod farming;
 mod lifecycle;
 mod missions;
 mod privacy;

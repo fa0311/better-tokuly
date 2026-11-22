@@ -425,8 +425,12 @@ async fn a_title_never_outlives_a_badge_that_was_revoked_at_the_same_moment() {
     for round in 0..6 {
         let alice = ctx.app.user("alice").await;
         badges::award(&ctx.app.core, alice.id, "bug_hunter").await.unwrap();
-        let revoke =
-            RevokeBadgeRequest { user_id: alice.id.to_string(), badge_key: "bug_hunter".into(), ..Default::default() };
+        let revoke = RevokeBadgeRequest {
+            user_id: alice.id.to_string(),
+            badge_key: "bug_hunter".into(),
+            reason: "race test".into(),
+            ..Default::default()
+        };
         let title = SetTitleRequest { badge_key: "bug_hunter".into(), ..Default::default() };
         let showcase = SetShowcaseRequest { badge_keys: vec!["bug_hunter".into()], ..Default::default() };
         let (revoked, _, _) = tokio::join!(
