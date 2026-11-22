@@ -29,7 +29,7 @@ Domains and their migration numbers:
 | notes | 0700 | social, stamp, media |
 | video | 0800 | social, media |
 | live | 0900 | video, wallet, stamp |
-| shorts | 1000 | video |
+| shorts | 1000 | social, media, video |
 | engagement | 1100 | identity, stamp |
 | notify | 1200 | identity |
 | feed | 1300 | identity |

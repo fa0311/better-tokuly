@@ -1,0 +1,40 @@
+/*
+ * Only for the installed app (opened from the home screen, or in a window of
+ * its own): the small things that give a web page away. Nothing here applies
+ * in a browser tab.
+ */
+@media (display-mode: standalone), (display-mode: minimal-ui), (display-mode: window-controls-overlay) {
+  /* The page does not stretch past its ends ("rubber band"), and pulling down does not reload it. */
+  html,
+  body {
+    overscroll-behavior: none;
+  }
+
+  /*
+   * Navigation and controls are not text: a long press neither selects their
+   * label nor opens the browser's link preview, and they cannot be dragged
+   * out of the window. What people read and write stays selectable, and
+   * links that leave the app keep their menu (copy, share).
+   */
+  nav,
+  button,
+  summary,
+  label,
+  [role="button"],
+  [role="tab"],
+  [role="switch"],
+  [role="menuitem"],
+  a[href^="/"] {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-user-drag: none;
+  }
+  input,
+  textarea,
+  select,
+  [contenteditable]:not([contenteditable="false"]) {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+}
