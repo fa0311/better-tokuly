@@ -114,8 +114,9 @@ impl ImageStore for ImagesForDevelopers {
 }
 
 /// Reports about posts in anonymous channels arrive without an owner: the
-/// admin domain asks, the community domain knows who wrote them. Only the
-/// moderation queue gets the answer.
+/// admin domain asks, the community domain knows who wrote them, and who
+/// else is involved and must therefore not be told. Only the moderation
+/// queue gets the answer.
 struct AnonymousAuthors {
     community: Community,
 }
@@ -124,6 +125,10 @@ struct AnonymousAuthors {
 impl HiddenOwners for AnonymousAuthors {
     async fn owner_for_moderation(&self, subject_type: SubjectType, subject_id: Uuid) -> AppResult<Option<Uuid>> {
         self.community.author_for_moderation(subject_type, subject_id).await
+    }
+
+    async fn is_party(&self, subject_type: SubjectType, subject_id: Uuid, user_id: Uuid) -> AppResult<bool> {
+        self.community.is_party_for_moderation(subject_type, subject_id, user_id).await
     }
 }
 

@@ -144,6 +144,9 @@ community.role_of(community_id, user_id) -> AppResult<Option<tokuly_community::R
 // organiser, owner), removed ones included while retained. The one way to
 // the author of an anonymous post besides RevealAuthor.
 community.author_for_moderation(subject_type, subject_id) -> AppResult<Option<Uuid>>
+// Site moderation only: is `user_id` involved in this thread or reply (the
+// question RevealAuthor asks), and so not to be told who wrote it?
+community.is_party_for_moderation(subject_type, subject_id, user_id) -> AppResult<bool>
 
 tokuly_community::pseudonym::pseudonym(&core.keys, thread_id, author_id) -> tokuly_proto::community::Pseudonym
 tokuly_community::permissions::{allows, permissions_of, may_assign, Role, MemberGrants}
@@ -374,12 +377,15 @@ migration `2300` to the server.
   `THUMBNAIL`. Stamps in posts are recorded as `SendContext::Note`.
 - **Reports about anonymous posts (admin, server): done.** These subjects
   resolve without an owner, so `engagement.report.created.subject_owner_id`
-  is nil for them. The server bridges `Community::author_for_moderation` to
-  the admin domain (`tokuly_admin::HiddenOwners`, `bridges.rs`), which asks
-  it when such a report arrives and when a moderator takes the post down by
-  reference: the case in the moderation queue names the author, so site
-  moderators can warn, suspend or ban them. Only the moderation queue and
-  log get the answer; `RevealAuthor` (logged and announced to the
+  is nil for them. The server bridges `Community::author_for_moderation` and
+  `Community::is_party_for_moderation` to the admin domain
+  (`tokuly_admin::HiddenOwners`, `bridges.rs`). The case in the moderation
+  queue can then warn, suspend or ban the author, under the rule of
+  `RevealAuthor`: a site moderator who is involved in the post (reported it,
+  wrote in the thread, is mentioned or answered by its author) is not shown
+  the author and cannot act on the case, and every time the author is shown
+  to another moderator the admin audit log records it
+  (`docs/events/admin.md`). `RevealAuthor` (logged and announced to the
   community's staff) stays the way for a community's own staff.
   `GetContentHistory` is the matching read for removed or edited content
   named in a report.

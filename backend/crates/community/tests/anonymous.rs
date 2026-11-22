@@ -812,6 +812,25 @@ async fn a_moderator_who_is_part_of_it_does_not_look_up_the_author() {
     // Their own post: nothing to look up, and nothing to log.
     assert_eq!(refused(thread_ref(&theirs.id)).await, "CONFLICT_OF_INTEREST");
 
+    // Site moderation asks the same question about a subject it knows by ID
+    // (the server bridges it to the admin domain), and gets the same answers.
+    let involved = |kind: SubjectType, id: &str, who: &TestUser| {
+        let (ctx, id, who) = (&ctx, id.parse::<uuid::Uuid>().unwrap(), who.id);
+        async move { ctx.community.is_party_for_moderation(kind, id, who).await.unwrap() }
+    };
+    const THREAD: SubjectType = SubjectType::SUBJECT_TYPE_COMMUNITY_THREAD;
+    const REPLY: SubjectType = SubjectType::SUBJECT_TYPE_COMMUNITY_REPLY;
+    assert!(involved(THREAD, &about.id, &s.moderator).await, "mentioned");
+    assert!(involved(REPLY, &in_theirs.id, &s.moderator).await, "their thread");
+    assert!(involved(REPLY, &answer.id, &s.moderator).await, "answered");
+    assert!(involved(THREAD, &reported.id, &s.moderator).await, "reported it");
+    assert!(involved(THREAD, &about.id, &s.author).await, "wrote it");
+    assert!(!involved(THREAD, &about.id, &site_moderator).await, "site moderation has no part in it");
+    assert!(!involved(THREAD, &about.id, &s.reader).await);
+    // Not a post, or not one that exists: nobody is involved.
+    assert!(!involved(SubjectType::SUBJECT_TYPE_COMMUNITY, &s.community.id, &s.moderator).await);
+    assert!(!involved(THREAD, &uuid::Uuid::now_v7().to_string(), &s.moderator).await);
+
     // None of the refused lookups left a trace or told anyone anything.
     let lookups = || {
         let (ctx, s) = (&ctx, &s);

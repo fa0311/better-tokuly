@@ -15,6 +15,10 @@ CREATE TABLE moderation_cases (
     subject_id        uuid        NOT NULL,
     -- NULL once the owner's account is deleted.
     subject_owner_id  uuid REFERENCES users (id) ON DELETE SET NULL,
+    -- The content hides its author (a post in an anonymous channel): the owner
+    -- above came from the domain that keeps it, not from the report, and is
+    -- shown only to a moderator who is not involved, one case at a time.
+    owner_hidden      boolean     NOT NULL DEFAULT false,
     -- Snapshot from the latest report: the content itself lives in its domain.
     subject_title     text        NOT NULL DEFAULT '',
     subject_path      text        NOT NULL DEFAULT '',

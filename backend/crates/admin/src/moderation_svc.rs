@@ -30,6 +30,14 @@ impl Admin {
     }
 }
 
+/// Takes the sanctioned account out of actions about an anonymous post: the
+/// answer to a change does not name its author (`owners.rs`).
+fn withhold_targets(actions: &mut [ModerationAction]) {
+    for action in actions {
+        action.target_user = Default::default();
+    }
+}
+
 impl ModerationService for Admin {
     async fn list_cases(&self, ctx: RequestContext, request: ServiceRequest<'_, ListCasesRequest>) -> ServiceResult<ListCasesResponse> {
         handle(async {
@@ -56,20 +64,26 @@ impl ModerationService for Admin {
 
     async fn get_case(&self, ctx: RequestContext, request: ServiceRequest<'_, GetCaseRequest>) -> ServiceResult<GetCaseResponse> {
         handle(async {
-            Staff::moderator(&ctx)?;
+            let staff = Staff::moderator(&ctx)?;
             let case = self.case(parse_id(request.case_id)?).await?;
             let (reports, _) = self.case_reports(case.id, &first_page(CASE_PREVIEW_REPORTS)).await?;
             let action_filter = ActionFilter { case_id: Some(case.id), ..Default::default() };
             let (actions, _) = self.list_actions(&action_filter, &first_page(CASE_ACTIONS_LIMIT)).await?;
-            let owner_record = match case.subject_owner_id {
+            // A hidden author is named here, to a moderator who is not involved, and nowhere else.
+            let (moderation_case, owner_named) = self.opened_case(&staff, &case).await?;
+            let owner_record = match case.subject_owner_id.filter(|_| owner_named) {
                 Some(owner_id) => Some(self.moderation_summary(owner_id).await?),
                 None => None,
             };
+            let mut actions = self.actions_to_proto(&actions).await?;
+            if case.owner_hidden && !owner_named {
+                withhold_targets(&mut actions);
+            }
             ok(GetCaseResponse {
-                moderation_case: self.case_to_proto(&case).await?.into(),
+                moderation_case: moderation_case.into(),
                 reports,
                 notes: self.case_notes(case.id).await?,
-                actions: self.actions_to_proto(&actions).await?,
+                actions,
                 owner_record: owner_record.into(),
                 ..Default::default()
             })
@@ -157,9 +171,13 @@ impl ModerationService for Admin {
             let case_id = parse_id(request.case_id)?;
             let resolution = Resolution::parse(request.action, request.remove_content, request.reason, request.note, request.suspension_seconds)?;
             let resolved = self.apply_resolution(&staff, case_id, &resolution).await?;
+            let mut actions = self.actions_to_proto(&resolved.actions).await?;
+            if resolved.case.owner_hidden {
+                withhold_targets(&mut actions);
+            }
             ok(ResolveCaseResponse {
                 moderation_case: self.case_to_proto(&resolved.case).await?.into(),
-                actions: self.actions_to_proto(&resolved.actions).await?,
+                actions,
                 ..Default::default()
             })
         })
@@ -229,8 +247,12 @@ impl ModerationService for Admin {
                 Some(case) => Some(self.case_to_proto(case).await?),
                 None => None,
             };
+            let mut action = self.action_to_proto(&takedown.action).await?;
+            if takedown.owner_hidden {
+                withhold_targets(std::slice::from_mut(&mut action));
+            }
             ok(TakedownContentResponse {
-                action: self.action_to_proto(&takedown.action).await?.into(),
+                action: action.into(),
                 resolved_case: resolved_case.into(),
                 ..Default::default()
             })

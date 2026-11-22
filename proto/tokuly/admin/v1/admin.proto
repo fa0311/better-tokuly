@@ -135,7 +135,8 @@ message ModerationCase {
   string subject_title = 3;
   // Path of the subject in the app, e.g. `/watch/dQw4w9WgXcQ`.
   string subject_path = 4;
-  // Owner of the reported content. Unset once their account is deleted.
+  // Owner of the reported content. Unset once their account is deleted, and
+  // while `owner_withheld` is set.
   tokuly.common.v1.UserSummary subject_owner = 5;
   CaseStatus status = 6;
   int32 report_count = 7;
@@ -157,6 +158,16 @@ message ModerationCase {
   string resolution_reason = 15;
   tokuly.common.v1.UserSummary resolved_by = 16;
   google.protobuf.Timestamp resolved_at = 17;
+  // The content hides its author (a post in an anonymous channel) and this
+  // message does not name them. Lists never do; `GetCase` names the author
+  // to a moderator who is not involved, and records that in the audit log.
+  bool owner_withheld = 18;
+  // Only in `GetCase`, with `owner_withheld`: the caller is involved in the
+  // reported post (reported it, wrote in its thread, is mentioned or answered
+  // by its author there), so the author stays hidden from them and another
+  // moderator has to handle the case. Resolving it answers
+  // CONFLICT_OF_INTEREST.
+  bool conflict_of_interest = 19;
 }
 
 // One user's report inside a case.
@@ -249,7 +260,8 @@ message GetCaseResponse {
   repeated CaseNote notes = 3;
   // Actions taken on this case, newest first.
   repeated ModerationAction actions = 4;
-  // Moderation record of the content owner; unset when the owner is gone.
+  // Moderation record of the content owner; unset when the owner is gone or
+  // withheld (`moderation_case.owner_withheld`).
   UserModerationSummary owner_record = 5;
 }
 

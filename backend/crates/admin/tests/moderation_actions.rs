@@ -340,10 +340,13 @@ async fn resolved_cases_can_be_reopened_unless_superseded() {
     assert_eq!((superseded.code.as_str(), superseded.reason.as_str()), ("failed_precondition", "CASE_SUPERSEDED"));
 }
 
-/// Stands in for the community domain: knows who wrote one anonymous thread.
+/// Stands in for the community domain: knows who wrote one anonymous
+/// thread, and who else took part in it.
 struct FakeAnonymousPosts {
     thread_id: Uuid,
     author_id: Uuid,
+    /// People the author mentioned or answered, or who wrote in the thread.
+    involved: Vec<Uuid>,
 }
 
 #[async_trait]
@@ -351,48 +354,163 @@ impl HiddenOwners for FakeAnonymousPosts {
     async fn owner_for_moderation(&self, subject_type: SubjectType, subject_id: Uuid) -> AppResult<Option<Uuid>> {
         Ok((subject_type == SubjectType::SUBJECT_TYPE_COMMUNITY_THREAD && subject_id == self.thread_id).then_some(self.author_id))
     }
+
+    async fn is_party(&self, _subject_type: SubjectType, subject_id: Uuid, user_id: Uuid) -> AppResult<bool> {
+        Ok(subject_id == self.thread_id && (user_id == self.author_id || self.involved.contains(&user_id)))
+    }
+}
+
+const THREAD: SubjectType = SubjectType::SUBJECT_TYPE_COMMUNITY_THREAD;
+
+/// The audit entries about `case_id` named `action`, as `(actor, target user)`.
+async fn audit_of_case(app: &tokuly_testkit::TestApp, case_id: &str, action: &str) -> Vec<(Uuid, Option<Uuid>)> {
+    sqlx::query_as("SELECT actor_id, target_user_id FROM admin_audit_log WHERE target_type = 'case' AND target_id = $1 AND action = $2 ORDER BY id")
+        .bind(case_id)
+        .bind(action)
+        .fetch_all(&app.core.db)
+        .await
+        .unwrap()
 }
 
 #[tokio::test]
 async fn content_reported_without_an_owner_gets_one_from_the_domain_that_keeps_it() {
-    const THREAD: SubjectType = SubjectType::SUBJECT_TYPE_COMMUNITY_THREAD;
     let (app, admin) = start().await;
     let moderator = app.user_with_roles("mod", &["moderator"]).await;
     // The author of the anonymous post happens to be a moderator too.
     let author = app.user_with_roles("author", &["moderator"]).await;
     let reporter = app.user("rep").await;
     let (thread, other_thread) = (Uuid::now_v7(), Uuid::now_v7());
-    admin.set_hidden_owners(Arc::new(FakeAnonymousPosts { thread_id: thread, author_id: author.id }));
+    admin.set_hidden_owners(Arc::new(FakeAnonymousPosts { thread_id: thread, author_id: author.id, involved: vec![] }));
 
     // Engagement names nobody for an anonymous post: the nil ID.
     admin.handle_event(report_event(reporter.id, (THREAD, thread), Uuid::nil(), "HARASSMENT", "ひどい")).await.unwrap();
-    let case = case_of_owner(&app, &moderator, author.id).await.remove(0);
+    let case_id: Uuid = sqlx::query_scalar("SELECT id FROM moderation_cases WHERE subject_id = $1").bind(thread).fetch_one(&app.core.db).await.unwrap();
+    let opened = get_case(&app, &moderator, &case_id.to_string()).await;
+    let case = opened.moderation_case.into_option().unwrap();
     assert_eq!(case.subject.id, thread.to_string());
     assert_eq!(case.subject_owner.id, author.id.to_string());
+    assert!(!case.owner_withheld && !case.conflict_of_interest);
+    assert!(opened.owner_record.is_set(), "the author's moderation record comes with the name");
 
     // The author cannot judge their own anonymous post; someone else's warning reaches them.
     let own = resolve(&app, &author, resolution(&case, DISMISS, "問題なし")).await.unwrap_err();
     assert_eq!((own.code.as_str(), own.reason.as_str()), ("permission_denied", "CONFLICT_OF_INTEREST"));
     let admin_user = app.user_with_roles("boss", &["admin"]).await;
-    resolve(&app, &admin_user, ResolveCaseRequest { remove_content: true, ..resolution(&case, WARN, "嫌がらせ") }).await.unwrap();
+    let resolved = resolve(&app, &admin_user, ResolveCaseRequest { remove_content: true, ..resolution(&case, WARN, "嫌がらせ") }).await.unwrap();
     let kinds: Vec<String> = notifications_for(&app, author.id).await.into_iter().map(|n| n.kind).collect();
     assert!(kinds.contains(&"system.warning".to_owned()) && kinds.contains(&"system.content_removed".to_owned()), "{kinds:?}");
+    // The answer to the resolution does not name the author; the audit log does.
+    assert!(resolved.moderation_case.owner_withheld && resolved.moderation_case.subject_owner.is_unset());
+    assert!(resolved.actions.iter().all(|action| action.target_user.is_unset()));
+    assert_eq!(audit_of_case(&app, &case.id, "case.resolved").await, vec![(admin_user.id, Some(author.id))]);
 
     // What the lookup does not know stays without an owner, as before.
     admin.handle_event(report_event(reporter.id, (THREAD, other_thread), Uuid::nil(), "SPAM", "")).await.unwrap();
     let orphan_id: Uuid =
         sqlx::query_scalar("SELECT id FROM moderation_cases WHERE subject_id = $1").bind(other_thread).fetch_one(&app.core.db).await.unwrap();
-    assert!(get_case(&app, &moderator, &orphan_id.to_string()).await.moderation_case.into_option().unwrap().subject_owner.is_unset());
+    let orphan = get_case(&app, &moderator, &orphan_id.to_string()).await.moderation_case.into_option().unwrap();
+    assert!(orphan.subject_owner.is_unset() && !orphan.owner_withheld);
 
     // A takedown by reference finds the author the same way, with no report at all.
     let (app2, admin2) = start().await;
     let (moderator, writer) = (app2.user_with_roles("mod", &["moderator"]).await, app2.user("writer").await);
+    let involved = app2.user_with_roles("involved", &["moderator"]).await;
     let post = Uuid::now_v7();
-    admin2.set_hidden_owners(Arc::new(FakeAnonymousPosts { thread_id: post, author_id: writer.id }));
+    admin2.set_hidden_owners(Arc::new(FakeAnonymousPosts { thread_id: post, author_id: writer.id, involved: vec![involved.id] }));
     let request = TakedownContentRequest { subject: subject_ref(THREAD, post).into(), reason: "違法な内容".into(), ..Default::default() };
+    // Not by a moderator who took part in the thread.
+    let refused = app2.call::<_, TakedownContentResponse>(&format!("{MODERATION}/TakedownContent"), Some(&involved), &request).await.unwrap_err();
+    assert_eq!((refused.code.as_str(), refused.reason.as_str()), ("permission_denied", "CONFLICT_OF_INTEREST"));
+    assert!(notifications_for(&app2, writer.id).await.is_empty());
     let done: TakedownContentResponse = app2.call(&format!("{MODERATION}/TakedownContent"), Some(&moderator), &request).await.unwrap();
-    assert_eq!(done.action.target_user.id, writer.id.to_string());
-    assert_eq!(notifications_for(&app2, writer.id).await.len(), 1);
+    assert!(done.action.target_user.is_unset(), "the answer does not name the author");
+    assert_eq!(notifications_for(&app2, writer.id).await.len(), 1, "the author is told");
+    let logged: Option<Uuid> = sqlx::query_scalar("SELECT target_user_id FROM admin_audit_log WHERE action = 'content.removed' AND actor_id = $1")
+        .bind(moderator.id)
+        .fetch_one(&app2.core.db)
+        .await
+        .unwrap();
+    assert_eq!(logged, Some(writer.id), "the audit log knows whose post was removed");
+}
+
+#[tokio::test]
+async fn the_author_of_an_anonymous_post_is_withheld_from_moderators_who_are_involved() {
+    let (app, admin) = start().await;
+    let author = app.user("author").await;
+    // Three moderators: one reported the post, one wrote in the thread, one has nothing to do with it.
+    let reporting = app.user_with_roles("reporting", &["moderator"]).await;
+    let answered = app.user_with_roles("answered", &["moderator"]).await;
+    let neutral = app.user_with_roles("neutral", &["moderator"]).await;
+    let thread = Uuid::now_v7();
+    admin.set_hidden_owners(Arc::new(FakeAnonymousPosts { thread_id: thread, author_id: author.id, involved: vec![answered.id] }));
+    admin.handle_event(report_event(reporting.id, (THREAD, thread), Uuid::nil(), "HARASSMENT", "ひどい")).await.unwrap();
+    let case_id: Uuid = sqlx::query_scalar("SELECT id FROM moderation_cases WHERE subject_id = $1").bind(thread).fetch_one(&app.core.db).await.unwrap();
+    let case_id = case_id.to_string();
+
+    // No list names the author, whoever asks, and a list by owner does not find the case.
+    for staff in [&reporting, &answered, &neutral] {
+        let listed: ListCasesResponse = app.call(&format!("{MODERATION}/ListCases"), Some(staff), &ListCasesRequest::default()).await.unwrap();
+        let case = listed.cases.iter().find(|case| case.id == case_id).expect("the case is in the queue");
+        assert!(case.owner_withheld && case.subject_owner.is_unset() && !case.conflict_of_interest, "{}", staff.handle);
+        assert!(case_of_owner(&app, staff, author.id).await.is_empty(), "{}", staff.handle);
+    }
+
+    // Whoever reported the post or took part in the thread is told to leave it to someone else.
+    for staff in [&reporting, &answered] {
+        let opened = get_case(&app, staff, &case_id).await;
+        let case = opened.moderation_case.as_option().unwrap();
+        assert!(case.owner_withheld && case.conflict_of_interest && case.subject_owner.is_unset(), "{}", staff.handle);
+        assert!(opened.owner_record.is_unset(), "{}", staff.handle);
+        for request in [resolution(case, DISMISS, ""), resolution(case, WARN, "x"), resolution(case, REMOVE_CONTENT, "x")] {
+            let refused = resolve(&app, staff, request).await.unwrap_err();
+            assert_eq!((refused.code.as_str(), refused.reason.as_str()), ("permission_denied", "CONFLICT_OF_INTEREST"), "{}", staff.handle);
+        }
+        // Assigning it to themselves or noting something does not unmask anyone either.
+        let assigned: AssignCaseResponse =
+            app.call(&format!("{MODERATION}/AssignCase"), Some(staff), &AssignCaseRequest { case_id: case_id.clone(), ..Default::default() }).await.unwrap();
+        assert!(assigned.moderation_case.owner_withheld && assigned.moderation_case.subject_owner.is_unset());
+    }
+    assert!(audit_of_case(&app, &case_id, "case.author_revealed").await.is_empty(), "nobody has been shown the author yet");
+
+    // The moderator who is not involved sees the author, and every look is on record.
+    let opened = get_case(&app, &neutral, &case_id).await;
+    let case = opened.moderation_case.as_option().unwrap();
+    assert_eq!(case.subject_owner.id, author.id.to_string());
+    assert!(!case.owner_withheld && !case.conflict_of_interest);
+    assert!(opened.owner_record.is_set());
+    get_case(&app, &neutral, &case_id).await;
+    assert_eq!(audit_of_case(&app, &case_id, "case.author_revealed").await, vec![(neutral.id, Some(author.id)); 2]);
+    let boss = app.user_with_roles("boss", &["admin"]).await;
+    let entries = audit_by(&app, &boss, neutral.id).await;
+    let entry = entries.iter().find(|entry| entry.action == "case.author_revealed").expect("the reveal is in the audit log");
+    assert_eq!((entry.target_id.as_str(), entry.created_at.is_set()), (case_id.as_str(), true));
+
+    // And they handle it; once it is resolved the involved ones still learn nothing from it.
+    resolve(&app, &neutral, resolution(case, WARN, "嫌がらせ")).await.unwrap();
+    for staff in [&reporting, &answered] {
+        let closed = get_case(&app, staff, &case_id).await;
+        assert!(closed.moderation_case.subject_owner.is_unset() && closed.moderation_case.conflict_of_interest);
+        assert!(!closed.actions.is_empty() && closed.actions.iter().all(|action| action.target_user.is_unset()), "{}", staff.handle);
+    }
+}
+
+#[tokio::test]
+async fn without_a_lookup_nobody_is_shown_a_hidden_author() {
+    // A case that was filed with a hidden owner, on a server that no longer has the lookup.
+    let (app, admin) = start().await;
+    let (moderator, author, reporter) = (app.user_with_roles("mod", &["moderator"]).await, app.user("author").await, app.user("rep").await);
+    let thread = Uuid::now_v7();
+    admin.handle_event(report_event(reporter.id, (THREAD, thread), Uuid::nil(), "SPAM", "")).await.unwrap();
+    sqlx::query("UPDATE moderation_cases SET subject_owner_id = $2, owner_hidden = true WHERE subject_id = $1")
+        .bind(thread)
+        .bind(author.id)
+        .execute(&app.core.db)
+        .await
+        .unwrap();
+    let case_id: Uuid = sqlx::query_scalar("SELECT id FROM moderation_cases WHERE subject_id = $1").bind(thread).fetch_one(&app.core.db).await.unwrap();
+    let opened = get_case(&app, &moderator, &case_id.to_string()).await;
+    assert!(opened.moderation_case.owner_withheld && opened.moderation_case.conflict_of_interest);
+    assert!(opened.moderation_case.subject_owner.is_unset());
 }
 
 /// Stands in for a content domain: knows one video by UUID and short ID.
