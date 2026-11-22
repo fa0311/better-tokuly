@@ -202,6 +202,8 @@ pub async fn adjust(tx: &mut Transaction<'_, Postgres>, user_id: Uuid, account: 
 /// Takes entry-row locks, so it must run before anything in the same
 /// transaction locks an account row (see the lock order in the module docs).
 pub async fn unlink_user(tx: &mut Transaction<'_, Postgres>, user_id: Uuid) -> AppResult<()> {
+    // A hidden party is always one of the entry's two users, so this finds every entry that names the user as hidden.
+    sqlx::query("UPDATE wallet_entries SET hidden_user_id = NULL WHERE hidden_user_id = $1 AND (from_user_id = $1 OR to_user_id = $1)").bind(user_id).execute(&mut **tx).await?;
     sqlx::query("UPDATE wallet_entries SET from_user_id = NULL WHERE from_user_id = $1").bind(user_id).execute(&mut **tx).await?;
     sqlx::query("UPDATE wallet_entries SET to_user_id = NULL WHERE to_user_id = $1").bind(user_id).execute(&mut **tx).await?;
     Ok(())

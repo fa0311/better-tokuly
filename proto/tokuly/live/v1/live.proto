@@ -1,15 +1,1617 @@
 syntax = "proto3";
 
-// Live streams, ingest, live chat, gifts, clips, moderation.
+// Live (ライブ配信): live streams, ingest, live chat, gifts, polls, clips, OBS
+// overlays and analytics for the streamer.
 //
-// SKELETON: the owning domain implements this file. Keep the package name
-// and the realtime event message name stable; everything else is yours.
+// Streams. A stream belongs to a channel of the video domain and is one
+// broadcast: UPCOMING (created, maybe scheduled) → LIVE → ENDED. It goes on
+// air when its encoder connects (or, with `auto_start` off, when the streamer
+// calls StartStream after checking the preview) and ends when the streamer
+// ends it or the encoder stays away longer than the reconnect grace. With
+// `auto_archive` the recording becomes a video on the channel.
+// Every `stream_id` field accepts the UUID or the 11-character `short_id`;
+// every `channel_id` field the channel's UUID or its handle.
+//
+// Who sees a stream is its `Visibility`, as for videos:
+//   PUBLIC    everyone; listed in "live now", upcoming, search
+//   NO_FEED   everyone; listed on the channel page only
+//   UNLISTED  everyone with the link; listed nowhere
+//   FRIENDS   friends of the channel's owner; listed for them only
+//   PRIVATE   the owner
+// Streams of users in a block relation with the caller, and of suspended
+// accounts, read as not found.
+//
+// Media. Encoders publish to the media server over RTMP, SRT or WebRTC
+// (WHIP) with the stream's secret key (GetIngestInfo); viewers play
+// Low-Latency HLS or WebRTC (WHEP) from the URLs in `Stream.playback`. The
+// media server asks the API for every publisher and viewer, so the URLs of
+// a restricted stream only work with the token they carry.
+//
+// Realtime. Everything that happens on a stream is pushed as `LiveEvent` on
+// the topic `live:<stream id>` (subscribable by whoever may watch the
+// stream; guests included for public ones). Offsets (`offset_ms`) are
+// positions on the stream's media timeline, counted from the moment it went
+// live, so chat lines up with the archive.
 package tokuly.live.v1;
 
+import "google/protobuf/timestamp.proto";
 import "tokuly/common/v1/common.proto";
+import "tokuly/media/v1/media.proto";
+import "tokuly/video/v1/video.proto";
+
+// ───────────────────────────── Streams ─────────────────────────────
+
+// Creating, running, finding and watching live streams.
+service LiveStreamService {
+  // Creates a stream on one of the caller's channels (their default channel
+  // when `channel_id` is empty). Errors: CHANNEL_NOT_FOUND,
+  // CHANNEL_REQUIRED (the caller has no channel yet), STREAM_LIMIT_REACHED,
+  // TITLE_INVALID, DESCRIPTION_TOO_LONG, TAGS_INVALID, GAME_INVALID,
+  // CATEGORY_INVALID, VISIBILITY_INVALID, SCHEDULE_INVALID,
+  // CHAT_SETTINGS_INVALID, ASSET_NOT_FOUND, ASSET_WRONG_PURPOSE,
+  // ASSET_NOT_READY, ASSET_NOT_IMAGE, RATE_LIMITED.
+  rpc CreateStream(CreateStreamRequest) returns (CreateStreamResponse);
+  // Changes a stream of the caller. Unset fields stay as they are. The
+  // schedule and `auto_start` can only change before the stream is on air;
+  // an ended stream keeps accepting title, description and visibility.
+  // Errors: STREAM_NOT_FOUND, STREAM_ALREADY_STARTED, RATE_LIMITED, plus
+  // the validation errors of CreateStream.
+  rpc UpdateStream(UpdateStreamRequest) returns (UpdateStreamResponse);
+  // Deletes a stream of the caller: it is gone for everyone at once, with
+  // its recording. A stream that is on air is ended first. Its archive
+  // video and the clips made from that video stay. The server keeps the
+  // chat for a retention period so that it can still be reported.
+  // Errors: STREAM_NOT_FOUND.
+  rpc DeleteStream(DeleteStreamRequest) returns (DeleteStreamResponse);
+  // One stream as the caller sees it, with playback URLs while it can be
+  // watched. Anonymous callers allowed. Errors: STREAM_NOT_FOUND.
+  rpc GetStream(GetStreamRequest) returns (GetStreamResponse);
+  // Streams of a channel, newest first. The owner sees all of them; everyone
+  // else what is listed for them. Anonymous callers allowed.
+  // Errors: CHANNEL_NOT_FOUND.
+  rpc ListChannelStreams(ListChannelStreamsRequest) returns (ListChannelStreamsResponse);
+  // Public streams that are on air, most signed-in viewers first (guests
+  // do not move the ranking). Anonymous callers allowed.
+  rpc ListLiveStreams(ListLiveStreamsRequest) returns (ListLiveStreamsResponse);
+  // Public streams that are scheduled, soonest first. Anonymous callers
+  // allowed.
+  rpc ListUpcomingStreams(ListUpcomingStreamsRequest) returns (ListUpcomingStreamsResponse);
+  // Streams of the channels the caller subscribes to: on air first (most
+  // viewers first), then the scheduled ones (soonest first).
+  rpc ListSubscribedStreams(ListSubscribedStreamsRequest) returns (ListSubscribedStreamsResponse);
+  // Streams of the caller's friends, friends-only ones included: on air
+  // first, then the scheduled ones.
+  rpc ListFriendStreams(ListFriendStreamsRequest) returns (ListFriendStreamsResponse);
+  // Where and with which key the encoder of a stream of the caller
+  // publishes. Errors: STREAM_NOT_FOUND, STREAM_ENDED,
+  // MEDIA_SERVER_NOT_CONFIGURED (unavailable).
+  rpc GetIngestInfo(GetIngestInfoRequest) returns (GetIngestInfoResponse);
+  // Replaces the stream key; an encoder publishing with the old one is
+  // disconnected. Errors: STREAM_NOT_FOUND, STREAM_ENDED, RATE_LIMITED.
+  rpc RotateStreamKey(RotateStreamKeyRequest) returns (RotateStreamKeyResponse);
+  // Puts a stream on air whose encoder is connected (needed with
+  // `auto_start` off; a no-op when it already is live). Errors:
+  // STREAM_NOT_FOUND, STREAM_ENDED, ENCODER_NOT_CONNECTED,
+  // MEDIA_SERVER_NOT_CONFIGURED (unavailable).
+  rpc StartStream(StartStreamRequest) returns (StartStreamResponse);
+  // Ends a stream of the caller: viewers are told, the encoder is
+  // disconnected and, with `auto_archive`, the archive is produced. Ending
+  // a stream that never went on air cancels it. Errors: STREAM_NOT_FOUND.
+  rpc EndStream(EndStreamRequest) returns (EndStreamResponse);
+  // Asks for (or cancels) a `live.reminder` notification when the stream
+  // starts. Errors: STREAM_NOT_FOUND, STREAM_ALREADY_STARTED, RATE_LIMITED.
+  rpc SetReminder(SetReminderRequest) returns (SetReminderResponse);
+  // Heartbeat of a viewer's player, every `report_interval_seconds`: keeps
+  // the viewer in the audience (viewer count, the streamer's viewer list),
+  // measures watch time and renews the playback token. Anonymous callers
+  // allowed (pass a stable `client_id`); only a few guests per network
+  // address are counted. Errors: STREAM_NOT_FOUND, RATE_LIMITED.
+  rpc ReportWatching(ReportWatchingRequest) returns (ReportWatchingResponse);
+  // Signed-in viewers watching right now, for the streamer and the
+  // channel's moderators. Errors: STREAM_NOT_FOUND, NOT_A_MODERATOR.
+  rpc ListViewers(ListViewersRequest) returns (ListViewersResponse);
+  // Sends the audience of the caller's live stream to another stream that
+  // is on air: viewers receive `LiveEvent.raid` with the target, the target
+  // chat a system message, and the caller's stream ends. Errors:
+  // STREAM_NOT_FOUND, STREAM_NOT_LIVE, RAID_TARGET_NOT_FOUND,
+  // RAID_TARGET_NOT_LIVE, RAID_SELF, RATE_LIMITED.
+  rpc RaidStream(RaidStreamRequest) returns (RaidStreamResponse);
+}
+
+// Where a stream is in its life.
+enum StreamStatus {
+  STREAM_STATUS_UNSPECIFIED = 0;
+  // Created, not on air yet (scheduled or waiting for the encoder).
+  STREAM_STATUS_UPCOMING = 1;
+  // On air.
+  STREAM_STATUS_LIVE = 2;
+  // Over. Never goes back on air.
+  STREAM_STATUS_ENDED = 3;
+}
+
+// What became of the recording of an ended stream.
+enum ArchiveStatus {
+  ARCHIVE_STATUS_UNSPECIFIED = 0;
+  // No archive: `auto_archive` is off, nothing was recorded, or the stream
+  // has not ended.
+  ARCHIVE_STATUS_NONE = 1;
+  // Waiting for the archive job.
+  ARCHIVE_STATUS_PENDING = 2;
+  // The job is assembling the recording.
+  ARCHIVE_STATUS_PROCESSING = 3;
+  // The archive video exists (`archive_video_id`); it may still be
+  // transcoding, which the video itself reports.
+  ARCHIVE_STATUS_READY = 4;
+  ARCHIVE_STATUS_FAILED = 5;
+}
+
+// Why a stream ended.
+enum EndReason {
+  END_REASON_UNSPECIFIED = 0;
+  // The streamer ended it.
+  END_REASON_STREAMER = 1;
+  // The encoder disconnected and did not come back within the grace period.
+  END_REASON_ENCODER_GONE = 2;
+  // It ran into the maximum stream length.
+  END_REASON_TOO_LONG = 3;
+  // The streamer raided another stream.
+  END_REASON_RAID = 4;
+  // Taken down by moderation, or the account was suspended or deleted.
+  END_REASON_REMOVED = 5;
+}
+
+// Who may write in the chat (reading follows the stream's visibility).
+enum ChatAudience {
+  CHAT_AUDIENCE_UNSPECIFIED = 0;
+  // Every signed-in member.
+  CHAT_AUDIENCE_EVERYONE = 1;
+  // Members only: accounts at least `min_account_age_minutes` old (keeps
+  // throwaway accounts out).
+  CHAT_AUDIENCE_MEMBERS = 2;
+  // Subscribers of the channel.
+  CHAT_AUDIENCE_SUBSCRIBERS = 3;
+}
+
+// What happens to chat messages that contain links.
+enum LinkPolicy {
+  LINK_POLICY_UNSPECIFIED = 0;
+  // Links are fine.
+  LINK_POLICY_ALLOW = 1;
+  // Messages with links are refused (LINKS_NOT_ALLOWED); the streamer and
+  // moderators may still post them.
+  LINK_POLICY_BLOCK = 2;
+}
+
+// Chat rules of a stream.
+message ChatSettings {
+  // False closes the chat (nobody but the streamer and moderators writes).
+  bool enabled = 1;
+  // Seconds a viewer waits between two messages; 0 = off, at most 300.
+  int32 slow_mode_seconds = 2;
+  ChatAudience audience = 3;
+  // For CHAT_AUDIENCE_MEMBERS; 0 = the default of one day. At most 30 days.
+  int32 min_account_age_minutes = 4;
+  LinkPolicy link_policy = 5;
+  // Whether stamps may be sent.
+  bool stamps_enabled = 6;
+}
+
+// A stream as a card in lists.
+message StreamSummary {
+  string id = 1;
+  string short_id = 2;
+  string title = 3;
+  // Custom thumbnail; unset when the streamer chose none.
+  tokuly.common.v1.Image thumbnail = 4;
+  tokuly.common.v1.ChannelSummary channel = 5;
+  StreamStatus status = 6;
+  tokuly.common.v1.Visibility visibility = 7;
+  tokuly.video.v1.VideoCategory category = 8;
+  string game = 9;
+  // Viewers right now (0 unless LIVE).
+  int64 viewer_count = 10;
+  int64 peak_viewer_count = 11;
+  int64 like_count = 12;
+  // Planned start; unset for unscheduled streams.
+  google.protobuf.Timestamp scheduled_at = 13;
+  google.protobuf.Timestamp started_at = 14;
+  google.protobuf.Timestamp ended_at = 15;
+  // Hint for players: prefer WebRTC (sub-second) over HLS.
+  bool low_latency = 16;
+  google.protobuf.Timestamp created_at = 17;
+}
+
+// URLs a player needs. Present while the stream can be watched: LIVE for
+// viewers, and for the owner as soon as the encoder is connected (preview).
+message Playback {
+  // Low-Latency HLS master playlist.
+  string hls_url = 1;
+  // WebRTC playback endpoint (WHEP).
+  string whep_url = 2;
+  // Rewinding (only with DVR on). `dvr_list_url` returns the recorded
+  // timespans as JSON; `dvr_get_url` plus `&start=<RFC 3339>&duration=<seconds>`
+  // plays a range as fragmented MP4.
+  string dvr_list_url = 3;
+  string dvr_get_url = 4;
+  // How far back viewers may rewind; 0 without DVR.
+  int32 dvr_window_seconds = 5;
+  // The token inside the URLs above (empty for streams anyone may watch),
+  // for players that send `Authorization: Bearer` instead, and when the
+  // URLs stop working. It is made for the caller alone and short-lived;
+  // ReportWatching returns the next one.
+  string token = 6;
+  google.protobuf.Timestamp expires_at = 7;
+}
+
+// The caller's relation to a stream (signed-in callers only).
+message StreamViewerState {
+  bool is_owner = 1;
+  // Moderator of the channel (the owner is one too).
+  bool is_moderator = 2;
+  bool reminder_set = 3;
+  bool subscribed = 4;
+  // Whether the caller may write in the chat right now, and if not why:
+  // one of the SendChatMessage reasons (CHAT_BANNED, CHAT_TIMED_OUT,
+  // SUBSCRIBERS_ONLY, MEMBERS_ONLY, CHAT_DISABLED, STREAM_ENDED).
+  bool can_chat = 5;
+  string chat_block_reason = 6;
+  // End of a timeout, for CHAT_TIMED_OUT.
+  google.protobuf.Timestamp chat_blocked_until = 7;
+}
+
+// What only the owner sees.
+message StreamStudioInfo {
+  // The encoder is publishing right now.
+  bool encoder_connected = 1;
+  // "rtmp", "srt" or "webrtc" while connected.
+  string encoder_protocol = 2;
+  bool auto_start = 3;
+  // Coins received on this stream before the platform fee.
+  int64 gift_coins = 4;
+  int64 gift_count = 5;
+  int64 chat_message_count = 6;
+  int64 new_subscribers = 7;
+  string archive_error = 8;
+  EndReason end_reason = 9;
+}
+
+// A stream page.
+message Stream {
+  StreamSummary summary = 1;
+  string description = 2;
+  repeated string tags = 3;
+  bool dvr_enabled = 4;
+  bool auto_archive = 5;
+  bool gifts_enabled = 6;
+  ChatSettings chat = 7;
+  // Unset when the caller cannot play the stream right now.
+  Playback playback = 8;
+  // The message pinned by the streamer or a moderator.
+  ChatMessage pinned_message = 9;
+  // Gift messages whose highlight time has not run out, newest first.
+  repeated ChatMessage highlighted_gifts = 10;
+  // The poll that is open, if any.
+  Poll active_poll = 11;
+  ArchiveStatus archive_status = 12;
+  // Short ID of the archive video once it exists.
+  string archive_video_id = 13;
+  // The stream this one raided at its end.
+  string raid_target_stream_id = 14;
+  StreamViewerState viewer = 15;
+  StreamStudioInfo studio = 16;
+  // Topic carrying this stream's `LiveEvent`s.
+  string realtime_topic = 17;
+  // How often players call ReportWatching.
+  int32 report_interval_seconds = 18;
+}
+
+message TagList {
+  repeated string tags = 1;
+}
+
+message CreateStreamRequest {
+  // Empty = the caller's default channel.
+  string channel_id = 1;
+  string title = 2;
+  string description = 3;
+  repeated string tags = 4;
+  tokuly.video.v1.VideoCategory category = 5;
+  string game = 6;
+  // An uploaded image (`ASSET_PURPOSE_THUMBNAIL`); empty = none.
+  string thumbnail_asset_id = 7;
+  // UNSPECIFIED = PUBLIC.
+  tokuly.common.v1.Visibility visibility = 8;
+  // Planned start, at most a year ahead; unset = whenever the encoder connects.
+  google.protobuf.Timestamp scheduled_at = 9;
+  // Unset options take their defaults: low latency, DVR, auto-archive,
+  // auto-start and gifts on.
+  optional bool low_latency = 10;
+  optional bool dvr_enabled = 11;
+  optional bool auto_archive = 12;
+  optional bool auto_start = 13;
+  optional bool gifts_enabled = 14;
+  // Unset = chat open to every member, links allowed, stamps on.
+  ChatSettings chat = 15;
+}
+
+message CreateStreamResponse {
+  Stream stream = 1;
+}
+
+message UpdateStreamRequest {
+  string stream_id = 1;
+  optional string title = 2;
+  optional string description = 3;
+  TagList tags = 4;
+  optional tokuly.video.v1.VideoCategory category = 5;
+  optional string game = 6;
+  // Empty string removes the thumbnail.
+  optional string thumbnail_asset_id = 7;
+  optional tokuly.common.v1.Visibility visibility = 8;
+  // Set to reschedule; `clear_schedule` removes the planned start.
+  google.protobuf.Timestamp scheduled_at = 9;
+  bool clear_schedule = 10;
+  optional bool low_latency = 11;
+  optional bool dvr_enabled = 12;
+  optional bool auto_archive = 13;
+  optional bool auto_start = 14;
+  optional bool gifts_enabled = 15;
+}
+
+message UpdateStreamResponse {
+  Stream stream = 1;
+}
+
+message DeleteStreamRequest {
+  string stream_id = 1;
+}
+
+message DeleteStreamResponse {}
+
+message GetStreamRequest {
+  string stream_id = 1;
+}
+
+message GetStreamResponse {
+  Stream stream = 1;
+}
+
+message ListChannelStreamsRequest {
+  string channel_id = 1;
+  // UNSPECIFIED = every status.
+  StreamStatus status = 2;
+  tokuly.common.v1.PageRequest page = 3;
+}
+
+message ListChannelStreamsResponse {
+  repeated StreamSummary streams = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListLiveStreamsRequest {
+  // UNSPECIFIED = every category.
+  tokuly.video.v1.VideoCategory category = 1;
+  // Only streams of this game (exact title, case-insensitive); empty = all.
+  string game = 2;
+  tokuly.common.v1.PageRequest page = 3;
+}
+
+message ListLiveStreamsResponse {
+  repeated StreamSummary streams = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListUpcomingStreamsRequest {
+  tokuly.video.v1.VideoCategory category = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListUpcomingStreamsResponse {
+  repeated StreamSummary streams = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListSubscribedStreamsRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListSubscribedStreamsResponse {
+  repeated StreamSummary streams = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListFriendStreamsRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListFriendStreamsResponse {
+  repeated StreamSummary streams = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// How an encoder reaches the media server for one stream.
+message IngestInfo {
+  // Public name of the stream on the media server (its path is `live/<name>`).
+  string stream_name = 1;
+  // The secret. Anyone who has it can broadcast as this stream.
+  string stream_key = 2;
+  // RTMP, as OBS wants it: a server and a "stream key".
+  string rtmp_server_url = 3;
+  string rtmp_stream_key = 4;
+  // RTMP as one URL (ffmpeg and friends).
+  string rtmp_url = 5;
+  // SRT as one URL.
+  string srt_url = 6;
+  // WebRTC publishing (WHIP): the endpoint and the bearer token to send.
+  string whip_url = 7;
+  string whip_bearer_token = 8;
+  google.protobuf.Timestamp key_rotated_at = 9;
+}
+
+message GetIngestInfoRequest {
+  string stream_id = 1;
+}
+
+message GetIngestInfoResponse {
+  IngestInfo ingest = 1;
+}
+
+message RotateStreamKeyRequest {
+  string stream_id = 1;
+}
+
+message RotateStreamKeyResponse {
+  IngestInfo ingest = 1;
+}
+
+message StartStreamRequest {
+  string stream_id = 1;
+}
+
+message StartStreamResponse {
+  Stream stream = 1;
+}
+
+message EndStreamRequest {
+  string stream_id = 1;
+}
+
+message EndStreamResponse {
+  Stream stream = 1;
+}
+
+message SetReminderRequest {
+  string stream_id = 1;
+  bool enabled = 2;
+}
+
+message SetReminderResponse {
+  bool enabled = 1;
+}
+
+message ReportWatchingRequest {
+  string stream_id = 1;
+  // Stable per browser or app install; identifies anonymous viewers. Up to
+  // 64 characters.
+  string client_id = 2;
+}
+
+message ReportWatchingResponse {
+  int64 viewer_count = 1;
+  int64 like_count = 2;
+  StreamStatus status = 3;
+  // When to report again.
+  int32 report_interval_seconds = 4;
+  // Fresh playback URLs while the caller may play the stream. The token of
+  // a restricted stream lasts a quarter of an hour: switch to these before
+  // the ones in use run out.
+  Playback playback = 5;
+}
+
+// A signed-in viewer in the audience.
+message Viewer {
+  tokuly.common.v1.UserSummary user = 1;
+  ChatRole role = 2;
+  // When they were last seen watching.
+  google.protobuf.Timestamp last_seen_at = 3;
+}
+
+message ListViewersRequest {
+  string stream_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListViewersResponse {
+  repeated Viewer viewers = 1;
+  tokuly.common.v1.PageInfo page = 2;
+  // Everyone watching, guests included.
+  int64 viewer_count = 3;
+}
+
+message RaidStreamRequest {
+  string stream_id = 1;
+  string target_stream_id = 2;
+}
+
+message RaidStreamResponse {
+  // The caller's stream, now ended.
+  Stream stream = 1;
+  StreamSummary target = 2;
+  // How many viewers were sent along.
+  int64 viewer_count = 3;
+}
+
+// ───────────────────────────── Chat ─────────────────────────────
+
+// Live chat and its moderation. Guests read; members write.
+service LiveChatService {
+  // Posts a text message (1-200 characters) or a stamp to a stream that is
+  // upcoming or on air. Errors: STREAM_NOT_FOUND, STREAM_ENDED,
+  // CHAT_DISABLED, CHAT_NOT_ALLOWED (a block between caller and streamer),
+  // CHAT_BANNED, CHAT_TIMED_OUT, MEMBERS_ONLY, SUBSCRIBERS_ONLY,
+  // MESSAGE_INVALID, MESSAGE_BLOCKED (banned word), LINKS_NOT_ALLOWED,
+  // STAMPS_DISABLED, STAMP_NOT_USABLE, SLOW_MODE, RATE_LIMITED.
+  rpc SendChatMessage(SendChatMessageRequest) returns (SendChatMessageResponse);
+  // Chat history of a stream, newest first. Anonymous callers allowed.
+  // Errors: STREAM_NOT_FOUND.
+  rpc ListChatMessages(ListChatMessagesRequest) returns (ListChatMessagesResponse);
+  // Chat replay for an archive: the messages whose offset lies in
+  // `[from_offset_ms, to_offset_ms)`, in order. Name the stream or its
+  // archive video. Anonymous callers allowed. Errors: STREAM_NOT_FOUND,
+  // REPLAY_RANGE_INVALID.
+  rpc ListChatReplay(ListChatReplayRequest) returns (ListChatReplayResponse);
+  // Deletes a message: its author, the streamer or a moderator. Gift
+  // messages can only be removed by the streamer or a moderator, and the
+  // streamer's own messages only by the streamer. A deleted message leaves
+  // the chat but can still be reported. Errors: MESSAGE_NOT_FOUND,
+  // NOT_A_MODERATOR, CANNOT_MODERATE_STREAMER, RATE_LIMITED.
+  rpc DeleteChatMessage(DeleteChatMessageRequest) returns (DeleteChatMessageResponse);
+  // Pins a message at the top of the chat (replacing the pinned one).
+  // Streamer and moderators. Errors: MESSAGE_NOT_FOUND, NOT_A_MODERATOR.
+  rpc PinChatMessage(PinChatMessageRequest) returns (PinChatMessageResponse);
+  // Removes the pinned message. Errors: STREAM_NOT_FOUND, NOT_A_MODERATOR.
+  rpc UnpinChatMessage(UnpinChatMessageRequest) returns (UnpinChatMessageResponse);
+  // Changes the chat rules of a stream (closing it included). Streamer
+  // only. Errors: STREAM_NOT_FOUND, NOT_THE_STREAMER, CHAT_SETTINGS_INVALID,
+  // RATE_LIMITED.
+  rpc UpdateChatSettings(UpdateChatSettingsRequest) returns (UpdateChatSettingsResponse);
+  // The words that may not appear in the chat of a channel's streams.
+  // Streamer and moderators. Errors: CHANNEL_NOT_FOUND, NOT_A_MODERATOR.
+  rpc GetBannedWords(GetBannedWordsRequest) returns (GetBannedWordsResponse);
+  // Replaces a channel's banned words (at most 200, each up to 30
+  // characters). Streamer only. Errors: CHANNEL_NOT_FOUND,
+  // BANNED_WORDS_INVALID.
+  rpc SetBannedWords(SetBannedWordsRequest) returns (SetBannedWordsResponse);
+  // Keeps a user out of the chat of a channel's streams: for
+  // `duration_seconds` (a timeout, 10 s to 14 days) or for good (0 = ban).
+  // Streamer and moderators; moderators cannot restrict each other or the
+  // streamer. Errors: CHANNEL_NOT_FOUND, NOT_A_MODERATOR, USER_NOT_FOUND,
+  // CANNOT_RESTRICT, RESTRICTION_INVALID, RATE_LIMITED.
+  rpc RestrictChatUser(RestrictChatUserRequest) returns (RestrictChatUserResponse);
+  // Lifts a timeout or ban. Errors: CHANNEL_NOT_FOUND, NOT_A_MODERATOR.
+  rpc UnrestrictChatUser(UnrestrictChatUserRequest) returns (UnrestrictChatUserResponse);
+  // Timeouts and bans in force on a channel, newest first. Streamer and
+  // moderators. Errors: CHANNEL_NOT_FOUND, NOT_A_MODERATOR.
+  rpc ListChatRestrictions(ListChatRestrictionsRequest) returns (ListChatRestrictionsResponse);
+  // Appoints a moderator of a channel's chats (at most 50): a subscriber
+  // of the channel or a friend of the streamer. Streamer only. The user is
+  // notified (`live.moderator`). Errors: CHANNEL_NOT_FOUND, USER_NOT_FOUND,
+  // MODERATOR_NOT_ELIGIBLE, MODERATOR_LIMIT_REACHED, CANNOT_MODERATE_SELF,
+  // RATE_LIMITED.
+  rpc AddModerator(AddModeratorRequest) returns (AddModeratorResponse);
+  // Dismisses a moderator. Streamer, or the moderator stepping down.
+  // Errors: CHANNEL_NOT_FOUND.
+  rpc RemoveModerator(RemoveModeratorRequest) returns (RemoveModeratorResponse);
+  // A channel's moderators. Streamer and moderators.
+  // Errors: CHANNEL_NOT_FOUND, NOT_A_MODERATOR.
+  rpc ListModerators(ListModeratorsRequest) returns (ListModeratorsResponse);
+}
+
+// What a chat line is.
+enum ChatMessageKind {
+  CHAT_MESSAGE_KIND_UNSPECIFIED = 0;
+  CHAT_MESSAGE_KIND_TEXT = 1;
+  CHAT_MESSAGE_KIND_STAMP = 2;
+  // A gift (super chat): `gift` is set, `text` is the sender's message.
+  CHAT_MESSAGE_KIND_GIFT = 3;
+  // Written by the server: `notice` says what happened.
+  CHAT_MESSAGE_KIND_NOTICE = 4;
+}
+
+// The author's standing on the channel when the message was written.
+enum ChatRole {
+  CHAT_ROLE_UNSPECIFIED = 0;
+  CHAT_ROLE_VIEWER = 1;
+  CHAT_ROLE_SUBSCRIBER = 2;
+  CHAT_ROLE_MODERATOR = 3;
+  // The streamer, writing as the channel.
+  CHAT_ROLE_OWNER = 4;
+}
+
+// The gift a chat line carries.
+message ChatGift {
+  string gift_id = 1;
+  int64 coins = 2;
+  // 1-12; see GetGiftTiers.
+  int32 tier = 3;
+  // The line stays highlighted above the chat until then.
+  google.protobuf.Timestamp highlighted_until = 4;
+}
+
+// Something the server announces in chat.
+message ChatNotice {
+  ChatNoticeKind kind = 1;
+  // For RAID: the channel that sent its viewers, and how many came.
+  tokuly.common.v1.ChannelSummary channel = 2;
+  int64 viewer_count = 3;
+}
+
+enum ChatNoticeKind {
+  CHAT_NOTICE_KIND_UNSPECIFIED = 0;
+  // Another stream raided this one.
+  CHAT_NOTICE_KIND_RAID = 1;
+}
+
+message ChatMessage {
+  string id = 1;
+  string stream_id = 2;
+  ChatMessageKind kind = 3;
+  // Who wrote it. The streamer writes as the channel: `channel` is set and
+  // `user` is not, so the account behind a channel stays private.
+  tokuly.common.v1.Author author = 4;
+  ChatRole role = 5;
+  string text = 6;
+  // Unset when the stamp no longer exists.
+  tokuly.common.v1.StampRef stamp = 7;
+  ChatGift gift = 8;
+  ChatNotice notice = 9;
+  // Position on the stream's media timeline.
+  int64 offset_ms = 10;
+  google.protobuf.Timestamp created_at = 11;
+}
+
+message SendChatMessageRequest {
+  string stream_id = 1;
+  // Either text ...
+  string text = 2;
+  // ... or a stamp the caller may use.
+  string stamp_id = 3;
+}
+
+message SendChatMessageResponse {
+  ChatMessage message = 1;
+}
+
+message ListChatMessagesRequest {
+  string stream_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListChatMessagesResponse {
+  // Newest first.
+  repeated ChatMessage messages = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListChatReplayRequest {
+  // One of the two: the stream, or its archive video (UUID or short ID).
+  string stream_id = 1;
+  string video_id = 2;
+  int64 from_offset_ms = 3;
+  // Exclusive; at most 10 minutes after `from_offset_ms`.
+  int64 to_offset_ms = 4;
+}
+
+message ListChatReplayResponse {
+  // Ordered by offset. At most 500; when `truncated`, ask again from the
+  // last offset.
+  repeated ChatMessage messages = 1;
+  bool truncated = 2;
+}
+
+message DeleteChatMessageRequest {
+  string message_id = 1;
+}
+
+message DeleteChatMessageResponse {}
+
+message PinChatMessageRequest {
+  string message_id = 1;
+}
+
+message PinChatMessageResponse {
+  ChatMessage message = 1;
+}
+
+message UnpinChatMessageRequest {
+  string stream_id = 1;
+}
+
+message UnpinChatMessageResponse {}
+
+message UpdateChatSettingsRequest {
+  string stream_id = 1;
+  // The complete new settings.
+  ChatSettings chat = 2;
+}
+
+message UpdateChatSettingsResponse {
+  ChatSettings chat = 1;
+}
+
+message GetBannedWordsRequest {
+  string channel_id = 1;
+}
+
+message GetBannedWordsResponse {
+  repeated string words = 1;
+}
+
+message SetBannedWordsRequest {
+  string channel_id = 1;
+  repeated string words = 2;
+}
+
+message SetBannedWordsResponse {
+  // As stored: trimmed, lower-cased, without duplicates.
+  repeated string words = 1;
+}
+
+// A timeout or ban on a channel.
+message ChatRestriction {
+  tokuly.common.v1.UserSummary user = 1;
+  // Unset = banned for good.
+  google.protobuf.Timestamp expires_at = 2;
+  string reason = 3;
+  // Who imposed it; unset when that was the streamer (shown as the channel).
+  tokuly.common.v1.UserSummary moderator = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message RestrictChatUserRequest {
+  string channel_id = 1;
+  string user_id = 2;
+  // 0 = ban; otherwise a timeout of this many seconds.
+  int32 duration_seconds = 3;
+  // Shown to moderators; up to 200 characters.
+  string reason = 4;
+  // Also remove the user's messages from the channel's stream that is on air.
+  bool delete_messages = 5;
+}
+
+message RestrictChatUserResponse {
+  ChatRestriction restriction = 1;
+}
+
+message UnrestrictChatUserRequest {
+  string channel_id = 1;
+  string user_id = 2;
+}
+
+message UnrestrictChatUserResponse {}
+
+message ListChatRestrictionsRequest {
+  string channel_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListChatRestrictionsResponse {
+  repeated ChatRestriction restrictions = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message AddModeratorRequest {
+  string channel_id = 1;
+  string user_id = 2;
+}
+
+message AddModeratorResponse {
+  Moderator moderator = 1;
+}
+
+message RemoveModeratorRequest {
+  string channel_id = 1;
+  string user_id = 2;
+}
+
+message RemoveModeratorResponse {}
+
+message Moderator {
+  tokuly.common.v1.UserSummary user = 1;
+  google.protobuf.Timestamp appointed_at = 2;
+}
+
+message ListModeratorsRequest {
+  string channel_id = 1;
+}
+
+message ListModeratorsResponse {
+  repeated Moderator moderators = 1;
+}
+
+// ───────────────────────────── Polls ─────────────────────────────
+
+// Polls the streamer or a moderator runs in a stream.
+service LivePollService {
+  // Opens a poll: a question (1-100 characters), 2 to 5 options (1-50
+  // characters each) and a duration of 15 s to 30 min. One poll per stream
+  // is open at a time. Errors: STREAM_NOT_FOUND, STREAM_ENDED,
+  // NOT_A_MODERATOR, POLL_INVALID, POLL_ALREADY_OPEN, RATE_LIMITED.
+  rpc CreatePoll(CreatePollRequest) returns (CreatePollResponse);
+  // Casts the caller's one vote. Errors: POLL_NOT_FOUND, POLL_CLOSED,
+  // POLL_OPTION_INVALID, ALREADY_VOTED, RATE_LIMITED.
+  rpc VotePoll(VotePollRequest) returns (VotePollResponse);
+  // Closes a poll before its time. Streamer and moderators.
+  // Errors: POLL_NOT_FOUND, NOT_A_MODERATOR.
+  rpc EndPoll(EndPollRequest) returns (EndPollResponse);
+  // Polls of a stream, newest first. Anonymous callers allowed.
+  // Errors: STREAM_NOT_FOUND.
+  rpc ListPolls(ListPollsRequest) returns (ListPollsResponse);
+}
+
+message PollOption {
+  string text = 1;
+  int64 vote_count = 2;
+}
+
+message Poll {
+  string id = 1;
+  string stream_id = 2;
+  string question = 3;
+  repeated PollOption options = 4;
+  int64 total_votes = 5;
+  google.protobuf.Timestamp started_at = 6;
+  // When it closes (or closed) by itself.
+  google.protobuf.Timestamp ends_at = 7;
+  // Set once closed.
+  google.protobuf.Timestamp ended_at = 8;
+  // The option the caller voted for, 1-based; 0 = none (always 0 in pushes).
+  int32 viewer_choice = 9;
+}
+
+message CreatePollRequest {
+  string stream_id = 1;
+  string question = 2;
+  repeated string options = 3;
+  int32 duration_seconds = 4;
+}
+
+message CreatePollResponse {
+  Poll poll = 1;
+}
+
+message VotePollRequest {
+  string poll_id = 1;
+  // 1-based.
+  int32 option = 2;
+}
+
+message VotePollResponse {
+  Poll poll = 1;
+}
+
+message EndPollRequest {
+  string poll_id = 1;
+}
+
+message EndPollResponse {
+  Poll poll = 1;
+}
+
+message ListPollsRequest {
+  string stream_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListPollsResponse {
+  repeated Poll polls = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// ───────────────────────────── Gifts ─────────────────────────────
+
+// Gifts (super chat): coins sent to the streamer with a highlighted message.
+service LiveGiftService {
+  // The twelve tiers: what a gift of how many coins looks like and may
+  // say. Anonymous callers allowed.
+  rpc GetGiftTiers(GetGiftTiersRequest) returns (GetGiftTiersResponse);
+  // Sends coins to the streamer of a stream that is on air, with a message
+  // shown highlighted in chat. The coins move from the caller's wallet to
+  // the streamer's earnings (minus the platform fee), exactly once per
+  // `idempotency_key`: repeating a call with the same key returns the
+  // first gift and moves nothing, and a call that was cut off is finished
+  // by repeating it. Errors: STREAM_NOT_FOUND, STREAM_NOT_LIVE, GIFTS_DISABLED,
+  // GIFT_OWN_STREAM, GIFT_AMOUNT_INVALID, GIFT_MESSAGE_TOO_LONG,
+  // GIFT_MESSAGE_INVALID, MESSAGE_BLOCKED, IDEMPOTENCY_KEY_INVALID,
+  // LINKS_NOT_ALLOWED, CHAT_NOT_ALLOWED, CHAT_BANNED, CHAT_TIMED_OUT,
+  // INSUFFICIENT_COINS, RATE_LIMITED, and GIFT_RETURNED (failed_precondition)
+  // when the stream was deleted while the gift was being paid: the coins
+  // are back in the caller's wallet and there is no gift.
+  //
+  // The caller's wallet history shows the payment without naming the
+  // account behind the channel (`LedgerEntry.counterpart_hidden`).
+  rpc SendGift(SendGiftRequest) returns (SendGiftResponse);
+  // Gifts the caller sent, newest first.
+  rpc ListSentGifts(ListSentGiftsRequest) returns (ListSentGiftsResponse);
+  // Gifts received on a channel of the caller (optionally one stream),
+  // newest first. Errors: CHANNEL_NOT_FOUND, STREAM_NOT_FOUND.
+  rpc ListReceivedGifts(ListReceivedGiftsRequest) returns (ListReceivedGiftsResponse);
+  // Who gave the most on a stream. Anonymous callers allowed.
+  // Errors: STREAM_NOT_FOUND.
+  rpc ListTopSupporters(ListTopSupportersRequest) returns (ListTopSupportersResponse);
+}
+
+// One step of the gift ladder. A gift belongs to the highest tier whose
+// `min_coins` it reaches.
+message GiftTier {
+  // 1 (smallest) to 12.
+  int32 level = 1;
+  int64 min_coins = 2;
+  // Name of the colour: "blue", "cyan", "light-green", "yellow", "orange",
+  // "magenta", "red", "black", "rainbow".
+  string color = 3;
+  // Colours to draw the highlighted message with (#rrggbb). The rainbow
+  // tier is a gradient through `gradient_colors`.
+  string background_color = 4;
+  string text_color = 5;
+  repeated string gradient_colors = 6;
+  // Longest message a gift of this tier may carry (0 = none).
+  int32 max_message_length = 7;
+  // How long the message stays highlighted above the chat.
+  int32 highlight_seconds = 8;
+}
+
+message GetGiftTiersRequest {}
+
+message GetGiftTiersResponse {
+  repeated GiftTier tiers = 1;
+  // Smallest and largest gift, in coins.
+  int64 min_coins = 2;
+  int64 max_coins = 3;
+  // Share of a gift the platform keeps, in percent.
+  int32 platform_fee_percent = 4;
+}
+
+message Gift {
+  string id = 1;
+  string stream_id = 2;
+  // Title of the stream; empty once the stream was deleted.
+  string stream_title = 3;
+  // The channel that received it.
+  tokuly.common.v1.ChannelSummary channel = 4;
+  // Unset when the sender's account was deleted.
+  tokuly.common.v1.UserSummary sender = 5;
+  int64 coins = 6;
+  int32 tier = 7;
+  string message = 8;
+  google.protobuf.Timestamp created_at = 9;
+  int64 offset_ms = 10;
+  // What reached the streamer's earnings; only set for the streamer.
+  int64 net_coins = 11;
+}
+
+message SendGiftRequest {
+  string stream_id = 1;
+  int64 coins = 2;
+  string message = 3;
+  // Chosen by the client per gift attempt (8-64 characters of
+  // letters, digits, '-' and '_').
+  string idempotency_key = 4;
+}
+
+message SendGiftResponse {
+  Gift gift = 1;
+  // The chat line the gift produced; unset when a moderator has removed it.
+  ChatMessage message = 2;
+  // The caller's coins after the gift.
+  int64 balance = 3;
+}
+
+message ListSentGiftsRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListSentGiftsResponse {
+  repeated Gift gifts = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListReceivedGiftsRequest {
+  string channel_id = 1;
+  // Only gifts of this stream; empty = all.
+  string stream_id = 2;
+  tokuly.common.v1.PageRequest page = 3;
+}
+
+message ListReceivedGiftsResponse {
+  repeated Gift gifts = 1;
+  tokuly.common.v1.PageInfo page = 2;
+  // Totals over everything the request matches.
+  int64 total_coins = 3;
+  int64 total_net_coins = 4;
+}
+
+message Supporter {
+  tokuly.common.v1.UserSummary user = 1;
+  int64 coins = 2;
+  int64 gift_count = 3;
+}
+
+message ListTopSupportersRequest {
+  string stream_id = 1;
+  // At most 50; 0 = 10.
+  int32 limit = 2;
+}
+
+message ListTopSupportersResponse {
+  repeated Supporter supporters = 1;
+}
+
+// ───────────────────────────── Clips ─────────────────────────────
+
+// Short cuts of streams and videos.
+service ClipService {
+  // Cuts 0.1-60 s out of a stream that is on air (within its DVR window)
+  // or out of a video (an archive included) that anyone with the link may
+  // watch. The clip
+  // is produced in the background: PROCESSING → READY or FAILED, announced
+  // to the creator with `LiveEvent.clip_updated`. Errors: STREAM_NOT_FOUND,
+  // VIDEO_NOT_FOUND, CLIP_SOURCE_REQUIRED, CLIP_SOURCE_NOT_READY,
+  // CLIP_SOURCE_NOT_PUBLIC (friends-only and private sources cannot be
+  // clipped), CLIP_RANGE_INVALID, CLIP_TITLE_INVALID, DVR_DISABLED,
+  // RATE_LIMITED.
+  rpc CreateClip(CreateClipRequest) returns (CreateClipResponse);
+  // One clip. Its visibility follows its source. Anonymous callers
+  // allowed. Errors: CLIP_NOT_FOUND.
+  rpc GetClip(GetClipRequest) returns (GetClipResponse);
+  // Renames a clip of the caller. Errors: CLIP_NOT_FOUND, CLIP_TITLE_INVALID.
+  rpc UpdateClip(UpdateClipRequest) returns (UpdateClipResponse);
+  // Deletes a clip: its creator, or the owner of the channel it was cut
+  // from. Errors: CLIP_NOT_FOUND.
+  rpc DeleteClip(DeleteClipRequest) returns (DeleteClipResponse);
+  // Clips of a stream, a video, a channel (everything cut from it) or a
+  // creator, newest first; exactly one filter. Only READY clips of sources
+  // the caller may see, except for the caller's own. Anonymous callers
+  // allowed. Errors: CLIP_FILTER_REQUIRED, STREAM_NOT_FOUND,
+  // VIDEO_NOT_FOUND, CHANNEL_NOT_FOUND.
+  rpc ListClips(ListClipsRequest) returns (ListClipsResponse);
+}
+
+enum ClipStatus {
+  CLIP_STATUS_UNSPECIFIED = 0;
+  CLIP_STATUS_PROCESSING = 1;
+  CLIP_STATUS_READY = 2;
+  CLIP_STATUS_FAILED = 3;
+}
+
+message Clip {
+  string id = 1;
+  string short_id = 2;
+  string title = 3;
+  // Who cut it.
+  tokuly.common.v1.UserSummary creator = 4;
+  // The channel it was cut from.
+  tokuly.common.v1.ChannelSummary channel = 5;
+  // What it was cut from: a stream (short ID), a video (short ID), or
+  // both once a stream has its archive.
+  string stream_id = 6;
+  string video_id = 7;
+  string source_title = 8;
+  // Where the clip starts in its source, and how long it is.
+  double start_seconds = 9;
+  double duration_seconds = 10;
+  ClipStatus status = 11;
+  // Set once READY.
+  tokuly.media.v1.VideoInfo playback = 12;
+  tokuly.common.v1.Image thumbnail = 13;
+  // The source's visibility: who can see the clip.
+  tokuly.common.v1.Visibility visibility = 14;
+  int64 like_count = 15;
+  google.protobuf.Timestamp created_at = 16;
+  // Whether the caller may delete it.
+  bool can_delete = 17;
+}
+
+message CreateClipRequest {
+  // One of the two (UUID or short ID).
+  string stream_id = 1;
+  string video_id = 2;
+  // 1-64 characters.
+  string title = 3;
+  // For a stream: seconds on its media timeline (as `offset_ms`); for a
+  // video: seconds from its start.
+  double start_seconds = 4;
+  // 0.1-60.
+  double duration_seconds = 5;
+}
+
+message CreateClipResponse {
+  Clip clip = 1;
+}
+
+message GetClipRequest {
+  // UUID or short ID.
+  string clip_id = 1;
+}
+
+message GetClipResponse {
+  Clip clip = 1;
+}
+
+message UpdateClipRequest {
+  string clip_id = 1;
+  string title = 2;
+}
+
+message UpdateClipResponse {
+  Clip clip = 1;
+}
+
+message DeleteClipRequest {
+  string clip_id = 1;
+}
+
+message DeleteClipResponse {}
+
+message ListClipsRequest {
+  oneof filter {
+    string stream_id = 1;
+    string video_id = 2;
+    string channel_id = 3;
+    // A user ID: the clips that user cut.
+    string creator_id = 4;
+  }
+  tokuly.common.v1.PageRequest page = 5;
+}
+
+message ListClipsResponse {
+  repeated Clip clips = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// ───────────────────────────── Overlays ─────────────────────────────
+
+// Widgets for OBS: browser sources that show the chat, alerts, a goal or
+// the open poll on top of the broadcast. Each widget is opened with an
+// unguessable token instead of a sign-in.
+service OverlayService {
+  // The built-in styles per kind of widget. Anonymous callers allowed.
+  rpc ListOverlayPresets(ListOverlayPresetsRequest) returns (ListOverlayPresetsResponse);
+  // Widgets of a channel of the caller. Errors: CHANNEL_NOT_FOUND.
+  rpc ListOverlays(ListOverlaysRequest) returns (ListOverlaysResponse);
+  // Adds a widget (at most 20 per channel). Errors: CHANNEL_NOT_FOUND,
+  // OVERLAY_LIMIT_REACHED, OVERLAY_KIND_INVALID, OVERLAY_NAME_INVALID,
+  // OVERLAY_PRESET_UNKNOWN, OVERLAY_CSS_TOO_LONG, OVERLAY_CSS_UNSAFE (custom
+  // CSS that would load images, fonts or stylesheets, or uses escapes),
+  // OVERLAY_SETTINGS_INVALID.
+  rpc CreateOverlay(CreateOverlayRequest) returns (CreateOverlayResponse);
+  // Changes a widget; open widgets reload. Unset fields stay. Errors:
+  // OVERLAY_NOT_FOUND, plus the validation errors of CreateOverlay.
+  rpc UpdateOverlay(UpdateOverlayRequest) returns (UpdateOverlayResponse);
+  // Errors: OVERLAY_NOT_FOUND.
+  rpc DeleteOverlay(DeleteOverlayRequest) returns (DeleteOverlayResponse);
+  // Gives a widget a new token: its old URL stops working.
+  // Errors: OVERLAY_NOT_FOUND.
+  rpc RotateOverlayToken(RotateOverlayTokenRequest) returns (RotateOverlayTokenResponse);
+  // What an open widget needs, by its token: configuration, resolved CSS,
+  // the channel, its stream that is on air and the topic to subscribe to.
+  // No sign-in. Errors: OVERLAY_NOT_FOUND, RATE_LIMITED.
+  rpc GetOverlay(GetOverlayRequest) returns (GetOverlayResponse);
+  // Plays a sample alert on the channel's alert boxes, to position them.
+  // Errors: CHANNEL_NOT_FOUND, RATE_LIMITED.
+  rpc SendTestAlert(SendTestAlertRequest) returns (SendTestAlertResponse);
+}
+
+enum OverlayKind {
+  OVERLAY_KIND_UNSPECIFIED = 0;
+  // The chat as it scrolls.
+  OVERLAY_KIND_CHAT_BOX = 1;
+  // Pop-ups for gifts, new subscribers and raids.
+  OVERLAY_KIND_ALERT_BOX = 2;
+  // A progress bar towards a goal.
+  OVERLAY_KIND_GOAL = 3;
+  // The open poll with its results.
+  OVERLAY_KIND_POLL = 4;
+}
+
+enum GoalKind {
+  GOAL_KIND_UNSPECIFIED = 0;
+  // Coins received in gifts.
+  GOAL_KIND_COINS = 1;
+  // New subscribers.
+  GOAL_KIND_SUBSCRIBERS = 2;
+}
+
+message ChatBoxSettings {
+  // Lines kept on screen, 1-50; 0 = 20.
+  int32 max_messages = 1;
+  // Seconds after which a line fades out; 0 = never.
+  int32 fade_seconds = 2;
+  bool hide_avatars = 3;
+  bool hide_badges = 4;
+  bool hide_stamps = 5;
+  bool hide_gifts = 6;
+}
+
+message AlertBoxSettings {
+  bool hide_gifts = 1;
+  // Gifts below this many coins make no alert.
+  int64 min_gift_coins = 2;
+  bool hide_subscribers = 3;
+  bool hide_raids = 4;
+  // How long an alert stays, 2-30 s; 0 = 6.
+  int32 duration_seconds = 5;
+  // Texts with the placeholders {name}, {coins}, {message}, {count}; empty
+  // = the built-in wording. Up to 200 characters each.
+  string gift_template = 6;
+  string subscriber_template = 7;
+  string raid_template = 8;
+}
+
+message GoalSettings {
+  GoalKind kind = 1;
+  // Up to 60 characters.
+  string title = 2;
+  int64 target = 3;
+  // Counting starts here; set by the server when the goal is created or
+  // `reset_goal` is sent.
+  google.protobuf.Timestamp started_at = 4;
+  bool hide_numbers = 5;
+}
+
+message PollWidgetSettings {
+  // Show nothing while no poll is open (instead of the last result).
+  bool hide_when_idle = 1;
+  bool hide_vote_counts = 2;
+}
+
+message OverlaySettings {
+  // The one matching the widget's kind.
+  oneof widget {
+    ChatBoxSettings chat_box = 1;
+    AlertBoxSettings alert_box = 2;
+    GoalSettings goal = 3;
+    PollWidgetSettings poll = 4;
+  }
+}
+
+// A widget as its owner manages it.
+message Overlay {
+  string id = 1;
+  string channel_id = 2;
+  OverlayKind kind = 3;
+  // The owner's label, e.g. "縦配信用チャット".
+  string name = 4;
+  // ID of a built-in style (ListOverlayPresets).
+  string preset = 5;
+  // Appended after the preset's CSS; up to 50 000 characters. It may not
+  // load anything (`@import`, `url()`, fonts) or contain escapes.
+  string custom_css = 6;
+  OverlaySettings settings = 7;
+  // The secret, and the page to add to OBS as a browser source.
+  string token = 8;
+  string url = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+}
+
+message OverlayPreset {
+  string id = 1;
+  OverlayKind kind = 2;
+  tokuly.common.v1.LocalizedText name = 3;
+  string css = 4;
+}
+
+message ListOverlayPresetsRequest {}
+
+message ListOverlayPresetsResponse {
+  repeated OverlayPreset presets = 1;
+}
+
+message ListOverlaysRequest {
+  string channel_id = 1;
+}
+
+message ListOverlaysResponse {
+  repeated Overlay overlays = 1;
+}
+
+message CreateOverlayRequest {
+  string channel_id = 1;
+  OverlayKind kind = 2;
+  string name = 3;
+  // Empty = the first preset of the kind.
+  string preset = 4;
+  string custom_css = 5;
+  // Unset = defaults.
+  OverlaySettings settings = 6;
+}
+
+message CreateOverlayResponse {
+  Overlay overlay = 1;
+}
+
+message UpdateOverlayRequest {
+  string overlay_id = 1;
+  optional string name = 2;
+  optional string preset = 3;
+  optional string custom_css = 4;
+  OverlaySettings settings = 5;
+  // For goals: start counting again from now.
+  bool reset_goal = 6;
+}
+
+message UpdateOverlayResponse {
+  Overlay overlay = 1;
+}
+
+message DeleteOverlayRequest {
+  string overlay_id = 1;
+}
+
+message DeleteOverlayResponse {}
+
+message RotateOverlayTokenRequest {
+  string overlay_id = 1;
+}
+
+message RotateOverlayTokenResponse {
+  Overlay overlay = 1;
+}
+
+// How far a goal has come.
+message GoalProgress {
+  string overlay_id = 1;
+  GoalKind kind = 2;
+  string title = 3;
+  int64 current = 4;
+  int64 target = 5;
+}
+
+message GetOverlayRequest {
+  string token = 1;
+}
+
+message GetOverlayResponse {
+  // Without `token` and `url`.
+  Overlay overlay = 1;
+  // The preset's CSS followed by the custom CSS.
+  string css = 2;
+  tokuly.common.v1.ChannelSummary channel = 3;
+  // The channel's stream that is on air (or about to be), if any.
+  StreamSummary stream = 4;
+  // Topic carrying this widget's `LiveEvent`s.
+  string realtime_topic = 5;
+  // Chat boxes: the latest lines of the stream, oldest first.
+  repeated ChatMessage recent_messages = 6;
+  // Goals: where the goal stands.
+  GoalProgress goal = 7;
+  // Poll widgets: the open poll, or the last one.
+  Poll poll = 8;
+}
+
+message SendTestAlertRequest {
+  string channel_id = 1;
+  // GIFT, SUBSCRIBER or RAID; UNSPECIFIED = GIFT.
+  AlertKind kind = 2;
+}
+
+message SendTestAlertResponse {
+  // Alert boxes the sample was sent to.
+  int32 overlay_count = 1;
+}
+
+enum AlertKind {
+  ALERT_KIND_UNSPECIFIED = 0;
+  ALERT_KIND_GIFT = 1;
+  ALERT_KIND_SUBSCRIBER = 2;
+  ALERT_KIND_RAID = 3;
+}
+
+// Something an alert box announces.
+message Alert {
+  AlertKind kind = 1;
+  // Who: the gift's sender, the new subscriber, or the raiding channel's name.
+  string name = 2;
+  tokuly.common.v1.Image avatar = 3;
+  // Gifts: coins, tier and message.
+  int64 coins = 4;
+  int32 tier = 5;
+  string message = 6;
+  // Raids: viewers that came along.
+  int64 viewer_count = 7;
+  // A sample sent with SendTestAlert.
+  bool test = 8;
+}
+
+// ───────────────────────────── Analytics ─────────────────────────────
+
+// Numbers for the streamer.
+service LiveAnalyticsService {
+  // The dashboard of a stream of the caller while it is on air.
+  // Errors: STREAM_NOT_FOUND.
+  rpc GetRealtimeStats(GetRealtimeStatsRequest) returns (GetRealtimeStatsResponse);
+  // The report of a stream of the caller, complete once it ended.
+  // Errors: STREAM_NOT_FOUND, ANALYTICS_UNAVAILABLE.
+  rpc GetStreamAnalytics(GetStreamAnalyticsRequest) returns (GetStreamAnalyticsResponse);
+  // The streams of a channel of the caller that went on air, newest first,
+  // with their headline numbers. Errors: CHANNEL_NOT_FOUND.
+  rpc ListStreamReports(ListStreamReportsRequest) returns (ListStreamReportsResponse);
+}
+
+// Viewers at one moment.
+message ViewerSample {
+  google.protobuf.Timestamp at = 1;
+  int64 viewers = 2;
+}
+
+message RealtimeStats {
+  StreamStatus status = 1;
+  bool encoder_connected = 2;
+  int64 viewers = 3;
+  int64 peak_viewers = 4;
+  // Seconds on air so far.
+  int64 uptime_seconds = 5;
+  int64 like_count = 6;
+  int64 chat_message_count = 7;
+  // Messages in the last minute.
+  int64 chat_messages_per_minute = 8;
+  int64 gift_coins = 9;
+  int64 gift_count = 10;
+  int64 new_subscribers = 11;
+  // One sample a minute, the last half hour.
+  repeated ViewerSample viewer_samples = 12;
+}
+
+message GetRealtimeStatsRequest {
+  string stream_id = 1;
+}
+
+message GetRealtimeStatsResponse {
+  RealtimeStats stats = 1;
+}
+
+// The headline numbers of a stream.
+message StreamReport {
+  StreamSummary stream = 1;
+  // Seconds on air.
+  int64 duration_seconds = 2;
+  int64 peak_viewers = 3;
+  // Mean of the per-minute samples.
+  double average_viewers = 4;
+  int64 chat_message_count = 5;
+  int64 new_subscribers = 6;
+  // Coins received in gifts, before and after the platform fee.
+  int64 gift_coins = 7;
+  int64 gift_net_coins = 8;
+  int64 gift_count = 9;
+  int64 like_count = 10;
+}
+
+message StreamAnalytics {
+  StreamReport report = 1;
+  // Distinct viewers (accounts and anonymous clients) and what they
+  // watched in total, from the players' heartbeats.
+  int64 unique_viewers = 2;
+  int64 watch_seconds = 3;
+  double average_watch_seconds = 4;
+  // Distinct members who wrote in chat.
+  int64 unique_chatters = 5;
+  // One sample a minute over the whole stream.
+  repeated ViewerSample viewer_samples = 6;
+  // The five biggest supporters.
+  repeated Supporter top_supporters = 7;
+}
+
+message GetStreamAnalyticsRequest {
+  string stream_id = 1;
+}
+
+message GetStreamAnalyticsResponse {
+  StreamAnalytics analytics = 1;
+}
+
+message ListStreamReportsRequest {
+  string channel_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListStreamReportsResponse {
+  repeated StreamReport reports = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// ───────────────────────────── Realtime ─────────────────────────────
+
+// Numbers that change while a stream is on air.
+message StreamStats {
+  string stream_id = 1;
+  int64 viewer_count = 2;
+  int64 peak_viewer_count = 3;
+  int64 like_count = 4;
+}
+
+message ChatMessageDeleted {
+  string stream_id = 1;
+  string message_id = 2;
+}
+
+// Every message of one user was removed (a ban with `delete_messages`).
+message ChatUserCleared {
+  string stream_id = 1;
+  string user_id = 2;
+}
+
+message ChatPinChanged {
+  string stream_id = 1;
+  // Unset = nothing is pinned any more.
+  ChatMessage message = 2;
+}
+
+message ChatSettingsChanged {
+  string stream_id = 1;
+  ChatSettings chat = 2;
+}
+
+// The recipient was timed out or banned, or the restriction was lifted.
+message ChatRestrictionChanged {
+  string channel_id = 1;
+  bool restricted = 2;
+  // Unset = banned for good (when `restricted`).
+  google.protobuf.Timestamp expires_at = 3;
+}
+
+// The stream ended with a raid: players move on to `target`.
+message Raid {
+  string stream_id = 1;
+  StreamSummary target = 2;
+  int64 viewer_count = 3;
+}
+
+// The encoder of the recipient's stream connected or disconnected.
+message EncoderState {
+  string stream_id = 1;
+  bool connected = 2;
+  string protocol = 3;
+}
+
+// The widget's configuration changed (or its token was rotated: `revoked`):
+// reload with GetOverlay.
+message OverlayChanged {
+  string overlay_id = 1;
+  bool revoked = 2;
+}
 
 // Pushed over the realtime gateway (as a tokuly.realtime.v1.Event).
+//
+// Topic `live:<stream id>`: stream_updated, stats, chat_message,
+// chat_message_deleted, chat_user_cleared, chat_pin_changed,
+// chat_settings_changed, poll_updated, raid.
+// To one user: chat_restriction_changed (the restricted user),
+// encoder_state and stream_updated (the streamer), clip_updated (the
+// clip's creator).
+// Topic `overlay:<token>` (one widget): chat_message, chat_message_deleted,
+// chat_user_cleared, alert, goal_progress, poll_updated, stream_updated,
+// overlay_changed, according to the widget's kind.
 message LiveEvent {
-  // Placeholder so the realtime envelope compiles; replace with a oneof of real events.
-  tokuly.common.v1.SubjectRef subject = 1;
+  oneof event {
+    // The stream changed: went on air, ended, was edited.
+    StreamSummary stream_updated = 1;
+    StreamStats stats = 2;
+    ChatMessage chat_message = 3;
+    ChatMessageDeleted chat_message_deleted = 4;
+    ChatUserCleared chat_user_cleared = 5;
+    ChatPinChanged chat_pin_changed = 6;
+    ChatSettingsChanged chat_settings_changed = 7;
+    ChatRestrictionChanged chat_restriction_changed = 8;
+    // A poll opened, got votes or closed (`ended_at` set).
+    Poll poll_updated = 9;
+    Raid raid = 10;
+    EncoderState encoder_state = 11;
+    // A clip finished processing or failed.
+    Clip clip_updated = 12;
+    Alert alert = 13;
+    GoalProgress goal_progress = 14;
+    OverlayChanged overlay_changed = 15;
+  }
 }

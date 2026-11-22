@@ -203,3 +203,82 @@ async fn an_entry_touching_both_balances_is_listed_once() {
     let earnings = page_through(LedgerAccount::LEDGER_ACCOUNT_EARNINGS).await;
     assert_eq!(earnings.iter().map(|entry| entry.earnings_delta).collect::<Vec<_>>(), vec![-50, 70]);
 }
+
+/// A transfer to a hidden recipient (a gift to a channel pays the channel's
+/// owner): the payer never learns which account was paid, in the history,
+/// in the export or through the refund; the recipient sees the payer.
+#[tokio::test]
+async fn a_hidden_recipient_is_not_shown_to_the_payer() {
+    let (app, wallet) = app().await;
+    let (fan, streamer) = (app.user("fan").await, app.user("streamer").await);
+    fund(&app, &fan, 1000).await;
+    let memo = serde_json::json!({ "channel_id": "c1", "stream_id": "s1" });
+    let gift_key = key("gift");
+    let gift = wallet
+        .transfer_with_fee_hiding_recipient(fan.id, streamer.id, 300, "live.gift", &gift_key, memo.clone())
+        .await
+        .unwrap();
+    assert!(gift.applied);
+    // Idempotent like any transfer.
+    let again = wallet
+        .transfer_with_fee_hiding_recipient(fan.id, streamer.id, 300, "live.gift", &gift_key, memo)
+        .await
+        .unwrap();
+    assert_eq!((again.entry_id, again.applied), (gift.entry_id, false));
+    assert_eq!(balance(&app, &fan).await.coins, 700);
+
+    let sent = &history(&app, &fan).await[0];
+    assert_eq!(sent.id, gift.entry_id.to_string());
+    assert!(sent.counterpart.as_option().is_none(), "the payer is not told which account was paid");
+    assert!(sent.counterpart_hidden);
+    assert!(sent.memo_json.contains("c1"), "what was paid is in the memo");
+    let streamer_id = streamer.id.to_string();
+    assert!(!serde_json::to_string(sent).unwrap().contains(&streamer_id));
+    let received = &history(&app, &streamer).await[0];
+    assert_eq!(received.counterpart.as_option().unwrap().id, fan.id.to_string());
+    assert!(!received.counterpart_hidden);
+
+    // Staff tracing the payment see both parties, in either wallet, and that the payer is not told.
+    let moderator = app.user_with_roles("mod", &["moderator"]).await;
+    let traced: ListUserLedgerEntriesResponse = app
+        .call(
+            "tokuly.wallet.v1.WalletAdminService/ListUserLedgerEntries",
+            Some(&moderator),
+            &ListUserLedgerEntriesRequest { user_id: fan.id.to_string(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    assert_eq!(traced.entries[0].counterpart.as_option().unwrap().id, streamer_id);
+    assert!(traced.entries[0].counterpart_hidden);
+    let traced: ListUserLedgerEntriesResponse = app
+        .call(
+            "tokuly.wallet.v1.WalletAdminService/ListUserLedgerEntries",
+            Some(&moderator),
+            &ListUserLedgerEntriesRequest { user_id: streamer.id.to_string(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    assert_eq!(traced.entries[0].counterpart.as_option().unwrap().id, fan.id.to_string());
+
+    // The refund runs the other way and keeps the same account hidden.
+    ledger::refund(&app.core, gift.entry_id, "live.gift.returned").await.unwrap();
+    let entries = history(&app, &fan).await;
+    assert!(entries[0].counterpart.as_option().is_none() && entries[0].counterpart_hidden);
+    assert_eq!(entries[0].coins_delta, 300);
+    assert_eq!(history(&app, &streamer).await[0].counterpart.as_option().unwrap().id, fan.id.to_string());
+    assert_eq!(balance(&app, &fan).await.coins, 1000);
+
+    // Nor does the payer's data export name the account.
+    let exporter = app.core.exporters.all().into_iter().find(|exporter| exporter.name() == "wallet").unwrap();
+    let export = exporter.export(fan.id).await.unwrap().to_string();
+    assert!(!export.contains(&streamer_id), "the export leaks the hidden recipient");
+    assert!(exporter.export(streamer.id).await.unwrap().to_string().contains(&fan.id.to_string()));
+    // An ordinary transfer still names both sides.
+    let plain =
+        ledger::transfer(&app.core, fan.id, streamer.id, 100, 30, "stamp.pack", &key("sale"), serde_json::json!({}))
+            .await
+            .unwrap();
+    let entry = history(&app, &fan).await.into_iter().find(|entry| entry.id == plain.entry_id.to_string()).unwrap();
+    assert_eq!(entry.counterpart.as_option().unwrap().id, streamer_id);
+    assert!(!entry.counterpart_hidden);
+}

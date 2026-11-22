@@ -12,4 +12,39 @@ workspace = true
 
 [dependencies]
 tokuly-core.workspace = true
-tokuly-proto = { workspace = true, features = ["common", "live"] }
+tokuly-proto = { workspace = true, features = ["common", "live", "media", "video"] }
+tokuly-identity.workspace = true
+tokuly-social.workspace = true
+tokuly-media.workspace = true
+tokuly-stamp.workspace = true
+tokuly-wallet.workspace = true
+tokuly-video.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
+axum.workspace = true
+connectrpc.workspace = true
+buffa.workspace = true
+sqlx.workspace = true
+redis.workspace = true
+clickhouse.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+clap.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+parking_lot.workspace = true
+tempfile.workspace = true
+unicode-segmentation.workspace = true
+# The control API of the media server.
+reqwest.workspace = true
+
+[dev-dependencies]
+tokuly-proto = { workspace = true, features = ["realtime", "social", "stamp", "wallet"] }
+tokuly-testkit.workspace = true
+futures.workspace = true
+tower.workspace = true
+http.workspace = true
+http-body-util.workspace = true
+tracing-subscriber.workspace = true

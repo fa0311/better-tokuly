@@ -795,6 +795,90 @@ const TABLE: &[(&str, &[(&str, Rule)])] = &[
         ("SetCreatorTrusted", Session),
         ("SetPackFeatured", Session),
     ]),
+    ("tokuly.live.v1.LiveStreamService", &[
+        ("CreateStream", Write),
+        ("UpdateStream", Write),
+        ("DeleteStream", Write),
+        // The page without a playback token: tokens of restricted streams go to sessions only.
+        ("GetStream", Read),
+        ("ListChannelStreams", Read),
+        ("ListLiveStreams", Read),
+        ("ListUpcomingStreams", Read),
+        ("ListSubscribedStreams", Read),
+        // Which friends are on air, friends-only streams included.
+        ("ListFriendStreams", With(&["live:read", "social:read"])),
+        // The stream key and the ingest URLs that carry it.
+        ("GetIngestInfo", Session),
+        ("RotateStreamKey", Session),
+        // Going on air.
+        ("StartStream", Session),
+        ("EndStream", Write),
+        ("SetReminder", Write),
+        // Puts the account into the audience; the answer carries no playback token.
+        ("ReportWatching", Write),
+        // Who is watching.
+        ("ListViewers", Read),
+        // Ends the stream and sends its whole audience to someone else's.
+        ("RaidStream", Session),
+    ]),
+    ("tokuly.live.v1.LiveChatService", &[
+        ("SendChatMessage", Write),
+        ("ListChatMessages", Read),
+        ("ListChatReplay", Read),
+        ("DeleteChatMessage", Write),
+        ("PinChatMessage", Write),
+        ("UnpinChatMessage", Write),
+        ("UpdateChatSettings", Write),
+        ("GetBannedWords", Read),
+        ("SetBannedWords", Write),
+        ("RestrictChatUser", Write),
+        ("UnrestrictChatUser", Write),
+        ("ListChatRestrictions", Read),
+        // Hands moderation power to another account, lastingly.
+        ("AddModerator", Session),
+        ("RemoveModerator", Session),
+        ("ListModerators", Read),
+    ]),
+    ("tokuly.live.v1.LivePollService", &[
+        ("CreatePoll", Write),
+        ("VotePoll", Write),
+        ("EndPoll", Write),
+        ("ListPolls", Read),
+    ]),
+    ("tokuly.live.v1.LiveGiftService", &[
+        ("GetGiftTiers", Read),
+        // Spends coins.
+        ("SendGift", With(&["live:write", "wallet:write"])),
+        // What the account spent and earned, and who paid it.
+        ("ListSentGifts", With(&["live:read", "wallet:read"])),
+        ("ListReceivedGifts", With(&["live:read", "wallet:read"])),
+        ("ListTopSupporters", Read),
+    ]),
+    ("tokuly.live.v1.ClipService", &[
+        ("CreateClip", Write),
+        ("GetClip", Read),
+        ("UpdateClip", Write),
+        ("DeleteClip", Write),
+        ("ListClips", Read),
+    ]),
+    ("tokuly.live.v1.OverlayService", &[
+        ("ListOverlayPresets", Read),
+        // A widget's token is a secret (it opens the widget in OBS without a
+        // sign-in), and these return it or replace it.
+        ("ListOverlays", Session),
+        ("CreateOverlay", Session),
+        ("UpdateOverlay", Session),
+        ("DeleteOverlay", Session),
+        ("RotateOverlayToken", Session),
+        // Opened with the widget's own token, which the request carries.
+        ("GetOverlay", Read),
+        ("SendTestAlert", Write),
+    ]),
+    ("tokuly.live.v1.LiveAnalyticsService", &[
+        ("GetRealtimeStats", Read),
+        ("GetStreamAnalytics", Read),
+        ("ListStreamReports", Read),
+    ]),
     ("tokuly.video.v1.ChannelService", &[
         ("CreateChannel", Write),
         ("UpdateChannel", Write),
@@ -1254,6 +1338,39 @@ mod tests {
     }
 
     #[test]
+    fn live_streams_keep_their_keys_tokens_and_the_air_to_sessions() {
+        // The stream key, going on air, sending the audience away, widget tokens, appointing moderators.
+        for path in [
+            "/tokuly.live.v1.LiveStreamService/GetIngestInfo",
+            "/tokuly.live.v1.LiveStreamService/RotateStreamKey",
+            "/tokuly.live.v1.LiveStreamService/StartStream",
+            "/tokuly.live.v1.LiveStreamService/RaidStream",
+            "/tokuly.live.v1.OverlayService/ListOverlays",
+            "/tokuly.live.v1.OverlayService/CreateOverlay",
+            "/tokuly.live.v1.OverlayService/UpdateOverlay",
+            "/tokuly.live.v1.OverlayService/DeleteOverlay",
+            "/tokuly.live.v1.OverlayService/RotateOverlayToken",
+            "/tokuly.live.v1.LiveChatService/AddModerator",
+            "/tokuly.live.v1.LiveChatService/RemoveModerator",
+        ] {
+            assert_eq!(access_for(path), Some(Access::SessionOnly), "{path}");
+        }
+        // Coins move only with the wallet scope, and what was paid is read with it.
+        assert_eq!(scopes("/tokuly.live.v1.LiveGiftService/SendGift"), ["live:write", "wallet:write"]);
+        assert_eq!(scopes("/tokuly.live.v1.LiveGiftService/ListSentGifts"), ["live:read", "wallet:read"]);
+        assert_eq!(scopes("/tokuly.live.v1.LiveGiftService/ListReceivedGifts"), ["live:read", "wallet:read"]);
+        assert_eq!(scopes("/tokuly.live.v1.LiveStreamService/ListFriendStreams"), ["live:read", "social:read"]);
+        // The rest reads or writes the domain.
+        assert_eq!(scopes("/tokuly.live.v1.LiveStreamService/GetStream"), ["live:read"]);
+        assert_eq!(scopes("/tokuly.live.v1.LiveStreamService/ListViewers"), ["live:read"]);
+        assert_eq!(scopes("/tokuly.live.v1.LiveStreamService/EndStream"), ["live:write"]);
+        assert_eq!(scopes("/tokuly.live.v1.LiveChatService/RestrictChatUser"), ["live:write"]);
+        assert_eq!(scopes("/tokuly.live.v1.OverlayService/GetOverlay"), ["live:read"]);
+        let live = classified().filter(|(path, _)| path.starts_with("/tokuly.live.v1.")).count();
+        assert_eq!(live, 57);
+    }
+
+    #[test]
     fn what_carries_location_or_messages_needs_those_scopes_too() {
         // Friends' coordinates, wherever the RPC lives.
         assert_eq!(scopes("/tokuly.feed.v1.MapStoryService/ListMapStories"), ["feed:read", "geo:read"]);
@@ -1323,7 +1440,7 @@ mod tests {
             "/tokuly.notes.v1.NoteService/BatchDeleteNotes",
             "/tokuly.video.v1.PlaylistService/WatchLater",
             "/tokuly.wallet.v1.WalletService/CheckoutCart",
-            // Domains and services that do not exist (yet).
+            // Services and versions that do not exist.
             "/tokuly.live.v1.LiveService/GetStreamKey",
             "/tokuly.notes.v1.NewService/GetThing",
             "/tokuly.notes.v2.NoteService/GetNote",

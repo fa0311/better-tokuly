@@ -17,7 +17,7 @@ use tokuly_proto::wallet::{self as pb, wallet_event};
 
 use crate::{
     Wallet, describe,
-    entries::EntryRow,
+    entries::{EntryRow, Reader},
     events::{BALANCE_CHANGED, BalanceChanged, USER_DELETED},
     money::format_coins,
 };
@@ -109,7 +109,7 @@ impl Wallet {
         // entry's revision orders it against every other snapshot the client
         // has seen, so a late or repeated delivery cannot roll the display back.
         let balance = pb::Balance { coins: change.coins, earnings: change.earnings, revision: entry.revision, ..Default::default() };
-        let mut entries = self.entries_to_proto(std::slice::from_ref(&entry), change.user_id, &locale).await?;
+        let mut entries = self.entries_to_proto(std::slice::from_ref(&entry), change.user_id, Reader::Owner, &locale).await?;
         let pushed = pb::BalanceChanged { balance: balance.into(), entry: entries.pop().into(), ..Default::default() };
         self.push(change.user_id, wallet_event::Event::BalanceChanged(Box::new(pushed))).await;
 
@@ -243,6 +243,7 @@ mod tests {
             refunded: false,
             refund_of: None,
             memo: serde_json::json!({}),
+            hidden_user_id: None,
             created_at: now(),
             coins_delta,
             earnings_delta,
