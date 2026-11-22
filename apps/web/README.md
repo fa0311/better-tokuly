@@ -91,7 +91,7 @@ from `badges.ts`. Tiles and navigation items name the key they show.
 **Navigation.** The primary destinations (map, chat, notes, watch) are one
 tap away in the phone tab bar and the rail (`components/app-shell.tsx`).
 Everything else is opened from the hub (`/me`, the last tab on phones, with
-search on top), the launcher (the rail's "もっと") and the quick search
+search on top), the launcher (the rail's "メニュー") and the quick search
 (Cmd/Ctrl+K, which also finds hub tiles by name and keyword). A new area
 needs a `hub.tsx` to be reachable and a `nav.ts` when its routes belong
 under a primary item; pages nobody claims light the hub's slot.

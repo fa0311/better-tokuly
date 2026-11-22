@@ -17,7 +17,7 @@ export default {
     news: "ニュース",
     studio: "スタジオ",
     friends: "ともだち",
-    more: "もっと",
+    more: "メニュー",
     wallet: "ウォレット",
     announcements: "アップデート情報",
     admin: "管理",

@@ -17,7 +17,7 @@ export default {
     news: "News",
     studio: "Studio",
     friends: "Friends",
-    more: "More",
+    more: "Menu",
     wallet: "Wallet",
     announcements: "What's new",
     admin: "Admin",

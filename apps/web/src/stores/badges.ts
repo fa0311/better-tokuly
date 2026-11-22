@@ -22,8 +22,3 @@ export function setBadge(key: string, count: number): void {
 export function useBadge(key: string | undefined): number {
   return useBadges((badges) => (key ? (badges[key] ?? 0) : 0));
 }
-
-/** The sum of several keys, for an entry that stands for all of them. */
-export function useBadgeTotal(keys: readonly string[]): number {
-  return useBadges((badges) => keys.reduce((total, key) => total + (badges[key] ?? 0), 0));
-}

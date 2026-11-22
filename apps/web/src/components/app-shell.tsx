@@ -16,9 +16,8 @@ import { CountBadge } from "#/components/ui/badge";
 import { LogoMark } from "#/components/ui/logo";
 import { openQuickSearch } from "#/features/search";
 import { cn } from "#/lib/cn";
-import { HUB_BADGES } from "#/seams/hub";
 import { type PrimaryNav, primaryNavOf } from "#/seams/nav";
-import { useBadge, useBadgeTotal } from "#/stores/badges";
+import { useBadge } from "#/stores/badges";
 import { useMe } from "#/stores/session";
 import { useTabBarHidden } from "#/stores/shell";
 
@@ -27,7 +26,7 @@ type Icon = ComponentType<{ className?: string }>;
 /**
  * The primary destinations: one tap away on every screen. Everything else is
  * reached from the hub (`/me`, the last slot of the phone tab bar), the
- * launcher (the rail's "もっと") and the quick search.
+ * launcher (the rail's "メニュー") and the quick search.
  *
  * Which of these a page belongs to is declared by its feature
  * (`src/features/<area>/nav.ts`, see `#/seams/nav`).
@@ -43,9 +42,6 @@ const PRIMARY: {
   { id: "notes", to: "/notes", icon: StickyNote },
   { id: "watch", to: "/watch", icon: Clapperboard },
 ];
-
-/** The hub's counters that have no rail item of their own: what "もっと" stands for. */
-const LAUNCHER_BADGES = HUB_BADGES.filter((badge) => badge !== "notifications");
 
 /**
  * The signed-in frame: a rail on wide screens, a floating tab bar on phones.
@@ -124,7 +120,6 @@ function Rail({ current }: { current: PrimaryNav }) {
       >
         <span className="relative grid size-10 place-items-center rounded-2xl">
           <LayoutGrid className="size-[22px]" />
-          <TotalBadge badges={LAUNCHER_BADGES} />
         </span>
         {t("nav.more")}
       </button>
@@ -208,8 +203,11 @@ function TabBar({ current }: { current: PrimaryNav }) {
             )}
           >
             <Avatar user={me.user} size="sm" outlined />
-            {/* The hub stands for everything behind it: its counters ride on this slot. */}
-            <TotalBadge badges={HUB_BADGES} />
+            {/*
+              Notifications have no tab of their own on phones: their count rides on the hub.
+              (Not the sum of the hub's counters: a friend request is a notification too.)
+            */}
+            <NavBadge badge="notifications" />
           </Link>
         )}
       </div>
@@ -220,8 +218,4 @@ function TabBar({ current }: { current: PrimaryNav }) {
 /** The unread counter pinned to the corner of a navigation icon. */
 function NavBadge({ badge }: { badge?: string }) {
   return <CountBadge count={useBadge(badge)} className="absolute -top-1 -right-1" />;
-}
-
-function TotalBadge({ badges }: { badges: readonly string[] }) {
-  return <CountBadge count={useBadgeTotal(badges)} className="absolute -top-1 -right-1" />;
 }

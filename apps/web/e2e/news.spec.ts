@@ -291,7 +291,10 @@ test.describe("reading the news", () => {
       const more = page.getByRole("button", { name: "もっと見たい" });
       await more.click();
       await expect(more).toHaveAttribute("aria-pressed", "true");
-      await expect(page.getByRole("status")).toHaveText("りょうかい！似たニュースを増やすね");
+      // (The offline indicator is a status of its own, empty while there is a connection.)
+      await expect(
+        page.getByRole("status").filter({ hasText: "りょうかい！似たニュースを増やすね" }),
+      ).toBeVisible();
       await expect.poll(async () => (await article()).feedback).toBe("NEWS_FEEDBACK_MORE");
 
       await page.goBack();
@@ -382,7 +385,7 @@ test.describe("reading the news", () => {
     try {
       await page.goto(`/news/${articles[0]?.id}`);
       await page.getByRole("button", { name: "もっと見たい" }).click();
-      await expect(page.getByRole("status")).toBeVisible();
+      await expect(page.getByRole("status").filter({ hasText: /./ })).toBeVisible();
 
       await page.goto("/news/interests");
       const liked = page.getByRole("region", { name: "よく読むタグ" });

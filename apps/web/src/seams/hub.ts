@@ -73,8 +73,3 @@ export function hubSections(isStaff: boolean): { id: HubSectionId; tiles: HubTil
     tiles: HUB_TILES.filter((tile) => tile.section === id && (isStaff || !tile.staffOnly)),
   })).filter((section) => section.tiles.length > 0);
 }
-
-/** The badge keys of every tile: what the launcher's own entry sums up. */
-export const HUB_BADGES: string[] = [
-  ...new Set(HUB_TILES.flatMap((tile) => (tile.badge ? [tile.badge] : []))),
-];

@@ -321,7 +321,7 @@ test("an unread message shows on the navigation and clears when the conversation
   const { friend, conversationId } = await withFriend(request, me);
   await page.goto("/friends");
   await expect(page.getByRole("heading", { name: "ともだち" })).toBeVisible();
-  await expect(chatBadge(page)).not.toContainText(/\d/);
+  await expect(chatBadge(page).getByText(/\d/)).toHaveCount(0);
 
   await sendText(request, friend, conversationId, "みてみて！");
   await sendText(request, friend, conversationId, "すごいの見つけた");
@@ -336,14 +336,19 @@ test("an unread message shows on the navigation and clears when the conversation
   // The conversation opens at "unread from here", and reading it clears the counters.
   await expect(page.getByTestId("unread-divider")).toBeVisible();
   await expect(bubble(page, "すごいの見つけた")).toBeVisible();
-  await expect(chatBadge(page)).not.toContainText(/\d/);
-  const unread = await rpc<{ unread?: { badge?: number } }>(
-    request,
-    `${CONVERSATIONS}/GetUnreadCounts`,
-    {},
-    me,
-  );
-  expect(unread.unread?.badge ?? 0).toBe(0);
+  // (On a phone the open conversation has taken the tab bar's place: no badge is a pass there too.)
+  await expect(chatBadge(page).getByText(/\d/)).toHaveCount(0);
+  await expect
+    .poll(async () => {
+      const unread = await rpc<{ unread?: { badge?: number } }>(
+        request,
+        `${CONVERSATIONS}/GetUnreadCounts`,
+        {},
+        me,
+      );
+      return unread.unread?.badge ?? 0;
+    })
+    .toBe(0);
 });
 
 test("a stamp is picked and sent", async ({ page, request, me }) => {
@@ -1305,5 +1310,6 @@ test("only what was on screen counts as read", async ({ page, request, me }) => 
   await page.getByTestId("jump-to-latest").click();
   await expect(bubble(page, "おしらせ 40")).toBeVisible();
   await expect.poll(unread).toBe(0);
-  await expect(chatBadge(page)).not.toContainText(/\d/);
+  // (On a phone the open conversation has taken the tab bar's place: no badge is a pass there too.)
+  await expect(chatBadge(page).getByText(/\d/)).toHaveCount(0);
 });
