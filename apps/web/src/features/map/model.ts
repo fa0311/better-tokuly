@@ -151,8 +151,12 @@ export function clusterOnScreen(points: ScreenPoint[], radius: number): string[]
   return [...buckets.values()].filter((ids) => ids.length >= 2).map((ids) => ids.sort());
 }
 
-/** Where member `index` of `count` sits when a cluster fans out: on a ring, starting at the top. */
+/**
+ * Where member `index` of `count` sits when a stack of pins fans out: two
+ * side by side, more on a ring starting at the top.
+ */
 export function fanOffset(index: number, count: number): [number, number] {
+  if (count === 2) return [index === 0 ? -44 : 44, 0];
   const radius = Math.max(58, (count * 62) / (2 * Math.PI));
   const angle = (index / count) * 2 * Math.PI - Math.PI / 2;
   return [Math.round(Math.cos(angle) * radius), Math.round(Math.sin(angle) * radius)];

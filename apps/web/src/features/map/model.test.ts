@@ -115,6 +115,10 @@ describe("fanOffset", () => {
   it("spreads members on a ring wide enough not to overlap", () => {
     const offsets = Array.from({ length: 6 }, (_, i) => fanOffset(i, 6));
     expect(offsets[0]).toEqual([0, -59]);
+    expect([fanOffset(0, 2), fanOffset(1, 2)]).toEqual([
+      [-44, 0],
+      [44, 0],
+    ]);
     for (let i = 1; i < offsets.length; i++) {
       const [ax, ay] = offsets[i - 1] as [number, number];
       const [bx, by] = offsets[i] as [number, number];

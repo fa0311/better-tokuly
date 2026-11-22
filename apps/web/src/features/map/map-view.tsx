@@ -205,12 +205,25 @@ export function fitMapToPoints(
     });
     return;
   }
+  // A pin stands above its point: leave room for it, without eating a small map.
+  const box = map.getContainer();
+  const side = Math.min(padding, box.clientWidth / 5, box.clientHeight / 5);
   map.fitBounds(
     [
       [west, south],
       [east, north],
     ],
-    { padding, maxZoom, duration: animate ? 900 : 0, essential: true },
+    {
+      padding: {
+        top: Math.min(side + 64, box.clientHeight / 2.5),
+        bottom: side,
+        left: side,
+        right: side,
+      },
+      maxZoom,
+      duration: animate ? 900 : 0,
+      essential: true,
+    },
   );
 }
 
