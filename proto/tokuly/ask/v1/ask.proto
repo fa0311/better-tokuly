@@ -15,6 +15,14 @@ syntax = "proto3";
 // - What the sender sees of something they sent is only "waiting" or
 //   "answered". Whether the receiver read, archived, filtered or deleted it,
 //   or blocked them, is never visible.
+// - Nothing about an anonymous item changes for its receiver when the
+//   sender's account does (suspended, deleted, settings changed): only
+//   signed items follow their sender's account, and what a vote sells as
+//   hints is decided when the vote is cast.
+// - An anonymous item needs a crowd to hide in. Where only friends can send
+//   (a friends-only box, a prompt, a compliment poll), the receiver must
+//   have at least three friends; otherwise only signed items are accepted
+//   and the receiver is not offered in polls.
 // - Reports go through tokuly.engagement.v1.ReportService against
 //   SUBJECT_TYPE_QUESTION with the ID of a question, a prompt or a prompt
 //   response.
@@ -45,19 +53,22 @@ service QuestionBoxService {
   // the owner's word filter or was dropped because the owner blocked the
   // sender.
   //
-  // An image can only be attached to a signed question: an upload can be
-  // traced back to its uploader through the media API, so an image would
-  // give an anonymous sender away.
+  // An image has to be a fresh upload, signed or not: the same upload on
+  // two questions would show that one person sent both.
   // Errors: BOX_NOT_FOUND, BOX_CLOSED, CANNOT_ASK_SELF, FRIENDS_ONLY,
-  // SIGNED_NOT_ALLOWED, IMAGES_NOT_ALLOWED, IMAGE_REQUIRES_SIGNATURE,
-  // QUESTION_TEXT_INVALID (empty or over 300 characters), ASSET_NOT_FOUND,
-  // ASSET_WRONG_PURPOSE, ASSET_NOT_IMAGE, ASSET_NOT_READY, RATE_LIMITED (the
-  // sender asks too much), BOX_BUSY (the box is receiving too many questions).
+  // SIGNED_NOT_ALLOWED, AUDIENCE_TOO_SMALL (an anonymous question to a
+  // friends-only box whose owner has fewer than three friends; a signed one
+  // is accepted), IMAGES_NOT_ALLOWED, IMAGE_ALREADY_USED, QUESTION_TEXT_INVALID
+  // (empty or over 300 characters), ASSET_NOT_FOUND, ASSET_WRONG_PURPOSE,
+  // ASSET_NOT_IMAGE, ASSET_NOT_READY, RATE_LIMITED (the sender asks too
+  // much), BOX_BUSY (the box is receiving too many questions).
   rpc AskQuestion(AskQuestionRequest) returns (AskQuestionResponse);
   // Questions the caller sent, newest first, each WAITING or ANSWERED.
   // Errors: INVALID_CURSOR.
   rpc ListAskedQuestions(ListAskedQuestionsRequest) returns (ListAskedQuestionsResponse);
-  // Takes back a question the caller sent that has not been answered.
+  // Takes back a question the caller sent that has not been answered. It
+  // leaves the box; its recipient can still block whoever sent it and report
+  // it.
   // Errors: QUESTION_NOT_FOUND, QUESTION_ALREADY_ANSWERED.
   rpc WithdrawQuestion(WithdrawQuestionRequest) returns (WithdrawQuestionResponse);
 
@@ -137,14 +148,16 @@ message Settings {
   string box_prompt = 3;
   // Whether askers may sign their questions.
   bool allow_signed = 4;
-  // Whether signed questions may carry an image.
+  // Whether questions and prompt responses may carry an image.
   bool allow_images = 5;
   // Questions and prompt responses containing one of these words are held in
   // the FILTERED folder instead of the inbox (on top of the server's list).
   repeated string muted_words = 6;
   // Whether the caller appears as a choice in their friends' compliment polls.
   bool in_polls = 7;
-  // Whether receivers of the caller's compliment votes may buy hints.
+  // Whether receivers of the caller's compliment votes may buy hints. It
+  // applies to votes cast from then on: what a vote sells is fixed when it
+  // is cast.
   bool allow_hints = 8;
 }
 
@@ -189,6 +202,11 @@ message QuestionBox {
   string share_url = 8;
   // Answers the caller can see on the Q&A page.
   int32 answer_count = 9;
+  // Whether an anonymous question would be accepted from the caller: false
+  // when they cannot ask at all, and when the box is for friends only and
+  // its owner has fewer than three of them (a signed question is still
+  // possible then, if the box allows signatures).
+  bool anonymous_available = 10;
 }
 
 message GetBoxRequest {
@@ -248,7 +266,7 @@ message Question {
   // Whose box it is in.
   tokuly.common.v1.UserSummary owner = 2;
   string text = 3;
-  // Only on signed questions.
+  // Set when the asker attached one.
   tokuly.common.v1.Image image = 4;
   // False when the asker signed.
   bool anonymous = 5;
@@ -279,8 +297,9 @@ message AskQuestionRequest {
   string text = 2;
   // Show the asker's name to the owner (and to readers of the answer).
   bool signed = 3;
-  // An uploaded image (ASSET_PURPOSE_NOTE_IMAGE or ASSET_PURPOSE_CHAT_IMAGE);
-  // signed questions only.
+  // An uploaded image (ASSET_PURPOSE_NOTE_IMAGE or ASSET_PURPOSE_CHAT_IMAGE),
+  // when the box takes images. It must not be in use anywhere else, and
+  // should not be used again elsewhere (upload the file once per question).
   string image_asset_id = 4;
 }
 
@@ -487,10 +506,14 @@ service PromptService {
 
   // Responds to a friend's open prompt, once. Anonymous unless `signed`.
   // The response is the same whether it was delivered, held by the owner's
-  // word filter or dropped because the owner blocked the sender.
+  // word filter or dropped because the owner blocked the sender. An image
+  // follows the rules of AskQuestion.
   // Errors: PROMPT_NOT_FOUND, PROMPT_CLOSED, CANNOT_RESPOND_TO_OWN,
-  // ALREADY_RESPONDED, RESPONSE_TEXT_INVALID (empty or over 300 characters),
-  // RATE_LIMITED, BOX_BUSY.
+  // ALREADY_RESPONDED, AUDIENCE_TOO_SMALL (an anonymous response to someone
+  // with fewer than three friends; a signed one is accepted),
+  // RESPONSE_TEXT_INVALID (empty or over 300 characters), IMAGES_NOT_ALLOWED,
+  // IMAGE_ALREADY_USED, ASSET_NOT_FOUND, ASSET_WRONG_PURPOSE, ASSET_NOT_IMAGE,
+  // ASSET_NOT_READY, RATE_LIMITED, BOX_BUSY.
   rpc RespondToPrompt(RespondToPromptRequest) returns (RespondToPromptResponse);
   // Responses to a prompt of the caller's, newest first. Listing RECEIVED
   // responses marks the listed ones as seen.
@@ -538,6 +561,10 @@ message Prompt {
   bool can_respond = 13;
   // Path of the prompt's page in the web app.
   string path = 14;
+  // Whether an anonymous response would be accepted from the caller: false
+  // when they cannot respond at all, and when the owner has fewer than
+  // three friends (a signed response is still possible then).
+  bool anonymous_available = 15;
 }
 
 message PromptResponse {
@@ -559,6 +586,8 @@ message PromptResponse {
   bool seen = 10;
   // True when the caller wrote this response. Only ever set for the responder.
   bool sent_by_me = 11;
+  // Set when the responder attached one.
+  tokuly.common.v1.Image image = 12;
 }
 
 message CreatePromptRequest {
@@ -625,6 +654,9 @@ message RespondToPromptRequest {
   string text = 2;
   // Show the responder's name to the owner (and on the page when published).
   bool signed = 3;
+  // An uploaded image (ASSET_PURPOSE_NOTE_IMAGE or ASSET_PURPOSE_CHAT_IMAGE),
+  // when the prompt's owner takes images: a fresh upload, as for questions.
+  string image_asset_id = 4;
 }
 
 message RespondToPromptResponse {
@@ -693,22 +725,25 @@ message DeleteResponseResponse {}
 service ComplimentService {
   // The caller's current round: the poll to answer next, or when the next
   // round opens. Starts a round when one is due.
-  // Errors: NOT_ENOUGH_FRIENDS (a poll needs four friends who take part),
-  // POLLS_UNAVAILABLE (every question of the bank is switched off).
+  // Errors: NOT_ENOUGH_FRIENDS (a poll needs four friends who take part and
+  // have at least three friends of their own, so that a flame does not point
+  // at its sender), POLLS_UNAVAILABLE (every question of the bank is
+  // switched off), RATE_LIMITED.
   rpc GetRound(GetRoundRequest) returns (GetRoundResponse);
   // Picks one of the four friends shown: sends them a flame and moves on.
   // Finishing the last poll completes the round and pays its reward.
   // Errors: POLL_NOT_CURRENT (not the poll the round is on), CHOICE_INVALID
-  // (not one of the four shown), ROUND_NOT_ACTIVE.
+  // (not one of the four shown, or no longer someone who can be picked),
+  // ROUND_NOT_ACTIVE, RATE_LIMITED.
   rpc Vote(VoteRequest) returns (VoteResponse);
   // Skips the current poll without picking anyone.
-  // Errors: POLL_NOT_CURRENT, ROUND_NOT_ACTIVE.
+  // Errors: POLL_NOT_CURRENT, ROUND_NOT_ACTIVE, RATE_LIMITED.
   rpc SkipPoll(SkipPollRequest) returns (SkipPollResponse);
   // Shows other friends in the current poll: four others when there are
   // that many, otherwise as many as there are next to some of the four
   // shown now.
   // Errors: POLL_NOT_CURRENT, ROUND_NOT_ACTIVE, NO_SHUFFLES_LEFT,
-  // NOT_ENOUGH_FRIENDS (there is nobody else to show).
+  // NOT_ENOUGH_FRIENDS (there is nobody else to show), RATE_LIMITED.
   rpc ShufflePoll(ShufflePollRequest) returns (ShufflePollResponse);
 
   // Flames the caller received, newest first.
@@ -724,10 +759,12 @@ service ComplimentService {
   // letter of their name, the second their school or how long the two have
   // been friends; there is no third, and never a name (someone whose name
   // is a single character gives the first letter of their handle instead).
-  // Repeating the call with the same `idempotency_key` charges once.
-  // Errors: FLAME_NOT_FOUND, HINTS_UNAVAILABLE (the sender switched hints
-  // off, or their account is gone), NO_MORE_HINTS, INSUFFICIENT_COINS,
-  // IDEMPOTENCY_KEY_INVALID, RATE_LIMITED.
+  // What a flame sells was fixed when the vote was cast and does not follow
+  // the sender's account afterwards. Repeating the call with the same
+  // `idempotency_key` charges once.
+  // Errors: FLAME_NOT_FOUND, HINTS_UNAVAILABLE (this flame sells no hints:
+  // its sender had them switched off when they voted), NO_MORE_HINTS,
+  // INSUFFICIENT_COINS, IDEMPOTENCY_KEY_INVALID, RATE_LIMITED.
   rpc BuyHint(BuyHintRequest) returns (BuyHintResponse);
   // This week's flame counts among the caller and their friends, most first.
   rpc GetTopFlames(GetTopFlamesRequest) returns (GetTopFlamesResponse);
@@ -837,7 +874,8 @@ message Flame {
   bool seen = 4;
   // Hints bought so far, in order.
   repeated Hint hints = 5;
-  // Price of the next hint in coins; 0 when no further hint can be bought.
+  // Price of the next hint in coins; 0 when none can be bought: all were,
+  // or this flame sells none.
   int64 next_hint_price = 6;
 }
 
@@ -920,14 +958,14 @@ message GetTopFlamesResponse {
 // Staff tools: who sent what, and the poll question bank.
 service AskModerationService {
   // A question with the account that sent it, for acting on a report.
-  // Role: moderator.
-  // Errors: QUESTION_NOT_FOUND.
+  // Role: moderator. Staff cannot look up what was sent to or by themselves.
+  // Errors: QUESTION_NOT_FOUND, CONFLICT_OF_INTEREST.
   rpc InspectQuestion(InspectQuestionRequest) returns (InspectQuestionResponse);
   // A prompt response with the account that sent it. Role: moderator.
-  // Errors: RESPONSE_NOT_FOUND.
+  // Errors: RESPONSE_NOT_FOUND, CONFLICT_OF_INTEREST.
   rpc InspectPromptResponse(InspectPromptResponseRequest) returns (InspectPromptResponseResponse);
   // A flame with the account that sent it. Role: moderator.
-  // Errors: FLAME_NOT_FOUND.
+  // Errors: FLAME_NOT_FOUND, CONFLICT_OF_INTEREST.
   rpc InspectFlame(InspectFlameRequest) returns (InspectFlameResponse);
 
   // The whole question bank, disabled questions included. Role: moderator.
@@ -984,6 +1022,7 @@ message InspectPromptResponseResponse {
   bool published = 5;
   bool held = 6;
   google.protobuf.Timestamp removed_at = 7;
+  tokuly.common.v1.Image image = 8;
 }
 
 message InspectFlameRequest {

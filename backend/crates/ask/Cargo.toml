@@ -36,3 +36,4 @@ unicode-segmentation.workspace = true
 
 [dev-dependencies]
 tokuly-testkit.workspace = true
+futures.workspace = true

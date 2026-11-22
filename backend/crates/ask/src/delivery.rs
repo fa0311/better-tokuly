@@ -1,21 +1,31 @@
-//! Delivery: telling people what arrived for them.
+//! Delivery: letting what was sent through to its recipient, and telling
+//! them about it.
 //!
 //! Sending a question, a prompt response or a compliment vote only stores it
 //! and one `ask.*.stored` event; so does a request from a blocked sender.
-//! This worker picks the event up and decides what it means for the
-//! recipient: a notification and a realtime push, or nothing at all when the
-//! item was dropped, held by the word filter, or sent by a banned account.
-//! The decision is made here, after the sender's request is over, which is
-//! why the sender's request cannot depend on it.
+//! This worker picks the event up and deals with the item, once
+//! (`delivered_at`). Until then the recipient does not have it: their lists
+//! show only what was delivered.
 //!
-//! Each item is delivered once: the statement that claims it sets
-//! `delivered_at`, and the notification is requested in the same
-//! transaction. A redelivered event finds nothing left to claim.
+//! That makes this the one place where the sender's account matters. An
+//! item whose sender is suspended when the worker gets to it is stopped
+//! (stored as dropped, like one from a blocked sender). Everything that
+//! was delivered stays with its recipient whatever becomes of the sender
+//! afterwards, so nothing the recipient already has can appear or disappear
+//! with someone's account.
+//!
+//! Whether the recipient is told (a notification and a realtime push) is
+//! decided here too, after the sender's request is over, which is why the
+//! sender's request cannot depend on it: nothing for an item that was
+//! dropped or held by the word filter.
 //!
 //! Notifications about anonymous items carry no actor and no name. Nothing
 //! about them may depend on who the sender is either: applying the
 //! recipient's per-friend mute, for instance, would let the recipient find
 //! the sender out by muting friends one at a time.
+//!
+//! Like every worker here, these read what they need through the pool
+//! first and then use nothing but their transaction until it is committed.
 use tokuly_core::{
     outbound::{self, Localized, NotificationRequest},
     prelude::*,
@@ -29,8 +39,9 @@ use crate::{
     Ask,
     events::{AnswerPublished, PromptOpened},
     polls::flames::{FlameRow, flame_columns, in_inbox},
-    prompts::{ResponseRow, prompt_path, response_columns, response_in_box},
+    prompts::{Access, ResponseRow, prompt_path, response_columns, response_in_box},
     questions::{QuestionRow, in_box, question_columns, question_path},
+    senders::sender_suspended,
     text,
 };
 
@@ -48,7 +59,7 @@ const FLAMES_PATH: &str = "/ask/flames";
 const QUOTE_CHARS: usize = 60;
 
 #[derive(sqlx::FromRow)]
-struct ClaimedFlame {
+struct ArrivedFlame {
     receiver_id: Uuid,
     #[sqlx(flatten)]
     flame: FlameRow,
@@ -61,38 +72,62 @@ async fn name_of(core: &Core, user_id: Uuid) -> AppResult<String> {
 }
 
 impl Ask {
-    /// `ask.question.stored`: tells the owner of the box, if the question
-    /// reached their inbox.
+    /// `ask.question.stored`: delivers the question, and tells the owner of
+    /// the box if it reached their inbox.
     pub(crate) async fn deliver_question(&self, question_id: Uuid) -> AppResult<()> {
+        let waiting: Option<Option<Uuid>> = sqlx::query_scalar(
+            "SELECT CASE WHEN q.signed THEN q.sender_id END FROM ask_questions q WHERE q.id = $1 AND q.delivered_at IS NULL",
+        )
+        .bind(question_id)
+        .fetch_optional(&self.core.db)
+        .await?;
+        let Some(asker) = waiting else { return Ok(()) };
+        let asker_name = match asker {
+            Some(asker) => Some(name_of(&self.core, asker).await?),
+            None => None,
+        };
+
         let mut tx = self.core.db.begin().await?;
-        // Claims the question: only one that sits in the inbox folder of the
-        // box (not filtered, dropped or removed) and was not delivered yet.
-        let claimed: Option<QuestionRow> = sqlx::query_as(concat!(
-            "UPDATE ask_questions q SET delivered_at = now()
-             WHERE q.id = $2 AND q.delivered_at IS NULL AND q.folder = 1 AND ",
-            in_box!(),
-            " RETURNING ",
-            question_columns!()
+        let delivered = sqlx::query(concat!(
+            "UPDATE ask_questions q SET delivered_at = now(), dropped = q.dropped OR ",
+            sender_suspended!("q"),
+            " WHERE q.id = $1 AND q.delivered_at IS NULL"
+        ))
+        .bind(question_id)
+        .execute(&mut *tx)
+        .await?;
+        if delivered.rows_affected() == 0 {
+            return Ok(());
+        }
+        // The owner is told about a question in the inbox folder of the box:
+        // not one that was filtered, dropped or withdrawn meanwhile.
+        let arrived: Option<QuestionRow> = sqlx::query_as(concat!(
+            "SELECT ",
+            question_columns!(),
+            " FROM ask_questions q WHERE q.id = $2 AND q.folder = 1 AND ",
+            in_box!()
         ))
         .bind(None::<Uuid>)
         .bind(question_id)
         .fetch_optional(&mut *tx)
         .await?;
-        let Some(question) = claimed else { return Ok(()) };
+        let Some(question) = arrived else {
+            tx.commit().await?;
+            return Ok(());
+        };
         let owner = question.owner_id;
         let title = Localized::new("質問箱に新しい質問が届いたよ!", "A new question in your box!");
         // The text itself is not quoted: what an anonymous stranger wrote
         // does not belong on a lock screen.
-        let notice = match question.asker_id.filter(|_| question.signed) {
-            Some(asker) => {
-                let name = name_of(&self.core, asker).await?;
+        let notice = match (question.asker_id.filter(|_| question.signed), asker_name) {
+            (Some(asker), Some(name)) => {
                 let body = Localized::new(
                     format!("{name}さんからの質問だよ。ひらいて答えてみよう!"),
                     format!("{name} asked you something. Open it and answer!"),
                 );
                 NotificationRequest::new(owner, QUESTION_KIND, title, body, INBOX_PATH).actor(asker)
             }
-            None => {
+            _ => {
                 let body = Localized::new(
                     "匿名の質問だよ。ひらいて答えてみよう!",
                     "Someone asked you something anonymously. Open it and answer!",
@@ -112,38 +147,63 @@ impl Ask {
         Ok(())
     }
 
-    /// `ask.response.stored`: tells the owner of the prompt, if the
-    /// response reached them.
+    /// `ask.response.stored`: delivers the response, and tells the owner of
+    /// the prompt if it reached them.
     pub(crate) async fn deliver_response(&self, response_id: Uuid) -> AppResult<()> {
+        let waiting: Option<(Option<Uuid>, Option<String>)> = sqlx::query_as(
+            "SELECT CASE WHEN r.signed THEN r.sender_id END,
+                    (SELECT p.text FROM ask_prompts p WHERE p.id = r.prompt_id AND p.removed_at IS NULL)
+             FROM ask_prompt_responses r WHERE r.id = $1 AND r.delivered_at IS NULL",
+        )
+        .bind(response_id)
+        .fetch_optional(&self.core.db)
+        .await?;
+        let Some((responder, prompt_text)) = waiting else { return Ok(()) };
+        let responder_name = match responder {
+            Some(responder) => Some(name_of(&self.core, responder).await?),
+            None => None,
+        };
+
         let mut tx = self.core.db.begin().await?;
-        let claimed: Option<ResponseRow> = sqlx::query_as(concat!(
-            "UPDATE ask_prompt_responses r SET delivered_at = now()
-             WHERE r.id = $2 AND r.delivered_at IS NULL AND NOT r.held AND ",
+        let delivered = sqlx::query(concat!(
+            "UPDATE ask_prompt_responses r SET delivered_at = now(), dropped = r.dropped OR ",
+            sender_suspended!("r"),
+            " WHERE r.id = $1 AND r.delivered_at IS NULL"
+        ))
+        .bind(response_id)
+        .execute(&mut *tx)
+        .await?;
+        if delivered.rows_affected() == 0 {
+            return Ok(());
+        }
+        let arrived: Option<ResponseRow> = sqlx::query_as(concat!(
+            "SELECT ",
+            response_columns!(),
+            " FROM ask_prompt_responses r WHERE r.id = $2 AND NOT r.held AND ",
             response_in_box!(),
-            " AND EXISTS (SELECT 1 FROM ask_prompts p WHERE p.id = r.prompt_id AND p.removed_at IS NULL)
-              RETURNING ",
-            response_columns!()
+            " AND EXISTS (SELECT 1 FROM ask_prompts p WHERE p.id = r.prompt_id AND p.removed_at IS NULL)"
         ))
         .bind(None::<Uuid>)
         .bind(response_id)
         .fetch_optional(&mut *tx)
         .await?;
-        let Some(response) = claimed else { return Ok(()) };
+        let (Some(response), Some(prompt_text)) = (arrived, prompt_text) else {
+            tx.commit().await?;
+            return Ok(());
+        };
         let owner = response.owner_id;
-        let prompt = self.owned_prompt(owner, response.prompt_id).await?;
         let title = Localized::new("お題に回答が届いたよ!", "A new response to your prompt!");
-        let quoted = text::excerpt(&prompt.text, QUOTE_CHARS);
-        let path = prompt_path(prompt.id);
-        let notice = match response.responder_id.filter(|_| response.signed) {
-            Some(responder) => {
-                let name = name_of(&self.core, responder).await?;
+        let quoted = text::excerpt(&prompt_text, QUOTE_CHARS);
+        let path = prompt_path(response.prompt_id);
+        let notice = match (response.responder_id.filter(|_| response.signed), responder_name) {
+            (Some(responder), Some(name)) => {
                 let body = Localized::new(
                     format!("{name}さんが「{quoted}」に答えたよ"),
                     format!("{name} responded to \u{201c}{quoted}\u{201d}"),
                 );
                 NotificationRequest::new(owner, PROMPT_RESPONSE_KIND, title, body, path).actor(responder)
             }
-            None => {
+            _ => {
                 let body = Localized::new(
                     format!("「{quoted}」に匿名の回答が届いたよ"),
                     format!("An anonymous response to \u{201c}{quoted}\u{201d}"),
@@ -152,38 +212,50 @@ impl Ask {
             }
         };
         let notice = notice
-            .collapse(format!("{PROMPT_RESPONSE_KIND}:{}", prompt.id))
-            .data(serde_json::json!({ "prompt_id": prompt.id, "response_id": response.id }));
+            .collapse(format!("{PROMPT_RESPONSE_KIND}:{}", response.prompt_id))
+            .data(serde_json::json!({ "prompt_id": response.prompt_id, "response_id": response.id }));
         outbound::notify(&mut *tx, &notice).await?;
         tx.commit().await?;
 
-        // The prompt again, now counting this response.
+        // The prompt, now counting this response.
         let prompt = self.owned_prompt(owner, response.prompt_id).await?;
         let pushed = PromptResponseReceived {
             response: self.render_response(&response, owner).await?.into(),
-            prompt: self.render_prompt(&prompt, owner, false).await?.into(),
+            prompt: self.render_prompt(&prompt, owner, Access::default()).await?.into(),
             ..Default::default()
         };
         self.push(owner, Push::PromptResponseReceived(Box::new(pushed))).await;
         Ok(())
     }
 
-    /// `ask.flame.stored`: tells whoever was picked, if the flame reached
-    /// them. Never says, and never depends on, who picked them.
+    /// `ask.flame.stored`: delivers the flame and tells whoever was picked,
+    /// if it reached them. Never says who picked them.
     pub(crate) async fn deliver_flame(&self, flame_id: Uuid) -> AppResult<()> {
         let mut tx = self.core.db.begin().await?;
-        let claimed: Option<ClaimedFlame> = sqlx::query_as(concat!(
-            "UPDATE ask_flames f SET delivered_at = now()
-             FROM ask_poll_questions p
-             WHERE f.id = $1 AND p.id = f.question_id AND f.delivered_at IS NULL AND ",
-            in_inbox!(),
-            " RETURNING f.receiver_id, ",
-            flame_columns!()
+        let delivered = sqlx::query(concat!(
+            "UPDATE ask_flames f SET delivered_at = now(), dropped = f.dropped OR ",
+            sender_suspended!("f"),
+            " WHERE f.id = $1 AND f.delivered_at IS NULL"
+        ))
+        .bind(flame_id)
+        .execute(&mut *tx)
+        .await?;
+        if delivered.rows_affected() == 0 {
+            return Ok(());
+        }
+        let arrived: Option<ArrivedFlame> = sqlx::query_as(concat!(
+            "SELECT f.receiver_id, ",
+            flame_columns!(),
+            " FROM ask_flames f JOIN ask_poll_questions p ON p.id = f.question_id WHERE f.id = $1 AND ",
+            in_inbox!()
         ))
         .bind(flame_id)
         .fetch_optional(&mut *tx)
         .await?;
-        let Some(ClaimedFlame { receiver_id: receiver, flame }) = claimed else { return Ok(()) };
+        let Some(ArrivedFlame { receiver_id: receiver, flame }) = arrived else {
+            tx.commit().await?;
+            return Ok(());
+        };
         let notice = NotificationRequest::new(
             receiver,
             FLAME_KIND,

@@ -11,7 +11,7 @@ use tokuly_social::graph;
 
 use crate::{
     Ask,
-    prompts::{Filter, PromptRow, ResponseRow},
+    prompts::{Access, Filter, PromptRow, ResponseRow},
     questions::MAX_PAGE,
 };
 
@@ -26,22 +26,22 @@ impl Ask {
         owner_ids.dedup();
         let owners = tokuly_identity::summaries(&self.core, &owner_ids).await?;
         // Every list of other people's prompts is a list of friends' prompts.
+        let mut access = HashMap::new();
+        for owner in owner_ids.into_iter().filter(|owner| *owner != viewer) {
+            access.insert(owner, Access { friend: true, crowd: self.has_anonymity_set(owner).await? });
+        }
         Ok(rows
             .iter()
             .map(|row| {
-                row.to_proto(Some(viewer), tokuly_identity::users::pick(&owners, row.owner_id), row.owner_id != viewer)
+                let access = access.get(&row.owner_id).copied().unwrap_or_default();
+                row.to_proto(Some(viewer), tokuly_identity::users::pick(&owners, row.owner_id), access)
             })
             .collect())
     }
 
-    pub(crate) async fn render_prompt(
-        &self,
-        row: &PromptRow,
-        viewer: Uuid,
-        viewer_is_friend: bool,
-    ) -> AppResult<Prompt> {
+    pub(crate) async fn render_prompt(&self, row: &PromptRow, viewer: Uuid, access: Access) -> AppResult<Prompt> {
         let owner = tokuly_identity::summary(&self.core, row.owner_id).await?;
-        Ok(row.to_proto(Some(viewer), owner, viewer_is_friend))
+        Ok(row.to_proto(Some(viewer), owner, access))
     }
 
     /// Responses as `viewer` sees them. Only signed responders are looked
@@ -89,7 +89,7 @@ impl PromptService for Ask {
             let owner = ctx.user_id()?;
             let prompt = self.open_prompt(owner, request.text, request.emoji, request.duration_seconds).await?;
             ok(CreatePromptResponse {
-                prompt: self.render_prompt(&prompt, owner, false).await?.into(),
+                prompt: self.render_prompt(&prompt, owner, Access::default()).await?.into(),
                 ..Default::default()
             })
         })
@@ -105,7 +105,7 @@ impl PromptService for Ask {
             let owner = ctx.user_id()?;
             let prompt = self.end_prompt(owner, parse_id(request.prompt_id)?).await?;
             ok(ClosePromptResponse {
-                prompt: self.render_prompt(&prompt, owner, false).await?.into(),
+                prompt: self.render_prompt(&prompt, owner, Access::default()).await?.into(),
                 ..Default::default()
             })
         })
@@ -132,7 +132,7 @@ impl PromptService for Ask {
         handle(async {
             let viewer = ctx.user_id()?;
             let prompt_id = parse_id(request.prompt_id)?;
-            let (prompt, is_friend) = self.visible_prompt(viewer, prompt_id).await?;
+            let (prompt, access) = self.visible_prompt(viewer, prompt_id).await?;
             let first_page = Page::new(FIRST_RESPONSES, "", FIRST_RESPONSES as i64, MAX_PAGE);
             let (responses, page) = self.published_responses(prompt_id, viewer, &first_page).await?;
             let my_response = match self.own_response(viewer, prompt_id).await? {
@@ -140,7 +140,7 @@ impl PromptService for Ask {
                 None => None,
             };
             ok(GetPromptResponse {
-                prompt: self.render_prompt(&prompt, viewer, is_friend).await?.into(),
+                prompt: self.render_prompt(&prompt, viewer, access).await?.into(),
                 responses,
                 page: page.into(),
                 my_response: my_response.into(),
@@ -206,7 +206,9 @@ impl PromptService for Ask {
     ) -> ServiceResult<RespondToPromptResponse> {
         handle(async {
             let sender = ctx.user_id()?;
-            let response = self.respond(sender, parse_id(request.prompt_id)?, request.text, request.signed).await?;
+            let response = self
+                .respond(sender, parse_id(request.prompt_id)?, request.text, request.signed, request.image_asset_id)
+                .await?;
             ok(RespondToPromptResponse {
                 response: self.render_response(&response, sender).await?.into(),
                 ..Default::default()

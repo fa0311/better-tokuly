@@ -3,9 +3,14 @@
 -- Three kinds of things are sent anonymously here: questions, prompt
 -- responses and flames. Each row keeps who sent it (`sender_id`), for
 -- moderators only; `sender_id` becomes NULL when that account is deleted.
--- `dropped` marks what was accepted from a sender the recipient had blocked:
--- the sender is shown the same as for anything else they sent, the recipient
--- never sees it.
+-- `dropped` marks what was accepted and never reaches its recipient: sent by
+-- someone the recipient had blocked, or by an account that was suspended
+-- before the item was delivered. The sender is shown the same as for
+-- anything else they sent.
+--
+-- Nothing an anonymous item's recipient sees depends on the state of the
+-- sender's account afterwards. Only signed items are hidden while their
+-- sender is suspended.
 
 -- ───────────────────────────── settings ─────────────────────────────
 
@@ -43,14 +48,16 @@ CREATE TABLE ask_questions (
     -- The sender chose to show their name.
     signed                boolean     NOT NULL DEFAULT false,
     text                  text        NOT NULL,
-    -- tokuly.common.v1.Image as proto JSON; signed questions only.
+    -- tokuly.common.v1.Image as proto JSON.
     image                 jsonb,
     image_asset_id        uuid,
     -- tokuly.ask.v1.QuestionFolder: 1 inbox, 2 answered, 3 archived, 4 filtered.
     folder                smallint    NOT NULL DEFAULT 1 CHECK (folder BETWEEN 1 AND 4),
     dropped               boolean     NOT NULL DEFAULT false,
     read_at               timestamptz,
-    -- Set once the owner was told about it (notification and realtime push).
+    -- Set once the delivery worker dealt with it. Until then the question is
+    -- in nobody's box; the worker is also where a question whose sender was
+    -- suspended in the meantime is stopped (`dropped`).
     delivered_at          timestamptz,
     -- Gone from the box: 1 deleted by the owner (the sender keeps seeing it
     -- as waiting), 2 withdrawn by the sender, 3 taken down by moderation.
@@ -81,8 +88,9 @@ CREATE INDEX ask_questions_inbox ON ask_questions (owner_id, folder, id DESC) WH
 CREATE INDEX ask_questions_answers ON ask_questions (owner_id, answered_at DESC, id DESC) WHERE folder = 2 AND removed_at IS NULL;
 -- "Questions I asked".
 CREATE INDEX ask_questions_sent ON ask_questions (sender_id, id DESC) WHERE sender_id IS NOT NULL;
--- What the maintenance worker purges.
-CREATE INDEX ask_questions_purge ON ask_questions (created_at) WHERE removed_at IS NOT NULL OR dropped;
+-- What the maintenance worker purges: a removed question some time after it
+-- was removed, a dropped one some time after it was sent.
+CREATE INDEX ask_questions_purge ON ask_questions ((COALESCE(removed_at, created_at))) WHERE removed_at IS NOT NULL OR dropped;
 CREATE INDEX ask_questions_image ON ask_questions (image_asset_id) WHERE image_asset_id IS NOT NULL;
 CREATE INDEX ask_questions_answer_image ON ask_questions (answer_image_asset_id) WHERE answer_image_asset_id IS NOT NULL;
 
@@ -149,6 +157,9 @@ CREATE TABLE ask_prompt_responses (
     sender_id    uuid        REFERENCES users (id) ON DELETE SET NULL,
     signed       boolean     NOT NULL DEFAULT false,
     text         text        NOT NULL,
+    -- tokuly.common.v1.Image as proto JSON.
+    image        jsonb,
+    image_asset_id uuid,
     -- Held by the word filter until the owner releases it.
     held         boolean     NOT NULL DEFAULT false,
     dropped      boolean     NOT NULL DEFAULT false,
@@ -170,6 +181,7 @@ CREATE INDEX ask_prompt_responses_published ON ask_prompt_responses (prompt_id, 
     WHERE published_at IS NOT NULL AND removed_at IS NULL;
 CREATE INDEX ask_prompt_responses_sender ON ask_prompt_responses (sender_id) WHERE sender_id IS NOT NULL;
 CREATE INDEX ask_prompt_responses_owner ON ask_prompt_responses (owner_id);
+CREATE INDEX ask_prompt_responses_image ON ask_prompt_responses (image_asset_id) WHERE image_asset_id IS NOT NULL;
 
 -- ───────────────────────────── compliment polls ─────────────────────────────
 
@@ -255,6 +267,12 @@ CREATE TABLE ask_flames (
     sender_id    uuid        REFERENCES users (id) ON DELETE SET NULL,
     question_id  uuid        NOT NULL REFERENCES ask_poll_questions (id),
     dropped      boolean     NOT NULL DEFAULT false,
+    -- The hints this flame sells about its sender, in order, as
+    -- `[{"kind": <tokuly.ask.v1.HintKind>, "value": "…"}]`; empty when the
+    -- sender had hints switched off. Written when the vote is cast and never
+    -- touched again, so that neither the price list nor a purchase depends
+    -- on what became of the sender's account.
+    hints        jsonb       NOT NULL DEFAULT '[]',
     seen_at      timestamptz,
     delivered_at timestamptz,
     created_at   timestamptz NOT NULL DEFAULT now()
@@ -265,26 +283,23 @@ CREATE INDEX ask_flames_week ON ask_flames (receiver_id, created_at);
 CREATE INDEX ask_flames_sender ON ask_flames (sender_id) WHERE sender_id IS NOT NULL;
 CREATE INDEX ask_flames_question ON ask_flames (question_id);
 
--- Hints a receiver bought about the sender of a flame. The hint is fixed
--- when the purchase begins: the row is stored first, then the wallet is
--- charged, then `entry_id` is set. A row without `entry_id` is a purchase
--- in flight (or one that was interrupted, and will be completed by the next
--- attempt); it is shown to nobody.
+-- Hints a receiver bought about the sender of a flame: one row per hint
+-- that was paid for, copied from `ask_flames.hints`.
 CREATE TABLE ask_flame_hints (
-    flame_id        uuid        NOT NULL REFERENCES ask_flames (id) ON DELETE CASCADE,
+    flame_id     uuid        NOT NULL REFERENCES ask_flames (id) ON DELETE CASCADE,
     -- 0 = first hint.
-    position        smallint    NOT NULL,
+    position     smallint    NOT NULL,
     -- tokuly.ask.v1.HintKind
-    kind            smallint    NOT NULL,
-    value           text        NOT NULL,
-    price           bigint      NOT NULL,
-    -- The buyer's key: a retried purchase finds its hint instead of buying the next.
-    idempotency_key text        NOT NULL,
-    -- The wallet entry that paid for it; NULL until the charge went through.
-    entry_id        uuid,
-    created_at      timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (flame_id, position),
-    UNIQUE (flame_id, idempotency_key)
+    kind         smallint    NOT NULL,
+    value        text        NOT NULL,
+    price        bigint      NOT NULL,
+    -- The buyer's idempotency keys that led to this hint: a retried purchase
+    -- finds its hint here instead of buying the next one.
+    request_keys text[]      NOT NULL,
+    -- The wallet entry that paid for it.
+    entry_id     uuid        NOT NULL,
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (flame_id, position)
 );
 
 -- ───────────────────────────── friends, as this domain knows them ─────────────────────────────

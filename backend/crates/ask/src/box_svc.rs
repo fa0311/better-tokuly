@@ -11,7 +11,7 @@ use tokuly_social::graph;
 
 use crate::{
     Ask,
-    answers::{IMAGE_PURPOSES, question_holder},
+    answers::question_holder,
     events::{QUESTION_STORED, Stored},
     questions::{ANSWERED, ARCHIVED, FILTERED, INBOX, MAX_PAGE, QuestionRow, question_columns},
     senders::BlockTarget,
@@ -124,6 +124,9 @@ impl QuestionBoxService for Ask {
                 }
                 _ => false,
             };
+            // Friends are the only possible senders of a friends-only box:
+            // with too few of them a question could not stay anonymous.
+            let anonymous_available = can_ask && (!settings.friends_only() || self.has_anonymity_set(owner.id).await?);
             let audiences = self.page_audiences(owner.id, viewer).await?;
             let prompt = if settings.box_prompt.is_empty() {
                 settings::DEFAULT_BOX_PROMPT.0.to_owned()
@@ -140,6 +143,7 @@ impl QuestionBoxService for Ask {
                 can_ask,
                 share_url: self.core.web_url(&format!("/u/{}/ask", owner.handle)),
                 answer_count: self.answer_count(owner.id, audiences).await? as i32,
+                anonymous_available,
                 ..Default::default()
             };
             ok(GetBoxResponse { r#box: question_box.into(), ..Default::default() })
@@ -173,18 +177,20 @@ impl QuestionBoxService for Ask {
                 "SIGNED_NOT_ALLOWED",
                 "this box takes anonymous questions only"
             );
+            // Who can ask a friends-only box is a short list. The owner's
+            // number of friends is on their profile, so this refusal tells
+            // the asker nothing new; and it is decided before anything that
+            // depends on a block.
+            if !signed && settings.friends_only() {
+                ensure!(
+                    self.has_anonymity_set(owner.id).await?,
+                    precondition,
+                    "AUDIENCE_TOO_SMALL",
+                    "too few people can ask here for a question to stay anonymous; sign it instead"
+                );
+            }
             let text = text::required(request.text, text::QUESTION_MAX, "QUESTION_TEXT_INVALID", "the question")?;
-            let image = match parse_opt_id(request.image_asset_id)? {
-                Some(asset_id) => {
-                    // An upload names its uploader to anyone who asks the
-                    // media API for it, so an image on an anonymous question
-                    // would undo the anonymity. Signed questions only.
-                    ensure!(signed, invalid, "IMAGE_REQUIRES_SIGNATURE", "only signed questions can carry an image");
-                    ensure!(settings.allow_images, precondition, "IMAGES_NOT_ALLOWED", "this box does not take images");
-                    Some((asset_id, assets::require_image_json(&self.core, asset_id, sender, IMAGE_PURPOSES).await?))
-                }
-                None => None,
-            };
+            let image = self.sender_image(sender, request.image_asset_id, settings.allow_images).await?;
             // From here on nothing may depend on whether the owner blocked
             // the sender: the limits count first, and both outcomes store
             // the same row and event.

@@ -64,7 +64,7 @@ pub(crate) fn question_path(id: Uuid) -> String {
 macro_rules! question_columns {
     () => {
         "q.id, q.owner_id, CASE WHEN q.signed THEN q.sender_id END AS asker_id, q.signed, q.text, \
-         CASE WHEN q.signed THEN q.image END AS image, q.folder, q.read_at, q.created_at, \
+         q.image, q.folder, q.read_at, q.created_at, \
          (q.removed_at IS NULL AND NOT q.dropped) AS live, \
          q.answer_text, q.answer_image, q.answer_image_asset_id, q.answer_stamp_id, q.answer_audience, q.answered_at, \
          q.answer_edited_at, \
@@ -73,12 +73,16 @@ macro_rules! question_columns {
 }
 pub(crate) use question_columns;
 
-/// SQL condition for "this question is in its owner's box": not deleted,
-/// withdrawn or taken down, not dropped, and not sent by a banned account.
+/// SQL condition for "this question is in its owner's box": delivered, not
+/// deleted, withdrawn or taken down, not dropped, and not a signed question
+/// of a suspended account. (An anonymous question stays whatever becomes of
+/// its sender's account: see `senders.rs`.)
 macro_rules! in_box {
     () => {
-        "q.removed_at IS NULL AND NOT q.dropped \
-         AND NOT EXISTS (SELECT 1 FROM users banned WHERE banned.id = q.sender_id AND banned.banned_at IS NOT NULL)"
+        concat!(
+            "q.delivered_at IS NOT NULL AND q.removed_at IS NULL AND NOT q.dropped AND NOT ",
+            $crate::senders::signed_by_suspended!("q")
+        )
     };
 }
 pub(crate) use in_box;

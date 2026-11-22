@@ -2,9 +2,14 @@
 //!
 //! A flame tells its receiver which question they were picked for and when.
 //! The row type the receiver's queries use has no sender column at all, so
-//! nothing here can pass the voter on by accident; the two places that do
-//! read the sender are `hints.rs` (a hint the receiver pays for, if the
-//! sender allows it) and the moderation service.
+//! nothing here can pass the voter on by accident; the only place that
+//! reads the sender of a stored flame is the moderation service. (Hints
+//! are fixed on the flame when the vote is cast, see `hints.rs`.)
+//!
+//! Which flames a receiver has does not depend on what became of the
+//! voters' accounts. A flame that vanished when its sender was suspended,
+//! and came back when the suspension ended, would name the sender to
+//! anyone who heard about the suspension.
 use std::collections::HashMap;
 
 use chrono::{DateTime, Datelike as _, Duration, TimeZone as _, Utc};
@@ -24,11 +29,12 @@ const TOP_QUESTIONS: i64 = 5;
 /// Lines of the weekly ranking.
 const TOP_FLAMES: usize = 20;
 
-/// SQL condition for "this flame is in its receiver's inbox": not dropped,
-/// and not sent by a banned account.
+/// SQL condition for "this flame is in its receiver's inbox": it was
+/// delivered and not dropped. Nothing about the sender's account belongs
+/// here (see above).
 macro_rules! in_inbox {
     () => {
-        "NOT f.dropped AND NOT EXISTS (SELECT 1 FROM users banned WHERE banned.id = f.sender_id AND banned.banned_at IS NOT NULL)"
+        "f.delivered_at IS NOT NULL AND NOT f.dropped"
     };
 }
 pub(crate) use in_inbox;
@@ -36,18 +42,21 @@ pub(crate) use in_inbox;
 /// Columns of [`FlameRow`], from `ask_flames f JOIN ask_poll_questions p`.
 macro_rules! flame_columns {
     () => {
-        "f.id, f.question_id, f.created_at, f.seen_at, p.text_ja, p.text_en, p.emoji"
+        "f.id, f.question_id, f.created_at, f.seen_at, jsonb_array_length(f.hints) AS hints_on_offer, p.text_ja, p.text_en, p.emoji"
     };
 }
 pub(crate) use flame_columns;
 
-/// A flame as its receiver may see it. There is deliberately no sender here.
+/// A flame as its receiver may see it. There is deliberately no sender
+/// here, and of the hints only how many the flame sells: what they say is
+/// read when one is bought.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub(crate) struct FlameRow {
     pub id: Uuid,
     pub question_id: Uuid,
     pub created_at: DateTime<Utc>,
     pub seen_at: Option<DateTime<Utc>>,
+    pub hints_on_offer: i32,
     pub text_ja: String,
     pub text_en: String,
     pub emoji: String,
@@ -82,21 +91,15 @@ pub(crate) fn week_start(now: DateTime<Utc>) -> DateTime<Utc> {
 }
 
 impl Ask {
-    /// The price of the hint after `bought` hints; 0 when none is left. It
-    /// depends on the count alone, never on who sent the flame: a price that
-    /// knew whether the sender allows hints would itself be a hint.
-    pub(crate) fn next_hint_price(&self, bought: usize) -> i64 {
-        self.hint_prices.get(bought).copied().unwrap_or(0)
-    }
-
     /// Flames as their receiver sees them, with the hints they bought.
     pub(crate) async fn render_flames(&self, rows: &[FlameRow]) -> AppResult<Vec<Flame>> {
         let ids: Vec<Uuid> = rows.iter().map(|row| row.id).collect();
-        let bought: Vec<HintRow> =
-            sqlx::query_as("SELECT flame_id, kind, value FROM ask_flame_hints WHERE flame_id = ANY($1) AND entry_id IS NOT NULL ORDER BY flame_id, position")
-                .bind(&ids)
-                .fetch_all(&self.core.db)
-                .await?;
+        let bought: Vec<HintRow> = sqlx::query_as(
+            "SELECT flame_id, kind, value FROM ask_flame_hints WHERE flame_id = ANY($1) ORDER BY flame_id, position",
+        )
+        .bind(&ids)
+        .fetch_all(&self.core.db)
+        .await?;
         let mut by_flame: HashMap<Uuid, Vec<Hint>> = HashMap::new();
         for hint in bought {
             by_flame.entry(hint.flame_id).or_default().push(hint.to_proto());
@@ -105,7 +108,7 @@ impl Ask {
             .iter()
             .map(|row| {
                 let hints = by_flame.remove(&row.id).unwrap_or_default();
-                let price = self.next_hint_price(hints.len());
+                let price = self.next_hint_price(hints.len(), row.hints_on_offer as usize);
                 row.to_proto(hints, price)
             })
             .collect())
@@ -217,7 +220,9 @@ impl Ask {
     /// - **friends** are counted with dropped flames included. A voter whom
     ///   a friend blocked as an anonymous sender expects that friend's count
     ///   to go up after voting for them; if it did not, the ranking would
-    ///   tell the voter about the block.
+    ///   tell the voter about the block. Nor does a count follow the voters'
+    ///   accounts: one that fell when someone was suspended would say whom
+    ///   that person had picked.
     /// - **the viewer's own** count leaves dropped flames out, like their
     ///   inbox: flames they will never see would otherwise show up as a
     ///   number they cannot explain.
@@ -232,7 +237,6 @@ impl Ask {
              WHERE f.receiver_id = ANY($1) AND f.created_at >= $2
                AND u.deleted_at IS NULL AND u.banned_at IS NULL
                AND NOT EXISTS (SELECT 1 FROM ask_settings s WHERE s.user_id = f.receiver_id AND NOT s.in_polls)
-               AND NOT EXISTS (SELECT 1 FROM users banned WHERE banned.id = f.sender_id AND banned.banned_at IS NOT NULL)
              GROUP BY f.receiver_id",
         )
         .bind(&friends)
@@ -346,6 +350,7 @@ mod tests {
             question_id: new_id(),
             created_at: now(),
             seen_at: None,
+            hints_on_offer: 2,
             text_ja: "いつも笑顔な人は?".into(),
             text_en: "Who is always smiling?".into(),
             emoji: "😊".into(),

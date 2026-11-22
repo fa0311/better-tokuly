@@ -4,6 +4,28 @@
 //!
 //! Every function here is the handler of an event that can arrive twice, so
 //! each is safe to repeat.
+//!
+//! # What a sender's account does to what they sent
+//!
+//! Decided once, here, for every way an account can change:
+//!
+//! - **Suspended** (and reinstated): anonymous questions, responses and
+//!   flames that were delivered stay exactly as they are, for their
+//!   recipient and wherever an answer made them public. Only what carries
+//!   the sender's name is hidden while the suspension lasts (the lists do
+//!   that themselves, see `senders::signed_by_suspended`), and what was not
+//!   delivered yet never is (`delivery.rs`). A single item that has to go
+//!   is taken down by moderation, like any other.
+//! - **Deleted**: everything they sent stays with its recipient, text and
+//!   picture, without the name: a signed item becomes an anonymous one.
+//!   Blocks made of them stay, pointing at nobody, and flames keep the
+//!   hints they were sold with.
+//! - **Blocked by the recipient**: anonymous items stay; signed ones that
+//!   are still waiting are withdrawn ([`Ask::on_user_blocked`]).
+//!
+//! The rule behind all three: if an anonymous item appeared, disappeared or
+//! changed when something happened to an account, whoever noticed both
+//! would know who sent it.
 use tokuly_core::{outbound, prelude::*};
 use tokuly_media::assets;
 use tokuly_proto::common::SubjectType;
@@ -13,6 +35,7 @@ use crate::{
     Ask,
     answers::{SEARCH_KIND, answer_holder, question_holder, search_doc},
     events::ContentRemoved,
+    prompts::response_holder,
     questions::{QuestionRow, REMOVED_BY_MODERATION, in_box, question_columns},
 };
 
@@ -31,8 +54,8 @@ macro_rules! indexed {
 
 impl Ask {
     /// `identity.user.deleted`: the user's box, answers, prompts, rounds and
-    /// received flames go. What they sent to others stays where it is,
-    /// anonymous, with nothing left that points back to them.
+    /// received flames go. What they sent to others stays where it is, as
+    /// it is, with nothing left that points back to them.
     pub(crate) async fn on_user_deleted(&self, user_id: Uuid) -> AppResult<()> {
         let mut tx = self.core.db.begin().await?;
 
@@ -58,20 +81,14 @@ impl Ask {
         }
         sqlx::query("DELETE FROM ask_questions WHERE owner_id = $1").bind(user_id).execute(&mut *tx).await?;
 
-        // Questions they sent stay, anonymous. A signed one loses its
-        // signature and its image, which would both name the sender.
-        let sent_with_image: Vec<Uuid> = sqlx::query_scalar(
-            "WITH sent AS (SELECT id, image_asset_id IS NOT NULL AS had_image FROM ask_questions WHERE sender_id = $1 FOR UPDATE),
-                  cleared AS (UPDATE ask_questions q SET sender_id = NULL, signed = false, image = NULL, image_asset_id = NULL
-                              FROM sent WHERE q.id = sent.id)
-             SELECT id FROM sent WHERE had_image",
-        )
-        .bind(user_id)
-        .fetch_all(&mut *tx)
-        .await?;
-        for question_id in sent_with_image {
-            assets::detach_holder(&mut *tx, &question_holder(question_id)).await?;
-        }
+        // Questions they sent stay, text and picture, without the name. (A
+        // picture that went with the account would mark the question as
+        // sent by whoever just left; the media domain keeps an upload for
+        // as long as something holds it.)
+        sqlx::query("UPDATE ask_questions SET sender_id = NULL, signed = false WHERE sender_id = $1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
 
         // Blocks they made go; blocks made of them stay, pointing at nobody
         // (a block that vanished would tell its owner that the sender left).
@@ -81,7 +98,17 @@ impl Ask {
             .execute(&mut *tx)
             .await?;
 
-        // Their prompts go with every response; responses they sent stay, anonymous.
+        // Their prompts go with every response; responses they sent stay,
+        // like their questions.
+        let pictured: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM ask_prompt_responses WHERE owner_id = $1 AND image_asset_id IS NOT NULL",
+        )
+        .bind(user_id)
+        .fetch_all(&mut *tx)
+        .await?;
+        for response_id in pictured {
+            assets::detach_holder(&mut *tx, &response_holder(response_id)).await?;
+        }
         sqlx::query("DELETE FROM ask_prompts WHERE owner_id = $1").bind(user_id).execute(&mut *tx).await?;
         sqlx::query("UPDATE ask_prompt_responses SET sender_id = NULL, signed = false WHERE sender_id = $1")
             .bind(user_id)
@@ -119,16 +146,17 @@ impl Ask {
     }
 
     /// `identity.user.banned` / `identity.user.unbanned`: keeps the search
-    /// index in step with what the Q&A pages show. (The pages themselves
-    /// need nothing: every list leaves out what a banned account sent, for
-    /// as long as the ban lasts.)
+    /// index in step with what the Q&A pages show, which is: nothing from
+    /// the box of a suspended account, and no question a suspended account
+    /// asked under its name. Answers to what it asked anonymously stay
+    /// where they are (see the module documentation).
     pub(crate) async fn on_ban_changed(&self, user_id: Uuid, banned: bool) -> AppResult<()> {
         let mut tx = self.core.db.begin().await?;
         if banned {
-            // Public answers in the banned user's box, and public answers to
-            // questions they asked.
             let hidden: Vec<Uuid> = sqlx::query_scalar(
-                "SELECT id FROM ask_questions WHERE (owner_id = $1 OR sender_id = $1) AND folder = 2 AND answer_audience = 1 AND removed_at IS NULL AND NOT dropped",
+                "SELECT id FROM ask_questions
+                 WHERE (owner_id = $1 OR (signed AND sender_id = $1))
+                   AND folder = 2 AND answer_audience = 1 AND removed_at IS NULL AND NOT dropped",
             )
             .bind(user_id)
             .fetch_all(&mut *tx)
@@ -141,7 +169,7 @@ impl Ask {
                 "SELECT ",
                 question_columns!(),
                 " FROM ask_questions q
-                  WHERE (q.owner_id = $2 OR q.sender_id = $2) AND ",
+                  WHERE (q.owner_id = $2 OR (q.signed AND q.sender_id = $2)) AND ",
                 indexed!(),
                 " AND EXISTS (SELECT 1 FROM users o WHERE o.id = q.owner_id AND o.banned_at IS NULL AND o.deleted_at IS NULL)"
             ))
@@ -235,6 +263,10 @@ impl Ask {
             .bind(asset_id)
             .execute(&mut *tx)
             .await?;
+        sqlx::query("UPDATE ask_prompt_responses SET image = NULL, image_asset_id = NULL WHERE image_asset_id = $1")
+            .bind(asset_id)
+            .execute(&mut *tx)
+            .await?;
         let answers: Vec<QuestionRow> = sqlx::query_as(concat!(
             "SELECT ",
             question_columns!(),
@@ -278,9 +310,14 @@ impl Ask {
     }
 
     /// The periodic purge: erases what was only kept for moderators
-    /// (deleted, withdrawn, taken-down and dropped questions; deleted
-    /// prompts) once it is older than the retention, and old rounds.
-    /// Returns how many rows went.
+    /// (deleted, withdrawn, taken-down and dropped questions and prompt
+    /// responses; deleted prompts) once the retention has passed, and old
+    /// rounds. Returns how many rows went.
+    ///
+    /// The retention counts from the day something was removed, not the
+    /// day it was written: a question taken down after a year is kept for
+    /// moderators as long as one taken down the day it arrived. (A dropped
+    /// item was never in anyone's box and counts from its creation.)
     pub async fn purge(&self) -> AppResult<u64> {
         let retention = self.retention_days();
         let mut purged = 0;
@@ -289,8 +326,9 @@ impl Ask {
             let gone: Vec<(Uuid, bool, bool)> = sqlx::query_as(
                 "DELETE FROM ask_questions WHERE id IN (
                      SELECT id FROM ask_questions
-                     WHERE (removed_at IS NOT NULL OR dropped) AND created_at < now() - make_interval(days => $1)
-                     ORDER BY created_at LIMIT $2 FOR UPDATE SKIP LOCKED)
+                     WHERE (removed_at IS NOT NULL OR dropped)
+                       AND COALESCE(removed_at, created_at) < now() - make_interval(days => $1)
+                     ORDER BY COALESCE(removed_at, created_at) LIMIT $2 FOR UPDATE SKIP LOCKED)
                  RETURNING id, image_asset_id IS NOT NULL, answer_image_asset_id IS NOT NULL",
             )
             .bind(retention)
@@ -311,6 +349,35 @@ impl Ask {
                 break;
             }
         }
+        // Responses: the ones removed or dropped themselves, and the ones
+        // of prompts that were deleted long enough ago.
+        loop {
+            let mut tx = self.core.db.begin().await?;
+            let gone: Vec<(Uuid, bool)> = sqlx::query_as(
+                "DELETE FROM ask_prompt_responses WHERE id IN (
+                     SELECT r.id FROM ask_prompt_responses r JOIN ask_prompts p ON p.id = r.prompt_id
+                     WHERE ((r.removed_at IS NOT NULL OR r.dropped)
+                            AND COALESCE(r.removed_at, r.created_at) < now() - make_interval(days => $1))
+                        OR p.removed_at < now() - make_interval(days => $1)
+                     LIMIT $2 FOR UPDATE OF r SKIP LOCKED)
+                 RETURNING id, image_asset_id IS NOT NULL",
+            )
+            .bind(retention)
+            .bind(PURGE_BATCH)
+            .fetch_all(&mut *tx)
+            .await?;
+            for (response_id, had_image) in &gone {
+                if *had_image {
+                    assets::detach_holder(&mut *tx, &response_holder(*response_id)).await?;
+                }
+            }
+            tx.commit().await?;
+            purged += gone.len() as u64;
+            if (gone.len() as i64) < PURGE_BATCH {
+                break;
+            }
+        }
+        // By now such a prompt has no responses left.
         let prompts = sqlx::query("DELETE FROM ask_prompts WHERE removed_at < now() - make_interval(days => $1)")
             .bind(retention)
             .execute(&self.core.db)

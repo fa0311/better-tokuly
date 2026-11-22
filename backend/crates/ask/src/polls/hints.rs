@@ -1,6 +1,6 @@
 //! Hints: what the receiver of a flame can buy about whoever sent it.
 //!
-//! A flame has at most two hints, sold in order:
+//! A flame sells at most two hints, in order:
 //!
 //! 1. the first letter of the sender's name;
 //! 2. the sender's school, or how many months the two have been friends.
@@ -9,17 +9,24 @@
 //! of a single character (葵, 蓮) *is* its first letter, so for such names
 //! the letter comes from the handle instead, which always has at least three.
 //!
-//! The sender decides whether hints are sold at all (`allow_hints`). Nothing
-//! is charged for a hint that cannot be given, and a hint, once bought, is
-//! stored and never changes. Rows of `ask_flame_hints` without an `entry_id`
-//! are purchases in flight (see [`Ask::purchase_hint`]): nobody is shown them.
+//! # Decided when the vote is cast
 //!
-//! This is one of the two places that read the sender of a flame (the other
-//! is the moderation service). The sender's ID stays inside
-//! [`Ask::hint_material`], which returns only the hint itself.
+//! Whether a flame sells hints (the voter's `allow_hints`) and what they say
+//! is worked out once, by [`Ask::hints_on_offer`] while the vote is cast, and
+//! stored on the flame. A purchase reads the flame and nothing else: it
+//! never looks at the sender's account.
+//!
+//! If it did, buying would be a way to watch that account. The price list
+//! and `HINTS_UNAVAILABLE` would change when the sender switched hints off,
+//! was suspended or deleted their account, and the receiver, seeing which of
+//! their flames changed on the day a friend disappeared, would know who sent
+//! them, without paying and without a trace.
+//!
+//! A hint that was bought is copied to `ask_flame_hints` with the wallet
+//! entry that paid for it; nothing is charged for a hint that is not given.
 use std::time::Duration;
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use tokuly_core::prelude::*;
 use tokuly_proto::{
     ask::{Flame, Hint, HintKind},
@@ -39,7 +46,7 @@ const INITIAL: i16 = HintKind::HINT_KIND_INITIAL as i16;
 const SCHOOL: i16 = HintKind::HINT_KIND_SCHOOL as i16;
 const FRIEND_MONTHS: i16 = HintKind::HINT_KIND_FRIEND_MONTHS as i16;
 
-/// A hint as stored.
+/// A hint that was bought.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub(crate) struct HintRow {
     pub flame_id: Uuid,
@@ -85,6 +92,32 @@ pub(crate) fn initial_of(display_name: &str, handle: &str) -> String {
     source.graphemes(true).next().map(|first| first.to_uppercase()).unwrap_or_default()
 }
 
+/// What a voter's flame sells, in order, as `(kind, value)`.
+fn hints_about(
+    display_name: &str,
+    handle: &str,
+    school_name: &str,
+    friends_since: DateTime<Utc>,
+    now: DateTime<Utc>,
+) -> Vec<(i16, String)> {
+    let letter = initial_of(display_name, handle);
+    if letter.is_empty() {
+        return Vec::new();
+    }
+    let school = school_name.trim();
+    let second = if school.is_empty() {
+        (FRIEND_MONTHS, months_between(friends_since, now).to_string())
+    } else {
+        (SCHOOL, school.to_owned())
+    };
+    vec![(INITIAL, letter), second]
+}
+
+/// Hints as stored on a flame (`ask_flames.hints`).
+fn stored(hints: &[(i16, String)]) -> serde_json::Value {
+    hints.iter().map(|(kind, value)| serde_json::json!({ "kind": kind, "value": value })).collect()
+}
+
 /// The buyer's key: 8 to 128 characters.
 fn check_key(key: &str) -> AppResult<()> {
     ensure!(
@@ -96,113 +129,75 @@ fn check_key(key: &str) -> AppResult<()> {
     Ok(())
 }
 
-fn hints_unavailable() -> AppError {
-    AppError::precondition("HINTS_UNAVAILABLE", "no hints are available for this flame")
-}
-
 impl Ask {
-    /// The hint at `position` for a flame: its kind and value. `None` when
-    /// the sender's account is gone or the sender does not allow hints.
+    /// The price of the hint after `bought` hints of a flame that sells
+    /// `on_offer`; 0 when none is left.
+    pub(crate) fn next_hint_price(&self, bought: usize, on_offer: usize) -> i64 {
+        if bought < on_offer { self.hint_prices.get(bought).copied().unwrap_or(0) } else { 0 }
+    }
+
+    /// What a vote of `voter` for `receiver` sells as hints, in the form
+    /// stored on the flame: nothing when the voter switched hints off.
     ///
-    /// The sender is read and used here, and only what the hint says leaves
-    /// this function.
-    async fn hint_material(&self, flame_id: Uuid, position: usize) -> AppResult<Option<(i16, String)>> {
+    /// This is the one place that reads a voter's account for hints, and it
+    /// runs once per vote, before the flame exists.
+    pub(crate) async fn hints_on_offer(&self, voter: Uuid, receiver: Uuid) -> AppResult<serde_json::Value> {
         #[derive(sqlx::FromRow)]
-        struct Sender {
+        struct Voter {
             display_name: String,
             handle: String,
             school_name: String,
             allow_hints: bool,
-            friends_since: Option<chrono::DateTime<Utc>>,
+            friends_since: Option<DateTime<Utc>>,
         }
-        let sender: Option<Sender> = sqlx::query_as(
+        let voter: Option<Voter> = sqlx::query_as(
             "SELECT u.display_name, u.handle::text AS handle, u.school_name,
                     COALESCE((SELECT s.allow_hints FROM ask_settings s WHERE s.user_id = u.id), true) AS allow_hints,
                     COALESCE(
-                        (SELECT l.since FROM ask_friend_links l WHERE l.user_id = f.receiver_id AND l.friend_id = u.id),
-                        (SELECT e.created_at FROM ask_poll_exposure e WHERE e.user_id = u.id AND e.friend_id = f.receiver_id),
-                        f.created_at
+                        (SELECT l.since FROM ask_friend_links l WHERE l.user_id = $2 AND l.friend_id = u.id),
+                        (SELECT e.created_at FROM ask_poll_exposure e WHERE e.user_id = u.id AND e.friend_id = $2)
                     ) AS friends_since
-             FROM ask_flames f JOIN users u ON u.id = f.sender_id
-             WHERE f.id = $1 AND u.deleted_at IS NULL AND u.banned_at IS NULL",
+             FROM users u WHERE u.id = $1",
         )
-        .bind(flame_id)
+        .bind(voter)
+        .bind(receiver)
         .fetch_optional(&self.core.db)
         .await?;
-        let Some(sender) = sender.filter(|sender| sender.allow_hints) else { return Ok(None) };
-        Ok(match position {
-            0 => Some((INITIAL, initial_of(&sender.display_name, &sender.handle)))
-                .filter(|(_, letter)| !letter.is_empty()),
-            1 if !sender.school_name.trim().is_empty() => Some((SCHOOL, sender.school_name.trim().to_owned())),
-            1 => Some((
-                FRIEND_MONTHS,
-                months_between(sender.friends_since.unwrap_or_else(Utc::now), Utc::now()).to_string(),
-            )),
-            _ => None,
-        })
+        let now = Utc::now();
+        let hints = match voter.filter(|voter| voter.allow_hints) {
+            Some(voter) => hints_about(
+                &voter.display_name,
+                &voter.handle,
+                &voter.school_name,
+                voter.friends_since.unwrap_or(now),
+                now,
+            ),
+            None => Vec::new(),
+        };
+        Ok(stored(&hints[..hints.len().min(self.hint_prices.len())]))
     }
 
-    /// A hint that was paid for: the one bought under `by_key`, or the one
-    /// at `by_position`.
-    async fn paid_hint(
-        &self,
-        flame_id: Uuid,
-        by_key: Option<&str>,
-        by_position: Option<i16>,
-    ) -> AppResult<Option<HintRow>> {
+    /// The hint of a flame that was bought under `key`.
+    async fn hint_bought_with(&self, flame_id: Uuid, key: &str) -> AppResult<Option<HintRow>> {
         Ok(sqlx::query_as(
-            "SELECT flame_id, kind, value FROM ask_flame_hints
-             WHERE flame_id = $1 AND entry_id IS NOT NULL
-               AND ($2::text IS NULL OR idempotency_key = $2) AND ($3::smallint IS NULL OR position = $3)",
+            "SELECT flame_id, kind, value FROM ask_flame_hints WHERE flame_id = $1 AND $2 = ANY(request_keys)",
         )
         .bind(flame_id)
-        .bind(by_key)
-        .bind(by_position)
+        .bind(key)
         .fetch_optional(&self.core.db)
         .await?)
-    }
-
-    /// Makes sure an unpaid hint is stored at `position` before anything is
-    /// charged: the one an interrupted purchase left behind, or a new one.
-    /// Fails with `HINTS_UNAVAILABLE` when there is none and the sender does
-    /// not (or can no longer) give one.
-    async fn reserve_hint(&self, flame_id: Uuid, position: usize, price: i64, key: &str) -> AppResult<()> {
-        let waiting: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM ask_flame_hints WHERE flame_id = $1 AND position = $2 AND entry_id IS NULL)",
-        )
-        .bind(flame_id)
-        .bind(position as i16)
-        .fetch_one(&self.core.db)
-        .await?;
-        if waiting {
-            return Ok(());
-        }
-        let (kind, value) = self.hint_material(flame_id, position).await?.ok_or_else(hints_unavailable)?;
-        sqlx::query(
-            "INSERT INTO ask_flame_hints (flame_id, position, kind, value, price, idempotency_key)
-             VALUES ($1, $2, $3, $4, $5, $6)
-             ON CONFLICT DO NOTHING",
-        )
-        .bind(flame_id)
-        .bind(position as i16)
-        .bind(kind)
-        .bind(&value)
-        .bind(price)
-        .bind(key)
-        .execute(&self.core.db)
-        .await?;
-        Ok(())
     }
 
     /// Buys the next hint about the sender of one of `receiver`'s flames.
     /// Returns the flame with its hints, the hint this purchase is for, and
     /// the coins this call charged (0 when it repeated an earlier one).
     ///
-    /// The hint is stored, unpaid and invisible, before the wallet is
-    /// charged, and marked paid afterwards. If the process stops in between,
-    /// the next purchase finds the stored hint and pays for it under the
-    /// same ledger key, which charges only if the first attempt had not: the
-    /// buyer never pays without getting the hint, and never pays twice.
+    /// Everything comes from the flame. The wallet is charged under a key
+    /// made of the flame and the hint's position, so that however the
+    /// request is repeated, and however many arrive at once, one hint is
+    /// paid for once; the hint is stored after the charge, and a request
+    /// that was interrupted in between finds the charge made and stores it
+    /// without paying again.
     pub(crate) async fn purchase_hint(
         &self,
         receiver: Uuid,
@@ -216,27 +211,30 @@ impl Ask {
             .await?;
         let flame = self.received_flame(receiver, flame_id).await?;
 
-        let (hint, charged) = match self.paid_hint(flame_id, Some(key), None).await? {
+        let (hint, charged) = match self.hint_bought_with(flame_id, key).await? {
             // A retry of a purchase that already went through.
             Some(hint) => (hint, 0),
             None => {
-                let bought: i64 = sqlx::query_scalar(
-                    "SELECT count(*) FROM ask_flame_hints WHERE flame_id = $1 AND entry_id IS NOT NULL",
+                let on_offer = flame.hints_on_offer as usize;
+                ensure!(on_offer > 0, precondition, "HINTS_UNAVAILABLE", "this flame sells no hints");
+                let bought: i64 = sqlx::query_scalar("SELECT count(*) FROM ask_flame_hints WHERE flame_id = $1")
+                    .bind(flame_id)
+                    .fetch_one(&self.core.db)
+                    .await?;
+                let position = bought as usize;
+                let price = self.next_hint_price(position, on_offer);
+                ensure!(price > 0, precondition, "NO_MORE_HINTS", "there are no more hints for this flame");
+                let (kind, value): (i16, String) = sqlx::query_as(
+                    "SELECT (hints -> $2::int ->> 'kind')::smallint, hints -> $2::int ->> 'value' FROM ask_flames WHERE id = $1",
                 )
                 .bind(flame_id)
+                .bind(position as i32)
                 .fetch_one(&self.core.db)
                 .await?;
-                let position = bought as usize;
-                // The price is looked at before the sender is: whether a
-                // further hint exists must not depend on who sent the flame.
-                let price = self.next_hint_price(position);
-                ensure!(price > 0, precondition, "NO_MORE_HINTS", "there are no more hints for this flame");
-                self.reserve_hint(flame_id, position, price, key).await?;
-                // One charge per flame and hint, however the request is
-                // repeated. The memo is shown in the buyer's coin history
-                // and says nothing about the sender.
+                // The memo is shown in the buyer's coin history and says
+                // nothing about the sender.
                 let memo = serde_json::json!({ "flame_id": flame_id, "hint": position + 1 });
-                let spent = ledger::spend(
+                let (entry_id, applied) = ledger::spend(
                     &self.core,
                     receiver,
                     price,
@@ -244,35 +242,25 @@ impl Ask {
                     &format!("{HINT_REASON}:{flame_id}:{position}"),
                     memo,
                 )
-                .await;
-                let (entry_id, applied) = match spent {
-                    Ok(spent) => spent,
-                    Err(e) => {
-                        // Nothing was charged: take back the hint this
-                        // request stored (not one an earlier, interrupted
-                        // purchase may have paid for).
-                        sqlx::query("DELETE FROM ask_flame_hints WHERE flame_id = $1 AND position = $2 AND entry_id IS NULL AND idempotency_key = $3")
-                            .bind(flame_id)
-                            .bind(position as i16)
-                            .bind(key)
-                            .execute(&self.core.db)
-                            .await?;
-                        return Err(e);
-                    }
-                };
-                sqlx::query("UPDATE ask_flame_hints SET entry_id = $3, idempotency_key = $4 WHERE flame_id = $1 AND position = $2 AND entry_id IS NULL")
-                    .bind(flame_id)
-                    .bind(position as i16)
-                    .bind(entry_id)
-                    .bind(key)
-                    .execute(&self.core.db)
-                    .await?;
-                // Whichever request paid for this position's hint, that is the hint.
-                let hint = self.paid_hint(flame_id, None, Some(position as i16)).await?.ok_or_else(|| {
-                    AppError::internal(anyhow::anyhow!(
-                        "hint {position} of flame {flame_id} was paid for but not stored"
-                    ))
-                })?;
+                .await?;
+                // Whichever request stored this position's hint first, every
+                // request that asked for it is remembered as having bought it.
+                let hint: HintRow = sqlx::query_as(
+                    "INSERT INTO ask_flame_hints AS h (flame_id, position, kind, value, price, request_keys, entry_id)
+                     VALUES ($1, $2, $3, $4, $5, ARRAY[$6::text], $7)
+                     ON CONFLICT (flame_id, position) DO UPDATE SET
+                         request_keys = CASE WHEN $6::text = ANY(h.request_keys) THEN h.request_keys ELSE array_append(h.request_keys, $6::text) END
+                     RETURNING flame_id, kind, value",
+                )
+                .bind(flame_id)
+                .bind(position as i16)
+                .bind(kind)
+                .bind(&value)
+                .bind(price)
+                .bind(key)
+                .bind(entry_id)
+                .fetch_one(&self.core.db)
+                .await?;
                 (hint, if applied { price } else { 0 })
             }
         };
@@ -284,6 +272,8 @@ impl Ask {
 
 #[cfg(test)]
 mod tests {
+    use chrono::Duration as Days;
+
     use super::*;
 
     #[test]
@@ -317,6 +307,27 @@ mod tests {
         assert_eq!(initial_of("👩‍🦰", "red"), "R");
         // Two graphemes: the first one, whole.
         assert_eq!(initial_of("👩‍🦰みか", "mika"), "👩‍🦰");
+    }
+
+    #[test]
+    fn a_vote_sells_the_initial_and_then_the_school_or_the_months() {
+        let now = Utc::now();
+        let with_school = hints_about("hanako", "hana", " 桜丘高校 ", now - Days::days(400), now);
+        assert_eq!(with_school, vec![(INITIAL, "H".to_owned()), (SCHOOL, "桜丘高校".to_owned())]);
+        let without = hints_about("hanako", "hana", "  ", now - Days::days(95), now);
+        assert_eq!(without, vec![(INITIAL, "H".to_owned()), (FRIEND_MONTHS, "3".to_owned())]);
+        // No letter to give (which a real account cannot have): no hints.
+        assert!(hints_about("", "", "桜丘高校", now, now).is_empty());
+    }
+
+    #[test]
+    fn hints_are_stored_on_the_flame_in_order() {
+        let hints = vec![(INITIAL, "H".to_owned()), (SCHOOL, "桜丘高校".to_owned())];
+        assert_eq!(
+            stored(&hints),
+            serde_json::json!([{ "kind": 1, "value": "H" }, { "kind": 2, "value": "桜丘高校" }])
+        );
+        assert_eq!(stored(&[]), serde_json::json!([]));
     }
 
     #[test]

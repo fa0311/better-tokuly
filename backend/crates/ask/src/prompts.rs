@@ -13,6 +13,7 @@
 //! which they could read there anyway.
 use chrono::{DateTime, Duration, Utc};
 use tokuly_core::{events, prelude::*};
+use tokuly_media::assets::{self, image_from_json};
 use tokuly_proto::{
     ask::{Prompt, PromptResponse, ResponseFilter},
     common::{PageInfo, UserSummary},
@@ -35,16 +36,24 @@ const MAX_OPEN_PROMPTS: i64 = 3;
 /// Prompts one owner may post per day.
 const PROMPTS_PER_DAY: u32 = 10;
 
+/// What holds the image of a prompt response in the media domain.
+pub(crate) fn response_holder(response_id: Uuid) -> String {
+    format!("ask:response:{response_id}")
+}
+
 pub(crate) fn prompt_path(prompt_id: Uuid) -> String {
     format!("/ask/prompts/{prompt_id}")
 }
 
 /// SQL condition for "this response is in the owner's view": not deleted or
-/// taken down, not dropped, and not sent by a banned account.
+/// taken down, not dropped, and not a signed response of a suspended
+/// account (an anonymous one stays whatever becomes of its sender's account).
 macro_rules! response_in_box {
     () => {
-        "r.removed_at IS NULL AND NOT r.dropped \
-         AND NOT EXISTS (SELECT 1 FROM users banned WHERE banned.id = r.sender_id AND banned.banned_at IS NOT NULL)"
+        concat!(
+            "r.delivered_at IS NOT NULL AND r.removed_at IS NULL AND NOT r.dropped AND NOT ",
+            $crate::senders::signed_by_suspended!("r")
+        )
     };
 }
 pub(crate) use response_in_box;
@@ -79,7 +88,7 @@ macro_rules! prompt_columns {
 macro_rules! response_columns {
     () => {
         "r.id, r.prompt_id, r.owner_id, CASE WHEN r.signed THEN r.sender_id END AS responder_id, r.signed, r.text, \
-         r.held, r.seen_at, r.published_at, r.created_at, (r.removed_at IS NULL AND NOT r.dropped) AS live, \
+         r.image, r.held, r.seen_at, r.published_at, r.created_at, (r.removed_at IS NULL AND NOT r.dropped) AS live, \
          COALESCE(r.sender_id = $1, false) AS sent_by_viewer"
     };
 }
@@ -102,11 +111,21 @@ pub(crate) struct PromptRow {
     pub responded: bool,
 }
 
+/// What a prompt's viewer may do, as far as it does not follow from the
+/// prompt itself.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct Access {
+    /// The viewer is a friend of the owner: they may respond.
+    pub friend: bool,
+    /// The owner has enough friends for a response to stay anonymous.
+    pub crowd: bool,
+}
+
 impl PromptRow {
-    /// The prompt as `viewer` sees it. `viewer_is_friend` only matters for
-    /// `can_respond`.
-    pub(crate) fn to_proto(&self, viewer: Option<Uuid>, owner: UserSummary, viewer_is_friend: bool) -> Prompt {
+    /// The prompt as `viewer` sees it.
+    pub(crate) fn to_proto(&self, viewer: Option<Uuid>, owner: UserSummary, access: Access) -> Prompt {
         let is_owner = viewer == Some(self.owner_id);
+        let can_respond = !is_owner && access.friend && self.open && !self.responded;
         Prompt {
             id: self.id.to_string(),
             owner: owner.into(),
@@ -120,8 +139,9 @@ impl PromptRow {
             unseen_count: if is_owner { self.unseen_count as i32 } else { 0 },
             held_count: if is_owner { self.held_count as i32 } else { 0 },
             responded: !is_owner && self.responded,
-            can_respond: !is_owner && viewer_is_friend && self.open && !self.responded,
+            can_respond,
             path: prompt_path(self.id),
+            anonymous_available: can_respond && access.crowd,
             ..Default::default()
         }
     }
@@ -136,6 +156,7 @@ pub(crate) struct ResponseRow {
     pub responder_id: Option<Uuid>,
     pub signed: bool,
     pub text: String,
+    pub image: Option<serde_json::Value>,
     pub held: bool,
     pub seen_at: Option<DateTime<Utc>>,
     pub published_at: Option<DateTime<Utc>>,
@@ -170,6 +191,7 @@ impl ResponseRow {
             held: is_owner && self.held,
             seen: is_owner && self.seen_at.is_some(),
             sent_by_me: self.sent_by_viewer && !is_owner,
+            image: image_from_json(self.image.as_ref()).into(),
             ..Default::default()
         }
     }
@@ -298,12 +320,12 @@ impl Ask {
             .ok_or_else(prompt_not_found)
     }
 
-    /// A prompt `viewer` may see: their own or a friend's. Returns whether
-    /// the viewer is a friend of the owner (false for the owner).
-    pub(crate) async fn visible_prompt(&self, viewer: Uuid, prompt_id: Uuid) -> AppResult<(PromptRow, bool)> {
+    /// A prompt `viewer` may see: their own or a friend's, with what the
+    /// viewer may do with it (nothing more than look, for the owner).
+    pub(crate) async fn visible_prompt(&self, viewer: Uuid, prompt_id: Uuid) -> AppResult<(PromptRow, Access)> {
         let prompt = self.find_prompt(prompt_id, Some(viewer)).await?.ok_or_else(prompt_not_found)?;
         if prompt.owner_id == viewer {
-            return Ok((prompt, false));
+            return Ok((prompt, Access::default()));
         }
         // Friends cannot be in a block with each other, so this covers blocks.
         ensure!(
@@ -312,7 +334,8 @@ impl Ask {
             "PROMPT_NOT_FOUND",
             "prompt not found"
         );
-        Ok((prompt, true))
+        let crowd = self.has_anonymity_set(prompt.owner_id).await?;
+        Ok((prompt, Access { friend: true, crowd }))
     }
 
     /// Closes a prompt early.
@@ -399,21 +422,32 @@ impl Ask {
         prompt_id: Uuid,
         text: &str,
         signed: bool,
+        image_asset_id: &str,
     ) -> AppResult<ResponseRow> {
-        let (prompt, is_friend) = self.visible_prompt(sender, prompt_id).await?;
+        let (prompt, access) = self.visible_prompt(sender, prompt_id).await?;
         ensure!(prompt.owner_id != sender, invalid, "CANNOT_RESPOND_TO_OWN", "you cannot respond to your own prompt");
-        debug_assert!(is_friend);
+        debug_assert!(access.friend);
         ensure!(prompt.open, precondition, "PROMPT_CLOSED", "this prompt is closed");
         ensure!(!prompt.responded, already_exists, "ALREADY_RESPONDED", "you already responded to this prompt");
+        // Only the owner's friends can respond: with too few of them a
+        // response could not stay anonymous. (How many friends someone has
+        // is on their profile.)
+        ensure!(
+            signed || access.crowd,
+            precondition,
+            "AUDIENCE_TOO_SMALL",
+            "too few people can respond here for a response to stay anonymous; sign it instead"
+        );
         let text = text::required(text, text::RESPONSE_MAX, "RESPONSE_TEXT_INVALID", "the response")?;
+        let owner_settings = crate::settings::load(&self.core.db, prompt.owner_id).await?;
+        let image = self.sender_image(sender, image_asset_id, owner_settings.allow_images).await?;
         self.limit_sends(sender, prompt.owner_id).await?;
-        let muted_words = crate::settings::load(&self.core.db, prompt.owner_id).await?.muted_words;
-        let intake = self.intake(sender, prompt.owner_id, &text, &muted_words).await?;
+        let intake = self.intake(sender, prompt.owner_id, &text, &owner_settings.muted_words).await?;
 
         let mut tx = self.core.db.begin().await?;
         let stored: Result<ResponseRow, sqlx::Error> = sqlx::query_as(concat!(
-            "INSERT INTO ask_prompt_responses AS r (sender_id, prompt_id, owner_id, signed, text, held, dropped)
-             SELECT $1, p.id, p.owner_id, $3, $4, $5, $6 FROM ask_prompts p
+            "INSERT INTO ask_prompt_responses AS r (sender_id, prompt_id, owner_id, signed, text, held, dropped, image, image_asset_id)
+             SELECT $1, p.id, p.owner_id, $3, $4, $5, $6, $7, $8 FROM ask_prompts p
              WHERE p.id = $2 AND p.removed_at IS NULL AND p.closed_at IS NULL AND p.closes_at > now()
              RETURNING ",
             response_columns!()
@@ -424,6 +458,8 @@ impl Ask {
         .bind(&text)
         .bind(intake.held)
         .bind(intake.dropped)
+        .bind(image.as_ref().map(|(_, image)| image))
+        .bind(image.as_ref().map(|(asset_id, _)| *asset_id))
         .fetch_one(&mut *tx)
         .await;
         let response = match stored {
@@ -436,6 +472,9 @@ impl Ask {
             Err(sqlx::Error::RowNotFound) => bail!(precondition, "PROMPT_CLOSED", "this prompt is closed"),
             Err(e) => return Err(e.into()),
         };
+        if let Some((asset_id, _)) = &image {
+            assets::attach(&mut *tx, *asset_id, &response_holder(response.id)).await?;
+        }
         events::emit(&mut *tx, RESPONSE_STORED, None, &Stored { id: response.id }).await?;
         tx.commit().await?;
         Ok(response)
@@ -597,10 +636,11 @@ impl Ask {
 
     /// `admin.content.removed` for a prompt or a response: gone for everyone.
     pub(crate) async fn take_down_prompt_content(&self, subject_id: Uuid) -> AppResult<()> {
+        let mut tx = self.core.db.begin().await?;
         sqlx::query("UPDATE ask_prompts SET removed_at = now(), removed_by = $2 WHERE id = $1 AND removed_at IS NULL")
             .bind(subject_id)
             .bind(REMOVED_BY_MODERATION)
-            .execute(&self.core.db)
+            .execute(&mut *tx)
             .await?;
         sqlx::query(
             "UPDATE ask_prompt_responses SET removed_at = COALESCE(removed_at, now()), removed_by = $2, published_at = NULL
@@ -608,8 +648,20 @@ impl Ask {
         )
         .bind(subject_id)
         .bind(REMOVED_BY_MODERATION)
-        .execute(&self.core.db)
+        .execute(&mut *tx)
         .await?;
+        // What was taken down is shown nowhere any more: release its images
+        // (the response itself, or every response of the prompt).
+        let pictured: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM ask_prompt_responses WHERE (id = $1 OR prompt_id = $1) AND image_asset_id IS NOT NULL",
+        )
+        .bind(subject_id)
+        .fetch_all(&mut *tx)
+        .await?;
+        for response_id in pictured {
+            assets::detach_holder(&mut *tx, &response_holder(response_id)).await?;
+        }
+        tx.commit().await?;
         Ok(())
     }
 }
@@ -617,6 +669,9 @@ impl Ask {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A friend of an owner who has friends enough.
+    const FRIEND: Access = Access { friend: true, crowd: true };
 
     fn prompt(owner: Uuid) -> PromptRow {
         PromptRow {
@@ -643,6 +698,7 @@ mod tests {
             responder_id: None,
             signed: false,
             text: "やさしそう!".into(),
+            image: None,
             held: false,
             seen_at: None,
             published_at: None,
@@ -666,10 +722,10 @@ mod tests {
     fn only_the_owner_sees_the_response_counters() {
         let (owner, friend) = (new_id(), new_id());
         let row = prompt(owner);
-        let mine = row.to_proto(Some(owner), UserSummary::default(), false);
+        let mine = row.to_proto(Some(owner), UserSummary::default(), Access::default());
         assert_eq!((mine.response_count, mine.unseen_count, mine.held_count), (5, 3, 1));
         assert!(!mine.can_respond && !mine.responded);
-        let theirs = row.to_proto(Some(friend), UserSummary::default(), true);
+        let theirs = row.to_proto(Some(friend), UserSummary::default(), FRIEND);
         assert_eq!((theirs.response_count, theirs.unseen_count, theirs.held_count), (0, 0, 0));
         assert_eq!(theirs.published_count, 2);
         assert!(theirs.can_respond);
@@ -679,13 +735,26 @@ mod tests {
     fn responding_needs_an_open_prompt_a_friend_and_no_earlier_response() {
         let (owner, friend) = (new_id(), new_id());
         let mut row = prompt(owner);
-        assert!(!row.to_proto(Some(friend), UserSummary::default(), false).can_respond, "not a friend");
+        assert!(!row.to_proto(Some(friend), UserSummary::default(), Access::default()).can_respond, "not a friend");
         row.responded = true;
-        let seen = row.to_proto(Some(friend), UserSummary::default(), true);
+        let seen = row.to_proto(Some(friend), UserSummary::default(), FRIEND);
         assert!(seen.responded && !seen.can_respond);
         row.responded = false;
         row.open = false;
-        assert!(!row.to_proto(Some(friend), UserSummary::default(), true).can_respond);
+        assert!(!row.to_proto(Some(friend), UserSummary::default(), FRIEND).can_respond);
+    }
+
+    #[test]
+    fn an_anonymous_response_needs_an_owner_with_friends_enough() {
+        let (owner, friend) = (new_id(), new_id());
+        let row = prompt(owner);
+        let lonely = row.to_proto(Some(friend), UserSummary::default(), Access { friend: true, crowd: false });
+        assert!(lonely.can_respond && !lonely.anonymous_available, "a signed response is still possible");
+        assert!(row.to_proto(Some(friend), UserSummary::default(), FRIEND).anonymous_available);
+        assert!(
+            !row.to_proto(Some(owner), UserSummary::default(), FRIEND).anonymous_available,
+            "the owner does not respond"
+        );
     }
 
     #[test]

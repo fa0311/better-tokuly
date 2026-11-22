@@ -5,6 +5,9 @@
 //! anonymously. Two rules hold for every lookup here:
 //!
 //! - the role check is the first thing the handler does;
+//! - nobody looks up what was sent to themselves, or what they sent
+//!   themselves (`CONFLICT_OF_INTEREST`): a moderator's own inbox is as
+//!   anonymous to them as anyone's, and a colleague handles the report;
 //! - the lookup is written to `ask_inspections` in the same transaction as
 //!   the read, before anything is returned. If the trace cannot be written,
 //!   nothing is revealed.
@@ -62,6 +65,7 @@ struct InspectedResponse {
     sender_banned: bool,
     created_at: DateTime<Utc>,
     text: String,
+    image: Option<serde_json::Value>,
     prompt_id: Uuid,
     prompt_text: String,
     published: bool,
@@ -81,6 +85,20 @@ struct InspectedFlame {
     text_en: String,
     emoji: String,
     hints_bought: i64,
+}
+
+/// Refuses a lookup by staff who are a party to the item. The refusal says
+/// nothing new: it depends only on what the staff member already knows
+/// about themselves (that it was sent to them, or that they sent it).
+fn refuse_own(staff: Uuid, sender: Option<Uuid>, recipient: Uuid, kind: &str, target: Uuid) -> AppResult<()> {
+    if staff == recipient || sender == Some(staff) {
+        tracing::warn!(%staff, kind, %target, "a staff member tried to inspect an item they are a party to");
+        return Err(AppError::denied(
+            "CONFLICT_OF_INTEREST",
+            "you cannot look up what was sent to you or by you; ask another moderator",
+        ));
+    }
+    Ok(())
 }
 
 /// `EXISTS` clause telling whether the sender's account is banned; `x` is
@@ -151,6 +169,7 @@ impl AskModerationService for Ask {
             .fetch_optional(&mut *tx)
             .await?;
             let row = row.or_not_found("QUESTION_NOT_FOUND", "question not found")?;
+            refuse_own(staff, row.sender_id, row.owner_id, "question", question_id)?;
             Self::record_inspection(&mut tx, staff, "question", question_id).await?;
             tx.commit().await?;
 
@@ -205,13 +224,14 @@ impl AskModerationService for Ask {
             let row: Option<InspectedResponse> = sqlx::query_as(concat!(
                 "SELECT r.sender_id, r.owner_id, r.signed, r.dropped, ",
                 sender_banned!("r"),
-                ", r.created_at, r.text, r.prompt_id, p.text AS prompt_text, (r.published_at IS NOT NULL) AS published, r.held, r.removed_at
+                ", r.created_at, r.text, r.image, r.prompt_id, p.text AS prompt_text, (r.published_at IS NOT NULL) AS published, r.held, r.removed_at
                  FROM ask_prompt_responses r JOIN ask_prompts p ON p.id = r.prompt_id WHERE r.id = $1"
             ))
             .bind(response_id)
             .fetch_optional(&mut *tx)
             .await?;
             let row = row.or_not_found("RESPONSE_NOT_FOUND", "response not found")?;
+            refuse_own(staff, row.sender_id, row.owner_id, "prompt_response", response_id)?;
             Self::record_inspection(&mut tx, staff, "prompt_response", response_id).await?;
             tx.commit().await?;
 
@@ -226,6 +246,7 @@ impl AskModerationService for Ask {
             ok(InspectPromptResponseResponse {
                 record: self.sender_record(parties).await?.into(),
                 text: row.text,
+                image: image_from_json(row.image.as_ref()).into(),
                 prompt_id: row.prompt_id.to_string(),
                 prompt_text: row.prompt_text,
                 published: row.published,
@@ -250,13 +271,14 @@ impl AskModerationService for Ask {
                 "SELECT f.sender_id, f.receiver_id, f.dropped, ",
                 sender_banned!("f"),
                 ", f.created_at, f.question_id, p.text_ja, p.text_en, p.emoji,
-                   (SELECT count(*) FROM ask_flame_hints h WHERE h.flame_id = f.id AND h.entry_id IS NOT NULL) AS hints_bought
+                   (SELECT count(*) FROM ask_flame_hints h WHERE h.flame_id = f.id) AS hints_bought
                  FROM ask_flames f JOIN ask_poll_questions p ON p.id = f.question_id WHERE f.id = $1"
             ))
             .bind(flame_id)
             .fetch_optional(&mut *tx)
             .await?;
             let row = row.or_not_found("FLAME_NOT_FOUND", "flame not found")?;
+            refuse_own(staff, row.sender_id, row.receiver_id, "flame", flame_id)?;
             Self::record_inspection(&mut tx, staff, "flame", flame_id).await?;
             tx.commit().await?;
 

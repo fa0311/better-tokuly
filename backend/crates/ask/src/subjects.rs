@@ -19,7 +19,10 @@
 //! - **published** (an answer on the Q&A page): the box owner, for everyone.
 //!   They published it; likes and comments are theirs.
 //! - **not published, seen by its recipient**: nobody (the nil UUID). The
-//!   recipient can report it, and learns nothing.
+//!   recipient can report it, and learns nothing. That holds for anything
+//!   that was delivered to them, also after they deleted it or its sender
+//!   took it back: withdrawing abuse must not put it out of a report's
+//!   reach.
 //! - **not published, seen by staff**: the sender. This is how a takedown
 //!   reaches the account that wrote an anonymous question. Every time it
 //!   happens it is recorded in `ask_inspections`, like a lookup through
@@ -119,7 +122,10 @@ impl Item {
 /// The facts about a question the decision needs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct QuestionFacts {
-    /// In the recipient's box: not removed, not dropped, sender not banned.
+    /// Delivered to the recipient at some point (and not dropped), whatever
+    /// became of it since.
+    pub received: bool,
+    /// In the recipient's box now (`questions::in_box`).
     pub in_box: bool,
     /// Removed by moderation: gone for everyone.
     pub taken_down: bool,
@@ -143,10 +149,11 @@ pub(crate) fn decide_question(viewer: Viewer, facts: QuestionFacts) -> Option<De
     let published = facts.published();
     let on_page = Decision { owner: Owner::Recipient, interactions: true };
     match viewer {
-        Viewer::Recipient if !facts.in_box => None,
+        Viewer::Recipient if !facts.received => None,
         Viewer::Recipient if published => Some(on_page),
-        // An incoming question, or one answered privately: reportable, and
-        // owned by nobody as far as its recipient can tell.
+        // An incoming question, one answered privately, or one that has
+        // left the box since (deleted, withdrawn): reportable, and owned by
+        // nobody as far as its recipient can tell.
         Viewer::Recipient => Some(Decision { owner: Owner::Nobody, interactions: false }),
         // The sender sees an answer to their question, never the bare
         // question (there is nothing to like or report in their own words).
@@ -169,8 +176,10 @@ pub(crate) fn decide_question(viewer: Viewer, facts: QuestionFacts) -> Option<De
 /// The facts about a prompt response the decision needs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ResponseFacts {
-    /// In the prompt owner's view: not removed, not dropped, sender not
-    /// banned, and its prompt still exists.
+    /// Delivered to the prompt's owner at some point (and not dropped).
+    pub received: bool,
+    /// In the prompt owner's view now (`prompts::response_in_box`), and its
+    /// prompt still exists.
     pub in_box: bool,
     pub taken_down: bool,
     /// On the prompt's page (published and not held).
@@ -185,10 +194,10 @@ pub(crate) fn decide_response(viewer: Viewer, facts: ResponseFacts) -> Option<De
     }
     let none = |owner| Some(Decision { owner, interactions: false });
     match viewer {
-        Viewer::Recipient if !facts.in_box => None,
+        Viewer::Recipient if !facts.received => None,
         // The prompt owner put it on the page: it is theirs now, and they
         // cannot report what they published.
-        Viewer::Recipient if facts.published => none(Owner::Recipient),
+        Viewer::Recipient if facts.in_box && facts.published => none(Owner::Recipient),
         Viewer::Recipient => none(Owner::Nobody),
         Viewer::Staff if facts.in_box && facts.published => none(Owner::Recipient),
         Viewer::Staff => none(Owner::Sender),
@@ -203,6 +212,7 @@ struct QuestionSubject {
     owner_id: Uuid,
     text: String,
     answer_image: Option<serde_json::Value>,
+    received: bool,
     in_box: bool,
     taken_down: bool,
     answered: bool,
@@ -221,6 +231,7 @@ struct ResponseSubject {
     owner_id: Uuid,
     prompt_id: Uuid,
     text: String,
+    received: bool,
     in_box: bool,
     taken_down: bool,
     published: bool,
@@ -270,8 +281,8 @@ impl AskSubjects {
             Owner::Nobody => Ok(NO_OWNER),
             Owner::Sender => {
                 let Some(staff) = staff else { return Ok(NO_OWNER) };
-                // The one place outside `moderation_svc.rs` and `hints.rs`
-                // that reads the sender of an anonymous item.
+                // The one place outside `moderation_svc.rs` that reads the
+                // sender of an anonymous item.
                 let sender: Option<Uuid> =
                     sqlx::query_scalar(item.sender_query()).bind(id).fetch_optional(&self.core.db).await?.flatten();
                 let Some(sender) = sender else { return Ok(NO_OWNER) };
@@ -297,7 +308,8 @@ impl AskSubjects {
     async fn resolve_question(&self, id: Uuid, viewer: Option<Uuid>) -> AppResult<Option<SubjectInfo>> {
         // "In the box" is the same condition the inbox itself uses.
         let row: Option<QuestionSubject> = sqlx::query_as(concat!(
-            "SELECT q.owner_id, q.text, q.answer_image, (",
+            "SELECT q.owner_id, q.text, q.answer_image,
+                    (q.delivered_at IS NOT NULL AND NOT q.dropped) AS received, (",
             in_box!(),
             ") AS in_box,
                     (q.removed_by IS NOT DISTINCT FROM $3) AS taken_down,
@@ -314,6 +326,7 @@ impl AskSubjects {
         let Some(row) = row else { return Ok(None) };
         let who = self.viewer_of(viewer, row.owner_id, row.sent_by_viewer).await?;
         let facts = QuestionFacts {
+            received: row.received,
             in_box: row.in_box,
             taken_down: row.taken_down,
             answered: row.answered,
@@ -360,7 +373,8 @@ impl AskSubjects {
     async fn resolve_response(&self, id: Uuid, viewer: Option<Uuid>) -> AppResult<Option<SubjectInfo>> {
         // The owner's view of responses, and a prompt that still exists.
         let row: Option<ResponseSubject> = sqlx::query_as(concat!(
-            "SELECT r.owner_id, r.prompt_id, r.text, (",
+            "SELECT r.owner_id, r.prompt_id, r.text,
+                    (r.delivered_at IS NOT NULL AND NOT r.dropped) AS received, (",
             response_in_box!(),
             " AND EXISTS (SELECT 1 FROM ask_prompts p WHERE p.id = r.prompt_id AND p.removed_at IS NULL)) AS in_box,
                     (r.removed_by IS NOT DISTINCT FROM $3) AS taken_down,
@@ -375,7 +389,12 @@ impl AskSubjects {
         .await?;
         let Some(row) = row else { return Ok(None) };
         let who = self.viewer_of(viewer, row.owner_id, row.sent_by_viewer).await?;
-        let facts = ResponseFacts { in_box: row.in_box, taken_down: row.taken_down, published: row.published };
+        let facts = ResponseFacts {
+            received: row.received,
+            in_box: row.in_box,
+            taken_down: row.taken_down,
+            published: row.published,
+        };
         let Some(decision) = decide_response(who, facts) else { return Ok(None) };
         let staff = viewer.filter(|_| who == Viewer::Staff);
         Ok(Some(SubjectInfo {
@@ -427,7 +446,21 @@ mod tests {
     const VIEWERS: [Viewer; 5] = [Viewer::Recipient, Viewer::Sender, Viewer::Staff, Viewer::Friend, Viewer::Other];
 
     fn incoming() -> QuestionFacts {
-        QuestionFacts { in_box: true, taken_down: false, answered: false, audience: 0 }
+        QuestionFacts { received: true, in_box: true, taken_down: false, answered: false, audience: 0 }
+    }
+
+    /// Delivered, then deleted by its recipient or withdrawn by its sender.
+    fn gone_from_the_box() -> QuestionFacts {
+        QuestionFacts { in_box: false, ..incoming() }
+    }
+
+    /// Never delivered: dropped, or stopped before it arrived.
+    fn never_received() -> QuestionFacts {
+        QuestionFacts { received: false, in_box: false, ..incoming() }
+    }
+
+    fn response(received: bool, in_box: bool, published: bool) -> ResponseFacts {
+        ResponseFacts { received, in_box, taken_down: false, published }
     }
 
     fn answered(audience: i16) -> QuestionFacts {
@@ -437,10 +470,10 @@ mod tests {
     #[test]
     fn the_recipient_is_never_told_that_the_sender_owns_a_question() {
         // Whatever the state: the recipient's answer never names the sender.
-        for in_box in [true, false] {
+        for (received, in_box) in [(true, true), (true, false), (false, false)] {
             for is_answered in [true, false] {
                 for audience in [0, PUBLIC, FRIENDS, PRIVATE] {
-                    let facts = QuestionFacts { in_box, taken_down: false, answered: is_answered, audience };
+                    let facts = QuestionFacts { received, in_box, taken_down: false, answered: is_answered, audience };
                     if let Some(decision) = decide_question(Viewer::Recipient, facts) {
                         assert_ne!(decision.owner, Owner::Sender, "{facts:?}");
                     }
@@ -457,7 +490,8 @@ mod tests {
                 answered(PUBLIC),
                 answered(FRIENDS),
                 answered(PRIVATE),
-                QuestionFacts { in_box: false, ..incoming() },
+                gone_from_the_box(),
+                never_received(),
             ] {
                 if let Some(decision) = decide_question(viewer, facts)
                     && decision.owner == Owner::Sender
@@ -466,9 +500,10 @@ mod tests {
                 }
             }
             for facts in [
-                ResponseFacts { in_box: true, taken_down: false, published: false },
-                ResponseFacts { in_box: true, taken_down: false, published: true },
-                ResponseFacts { in_box: false, taken_down: false, published: false },
+                response(true, true, false),
+                response(true, true, true),
+                response(true, false, false),
+                response(false, false, false),
             ] {
                 if let Some(decision) = decide_response(viewer, facts)
                     && decision.owner == Owner::Sender
@@ -525,15 +560,32 @@ mod tests {
     }
 
     #[test]
-    fn a_question_its_recipient_deleted_still_resolves_for_staff_and_for_nobody_else() {
-        let deleted = QuestionFacts { in_box: false, ..incoming() };
+    fn a_question_that_left_the_box_can_still_be_reported_by_its_recipient() {
+        // Deleted by the recipient or withdrawn by the sender: the recipient
+        // can report it (owned by nobody), staff reach the sender, and
+        // nobody else sees anything.
+        let gone = gone_from_the_box();
         assert_eq!(
-            decide_question(Viewer::Staff, deleted),
+            decide_question(Viewer::Recipient, gone),
+            Some(Decision { owner: Owner::Nobody, interactions: false })
+        );
+        assert_eq!(decide_question(Viewer::Staff, gone), Some(Decision { owner: Owner::Sender, interactions: false }));
+        for viewer in [Viewer::Sender, Viewer::Friend, Viewer::Other] {
+            assert_eq!(decide_question(viewer, gone), None, "{viewer:?}");
+        }
+    }
+
+    #[test]
+    fn what_was_never_delivered_does_not_exist_for_its_recipient() {
+        // Dropped (a blocked sender) or stopped before delivery: a guessed
+        // ID must not resolve for the person it was meant for.
+        assert_eq!(decide_question(Viewer::Recipient, never_received()), None);
+        assert_eq!(decide_response(Viewer::Recipient, response(false, false, false)), None);
+        // Staff still reach the sender of something that was reported earlier.
+        assert_eq!(
+            decide_question(Viewer::Staff, never_received()),
             Some(Decision { owner: Owner::Sender, interactions: false })
         );
-        for viewer in [Viewer::Recipient, Viewer::Sender, Viewer::Friend, Viewer::Other] {
-            assert_eq!(decide_question(viewer, deleted), None, "{viewer:?}");
-        }
     }
 
     #[test]
@@ -545,7 +597,10 @@ mod tests {
                 "{viewer:?}"
             );
             assert_eq!(
-                decide_response(viewer, ResponseFacts { in_box: false, taken_down: true, published: true }),
+                decide_response(
+                    viewer,
+                    ResponseFacts { received: true, in_box: false, taken_down: true, published: true }
+                ),
                 None,
                 "{viewer:?}"
             );
@@ -556,15 +611,20 @@ mod tests {
     fn the_sender_cannot_tell_a_dropped_question_from_an_ignored_one() {
         // Not answered: nothing for the sender, whatever happened to it.
         let ignored = incoming();
-        let dropped = QuestionFacts { in_box: false, ..incoming() };
+        let dropped = never_received();
         assert_eq!(decide_question(Viewer::Sender, ignored), decide_question(Viewer::Sender, dropped));
         assert_eq!(decide_question(Viewer::Sender, ignored), None);
     }
 
     #[test]
     fn responses_are_reportable_and_never_open_to_interactions() {
-        let received = ResponseFacts { in_box: true, taken_down: false, published: false };
-        let published = ResponseFacts { published: true, ..received };
+        let received = response(true, true, false);
+        let published = response(true, true, true);
+        // Deleted by the prompt's owner: still theirs to report.
+        assert_eq!(
+            decide_response(Viewer::Recipient, response(true, false, true)),
+            Some(Decision { owner: Owner::Nobody, interactions: false })
+        );
         assert_eq!(
             decide_response(Viewer::Recipient, received),
             Some(Decision { owner: Owner::Nobody, interactions: false })

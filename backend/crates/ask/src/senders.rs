@@ -20,19 +20,72 @@
 //! 3. **Existing items stay.** Blocking does not remove what the sender sent
 //!    before: if it did, the recipient could tell which other anonymous
 //!    items were theirs.
+//! 4. **What happens to the sender's account shows on nothing anonymous.**
+//!    If a suspension hid everything an account had sent, two anonymous
+//!    questions vanishing together with someone's profile would name their
+//!    sender. So a suspension, a deletion or a change of settings changes
+//!    nothing a recipient sees of anonymous items. Only signed items, whose
+//!    sender is known anyway, are hidden while the sender is suspended
+//!    ([`signed_by_suspended`]); the one thing a suspension stops is the
+//!    delivery of what has not been delivered yet (`delivery.rs`). A single
+//!    item is removed by a takedown.
+//! 5. **An anonymous item needs a crowd.** Where only the recipient's
+//!    friends can send (a friends-only box, a prompt, a compliment poll), a
+//!    recipient with one friend knows who it was. Such a recipient needs
+//!    [`MIN_ANONYMITY_SET`] friends before anything anonymous is accepted
+//!    for them. Their number of friends is on their profile, so being
+//!    refused tells the sender nothing new.
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use tokuly_core::prelude::*;
+use tokuly_media::assets;
 use tokuly_proto::{
     ask::{BlockSource, SenderBlock},
     common::PageInfo,
+    media::AssetKind,
 };
+use tokuly_social::graph;
 
 use crate::{
     Ask,
+    answers::IMAGE_PURPOSES,
     filter::{self, WordFilter},
 };
+
+/// Friends a recipient needs before friends can send them something
+/// anonymously.
+pub(crate) const MIN_ANONYMITY_SET: usize = 3;
+
+/// SQL condition for "a signed item whose sender is suspended", for a table
+/// aliased `$alias`. The only way the state of a sender's account shows in
+/// what a recipient sees, and it never applies to an anonymous item.
+macro_rules! signed_by_suspended {
+    ($alias:literal) => {
+        concat!(
+            "(",
+            $alias,
+            ".signed AND EXISTS (SELECT 1 FROM users suspended WHERE suspended.id = ",
+            $alias,
+            ".sender_id AND suspended.banned_at IS NOT NULL))"
+        )
+    };
+}
+pub(crate) use signed_by_suspended;
+
+/// SQL condition for "this sender's account is suspended", for a table
+/// aliased `$alias`. Used where an item is about to be delivered, and for
+/// what moderators are shown; never for what a recipient sees.
+macro_rules! sender_suspended {
+    ($alias:literal) => {
+        concat!(
+            "EXISTS (SELECT 1 FROM users suspended WHERE suspended.id = ",
+            $alias,
+            ".sender_id AND suspended.banned_at IS NOT NULL)"
+        )
+    };
+}
+pub(crate) use sender_suspended;
 
 /// What becomes of something a sender submits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,6 +133,42 @@ impl Ask {
         let prepared = filter::prepare(text);
         let held = self.filter.matches(&prepared) || WordFilter::new(muted_words).matches(&prepared);
         Ok(Intake { dropped, held })
+    }
+
+    /// Whether something `recipient`'s friends send anonymously has a crowd
+    /// to hide in: the recipient has enough friends.
+    pub(crate) async fn has_anonymity_set(&self, recipient: Uuid) -> AppResult<bool> {
+        Ok(graph::friend_ids(&self.core, recipient).await?.len() >= MIN_ANONYMITY_SET)
+    }
+
+    /// The image `sender` attaches to a question or a prompt response:
+    /// its asset ID and its `Image` as stored JSON. `allowed` is whether the
+    /// recipient takes images.
+    ///
+    /// The image must be a fresh upload, signed or not. The file itself
+    /// says nothing about its uploader (it is re-encoded without metadata,
+    /// its address is made of the asset's ID and a hash of the pixels, and
+    /// nobody but its owner is told who uploaded an asset). What would give
+    /// an anonymous sender away is the same upload turning up a second
+    /// time: on something they signed, or on a second anonymous item.
+    pub(crate) async fn sender_image(
+        &self,
+        sender: Uuid,
+        asset_id: &str,
+        allowed: bool,
+    ) -> AppResult<Option<(Uuid, serde_json::Value)>> {
+        let Some(asset_id) = parse_opt_id(asset_id)? else { return Ok(None) };
+        ensure!(allowed, precondition, "IMAGES_NOT_ALLOWED", "images are not accepted here");
+        let asset = assets::require_ready(&self.core, asset_id, sender, IMAGE_PURPOSES).await?;
+        ensure!(
+            asset.has_kind(AssetKind::ASSET_KIND_IMAGE) || asset.has_kind(AssetKind::ASSET_KIND_ANIMATION),
+            invalid,
+            "ASSET_NOT_IMAGE",
+            "an image is required"
+        );
+        ensure!(!asset.is_attached(), precondition, "IMAGE_ALREADY_USED", "an image sent here has to be a new upload");
+        let image = asset.image.clone().or_not_found("ASSET_NOT_READY", "the image has not been processed")?;
+        Ok(Some((asset_id, image)))
     }
 
     /// Whether `receiver` blocked `sender` (compliment votes).
@@ -134,9 +223,12 @@ impl Ask {
     /// Blocks whoever sent `target` to `owner`. The sender's ID goes from
     /// the item's row into the block's row without leaving the database.
     ///
-    /// Anything the owner has seen can be blocked, also after they deleted
-    /// it. Dropped items cannot: the owner never saw them, and a block that
-    /// "worked" on a guessed ID would confirm that the item exists.
+    /// Anything that reached the owner can be blocked, whatever became of it
+    /// since: also after they deleted it, and also after its sender took it
+    /// back (otherwise sending abuse and withdrawing it would be a way to
+    /// stay unblockable). Items that were dropped or not delivered cannot:
+    /// the owner never had them, and a block that "worked" on a guessed ID
+    /// would confirm that the item exists.
     pub(crate) async fn block_sender_of(&self, owner: Uuid, target: BlockTarget) -> AppResult<BlockRow> {
         // `ON CONFLICT DO UPDATE` with a no-op makes a repeated block return
         // the existing row.
@@ -145,7 +237,7 @@ impl Ask {
                 "INSERT INTO ask_sender_blocks (owner_id, sender_id, source, source_id, preview)
                  SELECT q.owner_id, q.sender_id, $3, q.id, left(q.text, $4)
                  FROM ask_questions q
-                 WHERE q.id = $1 AND q.owner_id = $2 AND NOT q.dropped AND (q.removed_by IS NULL OR q.removed_by = 1)
+                 WHERE q.id = $1 AND q.owner_id = $2 AND q.delivered_at IS NOT NULL AND NOT q.dropped
                  ON CONFLICT (owner_id, source, source_id) DO UPDATE SET source = EXCLUDED.source
                  RETURNING id, source, preview, created_at",
                 id,
@@ -154,7 +246,7 @@ impl Ask {
                 "INSERT INTO ask_sender_blocks (owner_id, sender_id, source, source_id, preview)
                  SELECT r.owner_id, r.sender_id, $3, r.id, left(r.text, $4)
                  FROM ask_prompt_responses r
-                 WHERE r.id = $1 AND r.owner_id = $2 AND NOT r.dropped AND (r.removed_by IS NULL OR r.removed_by = 1)
+                 WHERE r.id = $1 AND r.owner_id = $2 AND r.delivered_at IS NOT NULL AND NOT r.dropped
                  ON CONFLICT (owner_id, source, source_id) DO UPDATE SET source = EXCLUDED.source
                  RETURNING id, source, preview, created_at",
                 id,
@@ -163,7 +255,7 @@ impl Ask {
                 "INSERT INTO ask_sender_blocks (owner_id, sender_id, source, source_id, preview)
                  SELECT f.receiver_id, f.sender_id, $3, f.id, left(p.text_ja, $4)
                  FROM ask_flames f JOIN ask_poll_questions p ON p.id = f.question_id
-                 WHERE f.id = $1 AND f.receiver_id = $2 AND NOT f.dropped
+                 WHERE f.id = $1 AND f.receiver_id = $2 AND f.delivered_at IS NOT NULL AND NOT f.dropped
                  ON CONFLICT (owner_id, source, source_id) DO UPDATE SET source = EXCLUDED.source
                  RETURNING id, source, preview, created_at",
                 id,

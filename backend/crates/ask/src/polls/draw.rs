@@ -32,15 +32,13 @@ pub(crate) fn enrollment(eligible: &[Uuid], shown: &HashMap<Uuid, i32>) -> (Vec<
     (newcomers, start)
 }
 
-/// Picks up to `count` of `eligible`, leaving out `exclude`: those shown
-/// least often first (`shown` holds everyone's count, see [`enrollment`]),
-/// ties decided by chance. The result is in random order, so a position on
-/// the screen says nothing about how often someone was shown.
-pub(crate) fn draw<R: Rng + ?Sized>(
+/// Everyone of `eligible` except `exclude`, in the order a poll should
+/// take them: those shown least often first (`shown` holds everyone's
+/// count, see [`enrollment`]), ties decided by chance.
+pub(crate) fn order<R: Rng + ?Sized>(
     eligible: &[Uuid],
     shown: &HashMap<Uuid, i32>,
     exclude: &[Uuid],
-    count: usize,
     rng: &mut R,
 ) -> Vec<Uuid> {
     let mut candidates: Vec<Uuid> = eligible.iter().copied().filter(|id| !exclude.contains(id)).collect();
@@ -49,9 +47,29 @@ pub(crate) fn draw<R: Rng + ?Sized>(
     // Shuffle, then sort stably by count: equal counts stay in random order.
     candidates.shuffle(rng);
     candidates.sort_by_key(|id| shown.get(id).copied().unwrap_or(0));
-    candidates.truncate(count);
-    candidates.shuffle(rng);
     candidates
+}
+
+/// Puts the friends of a poll in random order, so that a position on the
+/// screen says nothing about how often someone was shown.
+pub(crate) fn seat<R: Rng + ?Sized>(mut picked: Vec<Uuid>, rng: &mut R) -> Vec<Uuid> {
+    picked.shuffle(rng);
+    picked
+}
+
+/// Picks up to `count` of `eligible`, leaving out `exclude`: the first of
+/// [`order`], seated at random.
+#[cfg(test)]
+pub(crate) fn draw<R: Rng + ?Sized>(
+    eligible: &[Uuid],
+    shown: &HashMap<Uuid, i32>,
+    exclude: &[Uuid],
+    count: usize,
+    rng: &mut R,
+) -> Vec<Uuid> {
+    let mut picked = order(eligible, shown, exclude, rng);
+    picked.truncate(count);
+    seat(picked, rng)
 }
 
 #[cfg(test)]
@@ -206,6 +224,22 @@ mod tests {
 
         shown.insert(eligible[2], 5);
         assert!(enrollment(&eligible, &shown).0.is_empty(), "nobody is enrolled twice");
+    }
+
+    #[test]
+    fn the_order_lists_everyone_least_shown_first() {
+        let mut rng = StdRng::seed_from_u64(6);
+        let eligible = friends(6);
+        let shown: HashMap<Uuid, i32> = eligible.iter().enumerate().map(|(i, id)| (*id, (i / 2) as i32)).collect();
+        let listed = order(&eligible, &shown, &eligible[5..], &mut rng);
+        assert_eq!(listed.len(), 5, "everyone but the excluded friend");
+        let counts: Vec<i32> = listed.iter().map(|id| shown[id]).collect();
+        assert_eq!(counts, vec![0, 0, 1, 1, 2]);
+        // Someone further down the order takes the place of one who cannot
+        // be shown (a friend with too few friends of their own, say).
+        let seated = seat(listed.iter().copied().filter(|id| *id != eligible[0]).take(CHOICES).collect(), &mut rng);
+        assert_eq!(seated.len(), CHOICES);
+        assert!(!seated.contains(&eligible[0]) && seated.contains(&eligible[4]));
     }
 
     #[test]

@@ -4,13 +4,17 @@
 //! That matters in both directions of anonymity:
 //!
 //! - what they **received** comes without its sender, unless the sender
-//!   signed, and without anything that was dropped or is hidden from them;
+//!   signed, and is exactly what their lists show (the same conditions:
+//!   `in_box`, `response_in_box`, `in_inbox`), so that comparing the two
+//!   tells them nothing;
 //! - what they **sent** comes as "answered" or not, exactly as their list
 //!   shows it: an export that told a dropped question from an ignored one
 //!   would tell the sender they were blocked.
 use async_trait::async_trait;
 use sqlx::PgPool;
 use tokuly_core::{export::DataExporter, prelude::*};
+
+use crate::{polls::flames::in_inbox, prompts::response_in_box, questions::in_box};
 
 /// Holds a database handle rather than the domain: the exporter is stored
 /// inside `Core`, and pointing back at it would form a reference cycle.
@@ -32,17 +36,6 @@ impl AskExporter {
     }
 }
 
-/// "Not sent by a banned account", for a table aliased `x`.
-macro_rules! sender_not_banned {
-    ($alias:literal) => {
-        concat!(
-            "NOT EXISTS (SELECT 1 FROM users banned WHERE banned.id = ",
-            $alias,
-            ".sender_id AND banned.banned_at IS NOT NULL)"
-        )
-    };
-}
-
 #[async_trait]
 impl DataExporter for AskExporter {
     fn name(&self) -> &'static str {
@@ -62,12 +55,13 @@ impl DataExporter for AskExporter {
             "questions_received": self.section(
                 concat!(
                     "SELECT jsonb_build_object('id', q.id, 'text', q.text, 'anonymous', NOT q.signed,
-                            'asker_id', CASE WHEN q.signed THEN q.sender_id END, 'folder', q.folder, 'received_at', q.created_at,
+                            'asker_id', CASE WHEN q.signed THEN q.sender_id END, 'image', q.image, 'folder', q.folder,
+                            'received_at', q.created_at,
                             'answer', CASE WHEN q.folder = 2 THEN jsonb_build_object('text', q.answer_text, 'audience', q.answer_audience,
                                            'answered_at', q.answered_at, 'edited_at', q.answer_edited_at, 'image', q.answer_image) END)
                      FROM ask_questions q
-                     WHERE q.owner_id = $1 AND $2::int IS NOT NULL AND q.removed_at IS NULL AND NOT q.dropped AND ",
-                    sender_not_banned!("q"),
+                     WHERE q.owner_id = $1 AND $2::int IS NOT NULL AND ",
+                    in_box!(),
                     " ORDER BY q.id"
                 ),
                 user_id,
@@ -92,11 +86,11 @@ impl DataExporter for AskExporter {
                     "SELECT jsonb_build_object('id', p.id, 'text', p.text, 'emoji', p.emoji, 'posted_at', p.created_at, 'closes_at', p.closes_at,
                             'closed_at', p.closed_at,
                             'responses', (SELECT COALESCE(jsonb_agg(jsonb_build_object('id', r.id, 'text', r.text, 'anonymous', NOT r.signed,
-                                                  'responder_id', CASE WHEN r.signed THEN r.sender_id END, 'held', r.held,
+                                                  'responder_id', CASE WHEN r.signed THEN r.sender_id END, 'image', r.image, 'held', r.held,
                                                   'published_at', r.published_at, 'received_at', r.created_at) ORDER BY r.id), '[]')
                                           FROM ask_prompt_responses r
-                                          WHERE r.prompt_id = p.id AND r.removed_at IS NULL AND NOT r.dropped AND ",
-                    sender_not_banned!("r"),
+                                          WHERE r.prompt_id = p.id AND ",
+                    response_in_box!(),
                     "))
                      FROM ask_prompts p WHERE p.owner_id = $1 AND $2::int IS NOT NULL AND p.removed_at IS NULL ORDER BY p.id"
                 ),
@@ -115,10 +109,10 @@ impl DataExporter for AskExporter {
                             'seen_at', f.seen_at,
                             'hints', (SELECT COALESCE(jsonb_agg(jsonb_build_object('kind', h.kind, 'value', h.value, 'price', h.price,
                                               'bought_at', h.created_at) ORDER BY h.position), '[]')
-                                      FROM ask_flame_hints h WHERE h.flame_id = f.id AND h.entry_id IS NOT NULL))
+                                      FROM ask_flame_hints h WHERE h.flame_id = f.id))
                      FROM ask_flames f JOIN ask_poll_questions p ON p.id = f.question_id
-                     WHERE f.receiver_id = $1 AND $2::int IS NOT NULL AND NOT f.dropped AND ",
-                    sender_not_banned!("f"),
+                     WHERE f.receiver_id = $1 AND $2::int IS NOT NULL AND ",
+                    in_inbox!(),
                     " ORDER BY f.id"
                 ),
                 user_id,

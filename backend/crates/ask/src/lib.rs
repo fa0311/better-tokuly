@@ -14,7 +14,16 @@
 //!   is. From then on that sender's submissions are accepted exactly like
 //!   anyone's and dropped: same limits, same row, same event, same response
 //!   (`senders.rs`);
-//! - the sender sees of what they sent only "waiting" or "answered".
+//! - the sender sees of what they sent only "waiting" or "answered";
+//! - what a recipient has does **not follow the sender's account**. An
+//!   anonymous item that vanished when someone was suspended, or a flame
+//!   whose hints changed when someone switched them off, would point at
+//!   that person. Items become visible when the delivery worker lets them
+//!   through and stay as they were from then on (`delivery.rs`,
+//!   `cleanup.rs`); hints are fixed when the vote is cast (`polls/hints.rs`);
+//! - anonymity needs a **crowd**: where only friends can send, the
+//!   recipient needs three of them before anything anonymous is accepted
+//!   (`senders.rs`).
 //!
 //! # Map of the crate
 //!
@@ -26,12 +35,20 @@
 //! | [`polls`] | compliment polls: bank, fair draw, rounds, flames, hints |
 //! | [`friends`] | the two facts about friendships this domain keeps its own copy of (mutes, since when) |
 //! | [`settings`], [`filter`], [`text`], [`config`] | per-user settings, the word filter, text validation, deployment settings |
-//! | [`delivery`] | the worker that tells recipients what arrived, after the sender's request is over |
+//! | [`delivery`] | the worker that lets what was sent through to its recipient and tells them, after the sender's request is over |
 //! | [`cleanup`] | reactions to deleted and banned accounts, blocks, takedowns and deleted uploads; the purge |
 //! | [`workers`] | the event consumer and the purge timer |
 //! | [`subjects`], [`profile`], [`export`] | what this domain plugs into comments / likes / reports, profiles, and the personal data export |
 //! | [`events`] | the events this domain emits and consumes |
 //! | `*_svc` | the Connect services: thin handlers over the modules above; `moderation_svc` is the one place that names a sender |
+//!
+//! # Connections
+//!
+//! No code here asks the pool for a connection while it holds a
+//! transaction: whatever a transaction needs is read before it begins.
+//! (A request that waits for a second connection while holding one is
+//! harmless alone and stalls the whole service when a pool's worth of them
+//! do it at once; `polls/rounds.rs` has the case that made this a rule.)
 use std::{ops::Deref, sync::Arc};
 
 use tokuly_core::prelude::*;
