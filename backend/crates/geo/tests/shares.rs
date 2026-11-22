@@ -1,7 +1,6 @@
 //! Live shares: public links to a live location.
 mod common;
 
-use chrono::Utc;
 use common::*;
 use tokuly_core::time::from_ts;
 use tokuly_proto::geo::{geo_event::Event as Push, *};
@@ -58,7 +57,7 @@ async fn a_share_link_shows_the_live_pin_to_anyone_who_has_it() {
     let (aoi, ren) = (ctx.app.user("aoi").await, ctx.app.user("ren").await);
     ctx.befriend(&aoi, &ren).await;
     let home = somewhere();
-    ctx.report(&aoi, vec![LocationSample { battery_percent: Some(33), ..sample(home, Utc::now()) }]).await;
+    ctx.report(&aoi, vec![LocationSample { battery_percent: Some(33), ..sample(home, next_fix_time(aoi.id)) }]).await;
     // Ghost mode is about friends; a share link is its own, explicit grant.
     ctx.ghost(&aoi, &[], GhostMode::GHOST_MODE_FROZEN, 0).await.unwrap();
     let here = offset(home, 90.0, 1500.0);

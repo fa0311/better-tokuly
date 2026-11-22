@@ -633,7 +633,7 @@ async fn retention_deletes_raw_history_older_than_the_setting() {
             vec![
                 sample(spot, old),
                 sample(offset(spot, 0.0, 50.0), old + Duration::seconds(30)),
-                sample(offset(spot, 0.0, 100.0), Utc::now()),
+                sample(offset(spot, 0.0, 100.0), next_fix_time(user.id)),
             ],
         )
         .await;

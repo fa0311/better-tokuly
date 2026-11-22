@@ -314,14 +314,22 @@ async fn place_cards_follow_visibility_and_name_only_friends_the_viewer_may_see(
     assert!(rens.place.as_option().unwrap().my_last_visit_at.as_option().is_some());
     assert_eq!(rens.regulars.len(), 1, "one's own visits count");
     assert!(rens.friends_visited.is_empty());
-    // A stranger gets the total, but no names: Ren is not their friend.
+    // A stranger learns nothing about visits by people they do not know: no names and no numbers.
     let strangers = card(&ctx, &stranger, &public.id).await.unwrap();
-    assert_eq!((strangers.total_visit_count, strangers.regulars.len(), strangers.friends_visited.len()), (3, 0, 0));
-    // Under ghost mode Ren's whereabouts, past ones included, are not shown to Aoi either.
+    assert_eq!((strangers.total_visit_count, strangers.regulars.len(), strangers.friends_visited.len()), (0, 0, 0));
+    // Under ghost mode what Aoi saw of Ren stays as it was; what Ren does from then on never shows.
     ctx.ghost(&ren, &[&aoi], GhostMode::GHOST_MODE_BLURRED, 0).await.unwrap();
+    for _ in 0..2 {
+        check_in(&ctx, &ren, CheckInRequest { r#where: Some(Where::PlaceId(public.id.clone())), ..Default::default() })
+            .await
+            .unwrap();
+    }
     let owners = card(&ctx, &aoi, &public.id).await.unwrap();
-    assert!(owners.regulars.is_empty() && owners.friends_visited.is_empty());
-    assert_eq!(owners.total_visit_count, 3);
+    assert_eq!((owners.total_visit_count, owners.regulars[0].visit_count), (3, 3));
+    assert_eq!(card(&ctx, &ren, &public.id).await.unwrap().total_visit_count, 5, "Ren's own count is his own");
+    // ...also after the rule is lifted: those visits were not for Aoi.
+    ctx.ghost(&ren, &[&aoi], GhostMode::GHOST_MODE_PRECISE, 0).await.unwrap();
+    assert_eq!(card(&ctx, &aoi, &public.id).await.unwrap().total_visit_count, 3);
 }
 
 #[tokio::test]
@@ -644,7 +652,8 @@ async fn a_check_in_tells_friends_who_see_the_pin() {
         "TOO_MANY_USERS"
     );
 
-    // Under ghost mode a check-in stays between the user and the people tagged.
+    // Under ghost mode a check-in stays with the user: it says where they
+    // are, and nobody who does not see that is told, tagged or not.
     ctx.ghost(&aoi, &[], GhostMode::GHOST_MODE_FROZEN, 0).await.unwrap();
     check_in(
         &ctx,
@@ -654,7 +663,7 @@ async fn a_check_in_tells_friends_who_see_the_pin() {
     .await
     .unwrap();
     assert_eq!(ctx.notifications_for(mio.id, "geo.checkin").await.len(), 1, "no new notification");
-    assert_eq!(ctx.notifications_for(ren.id, "geo.checkin_tagged").await.len(), 2);
+    assert_eq!(ctx.notifications_for(ren.id, "geo.checkin_tagged").await.len(), 1, "no new notification");
     let activity = ctx.activities_of(aoi.id, "geo.visit").await;
     assert_eq!(activity[1].data["audience"], "private");
     assert!(activity[1].data["location"].is_null());

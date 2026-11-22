@@ -132,8 +132,11 @@ async fn ingest_processes_a_gateway_report_directly() {
     let here = somewhere();
     let mut rens = ctx.app.listen_user(ren.id).await;
     // What the realtime gateway puts on the LOCATIONS stream.
-    let report =
-        presence::LocationReport { user_id: aoi.id, received_at: Utc::now(), sample: sample(here, Utc::now()) };
+    let report = presence::LocationReport {
+        user_id: aoi.id,
+        received_at: Utc::now(),
+        sample: sample(here, next_fix_time(aoi.id)),
+    };
     ctx.geo.ingest(report.clone()).await.unwrap();
     assert_at!(pin_point(&next_pin(&mut rens).await.unwrap()), here);
     // The same report again (redelivery) changes nothing.
@@ -207,7 +210,7 @@ async fn a_frozen_pin_stays_put_and_nothing_is_pushed() {
 
     // The owner moves across town.
     let away = offset(home, 200.0, 7000.0);
-    ctx.report(&aoi, vec![LocationSample { battery_percent: Some(15), ..sample(away, Utc::now()) }]).await;
+    ctx.report(&aoi, vec![LocationSample { battery_percent: Some(15), ..sample(away, next_fix_time(aoi.id)) }]).await;
     assert!(pushes(&mut rens, QUIET).await.is_empty(), "freezing and moving while frozen push nothing");
 
     let seen = ctx.seen_by(&ren, &aoi).await.unwrap();
@@ -365,7 +368,7 @@ async fn privacy_settings_withhold_battery_activity_and_the_online_halo() {
         battery_percent: Some(55),
         speed_mps: Some(1.2),
         activity: Activity::ACTIVITY_CYCLING.into(),
-        ..sample(home, Utc::now())
+        ..sample(home, next_fix_time(aoi.id))
     };
     ctx.report(&aoi, vec![reading]).await;
     presence::mark_online(&ctx.app.core.cache, aoi.id).await.unwrap();
@@ -533,8 +536,11 @@ async fn banned_and_deleted_accounts_disappear_from_the_map() {
     assert!(matches!(next_push(&mut rens).await, Some(Push::LocationRemovedUserId(id)) if id == aoi.id.to_string()));
     assert!(ctx.seen_by(&ren, &aoi).await.is_none());
     // Samples of a banned account are ignored.
-    let report =
-        presence::LocationReport { user_id: aoi.id, received_at: Utc::now(), sample: sample(somewhere(), Utc::now()) };
+    let report = presence::LocationReport {
+        user_id: aoi.id,
+        received_at: Utc::now(),
+        sample: sample(somewhere(), next_fix_time(aoi.id)),
+    };
     ctx.geo.ingest(report).await.unwrap();
     assert!(pins(&mut rens, QUIET).await.is_empty());
 

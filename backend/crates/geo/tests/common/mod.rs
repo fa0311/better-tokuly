@@ -198,7 +198,7 @@ impl Ctx {
 
     /// One good fix at `point`, right now.
     pub async fn at(&self, user: &TestUser, point: Point) {
-        let response = self.report(user, vec![sample(point, Utc::now())]).await;
+        let response = self.report(user, vec![sample(point, next_fix_time(user.id))]).await;
         assert_eq!(response.accepted_count, 1, "the sample was accepted");
     }
 
@@ -210,7 +210,9 @@ impl Ctx {
             samples.push(sample(point, at));
             at += chrono::Duration::seconds(30);
         }
-        if samples.last().and_then(|s| s.recorded_at.as_option().map(tokuly_core::time::from_ts)) != Some(to) {
+        // (Fixes less than a second apart are dropped by the pipeline.)
+        let last = samples.last().and_then(|s| s.recorded_at.as_option().map(tokuly_core::time::from_ts));
+        if last.is_none_or(|last| to - last >= chrono::Duration::seconds(1)) {
             samples.push(sample(point, to));
         }
         let sent = samples.len() as i32;
@@ -270,6 +272,19 @@ impl Ctx {
             .filter(|e| e.data["kind"] == serde_json::json!(kind))
             .collect()
     }
+}
+
+/// "Now" for a fix of `user`: the pipeline drops fixes less than a second
+/// after the previous one, and tests report faster than that, so each call
+/// is at least a second after the last one for the same user.
+pub fn next_fix_time(user: Uuid) -> DateTime<Utc> {
+    static LAST: std::sync::Mutex<Option<std::collections::HashMap<Uuid, i64>>> = std::sync::Mutex::new(None);
+    let mut last = LAST.lock().unwrap();
+    let last = last.get_or_insert_with(Default::default);
+    let now = Utc::now().timestamp_millis();
+    let at = last.get(&user).map_or(now, |previous| now.max(previous + 1000));
+    last.insert(user, at);
+    DateTime::from_timestamp_millis(at).unwrap()
 }
 
 /// A device reading with good accuracy.
@@ -396,4 +411,23 @@ pub async fn pins(listener: &mut FrameListener, window: Duration) -> Vec<FriendL
             _ => None,
         })
         .collect()
+}
+
+/// Samples of `user` at `point` at the given numbers of seconds before `t`.
+pub async fn seen_at(ctx: &Ctx, user: &TestUser, point: Point, t: DateTime<Utc>, seconds_before: &[i64]) {
+    let samples: Vec<LocationSample> =
+        seconds_before.iter().map(|seconds| sample(point, t - chrono::Duration::seconds(*seconds))).collect();
+    let sent = samples.len() as i32;
+    assert_eq!(ctx.report(user, samples).await.accepted_count, sent);
+}
+
+/// Two friends standing a few meters apart for long enough to count as
+/// together. The gathering forms with `b`'s last sample, 110 s before `t`.
+pub async fn meet(ctx: &Ctx, a: &TestUser, b: &TestUser, spot: Point, t: DateTime<Utc>) {
+    let beside = offset(spot, 90.0, 8.0);
+    seen_at(ctx, a, spot, t, &[300, 270, 240]).await;
+    seen_at(ctx, b, beside, t, &[300, 270, 240]).await; // b notices a nearby
+    seen_at(ctx, a, spot, t, &[200]).await; // a notices b nearby
+    seen_at(ctx, b, beside, t, &[110]).await; // two minutes later for b: together
+    seen_at(ctx, a, spot, t, &[60]).await; // and for a
 }

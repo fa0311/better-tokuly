@@ -534,7 +534,7 @@ async fn leaderboards_rank_friends_and_respect_who_shows_their_map() {
 }
 
 #[tokio::test]
-async fn other_peoples_cells_need_permission_but_their_numbers_do_not() {
+async fn other_peoples_footprints_need_their_permission() {
     let ctx = start().await;
     let (aoi, ren, kai, star, stranger) = (
         ctx.app.user("aoi").await,
@@ -566,10 +566,19 @@ async fn other_peoples_cells_need_permission_but_their_numbers_do_not() {
         "naming oneself is the same as leaving the field empty"
     );
 
-    // The numbers are for anyone who can see the profile.
-    assert!(stats(&ctx, &stranger, Some(&kai)).await.total_cell_count > 0);
+    // The numbers follow the same setting as the map.
+    let numbers = async |viewer: &TestUser, owner: &TestUser| {
+        let request = GetFootprintStatsRequest { user_id: owner.id.to_string(), ..Default::default() };
+        ctx.footprints::<_, GetFootprintStatsResponse>("GetStats", viewer, &request).await
+    };
+    assert!(numbers(&aoi, &ren).await.unwrap().total_cell_count > 0);
+    assert!(numbers(&stranger, &star).await.unwrap().total_cell_count > 0);
+    for (viewer, owner) in [(&stranger, &ren), (&stranger, &kai), (&aoi, &kai)] {
+        let denied = numbers(viewer, owner).await.unwrap_err();
+        assert_eq!((denied.code.as_str(), denied.reason.as_str()), ("permission_denied", "FOOTPRINTS_PRIVATE"));
+    }
     assert!(
-        stats(&ctx, &stranger, Some(&kai)).await.world.as_option().unwrap().friend_rank == 0,
+        numbers(&aoi, &ren).await.unwrap().world.as_option().unwrap().friend_rank == 0,
         "ranks among friends are the caller's own business"
     );
 

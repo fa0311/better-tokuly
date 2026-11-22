@@ -2,7 +2,7 @@
 //! each viewer gets to see them.
 mod common;
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{Duration, Utc};
 use common::*;
 use tokuly_proto::{
     common::Visibility,
@@ -28,25 +28,6 @@ fn sorted(users: &[&TestUser]) -> Vec<String> {
     let mut ids: Vec<String> = users.iter().map(|user| user.id.to_string()).collect();
     ids.sort();
     ids
-}
-
-/// Samples of `user` at `point` at the given numbers of seconds before `t`.
-async fn seen_at(ctx: &Ctx, user: &TestUser, point: Point, t: DateTime<Utc>, seconds_before: &[i64]) {
-    let samples: Vec<LocationSample> =
-        seconds_before.iter().map(|seconds| sample(point, t - Duration::seconds(*seconds))).collect();
-    let sent = samples.len() as i32;
-    assert_eq!(ctx.report(user, samples).await.accepted_count, sent);
-}
-
-/// Two friends standing a few meters apart for long enough to count as
-/// together. The gathering forms with `b`'s last sample, 110 s before `t`.
-async fn meet(ctx: &Ctx, a: &TestUser, b: &TestUser, spot: Point, t: DateTime<Utc>) {
-    let beside = offset(spot, 90.0, 8.0);
-    seen_at(ctx, a, spot, t, &[300, 270, 240]).await;
-    seen_at(ctx, b, beside, t, &[300, 270, 240]).await; // b notices a nearby
-    seen_at(ctx, a, spot, t, &[200]).await; // a notices b nearby
-    seen_at(ctx, b, beside, t, &[110]).await; // two minutes later for b: together
-    seen_at(ctx, a, spot, t, &[60]).await; // and for a
 }
 
 fn gathering_events(pushes: Vec<Push>) -> (Vec<Gathering>, Vec<String>) {

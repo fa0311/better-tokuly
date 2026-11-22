@@ -50,9 +50,18 @@ async fn profiles_show_the_distance_a_friend_is_allowed_to_know() {
     assert!((blurred - distance(rens, stand_in)).abs() < 1.0);
     assert!((blurred - 3000.0).abs() > 1.0);
 
-    // Frozen: none. A distance would move when the owner does.
+    // Frozen: the distance to the pin the viewer was left with, as for any
+    // phone that stopped reporting. Wherever the owner goes, and whether or
+    // not they pause sharing, it does not change — and it does not disappear.
+    ctx.ghost(&aoi, &[&ren], GhostMode::GHOST_MODE_PRECISE, 0).await.unwrap();
     ctx.ghost(&aoi, &[&ren], GhostMode::GHOST_MODE_FROZEN, 0).await.unwrap();
-    assert_eq!(profile(&ctx, Some(&ren), &aoi).await.distance_meters, None);
+    let at_freeze = profile(&ctx, Some(&ren), &aoi).await.distance_meters;
+    assert!((at_freeze.expect("a distance to the frozen pin") - 3000.0).abs() < 5.0);
+    ctx.at(&aoi, offset(home, 270.0, 9000.0)).await;
+    assert_eq!(profile(&ctx, Some(&ren), &aoi).await.distance_meters, at_freeze);
+    let _: StopSharingResponse = ctx.location("StopSharing", &aoi, &StopSharingRequest::default()).await.unwrap();
+    assert_eq!(profile(&ctx, Some(&ren), &aoi).await.distance_meters, at_freeze);
+    ctx.at(&aoi, home).await;
     ctx.ghost(&aoi, &[&ren], GhostMode::GHOST_MODE_PRECISE, 0).await.unwrap();
     assert!(profile(&ctx, Some(&ren), &aoi).await.distance_meters.is_some());
 
@@ -101,12 +110,29 @@ async fn profiles_carry_footprint_numbers() {
         .expect("the country")
         .percent;
     assert!(explored > 0.0);
-    for viewer in [Some(&ren), None] {
+    // Shown to the audience of the scratch map: friends by default.
+    let numbers = async |viewer: Option<&TestUser>| {
         let seen = profile(&ctx, viewer, &aoi).await;
         let stats = seen.stats.as_option().unwrap();
-        assert_eq!(stats.visited_country_count, 1);
-        assert!((stats.explored_percent - explored).abs() < 1e-9, "{} vs {explored}", stats.explored_percent);
-    }
+        (stats.explored_percent, stats.visited_country_count)
+    };
+    assert_eq!(numbers(Some(&ren)).await, (0.0, 0), "not a friend yet");
+    assert_eq!(numbers(None).await, (0.0, 0));
+    ctx.befriend(&aoi, &ren).await;
+    let (percent, countries) = numbers(Some(&ren)).await;
+    assert_eq!(countries, 1);
+    assert!((percent - explored).abs() < 1e-9, "{percent} vs {explored}");
+    assert_eq!(numbers(Some(&aoi)).await, (percent, 1));
+    ctx.set_privacy(&aoi, |privacy| {
+        privacy.footprints_visible_to = tokuly_proto::identity::Audience::AUDIENCE_EVERYONE.into()
+    })
+    .await;
+    assert_eq!(numbers(None).await, (percent, 1));
+    ctx.set_privacy(&aoi, |privacy| {
+        privacy.footprints_visible_to = tokuly_proto::identity::Audience::AUDIENCE_NOBODY.into()
+    })
+    .await;
+    assert_eq!(numbers(Some(&ren)).await, (0.0, 0));
 }
 
 #[tokio::test]

@@ -115,16 +115,19 @@ async fn directions_are_estimated_without_a_routing_engine() {
             .abs()
             < 10.0
     );
+    // A frozen pin answers like any pin that stopped moving: directions to
+    // where the caller has it, wherever the friend really went.
     ctx.ghost(&ren, &[&aoi], GhostMode::GHOST_MODE_FROZEN, 0).await.unwrap();
+    let to_the_copy =
+        directions(GetDirectionsRequest { destination: to_user(&ren).into(), ..Default::default() }).await.unwrap();
     ctx.at(&ren, offset(station, 0.0, 3000.0)).await;
+    let _: StopSharingResponse = ctx.location("StopSharing", &ren, &StopSharingRequest::default()).await.unwrap();
     assert_eq!(
-        directions(GetDirectionsRequest { destination: to_user(&ren).into(), ..Default::default() })
-            .await
-            .unwrap_err()
-            .reason,
-        "DESTINATION_UNAVAILABLE",
-        "a frozen pin is not a destination"
+        directions(GetDirectionsRequest { destination: to_user(&ren).into(), ..Default::default() }).await.unwrap(),
+        to_the_copy,
+        "the answer does not move with the friend"
     );
+    assert!((to_the_copy.distance_meters - 6000.0).abs() < 10.0);
 
     assert_eq!(directions(GetDirectionsRequest::default()).await.unwrap_err().reason, "MISSING_DESTINATION");
     assert_eq!(
@@ -375,12 +378,23 @@ async fn a_trip_towards_a_friend_follows_them_as_far_as_ghost_mode_allows() {
     assert!(distance(point(destination.resolved.as_option()), rens_spot) < 1.0);
     assert!((trip.distance_remaining_meters - 3000.0).abs() < 5.0);
 
-    // Others watching the trip learn that Aoi is heading to Ren, but not where Ren is.
+    // A trip towards Ren says how far away Ren is, and when Aoi reaches him
+    // where he is. Mio is Aoi's friend but not Ren's: the trip is not for her.
+    assert_eq!(get_trip(&ctx, &mio, &trip.id).await.unwrap_err().reason, "TRIP_NOT_FOUND");
+    assert!(active_trips(&ctx, &mio).await.is_empty());
+    assert!(ctx.seen_by(&mio, &aoi).await.unwrap().trip_id.is_empty());
+    // Once she is a friend of both and sees both, she can follow it.
+    ctx.befriend(&mio, &ren).await;
     let seen = get_trip(&ctx, &mio, &trip.id).await.unwrap();
     let hidden = seen.destination.as_option().unwrap();
     assert!(matches!(&hidden.target, Some(Target::UserId(id)) if *id == ren.id.to_string()));
     assert!(hidden.resolved.as_option().is_none() && seen.route_polyline.is_empty());
     assert!(seen.eta.as_option().is_some() && seen.distance_remaining_meters > 0.0);
+    // ...unless Ren is hiding from her: then not even that there is a trip.
+    ctx.ghost(&ren, &[&mio], GhostMode::GHOST_MODE_BLURRED, 0).await.unwrap();
+    assert_eq!(get_trip(&ctx, &mio, &trip.id).await.unwrap_err().reason, "TRIP_NOT_FOUND");
+    assert!(active_trips(&ctx, &mio).await.is_empty());
+    ctx.unfriend(&mio, &ren).await;
     // Ren, being the destination, sees all of it.
     assert!(
         get_trip(&ctx, &ren, &trip.id).await.unwrap().destination.as_option().unwrap().resolved.as_option().is_some()
