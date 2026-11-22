@@ -86,7 +86,9 @@ wtransport = "0.7.2"
 sqlx = { version = "0.9.1", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-webpki", "postgres", "uuid", "chrono", "json", "migrate", "macros", "derive"] }
 redis = { version = "1.8", features = ["tokio-comp", "connection-manager", "script", "geospatial"] }
 async-nats = "0.53"
-aws-sdk-s3 = "1.161"
+# Without the default `rustls` feature: it only adds the SDK's legacy HTTP client, built on a rustls
+# release line that no longer gets security fixes. `default-https-client` is the current one.
+aws-sdk-s3 = { version = "1.161", default-features = false, features = ["default-https-client", "http-1x", "rt-tokio"] }
 clickhouse = { version = "0.15", features = ["uuid", "chrono", "inserter"] }
 meilisearch-sdk = "0.33"
 

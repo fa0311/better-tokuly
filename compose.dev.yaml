@@ -12,7 +12,11 @@ name: tokuly-dev
 
 services:
   postgres:
-    image: postgis/postgis:18-3.7
+    # PostgreSQL with PostGIS for amd64 and arm64; built here when the registry cannot be reached.
+    image: ghcr.io/fa0311/better-tokuly/postgres:edge
+    build:
+      context: infra/postgres
+    pull_policy: missing
     environment:
       POSTGRES_USER: tokuly
       POSTGRES_DB: tokuly

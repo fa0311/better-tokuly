@@ -85,5 +85,15 @@ export function usePreferenceActions() {
     onError,
   });
 
-  return { setCategory, setQuietHours, pause, resume };
+  /**
+   * The quiet hours as the latest change left them, sent or still on its way:
+   * what the next change builds on. A render can be one step behind this, so
+   * two quick changes must not be combined from what is on screen.
+   */
+  const latestQuietHours = (): QuietHoursValue | undefined => {
+    const quietHours = queryClient.getQueryData<notify.Preferences>(notifyKeys.preferences)?.quietHours;
+    return quietHours && { enabled: quietHours.enabled, startMinute: quietHours.startMinute, endMinute: quietHours.endMinute };
+  };
+
+  return { setCategory, setQuietHours, latestQuietHours, pause, resume };
 }

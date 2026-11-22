@@ -23,12 +23,13 @@ Bump（旧 Zenly）のような地図を中心に、初代 Tokuly の機能を�
 | 通知（受信箱、Web Push / FCM / APNs） | 実装・テスト済み |
 | 管理・モデレーション、機能フラグ、お知らせ | 実装・テスト済み |
 | リアルタイム接続（WebTransport / QUIC、WebSocket フォールバック） | 実装・テスト済み |
-| 位置情報、チャット・通話、ノート・ストーリー、動画、コメント・リアクション、検索、フィード | 実装中 |
-| ライブ配信、ショート | 設計済み・未着手 |
-| Web アプリ（地図、認証、フレンド、プロフィール） | 動作中 |
-| Web アプリ（通知、スタンプ、ウォレット、設定、管理画面） | 実装中 |
+| チャット・通話、ノート・ストーリー、動画、コメント・リアクション、検索、フィード | 実装・テスト済み（API） |
+| 位置情報（ゴーストモード、足あと、訪問履歴、トリップ、SOS） | 仕上げ中 |
+| カスタム絵文字、質問箱、ミッション、予定、学校、たまり場、コミュニティ、開発者 API、ライブ配信、ショート | 実装中 |
+| Web アプリ（地図、認証、フレンド、プロフィール、通知、スタンプ、ウォレット、設定、管理画面） | 動作中 |
+| Web アプリ（チャット、ノート、動画、検索、PWA） | 実装中 |
 | モバイルアプリ（Expo）、配信スタジオ（Tauri） | 未着手 |
-| Docker Compose | GitHub Actions で通し検証中 |
+| Docker Compose（amd64 / arm64） | GitHub Actions で通し検証・ブラウザテスト |
 
 ## 構成
 
@@ -37,7 +38,7 @@ proto/      API の契約（Protobuf）。Connect RPC / gRPC / gRPC-Web とし�
 backend/    Rust ワークスペース。ドメインごとに 1 クレート、バイナリは 1 つ（api / realtime / worker / migrate）
 apps/web    Web アプリ（TanStack Start, React 19, Tailwind 4, MapLibre GL）
 packages/   TypeScript の API クライアントとリアルタイムクライアント
-infra/      Docker Compose で使う設定（Caddy, LiveKit, 地図タイル）
+infra/      Docker Compose で使う設定とイメージ（Caddy, LiveKit, 地図タイル, PostGIS 入り PostgreSQL）
 docs/       ドメインごとの機能範囲（domains.md）とイベント一覧（events.md, events/）
 tools/      開発用スクリプト
 ```
@@ -57,9 +58,11 @@ docker compose up -d     # http://localhost
 ```
 
 アプリのイメージは GitHub Container Registry のビルド済みのもの（`edge` = 通し検証を通った最新ビルド、
-またはリリース版）を取得します。手元のソースからビルドする場合は `docker compose up -d --build`。
+またはリリース版）を取得します。amd64 と arm64（Apple Silicon、ARM サーバー）の両方を配布しています。
+手元のソースからビルドする場合は `docker compose up -d --build`。
 スタック全体の起動確認は GitHub Actions の [Stack](.github/workflows/stack.yml) ワークフローが
-`tools/ci/smoke.sh`（サインアップ、メール、アップロード、地図、リアルタイム接続）で行っています。
+`tools/ci/smoke.sh`（サインアップ、メール、アップロード、地図、リアルタイム接続）で行い、
+画面の操作は [Browser tests](.github/workflows/e2e.yml) が同じスタックの上で Playwright を走らせて確かめています。
 
 開発（インフラだけ Docker で、または Docker なしでネイティブに起動）:
 
