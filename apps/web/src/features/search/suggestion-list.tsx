@@ -6,9 +6,9 @@ import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { cn } from "#/lib/cn";
 import { useHistoryActions } from "./api";
+import { hitHref } from "./hit-href";
 import { useHasKeyboard } from "./hooks";
 import { KindTile } from "./kind-icon";
-import { hitHref } from "./hit-href";
 import { extraFlag, extraNumber, extraText, hitExtra, isKind, kindSlug } from "./kinds";
 import type { Suggestion, SuggestionGroup } from "./suggestions";
 
@@ -18,7 +18,17 @@ import type { Suggestion, SuggestionGroup } from "./suggestions";
  * what was typed. Keys pressed while an input method is composing (choosing
  * kanji) belong to it, not to the list.
  */
-export function useSuggestionKeys({ suggestions, onChoose, onSubmit, onEscape }: { suggestions: Suggestion[]; onChoose(suggestion: Suggestion): void; onSubmit(): void; onEscape?(): void }) {
+export function useSuggestionKeys({
+  suggestions,
+  onChoose,
+  onSubmit,
+  onEscape,
+}: {
+  suggestions: Suggestion[];
+  onChoose(suggestion: Suggestion): void;
+  onSubmit(): void;
+  onEscape?(): void;
+}) {
   const [active, setActive] = useState(-1);
   // A different list starts without a selection.
   const signature = suggestions.map((suggestion) => suggestion.id).join("\n");
@@ -51,10 +61,13 @@ export function useSuggestionKeys({ suggestions, onChoose, onSubmit, onEscape }:
 }
 
 /** Opens what a suggestion stands for: a result page for a query, the subject's own page for a hit. */
-export function useOpenSuggestion(onSearch: (query: string) => void): (suggestion: Suggestion) => void {
+export function useOpenSuggestion(
+  onSearch: (query: string) => void,
+): (suggestion: Suggestion) => void {
   const router = useRouter();
   return (suggestion) => {
     if (suggestion.type === "hit") void router.navigate({ href: hitHref(suggestion.hit) });
+    else if (suggestion.type === "destination") void router.navigate({ to: suggestion.tile.to });
     else onSearch(suggestion.query);
   };
 }
@@ -87,19 +100,36 @@ export function SuggestionList({
   const { forget } = useHistoryActions();
 
   useEffect(() => {
-    if (active >= 0) document.getElementById(optionId(listId, active))?.scrollIntoView({ block: "nearest" });
+    if (active >= 0)
+      document.getElementById(optionId(listId, active))?.scrollIntoView({ block: "nearest" });
   }, [active, listId]);
 
-  const headings: Partial<Record<SuggestionGroup, string>> = { recent: t("recent.title"), trending: t("trending.title"), hits: t("suggest.jumpTo") };
+  const headings: Partial<Record<SuggestionGroup, string>> = {
+    recent: t("recent.title"),
+    trending: t("trending.title"),
+    hits: t("suggest.jumpTo"),
+    destinations: t("suggest.destinations"),
+  };
   return (
     // Clicking the list must not take the focus away from the field (which would close it before the click lands).
-    <div id={listId} role="listbox" aria-label={label} className={cn("flex flex-col", className)} onMouseDown={(event) => event.preventDefault()}>
+    <div
+      id={listId}
+      role="listbox"
+      aria-label={label}
+      className={cn("flex flex-col", className)}
+      onMouseDown={(event) => event.preventDefault()}
+    >
       {suggestions.map((suggestion, index) => {
-        const heading = suggestion.group !== suggestions[index - 1]?.group ? headings[suggestion.group] : undefined;
+        const heading =
+          suggestion.group !== suggestions[index - 1]?.group
+            ? headings[suggestion.group]
+            : undefined;
         const selected = index === active;
         return (
           <div key={suggestion.id} role="presentation">
-            {heading && <p className="px-3 pt-3 pb-1 text-xs font-black text-ink-faint">{heading}</p>}
+            {heading && (
+              <p className="px-3 pt-3 pb-1 text-xs font-black text-ink-faint">{heading}</p>
+            )}
             <div className={cn("flex items-center rounded-2xl", selected && "bg-surface-2")}>
               {/* biome-ignore lint/a11y/useFocusableInteractive: the focus stays in the field, which names the active option with aria-activedescendant and handles the keys. */}
               <div
@@ -142,8 +172,28 @@ function SuggestionFace({ suggestion, selected }: { suggestion: Suggestion; sele
         <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand text-on-brand">
           <Search className="size-[18px]" />
         </span>
-        <span className="min-w-0 flex-1 truncate font-bold">{t("suggest.searchFor", { query: suggestion.query })}</span>
-        {keyboard && selected && <CornerDownLeft className="size-4 shrink-0 text-ink-faint" aria-hidden />}
+        <span className="min-w-0 flex-1 truncate font-bold">
+          {t("suggest.searchFor", { query: suggestion.query })}
+        </span>
+        {keyboard && selected && (
+          <CornerDownLeft className="size-4 shrink-0 text-ink-faint" aria-hidden />
+        )}
+      </>
+    );
+  }
+  if (suggestion.type === "destination") {
+    const Icon = suggestion.tile.icon;
+    return (
+      <>
+        <span
+          className={cn(
+            "grid size-9 shrink-0 place-items-center rounded-xl border-2 border-ink text-[#17122b]",
+            suggestion.tile.tint,
+          )}
+        >
+          <Icon className="size-[18px]" />
+        </span>
+        <span className="min-w-0 flex-1 truncate font-bold">{suggestion.tile.label()}</span>
       </>
     );
   }
@@ -151,9 +201,22 @@ function SuggestionFace({ suggestion, selected }: { suggestion: Suggestion; sele
     return (
       <>
         {suggestion.source === "trending" ? (
-          <span className={cn("grid size-9 shrink-0 place-items-center rounded-xl text-sm font-black tabular-nums", (suggestion.rank ?? 9) <= 3 ? "bg-pink text-white" : "bg-surface-2 text-ink-soft")}>{suggestion.rank}</span>
+          <span
+            className={cn(
+              "grid size-9 shrink-0 place-items-center rounded-xl text-sm font-black tabular-nums",
+              (suggestion.rank ?? 9) <= 3 ? "bg-pink text-white" : "bg-surface-2 text-ink-soft",
+            )}
+          >
+            {suggestion.rank}
+          </span>
         ) : (
-          <span className={iconTile}>{suggestion.source === "recent" ? <Clock className="size-[18px]" /> : <TrendingUp className="size-[18px]" />}</span>
+          <span className={iconTile}>
+            {suggestion.source === "recent" ? (
+              <Clock className="size-[18px]" />
+            ) : (
+              <TrendingUp className="size-[18px]" />
+            )}
+          </span>
         )}
         <span className="min-w-0 flex-1 truncate font-bold">{suggestion.query}</span>
         <span className="sr-only">{t(`suggest.source.${suggestion.source}`)}</span>
@@ -170,7 +233,8 @@ function HitFace({ hit }: { hit: search.SearchHit }) {
   const kindName = isKind(hit.kind) ? t(`kinds.${kindSlug(hit.kind)}`) : "";
   let detail = kindName;
   if (hit.kind === search.SearchKind.USER || hit.kind === search.SearchKind.CHANNEL) {
-    const handle = extraText(extra, "handle") || (hit.kind === search.SearchKind.USER ? hit.owner?.handle : "");
+    const handle =
+      extraText(extra, "handle") || (hit.kind === search.SearchKind.USER ? hit.owner?.handle : "");
     detail = handle ? `@${handle} · ${kindName}` : kindName;
   } else if (hit.kind === search.SearchKind.HASHTAG) {
     const count = extraNumber(extra, "note_count");
@@ -183,14 +247,23 @@ function HitFace({ hit }: { hit: search.SearchHit }) {
       {hit.kind === search.SearchKind.USER && hit.owner ? (
         <Avatar user={hit.owner} size="sm" className="mx-0.5" />
       ) : hit.imageUrl ? (
-        <img src={hit.imageUrl} alt="" className="size-9 shrink-0 rounded-xl bg-surface-3 object-cover" loading="lazy" decoding="async" draggable={false} />
+        <img
+          src={hit.imageUrl}
+          alt=""
+          className="size-9 shrink-0 rounded-xl bg-surface-3 object-cover"
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+        />
       ) : (
         <KindTile kind={hit.kind} className="size-9 rounded-xl" iconClassName="size-[18px]" />
       )}
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1">
           <span className="truncate font-bold">{hit.title}</span>
-          {extraFlag(extra, "verified") && <BadgeCheck className="size-4 shrink-0 text-brand" aria-label={t("hit.verified")} />}
+          {extraFlag(extra, "verified") && (
+            <BadgeCheck className="size-4 shrink-0 text-brand" aria-label={t("hit.verified")} />
+          )}
         </span>
         <span className="block truncate text-xs text-ink-soft">{detail}</span>
       </span>

@@ -101,7 +101,9 @@ function flavorFor(style: MapStyleId, dark: boolean): Flavor {
     case "mono":
       return namedFlavor(dark ? "black" : "grayscale");
     default:
-      return dark ? { ...namedFlavor("dark"), ...TOKULY_DARK } : { ...namedFlavor("light"), ...TOKULY_LIGHT };
+      return dark
+        ? { ...namedFlavor("dark"), ...TOKULY_DARK }
+        : { ...namedFlavor("light"), ...TOKULY_LIGHT };
   }
 }
 
@@ -110,7 +112,12 @@ function flavorFor(style: MapStyleId, dark: boolean): Flavor {
  * the regional archive takes over; outside the region the map simply shows
  * land colour at street level.
  */
-export function buildMapStyle(style: MapStyleId, dark: boolean, language: string, config = DEFAULT_TILE_CONFIG): StyleSpecification {
+export function buildMapStyle(
+  style: MapStyleId,
+  dark: boolean,
+  language: string,
+  config = DEFAULT_TILE_CONFIG,
+): StyleSpecification {
   const flavor = flavorFor(style, dark);
   const origin = typeof window === "undefined" ? "" : window.location.origin;
   const absolute = (url: string) => (url.startsWith("http") ? url : `${origin}${url}`);
@@ -124,7 +131,11 @@ export function buildMapStyle(style: MapStyleId, dark: boolean, language: string
   }));
   const regionLayers = layers("region", flavor, { lang: language })
     .filter((layer) => layer.type !== "background")
-    .map((layer) => ({ ...layer, id: `region-${layer.id}`, minzoom: Math.max(handover, "minzoom" in layer ? (layer.minzoom ?? 0) : 0) }));
+    .map((layer) => ({
+      ...layer,
+      id: `region-${layer.id}`,
+      minzoom: Math.max(handover, "minzoom" in layer ? (layer.minzoom ?? 0) : 0),
+    }));
 
   return {
     version: 8,
@@ -135,7 +146,8 @@ export function buildMapStyle(style: MapStyleId, dark: boolean, language: string
         type: "vector",
         tiles: [`${absolute(config.tilesUrl)}/world/{z}/{x}/{y}.mvt`],
         maxzoom: config.worldMaxZoom,
-        attribution: '<a href="https://protomaps.com">Protomaps</a> © <a href="https://openstreetmap.org">OpenStreetMap</a>',
+        attribution:
+          '<a href="https://protomaps.com">Protomaps</a> © <a href="https://openstreetmap.org">OpenStreetMap</a>',
       },
       region: {
         type: "vector",
@@ -154,6 +166,8 @@ export function buildMapStyle(style: MapStyleId, dark: boolean, language: string
       "fog-ground-blend": 0.4,
       "atmosphere-blend": ["interpolate", ["linear"], ["zoom"], 0, 1, 5, 1, 7, 0],
     },
-    projection: { type: ["interpolate", ["linear"], ["zoom"], 4, "vertical-perspective", 6, "mercator"] },
+    projection: {
+      type: ["interpolate", ["linear"], ["zoom"], 4, "vertical-perspective", 6, "mercator"],
+    },
   };
 }

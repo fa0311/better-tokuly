@@ -17,7 +17,11 @@ import type { Subject } from "./model";
 const TEXT_MAX = 1000;
 
 /** The categories in the order they are offered, each with the emoji that leads its row. */
-export const REPORT_CATEGORIES: { category: engagement.ReportCategory; key: string; emoji: string }[] = [
+export const REPORT_CATEGORIES: {
+  category: engagement.ReportCategory;
+  key: string;
+  emoji: string;
+}[] = [
   { category: engagement.ReportCategory.SPAM, key: "SPAM", emoji: "📮" },
   { category: engagement.ReportCategory.HARASSMENT, key: "HARASSMENT", emoji: "😣" },
   { category: engagement.ReportCategory.HATE, key: "HATE", emoji: "🚫" },
@@ -64,7 +68,12 @@ export function ReportDialog({ subject, open, onOpenChange, label }: ReportDialo
     mutationFn: () => reportClient().createReport({ subject, category, text: text.trim() }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: engagementKeys.reports });
-      toast.success(t("report.sent"), { action: { label: t("report.viewMine"), onClick: () => void navigate({ to: "/activity", search: { tab: "reports" } }) } });
+      toast.success(t("report.sent"), {
+        action: {
+          label: t("report.viewMine"),
+          onClick: () => void navigate({ to: "/activity", search: { tab: "reports" } }),
+        },
+      });
       close();
     },
     onError: (error) => toast.error(errorMessage(error)),
@@ -81,13 +90,22 @@ export function ReportDialog({ subject, open, onOpenChange, label }: ReportDialo
           <Button variant="ghost" onClick={close} disabled={send.isPending}>
             {t("report.cancel")}
           </Button>
-          <Button variant="danger" disabled={category === undefined} loading={send.isPending} onClick={() => send.mutate()}>
+          <Button
+            variant="danger"
+            disabled={category === undefined}
+            loading={send.isPending}
+            onClick={() => send.mutate()}
+          >
             {t("report.send")}
           </Button>
         </>
       }
     >
-      <div role="radiogroup" aria-label={t("report.reason")} className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+      <div
+        role="radiogroup"
+        aria-label={t("report.reason")}
+        className="grid grid-cols-1 gap-1.5 sm:grid-cols-2"
+      >
         {REPORT_CATEGORIES.map((entry) => {
           const selected = entry.category === category;
           return (

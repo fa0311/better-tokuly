@@ -14,7 +14,20 @@ import { refresh, timetableClient, toastError, useSubjects } from "./api";
 import { RowsSkeleton, SubjectPill } from "./parts";
 
 /** The colours offered for a subject (the server accepts any `#rrggbb`). */
-export const SUBJECT_COLORS = ["#ff7a59", "#ffd23f", "#c6f24e", "#3ddc97", "#4fc3ff", "#7c5cff", "#ff5c9d", "#b98cff", "#ffa94d", "#63e6be", "#74c0fc", "#ced4da"];
+export const SUBJECT_COLORS = [
+  "#ff7a59",
+  "#ffd23f",
+  "#c6f24e",
+  "#3ddc97",
+  "#4fc3ff",
+  "#7c5cff",
+  "#ff5c9d",
+  "#b98cff",
+  "#ffa94d",
+  "#63e6be",
+  "#74c0fc",
+  "#ced4da",
+];
 
 interface Draft {
   id?: string;
@@ -26,7 +39,14 @@ interface Draft {
   room: string;
 }
 
-const blank = (color: string): Draft => ({ name: "", shortName: "", emoji: "", color, teacher: "", room: "" });
+const blank = (color: string): Draft => ({
+  name: "",
+  shortName: "",
+  emoji: "",
+  color,
+  teacher: "",
+  room: "",
+});
 
 /** The caller's subjects: add, change (name, short form, emoji, colour, usual teacher and room), remove, bring back. */
 export function SubjectsDialog({
@@ -72,7 +92,8 @@ export function SubjectsDialog({
     onError: toastError,
   });
   const remove = useMutation({
-    mutationFn: (subject: school.Subject) => timetableClient().deleteSubject({ subjectId: subject.id }),
+    mutationFn: (subject: school.Subject) =>
+      timetableClient().deleteSubject({ subjectId: subject.id }),
     onSuccess: (response) => {
       toast.success(response.archived ? t("subjects.archivedToast") : t("subjects.deletedToast"));
       changed();
@@ -82,7 +103,8 @@ export function SubjectsDialog({
     onError: toastError,
   });
   const restore = useMutation({
-    mutationFn: (subject: school.Subject) => timetableClient().updateSubject({ subjectId: subject.id, archived: false }),
+    mutationFn: (subject: school.Subject) =>
+      timetableClient().updateSubject({ subjectId: subject.id, archived: false }),
     onSuccess: changed,
     onError: toastError,
   });
@@ -102,14 +124,23 @@ export function SubjectsDialog({
           draft ? (
             <>
               {draft.id && (
-                <Button variant="ghost" className="mr-auto text-danger" icon={<Trash2 className="size-4" />} onClick={() => setRemoving(list.find((subject) => subject.id === draft.id))}>
+                <Button
+                  variant="ghost"
+                  className="mr-auto text-danger"
+                  icon={<Trash2 className="size-4" />}
+                  onClick={() => setRemoving(list.find((subject) => subject.id === draft.id))}
+                >
                   {t("common:actions.delete")}
                 </Button>
               )}
               <Button variant="ghost" onClick={() => setDraft(undefined)}>
                 {t("common:actions.back")}
               </Button>
-              <Button loading={save.isPending} disabled={!draft.name.trim()} onClick={() => save.mutate(draft)}>
+              <Button
+                loading={save.isPending}
+                disabled={!draft.name.trim()}
+                onClick={() => save.mutate(draft)}
+              >
                 {t("common:actions.save")}
               </Button>
             </>
@@ -128,14 +159,37 @@ export function SubjectsDialog({
               if (draft.name.trim()) save.mutate(draft);
             }}
           >
-            <TextField label={t("subjects.name")} value={draft.name} maxLength={40} placeholder={t("subjects.namePlaceholder")} onChange={(event) => setDraft({ ...draft, name: event.target.value })} autoFocus />
+            <TextField
+              label={t("subjects.name")}
+              value={draft.name}
+              maxLength={40}
+              placeholder={t("subjects.namePlaceholder")}
+              onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+              autoFocus
+            />
             <div className="grid grid-cols-2 gap-3">
-              <TextField label={t("subjects.shortName")} value={draft.shortName} maxLength={8} placeholder={t("subjects.shortNamePlaceholder")} onChange={(event) => setDraft({ ...draft, shortName: event.target.value })} />
-              <TextField label={t("subjects.emoji")} value={draft.emoji} maxLength={8} placeholder="📐" onChange={(event) => setDraft({ ...draft, emoji: event.target.value })} />
+              <TextField
+                label={t("subjects.shortName")}
+                value={draft.shortName}
+                maxLength={8}
+                placeholder={t("subjects.shortNamePlaceholder")}
+                onChange={(event) => setDraft({ ...draft, shortName: event.target.value })}
+              />
+              <TextField
+                label={t("subjects.emoji")}
+                value={draft.emoji}
+                maxLength={8}
+                placeholder="📐"
+                onChange={(event) => setDraft({ ...draft, emoji: event.target.value })}
+              />
             </div>
             <div>
               <p className="px-1 pb-1.5 text-sm font-bold text-ink-soft">{t("subjects.color")}</p>
-              <div role="radiogroup" aria-label={t("subjects.color")} className="flex flex-wrap gap-2">
+              <div
+                role="radiogroup"
+                aria-label={t("subjects.color")}
+                className="flex flex-wrap gap-2"
+              >
                 {SUBJECT_COLORS.map((color) => (
                   // biome-ignore lint/a11y/useSemanticElements: colour swatches are buttons.
                   <button
@@ -145,7 +199,10 @@ export function SubjectsDialog({
                     aria-checked={draft.color === color}
                     aria-label={color}
                     onClick={() => setDraft({ ...draft, color })}
-                    className={cn("grid size-9 place-items-center rounded-full border-2 text-[#17122b]", draft.color === color ? "border-ink shadow-pop-sm" : "border-transparent")}
+                    className={cn(
+                      "grid size-9 place-items-center rounded-full border-2 text-[#17122b]",
+                      draft.color === color ? "border-ink shadow-pop-sm" : "border-transparent",
+                    )}
                     style={{ background: color }}
                   >
                     {draft.color === color && <Check className="size-4" />}
@@ -154,8 +211,18 @@ export function SubjectsDialog({
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <TextField label={t("subjects.teacher")} value={draft.teacher} maxLength={40} onChange={(event) => setDraft({ ...draft, teacher: event.target.value })} />
-              <TextField label={t("subjects.room")} value={draft.room} maxLength={40} onChange={(event) => setDraft({ ...draft, room: event.target.value })} />
+              <TextField
+                label={t("subjects.teacher")}
+                value={draft.teacher}
+                maxLength={40}
+                onChange={(event) => setDraft({ ...draft, teacher: event.target.value })}
+              />
+              <TextField
+                label={t("subjects.room")}
+                value={draft.room}
+                maxLength={40}
+                onChange={(event) => setDraft({ ...draft, room: event.target.value })}
+              />
             </div>
             <button type="submit" hidden />
           </form>
@@ -169,15 +236,39 @@ export function SubjectsDialog({
               <li key={subject.id} className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setDraft({ id: subject.id, name: subject.name, shortName: subject.shortName, emoji: subject.emoji, color: subject.color, teacher: subject.teacher, room: subject.room })}
-                  className={cn("flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-2 py-2.5 text-left transition-colors hover:bg-surface-2", subject.archived && "opacity-60")}
+                  onClick={() =>
+                    setDraft({
+                      id: subject.id,
+                      name: subject.name,
+                      shortName: subject.shortName,
+                      emoji: subject.emoji,
+                      color: subject.color,
+                      teacher: subject.teacher,
+                      room: subject.room,
+                    })
+                  }
+                  className={cn(
+                    "flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-2 py-2.5 text-left transition-colors hover:bg-surface-2",
+                    subject.archived && "opacity-60",
+                  )}
                 >
                   <SubjectPill subject={subject} />
-                  <span className="min-w-0 flex-1 truncate text-sm text-ink-soft">{[subject.teacher, subject.room].filter(Boolean).join(" · ")}</span>
-                  {subject.archived && <span className="shrink-0 text-xs font-bold text-ink-faint">{t("subjects.archived")}</span>}
+                  <span className="min-w-0 flex-1 truncate text-sm text-ink-soft">
+                    {[subject.teacher, subject.room].filter(Boolean).join(" · ")}
+                  </span>
+                  {subject.archived && (
+                    <span className="shrink-0 text-xs font-bold text-ink-faint">
+                      {t("subjects.archived")}
+                    </span>
+                  )}
                 </button>
                 {subject.archived && (
-                  <Button size="icon-sm" variant="ghost" aria-label={t("subjects.restore", { name: subject.name })} onClick={() => restore.mutate(subject)}>
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label={t("subjects.restore", { name: subject.name })}
+                    onClick={() => restore.mutate(subject)}
+                  >
                     <ArchiveRestore className="size-4" />
                   </Button>
                 )}

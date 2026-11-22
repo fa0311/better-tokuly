@@ -28,7 +28,9 @@ describe("WebVTT", () => {
   });
 
   it("copes with Windows line endings and a byte-order mark", () => {
-    expect(parseVtt("﻿WEBVTT\r\n\r\n00:00:00.000 --> 00:00:01.000\r\nhi\r\n")).toEqual([{ start: 0, end: 1, text: "hi" }]);
+    expect(parseVtt("﻿WEBVTT\r\n\r\n00:00:00.000 --> 00:00:01.000\r\nhi\r\n")).toEqual([
+      { start: 0, end: 1, text: "hi" },
+    ]);
   });
 
   it("finds the cues on screen at a moment", () => {
@@ -40,11 +42,31 @@ describe("WebVTT", () => {
   });
 
   it("reads a seek-preview track relative to its own address", () => {
-    const track = "WEBVTT\n\n00:00:00.000 --> 00:00:10.000\nsprite_001.webp#xywh=0,0,160,90\n\n00:00:10.000 --> 00:00:20.000\nsprite_001.webp#xywh=160,0,160,90\n\n00:00:20.000 --> 00:00:30.000\nnot a frame\n";
-    const frames = parseStoryboard(track, "https://media.example/video/abc/storyboard/storyboard.vtt");
+    const track =
+      "WEBVTT\n\n00:00:00.000 --> 00:00:10.000\nsprite_001.webp#xywh=0,0,160,90\n\n00:00:10.000 --> 00:00:20.000\nsprite_001.webp#xywh=160,0,160,90\n\n00:00:20.000 --> 00:00:30.000\nnot a frame\n";
+    const frames = parseStoryboard(
+      track,
+      "https://media.example/video/abc/storyboard/storyboard.vtt",
+    );
     expect(frames).toEqual([
-      { start: 0, end: 10, url: "https://media.example/video/abc/storyboard/sprite_001.webp", x: 0, y: 0, width: 160, height: 90 },
-      { start: 10, end: 20, url: "https://media.example/video/abc/storyboard/sprite_001.webp", x: 160, y: 0, width: 160, height: 90 },
+      {
+        start: 0,
+        end: 10,
+        url: "https://media.example/video/abc/storyboard/sprite_001.webp",
+        x: 0,
+        y: 0,
+        width: 160,
+        height: 90,
+      },
+      {
+        start: 10,
+        end: 20,
+        url: "https://media.example/video/abc/storyboard/sprite_001.webp",
+        x: 160,
+        y: 0,
+        width: 160,
+        height: 90,
+      },
     ]);
     expect(frameAt(frames, 3)?.x).toBe(0);
     expect(frameAt(frames, 10)?.x).toBe(160);

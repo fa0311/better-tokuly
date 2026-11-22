@@ -10,7 +10,7 @@ import { setBadge } from "#/stores/badges";
 import { useSessionStore } from "#/stores/session";
 import { applyInboxChange, applyUnread, notifyKeys, rereadInbox, useUnread } from "./api";
 import { openNotification } from "./inbox-actions";
-import { withReceived, withRead, withRemoved } from "./inbox-cache";
+import { withRead, withReceived, withRemoved } from "./inbox-cache";
 import { NotificationFace } from "./notification-face";
 import { closeShownNotifications, refreshPushRegistration, serviceWorker } from "./push";
 
@@ -26,8 +26,12 @@ export default function NotificationsBackground() {
   const queryClient = useQueryClient();
   const router = useRouter();
   const unread = useUnread();
-  const userId = useSessionStore((s) => (s.state.status === "signedIn" ? (s.state.me.user?.id ?? "") : ""));
-  const sessionId = useSessionStore((s) => (s.state.status === "signedIn" ? s.state.sessionId : ""));
+  const userId = useSessionStore((s) =>
+    s.state.status === "signedIn" ? (s.state.me.user?.id ?? "") : "",
+  );
+  const sessionId = useSessionStore((s) =>
+    s.state.status === "signedIn" ? s.state.sessionId : "",
+  );
 
   // The badge on the navigation follows the unread count (the installed app's icon takes it from there).
   useEffect(() => {
@@ -43,10 +47,15 @@ export default function NotificationsBackground() {
         openNotification(queryClient, router, entry);
       };
       // One toast per entry: a grouped entry that grows updates its toast instead of stacking.
-      const toastId = toast.custom(() => <NotificationToast entry={entry} onOpen={open} onClose={() => toast.dismiss(toastId)} />, {
-        id: `notify:${entry.id}`,
-        duration: entry.urgent ? 20_000 : 6_000,
-      });
+      const toastId = toast.custom(
+        () => (
+          <NotificationToast entry={entry} onOpen={open} onClose={() => toast.dismiss(toastId)} />
+        ),
+        {
+          id: `notify:${entry.id}`,
+          duration: entry.urgent ? 20_000 : 6_000,
+        },
+      );
     };
 
     const offFrame = client.onFrame((frame) => {
@@ -109,7 +118,10 @@ export default function NotificationsBackground() {
       const message = event.data as { type?: string; id?: string; path?: string } | null;
       if (message?.type === "tokuly:notification-click") {
         event.ports[0]?.postMessage("ok");
-        openNotification(queryClient, router, { id: message.id ?? "", path: message.path || INBOX_PATH });
+        openNotification(queryClient, router, {
+          id: message.id ?? "",
+          path: message.path || INBOX_PATH,
+        });
       } else if (message?.type === "tokuly:push-subscription-change" && userId) {
         void refreshPushRegistration({ userId, sessionId });
       }
@@ -139,18 +151,37 @@ function shouldAnnounce(entry: notify.Notification, pathname: string): boolean {
   return pathname.replace(/\/+$/, "") !== INBOX_PATH;
 }
 
-function NotificationToast({ entry, onOpen, onClose }: { entry: notify.Notification; onOpen(): void; onClose(): void }) {
+function NotificationToast({
+  entry,
+  onOpen,
+  onClose,
+}: {
+  entry: notify.Notification;
+  onOpen(): void;
+  onClose(): void;
+}) {
   const { t } = useTranslation("notifications");
   return (
     <div className="flex w-full items-start gap-1 p-2">
-      <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 items-start gap-3 rounded-xl p-1.5 text-left">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex min-w-0 flex-1 items-start gap-3 rounded-xl p-1.5 text-left"
+      >
         <NotificationFace entry={entry} />
         <span className="min-w-0 flex-1">
           <span className="block truncate font-black">{entry.title}</span>
-          {entry.body && <span className="line-clamp-2 text-sm font-medium text-ink-soft">{entry.body}</span>}
+          {entry.body && (
+            <span className="line-clamp-2 text-sm font-medium text-ink-soft">{entry.body}</span>
+          )}
         </span>
       </button>
-      <button type="button" aria-label={t("toast.dismiss")} onClick={onClose} className="grid size-8 shrink-0 place-items-center rounded-full text-ink-soft hover:bg-surface-2">
+      <button
+        type="button"
+        aria-label={t("toast.dismiss")}
+        onClick={onClose}
+        className="grid size-8 shrink-0 place-items-center rounded-full text-ink-soft hover:bg-surface-2"
+      >
         <X className="size-4" />
       </button>
     </div>

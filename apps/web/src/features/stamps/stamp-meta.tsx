@@ -23,19 +23,32 @@ const MAX_KEYWORD_LENGTH = 24;
 export function parseKeywords(text: string): string[] {
   const words = text
     .split(/[\s,、，]+/u)
-    .map((word) => Array.from(word.replace(/^#+/, "").toLowerCase()).slice(0, MAX_KEYWORD_LENGTH).join(""))
+    .map((word) =>
+      Array.from(word.replace(/^#+/, "").toLowerCase()).slice(0, MAX_KEYWORD_LENGTH).join(""),
+    )
     .filter(Boolean);
   return [...new Set(words)].slice(0, MAX_KEYWORDS);
 }
 
 /** A file name turned into a starting name for a stamp: no extension, no separators. */
 export function nameFromFile(fileName: string): string {
-  const base = fileName.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim();
+  const base = fileName
+    .replace(/\.[^.]+$/, "")
+    .replace(/[_-]+/g, " ")
+    .trim();
   return Array.from(base).slice(0, MAX_NAME_LENGTH).join("");
 }
 
 /** The name, emoji and search-word fields of a stamp. */
-export function StampMetaFields({ value, onChange, autoFocus }: { value: StampMeta; onChange(value: StampMeta): void; autoFocus?: boolean }) {
+export function StampMetaFields({
+  value,
+  onChange,
+  autoFocus,
+}: {
+  value: StampMeta;
+  onChange(value: StampMeta): void;
+  autoFocus?: boolean;
+}) {
   const { t } = useTranslation("stamps");
   return (
     <div className="flex flex-col gap-3">
@@ -48,7 +61,13 @@ export function StampMetaFields({ value, onChange, autoFocus }: { value: StampMe
         onChange={(event) => onChange({ ...value, name: event.target.value })}
       />
       <div className="grid grid-cols-[6.5rem_1fr] gap-3">
-        <TextField label={t("meta.emoji")} placeholder="😆" value={value.emoji} maxLength={16} onChange={(event) => onChange({ ...value, emoji: event.target.value.trim() })} />
+        <TextField
+          label={t("meta.emoji")}
+          placeholder="😆"
+          value={value.emoji}
+          maxLength={16}
+          onChange={(event) => onChange({ ...value, emoji: event.target.value.trim() })}
+        />
         <TextField
           label={t("meta.keywords")}
           placeholder={t("meta.keywordsPlaceholder")}

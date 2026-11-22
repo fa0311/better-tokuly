@@ -13,10 +13,17 @@ const PREVIEW = 3;
  * open, "質問箱" on one's own profile. Renders nothing when there is no box
  * to go to.
  */
-export function ProfileAskButton({ user, isSelf }: { user: Pick<common.UserSummary, "id" | "handle">; isSelf: boolean }) {
+export function ProfileAskButton({
+  user,
+  isSelf,
+}: {
+  user: Pick<common.UserSummary, "id" | "handle">;
+  isSelf: boolean;
+}) {
   const { t } = useTranslation("ask");
   const { data: box } = useBox(isSelf ? undefined : user.id);
-  const className = "pressable sticker inline-flex h-11 items-center gap-2 rounded-full bg-sun px-5 font-bold text-[#17122b]";
+  const className =
+    "pressable sticker inline-flex h-11 items-center gap-2 rounded-full bg-sun px-5 font-bold text-[#17122b]";
   if (isSelf) {
     return (
       <Link to="/ask" className={className}>
@@ -44,7 +51,11 @@ export function ProfileAnswers({ user }: { user: Pick<common.UserSummary, "id" |
       <SectionTitle
         action={
           more ? (
-            <Link to="/ask/u/$handle" params={{ handle: user.handle }} className="text-sm font-bold text-brand">
+            <Link
+              to="/ask/u/$handle"
+              params={{ handle: user.handle }}
+              className="text-sm font-bold text-brand"
+            >
               {t("profile.more")}
             </Link>
           ) : undefined

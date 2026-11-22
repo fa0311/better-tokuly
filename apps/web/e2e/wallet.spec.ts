@@ -1,14 +1,24 @@
 import { toBinary } from "@bufbuild/protobuf";
 import type { APIRequestContext, Page } from "@playwright/test";
 import { create, fromDate, wallet } from "@tokuly/api";
-import { type Account, adminAccount, createAccount, expect, refreshAccount, rpc, signInAs, test } from "./support";
+import {
+  type Account,
+  adminAccount,
+  createAccount,
+  expect,
+  refreshAccount,
+  rpc,
+  signInAs,
+  test,
+} from "./support";
 
 const WALLET = "tokuly.wallet.v1.WalletService";
 const EARNINGS = "tokuly.wallet.v1.EarningsService";
 const WALLET_ADMIN = "tokuly.wallet.v1.WalletAdminService";
 
 /** An amount as the `Coins` glyph writes it: the coin's "T", then the number. */
-const coins = (amount: number, signed = false) => new RegExp(`^T${signed && amount > 0 ? "\\+" : ""}${amount.toLocaleString("en-US")}$`);
+const coins = (amount: number, signed = false) =>
+  new RegExp(`^T${signed && amount > 0 ? "\\+" : ""}${amount.toLocaleString("en-US")}$`);
 
 /** The balance in the hero of the wallet home. */
 const hero = (page: Page) => page.getByRole("region", { name: "コイン残高" });
@@ -23,9 +33,23 @@ async function balanceOf(request: APIRequestContext, account: Account): Promise<
 }
 
 /** Puts earned coins into an account, the way support would: an admin adjustment of the earnings balance. */
-async function grantEarnings(request: APIRequestContext, to: Account, amount: number): Promise<void> {
+async function grantEarnings(
+  request: APIRequestContext,
+  to: Account,
+  amount: number,
+): Promise<void> {
   const admin = await adminAccount(request);
-  await rpc(request, `${WALLET_ADMIN}/AdjustBalance`, { userId: to.userId, account: "LEDGER_ACCOUNT_EARNINGS", delta: String(amount), reason: "e2e: earnings for a payout test" }, admin);
+  await rpc(
+    request,
+    `${WALLET_ADMIN}/AdjustBalance`,
+    {
+      userId: to.userId,
+      account: "LEDGER_ACCOUNT_EARNINGS",
+      delta: String(amount),
+      reason: "e2e: earnings for a payout test",
+    },
+    admin,
+  );
 }
 
 interface Payout {
@@ -35,13 +59,30 @@ interface Payout {
   paymentReference?: string;
 }
 
-async function requestPayout(request: APIRequestContext, as: Account, amount: number): Promise<Payout> {
-  const response = await rpc<{ payout: Payout }>(request, `${EARNINGS}/RequestPayout`, { coins: String(amount), method: "PAYOUT_METHOD_PAYPAL", destination: `${as.handle}@paypal.example`, note: "e2e" }, as);
+async function requestPayout(
+  request: APIRequestContext,
+  as: Account,
+  amount: number,
+): Promise<Payout> {
+  const response = await rpc<{ payout: Payout }>(
+    request,
+    `${EARNINGS}/RequestPayout`,
+    {
+      coins: String(amount),
+      method: "PAYOUT_METHOD_PAYPAL",
+      destination: `${as.handle}@paypal.example`,
+      note: "e2e",
+    },
+    as,
+  );
   return response.payout;
 }
 
 async function payoutsOf(request: APIRequestContext, account: Account): Promise<Payout[]> {
-  return (await rpc<{ payouts?: Payout[] }>(request, `${EARNINGS}/ListPayoutRequests`, {}, account)).payouts ?? [];
+  return (
+    (await rpc<{ payouts?: Payout[] }>(request, `${EARNINGS}/ListPayoutRequests`, {}, account))
+      .payouts ?? []
+  );
 }
 
 /** Takes a request a failed test may have left waiting out of the shared review queue. */
@@ -54,14 +95,21 @@ async function withdraw(request: APIRequestContext, as: Account, payoutId: strin
  * speaks. Only for states this server cannot be brought into (see the tests
  * that use it); everything else goes through the real API.
  */
-const proto = (schema: Parameters<typeof toBinary>[0], message: Parameters<typeof toBinary>[1]) => ({
+const proto = (
+  schema: Parameters<typeof toBinary>[0],
+  message: Parameters<typeof toBinary>[1],
+) => ({
   status: 200,
   contentType: "application/proto",
   body: Buffer.from(toBinary(schema, message)),
 });
 
 test.describe("wallet home", () => {
-  test("claiming the daily bonus pays out once and shows in the balance and the history", async ({ page, request, me }) => {
+  test("claiming the daily bonus pays out once and shows in the balance and the history", async ({
+    page,
+    request,
+    me,
+  }) => {
     await page.goto("/wallet");
     await expect(hero(page).getByText(coins(0))).toBeVisible();
 
@@ -94,32 +142,51 @@ test.describe("wallet home", () => {
 
     // Coming back later the same day, the card remembers.
     await page.goto("/wallet");
-    await expect(page.getByRole("region", { name: "ログインボーナス" }).getByText("今日のぶんは受け取ったよ")).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "ログインボーナス" }).getByText("今日のぶんは受け取ったよ"),
+    ).toBeVisible();
   });
 
-  test("coins that arrive while the wallet is open show up without a reload", async ({ page, request, me }) => {
+  test("coins that arrive while the wallet is open show up without a reload", async ({
+    page,
+    request,
+    me,
+  }) => {
     await page.goto("/wallet");
     await expect(hero(page).getByText(coins(0))).toBeVisible();
     await expect(page.getByText("まだ動きがないよ")).toBeVisible();
 
     // Bought on another device: the balance change is pushed to this one.
-    const shop = await rpc<{ packages: { id: string; sku: string }[] }>(request, `${WALLET}/ListCoinPackages`, {}, me);
+    const shop = await rpc<{ packages: { id: string; sku: string }[] }>(
+      request,
+      `${WALLET}/ListCoinPackages`,
+      {},
+      me,
+    );
     const pack = shop.packages.find((candidate) => candidate.sku === "coins_500");
     expect(pack, "the seeded coins_500 package").toBeTruthy();
     await rpc(request, `${WALLET}/StartPurchase`, { packageId: pack?.id }, me);
 
     await expect(hero(page).getByText(coins(520))).toBeVisible({ timeout: 20_000 });
     // (A notification toast may announce the purchase too: look in the page itself.)
-    await expect(page.getByRole("main").getByRole("button", { name: /コインを購入しました/ })).toBeVisible();
+    await expect(
+      page.getByRole("main").getByRole("button", { name: /コインを購入しました/ }),
+    ).toBeVisible();
   });
 });
 
 test.describe("buying coins", () => {
-  test("a package bought with the development provider lands in the balance and the purchase history", async ({ page, request, me }) => {
+  test("a package bought with the development provider lands in the balance and the purchase history", async ({
+    page,
+    request,
+    me,
+  }) => {
     await page.goto("/wallet/buy");
     await expect(page.getByRole("heading", { name: "コインを買う" })).toBeVisible();
     // Honest about what this environment is: nobody is charged.
-    await expect(page.getByText("開発用の決済です。お金はかからず、コインがすぐに届きます。")).toBeVisible();
+    await expect(
+      page.getByText("開発用の決済です。お金はかからず、コインがすぐに届きます。"),
+    ).toBeVisible();
     await expect(page.getByText("おトク")).toBeVisible();
 
     await page.getByRole("button", { name: /^520コインのパック/ }).click();
@@ -170,7 +237,8 @@ test.describe("buying coins", () => {
         priceMinor: 500n,
         currency: "JPY",
         provider: "paynow",
-        checkoutUrl: status === wallet.PurchaseStatus.PENDING ? "https://pay.example/checkout/e2e" : "",
+        checkoutUrl:
+          status === wallet.PurchaseStatus.PENDING ? "https://pay.example/checkout/e2e" : "",
         createdAt: fromDate(new Date()),
         expiresAt: fromDate(new Date(Date.now() + 45 * 60_000)),
       });
@@ -181,14 +249,32 @@ test.describe("buying coins", () => {
           proto(
             wallet.ListCoinPackagesResponseSchema,
             create(wallet.ListCoinPackagesResponseSchema, {
-              packages: [{ id: "pkg", sku: "coins_500", coins: 500n, bonusCoins: 20n, priceMinor: 500n, currency: "JPY", active: true }],
+              packages: [
+                {
+                  id: "pkg",
+                  sku: "coins_500",
+                  coins: 500n,
+                  bonusCoins: 20n,
+                  priceMinor: 500n,
+                  currency: "JPY",
+                  active: true,
+                },
+              ],
               providers: ["paynow"],
             }),
           ),
         ),
       );
       await page.route(`**/api/${WALLET}/StartPurchase`, (route) =>
-        route.fulfill(proto(wallet.StartPurchaseResponseSchema, create(wallet.StartPurchaseResponseSchema, { purchase: purchase(wallet.PurchaseStatus.PENDING), balance: { coins: 0n, revision: 1n } }))),
+        route.fulfill(
+          proto(
+            wallet.StartPurchaseResponseSchema,
+            create(wallet.StartPurchaseResponseSchema, {
+              purchase: purchase(wallet.PurchaseStatus.PENDING),
+              balance: { coins: 0n, revision: 1n },
+            }),
+          ),
+        ),
       );
       await page.goto("/wallet/buy");
       // A real provider: no development note, and the button names the price.
@@ -197,7 +283,10 @@ test.describe("buying coins", () => {
       const dialog = page.getByRole("dialog", { name: "コインの購入" });
       await dialog.getByRole("button", { name: /500で購入する/ }).click();
       await expect(dialog.getByText("お支払いを完了してね")).toBeVisible();
-      await expect(dialog.getByRole("link", { name: "決済ページへ" })).toHaveAttribute("href", "https://pay.example/checkout/e2e");
+      await expect(dialog.getByRole("link", { name: "決済ページへ" })).toHaveAttribute(
+        "href",
+        "https://pay.example/checkout/e2e",
+      );
       await expect(dialog.getByText(/あと\d+分以内にお支払いしてね/)).toBeVisible();
       return dialog;
     }
@@ -209,7 +298,9 @@ test.describe("buying coins", () => {
           proto(
             wallet.ConfirmPurchaseResponseSchema,
             create(wallet.ConfirmPurchaseResponseSchema, {
-              purchase: purchase(paid ? wallet.PurchaseStatus.COMPLETED : wallet.PurchaseStatus.PENDING),
+              purchase: purchase(
+                paid ? wallet.PurchaseStatus.COMPLETED : wallet.PurchaseStatus.PENDING,
+              ),
               balance: paid ? { coins: 520n, revision: 2n } : { coins: 0n, revision: 1n },
             }),
           ),
@@ -231,7 +322,14 @@ test.describe("buying coins", () => {
 
     test("the buyer gives up before paying", async ({ page, me: _me }) => {
       await page.route(`**/api/${WALLET}/CancelPurchase`, (route) =>
-        route.fulfill(proto(wallet.CancelPurchaseResponseSchema, create(wallet.CancelPurchaseResponseSchema, { purchase: purchase(wallet.PurchaseStatus.CANCELLED) }))),
+        route.fulfill(
+          proto(
+            wallet.CancelPurchaseResponseSchema,
+            create(wallet.CancelPurchaseResponseSchema, {
+              purchase: purchase(wallet.PurchaseStatus.CANCELLED),
+            }),
+          ),
+        ),
       );
       const dialog = await startPendingPurchase(page);
 
@@ -240,13 +338,21 @@ test.describe("buying coins", () => {
       await expect(dialog.getByText("コインは増えていません。")).toBeVisible();
       // Trying again starts over at the confirmation.
       await dialog.getByRole("button", { name: "もう一度ためす" }).click();
-      await expect(page.getByRole("dialog", { name: "コインの購入" }).getByRole("button", { name: /500で購入する/ })).toBeVisible();
+      await expect(
+        page
+          .getByRole("dialog", { name: "コインの購入" })
+          .getByRole("button", { name: /500で購入する/ }),
+      ).toBeVisible();
     });
   });
 });
 
 test.describe("earnings", () => {
-  test("a creator requests a payout within the limits, then takes it back", async ({ page, request, me }) => {
+  test("a creator requests a payout within the limits, then takes it back", async ({
+    page,
+    request,
+    me,
+  }) => {
     await grantEarnings(request, me, 2500);
     await page.goto("/wallet/earnings");
     const available = page.getByRole("region", { name: "出金できる収益" });
@@ -313,10 +419,19 @@ test.describe("earnings", () => {
   // Earnings by period come from transfers between users (stamp sales, live
   // gifts), which only other domains can make. The summary is simulated here
   // to show the period view with numbers in it.
-  test("the period view charts what was earned and breaks it down by source (summary simulated)", async ({ page, me: _me }) => {
-    const totals = (gross: bigint, count: number) => ({ gross, fee: (gross * 30n) / 100n, net: gross - (gross * 30n) / 100n, count });
+  test("the period view charts what was earned and breaks it down by source (summary simulated)", async ({
+    page,
+    me: _me,
+  }) => {
+    const totals = (gross: bigint, count: number) => ({
+      gross,
+      fee: (gross * 30n) / 100n,
+      net: gross - (gross * 30n) / 100n,
+      count,
+    });
     const today = new Date();
-    const day = (ago: number) => fromDate(new Date(today.getFullYear(), today.getMonth(), today.getDate() - ago));
+    const day = (ago: number) =>
+      fromDate(new Date(today.getFullYear(), today.getMonth(), today.getDate() - ago));
     const perDay = [0n, 120n, 0n, 240n, 100n, 0n, 120n];
     await page.route(`**/api/${EARNINGS}/GetEarningsSummary`, (route) =>
       route.fulfill(
@@ -330,15 +445,25 @@ test.describe("earnings", () => {
               { reason: "stamp.pack", label: "スタンプパックの売上", totals: totals(480n, 4) },
               { reason: "live.gift", label: "ライブギフト", totals: totals(100n, 2) },
             ],
-            series: perDay.map((gross, index) => ({ periodStart: day(perDay.length - 1 - index), totals: totals(gross, gross > 0n ? 1 : 0) })),
-            payoutTerms: { minCoins: 1000n, currency: "JPY", minorPer100Coins: 100n, platformFeePercent: 30 },
+            series: perDay.map((gross, index) => ({
+              periodStart: day(perDay.length - 1 - index),
+              totals: totals(gross, gross > 0n ? 1 : 0),
+            })),
+            payoutTerms: {
+              minCoins: 1000n,
+              currency: "JPY",
+              minorPer100Coins: 100n,
+              platformFeePercent: 30,
+            },
           }),
         ),
       ),
     );
     await page.goto("/wallet/earnings");
 
-    await expect(page.getByRole("region", { name: "出金できる収益" }).getByText(coins(406))).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "出金できる収益" }).getByText(coins(406)),
+    ).toBeVisible();
     await expect(page.getByText("手数料 (30%)")).toBeVisible();
     // The sources, largest first, each with what reached the creator.
     const sources = page.getByRole("listitem").filter({ hasText: /売上|ギフト/ });
@@ -353,23 +478,38 @@ test.describe("earnings", () => {
     await chart.press("ArrowLeft");
     await expect(chart).toHaveAttribute("aria-valuetext", /: 70コイン$/);
     // The same numbers exist as a table for screen readers.
-    await expect(page.getByRole("table", { name: "収益の推移" }).getByRole("row")).toHaveCount(perDay.length + 1);
+    await expect(page.getByRole("table", { name: "収益の推移" }).getByRole("row")).toHaveCount(
+      perDay.length + 1,
+    );
   });
 
-  test("a decision by staff reaches the open payout page with its reason", async ({ page, request, me }) => {
+  test("a decision by staff reaches the open payout page with its reason", async ({
+    page,
+    request,
+    me,
+  }) => {
     await grantEarnings(request, me, 1500);
     const payout = await requestPayout(request, me, 1500);
     try {
       await page.goto(`/wallet/payouts/${payout.id}`);
       await expect(page.getByRole("heading", { name: "出金申請" })).toBeVisible();
-      await expect(page.getByText("運営が内容を確認しています。もう少し待っててね！")).toBeVisible();
+      await expect(
+        page.getByText("運営が内容を確認しています。もう少し待っててね！"),
+      ).toBeVisible();
 
       const admin = await adminAccount(request);
-      await rpc(request, `${WALLET_ADMIN}/RejectPayout`, { payoutId: payout.id, reviewNote: "口座名義がプロフィールと一致しません" }, admin);
+      await rpc(
+        request,
+        `${WALLET_ADMIN}/RejectPayout`,
+        { payoutId: payout.id, reviewNote: "口座名義がプロフィールと一致しません" },
+        admin,
+      );
 
       // Pushed live: no reload.
       const main = page.getByRole("main");
-      await expect(main.getByText("却下されました", { exact: true })).toBeVisible({ timeout: 20_000 });
+      await expect(main.getByText("却下されました", { exact: true })).toBeVisible({
+        timeout: 20_000,
+      });
       await expect(main.getByText("口座名義がプロフィールと一致しません")).toBeVisible();
       await expect(main.getByText("1,500コインは収益にもどりました。")).toBeVisible();
       await expect(page.getByRole("button", { name: "申請を取り消す" })).toHaveCount(0);
@@ -409,14 +549,21 @@ test.describe("staff", () => {
       await expect(page.getByRole("button", { name: "却下する" })).toHaveCount(0);
 
       const [settled] = await payoutsOf(request, creator);
-      expect(settled).toMatchObject({ status: "PAYOUT_STATUS_PAID", reviewNote: "おつかれさまです！", paymentReference: "TX-E2E-0001" });
+      expect(settled).toMatchObject({
+        status: "PAYOUT_STATUS_PAID",
+        reviewNote: "おつかれさまです！",
+        paymentReference: "TX-E2E-0001",
+      });
       expect((await balanceOf(request, creator)).earnings).toBe("1000");
     } finally {
       await withdraw(request, creator, payout.id);
     }
   });
 
-  test("a payout request is picked from the queue and rejected with a reason", async ({ page, request }) => {
+  test("a payout request is picked from the queue and rejected with a reason", async ({
+    page,
+    request,
+  }) => {
     const creator = await createAccount(request, "creator");
     await grantEarnings(request, creator, 1200);
     const payout = await requestPayout(request, creator, 1200);
@@ -435,10 +582,15 @@ test.describe("staff", () => {
       await dialog.getByLabel("却下の理由").fill("本人確認が完了していません");
       await dialog.getByRole("button", { name: "却下する" }).click();
       await expect(page.getByText("却下しました")).toBeVisible();
-      await expect(page.getByRole("definition").filter({ hasText: "本人確認が完了していません" })).toBeVisible();
+      await expect(
+        page.getByRole("definition").filter({ hasText: "本人確認が完了していません" }),
+      ).toBeVisible();
 
       const [rejected] = await payoutsOf(request, creator);
-      expect(rejected).toMatchObject({ status: "PAYOUT_STATUS_REJECTED", reviewNote: "本人確認が完了していません" });
+      expect(rejected).toMatchObject({
+        status: "PAYOUT_STATUS_REJECTED",
+        reviewNote: "本人確認が完了していません",
+      });
       // The coins are back with the creator.
       expect((await balanceOf(request, creator)).earnings).toBe("1200");
     } finally {
@@ -446,7 +598,10 @@ test.describe("staff", () => {
     }
   });
 
-  test("a user's wallet is found by search and corrected with a reason, which lands in the log", async ({ page, request }) => {
+  test("a user's wallet is found by search and corrected with a reason, which lands in the log", async ({
+    page,
+    request,
+  }) => {
     const user = await createAccount(request, "holder");
     await rpc(request, `${WALLET}/ClaimDailyBonus`, {}, user);
     await signInAs(page, await adminAccount(request));
@@ -485,7 +640,10 @@ test.describe("staff", () => {
     await expect(entry.getByText(coins(500, true))).toBeVisible();
   });
 
-  test("a coin package is created, sold in the shop, edited and retired", async ({ page, request }) => {
+  test("a coin package is created, sold in the shop, edited and retired", async ({
+    page,
+    request,
+  }) => {
     const admin = await adminAccount(request);
     const sku = `e2e_${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}`;
     try {
@@ -495,7 +653,9 @@ test.describe("staff", () => {
       const editor = page.getByRole("dialog", { name: "新しいコインパック" });
       // Nothing is saved while the form is incomplete.
       await editor.getByRole("button", { name: "保存する" }).click();
-      await expect(editor.getByText("半角英小文字・数字・_ - . で3〜64文字にしてください")).toBeVisible();
+      await expect(
+        editor.getByText("半角英小文字・数字・_ - . で3〜64文字にしてください"),
+      ).toBeVisible();
       await editor.getByLabel("SKU").fill(sku);
       await editor.getByLabel("コイン", { exact: true }).fill("77");
       await editor.getByLabel("ボーナスコイン").fill("3");
@@ -521,26 +681,53 @@ test.describe("staff", () => {
       await expect(row.getByText("+13")).toBeVisible();
 
       await row.getByRole("button", { name: `${sku} を販売終了にする` }).click();
-      await page.getByRole("dialog", { name: `${sku} を販売終了にしますか？` }).getByRole("button", { name: "販売終了" }).click();
+      await page
+        .getByRole("dialog", { name: `${sku} を販売終了にしますか？` })
+        .getByRole("button", { name: "販売終了" })
+        .click();
       await expect(page.getByText("販売終了にしました")).toBeVisible();
       await expect(row.getByRole("button", { name: `${sku} の販売を再開する` })).toBeVisible();
 
       // Buyers no longer get it (the shop's own view of this was checked above).
-      const shop = await rpc<{ packages: { sku: string }[] }>(request, `${WALLET}/ListCoinPackages`, {}, admin);
+      const shop = await rpc<{ packages: { sku: string }[] }>(
+        request,
+        `${WALLET}/ListCoinPackages`,
+        {},
+        admin,
+      );
       expect(shop.packages.map((pkg) => pkg.sku)).not.toContain(sku);
       expect(shop.packages.map((pkg) => pkg.sku)).toContain("coins_500");
     } finally {
       // Never leave a test package on sale in the shared shop.
-      const all = await rpc<{ packages: { id: string; sku: string; active?: boolean }[] }>(request, `${WALLET_ADMIN}/ListAllCoinPackages`, {}, admin);
+      const all = await rpc<{ packages: { id: string; sku: string; active?: boolean }[] }>(
+        request,
+        `${WALLET_ADMIN}/ListAllCoinPackages`,
+        {},
+        admin,
+      );
       const leftover = all.packages.find((pkg) => pkg.sku === sku && pkg.active);
-      if (leftover) await rpc(request, `${WALLET_ADMIN}/SaveCoinPackage`, { package: { ...leftover, active: false } }, admin);
+      if (leftover)
+        await rpc(
+          request,
+          `${WALLET_ADMIN}/SaveCoinPackage`,
+          { package: { ...leftover, active: false } },
+          admin,
+        );
     }
   });
 
-  test("a moderator reviews payouts and looks up wallets, but cannot adjust balances or edit the shop", async ({ page, request }) => {
+  test("a moderator reviews payouts and looks up wallets, but cannot adjust balances or edit the shop", async ({
+    page,
+    request,
+  }) => {
     const admin = await adminAccount(request);
     const moderator = await createAccount(request, "moderator");
-    await rpc(request, "tokuly.admin.v1.UserAdminService/SetUserRoles", { userId: moderator.userId, roles: ["moderator"], note: "e2e" }, admin);
+    await rpc(
+      request,
+      "tokuly.admin.v1.UserAdminService/SetUserRoles",
+      { userId: moderator.userId, roles: ["moderator"], note: "e2e" },
+      admin,
+    );
     await signInAs(page, await refreshAccount(request, moderator));
 
     await page.goto("/admin/wallet");

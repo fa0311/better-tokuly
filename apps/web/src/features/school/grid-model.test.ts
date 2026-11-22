@@ -5,8 +5,23 @@ import { collides, entryFor, type GridEntry, slotKey, slots } from "./grid-model
 const { EVERY, A, B } = school.WeekPattern;
 const MON = school.Weekday.MONDAY;
 
-function entry(id: string, weekday: school.Weekday, period: number, weekPattern: school.WeekPattern): GridEntry {
-  return { id, weekday, period, weekPattern, subject: undefined, room: "", teacher: "", color: "", memo: "" };
+function entry(
+  id: string,
+  weekday: school.Weekday,
+  period: number,
+  weekPattern: school.WeekPattern,
+): GridEntry {
+  return {
+    id,
+    weekday,
+    period,
+    weekPattern,
+    subject: undefined,
+    room: "",
+    teacher: "",
+    color: "",
+    memo: "",
+  };
 }
 
 describe("slots", () => {

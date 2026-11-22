@@ -14,12 +14,13 @@ import { toCatalogEmoji } from "../catalog";
 import { EmojiImage } from "../emoji";
 import { ThemePreview } from "../parts";
 import { EmojiEditDialog, ReasonDialog } from "./dialogs";
-import { emojiAdminClient, useAdminRefresh, UserLine } from "./shared";
+import { emojiAdminClient, UserLine, useAdminRefresh } from "./shared";
 
 export function useReviewQueue() {
   return useInfiniteQuery({
     queryKey: emojiKeys.adminQueue,
-    queryFn: ({ pageParam }) => emojiAdminClient().listReviewQueue({ page: { limit: 20, cursor: pageParam } }),
+    queryFn: ({ pageParam }) =>
+      emojiAdminClient().listReviewQueue({ page: { limit: 20, cursor: pageParam } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
@@ -37,13 +38,19 @@ export function ReviewQueue() {
       </div>
     );
   }
-  if (queue.isError) return <EmptyState emoji="😵‍💫" title={t("browse.error")} body={errorMessage(queue.error)} />;
+  if (queue.isError)
+    return <EmptyState emoji="😵‍💫" title={t("browse.error")} body={errorMessage(queue.error)} />;
   const items = queue.data.pages.flatMap((page) => page.emojis);
-  if (items.length === 0) return <EmptyState emoji="🍵" title={t("admin.queueEmpty")} body={t("admin.queueEmptyBody")} />;
+  if (items.length === 0)
+    return <EmptyState emoji="🍵" title={t("admin.queueEmpty")} body={t("admin.queueEmptyBody")} />;
   return (
     <>
-      <p className="mb-3 text-sm font-bold text-ink-soft">{t("admin.waiting", { count: queue.data.pages[0]?.pendingCount ?? items.length })}</p>
-      <div className="grid items-start gap-4 lg:grid-cols-2 2xl:grid-cols-3">{items.map((item) => item.emoji && <ReviewCard key={item.emoji.id} detail={item} />)}</div>
+      <p className="mb-3 text-sm font-bold text-ink-soft">
+        {t("admin.waiting", { count: queue.data.pages[0]?.pendingCount ?? items.length })}
+      </p>
+      <div className="grid items-start gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+        {items.map((item) => item.emoji && <ReviewCard key={item.emoji.id} detail={item} />)}
+      </div>
       <LoadMore query={queue} />
     </>
   );
@@ -66,7 +73,12 @@ const ACTION_KEYS: Record<emojiApi.ReviewAction, string> = {
 export function History({ records }: { records: emojiApi.ReviewRecord[] }) {
   const { t, i18n } = useTranslation("emoji");
   if (records.length === 0) return null;
-  const format = new Intl.DateTimeFormat(i18n.language, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  const format = new Intl.DateTimeFormat(i18n.language, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
   return (
     <ol className="flex flex-col gap-1 text-xs text-ink-soft">
       {records.map((record, index) => {
@@ -74,7 +86,9 @@ export function History({ records }: { records: emojiApi.ReviewRecord[] }) {
         return (
           // Records have no ID and never reorder.
           <li key={index} className="flex flex-wrap gap-x-2">
-            <span className="font-bold text-ink">{t(`admin.history.${ACTION_KEYS[record.action]}`)}</span>
+            <span className="font-bold text-ink">
+              {t(`admin.history.${ACTION_KEYS[record.action]}`)}
+            </span>
             {record.actor && <span>@{record.actor.handle}</span>}
             {at && <span className="text-ink-faint">{format.format(at)}</span>}
             {record.note && <span className="w-full break-words">{record.note}</span>}
@@ -116,7 +130,8 @@ function ReviewCard({ detail }: { detail: emojiApi.EmojiDetail }) {
     onError,
   });
   const trust = useMutation({
-    mutationFn: () => emojiAdminClient().setSubmitterTrusted({ userId: detail.author?.id ?? "", trusted: true }),
+    mutationFn: () =>
+      emojiAdminClient().setSubmitterTrusted({ userId: detail.author?.id ?? "", trusted: true }),
     onSuccess: async () => {
       toast.success(t("admin.trustedDone", { name: detail.author?.displayName ?? "" }));
       await refresh();
@@ -125,7 +140,11 @@ function ReviewCard({ detail }: { detail: emojiApi.EmojiDetail }) {
   });
 
   return (
-    <article data-testid="review-card" aria-label={code} className="rounded-2xl border-2 border-line bg-surface p-4">
+    <article
+      data-testid="review-card"
+      aria-label={code}
+      className="rounded-2xl border-2 border-line bg-surface p-4"
+    >
       <div className="flex items-center gap-3">
         <span className="grid size-16 shrink-0 place-items-center rounded-2xl bg-surface-2">
           <EmojiImage emoji={entry} size={48} reveal className="size-12" />
@@ -135,7 +154,9 @@ function ReviewCard({ detail }: { detail: emojiApi.EmojiDetail }) {
           <div className="mt-1 flex flex-wrap gap-1.5">
             {entry.category && <Chip>{entry.category}</Chip>}
             {entry.animated && <Chip>{t("flags.animated")}</Chip>}
-            {entry.sensitive && <Chip className="bg-coral text-[#17122b]">{t("flags.sensitive")}</Chip>}
+            {entry.sensitive && (
+              <Chip className="bg-coral text-[#17122b]">{t("flags.sensitive")}</Chip>
+            )}
           </div>
         </div>
       </div>
@@ -154,12 +175,18 @@ function ReviewCard({ detail }: { detail: emojiApi.EmojiDetail }) {
           </dd>
         </div>
         <div className="flex gap-2">
-          <dt className="w-20 shrink-0 text-xs font-black text-ink-faint">{t("fields.aliasesShort")}</dt>
+          <dt className="w-20 shrink-0 text-xs font-black text-ink-faint">
+            {t("fields.aliasesShort")}
+          </dt>
           <dd className="min-w-0 flex-1 break-words">{entry.aliases.join(" · ") || "—"}</dd>
         </div>
         <div className="flex gap-2">
-          <dt className="w-20 shrink-0 text-xs font-black text-ink-faint">{t("fields.licenseShort")}</dt>
-          <dd className="min-w-0 flex-1 whitespace-pre-wrap break-words">{detail.license || "—"}</dd>
+          <dt className="w-20 shrink-0 text-xs font-black text-ink-faint">
+            {t("fields.licenseShort")}
+          </dt>
+          <dd className="min-w-0 flex-1 whitespace-pre-wrap break-words">
+            {detail.license || "—"}
+          </dd>
         </div>
       </dl>
       {detail.history.length > 1 && (
@@ -168,22 +195,51 @@ function ReviewCard({ detail }: { detail: emojiApi.EmojiDetail }) {
         </div>
       )}
       <div className="mt-4 flex flex-wrap gap-2">
-        <Button variant="lime" size="sm" icon={<Check className="size-4" />} loading={approve.isPending} onClick={() => approve.mutate()}>
+        <Button
+          variant="lime"
+          size="sm"
+          icon={<Check className="size-4" />}
+          loading={approve.isPending}
+          onClick={() => approve.mutate()}
+        >
           {t("admin.approve")}
         </Button>
-        <Button variant="secondary" size="sm" icon={<X className="size-4" />} onClick={() => setRejecting(true)}>
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={<X className="size-4" />}
+          onClick={() => setRejecting(true)}
+        >
           {t("admin.reject")}
         </Button>
-        <Button variant="ghost" size="sm" icon={<Pencil className="size-4" />} onClick={() => setEditing(true)}>
+        <Button
+          variant="ghost"
+          size="sm"
+          icon={<Pencil className="size-4" />}
+          onClick={() => setEditing(true)}
+        >
           {t("admin.edit")}
         </Button>
         {detail.author && !detail.author.deleted && (
-          <Button variant="ghost" size="sm" icon={<BadgeCheck className="size-4" />} loading={trust.isPending} onClick={() => trust.mutate()}>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<BadgeCheck className="size-4" />}
+            loading={trust.isPending}
+            onClick={() => trust.mutate()}
+          >
             {t("admin.trustAuthor")}
           </Button>
         )}
       </div>
-      <ReasonDialog open={rejecting} onOpenChange={setRejecting} title={t("admin.rejectTitle", { code })} confirmLabel={t("admin.reject")} loading={reject.isPending} onConfirm={(reason) => reject.mutate(reason)} />
+      <ReasonDialog
+        open={rejecting}
+        onOpenChange={setRejecting}
+        title={t("admin.rejectTitle", { code })}
+        confirmLabel={t("admin.reject")}
+        loading={reject.isPending}
+        onConfirm={(reason) => reject.mutate(reason)}
+      />
       {editing && <EmojiEditDialog detail={detail} open onOpenChange={setEditing} />}
     </article>
   );

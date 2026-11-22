@@ -8,6 +8,7 @@ export default {
   suggest: {
     label: "検索の候補",
     jumpTo: "これかも？",
+    destinations: "Tokulyのなか",
     searchFor: "「{{query}}」で検索",
     source: { recent: "最近の検索", popular: "人気の検索", trending: "トレンド" },
   },
@@ -119,7 +120,7 @@ export default {
   palette: {
     title: "クイック検索",
     placeholder: "ひと、タグ、なんでも検索…",
-    hint: "名前や @ハンドル、#タグを打ってみてね。ひとやタグにそのまま飛べるよ！",
+    hint: "名前や @ハンドル、#タグ、「ウォレット」みたいな機能の名前を打ってみてね。そのまま飛べるよ！",
     close: "閉じる",
     openPage: "さがすページを開く",
     keys: { move: "えらぶ", open: "ひらく" },
@@ -130,13 +131,19 @@ export default {
       title: "このページは管理者だけが開けるよ",
       body: "検索インデックスとワードリストの管理には admin ロールが必要です。",
     },
-    tabs: { indexes: "インデックス", documents: "ドキュメント", blocked: "ブロックワード", synonyms: "同義語" },
+    tabs: {
+      indexes: "インデックス",
+      documents: "ドキュメント",
+      blocked: "ブロックワード",
+      synonyms: "同義語",
+    },
     indexes: {
       title: "インデックス",
       engine: "検索エンジン",
       healthy: "稼働中",
       unhealthy: "応答なし",
-      unhealthyHint: "Meilisearch から応答がありません。変更は登録簿にたまり、復旧すると書き込まれます。",
+      unhealthyHint:
+        "Meilisearch から応答がありません。変更は登録簿にたまり、復旧すると書き込まれます。",
       version: "バージョン",
       size: "サイズ",
       refresh: "更新",
@@ -148,7 +155,8 @@ export default {
       reindex: "再インデックス",
       reindexKind: "{{kind}}を再インデックス",
       reindexTitle: "{{kind}}を再インデックスする？",
-      reindexBody: "この種類のドキュメントをすべてインデックスに書き直し、担当ドメインにも再送を依頼します。裏で進むので、このまま画面を見ていれば進み具合がわかります。",
+      reindexBody:
+        "この種類のドキュメントをすべてインデックスに書き直し、担当ドメインにも再送を依頼します。裏で進むので、このまま画面を見ていれば進み具合がわかります。",
       queued: "{{count}}件を書き込み待ちに入れたよ",
     },
     documents: {

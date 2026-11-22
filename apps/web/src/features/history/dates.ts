@@ -1,7 +1,9 @@
+import { accountTimeZone, shiftDate, zonedMoment } from "#/lib/account-time";
+
 /**
- * Calendar days of the history, as `YYYY-MM-DD` strings in the device's own
- * time zone (the same zone the requests name, so "today" means the same on
- * the screen and on the server).
+ * Calendar days of the history, as `YYYY-MM-DD` strings on the account's
+ * calendar (its time zone — the same zone the requests name, so "today"
+ * means the same on the screen and on the server, wherever the device is).
  */
 
 const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -12,7 +14,11 @@ export function parseDay(date: string): Date | null {
   if (!match) return null;
   const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
   const parsed = new Date(year, month - 1, day);
-  return parsed.getFullYear() === year && parsed.getMonth() === month - 1 && parsed.getDate() === day ? parsed : null;
+  return parsed.getFullYear() === year &&
+    parsed.getMonth() === month - 1 &&
+    parsed.getDate() === day
+    ? parsed
+    : null;
 }
 
 export function formatDay(date: Date): string {
@@ -27,14 +33,23 @@ export function shiftDay(date: string, days: number): string {
   return formatDay(parsed);
 }
 
-/** The moments a day begins and ends (the start of the next day). */
-export function dayRange(date: string): { from: Date; to: Date } | null {
-  const from = parseDay(date);
-  if (!from) return null;
-  const to = new Date(from);
-  to.setDate(to.getDate() + 1);
-  return { from, to };
+/** The moments a day begins and ends (the start of the next day) in `zone`: the account's unless given. */
+export function dayRange(
+  date: string,
+  zone: string = accountTimeZone(),
+): { from: Date; to: Date } | null {
+  if (!parseDay(date)) return null;
+  return {
+    from: new Date(zonedMoment(date, 0, zone)),
+    to: new Date(zonedMoment(shiftDate(date, 1), 0, zone)),
+  };
 }
+
+/** The month a `YYYY-MM-DD` day is in. */
+export const monthOfDay = (date: string): Month => ({
+  year: Number(date.slice(0, 4)),
+  month: Number(date.slice(5, 7)),
+});
 
 export interface Month {
   year: number;
@@ -47,7 +62,10 @@ export function shiftMonth({ year, month }: Month, by: number): Month {
   return { year: Math.floor(index / 12), month: (index % 12) + 1 };
 }
 
-export const monthOf = (date: Date): Month => ({ year: date.getFullYear(), month: date.getMonth() + 1 });
+export const monthOf = (date: Date): Month => ({
+  year: date.getFullYear(),
+  month: date.getMonth() + 1,
+});
 
 /**
  * The days of a month laid out in weeks starting on Sunday; `null` pads

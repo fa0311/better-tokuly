@@ -66,7 +66,8 @@ function parseBlocks(lines: string[]): Block[] {
       const closing = new RegExp(`^ {0,3}${marker[0]}{${marker.length},}[ \\t]*$`);
       const body: string[] = [];
       index++;
-      while (index < lines.length && !closing.test(lines[index] as string)) body.push(lines[index++] as string);
+      while (index < lines.length && !closing.test(lines[index] as string))
+        body.push(lines[index++] as string);
       index++; // the closing fence (or the end of the text)
       blocks.push({ type: "code", text: body.join("\n"), language: fence[2] ?? "" });
       continue;
@@ -74,7 +75,11 @@ function parseBlocks(lines: string[]): Block[] {
 
     const heading = HEADING.exec(line);
     if (heading) {
-      blocks.push({ type: "heading", level: (heading[1] as string).length, children: parseInline((heading[2] ?? "").trim()) });
+      blocks.push({
+        type: "heading",
+        level: (heading[1] as string).length,
+        children: parseInline((heading[2] ?? "").trim()),
+      });
       index++;
       continue;
     }
@@ -87,7 +92,8 @@ function parseBlocks(lines: string[]): Block[] {
 
     if (QUOTE.test(line)) {
       const quoted: string[] = [];
-      while (index < lines.length && QUOTE.test(lines[index] as string)) quoted.push((lines[index++] as string).replace(QUOTE, ""));
+      while (index < lines.length && QUOTE.test(lines[index] as string))
+        quoted.push((lines[index++] as string).replace(QUOTE, ""));
       blocks.push({ type: "quote", children: parseBlocks(quoted) });
       continue;
     }
@@ -102,8 +108,16 @@ function parseBlocks(lines: string[]): Block[] {
 
     const paragraph = [line];
     index++;
-    while (index < lines.length && !isBlank(lines[index] as string) && !interruptsParagraph(lines[index] as string)) paragraph.push(lines[index++] as string);
-    blocks.push({ type: "paragraph", children: parseInline(paragraph.map((text) => text.trim()).join("\n")) });
+    while (
+      index < lines.length &&
+      !isBlank(lines[index] as string) &&
+      !interruptsParagraph(lines[index] as string)
+    )
+      paragraph.push(lines[index++] as string);
+    blocks.push({
+      type: "paragraph",
+      children: parseInline(paragraph.map((text) => text.trim()).join("\n")),
+    });
   }
   return blocks;
 }
@@ -116,7 +130,8 @@ function parseList(lines: string[], start: number, ordered: boolean): [Block, nu
 
   while (index < lines.length) {
     const marker = LIST_ITEM.exec(lines[index] as string);
-    if (!marker || (marker[3] !== undefined) !== ordered || RULE.test(lines[index] as string)) break;
+    if (!marker || (marker[3] !== undefined) !== ordered || RULE.test(lines[index] as string))
+      break;
     // Text of the item lines up after "- " / "12. ": deeper lines belong to it.
     const indent = (marker[1] as string).length + (marker[2] as string).length + 1;
     const content = [marker[4] ?? ""];
@@ -132,7 +147,11 @@ function parseList(lines: string[], start: number, ordered: boolean): [Block, nu
       } else if (leadingSpaces(line) >= indent) {
         content.push(line.slice(indent));
         index++;
-      } else if (!LIST_ITEM.test(line) && !interruptsParagraph(line) && !isBlank(content[content.length - 1] as string)) {
+      } else if (
+        !LIST_ITEM.test(line) &&
+        !interruptsParagraph(line) &&
+        !isBlank(content[content.length - 1] as string)
+      ) {
         // A paragraph that simply runs on without indentation.
         content.push(line.trim());
         index++;
@@ -145,7 +164,12 @@ function parseList(lines: string[], start: number, ordered: boolean): [Block, nu
     let lookahead = index;
     while (lookahead < lines.length && isBlank(lines[lookahead] as string)) lookahead++;
     const nextMarker = lookahead < lines.length ? LIST_ITEM.exec(lines[lookahead] as string) : null;
-    if (nextMarker && (nextMarker[3] !== undefined) === ordered && !RULE.test(lines[lookahead] as string)) index = lookahead;
+    if (
+      nextMarker &&
+      (nextMarker[3] !== undefined) === ordered &&
+      !RULE.test(lines[lookahead] as string)
+    )
+      index = lookahead;
     else break;
   }
   return [{ type: "list", ordered, start: ordered ? Number(first?.[3] ?? 1) : 1, items }, index];
@@ -220,7 +244,8 @@ export function parseInline(text: string): Inline[] {
       const end = findCodeEnd(text, index + ticks.length, ticks.length);
       if (end >= 0) {
         let code = text.slice(index + ticks.length, end).replace(/\n/g, " ");
-        if (code.length > 1 && code.startsWith(" ") && code.endsWith(" ") && code.trim() !== "") code = code.slice(1, -1);
+        if (code.length > 1 && code.startsWith(" ") && code.endsWith(" ") && code.trim() !== "")
+          code = code.slice(1, -1);
         push({ type: "code", text: code });
         index = end + ticks.length;
       } else {
@@ -258,7 +283,11 @@ export function parseInline(text: string): Inline[] {
       const autolink = AUTOLINK.exec(rest);
       if (autolink) {
         const address = autolink[1] as string;
-        push({ type: "link", href: address, children: [{ type: "text", text: address.replace(/^mailto:/, "") }] });
+        push({
+          type: "link",
+          href: address,
+          children: [{ type: "text", text: address.replace(/^mailto:/, "") }],
+        });
         index += autolink[0].length;
         continue;
       }
@@ -307,7 +336,10 @@ function findCodeEnd(text: string, from: number, length: number): number {
 }
 
 /** Reads `[label](destination "title")` starting at the `[`. */
-function readLink(text: string, start: number): { label: string; destination: string; end: number } | null {
+function readLink(
+  text: string,
+  start: number,
+): { label: string; destination: string; end: number } | null {
   let depth = 0;
   let index = start;
   for (; index < text.length; index++) {
@@ -321,7 +353,10 @@ function readLink(text: string, start: number): { label: string; destination: st
     else if (char === "]" && --depth === 0) break;
   }
   if (index >= text.length || text[index + 1] !== "(") return null;
-  const target = /^\(\s*(?:<([^<>\n]*)>|((?:[^\s()\\]|\\.|\([^\s()]*\))*))(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)/.exec(text.slice(index + 1));
+  const target =
+    /^\(\s*(?:<([^<>\n]*)>|((?:[^\s()\\]|\\.|\([^\s()]*\))*))(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)/.exec(
+      text.slice(index + 1),
+    );
   if (!target) return null;
   const destination = (target[1] ?? target[2] ?? "").replace(/\\(.)/g, "$1");
   return { label: text.slice(start + 1, index), destination, end: index + 1 + target[0].length };
@@ -385,7 +420,8 @@ export function plainText(nodes: Inline[]): string {
 export function markdownExcerpt(source: string, maxChars: number): string {
   const proseOf = (blocks: Block[]): string[] =>
     blocks.flatMap((block) => {
-      if (block.type === "paragraph" || block.type === "heading") return [plainText(block.children).trim()];
+      if (block.type === "paragraph" || block.type === "heading")
+        return [plainText(block.children).trim()];
       if (block.type === "quote") return proseOf(block.children);
       if (block.type === "list") return block.items.flatMap(proseOf);
       return [];

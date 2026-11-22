@@ -9,9 +9,10 @@ import { Dialog } from "#/components/ui/dialog";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
-import { errorMessage } from "./errors";
+import { EmojiText } from "#/features/emoji";
 import { chatKeys, messageClient } from "./api";
 import { useConversationContext } from "./conversation-context";
+import { errorMessage } from "./errors";
 import { Lightbox, type LightboxItem } from "./lightbox";
 import { FileRow, VisualTile, VoicePlayer } from "./media-parts";
 import { useMessageActions } from "./messages";
@@ -25,21 +26,42 @@ import { dateTime } from "./text";
  * media): a column beside it where the screen is wide enough for three, a
  * dialog (a sheet on phones) everywhere else.
  */
-export function SidePanel({ title, onClose, children }: { title: ReactNode; onClose(): void; children: ReactNode }) {
+export function SidePanel({
+  title,
+  onClose,
+  children,
+}: {
+  title: ReactNode;
+  onClose(): void;
+  children: ReactNode;
+}) {
   const { t } = useTranslation("chat");
   const docked = useMediaQuery("(min-width: 1180px)");
   if (!docked) {
     return (
-      <Dialog open onOpenChange={(open) => !open && onClose()} title={title} className="h-[85dvh] sm:h-[min(44rem,calc(100dvh-4rem))]">
+      <Dialog
+        open
+        onOpenChange={(open) => !open && onClose()}
+        title={title}
+        className="h-[85dvh] sm:h-[min(44rem,calc(100dvh-4rem))]"
+      >
         {children}
       </Dialog>
     );
   }
   return (
-    <aside className="flex h-full w-[22rem] shrink-0 flex-col border-l-2 border-line bg-surface" data-testid="side-panel">
+    <aside
+      className="flex h-full w-[22rem] shrink-0 flex-col border-l-2 border-line bg-surface"
+      data-testid="side-panel"
+    >
       <header className="flex h-16 shrink-0 items-center gap-2 border-b-2 border-line px-4">
         <h2 className="min-w-0 flex-1 truncate text-lg font-black">{title}</h2>
-        <button type="button" aria-label={t("actions.close")} onClick={onClose} className="grid size-9 place-items-center rounded-full hover:bg-surface-2">
+        <button
+          type="button"
+          aria-label={t("actions.close")}
+          onClick={onClose}
+          className="grid size-9 place-items-center rounded-full hover:bg-surface-2"
+        >
           <X className="size-5" />
         </button>
       </header>
@@ -59,18 +81,39 @@ function RowsSkeleton() {
 }
 
 /** One message as a row of a result list: who, when, and the start of what they said. */
-function MessageResult({ message, onOpen, trailing }: { message: chat.Message; onOpen(): void; trailing?: ReactNode }) {
+function MessageResult({
+  message,
+  onOpen,
+  trailing,
+}: {
+  message: chat.Message;
+  onOpen(): void;
+  trailing?: ReactNode;
+}) {
   const { me } = useConversationContext();
   return (
-    <div className="flex items-center gap-1 rounded-2xl hover:bg-surface-2" data-testid="message-result">
-      <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 items-start gap-3 px-2 py-2 text-left">
+    <div
+      className="flex items-center gap-1 rounded-2xl hover:bg-surface-2"
+      data-testid="message-result"
+    >
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex min-w-0 flex-1 items-start gap-3 px-2 py-2 text-left"
+      >
         <Avatar user={message.sender} size="sm" />
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline gap-2">
-            <span className="truncate text-sm font-black">{displayName(message.sender)}</span>
-            <span className="shrink-0 text-[11px] font-bold text-ink-faint">{dateTime(toMillis(message.createdAt))}</span>
+            <span className="truncate text-sm font-black">
+              <EmojiText text={displayName(message.sender)} />
+            </span>
+            <span className="shrink-0 text-[11px] font-bold text-ink-faint">
+              {dateTime(toMillis(message.createdAt))}
+            </span>
           </span>
-          <span className="line-clamp-2 text-sm text-ink-soft [overflow-wrap:anywhere]">{contentText(message, me.id)}</span>
+          <span className="line-clamp-2 text-sm text-ink-soft [overflow-wrap:anywhere]">
+            {contentText(message, me.id)}
+          </span>
         </span>
       </button>
       {trailing}
@@ -90,7 +133,12 @@ export function SearchPanel({ onOpen }: { onOpen(messageId: string): void }) {
   }, [query]);
   const results = useInfiniteQuery({
     queryKey: chatKeys.search(conversation.id, debounced),
-    queryFn: ({ pageParam }) => messageClient().searchMessages({ conversationId: conversation.id, query: debounced, page: { cursor: pageParam, limit: 30 } }),
+    queryFn: ({ pageParam }) =>
+      messageClient().searchMessages({
+        conversationId: conversation.id,
+        query: debounced,
+        page: { cursor: pageParam, limit: 30 },
+      }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
     enabled: debounced.length > 0,
@@ -99,7 +147,12 @@ export function SearchPanel({ onOpen }: { onOpen(messageId: string): void }) {
 
   return (
     <div className="flex flex-col gap-3">
-      <SearchField value={query} onChange={setQuery} placeholder={t("search.placeholder")} autoFocus />
+      <SearchField
+        value={query}
+        onChange={setQuery}
+        placeholder={t("search.placeholder")}
+        autoFocus
+      />
       {!debounced ? (
         <EmptyState emoji="🔎" title={t("search.start")} />
       ) : results.isPending ? (
@@ -127,14 +180,19 @@ export function PinnedPanel({ onOpen }: { onOpen(messageId: string): void }) {
   const actions = useMessageActions();
   const pinned = useInfiniteQuery({
     queryKey: chatKeys.pinned(conversation.id),
-    queryFn: ({ pageParam }) => messageClient().listPinnedMessages({ conversationId: conversation.id, page: { cursor: pageParam, limit: 30 } }),
+    queryFn: ({ pageParam }) =>
+      messageClient().listPinnedMessages({
+        conversationId: conversation.id,
+        page: { cursor: pageParam, limit: 30 },
+      }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
   const messages = pinned.data?.pages.flatMap((page) => page.messages) ?? [];
 
   if (pinned.isPending) return <RowsSkeleton />;
-  if (messages.length === 0) return <EmptyState emoji="📌" title={t("pins.empty")} body={t("pins.emptyBody")} />;
+  if (messages.length === 0)
+    return <EmptyState emoji="📌" title={t("pins.empty")} body={t("pins.emptyBody")} />;
   return (
     <div className="-mx-2 flex flex-col">
       {messages.map((message) => (
@@ -148,7 +206,9 @@ export function PinnedPanel({ onOpen }: { onOpen(messageId: string): void }) {
                 type="button"
                 aria-label={t("message.unpin")}
                 title={t("message.unpin")}
-                onClick={() => actions.pin(message, false).catch((error) => toast.error(errorMessage(error)))}
+                onClick={() =>
+                  actions.pin(message, false).catch((error) => toast.error(errorMessage(error)))
+                }
                 className="mr-1 grid size-9 shrink-0 place-items-center rounded-full text-ink-soft hover:bg-surface-3 hover:text-ink"
               >
                 <PinOff className="size-4" />
@@ -178,18 +238,27 @@ export function MediaPanel({ onOpen }: { onOpen(messageId: string): void }) {
   const [viewing, setViewing] = useState<number | null>(null);
   const shared = useInfiniteQuery({
     queryKey: chatKeys.media(conversation.id, MEDIA_FILTER[tab]),
-    queryFn: ({ pageParam }) => messageClient().listSharedMedia({ conversationId: conversation.id, filter: MEDIA_FILTER[tab], page: { cursor: pageParam, limit: 30 } }),
+    queryFn: ({ pageParam }) =>
+      messageClient().listSharedMedia({
+        conversationId: conversation.id,
+        filter: MEDIA_FILTER[tab],
+        page: { cursor: pageParam, limit: 30 },
+      }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
-  const items = (shared.data?.pages.flatMap((page) => page.items) ?? []).filter((item) => item.attachment);
+  const items = (shared.data?.pages.flatMap((page) => page.items) ?? []).filter(
+    (item) => item.attachment,
+  );
   const names = new Map(conversation.members.map((member) => [member.id, displayName(member)]));
   const viewer: LightboxItem[] =
     tab === "visual"
       ? items.map((item) => ({
           key: `${item.messageId}:${item.attachment!.assetId}`,
           attachment: item.attachment!,
-          caption: [names.get(item.senderId), dateTime(toMillis(item.createdAt))].filter(Boolean).join(" · "),
+          caption: [names.get(item.senderId), dateTime(toMillis(item.createdAt))]
+            .filter(Boolean)
+            .join(" · "),
           messageId: item.messageId,
         }))
       : [];
@@ -208,11 +277,21 @@ export function MediaPanel({ onOpen }: { onOpen(messageId: string): void }) {
       {shared.isPending ? (
         <RowsSkeleton />
       ) : items.length === 0 ? (
-        <EmptyState emoji={tab === "visual" ? "🖼️" : tab === "audio" ? "🎤" : "📁"} title={t(`media.empty.${tab}`)} />
+        <EmptyState
+          emoji={tab === "visual" ? "🖼️" : tab === "audio" ? "🎤" : "📁"}
+          title={t(`media.empty.${tab}`)}
+        />
       ) : tab === "visual" ? (
         <div className="grid grid-cols-3 gap-1">
           {items.map((item, index) => (
-            <VisualTile key={`${item.messageId}:${item.attachment!.assetId}`} attachment={item.attachment!} pixels={130} label={t("media.openPhoto")} onOpen={() => setViewing(index)} className="aspect-square rounded-xl" />
+            <VisualTile
+              key={`${item.messageId}:${item.attachment!.assetId}`}
+              attachment={item.attachment!}
+              pixels={130}
+              label={t("media.openPhoto")}
+              onOpen={() => setViewing(index)}
+              className="aspect-square rounded-xl"
+            />
           ))}
         </div>
       ) : (
@@ -235,7 +314,13 @@ export function MediaPanel({ onOpen }: { onOpen(messageId: string): void }) {
         </ul>
       )}
       <LoadMore query={shared} />
-      <Lightbox items={viewer} index={viewing} onIndexChange={setViewing} onClose={() => setViewing(null)} onShowInChat={onOpen} />
+      <Lightbox
+        items={viewer}
+        index={viewing}
+        onIndexChange={setViewing}
+        onClose={() => setViewing(null)}
+        onShowInChat={onOpen}
+      />
     </div>
   );
 }

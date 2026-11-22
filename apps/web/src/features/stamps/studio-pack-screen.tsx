@@ -1,7 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { media, stamp, toDate } from "@tokuly/api";
-import { Crown, ExternalLink, FilePlus2, MoreHorizontal, Pencil, Scissors, Send, Trash2, Undo2 } from "lucide-react";
+import {
+  Crown,
+  ExternalLink,
+  FilePlus2,
+  MoreHorizontal,
+  Pencil,
+  Scissors,
+  Send,
+  Trash2,
+  Undo2,
+} from "lucide-react";
 import { type ReactNode, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -35,7 +45,10 @@ export function StudioPackScreen({ packId }: { packId: string }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: pack, isPending, isError } = usePack(packId);
-  const profile = useQuery({ queryKey: stampKeys.creatorProfile, queryFn: async () => (await studioClient().getCreatorProfile({})).profile });
+  const profile = useQuery({
+    queryKey: stampKeys.creatorProfile,
+    queryFn: async () => (await studioClient().getCreatorProfile({})).profile,
+  });
 
   const [editingListing, setEditingListing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -51,16 +64,22 @@ export function StudioPackScreen({ packId }: { packId: string }) {
   /** Shows the pack as the server now has it, and lets every list that includes it catch up. */
   const apply = (next: stamp.Pack | undefined) => {
     if (next?.summary) {
-      for (const key of new Set([packId, next.summary.id, next.summary.shortId])) queryClient.setQueryData(stampKeys.pack(key), next);
+      for (const key of new Set([packId, next.summary.id, next.summary.shortId]))
+        queryClient.setQueryData(stampKeys.pack(key), next);
     }
-    for (const queryKey of [stampKeys.studio, stampKeys.library, stampKeys.store, stampKeys.review]) void queryClient.invalidateQueries({ queryKey });
+    for (const queryKey of [stampKeys.studio, stampKeys.library, stampKeys.store, stampKeys.review])
+      void queryClient.invalidateQueries({ queryKey });
   };
 
   const submit = useMutation({
     mutationFn: () => studioClient().submitPack({ packId: summary!.id }),
     onSuccess: (response) => {
       apply(response.pack);
-      toast.success(response.pack?.summary?.status === stamp.PackStatus.PUBLISHED ? t("toast.published") : t("toast.submitted"));
+      toast.success(
+        response.pack?.summary?.status === stamp.PackStatus.PUBLISHED
+          ? t("toast.published")
+          : t("toast.submitted"),
+      );
     },
     onError,
   });
@@ -84,9 +103,17 @@ export function StudioPackScreen({ packId }: { packId: string }) {
     onError,
   });
   const reorder = useMutation({
-    mutationFn: (ordered: stamp.Stamp[]) => studioClient().reorderStamps({ packId: summary!.id, stampIds: ordered.map((item) => item.stampRef!.id) }),
+    mutationFn: (ordered: stamp.Stamp[]) =>
+      studioClient().reorderStamps({
+        packId: summary!.id,
+        stampIds: ordered.map((item) => item.stampRef!.id),
+      }),
     // The grid keeps the dropped order while the server confirms it.
-    onMutate: (ordered) => queryClient.setQueryData<stamp.Pack>(stampKeys.pack(packId), (current) => current && { ...current, stamps: ordered }),
+    onMutate: (ordered) =>
+      queryClient.setQueryData<stamp.Pack>(
+        stampKeys.pack(packId),
+        (current) => current && { ...current, stamps: ordered },
+      ),
     onSuccess: (response) => apply(response.pack),
     onError: (error) => {
       onError(error);
@@ -96,7 +123,13 @@ export function StudioPackScreen({ packId }: { packId: string }) {
 
   const saveListing = async (listing: PackListing) => {
     try {
-      const response = await studioClient().updatePack({ packId: summary!.id, name: listing.name, description: listing.description, tags: { tags: listing.tags }, price: listing.price });
+      const response = await studioClient().updatePack({
+        packId: summary!.id,
+        name: listing.name,
+        description: listing.description,
+        tags: { tags: listing.tags },
+        price: listing.price,
+      });
       apply(response.pack);
       toast.success(t("toast.packSaved"));
     } catch (error) {
@@ -110,7 +143,8 @@ export function StudioPackScreen({ packId }: { packId: string }) {
     if (!summary || files.length === 0) return;
     const room = (profile.data?.maxStampsPerPack ?? 120) - summary.stampCount;
     const accepted = files.slice(0, Math.max(0, room));
-    if (accepted.length < files.length) toast(t("studio.pack.tooMany", { count: Math.max(0, room) }));
+    if (accepted.length < files.length)
+      toast(t("studio.pack.tooMany", { count: Math.max(0, room) }));
     if (accepted.length === 0) return;
 
     setUpload({ done: 0, total: accepted.length });
@@ -127,7 +161,14 @@ export function StudioPackScreen({ packId }: { packId: string }) {
     }
     try {
       for (let start = 0; start < ready.length; start += ADD_BATCH) {
-        apply((await studioClient().addStamps({ packId: summary.id, stamps: ready.slice(start, start + ADD_BATCH) })).pack);
+        apply(
+          (
+            await studioClient().addStamps({
+              packId: summary.id,
+              stamps: ready.slice(start, start + ADD_BATCH),
+            })
+          ).pack,
+        );
       }
       if (ready.length > 0) toast.success(t("toast.stampsAdded", { count: ready.length }));
     } catch (error) {
@@ -150,7 +191,11 @@ export function StudioPackScreen({ packId }: { packId: string }) {
   if (isError || !pack || !summary || !summary.viewer?.canManage) {
     return (
       <Page title={t("studio.title")} back="/stamps/studio">
-        <EmptyState emoji="🗝️" title={t("studio.pack.notYours")} body={t("studio.pack.notYoursBody")} />
+        <EmptyState
+          emoji="🗝️"
+          title={t("studio.pack.notYours")}
+          body={t("studio.pack.notYoursBody")}
+        />
       </Page>
     );
   }
@@ -179,8 +224,21 @@ export function StudioPackScreen({ packId }: { packId: string }) {
             </Button>
           }
           actions={[
-            { label: t("studio.pack.viewInStore"), icon: <ExternalLink />, onSelect: () => void navigate({ to: "/stamps/$packId", params: { packId: summary.shortId || summary.id } }) },
-            { label: t("studio.pack.delete"), icon: <Trash2 />, danger: true, onSelect: () => setConfirmDelete(true) },
+            {
+              label: t("studio.pack.viewInStore"),
+              icon: <ExternalLink />,
+              onSelect: () =>
+                void navigate({
+                  to: "/stamps/$packId",
+                  params: { packId: summary.shortId || summary.id },
+                }),
+            },
+            {
+              label: t("studio.pack.delete"),
+              icon: <Trash2 />,
+              danger: true,
+              onSelect: () => setConfirmDelete(true),
+            },
           ]}
         />
       }
@@ -195,7 +253,10 @@ export function StudioPackScreen({ packId }: { packId: string }) {
             onWithdraw={() => (live ? setConfirmUnpublish(true) : unpublish.mutate())}
           />
 
-          <section className="sticker flex flex-col gap-3 rounded-card bg-surface p-4" aria-label={t("studio.pack.listing")}>
+          <section
+            className="sticker flex flex-col gap-3 rounded-card bg-surface p-4"
+            aria-label={t("studio.pack.listing")}
+          >
             <div className="flex items-center gap-3">
               <PackCover pack={summary} className="size-20 shrink-0" />
               <div className="min-w-0 flex-1">
@@ -206,7 +267,13 @@ export function StudioPackScreen({ packId }: { packId: string }) {
                 </p>
               </div>
             </div>
-            {pack.description ? <p className="text-sm leading-relaxed break-words whitespace-pre-wrap">{pack.description}</p> : <p className="text-sm text-ink-faint">{t("studio.pack.noDescription")}</p>}
+            {pack.description ? (
+              <p className="text-sm leading-relaxed break-words whitespace-pre-wrap">
+                {pack.description}
+              </p>
+            ) : (
+              <p className="text-sm text-ink-faint">{t("studio.pack.noDescription")}</p>
+            )}
             {summary.tags.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {summary.tags.map((tag) => (
@@ -217,10 +284,21 @@ export function StudioPackScreen({ packId }: { packId: string }) {
             {summary.price > 0 && !summary.official && profile.data && (
               <p className="flex flex-wrap items-center gap-1.5 text-xs font-bold text-ink-soft">
                 {t("form.earnings", { fee: profile.data.feePercent })}
-                <Coins amount={netEarnings(summary.price, profile.data.feePercent)} size="sm" className="text-ink" />
+                <Coins
+                  amount={netEarnings(summary.price, profile.data.feePercent)}
+                  size="sm"
+                  className="text-ink"
+                />
               </p>
             )}
-            <Button variant="secondary" size="sm" className="self-start" icon={<Pencil className="size-4" />} disabled={inReview} onClick={() => setEditingListing(true)}>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="self-start"
+              icon={<Pencil className="size-4" />}
+              disabled={inReview}
+              onClick={() => setEditingListing(true)}
+            >
               {t("studio.pack.editListing")}
             </Button>
           </section>
@@ -239,10 +317,23 @@ export function StudioPackScreen({ packId }: { packId: string }) {
               }
             />
             <div className="mb-3 flex flex-wrap items-center gap-2">
-              <Button size="sm" variant="lime" icon={<Scissors className="size-4" />} disabled={!canAdd || full || upload !== null} onClick={() => setMaking(true)}>
+              <Button
+                size="sm"
+                variant="lime"
+                icon={<Scissors className="size-4" />}
+                disabled={!canAdd || full || upload !== null}
+                onClick={() => setMaking(true)}
+              >
                 {t("studio.pack.makeStamp")}
               </Button>
-              <Button size="sm" variant="secondary" icon={<FilePlus2 className="size-4" />} disabled={!canAdd || full} loading={upload !== null} onClick={() => fileInput.current?.click()}>
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<FilePlus2 className="size-4" />}
+                disabled={!canAdd || full}
+                loading={upload !== null}
+                onClick={() => fileInput.current?.click()}
+              >
                 {upload ? t("studio.pack.uploading", upload) : t("studio.pack.addFiles")}
               </Button>
               <input
@@ -262,11 +353,21 @@ export function StudioPackScreen({ packId }: { packId: string }) {
               />
             </div>
             <p className="mb-2 px-1 text-xs leading-relaxed text-ink-faint">
-              {inReview ? t("studio.pack.lockedInReview") : live && !canAdd ? t("studio.pack.lockedLive") : pack.stamps.length > 1 ? t("studio.pack.stampsHint") : t("studio.pack.filesHint")}
+              {inReview
+                ? t("studio.pack.lockedInReview")
+                : live && !canAdd
+                  ? t("studio.pack.lockedLive")
+                  : pack.stamps.length > 1
+                    ? t("studio.pack.stampsHint")
+                    : t("studio.pack.filesHint")}
             </p>
 
             {pack.stamps.length === 0 ? (
-              <EmptyState emoji="🖼️" title={t("studio.pack.noStamps")} body={t("studio.pack.noStampsBody")} />
+              <EmptyState
+                emoji="🖼️"
+                title={t("studio.pack.noStamps")}
+                body={t("studio.pack.noStampsBody")}
+              />
             ) : (
               <Sortable
                 items={pack.stamps}
@@ -278,7 +379,11 @@ export function StudioPackScreen({ packId }: { packId: string }) {
               >
                 {(item, { grip, dragging }) => (
                   <div {...grip} className={cn("rounded-2xl", dragging && "bg-brand-soft")}>
-                    <StampTile item={item} hidePending={allPending} onPress={(pressed) => setEditingStamp(pressed.stampRef?.id)}>
+                    <StampTile
+                      item={item}
+                      hidePending={allPending}
+                      onPress={(pressed) => setEditingStamp(pressed.stampRef?.id)}
+                    >
                       {item.stampRef?.id === coverId && (
                         <span className="pointer-events-none absolute top-0.5 left-0.5 grid size-5 place-items-center rounded-full border-2 border-ink bg-sun text-[#17122b]">
                           <Crown className="size-2.5" aria-label={t("studio.pack.cover")} />
@@ -296,7 +401,9 @@ export function StudioPackScreen({ packId }: { packId: string }) {
             {summary.publishedAt || summary.installCount > 0n ? (
               <PackStats packId={summary.id} paid={summary.price > 0} />
             ) : (
-              <p className="rounded-2xl border-2 border-dashed border-line px-4 py-8 text-center text-sm font-bold text-ink-faint">{t("stats.notYet")}</p>
+              <p className="rounded-2xl border-2 border-dashed border-line px-4 py-8 text-center text-sm font-bold text-ink-faint">
+                {t("stats.notYet")}
+              </p>
             )}
           </section>
         </div>
@@ -307,7 +414,12 @@ export function StudioPackScreen({ packId }: { packId: string }) {
         onOpenChange={setEditingListing}
         title={t("studio.pack.editListing")}
         submitLabel={t("common:actions.save")}
-        initial={{ name: summary.name, description: pack.description, tags: summary.tags, price: summary.price }}
+        initial={{
+          name: summary.name,
+          description: pack.description,
+          tags: summary.tags,
+          price: summary.price,
+        }}
         limits={profile.data}
         official={summary.official}
         onSubmit={saveListing}
@@ -366,7 +478,19 @@ const PANEL_TINT: Record<number, string> = {
 };
 
 /** Where the pack is on its way to the store, and the one step that moves it on. */
-function StatusPanel({ pack, submitting, withdrawing, onSubmit, onWithdraw }: { pack: stamp.Pack; submitting: boolean; withdrawing: boolean; onSubmit(): void; onWithdraw(): void }) {
+function StatusPanel({
+  pack,
+  submitting,
+  withdrawing,
+  onSubmit,
+  onWithdraw,
+}: {
+  pack: stamp.Pack;
+  submitting: boolean;
+  withdrawing: boolean;
+  onSubmit(): void;
+  onWithdraw(): void;
+}) {
   const { t, i18n } = useTranslation("stamps");
   const summary = pack.summary!;
   const review = pack.review;
@@ -379,7 +503,9 @@ function StatusPanel({ pack, submitting, withdrawing, onSubmit, onWithdraw }: { 
   const soft = coloured ? "text-[#17122b]/75" : "text-ink-soft";
 
   const lead: Record<number, string> = {
-    [stamp.PackStatus.DRAFT]: review?.needsReview ? t("studio.pack.draftLead") : t("studio.pack.draftLeadTrusted"),
+    [stamp.PackStatus.DRAFT]: review?.needsReview
+      ? t("studio.pack.draftLead")
+      : t("studio.pack.draftLeadTrusted"),
     [stamp.PackStatus.IN_REVIEW]: t("studio.pack.inReviewLead"),
     [stamp.PackStatus.PUBLISHED]: t("studio.pack.publishedLead"),
     [stamp.PackStatus.REJECTED]: t("studio.pack.rejectedLead"),
@@ -389,39 +515,84 @@ function StatusPanel({ pack, submitting, withdrawing, onSubmit, onWithdraw }: { 
   let action: ReactNode = null;
   if (submittable) {
     action = (
-      <Button icon={<Send className="size-4" />} loading={submitting} disabled={summary.stampCount === 0} onClick={onSubmit}>
-        {declined ? t("studio.pack.resubmit") : review?.needsReview ? t("studio.pack.submit") : t("studio.pack.publish")}
+      <Button
+        icon={<Send className="size-4" />}
+        loading={submitting}
+        disabled={summary.stampCount === 0}
+        onClick={onSubmit}
+      >
+        {declined
+          ? t("studio.pack.resubmit")
+          : review?.needsReview
+            ? t("studio.pack.submit")
+            : t("studio.pack.publish")}
       </Button>
     );
   } else {
     action = (
-      <Button variant="secondary" icon={<Undo2 className="size-4" />} loading={withdrawing} onClick={onWithdraw}>
-        {status === stamp.PackStatus.IN_REVIEW ? t("studio.pack.withdraw") : t("studio.pack.unpublish")}
+      <Button
+        variant="secondary"
+        icon={<Undo2 className="size-4" />}
+        loading={withdrawing}
+        onClick={onWithdraw}
+      >
+        {status === stamp.PackStatus.IN_REVIEW
+          ? t("studio.pack.withdraw")
+          : t("studio.pack.unpublish")}
       </Button>
     );
   }
 
   return (
-    <section className={cn("sticker flex flex-col gap-3 rounded-card p-4", PANEL_TINT[status] ?? "bg-surface")} aria-label={t("studio.pack.status")} data-testid="pack-status">
+    <section
+      className={cn(
+        "sticker flex flex-col gap-3 rounded-card p-4",
+        PANEL_TINT[status] ?? "bg-surface",
+      )}
+      aria-label={t("studio.pack.status")}
+      data-testid="pack-status"
+    >
       <div className="flex items-center gap-2">
-        <StatusChip status={status} className={coloured ? "border-2 border-ink bg-surface text-ink" : undefined} />
-        {status === stamp.PackStatus.IN_REVIEW && submitted && <span className={cn("text-xs font-bold", soft)}>{t("studio.pack.submittedOn", { date: submitted.toLocaleDateString(i18n.language) })}</span>}
+        <StatusChip
+          status={status}
+          className={coloured ? "border-2 border-ink bg-surface text-ink" : undefined}
+        />
+        {status === stamp.PackStatus.IN_REVIEW && submitted && (
+          <span className={cn("text-xs font-bold", soft)}>
+            {t("studio.pack.submittedOn", { date: submitted.toLocaleDateString(i18n.language) })}
+          </span>
+        )}
       </div>
-      <p className={cn("text-sm leading-relaxed font-bold", soft)}>{lead[status] ?? lead[stamp.PackStatus.DRAFT]}</p>
+      <p className={cn("text-sm leading-relaxed font-bold", soft)}>
+        {lead[status] ?? lead[stamp.PackStatus.DRAFT]}
+      </p>
       {declined && review?.note && (
-        <blockquote className="rounded-2xl border-2 border-danger bg-surface px-3 py-2.5 text-sm leading-relaxed break-words whitespace-pre-wrap" data-testid="review-note">
+        <blockquote
+          className="rounded-2xl border-2 border-danger bg-surface px-3 py-2.5 text-sm leading-relaxed break-words whitespace-pre-wrap"
+          data-testid="review-note"
+        >
           <span className="block text-xs font-black text-danger">{t("studio.pack.reason")}</span>
           {review.note}
         </blockquote>
       )}
-      {(review?.pendingStampCount ?? 0) > 0 && (review?.pendingStampCount ?? 0) < summary.stampCount && status !== stamp.PackStatus.IN_REVIEW && (
-        <p className={cn("text-xs font-bold", soft)}>{t("studio.pack.pendingStamps", { count: review?.pendingStampCount ?? 0 })}</p>
+      {(review?.pendingStampCount ?? 0) > 0 &&
+        (review?.pendingStampCount ?? 0) < summary.stampCount &&
+        status !== stamp.PackStatus.IN_REVIEW && (
+          <p className={cn("text-xs font-bold", soft)}>
+            {t("studio.pack.pendingStamps", { count: review?.pendingStampCount ?? 0 })}
+          </p>
+        )}
+      {submittable && summary.stampCount === 0 && (
+        <p className="text-xs font-bold text-ink-faint">{t("studio.pack.needStamps")}</p>
       )}
-      {submittable && summary.stampCount === 0 && <p className="text-xs font-bold text-ink-faint">{t("studio.pack.needStamps")}</p>}
       <div className="flex flex-wrap items-center gap-2">
         {action}
         {status === stamp.PackStatus.PUBLISHED && (
-          <Link to="/stamps/$packId" params={{ packId: summary.shortId || summary.id }} className="inline-flex h-11 items-center gap-1.5 rounded-full px-3 text-sm font-bold underline-offset-4 hover:underline">
+          <Link
+            to="/stamps/$packId"
+            params={{ packId: summary.shortId || summary.id }}
+            className="inline-flex h-11 items-center gap-1.5 rounded-full px-3 text-sm font-bold underline-offset-4 hover:underline"
+          >
             <ExternalLink className="size-4" />
             {t("studio.pack.viewInStore")}
           </Link>
@@ -454,12 +625,22 @@ function StampEditor({
   const { t } = useTranslation("stamps");
   const queryClient = useQueryClient();
   const ref = item.stampRef!;
-  const [meta, setMeta] = useState<StampMeta>({ name: ref.name, emoji: item.emoji, keywords: item.keywords.join(" ") });
+  const [meta, setMeta] = useState<StampMeta>({
+    name: ref.name,
+    emoji: item.emoji,
+    keywords: item.keywords.join(" "),
+  });
   const [confirmRemove, setConfirmRemove] = useState(false);
   const onError = (error: unknown) => toast.error(errorMessage(error, { namespace: "stamps" }));
 
   const save = useMutation({
-    mutationFn: () => studioClient().updateStamp({ stampId: ref.id, name: meta.name.trim(), emoji: meta.emoji, keywords: { keywords: parseKeywords(meta.keywords) } }),
+    mutationFn: () =>
+      studioClient().updateStamp({
+        stampId: ref.id,
+        name: meta.name.trim(),
+        emoji: meta.emoji,
+        keywords: { keywords: parseKeywords(meta.keywords) },
+      }),
     onSuccess: async () => {
       // The answer carries only the stamp; the pack is read again so every copy of it agrees.
       await queryClient.invalidateQueries({ queryKey: ["stamp", "pack"] });
@@ -501,15 +682,38 @@ function StampEditor({
           <div className="grid place-items-center rounded-[1.75rem] bg-surface-2 py-4">
             <StampImage stamp={ref} size={144} play="always" />
           </div>
-          {item.pendingReview && !allPending && <p className="rounded-2xl bg-sun px-3 py-2 text-center text-sm font-bold text-[#17122b]">{t("studio.pack.stampPending")}</p>}
-          {locked ? <p className="text-center text-sm font-bold text-ink-soft">{t("studio.pack.lockedInReview")}</p> : <StampMetaFields value={meta} onChange={setMeta} />}
+          {item.pendingReview && !allPending && (
+            <p className="rounded-2xl bg-sun px-3 py-2 text-center text-sm font-bold text-[#17122b]">
+              {t("studio.pack.stampPending")}
+            </p>
+          )}
+          {locked ? (
+            <p className="text-center text-sm font-bold text-ink-soft">
+              {t("studio.pack.lockedInReview")}
+            </p>
+          ) : (
+            <StampMetaFields value={meta} onChange={setMeta} />
+          )}
           {!locked && (
             <div className="flex flex-wrap justify-between gap-2">
               <div className="flex gap-1">
-                <Button variant="ghost" size="sm" icon={<Crown className="size-4" />} disabled={isCover} loading={cover.isPending} onClick={() => cover.mutate()}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={<Crown className="size-4" />}
+                  disabled={isCover}
+                  loading={cover.isPending}
+                  onClick={() => cover.mutate()}
+                >
                   {isCover ? t("studio.pack.isCover") : t("studio.pack.setCover")}
                 </Button>
-                <Button variant="ghost" size="sm" className="text-danger" icon={<Trash2 className="size-4" />} onClick={() => setConfirmRemove(true)}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-danger"
+                  icon={<Trash2 className="size-4" />}
+                  onClick={() => setConfirmRemove(true)}
+                >
                   {t("studio.pack.removeStamp")}
                 </Button>
               </div>

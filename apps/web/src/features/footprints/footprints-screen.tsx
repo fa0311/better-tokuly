@@ -8,7 +8,14 @@ import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Page, Skeleton } from "#/components/ui/page";
-import { DEFAULT_CENTER, GazetteerCredit, type LatLng, locationClient, toLatLng, useMap } from "#/features/places";
+import { useMap } from "#/features/map";
+import {
+  DEFAULT_CENTER,
+  GazetteerCredit,
+  type LatLng,
+  locationClient,
+  toLatLng,
+} from "#/features/places";
 import { profileClient } from "#/lib/api";
 import { useMe } from "#/stores/session";
 import { footprintClient, footprintKeys, regionName } from "./api";
@@ -38,10 +45,18 @@ function MyFootprints() {
   const [levelUp, setLevelUp] = useState<string | null>(null);
   const userId = useMe()?.user?.id ?? "";
 
-  const stats = useQuery({ queryKey: footprintKeys.stats(""), queryFn: () => footprintClient().getStats({}) });
+  const stats = useQuery({
+    queryKey: footprintKeys.stats(""),
+    queryFn: () => footprintClient().getStats({}),
+  });
   const recap = useRecap();
   // Where the map opens: where the person last was, else the area they know best.
-  const location = useQuery({ queryKey: ["geo", "location", "mine"], queryFn: () => locationClient().getMyLocation({}), staleTime: 60_000, retry: false });
+  const location = useQuery({
+    queryKey: ["geo", "location", "mine"],
+    queryFn: () => locationClient().getMyLocation({}),
+    staleTime: 60_000,
+    retry: false,
+  });
 
   const total = Number(stats.data?.totalCellCount ?? 0);
   const regions = stats.data?.regions ?? [];
@@ -53,7 +68,17 @@ function MyFootprints() {
   useEffect(() => {
     if (!loaded || !userId) return;
     // Regions are compared and remembered by their fingerprint for this account, never by ID.
-    const marked = regions.flatMap((stat) => (stat.region ? [{ id: regionMark(userId, stat.region.id), level: regionLevel(stat.percent).level, region: stat.region }] : []));
+    const marked = regions.flatMap((stat) =>
+      stat.region
+        ? [
+            {
+              id: regionMark(userId, stat.region.id),
+              level: regionLevel(stat.percent).level,
+              region: stat.region,
+            },
+          ]
+        : [],
+    );
     const ups = levelUps(readSeenLevels(userId), explorer.level, marked);
     writeSeenLevels(userId, ups.seen);
     const messages: string[] = [];
@@ -83,7 +108,12 @@ function MyFootprints() {
       back="/me"
       wide
       actions={
-        <Button variant="secondary" size="sm" icon={<Gift className="size-4" />} onClick={() => setRecapOpen(true)}>
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={<Gift className="size-4" />}
+          onClick={() => setRecapOpen(true)}
+        >
           {t("recap.open")}
         </Button>
       }
@@ -100,16 +130,26 @@ function MyFootprints() {
               </div>
               <p className="mt-3 text-lg font-black">{t("empty.title")}</p>
               <p className="mt-1 text-sm leading-relaxed text-ink-soft">{t("empty.body")}</p>
-              <Link to="/map" className="pressable sticker-sm mt-4 inline-flex h-11 items-center rounded-full bg-lime px-5 font-black text-[#17122b]">
+              <Link
+                to="/map"
+                className="pressable sticker-sm mt-4 inline-flex h-11 items-center rounded-full bg-lime px-5 font-black text-[#17122b]"
+              >
                 {t("empty.action")}
               </Link>
             </div>
           ) : (
             <section className="sticker rounded-card bg-surface p-5" aria-label={t("hero.label")}>
-              {levelUp && <p className="mb-3 animate-pop-in rounded-2xl bg-sun px-4 py-2 text-center font-black text-[#17122b]">🆙 {levelUp}</p>}
+              {levelUp && (
+                <p className="mb-3 animate-pop-in rounded-2xl bg-sun px-4 py-2 text-center font-black text-[#17122b]">
+                  🆙 {levelUp}
+                </p>
+              )}
               {top?.region && (
                 <p className="text-2xl font-black leading-snug" data-testid="footprint-headline">
-                  {t("hero.headline", { region: regionName(top.region), percent: formatPercent(top.percent) })}
+                  {t("hero.headline", {
+                    region: regionName(top.region),
+                    percent: formatPercent(top.percent),
+                  })}
                 </p>
               )}
               <div className="mt-4 flex items-center gap-4">
@@ -121,23 +161,36 @@ function MyFootprints() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-black">{t(`titles.${explorer.title}`)}</p>
-                  <Meter className="mt-1.5" value={explorer.progress} label={t("hero.levelProgress")} />
-                  <p className="mt-1 text-xs font-bold text-ink-soft">{t("hero.toNext", { count: explorer.next - total, level: explorer.level + 1 })}</p>
+                  <Meter
+                    className="mt-1.5"
+                    value={explorer.progress}
+                    label={t("hero.levelProgress")}
+                  />
+                  <p className="mt-1 text-xs font-bold text-ink-soft">
+                    {t("hero.toNext", { count: explorer.next - total, level: explorer.level + 1 })}
+                  </p>
                 </div>
               </div>
               <dl className="mt-4 grid grid-cols-3 gap-2 text-center">
                 <Fact label={t("hero.cells")} value={total.toLocaleString()} />
                 <Fact label={t("hero.countries")} value={String(stats.data?.countryCount ?? 0)} />
-                <Fact label={t("hero.area")} value={`${(stats.data?.world?.exploredKm2 ?? 0).toFixed((stats.data?.world?.exploredKm2 ?? 0) < 100 ? 1 : 0)} km²`} />
+                <Fact
+                  label={t("hero.area")}
+                  value={`${(stats.data?.world?.exploredKm2 ?? 0).toFixed((stats.data?.world?.exploredKm2 ?? 0) < 100 ? 1 : 0)} km²`}
+                />
               </dl>
             </section>
           )}
-
         </div>
 
         <div className="lg:sticky lg:top-20 lg:col-start-1 lg:row-span-2 lg:row-start-1">
           {mapReady ? (
-            <FootprintMap center={start.center} zoom={start.zoom} fresh={recap.data?.newCells ?? []} className="sticker h-[24rem] rounded-card lg:h-[calc(100dvh-7.5rem)]">
+            <FootprintMap
+              center={start.center}
+              zoom={start.zoom}
+              fresh={recap.data?.newCells ?? []}
+              className="sticker h-[24rem] rounded-card lg:h-[calc(100dvh-7.5rem)]"
+            >
               <HereChip />
             </FootprintMap>
           ) : (
@@ -148,7 +201,13 @@ function MyFootprints() {
         <div className="flex flex-col gap-5 lg:col-start-2">
           {recap.data && <RecapTeaser recap={recap.data} onOpen={() => setRecapOpen(true)} />}
           <RegionList stats={regions} coach onPick={setBoardRegion} />
-          <Leaderboard regions={regions.flatMap((stat) => (stat.region ? [stat.region] : []))} regionId={boardRegion} onRegion={setBoardRegion} scope={boardScope} onScope={setBoardScope} />
+          <Leaderboard
+            regions={regions.flatMap((stat) => (stat.region ? [stat.region] : []))}
+            regionId={boardRegion}
+            onRegion={setBoardRegion}
+            scope={boardScope}
+            onScope={setBoardScope}
+          />
           <p className="text-center text-xs text-ink-faint">{t("privacyNote")}</p>
           {regions.length > 0 && <GazetteerCredit className="text-center" />}
         </div>
@@ -170,9 +229,16 @@ function Fact({ label, value }: { label: string; value: string }) {
 /** Names the prefecture under the middle of the map and how much of it is uncovered. */
 function HereChip() {
   const map = useMap();
-  const [center, setCenter] = useState(() => ({ lat: Number(map.getCenter().lat.toFixed(1)), lng: Number(map.getCenter().lng.toFixed(1)) }));
+  const [center, setCenter] = useState(() => ({
+    lat: Number(map.getCenter().lat.toFixed(1)),
+    lng: Number(map.getCenter().lng.toFixed(1)),
+  }));
   useEffect(() => {
-    const update = () => setCenter({ lat: Number(map.getCenter().lat.toFixed(1)), lng: Number(map.getCenter().lng.toFixed(1)) });
+    const update = () =>
+      setCenter({
+        lat: Number(map.getCenter().lat.toFixed(1)),
+        lng: Number(map.getCenter().lng.toFixed(1)),
+      });
     map.on("moveend", update);
     return () => {
       map.off("moveend", update);
@@ -196,12 +262,25 @@ function HereChip() {
 /** A friend's scratch map. What they do not show simply is not there. */
 function FriendFootprints({ userId }: { userId: string }) {
   const { t } = useTranslation("footprints");
-  const profile = useQuery({ queryKey: ["identity", "profile", "id", userId], queryFn: () => profileClient().getProfile({ by: { case: "userId", value: userId } }), retry: false });
-  const stats = useQuery({ queryKey: footprintKeys.stats(userId), queryFn: () => footprintClient().getStats({ userId }), retry: false });
+  const profile = useQuery({
+    queryKey: ["identity", "profile", "id", userId],
+    queryFn: () => profileClient().getProfile({ by: { case: "userId", value: userId } }),
+    retry: false,
+  });
+  const stats = useQuery({
+    queryKey: footprintKeys.stats(userId),
+    queryFn: () => footprintClient().getStats({ userId }),
+    retry: false,
+  });
   // Cells are for friends; whether we may have them is the server's call.
   const probe = useQuery({
     queryKey: [...footprintKeys.all, "visible", userId],
-    queryFn: () => footprintClient().getCells({ userId, bounds: { southWest: { lat: -85, lng: -180 }, northEast: { lat: 85, lng: 180 } }, zoom: 1 }),
+    queryFn: () =>
+      footprintClient().getCells({
+        userId,
+        bounds: { southWest: { lat: -85, lng: -180 }, northEast: { lat: 85, lng: 180 } },
+        zoom: 1,
+      }),
     retry: false,
   });
 
@@ -215,12 +294,19 @@ function FriendFootprints({ userId }: { userId: string }) {
   // the person does not exist, they do not show their footprints (the
   // server's refusal, shown as "kept to themselves"), or the request simply
   // failed, which is worth another try and must not read as either.
-  const notFound = (error: unknown) => errorReason(error) === "USER_NOT_FOUND" || (isApiError(error) && error.code === Code.NotFound);
-  const refused = (error: unknown) => errorReason(error) === "FOOTPRINTS_PRIVATE" || (isApiError(error) && error.code === Code.PermissionDenied);
+  const notFound = (error: unknown) =>
+    errorReason(error) === "USER_NOT_FOUND" || (isApiError(error) && error.code === Code.NotFound);
+  const refused = (error: unknown) =>
+    errorReason(error) === "FOOTPRINTS_PRIVATE" ||
+    (isApiError(error) && error.code === Code.PermissionDenied);
   const gone = notFound(profile.error) || notFound(stats.error);
   const withheld = !gone && refused(stats.error);
   const failed =
-    !gone && !withheld && ((profile.isError && !notFound(profile.error)) || stats.isError || (probe.isError && !refused(probe.error) && !notFound(probe.error)));
+    !gone &&
+    !withheld &&
+    ((profile.isError && !notFound(profile.error)) ||
+      stats.isError ||
+      (probe.isError && !refused(probe.error) && !notFound(probe.error)));
   const retry = () => {
     for (const query of [profile, stats, probe]) if (query.isError) void query.refetch();
   };
@@ -232,14 +318,22 @@ function FriendFootprints({ userId }: { userId: string }) {
       ) : gone ? (
         <Quiet emoji="🧭" title={t("friend.notFound")} />
       ) : withheld ? (
-        <Quiet emoji="🤫" title={t("friend.privateTitle", { name })} body={t("friend.privateBody")} />
+        <Quiet
+          emoji="🤫"
+          title={t("friend.privateTitle", { name })}
+          body={t("friend.privateBody")}
+        />
       ) : failed ? (
         <Quiet
           emoji="🌀"
           title={t("friend.failedTitle")}
           body={t("friend.failedBody")}
           action={
-            <Button variant="secondary" loading={profile.isFetching || stats.isFetching || probe.isFetching} onClick={retry}>
+            <Button
+              variant="secondary"
+              loading={profile.isFetching || stats.isFetching || probe.isFetching}
+              onClick={retry}
+            >
               {t("friend.retry")}
             </Button>
           }
@@ -264,10 +358,13 @@ function FriendFootprints({ userId }: { userId: string }) {
                 </Link>
               )}
               <div className="min-w-0 flex-1">
-                <p className="truncate text-lg font-black">{total > 0 ? t("friend.summary", { count: total }) : t("friend.none", { name })}</p>
+                <p className="truncate text-lg font-black">
+                  {total > 0 ? t("friend.summary", { count: total }) : t("friend.none", { name })}
+                </p>
                 {total > 0 && (
                   <p className="text-sm font-bold text-ink-soft">
-                    Lv.{explorerLevel(total).level} {t(`titles.${explorerLevel(total).title}`)} · {t("friend.countries", { count: stats.data?.countryCount ?? 0 })}
+                    Lv.{explorerLevel(total).level} {t(`titles.${explorerLevel(total).title}`)} ·{" "}
+                    {t("friend.countries", { count: stats.data?.countryCount ?? 0 })}
                   </p>
                 )}
               </div>
@@ -281,7 +378,17 @@ function FriendFootprints({ userId }: { userId: string }) {
   );
 }
 
-function Quiet({ emoji, title, body, action }: { emoji: string; title: string; body?: string; action?: ReactNode }) {
+function Quiet({
+  emoji,
+  title,
+  body,
+  action,
+}: {
+  emoji: string;
+  title: string;
+  body?: string;
+  action?: ReactNode;
+}) {
   return (
     <div className="flex flex-col items-center gap-2 px-6 py-14 text-center">
       <div className="text-6xl" aria-hidden>

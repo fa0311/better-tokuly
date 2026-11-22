@@ -31,7 +31,11 @@ interface DataTableProps<T> {
 
 /** Clicks on controls inside a row belong to the control, not to the row. */
 function fromControl(event: MouseEvent): boolean {
-  return Boolean((event.target as HTMLElement).closest("a, button, input, select, textarea, label, [role='switch']"));
+  return Boolean(
+    (event.target as HTMLElement).closest(
+      "a, button, input, select, textarea, label, [role='switch']",
+    ),
+  );
 }
 
 /**
@@ -50,7 +54,14 @@ function WideTable<T>({ label, columns, rows, rowKey, onRowClick, expanded }: Da
         <thead>
           <tr>
             {columns.map((column) => (
-              <th key={column.key} scope="col" className={cn("sticky top-14 z-10 border-b-2 border-line bg-surface-2 px-3 py-2.5 text-left text-xs font-black whitespace-nowrap text-ink-soft", column.className)}>
+              <th
+                key={column.key}
+                scope="col"
+                className={cn(
+                  "sticky top-14 z-10 border-b-2 border-line bg-surface-2 px-3 py-2.5 text-left text-xs font-black whitespace-nowrap text-ink-soft",
+                  column.className,
+                )}
+              >
                 {column.header}
               </th>
             ))}
@@ -62,18 +73,30 @@ function WideTable<T>({ label, columns, rows, rowKey, onRowClick, expanded }: Da
             return (
               <Fragment key={rowKey(row)}>
                 <tr
-                  onClick={onRowClick ? (event) => !fromControl(event) && onRowClick(row) : undefined}
+                  onClick={
+                    onRowClick ? (event) => !fromControl(event) && onRowClick(row) : undefined
+                  }
                   className={cn("group/row", onRowClick && "cursor-pointer hover:bg-surface-2/60")}
                 >
                   {columns.map((column) => (
-                    <td key={column.key} className={cn("border-b border-line px-3 py-2.5 align-middle group-last/row:border-b-0", details && "border-b-0", column.className)}>
+                    <td
+                      key={column.key}
+                      className={cn(
+                        "border-b border-line px-3 py-2.5 align-middle group-last/row:border-b-0",
+                        details && "border-b-0",
+                        column.className,
+                      )}
+                    >
                       {column.cell(row)}
                     </td>
                   ))}
                 </tr>
                 {details && (
                   <tr>
-                    <td colSpan={columns.length} className="border-b border-line bg-surface-2/50 px-3 py-3">
+                    <td
+                      colSpan={columns.length}
+                      className="border-b border-line bg-surface-2/50 px-3 py-3"
+                    >
                       {details}
                     </td>
                   </tr>
@@ -98,7 +121,10 @@ function CardList<T>({ label, columns, rows, rowKey, onRowClick, expanded }: Dat
         return (
           <li key={rowKey(row)} className="rounded-2xl border-2 border-line bg-surface text-sm">
             {/* The click is a convenience target; the title holds the real link. */}
-            <div onClick={onRowClick ? (event) => !fromControl(event) && onRowClick(row) : undefined} className={cn("flex flex-col gap-2 p-3", onRowClick && "cursor-pointer")}>
+            <div
+              onClick={onRowClick ? (event) => !fromControl(event) && onRowClick(row) : undefined}
+              className={cn("flex flex-col gap-2 p-3", onRowClick && "cursor-pointer")}
+            >
               {title.map((column) => (
                 <div key={column.key} className="min-w-0 font-bold">
                   {column.cell(row)}

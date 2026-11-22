@@ -9,7 +9,9 @@ import type { ComponentType } from "react";
  * nothing) from `src/features/<area>/background.tsx`; it is mounted once
  * inside the signed-in layout.
  */
-const modules = import.meta.glob<{ default: ComponentType }>("../features/*/background.tsx", { eager: true });
+const modules = import.meta.glob<{ default: ComponentType }>("../features/*/background.tsx", {
+  eager: true,
+});
 
 export function BackgroundFeatures() {
   return Object.entries(modules).map(([path, module]) => <module.default key={path} />);

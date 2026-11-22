@@ -27,7 +27,8 @@ export function HistoryScreen() {
   const account = ACCOUNTS[filter];
   const query = useInfiniteQuery({
     queryKey: walletKeys.ledger(account),
-    queryFn: ({ pageParam }) => walletClient().listLedgerEntries({ account, page: { limit: PAGE_SIZE, cursor: pageParam } }),
+    queryFn: ({ pageParam }) =>
+      walletClient().listLedgerEntries({ account, page: { limit: PAGE_SIZE, cursor: pageParam } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
@@ -66,7 +67,11 @@ export function HistoryScreen() {
           <LoadMore query={query} showEnd />
         </>
       ) : filter === "earnings" ? (
-        <EmptyState emoji="🌱" title={t("history.emptyEarnings")} body={t("history.emptyEarningsBody")} />
+        <EmptyState
+          emoji="🌱"
+          title={t("history.emptyEarnings")}
+          body={t("history.emptyEarningsBody")}
+        />
       ) : (
         <EmptyState
           emoji="🪙"

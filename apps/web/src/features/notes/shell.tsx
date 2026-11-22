@@ -26,7 +26,10 @@ const PULL_MAX = 96;
  * Pull to refresh for a scrolling element: dragging down from the very top
  * moves an indicator along and, past the threshold, refreshes on release.
  */
-function usePullToRefresh(scroller: HTMLElement | null, refresh: (() => Promise<unknown>) | undefined): { distance: number; refreshing: boolean } {
+function usePullToRefresh(
+  scroller: HTMLElement | null,
+  refresh: (() => Promise<unknown>) | undefined,
+): { distance: number; refreshing: boolean } {
   const [distance, setDistance] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const latest = useRef(refresh);
@@ -40,7 +43,8 @@ function usePullToRefresh(scroller: HTMLElement | null, refresh: (() => Promise<
     let startY: number | null = null;
     let pulled = 0;
     const onStart = (event: TouchEvent) => {
-      startY = scroller.scrollTop <= 0 && event.touches.length === 1 ? event.touches[0]!.clientY : null;
+      startY =
+        scroller.scrollTop <= 0 && event.touches.length === 1 ? event.touches[0]!.clientY : null;
       pulled = 0;
     };
     const onMove = (event: TouchEvent) => {
@@ -111,7 +115,16 @@ export interface NotesPageProps {
  * as other pages, plus what timelines need — the scrolling element (for
  * virtualised lists), pull to refresh, and a second column on wide screens.
  */
-export function NotesPage({ title, back, actions, toolbar, aside, onRefresh, scrollId, children }: NotesPageProps) {
+export function NotesPage({
+  title,
+  back,
+  actions,
+  toolbar,
+  aside,
+  onRefresh,
+  scrollId,
+  children,
+}: NotesPageProps) {
   const { t } = useTranslation("notes");
   const router = useRouter();
   const navigate = useNavigate();
@@ -141,47 +154,73 @@ export function NotesPage({ title, back, actions, toolbar, aside, onRefresh, scr
   };
 
   return (
-    <div ref={setScroller} data-scroll-restoration-id={scrollId} data-testid="notes-scroller" className="relative h-full overflow-y-auto">
-     <ScrollerContext.Provider value={{ element: scroller, scrollId }}>
-      <header ref={setHeader} className="glass sticky top-0 z-20 border-b-2 border-line">
-        <div className={cn("mx-auto flex h-16 items-center gap-2 px-4", column)}>
-          {back && (
-            <button
-              type="button"
-              aria-label={t("shell.back")}
-              onClick={() => (router.history.canGoBack() ? router.history.back() : void navigate({ to: back }))}
-              className="-ml-1 grid size-9 shrink-0 place-items-center rounded-full hover:bg-surface-2"
-            >
-              <ChevronLeft className="size-6" />
-            </button>
-          )}
-          <h1 className="min-w-0 flex-1 truncate text-xl font-black">{title}</h1>
-          {actions}
-          {onRefresh && (
-            <button type="button" aria-label={t("shell.refresh")} onClick={() => void refresh()} className="grid size-9 shrink-0 place-items-center rounded-full text-ink-soft hover:bg-surface-2 hover:text-ink">
-              <RefreshCw className={cn("size-5", (busy || pull.refreshing) && "animate-spin")} />
-            </button>
-          )}
-        </div>
-        {toolbar && <div className={cn("mx-auto px-4 pb-2.5", column)}>{toolbar}</div>}
-      </header>
+    <div
+      ref={setScroller}
+      data-scroll-restoration-id={scrollId}
+      data-testid="notes-scroller"
+      className="relative h-full overflow-y-auto"
+    >
+      <ScrollerContext.Provider value={{ element: scroller, scrollId }}>
+        <header ref={setHeader} className="glass sticky top-0 z-20 border-b-2 border-line">
+          <div className={cn("mx-auto flex h-16 items-center gap-2 px-4", column)}>
+            {back && (
+              <button
+                type="button"
+                aria-label={t("shell.back")}
+                onClick={() =>
+                  router.history.canGoBack() ? router.history.back() : void navigate({ to: back })
+                }
+                className="-ml-1 grid size-9 shrink-0 place-items-center rounded-full hover:bg-surface-2"
+              >
+                <ChevronLeft className="size-6" />
+              </button>
+            )}
+            <h1 className="min-w-0 flex-1 truncate text-xl font-black">{title}</h1>
+            {actions}
+            {onRefresh && (
+              <button
+                type="button"
+                aria-label={t("shell.refresh")}
+                onClick={() => void refresh()}
+                className="grid size-9 shrink-0 place-items-center rounded-full text-ink-soft hover:bg-surface-2 hover:text-ink"
+              >
+                <RefreshCw className={cn("size-5", (busy || pull.refreshing) && "animate-spin")} />
+              </button>
+            )}
+          </div>
+          {toolbar && <div className={cn("mx-auto px-4 pb-2.5", column)}>{toolbar}</div>}
+        </header>
 
-      {pull.distance > 0 && (
-        <div aria-hidden className="pointer-events-none sticky top-20 z-10 flex h-0 justify-center">
-          <span
-            className="sticker-sm grid size-10 place-items-center rounded-full bg-surface text-brand"
-            style={{ transform: `translateY(${pull.distance - 28}px) rotate(${pull.distance * 4}deg)`, opacity: Math.min(1, pull.distance / PULL_THRESHOLD) }}
+        {pull.distance > 0 && (
+          <div
+            aria-hidden
+            className="pointer-events-none sticky top-20 z-10 flex h-0 justify-center"
           >
-            {pull.refreshing ? <Spinner className="size-5" /> : <RefreshCw className="size-5" />}
-          </span>
-        </div>
-      )}
+            <span
+              className="sticker-sm grid size-10 place-items-center rounded-full bg-surface text-brand"
+              style={{
+                transform: `translateY(${pull.distance - 28}px) rotate(${pull.distance * 4}deg)`,
+                opacity: Math.min(1, pull.distance / PULL_THRESHOLD),
+              }}
+            >
+              {pull.refreshing ? <Spinner className="size-5" /> : <RefreshCw className="size-5" />}
+            </span>
+          </div>
+        )}
 
-      <div className={cn("mx-auto px-3 pt-3 pb-32 sm:px-4 md:pb-10", column, aside && "lg:grid lg:grid-cols-[minmax(0,1fr)_19rem] lg:gap-6")}>
-        <div className={cn("min-w-0", aside && "mx-auto w-full max-w-2xl lg:mx-0 lg:max-w-none")}>{children}</div>
-        {aside && <aside className="hidden lg:block">{aside}</aside>}
-      </div>
-     </ScrollerContext.Provider>
+        <div
+          className={cn(
+            "mx-auto px-3 pt-3 pb-32 sm:px-4 md:pb-10",
+            column,
+            aside && "lg:grid lg:grid-cols-[minmax(0,1fr)_19rem] lg:gap-6",
+          )}
+        >
+          <div className={cn("min-w-0", aside && "mx-auto w-full max-w-2xl lg:mx-0 lg:max-w-none")}>
+            {children}
+          </div>
+          {aside && <aside className="hidden lg:block">{aside}</aside>}
+        </div>
+      </ScrollerContext.Provider>
     </div>
   );
 }
@@ -230,8 +269,16 @@ export function ComposeButton({ context }: { context?: ComposeContext }) {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() !== "n" || event.metaKey || event.ctrlKey || event.altKey || event.isComposing) return;
-      if (isTyping(event.target) || document.querySelector("[role='dialog'], [role='menu']")) return;
+      if (
+        event.key.toLowerCase() !== "n" ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        event.isComposing
+      )
+        return;
+      if (isTyping(event.target) || document.querySelector("[role='dialog'], [role='menu']"))
+        return;
       event.preventDefault();
       openCompose(latest.current);
     };

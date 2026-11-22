@@ -14,7 +14,10 @@ export const MAX_SLOTS = 30;
  * The candidates of a poll from what was picked: every chosen day as a whole
  * day, or every chosen day at each of the times.
  */
-export function buildSlots(days: string[], times: TimeRange[] | null): MessageInitShape<typeof plans.PollSlotInputSchema>[] {
+export function buildSlots(
+  days: string[],
+  times: TimeRange[] | null,
+): MessageInitShape<typeof plans.PollSlotInputSchema>[] {
   const sorted = [...days].sort();
   if (!times) return sorted.map((day) => ({ start: { case: "date", value: day } }));
   const slots: MessageInitShape<typeof plans.PollSlotInputSchema>[] = [];
@@ -25,7 +28,10 @@ export function buildSlots(days: string[], times: TimeRange[] | null): MessageIn
       if (!start || seen.has(`${day} ${time.start}`)) continue;
       seen.add(`${day} ${time.start}`);
       const end = time.end ? combine(day, time.end) : null;
-      slots.push({ start: { case: "startAt", value: fromDate(start) }, endAt: end && end > start ? fromDate(end) : undefined });
+      slots.push({
+        start: { case: "startAt", value: fromDate(start) },
+        endAt: end && end > start ? fromDate(end) : undefined,
+      });
     }
   }
   return slots;
@@ -43,7 +49,10 @@ export function slotLabel(slot: plans.PollSlot, language: string): { day: string
   if (slot.start.case !== "startAt") return { day: "" };
   const start = toDate(slot.start.value)!;
   const end = toDate(slot.endAt);
-  return { day: formatDay(ymd(start), language), time: `${formatTime(start, language)}〜${end ? formatTime(end, language) : ""}` };
+  return {
+    day: formatDay(ymd(start), language),
+    time: `${formatTime(start, language)}〜${end ? formatTime(end, language) : ""}`,
+  };
 }
 
 export function slotText(slot: plans.PollSlot, language: string): string {
@@ -51,7 +60,11 @@ export function slotText(slot: plans.PollSlot, language: string): string {
   return label.time ? `${label.day} ${label.time}` : label.day;
 }
 
-export const ANSWER_MARK: Record<number, string> = { [plans.PollAnswer.YES]: "○", [plans.PollAnswer.MAYBE]: "△", [plans.PollAnswer.NO]: "×" };
+export const ANSWER_MARK: Record<number, string> = {
+  [plans.PollAnswer.YES]: "○",
+  [plans.PollAnswer.MAYBE]: "△",
+  [plans.PollAnswer.NO]: "×",
+};
 
 /** A poll takes answers: open, and its deadline (if any) has not passed. */
 export function takesAnswers(poll: plans.Poll, now: number): boolean {

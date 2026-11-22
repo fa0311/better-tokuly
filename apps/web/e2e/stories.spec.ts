@@ -25,7 +25,12 @@ async function dismissDevServerOverlay(page: Page): Promise<void> {
 test.beforeEach(async ({ page }) => dismissDevServerOverlay(page));
 
 /** A plain PNG picture. */
-function picture(name: string, [red, green, blue]: [number, number, number], width = 360, height = 640) {
+function picture(
+  name: string,
+  [red, green, blue]: [number, number, number],
+  width = 360,
+  height = 640,
+) {
   const chunk = (type: string, data: Buffer) => {
     const body = Buffer.concat([Buffer.from(type, "latin1"), data]);
     const out = Buffer.alloc(body.length + 8);
@@ -38,48 +43,118 @@ function picture(name: string, [red, green, blue]: [number, number, number], wid
   header.writeUInt32BE(width, 0);
   header.writeUInt32BE(height, 4);
   header.set([8, 2, 0, 0, 0], 8); // 8-bit RGB
-  const row = Buffer.concat([Buffer.from([0]), Buffer.alloc(width * 3, Buffer.from([red, green, blue]))]);
+  const row = Buffer.concat([
+    Buffer.from([0]),
+    Buffer.alloc(width * 3, Buffer.from([red, green, blue])),
+  ]);
   const pixels = Buffer.concat(Array.from({ length: height }, () => row));
   const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-  return { name, mimeType: "image/png", buffer: Buffer.concat([signature, chunk("IHDR", header), chunk("IDAT", zlib.deflateSync(pixels)), chunk("IEND", Buffer.alloc(0))]) };
+  return {
+    name,
+    mimeType: "image/png",
+    buffer: Buffer.concat([
+      signature,
+      chunk("IHDR", header),
+      chunk("IDAT", zlib.deflateSync(pixels)),
+      chunk("IEND", Buffer.alloc(0)),
+    ]),
+  };
 }
 
 /** Uploads a picture for stories through the API and waits until it can be attached. */
-async function uploadPicture(request: APIRequestContext, account: Account, color: [number, number, number]): Promise<string> {
+async function uploadPicture(
+  request: APIRequestContext,
+  account: Account,
+  color: [number, number, number],
+): Promise<string> {
   const file = picture("story.png", color);
-  const created = await rpc<{ uploadId: string; putUrl: string; putHeaders?: Record<string, string> }>(
+  const created = await rpc<{
+    uploadId: string;
+    putUrl: string;
+    putHeaders?: Record<string, string>;
+  }>(
     request,
     `${MEDIA}/CreateUpload`,
-    { purpose: "ASSET_PURPOSE_STORY", fileName: file.name, contentType: file.mimeType, sizeBytes: String(file.buffer.length) },
+    {
+      purpose: "ASSET_PURPOSE_STORY",
+      fileName: file.name,
+      contentType: file.mimeType,
+      sizeBytes: String(file.buffer.length),
+    },
     account,
   );
-  const put = await request.put(created.putUrl, { data: file.buffer, headers: created.putHeaders ?? {} });
+  const put = await request.put(created.putUrl, {
+    data: file.buffer,
+    headers: created.putHeaders ?? {},
+  });
   expect(put.ok(), "upload to object storage").toBeTruthy();
-  const completed = await rpc<{ asset: { id: string } }>(request, `${MEDIA}/CompleteUpload`, { uploadId: created.uploadId }, account);
+  const completed = await rpc<{ asset: { id: string } }>(
+    request,
+    `${MEDIA}/CompleteUpload`,
+    { uploadId: created.uploadId },
+    account,
+  );
   await expect(async () => {
-    const asset = (await rpc<{ asset: { status: string } }>(request, `${MEDIA}/GetAsset`, { assetId: completed.asset.id }, account)).asset;
+    const asset = (
+      await rpc<{ asset: { status: string } }>(
+        request,
+        `${MEDIA}/GetAsset`,
+        { assetId: completed.asset.id },
+        account,
+      )
+    ).asset;
     expect(asset.status).toBe("ASSET_STATUS_READY");
   }).toPass({ timeout: 60_000 });
   return completed.asset.id;
 }
 
 /** Posts a story through the API: one picture per caption. */
-async function postStory(request: APIRequestContext, account: Account, title: string, captions = ["e2e ひとこと"]): Promise<{ id: string }> {
+async function postStory(
+  request: APIRequestContext,
+  account: Account,
+  title: string,
+  captions = ["e2e ひとこと"],
+): Promise<{ id: string }> {
   const items = [];
-  for (const caption of captions) items.push({ assetId: await uploadPicture(request, account, [255, 92, 157]), caption });
-  return (await rpc<{ story: { id: string } }>(request, `${STORIES}/CreateStory`, { title, items }, account)).story;
+  for (const caption of captions)
+    items.push({ assetId: await uploadPicture(request, account, [255, 92, 157]), caption });
+  return (
+    await rpc<{ story: { id: string } }>(
+      request,
+      `${STORIES}/CreateStory`,
+      { title, items },
+      account,
+    )
+  ).story;
 }
 
 /** A second browser, signed in as `account`, the same size as the test's own page. */
-async function browserFor(browser: Browser, page: Page, baseURL: string | undefined, account: Account): Promise<Page> {
-  const context = await browser.newContext({ baseURL, locale: "ja-JP", timezoneId: "Asia/Tokyo", viewport: page.viewportSize(), hasTouch: (page.viewportSize()?.width ?? 1280) < 700 });
+async function browserFor(
+  browser: Browser,
+  page: Page,
+  baseURL: string | undefined,
+  account: Account,
+): Promise<Page> {
+  const context = await browser.newContext({
+    baseURL,
+    locale: "ja-JP",
+    timezoneId: "Asia/Tokyo",
+    viewport: page.viewportSize(),
+    hasTouch: (page.viewportSize()?.width ?? 1280) < 700,
+  });
   const other = await context.newPage();
   await dismissDevServerOverlay(other);
   await signInAs(other, account);
   return other;
 }
 
-test("a story is posted, a friend watches it live, and the owner sees who watched", async ({ page, me, request, browser, baseURL }) => {
+test("a story is posted, a friend watches it live, and the owner sees who watched", async ({
+  page,
+  me,
+  request,
+  browser,
+  baseURL,
+}) => {
   const friend = await createAccount(request, "friend");
   await befriend(request, me, friend);
 
@@ -93,7 +168,9 @@ test("a story is posted, a friend watches it live, and the owner sees who watche
   await page.getByTestId("story-add").click();
   const dialog = page.getByRole("dialog");
   await page.getByTestId("story-files").setInputFiles(picture("umi.png", [79, 195, 255]));
-  await expect(page.locator('[data-testid="upload"][data-status="ready"]')).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator('[data-testid="upload"][data-status="ready"]')).toBeVisible({
+    timeout: 60_000,
+  });
   const title = `e2e うみにきた ${tag()}`;
   await dialog.getByPlaceholder("ひとこと (なくてもOK)").fill("あおい!");
   await dialog.getByPlaceholder("今日はどんな日?").fill(title);
@@ -133,7 +210,11 @@ test("a story is posted, a friend watches it live, and the owner sees who watche
   await theirs.context().close();
 });
 
-test("a story plays from its own address and ends when it was the last", async ({ page, me, request }) => {
+test("a story plays from its own address and ends when it was the last", async ({
+  page,
+  me,
+  request,
+}) => {
   const friend = await createAccount(request, "friend");
   await befriend(request, me, friend);
   const title = `e2e リンクからの記憶 ${tag()}`;
@@ -157,7 +238,13 @@ test("a story plays from its own address and ends when it was the last", async (
   await expect(page.getByText("この記憶はもう見られないよ")).toBeVisible({ timeout: 30_000 });
 });
 
-test("a highlight keeps a story on the profile, for friends too", async ({ page, me, request, browser, baseURL }) => {
+test("a highlight keeps a story on the profile, for friends too", async ({
+  page,
+  me,
+  request,
+  browser,
+  baseURL,
+}) => {
   const friend = await createAccount(request, "friend");
   await befriend(request, me, friend);
   const title = `e2e ハイライトにする記憶 ${tag()}`;
@@ -201,7 +288,11 @@ test("a highlight keeps a story on the profile, for friends too", async ({ page,
   await expect(highlights.getByTestId("highlight")).toHaveCount(0);
 });
 
-test("the archive keeps stories by day, and a story is deleted from the viewer", async ({ page, me, request }) => {
+test("the archive keeps stories by day, and a story is deleted from the viewer", async ({
+  page,
+  me,
+  request,
+}) => {
   const title = `e2e アーカイブの記憶 ${tag()}`;
   await postStory(request, me, title);
 
@@ -230,10 +321,17 @@ test("the archive keeps stories by day, and a story is deleted from the viewer",
   await expect(page.getByText("記憶はまだないよ")).toBeVisible();
 });
 
-test("the keyboard moves through a story, wherever the focus is in the viewer", async ({ page, me, request }) => {
+test("the keyboard moves through a story, wherever the focus is in the viewer", async ({
+  page,
+  me,
+  request,
+}) => {
   const friend = await createAccount(request, "friend");
   await befriend(request, me, friend);
-  const story = await postStory(request, friend, `e2e キーボードの記憶 ${tag()}`, ["いちまいめ", "にまいめ"]);
+  const story = await postStory(request, friend, `e2e キーボードの記憶 ${tag()}`, [
+    "いちまいめ",
+    "にまいめ",
+  ]);
 
   await page.goto(`/stories/${story.id}`);
   const viewer = page.getByTestId("story-viewer");
@@ -266,13 +364,32 @@ test("the keyboard moves through a story, wherever the focus is in the viewer", 
   await expect(viewer).toHaveCount(0);
 });
 
-test("blocking someone takes their notes and stories off what is already loaded", async ({ page, me, request }) => {
+test("blocking someone takes their notes and stories off what is already loaded", async ({
+  page,
+  me,
+  request,
+}) => {
   const friend = await createAccount(request, "friend");
   await befriend(request, me, friend);
-  const rules = await rpc<{ version: number }>(request, "tokuly.notes.v1.NoteService/GetNoteRules", {}, friend);
-  await rpc(request, "tokuly.notes.v1.NoteService/AgreeToNoteRules", { version: rules.version }, friend);
+  const rules = await rpc<{ version: number }>(
+    request,
+    "tokuly.notes.v1.NoteService/GetNoteRules",
+    {},
+    friend,
+  );
+  await rpc(
+    request,
+    "tokuly.notes.v1.NoteService/AgreeToNoteRules",
+    { version: rules.version },
+    friend,
+  );
   const text = `e2e ブロックされる人のノート ${tag()}`;
-  await rpc(request, "tokuly.notes.v1.NoteService/CreateNote", { text, visibility: "VISIBILITY_FRIENDS" }, friend);
+  await rpc(
+    request,
+    "tokuly.notes.v1.NoteService/CreateNote",
+    { text, visibility: "VISIBILITY_FRIENDS" },
+    friend,
+  );
   await postStory(request, friend, `e2e ブロックされる人の記憶 ${tag()}`);
 
   await page.goto("/notes?tab=home");
@@ -287,20 +404,43 @@ test("blocking someone takes their notes and stories off what is already loaded"
   await page.getByRole("button", { name: "ブロック" }).click();
   await expect(page).toHaveURL(/\/map$/);
 
-  await page.getByRole("navigation", { name: "main" }).getByRole("link", { name: "ノート" }).first().click();
+  await page
+    .getByRole("navigation", { name: "main" })
+    .getByRole("link", { name: "ノート" })
+    .first()
+    .click();
   await page.getByRole("tab", { name: "ともだち" }).click();
   await expect(page.getByTestId("timeline")).toBeVisible();
   await expect(note).toHaveCount(0);
   await expect(page.getByTestId("story-reel")).toHaveCount(0);
 });
 
-test("when a friend ends the friendship, their notes and their story leave the open timeline", async ({ page, me, request }) => {
+test("when a friend ends the friendship, their notes and their story leave the open timeline", async ({
+  page,
+  me,
+  request,
+}) => {
   const friend = await createAccount(request, "friend");
   await befriend(request, me, friend);
-  const rules = await rpc<{ version: number }>(request, "tokuly.notes.v1.NoteService/GetNoteRules", {}, friend);
-  await rpc(request, "tokuly.notes.v1.NoteService/AgreeToNoteRules", { version: rules.version }, friend);
+  const rules = await rpc<{ version: number }>(
+    request,
+    "tokuly.notes.v1.NoteService/GetNoteRules",
+    {},
+    friend,
+  );
+  await rpc(
+    request,
+    "tokuly.notes.v1.NoteService/AgreeToNoteRules",
+    { version: rules.version },
+    friend,
+  );
   const text = `e2e もと友達のノート ${tag()}`;
-  await rpc(request, "tokuly.notes.v1.NoteService/CreateNote", { text, visibility: "VISIBILITY_FRIENDS" }, friend);
+  await rpc(
+    request,
+    "tokuly.notes.v1.NoteService/CreateNote",
+    { text, visibility: "VISIBILITY_FRIENDS" },
+    friend,
+  );
   await postStory(request, friend, `e2e もと友達の記憶 ${tag()}`);
 
   await page.goto("/notes?tab=home");

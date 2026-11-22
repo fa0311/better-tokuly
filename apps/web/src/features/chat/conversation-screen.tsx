@@ -1,27 +1,45 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { chat, type common, errorReason } from "@tokuly/api";
-import { type DragEvent, type HTMLAttributes, type ReactNode, useEffect, useRef, useState } from "react";
+import { chat, common, errorReason } from "@tokuly/api";
+import {
+  type DragEvent,
+  type HTMLAttributes,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
 import { EmptyState } from "#/components/ui/page";
 import { PaneSpinner } from "#/components/ui/spinner";
+import { ReportDialog } from "#/features/engagement";
 import { StampSheet } from "#/features/stamps";
 import { cn } from "#/lib/cn";
-import { errorMessage } from "./errors";
 import { realtime } from "#/lib/realtime";
 import { useMe } from "#/stores/session";
+import { useHideTabBar } from "#/stores/shell";
 import { messageClient, useCapabilities } from "./api";
 import { AssistConsent } from "./assist";
 import { Composer } from "./composer";
-import { ConversationBanners, ConversationHeader, JumpToLatest, RequestBar, TypingPill } from "./conversation-chrome";
-import { type ConversationContextValue, ConversationProvider, type MediaTarget } from "./conversation-context";
+import {
+  ConversationBanners,
+  ConversationHeader,
+  JumpToLatest,
+  RequestBar,
+  TypingPill,
+} from "./conversation-chrome";
+import {
+  type ConversationContextValue,
+  ConversationProvider,
+  type MediaTarget,
+} from "./conversation-context";
 import { type ConversationDialog, ConversationDialogs } from "./conversation-dialogs";
 import { fetchConversation, useConversation } from "./conversations";
 import { EmojiDialog } from "./emoji-picker";
-import { rememberEmoji } from "./emoji";
+import { errorMessage } from "./errors";
 import { ForwardDialog } from "./forward-dialog";
 import { InfoPanel, type PanelKind } from "./info-panel";
 import { Lightbox, type LightboxItem } from "./lightbox";
@@ -30,13 +48,24 @@ import { LocationViewDialog } from "./location-dialog";
 import { isVisual } from "./media-parts";
 import { MessageList, type MessageListHandle } from "./message-list";
 import { ReactionsSheet, ReceiptsSheet } from "./message-sheets";
-import { catchUp, loadNewer, loadOlder, markRead, showMessage, showNewest, storeCreated, useMessageActions, useTimeline } from "./messages";
+import {
+  catchUp,
+  loadNewer,
+  loadOlder,
+  markRead,
+  showMessage,
+  showNewest,
+  storeCreated,
+  useMessageActions,
+  useTimeline,
+} from "./messages";
 import { canWrite, isGroup, peerOf } from "./model";
 import { previewMessage, send, useOutgoing } from "./outbox";
 import { MediaPanel, PinnedPanel, SearchPanel, SidePanel } from "./panels";
 import { displayName } from "./people";
 import { PovRequestDialog } from "./pov";
 import { PovCamera } from "./pov-camera";
+import { contentText } from "./preview";
 import { buildRows } from "./timeline";
 
 /** A member who keeps a conversation open repeats that this often; the server forgets after 75 s. */
@@ -58,7 +87,13 @@ function useVisible(): boolean {
  * done in it. Full screen on phones (it covers the tab bar, like every chat
  * app), the right-hand pane on wide screens.
  */
-export function ConversationScreen({ conversationId, openAtMessageId }: { conversationId: string; openAtMessageId?: string }) {
+export function ConversationScreen({
+  conversationId,
+  openAtMessageId,
+}: {
+  conversationId: string;
+  openAtMessageId?: string;
+}) {
   const { t } = useTranslation("chat");
   const navigate = useNavigate();
   const me = useMe()?.user;
@@ -71,23 +106,47 @@ export function ConversationScreen({ conversationId, openAtMessageId }: { conver
     return (
       <ScreenFrame>
         <div className="grid h-full place-items-center">
-          <EmptyState emoji="🫥" title={t("gone.title")} body={t("gone.body")} action={<Button onClick={() => void navigate({ to: "/chat", search: {} })}>{t("gone.back")}</Button>} />
+          <EmptyState
+            emoji="🫥"
+            title={t("gone.title")}
+            body={t("gone.body")}
+            action={
+              <Button onClick={() => void navigate({ to: "/chat", search: {} })}>
+                {t("gone.back")}
+              </Button>
+            }
+          />
         </div>
       </ScreenFrame>
     );
   }
-  return <OpenConversation conversation={conversation.data} me={me} openAtMessageId={openAtMessageId} />;
+  return (
+    <OpenConversation conversation={conversation.data} me={me} openAtMessageId={openAtMessageId} />
+  );
 }
 
-function ScreenFrame({ children, ...props }: { children: ReactNode } & HTMLAttributes<HTMLDivElement>) {
+function ScreenFrame({
+  children,
+  ...props
+}: { children: ReactNode } & HTMLAttributes<HTMLDivElement>) {
+  // A conversation takes the phone's whole height: its composer sits where the tab bar would be.
+  useHideTabBar();
   return (
-    <div className="fixed inset-0 z-40 flex bg-bg md:static md:z-auto md:h-full" {...props}>
+    <div className="flex h-full bg-bg" {...props}>
       {children}
     </div>
   );
 }
 
-function OpenConversation({ conversation, me, openAtMessageId }: { conversation: chat.Conversation; me: common.UserSummary; openAtMessageId?: string }) {
+function OpenConversation({
+  conversation,
+  me,
+  openAtMessageId,
+}: {
+  conversation: chat.Conversation;
+  me: common.UserSummary;
+  openAtMessageId?: string;
+}) {
   const { t } = useTranslation("chat");
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -103,14 +162,21 @@ function OpenConversation({ conversation, me, openAtMessageId }: { conversation:
   const [editing, setEditing] = useState<chat.Message>();
   const [panel, setPanel] = useState<PanelKind | null>(null);
   const [dialog, setDialog] = useState<ConversationDialog>(null);
-  const [focus, setFocus] = useState<{ id?: string; nonce: number }>({ id: openAtMessageId, nonce: 0 });
+  const [focus, setFocus] = useState<{ id?: string; nonce: number }>({
+    id: openAtMessageId,
+    nonce: 0,
+  });
   const [atEnd, setAtEnd] = useState(true);
   const [arrived, setArrived] = useState(0);
-  const [media, setMedia] = useState<{ items: LightboxItem[]; index: number | null }>({ items: [], index: null });
+  const [media, setMedia] = useState<{ items: LightboxItem[]; index: number | null }>({
+    items: [],
+    index: null,
+  });
   const [stampId, setStampId] = useState<string>();
   const [place, setPlace] = useState<chat.LocationShare | null>(null);
   const [reacting, setReacting] = useState<chat.Message | null>(null);
   const [forwarding, setForwarding] = useState<chat.Message | null>(null);
+  const [reporting, setReporting] = useState<chat.Message | null>(null);
   const [removing, setRemoving] = useState<chat.Message | null>(null);
   const [removingBusy, setRemovingBusy] = useState(false);
   const [reactionsOf, setReactionsOf] = useState<chat.Message | null>(null);
@@ -150,19 +216,31 @@ function OpenConversation({ conversation, me, openAtMessageId }: { conversation:
   // ── Reading ──
   // "Unread from here" marks where the viewer had read to when the conversation opened. It is settled
   // before the first messages are drawn, so the list can open on it.
-  if (unreadAfter === undefined && loaded && viewer) setUnreadAfter(viewer.unreadCount > 0 ? viewer.readSeq : null);
+  if (unreadAfter === undefined && loaded && viewer)
+    setUnreadAfter(viewer.unreadCount > 0 ? viewer.readSeq : null);
 
   // "Read" means it was on screen: the read position follows the newest message the reader has actually
   // had in view while the page was visible, and moves on as they scroll.
   const [seen, setSeen] = useState<chat.Message>();
-  const noteSeen = (message: chat.Message) => setSeen((current) => (!current || message.seq > current.seq ? message : current));
+  const noteSeen = (message: chat.Message) =>
+    setSeen((current) => (!current || message.seq > current.seq ? message : current));
   const readSeq = viewer?.readSeq;
   const seenId = seen?.id;
   const seenUpTo = seen?.seq;
   useEffect(() => {
-    if (!visible || !seenId || seenUpTo === undefined || readSeq === undefined || seenUpTo <= readSeq) return;
+    if (
+      !visible ||
+      !seenId ||
+      seenUpTo === undefined ||
+      readSeq === undefined ||
+      seenUpTo <= readSeq
+    )
+      return;
     // A moment of scrolling is one request, not one per message passed.
-    const timer = setTimeout(() => void markRead(queryClient, conversationId, seenId).catch(() => {}), 150);
+    const timer = setTimeout(
+      () => void markRead(queryClient, conversationId, seenId).catch(() => {}),
+      150,
+    );
     return () => clearTimeout(timer);
   }, [visible, seenId, seenUpTo, readSeq, conversationId, queryClient]);
 
@@ -188,7 +266,10 @@ function OpenConversation({ conversation, me, openAtMessageId }: { conversation:
       seenSeq.current = newestSeq;
       setArrived(0);
     } else if (seenSeq.current !== undefined && newestSeq > seenSeq.current) {
-      setArrived(messages.filter((message) => message.seq > seenSeq.current! && message.sender?.id !== me.id).length);
+      setArrived(
+        messages.filter((message) => message.seq > seenSeq.current! && message.sender?.id !== me.id)
+          .length,
+      );
     }
     // Counted when the newest message or the position changes.
   }, [newestSeq, atEnd]);
@@ -198,9 +279,17 @@ function OpenConversation({ conversation, me, openAtMessageId }: { conversation:
     showMessage(queryClient, conversationId, messageId)
       .then(() => {
         setFocus((current) => ({ id: messageId, nonce: current.nonce + 1 }));
-        setPanel((current) => (current && window.matchMedia("(min-width: 1180px)").matches ? current : null));
+        setPanel((current) =>
+          current && window.matchMedia("(min-width: 1180px)").matches ? current : null,
+        );
       })
-      .catch((error) => toast.error(errorReason(error) === "MESSAGE_NOT_FOUND" ? t("message.notAvailable") : errorMessage(error)));
+      .catch((error) =>
+        toast.error(
+          errorReason(error) === "MESSAGE_NOT_FOUND"
+            ? t("message.notAvailable")
+            : errorMessage(error),
+        ),
+      );
   };
   // The mark on a message that was jumped to fades by itself.
   useEffect(() => {
@@ -210,7 +299,10 @@ function OpenConversation({ conversation, me, openAtMessageId }: { conversation:
   }, [focus.id, focus.nonce]);
 
   const toLatest = async () => {
-    if (hasNewer) await showNewest(queryClient, conversationId).catch((error) => toast.error(errorMessage(error)));
+    if (hasNewer)
+      await showNewest(queryClient, conversationId).catch((error) =>
+        toast.error(errorMessage(error)),
+      );
     requestAnimationFrame(() => list.current?.scrollToEnd());
   };
   const afterSend = () => {
@@ -251,7 +343,8 @@ function OpenConversation({ conversation, me, openAtMessageId }: { conversation:
       void fetchConversation(queryClient, conversationId).catch(() => {});
     } catch (error) {
       // The two talked before (the history was cleared): a wave as an ordinary message does the same.
-      if (errorReason(error) === "HELLO_NOT_FIRST") send(queryClient, conversationId, { text: "👋" });
+      if (errorReason(error) === "HELLO_NOT_FIRST")
+        send(queryClient, conversationId, { text: "👋" });
       else toast.error(errorMessage(error));
     }
   };
@@ -271,6 +364,7 @@ function OpenConversation({ conversation, me, openAtMessageId }: { conversation:
       setEditing(message);
     },
     forward: setForwarding,
+    report: setReporting,
     remove: setRemoving,
     jumpTo,
     openMedia,
@@ -283,7 +377,14 @@ function OpenConversation({ conversation, me, openAtMessageId }: { conversation:
 
   const rows = buildRows(messages, {
     // A message already stored (its event beat the response) is not shown a second time as "sending".
-    pending: outgoing.filter((item) => !messages.some((message) => message.clientId === item.clientId && message.sender?.id === me.id)).map((item) => previewMessage(item, me)),
+    pending: outgoing
+      .filter(
+        (item) =>
+          !messages.some(
+            (message) => message.clientId === item.clientId && message.sender?.id === me.id,
+          ),
+      )
+      .map((item) => previewMessage(item, me)),
     unreadAfterSeq: unreadAfter ?? undefined,
     myId: me.id,
   });
@@ -320,16 +421,28 @@ function OpenConversation({ conversation, me, openAtMessageId }: { conversation:
               <PaneSpinner />
             ) : timeline.isError ? (
               <div className="grid h-full place-items-center">
-                <EmptyState emoji="😵‍💫" title={errorMessage(timeline.error)} action={<Button onClick={() => void timeline.refetch()}>{t("actions.retry")}</Button>} />
+                <EmptyState
+                  emoji="😵‍💫"
+                  title={errorMessage(timeline.error)}
+                  action={
+                    <Button onClick={() => void timeline.refetch()}>{t("actions.retry")}</Button>
+                  }
+                />
               </div>
             ) : empty ? (
               <div className="grid h-full place-items-center" data-testid="empty-conversation">
                 {group ? (
-                  <EmptyState emoji="🎉" title={t("empty.group.title")} body={t("empty.group.body")} />
+                  <EmptyState
+                    emoji="🎉"
+                    title={t("empty.group.title")}
+                    body={t("empty.group.body")}
+                  />
                 ) : (
                   <EmptyState
                     emoji="👋"
-                    title={t("empty.direct.title", { name: displayName(peerOf(conversation, me.id)) })}
+                    title={t("empty.direct.title", {
+                      name: displayName(peerOf(conversation, me.id)),
+                    })}
                     body={t("empty.direct.body")}
                     action={
                       writable && (
@@ -374,7 +487,12 @@ function OpenConversation({ conversation, me, openAtMessageId }: { conversation:
             />
           )}
 
-          <div className={cn("pointer-events-none absolute inset-2 z-30 grid place-items-center rounded-card border-4 border-dashed border-brand bg-brand-soft/80 text-lg font-black text-brand transition-opacity", dragging ? "opacity-100" : "opacity-0")}>
+          <div
+            className={cn(
+              "pointer-events-none absolute inset-2 z-30 grid place-items-center rounded-card border-4 border-dashed border-brand bg-brand-soft/80 text-lg font-black text-brand transition-opacity",
+              dragging ? "opacity-100" : "opacity-0",
+            )}
+          >
             {t("composer.dropHere")}
           </div>
         </div>
@@ -388,7 +506,12 @@ function OpenConversation({ conversation, me, openAtMessageId }: { conversation:
           </SidePanel>
         )}
 
-        <Lightbox items={media.items} index={media.index} onIndexChange={(index) => setMedia((current) => ({ ...current, index }))} onClose={() => setMedia((current) => ({ ...current, index: null }))} />
+        <Lightbox
+          items={media.items}
+          index={media.index}
+          onIndexChange={(index) => setMedia((current) => ({ ...current, index }))}
+          onClose={() => setMedia((current) => ({ ...current, index: null }))}
+        />
         <StampSheet stampId={stampId} onClose={() => setStampId(undefined)} />
         <LocationViewDialog location={place} onClose={() => setPlace(null)} />
         <EmojiDialog
@@ -397,26 +520,47 @@ function OpenConversation({ conversation, me, openAtMessageId }: { conversation:
           title={t("message.react")}
           onPick={(emoji) => {
             if (!reacting) return;
-            rememberEmoji(emoji);
             actions.react(reacting, emoji).catch((error) => toast.error(errorMessage(error)));
           }}
         />
         <ForwardDialog message={forwarding} onClose={() => setForwarding(null)} />
+        {reporting && (
+          <ReportDialog
+            subject={{ type: common.SubjectType.CHAT_MESSAGE, id: reporting.id }}
+            open
+            onOpenChange={(open) => !open && setReporting(null)}
+            label={`${displayName(reporting.sender)}: ${contentText(reporting, me.id)}`}
+          />
+        )}
         <ReactionsSheet message={reactionsOf} onClose={() => setReactionsOf(null)} />
         <ReceiptsSheet message={receiptsOf} onClose={() => setReceiptsOf(null)} />
         <ConfirmDialog
           open={removing !== null}
           onOpenChange={(open) => !open && setRemoving(null)}
           title={t("message.deleteTitle")}
-          description={removing && removing.sender?.id !== me.id ? t("message.deleteOthersLead") : t("message.deleteLead")}
+          description={
+            removing && removing.sender?.id !== me.id
+              ? t("message.deleteOthersLead")
+              : t("message.deleteLead")
+          }
           confirmLabel={t("message.delete")}
           danger
           loading={removingBusy}
           onConfirm={() => void confirmRemove()}
         />
         {canAskPov && <PovRequestDialog open={askingPov} onOpenChange={setAskingPov} />}
-        <PovCamera open={answeringPov !== undefined} onClose={() => setAnsweringPov(undefined)} requestId={answeringPov ?? ""} onSent={afterSend} />
-        <ConversationDialogs dialog={dialog} myId={me.id} onClose={() => setDialog(null)} onGone={() => void navigate({ to: "/chat", search: {} })} />
+        <PovCamera
+          open={answeringPov !== undefined}
+          onClose={() => setAnsweringPov(undefined)}
+          requestId={answeringPov ?? ""}
+          onSent={afterSend}
+        />
+        <ConversationDialogs
+          dialog={dialog}
+          myId={me.id}
+          onClose={() => setDialog(null)}
+          onGone={() => void navigate({ to: "/chat", search: {} })}
+        />
         <AssistConsent />
       </ScreenFrame>
     </ConversationProvider>

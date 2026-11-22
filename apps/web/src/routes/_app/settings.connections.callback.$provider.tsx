@@ -5,7 +5,11 @@ const text = (value: unknown) => (typeof value === "string" && value ? value : u
 
 export const Route = createFileRoute("/_app/settings/connections/callback/$provider")({
   // What an OAuth provider appends when it sends the person back.
-  validateSearch: (search): { code?: string; state?: string; error?: string } => ({ code: text(search.code), state: text(search.state), error: text(search.error) }),
+  validateSearch: (search): { code?: string; state?: string; error?: string } => ({
+    code: text(search.code),
+    state: text(search.state),
+    error: text(search.error),
+  }),
   component: ConnectionCallbackPage,
 });
 

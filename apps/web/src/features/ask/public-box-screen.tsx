@@ -29,10 +29,15 @@ export function PublicBoxScreen({ handle, answerId }: { handle: string; answerId
   const guest = status === "signedOut";
 
   // Guest reads are cached apart from the signed-in ones: the answers differ.
-  const box = useQuery({ queryKey: ["ask", "guest", "box", handle], queryFn: async () => (await boxClient().getBox({ user: handle })).box ?? null, enabled: guest });
+  const box = useQuery({
+    queryKey: ["ask", "guest", "box", handle],
+    queryFn: async () => (await boxClient().getBox({ user: handle })).box ?? null,
+    enabled: guest,
+  });
   const answers = useInfiniteQuery({
     queryKey: ["ask", "guest", "answers", handle],
-    queryFn: ({ pageParam }) => boxClient().listAnswers({ user: handle, page: { cursor: pageParam, limit: PAGE_SIZE } }),
+    queryFn: ({ pageParam }) =>
+      boxClient().listAnswers({ user: handle, page: { cursor: pageParam, limit: PAGE_SIZE } }),
     initialPageParam: "",
     getNextPageParam: (page) => (page.page?.hasMore ? page.page.nextCursor : undefined),
     enabled: guest,
@@ -40,22 +45,31 @@ export function PublicBoxScreen({ handle, answerId }: { handle: string; answerId
   // A shared answer (`?a=<id>`) is shown first.
   const shared = useQuery({
     queryKey: ["ask", "guest", "question", answerId],
-    queryFn: async () => (await boxClient().getQuestion({ questionId: answerId! })).question ?? null,
+    queryFn: async () =>
+      (await boxClient().getQuestion({ questionId: answerId! })).question ?? null,
     enabled: guest && Boolean(answerId),
     retry: false,
   });
 
   if (status === "signedIn") {
-    return answerId ? <Navigate to="/ask/q/$questionId" params={{ questionId: answerId }} replace /> : <Navigate to="/ask/u/$handle" params={{ handle }} replace />;
+    return answerId ? (
+      <Navigate to="/ask/q/$questionId" params={{ questionId: answerId }} replace />
+    ) : (
+      <Navigate to="/ask/u/$handle" params={{ handle }} replace />
+    );
   }
 
   const toAccount = (to: "/signup" | "/login") => {
     rememberPendingAsk({ handle, text });
-    void navigate(to === "/login" ? { to, search: { redirect: `/ask/u/${handle}` } } : { to });
+    // Either way leads back to this box, where the draft is waiting.
+    void navigate({ to, search: { redirect: `/ask/u/${handle}` } });
   };
   const owner = box.data?.owner;
-  const sharedQuestion = shared.data?.answer && shared.data.owner?.id === owner?.id ? shared.data : undefined;
-  const questions = (answers.data?.pages.flatMap((page) => page.questions) ?? []).filter((question) => question.id !== sharedQuestion?.id);
+  const sharedQuestion =
+    shared.data?.answer && shared.data.owner?.id === owner?.id ? shared.data : undefined;
+  const questions = (answers.data?.pages.flatMap((page) => page.questions) ?? []).filter(
+    (question) => question.id !== sharedQuestion?.id,
+  );
 
   return (
     <main className="min-h-dvh bg-bg">
@@ -63,7 +77,11 @@ export function PublicBoxScreen({ handle, answerId }: { handle: string; answerId
         <Link to="/" aria-label="Tokuly">
           <Logo />
         </Link>
-        <Link to="/login" search={{ redirect: `/ask/u/${handle}` }} className="pressable sticker-sm rounded-full bg-surface px-5 py-2 text-sm font-bold">
+        <Link
+          to="/login"
+          search={{ redirect: `/ask/u/${handle}` }}
+          className="pressable sticker-sm rounded-full bg-surface px-5 py-2 text-sm font-bold"
+        >
           {t("guest.signInShort")}
         </Link>
       </header>
@@ -121,13 +139,24 @@ export function PublicBoxScreen({ handle, answerId }: { handle: string; answerId
             </div>
 
             <section>
-              <SectionTitle className="lg:mt-0" action={<span className="text-sm font-bold text-ink-faint">{t("box.answersCount", { count: box.data.answerCount })}</span>}>
+              <SectionTitle
+                className="lg:mt-0"
+                action={
+                  <span className="text-sm font-bold text-ink-faint">
+                    {t("box.answersCount", { count: box.data.answerCount })}
+                  </span>
+                }
+              >
                 {t("box.answers")}
               </SectionTitle>
               {answers.isPending ? (
                 <Skeleton className="h-40" />
               ) : questions.length === 0 && !sharedQuestion ? (
-                <EmptyState emoji="🫧" title={t("box.answersEmpty")} body={t("box.answersEmptyBody")} />
+                <EmptyState
+                  emoji="🫧"
+                  title={t("box.answersEmpty")}
+                  body={t("box.answersEmptyBody")}
+                />
               ) : (
                 <div className="flex flex-col gap-4">
                   {sharedQuestion && <QaCard question={sharedQuestion} guest highlighted />}
@@ -143,7 +172,10 @@ export function PublicBoxScreen({ handle, answerId }: { handle: string; answerId
 
         <footer className="mt-14 flex flex-col items-center gap-3 text-center">
           <p className="text-sm font-bold text-ink-soft">{t("guest.brand")}</p>
-          <Link to="/signup" className="pressable sticker inline-flex h-11 items-center rounded-full bg-lime px-6 font-black text-[#17122b]">
+          <Link
+            to="/signup"
+            className="pressable sticker inline-flex h-11 items-center rounded-full bg-lime px-6 font-black text-[#17122b]"
+          >
             {t("guest.makeOwn")}
           </Link>
         </footer>

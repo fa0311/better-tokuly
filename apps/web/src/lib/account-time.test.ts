@@ -31,9 +31,17 @@ describe("the account's calendar on a device in another time zone", () => {
   });
 
   it("says the time of day on the account's clock", () => {
-    expect(zonedTime(TUESDAY_MORNING_TOKYO, TOKYO)).toEqual({ date: "2026-11-24", minute: 8 * 60, second: 0 });
+    expect(zonedTime(TUESDAY_MORNING_TOKYO, TOKYO)).toEqual({
+      date: "2026-11-24",
+      minute: 8 * 60,
+      second: 0,
+    });
     // Midnight is 0:00, never 24:00.
-    expect(zonedTime(Date.UTC(2026, 10, 23, 15, 0, 5), TOKYO)).toEqual({ date: "2026-11-24", minute: 0, second: 5 });
+    expect(zonedTime(Date.UTC(2026, 10, 23, 15, 0, 5), TOKYO)).toEqual({
+      date: "2026-11-24",
+      minute: 0,
+      second: 5,
+    });
   });
 
   it("finds the moment a date and time of day name in a zone", () => {
@@ -59,7 +67,9 @@ describe("the account's calendar on a device in another time zone", () => {
     expect(untilNextDay(TUESDAY_MORNING_TOKYO, TOKYO)).toBe(16 * 3_600_000);
     expect(untilNextDay(Date.UTC(2026, 10, 30, 14, 59), TOKYO)).toBe(60_000);
     // The day Los Angeles sets its clocks back has 25 hours.
-    expect(untilNextDay(zonedMoment("2026-11-01", 0, DEVICE_ZONE), DEVICE_ZONE)).toBe(25 * 3_600_000);
+    expect(untilNextDay(zonedMoment("2026-11-01", 0, DEVICE_ZONE), DEVICE_ZONE)).toBe(
+      25 * 3_600_000,
+    );
   });
 });
 

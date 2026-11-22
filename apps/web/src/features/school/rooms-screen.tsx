@@ -10,14 +10,15 @@ import { Dialog } from "#/components/ui/dialog";
 import { TextField } from "#/components/ui/field";
 import { EmptyState } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
+import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { keys, refresh, roomClient, toastError } from "./api";
 import { timerText } from "./dates";
 import { Block, FriendPicker, RowsSkeleton, SchoolPage, Segmented, useNow } from "./parts";
-import { SubjectSelect } from "./subject-select";
 import { setActiveSession } from "./session-store";
-import { phaseKey } from "./timer-card";
+import { SubjectSelect } from "./subject-select";
 import { syncClock, timerAt } from "./timer";
+import { phaseKey } from "./timer-card";
 
 export function audienceKey(audience: school.RoomAudience): "public" | "friends" | "invited" {
   if (audience === school.RoomAudience.PUBLIC) return "public";
@@ -39,8 +40,16 @@ export function RoomsScreen() {
   const [tab, setTab] = useState<RoomTab>("friends");
   const [creating, setCreating] = useState(false);
   const scope = tab === "friends" ? school.RoomScope.FRIENDS : school.RoomScope.PUBLIC;
-  const mine = useQuery({ queryKey: keys.rooms(school.RoomScope.MINE), queryFn: () => listRooms(school.RoomScope.MINE), staleTime: 0 });
-  const rooms = useQuery({ queryKey: keys.rooms(scope), queryFn: () => listRooms(scope), staleTime: 0 });
+  const mine = useQuery({
+    queryKey: keys.rooms(school.RoomScope.MINE),
+    queryFn: () => listRooms(school.RoomScope.MINE),
+    staleTime: 0,
+  });
+  const rooms = useQuery({
+    queryKey: keys.rooms(scope),
+    queryFn: () => listRooms(scope),
+    staleTime: 0,
+  });
   const mineIds = new Set((mine.data ?? []).map((room) => room.id));
   const others = (rooms.data ?? []).filter((room) => !mineIds.has(room.id));
 
@@ -53,7 +62,9 @@ export function RoomsScreen() {
         </Button>
       }
     >
-      <p className="mb-4 rounded-card bg-surface-2 px-4 py-3 text-sm text-ink-soft">{t("rooms.lead")}</p>
+      <p className="mb-4 rounded-card bg-surface-2 px-4 py-3 text-sm text-ink-soft">
+        {t("rooms.lead")}
+      </p>
       {(mine.data ?? []).length > 0 && (
         <Block title={t("rooms.mine")}>
           <ul className="flex flex-col gap-3">
@@ -111,19 +122,36 @@ function RoomCard({ room }: { room: school.StudyRoom }) {
   const AudienceIcon = audience === "public" ? Globe : audience === "invited" ? Lock : Users;
   return (
     <li>
-      <Link to="/school/rooms/$roomId" params={{ roomId: room.id }} className="pressable sticker flex flex-col gap-3 rounded-card bg-surface p-4">
+      <Link
+        to="/school/rooms/$roomId"
+        params={{ roomId: room.id }}
+        className="pressable sticker flex flex-col gap-3 rounded-card bg-surface p-4"
+      >
         <span className="flex items-start gap-3">
           <span className="min-w-0 flex-1">
             <span className="block truncate text-lg font-black">{room.title}</span>
             <span className="flex items-center gap-1.5 text-sm font-bold text-ink-soft">
               <Avatar user={room.host} size="xs" />
-              <span className="truncate">{room.host?.displayName}</span>
-              <AudienceIcon className="size-3.5 shrink-0" aria-label={t(`rooms.audience.${audience}`)} />
+              <span className="truncate">
+                <EmojiText text={room.host?.displayName ?? ""} />
+              </span>
+              <AudienceIcon
+                className="size-3.5 shrink-0"
+                aria-label={t(`rooms.audience.${audience}`)}
+              />
             </span>
           </span>
-          <span className={cn("shrink-0 rounded-full px-2.5 py-1 text-xs font-black tabular-nums", view.state === school.TimerState.RUNNING ? "bg-brand text-on-brand" : "bg-surface-3 text-ink-soft")}>
+          <span
+            className={cn(
+              "shrink-0 rounded-full px-2.5 py-1 text-xs font-black tabular-nums",
+              view.state === school.TimerState.RUNNING
+                ? "bg-brand text-on-brand"
+                : "bg-surface-3 text-ink-soft",
+            )}
+          >
             {t(`timer.phase.${phaseKey(view)}`)}
-            {view.state !== school.TimerState.IDLE && ` ${timerText(view.mode === school.StudyMode.POMODORO ? Math.ceil(view.remainingMs / 1000) : view.elapsedMs / 1000)}`}
+            {view.state !== school.TimerState.IDLE &&
+              ` ${timerText(view.mode === school.StudyMode.POMODORO ? Math.ceil(view.remainingMs / 1000) : view.elapsedMs / 1000)}`}
           </span>
         </span>
         <span className="flex items-center gap-2">
@@ -132,10 +160,20 @@ function RoomCard({ room }: { room: school.StudyRoom }) {
               <Avatar key={member.user?.id} user={member.user} size="sm" />
             ))}
           </span>
-          <span className="text-sm font-bold text-ink-soft">{t("rooms.memberCount", { count: room.memberCount, cap: room.memberCap })}</span>
+          <span className="text-sm font-bold text-ink-soft">
+            {t("rooms.memberCount", { count: room.memberCount, cap: room.memberCap })}
+          </span>
           <span className="ml-auto flex gap-1.5">
-            {room.invited && !room.joined && <span className="rounded-full bg-sun px-2 py-0.5 text-xs font-black text-[#17122b]">{t("rooms.invitedBadge")}</span>}
-            {room.joined && <span className="rounded-full bg-lime px-2 py-0.5 text-xs font-black text-[#17122b]">{t("rooms.joinedBadge")}</span>}
+            {room.invited && !room.joined && (
+              <span className="rounded-full bg-sun px-2 py-0.5 text-xs font-black text-[#17122b]">
+                {t("rooms.invitedBadge")}
+              </span>
+            )}
+            {room.joined && (
+              <span className="rounded-full bg-lime px-2 py-0.5 text-xs font-black text-[#17122b]">
+                {t("rooms.joinedBadge")}
+              </span>
+            )}
           </span>
         </span>
       </Link>
@@ -151,11 +189,23 @@ export interface RoomForm {
   memberCap: string;
 }
 
-export function RoomFormFields({ form, onChange }: { form: RoomForm; onChange(form: RoomForm): void }) {
+export function RoomFormFields({
+  form,
+  onChange,
+}: {
+  form: RoomForm;
+  onChange(form: RoomForm): void;
+}) {
   const { t } = useTranslation("school");
   return (
     <>
-      <TextField label={t("rooms.titleField")} value={form.title} maxLength={40} placeholder={t("rooms.titlePlaceholder")} onChange={(event) => onChange({ ...form, title: event.target.value })} />
+      <TextField
+        label={t("rooms.titleField")}
+        value={form.title}
+        maxLength={40}
+        placeholder={t("rooms.titlePlaceholder")}
+        onChange={(event) => onChange({ ...form, title: event.target.value })}
+      />
       <div>
         <p className="px-1 pb-1.5 text-sm font-bold text-ink-soft">{t("rooms.audienceLabel")}</p>
         <Segmented
@@ -169,7 +219,9 @@ export function RoomFormFields({ form, onChange }: { form: RoomForm; onChange(fo
             { value: school.RoomAudience.INVITED, label: t("rooms.audience.invited") },
           ]}
         />
-        <p className="px-1 pt-1.5 text-xs text-ink-faint">{t(`rooms.audienceHint.${audienceKey(form.audience)}`)}</p>
+        <p className="px-1 pt-1.5 text-xs text-ink-faint">
+          {t(`rooms.audienceHint.${audienceKey(form.audience)}`)}
+        </p>
       </div>
       <div>
         <p className="px-1 pb-1.5 text-sm font-bold text-ink-soft">{t("timer.mode")}</p>
@@ -184,7 +236,16 @@ export function RoomFormFields({ form, onChange }: { form: RoomForm; onChange(fo
           ]}
         />
       </div>
-      <TextField label={t("rooms.cap")} hint={t("rooms.capHint")} type="number" inputMode="numeric" min={2} max={50} value={form.memberCap} onChange={(event) => onChange({ ...form, memberCap: event.target.value })} />
+      <TextField
+        label={t("rooms.cap")}
+        hint={t("rooms.capHint")}
+        type="number"
+        inputMode="numeric"
+        min={2}
+        max={50}
+        value={form.memberCap}
+        onChange={(event) => onChange({ ...form, memberCap: event.target.value })}
+      />
     </>
   );
 }
@@ -193,16 +254,30 @@ function CreateRoomDialog({ onClose }: { onClose(): void }) {
   const { t } = useTranslation("school");
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const [form, setForm] = useState<RoomForm>({ title: "", audience: school.RoomAudience.FRIENDS, mode: school.StudyMode.POMODORO, memberCap: "" });
+  const [form, setForm] = useState<RoomForm>({
+    title: "",
+    audience: school.RoomAudience.FRIENDS,
+    mode: school.StudyMode.POMODORO,
+    memberCap: "",
+  });
   const [subjectId, setSubjectId] = useState("");
   const [invitees, setInvitees] = useState<string[]>([]);
   const create = useMutation({
-    mutationFn: () => roomClient().createStudyRoom({ title: form.title, audience: form.audience, mode: form.mode, memberCap: Number(form.memberCap) || 0, subjectId, inviteUserIds: invitees }),
+    mutationFn: () =>
+      roomClient().createStudyRoom({
+        title: form.title,
+        audience: form.audience,
+        mode: form.mode,
+        memberCap: Number(form.memberCap) || 0,
+        subjectId,
+        inviteUserIds: invitees,
+      }),
     onSuccess: (response) => {
       setActiveSession(response.session, response.heartbeatIntervalSeconds);
       refresh(queryClient, "rooms", "study");
       onClose();
-      if (response.room) void navigate({ to: "/school/rooms/$roomId", params: { roomId: response.room.id } });
+      if (response.room)
+        void navigate({ to: "/school/rooms/$roomId", params: { roomId: response.room.id } });
     },
     onError: toastError,
   });
@@ -217,7 +292,11 @@ function CreateRoomDialog({ onClose }: { onClose(): void }) {
           <Button variant="ghost" onClick={onClose}>
             {t("common:actions.cancel")}
           </Button>
-          <Button loading={create.isPending} disabled={!form.title.trim()} onClick={() => create.mutate()}>
+          <Button
+            loading={create.isPending}
+            disabled={!form.title.trim()}
+            onClick={() => create.mutate()}
+          >
             {t("rooms.createAction")}
           </Button>
         </>

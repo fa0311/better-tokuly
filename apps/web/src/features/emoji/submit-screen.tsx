@@ -14,7 +14,10 @@ import { draftReady, EMPTY_DRAFT, type EmojiDraft, EmojiForm } from "./emoji-for
 
 /** The caller as a submitter: whether their emoji skip review, how many wait, and the limits. */
 export function useSubmitterProfile() {
-  return useQuery({ queryKey: emojiKeys.submitter, queryFn: async () => (await submissionClient().getSubmitterProfile({})).profile ?? null });
+  return useQuery({
+    queryKey: emojiKeys.submitter,
+    queryFn: async () => (await submissionClient().getSubmitterProfile({})).profile ?? null,
+  });
 }
 
 /** "Make an emoji": upload a picture, name it, describe it, send it to the moderators. */
@@ -30,7 +33,14 @@ export function SubmitScreen() {
 
   const submit = useMutation({
     mutationFn: () =>
-      submissionClient().submitEmoji({ name: draft.name, assetId: draft.assetId ?? "", category: draft.category, aliases: draft.aliases, license: draft.license.trim(), sensitive: draft.sensitive }),
+      submissionClient().submitEmoji({
+        name: draft.name,
+        assetId: draft.assetId ?? "",
+        category: draft.category,
+        aliases: draft.aliases,
+        license: draft.license.trim(),
+        sensitive: draft.sensitive,
+      }),
     onSuccess: async ({ emoji }) => {
       await queryClient.invalidateQueries({ queryKey: emojiKeys.submissions });
       await queryClient.invalidateQueries({ queryKey: emojiKeys.submitter });
@@ -57,7 +67,8 @@ export function SubmitScreen() {
       ) : (
         <p className="mb-4 text-sm leading-relaxed text-ink-soft">
           {t("submit.lead")}
-          {limits && ` ${t("submit.pending", { count: limits.pendingCount, max: limits.maxPending })}`}
+          {limits &&
+            ` ${t("submit.pending", { count: limits.pendingCount, max: limits.maxPending })}`}
         </p>
       )}
       {full ? (
@@ -66,7 +77,10 @@ export function SubmitScreen() {
           title={t("submit.fullTitle")}
           body={t("submit.fullBody", { max: limits?.maxPending ?? 0 })}
           action={
-            <Link to="/emoji/submissions" className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand">
+            <Link
+              to="/emoji/submissions"
+              className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand"
+            >
               {t("submissions.title")}
             </Link>
           }
@@ -86,7 +100,15 @@ export function SubmitScreen() {
             maxImageBytes={limits ? Number(limits.maxImageBytes) : undefined}
             maxAliases={limits?.maxAliases || undefined}
           />
-          <Button type="submit" block size="lg" className="mt-6" icon={<Send className="size-5" />} loading={submit.isPending} disabled={!draftReady(draft, uploading) || !draft.assetId}>
+          <Button
+            type="submit"
+            block
+            size="lg"
+            className="mt-6"
+            icon={<Send className="size-5" />}
+            loading={submit.isPending}
+            disabled={!draftReady(draft, uploading) || !draft.assetId}
+          >
             {t(limits?.trusted ? "submit.sendTrusted" : "submit.send")}
           </Button>
           <p className="mt-3 text-center text-xs text-ink-faint">{t("submit.rules")}</p>
@@ -111,7 +133,11 @@ export function EditSubmissionScreen({ emojiId }: { emojiId: string }) {
   if (!data?.emoji || !data.canEdit) {
     return (
       <Page title={t("submissions.editTitle")} back="/emoji/submissions">
-        <EmptyState emoji="🔒" title={t("submissions.notEditable")} body={t("submissions.notEditableBody")} />
+        <EmptyState
+          emoji="🔒"
+          title={t("submissions.notEditable")}
+          body={t("submissions.notEditableBody")}
+        />
       </Page>
     );
   }
@@ -160,7 +186,9 @@ function EditForm({ detail }: { detail: emojiApi.EmojiDetail }) {
       {rejected && (
         <div className="mb-4 rounded-2xl border-2 border-danger bg-surface px-4 py-3 text-sm">
           <p className="font-black text-danger">{t("submissions.rejectedTitle")}</p>
-          {detail.reviewNote && <p className="mt-1 whitespace-pre-wrap break-words">{detail.reviewNote}</p>}
+          {detail.reviewNote && (
+            <p className="mt-1 whitespace-pre-wrap break-words">{detail.reviewNote}</p>
+          )}
           <p className="mt-1 text-ink-soft">{t("submissions.rejectedBody")}</p>
         </div>
       )}
@@ -180,7 +208,14 @@ function EditForm({ detail }: { detail: emojiApi.EmojiDetail }) {
           maxImageBytes={profile.data ? Number(profile.data.maxImageBytes) : undefined}
           maxAliases={profile.data?.maxAliases || undefined}
         />
-        <Button type="submit" block size="lg" className="mt-6" loading={save.isPending} disabled={!draftReady(draft, uploading)}>
+        <Button
+          type="submit"
+          block
+          size="lg"
+          className="mt-6"
+          loading={save.isPending}
+          disabled={!draftReady(draft, uploading)}
+        >
           {t(rejected ? "submissions.resubmit" : "submissions.save")}
         </Button>
       </form>

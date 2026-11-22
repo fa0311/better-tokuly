@@ -36,7 +36,15 @@ export function NewChannelScreen() {
   const full = channels.data && channels.data.channels.length >= channels.data.maxChannels;
   return (
     <Page title={t("studio.channel.newTitle")} back="/studio">
-      {full ? <EmptyState emoji="🖐️" title={t("studio.channel.limit", { count: channels.data?.maxChannels ?? 5 })} body={t("studio.channel.limitBody")} /> : <ChannelForm />}
+      {full ? (
+        <EmptyState
+          emoji="🖐️"
+          title={t("studio.channel.limit", { count: channels.data?.maxChannels ?? 5 })}
+          body={t("studio.channel.limitBody")}
+        />
+      ) : (
+        <ChannelForm />
+      )}
     </Page>
   );
 }
@@ -45,10 +53,18 @@ export function NewChannelScreen() {
 export function EditChannelScreen({ channelId }: { channelId: string }) {
   const { t } = useTranslation("video");
   const channels = useMyChannels();
-  const channel = channels.data?.channels.find((candidate) => candidate.summary?.id === channelId || candidate.summary?.handle === channelId);
+  const channel = channels.data?.channels.find(
+    (candidate) => candidate.summary?.id === channelId || candidate.summary?.handle === channelId,
+  );
   return (
     <Page title={t("studio.channel.editTitle")} back="/studio">
-      {channels.isPending ? <Skeleton className="h-96 rounded-card" /> : channel ? <ChannelForm key={channel.summary?.id} channel={channel} /> : <EmptyState emoji="📡" title={t("channel.notFound")} />}
+      {channels.isPending ? (
+        <Skeleton className="h-96 rounded-card" />
+      ) : channel ? (
+        <ChannelForm key={channel.summary?.id} channel={channel} />
+      ) : (
+        <EmptyState emoji="📡" title={t("channel.notFound")} />
+      )}
     </Page>
   );
 }
@@ -61,9 +77,14 @@ function ChannelForm({ channel }: { channel?: video.Channel }) {
   const [name, setName] = useState(summary?.name ?? "");
   const [handle, setHandle] = useState(summary?.handle ?? "");
   const [description, setDescription] = useState(channel?.description ?? "");
-  const [links, setLinks] = useState(() => channel?.links.map((link) => ({ title: link.title, url: link.url })) ?? []);
+  const [links, setLinks] = useState(
+    () => channel?.links.map((link) => ({ title: link.title, url: link.url })) ?? [],
+  );
   const [icon, setIcon] = useState<ArtDraft>({ url: summary?.icon?.url ?? "", uploading: false });
-  const [banner, setBanner] = useState<ArtDraft>({ url: channel?.banner?.url ?? "", uploading: false });
+  const [banner, setBanner] = useState<ArtDraft>({
+    url: channel?.banner?.url ?? "",
+    uploading: false,
+  });
   const [trailer, setTrailer] = useState(channel?.trailerVideoId || NO_TRAILER);
   const [deleting, setDeleting] = useState(false);
   const setDefault = useSetDefaultChannel();
@@ -81,19 +102,30 @@ function ChannelForm({ channel }: { channel?: video.Channel }) {
     enabled: checked.length > 0 && handleChanged,
     staleTime: 10_000,
   });
-  const settled = checked === handle.trim() && availability.data !== undefined && !availability.isFetching;
-  const handleError = handleChanged && settled && !availability.data.available ? t(`studio.channel.handle.${availability.data.reason || "HANDLE_INVALID"}`) : undefined;
+  const settled =
+    checked === handle.trim() && availability.data !== undefined && !availability.isFetching;
+  const handleError =
+    handleChanged && settled && !availability.data.available
+      ? t(`studio.channel.handle.${availability.data.reason || "HANDLE_INVALID"}`)
+      : undefined;
   const handleOk = handleChanged && settled && availability.data.available;
 
   const publicVideos = useQuery({
-    queryKey: videoKeys.channelVideos(summary?.id ?? "", video.ChannelVideoSort.NEWEST, video.VideoOrigin.UNSPECIFIED),
-    queryFn: () => channelClient().listChannelVideos({ channelId: summary?.id ?? "", page: { limit: 50 } }),
+    queryKey: videoKeys.channelVideos(
+      summary?.id ?? "",
+      video.ChannelVideoSort.NEWEST,
+      video.VideoOrigin.UNSPECIFIED,
+    ),
+    queryFn: () =>
+      channelClient().listChannelVideos({ channelId: summary?.id ?? "", page: { limit: 50 } }),
     enabled: Boolean(summary),
   });
 
   const save = useMutation({
     mutationFn: async () => {
-      const cleanLinks = links.map((link) => ({ title: link.title.trim(), url: link.url.trim() })).filter((link) => link.url);
+      const cleanLinks = links
+        .map((link) => ({ title: link.title.trim(), url: link.url.trim() }))
+        .filter((link) => link.url);
       if (channel && summary) {
         const response = await channelClient().updateChannel({
           channelId: summary.id,
@@ -107,7 +139,14 @@ function ChannelForm({ channel }: { channel?: video.Channel }) {
         });
         return response.channel;
       }
-      const response = await channelClient().createChannel({ name: name.trim(), handle: handle.trim(), description: description.trim(), iconAssetId: icon.assetId ?? "", bannerAssetId: banner.assetId ?? "", links: cleanLinks });
+      const response = await channelClient().createChannel({
+        name: name.trim(),
+        handle: handle.trim(),
+        description: description.trim(),
+        iconAssetId: icon.assetId ?? "",
+        bannerAssetId: banner.assetId ?? "",
+        links: cleanLinks,
+      });
       return response.channel;
     },
     onSuccess: (saved) => {
@@ -124,7 +163,12 @@ function ChannelForm({ channel }: { channel?: video.Channel }) {
   });
 
   const busy = icon.uploading || banner.uploading;
-  const canSave = name.trim().length > 0 && handle.trim().length >= 3 && !handleError && !busy && (!handleChanged || handleOk);
+  const canSave =
+    name.trim().length > 0 &&
+    handle.trim().length >= 3 &&
+    !handleError &&
+    !busy &&
+    (!handleChanged || handleOk);
 
   return (
     <form
@@ -134,10 +178,18 @@ function ChannelForm({ channel }: { channel?: video.Channel }) {
         if (canSave) save.mutate();
       }}
     >
-      {!channel && <p className="px-1 text-sm leading-relaxed text-ink-soft">{t("studio.channel.newLead")}</p>}
+      {!channel && (
+        <p className="px-1 text-sm leading-relaxed text-ink-soft">{t("studio.channel.newLead")}</p>
+      )}
 
       <FormSection title={t("studio.channel.basics")}>
-        <TextField label={t("studio.channel.name")} value={name} maxLength={50} placeholder={t("studio.channel.namePlaceholder")} onChange={(event) => setName(event.target.value)} />
+        <TextField
+          label={t("studio.channel.name")}
+          value={name}
+          maxLength={50}
+          placeholder={t("studio.channel.namePlaceholder")}
+          onChange={(event) => setName(event.target.value)}
+        />
         <TextField
           label={t("studio.channel.handleLabel")}
           value={handle}
@@ -159,13 +211,31 @@ function ChannelForm({ channel }: { channel?: video.Channel }) {
           }
           onChange={(event) => setHandle(event.target.value.replace(/\s/g, ""))}
         />
-        <TextArea label={t("studio.channel.description")} value={description} maxLength={1000} placeholder={t("studio.channel.descriptionPlaceholder")} onChange={(event) => setDescription(event.target.value)} />
+        <TextArea
+          label={t("studio.channel.description")}
+          value={description}
+          maxLength={1000}
+          placeholder={t("studio.channel.descriptionPlaceholder")}
+          onChange={(event) => setDescription(event.target.value)}
+        />
       </FormSection>
 
       <FormSection title={t("studio.channel.art")} lead={t("studio.channel.artLead")}>
         <div className="flex flex-col gap-4 sm:flex-row">
-          <ArtField label={t("studio.channel.icon")} shape="icon" purpose={media.AssetPurpose.CHANNEL_ICON} draft={icon} onChange={setIcon} />
-          <ArtField label={t("studio.channel.banner")} shape="banner" purpose={media.AssetPurpose.CHANNEL_BANNER} draft={banner} onChange={setBanner} />
+          <ArtField
+            label={t("studio.channel.icon")}
+            shape="icon"
+            purpose={media.AssetPurpose.CHANNEL_ICON}
+            draft={icon}
+            onChange={setIcon}
+          />
+          <ArtField
+            label={t("studio.channel.banner")}
+            shape="banner"
+            purpose={media.AssetPurpose.CHANNEL_BANNER}
+            draft={banner}
+            onChange={setBanner}
+          />
         </div>
       </FormSection>
 
@@ -173,16 +243,52 @@ function ChannelForm({ channel }: { channel?: video.Channel }) {
         {links.map((link, index) => (
           <div key={index} className="flex items-start gap-2">
             <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-[10rem_minmax(0,1fr)]">
-              <TextField aria-label={t("studio.channel.linkTitle")} value={link.title} maxLength={30} placeholder={t("studio.channel.linkTitle")} onChange={(event) => setLinks(links.map((entry, at) => (at === index ? { ...entry, title: event.target.value } : entry)))} />
-              <TextField aria-label={t("studio.channel.linkUrl")} value={link.url} maxLength={500} type="url" inputMode="url" placeholder="https://" onChange={(event) => setLinks(links.map((entry, at) => (at === index ? { ...entry, url: event.target.value } : entry)))} />
+              <TextField
+                aria-label={t("studio.channel.linkTitle")}
+                value={link.title}
+                maxLength={30}
+                placeholder={t("studio.channel.linkTitle")}
+                onChange={(event) =>
+                  setLinks(
+                    links.map((entry, at) =>
+                      at === index ? { ...entry, title: event.target.value } : entry,
+                    ),
+                  )
+                }
+              />
+              <TextField
+                aria-label={t("studio.channel.linkUrl")}
+                value={link.url}
+                maxLength={500}
+                type="url"
+                inputMode="url"
+                placeholder="https://"
+                onChange={(event) =>
+                  setLinks(
+                    links.map((entry, at) =>
+                      at === index ? { ...entry, url: event.target.value } : entry,
+                    ),
+                  )
+                }
+              />
             </div>
-            <Button variant="ghost" size="icon" aria-label={t("studio.channel.removeLink")} onClick={() => setLinks(links.filter((_, at) => at !== index))}>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={t("studio.channel.removeLink")}
+              onClick={() => setLinks(links.filter((_, at) => at !== index))}
+            >
               <X className="size-5" />
             </Button>
           </div>
         ))}
         {links.length < MAX_LINKS && (
-          <Button variant="secondary" className="self-start" icon={<Plus className="size-4" />} onClick={() => setLinks([...links, { title: "", url: "" }])}>
+          <Button
+            variant="secondary"
+            className="self-start"
+            icon={<Plus className="size-4" />}
+            onClick={() => setLinks([...links, { title: "", url: "" }])}
+          >
             {t("studio.channel.addLink")}
           </Button>
         )}
@@ -196,15 +302,27 @@ function ChannelForm({ channel }: { channel?: video.Channel }) {
             onChange={setTrailer}
             options={[
               { value: NO_TRAILER, label: t("studio.channel.noTrailer") },
-              ...(publicVideos.data?.videos ?? []).filter((entry) => entry.visibility === common.Visibility.PUBLIC).map((entry) => ({ value: entry.shortId, label: entry.title })),
+              ...(publicVideos.data?.videos ?? [])
+                .filter((entry) => entry.visibility === common.Visibility.PUBLIC)
+                .map((entry) => ({ value: entry.shortId, label: entry.title })),
               // A trailer set earlier stays selectable even when it is not among the newest fifty.
-              ...(trailer !== NO_TRAILER && !publicVideos.data?.videos.some((entry) => entry.shortId === trailer) ? [{ value: trailer, label: trailer }] : []),
+              ...(trailer !== NO_TRAILER &&
+              !publicVideos.data?.videos.some((entry) => entry.shortId === trailer)
+                ? [{ value: trailer, label: trailer }]
+                : []),
             ]}
           />
           {!channel.viewer?.isDefault && (
             <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-surface-2 p-3">
-              <p className="min-w-0 flex-1 text-sm leading-relaxed text-ink-soft">{t("studio.channel.defaultLead")}</p>
-              <Button variant="secondary" icon={<Star className="size-4" />} loading={setDefault.isPending} onClick={() => setDefault.mutate(summary.id)}>
+              <p className="min-w-0 flex-1 text-sm leading-relaxed text-ink-soft">
+                {t("studio.channel.defaultLead")}
+              </p>
+              <Button
+                variant="secondary"
+                icon={<Star className="size-4" />}
+                loading={setDefault.isPending}
+                onClick={() => setDefault.mutate(summary.id)}
+              >
                 {t("studio.channel.makeDefault")}
               </Button>
             </div>
@@ -221,11 +339,24 @@ function ChannelForm({ channel }: { channel?: video.Channel }) {
       {channel && summary && (
         <section className="rounded-card border-2 border-dashed border-danger p-4">
           <h2 className="font-black text-danger">{t("studio.channel.dangerTitle")}</h2>
-          <p className="mt-1 text-sm leading-relaxed text-ink-soft">{t("studio.channel.dangerLead")}</p>
-          <Button variant="danger" className="mt-3" icon={<Trash2 className="size-4" />} onClick={() => setDeleting(true)}>
+          <p className="mt-1 text-sm leading-relaxed text-ink-soft">
+            {t("studio.channel.dangerLead")}
+          </p>
+          <Button
+            variant="danger"
+            className="mt-3"
+            icon={<Trash2 className="size-4" />}
+            onClick={() => setDeleting(true)}
+          >
             {t("studio.channel.delete")}
           </Button>
-          <DeleteChannelDialog open={deleting} onOpenChange={setDeleting} channelId={summary.id} handle={summary.handle} name={summary.name} />
+          <DeleteChannelDialog
+            open={deleting}
+            onOpenChange={setDeleting}
+            channelId={summary.id}
+            handle={summary.handle}
+            name={summary.name}
+          />
         </section>
       )}
     </form>
@@ -233,7 +364,19 @@ function ChannelForm({ channel }: { channel?: video.Channel }) {
 }
 
 /** An image of the channel: choose a file, see it at once, take it away again. */
-function ArtField({ label, shape, purpose, draft, onChange }: { label: string; shape: "icon" | "banner"; purpose: media.AssetPurpose; draft: ArtDraft; onChange(draft: ArtDraft): void }) {
+function ArtField({
+  label,
+  shape,
+  purpose,
+  draft,
+  onChange,
+}: {
+  label: string;
+  shape: "icon" | "banner";
+  purpose: media.AssetPurpose;
+  draft: ArtDraft;
+  onChange(draft: ArtDraft): void;
+}) {
   const { t } = useTranslation("video");
   const input = useRef<HTMLInputElement>(null);
   // The preview is a blob URL of this page: release it when it is replaced or the form goes away.
@@ -256,10 +399,19 @@ function ArtField({ label, shape, purpose, draft, onChange }: { label: string; s
   return (
     <div className={cn("flex flex-col gap-1.5", shape === "banner" && "min-w-0 flex-1")}>
       <span className="px-1 text-sm font-bold text-ink-soft">{label}</span>
-      <div className={cn("relative overflow-hidden border-2 border-line bg-surface-2", shape === "icon" ? "size-28 rounded-[1.6rem]" : "aspect-[4/1] w-full rounded-2xl")}>
-        {draft.url ? <img src={draft.url} alt="" className="size-full object-cover" /> : <span className="grid size-full place-items-center text-ink-faint">
+      <div
+        className={cn(
+          "relative overflow-hidden border-2 border-line bg-surface-2",
+          shape === "icon" ? "size-28 rounded-[1.6rem]" : "aspect-[4/1] w-full rounded-2xl",
+        )}
+      >
+        {draft.url ? (
+          <img src={draft.url} alt="" className="size-full object-cover" />
+        ) : (
+          <span className="grid size-full place-items-center text-ink-faint">
             <ImagePlus className="size-7" />
-          </span>}
+          </span>
+        )}
         {draft.uploading && (
           <span className="absolute inset-0 grid place-items-center bg-overlay text-white">
             <Spinner className="size-6" />
@@ -267,11 +419,21 @@ function ArtField({ label, shape, purpose, draft, onChange }: { label: string; s
         )}
       </div>
       <div className="flex gap-2">
-        <Button variant="secondary" size="sm" icon={<ImagePlus className="size-4" />} disabled={draft.uploading} onClick={() => input.current?.click()}>
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={<ImagePlus className="size-4" />}
+          disabled={draft.uploading}
+          onClick={() => input.current?.click()}
+        >
           {draft.url ? t("studio.channel.changeImage") : t("studio.channel.chooseImage")}
         </Button>
         {draft.url && !draft.uploading && (
-          <Button variant="ghost" size="sm" onClick={() => onChange({ url: "", assetId: "", uploading: false })}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onChange({ url: "", assetId: "", uploading: false })}
+          >
             {t("studio.channel.removeImage")}
           </Button>
         )}
@@ -293,7 +455,19 @@ function ArtField({ label, shape, purpose, draft, onChange }: { label: string; s
 }
 
 /** Deleting a channel takes its videos with it: the handle has to be typed to go through with it. */
-function DeleteChannelDialog({ open, onOpenChange, channelId, handle, name }: { open: boolean; onOpenChange(open: boolean): void; channelId: string; handle: string; name: string }) {
+function DeleteChannelDialog({
+  open,
+  onOpenChange,
+  channelId,
+  handle,
+  name,
+}: {
+  open: boolean;
+  onOpenChange(open: boolean): void;
+  channelId: string;
+  handle: string;
+  name: string;
+}) {
   const { t } = useTranslation("video");
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -320,13 +494,25 @@ function DeleteChannelDialog({ open, onOpenChange, channelId, handle, name }: { 
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             {t("actions.cancel")}
           </Button>
-          <Button variant="danger" disabled={!matches} loading={remove.isPending} onClick={() => remove.mutate()}>
+          <Button
+            variant="danger"
+            disabled={!matches}
+            loading={remove.isPending}
+            onClick={() => remove.mutate()}
+          >
             {t("studio.channel.delete")}
           </Button>
         </>
       }
     >
-      <TextField label={t("studio.channel.typeHandle", { handle })} value={typed} autoCapitalize="none" spellCheck={false} placeholder={handle} onChange={(event) => setTyped(event.target.value)} />
+      <TextField
+        label={t("studio.channel.typeHandle", { handle })}
+        value={typed}
+        autoCapitalize="none"
+        spellCheck={false}
+        placeholder={handle}
+        onChange={(event) => setTyped(event.target.value)}
+      />
     </Dialog>
   );
 }

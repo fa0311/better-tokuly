@@ -1,5 +1,14 @@
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
-import { type Account, adminAccount, befriend, createAccount, expect, rpc, signInAs, test } from "./support";
+import {
+  type Account,
+  adminAccount,
+  befriend,
+  createAccount,
+  expect,
+  rpc,
+  signInAs,
+  test,
+} from "./support";
 
 test.describe.configure({ timeout: 90_000 });
 
@@ -27,35 +36,67 @@ test.beforeEach(async ({ page }) => dismissDevServerOverlay(page));
 const subject = (noteId: string) => ({ type: "SUBJECT_TYPE_NOTE", id: noteId });
 
 /** A friend of `me` with a public note to engage with. Notes are the first content that carries the shared controls. */
-async function friendWithNote(request: APIRequestContext, me: Account, text: string): Promise<{ friend: Account; noteId: string }> {
+async function friendWithNote(
+  request: APIRequestContext,
+  me: Account,
+  text: string,
+): Promise<{ friend: Account; noteId: string }> {
   const friend = await createAccount(request, "friend");
   await befriend(request, me, friend);
   const rules = await rpc<{ version: number }>(request, `${NOTES}/GetNoteRules`, {}, friend);
   await rpc(request, `${NOTES}/AgreeToNoteRules`, { version: rules.version }, friend);
-  const created = await rpc<{ note: { id: string } }>(request, `${NOTES}/CreateNote`, { text }, friend);
+  const created = await rpc<{ note: { id: string } }>(
+    request,
+    `${NOTES}/CreateNote`,
+    { text },
+    friend,
+  );
   return { friend, noteId: created.note.id };
 }
 
-const card = (page: Page, text: string): Locator => page.locator('[data-testid="note"]', { hasText: text });
+const card = (page: Page, text: string): Locator =>
+  page.locator('[data-testid="note"]', { hasText: text });
 
 interface EngagementJson {
-  reactions?: { emojiCounts?: { emoji: string; count: string }[]; viewerReaction?: { emoji?: string } };
+  reactions?: {
+    emojiCounts?: { emoji: string; count: string }[];
+    viewerReaction?: { emoji?: string };
+  };
   bookmarked?: boolean;
   shareCount?: string;
 }
 
-async function engagementOf(request: APIRequestContext, noteId: string, as: Account): Promise<EngagementJson> {
-  return (await rpc<{ engagement: EngagementJson }>(request, `${ENGAGEMENT}/GetEngagement`, { subject: subject(noteId) }, as)).engagement;
+async function engagementOf(
+  request: APIRequestContext,
+  noteId: string,
+  as: Account,
+): Promise<EngagementJson> {
+  return (
+    await rpc<{ engagement: EngagementJson }>(
+      request,
+      `${ENGAGEMENT}/GetEngagement`,
+      { subject: subject(noteId) },
+      as,
+    )
+  ).engagement;
 }
 
-test("an emoji reaction is added, joined by others live, listed and taken back", async ({ page, me, request }) => {
+test("an emoji reaction is added, joined by others live, listed and taken back", async ({
+  page,
+  me,
+  request,
+}) => {
   const text = `e2e リアクションされるノート ${tag()}`;
   const { friend, noteId } = await friendWithNote(request, me, text);
 
   await page.goto(`/notes/${noteId}`);
   const note = card(page, text);
   await note.getByRole("button", { name: "リアクションする" }).click();
-  await page.getByTestId("emoji-picker").getByRole("button", { name: "🎉", exact: true }).first().click();
+  await page
+    .getByTestId("emoji-picker")
+    .getByRole("button", { name: "🎉", exact: true })
+    .first()
+    .click();
 
   const chip = note.getByRole("button", { name: /^🎉/ });
   await expect(chip).toHaveAttribute("aria-pressed", "true");
@@ -65,7 +106,12 @@ test("an emoji reaction is added, joined by others live, listed and taken back",
   // Someone else reacts with the same emoji: the chip counts up without a reload.
   await expect(async () => {
     await rpc(request, `${REACTIONS}/RemoveReaction`, { subject: subject(noteId) }, friend);
-    await rpc(request, `${REACTIONS}/SetReaction`, { subject: subject(noteId), reaction: { kind: "REACTION_KIND_EMOJI", emoji: "🎉" } }, friend);
+    await rpc(
+      request,
+      `${REACTIONS}/SetReaction`,
+      { subject: subject(noteId), reaction: { kind: "REACTION_KIND_EMOJI", emoji: "🎉" } },
+      friend,
+    );
     await expect(chip).toContainText("2", { timeout: 4_000 });
   }).toPass({ timeout: 30_000 });
 
@@ -80,17 +126,26 @@ test("an emoji reaction is added, joined by others live, listed and taken back",
   await chip.click();
   await expect(chip).toHaveAttribute("aria-pressed", "false");
   await expect(chip).toContainText("1");
-  await expect.poll(async () => (await engagementOf(request, noteId, me)).reactions?.viewerReaction).toBeUndefined();
+  await expect
+    .poll(async () => (await engagementOf(request, noteId, me)).reactions?.viewerReaction)
+    .toBeUndefined();
 });
 
-test("a note is saved, found under bookmarks, filed into a collection and unsaved", async ({ page, me, request }) => {
+test("a note is saved, found under bookmarks, filed into a collection and unsaved", async ({
+  page,
+  me,
+  request,
+}) => {
   const text = `e2e 保存するノート ${tag()}`;
   const { noteId } = await friendWithNote(request, me, text);
 
   await page.goto(`/notes/${noteId}`);
   await card(page, text).getByRole("button", { name: "保存する" }).click();
   await expect(page.getByText("保存したよ!")).toBeVisible();
-  await expect(card(page, text).getByRole("button", { name: /保存済み/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(card(page, text).getByRole("button", { name: /保存済み/ })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
 
   // It is on the bookmarks page, drawn as the note it is.
   await page.goto("/bookmarks");
@@ -103,7 +158,10 @@ test("a note is saved, found under bookmarks, filed into a collection and unsave
   const chooser = page.getByRole("dialog");
   await chooser.getByRole("textbox", { name: "新しいコレクション" }).fill(name);
   await chooser.getByRole("button", { name: "つくる" }).click();
-  await expect(chooser.getByRole("checkbox", { name: new RegExp(name) })).toHaveAttribute("aria-checked", "true");
+  await expect(chooser.getByRole("checkbox", { name: new RegExp(name) })).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
   await chooser.getByRole("button", { name: "完了" }).click();
 
   // The collection lists it; the page address remembers the collection.
@@ -134,7 +192,14 @@ test("a note is saved, found under bookmarks, filed into a collection and unsave
   await expect(collections.getByRole("button", { name: new RegExp(name) })).toHaveCount(0);
   await saved.getByRole("button", { name: "はずす", exact: true }).click();
   await expect(page.getByText("まだ何も保存してないよ")).toBeVisible();
-  const collectionsLeft = (await rpc<{ collections: { isDefault?: boolean }[] }>(request, `${BOOKMARKS}/ListCollections`, {}, me)).collections;
+  const collectionsLeft = (
+    await rpc<{ collections: { isDefault?: boolean }[] }>(
+      request,
+      `${BOOKMARKS}/ListCollections`,
+      {},
+      me,
+    )
+  ).collections;
   expect(collectionsLeft).toHaveLength(1);
   expect((await engagementOf(request, noteId, me)).bookmarked ?? false).toBe(false);
 });
@@ -142,7 +207,12 @@ test("a note is saved, found under bookmarks, filed into a collection and unsave
 test("what I reacted to is listed with my bookmarks", async ({ page, me, request }) => {
   const text = `e2e リアクション一覧のノート ${tag()}`;
   const { noteId } = await friendWithNote(request, me, text);
-  await rpc(request, `${REACTIONS}/SetReaction`, { subject: subject(noteId), reaction: { kind: "REACTION_KIND_EMOJI", emoji: "🔥" } }, me);
+  await rpc(
+    request,
+    `${REACTIONS}/SetReaction`,
+    { subject: subject(noteId), reaction: { kind: "REACTION_KIND_EMOJI", emoji: "🔥" } },
+    me,
+  );
 
   await page.goto("/bookmarks?tab=reactions");
   const row = page.locator('[data-testid="reacted"]', { hasText: text });
@@ -159,15 +229,20 @@ test("sharing copies the note's link and is counted", async ({ page, me, request
 
   await page.goto(`/notes/${noteId}`);
   await card(page, text).getByRole("button", { name: "シェアする" }).click();
-  // Where the device has a share sheet the button opens a menu first.
-  const copy = page.getByRole("menuitem", { name: "リンクをコピー" });
-  if (await copy.isVisible().catch(() => false)) await copy.click();
+  // The share control is a menu: send in chat, copy the link, and the share sheet where there is one.
+  await page.getByRole("menuitem", { name: "リンクをコピー" }).click();
   await expect(page.getByText("リンクをコピーしたよ!")).toBeVisible();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(`/notes/${noteId}`);
   await expect.poll(async () => (await engagementOf(request, noteId, me)).shareCount).toBe("1");
 });
 
-test("a note is reported, shows under my reports, and reaches the moderation queue", async ({ page, me, request, browser, baseURL }) => {
+test("a note is reported, shows under my reports, and reaches the moderation queue", async ({
+  page,
+  me,
+  request,
+  browser,
+  baseURL,
+}) => {
   const text = `e2e 通報されるノート ${tag()}`;
   const { friend, noteId } = await friendWithNote(request, me, text);
 
@@ -186,7 +261,10 @@ test("a note is reported, shows under my reports, and reaches the moderation que
   // Reporting the same note again is refused with an explanation.
   await card(page, text).getByRole("button", { name: "メニュー" }).click();
   await page.getByRole("menuitem", { name: "通報する" }).click();
-  await page.getByRole("dialog").getByRole("radio", { name: /スパム/ }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("radio", { name: /スパム/ })
+    .click();
   await page.getByRole("dialog").getByRole("button", { name: "通報する" }).click();
   await expect(page.getByText("もう通報済みだよ")).toBeVisible();
   await page.keyboard.press("Escape");
@@ -197,17 +275,28 @@ test("a note is reported, shows under my reports, and reaches the moderation que
   await expect(report).toContainText("確認待ち");
   await expect(report).toContainText("スパム");
   await expect(report).toContainText(details);
-  const mine = await rpc<{ reports: { subject: { id: string } }[] }>(request, `${REPORTS}/ListMyReports`, {}, me);
+  const mine = await rpc<{ reports: { subject: { id: string } }[] }>(
+    request,
+    `${REPORTS}/ListMyReports`,
+    {},
+    me,
+  );
   expect(mine.reports.map((entry) => entry.subject.id)).toContain(noteId);
 
   // The moderation team finds it in their queue.
-  const staff = await browser.newContext({ baseURL, locale: "ja-JP", viewport: page.viewportSize() });
+  const staff = await browser.newContext({
+    baseURL,
+    locale: "ja-JP",
+    viewport: page.viewportSize(),
+  });
   const console = await staff.newPage();
   await dismissDevServerOverlay(console);
   await signInAs(console, await adminAccount(request));
   await expect(async () => {
     await console.goto(`/admin/moderation?owner=${friend.userId}`);
-    await expect(console.getByRole("link", { name: new RegExp(text) }).first()).toBeVisible({ timeout: 8_000 });
+    await expect(console.getByRole("link", { name: new RegExp(text) }).first()).toBeVisible({
+      timeout: 8_000,
+    });
   }).toPass({ timeout: 40_000 });
   await staff.close();
 });
@@ -221,6 +310,48 @@ test("a profile can be reported from its page", async ({ page, me, request }) =>
   await dialog.getByRole("radio", { name: /なりすまし/ }).click();
   await dialog.getByRole("button", { name: "通報する" }).click();
   await expect(page.getByText("通報を受け付けたよ")).toBeVisible();
-  const mine = await rpc<{ reports: { subject: { type: string; id: string } }[] }>(request, `${REPORTS}/ListMyReports`, {}, me);
+  const mine = await rpc<{ reports: { subject: { type: string; id: string } }[] }>(
+    request,
+    `${REPORTS}/ListMyReports`,
+    {},
+    me,
+  );
   expect(mine.reports[0]?.subject).toMatchObject({ type: "SUBJECT_TYPE_USER", id: other.userId });
+});
+
+test("a note is sent to a friend in chat from its share menu", async ({ page, me, request }) => {
+  const text = `e2e チャットで送るノート ${tag()}`;
+  const { friend, noteId } = await friendWithNote(request, me, text);
+
+  await page.goto(`/notes/${noteId}`);
+  await card(page, text).getByRole("button", { name: "シェアする" }).click();
+  await page.getByRole("menuitem", { name: "チャットで送る" }).click();
+
+  const sheet = page.getByRole("dialog", { name: "ともだちに送る" });
+  await sheet.getByRole("button", { name: friend.displayName }).click();
+  await sheet.getByLabel("ひとこと添える（なくてもOK）").fill("これ見て！");
+  await sheet.getByRole("button", { name: "送る（1）" }).click();
+  await expect(page.getByText("1件のトークに送りました！")).toBeVisible();
+  await expect(sheet).toBeHidden();
+
+  // The friend has the link in the conversation, and the note counts one share.
+  const { conversation } = await rpc<{ conversation: { id: string } }>(
+    request,
+    "tokuly.chat.v1.ConversationService/OpenDirect",
+    { userId: me.userId },
+    friend,
+  );
+  const { messages } = await rpc<{ messages: { text?: string }[] }>(
+    request,
+    "tokuly.chat.v1.MessageService/ListMessages",
+    { conversationId: conversation.id },
+    friend,
+  );
+  expect(messages.map((message) => message.text ?? "").join("\n")).toContain(`/notes/${noteId}`);
+  expect(messages.map((message) => message.text ?? "").join("\n")).toContain("これ見て！");
+  await expect.poll(async () => (await engagementOf(request, noteId, me)).shareCount).toBe("1");
+
+  // In the conversation the note shows as its preview.
+  await page.goto(`/chat/${conversation.id}`);
+  await expect(page.getByTestId("message").filter({ hasText: "これ見て！" })).toBeVisible();
 });

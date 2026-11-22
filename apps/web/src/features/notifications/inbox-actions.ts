@@ -37,8 +37,10 @@ async function writeAhead<T>(
 /** Marks entries read. */
 export async function markRead(queryClient: QueryClient, ids: string[]): Promise<void> {
   const set = new Set(ids);
-  const response = await writeAhead(queryClient, { apply: (pages, filter) => withRead(pages, set, filter) }, () =>
-    inboxClient().markRead({ target: { case: "ids", value: { ids } } }),
+  const response = await writeAhead(
+    queryClient,
+    { apply: (pages, filter) => withRead(pages, set, filter) },
+    () => inboxClient().markRead({ target: { case: "ids", value: { ids } } }),
   );
   applyUnread(queryClient, response.unread);
 }
@@ -48,7 +50,12 @@ export async function markRead(queryClient: QueryClient, ids: string[]): Promise
  * system notification): it becomes read and the app goes to its target.
  * Returns false when the notification leads nowhere.
  */
-export function openNotification(queryClient: QueryClient, router: AnyRouter, entry: { id: string; path: string; read?: boolean }, options?: { replace?: boolean }): boolean {
+export function openNotification(
+  queryClient: QueryClient,
+  router: AnyRouter,
+  entry: { id: string; path: string; read?: boolean },
+  options?: { replace?: boolean },
+): boolean {
   // Reading is best effort: a failure leaves the entry unread, which the re-read lists show.
   if (entry.id && !entry.read) void markRead(queryClient, [entry.id]).catch(() => {});
   return openTargetPath(router, entry.path, options);
@@ -65,12 +72,19 @@ export function useInboxActions() {
   const readAll = useMutation({
     /** `upToId` = the newest entry on screen, so nothing that arrives meanwhile is swept along unseen. */
     mutationFn: ({ category, upToId }: { category: string; upToId?: string }) =>
-      writeAhead(queryClient, { apply: (pages, filter) => withRead(pages, "all", filter, category), sweeping: true }, () =>
-        inboxClient().markRead({ target: upToId ? { case: "upToId", value: upToId } : { case: "all", value: true }, category }),
+      writeAhead(
+        queryClient,
+        { apply: (pages, filter) => withRead(pages, "all", filter, category), sweeping: true },
+        () =>
+          inboxClient().markRead({
+            target: upToId ? { case: "upToId", value: upToId } : { case: "all", value: true },
+            category,
+          }),
       ),
     onSuccess: (response) => {
       applyUnread(queryClient, response.unread);
-      if (response.markedCount > 0) toast.success(t("toast.markedRead", { count: response.markedCount }));
+      if (response.markedCount > 0)
+        toast.success(t("toast.markedRead", { count: response.markedCount }));
     },
     onError,
   });
@@ -78,7 +92,9 @@ export function useInboxActions() {
   const remove = useMutation({
     mutationFn: (ids: string[]) => {
       const set = new Set(ids);
-      return writeAhead(queryClient, { apply: (pages) => withRemoved(pages, set) }, () => inboxClient().deleteNotifications({ notificationIds: ids }));
+      return writeAhead(queryClient, { apply: (pages) => withRemoved(pages, set) }, () =>
+        inboxClient().deleteNotifications({ notificationIds: ids }),
+      );
     },
     onSuccess: (response) => applyUnread(queryClient, response.unread),
     onError,
@@ -86,10 +102,18 @@ export function useInboxActions() {
 
   const clear = useMutation({
     mutationFn: (target: { category: string; readOnly: boolean }) =>
-      writeAhead(queryClient, { apply: (pages) => withRemoved(pages, target), sweeping: true }, () => inboxClient().clearNotifications(target)),
+      writeAhead(
+        queryClient,
+        { apply: (pages) => withRemoved(pages, target), sweeping: true },
+        () => inboxClient().clearNotifications(target),
+      ),
     onSuccess: (response) => {
       applyUnread(queryClient, response.unread);
-      toast.success(response.deletedCount > 0 ? t("toast.cleared", { count: response.deletedCount }) : t("toast.nothingToClear"));
+      toast.success(
+        response.deletedCount > 0
+          ? t("toast.cleared", { count: response.deletedCount })
+          : t("toast.nothingToClear"),
+      );
     },
     onError,
   });

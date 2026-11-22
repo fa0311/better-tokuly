@@ -41,12 +41,20 @@ function EventRow({ event }: { event: identity.SecurityEvent }) {
   const where = [event.deviceName, event.location || event.ip].filter(Boolean).join(" ・ ");
   return (
     <li data-testid="security-event" className="flex items-start gap-3 rounded-2xl px-3 py-2.5">
-      <span aria-hidden className={cn("grid size-10 shrink-0 place-items-center rounded-xl text-xl", SUSPICIOUS.has(event.type) ? "bg-sun" : "bg-surface-2")}>
+      <span
+        aria-hidden
+        className={cn(
+          "grid size-10 shrink-0 place-items-center rounded-xl text-xl",
+          SUSPICIOUS.has(event.type) ? "bg-sun" : "bg-surface-2",
+        )}
+      >
         {EVENT_EMOJI[event.type] ?? "📝"}
       </span>
       <div className="min-w-0 flex-1">
         {/* Kinds added on the server later show their code until they get a translation. */}
-        <p className="font-bold leading-snug">{t(`security.log.types.${event.type}`, { defaultValue: event.type })}</p>
+        <p className="font-bold leading-snug">
+          {t(`security.log.types.${event.type}`, { defaultValue: event.type })}
+        </p>
         <p className="text-sm leading-snug text-ink-soft">{where}</p>
         {at && (
           <time dateTime={at.toISOString()} className="text-xs font-bold text-ink-faint">
@@ -76,7 +84,10 @@ export function RecentSecurityEvents() {
           ))}
         </ul>
       )}
-      <Link to="/settings/security/log" className="mt-1 flex items-center gap-2 rounded-2xl px-3 py-3 font-bold text-brand hover:bg-surface-2">
+      <Link
+        to="/settings/security/log"
+        className="mt-1 flex items-center gap-2 rounded-2xl px-3 py-3 font-bold text-brand hover:bg-surface-2"
+      >
         <span className="flex-1">{t("security.log.all")}</span>
         <ChevronRight className="size-5" />
       </Link>
@@ -89,7 +100,8 @@ export function SecurityLogScreen() {
   const { t } = useTranslation("settings");
   const query = useInfiniteQuery({
     queryKey: [...keys.securityEvents, "all"],
-    queryFn: ({ pageParam }) => accountClient().listSecurityEvents({ page: { limit: 30, cursor: pageParam } }),
+    queryFn: ({ pageParam }) =>
+      accountClient().listSecurityEvents({ page: { limit: 30, cursor: pageParam } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });

@@ -17,6 +17,15 @@ export default {
     news: "News",
     studio: "Studio",
     friends: "Friends",
+    more: "Apps",
+    wallet: "Wallet",
+    announcements: "What's new",
+    admin: "Admin",
+  },
+  hub: {
+    launcher: "Apps",
+    search: "Search people, tags, features",
+    sections: { play: "Hang out", out: "Out and about", make: "Make & watch", me: "Account" },
   },
   actions: {
     ok: "OK",

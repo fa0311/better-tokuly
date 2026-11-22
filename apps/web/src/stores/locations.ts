@@ -46,6 +46,7 @@ export const useLocations = create<LocationsStore>((set) => ({
       const { [userId]: _removed, ...friends } = state.friends;
       return { friends };
     }),
-  setOnline: (userId, online) => set((state) => ({ online: { ...state.online, [userId]: online } })),
+  setOnline: (userId, online) =>
+    set((state) => ({ online: { ...state.online, [userId]: online } })),
   setOwn: (own, error = null) => set({ own, ownError: error }),
 }));

@@ -20,17 +20,39 @@ export function niceCeiling(value: number): number {
 
 /** Walks a chart's positions with the arrow keys, Home and End. */
 function stepIndex(event: KeyboardEvent, index: number, count: number): number | null {
-  const next = event.key === "ArrowLeft" || event.key === "ArrowDown" ? index - 1 : event.key === "ArrowRight" || event.key === "ArrowUp" ? index + 1 : event.key === "Home" ? 0 : event.key === "End" ? count - 1 : null;
+  const next =
+    event.key === "ArrowLeft" || event.key === "ArrowDown"
+      ? index - 1
+      : event.key === "ArrowRight" || event.key === "ArrowUp"
+        ? index + 1
+        : event.key === "Home"
+          ? 0
+          : event.key === "End"
+            ? count - 1
+            : null;
   return next === null ? null : Math.min(count - 1, Math.max(0, next));
 }
 
 function indexUnder(event: PointerEvent<HTMLElement>, count: number): number {
   const box = event.currentTarget.getBoundingClientRect();
-  return Math.min(count - 1, Math.max(0, Math.round(((event.clientX - box.left) / Math.max(1, box.width)) * (count - 1))));
+  return Math.min(
+    count - 1,
+    Math.max(0, Math.round(((event.clientX - box.left) / Math.max(1, box.width)) * (count - 1))),
+  );
 }
 
 /** The card every chart sits in: a title, optionally a headline figure, and the plot. */
-export function ChartCard({ title, figure, children, className }: { title: string; figure?: ReactNode; children: ReactNode; className?: string }) {
+export function ChartCard({
+  title,
+  figure,
+  children,
+  className,
+}: {
+  title: string;
+  figure?: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
   return (
     <section className={cn("sticker rounded-card bg-surface p-4", className)} aria-label={title}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
@@ -44,7 +66,10 @@ export function ChartCard({ title, figure, children, className }: { title: strin
 
 function ValueAxis({ top, format }: { top: number; format(value: number): string }) {
   return (
-    <div className="flex h-44 w-10 shrink-0 flex-col justify-between text-right text-[10px] leading-none font-bold text-ink-faint tabular-nums" aria-hidden>
+    <div
+      className="flex h-44 w-10 shrink-0 flex-col justify-between text-right text-[10px] leading-none font-bold text-ink-faint tabular-nums"
+      aria-hidden
+    >
       <span className="-translate-y-1/2">{format(top)}</span>
       <span>{format(top / 2)}</span>
       <span className="translate-y-1/2">{format(0)}</span>
@@ -66,12 +91,22 @@ function Gridlines() {
 function PositionLabels({ points }: { points: ChartPoint[] }) {
   const shown = [...new Set([0, Math.floor((points.length - 1) / 2), points.length - 1])];
   return (
-    <div className="relative mt-1.5 h-4 text-[10px] leading-none font-bold text-ink-faint" aria-hidden>
+    <div
+      className="relative mt-1.5 h-4 text-[10px] leading-none font-bold text-ink-faint"
+      aria-hidden
+    >
       {shown.map((index) => (
         <span
           key={index}
-          className={cn("absolute top-0 whitespace-nowrap", index === 0 ? "left-0" : index === points.length - 1 ? "right-0" : "-translate-x-1/2")}
-          style={index === 0 || index === points.length - 1 ? undefined : { left: `${(index / Math.max(1, points.length - 1)) * 100}%` }}
+          className={cn(
+            "absolute top-0 whitespace-nowrap",
+            index === 0 ? "left-0" : index === points.length - 1 ? "right-0" : "-translate-x-1/2",
+          )}
+          style={
+            index === 0 || index === points.length - 1
+              ? undefined
+              : { left: `${(index / Math.max(1, points.length - 1)) * 100}%` }
+          }
         >
           {points[index]?.label}
         </span>
@@ -81,7 +116,19 @@ function PositionLabels({ points }: { points: ChartPoint[] }) {
 }
 
 /** The same numbers as a table, for screen readers and for anyone who does not read charts. */
-function DataTable({ caption, positionHeader, valueHeader, points, format }: { caption: string; positionHeader: string; valueHeader: string; points: ChartPoint[]; format(value: number): string }) {
+function DataTable({
+  caption,
+  positionHeader,
+  valueHeader,
+  points,
+  format,
+}: {
+  caption: string;
+  positionHeader: string;
+  valueHeader: string;
+  points: ChartPoint[];
+  format(value: number): string;
+}) {
   return (
     <table className="sr-only">
       <caption>{caption}</caption>
@@ -125,7 +172,15 @@ export interface TrendChartProps {
  * keys — reads out the nearest position: a hairline finds it, a dot marks it,
  * and its value leads the readout. The same numbers are in a table.
  */
-export function TrendChart({ title, points, format, max, emptyText, positionHeader, keyboardLabel }: TrendChartProps) {
+export function TrendChart({
+  title,
+  points,
+  format,
+  max,
+  emptyText,
+  positionHeader,
+  keyboardLabel,
+}: TrendChartProps) {
   const [active, setActive] = useState<number | null>(null);
   const peak = Math.max(0, ...points.map((point) => point.value));
   const top = max ?? niceCeiling(peak);
@@ -133,7 +188,12 @@ export function TrendChart({ title, points, format, max, emptyText, positionHead
   const count = points.length;
   const x = (index: number) => (count <= 1 ? 50 : (index / (count - 1)) * 100);
   const y = (value: number) => 100 - Math.min(100, (value / top) * 100);
-  const line = points.map((point, index) => `${index === 0 ? "M" : "L"}${x(index).toFixed(2)},${y(point.value).toFixed(2)}`).join(" ");
+  const line = points
+    .map(
+      (point, index) =>
+        `${index === 0 ? "M" : "L"}${x(index).toFixed(2)},${y(point.value).toFixed(2)}`,
+    )
+    .join(" ");
   const shown = active ?? count - 1;
   const point = points[shown];
 
@@ -171,14 +231,40 @@ export function TrendChart({ title, points, format, max, emptyText, positionHead
               </p>
             ) : (
               <>
-                <svg className="absolute inset-0 size-full overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
-                  <path d={`${line} L${x(count - 1)},100 L${x(0)},100 Z`} className="fill-brand opacity-10" />
-                  <path d={line} fill="none" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" className="stroke-brand" />
+                <svg
+                  className="absolute inset-0 size-full overflow-visible"
+                  viewBox="0 0 100 100"
+                  preserveAspectRatio="none"
+                  aria-hidden
+                >
+                  <path
+                    d={`${line} L${x(count - 1)},100 L${x(0)},100 Z`}
+                    className="fill-brand opacity-10"
+                  />
+                  <path
+                    d={line}
+                    fill="none"
+                    strokeWidth={2}
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
+                    vectorEffect="non-scaling-stroke"
+                    className="stroke-brand"
+                  />
                 </svg>
                 {point && (
                   <>
-                    {active !== null && <span aria-hidden className="absolute inset-y-0 w-px bg-ink-faint" style={{ left: `${x(shown)}%` }} />}
-                    <span aria-hidden className="absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-surface bg-brand" style={{ left: `${x(shown)}%`, top: `${y(point.value)}%` }} />
+                    {active !== null && (
+                      <span
+                        aria-hidden
+                        className="absolute inset-y-0 w-px bg-ink-faint"
+                        style={{ left: `${x(shown)}%` }}
+                      />
+                    )}
+                    <span
+                      aria-hidden
+                      className="absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-surface bg-brand"
+                      style={{ left: `${x(shown)}%`, top: `${y(point.value)}%` }}
+                    />
                   </>
                 )}
               </>
@@ -186,18 +272,29 @@ export function TrendChart({ title, points, format, max, emptyText, positionHead
             {point && active !== null && !empty && (
               <div
                 aria-hidden
-                className={cn("pointer-events-none absolute top-1 z-10 rounded-xl border-2 border-ink bg-surface px-2.5 py-1.5 text-left whitespace-nowrap shadow-pop-sm", x(shown) > 55 ? "-translate-x-full" : "")}
+                className={cn(
+                  "pointer-events-none absolute top-1 z-10 rounded-xl border-2 border-ink bg-surface px-2.5 py-1.5 text-left whitespace-nowrap shadow-pop-sm",
+                  x(shown) > 55 ? "-translate-x-full" : "",
+                )}
                 style={{ left: `calc(${x(shown)}% + ${x(shown) > 55 ? -8 : 8}px)` }}
               >
                 <p className="text-sm leading-tight font-black">{format(point.value)}</p>
-                <p className="text-[11px] leading-tight font-bold text-ink-soft">{point.longLabel}</p>
+                <p className="text-[11px] leading-tight font-bold text-ink-soft">
+                  {point.longLabel}
+                </p>
               </div>
             )}
           </div>
           <PositionLabels points={points} />
         </div>
       </div>
-      <DataTable caption={title} positionHeader={positionHeader} valueHeader={title} points={points} format={format} />
+      <DataTable
+        caption={title}
+        positionHeader={positionHeader}
+        valueHeader={title}
+        points={points}
+        format={format}
+      />
     </div>
   );
 }
@@ -218,7 +315,15 @@ export interface ColumnChartProps {
  * Each column answers the pointer with its bucket and value; the arrow keys
  * walk the buckets; the numbers are in a table as well.
  */
-export function ColumnChart({ title, points, format, emptyText, positionHeader, keyboardLabel, compact }: ColumnChartProps) {
+export function ColumnChart({
+  title,
+  points,
+  format,
+  emptyText,
+  positionHeader,
+  keyboardLabel,
+  compact,
+}: ColumnChartProps) {
   const [active, setActive] = useState<number | null>(null);
   const peak = Math.max(0, ...points.map((point) => point.value));
   const top = niceCeiling(peak);
@@ -264,16 +369,34 @@ export function ColumnChart({ title, points, format, emptyText, positionHeader, 
         )}
         {points.map((bucket, index) => (
           // The whole slot is the target, not just the painted column; the gap between columns is the surface showing through.
-          <span key={index} aria-hidden className="flex min-w-0 flex-1 items-end justify-center px-px" onPointerEnter={() => setActive(index)} onPointerDown={() => setActive(index)}>
+          <span
+            key={index}
+            aria-hidden
+            className="flex min-w-0 flex-1 items-end justify-center px-px"
+            onPointerEnter={() => setActive(index)}
+            onPointerDown={() => setActive(index)}
+          >
             <span
-              className={cn("block w-full max-w-6 rounded-t-[4px] bg-brand transition-opacity", active !== null && active !== index && "opacity-45")}
-              style={{ height: `${(bucket.value / top) * 100}%`, minHeight: bucket.value > 0 ? 2 : 0 }}
+              className={cn(
+                "block w-full max-w-6 rounded-t-[4px] bg-brand transition-opacity",
+                active !== null && active !== index && "opacity-45",
+              )}
+              style={{
+                height: `${(bucket.value / top) * 100}%`,
+                minHeight: bucket.value > 0 ? 2 : 0,
+              }}
             />
           </span>
         ))}
       </div>
       <PositionLabels points={points} />
-      <DataTable caption={title} positionHeader={positionHeader} valueHeader={title} points={points} format={format} />
+      <DataTable
+        caption={title}
+        positionHeader={positionHeader}
+        valueHeader={title}
+        points={points}
+        format={format}
+      />
     </div>
   );
 }
@@ -291,9 +414,18 @@ export interface RankedBar {
  * a shared baseline, largest first, all in one hue, each with its name and
  * its value in text.
  */
-export function RankedBars({ title, bars, emptyText }: { title: string; bars: RankedBar[]; emptyText: string }) {
+export function RankedBars({
+  title,
+  bars,
+  emptyText,
+}: {
+  title: string;
+  bars: RankedBar[];
+  emptyText: string;
+}) {
   const peak = Math.max(0, ...bars.map((bar) => bar.value));
-  if (bars.length === 0 || peak === 0) return <p className="py-6 text-center text-sm font-bold text-ink-faint">{emptyText}</p>;
+  if (bars.length === 0 || peak === 0)
+    return <p className="py-6 text-center text-sm font-bold text-ink-faint">{emptyText}</p>;
   return (
     <ul className="flex flex-col gap-3" aria-label={title} data-testid="ranked-bars">
       {[...bars]
@@ -305,7 +437,10 @@ export function RankedBars({ title, bars, emptyText }: { title: string; bars: Ra
               <span className="shrink-0 font-black tabular-nums">{bar.valueText}</span>
             </div>
             <div className="mt-1 h-3 rounded-r-[4px] bg-surface-2" aria-hidden>
-              <div className="h-full rounded-r-[4px] bg-brand" style={{ width: `${(bar.value / peak) * 100}%`, minWidth: bar.value > 0 ? 3 : 0 }} />
+              <div
+                className="h-full rounded-r-[4px] bg-brand"
+                style={{ width: `${(bar.value / peak) * 100}%`, minWidth: bar.value > 0 ? 3 : 0 }}
+              />
             </div>
           </li>
         ))}
@@ -314,9 +449,22 @@ export function RankedBars({ title, bars, emptyText }: { title: string; bars: Ra
 }
 
 /** A headline number with its name, and optionally a second line that puts it in context. */
-export function StatTile({ label, value, detail, className }: { label: string; value: string; detail?: ReactNode; className?: string }) {
+export function StatTile({
+  label,
+  value,
+  detail,
+  className,
+}: {
+  label: string;
+  value: string;
+  detail?: ReactNode;
+  className?: string;
+}) {
   return (
-    <div data-testid="stat-tile" className={cn("sticker-sm rounded-2xl bg-surface p-3.5", className)}>
+    <div
+      data-testid="stat-tile"
+      className={cn("sticker-sm rounded-2xl bg-surface p-3.5", className)}
+    >
       <p className="truncate text-xs font-bold text-ink-soft">{label}</p>
       <p className="mt-1 truncate text-2xl leading-tight font-black">{value}</p>
       {detail && <p className="mt-0.5 truncate text-xs font-bold text-ink-faint">{detail}</p>}

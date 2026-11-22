@@ -29,7 +29,9 @@ export function saveDraft(userId: string, conversationId: string, text: string):
 export function clearDrafts(): void {
   try {
     const storage = window.localStorage;
-    const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index)).filter((key): key is string => Boolean(key?.startsWith(PREFIX)));
+    const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index)).filter(
+      (key): key is string => Boolean(key?.startsWith(PREFIX)),
+    );
     for (const key of keys) storage.removeItem(key);
   } catch {
     // Nothing to remove where storage is blocked.

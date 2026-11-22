@@ -21,7 +21,11 @@ const followed = new Map<string, number>();
  * Several components may follow the same subject. `uuid` must be the
  * subject's UUID; nothing happens while it is empty.
  */
-export function useSubjectTopic(type: Subject["type"], uuid: string | undefined, enabled = true): void {
+export function useSubjectTopic(
+  type: Subject["type"],
+  uuid: string | undefined,
+  enabled = true,
+): void {
   useEffect(() => {
     if (!uuid || !enabled) return;
     const topic = subjectTopic(type, uuid);

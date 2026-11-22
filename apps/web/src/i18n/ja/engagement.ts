@@ -13,11 +13,6 @@ export default {
     yours: "あなたのリアクション",
     takeBack: "取り消す",
   },
-  emoji: {
-    title: "絵文字をえらぶ",
-    quick: "よく使う絵文字",
-    groups: { smileys: "かお", hearts: "ハート", hands: "て・からだ", animals: "いきもの・自然", food: "たべもの", fun: "あそび・おでかけ", symbols: "きごう" },
-  },
   bookmarks: {
     title: "ブックマーク",
     tabs: { saved: "保存したもの", reactions: "リアクションしたもの" },
@@ -44,7 +39,8 @@ export default {
     renamed: "名前を変えたよ!",
     deleteCollection: "コレクションを削除",
     deleteCollectionTitle: "「{{name}}」を削除する?",
-    deleteCollectionBody: "コレクションだけがなくなるよ。中に入れたものは「ぜんぶ」に残るから安心してね。",
+    deleteCollectionBody:
+      "コレクションだけがなくなるよ。中に入れたものは「ぜんぶ」に残るから安心してね。",
     collectionDeleted: "コレクションを削除したよ",
     createTitle: "新しいコレクション",
     created: "コレクションをつくったよ!",
@@ -64,8 +60,10 @@ export default {
     noReactions: "まだリアクションしてないよ",
     noReactionsBody: "いいねや絵文字でリアクションしたものが、ここにならぶよ!",
   },
+  more: "シェア・通報",
   share: {
     label: "シェアする",
+    chat: "チャットで送る",
     copy: "リンクをコピー",
     other: "ほかのアプリでシェア",
     copied: "リンクをコピーしたよ!",
@@ -96,7 +94,12 @@ export default {
     send: "通報する",
     sent: "通報を受け付けたよ。教えてくれてありがとう!",
     viewMine: "通報履歴を見る",
-    status: { submitted: "確認待ち", actionTaken: "対応済み", noAction: "問題なしと判断", superseded: "新しい通報に置きかえ" },
+    status: {
+      submitted: "確認待ち",
+      actionTaken: "対応済み",
+      noAction: "問題なしと判断",
+      superseded: "新しい通報に置きかえ",
+    },
     mine: {
       empty: "通報したものはないよ",
       emptyBody: "困った投稿を見つけたら、メニューの「通報する」から教えてね。",

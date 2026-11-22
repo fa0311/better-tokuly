@@ -14,14 +14,21 @@ import { PAGE_SIZE, walletClient, walletKeys } from "./api";
 import { formatMoney } from "./format";
 import { uniqueById } from "./ledger";
 import { Fact, LinkButton } from "./parts";
-import { DEVELOPMENT_PROVIDER, PurchaseProgress, PurchaseStatusChip, providerName, usePurchaseActions } from "./purchase";
+import {
+  DEVELOPMENT_PROVIDER,
+  PurchaseProgress,
+  PurchaseStatusChip,
+  providerName,
+  usePurchaseActions,
+} from "./purchase";
 
 /** Every attempt to buy coins, newest first. */
 export function PurchasesScreen() {
   const { t, i18n } = useTranslation(["wallet", "common"]);
   const query = useInfiniteQuery({
     queryKey: walletKeys.purchases,
-    queryFn: ({ pageParam }) => walletClient().listPurchases({ page: { limit: PAGE_SIZE, cursor: pageParam } }),
+    queryFn: ({ pageParam }) =>
+      walletClient().listPurchases({ page: { limit: PAGE_SIZE, cursor: pageParam } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
@@ -50,7 +57,11 @@ export function PurchasesScreen() {
           <ul>
             {purchases.map((purchase) => (
               <li key={purchase.id}>
-                <Link to="/wallet/purchases/$purchaseId" params={{ purchaseId: purchase.id }} className="flex items-center gap-3 rounded-2xl px-3 py-2.5 transition-colors hover:bg-surface-2">
+                <Link
+                  to="/wallet/purchases/$purchaseId"
+                  params={{ purchaseId: purchase.id }}
+                  className="flex items-center gap-3 rounded-2xl px-3 py-2.5 transition-colors hover:bg-surface-2"
+                >
                   <span className="grid size-11 shrink-0 place-items-center rounded-2xl border-2 border-ink bg-lime text-[#17122b]">
                     <ShoppingBag className="size-5" />
                   </span>
@@ -60,9 +71,14 @@ export function PurchasesScreen() {
                       <PurchaseStatusChip purchase={purchase} />
                     </span>
                     <span className="block truncate text-sm text-ink-soft">
-                      {toDate(purchase.createdAt)?.toLocaleString(i18n.language, { dateStyle: "medium", timeStyle: "short" })}
+                      {toDate(purchase.createdAt)?.toLocaleString(i18n.language, {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                      })}
                       {" · "}
-                      {purchase.provider === DEVELOPMENT_PROVIDER ? providerName(purchase.provider, t) : formatMoney(purchase.priceMinor, purchase.currency, i18n.language)}
+                      {purchase.provider === DEVELOPMENT_PROVIDER
+                        ? providerName(purchase.provider, t)
+                        : formatMoney(purchase.priceMinor, purchase.currency, i18n.language)}
                     </span>
                   </span>
                   <ChevronRight className="size-5 shrink-0 text-ink-faint" />
@@ -111,7 +127,8 @@ export function PurchaseScreen({ purchaseId, proof }: { purchaseId: string; proo
     askProvider(proof ?? "");
   }, [unpaid, proof, askProvider]);
 
-  const format = (value: Date | undefined) => value?.toLocaleString(i18n.language, { dateStyle: "medium", timeStyle: "short" });
+  const format = (value: Date | undefined) =>
+    value?.toLocaleString(i18n.language, { dateStyle: "medium", timeStyle: "short" });
   return (
     <Page title={t("purchases.detailTitle")} back="/wallet/purchases">
       {isPending ? (
@@ -157,13 +174,27 @@ export function PurchaseScreen({ purchaseId, proof }: { purchaseId: string; proo
               )}
               <Fact label={t("purchases.receipt.price")}>
                 {formatMoney(purchase.priceMinor, purchase.currency, i18n.language)}
-                {purchase.provider === DEVELOPMENT_PROVIDER && <span className="ml-2 text-sm text-ink-soft">{t("purchases.receipt.notCharged")}</span>}
+                {purchase.provider === DEVELOPMENT_PROVIDER && (
+                  <span className="ml-2 text-sm text-ink-soft">
+                    {t("purchases.receipt.notCharged")}
+                  </span>
+                )}
               </Fact>
-              <Fact label={t("purchases.receipt.provider")}>{providerName(purchase.provider, t)}</Fact>
-              <Fact label={t("purchases.receipt.created")}>{format(toDate(purchase.createdAt))}</Fact>
-              {purchase.completedAt && <Fact label={t("purchases.receipt.completed")}>{format(toDate(purchase.completedAt))}</Fact>}
+              <Fact label={t("purchases.receipt.provider")}>
+                {providerName(purchase.provider, t)}
+              </Fact>
+              <Fact label={t("purchases.receipt.created")}>
+                {format(toDate(purchase.createdAt))}
+              </Fact>
+              {purchase.completedAt && (
+                <Fact label={t("purchases.receipt.completed")}>
+                  {format(toDate(purchase.completedAt))}
+                </Fact>
+              )}
               <Fact stack label={t("purchases.receipt.id")}>
-                <span className="break-all font-mono text-xs font-medium text-ink-soft">{purchase.id}</span>
+                <span className="break-all font-mono text-xs font-medium text-ink-soft">
+                  {purchase.id}
+                </span>
               </Fact>
             </dl>
           </Card>

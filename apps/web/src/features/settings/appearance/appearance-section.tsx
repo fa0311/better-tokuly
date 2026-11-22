@@ -47,12 +47,16 @@ export function AppearanceSection() {
       <Group title={t("appearance.dopamine.title")} lead={t("appearance.dopamine.lead")}>
         <div className="flex items-baseline justify-between gap-3">
           <p className="text-lg font-black" data-testid="dopamine-level">
-            <span className="mr-2 inline-grid size-8 place-items-center rounded-full border-2 border-ink bg-lime text-base text-[#17122b]">{level}</span>
+            <span className="mr-2 inline-grid size-8 place-items-center rounded-full border-2 border-ink bg-lime text-base text-[#17122b]">
+              {level}
+            </span>
             {t(`appearance.dopamine.levels.${level}.name`)}
           </p>
           <p className="text-xs font-bold text-ink-faint">0 – {MAX_LEVEL}</p>
         </div>
-        <p className="mt-1 text-sm leading-relaxed text-ink-soft">{t(`appearance.dopamine.levels.${level}.body`)}</p>
+        <p className="mt-1 text-sm leading-relaxed text-ink-soft">
+          {t(`appearance.dopamine.levels.${level}.body`)}
+        </p>
         <Slider
           className="mt-2"
           label={t("appearance.dopamine.title")}
@@ -75,16 +79,27 @@ export function AppearanceSection() {
       {settings ? (
         <>
           <Group title={t("appearance.accent.title")} lead={t("appearance.accent.lead")}>
-            <AccentPicker value={settings.accentColor} onChange={(accentColor) => save({ accentColor })} />
+            <AccentPicker
+              value={settings.accentColor}
+              onChange={(accentColor) => save({ accentColor })}
+            />
           </Group>
 
           <Group title={t("appearance.map.title")} flush>
             <SelectField<MapStyle>
               className="px-3 py-3"
               label={t("appearance.map.style")}
-              value={(MAP_STYLES as readonly string[]).includes(settings.mapStyle) ? (settings.mapStyle as MapStyle) : "tokuly"}
+              value={
+                (MAP_STYLES as readonly string[]).includes(settings.mapStyle)
+                  ? (settings.mapStyle as MapStyle)
+                  : "tokuly"
+              }
               onChange={(mapStyle) => save({ mapStyle })}
-              options={MAP_STYLES.map((style) => ({ value: style, label: t(`appearance.map.styles.${style}.label`), hint: t(`appearance.map.styles.${style}.hint`) }))}
+              options={MAP_STYLES.map((style) => ({
+                value: style,
+                label: t(`appearance.map.styles.${style}.label`),
+                hint: t(`appearance.map.styles.${style}.hint`),
+              }))}
             />
             <SelectField<DistanceUnit>
               className="px-3 py-3"
@@ -99,9 +114,24 @@ export function AppearanceSection() {
           </Group>
 
           <Group title={t("appearance.feel.title")} flush>
-            <SwitchRow label={t("appearance.feel.sounds.label")} hint={t("appearance.feel.sounds.hint")} checked={settings.sounds} onChange={(sounds) => save({ sounds })} />
-            <SwitchRow label={t("appearance.feel.haptics.label")} hint={t("appearance.feel.haptics.hint")} checked={settings.haptics} onChange={(haptics) => save({ haptics })} />
-            <SwitchRow label={t("appearance.feel.autoplay.label")} hint={t("appearance.feel.autoplay.hint")} checked={settings.autoplay} onChange={(autoplay) => save({ autoplay })} />
+            <SwitchRow
+              label={t("appearance.feel.sounds.label")}
+              hint={t("appearance.feel.sounds.hint")}
+              checked={settings.sounds}
+              onChange={(sounds) => save({ sounds })}
+            />
+            <SwitchRow
+              label={t("appearance.feel.haptics.label")}
+              hint={t("appearance.feel.haptics.hint")}
+              checked={settings.haptics}
+              onChange={(haptics) => save({ haptics })}
+            />
+            <SwitchRow
+              label={t("appearance.feel.autoplay.label")}
+              hint={t("appearance.feel.autoplay.hint")}
+              checked={settings.autoplay}
+              onChange={(autoplay) => save({ autoplay })}
+            />
           </Group>
         </>
       ) : (
@@ -116,10 +146,15 @@ function AccentPicker({ value, onChange }: { value: string; onChange(color: stri
   const { t } = useTranslation("settings");
   const current = value.toLowerCase();
   const offered: { id: string; color: string }[] = [...ACCENTS];
-  if (isAccentColor(current) && !offered.some((accent) => accent.color === current)) offered.push({ id: "custom", color: current });
+  if (isAccentColor(current) && !offered.some((accent) => accent.color === current))
+    offered.push({ id: "custom", color: current });
 
   return (
-    <div role="radiogroup" aria-label={t("appearance.accent.title")} className="flex flex-wrap gap-3">
+    <div
+      role="radiogroup"
+      aria-label={t("appearance.accent.title")}
+      className="flex flex-wrap gap-3"
+    >
       {offered.map((accent) => {
         const selected = accent.color === current;
         const tokens = accentTokens(accent.color).light;
@@ -133,7 +168,10 @@ function AccentPicker({ value, onChange }: { value: string; onChange(color: stri
             aria-label={t(`appearance.accent.colors.${accent.id}`)}
             title={t(`appearance.accent.colors.${accent.id}`)}
             onClick={() => onChange(accent.color)}
-            className={cn("pressable grid size-11 place-items-center rounded-full border-[2.5px] border-ink", selected && "shadow-pop-sm ring-4 ring-brand-soft")}
+            className={cn(
+              "pressable grid size-11 place-items-center rounded-full border-[2.5px] border-ink",
+              selected && "shadow-pop-sm ring-4 ring-brand-soft",
+            )}
             style={{ background: tokens.brand, color: tokens.onBrand }}
           >
             {selected && <Check className="size-5" />}

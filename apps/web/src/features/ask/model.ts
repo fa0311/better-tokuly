@@ -23,7 +23,11 @@ export function boxShareUrl(handle: string, origin: string = window.location.ori
 }
 
 /** The public page of a box with one answer brought to the top. */
-export function answerShareUrl(handle: string, questionId: string, origin: string = window.location.origin): string {
+export function answerShareUrl(
+  handle: string,
+  questionId: string,
+  origin: string = window.location.origin,
+): string {
   return `${boxShareUrl(handle, origin)}?a=${questionId}`;
 }
 
@@ -57,7 +61,12 @@ export function parseMutedWords(input: string): string[] {
  * has no spaces) breaks between characters. At most `maxLines` lines: the
  * last one ends in an ellipsis when text is left over.
  */
-export function wrapText(text: string, maxWidth: number, maxLines: number, measure: (text: string) => number): string[] {
+export function wrapText(
+  text: string,
+  maxWidth: number,
+  maxLines: number,
+  measure: (text: string) => number,
+): string[] {
   const lines: string[] = [];
   const pieces = text.replace(/\r/g, "").split("\n");
   let truncated = false;
@@ -95,7 +104,8 @@ export function wrapText(text: string, maxWidth: number, maxLines: number, measu
 
   if (truncated && lines.length > 0) {
     let last = lines[lines.length - 1]!;
-    while (last.length > 0 && measure(`${last}…`) > maxWidth) last = Array.from(last).slice(0, -1).join("");
+    while (last.length > 0 && measure(`${last}…`) > maxWidth)
+      last = Array.from(last).slice(0, -1).join("");
     lines[lines.length - 1] = `${last}…`;
   }
   return lines;

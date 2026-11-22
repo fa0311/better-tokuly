@@ -17,25 +17,43 @@ export function hasEnded(status: plans.FreeStatus, now: number): boolean {
 /** A time of day, with the day in front when it is not today: "18:00" / "11月28日(土) 0:00". */
 export function clock(date: Date, language: string, now: number): string {
   const time = formatTime(date, language);
-  return ymd(date) === todayYmd(new Date(now)) ? time : `${formatDay(ymd(date), language, new Date(now))} ${time}`;
+  return todayYmd(date) === todayYmd(new Date(now))
+    ? time
+    : `${formatDay(ymd(date), language, new Date(now))} ${time}`;
 }
 
 /** "18:00まで" while it runs, "土曜 0:00から" before it starts. */
-export function whenText(status: plans.FreeStatus, now: number, language: string, t: TFunction<"plans">): string {
+export function whenText(
+  status: plans.FreeStatus,
+  now: number,
+  language: string,
+  t: TFunction<"plans">,
+): string {
   const [start, end] = [toDate(status.startsAt), toDate(status.endsAt)];
   if (!start || !end) return "";
-  return isRunning(status, now) ? t("free.until", { time: clock(end, language, now) }) : t("free.from", { time: clock(start, language, now) });
+  return isRunning(status, now)
+    ? t("free.until", { time: clock(end, language, now) })
+    : t("free.from", { time: clock(start, language, now) });
 }
 
 /** "あと2時間で自動で消えるよ": every status says that it ends by itself. */
 export function expiryText(status: plans.FreeStatus, now: number, t: TFunction<"plans">): string {
-  return t("free.expiresIn", { duration: compactDuration(Math.max(0, toMillis(status.endsAt) - now)) });
+  return t("free.expiresIn", {
+    duration: compactDuration(Math.max(0, toMillis(status.endsAt) - now)),
+  });
 }
 
 /** The short badge on a face: "今ひま", or when it starts. */
-export function badgeText(status: plans.FreeStatus, now: number, language: string, t: TFunction<"plans">): string {
+export function badgeText(
+  status: plans.FreeStatus,
+  now: number,
+  language: string,
+  t: TFunction<"plans">,
+): string {
   const start = toDate(status.startsAt);
-  return isRunning(status, now) || !start ? t("free.nowBadge") : t("free.from", { time: clock(start, language, now) });
+  return isRunning(status, now) || !start
+    ? t("free.nowBadge")
+    : t("free.from", { time: clock(start, language, now) });
 }
 
 /**
@@ -48,8 +66,16 @@ export function draftFromStatus(status: plans.FreeStatus, now: number): PlanDraf
   return {
     inviteeIds: status.user ? [status.user.id] : [],
     // "To be decided" unless the window still lies ahead.
-    time: startAt ? ({ start: { case: "startAt", value: fromDate(startAt) }, end: { case: undefined }, timeZone: "" } as plans.PlanTime) : undefined,
-    place: status.areaName ? ({ name: status.areaName, placeId: "", address: "" } as plans.PlanPlace) : undefined,
+    time: startAt
+      ? ({
+          start: { case: "startAt", value: fromDate(startAt) },
+          end: { case: undefined },
+          timeZone: "",
+        } as plans.PlanTime)
+      : undefined,
+    place: status.areaName
+      ? ({ name: status.areaName, placeId: "", address: "" } as plans.PlanPlace)
+      : undefined,
   };
 }
 
@@ -57,11 +83,24 @@ export function draftFromStatus(status: plans.FreeStatus, now: number): PlanDraf
 const audienceKey = (userId: string) => `tokuly.plans.freeAudience.${userId}`;
 
 /** The audience this account chose last time, so setting a status again stays two taps. */
-export function rememberedAudience(userId: string): { audience: plans.FreeAudience; chosenIds: string[] } {
+export function rememberedAudience(userId: string): {
+  audience: plans.FreeAudience;
+  chosenIds: string[];
+} {
   try {
-    const stored = JSON.parse(window.localStorage.getItem(audienceKey(userId)) ?? "null") as { audience?: number; chosenIds?: string[] } | null;
-    if (stored && (stored.audience === plans.FreeAudience.BEST_FRIENDS || stored.audience === plans.FreeAudience.CHOSEN)) {
-      return { audience: stored.audience, chosenIds: Array.isArray(stored.chosenIds) ? stored.chosenIds : [] };
+    const stored = JSON.parse(window.localStorage.getItem(audienceKey(userId)) ?? "null") as {
+      audience?: number;
+      chosenIds?: string[];
+    } | null;
+    if (
+      stored &&
+      (stored.audience === plans.FreeAudience.BEST_FRIENDS ||
+        stored.audience === plans.FreeAudience.CHOSEN)
+    ) {
+      return {
+        audience: stored.audience,
+        chosenIds: Array.isArray(stored.chosenIds) ? stored.chosenIds : [],
+      };
     }
   } catch {
     // Unreadable storage is the same as nothing remembered.
@@ -69,9 +108,16 @@ export function rememberedAudience(userId: string): { audience: plans.FreeAudien
   return { audience: plans.FreeAudience.FRIENDS, chosenIds: [] };
 }
 
-export function rememberAudience(userId: string, audience: plans.FreeAudience, chosen: common.UserSummary[]): void {
+export function rememberAudience(
+  userId: string,
+  audience: plans.FreeAudience,
+  chosen: common.UserSummary[],
+): void {
   try {
-    window.localStorage.setItem(audienceKey(userId), JSON.stringify({ audience, chosenIds: chosen.map((user) => user.id) }));
+    window.localStorage.setItem(
+      audienceKey(userId),
+      JSON.stringify({ audience, chosenIds: chosen.map((user) => user.id) }),
+    );
   } catch {
     // Not remembered, then.
   }

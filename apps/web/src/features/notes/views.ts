@@ -19,7 +19,10 @@ function flush(): void {
   flushTimer = undefined;
   const noteIds = queue.slice(0, BATCH_LIMIT);
   queue = queue.slice(BATCH_LIMIT);
-  if (noteIds.length > 0) void noteClient().recordNoteViews({ noteIds }).catch(() => {});
+  if (noteIds.length > 0)
+    void noteClient()
+      .recordNoteViews({ noteIds })
+      .catch(() => {});
   if (queue.length > 0) flushTimer = setTimeout(flush, FLUSH_MS);
 }
 
@@ -75,7 +78,11 @@ function watch(element: Element, noteId: string): () => void {
  * for a second. Scrolling past does not count; notes of the viewer are not
  * reported (the server would not count them).
  */
-export function useRecordView(card: RefObject<Element | null>, noteId: string, enabled: boolean): void {
+export function useRecordView(
+  card: RefObject<Element | null>,
+  noteId: string,
+  enabled: boolean,
+): void {
   useEffect(() => {
     const element = card.current;
     if (!element || !enabled || reported.has(noteId)) return;

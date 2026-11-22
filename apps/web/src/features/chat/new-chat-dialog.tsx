@@ -9,11 +9,12 @@ import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { TextField } from "#/components/ui/field";
 import { EmptyState, Skeleton } from "#/components/ui/page";
+import { EmojiText } from "#/features/emoji";
 import { profileClient } from "#/lib/api";
-import { errorMessage } from "./errors";
 import { useMe } from "#/stores/session";
 import { conversationClient, useCapabilities } from "./api";
 import { putConversation } from "./conversations";
+import { errorMessage } from "./errors";
 import { FriendPicker } from "./friend-picker";
 import { GroupIconPicker } from "./group-icon";
 import { useOpenDirect } from "./open-direct";
@@ -24,7 +25,15 @@ import { displayName, useFriends } from "./people";
  * "New chat": pick a friend (or find anyone by handle) to open the direct
  * conversation with them, or switch to making a group.
  */
-export function NewChatDialog({ open, onOpenChange, onOpen }: { open: boolean; onOpenChange(open: boolean): void; onOpen(conversationId: string): void }) {
+export function NewChatDialog({
+  open,
+  onOpenChange,
+  onOpen,
+}: {
+  open: boolean;
+  onOpenChange(open: boolean): void;
+  onOpen(conversationId: string): void;
+}) {
   const { t } = useTranslation("chat");
   const [mode, setMode] = useState<"direct" | "group">("direct");
   // Each opening starts from the friend list again.
@@ -43,7 +52,12 @@ export function NewChatDialog({ open, onOpenChange, onOpen }: { open: boolean; o
       title={
         mode === "group" ? (
           <span className="flex items-center gap-1">
-            <button type="button" aria-label={t("actions.back")} onClick={() => setMode("direct")} className="-ml-2 grid size-9 place-items-center rounded-full hover:bg-surface-2">
+            <button
+              type="button"
+              aria-label={t("actions.back")}
+              onClick={() => setMode("direct")}
+              className="-ml-2 grid size-9 place-items-center rounded-full hover:bg-surface-2"
+            >
               <ChevronLeft className="size-6" />
             </button>
             {t("group.createTitle")}
@@ -54,24 +68,53 @@ export function NewChatDialog({ open, onOpenChange, onOpen }: { open: boolean; o
       }
       className="sm:h-[min(42rem,calc(100dvh-4rem))]"
     >
-      {mode === "direct" ? <StartDirect onGroup={() => setMode("group")} onDone={done} /> : <CreateGroup onDone={done} />}
+      {mode === "direct" ? (
+        <StartDirect onGroup={() => setMode("group")} onDone={done} />
+      ) : (
+        <CreateGroup onDone={done} />
+      )}
     </Dialog>
   );
 }
 
-function PersonRow({ user, subtitle, disabled, onClick }: { user: common.UserSummary; subtitle?: string; disabled?: boolean; onClick(): void }) {
+function PersonRow({
+  user,
+  subtitle,
+  disabled,
+  onClick,
+}: {
+  user: common.UserSummary;
+  subtitle?: string;
+  disabled?: boolean;
+  onClick(): void;
+}) {
   return (
-    <button type="button" disabled={disabled} onClick={onClick} className="flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left transition-colors hover:bg-surface-2 disabled:opacity-60">
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left transition-colors hover:bg-surface-2 disabled:opacity-60"
+    >
       <Avatar user={user} outlined />
       <span className="min-w-0 flex-1">
-        <span className="block truncate font-bold">{displayName(user)}</span>
-        <span className="block truncate text-sm text-ink-soft">{subtitle ?? `@${user.handle}`}</span>
+        <span className="block truncate font-bold">
+          <EmojiText text={displayName(user)} />
+        </span>
+        <span className="block truncate text-sm text-ink-soft">
+          {subtitle ?? `@${user.handle}`}
+        </span>
       </span>
     </button>
   );
 }
 
-function StartDirect({ onGroup, onDone }: { onGroup(): void; onDone(conversationId: string): void }) {
+function StartDirect({
+  onGroup,
+  onDone,
+}: {
+  onGroup(): void;
+  onDone(conversationId: string): void;
+}) {
   const { t } = useTranslation("chat");
   const me = useMe();
   const [query, setQuery] = useState("");
@@ -84,14 +127,22 @@ function StartDirect({ onGroup, onDone }: { onGroup(): void; onDone(conversation
   }, [query]);
 
   const friends = useFriends(debounced);
-  const friendUsers = (friends.data?.friends ?? []).flatMap((friend) => (friend.user ? [friend.user] : []));
+  const friendUsers = (friends.data?.friends ?? []).flatMap((friend) =>
+    friend.user ? [friend.user] : [],
+  );
   // Anyone can be found by handle; whether they can be written to is up to their privacy settings.
   const others = useQuery({
     queryKey: ["identity", "search", debounced],
     queryFn: () => profileClient().searchUsers({ query: debounced }),
     enabled: debounced.length >= 2,
   });
-  const strangers = (others.data?.results ?? []).flatMap((result) => (result.user && result.user.id !== me?.user?.id && !friendUsers.some((friend) => friend.id === result.user!.id) ? [result.user] : []));
+  const strangers = (others.data?.results ?? []).flatMap((result) =>
+    result.user &&
+    result.user.id !== me?.user?.id &&
+    !friendUsers.some((friend) => friend.id === result.user!.id)
+      ? [result.user]
+      : [],
+  );
 
   const start = async (user: common.UserSummary) => {
     setStarting(true);
@@ -104,7 +155,11 @@ function StartDirect({ onGroup, onDone }: { onGroup(): void; onDone(conversation
     <div className="flex flex-col gap-3">
       <SearchField value={query} onChange={setQuery} placeholder={t("new.search")} />
       {!debounced && (
-        <button type="button" onClick={onGroup} className="pressable sticker flex items-center gap-3 rounded-2xl bg-surface px-3 py-2.5 text-left">
+        <button
+          type="button"
+          onClick={onGroup}
+          className="pressable sticker flex items-center gap-3 rounded-2xl bg-surface px-3 py-2.5 text-left"
+        >
           <span className="sticker-sm grid size-11 shrink-0 place-items-center rounded-[0.85rem] bg-lime text-[#17122b]">
             <UsersRound className="size-5" />
           </span>
@@ -127,7 +182,12 @@ function StartDirect({ onGroup, onDone }: { onGroup(): void; onDone(conversation
             <div className="-mx-2">
               <SectionTitle>{t("new.friends")}</SectionTitle>
               {friendUsers.map((user) => (
-                <PersonRow key={user.id} user={user} disabled={starting} onClick={() => void start(user)} />
+                <PersonRow
+                  key={user.id}
+                  user={user}
+                  disabled={starting}
+                  onClick={() => void start(user)}
+                />
               ))}
             </div>
           )}
@@ -135,12 +195,21 @@ function StartDirect({ onGroup, onDone }: { onGroup(): void; onDone(conversation
             <div className="-mx-2">
               <SectionTitle>{t("new.others")}</SectionTitle>
               {strangers.map((user) => (
-                <PersonRow key={user.id} user={user} disabled={starting} onClick={() => void start(user)} />
+                <PersonRow
+                  key={user.id}
+                  user={user}
+                  disabled={starting}
+                  onClick={() => void start(user)}
+                />
               ))}
             </div>
           )}
           {friendUsers.length === 0 && strangers.length === 0 && !others.isFetching && (
-            <EmptyState emoji={debounced ? "🔍" : "🫶"} title={debounced ? t("new.noMatch") : t("new.noFriends")} body={debounced ? t("new.noMatchBody") : t("new.noFriendsBody")} />
+            <EmptyState
+              emoji={debounced ? "🔍" : "🫶"}
+              title={debounced ? t("new.noMatch") : t("new.noFriends")}
+              body={debounced ? t("new.noMatchBody") : t("new.noFriendsBody")}
+            />
           )}
         </>
       )}
@@ -161,7 +230,11 @@ function CreateGroup({ onDone }: { onDone(conversationId: string): void }) {
   const create = async () => {
     setCreating(true);
     try {
-      const { conversation } = await conversationClient().createGroup({ name: trimmed, memberIds: members.map((member) => member.id), iconAssetId: icon?.assetId ?? "" });
+      const { conversation } = await conversationClient().createGroup({
+        name: trimmed,
+        memberIds: members.map((member) => member.id),
+        iconAssetId: icon?.assetId ?? "",
+      });
       if (!conversation) return;
       putConversation(queryClient, conversation);
       toast.success(t("group.created"));
@@ -182,12 +255,28 @@ function CreateGroup({ onDone }: { onDone(conversationId: string): void }) {
       }}
     >
       <div className="flex items-center gap-4">
-        <GroupIconPicker imageUrl={icon?.url} onUploaded={(assetId, url) => setIcon({ assetId, url })} />
-        <TextField className="min-w-0 flex-1" label={t("group.name")} placeholder={t("group.namePlaceholder")} value={name} maxLength={50} onChange={(event) => setName(event.target.value)} />
+        <GroupIconPicker
+          imageUrl={icon?.url}
+          onUploaded={(assetId, url) => setIcon({ assetId, url })}
+        />
+        <TextField
+          className="min-w-0 flex-1"
+          label={t("group.name")}
+          placeholder={t("group.namePlaceholder")}
+          value={name}
+          maxLength={50}
+          onChange={(event) => setName(event.target.value)}
+        />
       </div>
       <div>
-        <p className="px-1 pb-2 text-sm font-bold text-ink-soft">{t("group.members", { count: members.length })}</p>
-        <FriendPicker selected={members} onChange={setMembers} limit={capabilities.maxGroupMembers - 1} />
+        <p className="px-1 pb-2 text-sm font-bold text-ink-soft">
+          {t("group.members", { count: members.length })}
+        </p>
+        <FriendPicker
+          selected={members}
+          onChange={setMembers}
+          limit={capabilities.maxGroupMembers - 1}
+        />
       </div>
       <div className="sticky bottom-0 -mx-6 -mb-5 bg-surface px-6 pt-2 pb-5">
         <Button type="submit" block loading={creating} disabled={!trimmed || members.length === 0}>

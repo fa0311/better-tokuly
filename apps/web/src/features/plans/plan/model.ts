@@ -1,6 +1,15 @@
 import { type common, fromDate, type MessageInitShape, plans, toDate } from "@tokuly/api";
 import type { TFunction } from "i18next";
-import { combine, daysBetween, formatDay, formatTime, localTimeZone, timeOf, todayYmd, ymd } from "../dates";
+import {
+  combine,
+  daysBetween,
+  formatDay,
+  formatTime,
+  planTimeZone,
+  timeOf,
+  todayYmd,
+  ymd,
+} from "../dates";
 import type { PlanDraft } from "../draft";
 import type { IcsEvent } from "../ics";
 
@@ -52,8 +61,17 @@ export const EMPTY_FORM: PlanFormValue = {
 };
 
 /** The time part of the form from a plan's (or a draft's) time. */
-function timeFields(time: plans.PlanTime | undefined): Pick<PlanFormValue, "when" | "date" | "time" | "hasEnd" | "endDate" | "endTime"> {
-  const none = { when: "tbd" as const, date: "", time: "", hasEnd: false, endDate: "", endTime: "" };
+function timeFields(
+  time: plans.PlanTime | undefined,
+): Pick<PlanFormValue, "when" | "date" | "time" | "hasEnd" | "endDate" | "endTime"> {
+  const none = {
+    when: "tbd" as const,
+    date: "",
+    time: "",
+    hasEnd: false,
+    endDate: "",
+    endTime: "",
+  };
   if (!time) return none;
   if (time.start.case === "startDate") {
     const endDate = time.end.case === "endDate" ? time.end.value : "";
@@ -62,7 +80,14 @@ function timeFields(time: plans.PlanTime | undefined): Pick<PlanFormValue, "when
   if (time.start.case === "startAt") {
     const start = toDate(time.start.value)!;
     const end = time.end.case === "endAt" ? toDate(time.end.value) : undefined;
-    return { when: "time", date: ymd(start), time: timeOf(start), hasEnd: Boolean(end), endDate: end ? ymd(end) : "", endTime: end ? timeOf(end) : "" };
+    return {
+      when: "time",
+      date: ymd(start),
+      time: timeOf(start),
+      hasEnd: Boolean(end),
+      endDate: end ? ymd(end) : "",
+      endTime: end ? timeOf(end) : "",
+    };
   }
   return none;
 }
@@ -76,7 +101,9 @@ export function formFromPlan(plan: plans.Plan): PlanFormValue {
     ...timeFields(plan.time),
     placeName: plan.place?.name ?? "",
     address: plan.place?.address ?? "",
-    placeExtra: plan.place ? { name: plan.place.name, location: plan.place.location, placeId: plan.place.placeId } : undefined,
+    placeExtra: plan.place
+      ? { name: plan.place.name, location: plan.place.location, placeId: plan.place.placeId }
+      : undefined,
     guestsCanInvite: plan.guestsCanInvite,
     capacity: plan.capacity > 0 ? String(plan.capacity) : "",
     remindDayBefore: plan.remindDayBefore,
@@ -86,7 +113,10 @@ export function formFromPlan(plan: plans.Plan): PlanFormValue {
 }
 
 /** A new plan's form from what is known already; `friends` turns invitee IDs into people. */
-export function formFromDraft(draft: PlanDraft | null, friends: common.UserSummary[]): PlanFormValue {
+export function formFromDraft(
+  draft: PlanDraft | null,
+  friends: common.UserSummary[],
+): PlanFormValue {
   if (!draft) return EMPTY_FORM;
   const wanted = new Set(draft.inviteeIds ?? []);
   return {
@@ -97,41 +127,57 @@ export function formFromDraft(draft: PlanDraft | null, friends: common.UserSumma
     ...timeFields(draft.time),
     placeName: draft.place?.name ?? "",
     address: draft.place?.address ?? "",
-    placeExtra: draft.place ? { name: draft.place.name, location: draft.place.location, placeId: draft.place.placeId } : undefined,
+    placeExtra: draft.place
+      ? { name: draft.place.name, location: draft.place.location, placeId: draft.place.placeId }
+      : undefined,
     invitees: friends.filter((friend) => wanted.has(friend.id)),
   };
 }
 
 /** Why the form cannot be sent yet, as a key of the `plan.form.errors` strings; `null` when it can. */
-export function formProblem(value: PlanFormValue): "title" | "date" | "time" | "end" | "capacity" | null {
+export function formProblem(
+  value: PlanFormValue,
+): "title" | "date" | "time" | "end" | "capacity" | null {
   if (!value.title.trim()) return "title";
   if (value.when !== "tbd" && !value.date) return "date";
   if (value.when === "time" && !combine(value.date, value.time)) return "time";
   if (value.when !== "tbd" && value.hasEnd) {
     if (value.when === "date" && value.endDate && value.endDate < value.date) return "end";
     if (value.when === "time") {
-      const [start, end] = [combine(value.date, value.time), combine(value.endDate || value.date, value.endTime)];
+      const [start, end] = [
+        combine(value.date, value.time),
+        combine(value.endDate || value.date, value.endTime),
+      ];
       if (!end || !start || end < start) return "end";
     }
   }
-  if (value.capacity && !(Number.isInteger(Number(value.capacity)) && Number(value.capacity) >= 1)) return "capacity";
+  if (value.capacity && !(Number.isInteger(Number(value.capacity)) && Number(value.capacity) >= 1))
+    return "capacity";
   return null;
 }
 
 /** The form's time as the API takes it; an empty message means "to be decided". */
 export function toPlanTime(value: PlanFormValue): MessageInitShape<typeof plans.PlanTimeSchema> {
-  const timeZone = localTimeZone();
+  const timeZone = planTimeZone();
   if (value.when === "date") {
     return {
       start: { case: "startDate", value: value.date },
-      end: value.hasEnd && value.endDate ? { case: "endDate", value: value.endDate } : { case: undefined },
+      end:
+        value.hasEnd && value.endDate
+          ? { case: "endDate", value: value.endDate }
+          : { case: undefined },
       timeZone,
     };
   }
   if (value.when === "time") {
     const start = combine(value.date, value.time);
     const end = value.hasEnd ? combine(value.endDate || value.date, value.endTime) : null;
-    if (start) return { start: { case: "startAt", value: fromDate(start) }, end: end ? { case: "endAt", value: fromDate(end) } : { case: undefined }, timeZone };
+    if (start)
+      return {
+        start: { case: "startAt", value: fromDate(start) },
+        end: end ? { case: "endAt", value: fromDate(end) } : { case: undefined },
+        timeZone,
+      };
   }
   return { timeZone };
 }
@@ -140,10 +186,17 @@ export function toPlanTime(value: PlanFormValue): MessageInitShape<typeof plans.
 export function toPlanPlace(value: PlanFormValue): MessageInitShape<typeof plans.PlanPlaceSchema> {
   const name = value.placeName.trim();
   const kept = value.placeExtra && value.placeExtra.name === name ? value.placeExtra : undefined;
-  return { name, address: name ? value.address.trim() : "", location: kept?.location, placeId: kept?.placeId ?? "" };
+  return {
+    name,
+    address: name ? value.address.trim() : "",
+    location: kept?.location,
+    placeId: kept?.placeId ?? "",
+  };
 }
 
-export function toCreateRequest(value: PlanFormValue): MessageInitShape<typeof plans.CreatePlanRequestSchema> {
+export function toCreateRequest(
+  value: PlanFormValue,
+): MessageInitShape<typeof plans.CreatePlanRequestSchema> {
   return {
     title: value.title.trim(),
     emoji: value.emoji,
@@ -164,8 +217,14 @@ export function toCreateRequest(value: PlanFormValue): MessageInitShape<typeof p
  * the place are only sent when they changed: each such change tells
  * everyone in the plan.
  */
-export function toUpdateRequest(planId: string, before: PlanFormValue, value: PlanFormValue): MessageInitShape<typeof plans.UpdatePlanRequestSchema> {
-  const same = (a: unknown, b: unknown) => JSON.stringify(a, (_key, item) => (typeof item === "bigint" ? item.toString() : item)) === JSON.stringify(b, (_key, item) => (typeof item === "bigint" ? item.toString() : item));
+export function toUpdateRequest(
+  planId: string,
+  before: PlanFormValue,
+  value: PlanFormValue,
+): MessageInitShape<typeof plans.UpdatePlanRequestSchema> {
+  const same = (a: unknown, b: unknown) =>
+    JSON.stringify(a, (_key, item) => (typeof item === "bigint" ? item.toString() : item)) ===
+    JSON.stringify(b, (_key, item) => (typeof item === "bigint" ? item.toString() : item));
   return {
     planId,
     title: value.title.trim(),
@@ -182,9 +241,17 @@ export function toUpdateRequest(planId: string, before: PlanFormValue, value: Pl
 }
 
 /** "12月24日(火) 18:00〜21:00", "12月24日(火)", or "日にち未定". */
-export function planTimeText(time: plans.PlanTime | undefined, language: string, t: TFunction<"plans">, now: Date = new Date()): string {
+export function planTimeText(
+  time: plans.PlanTime | undefined,
+  language: string,
+  t: TFunction<"plans">,
+  now: Date = new Date(),
+): string {
   if (time?.start.case === "startDate") {
-    const end = time.end.case === "endDate" && time.end.value !== time.start.value ? `〜${formatDay(time.end.value, language, now)}` : "";
+    const end =
+      time.end.case === "endDate" && time.end.value !== time.start.value
+        ? `〜${formatDay(time.end.value, language, now)}`
+        : "";
     return `${formatDay(time.start.value, language, now)}${end}`;
   }
   if (time?.start.case === "startAt") {
@@ -205,12 +272,20 @@ export function planDay(time: plans.PlanTime | undefined): string | undefined {
 }
 
 /** "今日", "あした", "あと3日" for a plan that lies ahead. */
-export function untilText(time: plans.PlanTime | undefined, t: TFunction<"plans">, now: Date = new Date()): string | undefined {
+export function untilText(
+  time: plans.PlanTime | undefined,
+  t: TFunction<"plans">,
+  now: Date = new Date(),
+): string | undefined {
   const day = planDay(time);
   if (!day) return undefined;
   const days = daysBetween(todayYmd(now), day);
   if (days < 0) return undefined;
-  return days === 0 ? t("plan.today") : days === 1 ? t("plan.tomorrow") : t("plan.inDays", { count: days });
+  return days === 0
+    ? t("plan.today")
+    : days === 1
+      ? t("plan.tomorrow")
+      : t("plan.inDays", { count: days });
 }
 
 /** The caller edits the plan, invites and removes people. */
@@ -220,7 +295,10 @@ export function isHostLike(plan: plans.Plan): boolean {
 
 /** "Anyone going" works on the checklist and the expenses. */
 export function canWork(plan: plans.Plan): boolean {
-  return plan.status === plans.PlanStatus.ACTIVE && (isHostLike(plan) || plan.myRsvp === plans.Rsvp.GOING);
+  return (
+    plan.status === plans.PlanStatus.ACTIVE &&
+    (isHostLike(plan) || plan.myRsvp === plans.Rsvp.GOING)
+  );
 }
 
 export function canInvite(plan: plans.Plan): boolean {
@@ -238,7 +316,9 @@ export function planIcsEvent(plan: plans.Plan, url: string): IcsEvent {
     start: time?.start.case === "startAt" ? toDate(time.start.value) : undefined,
     end: time?.end.case === "endAt" ? toDate(time.end.value) : undefined,
     description: plan.description || undefined,
-    location: plan.place ? [plan.place.name, plan.place.address].filter(Boolean).join(" ") : undefined,
+    location: plan.place
+      ? [plan.place.name, plan.place.address].filter(Boolean).join(" ")
+      : undefined,
     url,
   };
 }

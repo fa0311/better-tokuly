@@ -9,6 +9,7 @@ import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
+import { EmojiText } from "#/features/emoji";
 import { copyText } from "#/features/engagement";
 import { dopamineFactor } from "#/lib/appearance";
 import { cn } from "#/lib/cn";
@@ -42,12 +43,16 @@ interface Period {
 }
 
 function toPeriod(p: string | number | undefined, now = new Date()): Period {
-  if (!p) return { period: feed.RecapPeriod.MONTH, year: now.getFullYear(), month: now.getMonth() + 1 };
+  if (!p)
+    return { period: feed.RecapPeriod.MONTH, year: now.getFullYear(), month: now.getMonth() + 1 };
   const [year, month] = String(p).split("-").map(Number);
-  return month ? { period: feed.RecapPeriod.MONTH, year: year!, month } : { period: feed.RecapPeriod.YEAR, year: year!, month: 0 };
+  return month
+    ? { period: feed.RecapPeriod.MONTH, year: year!, month }
+    : { period: feed.RecapPeriod.YEAR, year: year!, month: 0 };
 }
 
-const toParam = (period: Period): string | number => (period.month ? `${period.year}-${String(period.month).padStart(2, "0")}` : period.year);
+const toParam = (period: Period): string | number =>
+  period.month ? `${period.year}-${String(period.month).padStart(2, "0")}` : period.year;
 
 function shift(period: Period, delta: number): Period {
   if (!period.month) return { ...period, year: period.year + delta };
@@ -56,7 +61,9 @@ function shift(period: Period, delta: number): Period {
 }
 
 function isCurrent(period: Period, now = new Date()): boolean {
-  return period.year === now.getFullYear() && (!period.month || period.month === now.getMonth() + 1);
+  return (
+    period.year === now.getFullYear() && (!period.month || period.month === now.getMonth() + 1)
+  );
 }
 
 /** Counts up to `value` once `active`, over a time that follows the ドパガキ度 (at once when motion is off). */
@@ -64,7 +71,9 @@ function useCountUp(value: number, active: boolean): number {
   const [shown, setShown] = useState(0);
   useEffect(() => {
     if (!active) return;
-    const factor = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : dopamineFactor();
+    const factor = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ? 0
+      : dopamineFactor();
     const duration = 900 * factor;
     if (duration <= 0 || value <= 0) {
       setShown(value);
@@ -85,12 +94,19 @@ function useCountUp(value: number, active: boolean): number {
  * "Your month / your year on Tokuly": the numbers of the viewer's own log as
  * a sequence of cards to swipe through, ending in a picture to share.
  */
-export function RecapScreen({ search, onSearchChange }: { search: RecapSearch; onSearchChange(next: RecapSearch): void }) {
+export function RecapScreen({
+  search,
+  onSearchChange,
+}: {
+  search: RecapSearch;
+  onSearchChange(next: RecapSearch): void;
+}) {
   const { t } = useTranslation("notes");
   const period = toPeriod(search.p);
   const anchor = `${period.year}-${String(period.month || 1).padStart(2, "0")}-01`;
   const recap = useRecap(period.period, anchor);
-  const go = (next: Period) => onSearchChange(isCurrent(next) && next.month ? {} : { p: toParam(next) });
+  const go = (next: Period) =>
+    onSearchChange(isCurrent(next) && next.month ? {} : { p: toParam(next) });
   const now = new Date();
 
   return (
@@ -98,17 +114,38 @@ export function RecapScreen({ search, onSearchChange }: { search: RecapSearch; o
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Tabs<"month" | "year">
           value={period.month ? "month" : "year"}
-          onChange={(value) => go(value === "year" ? { period: feed.RecapPeriod.YEAR, year: period.year, month: 0 } : { period: feed.RecapPeriod.MONTH, year: period.year, month: period.year === now.getFullYear() ? now.getMonth() + 1 : 12 })}
+          onChange={(value) =>
+            go(
+              value === "year"
+                ? { period: feed.RecapPeriod.YEAR, year: period.year, month: 0 }
+                : {
+                    period: feed.RecapPeriod.MONTH,
+                    year: period.year,
+                    month: period.year === now.getFullYear() ? now.getMonth() + 1 : 12,
+                  },
+            )
+          }
           items={[
             { value: "month", label: t("recap.month") },
             { value: "year", label: t("recap.year") },
           ]}
         />
         <span className="flex-1" />
-        <Button variant="ghost" size="icon-sm" aria-label={t("recap.previous")} onClick={() => go(shift(period, -1))}>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={t("recap.previous")}
+          onClick={() => go(shift(period, -1))}
+        >
           <ChevronLeft className="size-5" />
         </Button>
-        <Button variant="ghost" size="icon-sm" aria-label={t("recap.next")} disabled={isCurrent(period)} onClick={() => go(shift(period, 1))}>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={t("recap.next")}
+          disabled={isCurrent(period)}
+          onClick={() => go(shift(period, 1))}
+        >
           <ChevronRight className="size-5" />
         </Button>
       </div>
@@ -116,14 +153,21 @@ export function RecapScreen({ search, onSearchChange }: { search: RecapSearch; o
       {recap.isPending ? (
         <Skeleton className="mx-auto aspect-[4/5] w-full max-w-md rounded-[2rem]" />
       ) : recap.isError || !recap.data ? (
-        <EmptyState emoji="🌧️" title={isApiError(recap.error) ? errorMessage(recap.error) : t("recap.failed")} action={<Button onClick={() => void recap.refetch()}>{t("timeline.retry")}</Button>} />
+        <EmptyState
+          emoji="🌧️"
+          title={isApiError(recap.error) ? errorMessage(recap.error) : t("recap.failed")}
+          action={<Button onClick={() => void recap.refetch()}>{t("timeline.retry")}</Button>}
+        />
       ) : recap.data.activityCount === 0 ? (
         <EmptyState
           emoji="🌱"
           title={t("recap.empty", { title: recap.data.title })}
           body={t("recap.emptyBody")}
           action={
-            <Link to="/notes" className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand">
+            <Link
+              to="/notes"
+              className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand"
+            >
               {t("recap.toNotes")}
             </Link>
           }
@@ -151,7 +195,14 @@ const HIGHLIGHT_EMOJI: Partial<Record<feed.RecapHighlightType, string>> = {
   [feed.RecapHighlightType.REGIONS]: "🗺️",
   [feed.RecapHighlightType.BUSIEST_DAY]: "🔥",
 };
-const TINTS = ["bg-lime", "bg-sun", "bg-sky", "bg-pink text-white", "bg-mint", "bg-coral text-white"];
+const TINTS = [
+  "bg-lime",
+  "bg-sun",
+  "bg-sky",
+  "bg-pink text-white",
+  "bg-mint",
+  "bg-coral text-white",
+];
 
 function buildSlides(recap: feed.Recap, t: TFunction<"notes">): Slide[] {
   const slides: Slide[] = [
@@ -165,8 +216,14 @@ function buildSlides(recap: feed.Recap, t: TFunction<"notes">): Slide[] {
           </p>
           <h2 className="mt-1 text-[1.6rem] font-black leading-tight">{recap.title}</h2>
           <BigNumber value={recap.activityCount} active={active} caption={t("recap.activities")} />
-          <p className="text-lg font-black">{t("recap.activeDays", { count: recap.activeDayCount })}</p>
-          {!recap.complete && <p className="mt-auto rounded-full bg-black/15 px-3 py-1 text-xs font-black">{t("recap.soFar")}</p>}
+          <p className="text-lg font-black">
+            {t("recap.activeDays", { count: recap.activeDayCount })}
+          </p>
+          {!recap.complete && (
+            <p className="mt-auto rounded-full bg-black/15 px-3 py-1 text-xs font-black">
+              {t("recap.soFar")}
+            </p>
+          )}
         </>
       ),
     },
@@ -204,7 +261,10 @@ function buildSlides(recap: feed.Recap, t: TFunction<"notes">): Slide[] {
                   <span className="tabular-nums">{kind.count}</span>
                 </p>
                 <div className="mt-1 h-3 overflow-hidden rounded-full border-2 border-ink bg-surface-2">
-                  <div className="h-full bg-brand" style={{ width: `${Math.max(6, (kind.count / most) * 100)}%` }} />
+                  <div
+                    className="h-full bg-brand"
+                    style={{ width: `${Math.max(6, (kind.count / most) * 100)}%` }}
+                  />
                 </div>
               </li>
             ))}
@@ -225,12 +285,18 @@ function buildSlides(recap: feed.Recap, t: TFunction<"notes">): Slide[] {
               <Avatar user={recap.mostBumpedFriend.user} size="lg" outlined />
               <div className="min-w-0">
                 <p className="text-xs font-black">{t("recap.mostBumped")}</p>
-                <p className="truncate text-lg font-black">{recap.mostBumpedFriend.user.displayName}</p>
-                <p className="text-sm font-bold">{t("recap.bumpTimes", { count: recap.mostBumpedFriend.count })}</p>
+                <p className="truncate text-lg font-black">
+                  <EmojiText text={recap.mostBumpedFriend.user.displayName} />
+                </p>
+                <p className="text-sm font-bold">
+                  {t("recap.bumpTimes", { count: recap.mostBumpedFriend.count })}
+                </p>
               </div>
             </div>
           )}
-          {recap.bumpCount > 0 && <BigNumber value={recap.bumpCount} active={active} caption={t("recap.bumps")} />}
+          {recap.bumpCount > 0 && (
+            <BigNumber value={recap.bumpCount} active={active} caption={t("recap.bumps")} />
+          )}
           {recap.newFriendCount > 0 && (
             <div className="mt-2">
               <p className="font-black">{t("recap.newFriends", { count: recap.newFriendCount })}</p>
@@ -254,10 +320,17 @@ function buildSlides(recap: feed.Recap, t: TFunction<"notes">): Slide[] {
           <span className="text-5xl" aria-hidden>
             🗺️
           </span>
-          <BigNumber value={recap.placeCount || recap.areaCount} active={active} caption={recap.placeCount ? t("recap.places") : t("recap.areas")} />
+          <BigNumber
+            value={recap.placeCount || recap.areaCount}
+            active={active}
+            caption={recap.placeCount ? t("recap.places") : t("recap.areas")}
+          />
           <div className="mt-1 flex flex-wrap justify-center gap-1.5">
             {[...recap.regionNames, ...recap.placeNames].slice(0, 10).map((name) => (
-              <span key={name} className="rounded-full border-2 border-ink bg-white/70 px-2.5 py-0.5 text-sm font-black">
+              <span
+                key={name}
+                className="rounded-full border-2 border-ink bg-white/70 px-2.5 py-0.5 text-sm font-black"
+              >
                 {name}
               </span>
             ))}
@@ -273,11 +346,21 @@ function buildSlides(recap: feed.Recap, t: TFunction<"notes">): Slide[] {
   return slides;
 }
 
-function BigNumber({ value, active, caption }: { value: number; active: boolean; caption?: string }) {
+function BigNumber({
+  value,
+  active,
+  caption,
+}: {
+  value: number;
+  active: boolean;
+  caption?: string;
+}) {
   const shown = useCountUp(value, active);
   return (
     <p className="my-2">
-      <span className="block text-7xl font-black leading-none tabular-nums">{shown.toLocaleString()}</span>
+      <span className="block text-7xl font-black leading-none tabular-nums">
+        {shown.toLocaleString()}
+      </span>
       {caption && <span className="mt-1 block text-lg font-black">{caption}</span>}
     </p>
   );
@@ -291,7 +374,11 @@ function Heat({ recap }: { recap: feed.Recap }) {
   const isYear = recap.period === feed.RecapPeriod.YEAR;
   const cells: { date: string; count: number }[] = [];
   const end = new Date(`${recap.endDate}T00:00:00`);
-  for (const day = new Date(`${recap.startDate}T00:00:00`); day <= end; day.setDate(day.getDate() + 1)) {
+  for (
+    const day = new Date(`${recap.startDate}T00:00:00`);
+    day <= end;
+    day.setDate(day.getDate() + 1)
+  ) {
     const date = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
     cells.push({ date, count: counts.get(date) ?? 0 });
   }
@@ -302,7 +389,14 @@ function Heat({ recap }: { recap: feed.Recap }) {
   return (
     <>
       <h3 className="text-xl font-black">{t("recap.calendar")}</h3>
-      <div className={cn("mt-3 grid w-full gap-1", isYear ? "grid-cols-[repeat(26,minmax(0,1fr))]" : "grid-cols-7")} role="img" aria-label={t("recap.calendarLabel", { count: recap.activeDayCount })}>
+      <div
+        className={cn(
+          "mt-3 grid w-full gap-1",
+          isYear ? "grid-cols-[repeat(26,minmax(0,1fr))]" : "grid-cols-7",
+        )}
+        role="img"
+        aria-label={t("recap.calendarLabel", { count: recap.activeDayCount })}
+      >
         {Array.from({ length: offset }, (_, index) => (
           <span key={`pad:${index}`} />
         ))}
@@ -310,7 +404,11 @@ function Heat({ recap }: { recap: feed.Recap }) {
           <span
             key={cell.date}
             title={`${cell.date}: ${cell.count}`}
-            className={cn("aspect-square rounded-[0.3rem]", isYear ? "" : "grid place-items-center rounded-lg text-[11px] font-black", cell.count === 0 ? "bg-surface-2 text-ink-faint" : "bg-brand text-on-brand")}
+            className={cn(
+              "aspect-square rounded-[0.3rem]",
+              isYear ? "" : "grid place-items-center rounded-lg text-[11px] font-black",
+              cell.count === 0 ? "bg-surface-2 text-ink-faint" : "bg-brand text-on-brand",
+            )}
             style={cell.count > 0 ? { opacity: 0.35 + 0.65 * (cell.count / most) } : undefined}
           >
             {!isYear && Number(cell.date.slice(-2))}
@@ -320,7 +418,10 @@ function Heat({ recap }: { recap: feed.Recap }) {
       {busiest && (
         <p className="mt-3 text-sm font-black">
           {t("recap.busiest", {
-            date: new Date(`${busiest.date}T00:00:00`).toLocaleDateString(i18n.language, { month: "long", day: "numeric" }),
+            date: new Date(`${busiest.date}T00:00:00`).toLocaleDateString(i18n.language, {
+              month: "long",
+              day: "numeric",
+            }),
             count: busiest.count,
           })}
         </p>
@@ -333,7 +434,11 @@ function Heat({ recap }: { recap: feed.Recap }) {
 function ShareSlide({ recap }: { recap: feed.Recap }) {
   const { t } = useTranslation("notes");
   const [rendering, setRendering] = useState(false);
-  const text = [recap.title, ...recap.highlights.slice(0, 3).map((highlight) => highlight.text), "#Tokuly"].join("\n");
+  const text = [
+    recap.title,
+    ...recap.highlights.slice(0, 3).map((highlight) => highlight.text),
+    "#Tokuly",
+  ].join("\n");
 
   const shareText = async () => {
     if (typeof navigator.share === "function") {
@@ -346,8 +451,15 @@ function ShareSlide({ recap }: { recap: feed.Recap }) {
   const savePicture = async () => {
     setRendering(true);
     try {
-      const blob = await renderRecapImage(recap, { activities: t("recap.activities"), activeDays: t("recap.activeDaysShort"), bumps: t("recap.bumps"), newFriends: t("recap.newFriendsShort") });
-      const file = new File([blob], `tokuly-recap-${recap.startDate.slice(0, 7)}.png`, { type: "image/png" });
+      const blob = await renderRecapImage(recap, {
+        activities: t("recap.activities"),
+        activeDays: t("recap.activeDaysShort"),
+        bumps: t("recap.bumps"),
+        newFriends: t("recap.newFriendsShort"),
+      });
+      const file = new File([blob], `tokuly-recap-${recap.startDate.slice(0, 7)}.png`, {
+        type: "image/png",
+      });
       if (typeof navigator.canShare === "function" && navigator.canShare({ files: [file] })) {
         await navigator.share({ files: [file], title: recap.title }).catch(() => {});
       } else {
@@ -374,10 +486,21 @@ function ShareSlide({ recap }: { recap: feed.Recap }) {
       <h3 className="mt-2 text-2xl font-black leading-snug">{t("recap.shareTitle")}</h3>
       <p className="mt-1 text-sm font-bold opacity-80">{t("recap.shareBody")}</p>
       <div className="mt-4 flex w-full flex-col gap-2">
-        <Button variant="secondary" block icon={<Share2 className="size-4" />} onClick={() => void shareText()}>
+        <Button
+          variant="secondary"
+          block
+          icon={<Share2 className="size-4" />}
+          onClick={() => void shareText()}
+        >
           {t("recap.share")}
         </Button>
-        <Button variant="primary" block icon={<Download className="size-4" />} loading={rendering} onClick={() => void savePicture()}>
+        <Button
+          variant="primary"
+          block
+          icon={<Download className="size-4" />}
+          loading={rendering}
+          onClick={() => void savePicture()}
+        >
           {t("recap.savePicture")}
         </Button>
       </div>
@@ -395,7 +518,10 @@ function RecapCards({ recap }: { recap: feed.Recap }) {
     const element = strip.current;
     if (!element) return;
     const clamped = Math.min(slides.length - 1, Math.max(0, next));
-    element.scrollTo({ left: clamped * element.clientWidth, behavior: document.documentElement.dataset.dopa === "0" ? "auto" : "smooth" });
+    element.scrollTo({
+      left: clamped * element.clientWidth,
+      behavior: document.documentElement.dataset.dopa === "0" ? "auto" : "smooth",
+    });
   };
 
   return (
@@ -414,17 +540,41 @@ function RecapCards({ recap }: { recap: feed.Recap }) {
           }}
         >
           {slides.map((slide, position) => (
-            <div key={slide.key} className="w-full shrink-0 snap-center p-1.5 pb-2.5" aria-hidden={position !== index}>
-              <div className={cn("sticker-lg flex aspect-[4/5] flex-col items-center justify-center gap-1 overflow-hidden rounded-[2rem] p-6 text-center text-[#17122b]", slide.tint, slide.tint === "bg-surface" && "text-ink")}>
+            <div
+              key={slide.key}
+              className="w-full shrink-0 snap-center p-1.5 pb-2.5"
+              aria-hidden={position !== index}
+            >
+              <div
+                className={cn(
+                  "sticker-lg flex aspect-[4/5] flex-col items-center justify-center gap-1 overflow-hidden rounded-[2rem] p-6 text-center text-[#17122b]",
+                  slide.tint,
+                  slide.tint === "bg-surface" && "text-ink",
+                )}
+              >
                 {slide.render(position === index)}
               </div>
             </div>
           ))}
         </div>
-        <Button variant="secondary" size="icon-sm" aria-label={t("recap.previousCard")} disabled={index === 0} onClick={() => go(index - 1)} className="absolute top-1/2 -left-4 hidden -translate-y-1/2 disabled:invisible sm:inline-flex">
+        <Button
+          variant="secondary"
+          size="icon-sm"
+          aria-label={t("recap.previousCard")}
+          disabled={index === 0}
+          onClick={() => go(index - 1)}
+          className="absolute top-1/2 -left-4 hidden -translate-y-1/2 disabled:invisible sm:inline-flex"
+        >
           <ChevronLeft className="size-5" />
         </Button>
-        <Button variant="secondary" size="icon-sm" aria-label={t("recap.nextCard")} disabled={index === slides.length - 1} onClick={() => go(index + 1)} className="absolute top-1/2 -right-4 hidden -translate-y-1/2 disabled:invisible sm:inline-flex">
+        <Button
+          variant="secondary"
+          size="icon-sm"
+          aria-label={t("recap.nextCard")}
+          disabled={index === slides.length - 1}
+          onClick={() => go(index + 1)}
+          className="absolute top-1/2 -right-4 hidden -translate-y-1/2 disabled:invisible sm:inline-flex"
+        >
           <ChevronRight className="size-5" />
         </Button>
       </div>
@@ -436,7 +586,10 @@ function RecapCards({ recap }: { recap: feed.Recap }) {
             aria-label={t("recap.cardOf", { index: position + 1, count: slides.length })}
             aria-current={position === index}
             onClick={() => go(position)}
-            className={cn("h-2.5 rounded-full border-2 border-ink transition-all", position === index ? "w-6 bg-brand" : "w-2.5 bg-surface")}
+            className={cn(
+              "h-2.5 rounded-full border-2 border-ink transition-all",
+              position === index ? "w-6 bg-brand" : "w-2.5 bg-surface",
+            )}
           />
         ))}
       </div>

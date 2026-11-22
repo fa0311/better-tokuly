@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { TextField } from "#/components/ui/field";
 import { Tabs } from "#/components/ui/tabs";
+import { FreeFriendsStrip } from "#/features/plans";
 import { formatDistance } from "#/lib/format";
 import { useLocations } from "#/stores/locations";
 import { useFlyToUser } from "./camera";
@@ -141,6 +142,8 @@ export function FriendListPanel() {
         </div>
       ) : (
         <>
+          {/* Who is free right now, and "ひま!" for oneself. */}
+          <FreeFriendsStrip bare quiet className="pb-3" />
           <div className="space-y-2 pb-2">
             <TextField
               aria-label={t("list.search")}

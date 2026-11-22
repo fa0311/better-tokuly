@@ -39,14 +39,25 @@ export default function FootprintsBackground() {
       }, REFRESH_EVERY_MS);
 
       const onFootprints = router.state.location.pathname.startsWith("/footprints");
-      const open = { label: t("live.open"), onClick: () => void router.navigate({ to: "/footprints" }) };
+      const open = {
+        label: t("live.open"),
+        onClick: () => void router.navigate({ to: "/footprints" }),
+      };
       if (progress.newRegion) {
         celebrate(["🎉", "🚩", "✨", "🗺️"]);
-        toast.success(t("live.newRegion", { region: regionName(progress.newRegion) }), onFootprints ? {} : { action: open });
+        toast.success(
+          t("live.newRegion", { region: regionName(progress.newRegion) }),
+          onFootprints ? {} : { action: open },
+        );
       }
       pendingCells += progress.newCells.length;
       // On the footprint page the map itself shows the new cells.
-      if (pendingCells > 0 && !onFootprints && !progress.newRegion && Date.now() - lastCellToast >= CELL_TOAST_EVERY_MS) {
+      if (
+        pendingCells > 0 &&
+        !onFootprints &&
+        !progress.newRegion &&
+        Date.now() - lastCellToast >= CELL_TOAST_EVERY_MS
+      ) {
         lastCellToast = Date.now();
         toast(t("live.newCells", { count: pendingCells }), { action: open });
         pendingCells = 0;

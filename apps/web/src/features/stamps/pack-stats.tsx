@@ -23,7 +23,13 @@ export function niceCeiling(value: number): number {
 }
 
 /** A pack's numbers for its creator: totals, a day-by-day chart, where it is sent, and its most sent stamps. */
-export function PackStats({ packId, paid }: { packId: string; /** Paid packs also show sales and earnings. */ paid: boolean }) {
+export function PackStats({
+  packId,
+  paid,
+}: {
+  packId: string /** Paid packs also show sales and earnings. */;
+  paid: boolean;
+}) {
   const { t } = useTranslation("stamps");
   const [range, setRange] = useState<Range>("30");
   const [metric, setMetric] = useState<Metric>("sends");
@@ -38,11 +44,15 @@ export function PackStats({ packId, paid }: { packId: string; /** Paid packs als
   if (isPending || !data) return <Skeleton className="h-72" />;
   const metrics: readonly Metric[] = paid || data.saleCount > 0n ? METRICS : ["sends", "installs"];
   const shownMetric = metrics.includes(metric) ? metric : "sends";
-  const contexts = [...data.contexts].filter((item) => item.sends > 0n).sort((a, b) => Number(b.sends - a.sends));
+  const contexts = [...data.contexts]
+    .filter((item) => item.sends > 0n)
+    .sort((a, b) => Number(b.sends - a.sends));
   const mostSent = Number(data.topStamps[0]?.sends ?? 0n);
 
   return (
-    <div className={cn("flex flex-col gap-4 transition-opacity", isPlaceholderData && "opacity-60")}>
+    <div
+      className={cn("flex flex-col gap-4 transition-opacity", isPlaceholderData && "opacity-60")}
+    >
       <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Total label={t("stats.installs")} value={formatCount(data.installCount)} />
         <Total label={t("stats.sends")} value={formatCount(data.sendCount)} />
@@ -56,8 +66,19 @@ export function PackStats({ packId, paid }: { packId: string; /** Paid packs als
       </dl>
 
       <div className="flex flex-wrap items-center gap-2">
-        <Tabs<Range> value={range} onChange={setRange} items={RANGES.map((value) => ({ value, label: t("stats.days", { count: Number(value) }) }))} />
-        <Tabs<Metric> value={shownMetric} onChange={setMetric} items={metrics.map((value) => ({ value, label: t(`stats.${value}`) }))} />
+        <Tabs<Range>
+          value={range}
+          onChange={setRange}
+          items={RANGES.map((value) => ({
+            value,
+            label: t("stats.days", { count: Number(value) }),
+          }))}
+        />
+        <Tabs<Metric>
+          value={shownMetric}
+          onChange={setMetric}
+          items={metrics.map((value) => ({ value, label: t(`stats.${value}`) }))}
+        />
       </div>
       <DailyChart daily={data.daily} metric={shownMetric} />
 
@@ -65,11 +86,18 @@ export function PackStats({ packId, paid }: { packId: string; /** Paid packs als
         <section className="rounded-2xl border-2 border-line p-4">
           <h3 className="pb-3 font-black">{t("stats.contexts")}</h3>
           {contexts.length === 0 ? (
-            <p className="py-4 text-center text-sm font-bold text-ink-faint">{t("stats.noSends")}</p>
+            <p className="py-4 text-center text-sm font-bold text-ink-faint">
+              {t("stats.noSends")}
+            </p>
           ) : (
             <ul className="flex flex-col gap-2.5">
               {contexts.map((item) => (
-                <RankedBar key={item.context} label={t(contextKey(item.context))} value={Number(item.sends)} peak={Number(contexts[0]!.sends)} />
+                <RankedBar
+                  key={item.context}
+                  label={t(contextKey(item.context))}
+                  value={Number(item.sends)}
+                  peak={Number(contexts[0]!.sends)}
+                />
               ))}
             </ul>
           )}
@@ -77,7 +105,9 @@ export function PackStats({ packId, paid }: { packId: string; /** Paid packs als
         <section className="rounded-2xl border-2 border-line p-4">
           <h3 className="pb-3 font-black">{t("stats.topStamps")}</h3>
           {data.topStamps.length === 0 || mostSent === 0 ? (
-            <p className="py-4 text-center text-sm font-bold text-ink-faint">{t("stats.noSends")}</p>
+            <p className="py-4 text-center text-sm font-bold text-ink-faint">
+              {t("stats.noSends")}
+            </p>
           ) : (
             <ol className="flex flex-col gap-2.5">
               {data.topStamps.map(
@@ -88,7 +118,14 @@ export function PackStats({ packId, paid }: { packId: string; /** Paid packs als
                       label={item.stamp.stampRef.name || t("stamp.unnamed")}
                       value={Number(item.sends)}
                       peak={mostSent}
-                      leading={<StampImage stamp={item.stamp.stampRef} image={item.stamp.image} size={36} play="never" />}
+                      leading={
+                        <StampImage
+                          stamp={item.stamp.stampRef}
+                          image={item.stamp.image}
+                          size={36}
+                          play="never"
+                        />
+                      }
                     />
                   ),
               )}
@@ -110,7 +147,17 @@ function Total({ label, value }: { label: string; value: ReactNode }) {
 }
 
 /** One row of a ranked list: a name, a bar on a shared baseline, and the value at its tip. */
-function RankedBar({ label, value, peak, leading }: { label: string; value: number; peak: number; leading?: ReactNode }) {
+function RankedBar({
+  label,
+  value,
+  peak,
+  leading,
+}: {
+  label: string;
+  value: number;
+  peak: number;
+  leading?: ReactNode;
+}) {
   return (
     <li className="flex items-center gap-2.5">
       {leading}
@@ -120,7 +167,10 @@ function RankedBar({ label, value, peak, leading }: { label: string; value: numb
           <span className="shrink-0 font-black tabular-nums">{value.toLocaleString("en-US")}</span>
         </div>
         <div className="mt-1 h-2">
-          <div className="h-full min-w-1 rounded-r-[4px] bg-brand" style={{ width: `${peak > 0 ? (value / peak) * 100 : 0}%` }} />
+          <div
+            className="h-full min-w-1 rounded-r-[4px] bg-brand"
+            style={{ width: `${peak > 0 ? (value / peak) * 100 : 0}%` }}
+          />
         </div>
       </div>
     </li>
@@ -128,7 +178,15 @@ function RankedBar({ label, value, peak, leading }: { label: string; value: numb
 }
 
 function metricValue(day: stamp.DailyPackStats, metric: Metric): number {
-  return Number(metric === "sends" ? day.sends : metric === "installs" ? day.installs : metric === "sales" ? day.sales : day.earnings);
+  return Number(
+    metric === "sends"
+      ? day.sends
+      : metric === "installs"
+        ? day.installs
+        : metric === "sales"
+          ? day.sales
+          : day.earnings,
+  );
 }
 
 /**
@@ -147,9 +205,21 @@ function DailyChart({ daily, metric }: { daily: stamp.DailyPackStats[]; metric: 
 
   // Dates are calendar days in Japan time; noon keeps them on the same day in any time zone.
   const dateOf = (day: stamp.DailyPackStats) => new Date(`${day.date}T12:00:00+09:00`);
-  const short = (day: stamp.DailyPackStats) => dateOf(day).toLocaleDateString(i18n.language, { month: "numeric", day: "numeric", timeZone: "Asia/Tokyo" });
-  const long = (day: stamp.DailyPackStats) => dateOf(day).toLocaleDateString(i18n.language, { month: "long", day: "numeric", weekday: "short", timeZone: "Asia/Tokyo" });
-  const tick = (value: number) => (value >= 10_000 ? formatCount(value) : value.toLocaleString("en-US"));
+  const short = (day: stamp.DailyPackStats) =>
+    dateOf(day).toLocaleDateString(i18n.language, {
+      month: "numeric",
+      day: "numeric",
+      timeZone: "Asia/Tokyo",
+    });
+  const long = (day: stamp.DailyPackStats) =>
+    dateOf(day).toLocaleDateString(i18n.language, {
+      month: "long",
+      day: "numeric",
+      weekday: "short",
+      timeZone: "Asia/Tokyo",
+    });
+  const tick = (value: number) =>
+    value >= 10_000 ? formatCount(value) : value.toLocaleString("en-US");
 
   const shown = active === null ? undefined : daily[active];
   // What a screen reader hears for the slider's position: the pointed-at day, or the latest one.
@@ -159,9 +229,13 @@ function DailyChart({ daily, metric }: { daily: stamp.DailyPackStats[]; metric: 
   return (
     <figure className="rounded-2xl border-2 border-line p-4">
       <figcaption className="flex flex-wrap items-baseline justify-between gap-x-3">
-        <span className="font-black">{t("stats.chartTitle", { metric: t(`stats.${metric}`) })}</span>
+        <span className="font-black">
+          {t("stats.chartTitle", { metric: t(`stats.${metric}`) })}
+        </span>
         <span className="text-sm font-bold text-ink-soft" aria-live="polite">
-          <span className="font-black text-ink tabular-nums">{(shown ? metricValue(shown, metric) : total).toLocaleString("en-US")}</span>
+          <span className="font-black text-ink tabular-nums">
+            {(shown ? metricValue(shown, metric) : total).toLocaleString("en-US")}
+          </span>
           <span className="mx-1.5" aria-hidden>
             ·
           </span>
@@ -196,13 +270,22 @@ function DailyChart({ daily, metric }: { daily: stamp.DailyPackStats[]; metric: 
               aria-valuemin={0}
               aria-valuemax={Math.max(0, daily.length - 1)}
               aria-valuenow={active ?? Math.max(0, daily.length - 1)}
-              aria-valuetext={spoken ? `${long(spoken)}: ${metricValue(spoken, metric).toLocaleString("en-US")}` : undefined}
+              aria-valuetext={
+                spoken
+                  ? `${long(spoken)}: ${metricValue(spoken, metric).toLocaleString("en-US")}`
+                  : undefined
+              }
               className="absolute inset-0 flex items-stretch rounded-lg"
               onKeyDown={(event) => {
                 if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
                 event.preventDefault();
                 const from = active ?? daily.length - 1;
-                setActive(Math.min(daily.length - 1, Math.max(0, from + (event.key === "ArrowLeft" ? -1 : 1))));
+                setActive(
+                  Math.min(
+                    daily.length - 1,
+                    Math.max(0, from + (event.key === "ArrowLeft" ? -1 : 1)),
+                  ),
+                );
               }}
               onBlur={() => setActive(null)}
               // A finger leaves the plot as soon as it lifts: keep what was tapped.
@@ -218,8 +301,14 @@ function DailyChart({ daily, metric }: { daily: stamp.DailyPackStats[]; metric: 
                   onPointerDown={() => setActive(index)}
                 >
                   <span
-                    className={cn("block w-full max-w-6 rounded-t-[4px] bg-brand transition-opacity", active !== null && active !== index && "opacity-45")}
-                    style={{ height: `${Math.max(0, values[index] ?? 0) / top * 100}%`, minHeight: (values[index] ?? 0) > 0 ? 2 : 0 }}
+                    className={cn(
+                      "block w-full max-w-6 rounded-t-[4px] bg-brand transition-opacity",
+                      active !== null && active !== index && "opacity-45",
+                    )}
+                    style={{
+                      height: `${(Math.max(0, values[index] ?? 0) / top) * 100}%`,
+                      minHeight: (values[index] ?? 0) > 0 ? 2 : 0,
+                    }}
                   />
                 </span>
               ))}
@@ -229,7 +318,18 @@ function DailyChart({ daily, metric }: { daily: stamp.DailyPackStats[]; metric: 
             {daily.map((day, index) => (
               <span key={day.date} className="relative min-w-0 flex-1">
                 {labelled.has(index) && (
-                  <span className={cn("absolute top-0 whitespace-nowrap", index === 0 ? "left-0" : index === daily.length - 1 ? "right-0" : "left-1/2 -translate-x-1/2")}>{short(day)}</span>
+                  <span
+                    className={cn(
+                      "absolute top-0 whitespace-nowrap",
+                      index === 0
+                        ? "left-0"
+                        : index === daily.length - 1
+                          ? "right-0"
+                          : "left-1/2 -translate-x-1/2",
+                    )}
+                  >
+                    {short(day)}
+                  </span>
                 )}
               </span>
             ))}

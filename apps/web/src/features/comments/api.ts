@@ -13,8 +13,10 @@ const channelClient = () => api().service(video.ChannelService);
 export const commentKeys = {
   all: ["engagement", "comments"] as const,
   /** Every sort order of one subject's thread. */
-  subject: (subject: SubjectKey) => ["engagement", "comments", "thread", subject.type, subject.id] as const,
-  thread: (subject: SubjectKey, sort: engagement.CommentSort) => ["engagement", "comments", "thread", subject.type, subject.id, sort] as const,
+  subject: (subject: SubjectKey) =>
+    ["engagement", "comments", "thread", subject.type, subject.id] as const,
+  thread: (subject: SubjectKey, sort: engagement.CommentSort) =>
+    ["engagement", "comments", "thread", subject.type, subject.id, sort] as const,
   replies: (commentId: string) => ["engagement", "comments", "replies", commentId] as const,
   focused: (commentId: string) => ["engagement", "comments", "one", commentId] as const,
   mine: ["engagement", "comments", "mine"] as const,
@@ -52,13 +54,25 @@ export function subjectTopic(type: common.SubjectType, uuid: string): string {
 }
 
 /** Applies a change to every cached sort order of a subject's thread. */
-export function updateThread(queryClient: QueryClient, subject: SubjectKey, change: (data: ThreadPages) => ThreadPages): void {
-  queryClient.setQueriesData<ThreadPages>({ queryKey: commentKeys.subject(subject) }, (data) => (data ? change(data) : data));
+export function updateThread(
+  queryClient: QueryClient,
+  subject: SubjectKey,
+  change: (data: ThreadPages) => ThreadPages,
+): void {
+  queryClient.setQueriesData<ThreadPages>({ queryKey: commentKeys.subject(subject) }, (data) =>
+    data ? change(data) : data,
+  );
 }
 
 /** Applies a change to the cached replies of one comment, if they are loaded. */
-export function updateReplies(queryClient: QueryClient, commentId: string, change: (data: ReplyPages) => ReplyPages): void {
-  queryClient.setQueryData<ReplyPages>(commentKeys.replies(commentId), (data) => (data ? change(data) : data));
+export function updateReplies(
+  queryClient: QueryClient,
+  commentId: string,
+  change: (data: ReplyPages) => ReplyPages,
+): void {
+  queryClient.setQueryData<ReplyPages>(commentKeys.replies(commentId), (data) =>
+    data ? change(data) : data,
+  );
 }
 
 /**
@@ -66,14 +80,22 @@ export function updateReplies(queryClient: QueryClient, commentId: string, chang
  * carry none): someone else's comment, which the subject's owner may moderate.
  */
 export function viewerStateFor(canModerate: boolean): engagement.CommentViewerState {
-  return create(engagement.CommentViewerStateSchema, { isAuthor: false, canEdit: false, canDelete: canModerate, canModerate });
+  return create(engagement.CommentViewerStateSchema, {
+    isAuthor: false,
+    canEdit: false,
+    canDelete: canModerate,
+    canModerate,
+  });
 }
 
 /** The channels the signed-in person can comment as. Empty for people without a channel. */
 export function useCommentIdentities(enabled: boolean) {
   return useQuery({
     queryKey: commentKeys.identities,
-    queryFn: async () => (await channelClient().listMyChannels({})).channels.flatMap((channel) => (channel.summary ? [channel.summary] : [])),
+    queryFn: async () =>
+      (await channelClient().listMyChannels({})).channels.flatMap((channel) =>
+        channel.summary ? [channel.summary] : [],
+      ),
     staleTime: 5 * 60_000,
     enabled,
   });
@@ -83,7 +105,15 @@ export function useCommentIdentities(enabled: boolean) {
 export function useHeldCount(enabled = true) {
   return useQuery({
     queryKey: commentKeys.heldCount,
-    queryFn: async () => Number((await moderationClient().listReceivedComments({ status: engagement.CommentStatus.HELD, page: { limit: 1 } })).heldCount),
+    queryFn: async () =>
+      Number(
+        (
+          await moderationClient().listReceivedComments({
+            status: engagement.CommentStatus.HELD,
+            page: { limit: 1 },
+          })
+        ).heldCount,
+      ),
     enabled,
   });
 }

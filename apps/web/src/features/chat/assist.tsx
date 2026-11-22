@@ -10,8 +10,8 @@ import { ConfirmDialog } from "#/components/ui/confirm";
 import { Menu, type MenuAction } from "#/components/ui/menu";
 import { Spinner } from "#/components/ui/spinner";
 import { cn } from "#/lib/cn";
-import { errorMessage } from "./errors";
 import { assistClient } from "./api";
+import { errorMessage } from "./errors";
 
 /**
  * The AI writing assistant: rewrite the draft in another tone, suggest
@@ -87,7 +87,9 @@ export function toggleTranslation(messageId: string): void {
       return { translated };
     });
   } else {
-    withAssistConsent(() => useAssist.setState((state) => ({ translated: { ...state.translated, [messageId]: true } })));
+    withAssistConsent(() =>
+      useAssist.setState((state) => ({ translated: { ...state.translated, [messageId]: true } })),
+    );
   }
 }
 
@@ -96,23 +98,46 @@ export function useIsTranslated(messageId: string): boolean {
 }
 
 /** The translation of a message, under its bubble, once the person asked for it. */
-export function TranslationBlock({ message, tone }: { message: chat.Message; tone: "own" | "other" }) {
+export function TranslationBlock({
+  message,
+  tone,
+}: {
+  message: chat.Message;
+  tone: "own" | "other";
+}) {
   const { t, i18n } = useTranslation("chat");
   const shown = useIsTranslated(message.id);
   const translation = useQuery({
     queryKey: ["chat", "translation", message.id, i18n.language, message.text],
-    queryFn: () => assistClient().translateMessage({ messageId: message.id, targetLanguage: i18n.language }),
+    queryFn: () =>
+      assistClient().translateMessage({ messageId: message.id, targetLanguage: i18n.language }),
     enabled: shown,
     staleTime: Number.POSITIVE_INFINITY,
     retry: false,
   });
   if (!shown) return null;
   return (
-    <div className={cn("mt-1 max-w-full rounded-2xl border-2 border-dashed px-3 py-2 text-sm", tone === "own" ? "self-end" : "self-start", "border-line bg-surface text-ink")} data-testid="translation">
+    <div
+      className={cn(
+        "mt-1 max-w-full rounded-2xl border-2 border-dashed px-3 py-2 text-sm",
+        tone === "own" ? "self-end" : "self-start",
+        "border-line bg-surface text-ink",
+      )}
+      data-testid="translation"
+    >
       <p className="mb-0.5 flex items-center gap-1 text-[11px] font-black text-brand">
         <Languages className="size-3.5" />
-        {translation.data?.sourceLanguage ? t("assist.translatedFrom", { language: languageName(translation.data.sourceLanguage, i18n.language) }) : t("assist.translation")}
-        <button type="button" aria-label={t("assist.hideTranslation")} onClick={() => toggleTranslation(message.id)} className="ml-auto grid size-5 place-items-center rounded-full text-ink-faint hover:bg-surface-2">
+        {translation.data?.sourceLanguage
+          ? t("assist.translatedFrom", {
+              language: languageName(translation.data.sourceLanguage, i18n.language),
+            })
+          : t("assist.translation")}
+        <button
+          type="button"
+          aria-label={t("assist.hideTranslation")}
+          onClick={() => toggleTranslation(message.id)}
+          className="ml-auto grid size-5 place-items-center rounded-full text-ink-faint hover:bg-surface-2"
+        >
           <X className="size-3.5" />
         </button>
       </p>
@@ -153,7 +178,17 @@ const TONES: { tone: chat.RewriteTone; key: string }[] = [
  * (handing the result to `onRewritten`, which can be undone), or asks for
  * reply ideas when nothing is typed yet.
  */
-export function AssistButton({ conversationId, draft, lastSeq, onRewritten }: { conversationId: string; draft: string; lastSeq: bigint; onRewritten(text: string, original: string): void }) {
+export function AssistButton({
+  conversationId,
+  draft,
+  lastSeq,
+  onRewritten,
+}: {
+  conversationId: string;
+  draft: string;
+  lastSeq: bigint;
+  onRewritten(text: string, original: string): void;
+}) {
   const { t } = useTranslation("chat");
   const [busy, setBusy] = useState(false);
   const text = draft.trim();
@@ -167,10 +202,18 @@ export function AssistButton({ conversationId, draft, lastSeq, onRewritten }: { 
         .catch((error) => toast.error(errorMessage(error)))
         .finally(() => setBusy(false));
     });
-  const suggest = () => withAssistConsent(() => useAssist.setState((state) => ({ suggesting: { ...state.suggesting, [conversationId]: String(lastSeq) } })));
+  const suggest = () =>
+    withAssistConsent(() =>
+      useAssist.setState((state) => ({
+        suggesting: { ...state.suggesting, [conversationId]: String(lastSeq) },
+      })),
+    );
 
   const actions: MenuAction[] = text
-    ? TONES.map(({ tone, key }) => ({ label: t(`assist.tone.${key}`), onSelect: () => rewrite(tone) }))
+    ? TONES.map(({ tone, key }) => ({
+        label: t(`assist.tone.${key}`),
+        onSelect: () => rewrite(tone),
+      }))
     : [{ label: t("assist.suggest"), icon: <Sparkles />, onSelect: suggest }];
 
   return (
@@ -178,7 +221,13 @@ export function AssistButton({ conversationId, draft, lastSeq, onRewritten }: { 
       align="start"
       actions={actions}
       trigger={
-        <button type="button" disabled={busy} aria-label={text ? t("assist.rewrite") : t("assist.title")} title={text ? t("assist.rewrite") : t("assist.title")} className="grid size-10 shrink-0 place-items-center rounded-full text-brand hover:bg-surface-2">
+        <button
+          type="button"
+          disabled={busy}
+          aria-label={text ? t("assist.rewrite") : t("assist.title")}
+          title={text ? t("assist.rewrite") : t("assist.title")}
+          className="grid size-10 shrink-0 place-items-center rounded-full text-brand hover:bg-surface-2"
+        >
           {busy ? <Spinner className="size-5" /> : <Sparkles className="size-5" />}
         </button>
       }
@@ -187,7 +236,13 @@ export function AssistButton({ conversationId, draft, lastSeq, onRewritten }: { 
 }
 
 /** Reply ideas above the composer, after the person asked for them. Tapping one puts it in the draft. */
-export function SuggestedReplies({ conversationId, onPick }: { conversationId: string; onPick(text: string): void }) {
+export function SuggestedReplies({
+  conversationId,
+  onPick,
+}: {
+  conversationId: string;
+  onPick(text: string): void;
+}) {
   const { t } = useTranslation("chat");
   const askedAt = useAssist((state) => state.suggesting[conversationId]);
   const close = () =>
@@ -230,7 +285,12 @@ export function SuggestedReplies({ conversationId, onPick }: { conversationId: s
           ))
         )}
       </div>
-      <button type="button" aria-label={t("actions.close")} onClick={close} className="grid size-7 shrink-0 place-items-center rounded-full text-ink-faint hover:bg-surface-2">
+      <button
+        type="button"
+        aria-label={t("actions.close")}
+        onClick={close}
+        className="grid size-7 shrink-0 place-items-center rounded-full text-ink-faint hover:bg-surface-2"
+      >
         <X className="size-4" />
       </button>
     </div>

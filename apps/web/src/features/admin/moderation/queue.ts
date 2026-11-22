@@ -41,8 +41,16 @@ export function useCaseQueue(search: QueueSearch) {
       moderationClient().listCases({
         page: { cursor: pageParam, limit: 30 },
         status: search.status === "resolved" ? admin.CaseStatus.RESOLVED : admin.CaseStatus.OPEN,
-        assignee: search.assignee === "mine" ? admin.AssigneeFilter.MINE : search.assignee === "unassigned" ? admin.AssigneeFilter.UNASSIGNED : admin.AssigneeFilter.UNSPECIFIED,
-        assigneeId: search.assignee && search.assignee !== "mine" && search.assignee !== "unassigned" ? search.assignee : "",
+        assignee:
+          search.assignee === "mine"
+            ? admin.AssigneeFilter.MINE
+            : search.assignee === "unassigned"
+              ? admin.AssigneeFilter.UNASSIGNED
+              : admin.AssigneeFilter.UNSPECIFIED,
+        assigneeId:
+          search.assignee && search.assignee !== "mine" && search.assignee !== "unassigned"
+            ? search.assignee
+            : "",
         subjectType: search.type,
         category: search.category,
         ownerId: search.owner,

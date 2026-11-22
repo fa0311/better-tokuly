@@ -6,28 +6,58 @@ const ROOMS = "tokuly.school.v1.StudyRoomService";
 const EXAMS = "tokuly.school.v1.ExamService";
 const SETTINGS = "tokuly.school.v1.SchoolService";
 
-const ALL_WEEKDAYS = ["WEEKDAY_MONDAY", "WEEKDAY_TUESDAY", "WEEKDAY_WEDNESDAY", "WEEKDAY_THURSDAY", "WEEKDAY_FRIDAY", "WEEKDAY_SATURDAY", "WEEKDAY_SUNDAY"];
+const ALL_WEEKDAYS = [
+  "WEEKDAY_MONDAY",
+  "WEEKDAY_TUESDAY",
+  "WEEKDAY_WEDNESDAY",
+  "WEEKDAY_THURSDAY",
+  "WEEKDAY_FRIDAY",
+  "WEEKDAY_SATURDAY",
+  "WEEKDAY_SUNDAY",
+];
 
 /** The calendar date in Tokyo (the accounts' time zone), `days` from today. */
 function tokyoDate(days = 0): string {
-  return new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(new Date(Date.now() + days * 86_400_000));
+  return new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(
+    new Date(Date.now() + days * 86_400_000),
+  );
 }
 
 function tokyoWeekday(): string {
-  return new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", weekday: "long" }).format(new Date());
+  return new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", weekday: "long" }).format(
+    new Date(),
+  );
 }
 
-async function createSubject(request: APIRequestContext, as: Account, name: string): Promise<string> {
-  return (await rpc<{ subject: { id: string } }>(request, `${TIMETABLE}/CreateSubject`, { name }, as)).subject.id;
+async function createSubject(
+  request: APIRequestContext,
+  as: Account,
+  name: string,
+): Promise<string> {
+  return (
+    await rpc<{ subject: { id: string } }>(request, `${TIMETABLE}/CreateSubject`, { name }, as)
+  ).subject.id;
 }
 
-test("a slot holds one class for week A and another for week B, with a private memo; a day off empties the day", async ({ page, request, me }) => {
+test("a slot holds one class for week A and another for week B, with a private memo; a day off empties the day", async ({
+  page,
+  request,
+  me,
+}) => {
   await createSubject(request, me, "数学");
   await createSubject(request, me, "英語");
   const { term } = await rpc<{ term: { id: string } }>(
     request,
     `${TIMETABLE}/CreateTerm`,
-    { name: "AB学期", startDate: tokyoDate(-30), endDate: tokyoDate(90), layout: { preset: "LAYOUT_PRESET_HIGH_SCHOOL_6", weekdays: ALL_WEEKDAYS }, observePublicHolidays: false, alternatingWeeks: true, weekADate: tokyoDate() },
+    {
+      name: "AB学期",
+      startDate: tokyoDate(-30),
+      endDate: tokyoDate(90),
+      layout: { preset: "LAYOUT_PRESET_HIGH_SCHOOL_6", weekdays: ALL_WEEKDAYS },
+      observePublicHolidays: false,
+      alternatingWeeks: true,
+      weekADate: tokyoDate(),
+    },
     me,
   );
 
@@ -53,9 +83,14 @@ test("a slot holds one class for week A and another for week B, with a private m
   await dialog.getByRole("button", { name: "保存する" }).click();
   await expect(dialog).toBeHidden();
   await expect(async () => {
-    const { entries } = await rpc<{ entries: { weekPattern: string; room?: string; memo?: string }[] }>(request, `${TIMETABLE}/GetTerm`, { termId: term.id }, me);
+    const { entries } = await rpc<{
+      entries: { weekPattern: string; room?: string; memo?: string }[];
+    }>(request, `${TIMETABLE}/GetTerm`, { termId: term.id }, me);
     expect(entries).toHaveLength(2);
-    expect(entries.find((entry) => entry.weekPattern === "WEEK_PATTERN_B")).toMatchObject({ room: "LL教室", memo: "小テストあり" });
+    expect(entries.find((entry) => entry.weekPattern === "WEEK_PATTERN_B")).toMatchObject({
+      room: "LL教室",
+      memo: "小テストあり",
+    });
   }).toPass();
 
   // Today runs as week A (the term says so): the day shows the week-A class.
@@ -70,16 +105,27 @@ test("a slot holds one class for week A and another for week B, with a private m
   await page.getByRole("menuitem", { name: "休み・登校日" }).click();
   await page.getByRole("dialog").getByLabel("なまえ").fill("創立記念日");
   await page.getByRole("dialog").getByRole("button", { name: "追加", exact: true }).click();
-  await expect(page.getByRole("dialog").getByRole("button", { name: "創立記念日を消す" })).toBeVisible();
+  await expect(
+    page.getByRole("dialog").getByRole("button", { name: "創立記念日を消す" }),
+  ).toBeVisible();
   await page.goto("/school");
   await expect(page.getByText("創立記念日")).toBeVisible();
   await expect(page.getByText("授業はありません。ゆっくりしよう!")).toBeVisible();
 });
 
-test("the host of a study room invites, renames, removes someone and closes the room", async ({ page, request, me }) => {
+test("the host of a study room invites, renames, removes someone and closes the room", async ({
+  page,
+  request,
+  me,
+}) => {
   const friend = await createAccount(request, "invitee");
   await befriend(request, me, friend);
-  const { room } = await rpc<{ room: { id: string } }>(request, `${ROOMS}/CreateStudyRoom`, { title: "招待だけの部屋", audience: "ROOM_AUDIENCE_INVITED" }, me);
+  const { room } = await rpc<{ room: { id: string } }>(
+    request,
+    `${ROOMS}/CreateStudyRoom`,
+    { title: "招待だけの部屋", audience: "ROOM_AUDIENCE_INVITED" },
+    me,
+  );
 
   await page.goto(`/school/rooms/${room.id}`);
   await expect(page.getByRole("heading", { name: "招待だけの部屋" })).toBeVisible();
@@ -90,7 +136,11 @@ test("the host of a study room invites, renames, removes someone and closes the 
   await page.getByRole("menuitem", { name: "ともだちを招待" }).click();
   await page.getByRole("dialog").getByRole("button", { name: friend.displayName }).click();
   await page.getByRole("dialog").getByRole("button", { name: "招待する" }).click();
-  await expect(page.getByRole("dialog").getByRole("button", { name: `${friend.displayName}さんの招待を取り消す` })).toBeVisible();
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByRole("button", { name: `${friend.displayName}さんの招待を取り消す` }),
+  ).toBeVisible();
   await page.getByRole("dialog").getByRole("button", { name: "close" }).click();
 
   // The invitation lets the friend in; the host sees them arrive, then removes them.
@@ -116,9 +166,18 @@ test("the host of a study room invites, renames, removes someone and closes the 
   await expect(page.getByText("みんなの部屋")).toHaveCount(0);
 });
 
-test("an exam gets its subjects, scope and a private result; the daily goal shows on the study page", async ({ page, request, me }) => {
+test("an exam gets its subjects, scope and a private result; the daily goal shows on the study page", async ({
+  page,
+  request,
+  me,
+}) => {
   await createSubject(request, me, "物理");
-  const { exam } = await rpc<{ exam: { id: string } }>(request, `${EXAMS}/CreateExam`, { name: "学年末テスト", startDate: tokyoDate(3), endDate: tokyoDate(5) }, me);
+  const { exam } = await rpc<{ exam: { id: string } }>(
+    request,
+    `${EXAMS}/CreateExam`,
+    { name: "学年末テスト", startDate: tokyoDate(3), endDate: tokyoDate(5) },
+    me,
+  );
 
   await page.goto(`/school/exams/${exam.id}`);
   await page.getByRole("button", { name: "教科を追加" }).first().click();
@@ -141,7 +200,16 @@ test("an exam gets its subjects, scope and a private result; the daily goal show
   // Showing the exam period on the profile is a switch on the exam.
   await page.getByRole("switch", { name: /プロフィールに「テスト期間」を出す/ }).click();
   await expect(async () => {
-    expect((await rpc<{ exam: { showOnProfile?: boolean } }>(request, `${EXAMS}/GetExam`, { examId: exam.id }, me)).exam.showOnProfile).toBe(true);
+    expect(
+      (
+        await rpc<{ exam: { showOnProfile?: boolean } }>(
+          request,
+          `${EXAMS}/GetExam`,
+          { examId: exam.id },
+          me,
+        )
+      ).exam.showOnProfile,
+    ).toBe(true);
   }).toPass();
 
   // Settings: a daily goal, saved when the field is left.
@@ -149,24 +217,65 @@ test("an exam gets its subjects, scope and a private result; the daily goal show
   await page.getByLabel("1日の目標（分）").fill("45");
   await page.getByLabel("1日の目標（分）").blur();
   await expect(async () => {
-    expect((await rpc<{ settings: { dailyGoalMinutes?: number } }>(request, `${SETTINGS}/GetSchoolSettings`, {}, me)).settings.dailyGoalMinutes).toBe(45);
+    expect(
+      (
+        await rpc<{ settings: { dailyGoalMinutes?: number } }>(
+          request,
+          `${SETTINGS}/GetSchoolSettings`,
+          {},
+          me,
+        )
+      ).settings.dailyGoalMinutes,
+    ).toBe(45);
   }).toPass();
   await page.goto("/school/study");
   await expect(page.getByRole("region", { name: "今日のようす" })).toContainText("目標 45分 まで");
 });
 
-test("a paint or an erase can be undone, and a tap the server refuses is taken back", async ({ page, request, me }) => {
+test("a paint or an erase can be undone, and a tap the server refuses is taken back", async ({
+  page,
+  request,
+  me,
+}) => {
   const japanese = await createSubject(request, me, "国語");
   await createSubject(request, me, "理科");
   const { term } = await rpc<{ term: { id: string } }>(
     request,
     `${TIMETABLE}/CreateTerm`,
-    { name: "やり直し", startDate: tokyoDate(-30), endDate: tokyoDate(90), layout: { preset: "LAYOUT_PRESET_HIGH_SCHOOL_6", weekdays: ALL_WEEKDAYS }, observePublicHolidays: false },
+    {
+      name: "やり直し",
+      startDate: tokyoDate(-30),
+      endDate: tokyoDate(90),
+      layout: { preset: "LAYOUT_PRESET_HIGH_SCHOOL_6", weekdays: ALL_WEEKDAYS },
+      observePublicHolidays: false,
+    },
     me,
   );
-  await rpc(request, `${TIMETABLE}/PutTimetableEntries`, { termId: term.id, entries: ALL_WEEKDAYS.map((weekday) => ({ weekday, period: 1, subjectId: japanese, room: "3-B", memo: "漢字テスト" })) }, me);
+  await rpc(
+    request,
+    `${TIMETABLE}/PutTimetableEntries`,
+    {
+      termId: term.id,
+      entries: ALL_WEEKDAYS.map((weekday) => ({
+        weekday,
+        period: 1,
+        subjectId: japanese,
+        room: "3-B",
+        memo: "漢字テスト",
+      })),
+    },
+    me,
+  );
   const saved = async () => {
-    const { entries } = await rpc<{ entries: { weekday: string; period: number; subject: { name: string }; room?: string; memo?: string }[] }>(request, `${TIMETABLE}/GetTerm`, { termId: term.id }, me);
+    const { entries } = await rpc<{
+      entries: {
+        weekday: string;
+        period: number;
+        subject: { name: string };
+        room?: string;
+        memo?: string;
+      }[];
+    }>(request, `${TIMETABLE}/GetTerm`, { termId: term.id }, me);
     return entries;
   };
 
@@ -187,7 +296,12 @@ test("a paint or an erase can be undone, and a tap the server refuses is taken b
   await expect(async () => {
     const entries = await saved();
     expect(entries).toHaveLength(7);
-    expect(entries.every((entry) => entry.subject.name === "国語" && entry.room === "3-B" && entry.memo === "漢字テスト")).toBe(true);
+    expect(
+      entries.every(
+        (entry) =>
+          entry.subject.name === "国語" && entry.room === "3-B" && entry.memo === "漢字テスト",
+      ),
+    ).toBe(true);
   }).toPass();
 
   // Erasing can be undone too.
@@ -200,7 +314,9 @@ test("a paint or an erase can be undone, and a tap the server refuses is taken b
   await expect(async () => expect(await saved()).toHaveLength(7)).toPass();
 
   // A tap that does not reach the server leaves the grid as it was.
-  await page.route("**/tokuly.school.v1.TimetableService/PutTimetableEntries", (route) => route.abort());
+  await page.route("**/tokuly.school.v1.TimetableService/PutTimetableEntries", (route) =>
+    route.abort(),
+  );
   await page.getByRole("radio", { name: "理科" }).click();
   await grid.getByRole("button", { name: `${second} 空き` }).click();
   await expect(page.getByText("通信できませんでした。接続を確認してね")).toBeVisible();
@@ -212,9 +328,14 @@ test("a paint or an erase can be undone, and a tap the server refuses is taken b
   expect(await saved()).toHaveLength(7);
 });
 
-test("a timer that could not be restored says so and offers to try again", async ({ page, me: _me }) => {
+test("a timer that could not be restored says so and offers to try again", async ({
+  page,
+  me: _me,
+}) => {
   let failing = true;
-  await page.route("**/tokuly.school.v1.StudyService/GetCurrentStudySession", (route) => (failing ? route.abort() : route.continue()));
+  await page.route("**/tokuly.school.v1.StudyService/GetCurrentStudySession", (route) =>
+    failing ? route.abort() : route.continue(),
+  );
   await page.goto("/school/study");
   const timer = page.getByRole("region", { name: "勉強タイマー" });
   await expect(timer.getByText("タイマーのようすを読み込めなかったよ")).toBeVisible();

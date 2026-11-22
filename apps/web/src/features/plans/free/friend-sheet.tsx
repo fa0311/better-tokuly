@@ -70,7 +70,11 @@ export function FreeFriendSheet({
   };
 
   return (
-    <Dialog open={Boolean(status)} onOpenChange={onOpenChange} title={t("free.friend.title", { name: nameOf(user) })}>
+    <Dialog
+      open={Boolean(status)}
+      onOpenChange={onOpenChange}
+      title={t("free.friend.title", { name: nameOf(user) })}
+    >
       <div className="flex flex-col gap-4">
         <div className="flex items-center gap-4">
           <Avatar user={user} size="lg" outlined />
@@ -85,7 +89,11 @@ export function FreeFriendSheet({
             )}
           </div>
         </div>
-        {shown.note && <p className="sticker-sm rounded-2xl bg-sun px-4 py-3 font-bold text-[#17122b]">「{shown.note}」</p>}
+        {shown.note && (
+          <p className="sticker-sm rounded-2xl bg-sun px-4 py-3 font-bold text-[#17122b]">
+            「{shown.note}」
+          </p>
+        )}
 
         <form
           className="flex items-end gap-2"
@@ -102,11 +110,19 @@ export function FreeFriendSheet({
             maxLength={100}
             onChange={(event) => setMessage(event.target.value)}
           />
-          <Button type="submit" variant="lime" className="h-12 shrink-0" loading={answer.isPending} icon={<Send className="size-4" />}>
+          <Button
+            type="submit"
+            variant="lime"
+            className="h-12 shrink-0"
+            loading={answer.isPending}
+            icon={<Send className="size-4" />}
+          >
             {answered ? t("free.friend.again") : t("free.asobo")}
           </Button>
         </form>
-        {answered && <p className="-mt-2 px-1 text-sm font-bold text-success">✓ {t("free.friend.answered")}</p>}
+        {answered && (
+          <p className="-mt-2 px-1 text-sm font-bold text-success">✓ {t("free.friend.answered")}</p>
+        )}
 
         <div className="grid grid-cols-2 gap-2.5">
           <Button

@@ -25,7 +25,8 @@ export function StoryScreen({ storyId }: { storyId: string }) {
     opened.current = true;
     openStoryViewer([{ user: loaded.owner, stories: [loaded] }], {
       storyId: loaded.id,
-      onClose: () => (router.history.canGoBack() ? router.history.back() : void navigate({ to: "/notes" })),
+      onClose: () =>
+        router.history.canGoBack() ? router.history.back() : void navigate({ to: "/notes" }),
     });
   }, [loaded, router, navigate]);
 
@@ -55,7 +56,10 @@ export function StoryScreen({ storyId }: { storyId: string }) {
         title={gone ? t("page.gone") : errorMessage(story.error)}
         body={gone ? t("page.goneBody") : undefined}
         action={
-          <Link to="/notes" className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand">
+          <Link
+            to="/notes"
+            className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand"
+          >
             {t("page.toNotes")}
           </Link>
         }

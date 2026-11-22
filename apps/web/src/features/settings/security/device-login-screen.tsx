@@ -8,9 +8,9 @@ import { Card } from "#/components/ui/card";
 import { TextField } from "#/components/ui/field";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { authClient } from "#/lib/api";
+import { errorMessage } from "#/lib/errors";
 import { compactDuration } from "#/lib/format";
 import { keys } from "../data";
-import { errorMessage } from "#/lib/errors";
 import { SettingsPage } from "../shell/settings-page";
 
 const PLATFORM_KEYS: Record<number, "web" | "ios" | "android" | "desktop"> = {
@@ -25,11 +25,21 @@ const PLATFORM_KEYS: Record<number, "web" | "ios" | "android" | "desktop"> = {
  * a TV, a command line) sign in. It shows a code; here the signed-in person
  * sees which device is asking and approves or refuses it.
  */
-export function DeviceLoginScreen({ code, onCodeChange }: { /** The code from the address, if any. */ code: string | undefined; onCodeChange(code: string | undefined): void }) {
+export function DeviceLoginScreen({
+  code,
+  onCodeChange,
+}: {
+  /** The code from the address, if any. */ code: string | undefined;
+  onCodeChange(code: string | undefined): void;
+}) {
   const { t } = useTranslation("settings");
   return (
     <SettingsPage title={t("security.device.title")} back="/settings/security">
-      {code ? <DeviceRequest key={code} code={code} onOtherCode={() => onCodeChange(undefined)} /> : <CodeForm onSubmit={onCodeChange} />}
+      {code ? (
+        <DeviceRequest key={code} code={code} onOtherCode={() => onCodeChange(undefined)} />
+      ) : (
+        <CodeForm onSubmit={onCodeChange} />
+      )}
     </SettingsPage>
   );
 }
@@ -94,26 +104,69 @@ function DeviceRequest({ code, onOtherCode }: { code: string; onOtherCode(): voi
     </Button>
   );
 
-  if (answer === "approved") return <EmptyState emoji="🎉" title={t("security.device.approved")} body={t("security.device.approvedBody")} action={another} />;
-  if (answer === "denied") return <EmptyState emoji="🙅" title={t("security.device.denied")} body={t("security.device.deniedBody")} action={another} />;
+  if (answer === "approved")
+    return (
+      <EmptyState
+        emoji="🎉"
+        title={t("security.device.approved")}
+        body={t("security.device.approvedBody")}
+        action={another}
+      />
+    );
+  if (answer === "denied")
+    return (
+      <EmptyState
+        emoji="🙅"
+        title={t("security.device.denied")}
+        body={t("security.device.deniedBody")}
+        action={another}
+      />
+    );
   if (request.isPending) return <Skeleton className="h-72" />;
-  if (request.isError) return <EmptyState emoji="🤔" title={errorMessage(request.error)} body={t("security.device.invalidBody")} action={another} />;
+  if (request.isError)
+    return (
+      <EmptyState
+        emoji="🤔"
+        title={errorMessage(request.error)}
+        body={t("security.device.invalidBody")}
+        action={another}
+      />
+    );
 
   const { client, status, expiresAt } = request.data;
   if (status !== identity.DeviceLoginStatus.PENDING) {
     const expired = status === identity.DeviceLoginStatus.EXPIRED;
-    return <EmptyState emoji={expired ? "⌛" : "🔁"} title={expired ? t("security.device.expired") : t("security.device.used")} body={t("security.device.invalidBody")} action={another} />;
+    return (
+      <EmptyState
+        emoji={expired ? "⌛" : "🔁"}
+        title={expired ? t("security.device.expired") : t("security.device.used")}
+        body={t("security.device.invalidBody")}
+        action={another}
+      />
+    );
   }
 
   const platform = PLATFORM_KEYS[client?.platform ?? common.Platform.UNSPECIFIED];
-  const DeviceIcon = platform === "ios" || platform === "android" ? Smartphone : platform === "desktop" ? Laptop : MonitorSmartphone;
-  const details = [platform ? t(`security.device.platforms.${platform}`) : "", client?.appVersion ? `v${client.appVersion}` : ""].filter(Boolean).join(" ・ ");
+  const DeviceIcon =
+    platform === "ios" || platform === "android"
+      ? Smartphone
+      : platform === "desktop"
+        ? Laptop
+        : MonitorSmartphone;
+  const details = [
+    platform ? t(`security.device.platforms.${platform}`) : "",
+    client?.appVersion ? `v${client.appVersion}` : "",
+  ]
+    .filter(Boolean)
+    .join(" ・ ");
   const remaining = toMillis(expiresAt) - Date.now();
 
   return (
     <Card>
       <h2 className="text-xl font-black">{t("security.device.question")}</h2>
-      <p className="mt-1 text-sm leading-relaxed text-ink-soft">{t("security.device.questionLead")}</p>
+      <p className="mt-1 text-sm leading-relaxed text-ink-soft">
+        {t("security.device.questionLead")}
+      </p>
 
       <div className="mt-5 flex items-center gap-3 rounded-2xl bg-surface-2 p-4">
         <span className="grid size-12 shrink-0 place-items-center rounded-2xl border-2 border-ink bg-sky text-[#17122b]">
@@ -127,26 +180,50 @@ function DeviceRequest({ code, onOtherCode }: { code: string; onOtherCode(): voi
         </div>
       </div>
 
-      <p className="mt-5 text-center text-sm font-bold text-ink-soft">{t("security.device.codeOnDevice")}</p>
-      <p className="mt-1 text-center font-mono text-3xl font-black tracking-[0.2em]" data-testid="device-code">
+      <p className="mt-5 text-center text-sm font-bold text-ink-soft">
+        {t("security.device.codeOnDevice")}
+      </p>
+      <p
+        className="mt-1 text-center font-mono text-3xl font-black tracking-[0.2em]"
+        data-testid="device-code"
+      >
         {code.toUpperCase()}
       </p>
-      {remaining > 0 && <p className="mt-1 text-center text-xs font-bold text-ink-faint">{t("security.device.expiresIn", { duration: compactDuration(remaining) })}</p>}
+      {remaining > 0 && (
+        <p className="mt-1 text-center text-xs font-bold text-ink-faint">
+          {t("security.device.expiresIn", { duration: compactDuration(remaining) })}
+        </p>
+      )}
 
       {respond.isError && (
-        <p role="alert" className="mt-4 rounded-2xl bg-danger/10 px-4 py-3 text-sm font-bold text-danger">
+        <p
+          role="alert"
+          className="mt-4 rounded-2xl bg-danger/10 px-4 py-3 text-sm font-bold text-danger"
+        >
           {errorMessage(respond.error)}
         </p>
       )}
       <div className="mt-6 grid grid-cols-2 gap-3">
-        <Button variant="secondary" disabled={respond.isPending} loading={respond.isPending && respond.variables === false} onClick={() => respond.mutate(false)}>
+        <Button
+          variant="secondary"
+          disabled={respond.isPending}
+          loading={respond.isPending && respond.variables === false}
+          onClick={() => respond.mutate(false)}
+        >
           {t("security.device.deny")}
         </Button>
-        <Button variant="lime" disabled={respond.isPending} loading={respond.isPending && respond.variables === true} onClick={() => respond.mutate(true)}>
+        <Button
+          variant="lime"
+          disabled={respond.isPending}
+          loading={respond.isPending && respond.variables === true}
+          onClick={() => respond.mutate(true)}
+        >
           {t("security.device.approve")}
         </Button>
       </div>
-      <p className="mt-4 text-center text-xs leading-relaxed text-ink-faint">{t("security.device.warning")}</p>
+      <p className="mt-4 text-center text-xs leading-relaxed text-ink-faint">
+        {t("security.device.warning")}
+      </p>
     </Card>
   );
 }

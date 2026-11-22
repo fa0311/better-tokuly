@@ -9,6 +9,7 @@ import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { EmptyState } from "#/components/ui/page";
 import { GazetteerCredit } from "#/features/places";
+import { accountTimeZone } from "#/lib/account-time";
 import { errorMessage } from "#/lib/errors";
 import { formatDistance } from "#/lib/format";
 import { useMe } from "#/stores/session";
@@ -20,7 +21,10 @@ import { flagEmoji } from "./meter";
 
 /** What was uncovered since the person last looked. Shared by the teaser and the dialog. */
 export function useRecap() {
-  return useQuery({ queryKey: footprintKeys.recap, queryFn: () => footprintClient().getRecap({ markSeen: false }) });
+  return useQuery({
+    queryKey: footprintKeys.recap,
+    queryFn: () => footprintClient().getRecap({ markSeen: false }),
+  });
 }
 
 /** The nudge on the footprint page when there is something new to look at. */
@@ -29,7 +33,11 @@ export function RecapTeaser({ recap, onOpen }: { recap: geo.GetRecapResponse; on
   const count = Number(recap.newCellCount);
   if (count === 0) return null;
   return (
-    <button type="button" onClick={onOpen} className="pressable sticker flex w-full animate-pop-in items-center gap-3 rounded-card bg-sun p-4 text-left text-[#17122b]">
+    <button
+      type="button"
+      onClick={onOpen}
+      className="pressable sticker flex w-full animate-pop-in items-center gap-3 rounded-card bg-sun p-4 text-left text-[#17122b]"
+    >
       <span className="animate-wiggle text-4xl" aria-hidden>
         🎁
       </span>
@@ -47,7 +55,13 @@ export function RecapTeaser({ recap, onOpen }: { recap: geo.GetRecapResponse; on
  * distance, places entered for the first time. Closing it marks the recap
  * as seen, so the next one starts from now.
  */
-export function RecapDialog({ open, onOpenChange }: { open: boolean; onOpenChange(open: boolean): void }) {
+export function RecapDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange(open: boolean): void;
+}) {
   const { t, i18n } = useTranslation("footprints");
   const queryClient = useQueryClient();
   const me = useMe();
@@ -91,7 +105,8 @@ export function RecapDialog({ open, onOpenChange }: { open: boolean; onOpenChang
     },
     onError: (error) => {
       // Closing the share sheet is not a failure.
-      if (!(error instanceof DOMException && error.name === "AbortError")) toast.error(errorMessage(error, { namespace: "footprints" }));
+      if (!(error instanceof DOMException && error.name === "AbortError"))
+        toast.error(errorMessage(error, { namespace: "footprints" }));
     },
   });
 
@@ -102,7 +117,12 @@ export function RecapDialog({ open, onOpenChange }: { open: boolean; onOpenChang
       title={t("recap.title")}
       footer={
         count > 0 ? (
-          <Button variant="lime" icon={<Share2 className="size-4" />} loading={share.isPending} onClick={() => share.mutate()}>
+          <Button
+            variant="lime"
+            icon={<Share2 className="size-4" />}
+            loading={share.isPending}
+            onClick={() => share.mutate()}
+          >
             {t("recap.share")}
           </Button>
         ) : undefined
@@ -124,15 +144,30 @@ type Translate = TFunction<"footprints">;
 
 function sinceText(recap: geo.GetRecapResponse, language: string, t: Translate): string {
   const since = toDate(recap.since);
-  return since ? t("recap.since", { date: since.toLocaleDateString(language, { month: "short", day: "numeric" }) }) : "";
+  return since
+    ? t("recap.since", {
+        date: since.toLocaleDateString(language, {
+          timeZone: accountTimeZone(),
+          month: "short",
+          day: "numeric",
+        }),
+      })
+    : "";
 }
 
 /** The facts of a recap as short lines, the same on the card and on the image. */
 function recapLines(recap: geo.GetRecapResponse, t: Translate): string[] {
   const lines: string[] = [];
-  if (recap.distanceMeters >= 10) lines.push(`👟 ${t("recap.distance", { distance: formatDistance(recap.distanceMeters) })}`);
-  for (const region of recap.newRegions.slice(0, 3)) lines.push(`${flagEmoji(region.countryCode)} ${t("recap.newRegion", { region: regionName(region) })}`);
-  for (const stat of recap.regions.slice(0, 2)) lines.push(`📈 ${t("recap.regionNow", { region: regionName(stat.region), percent: formatPercent(stat.percent) })}`);
+  if (recap.distanceMeters >= 10)
+    lines.push(`👟 ${t("recap.distance", { distance: formatDistance(recap.distanceMeters) })}`);
+  for (const region of recap.newRegions.slice(0, 3))
+    lines.push(
+      `${flagEmoji(region.countryCode)} ${t("recap.newRegion", { region: regionName(region) })}`,
+    );
+  for (const stat of recap.regions.slice(0, 2))
+    lines.push(
+      `📈 ${t("recap.regionNow", { region: regionName(stat.region), percent: formatPercent(stat.percent) })}`,
+    );
   return lines;
 }
 
@@ -144,10 +179,17 @@ function RecapCard({ recap }: { recap: geo.GetRecapResponse }) {
     <div className="sticker overflow-hidden rounded-card bg-brand text-on-brand">
       <div className="px-5 pt-5">
         <p className="text-sm font-black opacity-80">{sinceText(recap, i18n.language, t)}</p>
-        <p className="mt-1 text-3xl font-black leading-tight">{t("recap.cardHeadline", { count })}</p>
+        <p className="mt-1 text-3xl font-black leading-tight">
+          {t("recap.cardHeadline", { count })}
+        </p>
       </div>
       {art.length > 0 && (
-        <svg viewBox="0 0 320 180" className="mt-2 w-full" role="img" aria-label={t("recap.artLabel")}>
+        <svg
+          viewBox="0 0 320 180"
+          className="mt-2 w-full"
+          role="img"
+          aria-label={t("recap.artLabel")}
+        >
           {art.map((ring, index) => (
             <polygon
               key={index}
@@ -189,8 +231,16 @@ async function drawRecapImage(recap: geo.GetRecapResponse, text: RecapImageText)
   const context = canvas.getContext("2d");
   if (!context) throw new Error("canvas unavailable");
   // The picture always uses the light palette, whatever theme the app is in.
-  const colour = { brand: "#7c5cff", pink: "#ff5c9d", ink: "#17122b", lime: "#c6f24e", paper: "#ffffff", soft: "#5d5778" };
-  const font = (size: number, weight = 900) => `${weight} ${size}px "M PLUS Rounded 1c", ui-rounded, system-ui, sans-serif`;
+  const colour = {
+    brand: "#7c5cff",
+    pink: "#ff5c9d",
+    ink: "#17122b",
+    lime: "#c6f24e",
+    paper: "#ffffff",
+    soft: "#5d5778",
+  };
+  const font = (size: number, weight = 900) =>
+    `${weight} ${size}px "M PLUS Rounded 1c", ui-rounded, system-ui, sans-serif`;
   await document.fonts.load(font(64)).catch(() => {});
 
   const gradient = context.createLinearGradient(0, 0, width, height);
@@ -243,7 +293,8 @@ async function drawRecapImage(recap: geo.GetRecapResponse, text: RecapImageText)
   context.stroke();
   context.fillStyle = colour.ink;
   context.font = font(40, 800);
-  for (const [index, line] of text.lines.slice(0, Math.floor((boxHeight - 60) / 64)).entries()) context.fillText(line, 110, boxTop + 44 + index * 64, width - 220);
+  for (const [index, line] of text.lines.slice(0, Math.floor((boxHeight - 60) / 64)).entries())
+    context.fillText(line, 110, boxTop + 44 + index * 64, width - 220);
 
   context.fillStyle = colour.paper;
   // The credit the place-name data asks for travels with the picture.
@@ -257,5 +308,10 @@ async function drawRecapImage(recap: geo.GetRecapResponse, text: RecapImageText)
   context.textAlign = "right";
   context.fillText(text.by, width - 80, height - 100);
 
-  return new Promise((resolve, reject) => canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("image failed"))), "image/png"));
+  return new Promise((resolve, reject) =>
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error("image failed"))),
+      "image/png",
+    ),
+  );
 }

@@ -32,8 +32,15 @@ export function TodayScreen() {
   const setDate = (next: string) => setPicked(next === today ? undefined : next);
   const monday = mondayOf(date);
   const now = useNow(30_000);
-  const week = useQuery({ queryKey: keys.days(monday, addDays(monday, 6)), queryFn: async () => (await timetableClient().listDays({ startDate: monday, endDate: addDays(monday, 6) })).days });
-  const day = useQuery({ queryKey: keys.day(date), queryFn: async () => (await timetableClient().getDay({ date })).day });
+  const week = useQuery({
+    queryKey: keys.days(monday, addDays(monday, 6)),
+    queryFn: async () =>
+      (await timetableClient().listDays({ startDate: monday, endDate: addDays(monday, 6) })).days,
+  });
+  const day = useQuery({
+    queryKey: keys.day(date),
+    queryFn: async () => (await timetableClient().getDay({ date })).day,
+  });
 
   return (
     <SchoolPage section="today" wide>
@@ -41,7 +48,11 @@ export function TodayScreen() {
         <div className="min-w-0">
           <ClassNowCard />
           <Block
-            title={date === today ? t("today.classesToday") : t("today.classesOn", { date: dayLabel(date, i18n.language) })}
+            title={
+              date === today
+                ? t("today.classesToday")
+                : t("today.classesOn", { date: dayLabel(date, i18n.language) })
+            }
             action={
               date !== today && (
                 <Button size="sm" variant="ghost" onClick={() => setDate(today)}>
@@ -51,7 +62,12 @@ export function TodayScreen() {
             }
           >
             <div className="mb-3 flex items-center gap-1">
-              <Button size="icon-sm" variant="ghost" aria-label={t("today.previousWeek")} onClick={() => setDate(addDays(date, -7))}>
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                aria-label={t("today.previousWeek")}
+                onClick={() => setDate(addDays(date, -7))}
+              >
                 <ChevronLeft className="size-5" />
               </Button>
               <ol className="grid min-w-0 flex-1 grid-cols-7 gap-1" aria-label={t("today.week")}>
@@ -67,27 +83,51 @@ export function TodayScreen() {
                         aria-pressed={value === date}
                         aria-label={`${dayLabel(value, i18n.language)} ${info ? t("today.classCount", { count }) : ""}`}
                         onClick={() => setDate(value)}
-                        className={cn("flex w-full flex-col items-center rounded-2xl py-1.5 leading-tight transition-colors", value === date ? "sticker-sm bg-ink text-surface" : "hover:bg-surface-2", value === today && value !== date && "bg-brand-soft")}
+                        className={cn(
+                          "flex w-full flex-col items-center rounded-2xl py-1.5 leading-tight transition-colors",
+                          value === date ? "sticker-sm bg-ink text-surface" : "hover:bg-surface-2",
+                          value === today && value !== date && "bg-brand-soft",
+                        )}
                       >
-                        <span className="text-[11px] font-bold opacity-70">{t(`weekdays.short.${weekdayOf(value)}`)}</span>
+                        <span className="text-[11px] font-bold opacity-70">
+                          {t(`weekdays.short.${weekdayOf(value)}`)}
+                        </span>
                         <span className="font-black">{parseYmd(value).getDate()}</span>
-                        <span className={cn("text-[10px] font-bold", off ? "text-coral" : "opacity-70")}>{info ? (off ? t("today.off") : count) : " "}</span>
+                        <span
+                          className={cn("text-[10px] font-bold", off ? "text-coral" : "opacity-70")}
+                        >
+                          {info ? (off ? t("today.off") : count) : " "}
+                        </span>
                       </button>
                     </li>
                   );
                 })}
               </ol>
-              <Button size="icon-sm" variant="ghost" aria-label={t("today.nextWeek")} onClick={() => setDate(addDays(date, 7))}>
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                aria-label={t("today.nextWeek")}
+                onClick={() => setDate(addDays(date, 7))}
+              >
                 <ChevronRight className="size-5" />
               </Button>
             </div>
-            {day.isPending ? <Skeleton className="h-64" /> : day.data ? <DayView day={day.data} editable nowMs={date === today ? now : undefined} /> : null}
+            {day.isPending ? (
+              <Skeleton className="h-64" />
+            ) : day.data ? (
+              <DayView day={day.data} editable nowMs={date === today ? now : undefined} />
+            ) : null}
             {day.data?.kind === school.DayKind.OUT_OF_TERM && (
-              <Link to="/school/timetable" className="mt-3 block text-center text-sm font-bold text-brand">
+              <Link
+                to="/school/timetable"
+                className="mt-3 block text-center text-sm font-bold text-brand"
+              >
                 {t("today.setUpTimetable")}
               </Link>
             )}
-            {day.data?.kind === school.DayKind.SCHOOL_DAY && <p className="mt-2 px-1 text-xs text-ink-faint">{t("today.changeHint")}</p>}
+            {day.data?.kind === school.DayKind.SCHOOL_DAY && (
+              <p className="mt-2 px-1 text-xs text-ink-faint">{t("today.changeHint")}</p>
+            )}
           </Block>
         </div>
         <div className="min-w-0">
@@ -123,25 +163,43 @@ function StudyStrip() {
   const session = useActiveSession((state) => state.session);
   const now = useNow(1000);
   return (
-    <Link to="/school/study" className="pressable sticker flex items-center gap-4 rounded-card bg-surface p-4">
-      <span className={cn("grid size-12 shrink-0 place-items-center rounded-2xl border-2 border-ink", session ? "bg-brand text-on-brand" : "bg-lime text-[#17122b]")}>
+    <Link
+      to="/school/study"
+      className="pressable sticker flex items-center gap-4 rounded-card bg-surface p-4"
+    >
+      <span
+        className={cn(
+          "grid size-12 shrink-0 place-items-center rounded-2xl border-2 border-ink",
+          session ? "bg-brand text-on-brand" : "bg-lime text-[#17122b]",
+        )}
+      >
         <Timer className="size-6" />
       </span>
       <span className="min-w-0 flex-1">
         {session ? (
           <>
-            <span className="block text-xs font-black text-brand">{session.state === school.SessionState.PAUSED ? t("timer.phase.paused") : t("study.studying")}</span>
-            <span className="block text-2xl font-black tabular-nums leading-tight">{timerText(studiedSecondsAt(session, now))}</span>
+            <span className="block text-xs font-black text-brand">
+              {session.state === school.SessionState.PAUSED
+                ? t("timer.phase.paused")
+                : t("study.studying")}
+            </span>
+            <span className="block text-2xl font-black tabular-nums leading-tight">
+              {timerText(studiedSecondsAt(session, now))}
+            </span>
           </>
         ) : (
           <>
             <span className="block text-xs font-black text-ink-soft">{t("study.today")}</span>
-            <span className="block text-2xl font-black leading-tight">{studyTime(progress.data?.todaySeconds ?? 0, i18n.language)}</span>
+            <span className="block text-2xl font-black leading-tight">
+              {studyTime(progress.data?.todaySeconds ?? 0, i18n.language)}
+            </span>
           </>
         )}
       </span>
       <span className="shrink-0 text-right text-sm font-bold">
-        <span className="block">🔥 {t("study.streakDays", { count: progress.data?.streakDays ?? 0 })}</span>
+        <span className="block">
+          🔥 {t("study.streakDays", { count: progress.data?.streakDays ?? 0 })}
+        </span>
         {!session && <span className="block text-brand">{t("today.startTimer")}</span>}
       </span>
     </Link>

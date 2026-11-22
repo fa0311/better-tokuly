@@ -5,7 +5,12 @@ import { parseRecapSearch } from "./recap-screen";
 describe("groupByDay", () => {
   it("splits a list in time order into runs of the same day", () => {
     const at = (text: string) => new Date(text).getTime();
-    const items = [at("2026-11-22T10:00:00"), at("2026-11-22T08:00:00"), at("2026-11-21T23:59:00"), at("2026-11-20T00:00:00")];
+    const items = [
+      at("2026-11-22T10:00:00"),
+      at("2026-11-22T08:00:00"),
+      at("2026-11-21T23:59:00"),
+      at("2026-11-20T00:00:00"),
+    ];
     const days = groupByDay(items, (item) => item);
     expect(days.map((day) => [day.key, day.items.length])).toEqual([
       ["2026-11-22", 2],

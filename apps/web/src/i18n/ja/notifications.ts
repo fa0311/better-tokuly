@@ -43,13 +43,21 @@ export default {
   },
   push: {
     title: "このブラウザのプッシュ通知",
-    status: { on: "オン", off: "オフ", denied: "ブロック中", unsupported: "非対応", unavailable: "利用不可" },
+    status: {
+      on: "オン",
+      off: "オフ",
+      denied: "ブロック中",
+      unsupported: "非対応",
+      unavailable: "利用不可",
+    },
     lead: {
       on: "Tokulyを閉じていても、このブラウザにお知らせが届くよ！",
       off: "オンにすると、Tokulyを開いていないときでも友達からのお知らせをすぐ受け取れるよ！",
-      denied: "このサイトの通知がブラウザでブロックされているよ。アドレスバーのサイト設定から「通知」を許可して、もう一度ためしてね。",
+      denied:
+        "このサイトの通知がブラウザでブロックされているよ。アドレスバーのサイト設定から「通知」を許可して、もう一度ためしてね。",
       unsupported: "ごめんね、このブラウザはプッシュ通知に対応していないよ。",
-      install: "iPhone・iPadでは、共有メニューから「ホーム画面に追加」したTokulyでプッシュ通知が使えるよ！",
+      install:
+        "iPhone・iPadでは、共有メニューから「ホーム画面に追加」したTokulyでプッシュ通知が使えるよ！",
       unavailable: "このサーバーではプッシュ通知がまだ使えないよ。",
     },
     enable: "プッシュ通知をオンにする",
@@ -84,7 +92,8 @@ export default {
     neverDelivered: "まだ届いていません",
     remove: "{{name}}を削除",
     removeTitle: "「{{name}}」への通知をやめる？",
-    removeBody: "このデバイスにはプッシュ通知が届かなくなるよ。そのデバイスでもう一度オンにすれば元どおり！",
+    removeBody:
+      "このデバイスにはプッシュ通知が届かなくなるよ。そのデバイスでもう一度オンにすれば元どおり！",
     removeConfirm: "削除する",
   },
   pause: {
@@ -95,7 +104,13 @@ export default {
     untilResumed: "再開するまでプッシュ通知をお休み中だよ",
     resume: "いますぐ再開する",
     choose: "停止する時間",
-    durations: { "30m": "30分", "1h": "1時間", "8h": "8時間", "24h": "24時間", manual: "再開するまで" },
+    durations: {
+      "30m": "30分",
+      "1h": "1時間",
+      "8h": "8時間",
+      "24h": "24時間",
+      manual: "再開するまで",
+    },
     toast: { paused: "プッシュ通知を一時停止したよ", resumed: "プッシュ通知を再開したよ！" },
   },
   quiet: {
@@ -151,7 +166,8 @@ export default {
     PUSH_CHANNEL_UNAVAILABLE: "このサーバーではプッシュ通知が使えないよ",
     ENDPOINT_INVALID: "このブラウザのプッシュ通知サービスには対応していないよ",
     ENDPOINT_NOT_ALLOWED: "このブラウザのプッシュ通知サービスには対応していないよ",
-    SUBSCRIPTION_KEYS_INVALID: "プッシュ通知の登録がうまくいかなかったよ。オフにしてから、もう一度オンにしてね",
+    SUBSCRIPTION_KEYS_INVALID:
+      "プッシュ通知の登録がうまくいかなかったよ。オフにしてから、もう一度オンにしてね",
     SESSION_REVOKED: "ログインし直してから、もう一度ためしてね",
     DEVICE_NOT_FOUND: "このデバイスはもう登録されていないよ",
     NO_PUSH_DEVICES: "プッシュ通知をオンにしたデバイスがまだないよ",

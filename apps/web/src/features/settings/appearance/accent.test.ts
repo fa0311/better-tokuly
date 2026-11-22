@@ -35,13 +35,16 @@ describe("accent colours", () => {
     expect(ACCENTS[0].color).toBe(DEFAULT_ACCENT);
   });
 
-  it.each(ACCENTS.map((accent) => [accent.id, accent.color] as const))("%s stays readable in both themes", (_id, color) => {
-    const { light, dark } = accentTokens(color);
-    // Button labels on the brand colour.
-    expect(contrast(light.brand, light.onBrand)).toBeGreaterThanOrEqual(3);
-    expect(contrast(dark.brand, dark.onBrand)).toBeGreaterThanOrEqual(4.5);
-    // Brand-coloured text and icons on the surfaces of each theme.
-    expect(contrast(light.brand, "#ffffff")).toBeGreaterThanOrEqual(3);
-    expect(contrast(dark.brand, "#17132a")).toBeGreaterThanOrEqual(4.5);
-  });
+  it.each(ACCENTS.map((accent) => [accent.id, accent.color] as const))(
+    "%s stays readable in both themes",
+    (_id, color) => {
+      const { light, dark } = accentTokens(color);
+      // Button labels on the brand colour.
+      expect(contrast(light.brand, light.onBrand)).toBeGreaterThanOrEqual(3);
+      expect(contrast(dark.brand, dark.onBrand)).toBeGreaterThanOrEqual(4.5);
+      // Brand-coloured text and icons on the surfaces of each theme.
+      expect(contrast(light.brand, "#ffffff")).toBeGreaterThanOrEqual(3);
+      expect(contrast(dark.brand, "#17132a")).toBeGreaterThanOrEqual(4.5);
+    },
+  );
 });

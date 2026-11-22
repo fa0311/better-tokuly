@@ -15,18 +15,29 @@ const RANK_TINT = ["bg-sun", "bg-lime", "bg-sky"];
 export function TrendingHashtags({ layout }: { layout: "panel" | "strip" }) {
   const { t } = useTranslation("notes");
   const trending = useTrendingHashtags();
-  const hashtags = trending.data?.hashtags.flatMap((entry) => (entry.hashtag ? [{ ...entry, hashtag: entry.hashtag }] : [])) ?? [];
+  const hashtags =
+    trending.data?.hashtags.flatMap((entry) =>
+      entry.hashtag ? [{ ...entry, hashtag: entry.hashtag }] : [],
+    ) ?? [];
 
   if (layout === "strip") {
     if (hashtags.length === 0) return null;
     return (
-      <nav aria-label={t("trending.title")} className="scrollbar-none -mx-3 mb-2.5 flex items-center gap-1.5 overflow-x-auto px-3 sm:-mx-4 sm:px-4">
+      <nav
+        aria-label={t("trending.title")}
+        className="scrollbar-none -mx-3 mb-2.5 flex items-center gap-1.5 overflow-x-auto px-3 sm:-mx-4 sm:px-4"
+      >
         <span className="flex shrink-0 items-center gap-1 text-xs font-black text-coral">
           <TrendingUp className="size-4" />
           {t("trending.short")}
         </span>
         {hashtags.map((entry) => (
-          <Link key={entry.hashtag.tag} to="/tag/$tag" params={{ tag: entry.hashtag.tag }} className="shrink-0 rounded-full border-2 border-line bg-surface px-3 py-1 text-sm font-black hover:border-ink-faint">
+          <Link
+            key={entry.hashtag.tag}
+            to="/tag/$tag"
+            params={{ tag: entry.hashtag.tag }}
+            className="shrink-0 rounded-full border-2 border-line bg-surface px-3 py-1 text-sm font-black hover:border-ink-faint"
+          >
             #{entry.hashtag.tag}
           </Link>
         ))}
@@ -35,7 +46,11 @@ export function TrendingHashtags({ layout }: { layout: "panel" | "strip" }) {
   }
 
   return (
-    <section className="sticker rounded-card bg-surface p-4" aria-label={t("trending.title")} data-testid="trending">
+    <section
+      className="sticker rounded-card bg-surface p-4"
+      aria-label={t("trending.title")}
+      data-testid="trending"
+    >
       <h2 className="flex items-center gap-2 text-lg font-black">
         <TrendingUp className="size-5 text-coral" />
         {t("trending.title")}
@@ -52,13 +67,24 @@ export function TrendingHashtags({ layout }: { layout: "panel" | "strip" }) {
         <ol className="mt-2 flex flex-col">
           {hashtags.map((entry, index) => (
             <li key={entry.hashtag.tag}>
-              <Link to="/tag/$tag" params={{ tag: entry.hashtag.tag }} className="-mx-2 flex items-center gap-3 rounded-2xl px-2 py-2 hover:bg-surface-2">
-                <span className={cn("grid size-7 shrink-0 place-items-center rounded-lg border-2 border-ink text-xs font-black text-[#17122b]", RANK_TINT[index] ?? "bg-surface-2 text-ink")}>
+              <Link
+                to="/tag/$tag"
+                params={{ tag: entry.hashtag.tag }}
+                className="-mx-2 flex items-center gap-3 rounded-2xl px-2 py-2 hover:bg-surface-2"
+              >
+                <span
+                  className={cn(
+                    "grid size-7 shrink-0 place-items-center rounded-lg border-2 border-ink text-xs font-black text-[#17122b]",
+                    RANK_TINT[index] ?? "bg-surface-2 text-ink",
+                  )}
+                >
                   {entry.rank || index + 1}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-black">#{entry.hashtag.tag}</span>
-                  <span className="block text-xs font-bold text-ink-faint">{t("trending.count", { count: Number(entry.recentNoteCount) })}</span>
+                  <span className="block text-xs font-bold text-ink-faint">
+                    {t("trending.count", { count: Number(entry.recentNoteCount) })}
+                  </span>
                 </span>
               </Link>
             </li>

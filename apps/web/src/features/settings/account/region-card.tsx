@@ -8,9 +8,9 @@ import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { SelectField } from "#/components/ui/select";
 import { accountClient } from "#/lib/api";
+import { errorMessage } from "#/lib/errors";
 import { type Language, normalizeLanguage, setLanguage } from "#/lib/i18n";
 import { adoptMe } from "../data";
-import { errorMessage } from "#/lib/errors";
 import { Group } from "../shell/settings-page";
 import { allTimeZones, deviceTimeZone, searchTimeZones, zoneLabel, zoneOffset } from "./time-zone";
 
@@ -32,7 +32,8 @@ export function RegionCard({ me }: { me: identity.Me }) {
 
   // Language and time zone are stored with the profile on the account.
   const save = useMutation({
-    mutationFn: (patch: { locale?: string; timeZone?: string }) => accountClient().updateProfile(patch),
+    mutationFn: (patch: { locale?: string; timeZone?: string }) =>
+      accountClient().updateProfile(patch),
     onSuccess: (response, patch) => {
       adoptMe(response.me);
       if (patch.timeZone) toast.success(t("account.region.timeZoneSaved"));
@@ -48,7 +49,13 @@ export function RegionCard({ me }: { me: identity.Me }) {
 
   return (
     <Group title={t("account.region.title")}>
-      <SelectField<Language> label={t("account.region.language")} hint={t("account.region.languageHint")} value={language} onChange={changeLanguage} options={LANGUAGES} />
+      <SelectField<Language>
+        label={t("account.region.language")}
+        hint={t("account.region.languageHint")}
+        value={language}
+        onChange={changeLanguage}
+        options={LANGUAGES}
+      />
 
       <div className="mt-5">
         <p className="px-1 text-sm font-bold">{t("account.region.timeZone")}</p>
@@ -59,13 +66,24 @@ export function RegionCard({ me }: { me: identity.Me }) {
             </span>
             <span className="block text-sm text-ink-soft">{zoneOffset(me.timeZone)}</span>
           </p>
-          <Button size="sm" variant="secondary" className="shrink-0" onClick={() => setPickingZone(true)}>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="shrink-0"
+            onClick={() => setPickingZone(true)}
+          >
             {t("account.region.changeTimeZone")}
           </Button>
         </div>
         <p className="mt-1.5 px-1 text-sm text-ink-soft">{t("account.region.timeZoneHint")}</p>
         {deviceZone !== me.timeZone && (
-          <Button size="sm" variant="lime" className="mt-3" loading={save.isPending && save.variables?.timeZone === deviceZone} onClick={() => save.mutate({ timeZone: deviceZone })}>
+          <Button
+            size="sm"
+            variant="lime"
+            className="mt-3"
+            loading={save.isPending && save.variables?.timeZone === deviceZone}
+            onClick={() => save.mutate({ timeZone: deviceZone })}
+          >
             {t("account.region.useDeviceZone", { zone: zoneLabel(deviceZone) })}
           </Button>
         )}
@@ -85,16 +103,31 @@ export function RegionCard({ me }: { me: identity.Me }) {
   );
 }
 
-function TimeZoneDialog({ current, onPick, onClose }: { current: string; onPick(zone: string): void; onClose(): void }) {
+function TimeZoneDialog({
+  current,
+  onPick,
+  onClose,
+}: {
+  current: string;
+  onPick(zone: string): void;
+  onClose(): void;
+}) {
   const { t } = useTranslation("settings");
   const [query, setQuery] = useState("");
   // Before anything is typed, the zones most likely wanted lead the list: the current one and this device's.
   const likely = query.trim() ? [] : [...new Set([current, deviceTimeZone()])];
-  const matches = [...likely, ...searchTimeZones(allTimeZones(), query).filter((zone) => !likely.includes(zone))];
+  const matches = [
+    ...likely,
+    ...searchTimeZones(allTimeZones(), query).filter((zone) => !likely.includes(zone)),
+  ];
   const shown = matches.slice(0, MAX_ZONES_SHOWN);
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()} title={t("account.region.pickTimeZone")}>
+    <Dialog
+      open
+      onOpenChange={(open) => !open && onClose()}
+      title={t("account.region.pickTimeZone")}
+    >
       <label className="flex h-12 items-center gap-2 rounded-control border-2 border-line bg-surface px-4 focus-within:border-brand">
         <Search className="size-5 text-ink-faint" />
         <input
@@ -111,15 +144,34 @@ function TimeZoneDialog({ current, onPick, onClose }: { current: string; onPick(
       <ul className="mt-3 flex min-h-64 flex-col gap-0.5">
         {shown.map((zone) => (
           <li key={zone}>
-            <button type="button" onClick={() => onPick(zone)} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-surface-2">
+            <button
+              type="button"
+              onClick={() => onPick(zone)}
+              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-surface-2"
+            >
               <span className="min-w-0 flex-1 truncate font-bold">{zoneLabel(zone)}</span>
-              <span className="shrink-0 text-sm tabular-nums text-ink-soft">{zoneOffset(zone)}</span>
-              {zone === current && <Check className="size-5 shrink-0 text-brand" aria-label={t("account.region.currentTimeZone")} />}
+              <span className="shrink-0 text-sm tabular-nums text-ink-soft">
+                {zoneOffset(zone)}
+              </span>
+              {zone === current && (
+                <Check
+                  className="size-5 shrink-0 text-brand"
+                  aria-label={t("account.region.currentTimeZone")}
+                />
+              )}
             </button>
           </li>
         ))}
-        {matches.length === 0 && <li className="px-3 py-8 text-center text-sm font-bold text-ink-faint">{t("account.region.noTimeZone")}</li>}
-        {matches.length > shown.length && <li className="px-3 py-3 text-center text-sm text-ink-faint">{t("account.region.moreTimeZones", { count: matches.length - shown.length })}</li>}
+        {matches.length === 0 && (
+          <li className="px-3 py-8 text-center text-sm font-bold text-ink-faint">
+            {t("account.region.noTimeZone")}
+          </li>
+        )}
+        {matches.length > shown.length && (
+          <li className="px-3 py-3 text-center text-sm text-ink-faint">
+            {t("account.region.moreTimeZones", { count: matches.length - shown.length })}
+          </li>
+        )}
       </ul>
     </Dialog>
   );

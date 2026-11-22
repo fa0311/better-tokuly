@@ -23,7 +23,9 @@ export function LogoMark({ className }: { className?: string }) {
 
 export function Logo({ className }: { className?: string }) {
   return (
-    <span className={cn("inline-flex items-center gap-2 text-2xl font-black tracking-tight", className)}>
+    <span
+      className={cn("inline-flex items-center gap-2 text-2xl font-black tracking-tight", className)}
+    >
       <LogoMark className="size-9" />
       Tokuly
     </span>

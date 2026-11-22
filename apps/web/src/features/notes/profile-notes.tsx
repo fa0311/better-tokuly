@@ -53,7 +53,16 @@ export function ProfileNotes({ userId, isSelf }: ProfileNotesProps) {
         <ProfileActivity userId={userId} />
       ) : (
         <ScrollScope scrollId="profile">
-          <Timeline key={tab} source={{ kind: "user", userId, filter: FILTERS[tab] }} empty={<EmptyState emoji={tab === "likes" ? "💗" : tab === "media" ? "🖼️" : "📝"} title={t(`profile.empty.${tab}.${who}`)} />} />
+          <Timeline
+            key={tab}
+            source={{ kind: "user", userId, filter: FILTERS[tab] }}
+            empty={
+              <EmptyState
+                emoji={tab === "likes" ? "💗" : tab === "media" ? "🖼️" : "📝"}
+                title={t(`profile.empty.${tab}.${who}`)}
+              />
+            }
+          />
         </ScrollScope>
       )}
       {isSelf && <ComposeButton />}
@@ -80,7 +89,9 @@ function ProfileActivity({ userId }: { userId: string }) {
     <div className="flex flex-col gap-4">
       {groupByDay(activities, (activity) => toMillis(activity.occurredAt)).map((day) => (
         <section key={day.key}>
-          <h3 className="mb-1.5 px-1 text-sm font-black text-ink-soft">{dayLabel(day.date, i18n.language, t)}</h3>
+          <h3 className="mb-1.5 px-1 text-sm font-black text-ink-soft">
+            {dayLabel(day.date, i18n.language, t)}
+          </h3>
           <div className="flex flex-col gap-1.5">
             {day.items.map((activity) => (
               <ActivityRow key={activity.id} activity={activity} />

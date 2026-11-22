@@ -1,7 +1,8 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { GeoLayer, type LatLng, MapFrame, useIsDark, useMap } from "#/features/places";
+import { GeoLayer, MapFrame, useIsDark, useMap } from "#/features/map";
+import type { LatLng } from "#/features/places";
 import { footprintClient, footprintKeys } from "./api";
 import { cellPolygons, fogShapes } from "./hexes";
 
@@ -38,7 +39,12 @@ function viewOf(map: ReturnType<typeof useMap>): View {
   const east = bounds.getEast();
   const wide = east - west >= 360;
   return {
-    box: [clamp(snapDown(bounds.getSouth()), -85, 85), wide ? -180 : clamp(snapDown(west), -180, 180), clamp(snapUp(bounds.getNorth()), -85, 85), wide ? 180 : clamp(snapUp(east), -180, 180)],
+    box: [
+      clamp(snapDown(bounds.getSouth()), -85, 85),
+      wide ? -180 : clamp(snapDown(west), -180, 180),
+      clamp(snapUp(bounds.getNorth()), -85, 85),
+      wide ? 180 : clamp(snapUp(east), -180, 180),
+    ],
     zoom,
   };
 }
@@ -62,7 +68,10 @@ function Fog({ userId, fresh }: { userId: string; fresh: string[] }) {
     queryFn: () =>
       footprintClient().getCells({
         userId,
-        bounds: { southWest: { lat: view.box[0], lng: view.box[1] }, northEast: { lat: view.box[2], lng: view.box[3] } },
+        bounds: {
+          southWest: { lat: view.box[0], lng: view.box[1] },
+          northEast: { lat: view.box[2], lng: view.box[3] },
+        },
         zoom: view.zoom,
       }),
     placeholderData: keepPreviousData,
@@ -80,29 +89,70 @@ function Fog({ userId, fresh }: { userId: string; fresh: string[] }) {
       <GeoLayer
         id="footprint-fog"
         data={shapes.fog}
-        layers={[{ id: "footprint-fog-fill", type: "fill", paint: { "fill-color": palette.fog, "fill-opacity": palette.fogOpacity, "fill-antialias": true } }]}
+        layers={[
+          {
+            id: "footprint-fog-fill",
+            type: "fill",
+            paint: {
+              "fill-color": palette.fog,
+              "fill-opacity": palette.fogOpacity,
+              "fill-antialias": true,
+            },
+          },
+        ]}
       />
       <GeoLayer
         id="footprint-uncovered"
         data={shapes.uncovered}
         layers={[
-          { id: "footprint-edge-glow", type: "line", paint: { "line-color": palette.edge, "line-width": 7, "line-blur": 6, "line-opacity": 0.55 } },
-          { id: "footprint-edge", type: "line", paint: { "line-color": palette.edge, "line-width": 1.5, "line-opacity": 0.9 } },
+          {
+            id: "footprint-edge-glow",
+            type: "line",
+            paint: {
+              "line-color": palette.edge,
+              "line-width": 7,
+              "line-blur": 6,
+              "line-opacity": 0.55,
+            },
+          },
+          {
+            id: "footprint-edge",
+            type: "line",
+            paint: { "line-color": palette.edge, "line-width": 1.5, "line-opacity": 0.9 },
+          },
         ]}
       />
       <GeoLayer
         id="footprint-fresh"
         data={freshShapes}
         layers={[
-          { id: "footprint-fresh-fill", type: "fill", paint: { "fill-color": palette.fresh, "fill-opacity": 0.45 } },
-          { id: "footprint-fresh-edge", type: "line", paint: { "line-color": palette.fresh, "line-width": 2 } },
+          {
+            id: "footprint-fresh-fill",
+            type: "fill",
+            paint: { "fill-color": palette.fresh, "fill-opacity": 0.45 },
+          },
+          {
+            id: "footprint-fresh-edge",
+            type: "line",
+            paint: { "line-color": palette.fresh, "line-width": 2 },
+          },
         ]}
       />
       {data && (
         <div className="pointer-events-none absolute bottom-3 left-3 z-10 flex max-w-[calc(100%-1.5rem)] flex-col items-start gap-1.5">
-          {data.truncated && <p className="glass rounded-full px-3 py-1 text-xs font-bold text-ink-soft">{t("map.truncated")}</p>}
-          <p className="glass sticker-sm rounded-full px-3 py-1 text-xs font-black" data-testid="footprint-cells" data-cells={data.cells.length}>
-            {data.cells.length > 0 ? t("map.cellsHere", { count: data.cells.length }) : t("map.noneHere")}
+          {data.truncated && (
+            <p className="glass rounded-full px-3 py-1 text-xs font-bold text-ink-soft">
+              {t("map.truncated")}
+            </p>
+          )}
+          <p
+            className="glass sticker-sm rounded-full px-3 py-1 text-xs font-black"
+            data-testid="footprint-cells"
+            data-cells={data.cells.length}
+          >
+            {data.cells.length > 0
+              ? t("map.cellsHere", { count: data.cells.length })
+              : t("map.noneHere")}
           </p>
         </div>
       )}

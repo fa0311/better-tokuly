@@ -143,7 +143,12 @@ export interface Animation {
 export function isAnimation(value: unknown): value is Animation {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Partial<Animation>;
-  return Array.isArray(candidate.layers) && typeof candidate.w === "number" && typeof candidate.h === "number" && typeof candidate.op === "number";
+  return (
+    Array.isArray(candidate.layers) &&
+    typeof candidate.w === "number" &&
+    typeof candidate.h === "number" &&
+    typeof candidate.op === "number"
+  );
 }
 
 // ───────────────────────────── Easing ─────────────────────────────
@@ -156,7 +161,8 @@ export function cubicBezierEase(x1: number, y1: number, x2: number, y2: number, 
   if (x <= 0) return 0;
   if (x >= 1) return 1;
   if (x1 === y1 && x2 === y2) return x;
-  const curve = (a: number, b: number, t: number) => ((1 - 3 * b + 3 * a) * t + (3 * b - 6 * a)) * t * t + 3 * a * t;
+  const curve = (a: number, b: number, t: number) =>
+    ((1 - 3 * b + 3 * a) * t + (3 * b - 6 * a)) * t * t + 3 * a * t;
   // The curve is monotonic in x, so a bisection always finds the parameter.
   let low = 0;
   let high = 1;
@@ -171,7 +177,11 @@ export function cubicBezierEase(x1: number, y1: number, x2: number, y2: number, 
   return curve(y1, y2, t);
 }
 
-function component(value: number | number[] | undefined, dimension: number, fallback: number): number {
+function component(
+  value: number | number[] | undefined,
+  dimension: number,
+  fallback: number,
+): number {
   if (value === undefined) return fallback;
   if (typeof value === "number") return value;
   return value[dimension] ?? value[0] ?? fallback;
@@ -180,7 +190,9 @@ function component(value: number | number[] | undefined, dimension: number, fall
 // ───────────────────────────── Properties ─────────────────────────────
 
 function isKeyframes(value: unknown): value is Keyframe[] {
-  return Array.isArray(value) && typeof value[0] === "object" && value[0] !== null && "t" in value[0];
+  return (
+    Array.isArray(value) && typeof value[0] === "object" && value[0] !== null && "t" in value[0]
+  );
 }
 
 function isShape(value: unknown): value is ShapeData {
@@ -196,14 +208,19 @@ function unwrapShape(value: unknown): ShapeData | undefined {
 
 function asVector(value: unknown): number[] | undefined {
   if (typeof value === "number") return [value];
-  if (Array.isArray(value) && (value.length === 0 || typeof value[0] === "number")) return value as number[];
+  if (Array.isArray(value) && (value.length === 0 || typeof value[0] === "number"))
+    return value as number[];
   return undefined;
 }
 
 /** The keyframe segment `frame` falls in, with how far through it (0..1, before easing). */
-function segmentAt(keyframes: Keyframe[], frame: number): { from: Keyframe; to: Keyframe | undefined; progress: number } {
+function segmentAt(
+  keyframes: Keyframe[],
+  frame: number,
+): { from: Keyframe; to: Keyframe | undefined; progress: number } {
   const first = keyframes[0]!;
-  if (frame <= first.t || keyframes.length === 1) return { from: first, to: undefined, progress: 0 };
+  if (frame <= first.t || keyframes.length === 1)
+    return { from: first, to: undefined, progress: 0 };
   let low = 0;
   let high = keyframes.length - 1;
   while (high - low > 1) {
@@ -230,7 +247,11 @@ function restValue(keyframes: Keyframe[], keyframe: Keyframe): unknown {
 }
 
 /** A numeric property (1 or more dimensions) at `frame`. */
-export function vectorAt(property: Property | undefined, frame: number, fallback: number[]): number[] {
+export function vectorAt(
+  property: Property | undefined,
+  frame: number,
+  fallback: number[],
+): number[] {
   if (!property) return fallback;
   const value = property.k;
   if (!isKeyframes(value)) return asVector(value) ?? fallback;
@@ -242,7 +263,13 @@ export function vectorAt(property: Property | undefined, frame: number, fallback
   const end = asVector(endValue(from, to)) ?? start;
 
   const eased = (dimension: number) =>
-    cubicBezierEase(component(from.o?.x, dimension, 0), component(from.o?.y, dimension, 0), component(from.i?.x, dimension, 1), component(from.i?.y, dimension, 1), progress);
+    cubicBezierEase(
+      component(from.o?.x, dimension, 0),
+      component(from.o?.y, dimension, 0),
+      component(from.i?.x, dimension, 1),
+      component(from.i?.y, dimension, 1),
+      progress,
+    );
 
   // A motion path: the point travels along a bezier between the two positions.
   if (from.to && from.ti && (from.to.some((n) => n !== 0) || from.ti.some((n) => n !== 0))) {
@@ -274,8 +301,18 @@ export function shapeAt(property: Property | undefined, frame: number): ShapeDat
   const end = unwrapShape(endValue(from, to));
   if (!end || end.v.length !== start.v.length) return start;
 
-  const t = cubicBezierEase(component(from.o?.x, 0, 0), component(from.o?.y, 0, 0), component(from.i?.x, 0, 1), component(from.i?.y, 0, 1), progress);
-  const mix = (a: number[][], b: number[][]) => a.map((point, index) => [point[0]! + (b[index]![0]! - point[0]!) * t, point[1]! + (b[index]![1]! - point[1]!) * t]);
+  const t = cubicBezierEase(
+    component(from.o?.x, 0, 0),
+    component(from.o?.y, 0, 0),
+    component(from.i?.x, 0, 1),
+    component(from.i?.y, 0, 1),
+    progress,
+  );
+  const mix = (a: number[][], b: number[][]) =>
+    a.map((point, index) => [
+      point[0]! + (b[index]![0]! - point[0]!) * t,
+      point[1]! + (b[index]![1]! - point[1]!) * t,
+    ]);
   return { v: mix(start.v, end.v), i: mix(start.i, end.i), o: mix(start.o, end.o), c: start.c };
 }
 
@@ -330,7 +367,17 @@ export function transformMatrix(transform: Transform | undefined, frame: number)
     const axis = numberAt(transform.sa, frame, 0) * RADIANS;
     const cos = Math.cos(axis);
     const sin = Math.sin(axis);
-    matrix = multiply(matrix, multiply(multiply([cos, sin, -sin, cos, 0, 0], [1, 0, Math.tan(-skew), 1, 0, 0]), [cos, -sin, sin, cos, 0, 0]));
+    matrix = multiply(
+      matrix,
+      multiply(multiply([cos, sin, -sin, cos, 0, 0], [1, 0, Math.tan(-skew), 1, 0, 0]), [
+        cos,
+        -sin,
+        sin,
+        cos,
+        0,
+        0,
+      ]),
+    );
   }
   const sx = (scale[0] ?? 100) / 100;
   const sy = (scale[1] ?? scale[0] ?? 100) / 100;
@@ -431,14 +478,23 @@ export function rectShape(center: number[], size: number[], roundness: number): 
 }
 
 /** A star (alternating outer and inner radius) or a regular polygon, with straight edges. */
-export function starShape(center: number[], points: number, outer: number, inner: number | undefined, rotationDegrees: number): ShapeData {
+export function starShape(
+  center: number[],
+  points: number,
+  outer: number,
+  inner: number | undefined,
+  rotationDegrees: number,
+): ShapeData {
   const count = Math.max(3, Math.round(points));
   const steps = inner === undefined ? count : count * 2;
   const v: number[][] = [];
   for (let step = 0; step < steps; step++) {
     const radius = inner !== undefined && step % 2 === 1 ? inner : outer;
     const angle = (rotationDegrees - 90) * RADIANS + (step * 2 * Math.PI) / steps;
-    v.push([(center[0] ?? 0) + radius * Math.cos(angle), (center[1] ?? 0) + radius * Math.sin(angle)]);
+    v.push([
+      (center[0] ?? 0) + radius * Math.cos(angle),
+      (center[1] ?? 0) + radius * Math.sin(angle),
+    ]);
   }
   const zero = v.map(() => [0, 0]);
   return { c: true, v, i: zero, o: zero };
@@ -459,7 +515,16 @@ function segmentsOf(shape: ShapeData): Cubic[] {
     const b = shape.v[next]!;
     const out = shape.o[index] ?? [0, 0];
     const into = shape.i[next] ?? [0, 0];
-    segments.push([a[0]!, a[1]!, a[0]! + out[0]!, a[1]! + out[1]!, b[0]! + into[0]!, b[1]! + into[1]!, b[0]!, b[1]!]);
+    segments.push([
+      a[0]!,
+      a[1]!,
+      a[0]! + out[0]!,
+      a[1]! + out[1]!,
+      b[0]! + into[0]!,
+      b[1]! + into[1]!,
+      b[0]!,
+      b[1]!,
+    ]);
   }
   return segments;
 }
@@ -545,7 +610,13 @@ function contourOf(segments: Cubic[]): ShapeData {
  * (0..1 of its length, shifted by `offset` turns; the stretch may wrap
  * around). With `sequential`, the contours count as one long path.
  */
-export function trimShapes(shapes: ShapeData[], start: number, end: number, offset: number, sequential = false): ShapeData[] {
+export function trimShapes(
+  shapes: ShapeData[],
+  start: number,
+  end: number,
+  offset: number,
+  sequential = false,
+): ShapeData[] {
   let from = Math.min(start, end);
   let to = Math.max(start, end);
   if (to - from >= 1) return shapes;
@@ -554,12 +625,24 @@ export function trimShapes(shapes: ShapeData[], start: number, end: number, offs
   from += shift;
   to += shift;
   // Up to two stretches of the unit interval once the range wraps around.
-  const ranges: [number, number][] = to <= 1 ? [[from, to]] : from >= 1 ? [[from - 1, to - 1]] : [[from, 1], [0, to - 1]];
+  const ranges: [number, number][] =
+    to <= 1
+      ? [[from, to]]
+      : from >= 1
+        ? [[from - 1, to - 1]]
+        : [
+            [from, 1],
+            [0, to - 1],
+          ];
 
   const measured = shapes.map((shape) => {
     const segments = segmentsOf(shape);
     const tables = segments.map(lengthTable);
-    return { segments, tables, length: tables.reduce((sum, table) => sum + table[LENGTH_STEPS]!, 0) };
+    return {
+      segments,
+      tables,
+      length: tables.reduce((sum, table) => sum + table[LENGTH_STEPS]!, 0),
+    };
   });
   const total = measured.reduce((sum, item) => sum + item.length, 0);
 
@@ -578,7 +661,8 @@ export function trimShapes(shapes: ShapeData[], start: number, end: number, offs
         const length = table[LENGTH_STEPS]!;
         const localFrom = Math.max(0, keepFrom - position);
         const localTo = Math.min(length, keepTo - position);
-        if (localTo > localFrom) run.push(subCubic(segment, parameterAt(table, localFrom), parameterAt(table, localTo)));
+        if (localTo > localFrom)
+          run.push(subCubic(segment, parameterAt(table, localFrom), parameterAt(table, localTo)));
         position += length;
       });
       if (run.length > 0) result.push(contourOf(run));
@@ -604,32 +688,58 @@ export function gradientStops(values: number[], count: number): GradientStop[] {
   const colors: { offset: number; rgb: [number, number, number] }[] = [];
   for (let index = 0; index < count; index++) {
     const base = index * 4;
-    colors.push({ offset: values[base] ?? 0, rgb: [(values[base + 1] ?? 0) * 255, (values[base + 2] ?? 0) * 255, (values[base + 3] ?? 0) * 255] });
+    colors.push({
+      offset: values[base] ?? 0,
+      rgb: [
+        (values[base + 1] ?? 0) * 255,
+        (values[base + 2] ?? 0) * 255,
+        (values[base + 3] ?? 0) * 255,
+      ],
+    });
   }
   const alphas: { offset: number; alpha: number }[] = [];
-  for (let index = count * 4; index + 1 < values.length; index += 2) alphas.push({ offset: values[index]!, alpha: values[index + 1]! });
+  for (let index = count * 4; index + 1 < values.length; index += 2)
+    alphas.push({ offset: values[index]!, alpha: values[index + 1]! });
   if (colors.length === 0) return [];
 
-  const sample = <T extends { offset: number }>(stops: T[], offset: number, mix: (a: T, b: T, t: number) => T): T => {
+  const sample = <T extends { offset: number }>(
+    stops: T[],
+    offset: number,
+    mix: (a: T, b: T, t: number) => T,
+  ): T => {
     if (offset <= stops[0]!.offset) return stops[0]!;
     for (let index = 1; index < stops.length; index++) {
       const a = stops[index - 1]!;
       const b = stops[index]!;
-      if (offset <= b.offset) return mix(a, b, b.offset === a.offset ? 0 : (offset - a.offset) / (b.offset - a.offset));
+      if (offset <= b.offset)
+        return mix(a, b, b.offset === a.offset ? 0 : (offset - a.offset) / (b.offset - a.offset));
     }
     return stops[stops.length - 1]!;
   };
   const colorAt = (offset: number) =>
     sample(colors, offset, (a, b, t) => {
-      const rgb: [number, number, number] = [a.rgb[0] + (b.rgb[0] - a.rgb[0]) * t, a.rgb[1] + (b.rgb[1] - a.rgb[1]) * t, a.rgb[2] + (b.rgb[2] - a.rgb[2]) * t];
+      const rgb: [number, number, number] = [
+        a.rgb[0] + (b.rgb[0] - a.rgb[0]) * t,
+        a.rgb[1] + (b.rgb[1] - a.rgb[1]) * t,
+        a.rgb[2] + (b.rgb[2] - a.rgb[2]) * t,
+      ];
       return { offset, rgb };
     }).rgb;
-  const alphaAt = (offset: number) => (alphas.length === 0 ? 1 : sample(alphas, offset, (a, b, t) => ({ offset, alpha: a.alpha + (b.alpha - a.alpha) * t })).alpha);
+  const alphaAt = (offset: number) =>
+    alphas.length === 0
+      ? 1
+      : sample(alphas, offset, (a, b, t) => ({ offset, alpha: a.alpha + (b.alpha - a.alpha) * t }))
+          .alpha;
 
-  const offsets = [...new Set([...colors.map((stop) => stop.offset), ...alphas.map((stop) => stop.offset)])].sort((a, b) => a - b);
+  const offsets = [
+    ...new Set([...colors.map((stop) => stop.offset), ...alphas.map((stop) => stop.offset)]),
+  ].sort((a, b) => a - b);
   return offsets.map((offset) => {
     const rgb = colorAt(offset);
-    return { offset: Math.min(1, Math.max(0, offset)), color: [rgb[0], rgb[1], rgb[2], alphaAt(offset)] };
+    return {
+      offset: Math.min(1, Math.max(0, offset)),
+      color: [rgb[0], rgb[1], rgb[2], alphaAt(offset)],
+    };
   });
 }
 

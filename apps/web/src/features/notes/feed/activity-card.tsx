@@ -2,11 +2,18 @@ import { Link } from "@tanstack/react-router";
 import { common, feed, toMillis } from "@tokuly/api";
 import { ChevronRight, Globe, Lock, UsersRound } from "lucide-react";
 import type { ReactNode } from "react";
-import type { Subject } from "#/features/engagement";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { Skeleton } from "#/components/ui/page";
-import { BookmarkButton, ReactionBar, ShareButton, useEngagement, useOpenPath } from "#/features/engagement";
+import { EmojiText } from "#/features/emoji";
+import type { Subject } from "#/features/engagement";
+import {
+  BookmarkButton,
+  ReactionBar,
+  ShareButton,
+  useEngagement,
+  useOpenPath,
+} from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { useIsDeleted, useNote } from "../api";
 import { NoteCard } from "../note-card";
@@ -35,7 +42,9 @@ const KIND_EMOJI: [prefix: string, emoji: string][] = [
 ];
 
 export function kindEmoji(kind: string): string {
-  return KIND_EMOJI.find(([prefix]) => kind === prefix || kind.startsWith(`${prefix}.`))?.[1] ?? "✨";
+  return (
+    KIND_EMOJI.find(([prefix]) => kind === prefix || kind.startsWith(`${prefix}.`))?.[1] ?? "✨"
+  );
 }
 
 /** Extra data a producing domain attached to an activity; `{}` when there is none or it does not parse. */
@@ -64,11 +73,17 @@ function CardHeader({ activity, trailing }: { activity: feed.Activity; trailing?
       <div className="min-w-0 flex-1">
         <p className="flex items-baseline gap-1.5">
           {actor && (
-            <Link to="/u/$handle" params={{ handle: actor.handle }} className="truncate text-sm font-black hover:underline">
-              {actor.displayName}
+            <Link
+              to="/u/$handle"
+              params={{ handle: actor.handle }}
+              className="truncate text-sm font-black hover:underline"
+            >
+              <EmojiText text={actor.displayName} />
             </Link>
           )}
-          <span className="shrink-0 text-xs text-ink-faint">{noteAge(toMillis(activity.occurredAt), i18n.language)}</span>
+          <span className="shrink-0 text-xs text-ink-faint">
+            {noteAge(toMillis(activity.occurredAt), i18n.language)}
+          </span>
         </p>
         <p className="truncate text-xs font-bold text-ink-faint">
           <span aria-hidden>{kindEmoji(activity.kind)}</span> {activity.kindLabel}
@@ -83,7 +98,11 @@ function CardHeader({ activity, trailing }: { activity: feed.Activity; trailing?
 function BurstCount({ card }: { card: feed.ActivityCard }) {
   const { t } = useTranslation("notes");
   if (card.count <= 1) return null;
-  return <span className="shrink-0 rounded-full bg-brand-soft px-2 py-0.5 text-xs font-black text-brand">{t("feed.more", { count: card.count - 1 })}</span>;
+  return (
+    <span className="shrink-0 rounded-full bg-brand-soft px-2 py-0.5 text-xs font-black text-brand">
+      {t("feed.more", { count: card.count - 1 })}
+    </span>
+  );
 }
 
 /**
@@ -123,7 +142,11 @@ function FeedNote({ card, activity }: { card: feed.ActivityCard; activity: feed.
     <div>
       <NoteCard note={note.data} />
       {card.count > 1 && activity.actor && (
-        <Link to="/u/$handle" params={{ handle: activity.actor.handle }} className="mt-1 ml-4 inline-block text-xs font-black text-brand hover:underline">
+        <Link
+          to="/u/$handle"
+          params={{ handle: activity.actor.handle }}
+          className="mt-1 ml-4 inline-block text-xs font-black text-brand hover:underline"
+        >
           {t("feed.moreNotes", { name: activity.actor.displayName, count: card.count - 1 })}
         </Link>
       )}
@@ -140,17 +163,34 @@ function PictureCard({ card, activity }: { card: feed.ActivityCard; activity: fe
   const thumbnails = card.more.filter((item) => item.imageUrl).slice(0, 4);
 
   return (
-    <article className="rounded-[1.25rem] border-2 border-line bg-surface p-3.5" data-testid="feed-card" data-card-type={feed.ActivityCardType[card.type]}>
+    <article
+      className="rounded-[1.25rem] border-2 border-line bg-surface p-3.5"
+      data-testid="feed-card"
+      data-card-type={feed.ActivityCardType[card.type]}
+    >
       <CardHeader activity={activity} trailing={<BurstCount card={card} />} />
       <button
         type="button"
         disabled={!activity.path}
         onClick={() => open(activity.path)}
-        className={cn("mt-3 block w-full overflow-hidden rounded-2xl border-2 border-ink text-left", activity.path && "pressable shadow-pop-sm")}
+        className={cn(
+          "mt-3 block w-full overflow-hidden rounded-2xl border-2 border-ink text-left",
+          activity.path && "pressable shadow-pop-sm",
+        )}
       >
         {activity.imageUrl ? (
-          <span className={cn("relative block bg-surface-3", isStory ? "aspect-[4/5] max-h-96 w-full" : "aspect-video")}>
-            <img src={activity.imageUrl} alt="" loading="lazy" className="absolute inset-0 size-full object-cover" />
+          <span
+            className={cn(
+              "relative block bg-surface-3",
+              isStory ? "aspect-[4/5] max-h-96 w-full" : "aspect-video",
+            )}
+          >
+            <img
+              src={activity.imageUrl}
+              alt=""
+              loading="lazy"
+              className="absolute inset-0 size-full object-cover"
+            />
             <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-3 pt-8 pb-2.5 text-[15px] font-black leading-snug text-white">
               <span className="line-clamp-2">{title}</span>
             </span>
@@ -168,13 +208,28 @@ function PictureCard({ card, activity }: { card: feed.ActivityCard; activity: fe
       {thumbnails.length > 0 && (
         <div className="mt-2 flex gap-1.5">
           {thumbnails.map((item) => (
-            <button key={item.id} type="button" onClick={() => open(item.path)} className="size-14 overflow-hidden rounded-xl border-2 border-ink bg-surface-3">
-              <img src={item.imageUrl} alt={item.summary} loading="lazy" className="size-full object-cover" />
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => open(item.path)}
+              className="size-14 overflow-hidden rounded-xl border-2 border-ink bg-surface-3"
+            >
+              <img
+                src={item.imageUrl}
+                alt={item.summary}
+                loading="lazy"
+                className="size-full object-cover"
+              />
             </button>
           ))}
         </div>
       )}
-      {!isStory && activity.subject && <SubjectActions subject={{ type: activity.subject.type, id: activity.subject.id }} title={title} />}
+      {!isStory && activity.subject && (
+        <SubjectActions
+          subject={{ type: activity.subject.type, id: activity.subject.id }}
+          title={title}
+        />
+      )}
     </article>
   );
 }
@@ -201,26 +256,48 @@ function SubjectActions({ subject, title }: { subject: Subject; title: string })
 function CompactCard({ card, activity }: { card: feed.ActivityCard; activity: feed.Activity }) {
   const open = useOpenPath();
   return (
-    <article className="rounded-[1.25rem] border-2 border-line bg-surface p-3.5" data-testid="feed-card" data-card-type={feed.ActivityCardType[card.type]}>
+    <article
+      className="rounded-[1.25rem] border-2 border-line bg-surface p-3.5"
+      data-testid="feed-card"
+      data-card-type={feed.ActivityCardType[card.type]}
+    >
       <CardHeader activity={activity} trailing={<BurstCount card={card} />} />
       <button
         type="button"
         disabled={!activity.path}
         onClick={() => open(activity.path)}
-        className={cn("mt-2.5 flex w-full items-center gap-3 rounded-2xl bg-surface-2 px-3 py-2.5 text-left", activity.path && "hover:bg-surface-3")}
+        className={cn(
+          "mt-2.5 flex w-full items-center gap-3 rounded-2xl bg-surface-2 px-3 py-2.5 text-left",
+          activity.path && "hover:bg-surface-3",
+        )}
       >
         {activity.imageUrl ? (
-          <img src={activity.imageUrl} alt="" loading="lazy" className="size-12 shrink-0 rounded-xl border-2 border-ink object-cover" />
+          <img
+            src={activity.imageUrl}
+            alt=""
+            loading="lazy"
+            className="size-12 shrink-0 rounded-xl border-2 border-ink object-cover"
+          />
         ) : (
-          <span aria-hidden className="grid size-12 shrink-0 place-items-center rounded-xl border-2 border-ink bg-surface text-2xl">
+          <span
+            aria-hidden
+            className="grid size-12 shrink-0 place-items-center rounded-xl border-2 border-ink bg-surface text-2xl"
+          >
             {kindEmoji(activity.kind)}
           </span>
         )}
-        <span className="line-clamp-2 min-w-0 flex-1 text-[15px] font-bold leading-snug">{activity.summary}</span>
+        <span className="line-clamp-2 min-w-0 flex-1 text-[15px] font-bold leading-snug">
+          {activity.summary}
+        </span>
         {activity.withUsers.length > 0 && (
           <span className="flex shrink-0 -space-x-2">
             {activity.withUsers.slice(0, 3).map((user) => (
-              <Avatar key={user.id} user={user} size="xs" className="rounded-[0.5rem] ring-2 ring-surface-2" />
+              <Avatar
+                key={user.id}
+                user={user}
+                size="xs"
+                className="rounded-[0.5rem] ring-2 ring-surface-2"
+              />
             ))}
           </span>
         )}
@@ -241,33 +318,66 @@ const AUDIENCE: Record<feed.ActivityAudience, { key: string; icon: typeof Globe 
  * One entry of an activity log (the viewer's own, or a profile's): the time,
  * what happened, who may see it, and a way to the thing it is about.
  */
-export function ActivityRow({ activity, showAudience, trailing }: { activity: feed.Activity; /** Say who may see the entry (the viewer's own log). */ showAudience?: boolean; trailing?: ReactNode }) {
+export function ActivityRow({
+  activity,
+  showAudience,
+  trailing,
+}: {
+  activity: feed.Activity /** Say who may see the entry (the viewer's own log). */;
+  showAudience?: boolean;
+  trailing?: ReactNode;
+}) {
   const { t, i18n } = useTranslation("notes");
   const open = useOpenPath();
   const when = new Date(toMillis(activity.occurredAt));
   const audience = AUDIENCE[activity.audience] ?? AUDIENCE[feed.ActivityAudience.PRIVATE];
   const hidden = activity.hiddenFromOthers;
   const AudienceIcon = hidden ? Lock : audience.icon;
-  const audienceLabel = hidden ? t("activity.audience.hidden") : t(`activity.audience.${audience.key}`);
+  const audienceLabel = hidden
+    ? t("activity.audience.hidden")
+    : t(`activity.audience.${audience.key}`);
 
   return (
     <div className="flex items-center gap-1 rounded-2xl bg-surface pr-1" data-testid="activity">
-      <button type="button" disabled={!activity.path} onClick={() => open(activity.path)} className={cn("flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-3 py-2.5 text-left", activity.path && "hover:bg-surface-2")}>
+      <button
+        type="button"
+        disabled={!activity.path}
+        onClick={() => open(activity.path)}
+        className={cn(
+          "flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-3 py-2.5 text-left",
+          activity.path && "hover:bg-surface-2",
+        )}
+      >
         {activity.imageUrl ? (
-          <img src={activity.imageUrl} alt="" loading="lazy" className="size-11 shrink-0 rounded-xl border-2 border-ink object-cover" />
+          <img
+            src={activity.imageUrl}
+            alt=""
+            loading="lazy"
+            className="size-11 shrink-0 rounded-xl border-2 border-ink object-cover"
+          />
         ) : (
-          <span aria-hidden className="grid size-11 shrink-0 place-items-center rounded-xl bg-surface-2 text-xl">
+          <span
+            aria-hidden
+            className="grid size-11 shrink-0 place-items-center rounded-xl bg-surface-2 text-xl"
+          >
             {kindEmoji(activity.kind)}
           </span>
         )}
         <span className="min-w-0 flex-1">
-          <span className="line-clamp-2 text-[15px] font-bold leading-snug">{activity.summary}</span>
+          <span className="line-clamp-2 text-[15px] font-bold leading-snug">
+            {activity.summary}
+          </span>
           <span className="mt-0.5 flex items-center gap-1.5 text-xs font-bold text-ink-faint">
-            <time dateTime={when.toISOString()}>{when.toLocaleTimeString(i18n.language, { hour: "2-digit", minute: "2-digit" })}</time>
+            <time dateTime={when.toISOString()}>
+              {when.toLocaleTimeString(i18n.language, { hour: "2-digit", minute: "2-digit" })}
+            </time>
             <span aria-hidden>·</span>
             <span className="truncate">{activity.kindLabel}</span>
             {showAudience && (
-              <span className={cn("inline-flex shrink-0 items-center gap-0.5", hidden && "text-coral")} title={audienceLabel}>
+              <span
+                className={cn("inline-flex shrink-0 items-center gap-0.5", hidden && "text-coral")}
+                title={audienceLabel}
+              >
                 <AudienceIcon className="size-3.5" aria-hidden />
                 <span className="sr-only sm:not-sr-only">{audienceLabel}</span>
               </span>

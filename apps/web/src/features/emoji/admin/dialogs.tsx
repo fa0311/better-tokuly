@@ -10,13 +10,27 @@ import { TextArea } from "#/components/ui/field";
 import { errorMessage } from "#/lib/errors";
 import { shortcode } from "../api";
 import { draftReady, EMPTY_DRAFT, type EmojiDraft, EmojiForm } from "../emoji-form";
-import { emojiAdminClient, useAdminRefresh, UserLine, UserSearch } from "./shared";
+import { emojiAdminClient, UserLine, UserSearch, useAdminRefresh } from "./shared";
 
 /** The longest reason the server keeps. */
 const REASON_MAX = 500;
 
 /** Asks for the reason of a rejection or of taking an emoji out of the catalogue; the author reads it. */
-export function ReasonDialog({ open, onOpenChange, title, confirmLabel, loading, onConfirm }: { open: boolean; onOpenChange(open: boolean): void; title: string; confirmLabel: string; loading: boolean; onConfirm(reason: string): void }) {
+export function ReasonDialog({
+  open,
+  onOpenChange,
+  title,
+  confirmLabel,
+  loading,
+  onConfirm,
+}: {
+  open: boolean;
+  onOpenChange(open: boolean): void;
+  title: string;
+  confirmLabel: string;
+  loading: boolean;
+  onConfirm(reason: string): void;
+}) {
   const { t } = useTranslation("emoji");
   const { t: tCommon } = useTranslation("common");
   const [reason, setReason] = useState("");
@@ -37,13 +51,24 @@ export function ReasonDialog({ open, onOpenChange, title, confirmLabel, loading,
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={loading}>
             {tCommon("actions.cancel")}
           </Button>
-          <Button variant="danger" loading={loading} disabled={!reason.trim()} onClick={() => onConfirm(reason.trim())}>
+          <Button
+            variant="danger"
+            loading={loading}
+            disabled={!reason.trim()}
+            onClick={() => onConfirm(reason.trim())}
+          >
             {confirmLabel}
           </Button>
         </>
       }
     >
-      <TextArea label={t("admin.reason")} value={reason} maxLength={REASON_MAX} onChange={(event) => setReason(event.target.value)} placeholder={t("admin.reasonPlaceholder")} />
+      <TextArea
+        label={t("admin.reason")}
+        value={reason}
+        maxLength={REASON_MAX}
+        onChange={(event) => setReason(event.target.value)}
+        placeholder={t("admin.reasonPlaceholder")}
+      />
     </Dialog>
   );
 }
@@ -53,27 +78,67 @@ export function ReasonDialog({ open, onOpenChange, title, confirmLabel, loading,
  * (`detail` unset) or changing any field of an existing one, including who
  * is credited for it.
  */
-export function EmojiEditDialog({ detail, open, onOpenChange }: { detail?: emojiApi.EmojiDetail; open: boolean; onOpenChange(open: boolean): void }) {
+export function EmojiEditDialog({
+  detail,
+  open,
+  onOpenChange,
+}: {
+  detail?: emojiApi.EmojiDetail;
+  open: boolean;
+  onOpenChange(open: boolean): void;
+}) {
   const { t } = useTranslation("emoji");
   const { t: tCommon } = useTranslation("common");
   const refresh = useAdminRefresh();
   const current = detail?.emoji;
   const [draft, setDraft] = useState<EmojiDraft>(() =>
-    current ? { name: current.name, pictureUrl: current.image?.url, category: current.category, aliases: [...current.aliases], license: detail.license, sensitive: current.sensitive, localOnly: current.localOnly } : EMPTY_DRAFT,
+    current
+      ? {
+          name: current.name,
+          pictureUrl: current.image?.url,
+          category: current.category,
+          aliases: [...current.aliases],
+          license: detail.license,
+          sensitive: current.sensitive,
+          localOnly: current.localOnly,
+        }
+      : EMPTY_DRAFT,
   );
-  const [author, setAuthor] = useState<common.UserSummary | undefined>(detail?.author && !detail.author.deleted ? detail.author : undefined);
+  const [author, setAuthor] = useState<common.UserSummary | undefined>(
+    detail?.author && !detail.author.deleted ? detail.author : undefined,
+  );
   const [uploading, setUploading] = useState(false);
 
   const save = useMutation({
     mutationFn: async () => {
-      const fields = { name: draft.name, category: draft.category, license: draft.license.trim(), sensitive: draft.sensitive, localOnly: draft.localOnly, authorId: author?.id ?? "" };
+      const fields = {
+        name: draft.name,
+        category: draft.category,
+        license: draft.license.trim(),
+        sensitive: draft.sensitive,
+        localOnly: draft.localOnly,
+        authorId: author?.id ?? "",
+      };
       const response = current
-        ? await emojiAdminClient().updateEmoji({ emojiId: current.id, ...fields, assetId: draft.assetId, aliases: { aliases: draft.aliases } })
-        : await emojiAdminClient().addEmoji({ ...fields, assetId: draft.assetId ?? "", aliases: draft.aliases });
+        ? await emojiAdminClient().updateEmoji({
+            emojiId: current.id,
+            ...fields,
+            assetId: draft.assetId,
+            aliases: { aliases: draft.aliases },
+          })
+        : await emojiAdminClient().addEmoji({
+            ...fields,
+            assetId: draft.assetId ?? "",
+            aliases: draft.aliases,
+          });
       return response.emoji;
     },
     onSuccess: async (saved) => {
-      toast.success(t(current ? "admin.saved" : "admin.added", { code: shortcode(saved?.emoji?.name ?? draft.name) }));
+      toast.success(
+        t(current ? "admin.saved" : "admin.added", {
+          code: shortcode(saved?.emoji?.name ?? draft.name),
+        }),
+      );
       onOpenChange(false);
       await refresh();
     },
@@ -85,7 +150,9 @@ export function EmojiEditDialog({ detail, open, onOpenChange }: { detail?: emoji
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
-      title={current ? t("admin.editTitle", { code: shortcode(current.name) }) : t("admin.addTitle")}
+      title={
+        current ? t("admin.editTitle", { code: shortcode(current.name) }) : t("admin.addTitle")
+      }
       footer={
         <>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={save.isPending}>
@@ -97,7 +164,13 @@ export function EmojiEditDialog({ detail, open, onOpenChange }: { detail?: emoji
         </>
       }
     >
-      <EmojiForm draft={draft} onChange={(patch) => setDraft((value) => ({ ...value, ...patch }))} onUploading={setUploading} currentName={current?.name} staff />
+      <EmojiForm
+        draft={draft}
+        onChange={(patch) => setDraft((value) => ({ ...value, ...patch }))}
+        onUploading={setUploading}
+        currentName={current?.name}
+        staff
+      />
       <div className="mt-5">
         {author ? (
           <div>
@@ -106,7 +179,12 @@ export function EmojiEditDialog({ detail, open, onOpenChange }: { detail?: emoji
               <span className="min-w-0 flex-1 truncate">
                 <UserLine user={author} />
               </span>
-              <button type="button" aria-label={t("admin.removeCredit")} onClick={() => setAuthor(undefined)} className="grid size-7 shrink-0 place-items-center rounded-full hover:bg-surface-2">
+              <button
+                type="button"
+                aria-label={t("admin.removeCredit")}
+                onClick={() => setAuthor(undefined)}
+                className="grid size-7 shrink-0 place-items-center rounded-full hover:bg-surface-2"
+              >
                 <X className="size-4" />
               </button>
             </div>

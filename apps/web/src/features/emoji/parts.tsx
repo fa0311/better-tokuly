@@ -19,14 +19,25 @@ export function EmojiTile({ emoji }: { emoji: CatalogEmoji }) {
       className="pressable flex min-w-0 flex-col items-center gap-1.5 rounded-2xl bg-surface px-1.5 pt-3 pb-2 hover:bg-surface-2"
     >
       <EmojiImage emoji={emoji} size={44} className="size-11" />
-      <span className="w-full truncate text-center text-[11px] font-bold text-ink-soft">:{emoji.name}:</span>
+      <span className="w-full truncate text-center text-[11px] font-bold text-ink-soft">
+        :{emoji.name}:
+      </span>
     </Link>
   );
 }
 
 /** The responsive grid emoji tiles sit in. */
 export function TileGrid({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn("grid grid-cols-4 gap-1.5 sm:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10", className)}>{children}</div>;
+  return (
+    <div
+      className={cn(
+        "grid grid-cols-4 gap-1.5 sm:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
 }
 
 export function TileSkeletons({ count = 16 }: { count?: number }) {
@@ -69,10 +80,27 @@ export function StateChip({ state }: { state: emojiApi.EmojiState }) {
 }
 
 /** A rounded search box with a clear button. */
-export function SearchBox({ value, onChange, placeholder, className, autoFocus }: { value: string; onChange(value: string): void; placeholder: string; className?: string; autoFocus?: boolean }) {
+export function SearchBox({
+  value,
+  onChange,
+  placeholder,
+  className,
+  autoFocus,
+}: {
+  value: string;
+  onChange(value: string): void;
+  placeholder: string;
+  className?: string;
+  autoFocus?: boolean;
+}) {
   const { t } = useTranslation("emoji");
   return (
-    <label className={cn("flex h-12 items-center gap-2 rounded-full border-2 border-line bg-surface px-4 focus-within:border-brand", className)}>
+    <label
+      className={cn(
+        "flex h-12 items-center gap-2 rounded-full border-2 border-line bg-surface px-4 focus-within:border-brand",
+        className,
+      )}
+    >
       <Search className="size-5 shrink-0 text-ink-faint" aria-hidden />
       <input
         type="search"
@@ -85,7 +113,12 @@ export function SearchBox({ value, onChange, placeholder, className, autoFocus }
         className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-ink-faint [&::-webkit-search-cancel-button]:hidden"
       />
       {value && (
-        <button type="button" aria-label={t("picker.clear")} onClick={() => onChange("")} className="grid size-7 place-items-center rounded-full text-ink-faint hover:bg-surface-2">
+        <button
+          type="button"
+          aria-label={t("picker.clear")}
+          onClick={() => onChange("")}
+          className="grid size-7 place-items-center rounded-full text-ink-faint hover:bg-surface-2"
+        >
           <X className="size-4" />
         </button>
       )}
@@ -94,13 +127,26 @@ export function SearchBox({ value, onChange, placeholder, className, autoFocus }
 }
 
 /** A pill that filters a list; `aria-pressed` says whether it is the chosen one. */
-export function FilterPill({ active, onClick, children }: { active: boolean; onClick(): void; children: ReactNode }) {
+export function FilterPill({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick(): void;
+  children: ReactNode;
+}) {
   return (
     <button
       type="button"
       aria-pressed={active}
       onClick={onClick}
-      className={cn("flex h-9 shrink-0 items-center gap-1.5 rounded-full border-2 px-3.5 text-sm font-bold transition-colors", active ? "border-ink bg-brand text-on-brand" : "border-line bg-surface text-ink-soft hover:border-ink-faint")}
+      className={cn(
+        "flex h-9 shrink-0 items-center gap-1.5 rounded-full border-2 px-3.5 text-sm font-bold transition-colors",
+        active
+          ? "border-ink bg-brand text-on-brand"
+          : "border-line bg-surface text-ink-soft hover:border-ink-faint",
+      )}
     >
       {children}
     </button>
@@ -113,14 +159,36 @@ export function FilterPill({ active, onClick, children }: { active: boolean; onC
  * for "the other theme": the preview sets the tokens it needs itself.
  */
 const THEME_TOKENS: Record<"light" | "dark", CSSProperties> = {
-  light: { "--surface": "#ffffff", "--ink": "#17122b", "--ink-faint": "#9993ad", "--line": "#ddd6ee" } as CSSProperties,
-  dark: { "--surface": "#17132a", "--ink": "#f6f3ff", "--ink-faint": "#7a7397", "--line": "#322b52" } as CSSProperties,
+  light: {
+    "--surface": "#ffffff",
+    "--ink": "#17122b",
+    "--ink-faint": "#9993ad",
+    "--line": "#ddd6ee",
+  } as CSSProperties,
+  dark: {
+    "--surface": "#17132a",
+    "--ink": "#f6f3ff",
+    "--ink-faint": "#7a7397",
+    "--line": "#322b52",
+  } as CSSProperties,
 };
 
 /** A tile in one theme's colours, whatever theme the page is in. */
-export function ThemeSwatch({ theme, className, children }: { theme: "light" | "dark"; className?: string; children: ReactNode }) {
+export function ThemeSwatch({
+  theme,
+  className,
+  children,
+}: {
+  theme: "light" | "dark";
+  className?: string;
+  children: ReactNode;
+}) {
   return (
-    <div style={THEME_TOKENS[theme]} data-testid={`preview-${theme}`} className={cn("rounded-2xl border-2 border-line bg-surface text-ink", className)}>
+    <div
+      style={THEME_TOKENS[theme]}
+      data-testid={`preview-${theme}`}
+      className={cn("rounded-2xl border-2 border-line bg-surface text-ink", className)}
+    >
       {children}
     </div>
   );
@@ -160,7 +228,11 @@ export function useDebounced<T>(value: T, delay = 250): T {
  * count grows by `step`; it starts over whenever `resetKey` changes (another
  * filter, another list).
  */
-export function useGrowingCount(total: number, step: number, resetKey: string): { shown: number; sentinel: ReactNode } {
+export function useGrowingCount(
+  total: number,
+  step: number,
+  resetKey: string,
+): { shown: number; sentinel: ReactNode } {
   const [state, setState] = useState({ key: resetKey, shown: step });
   if (state.key !== resetKey) setState({ key: resetKey, shown: step });
   const shown = state.key === resetKey ? state.shown : step;
@@ -171,7 +243,8 @@ export function useGrowingCount(total: number, step: number, resetKey: string): 
     if (!element || !more) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) setState((current) => ({ key: current.key, shown: current.shown + step }));
+        if (entries.some((entry) => entry.isIntersecting))
+          setState((current) => ({ key: current.key, shown: current.shown + step }));
       },
       { rootMargin: "600px 0px" },
     );
@@ -179,5 +252,8 @@ export function useGrowingCount(total: number, step: number, resetKey: string): 
     return () => observer.disconnect();
     // `shown` is a dependency so that a sentinel still in view after growing is seen again.
   }, [more, step, shown]);
-  return { shown: Math.min(shown, total), sentinel: more ? <div ref={marker} data-testid="more-emoji" className="h-10" /> : null };
+  return {
+    shown: Math.min(shown, total),
+    sentinel: more ? <div ref={marker} data-testid="more-emoji" className="h-10" /> : null,
+  };
 }

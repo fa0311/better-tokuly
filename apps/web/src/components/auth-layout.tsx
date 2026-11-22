@@ -3,7 +3,17 @@ import type { ReactNode } from "react";
 import { Logo } from "#/components/ui/logo";
 
 /** Centered card on a playful backdrop, shared by every signed-out form. */
-export function AuthLayout({ title, lead, children, footer }: { title: string; lead?: ReactNode; children: ReactNode; footer?: ReactNode }) {
+export function AuthLayout({
+  title,
+  lead,
+  children,
+  footer,
+}: {
+  title: string;
+  lead?: ReactNode;
+  children: ReactNode;
+  footer?: ReactNode;
+}) {
   return (
     <main className="relative grid min-h-dvh place-items-center overflow-hidden px-4 py-10">
       <Backdrop />
@@ -16,7 +26,9 @@ export function AuthLayout({ title, lead, children, footer }: { title: string; l
           {lead && <p className="mt-2 text-sm leading-relaxed text-ink-soft">{lead}</p>}
           <div className="mt-6">{children}</div>
         </section>
-        {footer && <div className="mt-5 text-center text-sm font-medium text-ink-soft">{footer}</div>}
+        {footer && (
+          <div className="mt-5 text-center text-sm font-medium text-ink-soft">{footer}</div>
+        )}
       </div>
     </main>
   );

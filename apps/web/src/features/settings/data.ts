@@ -20,19 +20,29 @@ export const keys = {
 };
 
 /** Everything cached here that belongs to the signed-in account alone (the profile is public). */
-export const PRIVATE_KEYS = [keys.settings, keys.sessions, keys.passkeys, keys.securityEvents, keys.connections, keys.blocked];
+export const PRIVATE_KEYS = [
+  keys.settings,
+  keys.sessions,
+  keys.passkeys,
+  keys.securityEvents,
+  keys.connections,
+  keys.blocked,
+];
 
 /** The account's privacy and appearance settings. */
 export function useSettings() {
   return useQuery({
     queryKey: keys.settings,
-    queryFn: async () => (await accountClient().getSettings({})).settings ?? create(identity.SettingsSchema),
+    queryFn: async () =>
+      (await accountClient().getSettings({})).settings ?? create(identity.SettingsSchema),
     staleTime: 5 * 60_000,
   });
 }
 
 type Group = "privacy" | "appearance";
-type GroupValue<G extends Group> = G extends "privacy" ? identity.PrivacySettings : identity.AppearanceSettings;
+type GroupValue<G extends Group> = G extends "privacy"
+  ? identity.PrivacySettings
+  : identity.AppearanceSettings;
 
 /**
  * Saves run one after another: the server replaces a settings group as a
@@ -47,7 +57,11 @@ let unsaved = 0;
  * once; if the server refuses it, the change is rolled back to what the server
  * has and the reason is shown.
  */
-export function changeSettings<G extends Group>(queryClient: QueryClient, group: G, patch: Partial<GroupValue<G>>): void {
+export function changeSettings<G extends Group>(
+  queryClient: QueryClient,
+  group: G,
+  patch: Partial<GroupValue<G>>,
+): void {
   const current = queryClient.getQueryData<identity.Settings>(keys.settings);
   const stored = current?.[group];
   if (!current || !stored) return;
@@ -60,7 +74,8 @@ export function changeSettings<G extends Group>(queryClient: QueryClient, group:
       const response = await accountClient().updateSettings({ [group]: next });
       unsaved -= 1;
       // While later changes are still queued the screen is ahead of this response.
-      if (unsaved === 0 && response.settings) queryClient.setQueryData(keys.settings, response.settings);
+      if (unsaved === 0 && response.settings)
+        queryClient.setQueryData(keys.settings, response.settings);
     } catch (error) {
       unsaved -= 1;
       toast.error(errorMessage(error));
@@ -72,7 +87,8 @@ export function changeSettings<G extends Group>(queryClient: QueryClient, group:
 /** `changeSettings` bound to the app's query client. */
 export function useChangeSettings() {
   const queryClient = useQueryClient();
-  return <G extends Group>(group: G, patch: Partial<GroupValue<G>>) => changeSettings(queryClient, group, patch);
+  return <G extends Group>(group: G, patch: Partial<GroupValue<G>>) =>
+    changeSettings(queryClient, group, patch);
 }
 
 /** Puts a fresh copy of the account into the session, so every screen shows it. */

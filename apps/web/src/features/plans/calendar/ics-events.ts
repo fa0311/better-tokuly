@@ -45,10 +45,16 @@ export function entryTitle(entry: plans.CalendarEntry, language: string): string
  * exactly as its own page exports it; the calendar entry alone only knows
  * when it starts.
  */
-export function calendarIcsEvents(entries: plans.CalendarEntry[], plansById: ReadonlyMap<string, plans.Plan>, language: string, origin: string): IcsEvent[] {
+export function calendarIcsEvents(
+  entries: plans.CalendarEntry[],
+  plansById: ReadonlyMap<string, plans.Plan>,
+  language: string,
+  origin: string,
+): IcsEvent[] {
   return entries.map((entry) => {
     const url = entry.path ? `${origin}${entry.path}` : undefined;
-    const plan = entry.kind === plans.CalendarEntryKind.PLAN ? plansById.get(entry.refId) : undefined;
+    const plan =
+      entry.kind === plans.CalendarEntryKind.PLAN ? plansById.get(entry.refId) : undefined;
     if (plan) return planIcsEvent(plan, url ?? `${origin}/plans/${plan.id}`);
     return {
       uid: entryUid(entry),

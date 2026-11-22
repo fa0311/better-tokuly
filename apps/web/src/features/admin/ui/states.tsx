@@ -12,7 +12,12 @@ export function ErrorState({ error, onRetry }: { error: unknown; onRetry?(): voi
       <div className="text-5xl">🌀</div>
       <p className="max-w-sm font-bold">{errorMessage(error)}</p>
       {onRetry && (
-        <Button size="sm" variant="secondary" icon={<RotateCw className="size-4" />} onClick={onRetry}>
+        <Button
+          size="sm"
+          variant="secondary"
+          icon={<RotateCw className="size-4" />}
+          onClick={onRetry}
+        >
           {t("actions.retry")}
         </Button>
       )}

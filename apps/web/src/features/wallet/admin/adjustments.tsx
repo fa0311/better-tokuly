@@ -14,7 +14,8 @@ export function AdjustmentsLog({ onOpenUser }: { onOpenUser(userId: string): voi
   const { t } = useTranslation("wallet");
   const query = useInfiniteQuery({
     queryKey: walletKeys.admin.adjustments(""),
-    queryFn: ({ pageParam }) => walletAdminClient().listAdjustments({ page: { limit: PAGE_SIZE, cursor: pageParam } }),
+    queryFn: ({ pageParam }) =>
+      walletAdminClient().listAdjustments({ page: { limit: PAGE_SIZE, cursor: pageParam } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
@@ -36,17 +37,38 @@ export function AdjustmentsLog({ onOpenUser }: { onOpenUser(userId: string): voi
           <LoadMore query={query} />
         </>
       ) : (
-        <EmptyState emoji="🧾" title={t("staff.adjustments.empty")} body={t("staff.adjustments.emptyBody")} />
+        <EmptyState
+          emoji="🧾"
+          title={t("staff.adjustments.empty")}
+          body={t("staff.adjustments.emptyBody")}
+        />
       )}
     </Pane>
   );
 }
 
 /** Corrections as a table on wide screens and as labelled cards on narrow ones (one set of rows, two layouts). */
-export function AdjustmentRows({ adjustments, showUser, onOpenUser }: { adjustments: wallet.Adjustment[]; /** Off inside one user's wallet, where every row is theirs. */ showUser: boolean; onOpenUser?(userId: string): void }) {
+export function AdjustmentRows({
+  adjustments,
+  showUser,
+  onOpenUser,
+}: {
+  adjustments: wallet.Adjustment[] /** Off inside one user's wallet, where every row is theirs. */;
+  showUser: boolean;
+  onOpenUser?(userId: string): void;
+}) {
   const { t, i18n } = useTranslation("wallet");
-  const columns = showUser ? "9.5rem minmax(0,1.2fr) 4rem 6.5rem minmax(0,2fr) minmax(7.5rem,1fr)" : "9.5rem 4rem 6.5rem minmax(0,2fr) minmax(7.5rem,1fr)";
-  const heads = [t("staff.adjustments.when"), ...(showUser ? [t("staff.adjustments.user")] : []), t("staff.adjustments.account"), t("staff.adjustments.delta"), t("staff.adjustments.reason"), t("staff.adjustments.admin")];
+  const columns = showUser
+    ? "9.5rem minmax(0,1.2fr) 4rem 6.5rem minmax(0,2fr) minmax(7.5rem,1fr)"
+    : "9.5rem 4rem 6.5rem minmax(0,2fr) minmax(7.5rem,1fr)";
+  const heads = [
+    t("staff.adjustments.when"),
+    ...(showUser ? [t("staff.adjustments.user")] : []),
+    t("staff.adjustments.account"),
+    t("staff.adjustments.delta"),
+    t("staff.adjustments.reason"),
+    t("staff.adjustments.admin"),
+  ];
 
   return (
     <div>
@@ -54,11 +76,20 @@ export function AdjustmentRows({ adjustments, showUser, onOpenUser }: { adjustme
       <ul className="divide-y-2 divide-line">
         {adjustments.map((adjustment) => (
           <li key={adjustment.id} className={RECORD_ROW} style={{ gridTemplateColumns: columns }}>
-            <Cell label={t("staff.adjustments.when")}>{toDate(adjustment.createdAt)?.toLocaleString(i18n.language, { dateStyle: "short", timeStyle: "short" })}</Cell>
+            <Cell label={t("staff.adjustments.when")}>
+              {toDate(adjustment.createdAt)?.toLocaleString(i18n.language, {
+                dateStyle: "short",
+                timeStyle: "short",
+              })}
+            </Cell>
             {showUser && (
               <Cell label={t("staff.adjustments.user")}>
                 {adjustment.user && !adjustment.user.deleted ? (
-                  <button type="button" className="max-w-full truncate font-black underline decoration-2 underline-offset-2" onClick={() => adjustment.user && onOpenUser?.(adjustment.user.id)}>
+                  <button
+                    type="button"
+                    className="max-w-full truncate font-black underline decoration-2 underline-offset-2"
+                    onClick={() => adjustment.user && onOpenUser?.(adjustment.user.id)}
+                  >
                     @{adjustment.user.handle}
                   </button>
                 ) : (
@@ -66,7 +97,13 @@ export function AdjustmentRows({ adjustments, showUser, onOpenUser }: { adjustme
                 )}
               </Cell>
             )}
-            <Cell label={t("staff.adjustments.account")}>{t(adjustment.account === wallet.LedgerAccount.EARNINGS ? "history.filters.earnings" : "history.filters.coins")}</Cell>
+            <Cell label={t("staff.adjustments.account")}>
+              {t(
+                adjustment.account === wallet.LedgerAccount.EARNINGS
+                  ? "history.filters.earnings"
+                  : "history.filters.coins",
+              )}
+            </Cell>
             <Cell label={t("staff.adjustments.delta")}>
               <Coins amount={adjustment.delta} signed size="sm" />
             </Cell>
@@ -74,7 +111,9 @@ export function AdjustmentRows({ adjustments, showUser, onOpenUser }: { adjustme
               <span className="whitespace-pre-wrap">{adjustment.reason}</span>
             </Cell>
             <Cell label={t("staff.adjustments.admin")}>
-              <span className="break-all text-ink-soft">{adjustment.admin ? `@${adjustment.admin.handle}` : "—"}</span>
+              <span className="break-all text-ink-soft">
+                {adjustment.admin ? `@${adjustment.admin.handle}` : "—"}
+              </span>
             </Cell>
           </li>
         ))}

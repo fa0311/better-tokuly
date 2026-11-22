@@ -6,7 +6,9 @@
  *
  *   <ReactionBar subject={subject} />                 // like + emoji reactions, live counts, who reacted
  *   <BookmarkButton subject={subject} showCount />    // save; the collection chooser when already saved
- *   <ShareButton subject={subject} title={video.title} />
+ *   <ShareButton subject={subject} title={video.title} />   // send in chat, copy the link, the share sheet
+ *   const more = useSubjectMenu(subject, { title, label });   // "send in chat", "copy link", "report" for a menu of your own
+ *   const toChat = useShareToChat(subject, title);     // the same "send in chat" for a menu of your own
  *   <ReportDialog subject={subject} open={reporting} onOpenChange={setReporting} label={video.title} />
  *
  *   const { data } = useEngagement(subject);          // counts and the viewer's own state; `null` = not visible
@@ -23,10 +25,32 @@ export { useBurst } from "./burst";
 export { openCollectionChooser } from "./collection-chooser";
 export { EmojiPicker, type EmojiPickerProps } from "./emoji-picker";
 export { useSubjectLive, useSubjectTopic } from "./live";
-export { compactCount, type Engagement, emojiReaction, LIKE, type Subject, subjectTopic, type ViewerReaction } from "./model";
+export {
+  compactCount,
+  type Engagement,
+  emojiReaction,
+  LIKE,
+  type Subject,
+  subjectTopic,
+  type ViewerReaction,
+} from "./model";
 export { useOpenPath } from "./open-path";
-export { AddReactionButton, LikeButton, ReactionBar, type ReactionBarProps, ReactionChips, ReactorsDialog } from "./reaction-bar";
+export {
+  AddReactionButton,
+  LikeButton,
+  ReactionBar,
+  type ReactionBarProps,
+  ReactionChips,
+  ReactorsDialog,
+} from "./reaction-bar";
 export { ReportButton, ReportDialog, type ReportDialogProps } from "./report-dialog";
 export { ReportsList } from "./reports-list";
-export { copyText, ShareButton, type ShareButtonProps, useCopySubjectLink } from "./share-button";
+export {
+  copyText,
+  ShareButton,
+  type ShareButtonProps,
+  useCopySubjectLink,
+  useShareToChat,
+} from "./share-button";
 export { GenericSubjectCard, registerSubjectCard, type SubjectCardProps } from "./subject-card";
+export { type SubjectMenuOptions, SubjectMoreButton, useSubjectMenu } from "./subject-menu";

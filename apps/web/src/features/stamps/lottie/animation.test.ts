@@ -9,8 +9,8 @@ import {
   multiply,
   numberAt,
   rectShape,
-  scaleOf,
   type ShapeData,
+  scaleOf,
   shapeAt,
   starShape,
   transformMatrix,
@@ -56,19 +56,34 @@ describe("animated properties", () => {
   it("supports the older format with an explicit end value, and hold keyframes", () => {
     close(vectorAt({ k: [{ t: 0, s: [0], e: [10] }, { t: 10 }] }, 5, []), [5]);
     expect(vectorAt({ k: [{ t: 0, s: [0], e: [10] }, { t: 10 }] }, 20, [])).toEqual([10]);
-    const held = { k: [{ t: 0, s: [1], h: 1 }, { t: 10, s: [2] }] };
+    const held = {
+      k: [
+        { t: 0, s: [1], h: 1 },
+        { t: 10, s: [2] },
+      ],
+    };
     expect(numberAt(held, 9, 0)).toBe(1);
     expect(numberAt(held, 10, 0)).toBe(2);
   });
 
   it("eases each dimension with the keyframe's handles", () => {
-    const property = { k: [{ t: 0, s: [0], o: { x: [0.42], y: [0] }, i: { x: [0.58], y: [1] } }, { t: 10, s: [100] }] };
+    const property = {
+      k: [
+        { t: 0, s: [0], o: { x: [0.42], y: [0] }, i: { x: [0.58], y: [1] } },
+        { t: 10, s: [100] },
+      ],
+    };
     expect(numberAt(property, 2, 0)).toBeLessThan(20);
     expect(numberAt(property, 5, 0)).toBeCloseTo(50, 1);
   });
 
   it("moves along a motion path when the keyframe has spatial tangents", () => {
-    const property = { k: [{ t: 0, s: [0, 0], to: [0, -50], ti: [0, -50] }, { t: 10, s: [100, 0] }] };
+    const property = {
+      k: [
+        { t: 0, s: [0, 0], to: [0, -50], ti: [0, -50] },
+        { t: 10, s: [100, 0] },
+      ],
+    };
     const middle = vectorAt(property, 5, []);
     expect(middle[0]).toBeCloseTo(50);
     // The path bulges upwards instead of going straight.
@@ -76,16 +91,49 @@ describe("animated properties", () => {
   });
 
   it("morphs a path between keyframes", () => {
-    const square = (size: number): ShapeData => ({ c: true, v: [[0, 0], [size, 0], [size, size], [0, size]], i: [[0, 0], [0, 0], [0, 0], [0, 0]], o: [[0, 0], [0, 0], [0, 0], [0, 0]] });
-    const property = { k: [{ t: 0, s: [square(10)] }, { t: 10, s: [square(30)] }] };
-    expect(shapeAt(property, 5)?.v).toEqual([[0, 0], [20, 0], [20, 20], [0, 20]]);
+    const square = (size: number): ShapeData => ({
+      c: true,
+      v: [
+        [0, 0],
+        [size, 0],
+        [size, size],
+        [0, size],
+      ],
+      i: [
+        [0, 0],
+        [0, 0],
+        [0, 0],
+        [0, 0],
+      ],
+      o: [
+        [0, 0],
+        [0, 0],
+        [0, 0],
+        [0, 0],
+      ],
+    });
+    const property = {
+      k: [
+        { t: 0, s: [square(10)] },
+        { t: 10, s: [square(30)] },
+      ],
+    };
+    expect(shapeAt(property, 5)?.v).toEqual([
+      [0, 0],
+      [20, 0],
+      [20, 20],
+      [0, 20],
+    ]);
     expect(shapeAt({ k: square(10) }, 5)?.v[2]).toEqual([10, 10]);
   });
 });
 
 describe("transforms", () => {
   it("combines anchor, scale, rotation and position in Lottie's order", () => {
-    const matrix = transformMatrix({ a: { k: [10, 10] }, p: { k: [100, 50] }, s: { k: [200, 200] }, r: { k: 90 } }, 0);
+    const matrix = transformMatrix(
+      { a: { k: [10, 10] }, p: { k: [100, 50] }, s: { k: [200, 200] }, r: { k: 90 } },
+      0,
+    );
     // The anchor lands on the position; a point 5 to the right of it ends up 10 below (rotated a quarter turn, scaled ×2).
     close(applyToPoint(matrix, 10, 10), [100, 50]);
     close(applyToPoint(matrix, 15, 10), [100, 60]);
@@ -103,7 +151,12 @@ describe("transforms", () => {
 describe("shapes", () => {
   it("builds closed contours for ellipses, rectangles and stars", () => {
     const ellipse = ellipseShape([0, 0], [20, 10]);
-    expect(ellipse.v).toEqual([[0, -5], [10, 0], [0, 5], [-10, 0]]);
+    expect(ellipse.v).toEqual([
+      [0, -5],
+      [10, 0],
+      [0, 5],
+      [-10, 0],
+    ]);
     expect(rectShape([0, 0], [20, 10], 0).v).toHaveLength(4);
     expect(rectShape([0, 0], [20, 10], 3).v).toHaveLength(8);
     // Roundness can never exceed half the shorter side.
@@ -116,12 +169,27 @@ describe("shapes", () => {
 });
 
 describe("trim paths", () => {
-  const line: ShapeData = { c: false, v: [[0, 0], [100, 0]], i: [[0, 0], [0, 0]], o: [[0, 0], [0, 0]] };
+  const line: ShapeData = {
+    c: false,
+    v: [
+      [0, 0],
+      [100, 0],
+    ],
+    i: [
+      [0, 0],
+      [0, 0],
+    ],
+    o: [
+      [0, 0],
+      [0, 0],
+    ],
+  };
   const ends = (shape: ShapeData) => [shape.v[0]![0]!, shape.v[shape.v.length - 1]![0]!];
   // Lengths along a curve are measured in steps: cuts land within a fraction of a pixel.
   const near = (actual: number[], expected: number[]) => {
     expect(actual).toHaveLength(expected.length);
-    for (const [index, value] of actual.entries()) expect(Math.abs(value - expected[index]!)).toBeLessThan(0.25);
+    for (const [index, value] of actual.entries())
+      expect(Math.abs(value - expected[index]!)).toBeLessThan(0.25);
   };
 
   it("keeps the stretch between start and end", () => {
@@ -142,13 +210,36 @@ describe("trim paths", () => {
   });
 
   it("cuts across segments and treats several paths as one line when asked to", () => {
-    const corner: ShapeData = { c: false, v: [[0, 0], [100, 0], [100, 100]], i: [[0, 0], [0, 0], [0, 0]], o: [[0, 0], [0, 0], [0, 0]] };
+    const corner: ShapeData = {
+      c: false,
+      v: [
+        [0, 0],
+        [100, 0],
+        [100, 100],
+      ],
+      i: [
+        [0, 0],
+        [0, 0],
+        [0, 0],
+      ],
+      o: [
+        [0, 0],
+        [0, 0],
+        [0, 0],
+      ],
+    };
     const [kept] = trimShapes([corner], 0.25, 0.75, 0);
     expect(kept!.v).toHaveLength(3);
     near(kept!.v[0]!, [50, 0]);
     near(kept!.v[2]!, [100, 50]);
 
-    const second: ShapeData = { ...line, v: [[0, 10], [100, 10]] };
+    const second: ShapeData = {
+      ...line,
+      v: [
+        [0, 10],
+        [100, 10],
+      ],
+    };
     // Half of two equal lines: all of the first, none of the second.
     const sequential = trimShapes([line, second], 0, 0.5, 0, true);
     expect(sequential).toHaveLength(1);

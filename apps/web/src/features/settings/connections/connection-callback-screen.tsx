@@ -6,8 +6,8 @@ import { toast } from "sonner";
 import { EmptyState } from "#/components/ui/page";
 import { Spinner } from "#/components/ui/spinner";
 import { accountClient } from "#/lib/api";
-import { keys } from "../data";
 import { errorMessage } from "#/lib/errors";
+import { keys } from "../data";
 import { SettingsPage } from "../shell/settings-page";
 import { PROVIDERS, type Provider } from "./connections-section";
 
@@ -16,7 +16,17 @@ import { PROVIDERS, type Provider } from "./connections-section";
  * sends the person back with `code` and `state`, or with `error` when they
  * declined. Finishes the connection and returns to the list.
  */
-export function ConnectionCallbackScreen({ provider, code, state, error }: { provider: string; code: string | undefined; state: string | undefined; error: string | undefined }) {
+export function ConnectionCallbackScreen({
+  provider,
+  code,
+  state,
+  error,
+}: {
+  provider: string;
+  code: string | undefined;
+  state: string | undefined;
+  error: string | undefined;
+}) {
   const { t } = useTranslation("settings");
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -26,7 +36,8 @@ export function ConnectionCallbackScreen({ provider, code, state, error }: { pro
   // A query, so the one-time code is spent exactly once however often this renders.
   const finish = useQuery({
     queryKey: ["identity", "connection-finish", provider, state],
-    queryFn: () => accountClient().finishConnection({ provider, code: code ?? "", state: state ?? "" }),
+    queryFn: () =>
+      accountClient().finishConnection({ provider, code: code ?? "", state: state ?? "" }),
     enabled: complete,
     retry: false,
     staleTime: Number.POSITIVE_INFINITY,
@@ -35,13 +46,20 @@ export function ConnectionCallbackScreen({ provider, code, state, error }: { pro
   const connected = finish.data?.connection;
   useEffect(() => {
     if (!connected) return;
-    toast.success(t("connections.connectedToast", { provider: t(`connections.providers.${provider as Provider}.name`) }));
+    toast.success(
+      t("connections.connectedToast", {
+        provider: t(`connections.providers.${provider as Provider}.name`),
+      }),
+    );
     void queryClient.invalidateQueries({ queryKey: keys.connections });
     void navigate({ to: "/settings/connections", replace: true });
   }, [connected, provider, navigate, queryClient, t]);
 
   const back = (
-    <Link to="/settings/connections" className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand">
+    <Link
+      to="/settings/connections"
+      className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand"
+    >
       {t("connections.callback.back")}
     </Link>
   );
@@ -51,9 +69,19 @@ export function ConnectionCallbackScreen({ provider, code, state, error }: { pro
       {!known ? (
         <EmptyState emoji="🤔" title={t("connections.callback.unknown")} action={back} />
       ) : !complete ? (
-        <EmptyState emoji="🙅" title={t("connections.callback.cancelled")} body={t("connections.callback.cancelledBody")} action={back} />
+        <EmptyState
+          emoji="🙅"
+          title={t("connections.callback.cancelled")}
+          body={t("connections.callback.cancelledBody")}
+          action={back}
+        />
       ) : finish.isError ? (
-        <EmptyState emoji="😢" title={t("connections.callback.failed")} body={errorMessage(finish.error)} action={back} />
+        <EmptyState
+          emoji="😢"
+          title={t("connections.callback.failed")}
+          body={errorMessage(finish.error)}
+          action={back}
+        />
       ) : (
         <div className="flex flex-col items-center gap-3 py-14 text-center">
           <Spinner className="size-8 text-brand" />

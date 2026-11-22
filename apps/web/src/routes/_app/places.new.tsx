@@ -10,7 +10,8 @@ interface NewPlaceSearch {
 }
 
 const coordinate = (value: unknown, limit: number): number | undefined => {
-  const number = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+  const number =
+    typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
   return Number.isFinite(number) && Math.abs(number) <= limit ? number : undefined;
 };
 
@@ -30,5 +31,7 @@ export const Route = createFileRoute("/_app/places/new")({
 
 function NewPlacePage() {
   const { lat, lng, name, label } = Route.useSearch();
-  return <NewPlaceScreen draft={{ lat, lng, name, label: label ? labelFromKey(label) : undefined }} />;
+  return (
+    <NewPlaceScreen draft={{ lat, lng, name, label: label ? labelFromKey(label) : undefined }} />
+  );
 }

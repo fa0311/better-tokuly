@@ -16,7 +16,11 @@ export interface PartyNotice {
 }
 
 /** Why the viewer is no longer in the room. */
-export type PartyExit = { kind: "ended"; reason: video.PartyEndReason } | { kind: "removed" } | { kind: "timedOut" } | { kind: "left" };
+export type PartyExit =
+  | { kind: "ended"; reason: video.PartyEndReason }
+  | { kind: "removed" }
+  | { kind: "timedOut" }
+  | { kind: "left" };
 
 export interface PartyRoomState {
   party: video.Party;
@@ -49,8 +53,11 @@ function offsetFrom(serverTime: Timestamp | undefined, fallback: number): number
 
 /** Host first, then co-hosts, then by arrival: the order the member list is shown in. */
 function ordered(members: video.PartyMember[]): video.PartyMember[] {
-  const rank = (member: video.PartyMember) => (member.role === PartyRole.HOST ? 0 : member.role === PartyRole.COHOST ? 1 : 2);
-  return [...members].sort((a, b) => rank(a) - rank(b) || toMillis(a.joinedAt) - toMillis(b.joinedAt));
+  const rank = (member: video.PartyMember) =>
+    member.role === PartyRole.HOST ? 0 : member.role === PartyRole.COHOST ? 1 : 2;
+  return [...members].sort(
+    (a, b) => rank(a) - rank(b) || toMillis(a.joinedAt) - toMillis(b.joinedAt),
+  );
 }
 
 function fromSession(session: video.PartySession, previous?: PartyRoomState): PartyRoomState {
@@ -63,7 +70,9 @@ function fromSession(session: video.PartySession, previous?: PartyRoomState): Pa
     notices: previous?.notices ?? [],
     playback: shared(party.playback),
     clockOffsetMs: offsetFrom(session.serverTime, previous?.clockOffsetMs ?? 0),
-    exit: party.endedAt ? { kind: "ended", reason: video.PartyEndReason.UNSPECIFIED } : previous?.exit,
+    exit: party.endedAt
+      ? { kind: "ended", reason: video.PartyEndReason.UNSPECIFIED }
+      : previous?.exit,
   };
 }
 
@@ -98,7 +107,9 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
       const next = shared(playback);
       const clockOffsetMs = offsetFrom(serverTime, current.clockOffsetMs);
       // Older states (a push overtaken by a response, or the other way round) are ignored.
-      return playback && next.sequence > current.playback.sequence ? { ...current, playback: next, clockOffsetMs } : { ...current, clockOffsetMs };
+      return playback && next.sequence > current.playback.sequence
+        ? { ...current, playback: next, clockOffsetMs }
+        : { ...current, clockOffsetMs };
     });
 
   const reload = async () => {
@@ -107,8 +118,13 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
       if (session?.party && session.self) setState((current) => fromSession(session, current));
     } catch (error) {
       const reason = errorReason(error);
-      if (reason === "NOT_A_PARTY_MEMBER") setState((current) => ({ ...current, exit: current.exit ?? { kind: "timedOut" } }));
-      else if (reason === "PARTY_NOT_FOUND") setState((current) => ({ ...current, exit: current.exit ?? { kind: "ended", reason: video.PartyEndReason.UNSPECIFIED } }));
+      if (reason === "NOT_A_PARTY_MEMBER")
+        setState((current) => ({ ...current, exit: current.exit ?? { kind: "timedOut" } }));
+      else if (reason === "PARTY_NOT_FOUND")
+        setState((current) => ({
+          ...current,
+          exit: current.exit ?? { kind: "ended", reason: video.PartyEndReason.UNSPECIFIED },
+        }));
     }
   };
   const reloadRef = useRef(reload);
@@ -131,19 +147,34 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
         case "partyPlayback":
           setState((current) => {
             const next = shared(event.value);
-            return next.sequence > current.playback.sequence ? { ...current, playback: next } : current;
+            return next.sequence > current.playback.sequence
+              ? { ...current, playback: next }
+              : current;
           });
           break;
         case "partyMemberJoined": {
           const member = event.value;
           setState((current) => {
             const known = current.members.some((existing) => existing.id === member.id);
-            const members = ordered([...current.members.filter((existing) => existing.id !== member.id), member]);
+            const members = ordered([
+              ...current.members.filter((existing) => existing.id !== member.id),
+              member,
+            ]);
             return {
               ...current,
               members,
               party: { ...current.party, memberCount: members.length },
-              notices: known ? current.notices : latest([...current.notices, { id: `joined:${member.id}:${Date.now()}`, kind: "joined" as const, name: member.name, atMs: Date.now() + current.clockOffsetMs }]),
+              notices: known
+                ? current.notices
+                : latest([
+                    ...current.notices,
+                    {
+                      id: `joined:${member.id}:${Date.now()}`,
+                      kind: "joined" as const,
+                      name: member.name,
+                      atMs: Date.now() + current.clockOffsetMs,
+                    },
+                  ]),
             };
           });
           break;
@@ -152,7 +183,12 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
           const { memberId, reason, memberCount } = event.value;
           setState((current) => {
             if (memberId === current.self.id) {
-              const exit: PartyExit = reason === PartyLeaveReason.REMOVED ? { kind: "removed" } : reason === PartyLeaveReason.TIMED_OUT ? { kind: "timedOut" } : { kind: "left" };
+              const exit: PartyExit =
+                reason === PartyLeaveReason.REMOVED
+                  ? { kind: "removed" }
+                  : reason === PartyLeaveReason.TIMED_OUT
+                    ? { kind: "timedOut" }
+                    : { kind: "left" };
               return { ...current, exit: current.exit ?? exit };
             }
             const leaver = current.members.find((member) => member.id === memberId);
@@ -160,28 +196,57 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
               ...current,
               members: current.members.filter((member) => member.id !== memberId),
               party: { ...current.party, memberCount },
-              notices: leaver ? latest([...current.notices, { id: `left:${memberId}:${Date.now()}`, kind: reason === PartyLeaveReason.REMOVED ? ("removed" as const) : ("left" as const), name: leaver.name, atMs: Date.now() + current.clockOffsetMs }]) : current.notices,
+              notices: leaver
+                ? latest([
+                    ...current.notices,
+                    {
+                      id: `left:${memberId}:${Date.now()}`,
+                      kind:
+                        reason === PartyLeaveReason.REMOVED
+                          ? ("removed" as const)
+                          : ("left" as const),
+                      name: leaver.name,
+                      atMs: Date.now() + current.clockOffsetMs,
+                    },
+                  ])
+                : current.notices,
             };
           });
           break;
         }
         case "partyMemberUpdated": {
           const member = event.value;
-          setState((current) => ({ ...current, self: member.id === current.self.id ? member : current.self, members: ordered(current.members.map((existing) => (existing.id === member.id ? member : existing))) }));
+          setState((current) => ({
+            ...current,
+            self: member.id === current.self.id ? member : current.self,
+            members: ordered(
+              current.members.map((existing) => (existing.id === member.id ? member : existing)),
+            ),
+          }));
           break;
         }
         case "partyMessage": {
           const message = event.value;
-          setState((current) => (current.messages.some((existing) => existing.id === message.id) ? current : { ...current, messages: latest([...current.messages, message]) }));
+          setState((current) =>
+            current.messages.some((existing) => existing.id === message.id)
+              ? current
+              : { ...current, messages: latest([...current.messages, message]) },
+          );
           break;
         }
         case "partyUpdated":
           // The push leaves the video card out for friends-only videos: read the party as this member sees it.
-          setState((current) => ({ ...current, party: { ...current.party, allowGuests: event.value.allowGuests } }));
+          setState((current) => ({
+            ...current,
+            party: { ...current.party, allowGuests: event.value.allowGuests },
+          }));
           void reloadRef.current();
           break;
         case "partyEnded":
-          setState((current) => ({ ...current, exit: { kind: "ended", reason: event.value.reason } }));
+          setState((current) => ({
+            ...current,
+            exit: { kind: "ended", reason: event.value.reason },
+          }));
           break;
         default:
           break;
@@ -203,12 +268,22 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
         setState((current) => {
           const next = shared(response.playback);
           const clockOffsetMs = offsetFrom(response.serverTime, current.clockOffsetMs);
-          return { ...current, clockOffsetMs, playback: next.sequence > current.playback.sequence ? next : current.playback, party: { ...current.party, memberCount: response.memberCount } };
+          return {
+            ...current,
+            clockOffsetMs,
+            playback: next.sequence > current.playback.sequence ? next : current.playback,
+            party: { ...current.party, memberCount: response.memberCount },
+          };
         });
       } catch (error) {
         const reason = errorReason(error);
-        if (reason === "NOT_A_PARTY_MEMBER") setState((current) => ({ ...current, exit: current.exit ?? { kind: "timedOut" } }));
-        else if (reason === "PARTY_NOT_FOUND") setState((current) => ({ ...current, exit: current.exit ?? { kind: "ended", reason: video.PartyEndReason.UNSPECIFIED } }));
+        if (reason === "NOT_A_PARTY_MEMBER")
+          setState((current) => ({ ...current, exit: current.exit ?? { kind: "timedOut" } }));
+        else if (reason === "PARTY_NOT_FOUND")
+          setState((current) => ({
+            ...current,
+            exit: current.exit ?? { kind: "ended", reason: video.PartyEndReason.UNSPECIFIED },
+          }));
       }
     };
     const timer = setInterval(() => void beat(), HEARTBEAT_MS);
@@ -229,7 +304,11 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
         method: "POST",
         keepalive: true,
         credentials: "include",
-        headers: { "content-type": "application/json", "x-tokuly-client": "web", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+        headers: {
+          "content-type": "application/json",
+          "x-tokuly-client": "web",
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ partyId, guestToken }),
       }).catch(() => {});
     };
@@ -253,13 +332,28 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
     reload,
     /** Sets the party's playback; host and co-hosts only. */
     async setPlayback(next: { playing: boolean; positionSeconds: number; rate?: number }) {
-      const response = await partyClient().setPartyPlayback({ partyId, playing: next.playing, positionSeconds: next.positionSeconds, rate: next.rate ?? 0 });
+      const response = await partyClient().setPartyPlayback({
+        partyId,
+        playing: next.playing,
+        positionSeconds: next.positionSeconds,
+        rate: next.rate ?? 0,
+      });
       applyPlayback(response.playback, response.serverTime);
     },
     async sendMessage(message: { text?: string; stampId?: string }) {
-      const response = await partyClient().sendPartyMessage({ partyId, guestToken, text: message.text ?? "", stampId: message.stampId ?? "" });
+      const response = await partyClient().sendPartyMessage({
+        partyId,
+        guestToken,
+        text: message.text ?? "",
+        stampId: message.stampId ?? "",
+      });
       const sent = response.message;
-      if (sent) setState((current) => (current.messages.some((existing) => existing.id === sent.id) ? current : { ...current, messages: latest([...current.messages, sent]) }));
+      if (sent)
+        setState((current) =>
+          current.messages.some((existing) => existing.id === sent.id)
+            ? current
+            : { ...current, messages: latest([...current.messages, sent]) },
+        );
     },
     async leave() {
       setState((current) => ({ ...current, exit: current.exit ?? { kind: "left" } }));

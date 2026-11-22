@@ -1,7 +1,19 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { video } from "@tokuly/api";
-import { BarChart3, Eye, EyeOff, MessageSquareText, MoreVertical, Pencil, Play, Plus, Star, Trash2, Upload } from "lucide-react";
+import {
+  BarChart3,
+  Eye,
+  EyeOff,
+  MessageSquareText,
+  MoreVertical,
+  Pencil,
+  Play,
+  Plus,
+  Star,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -13,7 +25,14 @@ import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { useHeldCount } from "#/features/comments";
 import { errorMessage } from "#/lib/errors";
-import { channelClient, nextCursor, patchVideoEverywhere, removeVideoEverywhere, videoClient, videoKeys } from "../api";
+import {
+  channelClient,
+  nextCursor,
+  patchVideoEverywhere,
+  removeVideoEverywhere,
+  videoClient,
+  videoKeys,
+} from "../api";
 import { formatCount } from "../format";
 import { ChannelAvatar, ChannelName, Thumbnail } from "../video-card";
 import { ChannelPicker, selectStudioChannel, useStudioChannel, VideoStateChips } from "./shared";
@@ -21,7 +40,12 @@ import { ChannelPicker, selectStudioChannel, useStudioChannel, VideoStateChips }
 const { VideoStatus, ProcessingState } = video;
 
 type Filter = "all" | "published" | "scheduled" | "draft";
-const FILTER_STATUS: Record<Filter, video.VideoStatus> = { all: VideoStatus.UNSPECIFIED, published: VideoStatus.PUBLISHED, scheduled: VideoStatus.SCHEDULED, draft: VideoStatus.DRAFT };
+const FILTER_STATUS: Record<Filter, video.VideoStatus> = {
+  all: VideoStatus.UNSPECIFIED,
+  published: VideoStatus.PUBLISHED,
+  scheduled: VideoStatus.SCHEDULED,
+  draft: VideoStatus.DRAFT,
+};
 
 /**
  * `/studio`: the creator's home. Without a channel it explains the three
@@ -55,7 +79,10 @@ export function StudioHome() {
     <Page title={t("studio.title")} back="/watch" wide>
       <ChannelPicker channels={channels} selectedId={summary.id} onSelect={selectStudioChannel} />
 
-      <section className="sticker mt-3 flex flex-col gap-4 rounded-card bg-surface p-4 sm:flex-row sm:items-center" data-testid="studio-channel">
+      <section
+        className="sticker mt-3 flex flex-col gap-4 rounded-card bg-surface p-4 sm:flex-row sm:items-center"
+        data-testid="studio-channel"
+      >
         <ChannelAvatar channel={summary} size="lg" outlined />
         <div className="min-w-0 flex-1">
           <p className="flex flex-wrap items-center gap-2 text-xl font-black">
@@ -69,27 +96,71 @@ export function StudioHome() {
           </p>
           <p className="flex flex-wrap gap-x-3 text-sm font-bold text-ink-soft">
             <span>@{summary.handle}</span>
-            <span>{t("channel.subscribers", { count: Number(summary.subscriberCount), formatted: formatCount(summary.subscriberCount) })}</span>
-            <span>{t("card.views", { count: Number(channel.viewCount), formatted: formatCount(channel.viewCount) })}</span>
+            <span>
+              {t("channel.subscribers", {
+                count: Number(summary.subscriberCount),
+                formatted: formatCount(summary.subscriberCount),
+              })}
+            </span>
+            <span>
+              {t("card.views", {
+                count: Number(channel.viewCount),
+                formatted: formatCount(channel.viewCount),
+              })}
+            </span>
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link to="/c/$handle" params={{ handle: summary.handle }} className="pressable sticker-sm inline-flex h-10 items-center gap-1.5 rounded-full bg-surface px-4 text-sm font-bold">
+          <Link
+            to="/c/$handle"
+            params={{ handle: summary.handle }}
+            className="pressable sticker-sm inline-flex h-10 items-center gap-1.5 rounded-full bg-surface px-4 text-sm font-bold"
+          >
             <Eye className="size-4" />
             {t("studio.viewChannel")}
           </Link>
-          <Link to="/studio/channels/$channelId" params={{ channelId: summary.id }} className="pressable sticker-sm inline-flex h-10 items-center gap-1.5 rounded-full bg-surface px-4 text-sm font-bold">
+          <Link
+            to="/studio/channels/$channelId"
+            params={{ channelId: summary.id }}
+            className="pressable sticker-sm inline-flex h-10 items-center gap-1.5 rounded-full bg-surface px-4 text-sm font-bold"
+          >
             <Pencil className="size-4" />
             {t("actions.edit")}
           </Link>
         </div>
       </section>
 
-      <nav className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label={t("studio.shortcuts")}>
-        <Shortcut to="/studio/upload" tint="bg-brand text-on-brand" icon={<Upload className="size-6" />} label={t("studio.upload.action")} />
-        <Shortcut to="/studio/analytics" tint="bg-sky text-[#17122b]" icon={<BarChart3 className="size-6" />} label={t("studio.analytics.title")} />
-        <Shortcut to="/settings/comments" tint="bg-pink text-white" icon={<MessageSquareText className="size-6" />} label={t("studio.comments")} badge={held.data} />
-        {channels.length < maxChannels && <Shortcut to="/studio/channels/new" tint="bg-lime text-[#17122b]" icon={<Plus className="size-6" />} label={t("studio.addChannel")} />}
+      <nav
+        className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4"
+        aria-label={t("studio.shortcuts")}
+      >
+        <Shortcut
+          to="/studio/upload"
+          tint="bg-brand text-on-brand"
+          icon={<Upload className="size-6" />}
+          label={t("studio.upload.action")}
+        />
+        <Shortcut
+          to="/studio/analytics"
+          tint="bg-sky text-[#17122b]"
+          icon={<BarChart3 className="size-6" />}
+          label={t("studio.analytics.title")}
+        />
+        <Shortcut
+          to="/settings/comments"
+          tint="bg-pink text-white"
+          icon={<MessageSquareText className="size-6" />}
+          label={t("studio.comments")}
+          badge={held.data}
+        />
+        {channels.length < maxChannels && (
+          <Shortcut
+            to="/studio/channels/new"
+            tint="bg-lime text-[#17122b]"
+            icon={<Plus className="size-6" />}
+            label={t("studio.addChannel")}
+          />
+        )}
       </nav>
 
       <VideoList key={summary.id} channelId={summary.id} />
@@ -97,11 +168,28 @@ export function StudioHome() {
   );
 }
 
-function Shortcut({ to, tint, icon, label, badge }: { to: "/studio/upload" | "/studio/analytics" | "/settings/comments" | "/studio/channels/new"; tint: string; icon: ReactNode; label: string; badge?: number }) {
+function Shortcut({
+  to,
+  tint,
+  icon,
+  label,
+  badge,
+}: {
+  to: "/studio/upload" | "/studio/analytics" | "/settings/comments" | "/studio/channels/new";
+  tint: string;
+  icon: ReactNode;
+  label: string;
+  badge?: number;
+}) {
   return (
-    <Link to={to} className="pressable sticker flex h-24 flex-col justify-between rounded-card bg-surface p-3.5">
+    <Link
+      to={to}
+      className="pressable sticker flex h-24 flex-col justify-between rounded-card bg-surface p-3.5"
+    >
       <span className="flex items-start justify-between">
-        <span className={`grid size-10 place-items-center rounded-2xl border-2 border-ink ${tint}`}>{icon}</span>
+        <span className={`grid size-10 place-items-center rounded-2xl border-2 border-ink ${tint}`}>
+          {icon}
+        </span>
         <CountBadge count={badge ?? 0} />
       </span>
       <span className="truncate text-sm font-black">{label}</span>
@@ -120,16 +208,23 @@ function Welcome() {
           🎬
         </p>
         <h2 className="mt-3 text-2xl font-black">{t("studio.welcome.title")}</h2>
-        <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-ink-soft">{t("studio.welcome.lead")}</p>
+        <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-ink-soft">
+          {t("studio.welcome.lead")}
+        </p>
         <ol className="mx-auto mt-6 flex max-w-sm flex-col gap-3 text-left">
           {steps.map((key, index) => (
             <li key={key} className="flex items-center gap-3 rounded-2xl bg-surface-2 p-3">
-              <span className="grid size-9 shrink-0 place-items-center rounded-full border-2 border-ink bg-lime font-black text-[#17122b]">{index + 1}</span>
+              <span className="grid size-9 shrink-0 place-items-center rounded-full border-2 border-ink bg-lime font-black text-[#17122b]">
+                {index + 1}
+              </span>
               <span className="font-bold">{t(key)}</span>
             </li>
           ))}
         </ol>
-        <Link to="/studio/channels/new" className="pressable sticker mt-6 inline-flex h-14 items-center gap-2 rounded-full bg-brand px-7 text-lg font-bold text-on-brand">
+        <Link
+          to="/studio/channels/new"
+          className="pressable sticker mt-6 inline-flex h-14 items-center gap-2 rounded-full bg-brand px-7 text-lg font-bold text-on-brand"
+        >
           <Plus className="size-5" />
           {t("studio.welcome.action")}
         </Link>
@@ -147,7 +242,12 @@ function VideoList({ channelId }: { channelId: string }) {
   const [deleting, setDeleting] = useState<video.VideoSummary | null>(null);
   const list = useInfiniteQuery({
     queryKey: videoKeys.studioVideos(channelId, FILTER_STATUS[filter]),
-    queryFn: ({ pageParam }) => videoClient().listStudioVideos({ channelId, status: FILTER_STATUS[filter], page: { limit: 30, cursor: pageParam } }),
+    queryFn: ({ pageParam }) =>
+      videoClient().listStudioVideos({
+        channelId,
+        status: FILTER_STATUS[filter],
+        page: { limit: 30, cursor: pageParam },
+      }),
     initialPageParam: "",
     getNextPageParam: nextCursor,
   });
@@ -157,18 +257,26 @@ function VideoList({ channelId }: { channelId: string }) {
   const refresh = () => void queryClient.invalidateQueries({ queryKey: videoKeys.studio });
 
   const publish = useMutation({
-    mutationFn: (summary: video.VideoSummary) => videoClient().publishVideo({ videoId: summary.id }),
+    mutationFn: (summary: video.VideoSummary) =>
+      videoClient().publishVideo({ videoId: summary.id }),
     onSuccess: ({ video: updated }) => {
-      if (updated?.summary) patchVideoEverywhere(queryClient, updated.summary.id, () => updated.summary ?? null);
+      if (updated?.summary)
+        patchVideoEverywhere(queryClient, updated.summary.id, () => updated.summary ?? null);
       refresh();
-      toast.success(updated?.summary?.status === VideoStatus.PUBLISHED ? t("studio.toast.published") : t("studio.toast.publishWhenReady"));
+      toast.success(
+        updated?.summary?.status === VideoStatus.PUBLISHED
+          ? t("studio.toast.published")
+          : t("studio.toast.publishWhenReady"),
+      );
     },
     onError,
   });
   const unpublish = useMutation({
-    mutationFn: (summary: video.VideoSummary) => videoClient().unpublishVideo({ videoId: summary.id }),
+    mutationFn: (summary: video.VideoSummary) =>
+      videoClient().unpublishVideo({ videoId: summary.id }),
     onSuccess: ({ video: updated }) => {
-      if (updated?.summary) patchVideoEverywhere(queryClient, updated.summary.id, () => updated.summary ?? null);
+      if (updated?.summary)
+        patchVideoEverywhere(queryClient, updated.summary.id, () => updated.summary ?? null);
       refresh();
       toast.success(t("studio.toast.unpublished"));
     },
@@ -192,11 +300,49 @@ function VideoList({ channelId }: { channelId: string }) {
     const id = summary.shortId;
     const failed = summary.processing === ProcessingState.FAILED;
     return [
-      { label: t("actions.edit"), icon: <Pencil />, onSelect: () => void navigate({ to: "/studio/videos/$videoId", params: { videoId: id } }) },
-      { label: t("studio.videos.watch"), icon: <Play />, onSelect: () => void navigate({ to: "/watch/$videoId", params: { videoId: id }, search: {} }) },
-      { label: t("studio.analytics.title"), icon: <BarChart3 />, onSelect: () => void navigate({ to: "/studio/videos/$videoId", params: { videoId: id }, search: { tab: "analytics" } }) },
-      ...(summary.status === VideoStatus.DRAFT ? [{ label: t("studio.publish.now"), icon: <Eye />, disabled: failed, onSelect: () => publish.mutate(summary) }] : [{ label: t("studio.publish.unpublish"), icon: <EyeOff />, onSelect: () => unpublish.mutate(summary) }]),
-      { label: t("actions.delete"), icon: <Trash2 />, danger: true, onSelect: () => setDeleting(summary) },
+      {
+        label: t("actions.edit"),
+        icon: <Pencil />,
+        onSelect: () => void navigate({ to: "/studio/videos/$videoId", params: { videoId: id } }),
+      },
+      {
+        label: t("studio.videos.watch"),
+        icon: <Play />,
+        onSelect: () =>
+          void navigate({ to: "/watch/$videoId", params: { videoId: id }, search: {} }),
+      },
+      {
+        label: t("studio.analytics.title"),
+        icon: <BarChart3 />,
+        onSelect: () =>
+          void navigate({
+            to: "/studio/videos/$videoId",
+            params: { videoId: id },
+            search: { tab: "analytics" },
+          }),
+      },
+      ...(summary.status === VideoStatus.DRAFT
+        ? [
+            {
+              label: t("studio.publish.now"),
+              icon: <Eye />,
+              disabled: failed,
+              onSelect: () => publish.mutate(summary),
+            },
+          ]
+        : [
+            {
+              label: t("studio.publish.unpublish"),
+              icon: <EyeOff />,
+              onSelect: () => unpublish.mutate(summary),
+            },
+          ]),
+      {
+        label: t("actions.delete"),
+        icon: <Trash2 />,
+        danger: true,
+        onSelect: () => setDeleting(summary),
+      },
     ];
   };
 
@@ -232,7 +378,10 @@ function VideoList({ channelId }: { channelId: string }) {
               title={t("studio.videos.empty")}
               body={t("studio.videos.emptyBody")}
               action={
-                <Link to="/studio/upload" className="pressable sticker inline-flex h-11 items-center gap-2 rounded-full bg-brand px-5 font-bold text-on-brand">
+                <Link
+                  to="/studio/upload"
+                  className="pressable sticker inline-flex h-11 items-center gap-2 rounded-full bg-brand px-5 font-bold text-on-brand"
+                >
                   <Upload className="size-4" />
                   {t("studio.upload.action")}
                 </Link>
@@ -244,24 +393,53 @@ function VideoList({ channelId }: { channelId: string }) {
         ) : (
           <ul className="flex flex-col gap-3">
             {videos.map((summary) => (
-              <li key={summary.id} data-testid="studio-video" className="sticker flex items-start gap-3 rounded-card bg-surface p-3">
-                <Link to="/studio/videos/$videoId" params={{ videoId: summary.shortId }} className="w-32 shrink-0 sm:w-40" tabIndex={-1} aria-hidden>
+              <li
+                key={summary.id}
+                data-testid="studio-video"
+                className="sticker flex items-start gap-3 rounded-card bg-surface p-3"
+              >
+                <Link
+                  to="/studio/videos/$videoId"
+                  params={{ videoId: summary.shortId }}
+                  className="w-32 shrink-0 sm:w-40"
+                  tabIndex={-1}
+                  aria-hidden
+                >
                   <Thumbnail video={summary} sizes={160} />
                 </Link>
                 <div className="min-w-0 flex-1">
-                  <Link to="/studio/videos/$videoId" params={{ videoId: summary.shortId }} className="line-clamp-2 leading-snug font-black break-words hover:text-brand">
+                  <Link
+                    to="/studio/videos/$videoId"
+                    params={{ videoId: summary.shortId }}
+                    className="line-clamp-2 leading-snug font-black break-words hover:text-brand"
+                  >
                     {summary.title}
                   </Link>
                   <VideoStateChips summary={summary} className="mt-1.5" />
                   <p className="mt-1.5 flex flex-wrap gap-x-3 text-xs font-bold text-ink-soft">
-                    <span>{t("card.views", { count: Number(summary.viewCount), formatted: formatCount(summary.viewCount) })}</span>
-                    <span>{t("studio.videos.likes", { formatted: formatCount(summary.likeCount) })}</span>
-                    <span>{t("studio.videos.comments", { formatted: formatCount(summary.commentCount) })}</span>
+                    <span>
+                      {t("card.views", {
+                        count: Number(summary.viewCount),
+                        formatted: formatCount(summary.viewCount),
+                      })}
+                    </span>
+                    <span>
+                      {t("studio.videos.likes", { formatted: formatCount(summary.likeCount) })}
+                    </span>
+                    <span>
+                      {t("studio.videos.comments", {
+                        formatted: formatCount(summary.commentCount),
+                      })}
+                    </span>
                   </p>
                 </div>
                 <Menu
                   trigger={
-                    <button type="button" aria-label={t("card.menu", { title: summary.title })} className="grid size-9 shrink-0 place-items-center rounded-full text-ink-soft hover:bg-surface-2 hover:text-ink">
+                    <button
+                      type="button"
+                      aria-label={t("card.menu", { title: summary.title })}
+                      className="grid size-9 shrink-0 place-items-center rounded-full text-ink-soft hover:bg-surface-2 hover:text-ink"
+                    >
                       <MoreVertical className="size-5" />
                     </button>
                   }

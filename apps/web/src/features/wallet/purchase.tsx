@@ -34,14 +34,23 @@ const STEP_TONES: Record<CheckoutStep, Tone> = {
 export function PurchaseStatusChip({ purchase }: { purchase: wallet.Purchase }) {
   const { t } = useTranslation("wallet");
   const step = checkoutStep(purchase);
-  return <StatusChip tone={STEP_TONES[step]}>{t(`purchase.status.${step === "redirect" || step === "waiting" ? "pending" : step}`)}</StatusChip>;
+  return (
+    <StatusChip tone={STEP_TONES[step]}>
+      {t(`purchase.status.${step === "redirect" || step === "waiting" ? "pending" : step}`)}
+    </StatusChip>
+  );
 }
 
 /** Marks a purchase made with the development provider: no money moved. */
 export function DevelopmentNote({ className }: { className?: string }) {
   const { t } = useTranslation("wallet");
   return (
-    <p className={cn("flex items-start gap-2 rounded-2xl border-2 border-dashed border-ink-faint bg-surface-2 px-3 py-2.5 text-sm font-bold text-ink-soft", className)}>
+    <p
+      className={cn(
+        "flex items-start gap-2 rounded-2xl border-2 border-dashed border-ink-faint bg-surface-2 px-3 py-2.5 text-sm font-bold text-ink-soft",
+        className,
+      )}
+    >
       <FlaskConical className="mt-0.5 size-4 shrink-0" />
       {t("provider.developmentNote")}
     </p>
@@ -53,7 +62,8 @@ export function usePurchaseActions(purchaseId: string) {
   const { t } = useTranslation("wallet");
   const queryClient = useQueryClient();
   const confirm = useMutation({
-    mutationFn: (providerProof: string) => walletClient().confirmPurchase({ purchaseId, providerProof }),
+    mutationFn: (providerProof: string) =>
+      walletClient().confirmPurchase({ purchaseId, providerProof }),
     onSuccess: (response) => {
       rememberPurchase(queryClient, response.purchase);
       rememberBalance(queryClient, response.balance);
@@ -72,7 +82,8 @@ export function usePurchaseActions(purchaseId: string) {
   const check = (providerProof = "") =>
     confirm.mutate(providerProof, {
       onSuccess: (response) => {
-        if (response.purchase?.status === wallet.PurchaseStatus.PENDING) toast(t("purchase.toast.stillPending"));
+        if (response.purchase?.status === wallet.PurchaseStatus.PENDING)
+          toast(t("purchase.toast.stillPending"));
       },
     });
   return { confirm, cancel, check };
@@ -83,7 +94,15 @@ export function usePurchaseActions(purchaseId: string) {
  * provider, confirm, cancel, or enjoy the coins. Shown in the shop's
  * purchase dialog and on the purchase's own page.
  */
-export function PurchaseProgress({ purchase, celebrate, footer }: { purchase: wallet.Purchase; /** Throw coins when the purchase is (or becomes) completed. */ celebrate?: boolean; /** Navigation under the state (close, back to the shop…). */ footer?: ReactNode }) {
+export function PurchaseProgress({
+  purchase,
+  celebrate,
+  footer,
+}: {
+  purchase: wallet.Purchase /** Throw coins when the purchase is (or becomes) completed. */;
+  celebrate?: boolean /** Navigation under the state (close, back to the shop…). */;
+  footer?: ReactNode;
+}) {
   const { t } = useTranslation("wallet");
   const step = checkoutStep(purchase);
   const { confirm, cancel, check } = usePurchaseActions(purchase.id);
@@ -128,8 +147,14 @@ export function PurchaseProgress({ purchase, celebrate, footer }: { purchase: wa
           <span className="sticker grid size-20 place-items-center rounded-full bg-sun text-[#17122b]">
             <Hourglass className="size-9" />
           </span>
-          <p className="text-xl font-black">{t(step === "redirect" ? "purchase.redirect.title" : "purchase.waiting.title")}</p>
-          <p className="max-w-sm text-sm leading-relaxed text-ink-soft">{t(step === "redirect" ? "purchase.redirect.body" : "purchase.waiting.body", { provider: providerName(purchase.provider, t) })}</p>
+          <p className="text-xl font-black">
+            {t(step === "redirect" ? "purchase.redirect.title" : "purchase.waiting.title")}
+          </p>
+          <p className="max-w-sm text-sm leading-relaxed text-ink-soft">
+            {t(step === "redirect" ? "purchase.redirect.body" : "purchase.waiting.body", {
+              provider: providerName(purchase.provider, t),
+            })}
+          </p>
           <ExpiryNote purchase={purchase} />
           <ProviderCheckout purchase={purchase} />
           <div className="flex flex-wrap justify-center gap-2">
@@ -149,8 +174,14 @@ export function PurchaseProgress({ purchase, celebrate, footer }: { purchase: wa
             {step === "expired" ? <Clock3 className="size-9" /> : <CircleX className="size-9" />}
           </span>
           <p className="text-xl font-black">{t(`purchase.${step}.title`)}</p>
-          <p className="max-w-sm text-sm leading-relaxed text-ink-soft">{t(`purchase.${step}.body`)}</p>
-          {step === "failed" && purchase.failureReason && <p className="rounded-full bg-surface-2 px-3 py-1 font-mono text-xs font-bold text-ink-soft">{purchase.failureReason}</p>}
+          <p className="max-w-sm text-sm leading-relaxed text-ink-soft">
+            {t(`purchase.${step}.body`)}
+          </p>
+          {step === "failed" && purchase.failureReason && (
+            <p className="rounded-full bg-surface-2 px-3 py-1 font-mono text-xs font-bold text-ink-soft">
+              {purchase.failureReason}
+            </p>
+          )}
           {/* A payment always wins: if money did leave the account, asking again turns this purchase into coins. */}
           <Button variant="ghost" size="sm" loading={confirm.isPending} onClick={() => check()}>
             {t("purchase.actions.paidAnyway")}
@@ -178,7 +209,12 @@ function ProviderCheckout({ purchase }: { purchase: wallet.Purchase }) {
   const url = safeCheckoutUrl(purchase.checkoutUrl);
   if (!url) return null;
   return (
-    <a href={url} target="_blank" rel="noopener noreferrer" className="pressable sticker inline-flex h-14 items-center justify-center gap-2 rounded-full bg-brand px-7 text-lg font-bold text-on-brand">
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="pressable sticker inline-flex h-14 items-center justify-center gap-2 rounded-full bg-brand px-7 text-lg font-bold text-on-brand"
+    >
       {t("purchase.actions.openCheckout")}
       <ExternalLink className="size-5" />
     </a>
@@ -196,5 +232,11 @@ function ExpiryNote({ purchase }: { purchase: wallet.Purchase }) {
   const expiresAt = toMillis(purchase.expiresAt);
   if (!expiresAt || expiresAt <= now) return null;
   const left = countdown(expiresAt, now);
-  return <p className="text-sm font-bold text-ink-soft">{left.hours > 0 ? t("purchase.expiresInHours", { hours: left.hours, minutes: left.minutes }) : t("purchase.expiresInMinutes", { minutes: left.minutes })}</p>;
+  return (
+    <p className="text-sm font-bold text-ink-soft">
+      {left.hours > 0
+        ? t("purchase.expiresInHours", { hours: left.hours, minutes: left.minutes })
+        : t("purchase.expiresInMinutes", { minutes: left.minutes })}
+    </p>
+  );
 }

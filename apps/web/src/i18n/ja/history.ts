@@ -135,7 +135,8 @@ export default {
     done: "履歴を削除しました",
   },
   errors: {
-    HISTORY_UNAVAILABLE: "いまは履歴を操作できないみたい。何も消えていないので、少し待ってからためしてね",
+    HISTORY_UNAVAILABLE:
+      "いまは履歴を操作できないみたい。何も消えていないので、少し待ってからためしてね",
     INVALID_RANGE: "期間を正しくえらんでね",
     INVALID_DATE: "この日付は使えません",
     INVALID_TIME_ZONE: "タイムゾーンを読み取れませんでした",

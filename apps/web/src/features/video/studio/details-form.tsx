@@ -10,7 +10,14 @@ import { SwitchRow } from "#/components/ui/switch";
 import { cn } from "#/lib/cn";
 import { videoClient, videoKeys } from "../api";
 import { CATEGORIES, VIDEO_VISIBILITIES } from "../labels";
-import { type ChapterDraft, MAX_CHAPTERS, normalizeTag, toDrafts, validateChapters, withChapterAt } from "./chapters";
+import {
+  type ChapterDraft,
+  MAX_CHAPTERS,
+  normalizeTag,
+  toDrafts,
+  validateChapters,
+  withChapterAt,
+} from "./chapters";
 import { FormSection } from "./shared";
 
 const MAX_TAGS = 20;
@@ -49,11 +56,17 @@ export function draftFrom(item: video.Video): DetailsDraft {
 
 /** The draft without what only the editor needs (row keys), to tell whether anything was changed. */
 export function draftSignature(draft: DetailsDraft): string {
-  return JSON.stringify({ ...draft, chapters: draft.chapters.map((chapter) => [chapter.time, chapter.title]) });
+  return JSON.stringify({
+    ...draft,
+    chapters: draft.chapters.map((chapter) => [chapter.time, chapter.title]),
+  });
 }
 
 /** Whether the draft can be saved: it has a title and its chapters are in order. */
-export function draftProblem(draft: DetailsDraft, durationSeconds: number): "title" | "chapters" | null {
+export function draftProblem(
+  draft: DetailsDraft,
+  durationSeconds: number,
+): "title" | "chapters" | null {
   if (!draft.title.trim()) return "title";
   return validateChapters(draft.chapters, durationSeconds).some(Boolean) ? "chapters" : null;
 }
@@ -63,33 +76,73 @@ export function draftProblem(draft: DetailsDraft, durationSeconds: number): "tit
  * chapters, who may see it, and the switches (age restriction, comments,
  * telling subscribers).
  */
-export function DetailsForm({ draft, onChange, durationSeconds, playerTime }: { draft: DetailsDraft; onChange(draft: DetailsDraft): void; durationSeconds: number; /** The preview player's position, for "add a chapter here"; undefined while there is no player. */ playerTime?: () => number }) {
+export function DetailsForm({
+  draft,
+  onChange,
+  durationSeconds,
+  playerTime,
+}: {
+  draft: DetailsDraft;
+  onChange(draft: DetailsDraft): void;
+  durationSeconds: number /** The preview player's position, for "add a chapter here"; undefined while there is no player. */;
+  playerTime?: () => number;
+}) {
   const { t } = useTranslation("video");
-  const set = <K extends keyof DetailsDraft>(key: K, value: DetailsDraft[K]) => onChange({ ...draft, [key]: value });
+  const set = <K extends keyof DetailsDraft>(key: K, value: DetailsDraft[K]) =>
+    onChange({ ...draft, [key]: value });
 
   return (
     <div className="flex flex-col gap-5">
       <FormSection title={t("studio.editor.basics")}>
-        <TextField label={t("studio.editor.title")} value={draft.title} maxLength={100} placeholder={t("studio.editor.titlePlaceholder")} error={draft.title.trim() ? undefined : t("studio.editor.titleRequired")} onChange={(event) => set("title", event.target.value)} />
-        <TextArea label={t("studio.editor.description")} value={draft.description} maxLength={5000} placeholder={t("studio.editor.descriptionPlaceholder")} hint={t("studio.editor.descriptionHint")} onChange={(event) => set("description", event.target.value)} />
+        <TextField
+          label={t("studio.editor.title")}
+          value={draft.title}
+          maxLength={100}
+          placeholder={t("studio.editor.titlePlaceholder")}
+          error={draft.title.trim() ? undefined : t("studio.editor.titleRequired")}
+          onChange={(event) => set("title", event.target.value)}
+        />
+        <TextArea
+          label={t("studio.editor.description")}
+          value={draft.description}
+          maxLength={5000}
+          placeholder={t("studio.editor.descriptionPlaceholder")}
+          hint={t("studio.editor.descriptionHint")}
+          onChange={(event) => set("description", event.target.value)}
+        />
         <TagsField tags={draft.tags} onChange={(tags) => set("tags", tags)} />
         <div className="grid gap-4 sm:grid-cols-2">
           <SelectField
             label={t("studio.editor.category")}
             value={String(draft.category)}
             onChange={(value) => set("category", Number(value) as video.VideoCategory)}
-            options={[{ value: NO_CATEGORY, label: t("studio.editor.noCategory") }, ...CATEGORIES.map((entry) => ({ value: String(entry.value), label: `${entry.emoji} ${t(`category.${entry.key}`)}` }))]}
+            options={[
+              { value: NO_CATEGORY, label: t("studio.editor.noCategory") },
+              ...CATEGORIES.map((entry) => ({
+                value: String(entry.value),
+                label: `${entry.emoji} ${t(`category.${entry.key}`)}`,
+              })),
+            ]}
           />
           <GameField game={draft.game} onChange={(game) => set("game", game)} />
         </div>
       </FormSection>
 
       <FormSection title={t("studio.chapters.title")} lead={t("studio.chapters.lead")}>
-        <ChaptersField chapters={draft.chapters} durationSeconds={durationSeconds} playerTime={playerTime} onChange={(chapters) => set("chapters", chapters)} />
+        <ChaptersField
+          chapters={draft.chapters}
+          durationSeconds={durationSeconds}
+          playerTime={playerTime}
+          onChange={(chapters) => set("chapters", chapters)}
+        />
       </FormSection>
 
       <FormSection title={t("studio.editor.audience")} lead={t("studio.editor.audienceLead")}>
-        <div role="radiogroup" aria-label={t("studio.editor.audience")} className="flex flex-col gap-2">
+        <div
+          role="radiogroup"
+          aria-label={t("studio.editor.audience")}
+          className="flex flex-col gap-2"
+        >
           {VIDEO_VISIBILITIES.map((option) => {
             const Icon = option.icon;
             const selected = draft.visibility === option.value;
@@ -100,28 +153,62 @@ export function DetailsForm({ draft, onChange, durationSeconds, playerTime }: { 
                 type="button"
                 role="radio"
                 aria-checked={selected}
-                className={cn("flex items-center gap-3 rounded-2xl border-2 p-3 text-left transition-colors", selected ? "border-ink bg-brand-soft" : "border-line bg-surface hover:border-ink-faint")}
+                className={cn(
+                  "flex items-center gap-3 rounded-2xl border-2 p-3 text-left transition-colors",
+                  selected
+                    ? "border-ink bg-brand-soft"
+                    : "border-line bg-surface hover:border-ink-faint",
+                )}
                 onClick={() => set("visibility", option.value)}
               >
-                <span className={cn("grid size-10 shrink-0 place-items-center rounded-xl border-2 border-ink", selected ? "bg-brand text-on-brand" : "bg-surface-2")}>
+                <span
+                  className={cn(
+                    "grid size-10 shrink-0 place-items-center rounded-xl border-2 border-ink",
+                    selected ? "bg-brand text-on-brand" : "bg-surface-2",
+                  )}
+                >
                   <Icon className="size-5" />
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block font-black">{t(`visibility.${option.key}`)}</span>
-                  <span className="block text-sm text-ink-soft">{t(`visibility.${option.key}Hint`)}</span>
+                  <span className="block text-sm text-ink-soft">
+                    {t(`visibility.${option.key}Hint`)}
+                  </span>
                 </span>
               </button>
             );
           })}
         </div>
-        {draft.visibility === common.Visibility.FRIENDS && <SwitchRow label={t("studio.editor.allowLink")} hint={t("studio.editor.allowLinkHint")} checked={draft.allowLink} onChange={(value) => set("allowLink", value)} />}
+        {draft.visibility === common.Visibility.FRIENDS && (
+          <SwitchRow
+            label={t("studio.editor.allowLink")}
+            hint={t("studio.editor.allowLinkHint")}
+            checked={draft.allowLink}
+            onChange={(value) => set("allowLink", value)}
+          />
+        )}
       </FormSection>
 
       <FormSection title={t("studio.editor.options")}>
         <div className="-mx-2 -my-2">
-          <SwitchRow label={t("studio.editor.comments")} hint={t("studio.editor.commentsHint")} checked={draft.commentsEnabled} onChange={(value) => set("commentsEnabled", value)} />
-          <SwitchRow label={t("studio.editor.notify")} hint={t("studio.editor.notifyHint")} checked={draft.notifySubscribers} onChange={(value) => set("notifySubscribers", value)} />
-          <SwitchRow label={t("studio.editor.ageRestricted")} hint={t("studio.editor.ageRestrictedHint")} checked={draft.ageRestricted} onChange={(value) => set("ageRestricted", value)} />
+          <SwitchRow
+            label={t("studio.editor.comments")}
+            hint={t("studio.editor.commentsHint")}
+            checked={draft.commentsEnabled}
+            onChange={(value) => set("commentsEnabled", value)}
+          />
+          <SwitchRow
+            label={t("studio.editor.notify")}
+            hint={t("studio.editor.notifyHint")}
+            checked={draft.notifySubscribers}
+            onChange={(value) => set("notifySubscribers", value)}
+          />
+          <SwitchRow
+            label={t("studio.editor.ageRestricted")}
+            hint={t("studio.editor.ageRestrictedHint")}
+            checked={draft.ageRestricted}
+            onChange={(value) => set("ageRestricted", value)}
+          />
         </div>
       </FormSection>
     </div>
@@ -158,9 +245,17 @@ function TagsField({ tags, onChange }: { tags: string[]; onChange(tags: string[]
       </label>
       <div className="flex min-h-12 flex-wrap items-center gap-1.5 rounded-control border-2 border-line bg-surface px-2 py-1.5 focus-within:border-brand">
         {tags.map((tag) => (
-          <span key={tag} className="inline-flex h-8 items-center gap-0.5 rounded-full bg-surface-2 pr-1 pl-3 text-sm font-bold">
+          <span
+            key={tag}
+            className="inline-flex h-8 items-center gap-0.5 rounded-full bg-surface-2 pr-1 pl-3 text-sm font-bold"
+          >
             #{tag}
-            <button type="button" aria-label={t("studio.editor.removeTag", { tag })} className="grid size-6 place-items-center rounded-full hover:bg-surface-3" onClick={() => onChange(tags.filter((existing) => existing !== tag))}>
+            <button
+              type="button"
+              aria-label={t("studio.editor.removeTag", { tag })}
+              className="grid size-6 place-items-center rounded-full hover:bg-surface-3"
+              onClick={() => onChange(tags.filter((existing) => existing !== tag))}
+            >
               <X className="size-3.5" />
             </button>
           </span>
@@ -177,7 +272,9 @@ function TagsField({ tags, onChange }: { tags: string[]; onChange(tags: string[]
           onBlur={() => text.trim() && add(text)}
         />
       </div>
-      <p className="px-1 text-xs text-ink-faint">{t("studio.editor.tagsHint", { count: tags.length, max: MAX_TAGS })}</p>
+      <p className="px-1 text-xs text-ink-faint">
+        {t("studio.editor.tagsHint", { count: tags.length, max: MAX_TAGS })}
+      </p>
     </div>
   );
 }
@@ -191,10 +288,22 @@ function GameField({ game, onChange }: { game: string; onChange(game: string): v
     const timer = setTimeout(() => setQuery(game.trim()), 250);
     return () => clearTimeout(timer);
   }, [game]);
-  const suggestions = useQuery({ queryKey: videoKeys.games(query), queryFn: () => videoClient().suggestGames({ query, limit: 8 }), staleTime: 60_000 });
+  const suggestions = useQuery({
+    queryKey: videoKeys.games(query),
+    queryFn: () => videoClient().suggestGames({ query, limit: 8 }),
+    staleTime: 60_000,
+  });
   return (
     <>
-      <TextField label={t("studio.editor.game")} value={game} maxLength={100} list={listId} autoComplete="off" placeholder={t("studio.editor.gamePlaceholder")} onChange={(event) => onChange(event.target.value)} />
+      <TextField
+        label={t("studio.editor.game")}
+        value={game}
+        maxLength={100}
+        list={listId}
+        autoComplete="off"
+        placeholder={t("studio.editor.gamePlaceholder")}
+        onChange={(event) => onChange(event.target.value)}
+      />
       <datalist id={listId}>
         {suggestions.data?.games.map((title) => (
           <option key={title} value={title} />
@@ -205,17 +314,32 @@ function GameField({ game, onChange }: { game: string; onChange(game: string): v
 }
 
 /** Chapters as rows of a start time and a name; each row says what is wrong with it, if anything. */
-function ChaptersField({ chapters, durationSeconds, playerTime, onChange }: { chapters: ChapterDraft[]; durationSeconds: number; playerTime?: () => number; onChange(chapters: ChapterDraft[]): void }) {
+function ChaptersField({
+  chapters,
+  durationSeconds,
+  playerTime,
+  onChange,
+}: {
+  chapters: ChapterDraft[];
+  durationSeconds: number;
+  playerTime?: () => number;
+  onChange(chapters: ChapterDraft[]): void;
+}) {
   const { t } = useTranslation("video");
   const errors = validateChapters(chapters, durationSeconds);
-  const patch = (key: string, change: Partial<ChapterDraft>) => onChange(chapters.map((chapter) => (chapter.key === key ? { ...chapter, ...change } : chapter)));
+  const patch = (key: string, change: Partial<ChapterDraft>) =>
+    onChange(
+      chapters.map((chapter) => (chapter.key === key ? { ...chapter, ...change } : chapter)),
+    );
   // Without a player the next row starts ten seconds after the last one.
   const lastStart = chapters.length;
   const addAt = () => onChange(withChapterAt(chapters, playerTime ? playerTime() : lastStart * 10));
 
   return (
     <>
-      {chapters.length === 0 && <p className="text-sm text-ink-faint">{t("studio.chapters.empty")}</p>}
+      {chapters.length === 0 && (
+        <p className="text-sm text-ink-faint">{t("studio.chapters.empty")}</p>
+      )}
       <ol className="flex flex-col gap-2">
         {chapters.map((chapter, index) => {
           const error = errors[index];
@@ -225,7 +349,14 @@ function ChaptersField({ chapters, durationSeconds, playerTime, onChange }: { ch
                 <input
                   value={chapter.time}
                   aria-label={t("studio.chapters.time", { index: index + 1 })}
-                  aria-invalid={error === "time" || error === "first" || error === "order" || error === "gap" || error === "end" || undefined}
+                  aria-invalid={
+                    error === "time" ||
+                    error === "first" ||
+                    error === "order" ||
+                    error === "gap" ||
+                    error === "end" ||
+                    undefined
+                  }
                   inputMode="numeric"
                   placeholder="0:00"
                   className="h-11 w-20 shrink-0 rounded-control border-2 border-line bg-surface px-2 text-center font-bold tabular-nums outline-none focus:border-brand aria-invalid:border-danger"
@@ -240,7 +371,14 @@ function ChaptersField({ chapters, durationSeconds, playerTime, onChange }: { ch
                   className="h-11 min-w-0 flex-1 rounded-control border-2 border-line bg-surface px-3 outline-none focus:border-brand aria-invalid:border-danger"
                   onChange={(event) => patch(chapter.key, { title: event.target.value })}
                 />
-                <Button variant="ghost" size="icon-sm" aria-label={t("studio.chapters.remove", { index: index + 1 })} onClick={() => onChange(chapters.filter((existing) => existing.key !== chapter.key))}>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={t("studio.chapters.remove", { index: index + 1 })}
+                  onClick={() =>
+                    onChange(chapters.filter((existing) => existing.key !== chapter.key))
+                  }
+                >
                   <X className="size-4" />
                 </Button>
               </div>
@@ -254,8 +392,21 @@ function ChaptersField({ chapters, durationSeconds, playerTime, onChange }: { ch
         })}
       </ol>
       {chapters.length < MAX_CHAPTERS && (
-        <Button variant="secondary" className="self-start" icon={playerTime && chapters.length > 0 ? <Clock className="size-4" /> : <Plus className="size-4" />} onClick={addAt}>
-          {playerTime && chapters.length > 0 ? t("studio.chapters.addHere") : t("studio.chapters.add")}
+        <Button
+          variant="secondary"
+          className="self-start"
+          icon={
+            playerTime && chapters.length > 0 ? (
+              <Clock className="size-4" />
+            ) : (
+              <Plus className="size-4" />
+            )
+          }
+          onClick={addAt}
+        >
+          {playerTime && chapters.length > 0
+            ? t("studio.chapters.addHere")
+            : t("studio.chapters.add")}
         </Button>
       )}
     </>

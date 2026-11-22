@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, ListRow, Skeleton } from "#/components/ui/page";
+import { EmojiText } from "#/features/emoji";
 import { errorMessage } from "#/lib/errors";
 import { channelClient, nextCursor, videoKeys } from "../api";
 
@@ -14,7 +15,8 @@ export function ChannelSubscribers({ channel }: { channel: video.Channel }) {
   const channelId = channel.summary?.id ?? "";
   const query = useInfiniteQuery({
     queryKey: videoKeys.subscribers(channelId),
-    queryFn: ({ pageParam }) => channelClient().listSubscribers({ channelId, page: { limit: 30, cursor: pageParam } }),
+    queryFn: ({ pageParam }) =>
+      channelClient().listSubscribers({ channelId, page: { limit: 30, cursor: pageParam } }),
     initialPageParam: "",
     getNextPageParam: nextCursor,
   });
@@ -22,7 +24,14 @@ export function ChannelSubscribers({ channel }: { channel: video.Channel }) {
 
   if (query.isPending) return <Skeleton className="h-40 rounded-card" />;
   if (query.isError) return <EmptyState emoji="😵‍💫" title={errorMessage(query.error)} />;
-  if (subscribers.length === 0) return <EmptyState emoji="🫶" title={t("channel.noSubscribers")} body={t("channel.noSubscribersBody")} />;
+  if (subscribers.length === 0)
+    return (
+      <EmptyState
+        emoji="🫶"
+        title={t("channel.noSubscribers")}
+        body={t("channel.noSubscribersBody")}
+      />
+    );
   return (
     <section className="mx-auto max-w-2xl">
       <p className="px-1 pb-2 text-sm font-bold text-ink-soft">{t("channel.subscribersLead")}</p>
@@ -39,11 +48,15 @@ export function ChannelSubscribers({ channel }: { channel: video.Channel }) {
                 }
                 title={
                   <Link to="/u/$handle" params={{ handle: subscriber.user.handle }}>
-                    {subscriber.user.displayName}
+                    <EmojiText text={subscriber.user.displayName} />
                   </Link>
                 }
                 subtitle={`@${subscriber.user.handle}`}
-                trailing={<span className="shrink-0 text-xs font-bold text-ink-faint">{toDate(subscriber.subscribedAt)?.toLocaleDateString(i18n.language)}</span>}
+                trailing={
+                  <span className="shrink-0 text-xs font-bold text-ink-faint">
+                    {toDate(subscriber.subscribedAt)?.toLocaleDateString(i18n.language)}
+                  </span>
+                }
               />
             ),
         )}

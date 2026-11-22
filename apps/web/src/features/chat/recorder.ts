@@ -3,12 +3,19 @@ import { peaksOf } from "./waveform";
 /** Recording in the browser with `MediaRecorder`: voice messages and short videos. */
 
 const AUDIO_TYPES = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"];
-const VIDEO_TYPES = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm", "video/mp4"];
+const VIDEO_TYPES = [
+  "video/webm;codecs=vp9,opus",
+  "video/webm;codecs=vp8,opus",
+  "video/webm",
+  "video/mp4",
+];
 
 /** The first container this browser can record, or undefined to let it choose. */
 export function recordingType(kind: "audio" | "video"): string | undefined {
   if (typeof MediaRecorder === "undefined") return undefined;
-  return (kind === "audio" ? AUDIO_TYPES : VIDEO_TYPES).find((type) => MediaRecorder.isTypeSupported(type));
+  return (kind === "audio" ? AUDIO_TYPES : VIDEO_TYPES).find((type) =>
+    MediaRecorder.isTypeSupported(type),
+  );
 }
 
 /** The file extension that goes with a recorded type. */
@@ -48,7 +55,9 @@ export class VoiceRecorder {
 
   /** Asks for the microphone and starts recording. Rejects when it is refused or missing. */
   static async start(onLevel: (level: number) => void): Promise<VoiceRecorder> {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true },
+    });
     const type = recordingType("audio");
     const recorder = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
     const session = new VoiceRecorder(stream, recorder);
@@ -99,7 +108,12 @@ export class VoiceRecorder {
       this.recorder.onstop = () => {
         const type = this.recorder.mimeType || this.chunks[0]?.type || "audio/webm";
         this.release();
-        resolve({ blob: new Blob(this.chunks, { type }), fileName: `voice-${Date.now()}.${extensionOf(type)}`, durationSeconds, waveform: peaksOf(this.levels) });
+        resolve({
+          blob: new Blob(this.chunks, { type }),
+          fileName: `voice-${Date.now()}.${extensionOf(type)}`,
+          durationSeconds,
+          waveform: peaksOf(this.levels),
+        });
       };
       if (this.recorder.state === "inactive") this.recorder.onstop?.(new Event("stop"));
       else this.recorder.stop();

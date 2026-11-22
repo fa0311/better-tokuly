@@ -1,4 +1,10 @@
-import { type InfiniteData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  type InfiniteData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { create, engagement, toDate } from "@tokuly/api";
 import { Plus, X } from "lucide-react";
 import { useState } from "react";
@@ -22,11 +28,14 @@ export function Rules() {
   const [draft, setDraft] = useState("");
   const rules = useQuery({
     queryKey: commentKeys.rules,
-    queryFn: async () => (await moderationClient().getModerationSettings({})).settings ?? create(engagement.ModerationSettingsSchema),
+    queryFn: async () =>
+      (await moderationClient().getModerationSettings({})).settings ??
+      create(engagement.ModerationSettingsSchema),
   });
 
   const save = useMutation({
-    mutationFn: (settings: engagement.ModerationSettings) => moderationClient().updateModerationSettings({ settings }),
+    mutationFn: (settings: engagement.ModerationSettings) =>
+      moderationClient().updateModerationSettings({ settings }),
     // The switch answers at once; if the server refuses, what it has comes back.
     onMutate: (settings) => {
       const previous = queryClient.getQueryData<engagement.ModerationSettings>(commentKeys.rules);
@@ -43,16 +52,22 @@ export function Rules() {
   });
 
   if (rules.isPending) return <Skeleton className="h-64 rounded-card" />;
-  if (rules.isError || !rules.data) return <EmptyState emoji="😵‍💫" title={errorMessage(rules.error)} />;
+  if (rules.isError || !rules.data)
+    return <EmptyState emoji="😵‍💫" title={errorMessage(rules.error)} />;
   const settings = rules.data;
-  const change = (patch: Partial<engagement.ModerationSettings>) => save.mutate({ ...settings, ...patch });
+  const change = (patch: Partial<engagement.ModerationSettings>) =>
+    save.mutate({ ...settings, ...patch });
 
   const addWords = () => {
     // Several words can be typed at once, separated by commas or new lines.
     const words = draft
       .split(/[,、\n]/)
       .map((word) => word.trim().slice(0, MAX_WORD_LENGTH))
-      .filter((word) => word && !settings.blockedWords.some((existing) => existing.toLowerCase() === word.toLowerCase()));
+      .filter(
+        (word) =>
+          word &&
+          !settings.blockedWords.some((existing) => existing.toLowerCase() === word.toLowerCase()),
+      );
     setDraft("");
     if (words.length === 0) return;
     if (settings.blockedWords.length + words.length > MAX_WORDS) {
@@ -68,8 +83,18 @@ export function Rules() {
         <h2 className="px-1 text-lg font-black">{t("rules.reviewTitle")}</h2>
         <p className="mt-0.5 px-1 text-sm leading-relaxed text-ink-soft">{t("rules.reviewLead")}</p>
         <div className="sticker mt-3 rounded-card bg-surface p-2">
-          <SwitchRow label={t("rules.holdAll")} hint={t("rules.holdAllHint")} checked={settings.holdAll} onChange={(holdAll) => change({ holdAll })} />
-          <SwitchRow label={t("rules.holdLinks")} hint={t("rules.holdLinksHint")} checked={settings.holdLinks} onChange={(holdLinks) => change({ holdLinks })} />
+          <SwitchRow
+            label={t("rules.holdAll")}
+            hint={t("rules.holdAllHint")}
+            checked={settings.holdAll}
+            onChange={(holdAll) => change({ holdAll })}
+          />
+          <SwitchRow
+            label={t("rules.holdLinks")}
+            hint={t("rules.holdLinksHint")}
+            checked={settings.holdLinks}
+            onChange={(holdLinks) => change({ holdLinks })}
+          />
         </div>
       </section>
 
@@ -91,7 +116,12 @@ export function Rules() {
               aria-label={t("rules.wordPlaceholder")}
               className="h-11 min-w-0 flex-1 rounded-control border-2 border-line bg-surface px-4 text-[15px] outline-none placeholder:text-ink-faint focus:border-brand"
             />
-            <Button type="submit" variant="secondary" icon={<Plus className="size-4" />} disabled={!draft.trim()}>
+            <Button
+              type="submit"
+              variant="secondary"
+              icon={<Plus className="size-4" />}
+              disabled={!draft.trim()}
+            >
               {t("rules.addWord")}
             </Button>
           </form>
@@ -100,13 +130,20 @@ export function Rules() {
           ) : (
             <ul className="mt-3 flex flex-wrap gap-2" aria-label={t("rules.wordsTitle")}>
               {settings.blockedWords.map((word) => (
-                <li key={word} className="inline-flex h-8 items-center gap-1 rounded-full bg-surface-2 pr-1 pl-3 text-sm font-bold">
+                <li
+                  key={word}
+                  className="inline-flex h-8 items-center gap-1 rounded-full bg-surface-2 pr-1 pl-3 text-sm font-bold"
+                >
                   {word}
                   <button
                     type="button"
                     aria-label={t("rules.removeWord", { word })}
                     className="grid size-6 place-items-center rounded-full hover:bg-surface-3"
-                    onClick={() => change({ blockedWords: settings.blockedWords.filter((existing) => existing !== word) })}
+                    onClick={() =>
+                      change({
+                        blockedWords: settings.blockedWords.filter((existing) => existing !== word),
+                      })
+                    }
                   >
                     <X className="size-3.5" />
                   </button>
@@ -126,15 +163,27 @@ export function BlockedCommenters() {
   const queryClient = useQueryClient();
   const list = useInfiniteQuery({
     queryKey: commentKeys.blocked,
-    queryFn: ({ pageParam }) => moderationClient().listBlockedCommenters({ page: { limit: 30, cursor: pageParam } }),
+    queryFn: ({ pageParam }) =>
+      moderationClient().listBlockedCommenters({ page: { limit: 30, cursor: pageParam } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
   const unblock = useMutation({
-    mutationFn: (blocked: engagement.BlockedCommenter) => moderationClient().unblockCommenter({ blockId: blocked.id }),
+    mutationFn: (blocked: engagement.BlockedCommenter) =>
+      moderationClient().unblockCommenter({ blockId: blocked.id }),
     onSuccess: (_response, blocked) => {
-      queryClient.setQueryData<InfiniteData<engagement.ListBlockedCommentersResponse>>(commentKeys.blocked, (data) =>
-        data ? { ...data, pages: data.pages.map((page) => ({ ...page, commenters: page.commenters.filter((entry) => entry.id !== blocked.id) })) } : data,
+      queryClient.setQueryData<InfiniteData<engagement.ListBlockedCommentersResponse>>(
+        commentKeys.blocked,
+        (data) =>
+          data
+            ? {
+                ...data,
+                pages: data.pages.map((page) => ({
+                  ...page,
+                  commenters: page.commenters.filter((entry) => entry.id !== blocked.id),
+                })),
+              }
+            : data,
       );
       toast.success(t("toast.unblocked", { name: authorName(blocked.commenter) }));
     },
@@ -160,7 +209,12 @@ export function BlockedCommenters() {
               title={authorName(blocked.commenter) || t("item.unknown")}
               subtitle={`@${authorHandle(blocked.commenter)} · ${toDate(blocked.createdAt)?.toLocaleDateString(i18n.language) ?? ""}`}
               trailing={
-                <Button size="sm" variant="secondary" loading={unblock.isPending && unblock.variables?.id === blocked.id} onClick={() => unblock.mutate(blocked)}>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  loading={unblock.isPending && unblock.variables?.id === blocked.id}
+                  onClick={() => unblock.mutate(blocked)}
+                >
                   {t("blocked.unblock")}
                 </Button>
               }

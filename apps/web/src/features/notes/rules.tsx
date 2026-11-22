@@ -9,7 +9,12 @@ import { noteClient, notesKeys } from "./api";
 
 /** The posting rules in the viewer's language, and whether they agreed to the current version. */
 export function useNoteRules(enabled = true) {
-  return useQuery({ queryKey: notesKeys.rules, queryFn: () => noteClient().getNoteRules({}), enabled, staleTime: 5 * 60_000 });
+  return useQuery({
+    queryKey: notesKeys.rules,
+    queryFn: () => noteClient().getNoteRules({}),
+    enabled,
+    staleTime: 5 * 60_000,
+  });
 }
 
 const RULE_EMOJI = ["💜", "🔒", "📸", "🚫", "🎭", "🚩"];
@@ -18,14 +23,33 @@ const RULE_EMOJI = ["💜", "🔒", "📸", "🚫", "🎭", "🚩"];
  * The rules everyone agrees to before their first note (and again when they
  * change). Shown in place of the editor until the viewer agrees.
  */
-export function RulesAgreement({ rules, error, onRetry, onCancel }: { rules: notes.GetNoteRulesResponse | undefined; /** Why the rules could not be read, if they could not. */ error?: unknown; onRetry?(): void; onCancel(): void }) {
+export function RulesAgreement({
+  rules,
+  error,
+  onRetry,
+  onCancel,
+}: {
+  rules:
+    | notes.GetNoteRulesResponse
+    | undefined /** Why the rules could not be read, if they could not. */;
+  error?: unknown;
+  onRetry?(): void;
+  onCancel(): void;
+}) {
   const { t } = useTranslation("notes");
   const queryClient = useQueryClient();
   const agree = useMutation({
     mutationFn: () => noteClient().agreeToNoteRules({ version: rules!.version }),
     onSuccess: (response) => {
       queryClient.setQueryData<notes.GetNoteRulesResponse>(notesKeys.rules, (current) =>
-        current ? { ...current, agreed: true, agreedVersion: current.version, agreedAt: response.agreedAt } : current,
+        current
+          ? {
+              ...current,
+              agreed: true,
+              agreedVersion: current.version,
+              agreedAt: response.agreedAt,
+            }
+          : current,
       );
     },
     onError: (error) => {
@@ -36,7 +60,13 @@ export function RulesAgreement({ rules, error, onRetry, onCancel }: { rules: not
   });
 
   if (!rules && error) {
-    return <EmptyState emoji="🌧️" title={errorMessage(error)} action={<Button onClick={onRetry}>{t("timeline.retry")}</Button>} />;
+    return (
+      <EmptyState
+        emoji="🌧️"
+        title={errorMessage(error)}
+        action={<Button onClick={onRetry}>{t("timeline.retry")}</Button>}
+      />
+    );
   }
   if (!rules) {
     return (
@@ -50,11 +80,16 @@ export function RulesAgreement({ rules, error, onRetry, onCancel }: { rules: not
   const updated = rules.agreedVersion > 0 && rules.agreedVersion < rules.version;
   return (
     <div data-testid="note-rules">
-      <p className="text-sm leading-relaxed text-ink-soft">{updated ? t("rules.updated") : t("rules.lead")}</p>
+      <p className="text-sm leading-relaxed text-ink-soft">
+        {updated ? t("rules.updated") : t("rules.lead")}
+      </p>
       <ol className="mt-4 flex flex-col gap-2.5">
         {rules.rules.map((rule, index) => (
           <li key={rule.title} className="flex gap-3 rounded-2xl bg-surface-2 px-3 py-3">
-            <span aria-hidden className="grid size-9 shrink-0 place-items-center rounded-xl border-2 border-ink bg-surface text-lg">
+            <span
+              aria-hidden
+              className="grid size-9 shrink-0 place-items-center rounded-xl border-2 border-ink bg-surface text-lg"
+            >
               {RULE_EMOJI[index % RULE_EMOJI.length]}
             </span>
             <span className="min-w-0">

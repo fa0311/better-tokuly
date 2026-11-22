@@ -15,10 +15,19 @@ export interface Timeline {
 }
 
 /** One page of `ListMessages`, reduced to what a timeline keeps. */
-export type MessagePage = Pick<chat.ListMessagesResponse, "messages" | "olderCursor" | "hasOlder" | "newerCursor" | "hasNewer">;
+export type MessagePage = Pick<
+  chat.ListMessagesResponse,
+  "messages" | "olderCursor" | "hasOlder" | "newerCursor" | "hasNewer"
+>;
 
 export function timelineOf(page: MessagePage): Timeline {
-  return { messages: sorted(page.messages), olderCursor: page.olderCursor, hasOlder: page.hasOlder, newerCursor: page.newerCursor, hasNewer: page.hasNewer };
+  return {
+    messages: sorted(page.messages),
+    olderCursor: page.olderCursor,
+    hasOlder: page.hasOlder,
+    newerCursor: page.newerCursor,
+    hasNewer: page.hasNewer,
+  };
 }
 
 function sorted(messages: chat.Message[]): chat.Message[] {
@@ -34,12 +43,22 @@ function union(held: chat.Message[], fresh: chat.Message[]): chat.Message[] {
 
 /** Adds a page fetched with `before: olderCursor`. */
 export function withOlder(timeline: Timeline, page: MessagePage): Timeline {
-  return { ...timeline, messages: union(timeline.messages, page.messages), olderCursor: page.olderCursor, hasOlder: page.hasOlder };
+  return {
+    ...timeline,
+    messages: union(timeline.messages, page.messages),
+    olderCursor: page.olderCursor,
+    hasOlder: page.hasOlder,
+  };
 }
 
 /** Adds a page fetched with `after: newerCursor`. */
 export function withNewer(timeline: Timeline, page: MessagePage): Timeline {
-  return { ...timeline, messages: union(timeline.messages, page.messages), newerCursor: page.newerCursor, hasNewer: page.hasNewer };
+  return {
+    ...timeline,
+    messages: union(timeline.messages, page.messages),
+    newerCursor: page.newerCursor,
+    hasNewer: page.hasNewer,
+  };
 }
 
 /** Whether a message that just arrived would leave a hole behind the newest one held. */
@@ -56,7 +75,13 @@ export function leavesGap(timeline: Timeline, message: chat.Message): boolean {
 export function withCreated(timeline: Timeline, message: chat.Message): Timeline {
   if (timeline.hasNewer) return timeline;
   const held = timeline.messages.find((candidate) => candidate.id === message.id);
-  if (held) return { ...timeline, messages: timeline.messages.map((candidate) => (candidate === held ? mergeMessage(held, message) : candidate)) };
+  if (held)
+    return {
+      ...timeline,
+      messages: timeline.messages.map((candidate) =>
+        candidate === held ? mergeMessage(held, message) : candidate,
+      ),
+    };
   return { ...timeline, messages: sorted([...timeline.messages, message]) };
 }
 
@@ -66,33 +91,66 @@ export function withCreated(timeline: Timeline, message: chat.Message): Timeline
  * are theirs) is carried over from the copy already held.
  */
 export function mergeMessage(held: chat.Message, incoming: chat.Message): chat.Message {
-  const mine = new Set(held.reactions.filter((reaction) => reaction.reactedByMe).map((reaction) => reaction.emoji));
+  const mine = new Set(
+    held.reactions.filter((reaction) => reaction.reactedByMe).map((reaction) => reaction.emoji),
+  );
   return {
     ...incoming,
     readCount: Math.max(held.readCount, incoming.readCount),
-    reactions: incoming.reactions.map((reaction) => (mine.has(reaction.emoji) && !reaction.reactedByMe ? { ...reaction, reactedByMe: true } : reaction)),
+    reactions: incoming.reactions.map((reaction) =>
+      mine.has(reaction.emoji) && !reaction.reactedByMe
+        ? { ...reaction, reactedByMe: true }
+        : reaction,
+    ),
   };
 }
 
 /** Replaces a message with its changed version; unknown messages are ignored. */
-export function withUpdated(timeline: Timeline, message: chat.Message, fromEvent: boolean): Timeline {
+export function withUpdated(
+  timeline: Timeline,
+  message: chat.Message,
+  fromEvent: boolean,
+): Timeline {
   if (!timeline.messages.some((held) => held.id === message.id)) return timeline;
-  return { ...timeline, messages: timeline.messages.map((held) => (held.id === message.id ? (fromEvent ? mergeMessage(held, message) : message) : held)) };
+  return {
+    ...timeline,
+    messages: timeline.messages.map((held) =>
+      held.id === message.id ? (fromEvent ? mergeMessage(held, message) : message) : held,
+    ),
+  };
 }
 
 /** The reactions of a message after one person added or removed an emoji. */
-export function reactionsAfter(reactions: chat.ReactionCount[], change: { emoji: string; added: boolean; count: number; byMe: boolean }): chat.ReactionCount[] {
+export function reactionsAfter(
+  reactions: chat.ReactionCount[],
+  change: { emoji: string; added: boolean; count: number; byMe: boolean },
+): chat.ReactionCount[] {
   const held = reactions.find((reaction) => reaction.emoji === change.emoji);
   const reactedByMe = change.byMe ? change.added : (held?.reactedByMe ?? false);
   if (change.count <= 0) return reactions.filter((reaction) => reaction.emoji !== change.emoji);
-  if (!held) return [...reactions, create(chat.ReactionCountSchema, { emoji: change.emoji, count: change.count, reactedByMe })];
-  return reactions.map((reaction) => (reaction === held ? { ...reaction, count: change.count, reactedByMe } : reaction));
+  if (!held)
+    return [
+      ...reactions,
+      create(chat.ReactionCountSchema, { emoji: change.emoji, count: change.count, reactedByMe }),
+    ];
+  return reactions.map((reaction) =>
+    reaction === held ? { ...reaction, count: change.count, reactedByMe } : reaction,
+  );
 }
 
 /** Applies a reaction change to the message it belongs to. */
-export function withReaction(timeline: Timeline, messageId: string, change: { emoji: string; added: boolean; count: number; byMe: boolean }): Timeline {
+export function withReaction(
+  timeline: Timeline,
+  messageId: string,
+  change: { emoji: string; added: boolean; count: number; byMe: boolean },
+): Timeline {
   if (!timeline.messages.some((held) => held.id === messageId)) return timeline;
-  return { ...timeline, messages: timeline.messages.map((held) => (held.id === messageId ? { ...held, reactions: reactionsAfter(held.reactions, change) } : held)) };
+  return {
+    ...timeline,
+    messages: timeline.messages.map((held) =>
+      held.id === messageId ? { ...held, reactions: reactionsAfter(held.reactions, change) } : held,
+    ),
+  };
 }
 
 // ───────────────────────────── Rows ─────────────────────────────
@@ -127,7 +185,9 @@ export type Row =
  * message that replaces it.
  */
 export function rowKey(message: chat.Message): string {
-  return message.clientId && message.sender ? `c:${message.sender.id}:${message.clientId}` : message.id;
+  return message.clientId && message.sender
+    ? `c:${message.sender.id}:${message.clientId}`
+    : message.id;
 }
 
 /** Messages by the same person less than this apart are drawn as one run. */
@@ -140,7 +200,11 @@ function dayOf(ms: number): string {
 
 /** Whether a message is drawn as a bubble of its sender (and not as a centred notice). */
 export function isBubble(message: chat.Message): boolean {
-  return message.kind !== chat.MessageKind.SYSTEM && message.kind !== chat.MessageKind.CALL && message.kind !== chat.MessageKind.POV_REQUEST;
+  return (
+    message.kind !== chat.MessageKind.SYSTEM &&
+    message.kind !== chat.MessageKind.CALL &&
+    message.kind !== chat.MessageKind.POV_REQUEST
+  );
 }
 
 function sameRun(a: chat.Message, b: chat.Message): boolean {
@@ -160,7 +224,11 @@ function sameRun(a: chat.Message, b: chat.Message): boolean {
  */
 export function buildRows(
   messages: chat.Message[],
-  options: { pending?: { message: chat.Message; state: PendingState }[]; unreadAfterSeq?: bigint; myId: string },
+  options: {
+    pending?: { message: chat.Message; state: PendingState }[];
+    unreadAfterSeq?: bigint;
+    myId: string;
+  },
 ): Row[] {
   const rows: Row[] = [];
   const all: { message: chat.Message; pending?: PendingState }[] = [
@@ -178,7 +246,13 @@ export function buildRows(
       day = messageDay;
       rows.push({ type: "day", key: `day:${messageDay}`, at });
     }
-    if (!dividerPlaced && !pending && message.seq > options.unreadAfterSeq! && message.sender?.id !== options.myId && message.kind !== chat.MessageKind.SYSTEM) {
+    if (
+      !dividerPlaced &&
+      !pending &&
+      message.seq > options.unreadAfterSeq! &&
+      message.sender?.id !== options.myId &&
+      message.kind !== chat.MessageKind.SYSTEM
+    ) {
       dividerPlaced = true;
       rows.push({ type: "unread", key: "unread" });
     }

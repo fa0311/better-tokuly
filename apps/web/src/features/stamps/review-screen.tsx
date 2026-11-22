@@ -1,7 +1,15 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type common, stamp, toDate } from "@tokuly/api";
-import { BadgeCheck, Check, MoreHorizontal, ShieldCheck, ShieldOff, UserRound, X } from "lucide-react";
+import {
+  BadgeCheck,
+  Check,
+  MoreHorizontal,
+  ShieldCheck,
+  ShieldOff,
+  UserRound,
+  X,
+} from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -17,6 +25,7 @@ import { Menu } from "#/components/ui/menu";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
 import { Tabs } from "#/components/ui/tabs";
+import { EmojiText } from "#/features/emoji";
 import { errorMessage } from "#/lib/errors";
 import { useMe } from "#/stores/session";
 import { patchPack, reviewClient, stampKeys, storeClient } from "./api";
@@ -37,7 +46,8 @@ export function ReviewScreen() {
   const [tab, setTab] = useState<Tab>("queue");
   const queue = useInfiniteQuery({
     queryKey: stampKeys.reviewQueue,
-    queryFn: ({ pageParam }) => reviewClient().listReviewQueue({ page: { limit: 10, cursor: pageParam } }),
+    queryFn: ({ pageParam }) =>
+      reviewClient().listReviewQueue({ page: { limit: 10, cursor: pageParam } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
     enabled: moderator,
@@ -74,7 +84,11 @@ export function ReviewScreen() {
                 ) : queue.isError ? (
                   <EmptyState emoji="😵‍💫" title={t("store.error")} />
                 ) : (
-                  <Queue items={queue.data.pages.flatMap((page) => page.items)} waiting={waiting ?? 0} more={<LoadMore query={queue} />} />
+                  <Queue
+                    items={queue.data.pages.flatMap((page) => page.items)}
+                    waiting={waiting ?? 0}
+                    more={<LoadMore query={queue} />}
+                  />
                 ))}
               {tab === "store" && <StoreShelves />}
             </div>
@@ -87,13 +101,24 @@ export function ReviewScreen() {
 
 // ───────────────────────────── Queue ─────────────────────────────
 
-function Queue({ items, waiting, more }: { items: stamp.ReviewItem[]; waiting: number; more: ReactNode }) {
+function Queue({
+  items,
+  waiting,
+  more,
+}: {
+  items: stamp.ReviewItem[];
+  waiting: number;
+  more: ReactNode;
+}) {
   const { t } = useTranslation("stamps");
-  if (items.length === 0) return <EmptyState emoji="🍵" title={t("review.empty")} body={t("review.emptyBody")} />;
+  if (items.length === 0)
+    return <EmptyState emoji="🍵" title={t("review.empty")} body={t("review.emptyBody")} />;
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm font-bold text-ink-soft">{t("review.waiting", { count: waiting })}</p>
-      {items.map((item) => item.pack?.summary && <ReviewCard key={item.pack.summary.id} item={item} />)}
+      {items.map(
+        (item) => item.pack?.summary && <ReviewCard key={item.pack.summary.id} item={item} />,
+      )}
       {more}
     </div>
   );
@@ -103,7 +128,8 @@ function useTrust() {
   const { t } = useTranslation("stamps");
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: { userId: string; trusted: boolean }) => reviewClient().setCreatorTrusted(input),
+    mutationFn: (input: { userId: string; trusted: boolean }) =>
+      reviewClient().setCreatorTrusted(input),
     onSuccess: (_, input) => {
       toast.success(input.trusted ? t("toast.trusted") : t("toast.untrusted"));
       return queryClient.invalidateQueries({ queryKey: stampKeys.review });
@@ -128,7 +154,11 @@ function ReviewCard({ item }: { item: stamp.ReviewItem }) {
   const [reason, setReason] = useState("");
   const [preview, setPreview] = useState<stamp.Stamp | null>(null);
 
-  const decided = () => Promise.all([queryClient.invalidateQueries({ queryKey: stampKeys.review }), queryClient.invalidateQueries({ queryKey: stampKeys.store })]);
+  const decided = () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: stampKeys.review }),
+      queryClient.invalidateQueries({ queryKey: stampKeys.store }),
+    ]);
   const onError = (error: unknown) => {
     toast.error(errorMessage(error, { namespace: "stamps" }));
     // Someone else may have decided meanwhile: show the queue as it is.
@@ -154,7 +184,11 @@ function ReviewCard({ item }: { item: stamp.ReviewItem }) {
   const trust = useTrust();
 
   return (
-    <article className="rounded-2xl border-2 border-line bg-surface" data-testid="review-item" aria-label={summary.name}>
+    <article
+      className="rounded-2xl border-2 border-line bg-surface"
+      data-testid="review-item"
+      aria-label={summary.name}
+    >
       <header className="flex flex-wrap items-center gap-3 border-b-2 border-line p-4">
         <PackCover pack={summary} className="size-16 shrink-0 rounded-xl" />
         <div className="min-w-0 flex-1 basis-48">
@@ -166,24 +200,52 @@ function ReviewCard({ item }: { item: stamp.ReviewItem }) {
                 {t("official")}
               </span>
             ) : creator ? (
-              <Link to="/u/$handle" params={{ handle: creator.handle }} className="inline-flex min-w-0 items-center gap-1.5 font-bold hover:underline">
+              <Link
+                to="/u/$handle"
+                params={{ handle: creator.handle }}
+                className="inline-flex min-w-0 items-center gap-1.5 font-bold hover:underline"
+              >
                 <Avatar user={creator} size="xs" />
-                <span className="truncate">{creator.displayName}</span>
+                <span className="truncate">
+                  <EmojiText text={creator.displayName} />
+                </span>
                 <span className="truncate text-ink-faint">@{creator.handle}</span>
               </Link>
             ) : (
               <span className="text-ink-faint">{t("deletedCreator")}</span>
             )}
-            {summary.price > 0 ? <Coins amount={summary.price} size="sm" /> : <span className="font-bold text-ink-soft">{t("free")}</span>}
-            {submitted && <span className="text-xs text-ink-faint">{t("review.submitted", { date: submitted.toLocaleString(i18n.language, { dateStyle: "medium", timeStyle: "short" }) })}</span>}
+            {summary.price > 0 ? (
+              <Coins amount={summary.price} size="sm" />
+            ) : (
+              <span className="font-bold text-ink-soft">{t("free")}</span>
+            )}
+            {submitted && (
+              <span className="text-xs text-ink-faint">
+                {t("review.submitted", {
+                  date: submitted.toLocaleString(i18n.language, {
+                    dateStyle: "medium",
+                    timeStyle: "short",
+                  }),
+                })}
+              </span>
+            )}
           </div>
         </div>
         {/* On phones the two decisions get a row of their own, so the pack's details keep their room. */}
         <div className="flex w-full shrink-0 justify-end gap-2 sm:w-auto">
-          <Button variant="secondary" icon={<X className="size-4" />} onClick={() => setRejecting(true)}>
+          <Button
+            variant="secondary"
+            icon={<X className="size-4" />}
+            onClick={() => setRejecting(true)}
+          >
             {t("review.reject")}
           </Button>
-          <Button variant="lime" icon={<Check className="size-4" />} loading={approve.isPending} onClick={() => approve.mutate()}>
+          <Button
+            variant="lime"
+            icon={<Check className="size-4" />}
+            loading={approve.isPending}
+            onClick={() => approve.mutate()}
+          >
             {t("review.approve")}
           </Button>
         </div>
@@ -191,15 +253,26 @@ function ReviewCard({ item }: { item: stamp.ReviewItem }) {
 
       <div className="grid gap-4 p-4 lg:grid-cols-[1fr_20rem]">
         <div className="min-w-0">
-          <p className="pb-1 text-xs font-bold text-ink-faint">{t("review.stamps", { count: pack.stamps.length, fresh })}</p>
+          <p className="pb-1 text-xs font-bold text-ink-faint">
+            {t("review.stamps", { count: pack.stamps.length, fresh })}
+          </p>
           <div className="grid grid-cols-4 gap-1 rounded-2xl bg-surface-2 p-2 sm:grid-cols-6 xl:grid-cols-8">
             {pack.stamps.map((entry) => (
-              <StampTile key={entry.stampRef?.id} item={entry} hidePending={fresh === pack.stamps.length} onPress={setPreview} />
+              <StampTile
+                key={entry.stampRef?.id}
+                item={entry}
+                hidePending={fresh === pack.stamps.length}
+                onPress={setPreview}
+              />
             ))}
           </div>
         </div>
         <div className="flex min-w-0 flex-col gap-3 text-sm">
-          {pack.description ? <p className="leading-relaxed break-words whitespace-pre-wrap">{pack.description}</p> : <p className="text-ink-faint">{t("studio.pack.noDescription")}</p>}
+          {pack.description ? (
+            <p className="leading-relaxed break-words whitespace-pre-wrap">{pack.description}</p>
+          ) : (
+            <p className="text-ink-faint">{t("studio.pack.noDescription")}</p>
+          )}
           {summary.tags.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {summary.tags.map((tag) => (
@@ -231,7 +304,9 @@ function ReviewCard({ item }: { item: stamp.ReviewItem }) {
                         {record.moderator && ` · @${record.moderator.handle}`}
                       </span>
                     </p>
-                    {record.note && <p className="mt-0.5 break-words whitespace-pre-wrap">{record.note}</p>}
+                    {record.note && (
+                      <p className="mt-0.5 break-words whitespace-pre-wrap">{record.note}</p>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -248,18 +323,34 @@ function ReviewCard({ item }: { item: stamp.ReviewItem }) {
         confirmLabel={t("review.reject")}
         danger
         loading={reject.isPending}
-        onConfirm={() => (reason.trim() ? reject.mutate() : toast.error(t("review.reasonRequired")))}
+        onConfirm={() =>
+          reason.trim() ? reject.mutate() : toast.error(t("review.reasonRequired"))
+        }
       >
-        <TextArea label={t("review.reason")} placeholder={t("review.reasonPlaceholder")} value={reason} maxLength={500} rows={3} autoFocus onChange={(event) => setReason(event.target.value)} />
+        <TextArea
+          label={t("review.reason")}
+          placeholder={t("review.reasonPlaceholder")}
+          value={reason}
+          maxLength={500}
+          rows={3}
+          autoFocus
+          onChange={(event) => setReason(event.target.value)}
+        />
       </ConfirmDialog>
-      <Dialog open={preview !== null} onOpenChange={(open) => !open && setPreview(null)} title={preview?.stampRef?.name || t("stamp.unnamed")}>
+      <Dialog
+        open={preview !== null}
+        onOpenChange={(open) => !open && setPreview(null)}
+        title={preview?.stampRef?.name || t("stamp.unnamed")}
+      >
         {preview?.stampRef && (
           <div className="flex flex-col items-center gap-3">
             <div className="grid w-full place-items-center rounded-[2rem] bg-surface-2 py-6">
               <StampImage stamp={preview.stampRef} size={224} play="always" />
             </div>
             <div className="flex flex-wrap justify-center gap-1.5">
-              {preview.pendingReview && <Chip className="bg-sun text-[#17122b]">{t("stamp.pending")}</Chip>}
+              {preview.pendingReview && (
+                <Chip className="bg-sun text-[#17122b]">{t("stamp.pending")}</Chip>
+              )}
               {preview.emoji && <Chip className="text-sm">{preview.emoji}</Chip>}
               {preview.keywords.map((keyword) => (
                 <Chip key={keyword}>{keyword}</Chip>
@@ -307,10 +398,14 @@ function StoreShelves() {
   }, [text]);
 
   const packs = useInfiniteQuery({
-    queryKey: query ? stampKeys.storeSearch(query, stamp.PriceFilter.UNSPECIFIED) : stampKeys.storeList(SHELF_SECTION[shelf], "", stamp.PriceFilter.UNSPECIFIED),
+    queryKey: query
+      ? stampKeys.storeSearch(query, stamp.PriceFilter.UNSPECIFIED)
+      : stampKeys.storeList(SHELF_SECTION[shelf], "", stamp.PriceFilter.UNSPECIFIED),
     queryFn: async ({ pageParam }) => {
       const page = { limit: 24, cursor: pageParam };
-      const response = query ? await storeClient().searchPacks({ query, page }) : await storeClient().listStorePacks({ section: SHELF_SECTION[shelf], page });
+      const response = query
+        ? await storeClient().searchPacks({ query, page })
+        : await storeClient().listStorePacks({ section: SHELF_SECTION[shelf], page });
       return { packs: response.packs, next: response.page?.nextCursor ?? "" };
     },
     initialPageParam: "",
@@ -322,8 +417,19 @@ function StoreShelves() {
     <div className="flex flex-col gap-3">
       <p className="text-sm leading-relaxed text-ink-soft">{t("review.storeLead")}</p>
       <div className="flex flex-wrap items-center gap-2">
-        <SearchField className="min-w-56 flex-1" value={text} onChange={setText} placeholder={t("review.storeSearch")} />
-        {!query && <Tabs<Shelf> value={shelf} onChange={setShelf} items={SHELVES.map((value) => ({ value, label: t(`review.shelves.${value}`) }))} />}
+        <SearchField
+          className="min-w-56 flex-1"
+          value={text}
+          onChange={setText}
+          placeholder={t("review.storeSearch")}
+        />
+        {!query && (
+          <Tabs<Shelf>
+            value={shelf}
+            onChange={setShelf}
+            items={SHELVES.map((value) => ({ value, label: t(`review.shelves.${value}`) }))}
+          />
+        )}
       </div>
       {packs.isPending ? (
         <div className="grid gap-3 lg:grid-cols-2">
@@ -332,7 +438,16 @@ function StoreShelves() {
           ))}
         </div>
       ) : items.length === 0 ? (
-        <EmptyState emoji="🧺" title={query ? t("browse.noResults", { query }) : shelf === "featured" ? t("review.noFeatured") : t("browse.empty")} />
+        <EmptyState
+          emoji="🧺"
+          title={
+            query
+              ? t("browse.noResults", { query })
+              : shelf === "featured"
+                ? t("review.noFeatured")
+                : t("browse.empty")
+          }
+        />
       ) : (
         <>
           <ul className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
@@ -353,13 +468,20 @@ function ShelfCard({ pack }: { pack: stamp.PackSummary }) {
   const { t } = useTranslation("stamps");
   const queryClient = useQueryClient();
   const feature = useMutation({
-    mutationFn: (featured: boolean) => reviewClient().setPackFeatured({ packId: pack.id, featured }),
+    mutationFn: (featured: boolean) =>
+      reviewClient().setPackFeatured({ packId: pack.id, featured }),
     // The switch flips at once and flips back if the server refuses.
-    onMutate: (featured) => patchPack(queryClient, pack.id, (summary) => ({ ...summary, featured })),
+    onMutate: (featured) =>
+      patchPack(queryClient, pack.id, (summary) => ({ ...summary, featured })),
     onSuccess: (response, featured) => {
       const updated = response.pack;
-      if (updated) patchPack(queryClient, pack.id, (summary) => ({ ...summary, featured: updated.featured }));
-      toast.success(featured ? t("toast.featured", { name: pack.name }) : t("toast.unfeatured", { name: pack.name }));
+      if (updated)
+        patchPack(queryClient, pack.id, (summary) => ({ ...summary, featured: updated.featured }));
+      toast.success(
+        featured
+          ? t("toast.featured", { name: pack.name })
+          : t("toast.unfeatured", { name: pack.name }),
+      );
       return queryClient.invalidateQueries({ queryKey: stampKeys.store });
     },
     onError: (error, featured) => {
@@ -370,8 +492,19 @@ function ShelfCard({ pack }: { pack: stamp.PackSummary }) {
 
   return (
     <div className="rounded-2xl border-2 border-line bg-surface p-1" data-testid="shelf-pack">
-      <PackRow pack={pack} trailing={pack.creator && !pack.official ? <CreatorMenu creator={pack.creator} /> : undefined} />
-      <SwitchRow label={t("review.featured")} hint={t("review.featuredHint")} checked={pack.featured} disabled={feature.isPending} onChange={(next) => feature.mutate(next)} />
+      <PackRow
+        pack={pack}
+        trailing={
+          pack.creator && !pack.official ? <CreatorMenu creator={pack.creator} /> : undefined
+        }
+      />
+      <SwitchRow
+        label={t("review.featured")}
+        hint={t("review.featuredHint")}
+        checked={pack.featured}
+        disabled={feature.isPending}
+        onChange={(next) => feature.mutate(next)}
+      />
     </div>
   );
 }
@@ -389,24 +522,50 @@ function CreatorMenu({ creator }: { creator: common.UserSummary }) {
     <>
       <Menu
         trigger={
-          <Button size="icon-sm" variant="ghost" aria-label={t("review.creatorMenu", { name: creator.displayName })}>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label={t("review.creatorMenu", { name: creator.displayName })}
+          >
             <MoreHorizontal className="size-5" />
           </Button>
         }
         actions={[
-          { label: t("review.trustCreator"), icon: <ShieldCheck />, onSelect: () => setAsking(true) },
-          { label: t("review.untrustCreator"), icon: <ShieldOff />, onSelect: () => setAsking(false) },
-          { label: t("review.openProfile"), icon: <UserRound />, onSelect: () => window.open(`/u/${creator.handle}`, "_blank", "noopener") },
+          {
+            label: t("review.trustCreator"),
+            icon: <ShieldCheck />,
+            onSelect: () => setAsking(true),
+          },
+          {
+            label: t("review.untrustCreator"),
+            icon: <ShieldOff />,
+            onSelect: () => setAsking(false),
+          },
+          {
+            label: t("review.openProfile"),
+            icon: <UserRound />,
+            onSelect: () => window.open(`/u/${creator.handle}`, "_blank", "noopener"),
+          },
         ]}
       />
       <ConfirmDialog
         open={asking !== null}
         onOpenChange={(open) => !open && setAsking(null)}
-        title={asking ? t("review.trustTitle", { name: creator.displayName }) : t("review.untrustTitle", { name: creator.displayName })}
+        title={
+          asking
+            ? t("review.trustTitle", { name: creator.displayName })
+            : t("review.untrustTitle", { name: creator.displayName })
+        }
         description={asking ? t("review.trustHint") : t("review.untrustHint")}
         confirmLabel={asking ? t("review.trustCreator") : t("review.untrustCreator")}
         loading={trust.isPending}
-        onConfirm={() => asking !== null && trust.mutate({ userId: creator.id, trusted: asking }, { onSettled: () => setAsking(null) })}
+        onConfirm={() =>
+          asking !== null &&
+          trust.mutate(
+            { userId: creator.id, trusted: asking },
+            { onSettled: () => setAsking(null) },
+          )
+        }
       />
     </>
   );

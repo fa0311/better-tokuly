@@ -2,7 +2,16 @@ import type { QueryClient } from "@tanstack/react-query";
 import { chat } from "@tokuly/api";
 import { chatKeys } from "./api";
 import { callEnded } from "./calls/session";
-import { adjustUnread, dropConversation, fetchConversation, patchConversation, putConversation, readConversation, refreshUnread, rereadLists } from "./conversations";
+import {
+  adjustUnread,
+  dropConversation,
+  fetchConversation,
+  patchConversation,
+  putConversation,
+  readConversation,
+  refreshUnread,
+  rereadLists,
+} from "./conversations";
 import { useLive } from "./live";
 import { catchUp, storeCreated, storeOwnRead, storeReaction, storeUpdated } from "./messages";
 import { countsAsUnread, isMuted, laterSeq, listOf, mentionsUser } from "./model";
@@ -32,8 +41,10 @@ function onCreated(queryClient: QueryClient, message: chat.Message, context: Eve
     learn(queryClient, message.conversationId);
     return;
   }
-  if (message.kind === chat.MessageKind.POV_REQUEST) useLive.getState().setOpenPov(message.conversationId, message.povRequest);
-  if (message.kind === chat.MessageKind.SYSTEM) void queryClient.invalidateQueries({ queryKey: chatKeys.members(message.conversationId) });
+  if (message.kind === chat.MessageKind.POV_REQUEST)
+    useLive.getState().setOpenPov(message.conversationId, message.povRequest);
+  if (message.kind === chat.MessageKind.SYSTEM)
+    void queryClient.invalidateQueries({ queryKey: chatKeys.members(message.conversationId) });
 
   const viewer = before.viewer;
   if (!viewer) return;
@@ -43,7 +54,12 @@ function onCreated(queryClient: QueryClient, message: chat.Message, context: Eve
     storeOwnRead(queryClient, message.conversationId, message.seq, 0);
     return;
   }
-  if (!countsAsUnread(message) || message.seq <= before.lastSeq || context.readingId === message.conversationId) return;
+  if (
+    !countsAsUnread(message) ||
+    message.seq <= before.lastSeq ||
+    context.readingId === message.conversationId
+  )
+    return;
   // A hidden conversation comes back with its next message; where it lands is the server's call.
   if (viewer.hidden) {
     learn(queryClient, message.conversationId);
@@ -52,14 +68,22 @@ function onCreated(queryClient: QueryClient, message: chat.Message, context: Eve
   const mention = mentionsUser(message, context.myId);
   patchConversation(queryClient, message.conversationId, (conversation) =>
     conversation.viewer
-      ? { ...conversation, viewer: { ...conversation.viewer, unreadCount: conversation.viewer.unreadCount + 1, unreadMentionCount: conversation.viewer.unreadMentionCount + (mention ? 1 : 0) } }
+      ? {
+          ...conversation,
+          viewer: {
+            ...conversation.viewer,
+            unreadCount: conversation.viewer.unreadCount + 1,
+            unreadMentionCount: conversation.viewer.unreadMentionCount + (mention ? 1 : 0),
+          },
+        }
       : conversation,
   );
   const list = listOf(before);
   adjustUnread(queryClient, (unread) => ({
     ...unread,
     badge: unread.badge + (list === "inbox" && !isMuted(viewer) ? 1 : 0),
-    unreadConversations: unread.unreadConversations + (list === "inbox" && viewer.unreadCount === 0 ? 1 : 0),
+    unreadConversations:
+      unread.unreadConversations + (list === "inbox" && viewer.unreadCount === 0 ? 1 : 0),
     archivedUnread: unread.archivedUnread + (list === "archived" ? 1 : 0),
   }));
 }
@@ -75,14 +99,19 @@ function onUpdated(queryClient: QueryClient, event: chat.MessageUpdated): void {
       void queryClient.invalidateQueries({ queryKey: chatKeys.pinned(message.conversationId) });
       break;
     case chat.MessageUpdateReason.POV:
-      if (message.povRequest) useLive.getState().setOpenPov(message.conversationId, message.povRequest);
+      if (message.povRequest)
+        useLive.getState().setOpenPov(message.conversationId, message.povRequest);
       break;
     default:
       break;
   }
 }
 
-function onRead(queryClient: QueryClient, event: chat.ReadReceiptChanged, context: EventContext): void {
+function onRead(
+  queryClient: QueryClient,
+  event: chat.ReadReceiptChanged,
+  context: EventContext,
+): void {
   useLive.getState().setCursor(event.conversationId, event.userId, event.readSeq);
   if (event.userId !== context.myId) return;
   // Read on another device (or by sending): the badges clear here too.
@@ -102,26 +131,43 @@ function onConversationUpdated(queryClient: QueryClient, incoming: chat.Conversa
   if (incoming.viewer) {
     // Built for this person: the whole truth, including their own state and the preview.
     putConversation(queryClient, incoming);
-    if (!held || held.viewer?.requestState !== incoming.viewer.requestState || held.viewer?.archived !== incoming.viewer.archived || held.viewer?.muted !== incoming.viewer.muted) {
+    if (
+      !held ||
+      held.viewer?.requestState !== incoming.viewer.requestState ||
+      held.viewer?.archived !== incoming.viewer.archived ||
+      held.viewer?.muted !== incoming.viewer.muted
+    ) {
       refreshUnread(queryClient);
     }
     if (!held) void fetchConversation(queryClient, incoming.id).catch(() => {});
   } else if (held) {
     // Shared fields only: the person's own state and the preview stay as held.
-    putConversation(queryClient, { ...incoming, viewer: held.viewer, lastMessage: held.lastMessage, lastSeq: laterSeq(held.lastSeq, incoming.lastSeq) });
+    putConversation(queryClient, {
+      ...incoming,
+      viewer: held.viewer,
+      lastMessage: held.lastMessage,
+      lastSeq: laterSeq(held.lastSeq, incoming.lastSeq),
+    });
   } else {
     learn(queryClient, incoming.id);
     return;
   }
-  if (held && held.memberCount !== incoming.memberCount) void queryClient.invalidateQueries({ queryKey: chatKeys.members(incoming.id) });
+  if (held && held.memberCount !== incoming.memberCount)
+    void queryClient.invalidateQueries({ queryKey: chatKeys.members(incoming.id) });
 }
 
 function onCall(queryClient: QueryClient, call: chat.Call): void {
   useLive.getState().setCall(call);
   const ended = call.state === chat.CallState.ENDED;
   patchConversation(queryClient, call.conversationId, (conversation) => {
-    const activeCallId = ended ? (conversation.activeCallId === call.id ? "" : conversation.activeCallId) : call.id;
-    return activeCallId === conversation.activeCallId ? conversation : { ...conversation, activeCallId };
+    const activeCallId = ended
+      ? conversation.activeCallId === call.id
+        ? ""
+        : conversation.activeCallId
+      : call.id;
+    return activeCallId === conversation.activeCallId
+      ? conversation
+      : { ...conversation, activeCallId };
   });
   if (ended) {
     callEnded(call.id);
@@ -130,7 +176,11 @@ function onCall(queryClient: QueryClient, call: chat.Call): void {
 }
 
 /** Applies one pushed `ChatEvent` to everything the client holds. */
-export function applyChatEvent(queryClient: QueryClient, event: chat.ChatEvent["event"], context: EventContext): void {
+export function applyChatEvent(
+  queryClient: QueryClient,
+  event: chat.ChatEvent["event"],
+  context: EventContext,
+): void {
   switch (event.case) {
     case "messageCreated":
       if (event.value.message) onCreated(queryClient, event.value.message, context);
@@ -145,13 +195,17 @@ export function applyChatEvent(queryClient: QueryClient, event: chat.ChatEvent["
         count: event.value.count,
         byMe: event.value.userId === context.myId,
       });
-      void queryClient.invalidateQueries({ queryKey: ["chat", "reactions", event.value.messageId] });
+      void queryClient.invalidateQueries({
+        queryKey: ["chat", "reactions", event.value.messageId],
+      });
       break;
     case "readReceipt":
       onRead(queryClient, event.value, context);
       break;
     case "typing":
-      useLive.getState().setTyping(event.value.conversationId, event.value.userId, event.value.typing);
+      useLive
+        .getState()
+        .setTyping(event.value.conversationId, event.value.userId, event.value.typing);
       break;
     case "presence":
       useLive.getState().setPresent(event.value.conversationId, event.value.presentUserIds);
@@ -183,7 +237,9 @@ export function resynchronize(queryClient: QueryClient): void {
   for (const query of queryClient.getQueryCache().findAll({ queryKey: chatKeys.timelines })) {
     const conversationId = query.queryKey[2] as string;
     const timeline = query.state.data as Timeline | undefined;
-    if (query.getObserversCount() > 0 && timeline && !timeline.hasNewer) void catchUp(queryClient, conversationId).catch(() => {});
-    else if (query.getObserversCount() === 0) queryClient.removeQueries({ queryKey: query.queryKey, exact: true });
+    if (query.getObserversCount() > 0 && timeline && !timeline.hasNewer)
+      void catchUp(queryClient, conversationId).catch(() => {});
+    else if (query.getObserversCount() === 0)
+      queryClient.removeQueries({ queryKey: query.queryKey, exact: true });
   }
 }

@@ -13,14 +13,26 @@ import type { Card } from "./card-image";
 import { answerShareUrl, boxShareUrl } from "./model";
 
 /** What a share sheet shows: everything of a card except the QR choice, which the sheet offers itself. */
-export type ShareCard = Omit<Extract<Card, { kind: "box" }>, "withQr"> | Extract<Card, { kind: "answer" }>;
+export type ShareCard =
+  | Omit<Extract<Card, { kind: "box" }>, "withQr">
+  | Extract<Card, { kind: "answer" }>;
 
 /**
  * The share sheet of a question box or of one answer: the link, and an image
  * card for stories that can be saved, handed to the device's share sheet or
  * sent to a friend in chat.
  */
-export function ShareSheet({ open, onOpenChange, card, title }: { open: boolean; onOpenChange(open: boolean): void; card: ShareCard; title: string }) {
+export function ShareSheet({
+  open,
+  onOpenChange,
+  card,
+  title,
+}: {
+  open: boolean;
+  onOpenChange(open: boolean): void;
+  card: ShareCard;
+  title: string;
+}) {
   const { t } = useTranslation("ask");
   const [withQr, setWithQr] = useState(true);
   const [image, setImage] = useState<{ blob: Blob; url: string } | null>(null);
@@ -49,8 +61,13 @@ export function ShareSheet({ open, onOpenChange, card, title }: { open: boolean;
     };
   }, [open, spec]);
 
-  const file = () => (image ? new File([image.blob], `tokuly-${card.handle}.png`, { type: "image/png" }) : undefined);
-  const canShareImage = typeof navigator !== "undefined" && typeof navigator.canShare === "function" && Boolean(image) && navigator.canShare({ files: [file()!] });
+  const file = () =>
+    image ? new File([image.blob], `tokuly-${card.handle}.png`, { type: "image/png" }) : undefined;
+  const canShareImage =
+    typeof navigator !== "undefined" &&
+    typeof navigator.canShare === "function" &&
+    Boolean(image) &&
+    navigator.canShare({ files: [file()!] });
 
   const copy = async () => {
     if (await copyText(card.url)) toast.success(t("share.copied"));
@@ -74,36 +91,69 @@ export function ShareSheet({ open, onOpenChange, card, title }: { open: boolean;
 
   return (
     <>
-      <Dialog open={open && !toChat} onOpenChange={onOpenChange} title={title} description={t("share.lead")}>
+      <Dialog
+        open={open && !toChat}
+        onOpenChange={onOpenChange}
+        title={title}
+        description={t("share.lead")}
+      >
         <div className="flex flex-col gap-4 sm:flex-row">
           <div className="mx-auto w-44 shrink-0 sm:w-48">
             {image ? (
-              <img src={image.url} alt={t("share.imageAlt")} data-testid="share-card" className="sticker aspect-[9/16] w-full rounded-2xl object-cover" />
+              <img
+                src={image.url}
+                alt={t("share.imageAlt")}
+                data-testid="share-card"
+                className="sticker aspect-[9/16] w-full rounded-2xl object-cover"
+              />
             ) : failed ? (
-              <p className="grid aspect-[9/16] place-items-center rounded-2xl bg-surface-2 p-3 text-center text-sm font-bold text-ink-soft">{t("share.imageFailed")}</p>
+              <p className="grid aspect-[9/16] place-items-center rounded-2xl bg-surface-2 p-3 text-center text-sm font-bold text-ink-soft">
+                {t("share.imageFailed")}
+              </p>
             ) : (
               <Skeleton className="aspect-[9/16] w-full" />
             )}
           </div>
           <div className="flex min-w-0 flex-1 flex-col gap-2.5">
-            <p className="truncate rounded-2xl bg-surface-2 px-3 py-2.5 text-sm font-bold text-ink-soft" data-testid="share-url">
+            <p
+              className="truncate rounded-2xl bg-surface-2 px-3 py-2.5 text-sm font-bold text-ink-soft"
+              data-testid="share-url"
+            >
               {card.url}
             </p>
             <Button block icon={<Link2 className="size-4" />} onClick={copy}>
               {t("share.copy")}
             </Button>
             {canShareImage && (
-              <Button block variant="lime" icon={<Share2 className="size-4" />} onClick={shareImage}>
+              <Button
+                block
+                variant="lime"
+                icon={<Share2 className="size-4" />}
+                onClick={shareImage}
+              >
                 {t("share.shareImage")}
               </Button>
             )}
-            <Button block variant="secondary" icon={<Download className="size-4" />} disabled={!image} onClick={save}>
+            <Button
+              block
+              variant="secondary"
+              icon={<Download className="size-4" />}
+              disabled={!image}
+              onClick={save}
+            >
               {t("share.save")}
             </Button>
-            <Button block variant="secondary" icon={<Send className="size-4" />} onClick={() => setToChat(true)}>
+            <Button
+              block
+              variant="secondary"
+              icon={<Send className="size-4" />}
+              onClick={() => setToChat(true)}
+            >
               {t("share.toChat")}
             </Button>
-            {card.kind === "box" && <SwitchRow label={t("share.qr")} checked={withQr} onChange={setWithQr} />}
+            {card.kind === "box" && (
+              <SwitchRow label={t("share.qr")} checked={withQr} onChange={setWithQr} />
+            )}
           </div>
         </div>
       </Dialog>
@@ -123,20 +173,45 @@ export function ShareSheet({ open, onOpenChange, card, title }: { open: boolean;
 }
 
 /** The share sheet of a question box. */
-export function BoxShareSheet({ open, onOpenChange, handle, prompt }: { open: boolean; onOpenChange(open: boolean): void; handle: string; prompt: string }) {
+export function BoxShareSheet({
+  open,
+  onOpenChange,
+  handle,
+  prompt,
+}: {
+  open: boolean;
+  onOpenChange(open: boolean): void;
+  handle: string;
+  prompt: string;
+}) {
   const { t } = useTranslation("ask");
   return (
     <ShareSheet
       open={open}
       onOpenChange={onOpenChange}
       title={t("share.title")}
-      card={{ kind: "box", label: t("share.cardLabel"), prompt: prompt || t("settings.promptPlaceholder"), handle, callToAction: t("share.cardCta"), url: boxShareUrl(handle) }}
+      card={{
+        kind: "box",
+        label: t("share.cardLabel"),
+        prompt: prompt || t("settings.promptPlaceholder"),
+        handle,
+        callToAction: t("share.cardCta"),
+        url: boxShareUrl(handle),
+      }}
     />
   );
 }
 
 /** The share sheet of one published answer. */
-export function AnswerShareSheet({ open, onOpenChange, question }: { open: boolean; onOpenChange(open: boolean): void; question: ask.Question }) {
+export function AnswerShareSheet({
+  open,
+  onOpenChange,
+  question,
+}: {
+  open: boolean;
+  onOpenChange(open: boolean): void;
+  question: ask.Question;
+}) {
   const { t } = useTranslation("ask");
   const handle = question.owner?.handle ?? "";
   return (
@@ -146,7 +221,10 @@ export function AnswerShareSheet({ open, onOpenChange, question }: { open: boole
       title={t("share.answerTitle")}
       card={{
         kind: "answer",
-        label: !question.anonymous && question.asker ? t("share.answerCardLabelSigned", { name: question.asker.displayName }) : t("share.answerCardLabelAnonymous"),
+        label:
+          !question.anonymous && question.asker
+            ? t("share.answerCardLabelSigned", { name: question.asker.displayName })
+            : t("share.answerCardLabelAnonymous"),
         question: question.text,
         answer: question.answer?.text ?? "",
         handle,

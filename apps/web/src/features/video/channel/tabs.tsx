@@ -38,13 +38,24 @@ const OWN: ChannelTab[] = [
   { id: "videos", order: 10, label: label("videos"), Component: ChannelVideos },
   { id: "playlists", order: 40, label: label("playlists"), Component: ChannelPlaylists },
   { id: "about", order: 90, label: label("about"), Component: ChannelAbout },
-  { id: "subscribers", order: 100, label: label("subscribers"), ownerOnly: true, Component: ChannelSubscribers },
+  {
+    id: "subscribers",
+    order: 100,
+    label: label("subscribers"),
+    ownerOnly: true,
+    Component: ChannelSubscribers,
+  },
 ];
 
-const contributed = import.meta.glob<{ default: ChannelTab }>("../../*/channel-tab.tsx", { eager: true });
+const contributed = import.meta.glob<{ default: ChannelTab }>("../../*/channel-tab.tsx", {
+  eager: true,
+});
 
 /** Every tab after "home", in display order. */
-export const CHANNEL_TABS: ChannelTab[] = [...OWN, ...Object.values(contributed).map((module) => module.default)].sort((a, b) => a.order - b.order);
+export const CHANNEL_TABS: ChannelTab[] = [
+  ...OWN,
+  ...Object.values(contributed).map((module) => module.default),
+].sort((a, b) => a.order - b.order);
 
 export function channelTab(id: string): ChannelTab | undefined {
   return CHANNEL_TABS.find((tab) => tab.id === id);

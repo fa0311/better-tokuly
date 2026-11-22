@@ -9,8 +9,8 @@ import { ConfirmDialog } from "#/components/ui/confirm";
 import { Dialog } from "#/components/ui/dialog";
 import { TextField } from "#/components/ui/field";
 import { LoadMore } from "#/components/ui/load-more";
-import { useAccountTimeZone } from "#/lib/account-time";
 import { EmptyState } from "#/components/ui/page";
+import { useAccountTimeZone } from "#/lib/account-time";
 import { keys, refresh, studyClient, toastError } from "./api";
 import { fromLocalInput, momentLabel, studyTime, toLocalInput } from "./dates";
 import { Block, RowsSkeleton, SubjectPill } from "./parts";
@@ -31,17 +31,25 @@ export function StudyLog() {
   const [editing, setEditing] = useState<school.StudySession | undefined>(undefined);
   const query = useInfiniteQuery({
     queryKey: keys.sessions,
-    queryFn: ({ pageParam }) => studyClient().listStudySessions({ page: { limit: 20, cursor: pageParam } }),
+    queryFn: ({ pageParam }) =>
+      studyClient().listStudySessions({ page: { limit: 20, cursor: pageParam } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
-  const sessions = (query.data?.pages ?? []).flatMap((page) => page.sessions).filter((session) => session.state === school.SessionState.ENDED);
+  const sessions = (query.data?.pages ?? [])
+    .flatMap((page) => page.sessions)
+    .filter((session) => session.state === school.SessionState.ENDED);
 
   return (
     <Block
       title={t("log.title")}
       action={
-        <Button size="sm" variant="secondary" icon={<PenLine className="size-4" />} onClick={() => setLogging(true)}>
+        <Button
+          size="sm"
+          variant="secondary"
+          icon={<PenLine className="size-4" />}
+          onClick={() => setLogging(true)}
+        >
           {t("log.add")}
         </Button>
       }
@@ -57,21 +65,35 @@ export function StudyLog() {
             const source = sourceKey(session.source);
             return (
               <li key={session.id}>
-                <button type="button" onClick={() => setEditing(session)} className="flex w-full items-center gap-3 rounded-2xl bg-surface-2 px-3 py-2.5 text-left transition-colors hover:bg-surface-3">
+                <button
+                  type="button"
+                  onClick={() => setEditing(session)}
+                  className="flex w-full items-center gap-3 rounded-2xl bg-surface-2 px-3 py-2.5 text-left transition-colors hover:bg-surface-3"
+                >
                   <span className="min-w-0 flex-1">
                     <span className="flex flex-wrap items-center gap-1.5">
                       <SubjectPill subject={session.subject} />
-                      <span className={source === "manual" ? "rounded-full border-2 border-dashed border-ink-faint px-2 text-[11px] font-black text-ink-soft" : "rounded-full bg-surface-3 px-2 py-0.5 text-[11px] font-black text-ink-soft"}>
+                      <span
+                        className={
+                          source === "manual"
+                            ? "rounded-full border-2 border-dashed border-ink-faint px-2 text-[11px] font-black text-ink-soft"
+                            : "rounded-full bg-surface-3 px-2 py-0.5 text-[11px] font-black text-ink-soft"
+                        }
+                      >
                         {t(`log.source.${source}`)}
                       </span>
-                      {session.cheerCount > 0 && <span className="text-xs font-bold">📣 {session.cheerCount}</span>}
+                      {session.cheerCount > 0 && (
+                        <span className="text-xs font-bold">📣 {session.cheerCount}</span>
+                      )}
                     </span>
                     <span className="mt-0.5 block truncate text-xs font-bold text-ink-soft">
                       {started && momentLabel(started, i18n.language, zone)}
                       {session.memo && ` · ${session.memo}`}
                     </span>
                   </span>
-                  <span className="shrink-0 font-black">{studyTime(session.studiedSeconds, i18n.language)}</span>
+                  <span className="shrink-0 font-black">
+                    {studyTime(session.studiedSeconds, i18n.language)}
+                  </span>
                 </button>
               </li>
             );
@@ -99,7 +121,13 @@ function LogDialog({ onClose }: { onClose(): void }) {
   const endedAt = fromLocalInput(end, zone);
   const valid = startedAt && endedAt && endedAt.getTime() - startedAt.getTime() >= 60_000;
   const log = useMutation({
-    mutationFn: () => studyClient().logStudySession({ startedAt: startedAt && fromDate(startedAt), endedAt: endedAt && fromDate(endedAt), subjectId, memo }),
+    mutationFn: () =>
+      studyClient().logStudySession({
+        startedAt: startedAt && fromDate(startedAt),
+        endedAt: endedAt && fromDate(endedAt),
+        subjectId,
+        memo,
+      }),
     onSuccess: () => {
       toast.success(t("log.added"));
       refresh(queryClient, "study");
@@ -126,12 +154,30 @@ function LogDialog({ onClose }: { onClose(): void }) {
     >
       <div className="flex flex-col gap-4">
         <div className="grid gap-3 sm:grid-cols-2">
-          <TextField label={t("log.start")} type="datetime-local" value={start} onChange={(event) => setStart(event.target.value)} />
-          <TextField label={t("log.end")} type="datetime-local" value={end} onChange={(event) => setEnd(event.target.value)} />
+          <TextField
+            label={t("log.start")}
+            type="datetime-local"
+            value={start}
+            onChange={(event) => setStart(event.target.value)}
+          />
+          <TextField
+            label={t("log.end")}
+            type="datetime-local"
+            value={end}
+            onChange={(event) => setEnd(event.target.value)}
+          />
         </div>
         <SubjectSelect value={subjectId} onChange={setSubjectId} />
-        <TextField label={t("timer.memo")} value={memo} maxLength={200} placeholder={t("timer.memoPlaceholder")} onChange={(event) => setMemo(event.target.value)} />
-        <p className="rounded-2xl bg-surface-2 px-4 py-3 text-sm text-ink-soft">{t("log.manualNote")}</p>
+        <TextField
+          label={t("timer.memo")}
+          value={memo}
+          maxLength={200}
+          placeholder={t("timer.memoPlaceholder")}
+          onChange={(event) => setMemo(event.target.value)}
+        />
+        <p className="rounded-2xl bg-surface-2 px-4 py-3 text-sm text-ink-soft">
+          {t("log.manualNote")}
+        </p>
       </div>
     </Dialog>
   );
@@ -146,7 +192,10 @@ function SessionDialog({ session, onClose }: { session: school.StudySession; onC
   const { t, i18n } = useTranslation("school");
   const queryClient = useQueryClient();
   const zone = useAccountTimeZone();
-  const original = { start: toLocalInput(toDate(session.startedAt) ?? new Date(), zone), end: toLocalInput(toDate(session.endedAt) ?? new Date(), zone) };
+  const original = {
+    start: toLocalInput(toDate(session.startedAt) ?? new Date(), zone),
+    end: toLocalInput(toDate(session.endedAt) ?? new Date(), zone),
+  };
   const [start, setStart] = useState(original.start);
   const [end, setEnd] = useState(original.end);
   const [subjectId, setSubjectId] = useState(session.subject?.id ?? "");
@@ -171,7 +220,13 @@ function SessionDialog({ session, onClose }: { session: school.StudySession; onC
         ...(subjectId !== (session.subject?.id ?? "") ? { subjectId } : {}),
         ...(memo !== session.memo ? { memo } : {}),
         // An untouched end keeps its seconds: only what was changed is sent as typed.
-        ...(timesChanged ? { startedAt: start === original.start ? session.startedAt : startedAt && fromDate(startedAt), endedAt: end === original.end ? session.endedAt : endedAt && fromDate(endedAt) } : {}),
+        ...(timesChanged
+          ? {
+              startedAt:
+                start === original.start ? session.startedAt : startedAt && fromDate(startedAt),
+              endedAt: end === original.end ? session.endedAt : endedAt && fromDate(endedAt),
+            }
+          : {}),
       }),
     onSuccess: done,
     onError: toastError,
@@ -194,7 +249,12 @@ function SessionDialog({ session, onClose }: { session: school.StudySession; onC
         description={`${t(`log.source.${sourceKey(session.source)}`)} · ${studyTime(session.studiedSeconds, i18n.language)}`}
         footer={
           <>
-            <Button variant="ghost" className="mr-auto text-danger" icon={<Trash2 className="size-4" />} onClick={() => setDeleting(true)}>
+            <Button
+              variant="ghost"
+              className="mr-auto text-danger"
+              icon={<Trash2 className="size-4" />}
+              onClick={() => setDeleting(true)}
+            >
               {t("common:actions.delete")}
             </Button>
             <Button loading={save.isPending} disabled={!valid} onClick={() => save.mutate()}>
@@ -205,12 +265,34 @@ function SessionDialog({ session, onClose }: { session: school.StudySession; onC
       >
         <div className="flex flex-col gap-4">
           <SubjectSelect value={subjectId} onChange={setSubjectId} />
-          <TextField label={t("timer.memo")} value={memo} maxLength={200} onChange={(event) => setMemo(event.target.value)} />
+          <TextField
+            label={t("timer.memo")}
+            value={memo}
+            maxLength={200}
+            onChange={(event) => setMemo(event.target.value)}
+          />
           <div className="grid gap-3 sm:grid-cols-2">
-            <TextField label={t("log.start")} type="datetime-local" value={start} min={timed ? original.start : undefined} max={timed ? original.end : undefined} onChange={(event) => setStart(event.target.value)} />
-            <TextField label={t("log.end")} type="datetime-local" value={end} min={timed ? original.start : undefined} max={timed ? original.end : undefined} onChange={(event) => setEnd(event.target.value)} error={outside ? t("log.onlyShorter") : undefined} />
+            <TextField
+              label={t("log.start")}
+              type="datetime-local"
+              value={start}
+              min={timed ? original.start : undefined}
+              max={timed ? original.end : undefined}
+              onChange={(event) => setStart(event.target.value)}
+            />
+            <TextField
+              label={t("log.end")}
+              type="datetime-local"
+              value={end}
+              min={timed ? original.start : undefined}
+              max={timed ? original.end : undefined}
+              onChange={(event) => setEnd(event.target.value)}
+              error={outside ? t("log.onlyShorter") : undefined}
+            />
           </div>
-          <p className="rounded-2xl bg-surface-2 px-4 py-3 text-sm text-ink-soft">{timed ? t("log.timedNote") : t("log.manualNote")}</p>
+          <p className="rounded-2xl bg-surface-2 px-4 py-3 text-sm text-ink-soft">
+            {timed ? t("log.timedNote") : t("log.manualNote")}
+          </p>
           {session.cheerCount > 0 && (
             <Button variant="secondary" onClick={() => setCheersOpen(true)}>
               📣 {t("study.cheersCount", { count: session.cheerCount })}
@@ -219,7 +301,16 @@ function SessionDialog({ session, onClose }: { session: school.StudySession; onC
         </div>
       </Dialog>
       {cheersOpen && <CheersDialog sessionId={session.id} onClose={() => setCheersOpen(false)} />}
-      <ConfirmDialog open={deleting} onOpenChange={setDeleting} title={t("log.deleteTitle")} description={t("log.deleteBody")} confirmLabel={t("common:actions.delete")} danger loading={remove.isPending} onConfirm={() => remove.mutate()} />
+      <ConfirmDialog
+        open={deleting}
+        onOpenChange={setDeleting}
+        title={t("log.deleteTitle")}
+        description={t("log.deleteBody")}
+        confirmLabel={t("common:actions.delete")}
+        danger
+        loading={remove.isPending}
+        onConfirm={() => remove.mutate()}
+      />
     </>
   );
 }

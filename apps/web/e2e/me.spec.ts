@@ -10,7 +10,10 @@ test("the hub shows who is signed in and leads to their profile", async ({ page,
   await expect(page).toHaveURL(new RegExp(`/u/${me.handle}$`));
 });
 
-test("the hub links to every personal area, and the admin console only for staff", async ({ page, me: _me }) => {
+test("the hub links to every personal area, and the admin console only for staff", async ({
+  page,
+  me: _me,
+}) => {
   await page.goto("/me");
   for (const [label, path] of [
     ["ともだち", "/friends"],
@@ -20,12 +23,18 @@ test("the hub links to every personal area, and the admin console only for staff
     ["設定", "/settings"],
     ["アップデート情報", "/announcements"],
   ] as const) {
-    await expect(page.getByRole("main").getByRole("link", { name: label })).toHaveAttribute("href", path);
+    await expect(page.getByRole("main").getByRole("link", { name: label })).toHaveAttribute(
+      "href",
+      path,
+    );
   }
   await expect(page.getByRole("main").getByRole("link", { name: "管理" })).toHaveCount(0);
 });
 
-test("signing out returns to the landing page and locks the app again", async ({ page, me: _me }) => {
+test("signing out returns to the landing page and locks the app again", async ({
+  page,
+  me: _me,
+}) => {
   await page.goto("/me");
   await page.getByRole("button", { name: "ログアウト" }).click();
   await expect(page).toHaveURL(/\/$/);
@@ -37,7 +46,10 @@ test("signing out returns to the landing page and locks the app again", async ({
 test("staff also get the admin console", async ({ page, request }) => {
   await signInAs(page, await adminAccount(request));
   await page.goto("/me");
-  await expect(page.getByRole("main").getByRole("link", { name: "管理" })).toHaveAttribute("href", "/admin");
+  await expect(page.getByRole("main").getByRole("link", { name: "管理" })).toHaveAttribute(
+    "href",
+    "/admin",
+  );
 });
 
 base("visitors without a session are sent to the login page", async ({ page }) => {

@@ -14,28 +14,51 @@ interface Point {
   lng: number;
 }
 
-/**
- * The browser runs in a time zone where it is about noon right now, so the
- * track of the last half hour never straddles midnight and "today" is the
- * same day for the whole test.
- */
-function middayZone(): string {
-  let offset = 12 - new Date().getUTCHours();
-  if (offset > 12) offset -= 24;
-  // POSIX signs: "Etc/GMT-9" is nine hours ahead of UTC.
-  return offset === 0 ? "Etc/GMT" : `Etc/GMT${offset > 0 ? "-" : "+"}${Math.abs(offset)}`;
+/** UTC offset (hours) of the zone where it is about noon right now. */
+function middayOffset(): number {
+  const offset = 12 - new Date().getUTCHours();
+  return offset > 12 ? offset - 24 : offset;
 }
 
-const ZONE = middayZone();
-test.use({ timezoneId: ZONE });
+// POSIX signs: "Etc/GMT-9" is nine hours ahead of UTC.
+const zoneAt = (offset: number) =>
+  offset === 0 ? "Etc/GMT" : `Etc/GMT${offset > 0 ? "-" : "+"}${Math.abs(offset)}`;
 
-/** Today's date (`YYYY-MM-DD`) where the browser is. */
+/**
+ * History days are days on the account's calendar: its time zone, wherever
+ * the device is. The account lives where it is about noon right now, so the
+ * track of the last half hour never straddles its midnight and "today" is
+ * the same day for the whole test.
+ */
+const ZONE = zoneAt(middayOffset());
+
+/**
+ * The browser is thirteen hours away from the account, on another calendar
+ * day: whatever the app shows must come from the account's clock, not the
+ * device's. (`TOKULY_E2E_TIMEZONE` puts the device somewhere else still.)
+ */
+const DEVICE_ZONE =
+  process.env.TOKULY_E2E_TIMEZONE ??
+  zoneAt(middayOffset() <= 1 ? middayOffset() + 13 : middayOffset() - 13);
+test.use({ timezoneId: DEVICE_ZONE });
+
+test.beforeEach(async ({ request, me }) => {
+  await rpc(request, "tokuly.identity.v1.AccountService/UpdateProfile", { timeZone: ZONE }, me);
+});
+
+/** Today's date (`YYYY-MM-DD`) on the account's calendar. */
 const today = () => new Intl.DateTimeFormat("sv-SE", { timeZone: ZONE }).format(new Date());
 
-const somewhereInTokyo = (): Point => ({ lat: 35.66 + Math.random() * 0.08, lng: 139.6 + Math.random() * 0.15 });
+const somewhereInTokyo = (): Point => ({
+  lat: 35.66 + Math.random() * 0.08,
+  lng: 139.6 + Math.random() * 0.15,
+});
 
 function east(from: Point, meters: number): Point {
-  return { lat: from.lat, lng: from.lng + meters / (111_320 * Math.cos((from.lat * Math.PI) / 180)) };
+  return {
+    lat: from.lat,
+    lng: from.lng + meters / (111_320 * Math.cos((from.lat * Math.PI) / 180)),
+  };
 }
 
 const sample = (position: Point, at: number, activity: string) => ({
@@ -60,30 +83,55 @@ async function liveADay(request: APIRequestContext, as: Account, first: Point): 
   const second = east(first, 840);
   const start = Date.now() - 28 * 60_000;
   const samples = [];
-  for (let index = 0; index <= 16; index++) samples.push(sample(first, start + index * 30_000, "ACTIVITY_STILL"));
+  for (let index = 0; index <= 16; index++)
+    samples.push(sample(first, start + index * 30_000, "ACTIVITY_STILL"));
   const walkStart = start + 8 * 60_000;
-  for (let index = 1; index <= 60; index++) samples.push(sample(east(first, index * 14), walkStart + index * 10_000, "ACTIVITY_WALKING"));
+  for (let index = 1; index <= 60; index++)
+    samples.push(sample(east(first, index * 14), walkStart + index * 10_000, "ACTIVITY_WALKING"));
   const arrived = walkStart + 10 * 60_000;
-  for (let index = 1; index <= 16; index++) samples.push(sample(second, arrived + index * 30_000, "ACTIVITY_STILL"));
+  for (let index = 1; index <= 16; index++)
+    samples.push(sample(second, arrived + index * 30_000, "ACTIVITY_STILL"));
   const left = arrived + 8 * 60_000;
-  for (let index = 1; index <= 9; index++) samples.push(sample(east(second, index * 14), left + index * 10_000, "ACTIVITY_WALKING"));
-  const response = await rpc<{ acceptedCount?: number }>(request, "tokuly.geo.v1.LocationService/ReportLocations", { samples }, as);
+  for (let index = 1; index <= 9; index++)
+    samples.push(sample(east(second, index * 14), left + index * 10_000, "ACTIVITY_WALKING"));
+  const response = await rpc<{ acceptedCount?: number }>(
+    request,
+    "tokuly.geo.v1.LocationService/ReportLocations",
+    { samples },
+    as,
+  );
   expect(response.acceptedCount, "every sample of the day was accepted").toBe(samples.length);
   return { first, second };
 }
 
-async function createPlace(request: APIRequestContext, as: Account, name: string, emoji: string, center: Point): Promise<string> {
+async function createPlace(
+  request: APIRequestContext,
+  as: Account,
+  name: string,
+  emoji: string,
+  center: Point,
+): Promise<string> {
   const response = await rpc<{ place: { id: string } }>(
     request,
     "tokuly.geo.v1.PlaceService/CreatePlace",
-    { name, emoji, label: "PLACE_LABEL_CUSTOM", center, radiusMeters: 80, visibility: "VISIBILITY_PRIVATE" },
+    {
+      name,
+      emoji,
+      label: "PLACE_LABEL_CUSTOM",
+      center,
+      radiusMeters: 80,
+      visibility: "VISIBILITY_PRIVATE",
+    },
     as,
   );
   return response.place.id;
 }
 
 /** A day at two places of my own, so the visits have names to look for. */
-async function dayAtCafeAndPark(request: APIRequestContext, as: Account): Promise<{ cafeId: string; parkId: string }> {
+async function dayAtCafeAndPark(
+  request: APIRequestContext,
+  as: Account,
+): Promise<{ cafeId: string; parkId: string }> {
   const first = somewhereInTokyo();
   const cafeId = await createPlace(request, as, "あさのカフェ", "☕", first);
   const parkId = await createPlace(request, as, "ひるの公園", "🌳", east(first, 840));
@@ -91,12 +139,17 @@ async function dayAtCafeAndPark(request: APIRequestContext, as: Account): Promis
   return { cafeId, parkId };
 }
 
-const listVisits = (request: APIRequestContext, as: Account) => rpc<{ visits?: { id: string }[] }>(request, "tokuly.geo.v1.HistoryService/ListVisits", {}, as);
+const listVisits = (request: APIRequestContext, as: Account) =>
+  rpc<{ visits?: { id: string }[] }>(request, "tokuly.geo.v1.HistoryService/ListVisits", {}, as);
 
 // The map draws with software WebGL here: give it time before looking at what is on it.
 const MAP_TIMEOUT = 40_000;
 
-test("a day with two visits shows both in order, the way between them and the route on the map", async ({ page, request, me }) => {
+test("a day with two visits shows both in order, the way between them and the route on the map", async ({
+  page,
+  request,
+  me,
+}) => {
   test.slow();
   await dayAtCafeAndPark(request, me);
 
@@ -143,7 +196,11 @@ test("a memo is saved with the day and marks it on the calendar", async ({ page,
   await expect(page.getByText("メモを保存したよ!")).toBeVisible();
 
   await page.reload();
-  await expect(page.getByRole("region", { name: "この日のメモ" }).getByRole("textbox", { name: "この日のメモ" })).toHaveValue("カフェで新作を飲んだ!");
+  await expect(
+    page
+      .getByRole("region", { name: "この日のメモ" })
+      .getByRole("textbox", { name: "この日のメモ" }),
+  ).toHaveValue("カフェで新作を飲んだ!");
 
   await page.goto("/history");
   await expect(page.getByTestId("history-calendar").locator("[data-active]")).toContainText("📝");
@@ -186,7 +243,12 @@ test("everything can be deleted at once, footprints included", async ({ page, re
   // Back to a blank diary, and the fog is back too.
   await expect(page.getByText("ここが、きみの日記になるよ")).toBeVisible();
   expect((await listVisits(request, me)).visits ?? []).toHaveLength(0);
-  const footprints = await rpc<{ totalCellCount?: string }>(request, "tokuly.geo.v1.FootprintService/GetStats", {}, me);
+  const footprints = await rpc<{ totalCellCount?: string }>(
+    request,
+    "tokuly.geo.v1.FootprintService/GetStats",
+    {},
+    me,
+  );
   expect(Number(footprints.totalCellCount ?? 0)).toBe(0);
 });
 
@@ -207,13 +269,19 @@ test("the list of visits can be narrowed to one place", async ({ page, request, 
 
   // A range that ended before today has nothing in it.
   await page.getByRole("tab", { name: "期間をえらぶ" }).click();
-  const yesterday = new Intl.DateTimeFormat("sv-SE", { timeZone: ZONE }).format(new Date(Date.now() - 24 * 3_600_000));
+  const yesterday = new Intl.DateTimeFormat("sv-SE", { timeZone: ZONE }).format(
+    new Date(Date.now() - 24 * 3_600_000),
+  );
   await page.getByLabel("いつから").fill(yesterday);
   await page.getByLabel("いつまで").fill(yesterday);
   await expect(page.getByText("この条件のきろくはないよ")).toBeVisible();
 });
 
-test("the statistics add up the distance, the visits and the ways of getting around", async ({ page, request, me }) => {
+test("the statistics add up the distance, the visits and the ways of getting around", async ({
+  page,
+  request,
+  me,
+}) => {
   await dayAtCafeAndPark(request, me);
   await page.goto("/history?tab=stats");
 

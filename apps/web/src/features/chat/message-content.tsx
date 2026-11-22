@@ -1,8 +1,9 @@
 import { Link } from "@tanstack/react-router";
 import { type chat, media } from "@tokuly/api";
 import { CornerUpRight, MapPin, Play } from "lucide-react";
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { EmojiText } from "#/features/emoji";
 import { resolveTargetPath, useOpenTargetPath } from "#/features/notifications";
 import { cn } from "#/lib/cn";
 import { useConversationContext } from "./conversation-context";
@@ -10,6 +11,11 @@ import { FileRow, isVisual, VisualTile, VoicePlayer } from "./media-parts";
 import { displayName } from "./people";
 import { replyText } from "./preview";
 import { tokenize } from "./text";
+
+// The map library is big: it loads with the first location a conversation shows.
+const StaticMapPreview = lazy(() =>
+  import("#/features/map").then((module) => ({ default: module.StaticMapPreview })),
+);
 
 /** What goes inside a message: its text, pictures, quote, preview… one component per part. */
 
@@ -23,7 +29,10 @@ export function MessageText({ message, tone }: { message: chat.Message; tone: To
     message.mentions.map((mention) => mention.handle),
     message.mentionsEveryone,
   );
-  const mark = tone === "own" ? "rounded bg-on-brand/20 px-0.5 font-bold" : "rounded bg-brand-soft px-0.5 font-bold text-brand-strong";
+  const mark =
+    tone === "own"
+      ? "rounded bg-on-brand/20 px-0.5 font-bold"
+      : "rounded bg-brand-soft px-0.5 font-bold text-brand-strong";
   return (
     <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
       {tokens.map((token, index) => {
@@ -59,7 +68,11 @@ export function MessageText({ message, tone }: { message: chat.Message; tone: To
               </span>
             );
           default:
-            return <span key={index}>{token.text}</span>;
+            return (
+              <span key={index}>
+                <EmojiText text={token.text} />
+              </span>
+            );
         }
       })}
     </p>
@@ -75,13 +88,29 @@ export function ReplyQuote({ reply, tone }: { reply: chat.ReplyReference; tone: 
       type="button"
       disabled={reply.unavailable}
       onClick={() => jumpTo(reply.messageId)}
-      className={cn("mb-1.5 flex w-full min-w-0 items-center gap-2 rounded-xl border-l-4 py-1 pr-2 pl-2 text-left text-xs", tone === "own" ? "border-on-brand/60 bg-on-brand/15" : "border-brand bg-surface-2")}
+      className={cn(
+        "mb-1.5 flex w-full min-w-0 items-center gap-2 rounded-xl border-l-4 py-1 pr-2 pl-2 text-left text-xs",
+        tone === "own" ? "border-on-brand/60 bg-on-brand/15" : "border-brand bg-surface-2",
+      )}
     >
       <span className="min-w-0 flex-1">
-        <span className="block truncate font-black">{reply.unavailable ? t("reply.unavailableTitle") : displayName(reply.sender)}</span>
-        <span className={cn("block truncate", tone === "own" ? "text-on-brand/80" : "text-ink-soft")}>{replyText(reply, me.id)}</span>
+        <span className="block truncate font-black">
+          {reply.unavailable ? t("reply.unavailableTitle") : displayName(reply.sender)}
+        </span>
+        <span
+          className={cn("block truncate", tone === "own" ? "text-on-brand/80" : "text-ink-soft")}
+        >
+          {replyText(reply, me.id)}
+        </span>
       </span>
-      {reply.thumbnailUrl && !reply.unavailable && <img src={reply.thumbnailUrl} alt="" className="size-9 shrink-0 rounded-lg object-cover" loading="lazy" />}
+      {reply.thumbnailUrl && !reply.unavailable && (
+        <img
+          src={reply.thumbnailUrl}
+          alt=""
+          className="size-9 shrink-0 rounded-lg object-cover"
+          loading="lazy"
+        />
+      )}
     </button>
   );
 }
@@ -89,7 +118,12 @@ export function ReplyQuote({ reply, tone }: { reply: chat.ReplyReference; tone: 
 export function ForwardedLabel({ tone }: { tone: Tone }) {
   const { t } = useTranslation("chat");
   return (
-    <p className={cn("mb-1 flex items-center gap-1 text-[11px] font-bold", tone === "own" ? "text-on-brand/75" : "text-ink-faint")}>
+    <p
+      className={cn(
+        "mb-1 flex items-center gap-1 text-[11px] font-bold",
+        tone === "own" ? "text-on-brand/75" : "text-ink-faint",
+      )}
+    >
       <CornerUpRight className="size-3" />
       {t("message.forwarded")}
     </p>
@@ -97,29 +131,61 @@ export function ForwardedLabel({ tone }: { tone: Tone }) {
 }
 
 /** The pictures and videos of a message as one block: a single one large, several as a grid. */
-export function VisualGrid({ message, attachments }: { message: chat.Message; attachments: media.Attachment[] }) {
+export function VisualGrid({
+  message,
+  attachments,
+}: {
+  message: chat.Message;
+  attachments: media.Attachment[];
+}) {
   const { openMedia } = useConversationContext();
   const { t } = useTranslation("chat");
   const count = attachments.length;
-  const label = (attachment: media.Attachment) => (attachment.kind === media.AssetKind.VIDEO ? t("media.openVideo") : t("media.openPhoto"));
-  const indexOf = (attachment: media.Attachment) => message.attachments.filter(isVisual).indexOf(attachment);
+  const label = (attachment: media.Attachment) =>
+    attachment.kind === media.AssetKind.VIDEO ? t("media.openVideo") : t("media.openPhoto");
+  const indexOf = (attachment: media.Attachment) =>
+    message.attachments.filter(isVisual).indexOf(attachment);
 
   if (count === 1) {
     const only = attachments[0]!;
-    const size = only.kind === media.AssetKind.VIDEO ? (only.video?.poster?.width ? only.video.poster : only.video) : only.image;
+    const size =
+      only.kind === media.AssetKind.VIDEO
+        ? only.video?.poster?.width
+          ? only.video.poster
+          : only.video
+        : only.image;
     // The box is known before the picture loads, so the list does not jump. Very tall or wide pictures are cropped.
-    const ratio = size?.width && size.height ? Math.min(1.91, Math.max(0.6, size.width / size.height)) : 1;
+    const ratio =
+      size?.width && size.height ? Math.min(1.91, Math.max(0.6, size.width / size.height)) : 1;
     const width = ratio >= 1 ? 260 : Math.round(300 * ratio);
     return (
       <div style={{ width, aspectRatio: String(ratio) }} className="max-w-full">
-        <VisualTile attachment={only} pixels={300} label={label(only)} onOpen={() => openMedia({ message, index: 0 })} className="size-full rounded-2xl" />
+        <VisualTile
+          attachment={only}
+          pixels={300}
+          label={label(only)}
+          onOpen={() => openMedia({ message, index: 0 })}
+          className="size-full rounded-2xl"
+        />
       </div>
     );
   }
   return (
-    <div className={cn("grid w-[17rem] max-w-full gap-1 overflow-hidden rounded-2xl", count === 2 || count === 4 ? "grid-cols-2" : "grid-cols-3")}>
+    <div
+      className={cn(
+        "grid w-[17rem] max-w-full gap-1 overflow-hidden rounded-2xl",
+        count === 2 || count === 4 ? "grid-cols-2" : "grid-cols-3",
+      )}
+    >
       {attachments.map((attachment) => (
-        <VisualTile key={attachment.assetId || attachment.url} attachment={attachment} pixels={140} label={label(attachment)} onOpen={() => openMedia({ message, index: indexOf(attachment) })} className="aspect-square" />
+        <VisualTile
+          key={attachment.assetId || attachment.url}
+          attachment={attachment}
+          pixels={140}
+          label={label(attachment)}
+          onOpen={() => openMedia({ message, index: indexOf(attachment) })}
+          className="aspect-square"
+        />
       ))}
     </div>
   );
@@ -128,13 +194,21 @@ export function VisualGrid({ message, attachments }: { message: chat.Message; at
 /** Everything a media message carries: pictures and videos, voice messages, files. */
 export function MediaContent({ message, tone }: { message: chat.Message; tone: Tone }) {
   const visuals = message.attachments.filter(isVisual);
-  const voices = message.attachments.filter((attachment) => attachment.kind === media.AssetKind.AUDIO);
-  const files = message.attachments.filter((attachment) => attachment.kind === media.AssetKind.FILE);
+  const voices = message.attachments.filter(
+    (attachment) => attachment.kind === media.AssetKind.AUDIO,
+  );
+  const files = message.attachments.filter(
+    (attachment) => attachment.kind === media.AssetKind.FILE,
+  );
   return (
     <>
       {visuals.length > 0 && <VisualGrid message={message} attachments={visuals} />}
       {voices.map((attachment) => (
-        <VoicePlayer key={attachment.assetId || attachment.url} attachment={attachment} tone={tone} />
+        <VoicePlayer
+          key={attachment.assetId || attachment.url}
+          attachment={attachment}
+          tone={tone}
+        />
       ))}
       {files.map((attachment) => (
         <FileRow key={attachment.assetId || attachment.url} attachment={attachment} tone={tone} />
@@ -144,19 +218,49 @@ export function MediaContent({ message, tone }: { message: chat.Message; tone: T
 }
 
 /** A shared place: a little map-coloured card that opens the map. */
-export function LocationCard({ location, onOpen }: { location: chat.LocationShare; onOpen(): void }) {
+export function LocationCard({
+  location,
+  onOpen,
+}: {
+  location: chat.LocationShare;
+  onOpen(): void;
+}) {
   const { t } = useTranslation("chat");
-  return (
-    <button type="button" onClick={onOpen} className="block w-60 max-w-full overflow-hidden rounded-2xl border-2 border-line bg-surface text-left text-ink" data-testid="location-card">
-      <span className="relative block h-24 bg-[linear-gradient(135deg,var(--mint)_0%,var(--sky)_100%)]">
-        <span className="absolute inset-0 opacity-30 [background-image:linear-gradient(var(--surface)_2px,transparent_2px),linear-gradient(90deg,var(--surface)_2px,transparent_2px)] [background-size:28px_28px]" />
-        <span className="sticker-sm absolute top-1/2 left-1/2 grid size-11 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-pink text-white">
-          <MapPin className="size-6" />
-        </span>
+  const placeholder = (
+    <span className="relative block h-24 bg-[linear-gradient(135deg,var(--mint)_0%,var(--sky)_100%)]">
+      <span className="absolute inset-0 opacity-30 [background-image:linear-gradient(var(--surface)_2px,transparent_2px),linear-gradient(90deg,var(--surface)_2px,transparent_2px)] [background-size:28px_28px]" />
+      <span className="sticker-sm absolute top-1/2 left-1/2 grid size-11 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-pink text-white">
+        <MapPin className="size-6" />
       </span>
+    </span>
+  );
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="block w-60 max-w-full overflow-hidden rounded-2xl border-2 border-line bg-surface text-left text-ink"
+      data-testid="location-card"
+    >
+      {location.position ? (
+        // The real map around the place, as a picture (the map library loads when one is first shown).
+        <Suspense fallback={placeholder}>
+          <StaticMapPreview
+            lat={location.position.lat}
+            lng={location.position.lng}
+            label={location.name || t("location.shared")}
+            className="aspect-auto h-24 rounded-none"
+          />
+        </Suspense>
+      ) : (
+        placeholder
+      )}
       <span className="block px-3 py-2">
-        <span className="block truncate text-sm font-black">{location.name || t("location.shared")}</span>
-        <span className="block truncate text-xs text-ink-soft">{location.address || t("location.open")}</span>
+        <span className="block truncate text-sm font-black">
+          {location.name || t("location.shared")}
+        </span>
+        <span className="block truncate text-xs text-ink-soft">
+          {location.address || t("location.open")}
+        </span>
       </span>
     </button>
   );
@@ -215,31 +319,63 @@ export function LinkPreviewCard({ preview, tone }: { preview: media.LinkPreview;
   const body = (
     <>
       {preview.imageUrl && (
-        <span className={cn("relative block overflow-hidden bg-surface-3", spotify ? "float-left mr-3 size-20" : "aspect-[1.91/1] w-full")}>
+        <span
+          className={cn(
+            "relative block overflow-hidden bg-surface-3",
+            spotify ? "float-left mr-3 size-20" : "aspect-[1.91/1] w-full",
+          )}
+        >
           <img src={preview.imageUrl} alt="" className="size-full object-cover" loading="lazy" />
           {(youtube || spotify) && (
             <span className="absolute inset-0 grid place-items-center bg-black/20">
-              <span className={cn("grid place-items-center rounded-full bg-black/60 text-white", spotify ? "size-9" : "size-14")}>
-                <Play className={cn("translate-x-0.5 fill-current", spotify ? "size-4" : "size-7")} />
+              <span
+                className={cn(
+                  "grid place-items-center rounded-full bg-black/60 text-white",
+                  spotify ? "size-9" : "size-14",
+                )}
+              >
+                <Play
+                  className={cn("translate-x-0.5 fill-current", spotify ? "size-4" : "size-7")}
+                />
               </span>
             </span>
           )}
         </span>
       )}
       <span className="block px-3 py-2">
-        <span className={cn("block truncate text-[11px] font-bold", tone === "own" ? "text-on-brand/70" : "text-ink-faint")}>
+        <span
+          className={cn(
+            "block truncate text-[11px] font-bold",
+            tone === "own" ? "text-on-brand/70" : "text-ink-faint",
+          )}
+        >
           {preview.siteName || hostOf(preview.url)}
           {(youtube || spotify) && ` · ${t("link.playHere")}`}
         </span>
         {preview.title && <span className="line-clamp-2 text-sm font-black">{preview.title}</span>}
-        {preview.description && !spotify && <span className={cn("mt-0.5 line-clamp-2 text-xs", tone === "own" ? "text-on-brand/80" : "text-ink-soft")}>{preview.description}</span>}
+        {preview.description && !spotify && (
+          <span
+            className={cn(
+              "mt-0.5 line-clamp-2 text-xs",
+              tone === "own" ? "text-on-brand/80" : "text-ink-soft",
+            )}
+          >
+            {preview.description}
+          </span>
+        )}
       </span>
     </>
   );
 
   if (youtube || spotify) {
     return (
-      <button type="button" className={cn(frame, border)} onClick={() => setPlaying(true)} aria-label={t("link.play", { title: preview.title || preview.siteName })} data-testid="link-embed">
+      <button
+        type="button"
+        className={cn(frame, border)}
+        onClick={() => setPlaying(true)}
+        aria-label={t("link.play", { title: preview.title || preview.siteName })}
+        data-testid="link-embed"
+      >
         {body}
       </button>
     );

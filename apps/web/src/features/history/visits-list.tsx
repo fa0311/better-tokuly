@@ -9,6 +9,13 @@ import { EmptyState, Skeleton } from "#/components/ui/page";
 import { SelectField } from "#/components/ui/select";
 import { Tabs } from "#/components/ui/tabs";
 import { GazetteerCredit, placeClient, placeEmoji, placeKeys } from "#/features/places";
+import {
+  accountTimeZone,
+  shiftDate,
+  useAccountTimeZone,
+  useAccountToday,
+  zonedMoment,
+} from "#/lib/account-time";
 import { historyClient, historyKeys } from "./api";
 import { dayRange, formatDay } from "./dates";
 import { VisitCard } from "./visit-card";
@@ -19,21 +26,25 @@ const ANY_PLACE = "any";
 /** Every visit, newest first, narrowed by when and by which of my places. */
 export function VisitsList() {
   const { t, i18n } = useTranslation("history");
-  const today = formatDay(new Date());
+  const zone = useAccountTimeZone();
+  const today = useAccountToday();
   const [period, setPeriod] = useState<Period>("all");
   const [placeId, setPlaceId] = useState(ANY_PLACE);
   const [customFrom, setCustomFrom] = useState(today);
   const [customTo, setCustomTo] = useState(today);
 
-  const places = useQuery({ queryKey: placeKeys.mine, queryFn: () => placeClient().listMyPlaces({}) });
+  const places = useQuery({
+    queryKey: placeKeys.mine,
+    queryFn: () => placeClient().listMyPlaces({}),
+  });
 
-  const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  // Days begin at the account's midnight.
+  const startOf = (day: string) => new Date(zonedMoment(day, 0, zone));
   const from: Date | null =
     period === "week"
-      ? new Date(startOfToday.getFullYear(), startOfToday.getMonth(), startOfToday.getDate() - 6)
+      ? startOf(shiftDate(today, -6))
       : period === "month"
-        ? new Date(now.getFullYear(), now.getMonth(), 1)
+        ? startOf(`${today.slice(0, 7)}-01`)
         : period === "custom"
           ? (dayRange(customFrom)?.from ?? null)
           : null;
@@ -71,8 +82,21 @@ export function VisitsList() {
         />
         {period === "custom" && (
           <div className="grid grid-cols-2 gap-3">
-            <TextField type="date" label={t("visits.from")} value={customFrom} max={today} onChange={(event) => setCustomFrom(event.target.value)} />
-            <TextField type="date" label={t("visits.to")} value={customTo} max={today} error={rangeValid ? undefined : t("delete.invalidRange")} onChange={(event) => setCustomTo(event.target.value)} />
+            <TextField
+              type="date"
+              label={t("visits.from")}
+              value={customFrom}
+              max={today}
+              onChange={(event) => setCustomFrom(event.target.value)}
+            />
+            <TextField
+              type="date"
+              label={t("visits.to")}
+              value={customTo}
+              max={today}
+              error={rangeValid ? undefined : t("delete.invalidRange")}
+              onChange={(event) => setCustomTo(event.target.value)}
+            />
           </div>
         )}
         {(places.data?.places.length ?? 0) > 0 && (
@@ -80,7 +104,13 @@ export function VisitsList() {
             label={t("visits.place")}
             value={placeId}
             onChange={setPlaceId}
-            options={[{ value: ANY_PLACE, label: t("visits.anyPlace") }, ...places.data!.places.map((place) => ({ value: place.id, label: `${placeEmoji(place)} ${place.name}` }))]}
+            options={[
+              { value: ANY_PLACE, label: t("visits.anyPlace") },
+              ...places.data!.places.map((place) => ({
+                value: place.id,
+                label: `${placeEmoji(place)} ${place.name}`,
+              })),
+            ]}
           />
         )}
       </div>
@@ -104,9 +134,21 @@ export function VisitsList() {
                 const arrived = toDate(visit.arrivedAt);
                 return (
                   <li key={visit.id} className="sticker rounded-card bg-surface p-4">
-                    <VisitCard visit={visit} dateLabel={arrived?.toLocaleDateString(i18n.language, { month: "short", day: "numeric", weekday: "short" })} />
+                    <VisitCard
+                      visit={visit}
+                      dateLabel={arrived?.toLocaleDateString(i18n.language, {
+                        timeZone: accountTimeZone(),
+                        month: "short",
+                        day: "numeric",
+                        weekday: "short",
+                      })}
+                    />
                     {arrived && (
-                      <Link to="/history/$date" params={{ date: formatDay(arrived) }} className="mt-2 inline-block text-xs font-black text-brand hover:underline">
+                      <Link
+                        to="/history/$date"
+                        params={{ date: formatDay(arrived) }}
+                        className="mt-2 inline-block text-xs font-black text-brand hover:underline"
+                      >
                         {t("visits.openDay")}
                       </Link>
                     )}

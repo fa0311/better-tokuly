@@ -28,14 +28,18 @@ export function ActionChip({ kind }: { kind: admin.ModerationActionKind }) {
 /** Where a case stands: waiting, or how it was closed. */
 export function CaseStateChip({ moderationCase }: { moderationCase: admin.ModerationCase }) {
   const { t } = useTranslation("admin");
-  if (moderationCase.status !== admin.CaseStatus.RESOLVED) return <ToneChip tone="warn">{t(caseStatusKey(admin.CaseStatus.OPEN))}</ToneChip>;
+  if (moderationCase.status !== admin.CaseStatus.RESOLVED)
+    return <ToneChip tone="warn">{t(caseStatusKey(admin.CaseStatus.OPEN))}</ToneChip>;
   // No resolution: the case closed itself because the owner's account was deleted.
-  if (moderationCase.resolution === admin.ModerationActionKind.UNSPECIFIED) return <ToneChip>{t("moderation.autoClosed")}</ToneChip>;
+  if (moderationCase.resolution === admin.ModerationActionKind.UNSPECIFIED)
+    return <ToneChip>{t("moderation.autoClosed")}</ToneChip>;
   return <ActionChip kind={moderationCase.resolution} />;
 }
 
 /** The title captured with the latest report, or a stand-in when there is none. */
-export function useCaseTitle(): (moderationCase: Pick<admin.ModerationCase, "subjectTitle">) => string {
+export function useCaseTitle(): (
+  moderationCase: Pick<admin.ModerationCase, "subjectTitle">,
+) => string {
   const { t } = useTranslation("admin");
   return (moderationCase) => moderationCase.subjectTitle || t("moderation.untitled");
 }

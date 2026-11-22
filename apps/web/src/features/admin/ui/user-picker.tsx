@@ -15,7 +15,11 @@ const MODERATING_ROLES = ["moderator", "admin"] as const;
 async function searchAccounts(query: string, staffOnly: boolean): Promise<admin.AdminUser[]> {
   if (!staffOnly) return (await userAdminClient().searchUsers({ query, page: { limit: 8 } })).users;
   // The API filters by one role at a time.
-  const pages = await Promise.all(MODERATING_ROLES.map((role) => userAdminClient().searchUsers({ query, role, page: { limit: 8 } })));
+  const pages = await Promise.all(
+    MODERATING_ROLES.map((role) =>
+      userAdminClient().searchUsers({ query, role, page: { limit: 8 } }),
+    ),
+  );
   const seen = new Set<string>();
   return pages
     .flatMap((page) => page.users)
@@ -59,7 +63,9 @@ export function UserPicker({
     queryFn: () => searchAccounts(query, staffOnly),
     enabled: open,
   });
-  const accounts = (results.data ?? []).filter((account) => account.user && !excludeIds?.includes(account.user.id));
+  const accounts = (results.data ?? []).filter(
+    (account) => account.user && !excludeIds?.includes(account.user.id),
+  );
 
   const pick = (account: admin.AdminUser) => {
     onPick(account);
@@ -100,9 +106,16 @@ export function UserPicker({
         {results.isFetching && open && <Spinner className="size-4 text-ink-faint" />}
       </label>
       {open && (
-        <div id={listId} role="listbox" aria-label={label} className="sticker-sm absolute inset-x-0 top-full z-30 mt-1.5 max-h-72 overflow-y-auto rounded-2xl bg-surface p-1.5">
+        <div
+          id={listId}
+          role="listbox"
+          aria-label={label}
+          className="sticker-sm absolute inset-x-0 top-full z-30 mt-1.5 max-h-72 overflow-y-auto rounded-2xl bg-surface p-1.5"
+        >
           {accounts.length === 0 ? (
-            <p className="px-3 py-2.5 text-sm text-ink-faint">{results.isPending ? t("common.searching") : t("common.noUsers")}</p>
+            <p className="px-3 py-2.5 text-sm text-ink-faint">
+              {results.isPending ? t("common.searching") : t("common.noUsers")}
+            </p>
           ) : (
             accounts.map(
               (account) =>
@@ -119,7 +132,9 @@ export function UserPicker({
                   >
                     <Avatar user={account.user} size="sm" />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-bold">{account.user.displayName || account.user.handle}</span>
+                      <span className="block truncate text-sm font-bold">
+                        {account.user.displayName || account.user.handle}
+                      </span>
                       <span className="block truncate text-xs text-ink-soft">
                         @{account.user.handle}
                         {account.email && ` · ${account.email}`}

@@ -1,4 +1,16 @@
-import { Eraser, Hand, Maximize, Paintbrush, Redo2, RotateCcw, Sparkles, Undo2, Wand2, ZoomIn, ZoomOut } from "lucide-react";
+import {
+  Eraser,
+  Hand,
+  Maximize,
+  Paintbrush,
+  Redo2,
+  RotateCcw,
+  Sparkles,
+  Undo2,
+  Wand2,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-react";
 import { type ComponentType, type PointerEvent, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -17,9 +29,9 @@ import {
   floodErase,
   fullMask,
   History,
-  paintMask,
   type Placement,
   type Point,
+  paintMask,
   type Rect,
   STAMP_SIZE,
   toPicture,
@@ -88,7 +100,15 @@ async function decode(file: Blob): Promise<ImageBitmap | HTMLImageElement> {
  * scroll to zoom), removes its background by brush or by magic, optionally
  * adds a white sticker outline, and hands back a transparent 512 px image.
  */
-export function CutoutEditor({ file, onBack, onDone }: { file: Blob; onBack(): void; onDone(image: Blob): void }) {
+export function CutoutEditor({
+  file,
+  onBack,
+  onDone,
+}: {
+  file: Blob;
+  onBack(): void;
+  onDone(image: Blob): void;
+}) {
   const { t } = useTranslation("stamps");
   const stageRef = useRef<HTMLCanvasElement>(null);
   const session = useRef<Session | null>(null);
@@ -136,7 +156,16 @@ export function CutoutEditor({ file, onBack, onDone }: { file: Blob; onBack(): v
     const current = session.current;
     if (!current) return;
     applyMask(current.source, current.mask, current.cutPixels.data, area);
-    if (area) current.cutContext.putImageData(current.cutPixels, 0, 0, area.x, area.y, area.width, area.height);
+    if (area)
+      current.cutContext.putImageData(
+        current.cutPixels,
+        0,
+        0,
+        area.x,
+        area.y,
+        area.width,
+        area.height,
+      );
     else current.cutContext.putImageData(current.cutPixels, 0, 0);
     requestDraw();
   };
@@ -159,7 +188,11 @@ export function CutoutEditor({ file, onBack, onDone }: { file: Blob; onBack(): v
     const current = session.current;
     if (!current) return;
     const whole = { x: 0, y: 0, width: current.source.width, height: current.source.height };
-    current.placement = fitPlacement(contentBounds(current.source, current.mask) ?? whole, STAMP_SIZE, FIT_MARGIN);
+    current.placement = fitPlacement(
+      contentBounds(current.source, current.mask) ?? whole,
+      STAMP_SIZE,
+      FIT_MARGIN,
+    );
     requestDraw();
   };
 
@@ -182,7 +215,11 @@ export function CutoutEditor({ file, onBack, onDone }: { file: Blob; onBack(): v
         cutContext.drawImage(picture, 0, 0, size.width, size.height);
         const source = cutContext.getImageData(0, 0, size.width, size.height);
         const mask = fullMask(size.width, size.height);
-        const placement = fitPlacement({ x: 0, y: 0, width: size.width, height: size.height }, STAMP_SIZE, FIT_MARGIN);
+        const placement = fitPlacement(
+          { x: 0, y: 0, width: size.width, height: size.height },
+          STAMP_SIZE,
+          FIT_MARGIN,
+        );
         session.current = {
           source,
           mask,
@@ -242,7 +279,12 @@ export function CutoutEditor({ file, onBack, onDone }: { file: Blob; onBack(): v
     if (!current) return;
     const base = adjust && current.magicBase ? current.magicBase : current.mask.slice();
     const next = base.slice();
-    const erased = floodErase(current.source, next, cornerSeeds(current.source.width, current.source.height), value);
+    const erased = floodErase(
+      current.source,
+      next,
+      cornerSeeds(current.source.width, current.source.height),
+      value,
+    );
     if (!adjust && erased === 0) {
       toast(t("editor.magicNothing"));
       return;
@@ -262,7 +304,13 @@ export function CutoutEditor({ file, onBack, onDone }: { file: Blob; onBack(): v
   const zoom = (factor: number, around: Point = { x: STAMP_SIZE / 2, y: STAMP_SIZE / 2 }) => {
     const current = session.current;
     if (!current) return;
-    current.placement = zoomPlacement(current.placement, factor, around, current.baseScale * 0.25, current.baseScale * 10);
+    current.placement = zoomPlacement(
+      current.placement,
+      factor,
+      around,
+      current.baseScale * 0.25,
+      current.baseScale * 10,
+    );
     requestDraw();
   };
 
@@ -278,7 +326,9 @@ export function CutoutEditor({ file, onBack, onDone }: { file: Blob; onBack(): v
     }
     setExporting(true);
     // WebP keeps the transparency at a fraction of a PNG's size; browsers that cannot write it fall back to PNG.
-    const image = await new Promise<Blob | null>((resolve) => stage.toBlob(resolve, "image/webp", 0.92));
+    const image = await new Promise<Blob | null>((resolve) =>
+      stage.toBlob(resolve, "image/webp", 0.92),
+    );
     setExporting(false);
     if (image) onDone(image);
     else toast.error(t("editor.exportFailed"));
@@ -302,7 +352,10 @@ export function CutoutEditor({ file, onBack, onDone }: { file: Blob; onBack(): v
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
       const box = stage.getBoundingClientRect();
-      zoom(Math.exp(-event.deltaY * 0.0015), { x: ((event.clientX - box.left) * STAMP_SIZE) / box.width, y: ((event.clientY - box.top) * STAMP_SIZE) / box.height });
+      zoom(Math.exp(-event.deltaY * 0.0015), {
+        x: ((event.clientX - box.left) * STAMP_SIZE) / box.width,
+        y: ((event.clientY - box.top) * STAMP_SIZE) / box.height,
+      });
     };
     stage.addEventListener("wheel", onWheel, { passive: false });
     return () => stage.removeEventListener("wheel", onWheel);
@@ -313,7 +366,10 @@ export function CutoutEditor({ file, onBack, onDone }: { file: Blob; onBack(): v
   /** A pointer position in pixels of the frame. */
   const framePoint = (event: PointerEvent<HTMLCanvasElement>): Point => {
     const box = event.currentTarget.getBoundingClientRect();
-    return { x: ((event.clientX - box.left) * STAMP_SIZE) / box.width, y: ((event.clientY - box.top) * STAMP_SIZE) / box.height };
+    return {
+      x: ((event.clientX - box.left) * STAMP_SIZE) / box.width,
+      y: ((event.clientY - box.top) * STAMP_SIZE) / box.height,
+    };
   };
 
   const stroke = (from: Point, to: Point) => {
@@ -321,7 +377,17 @@ export function CutoutEditor({ file, onBack, onDone }: { file: Blob; onBack(): v
     if (!current || (tool !== "erase" && tool !== "restore")) return;
     const { source, mask, placement } = current;
     // The brush size is in frame pixels, the mask in picture pixels.
-    refreshCut(paintMask(mask, source.width, source.height, toPicture(placement, from), toPicture(placement, to), brush / 2 / placement.scale, tool));
+    refreshCut(
+      paintMask(
+        mask,
+        source.width,
+        source.height,
+        toPicture(placement, from),
+        toPicture(placement, to),
+        brush / 2 / placement.scale,
+        tool,
+      ),
+    );
   };
 
   const onPointerDown = (event: PointerEvent<HTMLCanvasElement>) => {
@@ -339,10 +405,16 @@ export function CutoutEditor({ file, onBack, onDone }: { file: Blob; onBack(): v
         refreshCut();
       }
       const [a, b] = [...pointers.current.values()] as [Point, Point];
-      gesture.current = { kind: "pinch", last: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, spread: Math.hypot(a.x - b.x, a.y - b.y), before: null };
+      gesture.current = {
+        kind: "pinch",
+        last: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+        spread: Math.hypot(a.x - b.x, a.y - b.y),
+        before: null,
+      };
     } else if (pointers.current.size === 1) {
       if (tool === "move") gesture.current = { kind: "pan", last: point, spread: 0, before: null };
-      else if (tool === "wand") gesture.current = { kind: "tap", last: point, spread: 0, before: null };
+      else if (tool === "wand")
+        gesture.current = { kind: "tap", last: point, spread: 0, before: null };
       else {
         gesture.current = { kind: "stroke", last: point, spread: 0, before: current.mask.slice() };
         stroke(point, point);
@@ -362,13 +434,21 @@ export function CutoutEditor({ file, onBack, onDone }: { file: Blob; onBack(): v
       const [a, b] = [...pointers.current.values()] as [Point, Point];
       const middle = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
       const spread = Math.hypot(a.x - b.x, a.y - b.y);
-      current.placement = { ...current.placement, x: current.placement.x + middle.x - active.last.x, y: current.placement.y + middle.y - active.last.y };
+      current.placement = {
+        ...current.placement,
+        x: current.placement.x + middle.x - active.last.x,
+        y: current.placement.y + middle.y - active.last.y,
+      };
       if (active.spread > 0) zoom(spread / active.spread, middle);
       active.last = middle;
       active.spread = spread;
       requestDraw();
     } else if (active.kind === "pan") {
-      current.placement = { ...current.placement, x: current.placement.x + point.x - active.last.x, y: current.placement.y + point.y - active.last.y };
+      current.placement = {
+        ...current.placement,
+        x: current.placement.x + point.x - active.last.x,
+        y: current.placement.y + point.y - active.last.y,
+      };
       active.last = point;
       requestDraw();
     } else if (active.kind === "stroke") {
@@ -386,14 +466,22 @@ export function CutoutEditor({ file, onBack, onDone }: { file: Blob; onBack(): v
     if (active.kind === "stroke") commit();
     if (active.kind === "tap" && event.type === "pointerup") {
       // Magic wand: clears the area of similar colour around the tapped spot.
-      const erased = floodErase(current.source, current.mask, [toPicture(current.placement, framePoint(event))], tolerance);
+      const erased = floodErase(
+        current.source,
+        current.mask,
+        [toPicture(current.placement, framePoint(event))],
+        tolerance,
+      );
       if (erased > 0) {
         commit();
         refreshCut();
       }
     }
     // After a pinch, the finger that is still down does nothing more.
-    gesture.current = pointers.current.size === 0 ? null : { kind: "idle", last: active.last, spread: 0, before: null };
+    gesture.current =
+      pointers.current.size === 0
+        ? null
+        : { kind: "idle", last: active.last, spread: 0, before: null };
   };
 
   // ── UI ──
@@ -414,12 +502,16 @@ export function CutoutEditor({ file, onBack, onDone }: { file: Blob; onBack(): v
   return (
     <div className="flex flex-col gap-3">
       {/* As large as the sheet allows while every control below still fits without scrolling. */}
-      <div className="relative mx-auto aspect-square w-full" style={{ maxWidth: "min(26rem, max(11rem, calc(92dvh - 26.5rem)))" }}>
+      <div
+        className="relative mx-auto aspect-square w-full"
+        style={{ maxWidth: "min(26rem, max(11rem, calc(92dvh - 26.5rem)))" }}
+      >
         {/* The checkerboard shows what is transparent. */}
         <div
           className="sticker absolute inset-0 overflow-hidden rounded-[1.75rem] bg-surface"
           style={{
-            backgroundImage: "repeating-conic-gradient(var(--surface-3) 0% 25%, transparent 0% 50%)",
+            backgroundImage:
+              "repeating-conic-gradient(var(--surface-3) 0% 25%, transparent 0% 50%)",
             backgroundSize: "24px 24px",
           }}
         >
@@ -433,7 +525,14 @@ export function CutoutEditor({ file, onBack, onDone }: { file: Blob; onBack(): v
               role="img"
               aria-label={t("editor.stage")}
               data-testid="cutout-stage"
-              className={cn("size-full touch-none select-none", tool === "move" ? "cursor-grab active:cursor-grabbing" : brushing ? "cursor-none" : "cursor-crosshair")}
+              className={cn(
+                "size-full touch-none select-none",
+                tool === "move"
+                  ? "cursor-grab active:cursor-grabbing"
+                  : brushing
+                    ? "cursor-none"
+                    : "cursor-crosshair",
+              )}
               onPointerDown={onPointerDown}
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
@@ -457,20 +556,67 @@ export function CutoutEditor({ file, onBack, onDone }: { file: Blob; onBack(): v
       </div>
 
       <div className="flex items-center justify-between gap-2">
-        <div role="radiogroup" aria-label={t("editor.tools")} className="inline-flex gap-1 rounded-full bg-surface-2 p-1">
-          <ToolButton current={tool} value="move" icon={Hand} label={t("editor.tool.move")} onSelect={setTool} />
-          <ToolButton current={tool} value="erase" icon={Eraser} label={t("editor.tool.erase")} onSelect={setTool} />
-          <ToolButton current={tool} value="restore" icon={Paintbrush} label={t("editor.tool.restore")} onSelect={setTool} />
-          <ToolButton current={tool} value="wand" icon={Wand2} label={t("editor.tool.wand")} onSelect={setTool} />
+        <div
+          role="radiogroup"
+          aria-label={t("editor.tools")}
+          className="inline-flex gap-1 rounded-full bg-surface-2 p-1"
+        >
+          <ToolButton
+            current={tool}
+            value="move"
+            icon={Hand}
+            label={t("editor.tool.move")}
+            onSelect={setTool}
+          />
+          <ToolButton
+            current={tool}
+            value="erase"
+            icon={Eraser}
+            label={t("editor.tool.erase")}
+            onSelect={setTool}
+          />
+          <ToolButton
+            current={tool}
+            value="restore"
+            icon={Paintbrush}
+            label={t("editor.tool.restore")}
+            onSelect={setTool}
+          />
+          <ToolButton
+            current={tool}
+            value="wand"
+            icon={Wand2}
+            label={t("editor.tool.wand")}
+            onSelect={setTool}
+          />
         </div>
         <div className="flex gap-1">
-          <Button size="icon-sm" variant="ghost" aria-label={t("editor.undo")} disabled={!steps.undo} onClick={() => undo(false)}>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label={t("editor.undo")}
+            disabled={!steps.undo}
+            onClick={() => undo(false)}
+          >
             <Undo2 className="size-5" />
           </Button>
-          <Button size="icon-sm" variant="ghost" aria-label={t("editor.redo")} disabled={!steps.redo} onClick={() => undo(true)}>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label={t("editor.redo")}
+            disabled={!steps.redo}
+            onClick={() => undo(true)}
+          >
             <Redo2 className="size-5" />
           </Button>
-          <Button size="icon-sm" variant="ghost" aria-label={t("editor.reset")} title={t("editor.reset")} disabled={status !== "ready"} onClick={reset}>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label={t("editor.reset")}
+            title={t("editor.reset")}
+            disabled={status !== "ready"}
+            onClick={reset}
+          >
             <RotateCcw className="size-5" />
           </Button>
         </div>
@@ -480,10 +626,20 @@ export function CutoutEditor({ file, onBack, onDone }: { file: Blob; onBack(): v
         {tool === "move" ? (
           <>
             <p className="min-w-0 flex-1 text-sm font-bold text-ink-soft">{t("editor.moveHint")}</p>
-            <Button size="icon-sm" variant="ghost" aria-label={t("editor.zoomOut")} onClick={() => zoom(1 / 1.25)}>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label={t("editor.zoomOut")}
+              onClick={() => zoom(1 / 1.25)}
+            >
               <ZoomOut className="size-5" />
             </Button>
-            <Button size="icon-sm" variant="ghost" aria-label={t("editor.zoomIn")} onClick={() => zoom(1.25)}>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label={t("editor.zoomIn")}
+              onClick={() => zoom(1.25)}
+            >
               <ZoomIn className="size-5" />
             </Button>
             <Button size="icon-sm" variant="ghost" aria-label={t("editor.fit")} onClick={fit}>
@@ -491,14 +647,27 @@ export function CutoutEditor({ file, onBack, onDone }: { file: Blob; onBack(): v
             </Button>
           </>
         ) : brushing ? (
-          <LabelledSlider label={t("editor.brushSize")} min={8} max={140} value={brush} onChange={setBrush} />
+          <LabelledSlider
+            label={t("editor.brushSize")}
+            min={8}
+            max={140}
+            value={brush}
+            onChange={setBrush}
+          />
         ) : (
           <p className="min-w-0 flex-1 text-sm font-bold text-ink-soft">{t("editor.wandHint")}</p>
         )}
       </div>
 
       <div className="flex items-center gap-3 rounded-2xl border-2 border-line py-0.5 pr-3 pl-2">
-        <Button variant="lime" size="sm" className="shrink-0" icon={<Sparkles className="size-4" />} disabled={status !== "ready"} onClick={() => magic(tolerance, false)}>
+        <Button
+          variant="lime"
+          size="sm"
+          className="shrink-0"
+          icon={<Sparkles className="size-4" />}
+          disabled={status !== "ready"}
+          onClick={() => magic(tolerance, false)}
+        >
           {t("editor.magic")}
         </Button>
         <LabelledSlider
@@ -529,7 +698,19 @@ export function CutoutEditor({ file, onBack, onDone }: { file: Blob; onBack(): v
   );
 }
 
-function ToolButton({ current, value, icon: Icon, label, onSelect }: { current: Tool; value: Tool; icon: ComponentType<{ className?: string }>; label: string; onSelect(tool: Tool): void }) {
+function ToolButton({
+  current,
+  value,
+  icon: Icon,
+  label,
+  onSelect,
+}: {
+  current: Tool;
+  value: Tool;
+  icon: ComponentType<{ className?: string }>;
+  label: string;
+  onSelect(tool: Tool): void;
+}) {
   const active = current === value;
   return (
     // biome-ignore lint/a11y/useSemanticElements: a segmented control of icon buttons, not a form field.
@@ -540,7 +721,10 @@ function ToolButton({ current, value, icon: Icon, label, onSelect }: { current: 
       aria-label={label}
       title={label}
       onClick={() => onSelect(value)}
-      className={cn("flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-bold transition-colors", active ? "sticker-sm bg-surface text-ink" : "text-ink-soft hover:text-ink")}
+      className={cn(
+        "flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-bold transition-colors",
+        active ? "sticker-sm bg-surface text-ink" : "text-ink-soft hover:text-ink",
+      )}
     >
       <Icon className="size-[18px]" />
       {active && <span className="max-sm:hidden">{label}</span>}
@@ -549,11 +733,30 @@ function ToolButton({ current, value, icon: Icon, label, onSelect }: { current: 
 }
 
 /** A slider with its name written beside it. */
-function LabelledSlider({ label, min, max, value, onChange }: { label: string; min: number; max: number; value: number; onChange(value: number): void }) {
+function LabelledSlider({
+  label,
+  min,
+  max,
+  value,
+  onChange,
+}: {
+  label: string;
+  min: number;
+  max: number;
+  value: number;
+  onChange(value: number): void;
+}) {
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2.5 text-sm font-bold text-ink-soft">
       <span className="shrink-0">{label}</span>
-      <Slider label={label} min={min} max={max} value={value} onChange={onChange} className="min-w-0 flex-1" />
+      <Slider
+        label={label}
+        min={min}
+        max={max}
+        value={value}
+        onChange={onChange}
+        className="min-w-0 flex-1"
+      />
     </div>
   );
 }

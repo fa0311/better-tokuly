@@ -1,5 +1,10 @@
 export default {
   title: "コメント",
+  settingsRow: {
+    title: "コメントの管理",
+    hint: "確認待ち・ルール・ブロック",
+    held: "確認待ちが{{count}}件あるよ",
+  },
   count: "{{formatted}}件",
   manage: "コメントを管理",
   sort: { top: "人気順", new: "新しい順" },
@@ -70,7 +75,8 @@ export default {
     deleteBody: "削除すると元に戻せません。",
     deleteWithReplies: "ついている返信 {{count}}件もいっしょに消えます。元に戻せません。",
     blockTitle: "{{name}}さんのコメントをブロックする？",
-    blockBody: "この人はあなたのコンテンツにコメントできなくなります。相手には通知されず、これまでのコメントも非表示になるよ。",
+    blockBody:
+      "この人はあなたのコンテンツにコメントできなくなります。相手には通知されず、これまでのコメントも非表示になるよ。",
   },
   toast: {
     deleted: "コメントを削除しました",
@@ -96,12 +102,24 @@ export default {
   },
   moderation: {
     title: "コメントの管理",
-    tabs: { queue: "確認待ち", received: "届いたコメント", mine: "じぶんのコメント", rules: "ルール", blocked: "ブロック中" },
+    tabs: {
+      queue: "確認待ち",
+      received: "届いたコメント",
+      mine: "じぶんのコメント",
+      rules: "ルール",
+      blocked: "ブロック中",
+    },
     queueLead: "あなたの確認を待っているコメントです。承認すると、みんなに見えるようになるよ。",
     receivedLead: "あなたの動画やノートに届いたコメントをまとめて見られます。",
     mineLead: "あなたが書いたコメントです。タップすると書いた場所にとべるよ。",
     searchPlaceholder: "コメントをさがす",
-    filter: { label: "状態でしぼりこむ", all: "すべて", published: "公開中", held: "確認待ち", hidden: "非表示" },
+    filter: {
+      label: "状態でしぼりこむ",
+      all: "すべて",
+      published: "公開中",
+      held: "確認待ち",
+      hidden: "非表示",
+    },
     byAuthor: "{{name}}さんのコメントだけ",
     clearAuthor: "しぼりこみを解除",
     onlyThisAuthor: "この人のコメントだけ見る",
@@ -115,13 +133,15 @@ export default {
   },
   rules: {
     reviewTitle: "公開前の確認",
-    reviewLead: "オンにしたものは、あなたが承認するまで他の人には見えません。これから届くコメントに使われるよ。",
+    reviewLead:
+      "オンにしたものは、あなたが承認するまで他の人には見えません。これから届くコメントに使われるよ。",
     holdAll: "すべてのコメントを確認する",
     holdAllHint: "どのコメントも、承認してから公開されます",
     holdLinks: "リンクつきのコメントを確認する",
     holdLinksHint: "URLが入ったコメントだけ確認待ちになります",
     wordsTitle: "ブロックする言葉",
-    wordsLead: "ここに入れた言葉をふくむコメントは確認待ちになります。大文字・小文字や全角・半角は区別しないよ。",
+    wordsLead:
+      "ここに入れた言葉をふくむコメントは確認待ちになります。大文字・小文字や全角・半角は区別しないよ。",
     wordPlaceholder: "言葉を入力（カンマ区切りでまとめて追加できるよ）",
     addWord: "追加",
     removeWord: "「{{word}}」を外す",

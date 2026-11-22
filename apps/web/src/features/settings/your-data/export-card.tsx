@@ -26,8 +26,11 @@ const requestKey = (userId: string) => `tokuly.exportRequest.${userId}`;
 
 function readRequest(userId: string): ExportRequest | null {
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(requestKey(userId)) ?? "null") as Partial<ExportRequest> | null;
-    if (!parsed || typeof parsed.exportId !== "string" || typeof parsed.requestedAt !== "number") return null;
+    const parsed = JSON.parse(
+      window.localStorage.getItem(requestKey(userId)) ?? "null",
+    ) as Partial<ExportRequest> | null;
+    if (!parsed || typeof parsed.exportId !== "string" || typeof parsed.requestedAt !== "number")
+      return null;
     // Older than the link's lifetime: nothing left to wait for.
     if (Date.now() - parsed.requestedAt > LINK_DAYS * 24 * 3600 * 1000) return null;
     return { exportId: parsed.exportId, requestedAt: parsed.requestedAt };
@@ -56,17 +59,42 @@ export function ExportCard({ me }: { me: identity.Me }) {
   return (
     <Group title={t("data.export.title")} lead={t("data.export.lead")}>
       {request ? (
-        <div role="status" className="flex items-start gap-3 rounded-2xl bg-brand-soft p-4" data-testid="export-state">
+        <div
+          role="status"
+          className="flex items-start gap-3 rounded-2xl bg-brand-soft p-4"
+          data-testid="export-state"
+        >
           <PackageOpen className="mt-0.5 size-6 shrink-0 text-brand" />
           <div className="min-w-0">
-            <p className="font-black">{t("data.export.requested", { date: new Date(request.requestedAt).toLocaleString(i18n.language, { dateStyle: "medium", timeStyle: "short" }) })}</p>
-            <p className="mt-1 text-sm leading-relaxed text-ink-soft">{me.email ? t("data.export.requestedBody", { email: me.email, days: LINK_DAYS }) : t("data.export.requestedNoEmail")}</p>
+            <p className="font-black">
+              {t("data.export.requested", {
+                date: new Date(request.requestedAt).toLocaleString(i18n.language, {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                }),
+              })}
+            </p>
+            <p className="mt-1 text-sm leading-relaxed text-ink-soft">
+              {me.email
+                ? t("data.export.requestedBody", { email: me.email, days: LINK_DAYS })
+                : t("data.export.requestedNoEmail")}
+            </p>
           </div>
         </div>
       ) : (
-        <p className="text-sm leading-relaxed text-ink-soft">{me.email ? t("data.export.how", { email: me.email, days: LINK_DAYS }) : t("data.export.requestedNoEmail")}</p>
+        <p className="text-sm leading-relaxed text-ink-soft">
+          {me.email
+            ? t("data.export.how", { email: me.email, days: LINK_DAYS })
+            : t("data.export.requestedNoEmail")}
+        </p>
       )}
-      <Button size="sm" variant={request ? "secondary" : "primary"} className="mt-4" loading={start.isPending} onClick={() => start.mutate()}>
+      <Button
+        size="sm"
+        variant={request ? "secondary" : "primary"}
+        className="mt-4"
+        loading={start.isPending}
+        onClick={() => start.mutate()}
+      >
         {request ? t("data.export.again") : t("data.export.request")}
       </Button>
     </Group>

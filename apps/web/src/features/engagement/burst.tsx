@@ -29,7 +29,12 @@ function motionFactor(): number {
  * box around the control and call `fire()` when the tap counts. How much
  * flies follows the ドパガキ度; with motion off nothing does.
  */
-export function useBurst(glyphs: string[]): { /** `only` replaces the glyphs for this one burst (the emoji just picked). */ fire(only?: string[]): void; burst: ReactNode } {
+export function useBurst(glyphs: string[]): {
+  /** `only` replaces the glyphs for this one burst (the emoji just picked). */ fire(
+    only?: string[],
+  ): void;
+  burst: ReactNode;
+} {
   const [shot, setShot] = useState<Shot | null>(null);
   const count = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -67,8 +72,18 @@ export function useBurst(glyphs: string[]): { /** `only` replaces the glyphs for
           key={`${shot.id}:${particle.id}`}
           className="absolute -top-2 -left-2 block size-4 text-center text-xs leading-4"
           initial={{ x: 0, y: 0, opacity: 1, scale: 0.2, rotate: 0 }}
-          animate={{ x: particle.x, y: particle.y, opacity: 0, scale: particle.scale, rotate: particle.rotate }}
-          transition={{ duration: shot.seconds, ease: [0.22, 1, 0.36, 1], opacity: { duration: shot.seconds, ease: "easeIn" } }}
+          animate={{
+            x: particle.x,
+            y: particle.y,
+            opacity: 0,
+            scale: particle.scale,
+            rotate: particle.rotate,
+          }}
+          transition={{
+            duration: shot.seconds,
+            ease: [0.22, 1, 0.36, 1],
+            opacity: { duration: shot.seconds, ease: "easeIn" },
+          }}
         >
           {particle.glyph}
         </motion.span>

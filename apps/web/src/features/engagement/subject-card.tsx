@@ -21,7 +21,10 @@ const registry = new Map<common.SubjectType, ComponentType<SubjectCardProps>>();
  * Types without a card of their own get a generic row with the title, the
  * thumbnail and a link.
  */
-export function registerSubjectCard(type: common.SubjectType, component: ComponentType<SubjectCardProps>): void {
+export function registerSubjectCard(
+  type: common.SubjectType,
+  component: ComponentType<SubjectCardProps>,
+): void {
   registry.set(type, component);
 }
 
@@ -79,7 +82,9 @@ export function SubjectCard({ preview }: SubjectCardProps) {
         </span>
         <div className="min-w-0">
           <p className="font-bold">{t("subjects.unavailable")}</p>
-          <p className="text-sm text-ink-faint">{t(`subjects.${subjectTypeKey(preview.subject?.type)}`)}</p>
+          <p className="text-sm text-ink-faint">
+            {t(`subjects.${subjectTypeKey(preview.subject?.type)}`)}
+          </p>
         </div>
       </div>
     );
@@ -96,15 +101,25 @@ export function GenericSubjectCard({ preview }: SubjectCardProps) {
   const body = (
     <>
       {preview.imageUrl ? (
-        <img src={preview.imageUrl} alt="" loading="lazy" className="size-16 shrink-0 rounded-2xl border-2 border-ink object-cover" />
+        <img
+          src={preview.imageUrl}
+          alt=""
+          loading="lazy"
+          className="size-16 shrink-0 rounded-2xl border-2 border-ink object-cover"
+        />
       ) : (
-        <span aria-hidden className="grid size-16 shrink-0 place-items-center rounded-2xl border-2 border-ink bg-surface-2 text-3xl">
+        <span
+          aria-hidden
+          className="grid size-16 shrink-0 place-items-center rounded-2xl border-2 border-ink bg-surface-2 text-3xl"
+        >
           {TYPE_EMOJI[key]}
         </span>
       )}
       <span className="min-w-0 flex-1">
         <span className="block text-xs font-black text-brand">{t(`subjects.${key}`)}</span>
-        <span className="line-clamp-2 font-bold leading-snug">{preview.title || t("subjects.untitled")}</span>
+        <span className="line-clamp-2 font-bold leading-snug">
+          {preview.title || t("subjects.untitled")}
+        </span>
       </span>
     </>
   );

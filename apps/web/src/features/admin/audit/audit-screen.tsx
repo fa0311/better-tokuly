@@ -13,7 +13,13 @@ import { SUBJECT_TYPES, subjectTypeKey } from "../labels";
 import { parseChoice, parseText } from "../params";
 import { ConsolePage } from "../ui/console-page";
 import { type Column, DataTable } from "../ui/data-table";
-import { FilterField, FilterInput, FilterSelect, FilterTextInput, FilterToken } from "../ui/filters";
+import {
+  FilterField,
+  FilterInput,
+  FilterSelect,
+  FilterTextInput,
+  FilterToken,
+} from "../ui/filters";
 import { ErrorState, RowsSkeleton } from "../ui/states";
 import { ToneChip } from "../ui/tone";
 import { UserCell } from "../ui/user";
@@ -27,11 +33,31 @@ type TargetType = (typeof TARGET_TYPES)[number];
 
 /** Every action the admin domain records, grouped by what it acts on (`docs/events/admin.md`). */
 const ACTIONS: Record<string, string[]> = {
-  "case.": ["case.assigned", "case.unassigned", "case.note_added", "case.resolved", "case.reopened"],
+  "case.": [
+    "case.assigned",
+    "case.unassigned",
+    "case.note_added",
+    "case.resolved",
+    "case.reopened",
+  ],
   "content.": ["content.removed"],
-  "user.": ["user.warned", "user.suspended", "user.unsuspended", "user.suspension_expired", "user.verified_changed", "user.roles_changed", "user.sessions_revoked"],
+  "user.": [
+    "user.warned",
+    "user.suspended",
+    "user.unsuspended",
+    "user.suspension_expired",
+    "user.verified_changed",
+    "user.roles_changed",
+    "user.sessions_revoked",
+  ],
   "flag.": ["flag.created", "flag.updated", "flag.deleted"],
-  "announcement.": ["announcement.created", "announcement.updated", "announcement.published", "announcement.unpublished", "announcement.deleted"],
+  "announcement.": [
+    "announcement.created",
+    "announcement.updated",
+    "announcement.published",
+    "announcement.unpublished",
+    "announcement.deleted",
+  ],
 };
 
 /** The audit log's filters, kept in the address bar. Times are local `YYYY-MM-DDTHH:mm`. */
@@ -63,7 +89,8 @@ export function AuditScreen({ search }: { search: AuditSearch }) {
   const { t } = useTranslation("admin");
   const navigate = useNavigate();
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
-  const update = (changes: Partial<AuditSearch>) => navigate({ to: "/admin/audit", search: { ...search, ...changes }, replace: true });
+  const update = (changes: Partial<AuditSearch>) =>
+    navigate({ to: "/admin/audit", search: { ...search, ...changes }, replace: true });
 
   const since = fromLocalInput(search.since ?? "");
   const until = fromLocalInput(search.until ?? "");
@@ -99,16 +126,50 @@ export function AuditScreen({ search }: { search: AuditSearch }) {
       card: "bare",
       className: "w-10",
       cell: (row) => (
-        <button type="button" aria-expanded={expanded.has(row.id)} aria-label={t("audit.toggleDetails", { action: row.action })} onClick={() => toggle(row.id)} className="grid size-8 place-items-center rounded-full hover:bg-surface-2">
-          {expanded.has(row.id) ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+        <button
+          type="button"
+          aria-expanded={expanded.has(row.id)}
+          aria-label={t("audit.toggleDetails", { action: row.action })}
+          onClick={() => toggle(row.id)}
+          className="grid size-8 place-items-center rounded-full hover:bg-surface-2"
+        >
+          {expanded.has(row.id) ? (
+            <ChevronDown className="size-4" />
+          ) : (
+            <ChevronRight className="size-4" />
+          )}
         </button>
       ),
     },
-    { key: "time", header: t("audit.columns.time"), className: "whitespace-nowrap", cell: (row) => <span className="text-ink-soft">{formatDateTime(row.createdAt)}</span> },
-    { key: "actor", header: t("audit.columns.actor"), cell: (row) => <UserCell user={row.actor} fallback={t("common.system")} /> },
-    { key: "action", header: t("audit.columns.action"), card: "title", cell: (row) => <ActionName action={row.action} /> },
+    {
+      key: "time",
+      header: t("audit.columns.time"),
+      className: "whitespace-nowrap",
+      cell: (row) => <span className="text-ink-soft">{formatDateTime(row.createdAt)}</span>,
+    },
+    {
+      key: "actor",
+      header: t("audit.columns.actor"),
+      cell: (row) => <UserCell user={row.actor} fallback={t("common.system")} />,
+    },
+    {
+      key: "action",
+      header: t("audit.columns.action"),
+      card: "title",
+      cell: (row) => <ActionName action={row.action} />,
+    },
     { key: "target", header: t("audit.columns.target"), cell: (row) => <Target entry={row} /> },
-    { key: "reason", header: t("audit.columns.reason"), className: "w-1/4", cell: (row) => (row.reason ? <span className="line-clamp-2 whitespace-pre-wrap break-words">{row.reason}</span> : <span className="text-ink-faint">—</span>) },
+    {
+      key: "reason",
+      header: t("audit.columns.reason"),
+      className: "w-1/4",
+      cell: (row) =>
+        row.reason ? (
+          <span className="line-clamp-2 whitespace-pre-wrap break-words">{row.reason}</span>
+        ) : (
+          <span className="text-ink-faint">—</span>
+        ),
+    },
   ];
 
   return (
@@ -116,7 +177,12 @@ export function AuditScreen({ search }: { search: AuditSearch }) {
       title={t("audit.title")}
       actions={
         filtered && (
-          <Button size="sm" variant="ghost" icon={<FilterX className="size-4" />} onClick={() => navigate({ to: "/admin/audit", search: {}, replace: true })}>
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={<FilterX className="size-4" />}
+            onClick={() => navigate({ to: "/admin/audit", search: {}, replace: true })}
+          >
             {t("audit.clearFilters")}
           </Button>
         )
@@ -153,7 +219,11 @@ function ActionName({ action }: { action: string }) {
   return (
     <span className="flex flex-col">
       {known && <span className="font-bold">{t(`audit.actions.${action}`)}</span>}
-      <code className={known ? "font-mono text-xs font-normal text-ink-soft" : "font-mono font-bold"}>{action}</code>
+      <code
+        className={known ? "font-mono text-xs font-normal text-ink-soft" : "font-mono font-bold"}
+      >
+        {action}
+      </code>
     </span>
   );
 }
@@ -169,7 +239,12 @@ function Target({ entry }: { entry: admin.AuditEntry }) {
   let reference: ReactNode = null;
   if (type === "case" && entry.targetId) {
     reference = (
-      <Link to="/admin/moderation/$caseId" params={{ caseId: entry.targetId }} title={entry.targetId} className={linkClass}>
+      <Link
+        to="/admin/moderation/$caseId"
+        params={{ caseId: entry.targetId }}
+        title={entry.targetId}
+        className={linkClass}
+      >
         {shortId(entry.targetId)}
       </Link>
     );
@@ -181,7 +256,12 @@ function Target({ entry }: { entry: admin.AuditEntry }) {
     );
   } else if (type === "announcement" && entry.targetId) {
     reference = (
-      <Link to="/admin/announcements/$announcementId" params={{ announcementId: entry.targetId }} title={entry.targetId} className={linkClass}>
+      <Link
+        to="/admin/announcements/$announcementId"
+        params={{ announcementId: entry.targetId }}
+        title={entry.targetId}
+        className={linkClass}
+      >
         {shortId(entry.targetId)}
       </Link>
     );
@@ -191,7 +271,9 @@ function Target({ entry }: { entry: admin.AuditEntry }) {
     const subjectType = SUBJECT_TYPES.find((candidate) => candidate === Number(typeNumber));
     reference = (
       <span className="text-xs">
-        {subjectType !== undefined && <span className="font-bold">{t(subjectTypeKey(subjectType))} </span>}
+        {subjectType !== undefined && (
+          <span className="font-bold">{t(subjectTypeKey(subjectType))} </span>
+        )}
         <code title={id} className="font-mono text-ink-soft">
           {shortId(id ?? entry.targetId)}
         </code>
@@ -207,7 +289,13 @@ function Target({ entry }: { entry: admin.AuditEntry }) {
         {reference}
       </span>
       {/* For an account, the person is the reference. */}
-      {entry.targetUser ? <UserCell user={entry.targetUser} /> : type === "user" && <code className="font-mono text-xs break-all text-ink-soft">{entry.targetId}</code>}
+      {entry.targetUser ? (
+        <UserCell user={entry.targetUser} />
+      ) : (
+        type === "user" && (
+          <code className="font-mono text-xs break-all text-ink-soft">{entry.targetId}</code>
+        )
+      )}
     </span>
   );
 }
@@ -229,50 +317,103 @@ function EntryDetails({ entry }: { entry: admin.AuditEntry }) {
           </>
         )}
       </dl>
-      {(entry.beforeJson || entry.afterJson) && <JsonDiff beforeJson={entry.beforeJson} afterJson={entry.afterJson} />}
+      {(entry.beforeJson || entry.afterJson) && (
+        <JsonDiff beforeJson={entry.beforeJson} afterJson={entry.afterJson} />
+      )}
     </div>
   );
 }
 
-function AuditFilters({ search, onChange }: { search: AuditSearch; onChange(changes: Partial<AuditSearch>): void }) {
+function AuditFilters({
+  search,
+  onChange,
+}: {
+  search: AuditSearch;
+  onChange(changes: Partial<AuditSearch>): void;
+}) {
   const { t } = useTranslation("admin");
   const actionOptions = [
     { value: "", label: t("common.all") },
-    ...Object.entries(ACTIONS).flatMap(([prefix, actions]) => [{ value: prefix, label: t("audit.actionGroup", { group: t(`audit.groups.${prefix.slice(0, -1)}`) }) }, ...actions.map((action) => ({ value: action, label: `　${t(`audit.actions.${action}`)}` }))]),
+    ...Object.entries(ACTIONS).flatMap(([prefix, actions]) => [
+      {
+        value: prefix,
+        label: t("audit.actionGroup", { group: t(`audit.groups.${prefix.slice(0, -1)}`) }),
+      },
+      ...actions.map((action) => ({ value: action, label: `　${t(`audit.actions.${action}`)}` })),
+    ]),
   ];
   // An action from a link that this list does not know is still shown as selected.
-  if (search.action && !actionOptions.some((option) => option.value === search.action)) actionOptions.push({ value: search.action, label: search.action });
+  if (search.action && !actionOptions.some((option) => option.value === search.action))
+    actionOptions.push({ value: search.action, label: search.action });
 
   return (
     <div className="mb-3 grid grid-cols-2 gap-2 md:grid-cols-4 2xl:grid-cols-7">
-      <FilterSelect label={t("audit.columns.action")} value={search.action ?? ""} onChange={(value) => onChange({ action: value || undefined })} options={actionOptions} />
+      <FilterSelect
+        label={t("audit.columns.action")}
+        value={search.action ?? ""}
+        onChange={(value) => onChange({ action: value || undefined })}
+        options={actionOptions}
+      />
       {search.actor ? (
-        <FilterToken label={t("audit.columns.actor")} clearLabel={t("common.clearFilter")} onClear={() => onChange({ actor: undefined })}>
+        <FilterToken
+          label={t("audit.columns.actor")}
+          clearLabel={t("common.clearFilter")}
+          onClear={() => onChange({ actor: undefined })}
+        >
           <UserName userId={search.actor} />
         </FilterToken>
       ) : (
         <FilterField label={t("audit.columns.actor")}>
-          <UserPicker label={t("audit.columns.actor")} staffOnly onPick={(account) => onChange({ actor: account.user?.id })} />
+          <UserPicker
+            label={t("audit.columns.actor")}
+            staffOnly
+            onPick={(account) => onChange({ actor: account.user?.id })}
+          />
         </FilterField>
       )}
       {search.targetUser ? (
-        <FilterToken label={t("audit.columns.targetUser")} clearLabel={t("common.clearFilter")} onClear={() => onChange({ targetUser: undefined })}>
+        <FilterToken
+          label={t("audit.columns.targetUser")}
+          clearLabel={t("common.clearFilter")}
+          onClear={() => onChange({ targetUser: undefined })}
+        >
           <UserName userId={search.targetUser} />
         </FilterToken>
       ) : (
         <FilterField label={t("audit.columns.targetUser")}>
-          <UserPicker label={t("audit.columns.targetUser")} onPick={(account) => onChange({ targetUser: account.user?.id })} />
+          <UserPicker
+            label={t("audit.columns.targetUser")}
+            onPick={(account) => onChange({ targetUser: account.user?.id })}
+          />
         </FilterField>
       )}
       <FilterSelect<TargetType | "">
         label={t("audit.filters.targetType")}
         value={search.targetType ?? ""}
         onChange={(value) => onChange({ targetType: value || undefined })}
-        options={[{ value: "", label: t("common.all") }, ...TARGET_TYPES.map((type) => ({ value: type, label: t(`audit.targetTypes.${type}`) }))]}
+        options={[
+          { value: "", label: t("common.all") },
+          ...TARGET_TYPES.map((type) => ({ value: type, label: t(`audit.targetTypes.${type}`) })),
+        ]}
       />
-      <FilterTextInput label={t("audit.filters.targetId")} value={search.targetId ?? ""} onCommit={(targetId) => onChange({ targetId: targetId || undefined })} placeholder={t("audit.filters.targetIdPlaceholder")} />
-      <FilterInput type="datetime-local" label={t("audit.filters.since")} value={search.since ?? ""} onChange={(value) => onChange({ since: value || undefined })} />
-      <FilterInput type="datetime-local" label={t("audit.filters.until")} value={search.until ?? ""} onChange={(value) => onChange({ until: value || undefined })} />
+      <FilterTextInput
+        label={t("audit.filters.targetId")}
+        value={search.targetId ?? ""}
+        onCommit={(targetId) => onChange({ targetId: targetId || undefined })}
+        placeholder={t("audit.filters.targetIdPlaceholder")}
+      />
+      <FilterInput
+        type="datetime-local"
+        label={t("audit.filters.since")}
+        value={search.since ?? ""}
+        onChange={(value) => onChange({ since: value || undefined })}
+      />
+      <FilterInput
+        type="datetime-local"
+        label={t("audit.filters.until")}
+        value={search.until ?? ""}
+        onChange={(value) => onChange({ until: value || undefined })}
+      />
     </div>
   );
 }

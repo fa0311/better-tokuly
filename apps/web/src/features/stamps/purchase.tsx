@@ -17,7 +17,15 @@ import { PackCover, PackMaker } from "./parts";
  * balance and what will be left, and sends people who are short to the
  * wallet instead.
  */
-export function PurchaseDialog({ pack, open, onOpenChange }: { pack: stamp.PackSummary; open: boolean; onOpenChange(open: boolean): void }) {
+export function PurchaseDialog({
+  pack,
+  open,
+  onOpenChange,
+}: {
+  pack: stamp.PackSummary;
+  open: boolean;
+  onOpenChange(open: boolean): void;
+}) {
   const { t } = useTranslation("stamps");
   const queryClient = useQueryClient();
   // Kept current by the wallet: coins bought in another tab show up here on their own.
@@ -38,7 +46,8 @@ export function PurchaseDialog({ pack, open, onOpenChange }: { pack: stamp.PackS
       toast.error(errorMessage(error, { namespace: "stamps" }));
       const reason = errorReason(error);
       // The price or the balance on screen is out of date: show the real ones.
-      if (reason === "PRICE_CHANGED") void queryClient.invalidateQueries({ queryKey: stampKeys.all });
+      if (reason === "PRICE_CHANGED")
+        void queryClient.invalidateQueries({ queryKey: stampKeys.all });
       if (reason === "INSUFFICIENT_COINS") void refreshBalance();
     },
   });
@@ -55,11 +64,18 @@ export function PurchaseDialog({ pack, open, onOpenChange }: { pack: stamp.PackS
             {t("purchase.cancel")}
           </Button>
           {short > 0n ? (
-            <Link to="/wallet/buy" className="pressable sticker inline-flex h-11 items-center justify-center rounded-full bg-lime px-5 text-[15px] font-bold text-[#17122b]">
+            <Link
+              to="/wallet/buy"
+              className="pressable sticker inline-flex h-11 items-center justify-center rounded-full bg-lime px-5 text-[15px] font-bold text-[#17122b]"
+            >
               {t("purchase.topUp")}
             </Link>
           ) : (
-            <Button onClick={() => purchase.mutate()} loading={purchase.isPending} disabled={coins === undefined}>
+            <Button
+              onClick={() => purchase.mutate()}
+              loading={purchase.isPending}
+              disabled={coins === undefined}
+            >
               {t("purchase.confirm")}
             </Button>
           )}
@@ -83,7 +99,9 @@ export function PurchaseDialog({ pack, open, onOpenChange }: { pack: stamp.PackS
         </div>
         <div className="flex items-center justify-between">
           <dt className="text-ink-soft">{t("purchase.balance")}</dt>
-          <dd data-testid="purchase-balance">{coins === undefined ? <Skeleton className="h-6 w-16" /> : <Coins amount={coins} />}</dd>
+          <dd data-testid="purchase-balance">
+            {coins === undefined ? <Skeleton className="h-6 w-16" /> : <Coins amount={coins} />}
+          </dd>
         </div>
         {coins !== undefined && short === 0n && (
           <div className="flex items-center justify-between border-t-2 border-line pt-2.5">
@@ -96,7 +114,10 @@ export function PurchaseDialog({ pack, open, onOpenChange }: { pack: stamp.PackS
       </dl>
 
       {short > 0n && (
-        <p role="alert" className="mt-4 rounded-2xl border-2 border-danger px-4 py-3 text-sm font-bold text-danger">
+        <p
+          role="alert"
+          className="mt-4 rounded-2xl border-2 border-danger px-4 py-3 text-sm font-bold text-danger"
+        >
           {t("purchase.short", { count: Number(short) })}
         </p>
       )}

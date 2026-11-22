@@ -5,8 +5,12 @@
  *   <EmojiText text={message.text} />                 // any text with its :shortcode:s drawn as emoji
  *   <Emoji name="neko" />                              // one custom emoji by name
  *   <EmojiPicker trigger={<Button …/>} onPick={(emoji) => insert(emoji)} />   // Unicode + custom, deck first
+ *   <EmojiPicker unicodeOnly … />                      // for what takes no `:shortcode:` yet (reactions)
+ *   <EmojiPickerPanel onPick={…} />                    // the picker's inside, for a dialog of your own
  *
- *   // `:` autocomplete in a composer:
+ *   // `:` autocomplete in a composer, ready made (a row of suggestions while a `:name` is typed):
+ *   <EmojiSuggestBar text={text} caret={caret} onComplete={({ text, caret }) => …} />
+ *   // or its parts:
  *   const at = shortcodePrefixAt(text, caret);          // { prefix, start } while a `:name` is being typed
  *   const suggestions = useEmojiSuggest(at?.prefix ?? "");
  *   // on pick: text.slice(0, at.start) + suggestion.emoji + " " + text.slice(caret)
@@ -22,12 +26,19 @@
  * `useCatalog()` inside. Nothing needs to be loaded or mounted first.
  */
 export { emojiPageParam, shortcode, shortcodeName } from "./api";
-export { type Catalog, type CatalogCategory, type CatalogEmoji, lookupEmoji, useCatalog } from "./catalog";
+export {
+  type Catalog,
+  type CatalogCategory,
+  type CatalogEmoji,
+  lookupEmoji,
+  useCatalog,
+} from "./catalog";
 export { Emoji, EmojiImage, type EmojiImageProps, type EmojiProps } from "./emoji";
 export { EmojiText, type EmojiTextProps } from "./emoji-text";
-export { EmojiPicker, type EmojiPickerProps } from "./picker";
+export { EmojiPicker, EmojiPickerPanel, type EmojiPickerProps } from "./picker";
 export type { EmojiChoice } from "./search";
 export { useEmojiSuggest } from "./suggest";
+export { completeShortcode, EmojiSuggestBar, type EmojiSuggestBarProps } from "./suggest-bar";
 export { shortcodePrefixAt, splitEmojiText, type TextSegment } from "./text";
 export { recordEmojiUse } from "./use";
 

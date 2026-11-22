@@ -77,7 +77,8 @@ function store(key: string, value: string): void {
 function bufferedEnd(video: HTMLVideoElement): number {
   const { buffered, currentTime } = video;
   for (let index = 0; index < buffered.length; index++) {
-    if (buffered.start(index) <= currentTime + 0.25 && buffered.end(index) >= currentTime) return buffered.end(index);
+    if (buffered.start(index) <= currentTime + 0.25 && buffered.end(index) >= currentTime)
+      return buffered.end(index);
   }
   return currentTime;
 }
@@ -88,7 +89,11 @@ function bufferedEnd(video: HTMLVideoElement): number {
  * progressive MP4 as the last resort. Mirrors the element's state for the
  * controls and remembers volume and mute between visits.
  */
-export function useMediaEngine(video: RefObject<HTMLVideoElement | null>, source: MediaSource, options: { startAt: number; autoPlay: boolean }): [MediaState, MediaControls] {
+export function useMediaEngine(
+  video: RefObject<HTMLVideoElement | null>,
+  source: MediaSource,
+  options: { startAt: number; autoPlay: boolean },
+): [MediaState, MediaControls] {
   const hls = useRef<Hls | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<MediaState>(() => ({
@@ -113,12 +118,13 @@ export function useMediaEngine(video: RefObject<HTMLVideoElement | null>, source
   const startVolume = useRef({ volume: state.volume, muted: state.muted });
 
   const { hlsUrl, mp4Url, durationSeconds } = source;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` restarts loading after a failure.
+  // `attempt` restarts loading after a failure.
   useEffect(() => {
     const element = video.current;
     if (!element) return;
     let disposed = false;
-    const patch = (next: Partial<MediaState>) => !disposed && setState((current) => ({ ...current, ...next }));
+    const patch = (next: Partial<MediaState>) =>
+      !disposed && setState((current) => ({ ...current, ...next }));
     const { startAt, autoPlay } = initial.current;
     element.volume = startVolume.current.volume;
     element.muted = startVolume.current.muted;
@@ -127,8 +133,24 @@ export function useMediaEngine(video: RefObject<HTMLVideoElement | null>, source
       if (autoPlay) void element.play().catch(() => {});
     };
     const listeners: [keyof HTMLMediaElementEventMap, () => void][] = [
-      ["loadedmetadata", () => patch({ ready: true, duration: Number.isFinite(element.duration) && element.duration > 0 ? element.duration : durationSeconds })],
-      ["durationchange", () => Number.isFinite(element.duration) && element.duration > 0 && patch({ duration: element.duration })],
+      [
+        "loadedmetadata",
+        () =>
+          patch({
+            ready: true,
+            duration:
+              Number.isFinite(element.duration) && element.duration > 0
+                ? element.duration
+                : durationSeconds,
+          }),
+      ],
+      [
+        "durationchange",
+        () =>
+          Number.isFinite(element.duration) &&
+          element.duration > 0 &&
+          patch({ duration: element.duration }),
+      ],
       ["play", () => patch({ paused: false, started: true, ended: false })],
       ["pause", () => patch({ paused: true })],
       ["playing", () => patch({ waiting: false, paused: false })],
@@ -156,11 +178,17 @@ export function useMediaEngine(video: RefObject<HTMLVideoElement | null>, source
     if (!hlsUrl) {
       element.addEventListener("error", onNativeError);
       playMp4();
-    } else if (element.canPlayType("application/vnd.apple.mpegurl") && !("MediaSource" in window || "ManagedMediaSource" in window)) {
+    } else if (
+      element.canPlayType("application/vnd.apple.mpegurl") &&
+      !("MediaSource" in window || "ManagedMediaSource" in window)
+    ) {
       // Browsers without Media Source Extensions (iPhones) play HLS themselves.
       element.addEventListener("error", onNativeError);
       element.src = hlsUrl;
-      if (startAt > 0) element.addEventListener("loadedmetadata", () => (element.currentTime = startAt), { once: true });
+      if (startAt > 0)
+        element.addEventListener("loadedmetadata", () => (element.currentTime = startAt), {
+          once: true,
+        });
       begin();
     } else {
       void import("hls.js").then(({ default: HlsPlayer }) => {
@@ -170,23 +198,36 @@ export function useMediaEngine(video: RefObject<HTMLVideoElement | null>, source
           playMp4();
           return;
         }
-        const player = new HlsPlayer({ startPosition: startAt > 0 ? startAt : -1, capLevelToPlayerSize: true, maxBufferLength: 30 });
+        const player = new HlsPlayer({
+          startPosition: startAt > 0 ? startAt : -1,
+          capLevelToPlayerSize: true,
+          maxBufferLength: 30,
+        });
         hls.current = player;
         let mediaRecoveries = 0;
         // Back online after a dropped connection: pick the stream up again (unless the player is gone by then).
         resumeLoading = () => hls.current === player && player.startLoad();
         player.on(HlsPlayer.Events.MANIFEST_PARSED, () => {
-          patch({ levels: player.levels.map((level, index) => ({ index, height: level.height })).filter((level) => level.height > 0) });
+          patch({
+            levels: player.levels
+              .map((level, index) => ({ index, height: level.height }))
+              .filter((level) => level.height > 0),
+          });
           begin();
         });
-        player.on(HlsPlayer.Events.LEVEL_SWITCHED, (_event, data) => patch({ playingLevel: data.level }));
+        player.on(HlsPlayer.Events.LEVEL_SWITCHED, (_event, data) =>
+          patch({ playingLevel: data.level }),
+        );
         player.on(HlsPlayer.Events.ERROR, (_event, data) => {
           if (!data.fatal) return;
           // One more try for what usually passes: a dropped connection, a decoder hiccup.
           if (data.type === HlsPlayer.ErrorTypes.MEDIA_ERROR && mediaRecoveries < 2) {
             mediaRecoveries += 1;
             player.recoverMediaError();
-          } else if (data.type === HlsPlayer.ErrorTypes.NETWORK_ERROR && navigator.onLine === false) {
+          } else if (
+            data.type === HlsPlayer.ErrorTypes.NETWORK_ERROR &&
+            navigator.onLine === false
+          ) {
             window.removeEventListener("online", resumeLoading);
             window.addEventListener("online", resumeLoading, { once: true });
           } else {
@@ -227,7 +268,8 @@ export function useMediaEngine(video: RefObject<HTMLVideoElement | null>, source
     seek: (seconds) => {
       const media = element();
       if (!media) return;
-      const length = Number.isFinite(media.duration) && media.duration > 0 ? media.duration : state.duration;
+      const length =
+        Number.isFinite(media.duration) && media.duration > 0 ? media.duration : state.duration;
       media.currentTime = Math.min(Math.max(0, seconds), Math.max(0, length - 0.05));
     },
     seekBy: (seconds) => {

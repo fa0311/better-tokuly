@@ -27,16 +27,26 @@ export type PlacesTab = "mine" | "saved" | "search";
 export function PlacesScreen({ tab, query }: { tab: PlacesTab; query: string }) {
   const { t } = useTranslation("places");
   const navigate = useNavigate();
-  const [checkIn, setCheckIn] = useState<{ open: boolean; target?: CheckInTarget }>({ open: false });
-  const go = (next: PlacesTab) => void navigate({ to: "/places", search: next === "mine" ? {} : { tab: next }, replace: true });
+  const [checkIn, setCheckIn] = useState<{ open: boolean; target?: CheckInTarget }>({
+    open: false,
+  });
+  const go = (next: PlacesTab) =>
+    void navigate({ to: "/places", search: next === "mine" ? {} : { tab: next }, replace: true });
 
   return (
     <Page title={t("title")} back="/me">
       <div className="flex flex-wrap gap-2">
-        <Button variant="lime" icon={<MapPinCheck className="size-4" />} onClick={() => setCheckIn({ open: true })}>
+        <Button
+          variant="lime"
+          icon={<MapPinCheck className="size-4" />}
+          onClick={() => setCheckIn({ open: true })}
+        >
           {t("actions.checkInHere")}
         </Button>
-        <Link to="/places/new" className="pressable sticker inline-flex h-11 items-center gap-2 rounded-full bg-brand px-5 text-[15px] font-bold text-on-brand">
+        <Link
+          to="/places/new"
+          className="pressable sticker inline-flex h-11 items-center gap-2 rounded-full bg-brand px-5 text-[15px] font-bold text-on-brand"
+        >
           <Plus className="size-4" />
           {t("actions.add")}
         </Link>
@@ -56,17 +66,29 @@ export function PlacesScreen({ tab, query }: { tab: PlacesTab; query: string }) 
       <div className="mt-4">
         {tab === "mine" && <MyPlaces />}
         {tab === "saved" && <SavedPlaces />}
-        {tab === "search" && <PlaceSearch initialQuery={query} onCheckIn={(target) => setCheckIn({ open: true, target })} />}
+        {tab === "search" && (
+          <PlaceSearch
+            initialQuery={query}
+            onCheckIn={(target) => setCheckIn({ open: true, target })}
+          />
+        )}
       </div>
 
-      <CheckInDialog open={checkIn.open} target={checkIn.target} onOpenChange={(open) => setCheckIn((current) => ({ ...current, open }))} />
+      <CheckInDialog
+        open={checkIn.open}
+        target={checkIn.target}
+        onOpenChange={(open) => setCheckIn((current) => ({ ...current, open }))}
+      />
     </Page>
   );
 }
 
 function MyPlaces() {
   const { t } = useTranslation("places");
-  const { data, isPending } = useQuery({ queryKey: placeKeys.mine, queryFn: () => placeClient().listMyPlaces({}) });
+  const { data, isPending } = useQuery({
+    queryKey: placeKeys.mine,
+    queryFn: () => placeClient().listMyPlaces({}),
+  });
   if (isPending) {
     return (
       <div className="flex flex-col gap-3">
@@ -77,7 +99,9 @@ function MyPlaces() {
     );
   }
   const places = data?.places ?? [];
-  const custom = places.filter((place) => place.label === geo.PlaceLabel.CUSTOM || place.label === geo.PlaceLabel.UNSPECIFIED);
+  const custom = places.filter(
+    (place) => place.label === geo.PlaceLabel.CUSTOM || place.label === geo.PlaceLabel.UNSPECIFIED,
+  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -87,29 +111,34 @@ function MyPlaces() {
         <h2 className="text-lg font-black">{t("mine.usual")}</h2>
         <p className="text-sm text-ink-soft">{t("mine.usualBody")}</p>
         <ul className="mt-3 flex flex-col gap-3">
-          {([geo.PlaceLabel.HOME, geo.PlaceLabel.SCHOOL, geo.PlaceLabel.WORK] as const).map((label) => {
-            const place = places.find((candidate) => candidate.label === label);
-            const meta = LABELS[label];
-            return (
-              <li key={label}>
-                {place ? (
-                  <PlaceRow place={place} />
-                ) : (
-                  <Link
-                    to="/places/new"
-                    search={{ label: meta.key }}
-                    className="pressable flex items-center gap-3 rounded-card border-[2.5px] border-dashed border-line bg-surface p-3 text-ink-soft hover:border-ink-faint"
-                  >
-                    <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-surface-2 text-2xl grayscale" aria-hidden>
-                      {meta.emoji}
-                    </span>
-                    <span className="min-w-0 flex-1 font-bold">{t(`mine.add.${meta.key}`)}</span>
-                    <Plus className="size-5 shrink-0" />
-                  </Link>
-                )}
-              </li>
-            );
-          })}
+          {([geo.PlaceLabel.HOME, geo.PlaceLabel.SCHOOL, geo.PlaceLabel.WORK] as const).map(
+            (label) => {
+              const place = places.find((candidate) => candidate.label === label);
+              const meta = LABELS[label];
+              return (
+                <li key={label}>
+                  {place ? (
+                    <PlaceRow place={place} />
+                  ) : (
+                    <Link
+                      to="/places/new"
+                      search={{ label: meta.key }}
+                      className="pressable flex items-center gap-3 rounded-card border-[2.5px] border-dashed border-line bg-surface p-3 text-ink-soft hover:border-ink-faint"
+                    >
+                      <span
+                        className="grid size-12 shrink-0 place-items-center rounded-2xl bg-surface-2 text-2xl grayscale"
+                        aria-hidden
+                      >
+                        {meta.emoji}
+                      </span>
+                      <span className="min-w-0 flex-1 font-bold">{t(`mine.add.${meta.key}`)}</span>
+                      <Plus className="size-5 shrink-0" />
+                    </Link>
+                  )}
+                </li>
+              );
+            },
+          )}
         </ul>
       </section>
 
@@ -137,7 +166,10 @@ function Suggestions() {
   const queryClient = useQueryClient();
   const userId = useMe()?.user?.id ?? "";
   const [dismissed, setDismissed] = useState(() => readDismissed(userId));
-  const { data } = useQuery({ queryKey: placeKeys.suggestions, queryFn: () => placeClient().listPlaceSuggestions({}) });
+  const { data } = useQuery({
+    queryKey: placeKeys.suggestions,
+    queryFn: () => placeClient().listPlaceSuggestions({}),
+  });
 
   const accept = useMutation({
     mutationFn: (suggestion: geo.PlaceSuggestion) =>
@@ -154,9 +186,12 @@ function Suggestions() {
     onError: (error) => toast.error(errorMessage(error, { namespace: "places" })),
   });
   // The server keeps suggesting a spot until it is a place, so "not now" is remembered on this device.
-  const dismiss = (suggestion: geo.PlaceSuggestion) => setDismissed(dismissSuggestion(userId, suggestion, data?.suggestions ?? []));
+  const dismiss = (suggestion: geo.PlaceSuggestion) =>
+    setDismissed(dismissSuggestion(userId, suggestion, data?.suggestions ?? []));
 
-  const shown = (data?.suggestions ?? []).filter((suggestion) => suggestion.center && !dismissed.includes(suggestionMark(userId, suggestion)));
+  const shown = (data?.suggestions ?? []).filter(
+    (suggestion) => suggestion.center && !dismissed.includes(suggestionMark(userId, suggestion)),
+  );
   if (shown.length === 0) return null;
   return (
     <section aria-label={t("suggestions.title")}>
@@ -166,21 +201,39 @@ function Suggestions() {
           const meta = labelMeta(suggestion.suggestedLabel);
           const name = suggestion.suggestedName || t(`labels.${meta.key}`);
           return (
-            <li key={suggestionMark(userId, suggestion)} className="sticker animate-pop-in rounded-card bg-sun p-4 text-[#17122b]">
+            <li
+              key={suggestionMark(userId, suggestion)}
+              className="sticker animate-pop-in rounded-card bg-sun p-4 text-[#17122b]"
+            >
               <div className="flex items-center gap-3">
                 <span className="text-3xl" aria-hidden>
                   {meta.emoji}
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="font-black leading-snug">{t("suggestions.question", { name })}</p>
-                  <p className="text-sm font-bold opacity-75">{t("suggestions.stats", { count: suggestion.visitCount, duration: compactDuration(Number(suggestion.totalSeconds) * 1000) })}</p>
+                  <p className="text-sm font-bold opacity-75">
+                    {t("suggestions.stats", {
+                      count: suggestion.visitCount,
+                      duration: compactDuration(Number(suggestion.totalSeconds) * 1000),
+                    })}
+                  </p>
                 </div>
               </div>
               <div className="mt-3 flex justify-end gap-2">
-                <Button variant="ghost" size="sm" className="text-[#17122b]" onClick={() => dismiss(suggestion)}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-[#17122b]"
+                  onClick={() => dismiss(suggestion)}
+                >
                   {t("suggestions.dismiss")}
                 </Button>
-                <Button variant="secondary" size="sm" loading={accept.isPending && accept.variables === suggestion} onClick={() => accept.mutate(suggestion)}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  loading={accept.isPending && accept.variables === suggestion}
+                  onClick={() => accept.mutate(suggestion)}
+                >
                   {t("suggestions.accept")}
                 </Button>
               </div>
@@ -196,13 +249,15 @@ function SavedPlaces() {
   const { t } = useTranslation("places");
   const query = useInfiniteQuery({
     queryKey: placeKeys.saved,
-    queryFn: ({ pageParam }) => placeClient().listSavedPlaces({ page: { limit: 30, cursor: pageParam } }),
+    queryFn: ({ pageParam }) =>
+      placeClient().listSavedPlaces({ page: { limit: 30, cursor: pageParam } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
   if (query.isPending) return <Skeleton className="h-20" />;
   const places = query.data?.pages.flatMap((page) => page.places) ?? [];
-  if (places.length === 0) return <EmptyState emoji="🔖" title={t("saved.emptyTitle")} body={t("saved.emptyBody")} />;
+  if (places.length === 0)
+    return <EmptyState emoji="🔖" title={t("saved.emptyTitle")} body={t("saved.emptyBody")} />;
   return (
     <>
       <ul className="flex flex-col gap-3">
@@ -226,10 +281,18 @@ function SavedPlaces() {
  */
 const LAST_SEARCH_KEY = [...placeKeys.all, "last-search"] as const;
 
-function PlaceSearch({ initialQuery, onCheckIn }: { /** A search to start with (`/places?tab=search&q=…`). */ initialQuery: string; onCheckIn(target: CheckInTarget): void }) {
+function PlaceSearch({
+  initialQuery,
+  onCheckIn,
+}: {
+  /** A search to start with (`/places?tab=search&q=…`). */ initialQuery: string;
+  onCheckIn(target: CheckInTarget): void;
+}) {
   const { t } = useTranslation("places");
   const queryClient = useQueryClient();
-  const [text, setText] = useState(() => initialQuery || (queryClient.getQueryData<string>(LAST_SEARCH_KEY) ?? ""));
+  const [text, setText] = useState(
+    () => initialQuery || (queryClient.getQueryData<string>(LAST_SEARCH_KEY) ?? ""),
+  );
   const [query, setQuery] = useState(text.trim());
   // The search follows the typing with a short delay.
   useEffect(() => {
@@ -241,7 +304,12 @@ function PlaceSearch({ initialQuery, onCheckIn }: { /** A search to start with (
   }, [text, query, queryClient]);
 
   // Results near the person come first, when the device says where that is.
-  const here = useQuery({ queryKey: ["geo", "device-position"], queryFn: currentPosition, staleTime: 30_000, retry: false });
+  const here = useQuery({
+    queryKey: ["geo", "device-position"],
+    queryFn: currentPosition,
+    staleTime: 30_000,
+    retry: false,
+  });
   const near: LatLng | null = here.data ?? null;
   const settled = !here.isPending;
   const search = useQuery({
@@ -296,17 +364,29 @@ function PlaceSearch({ initialQuery, onCheckIn }: { /** A search to start with (
   );
 }
 
-function SearchResult({ result, onCheckIn }: { result: geo.PlaceSearchResult; onCheckIn(target: CheckInTarget): void }) {
+function SearchResult({
+  result,
+  onCheckIn,
+}: {
+  result: geo.PlaceSearchResult;
+  onCheckIn(target: CheckInTarget): void;
+}) {
   const { t } = useTranslation("places");
   const distance = result.distanceMeters !== undefined ? formatDistance(result.distanceMeters) : "";
   if (result.place) {
     return (
       <PlaceRow
         place={result.place}
-        subtitle={[result.address || result.place.address, distance].filter(Boolean).join(" · ") || undefined}
+        subtitle={
+          [result.address || result.place.address, distance].filter(Boolean).join(" · ") ||
+          undefined
+        }
         trailing={
           result.friendsVisited.length > 0 ? (
-            <span className="flex shrink-0 -space-x-2" title={t("search.friendsVisited", { count: result.friendsVisited.length })}>
+            <span
+              className="flex shrink-0 -space-x-2"
+              title={t("search.friendsVisited", { count: result.friendsVisited.length })}
+            >
               {result.friendsVisited.slice(0, 3).map((friend) => (
                 <Avatar key={friend.id} user={friend} size="xs" />
               ))}
@@ -321,19 +401,28 @@ function SearchResult({ result, onCheckIn }: { result: geo.PlaceSearchResult; on
   return (
     <div className="rounded-card border-2 border-line bg-surface p-3">
       <div className="flex items-center gap-3">
-        <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-surface-2 text-2xl" aria-hidden>
+        <span
+          className="grid size-12 shrink-0 place-items-center rounded-2xl bg-surface-2 text-2xl"
+          aria-hidden
+        >
           🗾
         </span>
         <div className="min-w-0 flex-1">
           <p className="truncate font-black" data-testid="hit-name">
             {result.name}
           </p>
-          <p className="truncate text-sm text-ink-soft">{[result.address, distance].filter(Boolean).join(" · ")}</p>
+          <p className="truncate text-sm text-ink-soft">
+            {[result.address, distance].filter(Boolean).join(" · ")}
+          </p>
         </div>
       </div>
       {position && (
         <div className="mt-2 flex justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={() => onCheckIn({ position, name: result.name })}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onCheckIn({ position, name: result.name })}
+          >
             {t("actions.checkIn")}
           </Button>
           <Link

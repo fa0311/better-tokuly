@@ -19,7 +19,10 @@ export interface BalanceState {
  */
 export function useBalance(): BalanceState {
   const queryClient = useQueryClient();
-  const query = useQuery({ queryKey: walletKeys.balance, queryFn: () => fetchBalance(queryClient) });
+  const query = useQuery({
+    queryKey: walletKeys.balance,
+    queryFn: () => fetchBalance(queryClient),
+  });
   return {
     coins: query.data?.coins,
     earnings: query.data?.earnings,

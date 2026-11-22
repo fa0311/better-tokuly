@@ -6,7 +6,10 @@ import { PartyGuestScreen } from "#/features/video/party/guest-screen";
  * watch party. It needs no account — guests join with a name — so it lives
  * outside the signed-in layout and renders in the browser only.
  */
-export const Route = createFileRoute("/join/party/$code")({ ssr: false, component: GuestPartyPage });
+export const Route = createFileRoute("/join/party/$code")({
+  ssr: false,
+  component: GuestPartyPage,
+});
 
 function GuestPartyPage() {
   const { code } = Route.useParams();

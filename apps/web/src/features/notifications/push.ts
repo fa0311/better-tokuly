@@ -45,12 +45,19 @@ export class PushError extends Error {
 
 /** Whether this browser can receive Web Push at all. */
 export function pushSupported(): boolean {
-  return typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  return (
+    typeof window !== "undefined" &&
+    "serviceWorker" in navigator &&
+    "PushManager" in window &&
+    "Notification" in window
+  );
 }
 
 /** iPhones and iPads only offer push to apps added to the home screen. */
 export function needsHomeScreenInstall(): boolean {
-  const apple = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.userAgent.includes("Macintosh") && navigator.maxTouchPoints > 1);
+  const apple =
+    /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+    (navigator.userAgent.includes("Macintosh") && navigator.maxTouchPoints > 1);
   return apple && !window.matchMedia("(display-mode: standalone)").matches;
 }
 
@@ -58,7 +65,8 @@ let worker: Promise<ServiceWorkerRegistration | null> | null = null;
 
 /** The app's service worker, registered on first use and ready (active). `null` when unavailable. */
 export function serviceWorker(): Promise<ServiceWorkerRegistration | null> {
-  if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return Promise.resolve(null);
+  if (typeof navigator === "undefined" || !("serviceWorker" in navigator))
+    return Promise.resolve(null);
   worker ??= Promise.race([
     navigator.serviceWorker.register(SERVICE_WORKER_URL).then(() => navigator.serviceWorker.ready),
     // `ready` never settles when the worker cannot start; nothing may wait on it forever.
@@ -109,7 +117,10 @@ async function subscribe(vapidPublicKey: string): Promise<PushSubscription> {
       // Made for another server key: nothing this server sends would arrive.
       await existing.unsubscribe();
     }
-    return await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+    return await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: key,
+    });
   } catch (error) {
     throw new PushError("subscribe", error);
   }
@@ -157,18 +168,28 @@ interface StoredRegistration extends PushOwner {
 
 function storedRegistration(): StoredRegistration | null {
   try {
-    const value = JSON.parse(window.localStorage.getItem(REGISTRATION_KEY) ?? "null") as StoredRegistration | null;
-    return value && typeof value.userId === "string" && typeof value.endpoint === "string" ? value : null;
+    const value = JSON.parse(
+      window.localStorage.getItem(REGISTRATION_KEY) ?? "null",
+    ) as StoredRegistration | null;
+    return value && typeof value.userId === "string" && typeof value.endpoint === "string"
+      ? value
+      : null;
   } catch {
     return null;
   }
 }
 
 /** Hands the subscription to the server for the calling session and remembers who it belongs to. */
-async function register(subscription: PushSubscription, owner: PushOwner): Promise<notify.PushDevice | undefined> {
+async function register(
+  subscription: PushSubscription,
+  owner: PushOwner,
+): Promise<notify.PushDevice | undefined> {
   const keys = subscription.toJSON().keys ?? {};
   const response = await pushClient().registerDevice({
-    token: { case: "webPush", value: { endpoint: subscription.endpoint, p256dh: keys.p256dh ?? "", auth: keys.auth ?? "" } },
+    token: {
+      case: "webPush",
+      value: { endpoint: subscription.endpoint, p256dh: keys.p256dh ?? "", auth: keys.auth ?? "" },
+    },
     platform: common.Platform.WEB,
     locale: i18n.language,
     deviceName: deviceName(),
@@ -185,8 +206,12 @@ async function register(subscription: PushSubscription, owner: PushOwner): Promi
  */
 export async function enablePush(owner: PushOwner): Promise<notify.PushDevice | undefined> {
   if (!pushSupported()) throw new PushError("unsupported");
-  const permission = Notification.permission === "default" ? await Notification.requestPermission() : Notification.permission;
-  if (permission !== "granted") throw new PushError(permission === "denied" ? "denied" : "dismissed");
+  const permission =
+    Notification.permission === "default"
+      ? await Notification.requestPermission()
+      : Notification.permission;
+  if (permission !== "granted")
+    throw new PushError(permission === "denied" ? "denied" : "dismissed");
   const config = await pushClient().getPushConfig({});
   return register(await subscribe(config.vapidPublicKey), owner);
 }
@@ -214,9 +239,13 @@ export async function refreshPushRegistration(owner: PushOwner): Promise<void> {
   if (!stored || stored.userId !== owner.userId) return;
   try {
     const existing = await currentSubscription();
-    const fresh = existing?.endpoint === stored.endpoint && stored.sessionId === owner.sessionId && Date.now() - stored.at < REFRESH_AFTER_MS;
+    const fresh =
+      existing?.endpoint === stored.endpoint &&
+      stored.sessionId === owner.sessionId &&
+      Date.now() - stored.at < REFRESH_AFTER_MS;
     if (fresh) return;
-    const subscription = existing ?? (await subscribe((await pushClient().getPushConfig({})).vapidPublicKey));
+    const subscription =
+      existing ?? (await subscribe((await pushClient().getPushConfig({})).vapidPublicKey));
     await register(subscription, owner);
   } catch {
     // Not worth interrupting anyone: the settings page shows the real state, the next start retries.
@@ -239,7 +268,10 @@ export async function closeShownNotifications(ids?: string[]): Promise<void> {
 
 /** The unread count on the installed app's icon (Badging API), where there is one. */
 export function setAppBadge(count: number): void {
-  const badging = navigator as Navigator & { setAppBadge?(count: number): Promise<void>; clearAppBadge?(): Promise<void> };
+  const badging = navigator as Navigator & {
+    setAppBadge?(count: number): Promise<void>;
+    clearAppBadge?(): Promise<void>;
+  };
   void (count > 0 ? badging.setAppBadge?.(count) : badging.clearAppBadge?.())?.catch(() => {});
 }
 

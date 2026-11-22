@@ -13,9 +13,25 @@ const TONES: Record<Tone, string> = {
 };
 
 /** A state label. The text always says what the colour means. */
-export function ToneChip({ tone = "neutral", icon, children, className }: { tone?: Tone; icon?: ReactNode; children: ReactNode; className?: string }) {
+export function ToneChip({
+  tone = "neutral",
+  icon,
+  children,
+  className,
+}: {
+  tone?: Tone;
+  icon?: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
   return (
-    <span className={cn("inline-flex h-6 shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2.5 text-xs font-bold [&>svg]:size-3.5", TONES[tone], className)}>
+    <span
+      className={cn(
+        "inline-flex h-6 shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2.5 text-xs font-bold [&>svg]:size-3.5",
+        TONES[tone],
+        className,
+      )}
+    >
       {icon}
       {children}
     </span>

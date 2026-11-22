@@ -22,12 +22,19 @@ const NONE = "\u0001none";
 
 function formatBytes(bytes: bigint): string {
   const value = Number(bytes);
-  return value >= 1024 * 1024 ? `${(value / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(value / 1024))} KB`;
+  return value >= 1024 * 1024
+    ? `${(value / 1024 / 1024).toFixed(1)} MB`
+    : `${Math.max(1, Math.round(value / 1024))} KB`;
 }
 
 function useDateTime() {
   const { i18n } = useTranslation();
-  const format = new Intl.DateTimeFormat(i18n.language, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  const format = new Intl.DateTimeFormat(i18n.language, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
   return (timestamp: Parameters<typeof toDate>[0]) => {
     const date = toDate(timestamp);
     return date ? format.format(date) : "";
@@ -63,10 +70,16 @@ function ImportForm({ onStarted }: { onStarted(importId: string): void }) {
   const start = useMutation({
     mutationFn: async (pack: File) => {
       setProgress(0);
-      const asset = await uploadAndProcess(pack, { purpose: media.AssetPurpose.CHAT_FILE, onProgress: setProgress });
+      const asset = await uploadAndProcess(pack, {
+        purpose: media.AssetPurpose.CHAT_FILE,
+        onProgress: setProgress,
+      });
       return emojiAdminClient().startImport({
         assetId: asset.id,
-        onConflict: policy === "rename" ? emojiApi.ImportConflictPolicy.RENAME : emojiApi.ImportConflictPolicy.SKIP,
+        onConflict:
+          policy === "rename"
+            ? emojiApi.ImportConflictPolicy.RENAME
+            : emojiApi.ImportConflictPolicy.SKIP,
         category: category.trim(),
       });
     },
@@ -80,7 +93,10 @@ function ImportForm({ onStarted }: { onStarted(importId: string): void }) {
   });
 
   return (
-    <section aria-label={t("admin.importTitle")} className="rounded-2xl border-2 border-line bg-surface p-4">
+    <section
+      aria-label={t("admin.importTitle")}
+      className="rounded-2xl border-2 border-line bg-surface p-4"
+    >
       <h2 className="flex items-center gap-2 font-black">
         <Upload className="size-5 text-brand" />
         {t("admin.importTitle")}
@@ -90,12 +106,19 @@ function ImportForm({ onStarted }: { onStarted(importId: string): void }) {
         type="button"
         onClick={() => input.current?.click()}
         disabled={start.isPending}
-        className={cn("pressable mt-3 flex w-full items-center gap-3 rounded-2xl border-2 border-dashed border-ink-faint bg-surface-2 px-4 py-4 text-left", file && "border-solid border-ink bg-surface")}
+        className={cn(
+          "pressable mt-3 flex w-full items-center gap-3 rounded-2xl border-2 border-dashed border-ink-faint bg-surface-2 px-4 py-4 text-left",
+          file && "border-solid border-ink bg-surface",
+        )}
       >
         <FileArchive className="size-7 shrink-0 text-ink-soft" />
         <span className="min-w-0 flex-1">
-          <span className="block truncate font-bold">{file ? file.name : t("admin.importChoose")}</span>
-          <span className="block text-xs text-ink-faint">{file ? formatBytes(BigInt(file.size)) : t("admin.importChooseHint")}</span>
+          <span className="block truncate font-bold">
+            {file ? file.name : t("admin.importChoose")}
+          </span>
+          <span className="block text-xs text-ink-faint">
+            {file ? formatBytes(BigInt(file.size)) : t("admin.importChooseHint")}
+          </span>
         </span>
       </button>
       <input
@@ -118,13 +141,31 @@ function ImportForm({ onStarted }: { onStarted(importId: string): void }) {
           onChange={setPolicy}
           options={[
             { value: "skip", label: t("admin.conflictSkip"), hint: t("admin.conflictSkipHint") },
-            { value: "rename", label: t("admin.conflictRename"), hint: t("admin.conflictRenameHint") },
+            {
+              value: "rename",
+              label: t("admin.conflictRename"),
+              hint: t("admin.conflictRenameHint"),
+            },
           ]}
         />
-        <TextField label={t("admin.importCategory")} value={category} maxLength={32} onChange={(event) => setCategory(event.target.value)} placeholder={t("admin.importCategoryPlaceholder")} />
+        <TextField
+          label={t("admin.importCategory")}
+          value={category}
+          maxLength={32}
+          onChange={(event) => setCategory(event.target.value)}
+          placeholder={t("admin.importCategoryPlaceholder")}
+        />
       </div>
-      <Button className="mt-4" block loading={start.isPending} disabled={!file} onClick={() => file && start.mutate(file)}>
-        {start.isPending ? t("form.uploadingPercent", { percent: Math.round(progress * 100) }) : t("admin.importStart")}
+      <Button
+        className="mt-4"
+        block
+        loading={start.isPending}
+        disabled={!file}
+        onClick={() => file && start.mutate(file)}
+      >
+        {start.isPending
+          ? t("form.uploadingPercent", { percent: Math.round(progress * 100) })
+          : t("admin.importStart")}
       </Button>
     </section>
   );
@@ -149,7 +190,8 @@ const ENTRY_STATUS: Record<emojiApi.ImportEntryStatus, { key: string; tone: stri
 /** Entries of a pack read per request. */
 const ENTRY_PAGE = 100;
 
-const importRunning = (status: emojiApi.ImportStatus | undefined) => status === emojiApi.ImportStatus.QUEUED || status === emojiApi.ImportStatus.RUNNING;
+const importRunning = (status: emojiApi.ImportStatus | undefined) =>
+  status === emojiApi.ImportStatus.QUEUED || status === emojiApi.ImportStatus.RUNNING;
 
 /** One import: how far it is, and what became of every entry of the pack. */
 function ImportReport({ importId }: { importId: string }) {
@@ -166,7 +208,8 @@ function ImportReport({ importId }: { importId: string }) {
   // The rest of a long pack is paged in once every entry has its outcome, and is not read again after that.
   const rest = useInfiniteQuery({
     queryKey: emojiKeys.adminImportRest(importId, firstCursor),
-    queryFn: ({ pageParam }) => emojiAdminClient().getImport({ importId, page: { limit: ENTRY_PAGE, cursor: pageParam } }),
+    queryFn: ({ pageParam }) =>
+      emojiAdminClient().getImport({ importId, page: { limit: ENTRY_PAGE, cursor: pageParam } }),
     initialPageParam: firstCursor,
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
     enabled: Boolean(firstCursor) && !running,
@@ -175,17 +218,36 @@ function ImportReport({ importId }: { importId: string }) {
   if (!head.data) return head.isPending ? <Skeleton className="h-40" /> : null;
   const pack = head.data.import;
   if (!pack) return null;
-  const entries = [...head.data.entries, ...(rest.data?.pages.flatMap((page) => page.entries) ?? [])];
+  const entries = [
+    ...head.data.entries,
+    ...(rest.data?.pages.flatMap((page) => page.entries) ?? []),
+  ];
   const settled = pack.importedCount + pack.skippedCount + pack.failedCount;
   const statusKey = IMPORT_STATUS[pack.status];
 
   return (
-    <section aria-label={t("admin.reportTitle")} data-testid="import-report" data-status={statusKey} className="rounded-2xl border-2 border-line bg-surface p-4">
+    <section
+      aria-label={t("admin.reportTitle")}
+      data-testid="import-report"
+      data-status={statusKey}
+      className="rounded-2xl border-2 border-line bg-surface p-4"
+    >
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="mr-auto font-black">{t("admin.reportTitle")}</h2>
-        <Chip className={cn(pack.status === emojiApi.ImportStatus.COMPLETED && "bg-lime text-[#17122b]", pack.status === emojiApi.ImportStatus.FAILED && "bg-danger text-white")}>{t(`admin.importStatus.${statusKey}`)}</Chip>
+        <Chip
+          className={cn(
+            pack.status === emojiApi.ImportStatus.COMPLETED && "bg-lime text-[#17122b]",
+            pack.status === emojiApi.ImportStatus.FAILED && "bg-danger text-white",
+          )}
+        >
+          {t(`admin.importStatus.${statusKey}`)}
+        </Chip>
       </div>
-      {pack.sourceHost && <p className="mt-0.5 text-xs text-ink-faint">{t("admin.importFrom", { host: pack.sourceHost })}</p>}
+      {pack.sourceHost && (
+        <p className="mt-0.5 text-xs text-ink-faint">
+          {t("admin.importFrom", { host: pack.sourceHost })}
+        </p>
+      )}
       <div
         role="progressbar"
         aria-label={t("admin.reportProgress")}
@@ -194,57 +256,113 @@ function ImportReport({ importId }: { importId: string }) {
         aria-valuenow={settled}
         className="mt-3 h-3 overflow-hidden rounded-full border-2 border-ink bg-surface-2"
       >
-        <div className={cn("h-full bg-lime transition-[width] duration-500", running && pack.totalCount === 0 && "w-1/3 animate-pulse")} style={pack.totalCount > 0 ? { width: `${(settled / pack.totalCount) * 100}%` } : undefined} />
+        <div
+          className={cn(
+            "h-full bg-lime transition-[width] duration-500",
+            running && pack.totalCount === 0 && "w-1/3 animate-pulse",
+          )}
+          style={
+            pack.totalCount > 0 ? { width: `${(settled / pack.totalCount) * 100}%` } : undefined
+          }
+        />
       </div>
       <p className="mt-2 text-sm font-bold" data-testid="import-summary">
         {pack.status === emojiApi.ImportStatus.FAILED
-          ? t(`admin.importErrors.${pack.error}`, { defaultValue: t("admin.importErrors.INTERNAL") })
-          : t("admin.reportSummary", { total: pack.totalCount, imported: pack.importedCount, skipped: pack.skippedCount, failed: pack.failedCount })}
+          ? t(`admin.importErrors.${pack.error}`, {
+              defaultValue: t("admin.importErrors.INTERNAL"),
+            })
+          : t("admin.reportSummary", {
+              total: pack.totalCount,
+              imported: pack.importedCount,
+              skipped: pack.skippedCount,
+              failed: pack.failedCount,
+            })}
       </p>
       {entries.length > 0 && (
         <ul className="mt-3 max-h-80 divide-y-2 divide-line overflow-y-auto rounded-xl border-2 border-line">
           {entries.map((entry) => {
             const status = ENTRY_STATUS[entry.status];
             return (
-              <li key={`${entry.sourceName}/${entry.fileName}`} data-testid="import-entry" data-status={status.key} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-3 py-2 text-sm">
+              <li
+                key={`${entry.sourceName}/${entry.fileName}`}
+                data-testid="import-entry"
+                data-status={status.key}
+                className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-3 py-2 text-sm"
+              >
                 <span className="min-w-0 flex-1 truncate font-mono">
                   {entry.sourceName || entry.fileName}
-                  {entry.name && entry.name !== entry.sourceName && <span className="text-ink-faint"> → :{entry.name}:</span>}
+                  {entry.name && entry.name !== entry.sourceName && (
+                    <span className="text-ink-faint"> → :{entry.name}:</span>
+                  )}
                 </span>
                 <Chip className={status.tone}>{t(`admin.entryStatus.${status.key}`)}</Chip>
-                {entry.reason && <span className="w-full text-xs text-ink-soft">{t(`admin.entryReasons.${entry.reason}`, { defaultValue: entry.reason })}</span>}
+                {entry.reason && (
+                  <span className="w-full text-xs text-ink-soft">
+                    {t(`admin.entryReasons.${entry.reason}`, { defaultValue: entry.reason })}
+                  </span>
+                )}
               </li>
             );
           })}
-          {firstCursor && running ? <li className="px-3 py-2 text-xs text-ink-faint">{t("admin.reportMore", { count: pack.totalCount - entries.length })}</li> : <LoadMore query={rest} />}
+          {firstCursor && running ? (
+            <li className="px-3 py-2 text-xs text-ink-faint">
+              {t("admin.reportMore", { count: pack.totalCount - entries.length })}
+            </li>
+          ) : (
+            <LoadMore query={rest} />
+          )}
         </ul>
       )}
     </section>
   );
 }
 
-function ImportHistory({ current, onOpen }: { current: string | undefined; onOpen(importId: string): void }) {
+function ImportHistory({
+  current,
+  onOpen,
+}: {
+  current: string | undefined;
+  onOpen(importId: string): void;
+}) {
   const { t } = useTranslation("emoji");
   const dateTime = useDateTime();
   const list = useInfiniteQuery({
     queryKey: emojiKeys.adminImports,
-    queryFn: ({ pageParam }) => emojiAdminClient().listImports({ page: { limit: 10, cursor: pageParam } }),
+    queryFn: ({ pageParam }) =>
+      emojiAdminClient().listImports({ page: { limit: 10, cursor: pageParam } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
   const imports = list.data?.pages.flatMap((page) => page.imports) ?? [];
   if (imports.length === 0) return null;
   return (
-    <section aria-label={t("admin.importHistory")} className="rounded-2xl border-2 border-line bg-surface p-2">
+    <section
+      aria-label={t("admin.importHistory")}
+      className="rounded-2xl border-2 border-line bg-surface p-2"
+    >
       <h2 className="px-2 pt-1.5 pb-1 text-sm font-black">{t("admin.importHistory")}</h2>
       <ul>
         {imports.map((pack) => (
           <li key={pack.id}>
-            <button type="button" onClick={() => onOpen(pack.id)} aria-current={pack.id === current || undefined} className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-sm hover:bg-surface-2 aria-[current]:bg-brand-soft">
+            <button
+              type="button"
+              onClick={() => onOpen(pack.id)}
+              aria-current={pack.id === current || undefined}
+              className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-sm hover:bg-surface-2 aria-[current]:bg-brand-soft"
+            >
               <span className="min-w-0 flex-1 truncate">
                 <span className="font-bold">{dateTime(pack.createdAt)}</span>
-                <span className="text-ink-soft"> · {t("admin.importCounts", { imported: pack.importedCount, total: pack.totalCount })}</span>
-                {pack.requestedBy && <span className="text-ink-faint"> · @{pack.requestedBy.handle}</span>}
+                <span className="text-ink-soft">
+                  {" "}
+                  ·{" "}
+                  {t("admin.importCounts", {
+                    imported: pack.importedCount,
+                    total: pack.totalCount,
+                  })}
+                </span>
+                {pack.requestedBy && (
+                  <span className="text-ink-faint"> · @{pack.requestedBy.handle}</span>
+                )}
               </span>
               <Chip>{t(`admin.importStatus.${IMPORT_STATUS[pack.status]}`)}</Chip>
             </button>
@@ -275,14 +393,25 @@ function Exports() {
   const [scope, setScope] = useState(WHOLE);
   const list = useInfiniteQuery({
     queryKey: emojiKeys.adminExports,
-    queryFn: ({ pageParam }) => emojiAdminClient().listExports({ page: { limit: 10, cursor: pageParam } }),
+    queryFn: ({ pageParam }) =>
+      emojiAdminClient().listExports({ page: { limit: 10, cursor: pageParam } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
     // The realtime connection announces a finished export; this only covers a connection that dropped meanwhile.
-    refetchInterval: (query) => (query.state.data?.pages[0]?.exports.some((item) => item.status === emojiApi.ExportStatus.QUEUED || item.status === emojiApi.ExportStatus.RUNNING) ? 4000 : false),
+    refetchInterval: (query) =>
+      query.state.data?.pages[0]?.exports.some(
+        (item) =>
+          item.status === emojiApi.ExportStatus.QUEUED ||
+          item.status === emojiApi.ExportStatus.RUNNING,
+      )
+        ? 4000
+        : false,
   });
   const start = useMutation({
-    mutationFn: () => emojiAdminClient().startExport({ category: scope === WHOLE ? undefined : scope === NONE ? "" : scope }),
+    mutationFn: () =>
+      emojiAdminClient().startExport({
+        category: scope === WHOLE ? undefined : scope === NONE ? "" : scope,
+      }),
     onSuccess: async () => {
       toast.success(t("admin.exportStarted"));
       await queryClient.invalidateQueries({ queryKey: emojiKeys.adminExports });
@@ -307,7 +436,10 @@ function Exports() {
   const exports = list.data?.pages.flatMap((page) => page.exports) ?? [];
 
   return (
-    <section aria-label={t("admin.exportTitle")} className="rounded-2xl border-2 border-line bg-surface p-4">
+    <section
+      aria-label={t("admin.exportTitle")}
+      className="rounded-2xl border-2 border-line bg-surface p-4"
+    >
       <h2 className="flex items-center gap-2 font-black">
         <Download className="size-5 text-brand" />
         {t("admin.exportTitle")}
@@ -319,7 +451,14 @@ function Exports() {
           label={t("admin.exportScope")}
           value={scope}
           onChange={setScope}
-          options={[{ value: WHOLE, label: t("admin.exportWhole") }, ...(categories.data?.categories ?? []).map((entry) => ({ value: entry.name, label: entry.name })), { value: NONE, label: t("browse.uncategorized") }]}
+          options={[
+            { value: WHOLE, label: t("admin.exportWhole") },
+            ...(categories.data?.categories ?? []).map((entry) => ({
+              value: entry.name,
+              label: entry.name,
+            })),
+            { value: NONE, label: t("browse.uncategorized") },
+          ]}
         />
         <Button loading={start.isPending} onClick={() => start.mutate()}>
           {t("admin.exportStart")}
@@ -328,27 +467,51 @@ function Exports() {
       {list.isPending ? (
         <Skeleton className="mt-4 h-20" />
       ) : exports.length === 0 ? (
-        <p className="mt-4 rounded-xl bg-surface-2 px-4 py-5 text-center text-sm text-ink-soft">{t("admin.exportsEmpty")}</p>
+        <p className="mt-4 rounded-xl bg-surface-2 px-4 py-5 text-center text-sm text-ink-soft">
+          {t("admin.exportsEmpty")}
+        </p>
       ) : (
         <ul className="mt-4 divide-y-2 divide-line rounded-xl border-2 border-line">
           {exports.map((file) => {
             const key = EXPORT_STATUS[file.status];
             return (
-              <li key={file.id} data-testid="export-row" data-status={key} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
+              <li
+                key={file.id}
+                data-testid="export-row"
+                data-status={key}
+                className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm"
+              >
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate font-bold">{file.byCategory ? file.category || t("browse.uncategorized") : t("admin.exportWhole")}</span>
+                  <span className="block truncate font-bold">
+                    {file.byCategory
+                      ? file.category || t("browse.uncategorized")
+                      : t("admin.exportWhole")}
+                  </span>
                   <span className="block truncate text-xs text-ink-soft">
                     {dateTime(file.createdAt)}
-                    {file.status === emojiApi.ExportStatus.READY && ` · ${t("admin.exportMeta", { count: file.emojiCount, size: formatBytes(file.sizeBytes) })}`}
+                    {file.status === emojiApi.ExportStatus.READY &&
+                      ` · ${t("admin.exportMeta", { count: file.emojiCount, size: formatBytes(file.sizeBytes) })}`}
                     {file.requestedBy && ` · @${file.requestedBy.handle}`}
                   </span>
                 </span>
                 {file.status === emojiApi.ExportStatus.READY ? (
-                  <Button size="sm" variant="secondary" icon={<Download className="size-4" />} loading={download.isPending && download.variables === file.id} onClick={() => download.mutate(file.id)}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    icon={<Download className="size-4" />}
+                    loading={download.isPending && download.variables === file.id}
+                    onClick={() => download.mutate(file.id)}
+                  >
                     {t("admin.download")}
                   </Button>
                 ) : (
-                  <Chip className={cn(file.status === emojiApi.ExportStatus.FAILED && "bg-danger text-white")}>{t(`admin.exportStatus.${key}`)}</Chip>
+                  <Chip
+                    className={cn(
+                      file.status === emojiApi.ExportStatus.FAILED && "bg-danger text-white",
+                    )}
+                  >
+                    {t(`admin.exportStatus.${key}`)}
+                  </Chip>
                 )}
               </li>
             );

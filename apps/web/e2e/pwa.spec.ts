@@ -40,7 +40,9 @@ async function openApp(page: Page, path: string): Promise<void> {
 
 /** Resolves once the service worker runs this page. */
 async function controlled(page: Page): Promise<void> {
-  await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller?.state ?? "none")).toBe("activated");
+  await expect
+    .poll(() => page.evaluate(() => navigator.serviceWorker.controller?.state ?? "none"))
+    .toBe("activated");
 }
 
 /** Paths of everything the service worker has stored. */
@@ -48,7 +50,8 @@ function storedPaths(page: Page): Promise<string[]> {
   return page.evaluate(async () => {
     const paths: string[] = [];
     for (const name of await caches.keys()) {
-      for (const request of await (await caches.open(name)).keys()) paths.push(new URL(request.url).pathname);
+      for (const request of await (await caches.open(name)).keys())
+        paths.push(new URL(request.url).pathname);
     }
     return paths.sort();
   });
@@ -59,7 +62,10 @@ function storedPaths(page: Page): Promise<string[]> {
  * page an event whose `prompt()` opens the install dialog. `answer` is what
  * the person will pick in that dialog.
  */
-async function browserOffersInstall(page: Page, answer: "accepted" | "dismissed" = "accepted"): Promise<void> {
+async function browserOffersInstall(
+  page: Page,
+  answer: "accepted" | "dismissed" = "accepted",
+): Promise<void> {
   await page.evaluate((outcome) => {
     const event = Object.assign(new Event("beforeinstallprompt", { cancelable: true }), {
       prompt: () => {
@@ -74,7 +80,8 @@ async function browserOffersInstall(page: Page, answer: "accepted" | "dismissed"
 
 const installBanner = (page: Page) => page.getByRole("complementary", { name: "ホーム画面に追加" });
 const mainNav = (page: Page) => page.getByRole("navigation", { name: "main" });
-const toast = (page: Page, message: string) => page.locator("[data-sonner-toast]").filter({ hasText: message });
+const toast = (page: Page, message: string) =>
+  page.locator("[data-sonner-toast]").filter({ hasText: message });
 
 /** Longer than the banner waits after the app starts: "it is not there" means something after this. */
 const SETTLED_MS = 3500;
@@ -109,92 +116,153 @@ interface Manifest {
   shortcuts: { name: string; url: string; icons: ManifestImage[] }[];
 }
 
-base("the manifest is complete, and every icon and screenshot it names is there in the stated size", async ({ request }) => {
-  const response = await request.get("/manifest.webmanifest");
-  expect(response.ok()).toBeTruthy();
-  expect(response.headers()["content-type"]).toMatch(/manifest\+json|application\/json/);
-  const manifest = (await response.json()) as Manifest;
+base(
+  "the manifest is complete, and every icon and screenshot it names is there in the stated size",
+  async ({ request }) => {
+    const response = await request.get("/manifest.webmanifest");
+    expect(response.ok()).toBeTruthy();
+    expect(response.headers()["content-type"]).toMatch(/manifest\+json|application\/json/);
+    const manifest = (await response.json()) as Manifest;
 
-  expect(manifest).toMatchObject({ id: "/", name: "Tokuly", short_name: "Tokuly", lang: "ja", scope: "/", display: "standalone", orientation: "natural" });
-  expect(manifest.description).toMatch(/位置情報共有/);
-  expect(manifest.display_override).toContain("standalone");
-  // Opens on the map, marked as coming from the installed app.
-  expect(manifest.start_url).toBe("/map?source=pwa");
-  // The page background of the light theme (src/styles.css).
-  expect(manifest.theme_color).toBe("#f4f1ff");
-  expect(manifest.background_color).toBe("#f4f1ff");
-  expect(manifest.categories).toContain("social");
+    expect(manifest).toMatchObject({
+      id: "/",
+      name: "Tokuly",
+      short_name: "Tokuly",
+      lang: "ja",
+      scope: "/",
+      display: "standalone",
+      orientation: "natural",
+    });
+    expect(manifest.description).toMatch(/位置情報共有/);
+    expect(manifest.display_override).toContain("standalone");
+    // Opens on the map, marked as coming from the installed app.
+    expect(manifest.start_url).toBe("/map?source=pwa");
+    // The page background of the light theme (src/styles.css).
+    expect(manifest.theme_color).toBe("#f4f1ff");
+    expect(manifest.background_color).toBe("#f4f1ff");
+    expect(manifest.categories).toContain("social");
 
-  // Installable needs 192 and 512 px icons; launchers that cut icons to a shape need maskable ones.
-  for (const purpose of ["any", "maskable"]) {
-    for (const sizes of ["192x192", "512x512"]) {
-      expect(manifest.icons.filter((icon) => icon.purpose === purpose && icon.sizes === sizes && icon.type === "image/png"), `${purpose} ${sizes}`).toHaveLength(1);
+    // Installable needs 192 and 512 px icons; launchers that cut icons to a shape need maskable ones.
+    for (const purpose of ["any", "maskable"]) {
+      for (const sizes of ["192x192", "512x512"]) {
+        expect(
+          manifest.icons.filter(
+            (icon) => icon.purpose === purpose && icon.sizes === sizes && icon.type === "image/png",
+          ),
+          `${purpose} ${sizes}`,
+        ).toHaveLength(1);
+      }
     }
-  }
-  expect(manifest.icons.some((icon) => icon.purpose === "monochrome")).toBeTruthy();
-  for (const icon of manifest.icons) {
-    if (icon.type === "image/png") await expectPng(request, icon.src, icon.sizes);
-    else expect((await request.get(icon.src)).headers()["content-type"], icon.src).toContain(icon.type);
-  }
+    expect(manifest.icons.some((icon) => icon.purpose === "monochrome")).toBeTruthy();
+    for (const icon of manifest.icons) {
+      if (icon.type === "image/png") await expectPng(request, icon.src, icon.sizes);
+      else
+        expect((await request.get(icon.src)).headers()["content-type"], icon.src).toContain(
+          icon.type,
+        );
+    }
 
-  // The richer install dialog shows screenshots: phone-shaped on phones, wide ones on computers.
-  for (const formFactor of ["narrow", "wide"]) {
-    const shots = manifest.screenshots.filter((shot) => shot.form_factor === formFactor);
-    expect(shots.length, formFactor).toBeGreaterThanOrEqual(1);
-    // One form factor, one size: the dialog lays them out side by side.
-    expect(new Set(shots.map((shot) => shot.sizes)).size, formFactor).toBe(1);
-  }
-  for (const shot of manifest.screenshots) {
-    expect(shot.label, shot.src).toBeTruthy();
-    await expectPng(request, shot.src, shot.sizes);
-  }
+    // The richer install dialog shows screenshots: phone-shaped on phones, wide ones on computers.
+    for (const formFactor of ["narrow", "wide"]) {
+      const shots = manifest.screenshots.filter((shot) => shot.form_factor === formFactor);
+      expect(shots.length, formFactor).toBeGreaterThanOrEqual(1);
+      // One form factor, one size: the dialog lays them out side by side.
+      expect(new Set(shots.map((shot) => shot.sizes)).size, formFactor).toBe(1);
+    }
+    for (const shot of manifest.screenshots) {
+      expect(shot.label, shot.src).toBeTruthy();
+      await expectPng(request, shot.src, shot.sizes);
+    }
 
-  expect(manifest.shortcuts.map((shortcut) => new URL(shortcut.url, "http://tokuly.test").pathname)).toEqual(["/map", "/chat", "/notes", "/notifications"]);
-  for (const shortcut of manifest.shortcuts) {
-    expect(shortcut.name).toBeTruthy();
-    expect((await request.get(shortcut.url)).ok(), shortcut.url).toBeTruthy();
-    for (const icon of shortcut.icons) await expectPng(request, icon.src, icon.sizes);
-  }
-});
+    expect(
+      manifest.shortcuts.map((shortcut) => new URL(shortcut.url, "http://tokuly.test").pathname),
+    ).toEqual(["/map", "/chat", "/notes", "/notifications"]);
+    for (const shortcut of manifest.shortcuts) {
+      expect(shortcut.name).toBeTruthy();
+      expect((await request.get(shortcut.url)).ok(), shortcut.url).toBeTruthy();
+      for (const icon of shortcut.icons) await expectPng(request, icon.src, icon.sizes);
+    }
+  },
+);
 
-base("every page links the manifest, the icons, and an iPhone launch image per screen and colour scheme", async ({ page, request }) => {
-  await page.goto("/");
-  await expect(page.locator('link[rel="manifest"]')).toHaveAttribute("href", "/manifest.webmanifest");
-  for (const name of ["mobile-web-app-capable", "apple-mobile-web-app-capable"]) {
-    await expect(page.locator(`meta[name="${name}"]`)).toHaveAttribute("content", "yes");
-  }
-  await expect(page.locator('meta[name="apple-mobile-web-app-status-bar-style"]')).toHaveAttribute("content", "default");
-  // The bars around the page take the page background of the device's colour scheme.
-  const themeColors = await page.locator('meta[name="theme-color" i]').evaluateAll((tags) => tags.map((tag) => [tag.getAttribute("media"), tag.getAttribute("content")]));
-  expect(themeColors).toEqual([
-    ["(prefers-color-scheme: light)", "#f4f1ff"],
-    ["(prefers-color-scheme: dark)", "#0d0b14"],
-  ]);
+base(
+  "every page links the manifest, the icons, and an iPhone launch image per screen and colour scheme",
+  async ({ page, request }) => {
+    await page.goto("/");
+    await expect(page.locator('link[rel="manifest"]')).toHaveAttribute(
+      "href",
+      "/manifest.webmanifest",
+    );
+    for (const name of ["mobile-web-app-capable", "apple-mobile-web-app-capable"]) {
+      await expect(page.locator(`meta[name="${name}"]`)).toHaveAttribute("content", "yes");
+    }
+    await expect(
+      page.locator('meta[name="apple-mobile-web-app-status-bar-style"]'),
+    ).toHaveAttribute("content", "default");
+    // The bars around the page take the page background of the device's colour scheme.
+    const themeColors = await page
+      .locator('meta[name="theme-color" i]')
+      .evaluateAll((tags) =>
+        tags.map((tag) => [tag.getAttribute("media"), tag.getAttribute("content")]),
+      );
+    expect(themeColors).toEqual([
+      ["(prefers-color-scheme: light)", "#f4f1ff"],
+      ["(prefers-color-scheme: dark)", "#0d0b14"],
+    ]);
 
-  await expectPng(request, (await page.locator('link[rel="apple-touch-icon"]').getAttribute("href")) ?? "", "180x180");
-  for (const icon of await page.locator('link[rel="icon"][type="image/png"]').all()) {
-    await expectPng(request, (await icon.getAttribute("href")) ?? "", (await icon.getAttribute("sizes")) ?? "");
-  }
-  expect((await request.get("/favicon.ico")).ok()).toBeTruthy();
+    await expectPng(
+      request,
+      (await page.locator('link[rel="apple-touch-icon"]').getAttribute("href")) ?? "",
+      "180x180",
+    );
+    for (const icon of await page.locator('link[rel="icon"][type="image/png"]').all()) {
+      await expectPng(
+        request,
+        (await icon.getAttribute("href")) ?? "",
+        (await icon.getAttribute("sizes")) ?? "",
+      );
+    }
+    expect((await request.get("/favicon.ico")).ok()).toBeTruthy();
 
-  const launchImages = await page
-    .locator('link[rel="apple-touch-startup-image"]')
-    .evaluateAll((links) => links.map((link) => ({ href: link.getAttribute("href") ?? "", media: link.getAttribute("media") ?? "" })));
-  expect(launchImages.length).toBeGreaterThanOrEqual(20);
-  for (const scheme of ["light", "dark"]) {
-    expect(launchImages.filter((image) => image.media.includes(`(prefers-color-scheme: ${scheme})`))).toHaveLength(launchImages.length / 2);
-  }
-  for (const { href, media } of launchImages) {
-    // The image fills the screen the link is for: its points times the pixel ratio.
-    const [, width, height, ratio] = /device-width: (\d+)px\) and \(device-height: (\d+)px\) and \(-webkit-device-pixel-ratio: (\d)\)/.exec(media) ?? [];
-    await expectPng(request, href, `${Number(width) * Number(ratio)}x${Number(height) * Number(ratio)}`);
-  }
-});
+    const launchImages = await page
+      .locator('link[rel="apple-touch-startup-image"]')
+      .evaluateAll((links) =>
+        links.map((link) => ({
+          href: link.getAttribute("href") ?? "",
+          media: link.getAttribute("media") ?? "",
+        })),
+      );
+    expect(launchImages.length).toBeGreaterThanOrEqual(20);
+    for (const scheme of ["light", "dark"]) {
+      expect(
+        launchImages.filter((image) => image.media.includes(`(prefers-color-scheme: ${scheme})`)),
+      ).toHaveLength(launchImages.length / 2);
+    }
+    for (const { href, media } of launchImages) {
+      // The image fills the screen the link is for: its points times the pixel ratio.
+      const [, width, height, ratio] =
+        /device-width: (\d+)px\) and \(device-height: (\d+)px\) and \(-webkit-device-pixel-ratio: (\d)\)/.exec(
+          media,
+        ) ?? [];
+      await expectPng(
+        request,
+        href,
+        `${Number(width) * Number(ratio)}x${Number(height) * Number(ratio)}`,
+      );
+    }
+  },
+);
 
-test("the bars around the page follow the theme the app is set to, not only the device's", async ({ page, me: _me }) => {
+test("the bars around the page follow the theme the app is set to, not only the device's", async ({
+  page,
+  me: _me,
+}) => {
   await page.emulateMedia({ colorScheme: "dark" });
   await openApp(page, "/settings/appearance");
-  const themeColors = () => page.locator('meta[name="theme-color" i]').evaluateAll((tags) => tags.map((tag) => tag.getAttribute("content")));
+  const themeColors = () =>
+    page
+      .locator('meta[name="theme-color" i]')
+      .evaluateAll((tags) => tags.map((tag) => tag.getAttribute("content")));
   await expect.poll(themeColors).toEqual(["#0d0b14", "#0d0b14"]);
 
   // A light app on a dark device: the bars go with the app.
@@ -204,7 +272,10 @@ test("the bars around the page follow the theme the app is set to, not only the 
 
 // ── Service worker ──────────────────────────────────────────────────
 
-test("the service worker takes over the app and keeps only public, static files", async ({ page, me: _me }) => {
+test("the service worker takes over the app and keeps only public, static files", async ({
+  page,
+  me: _me,
+}) => {
   await page.goto("/me");
   await expect(page.getByRole("heading", { name: "じぶん" })).toBeVisible();
   await controlled(page);
@@ -215,14 +286,27 @@ test("the service worker takes over the app and keeps only public, static files"
   await expect(page.getByRole("heading", { name: "じぶん" })).toBeVisible();
   await page.waitForLoadState("networkidle");
   const stored = await storedPaths(page);
-  for (const path of stored) expect(path, "only the offline page, built assets and map assets are stored").toMatch(/^\/(offline\.html$|assets\/|map-assets\/)/);
+  for (const path of stored)
+    expect(path, "only the offline page, built assets and map assets are stored").toMatch(
+      /^\/(offline\.html$|assets\/|map-assets\/)/,
+    );
 
   // A production build serves its scripts from /assets/ (the development server has none): those are kept.
-  const builtAssets = await page.evaluate(() => performance.getEntriesByType("resource").filter((entry) => new URL(entry.name).pathname.startsWith("/assets/")).length);
-  if (builtAssets > 0) expect(stored.filter((path) => path.startsWith("/assets/")).length).toBeGreaterThan(0);
+  const builtAssets = await page.evaluate(
+    () =>
+      performance
+        .getEntriesByType("resource")
+        .filter((entry) => new URL(entry.name).pathname.startsWith("/assets/")).length,
+  );
+  if (builtAssets > 0)
+    expect(stored.filter((path) => path.startsWith("/assets/")).length).toBeGreaterThan(0);
 });
 
-test("without a connection a page load ends on the offline page, which brings the app back by itself", async ({ page, context, me: _me }) => {
+test("without a connection a page load ends on the offline page, which brings the app back by itself", async ({
+  page,
+  context,
+  me: _me,
+}) => {
   await page.goto("/me");
   await expect(page.getByRole("heading", { name: "じぶん" })).toBeVisible();
   await controlled(page);
@@ -242,7 +326,12 @@ test("without a connection a page load ends on the offline page, which brings th
   await expect(page.getByRole("heading", { level: 1, name: "ともだち" })).toBeVisible();
 });
 
-test("the offline page speaks English to people who use the app in English", async ({ page, context, baseURL, me: _me }) => {
+test("the offline page speaks English to people who use the app in English", async ({
+  page,
+  context,
+  baseURL,
+  me: _me,
+}) => {
   await context.addCookies([{ name: "tokuly_lang", value: "en", url: baseURL ?? "" }]);
   await page.goto("/me");
   await controlled(page);
@@ -256,7 +345,11 @@ test("the offline page speaks English to people who use the app in English", asy
   await expect(page.getByRole("heading", { level: 1, name: "Friends" })).toBeVisible();
 });
 
-test("a pill says so while the device is offline, and only then", async ({ page, context, me: _me }) => {
+test("a pill says so while the device is offline, and only then", async ({
+  page,
+  context,
+  me: _me,
+}) => {
   await page.goto("/me");
   await expect(page.getByRole("heading", { name: "じぶん" })).toBeVisible();
   const pill = page.getByRole("status").filter({ hasText: "オフラインだよ" });
@@ -280,7 +373,13 @@ test("a new version announces itself and takes over only when asked", async ({ p
   // It waits: the page keeps the worker it has, and says there is something new.
   const offer = toast(page, "新しいバージョンがあるよ！");
   await expect(offer).toBeVisible();
-  expect(await page.evaluate(() => navigator.serviceWorker.getRegistration().then((registration) => registration?.waiting?.state))).toBe("installed");
+  expect(
+    await page.evaluate(() =>
+      navigator.serviceWorker
+        .getRegistration()
+        .then((registration) => registration?.waiting?.state),
+    ),
+  ).toBe("installed");
   expect(await running()).toMatch(/\/sw\.js$/);
 
   // "Update" hands over and reloads the page into the new version.
@@ -291,7 +390,11 @@ test("a new version announces itself and takes over only when asked", async ({ p
   expect(await running()).toMatch(/\/sw\.js\?version=next$/);
 });
 
-test("an update accepted in another tab is offered here too, as a reload", async ({ page, context, me: _me }) => {
+test("an update accepted in another tab is offered here too, as a reload", async ({
+  page,
+  context,
+  me: _me,
+}) => {
   await openApp(page, "/me");
   await controlled(page);
   const other = await context.newPage();
@@ -301,11 +404,15 @@ test("an update accepted in another tab is offered here too, as a reload", async
   await other.evaluate(() => navigator.serviceWorker.register("/sw.js?version=next"));
   await expect(toast(page, "新しいバージョンがあるよ！")).toBeVisible();
   const otherReloaded = other.waitForEvent("load");
-  await toast(other, "新しいバージョンがあるよ！").getByRole("button", { name: "更新する" }).click();
+  await toast(other, "新しいバージョンがあるよ！")
+    .getByRole("button", { name: "更新する" })
+    .click();
   await otherReloaded;
 
   // The new worker now runs this page as well, but the page itself is still the old one: the offer stays.
-  await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller?.scriptURL ?? "")).toMatch(/\/sw\.js\?version=next$/);
+  await expect
+    .poll(() => page.evaluate(() => navigator.serviceWorker.controller?.scriptURL ?? ""))
+    .toMatch(/\/sw\.js\?version=next$/);
   await expect(toast(page, "新しいバージョンがあるよ！")).toBeVisible();
   const reloaded = page.waitForEvent("load");
   await toast(page, "新しいバージョンがあるよ！").getByRole("button", { name: "更新する" }).click();
@@ -313,7 +420,10 @@ test("an update accepted in another tab is offered here too, as a reload", async
   await expect(mainNav(page)).toBeVisible();
 });
 
-test("'later' leaves the running version alone, and the app page keeps offering the update", async ({ page, me: _me }) => {
+test("'later' leaves the running version alone, and the app page keeps offering the update", async ({
+  page,
+  me: _me,
+}) => {
   await openApp(page, "/me");
   await controlled(page);
   await page.evaluate(() => navigator.serviceWorker.register("/sw.js?version=next"));
@@ -322,15 +432,23 @@ test("'later' leaves the running version alone, and the app page keeps offering 
   await expect(offer).toHaveCount(0);
 
   await page.getByRole("main").getByRole("link", { name: "設定" }).click();
-  await page.getByRole("navigation", { name: "設定" }).getByRole("link", { name: /^アプリとして使う/ }).click();
+  await page
+    .getByRole("navigation", { name: "設定" })
+    .getByRole("link", { name: /^アプリとして使う/ })
+    .click();
   await expect(page.getByText("更新あり")).toBeVisible();
-  expect(await page.evaluate(() => navigator.serviceWorker.controller?.scriptURL ?? "")).toMatch(/\/sw\.js$/);
+  expect(await page.evaluate(() => navigator.serviceWorker.controller?.scriptURL ?? "")).toMatch(
+    /\/sw\.js$/,
+  );
   await expect(page.getByRole("main").getByRole("button", { name: "更新する" })).toBeVisible();
 });
 
 // ── Installing ──────────────────────────────────────────────────────
 
-test("the offer to install waits for a calm page, and one tap opens the browser's dialog", async ({ page, me: _me }) => {
+test("the offer to install waits for a calm page, and one tap opens the browser's dialog", async ({
+  page,
+  me: _me,
+}) => {
   await openApp(page, "/map");
   await browserOffersInstall(page);
 
@@ -341,7 +459,12 @@ test("the offer to install waits for a calm page, and one tap opens the browser'
   await mainNav(page).getByRole("link", { name: "じぶん" }).click();
   await expect(page.getByRole("heading", { name: "じぶん" })).toBeVisible();
   // It floats above the page: nothing moves when it comes.
-  const placed = () => page.evaluate(() => [...document.querySelectorAll("main a, main h1")].map((element) => JSON.stringify(element.getBoundingClientRect())));
+  const placed = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll("main a, main h1")].map((element) =>
+        JSON.stringify(element.getBoundingClientRect()),
+      ),
+    );
   const before = await placed();
   await expect(installBanner(page)).toBeVisible();
   expect(await placed()).toEqual(before);
@@ -351,7 +474,10 @@ test("the offer to install waits for a calm page, and one tap opens the browser'
   await expect(installBanner(page)).toHaveCount(0);
 });
 
-test("'later' keeps the offer away, also after a reload, while the settings go on offering", async ({ page, me: _me }) => {
+test("'later' keeps the offer away, also after a reload, while the settings go on offering", async ({
+  page,
+  me: _me,
+}) => {
   await openApp(page, "/me");
   await browserOffersInstall(page);
   await installBanner(page).getByRole("button", { name: "あとで" }).click();
@@ -366,7 +492,10 @@ test("'later' keeps the offer away, also after a reload, while the settings go o
   // Through the settings to the app page, without loading a new document (that would drop the browser's offer).
   await page.getByRole("main").getByRole("link", { name: "設定" }).click();
   await expect(installBanner(page)).toHaveCount(0);
-  await page.getByRole("navigation", { name: "設定" }).getByRole("link", { name: /^アプリとして使う/ }).click();
+  await page
+    .getByRole("navigation", { name: "設定" })
+    .getByRole("link", { name: /^アプリとして使う/ })
+    .click();
   await expect(page).toHaveURL(/\/pwa$/);
   await page.getByRole("button", { name: "インストールする" }).click();
   await expect.poll(() => page.evaluate(() => window.__installPrompts)).toBe(1);
@@ -401,16 +530,25 @@ test("opened as the installed app, it says so and offers nothing", async ({ page
 });
 
 test.describe("on an iPhone, where the browser has no install dialog", () => {
-  const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko)";
+  const IPHONE =
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko)";
 
   test.describe("in Safari", () => {
     test.use({ userAgent: `${IPHONE} Version/18.5 Mobile/15E148 Safari/604.1` });
 
-    test("the offer shows the way through the share menu, step by step", async ({ page, me: _me }) => {
+    test("the offer shows the way through the share menu, step by step", async ({
+      page,
+      me: _me,
+    }) => {
       await openApp(page, "/me");
       await installBanner(page).getByRole("button", { name: "やり方" }).click();
       const guide = page.getByRole("dialog", { name: "ホーム画面に追加するには" });
-      for (const step of ["共有ボタンをタップ", "「ホーム画面に追加」をえらぶ", "右上の「追加」をタップ"]) await expect(guide.getByText(step)).toBeVisible();
+      for (const step of [
+        "共有ボタンをタップ",
+        "「ホーム画面に追加」をえらぶ",
+        "右上の「追加」をタップ",
+      ])
+        await expect(guide.getByText(step)).toBeVisible();
       await expect(guide.getByText("まずはSafariで開こう")).toHaveCount(0);
       await guide.getByRole("button", { name: "わかった！" }).click();
       await expect(guide).toHaveCount(0);
@@ -423,9 +561,16 @@ test.describe("on an iPhone, where the browser has no install dialog", () => {
   });
 
   test.describe("inside another app", () => {
-    test.use({ userAgent: `${IPHONE} Mobile/15E148 Safari Line/15.9.0`, permissions: ["clipboard-read", "clipboard-write"] });
+    test.use({
+      userAgent: `${IPHONE} Mobile/15E148 Safari Line/15.9.0`,
+      permissions: ["clipboard-read", "clipboard-write"],
+    });
 
-    test("the offer first sends the page to Safari, with a link to take along", async ({ page, baseURL, me: _me }) => {
+    test("the offer first sends the page to Safari, with a link to take along", async ({
+      page,
+      baseURL,
+      me: _me,
+    }) => {
       await openApp(page, "/me");
       await expect(installBanner(page).getByText("Safariで開くと追加できるよ")).toBeVisible();
       await installBanner(page).getByRole("button", { name: "やり方" }).click();
@@ -440,7 +585,11 @@ test.describe("on an iPhone, where the browser has no install dialog", () => {
 
 // ── App badge ───────────────────────────────────────────────────────
 
-test("the app's icon carries the unread count, and loses it when everything is read", async ({ page, request, me }) => {
+test("the app's icon carries the unread count, and loses it when everything is read", async ({
+  page,
+  request,
+  me,
+}) => {
   // Stand-ins for the Badging API, which only installed apps have.
   await page.addInitScript(() => {
     const shown: number[] = [];
@@ -457,7 +606,12 @@ test("the app's icon carries the unread count, and loses it when everything is r
     });
   });
   const haru = await createAccount(request, "haru");
-  await rpc(request, "tokuly.social.v1.FriendService/SendFriendRequest", { userId: me.userId }, haru);
+  await rpc(
+    request,
+    "tokuly.social.v1.FriendService/SendFriendRequest",
+    { userId: me.userId },
+    haru,
+  );
 
   await page.goto("/me");
   const onIcon = () => page.evaluate(() => window.__iconBadge?.at(-1));
@@ -469,9 +623,15 @@ test("the app's icon carries the unread count, and loses it when everything is r
 
 // ── The app page ────────────────────────────────────────────────────
 
-test("the settings lead to the app page, which says how the app stands on this device", async ({ page, me: _me }) => {
+test("the settings lead to the app page, which says how the app stands on this device", async ({
+  page,
+  me: _me,
+}) => {
   await page.goto("/settings");
-  await page.getByRole("navigation", { name: "設定" }).getByRole("link", { name: /^アプリとして使う/ }).click();
+  await page
+    .getByRole("navigation", { name: "設定" })
+    .getByRole("link", { name: /^アプリとして使う/ })
+    .click();
   await expect(page).toHaveURL(/\/pwa$/);
   await expect(page.getByRole("heading", { level: 1, name: "アプリとして使う" })).toBeVisible();
 
@@ -481,7 +641,10 @@ test("the settings lead to the app page, which says how the app stands on this d
   // The worker runs and has the offline page.
   await expect(page.getByText("準備OK")).toBeVisible();
   await expect(page.getByText("最新", { exact: true })).toBeVisible();
-  await expect(page.getByRole("link", { name: "通知設定をひらく" })).toHaveAttribute("href", "/notifications/settings");
+  await expect(page.getByRole("link", { name: "通知設定をひらく" })).toHaveAttribute(
+    "href",
+    "/notifications/settings",
+  );
   await expect(page.getByRole("progressbar", { name: "ストレージの使用量" })).toBeVisible();
 
   await page.getByRole("button", { name: "確認する" }).click();
@@ -490,19 +653,31 @@ test("the settings lead to the app page, which says how the app stands on this d
   await expect(page.getByRole("link", { name: "back" })).toHaveAttribute("href", "/settings");
 });
 
-test("offline data can be cleared, and the offline page is ready again right away", async ({ page, me: _me }) => {
+test("offline data can be cleared, and the offline page is ready again right away", async ({
+  page,
+  me: _me,
+}) => {
   await page.goto("/pwa");
   await controlled(page);
   // Something the worker would have stored along the way.
-  await page.evaluate(async () => (await caches.open("tokuly-map-v1")).put("/map-assets/e2e.json", new Response("{}")));
+  await page.evaluate(async () =>
+    (await caches.open("tokuly-map-v1")).put("/map-assets/e2e.json", new Response("{}")),
+  );
   await page.reload();
-  await expect.poll(() => storedPaths(page)).toEqual(expect.arrayContaining(["/map-assets/e2e.json", "/offline.html"]));
+  await expect
+    .poll(() => storedPaths(page))
+    .toEqual(expect.arrayContaining(["/map-assets/e2e.json", "/offline.html"]));
 
   await page.getByRole("button", { name: "オフラインデータを消す" }).click();
-  await page.getByRole("dialog", { name: "オフラインデータを消す？" }).getByRole("button", { name: "消す" }).click();
+  await page
+    .getByRole("dialog", { name: "オフラインデータを消す？" })
+    .getByRole("button", { name: "消す" })
+    .click();
   await expect(toast(page, "オフラインデータを消したよ！")).toBeVisible();
   // Gone, except the offline page; what the page needs from here on is stored anew (a font, in a production build).
   await expect.poll(() => storedPaths(page)).not.toContain("/map-assets/e2e.json");
   await expect.poll(() => storedPaths(page)).toContain("/offline.html");
-  await expect(page.getByTestId("offline-files")).toHaveText(/すばやく開くために保存したファイル: \d+個/);
+  await expect(page.getByTestId("offline-files")).toHaveText(
+    /すばやく開くために保存したファイル: \d+個/,
+  );
 });

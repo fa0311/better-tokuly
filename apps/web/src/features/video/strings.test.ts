@@ -10,11 +10,18 @@ type Strings = { [key: string]: string | Strings };
 
 /** Every leaf of a strings file as a dotted key. */
 function keysOf(strings: Strings, prefix = ""): string[] {
-  return Object.entries(strings).flatMap(([key, value]) => (typeof value === "string" ? [prefix + key] : keysOf(value, `${prefix}${key}.`)));
+  return Object.entries(strings).flatMap(([key, value]) =>
+    typeof value === "string" ? [prefix + key] : keysOf(value, `${prefix}${key}.`),
+  );
 }
 
 function at(strings: Strings, key: string): string {
-  return key.split(".").reduce<string | Strings>((node, part) => (node as Strings)[part] as string | Strings, strings) as string;
+  return key
+    .split(".")
+    .reduce<string | Strings>(
+      (node, part) => (node as Strings)[part] as string | Strings,
+      strings,
+    ) as string;
 }
 
 /** The `{{placeholders}}` a string expects. */
@@ -41,7 +48,8 @@ function usedKeys(directory: string, strings: Strings): string[] {
   const used = new Set<string>();
   for (const file of sourceFiles(directory)) {
     const source = readFileSync(file, "utf8");
-    for (const match of source.matchAll(/\bt\(\s*"([A-Za-z0-9_.]+)"/g)) used.add(match[1] as string);
+    for (const match of source.matchAll(/\bt\(\s*"([A-Za-z0-9_.]+)"/g))
+      used.add(match[1] as string);
     for (const match of source.matchAll(/"([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)"/g)) {
       const literal = match[1] as string;
       if (groups.has(literal.split(".")[0] as string)) used.add(literal);
@@ -59,7 +67,8 @@ describe.each([
   });
 
   it("use the same placeholders in both languages", () => {
-    for (const key of keysOf(ja)) expect(placeholders(at(en, key)), key).toEqual(placeholders(at(ja, key)));
+    for (const key of keysOf(ja))
+      expect(placeholders(at(en, key)), key).toEqual(placeholders(at(ja, key)));
   });
 
   it("define every key the feature's code asks for", () => {

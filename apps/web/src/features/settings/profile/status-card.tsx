@@ -8,9 +8,9 @@ import { Dialog } from "#/components/ui/dialog";
 import { TextField } from "#/components/ui/field";
 import { accountClient } from "#/lib/api";
 import { cn } from "#/lib/cn";
+import { errorMessage } from "#/lib/errors";
 import { compactDuration } from "#/lib/format";
 import { adoptMe } from "../data";
-import { errorMessage } from "#/lib/errors";
 import { Group } from "../shell/settings-page";
 import { graphemes } from "./graphemes";
 
@@ -75,18 +75,30 @@ export function StatusCard({ me }: { me: identity.Me }) {
       <div className="flex items-center gap-3">
         {status ? (
           <div className="min-w-0 flex-1">
-            <p data-testid="status-pill" className="sticker-sm inline-flex max-w-full items-center gap-2 rounded-full bg-surface px-4 py-1.5 text-sm font-bold">
+            <p
+              data-testid="status-pill"
+              className="sticker-sm inline-flex max-w-full items-center gap-2 rounded-full bg-surface px-4 py-1.5 text-sm font-bold"
+            >
               {status.emoji && <span>{status.emoji}</span>}
               <span className="truncate">{status.text}</span>
             </p>
             <p className="mt-1.5 px-1 text-xs font-bold text-ink-faint">
-              {status.expiresAt ? t("profile.status.remaining", { duration: compactDuration(toMillis(status.expiresAt) - Date.now()) }) : t("profile.status.untilCleared")}
+              {status.expiresAt
+                ? t("profile.status.remaining", {
+                    duration: compactDuration(toMillis(status.expiresAt) - Date.now()),
+                  })
+                : t("profile.status.untilCleared")}
             </p>
           </div>
         ) : (
           <p className="min-w-0 flex-1 text-sm text-ink-soft">{t("profile.status.none")}</p>
         )}
-        <Button variant={status ? "secondary" : "lime"} size="sm" className="shrink-0" onClick={() => setEditing(true)}>
+        <Button
+          variant={status ? "secondary" : "lime"}
+          size="sm"
+          className="shrink-0"
+          onClick={() => setEditing(true)}
+        >
           {status ? t("profile.status.edit") : t("profile.status.set")}
         </Button>
       </div>
@@ -95,7 +107,15 @@ export function StatusCard({ me }: { me: identity.Me }) {
   );
 }
 
-function StatusDialog({ me, status, onClose }: { me: identity.Me; status: identity.Status | undefined; onClose(): void }) {
+function StatusDialog({
+  me,
+  status,
+  onClose,
+}: {
+  me: identity.Me;
+  status: identity.Status | undefined;
+  onClose(): void;
+}) {
   const { t } = useTranslation(["settings", "common"]);
   const queryClient = useQueryClient();
   const [emoji, setEmoji] = useState(status?.emoji ?? "");
@@ -103,11 +123,16 @@ function StatusDialog({ me, status, onClose }: { me: identity.Me; status: identi
   const [duration, setDuration] = useState<DurationId>("4h");
 
   const save = useMutation({
-    mutationFn: (input: { emoji: string; text: string; expiresInSeconds: number }) => accountClient().setStatus(input),
+    mutationFn: (input: { emoji: string; text: string; expiresInSeconds: number }) =>
+      accountClient().setStatus(input),
     onSuccess: (response, input) => {
       adoptMe({ ...me, status: response.status });
       void queryClient.invalidateQueries({ queryKey: ["identity", "profile"] });
-      toast.success(input.emoji || input.text ? t("settings:profile.status.saved") : t("settings:profile.status.cleared"));
+      toast.success(
+        input.emoji || input.text
+          ? t("settings:profile.status.saved")
+          : t("settings:profile.status.cleared"),
+      );
       onClose();
     },
     onError: (error) => toast.error(errorMessage(error)),
@@ -118,11 +143,20 @@ function StatusDialog({ me, status, onClose }: { me: identity.Me; status: identi
   const tooLong = graphemes(trimmed).length > MAX_TEXT;
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (!empty && !tooLong) save.mutate({ emoji: lastTwoEmoji(emoji), text: trimmed, expiresInSeconds: durationSeconds(duration) });
+    if (!empty && !tooLong)
+      save.mutate({
+        emoji: lastTwoEmoji(emoji),
+        text: trimmed,
+        expiresInSeconds: durationSeconds(duration),
+      });
   };
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()} title={t("settings:profile.status.dialogTitle")}>
+    <Dialog
+      open
+      onOpenChange={(open) => !open && onClose()}
+      title={t("settings:profile.status.dialogTitle")}
+    >
       <form onSubmit={submit} className="flex flex-col gap-5">
         <div className="flex gap-2">
           <TextField
@@ -131,7 +165,13 @@ function StatusDialog({ me, status, onClose }: { me: identity.Me; status: identi
             placeholder="🙂"
             value={emoji}
             // Mid-conversion text of a Japanese keyboard is left alone until it is committed.
-            onChange={(event) => setEmoji((event.nativeEvent as InputEvent).isComposing ? event.target.value : lastTwoEmoji(event.target.value))}
+            onChange={(event) =>
+              setEmoji(
+                (event.nativeEvent as InputEvent).isComposing
+                  ? event.target.value
+                  : lastTwoEmoji(event.target.value),
+              )
+            }
             onCompositionEnd={(event) => setEmoji(lastTwoEmoji(event.currentTarget.value))}
             autoComplete="off"
           />
@@ -148,7 +188,9 @@ function StatusDialog({ me, status, onClose }: { me: identity.Me; status: identi
         </div>
 
         <div>
-          <p className="px-1 pb-2 text-sm font-bold text-ink-soft">{t("settings:profile.status.quick")}</p>
+          <p className="px-1 pb-2 text-sm font-bold text-ink-soft">
+            {t("settings:profile.status.quick")}
+          </p>
           <div className="flex flex-wrap gap-2">
             {PRESETS.map((preset) => {
               const label = t(`settings:profile.status.presets.${preset.key}`);
@@ -164,7 +206,9 @@ function StatusDialog({ me, status, onClose }: { me: identity.Me; status: identi
                   }}
                   className={cn(
                     "pressable inline-flex h-9 items-center gap-1.5 rounded-full border-2 px-3 text-sm font-bold",
-                    active ? "border-ink bg-lime text-[#17122b]" : "border-line bg-surface hover:border-ink-faint",
+                    active
+                      ? "border-ink bg-lime text-[#17122b]"
+                      : "border-line bg-surface hover:border-ink-faint",
                   )}
                 >
                   <span>{preset.emoji}</span>
@@ -176,17 +220,27 @@ function StatusDialog({ me, status, onClose }: { me: identity.Me; status: identi
         </div>
 
         <fieldset>
-          <legend className="px-1 pb-2 text-sm font-bold text-ink-soft">{t("settings:profile.status.duration")}</legend>
+          <legend className="px-1 pb-2 text-sm font-bold text-ink-soft">
+            {t("settings:profile.status.duration")}
+          </legend>
           <div className="flex flex-wrap gap-2">
             {DURATIONS.map((id) => (
               <label
                 key={id}
                 className={cn(
                   "inline-flex h-9 cursor-pointer items-center rounded-full border-2 px-3.5 text-sm font-bold has-[:focus-visible]:outline-[3px] has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-brand",
-                  duration === id ? "border-ink bg-brand text-on-brand" : "border-line bg-surface hover:border-ink-faint",
+                  duration === id
+                    ? "border-ink bg-brand text-on-brand"
+                    : "border-line bg-surface hover:border-ink-faint",
                 )}
               >
-                <input type="radio" name="status-duration" className="sr-only" checked={duration === id} onChange={() => setDuration(id)} />
+                <input
+                  type="radio"
+                  name="status-duration"
+                  className="sr-only"
+                  checked={duration === id}
+                  onChange={() => setDuration(id)}
+                />
                 {t(`settings:profile.status.durations.${id}`)}
               </label>
             ))}
@@ -195,7 +249,12 @@ function StatusDialog({ me, status, onClose }: { me: identity.Me; status: identi
 
         <div className="flex justify-end gap-2">
           {status && (
-            <Button variant="ghost" className="mr-auto text-danger" disabled={save.isPending} onClick={() => save.mutate({ emoji: "", text: "", expiresInSeconds: 0 })}>
+            <Button
+              variant="ghost"
+              className="mr-auto text-danger"
+              disabled={save.isPending}
+              onClick={() => save.mutate({ emoji: "", text: "", expiresInSeconds: 0 })}
+            >
               {t("settings:profile.status.clear")}
             </Button>
           )}

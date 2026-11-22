@@ -1,19 +1,35 @@
 import { create, notify } from "@tokuly/api";
 import { describe, expect, it } from "vitest";
-import { entriesOf, type InboxFilter, type InboxPages, withRead, withReceived, withRemoved } from "./inbox-cache";
+import {
+  entriesOf,
+  type InboxFilter,
+  type InboxPages,
+  withRead,
+  withReceived,
+  withRemoved,
+} from "./inbox-cache";
 
 const ALL: InboxFilter = { category: "", unreadOnly: false };
 const UNREAD: InboxFilter = { category: "", unreadOnly: true };
 const CHAT: InboxFilter = { category: "chat", unreadOnly: false };
 
 function entry(id: string, category = "social", read = false): notify.Notification {
-  return create(notify.NotificationSchema, { id, category, kind: `${category}.test`, title: id, read, groupCount: 1 });
+  return create(notify.NotificationSchema, {
+    id,
+    category,
+    kind: `${category}.test`,
+    title: id,
+    read,
+    groupCount: 1,
+  });
 }
 
 /** Two pages, as an infinite query holds them. */
 function pages(...lists: notify.Notification[][]): InboxPages {
   return {
-    pages: lists.map((notifications) => create(notify.ListNotificationsResponseSchema, { notifications })),
+    pages: lists.map((notifications) =>
+      create(notify.ListNotificationsResponseSchema, { notifications }),
+    ),
     pageParams: lists.map((_, index) => (index === 0 ? "" : `cursor-${index}`)),
   };
 }
@@ -51,7 +67,10 @@ describe("inbox cache", () => {
   it("marks everything read, or everything of one category", () => {
     const start = pages([entry("c", "chat"), entry("s", "social")]);
     expect(entriesOf(withRead(start, "all", ALL)).every((item) => item.read)).toBe(true);
-    expect(entriesOf(withRead(start, "all", ALL, "chat")).map((item) => item.read)).toEqual([true, false]);
+    expect(entriesOf(withRead(start, "all", ALL, "chat")).map((item) => item.read)).toEqual([
+      true,
+      false,
+    ]);
     expect(ids(withRead(start, "all", UNREAD, "chat"))).toEqual(["s"]);
   });
 

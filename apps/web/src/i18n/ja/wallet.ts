@@ -59,7 +59,14 @@ export default {
     openPayout: "この出金申請を見る",
     openPack: "このスタンプパックを見る",
   },
-  memo: { sku: "パック", bonus_coins: "ボーナス", provider: "決済方法", streak: "連続日数", date: "日付", pack_name: "スタンプパック" },
+  memo: {
+    sku: "パック",
+    bonus_coins: "ボーナス",
+    provider: "決済方法",
+    streak: "連続日数",
+    date: "日付",
+    pack_name: "スタンプパック",
+  },
   history: {
     title: "コインの履歴",
     filters: { all: "すべて", coins: "コイン", earnings: "収益" },
@@ -101,7 +108,13 @@ export default {
     unknown: "不明",
   },
   purchase: {
-    status: { pending: "支払い待ち", completed: "完了", failed: "失敗", cancelled: "キャンセル", expired: "期限切れ" },
+    status: {
+      pending: "支払い待ち",
+      completed: "完了",
+      failed: "失敗",
+      cancelled: "キャンセル",
+      expired: "期限切れ",
+    },
     completed: { title: "コインが届いたよ！" },
     redirect: {
       title: "お支払いを完了してね",
@@ -111,9 +124,15 @@ export default {
       title: "お支払いを確認中…",
       body: "{{provider}}でのお支払いが確認できしだい、コインが届くよ。",
     },
-    failed: { title: "お支払いできませんでした", body: "コインは増えていません。もう一度ためすか、別のお支払い方法をえらんでね。" },
+    failed: {
+      title: "お支払いできませんでした",
+      body: "コインは増えていません。もう一度ためすか、別のお支払い方法をえらんでね。",
+    },
     cancelled: { title: "この購入はキャンセルされました", body: "コインは増えていません。" },
-    expired: { title: "この購入は期限切れです", body: "時間内にお支払いが確認できませんでした。コインは増えていません。" },
+    expired: {
+      title: "この購入は期限切れです",
+      body: "時間内にお支払いが確認できませんでした。コインは増えていません。",
+    },
     expiresInHours: "あと{{hours}}時間{{minutes}}分以内にお支払いしてね",
     expiresInMinutes: "あと{{minutes}}分以内にお支払いしてね",
     actions: {
@@ -162,9 +181,16 @@ export default {
     requestsEmptyBody: "収益がたまったら、ここから受け取りを申請できるよ！",
     period: "期間でみる",
     ranges: { "7d": "7日", "30d": "30日", "12m": "12か月" },
-    totals: { net: "受け取った収益", gross: "総額", fee: "手数料", feePercent: "手数料 ({{percent}}%)", count: "件数" },
+    totals: {
+      net: "受け取った収益",
+      gross: "総額",
+      fee: "手数料",
+      feePercent: "手数料 ({{percent}}%)",
+      count: "件数",
+    },
     byReason: "内訳",
-    byReasonEmpty: "この期間の収益はまだないよ。ライブでギフトをもらったり、スタンプが売れたりすると、ここに内訳が出るよ！",
+    byReasonEmpty:
+      "この期間の収益はまだないよ。ライブでギフトをもらったり、スタンプが売れたりすると、ここに内訳が出るよ！",
     reasonCount: "{{count}}件",
     chart: {
       title: "収益の推移",
@@ -176,8 +202,21 @@ export default {
   },
   payout: {
     title: "出金申請",
-    status: { pending: "審査待ち", approved: "承認済み", rejected: "却下", paid: "支払い済み", cancelled: "取り消し", unknown: "不明" },
-    method: { bank: "銀行振込", paypal: "PayPal", giftCard: "ギフトカード", other: "その他", unknown: "未指定" },
+    status: {
+      pending: "審査待ち",
+      approved: "承認済み",
+      rejected: "却下",
+      paid: "支払い済み",
+      cancelled: "取り消し",
+      unknown: "不明",
+    },
+    method: {
+      bank: "銀行振込",
+      paypal: "PayPal",
+      giftCard: "ギフトカード",
+      other: "その他",
+      unknown: "未指定",
+    },
     rejectedReason: "却下の理由:",
     reviewNote: "運営から:",
     paymentReference: "支払いの控え",
@@ -231,8 +270,16 @@ export default {
   },
   staff: {
     title: "ウォレット管理",
-    gate: { title: "モデレーター以上の権限が必要です", body: "出金の審査とウォレットの確認は、モデレーターまたは管理者だけが行えます。" },
-    tabs: { payouts: "出金審査", users: "ユーザー", adjustments: "調整ログ", packages: "コインパック" },
+    gate: {
+      title: "モデレーター以上の権限が必要です",
+      body: "出金の審査とウォレットの確認は、モデレーターまたは管理者だけが行えます。",
+    },
+    tabs: {
+      payouts: "出金審査",
+      users: "ユーザー",
+      adjustments: "調整ログ",
+      packages: "コインパック",
+    },
     deletedUser: "削除済みのアカウント",
     payouts: {
       filter: "状態で絞り込む",
@@ -260,9 +307,21 @@ export default {
       approveNote: "申請者へのメッセージ（任意）",
       approveNoteHint: "承認の通知といっしょに届きます。",
       confirm: {
-        approve: { title: "この出金申請を承認しますか？", body: "申請者に通知されます。送金が済んだら「支払い済み」にしてください。", confirm: "承認する" },
-        reject: { title: "この出金申請を却下しますか？", body: "コインは申請者の収益にもどり、理由が通知されます。", confirm: "却下する" },
-        paid: { title: "支払い済みにしますか？", body: "送金が完了したことを記録し、申請者に通知します。取り消せません。", confirm: "支払い済みにする" },
+        approve: {
+          title: "この出金申請を承認しますか？",
+          body: "申請者に通知されます。送金が済んだら「支払い済み」にしてください。",
+          confirm: "承認する",
+        },
+        reject: {
+          title: "この出金申請を却下しますか？",
+          body: "コインは申請者の収益にもどり、理由が通知されます。",
+          confirm: "却下する",
+        },
+        paid: {
+          title: "支払い済みにしますか？",
+          body: "送金が完了したことを記録し、申請者に通知します。取り消せません。",
+          confirm: "支払い済みにする",
+        },
       },
       toast: { approve: "承認しました", reject: "却下しました", paid: "支払い済みにしました" },
     },
@@ -337,11 +396,31 @@ export default {
       retireLabel: "{{sku}} を販売終了にする",
       restore: "販売再開",
       restoreLabel: "{{sku}} の販売を再開する",
-      columns: { sku: "SKU", coins: "コイン", bonus: "ボーナス", price: "価格", badge: "バッジ", order: "並び順", window: "販売期間", state: "状態" },
+      columns: {
+        sku: "SKU",
+        coins: "コイン",
+        bonus: "ボーナス",
+        price: "価格",
+        badge: "バッジ",
+        order: "並び順",
+        window: "販売期間",
+        state: "状態",
+      },
       state: { onSale: "販売中", scheduled: "販売前", ended: "期間終了", retired: "販売終了" },
-      retireConfirm: { title: "{{sku}} を販売終了にしますか？", body: "ショップに表示されなくなります。これまでの購入には影響しません。" },
-      restoreConfirm: { title: "{{sku}} の販売を再開しますか？", body: "ショップにふたたび表示されます。" },
-      toast: { created: "パックを作成しました", saved: "パックを保存しました", retired: "販売終了にしました", restored: "販売を再開しました" },
+      retireConfirm: {
+        title: "{{sku}} を販売終了にしますか？",
+        body: "ショップに表示されなくなります。これまでの購入には影響しません。",
+      },
+      restoreConfirm: {
+        title: "{{sku}} の販売を再開しますか？",
+        body: "ショップにふたたび表示されます。",
+      },
+      toast: {
+        created: "パックを作成しました",
+        saved: "パックを保存しました",
+        retired: "販売終了にしました",
+        restored: "販売を再開しました",
+      },
       form: {
         createTitle: "新しいコインパック",
         editTitle: "コインパックを編集",

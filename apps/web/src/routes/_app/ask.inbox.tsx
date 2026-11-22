@@ -13,5 +13,12 @@ export const Route = createFileRoute("/_app/ask/inbox")({
 function InboxPage() {
   const { tab = "inbox" } = Route.useSearch();
   const navigate = Route.useNavigate();
-  return <InboxScreen tab={tab} onTabChange={(next) => navigate({ search: next === "inbox" ? {} : { tab: next }, replace: true })} />;
+  return (
+    <InboxScreen
+      tab={tab}
+      onTabChange={(next) =>
+        navigate({ search: next === "inbox" ? {} : { tab: next }, replace: true })
+      }
+    />
+  );
 }

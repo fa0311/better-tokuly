@@ -8,7 +8,13 @@ const ANNIVERSARY = "tokuly.plans.v1.AnniversaryService";
 
 /** A second person's browser, signed in, at the size of the running project. */
 async function browserOf(browser: Browser, testInfo: TestInfo, account: Account): Promise<Page> {
-  const context = await browser.newContext({ baseURL: testInfo.project.use.baseURL, locale: "ja-JP", timezoneId: "Asia/Tokyo", viewport: testInfo.project.use.viewport, hasTouch: testInfo.project.use.hasTouch });
+  const context = await browser.newContext({
+    baseURL: testInfo.project.use.baseURL,
+    locale: "ja-JP",
+    timezoneId: "Asia/Tokyo",
+    viewport: testInfo.project.use.viewport,
+    hasTouch: testInfo.project.use.hasTouch,
+  });
   const page = await context.newPage();
   await signInAs(page, account);
   return page;
@@ -16,10 +22,17 @@ async function browserOf(browser: Browser, testInfo: TestInfo, account: Account)
 
 /** `YYYY-MM-DD` of the day `offset` days from now, in Tokyo (where the browsers of these tests are). */
 function tokyoDay(offset = 0): string {
-  return new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(new Date(Date.now() + offset * 86_400_000));
+  return new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(
+    new Date(Date.now() + offset * 86_400_000),
+  );
 }
 
-test("ひま: two taps set it, a friend sees it live and answers in one tap", async ({ page, request, me, browser }, testInfo) => {
+test("ひま: two taps set it, a friend sees it live and answers in one tap", async ({
+  page,
+  request,
+  me,
+  browser,
+}, testInfo) => {
   const friend = await createAccount(request, "Aoi");
   await befriend(request, me, friend);
   const friendPage = await browserOf(browser, testInfo, friend);
@@ -57,7 +70,12 @@ test("ひま: two taps set it, a friend sees it live and answers in one tap", as
   await friendPage.context().close();
 });
 
-test("a plan: created with a friend invited, the friend answers, the checklist and the cost split add up", async ({ page, request, me, browser }, testInfo) => {
+test("a plan: created with a friend invited, the friend answers, the checklist and the cost split add up", async ({
+  page,
+  request,
+  me,
+  browser,
+}, testInfo) => {
   const friend = await createAccount(request, "Haruto");
   await befriend(request, me, friend);
 
@@ -91,7 +109,9 @@ test("a plan: created with a friend invited, the friend answers, the checklist a
   await page.getByRole("button", { name: "追加", exact: true }).click();
   const item = friendPage.getByTestId("checklist-item").filter({ hasText: "おかし" });
   await item.getByRole("button", { name: "持ってく" }).click();
-  await expect(page.getByTestId("checklist-item").filter({ hasText: "おかし" })).toContainText(friend.displayName);
+  await expect(page.getByTestId("checklist-item").filter({ hasText: "おかし" })).toContainText(
+    friend.displayName,
+  );
   await page.getByRole("checkbox", { name: "おかしを完了にする" }).click();
   await expect(item.getByRole("checkbox")).toBeChecked();
 
@@ -109,19 +129,33 @@ test("a plan: created with a friend invited, the friend answers, the checklist a
   await page.getByRole("dialog").getByRole("button", { name: "受け取った！" }).click();
   await expect(page.getByTestId("my-balance")).toHaveText("あなたは精算ずみ");
   await expect(friendPage.getByTestId("my-balance")).toHaveText("あなたは精算ずみ");
-  const split = await rpc<{ settlements: { amount: string }[] }>(request, `${PLAN}/GetSplit`, { planId }, me);
+  const split = await rpc<{ settlements: { amount: string }[] }>(
+    request,
+    `${PLAN}/GetSplit`,
+    { planId },
+    me,
+  );
   expect(split.settlements.map((settlement) => settlement.amount)).toEqual(["1500"]);
   await friendPage.context().close();
 });
 
-test("a date poll: three days, two people answer, the best one is highlighted and becomes a plan", async ({ page, request, me }) => {
+test("a date poll: three days, two people answer, the best one is highlighted and becomes a plan", async ({
+  page,
+  request,
+  me,
+}) => {
   const friend = await createAccount(request, "Yui");
   await befriend(request, me, friend);
   const days = [tokyoDay(5), tokyoDay(6), tokyoDay(7)];
   const { poll } = await rpc<{ poll: { id: string; shortId: string; slots: { id: string }[] } }>(
     request,
     `${POLL}/CreatePoll`,
-    { title: "打ち上げいつにする？", slots: days.map((date) => ({ date })), inviteeIds: [friend.userId], timeZone: "Asia/Tokyo" },
+    {
+      title: "打ち上げいつにする？",
+      slots: days.map((date) => ({ date })),
+      inviteeIds: [friend.userId],
+      timeZone: "Asia/Tokyo",
+    },
     me,
   );
   const [first, second, third] = poll.slots.map((slot) => slot.id);
@@ -153,8 +187,13 @@ test("a date poll: three days, two people answer, the best one is highlighted an
   await expect(page.getByTestId("poll-best")).toContainText("○2 △0 ×0");
   await expect(rows.nth(1)).toHaveAttribute("data-best", "true");
   await expect(rows.nth(0)).not.toHaveAttribute("data-best", "true");
-  await expect(page.getByTestId("poll-grid").locator("tbody tr").nth(1)).toHaveAttribute("data-best", "true");
-  await expect(page.getByTestId("poll-grid").getByRole("columnheader", { name: friend.displayName })).toBeVisible();
+  await expect(page.getByTestId("poll-grid").locator("tbody tr").nth(1)).toHaveAttribute(
+    "data-best",
+    "true",
+  );
+  await expect(
+    page.getByTestId("poll-grid").getByRole("columnheader", { name: friend.displayName }),
+  ).toBeVisible();
 
   await page.getByRole("button", { name: "この日程で決める" }).click();
   await page.getByRole("button", { name: "この日で決定！" }).click();
@@ -164,11 +203,21 @@ test("a date poll: three days, two people answer, the best one is highlighted an
   // The friend said ○ for that day, so they are invited to the plan.
   await expect(page.getByText("まだ返事なし · 1")).toBeVisible();
   const planId = page.url().split("/").pop() as string;
-  const { plan } = await rpc<{ plan: { time: { startDate: string } } }>(request, `${PLAN}/GetPlan`, { planId }, me);
+  const { plan } = await rpc<{ plan: { time: { startDate: string } } }>(
+    request,
+    `${PLAN}/GetPlan`,
+    { planId },
+    me,
+  );
   expect(plan.time.startDate).toBe(days[1]);
 });
 
-test("a countdown is created, pinned to the profile, and friends see it there", async ({ page, request, me, browser }, testInfo) => {
+test("a countdown is created, pinned to the profile, and friends see it there", async ({
+  page,
+  request,
+  me,
+  browser,
+}, testInfo) => {
   const friend = await createAccount(request, "Sota");
   await befriend(request, me, friend);
 
@@ -199,7 +248,12 @@ test("a countdown is created, pinned to the profile, and friends see it there", 
 });
 
 test("on its day a countdown takes over the screen", async ({ page, request, me }) => {
-  const { countdown } = await rpc<{ countdown: { id: string } }>(request, `${ANNIVERSARY}/CreateCountdown`, { title: "文化祭", emoji: "🏮", date: tokyoDay(0) }, me);
+  const { countdown } = await rpc<{ countdown: { id: string } }>(
+    request,
+    `${ANNIVERSARY}/CreateCountdown`,
+    { title: "文化祭", emoji: "🏮", date: tokyoDay(0) },
+    me,
+  );
   await page.goto(`/plans/countdowns/${countdown.id}`);
   const moment = page.getByTestId("today-moment");
   await expect(moment).toContainText("今日がその日！");
@@ -209,25 +263,63 @@ test("on its day a countdown takes over the screen", async ({ page, request, me 
   await expect(page.getByTestId("countdown-hero")).toContainText("今日！");
 });
 
-test("the calendar shows plans, poll deadlines, countdowns and friends' birthdays, and exports the month", async ({ page, request, me }) => {
+test("the calendar shows plans, poll deadlines, countdowns and friends' birthdays, and exports the month", async ({
+  page,
+  request,
+  me,
+}) => {
   const friend = await createAccount(request, "Mio");
   await befriend(request, me, friend);
   const today = tokyoDay(0);
-  await rpc(request, `${PLAN}/CreatePlan`, { title: "みんなでごはん", emoji: "🍜", time: { startDate: today, timeZone: "Asia/Tokyo" }, inviteeIds: [friend.userId] }, me);
-  await rpc(request, `${ANNIVERSARY}/CreateCountdown`, { title: "ライブ", emoji: "🎤", date: today }, me);
+  await rpc(
+    request,
+    `${PLAN}/CreatePlan`,
+    {
+      title: "みんなでごはん",
+      emoji: "🍜",
+      time: { startDate: today, timeZone: "Asia/Tokyo" },
+      inviteeIds: [friend.userId],
+    },
+    me,
+  );
+  await rpc(
+    request,
+    `${ANNIVERSARY}/CreateCountdown`,
+    { title: "ライブ", emoji: "🎤", date: today },
+    me,
+  );
   const deadline = new Date(Date.now() + 2 * 86_400_000);
-  await rpc(request, `${POLL}/CreatePoll`, { title: "旅行の日程", slots: [{ date: tokyoDay(20) }], deadline: deadline.toISOString(), timeZone: "Asia/Tokyo" }, me);
+  await rpc(
+    request,
+    `${POLL}/CreatePoll`,
+    {
+      title: "旅行の日程",
+      slots: [{ date: tokyoDay(20) }],
+      deadline: deadline.toISOString(),
+      timeZone: "Asia/Tokyo",
+    },
+    me,
+  );
   await rpc(request, `${ANNIVERSARY}/UpdatePlansSettings`, { shareBirthday: true }, friend);
 
   await page.goto("/plans/calendar");
   const day = page.getByTestId("calendar-day");
-  await expect(day.getByTestId("calendar-entry").filter({ hasText: "みんなでごはん" })).toContainText("予定");
-  await expect(day.getByTestId("calendar-entry").filter({ hasText: "ライブ" })).toContainText("カウントダウン");
+  await expect(
+    day.getByTestId("calendar-entry").filter({ hasText: "みんなでごはん" }),
+  ).toContainText("予定");
+  await expect(day.getByTestId("calendar-entry").filter({ hasText: "ライブ" })).toContainText(
+    "カウントダウン",
+  );
   // The month page marks the day.
-  await expect(page.locator('button[aria-pressed="true"]').getByTestId("calendar-marks")).toBeVisible();
+  await expect(
+    page.locator('button[aria-pressed="true"]').getByTestId("calendar-marks"),
+  ).toBeVisible();
 
   // The whole month goes out as a calendar file.
-  const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: /\.ics/ }).click()]);
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("button", { name: /\.ics/ }).click(),
+  ]);
   expect(download.suggestedFilename()).toBe(`tokuly-${today.slice(0, 7)}.ics`);
   const ics = await (await import("node:fs/promises")).readFile(await download.path(), "utf8");
   expect(ics).toContain("SUMMARY:🍜 みんなでごはん");
@@ -239,7 +331,9 @@ test("the calendar shows plans, poll deadlines, countdowns and friends' birthday
   // Test accounts are born on April 2: the friend who shares it shows up on the next one.
   const year = Number(today.slice(0, 4)) + (today.slice(5) > "04-02" ? 1 : 0);
   await page.goto(`/plans/calendar?day=${year}-04-02`);
-  await expect(day.getByTestId("calendar-entry").filter({ hasText: friend.displayName })).toBeVisible();
+  await expect(
+    day.getByTestId("calendar-entry").filter({ hasText: friend.displayName }),
+  ).toBeVisible();
 
   // An entry leads to what it stands for.
   await page.goto("/plans/calendar");
@@ -247,16 +341,32 @@ test("the calendar shows plans, poll deadlines, countdowns and friends' birthday
   await expect(page.getByRole("heading", { name: "みんなでごはん", level: 2 })).toBeVisible();
 });
 
-test("the hub is reachable from じぶん and lists what needs an answer", async ({ page, request, me }) => {
+test("the hub is reachable from じぶん and lists what needs an answer", async ({
+  page,
+  request,
+  me,
+}) => {
   const friend = await createAccount(request, "Rin");
   await befriend(request, me, friend);
-  await rpc(request, `${PLAN}/CreatePlan`, { title: "プリ撮りにいこ", inviteeIds: [me.userId] }, friend);
-  await rpc(request, `${FREE}/SetFreeStatus`, { window: "FREE_WINDOW_TODAY", note: "だれかあそぼ", audience: "FREE_AUDIENCE_FRIENDS" }, friend);
+  await rpc(
+    request,
+    `${PLAN}/CreatePlan`,
+    { title: "プリ撮りにいこ", inviteeIds: [me.userId] },
+    friend,
+  );
+  await rpc(
+    request,
+    `${FREE}/SetFreeStatus`,
+    { window: "FREE_WINDOW_TODAY", note: "だれかあそぼ", audience: "FREE_AUDIENCE_FRIENDS" },
+    friend,
+  );
 
   await page.goto("/me");
   await page.getByRole("main").getByRole("link", { name: "あそぶ" }).click();
   await expect(page).toHaveURL(/\/plans$/);
-  await expect(page.getByTestId("free-friend").filter({ hasText: friend.displayName })).toContainText("だれかあそぼ");
+  await expect(
+    page.getByTestId("free-friend").filter({ hasText: friend.displayName }),
+  ).toContainText("だれかあそぼ");
 
   await page.getByRole("radio", { name: /未回答/ }).click();
   await page.getByRole("link", { name: /プリ撮りにいこ/ }).click();
@@ -272,15 +382,33 @@ test("the hub is reachable from じぶん and lists what needs an answer", async
   await expect(page.getByText("もうさそってもらえなくなるよ")).toBeVisible();
   await page.getByRole("button", { name: "抜ける", exact: true }).click();
   await expect(page).toHaveURL(/\/plans$/);
-  const again = await rpc<{ invitedCount: number }>(request, `${PLAN}/InviteToPlan`, { planId: (await rpc<{ plans: { id: string }[] }>(request, `${PLAN}/ListPlans`, {}, friend)).plans[0]?.id, userIds: [me.userId] }, friend);
+  const again = await rpc<{ invitedCount: number }>(
+    request,
+    `${PLAN}/InviteToPlan`,
+    {
+      planId: (await rpc<{ plans: { id: string }[] }>(request, `${PLAN}/ListPlans`, {}, friend))
+        .plans[0]?.id,
+      userIds: [me.userId],
+    },
+    friend,
+  );
   expect(again.invitedCount ?? 0).toBe(0);
 });
 
-test("lists go on past their first page: every past plan can be reached", async ({ page, request, me }) => {
+test("lists go on past their first page: every past plan can be reached", async ({
+  page,
+  request,
+  me,
+}) => {
   // More than one page (30) of plans that are over: each created and called off.
   const total = 34;
   for (let index = 1; index <= total; index++) {
-    const { plan } = await rpc<{ plan: { id: string } }>(request, `${PLAN}/CreatePlan`, { title: `おわった予定 ${String(index).padStart(2, "0")}` }, me);
+    const { plan } = await rpc<{ plan: { id: string } }>(
+      request,
+      `${PLAN}/CreatePlan`,
+      { title: `おわった予定 ${String(index).padStart(2, "0")}` },
+      me,
+    );
     await rpc(request, `${PLAN}/CancelPlan`, { planId: plan.id }, me);
   }
 
@@ -298,10 +426,19 @@ test("lists go on past their first page: every past plan can be reached", async 
   await expect(page.getByRole("heading", { name: "おわった予定 01", level: 2 })).toBeVisible();
 });
 
-test("a friend's profile shows ひま from the profile itself, and answers from there", async ({ page, request, me }) => {
+test("a friend's profile shows ひま from the profile itself, and answers from there", async ({
+  page,
+  request,
+  me,
+}) => {
   const friend = await createAccount(request, "Nana");
   await befriend(request, me, friend);
-  await rpc(request, `${FREE}/SetFreeStatus`, { window: "FREE_WINDOW_TODAY", note: "アイス食べたい", audience: "FREE_AUDIENCE_FRIENDS" }, friend);
+  await rpc(
+    request,
+    `${FREE}/SetFreeStatus`,
+    { window: "FREE_WINDOW_TODAY", note: "アイス食べたい", audience: "FREE_AUDIENCE_FRIENDS" },
+    friend,
+  );
 
   await page.goto(`/u/${friend.handle}`);
   const card = page.getByTestId("profile-free");
@@ -309,7 +446,12 @@ test("a friend's profile shows ひま from the profile itself, and answers from 
   await expect(card).toContainText(/まで/);
   await card.getByRole("button", { name: "あそぼ！" }).click();
   await expect(page.getByRole("dialog").getByText("「あそぼ！」を送ったよ")).toBeVisible();
-  const { answers } = await rpc<{ answers: { user: { id: string } }[] }>(request, `${FREE}/ListFreeAnswers`, {}, friend);
+  const { answers } = await rpc<{ answers: { user: { id: string } }[] }>(
+    request,
+    `${FREE}/ListFreeAnswers`,
+    {},
+    friend,
+  );
   expect(answers.map((answer) => answer.user.id)).toEqual([me.userId]);
 
   // Once the status has ended, the card is gone on the next visit.
@@ -317,4 +459,59 @@ test("a friend's profile shows ひま from the profile itself, and answers from 
   await page.goto(`/u/${friend.handle}`);
   await expect(page.getByRole("heading", { name: friend.displayName })).toBeVisible();
   await expect(card).toHaveCount(0);
+});
+
+test("plans follow the account's clock on a device that is in another time zone", async ({
+  request,
+  me,
+  browser,
+}, testInfo) => {
+  // A device whose calendar shows another day than the account's (Asia/Tokyo) right now:
+  // Honolulu is 19 hours behind, Kiritimati 5 hours ahead.
+  const tokyoHour = Number(
+    new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Tokyo", hour: "2-digit", hourCycle: "h23" })
+      .format(new Date())
+      .slice(0, 2),
+  );
+  const deviceZone = tokyoHour < 19 ? "Pacific/Honolulu" : "Pacific/Kiritimati";
+  const today = tokyoDay(0);
+  const deviceDay = new Intl.DateTimeFormat("sv-SE", { timeZone: deviceZone }).format(new Date());
+  expect(deviceDay, "the device is on another day").not.toBe(today);
+
+  // 23:00 tonight in Tokyo.
+  await rpc(
+    request,
+    `${PLAN}/CreatePlan`,
+    {
+      title: "夜のさんぽ",
+      emoji: "🌙",
+      time: { startAt: `${today}T23:00:00+09:00`, timeZone: "Asia/Tokyo" },
+    },
+    me,
+  );
+
+  const context = await browser.newContext({
+    baseURL: testInfo.project.use.baseURL,
+    locale: "ja-JP",
+    timezoneId: deviceZone,
+    viewport: testInfo.project.use.viewport,
+    hasTouch: testInfo.project.use.hasTouch,
+  });
+  const page = await context.newPage();
+  await signInAs(page, me);
+
+  // The calendar opens on the account's today, marks it, and files the plan under it at the account's time.
+  await page.goto("/plans/calendar");
+  const day = page.getByTestId("calendar-day");
+  const entry = day.getByTestId("calendar-entry").filter({ hasText: "夜のさんぽ" });
+  await expect(entry).toContainText("23:00");
+  const marked = page.locator('button[aria-current="date"]');
+  await expect(marked).toHaveCount(1);
+  await expect(marked).toHaveAttribute("aria-pressed", "true");
+  await expect(marked).toHaveText(new RegExp(`^${Number(today.slice(8))}`));
+  // The device's own day is just another day of the month.
+  await page.goto(`/plans/calendar?day=${deviceDay}`);
+  await expect(page.getByTestId("calendar-day").getByTestId("calendar-entry")).toHaveCount(0);
+
+  await context.close();
 });

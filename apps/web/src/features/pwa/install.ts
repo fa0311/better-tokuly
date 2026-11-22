@@ -23,7 +23,11 @@ interface InstallState {
   guideOpen: boolean;
 }
 
-export const useInstall = create<InstallState>(() => ({ canPrompt: false, justInstalled: false, guideOpen: false }));
+export const useInstall = create<InstallState>(() => ({
+  canPrompt: false,
+  justInstalled: false,
+  guideOpen: false,
+}));
 
 let pendingPrompt: BeforeInstallPromptEvent | null = null;
 
@@ -68,13 +72,17 @@ export function closeInstallGuide(): void {
 // ── Running installed ───────────────────────────────────────────────
 
 /** Display modes of a window that belongs to the installed app. */
-const INSTALLED_QUERY = "(display-mode: standalone), (display-mode: minimal-ui), (display-mode: window-controls-overlay)";
+const INSTALLED_QUERY =
+  "(display-mode: standalone), (display-mode: minimal-ui), (display-mode: window-controls-overlay)";
 
 /** Whether this page runs as the installed app (opened from the home screen or in a window of its own). */
 export function isStandalone(): boolean {
   if (typeof window === "undefined") return false;
   // `navigator.standalone` is what older iOS versions say instead of the media query.
-  return window.matchMedia(INSTALLED_QUERY).matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+  return (
+    window.matchMedia(INSTALLED_QUERY).matches ||
+    (navigator as Navigator & { standalone?: boolean }).standalone === true
+  );
 }
 
 function subscribeToDisplayMode(onChange: () => void): () => void {

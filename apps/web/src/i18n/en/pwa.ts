@@ -54,7 +54,13 @@ export default {
       confirm: { title: "Tap “Add” in the top right", body: "And Tokuly is on your Home Screen!" },
     },
     // Labels inside the little pictures of the steps, as iOS shows them.
-    art: { copy: "Copy", addToHome: "Add to Home Screen", bookmark: "Add Bookmark", cancel: "Cancel", add: "Add" },
+    art: {
+      copy: "Copy",
+      addToHome: "Add to Home Screen",
+      bookmark: "Add Bookmark",
+      cancel: "Cancel",
+      add: "Add",
+    },
     done: "Got it!",
   },
 
@@ -77,7 +83,8 @@ export default {
       offHint: "Turn them on to hear from your friends right away.",
       blockedHint: "Your browser's settings block notifications for this site.",
       unsupportedHint: "This browser doesn't support push notifications.",
-      needsInstallHint: "On iPhone and iPad, notifications work once Tokuly is on your Home Screen.",
+      needsInstallHint:
+        "On iPhone and iPad, notifications work once Tokuly is on your Home Screen.",
       open: "Open notification settings",
     },
     offline: {
@@ -85,7 +92,8 @@ export default {
       ready: "Ready",
       preparing: "Getting ready",
       unsupported: "Not supported",
-      readyHint: "Lose your connection and a waiting screen takes over, then brings you back by itself.",
+      readyHint:
+        "Lose your connection and a waiting screen takes over, then brings you back by itself.",
       preparingHint: "Almost ready.",
       unsupportedHint: "Without a connection, this browser shows its own error page.",
     },
@@ -111,7 +119,8 @@ export default {
     files: "Files saved to open faster: {{count}}",
     clear: "Clear offline data",
     clearTitle: "Clear offline data?",
-    clearBody: "This removes the files saved to open faster and frees up space. Your account and messages stay. Only the next start may take a little longer.",
+    clearBody:
+      "This removes the files saved to open faster and frees up space. Your account and messages stay. Only the next start may take a little longer.",
     clearConfirm: "Clear",
     cleared: "Offline data cleared!",
     clearFailed: "That didn't work… try again",

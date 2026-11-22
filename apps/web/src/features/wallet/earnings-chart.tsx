@@ -10,7 +10,13 @@ import { formatCoins, niceCeiling } from "./format";
  * a column reads it out above the plot; the same numbers are in a table for
  * screen readers, so nothing depends on the pointer or on colour.
  */
-export function EarningsChart({ series, bucket }: { series: wallet.EarningsPoint[]; bucket: "day" | "month" }) {
+export function EarningsChart({
+  series,
+  bucket,
+}: {
+  series: wallet.EarningsPoint[];
+  bucket: "day" | "month";
+}) {
   const { t, i18n } = useTranslation("wallet");
   const [active, setActive] = useState<number | null>(null);
 
@@ -19,10 +25,22 @@ export function EarningsChart({ series, bucket }: { series: wallet.EarningsPoint
   const top = niceCeiling(peak);
   const empty = peak === 0;
 
-  const shortDate = (date: Date | undefined) => date?.toLocaleDateString(i18n.language, bucket === "month" ? { month: "short" } : { month: "numeric", day: "numeric" }) ?? "";
+  const shortDate = (date: Date | undefined) =>
+    date?.toLocaleDateString(
+      i18n.language,
+      bucket === "month" ? { month: "short" } : { month: "numeric", day: "numeric" },
+    ) ?? "";
   const longDate = (date: Date | undefined) =>
-    date?.toLocaleDateString(i18n.language, bucket === "month" ? { year: "numeric", month: "long" } : { month: "long", day: "numeric", weekday: "short" }) ?? "";
-  const tick = (value: number) => (value >= 10_000 ? new Intl.NumberFormat(i18n.language, { notation: "compact" }).format(value) : value.toLocaleString("en-US"));
+    date?.toLocaleDateString(
+      i18n.language,
+      bucket === "month"
+        ? { year: "numeric", month: "long" }
+        : { month: "long", day: "numeric", weekday: "short" },
+    ) ?? "";
+  const tick = (value: number) =>
+    value >= 10_000
+      ? new Intl.NumberFormat(i18n.language, { notation: "compact" }).format(value)
+      : value.toLocaleString("en-US");
 
   // The latest bucket is what the readout shows until the person points at another one.
   const shownIndex = active ?? series.length - 1;
@@ -36,7 +54,9 @@ export function EarningsChart({ series, bucket }: { series: wallet.EarningsPoint
         <h3 className="font-black">{t("earnings.chart.title")}</h3>
         {shown && (
           <p className="text-sm font-bold text-ink-soft">
-            <span className="font-black text-ink tabular-nums">{formatCoins(shown.totals?.net ?? 0n)}</span>
+            <span className="font-black text-ink tabular-nums">
+              {formatCoins(shown.totals?.net ?? 0n)}
+            </span>
             <span className="mx-1.5" aria-hidden>
               ·
             </span>
@@ -80,10 +100,22 @@ export function EarningsChart({ series, bucket }: { series: wallet.EarningsPoint
               aria-valuemin={0}
               aria-valuemax={Math.max(0, series.length - 1)}
               aria-valuenow={shownIndex}
-              aria-valuetext={shown ? t("earnings.chart.point", { date: longDate(toDate(shown.periodStart)), coins: formatCoins(shown.totals?.net ?? 0n) }) : undefined}
+              aria-valuetext={
+                shown
+                  ? t("earnings.chart.point", {
+                      date: longDate(toDate(shown.periodStart)),
+                      coins: formatCoins(shown.totals?.net ?? 0n),
+                    })
+                  : undefined
+              }
               className="absolute inset-0 flex items-stretch rounded-lg"
               onKeyDown={(event) => {
-                const step = event.key === "ArrowLeft" || event.key === "ArrowDown" ? -1 : event.key === "ArrowRight" || event.key === "ArrowUp" ? 1 : 0;
+                const step =
+                  event.key === "ArrowLeft" || event.key === "ArrowDown"
+                    ? -1
+                    : event.key === "ArrowRight" || event.key === "ArrowUp"
+                      ? 1
+                      : 0;
                 if (step === 0) return;
                 event.preventDefault();
                 setActive(Math.min(series.length - 1, Math.max(0, shownIndex + step)));
@@ -102,8 +134,14 @@ export function EarningsChart({ series, bucket }: { series: wallet.EarningsPoint
                   onPointerDown={() => setActive(index)}
                 >
                   <span
-                    className={cn("block w-full max-w-6 rounded-t-[4px] bg-brand transition-opacity", active !== null && active !== index && "opacity-45")}
-                    style={{ height: `${top > 0 ? ((values[index] ?? 0) / top) * 100 : 0}%`, minHeight: (values[index] ?? 0) > 0 ? 2 : 0 }}
+                    className={cn(
+                      "block w-full max-w-6 rounded-t-[4px] bg-brand transition-opacity",
+                      active !== null && active !== index && "opacity-45",
+                    )}
+                    style={{
+                      height: `${top > 0 ? ((values[index] ?? 0) / top) * 100 : 0}%`,
+                      minHeight: (values[index] ?? 0) > 0 ? 2 : 0,
+                    }}
                   />
                 </span>
               ))}
@@ -113,7 +151,18 @@ export function EarningsChart({ series, bucket }: { series: wallet.EarningsPoint
             {series.map((point, index) => (
               <span key={index} className="relative min-w-0 flex-1">
                 {labelled.has(index) && (
-                  <span className={cn("absolute top-0 whitespace-nowrap", index === 0 ? "left-0" : index === series.length - 1 ? "right-0" : "left-1/2 -translate-x-1/2")}>{shortDate(toDate(point.periodStart))}</span>
+                  <span
+                    className={cn(
+                      "absolute top-0 whitespace-nowrap",
+                      index === 0
+                        ? "left-0"
+                        : index === series.length - 1
+                          ? "right-0"
+                          : "left-1/2 -translate-x-1/2",
+                    )}
+                  >
+                    {shortDate(toDate(point.periodStart))}
+                  </span>
                 )}
               </span>
             ))}

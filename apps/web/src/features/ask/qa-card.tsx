@@ -4,6 +4,7 @@ import { Heart, ImageDown, MessageCircle } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
+import { EmojiText } from "#/features/emoji";
 import { compactCount, LikeButton, type Subject } from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { compactAge } from "#/lib/format";
@@ -14,7 +15,8 @@ export const questionSubject = (id: string): Subject => ({ type: common.SubjectT
 
 /** Whether likes and comments exist for this answer: only on the Q&A page (public or friends). */
 export const hasEngagement = (question: ask.Question): boolean =>
-  question.answer?.audience === ask.AnswerAudience.PUBLIC || question.answer?.audience === ask.AnswerAudience.FRIENDS;
+  question.answer?.audience === ask.AnswerAudience.PUBLIC ||
+  question.answer?.audience === ask.AnswerAudience.FRIENDS;
 
 /**
  * One answered question as a card: the question on top (who asked, when
@@ -41,15 +43,31 @@ export function QaCard({
   const [sharing, setSharing] = useState(false);
   const answer = question.answer;
   const engaged = hasEngagement(question);
-  const text = <p className="mt-1.5 text-lg leading-snug font-black break-words whitespace-pre-wrap">{question.text}</p>;
+  const text = (
+    <p className="mt-1.5 text-lg leading-snug font-black break-words whitespace-pre-wrap">
+      {question.text}
+    </p>
+  );
 
   return (
-    <article className={cn("sticker overflow-hidden rounded-card bg-surface", highlighted && "ring-4 ring-lime")} data-testid="qa-card">
+    <article
+      className={cn(
+        "sticker overflow-hidden rounded-card bg-surface",
+        highlighted && "ring-4 ring-lime",
+      )}
+      data-testid="qa-card"
+    >
       <div className="bg-brand-soft px-4 pt-3.5 pb-4">
         <div className="flex items-center gap-2">
-          {guest ? <GuestSender question={question} /> : <Sender anonymous={question.anonymous} user={question.asker} />}
+          {guest ? (
+            <GuestSender question={question} />
+          ) : (
+            <Sender anonymous={question.anonymous} user={question.asker} />
+          )}
           <span className="flex-1" />
-          <time className="text-xs font-bold text-ink-soft">{compactAge(toMillis(question.createdAt))}</time>
+          <time className="text-xs font-bold text-ink-soft">
+            {compactAge(toMillis(question.createdAt))}
+          </time>
         </div>
         {link && !guest ? (
           <Link to="/ask/q/$questionId" params={{ questionId: question.id }} className="block">
@@ -69,11 +87,17 @@ export function QaCard({
               {engaged &&
                 (guest ? (
                   <>
-                    <span className="inline-flex items-center gap-1 pr-3 text-sm font-bold" title={t("question.like", { count: question.likeCount })}>
+                    <span
+                      className="inline-flex items-center gap-1 pr-3 text-sm font-bold"
+                      title={t("question.like", { count: question.likeCount })}
+                    >
                       <Heart className="size-4" />
                       {compactCount(question.likeCount, i18n.language)}
                     </span>
-                    <span className="inline-flex items-center gap-1 pr-3 text-sm font-bold" title={t("question.commentCount", { count: question.commentCount })}>
+                    <span
+                      className="inline-flex items-center gap-1 pr-3 text-sm font-bold"
+                      title={t("question.commentCount", { count: question.commentCount })}
+                    >
                       <MessageCircle className="size-4" />
                       {compactCount(question.commentCount, i18n.language)}
                     </span>
@@ -88,7 +112,8 @@ export function QaCard({
                       className="inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-bold hover:bg-surface-2 hover:text-ink"
                     >
                       <MessageCircle className="size-[18px]" />
-                      {question.commentCount > 0 && compactCount(question.commentCount, i18n.language)}
+                      {question.commentCount > 0 &&
+                        compactCount(question.commentCount, i18n.language)}
                     </Link>
                   </>
                 ))}
@@ -105,7 +130,9 @@ export function QaCard({
               )}
               <AudienceBadge audience={answer.audience} />
               <span className="flex-1" />
-              {answer.editedAt && <span className="text-xs font-bold text-ink-faint">{t("answer.edited")}</span>}
+              {answer.editedAt && (
+                <span className="text-xs font-bold text-ink-faint">{t("answer.edited")}</span>
+              )}
               {extra}
             </div>
           </div>
@@ -120,15 +147,23 @@ export function QaCard({
 function GuestSender({ question }: { question: ask.Question }) {
   const { t } = useTranslation("ask");
   return (
-    <span className="inline-flex min-w-0 items-center gap-1.5 text-sm font-black text-ink-soft" data-testid="sender">
+    <span
+      className="inline-flex min-w-0 items-center gap-1.5 text-sm font-black text-ink-soft"
+      data-testid="sender"
+    >
       {!question.anonymous && question.asker ? (
         <>
           <Avatar user={question.asker} size="xs" />
-          <span className="truncate text-ink">{question.asker.displayName}</span>
+          <span className="truncate text-ink">
+            <EmojiText text={question.asker.displayName} />
+          </span>
         </>
       ) : (
         <>
-          <span aria-hidden className="grid size-6 place-items-center rounded-[0.45rem] bg-surface-3 text-xs">
+          <span
+            aria-hidden
+            className="grid size-6 place-items-center rounded-[0.45rem] bg-surface-3 text-xs"
+          >
             🙈
           </span>
           {t("anonymous")}

@@ -43,7 +43,8 @@ function writeAll(userId: string, drafts: Record<string, Draft>): void {
 export function discardAllDrafts(): void {
   try {
     const prefix = storageKey("");
-    for (const key of Object.keys(window.localStorage)) if (key.startsWith(prefix)) window.localStorage.removeItem(key);
+    for (const key of Object.keys(window.localStorage))
+      if (key.startsWith(prefix)) window.localStorage.removeItem(key);
   } catch {
     // Storage that cannot be read holds nothing to clear.
   }

@@ -13,7 +13,13 @@ export interface PagedQuery {
  * Put this after the last row of an infinite list: it loads the next page
  * when it scrolls into view and says so when the list is finished.
  */
-export function LoadMore({ query, showEnd }: { query: PagedQuery; /** Show the "you reached the end" line (for long feeds). */ showEnd?: boolean }) {
+export function LoadMore({
+  query,
+  showEnd,
+}: {
+  query: PagedQuery /** Show the "you reached the end" line (for long feeds). */;
+  showEnd?: boolean;
+}) {
   const { t } = useTranslation("common");
   const sentinel = useRef<HTMLDivElement>(null);
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = query;
@@ -31,7 +37,10 @@ export function LoadMore({ query, showEnd }: { query: PagedQuery; /** Show the "
     return () => observer.disconnect();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  if (!hasNextPage) return showEnd ? <p className="py-6 text-center text-sm font-bold text-ink-faint">{t("state.endOfList")}</p> : null;
+  if (!hasNextPage)
+    return showEnd ? (
+      <p className="py-6 text-center text-sm font-bold text-ink-faint">{t("state.endOfList")}</p>
+    ) : null;
   return (
     <div ref={sentinel} className="grid h-16 place-items-center" aria-busy={isFetchingNextPage}>
       {isFetchingNextPage && <Spinner className="size-6 text-ink-faint" />}

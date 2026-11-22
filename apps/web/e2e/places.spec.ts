@@ -19,10 +19,16 @@ const DEVICE: Point = { lat: 35.6595, lng: 139.7005 };
 // Stays are reported somewhere of the test's own in Tokyo: the database is
 // shared, and a stay next to someone else's public place would be a visit
 // there instead of a spot worth suggesting.
-const somewhereInTokyo = (): Point => ({ lat: 35.66 + Math.random() * 0.08, lng: 139.6 + Math.random() * 0.15 });
+const somewhereInTokyo = (): Point => ({
+  lat: 35.66 + Math.random() * 0.08,
+  lng: 139.6 + Math.random() * 0.15,
+});
 
 function east(from: Point, meters: number): Point {
-  return { lat: from.lat, lng: from.lng + meters / (111_320 * Math.cos((from.lat * Math.PI) / 180)) };
+  return {
+    lat: from.lat,
+    lng: from.lng + meters / (111_320 * Math.cos((from.lat * Math.PI) / 180)),
+  };
 }
 
 function metersBetween(a: Point, b: Point): number {
@@ -31,7 +37,9 @@ function metersBetween(a: Point, b: Point): number {
   return Math.hypot(north, eastward);
 }
 
-const myPlaces = async (request: APIRequestContext, as: Account) => (await rpc<{ places?: Place[] }>(request, "tokuly.geo.v1.PlaceService/ListMyPlaces", {}, as)).places ?? [];
+const myPlaces = async (request: APIRequestContext, as: Account) =>
+  (await rpc<{ places?: Place[] }>(request, "tokuly.geo.v1.PlaceService/ListMyPlaces", {}, as))
+    .places ?? [];
 
 const uniqueName = (base: string) => `${base}${Math.random().toString(36).slice(2, 8)}`;
 
@@ -80,24 +88,45 @@ test("a place is created by dragging a pin, renamed and deleted", async ({ page,
   // Delete it, behind a confirmation.
   await page.getByRole("button", { name: "メニュー" }).click();
   await page.getByRole("menuitem", { name: "削除する" }).click();
-  await page.getByRole("dialog", { name: "「ひみつ基地2号」を削除する?" }).getByRole("button", { name: "削除する" }).click();
+  await page
+    .getByRole("dialog", { name: "「ひみつ基地2号」を削除する?" })
+    .getByRole("button", { name: "削除する" })
+    .click();
   await expect(page).toHaveURL(/\/places$/);
   await expect(page.getByText("じぶんの場所を作ろう!")).toBeVisible();
   expect(await myPlaces(request, me)).toHaveLength(0);
 });
 
-test("a spot the server noticed is suggested, and accepting it makes it a place", async ({ page, request, me }) => {
+test("a spot the server noticed is suggested, and accepting it makes it a place", async ({
+  page,
+  request,
+  me,
+}) => {
   // Three stays of six minutes at one spot within the last hour and a half, each ended by walking off.
   const spot = somewhereInTokyo();
   const samples = [];
   for (const minutesAgo of [90, 60, 30]) {
     const start = Date.now() - minutesAgo * 60_000;
-    for (let index = 0; index <= 12; index++) samples.push({ position: spot, accuracyMeters: 10, recordedAt: new Date(start + index * 30_000).toISOString() });
+    for (let index = 0; index <= 12; index++)
+      samples.push({
+        position: spot,
+        accuracyMeters: 10,
+        recordedAt: new Date(start + index * 30_000).toISOString(),
+      });
     for (let index = 1; index <= 12; index++) {
-      samples.push({ position: east(spot, index * 25), accuracyMeters: 10, recordedAt: new Date(start + 6 * 60_000 + index * 10_000).toISOString() });
+      samples.push({
+        position: east(spot, index * 25),
+        accuracyMeters: 10,
+        recordedAt: new Date(start + 6 * 60_000 + index * 10_000).toISOString(),
+      });
     }
   }
-  const reported = await rpc<{ acceptedCount?: number }>(request, "tokuly.geo.v1.LocationService/ReportLocations", { samples }, me);
+  const reported = await rpc<{ acceptedCount?: number }>(
+    request,
+    "tokuly.geo.v1.LocationService/ReportLocations",
+    { samples },
+    me,
+  );
   expect(reported.acceptedCount).toBe(samples.length);
 
   await page.goto("/places");
@@ -108,7 +137,11 @@ test("a spot the server noticed is suggested, and accepting it makes it a place"
 
   await expect(page.getByText(/「.+のよく行く場所」を登録したよ!/)).toBeVisible();
   // It is a place of mine now, at that spot, and no longer a suggestion.
-  await expect(page.getByRole("region", { name: "つくった場所" }).getByRole("link", { name: /のよく行く場所/ })).toBeVisible();
+  await expect(
+    page
+      .getByRole("region", { name: "つくった場所" })
+      .getByRole("link", { name: /のよく行く場所/ }),
+  ).toBeVisible();
   await expect(suggestions).toHaveCount(0);
   const [place] = await myPlaces(request, me);
   expect(metersBetween(spot, place!.center)).toBeLessThan(60);
@@ -119,9 +152,18 @@ test("a suggestion can be put off", async ({ page, request, me }) => {
   const samples = [];
   for (const minutesAgo of [90, 60, 30]) {
     const start = Date.now() - minutesAgo * 60_000;
-    for (let index = 0; index <= 12; index++) samples.push({ position: spot, accuracyMeters: 10, recordedAt: new Date(start + index * 30_000).toISOString() });
+    for (let index = 0; index <= 12; index++)
+      samples.push({
+        position: spot,
+        accuracyMeters: 10,
+        recordedAt: new Date(start + index * 30_000).toISOString(),
+      });
     for (let index = 1; index <= 12; index++) {
-      samples.push({ position: east(spot, index * 25), accuracyMeters: 10, recordedAt: new Date(start + 6 * 60_000 + index * 10_000).toISOString() });
+      samples.push({
+        position: east(spot, index * 25),
+        accuracyMeters: 10,
+        recordedAt: new Date(start + 6 * 60_000 + index * 10_000).toISOString(),
+      });
     }
   }
   await rpc(request, "tokuly.geo.v1.LocationService/ReportLocations", { samples }, me);
@@ -136,7 +178,10 @@ test("a suggestion can be put off", async ({ page, request, me }) => {
   expect(await myPlaces(request, me)).toHaveLength(0);
 
   // What the device remembers is this account's, holds no coordinates, and goes on sign-out.
-  const remembered = () => page.evaluate(() => Object.entries(window.localStorage).filter(([key]) => key.startsWith("tokuly.places.")));
+  const remembered = () =>
+    page.evaluate(() =>
+      Object.entries(window.localStorage).filter(([key]) => key.startsWith("tokuly.places.")),
+    );
   const entries = await remembered();
   expect(entries.map(([key]) => key)).toEqual([`tokuly.places.dismissed.${me.userId}`]);
   expect(entries[0]![1]).toMatch(/^\["[0-9a-z]{1,7}"\]$/);
@@ -146,7 +191,11 @@ test("a suggestion can be put off", async ({ page, request, me }) => {
   expect(await remembered()).toEqual([]);
 });
 
-test("the pin can be placed without a pointer: move the map, then put the pin at its centre", async ({ page, request, me }) => {
+test("the pin can be placed without a pointer: move the map, then put the pin at its centre", async ({
+  page,
+  request,
+  me,
+}) => {
   test.slow();
   await page.goto("/places/new");
   await expect(page.getByTestId("place-pin")).toBeVisible({ timeout: MAP_TIMEOUT });
@@ -165,7 +214,11 @@ test("the pin can be placed without a pointer: move the map, then put the pin at
   expect(metersBetween(DEVICE, place!.center)).toBeGreaterThan(20);
 });
 
-test("a place page opens from search, and checking in, saving and reacting work there", async ({ page, request, me }) => {
+test("a place page opens from search, and checking in, saving and reacting work there", async ({
+  page,
+  request,
+  me,
+}) => {
   test.slow();
   // Someone else's public place.
   const owner = await createAccount(request, "Owner");
@@ -173,7 +226,15 @@ test("a place page opens from search, and checking in, saving and reacting work 
   const { place } = await rpc<{ place: Place }>(
     request,
     "tokuly.geo.v1.PlaceService/CreatePlace",
-    { name, emoji: "🐙", label: "PLACE_LABEL_CUSTOM", center: somewhereInTokyo(), radiusMeters: 60, visibility: "VISIBILITY_PUBLIC", category: "food" },
+    {
+      name,
+      emoji: "🐙",
+      label: "PLACE_LABEL_CUSTOM",
+      center: somewhereInTokyo(),
+      radiusMeters: 60,
+      visibility: "VISIBILITY_PUBLIC",
+      category: "food",
+    },
     owner,
   );
 
@@ -197,9 +258,17 @@ test("a place page opens from search, and checking in, saving and reacting work 
   await dialog.getByRole("textbox", { name: "ひとこと" }).fill("たこ焼きなう");
   await dialog.getByRole("button", { name: "チェックイン!" }).click();
   await expect(page.getByText("チェックインしたよ!")).toBeVisible();
-  await expect(page.getByRole("region", { name: "じぶんの訪問" }).getByText("1回行ったよ")).toBeVisible();
-  const { visits } = await rpc<{ visits?: { checkIn?: boolean; message?: string; place?: { id: string } }[] }>(request, "tokuly.geo.v1.HistoryService/ListVisits", {}, me);
-  expect(visits?.[0]).toMatchObject({ checkIn: true, message: "たこ焼きなう", place: { id: place.id } });
+  await expect(
+    page.getByRole("region", { name: "じぶんの訪問" }).getByText("1回行ったよ"),
+  ).toBeVisible();
+  const { visits } = await rpc<{
+    visits?: { checkIn?: boolean; message?: string; place?: { id: string } }[];
+  }>(request, "tokuly.geo.v1.HistoryService/ListVisits", {}, me);
+  expect(visits?.[0]).toMatchObject({
+    checkIn: true,
+    message: "たこ焼きなう",
+    place: { id: place.id },
+  });
 
   // Add it to my favourites: it shows up on that tab.
   await page.getByRole("button", { name: "お気に入りに追加" }).click();
@@ -216,15 +285,27 @@ test("a place page opens from search, and checking in, saving and reacting work 
   await expect(page.getByRole("link", { name: new RegExp(name) })).toBeVisible();
 });
 
-test("checking in here uses the current position and lands in today's history", async ({ page, request, me }) => {
+test("checking in here uses the current position and lands in today's history", async ({
+  page,
+  request,
+  me,
+}) => {
   await page.goto("/places");
   await page.getByRole("button", { name: "ここでチェックイン" }).click();
   const dialog = page.getByRole("dialog", { name: "チェックイン" });
-  await expect(dialog.getByRole("button", { name: "いまここ(渋谷区)" })).toHaveAttribute("aria-pressed", "true");
+  await expect(dialog.getByRole("button", { name: "いまここ(渋谷区)" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
   await dialog.getByRole("button", { name: "チェックイン!" }).click();
   await expect(page.getByText("チェックインしたよ!")).toBeVisible();
 
-  const { visits } = await rpc<{ visits?: { checkIn?: boolean; center?: Point }[] }>(request, "tokuly.geo.v1.HistoryService/ListVisits", {}, me);
+  const { visits } = await rpc<{ visits?: { checkIn?: boolean; center?: Point }[] }>(
+    request,
+    "tokuly.geo.v1.HistoryService/ListVisits",
+    {},
+    me,
+  );
   expect(visits).toHaveLength(1);
   expect(visits![0]!.checkIn).toBe(true);
   expect(metersBetween(DEVICE, visits![0]!.center!)).toBeLessThan(100);
@@ -235,7 +316,10 @@ test("checking in here uses the current position and lands in today's history", 
   await expect(page.getByTestId("day-timeline").getByRole("listitem")).toHaveCount(1);
 });
 
-test("a place name from the map data can be turned into a place of mine", async ({ page, me: _me }) => {
+test("a place name from the map data can be turned into a place of mine", async ({
+  page,
+  me: _me,
+}) => {
   await page.goto("/places?tab=search&q=渋谷");
   // Hits that are not Tokuly places (yet) offer to become one.
   const hit = page
@@ -253,16 +337,32 @@ test("a place name from the map data can be turned into a place of mine", async 
   await expect(page.getByRole("textbox", { name: "なまえ" })).toHaveValue(name);
 });
 
-test("home is offered as one of the usual spots and stays private", async ({ page, request, me }) => {
+test("home is offered as one of the usual spots and stays private", async ({
+  page,
+  request,
+  me,
+}) => {
   await page.goto("/places");
   await page.getByRole("link", { name: "おうちを登録する" }).click();
   await expect(page).toHaveURL(/\/places\/new\?label=home$/);
-  await expect(page.getByRole("button", { name: "おうち" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "おうち" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
   await expect(page.getByRole("textbox", { name: "なまえ" })).toHaveValue("おうち");
-  await expect(page.getByText("おうち・学校・職場はいつも「じぶんだけ」。ともだちにはバッジだけ見えるよ").first()).toBeVisible();
+  await expect(
+    page
+      .getByText("おうち・学校・職場はいつも「じぶんだけ」。ともだちにはバッジだけ見えるよ")
+      .first(),
+  ).toBeVisible();
   await page.getByRole("button", { name: "この場所を登録する" }).click();
 
   await expect(page).toHaveURL(/\/places\/[0-9a-f-]{36}$/);
-  const [home] = await rpc<{ places: { label: string; visibility: string }[] }>(request, "tokuly.geo.v1.PlaceService/ListMyPlaces", {}, me).then((response) => response.places);
+  const [home] = await rpc<{ places: { label: string; visibility: string }[] }>(
+    request,
+    "tokuly.geo.v1.PlaceService/ListMyPlaces",
+    {},
+    me,
+  ).then((response) => response.places);
   expect(home).toMatchObject({ label: "PLACE_LABEL_HOME", visibility: "VISIBILITY_PRIVATE" });
 });

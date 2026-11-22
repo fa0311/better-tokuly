@@ -1,12 +1,28 @@
 import { create, type MessageInitShape, notes } from "@tokuly/api";
 import { describe, expect, it } from "vitest";
-import { bumpCounter, countNewEntries, entryKey, mapNotes, type TimelineData, type TimelinePage, withFreshEntries } from "./api";
+import {
+  bumpCounter,
+  countNewEntries,
+  entryKey,
+  mapNotes,
+  type TimelineData,
+  type TimelinePage,
+  withFreshEntries,
+} from "./api";
 
-const note = (id: string, extra: MessageInitShape<typeof notes.NoteSchema> = {}) => create(notes.NoteSchema, { id, text: id, ...extra });
+const note = (id: string, extra: MessageInitShape<typeof notes.NoteSchema> = {}) =>
+  create(notes.NoteSchema, { id, text: id, ...extra });
 const entry = (id: string) => create(notes.TimelineEntrySchema, { note: note(id) });
-const page = (ids: string[], nextCursor = ""): TimelinePage => ({ entries: ids.map(entry), nextCursor });
-const data = (...pages: TimelinePage[]): TimelineData => ({ pages, pageParams: pages.map(() => "") });
-const ids = (timeline: TimelineData) => timeline.pages.map((item) => item.entries.map((row) => row.note?.id));
+const page = (ids: string[], nextCursor = ""): TimelinePage => ({
+  entries: ids.map(entry),
+  nextCursor,
+});
+const data = (...pages: TimelinePage[]): TimelineData => ({
+  pages,
+  pageParams: pages.map(() => ""),
+});
+const ids = (timeline: TimelineData) =>
+  timeline.pages.map((item) => item.entries.map((row) => row.note?.id));
 
 describe("new entries of a timeline", () => {
   it("counts the rows above the first one on screen", () => {
@@ -24,15 +40,24 @@ describe("new entries of a timeline", () => {
   });
 
   it("puts new rows on top and keeps the pages below", () => {
-    const merged = withFreshEntries(data(page(["c", "b"], "more"), page(["a"])), page(["e", "d", "c"]));
+    const merged = withFreshEntries(
+      data(page(["c", "b"], "more"), page(["a"])),
+      page(["e", "d", "c"]),
+    );
     expect(ids(merged)).toEqual([["e", "d", "c", "b"], ["a"]]);
     expect(merged.pages[0]?.nextCursor).toBe("more");
   });
 
   it("moves a note that came back to the top out of its old place", () => {
     // "a" was renoted again: it is new on top and must not show twice.
-    const renoted = create(notes.TimelineEntrySchema, { note: note("a"), renote: { user: { id: "u1" }, renotedAt: { seconds: 10n, nanos: 0 } } });
-    const merged = withFreshEntries(data(page(["c", "b"]), page(["a"])), { entries: [renoted, entry("c")], nextCursor: "" });
+    const renoted = create(notes.TimelineEntrySchema, {
+      note: note("a"),
+      renote: { user: { id: "u1" }, renotedAt: { seconds: 10n, nanos: 0 } },
+    });
+    const merged = withFreshEntries(data(page(["c", "b"]), page(["a"])), {
+      entries: [renoted, entry("c")],
+      nextCursor: "",
+    });
     expect(ids(merged)).toEqual([["a", "c", "b"], []]);
   });
 
@@ -42,7 +67,10 @@ describe("new entries of a timeline", () => {
 
   it("tells a renote row apart from the note's own row", () => {
     const plain = entry("a");
-    const renoted = create(notes.TimelineEntrySchema, { note: note("a"), renote: { user: { id: "u1" }, renotedAt: { seconds: 10n, nanos: 0 } } });
+    const renoted = create(notes.TimelineEntrySchema, {
+      note: note("a"),
+      renote: { user: { id: "u1" }, renotedAt: { seconds: 10n, nanos: 0 } },
+    });
     expect(entryKey(plain)).not.toBe(entryKey(renoted));
   });
 });
@@ -50,11 +78,18 @@ describe("new entries of a timeline", () => {
 describe("mapNotes", () => {
   it("updates a note wherever it sits, quoted notes included, and keeps the rest as it was", () => {
     const quoted = note("q");
-    const quoting = note("x", { quote: create(notes.QuotedNoteSchema, { noteId: "q", note: quoted }) });
+    const quoting = note("x", {
+      quote: create(notes.QuotedNoteSchema, { noteId: "q", note: quoted }),
+    });
     const untouched = entry("other");
-    const timeline = data({ entries: [create(notes.TimelineEntrySchema, { note: quoting }), untouched], nextCursor: "" });
+    const timeline = data({
+      entries: [create(notes.TimelineEntrySchema, { note: quoting }), untouched],
+      nextCursor: "",
+    });
 
-    const next = mapNotes(timeline, (item) => (item.id === "q" ? { ...item, text: "changed" } : item));
+    const next = mapNotes(timeline, (item) =>
+      item.id === "q" ? { ...item, text: "changed" } : item,
+    );
     expect(next.pages[0]?.entries[0]?.note?.quote?.note?.text).toBe("changed");
     expect(next.pages[0]?.entries[1]).toBe(untouched);
     expect(mapNotes(timeline, (item) => item)).toBe(timeline);

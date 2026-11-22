@@ -13,11 +13,6 @@ export default {
     yours: "Your reaction",
     takeBack: "Take back",
   },
-  emoji: {
-    title: "Pick an emoji",
-    quick: "Your usual emoji",
-    groups: { smileys: "Faces", hearts: "Hearts", hands: "Hands & body", animals: "Animals & nature", food: "Food", fun: "Fun & places", symbols: "Symbols" },
-  },
   bookmarks: {
     title: "Bookmarks",
     tabs: { saved: "Saved", reactions: "Reacted to" },
@@ -64,8 +59,10 @@ export default {
     noReactions: "No reactions yet",
     noReactionsBody: "Whatever you like or react to with an emoji shows up here!",
   },
+  more: "Share or report",
   share: {
     label: "Share",
+    chat: "Send in chat",
     copy: "Copy link",
     other: "Share to another app",
     copied: "Link copied!",
@@ -96,7 +93,12 @@ export default {
     send: "Report",
     sent: "Report received. Thanks for telling us!",
     viewMine: "My reports",
-    status: { submitted: "Waiting for review", actionTaken: "Action taken", noAction: "No rule broken", superseded: "Replaced by a newer report" },
+    status: {
+      submitted: "Waiting for review",
+      actionTaken: "Action taken",
+      noAction: "No rule broken",
+      superseded: "Replaced by a newer report",
+    },
     mine: {
       empty: "You haven't reported anything",
       emptyBody: "If something doesn't belong, use “Report” in its menu.",

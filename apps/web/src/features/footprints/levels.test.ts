@@ -3,7 +3,13 @@ import { cellsForLevel, explorerLevel, formatPercent, levelUps, regionLevel } fr
 
 describe("explorerLevel", () => {
   it("starts at level 1 and needs more cells for every level", () => {
-    expect(explorerLevel(0)).toMatchObject({ level: 1, from: 0, next: 5, progress: 0, title: "beginner" });
+    expect(explorerLevel(0)).toMatchObject({
+      level: 1,
+      from: 0,
+      next: 5,
+      progress: 0,
+      title: "beginner",
+    });
     expect(explorerLevel(4).level).toBe(1);
     expect(explorerLevel(5)).toMatchObject({ level: 2, from: 5, next: 20, progress: 0 });
     expect(explorerLevel(20).level).toBe(3);

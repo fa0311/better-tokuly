@@ -10,7 +10,9 @@ type Strings = { [key: string]: string | Strings };
 
 /** Every leaf of a strings file as a dotted key. */
 function keysOf(strings: Strings, prefix = ""): string[] {
-  return Object.entries(strings).flatMap(([key, value]) => (typeof value === "string" ? [prefix + key] : keysOf(value, `${prefix}${key}.`)));
+  return Object.entries(strings).flatMap(([key, value]) =>
+    typeof value === "string" ? [prefix + key] : keysOf(value, `${prefix}${key}.`),
+  );
 }
 
 function sourceFiles(directory: string): string[] {
@@ -55,11 +57,19 @@ describe("admin and announcements strings", () => {
     const defined = new Set(keysOf(jaAdmin));
     // The console also reads a few shared strings; those are not this namespace's to define.
     const shared = (key: string) => key.startsWith("actions.");
-    expect(usedKeys("src/features/admin", "admin", jaAdmin).filter((key) => !defined.has(key) && !shared(key))).toEqual([]);
+    expect(
+      usedKeys("src/features/admin", "admin", jaAdmin).filter(
+        (key) => !defined.has(key) && !shared(key),
+      ),
+    ).toEqual([]);
   });
 
   it("define every key the update log asks for", () => {
     const defined = new Set(keysOf(jaAnnouncements));
-    expect(usedKeys("src/features/announcements", "announcements", jaAnnouncements).filter((key) => !defined.has(key))).toEqual([]);
+    expect(
+      usedKeys("src/features/announcements", "announcements", jaAnnouncements).filter(
+        (key) => !defined.has(key),
+      ),
+    ).toEqual([]);
   });
 });

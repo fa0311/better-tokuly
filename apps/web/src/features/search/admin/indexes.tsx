@@ -19,7 +19,8 @@ const WATCH_INTERVAL_MS = 2000;
 type Stats = Awaited<ReturnType<ReturnType<typeof searchAdminClient>["getIndexStats"]>>;
 
 /** Something is still being written to an index. */
-const busy = (stats: Stats | undefined) => stats?.indexes.some((index) => index.indexing || index.pendingDocuments > 0n) ?? false;
+const busy = (stats: Stats | undefined) =>
+  stats?.indexes.some((index) => index.indexing || index.pendingDocuments > 0n) ?? false;
 
 /**
  * Every index next to what it should contain, and the button that rebuilds
@@ -34,7 +35,8 @@ export function Indexes() {
   const stats = useQuery({
     queryKey: searchKeys.admin.stats,
     queryFn: () => searchAdminClient().getIndexStats({}),
-    refetchInterval: (query) => (busy(query.state.data) || Date.now() < watchUntil ? WATCH_INTERVAL_MS : false),
+    refetchInterval: (query) =>
+      busy(query.state.data) || Date.now() < watchUntil ? WATCH_INTERVAL_MS : false,
   });
   const reindex = useMutation({
     mutationFn: (kind: search.SearchKind) => searchAdminClient().reindex({ kind }),
@@ -57,7 +59,8 @@ export function Indexes() {
   }
   if (stats.isError) return <EmptyState emoji="🌀" title={staffErrorMessage(stats.error)} />;
   const data = stats.data;
-  const kindName = (index: search.IndexStats) => (isKind(index.kind) ? t(`kinds.${kindSlug(index.kind)}`) : index.indexUid);
+  const kindName = (index: search.IndexStats) =>
+    isKind(index.kind) ? t(`kinds.${kindSlug(index.kind)}`) : index.indexUid;
 
   return (
     <div className="flex flex-col gap-4">
@@ -66,7 +69,9 @@ export function Indexes() {
           <div className="flex items-center gap-2">
             <dt className="text-xs font-bold text-ink-faint">{t("staff.indexes.engine")}</dt>
             <dd>
-              <ToneChip tone={data.healthy ? "good" : "danger"}>{t(data.healthy ? "staff.indexes.healthy" : "staff.indexes.unhealthy")}</ToneChip>
+              <ToneChip tone={data.healthy ? "good" : "danger"}>
+                {t(data.healthy ? "staff.indexes.healthy" : "staff.indexes.unhealthy")}
+              </ToneChip>
             </dd>
           </div>
           {data.engineVersion && (
@@ -81,11 +86,21 @@ export function Indexes() {
               <dd className="font-bold tabular-nums">{formatBytes(data.databaseSizeBytes)}</dd>
             </div>
           )}
-          <Button className="ml-auto" size="sm" variant="secondary" icon={<RefreshCw className={cn("size-4", stats.isFetching && "animate-spin")} />} onClick={() => void stats.refetch()}>
+          <Button
+            className="ml-auto"
+            size="sm"
+            variant="secondary"
+            icon={<RefreshCw className={cn("size-4", stats.isFetching && "animate-spin")} />}
+            onClick={() => void stats.refetch()}
+          >
             {t("staff.indexes.refresh")}
           </Button>
         </dl>
-        {!data.healthy && <p className="border-t-2 border-line px-4 py-3 text-sm font-bold text-danger">{t("staff.indexes.unhealthyHint")}</p>}
+        {!data.healthy && (
+          <p className="border-t-2 border-line px-4 py-3 text-sm font-bold text-danger">
+            {t("staff.indexes.unhealthyHint")}
+          </p>
+        )}
       </Pane>
 
       <Pane title={t("staff.indexes.title")}>
@@ -95,18 +110,36 @@ export function Indexes() {
             const indexed = Number(index.indexedDocuments);
             const pending = Number(index.pendingDocuments);
             const working = index.indexing || pending > 0;
-            const [tone, state]: [Tone, string] = !data.healthy ? ["neutral", "unknown"] : !index.exists ? ["warn", "missing"] : working ? ["info", "working"] : ["good", "synced"];
-            const done = registered > 0 ? Math.min(1, Math.max(0, (registered - pending) / registered)) : 1;
+            const [tone, state]: [Tone, string] = !data.healthy
+              ? ["neutral", "unknown"]
+              : !index.exists
+                ? ["warn", "missing"]
+                : working
+                  ? ["info", "working"]
+                  : ["good", "synced"];
+            const done =
+              registered > 0 ? Math.min(1, Math.max(0, (registered - pending) / registered)) : 1;
             return (
-              <li key={index.indexUid} data-testid="index-row" className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 text-sm lg:grid lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.4fr)_7rem_minmax(0,1fr)_auto] lg:gap-3">
+              <li
+                key={index.indexUid}
+                data-testid="index-row"
+                className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 text-sm lg:grid lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.4fr)_7rem_minmax(0,1fr)_auto] lg:gap-3"
+              >
                 <div className="min-w-0 basis-full lg:basis-auto">
                   <p className="truncate font-black">{kindName(index)}</p>
                   <p className="truncate font-mono text-xs text-ink-faint">{index.indexUid}</p>
                 </div>
                 <div className="min-w-0 flex-1 basis-40">
                   <p className="font-bold tabular-nums">
-                    {t("staff.indexes.documents", { indexed: data.healthy ? indexed.toLocaleString() : "—", registered: registered.toLocaleString() })}
-                    {pending > 0 && <span className="ml-2 text-xs text-ink-soft">{t("staff.indexes.pending", { count: pending })}</span>}
+                    {t("staff.indexes.documents", {
+                      indexed: data.healthy ? indexed.toLocaleString() : "—",
+                      registered: registered.toLocaleString(),
+                    })}
+                    {pending > 0 && (
+                      <span className="ml-2 text-xs text-ink-soft">
+                        {t("staff.indexes.pending", { count: pending })}
+                      </span>
+                    )}
                   </p>
                   <div
                     className="mt-1 h-2 overflow-hidden rounded-full bg-surface-3"
@@ -116,7 +149,13 @@ export function Indexes() {
                     aria-valuemax={100}
                     aria-valuenow={Math.round(done * 100)}
                   >
-                    <div className={cn("h-full rounded-full transition-[width] duration-500", working ? "bg-sky" : "bg-lime")} style={{ width: `${done * 100}%` }} />
+                    <div
+                      className={cn(
+                        "h-full rounded-full transition-[width] duration-500",
+                        working ? "bg-sky" : "bg-lime",
+                      )}
+                      style={{ width: `${done * 100}%` }}
+                    />
                   </div>
                 </div>
                 <ToneChip tone={tone} className="justify-self-start">
@@ -126,7 +165,13 @@ export function Indexes() {
                   <span className="lg:hidden">{t("staff.indexes.lastChanged")}: </span>
                   {formatDateTime(index.lastChangedAt)}
                 </p>
-                <Button size="sm" variant="secondary" icon={<RotateCw className="size-4" />} onClick={() => setRebuilding(index)} aria-label={t("staff.indexes.reindexKind", { kind: kindName(index) })}>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon={<RotateCw className="size-4" />}
+                  onClick={() => setRebuilding(index)}
+                  aria-label={t("staff.indexes.reindexKind", { kind: kindName(index) })}
+                >
                   {t("staff.indexes.reindex")}
                 </Button>
               </li>

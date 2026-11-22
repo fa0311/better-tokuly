@@ -19,7 +19,8 @@ import { formatWhen, useNow } from "../when";
 function useMutedUsers() {
   return useInfiniteQuery({
     queryKey: notifyKeys.muted,
-    queryFn: ({ pageParam }) => preferencesClient().listMutedUsers({ page: { cursor: pageParam, limit: 30 } }),
+    queryFn: ({ pageParam }) =>
+      preferencesClient().listMutedUsers({ page: { cursor: pageParam, limit: 30 } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
@@ -50,7 +51,13 @@ export function MutedUsersCard() {
           <h2 className="text-lg font-black leading-snug">{t("muted.title")}</h2>
           <p className="mt-1 text-sm leading-relaxed text-ink-soft">{t("muted.lead")}</p>
         </div>
-        <Button variant="secondary" size="sm" className="shrink-0" icon={<UserPlus className="size-4" />} onClick={() => setAdding(true)}>
+        <Button
+          variant="secondary"
+          size="sm"
+          className="shrink-0"
+          icon={<UserPlus className="size-4" />}
+          onClick={() => setAdding(true)}
+        >
           {t("muted.add")}
         </Button>
       </div>
@@ -73,7 +80,13 @@ export function MutedUsersCard() {
                       user={user}
                       subtitle={`@${user.handle} ・ ${t("muted.since", { when: formatWhen(toMillis(mutedAt), now, i18n.language) })}`}
                       trailing={
-                        <Button variant="secondary" size="sm" disabled={unmute.isPending} onClick={() => unmute.mutate(user)} aria-label={t("muted.unmuteOf", { name: user.displayName })}>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          disabled={unmute.isPending}
+                          onClick={() => unmute.mutate(user)}
+                          aria-label={t("muted.unmuteOf", { name: user.displayName })}
+                        >
                           {t("muted.unmute")}
                         </Button>
                       }
@@ -86,12 +99,25 @@ export function MutedUsersCard() {
         <LoadMore query={muted} />
       </div>
 
-      {adding && <MuteDialog mutedIds={new Set(users.map(({ user }) => user?.id ?? ""))} onClose={() => setAdding(false)} />}
+      {adding && (
+        <MuteDialog
+          mutedIds={new Set(users.map(({ user }) => user?.id ?? ""))}
+          onClose={() => setAdding(false)}
+        />
+      )}
     </Card>
   );
 }
 
-function UserRow({ user, subtitle, trailing }: { user: common.UserSummary; subtitle: ReactNode; trailing: ReactNode }) {
+function UserRow({
+  user,
+  subtitle,
+  trailing,
+}: {
+  user: common.UserSummary;
+  subtitle: ReactNode;
+  trailing: ReactNode;
+}) {
   return (
     <ListRow
       leading={
@@ -122,7 +148,10 @@ function MuteDialog({ mutedIds, onClose }: { mutedIds: ReadonlySet<string>; onCl
     queryFn: () => profileClient().searchUsers({ query: debounced }),
     enabled: debounced.length > 0,
   });
-  const people = results.data?.results.filter((result) => result.user && result.relationship !== identity.Relationship.SELF) ?? [];
+  const people =
+    results.data?.results.filter(
+      (result) => result.user && result.relationship !== identity.Relationship.SELF,
+    ) ?? [];
 
   const mute = useMutation({
     mutationFn: (user: common.UserSummary) => preferencesClient().muteUser({ userId: user.id }),
@@ -134,7 +163,12 @@ function MuteDialog({ mutedIds, onClose }: { mutedIds: ReadonlySet<string>; onCl
   });
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()} title={t("muted.dialog.title")} description={t("muted.dialog.lead")}>
+    <Dialog
+      open
+      onOpenChange={(open) => !open && onClose()}
+      title={t("muted.dialog.title")}
+      description={t("muted.dialog.lead")}
+    >
       <label className="flex h-12 items-center gap-2 rounded-control border-2 border-line bg-surface px-4 focus-within:border-brand">
         <Search className="size-5 shrink-0 text-ink-faint" />
         <input
@@ -173,7 +207,13 @@ function MuteDialog({ mutedIds, onClose }: { mutedIds: ReadonlySet<string>; onCl
                         mutedIds.has(user.id) ? (
                           <Chip>{t("muted.dialog.already")}</Chip>
                         ) : (
-                          <Button size="sm" icon={<VolumeX className="size-4" />} disabled={mute.isPending} onClick={() => mute.mutate(user)} aria-label={t("muted.muteOf", { name: user.displayName })}>
+                          <Button
+                            size="sm"
+                            icon={<VolumeX className="size-4" />}
+                            disabled={mute.isPending}
+                            onClick={() => mute.mutate(user)}
+                            aria-label={t("muted.muteOf", { name: user.displayName })}
+                          >
                             {t("muted.mute")}
                           </Button>
                         )

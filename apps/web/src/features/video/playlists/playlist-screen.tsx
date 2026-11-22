@@ -1,6 +1,12 @@
-import { type InfiniteData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  type InfiniteData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { toMillis, video } from "@tokuly/api";
+import { common, toMillis, video } from "@tokuly/api";
 import { GripVertical, ListVideo, ListX, Pencil, Play, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -10,6 +16,8 @@ import { ConfirmDialog } from "#/components/ui/confirm";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { Sortable } from "#/components/ui/sortable";
+import { EmojiText } from "#/features/emoji";
+import { SubjectMoreButton } from "#/features/engagement";
 import { errorMessage } from "#/lib/errors";
 import { nextCursor, playlistClient, videoKeys } from "../api";
 import { formatAge } from "../format";
@@ -34,11 +42,15 @@ export function PlaylistScreen({ playlistId }: { playlistId: string }) {
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  const playlistQuery = useQuery({ queryKey: videoKeys.playlist(playlistId), queryFn: async () => (await playlistClient().getPlaylist({ playlistId })).playlist });
+  const playlistQuery = useQuery({
+    queryKey: videoKeys.playlist(playlistId),
+    queryFn: async () => (await playlistClient().getPlaylist({ playlistId })).playlist,
+  });
   const itemsKey = videoKeys.playlistItems(playlistId);
   const items = useInfiniteQuery({
     queryKey: itemsKey,
-    queryFn: ({ pageParam }) => playlistClient().listPlaylistItems({ playlistId, page: { limit: 50, cursor: pageParam } }),
+    queryFn: ({ pageParam }) =>
+      playlistClient().listPlaylistItems({ playlistId, page: { limit: 50, cursor: pageParam } }),
     initialPageParam: "",
     getNextPageParam: nextCursor,
   });
@@ -48,13 +60,25 @@ export function PlaylistScreen({ playlistId }: { playlistId: string }) {
 
   /** Rewrites the cached list as one page holding `next` (later pages keep their cursors, empty). */
   const setRows = (next: video.PlaylistItem[]) =>
-    queryClient.setQueryData<ItemPages>(itemsKey, (data) => (data ? { ...data, pages: data.pages.map((page, index) => ({ ...page, items: index === 0 ? next : [] })) } : data));
+    queryClient.setQueryData<ItemPages>(itemsKey, (data) =>
+      data
+        ? {
+            ...data,
+            pages: data.pages.map((page, index) => ({ ...page, items: index === 0 ? next : [] })),
+          }
+        : data,
+    );
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: videoKeys.playlists });
   };
 
   const move = useMutation({
-    mutationFn: (moved: { id: string; afterId: string }) => playlistClient().movePlaylistItem({ playlistId, videoId: moved.id, afterVideoId: moved.afterId }),
+    mutationFn: (moved: { id: string; afterId: string }) =>
+      playlistClient().movePlaylistItem({
+        playlistId,
+        videoId: moved.id,
+        afterVideoId: moved.afterId,
+      }),
     onError: (error) => {
       toast.error(errorMessage(error));
       void queryClient.invalidateQueries({ queryKey: itemsKey });
@@ -121,13 +145,33 @@ export function PlaylistScreen({ playlistId }: { playlistId: string }) {
   const name = playlistTitle(playlist, t);
   const first = videos[0];
   const cover = imageUrl(playlist.thumbnail ?? first?.thumbnail, 320);
-  const removeAction = (summary: video.VideoSummary) => (canRemove ? [{ label: t("playlist.removeItem"), icon: <ListX />, onSelect: () => removeItem.mutate(summary.id) }] : []);
+  const removeAction = (summary: video.VideoSummary) =>
+    canRemove
+      ? [
+          {
+            label: t("playlist.removeItem"),
+            icon: <ListX />,
+            onSelect: () => removeItem.mutate(summary.id),
+          },
+        ]
+      : [];
 
   return (
     <Page title={name} back={playlist.isOwner ? "/watch/playlists" : "/watch"}>
       <header className="sticker flex flex-col gap-4 rounded-card bg-surface p-4 sm:flex-row">
-        <div className="aspect-video w-full shrink-0 overflow-hidden rounded-2xl bg-surface-3 sm:w-56" style={playlist.thumbnail?.dominantColor ? { background: playlist.thumbnail.dominantColor } : undefined}>
-          {cover ? <img src={cover} alt="" className="size-full object-cover" /> : <ListVideo className="m-auto size-10 h-full text-ink-faint" />}
+        <div
+          className="aspect-video w-full shrink-0 overflow-hidden rounded-2xl bg-surface-3 sm:w-56"
+          style={
+            playlist.thumbnail?.dominantColor
+              ? { background: playlist.thumbnail.dominantColor }
+              : undefined
+          }
+        >
+          {cover ? (
+            <img src={cover} alt="" className="size-full object-cover" />
+          ) : (
+            <ListVideo className="m-auto size-10 h-full text-ink-faint" />
+          )}
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-2">
           <h2 className="text-xl leading-snug font-black break-words" data-testid="playlist-title">
@@ -135,22 +179,38 @@ export function PlaylistScreen({ playlistId }: { playlistId: string }) {
           </h2>
           <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-bold text-ink-soft">
             {playlist.channel ? (
-              <Link to="/c/$handle" params={{ handle: playlist.channel.handle }} className="hover:text-ink">
+              <Link
+                to="/c/$handle"
+                params={{ handle: playlist.channel.handle }}
+                className="hover:text-ink"
+              >
                 <ChannelName channel={playlist.channel} />
               </Link>
             ) : (
               playlist.owner && (
-                <Link to="/u/$handle" params={{ handle: playlist.owner.handle }} className="hover:text-ink">
-                  {playlist.owner.displayName}
+                <Link
+                  to="/u/$handle"
+                  params={{ handle: playlist.owner.handle }}
+                  className="hover:text-ink"
+                >
+                  <EmojiText text={playlist.owner.displayName} />
                 </Link>
               )
             )}
             <span>{t("playlist.items", { count: playlist.itemCount })}</span>
-            {custom && playlist.updatedAt && <span>{t("playlist.updated", { age: formatAge(toMillis(playlist.updatedAt)) })}</span>}
+            {custom && playlist.updatedAt && (
+              <span>{t("playlist.updated", { age: formatAge(toMillis(playlist.updatedAt)) })}</span>
+            )}
             <VisibilityChip visibility={playlist.visibility} />
           </p>
-          {playlist.description && <p className="text-sm leading-relaxed break-words whitespace-pre-wrap">{playlist.description}</p>}
-          {playlist.kind === PlaylistKind.LIKED && <p className="text-sm text-ink-soft">{t("playlist.likedHint")}</p>}
+          {playlist.description && (
+            <p className="text-sm leading-relaxed break-words whitespace-pre-wrap">
+              {playlist.description}
+            </p>
+          )}
+          {playlist.kind === PlaylistKind.LIKED && (
+            <p className="text-sm text-ink-soft">{t("playlist.likedHint")}</p>
+          )}
           <div className="mt-auto flex flex-wrap gap-2 pt-2">
             {first && (
               <Link
@@ -166,13 +226,31 @@ export function PlaylistScreen({ playlistId }: { playlistId: string }) {
             )}
             {canReorder && (
               <>
-                <Button variant="secondary" icon={<Pencil className="size-4" />} onClick={() => setEditing(true)}>
+                <Button
+                  variant="secondary"
+                  icon={<Pencil className="size-4" />}
+                  onClick={() => setEditing(true)}
+                >
                   {t("actions.edit")}
                 </Button>
-                <Button variant="ghost" className="text-danger" icon={<Trash2 className="size-4" />} onClick={() => setDeleting(true)}>
+                <Button
+                  variant="ghost"
+                  className="text-danger"
+                  icon={<Trash2 className="size-4" />}
+                  onClick={() => setDeleting(true)}
+                >
                   {t("actions.delete")}
                 </Button>
               </>
+            )}
+            {custom && (
+              <SubjectMoreButton
+                subject={{ type: common.SubjectType.PLAYLIST, id: playlist.id }}
+                title={name}
+                label={name}
+                share={playlist.visibility !== common.Visibility.PRIVATE}
+                report={!playlist.isOwner}
+              />
             )}
           </div>
         </div>
@@ -188,11 +266,23 @@ export function PlaylistScreen({ playlistId }: { playlistId: string }) {
         ) : items.isError ? (
           <EmptyState emoji="😵‍💫" title={errorMessage(items.error)} />
         ) : rows.length === 0 ? (
-          <EmptyState emoji="📼" title={t("playlist.empty")} body={playlist.isOwner ? t("playlist.emptyOwnerBody") : undefined} />
+          <EmptyState
+            emoji="📼"
+            title={t("playlist.empty")}
+            body={playlist.isOwner ? t("playlist.emptyOwnerBody") : undefined}
+          />
         ) : canReorder ? (
           <>
-            <p className="mb-2 px-1 text-xs font-bold text-ink-faint">{t("playlist.reorderHint")}</p>
-            <Sortable items={rows} getKey={(row) => row.video?.id ?? ""} onReorder={reorder} className="flex flex-col gap-1" itemClassName="rounded-2xl bg-bg">
+            <p className="mb-2 px-1 text-xs font-bold text-ink-faint">
+              {t("playlist.reorderHint")}
+            </p>
+            <Sortable
+              items={rows}
+              getKey={(row) => row.video?.id ?? ""}
+              onReorder={reorder}
+              className="flex flex-col gap-1"
+              itemClassName="rounded-2xl bg-bg"
+            >
               {(row, { grip, dragging }) =>
                 row.video && (
                   <VideoCard
@@ -203,7 +293,12 @@ export function PlaylistScreen({ playlistId }: { playlistId: string }) {
                     className={dragging ? "rounded-2xl bg-surface p-1.5" : "p-1.5"}
                     actions={removeAction(row.video)}
                     leading={
-                      <button type="button" aria-label={t("playlist.move", { title: row.video.title })} className="grid h-full min-h-16 w-7 shrink-0 place-items-center self-stretch rounded-lg text-ink-faint hover:bg-surface-2 hover:text-ink" {...grip}>
+                      <button
+                        type="button"
+                        aria-label={t("playlist.move", { title: row.video.title })}
+                        className="grid h-full min-h-16 w-7 shrink-0 place-items-center self-stretch rounded-lg text-ink-faint hover:bg-surface-2 hover:text-ink"
+                        {...grip}
+                      >
                         <GripVertical className="size-5" />
                       </button>
                     }
@@ -224,7 +319,11 @@ export function PlaylistScreen({ playlistId }: { playlistId: string }) {
                     source={TrafficSource.PLAYLIST}
                     playlistId={playlist.shortId || playlistId}
                     actions={removeAction(summary)}
-                    leading={<span className="w-5 shrink-0 self-center text-center text-xs font-bold text-ink-faint tabular-nums">{index + 1}</span>}
+                    leading={
+                      <span className="w-5 shrink-0 self-center text-center text-xs font-bold text-ink-faint tabular-nums">
+                        {index + 1}
+                      </span>
+                    }
                   />
                 </li>
               ))}

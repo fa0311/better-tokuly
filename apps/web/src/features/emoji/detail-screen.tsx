@@ -1,7 +1,18 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { common, emoji as emojiApi, errorReason, toDate } from "@tokuly/api";
-import { Check, Copy, Eye, EyeOff, Pencil, Pin, PinOff, ShieldCheck, Smile, Trash2 } from "lucide-react";
+import {
+  Check,
+  Copy,
+  Eye,
+  EyeOff,
+  Pencil,
+  Pin,
+  PinOff,
+  ShieldCheck,
+  Smile,
+  Trash2,
+} from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -22,9 +33,7 @@ import { EmojiText } from "./emoji-text";
 import { StateChip, ThemePreview, ThemeSwatch } from "./parts";
 import { EmojiPicker } from "./picker";
 import { useShowSensitive } from "./prefs";
-import { useEmojiSuggest } from "./suggest";
-import { shortcodePrefixAt } from "./text";
-import { recordEmojiUse } from "./use";
+import { completeShortcode, EmojiSuggestBar } from "./suggest-bar";
 
 /** An emoji's page: the picture large, how it is written, who made it, and a place to try it in a sentence. */
 export function DetailScreen({ name }: { name: string }) {
@@ -51,9 +60,16 @@ export function DetailScreen({ name }: { name: string }) {
         <EmptyState
           emoji={missing ? "🫥" : "😵‍💫"}
           title={t(missing ? "detail.notFound" : "browse.error")}
-          body={missing ? t("detail.notFoundBody", { code: shortcode(name.replace(/:/g, "")) }) : errorMessage(detail.error)}
+          body={
+            missing
+              ? t("detail.notFoundBody", { code: shortcode(name.replace(/:/g, "")) })
+              : errorMessage(detail.error)
+          }
           action={
-            <Link to="/emoji" className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand">
+            <Link
+              to="/emoji"
+              className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand"
+            >
               {t("detail.toCatalog")}
             </Link>
           }
@@ -66,7 +82,11 @@ export function DetailScreen({ name }: { name: string }) {
   const code = shortcode(entry.name);
   const approved = data.state === emojiApi.EmojiState.APPROVED;
   const added = toDate(data.emoji.addedAt) ?? toDate(data.createdAt);
-  const dateFormat = new Intl.DateTimeFormat(i18n.language, { year: "numeric", month: "short", day: "numeric" });
+  const dateFormat = new Intl.DateTimeFormat(i18n.language, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 
   return (
     <Page title={code} back="/emoji">
@@ -79,14 +99,22 @@ export function DetailScreen({ name }: { name: string }) {
           ))}
         </div>
         {entry.sensitive && !showSensitive && (
-          <Button variant="secondary" size="sm" aria-pressed={shown} icon={shown ? <EyeOff className="size-4" /> : <Eye className="size-4" />} onClick={() => setShown(!shown)}>
+          <Button
+            variant="secondary"
+            size="sm"
+            aria-pressed={shown}
+            icon={shown ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+            onClick={() => setShown(!shown)}
+          >
             {t(shown ? "detail.hideSensitive" : "detail.showSensitive")}
           </Button>
         )}
         <div className="flex flex-wrap items-center justify-center gap-1.5 empty:hidden">
           {!approved && <StateChip state={data.state} />}
           {entry.animated && <Chip>{t("flags.animated")}</Chip>}
-          {entry.sensitive && <Chip className="bg-coral text-[#17122b]">{t("flags.sensitive")}</Chip>}
+          {entry.sensitive && (
+            <Chip className="bg-coral text-[#17122b]">{t("flags.sensitive")}</Chip>
+          )}
           {entry.localOnly && <Chip>{t("flags.localOnly")}</Chip>}
         </div>
         <CopyCode code={code} />
@@ -100,7 +128,11 @@ export function DetailScreen({ name }: { name: string }) {
           {approved && <DeckButton code={code} />}
           {data.canEdit && <OwnerActions emojiId={entry.id} name={entry.name} />}
           {access.moderator && (
-            <Link to="/admin/emoji" search={{ tab: "all", q: entry.name }} className="pressable sticker inline-flex h-11 items-center gap-2 rounded-full bg-surface px-5 text-[15px] font-bold">
+            <Link
+              to="/admin/emoji"
+              search={{ tab: "all", q: entry.name }}
+              className="pressable sticker inline-flex h-11 items-center gap-2 rounded-full bg-surface px-5 text-[15px] font-bold"
+            >
               <ShieldCheck className="size-4" />
               {t("detail.manage")}
             </Link>
@@ -113,7 +145,11 @@ export function DetailScreen({ name }: { name: string }) {
       <dl className="mt-4 divide-y-2 divide-line rounded-card bg-surface">
         <Fact label={t("fields.category")}>
           {entry.category ? (
-            <Link to="/emoji" search={{ category: entry.category }} className="font-bold text-brand">
+            <Link
+              to="/emoji"
+              search={{ category: entry.category }}
+              className="font-bold text-brand"
+            >
               {entry.category}
             </Link>
           ) : (
@@ -134,13 +170,21 @@ export function DetailScreen({ name }: { name: string }) {
         <Fact label={t("detail.author")}>
           {data.author && !data.author.deleted ? (
             <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <Link to="/u/$handle" params={{ handle: data.author.handle }} className="inline-flex min-w-0 items-center gap-2 font-bold">
+              <Link
+                to="/u/$handle"
+                params={{ handle: data.author.handle }}
+                className="inline-flex min-w-0 items-center gap-2 font-bold"
+              >
                 <Avatar user={data.author} size="xs" />
                 <span className="truncate">
                   <EmojiText text={data.author.displayName} />
                 </span>
               </Link>
-              <Link to="/emoji" search={{ author: data.author.id }} className="text-sm font-bold text-brand">
+              <Link
+                to="/emoji"
+                search={{ author: data.author.id }}
+                className="text-sm font-bold text-brand"
+              >
                 {t("detail.moreByAuthor")}
               </Link>
             </span>
@@ -148,15 +192,32 @@ export function DetailScreen({ name }: { name: string }) {
             <span className="text-ink-faint">{t("detail.noAuthor")}</span>
           )}
         </Fact>
-        <Fact label={t("fields.licenseShort")}>{data.license ? <span className="whitespace-pre-wrap break-words">{data.license}</span> : <span className="text-ink-faint">{t("detail.none")}</span>}</Fact>
-        {added && <Fact label={t(approved ? "detail.added" : "detail.submitted")}>{dateFormat.format(added)}</Fact>}
+        <Fact label={t("fields.licenseShort")}>
+          {data.license ? (
+            <span className="whitespace-pre-wrap break-words">{data.license}</span>
+          ) : (
+            <span className="text-ink-faint">{t("detail.none")}</span>
+          )}
+        </Fact>
+        {added && (
+          <Fact label={t(approved ? "detail.added" : "detail.submitted")}>
+            {dateFormat.format(added)}
+          </Fact>
+        )}
         {/* The exact count is for moderators: emoji are used in private chats too. */}
-        {access.moderator && <Fact label={t("detail.uses")}>{t("detail.useCount", { count: Number(data.useCount) })}</Fact>}
+        {access.moderator && (
+          <Fact label={t("detail.uses")}>
+            {t("detail.useCount", { count: Number(data.useCount) })}
+          </Fact>
+        )}
       </dl>
 
       {approved && (
         <div className="mt-3 flex justify-center">
-          <ReportButton subject={{ type: common.SubjectType.CUSTOM_EMOJI, id: entry.id }} label={code} />
+          <ReportButton
+            subject={{ type: common.SubjectType.CUSTOM_EMOJI, id: entry.id }}
+            label={code}
+          />
         </div>
       )}
     </Page>
@@ -182,9 +243,18 @@ function CopyCode({ code }: { code: string }) {
     setTimeout(() => setCopied(false), 1600);
   };
   return (
-    <button type="button" onClick={copy} aria-label={t("detail.copy", { code })} className="pressable sticker inline-flex h-12 max-w-full items-center gap-2 rounded-full bg-surface-2 px-5 font-mono text-lg font-bold">
+    <button
+      type="button"
+      onClick={copy}
+      aria-label={t("detail.copy", { code })}
+      className="pressable sticker inline-flex h-12 max-w-full items-center gap-2 rounded-full bg-surface-2 px-5 font-mono text-lg font-bold"
+    >
       <span className="truncate">{code}</span>
-      {copied ? <Check className="size-5 shrink-0 text-success" /> : <Copy className="size-5 shrink-0 text-ink-soft" />}
+      {copied ? (
+        <Check className="size-5 shrink-0 text-success" />
+      ) : (
+        <Copy className="size-5 shrink-0 text-ink-soft" />
+      )}
     </button>
   );
 }
@@ -198,10 +268,18 @@ function DeckButton({ code }: { code: string }) {
   const pinned = items.includes(code);
   const toggle = () => {
     if (!pinned && items.length >= DECK_MAX) return void toast.error(t("errors.DECK_TOO_LONG"));
-    save.mutate(pinned ? items.filter((item) => item !== code) : [...items, code], { onSuccess: () => toast.success(t(pinned ? "deck.unpinned" : "deck.pinned")) });
+    save.mutate(pinned ? items.filter((item) => item !== code) : [...items, code], {
+      onSuccess: () => toast.success(t(pinned ? "deck.unpinned" : "deck.pinned")),
+    });
   };
   return (
-    <Button variant={pinned ? "secondary" : "lime"} disabled={!deck.data} aria-pressed={pinned} icon={pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />} onClick={toggle}>
+    <Button
+      variant={pinned ? "secondary" : "lime"}
+      disabled={!deck.data}
+      aria-pressed={pinned}
+      icon={pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
+      onClick={toggle}
+    >
       {t(pinned ? "deck.unpin" : "deck.pin")}
     </Button>
   );
@@ -224,11 +302,20 @@ function OwnerActions({ emojiId, name }: { emojiId: string; name: string }) {
   });
   return (
     <>
-      <Link to="/emoji/submissions/$emojiId" params={{ emojiId }} className="pressable sticker inline-flex h-11 items-center gap-2 rounded-full bg-surface px-5 text-[15px] font-bold">
+      <Link
+        to="/emoji/submissions/$emojiId"
+        params={{ emojiId }}
+        className="pressable sticker inline-flex h-11 items-center gap-2 rounded-full bg-surface px-5 text-[15px] font-bold"
+      >
         <Pencil className="size-4" />
         {t("submissions.edit")}
       </Link>
-      <Button variant="ghost" className="text-danger" icon={<Trash2 className="size-4" />} onClick={() => setConfirming(true)}>
+      <Button
+        variant="ghost"
+        className="text-danger"
+        icon={<Trash2 className="size-4" />}
+        onClick={() => setConfirming(true)}
+      >
         {t("submissions.withdraw")}
       </Button>
       <ConfirmDialog
@@ -255,21 +342,19 @@ function Playground({ code }: { code: string }) {
   const [text, setText] = useState(() => t("detail.trySample", { code }));
   const [caret, setCaret] = useState(text.length);
   const fieldId = useId();
-  const typing = shortcodePrefixAt(text, caret);
-  const suggestions = useEmojiSuggest(typing?.prefix ?? "");
 
-  const insert = (emoji: string, from: number, to: number) => {
-    const before = text.slice(0, from);
-    const after = text.slice(to);
-    const inserted = `${emoji}${after.startsWith(" ") ? "" : " "}`;
-    setText(before + inserted + after);
-    const position = before.length + inserted.length;
+  const moveCaret = (position: number) => {
     setCaret(position);
     requestAnimationFrame(() => {
       const field = document.getElementById(fieldId) as HTMLTextAreaElement | null;
       field?.focus();
       field?.setSelectionRange(position, position);
     });
+  };
+  const insert = (emoji: string, at: number) => {
+    const next = completeShortcode(text, at, at, emoji);
+    setText(next.text);
+    moveCaret(next.caret);
   };
 
   return (
@@ -294,7 +379,7 @@ function Playground({ code }: { code: string }) {
         <div className="absolute right-1.5 bottom-1.5">
           <EmojiPicker
             keepOpen
-            onPick={(emoji) => insert(emoji, caret, caret)}
+            onPick={(emoji) => insert(emoji, caret)}
             trigger={
               <Button variant="ghost" size="icon-sm" aria-label={t("picker.open")}>
                 <Smile className="size-5" />
@@ -303,25 +388,15 @@ function Playground({ code }: { code: string }) {
           />
         </div>
       </div>
-      {typing && suggestions.length > 0 && (
-        <ul aria-label={t("detail.suggestions")} className="scrollbar-none mt-2 flex gap-1.5 overflow-x-auto pb-1">
-          {suggestions.map((suggestion) => (
-            <li key={suggestion.emoji} className="shrink-0">
-              <button
-                type="button"
-                onClick={() => {
-                  recordEmojiUse([suggestion.emoji]);
-                  insert(suggestion.emoji, typing.start, caret);
-                }}
-                className="flex h-9 items-center gap-1.5 rounded-full border-2 border-line bg-surface px-3 text-sm font-bold hover:border-ink-faint"
-              >
-                {suggestion.kind === "custom" ? <EmojiImage emoji={suggestion.custom} size={20} className="size-5" /> : <span aria-hidden>{suggestion.emoji}</span>}
-                <span>{suggestion.kind === "custom" ? suggestion.emoji : suggestion.name}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      <EmojiSuggestBar
+        text={text}
+        caret={caret}
+        className="mt-2"
+        onComplete={(next) => {
+          setText(next.text);
+          moveCaret(next.caret);
+        }}
+      />
       <ThemePreview className="mt-3">
         <p className="whitespace-pre-wrap break-words" data-testid="emoji-text-preview">
           <EmojiText text={text} />

@@ -14,15 +14,17 @@
     <title>Tokuly</title>
     <script>
       // Before first paint: the theme the app last used here, and its language.
-      (function () {
+      (() => {
         var root = document.documentElement;
+        var theme;
+        var dark;
         try {
-          var theme = localStorage.getItem("tokuly.theme");
-          var dark = theme === "dark" || (theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+          theme = localStorage.getItem("tokuly.theme");
+          dark = theme === "dark" || (theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
           root.dataset.theme = dark ? "dark" : "light";
           root.dataset.dopa = localStorage.getItem("tokuly.dopa") || "3";
           document.querySelector('meta[name="theme-color"]').content = dark ? "#0d0b14" : "#f4f1ff";
-        } catch (e) {}
+        } catch (_) {}
         var chosen = /(?:^|; )tokuly_lang=(\w+)/.exec(document.cookie);
         var language = chosen ? chosen[1] : navigator.language || "ja";
         root.lang = /^ja/i.test(language) ? "ja" : "en";
@@ -243,7 +245,7 @@
 
     <main class="card" id="card">
       <div class="mark" aria-hidden="true">
-        <svg viewBox="0 0 64 64">
+        <svg viewBox="0 0 64 64" aria-hidden="true">
           <circle cx="32" cy="34" r="26" fill="#c6f24e" stroke="#17122b" stroke-width="3" />
           <path
             d="M32 8c-9.400 0-17 7.400-17 16.600 0 11.700 13.600 24.300 15.800 26.200a1.800 1.800 0 0 0 2.400 0C35.400 48.900 49 36.300 49 24.600 49 15.400 41.400 8 32 8Z"
@@ -255,7 +257,7 @@
           <circle cx="32" cy="24.500" r="6.500" fill="#fff" stroke="#17122b" stroke-width="3" />
         </svg>
         <!-- No signal: three arcs, crossed out. -->
-        <svg class="signal" viewBox="0 0 44 44">
+        <svg class="signal" viewBox="0 0 44 44" aria-hidden="true">
           <circle cx="22" cy="22" r="19.500" fill="#ffd23f" stroke="#17122b" stroke-width="3" />
           <g fill="none" stroke="#17122b" stroke-width="3.200" stroke-linecap="round">
             <path d="M11.500 18.500a15 15 0 0 1 21 0" />
@@ -282,7 +284,7 @@
     </main>
 
     <script>
-      (function () {
+      (() => {
         var TEXT = {
           ja: { checking: "つながるかチェック中…", still: "まだつながらないみたい。電波のいい場所でためしてね" },
           en: { checking: "Checking the connection…", still: "Still no connection. Try somewhere with a better signal." },
@@ -308,14 +310,14 @@
           checking = true;
           // A connection that accepts the request and then says nothing counts as none.
           var timeout = new AbortController();
-          var timer = setTimeout(function () {
+          var timer = setTimeout(() => {
             timeout.abort();
           }, 8000);
           fetch("/icon.svg", { cache: "no-store", signal: timeout.signal }).then(
-            function () {
+            () => {
               location.reload();
             },
-            function () {
+            () => {
               clearTimeout(timer);
               checking = false;
               if (!asked) return;
@@ -329,18 +331,18 @@
           );
         }
 
-        button.addEventListener("click", function () {
+        button.addEventListener("click", () => {
           retry(true);
         });
         // Back by itself: when the device reports a connection, when the page is looked at again,
         // and every few seconds (a weak connection never announces that it is back).
-        addEventListener("online", function () {
+        addEventListener("online", () => {
           retry(false);
         });
-        document.addEventListener("visibilitychange", function () {
+        document.addEventListener("visibilitychange", () => {
           if (document.visibilityState === "visible") retry(false);
         });
-        setInterval(function () {
+        setInterval(() => {
           if (document.visibilityState === "visible") retry(false);
         }, 8000);
       })();

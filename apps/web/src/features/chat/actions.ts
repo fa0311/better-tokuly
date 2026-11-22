@@ -2,9 +2,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { type chat, fromDate } from "@tokuly/api";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { errorMessage } from "./errors";
 import { conversationClient } from "./api";
 import { dropConversation, putConversation, refreshUnread } from "./conversations";
+import { errorMessage } from "./errors";
 import { markRead } from "./messages";
 
 /** How long a mute lasts; `null` = until the person unmutes. */
@@ -31,7 +31,11 @@ export function useConversationActions() {
     }
   };
 
-  const update = (conversation: chat.Conversation, change: { pinned?: boolean; muted?: boolean; mutedUntil?: Date; archived?: boolean }, done?: string) =>
+  const update = (
+    conversation: chat.Conversation,
+    change: { pinned?: boolean; muted?: boolean; mutedUntil?: Date; archived?: boolean },
+    done?: string,
+  ) =>
     attempt(async () => {
       const response = await conversationClient().updatePreferences({
         conversationId: conversation.id,
@@ -46,18 +50,32 @@ export function useConversationActions() {
     }, done);
 
   return {
-    setPinned: (conversation: chat.Conversation, pinned: boolean) => update(conversation, { pinned }, pinned ? t("toast.pinned") : t("toast.unpinned")),
+    setPinned: (conversation: chat.Conversation, pinned: boolean) =>
+      update(conversation, { pinned }, pinned ? t("toast.pinned") : t("toast.unpinned")),
     mute: (conversation: chat.Conversation, forMs: MuteFor) =>
-      update(conversation, { muted: true, mutedUntil: forMs === null ? undefined : new Date(Date.now() + forMs) }, t("toast.muted")),
-    unmute: (conversation: chat.Conversation) => update(conversation, { muted: false }, t("toast.unmuted")),
-    setArchived: (conversation: chat.Conversation, archived: boolean) => update(conversation, { archived }, archived ? t("toast.archived") : t("toast.unarchived")),
-    markRead: (conversation: chat.Conversation) => attempt(() => markRead(queryClient, conversation.id)),
+      update(
+        conversation,
+        { muted: true, mutedUntil: forMs === null ? undefined : new Date(Date.now() + forMs) },
+        t("toast.muted"),
+      ),
+    unmute: (conversation: chat.Conversation) =>
+      update(conversation, { muted: false }, t("toast.unmuted")),
+    setArchived: (conversation: chat.Conversation, archived: boolean) =>
+      update(conversation, { archived }, archived ? t("toast.archived") : t("toast.unarchived")),
+    markRead: (conversation: chat.Conversation) =>
+      attempt(() => markRead(queryClient, conversation.id)),
     hide: (conversation: chat.Conversation, clearHistory: boolean) =>
-      attempt(async () => {
-        await conversationClient().hideConversation({ conversationId: conversation.id, clearHistory });
-        dropConversation(queryClient, conversation.id);
-        refreshUnread(queryClient);
-      }, clearHistory ? t("toast.cleared") : t("toast.hidden")),
+      attempt(
+        async () => {
+          await conversationClient().hideConversation({
+            conversationId: conversation.id,
+            clearHistory,
+          });
+          dropConversation(queryClient, conversation.id);
+          refreshUnread(queryClient);
+        },
+        clearHistory ? t("toast.cleared") : t("toast.hidden"),
+      ),
     leave: (conversation: chat.Conversation) =>
       attempt(async () => {
         await conversationClient().leaveConversation({ conversationId: conversation.id });
@@ -66,11 +84,17 @@ export function useConversationActions() {
       }, t("toast.left")),
     /** Answers a message request. Declining is silent for the sender. */
     respond: (conversation: chat.Conversation, accept: boolean) =>
-      attempt(async () => {
-        const response = await conversationClient().respondToRequest({ conversationId: conversation.id, accept });
-        if (accept && response.conversation) putConversation(queryClient, response.conversation);
-        else dropConversation(queryClient, conversation.id);
-        refreshUnread(queryClient);
-      }, accept ? t("toast.requestAccepted") : t("toast.requestDeclined")),
+      attempt(
+        async () => {
+          const response = await conversationClient().respondToRequest({
+            conversationId: conversation.id,
+            accept,
+          });
+          if (accept && response.conversation) putConversation(queryClient, response.conversation);
+          else dropConversation(queryClient, conversation.id);
+          refreshUnread(queryClient);
+        },
+        accept ? t("toast.requestAccepted") : t("toast.requestDeclined"),
+      ),
   };
 }

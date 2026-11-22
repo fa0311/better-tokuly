@@ -22,7 +22,9 @@ export function announceTrafficSource(source: video.TrafficSource): void {
 
 /** The source of the visit that is starting; without a fresh announcement the page was opened directly. */
 export function takeTrafficSource(): video.TrafficSource {
-  return announced && Date.now() - announced.atMs < ANNOUNCEMENT_MS ? announced.source : TrafficSource.DIRECT;
+  return announced && Date.now() - announced.atMs < ANNOUNCEMENT_MS
+    ? announced.source
+    : TrafficSource.DIRECT;
 }
 
 /** The player events playback reporting listens to; pass them to `<VideoPlayer>`. */
@@ -68,14 +70,20 @@ export function usePlaybackSession({
   };
 
   // One reporter per viewing. Leaving ends it — also a session that was still being opened.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `position` reads live refs; the reporter is rebuilt per video only.
+  // `position` reads live refs; the reporter is rebuilt per video only.
   useEffect(() => {
     if (!videoId) return;
     const current = new PlaybackReporter(videoId, source, {
       startPlayback: (request) => playbackClient().startPlayback(request),
       reportPlayback: (request) => playbackClient().reportPlayback(request),
       position,
-      isPlaying: () => Boolean(player.current && !player.current.paused() && !waiting.current && document.visibilityState === "visible"),
+      isPlaying: () =>
+        Boolean(
+          player.current &&
+            !player.current.paused() &&
+            !waiting.current &&
+            document.visibilityState === "visible",
+        ),
       isSessionGone: (error) => errorReason(error) === "PLAYBACK_SESSION_NOT_FOUND",
       onViewCount: (count) => viewCount.current?.(count),
     });
@@ -90,8 +98,17 @@ export function usePlaybackSession({
         method: "POST",
         keepalive: true,
         credentials: "include",
-        headers: { "content-type": "application/json", "x-tokuly-client": "web", ...(token ? { authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ sessionId, positionSeconds: position(), playing: false, ended: false }),
+        headers: {
+          "content-type": "application/json",
+          "x-tokuly-client": "web",
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          sessionId,
+          positionSeconds: position(),
+          playing: false,
+          ended: false,
+        }),
       }).catch(() => {});
     };
     const onVisibility = () => {

@@ -21,7 +21,8 @@ const isWide = (page: Page) => (page.viewportSize()?.width ?? 0) >= 1024;
 const heading = (page: Page, name: string) => page.getByRole("heading", { level: 1, name });
 
 /** A toast with this message (the same words can also be on the page, in the security log for one). */
-const toast = (page: Page, message: string) => page.locator("[data-sonner-toast]").filter({ hasText: message });
+const toast = (page: Page, message: string) =>
+  page.locator("[data-sonner-toast]").filter({ hasText: message });
 
 /** The card with the signed-in person: in the side pane on wide screens, on the settings home on phones. */
 async function identityCard(page: Page) {
@@ -32,7 +33,9 @@ async function identityCard(page: Page) {
 /** The current TOTP code for a base32 secret (RFC 6238: HMAC-SHA1, 30 s steps, 6 digits). */
 function totpCode(secret: string, at = Date.now()): string {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-  const bits = [...secret.replace(/=+$/, "").toUpperCase()].map((char) => alphabet.indexOf(char).toString(2).padStart(5, "0")).join("");
+  const bits = [...secret.replace(/=+$/, "").toUpperCase()]
+    .map((char) => alphabet.indexOf(char).toString(2).padStart(5, "0"))
+    .join("");
   const key = Buffer.from((bits.match(/.{8}/g) ?? []).map((byte) => Number.parseInt(byte, 2)));
   const counter = Buffer.alloc(8);
   counter.writeBigUInt64BE(BigInt(Math.floor(at / 30_000)));
@@ -46,7 +49,11 @@ function png(width: number, height: number): Buffer {
   const row = width * 3 + 1;
   const pixels = Buffer.alloc(row * height);
   for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) pixels.set([255 - Math.round((x / width) * 200), 90 + Math.round((y / height) * 120), 200], y * row + 1 + x * 3);
+    for (let x = 0; x < width; x++)
+      pixels.set(
+        [255 - Math.round((x / width) * 200), 90 + Math.round((y / height) * 120), 200],
+        y * row + 1 + x * 3,
+      );
   }
   const chunk = (type: string, data: Buffer) => {
     const body = Buffer.concat([Buffer.from(type), data]);
@@ -60,7 +67,12 @@ function png(width: number, height: number): Buffer {
   header.writeUInt32BE(width, 0);
   header.writeUInt32BE(height, 4);
   header.set([8, 2], 8); // 8 bits per channel, RGB
-  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", header), chunk("IDAT", deflateSync(pixels)), chunk("IEND", Buffer.alloc(0))]);
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    chunk("IHDR", header),
+    chunk("IDAT", deflateSync(pixels)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
 }
 
 async function mailpitIsUp(request: APIRequestContext): Promise<boolean> {
@@ -75,9 +87,13 @@ async function mailpitIsUp(request: APIRequestContext): Promise<boolean> {
 async function mailedVerificationToken(request: APIRequestContext, to: string): Promise<string> {
   let token = "";
   await expect(async () => {
-    const found = (await (await request.get(`${MAILPIT}/api/v1/search`, { params: { query: `to:${to}`, limit: 5 } })).json()) as { messages: { ID: string }[] };
+    const found = (await (
+      await request.get(`${MAILPIT}/api/v1/search`, { params: { query: `to:${to}`, limit: 5 } })
+    ).json()) as { messages: { ID: string }[] };
     for (const { ID } of found.messages) {
-      const message = (await (await request.get(`${MAILPIT}/api/v1/message/${ID}`)).json()) as { Text?: string };
+      const message = (await (await request.get(`${MAILPIT}/api/v1/message/${ID}`)).json()) as {
+        Text?: string;
+      };
       const link = /\/verify-email\?token=([\w.~%-]+)/.exec(message.Text ?? "");
       if (link?.[1]) {
         token = decodeURIComponent(link[1]);
@@ -103,9 +119,14 @@ async function submitLoginForm(page: Page, identifier: string, password: string)
   await page.getByRole("button", { name: "ログイン", exact: true }).click();
 }
 
-const getMe = async (request: APIRequestContext, as: Account) => (await rpc<{ me: Record<string, unknown> }>(request, `${ACCOUNT}/GetMe`, {}, as)).me;
+const getMe = async (request: APIRequestContext, as: Account) =>
+  (await rpc<{ me: Record<string, unknown> }>(request, `${ACCOUNT}/GetMe`, {}, as)).me;
 const getSettings = async (request: APIRequestContext, as: Account) =>
-  (await rpc<{ settings: { privacy: Record<string, unknown>; appearance: Record<string, unknown> } }>(request, `${ACCOUNT}/GetSettings`, {}, as)).settings;
+  (
+    await rpc<{
+      settings: { privacy: Record<string, unknown>; appearance: Record<string, unknown> };
+    }>(request, `${ACCOUNT}/GetSettings`, {}, as)
+  ).settings;
 
 // ── Home ────────────────────────────────────────────────────────────
 
@@ -153,7 +174,11 @@ test("an edited profile shows at once in the app and on the profile page", async
   await expect(page.getByLabel("ひとこと")).toHaveValue("ラーメンと散歩がすき！");
 });
 
-test("a handle that is taken, reserved or malformed is refused with the reason; a free one is saved", async ({ page, me, request }) => {
+test("a handle that is taken, reserved or malformed is refused with the reason; a free one is saved", async ({
+  page,
+  me,
+  request,
+}) => {
   const other = await createAccount(request, "taken");
   await page.goto("/settings/profile");
   const handle = page.getByLabel("ハンドル");
@@ -180,7 +205,10 @@ test("a handle that is taken, reserved or malformed is refused with the reason; 
   await expect(page.getByText(`@${fresh}`)).toBeVisible();
 });
 
-test("a status is shared with a tap, shows on the profile, and can be cleared", async ({ page, me }) => {
+test("a status is shared with a tap, shows on the profile, and can be cleared", async ({
+  page,
+  me,
+}) => {
   await page.goto("/settings/profile");
   await page.getByRole("button", { name: "設定する" }).click();
   const dialog = page.getByRole("dialog", { name: "いま、なにしてる？" });
@@ -199,14 +227,19 @@ test("a status is shared with a tap, shows on the profile, and can be cleared", 
   await expect(page.getByText("いまは設定されていません")).toBeVisible();
 });
 
-test("a picked picture is cropped, uploaded and becomes the avatar; it can be removed again", async ({ page, me: _me }) => {
+test("a picked picture is cropped, uploaded and becomes the avatar; it can be removed again", async ({
+  page,
+  me: _me,
+}) => {
   await page.goto("/settings/profile");
   const chooser = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: "アイコンを変える" }).click();
   await (await chooser).setFiles({ name: "me.png", mimeType: "image/png", buffer: png(600, 400) });
 
   const crop = page.getByRole("dialog", { name: "アイコンを切り抜く" });
-  await expect(crop.getByRole("application", { name: "切り抜く範囲" }).locator("img")).toBeVisible();
+  await expect(
+    crop.getByRole("application", { name: "切り抜く範囲" }).locator("img"),
+  ).toBeVisible();
   // Zoom in a little with the keyboard, as someone adjusting the frame would.
   await crop.getByRole("slider", { name: "拡大" }).press("ArrowRight");
   await crop.getByRole("button", { name: "これにする！" }).click();
@@ -215,7 +248,10 @@ test("a picked picture is cropped, uploaded and becomes the avatar; it can be re
   await expect(pictures.locator('img[src*="/media/"]')).toBeVisible();
 
   await page.getByRole("button", { name: "アイコンを削除" }).click();
-  await page.getByRole("dialog", { name: "アイコンを削除する？" }).getByRole("button", { name: "削除する" }).click();
+  await page
+    .getByRole("dialog", { name: "アイコンを削除する？" })
+    .getByRole("button", { name: "削除する" })
+    .click();
   await expect(page.getByText("アイコンを削除しました")).toBeVisible();
   await expect(pictures.locator("img")).toHaveCount(0);
 });
@@ -224,8 +260,15 @@ test("a banner is cropped to a wide strip and shown on the profile", async ({ pa
   await page.goto("/settings/profile");
   const chooser = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: "バナーを変える" }).click();
-  await (await chooser).setFiles({ name: "banner.png", mimeType: "image/png", buffer: png(900, 600) });
-  await page.getByRole("dialog", { name: "バナーを切り抜く" }).getByRole("button", { name: "これにする！" }).click();
+  await (await chooser).setFiles({
+    name: "banner.png",
+    mimeType: "image/png",
+    buffer: png(900, 600),
+  });
+  await page
+    .getByRole("dialog", { name: "バナーを切り抜く" })
+    .getByRole("button", { name: "これにする！" })
+    .click();
   await expect(page.getByText("バナーを変えました！")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByTestId("banner-preview")).toHaveCSS("background-image", /\/media\//);
 
@@ -236,7 +279,11 @@ test("a banner is cropped to a wide strip and shown on the profile", async ({ pa
 
 // ── Account ─────────────────────────────────────────────────────────
 
-test("after changing the password, the new one signs in and the old one does not", async ({ page, me, request }) => {
+test("after changing the password, the new one signs in and the old one does not", async ({
+  page,
+  me,
+  request,
+}) => {
   const newPassword = "even better horse 42";
   await page.goto("/settings/account");
 
@@ -257,10 +304,16 @@ test("after changing the password, the new one signs in and the old one does not
   await submitLoginForm(page, me.handle, newPassword);
   await expect(page).toHaveURL(/\/map$/);
 
-  await expect(rpc(request, `${AUTH}/SignIn`, { identifier: me.handle, password: PASSWORD })).rejects.toThrow(/INVALID_CREDENTIALS/);
+  await expect(
+    rpc(request, `${AUTH}/SignIn`, { identifier: me.handle, password: PASSWORD }),
+  ).rejects.toThrow(/INVALID_CREDENTIALS/);
 });
 
-test("the verification mail can be sent again, and its link marks the email as verified", async ({ page, me, request }) => {
+test("the verification mail can be sent again, and its link marks the email as verified", async ({
+  page,
+  me,
+  request,
+}) => {
   test.skip(!(await mailpitIsUp(request)), "needs the development mail catcher (Mailpit)");
   await page.goto("/settings/account");
   await expect(page.getByText("未確認", { exact: true })).toBeVisible();
@@ -268,14 +321,20 @@ test("the verification mail can be sent again, and its link marks the email as v
   await expect(page.getByText(`${me.email} に確認メールを送りました！`)).toBeVisible();
 
   // Opening the mailed link is the sign-in pages' part; here the link's token is redeemed directly.
-  await rpc(request, `${AUTH}/VerifyEmail`, { token: await mailedVerificationToken(request, me.email) });
+  await rpc(request, `${AUTH}/VerifyEmail`, {
+    token: await mailedVerificationToken(request, me.email),
+  });
 
   await page.reload();
   await expect(page.getByText("確認済み", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "確認メールをもう一度送る" })).toHaveCount(0);
 });
 
-test("a new email address takes over once its verification link is opened", async ({ page, me, request }) => {
+test("a new email address takes over once its verification link is opened", async ({
+  page,
+  me,
+  request,
+}) => {
   test.skip(!(await mailpitIsUp(request)), "needs the development mail catcher (Mailpit)");
   const newEmail = `new-${me.handle}@e2e.tokuly.test`;
   await page.goto("/settings/account");
@@ -294,13 +353,18 @@ test("a new email address takes over once its verification link is opened", asyn
   // Until the link is opened the old address stays.
   await expect(page.getByTestId("account-email")).toHaveText(me.email);
 
-  await rpc(request, `${AUTH}/VerifyEmail`, { token: await mailedVerificationToken(request, newEmail) });
+  await rpc(request, `${AUTH}/VerifyEmail`, {
+    token: await mailedVerificationToken(request, newEmail),
+  });
   await page.reload();
   await expect(page.getByTestId("account-email")).toHaveText(newEmail);
   await expect(page.getByText("確認済み", { exact: true })).toBeVisible();
 });
 
-test("the language switches at once, survives a reload and is stored on the account", async ({ page, me }) => {
+test("the language switches at once, survives a reload and is stored on the account", async ({
+  page,
+  me,
+}) => {
   await page.goto("/settings/account");
   await page.getByRole("combobox", { name: "ことば" }).click();
   await page.getByRole("option", { name: "English" }).click();
@@ -312,7 +376,10 @@ test("the language switches at once, survives a reload and is stored on the acco
   await expect(page.getByRole("combobox", { name: "Language" })).toContainText("English");
 });
 
-test("the time zone is picked from a searchable list, or set back to the device's", async ({ page, me }) => {
+test("the time zone is picked from a searchable list, or set back to the device's", async ({
+  page,
+  me,
+}) => {
   await page.goto("/settings/account");
   await expect(page.getByTestId("account-time-zone")).toHaveText("Asia/Tokyo");
   await page.getByRole("button", { name: "変える", exact: true }).click();
@@ -330,7 +397,10 @@ test("the time zone is picked from a searchable list, or set back to the device'
 
 // ── Security ────────────────────────────────────────────────────────
 
-test("two-step verification is set up with a code from the secret, and signing in then asks for one", async ({ page, me }) => {
+test("two-step verification is set up with a code from the secret, and signing in then asks for one", async ({
+  page,
+  me,
+}) => {
   await page.goto("/settings/security");
   await page.getByRole("button", { name: "オンにする" }).click();
   const setup = page.getByRole("dialog", { name: "2段階認証を設定" });
@@ -385,7 +455,14 @@ test("a passkey is added with a name, listed, and removed", async ({ page, me })
   const devtools = await page.context().newCDPSession(page);
   await devtools.send("WebAuthn.enable");
   await devtools.send("WebAuthn.addVirtualAuthenticator", {
-    options: { protocol: "ctap2", transport: "internal", hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true },
+    options: {
+      protocol: "ctap2",
+      transport: "internal",
+      hasResidentKey: true,
+      hasUserVerification: true,
+      isUserVerified: true,
+      automaticPresenceSimulation: true,
+    },
   });
 
   await page.goto("/settings/security");
@@ -399,14 +476,25 @@ test("a passkey is added with a name, listed, and removed", async ({ page, me })
   expect((await getMe(page.request, me)).passkeyCount).toBe(1);
 
   await page.getByRole("button", { name: "「テスト用のキー」を削除" }).click();
-  await page.getByRole("dialog", { name: "「テスト用のキー」を削除する？" }).getByRole("button", { name: "削除する" }).click();
+  await page
+    .getByRole("dialog", { name: "「テスト用のキー」を削除する？" })
+    .getByRole("button", { name: "削除する" })
+    .click();
   await expect(toast(page, "パスキーを削除しました")).toBeVisible();
   await expect(page.getByText("まだパスキーがありません")).toBeVisible();
 });
 
-test("signed-in devices are listed with this one marked, and another one can be signed out", async ({ page, me, request }) => {
+test("signed-in devices are listed with this one marked, and another one can be signed out", async ({
+  page,
+  me,
+  request,
+}) => {
   // A second sign-in from a phone.
-  await rpc(request, `${AUTH}/SignIn`, { identifier: me.handle, password: PASSWORD, client: { deviceName: "Pixel 10", platform: "PLATFORM_ANDROID" } });
+  await rpc(request, `${AUTH}/SignIn`, {
+    identifier: me.handle,
+    password: PASSWORD,
+    client: { deviceName: "Pixel 10", platform: "PLATFORM_ANDROID" },
+  });
 
   await page.goto("/settings/security");
   const rows = page.getByTestId("session-row");
@@ -415,16 +503,27 @@ test("signed-in devices are listed with this one marked, and another one can be 
   await expect(phone).toBeVisible();
 
   await phone.getByRole("button", { name: "ログアウト" }).click();
-  await page.getByRole("dialog", { name: "「Pixel 10」をログアウトさせる？" }).getByRole("button", { name: "ログアウトさせる" }).click();
+  await page
+    .getByRole("dialog", { name: "「Pixel 10」をログアウトさせる？" })
+    .getByRole("button", { name: "ログアウトさせる" })
+    .click();
   await expect(toast(page, "ログアウトさせました")).toBeVisible();
   await expect(phone).toHaveCount(0);
 
-  const { sessions } = await rpc<{ sessions: { client?: { deviceName?: string } }[] }>(request, `${ACCOUNT}/ListSessions`, {}, me);
+  const { sessions } = await rpc<{ sessions: { client?: { deviceName?: string } }[] }>(
+    request,
+    `${ACCOUNT}/ListSessions`,
+    {},
+    me,
+  );
   expect(sessions.map((session) => session.client?.deviceName)).not.toContain("Pixel 10");
 });
 
 test("the security log tells what happened to the account", async ({ page, me, request }) => {
-  await rpc(request, `${AUTH}/SignIn`, { identifier: me.handle, password: "definitely wrong" }).catch(() => {});
+  await rpc(request, `${AUTH}/SignIn`, {
+    identifier: me.handle,
+    password: "definitely wrong",
+  }).catch(() => {});
 
   await page.goto("/settings/security");
   await page.getByRole("link", { name: "すべて見る" }).click();
@@ -436,9 +535,13 @@ test("the security log tells what happened to the account", async ({ page, me, r
 });
 
 test("a sign-in on another device is approved by its code", async ({ page, me, request }) => {
-  const started = await rpc<{ deviceCode: string; userCode: string }>(request, `${AUTH}/StartDeviceLogin`, {
-    client: { deviceName: "Tokuly Studio", platform: "PLATFORM_DESKTOP", appVersion: "1.2.3" },
-  });
+  const started = await rpc<{ deviceCode: string; userCode: string }>(
+    request,
+    `${AUTH}/StartDeviceLogin`,
+    {
+      client: { deviceName: "Tokuly Studio", platform: "PLATFORM_DESKTOP", appVersion: "1.2.3" },
+    },
+  );
 
   // The code is typed in, as from a TV screen.
   await page.goto("/settings/security");
@@ -451,20 +554,34 @@ test("a sign-in on another device is approved by its code", async ({ page, me, r
   await page.getByRole("button", { name: "承認する" }).click();
   await expect(page.getByText("承認しました！")).toBeVisible();
 
-  const poll = await rpc<{ status: string; auth?: { me: { user: { handle: string } } } }>(request, `${AUTH}/PollDeviceLogin`, { deviceCode: started.deviceCode });
+  const poll = await rpc<{ status: string; auth?: { me: { user: { handle: string } } } }>(
+    request,
+    `${AUTH}/PollDeviceLogin`,
+    { deviceCode: started.deviceCode },
+  );
   expect(poll.status).toBe("DEVICE_LOGIN_STATUS_APPROVED");
   expect(poll.auth?.me.user.handle).toBe(me.handle);
 });
 
-test("a device sign-in from a link can be refused, and a wrong code says so", async ({ page, me: _me, request }) => {
-  const started = await rpc<{ deviceCode: string; userCode: string }>(request, `${AUTH}/StartDeviceLogin`, { client: { deviceName: "Living room TV" } });
+test("a device sign-in from a link can be refused, and a wrong code says so", async ({
+  page,
+  me: _me,
+  request,
+}) => {
+  const started = await rpc<{ deviceCode: string; userCode: string }>(
+    request,
+    `${AUTH}/StartDeviceLogin`,
+    { client: { deviceName: "Living room TV" } },
+  );
 
   // The address a device shows (or encodes as a QR code) carries the code.
   await page.goto(`/settings/security/device?code=${started.userCode}`);
   await expect(page.getByTestId("device-name")).toHaveText("Living room TV");
   await page.getByRole("button", { name: "拒否する" }).click();
   await expect(page.getByText("拒否しました")).toBeVisible();
-  const poll = await rpc<{ status: string }>(request, `${AUTH}/PollDeviceLogin`, { deviceCode: started.deviceCode });
+  const poll = await rpc<{ status: string }>(request, `${AUTH}/PollDeviceLogin`, {
+    deviceCode: started.deviceCode,
+  });
   expect(poll.status).toBe("DEVICE_LOGIN_STATUS_DENIED");
 
   await page.getByRole("button", { name: "別のコードを入力" }).click();
@@ -481,7 +598,9 @@ test("a privacy switch saves the moment it is flipped and stays that way", async
   await expect(battery).toBeChecked();
   await battery.click();
   await expect(battery).not.toBeChecked();
-  await expect.poll(async () => (await getSettings(page.request, me)).privacy.shareBattery ?? false).toBe(false);
+  await expect
+    .poll(async () => (await getSettings(page.request, me)).privacy.shareBattery ?? false)
+    .toBe(false);
   // Only that one setting changed.
   expect((await getSettings(page.request, me)).privacy.shareActivity).toBe(true);
 
@@ -490,14 +609,23 @@ test("a privacy switch saves the moment it is flipped and stays that way", async
   await expect(page.getByRole("switch", { name: /スピードと移動手段/ })).toBeChecked();
 });
 
-test("the next person to sign in on the same browser gets their own settings, not the last person's", async ({ page, me, request }) => {
+test("the next person to sign in on the same browser gets their own settings, not the last person's", async ({
+  page,
+  me,
+  request,
+}) => {
   const next = await createAccount(request, "next");
   await page.goto("/settings/privacy");
   await page.getByRole("switch", { name: /バッテリー残量/ }).click();
-  await expect.poll(async () => (await getSettings(page.request, me)).privacy.shareBattery ?? false).toBe(false);
+  await expect
+    .poll(async () => (await getSettings(page.request, me)).privacy.shareBattery ?? false)
+    .toBe(false);
 
   // Sign out and in again without ever reloading the page, as someone handing over a shared computer would.
-  await (isWide(page) ? page.getByRole("link", { name: /^あなたのデータ/ }) : page.getByRole("link", { name: "back" })).click();
+  await (isWide(page)
+    ? page.getByRole("link", { name: /^あなたのデータ/ })
+    : page.getByRole("link", { name: "back" })
+  ).click();
   if (!isWide(page)) await page.getByRole("link", { name: /^あなたのデータ/ }).click();
   await page.getByRole("button", { name: "このデバイスからログアウト" }).click();
   await expect(page).toHaveURL(/\/$/);
@@ -509,7 +637,10 @@ test("the next person to sign in on the same browser gets their own settings, no
 
   await page.getByRole("link", { name: "じぶん" }).click();
   await page.getByRole("main").getByRole("link", { name: "設定" }).click();
-  await page.getByRole("navigation", { name: "設定" }).getByRole("link", { name: /^プライバシー/ }).click();
+  await page
+    .getByRole("navigation", { name: "設定" })
+    .getByRole("link", { name: /^プライバシー/ })
+    .click();
   await expect(page.getByRole("switch", { name: /バッテリー残量/ })).toBeChecked();
 });
 
@@ -521,10 +652,14 @@ test("an audience is chosen from options that each say what they mean", async ({
   await expect(page.getByRole("option", { name: /だれでもメッセージを送れます/ })).toBeVisible();
   await page.getByRole("option", { name: /共通のともだちがいる人まで送れます/ }).click();
   await expect(messages).toContainText("ともだちのともだちまで");
-  await expect.poll(async () => (await getSettings(page.request, me)).privacy.directMessagesFrom).toBe("AUDIENCE_FRIENDS_OF_FRIENDS");
+  await expect
+    .poll(async () => (await getSettings(page.request, me)).privacy.directMessagesFrom)
+    .toBe("AUDIENCE_FRIENDS_OF_FRIENDS");
 
   await page.reload();
-  await expect(page.getByRole("combobox", { name: "メッセージを送れる人" })).toContainText("ともだちのともだちまで");
+  await expect(page.getByRole("combobox", { name: "メッセージを送れる人" })).toContainText(
+    "ともだちのともだちまで",
+  );
 });
 
 test("blocked people are listed and can be unblocked", async ({ page, me, request }) => {
@@ -540,13 +675,21 @@ test("blocked people are listed and can be unblocked", async ({ page, me, reques
   await expect(page.getByText("blockedさんのブロックを解除しました")).toBeVisible();
   await expect(page.getByText("だれもブロックしていません")).toBeVisible();
 
-  const { users = [] } = await rpc<{ users?: unknown[] }>(request, `${FRIENDS}/ListBlockedUsers`, {}, me);
+  const { users = [] } = await rpc<{ users?: unknown[] }>(
+    request,
+    `${FRIENDS}/ListBlockedUsers`,
+    {},
+    me,
+  );
   expect(users).toHaveLength(0);
 });
 
 // ── Appearance ──────────────────────────────────────────────────────
 
-test("theme and ドパガキ度 apply at once and are still there after a reload", async ({ page, me }) => {
+test("theme and ドパガキ度 apply at once and are still there after a reload", async ({
+  page,
+  me,
+}) => {
   await page.goto("/settings/appearance");
   const html = page.locator("html");
   await expect(html).toHaveAttribute("data-theme", "light");
@@ -571,7 +714,9 @@ test("theme and ドパガキ度 apply at once and are still there after a reload
   await expect(html).toHaveAttribute("data-dopa", "1");
 
   // Saved to the account as well, for the next device.
-  await expect.poll(async () => (await getSettings(page.request, me)).appearance).toMatchObject({ theme: "dark", dopamineLevel: 1 });
+  await expect
+    .poll(async () => (await getSettings(page.request, me)).appearance)
+    .toMatchObject({ theme: "dark", dopamineLevel: 1 });
 
   await page.reload();
   await expect(html).toHaveAttribute("data-theme", "dark");
@@ -580,9 +725,18 @@ test("theme and ドパガキ度 apply at once and are still there after a reload
   await expect(page.getByRole("slider", { name: "ドパガキ度" })).toHaveValue("1");
 });
 
-test("an account's look is taken over when it signs in on a new browser", async ({ page, me, request }) => {
+test("an account's look is taken over when it signs in on a new browser", async ({
+  page,
+  me,
+  request,
+}) => {
   const { appearance } = await getSettings(request, me);
-  await rpc(request, `${ACCOUNT}/UpdateSettings`, { appearance: { ...appearance, theme: "dark", dopamineLevel: 5, accentColor: "#ec3f8c" } }, me);
+  await rpc(
+    request,
+    `${ACCOUNT}/UpdateSettings`,
+    { appearance: { ...appearance, theme: "dark", dopamineLevel: 5, accentColor: "#ec3f8c" } },
+    me,
+  );
 
   await page.goto("/settings/appearance");
   const html = page.locator("html");
@@ -591,9 +745,15 @@ test("an account's look is taken over when it signs in on a new browser", async 
   await expect(page.getByRole("radio", { name: "ピンク" })).toBeChecked();
 });
 
-test("the accent colour recolours the app and the other preferences are saved", async ({ page, me }) => {
+test("the accent colour recolours the app and the other preferences are saved", async ({
+  page,
+  me,
+}) => {
   await page.goto("/settings/appearance");
-  const brand = () => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--brand").trim());
+  const brand = () =>
+    page.evaluate(() =>
+      getComputedStyle(document.documentElement).getPropertyValue("--brand").trim(),
+    );
   expect(await brand()).toBe("#7c5cff");
   await page.getByRole("radio", { name: "みどり" }).click();
   await expect.poll(brand).toBe("#12a36b");
@@ -601,7 +761,9 @@ test("the accent colour recolours the app and the other preferences are saved", 
   await page.getByRole("combobox", { name: "距離の単位" }).click();
   await page.getByRole("option", { name: /マイル/ }).click();
   await page.getByRole("switch", { name: /動画の自動再生/ }).click();
-  await expect.poll(async () => (await getSettings(page.request, me)).appearance).toMatchObject({ accentColor: "#12a36b", distanceUnit: "mi", sounds: true });
+  await expect
+    .poll(async () => (await getSettings(page.request, me)).appearance)
+    .toMatchObject({ accentColor: "#12a36b", distanceUnit: "mi", sounds: true });
   expect((await getSettings(page.request, me)).appearance.autoplay ?? false).toBe(false);
 
   await page.reload();
@@ -612,20 +774,34 @@ test("the accent colour recolours the app and the other preferences are saved", 
 
 // ── Connections ─────────────────────────────────────────────────────
 
-test("Spotify can be connected where the server is set up for it, and says so where it is not", async ({ page, me, request }) => {
-  const { availableProviders = [] } = await rpc<{ availableProviders?: string[] }>(request, `${ACCOUNT}/ListConnections`, {}, me);
+test("Spotify can be connected where the server is set up for it, and says so where it is not", async ({
+  page,
+  me,
+  request,
+}) => {
+  const { availableProviders = [] } = await rpc<{ availableProviders?: string[] }>(
+    request,
+    `${ACCOUNT}/ListConnections`,
+    {},
+    me,
+  );
   await page.goto("/settings/connections");
   const spotify = page.getByTestId("connection-spotify");
   await expect(spotify.getByText("Spotify", { exact: true })).toBeVisible();
   if (availableProviders.includes("spotify")) {
     await expect(spotify.getByRole("button", { name: "Spotifyとつなぐ" })).toBeEnabled();
   } else {
-    await expect(spotify.getByText("このサーバーではSpotifyとの連携が設定されていません。", { exact: false })).toBeVisible();
+    await expect(
+      spotify.getByText("このサーバーではSpotifyとの連携が設定されていません。", { exact: false }),
+    ).toBeVisible();
     await expect(spotify.getByRole("button")).toHaveCount(0);
   }
 });
 
-test("coming back from a provider without agreeing leaves things as they were", async ({ page, me: _me }) => {
+test("coming back from a provider without agreeing leaves things as they were", async ({
+  page,
+  me: _me,
+}) => {
   await page.goto("/settings/connections/callback/spotify?error=access_denied&state=whatever");
   await expect(page.getByText("連携をキャンセルしました")).toBeVisible();
   await page.getByRole("link", { name: "連携サービスにもどる" }).click();
@@ -634,7 +810,10 @@ test("coming back from a provider without agreeing leaves things as they were", 
 
 // ── Your data ───────────────────────────────────────────────────────
 
-test("a data export is requested and the request is still shown after a reload", async ({ page, me }) => {
+test("a data export is requested and the request is still shown after a reload", async ({
+  page,
+  me,
+}) => {
   await page.goto("/settings/data");
   await page.getByRole("button", { name: "データをリクエスト" }).click();
   await expect(page.getByText("リクエストしました！メールをまっててね")).toBeVisible();
@@ -644,7 +823,11 @@ test("a data export is requested and the request is still shown after a reload",
   await expect(page.getByTestId("export-state")).toContainText("リクエストしました");
 });
 
-test("deleting the account is scheduled after confirming, and can be cancelled", async ({ page, me, request }) => {
+test("deleting the account is scheduled after confirming, and can be cancelled", async ({
+  page,
+  me,
+  request,
+}) => {
   await page.goto("/settings/data");
   await page.getByRole("button", { name: "アカウントを削除する" }).click();
   const dialog = page.getByRole("dialog", { name: "ほんとうに削除する？" });
@@ -673,7 +856,10 @@ test("deleting the account is scheduled after confirming, and can be cancelled",
 test("signing out of every device ends this session too", async ({ page, me: _me }) => {
   await page.goto("/settings/data");
   await page.getByRole("button", { name: "すべてのデバイスからログアウト" }).click();
-  await page.getByRole("dialog", { name: "すべてのデバイスからログアウトする？" }).getByRole("button", { name: "すべてログアウト" }).click();
+  await page
+    .getByRole("dialog", { name: "すべてのデバイスからログアウトする？" })
+    .getByRole("button", { name: "すべてログアウト" })
+    .click();
   await expect(page).toHaveURL(/\/$/);
   await page.goto("/settings");
   await expect(page).toHaveURL(/\/login\?redirect=/);

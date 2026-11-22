@@ -37,7 +37,8 @@ export default function NotesBackground() {
         return;
       }
       // A friendship ended, or the other side put up a block.
-      if (frame.body.case === "social" && frame.body.value.event.case === "friendRemovedUserId") forgetUserNotes(queryClient, frame.body.value.event.value);
+      if (frame.body.case === "social" && frame.body.value.event.case === "friendRemovedUserId")
+        forgetUserNotes(queryClient, frame.body.value.event.value);
       applyNotesFrame(queryClient, frame);
     });
     client.start();

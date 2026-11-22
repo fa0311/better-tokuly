@@ -12,7 +12,8 @@ export function SubscriptionsScreen() {
   const { t } = useTranslation("video");
   const subscriptions = useInfiniteQuery({
     queryKey: videoKeys.subscriptions,
-    queryFn: ({ pageParam }) => channelClient().listSubscriptions({ page: { limit: 30, cursor: pageParam } }),
+    queryFn: ({ pageParam }) =>
+      channelClient().listSubscriptions({ page: { limit: 30, cursor: pageParam } }),
     initialPageParam: "",
     getNextPageParam: nextCursor,
   });
@@ -29,10 +30,24 @@ export function SubscriptionsScreen() {
       ) : subscriptions.isError ? (
         <EmptyState emoji="😵‍💫" title={errorMessage(subscriptions.error)} />
       ) : rows.length === 0 ? (
-        <EmptyState emoji="📺" title={t("subscriptions.empty")} body={t("subscriptions.emptyBody")} />
+        <EmptyState
+          emoji="📺"
+          title={t("subscriptions.empty")}
+          body={t("subscriptions.emptyBody")}
+        />
       ) : (
         <div className="sticker rounded-card bg-surface p-2">
-          {rows.map((subscription) => subscription.channel && <ChannelRow key={subscription.channel.id} channel={subscription.channel} subscribed notificationLevel={subscription.notificationLevel} />)}
+          {rows.map(
+            (subscription) =>
+              subscription.channel && (
+                <ChannelRow
+                  key={subscription.channel.id}
+                  channel={subscription.channel}
+                  subscribed
+                  notificationLevel={subscription.notificationLevel}
+                />
+              ),
+          )}
           <LoadMore query={subscriptions} />
         </div>
       )}

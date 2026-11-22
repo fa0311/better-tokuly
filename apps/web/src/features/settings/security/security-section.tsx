@@ -20,7 +20,10 @@ export function SecuritySection() {
       <PasskeysCard />
       <TotpCard me={me} />
       <SessionsCard />
-      <Link to="/settings/security/device" className="pressable sticker mt-7 flex items-center gap-3 rounded-card bg-surface p-4">
+      <Link
+        to="/settings/security/device"
+        className="pressable sticker mt-7 flex items-center gap-3 rounded-card bg-surface p-4"
+      >
         <span className="grid size-10 shrink-0 place-items-center rounded-xl border-2 border-ink bg-lime text-[#17122b]">
           <MonitorSmartphone className="size-5" />
         </span>

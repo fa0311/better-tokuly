@@ -3,7 +3,13 @@ import { nameFromFile, parseKeywords } from "./stamp-meta";
 
 describe("stamp search words", () => {
   it("splits on spaces and commas, Japanese ones included", () => {
-    expect(parseKeywords("ねこ, わーい  cat、えがお，smile")).toEqual(["ねこ", "わーい", "cat", "えがお", "smile"]);
+    expect(parseKeywords("ねこ, わーい  cat、えがお，smile")).toEqual([
+      "ねこ",
+      "わーい",
+      "cat",
+      "えがお",
+      "smile",
+    ]);
   });
 
   it("drops '#', lowercases and removes repeats", () => {

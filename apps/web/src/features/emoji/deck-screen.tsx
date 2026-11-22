@@ -112,7 +112,10 @@ export function DeckScreen() {
                   aria-label={t("deck.item", { emoji: choice.emoji })}
                   data-testid="deck-item"
                   data-emoji={choice.emoji}
-                  className={cn("grid aspect-square w-full place-items-center rounded-2xl border-2 border-line bg-surface-2 outline-none focus-visible:border-brand", state.dragging && "border-ink bg-brand-soft")}
+                  className={cn(
+                    "grid aspect-square w-full place-items-center rounded-2xl border-2 border-line bg-surface-2 outline-none focus-visible:border-brand",
+                    state.dragging && "border-ink bg-brand-soft",
+                  )}
                 >
                   <Glyph choice={choice} />
                 </button>
@@ -120,7 +123,10 @@ export function DeckScreen() {
                   type="button"
                   aria-label={t("deck.remove", { emoji: choice.emoji })}
                   onClick={() => save.mutate(codes.filter((code) => code !== choice.emoji))}
-                  className={cn("absolute -top-1.5 -right-1.5 grid size-6 place-items-center rounded-full border-2 border-ink bg-surface text-ink hover:bg-danger hover:text-white", state.dragging && "invisible")}
+                  className={cn(
+                    "absolute -top-1.5 -right-1.5 grid size-6 place-items-center rounded-full border-2 border-ink bg-surface text-ink hover:bg-danger hover:text-white",
+                    state.dragging && "invisible",
+                  )}
                 >
                   <X className="size-3.5" strokeWidth={3} />
                 </button>
@@ -135,20 +141,32 @@ export function DeckScreen() {
               {deck.data.isDefault && ` · ${t("deck.isDefault")}`}
             </p>
             {!deck.data.isDefault && (
-              <Button variant="ghost" size="sm" icon={<RotateCcw className="size-4" />} onClick={() => setResetting(true)}>
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<RotateCcw className="size-4" />}
+                onClick={() => setResetting(true)}
+              >
                 {t("deck.reset")}
               </Button>
             )}
           </div>
         )}
       </section>
-      {choices.length > 1 && <p className="mt-2 px-1 text-xs text-ink-faint">{t("deck.dragHint")}</p>}
+      {choices.length > 1 && (
+        <p className="mt-2 px-1 text-xs text-ink-faint">{t("deck.dragHint")}</p>
+      )}
 
       <section aria-label={t("deck.recent")} className="mt-6">
         <div className="flex items-center justify-between gap-2 px-1">
           <h2 className="font-black">{t("deck.recent")}</h2>
           {recentChoices.length > 0 && (
-            <Button variant="ghost" size="sm" icon={<Trash2 className="size-4" />} onClick={() => setClearing(true)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<Trash2 className="size-4" />}
+              onClick={() => setClearing(true)}
+            >
               {t("deck.clearRecent")}
             </Button>
           )}
@@ -156,7 +174,9 @@ export function DeckScreen() {
         {recent.isPending ? (
           <Skeleton className="mt-2 h-16" />
         ) : recentChoices.length === 0 ? (
-          <p className="mt-2 rounded-card bg-surface px-4 py-6 text-center text-sm text-ink-soft">{t("deck.recentEmpty")}</p>
+          <p className="mt-2 rounded-card bg-surface px-4 py-6 text-center text-sm text-ink-soft">
+            {t("deck.recentEmpty")}
+          </p>
         ) : (
           <>
             <div className="mt-2 grid grid-cols-6 gap-1.5 rounded-card bg-surface p-3 sm:grid-cols-10">
@@ -171,7 +191,10 @@ export function DeckScreen() {
                     onClick={() => pin(choice.emoji)}
                     className="grid aspect-square place-items-center rounded-xl hover:bg-surface-2 disabled:opacity-35"
                   >
-                    <Glyph choice={choice} className={choice.kind === "custom" ? "size-7" : "text-2xl"} />
+                    <Glyph
+                      choice={choice}
+                      className={choice.kind === "custom" ? "size-7" : "text-2xl"}
+                    />
                   </button>
                 );
               })}
@@ -181,8 +204,26 @@ export function DeckScreen() {
         )}
       </section>
 
-      <ConfirmDialog open={resetting} onOpenChange={setResetting} title={t("deck.resetTitle")} description={t("deck.resetBody")} confirmLabel={t("deck.reset")} danger loading={reset.isPending} onConfirm={() => reset.mutate()} />
-      <ConfirmDialog open={clearing} onOpenChange={setClearing} title={t("deck.clearTitle")} description={t("deck.clearBody")} confirmLabel={t("deck.clearRecent")} danger loading={clear.isPending} onConfirm={() => clear.mutate()} />
+      <ConfirmDialog
+        open={resetting}
+        onOpenChange={setResetting}
+        title={t("deck.resetTitle")}
+        description={t("deck.resetBody")}
+        confirmLabel={t("deck.reset")}
+        danger
+        loading={reset.isPending}
+        onConfirm={() => reset.mutate()}
+      />
+      <ConfirmDialog
+        open={clearing}
+        onOpenChange={setClearing}
+        title={t("deck.clearTitle")}
+        description={t("deck.clearBody")}
+        confirmLabel={t("deck.clearRecent")}
+        danger
+        loading={clear.isPending}
+        onConfirm={() => clear.mutate()}
+      />
     </Page>
   );
 }

@@ -23,7 +23,13 @@ export function useSaveDeck() {
       await queryClient.cancelQueries({ queryKey: emojiKeys.deck });
       const previous = queryClient.getQueryData<emoji.GetDeckResponse>(emojiKeys.deck);
       // Custom emoji are drawn from the catalogue, so the names are enough until the server answers.
-      queryClient.setQueryData(emojiKeys.deck, create(emoji.GetDeckResponseSchema, { items: emojis.map((item) => ({ emoji: item })), isDefault: false }));
+      queryClient.setQueryData(
+        emojiKeys.deck,
+        create(emoji.GetDeckResponseSchema, {
+          items: emojis.map((item) => ({ emoji: item })),
+          isDefault: false,
+        }),
+      );
       return { previous };
     },
     onError: (error, _emojis, context) => {
@@ -33,7 +39,10 @@ export function useSaveDeck() {
     onSuccess: (response) => {
       // While a later change is on its way, its picture of the deck is the newer one.
       if (queryClient.isMutating({ mutationKey: SAVE_KEY }) > 1) return;
-      queryClient.setQueryData(emojiKeys.deck, create(emoji.GetDeckResponseSchema, { items: response.items, isDefault: false }));
+      queryClient.setQueryData(
+        emojiKeys.deck,
+        create(emoji.GetDeckResponseSchema, { items: response.items, isDefault: false }),
+      );
     },
   });
 }

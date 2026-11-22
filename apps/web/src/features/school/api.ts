@@ -28,13 +28,17 @@ export const keys = {
   terms: ["school", "timetable", "terms"] as const,
   term: (termId: string) => ["school", "timetable", "term", termId] as const,
   day: (date: string, userId = "") => ["school", "timetable", "day", userId, date] as const,
-  days: (start: string, end: string, userId = "") => ["school", "timetable", "days", userId, start, end] as const,
+  days: (start: string, end: string, userId = "") =>
+    ["school", "timetable", "days", userId, start, end] as const,
   now: (userId = "") => ["school", "timetable", "now", userId] as const,
   friendTimetables: ["school", "timetable", "friends"] as const,
-  friendTimetable: (userId: string, termId = "") => ["school", "timetable", "friend", userId, termId] as const,
-  free: (start: string, userIds: string[]) => ["school", "timetable", "free", start, userIds] as const,
+  friendTimetable: (userId: string, termId = "") =>
+    ["school", "timetable", "friend", userId, termId] as const,
+  free: (start: string, userIds: string[]) =>
+    ["school", "timetable", "free", start, userIds] as const,
   progress: ["school", "study", "progress"] as const,
-  summary: (period: school.StatsPeriod, anchor = "") => ["school", "study", "summary", period, anchor] as const,
+  summary: (period: school.StatsPeriod, anchor = "") =>
+    ["school", "study", "summary", period, anchor] as const,
   heatmap: (userId = "") => ["school", "study", "heatmap", userId] as const,
   sessions: ["school", "study", "sessions"] as const,
   cheers: (sessionId: string) => ["school", "study", "cheers", sessionId] as const,
@@ -53,7 +57,10 @@ export function refresh(queryClient: QueryClient, ...parts: string[]): void {
 }
 
 export function useSchoolSettings() {
-  return useQuery({ queryKey: keys.settings, queryFn: async () => (await settingsClient().getSchoolSettings({})).settings });
+  return useQuery({
+    queryKey: keys.settings,
+    queryFn: async () => (await settingsClient().getSchoolSettings({})).settings,
+  });
 }
 
 /** The caller's subjects by name; archived ones only when asked for. */
@@ -66,7 +73,10 @@ export function useSubjects(includeArchived = false, enabled = true) {
 }
 
 export function useTerms() {
-  return useQuery({ queryKey: keys.terms, queryFn: async () => (await timetableClient().listTerms({})).terms });
+  return useQuery({
+    queryKey: keys.terms,
+    queryFn: async () => (await timetableClient().listTerms({})).terms,
+  });
 }
 
 export function useTerm(termId: string | undefined) {
@@ -87,15 +97,24 @@ export function useClassNow(userId = "") {
 }
 
 export function useProgress() {
-  return useQuery({ queryKey: keys.progress, queryFn: async () => (await studyClient().getStudyProgress({})).progress });
+  return useQuery({
+    queryKey: keys.progress,
+    queryFn: async () => (await studyClient().getStudyProgress({})).progress,
+  });
 }
 
 export function useExams() {
-  return useQuery({ queryKey: keys.exams, queryFn: async () => (await examClient().listExams({})).exams });
+  return useQuery({
+    queryKey: keys.exams,
+    queryFn: async () => (await examClient().listExams({})).exams,
+  });
 }
 
 export function useAssignments(filter: school.AssignmentFilter) {
-  return useQuery({ queryKey: keys.assignments(filter), queryFn: () => assignmentClient().listAssignments({ filter, page: { limit: 100 } }) });
+  return useQuery({
+    queryKey: keys.assignments(filter),
+    queryFn: () => assignmentClient().listAssignments({ filter, page: { limit: 100 } }),
+  });
 }
 
 /** The viewer's friends (the cache entry the friends screen and chat use too). */

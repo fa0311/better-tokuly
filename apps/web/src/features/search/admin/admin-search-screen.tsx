@@ -25,7 +25,11 @@ export function AdminSearchScreen({ tab, onTab }: { tab: StaffTab; onTab(tab: St
         <EmptyState emoji="🔐" title={t("staff.gate.title")} body={t("staff.gate.body")} />
       ) : (
         <>
-          <Tabs<StaffTab> value={tab} onChange={onTab} items={STAFF_TABS.map((value) => ({ value, label: t(`staff.tabs.${value}`) }))} />
+          <Tabs<StaffTab>
+            value={tab}
+            onChange={onTab}
+            items={STAFF_TABS.map((value) => ({ value, label: t(`staff.tabs.${value}`) }))}
+          />
           <div className="mt-4">
             {tab === "indexes" && <Indexes />}
             {tab === "documents" && <Documents />}

@@ -54,7 +54,13 @@ export function AdminNewsScreen() {
       actions={
         access.admin && (
           <>
-            <Button size="sm" variant="secondary" icon={<RefreshCw className="size-4" />} loading={refreshAll.isPending} onClick={() => refreshAll.mutate()}>
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={<RefreshCw className="size-4" />}
+              loading={refreshAll.isPending}
+              onClick={() => refreshAll.mutate()}
+            >
               <span className="hidden sm:inline">{t("staff.sources.refreshAll")}</span>
               <span className="sm:hidden">{t("staff.sources.refreshAllShort")}</span>
             </Button>
@@ -66,15 +72,34 @@ export function AdminNewsScreen() {
       }
     >
       <div className="grid grid-cols-1 items-start gap-4 2xl:grid-cols-[minmax(0,1fr)_24rem]">
-        {access.admin && <Sources watchUntil={watchUntil} onWatch={() => setWatchUntil(Date.now() + WATCH_MS)} onAdd={() => setAdding(true)} />}
+        {access.admin && (
+          <Sources
+            watchUntil={watchUntil}
+            onWatch={() => setWatchUntil(Date.now() + WATCH_MS)}
+            onAdd={() => setAdding(true)}
+          />
+        )}
         <RemoveArticle />
       </div>
-      {adding && <SourceDialog onClose={() => setAdding(false)} onSaved={() => setWatchUntil(Date.now() + WATCH_MS)} />}
+      {adding && (
+        <SourceDialog
+          onClose={() => setAdding(false)}
+          onSaved={() => setWatchUntil(Date.now() + WATCH_MS)}
+        />
+      )}
     </StaffPage>
   );
 }
 
-function Sources({ watchUntil, onWatch, onAdd }: { watchUntil: number; onWatch(): void; onAdd(): void }) {
+function Sources({
+  watchUntil,
+  onWatch,
+  onAdd,
+}: {
+  watchUntil: number;
+  onWatch(): void;
+  onAdd(): void;
+}) {
   const { t } = useTranslation("news");
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<feed.ManagedNewsSource>();
@@ -85,9 +110,15 @@ function Sources({ watchUntil, onWatch, onAdd }: { watchUntil: number; onWatch()
     // Fetches run in the background and announce nothing: follow them for a while after one was queued.
     refetchInterval: () => (Date.now() < watchUntil ? WATCH_INTERVAL_MS : false),
   });
-  const refreshLists = () => Promise.all([queryClient.invalidateQueries({ queryKey: newsKeys.admin.sources }), queryClient.invalidateQueries({ queryKey: newsKeys.sources }), queryClient.invalidateQueries({ queryKey: newsKeys.lists })]);
+  const refreshLists = () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: newsKeys.admin.sources }),
+      queryClient.invalidateQueries({ queryKey: newsKeys.sources }),
+      queryClient.invalidateQueries({ queryKey: newsKeys.lists }),
+    ]);
   const refresh = useMutation({
-    mutationFn: (source: feed.ManagedNewsSource) => newsAdminClient().refreshNewsSources({ sourceId: source.id }),
+    mutationFn: (source: feed.ManagedNewsSource) =>
+      newsAdminClient().refreshNewsSources({ sourceId: source.id }),
     onSuccess: (_response, source) => {
       toast.success(t("staff.sources.refreshOne", { name: source.name }));
       onWatch();
@@ -96,16 +127,20 @@ function Sources({ watchUntil, onWatch, onAdd }: { watchUntil: number; onWatch()
     onError: (error) => toast.error(staffErrorMessage(error)),
   });
   const toggle = useMutation({
-    mutationFn: (source: feed.ManagedNewsSource) => newsAdminClient().updateNewsSource({ sourceId: source.id, enabled: !source.enabled }),
+    mutationFn: (source: feed.ManagedNewsSource) =>
+      newsAdminClient().updateNewsSource({ sourceId: source.id, enabled: !source.enabled }),
     onSuccess: (response) => {
-      toast.success(t(response.source?.enabled ? "staff.sources.switchedOn" : "staff.sources.switchedOff"));
+      toast.success(
+        t(response.source?.enabled ? "staff.sources.switchedOn" : "staff.sources.switchedOff"),
+      );
       if (response.source?.enabled) onWatch();
       return refreshLists();
     },
     onError: (error) => toast.error(staffErrorMessage(error)),
   });
   const remove = useMutation({
-    mutationFn: (source: feed.ManagedNewsSource) => newsAdminClient().deleteNewsSource({ sourceId: source.id }),
+    mutationFn: (source: feed.ManagedNewsSource) =>
+      newsAdminClient().deleteNewsSource({ sourceId: source.id }),
     onSuccess: () => {
       toast.success(t("staff.sources.deleted"));
       return refreshLists();
@@ -116,7 +151,16 @@ function Sources({ watchUntil, onWatch, onAdd }: { watchUntil: number; onWatch()
   const list = sources.data?.sources ?? [];
 
   return (
-    <Pane title={t("staff.sources.title")} aside={list.length > 0 && <span className="text-xs font-bold text-ink-faint tabular-nums">{t("staff.sources.count", { count: list.length })}</span>}>
+    <Pane
+      title={t("staff.sources.title")}
+      aside={
+        list.length > 0 && (
+          <span className="text-xs font-bold text-ink-faint tabular-nums">
+            {t("staff.sources.count", { count: list.length })}
+          </span>
+        )
+      }
+    >
       {sources.isPending ? (
         <div className="flex flex-col gap-2 p-4" aria-busy>
           <Skeleton className="h-20" />
@@ -138,7 +182,11 @@ function Sources({ watchUntil, onWatch, onAdd }: { watchUntil: number; onWatch()
       ) : (
         <ul aria-label={t("staff.sources.title")} className="divide-y-2 divide-line">
           {list.map((source) => (
-            <li key={source.id} data-testid="news-source" className={cn("flex flex-col gap-2 px-4 py-3", !source.enabled && "bg-surface-2/50")}>
+            <li
+              key={source.id}
+              data-testid="news-source"
+              className={cn("flex flex-col gap-2 px-4 py-3", !source.enabled && "bg-surface-2/50")}
+            >
               <div className="flex items-center gap-3">
                 <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-surface-2">
                   <SourceIcon source={source} className="size-5" />
@@ -146,23 +194,55 @@ function Sources({ watchUntil, onWatch, onAdd }: { watchUntil: number; onWatch()
                 <div className="min-w-0 flex-1">
                   <p className="flex min-w-0 items-center gap-2">
                     <span className="truncate font-black">{source.name}</span>
-                    {source.language && <span className="shrink-0 rounded bg-surface-2 px-1 text-[11px] font-bold text-ink-soft uppercase">{source.language}</span>}
-                    {source.fromConfig && <span className="shrink-0 rounded bg-surface-2 px-1 text-[11px] font-bold text-ink-soft">{t("staff.sources.fromConfig")}</span>}
+                    {source.language && (
+                      <span className="shrink-0 rounded bg-surface-2 px-1 text-[11px] font-bold text-ink-soft uppercase">
+                        {source.language}
+                      </span>
+                    )}
+                    {source.fromConfig && (
+                      <span className="shrink-0 rounded bg-surface-2 px-1 text-[11px] font-bold text-ink-soft">
+                        {t("staff.sources.fromConfig")}
+                      </span>
+                    )}
                   </p>
                   <p className="truncate font-mono text-xs text-ink-faint">{source.feedUrl}</p>
                 </div>
                 <FetchState source={source} />
                 <Menu
                   trigger={
-                    <Button variant="ghost" size="icon-sm" aria-label={t("staff.sources.menu", { name: source.name })}>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={t("staff.sources.menu", { name: source.name })}
+                    >
                       <MoreHorizontal className="size-5" />
                     </Button>
                   }
                   actions={[
-                    { label: t("staff.sources.refreshNow"), icon: <RefreshCw />, disabled: !source.enabled, onSelect: () => refresh.mutate(source) },
-                    { label: t("staff.sources.edit"), icon: <Pencil />, onSelect: () => setEditing(source) },
-                    { label: t(source.enabled ? "staff.sources.switchOff" : "staff.sources.switchOn"), icon: <span />, onSelect: () => toggle.mutate(source) },
-                    { label: t("staff.sources.delete"), icon: <Trash2 />, danger: true, onSelect: () => setDeleting(source) },
+                    {
+                      label: t("staff.sources.refreshNow"),
+                      icon: <RefreshCw />,
+                      disabled: !source.enabled,
+                      onSelect: () => refresh.mutate(source),
+                    },
+                    {
+                      label: t("staff.sources.edit"),
+                      icon: <Pencil />,
+                      onSelect: () => setEditing(source),
+                    },
+                    {
+                      label: t(
+                        source.enabled ? "staff.sources.switchOff" : "staff.sources.switchOn",
+                      ),
+                      icon: <span />,
+                      onSelect: () => toggle.mutate(source),
+                    },
+                    {
+                      label: t("staff.sources.delete"),
+                      icon: <Trash2 />,
+                      danger: true,
+                      onSelect: () => setDeleting(source),
+                    },
                   ]}
                 />
               </div>
@@ -184,7 +264,9 @@ function Sources({ watchUntil, onWatch, onAdd }: { watchUntil: number; onWatch()
                 {source.defaultTags.length > 0 && (
                   <div className="flex min-w-0 gap-1.5">
                     <dt className="font-bold text-ink-faint">{t("staff.sources.tags")}</dt>
-                    <dd className="truncate">{source.defaultTags.map((tag) => `#${tag}`).join(" ")}</dd>
+                    <dd className="truncate">
+                      {source.defaultTags.map((tag) => `#${tag}`).join(" ")}
+                    </dd>
                   </div>
                 )}
               </dl>
@@ -193,7 +275,8 @@ function Sources({ watchUntil, onWatch, onAdd }: { watchUntil: number; onWatch()
                   <CircleAlert className="mt-px size-3.5 shrink-0" />
                   <span className="min-w-0">
                     {source.lastError}
-                    {source.consecutiveFailures > 1 && ` (${t("staff.sources.failures", { count: source.consecutiveFailures })})`}
+                    {source.consecutiveFailures > 1 &&
+                      ` (${t("staff.sources.failures", { count: source.consecutiveFailures })})`}
                   </span>
                 </p>
               )}
@@ -201,7 +284,14 @@ function Sources({ watchUntil, onWatch, onAdd }: { watchUntil: number; onWatch()
           ))}
         </ul>
       )}
-      {editing && <SourceDialog key={editing.id} source={editing} onClose={() => setEditing(undefined)} onSaved={onWatch} />}
+      {editing && (
+        <SourceDialog
+          key={editing.id}
+          source={editing}
+          onClose={() => setEditing(undefined)}
+          onSaved={onWatch}
+        />
+      )}
       <ConfirmDialog
         open={deleting !== undefined}
         onOpenChange={(open) => !open && setDeleting(undefined)}
@@ -220,7 +310,9 @@ function Sources({ watchUntil, onWatch, onAdd }: { watchUntil: number; onWatch()
 function FetchState({ source }: { source: feed.ManagedNewsSource }) {
   const { t } = useTranslation("news");
   if (!source.enabled) return <ToneChip>{t("staff.sources.state.off")}</ToneChip>;
-  if (source.lastError) return <ToneChip tone="danger">{t("staff.sources.state.failing")}</ToneChip>;
-  if (!source.lastFetchedAt) return <ToneChip tone="info">{t("staff.sources.state.waiting")}</ToneChip>;
+  if (source.lastError)
+    return <ToneChip tone="danger">{t("staff.sources.state.failing")}</ToneChip>;
+  if (!source.lastFetchedAt)
+    return <ToneChip tone="info">{t("staff.sources.state.waiting")}</ToneChip>;
   return <ToneChip tone="good">{t("staff.sources.state.ok")}</ToneChip>;
 }

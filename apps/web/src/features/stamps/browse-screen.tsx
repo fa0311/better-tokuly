@@ -25,7 +25,8 @@ export interface BrowseSearch {
 
 /** Reads the browse page's address parameters, ignoring anything unknown. */
 export function validateBrowseSearch(search: Record<string, unknown>): BrowseSearch {
-  const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim().slice(0, 64) : undefined);
+  const text = (value: unknown) =>
+    typeof value === "string" && value.trim() ? value.trim().slice(0, 64) : undefined;
   return {
     q: text(search.q),
     section: SECTIONS.find((section) => section === search.section),
@@ -57,7 +58,8 @@ export function BrowseScreen({ search }: { search: BrowseSearch }) {
   const tag = search.tag ?? "";
   const query = search.q ?? "";
 
-  const update = (patch: BrowseSearch) => navigate({ to: "/stamps/browse", search: { ...search, ...patch }, replace: true });
+  const update = (patch: BrowseSearch) =>
+    navigate({ to: "/stamps/browse", search: { ...search, ...patch }, replace: true });
 
   // The box follows typing at once; the address (and with it the search) a moment later.
   const [text, setText] = useState(query);
@@ -70,17 +72,32 @@ export function BrowseScreen({ search }: { search: BrowseSearch }) {
   useEffect(() => {
     const typed = text.trim();
     if (typed === query) return;
-    const timer = setTimeout(() => void navigate({ to: "/stamps/browse", search: (current) => ({ ...current, q: typed || undefined }), replace: true }), 300);
+    const timer = setTimeout(
+      () =>
+        void navigate({
+          to: "/stamps/browse",
+          search: (current) => ({ ...current, q: typed || undefined }),
+          replace: true,
+        }),
+      300,
+    );
     return () => clearTimeout(timer);
   }, [text, query, navigate]);
 
   const packs = useInfiniteQuery({
-    queryKey: query ? stampKeys.storeSearch(query, PRICE_VALUE[price]) : stampKeys.storeList(SECTION_VALUE[section], tag, PRICE_VALUE[price]),
+    queryKey: query
+      ? stampKeys.storeSearch(query, PRICE_VALUE[price])
+      : stampKeys.storeList(SECTION_VALUE[section], tag, PRICE_VALUE[price]),
     queryFn: async ({ pageParam }) => {
       const page = { limit: PAGE_SIZE, cursor: pageParam };
       const response = query
         ? await storeClient().searchPacks({ query, price: PRICE_VALUE[price], page })
-        : await storeClient().listStorePacks({ section: SECTION_VALUE[section], tag, price: PRICE_VALUE[price], page });
+        : await storeClient().listStorePacks({
+            section: SECTION_VALUE[section],
+            tag,
+            price: PRICE_VALUE[price],
+            page,
+          });
       return { packs: response.packs, next: response.page?.nextCursor ?? "" };
     },
     initialPageParam: "",
@@ -88,12 +105,26 @@ export function BrowseScreen({ search }: { search: BrowseSearch }) {
   });
   const items = packs.data?.pages.flatMap((page) => page.packs) ?? [];
   // Tags to narrow a shelf by, offered until one is chosen.
-  const tags = useQuery({ queryKey: stampKeys.tags, queryFn: () => storeClient().listPopularTags({ limit: 30 }), enabled: !query && !tag, staleTime: 5 * 60_000 });
+  const tags = useQuery({
+    queryKey: stampKeys.tags,
+    queryFn: () => storeClient().listPopularTags({ limit: 30 }),
+    enabled: !query && !tag,
+    staleTime: 5 * 60_000,
+  });
 
   return (
-    <Page title={query ? t("browse.searchTitle") : tag ? `#${tag}` : t(`browse.sections.${section}`)} back="/stamps" wide>
+    <Page
+      title={query ? t("browse.searchTitle") : tag ? `#${tag}` : t(`browse.sections.${section}`)}
+      back="/stamps"
+      wide
+    >
       <div className="flex flex-col gap-3">
-        <SearchField value={text} onChange={setText} placeholder={t("search.placeholder")} autoFocus={Boolean(query)} />
+        <SearchField
+          value={text}
+          onChange={setText}
+          placeholder={t("search.placeholder")}
+          autoFocus={Boolean(query)}
+        />
         <div className="flex flex-wrap items-center gap-2">
           {!query && (
             <Tabs<Section>
@@ -120,7 +151,10 @@ export function BrowseScreen({ search }: { search: BrowseSearch }) {
           )}
         </div>
         {!query && !tag && tags.data && tags.data.tags.length > 0 && (
-          <nav aria-label={t("browse.tags")} className="scrollbar-none -mx-4 flex gap-2 overflow-x-auto px-4 pb-1 md:mx-0 md:flex-wrap md:px-0">
+          <nav
+            aria-label={t("browse.tags")}
+            className="scrollbar-none -mx-4 flex gap-2 overflow-x-auto px-4 pb-1 md:mx-0 md:flex-wrap md:px-0"
+          >
             {tags.data.tags.map((item) => (
               <TagLink key={item.tag} tag={item.tag} count={item.packCount} />
             ))}
@@ -132,7 +166,11 @@ export function BrowseScreen({ search }: { search: BrowseSearch }) {
         ) : packs.isError ? (
           <EmptyState emoji="😵‍💫" title={t("store.error")} />
         ) : items.length === 0 ? (
-          <EmptyState emoji={query ? "🔍" : "🧺"} title={query ? t("browse.noResults", { query }) : t("browse.empty")} body={query ? t("browse.noResultsBody") : undefined} />
+          <EmptyState
+            emoji={query ? "🔍" : "🧺"}
+            title={query ? t("browse.noResults", { query }) : t("browse.empty")}
+            body={query ? t("browse.noResultsBody") : undefined}
+          />
         ) : (
           <>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">

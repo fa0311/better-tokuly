@@ -1,65 +1,139 @@
-import { Link, useRouterState } from "@tanstack/react-router";
-import { Bell, Clapperboard, MapPinned, MessageCircle, Search, StickyNote } from "lucide-react";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import {
+  Bell,
+  Clapperboard,
+  LayoutGrid,
+  MapPinned,
+  MessageCircle,
+  Search,
+  StickyNote,
+} from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { Launcher, openLauncher, useLauncherOpen } from "#/components/launcher";
 import { Avatar } from "#/components/ui/avatar";
 import { CountBadge } from "#/components/ui/badge";
 import { LogoMark } from "#/components/ui/logo";
+import { openQuickSearch } from "#/features/search";
 import { cn } from "#/lib/cn";
-import { type BadgeKey, useBadges } from "#/stores/badges";
+import { type PrimaryNav, primaryNavOf } from "#/seams/nav";
+import { useBadge } from "#/stores/badges";
 import { useMe } from "#/stores/session";
+import { useTabBarHidden } from "#/stores/shell";
 
-interface NavItem {
-  to: string;
-  labelKey: string;
-  icon: ComponentType<{ className?: string }>;
-  /** Shown in the phone tab bar (the rail shows everything). */
-  primary?: boolean;
-  /** Unread counter to show on the icon. */
-  badge?: BadgeKey;
-}
+type Icon = ComponentType<{ className?: string }>;
 
-const NAV: NavItem[] = [
-  { to: "/map", labelKey: "nav.map", icon: MapPinned, primary: true },
-  { to: "/chat", labelKey: "nav.chat", icon: MessageCircle, primary: true, badge: "chat" },
-  { to: "/notes", labelKey: "nav.notes", icon: StickyNote, primary: true },
-  { to: "/watch", labelKey: "nav.watch", icon: Clapperboard, primary: true },
-  { to: "/search", labelKey: "nav.search", icon: Search },
-  { to: "/notifications", labelKey: "nav.notifications", icon: Bell, badge: "notifications" },
+/**
+ * The primary destinations: one tap away on every screen. Everything else is
+ * reached from the hub (`/me`, the last slot of the phone tab bar), the
+ * launcher (the rail's "アプリ") and the quick search.
+ *
+ * Which of these a page belongs to is declared by its feature
+ * (`src/features/<area>/nav.ts`, see `#/seams/nav`).
+ */
+const PRIMARY: {
+  id: PrimaryNav;
+  to: "/map" | "/chat" | "/notes" | "/watch";
+  icon: Icon;
+  badge?: string;
+}[] = [
+  { id: "map", to: "/map", icon: MapPinned },
+  { id: "chat", to: "/chat", icon: MessageCircle, badge: "chat" },
+  { id: "notes", to: "/notes", icon: StickyNote },
+  { id: "watch", to: "/watch", icon: Clapperboard },
 ];
 
 /**
  * The signed-in frame: a rail on wide screens, a floating tab bar on phones.
  * Pages render edge to edge inside it; the map page fills the whole viewport
  * and the chrome floats above it.
+ *
+ * A page that needs the phone's whole height (a conversation, a full-screen
+ * player) calls `useHideTabBar()` from `#/stores/shell`.
  */
 export function AppShell({ children }: { children: ReactNode }) {
-  const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const isActive = (to: string) => pathname === to || pathname.startsWith(`${to}/`);
-
+  const current = useRouterState({ select: (state) => primaryNavOf(state.location.pathname) });
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-bg">
-      <Rail isActive={isActive} />
+      <Rail current={current} />
       <main className="relative min-w-0 flex-1 overflow-hidden">{children}</main>
-      <TabBar isActive={isActive} />
+      <TabBar current={current} />
+      <Launcher />
     </div>
   );
 }
 
-function Rail({ isActive }: { isActive: (to: string) => boolean }) {
+function Rail({ current }: { current: PrimaryNav }) {
   const { t } = useTranslation("common");
   const me = useMe();
+  const launcherOpen = useLauncherOpen();
+  const navigate = useNavigate();
   return (
-    <nav aria-label="main" className="z-30 hidden w-[76px] shrink-0 flex-col items-center gap-2 border-r-2 border-line bg-surface py-4 md:flex">
-      <Link to="/map" className="mb-3" aria-label="Tokuly">
+    <nav
+      aria-label="main"
+      className="z-30 hidden w-[76px] shrink-0 flex-col items-center gap-1.5 overflow-y-auto border-r-2 border-line bg-surface py-4 md:flex"
+    >
+      {/* Not a link: the router would mark it as the current page on the map, next to the map item. */}
+      <button
+        type="button"
+        className="mb-3 shrink-0"
+        aria-label="Tokuly"
+        onClick={() => void navigate({ to: "/map" })}
+      >
         <LogoMark className="size-11" />
-      </Link>
-      {NAV.map((item) => (
-        <RailLink key={item.to} item={item} active={isActive(item.to)} label={t(item.labelKey)} />
+      </button>
+      {PRIMARY.map((item) => (
+        <Link
+          key={item.id}
+          to={item.to}
+          aria-current={current === item.id ? "page" : undefined}
+          className={railItem(current === item.id)}
+        >
+          <RailIcon icon={item.icon} active={current === item.id} badge={item.badge} />
+          {t(`nav.${item.id}`)}
+        </Link>
       ))}
-      <div className="flex-1" />
+      {/* Search opens over the page that is showing; the result page has the field itself. */}
+      <button
+        type="button"
+        onClick={() => openQuickSearch()}
+        aria-current={current === "search" ? "page" : undefined}
+        className={railItem(current === "search")}
+      >
+        <RailIcon icon={Search} active={current === "search"} />
+        {t("nav.search")}
+      </button>
+      <Link
+        to="/notifications"
+        aria-current={current === "notifications" ? "page" : undefined}
+        className={railItem(current === "notifications")}
+      >
+        <RailIcon icon={Bell} active={current === "notifications"} badge="notifications" />
+        {t("nav.notifications")}
+      </Link>
+      <button
+        type="button"
+        onClick={openLauncher}
+        aria-haspopup="dialog"
+        aria-expanded={launcherOpen}
+        className={railItem(false)}
+      >
+        <span className="relative grid size-10 place-items-center rounded-2xl">
+          <LayoutGrid className="size-[22px]" />
+        </span>
+        {t("nav.more")}
+      </button>
+      <div className="min-h-2 flex-1" />
       {me?.user && (
-        <Link to="/me" aria-label={t("nav.me")} className="pressable rounded-2xl">
+        <Link
+          to="/me"
+          aria-label={t("nav.me")}
+          aria-current={current === "me" ? "page" : undefined}
+          className={cn(
+            "pressable shrink-0 rounded-2xl",
+            current === "me" && "ring-[3px] ring-brand ring-offset-2 ring-offset-surface",
+          )}
+        >
           <Avatar user={me.user} outlined />
         </Link>
       )}
@@ -67,52 +141,72 @@ function Rail({ isActive }: { isActive: (to: string) => boolean }) {
   );
 }
 
-function RailLink({ item, active, label }: { item: NavItem; active: boolean; label: string }) {
-  const Icon = item.icon;
+const railItem = (active: boolean) =>
+  cn(
+    "group flex w-16 shrink-0 flex-col items-center gap-1 rounded-2xl py-1.5 text-[10px] font-bold transition-colors",
+    active ? "text-brand" : "text-ink-soft hover:bg-surface-2 hover:text-ink",
+  );
+
+function RailIcon({ icon: Icon, active, badge }: { icon: Icon; active: boolean; badge?: string }) {
   return (
-    <Link
-      to={item.to}
-      aria-current={active ? "page" : undefined}
+    <span
       className={cn(
-        "group flex w-16 flex-col items-center gap-1 rounded-2xl py-2 text-[10px] font-bold transition-colors",
-        active ? "text-brand" : "text-ink-soft hover:bg-surface-2 hover:text-ink",
+        "relative grid size-10 place-items-center rounded-2xl transition-all",
+        active && "sticker-sm bg-brand text-on-brand",
       )}
     >
-      <span className={cn("relative grid size-10 place-items-center rounded-2xl transition-all", active && "sticker-sm bg-brand text-on-brand")}>
-        <Icon className="size-[22px]" />
-        <NavBadge badge={item.badge} />
-      </span>
-      {label}
-    </Link>
+      <Icon className="size-[22px]" />
+      <NavBadge badge={badge} />
+    </span>
   );
 }
 
-function TabBar({ isActive }: { isActive: (to: string) => boolean }) {
+function TabBar({ current }: { current: PrimaryNav }) {
   const { t } = useTranslation("common");
   const me = useMe();
+  const hidden = useTabBarHidden();
+  if (hidden) return null;
+  // Whatever is not one of the four tabs was opened from the hub: its slot stays lit.
+  const onHub = !PRIMARY.some((item) => item.id === current);
   return (
-    <nav aria-label="main" className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center px-4 pb-safe md:hidden">
+    <nav
+      aria-label="main"
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center px-4 pb-safe md:hidden"
+    >
       <div className="glass sticker pointer-events-auto flex items-center gap-1 rounded-full p-1.5">
-        {NAV.filter((item) => item.primary).map((item) => {
-          const Icon = item.icon;
-          const active = isActive(item.to);
+        {PRIMARY.map((item) => {
+          const active = current === item.id;
           return (
             <Link
-              key={item.to}
+              key={item.id}
               to={item.to}
-              aria-label={t(item.labelKey)}
+              aria-label={t(`nav.${item.id}`)}
               aria-current={active ? "page" : undefined}
-              className={cn("relative grid size-12 place-items-center rounded-full transition-all", active ? "bg-brand text-on-brand" : "text-ink-soft")}
+              className={cn(
+                "relative grid size-12 place-items-center rounded-full transition-all",
+                active ? "bg-brand text-on-brand" : "text-ink-soft",
+              )}
             >
-              <Icon className="size-6" />
+              <item.icon className="size-6" />
               <NavBadge badge={item.badge} />
             </Link>
           );
         })}
         {me?.user && (
-          <Link to="/me" aria-label={t("nav.me")} className="relative grid size-12 place-items-center">
+          <Link
+            to="/me"
+            aria-label={t("nav.me")}
+            aria-current={onHub ? "page" : undefined}
+            className={cn(
+              "relative grid size-12 place-items-center rounded-full transition-all",
+              onHub && "bg-brand",
+            )}
+          >
             <Avatar user={me.user} size="sm" outlined />
-            {/* Notifications have no tab of their own on phones: their count rides on "me". */}
+            {/*
+              Notifications have no tab of their own on phones: their count rides on the hub.
+              (Not the sum of the hub's counters: a friend request is a notification too.)
+            */}
             <NavBadge badge="notifications" />
           </Link>
         )}
@@ -122,7 +216,6 @@ function TabBar({ isActive }: { isActive: (to: string) => boolean }) {
 }
 
 /** The unread counter pinned to the corner of a navigation icon. */
-function NavBadge({ badge }: { badge?: BadgeKey }) {
-  const count = useBadges((badges) => (badge ? badges[badge] : 0));
-  return <CountBadge count={count} className="absolute -top-1 -right-1" />;
+function NavBadge({ badge }: { badge?: string }) {
+  return <CountBadge count={useBadge(badge)} className="absolute -top-1 -right-1" />;
 }

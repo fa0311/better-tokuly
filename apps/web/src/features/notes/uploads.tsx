@@ -30,8 +30,10 @@ export interface UploadRules {
   videoAlone?: boolean;
 }
 
-const fileKind = (file: File): Upload["kind"] | undefined => (file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : undefined);
-const say = (key: string, options?: Record<string, unknown>) => i18n.t(key, { ns: "notes", ...options });
+const fileKind = (file: File): Upload["kind"] | undefined =>
+  file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : undefined;
+const say = (key: string, options?: Record<string, unknown>) =>
+  i18n.t(key, { ns: "notes", ...options });
 
 /**
  * Pictures and videos being attached: each picked file is uploaded and
@@ -50,7 +52,10 @@ export function useUploads(rules: UploadRules) {
     current.current = next;
     setUploads(next);
   };
-  const patch = (key: string, change: Partial<Upload>) => update(current.current.map((upload) => (upload.key === key ? { ...upload, ...change } : upload)));
+  const patch = (key: string, change: Partial<Upload>) =>
+    update(
+      current.current.map((upload) => (upload.key === key ? { ...upload, ...change } : upload)),
+    );
 
   const remove = (key: string) => {
     controllers.current.get(key)?.abort();
@@ -64,14 +69,22 @@ export function useUploads(rules: UploadRules) {
     const controller = new AbortController();
     controllers.current.set(upload.key, controller);
     try {
-      const asset = await uploadFile(file, { purpose: rules.purpose(upload.kind), signal: controller.signal, onProgress: (progress) => patch(upload.key, { progress }) });
+      const asset = await uploadFile(file, {
+        purpose: rules.purpose(upload.kind),
+        signal: controller.signal,
+        onProgress: (progress) => patch(upload.key, { progress }),
+      });
       patch(upload.key, { status: "processing", progress: 1 });
       const ready = await waitForAsset(asset.id, undefined, controller.signal);
       patch(upload.key, { status: "ready", assetId: ready.id });
     } catch (error) {
       if (controller.signal.aborted) return;
       remove(upload.key);
-      toast.error(error instanceof Error && /^[A-Z_]+$/.test(error.message) ? say("uploads.failed") : errorMessage(error));
+      toast.error(
+        error instanceof Error && /^[A-Z_]+$/.test(error.message)
+          ? say("uploads.failed")
+          : errorMessage(error),
+      );
     } finally {
       controllers.current.delete(upload.key);
     }
@@ -89,11 +102,21 @@ export function useUploads(rules: UploadRules) {
         toast.error(say("uploads.tooMany", { count: rules.maxItems }));
         break;
       }
-      if (rules.videoAlone && existing.length > 0 && (kind === "video" || existing.some((item) => item.kind === "video"))) {
+      if (
+        rules.videoAlone &&
+        existing.length > 0 &&
+        (kind === "video" || existing.some((item) => item.kind === "video"))
+      ) {
         toast.error(say("uploads.videoAlone"));
         continue;
       }
-      const upload: Upload = { key: crypto.randomUUID(), kind, previewUrl: URL.createObjectURL(file), progress: 0, status: "uploading" };
+      const upload: Upload = {
+        key: crypto.randomUUID(),
+        kind,
+        previewUrl: URL.createObjectURL(file),
+        progress: 0,
+        status: "uploading",
+      };
       update([...existing, upload]);
       void start(upload, file);
     }
@@ -119,19 +142,42 @@ export function useUploads(rules: UploadRules) {
     /** Asset IDs of everything attached, in order; only complete once `busy` is false. */
     assetIds: uploads.flatMap((upload) => (upload.assetId ? [upload.assetId] : [])),
     /** Room for more files, and for which kinds. */
-    canAdd: uploads.length < rules.maxItems && !(rules.videoAlone && uploads.some((upload) => upload.kind === "video")),
+    canAdd:
+      uploads.length < rules.maxItems &&
+      !(rules.videoAlone && uploads.some((upload) => upload.kind === "video")),
   };
 }
 
 /** One attached file: its preview, the upload's progress on top, and a button to take it out. */
-export function UploadTile({ upload, onRemove, className }: { upload: Upload; onRemove(): void; className?: string }) {
+export function UploadTile({
+  upload,
+  onRemove,
+  className,
+}: {
+  upload: Upload;
+  onRemove(): void;
+  className?: string;
+}) {
   const { t } = useTranslation("notes");
   const pending = upload.status !== "ready";
   return (
-    <div className={cn("relative overflow-hidden rounded-2xl border-2 border-ink bg-surface-3", className)} data-testid="upload" data-status={upload.status}>
+    <div
+      className={cn(
+        "relative overflow-hidden rounded-2xl border-2 border-ink bg-surface-3",
+        className,
+      )}
+      data-testid="upload"
+      data-status={upload.status}
+    >
       {upload.kind === "video" ? (
         <>
-          <video src={upload.previewUrl} muted playsInline preload="metadata" className="size-full object-cover" />
+          <video
+            src={upload.previewUrl}
+            muted
+            playsInline
+            preload="metadata"
+            className="size-full object-cover"
+          />
           <span className="absolute bottom-1.5 left-1.5 grid size-6 place-items-center rounded-full bg-black/60 text-white">
             <Film className="size-3.5" />
           </span>
@@ -140,14 +186,29 @@ export function UploadTile({ upload, onRemove, className }: { upload: Upload; on
         <img src={upload.previewUrl} alt="" className="size-full object-cover" />
       )}
       {pending && (
-        <div className="absolute inset-0 grid place-items-center bg-black/45 text-white" role="status" aria-label={upload.status === "uploading" ? t("uploads.uploading") : t("uploads.processing")}>
+        <div
+          className="absolute inset-0 grid place-items-center bg-black/45 text-white"
+          role="status"
+          aria-label={
+            upload.status === "uploading" ? t("uploads.uploading") : t("uploads.processing")
+          }
+        >
           <div className="flex flex-col items-center gap-1.5">
             <Spinner className="size-6" />
-            <span className="text-xs font-black tabular-nums">{upload.status === "uploading" ? `${Math.round(upload.progress * 100)}%` : t("uploads.processing")}</span>
+            <span className="text-xs font-black tabular-nums">
+              {upload.status === "uploading"
+                ? `${Math.round(upload.progress * 100)}%`
+                : t("uploads.processing")}
+            </span>
           </div>
         </div>
       )}
-      <button type="button" aria-label={t("uploads.remove")} onClick={onRemove} className="absolute top-1.5 right-1.5 grid size-7 place-items-center rounded-full bg-black/65 text-white hover:bg-black/85">
+      <button
+        type="button"
+        aria-label={t("uploads.remove")}
+        onClick={onRemove}
+        className="absolute top-1.5 right-1.5 grid size-7 place-items-center rounded-full bg-black/65 text-white hover:bg-black/85"
+      >
         <X className="size-4" />
       </button>
     </div>

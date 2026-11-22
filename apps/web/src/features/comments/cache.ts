@@ -16,10 +16,18 @@ export function mergeComment(cached: Comment | undefined, incoming: Comment): Co
   return incoming.viewer || !cached?.viewer ? incoming : { ...incoming, viewer: cached.viewer };
 }
 
-function mapThread(data: ThreadPages, map: (comments: Comment[], pageIndex: number) => Comment[], total?: (count: bigint) => bigint): ThreadPages {
+function mapThread(
+  data: ThreadPages,
+  map: (comments: Comment[], pageIndex: number) => Comment[],
+  total?: (count: bigint) => bigint,
+): ThreadPages {
   return {
     ...data,
-    pages: data.pages.map((page, index) => ({ ...page, comments: map(page.comments, index), totalCount: total ? total(page.totalCount) : page.totalCount })),
+    pages: data.pages.map((page, index) => ({
+      ...page,
+      comments: map(page.comments, index),
+      totalCount: total ? total(page.totalCount) : page.totalCount,
+    })),
   };
 }
 
@@ -56,17 +64,29 @@ export function withComment(data: ThreadPages, comment: Comment, counts: boolean
 /** Replaces a listed comment (an edit, a heart, a new reply count); unknown comments are ignored. */
 export function withUpdated(data: ThreadPages, comment: Comment): ThreadPages {
   if (!findComment(data, comment.id)) return data;
-  return mapThread(data, (comments) => comments.map((item) => (item.id === comment.id ? mergeComment(item, comment) : item)));
+  return mapThread(data, (comments) =>
+    comments.map((item) => (item.id === comment.id ? mergeComment(item, comment) : item)),
+  );
 }
 
 /** Changes one listed comment in place. */
-export function withPatched(data: ThreadPages, commentId: string, patch: (comment: Comment) => Comment): ThreadPages {
+export function withPatched(
+  data: ThreadPages,
+  commentId: string,
+  patch: (comment: Comment) => Comment,
+): ThreadPages {
   if (!findComment(data, commentId)) return data;
-  return mapThread(data, (comments) => comments.map((item) => (item.id === commentId ? patch(item) : item)));
+  return mapThread(data, (comments) =>
+    comments.map((item) => (item.id === commentId ? patch(item) : item)),
+  );
 }
 
 /** Drops a comment; `removedCount` (itself plus its public replies) comes off the subject's count. */
-export function withoutComment(data: ThreadPages, commentId: string, removedCount: number): ThreadPages {
+export function withoutComment(
+  data: ThreadPages,
+  commentId: string,
+  removedCount: number,
+): ThreadPages {
   return mapThread(
     data,
     (comments) => comments.filter((item) => item.id !== commentId),
@@ -77,7 +97,9 @@ export function withoutComment(data: ThreadPages, commentId: string, removedCoun
 /** Moves the pin: at most one comment is pinned, and it leads the first page. */
 export function withPinned(data: ThreadPages, commentId: string, pinned: boolean): ThreadPages {
   const target = findComment(data, commentId);
-  const unpinned = mapThread(data, (comments) => comments.map((item) => (item.pinned ? { ...item, pinned: false } : item)));
+  const unpinned = mapThread(data, (comments) =>
+    comments.map((item) => (item.pinned ? { ...item, pinned: false } : item)),
+  );
   if (!pinned || !target) return unpinned;
   return mapThread(unpinned, (comments, index) => {
     const rest = comments.filter((item) => item.id !== commentId);
@@ -94,8 +116,17 @@ export function withTotal(data: ThreadPages, total: bigint): ThreadPages {
   );
 }
 
-function mapReplies(data: ReplyPages, map: (replies: Comment[], pageIndex: number, last: boolean) => Comment[]): ReplyPages {
-  return { ...data, pages: data.pages.map((page, index) => ({ ...page, replies: map(page.replies, index, index === data.pages.length - 1) })) };
+function mapReplies(
+  data: ReplyPages,
+  map: (replies: Comment[], pageIndex: number, last: boolean) => Comment[],
+): ReplyPages {
+  return {
+    ...data,
+    pages: data.pages.map((page, index) => ({
+      ...page,
+      replies: map(page.replies, index, index === data.pages.length - 1),
+    })),
+  };
 }
 
 function hasReply(data: ReplyPages, replyId: string): boolean {
@@ -116,12 +147,20 @@ export function withReply(data: ReplyPages, reply: Comment, force = false): Repl
 
 export function withUpdatedReply(data: ReplyPages, reply: Comment): ReplyPages {
   if (!hasReply(data, reply.id)) return data;
-  return mapReplies(data, (replies) => replies.map((item) => (item.id === reply.id ? mergeComment(item, reply) : item)));
+  return mapReplies(data, (replies) =>
+    replies.map((item) => (item.id === reply.id ? mergeComment(item, reply) : item)),
+  );
 }
 
-export function withPatchedReply(data: ReplyPages, replyId: string, patch: (reply: Comment) => Comment): ReplyPages {
+export function withPatchedReply(
+  data: ReplyPages,
+  replyId: string,
+  patch: (reply: Comment) => Comment,
+): ReplyPages {
   if (!hasReply(data, replyId)) return data;
-  return mapReplies(data, (replies) => replies.map((item) => (item.id === replyId ? patch(item) : item)));
+  return mapReplies(data, (replies) =>
+    replies.map((item) => (item.id === replyId ? patch(item) : item)),
+  );
 }
 
 export function withoutReply(data: ReplyPages, replyId: string): ReplyPages {

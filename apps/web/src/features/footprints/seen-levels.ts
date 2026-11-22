@@ -1,4 +1,9 @@
-import { forgetDeviceMemory, opaqueHash, readDeviceMemory, writeDeviceMemory } from "#/features/places";
+import {
+  forgetDeviceMemory,
+  opaqueHash,
+  readDeviceMemory,
+  writeDeviceMemory,
+} from "#/features/places";
 import type { SeenLevels } from "./levels";
 
 /**
@@ -12,11 +17,17 @@ const PREFIX = "tokuly.footprints.levels.";
 const LEGACY_KEY = "tokuly.footprints.levels";
 
 /** What a region is remembered as for one account. */
-export const regionMark = (userId: string, regionId: string): string => opaqueHash(`${userId}|${regionId}`);
+export const regionMark = (userId: string, regionId: string): string =>
+  opaqueHash(`${userId}|${regionId}`);
 
 export function readSeenLevels(userId: string): SeenLevels | null {
   const seen = readDeviceMemory<SeenLevels>(PREFIX + userId);
-  return seen && typeof seen.explorer === "number" && seen.regions && typeof seen.regions === "object" ? seen : null;
+  return seen &&
+    typeof seen.explorer === "number" &&
+    seen.regions &&
+    typeof seen.regions === "object"
+    ? seen
+    : null;
 }
 
 export function writeSeenLevels(userId: string, seen: SeenLevels): void {

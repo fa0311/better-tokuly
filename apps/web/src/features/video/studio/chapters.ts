@@ -22,7 +22,11 @@ export function chapterKey(): string {
 }
 
 export function toDrafts(chapters: { startSeconds: number; title: string }[]): ChapterDraft[] {
-  return chapters.map((chapter) => ({ key: chapterKey(), time: formatClock(chapter.startSeconds), title: chapter.title }));
+  return chapters.map((chapter) => ({
+    key: chapterKey(),
+    time: formatClock(chapter.startSeconds),
+    title: chapter.title,
+  }));
 }
 
 /**
@@ -31,7 +35,10 @@ export function toDrafts(chapters: { startSeconds: number; title: string }[]): C
  * before, and every chapter has a name. Returns one error (or none) per row,
  * in row order.
  */
-export function validateChapters(drafts: ChapterDraft[], durationSeconds: number): (ChapterError | null)[] {
+export function validateChapters(
+  drafts: ChapterDraft[],
+  durationSeconds: number,
+): (ChapterError | null)[] {
   let previous: number | null = null;
   return drafts.map((draft, index) => {
     const start = parseClock(draft.time);
@@ -49,7 +56,10 @@ export function validateChapters(drafts: ChapterDraft[], durationSeconds: number
 
 /** The rows as the API takes them. Only call it when `validateChapters` found nothing. */
 export function toChapters(drafts: ChapterDraft[]): { startSeconds: number; title: string }[] {
-  return drafts.map((draft) => ({ startSeconds: parseClock(draft.time) ?? 0, title: draft.title.trim() }));
+  return drafts.map((draft) => ({
+    startSeconds: parseClock(draft.time) ?? 0,
+    title: draft.title.trim(),
+  }));
 }
 
 /**
@@ -59,7 +69,9 @@ export function toChapters(drafts: ChapterDraft[]): { startSeconds: number; titl
 export function withChapterAt(drafts: ChapterDraft[], at: number): ChapterDraft[] {
   const start = drafts.length === 0 ? 0 : Math.max(0, Math.floor(at));
   const row: ChapterDraft = { key: chapterKey(), time: formatClock(start), title: "" };
-  const index = drafts.findIndex((draft) => (parseClock(draft.time) ?? Number.POSITIVE_INFINITY) > start);
+  const index = drafts.findIndex(
+    (draft) => (parseClock(draft.time) ?? Number.POSITIVE_INFINITY) > start,
+  );
   return index < 0 ? [...drafts, row] : [...drafts.slice(0, index), row, ...drafts.slice(index)];
 }
 

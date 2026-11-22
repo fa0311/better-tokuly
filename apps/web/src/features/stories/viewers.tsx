@@ -5,6 +5,7 @@ import { Avatar } from "#/components/ui/avatar";
 import { Dialog } from "#/components/ui/dialog";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Skeleton } from "#/components/ui/page";
+import { EmojiText } from "#/features/emoji";
 import { compactAge } from "#/lib/format";
 import { useStoryViewers } from "./api";
 import { closeStoryViewer } from "./viewer-store";
@@ -21,7 +22,11 @@ export function ViewersDialog({ storyId, onClose }: { storyId: string; onClose()
       open
       onOpenChange={(open) => !open && onClose()}
       title={t("viewers.title")}
-      description={totals ? t("viewers.summary", { views: totals.viewCount, reactions: totals.reactionCount }) : undefined}
+      description={
+        totals
+          ? t("viewers.summary", { views: totals.viewCount, reactions: totals.reactionCount })
+          : undefined
+      }
     >
       {query.isPending ? (
         <div className="flex flex-col gap-2">
@@ -47,13 +52,19 @@ export function ViewersDialog({ storyId, onClose }: { storyId: string; onClose()
                   >
                     <Avatar user={viewer.user} />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate font-bold">{viewer.user.displayName}</span>
+                      <span className="block truncate font-bold">
+                        <EmojiText text={viewer.user.displayName} />
+                      </span>
                       <span className="block truncate text-sm text-ink-soft">
                         @{viewer.user.handle} · {compactAge(toMillis(viewer.viewedAt))}
                       </span>
                     </span>
                     {viewer.reaction && (
-                      <span className="text-2xl leading-none" role="img" aria-label={t("viewers.reacted", { emoji: viewer.reaction })}>
+                      <span
+                        className="text-2xl leading-none"
+                        role="img"
+                        aria-label={t("viewers.reacted", { emoji: viewer.reaction })}
+                      >
                         {viewer.reaction}
                       </span>
                     )}

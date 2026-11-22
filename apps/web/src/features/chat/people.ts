@@ -23,7 +23,9 @@ export function useOnline(userId: string | undefined): boolean {
   const live = useLive((state) => (userId ? state.online[userId] : undefined));
   const friends = useFriends();
   if (!userId) return false;
-  return live ?? friends.data?.friends.find((friend) => friend.user?.id === userId)?.online ?? false;
+  return (
+    live ?? friends.data?.friends.find((friend) => friend.user?.id === userId)?.online ?? false
+  );
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -32,7 +34,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export async function resolveUserId(handleOrUserId: string): Promise<string> {
   const value = handleOrUserId.trim();
   if (UUID.test(value)) return value;
-  const { profile } = await profileClient().getProfile({ by: { case: "handle", value: value.replace(/^@/, "") } });
+  const { profile } = await profileClient().getProfile({
+    by: { case: "handle", value: value.replace(/^@/, "") },
+  });
   return profile?.user?.id ?? "";
 }
 
@@ -49,9 +53,18 @@ export function titleOf(conversation: chat.Conversation, myId: string): string {
 }
 
 /** Whether a conversation matches a search typed into the list (name, member names, handles). */
-export function matchesQuery(conversation: chat.Conversation, myId: string, query: string): boolean {
+export function matchesQuery(
+  conversation: chat.Conversation,
+  myId: string,
+  query: string,
+): boolean {
   const needle = query.trim().toLowerCase();
   if (!needle) return true;
-  const haystack = [conversation.name, ...conversation.members.filter((member) => member.id !== myId).flatMap((member) => [member.displayName, member.handle])];
+  const haystack = [
+    conversation.name,
+    ...conversation.members
+      .filter((member) => member.id !== myId)
+      .flatMap((member) => [member.displayName, member.handle]),
+  ];
   return haystack.some((value) => value.toLowerCase().includes(needle.replace(/^@/, "")));
 }

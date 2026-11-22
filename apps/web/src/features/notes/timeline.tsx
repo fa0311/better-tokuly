@@ -3,14 +3,33 @@ import { useElementScrollRestoration } from "@tanstack/react-router";
 import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
 import type { notes } from "@tokuly/api";
 import { ArrowUp } from "lucide-react";
-import { type ReactNode, type Ref, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
+import {
+  type ReactNode,
+  type Ref,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
-import { countNewEntries, entryKey, fetchTimeline, notesKeys, type TimelineData, type TimelinePage, type TimelineSource, useDeletedNotes, useTimeline, withFreshEntries } from "./api";
+import {
+  countNewEntries,
+  entryKey,
+  fetchTimeline,
+  notesKeys,
+  type TimelineData,
+  type TimelinePage,
+  type TimelineSource,
+  useDeletedNotes,
+  useTimeline,
+  withFreshEntries,
+} from "./api";
 import { onTimelineHint } from "./live";
 import { NoteCard } from "./note-card";
 import { useScroller } from "./shell";
@@ -46,7 +65,10 @@ export function TimelineSkeleton({ count = 4 }: { count?: number }) {
   return (
     <div className="flex flex-col gap-2.5" aria-busy>
       {Array.from({ length: count }, (_, index) => (
-        <div key={index} className="flex gap-3 rounded-[1.25rem] border-2 border-line bg-surface p-3.5">
+        <div
+          key={index}
+          className="flex gap-3 rounded-[1.25rem] border-2 border-line bg-surface p-3.5"
+        >
           <Skeleton className="size-11 shrink-0 rounded-[0.85rem]" />
           <div className="flex flex-1 flex-col gap-2 pt-1">
             <Skeleton className="h-3.5 w-1/3 rounded-full" />
@@ -70,7 +92,9 @@ export function Timeline({ source, live = false, empty, ref }: TimelineProps) {
   const { element: scroller } = useScroller();
   const query = useTimeline(source);
   const deleted = useDeletedNotes((state) => state.ids);
-  const [fresh, setFresh] = useState<{ page: TimelinePage; count: number | undefined } | null>(null);
+  const [fresh, setFresh] = useState<{ page: TimelinePage; count: number | undefined } | null>(
+    null,
+  );
   const key = notesKeys.timeline(source);
   const checking = useRef(false);
   const lastCheck = useRef(0);
@@ -114,7 +138,10 @@ export function Timeline({ source, live = false, empty, ref }: TimelineProps) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const off = onTimelineHint(() => {
       clearTimeout(timer);
-      timer = setTimeout(() => void latestCheck.current(false), Math.max(300, CHECK_GAP_MS - (Date.now() - lastCheck.current)));
+      timer = setTimeout(
+        () => void latestCheck.current(false),
+        Math.max(300, CHECK_GAP_MS - (Date.now() - lastCheck.current)),
+      );
     });
     return () => {
       off();
@@ -126,7 +153,8 @@ export function Timeline({ source, live = false, empty, ref }: TimelineProps) {
   const dataUpdatedAt = query.dataUpdatedAt;
   // Only when the timeline (re)appears, not on every update of its data.
   useEffect(() => {
-    if (dataUpdatedAt > 0 && Date.now() - dataUpdatedAt > RETURN_CHECK_MS) void latestCheck.current(false);
+    if (dataUpdatedAt > 0 && Date.now() - dataUpdatedAt > RETURN_CHECK_MS)
+      void latestCheck.current(false);
   }, [key.join("|")]);
 
   const pinned = query.data?.pages[0]?.pinnedNote;
@@ -140,14 +168,23 @@ export function Timeline({ source, live = false, empty, ref }: TimelineProps) {
 
   if (query.isPending) return <TimelineSkeleton />;
   if (query.isError && entries.length === 0) {
-    return <EmptyState emoji="🌧️" title={errorMessage(query.error)} action={<Button onClick={() => void query.refetch()}>{t("timeline.retry")}</Button>} />;
+    return (
+      <EmptyState
+        emoji="🌧️"
+        title={errorMessage(query.error)}
+        action={<Button onClick={() => void query.refetch()}>{t("timeline.retry")}</Button>}
+      />
+    );
   }
 
   const showPill = fresh !== null;
   return (
     <div data-testid="timeline">
       {showPill && (
-        <div className="pointer-events-none sticky z-10 flex h-0 justify-center" style={{ top: "calc(var(--notes-header, 4rem) + 0.6rem)" }}>
+        <div
+          className="pointer-events-none sticky z-10 flex h-0 justify-center"
+          style={{ top: "calc(var(--notes-header, 4rem) + 0.6rem)" }}
+        >
           <button
             type="button"
             onClick={() => {
@@ -157,12 +194,20 @@ export function Timeline({ source, live = false, empty, ref }: TimelineProps) {
             className="sticker pressable pointer-events-auto inline-flex h-10 animate-pop-in items-center gap-1.5 rounded-full bg-brand px-4 text-sm font-black text-on-brand"
           >
             <ArrowUp className="size-4" strokeWidth={3} />
-            {fresh.count === undefined ? t("timeline.newMany") : t("timeline.new", { count: fresh.count })}
+            {fresh.count === undefined
+              ? t("timeline.newMany")
+              : t("timeline.new", { count: fresh.count })}
           </button>
         </div>
       )}
-      {pinned && !deleted.has(pinned.id) && <NoteCard note={pinned} showPinned className="mb-2.5" />}
-      {entries.length === 0 && !pinned ? empty : <VirtualRows entries={entries} storeKey={key.join("|")} />}
+      {pinned && !deleted.has(pinned.id) && (
+        <NoteCard note={pinned} showPinned className="mb-2.5" />
+      )}
+      {entries.length === 0 && !pinned ? (
+        empty
+      ) : (
+        <VirtualRows entries={entries} storeKey={key.join("|")} />
+      )}
       {entries.length > 0 && <LoadMore query={query} showEnd />}
     </div>
   );
@@ -190,7 +235,11 @@ function VirtualRows({ entries, storeKey }: { entries: notes.TimelineEntry[]; st
     const element = list.current;
     if (!element || !scroller) return;
     const measure = () => {
-      const offset = Math.round(element.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop);
+      const offset = Math.round(
+        element.getBoundingClientRect().top -
+          scroller.getBoundingClientRect().top +
+          scroller.scrollTop,
+      );
       setMargin((current) => (Math.abs(current - offset) > 1 ? offset : current));
     };
     measure();

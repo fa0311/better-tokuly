@@ -1,5 +1,10 @@
 import type { geo } from "@tokuly/api";
-import { forgetDeviceMemory, opaqueHash, readDeviceMemory, writeDeviceMemory } from "./device-memory";
+import {
+  forgetDeviceMemory,
+  opaqueHash,
+  readDeviceMemory,
+  writeDeviceMemory,
+} from "./device-memory";
 
 /**
  * Suggestions the person answered "not now". The server keeps suggesting a
@@ -13,12 +18,16 @@ const LEGACY_KEY = "tokuly.places.dismissedSuggestions";
 
 /** The fingerprint of a suggestion for one account (the spot at about 100 m, mixed with the user ID). */
 export function suggestionMark(userId: string, suggestion: geo.PlaceSuggestion): string {
-  return opaqueHash(`${userId}|${suggestion.center?.lat.toFixed(3)},${suggestion.center?.lng.toFixed(3)}`);
+  return opaqueHash(
+    `${userId}|${suggestion.center?.lat.toFixed(3)},${suggestion.center?.lng.toFixed(3)}`,
+  );
 }
 
 export function readDismissed(userId: string): string[] {
   const stored = readDeviceMemory<unknown>(PREFIX + userId);
-  return Array.isArray(stored) ? stored.filter((entry): entry is string => typeof entry === "string") : [];
+  return Array.isArray(stored)
+    ? stored.filter((entry): entry is string => typeof entry === "string")
+    : [];
 }
 
 /**
@@ -26,9 +35,15 @@ export function readDismissed(userId: string): string[] {
  * among `current` are dropped: once a spot stops being suggested there is
  * nothing left to remember about it.
  */
-export function dismissSuggestion(userId: string, suggestion: geo.PlaceSuggestion, current: geo.PlaceSuggestion[]): string[] {
+export function dismissSuggestion(
+  userId: string,
+  suggestion: geo.PlaceSuggestion,
+  current: geo.PlaceSuggestion[],
+): string[] {
   const live = new Set(current.map((entry) => suggestionMark(userId, entry)));
-  const next = [...new Set([...readDismissed(userId), suggestionMark(userId, suggestion)])].filter((mark) => live.has(mark));
+  const next = [...new Set([...readDismissed(userId), suggestionMark(userId, suggestion)])].filter(
+    (mark) => live.has(mark),
+  );
   writeDeviceMemory(PREFIX + userId, next);
   return next;
 }

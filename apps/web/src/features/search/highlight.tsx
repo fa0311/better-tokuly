@@ -4,7 +4,15 @@ import type { search } from "@tokuly/api";
  * Text the API returned as matching and non-matching runs. Matches are marked;
  * the runs are plain text, never markup.
  */
-export function Segments({ segments, fallback, className }: { segments: search.TextSegment[]; /** Shown when there are no runs (older documents, typeahead). */ fallback?: string; className?: string }) {
+export function Segments({
+  segments,
+  fallback,
+  className,
+}: {
+  segments: search.TextSegment[] /** Shown when there are no runs (older documents, typeahead). */;
+  fallback?: string;
+  className?: string;
+}) {
   if (segments.length === 0) return fallback ? <span className={className}>{fallback}</span> : null;
   return (
     <span className={className}>

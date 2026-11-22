@@ -4,6 +4,7 @@
  *
  *   <FreeFriendsStrip />                      // who is free right now; "ひま!" and "あそぼ!" in one tap
  *   <FreeFriendsStrip bare className="…" />   // without its heading, above a map or a chat list
+ *   <FreeFriendsStrip bare quiet />           // as a guest on another screen: one slim row while nobody is free
  *   <ProfilePlans cards={profile.cards} user={profile.user} isSelf={isSelf} />   // ひま, pinned countdowns, the couple counter
  *   startPlan({ inviteeIds: [user.id] })      // then navigate to `/plans/new`: the form opens prefilled
  *

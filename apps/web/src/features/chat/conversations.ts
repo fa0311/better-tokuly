@@ -1,4 +1,10 @@
-import { type InfiniteData, type QueryClient, useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  type InfiniteData,
+  type QueryClient,
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import type { chat } from "@tokuly/api";
 import { chatKeys, conversationClient, LIST_FILTERS, type ListFilter } from "./api";
 import { useLive } from "./live";
@@ -23,12 +29,22 @@ type ListData = InfiniteData<ListPage, string>;
 const PAGE_SIZE = 30;
 const FILTERS: ListFilter[] = ["inbox", "requests", "archived"];
 
-export const NO_UNREAD = { badge: 0, unreadConversations: 0, pendingRequests: 0, archivedUnread: 0 };
+export const NO_UNREAD = {
+  badge: 0,
+  unreadConversations: 0,
+  pendingRequests: 0,
+  archivedUnread: 0,
+};
 export type Unread = typeof NO_UNREAD;
 
 function toUnread(unread: chat.UnreadCounts | undefined): Unread {
   return unread
-    ? { badge: unread.badge, unreadConversations: unread.unreadConversations, pendingRequests: unread.pendingRequests, archivedUnread: unread.archivedUnread }
+    ? {
+        badge: unread.badge,
+        unreadConversations: unread.unreadConversations,
+        pendingRequests: unread.pendingRequests,
+        archivedUnread: unread.archivedUnread,
+      }
     : NO_UNREAD;
 }
 
@@ -74,7 +90,10 @@ export function useConversationList(filter: ListFilter) {
   return useInfiniteQuery({
     queryKey: chatKeys.list(filter),
     queryFn: async ({ pageParam }): Promise<ListPage> => {
-      const response = await conversationClient().listConversations({ filter: LIST_FILTERS[filter], page: { cursor: pageParam, limit: PAGE_SIZE } });
+      const response = await conversationClient().listConversations({
+        filter: LIST_FILTERS[filter],
+        page: { cursor: pageParam, limit: PAGE_SIZE },
+      });
       applyUnread(queryClient, response.unread);
       return { conversations: response.conversations, nextCursor: response.page?.nextCursor ?? "" };
     },
@@ -97,7 +116,10 @@ function noteDetails(response: chat.GetConversationResponse, askedAt: number): v
 }
 
 /** Fetches one conversation with its extras and stores it everywhere it is held. */
-export async function fetchConversation(queryClient: QueryClient, id: string): Promise<chat.Conversation> {
+export async function fetchConversation(
+  queryClient: QueryClient,
+  id: string,
+): Promise<chat.Conversation> {
   const askedAt = Date.now();
   const response = await conversationClient().getConversation({ conversationId: id });
   noteDetails(response, askedAt);
@@ -111,10 +133,27 @@ export async function fetchConversation(queryClient: QueryClient, id: string): P
  * answer was on its way: then what the events brought (the newest message,
  * the unread counts) stays.
  */
-function aheadOf(fetched: chat.Conversation, held: chat.Conversation | undefined): chat.Conversation {
+function aheadOf(
+  fetched: chat.Conversation,
+  held: chat.Conversation | undefined,
+): chat.Conversation {
   if (!held || held.lastSeq <= fetched.lastSeq) return fetched;
-  const viewer = fetched.viewer && held.viewer ? { ...fetched.viewer, unreadCount: held.viewer.unreadCount, unreadMentionCount: held.viewer.unreadMentionCount, readSeq: laterSeq(held.viewer.readSeq, fetched.viewer.readSeq) } : fetched.viewer;
-  return { ...fetched, lastMessage: held.lastMessage, lastSeq: held.lastSeq, lastActivityAt: held.lastActivityAt, viewer };
+  const viewer =
+    fetched.viewer && held.viewer
+      ? {
+          ...fetched.viewer,
+          unreadCount: held.viewer.unreadCount,
+          unreadMentionCount: held.viewer.unreadMentionCount,
+          readSeq: laterSeq(held.viewer.readSeq, fetched.viewer.readSeq),
+        }
+      : fetched.viewer;
+  return {
+    ...fetched,
+    lastMessage: held.lastMessage,
+    lastSeq: held.lastSeq,
+    lastActivityAt: held.lastActivityAt,
+    viewer,
+  };
 }
 
 /**
@@ -150,8 +189,14 @@ function findInLists(queryClient: QueryClient, id: string): chat.Conversation | 
 }
 
 /** The copy of a conversation the client holds, if any. */
-export function readConversation(queryClient: QueryClient, id: string): chat.Conversation | undefined {
-  return queryClient.getQueryData<chat.Conversation>(chatKeys.conversation(id)) ?? findInLists(queryClient, id);
+export function readConversation(
+  queryClient: QueryClient,
+  id: string,
+): chat.Conversation | undefined {
+  return (
+    queryClient.getQueryData<chat.Conversation>(chatKeys.conversation(id)) ??
+    findInLists(queryClient, id)
+  );
 }
 
 /**
@@ -159,7 +204,11 @@ export function readConversation(queryClient: QueryClient, id: string): chat.Con
  * longer belongs, put in (in order) where it does. A conversation that would
  * come after everything loaded so far is left to the pages still to load.
  */
-export function listAfter(data: ListData, filter: ListFilter, conversation: chat.Conversation): ListData {
+export function listAfter(
+  data: ListData,
+  filter: ListFilter,
+  conversation: chat.Conversation,
+): ListData {
   const held = data.pages.flatMap((page) => page.conversations);
   const without = held.filter((candidate) => candidate.id !== conversation.id);
   const nextCursor = data.pages.at(-1)?.nextCursor ?? "";
@@ -182,17 +231,25 @@ function putInLists(queryClient: QueryClient, conversation: chat.Conversation): 
 
 /** Stores a conversation as the server sent it for this viewer (`viewer` set). */
 export function putConversation(queryClient: QueryClient, conversation: chat.Conversation): void {
-  queryClient.setQueryData<chat.Conversation>(chatKeys.conversation(conversation.id), (held) => (held ? conversation : undefined));
+  queryClient.setQueryData<chat.Conversation>(chatKeys.conversation(conversation.id), (held) =>
+    held ? conversation : undefined,
+  );
   putInLists(queryClient, conversation);
 }
 
 /** Changes the held copy of a conversation. Returns false when the client does not hold it. */
-export function patchConversation(queryClient: QueryClient, id: string, change: (conversation: chat.Conversation) => chat.Conversation): boolean {
+export function patchConversation(
+  queryClient: QueryClient,
+  id: string,
+  change: (conversation: chat.Conversation) => chat.Conversation,
+): boolean {
   const held = readConversation(queryClient, id);
   if (!held) return false;
   const next = change(held);
   if (next === held) return true;
-  queryClient.setQueryData<chat.Conversation>(chatKeys.conversation(id), (current) => (current ? next : undefined));
+  queryClient.setQueryData<chat.Conversation>(chatKeys.conversation(id), (current) =>
+    current ? next : undefined,
+  );
   putInLists(queryClient, next);
   return true;
 }
@@ -200,8 +257,15 @@ export function patchConversation(queryClient: QueryClient, id: string, change: 
 /** Forgets a conversation that left the viewer's lists (left, removed, hidden, declined). */
 export function dropConversation(queryClient: QueryClient, id: string): void {
   for (const [filter, data] of lists(queryClient)) {
-    const pages = data.pages.map((page) => ({ ...page, conversations: page.conversations.filter((conversation) => conversation.id !== id) }));
-    if (pages.some((page, index) => page.conversations.length !== data.pages[index]!.conversations.length)) {
+    const pages = data.pages.map((page) => ({
+      ...page,
+      conversations: page.conversations.filter((conversation) => conversation.id !== id),
+    }));
+    if (
+      pages.some(
+        (page, index) => page.conversations.length !== data.pages[index]!.conversations.length,
+      )
+    ) {
       queryClient.setQueryData<ListData>(chatKeys.list(filter), { ...data, pages });
     }
   }

@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PlaybackReporter, type PlaybackReporterDeps } from "./playback-reporter";
 
 function setup(startDelayMs = 0) {
-  const calls = { start: 0, reports: [] as { sessionId: string; playing: boolean; ended: boolean }[] };
+  const calls = {
+    start: 0,
+    reports: [] as { sessionId: string; playing: boolean; ended: boolean }[],
+  };
   let gone = false;
   const deps: PlaybackReporterDeps<number> = {
     startPlayback: async () => {
@@ -11,7 +14,11 @@ function setup(startDelayMs = 0) {
       return { sessionId: `session-${calls.start}`, reportIntervalSeconds: 10, viewCount: 1n };
     },
     reportPlayback: async (request) => {
-      calls.reports.push({ sessionId: request.sessionId, playing: request.playing, ended: request.ended });
+      calls.reports.push({
+        sessionId: request.sessionId,
+        playing: request.playing,
+        ended: request.ended,
+      });
       if (gone) throw new Error("gone");
       return { viewCount: 2n };
     },
@@ -19,7 +26,12 @@ function setup(startDelayMs = 0) {
     isPlaying: () => true,
     isSessionGone: (error) => error instanceof Error && error.message === "gone",
   };
-  return { calls, reporter: new PlaybackReporter("video", 1, deps), expire: () => (gone = true), revive: () => (gone = false) };
+  return {
+    calls,
+    reporter: new PlaybackReporter("video", 1, deps),
+    expire: () => (gone = true),
+    revive: () => (gone = false),
+  };
 }
 
 describe("PlaybackReporter", () => {

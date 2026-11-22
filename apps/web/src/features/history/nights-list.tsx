@@ -8,6 +8,7 @@ import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
 import { GazetteerCredit } from "#/features/places";
+import { accountTimeZone } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
 import { historyClient, historyKeys } from "./api";
 import { parseDay } from "./dates";
@@ -18,18 +19,29 @@ export function NightsList() {
   const [awayOnly, setAwayOnly] = useState(false);
   const query = useInfiniteQuery({
     queryKey: historyKeys.nights,
-    queryFn: ({ pageParam }) => historyClient().listNights({ page: { limit: 30, cursor: pageParam } }),
+    queryFn: ({ pageParam }) =>
+      historyClient().listNights({ page: { limit: 30, cursor: pageParam } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
   const all = query.data?.pages.flatMap((page) => page.nights) ?? [];
   const nights = awayOnly ? all.filter((night) => !night.atHome) : all;
-  const clock = (date: Date | undefined) => date?.toLocaleTimeString(i18n.language, { hour: "2-digit", minute: "2-digit" }) ?? "";
+  const clock = (date: Date | undefined) =>
+    date?.toLocaleTimeString(i18n.language, {
+      timeZone: accountTimeZone(),
+      hour: "2-digit",
+      minute: "2-digit",
+    }) ?? "";
 
   return (
     <div className="mx-auto max-w-2xl">
       <div className="rounded-card bg-surface p-2">
-        <SwitchRow label={t("nights.awayOnly")} hint={t("nights.awayOnlyHint")} checked={awayOnly} onChange={setAwayOnly} />
+        <SwitchRow
+          label={t("nights.awayOnly")}
+          hint={t("nights.awayOnlyHint")}
+          checked={awayOnly}
+          onChange={setAwayOnly}
+        />
       </div>
       <div className="mt-4">
         {query.isPending ? (
@@ -45,21 +57,42 @@ export function NightsList() {
             <ul className="flex flex-col gap-3">
               {nights.map((night) => {
                 const date = parseDay(night.date);
-                const name = night.atHome ? t("nights.home") : night.place?.name || night.name || t("nights.somewhere");
+                const name = night.atHome
+                  ? t("nights.home")
+                  : night.place?.name || night.name || t("nights.somewhere");
                 return (
                   <li key={night.date}>
-                    <Link to="/history/$date" params={{ date: night.date }} className="pressable sticker flex items-center gap-3 rounded-card bg-surface p-3">
-                      <span className={cn("grid size-12 shrink-0 place-items-center rounded-2xl border-2 border-ink text-2xl", night.atHome ? "bg-sun" : "bg-brand")} aria-hidden>
+                    <Link
+                      to="/history/$date"
+                      params={{ date: night.date }}
+                      className="pressable sticker flex items-center gap-3 rounded-card bg-surface p-3"
+                    >
+                      <span
+                        className={cn(
+                          "grid size-12 shrink-0 place-items-center rounded-2xl border-2 border-ink text-2xl",
+                          night.atHome ? "bg-sun" : "bg-brand",
+                        )}
+                        aria-hidden
+                      >
                         {night.atHome ? "🏠" : "🌙"}
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate font-black">{name}</span>
                         <span className="block truncate text-sm text-ink-soft tabular-nums">
-                          {date?.toLocaleDateString(i18n.language, { month: "short", day: "numeric", weekday: "short" })} {clock(toDate(night.from))}–{clock(toDate(night.to))}
+                          {date?.toLocaleDateString(i18n.language, {
+                            timeZone: accountTimeZone(),
+                            month: "short",
+                            day: "numeric",
+                            weekday: "short",
+                          })}{" "}
+                          {clock(toDate(night.from))}–{clock(toDate(night.to))}
                         </span>
                       </span>
                       {night.withFriends.length > 0 && (
-                        <span className="flex shrink-0 -space-x-2" title={t("visit.with", { count: night.withFriends.length })}>
+                        <span
+                          className="flex shrink-0 -space-x-2"
+                          title={t("visit.with", { count: night.withFriends.length })}
+                        >
                           {night.withFriends.slice(0, 3).map((friend) => (
                             <Avatar key={friend.id} user={friend} size="xs" />
                           ))}

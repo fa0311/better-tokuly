@@ -20,21 +20,28 @@ import { DEVELOPMENT_PROVIDER, DevelopmentNote, PurchaseProgress, providerName }
 
 const BADGES: Partial<Record<wallet.PackageBadge, { key: string; className: string }>> = {
   [wallet.PackageBadge.POPULAR]: { key: "shop.badge.popular", className: "bg-pink text-white" },
-  [wallet.PackageBadge.BEST_VALUE]: { key: "shop.badge.bestValue", className: "bg-lime text-[#17122b]" },
+  [wallet.PackageBadge.BEST_VALUE]: {
+    key: "shop.badge.bestValue",
+    className: "bg-lime text-[#17122b]",
+  },
   [wallet.PackageBadge.LIMITED]: { key: "shop.badge.limited", className: "bg-sun text-[#17122b]" },
 };
 
 /** The coin shop: the packages on sale and the purchase flow. */
 export function BuyScreen() {
   const { t } = useTranslation(["wallet", "common"]);
-  const { data, isPending, isError, error, refetch } = useQuery({ queryKey: walletKeys.packages, queryFn: () => walletClient().listCoinPackages({}) });
+  const { data, isPending, isError, error, refetch } = useQuery({
+    queryKey: walletKeys.packages,
+    queryFn: () => walletClient().listCoinPackages({}),
+  });
   /** The provider picked by the buyer; the server's first one until they choose. */
   const [chosenProvider, setChosenProvider] = useState<string | null>(null);
   const [buying, setBuying] = useState<{ pkg: wallet.CoinPackage; attempt: number } | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
 
   const providers = data?.providers ?? [];
-  const provider = chosenProvider && providers.includes(chosenProvider) ? chosenProvider : (providers[0] ?? "");
+  const provider =
+    chosenProvider && providers.includes(chosenProvider) ? chosenProvider : (providers[0] ?? "");
   const buy = (pkg: wallet.CoinPackage) => {
     setBuying((previous) => ({ pkg, attempt: (previous?.attempt ?? 0) + 1 }));
     setDialogOpen(true);
@@ -66,7 +73,11 @@ export function BuyScreen() {
           {providers.length > 1 && (
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <span className="px-1 text-sm font-black text-ink-soft">{t("shop.payWith")}</span>
-              <Tabs value={provider} onChange={setChosenProvider} items={providers.map((name) => ({ value: name, label: providerName(name, t) }))} />
+              <Tabs
+                value={provider}
+                onChange={setChosenProvider}
+                items={providers.map((name) => ({ value: name, label: providerName(name, t) }))}
+              />
             </div>
           )}
           {provider === DEVELOPMENT_PROVIDER && <DevelopmentNote className="mt-3" />}
@@ -85,12 +96,26 @@ export function BuyScreen() {
       )}
 
       <div className="mt-8 flex justify-center">
-        <LinkButton to="/wallet/purchases" variant="ghost" className="text-ink-soft" icon={<ReceiptText className="size-4" />}>
+        <LinkButton
+          to="/wallet/purchases"
+          variant="ghost"
+          className="text-ink-soft"
+          icon={<ReceiptText className="size-4" />}
+        >
           {t("shop.purchases")}
         </LinkButton>
       </div>
 
-      {buying && <PurchaseDialog key={`${buying.pkg.id}-${buying.attempt}`} pkg={buying.pkg} provider={provider} open={dialogOpen} onOpenChange={setDialogOpen} onRetry={() => buy(buying.pkg)} />}
+      {buying && (
+        <PurchaseDialog
+          key={`${buying.pkg.id}-${buying.attempt}`}
+          pkg={buying.pkg}
+          provider={provider}
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          onRetry={() => buy(buying.pkg)}
+        />
+      )}
     </Page>
   );
 }
@@ -109,21 +134,44 @@ function PackageCard({ pkg, onBuy }: { pkg: wallet.CoinPackage; onBuy(): void })
       aria-label={t("shop.packageLabel", { coins: formatCoins(pkg.coins + pkg.bonusCoins), price })}
       className="pressable sticker relative flex h-full w-full flex-col items-center gap-2 rounded-card bg-surface px-3 pt-6 pb-3 text-center"
     >
-      {badge && <span className={cn("sticker-sm absolute -top-3 left-1/2 -translate-x-1/2 rounded-full px-3 py-0.5 text-xs font-black whitespace-nowrap", badge.className)}>{t(badge.key)}</span>}
+      {badge && (
+        <span
+          className={cn(
+            "sticker-sm absolute -top-3 left-1/2 -translate-x-1/2 rounded-full px-3 py-0.5 text-xs font-black whitespace-nowrap",
+            badge.className,
+          )}
+        >
+          {t(badge.key)}
+        </span>
+      )}
       <CoinStack coins={pkg.coins} />
-      <span className="text-2xl leading-none font-black tabular-nums">{formatCoins(pkg.coins)}</span>
-      <span className={cn("inline-flex h-6 items-center rounded-full px-2.5 text-xs font-black whitespace-nowrap", pkg.bonusCoins > 0n ? "bg-lime text-[#17122b]" : "invisible")}>
+      <span className="text-2xl leading-none font-black tabular-nums">
+        {formatCoins(pkg.coins)}
+      </span>
+      <span
+        className={cn(
+          "inline-flex h-6 items-center rounded-full px-2.5 text-xs font-black whitespace-nowrap",
+          pkg.bonusCoins > 0n ? "bg-lime text-[#17122b]" : "invisible",
+        )}
+      >
         {t("shop.bonus", { coins: formatCoins(pkg.bonusCoins) })}
       </span>
-      {endsAt > 0 && <span className="text-xs font-bold text-ink-soft">{t("shop.endsIn", { time: compactDuration(Math.max(0, endsAt - Date.now())) })}</span>}
-      <span className="sticker-sm mt-auto inline-flex h-10 w-full items-center justify-center rounded-full bg-brand font-black text-on-brand">{price}</span>
+      {endsAt > 0 && (
+        <span className="text-xs font-bold text-ink-soft">
+          {t("shop.endsIn", { time: compactDuration(Math.max(0, endsAt - Date.now())) })}
+        </span>
+      )}
+      <span className="sticker-sm mt-auto inline-flex h-10 w-full items-center justify-center rounded-full bg-brand font-black text-on-brand">
+        {price}
+      </span>
     </button>
   );
 }
 
 /** A pile of coins that grows with the size of the package. */
 function CoinStack({ coins }: { coins: bigint }) {
-  const height = coins >= 10_000n ? 5 : coins >= 3_000n ? 4 : coins >= 1_000n ? 3 : coins >= 500n ? 2 : 1;
+  const height =
+    coins >= 10_000n ? 5 : coins >= 3_000n ? 4 : coins >= 1_000n ? 3 : coins >= 500n ? 2 : 1;
   return (
     <span aria-hidden className="flex h-[4.5rem] flex-col-reverse items-center justify-start">
       {Array.from({ length: height }, (_, level) => (
@@ -139,14 +187,27 @@ function CoinStack({ coins }: { coins: bigint }) {
  * attempt its own idempotency key (a retry after a lost response returns the
  * same purchase instead of charging twice).
  */
-function PurchaseDialog({ pkg, provider, open, onOpenChange, onRetry }: { pkg: wallet.CoinPackage; provider: string; open: boolean; onOpenChange(open: boolean): void; onRetry(): void }) {
+function PurchaseDialog({
+  pkg,
+  provider,
+  open,
+  onOpenChange,
+  onRetry,
+}: {
+  pkg: wallet.CoinPackage;
+  provider: string;
+  open: boolean;
+  onOpenChange(open: boolean): void;
+  onRetry(): void;
+}) {
   const { t, i18n } = useTranslation(["wallet", "common"]);
   const queryClient = useQueryClient();
   const [idempotencyKey] = useState(() => crypto.randomUUID());
   const [purchaseId, setPurchaseId] = useState<string | null>(null);
   const purchase = useQuery({
     queryKey: walletKeys.purchase(purchaseId ?? ""),
-    queryFn: async () => (await walletClient().getPurchase({ purchaseId: purchaseId ?? "" })).purchase ?? null,
+    queryFn: async () =>
+      (await walletClient().getPurchase({ purchaseId: purchaseId ?? "" })).purchase ?? null,
     enabled: purchaseId !== null,
   }).data;
 
@@ -198,7 +259,9 @@ function PurchaseDialog({ pkg, provider, open, onOpenChange, onRetry }: { pkg: w
             {t("common:actions.cancel")}
           </Button>
           <Button loading={start.isPending} onClick={() => start.mutate()}>
-            {development ? t("shop.dialog.confirmDevelopment") : t("shop.dialog.confirm", { price })}
+            {development
+              ? t("shop.dialog.confirmDevelopment")
+              : t("shop.dialog.confirm", { price })}
           </Button>
         </>
       }

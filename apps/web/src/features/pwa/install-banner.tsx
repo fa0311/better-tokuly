@@ -3,7 +3,14 @@ import { X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
-import { hasGuide, installOfferSnoozed, openInstallGuide, promptInstall, snoozeInstallOffer, useInstallWay } from "./install";
+import {
+  hasGuide,
+  installOfferSnoozed,
+  openInstallGuide,
+  promptInstall,
+  snoozeInstallOffer,
+  useInstallWay,
+} from "./install";
 import { useOnline } from "./online";
 
 /**
@@ -12,7 +19,15 @@ import { useOnline } from "./online";
  * page in the middle of a task, and not the settings page that already
  * offers installing.
  */
-const CALM_PAGES = new Set(["/me", "/friends", "/notifications", "/settings", "/stamps", "/wallet", "/announcements"]);
+const CALM_PAGES = new Set([
+  "/me",
+  "/friends",
+  "/notifications",
+  "/settings",
+  "/stamps",
+  "/wallet",
+  "/announcements",
+]);
 /** The app gets this long to settle after it starts before the offer may slide in. */
 const SETTLE_MS = 2500;
 
@@ -36,7 +51,8 @@ export function InstallBanner() {
   }, []);
 
   const offered = way === "prompt" || hasGuide(way);
-  if (!offered || snoozed || !settled || !online || !CALM_PAGES.has(pathname.replace(/\/+$/, ""))) return null;
+  if (!offered || snoozed || !settled || !online || !CALM_PAGES.has(pathname.replace(/\/+$/, "")))
+    return null;
 
   const dismiss = () => {
     snoozeInstallOffer();
@@ -60,10 +76,16 @@ export function InstallBanner() {
       className="pointer-events-none absolute inset-x-0 bottom-0 z-40 flex justify-center px-4 pb-[calc(max(env(safe-area-inset-bottom),0.75rem)+5rem)] md:pb-6"
     >
       <div className="sticker pointer-events-auto relative flex w-full max-w-md animate-slide-up items-center gap-3 rounded-3xl bg-surface p-3">
-        <img src="/icon.svg" alt="" className="size-11 shrink-0 rounded-[22%] border-2 border-ink" />
+        <img
+          src="/icon.svg"
+          alt=""
+          className="size-11 shrink-0 rounded-[22%] border-2 border-ink"
+        />
         <div className="min-w-0 flex-1 [word-break:auto-phrase]">
           <p className="font-black leading-snug">{t("banner.title")}</p>
-          <p className="text-[13px] font-medium leading-snug text-ink-soft">{way === "ios-in-app" ? t("banner.inAppBody") : t("banner.body")}</p>
+          <p className="text-[13px] font-medium leading-snug text-ink-soft">
+            {way === "ios-in-app" ? t("banner.inAppBody") : t("banner.body")}
+          </p>
         </div>
         <Button size="sm" className="shrink-0" loading={busy} onClick={install}>
           {way === "prompt" ? t("banner.install") : t("banner.howTo")}

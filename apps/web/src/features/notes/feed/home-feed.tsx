@@ -47,12 +47,20 @@ export function HomeFeed({ empty, ref }: { empty: ReactNode; ref?: Ref<TimelineH
 
   if (query.isPending) return <TimelineSkeleton />;
   if (query.isError && cards.length === 0) {
-    return <EmptyState emoji="🌧️" title={errorMessage(query.error)} action={<Button onClick={() => void query.refetch()}>{t("timeline.retry")}</Button>} />;
+    return (
+      <EmptyState
+        emoji="🌧️"
+        title={errorMessage(query.error)}
+        action={<Button onClick={() => void query.refetch()}>{t("timeline.retry")}</Button>}
+      />
+    );
   }
   if (cards.length === 0) return <>{empty}</>;
   return (
     <div className="flex flex-col gap-2.5" data-testid="home-feed">
-      {cards.map((card) => card.activity && <ActivityCardView key={card.activity.id} card={card} />)}
+      {cards.map(
+        (card) => card.activity && <ActivityCardView key={card.activity.id} card={card} />,
+      )}
       <LoadMore query={query} showEnd />
     </div>
   );

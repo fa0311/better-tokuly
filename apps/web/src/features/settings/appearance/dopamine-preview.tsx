@@ -49,7 +49,13 @@ function Sparkles() {
           key={particle.id}
           className="absolute -mt-3 -ml-3 text-xl"
           initial={{ x: 0, y: 0, opacity: 0, scale: 0.3 }}
-          animate={{ x: particle.x, y: particle.y, opacity: [0, 1, 1, 0], scale: 1, rotate: particle.rotate }}
+          animate={{
+            x: particle.x,
+            y: particle.y,
+            opacity: [0, 1, 1, 0],
+            scale: 1,
+            rotate: particle.rotate,
+          }}
           transition={{ duration: 0.5 + 0.5 * factor, delay: particle.delay, ease: "easeOut" }}
         >
           {particle.glyph}
@@ -72,21 +78,39 @@ export function DopaminePreview({ level }: { level: number }) {
   const replay = () => setReplays((count) => count + 1);
 
   return (
-    <div className="relative mt-4 overflow-hidden rounded-2xl bg-surface-2 px-4 pt-8 pb-4" data-testid="dopamine-preview">
+    <div
+      className="relative mt-4 overflow-hidden rounded-2xl bg-surface-2 px-4 pt-8 pb-4"
+      data-testid="dopamine-preview"
+    >
       <div className="relative mx-auto w-fit max-w-full">
         {/* A new key restarts the entrance animation. */}
-        <div key={`card:${run}`} className="sticker flex animate-pop-in items-center gap-3 rounded-3xl bg-surface py-3 pr-5 pl-4">
+        <div
+          key={`card:${run}`}
+          className="sticker flex animate-pop-in items-center gap-3 rounded-3xl bg-surface py-3 pr-5 pl-4"
+        >
           <span className="animate-wiggle text-3xl">🎉</span>
           <span className="min-w-0">
-            <span className="block truncate font-black">{t("appearance.dopamine.preview.title")}</span>
-            <span className="block truncate text-sm text-ink-soft">{t("appearance.dopamine.preview.body")}</span>
+            <span className="block truncate font-black">
+              {t("appearance.dopamine.preview.title")}
+            </span>
+            <span className="block truncate text-sm text-ink-soft">
+              {t("appearance.dopamine.preview.body")}
+            </span>
           </span>
         </div>
         <Sparkles key={`sparkles:${run}`} />
       </div>
       <div className="mt-8 flex items-center justify-between gap-3">
-        <p className="min-w-0 text-xs font-bold leading-relaxed text-ink-soft">{t(`appearance.dopamine.effects.${level}`)}</p>
-        <Button size="sm" variant="secondary" className="shrink-0" icon={<RotateCcw className="size-4" />} onClick={replay}>
+        <p className="min-w-0 text-xs font-bold leading-relaxed text-ink-soft">
+          {t(`appearance.dopamine.effects.${level}`)}
+        </p>
+        <Button
+          size="sm"
+          variant="secondary"
+          className="shrink-0"
+          icon={<RotateCcw className="size-4" />}
+          onClick={replay}
+        >
           {t("appearance.dopamine.preview.replay")}
         </Button>
       </div>

@@ -9,6 +9,7 @@ import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
+import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { useMe } from "#/stores/session";
@@ -25,9 +26,14 @@ export function CountdownScreen({ countdownId }: { countdownId: string }) {
   const me = useMe();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { data: countdown, isPending, isError } = useQuery({
+  const {
+    data: countdown,
+    isPending,
+    isError,
+  } = useQuery({
     queryKey: keys.countdown(countdownId),
-    queryFn: async () => (await anniversaryClient().getCountdown({ countdownId })).countdown ?? null,
+    queryFn: async () =>
+      (await anniversaryClient().getCountdown({ countdownId })).countdown ?? null,
   });
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -52,7 +58,12 @@ export function CountdownScreen({ countdownId }: { countdownId: string }) {
   const onError = (error: unknown) => toast.error(errorMessage(error, { namespace: "plans" }));
   const pin = useMutation({
     // Unpinning goes back to private: the people it was shared with before are not remembered.
-    mutationFn: (pinned: boolean) => anniversaryClient().updateCountdown({ countdownId, sharing: pinned ? plans.CountdownSharing.PROFILE : plans.CountdownSharing.PRIVATE, sharedWithIds: [] }),
+    mutationFn: (pinned: boolean) =>
+      anniversaryClient().updateCountdown({
+        countdownId,
+        sharing: pinned ? plans.CountdownSharing.PROFILE : plans.CountdownSharing.PRIVATE,
+        sharedWithIds: [],
+      }),
     onSuccess: (response, pinned) => {
       queryClient.setQueryData(keys.countdown(countdownId), response.countdown ?? null);
       refresh();
@@ -86,7 +97,11 @@ export function CountdownScreen({ countdownId }: { countdownId: string }) {
           title={t("countdown.notFound")}
           body={t("countdown.notFoundBody")}
           action={
-            <Link to="/plans" search={{ tab: "moments" }} className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand">
+            <Link
+              to="/plans"
+              search={{ tab: "moments" }}
+              className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand"
+            >
               {t("plan.backToPlans")}
             </Link>
           }
@@ -100,14 +115,22 @@ export function CountdownScreen({ countdownId }: { countdownId: string }) {
   const parts = countdownParts(countdown.daysLeft, t);
   return (
     <Page title={countdown.title} back="/plans">
-      <div className={cn("sticker-lg flex animate-pop-in flex-col items-center rounded-[2rem] px-6 py-10 text-center", countdown.daysLeft < 0 ? "bg-surface-2 text-ink-soft" : tintOf(countdown.id))} data-testid="countdown-hero">
+      <div
+        className={cn(
+          "sticker-lg flex animate-pop-in flex-col items-center rounded-[2rem] px-6 py-10 text-center",
+          countdown.daysLeft < 0 ? "bg-surface-2 text-ink-soft" : tintOf(countdown.id),
+        )}
+        data-testid="countdown-hero"
+      >
         <span className={cn("text-7xl", isToday && "animate-float")} aria-hidden>
           {countdown.emoji || "⏳"}
         </span>
         <h2 className="mt-4 text-2xl font-black break-words">{countdown.title}</h2>
         <p className="mt-4 flex items-baseline gap-2 font-black">
           {parts.lead && <span className="text-xl">{parts.lead}</span>}
-          <span className={cn("leading-none tabular-nums", isToday ? "text-6xl" : "text-8xl")}>{parts.number}</span>
+          <span className={cn("leading-none tabular-nums", isToday ? "text-6xl" : "text-8xl")}>
+            {parts.number}
+          </span>
           {parts.unit && <span className="text-xl">{parts.unit}</span>}
         </p>
         <p className="mt-4 flex items-center gap-1.5 font-bold opacity-80">
@@ -120,7 +143,12 @@ export function CountdownScreen({ countdownId }: { countdownId: string }) {
           )}
         </p>
         {isToday && (
-          <Button variant="secondary" className="mt-6" icon={<Sparkles className="size-4" />} onClick={() => setCelebrating(true)}>
+          <Button
+            variant="secondary"
+            className="mt-6"
+            icon={<Sparkles className="size-4" />}
+            onClick={() => setCelebrating(true)}
+          >
             {t("countdown.celebrate")}
           </Button>
         )}
@@ -136,13 +164,29 @@ export function CountdownScreen({ countdownId }: { countdownId: string }) {
       {mine && (
         <>
           <div className="mt-6 grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-            <Button variant={pinned ? "secondary" : "lime"} className="col-span-2 sm:col-span-1" icon={pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />} loading={pin.isPending} disabled={countdown.daysLeft < 0} onClick={() => pin.mutate(!pinned)}>
+            <Button
+              variant={pinned ? "secondary" : "lime"}
+              className="col-span-2 sm:col-span-1"
+              icon={pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
+              loading={pin.isPending}
+              disabled={countdown.daysLeft < 0}
+              onClick={() => pin.mutate(!pinned)}
+            >
               {pinned ? t("countdown.unpin") : t("countdown.pin")}
             </Button>
-            <Button variant="secondary" icon={<Pencil className="size-4" />} onClick={() => setEditing(true)}>
+            <Button
+              variant="secondary"
+              icon={<Pencil className="size-4" />}
+              onClick={() => setEditing(true)}
+            >
               {t("countdown.edit")}
             </Button>
-            <Button variant="ghost" className="text-danger" icon={<Trash2 className="size-4" />} onClick={() => setDeleting(true)}>
+            <Button
+              variant="ghost"
+              className="text-danger"
+              icon={<Trash2 className="size-4" />}
+              onClick={() => setDeleting(true)}
+            >
               {t("countdown.delete")}
             </Button>
           </div>
@@ -156,9 +200,12 @@ export function CountdownScreen({ countdownId }: { countdownId: string }) {
                   <p>{t("countdown.seenChosen", { count: countdown.sharedWith.length })}</p>
                   <ul className="mt-2 flex flex-wrap gap-2">
                     {countdown.sharedWith.map((user) => (
-                      <li key={user.id} className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 py-1 pr-3 pl-1">
+                      <li
+                        key={user.id}
+                        className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 py-1 pr-3 pl-1"
+                      >
                         <Avatar user={user} size="xs" />
-                        {nameOf(user)}
+                        <EmojiText text={nameOf(user)} />
                       </li>
                     ))}
                   </ul>
@@ -172,8 +219,24 @@ export function CountdownScreen({ countdownId }: { countdownId: string }) {
       )}
 
       <CountdownDialog open={editing} onOpenChange={setEditing} countdown={countdown} />
-      <ConfirmDialog open={deleting} onOpenChange={setDeleting} title={t("countdown.deleteTitle")} description={t("countdown.deleteBody")} confirmLabel={t("countdown.delete")} danger loading={remove.isPending} onConfirm={() => remove.mutate()} />
-      <TodayMoment open={celebrating} onOpenChange={setCelebrating} emoji={countdown.emoji} kicker={t("countdown.momentKicker")} title={countdown.title} detail={formatDay(day, i18n.language)} />
+      <ConfirmDialog
+        open={deleting}
+        onOpenChange={setDeleting}
+        title={t("countdown.deleteTitle")}
+        description={t("countdown.deleteBody")}
+        confirmLabel={t("countdown.delete")}
+        danger
+        loading={remove.isPending}
+        onConfirm={() => remove.mutate()}
+      />
+      <TodayMoment
+        open={celebrating}
+        onOpenChange={setCelebrating}
+        emoji={countdown.emoji}
+        kicker={t("countdown.momentKicker")}
+        title={countdown.title}
+        detail={formatDay(day, i18n.language)}
+      />
     </Page>
   );
 }

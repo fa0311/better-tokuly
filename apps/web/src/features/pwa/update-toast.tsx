@@ -35,7 +35,12 @@ function UpdateToast() {
       <Button size="sm" onClick={applyUpdate}>
         {t("update.reload")}
       </Button>
-      <button type="button" aria-label={t("update.later")} onClick={() => toast.dismiss(TOAST_ID)} className="grid size-8 shrink-0 place-items-center rounded-full text-ink-soft hover:bg-surface-2">
+      <button
+        type="button"
+        aria-label={t("update.later")}
+        onClick={() => toast.dismiss(TOAST_ID)}
+        className="grid size-8 shrink-0 place-items-center rounded-full text-ink-soft hover:bg-surface-2"
+      >
         <X className="size-4" />
       </button>
     </div>

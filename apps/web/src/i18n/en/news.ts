@@ -21,7 +21,8 @@ export default {
   },
   random: {
     label: "Random",
-    explain: "This one was picked at random, not for your interests. Take a peek outside your bubble!",
+    explain:
+      "This one was picked at random, not for your interests. Take a peek outside your bubble!",
   },
   feedback: {
     title: "How was this one?",
@@ -75,9 +76,11 @@ export default {
     resetLead: "Forget what you like and let the recommendations start from scratch.",
     reset: "Reset",
     resetConfirmTitle: "Reset your recommendations?",
-    resetConfirmBody: "Your taste per tag and every “more / less of this” are forgotten. This cannot be undone.",
+    resetConfirmBody:
+      "Your taste per tag and every “more / less of this” are forgotten. This cannot be undone.",
     clearHistory: "Forget what I read, too",
-    clearHistoryHint: "Which articles you opened is forgotten as well, so nothing is marked as read",
+    clearHistoryHint:
+      "Which articles you opened is forgotten as well, so nothing is marked as read",
     resetDone: "Recommendations reset!",
   },
   staff: {
@@ -104,7 +107,8 @@ export default {
       add: "Add a source",
       addTitle: "Add a news source",
       editTitle: "Edit the news source",
-      dialogLead: "Register the URL of an RSS / Atom feed and its articles are fetched on a schedule.",
+      dialogLead:
+        "Register the URL of an RSS / Atom feed and its articles are fetched on a schedule.",
       feedUrl: "Feed URL",
       feedUrlHint: "Public http(s) addresses only. A new URL starts the source over",
       name: "Name",
@@ -114,7 +118,8 @@ export default {
       language: "Language",
       languageHint: "A BCP 47 tag (ja, en…)",
       tags: "Default tags",
-      tagsHint: "Given to every article of the source. Up to 10, separated by commas ({{count}} now)",
+      tagsHint:
+        "Given to every article of the source. Up to 10, separated by commas ({{count}} now)",
       enabled: "Enabled",
       enabledHint: "Switched off, the source is not fetched and its articles are not listed",
       created: "Source added. Its first fetch is on the way!",
@@ -145,7 +150,8 @@ export default {
     },
     errors: {
       INVALID_FEED_URL: "That is not a valid feed URL",
-      FEED_URL_NOT_ALLOWED: "This URL cannot be fetched (public http/https addresses on the default ports only)",
+      FEED_URL_NOT_ALLOWED:
+        "This URL cannot be fetched (public http/https addresses on the default ports only)",
       INVALID_NAME: "The name is too long or contains characters that cannot be used",
       INVALID_SITE_URL: "That is not a valid site URL",
       INVALID_LANGUAGE: "Enter the language as a tag such as ja or en",

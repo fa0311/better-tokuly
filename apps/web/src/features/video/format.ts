@@ -16,7 +16,12 @@ export function formatClock(seconds: number): string {
  */
 export function parseClock(text: string): number | null {
   const parts = text.trim().split(":");
-  if (parts.length === 0 || parts.length > 3 || parts.some((part) => !/^\d{1,5}(\.\d+)?$/.test(part))) return null;
+  if (
+    parts.length === 0 ||
+    parts.length > 3 ||
+    parts.some((part) => !/^\d{1,5}(\.\d+)?$/.test(part))
+  )
+    return null;
   const numbers = parts.map(Number);
   // Only the leading part may run past 59 ("75" is 1:15, "1:75" is a typo).
   if (numbers.slice(1).some((value) => value >= 60)) return null;
@@ -41,7 +46,10 @@ export function parseTimeParam(value: string | undefined): number | null {
 export function formatCount(value: number | bigint): string {
   const count = Number(value);
   if (count < 10_000) return count.toLocaleString(i18n.language);
-  return new Intl.NumberFormat(i18n.language, { notation: "compact", maximumFractionDigits: 1 }).format(count);
+  return new Intl.NumberFormat(i18n.language, {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(count);
 }
 
 /** How long ago something was published, coarsely: `3時間前`, `2週間前`, `1年前`. */
@@ -65,7 +73,10 @@ export function formatWatchTime(seconds: number): string {
   if (seconds < 60) return span("seconds", String(Math.round(seconds)));
   if (seconds < 3600) return span("minutes", String(Math.round(seconds / 60)));
   const hours = seconds / 3600;
-  return span("hours", hours < 100 ? hours.toFixed(1) : Math.round(hours).toLocaleString(i18n.language));
+  return span(
+    "hours",
+    hours < 100 ? hours.toFixed(1) : Math.round(hours).toLocaleString(i18n.language),
+  );
 }
 
 /** `YYYY-MM-DD` of a local calendar day, as the analytics API takes dates. */

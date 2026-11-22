@@ -48,7 +48,14 @@ export interface CommentThreadProps {
  * heart, hide and block for the subject's owner, and new comments arriving
  * live while it is on screen.
  */
-export function CommentThread({ subject, subjectAuthor, focusCommentId, video, defaultChannelId, className }: CommentThreadProps) {
+export function CommentThread({
+  subject,
+  subjectAuthor,
+  focusCommentId,
+  video,
+  defaultChannelId,
+  className,
+}: CommentThreadProps) {
   const { t, i18n } = useTranslation("comments");
   const queryClient = useQueryClient();
   const me = useMe();
@@ -57,7 +64,12 @@ export function CommentThread({ subject, subjectAuthor, focusCommentId, video, d
 
   const query = useInfiniteQuery({
     queryKey: commentKeys.thread(key, sort === "top" ? CommentSort.TOP : CommentSort.NEWEST),
-    queryFn: ({ pageParam }) => commentClient().listComments({ subject: key, sort: sort === "top" ? CommentSort.TOP : CommentSort.NEWEST, page: { limit: 20, cursor: pageParam } }),
+    queryFn: ({ pageParam }) =>
+      commentClient().listComments({
+        subject: key,
+        sort: sort === "top" ? CommentSort.TOP : CommentSort.NEWEST,
+        page: { limit: 20, cursor: pageParam },
+      }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
@@ -78,32 +90,53 @@ export function CommentThread({ subject, subjectAuthor, focusCommentId, video, d
   // The comment a link points at joins the list (once), so everything done to it lands in one place.
   const loaded = query.data;
   useEffect(() => {
-    if (focusRoot && loaded && !findComment(loaded, focusRoot.id)) updateThread(queryClient, { type: subject.type, id: subject.id }, (data) => withComment(data, focusRoot, false));
+    if (focusRoot && loaded && !findComment(loaded, focusRoot.id))
+      updateThread(queryClient, { type: subject.type, id: subject.id }, (data) =>
+        withComment(data, focusRoot, false),
+      );
   }, [focusRoot, loaded, queryClient, subject.type, subject.id]);
 
   const seen = new Set<string>();
-  const comments = (query.data?.pages.flatMap((page) => page.comments) ?? []).filter((comment) => !seen.has(comment.id) && seen.add(comment.id));
+  const comments = (query.data?.pages.flatMap((page) => page.comments) ?? []).filter(
+    (comment) => !seen.has(comment.id) && seen.add(comment.id),
+  );
   // Pinned first, then the comment the link pointed at, then the rest in server order.
-  const ordered = focusRoot ? [...comments.filter((comment) => comment.pinned), ...comments.filter((comment) => !comment.pinned && comment.id === focusRoot.id), ...comments.filter((comment) => !comment.pinned && comment.id !== focusRoot.id)] : comments;
+  const ordered = focusRoot
+    ? [
+        ...comments.filter((comment) => comment.pinned),
+        ...comments.filter((comment) => !comment.pinned && comment.id === focusRoot.id),
+        ...comments.filter((comment) => !comment.pinned && comment.id !== focusRoot.id),
+      ]
+    : comments;
 
   const uuid = isUuid(subject.id) ? subject.id : comments[0]?.subject?.id;
   useThreadRealtime(key, uuid, canModerate);
 
   return (
     <ThreadContext value={{ subject: key, canModerate, subjectAuthor, video, defaultChannelId }}>
-      <section aria-label={t("title")} data-testid="comment-thread" className={cn("flex flex-col gap-4", className)}>
+      <section
+        aria-label={t("title")}
+        data-testid="comment-thread"
+        className={cn("flex flex-col gap-4", className)}
+      >
         <header className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <h2 className="text-lg font-black">
             {t("title")}
             {query.data && (
-              <span className="ml-2 text-base font-bold text-ink-soft tabular-nums" data-testid="comment-count">
+              <span
+                className="ml-2 text-base font-bold text-ink-soft tabular-nums"
+                data-testid="comment-count"
+              >
                 {t("count", { count: total, formatted: total.toLocaleString(i18n.language) })}
               </span>
             )}
           </h2>
           <span className="flex-1" />
           {canModerate && (
-            <Link to="/settings/comments" className="inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-bold text-ink-soft hover:bg-surface-2 hover:text-ink">
+            <Link
+              to="/settings/comments"
+              className="inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-bold text-ink-soft hover:bg-surface-2 hover:text-ink"
+            >
               <Settings2 className="size-4" />
               {t("manage")}
             </Link>
@@ -139,15 +172,25 @@ export function CommentThread({ subject, subjectAuthor, focusCommentId, video, d
             ))}
           </div>
         ) : query.isError ? (
-          <p role="alert" className="rounded-2xl bg-surface-2 px-4 py-6 text-center text-sm font-bold text-ink-soft">
+          <p
+            role="alert"
+            className="rounded-2xl bg-surface-2 px-4 py-6 text-center text-sm font-bold text-ink-soft"
+          >
             {errorMessage(query.error)}
           </p>
         ) : ordered.length === 0 ? (
-          commentsEnabled && <EmptyState emoji="💬" title={t("empty.title")} body={t("empty.body")} />
+          commentsEnabled && (
+            <EmptyState emoji="💬" title={t("empty.title")} body={t("empty.body")} />
+          )
         ) : (
           <div className="flex flex-col gap-5">
             {ordered.map((comment) => (
-              <CommentItem key={comment.id} comment={comment} focused={comment.id === focusRoot?.id && !focusReply} focusReply={comment.id === focusRoot?.id ? focusReply : undefined} />
+              <CommentItem
+                key={comment.id}
+                comment={comment}
+                focused={comment.id === focusRoot?.id && !focusReply}
+                focusReply={comment.id === focusRoot?.id ? focusReply : undefined}
+              />
             ))}
             <LoadMore query={query} />
           </div>

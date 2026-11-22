@@ -19,12 +19,23 @@ const MAX_DISTANCE = 140;
  * users are not offered the gesture (dragging selects text there); every
  * action must also be reachable from a button or menu inside the row.
  */
-export function SwipeRow({ toLeft, toRight, children, className }: { /** Uncovered on the right when the row is pushed left. */ toLeft?: SwipeAction; /** Uncovered on the left when the row is pushed right. */ toRight?: SwipeAction; children: ReactNode; className?: string }) {
+export function SwipeRow({
+  toLeft,
+  toRight,
+  children,
+  className,
+}: {
+  /** Uncovered on the right when the row is pushed left. */ toLeft?: SwipeAction /** Uncovered on the left when the row is pushed right. */;
+  toRight?: SwipeAction;
+  children: ReactNode;
+  className?: string;
+}) {
   const [offset, setOffset] = useState(0);
   const [dragging, setDragging] = useState(false);
   const start = useRef<{ x: number; y: number; id: number; locked: boolean } | null>(null);
 
-  const clamp = (value: number) => Math.max(toLeft ? -MAX_DISTANCE : 0, Math.min(toRight ? MAX_DISTANCE : 0, value));
+  const clamp = (value: number) =>
+    Math.max(toLeft ? -MAX_DISTANCE : 0, Math.min(toRight ? MAX_DISTANCE : 0, value));
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (event.pointerType === "mouse" || (!toLeft && !toRight)) return;
@@ -52,7 +63,8 @@ export function SwipeRow({ toLeft, toRight, children, className }: { /** Uncover
     if (!start.current) return;
     start.current = null;
     setDragging(false);
-    const action = offset <= -COMMIT_DISTANCE ? toLeft : offset >= COMMIT_DISTANCE ? toRight : undefined;
+    const action =
+      offset <= -COMMIT_DISTANCE ? toLeft : offset >= COMMIT_DISTANCE ? toRight : undefined;
     setOffset(0);
     if (commit) action?.onCommit();
   };
@@ -63,8 +75,17 @@ export function SwipeRow({ toLeft, toRight, children, className }: { /** Uncover
   return (
     <div className={cn("relative overflow-hidden rounded-card", className)}>
       {shown && (
-        <div aria-hidden className={cn("absolute inset-0 flex items-center px-6 font-black text-[#17122b]", shown.tint, offset < 0 ? "justify-end" : "justify-start")}>
-          <span className={cn("flex items-center gap-2 transition-transform", armed && "scale-110")}>
+        <div
+          aria-hidden
+          className={cn(
+            "absolute inset-0 flex items-center px-6 font-black text-[#17122b]",
+            shown.tint,
+            offset < 0 ? "justify-end" : "justify-start",
+          )}
+        >
+          <span
+            className={cn("flex items-center gap-2 transition-transform", armed && "scale-110")}
+          >
             {shown.icon}
             {shown.label}
           </span>
@@ -80,7 +101,10 @@ export function SwipeRow({ toLeft, toRight, children, className }: { /** Uncover
         onClickCapture={(event) => {
           if (dragging) event.stopPropagation();
         }}
-        className={cn("relative touch-pan-y", !dragging && "transition-transform duration-200 ease-out-soft")}
+        className={cn(
+          "relative touch-pan-y",
+          !dragging && "transition-transform duration-200 ease-out-soft",
+        )}
         style={{ transform: offset ? `translateX(${offset}px)` : undefined }}
       >
         {children}

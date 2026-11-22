@@ -8,10 +8,11 @@ import { Button } from "#/components/ui/button";
 import { TextField } from "#/components/ui/field";
 import { api, authClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
+import { parseRedirect } from "#/lib/redirect";
 
 export const Route = createFileRoute("/login")({
   validateSearch: (search): { redirect?: string } => ({
-    redirect: typeof search.redirect === "string" && search.redirect.startsWith("/") ? search.redirect : undefined,
+    redirect: parseRedirect(search.redirect),
   }),
   component: Login,
 });
@@ -75,7 +76,12 @@ function Login() {
       footer={
         <>
           {t("signIn.noAccount")}{" "}
-          <Link to="/signup" className="font-black text-brand underline-offset-4 hover:underline">
+          {/* Whoever came from a public page comes back to it, whichever way they get an account. */}
+          <Link
+            to="/signup"
+            search={{ redirect }}
+            className="font-black text-brand underline-offset-4 hover:underline"
+          >
             {t("signIn.toSignUp")}
           </Link>
         </>
@@ -114,19 +120,38 @@ function Login() {
           </>
         )}
         {error && (
-          <p role="alert" className="rounded-2xl bg-danger/10 px-4 py-3 text-sm font-bold text-danger">
+          <p
+            role="alert"
+            className="rounded-2xl bg-danger/10 px-4 py-3 text-sm font-bold text-danger"
+          >
             {error}
           </p>
         )}
-        <Button type="submit" size="lg" block loading={busy === "password"} disabled={busy !== null}>
+        <Button
+          type="submit"
+          size="lg"
+          block
+          loading={busy === "password"}
+          disabled={busy !== null}
+        >
           {t("signIn.submit")}
         </Button>
         {!needsTotp && (
           <>
-            <Button variant="secondary" block icon={<KeyRound className="size-4" />} loading={busy === "passkey"} disabled={busy !== null} onClick={signInWithPasskey}>
+            <Button
+              variant="secondary"
+              block
+              icon={<KeyRound className="size-4" />}
+              loading={busy === "passkey"}
+              disabled={busy !== null}
+              onClick={signInWithPasskey}
+            >
               {t("signIn.passkey")}
             </Button>
-            <Link to="/reset-password" className="text-center text-sm font-bold text-ink-soft underline-offset-4 hover:underline">
+            <Link
+              to="/reset-password"
+              className="text-center text-sm font-bold text-ink-soft underline-offset-4 hover:underline"
+            >
               {t("signIn.forgot")}
             </Link>
           </>

@@ -1,6 +1,19 @@
 import { school } from "@tokuly/api";
 import { describe, expect, it } from "vitest";
-import { addDays, clock, clockInput, daysBetween, isYmd, layoutWeekdays, mondayOf, parseClock, studyTime, timerText, weekdayOf, ymd } from "./dates";
+import {
+  addDays,
+  clock,
+  clockInput,
+  daysBetween,
+  isYmd,
+  layoutWeekdays,
+  mondayOf,
+  parseClock,
+  studyTime,
+  timerText,
+  weekdayOf,
+  ymd,
+} from "./dates";
 
 describe("calendar dates", () => {
   it("formats a local date without going through UTC", () => {
@@ -72,6 +85,10 @@ describe("layout weekdays", () => {
   });
 
   it("keeps the week's order whatever order the layout lists them in", () => {
-    expect(layoutWeekdays({ weekdays: [school.Weekday.SATURDAY, school.Weekday.MONDAY] } as school.PeriodLayout)).toEqual([school.Weekday.MONDAY, school.Weekday.SATURDAY]);
+    expect(
+      layoutWeekdays({
+        weekdays: [school.Weekday.SATURDAY, school.Weekday.MONDAY],
+      } as school.PeriodLayout),
+    ).toEqual([school.Weekday.MONDAY, school.Weekday.SATURDAY]);
   });
 });

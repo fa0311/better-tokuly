@@ -8,7 +8,10 @@ export function isGroup(conversation: Pick<chat.Conversation, "kind">): boolean 
 }
 
 /** The other person of a direct conversation (undefined for groups). */
-export function peerOf(conversation: chat.Conversation, myId: string): common.UserSummary | undefined {
+export function peerOf(
+  conversation: chat.Conversation,
+  myId: string,
+): common.UserSummary | undefined {
   if (isGroup(conversation)) return undefined;
   return conversation.members.find((member) => member.id !== myId) ?? conversation.members[0];
 }
@@ -70,7 +73,9 @@ export function countsAsUnread(message: chat.Message): boolean {
 
 /** Whether a message mentions `userId`, by handle or through `@all`. */
 export function mentionsUser(message: chat.Message, userId: string): boolean {
-  return message.mentionsEveryone || message.mentions.some((mention) => mention.user?.id === userId);
+  return (
+    message.mentionsEveryone || message.mentions.some((mention) => mention.user?.id === userId)
+  );
 }
 
 /** Kinds a person wrote themselves (as opposed to system, call and POV request entries). */
@@ -101,7 +106,14 @@ export interface MessageAbilities {
 
 export function abilitiesOf(
   message: chat.Message,
-  context: { myId: string; role: chat.MemberRole | undefined; writable: boolean; accepted: boolean; editWindowSeconds: number; nowMs?: number },
+  context: {
+    myId: string;
+    role: chat.MemberRole | undefined;
+    writable: boolean;
+    accepted: boolean;
+    editWindowSeconds: number;
+    nowMs?: number;
+  },
 ): MessageAbilities {
   const mine = message.sender?.id === context.myId;
   const content = isUserContent(message) && !message.deleted;
@@ -129,15 +141,26 @@ export function abilitiesOf(
 
 /** A participant of a call in a given state. */
 export function participantState(call: chat.Call, userId: string): chat.CallParticipantState {
-  return call.participants.find((participant) => participant.user?.id === userId)?.state ?? chat.CallParticipantState.UNSPECIFIED;
+  return (
+    call.participants.find((participant) => participant.user?.id === userId)?.state ??
+    chat.CallParticipantState.UNSPECIFIED
+  );
 }
 
 /** Whether this call should ring for `userId` right now. */
 export function ringsFor(call: chat.Call, userId: string): boolean {
-  return call.state === chat.CallState.RINGING && call.startedBy?.id !== userId && participantState(call, userId) === chat.CallParticipantState.RINGING;
+  return (
+    call.state === chat.CallState.RINGING &&
+    call.startedBy?.id !== userId &&
+    participantState(call, userId) === chat.CallParticipantState.RINGING
+  );
 }
 
 /** The people connected to a call. */
 export function joinedParticipants(call: chat.Call): common.UserSummary[] {
-  return call.participants.flatMap((participant) => (participant.state === chat.CallParticipantState.JOINED && participant.user ? [participant.user] : []));
+  return call.participants.flatMap((participant) =>
+    participant.state === chat.CallParticipantState.JOINED && participant.user
+      ? [participant.user]
+      : [],
+  );
 }

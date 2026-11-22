@@ -1,4 +1,13 @@
-import { type CSSProperties, type KeyboardEvent, type ReactNode, type PointerEvent as ReactPointerEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type KeyboardEvent,
+  type ReactNode,
+  type PointerEvent as ReactPointerEvent,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { cn } from "#/lib/cn";
 
 /** Spread these on the element people grab to move an item (a grip button, or the item itself). */
@@ -62,7 +71,8 @@ interface Drag {
 function scrollParent(element: Element): Element | null {
   for (let node = element.parentElement; node; node = node.parentElement) {
     const overflow = getComputedStyle(node).overflowY;
-    if ((overflow === "auto" || overflow === "scroll") && node.scrollHeight > node.clientHeight) return node;
+    if ((overflow === "auto" || overflow === "scroll") && node.scrollHeight > node.clientHeight)
+      return node;
   }
   return null;
 }
@@ -72,7 +82,16 @@ function scrollParent(element: Element): Element | null {
  * mouse, a finger or the arrow keys. The dragged item follows the pointer
  * and the others make room as it passes over them.
  */
-export function Sortable<T>({ items, getKey, onReorder, children, grab = "handle", disabled, className, itemClassName }: SortableProps<T>) {
+export function Sortable<T>({
+  items,
+  getKey,
+  onReorder,
+  children,
+  grab = "handle",
+  disabled,
+  className,
+  itemClassName,
+}: SortableProps<T>) {
   const elements = useRef(new Map<string, HTMLElement>());
   const drag = useRef<Drag | null>(null);
   /** The order shown while dragging; `null` when nothing is being dragged. */
@@ -122,7 +141,13 @@ export function Sortable<T>({ items, getKey, onReorder, children, grab = "handle
 
   const start = (key: string, event: ReactPointerEvent<HTMLElement>) => {
     const element = elements.current.get(key);
-    if (disabled || !element || drag.current || (event.pointerType === "mouse" && event.button !== 0)) return;
+    if (
+      disabled ||
+      !element ||
+      drag.current ||
+      (event.pointerType === "mouse" && event.button !== 0)
+    )
+      return;
     const slot = element.getBoundingClientRect();
     const waitsForPress = grab === "press" && event.pointerType === "touch";
 
@@ -140,15 +165,18 @@ export function Sortable<T>({ items, getKey, onReorder, children, grab = "handle
         // Near the top or bottom edge, the page scrolls along.
         if (live.scroller) {
           const bounds = live.scroller.getBoundingClientRect();
-          if (live.y < bounds.top + SCROLL_EDGE) live.scroller.scrollTop -= Math.ceil((bounds.top + SCROLL_EDGE - live.y) / 6);
-          else if (live.y > bounds.bottom - SCROLL_EDGE) live.scroller.scrollTop += Math.ceil((live.y - (bounds.bottom - SCROLL_EDGE)) / 6);
+          if (live.y < bounds.top + SCROLL_EDGE)
+            live.scroller.scrollTop -= Math.ceil((bounds.top + SCROLL_EDGE - live.y) / 6);
+          else if (live.y > bounds.bottom - SCROLL_EDGE)
+            live.scroller.scrollTop += Math.ceil((live.y - (bounds.bottom - SCROLL_EDGE)) / 6);
         }
         follow();
         // Passing over another item takes its place.
         for (const [other, node] of elements.current) {
           if (other === live.key) continue;
           const box = node.getBoundingClientRect();
-          if (live.x < box.left || live.x > box.right || live.y < box.top || live.y > box.bottom) continue;
+          if (live.x < box.left || live.x > box.right || live.y < box.top || live.y > box.bottom)
+            continue;
           const target = live.order.indexOf(other);
           live.order = live.order.filter((item) => item !== live.key);
           live.order.splice(target, 0, live.key);
@@ -165,7 +193,11 @@ export function Sortable<T>({ items, getKey, onReorder, children, grab = "handle
       if (!current) return;
       current.x = moved.clientX;
       current.y = moved.clientY;
-      if (current.active || Math.hypot(current.x - current.startX, current.y - current.startY) < SLOP) return;
+      if (
+        current.active ||
+        Math.hypot(current.x - current.startX, current.y - current.startY) < SLOP
+      )
+        return;
       // A finger that moves before the press is up wants to scroll, not drag.
       if (waitsForPress) finish(false);
       else activate();
@@ -211,7 +243,12 @@ export function Sortable<T>({ items, getKey, onReorder, children, grab = "handle
   };
 
   const nudge = (key: string, event: KeyboardEvent<HTMLElement>) => {
-    const delta = event.key === "ArrowUp" || event.key === "ArrowLeft" ? -1 : event.key === "ArrowDown" || event.key === "ArrowRight" ? 1 : 0;
+    const delta =
+      event.key === "ArrowUp" || event.key === "ArrowLeft"
+        ? -1
+        : event.key === "ArrowDown" || event.key === "ArrowRight"
+          ? 1
+          : 0;
     if (delta === 0 || disabled) return;
     const index = keys.indexOf(key);
     const target = index + delta;
@@ -238,16 +275,27 @@ export function Sortable<T>({ items, getKey, onReorder, children, grab = "handle
               else elements.current.delete(key);
             }}
             data-dragging={dragging || undefined}
-            className={cn("relative", dragging && "z-10 drop-shadow-[0_10px_14px_rgb(23_18_43/0.3)]", itemClassName)}
+            className={cn(
+              "relative",
+              dragging && "z-10 drop-shadow-[0_10px_14px_rgb(23_18_43/0.3)]",
+              itemClassName,
+            )}
             // On touch, a press that turns into a drag must not also open the browser's context menu.
-            onContextMenu={grab === "press" ? (event) => drag.current && event.preventDefault() : undefined}
+            onContextMenu={
+              grab === "press" ? (event) => drag.current && event.preventDefault() : undefined
+            }
           >
             {children(byKey.get(key)!, {
               dragging,
               grip: {
                 onPointerDown: (event) => start(key, event),
                 onKeyDown: (event) => nudge(key, event),
-                style: { touchAction: grab === "handle" ? "none" : "pan-y", cursor: disabled ? undefined : dragging ? "grabbing" : "grab", WebkitTouchCallout: "none", userSelect: "none" },
+                style: {
+                  touchAction: grab === "handle" ? "none" : "pan-y",
+                  cursor: disabled ? undefined : dragging ? "grabbing" : "grab",
+                  WebkitTouchCallout: "none",
+                  userSelect: "none",
+                },
               },
             })}
           </div>

@@ -1,9 +1,24 @@
-import { type QueryClient, useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  type QueryClient,
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { common, engagement } from "@tokuly/api";
 import { toast } from "sonner";
 import { api } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
-import { type Engagement, reactionFields, type Subject, sameReaction, subjectKey, toEngagement, type ViewerReaction, withCounters, withViewerReaction } from "./model";
+import {
+  type Engagement,
+  reactionFields,
+  type Subject,
+  sameReaction,
+  subjectKey,
+  toEngagement,
+  type ViewerReaction,
+  withCounters,
+  withViewerReaction,
+} from "./model";
 
 export const reactionClient = () => api().service(engagement.ReactionService);
 export const bookmarkClient = () => api().service(engagement.BookmarkService);
@@ -15,14 +30,17 @@ export const engagementKeys = {
   all: ["engagement"] as const,
   subjects: ["engagement", "subject"] as const,
   subject: (subject: Subject) => ["engagement", "subject", subject.type, subject.id] as const,
-  reactors: (subject: Subject, emoji: string) => ["engagement", "reactors", subject.type, subject.id, emoji] as const,
+  reactors: (subject: Subject, emoji: string) =>
+    ["engagement", "reactors", subject.type, subject.id, emoji] as const,
   myReactions: ["engagement", "my-reactions"] as const,
   collections: ["engagement", "collections"] as const,
-  collectionsFor: (subject: Subject) => ["engagement", "collections", "for", subject.type, subject.id] as const,
+  collectionsFor: (subject: Subject) =>
+    ["engagement", "collections", "for", subject.type, subject.id] as const,
   bookmarks: ["engagement", "bookmarks"] as const,
   bookmarkList: (collectionId: string) => ["engagement", "bookmarks", collectionId] as const,
   reports: ["engagement", "reports"] as const,
-  shareStats: (subject: Subject) => ["engagement", "share-stats", subject.type, subject.id] as const,
+  shareStats: (subject: Subject) =>
+    ["engagement", "share-stats", subject.type, subject.id] as const,
 };
 
 // ───────────────────────────── Batched loading ─────────────────────────────
@@ -62,12 +80,19 @@ async function flush(): Promise<void> {
   scheduled = false;
   const waiters = waiting;
   waiting = [];
-  const subjects = [...new Map(waiters.map((waiter) => [subjectKey(waiter.subject), waiter.subject])).values()];
+  const subjects = [
+    ...new Map(waiters.map((waiter) => [subjectKey(waiter.subject), waiter.subject])).values(),
+  ];
   // One request per subject type: a batch is refused as a whole when it names a type no
   // domain serves (yet), and that must not take the notes next to it down as well.
   const byType = new Map<common.SubjectType, Subject[]>();
-  for (const subject of subjects) byType.set(subject.type, [...(byType.get(subject.type) ?? []), subject]);
-  const chunks = [...byType.values()].flatMap((group) => Array.from({ length: Math.ceil(group.length / BATCH_LIMIT) }, (_, index) => group.slice(index * BATCH_LIMIT, (index + 1) * BATCH_LIMIT)));
+  for (const subject of subjects)
+    byType.set(subject.type, [...(byType.get(subject.type) ?? []), subject]);
+  const chunks = [...byType.values()].flatMap((group) =>
+    Array.from({ length: Math.ceil(group.length / BATCH_LIMIT) }, (_, index) =>
+      group.slice(index * BATCH_LIMIT, (index + 1) * BATCH_LIMIT),
+    ),
+  );
   await Promise.all(chunks.map((chunk) => loadChunk(chunk, waiters)));
 }
 
@@ -92,7 +117,9 @@ export function loadEngagement(subject: Subject): Promise<Engagement | null> {
  */
 export function useEngagement(subject: Subject | undefined) {
   return useQuery({
-    queryKey: subject ? engagementKeys.subject(subject) : (["engagement", "subject", "none"] as const),
+    queryKey: subject
+      ? engagementKeys.subject(subject)
+      : (["engagement", "subject", "none"] as const),
     queryFn: () => loadEngagement(subject!),
     enabled: Boolean(subject?.id),
     staleTime: 60_000,
@@ -102,18 +129,37 @@ export function useEngagement(subject: Subject | undefined) {
 /** Loads the engagement of many subjects ahead of their controls rendering (one request per 100). */
 export function prefetchEngagement(queryClient: QueryClient, subjects: Subject[]): Promise<void> {
   return Promise.all(
-    subjects.map((subject) => queryClient.prefetchQuery({ queryKey: engagementKeys.subject(subject), queryFn: () => loadEngagement(subject), staleTime: 60_000 })),
+    subjects.map((subject) =>
+      queryClient.prefetchQuery({
+        queryKey: engagementKeys.subject(subject),
+        queryFn: () => loadEngagement(subject),
+        staleTime: 60_000,
+      }),
+    ),
   ).then(() => undefined);
 }
 
-function patch(queryClient: QueryClient, subject: Subject, update: (current: Engagement) => Engagement): void {
-  queryClient.setQueryData<Engagement | null>(engagementKeys.subject(subject), (current) => (current ? update(current) : current));
+function patch(
+  queryClient: QueryClient,
+  subject: Subject,
+  update: (current: Engagement) => Engagement,
+): void {
+  queryClient.setQueryData<Engagement | null>(engagementKeys.subject(subject), (current) =>
+    current ? update(current) : current,
+  );
 }
 
 /** A realtime `counters_changed`: applied to every cached entry of that subject (it may be cached under its short ID too). */
-export function applyCounters(queryClient: QueryClient, type: common.SubjectType, uuid: string, counters: engagement.CountersChanged): void {
-  queryClient.setQueriesData<Engagement | null>({ queryKey: [...engagementKeys.subjects, type] }, (current) =>
-    current && current.subjectId === uuid ? withCounters(current, counters) : current,
+export function applyCounters(
+  queryClient: QueryClient,
+  type: common.SubjectType,
+  uuid: string,
+  counters: engagement.CountersChanged,
+): void {
+  queryClient.setQueriesData<Engagement | null>(
+    { queryKey: [...engagementKeys.subjects, type] },
+    (current) =>
+      current && current.subjectId === uuid ? withCounters(current, counters) : current,
   );
 }
 
@@ -133,9 +179,16 @@ export function useReact(subject: Subject): (next: ViewerReaction | undefined) =
     if (before && sameReaction(before.viewerReaction, next)) return;
     patch(queryClient, subject, (current) => withViewerReaction(current, next));
     try {
-      const response = next ? await reactionClient().setReaction({ subject, reaction: next }) : await reactionClient().removeReaction({ subject });
-      patch(queryClient, subject, (current) => ({ ...current, ...reactionFields(response.reactions) }));
-      void queryClient.invalidateQueries({ queryKey: ["engagement", "reactors", subject.type, subject.id] });
+      const response = next
+        ? await reactionClient().setReaction({ subject, reaction: next })
+        : await reactionClient().removeReaction({ subject });
+      patch(queryClient, subject, (current) => ({
+        ...current,
+        ...reactionFields(response.reactions),
+      }));
+      void queryClient.invalidateQueries({
+        queryKey: ["engagement", "reactors", subject.type, subject.id],
+      });
       void queryClient.invalidateQueries({ queryKey: engagementKeys.myReactions });
     } catch (error) {
       queryClient.setQueryData(key, before);
@@ -166,7 +219,8 @@ export function useReactors(subject: Subject, emoji: string, enabled: boolean) {
 export function useMyReactions() {
   return useInfiniteQuery({
     queryKey: engagementKeys.myReactions,
-    queryFn: ({ pageParam }) => reactionClient().listMyReactions({ page: { cursor: pageParam, limit: 30 } }),
+    queryFn: ({ pageParam }) =>
+      reactionClient().listMyReactions({ page: { cursor: pageParam, limit: 30 } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
@@ -176,7 +230,10 @@ export function useMyReactions() {
 
 /** The caller's collections, the default one ("saved") first. */
 export function useCollections() {
-  return useQuery({ queryKey: engagementKeys.collections, queryFn: async () => (await bookmarkClient().listCollections({})).collections });
+  return useQuery({
+    queryKey: engagementKeys.collections,
+    queryFn: async () => (await bookmarkClient().listCollections({})).collections,
+  });
 }
 
 /** The caller's collections with `containsSubject` filled in for `subject`: the collection chooser. */
@@ -194,7 +251,8 @@ export function useCollectionsFor(subject: Subject, enabled: boolean) {
 export function useBookmarks(collectionId: string) {
   return useInfiniteQuery({
     queryKey: engagementKeys.bookmarkList(collectionId),
-    queryFn: ({ pageParam }) => bookmarkClient().listBookmarks({ collectionId, page: { cursor: pageParam, limit: 30 } }),
+    queryFn: ({ pageParam }) =>
+      bookmarkClient().listBookmarks({ collectionId, page: { cursor: pageParam, limit: 30 } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
@@ -202,7 +260,10 @@ export function useBookmarks(collectionId: string) {
 
 /** Everything that lists saved subjects or collections is re-read. */
 export function refreshBookmarks(queryClient: QueryClient): Promise<unknown> {
-  return Promise.all([queryClient.invalidateQueries({ queryKey: engagementKeys.collections }), queryClient.invalidateQueries({ queryKey: engagementKeys.bookmarks })]);
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: engagementKeys.collections }),
+    queryClient.invalidateQueries({ queryKey: engagementKeys.bookmarks }),
+  ]);
 }
 
 /**
@@ -211,21 +272,37 @@ export function refreshBookmarks(queryClient: QueryClient): Promise<unknown> {
  * when none is named). Returns whether the subject is saved afterwards;
  * `undefined` when the server refused (a toast says why).
  */
-export function useBookmark(subject: Subject): { save(collectionId?: string): Promise<boolean | undefined>; remove(collectionId?: string): Promise<boolean | undefined> } {
+export function useBookmark(subject: Subject): {
+  save(collectionId?: string): Promise<boolean | undefined>;
+  remove(collectionId?: string): Promise<boolean | undefined>;
+} {
   const queryClient = useQueryClient();
   const key = engagementKeys.subject(subject);
 
-  const run = async (optimistic: boolean | undefined, call: () => Promise<{ bookmarked: boolean; bookmarkCount: bigint }>) => {
+  const run = async (
+    optimistic: boolean | undefined,
+    call: () => Promise<{ bookmarked: boolean; bookmarkCount: bigint }>,
+  ) => {
     await queryClient.cancelQueries({ queryKey: key, exact: true });
     const before = queryClient.getQueryData<Engagement | null>(key);
     if (optimistic !== undefined) {
       patch(queryClient, subject, (current) =>
-        current.bookmarked === optimistic ? current : { ...current, bookmarked: optimistic, bookmarkCount: Math.max(0, current.bookmarkCount + (optimistic ? 1 : -1)) },
+        current.bookmarked === optimistic
+          ? current
+          : {
+              ...current,
+              bookmarked: optimistic,
+              bookmarkCount: Math.max(0, current.bookmarkCount + (optimistic ? 1 : -1)),
+            },
       );
     }
     try {
       const result = await call();
-      patch(queryClient, subject, (current) => ({ ...current, bookmarked: result.bookmarked, bookmarkCount: Number(result.bookmarkCount) }));
+      patch(queryClient, subject, (current) => ({
+        ...current,
+        bookmarked: result.bookmarked,
+        bookmarkCount: Number(result.bookmarkCount),
+      }));
       void refreshBookmarks(queryClient);
       return result.bookmarked;
     } catch (error) {
@@ -243,23 +320,37 @@ export function useBookmark(subject: Subject): { save(collectionId?: string): Pr
         return { bookmarked: true, bookmarkCount: response.bookmarkCount };
       }),
     // Leaving one named collection keeps the subject saved; only "everywhere" is shown ahead of the answer.
-    remove: (collectionId = "") => run(collectionId ? undefined : false, () => bookmarkClient().removeBookmark({ subject, collectionId })),
+    remove: (collectionId = "") =>
+      run(collectionId ? undefined : false, () =>
+        bookmarkClient().removeBookmark({ subject, collectionId }),
+      ),
   };
 }
 
 // ───────────────────────────── Shares ─────────────────────────────
 
 /** Records a share and returns the link to hand out. The share counter follows. */
-export async function recordShare(queryClient: QueryClient, subject: Subject, target: engagement.ShareTarget): Promise<string> {
+export async function recordShare(
+  queryClient: QueryClient,
+  subject: Subject,
+  target: engagement.ShareTarget,
+): Promise<string> {
   const response = await engagementClient().recordShare({ subject, target });
-  patch(queryClient, subject, (current) => ({ ...current, shareCount: Number(response.shareCount) }));
+  patch(queryClient, subject, (current) => ({
+    ...current,
+    shareCount: Number(response.shareCount),
+  }));
   void queryClient.invalidateQueries({ queryKey: engagementKeys.shareStats(subject) });
   return response.url;
 }
 
 /** How often a subject was shared, by target. Only its owner may ask. */
 export function useShareStats(subject: Subject, enabled: boolean) {
-  return useQuery({ queryKey: engagementKeys.shareStats(subject), queryFn: () => engagementClient().getShareStats({ subject }), enabled });
+  return useQuery({
+    queryKey: engagementKeys.shareStats(subject),
+    queryFn: () => engagementClient().getShareStats({ subject }),
+    enabled,
+  });
 }
 
 // ───────────────────────────── Reports ─────────────────────────────
@@ -268,7 +359,8 @@ export function useShareStats(subject: Subject, enabled: boolean) {
 export function useMyReports() {
   return useInfiniteQuery({
     queryKey: engagementKeys.reports,
-    queryFn: ({ pageParam }) => reportClient().listMyReports({ page: { cursor: pageParam, limit: 30 } }),
+    queryFn: ({ pageParam }) =>
+      reportClient().listMyReports({ page: { cursor: pageParam, limit: 30 } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });

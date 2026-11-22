@@ -1,4 +1,18 @@
-import { Bell, Clapperboard, Coins, Heart, MapPin, MessageCircle, Newspaper, Radio, ShieldCheck, Smile, StickyNote, UserPlus, Zap } from "lucide-react";
+import {
+  Bell,
+  Clapperboard,
+  Coins,
+  Heart,
+  MapPin,
+  MessageCircle,
+  Newspaper,
+  Radio,
+  ShieldCheck,
+  Smile,
+  StickyNote,
+  UserPlus,
+  Zap,
+} from "lucide-react";
 import type { ComponentType } from "react";
 import { cn } from "#/lib/cn";
 
@@ -36,11 +50,22 @@ const SIZES = {
 } as const;
 
 /** The icon bubble of a notification category. */
-export function CategoryIcon({ category, size = "sm", className }: { category: string; size?: keyof typeof SIZES; className?: string }) {
+export function CategoryIcon({
+  category,
+  size = "sm",
+  className,
+}: {
+  category: string;
+  size?: keyof typeof SIZES;
+  className?: string;
+}) {
   const look = LOOKS[category] ?? FALLBACK;
   const Icon = look.icon;
   return (
-    <span aria-hidden className={cn("grid shrink-0 place-items-center", SIZES[size].box, look.tint, className)}>
+    <span
+      aria-hidden
+      className={cn("grid shrink-0 place-items-center", SIZES[size].box, look.tint, className)}
+    >
       <Icon className={SIZES[size].icon} />
     </span>
   );

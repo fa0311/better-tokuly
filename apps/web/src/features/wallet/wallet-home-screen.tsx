@@ -1,7 +1,14 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { wallet } from "@tokuly/api";
-import { ChevronRight, History, type LucideIcon, PiggyBank, ReceiptText, ShoppingBag } from "lucide-react";
+import {
+  ChevronRight,
+  History,
+  type LucideIcon,
+  PiggyBank,
+  ReceiptText,
+  ShoppingBag,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Card } from "#/components/ui/card";
 import { CoinIcon, Coins } from "#/components/ui/coins";
@@ -43,7 +50,10 @@ function BalanceHero() {
   const shown = useCountUp(coins);
 
   return (
-    <section className="sticker-lg relative overflow-hidden rounded-card bg-brand p-5 text-on-brand" aria-label={t("home.balance")}>
+    <section
+      className="sticker-lg relative overflow-hidden rounded-card bg-brand p-5 text-on-brand"
+      aria-label={t("home.balance")}
+    >
       {/* Coins scattered in the corner: decoration only. */}
       <CoinIcon className="absolute -top-5 -right-4 size-24 rotate-12 text-5xl opacity-90" />
       <CoinIcon className="absolute top-14 right-16 size-10 -rotate-12 text-xl opacity-80" />
@@ -51,7 +61,11 @@ function BalanceHero() {
       <div className="mt-1 flex min-h-14 items-center">
         {shown === undefined ? (
           isError ? (
-            <button type="button" onClick={() => void refresh()} className="font-bold underline decoration-2 underline-offset-2">
+            <button
+              type="button"
+              onClick={() => void refresh()}
+              className="font-bold underline decoration-2 underline-offset-2"
+            >
               {t("home.balanceError")}
             </button>
           ) : (
@@ -62,7 +76,10 @@ function BalanceHero() {
         )}
       </div>
       {earnings !== undefined && earnings > 0n && (
-        <Link to="/wallet/earnings" className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-on-brand/15 py-1 pr-2 pl-3 text-sm font-black">
+        <Link
+          to="/wallet/earnings"
+          className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-on-brand/15 py-1 pr-2 pl-3 text-sm font-black"
+        >
           {t("home.earnings")}
           <Coins amount={earnings} size="sm" />
           <ChevronRight className="size-4" />
@@ -90,8 +107,20 @@ interface Shortcut {
 
 /** The places the hero's two buttons do not already lead to. */
 const SHORTCUTS: Shortcut[] = [
-  { to: "/wallet/earnings", labelKey: "home.shortcuts.earnings", hintKey: "home.shortcuts.earningsHint", icon: PiggyBank, tint: "bg-pink" },
-  { to: "/wallet/purchases", labelKey: "home.shortcuts.purchases", hintKey: "home.shortcuts.purchasesHint", icon: ReceiptText, tint: "bg-sun" },
+  {
+    to: "/wallet/earnings",
+    labelKey: "home.shortcuts.earnings",
+    hintKey: "home.shortcuts.earningsHint",
+    icon: PiggyBank,
+    tint: "bg-pink",
+  },
+  {
+    to: "/wallet/purchases",
+    labelKey: "home.shortcuts.purchases",
+    hintKey: "home.shortcuts.purchasesHint",
+    icon: ReceiptText,
+    tint: "bg-sun",
+  },
 ];
 
 function Shortcuts() {
@@ -101,13 +130,23 @@ function Shortcuts() {
       <ul className="grid grid-cols-2 gap-3">
         {SHORTCUTS.map((shortcut) => (
           <li key={shortcut.to}>
-            <Link to={shortcut.to} className="pressable sticker flex h-full flex-col gap-3 rounded-card bg-surface p-4">
-              <span className={cn("grid size-11 shrink-0 place-items-center rounded-2xl border-2 border-ink text-[#17122b]", shortcut.tint)}>
+            <Link
+              to={shortcut.to}
+              className="pressable sticker flex h-full flex-col gap-3 rounded-card bg-surface p-4"
+            >
+              <span
+                className={cn(
+                  "grid size-11 shrink-0 place-items-center rounded-2xl border-2 border-ink text-[#17122b]",
+                  shortcut.tint,
+                )}
+              >
                 <shortcut.icon className="size-5" />
               </span>
               <span className="min-w-0">
                 <span className="block font-black">{t(shortcut.labelKey)}</span>
-                <span className="block text-xs leading-snug font-bold text-ink-soft">{t(shortcut.hintKey)}</span>
+                <span className="block text-xs leading-snug font-bold text-ink-soft">
+                  {t(shortcut.hintKey)}
+                </span>
               </span>
             </Link>
           </li>
@@ -122,11 +161,15 @@ function RecentActivity() {
   const { t } = useTranslation("wallet");
   const query = useInfiniteQuery({
     queryKey: walletKeys.ledger(wallet.LedgerAccount.UNSPECIFIED),
-    queryFn: ({ pageParam }) => walletClient().listLedgerEntries({ page: { limit: PAGE_SIZE, cursor: pageParam } }),
+    queryFn: ({ pageParam }) =>
+      walletClient().listLedgerEntries({ page: { limit: PAGE_SIZE, cursor: pageParam } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
-  const entries = uniqueById(query.data?.pages.flatMap((page) => page.entries) ?? []).slice(0, RECENT);
+  const entries = uniqueById(query.data?.pages.flatMap((page) => page.entries) ?? []).slice(
+    0,
+    RECENT,
+  );
 
   return (
     <section>

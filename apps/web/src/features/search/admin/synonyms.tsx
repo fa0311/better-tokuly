@@ -20,7 +20,10 @@ export function Synonyms() {
   /** The group being edited; `{}` for a new one. */
   const [editing, setEditing] = useState<{ group?: search.SynonymGroup }>();
   const [deleting, setDeleting] = useState<search.SynonymGroup>();
-  const groups = useQuery({ queryKey: searchKeys.admin.synonyms, queryFn: () => searchAdminClient().listSynonymGroups({}) });
+  const groups = useQuery({
+    queryKey: searchKeys.admin.synonyms,
+    queryFn: () => searchAdminClient().listSynonymGroups({}),
+  });
   const remove = useMutation({
     mutationFn: (id: string) => searchAdminClient().deleteSynonymGroup({ id }),
     onSuccess: () => {
@@ -41,7 +44,9 @@ export function Synonyms() {
         </Button>
       }
     >
-      <p className="border-b-2 border-line px-4 py-3 text-sm leading-relaxed text-ink-soft">{t("staff.synonyms.lead")}</p>
+      <p className="border-b-2 border-line px-4 py-3 text-sm leading-relaxed text-ink-soft">
+        {t("staff.synonyms.lead")}
+      </p>
       {groups.isPending ? (
         <div className="flex flex-col gap-2 p-4" aria-busy>
           <Skeleton className="h-12" />
@@ -50,32 +55,61 @@ export function Synonyms() {
       ) : groups.isError ? (
         <EmptyState emoji="🌀" title={staffErrorMessage(groups.error)} />
       ) : list.length === 0 ? (
-        <EmptyState emoji="🔗" title={t("staff.synonyms.empty")} body={t("staff.synonyms.emptyBody")} />
+        <EmptyState
+          emoji="🔗"
+          title={t("staff.synonyms.empty")}
+          body={t("staff.synonyms.emptyBody")}
+        />
       ) : (
         <ul aria-label={t("staff.synonyms.title")} className="divide-y-2 divide-line">
           {list.map((group) => (
-            <li key={group.id} data-testid="synonym-group" className="flex items-center gap-3 px-4 py-3">
+            <li
+              key={group.id}
+              data-testid="synonym-group"
+              className="flex items-center gap-3 px-4 py-3"
+            >
               <div className="min-w-0 flex-1">
                 <ul className="flex flex-wrap gap-1.5">
                   {group.words.map((word) => (
-                    <li key={word} className="max-w-full truncate rounded-full bg-brand-soft px-2.5 py-1 text-sm font-bold text-brand-strong">
+                    <li
+                      key={word}
+                      className="max-w-full truncate rounded-full bg-brand-soft px-2.5 py-1 text-sm font-bold text-brand-strong"
+                    >
                       {word}
                     </li>
                   ))}
                 </ul>
-                <p className="mt-1 text-xs text-ink-faint">{t("staff.synonyms.updated", { when: formatDateTime(group.updatedAt) })}</p>
+                <p className="mt-1 text-xs text-ink-faint">
+                  {t("staff.synonyms.updated", { when: formatDateTime(group.updatedAt) })}
+                </p>
               </div>
-              <Button size="icon-sm" variant="ghost" aria-label={t("staff.synonyms.edit", { words: group.words.join(", ") })} onClick={() => setEditing({ group })}>
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                aria-label={t("staff.synonyms.edit", { words: group.words.join(", ") })}
+                onClick={() => setEditing({ group })}
+              >
                 <Pencil className="size-4" />
               </Button>
-              <Button size="icon-sm" variant="ghost" aria-label={t("staff.synonyms.delete", { words: group.words.join(", ") })} onClick={() => setDeleting(group)}>
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                aria-label={t("staff.synonyms.delete", { words: group.words.join(", ") })}
+                onClick={() => setDeleting(group)}
+              >
                 <Trash2 className="size-4" />
               </Button>
             </li>
           ))}
         </ul>
       )}
-      {editing && <GroupDialog key={editing.group?.id ?? "new"} group={editing.group} onClose={() => setEditing(undefined)} />}
+      {editing && (
+        <GroupDialog
+          key={editing.group?.id ?? "new"}
+          group={editing.group}
+          onClose={() => setEditing(undefined)}
+        />
+      )}
       <ConfirmDialog
         open={deleting !== undefined}
         onOpenChange={(open) => !open && setDeleting(undefined)}

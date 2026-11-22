@@ -8,7 +8,19 @@ import { drawFrame, type LoadedAnimation } from "./render";
  * `playing`; otherwise it rests on a frame from the middle of the animation
  * (the start of a sticker animation is often empty).
  */
-export default function LottiePlayer({ url, playing, label, className, onError }: { url: string; playing: boolean; label: string; className?: string; onError?(): void }) {
+export default function LottiePlayer({
+  url,
+  playing,
+  label,
+  className,
+  onError,
+}: {
+  url: string;
+  playing: boolean;
+  label: string;
+  className?: string;
+  onError?(): void;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [loaded, setLoaded] = useState<LoadedAnimation | null>(null);
 
@@ -64,5 +76,13 @@ export default function LottiePlayer({ url, playing, label, className, onError }
     };
   }, [loaded, playing]);
 
-  return <canvas ref={canvasRef} role="img" aria-label={label} data-ready={loaded ? "" : undefined} className={className} />;
+  return (
+    <canvas
+      ref={canvasRef}
+      role="img"
+      aria-label={label}
+      data-ready={loaded ? "" : undefined}
+      className={className}
+    />
+  );
 }

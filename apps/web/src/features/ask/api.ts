@@ -1,4 +1,9 @@
-import { type InfiniteData, type QueryClient, useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import {
+  type InfiniteData,
+  type QueryClient,
+  useInfiniteQuery,
+  useQuery,
+} from "@tanstack/react-query";
 import { ask } from "@tokuly/api";
 import { api } from "#/lib/api";
 
@@ -25,7 +30,8 @@ export const askKeys = {
   friendPrompts: ["ask", "prompts", "friends"] as const,
   prompt: (id: string) => ["ask", "prompt", id] as const,
   responsesAll: (promptId: string) => ["ask", "responses", promptId] as const,
-  responses: (promptId: string, filter: ask.ResponseFilter) => ["ask", "responses", promptId, filter] as const,
+  responses: (promptId: string, filter: ask.ResponseFilter) =>
+    ["ask", "responses", promptId, filter] as const,
   round: ["ask", "round"] as const,
   flames: ["ask", "flames"] as const,
   flameSummary: ["ask", "flameSummary"] as const,
@@ -33,13 +39,17 @@ export const askKeys = {
 };
 
 type Paged<T> = InfiniteData<T, string>;
-const cursorOf = (page: { page?: { nextCursor: string; hasMore: boolean } }) => (page.page?.hasMore ? page.page.nextCursor : undefined);
+const cursorOf = (page: { page?: { nextCursor: string; hasMore: boolean } }) =>
+  page.page?.hasMore ? page.page.nextCursor : undefined;
 const pageRequest = (cursor: string) => ({ cursor, limit: PAGE_SIZE });
 
 // ───────────────────────────── Question box ─────────────────────────────
 
 export function useSettings() {
-  return useQuery({ queryKey: askKeys.settings, queryFn: async () => (await boxClient().getSettings({})).settings! });
+  return useQuery({
+    queryKey: askKeys.settings,
+    queryFn: async () => (await boxClient().getSettings({})).settings!,
+  });
 }
 
 /** A person's box as the viewer sees it; `null` when there is none to show (no such person, or a block). */
@@ -52,7 +62,12 @@ export function useBox(user: string | undefined) {
 }
 
 export function useInboxCounts(enabled = true) {
-  return useQuery({ queryKey: askKeys.counts, queryFn: async () => (await boxClient().getInboxCounts({})).counts!, staleTime: 5 * 60_000, enabled });
+  return useQuery({
+    queryKey: askKeys.counts,
+    queryFn: async () => (await boxClient().getInboxCounts({})).counts!,
+    staleTime: 5 * 60_000,
+    enabled,
+  });
 }
 
 export function useInbox(folder: ask.QuestionFolder) {
@@ -77,7 +92,8 @@ export function useAskedQuestions() {
 export function useAnswers(user: string | undefined) {
   return useInfiniteQuery({
     queryKey: askKeys.answers(user ?? ""),
-    queryFn: ({ pageParam }) => boxClient().listAnswers({ user: user!, page: pageRequest(pageParam) }),
+    queryFn: ({ pageParam }) =>
+      boxClient().listAnswers({ user: user!, page: pageRequest(pageParam) }),
     initialPageParam: "",
     getNextPageParam: cursorOf,
     enabled: Boolean(user),
@@ -85,7 +101,10 @@ export function useAnswers(user: string | undefined) {
 }
 
 export function useQuestion(id: string) {
-  return useQuery({ queryKey: askKeys.question(id), queryFn: async () => (await boxClient().getQuestion({ questionId: id })).question! });
+  return useQuery({
+    queryKey: askKeys.question(id),
+    queryFn: async () => (await boxClient().getQuestion({ questionId: id })).question!,
+  });
 }
 
 export function useSenderBlocks() {
@@ -98,24 +117,44 @@ export function useSenderBlocks() {
 }
 
 /** Puts the counts a response carried into the cache (the badge and the tabs read them). */
-export function rememberCounts(queryClient: QueryClient, counts: ask.InboxCounts | undefined): void {
+export function rememberCounts(
+  queryClient: QueryClient,
+  counts: ask.InboxCounts | undefined,
+): void {
   if (counts) queryClient.setQueryData(askKeys.counts, counts);
 }
 
 /** Takes a question out of every loaded inbox folder at once, so the row leaves under the finger. */
 export function dropFromInbox(queryClient: QueryClient, questionId: string): void {
-  queryClient.setQueriesData<Paged<ask.ListInboxResponse>>({ queryKey: askKeys.inboxAll }, (data) =>
-    data ? { ...data, pages: data.pages.map((page) => ({ ...page, questions: page.questions.filter((question) => question.id !== questionId) })) } : data,
+  queryClient.setQueriesData<Paged<ask.ListInboxResponse>>(
+    { queryKey: askKeys.inboxAll },
+    (data) =>
+      data
+        ? {
+            ...data,
+            pages: data.pages.map((page) => ({
+              ...page,
+              questions: page.questions.filter((question) => question.id !== questionId),
+            })),
+          }
+        : data,
   );
 }
 
 /** A question that just arrived goes on top of the loaded inbox. */
 export function addToInbox(queryClient: QueryClient, question: ask.Question): void {
-  queryClient.setQueryData<Paged<ask.ListInboxResponse>>(askKeys.inbox(ask.QuestionFolder.INBOX), (data) => {
-    if (!data?.pages[0] || data.pages.some((page) => page.questions.some((known) => known.id === question.id))) return data;
-    const [first, ...rest] = data.pages;
-    return { ...data, pages: [{ ...first, questions: [question, ...first.questions] }, ...rest] };
-  });
+  queryClient.setQueryData<Paged<ask.ListInboxResponse>>(
+    askKeys.inbox(ask.QuestionFolder.INBOX),
+    (data) => {
+      if (
+        !data?.pages[0] ||
+        data.pages.some((page) => page.questions.some((known) => known.id === question.id))
+      )
+        return data;
+      const [first, ...rest] = data.pages;
+      return { ...data, pages: [{ ...first, questions: [question, ...first.questions] }, ...rest] };
+    },
+  );
 }
 
 /** After anything that changed where questions sit: lists and counts are read again. */
@@ -154,13 +193,17 @@ export function useFriendPrompts() {
 }
 
 export function usePrompt(id: string) {
-  return useQuery({ queryKey: askKeys.prompt(id), queryFn: () => promptClient().getPrompt({ promptId: id }) });
+  return useQuery({
+    queryKey: askKeys.prompt(id),
+    queryFn: () => promptClient().getPrompt({ promptId: id }),
+  });
 }
 
 export function usePromptResponses(promptId: string, filter: ask.ResponseFilter, enabled: boolean) {
   return useInfiniteQuery({
     queryKey: askKeys.responses(promptId, filter),
-    queryFn: ({ pageParam }) => promptClient().listPromptResponses({ promptId, filter, page: pageRequest(pageParam) }),
+    queryFn: ({ pageParam }) =>
+      promptClient().listPromptResponses({ promptId, filter, page: pageRequest(pageParam) }),
     initialPageParam: "",
     getNextPageParam: cursorOf,
     enabled,
@@ -185,16 +228,32 @@ export function useFlames() {
 }
 
 export function useFlameSummary(enabled = true) {
-  return useQuery({ queryKey: askKeys.flameSummary, queryFn: async () => (await complimentClient().getFlameSummary({})).summary!, staleTime: 5 * 60_000, enabled });
+  return useQuery({
+    queryKey: askKeys.flameSummary,
+    queryFn: async () => (await complimentClient().getFlameSummary({})).summary!,
+    staleTime: 5 * 60_000,
+    enabled,
+  });
 }
 
 export function useTopFlames() {
-  return useQuery({ queryKey: askKeys.topFlames, queryFn: () => complimentClient().getTopFlames({}) });
+  return useQuery({
+    queryKey: askKeys.topFlames,
+    queryFn: () => complimentClient().getTopFlames({}),
+  });
 }
 
 /** Replaces one flame in the loaded list (a hint was bought). */
 export function rememberFlame(queryClient: QueryClient, flame: ask.Flame): void {
   queryClient.setQueryData<Paged<ask.ListFlamesResponse>>(askKeys.flames, (data) =>
-    data ? { ...data, pages: data.pages.map((page) => ({ ...page, flames: page.flames.map((known) => (known.id === flame.id ? flame : known)) })) } : data,
+    data
+      ? {
+          ...data,
+          pages: data.pages.map((page) => ({
+            ...page,
+            flames: page.flames.map((known) => (known.id === flame.id ? flame : known)),
+          })),
+        }
+      : data,
   );
 }

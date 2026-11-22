@@ -5,7 +5,14 @@ export default {
   mutual: "共通のともだち {{count}}人",
   friendsSince: "{{date}}からともだち",
   bestFriend: "ベストフレンド",
-  stats: { friends: "ともだち", intros: "招待", views: "閲覧", bumps: "バンプ", explored: "探索", countries: "か国" },
+  stats: {
+    friends: "ともだち",
+    intros: "招待",
+    views: "閲覧",
+    bumps: "バンプ",
+    explored: "探索",
+    countries: "か国",
+  },
   nowPlaying: "再生中",
   actions: {
     add: "ともだちに追加",

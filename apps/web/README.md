@@ -21,9 +21,10 @@ the same as behind the edge proxy.
 src/routes/            file-based routes. `_app/*` needs a signed-in user (client-rendered).
 src/features/<area>/   one folder per product area: screens, components, hooks, clients
 src/components/ui/     design-system primitives (see below)
-src/components/        app-wide pieces (AppShell, AuthLayout, BackgroundFeatures)
-src/lib/               api, realtime, i18n, formatting, errors, appearance, upload
-src/stores/            zustand stores for live state (session, locations, badges)
+src/components/        app-wide pieces (AppShell, the hub and launcher, AuthLayout, BackgroundFeatures)
+src/seams/             where features plug into the app (see "How a feature plugs in")
+src/lib/               api, realtime, i18n, formatting, errors, appearance, upload, account time
+src/stores/            zustand stores for live state (session, locations, badges, shell)
 src/i18n/{ja,en}/      strings, one file (= namespace) per feature area
 e2e/                   Playwright tests, one `<area>.spec.ts` per feature area
 ```
@@ -39,10 +40,82 @@ What a feature shares with other features is exported from
 `src/features/<area>/index.ts` (for example the stamp picker); everything
 else in the folder is private to it.
 
-Code that must run on every page while someone is signed in (keeping an
-unread badge current, toasts for new notifications, ringing for a call) is a
-component default-exported from `src/features/<area>/background.tsx`; the
-signed-in layout mounts it automatically.
+## How a feature plugs in
+
+A feature never edits the hub, the profile screen, the navigation, the badge
+store, the settings list or the staff console. It adds a file with a fixed
+name to its own folder and default-exports what it contributes; the app
+collects the files (`import.meta.glob` in `src/seams/*`, where each type is
+documented). Two features can therefore be built side by side without
+touching the same file.
+
+| file in `src/features/<area>/` | default export                          | what it does                                                                          |
+| ------------------------------ | --------------------------------------- | ------------------------------------------------------------------------------------- |
+| `background.tsx`               | a component (usually rendering nothing) | runs on every page while someone is signed in: realtime listeners, toasts, ringing    |
+| `hub.tsx`                      | `HubTile[]` (`#/seams/hub`)             | the area's way in: a tile on the hub (`/me`), in the launcher and in the quick search |
+| `nav.ts`                       | `NavClaim` (`#/seams/nav`)              | which primary item (map, chat, notes, watch) is lit on the area's routes              |
+| `profile.tsx`                  | `ProfileSection[]` (`#/seams/profile`)  | what the area shows on a person's profile, by slot                                    |
+| `badges.ts`                    | `BadgeSources` (`#/seams/badges`)       | unread counts derived from the area's queries                                         |
+| `settings-section.ts`          | `SettingsSection` (`#/seams/settings`)  | a row of `/settings`                                                                  |
+| `admin-section.ts`             | `AdminSection` (`#/seams/admin`)        | an entry of the staff console's navigation                                            |
+| `channel-tab.tsx`              | `ChannelTab` (`features/video`)         | a tab on every channel page                                                           |
+
+```tsx
+// src/features/plans/hub.tsx — a tile. `section` is one of the hub's groups:
+// "play" (あそぶ), "out" (おでかけ), "make" (つくる・みる), "me" (アカウント).
+export default [
+  { id: "plans", section: "play", order: 20, to: "/plans", label: () => i18n.t("plans:tile"),
+    icon: CalendarHeart, tint: "bg-lime", badge: "plans", keywords: ["予定", "calendar"] },
+] satisfies HubTile[];
+
+// src/features/stories/nav.ts — /stories/* belongs to "notes" in the tab bar and the rail.
+export default { primary: "notes", paths: ["/stories"] } satisfies NavClaim;
+
+// src/features/plans/profile.tsx — slots: "status" (under the bio), "action" (a button),
+// "card", "stat" (a cell of the numbers card), "content" (the lists at the bottom).
+export default [
+  { id: "plans", slot: "card", order: 10, Component: ({ profile, user, isSelf }) => (
+      <ProfilePlans cards={profile.cards} user={user} isSelf={isSelf} className="mt-5" />
+    ) },
+] satisfies ProfileSection[];
+
+// src/features/ask/badges.ts — `useBadge("ask")` is then this hook's result everywhere.
+export default { ask: () => useAskBadge() } satisfies BadgeSources;
+```
+
+Badges are counts by key (`#/stores/badges`). A feature that already listens
+for the events that change its count calls `setBadge("chat", n)` from its
+`background.tsx`; one whose count simply follows its queries exports a hook
+from `badges.ts`. Tiles and navigation items name the key they show.
+
+**Navigation.** The primary destinations (map, chat, notes, watch) are one
+tap away in the phone tab bar and the rail (`components/app-shell.tsx`).
+Everything else is opened from the hub (`/me`, the last tab on phones, with
+search on top), the launcher (the rail's "アプリ") and the quick search
+(Cmd/Ctrl+K, which also finds hub tiles by name and keyword). A new area
+needs a `hub.tsx` to be reachable and a `nav.ts` when its routes belong
+under a primary item; pages nobody claims light the hub's slot.
+
+A page that needs the phone's whole height (a conversation, a full-screen
+player) calls `useHideTabBar()` from `#/stores/shell` instead of covering
+the tab bar. Toasts appear above the tab bar on phones and at the top on
+wide screens; do not move them per screen.
+
+**Between features.** Before writing your own, use what is there:
+
+- text people wrote (messages, notes, comments, names, bios): `<EmojiText>`;
+  a composer: `<EmojiSuggestBar>`; choosing an emoji: `<EmojiPicker>`
+  (`unicodeOnly` where the RPC takes no `:shortcode:`), all from `features/emoji`;
+- a share control: `<ShareButton subject>`; a menu of your own:
+  `useSubjectMenu(subject)` adds "send in chat", "copy link" and "report";
+  a header without a menu: `<SubjectMoreButton>` (`features/engagement`);
+- a map: `<MapView>` / `<MapFrame>`, a picture of a place:
+  `<StaticMapPreview>` (`features/map`; import it with `lazy()` outside map
+  screens, the map library is large);
+- "today" and "now": `#/lib/account-time` (the account's time zone), never the
+  device's calendar, for anything compared with the API's dates;
+- returning a visitor of a public page after sign-up or sign-in: link to
+  `/signup` or `/login` with `search={{ redirect: "/your/page" }}`.
 
 Primitives in `components/ui`: `Button`, `TextField` / `TextArea`,
 `SelectField`, `SwitchRow`, `Tabs`, `Dialog` (a sheet on phones),
@@ -53,6 +126,7 @@ Primitives in `components/ui`: `Button`, `TextField` / `TextArea`,
 ## Conventions
 
 **Data**
+
 - Typed clients come from `api().service(<Service>)` (`#/lib/api`), with the
   generated messages under the domain namespaces of `@tokuly/api`
   (`social.FriendService`, `geo.FriendLocation`, ...).
@@ -71,10 +145,11 @@ Primitives in `components/ui`: `Button`, `TextField` / `TextArea`,
 - Infinite lists: `useInfiniteQuery` + `<LoadMore query={query} />` after the
   last row.
 - Uploads: `uploadAndProcess(file, { purpose })` from `#/lib/upload`.
-- Unread counters on the navigation: `setBadge("notifications", n)` from
-  `#/stores/badges`.
+- Unread counters: `setBadge("notifications", n)` from `#/stores/badges`, or
+  a hook in the feature's `badges.ts` (see "How a feature plugs in").
 
 **UI**
+
 - The look is "sticker pop" (see `src/styles.css`): `sticker` (ink outline +
   hard shadow) for standalone objects, `pressable` for things you can press,
   `glass` for chrome floating above the map. Colours are the semantic tokens
@@ -87,21 +162,27 @@ Primitives in `components/ui`: `Button`, `TextField` / `TextArea`,
   or `motion`. Durations scale with `var(--dopa)` (ドパガキ度); at 0 and under
   `prefers-reduced-motion` everything must still work without movement.
 - Phones first: every screen works at 360 px wide, with the floating tab bar
-  (leave `pb-32` at the bottom of scrolling pages) and safe-area insets.
+  (`<Page>` leaves room for it and for a toast above it; a page with its own
+  scroller leaves `pb-44`) and safe-area insets.
   Wide screens get the rail and more columns.
 - Accessibility: real buttons/links, labels on icon buttons (`aria-label`),
   visible focus (built in), no information by colour alone.
 - No manual `useMemo`/`useCallback`/`memo`: the React Compiler memoizes.
 
 **Text**
+
 - Every string goes through `useTranslation("<namespace>")`, in Japanese
   (casual and friendly, like 「友達と位置情報共有を楽しもう!」) and English.
   A file in `src/i18n/ja/` and its twin in `src/i18n/en/` are a namespace
   named after the file; nothing needs registering.
 
 **Checks**
+
 - `pnpm --filter @tokuly/web typecheck` and `test` must pass; `vite build`
   must succeed.
+- Formatting and lint: `pnpm lint:web` (repo root; Biome, line width 100,
+  sorted imports) must be clean — CI checks it. `pnpm format:web` fixes what
+  can be fixed automatically; run it before committing.
 - Every feature has browser tests in `e2e/<area>.spec.ts` (Playwright, see
   `e2e/support.ts`): they sign up their own accounts, arrange state through
   the API with `rpc(...)`, and drive the real UI at phone and desktop size.

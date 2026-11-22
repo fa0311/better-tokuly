@@ -41,7 +41,10 @@ export default {
     dismiss: "あとで",
     accepted: "「{{name}}」を登録したよ!",
   },
-  saved: { emptyTitle: "お気に入りの場所はまだないよ", emptyBody: "気になる場所を見つけたら、お気に入りに追加しよう!" },
+  saved: {
+    emptyTitle: "お気に入りの場所はまだないよ",
+    emptyBody: "気になる場所を見つけたら、お気に入りに追加しよう!",
+  },
   search: {
     label: "場所をさがす",
     placeholder: "場所の名前、地名でさがす",
@@ -104,7 +107,8 @@ export default {
     newTitle: "場所を追加",
     editTitle: "場所を編集",
     pin: "場所のピン",
-    pinHint: "ピンをドラッグするか、マップをタップして場所を決めてね。キーボードなら矢印キーでマップを動かして「マップの中心にピンを置く」",
+    pinHint:
+      "ピンをドラッグするか、マップをタップして場所を決めてね。キーボードなら矢印キーでマップを動かして「マップの中心にピンを置く」",
     toDevice: "現在地にピンを置く",
     toCentre: "マップの中心にピンを置く",
     noPosition: "現在地がわかりませんでした",

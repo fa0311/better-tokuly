@@ -32,7 +32,8 @@ export function parsePendingAsk(raw: string | null, now: number): PendingAsk | n
   if (!raw) return null;
   try {
     const value = JSON.parse(raw) as Partial<PendingAsk & { at: number }>;
-    if (typeof value.handle !== "string" || !/^[A-Za-z0-9_.-]{1,64}$/.test(value.handle)) return null;
+    if (typeof value.handle !== "string" || !/^[A-Za-z0-9_.-]{1,64}$/.test(value.handle))
+      return null;
     if (typeof value.text !== "string" || !value.text.trim()) return null;
     if (typeof value.at !== "number" || now - value.at > LIFETIME_MS || now < value.at) return null;
     return { handle: value.handle, text: value.text };

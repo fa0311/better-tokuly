@@ -27,11 +27,17 @@ interface Entry {
 }
 
 async function inboxOf(request: APIRequestContext, as: Account): Promise<Entry[]> {
-  return (await rpc<{ notifications?: Entry[] }>(request, `${INBOX}/ListNotifications`, {}, as)).notifications ?? [];
+  return (
+    (await rpc<{ notifications?: Entry[] }>(request, `${INBOX}/ListNotifications`, {}, as))
+      .notifications ?? []
+  );
 }
 
 async function unreadOf(request: APIRequestContext, as: Account): Promise<number> {
-  return (await rpc<{ unread?: { total?: number } }>(request, `${INBOX}/GetUnreadCount`, {}, as)).unread?.total ?? 0;
+  return (
+    (await rpc<{ unread?: { total?: number } }>(request, `${INBOX}/GetUnreadCount`, {}, as)).unread
+      ?.total ?? 0
+  );
 }
 
 /** Notifications are produced from events, a moment after the action that caused them. */
@@ -40,14 +46,26 @@ async function expectUnread(request: APIRequestContext, as: Account, count: numb
 }
 
 /** A new account called `name` sends `to` a friend request: one "友達リクエスト" entry in `to`'s inbox. */
-async function friendRequestFrom(request: APIRequestContext, name: string, to: Account): Promise<Account> {
+async function friendRequestFrom(
+  request: APIRequestContext,
+  name: string,
+  to: Account,
+): Promise<Account> {
   const sender = await createAccount(request, name);
-  await rpc(request, "tokuly.social.v1.FriendService/SendFriendRequest", { userId: to.userId }, sender);
+  await rpc(
+    request,
+    "tokuly.social.v1.FriendService/SendFriendRequest",
+    { userId: to.userId },
+    sender,
+  );
   return sender;
 }
 
 /** Two friend requests for `me`, from "haru" (older) and "sora" (newer), both arrived. */
-async function twoRequests(request: APIRequestContext, me: Account): Promise<{ haru: Account; sora: Account }> {
+async function twoRequests(
+  request: APIRequestContext,
+  me: Account,
+): Promise<{ haru: Account; sora: Account }> {
   const haru = await friendRequestFrom(request, "haru", me);
   await expectUnread(request, me, 1);
   const sora = await friendRequestFrom(request, "sora", me);
@@ -55,8 +73,14 @@ async function twoRequests(request: APIRequestContext, me: Account): Promise<{ h
   return { haru, sora };
 }
 
-async function markReadThroughApi(request: APIRequestContext, me: Account, from: Account): Promise<void> {
-  const entry = (await inboxOf(request, me)).find((candidate) => candidate.actor?.handle === from.handle);
+async function markReadThroughApi(
+  request: APIRequestContext,
+  me: Account,
+  from: Account,
+): Promise<void> {
+  const entry = (await inboxOf(request, me)).find(
+    (candidate) => candidate.actor?.handle === from.handle,
+  );
   await rpc(request, `${INBOX}/MarkRead`, { ids: { ids: [entry?.id] } }, me);
 }
 
@@ -68,20 +92,29 @@ interface Preferences {
 }
 
 async function preferencesOf(request: APIRequestContext, as: Account): Promise<Preferences> {
-  return (await rpc<{ preferences: Preferences }>(request, `${PREFERENCES}/GetPreferences`, {}, as)).preferences;
+  return (await rpc<{ preferences: Preferences }>(request, `${PREFERENCES}/GetPreferences`, {}, as))
+    .preferences;
 }
 
-async function devicesOf(request: APIRequestContext, as: Account): Promise<{ deviceName: string }[]> {
-  return (await rpc<{ devices?: { deviceName: string }[] }>(request, `${PUSH}/ListDevices`, {}, as)).devices ?? [];
+async function devicesOf(
+  request: APIRequestContext,
+  as: Account,
+): Promise<{ deviceName: string }[]> {
+  return (
+    (await rpc<{ devices?: { deviceName: string }[] }>(request, `${PUSH}/ListDevices`, {}, as))
+      .devices ?? []
+  );
 }
 
 // ── Finding things on the page ──────────────────────────────────────
 
 /** The inbox entry (or any list row) containing `text`. */
-const row = (page: Page, text: string | RegExp): Locator => page.getByRole("listitem").filter({ hasText: text });
+const row = (page: Page, text: string | RegExp): Locator =>
+  page.getByRole("listitem").filter({ hasText: text });
 
 /** The unread counter on the navigation: on the bell (rail) or on "じぶん" (phone tab bar). */
-const navBadge = (page: Page): Locator => page.getByRole("navigation", { name: "main" }).getByText(/^\d+\+?$/);
+const navBadge = (page: Page): Locator =>
+  page.getByRole("navigation", { name: "main" }).getByText(/^\d+\+?$/);
 
 const toasts = (page: Page): Locator => page.locator("[data-sonner-toast]");
 
@@ -93,7 +126,8 @@ const toasts = (page: Page): Locator => page.locator("[data-sonner-toast]");
 async function live(page: Page): Promise<void> {
   await expect(page.getByRole("navigation", { name: "main" })).toBeVisible();
   const connected = () => {
-    const connection = (window as { __tokulyRealtime?: { connectionStatus: string } }).__tokulyRealtime;
+    const connection = (window as { __tokulyRealtime?: { connectionStatus: string } })
+      .__tokulyRealtime;
     return connection ? connection.connectionStatus === "connected" : null;
   };
   if ((await page.evaluate(connected)) === null) await page.waitForTimeout(3000);
@@ -127,18 +161,28 @@ async function fakePushService(page: Page): Promise<void> {
   ecdh.generateKeys();
   const fake = {
     endpoint: `https://e2e-${randomBytes(6).toString("hex")}.invalid.notify.windows.com/w/?token=${randomBytes(12).toString("hex")}`,
-    keys: { p256dh: ecdh.getPublicKey().toString("base64url"), auth: randomBytes(16).toString("base64url") },
+    keys: {
+      p256dh: ecdh.getPublicKey().toString("base64url"),
+      auth: randomBytes(16).toString("base64url"),
+    },
   };
   await page.addInitScript((subscription) => {
     const STORE = "e2e.push.serverKey";
-    const bytes = (base64url: string) => Uint8Array.from(atob(base64url.replace(/-/g, "+").replace(/_/g, "/")), (char) => char.charCodeAt(0)).buffer;
+    const bytes = (base64url: string) =>
+      Uint8Array.from(atob(base64url.replace(/-/g, "+").replace(/_/g, "/")), (char) =>
+        char.charCodeAt(0),
+      ).buffer;
     const make = (serverKey: number[]) =>
       ({
         endpoint: subscription.endpoint,
         expirationTime: null,
         options: { userVisibleOnly: true, applicationServerKey: new Uint8Array(serverKey).buffer },
         getKey: (name: "p256dh" | "auth") => bytes(subscription.keys[name]),
-        toJSON: () => ({ endpoint: subscription.endpoint, expirationTime: null, keys: subscription.keys }),
+        toJSON: () => ({
+          endpoint: subscription.endpoint,
+          expirationTime: null,
+          keys: subscription.keys,
+        }),
         unsubscribe: async () => {
           window.localStorage.removeItem(STORE);
           return true;
@@ -158,7 +202,11 @@ async function fakePushService(page: Page): Promise<void> {
 
 // ── Inbox ───────────────────────────────────────────────────────────
 
-test("the inbox shows who did what, newest first, and the navigation counts what is unread", async ({ page, request, me }) => {
+test("the inbox shows who did what, newest first, and the navigation counts what is unread", async ({
+  page,
+  request,
+  me,
+}) => {
   await twoRequests(request, me);
 
   await page.goto("/notifications");
@@ -178,7 +226,10 @@ test("the inbox shows who did what, newest first, and the navigation counts what
 test("an empty inbox says so and points to finding friends", async ({ page, me: _me }) => {
   await page.goto("/notifications");
   await expect(page.getByText("お知らせはまだないよ")).toBeVisible();
-  await expect(page.getByRole("link", { name: "ともだちをさがす" })).toHaveAttribute("href", "/friends");
+  await expect(page.getByRole("link", { name: "ともだちをさがす" })).toHaveAttribute(
+    "href",
+    "/friends",
+  );
   await expect(navBadge(page)).toHaveCount(0);
 });
 
@@ -197,7 +248,11 @@ test("opening an entry marks it read and goes where it points", async ({ page, r
   await expect(row(page, "haruさんから").getByText("未読", { exact: true })).toHaveCount(0);
 });
 
-test("a new notification pops up as a toast wherever you are, and the toast opens it", async ({ page, request, me }) => {
+test("a new notification pops up as a toast wherever you are, and the toast opens it", async ({
+  page,
+  request,
+  me,
+}) => {
   await page.goto("/me");
   await live(page);
   const haru = await friendRequestFrom(request, "haru", me);
@@ -212,7 +267,11 @@ test("a new notification pops up as a toast wherever you are, and the toast open
   await expect(navBadge(page)).toHaveCount(0);
 });
 
-test("the open inbox updates by itself instead of showing a toast", async ({ page, request, me }) => {
+test("the open inbox updates by itself instead of showing a toast", async ({
+  page,
+  request,
+  me,
+}) => {
   await page.goto("/notifications");
   await expect(page.getByText("お知らせはまだないよ")).toBeVisible();
   await live(page);
@@ -251,7 +310,9 @@ test("an entry's menu marks it read or deletes it", async ({ page, request, me }
   await expect(row(page, "haruさんから")).toHaveCount(0);
   await expect(row(page, "soraさんから")).toBeVisible();
   await expect(navBadge(page)).toHaveCount(0);
-  await expect.poll(async () => (await inboxOf(request, me)).map((entry) => entry.actor?.handle)).toEqual([sora.handle]);
+  await expect
+    .poll(async () => (await inboxOf(request, me)).map((entry) => entry.actor?.handle))
+    .toEqual([sora.handle]);
 });
 
 test("on a phone, swiping an entry away deletes it", async ({ page, request, me }, testInfo) => {
@@ -264,10 +325,16 @@ test("on a phone, swiping an entry away deletes it", async ({ page, request, me 
   await expect(row(page, "haruさんから")).toHaveCount(0);
   // The swipe did not also open the entry.
   await expect(page).toHaveURL(/\/notifications$/);
-  await expect.poll(async () => (await inboxOf(request, me)).map((entry) => entry.actor?.handle)).toEqual([sora.handle]);
+  await expect
+    .poll(async () => (await inboxOf(request, me)).map((entry) => entry.actor?.handle))
+    .toEqual([sora.handle]);
 });
 
-test("read entries, or all of them, are cleared after a confirmation", async ({ page, request, me }) => {
+test("read entries, or all of them, are cleared after a confirmation", async ({
+  page,
+  request,
+  me,
+}) => {
   const { haru, sora } = await twoRequests(request, me);
   await markReadThroughApi(request, me, haru);
 
@@ -281,7 +348,9 @@ test("read entries, or all of them, are cleared after a confirmation", async ({ 
   await expect(page.getByText("1件のお知らせを削除したよ")).toBeVisible();
   await expect(row(page, "haruさんから")).toHaveCount(0);
   await expect(row(page, "soraさんから")).toBeVisible();
-  await expect.poll(async () => (await inboxOf(request, me)).map((entry) => entry.actor?.handle)).toEqual([sora.handle]);
+  await expect
+    .poll(async () => (await inboxOf(request, me)).map((entry) => entry.actor?.handle))
+    .toEqual([sora.handle]);
 
   // Changing your mind keeps everything.
   await page.getByRole("button", { name: "その他" }).click();
@@ -326,13 +395,28 @@ test("the tabs filter by unread and by category", async ({ page, request, me }) 
   await expect(row(page, "haruさんから")).toHaveCount(0);
 });
 
-test("events the server folded into one entry show how many there were", async ({ page, request, me }) => {
+test("events the server folded into one entry show how many there were", async ({
+  page,
+  request,
+  me,
+}) => {
   const yuto = await createAccount(request, "yuto");
   await befriend(request, me, yuto);
   for (let knock = 0; knock < 3; knock++) {
-    await rpc(request, "tokuly.social.v1.InteractionService/Knock", { userId: me.userId, count: 1 }, yuto);
+    await rpc(
+      request,
+      "tokuly.social.v1.InteractionService/Knock",
+      { userId: me.userId, count: 1 },
+      yuto,
+    );
   }
-  await expect.poll(async () => (await inboxOf(request, me)).find((entry) => entry.kind === "social.knock")?.groupCount, { timeout: 20_000 }).toBe(3);
+  await expect
+    .poll(
+      async () =>
+        (await inboxOf(request, me)).find((entry) => entry.kind === "social.knock")?.groupCount,
+      { timeout: 20_000 },
+    )
+    .toBe(3);
 
   await page.goto("/notifications");
   await expect(row(page, "yutoさんがノックしてるよ")).toHaveCount(1);
@@ -343,7 +427,11 @@ test("older entries load as you scroll", async ({ page, request, me }) => {
   test.setTimeout(120_000);
   const total = 23; // one page is 20
   for (let first = 0; first < total; first += 6) {
-    await Promise.all(Array.from({ length: Math.min(6, total - first) }, (_, offset) => friendRequestFrom(request, `p${first + offset}`, me)));
+    await Promise.all(
+      Array.from({ length: Math.min(6, total - first) }, (_, offset) =>
+        friendRequestFrom(request, `p${first + offset}`, me),
+      ),
+    );
   }
   await expectUnread(request, me, total);
 
@@ -372,7 +460,9 @@ test("category switches are saved", async ({ page, request, me }) => {
   await expect(chatPush).toBeChecked();
   await expect(socialInbox).toBeChecked();
   // Account and security notices always stay in the inbox.
-  await expect(page.getByRole("switch", { name: "アカウント・セキュリティをお知らせに残す" })).toBeDisabled();
+  await expect(
+    page.getByRole("switch", { name: "アカウント・セキュリティをお知らせに残す" }),
+  ).toBeDisabled();
 
   await chatPush.click();
   await socialInbox.click();
@@ -381,9 +471,16 @@ test("category switches are saved", async ({ page, request, me }) => {
   const saved = async () => {
     const categories = (await preferencesOf(request, me)).categories;
     const of = (id: string) => categories.find((category) => category.category === id);
-    return { chatInbox: Boolean(of("chat")?.inbox), chatPush: Boolean(of("chat")?.push), socialInbox: Boolean(of("social")?.inbox), socialPush: Boolean(of("social")?.push) };
+    return {
+      chatInbox: Boolean(of("chat")?.inbox),
+      chatPush: Boolean(of("chat")?.push),
+      socialInbox: Boolean(of("social")?.inbox),
+      socialPush: Boolean(of("social")?.push),
+    };
   };
-  await expect.poll(saved).toEqual({ chatInbox: true, chatPush: false, socialInbox: false, socialPush: true });
+  await expect
+    .poll(saved)
+    .toEqual({ chatInbox: true, chatPush: false, socialInbox: false, socialPush: true });
 
   await page.reload();
   await expect(chatPush).not.toBeChecked();
@@ -392,7 +489,9 @@ test("category switches are saved", async ({ page, request, me }) => {
 
   await chatPush.click();
   await expect(chatPush).toBeChecked();
-  await expect.poll(saved).toEqual({ chatInbox: true, chatPush: true, socialInbox: false, socialPush: true });
+  await expect
+    .poll(saved)
+    .toEqual({ chatInbox: true, chatPush: true, socialInbox: false, socialPush: true });
 });
 
 test("quiet hours are saved with their times", async ({ page, request, me }) => {
@@ -404,7 +503,9 @@ test("quiet hours are saved with their times", async ({ page, request, me }) => 
   await quiet.click();
   await page.getByLabel("はじまり").fill("23:30");
   await page.getByLabel("おわり").fill("06:15");
-  await expect.poll(async () => (await preferencesOf(request, me)).quietHours).toEqual({ enabled: true, startMinute: 1410, endMinute: 375 });
+  await expect
+    .poll(async () => (await preferencesOf(request, me)).quietHours)
+    .toEqual({ enabled: true, startMinute: 1410, endMinute: 375 });
 
   await page.reload();
   await expect(quiet).toBeChecked();
@@ -416,11 +517,18 @@ test("quiet hours are saved with their times", async ({ page, request, me }) => 
   await expect(page.getByText("はじまりとおわりは別の時間にしてね")).toBeVisible();
   await page.getByLabel("おわり").fill("07:00");
   await expect(page.getByText("はじまりとおわりは別の時間にしてね")).toHaveCount(0);
-  await expect.poll(async () => (await preferencesOf(request, me)).quietHours).toEqual({ enabled: true, startMinute: 1410, endMinute: 420 });
+  await expect
+    .poll(async () => (await preferencesOf(request, me)).quietHours)
+    .toEqual({ enabled: true, startMinute: 1410, endMinute: 420 });
 });
 
 test("an account in another time zone can adopt this device's", async ({ page, request, me }) => {
-  await rpc(request, "tokuly.identity.v1.AccountService/UpdateProfile", { timeZone: "America/New_York" }, me);
+  await rpc(
+    request,
+    "tokuly.identity.v1.AccountService/UpdateProfile",
+    { timeZone: "America/New_York" },
+    me,
+  );
 
   await page.goto("/notifications/settings");
   await expect(page.getByText("タイムゾーン: America/New_York")).toBeVisible();
@@ -453,7 +561,11 @@ test("push can be paused for a while, or until resumed", async ({ page, request,
   await expect.poll(pause).toEqual({ paused: true });
 });
 
-test("someone found by search can be muted, stays silent, and can be unmuted", async ({ page, request, me }) => {
+test("someone found by search can be muted, stays silent, and can be unmuted", async ({
+  page,
+  request,
+  me,
+}) => {
   const haru = await createAccount(request, "haru");
 
   await page.goto("/notifications/settings");
@@ -471,11 +583,25 @@ test("someone found by search can be muted, stays silent, and can be unmuted", a
   const muted = row(page, `@${haru.handle}`);
   await expect(muted).toBeVisible();
   const mutedHandles = async () =>
-    ((await rpc<{ users?: { user: { handle: string } }[] }>(request, `${PREFERENCES}/ListMutedUsers`, {}, me)).users ?? []).map((entry) => entry.user.handle);
+    (
+      (
+        await rpc<{ users?: { user: { handle: string } }[] }>(
+          request,
+          `${PREFERENCES}/ListMutedUsers`,
+          {},
+          me,
+        )
+      ).users ?? []
+    ).map((entry) => entry.user.handle);
   expect(await mutedHandles()).toEqual([haru.handle]);
 
   // Nothing a muted person does arrives; someone else's request still does.
-  await rpc(request, "tokuly.social.v1.FriendService/SendFriendRequest", { userId: me.userId }, haru);
+  await rpc(
+    request,
+    "tokuly.social.v1.FriendService/SendFriendRequest",
+    { userId: me.userId },
+    haru,
+  );
   const sora = await friendRequestFrom(request, "sora", me);
   await expectUnread(request, me, 1);
   expect((await inboxOf(request, me)).map((entry) => entry.actor?.handle)).toEqual([sora.handle]);
@@ -488,10 +614,17 @@ test("someone found by search can be muted, stays silent, and can be unmuted", a
 
 // ── Web Push ────────────────────────────────────────────────────────
 
-test("push is turned on for this browser, tested, and turned off again", async ({ page, request, me }) => {
+test("push is turned on for this browser, tested, and turned off again", async ({
+  page,
+  request,
+  me,
+}) => {
   await fakePushService(page);
   await page.goto("/notifications/settings");
-  const card = page.locator("div").filter({ has: page.getByRole("heading", { name: "このブラウザのプッシュ通知" }) }).last();
+  const card = page
+    .locator("div")
+    .filter({ has: page.getByRole("heading", { name: "このブラウザのプッシュ通知" }) })
+    .last();
   await expect(card.getByText("オフ", { exact: true })).toBeVisible();
   await expect(page.getByText("プッシュ通知をオンにしたデバイスはまだないよ")).toBeVisible();
   await expect(page.getByRole("button", { name: "テスト通知を送る" })).toBeDisabled();
@@ -502,7 +635,9 @@ test("push is turned on for this browser, tested, and turned off again", async (
   const device = row(page, "このブラウザ");
   await expect(device).toContainText(/Chrome \(.+\)/);
   await expect(device).toContainText("Web Push");
-  expect((await devicesOf(request, me)).map((entry) => entry.deviceName)).toEqual([expect.stringMatching(/^Chrome \(/)]);
+  expect((await devicesOf(request, me)).map((entry) => entry.deviceName)).toEqual([
+    expect.stringMatching(/^Chrome \(/),
+  ]);
 
   // Still on after a reload: the registration belongs to this browser and session.
   await page.reload();
@@ -543,8 +678,13 @@ test("a browser without Web Push is told so, and is never asked", async ({ page,
   await expect(page.getByText("プッシュ通知をオンにしよう！")).toHaveCount(0);
 });
 
-test("blocked notifications are explained instead of asked for again", async ({ page, me: _me }) => {
-  await page.addInitScript(() => Object.defineProperty(Notification, "permission", { configurable: true, get: () => "denied" }));
+test("blocked notifications are explained instead of asked for again", async ({
+  page,
+  me: _me,
+}) => {
+  await page.addInitScript(() =>
+    Object.defineProperty(Notification, "permission", { configurable: true, get: () => "denied" }),
+  );
   await page.goto("/notifications/settings");
   await expect(page.getByText("ブロック中", { exact: true })).toBeVisible();
   await expect(page.getByText(/通知がブラウザでブロックされているよ/)).toBeVisible();
@@ -553,14 +693,20 @@ test("blocked notifications are explained instead of asked for again", async ({ 
 
 test("a server without Web Push is shown as unavailable", async ({ page, me: _me }) => {
   // An empty GetPushConfig response: no VAPID key, no channels.
-  await page.route("**/api/tokuly.notify.v1.PushService/GetPushConfig", (route) => route.fulfill({ status: 200, contentType: "application/proto", body: Buffer.alloc(0) }));
+  await page.route("**/api/tokuly.notify.v1.PushService/GetPushConfig", (route) =>
+    route.fulfill({ status: 200, contentType: "application/proto", body: Buffer.alloc(0) }),
+  );
   await page.goto("/notifications/settings");
   await expect(page.getByText("利用不可", { exact: true })).toBeVisible();
   await expect(page.getByText("このサーバーではプッシュ通知がまだ使えないよ")).toBeVisible();
   await expect(page.getByRole("button", { name: "プッシュ通知をオンにする" })).toHaveCount(0);
 });
 
-test("the inbox suggests push once there is something in it, and can be told 'later'", async ({ page, request, me }) => {
+test("the inbox suggests push once there is something in it, and can be told 'later'", async ({
+  page,
+  request,
+  me,
+}) => {
   await page.goto("/notifications");
   await expect(page.getByText("お知らせはまだないよ")).toBeVisible();
   // Never on an empty first visit.
@@ -593,7 +739,12 @@ test("push can be turned on straight from the inbox", async ({ page, request, me
 
 // ── Service worker ──────────────────────────────────────────────────
 
-test("the service worker shows a pushed notification, and a tap on it opens the entry in the app", async ({ page, request, me, context }) => {
+test("the service worker shows a pushed notification, and a tap on it opens the entry in the app", async ({
+  page,
+  request,
+  me,
+  context,
+}) => {
   const haru = await friendRequestFrom(request, "haru", me);
   await expectUnread(request, me, 1);
   const [entry] = await inboxOf(request, me);
@@ -604,7 +755,9 @@ test("the service worker shows a pushed notification, and a tap on it opens the 
   // The app registers the worker by itself. A push only ever reaches an activated worker.
   await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
   const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
-  await expect.poll(() => worker.evaluate(`self.registration.active?.state ?? "none"`), { timeout: 20_000 }).toBe("activated");
+  await expect
+    .poll(() => worker.evaluate(`self.registration.active?.state ?? "none"`), { timeout: 20_000 })
+    .toBe("activated");
 
   // The payload the server sends for this entry (docs/events/notify.md), delivered as a push event.
   const payload = {
@@ -620,10 +773,20 @@ test("the service worker shows a pushed notification, and a tap on it opens the 
     },
     app_badge: 1,
   };
-  await worker.evaluate(`self.dispatchEvent(new PushEvent("push", { data: ${JSON.stringify(JSON.stringify(payload))} }))`);
+  await worker.evaluate(
+    `self.dispatchEvent(new PushEvent("push", { data: ${JSON.stringify(JSON.stringify(payload))} }))`,
+  );
   const shown = () =>
-    page.evaluate(async () => (await (await navigator.serviceWorker.ready).getNotifications()).map((notification) => ({ title: notification.title, body: notification.body, tag: notification.tag })));
-  await expect.poll(shown).toEqual([{ title: entry.title, body: entry.body, tag: `e2e:${entry.id}` }]);
+    page.evaluate(async () =>
+      (await (await navigator.serviceWorker.ready).getNotifications()).map((notification) => ({
+        title: notification.title,
+        body: notification.body,
+        tag: notification.tag,
+      })),
+    );
+  await expect
+    .poll(shown)
+    .toEqual([{ title: entry.title, body: entry.body, tag: `e2e:${entry.id}` }]);
 
   // The tap: the worker hands it to the open app, which goes there without reloading and marks the entry read.
   await worker.evaluate(
@@ -634,7 +797,11 @@ test("the service worker shows a pushed notification, and a tap on it opens the 
   await expect.poll(shown).toEqual([]);
 });
 
-test("a tap on a system notification while the app was closed lands on its target", async ({ page, request, me }) => {
+test("a tap on a system notification while the app was closed lands on its target", async ({
+  page,
+  request,
+  me,
+}) => {
   const haru = await friendRequestFrom(request, "haru", me);
   await expectUnread(request, me, 1);
   const [entry] = await inboxOf(request, me);

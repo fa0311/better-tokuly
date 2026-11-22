@@ -16,7 +16,15 @@ export interface MenuAction {
  * `trigger` is the element that opens it; it must forward its props and ref,
  * which `Button` and plain DOM elements do.
  */
-export function Menu({ trigger, actions, align = "end" }: { trigger: ReactElement<Record<string, unknown>>; actions: MenuAction[]; align?: "start" | "center" | "end" }) {
+export function Menu({
+  trigger,
+  actions,
+  align = "end",
+}: {
+  trigger: ReactElement<Record<string, unknown>>;
+  actions: MenuAction[];
+  align?: "start" | "center" | "end";
+}) {
   return (
     <BaseMenu.Root>
       <BaseMenu.Trigger render={trigger} />
@@ -39,7 +47,11 @@ export function Menu({ trigger, actions, align = "end" }: { trigger: ReactElemen
                   action.danger && "text-danger",
                 )}
               >
-                {action.icon && <span className="grid size-5 place-items-center [&>svg]:size-5">{action.icon}</span>}
+                {action.icon && (
+                  <span className="grid size-5 place-items-center [&>svg]:size-5">
+                    {action.icon}
+                  </span>
+                )}
                 {action.label}
               </BaseMenu.Item>
             ))}

@@ -11,6 +11,7 @@ import { Card, Chip } from "#/components/ui/card";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, ListRow, Page, Skeleton } from "#/components/ui/page";
 import { openDirectChat } from "#/features/chat";
+import { EmojiText } from "#/features/emoji";
 import { errorMessage } from "#/lib/errors";
 import { compactAge } from "#/lib/format";
 import { useMe } from "#/stores/session";
@@ -31,13 +32,19 @@ export function FreeScreen() {
   const board = useFreeBoard();
   const [setting, setSetting] = useState(false);
   const mine = board.data?.mine && !hasEnded(board.data.mine, now) ? board.data.mine : undefined;
-  const statuses = (board.data?.statuses ?? []).filter((status) => status.user && !hasEnded(status, now));
+  const statuses = (board.data?.statuses ?? []).filter(
+    (status) => status.user && !hasEnded(status, now),
+  );
 
   return (
     <Page title={t("free.title")} back="/plans" wide>
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
         <div className="flex flex-col gap-6">
-          {board.isPending ? <Skeleton className="h-48 rounded-card" /> : <MyStatus status={mine} now={now} onEdit={() => setSetting(true)} />}
+          {board.isPending ? (
+            <Skeleton className="h-48 rounded-card" />
+          ) : (
+            <MyStatus status={mine} now={now} onEdit={() => setSetting(true)} />
+          )}
           {mine && <Answers />}
           <Alerts />
         </div>
@@ -65,7 +72,15 @@ export function FreeScreen() {
   );
 }
 
-function MyStatus({ status, now, onEdit }: { status: plans.FreeStatus | undefined; now: number; onEdit(): void }) {
+function MyStatus({
+  status,
+  now,
+  onEdit,
+}: {
+  status: plans.FreeStatus | undefined;
+  now: number;
+  onEdit(): void;
+}) {
   const { t, i18n } = useTranslation("plans");
   const me = useMe();
   const queryClient = useQueryClient();
@@ -93,17 +108,27 @@ function MyStatus({ status, now, onEdit }: { status: plans.FreeStatus | undefine
   }
 
   const audience =
-    status.audience === plans.FreeAudience.BEST_FRIENDS ? t("free.audience.best") : status.audience === plans.FreeAudience.CHOSEN ? t("free.audience.chosenCount", { count: status.chosen.length }) : t("free.audience.friends");
+    status.audience === plans.FreeAudience.BEST_FRIENDS
+      ? t("free.audience.best")
+      : status.audience === plans.FreeAudience.CHOSEN
+        ? t("free.audience.chosenCount", { count: status.chosen.length })
+        : t("free.audience.friends");
   return (
     <Card className="bg-lime text-[#17122b]" data-testid="my-free-status">
       <div className="flex items-center gap-4">
         <PulseFace user={me?.user} live={isRunning(status, now)} />
         <div className="min-w-0 flex-1">
-          <p className="text-2xl font-black">{isRunning(status, now) ? t("free.mine.now") : t("free.mine.soon")}</p>
+          <p className="text-2xl font-black">
+            {isRunning(status, now) ? t("free.mine.now") : t("free.mine.soon")}
+          </p>
           <p className="font-bold">{whenText(status, now, i18n.language, t)}</p>
         </div>
       </div>
-      {status.note && <p className="mt-3 rounded-2xl border-2 border-[#17122b] bg-white/70 px-4 py-2.5 font-bold">「{status.note}」</p>}
+      {status.note && (
+        <p className="mt-3 rounded-2xl border-2 border-[#17122b] bg-white/70 px-4 py-2.5 font-bold">
+          「{status.note}」
+        </p>
+      )}
       <div className="mt-3 flex flex-wrap items-center gap-2 text-sm font-bold">
         <span className="rounded-full bg-[#17122b]/10 px-3 py-1">👀 {audience}</span>
         {status.audience === plans.FreeAudience.CHOSEN && <AvatarStack users={status.chosen} />}
@@ -119,7 +144,13 @@ function MyStatus({ status, now, onEdit }: { status: plans.FreeStatus | undefine
         <Button variant="secondary" size="sm" icon={<Pencil className="size-4" />} onClick={onEdit}>
           {t("free.mine.edit")}
         </Button>
-        <Button variant="ghost" size="sm" className="text-[#17122b] hover:bg-[#17122b]/10" loading={end.isPending} onClick={() => end.mutate()}>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-[#17122b] hover:bg-[#17122b]/10"
+          loading={end.isPending}
+          onClick={() => end.mutate()}
+        >
           {t("free.mine.end")}
         </Button>
       </div>
@@ -153,12 +184,23 @@ function Answers() {
                   <p className="truncate font-black">
                     {nameOf(answer.user)} <span className="text-pink">{t("free.asobo")}</span>
                   </p>
-                  <p className="truncate text-sm text-ink-soft">{answer.message || compactAge(toMillis(answer.createdAt), now)}</p>
+                  <p className="truncate text-sm text-ink-soft">
+                    {answer.message || compactAge(toMillis(answer.createdAt), now)}
+                  </p>
                 </div>
-                <Button variant="secondary" size="icon-sm" aria-label={t("free.friend.chat")} onClick={() => void openDirectChat(answer.user?.id ?? "")}>
+                <Button
+                  variant="secondary"
+                  size="icon-sm"
+                  aria-label={t("free.friend.chat")}
+                  onClick={() => void openDirectChat(answer.user?.id ?? "")}
+                >
                   <MessageCircle className="size-4" />
                 </Button>
-                <Button size="icon-sm" aria-label={t("free.friend.plan")} onClick={() => planWith(answer.user?.id ?? "")}>
+                <Button
+                  size="icon-sm"
+                  aria-label={t("free.friend.plan")}
+                  onClick={() => planWith(answer.user?.id ?? "")}
+                >
                   <CalendarPlus className="size-4" />
                 </Button>
               </div>
@@ -167,7 +209,9 @@ function Answers() {
           <LoadMore query={answers.paging} />
         </ul>
       ) : (
-        <p className="rounded-card border-2 border-dashed border-line px-4 py-5 text-center text-sm font-bold text-ink-soft">{t("free.answers.empty")}</p>
+        <p className="rounded-card border-2 border-dashed border-line px-4 py-5 text-center text-sm font-bold text-ink-soft">
+          {t("free.answers.empty")}
+        </p>
       )}
     </section>
   );
@@ -185,23 +229,48 @@ function FriendList({ statuses, now }: { statuses: plans.FreeStatus[]; now: numb
         {statuses.map((status) => {
           const userId = status.user?.id ?? "";
           return (
-            <li key={userId} className="sticker flex items-center gap-3 rounded-card bg-surface p-3" data-testid="free-friend">
-              <button type="button" className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={() => setOpened({ userId })}>
+            <li
+              key={userId}
+              className="sticker flex items-center gap-3 rounded-card bg-surface p-3"
+              data-testid="free-friend"
+            >
+              <button
+                type="button"
+                className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                onClick={() => setOpened({ userId })}
+              >
                 <PulseFace user={status.user} live={isRunning(status, now)} />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate font-black">{nameOf(status.user)}</span>
-                  <span className="mt-0.5 flex flex-wrap items-center gap-1.5">
-                    <Chip className={isRunning(status, now) ? "bg-lime text-[#17122b]" : undefined}>{badgeText(status, now, i18n.language, t)}</Chip>
-                    <span className="text-xs font-bold text-ink-soft">{whenText(status, now, i18n.language, t)}</span>
+                  <span className="block truncate font-black">
+                    <EmojiText text={nameOf(status.user)} />
                   </span>
-                  {status.note && <span className="mt-1 block truncate text-sm font-bold">「{status.note}」</span>}
+                  <span className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                    <Chip className={isRunning(status, now) ? "bg-lime text-[#17122b]" : undefined}>
+                      {badgeText(status, now, i18n.language, t)}
+                    </Chip>
+                    <span className="text-xs font-bold text-ink-soft">
+                      {whenText(status, now, i18n.language, t)}
+                    </span>
+                  </span>
+                  {status.note && (
+                    <span className="mt-1 block truncate text-sm font-bold">「{status.note}」</span>
+                  )}
                 </span>
               </button>
               <Button
                 variant={status.answeredByMe ? "secondary" : "lime"}
                 size="sm"
                 className="shrink-0"
-                onClick={() => (status.answeredByMe ? setOpened({ userId }) : answer.mutate({ status }, { onSuccess: (response) => setOpened({ userId, draft: response.planDraft }) }))}
+                onClick={() =>
+                  status.answeredByMe
+                    ? setOpened({ userId })
+                    : answer.mutate(
+                        { status },
+                        {
+                          onSuccess: (response) => setOpened({ userId, draft: response.planDraft }),
+                        },
+                      )
+                }
               >
                 {status.answeredByMe ? `✓ ${t("free.asoboSent")}` : t("free.asobo")}
               </Button>
@@ -209,7 +278,11 @@ function FriendList({ statuses, now }: { statuses: plans.FreeStatus[]; now: numb
           );
         })}
       </ul>
-      <FreeFriendSheet status={openedStatus} draft={opened?.draft} onOpenChange={(open) => !open && setOpened(undefined)} />
+      <FreeFriendSheet
+        status={openedStatus}
+        draft={opened?.draft}
+        onOpenChange={(open) => !open && setOpened(undefined)}
+      />
     </>
   );
 }
@@ -224,7 +297,12 @@ function Alerts() {
     <section>
       <SectionTitle
         action={
-          <Button variant="ghost" size="sm" icon={<BellPlus className="size-4" />} onClick={() => setPicking(true)}>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<BellPlus className="size-4" />}
+            onClick={() => setPicking(true)}
+          >
             {t("free.alerts.add")}
           </Button>
         }
@@ -244,7 +322,12 @@ function Alerts() {
                 leading={<Avatar user={user} size="sm" />}
                 title={nameOf(user)}
                 trailing={
-                  <Button variant="ghost" size="icon-sm" aria-label={t("free.alerts.remove", { name: nameOf(user) })} onClick={() => alerts.set.mutate({ userIds: [user.id], enabled: false })}>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={t("free.alerts.remove", { name: nameOf(user) })}
+                    onClick={() => alerts.set.mutate({ userIds: [user.id], enabled: false })}
+                  >
                     <X className="size-4" />
                   </Button>
                 }
@@ -262,7 +345,10 @@ function Alerts() {
         loading={alerts.set.isPending}
         onConfirm={(users) => {
           if (users.length === 0) return setPicking(false);
-          alerts.set.mutate({ userIds: users.map((user) => user.id), enabled: true }, { onSuccess: () => setPicking(false) });
+          alerts.set.mutate(
+            { userIds: users.map((user) => user.id), enabled: true },
+            { onSuccess: () => setPicking(false) },
+          );
         }}
       />
     </section>

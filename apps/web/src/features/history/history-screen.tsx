@@ -32,7 +32,14 @@ export function HistoryScreen({ tab }: { tab: HistoryTab }) {
               <EllipsisVertical className="size-5" />
             </Button>
           }
-          actions={[{ label: t("delete.action"), icon: <Trash2 className="size-4" />, danger: true, onSelect: () => setDeleting(true) }]}
+          actions={[
+            {
+              label: t("delete.action"),
+              icon: <Trash2 className="size-4" />,
+              danger: true,
+              onSelect: () => setDeleting(true),
+            },
+          ]}
         />
       }
     >
@@ -44,7 +51,13 @@ export function HistoryScreen({ tab }: { tab: HistoryTab }) {
           { value: "stats", label: t("tabs.stats") },
         ]}
         value={tab}
-        onChange={(next) => void navigate({ to: "/history", search: next === "calendar" ? {} : { tab: next }, replace: true })}
+        onChange={(next) =>
+          void navigate({
+            to: "/history",
+            search: next === "calendar" ? {} : { tab: next },
+            replace: true,
+          })
+        }
       />
       <div className="mt-4">
         {tab === "calendar" && <HistoryCalendar />}

@@ -9,16 +9,13 @@ import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Card } from "#/components/ui/card";
 import { EmptyState, Skeleton } from "#/components/ui/page";
-import { ProfileAnswers, ProfileAskButton } from "#/features/ask";
+import { EmojiText } from "#/features/emoji";
 import { ReportButton } from "#/features/engagement";
-import { formatPercent } from "#/features/footprints";
-import { ProfileNotes } from "#/features/notes";
-import { ProfilePlans } from "#/features/plans";
-import { SchoolProfileCards } from "#/features/school";
-import { forgetUser, ProfileHighlights, StoryRing } from "#/features/stories";
+import { forgetUser, StoryRing } from "#/features/stories";
 import { api, profileClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { formatDistance } from "#/lib/format";
+import { type ProfileSectionProps, ProfileSlotView, ProfileStat } from "#/seams/profile";
 import { signOut as signOutOfApp } from "#/stores/session";
 
 const friendClient = () => api().service(social.FriendService);
@@ -40,15 +37,25 @@ export function ProfileScreen({ handle }: { handle: string }) {
   // Count the visit once per open profile (the server de-duplicates per day).
   const userId = user?.id;
   useEffect(() => {
-    if (userId && !isSelf) void profileClient().recordProfileView({ userId }).catch(() => {});
+    if (userId && !isSelf)
+      void profileClient()
+        .recordProfileView({ userId })
+        .catch(() => {});
   }, [userId, isSelf]);
 
   const refresh = () =>
-    Promise.all([queryClient.invalidateQueries({ queryKey: ["identity", "profile", handle] }), queryClient.invalidateQueries({ queryKey: ["social"] })]);
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["identity", "profile", handle] }),
+      queryClient.invalidateQueries({ queryKey: ["social"] }),
+    ]);
   const onError = (error: unknown) => toast.error(errorMessage(error));
 
   const addFriend = useMutation({
-    mutationFn: () => friendClient().sendFriendRequest({ target: { case: "userId", value: user!.id }, source: social.FriendSource.PROFILE }),
+    mutationFn: () =>
+      friendClient().sendFriendRequest({
+        target: { case: "userId", value: user!.id },
+        source: social.FriendSource.PROFILE,
+      }),
     onSuccess: refresh,
     onError,
   });
@@ -89,40 +96,59 @@ export function ProfileScreen({ handle }: { handle: string }) {
   const friendsSince = toDate(profile.friendsSince);
   const banner = profile.banner?.url;
   const tint = user.avatar?.dominantColor ?? "var(--brand)";
+  // What every feature's profile section is handed (`src/features/<area>/profile.tsx`).
+  const section: ProfileSectionProps = { profile, user, isSelf, isFriend };
 
   return (
     <div className="h-full overflow-y-auto pb-32 md:pb-10">
       {/* The banner falls back to the avatar's main colour, like the original app. */}
-      <div className="h-40 w-full bg-cover bg-center md:h-52" style={banner ? { backgroundImage: `url(${banner})` } : { background: tint }} />
+      <div
+        className="h-40 w-full bg-cover bg-center md:h-52"
+        style={banner ? { backgroundImage: `url(${banner})` } : { background: tint }}
+      />
       <div className="mx-auto -mt-14 max-w-2xl px-4">
         {/* While the person has stories to show, their face is ringed and plays them. */}
         <StoryRing user={user}>
-          <Avatar user={user} size="xl" outlined className="block [&>span]:size-28 [&>span]:rounded-[2rem]" />
+          <Avatar
+            user={user}
+            size="xl"
+            outlined
+            className="block [&>span]:size-28 [&>span]:rounded-[2rem]"
+          />
         </StoryRing>
         <h1 className="mt-3 truncate text-2xl font-black">
-          {user.displayName} {user.verified && <span title="verified">✅</span>}
+          <EmojiText text={user.displayName} /> {user.verified && <span title="verified">✅</span>}
         </h1>
         <p className="truncate font-bold text-ink-soft">@{user.handle}</p>
 
         {(profile.status?.emoji || profile.status?.text) && (
           <p className="sticker-sm mt-4 inline-flex max-w-full items-center gap-2 rounded-full bg-surface px-4 py-1.5 text-sm font-bold">
             <span>{profile.status.emoji}</span>
-            <span className="truncate">{profile.status.text}</span>
+            <span className="truncate">
+              <EmojiText text={profile.status.text} />
+            </span>
           </p>
         )}
-        {profile.bio && <p className="mt-4 leading-relaxed whitespace-pre-wrap">{profile.bio}</p>}
+        {profile.bio && (
+          <p className="mt-4 leading-relaxed whitespace-pre-wrap">
+            <EmojiText text={profile.bio} />
+          </p>
+        )}
 
-        {/* 勉強中, the class that is on, テスト期間: what the school domain says about the person right now. */}
-        <SchoolProfileCards cards={profile.cards} user={user} isSelf={isSelf} />
+        {/* What features say about the person right now (勉強中, the class that is on). */}
+        <ProfileSlotView slot="status" {...section} />
 
         <div className="mt-5 flex flex-wrap gap-2">
           {isSelf ? (
             <>
-              <Link to="/settings" className="pressable sticker inline-flex h-11 items-center gap-2 rounded-full bg-brand px-5 font-bold text-on-brand">
+              <Link
+                to="/settings"
+                className="pressable sticker inline-flex h-11 items-center gap-2 rounded-full bg-brand px-5 font-bold text-on-brand"
+              >
                 <Settings className="size-4" />
                 {t("actions.settings")}
               </Link>
-              <ProfileAskButton user={user} isSelf />
+              <ProfileSlotView slot="action" {...section} />
               <Button variant="secondary" icon={<LogOut className="size-4" />} onClick={signOut}>
                 {t("actions.signOut")}
               </Button>
@@ -130,7 +156,11 @@ export function ProfileScreen({ handle }: { handle: string }) {
           ) : (
             <>
               {isFriend ? (
-                <Link to="/chat" search={{ user: user.id }} className="pressable sticker inline-flex h-11 items-center gap-2 rounded-full bg-brand px-5 font-bold text-on-brand">
+                <Link
+                  to="/chat"
+                  search={{ user: user.id }}
+                  className="pressable sticker inline-flex h-11 items-center gap-2 rounded-full bg-brand px-5 font-bold text-on-brand"
+                >
                   <MessageCircle className="size-4" />
                   {t("actions.message")}
                 </Link>
@@ -139,57 +169,78 @@ export function ProfileScreen({ handle }: { handle: string }) {
                   {t("actions.requested")}
                 </Button>
               ) : (
-                <Button icon={<UserPlus className="size-4" />} loading={addFriend.isPending} onClick={() => addFriend.mutate()}>
-                  {profile.relationship === identity.Relationship.REQUEST_RECEIVED ? t("actions.accept") : t("actions.add")}
+                <Button
+                  icon={<UserPlus className="size-4" />}
+                  loading={addFriend.isPending}
+                  onClick={() => addFriend.mutate()}
+                >
+                  {profile.relationship === identity.Relationship.REQUEST_RECEIVED
+                    ? t("actions.accept")
+                    : t("actions.add")}
                 </Button>
               )}
-              <ProfileAskButton user={user} isSelf={false} />
+              <ProfileSlotView slot="action" {...section} />
               {isFriend && (
                 <Button
                   variant="ghost"
                   icon={<UserMinus className="size-4" />}
-                  onClick={() => window.confirm(t("confirmRemove", { name: user.displayName })) && removeFriend.mutate()}
+                  onClick={() =>
+                    window.confirm(t("confirmRemove", { name: user.displayName })) &&
+                    removeFriend.mutate()
+                  }
                 >
                   {t("actions.remove")}
                 </Button>
               )}
-              <Button variant="ghost" icon={<Ban className="size-4" />} onClick={() => window.confirm(t("confirmBlock", { name: user.displayName })) && block.mutate()}>
+              <Button
+                variant="ghost"
+                icon={<Ban className="size-4" />}
+                onClick={() =>
+                  window.confirm(t("confirmBlock", { name: user.displayName })) && block.mutate()
+                }
+              >
                 {t("actions.block")}
               </Button>
-              <ReportButton subject={{ type: common.SubjectType.USER, id: user.id }} label={`@${user.handle}`} />
+              <ReportButton
+                subject={{ type: common.SubjectType.USER, id: user.id }}
+                label={`@${user.handle}`}
+              />
             </>
           )}
         </div>
 
-        {/* ひま right now, pinned countdowns, a couple counter. */}
-        <ProfilePlans cards={profile.cards} user={user} isSelf={isSelf} className="mt-5" />
-
-        <ProfileHighlights user={user} isSelf={isSelf} />
+        {/* Cards of features: ひま right now, countdowns, highlights. */}
+        <ProfileSlotView slot="card" {...section} />
 
         {profile.distanceMeters !== undefined && (
-          <p className="mt-5 rounded-2xl bg-lime px-4 py-3 font-black text-[#17122b] sticker-sm">{t("distance", { distance: formatDistance(profile.distanceMeters) })}</p>
+          <p className="mt-5 rounded-2xl bg-lime px-4 py-3 font-black text-[#17122b] sticker-sm">
+            {t("distance", { distance: formatDistance(profile.distanceMeters) })}
+          </p>
         )}
 
         {stats && (
           <Card className="mt-5 grid grid-cols-3 gap-y-4 text-center sm:grid-cols-6">
-            <Stat value={stats.friendCount} label={t("stats.friends")} />
-            <Stat value={stats.introCount} label={t("stats.intros")} />
-            <Stat value={Number(stats.profileViewCount)} label={t("stats.views")} />
-            <Stat value={stats.bumpCount} label={t("stats.bumps")} />
-            {/* The footprint numbers lead to the scratch map they come from: my own, or as much of theirs as they show. */}
-            <Link to="/footprints" search={isSelf ? {} : { user: user.id }} className="rounded-2xl transition-colors hover:bg-surface-2" aria-label={t("footprints:profile.explored", { percent: formatPercent(stats.exploredPercent) })}>
-              <Stat value={formatPercent(stats.exploredPercent)} label={t("stats.explored")} />
-            </Link>
-            <Link to="/footprints" search={isSelf ? {} : { user: user.id }} className="rounded-2xl transition-colors hover:bg-surface-2" aria-label={t("footprints:profile.countries", { count: stats.visitedCountryCount })}>
-              <Stat value={stats.visitedCountryCount} label={t("stats.countries")} />
-            </Link>
+            <ProfileStat value={stats.friendCount} label={t("stats.friends")} />
+            <ProfileStat value={stats.introCount} label={t("stats.intros")} />
+            <ProfileStat value={Number(stats.profileViewCount)} label={t("stats.views")} />
+            <ProfileStat value={stats.bumpCount} label={t("stats.bumps")} />
+            <ProfileSlotView slot="stat" {...section} />
           </Card>
         )}
 
         {profile.nowPlaying?.title && (
-          <a href={profile.nowPlaying.trackUrl || undefined} target="_blank" rel="noreferrer" className="sticker mt-5 flex items-center gap-3 rounded-card bg-surface p-3">
+          <a
+            href={profile.nowPlaying.trackUrl || undefined}
+            target="_blank"
+            rel="noreferrer"
+            className="sticker mt-5 flex items-center gap-3 rounded-card bg-surface p-3"
+          >
             {profile.nowPlaying.artworkUrl ? (
-              <img src={profile.nowPlaying.artworkUrl} alt="" className="size-14 rounded-xl object-cover" />
+              <img
+                src={profile.nowPlaying.artworkUrl}
+                alt=""
+                className="size-14 rounded-xl object-cover"
+              />
             ) : (
               <div className="grid size-14 place-items-center rounded-xl bg-mint text-[#17122b]">
                 <Music className="size-6" />
@@ -204,8 +255,12 @@ export function ProfileScreen({ handle }: { handle: string }) {
         )}
 
         <div className="mt-5 flex flex-col gap-1 text-sm font-bold text-ink-soft">
-          {joined && <p>🎂 {t("joined", { name: user.displayName, count: stats?.daysSinceJoined ?? 0 })}</p>}
-          {isFriend && friendsSince && <p>🤝 {t("friendsSince", { date: friendsSince.toLocaleDateString(i18n.language) })}</p>}
+          {joined && (
+            <p>🎂 {t("joined", { name: user.displayName, count: stats?.daysSinceJoined ?? 0 })}</p>
+          )}
+          {isFriend && friendsSince && (
+            <p>🤝 {t("friendsSince", { date: friendsSince.toLocaleDateString(i18n.language) })}</p>
+          )}
           {profile.bestFriend && <p>💜 {t("bestFriend")}</p>}
           {!isSelf && profile.mutualFriendCount > 0 && (
             <p className="flex items-center gap-2">
@@ -220,18 +275,10 @@ export function ProfileScreen({ handle }: { handle: string }) {
         </div>
 
         {/* Nothing of a blocked person is shown, and the server would not hand it out. */}
-        {profile.relationship !== identity.Relationship.BLOCKED && <ProfileAnswers user={user} />}
-        {profile.relationship !== identity.Relationship.BLOCKED && <ProfileNotes userId={user.id} isSelf={isSelf} />}
+        {profile.relationship !== identity.Relationship.BLOCKED && (
+          <ProfileSlotView slot="content" {...section} />
+        )}
       </div>
-    </div>
-  );
-}
-
-function Stat({ value, label }: { value: number | string; label: string }) {
-  return (
-    <div>
-      <div className="text-xl font-black">{typeof value === "number" ? value.toLocaleString() : value}</div>
-      <div className="text-xs font-bold text-ink-faint">{label}</div>
     </div>
   );
 }

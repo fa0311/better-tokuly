@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { Skeleton } from "#/components/ui/page";
+import { EmojiText } from "#/features/emoji";
 import { useOpenPath } from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { compactAge } from "#/lib/format";
@@ -54,7 +55,7 @@ export function StoryTray() {
                 </span>
               </span>
               <span className="glass w-full truncate rounded-full px-1 text-center text-[10px] font-black">
-                {user.displayName}
+                <EmojiText text={user.displayName} />
               </span>
             </button>
           </li>

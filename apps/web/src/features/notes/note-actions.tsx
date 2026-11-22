@@ -1,7 +1,21 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { common, engagement, type notes } from "@tokuly/api";
-import { BarChart3, Ellipsis, Flag, Globe, Heart, Link2, MessageCircle, Pin, PinOff, Quote, Repeat2, Trash2, UsersRound } from "lucide-react";
+import {
+  BarChart3,
+  Ellipsis,
+  Flag,
+  Globe,
+  Heart,
+  Link2,
+  MessageCircle,
+  Pin,
+  PinOff,
+  Quote,
+  Repeat2,
+  Trash2,
+  UsersRound,
+} from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
@@ -11,7 +25,19 @@ import { Dialog } from "#/components/ui/dialog";
 import { LoadMore } from "#/components/ui/load-more";
 import { Menu, type MenuAction } from "#/components/ui/menu";
 import { EmptyState, Skeleton } from "#/components/ui/page";
-import { AddReactionButton, BookmarkButton, compactCount, ReportDialog, ShareButton, type Subject, useBurst, useCopySubjectLink, useEngagement, useShareStats } from "#/features/engagement";
+import { EmojiText } from "#/features/emoji";
+import {
+  AddReactionButton,
+  BookmarkButton,
+  compactCount,
+  ReportDialog,
+  ShareButton,
+  type Subject,
+  useBurst,
+  useCopySubjectLink,
+  useEngagement,
+  useShareStats,
+} from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { useMe } from "#/stores/session";
 import { useDeleteNote, useLike, usePin, useRenote, useSetVisibility } from "./actions";
@@ -19,9 +45,13 @@ import { noteClient, notesKeys } from "./api";
 import { openCompose } from "./compose-store";
 import { VisibilityChoices } from "./visibility";
 
-export const noteSubject = (noteId: string): Subject => ({ type: common.SubjectType.NOTE, id: noteId });
+export const noteSubject = (noteId: string): Subject => ({
+  type: common.SubjectType.NOTE,
+  id: noteId,
+});
 
-const ACTION = "relative inline-flex h-9 min-w-9 items-center justify-center gap-1.5 rounded-full px-2 text-sm font-black text-ink-soft transition-colors disabled:opacity-40";
+const ACTION =
+  "relative inline-flex h-9 min-w-9 items-center justify-center gap-1.5 rounded-full px-2 text-sm font-black text-ink-soft transition-colors disabled:opacity-40";
 
 function Count({ value }: { value: bigint | undefined }) {
   const { i18n } = useTranslation();
@@ -47,7 +77,12 @@ export function NoteActions({ note, className }: { note: notes.Note; className?:
 
   return (
     <div className={cn("flex items-center justify-between", className)}>
-      <button type="button" aria-label={t("actions.reply")} onClick={() => openCompose({ replyTo: note })} className={cn(ACTION, "hover:bg-surface-2 hover:text-sky")}>
+      <button
+        type="button"
+        aria-label={t("actions.reply")}
+        onClick={() => openCompose({ replyTo: note })}
+        className={cn(ACTION, "hover:bg-surface-2 hover:text-sky")}
+      >
         <MessageCircle className="size-[18px]" />
         <Count value={note.counters?.replyCount} />
       </button>
@@ -61,15 +96,26 @@ export function NoteActions({ note, className }: { note: notes.Note; className?:
             aria-pressed={renoted}
             disabled={!isPublic}
             title={isPublic ? undefined : t("actions.renotePublicOnly")}
-            className={cn(ACTION, renoted ? "text-success" : "hover:bg-surface-2 hover:text-success")}
+            className={cn(
+              ACTION,
+              renoted ? "text-success" : "hover:bg-surface-2 hover:text-success",
+            )}
           >
             <Repeat2 className="size-[19px]" strokeWidth={renoted ? 3 : 2} />
             <Count value={note.counters?.renoteCount} />
           </button>
         }
         actions={[
-          { label: renoted ? t("actions.undoRenote") : t("actions.renoteNow"), icon: <Repeat2 />, onSelect: () => void renote(note) },
-          { label: t("actions.quote"), icon: <Quote />, onSelect: () => openCompose({ quote: note }) },
+          {
+            label: renoted ? t("actions.undoRenote") : t("actions.renoteNow"),
+            icon: <Repeat2 />,
+            onSelect: () => void renote(note),
+          },
+          {
+            label: t("actions.quote"),
+            icon: <Quote />,
+            onSelect: () => openCompose({ quote: note }),
+          },
         ]}
       />
 
@@ -83,7 +129,12 @@ export function NoteActions({ note, className }: { note: notes.Note; className?:
         }}
         className={cn(ACTION, liked ? "text-pink" : "hover:bg-surface-2 hover:text-pink")}
       >
-        <Heart className={cn("size-[18px] transition-transform duration-200 ease-bounce", liked && "scale-115 fill-current")} />
+        <Heart
+          className={cn(
+            "size-[18px] transition-transform duration-200 ease-bounce",
+            liked && "scale-115 fill-current",
+          )}
+        />
         <Count value={note.counters?.likeCount} />
         {burst}
       </button>
@@ -113,25 +164,49 @@ export function NoteMenu({ note, onDeleted }: { note: notes.Note; onDeleted?(): 
   const mine = Boolean(me?.user && note.author?.id === me.user.id);
   const close = () => setSheet(undefined);
 
-  const actions: MenuAction[] = [{ label: t("menu.copyLink"), icon: <Link2 />, onSelect: () => void copyLink() }];
-  if (Number(note.counters?.likeCount ?? 0n) > 0) actions.push({ label: t("menu.likers"), icon: <Heart />, onSelect: () => setSheet("likers") });
-  if (Number(note.counters?.renoteCount ?? 0n) > 0) actions.push({ label: t("menu.renoters"), icon: <Repeat2 />, onSelect: () => setSheet("renoters") });
+  const actions: MenuAction[] = [
+    { label: t("menu.copyLink"), icon: <Link2 />, onSelect: () => void copyLink() },
+  ];
+  if (Number(note.counters?.likeCount ?? 0n) > 0)
+    actions.push({ label: t("menu.likers"), icon: <Heart />, onSelect: () => setSheet("likers") });
+  if (Number(note.counters?.renoteCount ?? 0n) > 0)
+    actions.push({
+      label: t("menu.renoters"),
+      icon: <Repeat2 />,
+      onSelect: () => setSheet("renoters"),
+    });
   if (mine) {
     actions.push(
-      note.pinned ? { label: t("menu.unpin"), icon: <PinOff />, onSelect: () => void pin(note, false) } : { label: t("menu.pin"), icon: <Pin />, onSelect: () => void pin(note, true) },
+      note.pinned
+        ? { label: t("menu.unpin"), icon: <PinOff />, onSelect: () => void pin(note, false) }
+        : { label: t("menu.pin"), icon: <Pin />, onSelect: () => void pin(note, true) },
       { label: t("menu.visibility"), icon: <Globe />, onSelect: () => setSheet("visibility") },
       { label: t("menu.stats"), icon: <BarChart3 />, onSelect: () => setSheet("stats") },
-      { label: t("menu.delete"), icon: <Trash2 />, danger: true, onSelect: () => setSheet("delete") },
+      {
+        label: t("menu.delete"),
+        icon: <Trash2 />,
+        danger: true,
+        onSelect: () => setSheet("delete"),
+      },
     );
   } else {
-    actions.push({ label: t("menu.report"), icon: <Flag />, danger: true, onSelect: () => setSheet("report") });
+    actions.push({
+      label: t("menu.report"),
+      icon: <Flag />,
+      danger: true,
+      onSelect: () => setSheet("report"),
+    });
   }
 
   return (
     <>
       <Menu
         trigger={
-          <button type="button" aria-label={t("menu.label")} className="-my-1 -mr-1.5 grid size-8 shrink-0 place-items-center rounded-full text-ink-faint hover:bg-surface-2 hover:text-ink">
+          <button
+            type="button"
+            aria-label={t("menu.label")}
+            className="-my-1 -mr-1.5 grid size-8 shrink-0 place-items-center rounded-full text-ink-faint hover:bg-surface-2 hover:text-ink"
+          >
             <Ellipsis className="size-[18px]" />
           </button>
         }
@@ -157,7 +232,12 @@ export function NoteMenu({ note, onDeleted }: { note: notes.Note; onDeleted?(): 
       {sheet === "likers" && <PeopleDialog kind="likers" noteId={note.id} onClose={close} />}
       {sheet === "renoters" && <PeopleDialog kind="renoters" noteId={note.id} onClose={close} />}
       {sheet === "stats" && <StatsDialog note={note} onClose={close} />}
-      <ReportDialog subject={noteSubject(note.id)} open={sheet === "report"} onOpenChange={(open) => !open && close()} label={t("report.label", { handle: note.author?.handle ?? "" })} />
+      <ReportDialog
+        subject={noteSubject(note.id)}
+        open={sheet === "report"}
+        onOpenChange={(open) => !open && close()}
+        label={t("report.label", { handle: note.author?.handle ?? "" })}
+      />
     </>
   );
 }
@@ -199,13 +279,24 @@ function VisibilityDialog({ note, onClose }: { note: notes.Note; onClose(): void
 }
 
 /** Who liked or renoted a note, most recent first. */
-export function PeopleDialog({ kind, noteId, onClose }: { kind: "likers" | "renoters"; noteId: string; onClose(): void }) {
+export function PeopleDialog({
+  kind,
+  noteId,
+  onClose,
+}: {
+  kind: "likers" | "renoters";
+  noteId: string;
+  onClose(): void;
+}) {
   const { t } = useTranslation("notes");
   const query = useInfiniteQuery({
     queryKey: kind === "likers" ? notesKeys.likers(noteId) : notesKeys.renoters(noteId),
     queryFn: async ({ pageParam }) => {
       const page = { cursor: pageParam, limit: 30 };
-      const response = kind === "likers" ? await noteClient().listNoteLikers({ noteId, page }) : await noteClient().listNoteRenoters({ noteId, page });
+      const response =
+        kind === "likers"
+          ? await noteClient().listNoteLikers({ noteId, page })
+          : await noteClient().listNoteRenoters({ noteId, page });
       return { users: response.users, nextCursor: response.page?.nextCursor ?? "" };
     },
     initialPageParam: "",
@@ -226,10 +317,17 @@ export function PeopleDialog({ kind, noteId, onClose }: { kind: "likers" | "reno
         <ul className="flex flex-col" data-testid={kind}>
           {users.map((user) => (
             <li key={user.id}>
-              <Link to="/u/$handle" params={{ handle: user.handle }} onClick={onClose} className="flex items-center gap-3 rounded-2xl px-2 py-2 hover:bg-surface-2">
+              <Link
+                to="/u/$handle"
+                params={{ handle: user.handle }}
+                onClick={onClose}
+                className="flex items-center gap-3 rounded-2xl px-2 py-2 hover:bg-surface-2"
+              >
                 <Avatar user={user} />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate font-bold">{user.displayName}</span>
+                  <span className="block truncate font-bold">
+                    <EmojiText text={user.displayName} />
+                  </span>
                   <span className="block truncate text-sm text-ink-soft">@{user.handle}</span>
                 </span>
               </Link>
@@ -255,7 +353,8 @@ function StatsDialog({ note, onClose }: { note: notes.Note; onClose(): void }) {
   const { data } = useEngagement(subject);
   const shares = useShareStats(subject, true);
   const counters = note.counters;
-  const number = (value: bigint | number | undefined) => Number(value ?? 0).toLocaleString(i18n.language);
+  const number = (value: bigint | number | undefined) =>
+    Number(value ?? 0).toLocaleString(i18n.language);
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()} title={t("stats.title")}>
@@ -267,7 +366,10 @@ function StatsDialog({ note, onClose }: { note: notes.Note; onClose(): void }) {
         <Stat label={t("stats.replies")} value={number(counters?.replyCount)} />
         <Stat label={t("stats.reactions")} value={number(data?.emojiTotal)} />
         <Stat label={t("stats.saves")} value={number(data?.bookmarkCount)} />
-        <Stat label={t("stats.shares")} value={number(shares.data?.shareCount ?? data?.shareCount)} />
+        <Stat
+          label={t("stats.shares")}
+          value={number(shares.data?.shareCount ?? data?.shareCount)}
+        />
       </dl>
       {shares.data && shares.data.targets.length > 0 && (
         <div className="mt-4">
@@ -277,7 +379,10 @@ function StatsDialog({ note, onClose }: { note: notes.Note; onClose(): void }) {
           </h3>
           <ul className="mt-2 flex flex-col gap-1.5">
             {shares.data.targets.map((entry) => (
-              <li key={entry.target} className="flex items-center justify-between rounded-xl bg-surface-2 px-3 py-2 text-sm font-bold">
+              <li
+                key={entry.target}
+                className="flex items-center justify-between rounded-xl bg-surface-2 px-3 py-2 text-sm font-bold"
+              >
                 <span>{t(`stats.targets.${SHARE_TARGET_KEYS[entry.target] ?? "other"}`)}</span>
                 <span className="tabular-nums">{number(entry.count)}</span>
               </li>

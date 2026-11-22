@@ -16,7 +16,17 @@ type Kind = "admin1" | "country";
  * the way to the next one. `onPick` (the owner's own list) makes a row lead
  * to that region's ranking.
  */
-export function RegionList({ stats, onPick, coach }: { stats: geo.RegionStat[]; onPick?(regionId: string): void; /** Say how far the next level is (only for one's own numbers). */ coach?: boolean }) {
+export function RegionList({
+  stats,
+  onPick,
+  coach,
+}: {
+  stats: geo.RegionStat[];
+  onPick?(
+    regionId: string,
+  ): void /** Say how far the next level is (only for one's own numbers). */;
+  coach?: boolean;
+}) {
   const { t } = useTranslation("footprints");
   const [kind, setKind] = useState<Kind>("admin1");
   const admin1 = stats.filter((stat) => stat.region?.kind === geo.RegionKind.ADMIN1);
@@ -51,16 +61,31 @@ export function RegionList({ stats, onPick, coach }: { stats: geo.RegionStat[]; 
                 </span>
                 <div className="min-w-0 flex-1 text-left">
                   <p className="truncate font-black">{regionName(region)}</p>
-                  <p className="text-xs font-bold text-ink-faint">{t("regions.cells", { count: Number(stat.cellCount), km2: stat.exploredKm2.toFixed(stat.exploredKm2 < 10 ? 1 : 0) })}</p>
+                  <p className="text-xs font-bold text-ink-faint">
+                    {t("regions.cells", {
+                      count: Number(stat.cellCount),
+                      km2: stat.exploredKm2.toFixed(stat.exploredKm2 < 10 ? 1 : 0),
+                    })}
+                  </p>
                 </div>
                 <div className="text-right">
                   <p className="text-xl font-black tabular-nums">{formatPercent(stat.percent)}</p>
                   <Chip className="bg-brand-soft text-brand-strong">Lv.{level.level}</Chip>
                 </div>
               </div>
-              <Meter className="mt-3" value={level.progress} label={t("regions.progressLabel", { region: regionName(region) })} />
+              <Meter
+                className="mt-3"
+                value={level.progress}
+                label={t("regions.progressLabel", { region: regionName(region) })}
+              />
               <div className="mt-1.5 flex items-center justify-between gap-2 text-xs font-bold text-ink-soft">
-                <span>{level.level >= 15 ? t("regions.complete") : coach ? t("regions.next", { percent: formatPercent(level.nextPercent) }) : ""}</span>
+                <span>
+                  {level.level >= 15
+                    ? t("regions.complete")
+                    : coach
+                      ? t("regions.next", { percent: formatPercent(level.nextPercent) })
+                      : ""}
+                </span>
                 {stat.friendRank > 0 && (
                   <span className="inline-flex items-center gap-1">
                     <Trophy className="size-3.5" />
@@ -73,7 +98,11 @@ export function RegionList({ stats, onPick, coach }: { stats: geo.RegionStat[]; 
           return (
             <li key={region.id}>
               {onPick ? (
-                <button type="button" onClick={() => onPick(region.id)} className={cn("pressable sticker block w-full rounded-card bg-surface p-4")}>
+                <button
+                  type="button"
+                  onClick={() => onPick(region.id)}
+                  className={cn("pressable sticker block w-full rounded-card bg-surface p-4")}
+                >
                   {body}
                 </button>
               ) : (

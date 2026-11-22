@@ -22,7 +22,15 @@ interface AnchorButtonProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
   icon?: ReactNode;
 }
 
-function AnchorButton({ variant = "primary", size = "md", block, icon, className, children, ...props }: AnchorButtonProps) {
+function AnchorButton({
+  variant = "primary",
+  size = "md",
+  block,
+  icon,
+  className,
+  children,
+  ...props
+}: AnchorButtonProps) {
   return (
     <a
       className={cn(
@@ -44,7 +52,15 @@ function AnchorButton({ variant = "primary", size = "md", block, icon, className
 export const LinkButton = createLink(AnchorButton);
 
 /** Heading of a block inside a wallet page, with an optional control on the right. */
-export function SectionTitle({ children, action, className }: { children: ReactNode; action?: ReactNode; className?: string }) {
+export function SectionTitle({
+  children,
+  action,
+  className,
+}: {
+  children: ReactNode;
+  action?: ReactNode;
+  className?: string;
+}) {
   return (
     <div className={cn("flex min-h-9 items-center justify-between gap-3 px-1", className)}>
       <h2 className="text-sm font-black text-ink-soft">{children}</h2>
@@ -64,14 +80,48 @@ const TONES = {
 export type Tone = keyof typeof TONES;
 
 /** A state label (pending, paid, rejected…). The word carries the meaning; the colour only helps scanning. */
-export function StatusChip({ tone, children, className }: { tone: Tone; children: ReactNode; className?: string }) {
-  return <span className={cn("inline-flex h-6 shrink-0 items-center rounded-full px-2.5 text-xs font-black", TONES[tone], className)}>{children}</span>;
+export function StatusChip({
+  tone,
+  children,
+  className,
+}: {
+  tone: Tone;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex h-6 shrink-0 items-center rounded-full px-2.5 text-xs font-black",
+        TONES[tone],
+        className,
+      )}
+    >
+      {children}
+    </span>
+  );
 }
 
 /** One "label: value" line of a details block. `stack` puts the label above the value, for long text (addresses, messages, IDs). */
-export function Fact({ label, children, className, stack }: { label: ReactNode; children: ReactNode; className?: string; stack?: boolean }) {
+export function Fact({
+  label,
+  children,
+  className,
+  stack,
+}: {
+  label: ReactNode;
+  children: ReactNode;
+  className?: string;
+  stack?: boolean;
+}) {
   return (
-    <div className={cn("py-2", stack ? "flex flex-col gap-0.5" : "flex items-baseline justify-between gap-4", className)}>
+    <div
+      className={cn(
+        "py-2",
+        stack ? "flex flex-col gap-0.5" : "flex items-baseline justify-between gap-4",
+        className,
+      )}
+    >
       <dt className="shrink-0 text-sm font-bold text-ink-soft">{label}</dt>
       <dd className={cn("min-w-0 font-bold break-words", !stack && "text-right")}>{children}</dd>
     </div>
@@ -79,7 +129,15 @@ export function Fact({ label, children, className, stack }: { label: ReactNode; 
 }
 
 /** A big number with a caption under it, for summaries (one group of a `<dl>`). */
-export function Stat({ label, children, className }: { label: ReactNode; children: ReactNode; className?: string }) {
+export function Stat({
+  label,
+  children,
+  className,
+}: {
+  label: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
   return (
     <div className={cn("flex min-w-0 flex-col-reverse", className)}>
       <dt className="truncate text-xs font-bold text-ink-faint">{label}</dt>

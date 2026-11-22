@@ -30,7 +30,10 @@ export default function SettingsBackground() {
   useEffect(() => {
     if (!userId || !appearance || window.localStorage.getItem(OWNER_KEY) === userId) return;
     window.localStorage.setItem(OWNER_KEY, userId);
-    setAppearance({ theme: isThemeSetting(appearance.theme) ? appearance.theme : "system", level: appearance.dopamineLevel });
+    setAppearance({
+      theme: isThemeSetting(appearance.theme) ? appearance.theme : "system",
+      level: appearance.dopamineLevel,
+    });
   }, [userId, appearance]);
 
   // Signing out ends the browser's claim, so the next sign-in starts from the account again.

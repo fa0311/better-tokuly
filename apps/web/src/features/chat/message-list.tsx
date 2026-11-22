@@ -4,8 +4,8 @@ import { type Ref, useEffect, useImperativeHandle, useLayoutEffect, useRef, useS
 import { useTranslation } from "react-i18next";
 import { Spinner } from "#/components/ui/spinner";
 import { MessageItem } from "./message-item";
-import type { Row } from "./timeline";
 import { dayLabel } from "./text";
+import type { Row } from "./timeline";
 
 /** What the screen can ask of the list. */
 export interface MessageListHandle {
@@ -36,7 +36,12 @@ function estimate(row: Row | undefined): number {
     case chat.MessageKind.CALL:
       return 64;
     default:
-      return 46 + Math.floor(message.text.length / 28) * 22 + (message.replyTo ? 48 : 0) + (message.linkPreview ? 150 : 0);
+      return (
+        46 +
+        Math.floor(message.text.length / 28) * 22 +
+        (message.replyTo ? 48 : 0) +
+        (message.linkPreview ? 150 : 0)
+      );
   }
 }
 
@@ -120,7 +125,9 @@ export function MessageList({
   useLayoutEffect(() => {
     if (opened.current || rows.length === 0) return;
     opened.current = true;
-    const focus = focusId ? rows.findIndex((row) => row.type === "message" && row.message.id === focusId) : -1;
+    const focus = focusId
+      ? rows.findIndex((row) => row.type === "message" && row.message.id === focusId)
+      : -1;
     const unread = rows.findIndex((row) => row.type === "unread");
     const place = () => {
       if (focus >= 0) virtualizer.scrollToIndex(focus, { align: "center" });
@@ -220,7 +227,12 @@ export function MessageList({
     for (const item of items) {
       const row = rows[item.index];
       if (row?.type !== "message" || row.pending) continue;
-      if (item.end > viewTop && item.start + Math.min(item.size, 48) <= viewBottom && (!onScreen || row.message.seq > onScreen.seq)) onScreen = row.message;
+      if (
+        item.end > viewTop &&
+        item.start + Math.min(item.size, 48) <= viewBottom &&
+        (!onScreen || row.message.seq > onScreen.seq)
+      )
+        onScreen = row.message;
     }
   }
   const seenId = useRef("");
@@ -239,7 +251,13 @@ export function MessageList({
   });
 
   return (
-    <div ref={scroller} className="h-full overflow-y-auto overscroll-contain" data-testid="message-list" data-at-end={atEnd} data-ready={ready || undefined}>
+    <div
+      ref={scroller}
+      className="h-full overflow-y-auto overscroll-contain"
+      data-testid="message-list"
+      data-at-end={atEnd}
+      data-ready={ready || undefined}
+    >
       {hasOlder && firstIndex === 0 && (
         <div className="absolute inset-x-0 top-2 z-10 grid place-items-center">
           <Spinner className="size-5 text-ink-faint" />
@@ -250,19 +268,34 @@ export function MessageList({
           const row = rows[item.index];
           if (!row) return null;
           return (
-            <div key={item.key} data-index={item.index} ref={virtualizer.measureElement} className="absolute top-0 left-0 w-full" style={{ transform: `translateY(${item.start}px)` }}>
+            <div
+              key={item.key}
+              data-index={item.index}
+              ref={virtualizer.measureElement}
+              className="absolute top-0 left-0 w-full"
+              style={{ transform: `translateY(${item.start}px)` }}
+            >
               {row.type === "day" ? (
                 <p className="py-2 text-center">
-                  <span className="rounded-full bg-surface-2 px-3 py-1 text-xs font-bold text-ink-soft">{dayLabel(row.at)}</span>
+                  <span className="rounded-full bg-surface-2 px-3 py-1 text-xs font-bold text-ink-soft">
+                    {dayLabel(row.at)}
+                  </span>
                 </p>
               ) : row.type === "unread" ? (
-                <p className="flex items-center gap-3 px-4 py-2 text-xs font-black text-pink" data-testid="unread-divider">
+                <p
+                  className="flex items-center gap-3 px-4 py-2 text-xs font-black text-pink"
+                  data-testid="unread-divider"
+                >
                   <span className="h-0.5 flex-1 rounded-full bg-pink/40" />
                   {t("message.unreadFrom")}
                   <span className="h-0.5 flex-1 rounded-full bg-pink/40" />
                 </p>
               ) : (
-                <MessageItem row={row} highlighted={row.message.id === focusId} onOpenLocation={onOpenLocation} />
+                <MessageItem
+                  row={row}
+                  highlighted={row.message.id === focusId}
+                  onOpenLocation={onOpenLocation}
+                />
               )}
             </div>
           );

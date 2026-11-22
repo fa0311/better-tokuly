@@ -73,14 +73,22 @@ export function PackFormDialog({
   const min = limits?.minPrice ?? 10;
   const max = limits?.maxPrice ?? 10_000;
   const amount = Number.parseInt(price, 10);
-  const priceError = paid && (!Number.isFinite(amount) || amount < min || amount > max) ? t("form.priceRange", { min, max: max.toLocaleString("en-US") }) : undefined;
+  const priceError =
+    paid && (!Number.isFinite(amount) || amount < min || amount > max)
+      ? t("form.priceRange", { min, max: max.toLocaleString("en-US") })
+      : undefined;
   const valid = name.trim().length > 0 && !priceError;
 
   const submit = async () => {
     if (!valid) return;
     setSaving(true);
     try {
-      await onSubmit({ name: name.trim(), description: description.trim(), tags: parseKeywords(tags), price: paid ? amount : 0 });
+      await onSubmit({
+        name: name.trim(),
+        description: description.trim(),
+        tags: parseKeywords(tags),
+        price: paid ? amount : 0,
+      });
       onOpenChange(false);
     } catch {
       // `onSubmit` reports its own failure; the form stays open with what was typed.
@@ -98,7 +106,15 @@ export function PackFormDialog({
           void submit();
         }}
       >
-        <TextField label={t("form.name")} placeholder={t("form.namePlaceholder")} value={name} maxLength={40} required autoFocus onChange={(event) => setName(event.target.value)} />
+        <TextField
+          label={t("form.name")}
+          placeholder={t("form.namePlaceholder")}
+          value={name}
+          maxLength={40}
+          required
+          autoFocus
+          onChange={(event) => setName(event.target.value)}
+        />
         <TextArea
           label={t("form.description")}
           placeholder={t("form.descriptionPlaceholder")}
@@ -107,9 +123,21 @@ export function PackFormDialog({
           rows={3}
           onChange={(event) => setDescription(event.target.value)}
         />
-        <TextField label={t("form.tags")} placeholder={t("form.tagsPlaceholder")} hint={t("form.tagsHint")} value={tags} maxLength={280} onChange={(event) => setTags(event.target.value)} />
+        <TextField
+          label={t("form.tags")}
+          placeholder={t("form.tagsPlaceholder")}
+          hint={t("form.tagsHint")}
+          value={tags}
+          maxLength={280}
+          onChange={(event) => setTags(event.target.value)}
+        />
         <div className="rounded-2xl border-2 border-line p-1">
-          <SwitchRow label={t("form.paid")} hint={t("form.paidHint")} checked={paid} onChange={setPaid} />
+          <SwitchRow
+            label={t("form.paid")}
+            hint={t("form.paidHint")}
+            checked={paid}
+            onChange={setPaid}
+          />
           {paid && (
             <div className="flex flex-col gap-2 px-3 pb-3">
               <TextField
@@ -127,7 +155,11 @@ export function PackFormDialog({
               {!official && limits && !priceError && (
                 <p className="flex flex-wrap items-center gap-1.5 px-1 text-sm font-bold text-ink-soft">
                   {t("form.earnings", { fee: limits.feePercent })}
-                  <Coins amount={netEarnings(amount, limits.feePercent)} size="sm" className="text-ink" />
+                  <Coins
+                    amount={netEarnings(amount, limits.feePercent)}
+                    size="sm"
+                    className="text-ink"
+                  />
                 </p>
               )}
             </div>

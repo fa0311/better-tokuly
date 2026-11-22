@@ -26,16 +26,35 @@ export interface Target {
  * Picks where to send something: the viewer's conversations, then the
  * friends they have not talked to yet, with one search over both.
  */
-export function TargetPicker({ selected, onChange, limit }: { selected: Target[]; onChange(selected: Target[]): void; limit: number }) {
+export function TargetPicker({
+  selected,
+  onChange,
+  limit,
+}: {
+  selected: Target[];
+  onChange(selected: Target[]): void;
+  limit: number;
+}) {
   const { t } = useTranslation("chat");
   const myId = useMe()?.user?.id ?? "";
   const [query, setQuery] = useState("");
   const list = useConversationList("inbox");
   const friends = useFriends(query.trim().replace(/^@/, ""));
-  const conversations = (list.data?.pages.flatMap((page) => page.conversations) ?? []).filter((conversation) => canWrite(conversation) && matchesQuery(conversation, myId, query));
-  const talkedTo = new Set(conversations.flatMap((conversation) => (isGroup(conversation) ? [] : [peerOf(conversation, myId)?.id])));
-  const others = (friends.data?.friends ?? []).flatMap((friend) => (friend.user && !talkedTo.has(friend.user.id) ? [friend.user] : []));
-  const targets: Target[] = [...conversations.map((conversation) => ({ key: conversation.id, conversation })), ...others.map((friend) => ({ key: `user:${friend.id}`, friend }))];
+  const conversations = (list.data?.pages.flatMap((page) => page.conversations) ?? []).filter(
+    (conversation) => canWrite(conversation) && matchesQuery(conversation, myId, query),
+  );
+  const talkedTo = new Set(
+    conversations.flatMap((conversation) =>
+      isGroup(conversation) ? [] : [peerOf(conversation, myId)?.id],
+    ),
+  );
+  const others = (friends.data?.friends ?? []).flatMap((friend) =>
+    friend.user && !talkedTo.has(friend.user.id) ? [friend.user] : [],
+  );
+  const targets: Target[] = [
+    ...conversations.map((conversation) => ({ key: conversation.id, conversation })),
+    ...others.map((friend) => ({ key: `user:${friend.id}`, friend })),
+  ];
   const isSelected = (target: Target) => selected.some((chosen) => chosen.key === target.key);
   const full = selected.length >= limit;
   const toggle = (target: Target) => {
@@ -45,7 +64,9 @@ export function TargetPicker({ selected, onChange, limit }: { selected: Target[]
 
   const row = (target: Target) => {
     const chosen = isSelected(target);
-    const name = target.conversation ? titleOf(target.conversation, myId) : displayName(target.friend);
+    const name = target.conversation
+      ? titleOf(target.conversation, myId)
+      : displayName(target.friend);
     return (
       <li key={target.key}>
         <button
@@ -55,9 +76,20 @@ export function TargetPicker({ selected, onChange, limit }: { selected: Target[]
           onClick={() => toggle(target)}
           className="flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left transition-colors hover:bg-surface-2 disabled:opacity-50"
         >
-          {target.conversation ? <ConversationAvatar conversation={target.conversation} myId={myId} /> : <Avatar user={target.friend} outlined />}
+          {target.conversation ? (
+            <ConversationAvatar conversation={target.conversation} myId={myId} />
+          ) : (
+            <Avatar user={target.friend} outlined />
+          )}
           <span className="min-w-0 flex-1 truncate font-bold">{name}</span>
-          <span className={cn("grid size-6 shrink-0 place-items-center rounded-full border-2", chosen ? "border-ink bg-lime text-[#17122b]" : "border-line")}>{chosen && <Check className="size-4" strokeWidth={3} />}</span>
+          <span
+            className={cn(
+              "grid size-6 shrink-0 place-items-center rounded-full border-2",
+              chosen ? "border-ink bg-lime text-[#17122b]" : "border-line",
+            )}
+          >
+            {chosen && <Check className="size-4" strokeWidth={3} />}
+          </span>
         </button>
       </li>
     );
@@ -76,7 +108,9 @@ export function TargetPicker({ selected, onChange, limit }: { selected: Target[]
         <EmptyState emoji="🫥" title={t("share.empty")} />
       ) : (
         <div className="-mx-2">
-          {conversations.length > 0 && <ul>{targets.filter((target) => target.conversation).map(row)}</ul>}
+          {conversations.length > 0 && (
+            <ul>{targets.filter((target) => target.conversation).map(row)}</ul>
+          )}
           {others.length > 0 && (
             <>
               <SectionTitle>{t("share.friends")}</SectionTitle>
@@ -97,7 +131,9 @@ export function useResolveTargets(): (targets: Target[]) => Promise<string[]> {
     Promise.all(
       targets.map(async (target) => {
         if (target.conversation) return target.conversation.id;
-        const { conversation } = await conversationClient().openDirect({ userId: target.friend!.id });
+        const { conversation } = await conversationClient().openDirect({
+          userId: target.friend!.id,
+        });
         if (conversation) putConversation(queryClient, conversation);
         return conversation!.id;
       }),

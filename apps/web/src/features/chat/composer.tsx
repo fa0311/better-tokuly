@@ -1,20 +1,41 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { chat, type common } from "@tokuly/api";
-import { Camera, CornerUpLeft, FileText, ImagePlus, MapPin, Paperclip, Pencil, Play, Plus, Send, Smile, Sticker, X } from "lucide-react";
-import { type ClipboardEvent, type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  Camera,
+  CornerUpLeft,
+  FileText,
+  ImagePlus,
+  MapPin,
+  Paperclip,
+  Pencil,
+  Play,
+  Plus,
+  Send,
+  Smile,
+  Sticker,
+  X,
+} from "lucide-react";
+import {
+  type ClipboardEvent,
+  type KeyboardEvent,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Menu, type MenuAction } from "#/components/ui/menu";
+import { EmojiPicker, EmojiSuggestBar } from "#/features/emoji";
 import { StampPicker } from "#/features/stamps";
 import { cn } from "#/lib/cn";
-import { errorMessage } from "./errors";
 import { realtime } from "#/lib/realtime";
 import { AssistButton, SuggestedReplies } from "./assist";
 import { describeFile, type OutgoingFile, releaseFiles } from "./attachments";
 import { useConversationContext } from "./conversation-context";
 import { loadDraft, saveDraft } from "./drafts";
-import { EmojiPopover } from "./emoji-picker";
+import { errorMessage } from "./errors";
 import { LocationShareDialog } from "./location-dialog";
 import { useMembers } from "./members";
 import { useMessageActions } from "./messages";
@@ -90,7 +111,9 @@ export function Composer({
   const trimmed = text.trim();
   const tooLong = text.length > capabilities.maxTextLength;
   // A caption may be edited away; any other message needs something in it.
-  const hasContent = editing ? trimmed.length > 0 || editing.kind === chat.MessageKind.MEDIA : trimmed.length > 0 || files.length > 0;
+  const hasContent = editing
+    ? trimmed.length > 0 || editing.kind === chat.MessageKind.MEDIA
+    : trimmed.length > 0 || files.length > 0;
   const canSend = hasContent && !tooLong && !saving;
 
   // ── Text: autosize, drafts, typing signals ──
@@ -151,8 +174,14 @@ export function Composer({
         ...("all".startsWith(mention.query.toLowerCase()) ? [{ key: "all", handle: "all" }] : []),
         ...(members.data?.pages ?? [])
           .flatMap((page) => page.members)
-          .flatMap((member) => (member.user && member.user.id !== me.id && !member.user.deleted ? [member.user] : []))
-          .filter((user) => user.handle.toLowerCase().startsWith(mention.query.toLowerCase()) || user.displayName.toLowerCase().includes(mention.query.toLowerCase()))
+          .flatMap((member) =>
+            member.user && member.user.id !== me.id && !member.user.deleted ? [member.user] : [],
+          )
+          .filter(
+            (user) =>
+              user.handle.toLowerCase().startsWith(mention.query.toLowerCase()) ||
+              user.displayName.toLowerCase().includes(mention.query.toLowerCase()),
+          )
           .map((user) => ({ key: user.id, handle: user.handle, user })),
       ].slice(0, 6)
     : [];
@@ -184,8 +213,11 @@ export function Composer({
       return;
     }
     const room = capabilities.maxAttachments - files.length;
-    if (picked.length > room) toast.error(t("composer.tooManyFiles", { count: capabilities.maxAttachments }));
-    const described = await Promise.all(picked.slice(0, Math.max(0, room)).map((file) => describeFile(file)));
+    if (picked.length > room)
+      toast.error(t("composer.tooManyFiles", { count: capabilities.maxAttachments }));
+    const described = await Promise.all(
+      picked.slice(0, Math.max(0, room)).map((file) => describeFile(file)),
+    );
     setFiles((current) => [...current, ...described]);
     input.current?.focus();
   };
@@ -248,7 +280,9 @@ export function Composer({
     if (choices.length > 0) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
-        setMentionIndex((activeChoice + (event.key === "ArrowDown" ? 1 : choices.length - 1)) % choices.length);
+        setMentionIndex(
+          (activeChoice + (event.key === "ArrowDown" ? 1 : choices.length - 1)) % choices.length,
+        );
         return;
       }
       if (event.key === "Enter" || event.key === "Tab") {
@@ -284,28 +318,74 @@ export function Composer({
   /** The assistant's version replaces the draft; the toast offers the way back. */
   const rewritten = (next: string, original: string) => {
     change(next, next.length);
-    toast(t("assist.rewritten"), { action: { label: t("assist.undo"), onClick: () => change(original, original.length) } });
+    toast(t("assist.rewritten"), {
+      action: { label: t("assist.undo"), onClick: () => change(original, original.length) },
+    });
   };
 
   if (!writable) {
-    return <p className="border-t-2 border-line bg-surface px-4 pt-3 pb-safe text-center text-sm font-bold text-ink-soft">{t("composer.readOnly")}</p>;
+    return (
+      <p className="border-t-2 border-line bg-surface px-4 pt-3 pb-safe text-center text-sm font-bold text-ink-soft">
+        {t("composer.readOnly")}
+      </p>
+    );
   }
   if (limited && requestLeft === 0) {
-    return <p className="border-t-2 border-line bg-surface px-4 pt-3 pb-safe text-center text-sm font-bold text-ink-soft">{t("composer.requestWaiting")}</p>;
+    return (
+      <p className="border-t-2 border-line bg-surface px-4 pt-3 pb-safe text-center text-sm font-bold text-ink-soft">
+        {t("composer.requestWaiting")}
+      </p>
+    );
   }
 
   const more: MenuAction[] = [
-    { label: t("composer.photo"), icon: <ImagePlus />, disabled: limited, onSelect: () => picker.current?.click() },
-    { label: t("composer.file"), icon: <Paperclip />, disabled: limited, onSelect: () => filePicker.current?.click() },
-    { label: t("composer.place"), icon: <MapPin />, disabled: limited, onSelect: () => setSharingPlace(true) },
-    ...(onRequestPov ? [{ label: t("composer.pov"), icon: <Camera />, disabled: limited, onSelect: onRequestPov }] : []),
+    {
+      label: t("composer.photo"),
+      icon: <ImagePlus />,
+      disabled: limited,
+      onSelect: () => picker.current?.click(),
+    },
+    {
+      label: t("composer.file"),
+      icon: <Paperclip />,
+      disabled: limited,
+      onSelect: () => filePicker.current?.click(),
+    },
+    {
+      label: t("composer.place"),
+      icon: <MapPin />,
+      disabled: limited,
+      onSelect: () => setSharingPlace(true),
+    },
+    ...(onRequestPov
+      ? [{ label: t("composer.pov"), icon: <Camera />, disabled: limited, onSelect: onRequestPov }]
+      : []),
   ];
-  const round = "grid size-10 shrink-0 place-items-center rounded-full text-ink-soft hover:bg-surface-2 hover:text-ink";
+  const round =
+    "grid size-10 shrink-0 place-items-center rounded-full text-ink-soft hover:bg-surface-2 hover:text-ink";
 
   return (
-    <div className="relative shrink-0 border-t-2 border-line bg-surface" onPaste={onPaste} data-testid="composer">
+    <div
+      className="relative shrink-0 border-t-2 border-line bg-surface"
+      onPaste={onPaste}
+      data-testid="composer"
+    >
+      {/* `:` autocomplete: custom and Unicode emoji by name. */}
+      <EmojiSuggestBar
+        text={text}
+        caret={caret}
+        onComplete={(next) => {
+          caretAfterInsert.current = next.caret;
+          change(next.text, next.caret);
+        }}
+        className="absolute inset-x-3 bottom-full z-20 mb-2"
+      />
       {choices.length > 0 && (
-        <div role="listbox" aria-label={t("composer.mentions")} className="sticker absolute inset-x-3 bottom-full z-20 mb-2 flex flex-col overflow-hidden rounded-2xl bg-surface p-1.5 sm:right-auto sm:w-72">
+        <div
+          role="listbox"
+          aria-label={t("composer.mentions")}
+          className="sticker absolute inset-x-3 bottom-full z-20 mb-2 flex flex-col overflow-hidden rounded-2xl bg-surface p-1.5 sm:right-auto sm:w-72"
+        >
           {choices.map((choice, index) => (
             <button
               key={choice.key}
@@ -315,11 +395,22 @@ export function Composer({
               // Keep the caret where it is: the text field must not lose focus.
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => pickMention(choice)}
-              className={cn("flex w-full items-center gap-2.5 rounded-xl px-2.5 py-1.5 text-left", index === activeChoice && "bg-surface-2")}
+              className={cn(
+                "flex w-full items-center gap-2.5 rounded-xl px-2.5 py-1.5 text-left",
+                index === activeChoice && "bg-surface-2",
+              )}
             >
-              {choice.user ? <Avatar user={choice.user} size="sm" /> : <span className="grid size-8 place-items-center rounded-[0.6rem] bg-sun text-sm font-black text-[#17122b]">@</span>}
+              {choice.user ? (
+                <Avatar user={choice.user} size="sm" />
+              ) : (
+                <span className="grid size-8 place-items-center rounded-[0.6rem] bg-sun text-sm font-black text-[#17122b]">
+                  @
+                </span>
+              )}
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-bold">{choice.user ? displayName(choice.user) : t("composer.everyone")}</span>
+                <span className="block truncate text-sm font-bold">
+                  {choice.user ? displayName(choice.user) : t("composer.everyone")}
+                </span>
                 <span className="block truncate text-xs text-ink-soft">@{choice.handle}</span>
               </span>
             </button>
@@ -328,22 +419,46 @@ export function Composer({
       )}
 
       {(replyTo || editing) && (
-        <div className="flex items-center gap-2 border-b-2 border-line px-3 py-2" data-testid={editing ? "editing-bar" : "reply-bar"}>
-          {editing ? <Pencil className="size-4 shrink-0 text-brand" /> : <CornerUpLeft className="size-4 shrink-0 text-brand" />}
+        <div
+          className="flex items-center gap-2 border-b-2 border-line px-3 py-2"
+          data-testid={editing ? "editing-bar" : "reply-bar"}
+        >
+          {editing ? (
+            <Pencil className="size-4 shrink-0 text-brand" />
+          ) : (
+            <CornerUpLeft className="size-4 shrink-0 text-brand" />
+          )}
           <div className="min-w-0 flex-1 border-l-4 border-brand pl-2 text-xs">
-            <p className="truncate font-black text-brand">{editing ? t("composer.editing") : t("composer.replyingTo", { name: displayName(replyTo?.sender) })}</p>
+            <p className="truncate font-black text-brand">
+              {editing
+                ? t("composer.editing")
+                : t("composer.replyingTo", { name: displayName(replyTo?.sender) })}
+            </p>
             <p className="truncate text-ink-soft">{contentText(editing ?? replyTo!, me.id)}</p>
           </div>
-          <button type="button" aria-label={t("actions.cancel")} onClick={editing ? onCancelEdit : onCancelReply} className="grid size-8 shrink-0 place-items-center rounded-full text-ink-soft hover:bg-surface-2">
+          <button
+            type="button"
+            aria-label={t("actions.cancel")}
+            onClick={editing ? onCancelEdit : onCancelReply}
+            className="grid size-8 shrink-0 place-items-center rounded-full text-ink-soft hover:bg-surface-2"
+          >
             <X className="size-4" />
           </button>
         </div>
       )}
 
-      {!editing && <SuggestedReplies conversationId={conversation.id} onPick={(reply) => change(reply, reply.length)} />}
+      {!editing && (
+        <SuggestedReplies
+          conversationId={conversation.id}
+          onPick={(reply) => change(reply, reply.length)}
+        />
+      )}
 
       {files.length > 0 && (
-        <ul className="scrollbar-none flex gap-2 overflow-x-auto px-3 pt-3" aria-label={t("composer.attachments")}>
+        <ul
+          className="scrollbar-none flex gap-2 overflow-x-auto px-3 pt-3"
+          aria-label={t("composer.attachments")}
+        >
           {files.map((file) => (
             <li key={file.id} className="relative shrink-0" data-testid="attachment-chip">
               <FileChip file={file} />
@@ -363,7 +478,11 @@ export function Composer({
         </ul>
       )}
 
-      {limited && <p className="px-4 pt-2 text-xs font-bold text-ink-soft">{t("composer.requestLeft", { count: requestLeft })}</p>}
+      {limited && (
+        <p className="px-4 pt-2 text-xs font-bold text-ink-soft">
+          {t("composer.requestLeft", { count: requestLeft })}
+        </p>
+      )}
 
       <div className="flex items-end gap-1 px-2 pt-2 pb-safe">
         {recording ? null : editing ? null : (
@@ -385,7 +504,14 @@ export function Composer({
                 </button>
               }
             />
-            {capabilities.assistEnabled && <AssistButton conversationId={conversation.id} draft={text} lastSeq={conversation.lastSeq} onRewritten={rewritten} />}
+            {capabilities.assistEnabled && (
+              <AssistButton
+                conversationId={conversation.id}
+                draft={text}
+                lastSeq={conversation.lastSeq}
+                onRewritten={rewritten}
+              />
+            )}
           </>
         )}
         {!recording && (
@@ -405,17 +531,29 @@ export function Composer({
               className="max-h-[148px] min-h-[2.5rem] min-w-0 flex-1 resize-none bg-transparent py-2 pr-1 pl-4 text-[15px] leading-6 outline-none placeholder:text-ink-faint"
             />
             {hover && (
-              <EmojiPopover
+              <EmojiPicker
+                keepOpen
                 onPick={insertEmoji}
                 trigger={
-                  <button type="button" aria-label={t("emoji.title")} className="mr-1 mb-0.5 grid size-9 shrink-0 place-items-center rounded-full text-ink-soft hover:bg-surface-2 hover:text-ink">
+                  <button
+                    type="button"
+                    aria-label={t("emoji.title")}
+                    className="mr-1 mb-0.5 grid size-9 shrink-0 place-items-center rounded-full text-ink-soft hover:bg-surface-2 hover:text-ink"
+                  >
                     <Smile className="size-5" />
                   </button>
                 }
               />
             )}
             {text.length > capabilities.maxTextLength - 200 && (
-              <span className={cn("absolute -top-5 right-2 text-[11px] font-bold tabular-nums", tooLong ? "text-danger" : "text-ink-faint")}>{capabilities.maxTextLength - text.length}</span>
+              <span
+                className={cn(
+                  "absolute -top-5 right-2 text-[11px] font-bold tabular-nums",
+                  tooLong ? "text-danger" : "text-ink-faint",
+                )}
+              >
+                {capabilities.maxTextLength - text.length}
+              </span>
             )}
           </div>
         )}
@@ -442,24 +580,60 @@ export function Composer({
         )}
       </div>
 
-      <input ref={picker} type="file" accept="image/*,video/*" multiple className="hidden" data-testid="photo-input" onChange={(event) => void pick(event.target)} />
-      <input ref={filePicker} type="file" multiple className="hidden" data-testid="file-input" onChange={(event) => void pick(event.target)} />
-      <LocationShareDialog open={sharingPlace} onOpenChange={setSharingPlace} onShare={(location) => deliver({ text: "", location })} />
+      <input
+        ref={picker}
+        type="file"
+        accept="image/*,video/*"
+        multiple
+        className="hidden"
+        data-testid="photo-input"
+        onChange={(event) => void pick(event.target)}
+      />
+      <input
+        ref={filePicker}
+        type="file"
+        multiple
+        className="hidden"
+        data-testid="file-input"
+        onChange={(event) => void pick(event.target)}
+      />
+      <LocationShareDialog
+        open={sharingPlace}
+        onOpenChange={setSharingPlace}
+        onShare={(location) => deliver({ text: "", location })}
+      />
     </div>
   );
 }
 
 /** A file waiting in the composer: a thumbnail for pictures and videos, a labelled chip for the rest. */
 function FileChip({ file }: { file: OutgoingFile }) {
-  if (file.kind === "image") return <img src={file.previewUrl} alt={file.name} className="size-16 rounded-2xl border-2 border-line object-cover" />;
+  if (file.kind === "image")
+    return (
+      <img
+        src={file.previewUrl}
+        alt={file.name}
+        className="size-16 rounded-2xl border-2 border-line object-cover"
+      />
+    );
   if (file.kind === "video") {
     return (
       <span className="relative block size-16 overflow-hidden rounded-2xl border-2 border-line bg-surface-3">
-        <video src={`${file.previewUrl}#t=0.1`} muted playsInline preload="metadata" className="size-full object-cover" />
+        <video
+          src={`${file.previewUrl}#t=0.1`}
+          muted
+          playsInline
+          preload="metadata"
+          className="size-full object-cover"
+        />
         <span className="absolute inset-0 grid place-items-center bg-black/20 text-white">
           <Play className="size-5 fill-current" />
         </span>
-        {file.durationSeconds ? <span className="absolute right-1 bottom-0.5 text-[10px] font-bold text-white tabular-nums">{playTime(file.durationSeconds)}</span> : null}
+        {file.durationSeconds ? (
+          <span className="absolute right-1 bottom-0.5 text-[10px] font-bold text-white tabular-nums">
+            {playTime(file.durationSeconds)}
+          </span>
+        ) : null}
       </span>
     );
   }

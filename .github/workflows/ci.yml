@@ -156,6 +156,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Generate the API client
         run: pnpm proto:gen
+      # Formatting, import order and lint errors of the web app and the client packages
+      # (`pnpm format:web` fixes what can be fixed).
+      - name: Format and lint
+        run: pnpm lint:web
       - name: Client packages
         run: pnpm --filter @tokuly/api --filter @tokuly/realtime run --if-present test
       # The build comes first: it writes the route tree the type check needs.

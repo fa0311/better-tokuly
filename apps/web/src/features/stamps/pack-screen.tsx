@@ -10,8 +10,25 @@ import { Button } from "#/components/ui/button";
 import { Chip } from "#/components/ui/card";
 import { CoinIcon } from "#/components/ui/coins";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
-import { formatCount, stampKeys, storeClient, useInstallPack, usePack, useUninstallPack } from "./api";
-import { AnimatedMark, PackCard, PackCover, SectionHeading, StampGrid, StampTile, StatusChip, TagLink } from "./parts";
+import { EmojiText } from "#/features/emoji";
+import {
+  formatCount,
+  stampKeys,
+  storeClient,
+  useInstallPack,
+  usePack,
+  useUninstallPack,
+} from "./api";
+import {
+  AnimatedMark,
+  PackCard,
+  PackCover,
+  SectionHeading,
+  StampGrid,
+  StampTile,
+  StatusChip,
+  TagLink,
+} from "./parts";
 import { PurchaseDialog } from "./purchase";
 import { StampSheet } from "./stamp-sheet";
 
@@ -40,7 +57,10 @@ export function PackScreen({ packId }: { packId: string }) {
           title={t("pack.notFound")}
           body={t("pack.notFoundBody")}
           action={
-            <Link to="/stamps" className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand">
+            <Link
+              to="/stamps"
+              className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand"
+            >
               {t("pack.toStore")}
             </Link>
           }
@@ -66,7 +86,12 @@ export function PackScreen({ packId }: { packId: string }) {
       back="/stamps"
       wide
       actions={
-        <Button size="icon-sm" variant="ghost" aria-label={t("common:actions.share")} onClick={share}>
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          aria-label={t("common:actions.share")}
+          onClick={share}
+        >
           <Share2 className="size-5" />
         </Button>
       }
@@ -79,7 +104,9 @@ export function PackScreen({ packId }: { packId: string }) {
               <h2 className="text-xl leading-tight font-black break-words">{summary.name}</h2>
               <Maker summary={summary} />
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                {summary.status !== stamp.PackStatus.PUBLISHED && <StatusChip status={summary.status} />}
+                {summary.status !== stamp.PackStatus.PUBLISHED && (
+                  <StatusChip status={summary.status} />
+                )}
                 <Chip>{t("stampCount", { count: summary.stampCount })}</Chip>
                 {summary.animated && (
                   <Chip>
@@ -93,7 +120,11 @@ export function PackScreen({ packId }: { packId: string }) {
 
           <PackActions summary={summary} />
 
-          {pack.description && <p className="text-[15px] leading-relaxed break-words whitespace-pre-wrap">{pack.description}</p>}
+          {pack.description && (
+            <p className="text-[15px] leading-relaxed break-words whitespace-pre-wrap">
+              {pack.description}
+            </p>
+          )}
           {summary.tags.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {summary.tags.map((tag) => (
@@ -103,7 +134,9 @@ export function PackScreen({ packId }: { packId: string }) {
           )}
           <dl className="grid grid-cols-2 gap-2 border-t-2 border-line pt-3 text-center">
             <div>
-              <dd className="text-lg font-black tabular-nums">{formatCount(summary.installCount)}</dd>
+              <dd className="text-lg font-black tabular-nums">
+                {formatCount(summary.installCount)}
+              </dd>
               <dt className="text-xs font-bold text-ink-faint">{t("pack.installs")}</dt>
             </div>
             <div>
@@ -111,23 +144,36 @@ export function PackScreen({ packId }: { packId: string }) {
               <dt className="text-xs font-bold text-ink-faint">{t("pack.sends")}</dt>
             </div>
           </dl>
-          {published && <p className="text-center text-xs text-ink-faint">{t("pack.publishedOn", { date: published.toLocaleDateString(i18n.language) })}</p>}
+          {published && (
+            <p className="text-center text-xs text-ink-faint">
+              {t("pack.publishedOn", { date: published.toLocaleDateString(i18n.language) })}
+            </p>
+          )}
         </section>
 
         <div className="flex min-w-0 flex-col gap-6">
           <section aria-label={t("pack.stamps")}>
-            <SectionHeading title={t("pack.stamps")} action={<span className="text-xs font-bold text-ink-faint">{t("pack.tapHint")}</span>} />
+            <SectionHeading
+              title={t("pack.stamps")}
+              action={<span className="text-xs font-bold text-ink-faint">{t("pack.tapHint")}</span>}
+            />
             {pack.stamps.length === 0 ? (
               <EmptyState emoji="🫙" title={t("pack.noStamps")} />
             ) : (
               <StampGrid className="sticker rounded-card bg-surface p-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
                 {pack.stamps.map((item) => (
-                  <StampTile key={item.stampRef?.id} item={item} onPress={(pressed) => setOpenStamp(pressed.stampRef?.id)} />
+                  <StampTile
+                    key={item.stampRef?.id}
+                    item={item}
+                    onPress={(pressed) => setOpenStamp(pressed.stampRef?.id)}
+                  />
                 ))}
               </StampGrid>
             )}
           </section>
-          {summary.creator && !summary.creator.deleted && <MoreByCreator creatorId={summary.creator.id} exceptPackId={summary.id} />}
+          {summary.creator && !summary.creator.deleted && (
+            <MoreByCreator creatorId={summary.creator.id} exceptPackId={summary.id} />
+          )}
         </div>
       </div>
       <StampSheet stampId={openStamp} onClose={() => setOpenStamp(undefined)} />
@@ -139,18 +185,29 @@ function Maker({ summary }: { summary: stamp.PackSummary }) {
   const { t } = useTranslation("stamps");
   if (summary.official) {
     return (
-      <Link to="/stamps/browse" search={{ section: "official" }} className="mt-1 inline-flex items-center gap-1 text-sm font-bold text-brand">
+      <Link
+        to="/stamps/browse"
+        search={{ section: "official" }}
+        className="mt-1 inline-flex items-center gap-1 text-sm font-bold text-brand"
+      >
         <BadgeCheck className="size-4" />
         {t("official")}
       </Link>
     );
   }
   const creator = summary.creator;
-  if (!creator || creator.deleted) return <p className="mt-1 text-sm text-ink-soft">{t("deletedCreator")}</p>;
+  if (!creator || creator.deleted)
+    return <p className="mt-1 text-sm text-ink-soft">{t("deletedCreator")}</p>;
   return (
-    <Link to="/stamps/creator/$userId" params={{ userId: creator.id }} className="mt-1 flex min-w-0 items-center gap-1.5 text-sm font-bold text-ink-soft hover:text-ink">
+    <Link
+      to="/stamps/creator/$userId"
+      params={{ userId: creator.id }}
+      className="mt-1 flex min-w-0 items-center gap-1.5 text-sm font-bold text-ink-soft hover:text-ink"
+    >
       <Avatar user={creator} size="xs" />
-      <span className="truncate">{creator.displayName}</span>
+      <span className="truncate">
+        <EmojiText text={creator.displayName} />
+      </span>
     </Link>
   );
 }
@@ -171,20 +228,38 @@ function PackActions({ summary }: { summary: stamp.PackSummary }) {
             <Check className="size-4" strokeWidth={3} />
             {t("state.installed")}
           </p>
-          <Button variant="ghost" loading={uninstall.isPending} onClick={() => uninstall.mutate(summary.id)}>
+          <Button
+            variant="ghost"
+            loading={uninstall.isPending}
+            onClick={() => uninstall.mutate(summary.id)}
+          >
             {t("pack.uninstall")}
           </Button>
         </div>
       ) : summary.price === 0 || viewer?.owned ? (
-        <Button variant="lime" block icon={<Download className="size-4" />} loading={install.isPending} onClick={() => install.mutate(summary.id)}>
+        <Button
+          variant="lime"
+          block
+          icon={<Download className="size-4" />}
+          loading={install.isPending}
+          onClick={() => install.mutate(summary.id)}
+        >
           {viewer?.owned ? t("pack.reinstall") : t("pack.installFree")}
         </Button>
       ) : (
-        <Button block onClick={() => setBuying(true)} icon={<CoinIcon className="size-5 text-[11px]" />}>
+        <Button
+          block
+          onClick={() => setBuying(true)}
+          icon={<CoinIcon className="size-5 text-[11px]" />}
+        >
           {t("pack.buy", { price: summary.price.toLocaleString("en-US") })}
         </Button>
       )}
-      {viewer?.installed && <p className="text-center text-xs text-ink-faint">{viewer.owned ? t("pack.ownedHint") : t("pack.installedHint")}</p>}
+      {viewer?.installed && (
+        <p className="text-center text-xs text-ink-faint">
+          {viewer.owned ? t("pack.ownedHint") : t("pack.installedHint")}
+        </p>
+      )}
       {viewer?.canManage && (
         <Link
           to="/stamps/studio/$packId"
@@ -213,7 +288,11 @@ function MoreByCreator({ creatorId, exceptPackId }: { creatorId: string; exceptP
       <SectionHeading
         title={t("pack.moreByCreator")}
         action={
-          <Link to="/stamps/creator/$userId" params={{ userId: creatorId }} className="text-sm font-bold text-brand">
+          <Link
+            to="/stamps/creator/$userId"
+            params={{ userId: creatorId }}
+            className="text-sm font-bold text-brand"
+          >
             {t("store.more")}
           </Link>
         }

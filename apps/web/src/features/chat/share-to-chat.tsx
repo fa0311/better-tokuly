@@ -7,8 +7,8 @@ import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { api } from "#/lib/api";
-import { errorMessage } from "./errors";
 import { messageClient } from "./api";
+import { errorMessage } from "./errors";
 import { storeCreated } from "./messages";
 import { type Target, TargetPicker, useResolveTargets } from "./target-picker";
 
@@ -24,7 +24,7 @@ export interface ShareToChatProps {
    * (`{ subject }`: a note, a video, a place…), which is sent as its link and
    * counted as a share of it. Chat shows either with its preview.
    */
-  share: { url: string } | { subject: common.SubjectRef };
+  share: { url: string } | { subject: Pick<common.SubjectRef, "type" | "id"> };
   /** Reminds the person what they are sending ("ノート: 放課後の空"); optional. */
   title?: string;
   /** Called once it was sent, with the conversations it went to. */
@@ -34,7 +34,9 @@ export interface ShareToChatProps {
 /** The link to send: the URL itself, or the subject's page (recording the share). */
 async function linkOf(share: ShareToChatProps["share"]): Promise<string> {
   if ("url" in share) return share.url;
-  const response = await api().service(engagement.EngagementService).recordShare({ subject: share.subject, target: engagement.ShareTarget.CHAT });
+  const response = await api()
+    .service(engagement.EngagementService)
+    .recordShare({ subject: share.subject, target: engagement.ShareTarget.CHAT });
   return response.url;
 }
 
@@ -64,12 +66,18 @@ export function ShareToChat({ open, onOpenChange, share, title, onShared }: Shar
       const text = note.trim() ? `${note.trim()}\n${url}` : url;
       const results = await Promise.allSettled(
         conversationIds.map(async (conversationId) => {
-          const { message } = await messageClient().sendMessage({ conversationId, clientId: crypto.randomUUID(), text });
+          const { message } = await messageClient().sendMessage({
+            conversationId,
+            clientId: crypto.randomUUID(),
+            text,
+          });
           if (message) storeCreated(queryClient, message);
           return conversationId;
         }),
       );
-      const sent = results.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
+      const sent = results.flatMap((result) =>
+        result.status === "fulfilled" ? [result.value] : [],
+      );
       const failed = results.find((result) => result.status === "rejected");
       if (failed) toast.error(errorMessage(failed.reason));
       if (sent.length > 0) {
@@ -92,7 +100,12 @@ export function ShareToChat({ open, onOpenChange, share, title, onShared }: Shar
       description={title}
       className="sm:h-[min(42rem,calc(100dvh-4rem))]"
       footer={
-        <Button onClick={submit} loading={sending} disabled={targets.length === 0} icon={<Send className="size-4" />}>
+        <Button
+          onClick={submit}
+          loading={sending}
+          disabled={targets.length === 0}
+          icon={<Send className="size-4" />}
+        >
           {t("share.send", { count: targets.length })}
         </Button>
       }

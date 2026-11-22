@@ -13,7 +13,11 @@ export function ChannelPlaylists({ channel }: { channel: video.Channel }) {
   const handle = channel.summary?.handle ?? "";
   const query = useInfiniteQuery({
     queryKey: videoKeys.channelPlaylists(handle),
-    queryFn: ({ pageParam }) => playlistClient().listChannelPlaylists({ channelId: handle, page: { limit: 24, cursor: pageParam } }),
+    queryFn: ({ pageParam }) =>
+      playlistClient().listChannelPlaylists({
+        channelId: handle,
+        page: { limit: 24, cursor: pageParam },
+      }),
     initialPageParam: "",
     getNextPageParam: nextCursor,
   });
@@ -30,7 +34,14 @@ export function ChannelPlaylists({ channel }: { channel: video.Channel }) {
     );
   }
   if (query.isError) return <EmptyState emoji="😵‍💫" title={errorMessage(query.error)} />;
-  if (playlists.length === 0) return <EmptyState emoji="📼" title={t("channel.noPlaylists")} body={channel.viewer?.isOwner ? t("channel.noPlaylistsOwnerBody") : undefined} />;
+  if (playlists.length === 0)
+    return (
+      <EmptyState
+        emoji="📼"
+        title={t("channel.noPlaylists")}
+        body={channel.viewer?.isOwner ? t("channel.noPlaylistsOwnerBody") : undefined}
+      />
+    );
   return (
     <>
       <div className={grid}>

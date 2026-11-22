@@ -21,7 +21,13 @@ function captureFrame(element: HTMLVideoElement): Promise<Blob> {
   const context = canvas.getContext("2d");
   if (!context || canvas.width === 0) return Promise.reject(new Error("no frame to capture"));
   context.drawImage(element, 0, 0, canvas.width, canvas.height);
-  return new Promise((resolve, reject) => canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("could not encode the frame"))), "image/jpeg", 0.9));
+  return new Promise((resolve, reject) =>
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error("could not encode the frame"))),
+      "image/jpeg",
+      0.9,
+    ),
+  );
 }
 
 /**
@@ -29,7 +35,13 @@ function captureFrame(element: HTMLVideoElement): Promise<Blob> {
  * server; the creator can upload their own, or stop the video on a moment
  * they like and use that. Each choice is saved at once.
  */
-export function ThumbnailField({ video: item, videoKey }: { video: video.Video; /** The ID the editor's query is keyed by. */ videoKey: string }) {
+export function ThumbnailField({
+  video: item,
+  videoKey,
+}: {
+  video: video.Video /** The ID the editor's query is keyed by. */;
+  videoKey: string;
+}) {
   const { t } = useTranslation("video");
   const queryClient = useQueryClient();
   const input = useRef<HTMLInputElement>(null);
@@ -41,13 +53,18 @@ export function ThumbnailField({ video: item, videoKey }: { video: video.Video; 
   /** Uploads `image` as the thumbnail, or — with `null` — goes back to the automatic one. */
   const change = useMutation({
     mutationFn: async (image: (Blob & { name?: string }) | null) => {
-      const assetId = image ? (await uploadAndProcess(image, { purpose: media.AssetPurpose.THUMBNAIL })).id : "";
-      return (await videoClient().updateVideo({ videoId: summary?.id ?? "", thumbnailAssetId: assetId })).video;
+      const assetId = image
+        ? (await uploadAndProcess(image, { purpose: media.AssetPurpose.THUMBNAIL })).id
+        : "";
+      return (
+        await videoClient().updateVideo({ videoId: summary?.id ?? "", thumbnailAssetId: assetId })
+      ).video;
     },
     onSuccess: (updated, image) => {
       if (updated) {
         queryClient.setQueryData(videoKeys.video(videoKey), updated);
-        if (updated.summary) patchVideoEverywhere(queryClient, updated.summary.id, () => updated.summary ?? null);
+        if (updated.summary)
+          patchVideoEverywhere(queryClient, updated.summary.id, () => updated.summary ?? null);
       }
       setPicking(false);
       toast.success(image ? t("studio.thumbnail.saved") : t("studio.thumbnail.reset"));
@@ -68,8 +85,21 @@ export function ThumbnailField({ video: item, videoKey }: { video: video.Video; 
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="relative aspect-video w-full overflow-hidden rounded-2xl border-2 border-line bg-surface-3" data-testid="thumbnail-preview">
-        {current ? <img src={current} alt={t("studio.thumbnail.current")} className="size-full object-cover" /> : <p className="grid size-full place-items-center px-4 text-center text-sm font-bold text-ink-soft">{t("studio.thumbnail.pending")}</p>}
+      <div
+        className="relative aspect-video w-full overflow-hidden rounded-2xl border-2 border-line bg-surface-3"
+        data-testid="thumbnail-preview"
+      >
+        {current ? (
+          <img
+            src={current}
+            alt={t("studio.thumbnail.current")}
+            className="size-full object-cover"
+          />
+        ) : (
+          <p className="grid size-full place-items-center px-4 text-center text-sm font-bold text-ink-soft">
+            {t("studio.thumbnail.pending")}
+          </p>
+        )}
         {change.isPending && (
           <span className="absolute inset-0 grid place-items-center bg-overlay text-white">
             <Spinner className="size-7" />
@@ -77,16 +107,34 @@ export function ThumbnailField({ video: item, videoKey }: { video: video.Video; 
         )}
       </div>
       <div className="flex flex-wrap gap-2">
-        <Button variant="secondary" size="sm" icon={<ImagePlus className="size-4" />} disabled={change.isPending} onClick={() => input.current?.click()}>
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={<ImagePlus className="size-4" />}
+          disabled={change.isPending}
+          onClick={() => input.current?.click()}
+        >
           {t("studio.thumbnail.upload")}
         </Button>
         {item.playback && (
-          <Button variant="secondary" size="sm" icon={<Camera className="size-4" />} disabled={change.isPending} onClick={() => setPicking(true)}>
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={<Camera className="size-4" />}
+            disabled={change.isPending}
+            onClick={() => setPicking(true)}
+          >
             {t("studio.thumbnail.pick")}
           </Button>
         )}
         {item.studio?.hasCustomThumbnail && (
-          <Button variant="ghost" size="sm" icon={<RotateCcw className="size-4" />} disabled={change.isPending} onClick={() => change.mutate(null)}>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<RotateCcw className="size-4" />}
+            disabled={change.isPending}
+            onClick={() => change.mutate(null)}
+          >
             {t("studio.thumbnail.auto")}
           </Button>
         )}
@@ -116,7 +164,11 @@ export function ThumbnailField({ video: item, videoKey }: { video: video.Video; 
               <Button variant="ghost" onClick={() => setPicking(false)}>
                 {t("actions.cancel")}
               </Button>
-              <Button icon={<Camera className="size-4" />} loading={change.isPending} onClick={() => void captureCurrent()}>
+              <Button
+                icon={<Camera className="size-4" />}
+                loading={change.isPending}
+                onClick={() => void captureCurrent()}
+              >
                 {t("studio.thumbnail.useFrame")}
               </Button>
             </>

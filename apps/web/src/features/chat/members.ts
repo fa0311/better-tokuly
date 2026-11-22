@@ -5,7 +5,8 @@ import { chatKeys, conversationClient } from "./api";
 export function useMembers(conversationId: string, enabled = true) {
   return useInfiniteQuery({
     queryKey: chatKeys.members(conversationId),
-    queryFn: ({ pageParam }) => conversationClient().listMembers({ conversationId, page: { cursor: pageParam, limit: 100 } }),
+    queryFn: ({ pageParam }) =>
+      conversationClient().listMembers({ conversationId, page: { cursor: pageParam, limit: 100 } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
     enabled,

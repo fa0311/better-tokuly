@@ -17,7 +17,8 @@ export function useOpenPath(): (path: string) => void {
       return;
     }
     if (url.protocol !== "http:" && url.protocol !== "https:") return;
-    if (url.origin !== window.location.origin) window.open(url.href, "_blank", "noopener,noreferrer");
+    if (url.origin !== window.location.origin)
+      window.open(url.href, "_blank", "noopener,noreferrer");
     else void router.navigate({ href: url.pathname + url.search + url.hash });
   };
 }

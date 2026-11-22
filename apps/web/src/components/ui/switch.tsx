@@ -2,7 +2,19 @@ import { Switch as BaseSwitch } from "@base-ui/react/switch";
 import type { ReactNode } from "react";
 
 /** A labelled on/off setting row. */
-export function SwitchRow({ label, hint, checked, onChange, disabled }: { label: ReactNode; hint?: ReactNode; checked: boolean; onChange(checked: boolean): void; disabled?: boolean }) {
+export function SwitchRow({
+  label,
+  hint,
+  checked,
+  onChange,
+  disabled,
+}: {
+  label: ReactNode;
+  hint?: ReactNode;
+  checked: boolean;
+  onChange(checked: boolean): void;
+  disabled?: boolean;
+}) {
   return (
     // biome-ignore lint/a11y/noLabelWithoutControl: the switch renders the control inside this label.
     <label className="flex items-center gap-4 rounded-2xl px-3 py-3 hover:bg-surface-2">

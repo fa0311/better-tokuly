@@ -15,11 +15,15 @@ describe("days", () => {
     expect(shiftDay("2028-02-28", 1)).toBe("2028-02-29");
   });
 
-  it("spans a day from midnight to midnight", () => {
+  it("spans a day from midnight to midnight in the account's time zone", () => {
+    // Without a session the account's zone is Asia/Tokyo (UTC+9), whatever the device says.
     const range = dayRange("2026-11-22")!;
-    expect(formatDay(range.from)).toBe("2026-11-22");
-    expect(formatDay(range.to)).toBe("2026-11-23");
-    expect(range.from.getHours()).toBe(0);
+    expect(range.from.toISOString()).toBe("2026-11-21T15:00:00.000Z");
+    expect(range.to.toISOString()).toBe("2026-11-22T15:00:00.000Z");
+    expect(dayRange("2026-11-22", "UTC")?.from.toISOString()).toBe("2026-11-22T00:00:00.000Z");
+    // A day a daylight-saving jump shortens is still one calendar day.
+    const short = dayRange("2026-03-08", "America/New_York")!;
+    expect((short.to.getTime() - short.from.getTime()) / 3_600_000).toBe(23);
     expect(dayRange("nope")).toBeNull();
   });
 });
@@ -39,7 +43,15 @@ describe("months", () => {
     expect(november[4]).toEqual(["2026-11-29", "2026-11-30", null, null, null, null, null]);
     // December 2026 starts on a Tuesday.
     const december = monthGrid({ year: 2026, month: 12 });
-    expect(december[0]).toEqual([null, null, "2026-12-01", "2026-12-02", "2026-12-03", "2026-12-04", "2026-12-05"]);
+    expect(december[0]).toEqual([
+      null,
+      null,
+      "2026-12-01",
+      "2026-12-02",
+      "2026-12-03",
+      "2026-12-04",
+      "2026-12-05",
+    ]);
     expect(december.flat().filter(Boolean)).toHaveLength(31);
     expect(december.every((week) => week.length === 7)).toBe(true);
   });

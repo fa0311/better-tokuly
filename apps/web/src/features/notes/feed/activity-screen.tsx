@@ -16,7 +16,13 @@ import { ReportsList } from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { ActivityCardView, ActivityRow } from "./activity-card";
-import { activityClient, feedKeys, useActivityPreferences, useFriendsActivity, useMyActivity } from "./api";
+import {
+  activityClient,
+  feedKeys,
+  useActivityPreferences,
+  useFriendsActivity,
+  useMyActivity,
+} from "./api";
 import { dayLabel, groupByDay } from "./days";
 
 export const ACTIVITY_TABS = ["mine", "friends", "reports"] as const;
@@ -33,7 +39,13 @@ export function parseActivitySearch(search: Record<string, unknown>): { tab?: Ac
  * from others kind by kind), what their friends have been doing, and the
  * reports the viewer filed.
  */
-export function ActivityScreen({ tab, onTabChange }: { tab: ActivityTab; onTabChange(tab: ActivityTab): void }) {
+export function ActivityScreen({
+  tab,
+  onTabChange,
+}: {
+  tab: ActivityTab;
+  onTabChange(tab: ActivityTab): void;
+}) {
   const { t } = useTranslation("notes");
   const [sheet, setSheet] = useState<"clear" | "preferences">();
 
@@ -50,8 +62,17 @@ export function ActivityScreen({ tab, onTabChange }: { tab: ActivityTab; onTabCh
               </Button>
             }
             actions={[
-              { label: t("activity.preferences.open"), icon: <EyeOff />, onSelect: () => setSheet("preferences") },
-              { label: t("activity.clear.open"), icon: <Trash2 />, danger: true, onSelect: () => setSheet("clear") },
+              {
+                label: t("activity.preferences.open"),
+                icon: <EyeOff />,
+                onSelect: () => setSheet("preferences"),
+              },
+              {
+                label: t("activity.clear.open"),
+                icon: <Trash2 />,
+                danger: true,
+                onSelect: () => setSheet("clear"),
+              },
             ]}
           />
         )
@@ -81,7 +102,9 @@ export function ActivityScreen({ tab, onTabChange }: { tab: ActivityTab; onTabCh
  * and its members (`note.posted`, `note.replied`) can carry the same name;
  * each name is offered once, as its widest kind.
  */
-function filterKinds(kinds: feed.ActivityKindPreference[] | undefined): feed.ActivityKindPreference[] {
+function filterKinds(
+  kinds: feed.ActivityKindPreference[] | undefined,
+): feed.ActivityKindPreference[] {
   const byLabel = new Map<string, feed.ActivityKindPreference>();
   for (const entry of kinds ?? []) {
     if (entry.entryCount <= 0) continue;
@@ -112,7 +135,8 @@ function MyLog() {
   const kinds = filterKinds(preferences.data);
 
   const remove = useMutation({
-    mutationFn: (activity: feed.Activity) => activityClient().deleteActivity({ activityId: activity.id }),
+    mutationFn: (activity: feed.Activity) =>
+      activityClient().deleteActivity({ activityId: activity.id }),
     onSuccess: async () => {
       setRemoving(undefined);
       await queryClient.invalidateQueries({ queryKey: feedKeys.all });
@@ -125,12 +149,20 @@ function MyLog() {
     <>
       {kinds.length > 1 && (
         // biome-ignore lint/a11y/useSemanticElements: a row of filter chips, not a form group.
-        <div className="scrollbar-none -mx-4 mb-3 flex gap-1.5 overflow-x-auto px-4" role="group" aria-label={t("activity.filter")}>
+        <div
+          className="scrollbar-none -mx-4 mb-3 flex gap-1.5 overflow-x-auto px-4"
+          role="group"
+          aria-label={t("activity.filter")}
+        >
           <KindChip active={kind === ""} onClick={() => setKind("")}>
             {t("activity.allKinds")}
           </KindChip>
           {kinds.map((entry) => (
-            <KindChip key={entry.kind} active={kind === entry.kind} onClick={() => setKind(entry.kind)}>
+            <KindChip
+              key={entry.kind}
+              active={kind === entry.kind}
+              onClick={() => setKind(entry.kind)}
+            >
               {entry.label}
               <span className="opacity-60 tabular-nums">{entry.entryCount}</span>
             </KindChip>
@@ -140,12 +172,18 @@ function MyLog() {
       {query.isPending ? (
         <RowsSkeleton />
       ) : activities.length === 0 ? (
-        <EmptyState emoji="🐾" title={t("activity.empty.mine")} body={t("activity.empty.mineBody")} />
+        <EmptyState
+          emoji="🐾"
+          title={t("activity.empty.mine")}
+          body={t("activity.empty.mineBody")}
+        />
       ) : (
         <div className="flex flex-col gap-4">
           {groupByDay(activities, (activity) => toMillis(activity.occurredAt)).map((day) => (
             <section key={day.key}>
-              <h2 className="mb-1.5 px-1 text-sm font-black text-ink-soft">{dayLabel(day.date, i18n.language, t)}</h2>
+              <h2 className="mb-1.5 px-1 text-sm font-black text-ink-soft">
+                {dayLabel(day.date, i18n.language, t)}
+              </h2>
               <div className="flex flex-col gap-1.5">
                 {day.items.map((activity) => (
                   <ActivityRow
@@ -180,19 +218,36 @@ function MyLog() {
         loading={remove.isPending}
         onConfirm={() => removing && remove.mutate(removing)}
       >
-        {removing && <p className="rounded-2xl bg-surface-2 px-3 py-2.5 text-[15px] font-bold">{removing.summary}</p>}
+        {removing && (
+          <p className="rounded-2xl bg-surface-2 px-3 py-2.5 text-[15px] font-bold">
+            {removing.summary}
+          </p>
+        )}
       </ConfirmDialog>
     </>
   );
 }
 
-function KindChip({ active, onClick, children }: { active: boolean; onClick(): void; children: ReactNode }) {
+function KindChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick(): void;
+  children: ReactNode;
+}) {
   return (
     <button
       type="button"
       aria-pressed={active}
       onClick={onClick}
-      className={cn("inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border-2 px-3 text-sm font-black", active ? "border-ink bg-ink text-surface" : "border-line bg-surface text-ink-soft hover:border-ink-faint")}
+      className={cn(
+        "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border-2 px-3 text-sm font-black",
+        active
+          ? "border-ink bg-ink text-surface"
+          : "border-line bg-surface text-ink-soft hover:border-ink-faint",
+      )}
     >
       {children}
     </button>
@@ -204,10 +259,19 @@ function FriendsLog() {
   const query = useFriendsActivity("");
   const cards = query.data?.pages.flatMap((page) => page.cards) ?? [];
   if (query.isPending) return <RowsSkeleton />;
-  if (cards.length === 0) return <EmptyState emoji="👀" title={t("activity.empty.friends")} body={t("activity.empty.friendsBody")} />;
+  if (cards.length === 0)
+    return (
+      <EmptyState
+        emoji="👀"
+        title={t("activity.empty.friends")}
+        body={t("activity.empty.friendsBody")}
+      />
+    );
   return (
     <div className="flex flex-col gap-2.5">
-      {cards.map((card) => card.activity && <ActivityCardView key={card.activity.id} card={card} />)}
+      {cards.map(
+        (card) => card.activity && <ActivityCardView key={card.activity.id} card={card} />,
+      )}
       <LoadMore query={query} showEnd />
     </div>
   );
@@ -236,7 +300,11 @@ function ClearDialog({ onClose }: { onClose(): void }) {
   const clear = useMutation({
     mutationFn: () => {
       const from = rangeStart(range);
-      return activityClient().clearActivity({ from: from ? fromDate(from) : undefined, kindPrefix: kind, everything: !from });
+      return activityClient().clearActivity({
+        from: from ? fromDate(from) : undefined,
+        kindPrefix: kind,
+        everything: !from,
+      });
     },
     onSuccess: async (response) => {
       await queryClient.invalidateQueries({ queryKey: feedKeys.all });
@@ -257,7 +325,11 @@ function ClearDialog({ onClose }: { onClose(): void }) {
       loading={clear.isPending}
       onConfirm={() => clear.mutate()}
     >
-      <div role="radiogroup" aria-label={t("activity.clear.range")} className="grid grid-cols-2 gap-1.5">
+      <div
+        role="radiogroup"
+        aria-label={t("activity.clear.range")}
+        className="grid grid-cols-2 gap-1.5"
+      >
         {(["today", "week", "month", "everything"] as const).map((value) => (
           // biome-ignore lint/a11y/useSemanticElements: a radio drawn as a tile, not a bare radio input.
           <button
@@ -266,7 +338,10 @@ function ClearDialog({ onClose }: { onClose(): void }) {
             role="radio"
             aria-checked={range === value}
             onClick={() => setRange(value)}
-            className={cn("rounded-2xl border-2 px-3 py-2.5 text-left text-[15px] font-bold", range === value ? "border-ink bg-brand-soft" : "border-line hover:border-ink-faint")}
+            className={cn(
+              "rounded-2xl border-2 px-3 py-2.5 text-left text-[15px] font-bold",
+              range === value ? "border-ink bg-brand-soft" : "border-line hover:border-ink-faint",
+            )}
           >
             {t(`activity.clear.ranges.${value}`)}
           </button>
@@ -280,7 +355,11 @@ function ClearDialog({ onClose }: { onClose(): void }) {
               {t("activity.allKinds")}
             </KindChip>
             {kinds.map((entry) => (
-              <KindChip key={entry.kind} active={kind === entry.kind} onClick={() => setKind(entry.kind)}>
+              <KindChip
+                key={entry.kind}
+                active={kind === entry.kind}
+                onClick={() => setKind(entry.kind)}
+              >
                 {entry.label}
               </KindChip>
             ))}
@@ -298,9 +377,14 @@ function PreferencesDialog({ onClose }: { onClose(): void }) {
   const preferences = useActivityPreferences();
 
   const change = useMutation({
-    mutationFn: (next: { kind: string; visibleToOthers: boolean }) => activityClient().setActivityKindVisibility(next),
+    mutationFn: (next: { kind: string; visibleToOthers: boolean }) =>
+      activityClient().setActivityKindVisibility(next),
     onMutate: (next) => {
-      queryClient.setQueryData<feed.ActivityKindPreference[]>(feedKeys.preferences, (current) => current?.map((entry) => (entry.kind === next.kind ? { ...entry, visibleToOthers: next.visibleToOthers } : entry)));
+      queryClient.setQueryData<feed.ActivityKindPreference[]>(feedKeys.preferences, (current) =>
+        current?.map((entry) =>
+          entry.kind === next.kind ? { ...entry, visibleToOthers: next.visibleToOthers } : entry,
+        ),
+      );
     },
     onSuccess: (response) => {
       queryClient.setQueryData(feedKeys.preferences, response.kinds);
@@ -314,7 +398,12 @@ function PreferencesDialog({ onClose }: { onClose(): void }) {
   });
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()} title={t("activity.preferences.title")} description={t("activity.preferences.body")}>
+    <Dialog
+      open
+      onOpenChange={(open) => !open && onClose()}
+      title={t("activity.preferences.title")}
+      description={t("activity.preferences.body")}
+    >
       {preferences.isPending ? (
         <RowsSkeleton />
       ) : (
@@ -324,7 +413,16 @@ function PreferencesDialog({ onClose }: { onClose(): void }) {
               key={entry.kind}
               label={entry.label}
               // Several kinds can share a name (a family and its members): the kind itself tells them apart.
-              hint={[sameLabel(preferences.data, entry) ? entry.kind : "", entry.entryCount > 0 ? t("activity.preferences.count", { count: entry.entryCount }) : ""].filter(Boolean).join(" · ") || undefined}
+              hint={
+                [
+                  sameLabel(preferences.data, entry) ? entry.kind : "",
+                  entry.entryCount > 0
+                    ? t("activity.preferences.count", { count: entry.entryCount })
+                    : "",
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || undefined
+              }
               checked={entry.visibleToOthers}
               disabled={change.isPending}
               onChange={(visibleToOthers) => change.mutate({ kind: entry.kind, visibleToOthers })}
@@ -340,6 +438,9 @@ function PreferencesDialog({ onClose }: { onClose(): void }) {
   );
 }
 
-function sameLabel(kinds: feed.ActivityKindPreference[] | undefined, entry: feed.ActivityKindPreference): boolean {
+function sameLabel(
+  kinds: feed.ActivityKindPreference[] | undefined,
+  entry: feed.ActivityKindPreference,
+): boolean {
   return (kinds ?? []).some((other) => other.kind !== entry.kind && other.label === entry.label);
 }

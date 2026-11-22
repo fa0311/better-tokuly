@@ -22,7 +22,9 @@ export default function WalletBackground() {
         // Pushes sent while there was no connection are lost: ask again. The
         // balance is cheap and matters most, so it is checked on every
         // connection; the lists only after a reconnect.
-        void queryClient.invalidateQueries({ queryKey: connectedBefore ? walletKeys.all : walletKeys.balance });
+        void queryClient.invalidateQueries({
+          queryKey: connectedBefore ? walletKeys.all : walletKeys.balance,
+        });
         connectedBefore = true;
       }
     });

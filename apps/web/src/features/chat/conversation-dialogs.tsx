@@ -18,14 +18,27 @@ const MUTE_CHOICES: { key: string; forMs: MuteFor }[] = [
 ];
 
 /** Which of the dialogs about a whole conversation is open. */
-export type ConversationDialog = { type: "mute" | "hide" | "leave"; conversation: chat.Conversation } | null;
+export type ConversationDialog = {
+  type: "mute" | "hide" | "leave";
+  conversation: chat.Conversation;
+} | null;
 
 /**
  * The dialogs that go with the actions on a conversation: how long to mute,
  * hide (optionally forgetting the history), leave a group. The caller keeps
  * `dialog` and is told when the conversation is gone from the lists.
  */
-export function ConversationDialogs({ dialog, myId, onClose, onGone }: { dialog: ConversationDialog; myId: string; onClose(): void; onGone?(conversation: chat.Conversation): void }) {
+export function ConversationDialogs({
+  dialog,
+  myId,
+  onClose,
+  onGone,
+}: {
+  dialog: ConversationDialog;
+  myId: string;
+  onClose(): void;
+  onGone?(conversation: chat.Conversation): void;
+}) {
   const { t } = useTranslation("chat");
   const actions = useConversationActions();
   const [clearHistory, setClearHistory] = useState(false);
@@ -50,7 +63,12 @@ export function ConversationDialogs({ dialog, myId, onClose, onGone }: { dialog:
 
   if (type === "mute") {
     return (
-      <Dialog open={open} onOpenChange={(next) => !next && onClose()} title={t("mute.title")} description={t("mute.lead", { name })}>
+      <Dialog
+        open={open}
+        onOpenChange={(next) => !next && onClose()}
+        title={t("mute.title")}
+        description={t("mute.lead", { name })}
+      >
         <div className="flex flex-col">
           {MUTE_CHOICES.map((choice) => (
             <ListRow
@@ -79,7 +97,12 @@ export function ConversationDialogs({ dialog, myId, onClose, onGone }: { dialog:
         loading={busy}
         onConfirm={() => finish(actions.hide(conversation, clearHistory))}
       >
-        <SwitchRow label={t("hide.clear")} hint={t("hide.clearHint")} checked={clearHistory} onChange={setClearHistory} />
+        <SwitchRow
+          label={t("hide.clear")}
+          hint={t("hide.clearHint")}
+          checked={clearHistory}
+          onChange={setClearHistory}
+        />
       </ConfirmDialog>
     );
   }

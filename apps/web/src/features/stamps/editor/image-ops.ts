@@ -39,9 +39,16 @@ export function fullMask(width: number, height: number): Uint8Array {
 }
 
 /** The largest size with the same proportions whose longer edge is at most `limit`. */
-export function fitWithin(width: number, height: number, limit: number): { width: number; height: number } {
+export function fitWithin(
+  width: number,
+  height: number,
+  limit: number,
+): { width: number; height: number } {
   const scale = Math.min(1, limit / Math.max(width, height));
-  return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  };
 }
 
 /** The four corners of a picture: where a uniform background is sure to show. */
@@ -62,7 +69,12 @@ export function cornerSeeds(width: number, height: number): Point[] {
  *
  * Returns the number of pixels that were erased.
  */
-export function floodErase(source: Bitmap, mask: Uint8Array, seeds: Point[], tolerance: number): number {
+export function floodErase(
+  source: Bitmap,
+  mask: Uint8Array,
+  seeds: Point[],
+  tolerance: number,
+): number {
   const { width, height, data } = source;
   const visited = new Uint8Array(width * height);
   const stack = new Int32Array(width * height);
@@ -92,7 +104,11 @@ export function floodErase(source: Bitmap, mask: Uint8Array, seeds: Point[], tol
       const empty = data[offset + 3]! < VISIBLE_ALPHA;
       // An already transparent picture: its empty area is the background.
       if (seedEmpty || empty) return seedEmpty && empty ? 0 : 2;
-      const distance = Math.max(Math.abs(data[offset]! - r), Math.abs(data[offset + 1]! - g), Math.abs(data[offset + 2]! - b));
+      const distance = Math.max(
+        Math.abs(data[offset]! - r),
+        Math.abs(data[offset + 1]! - g),
+        Math.abs(data[offset + 2]! - b),
+      );
       return distance <= tolerance ? 0 : (distance - tolerance) / fade;
     };
 
@@ -130,7 +146,15 @@ export function floodErase(source: Bitmap, mask: Uint8Array, seeds: Point[], tol
  * mask: `erase` cuts away, `restore` brings the picture back. The outer part
  * of the brush is soft. Returns the touched area, for redrawing only that.
  */
-export function paintMask(mask: Uint8Array, width: number, height: number, from: Point, to: Point, radius: number, mode: "erase" | "restore"): Rect {
+export function paintMask(
+  mask: Uint8Array,
+  width: number,
+  height: number,
+  from: Point,
+  to: Point,
+  radius: number,
+  mode: "erase" | "restore",
+): Rect {
   const reach = radius + 1;
   const left = Math.max(0, Math.floor(Math.min(from.x, to.x) - reach));
   const top = Math.max(0, Math.floor(Math.min(from.y, to.y) - reach));
@@ -145,23 +169,39 @@ export function paintMask(mask: Uint8Array, width: number, height: number, from:
   for (let y = top; y <= bottom; y++) {
     for (let x = left; x <= right; x++) {
       // Distance from the pixel centre to the stroke's centre line.
-      const t = lengthSquared === 0 ? 0 : Math.min(1, Math.max(0, ((x - from.x) * dx + (y - from.y) * dy) / lengthSquared));
+      const t =
+        lengthSquared === 0
+          ? 0
+          : Math.min(1, Math.max(0, ((x - from.x) * dx + (y - from.y) * dy) / lengthSquared));
       const distance = Math.hypot(x - (from.x + dx * t), y - (from.y + dy * t));
       if (distance >= radius) continue;
       const strength = distance <= core ? 1 : (radius - distance) / (radius - core);
       const index = y * width + x;
       const current = mask[index]!;
-      mask[index] = mode === "erase" ? Math.min(current, Math.round(255 * (1 - strength))) : Math.max(current, Math.round(255 * strength));
+      mask[index] =
+        mode === "erase"
+          ? Math.min(current, Math.round(255 * (1 - strength)))
+          : Math.max(current, Math.round(255 * strength));
     }
   }
-  return { x: left, y: top, width: Math.max(0, right - left + 1), height: Math.max(0, bottom - top + 1) };
+  return {
+    x: left,
+    y: top,
+    width: Math.max(0, right - left + 1),
+    height: Math.max(0, bottom - top + 1),
+  };
 }
 
 /**
  * Writes `source` into `out` (same size) with its alpha scaled by the mask —
  * the cut-out picture. With `area`, only that part is written.
  */
-export function applyMask(source: Bitmap, mask: Uint8Array, out: Uint8ClampedArray, area?: Rect): void {
+export function applyMask(
+  source: Bitmap,
+  mask: Uint8Array,
+  out: Uint8ClampedArray,
+  area?: Rect,
+): void {
   const { data, width, height } = source;
   const left = Math.max(0, area?.x ?? 0);
   const top = Math.max(0, area?.y ?? 0);
@@ -218,15 +258,28 @@ export function fitPlacement(content: Rect, frame: number, margin: number): Plac
 }
 
 /** Zooms a placement by `factor` around a point of the frame (the spot under the fingers stays put). */
-export function zoomPlacement(placement: Placement, factor: number, around: Point, min: number, max: number): Placement {
+export function zoomPlacement(
+  placement: Placement,
+  factor: number,
+  around: Point,
+  min: number,
+  max: number,
+): Placement {
   const scale = Math.min(max, Math.max(min, placement.scale * factor));
   const applied = scale / placement.scale;
-  return { scale, x: around.x - (around.x - placement.x) * applied, y: around.y - (around.y - placement.y) * applied };
+  return {
+    scale,
+    x: around.x - (around.x - placement.x) * applied,
+    y: around.y - (around.y - placement.y) * applied,
+  };
 }
 
 /** A point of the frame, in picture pixels. */
 export function toPicture(placement: Placement, point: Point): Point {
-  return { x: (point.x - placement.x) / placement.scale, y: (point.y - placement.y) / placement.scale };
+  return {
+    x: (point.x - placement.x) / placement.scale,
+    y: (point.y - placement.y) / placement.scale,
+  };
 }
 
 /**
@@ -238,7 +291,8 @@ export function distanceToShape(bitmap: Bitmap, threshold = 128): Float64Array {
   const { width, height, data } = bitmap;
   const FAR = 1e12;
   const grid = new Float64Array(width * height);
-  for (let index = 0; index < grid.length; index++) grid[index] = data[index * 4 + 3]! >= threshold ? 0 : FAR;
+  for (let index = 0; index < grid.length; index++)
+    grid[index] = data[index * 4 + 3]! >= threshold ? 0 : FAR;
 
   const length = Math.max(width, height);
   const f = new Float64Array(length);
@@ -325,7 +379,11 @@ export function outsideOfShape(bitmap: Bitmap, threshold = 128): Uint8Array {
  * rim. Holes inside the shape stay open: what was erased there is not
  * painted over. Changes `bitmap` in place.
  */
-export function addOutline(bitmap: Bitmap, thickness: number, color: readonly [number, number, number] = [255, 255, 255]): void {
+export function addOutline(
+  bitmap: Bitmap,
+  thickness: number,
+  color: readonly [number, number, number] = [255, 255, 255],
+): void {
   if (thickness <= 0) return;
   const { width, height, data } = bitmap;
   const distances = distanceToShape(bitmap);
@@ -343,7 +401,11 @@ export function addOutline(bitmap: Bitmap, thickness: number, color: readonly [n
     const alpha = data[offset + 3]! / 255;
     if (alpha >= 1) continue;
     // Outside, the outline fades out at its thickness. The shape's own soft outer edge sits fully on it.
-    const coverage = outside[index] ? Math.min(1, Math.max(0, thickness + 0.5 - Math.sqrt(distances[index]!))) : touchesOutside(index) ? 1 : 0;
+    const coverage = outside[index]
+      ? Math.min(1, Math.max(0, thickness + 0.5 - Math.sqrt(distances[index]!)))
+      : touchesOutside(index)
+        ? 1
+        : 0;
     if (coverage <= 0) continue;
     // The picture over the outline colour.
     const outAlpha = alpha + coverage * (1 - alpha);

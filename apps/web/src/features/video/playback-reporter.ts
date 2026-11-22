@@ -1,7 +1,16 @@
 /** What the reporter needs from the outside: the two RPCs and the player's state. */
 export interface PlaybackReporterDeps<Source> {
-  startPlayback(request: { videoId: string; source: Source; positionSeconds: number }): Promise<{ sessionId: string; reportIntervalSeconds: number; viewCount: bigint }>;
-  reportPlayback(request: { sessionId: string; positionSeconds: number; playing: boolean; ended: boolean }): Promise<{ viewCount: bigint }>;
+  startPlayback(request: {
+    videoId: string;
+    source: Source;
+    positionSeconds: number;
+  }): Promise<{ sessionId: string; reportIntervalSeconds: number; viewCount: bigint }>;
+  reportPlayback(request: {
+    sessionId: string;
+    positionSeconds: number;
+    playing: boolean;
+    ended: boolean;
+  }): Promise<{ viewCount: bigint }>;
   /** Where playback is, in seconds. */
   position(): number;
   /** The video is moving right now (not paused, stalled or hidden). */
@@ -46,7 +55,12 @@ export class PlaybackReporter<Source> {
     const session = this.session;
     if (!session || this.disposed) return;
     try {
-      const response = await this.deps.reportPlayback({ sessionId: session, positionSeconds: this.deps.position(), playing: !ended && this.deps.isPlaying(), ended });
+      const response = await this.deps.reportPlayback({
+        sessionId: session,
+        positionSeconds: this.deps.position(),
+        playing: !ended && this.deps.isPlaying(),
+        ended,
+      });
       if (!this.disposed) this.deps.onViewCount?.(response.viewCount);
     } catch (error) {
       // The next play, or the next tick that finds the video playing, opens a new session.
@@ -65,7 +79,11 @@ export class PlaybackReporter<Source> {
     if (this.disposed || this.session || this.starting) return;
     this.starting = true;
     try {
-      const response = await this.deps.startPlayback({ videoId: this.videoId, source: this.source, positionSeconds: this.deps.position() });
+      const response = await this.deps.startPlayback({
+        videoId: this.videoId,
+        source: this.source,
+        positionSeconds: this.deps.position(),
+      });
       // The viewer may have left while the request was on its way.
       if (this.disposed) return;
       this.session = response.sessionId;

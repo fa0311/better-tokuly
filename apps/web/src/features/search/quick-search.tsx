@@ -6,11 +6,14 @@ import { type ReactNode, type RefObject, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { create } from "zustand";
 import { Spinner } from "#/components/ui/spinner";
+import { useStaffAccess } from "#/features/admin";
 import { cn } from "#/lib/cn";
+import { HUB_TILES } from "#/seams/hub";
 import { submitSearch } from "./api";
 import { useHasKeyboard } from "./hooks";
 import { MAX_QUERY_LENGTH } from "./params";
 import { optionId, SuggestionList, useOpenSuggestion, useSuggestionKeys } from "./suggestion-list";
+import { destinationSuggestions } from "./suggestions";
 import { useSuggestions } from "./typeahead";
 
 const usePalette = create<{ open: boolean; query: string }>(() => ({ open: false, query: "" }));
@@ -66,7 +69,17 @@ function Palette({ field }: { field: RefObject<HTMLInputElement | null> }) {
   const keyboard = useHasKeyboard();
   const listId = useId();
   const [text, setText] = useState(() => usePalette.getState().query);
-  const { suggestions, loading } = useSuggestions(text);
+  const typeahead = useSuggestions(text);
+  const isStaff = useStaffAccess().staff;
+  // Parts of the app come first: the palette is also the launcher.
+  const suggestions = [
+    ...destinationSuggestions(
+      text,
+      HUB_TILES.filter((tile) => isStaff || !tile.staffOnly),
+    ),
+    ...typeahead.suggestions,
+  ];
+  const loading = typeahead.loading;
 
   const runSearch = (query: string) => {
     const next = query.trim();
@@ -80,7 +93,11 @@ function Palette({ field }: { field: RefObject<HTMLInputElement | null> }) {
     closeQuickSearch();
     openSuggestion(suggestion);
   };
-  const keys = useSuggestionKeys({ suggestions, onChoose: choose, onSubmit: () => runSearch(text) });
+  const keys = useSuggestionKeys({
+    suggestions,
+    onChoose: choose,
+    onSubmit: () => runSearch(text),
+  });
 
   return (
     <>
@@ -107,15 +124,27 @@ function Palette({ field }: { field: RefObject<HTMLInputElement | null> }) {
           className="h-full min-w-0 flex-1 bg-transparent text-[17px] font-bold outline-none placeholder:font-medium placeholder:text-ink-faint"
         />
         {loading && <Spinner className="size-5 shrink-0 text-ink-faint" />}
-        <BaseDialog.Close aria-label={t("palette.close")} className="grid h-9 min-w-9 shrink-0 place-items-center rounded-full px-2 text-ink-soft hover:bg-surface-2">
+        <BaseDialog.Close
+          aria-label={t("palette.close")}
+          className="grid h-9 min-w-9 shrink-0 place-items-center rounded-full px-2 text-ink-soft hover:bg-surface-2"
+        >
           {keyboard ? <Keycap>esc</Keycap> : <X className="size-5" />}
         </BaseDialog.Close>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
         {suggestions.length > 0 ? (
-          <SuggestionList listId={listId} label={t("suggest.label")} suggestions={suggestions} active={keys.active} onActive={keys.setActive} onChoose={choose} />
+          <SuggestionList
+            listId={listId}
+            label={t("suggest.label")}
+            suggestions={suggestions}
+            active={keys.active}
+            onActive={keys.setActive}
+            onChoose={choose}
+          />
         ) : (
-          <p className="px-4 py-8 text-center text-sm leading-relaxed text-ink-soft">{t("palette.hint")}</p>
+          <p className="px-4 py-8 text-center text-sm leading-relaxed text-ink-soft">
+            {t("palette.hint")}
+          </p>
         )}
       </div>
       <footer className="flex shrink-0 items-center gap-4 border-t-2 border-line px-5 py-2.5 text-xs font-bold text-ink-faint pb-safe sm:pb-2.5">
@@ -138,7 +167,11 @@ function Palette({ field }: { field: RefObject<HTMLInputElement | null> }) {
             </span>
           </>
         )}
-        <Link to="/search" onClick={closeQuickSearch} className="ml-auto text-brand hover:underline">
+        <Link
+          to="/search"
+          onClick={closeQuickSearch}
+          className="ml-auto text-brand hover:underline"
+        >
           {t("palette.openPage")}
         </Link>
       </footer>
@@ -147,5 +180,9 @@ function Palette({ field }: { field: RefObject<HTMLInputElement | null> }) {
 }
 
 function Keycap({ children }: { children: ReactNode }) {
-  return <kbd className="inline-grid h-5 min-w-5 place-items-center rounded-md border-2 border-line bg-surface-2 px-1 font-sans text-[10px] font-black text-ink-soft">{children}</kbd>;
+  return (
+    <kbd className="inline-grid h-5 min-w-5 place-items-center rounded-md border-2 border-line bg-surface-2 px-1 font-sans text-[10px] font-black text-ink-soft">
+      {children}
+    </kbd>
+  );
 }

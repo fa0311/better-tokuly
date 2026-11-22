@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { EmptyState, Skeleton } from "#/components/ui/page";
+import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { SearchField } from "./parts";
 import { displayName, useFriends } from "./people";
@@ -28,7 +29,9 @@ export function FriendPicker({
   const { t } = useTranslation("chat");
   const [query, setQuery] = useState("");
   const friends = useFriends(query.trim().replace(/^@/, ""));
-  const candidates = (friends.data?.friends ?? []).flatMap((friend) => (friend.user && !excludeIds.includes(friend.user.id) ? [friend.user] : []));
+  const candidates = (friends.data?.friends ?? []).flatMap((friend) =>
+    friend.user && !excludeIds.includes(friend.user.id) ? [friend.user] : [],
+  );
   const isSelected = (user: common.UserSummary) => selected.some((chosen) => chosen.id === user.id);
   const full = limit !== undefined && selected.length >= limit;
   const toggle = (user: common.UserSummary) => {
@@ -42,9 +45,16 @@ export function FriendPicker({
         <ul className="flex flex-wrap gap-1.5" aria-label={t("picker.selected")}>
           {selected.map((user) => (
             <li key={user.id}>
-              <button type="button" onClick={() => toggle(user)} className="flex h-8 items-center gap-1.5 rounded-full bg-brand-soft pr-2 pl-1 text-sm font-bold" aria-label={t("picker.remove", { name: displayName(user) })}>
+              <button
+                type="button"
+                onClick={() => toggle(user)}
+                className="flex h-8 items-center gap-1.5 rounded-full bg-brand-soft pr-2 pl-1 text-sm font-bold"
+                aria-label={t("picker.remove", { name: displayName(user) })}
+              >
                 <Avatar user={user} size="xs" />
-                <span className="max-w-28 truncate">{displayName(user)}</span>
+                <span className="max-w-28 truncate">
+                  <EmojiText text={displayName(user)} />
+                </span>
                 <X className="size-3.5 text-ink-soft" />
               </button>
             </li>
@@ -59,7 +69,11 @@ export function FriendPicker({
           ))}
         </div>
       ) : candidates.length === 0 ? (
-        <EmptyState emoji="🫥" title={query ? t("picker.noMatch") : t("picker.noFriends")} body={query ? undefined : t("picker.noFriendsBody")} />
+        <EmptyState
+          emoji="🫥"
+          title={query ? t("picker.noMatch") : t("picker.noFriends")}
+          body={query ? undefined : t("picker.noFriendsBody")}
+        />
       ) : (
         <ul className="-mx-2 flex flex-col">
           {candidates.map((user) => {
@@ -75,10 +89,17 @@ export function FriendPicker({
                 >
                   <Avatar user={user} outlined />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate font-bold">{displayName(user)}</span>
+                    <span className="block truncate font-bold">
+                      <EmojiText text={displayName(user)} />
+                    </span>
                     <span className="block truncate text-sm text-ink-soft">@{user.handle}</span>
                   </span>
-                  <span className={cn("grid size-6 shrink-0 place-items-center rounded-full border-2", chosen ? "border-ink bg-lime text-[#17122b]" : "border-line")}>
+                  <span
+                    className={cn(
+                      "grid size-6 shrink-0 place-items-center rounded-full border-2",
+                      chosen ? "border-ink bg-lime text-[#17122b]" : "border-line",
+                    )}
+                  >
                     {chosen && <Check className="size-4" strokeWidth={3} />}
                   </span>
                 </button>

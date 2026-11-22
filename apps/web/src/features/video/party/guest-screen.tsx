@@ -43,7 +43,8 @@ export function PartyGuestScreen({ code }: { code: string }) {
   const [left, setLeft] = useState(false);
 
   const join = useMutation({
-    mutationFn: (input: { guestName: string; guestToken: string }) => partyClient().joinParty({ code, ...input }),
+    mutationFn: (input: { guestName: string; guestToken: string }) =>
+      partyClient().joinParty({ code, ...input }),
     onSuccess: ({ session }, input) => {
       if (!session) return;
       const token = session.guestToken || input.guestToken;
@@ -75,7 +76,8 @@ export function PartyGuestScreen({ code }: { code: string }) {
     if (token) rejoin({ guestName: "", guestToken: token });
   }, [status, code, rejoin]);
 
-  if (status === "signedIn") return <Navigate to="/party/$partyId" params={{ partyId: code }} replace />;
+  if (status === "signedIn")
+    return <Navigate to="/party/$partyId" params={{ partyId: code }} replace />;
 
   if (seat && !left) {
     return (
@@ -85,7 +87,9 @@ export function PartyGuestScreen({ code }: { code: string }) {
           session={seat.session}
           guestToken={seat.token}
           standalone
-          onRejoin={() => join.mutate({ guestName: seat.session.self?.name ?? name, guestToken: "" })}
+          onRejoin={() =>
+            join.mutate({ guestName: seat.session.self?.name ?? name, guestToken: "" })
+          }
           onLeft={() => {
             try {
               window.sessionStorage.removeItem(tokenKey(code));
@@ -109,7 +113,11 @@ export function PartyGuestScreen({ code }: { code: string }) {
           <LogoMark className="size-10" />
         </Link>
         <span className="flex-1" />
-        <Link to="/login" search={{ redirect: `/party/${code}` }} className="pressable sticker-sm inline-flex h-10 items-center rounded-full bg-surface px-4 text-sm font-bold">
+        <Link
+          to="/login"
+          search={{ redirect: `/party/${code}` }}
+          className="pressable sticker-sm inline-flex h-10 items-center rounded-full bg-surface px-4 text-sm font-bold"
+        >
           {t("party.guest.signIn")}
         </Link>
       </header>
@@ -126,7 +134,9 @@ export function PartyGuestScreen({ code }: { code: string }) {
           <PartyGone ended />
         ) : (
           <PartyPreviewCard preview={preview.data}>
-            {left && <p className="mb-3 text-sm font-bold text-ink-soft">{t("party.guest.left")}</p>}
+            {left && (
+              <p className="mb-3 text-sm font-bold text-ink-soft">{t("party.guest.left")}</p>
+            )}
             {party.allowGuests ? (
               <form
                 className="flex flex-col gap-3 text-left"
@@ -135,15 +145,36 @@ export function PartyGuestScreen({ code }: { code: string }) {
                   if (trimmed) join.mutate({ guestName: trimmed, guestToken: "" });
                 }}
               >
-                <TextField label={t("party.guest.name")} value={name} maxLength={24} autoComplete="nickname" placeholder={t("party.guest.namePlaceholder")} hint={t("party.guest.nameHint")} onChange={(event) => setName(event.target.value)} />
-                <Button type="submit" size="lg" block icon={<PartyPopper className="size-5" />} disabled={!trimmed} loading={join.isPending}>
+                <TextField
+                  label={t("party.guest.name")}
+                  value={name}
+                  maxLength={24}
+                  autoComplete="nickname"
+                  placeholder={t("party.guest.namePlaceholder")}
+                  hint={t("party.guest.nameHint")}
+                  onChange={(event) => setName(event.target.value)}
+                />
+                <Button
+                  type="submit"
+                  size="lg"
+                  block
+                  icon={<PartyPopper className="size-5" />}
+                  disabled={!trimmed}
+                  loading={join.isPending}
+                >
                   {t("party.guest.join")}
                 </Button>
               </form>
             ) : (
               <>
-                <p className="text-sm leading-relaxed text-ink-soft">{t("party.guest.membersOnly")}</p>
-                <Link to="/login" search={{ redirect: `/party/${code}` }} className="pressable sticker mt-4 inline-flex h-12 items-center rounded-full bg-brand px-6 font-bold text-on-brand">
+                <p className="text-sm leading-relaxed text-ink-soft">
+                  {t("party.guest.membersOnly")}
+                </p>
+                <Link
+                  to="/login"
+                  search={{ redirect: `/party/${code}` }}
+                  className="pressable sticker mt-4 inline-flex h-12 items-center rounded-full bg-brand px-6 font-bold text-on-brand"
+                >
                   {t("party.guest.signInToJoin")}
                 </Link>
               </>

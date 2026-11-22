@@ -67,7 +67,8 @@ export default function StoriesBackground() {
   useEffect(
     () =>
       useSessionStore.subscribe((session) => {
-        if (session.state.status === "signedOut" && useStoryViewer.getState().reels) closeStoryViewer();
+        if (session.state.status === "signedOut" && useStoryViewer.getState().reels)
+          closeStoryViewer();
       }),
     [],
   );

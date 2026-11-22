@@ -11,7 +11,18 @@ export interface TrackPoint {
 }
 
 export const toTrack = (points: geo.RoutePoint[]): TrackPoint[] =>
-  points.flatMap((point) => (point.position ? [{ lat: point.position.lat, lng: point.position.lng, at: toMillis(point.recordedAt), activity: point.activity }] : []));
+  points.flatMap((point) =>
+    point.position
+      ? [
+          {
+            lat: point.position.lat,
+            lng: point.position.lng,
+            at: toMillis(point.recordedAt),
+            activity: point.activity,
+          },
+        ]
+      : [],
+  );
 
 /** Decodes a Google encoded polyline (precision 5) into `[lat, lng]` pairs. */
 export function decodePolyline(encoded: string): { lat: number; lng: number }[] {
@@ -70,7 +81,11 @@ function activityForSpeed(metersPerSecond: number): geo.Activity {
 }
 
 /** How a stretch of the route was travelled: the activity most of the moving time was spent in. */
-function movement(track: TrackPoint[], from: number, to: number): { distance: number; activity: geo.Activity } | null {
+function movement(
+  track: TrackPoint[],
+  from: number,
+  to: number,
+): { distance: number; activity: geo.Activity } | null {
   const stretch = track.filter((point) => point.at >= from && point.at <= to);
   if (stretch.length < 2) return null;
   let distance = 0;
@@ -78,7 +93,8 @@ function movement(track: TrackPoint[], from: number, to: number): { distance: nu
   for (let index = 1; index < stretch.length; index++) {
     const [a, b] = [stretch[index - 1]!, stretch[index]!];
     distance += distanceMeters(a, b);
-    if (b.activity !== geo.Activity.UNSPECIFIED && b.activity !== geo.Activity.STILL) time.set(b.activity, (time.get(b.activity) ?? 0) + (b.at - a.at));
+    if (b.activity !== geo.Activity.UNSPECIFIED && b.activity !== geo.Activity.STILL)
+      time.set(b.activity, (time.get(b.activity) ?? 0) + (b.at - a.at));
   }
   const said = [...time.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
   const seconds = Math.max(1, (stretch.at(-1)!.at - stretch[0]!.at) / 1000);
@@ -97,13 +113,22 @@ export function buildTimeline(visits: geo.Visit[], track: TrackPoint[]): Timelin
   ordered.forEach((visit, index) => {
     const previous = ordered[index - 1];
     if (previous) {
-      const from = toMillis(previous.departedAt) || toMillis(previous.arrivedAt) + Number(previous.durationSeconds) * 1000;
+      const from =
+        toMillis(previous.departedAt) ||
+        toMillis(previous.arrivedAt) + Number(previous.durationSeconds) * 1000;
       const to = toMillis(visit.arrivedAt);
       const measured = movement(track, from, to);
-      const straight = previous.center && visit.center ? distanceMeters(previous.center, visit.center) : 0;
+      const straight =
+        previous.center && visit.center ? distanceMeters(previous.center, visit.center) : 0;
       const distance = measured?.distance ?? straight;
       if (to > from && (to - from >= MIN_MOVE_MS || distance >= MIN_MOVE_METERS)) {
-        items.push({ kind: "move", from, to, activity: measured?.activity ?? geo.Activity.UNSPECIFIED, distanceMeters: distance });
+        items.push({
+          kind: "move",
+          from,
+          to,
+          activity: measured?.activity ?? geo.Activity.UNSPECIFIED,
+          distanceMeters: distance,
+        });
       }
     }
     items.push({ kind: "visit", visit });
@@ -115,7 +140,10 @@ export function buildTimeline(visits: geo.Visit[], track: TrackPoint[]): Timelin
  * Where the replay is at a moment: the point reached and how many points of
  * the track lie behind it. `track` must be sorted by time.
  */
-export function positionAt(track: TrackPoint[], at: number): { lat: number; lng: number; index: number } | null {
+export function positionAt(
+  track: TrackPoint[],
+  at: number,
+): { lat: number; lng: number; index: number } | null {
   if (track.length === 0) return null;
   if (at <= track[0]!.at) return { lat: track[0]!.lat, lng: track[0]!.lng, index: 0 };
   const last = track.at(-1)!;

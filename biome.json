@@ -24,13 +24,16 @@
   },
   "linter": {
     "rules": {
-      "recommended": true,
+      "preset": "recommended",
       "style": {
         "noNonNullAssertion": "off",
         "useImportType": "error"
       },
       "suspicious": {
         "noArrayIndexKey": "off"
+      },
+      "complexity": {
+        "noImportantStyles": "off"
       },
       "a11y": {
         "useMediaCaption": "off",

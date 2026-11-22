@@ -63,12 +63,18 @@ export type HitExtra = Record<string, unknown>;
 export function hitExtra(hit: Pick<search.SearchHit, "extraJson">): HitExtra {
   try {
     const parsed: unknown = JSON.parse(hit.extraJson || "{}");
-    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as HitExtra) : {};
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as HitExtra)
+      : {};
   } catch {
     return {};
   }
 }
 
-export const extraText = (extra: HitExtra, key: string): string => (typeof extra[key] === "string" ? (extra[key] as string) : "");
-export const extraNumber = (extra: HitExtra, key: string): number | undefined => (typeof extra[key] === "number" && Number.isFinite(extra[key]) ? (extra[key] as number) : undefined);
+export const extraText = (extra: HitExtra, key: string): string =>
+  typeof extra[key] === "string" ? (extra[key] as string) : "";
+export const extraNumber = (extra: HitExtra, key: string): number | undefined =>
+  typeof extra[key] === "number" && Number.isFinite(extra[key])
+    ? (extra[key] as number)
+    : undefined;
 export const extraFlag = (extra: HitExtra, key: string): boolean => extra[key] === true;

@@ -29,7 +29,9 @@ export function payoutStatusKey(status: wallet.PayoutStatus): string {
 
 export function PayoutStatusChip({ status }: { status: wallet.PayoutStatus }) {
   const { t } = useTranslation("wallet");
-  return <StatusChip tone={STATUS[status]?.tone ?? "neutral"}>{t(payoutStatusKey(status))}</StatusChip>;
+  return (
+    <StatusChip tone={STATUS[status]?.tone ?? "neutral"}>{t(payoutStatusKey(status))}</StatusChip>
+  );
 }
 
 const METHODS = {
@@ -49,7 +51,9 @@ export function payoutMethodKey(method: wallet.PayoutMethod): string {
 
 /** True while a request still holds the user's earnings (waiting for review or for the money). */
 export function isOpenPayout(payout: wallet.PayoutRequest): boolean {
-  return payout.status === wallet.PayoutStatus.PENDING || payout.status === wallet.PayoutStatus.APPROVED;
+  return (
+    payout.status === wallet.PayoutStatus.PENDING || payout.status === wallet.PayoutStatus.APPROVED
+  );
 }
 
 const DESTINATION_MAX = 500;
@@ -60,7 +64,17 @@ const NOTE_MAX = 500;
  * and the available earnings as they are typed; the server has the last word.
  * Mount it fresh for every request: each mount is one idempotent attempt.
  */
-export function PayoutRequestDialog({ open, onOpenChange, available, terms }: { open: boolean; onOpenChange(open: boolean): void; available: bigint; terms: wallet.PayoutTerms }) {
+export function PayoutRequestDialog({
+  open,
+  onOpenChange,
+  available,
+  terms,
+}: {
+  open: boolean;
+  onOpenChange(open: boolean): void;
+  available: bigint;
+  terms: wallet.PayoutTerms;
+}) {
   const { t, i18n } = useTranslation(["wallet", "common"]);
   const queryClient = useQueryClient();
   const [idempotencyKey] = useState(() => crypto.randomUUID());
@@ -84,7 +98,14 @@ export function PayoutRequestDialog({ open, onOpenChange, available, terms }: { 
   const destinationError = destination.trim() ? undefined : t("payout.form.destinationRequired");
 
   const request = useMutation({
-    mutationFn: () => earningsClient().requestPayout({ coins: coins ?? 0n, method: METHODS[method], destination: destination.trim(), note: note.trim(), idempotencyKey }),
+    mutationFn: () =>
+      earningsClient().requestPayout({
+        coins: coins ?? 0n,
+        method: METHODS[method],
+        destination: destination.trim(),
+        note: note.trim(),
+        idempotencyKey,
+      }),
     onSuccess: (response) => {
       rememberBalance(queryClient, response.balance);
       void queryClient.invalidateQueries({ queryKey: walletKeys.payouts });
@@ -133,7 +154,10 @@ export function PayoutRequestDialog({ open, onOpenChange, available, terms }: { 
           onChange={(event) => setAmount(event.target.value)}
           // The amount is wrong the moment it is typed; do not wait for a submit to say so.
           error={amount.trim() === "" && !submitted ? undefined : amountError}
-          hint={t("payout.form.amountHint", { available: formatCoins(available), minimum: formatCoins(terms.minCoins) })}
+          hint={t("payout.form.amountHint", {
+            available: formatCoins(available),
+            minimum: formatCoins(terms.minCoins),
+          })}
           trailing={
             <Button variant="ghost" size="sm" onClick={() => setAmount(available.toString())}>
               {t("payout.form.all")}
@@ -142,13 +166,22 @@ export function PayoutRequestDialog({ open, onOpenChange, available, terms }: { 
         />
         <div className="flex items-center justify-between rounded-2xl bg-surface-2 px-4 py-3">
           <span className="text-sm font-bold text-ink-soft">{t("payout.form.youGet")}</span>
-          <span className="text-xl font-black">{formatMoney(payoutMoney(amountError || coins === undefined ? 0n : coins, terms.minorPer100Coins), terms.currency, i18n.language)}</span>
+          <span className="text-xl font-black">
+            {formatMoney(
+              payoutMoney(amountError || coins === undefined ? 0n : coins, terms.minorPer100Coins),
+              terms.currency,
+              i18n.language,
+            )}
+          </span>
         </div>
         <SelectField<MethodKey>
           label={t("payout.form.method")}
           value={method}
           onChange={setMethod}
-          options={(Object.keys(METHODS) as MethodKey[]).map((key) => ({ value: key, label: t(`payout.method.${key}`) }))}
+          options={(Object.keys(METHODS) as MethodKey[]).map((key) => ({
+            value: key,
+            label: t(`payout.method.${key}`),
+          }))}
         />
         <TextArea
           label={t("payout.form.destination")}
@@ -159,7 +192,13 @@ export function PayoutRequestDialog({ open, onOpenChange, available, terms }: { 
           error={submitted ? destinationError : undefined}
           hint={t("payout.form.destinationHint")}
         />
-        <TextArea label={t("payout.form.note")} value={note} maxLength={NOTE_MAX} onChange={(event) => setNote(event.target.value)} placeholder={t("payout.form.notePlaceholder")} />
+        <TextArea
+          label={t("payout.form.note")}
+          value={note}
+          maxLength={NOTE_MAX}
+          onChange={(event) => setNote(event.target.value)}
+          placeholder={t("payout.form.notePlaceholder")}
+        />
         {/* Lets the keyboard's "go" key send the form. */}
         <button type="submit" hidden />
       </form>
@@ -189,12 +228,22 @@ export function useCancelPayout() {
 }
 
 /** Coins of a payout with the money they turn into. */
-export function PayoutAmount({ payout, large, className }: { payout: wallet.PayoutRequest; /** For the head of a page or pane. */ large?: boolean; className?: string }) {
+export function PayoutAmount({
+  payout,
+  large,
+  className,
+}: {
+  payout: wallet.PayoutRequest /** For the head of a page or pane. */;
+  large?: boolean;
+  className?: string;
+}) {
   const { i18n } = useTranslation("wallet");
   return (
     <span className={cn("inline-flex flex-wrap items-baseline gap-x-2", className)}>
       <Coins amount={payout.coins} className={cn(large && "text-2xl")} />
-      <span className={cn("font-bold text-ink-soft", large ? "text-base" : "text-sm")}>→ {formatMoney(payout.payoutMinor, payout.currency, i18n.language)}</span>
+      <span className={cn("font-bold text-ink-soft", large ? "text-base" : "text-sm")}>
+        → {formatMoney(payout.payoutMinor, payout.currency, i18n.language)}
+      </span>
     </span>
   );
 }

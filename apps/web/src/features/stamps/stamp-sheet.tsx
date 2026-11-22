@@ -12,7 +12,14 @@ import { Dialog } from "#/components/ui/dialog";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
-import { libraryClient, patchStamp, refreshHoldings, stampKeys, storeClient, useToggleFavorite } from "./api";
+import {
+  libraryClient,
+  patchStamp,
+  refreshHoldings,
+  stampKeys,
+  storeClient,
+  useToggleFavorite,
+} from "./api";
 import { PackCover, PackMaker, PriceTag } from "./parts";
 import { PurchaseDialog } from "./purchase";
 import { StampImage } from "./stamp-image";
@@ -36,7 +43,9 @@ export function StampSheet({ stampId, onClose }: StampSheetProps) {
   // The last stamp stays rendered while the sheet animates out.
   const [shown, setShown] = useState(stampId);
   if (stampId && stampId !== shown) setShown(stampId);
-  return shown ? <Sheet key={shown} stampId={shown} open={Boolean(stampId)} onClose={onClose} /> : null;
+  return shown ? (
+    <Sheet key={shown} stampId={shown} open={Boolean(stampId)} onClose={onClose} />
+  ) : null;
 }
 
 function Sheet({ stampId, open, onClose }: { stampId: string; open: boolean; onClose(): void }) {
@@ -58,7 +67,11 @@ function Sheet({ stampId, open, onClose }: { stampId: string; open: boolean; onC
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [buying, setBuying] = useState<stamp.PackSummary | null>(null);
 
-  const refresh = () => Promise.all([refreshHoldings(queryClient), queryClient.invalidateQueries({ queryKey: stampKeys.stamp(stampId) })]);
+  const refresh = () =>
+    Promise.all([
+      refreshHoldings(queryClient),
+      queryClient.invalidateQueries({ queryKey: stampKeys.stamp(stampId) }),
+    ]);
   const onError = (error: unknown) => toast.error(errorMessage(error, { namespace: "stamps" }));
 
   const save = useMutation({
@@ -83,7 +96,12 @@ function Sheet({ stampId, open, onClose }: { stampId: string; open: boolean; onC
   });
   const rename = useMutation({
     mutationFn: (meta: StampMeta) =>
-      libraryClient().updatePersonalStamp({ stampId, name: meta.name.trim(), emoji: meta.emoji, keywords: { keywords: parseKeywords(meta.keywords) } }),
+      libraryClient().updatePersonalStamp({
+        stampId,
+        name: meta.name.trim(),
+        emoji: meta.emoji,
+        keywords: { keywords: parseKeywords(meta.keywords) },
+      }),
     onSuccess: (response) => {
       if (response.stamp) patchStamp(queryClient, stampId, response.stamp);
       setEditing(null);
@@ -123,7 +141,13 @@ function Sheet({ stampId, open, onClose }: { stampId: string; open: boolean; onC
               rename.mutate(editing);
             }}
           >
-            <StampImage stamp={ref} image={item.image} size={96} play="always" className="self-center" />
+            <StampImage
+              stamp={ref}
+              image={item.image}
+              size={96}
+              play="always"
+              className="self-center"
+            />
             <StampMetaFields value={editing} onChange={setEditing} autoFocus />
             <div className="flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setEditing(null)} disabled={rename.isPending}>
@@ -161,7 +185,12 @@ function Sheet({ stampId, open, onClose }: { stampId: string; open: boolean; onC
                 </Button>
               )}
               {data.canSave && (
-                <Button variant="lime" icon={<Download className="size-4" />} loading={save.isPending} onClick={() => save.mutate()}>
+                <Button
+                  variant="lime"
+                  icon={<Download className="size-4" />}
+                  loading={save.isPending}
+                  onClick={() => save.mutate()}
+                >
                   {t("stamp.save")}
                 </Button>
               )}
@@ -170,18 +199,31 @@ function Sheet({ stampId, open, onClose }: { stampId: string; open: boolean; onC
                   <Button
                     variant="secondary"
                     icon={<Pencil className="size-4" />}
-                    onClick={() => setEditing({ name: ref.name, emoji: item.emoji, keywords: item.keywords.join(" ") })}
+                    onClick={() =>
+                      setEditing({
+                        name: ref.name,
+                        emoji: item.emoji,
+                        keywords: item.keywords.join(" "),
+                      })
+                    }
                   >
                     {t("stamp.edit")}
                   </Button>
-                  <Button variant="ghost" className="text-danger" icon={<Trash2 className="size-4" />} onClick={() => setConfirmDelete(true)}>
+                  <Button
+                    variant="ghost"
+                    className="text-danger"
+                    icon={<Trash2 className="size-4" />}
+                    onClick={() => setConfirmDelete(true)}
+                  >
                     {t("common:actions.delete")}
                   </Button>
                 </>
               )}
             </div>
 
-            {item.personal && !mine && <p className="text-center text-sm text-ink-soft">{t("stamp.personalOfOther")}</p>}
+            {item.personal && !mine && (
+              <p className="text-center text-sm text-ink-soft">{t("stamp.personalOfOther")}</p>
+            )}
             {mine && <p className="text-center text-sm text-ink-soft">{t("stamp.personalMine")}</p>}
 
             {pack && (
@@ -216,7 +258,9 @@ function Sheet({ stampId, open, onClose }: { stampId: string; open: boolean; onC
         loading={remove.isPending}
         onConfirm={() => remove.mutate()}
       />
-      {buying && <PurchaseDialog pack={buying} open onOpenChange={(next) => !next && setBuying(null)} />}
+      {buying && (
+        <PurchaseDialog pack={buying} open onOpenChange={(next) => !next && setBuying(null)} />
+      )}
     </>
   );
 }

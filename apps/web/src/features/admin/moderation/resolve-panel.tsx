@@ -30,14 +30,26 @@ const ACTIONS = [
 
 type ResolveAction = (typeof ACTIONS)[number];
 
-const SANCTIONS: readonly ResolveAction[] = [admin.ModerationActionKind.WARN, admin.ModerationActionKind.SUSPEND, admin.ModerationActionKind.BAN];
+const SANCTIONS: readonly ResolveAction[] = [
+  admin.ModerationActionKind.WARN,
+  admin.ModerationActionKind.SUSPEND,
+  admin.ModerationActionKind.BAN,
+];
 
 /**
  * Closes an open case: pick what to do, say why, confirm. Actions the API
  * would refuse for this case (taking an account "down", sanctioning an owner
  * who is gone) are not offered.
  */
-export function ResolvePanel({ moderationCase, loading, onResolve }: { moderationCase: admin.ModerationCase; loading: boolean; onResolve(resolution: Resolution): void }) {
+export function ResolvePanel({
+  moderationCase,
+  loading,
+  onResolve,
+}: {
+  moderationCase: admin.ModerationCase;
+  loading: boolean;
+  onResolve(resolution: Resolution): void;
+}) {
   const { t } = useTranslation("admin");
   const durationLabel = useDurationLabel();
   const [action, setAction] = useState<ResolveAction | null>(null);
@@ -51,14 +63,17 @@ export function ResolvePanel({ moderationCase, loading, onResolve }: { moderatio
   const aboutAccount = moderationCase.subject?.type === common.SubjectType.USER;
   const ownerGone = !moderationCase.subjectOwner || moderationCase.subjectOwner.deleted;
   const unavailable = (candidate: ResolveAction): string | undefined => {
-    if (candidate === admin.ModerationActionKind.REMOVE_CONTENT && aboutAccount) return t("moderation.resolve.accountNotRemovable");
+    if (candidate === admin.ModerationActionKind.REMOVE_CONTENT && aboutAccount)
+      return t("moderation.resolve.accountNotRemovable");
     if (SANCTIONS.includes(candidate) && ownerGone) return t("moderation.resolve.ownerGone");
     return undefined;
   };
 
   const isSanction = action !== null && SANCTIONS.includes(action);
   const needsReason = action !== null && action !== admin.ModerationActionKind.DISMISS;
-  const removes = action === admin.ModerationActionKind.REMOVE_CONTENT || (isSanction && removeContent && !aboutAccount);
+  const removes =
+    action === admin.ModerationActionKind.REMOVE_CONTENT ||
+    (isSanction && removeContent && !aboutAccount);
 
   const review = () => {
     if (action === null) return;
@@ -84,7 +99,11 @@ export function ResolvePanel({ moderationCase, loading, onResolve }: { moderatio
   return (
     <Section title={t("moderation.resolve.title")}>
       <div className="flex flex-col gap-4 p-4">
-        <div role="radiogroup" aria-label={t("moderation.resolve.title")} className="flex flex-col gap-1.5">
+        <div
+          role="radiogroup"
+          aria-label={t("moderation.resolve.title")}
+          className="flex flex-col gap-1.5"
+        >
           {ACTIONS.map((candidate) => {
             const blocked = unavailable(candidate);
             const selected = action === candidate;
@@ -105,20 +124,37 @@ export function ResolvePanel({ moderationCase, loading, onResolve }: { moderatio
                   selected ? "border-brand bg-brand-soft" : "border-line hover:border-ink-faint",
                 )}
               >
-                <span className={cn("mt-1 grid size-4 shrink-0 place-items-center rounded-full border-2", selected ? "border-brand" : "border-ink-faint")}>
+                <span
+                  className={cn(
+                    "mt-1 grid size-4 shrink-0 place-items-center rounded-full border-2",
+                    selected ? "border-brand" : "border-ink-faint",
+                  )}
+                >
                   {selected && <span className="size-2 rounded-full bg-brand" />}
                 </span>
                 <span className="min-w-0">
                   <span className="block text-sm font-bold">{t(actionKey(candidate))}</span>
-                  <span className="block text-xs text-ink-soft">{blocked ?? t(`moderation.resolve.hints.${admin.ModerationActionKind[candidate]}`)}</span>
+                  <span className="block text-xs text-ink-soft">
+                    {blocked ??
+                      t(`moderation.resolve.hints.${admin.ModerationActionKind[candidate]}`)}
+                  </span>
                 </span>
               </button>
             );
           })}
         </div>
 
-        {action === admin.ModerationActionKind.SUSPEND && <DurationSelect value={seconds} onChange={setSeconds} />}
-        {isSanction && !aboutAccount && <SwitchRow label={t("moderation.resolve.alsoRemove")} hint={t("moderation.resolve.alsoRemoveHint")} checked={removeContent} onChange={setRemoveContent} />}
+        {action === admin.ModerationActionKind.SUSPEND && (
+          <DurationSelect value={seconds} onChange={setSeconds} />
+        )}
+        {isSanction && !aboutAccount && (
+          <SwitchRow
+            label={t("moderation.resolve.alsoRemove")}
+            hint={t("moderation.resolve.alsoRemoveHint")}
+            checked={removeContent}
+            onChange={setRemoveContent}
+          />
+        )}
         {needsReason && (
           <TextArea
             label={t("common.reason")}
@@ -132,9 +168,25 @@ export function ResolvePanel({ moderationCase, loading, onResolve }: { moderatio
             }}
           />
         )}
-        {action !== null && <TextArea label={t("common.note")} hint={t("common.noteHint")} value={note} maxLength={NOTE_MAX} onChange={(event) => setNote(event.target.value)} />}
+        {action !== null && (
+          <TextArea
+            label={t("common.note")}
+            hint={t("common.noteHint")}
+            value={note}
+            maxLength={NOTE_MAX}
+            onChange={(event) => setNote(event.target.value)}
+          />
+        )}
 
-        <Button block variant={action === null || action === admin.ModerationActionKind.DISMISS ? "primary" : "danger"} disabled={action === null} loading={loading} onClick={review}>
+        <Button
+          block
+          variant={
+            action === null || action === admin.ModerationActionKind.DISMISS ? "primary" : "danger"
+          }
+          disabled={action === null}
+          loading={loading}
+          onClick={review}
+        >
           {t("moderation.resolve.submit")}
         </Button>
       </div>
@@ -155,8 +207,16 @@ export function ResolvePanel({ moderationCase, loading, onResolve }: { moderatio
               {action === admin.ModerationActionKind.SUSPEND && ` (${durationLabel(seconds)})`}
             </li>
             {removes && <li>{t("moderation.resolve.effects.removes")}</li>}
-            {isSanction && moderationCase.subjectOwner && <li>{t("moderation.resolve.effects.owner", { handle: moderationCase.subjectOwner.handle })}</li>}
-            <li>{t("moderation.resolve.effects.reporters", { count: moderationCase.reportCount })}</li>
+            {isSanction && moderationCase.subjectOwner && (
+              <li>
+                {t("moderation.resolve.effects.owner", {
+                  handle: moderationCase.subjectOwner.handle,
+                })}
+              </li>
+            )}
+            <li>
+              {t("moderation.resolve.effects.reporters", { count: moderationCase.reportCount })}
+            </li>
           </ul>
         )}
       </ConfirmDialog>

@@ -27,13 +27,25 @@ export interface StaffWalletSearch {
  * queue and wallet lookups for moderators; balance adjustments, their log and
  * the coin shop for admins.
  */
-export function AdminWalletScreen({ search, onSearch }: { search: StaffWalletSearch; onSearch(next: StaffWalletSearch): void }) {
+export function AdminWalletScreen({
+  search,
+  onSearch,
+}: {
+  search: StaffWalletSearch;
+  onSearch(next: StaffWalletSearch): void;
+}) {
   const { t } = useTranslation("wallet");
   const access = useWalletStaffAccess();
   // The number waiting for review rides on the tab, whichever tab is open.
   const pending = useQuery({
     queryKey: walletKeys.admin.pendingCount,
-    queryFn: async () => (await walletAdminClient().listPayoutQueue({ status: wallet.PayoutStatus.PENDING, page: { limit: 1 } })).pendingCount,
+    queryFn: async () =>
+      (
+        await walletAdminClient().listPayoutQueue({
+          status: wallet.PayoutStatus.PENDING,
+          page: { limit: 1 },
+        })
+      ).pendingCount,
     enabled: access.moderator,
   });
 
@@ -55,12 +67,29 @@ export function AdminWalletScreen({ search, onSearch }: { search: StaffWalletSea
             <Tabs<StaffTab>
               value={tab}
               onChange={(next) => onSearch({ tab: next })}
-              items={tabs.map((value) => ({ value, label: t(`staff.tabs.${value}`), badge: value === "payouts" ? pending.data : undefined }))}
+              items={tabs.map((value) => ({
+                value,
+                label: t(`staff.tabs.${value}`),
+                badge: value === "payouts" ? pending.data : undefined,
+              }))}
             />
             <div className="mt-4">
-              {tab === "payouts" && <PayoutQueue selectedId={search.payout} onSelect={(payout) => onSearch({ tab: "payouts", payout })} onOpenUser={(user) => onSearch({ tab: "users", user })} />}
-              {tab === "users" && <UserWallets userId={search.user} onSelect={(user) => onSearch({ tab: "users", user })} />}
-              {tab === "adjustments" && <AdjustmentsLog onOpenUser={(user) => onSearch({ tab: "users", user })} />}
+              {tab === "payouts" && (
+                <PayoutQueue
+                  selectedId={search.payout}
+                  onSelect={(payout) => onSearch({ tab: "payouts", payout })}
+                  onOpenUser={(user) => onSearch({ tab: "users", user })}
+                />
+              )}
+              {tab === "users" && (
+                <UserWallets
+                  userId={search.user}
+                  onSelect={(user) => onSearch({ tab: "users", user })}
+                />
+              )}
+              {tab === "adjustments" && (
+                <AdjustmentsLog onOpenUser={(user) => onSearch({ tab: "users", user })} />
+              )}
               {tab === "packages" && <PackageManager />}
             </div>
           </>

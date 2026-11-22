@@ -50,7 +50,11 @@ const scenes = new WeakMap<LoadedAnimation, Scene>();
 function sceneOf(loaded: LoadedAnimation): Scene {
   let scene = scenes.get(loaded);
   if (!scene) {
-    scene = { loaded, assets: new Map((loaded.animation.assets ?? []).map((asset) => [asset.id, asset])), scratch: [] };
+    scene = {
+      loaded,
+      assets: new Map((loaded.animation.assets ?? []).map((asset) => [asset.id, asset])),
+      scratch: [],
+    };
     scenes.set(loaded, scene);
   }
   return scene;
@@ -60,10 +64,23 @@ function sceneOf(loaded: LoadedAnimation): Scene {
  * Draws `frame` of the animation into the `width` × `height` area at the
  * top-left of the canvas (in canvas pixels), scaled to fit and centred.
  */
-export function drawFrame(context: Context, loaded: LoadedAnimation, frame: number, width: number, height: number): void {
+export function drawFrame(
+  context: Context,
+  loaded: LoadedAnimation,
+  frame: number,
+  width: number,
+  height: number,
+): void {
   const { animation } = loaded;
   const scale = Math.min(width / animation.w, height / animation.h);
-  const root: Matrix = [scale, 0, 0, scale, (width - animation.w * scale) / 2, (height - animation.h * scale) / 2];
+  const root: Matrix = [
+    scale,
+    0,
+    0,
+    scale,
+    (width - animation.w * scale) / 2,
+    (height - animation.h * scale) / 2,
+  ];
   context.setTransform(1, 0, 0, 1, 0, 0);
   context.clearRect(0, 0, width, height);
   context.save();
@@ -90,13 +107,25 @@ function layerMatrix(layer: Layer, layers: Layer[], frame: number): Matrix {
   return matrix;
 }
 
-function drawLayers(context: Context, scene: Scene, layers: Layer[], frame: number, base: Matrix, alpha: number, depth: number): void {
+function drawLayers(
+  context: Context,
+  scene: Scene,
+  layers: Layer[],
+  frame: number,
+  base: Matrix,
+  alpha: number,
+  depth: number,
+): void {
   if (depth > 8) return;
   for (let index = layers.length - 1; index >= 0; index--) {
     const layer = layers[index]!;
     // A matte layer is only drawn through the layer it cuts out.
     if (layer.hd || layer.td || frame < layer.ip || frame >= layer.op) continue;
-    const matte = layer.tt ? (layer.tp !== undefined ? layers.find((candidate) => candidate.ind === layer.tp) : layers[index - 1]) : undefined;
+    const matte = layer.tt
+      ? layer.tp !== undefined
+        ? layers.find((candidate) => candidate.ind === layer.tp)
+        : layers[index - 1]
+      : undefined;
     if (matte) drawMatted(context, scene, layers, layer, matte, frame, base, alpha, depth);
     else drawLayer(context, scene, layers, layer, frame, base, alpha, depth);
   }
@@ -111,7 +140,17 @@ function scratchCanvas(scene: Scene, width: number, height: number): HTMLCanvasE
   return canvas;
 }
 
-function drawMatted(context: Context, scene: Scene, layers: Layer[], layer: Layer, matte: Layer, frame: number, base: Matrix, alpha: number, depth: number): void {
+function drawMatted(
+  context: Context,
+  scene: Scene,
+  layers: Layer[],
+  layer: Layer,
+  matte: Layer,
+  frame: number,
+  base: Matrix,
+  alpha: number,
+  depth: number,
+): void {
   const { width, height } = context.canvas;
   const content = scratchCanvas(scene, width, height);
   const shape = scratchCanvas(scene, width, height);
@@ -125,11 +164,13 @@ function drawMatted(context: Context, scene: Scene, layers: Layer[], layer: Laye
       target.clearRect(0, 0, width, height);
     }
     drawLayer(contentContext, scene, layers, layer, frame, base, alpha, depth);
-    if (frame >= matte.ip && frame < matte.op) drawLayer(shapeContext, scene, layers, matte, frame, base, 1, depth);
+    if (frame >= matte.ip && frame < matte.op)
+      drawLayer(shapeContext, scene, layers, matte, frame, base, 1, depth);
     contentContext.setTransform(1, 0, 0, 1, 0, 0);
     contentContext.globalAlpha = 1;
     // Even matte types keep what the matte covers; odd ones are inverted.
-    contentContext.globalCompositeOperation = layer.tt === 2 || layer.tt === 4 ? "destination-out" : "destination-in";
+    contentContext.globalCompositeOperation =
+      layer.tt === 2 || layer.tt === 4 ? "destination-out" : "destination-in";
     contentContext.drawImage(shape, 0, 0);
     contentContext.globalCompositeOperation = "source-over";
     context.save();
@@ -155,7 +196,16 @@ const BLEND_MODES: Record<number, GlobalCompositeOperation> = {
   11: "exclusion",
 };
 
-function drawLayer(context: Context, scene: Scene, layers: Layer[], layer: Layer, frame: number, base: Matrix, alpha: number, depth: number): void {
+function drawLayer(
+  context: Context,
+  scene: Scene,
+  layers: Layer[],
+  layer: Layer,
+  frame: number,
+  base: Matrix,
+  alpha: number,
+  depth: number,
+): void {
   const opacity = alpha * (numberAt(layer.ks?.o, frame, 100) / 100);
   if (opacity <= 0) return;
   const matrix = multiply(base, layerMatrix(layer, layers, frame));
@@ -168,7 +218,8 @@ function drawLayer(context: Context, scene: Scene, layers: Layer[], layer: Layer
   if (layer.ty === 4 && layer.shapes) {
     const operations: DrawOperation[] = [];
     collectShapes(layer.shapes, IDENTITY, 1, frame, operations);
-    for (let index = operations.length - 1; index >= 0; index--) paint(context, operations[index]!, frame, opacity);
+    for (let index = operations.length - 1; index >= 0; index--)
+      paint(context, operations[index]!, frame, opacity);
   } else if (layer.ty === 1 && layer.sc) {
     context.globalAlpha = opacity;
     context.fillStyle = layer.sc;
@@ -187,7 +238,9 @@ function drawLayer(context: Context, scene: Scene, layers: Layer[], layer: Layer
       context.rect(0, 0, layer.w ?? scene.loaded.animation.w, layer.h ?? scene.loaded.animation.h);
       context.clip();
       // Inside the composition, time runs from the layer's start; a time remap replaces it (in seconds).
-      const local = layer.tm ? numberAt(layer.tm, frame, 0) * scene.loaded.animation.fr : (frame - (layer.st ?? 0)) / (layer.sr || 1);
+      const local = layer.tm
+        ? numberAt(layer.tm, frame, 0) * scene.loaded.animation.fr
+        : (frame - (layer.st ?? 0)) / (layer.sr || 1);
       drawLayers(context, scene, composition.layers, local, matrix, opacity, depth + 1);
     }
   }
@@ -241,7 +294,13 @@ interface DrawOperation {
  * stroke paints the paths above it in its group (including nested groups').
  * The operations come out top-most first, so they are painted in reverse.
  */
-function collectShapes(items: ShapeItem[], parent: Matrix, parentOpacity: number, frame: number, operations: DrawOperation[]): PathEntry[] {
+function collectShapes(
+  items: ShapeItem[],
+  parent: Matrix,
+  parentOpacity: number,
+  frame: number,
+  operations: DrawOperation[],
+): PathEntry[] {
   const transform = items.find((item) => item.ty === "tr");
   const matrix = transform ? multiply(parent, transformMatrix(transform, frame)) : parent;
   const opacity = parentOpacity * (transform ? numberAt(transform.o, frame, 100) / 100 : 1);
@@ -260,14 +319,34 @@ function collectShapes(items: ShapeItem[], parent: Matrix, parentOpacity: number
         break;
       }
       case "rc":
-        paths.push({ shapes: [rectShape(vectorAt(item.p, frame, [0, 0]), vectorAt(item.s, frame, [0, 0]), numberAt(item.r, frame, 0))], matrix });
+        paths.push({
+          shapes: [
+            rectShape(
+              vectorAt(item.p, frame, [0, 0]),
+              vectorAt(item.s, frame, [0, 0]),
+              numberAt(item.r, frame, 0),
+            ),
+          ],
+          matrix,
+        });
         break;
       case "el":
-        paths.push({ shapes: [ellipseShape(vectorAt(item.p, frame, [0, 0]), vectorAt(item.s, frame, [0, 0]))], matrix });
+        paths.push({
+          shapes: [ellipseShape(vectorAt(item.p, frame, [0, 0]), vectorAt(item.s, frame, [0, 0]))],
+          matrix,
+        });
         break;
       case "sr":
         paths.push({
-          shapes: [starShape(vectorAt(item.p, frame, [0, 0]), numberAt(item.pt, frame, 5), numberAt(item.or, frame, 0), item.sy === 2 ? undefined : numberAt(item.ir, frame, 0), numberAt(item.r, frame, 0))],
+          shapes: [
+            starShape(
+              vectorAt(item.p, frame, [0, 0]),
+              numberAt(item.pt, frame, 5),
+              numberAt(item.or, frame, 0),
+              item.sy === 2 ? undefined : numberAt(item.ir, frame, 0),
+              numberAt(item.r, frame, 0),
+            ),
+          ],
           matrix,
         });
         break;
@@ -290,8 +369,16 @@ function collectShapes(items: ShapeItem[], parent: Matrix, parentOpacity: number
     const offset = numberAt(trim.o, frame, 0) / 360;
     if (trim.m === 2) {
       // One after another: the paths form a single line, drawn from the last path to the first.
-      const all = paths.flatMap((entry) => entry.shapes.map((shape) => ({ entry, shape }))).reverse();
-      const trimmed = trimShapes(all.map((item) => item.shape), start, end, offset, true);
+      const all = paths
+        .flatMap((entry) => entry.shapes.map((shape) => ({ entry, shape })))
+        .reverse();
+      const trimmed = trimShapes(
+        all.map((item) => item.shape),
+        start,
+        end,
+        offset,
+        true,
+      );
       for (const entry of paths) entry.shapes = [];
       // Trimmed contours no longer map to their source one to one; they share the first matrix in practice.
       if (paths[0]) paths[0].shapes = trimmed;
@@ -325,20 +412,31 @@ function traceContour(context: Context, shape: ShapeData | undefined, matrix: Ma
 }
 
 function cssColor(color: number[], alpha = 1): string {
-  const channel = (value: number | undefined) => Math.round(Math.min(1, Math.max(0, value ?? 0)) * 255);
+  const channel = (value: number | undefined) =>
+    Math.round(Math.min(1, Math.max(0, value ?? 0)) * 255);
   return `rgba(${channel(color[0])}, ${channel(color[1])}, ${channel(color[2])}, ${alpha})`;
 }
 
-function gradientOf(context: Context, operation: DrawOperation, frame: number): CanvasGradient | null {
+function gradientOf(
+  context: Context,
+  operation: DrawOperation,
+  frame: number,
+): CanvasGradient | null {
   const { style, matrix } = operation;
   if (!style.g) return null;
   const start = vectorAt(style.s, frame, [0, 0]);
   const end = vectorAt(style.e, frame, [0, 0]);
   const [x0, y0] = applyToPoint(matrix, start[0] ?? 0, start[1] ?? 0);
   const [x1, y1] = applyToPoint(matrix, end[0] ?? 0, end[1] ?? 0);
-  const gradient = style.t === 2 ? context.createRadialGradient(x0, y0, 0, x0, y0, Math.hypot(x1 - x0, y1 - y0)) : context.createLinearGradient(x0, y0, x1, y1);
+  const gradient =
+    style.t === 2
+      ? context.createRadialGradient(x0, y0, 0, x0, y0, Math.hypot(x1 - x0, y1 - y0))
+      : context.createLinearGradient(x0, y0, x1, y1);
   for (const stop of gradientStops(vectorAt(style.g.k, frame, []), style.g.p)) {
-    gradient.addColorStop(stop.offset, `rgba(${Math.round(stop.color[0])}, ${Math.round(stop.color[1])}, ${Math.round(stop.color[2])}, ${stop.color[3]})`);
+    gradient.addColorStop(
+      stop.offset,
+      `rgba(${Math.round(stop.color[0])}, ${Math.round(stop.color[1])}, ${Math.round(stop.color[2])}, ${stop.color[3]})`,
+    );
   }
   return gradient;
 }
@@ -346,7 +444,12 @@ function gradientOf(context: Context, operation: DrawOperation, frame: number): 
 const LINE_CAPS: CanvasLineCap[] = ["butt", "round", "square"];
 const LINE_JOINS: CanvasLineJoin[] = ["miter", "round", "bevel"];
 
-function paint(context: Context, operation: DrawOperation, frame: number, layerOpacity: number): void {
+function paint(
+  context: Context,
+  operation: DrawOperation,
+  frame: number,
+  layerOpacity: number,
+): void {
   const { style } = operation;
   const alpha = layerOpacity * operation.opacity * (numberAt(style.o, frame, 100) / 100);
   if (alpha <= 0) return;
@@ -357,7 +460,10 @@ function paint(context: Context, operation: DrawOperation, frame: number, layerO
     for (const shape of entry.shapes) traceContour(context, shape, entry.matrix);
   }
   context.globalAlpha = Math.min(1, alpha);
-  const paintStyle = style.ty === "gf" || style.ty === "gs" ? gradientOf(context, operation, frame) : cssColor(vectorAt(style.c, frame, [0, 0, 0]));
+  const paintStyle =
+    style.ty === "gf" || style.ty === "gs"
+      ? gradientOf(context, operation, frame)
+      : cssColor(vectorAt(style.c, frame, [0, 0, 0]));
   if (!paintStyle) return;
 
   if (style.ty === "fl" || style.ty === "gf") {
@@ -373,7 +479,9 @@ function paint(context: Context, operation: DrawOperation, frame: number, layerO
   context.lineJoin = LINE_JOINS[(style.lj ?? 2) - 1] ?? "round";
   context.miterLimit = style.ml ?? 4;
   if (Array.isArray(style.d)) {
-    const dashes = style.d.filter((dash) => dash.n !== "o").map((dash) => numberAt(dash.v, frame, 0) * scale);
+    const dashes = style.d
+      .filter((dash) => dash.n !== "o")
+      .map((dash) => numberAt(dash.v, frame, 0) * scale);
     const offset = style.d.find((dash) => dash.n === "o");
     // A single value means equal dashes and gaps.
     context.setLineDash(dashes.length === 1 ? [dashes[0]!, dashes[0]!] : dashes);

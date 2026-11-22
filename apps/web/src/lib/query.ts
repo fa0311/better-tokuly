@@ -19,7 +19,8 @@ export function createQueryClient(): QueryClient {
         staleTime: 30_000,
         gcTime: 5 * 60_000,
         refetchOnWindowFocus: false,
-        retry: (failures, error) => failures < 2 && !(error instanceof ConnectError && FINAL_CODES.has(error.code)),
+        retry: (failures, error) =>
+          failures < 2 && !(error instanceof ConnectError && FINAL_CODES.has(error.code)),
       },
       mutations: { retry: false },
     },

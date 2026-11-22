@@ -5,7 +5,10 @@ import { SEARCH_BOX_ATTRIBUTE } from "./search-box";
 /** Whether a key press belongs to something that is being typed into. */
 function isTyping(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
-  return target.isContentEditable || target.matches("input, textarea, select, [role='textbox'], [role='combobox']");
+  return (
+    target.isContentEditable ||
+    target.matches("input, textarea, select, [role='textbox'], [role='combobox']")
+  );
 }
 
 /** Another dialog is on screen: the shortcuts stay out of its way. */
@@ -22,8 +25,17 @@ export default function SearchBackground() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || event.repeat) return;
-      const commandK = event.key.toLowerCase() === "k" && (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey;
-      const slash = event.key === "/" && !event.metaKey && !event.ctrlKey && !event.altKey && !isTyping(event.target);
+      const commandK =
+        event.key.toLowerCase() === "k" &&
+        (event.metaKey || event.ctrlKey) &&
+        !event.altKey &&
+        !event.shiftKey;
+      const slash =
+        event.key === "/" &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !isTyping(event.target);
       if (!commandK && !slash) return;
       const ownField = document.querySelector<HTMLInputElement>(`[${SEARCH_BOX_ATTRIBUTE}]`);
       const paletteOpen = document.querySelector("[data-quick-search]") !== null;

@@ -51,7 +51,11 @@ async function recordVideo(browser: Browser, seconds: number): Promise<Buffer> {
       tone.connect(quiet).connect(output);
       tone.start();
       for (const track of output.stream.getAudioTracks()) stream.addTrack(track);
-      const recorder = new MediaRecorder(stream, { mimeType: "video/webm;codecs=vp8,opus", videoBitsPerSecond: 150_000, audioBitsPerSecond: 32_000 });
+      const recorder = new MediaRecorder(stream, {
+        mimeType: "video/webm;codecs=vp8,opus",
+        videoBitsPerSecond: 150_000,
+        audioBitsPerSecond: 32_000,
+      });
       const chunks: Blob[] = [];
       recorder.ondataavailable = (event) => chunks.push(event.data);
       const stopped = new Promise((resolve) => {
@@ -64,7 +68,8 @@ async function recordVideo(browser: Browser, seconds: number): Promise<Buffer> {
       clearInterval(timer);
       const bytes = new Uint8Array(await new Blob(chunks).arrayBuffer());
       let binary = "";
-      for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+      for (let offset = 0; offset < bytes.length; offset += 0x8000)
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
       return btoa(binary);
     }, seconds);
     return Buffer.from(base64, "base64");
@@ -88,7 +93,31 @@ const test = baseTest.extend<object, { testVideo: string }>({
       try {
         execFileSync(
           "ffmpeg",
-          ["-y", "-f", "lavfi", "-i", `testsrc2=size=320x180:rate=15:duration=${VIDEO_SECONDS}`, "-f", "lavfi", "-i", `sine=frequency=440:duration=${VIDEO_SECONDS}`, "-c:v", "libx264", "-preset", "ultrafast", "-crf", "36", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "48k", "-shortest", `${base}.mp4`],
+          [
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            `testsrc2=size=320x180:rate=15:duration=${VIDEO_SECONDS}`,
+            "-f",
+            "lavfi",
+            "-i",
+            `sine=frequency=440:duration=${VIDEO_SECONDS}`,
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-crf",
+            "36",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "48k",
+            "-shortest",
+            `${base}.mp4`,
+          ],
           { stdio: "ignore" },
         );
         videoFile = `${base}.mp4`;
@@ -119,17 +148,51 @@ interface Creator {
 /** A creator with a channel and one published video for people to comment on. */
 async function makeCreator(request: APIRequestContext): Promise<Creator> {
   const owner = await createAccount(request, "creator");
-  const { channel } = await rpc<{ channel: { summary: Creator["channel"] } }>(request, `${CHANNELS}/CreateChannel`, { handle: `ch_${suffix()}`, name: `コメント部${suffix()}` }, owner);
+  const { channel } = await rpc<{ channel: { summary: Creator["channel"] } }>(
+    request,
+    `${CHANNELS}/CreateChannel`,
+    { handle: `ch_${suffix()}`, name: `コメント部${suffix()}` },
+    owner,
+  );
   const bytes = fs.readFileSync(videoFile);
   const contentType = videoFile.endsWith(".webm") ? "video/webm" : "video/mp4";
-  const upload = await rpc<{ uploadId: string; putUrl: string; putHeaders?: Record<string, string> }>(request, `${MEDIA}/CreateUpload`, { purpose: "ASSET_PURPOSE_VIDEO", fileName: path.basename(videoFile), contentType, sizeBytes: String(bytes.length) }, owner);
+  const upload = await rpc<{
+    uploadId: string;
+    putUrl: string;
+    putHeaders?: Record<string, string>;
+  }>(
+    request,
+    `${MEDIA}/CreateUpload`,
+    {
+      purpose: "ASSET_PURPOSE_VIDEO",
+      fileName: path.basename(videoFile),
+      contentType,
+      sizeBytes: String(bytes.length),
+    },
+    owner,
+  );
   const put = await request.put(upload.putUrl, { data: bytes, headers: upload.putHeaders ?? {} });
   expect(put.ok(), "upload of the test video").toBeTruthy();
-  const { asset } = await rpc<{ asset: { id: string } }>(request, `${MEDIA}/CompleteUpload`, { uploadId: upload.uploadId }, owner);
-  const created = await rpc<{ video: { summary: Creator["video"] } }>(request, `${VIDEOS}/CreateVideo`, { assetId: asset.id, title: `コメントの動画 ${suffix()}`, visibility: "VISIBILITY_PUBLIC" }, owner);
+  const { asset } = await rpc<{ asset: { id: string } }>(
+    request,
+    `${MEDIA}/CompleteUpload`,
+    { uploadId: upload.uploadId },
+    owner,
+  );
+  const created = await rpc<{ video: { summary: Creator["video"] } }>(
+    request,
+    `${VIDEOS}/CreateVideo`,
+    { assetId: asset.id, title: `コメントの動画 ${suffix()}`, visibility: "VISIBILITY_PUBLIC" },
+    owner,
+  );
   const video = created.video.summary;
   await expect(async () => {
-    const current = await rpc<{ video: { summary: { processing: string } } }>(request, `${VIDEOS}/GetVideo`, { videoId: video.id }, owner);
+    const current = await rpc<{ video: { summary: { processing: string } } }>(
+      request,
+      `${VIDEOS}/GetVideo`,
+      { videoId: video.id },
+      owner,
+    );
     expect(current.video.summary.processing).toBe("PROCESSING_STATE_READY");
   }).toPass({ timeout: 90_000 });
   await rpc(request, `${VIDEOS}/PublishVideo`, { videoId: video.id }, owner);
@@ -137,14 +200,36 @@ async function makeCreator(request: APIRequestContext): Promise<Creator> {
 }
 
 /** Writes a comment through the API, as `author`. */
-async function writeComment(request: APIRequestContext, author: Account, videoId: string, text: string, fields: Record<string, unknown> = {}): Promise<{ id: string; status: string }> {
-  const { comment } = await rpc<{ comment: { id: string; status: string } }>(request, `${COMMENTS}/CreateComment`, { subject: { type: "SUBJECT_TYPE_VIDEO", id: videoId }, text, ...fields }, author);
+async function writeComment(
+  request: APIRequestContext,
+  author: Account,
+  videoId: string,
+  text: string,
+  fields: Record<string, unknown> = {},
+): Promise<{ id: string; status: string }> {
+  const { comment } = await rpc<{ comment: { id: string; status: string } }>(
+    request,
+    `${COMMENTS}/CreateComment`,
+    { subject: { type: "SUBJECT_TYPE_VIDEO", id: videoId }, text, ...fields },
+    author,
+  );
   return comment;
 }
 
 /** A second browser signed in as `account`, with the same shape as the test's own. */
-async function secondBrowser(browser: Browser, page: Page, baseURL: string | undefined, account: Account): Promise<Page> {
-  const context = await browser.newContext({ baseURL, locale: "ja-JP", timezoneId: "Asia/Tokyo", viewport: page.viewportSize(), hasTouch: (page.viewportSize()?.width ?? 1000) < 600 });
+async function secondBrowser(
+  browser: Browser,
+  page: Page,
+  baseURL: string | undefined,
+  account: Account,
+): Promise<Page> {
+  const context = await browser.newContext({
+    baseURL,
+    locale: "ja-JP",
+    timezoneId: "Asia/Tokyo",
+    viewport: page.viewportSize(),
+    hasTouch: (page.viewportSize()?.width ?? 1000) < 600,
+  });
   const other = await context.newPage();
   await signInAs(other, account);
   return other;
@@ -155,7 +240,8 @@ function picture(): { name: string; mimeType: string; buffer: Buffer } {
   const size = 64;
   const row = size * 4 + 1;
   const raw = Buffer.alloc(row * size);
-  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) raw.set([124, 92, 255, 255], y * row + 1 + x * 4);
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) raw.set([124, 92, 255, 255], y * row + 1 + x * 4);
   const chunk = (type: string, data: Buffer) => {
     const body = Buffer.concat([Buffer.from(type), data]);
     const out = Buffer.alloc(body.length + 8);
@@ -168,13 +254,23 @@ function picture(): { name: string; mimeType: string; buffer: Buffer } {
   header.writeUInt32BE(size, 0);
   header.writeUInt32BE(size, 4);
   header.set([8, 6, 0, 0, 0], 8);
-  return { name: "picture.png", mimeType: "image/png", buffer: Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", header), chunk("IDAT", zlib.deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]) };
+  return {
+    name: "picture.png",
+    mimeType: "image/png",
+    buffer: Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      chunk("IHDR", header),
+      chunk("IDAT", zlib.deflateSync(raw)),
+      chunk("IEND", Buffer.alloc(0)),
+    ]),
+  };
 }
 
 // ───────────────────────────── The thread, from outside ─────────────────────────────
 
 const thread = (page: Page): Locator => page.getByTestId("comment-thread");
-const commentWith = (page: Page, text: string): Locator => thread(page).getByTestId("comment").filter({ hasText: text });
+const commentWith = (page: Page, text: string): Locator =>
+  thread(page).getByTestId("comment").filter({ hasText: text });
 
 /** Opens the watch page and stops the video, so nothing moves while the thread is used. */
 async function openThread(page: Page, shortId: string): Promise<void> {
@@ -189,7 +285,13 @@ async function post(page: Page, text: string): Promise<void> {
 
 // ───────────────────────────── Tests ─────────────────────────────
 
-test("a viewer comments; the owner replies, pins and hearts it; the viewer deletes it — all live", async ({ page, me: _me, request, browser, baseURL }) => {
+test("a viewer comments; the owner replies, pins and hearts it; the viewer deletes it — all live", async ({
+  page,
+  me: _me,
+  request,
+  browser,
+  baseURL,
+}) => {
   const { owner, video } = await makeCreator(request);
   const text = `最高でした！ ${suffix()}`;
   await openThread(page, video.shortId);
@@ -208,7 +310,10 @@ test("a viewer comments; the owner replies, pins and hearts it; the viewer delet
   await commentWith(ownerPage, text).getByRole("button", { name: "返信", exact: true }).click();
   await thread(ownerPage).getByLabel("返信を書く…").fill("見てくれてありがとう！");
   await thread(ownerPage).getByRole("button", { name: "返信", exact: true }).last().click();
-  const reply = thread(ownerPage).getByTestId("comment").filter({ hasText: "見てくれてありがとう！" }).last();
+  const reply = thread(ownerPage)
+    .getByTestId("comment")
+    .filter({ hasText: "見てくれてありがとう！" })
+    .last();
   await expect(reply).toBeVisible();
   await expect(reply.getByText("投稿者", { exact: true })).toBeVisible();
 
@@ -218,16 +323,37 @@ test("a viewer comments; the owner replies, pins and hearts it; the viewer delet
   await expect(thread(page).getByTestId("comment-count")).toHaveText("2件");
 
   // Pin and heart, as the owner; both show for the viewer without a reload.
-  await commentWith(ownerPage, text).first().getByRole("button", { name: "その他" }).first().click();
+  await commentWith(ownerPage, text)
+    .first()
+    .getByRole("button", { name: "その他" })
+    .first()
+    .click();
   await ownerPage.getByRole("menuitem", { name: "固定する" }).click();
   await expect(ownerPage.getByText("コメントを固定したよ！")).toBeVisible();
   await expect(commentWith(page, text).first().getByText("固定されたコメント")).toBeVisible();
-  await commentWith(ownerPage, text).first().getByRole("button", { name: "ハートをつける" }).first().click();
-  await expect(commentWith(page, text).first().getByRole("img", { name: "投稿者がハートをつけました" })).toBeVisible();
+  await commentWith(ownerPage, text)
+    .first()
+    .getByRole("button", { name: "ハートをつける" })
+    .first()
+    .click();
+  await expect(
+    commentWith(page, text).first().getByRole("img", { name: "投稿者がハートをつけました" }),
+  ).toBeVisible();
 
   // The viewer likes the reply and deletes their own comment; the thread is empty again for both.
-  await thread(page).getByTestId("comment").filter({ hasText: "見てくれてありがとう！" }).last().getByRole("button", { name: "いいね" }).click();
-  await expect(thread(page).getByTestId("comment").filter({ hasText: "見てくれてありがとう！" }).last().getByRole("button", { name: "いいね" })).toHaveAttribute("aria-pressed", "true");
+  await thread(page)
+    .getByTestId("comment")
+    .filter({ hasText: "見てくれてありがとう！" })
+    .last()
+    .getByRole("button", { name: "いいね" })
+    .click();
+  await expect(
+    thread(page)
+      .getByTestId("comment")
+      .filter({ hasText: "見てくれてありがとう！" })
+      .last()
+      .getByRole("button", { name: "いいね" }),
+  ).toHaveAttribute("aria-pressed", "true");
   await commentWith(page, text).first().getByRole("button", { name: "その他" }).first().click();
   await page.getByRole("menuitem", { name: "削除する" }).click();
   await expect(page.getByRole("dialog")).toContainText("ついている返信 1件もいっしょに消えます");
@@ -238,7 +364,13 @@ test("a viewer comments; the owner replies, pins and hearts it; the viewer delet
   await ownerPage.context().close();
 });
 
-test("comments held for review wait in the owner's queue until approved", async ({ page, me, request, browser, baseURL }) => {
+test("comments held for review wait in the owner's queue until approved", async ({
+  page,
+  me,
+  request,
+  browser,
+  baseURL,
+}) => {
   const { owner, video } = await makeCreator(request);
   const viewer = await createAccount(request, "viewer");
   const text = `承認まちのコメント ${suffix()}`;
@@ -248,7 +380,12 @@ test("comments held for review wait in the owner's queue until approved", async 
   await page.goto("/settings/comments?tab=rules");
   await page.getByRole("switch", { name: /すべてのコメントを確認する/ }).click();
   await expect(async () => {
-    const { settings } = await rpc<{ settings: { holdAll?: boolean } }>(request, `${MODERATION}/GetModerationSettings`, {}, owner);
+    const { settings } = await rpc<{ settings: { holdAll?: boolean } }>(
+      request,
+      `${MODERATION}/GetModerationSettings`,
+      {},
+      owner,
+    );
     expect(settings.holdAll).toBe(true);
   }).toPass({ timeout: 15_000 });
 
@@ -256,10 +393,17 @@ test("comments held for review wait in the owner's queue until approved", async 
   const viewerPage = await secondBrowser(browser, page, baseURL, viewer);
   await openThread(viewerPage, video.shortId);
   await post(viewerPage, text);
-  await expect(viewerPage.getByText("コメントを送ったよ！投稿者が確認したら表示されます")).toBeVisible();
+  await expect(
+    viewerPage.getByText("コメントを送ったよ！投稿者が確認したら表示されます"),
+  ).toBeVisible();
   await expect(commentWith(viewerPage, text).getByText("確認待ち", { exact: true })).toBeVisible();
   await expect(thread(viewerPage).getByTestId("comment-count")).toHaveText("0件");
-  const comments = await rpc<{ comments?: unknown[] }>(request, `${COMMENTS}/ListComments`, { subject: { type: "SUBJECT_TYPE_VIDEO", id: video.id } }, me);
+  const comments = await rpc<{ comments?: unknown[] }>(
+    request,
+    `${COMMENTS}/ListComments`,
+    { subject: { type: "SUBJECT_TYPE_VIDEO", id: video.id } },
+    me,
+  );
   expect(comments.comments ?? []).toHaveLength(0);
 
   // It is in the owner's queue, with the reason; approving publishes it.
@@ -286,7 +430,11 @@ test("comments held for review wait in the owner's queue until approved", async 
   await viewerPage.context().close();
 });
 
-test("blocked words send a comment to review; a blocked commenter can be unblocked", async ({ page, me: _me, request }) => {
+test("blocked words send a comment to review; a blocked commenter can be unblocked", async ({
+  page,
+  me: _me,
+  request,
+}) => {
   const { owner, video } = await makeCreator(request);
   const troll = await createAccount(request, "troll");
   await signInAs(page, owner);
@@ -297,14 +445,21 @@ test("blocked words send a comment to review; a blocked commenter can be unblock
   await page.getByRole("button", { name: "追加" }).click();
   await expect(page.getByRole("list", { name: "ブロックする言葉" })).toContainText("ネタバレ");
   await expect(async () => {
-    const { settings } = await rpc<{ settings: { blockedWords?: string[] } }>(request, `${MODERATION}/GetModerationSettings`, {}, owner);
+    const { settings } = await rpc<{ settings: { blockedWords?: string[] } }>(
+      request,
+      `${MODERATION}/GetModerationSettings`,
+      {},
+      owner,
+    );
     expect(settings.blockedWords).toEqual(["ネタバレ"]);
   }).toPass({ timeout: 15_000 });
 
   // A comment with the word is held; one without is published.
   const held = await writeComment(request, troll, video.id, `ネタバレするね ${suffix()}`);
   expect(held.status).toBe("COMMENT_STATUS_HELD");
-  expect((await writeComment(request, troll, video.id, `ふつうのコメント ${suffix()}`)).status).toBe("COMMENT_STATUS_PUBLISHED");
+  expect(
+    (await writeComment(request, troll, video.id, `ふつうのコメント ${suffix()}`)).status,
+  ).toBe("COMMENT_STATUS_PUBLISHED");
 
   // The queue shows why; the owner blocks its author from there.
   await page.getByRole("tab", { name: /確認待ち/ }).click();
@@ -329,7 +484,11 @@ test("blocked words send a comment to review; a blocked commenter can be unblock
   await expect(page.getByText("まだ登録していません")).toBeVisible();
 });
 
-test("mentions are suggested while typing and become links; a comment can be edited", async ({ page, me: _me, request }) => {
+test("mentions are suggested while typing and become links; a comment can be edited", async ({
+  page,
+  me: _me,
+  request,
+}) => {
   const { video } = await makeCreator(request);
   const friend = await createAccount(request, "mention");
   await openThread(page, video.shortId);
@@ -345,7 +504,10 @@ test("mentions are suggested while typing and become links; a comment can be edi
   await thread(page).getByRole("button", { name: "コメント", exact: true }).click();
 
   const comment = commentWith(page, "すごい！");
-  await expect(comment.getByRole("link", { name: `@${friend.handle}` })).toHaveAttribute("href", `/u/${friend.handle}`);
+  await expect(comment.getByRole("link", { name: `@${friend.handle}` })).toHaveAttribute(
+    "href",
+    `/u/${friend.handle}`,
+  );
 
   // Edit it: the text changes and says so. (While editing, the old words are not on screen to find the comment by.)
   await comment.getByRole("button", { name: "その他" }).click();
@@ -357,38 +519,59 @@ test("mentions are suggested while typing and become links; a comment can be edi
   await expect(commentWith(page, "すごい！")).toHaveCount(0);
 });
 
-test("a comment can carry a picture and a moment of the video", async ({ page, me: _me, request }) => {
+test("a comment can carry a picture and a moment of the video", async ({
+  page,
+  me: _me,
+  request,
+}) => {
   const { video } = await makeCreator(request);
   await openThread(page, video.shortId);
   // Stop the video somewhere after the start, so "now" is a known moment.
-  await expect.poll(() => page.locator("video").evaluate((element: HTMLVideoElement) => element.currentTime), { timeout: 30_000 }).toBeGreaterThan(2);
+  await expect
+    .poll(
+      () => page.locator("video").evaluate((element: HTMLVideoElement) => element.currentTime),
+      { timeout: 30_000 },
+    )
+    .toBeGreaterThan(2);
   await page.keyboard.press("5");
   await page.keyboard.press("k");
   await expect(page.getByTestId("video-player")).toHaveAttribute("data-state", "paused");
 
   const field = thread(page).getByLabel("コメントを書く…");
   await field.fill("ここ好き");
-  await thread(page).getByRole("button", { name: /いまの再生位置（0:1\d）をつける/ }).click();
+  await thread(page)
+    .getByRole("button", { name: /いまの再生位置（0:1\d）をつける/ })
+    .click();
   await thread(page).locator('input[type="file"]').setInputFiles(picture());
   await expect(thread(page).getByRole("button", { name: "画像を外す" })).toBeVisible();
   // The post button waits for the upload.
-  await expect(thread(page).getByRole("button", { name: "コメント", exact: true })).toBeEnabled({ timeout: 30_000 });
+  await expect(thread(page).getByRole("button", { name: "コメント", exact: true })).toBeEnabled({
+    timeout: 30_000,
+  });
   await thread(page).getByRole("button", { name: "コメント", exact: true }).click();
 
   const comment = commentWith(page, "ここ好き");
   await expect(comment.getByRole("button", { name: "画像を大きく見る" })).toBeVisible();
   // The moment is a button that takes the player there.
   await page.keyboard.press("0");
-  await expect.poll(() => page.locator("video").evaluate((element: HTMLVideoElement) => element.currentTime)).toBeLessThan(2);
+  await expect
+    .poll(() => page.locator("video").evaluate((element: HTMLVideoElement) => element.currentTime))
+    .toBeLessThan(2);
   await comment.getByRole("button", { name: /0:1\d にジャンプ/ }).click();
-  await expect.poll(() => page.locator("video").evaluate((element: HTMLVideoElement) => element.currentTime)).toBeGreaterThanOrEqual(10);
+  await expect
+    .poll(() => page.locator("video").evaluate((element: HTMLVideoElement) => element.currentTime))
+    .toBeGreaterThanOrEqual(10);
 
   // The picture opens larger.
   await comment.getByRole("button", { name: "画像を大きく見る" }).click();
   await expect(page.getByRole("dialog").getByRole("img")).toBeVisible();
 });
 
-test("my comments lead back to where they were written, highlighted; newest-first sorting", async ({ page, me, request }) => {
+test("my comments lead back to where they were written, highlighted; newest-first sorting", async ({
+  page,
+  me,
+  request,
+}) => {
   const { video } = await makeCreator(request);
   const other = await createAccount(request, "other");
   const first = `さいしょのコメント ${suffix()}`;
@@ -414,7 +597,11 @@ test("my comments lead back to where they were written, highlighted; newest-firs
   await expect(page.locator(`[data-comment-id="${mine.id}"]`)).toHaveClass(/ring-brand/);
 });
 
-test("with comments turned off, viewers are told and cannot write", async ({ page, me: _me, request }) => {
+test("with comments turned off, viewers are told and cannot write", async ({
+  page,
+  me: _me,
+  request,
+}) => {
   const { owner, video } = await makeCreator(request);
   await writeComment(request, owner, video.id, "オフにする前のコメント");
   await rpc(request, `${VIDEOS}/UpdateVideo`, { videoId: video.id, commentsEnabled: false }, owner);

@@ -33,7 +33,9 @@ export function BookmarkButton({ subject, showCount, className }: BookmarkButton
     }
     fire();
     if (await bookmark.save()) {
-      toast.success(t("bookmarks.saved"), { action: { label: t("bookmarks.choose"), onClick: () => openCollectionChooser(subject) } });
+      toast.success(t("bookmarks.saved"), {
+        action: { label: t("bookmarks.choose"), onClick: () => openCollectionChooser(subject) },
+      });
     }
   };
 
@@ -50,8 +52,15 @@ export function BookmarkButton({ subject, showCount, className }: BookmarkButton
         className,
       )}
     >
-      <Bookmark className={cn("size-[18px] transition-transform duration-200 ease-bounce", saved && "scale-110 fill-current")} />
-      {showCount && data && data.bookmarkCount > 0 && <span className="tabular-nums">{compactCount(data.bookmarkCount, i18n.language)}</span>}
+      <Bookmark
+        className={cn(
+          "size-[18px] transition-transform duration-200 ease-bounce",
+          saved && "scale-110 fill-current",
+        )}
+      />
+      {showCount && data && data.bookmarkCount > 0 && (
+        <span className="tabular-nums">{compactCount(data.bookmarkCount, i18n.language)}</span>
+      )}
       {burst}
     </button>
   );

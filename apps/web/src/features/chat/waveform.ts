@@ -11,7 +11,8 @@ export function waveformBars(peaks: ArrayLike<number>, count = 40): number[] {
     const from = Math.floor((index * peaks.length) / count);
     const to = Math.max(from + 1, Math.floor(((index + 1) * peaks.length) / count));
     let peak = 0;
-    for (let position = from; position < to; position++) peak = Math.max(peak, peaks[position] ?? 0);
+    for (let position = from; position < to; position++)
+      peak = Math.max(peak, peaks[position] ?? 0);
     bars.push(Math.max(0.12, Math.min(1, peak / 255)));
   }
   return bars;
@@ -30,7 +31,8 @@ export function peaksOf(levels: number[], count = PEAK_COUNT): Uint8Array {
     const from = Math.floor((index * levels.length) / count);
     const to = Math.max(from + 1, Math.floor(((index + 1) * levels.length) / count));
     let peak = 0;
-    for (let position = from; position < to && position < levels.length; position++) peak = Math.max(peak, levels[position]!);
+    for (let position = from; position < to && position < levels.length; position++)
+      peak = Math.max(peak, levels[position]!);
     peaks[index] = Math.round(Math.min(1, peak / loudest) * 255);
   }
   return peaks;

@@ -35,12 +35,20 @@ async function agree(request: APIRequestContext, account: Account): Promise<void
   await rpc(request, `${NOTES}/AgreeToNoteRules`, { version: rules.version }, account);
 }
 
-async function post(request: APIRequestContext, account: Account, body: Record<string, unknown>): Promise<NoteJson> {
+async function post(
+  request: APIRequestContext,
+  account: Account,
+  body: Record<string, unknown>,
+): Promise<NoteJson> {
   return (await rpc<{ note: NoteJson }>(request, `${NOTES}/CreateNote`, body, account)).note;
 }
 
 /** A friend of `me` who has agreed to the rules. */
-async function friendOf(request: APIRequestContext, me: Account, name = "friend"): Promise<Account> {
+async function friendOf(
+  request: APIRequestContext,
+  me: Account,
+  name = "friend",
+): Promise<Account> {
   const friend = await createAccount(request, name);
   await befriend(request, me, friend);
   await agree(request, friend);
@@ -48,13 +56,21 @@ async function friendOf(request: APIRequestContext, me: Account, name = "friend"
 }
 
 /** The card of the note whose text contains `text`. */
-const card = (page: Page, text: string): Locator => page.locator('[data-testid="note"]', { hasText: text });
+const card = (page: Page, text: string): Locator =>
+  page.locator('[data-testid="note"]', { hasText: text });
 /** The card of one note by ID (the note a page is about, or a row). */
-const cardById = (page: Page, noteId: string): Locator => page.locator(`[data-testid="note"][data-note-id="${noteId}"]`);
-const action = (scope: Locator, name: string): Locator => scope.getByRole("button", { name, exact: true });
+const cardById = (page: Page, noteId: string): Locator =>
+  page.locator(`[data-testid="note"][data-note-id="${noteId}"]`);
+const action = (scope: Locator, name: string): Locator =>
+  scope.getByRole("button", { name, exact: true });
 
 /** A plain PNG picture. */
-function picture(name: string, [red, green, blue]: [number, number, number], width = 320, height = 240) {
+function picture(
+  name: string,
+  [red, green, blue]: [number, number, number],
+  width = 320,
+  height = 240,
+) {
   const chunk = (type: string, data: Buffer) => {
     const body = Buffer.concat([Buffer.from(type, "latin1"), data]);
     const out = Buffer.alloc(body.length + 8);
@@ -67,16 +83,33 @@ function picture(name: string, [red, green, blue]: [number, number, number], wid
   header.writeUInt32BE(width, 0);
   header.writeUInt32BE(height, 4);
   header.set([8, 2, 0, 0, 0], 8); // 8-bit RGB
-  const row = Buffer.concat([Buffer.from([0]), Buffer.alloc(width * 3, Buffer.from([red, green, blue]))]);
+  const row = Buffer.concat([
+    Buffer.from([0]),
+    Buffer.alloc(width * 3, Buffer.from([red, green, blue])),
+  ]);
   const pixels = Buffer.concat(Array.from({ length: height }, () => row));
   const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-  return { name, mimeType: "image/png", buffer: Buffer.concat([signature, chunk("IHDR", header), chunk("IDAT", zlib.deflateSync(pixels)), chunk("IEND", Buffer.alloc(0))]) };
+  return {
+    name,
+    mimeType: "image/png",
+    buffer: Buffer.concat([
+      signature,
+      chunk("IHDR", header),
+      chunk("IDAT", zlib.deflateSync(pixels)),
+      chunk("IEND", Buffer.alloc(0)),
+    ]),
+  };
 }
 
-const openComposer = (page: Page) => page.getByRole("button", { name: "ノートを書く", exact: true }).last().click();
+const openComposer = (page: Page) =>
+  page.getByRole("button", { name: "ノートを書く", exact: true }).last().click();
 const composer = (page: Page) => page.getByTestId("composer");
 
-test("the rules are agreed to before the first note, which then lands in the timeline", async ({ page, me, request }) => {
+test("the rules are agreed to before the first note, which then lands in the timeline", async ({
+  page,
+  me,
+  request,
+}) => {
   await page.goto("/notes?tab=home");
   await openComposer(page);
 
@@ -114,7 +147,10 @@ test("a friend's notes arrive in an open home timeline", async ({ page, me, requ
   const live = `e2e ライブ ${tag()}`;
   await post(request, friend, { text: `${live} @${me.handle}` });
   await expect(card(page, live)).toBeVisible({ timeout: 30_000 });
-  await expect(card(page, live).getByRole("link", { name: `@${me.handle}` })).toHaveAttribute("href", `/u/${me.handle}`);
+  await expect(card(page, live).getByRole("link", { name: `@${me.handle}` })).toHaveAttribute(
+    "href",
+    `/u/${me.handle}`,
+  );
 
   // A note nothing announced is there after a refresh.
   const quiet = `e2e しずかに ${tag()}`;
@@ -125,9 +161,14 @@ test("a friend's notes arrive in an open home timeline", async ({ page, me, requ
   await expect(page.getByTestId("note").first()).toContainText(quiet);
 });
 
-test("new notes wait behind a pill while the reader is further down", async ({ page, me, request }) => {
+test("new notes wait behind a pill while the reader is further down", async ({
+  page,
+  me,
+  request,
+}) => {
   const friend = await friendOf(request, me);
-  for (let index = 0; index < 12; index++) await post(request, friend, { text: `e2e ならび ${index} ${tag()}\n\n\n.` });
+  for (let index = 0; index < 12; index++)
+    await post(request, friend, { text: `e2e ならび ${index} ${tag()}\n\n\n.` });
 
   await page.goto("/notes?tab=home");
   await expect(card(page, "e2e ならび 11")).toBeVisible();
@@ -154,14 +195,20 @@ test("the home tab mixes notes with what else friends did", async ({ page, me, r
   const feed = page.getByTestId("home-feed");
   await expect(feed.locator('[data-testid="note"]', { hasText: text })).toBeVisible();
   // Not a note: the two becoming friends, as a compact card that leads to the profile.
-  await expect(feed.locator('[data-testid="feed-card"]', { hasText: "友達になったよ" }).first()).toBeVisible();
+  await expect(
+    feed.locator('[data-testid="feed-card"]', { hasText: "友達になったよ" }).first(),
+  ).toBeVisible();
 
   await page.getByRole("tab", { name: "みんな" }).click();
   await expect(page).toHaveURL(/tab=global/);
   await expect(card(page, text)).toBeVisible();
 });
 
-test("likes, renotes, quotes and replies move the counters, live for everyone looking", async ({ page, me, request }) => {
+test("likes, renotes, quotes and replies move the counters, live for everyone looking", async ({
+  page,
+  me,
+  request,
+}) => {
   await agree(request, me);
   const friend = await friendOf(request, me);
   const other = await friendOf(request, me, "other");
@@ -217,10 +264,19 @@ test("likes, renotes, quotes and replies move the counters, live for everyone lo
   await page.getByRole("button", { name: "返信を送る" }).click();
   await expect(page.getByText("返信したよ!")).toBeVisible();
   await page.getByRole("tab", { name: "返信 1" }).click();
-  await expect(page.getByTestId("replies").locator('[data-testid="note"]', { hasText: reply })).toBeVisible();
+  await expect(
+    page.getByTestId("replies").locator('[data-testid="note"]', { hasText: reply }),
+  ).toBeVisible();
   await expect(action(focus, "返信する")).toHaveText("1");
 
-  const counters = (await rpc<{ note: { counters: Record<string, string> } }>(request, `${NOTES}/GetNote`, { noteId: note.id }, me)).note.counters;
+  const counters = (
+    await rpc<{ note: { counters: Record<string, string> } }>(
+      request,
+      `${NOTES}/GetNote`,
+      { noteId: note.id },
+      me,
+    )
+  ).note.counters;
   expect(counters).toMatchObject({ likeCount: "2", quoteCount: "1", replyCount: "1" });
 });
 
@@ -237,7 +293,9 @@ test("a note is deleted from its menu", async ({ page, me, request }) => {
 
   await expect(page.getByText("ノートを削除したよ")).toBeVisible();
   await expect(card(page, text)).toHaveCount(0);
-  await expect(rpc(request, `${NOTES}/GetNote`, { noteId: note.id }, me)).rejects.toThrow(/NOTE_NOT_FOUND/);
+  await expect(rpc(request, `${NOTES}/GetNote`, { noteId: note.id }, me)).rejects.toThrow(
+    /NOTE_NOT_FOUND/,
+  );
 
   // Its own page says that it is gone.
   await page.goto(`/notes/${note.id}`);
@@ -251,7 +309,9 @@ test("a hashtag opens its page", async ({ page, me, request }) => {
   await post(request, friend, { text: `${text} #${hashtag}` });
 
   await page.goto("/notes?tab=home");
-  await card(page, text).getByRole("link", { name: `#${hashtag}` }).click();
+  await card(page, text)
+    .getByRole("link", { name: `#${hashtag}` })
+    .click();
   await expect(page).toHaveURL(new RegExp(`/tag/${encodeURIComponent(hashtag)}$`));
   await expect(page.getByRole("heading", { name: `#${hashtag}` })).toBeVisible();
   await expect(page.getByText("1件のノート")).toBeVisible();
@@ -269,7 +329,9 @@ test("a note carries a picture, which opens full screen", async ({ page, me, req
   await openComposer(page);
 
   await page.getByTestId("note-files").setInputFiles(picture("sora.png", [79, 195, 255]));
-  await expect(page.locator('[data-testid="upload"][data-status="ready"]')).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator('[data-testid="upload"][data-status="ready"]')).toBeVisible({
+    timeout: 60_000,
+  });
   const text = `e2e 写真つき ${tag()}`;
   await composer(page).getByRole("textbox", { name: "今何してる?" }).fill(text);
   await page.getByRole("dialog").getByRole("button", { name: "ノートする" }).click();
@@ -284,7 +346,11 @@ test("a note carries a picture, which opens full screen", async ({ page, me, req
   await expect(page.getByTestId("image-viewer")).toHaveCount(0);
 });
 
-test("the composer completes hashtags and keeps an unfinished note as a draft", async ({ page, me, request }) => {
+test("the composer completes hashtags and keeps an unfinished note as a draft", async ({
+  page,
+  me,
+  request,
+}) => {
   await agree(request, me);
   const friend = await friendOf(request, me);
   // A prefix of its own, so no other run's hashtag is offered first.
@@ -294,7 +360,9 @@ test("the composer completes hashtags and keeps an unfinished note as a draft", 
 
   await page.goto("/notes?tab=home");
   // The keyboard shortcut works once the page is up.
-  await expect(page.getByRole("button", { name: "ノートを書く", exact: true }).last()).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "ノートを書く", exact: true }).last(),
+  ).toBeVisible();
   await page.keyboard.press("n");
   const field = composer(page).getByRole("textbox", { name: "今何してる?" });
   await field.pressSequentially(`たべた #${prefix}`);
@@ -307,7 +375,9 @@ test("the composer completes hashtags and keeps an unfinished note as a draft", 
   await page.getByRole("dialog").getByRole("button", { name: "close" }).click();
   await expect(page.getByText("下書きに保存したよ")).toBeVisible();
   await openComposer(page);
-  await expect(composer(page).getByRole("textbox", { name: "今何してる?" })).toHaveValue(`たべた #${hashtag} `);
+  await expect(composer(page).getByRole("textbox", { name: "今何してる?" })).toHaveValue(
+    `たべた #${hashtag} `,
+  );
   await page.getByRole("button", { name: "すてる" }).click();
   await expect(composer(page).getByRole("textbox", { name: "今何してる?" })).toHaveValue("");
 });
@@ -346,13 +416,22 @@ test("mentions have a tab of their own", async ({ page, me, request }) => {
   await expect(card(page, "e2e かんけいないノート")).toHaveCount(0);
 });
 
-test("the log lists what I did; an entry can be deleted and a kind hidden from others", async ({ page, me, request }) => {
+test("the log lists what I did; an entry can be deleted and a kind hidden from others", async ({
+  page,
+  me,
+  request,
+}) => {
   await agree(request, me);
   await post(request, me, { text: `e2e ログにのるノート ${tag()}` });
 
   // The log is written from events, a moment after the fact.
   await expect(async () => {
-    const log = await rpc<{ activities?: { kind: string }[] }>(request, `${ACTIVITY}/ListMyActivity`, {}, me);
+    const log = await rpc<{ activities?: { kind: string }[] }>(
+      request,
+      `${ACTIVITY}/ListMyActivity`,
+      {},
+      me,
+    );
     expect(log.activities?.some((activity) => activity.kind === "note.posted")).toBe(true);
   }).toPass({ timeout: 20_000 });
 
@@ -367,7 +446,14 @@ test("the log lists what I did; an entry can be deleted and a kind hidden from o
   await preferences.getByRole("switch").first().waitFor();
   await preferences.locator("label", { hasText: "note.posted" }).getByRole("switch").click();
   await expect(async () => {
-    const kinds = (await rpc<{ kinds: { kind: string; visibleToOthers?: boolean }[] }>(request, `${ACTIVITY}/GetActivityPreferences`, {}, me)).kinds;
+    const kinds = (
+      await rpc<{ kinds: { kind: string; visibleToOthers?: boolean }[] }>(
+        request,
+        `${ACTIVITY}/GetActivityPreferences`,
+        {},
+        me,
+      )
+    ).kinds;
     expect(kinds.find((kind) => kind.kind === "note.posted")?.visibleToOthers ?? false).toBe(false);
   }).toPass({ timeout: 10_000 });
   await page.keyboard.press("Escape");
@@ -384,7 +470,12 @@ test("the recap turns the month into cards", async ({ page, me, request }) => {
   await agree(request, me);
   await post(request, me, { text: `e2e まとめにのるノート ${tag()}` });
   await expect(async () => {
-    const log = await rpc<{ activities?: unknown[] }>(request, `${ACTIVITY}/ListMyActivity`, {}, me);
+    const log = await rpc<{ activities?: unknown[] }>(
+      request,
+      `${ACTIVITY}/ListMyActivity`,
+      {},
+      me,
+    );
     expect(log.activities?.length ?? 0).toBeGreaterThan(1);
   }).toPass({ timeout: 20_000 });
 
@@ -393,7 +484,10 @@ test("the recap turns the month into cards", async ({ page, me, request }) => {
   await expect(recap).toBeVisible();
   await expect(recap.getByText("件のログ", { exact: true })).toBeVisible();
   // The last card offers the recap to share.
-  await recap.getByRole("button", { name: /^カード \d+\/\d+$/ }).last().click();
+  await recap
+    .getByRole("button", { name: /^カード \d+\/\d+$/ })
+    .last()
+    .click();
   await expect(recap.getByRole("button", { name: "画像で保存" })).toBeVisible();
 
   // A year instead of a month.

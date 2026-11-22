@@ -2,7 +2,10 @@ import { useEffect } from "react";
 import { useBadges } from "#/stores/badges";
 import { useSessionStore } from "#/stores/session";
 
-type Badging = Navigator & { setAppBadge?(count: number): Promise<void>; clearAppBadge?(): Promise<void> };
+type Badging = Navigator & {
+  setAppBadge?(count: number): Promise<void>;
+  clearAppBadge?(): Promise<void>;
+};
 
 /** Puts `count` on the installed app's icon (Badging API); nothing happens where there is no such thing. */
 function showOnIcon(count: number): void {
@@ -17,7 +20,7 @@ function showOnIcon(count: number): void {
  * notifications, so they are in it. This is the only place a page sets it.
  */
 export function useAppBadge(): void {
-  const total = useBadges((badges) => badges.notifications);
+  const total = useBadges((badges) => badges.notifications ?? 0);
 
   useEffect(() => {
     showOnIcon(total);

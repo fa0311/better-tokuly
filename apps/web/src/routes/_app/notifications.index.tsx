@@ -13,5 +13,12 @@ export const Route = createFileRoute("/_app/notifications/")({
 function InboxPage() {
   const { tab = "all" } = Route.useSearch();
   const navigate = Route.useNavigate();
-  return <InboxScreen tab={tab} onTabChange={(next) => navigate({ search: next === "all" ? {} : { tab: next }, replace: true })} />;
+  return (
+    <InboxScreen
+      tab={tab}
+      onTabChange={(next) =>
+        navigate({ search: next === "all" ? {} : { tab: next }, replace: true })
+      }
+    />
+  );
 }

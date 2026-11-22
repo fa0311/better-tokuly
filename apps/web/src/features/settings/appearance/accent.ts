@@ -74,7 +74,8 @@ export function accentTokens(color: string): { light: AccentTokens; dark: Accent
   const accent = parse(color);
   // Lightened until it reads as text on the dark surfaces, however deep the colour is.
   let lightening = 0.25;
-  while (luminance(mix(accent, WHITE, lightening)) < DARK_THEME_MIN_LUMINANCE && lightening < 1) lightening += 0.05;
+  while (luminance(mix(accent, WHITE, lightening)) < DARK_THEME_MIN_LUMINANCE && lightening < 1)
+    lightening += 0.05;
   const tint = mix(accent, WHITE, lightening);
   return {
     light: {
@@ -106,7 +107,9 @@ export function applyAccent(color: string): void {
     return;
   }
   const tokens = accentTokens(accent);
-  const style = existing ?? document.head.appendChild(Object.assign(document.createElement("style"), { id: STYLE_ID }));
+  const style =
+    existing ??
+    document.head.appendChild(Object.assign(document.createElement("style"), { id: STYLE_ID }));
   style.textContent = rule(":root", tokens.light) + rule(':root[data-theme="dark"]', tokens.dark);
   window.localStorage.setItem(ACCENT_KEY, accent);
 }

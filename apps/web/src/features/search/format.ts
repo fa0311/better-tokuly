@@ -11,7 +11,12 @@ export function ageLabel(timestamp: Timestamp | undefined, nowMs = Date.now()): 
   if (nowMs - at < WEEK_MS) return compactAge(at, nowMs);
   const date = new Date(at);
   const sameYear = date.getFullYear() === new Date(nowMs).getFullYear();
-  return new Intl.DateTimeFormat(i18n.language, sameYear ? { month: "short", day: "numeric" } : { year: "numeric", month: "short", day: "numeric" }).format(date);
+  return new Intl.DateTimeFormat(
+    i18n.language,
+    sameYear
+      ? { month: "short", day: "numeric" }
+      : { year: "numeric", month: "short", day: "numeric" },
+  ).format(date);
 }
 
 /** A playing time: "0:42", "12:05", "1:02:03". */
@@ -25,5 +30,8 @@ export function formatDuration(totalSeconds: number): string {
 
 /** 1,284 → "1284", 12,900 → "1.3万" / "12.9K": counters next to results. */
 export function formatCount(value: number | bigint): string {
-  return new Intl.NumberFormat(i18n.language, { notation: "compact", maximumFractionDigits: 1 }).format(value);
+  return new Intl.NumberFormat(i18n.language, {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
 }

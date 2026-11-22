@@ -28,7 +28,10 @@ export default defineConfig({
     baseURL: process.env.TOKULY_WEB_URL ?? "http://localhost:3000",
     channel: "chrome",
     locale: "ja-JP",
-    timezoneId: "Asia/Tokyo",
+    // The device's time zone. Accounts are on Asia/Tokyo unless a test changes that; running with
+    // `TOKULY_E2E_TIMEZONE=Pacific/Kiritimati` (or `Pacific/Pago_Pago`) puts the device on another
+    // day than the account, which nothing the app shows may depend on.
+    timezoneId: process.env.TOKULY_E2E_TIMEZONE ?? "Asia/Tokyo",
     // Shibuya crossing, so map and distance features have somewhere to be.
     geolocation: { latitude: 35.6595, longitude: 139.7005, accuracy: 12 },
     permissions: ["geolocation", "notifications"],
@@ -36,7 +39,13 @@ export default defineConfig({
     launchOptions: {
       // Software WebGL so the map renders on machines without a GPU;
       // containers often have a tiny /dev/shm, which crashes renderers.
-      args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist", "--enable-webgl", "--disable-dev-shm-usage"],
+      args: [
+        "--use-angle=swiftshader",
+        "--enable-unsafe-swiftshader",
+        "--ignore-gpu-blocklist",
+        "--enable-webgl",
+        "--disable-dev-shm-usage",
+      ],
     },
   },
   projects: [

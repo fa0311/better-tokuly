@@ -35,9 +35,12 @@ export function createI18n(language: Language): I18n {
  * (`<html lang>`), so hydration always matches. On the server each request
  * gets its own instance instead (see the root route).
  */
-const i18n = createI18n(typeof document === "undefined" ? "ja" : normalizeLanguage(document.documentElement.lang));
+const i18n = createI18n(
+  typeof document === "undefined" ? "ja" : normalizeLanguage(document.documentElement.lang),
+);
 
 export function setLanguage(language: Language): void {
+  // biome-ignore lint/suspicious/noDocumentCookie: the Cookie Store API is not in every browser the app supports.
   document.cookie = `${LANGUAGE_COOKIE}=${language}; Path=/; Max-Age=31536000; SameSite=Lax`;
   document.documentElement.lang = language;
   void i18n.changeLanguage(language);

@@ -31,13 +31,26 @@ const button = cva(
   },
 );
 
-export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>, VariantProps<typeof button> {
+export interface ButtonProps
+  extends ButtonHTMLAttributes<HTMLButtonElement>,
+    VariantProps<typeof button> {
   /** Shows a spinner and blocks clicks while an action is in flight. */
   loading?: boolean;
   icon?: ReactNode;
 }
 
-export function Button({ className, variant, size, block, loading, icon, children, disabled, type, ...props }: ButtonProps) {
+export function Button({
+  className,
+  variant,
+  size,
+  block,
+  loading,
+  icon,
+  children,
+  disabled,
+  type,
+  ...props
+}: ButtonProps) {
   return (
     <button
       type={type ?? "button"}

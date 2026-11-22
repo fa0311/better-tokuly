@@ -7,15 +7,21 @@ import { Button } from "#/components/ui/button";
 import { TextField } from "#/components/ui/field";
 import { api, authClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
+import { parseRedirect } from "#/lib/redirect";
 
 export const Route = createFileRoute("/signup")({
-  validateSearch: (search): { invite?: string } => ({
+  // `redirect`: where a visitor of a public page (`/q/<handle>`, `/join/party/<code>`,
+  // `/share/<token>`) goes back to once the account exists; the map otherwise.
+  validateSearch: (search): { invite?: string; redirect?: string } => ({
     invite: typeof search.invite === "string" ? search.invite : undefined,
+    redirect: parseRedirect(search.redirect),
   }),
   component: SignUp,
 });
 
-type HandleState = { status: "idle" | "checking" | "available" } | { status: "unavailable"; reason: string };
+type HandleState =
+  | { status: "idle" | "checking" | "available" }
+  | { status: "unavailable"; reason: string };
 
 /** Checks handle availability a moment after the user stops typing. */
 function useHandleCheck(handle: string): HandleState {
@@ -31,7 +37,11 @@ function useHandleCheck(handle: string): HandleState {
       try {
         const result = await authClient().checkHandle({ handle });
         if (cancelled) return;
-        setState(result.available ? { status: "available" } : { status: "unavailable", reason: result.reason });
+        setState(
+          result.available
+            ? { status: "available" }
+            : { status: "unavailable", reason: result.reason },
+        );
       } catch {
         if (!cancelled) setState({ status: "idle" });
       }
@@ -47,8 +57,14 @@ function useHandleCheck(handle: string): HandleState {
 function SignUp() {
   const { t } = useTranslation("auth");
   const navigate = useNavigate();
-  const { invite } = Route.useSearch();
-  const [form, setForm] = useState({ displayName: "", handle: "", email: "", password: "", birthdate: "" });
+  const { invite, redirect } = Route.useSearch();
+  const [form, setForm] = useState({
+    displayName: "",
+    handle: "",
+    email: "",
+    password: "",
+    birthdate: "",
+  });
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -77,10 +93,13 @@ function SignUp() {
         ...form,
         acceptTerms,
         inviteCode: invite ?? "",
-        client: { locale: navigator.language, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+        client: {
+          locale: navigator.language,
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        },
       });
       await api().session.adopt(response);
-      await navigate({ to: "/map", replace: true });
+      await navigate({ to: redirect ?? "/map", replace: true });
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -94,24 +113,47 @@ function SignUp() {
       footer={
         <>
           {t("signUp.haveAccount")}{" "}
-          <Link to="/login" className="font-black text-brand underline-offset-4 hover:underline">
+          <Link
+            to="/login"
+            search={{ redirect }}
+            className="font-black text-brand underline-offset-4 hover:underline"
+          >
             {t("signUp.toSignIn")}
           </Link>
         </>
       }
     >
       <form onSubmit={submit} className="flex flex-col gap-4">
-        <TextField label={t("signUp.displayName")} hint={t("signUp.displayNameHint")} value={form.displayName} onChange={update("displayName")} autoComplete="nickname" maxLength={40} required />
+        <TextField
+          label={t("signUp.displayName")}
+          hint={t("signUp.displayNameHint")}
+          value={form.displayName}
+          onChange={update("displayName")}
+          autoComplete="nickname"
+          maxLength={40}
+          required
+        />
         <TextField
           label={t("signUp.handle")}
           value={form.handle}
-          onChange={(e) => setForm((c) => ({ ...c, handle: e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, "") }))}
+          onChange={(e) =>
+            setForm((c) => ({
+              ...c,
+              handle: e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""),
+            }))
+          }
           autoComplete="username"
           autoCapitalize="none"
           spellCheck={false}
           maxLength={24}
           required
-          hint={handleState.status === "available" ? <span className="font-bold text-success">{handleMessage}</span> : t("signUp.handleHint")}
+          hint={
+            handleState.status === "available" ? (
+              <span className="font-bold text-success">{handleMessage}</span>
+            ) : (
+              t("signUp.handleHint")
+            )
+          }
           error={handleState.status === "unavailable" ? handleMessage : undefined}
           trailing={
             handleState.status === "available" ? (
@@ -121,19 +163,58 @@ function SignUp() {
             ) : null
           }
         />
-        <TextField label={t("signUp.email")} type="email" value={form.email} onChange={update("email")} autoComplete="email" required />
-        <TextField label={t("signUp.password")} hint={t("signUp.passwordHint")} type="password" value={form.password} onChange={update("password")} autoComplete="new-password" minLength={8} required />
-        <TextField label={t("signUp.birthdate")} hint={t("signUp.birthdateHint")} type="date" value={form.birthdate} onChange={update("birthdate")} autoComplete="bday" required />
+        <TextField
+          label={t("signUp.email")}
+          type="email"
+          value={form.email}
+          onChange={update("email")}
+          autoComplete="email"
+          required
+        />
+        <TextField
+          label={t("signUp.password")}
+          hint={t("signUp.passwordHint")}
+          type="password"
+          value={form.password}
+          onChange={update("password")}
+          autoComplete="new-password"
+          minLength={8}
+          required
+        />
+        <TextField
+          label={t("signUp.birthdate")}
+          hint={t("signUp.birthdateHint")}
+          type="date"
+          value={form.birthdate}
+          onChange={update("birthdate")}
+          autoComplete="bday"
+          required
+        />
         <label className="flex items-start gap-3 rounded-2xl bg-surface-2 p-3 text-sm font-medium">
-          <input type="checkbox" checked={acceptTerms} onChange={(e) => setAcceptTerms(e.target.checked)} className="mt-0.5 size-5 accent-[var(--brand)]" required />
+          <input
+            type="checkbox"
+            checked={acceptTerms}
+            onChange={(e) => setAcceptTerms(e.target.checked)}
+            className="mt-0.5 size-5 accent-[var(--brand)]"
+            required
+          />
           <span>{t("signUp.terms")}</span>
         </label>
         {error && (
-          <p role="alert" className="rounded-2xl bg-danger/10 px-4 py-3 text-sm font-bold text-danger">
+          <p
+            role="alert"
+            className="rounded-2xl bg-danger/10 px-4 py-3 text-sm font-bold text-danger"
+          >
             {error}
           </p>
         )}
-        <Button type="submit" size="lg" block loading={busy} disabled={handleState.status === "unavailable"}>
+        <Button
+          type="submit"
+          size="lg"
+          block
+          loading={busy}
+          disabled={handleState.status === "unavailable"}
+        >
           {t("signUp.submit")}
         </Button>
       </form>

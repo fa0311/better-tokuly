@@ -38,7 +38,10 @@ export function useDebounced<T>(value: T, delayMs = 300): T {
  * The address is deliberately not moved while typing: a navigation started
  * from a timer could cancel the one a click on a result has just begun.
  */
-export function useSearchText(applied: string | undefined, onCommit: (text: string | undefined) => void) {
+export function useSearchText(
+  applied: string | undefined,
+  onCommit: (text: string | undefined) => void,
+) {
   const [text, setText] = useState(applied ?? "");
   const query = useDebounced(text.trim()) || undefined;
   const commit = () => {

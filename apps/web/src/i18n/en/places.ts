@@ -27,11 +27,13 @@ export default {
   row: { visits: "{{count}} visits", lastVisit: "last {{age}}", noVisits: "Not visited yet" },
   mine: {
     usual: "The usual spots",
-    usualBody: "Once set, friends see a badge on the map when you are there. Nobody sees the address",
+    usualBody:
+      "Once set, friends see a badge on the map when you are there. Nobody sees the address",
     add: { home: "Set your home", school: "Set your school", work: "Set your workplace" },
     custom: "Places I made",
     emptyTitle: "Make a place of your own!",
-    emptyBody: "Your café, the club room, a secret base… Once added, your history remembers it by name",
+    emptyBody:
+      "Your café, the club room, a secret base… Once added, your history remembers it by name",
   },
   suggestions: {
     title: "Add the places you keep going to?",
@@ -41,7 +43,10 @@ export default {
     dismiss: "Not now",
     accepted: "Added “{{name}}”!",
   },
-  saved: { emptyTitle: "No favourite places yet", emptyBody: "Add the places that catch your eye to your favourites!" },
+  saved: {
+    emptyTitle: "No favourite places yet",
+    emptyBody: "Add the places that catch your eye to your favourites!",
+  },
   search: {
     label: "Search places",
     placeholder: "A place or an area",
@@ -104,7 +109,8 @@ export default {
     newTitle: "Add a place",
     editTitle: "Edit place",
     pin: "Place pin",
-    pinHint: "Drag the pin or tap the map to choose the spot. With a keyboard, move the map with the arrow keys and use “Put the pin at the centre of the map”",
+    pinHint:
+      "Drag the pin or tap the map to choose the spot. With a keyboard, move the map with the arrow keys and use “Put the pin at the centre of the map”",
     toDevice: "Put the pin where I am",
     toCentre: "Put the pin at the centre of the map",
     noPosition: "Could not find where you are",

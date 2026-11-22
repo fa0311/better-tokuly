@@ -3,7 +3,8 @@
  * its own): the small things that give a web page away. Nothing here applies
  * in a browser tab.
  */
-@media (display-mode: standalone), (display-mode: minimal-ui), (display-mode: window-controls-overlay) {
+@media (display-mode: standalone), (display-mode: minimal-ui),
+  (display-mode: window-controls-overlay) {
   /* The page does not stretch past its ends ("rubber band"), and pulling down does not reload it. */
   html,
   body {

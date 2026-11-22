@@ -21,7 +21,9 @@ export function SchoolSettingsScreen() {
     onMutate: (patch) => {
       // Switches answer at once; the server's version replaces this when it arrives.
       const { pomodoro: _pomodoro, ...simple } = patch as Record<string, unknown>;
-      queryClient.setQueryData<school.SchoolSettings>(keys.settings, (current) => (current ? ({ ...current, ...simple } as school.SchoolSettings) : current));
+      queryClient.setQueryData<school.SchoolSettings>(keys.settings, (current) =>
+        current ? ({ ...current, ...simple } as school.SchoolSettings) : current,
+      );
     },
     onSuccess: (response) => {
       queryClient.setQueryData(keys.settings, response.settings);
@@ -44,21 +46,51 @@ export function SchoolSettingsScreen() {
         <>
           <Block title={t("settings.study")}>
             <Panel className="flex flex-col gap-3">
-              <NumberSetting label={t("settings.goal")} hint={t("settings.goalHint")} value={data.dailyGoalMinutes} min={0} max={1440} onCommit={(dailyGoalMinutes) => update.mutate({ dailyGoalMinutes })} />
+              <NumberSetting
+                label={t("settings.goal")}
+                hint={t("settings.goalHint")}
+                value={data.dailyGoalMinutes}
+                min={0}
+                max={1440}
+                onCommit={(dailyGoalMinutes) => update.mutate({ dailyGoalMinutes })}
+              />
               <SelectField
                 label={t("settings.visibility")}
                 hint={t("settings.visibilityHint")}
                 value={String(data.studyVisibility || school.StudyVisibility.FRIENDS)}
-                onChange={(value) => update.mutate({ studyVisibility: Number(value) as school.StudyVisibility })}
+                onChange={(value) =>
+                  update.mutate({ studyVisibility: Number(value) as school.StudyVisibility })
+                }
                 options={[
-                  { value: String(school.StudyVisibility.FRIENDS), label: t("settings.visibilityFriends") },
-                  { value: String(school.StudyVisibility.NOBODY), label: t("settings.visibilityNobody") },
+                  {
+                    value: String(school.StudyVisibility.FRIENDS),
+                    label: t("settings.visibilityFriends"),
+                  },
+                  {
+                    value: String(school.StudyVisibility.NOBODY),
+                    label: t("settings.visibilityNobody"),
+                  },
                 ]}
               />
               <div className="-mx-3 flex flex-col">
-                <SwitchRow label={t("settings.shareActivity")} hint={t("settings.shareActivityHint")} checked={data.shareStudyActivity} onChange={(shareStudyActivity) => update.mutate({ shareStudyActivity })} />
-                <SwitchRow label={t("settings.ranking")} hint={t("settings.rankingHint")} checked={data.joinRanking} onChange={(joinRanking) => update.mutate({ joinRanking })} />
-                <SwitchRow label={t("settings.cheers")} hint={t("settings.cheersHint")} checked={data.cheerNotifications} onChange={(cheerNotifications) => update.mutate({ cheerNotifications })} />
+                <SwitchRow
+                  label={t("settings.shareActivity")}
+                  hint={t("settings.shareActivityHint")}
+                  checked={data.shareStudyActivity}
+                  onChange={(shareStudyActivity) => update.mutate({ shareStudyActivity })}
+                />
+                <SwitchRow
+                  label={t("settings.ranking")}
+                  hint={t("settings.rankingHint")}
+                  checked={data.joinRanking}
+                  onChange={(joinRanking) => update.mutate({ joinRanking })}
+                />
+                <SwitchRow
+                  label={t("settings.cheers")}
+                  hint={t("settings.cheersHint")}
+                  checked={data.cheerNotifications}
+                  onChange={(cheerNotifications) => update.mutate({ cheerNotifications })}
+                />
               </div>
             </Panel>
           </Block>
@@ -97,9 +129,21 @@ export function SchoolSettingsScreen() {
 
           <Block title={t("settings.reminders")}>
             <Panel className="flex flex-col gap-3">
-              <NumberSetting label={t("settings.classSoon")} hint={t("settings.classSoonHint")} value={data.classSoonMinutes} min={0} max={120} onCommit={(classSoonMinutes) => update.mutate({ classSoonMinutes })} />
+              <NumberSetting
+                label={t("settings.classSoon")}
+                hint={t("settings.classSoonHint")}
+                value={data.classSoonMinutes}
+                min={0}
+                max={120}
+                onCommit={(classSoonMinutes) => update.mutate({ classSoonMinutes })}
+              />
               <div className="-mx-3">
-                <SwitchRow label={t("settings.assignmentReminders")} hint={t("settings.assignmentRemindersHint")} checked={data.assignmentReminders} onChange={(assignmentReminders) => update.mutate({ assignmentReminders })} />
+                <SwitchRow
+                  label={t("settings.assignmentReminders")}
+                  hint={t("settings.assignmentRemindersHint")}
+                  checked={data.assignmentReminders}
+                  onChange={(assignmentReminders) => update.mutate({ assignmentReminders })}
+                />
               </div>
             </Panel>
           </Block>
@@ -110,7 +154,21 @@ export function SchoolSettingsScreen() {
 }
 
 /** A number that is saved when the field is left (or Enter is pressed), not on every keystroke. */
-function NumberSetting({ label, hint, value, min, max, onCommit }: { label: string; hint?: string; value: number; min: number; max: number; onCommit(value: number): void }) {
+function NumberSetting({
+  label,
+  hint,
+  value,
+  min,
+  max,
+  onCommit,
+}: {
+  label: string;
+  hint?: string;
+  value: number;
+  min: number;
+  max: number;
+  onCommit(value: number): void;
+}) {
   const [text, setText] = useState(String(value));
   const [shown, setShown] = useState(value);
   // The saved value changed underneath (the server's answer): show it.

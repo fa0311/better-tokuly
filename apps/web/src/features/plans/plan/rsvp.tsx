@@ -32,25 +32,39 @@ export function RsvpCard({ plan }: { plan: plans.Plan }) {
   const closed = plan.status !== plans.PlanStatus.ACTIVE || plan.over;
 
   const respond = useMutation({
-    mutationFn: (rsvp: plans.Rsvp) => planClient().respondToPlan({ planId: plan.id, rsvp, comment: text.trim() }),
+    mutationFn: (rsvp: plans.Rsvp) =>
+      planClient().respondToPlan({ planId: plan.id, rsvp, comment: text.trim() }),
     onMutate: async (rsvp) => {
       // A read that is on its way would put the old answer back over this one.
       await queryClient.cancelQueries({ queryKey: keys.plan(plan.id) });
       const before = queryClient.getQueryData<plans.Plan | null>(keys.plan(plan.id))?.myRsvp;
-      queryClient.setQueryData<plans.Plan | null>(keys.plan(plan.id), (current) => current && { ...current, myRsvp: rsvp });
+      queryClient.setQueryData<plans.Plan | null>(
+        keys.plan(plan.id),
+        (current) => current && { ...current, myRsvp: rsvp },
+      );
       return { before };
     },
     onSuccess: (response, asked) => {
       rememberPlan(queryClient, response.plan);
       void queryClient.invalidateQueries({ queryKey: keys.split(plan.id) });
       setComment(null);
-      if (asked === plans.Rsvp.GOING && response.rsvp === plans.Rsvp.WAITLISTED) toast(t("rsvp.waitlistedToast"));
-      else toast.success(t(`rsvp.toast.${asked === plans.Rsvp.GOING ? "going" : asked === plans.Rsvp.MAYBE ? "maybe" : "declined"}`));
+      if (asked === plans.Rsvp.GOING && response.rsvp === plans.Rsvp.WAITLISTED)
+        toast(t("rsvp.waitlistedToast"));
+      else
+        toast.success(
+          t(
+            `rsvp.toast.${asked === plans.Rsvp.GOING ? "going" : asked === plans.Rsvp.MAYBE ? "maybe" : "declined"}`,
+          ),
+        );
     },
     onError: (error, _rsvp, context) => {
       // Only the answer goes back: whatever else arrived meanwhile (a new item, someone else's answer) stays.
       const before = context?.before;
-      if (before !== undefined) queryClient.setQueryData<plans.Plan | null>(keys.plan(plan.id), (current) => current && { ...current, myRsvp: before });
+      if (before !== undefined)
+        queryClient.setQueryData<plans.Plan | null>(
+          keys.plan(plan.id),
+          (current) => current && { ...current, myRsvp: before },
+        );
       void queryClient.invalidateQueries({ queryKey: keys.plan(plan.id) });
       toast.error(errorMessage(error, { namespace: "plans" }));
     },
@@ -58,15 +72,27 @@ export function RsvpCard({ plan }: { plan: plans.Plan }) {
 
   if (closed) return null;
   const current = plan.myRsvp === plans.Rsvp.WAITLISTED ? plans.Rsvp.GOING : plan.myRsvp;
-  const counts: Record<number, number> = { [plans.Rsvp.GOING]: plan.counts?.going ?? 0, [plans.Rsvp.MAYBE]: plan.counts?.maybe ?? 0, [plans.Rsvp.DECLINED]: plan.counts?.declined ?? 0 };
+  const counts: Record<number, number> = {
+    [plans.Rsvp.GOING]: plan.counts?.going ?? 0,
+    [plans.Rsvp.MAYBE]: plan.counts?.maybe ?? 0,
+    [plans.Rsvp.DECLINED]: plan.counts?.declined ?? 0,
+  };
   const commentChanged = text.trim() !== (mine?.comment ?? "");
   const answered = plan.myRsvp !== plans.Rsvp.INVITED && plan.myRsvp !== plans.Rsvp.UNSPECIFIED;
 
   return (
     <Card className={cn(!answered && "bg-brand-soft")}>
       <p className="text-lg font-black">{answered ? t("rsvp.title") : t("rsvp.ask")}</p>
-      {plan.myRsvp === plans.Rsvp.WAITLISTED && <p className="mt-1 text-sm font-bold text-ink-soft">{t("rsvp.waitlisted", { position: mine?.waitlistPosition ?? 1 })}</p>}
-      {plan.capacity > 0 && <p className="mt-1 text-sm font-bold text-ink-soft">{t("rsvp.capacity", { going: plan.counts?.going ?? 0, capacity: plan.capacity })}</p>}
+      {plan.myRsvp === plans.Rsvp.WAITLISTED && (
+        <p className="mt-1 text-sm font-bold text-ink-soft">
+          {t("rsvp.waitlisted", { position: mine?.waitlistPosition ?? 1 })}
+        </p>
+      )}
+      {plan.capacity > 0 && (
+        <p className="mt-1 text-sm font-bold text-ink-soft">
+          {t("rsvp.capacity", { going: plan.counts?.going ?? 0, capacity: plan.capacity })}
+        </p>
+      )}
       <div role="radiogroup" aria-label={t("rsvp.title")} className="mt-3 grid grid-cols-3 gap-2">
         {CHOICES.map((choice) => (
           <RsvpButton
@@ -88,7 +114,10 @@ export function RsvpCard({ plan }: { plan: plans.Plan }) {
           className="mt-3 flex items-end gap-2"
           onSubmit={(event) => {
             event.preventDefault();
-            if (commentChanged) respond.mutate(plan.myRsvp === plans.Rsvp.WAITLISTED ? plans.Rsvp.GOING : plan.myRsvp);
+            if (commentChanged)
+              respond.mutate(
+                plan.myRsvp === plans.Rsvp.WAITLISTED ? plans.Rsvp.GOING : plan.myRsvp,
+              );
           }}
         >
           <TextField
@@ -100,7 +129,12 @@ export function RsvpCard({ plan }: { plan: plans.Plan }) {
             onChange={(event) => setComment(event.target.value)}
           />
           {commentChanged && (
-            <Button type="submit" variant="secondary" className="h-12 shrink-0" loading={respond.isPending}>
+            <Button
+              type="submit"
+              variant="secondary"
+              className="h-12 shrink-0"
+              loading={respond.isPending}
+            >
               {t("rsvp.saveComment")}
             </Button>
           )}
@@ -110,7 +144,23 @@ export function RsvpCard({ plan }: { plan: plans.Plan }) {
   );
 }
 
-function RsvpButton({ active, tone, emoji, count, disabled, onClick, children }: { active: boolean; tone: string; emoji: string; count: number; disabled: boolean; onClick(): void; children: ReactNode }) {
+function RsvpButton({
+  active,
+  tone,
+  emoji,
+  count,
+  disabled,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  tone: string;
+  emoji: string;
+  count: number;
+  disabled: boolean;
+  onClick(): void;
+  children: ReactNode;
+}) {
   return (
     // biome-ignore lint/a11y/useSemanticElements: three big buttons, not a form field.
     <button

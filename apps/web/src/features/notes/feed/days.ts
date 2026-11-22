@@ -27,12 +27,22 @@ export function groupByDay<T>(items: T[], millisOf: (item: T) => number): Day<T>
 }
 
 /** "今日" / "昨日" / "11月20日(金)" — with the year once it is not this one. */
-export function dayLabel(date: Date, language: string, t: TFunction<"notes">, now = new Date()): string {
+export function dayLabel(
+  date: Date,
+  language: string,
+  t: TFunction<"notes">,
+  now = new Date(),
+): string {
   const key = dayKey(date);
   if (key === dayKey(now)) return t("days.today");
   const yesterday = new Date(now);
   yesterday.setDate(now.getDate() - 1);
   if (key === dayKey(yesterday)) return t("days.yesterday");
   const sameYear = date.getFullYear() === now.getFullYear();
-  return date.toLocaleDateString(language, sameYear ? { month: "long", day: "numeric", weekday: "short" } : { year: "numeric", month: "long", day: "numeric", weekday: "short" });
+  return date.toLocaleDateString(
+    language,
+    sameYear
+      ? { month: "long", day: "numeric", weekday: "short" }
+      : { year: "numeric", month: "long", day: "numeric", weekday: "short" },
+  );
 }

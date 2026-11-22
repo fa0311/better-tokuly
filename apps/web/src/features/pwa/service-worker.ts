@@ -33,7 +33,12 @@ interface WorkerState {
   outdated: boolean;
 }
 
-export const useWorker = create<WorkerState>(() => ({ status: "starting", updateReady: false, replaced: false, outdated: false }));
+export const useWorker = create<WorkerState>(() => ({
+  status: "starting",
+  updateReady: false,
+  replaced: false,
+  outdated: false,
+}));
 
 /** Whether this page runs an older app than the one it could be running: a reload is due. */
 export function pageIsBehind(state: WorkerState): boolean {
@@ -48,11 +53,17 @@ let lastUpdateCheck = 0;
 
 function refresh(): void {
   if (!registration) return;
-  useWorker.setState({
-    status: registration.active ? "active" : "starting",
-    // A worker that waits while another one runs is an update; the very first one never waits.
-    updateReady: Boolean(registration.waiting && registration.active),
-  });
+  const active = Boolean(registration.active);
+  // A worker that waits while another one runs is an update; the very first one never waits.
+  const waiting = Boolean(registration.waiting && active);
+  useWorker.setState((state) => ({
+    status: active ? "active" : "starting",
+    updateReady: waiting,
+    // An update that stopped waiting was let in, here or in another tab, and this page is
+    // still the old app. Saying so at once (not only when the takeover is announced a moment
+    // later) keeps the page "behind" without a gap, so its offer to reload never flickers away.
+    replaced: state.replaced || (state.updateReady && !waiting),
+  }));
 }
 
 function follow(worker: ServiceWorker | null): void {
@@ -82,7 +93,11 @@ export function startServiceWorker(): void {
     refresh();
   });
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && Date.now() - lastUpdateCheck > UPDATE_CHECK_EVERY_MS) void checkForUpdate();
+    if (
+      document.visibilityState === "visible" &&
+      Date.now() - lastUpdateCheck > UPDATE_CHECK_EVERY_MS
+    )
+      void checkForUpdate();
   });
 
   navigator.serviceWorker
@@ -143,7 +158,11 @@ export function applyUpdate(): void {
 }
 
 /** Posts `message` to the worker and resolves to its `{ ok }` answer (false when it does not answer). */
-function ask(worker: ServiceWorker, message: { type: string }, timeoutMs = 10_000): Promise<boolean> {
+function ask(
+  worker: ServiceWorker,
+  message: { type: string },
+  timeoutMs = 10_000,
+): Promise<boolean> {
   return new Promise((resolve) => {
     const channel = new MessageChannel();
     const timer = window.setTimeout(() => resolve(false), timeoutMs);
@@ -165,5 +184,7 @@ export async function clearOfflineData(): Promise<void> {
   if (worker && (await ask(worker, { type: "tokuly:clear-offline-data" }))) return;
   if (typeof caches === "undefined") return;
   const names = await caches.keys();
-  await Promise.all(names.filter((name) => name.startsWith(CACHE_PREFIX)).map((name) => caches.delete(name)));
+  await Promise.all(
+    names.filter((name) => name.startsWith(CACHE_PREFIX)).map((name) => caches.delete(name)),
+  );
 }

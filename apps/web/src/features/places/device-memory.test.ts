@@ -14,11 +14,18 @@ describe("opaqueHash", () => {
 });
 
 describe("suggestionMark", () => {
-  const suggestion = (lat: number, lng: number) => create(geo.PlaceSuggestionSchema, { center: { lat, lng } });
+  const suggestion = (lat: number, lng: number) =>
+    create(geo.PlaceSuggestionSchema, { center: { lat, lng } });
 
   it("is the same for one spot of one account and different for another account", () => {
-    expect(suggestionMark("a", suggestion(35.66012, 139.70049))).toBe(suggestionMark("a", suggestion(35.66001, 139.70021)));
-    expect(suggestionMark("a", suggestion(35.66, 139.7))).not.toBe(suggestionMark("b", suggestion(35.66, 139.7)));
-    expect(suggestionMark("a", suggestion(35.66, 139.7))).not.toBe(suggestionMark("a", suggestion(35.67, 139.7)));
+    expect(suggestionMark("a", suggestion(35.66012, 139.70049))).toBe(
+      suggestionMark("a", suggestion(35.66001, 139.70021)),
+    );
+    expect(suggestionMark("a", suggestion(35.66, 139.7))).not.toBe(
+      suggestionMark("b", suggestion(35.66, 139.7)),
+    );
+    expect(suggestionMark("a", suggestion(35.66, 139.7))).not.toBe(
+      suggestionMark("a", suggestion(35.67, 139.7)),
+    );
   });
 });

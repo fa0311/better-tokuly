@@ -23,11 +23,21 @@ const RED: Color = [220, 30, 40, 255];
 const CLEAR: Color = [0, 0, 0, 0];
 
 /** A picture filled with `background`, with a `subject` rectangle on it. */
-function picture(width: number, height: number, background: Color, subject?: { x: number; y: number; width: number; height: number; color: Color }): Bitmap {
+function picture(
+  width: number,
+  height: number,
+  background: Color,
+  subject?: { x: number; y: number; width: number; height: number; color: Color },
+): Bitmap {
   const data = new Uint8ClampedArray(width * height * 4);
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      const inside = subject && x >= subject.x && x < subject.x + subject.width && y >= subject.y && y < subject.y + subject.height;
+      const inside =
+        subject &&
+        x >= subject.x &&
+        x < subject.x + subject.width &&
+        y >= subject.y &&
+        y < subject.y + subject.height;
       data.set(inside ? subject.color : background, (y * width + x) * 4);
     }
   }
@@ -53,7 +63,8 @@ describe("magic removal", () => {
   it("does not reach background enclosed by the subject", () => {
     // A red ring with a white hole in the middle.
     const source = picture(20, 20, WHITE, { x: 4, y: 4, width: 12, height: 12, color: RED });
-    for (let y = 8; y < 12; y++) for (let x = 8; x < 12; x++) source.data.set(WHITE, (y * 20 + x) * 4);
+    for (let y = 8; y < 12; y++)
+      for (let x = 8; x < 12; x++) source.data.set(WHITE, (y * 20 + x) * 4);
     const mask = fullMask(20, 20);
     floodErase(source, mask, cornerSeeds(20, 20), 24);
 
@@ -104,7 +115,13 @@ describe("magic removal", () => {
 
   it("fills from each corner by that corner's own colour", () => {
     // Left half white, right half black: two different backgrounds.
-    const source = picture(12, 6, WHITE, { x: 6, y: 0, width: 6, height: 6, color: [0, 0, 0, 255] });
+    const source = picture(12, 6, WHITE, {
+      x: 6,
+      y: 0,
+      width: 6,
+      height: 6,
+      color: [0, 0, 0, 255],
+    });
     source.data.set(RED, (3 * 12 + 2) * 4);
     const mask = fullMask(12, 6);
     floodErase(source, mask, cornerSeeds(12, 6), 10);
@@ -204,7 +221,9 @@ describe("sticker outline", () => {
   it("paints a white rim around the subject and leaves the subject alone", () => {
     const bitmap = picture(24, 24, CLEAR, { x: 8, y: 8, width: 8, height: 8, color: RED });
     addOutline(bitmap, 3);
-    const pixel = (x: number, y: number) => [...bitmap.data.slice((y * 24 + x) * 4, (y * 24 + x) * 4 + 4)];
+    const pixel = (x: number, y: number) => [
+      ...bitmap.data.slice((y * 24 + x) * 4, (y * 24 + x) * 4 + 4),
+    ];
 
     expect(pixel(10, 10)).toEqual(RED);
     expect(pixel(6, 10)).toEqual(WHITE);
@@ -217,7 +236,8 @@ describe("sticker outline", () => {
   it("leaves holes inside the subject open", () => {
     // A red ring: the hole in its middle was erased and must stay see-through.
     const bitmap = picture(30, 30, CLEAR, { x: 8, y: 8, width: 14, height: 14, color: RED });
-    for (let y = 13; y < 17; y++) for (let x = 13; x < 17; x++) bitmap.data.set(CLEAR, (y * 30 + x) * 4);
+    for (let y = 13; y < 17; y++)
+      for (let x = 13; x < 17; x++) bitmap.data.set(CLEAR, (y * 30 + x) * 4);
     const outside = outsideOfShape(bitmap);
     expect(outside[0]).toBe(1);
     expect(outside[15 * 30 + 15]).toBe(0);

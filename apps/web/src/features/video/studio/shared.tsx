@@ -13,7 +13,9 @@ const { ProcessingState, VideoStatus } = video;
 const CHANNEL_KEY = "tokuly.studio.channel";
 
 /** The channel the studio is showing; remembered between visits. */
-const useSelection = create<{ channelId: string }>(() => ({ channelId: typeof window === "undefined" ? "" : (window.localStorage.getItem(CHANNEL_KEY) ?? "") }));
+const useSelection = create<{ channelId: string }>(() => ({
+  channelId: typeof window === "undefined" ? "" : (window.localStorage.getItem(CHANNEL_KEY) ?? ""),
+}));
 
 export function selectStudioChannel(channelId: string): void {
   useSelection.setState({ channelId });
@@ -30,7 +32,15 @@ export function useStudioChannel() {
 }
 
 /** Switches the studio between the person's channels. Renders nothing for a single channel. */
-export function ChannelPicker({ channels, selectedId, onSelect }: { channels: video.Channel[]; selectedId: string | undefined; onSelect(channelId: string): void }) {
+export function ChannelPicker({
+  channels,
+  selectedId,
+  onSelect,
+}: {
+  channels: video.Channel[];
+  selectedId: string | undefined;
+  onSelect(channelId: string): void;
+}) {
   const { t } = useTranslation("video");
   if (channels.length < 2) return null;
   return (
@@ -46,7 +56,12 @@ export function ChannelPicker({ channels, selectedId, onSelect }: { channels: vi
             type="button"
             aria-pressed={active}
             onClick={() => onSelect(summary.id)}
-            className={cn("flex h-11 shrink-0 items-center gap-2 rounded-full border-2 py-1 pr-4 pl-1.5 text-sm font-bold", active ? "border-ink bg-surface shadow-pop-sm" : "border-line bg-surface text-ink-soft hover:text-ink")}
+            className={cn(
+              "flex h-11 shrink-0 items-center gap-2 rounded-full border-2 py-1 pr-4 pl-1.5 text-sm font-bold",
+              active
+                ? "border-ink bg-surface shadow-pop-sm"
+                : "border-line bg-surface text-ink-soft hover:text-ink",
+            )}
           >
             <ChannelAvatar channel={summary} size="sm" />
             <span className="max-w-32 truncate">{summary.name}</span>
@@ -57,10 +72,29 @@ export function ChannelPicker({ channels, selectedId, onSelect }: { channels: vi
   );
 }
 
-function Pill({ tone, icon, children }: { tone: "good" | "warn" | "bad" | "plain" | "busy"; icon?: ReactNode; children: ReactNode }) {
-  const tones = { good: "bg-lime text-[#17122b]", warn: "bg-sun text-[#17122b]", bad: "bg-danger text-white", plain: "bg-surface-2 text-ink-soft", busy: "bg-brand-soft text-brand-strong" } as const;
+function Pill({
+  tone,
+  icon,
+  children,
+}: {
+  tone: "good" | "warn" | "bad" | "plain" | "busy";
+  icon?: ReactNode;
+  children: ReactNode;
+}) {
+  const tones = {
+    good: "bg-lime text-[#17122b]",
+    warn: "bg-sun text-[#17122b]",
+    bad: "bg-danger text-white",
+    plain: "bg-surface-2 text-ink-soft",
+    busy: "bg-brand-soft text-brand-strong",
+  } as const;
   return (
-    <span className={cn("inline-flex h-6 shrink-0 items-center gap-1 rounded-full px-2.5 text-xs font-black [&>svg]:size-3.5", tones[tone])}>
+    <span
+      className={cn(
+        "inline-flex h-6 shrink-0 items-center gap-1 rounded-full px-2.5 text-xs font-black [&>svg]:size-3.5",
+        tones[tone],
+      )}
+    >
       {icon}
       {children}
     </span>
@@ -72,12 +106,21 @@ function Pill({ tone, icon, children }: { tone: "good" | "warn" | "bad" | "plain
  * then draft / scheduled / published, and — once published — who can see it.
  * Every state is spelled out; the colour only backs it up.
  */
-export function VideoStateChips({ summary, className }: { summary: video.VideoSummary; className?: string }) {
+export function VideoStateChips({
+  summary,
+  className,
+}: {
+  summary: video.VideoSummary;
+  className?: string;
+}) {
   const { t, i18n } = useTranslation("video");
   const visibility = visibilityOption(summary.visibility as common.Visibility);
   const VisibilityIcon = visibility.icon;
   return (
-    <span className={cn("flex flex-wrap items-center gap-1.5", className)} data-testid="video-state">
+    <span
+      className={cn("flex flex-wrap items-center gap-1.5", className)}
+      data-testid="video-state"
+    >
       {summary.processing === ProcessingState.PROCESSING && (
         <Pill tone="busy" icon={<Loader className="animate-spin" />}>
           {t("studio.state.processing")}
@@ -92,11 +135,20 @@ export function VideoStateChips({ summary, className }: { summary: video.VideoSu
       {summary.status === VideoStatus.SCHEDULED && (
         <Pill tone="warn" icon={<Clock3 />}>
           {summary.scheduledAt
-            ? t("studio.state.scheduledAt", { date: new Date(toMillis(summary.scheduledAt)).toLocaleString(i18n.language, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) })
+            ? t("studio.state.scheduledAt", {
+                date: new Date(toMillis(summary.scheduledAt)).toLocaleString(i18n.language, {
+                  month: "numeric",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                }),
+              })
             : t("studio.state.scheduled")}
         </Pill>
       )}
-      {summary.status === VideoStatus.PUBLISHED && <Pill tone="good">{t("studio.state.published")}</Pill>}
+      {summary.status === VideoStatus.PUBLISHED && (
+        <Pill tone="good">{t("studio.state.published")}</Pill>
+      )}
       {summary.status !== VideoStatus.DRAFT && (
         <Pill tone="plain" icon={<VisibilityIcon />}>
           {t(`visibility.${visibility.key}`)}
@@ -107,7 +159,17 @@ export function VideoStateChips({ summary, className }: { summary: video.VideoSu
 }
 
 /** A titled block of a studio form. */
-export function FormSection({ title, lead, children, className }: { title: string; lead?: string; children: ReactNode; className?: string }) {
+export function FormSection({
+  title,
+  lead,
+  children,
+  className,
+}: {
+  title: string;
+  lead?: string;
+  children: ReactNode;
+  className?: string;
+}) {
   return (
     <section className={cn("sticker rounded-card bg-surface p-4 sm:p-5", className)}>
       <h2 className="text-lg font-black">{title}</h2>

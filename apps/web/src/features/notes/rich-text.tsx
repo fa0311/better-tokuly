@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import type { notes } from "@tokuly/api";
+import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { parseNoteText } from "./text";
 
@@ -18,7 +19,13 @@ const LINK = "font-bold text-brand hover:underline";
  * Hashtags open their timeline; an `@handle` links to the profile only when
  * the server found that user (the note's `mentions`); links open in a new tab.
  */
-export function NoteText({ note, className }: { note: Pick<notes.Note, "text" | "mentions">; className?: string }) {
+export function NoteText({
+  note,
+  className,
+}: {
+  note: Pick<notes.Note, "text" | "mentions">;
+  className?: string;
+}) {
   if (!note.text) return null;
   const mentioned = new Set(note.mentions.map((mention) => mention.handle));
   return (
@@ -33,7 +40,12 @@ export function NoteText({ note, className }: { note: Pick<notes.Note, "text" | 
             );
           case "mention":
             return mentioned.has(segment.handle) ? (
-              <Link key={index} to="/u/$handle" params={{ handle: segment.handle }} className={LINK}>
+              <Link
+                key={index}
+                to="/u/$handle"
+                params={{ handle: segment.handle }}
+                className={LINK}
+              >
                 {segment.text}
               </Link>
             ) : (
@@ -41,12 +53,20 @@ export function NoteText({ note, className }: { note: Pick<notes.Note, "text" | 
             );
           case "url":
             return (
-              <a key={index} href={segment.url} target="_blank" rel="noopener noreferrer nofollow" className={LINK} title={segment.url}>
+              <a
+                key={index}
+                href={segment.url}
+                target="_blank"
+                rel="noopener noreferrer nofollow"
+                className={LINK}
+                title={segment.url}
+              >
                 {linkText(segment.url)}
               </a>
             );
           default:
-            return segment.text;
+            // Plain text: its `:shortcode:`s are drawn as custom emoji.
+            return <EmojiText key={index} text={segment.text} />;
         }
       })}
     </p>

@@ -17,7 +17,10 @@ export function StoreScreen() {
   const { t } = useTranslation("stamps");
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
-  const { data, isPending, isError } = useQuery({ queryKey: stampKeys.storeHome, queryFn: () => storeClient().getStoreHome({}) });
+  const { data, isPending, isError } = useQuery({
+    queryKey: stampKeys.storeHome,
+    queryFn: () => storeClient().getStoreHome({}),
+  });
   const empty = data && data.featured.length + data.popular.length + data.newest.length === 0;
 
   return (
@@ -29,18 +32,36 @@ export function StoreScreen() {
             value={query}
             onChange={setQuery}
             placeholder={t("search.placeholder")}
-            onSubmit={() => query.trim() && navigate({ to: "/stamps/browse", search: { q: query.trim() } })}
+            onSubmit={() =>
+              query.trim() && navigate({ to: "/stamps/browse", search: { q: query.trim() } })
+            }
           />
           <div className="grid grid-cols-2 gap-3 md:w-[26rem]">
-            <Shortcut to="/stamps/library" icon={LibraryBig} tint="bg-sky" label={t("shortcuts.library")} hint={t("shortcuts.libraryHint")} />
-            <Shortcut to="/stamps/studio" icon={Palette} tint="bg-pink" label={t("shortcuts.studio")} hint={t("shortcuts.studioHint")} />
+            <Shortcut
+              to="/stamps/library"
+              icon={LibraryBig}
+              tint="bg-sky"
+              label={t("shortcuts.library")}
+              hint={t("shortcuts.libraryHint")}
+            />
+            <Shortcut
+              to="/stamps/studio"
+              icon={Palette}
+              tint="bg-pink"
+              label={t("shortcuts.studio")}
+              hint={t("shortcuts.studioHint")}
+            />
           </div>
         </div>
 
         {isPending ? (
           <StoreSkeleton />
         ) : isError || empty || !data ? (
-          <EmptyState emoji="🧸" title={isError ? t("store.error") : t("store.empty")} body={isError ? undefined : t("store.emptyBody")} />
+          <EmptyState
+            emoji="🧸"
+            title={isError ? t("store.error") : t("store.empty")}
+            body={isError ? undefined : t("store.emptyBody")}
+          />
         ) : (
           <>
             {data.tags.length > 0 && (
@@ -53,13 +74,19 @@ export function StoreScreen() {
             <Shelf title={t("store.featured")} section="featured" packs={data.featured} />
             <Ranking packs={data.popular} />
             <Shelf title={t("store.new")} section="new" packs={data.newest} />
-            <Link to="/stamps/browse" search={{ section: "official" }} className="pressable sticker flex items-center gap-3 rounded-card bg-brand-soft p-4">
+            <Link
+              to="/stamps/browse"
+              search={{ section: "official" }}
+              className="pressable sticker flex items-center gap-3 rounded-card bg-brand-soft p-4"
+            >
               <span className="grid size-11 shrink-0 place-items-center rounded-2xl border-2 border-ink bg-brand text-on-brand">
                 <BadgeCheck className="size-6" />
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block font-black">{t("store.official")}</span>
-                <span className="block truncate text-sm text-ink-soft">{t("store.officialHint")}</span>
+                <span className="block truncate text-sm text-ink-soft">
+                  {t("store.officialHint")}
+                </span>
               </span>
               <ChevronRight className="size-5 shrink-0 text-ink-faint" />
             </Link>
@@ -70,10 +97,30 @@ export function StoreScreen() {
   );
 }
 
-function Shortcut({ to, icon: Icon, tint, label, hint }: { to: "/stamps/library" | "/stamps/studio"; icon: ComponentType<{ className?: string }>; tint: string; label: string; hint: string }) {
+function Shortcut({
+  to,
+  icon: Icon,
+  tint,
+  label,
+  hint,
+}: {
+  to: "/stamps/library" | "/stamps/studio";
+  icon: ComponentType<{ className?: string }>;
+  tint: string;
+  label: string;
+  hint: string;
+}) {
   return (
-    <Link to={to} className="pressable sticker flex items-center gap-2.5 rounded-card bg-surface p-2.5">
-      <span className={cn("grid size-10 shrink-0 place-items-center rounded-2xl border-2 border-ink text-[#17122b]", tint)}>
+    <Link
+      to={to}
+      className="pressable sticker flex items-center gap-2.5 rounded-card bg-surface p-2.5"
+    >
+      <span
+        className={cn(
+          "grid size-10 shrink-0 place-items-center rounded-2xl border-2 border-ink text-[#17122b]",
+          tint,
+        )}
+      >
         <Icon className="size-5" />
       </span>
       <span className="min-w-0">
@@ -87,7 +134,11 @@ function Shortcut({ to, icon: Icon, tint, label, hint }: { to: "/stamps/library"
 function MoreLink({ section }: { section: BrowseSection }) {
   const { t } = useTranslation("stamps");
   return (
-    <Link to="/stamps/browse" search={{ section }} className="inline-flex items-center text-sm font-bold text-brand">
+    <Link
+      to="/stamps/browse"
+      search={{ section }}
+      className="inline-flex items-center text-sm font-bold text-brand"
+    >
       {t("store.more")}
       <ChevronRight className="size-4" />
     </Link>
@@ -95,7 +146,15 @@ function MoreLink({ section }: { section: BrowseSection }) {
 }
 
 /** A row of pack cards: swiped sideways on phones, a grid on wide screens. */
-function Shelf({ title, section, packs }: { title: string; section: BrowseSection; packs: stamp.PackSummary[] }) {
+function Shelf({
+  title,
+  section,
+  packs,
+}: {
+  title: string;
+  section: BrowseSection;
+  packs: stamp.PackSummary[];
+}) {
   if (packs.length === 0) return null;
   return (
     <section aria-label={title}>

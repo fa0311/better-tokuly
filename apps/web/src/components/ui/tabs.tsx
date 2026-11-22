@@ -8,9 +8,25 @@ export interface TabItem<T extends string> {
 }
 
 /** A pill-shaped segmented control for switching views within a page. */
-export function Tabs<T extends string>({ items, value, onChange, className }: { items: TabItem<T>[]; value: T; onChange(value: T): void; className?: string }) {
+export function Tabs<T extends string>({
+  items,
+  value,
+  onChange,
+  className,
+}: {
+  items: TabItem<T>[];
+  value: T;
+  onChange(value: T): void;
+  className?: string;
+}) {
   return (
-    <div role="tablist" className={cn("scrollbar-none inline-flex max-w-full gap-1 overflow-x-auto rounded-full bg-surface-2 p-1", className)}>
+    <div
+      role="tablist"
+      className={cn(
+        "scrollbar-none inline-flex max-w-full gap-1 overflow-x-auto rounded-full bg-surface-2 p-1",
+        className,
+      )}
+    >
       {items.map((item) => {
         const active = item.value === value;
         return (
@@ -26,7 +42,11 @@ export function Tabs<T extends string>({ items, value, onChange, className }: { 
             )}
           >
             {item.label}
-            {item.badge ? <span className="rounded-full bg-pink px-1.5 text-[11px] font-black text-white">{item.badge}</span> : null}
+            {item.badge ? (
+              <span className="rounded-full bg-pink px-1.5 text-[11px] font-black text-white">
+                {item.badge}
+              </span>
+            ) : null}
           </button>
         );
       })}

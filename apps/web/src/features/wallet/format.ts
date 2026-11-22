@@ -3,7 +3,10 @@ import { wallet } from "@tokuly/api";
 /** Digits after the decimal point of a currency's major unit (JPY 0, USD 2). */
 function fractionDigits(currency: string): number {
   try {
-    return new Intl.NumberFormat("en", { style: "currency", currency }).resolvedOptions().maximumFractionDigits ?? 2;
+    return (
+      new Intl.NumberFormat("en", { style: "currency", currency }).resolvedOptions()
+        .maximumFractionDigits ?? 2
+    );
   } catch {
     return 2;
   }
@@ -47,7 +50,11 @@ export function parseCoins(text: string): bigint | undefined {
 export type PayoutProblem = "belowMinimum" | "aboveAvailable";
 
 /** Why a payout of `coins` cannot be requested, or `null` when it can. */
-export function payoutProblem(coins: bigint, available: bigint, minCoins: bigint): PayoutProblem | null {
+export function payoutProblem(
+  coins: bigint,
+  available: bigint,
+  minCoins: bigint,
+): PayoutProblem | null {
   if (coins > available) return "aboveAvailable";
   if (coins < minCoins || coins <= 0n) return "belowMinimum";
   return null;
@@ -67,13 +74,17 @@ export function parseMemo(memoJson: string): Record<string, string> {
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return {};
   const memo: Record<string, string> = {};
   for (const [key, value] of Object.entries(parsed)) {
-    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") memo[key] = String(value);
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean")
+      memo[key] = String(value);
   }
   return memo;
 }
 
 /** Splits a newest-first list into runs that happened on the same local day. */
-export function groupByDay<T>(items: readonly T[], dateOf: (item: T) => Date | undefined): { day: string; date: Date | undefined; items: T[] }[] {
+export function groupByDay<T>(
+  items: readonly T[],
+  dateOf: (item: T) => Date | undefined,
+): { day: string; date: Date | undefined; items: T[] }[] {
   const groups: { day: string; date: Date | undefined; items: T[] }[] = [];
   for (const item of items) {
     const date = dateOf(item);
@@ -87,7 +98,8 @@ export function groupByDay<T>(items: readonly T[], dateOf: (item: T) => Date | u
 
 /** Whole days between the local day of `date` and the local day of `now` (0 = today, 1 = yesterday). */
 export function daysAgo(date: Date, now: Date): number {
-  const start = (value: Date) => new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+  const start = (value: Date) =>
+    new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
   return Math.round((start(now) - start(date)) / 86_400_000);
 }
 
@@ -98,7 +110,9 @@ export function countdown(untilMs: number, nowMs: number): { hours: number; minu
 }
 
 /** How many steps of the bonus ladder show as collected in the current round. */
-export function collectedSteps(bonus: Pick<wallet.DailyBonus, "claimable" | "streak" | "nextCycleDay" | "cycle">): number {
+export function collectedSteps(
+  bonus: Pick<wallet.DailyBonus, "claimable" | "streak" | "nextCycleDay" | "cycle">,
+): number {
   // Right after the last step the server already points at step 1 of the next
   // round; until tomorrow the finished round is what the person wants to see.
   if (!bonus.claimable && bonus.streak > 0 && bonus.nextCycleDay <= 1) return bonus.cycle.length;
@@ -117,7 +131,9 @@ export type CheckoutStep =
   | "cancelled"
   | "expired";
 
-export function checkoutStep(purchase: Pick<wallet.Purchase, "status" | "checkoutUrl">): CheckoutStep {
+export function checkoutStep(
+  purchase: Pick<wallet.Purchase, "status" | "checkoutUrl">,
+): CheckoutStep {
   switch (purchase.status) {
     case wallet.PurchaseStatus.COMPLETED:
       return "completed";
@@ -136,7 +152,9 @@ export function checkoutStep(purchase: Pick<wallet.Purchase, "status" | "checkou
 export function safeCheckoutUrl(url: string): string | undefined {
   try {
     const parsed = new URL(url);
-    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : undefined;
+    return parsed.protocol === "https:" || parsed.protocol === "http:"
+      ? parsed.toString()
+      : undefined;
   } catch {
     return undefined;
   }

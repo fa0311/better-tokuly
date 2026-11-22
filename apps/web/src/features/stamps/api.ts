@@ -15,8 +15,10 @@ export const stampKeys = {
   all: ["stamp"] as const,
   store: ["stamp", "store"] as const,
   storeHome: ["stamp", "store", "home"] as const,
-  storeList: (section: stamp.StoreSection, tag: string, price: stamp.PriceFilter) => ["stamp", "store", "list", section, tag, price] as const,
-  storeSearch: (query: string, price: stamp.PriceFilter) => ["stamp", "store", "search", query, price] as const,
+  storeList: (section: stamp.StoreSection, tag: string, price: stamp.PriceFilter) =>
+    ["stamp", "store", "list", section, tag, price] as const,
+  storeSearch: (query: string, price: stamp.PriceFilter) =>
+    ["stamp", "store", "search", query, price] as const,
   tags: ["stamp", "store", "tags"] as const,
   creator: (userId: string) => ["stamp", "store", "creator", userId] as const,
   pack: (packId: string) => ["stamp", "pack", packId] as const,
@@ -90,7 +92,11 @@ function patchStampCaches(queryClient: QueryClient, replace: Replacer): void {
 }
 
 /** Applies `patch` to one stamp wherever it is cached (pack pages, pickers, lists). */
-export function patchStamp(queryClient: QueryClient, stampId: string, patch: Partial<stamp.Stamp>): void {
+export function patchStamp(
+  queryClient: QueryClient,
+  stampId: string,
+  patch: Partial<stamp.Stamp>,
+): void {
   patchStampCaches(queryClient, (message) => {
     if (message.$typeName !== "tokuly.stamp.v1.Stamp") return undefined;
     const item = message as stamp.Stamp;
@@ -99,7 +105,11 @@ export function patchStamp(queryClient: QueryClient, stampId: string, patch: Par
 }
 
 /** Applies a change to one pack's summary wherever it is cached (shelves, lists, the pack page). */
-export function patchPack(queryClient: QueryClient, packId: string, update: (summary: stamp.PackSummary) => stamp.PackSummary): void {
+export function patchPack(
+  queryClient: QueryClient,
+  packId: string,
+  update: (summary: stamp.PackSummary) => stamp.PackSummary,
+): void {
   patchStampCaches(queryClient, (message) => {
     if (message.$typeName !== "tokuly.stamp.v1.PackSummary") return undefined;
     const summary = message as stamp.PackSummary;
@@ -111,7 +121,11 @@ export function patchPack(queryClient: QueryClient, packId: string, update: (sum
 
 /** Everything a picker needs in one call: installed packs, recents, favourites, personal stamps. */
 export function useLibrary(options?: { refetchOnMount?: "always" }) {
-  return useQuery({ queryKey: stampKeys.libraryHome, queryFn: () => libraryClient().getLibrary({}), refetchOnMount: options?.refetchOnMount });
+  return useQuery({
+    queryKey: stampKeys.libraryHome,
+    queryFn: () => libraryClient().getLibrary({}),
+    refetchOnMount: options?.refetchOnMount,
+  });
 }
 
 /** A pack with its stamps (UUID or short ID). */
@@ -144,7 +158,10 @@ export function useUninstallPack() {
   return useMutation({
     mutationFn: (packId: string) => libraryClient().uninstallPack({ packId }),
     onSuccess: (_, packId) => {
-      patchPack(queryClient, packId, (summary) => ({ ...summary, viewer: summary.viewer && { ...summary.viewer, installed: false } }));
+      patchPack(queryClient, packId, (summary) => ({
+        ...summary,
+        viewer: summary.viewer && { ...summary.viewer, installed: false },
+      }));
       toast.success(i18n.t("toast.uninstalled", { ns: "stamps" }));
       return refreshHoldings(queryClient);
     },
@@ -166,7 +183,10 @@ export function useToggleFavorite() {
       toast.error(errorMessage(error, { namespace: "stamps" }));
     },
     onSettled: () =>
-      Promise.all([queryClient.invalidateQueries({ queryKey: stampKeys.favorites }), queryClient.invalidateQueries({ queryKey: stampKeys.libraryHome })]),
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: stampKeys.favorites }),
+        queryClient.invalidateQueries({ queryKey: stampKeys.libraryHome }),
+      ]),
   });
 }
 
@@ -180,7 +200,9 @@ export function useToggleFavorite() {
 export function uploadErrorMessage(error: unknown): string {
   if (error instanceof Error && !isApiError(error) && /^[A-Z_]+$/.test(error.message)) {
     const key = `uploadErrors.${error.message}`;
-    return i18n.t(i18n.exists(key, { ns: "stamps" }) ? key : "uploadErrors.generic", { ns: "stamps" });
+    return i18n.t(i18n.exists(key, { ns: "stamps" }) ? key : "uploadErrors.generic", {
+      ns: "stamps",
+    });
   }
   return errorMessage(error, { namespace: "stamps" });
 }
@@ -189,7 +211,10 @@ export function uploadErrorMessage(error: unknown): string {
 
 /** A count for humans: "1.2万" / "12K". */
 export function formatCount(value: bigint | number): string {
-  return new Intl.NumberFormat(i18n.language, { notation: "compact", maximumFractionDigits: 1 }).format(value);
+  return new Intl.NumberFormat(i18n.language, {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
 }
 
 /** The i18n key (in the `stamps` namespace) naming a pack status. */

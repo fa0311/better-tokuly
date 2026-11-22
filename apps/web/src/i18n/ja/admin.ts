@@ -249,7 +249,8 @@ export default {
     takedown: {
       open: "コンテンツを直接削除",
       title: "コンテンツを直接削除",
-      description: "通報がなくても、IDを指定してコンテンツを削除できます。投稿者には理由が通知されます。",
+      description:
+        "通報がなくても、IDを指定してコンテンツを削除できます。投稿者には理由が通知されます。",
       type: "対象の種類",
       id: "対象のID",
       idHint: "UUID、または共有用の短いID。非公開のコンテンツはUUIDで指定してね。",
@@ -362,7 +363,8 @@ export default {
       open: "アカウントを停止",
       openReplace: "停止内容を変更",
       title: "@{{handle}} さんを停止しますか？",
-      description: "すべての端末からログアウトされ、ログインできなくなります。理由はメールで伝わります。",
+      description:
+        "すべての端末からログアウトされ、ログインできなくなります。理由はメールで伝わります。",
       descriptionReplace: "いまの停止を、この内容で置きかえます。",
       timed: "期間を決める",
       permanent: "無期限（BAN）",
@@ -389,7 +391,8 @@ export default {
     revoke: {
       open: "全端末からログアウトさせる",
       title: "@{{handle}} さんを全端末からログアウトさせますか？",
-      description: "いまログイン中の {{count}}台すべてでログインし直しが必要になります。乗っ取りが疑われるときに使ってね。",
+      description:
+        "いまログイン中の {{count}}台すべてでログインし直しが必要になります。乗っ取りが疑われるときに使ってね。",
       confirm: "ログアウトさせる",
     },
     roles: {
@@ -700,7 +703,12 @@ export default {
       IN_ROLLOUT: "公開率の対象に入っているのでオン",
       OUT_OF_ROLLOUT: "公開率の対象外なのでオフ",
     },
-    announcementStatus: { UNSPECIFIED: "不明", DRAFT: "下書き", SCHEDULED: "予約済み", PUBLISHED: "公開中" },
+    announcementStatus: {
+      UNSPECIFIED: "不明",
+      DRAFT: "下書き",
+      SCHEDULED: "予約済み",
+      PUBLISHED: "公開中",
+    },
   },
   errors: {
     INVALID_CURSOR: "一覧の続きを読み込めませんでした。ページを開き直してね",

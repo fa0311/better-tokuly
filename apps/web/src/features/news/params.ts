@@ -18,7 +18,12 @@ function text(value: unknown): string | undefined {
 }
 
 export function parseNewsParams(input: Record<string, unknown>): NewsParams {
-  return { order: input.order === "latest" ? "latest" : undefined, tag: text(input.tag)?.toLowerCase(), source: text(input.source), lang: text(input.lang) };
+  return {
+    order: input.order === "latest" ? "latest" : undefined,
+    tag: text(input.tag)?.toLowerCase(),
+    source: text(input.source),
+    lang: text(input.lang),
+  };
 }
 
 /** The `ListNews` request for one page of a list. */
@@ -33,6 +38,9 @@ export function listRequest(params: NewsParams, cursor: string, limit: number) {
 }
 
 /** The feedback a press on one of the two buttons leads to. */
-export function toggledFeedback(current: feed.NewsFeedback, pressed: feed.NewsFeedback): feed.NewsFeedback {
+export function toggledFeedback(
+  current: feed.NewsFeedback,
+  pressed: feed.NewsFeedback,
+): feed.NewsFeedback {
   return current === pressed ? feed.NewsFeedback.UNSPECIFIED : pressed;
 }

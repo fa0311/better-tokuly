@@ -21,7 +21,15 @@ const LIVE_BARS = 36;
  * replaces the text field. Tap to start and tap send when done, or hold the
  * button while talking and let go to send (sliding away cancels).
  */
-export function VoiceRecorderControl({ recording, onRecordingChange, onRecorded }: { recording: boolean; onRecordingChange(recording: boolean): void; onRecorded(file: OutgoingFile): void }) {
+export function VoiceRecorderControl({
+  recording,
+  onRecordingChange,
+  onRecorded,
+}: {
+  recording: boolean;
+  onRecordingChange(recording: boolean): void;
+  onRecorded(file: OutgoingFile): void;
+}) {
   const { t } = useTranslation("chat");
   const session = useRef<VoiceRecorder | null>(null);
   /** The request for the microphone that is under way; cancelled when nobody waits for it any more. */
@@ -44,7 +52,14 @@ export function VoiceRecorderControl({ recording, onRecordingChange, onRecorded 
       return;
     }
     const recorded = await current.stop();
-    onRecorded(await describeFile(recorded.blob, { name: recorded.fileName, kind: "audio", durationSeconds: recorded.durationSeconds, waveform: recorded.waveform }));
+    onRecorded(
+      await describeFile(recorded.blob, {
+        name: recorded.fileName,
+        kind: "audio",
+        durationSeconds: recorded.durationSeconds,
+        waveform: recorded.waveform,
+      }),
+    );
   };
 
   const start = async () => {
@@ -52,7 +67,9 @@ export function VoiceRecorderControl({ recording, onRecordingChange, onRecorded 
     const mine = { cancelled: false };
     attempt.current = mine;
     try {
-      const started = await VoiceRecorder.start((level) => setLevels((current) => [...current.slice(-(LIVE_BARS - 1)), level]));
+      const started = await VoiceRecorder.start((level) =>
+        setLevels((current) => [...current.slice(-(LIVE_BARS - 1)), level]),
+      );
       // Nobody is waiting for it any more: free the microphone at once.
       if (mine.cancelled) {
         started.cancel();
@@ -99,7 +116,8 @@ export function VoiceRecorderControl({ recording, onRecordingChange, onRecorded 
       window.removeEventListener("pointerup", release);
       window.removeEventListener("pointercancel", release);
       if (performance.now() - press.at < HOLD_MS) return;
-      const slidAway = up.type === "pointercancel" || Math.hypot(up.clientX - press.x, up.clientY - press.y) > 80;
+      const slidAway =
+        up.type === "pointercancel" || Math.hypot(up.clientX - press.x, up.clientY - press.y) > 80;
       void finish(!slidAway);
     };
     window.addEventListener("pointerup", release);
@@ -115,7 +133,9 @@ export function VoiceRecorderControl({ recording, onRecordingChange, onRecorded 
         title={t("voice.hint")}
         onPointerDown={onPointerDown}
         // Keyboard and assistive technology: Enter / Space starts a locked recording.
-        onKeyDown={(event) => (event.key === "Enter" || event.key === " ") && !event.repeat && void start()}
+        onKeyDown={(event) =>
+          (event.key === "Enter" || event.key === " ") && !event.repeat && void start()
+        }
         className="pressable grid size-11 shrink-0 touch-none select-none place-items-center rounded-full bg-surface-2 text-ink"
       >
         <Mic className="size-5" />
@@ -123,18 +143,39 @@ export function VoiceRecorderControl({ recording, onRecordingChange, onRecorded 
     );
   }
 
-  const bars = [...Array.from({ length: Math.max(0, LIVE_BARS - levels.length) }, () => 0), ...levels];
+  const bars = [
+    ...Array.from({ length: Math.max(0, LIVE_BARS - levels.length) }, () => 0),
+    ...levels,
+  ];
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2" data-testid="voice-recording">
-      <button type="button" aria-label={t("voice.cancel")} onClick={() => void finish(false)} className="grid size-11 shrink-0 place-items-center rounded-full text-danger hover:bg-surface-2">
+      <button
+        type="button"
+        aria-label={t("voice.cancel")}
+        onClick={() => void finish(false)}
+        className="grid size-11 shrink-0 place-items-center rounded-full text-danger hover:bg-surface-2"
+      >
         <Trash2 className="size-5" />
       </button>
-      <div className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-full bg-surface-2 px-4" role="status" aria-label={t("voice.recording", { time: playTime(elapsed) })}>
+      <div
+        className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-full bg-surface-2 px-4"
+        role="status"
+        aria-label={t("voice.recording", { time: playTime(elapsed) })}
+      >
         <span className="size-2.5 shrink-0 animate-pulse rounded-full bg-live" />
         <span className="shrink-0 text-sm font-black tabular-nums">{playTime(elapsed)}</span>
-        <span className="flex h-7 min-w-0 flex-1 items-center justify-end gap-[2px] overflow-hidden" aria-hidden>
+        <span
+          className="flex h-7 min-w-0 flex-1 items-center justify-end gap-[2px] overflow-hidden"
+          aria-hidden
+        >
           {bars.map((level, index) => (
-            <span key={index} className={cn("w-[3px] shrink-0 rounded-full bg-brand transition-[height] duration-75")} style={{ height: `${Math.max(10, Math.round(level * 100))}%` }} />
+            <span
+              key={index}
+              className={cn(
+                "w-[3px] shrink-0 rounded-full bg-brand transition-[height] duration-75",
+              )}
+              style={{ height: `${Math.max(10, Math.round(level * 100))}%` }}
+            />
           ))}
         </span>
       </div>

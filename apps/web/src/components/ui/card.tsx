@@ -15,7 +15,10 @@ export function Panel({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
 export function Chip({ className, ...props }: HTMLAttributes<HTMLSpanElement>) {
   return (
     <span
-      className={cn("inline-flex h-6 items-center gap-1 rounded-full bg-surface-2 px-2.5 text-xs font-bold text-ink-soft", className)}
+      className={cn(
+        "inline-flex h-6 items-center gap-1 rounded-full bg-surface-2 px-2.5 text-xs font-bold text-ink-soft",
+        className,
+      )}
       {...props}
     />
   );

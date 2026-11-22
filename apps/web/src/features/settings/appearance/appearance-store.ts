@@ -1,5 +1,10 @@
 import { create } from "zustand";
-import { applyAppearance, storedDopamineLevel, storedTheme, type ThemeSetting } from "#/lib/appearance";
+import {
+  applyAppearance,
+  storedDopamineLevel,
+  storedTheme,
+  type ThemeSetting,
+} from "#/lib/appearance";
 
 export interface Appearance {
   theme: ThemeSetting;
@@ -19,7 +24,9 @@ export function clampLevel(level: number): number {
  * something else (signing in on a new device) changes them.
  */
 export const useAppearance = create<Appearance>(() =>
-  typeof window === "undefined" ? { theme: "system", level: 3 } : { theme: storedTheme(), level: clampLevel(storedDopamineLevel()) },
+  typeof window === "undefined"
+    ? { theme: "system", level: 3 }
+    : { theme: storedTheme(), level: clampLevel(storedDopamineLevel()) },
 );
 
 /** Applies a change at once and keeps it for the next visit. */

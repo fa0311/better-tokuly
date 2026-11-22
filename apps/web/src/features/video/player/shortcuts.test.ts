@@ -14,14 +14,17 @@ describe("player shortcuts", () => {
     expect(commandForKey({ key: "M" })).toEqual({ type: "mute" });
     expect(commandForKey({ key: "t" })).toEqual({ type: "theatre" });
     expect(commandForKey({ key: "c" })).toEqual({ type: "captions" });
-    expect(commandForKey({ key: ">" , shiftKey: true })).toEqual({ type: "rateBy", delta: 0.25 });
+    expect(commandForKey({ key: ">", shiftKey: true })).toEqual({ type: "rateBy", delta: 0.25 });
   });
 
   it("jumps to tenths of the video with the digits", () => {
     expect(commandForKey({ key: "0" })).toEqual({ type: "seekToFraction", fraction: 0 });
     expect(commandForKey({ key: "7" })).toEqual({ type: "seekToFraction", fraction: 0.7 });
     // A layout that needs Shift for digits still reports the key's position.
-    expect(commandForKey({ key: "è", code: "Digit7" })).toEqual({ type: "seekToFraction", fraction: 0.7 });
+    expect(commandForKey({ key: "è", code: "Digit7" })).toEqual({
+      type: "seekToFraction",
+      fraction: 0.7,
+    });
     expect(commandForKey({ key: "Home" })).toEqual({ type: "seekToFraction", fraction: 0 });
   });
 

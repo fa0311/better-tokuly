@@ -25,10 +25,14 @@ function communityHref(handle: string): string {
  * decides; everything else (answers and audio rooms among them) opens at the
  * path its domain published.
  */
-export function hitHref(hit: Pick<search.SearchHit, "kind" | "id" | "path" | "title" | "extraJson" | "owner">): string {
+export function hitHref(
+  hit: Pick<search.SearchHit, "kind" | "id" | "path" | "title" | "extraJson" | "owner">,
+): string {
   const extra = hitExtra(hit);
   // A published path is only followed when it is a path of this site; otherwise the hit is searched for.
-  const published = isAppPath(hit.path) ? hit.path : searchHref(hit.title || hit.id, { kind: isKind(hit.kind) ? hit.kind : undefined });
+  const published = isAppPath(hit.path)
+    ? hit.path
+    : searchHref(hit.title || hit.id, { kind: isKind(hit.kind) ? hit.kind : undefined });
   const segment = encodeURIComponent;
   switch (hit.kind) {
     case K.USER: {

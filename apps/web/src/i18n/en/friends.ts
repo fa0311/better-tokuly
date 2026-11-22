@@ -2,7 +2,11 @@ export default {
   title: "Friends",
   tabs: { friends: "Friends", requests: "Requests", find: "Find", invite: "Invite" },
   search: { placeholder: "Name or @handle", empty: "No one found" },
-  list: { empty: "No friends yet", emptyBody: "Add some from the Find and Invite tabs!", count: "{{count}} friends" },
+  list: {
+    empty: "No friends yet",
+    emptyBody: "Add some from the Find and Invite tabs!",
+    count: "{{count}} friends",
+  },
   requests: {
     incoming: "Requests",
     outgoing: "Pending",
@@ -13,8 +17,19 @@ export default {
     cancel: "Cancel",
     mutual: "{{count}} mutual friends",
   },
-  actions: { add: "Add", requested: "Requested", friends: "Friends", accept: "Accept", remove: "Remove friend", block: "Block" },
-  suggestions: { title: "People you may know", mutual: "{{count}} mutual friends", dismiss: "Hide" },
+  actions: {
+    add: "Add",
+    requested: "Requested",
+    friends: "Friends",
+    accept: "Accept",
+    remove: "Remove friend",
+    block: "Block",
+  },
+  suggestions: {
+    title: "People you may know",
+    mutual: "{{count}} mutual friends",
+    dismiss: "Hide",
+  },
   nearby: {
     title: "Find people nearby",
     lead: "Looking for people within 50 m of you...",
@@ -30,5 +45,10 @@ export default {
     share: "Share this link with others!",
     intros: "{{count}} people joined through your invite",
   },
-  toast: { sent: "Request sent!", accepted: "You're friends now!", removed: "Removed", cancelled: "Cancelled" },
+  toast: {
+    sent: "Request sent!",
+    accepted: "You're friends now!",
+    removed: "Removed",
+    cancelled: "Cancelled",
+  },
 } as const;

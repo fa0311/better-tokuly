@@ -30,8 +30,14 @@ export const DRIFT_TOLERANCE_SECONDS = 1.25;
 const PAUSED_TOLERANCE_SECONDS = 0.4;
 
 /** Where the party's video is at `serverNowMs`: a paused state stays put, a playing one moves on at its rate. */
-export function expectedPosition(shared: SharedPlayback, serverNowMs: number, durationSeconds: number): number {
-  const elapsed = shared.playing ? (Math.max(0, serverNowMs - shared.updatedAtMs) / 1000) * (shared.rate || 1) : 0;
+export function expectedPosition(
+  shared: SharedPlayback,
+  serverNowMs: number,
+  durationSeconds: number,
+): number {
+  const elapsed = shared.playing
+    ? (Math.max(0, serverNowMs - shared.updatedAtMs) / 1000) * (shared.rate || 1)
+    : 0;
   const position = shared.positionSeconds + elapsed;
   return durationSeconds > 0 ? Math.min(position, durationSeconds) : position;
 }
@@ -41,7 +47,12 @@ export function expectedPosition(shared: SharedPlayback, serverNowMs: number, du
  * nothing at all when it is already in step, so calling this over and over
  * is harmless.
  */
-export function syncAction(shared: SharedPlayback, local: LocalPlayback, serverNowMs: number, durationSeconds: number): SyncAction {
+export function syncAction(
+  shared: SharedPlayback,
+  local: LocalPlayback,
+  serverNowMs: number,
+  durationSeconds: number,
+): SyncAction {
   const action: SyncAction = {};
   const target = expectedPosition(shared, serverNowMs, durationSeconds);
   const off = Math.abs(local.positionSeconds - target);
@@ -66,8 +77,16 @@ export function syncAction(shared: SharedPlayback, local: LocalPlayback, serverN
  * that `syncAction` asked for) reports nothing; a member's own play, pause,
  * seek or speed change does.
  */
-export function differsFromShared(shared: SharedPlayback, local: LocalPlayback, serverNowMs: number, durationSeconds: number): boolean {
+export function differsFromShared(
+  shared: SharedPlayback,
+  local: LocalPlayback,
+  serverNowMs: number,
+  durationSeconds: number,
+): boolean {
   if (shared.playing === local.paused) return true;
   if (Math.abs(local.rate - (shared.rate || 1)) > 0.001) return true;
-  return Math.abs(local.positionSeconds - expectedPosition(shared, serverNowMs, durationSeconds)) > DRIFT_TOLERANCE_SECONDS;
+  return (
+    Math.abs(local.positionSeconds - expectedPosition(shared, serverNowMs, durationSeconds)) >
+    DRIFT_TOLERANCE_SECONDS
+  );
 }
