@@ -32,6 +32,8 @@ pub(crate) struct EntryRow {
     pub refunded: bool,
     pub refund_of: Option<Uuid>,
     pub memo: serde_json::Value,
+    /// The party whose account the other party does not get to see.
+    pub hidden_user_id: Option<Uuid>,
     pub created_at: Time,
     /// Signed change of the viewer's spendable coins.
     pub coins_delta: i64,
@@ -50,7 +52,7 @@ pub(crate) struct EntryRow {
 macro_rules! entry_columns {
     () => {
         "e.id, e.kind, e.reason, e.from_user_id, e.to_user_id, e.amount, e.fee,
-         e.refunded_at IS NOT NULL AS refunded, e.refund_of, e.memo, e.created_at,
+         e.refunded_at IS NOT NULL AS refunded, e.refund_of, e.memo, e.hidden_user_id, e.created_at,
          COALESCE(p.coins_delta, 0)::bigint AS coins_delta,
          COALESCE(p.earnings_delta, 0)::bigint AS earnings_delta,
          COALESCE(p.revision, 0) AS revision"
@@ -74,11 +76,30 @@ macro_rules! viewer_postings {
 impl EntryRow {
     /// The other user of a movement between two users, from `viewer`'s side.
     fn counterpart_id(&self, viewer: Uuid) -> Option<Uuid> {
-        match (self.from_user_id, self.to_user_id) {
+        let other = match (self.from_user_id, self.to_user_id) {
             (Some(from), Some(to)) if from == viewer => Some(to),
             (Some(from), Some(to)) if to == viewer => Some(from),
             _ => None,
-        }
+        };
+        // A hidden party: the viewer is told what they paid for (the memo), not which account was paid.
+        other.filter(|other| !self.hides(*other, viewer))
+    }
+
+    /// Whether `user_id` is the entry's hidden party as far as `viewer` is
+    /// concerned (the hidden party sees itself, of course).
+    fn hides(&self, user_id: Uuid, viewer: Uuid) -> bool {
+        self.hidden_user_id == Some(user_id) && viewer != user_id
+    }
+
+    /// Whether the other side of this entry is kept from `viewer`.
+    fn counterpart_hidden(&self, viewer: Uuid) -> bool {
+        [self.from_user_id, self.to_user_id].into_iter().flatten().any(|party| self.hides(party, viewer))
+    }
+
+    /// The entry's payer and recipient as `viewer` may know them.
+    pub(crate) fn parties_for(&self, viewer: Uuid) -> (Option<Uuid>, Option<Uuid>) {
+        let shown = |party: Option<Uuid>| party.filter(|party| !self.hides(*party, viewer));
+        (shown(self.from_user_id), shown(self.to_user_id))
     }
 
     fn to_proto(&self, viewer: Uuid, locale: &str, users: &HashMap<Uuid, UserSummary>) -> LedgerEntry {
@@ -92,6 +113,7 @@ impl EntryRow {
             amount: self.amount,
             fee: self.fee,
             counterpart: self.counterpart_id(viewer).map(|id| tokuly_identity::users::pick(users, id)).into(),
+            counterpart_hidden: self.counterpart_hidden(viewer),
             refunded: self.refunded,
             refund_of_entry_id: self.refund_of.map(|id| id.to_string()).unwrap_or_default(),
             memo_json: self.memo.to_string(),
@@ -228,12 +250,33 @@ mod tests {
             refunded: false,
             refund_of: None,
             memo: serde_json::json!({ "stream_id": "s1" }),
+            hidden_user_id: None,
             created_at: now(),
             coins_delta: -300,
             earnings_delta: 0,
             revision: 7,
             position: 7,
         }
+    }
+
+    #[test]
+    fn a_hidden_party_is_not_shown_to_the_other_side() {
+        let (payer, recipient) = (new_id(), new_id());
+        let gift = EntryRow { hidden_user_id: Some(recipient), ..row(Some(payer), Some(recipient)) };
+        // The payer does not learn which account was paid...
+        assert_eq!(gift.counterpart_id(payer), None);
+        assert!(gift.counterpart_hidden(payer));
+        assert_eq!(gift.parties_for(payer), (Some(payer), None));
+        let shown = gift.to_proto(payer, "ja", &HashMap::new());
+        assert!(!shown.counterpart.is_set() && shown.counterpart_hidden);
+        // ...while the recipient sees who paid, and both sides of their own entry.
+        assert_eq!(gift.counterpart_id(recipient), Some(payer));
+        assert!(!gift.counterpart_hidden(recipient));
+        assert_eq!(gift.parties_for(recipient), (Some(payer), Some(recipient)));
+        // The refund of such a gift runs the other way and hides the same account.
+        let refund = EntryRow { hidden_user_id: Some(recipient), ..row(Some(recipient), Some(payer)) };
+        assert_eq!(refund.counterpart_id(payer), None);
+        assert_eq!(refund.parties_for(payer), (None, Some(payer)));
     }
 
     #[test]

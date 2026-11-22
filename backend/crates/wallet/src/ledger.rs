@@ -108,6 +108,41 @@ pub async fn transfer(
     idempotency_key: &str,
     memo: serde_json::Value,
 ) -> AppResult<TransferReceipt> {
+    transfer_inner(core, from_user, to_user, amount, fee_percent, reason, idempotency_key, memo, false).await
+}
+
+/// [`transfer`] to a recipient whose account the payer must not learn: a
+/// gift to a channel pays the channel's owner, and a channel does not
+/// reveal who is behind it. The payer's history, live updates and data
+/// export show the entry without a counterpart (`counterpart_hidden`), and
+/// so does the refund of such a transfer; say in `memo` what was paid (the
+/// channel, the stream). The recipient sees the payer as usual.
+#[allow(clippy::too_many_arguments)]
+pub async fn transfer_to_hidden_recipient(
+    core: &Core,
+    from_user: Uuid,
+    to_user: Uuid,
+    amount: i64,
+    fee_percent: u32,
+    reason: &str,
+    idempotency_key: &str,
+    memo: serde_json::Value,
+) -> AppResult<TransferReceipt> {
+    transfer_inner(core, from_user, to_user, amount, fee_percent, reason, idempotency_key, memo, true).await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn transfer_inner(
+    core: &Core,
+    from_user: Uuid,
+    to_user: Uuid,
+    amount: i64,
+    fee_percent: u32,
+    reason: &str,
+    idempotency_key: &str,
+    memo: serde_json::Value,
+    hide_recipient: bool,
+) -> AppResult<TransferReceipt> {
     check_amount(amount)?;
     check_key(idempotency_key)?;
     ensure!(from_user != to_user, invalid, "SELF_TRANSFER", "you cannot send coins to yourself");
@@ -130,6 +165,9 @@ pub async fn transfer(
     }
     let entry = NewEntry { kind: "transfer", reason, key: idempotency_key, from: Some(from_user), to: Some(to_user), amount, fee, refund_of: None, memo: &memo };
     let entry_id = post(&mut tx, entry, &postings).await?;
+    if hide_recipient {
+        sqlx::query("UPDATE wallet_entries SET hidden_user_id = $2 WHERE id = $1").bind(entry_id).bind(to_user).execute(&mut *tx).await?;
+    }
     let payer_after = apply(&mut tx, from_user, -amount, 0).await?;
     let recipient_after = apply(&mut tx, to_user, 0, net).await?;
     announce(&mut tx, from_user, payer_after, entry_id, reason).await?;
@@ -187,6 +225,12 @@ pub async fn refund(core: &Core, entry_id: Uuid, reason: &str) -> AppResult<()> 
         }
         _ => bail!(precondition, "REFUND_IMPOSSIBLE", "only spends and transfers can be refunded"),
     };
+    // The refund keeps the same account hidden as the entry it reverses.
+    sqlx::query("UPDATE wallet_entries SET hidden_user_id = (SELECT hidden_user_id FROM wallet_entries WHERE id = $1) WHERE id = $2")
+        .bind(entry_id)
+        .bind(refund_id)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query("UPDATE wallet_entries SET refunded_at = now() WHERE id = $1").bind(entry_id).execute(&mut *tx).await?;
     tracing::info!(%entry_id, %refund_id, "ledger entry refunded");
     tx.commit().await?;

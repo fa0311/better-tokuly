@@ -28,6 +28,10 @@ CREATE TABLE wallet_entries (
     -- For 'refund' entries: the entry being reversed.
     refund_of       uuid REFERENCES wallet_entries (id),
     memo            jsonb       NOT NULL DEFAULT '{}',
+    -- The party of this entry whose account is not shown to the other party
+    -- (a channel's owner receiving a gift: the payer sees the channel named
+    -- in the memo, never the account behind it). NULL: both see each other.
+    hidden_user_id  uuid,
     created_at      timestamptz NOT NULL DEFAULT now()
 );
 

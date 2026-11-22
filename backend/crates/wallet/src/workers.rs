@@ -243,6 +243,7 @@ mod tests {
             refunded: false,
             refund_of: None,
             memo: serde_json::json!({}),
+            hidden_user_id: None,
             created_at: now(),
             coins_delta,
             earnings_delta,

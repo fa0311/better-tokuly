@@ -40,6 +40,14 @@ Conventions for callers of the ledger:
 - `memo` is returned to clients as `LedgerEntry.memo_json`, to **both** parties
   of a transfer. Put IDs for deep links there (`{"stream_id": …}`), nothing
   private.
+- When the payer must not learn which account is paid (a gift to a channel
+  pays the channel's owner, and a channel does not say who runs it), use
+  `Wallet::transfer_with_fee_hiding_recipient` /
+  `ledger::transfer_to_hidden_recipient`. The entry remembers the hidden party
+  (`wallet_entries.hidden_user_id`): the payer's history, balance push and
+  data export carry no counterpart and `LedgerEntry.counterpart_hidden`, and
+  so does the refund of such a transfer. The recipient sees the payer as
+  usual. Say in `memo` what was paid.
 - Take the platform fee from `Wallet::transfer_with_fee` /
   `Wallet::platform_fee_percent` rather than hard-coding it.
 

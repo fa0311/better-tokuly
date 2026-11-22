@@ -134,6 +134,10 @@ message LedgerEntry {
   // (IDs for deep links such as the stream of a gift). "{}" when there is none.
   string memo_json = 12;
   google.protobuf.Timestamp created_at = 13;
+  // The other side of this movement is not shown to this user (`counterpart`
+  // is unset): what was paid is a channel, not an account. `memo_json` says
+  // which (`channel_id`), and clients show that instead.
+  bool counterpart_hidden = 14;
 }
 
 message GetBalanceRequest {}

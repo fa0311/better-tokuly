@@ -123,6 +123,21 @@ impl Wallet {
         ledger::transfer(&self.core, from_user, to_user, amount, self.cfg.platform_fee_percent, reason, idempotency_key, memo).await
     }
 
+    /// [`Self::transfer_with_fee`] to a recipient whose account the payer
+    /// must not learn (a channel's owner):
+    /// [`ledger::transfer_to_hidden_recipient`].
+    pub async fn transfer_with_fee_hiding_recipient(
+        &self,
+        from_user: Uuid,
+        to_user: Uuid,
+        amount: i64,
+        reason: &str,
+        idempotency_key: &str,
+        memo: serde_json::Value,
+    ) -> AppResult<ledger::TransferReceipt> {
+        ledger::transfer_to_hidden_recipient(&self.core, from_user, to_user, amount, self.cfg.platform_fee_percent, reason, idempotency_key, memo).await
+    }
+
     /// Enables a payment provider. Call at startup, before serving requests;
     /// a provider registered under an existing name replaces it.
     pub fn add_payment_provider(&self, provider: Arc<dyn PaymentProvider>) {
