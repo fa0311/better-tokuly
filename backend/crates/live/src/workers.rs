@@ -350,7 +350,7 @@ impl Live {
             .execute(&mut *tx)
             .await?;
         // A gift that was never paid for is nothing; paid ones stay as bookkeeping, without the name.
-        sqlx::query("DELETE FROM live_gifts WHERE status = 1 AND (sender_id = $1 OR recipient_id = $1)")
+        sqlx::query("DELETE FROM live_gifts WHERE status IN (1, 3) AND (sender_id = $1 OR recipient_id = $1)")
             .bind(user_id)
             .execute(&mut *tx)
             .await?;
@@ -447,6 +447,8 @@ impl Live {
     /// restricted streams either of them has on air, whoever may no longer
     /// watch is cut off now instead of when their playback token runs out.
     async fn cut_lost_viewers(&self, owners: &[Uuid]) -> AppResult<()> {
+        // First of all the hook stops trusting what it remembers about these owners' streams.
+        self.access_changed(owners).await?;
         if !self.cfg.media_server_configured() {
             return Ok(());
         }
@@ -459,7 +461,11 @@ impl Live {
         .fetch_all(&self.core.db)
         .await?;
         for stream in &on_air {
-            self.enforce_access(stream).await?;
+            // The hook already refuses them; a media server that does not answer right now is asked
+            // again by the reconciler's regular pass.
+            if let Err(error) = self.enforce_access(stream, true).await {
+                tracing::warn!(stream_id = %stream.id, %error, "could not cut viewers who lost access");
+            }
         }
         Ok(())
     }

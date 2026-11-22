@@ -215,6 +215,43 @@ async fn the_media_server_is_answered_through_the_hook() {
         401
     );
 
+    // A token is worth what its viewer may do right now. The friend's token is good for minutes
+    // yet, and was accepted a moment ago (so the answer is cached): once the friendship ends
+    // it opens nothing, at once.
+    let fresh =
+        ctx.live.playback_token(&card(&friends_only).short_id, friend.id, now() + chrono::Duration::minutes(10));
+    assert_eq!(ask(secret, read(&friends_only, &format!("t={fresh}"))).await, 200);
+    ctx.unfriend(&alice, &friend).await;
+    assert_eq!(ask(secret, read(&friends_only, &format!("t={fresh}"))).await, 401);
+    assert_eq!(ask(secret, read(&friends_only, &format!("t={token}"))).await, 401);
+    // The same when the stream is narrowed, and for someone who is blocked.
+    ctx.befriend(&alice, &friend).await;
+    assert_eq!(ask(secret, read(&friends_only, &format!("t={fresh}"))).await, 200);
+    let narrow = UpdateStreamRequest {
+        stream_id: card(&friends_only).id.clone(),
+        visibility: Some(Visibility::VISIBILITY_PRIVATE.into()),
+        ..Default::default()
+    };
+    let _: UpdateStreamResponse = ctx.call(STREAMS, "UpdateStream", Some(&alice), &narrow).await.unwrap();
+    assert_eq!(ask(secret, read(&friends_only, &format!("t={fresh}"))).await, 401);
+    let widen = UpdateStreamRequest { visibility: Some(Visibility::VISIBILITY_FRIENDS.into()), ..narrow };
+    let _: UpdateStreamResponse = ctx.call(STREAMS, "UpdateStream", Some(&alice), &widen).await.unwrap();
+    assert_eq!(ask(secret, read(&friends_only, &format!("t={fresh}"))).await, 200);
+    ctx.block(&alice, &friend).await;
+    ctx.deliver("social.", alice.id).await;
+    assert_eq!(ask(secret, read(&friends_only, &format!("t={fresh}"))).await, 401);
+    // Nobody's session is remembered as nobody's.
+    let mut anonymous = read(&public, "");
+    anonymous["id"] = "hls-session-2".into();
+    assert_eq!(ask(secret, anonymous).await, 200);
+    let remembered: Option<String> = redis::cmd("HGET")
+        .arg(format!("live:sessions:{}", sid(&public)))
+        .arg("hls-session-2")
+        .query_async(&mut ctx.app.core.cache.conn())
+        .await
+        .unwrap();
+    assert_eq!(remembered.as_deref(), Some("-"));
+
     // The control API belongs to the worker.
     assert_eq!(
         ask(secret, serde_json::json!({ "action": "api", "user": "tokuly", "password": API_SECRET })).await,

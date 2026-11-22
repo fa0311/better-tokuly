@@ -685,6 +685,15 @@ async fn one_address_cannot_inflate_an_audience_with_made_up_guests() {
     ctx.live.sample_viewers(&Default::default()).await.unwrap();
     let row = ctx.row(&stream).await;
     assert_eq!((row.viewer_count, row.ranked_viewer_count), (5, 0));
+    // Nor the score search orders live streams by.
+    let retitle = UpdateStreamRequest {
+        stream_id: card(&stream).id.clone(),
+        title: Some("水増し2".into()),
+        ..Default::default()
+    };
+    let _: UpdateStreamResponse = ctx.call(STREAMS, "UpdateStream", Some(&alice), &retitle).await.unwrap();
+    let doc = ctx.search_docs(&card(&stream).id).await.pop().unwrap().expect("a public stream on air is searchable");
+    assert_eq!((doc["title"].as_str(), doc["score"].as_f64()), (Some("水増し2"), Some(0.0)));
 }
 
 #[tokio::test]

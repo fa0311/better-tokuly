@@ -23,8 +23,9 @@ use tokuly_proto::{
     live::*,
     media::{AssetKind, AssetPurpose},
     social::{
-        BlockUserRequest, BlockUserResponse, FriendSource, RespondFriendRequestRequest, RespondFriendRequestResponse,
-        SendFriendRequestRequest, SendFriendRequestResponse, send_friend_request_request::Target,
+        BlockUserRequest, BlockUserResponse, FriendSource, RemoveFriendRequest, RemoveFriendResponse,
+        RespondFriendRequestRequest, RespondFriendRequestResponse, SendFriendRequestRequest, SendFriendRequestResponse,
+        send_friend_request_request::Target,
     },
     stamp::{CreatePersonalStampRequest, CreatePersonalStampResponse},
     video::{
@@ -209,6 +210,15 @@ impl Ctx {
             .call("tokuly.social.v1.FriendService/RespondFriendRequest", Some(b), &accept)
             .await
             .expect("accept friend request");
+    }
+
+    /// `a` ends the friendship with `b` through the social API, and the live
+    /// domain hears of it as the relay would tell it.
+    pub async fn unfriend(&self, a: &TestUser, b: &TestUser) {
+        let request = RemoveFriendRequest { user_id: b.id.to_string(), ..Default::default() };
+        let _: RemoveFriendResponse =
+            self.app.call("tokuly.social.v1.FriendService/RemoveFriend", Some(a), &request).await.expect("unfriend");
+        assert_eq!(self.deliver("social.friend.removed", a.id).await, 1, "the end of a friendship is announced");
     }
 
     /// `blocker` blocks `blocked` through the social API.

@@ -338,7 +338,7 @@ impl Live {
                         .iter()
                         .filter(|stream| paths.iter().any(|path| path.name == stream.media_path() && path.readers > 0))
                     {
-                        if let Err(error) = self.enforce_access(stream).await {
+                        if let Err(error) = self.enforce_access(stream, false).await {
                             tracing::warn!(stream_id = %stream.id, %error, "could not check who is reading a restricted stream");
                         }
                     }

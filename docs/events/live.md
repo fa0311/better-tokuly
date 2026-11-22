@@ -105,25 +105,53 @@ A token is only needed to **open** a media session (an HLS session keeps its
 query, a WebRTC session stays connected), so the short life does not interrupt
 anyone who is watching.
 
-When a token opens a session the hook remembers `session → viewer`
-(`live:sessions:<stream>`). `Live::enforce_access(&stream)` then cuts, on the
-media server, every reader of a restricted stream that came in without a token
-or whose viewer may no longer watch. It runs
+**A token is worth what its viewer may do right now.** Every time MediaMTX
+asks, the hook checks the token's viewer against the stream again
+(`can_watch`; before the stream is on air only its owner): unfriended,
+blocked or shut out by a change of visibility, a token that is still valid
+opens nothing. A "yes" is cached for 10 s per stream and viewer
+(`live:may-watch:…`); the cache of an owner's streams is dropped at once when
+their visibility changes (`UpdateStream`) and on `social.friend.removed` /
+`social.user.blocked` (`live:access-epoch:<owner>`). A "no" is never cached.
 
-- when `UpdateStream` changes the visibility,
-- on `social.friend.removed` and `social.user.blocked` (for the restricted
-  live streams of both people),
-- every tenth reconciler run for restricted streams with readers (the safety
-  net for anything missed).
+**Open sessions are cut on the media server.** Observed with MediaMTX 1.21.4
+(`tests/mediamtx.rs` runs this against the real binary):
 
-What MediaMTX allows and what it does not: sessions can be kicked by ID
-(`/v3/{hls/sessions,webrtc/sessions,rtmp/conns,srt/conns}/kick/<id>`), and the
-auth request carries that ID, which is what the binding rests on. A token
-cannot be bound to an IP address or a device (HLS segments are fetched with
-the same query from wherever the player is), so a token that is passed on
-works for someone else for up to 15 minutes, as that viewer, and is cut
-together with them. The DVR (playback server) has no sessions: each request is
-authorized on its own, so there a lost access ends with the token (15 min).
+- MediaMTX asks the hook **once per media session**. For HLS that is the
+  request for the multivariant playlist; the media playlists and segments
+  are then served on the session's own ID (`?session=…`) without asking
+  again. So checking the token on every hook request is not enough to stop
+  someone who is already watching.
+- Each HLS viewer is listed as a reader of type `hlsSession` on the path, and
+  its ID **is** the `id` of the auth request that opened it.
+- `POST /v3/hls/sessions/kick/<id>` ends such a session: its next playlist or
+  segment request is answered 401 and the reader disappears from the path.
+
+The hook therefore remembers every session it lets in with its viewer
+(`live:sessions:<stream>`; anonymous sessions as nobody's), and
+`Live::enforce_access(&stream, cut_unknown)` cuts the readers of a restricted
+stream:
+
+| Reader | Regular pass (`cut_unknown = false`) | After a change (`true`) |
+|---|---|---|
+| remembered, viewer may watch | stays | stays |
+| remembered, viewer may not (any more) | cut | cut |
+| remembered as nobody's (opened while the stream was public) | cut | cut |
+| not remembered (bookkeeping lost) | stays | cut; its player reconnects through the hook |
+
+It runs with `cut_unknown` when `UpdateStream` changes the visibility and on
+`social.friend.removed` / `social.user.blocked` (the restricted live streams
+of both people), and without it every tenth reconciler run. Lost bookkeeping
+therefore never throws legitimate viewers out again and again: at worst they
+reconnect once, right after a change, and whoever may not watch is refused by
+the hook when they come back.
+
+Limits: a token cannot be bound to an IP address or a device, so one that is
+passed on works for someone else for up to 15 minutes, as that viewer, and is
+cut and refused together with them. WebRTC, RTMP and SRT readers are handled
+by the same code (asked once, kicked by ID) but only the HLS path is proven
+against the real server. The DVR (playback server) has no sessions: every
+request asks the hook, so there a lost access ends at once.
 
 Lifecycle comes from the control API, not from hooks: the reconciler reads
 `/v3/paths/list` every `TOKULY_LIVE_RECONCILE_INTERVAL_SECONDS` and compares.
@@ -218,12 +246,17 @@ by an interrupted request is finished by the sender's next `SendGift` /
 `ListSentGifts` and by the sweep; one the wallet refuses is removed. The row
 is unique per sender and idempotency key.
 
-A gift whose stream was deleted while it was PENDING is not kept: when the
-payment went through, it is refunded (`ledger::refund`, reason
-`live.gift.returned`), the row is removed and the sender gets
-`failed_precondition` `GIFT_RETURNED`; the streamer earns nothing from it.
-Only when the refund is no longer possible (`REFUND_IMPOSSIBLE`) does the gift
-stand, as bookkeeping without a chat line.
+A gift whose stream was deleted while it was PENDING is not kept. The settling
+transaction locks the stream row and the gift row and decides once: SETTLED
+when the stream is still there, otherwise RETURNING (status 3). A RETURNING
+gift is refunded (`ledger::refund`, reason `live.gift.returned`), the row is
+removed and the sender gets `failed_precondition` `GIFT_RETURNED`; the
+streamer earns nothing from it. Because the decision is made under both
+locks, any number of settlers racing with a deletion leave the gift either
+settled or returned, never both; an interrupted return is finished by the
+same entry points as an interrupted payment. Only when the refund is no
+longer possible (`REFUND_IMPOSSIBLE`) does the gift stand, as bookkeeping
+without a chat line.
 
 The transfer hides its recipient
 (`Wallet::transfer_with_fee_hiding_recipient`): a channel does not tell which
@@ -409,7 +442,9 @@ heartbeats are not tracked. No ClickHouse table of its own.
 | `live:archive:<stream>` | lock | one archive attempt at a time |
 | `live:reconcile` | lock, TTL 60 s | one reconciler at a time |
 | `live:media-down-since` | timestamp | since when MediaMTX does not answer |
-| `live:sessions:<stream>` | hash, TTL 1 day | media session ID → the viewer whose playback token opened it |
+| `live:sessions:<stream>` | hash, TTL 1 day | media session ID → the viewer whose playback token opened it (`-`: nobody's) |
+| `live:may-watch:<stream>:<viewer>:<visibility>:<epoch>` | marker, TTL 10 s | this viewer may watch (asked by the hook) |
+| `live:access-epoch:<owner>` | counter, TTL 1 day | bumped when who may watch the owner's streams changes |
 | `live:guests:<stream>:<address group>` | sorted set, TTL 10 min | the (at most 5) anonymous viewers of one address counted in the audience |
 | `live:hook-failures:<address>` | counter, TTL 1 min | wrong hook secrets presented by a peer |
 

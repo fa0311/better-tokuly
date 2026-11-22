@@ -289,6 +289,77 @@ async fn a_stream_goes_from_encoder_to_archive_through_the_real_media_server() {
     let listed = client.get(&playback.dvr_list_url).send().await.unwrap();
     assert!(listed.status().is_success(), "the DVR list answered {}", listed.status());
 
+    // Friends only, with two friends watching over HLS. What MediaMTX does (observed with 1.21):
+    // it asks the hook once per HLS session, when the multivariant playlist is requested, and
+    // serves the playlists and segments of that session on the session's own ID without asking
+    // again. So a viewer who loses access is cut on the media server, and the hook refuses
+    // their token when they come back.
+    let friend = ctx.app.user("friend").await;
+    let other_friend = ctx.app.user("friend2").await;
+    ctx.befriend(&alice, &friend).await;
+    ctx.befriend(&alice, &other_friend).await;
+    let friends_only = UpdateStreamRequest {
+        stream_id: card(&stream).id.clone(),
+        visibility: Some(tokuly_proto::common::Visibility::VISIBILITY_FRIENDS.into()),
+        ..Default::default()
+    };
+    let _: UpdateStreamResponse = ctx.call(STREAMS, "UpdateStream", Some(&alice), &friends_only).await.unwrap();
+    // Opens an HLS session with the viewer's own playback URL; returns that URL and the URL
+    // of a media playlist inside the session.
+    let open_session = |viewer: &tokuly_testkit::TestUser| {
+        let (viewer, client, ctx, stream_id) = (viewer.clone(), client.clone(), &ctx, card(&stream).id.clone());
+        async move {
+            let page = ctx.get_stream(Some(&viewer), &stream_id).await.unwrap();
+            let url = page.playback.as_option().unwrap().hls_url.clone();
+            assert!(url.contains("?t="), "a friends-only stream plays with a token");
+            let index = client.get(&url).send().await.unwrap();
+            assert!(index.status().is_success(), "the friend's playlist answered {}", index.status());
+            let index = index.text().await.unwrap();
+            let media = index.lines().find(|line| !line.starts_with('#') && line.contains(".m3u8")).unwrap().to_owned();
+            assert!(media.contains("session="), "MediaMTX serves an HLS session on its own ID: {media}");
+            (url.clone(), format!("{}/{media}", url.rsplit_once('/').unwrap().0))
+        }
+    };
+    let plays = |url: &str| {
+        let (client, url) = (client.clone(), url.to_owned());
+        async move { client.get(&url).send().await.is_ok_and(|response| response.status().is_success()) }
+    };
+    let (friend_url, friend_session) = open_session(&friend).await;
+    let (_, other_session) = open_session(&other_friend).await;
+    assert!(plays(&friend_session).await && plays(&other_session).await);
+    // The reader IDs MediaMTX lists are the IDs it named when it asked the hook: both
+    // sessions are known, with their viewers, and the regular pass leaves them alone.
+    let readers = ctx.live.media_path(&row.media_path()).await.unwrap().unwrap().reader_ids;
+    assert_eq!(readers.len(), 2, "the plain reader went when the stream was restricted: {readers:?}");
+    assert!(readers.iter().all(|(kind, _)| kind == "hlsSession"));
+    let known: std::collections::HashMap<String, String> = redis::cmd("HGETALL")
+        .arg(format!("live:sessions:{}", row.id))
+        .query_async(&mut ctx.app.core.cache.conn())
+        .await
+        .unwrap();
+    for (_, id) in &readers {
+        assert!(known.contains_key(id), "MediaMTX lists a reader under another ID than it asked the hook with");
+    }
+    assert_eq!(ctx.live.enforce_access(&ctx.row(&stream).await, false).await.unwrap(), 0);
+    assert!(plays(&friend_session).await && plays(&other_session).await);
+
+    // The friendship ends: that friend's open session stops within the handling of the
+    // event, their token (valid for minutes yet) opens no new one, the other friend plays on.
+    ctx.unfriend(&alice, &friend).await;
+    assert!(!plays(&friend_session).await, "an unfriended viewer's open HLS session still plays");
+    assert!(!plays(&friend_url).await, "an unfriended viewer's token still opens a session");
+    assert!(plays(&other_session).await, "a friend was cut along with the unfriended viewer");
+
+    // Lost bookkeeping throws nobody out on the regular pass; a pass after a change cuts what
+    // it cannot vouch for, and that viewer simply comes back through the hook.
+    ctx.app.core.cache.del(&format!("live:sessions:{}", row.id)).await.unwrap();
+    assert_eq!(ctx.live.enforce_access(&ctx.row(&stream).await, false).await.unwrap(), 0);
+    assert!(plays(&other_session).await);
+    assert_eq!(ctx.live.enforce_access(&ctx.row(&stream).await, true).await.unwrap(), 1);
+    assert!(!plays(&other_session).await);
+    let (_, other_session) = open_session(&other_friend).await;
+    assert!(plays(&other_session).await);
+
     // The stream becomes private while that viewer is watching: their session is cut, the plain
     // URL opens nothing any more, and the owner's own (token-carrying) URL still plays.
     let restrict = UpdateStreamRequest {
@@ -314,7 +385,8 @@ async fn a_stream_goes_from_encoder_to_archive_through_the_real_media_server() {
     .await;
     assert!(own_plays, "the owner can no longer watch their own private stream");
     // The owner's session came in with their token, so it is theirs to keep.
-    assert_eq!(ctx.live.enforce_access(&ctx.row(&stream).await).await.unwrap(), 0);
+    assert_eq!(ctx.live.enforce_access(&ctx.row(&stream).await, true).await.unwrap(), 0);
+    assert!(!plays(&other_session).await, "a friend still watches a stream that became private");
 
     // The end: the encoder is disconnected and the path goes away.
     let ended = ctx.end(&alice, &stream).await;

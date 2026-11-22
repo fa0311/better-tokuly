@@ -28,6 +28,13 @@
 //! ([`Live::settle_gift`]): the sender's next `SendGift` or
 //! `ListSentGifts`, and the worker's sweep. A payment the wallet refuses
 //! (not enough coins) removes the PENDING row: nothing happened.
+//!
+//! A gift whose stream was deleted before step 3 is not a gift any more.
+//! Step 3 locks the stream and the gift and decides once: SETTLED when the
+//! stream is still there, otherwise **RETURNING**, after which the coins
+//! are refunded and the row is dropped (`GIFT_RETURNED`). However many
+//! settlers and a deletion race, a gift is either settled or returned,
+//! never both.
 use std::{collections::HashMap, time::Duration};
 
 use tokuly_core::{
@@ -54,6 +61,8 @@ use crate::{
 
 pub const PENDING: i32 = 1;
 pub const SETTLED: i32 = 2;
+/// Paid for a stream that was deleted meanwhile: the coins are on their way back.
+pub const RETURNING: i32 = 3;
 
 /// Pending gifts younger than this are left to the request that is making them.
 const RECOVERY_AGE_SECONDS: f64 = 15.0;
@@ -72,6 +81,8 @@ pub struct GiftRow {
     pub status: i32,
     pub coins: i64,
     pub fee: i64,
+    /// The wallet's entry of the payment, once it is known.
+    pub ledger_entry_id: Option<Uuid>,
     pub tier: i32,
     pub message: String,
     /// How long the message is highlighted, as decided when the gift was made.
@@ -84,7 +95,7 @@ macro_rules! gift_columns {
     () => {
         "g.id, g.stream_id, \
          (SELECT s.title FROM live_streams s WHERE s.id = g.stream_id AND s.deleted_at IS NULL) AS stream_title, g.channel_id, \
-         g.recipient_id, g.sender_id, g.status, g.coins, g.fee, g.tier, g.message, g.highlight_seconds, g.offset_ms, g.created_at"
+         g.recipient_id, g.sender_id, g.status, g.coins, g.fee, g.ledger_entry_id, g.tier, g.message, g.highlight_seconds, g.offset_ms, g.created_at"
     };
 }
 
@@ -377,6 +388,9 @@ impl Live {
         if gift.is_settled() {
             return Ok(gift);
         }
+        if gift.status == RETURNING {
+            return self.return_gift(&gift).await;
+        }
         let cancel = || async {
             sqlx::query("DELETE FROM live_gifts WHERE id = $1 AND status = 1").bind(gift_id).execute(&core.db).await?;
             AppResult::Ok(())
@@ -408,23 +422,6 @@ impl Live {
             Some(stream_id) => streams::find_by_id(core, stream_id).await?,
             None => None,
         };
-        if stream.is_none() {
-            // The stream was deleted while the gift was on its way: there is
-            // no chat to show it in and nothing it was given for. The coins
-            // go back and the gift is dropped. (If they cannot go back any
-            // more, the gift stands as bookkeeping.)
-            match tokuly_wallet::ledger::refund(core, receipt.entry_id, "live.gift.returned").await {
-                Ok(()) => {
-                    cancel().await?;
-                    return Err(AppError::precondition(
-                        "GIFT_RETURNED",
-                        "the stream is gone; your coins were returned",
-                    ));
-                }
-                Err(error) if error.reason == "REFUND_IMPOSSIBLE" => {}
-                Err(error) => return Err(error),
-            }
-        }
         let sender = tokuly_identity::summary(core, sender_id).await?;
         let sender_name =
             if sender.display_name.is_empty() { sender.handle.clone() } else { sender.display_name.clone() };
@@ -441,21 +438,58 @@ impl Live {
         };
 
         let mut tx = core.db.begin().await?;
-        // Only one caller gets to settle a gift.
-        let settled = sqlx::query(
-            "UPDATE live_gifts SET status = 2, fee = $2, ledger_entry_id = $3, settled_at = now() WHERE id = $1 AND status = 1",
+        // Whether the gift becomes real is decided here, once, with both rows
+        // locked (the stream first, as everywhere, then the gift): a stream
+        // that is being deleted waits for this transaction or has already
+        // won, and a second settler waits and then finds the decision made.
+        // (The lock is the one an UPDATE takes, not FOR SHARE: the stream's
+        // counters are written below, and two gifts sharing the row would
+        // each wait for the other to let go.)
+        let stream = match stream {
+            Some(stream) => sqlx::query_scalar::<_, i32>(
+                "SELECT 1 FROM live_streams WHERE id = $1 AND deleted_at IS NULL FOR NO KEY UPDATE",
+            )
+            .bind(stream.id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .map(|_| stream),
+            None => None,
+        };
+        let status: Option<i32> = sqlx::query_scalar("SELECT status FROM live_gifts WHERE id = $1 FOR UPDATE")
+            .bind(gift.id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        if status != Some(PENDING) {
+            // Someone else decided: the gift is settled, being returned, or gone.
+            drop(tx);
+            let decided = find_by_id(core, gift_id).await?.ok_or_else(gone)?;
+            return if decided.status == RETURNING { self.return_gift(&decided).await } else { Ok(decided) };
+        }
+        if stream.is_none() {
+            // The stream was deleted while the gift was on its way: there is
+            // no chat to show it in and nothing it was given for. The gift is
+            // marked as being returned (so nobody settles it any more), then
+            // the coins go back and the row is dropped.
+            let returning: GiftRow = sqlx::query_as(concat!(
+                "UPDATE live_gifts g SET status = 3, fee = $2, ledger_entry_id = $3 WHERE g.id = $1 RETURNING ",
+                gift_columns!()
+            ))
+            .bind(gift.id)
+            .bind(receipt.fee)
+            .bind(receipt.entry_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            return self.return_gift(&returning).await;
+        }
+        sqlx::query(
+            "UPDATE live_gifts SET status = 2, fee = $2, ledger_entry_id = $3, settled_at = now() WHERE id = $1",
         )
         .bind(gift.id)
         .bind(receipt.fee)
         .bind(receipt.entry_id)
         .execute(&mut *tx)
-        .await?
-        .rows_affected()
-            == 1;
-        if !settled {
-            drop(tx);
-            return find_by_id(core, gift_id).await?.ok_or_else(gone);
-        }
+        .await?;
         let mut line = None;
         if let Some(stream) = &stream {
             let inserted = chat::insert_in(
@@ -553,13 +587,62 @@ impl Live {
         find_by_id(core, gift_id).await?.ok_or_else(gone)
     }
 
+    /// Gives back the coins of a gift whose stream was deleted before it
+    /// was settled (RETURNING) and drops the gift: `GIFT_RETURNED`. Safe to
+    /// repeat and to run twice at once: the refund happens once, and a gift
+    /// in this state is never settled as a gift to a stream. Only when the
+    /// coins cannot go back any more (the recipient's account is gone) does
+    /// the gift stand, as bookkeeping without a chat line.
+    async fn return_gift(&self, gift: &GiftRow) -> AppResult<GiftRow> {
+        let core = &self.core;
+        let gone = || AppError::not_found("GIFT_NOT_FOUND", "gift not found");
+        let entry_id = gift
+            .ledger_entry_id
+            .ok_or_else(|| AppError::internal(anyhow::anyhow!("a returning gift without a payment")))?;
+        match tokuly_wallet::ledger::refund(core, entry_id, "live.gift.returned").await {
+            Ok(()) => {
+                sqlx::query("DELETE FROM live_gifts WHERE id = $1 AND status = 3")
+                    .bind(gift.id)
+                    .execute(&core.db)
+                    .await?;
+                Err(AppError::precondition("GIFT_RETURNED", "the stream is gone; your coins were returned"))
+            }
+            Err(error) if error.reason == "REFUND_IMPOSSIBLE" => {
+                let mut tx = core.db.begin().await?;
+                let kept =
+                    sqlx::query("UPDATE live_gifts SET status = 2, settled_at = now() WHERE id = $1 AND status = 3")
+                        .bind(gift.id)
+                        .execute(&mut *tx)
+                        .await?
+                        .rows_affected()
+                        == 1;
+                if kept && let (Some(sender_id), Some(recipient_id)) = (gift.sender_id, gift.recipient_id) {
+                    let event = GiftSent {
+                        gift_id: gift.id,
+                        stream_id: gift.stream_id,
+                        channel_id: gift.channel_id,
+                        sender_id,
+                        recipient_id,
+                        coins: gift.coins,
+                        net_coins: gift.coins - gift.fee,
+                        tier: gift.tier,
+                    };
+                    core_events::emit(&mut *tx, GIFT_SENT, Some(sender_id), &event).await?;
+                }
+                tx.commit().await?;
+                find_by_id(core, gift.id).await?.ok_or_else(gone)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     /// Finishes the gifts whose payment was interrupted: those of one
     /// sender (called when they come back) or everyone's (the worker's
     /// sweep). Never fails the caller. Returns how many were settled.
     pub async fn settle_pending_gifts(&self, sender_id: Option<Uuid>) -> u64 {
         let pending: Vec<Uuid> = match sqlx::query_scalar(
             "SELECT id FROM live_gifts
-             WHERE status = 1 AND created_at < now() - make_interval(secs => $2) AND ($1::uuid IS NULL OR sender_id = $1)
+             WHERE status IN (1, 3) AND created_at < now() - make_interval(secs => $2) AND ($1::uuid IS NULL OR sender_id = $1)
              ORDER BY id LIMIT 200",
         )
         .bind(sender_id)

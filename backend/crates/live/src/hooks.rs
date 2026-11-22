@@ -22,10 +22,20 @@
 //! stream goes on air (the owner's preview). Rewinding therefore never
 //! reaches before `started_at`: the preview is not part of the broadcast.
 //!
-//! A read that was let in by a playback token is remembered with the viewer
-//! the token was made for (`live:sessions:<stream>` in Valkey), so that the
-//! session can be cut when that viewer loses access
-//! ([`Live::enforce_access`]).
+//! A playback token says who it was made for, and that is checked again
+//! every time the media server asks: a token whose viewer may no longer
+//! watch (unfriended, blocked, the stream became private) opens nothing,
+//! however long it is still valid. The answer is cached for a few seconds
+//! per stream and viewer, and the cache is dropped for an owner's streams
+//! when their visibility, friends or blocks change
+//! ([`Live::access_changed`]).
+//!
+//! MediaMTX asks once per media session (for HLS: when the multivariant
+//! playlist is requested; the playlists and segments inside the session
+//! are served on the session's own ID without asking again), so a session
+//! that is already open has to be cut on the media server. Every session
+//! the hook lets in is remembered with its viewer (`live:sessions:<stream>`
+//! in Valkey, anonymous ones included) for [`Live::enforce_access`].
 //!
 //! # Who may call the hook
 //!
@@ -53,7 +63,7 @@ use tokuly_core::{keys::secure_eq, prelude::*};
 
 use crate::{
     Live,
-    access::open_to_everyone,
+    access::{self, Viewer, open_to_everyone},
     media_server::API_USER,
     streams::{self, StreamRow},
 };
@@ -96,6 +106,17 @@ pub enum Refusal {
     OutsideDvrWindow,
     NotTheWorker,
     UnknownAction,
+}
+
+/// How long a "yes, this viewer may watch" is reused.
+const ACCESS_CACHE_SECONDS: i64 = 10;
+/// What a session without a viewer is remembered as.
+const ANONYMOUS: &str = "-";
+
+/// Counts the changes to who may watch an owner's streams; part of the
+/// key of every cached answer, so a change makes them all unreachable.
+fn access_epoch_key(owner_id: Uuid) -> String {
+    format!("live:access-epoch:{owner_id}")
 }
 
 fn sessions_key(stream_id: Uuid) -> String {
@@ -183,8 +204,13 @@ impl Live {
         let query = parse_query(&request.query);
         let param = |name: &str| query.iter().find(|(key, _)| key == name).map(|(_, value)| value.as_str());
         let presented = [param("t"), Some(request.token.as_str()), Some(request.password.as_str())];
-        let viewer =
+        let holder =
             presented.into_iter().flatten().find_map(|token| self.playback_token_viewer(&stream.short_id, token));
+        // A valid token is worth what its viewer may do right now.
+        let viewer = match holder {
+            Some(holder) if self.may_watch(&stream, holder).await? => Some(holder),
+            _ => None,
+        };
         if viewer.is_none() {
             // Without a token only what everyone may watch, and only on air.
             if !open_to_everyone(stream.visibility) {
@@ -212,14 +238,15 @@ impl Live {
                 }
             }
         }
-        // Remember whose session this is, so it can be cut when they lose access.
-        if let (Some(viewer), Some(session), false) = (viewer, request.id.as_deref().filter(|id| !id.is_empty()), dvr) {
+        // Remember whose session this is (or that it is nobody's), so it can be cut later.
+        if let (Some(session), false) = (request.id.as_deref().filter(|id| !id.is_empty()), dvr) {
             let key = sessions_key(stream.id);
+            let whose = viewer.map(|viewer| viewer.to_string()).unwrap_or_else(|| ANONYMOUS.to_owned());
             redis::pipe()
                 .cmd("HSET")
                 .arg(&key)
                 .arg(session)
-                .arg(viewer.to_string())
+                .arg(whose)
                 .ignore()
                 .cmd("EXPIRE")
                 .arg(&key)
@@ -231,12 +258,57 @@ impl Live {
         Ok(Ok(()))
     }
 
-    /// The viewers behind the media sessions of a stream that were let in
-    /// by a playback token, by session ID.
-    pub(crate) async fn token_sessions(&self, stream_id: Uuid) -> AppResult<std::collections::HashMap<String, Uuid>> {
+    /// Whether `viewer_id` may watch `stream` right now: what
+    /// [`access::can_watch`] says once it is on air, only its owner before.
+    /// Cached for [`ACCESS_CACHE_SECONDS`]; [`Live::access_changed`] drops
+    /// the cache of an owner's streams at once.
+    pub(crate) async fn may_watch(&self, stream: &StreamRow, viewer_id: Uuid) -> AppResult<bool> {
+        if viewer_id == stream.owner_id {
+            return Ok(true);
+        }
+        if !stream.is_live() {
+            return Ok(false);
+        }
+        let mut conn = self.core.cache.conn();
+        let epoch: Option<i64> =
+            redis::cmd("GET").arg(access_epoch_key(stream.owner_id)).query_async(&mut conn).await?;
+        let key = format!("live:may-watch:{}:{viewer_id}:{}:{}", stream.id, stream.visibility, epoch.unwrap_or(0));
+        // Only a yes is remembered: a no is asked again, so that someone who has just become a
+        // friend is not kept out by an answer from before.
+        let cached: Option<i64> = redis::cmd("GET").arg(&key).query_async(&mut conn).await?;
+        if cached.is_some() {
+            return Ok(true);
+        }
+        let viewer = Viewer::load(&self.core, Some(viewer_id)).await?;
+        let may = access::can_watch(&viewer, &stream.facts());
+        if may {
+            redis::cmd("SET").arg(&key).arg(1).arg("EX").arg(ACCESS_CACHE_SECONDS).query_async::<()>(&mut conn).await?;
+        }
+        Ok(may)
+    }
+
+    /// Who may watch the streams of `owners` has changed (their visibility,
+    /// a friendship, a block): nothing cached about them is trusted any more.
+    pub(crate) async fn access_changed(&self, owners: &[Uuid]) -> AppResult<()> {
+        let mut pipe = redis::pipe();
+        for owner in owners {
+            let key = access_epoch_key(*owner);
+            pipe.cmd("INCR").arg(&key).ignore().cmd("EXPIRE").arg(&key).arg(86_400).ignore();
+        }
+        pipe.query_async::<()>(&mut self.core.cache.conn()).await?;
+        Ok(())
+    }
+
+    /// The media sessions of a stream the hook let in, by session ID, with
+    /// the viewer whose token opened each (`None`: nobody's, the stream was
+    /// open to everyone then).
+    pub(crate) async fn known_sessions(
+        &self,
+        stream_id: Uuid,
+    ) -> AppResult<std::collections::HashMap<String, Option<Uuid>>> {
         let entries: Vec<(String, String)> =
             redis::cmd("HGETALL").arg(sessions_key(stream_id)).query_async(&mut self.core.cache.conn()).await?;
-        Ok(entries.into_iter().filter_map(|(session, viewer)| Some((session, viewer.parse().ok()?))).collect())
+        Ok(entries.into_iter().map(|(session, viewer)| (session, viewer.parse().ok())).collect())
     }
 
     pub(crate) async fn forget_sessions(&self, stream_id: Uuid, sessions: &[String]) -> AppResult<()> {

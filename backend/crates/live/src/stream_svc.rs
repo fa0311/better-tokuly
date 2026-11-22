@@ -240,11 +240,14 @@ impl LiveStreamService for Live {
                 self.push_stream_updated(&updated).await;
             }
             // Narrower than before: whoever may no longer watch is cut off now, not when their token runs out.
-            if updated.visibility != stream.visibility
-                && (updated.is_live() || updated.encoder_connected)
-                && let Err(error) = self.enforce_access(&updated).await
-            {
-                tracing::warn!(stream_id = %updated.id, %error, "could not cut viewers after a visibility change");
+            if updated.visibility != stream.visibility && (updated.is_live() || updated.encoder_connected) {
+                let cut = async {
+                    self.access_changed(&[updated.owner_id]).await?;
+                    self.enforce_access(&updated, true).await
+                };
+                if let Err(error) = cut.await {
+                    tracing::warn!(stream_id = %updated.id, %error, "could not cut viewers after a visibility change");
+                }
             }
             ok(UpdateStreamResponse {
                 stream: Some(self.own_stream_proto(user_id, &updated).await?).into(),

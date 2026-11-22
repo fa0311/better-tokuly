@@ -244,7 +244,7 @@ CREATE TABLE live_gifts (
     recipient_id      uuid REFERENCES users (id) ON DELETE SET NULL,
     sender_id         uuid REFERENCES users (id) ON DELETE SET NULL,
     -- 1 pending (the payment is not confirmed), 2 settled.
-    status            integer     NOT NULL DEFAULT 1 CHECK (status IN (1, 2)),
+    status            integer     NOT NULL DEFAULT 1 CHECK (status IN (1, 2, 3)),
     coins             bigint      NOT NULL CHECK (coins > 0),
     tier              integer     NOT NULL,
     message           text        NOT NULL DEFAULT '',
@@ -265,7 +265,7 @@ CREATE UNIQUE INDEX live_gifts_entry ON live_gifts (ledger_entry_id) WHERE ledge
 CREATE INDEX live_gifts_sender ON live_gifts (sender_id, id DESC);
 CREATE INDEX live_gifts_channel ON live_gifts (channel_id, id DESC);
 CREATE INDEX live_gifts_stream ON live_gifts (stream_id, id DESC);
-CREATE INDEX live_gifts_pending ON live_gifts (created_at) WHERE status = 1;
+CREATE INDEX live_gifts_pending ON live_gifts (created_at) WHERE status <> 2;
 
 -- ───────────────────────────── Polls ─────────────────────────────
 

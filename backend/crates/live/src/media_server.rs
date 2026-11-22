@@ -34,7 +34,7 @@ use tokuly_proto::live::{IngestInfo, Playback};
 
 use crate::{
     Live,
-    access::{Viewer, open_to_everyone},
+    access::open_to_everyone,
     streams::{self, StreamRow},
 };
 
@@ -266,34 +266,38 @@ impl Live {
         valid.then_some(viewer)
     }
 
-    /// Cuts the media sessions of everyone who may not (or no longer)
-    /// watch a restricted stream: readers that came in without a token
-    /// (before the stream was restricted) and readers whose token was made
-    /// for someone who has since been blocked, unfriended or shut out by a
-    /// change of visibility. Tokens are short-lived, so a cut viewer cannot
-    /// come back with the one they have. Returns how many were cut.
-    pub async fn enforce_access(&self, stream: &StreamRow) -> AppResult<u32> {
+    /// Cuts the media sessions of those who may not (or no longer) watch a
+    /// restricted stream. A token is only checked when a session is opened
+    /// (the hook does that, on every request it gets), so a session that
+    /// is already open is cut here, and whoever still may watch reconnects
+    /// through the hook.
+    ///
+    /// Every reader whose session the hook remembers is judged by its
+    /// viewer: a viewer who lost access, or nobody (the session was opened
+    /// while the stream was open to everyone), goes. A reader the hook has
+    /// no record of is cut only when `cut_unknown` is set: when something
+    /// about who may watch has just changed (visibility, a friendship, a
+    /// block) it cannot be shown to be allowed, so it goes and its player
+    /// comes back through the hook; the regular pass leaves it alone, so
+    /// that lost bookkeeping never throws legitimate viewers out again and
+    /// again. Returns how many were cut.
+    pub async fn enforce_access(&self, stream: &StreamRow, cut_unknown: bool) -> AppResult<u32> {
         if !self.cfg.media_server_configured() || (stream.is_live() && open_to_everyone(stream.visibility)) {
             return Ok(0);
         }
         let Some(path) = self.media_path(&stream.media_path()).await? else { return Ok(0) };
-        let sessions = self.token_sessions(stream.id).await?;
+        let sessions = self.known_sessions(stream.id).await?;
         let mut allowed: std::collections::HashMap<Uuid, bool> = std::collections::HashMap::new();
         let mut cut = 0;
         let mut gone = Vec::new();
         for (kind, id) in &path.reader_ids {
             let may_stay = match sessions.get(id) {
-                None => false,
-                Some(viewer_id) => match allowed.get(viewer_id) {
+                None => !cut_unknown,
+                Some(None) => false,
+                Some(Some(viewer_id)) => match allowed.get(viewer_id) {
                     Some(known) => *known,
                     None => {
-                        let viewer = Viewer::load(&self.core, Some(*viewer_id)).await?;
-                        // Before the stream is on air only its owner previews.
-                        let may = if stream.is_live() {
-                            crate::access::can_watch(&viewer, &stream.facts())
-                        } else {
-                            viewer.is(stream.owner_id)
-                        };
+                        let may = self.may_watch(stream, *viewer_id).await?;
                         allowed.insert(*viewer_id, may);
                         may
                     }
@@ -306,6 +310,9 @@ impl Live {
                 gone.push(id.clone());
             }
         }
+        // Forget the sessions that are gone: the ones just cut and the ones that ended by themselves.
+        let reading: std::collections::HashSet<&String> = path.reader_ids.iter().map(|(_, id)| id).collect();
+        gone.extend(sessions.keys().filter(|session| !reading.contains(session)).cloned());
         self.forget_sessions(stream.id, &gone).await?;
         Ok(cut)
     }

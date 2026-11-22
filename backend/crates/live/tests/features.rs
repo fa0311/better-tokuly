@@ -333,6 +333,77 @@ async fn gifts_settle_exactly_once_even_when_requests_race_or_die() {
     assert_eq!(returned, 1);
 }
 
+/// Several settlers and the deletion of the stream at the same moment: the
+/// gift ends up either settled (and paid) or returned (and refunded), never
+/// both and never neither.
+#[tokio::test]
+async fn a_gift_is_settled_or_returned_never_both() {
+    let ctx = start().await;
+    let alice = ctx.app.user("alice").await;
+    let bob = ctx.app.user("bob").await;
+    let channel = ctx.channel(&alice, "どっちかch").await;
+    ctx.coins(&bob, 10_000).await;
+    let fee = i64::from(ctx.wallet.platform_fee_percent());
+    let db = &ctx.app.core.db;
+    let (mut settled_rounds, mut returned_rounds) = (0, 0);
+    for round in 0..10 {
+        let stream = ctx.on_air(&alice, &channel, "消えるかも").await;
+        let gift_id: Uuid = sqlx::query_scalar(
+            // (Young enough that the sweep another test runs leaves it to this one.)
+            "INSERT INTO live_gifts (stream_id, channel_id, recipient_id, sender_id, coins, tier, message, highlight_seconds, client_key)
+             VALUES ($1, $2, $3, $4, 100, 3, 'きわどい', 120, $5) RETURNING id",
+        )
+        .bind(sid(&stream))
+        .bind(id(&channel.summary.id))
+        .bind(alice.id)
+        .bind(bob.id)
+        .bind(format!("gift-either-{round:04}"))
+        .fetch_one(db)
+        .await
+        .unwrap();
+        let (coins_before, earnings_before) = (ctx.balance(&bob).await.0, ctx.balance(&alice).await.1);
+        let delete = DeleteStreamRequest { stream_id: card(&stream).id.clone(), ..Default::default() };
+        let deletion = async {
+            // Sometimes before the settlers, sometimes in the middle of them.
+            tokio::time::sleep(std::time::Duration::from_millis(round * 3)).await;
+            let _: DeleteStreamResponse = ctx.call(STREAMS, "DeleteStream", Some(&alice), &delete).await.unwrap();
+        };
+        let (outcomes, ()) = tokio::join!(join_all((0..4).map(|_| ctx.live.settle_gift(gift_id))), deletion);
+        // Whatever was left undecided is finished the way the sweep would.
+        let _ = ctx.live.settle_gift(gift_id).await;
+
+        let row = gifts::find_by_id(&ctx.app.core, gift_id).await.unwrap();
+        let (refunded, refunds): (bool, i64) = sqlx::query_as(
+            "SELECT e.refunded_at IS NOT NULL, (SELECT count(*) FROM wallet_entries r WHERE r.refund_of = e.id)
+             FROM wallet_entries e WHERE e.reason = 'live.gift' AND e.memo ->> 'gift_id' = $1",
+        )
+        .bind(gift_id.to_string())
+        .fetch_one(db)
+        .await
+        .unwrap();
+        let (coins, earnings) = (ctx.balance(&bob).await.0, ctx.balance(&alice).await.1);
+        match row {
+            Some(gift) => {
+                assert!(gift.is_settled(), "round {round}: the gift is left in state {}", gift.status);
+                assert!(!refunded && refunds == 0, "round {round}: a settled gift was refunded");
+                assert_eq!((coins, earnings), (coins_before - 100, earnings_before + 100 - 100 * fee / 100));
+                assert!(outcomes.iter().all(|outcome| outcome.as_ref().is_ok_and(|gift| gift.is_settled())));
+                settled_rounds += 1;
+            }
+            None => {
+                assert!(refunded && refunds == 1, "round {round}: a dropped gift was not refunded exactly once");
+                assert_eq!((coins, earnings), (coins_before, earnings_before));
+                // (A settler that came after the gift was dropped finds nothing.)
+                assert!(outcomes.iter().all(|outcome| {
+                    outcome.as_ref().is_err_and(|e| e.reason == "GIFT_RETURNED" || e.reason == "GIFT_NOT_FOUND")
+                }));
+                returned_rounds += 1;
+            }
+        }
+    }
+    eprintln!("settled in {settled_rounds} rounds, returned in {returned_rounds}");
+}
+
 // ───────────────────────────── clips ─────────────────────────────
 
 /// A published public video on `channel` (a fixture upload, 12 s long).

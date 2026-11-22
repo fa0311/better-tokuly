@@ -34,7 +34,8 @@ pub async fn sync_stream(tx: &mut Tx<'_>, stream: &StreamRow, channel: Option<&C
         image_url: stream.thumbnail_url(),
         path: stream.path(),
         created_at: stream.started_at.or(stream.scheduled_at).unwrap_or(stream.created_at).timestamp(),
-        score: stream.viewer_count as f64,
+        // Signed-in viewers: the number that cannot be made up (see `audience`).
+        score: stream.ranked_viewer_count as f64,
         extra: serde_json::json!({
             "short_id": stream.short_id,
             "channel_id": stream.channel_id,
