@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { common, geo, media } from "@tokuly/api";
-import { ImagePlus, LocateFixed, SmilePlus, Trash2 } from "lucide-react";
+import { Crosshair, ImagePlus, LocateFixed, SmilePlus, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -350,6 +350,15 @@ function EditorMap({ form, onMove }: { form: Form; onMove(center: LatLng): void 
           <span className="size-2 rounded-full bg-ink" aria-hidden />
         </div>
       </Pin>
+      <button
+        type="button"
+        aria-label={t("editor.toCentre")}
+        title={t("editor.toCentre")}
+        onClick={() => onMove({ lat: map.getCenter().lat, lng: map.getCenter().lng })}
+        className="glass sticker-sm pressable absolute top-[4.25rem] right-3 z-10 grid size-11 place-items-center rounded-full"
+      >
+        <Crosshair className="size-5" />
+      </button>
       <button
         type="button"
         aria-label={t("editor.toDevice")}

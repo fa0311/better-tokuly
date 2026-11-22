@@ -160,8 +160,10 @@ test("deleting a day's history empties the day", async ({ page, request, me }) =
   await expect(confirm.getByText("削除すると元にもどせません")).toBeVisible();
   await confirm.getByRole("button", { name: "削除する" }).click();
 
+  // The day is empty the moment the server confirmed, not after a re-read: no old visit, no old route.
   await expect(page.getByText("履歴を削除しました")).toBeVisible();
   await expect(page.getByTestId("day-timeline")).toHaveCount(0);
+  await expect(page.getByTestId("day-route")).toHaveCount(0);
   await expect(page.getByText(/今日はまだどこにも行ってないみたい/)).toBeVisible();
   expect((await listVisits(request, me)).visits ?? []).toHaveLength(0);
 

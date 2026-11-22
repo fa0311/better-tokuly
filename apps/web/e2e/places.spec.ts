@@ -134,6 +134,35 @@ test("a suggestion can be put off", async ({ page, request, me }) => {
   await expect(page.getByRole("heading", { name: "いつもの場所" })).toBeVisible();
   await expect(suggestions).toHaveCount(0);
   expect(await myPlaces(request, me)).toHaveLength(0);
+
+  // What the device remembers is this account's, holds no coordinates, and goes on sign-out.
+  const remembered = () => page.evaluate(() => Object.entries(window.localStorage).filter(([key]) => key.startsWith("tokuly.places.")));
+  const entries = await remembered();
+  expect(entries.map(([key]) => key)).toEqual([`tokuly.places.dismissed.${me.userId}`]);
+  expect(entries[0]![1]).toMatch(/^\["[0-9a-z]{1,7}"\]$/);
+  await page.goto("/me");
+  await page.getByRole("button", { name: "ログアウト" }).click();
+  await expect(page).toHaveURL(/\/$/);
+  expect(await remembered()).toEqual([]);
+});
+
+test("the pin can be placed without a pointer: move the map, then put the pin at its centre", async ({ page, request, me }) => {
+  test.slow();
+  await page.goto("/places/new");
+  await expect(page.getByTestId("place-pin")).toBeVisible({ timeout: MAP_TIMEOUT });
+
+  // The map pans with the arrow keys; the button brings the pin to wherever its centre is now.
+  await page.locator(".maplibregl-canvas").focus();
+  for (let press = 0; press < 4; press++) await page.keyboard.press("ArrowRight");
+  await page.waitForTimeout(1500);
+  await page.getByRole("button", { name: "マップの中心にピンを置く" }).focus();
+  await page.keyboard.press("Enter");
+
+  await page.getByRole("textbox", { name: "なまえ" }).fill("キーボードの場所");
+  await page.getByRole("button", { name: "この場所を登録する" }).click();
+  await expect(page).toHaveURL(/\/places\/[0-9a-f-]{36}$/);
+  const [place] = await myPlaces(request, me);
+  expect(metersBetween(DEVICE, place!.center)).toBeGreaterThan(20);
 });
 
 test("a place page opens from search, and checking in, saving and reacting work there", async ({ page, request, me }) => {

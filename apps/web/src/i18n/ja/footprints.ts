@@ -88,7 +88,11 @@ export default {
     notFound: "ユーザーが見つかりません",
     privateTitle: "{{name}}のあしあとはひみつ",
     privateBody: "見せてもらえるようになったら、ここに表示されるよ",
+    failedTitle: "読み込めませんでした",
+    failedBody: "通信の調子がわるいみたい。もう一度ためしてね",
+    retry: "もう一度",
   },
+  profile: { explored: "あしあと: {{percent}} 開拓", countries: "あしあと: {{count}}か国に行った" },
   errors: {
     FOOTPRINTS_PRIVATE: "このあしあとは公開されていません",
     REGION_NOT_FOUND: "このエリアは見つかりませんでした",

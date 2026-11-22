@@ -13,25 +13,15 @@ import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { errorMessage } from "#/lib/errors";
 import { compactDuration, formatDistance } from "#/lib/format";
+import { useMe } from "#/stores/session";
 import { currentPosition, type LatLng, placeClient, placeKeys, toLatLng } from "./api";
 import { CheckInDialog, type CheckInTarget } from "./check-in-dialog";
 import { GazetteerCredit } from "./credit";
+import { dismissSuggestion, readDismissed, suggestionMark } from "./dismissed";
 import { LABELS, labelMeta } from "./labels";
 import { PlaceRow } from "./place-row";
 
 export type PlacesTab = "mine" | "saved" | "search";
-
-const DISMISSED_KEY = "tokuly.places.dismissedSuggestions";
-const suggestionKey = (suggestion: geo.PlaceSuggestion) => `${suggestion.center?.lat.toFixed(3)},${suggestion.center?.lng.toFixed(3)}`;
-
-function readDismissed(): string[] {
-  try {
-    const stored = JSON.parse(window.localStorage.getItem(DISMISSED_KEY) ?? "[]");
-    return Array.isArray(stored) ? stored.filter((entry): entry is string => typeof entry === "string") : [];
-  } catch {
-    return [];
-  }
-}
 
 /** `/places`: my places, the ones I saved, and the search for more. */
 export function PlacesScreen({ tab, query }: { tab: PlacesTab; query: string }) {
@@ -145,7 +135,8 @@ function MyPlaces() {
 function Suggestions() {
   const { t } = useTranslation("places");
   const queryClient = useQueryClient();
-  const [dismissed, setDismissed] = useState(readDismissed);
+  const userId = useMe()?.user?.id ?? "";
+  const [dismissed, setDismissed] = useState(() => readDismissed(userId));
   const { data } = useQuery({ queryKey: placeKeys.suggestions, queryFn: () => placeClient().listPlaceSuggestions({}) });
 
   const accept = useMutation({
@@ -163,13 +154,9 @@ function Suggestions() {
     onError: (error) => toast.error(errorMessage(error, { namespace: "places" })),
   });
   // The server keeps suggesting a spot until it is a place, so "not now" is remembered on this device.
-  const dismiss = (suggestion: geo.PlaceSuggestion) => {
-    const next = [...dismissed, suggestionKey(suggestion)].slice(-200);
-    window.localStorage.setItem(DISMISSED_KEY, JSON.stringify(next));
-    setDismissed(next);
-  };
+  const dismiss = (suggestion: geo.PlaceSuggestion) => setDismissed(dismissSuggestion(userId, suggestion, data?.suggestions ?? []));
 
-  const shown = (data?.suggestions ?? []).filter((suggestion) => suggestion.center && !dismissed.includes(suggestionKey(suggestion)));
+  const shown = (data?.suggestions ?? []).filter((suggestion) => suggestion.center && !dismissed.includes(suggestionMark(userId, suggestion)));
   if (shown.length === 0) return null;
   return (
     <section aria-label={t("suggestions.title")}>
@@ -179,7 +166,7 @@ function Suggestions() {
           const meta = labelMeta(suggestion.suggestedLabel);
           const name = suggestion.suggestedName || t(`labels.${meta.key}`);
           return (
-            <li key={suggestionKey(suggestion)} className="sticker animate-pop-in rounded-card bg-sun p-4 text-[#17122b]">
+            <li key={suggestionMark(userId, suggestion)} className="sticker animate-pop-in rounded-card bg-sun p-4 text-[#17122b]">
               <div className="flex items-center gap-3">
                 <span className="text-3xl" aria-hidden>
                   {meta.emoji}

@@ -137,10 +137,48 @@ test("footprints someone keeps to themselves are simply not there", async ({ pag
   await expect(page.getByTestId("footprint-cells")).toHaveCount(0);
 });
 
+test("a failed request for someone's footprints offers another try, not a verdict", async ({ page, request, me }) => {
+  test.slow();
+  const friend = await createAccount(request, "Sora");
+  await befriend(request, me, friend);
+  await report(request, friend, walk(somewhereInTokyo(), 600, 1));
+
+  // The numbers cannot be fetched (once the page is retried, they can).
+  let failing = true;
+  await page.route("**/tokuly.geo.v1.FootprintService/GetStats", (route) => (failing ? route.abort() : route.continue()));
+  await page.goto(`/footprints?user=${friend.userId}`);
+  await expect(page.getByText("読み込めませんでした")).toBeVisible();
+  await expect(page.getByText("Soraのあしあとはひみつ")).toHaveCount(0);
+
+  failing = false;
+  await page.getByRole("button", { name: "もう一度" }).click();
+  await expect(page.getByText(/\d+ マス開拓中!/)).toBeVisible();
+  // Area names come with their credit.
+  await expect(page.getByText("Place names ©")).toBeVisible();
+});
+
+test("celebrated levels are remembered per account, without naming regions, until sign-out", async ({ page, request, me }) => {
+  await report(request, me, walk(somewhereInTokyo(), 600, 1));
+  await page.goto("/footprints");
+  await expect(page.getByTestId("footprint-headline")).toBeVisible();
+
+  const remembered = () => page.evaluate(() => Object.entries(window.localStorage).filter(([key]) => key.startsWith("tokuly.footprints.")));
+  await expect.poll(async () => (await remembered()).map(([key]) => key)).toEqual([`tokuly.footprints.levels.${me.userId}`]);
+  const stored = (await remembered())[0]![1];
+  expect(stored).not.toContain("JP");
+  expect(Object.keys(JSON.parse(stored).regions).length).toBeGreaterThan(0);
+
+  await page.goto("/me");
+  await page.getByRole("button", { name: "ログアウト" }).click();
+  await expect(page).toHaveURL(/\/$/);
+  expect(await remembered()).toEqual([]);
+});
+
 test("the profile's explored share leads to the footprints", async ({ page, request, me }) => {
   await report(request, me, walk(somewhereInTokyo(), 600, 1));
   await page.goto(`/u/${me.handle}`);
-  await page.getByRole("link", { name: "あしあと" }).first().click();
+  // The link says what it leads to and the number it shows.
+  await page.getByRole("link", { name: /^あしあと: \d+(\.\d+)?% 開拓$/ }).click();
   await expect(page).toHaveURL(/\/footprints$/);
   await expect(page.getByTestId("footprint-headline")).toBeVisible();
 });

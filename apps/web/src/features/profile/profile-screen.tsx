@@ -165,10 +165,10 @@ export function ProfileScreen({ handle }: { handle: string }) {
             <Stat value={Number(stats.profileViewCount)} label={t("stats.views")} />
             <Stat value={stats.bumpCount} label={t("stats.bumps")} />
             {/* The footprint numbers lead to the scratch map they come from: my own, or as much of theirs as they show. */}
-            <Link to="/footprints" search={isSelf ? {} : { user: user.id }} className="rounded-2xl transition-colors hover:bg-surface-2" aria-label={t("footprints:title")}>
+            <Link to="/footprints" search={isSelf ? {} : { user: user.id }} className="rounded-2xl transition-colors hover:bg-surface-2" aria-label={t("footprints:profile.explored", { percent: formatPercent(stats.exploredPercent) })}>
               <Stat value={formatPercent(stats.exploredPercent)} label={t("stats.explored")} />
             </Link>
-            <Link to="/footprints" search={isSelf ? {} : { user: user.id }} className="rounded-2xl transition-colors hover:bg-surface-2" aria-label={t("footprints:title")}>
+            <Link to="/footprints" search={isSelf ? {} : { user: user.id }} className="rounded-2xl transition-colors hover:bg-surface-2" aria-label={t("footprints:profile.countries", { count: stats.visitedCountryCount })}>
               <Stat value={stats.visitedCountryCount} label={t("stats.countries")} />
             </Link>
           </Card>

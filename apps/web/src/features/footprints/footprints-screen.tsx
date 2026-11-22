@@ -1,34 +1,25 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { errorReason, geo } from "@tokuly/api";
+import { Code, errorReason, geo, isApiError } from "@tokuly/api";
 import { Gift } from "lucide-react";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Page, Skeleton } from "#/components/ui/page";
-import { DEFAULT_CENTER, type LatLng, locationClient, toLatLng, useMap } from "#/features/places";
+import { DEFAULT_CENTER, GazetteerCredit, type LatLng, locationClient, toLatLng, useMap } from "#/features/places";
 import { profileClient } from "#/lib/api";
+import { useMe } from "#/stores/session";
 import { footprintClient, footprintKeys, regionName } from "./api";
 import { celebrate } from "./celebrate";
 import { FootprintMap } from "./footprint-map";
 import { Leaderboard } from "./leaderboard";
-import { explorerLevel, formatPercent, levelUps, regionLevel, type SeenLevels } from "./levels";
+import { explorerLevel, formatPercent, levelUps, regionLevel } from "./levels";
 import { Meter } from "./meter";
 import { RecapDialog, RecapTeaser, useRecap } from "./recap";
 import { RegionList } from "./region-list";
-
-const SEEN_LEVELS_KEY = "tokuly.footprints.levels";
-
-function readSeenLevels(): SeenLevels | null {
-  try {
-    const seen = JSON.parse(window.localStorage.getItem(SEEN_LEVELS_KEY) ?? "null") as SeenLevels | null;
-    return seen && typeof seen.explorer === "number" && typeof seen.regions === "object" ? seen : null;
-  } catch {
-    return null;
-  }
-}
+import { readSeenLevels, regionMark, writeSeenLevels } from "./seen-levels";
 
 /**
  * `/footprints`: the scratch map as a game. My own map with levels, the
@@ -45,6 +36,7 @@ function MyFootprints() {
   const [boardRegion, setBoardRegion] = useState("world");
   const [boardScope, setBoardScope] = useState<"friends" | "global">("friends");
   const [levelUp, setLevelUp] = useState<string | null>(null);
+  const userId = useMe()?.user?.id ?? "";
 
   const stats = useQuery({ queryKey: footprintKeys.stats(""), queryFn: () => footprintClient().getStats({}) });
   const recap = useRecap();
@@ -59,24 +51,22 @@ function MyFootprints() {
   const loaded = stats.isSuccess;
   const levelsKey = `${explorer.level}|${regions.map((stat) => `${stat.region?.id}:${regionLevel(stat.percent).level}`).join(",")}`;
   useEffect(() => {
-    if (!loaded) return;
-    const ups = levelUps(
-      readSeenLevels(),
-      explorer.level,
-      regions.filter((stat) => stat.region).map((stat) => ({ id: stat.region!.id, level: regionLevel(stat.percent).level })),
-    );
-    window.localStorage.setItem(SEEN_LEVELS_KEY, JSON.stringify(ups.seen));
+    if (!loaded || !userId) return;
+    // Regions are compared and remembered by their fingerprint for this account, never by ID.
+    const marked = regions.flatMap((stat) => (stat.region ? [{ id: regionMark(userId, stat.region.id), level: regionLevel(stat.percent).level, region: stat.region }] : []));
+    const ups = levelUps(readSeenLevels(userId), explorer.level, marked);
+    writeSeenLevels(userId, ups.seen);
     const messages: string[] = [];
     if (ups.explorer) messages.push(t("levelUp.explorer", { level: ups.explorer }));
     for (const up of ups.regions) {
-      const region = regions.find((stat) => stat.region?.id === up.id)?.region;
+      const region = marked.find((entry) => entry.id === up.id)?.region;
       messages.push(t("levelUp.region", { region: regionName(region), level: up.level }));
     }
     if (messages.length === 0) return;
     celebrate(["🎉", "⭐", "🆙", "✨"]);
     setLevelUp(messages[0]!);
     for (const message of messages) toast.success(message);
-  }, [loaded, levelsKey]);
+  }, [loaded, levelsKey, userId]);
 
   const top = regions.find((stat) => stat.region?.kind === geo.RegionKind.ADMIN1) ?? regions[0];
   const lastPosition = toLatLng(location.data?.location?.position);
@@ -160,6 +150,7 @@ function MyFootprints() {
           <RegionList stats={regions} coach onPick={setBoardRegion} />
           <Leaderboard regions={regions.flatMap((stat) => (stat.region ? [stat.region] : []))} regionId={boardRegion} onRegion={setBoardRegion} scope={boardScope} onScope={setBoardScope} />
           <p className="text-center text-xs text-ink-faint">{t("privacyNote")}</p>
+          {regions.length > 0 && <GazetteerCredit className="text-center" />}
         </div>
       </div>
       <RecapDialog open={recapOpen} onOpenChange={setRecapOpen} />
@@ -220,8 +211,19 @@ function FriendFootprints({ userId }: { userId: string }) {
   const total = Number(stats.data?.totalCellCount ?? 0);
   const top = regions.find((stat) => stat.region?.kind === geo.RegionKind.ADMIN1) ?? regions[0];
   const pending = profile.isPending || stats.isPending || probe.isPending;
-  const gone = profile.isError || errorReason(stats.error) === "USER_NOT_FOUND";
-  const withheld = stats.isError && !gone;
+  // Three different things can go wrong, and only one of them is an answer:
+  // the person does not exist, they do not show their footprints (the
+  // server's refusal, shown as "kept to themselves"), or the request simply
+  // failed, which is worth another try and must not read as either.
+  const notFound = (error: unknown) => errorReason(error) === "USER_NOT_FOUND" || (isApiError(error) && error.code === Code.NotFound);
+  const refused = (error: unknown) => errorReason(error) === "FOOTPRINTS_PRIVATE" || (isApiError(error) && error.code === Code.PermissionDenied);
+  const gone = notFound(profile.error) || notFound(stats.error);
+  const withheld = !gone && refused(stats.error);
+  const failed =
+    !gone && !withheld && ((profile.isError && !notFound(profile.error)) || stats.isError || (probe.isError && !refused(probe.error) && !notFound(probe.error)));
+  const retry = () => {
+    for (const query of [profile, stats, probe]) if (query.isError) void query.refetch();
+  };
 
   return (
     <Page title={name ? t("friend.title", { name }) : t("title")} back="/footprints" wide>
@@ -231,6 +233,17 @@ function FriendFootprints({ userId }: { userId: string }) {
         <Quiet emoji="🧭" title={t("friend.notFound")} />
       ) : withheld ? (
         <Quiet emoji="🤫" title={t("friend.privateTitle", { name })} body={t("friend.privateBody")} />
+      ) : failed ? (
+        <Quiet
+          emoji="🌀"
+          title={t("friend.failedTitle")}
+          body={t("friend.failedBody")}
+          action={
+            <Button variant="secondary" loading={profile.isFetching || stats.isFetching || probe.isFetching} onClick={retry}>
+              {t("friend.retry")}
+            </Button>
+          }
+        />
       ) : (
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_24rem] lg:items-start">
           {probe.isSuccess && (
@@ -260,6 +273,7 @@ function FriendFootprints({ userId }: { userId: string }) {
               </div>
             </section>
             <RegionList stats={regions} />
+            {regions.length > 0 && <GazetteerCredit className="text-center" />}
           </div>
         </div>
       )}
@@ -267,7 +281,7 @@ function FriendFootprints({ userId }: { userId: string }) {
   );
 }
 
-function Quiet({ emoji, title, body }: { emoji: string; title: string; body?: string }) {
+function Quiet({ emoji, title, body, action }: { emoji: string; title: string; body?: string; action?: ReactNode }) {
   return (
     <div className="flex flex-col items-center gap-2 px-6 py-14 text-center">
       <div className="text-6xl" aria-hidden>
@@ -275,6 +289,7 @@ function Quiet({ emoji, title, body }: { emoji: string; title: string; body?: st
       </div>
       <p className="mt-2 text-lg font-black">{title}</p>
       {body && <p className="max-w-xs text-sm leading-relaxed text-ink-soft">{body}</p>}
+      {action && <div className="mt-3">{action}</div>}
     </div>
   );
 }

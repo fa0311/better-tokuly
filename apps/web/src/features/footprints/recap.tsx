@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { EmptyState } from "#/components/ui/page";
+import { GazetteerCredit } from "#/features/places";
 import { errorMessage } from "#/lib/errors";
 import { formatDistance } from "#/lib/format";
 import { useMe } from "#/stores/session";
@@ -110,7 +111,10 @@ export function RecapDialog({ open, onOpenChange }: { open: boolean; onOpenChang
       {!recap ? null : count === 0 ? (
         <EmptyState emoji="🌫️" title={t("recap.emptyTitle")} body={t("recap.emptyBody")} />
       ) : (
-        <RecapCard recap={recap} />
+        <>
+          <RecapCard recap={recap} />
+          <GazetteerCredit className="mt-3 text-center" />
+        </>
       )}
     </Dialog>
   );
@@ -242,6 +246,11 @@ async function drawRecapImage(recap: geo.GetRecapResponse, text: RecapImageText)
   for (const [index, line] of text.lines.slice(0, Math.floor((boxHeight - 60) / 64)).entries()) context.fillText(line, 110, boxTop + 44 + index * 64, width - 220);
 
   context.fillStyle = colour.paper;
+  // The credit the place-name data asks for travels with the picture.
+  context.font = font(22, 500);
+  context.globalAlpha = 0.8;
+  context.fillText("Place names © GeoNames, CC BY 4.0", 80, height - 42);
+  context.globalAlpha = 1;
   context.font = font(48);
   context.fillText("Tokuly", 80, height - 110);
   context.font = font(34, 700);

@@ -124,9 +124,15 @@ function Route({ track, path }: { track: TrackPoint[]; path: LatLng[] }) {
       };
       frame = requestAnimationFrame(step);
     }
+    // A replay nobody is watching stops where it is (the cleanup below ends the frames and the interval).
+    const onHidden = () => {
+      if (document.visibilityState === "hidden") setPlaying(false);
+    };
+    document.addEventListener("visibilitychange", onHidden);
     return () => {
       cancelAnimationFrame(frame);
       clearInterval(timer);
+      document.removeEventListener("visibilitychange", onHidden);
     };
   }, [playing]);
 
