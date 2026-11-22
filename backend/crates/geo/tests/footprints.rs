@@ -242,7 +242,9 @@ async fn viewport_requests_are_validated_and_capped() {
     let capped = cells(&ctx, &aoi, None, around(from, 0.1), 15.0).await.unwrap();
     assert_eq!(capped.cells.len(), 3);
     assert!(capped.truncated);
-    let coarse = cells(&ctx, &aoi, None, around(from, 0.5), 9.0).await.unwrap();
+    // The coarsest cells have edges of about 8 km: a 2 km ride touches at most three of them wherever
+    // it starts. (At the middle resolution it can clip a fourth near a corner.)
+    let coarse = cells(&ctx, &aoi, None, around(from, 0.5), 5.0).await.unwrap();
     assert!(!coarse.truncated, "zooming out fits the same ground into fewer cells");
 
     let reason = |bounds: Option<BoundingBox>| {
