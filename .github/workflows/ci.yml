@@ -31,6 +31,7 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       web: ${{ steps.filter.outputs.web }}
       packages: ${{ steps.packages.outputs.flags }}
+      touched: ${{ steps.packages.outputs.touched }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -65,6 +66,9 @@ jobs:
           if [ -n "$BASE" ]; then flags="$(tools/ci/backend-packages.sh "$BASE")"; else flags="$(tools/ci/backend-packages.sh)"; fi
           echo "flags=$flags" >> "$GITHUB_OUTPUT"
           echo "Crates: ${flags:-none}"
+          # The crates the pull request itself edits: each is also checked on its own.
+          if [ -n "$BASE" ]; then touched="$(ONLY_TOUCHED=1 tools/ci/backend-packages.sh "$BASE")"; else touched=""; fi
+          echo "touched=$touched" >> "$GITHUB_OUTPUT"
 
   proto:
     name: API contract
@@ -87,6 +91,7 @@ jobs:
     timeout-minutes: 120
     env:
       PACKAGES: ${{ needs.changes.outputs.packages }}
+      TOUCHED: ${{ needs.changes.outputs.touched }}
       CARGO_INCREMENTAL: "0"
       # The generated API crate is enormous; without debug info it builds faster and in less memory.
       CARGO_PROFILE_DEV_DEBUG: "0"
@@ -102,11 +107,30 @@ jobs:
           cache-on-failure: true
       - name: Install ffmpeg (media pipeline tests)
         run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg
-      - name: Start the backing services
-        run: docker compose -f compose.dev.yaml up -d --wait --wait-timeout 300
+      # The build comes before the backing services: the compiler of the generated API crate
+      # needs most of the runner's memory for a few minutes, and with the databases running
+      # next to it the runner was killed (exit 143, "lost communication with the server").
       - name: Build
         working-directory: backend
-        run: cargo build --locked --all-targets $PACKAGES
+        run: |
+          free -m | sed -n 1,2p; df -h / | tail -1
+          cargo build --locked --all-targets $PACKAGES
+          free -m | sed -n 1,2p; df -h / | tail -1
+      # Built together, the crates share the API packages one of them enables (cargo unifies
+      # features), so a crate that forgot one of its own still compiles. Alone it does not:
+      # every crate the pull request edits is checked by itself.
+      - name: Each edited crate on its own
+        if: env.TOUCHED != ''
+        working-directory: backend
+        run: |
+          for crate in $(printf '%s\n' $TOUCHED | grep '^tokuly-'); do
+            [ -f "crates/${crate#tokuly-}/src/lib.rs" ] || continue
+            echo "::group::cargo check -p $crate --lib"
+            cargo check --locked -p "$crate" --lib
+            echo "::endgroup::"
+          done
+      - name: Start the backing services
+        run: docker compose -f compose.dev.yaml up -d --wait --wait-timeout 300
       - name: Test
         working-directory: backend
         run: |

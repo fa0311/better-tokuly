@@ -30,7 +30,7 @@ result_large_err = "allow"
 
 [workspace.dependencies]
 # ── internal crates ──
-tokuly-proto = { path = "crates/proto" }
+tokuly-proto = { path = "crates/proto", default-features = false }
 tokuly-core = { path = "crates/core" }
 tokuly-identity = { path = "crates/identity" }
 tokuly-social = { path = "crates/social" }

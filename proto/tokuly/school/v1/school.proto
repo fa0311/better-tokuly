@@ -1861,7 +1861,7 @@ message DeleteAssignmentResponse {}
 
 // ───────────────────────────── Realtime ─────────────────────────────
 
-// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.school).
+// Pushed over the realtime gateway (as a tokuly.realtime.v1.Event).
 //
 // User-scoped (every device of the user): `session`, `friend_studying`,
 // `cheer`, `room_invitation`, `room_left`.

@@ -840,7 +840,7 @@ message GetHighlightResponse {
 
 // ───────────────────────────── Realtime ─────────────────────────────
 
-// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.notes).
+// Pushed over the realtime gateway (as a tokuly.realtime.v1.Event).
 //
 // The first three events are topic-scoped: clients showing a note subscribe
 // to `subject:3:<note_id>` (3 = SUBJECT_TYPE_NOTE) and get its numbers live.

@@ -9,7 +9,6 @@ use tokuly_ask::{Ask, AskConfig};
 use tokuly_core::events::Event;
 use tokuly_proto::{
     ask::{ask_event::Event as Push, *},
-    realtime::server_frame::Body,
     social::{
         BlockUserRequest, BlockUserResponse, FriendSource, RespondFriendRequestRequest, RespondFriendRequestResponse,
         SendFriendRequestRequest, SendFriendRequestResponse, UpdateFriendPrefsRequest, UpdateFriendPrefsResponse,
@@ -439,10 +438,7 @@ pub async fn next_push(listener: &mut FrameListener) -> Option<Push> {
     let deadline = tokio::time::Instant::now() + SOON;
     loop {
         let left = deadline.checked_duration_since(tokio::time::Instant::now())?;
-        let frame = listener.next(left).await?;
-        if let Some(Body::Ask(event)) = frame.body
-            && let Some(push) = event.event
-        {
+        if let Some(push) = listener.next_event::<AskEvent>(left).await?.event {
             return Some(push);
         }
     }
@@ -450,7 +446,7 @@ pub async fn next_push(listener: &mut FrameListener) -> Option<Push> {
 
 /// Whether no ask event reaches the listener for a short while.
 pub async fn stays_quiet(listener: &mut FrameListener) -> bool {
-    listener.drain(QUIET).await.into_iter().all(|frame| !matches!(frame.body, Some(Body::Ask(_))))
+    listener.events::<AskEvent>(QUIET).await.is_empty()
 }
 
 pub fn id_of(user: &tokuly_proto::common::UserSummary) -> Uuid {

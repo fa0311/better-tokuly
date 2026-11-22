@@ -1005,7 +1005,7 @@ message ListMyReportsResponse {
 
 // ───────────────────────────── Realtime ─────────────────────────────
 
-// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.engagement).
+// Pushed over the realtime gateway (as a tokuly.realtime.v1.Event).
 //
 // Subject events travel on the topic `subject:{type number}:{subject uuid}`;
 // `review_queue_changed` goes to the subject owner's own connections.

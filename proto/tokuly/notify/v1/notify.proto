@@ -414,7 +414,7 @@ message SendTestPushResponse {
 
 // ───────────────────────────── Realtime ─────────────────────────────
 
-// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.notify) to
+// Pushed over the realtime gateway (as a tokuly.realtime.v1.Event) to
 // every connection of the user.
 message NotifyEvent {
   oneof event {

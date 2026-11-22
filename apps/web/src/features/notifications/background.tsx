@@ -12,7 +12,7 @@ import { applyInboxChange, applyUnread, notifyKeys, rereadInbox, useUnread } fro
 import { openNotification } from "./inbox-actions";
 import { withReceived, withRead, withRemoved } from "./inbox-cache";
 import { NotificationFace } from "./notification-face";
-import { closeShownNotifications, refreshPushRegistration, serviceWorker, setAppBadge } from "./push";
+import { closeShownNotifications, refreshPushRegistration, serviceWorker } from "./push";
 
 const INBOX_PATH = "/notifications";
 
@@ -29,10 +29,9 @@ export default function NotificationsBackground() {
   const userId = useSessionStore((s) => (s.state.status === "signedIn" ? (s.state.me.user?.id ?? "") : ""));
   const sessionId = useSessionStore((s) => (s.state.status === "signedIn" ? s.state.sessionId : ""));
 
-  // The badge on the navigation (and on the installed app's icon) follows the unread count.
+  // The badge on the navigation follows the unread count (the installed app's icon takes it from there).
   useEffect(() => {
     setBadge("notifications", unread.total);
-    setAppBadge(unread.total);
   }, [unread.total]);
 
   useEffect(() => {
@@ -99,7 +98,6 @@ export default function NotificationsBackground() {
       if (useSessionStore.getState().state.status === "signedIn") return;
       queryClient.removeQueries({ queryKey: notifyKeys.all });
       setBadge("notifications", 0);
-      setAppBadge(0);
     };
   }, [queryClient, router]);
 

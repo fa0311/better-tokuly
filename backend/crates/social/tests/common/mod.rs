@@ -147,27 +147,12 @@ pub fn id_of(user: &tokuly_proto::common::UserSummary) -> Uuid {
 
 /// The next social event pushed to a listener (other frames are skipped).
 pub async fn next_push(listener: &mut FrameListener) -> Option<Push> {
-    let deadline = tokio::time::Instant::now() + SOON;
-    loop {
-        let left = deadline.checked_duration_since(tokio::time::Instant::now())?;
-        match listener.next(left).await?.body {
-            Some(Body::Social(event)) => return event.event,
-            _ => continue,
-        }
-    }
+    listener.next_event::<SocialEvent>(SOON).await?.event
 }
 
 /// Every social event pushed to a listener within `window`.
 pub async fn pushes(listener: &mut FrameListener, window: Duration) -> Vec<Push> {
-    listener
-        .drain(window)
-        .await
-        .into_iter()
-        .filter_map(|frame| match frame.body {
-            Some(Body::Social(event)) => event.event,
-            _ => None,
-        })
-        .collect()
+    listener.events::<SocialEvent>(window).await.into_iter().filter_map(|event| event.event).collect()
 }
 
 /// The next presence event pushed to a listener (other frames are skipped).

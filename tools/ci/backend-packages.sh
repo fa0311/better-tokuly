@@ -5,6 +5,8 @@
 #   tools/ci/backend-packages.sh <base>     for the changes since <base> (a pull request):
 #                                           the crates it touches, or everything the server is
 #                                           built from when the shared foundation changed
+#   ONLY_TOUCHED=1 tools/ci/backend-packages.sh <base>
+#                                           only the crates whose own files the change touches
 #
 # "Everything the server is built from" rather than the whole workspace: crates that are
 # still being written are not wired into the server yet and may not build.
@@ -33,7 +35,7 @@ else
   # Crates whose own directory changed (the directory name is the crate name without `tokuly-`).
   crates="$(printf '%s\n' "$changed_files" | sed -n 's|^backend/crates/\([a-z_-]*\)/.*|tokuly-\1|p' | sort -u)"
   # A change to what every crate builds on has to be checked against all of them.
-  if printf '%s\n' "$changed_files" | grep -Eq '^(backend/crates/(core|proto|testkit|server|identity)/|backend/Cargo\.toml$|proto/tokuly/(common|realtime|identity)/)'; then
+  if [ -z "${ONLY_TOUCHED:-}" ] && printf '%s\n' "$changed_files" | grep -Eq '^(backend/crates/(core|proto|testkit|server|identity)/|backend/Cargo\.toml$|proto/tokuly/(common|realtime|identity)/)'; then
     crates="$(printf '%s\n%s\n' "$crates" "$(integrated)" | sort -u)"
   fi
 fi

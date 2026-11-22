@@ -6,10 +6,7 @@
 use std::time::Duration;
 
 use tokuly_core::prelude::*;
-use tokuly_proto::{
-    realtime::server_frame::Body,
-    spaces::{self as pb, SpacesEvent, spaces_event::Event as Push},
-};
+use tokuly_proto::spaces::{self as pb, SpacesEvent, spaces_event::Event as Push};
 
 use crate::{
     Spaces,
@@ -21,24 +18,24 @@ use crate::{
 const COUNTS_ALWAYS_BELOW: i32 = 150;
 const COUNTS_INTERVAL: Duration = Duration::from_secs(2);
 
-pub(crate) fn frame(event: Push) -> Body {
-    Body::from(SpacesEvent { event: Some(event), ..Default::default() })
+fn spaces_event(event: Push) -> SpacesEvent {
+    SpacesEvent { event: Some(event), ..Default::default() }
 }
 
 impl Spaces {
     /// Pushes an event to everyone following a room.
     pub(crate) async fn push_topic(&self, space_id: Uuid, event: impl Into<Push>) {
-        self.core.rt.notify_topic(&space_topic(space_id), frame(event.into())).await;
+        self.core.rt.notify_topic(&space_topic(space_id), &spaces_event(event.into())).await;
     }
 
     /// Pushes an event to every device of one user.
     pub(crate) async fn push_user(&self, user_id: Uuid, event: impl Into<Push>) {
-        self.core.rt.notify_user(user_id, frame(event.into())).await;
+        self.core.rt.notify_user(user_id, &spaces_event(event.into())).await;
     }
 
     /// Pushes the same event to several users.
     pub(crate) async fn push_users(&self, user_ids: impl IntoIterator<Item = Uuid>, event: impl Into<Push>) {
-        self.core.rt.notify_users(user_ids, frame(event.into())).await;
+        self.core.rt.notify_users(user_ids, &spaces_event(event.into())).await;
     }
 
     /// Announces a room as it is now (state, host, title, pin, stage) to

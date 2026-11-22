@@ -2,10 +2,7 @@
 //! subjects of the members concerned (all their devices, the actor's other
 //! devices included). Delivery is best-effort; the database is the truth.
 use tokuly_core::prelude::*;
-use tokuly_proto::{
-    chat::{self as pb, ChatEvent, chat_event::Event as Push},
-    realtime::server_frame::Body,
-};
+use tokuly_proto::chat::{self as pb, ChatEvent, chat_event::Event as Push};
 
 use crate::{
     Chat,
@@ -14,14 +11,11 @@ use crate::{
     render::View,
 };
 
-pub(crate) fn frame(event: Push) -> Body {
-    Body::from(ChatEvent { event: Some(event), ..Default::default() })
-}
-
 impl Chat {
     /// Pushes one event to a set of users.
     pub(crate) async fn push_to(&self, user_ids: impl IntoIterator<Item = Uuid>, event: impl Into<Push>) {
-        self.core.rt.notify_users(user_ids, frame(event.into())).await;
+        let event = ChatEvent { event: Some(event.into()), ..Default::default() };
+        self.core.rt.notify_users(user_ids, &event).await;
     }
 
     /// Pushes one event to the members of a conversation.

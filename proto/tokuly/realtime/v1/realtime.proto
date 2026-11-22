@@ -17,27 +17,15 @@ syntax = "proto3";
 // notifications, social...). Topic-scoped events (a live stream's chat, a
 // watch party...) are delivered only for topics the client subscribed to.
 // Anonymous connections may subscribe to public topics.
+//
+// The frames are an envelope: this file knows the gateway's own messages and
+// carries what belongs to a domain as encoded bytes (`Event` down,
+// `ClientFrame.location` up), so it imports no domain and a domain can change
+// its events without touching the gateway.
 package tokuly.realtime.v1;
 
 import "google/protobuf/timestamp.proto";
-import "tokuly/ask/v1/ask.proto";
-import "tokuly/chat/v1/chat.proto";
 import "tokuly/common/v1/common.proto";
-import "tokuly/community/v1/community.proto";
-import "tokuly/emoji/v1/emoji.proto";
-import "tokuly/engagement/v1/engagement.proto";
-import "tokuly/geo/v1/geo.proto";
-import "tokuly/live/v1/live.proto";
-import "tokuly/media/v1/media.proto";
-import "tokuly/notes/v1/notes.proto";
-import "tokuly/notify/v1/notify.proto";
-import "tokuly/plans/v1/plans.proto";
-import "tokuly/quest/v1/quest.proto";
-import "tokuly/school/v1/school.proto";
-import "tokuly/social/v1/social.proto";
-import "tokuly/spaces/v1/spaces.proto";
-import "tokuly/video/v1/video.proto";
-import "tokuly/wallet/v1/wallet.proto";
 
 // Connection bootstrap info for clients.
 service RealtimeService {
@@ -68,8 +56,10 @@ message ClientFrame {
   oneof body {
     Hello hello = 2;
     Ping ping = 3;
-    // A location sample; equivalent to LocationService.ReportLocations.
-    tokuly.geo.v1.LocationSample location = 4;
+    // A location sample: an encoded `tokuly.geo.v1.LocationSample`;
+    // equivalent to LocationService.ReportLocations. On the wire this is the
+    // same as a field of that message type.
+    bytes location = 4;
     Subscribe subscribe = 5;
     Unsubscribe unsubscribe = 6;
     AppState app_state = 7;
@@ -133,6 +123,9 @@ message ConversationPresence {
 // ───────────────────────────── Server → client ─────────────────────────────
 
 message ServerFrame {
+  // Numbers of the per-domain variants that `event` replaced.
+  reserved 10 to 26;
+
   // The ClientFrame.id this frame answers; 0 for pushed events.
   uint64 reply_to = 1;
   // Topic for topic-scoped events; empty for user-scoped ones.
@@ -144,25 +137,43 @@ message ServerFrame {
     Error error = 6;
     PresenceEvent presence = 7;
     TopicStats topic_stats = 8;
-
-    tokuly.geo.v1.GeoEvent geo = 10;
-    tokuly.social.v1.SocialEvent social = 11;
-    tokuly.chat.v1.ChatEvent chat = 12;
-    tokuly.notify.v1.NotifyEvent notify = 13;
-    tokuly.live.v1.LiveEvent live = 14;
-    tokuly.video.v1.VideoEvent video = 15;
-    tokuly.notes.v1.NotesEvent notes = 16;
-    tokuly.media.v1.MediaEvent media = 17;
-    tokuly.wallet.v1.WalletEvent wallet = 18;
-    tokuly.engagement.v1.EngagementEvent engagement = 19;
-    tokuly.quest.v1.QuestEvent quest = 20;
-    tokuly.plans.v1.PlansEvent plans = 21;
-    tokuly.school.v1.SchoolEvent school = 22;
-    tokuly.spaces.v1.SpacesEvent spaces = 23;
-    tokuly.community.v1.CommunityEvent community = 24;
-    tokuly.ask.v1.AskEvent ask = 25;
-    tokuly.emoji.v1.EmojiEvent emoji = 26;
+    // Something a domain pushes: a chat message, a friend's position...
+    Event event = 9;
   }
+}
+
+// A domain's event, carried as bytes so that the envelope does not depend on
+// the domains.
+//
+// `type` is the full name of the message encoded in `payload`. Every domain
+// has one event message, whose `oneof` says what happened:
+//
+//   tokuly.geo.v1.GeoEvent                 friends' positions, gatherings, trips, place alerts, SOS
+//   tokuly.social.v1.SocialEvent           friend requests, bumps, buzzes, map reactions
+//   tokuly.chat.v1.ChatEvent               messages, reactions, read receipts, typing, calls
+//   tokuly.notify.v1.NotifyEvent           the notification inbox
+//   tokuly.live.v1.LiveEvent               live streams
+//   tokuly.video.v1.VideoEvent             a video's processing state, watch parties
+//   tokuly.notes.v1.NotesEvent             note counters, stories
+//   tokuly.media.v1.MediaEvent             processing progress of an upload
+//   tokuly.wallet.v1.WalletEvent           balance, purchases, payouts
+//   tokuly.engagement.v1.EngagementEvent   comments and counters of a subject
+//   tokuly.quest.v1.QuestEvent             XP, missions, badges
+//   tokuly.plans.v1.PlansEvent             plans and free-time status
+//   tokuly.school.v1.SchoolEvent           study rooms and timetables
+//   tokuly.spaces.v1.SpacesEvent           audio rooms
+//   tokuly.community.v1.CommunityEvent     communities
+//   tokuly.ask.v1.AskEvent                 question boxes
+//   tokuly.emoji.v1.EmojiEvent             custom emoji
+//
+// A client decodes the types it knows and ignores every other frame: the
+// server it talks to may be newer and send types that did not exist when the
+// client was built.
+message Event {
+  // Full name of the message in `payload`, e.g. `tokuly.chat.v1.ChatEvent`.
+  string type = 1;
+  // That message, encoded.
+  bytes payload = 2;
 }
 
 message Welcome {
@@ -177,6 +188,12 @@ message Welcome {
   // Suggested location report cadence.
   int32 moving_interval_seconds = 6;
   int32 stationary_interval_seconds = 7;
+  // Version of this protocol the gateway speaks. It goes up when a client
+  // built for the previous one would no longer understand what it is sent
+  // (2: domain events travel in `Event`; servers before that sent 0). A
+  // client that sees a higher number than it was built for keeps its
+  // connection and asks to be reloaded.
+  uint32 protocol_version = 8;
 }
 
 message Pong {

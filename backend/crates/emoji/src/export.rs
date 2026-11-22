@@ -12,7 +12,6 @@ use tokuly_core::{prelude::*, storage::Bucket};
 use tokuly_proto::{
     common::PageInfo,
     emoji::{EmojiEvent, Export},
-    realtime::server_frame::Body,
 };
 
 use crate::{
@@ -205,7 +204,7 @@ impl Emoji {
             let Some(requester) = row.requested_by else { return Ok(()) };
             let export = self.export_protos(std::slice::from_ref(&row)).await?.pop().unwrap_or_default();
             let event = EmojiEvent { event: Some(export.into()), ..Default::default() };
-            self.core.rt.notify_user(requester, Body::Emoji(Box::new(event))).await;
+            self.core.rt.notify_user(requester, &event).await;
             Ok(())
         }
         .await;

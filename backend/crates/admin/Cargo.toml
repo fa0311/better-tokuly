@@ -11,7 +11,7 @@ workspace = true
 
 [dependencies]
 tokuly-core.workspace = true
-tokuly-proto.workspace = true
+tokuly-proto = { workspace = true, features = ["admin", "common"] }
 tokuly-identity.workspace = true
 tokio.workspace = true
 futures.workspace = true

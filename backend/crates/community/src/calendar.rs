@@ -960,6 +960,9 @@ impl Community {
             "that is not the code on the organiser's screen"
         );
         let mut tx = self.core.db.begin().await?;
+        // The event first, then the attendee, as the organiser's check-in
+        // does: taken in opposite orders, the two deadlock when they meet.
+        lock_event(&mut tx, event.id).await?;
         let checked = self.record_attendance(&mut tx, community, event, user_id, None).await?;
         tx.commit().await?;
         if checked {

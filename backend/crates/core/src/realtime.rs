@@ -1,17 +1,31 @@
-//! Publishing realtime frames to connected clients.
+//! Publishing realtime events to connected clients.
 //!
-//! Any service can push a [`ServerFrame`] to a user (all of their devices) or
-//! to a topic. Frames are encoded once and travel over core NATS to whichever
-//! gateway instances hold the matching connections; the gateways forward the
-//! bytes untouched. Delivery is best-effort — anything that must not be lost
-//! also lives in the database and is fetched on (re)connect.
+//! Any service can push an event to a user (all of their devices) or to a
+//! topic. A domain hands over its own event message and nothing else:
+//!
+//! ```ignore
+//! core.rt.notify_user(user_id, &WalletEvent { event: Some(change.into()), ..Default::default() }).await;
+//! ```
+//!
+//! [`Realtime`] puts it into the gateway's envelope (a `ServerFrame` whose
+//! body is an [`Event`]: the message's full name plus its encoded bytes),
+//! encodes that once and sends it over core NATS to whichever gateway
+//! instances hold the matching connections; the gateways forward the bytes
+//! untouched. Delivery is best-effort — anything that must not be lost also
+//! lives in the database and is fetched on (re)connect.
+//!
+//! Reading a frame back (tests, a streaming RPC that follows the bus):
+//! `frame.event::<WalletEvent>()`.
 use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use buffa::Message as _;
 use bytes::Bytes;
 use parking_lot::RwLock;
-use tokuly_proto::realtime::{ServerFrame, server_frame::Body};
+use tokuly_proto::{
+    RealtimeEvent,
+    realtime::{Event, PresenceEvent, ServerFrame, server_frame::Body},
+};
 use uuid::Uuid;
 
 use crate::{bus::Bus, error::AppResult};
@@ -78,75 +92,104 @@ pub fn topic_subject(topic: &str) -> String {
     format!("rt.t.{safe}")
 }
 
+/// The encoded frame that carries `body` to `topic` (empty: to a user).
+fn encode(topic: &str, body: Body) -> Bytes {
+    let frame = ServerFrame { topic: topic.to_owned(), body: Some(body), ..Default::default() };
+    Bytes::from(frame.encode_to_vec())
+}
+
+/// The encoded frame that carries a domain's event.
+fn encode_event<E: RealtimeEvent>(topic: &str, event: &E) -> Bytes {
+    encode(topic, Body::Event(Box::new(Event::pack(event))))
+}
+
 impl Realtime {
     pub fn new(bus: Bus) -> Self {
         Self { bus }
     }
 
-    fn encode(topic: &str, body: Body) -> Bytes {
-        let frame = ServerFrame {
-            topic: topic.to_owned(),
-            body: Some(body),
-            ..Default::default()
-        };
-        Bytes::from(frame.encode_to_vec())
-    }
-
-    /// Sends an event to every connection of one user.
-    pub async fn to_user(&self, user_id: Uuid, body: Body) -> AppResult<()> {
-        self.bus
-            .publish(user_subject(user_id), Self::encode("", body))
-            .await
-    }
-
-    /// Sends the same event to several users.
-    pub async fn to_users(
-        &self,
-        user_ids: impl IntoIterator<Item = Uuid>,
-        body: Body,
-    ) -> AppResult<()> {
-        let payload = Self::encode("", body);
+    async fn publish_to_users(&self, user_ids: impl IntoIterator<Item = Uuid>, frame: Bytes) -> AppResult<()> {
         for user_id in user_ids {
-            self.bus
-                .publish(user_subject(user_id), payload.clone())
-                .await?;
+            self.bus.publish(user_subject(user_id), frame.clone()).await?;
         }
         Ok(())
     }
 
+    /// Sends an event to every connection of one user.
+    pub async fn to_user<E: RealtimeEvent>(&self, user_id: Uuid, event: &E) -> AppResult<()> {
+        self.bus.publish(user_subject(user_id), encode_event("", event)).await
+    }
+
+    /// Sends the same event to several users.
+    pub async fn to_users<E: RealtimeEvent>(
+        &self,
+        user_ids: impl IntoIterator<Item = Uuid>,
+        event: &E,
+    ) -> AppResult<()> {
+        self.publish_to_users(user_ids, encode_event("", event)).await
+    }
+
     /// Sends an event to every connection subscribed to `topic`.
-    pub async fn to_topic(&self, topic: &str, body: Body) -> AppResult<()> {
-        self.bus
-            .publish(topic_subject(topic), Self::encode(topic, body))
-            .await
+    pub async fn to_topic<E: RealtimeEvent>(&self, topic: &str, event: &E) -> AppResult<()> {
+        self.bus.publish(topic_subject(topic), encode_event(topic, event)).await
     }
 
     /// Like [`Self::to_user`] but never fails the caller: realtime delivery is
     /// an optimization on top of state that is already committed.
-    pub async fn notify_user(&self, user_id: Uuid, body: Body) {
-        if let Err(e) = self.to_user(user_id, body).await {
+    pub async fn notify_user<E: RealtimeEvent>(&self, user_id: Uuid, event: &E) {
+        if let Err(e) = self.to_user(user_id, event).await {
             tracing::warn!(%user_id, error = %e, "realtime publish failed");
         }
     }
 
     /// Like [`Self::to_users`] but never fails the caller.
-    pub async fn notify_users(&self, user_ids: impl IntoIterator<Item = Uuid>, body: Body) {
-        if let Err(e) = self.to_users(user_ids, body).await {
+    pub async fn notify_users<E: RealtimeEvent>(&self, user_ids: impl IntoIterator<Item = Uuid>, event: &E) {
+        if let Err(e) = self.to_users(user_ids, event).await {
             tracing::warn!(error = %e, "realtime publish failed");
         }
     }
 
     /// Like [`Self::to_topic`] but never fails the caller.
-    pub async fn notify_topic(&self, topic: &str, body: Body) {
-        if let Err(e) = self.to_topic(topic, body).await {
+    pub async fn notify_topic<E: RealtimeEvent>(&self, topic: &str, event: &E) {
+        if let Err(e) = self.to_topic(topic, event).await {
             tracing::warn!(topic, error = %e, "realtime publish failed");
         }
+    }
+
+    /// Tells users that someone they follow came online or went offline.
+    /// Presence is part of the gateway's own protocol (`ServerFrame.presence`)
+    /// rather than a domain's event, so it has its own way out.
+    pub async fn presence_to_users(
+        &self,
+        user_ids: impl IntoIterator<Item = Uuid>,
+        presence: PresenceEvent,
+    ) -> AppResult<()> {
+        self.publish_to_users(user_ids, encode("", Body::Presence(Box::new(presence)))).await
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn events_travel_by_name_and_decode_as_their_type() {
+        use tokuly_proto::{
+            notify::{NotificationsRead, NotifyEvent},
+            wallet::WalletEvent,
+        };
+        let read = NotificationsRead { bulk: true, ..Default::default() };
+        let sent = NotifyEvent { event: Some(read.into()), ..Default::default() };
+        let frame = ServerFrame::decode_from_slice(&encode_event("live:1", &sent)).unwrap();
+        assert_eq!(frame.topic, "live:1");
+        let Some(Body::Event(event)) = &frame.body else { panic!("expected an event body") };
+        assert_eq!(event.r#type, "tokuly.notify.v1.NotifyEvent");
+        assert_eq!(frame.event::<NotifyEvent>(), Some(sent));
+        // Asking for another type finds nothing, and neither does a frame of the gateway itself.
+        assert!(frame.event::<WalletEvent>().is_none());
+        let presence = encode("", Body::Presence(Box::new(PresenceEvent::default())));
+        assert!(ServerFrame::decode_from_slice(&presence).unwrap().event::<NotifyEvent>().is_none());
+    }
 
     #[test]
     fn subjects_are_valid_nats_tokens() {

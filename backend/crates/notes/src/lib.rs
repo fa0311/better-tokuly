@@ -32,10 +32,7 @@ use std::{ops::Deref, sync::Arc};
 
 use tokuly_core::prelude::*;
 use tokuly_identity::Identity;
-use tokuly_proto::{
-    notes::{NotesEvent, notes_event::Event as Push},
-    realtime::server_frame::Body,
-};
+use tokuly_proto::notes::{NotesEvent, notes_event::Event as Push};
 
 mod cleanup;
 pub mod config;
@@ -113,20 +110,20 @@ impl Notes {
 
     /// Pushes a notes event to every connected device of one user.
     pub(crate) async fn push_user(&self, user_id: Uuid, event: Push) {
-        self.core.rt.notify_user(user_id, frame(event)).await;
+        self.core.rt.notify_user(user_id, &notes_event(event)).await;
     }
 
     /// Pushes the same notes event to several users.
     pub(crate) async fn push_users(&self, user_ids: impl IntoIterator<Item = Uuid>, event: Push) {
-        self.core.rt.notify_users(user_ids, frame(event)).await;
+        self.core.rt.notify_users(user_ids, &notes_event(event)).await;
     }
 
     /// Pushes a notes event to the clients subscribed to a topic.
     pub(crate) async fn push_topic(&self, topic: &str, event: Push) {
-        self.core.rt.notify_topic(topic, frame(event)).await;
+        self.core.rt.notify_topic(topic, &notes_event(event)).await;
     }
 }
 
-fn frame(event: Push) -> Body {
-    Body::Notes(Box::new(NotesEvent { event: Some(event), ..Default::default() }))
+fn notes_event(event: Push) -> NotesEvent {
+    NotesEvent { event: Some(event), ..Default::default() }
 }

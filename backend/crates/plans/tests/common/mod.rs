@@ -11,7 +11,6 @@ use tokuly_proto::{
     Timestamp,
     identity::{GetProfileRequest, GetProfileResponse, ProfileCard, get_profile_request::By},
     plans::{plans_event::Event as Push, *},
-    realtime::server_frame::Body,
     social::*,
 };
 use tokuly_social::{Social, SocialConfig};
@@ -345,25 +344,10 @@ pub fn participant<'a>(plan: &'a Plan, user: &TestUser) -> &'a PlanParticipant {
 
 /// The next plans event pushed to a listener (other frames are skipped).
 pub async fn next_push(listener: &mut FrameListener) -> Option<Push> {
-    let deadline = tokio::time::Instant::now() + SOON;
-    loop {
-        let left = deadline.checked_duration_since(tokio::time::Instant::now())?;
-        match listener.next(left).await?.body {
-            Some(Body::Plans(event)) => return event.event,
-            _ => continue,
-        }
-    }
+    listener.next_event::<PlansEvent>(SOON).await?.event
 }
 
 /// Every plans event pushed to a listener within `window`.
 pub async fn pushes(listener: &mut FrameListener, window: Duration) -> Vec<Push> {
-    listener
-        .drain(window)
-        .await
-        .into_iter()
-        .filter_map(|frame| match frame.body {
-            Some(Body::Plans(event)) => event.event,
-            _ => None,
-        })
-        .collect()
+    listener.events::<PlansEvent>(window).await.into_iter().filter_map(|event| event.event).collect()
 }

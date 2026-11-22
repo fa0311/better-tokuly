@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use common::*;
 use tokuly_core::events::Event;
-use tokuly_proto::{realtime::server_frame::Body, wallet::*};
+use tokuly_proto::wallet::*;
 use tokuly_testkit::{FrameListener, TestApp, TestUser};
 use tokuly_wallet::{Wallet, ledger};
 
@@ -20,7 +20,7 @@ async fn deliver_balance_events(app: &TestApp, wallet: &Wallet, user: &TestUser)
 
 async fn next_balance_push(frames: &mut FrameListener) -> BalanceChanged {
     let frame = frames.next(Duration::from_secs(2)).await.expect("a wallet frame");
-    let Some(Body::Wallet(event)) = frame.body else { panic!("not a wallet frame") };
+    let event: WalletEvent = frame.event().expect("not a wallet frame");
     let Some(wallet_event::Event::BalanceChanged(change)) = event.event else { panic!("not a balance change") };
     *change
 }

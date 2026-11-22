@@ -15,7 +15,6 @@ use tokuly_proto::{
     common::{PageRequest, SubjectType},
     community::{community_event::Event as Pushed, *},
     media::AssetPurpose,
-    realtime::server_frame::Body,
 };
 use tokuly_social::{Social, SocialConfig};
 use tokuly_stamp::{Stamp, StampConfig};
@@ -537,15 +536,8 @@ impl Ctx {
 
 /// The community events among the frames that arrive within a moment.
 pub async fn pushes(listener: &mut FrameListener) -> Vec<Pushed> {
-    listener
-        .drain(std::time::Duration::from_millis(400))
-        .await
-        .into_iter()
-        .filter_map(|frame| match frame.body {
-            Some(Body::Community(event)) => event.event,
-            _ => None,
-        })
-        .collect()
+    let events = listener.events::<CommunityEvent>(std::time::Duration::from_millis(400)).await;
+    events.into_iter().filter_map(|event| event.event).collect()
 }
 
 /// Whether a serialized response mentions `needle` anywhere: the blunt

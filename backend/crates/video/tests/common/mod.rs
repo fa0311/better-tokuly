@@ -14,7 +14,6 @@ use tokuly_media::{Media, MediaConfig};
 use tokuly_proto::{
     common::{PageRequest, Visibility},
     media::{AssetKind, AssetPurpose},
-    realtime::server_frame::Body,
     social::{
         BlockUserRequest, BlockUserResponse, FriendSource, RespondFriendRequestRequest, RespondFriendRequestResponse,
         SendFriendRequestRequest, SendFriendRequestResponse, send_friend_request_request::Target,
@@ -22,7 +21,7 @@ use tokuly_proto::{
     video::*,
 };
 use tokuly_social::{Social, SocialConfig};
-use tokuly_testkit::{FrameListener, RpcError, TestApp, TestUser};
+use tokuly_testkit::{FrameListener, RpcError, ServerFrame, TestApp, TestUser};
 use tokuly_video::{Video as VideoDomain, VideoConfig};
 use uuid::Uuid;
 
@@ -105,23 +104,15 @@ pub fn titles(videos: &[VideoSummary]) -> Vec<&str> {
 }
 
 /// The `VideoEvent`s among realtime frames, in order.
-pub fn pushes(frames: Vec<tokuly_proto::realtime::ServerFrame>) -> Vec<Push> {
-    frames
-        .into_iter()
-        .filter_map(|frame| match frame.body {
-            Some(Body::Video(event)) => event.event,
-            _ => None,
-        })
-        .collect()
+pub fn pushes(frames: Vec<ServerFrame>) -> Vec<Push> {
+    frames.iter().filter_map(|frame| frame.event::<VideoEvent>()?.event).collect()
 }
 
 /// Waits for the next `VideoEvent` on a listener.
 pub async fn next_push(listener: &mut FrameListener) -> Push {
     loop {
         let frame = listener.next(SOON).await.expect("a realtime frame should arrive");
-        if let Some(Body::Video(event)) = frame.body
-            && let Some(push) = event.event
-        {
+        if let Some(push) = frame.event::<VideoEvent>().and_then(|event| event.event) {
             return push;
         }
     }
