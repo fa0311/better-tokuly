@@ -1,15 +1,995 @@
 syntax = "proto3";
 
-// Custom emoji: the catalogue, submissions and review, reaction decks.
+// Custom emoji (カスタム絵文字): small images with a `:shortcode:` that work
+// in text, display names and reactions everywhere, like on Misskey.
 //
-// SKELETON: the owning domain implements this file. Keep the package name
-// and the realtime event message name stable; everything else is yours.
+// An emoji has a unique name (`a-z`, `0-9`, `_`; 2-32 characters; written
+// `:name:` in text and matched without regard to case), an image made from a
+// media upload (still or animated), a category from the list moderators
+// keep, up to 16 aliases (search words, Japanese and English), an author and
+// a licence note, and two flags: `sensitive` (clients hide it until asked)
+// and `local_only` (never sent to other servers once Tokuly federates).
+//
+// Lifecycle: anyone signed in submits an emoji (PENDING); a moderator
+// approves it (APPROVED: it joins the catalogue) or rejects it with a reason
+// (REJECTED: the author may fix and resubmit). Emoji of trusted submitters
+// and of moderators skip the review. A moderator can take an approved emoji
+// out of the catalogue and put it back (DISABLED), edit or delete any emoji,
+// and add emoji directly. A name is held by every emoji that is not
+// REJECTED.
+//
+// The catalogue is the set of APPROVED emoji. Clients keep a copy: they
+// fetch it once with `GetCatalog`, remember its `version`, and from then on
+// ask `GetCatalogChanges` for what changed, when the realtime topic
+// `emoji:catalog` announces a newer version or when the app starts. The
+// version only ever grows.
+//
+// Images: `CustomEmoji.image.url` is the animated WebP of an animated emoji
+// and the largest still otherwise; `image.variants` are still WebP
+// renditions by longest edge, for small sizes and for users who turned
+// animations off.
+//
+// In decks, recently used lists and `RecordUse`, an emoji is written the way
+// it appears in text: `:name:` for a custom emoji, the character itself for
+// a Unicode emoji.
 package tokuly.emoji.v1;
 
+import "google/protobuf/timestamp.proto";
 import "tokuly/common/v1/common.proto";
+
+// ───────────────────────────── Shared messages ─────────────────────────────
+
+// Where an emoji is in its lifecycle.
+enum EmojiState {
+  EMOJI_STATE_UNSPECIFIED = 0;
+  // Submitted and waiting for a moderator. Visible to its author and to moderators.
+  EMOJI_STATE_PENDING = 1;
+  // In the catalogue: everyone can use it.
+  EMOJI_STATE_APPROVED = 2;
+  // A moderator declined it; `EmojiDetail.review_note` says why. It no
+  // longer holds its name. The author can change and resubmit it.
+  EMOJI_STATE_REJECTED = 3;
+  // Taken out of the catalogue by a moderator. It keeps its name, so text
+  // that mentions it does not start showing somebody else's picture.
+  EMOJI_STATE_DISABLED = 4;
+}
+
+// A custom emoji as clients keep it in their copy of the catalogue.
+message CustomEmoji {
+  // Stable for the life of the emoji; a rename keeps it.
+  string id = 1;
+  // The shortcode without colons, lowercase.
+  string name = 2;
+  // See "Images" at the top of this file.
+  tokuly.common.v1.Image image = 3;
+  bool animated = 4;
+  // Name of its category; empty when it has none.
+  string category = 5;
+  // Search words, lowercase.
+  repeated string aliases = 6;
+  // Not for every eye: clients blur or hide it unless the user asked for
+  // sensitive content.
+  bool sensitive = 7;
+  // Must not leave this server (it is not attached to federated posts).
+  bool local_only = 8;
+  // When it joined the catalogue. Unset while it never has.
+  google.protobuf.Timestamp added_at = 9;
+}
+
+// What happened to an emoji, for moderators.
+enum ReviewAction {
+  REVIEW_ACTION_UNSPECIFIED = 0;
+  // The author submitted it, or resubmitted it after a rejection.
+  REVIEW_ACTION_SUBMITTED = 1;
+  REVIEW_ACTION_APPROVED = 2;
+  REVIEW_ACTION_REJECTED = 3;
+  // A moderator took it out of the catalogue.
+  REVIEW_ACTION_DISABLED = 4;
+  // A moderator put it back.
+  REVIEW_ACTION_ENABLED = 5;
+  // A moderator added it directly.
+  REVIEW_ACTION_ADDED = 6;
+  // It came in with an imported pack.
+  REVIEW_ACTION_IMPORTED = 7;
+  // A moderator changed it; the note lists the changed fields.
+  REVIEW_ACTION_EDITED = 8;
+  // Disabled because a report against it was upheld.
+  REVIEW_ACTION_TAKEN_DOWN = 9;
+}
+
+// One entry of an emoji's moderation history.
+message ReviewRecord {
+  ReviewAction action = 1;
+  // The reason of a rejection, disabling or takedown; the changed fields of
+  // an edit; empty otherwise.
+  string note = 2;
+  // Who did it. Unset when the account is gone.
+  tokuly.common.v1.UserSummary actor = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+// An emoji with everything its page, its author and moderators see.
+message EmojiDetail {
+  CustomEmoji emoji = 1;
+  EmojiState state = 2;
+  // The user credited for it: whoever submitted it, or the user a moderator
+  // named. Unset for imported emoji, uncredited additions and deleted accounts.
+  tokuly.common.v1.UserSummary author = 3;
+  // Licence and credits, as free text.
+  string license = 4;
+  // Times it was used, all time; refreshed about once a minute. Only for
+  // moderators (0 for everyone else): emoji are used in private chats, and
+  // an exact count would let people watch each other's use.
+  int64 use_count = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+  // Why it was rejected or disabled. Only for its author and moderators.
+  string review_note = 8;
+  // When a moderator last decided on it. Only for its author and moderators.
+  google.protobuf.Timestamp reviewed_at = 9;
+  // Newest first. Only for moderators, and never for the emoji's own
+  // author: who decided on an emoji is not for its author to know.
+  repeated ReviewRecord history = 10;
+  // The caller may change it with `UpdateSubmission` and remove it with
+  // `WithdrawSubmission`: its author, while it is PENDING or REJECTED.
+  bool can_edit = 11;
+}
+
+// A category of the picker.
+message Category {
+  string name = 1;
+  // Approved emoji in it.
+  int32 emoji_count = 2;
+}
+
+// An emoji in a deck or a recently used list: custom or Unicode.
+message PickerItem {
+  // `:name:` for a custom emoji, otherwise the Unicode emoji itself.
+  string emoji = 1;
+  // The custom emoji. Unset for Unicode emoji, and for a custom emoji that
+  // is not in the catalogue (any more): clients skip those.
+  CustomEmoji custom = 2;
+}
+
+// A list of aliases, as a message so that "not set" differs from "empty".
+message AliasList {
+  // At most 16, each 1-32 characters. Stored lowercase, without duplicates.
+  repeated string aliases = 1;
+}
+
+// ───────────────────────────── Catalogue ─────────────────────────────
+
+// The catalogue as clients use it, and what each user keeps on top of it.
+// Reading the catalogue works without signing in; decks, recently used
+// emoji and `RecordUse` need an account.
+service EmojiService {
+  // The whole catalogue: every approved emoji (ordered by name), the
+  // categories in display order, and the version to remember.
+  // Errors: `RATE_LIMITED`.
+  rpc GetCatalog(GetCatalogRequest) returns (GetCatalogResponse);
+  // What changed since a version the client holds. When that version is too
+  // old to be answered with a difference (or unknown to this server) the
+  // response is the whole catalogue and says so with `full`.
+  // Errors: `VERSION_INVALID`, `RATE_LIMITED`.
+  rpc GetCatalogChanges(GetCatalogChangesRequest) returns (GetCatalogChangesResponse);
+  // Finds approved emoji by name, alias and category. Exact matches come
+  // first, then names and aliases starting with the query, then those
+  // containing it; among equals the more popular emoji wins. Matching ignores
+  // case, width and the difference between hiragana and katakana. Without a
+  // query it lists a category. Errors: `QUERY_TOO_LONG`, `RATE_LIMITED`.
+  rpc SearchEmoji(SearchEmojiRequest) returns (SearchEmojiResponse);
+  // The emoji the most people used over the last days. A day counts for an
+  // emoji only if at least three different people used it that day, and it
+  // counts those people, not their uses: the list says what the crowd
+  // likes, and never moves with what one person does.
+  rpc ListPopularEmoji(ListPopularEmojiRequest) returns (ListPopularEmojiResponse);
+  // The emoji that joined the catalogue last, newest first.
+  rpc ListNewestEmoji(ListNewestEmojiRequest) returns (ListNewestEmojiResponse);
+  // One emoji with author, licence and usage. Approved emoji are public; an
+  // emoji in another state is visible to its author and to moderators.
+  // Errors: `EMOJI_NOT_FOUND`, `RATE_LIMITED`.
+  rpc GetEmoji(GetEmojiRequest) returns (GetEmojiResponse);
+  // The categories in display order, with how many approved emoji each holds.
+  rpc ListCategories(ListCategoriesRequest) returns (ListCategoriesResponse);
+  // The approved emoji credited to one user, newest first. An emoji stays
+  // listed whatever becomes of its author's account, until the account is
+  // deleted and the credit with it. Errors: `RATE_LIMITED`.
+  rpc ListAuthorEmoji(ListAuthorEmojiRequest) returns (ListAuthorEmojiResponse);
+
+  // The caller's reaction deck: the emoji they pinned, in their order. A
+  // user who never saved one gets the server's default deck.
+  rpc GetDeck(GetDeckRequest) returns (GetDeckResponse);
+  // Replaces the caller's deck. At most 100 items, no duplicates; a custom
+  // emoji must be in the catalogue unless it already was in the deck.
+  // Errors: `DECK_TOO_LONG`, `DECK_ITEM_INVALID`, `EMOJI_NOT_FOUND`, `RATE_LIMITED`.
+  rpc SetDeck(SetDeckRequest) returns (SetDeckResponse);
+  // Forgets the caller's deck: they are back on the default one.
+  // Errors: `RATE_LIMITED`.
+  rpc ResetDeck(ResetDeckRequest) returns (ResetDeckResponse);
+
+  // Reports emoji the caller just used (in a message, a reaction, a name),
+  // so they show up under "recently used" and count towards "popular".
+  // Clients collect uses and report them in batches of at most 50. Items
+  // that are no emoji and custom emoji that are not in the catalogue are
+  // ignored. Errors: `TOO_MANY_ITEMS`, `RATE_LIMITED`.
+  rpc RecordUse(RecordUseRequest) returns (RecordUseResponse);
+  // The emoji the caller used last, most recent first (at most 64 are kept).
+  rpc ListRecentEmoji(ListRecentEmojiRequest) returns (ListRecentEmojiResponse);
+  // Empties the caller's recently used list. Errors: `RATE_LIMITED`.
+  rpc ClearRecentEmoji(ClearRecentEmojiRequest) returns (ClearRecentEmojiResponse);
+}
+
+message GetCatalogRequest {}
+
+message GetCatalogResponse {
+  // Remember this and pass it to `GetCatalogChanges`.
+  int64 version = 1;
+  repeated CustomEmoji emojis = 2;
+  repeated Category categories = 3;
+}
+
+message GetCatalogChangesRequest {
+  // The `version` of the copy the client holds.
+  int64 since_version = 1;
+}
+
+message GetCatalogChangesResponse {
+  // The version the client holds after applying this response.
+  int64 version = 1;
+  // True when `upserted` is the whole catalogue: drop the local copy first.
+  bool full = 2;
+  // Emoji that were added or changed: replace by `id`.
+  repeated CustomEmoji upserted = 3;
+  // IDs of emoji that left the catalogue (disabled or deleted).
+  repeated string removed_ids = 4;
+  // All categories in display order, whenever `version` differs from
+  // `since_version`; empty when nothing changed.
+  repeated Category categories = 5;
+}
+
+message SearchEmojiRequest {
+  // Part of a name or an alias, with or without colons. At most 64 characters.
+  string query = 1;
+  // Only emoji of this category; the empty string means emoji without one.
+  optional string category = 2;
+  // Default 30, at most 100.
+  int32 limit = 3;
+}
+
+message SearchEmojiResponse {
+  repeated CustomEmoji emojis = 1;
+}
+
+message ListPopularEmojiRequest {
+  // Default 30, at most 100.
+  int32 limit = 1;
+}
+
+message ListPopularEmojiResponse {
+  repeated CustomEmoji emojis = 1;
+}
+
+message ListNewestEmojiRequest {
+  // Default 30, at most 100 per page.
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListNewestEmojiResponse {
+  repeated CustomEmoji emojis = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message GetEmojiRequest {
+  // An emoji ID, or a name (with or without colons).
+  string emoji = 1;
+}
+
+message GetEmojiResponse {
+  EmojiDetail emoji = 1;
+}
+
+message ListCategoriesRequest {}
+
+message ListCategoriesResponse {
+  repeated Category categories = 1;
+  // Approved emoji without a category.
+  int32 uncategorized_count = 2;
+}
+
+message ListAuthorEmojiRequest {
+  string user_id = 1;
+  // Default 30, at most 100 per page.
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListAuthorEmojiResponse {
+  repeated CustomEmoji emojis = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message GetDeckRequest {}
+
+message GetDeckResponse {
+  repeated PickerItem items = 1;
+  // The caller has no deck of their own: this is the server's default.
+  bool is_default = 2;
+}
+
+message SetDeckRequest {
+  // `:name:` or a Unicode emoji each, in the order to show them.
+  repeated string emojis = 1;
+}
+
+message SetDeckResponse {
+  repeated PickerItem items = 1;
+}
+
+message ResetDeckRequest {}
+
+message ResetDeckResponse {
+  // The default deck.
+  repeated PickerItem items = 1;
+}
+
+message RecordUseRequest {
+  // `:name:` or a Unicode emoji each. An emoji used several times is listed
+  // once; at most 50.
+  repeated string emojis = 1;
+}
+
+message RecordUseResponse {}
+
+message ListRecentEmojiRequest {
+  // Default and maximum 64.
+  int32 limit = 1;
+}
+
+message ListRecentEmojiResponse {
+  repeated PickerItem items = 1;
+}
+
+message ClearRecentEmojiRequest {}
+
+message ClearRecentEmojiResponse {}
+
+// ───────────────────────────── Submissions ─────────────────────────────
+
+// Submitting emoji and following one's own submissions. Every RPC needs an
+// account.
+//
+// The picture is a media upload with `ASSET_PURPOSE_STAMP` (a still PNG,
+// WebP, JPEG or GIF, or an animated GIF, APNG or WebP) that finished
+// processing. While an emoji exists it keeps its upload in use.
+service EmojiSubmissionService {
+  // The caller as a submitter: whether their emoji skip review, how many are
+  // waiting, and the limits that apply.
+  rpc GetSubmitterProfile(GetSubmitterProfileRequest) returns (GetSubmitterProfileResponse);
+  // Whether a name could be submitted right now, for forms that check while
+  // the user types. Errors: `RATE_LIMITED`.
+  rpc CheckName(CheckNameRequest) returns (CheckNameResponse);
+  // Submits an emoji. It waits for review (PENDING) unless the caller is a
+  // trusted submitter or a moderator, whose emoji are approved at once.
+  // Errors: `NAME_INVALID`, `NAME_RESERVED`, `NAME_TAKEN`, `ASSET_NOT_FOUND`,
+  // `ASSET_WRONG_PURPOSE`, `ASSET_NOT_READY`, `ASSET_FAILED`,
+  // `ASSET_NOT_IMAGE`, `IMAGE_TOO_LARGE`, `IMAGE_TOO_SMALL`,
+  // `CATEGORY_NOT_FOUND`, `ALIASES_INVALID`, `LICENSE_TOO_LONG`,
+  // `TOO_MANY_PENDING`, `RATE_LIMITED`.
+  rpc SubmitEmoji(SubmitEmojiRequest) returns (SubmitEmojiResponse);
+  // Changes one of the caller's emoji that is PENDING or REJECTED. A
+  // rejected emoji is submitted again by this (it counts towards the limit
+  // of waiting submissions and must find its name still free).
+  // Errors: `EMOJI_NOT_FOUND`, `EMOJI_NOT_EDITABLE`, and everything
+  // `SubmitEmoji` can return.
+  rpc UpdateSubmission(UpdateSubmissionRequest) returns (UpdateSubmissionResponse);
+  // Deletes one of the caller's emoji that is PENDING or REJECTED. An
+  // approved emoji belongs to everyone who uses it: ask a moderator.
+  // Errors: `EMOJI_NOT_FOUND`, `EMOJI_NOT_WITHDRAWABLE`.
+  rpc WithdrawSubmission(WithdrawSubmissionRequest) returns (WithdrawSubmissionResponse);
+  // The caller's emoji in every state, newest first, with the moderators'
+  // notes.
+  rpc ListMySubmissions(ListMySubmissionsRequest) returns (ListMySubmissionsResponse);
+}
+
+// The caller as a submitter of emoji.
+message SubmitterProfile {
+  // Submissions are approved without review.
+  bool trusted = 1;
+  // Emoji of the caller waiting for review.
+  int32 pending_count = 2;
+  // Submissions that may wait at the same time.
+  int32 max_pending = 3;
+  // Emoji of the caller in the catalogue.
+  int32 approved_count = 4;
+  // Largest upload accepted as an emoji picture.
+  int64 max_image_bytes = 5;
+  // Shortest edge an emoji picture's longer side may have, in pixels.
+  int32 min_image_edge = 6;
+  int32 max_aliases = 7;
+}
+
+message GetSubmitterProfileRequest {}
+
+message GetSubmitterProfileResponse {
+  SubmitterProfile profile = 1;
+}
+
+message CheckNameRequest {
+  string name = 1;
+}
+
+message CheckNameResponse {
+  bool available = 1;
+  // The name as it would be stored (lowercase).
+  string name = 2;
+  // Why not, when `available` is false: `NAME_INVALID`, `NAME_RESERVED` or
+  // `NAME_TAKEN`.
+  string reason = 3;
+}
+
+message SubmitEmojiRequest {
+  // 2-32 characters of `a-z`, `0-9` and `_`, with at least one letter or
+  // digit. Capitals are accepted and lowered.
+  string name = 1;
+  // A READY upload with `ASSET_PURPOSE_STAMP` owned by the caller.
+  string asset_id = 2;
+  // A category from `ListCategories`, or empty.
+  string category = 3;
+  // At most 16 search words of 1-32 characters.
+  repeated string aliases = 4;
+  // Licence and credits. At most 1024 characters.
+  string license = 5;
+  bool sensitive = 6;
+}
+
+message SubmitEmojiResponse {
+  EmojiDetail emoji = 1;
+}
+
+message UpdateSubmissionRequest {
+  string emoji_id = 1;
+  // Fields that are not set stay as they are.
+  optional string name = 2;
+  // A new picture; the old upload is released.
+  optional string asset_id = 3;
+  optional string category = 4;
+  AliasList aliases = 5;
+  optional string license = 6;
+  optional bool sensitive = 7;
+}
+
+message UpdateSubmissionResponse {
+  EmojiDetail emoji = 1;
+}
+
+message WithdrawSubmissionRequest {
+  string emoji_id = 1;
+}
+
+message WithdrawSubmissionResponse {}
+
+message ListMySubmissionsRequest {
+  // Only emoji in this state; unspecified lists all.
+  EmojiState state = 1;
+  // Default 30, at most 100 per page.
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListMySubmissionsResponse {
+  repeated EmojiDetail emojis = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// ───────────────────────────── Moderation ─────────────────────────────
+
+// What moderators do: review, direct edits, categories, trusted submitters,
+// and the import and export of whole sets. Every RPC requires the
+// `moderator` role (`FORBIDDEN` otherwise; admins hold every role).
+//
+// `emoji_id` fields accept an emoji ID or the name of an emoji that is not
+// REJECTED.
+//
+// Decisions that tell the author (approve, reject, disable, enable) are
+// limited to 30 an hour per emoji, and changes of one user's trusted flag
+// to 10 an hour (`RATE_LIMITED`): a moderator's tools must not become a way
+// to flood someone with notifications.
+service EmojiAdminService {
+  // Emoji waiting for review, oldest submission first, with their history.
+  rpc ListReviewQueue(ListReviewQueueRequest) returns (ListReviewQueueResponse);
+  // Puts a PENDING emoji into the catalogue and tells its author. A REJECTED
+  // emoji can be approved too (a moderator changed their mind) if its name is
+  // still free. Errors: `EMOJI_NOT_FOUND`, `EMOJI_NOT_REVIEWABLE`,
+  // `NAME_TAKEN`, `RATE_LIMITED`.
+  rpc ApproveEmoji(ApproveEmojiRequest) returns (ApproveEmojiResponse);
+  // Declines a PENDING emoji and tells its author why.
+  // Errors: `EMOJI_NOT_FOUND`, `EMOJI_NOT_REVIEWABLE`, `REASON_INVALID`,
+  // `RATE_LIMITED`.
+  rpc RejectEmoji(RejectEmojiRequest) returns (RejectEmojiResponse);
+
+  // Every emoji, in any state, newest first; filtered by state, category,
+  // author and a part of the name or an alias. Errors: `QUERY_TOO_LONG`.
+  rpc ListEmoji(ListEmojiRequest) returns (ListEmojiResponse);
+  // Adds an emoji straight to the catalogue, from an upload of the caller.
+  // Reserved names are allowed here. Errors: the validation errors of
+  // `SubmitEmoji` (without `NAME_RESERVED` and `TOO_MANY_PENDING`),
+  // `USER_NOT_FOUND` (the credited author).
+  rpc AddEmoji(AddEmojiRequest) returns (AddEmojiResponse);
+  // Changes an emoji in any state: name, picture, category, aliases,
+  // licence, flags, credited author. Decks and recently used lists follow a
+  // rename. Errors: `EMOJI_NOT_FOUND`, `USER_NOT_FOUND`, and the validation
+  // errors of `AddEmoji`.
+  rpc UpdateEmoji(UpdateEmojiRequest) returns (UpdateEmojiResponse);
+  // Takes an APPROVED emoji out of the catalogue. It keeps its name and can
+  // be enabled again. Errors: `EMOJI_NOT_FOUND`, `EMOJI_NOT_APPROVED`,
+  // `REASON_INVALID`, `RATE_LIMITED`.
+  rpc DisableEmoji(DisableEmojiRequest) returns (DisableEmojiResponse);
+  // Puts a DISABLED emoji back into the catalogue.
+  // Errors: `EMOJI_NOT_FOUND`, `EMOJI_NOT_DISABLED`, `RATE_LIMITED`.
+  rpc EnableEmoji(EnableEmojiRequest) returns (EnableEmojiResponse);
+  // Deletes an emoji in any state for good; its name becomes free and its
+  // upload is released. Errors: `EMOJI_NOT_FOUND`.
+  rpc DeleteEmoji(DeleteEmojiRequest) returns (DeleteEmojiResponse);
+  // Applies one change to up to 200 emoji at once. IDs that match no emoji
+  // are skipped. Errors: `EMOJI_IDS_INVALID`, `CHANGE_REQUIRED`,
+  // `CATEGORY_NOT_FOUND`, `ALIASES_INVALID`, `LICENSE_TOO_LONG`.
+  rpc BulkUpdateEmoji(BulkUpdateEmojiRequest) returns (BulkUpdateEmojiResponse);
+  // Deletes up to 200 emoji at once. Errors: `EMOJI_IDS_INVALID`.
+  rpc BulkDeleteEmoji(BulkDeleteEmojiRequest) returns (BulkDeleteEmojiResponse);
+
+  // Flags a user as a trusted submitter (their emoji are approved without
+  // review) or removes the flag. Errors: `USER_NOT_FOUND`, `RATE_LIMITED`.
+  rpc SetSubmitterTrusted(SetSubmitterTrustedRequest) returns (SetSubmitterTrustedResponse);
+  // The trusted submitters, most recently trusted first.
+  rpc ListTrustedSubmitters(ListTrustedSubmittersRequest) returns (ListTrustedSubmittersResponse);
+
+  // Adds a category at the end of the list. Errors:
+  // `CATEGORY_NAME_INVALID`, `CATEGORY_EXISTS`, `TOO_MANY_CATEGORIES`.
+  rpc CreateCategory(CreateCategoryRequest) returns (CreateCategoryResponse);
+  // Renames a category; its emoji follow. Errors: `CATEGORY_NOT_FOUND`,
+  // `CATEGORY_NAME_INVALID`, `CATEGORY_EXISTS`.
+  rpc RenameCategory(RenameCategoryRequest) returns (RenameCategoryResponse);
+  // Sets the display order of all categories. Errors: `ORDER_MISMATCH`
+  // (the list is not exactly the existing categories).
+  rpc ReorderCategories(ReorderCategoriesRequest) returns (ReorderCategoriesResponse);
+  // Deletes a category. Its emoji move to another category, or lose theirs.
+  // Errors: `CATEGORY_NOT_FOUND` (also for the category to move to).
+  rpc DeleteCategory(DeleteCategoryRequest) returns (DeleteCategoryResponse);
+
+  // Starts importing an emoji pack: a ZIP in Misskey's export format
+  // (`meta.json` with an `emojis` array, next to the image files it names),
+  // uploaded by the caller with `ASSET_PURPOSE_CHAT_FILE`. The import runs
+  // in the background; imported emoji are approved at once. Follow it with
+  // `GetImport` or the `import_updated` realtime event.
+  // Errors: `ASSET_NOT_FOUND`, `ASSET_WRONG_PURPOSE`, `ASSET_NOT_READY`,
+  // `ASSET_FAILED`, `ARCHIVE_TOO_LARGE`, `CATEGORY_NAME_INVALID`, `RATE_LIMITED`.
+  rpc StartImport(StartImportRequest) returns (StartImportResponse);
+  // An import with the outcome of each entry of the pack, in pack order.
+  // Errors: `IMPORT_NOT_FOUND`.
+  rpc GetImport(GetImportRequest) returns (GetImportResponse);
+  // Earlier imports, newest first.
+  rpc ListImports(ListImportsRequest) returns (ListImportsResponse);
+
+  // Starts exporting the catalogue, or one category of it, as a ZIP in the
+  // same format. The pictures are the processed renditions (WebP), which
+  // carry none of the metadata an upload may hold. The export runs
+  // in the background; follow it with `GetExport` or the `export_updated`
+  // realtime event. Errors: `CATEGORY_NOT_FOUND`, `RATE_LIMITED`.
+  rpc StartExport(StartExportRequest) returns (StartExportResponse);
+  // An export; once READY it carries a download link.
+  // Errors: `EXPORT_NOT_FOUND`.
+  rpc GetExport(GetExportRequest) returns (GetExportResponse);
+  // Earlier exports, newest first.
+  rpc ListExports(ListExportsRequest) returns (ListExportsResponse);
+}
+
+message ListReviewQueueRequest {
+  // Default 30, at most 100 per page.
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListReviewQueueResponse {
+  repeated EmojiDetail emojis = 1;
+  tokuly.common.v1.PageInfo page = 2;
+  // Emoji waiting in total.
+  int32 pending_count = 3;
+}
+
+message ApproveEmojiRequest {
+  string emoji_id = 1;
+}
+
+message ApproveEmojiResponse {
+  EmojiDetail emoji = 1;
+}
+
+message RejectEmojiRequest {
+  string emoji_id = 1;
+  // Shown to the author. 1-500 characters.
+  string reason = 2;
+}
+
+message RejectEmojiResponse {
+  EmojiDetail emoji = 1;
+}
+
+message ListEmojiRequest {
+  // Only emoji in this state; unspecified lists all.
+  EmojiState state = 1;
+  // Part of a name or an alias. At most 64 characters.
+  string query = 2;
+  // Only emoji of this category; the empty string means emoji without one.
+  optional string category = 3;
+  // Only emoji credited to this user.
+  string author_id = 4;
+  // Default 30, at most 100 per page.
+  tokuly.common.v1.PageRequest page = 5;
+}
+
+message ListEmojiResponse {
+  repeated EmojiDetail emojis = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message AddEmojiRequest {
+  string name = 1;
+  // A READY upload with `ASSET_PURPOSE_STAMP` owned by the caller.
+  string asset_id = 2;
+  string category = 3;
+  repeated string aliases = 4;
+  string license = 5;
+  bool sensitive = 6;
+  bool local_only = 7;
+  // The user to credit; empty for none.
+  string author_id = 8;
+}
+
+message AddEmojiResponse {
+  EmojiDetail emoji = 1;
+}
+
+message UpdateEmojiRequest {
+  string emoji_id = 1;
+  // Fields that are not set stay as they are.
+  optional string name = 2;
+  // A new picture, from a READY upload of the caller.
+  optional string asset_id = 3;
+  optional string category = 4;
+  AliasList aliases = 5;
+  optional string license = 6;
+  optional bool sensitive = 7;
+  optional bool local_only = 8;
+  // The user to credit; the empty string removes the credit.
+  optional string author_id = 9;
+}
+
+message UpdateEmojiResponse {
+  EmojiDetail emoji = 1;
+}
+
+message DisableEmojiRequest {
+  string emoji_id = 1;
+  // Kept in the history and shown to the author. 1-500 characters.
+  string reason = 2;
+}
+
+message DisableEmojiResponse {
+  EmojiDetail emoji = 1;
+}
+
+message EnableEmojiRequest {
+  string emoji_id = 1;
+}
+
+message EnableEmojiResponse {
+  EmojiDetail emoji = 1;
+}
+
+message DeleteEmojiRequest {
+  string emoji_id = 1;
+}
+
+message DeleteEmojiResponse {}
+
+message BulkUpdateEmojiRequest {
+  // 1-200 emoji IDs.
+  repeated string emoji_ids = 1;
+  // The change to apply to each.
+  oneof change {
+    // Moves them to this category; the empty string removes theirs.
+    string set_category = 2;
+    // Adds these aliases to the ones each emoji has (16 in total at most;
+    // what does not fit is left out).
+    AliasList add_aliases = 3;
+    AliasList remove_aliases = 4;
+    // Replaces the aliases of each.
+    AliasList set_aliases = 5;
+    string set_license = 6;
+    bool set_sensitive = 7;
+    bool set_local_only = 8;
+  }
+}
+
+message BulkUpdateEmojiResponse {
+  // Emoji the change was applied to.
+  int32 updated_count = 1;
+}
+
+message BulkDeleteEmojiRequest {
+  // 1-200 emoji IDs.
+  repeated string emoji_ids = 1;
+}
+
+message BulkDeleteEmojiResponse {
+  int32 deleted_count = 1;
+}
+
+message SetSubmitterTrustedRequest {
+  string user_id = 1;
+  bool trusted = 2;
+}
+
+message SetSubmitterTrustedResponse {}
+
+// A user whose emoji skip review.
+message TrustedSubmitter {
+  tokuly.common.v1.UserSummary user = 1;
+  google.protobuf.Timestamp trusted_at = 2;
+  // The moderator who trusted them. Unset when that account is gone.
+  tokuly.common.v1.UserSummary trusted_by = 3;
+  // Their emoji in the catalogue.
+  int32 approved_count = 4;
+}
+
+message ListTrustedSubmittersRequest {
+  // Default 30, at most 100 per page.
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListTrustedSubmittersResponse {
+  repeated TrustedSubmitter submitters = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message CreateCategoryRequest {
+  // 1-32 characters. Names differing only in case are the same category.
+  // A `/` may be used to show categories as groups ("Animals/Cats").
+  string name = 1;
+}
+
+message CreateCategoryResponse {
+  // All categories in display order.
+  repeated Category categories = 1;
+}
+
+message RenameCategoryRequest {
+  string name = 1;
+  string new_name = 2;
+}
+
+message RenameCategoryResponse {
+  repeated Category categories = 1;
+}
+
+message ReorderCategoriesRequest {
+  // Every category name, in the order to show them.
+  repeated string names = 1;
+}
+
+message ReorderCategoriesResponse {
+  repeated Category categories = 1;
+}
+
+message DeleteCategoryRequest {
+  string name = 1;
+  // The category its emoji move to; empty leaves them without one.
+  string move_to = 2;
+}
+
+message DeleteCategoryResponse {
+  repeated Category categories = 1;
+}
+
+// What an import does with an entry whose name is already taken.
+enum ImportConflictPolicy {
+  // Same as SKIP.
+  IMPORT_CONFLICT_POLICY_UNSPECIFIED = 0;
+  // Leaves the existing emoji alone and reports the entry as SKIPPED.
+  IMPORT_CONFLICT_POLICY_SKIP = 1;
+  // Imports the entry under the next free name (`name_2`, `name_3`, …).
+  IMPORT_CONFLICT_POLICY_RENAME = 2;
+}
+
+enum ImportStatus {
+  IMPORT_STATUS_UNSPECIFIED = 0;
+  // Waiting for a worker.
+  IMPORT_STATUS_QUEUED = 1;
+  // Reading the pack, or waiting for its pictures to be processed.
+  IMPORT_STATUS_RUNNING = 2;
+  // Every entry has an outcome.
+  IMPORT_STATUS_COMPLETED = 3;
+  // The pack itself could not be read; `Import.error` says why.
+  IMPORT_STATUS_FAILED = 4;
+}
+
+enum ImportEntryStatus {
+  IMPORT_ENTRY_STATUS_UNSPECIFIED = 0;
+  // Accepted; its picture is being processed.
+  IMPORT_ENTRY_STATUS_PROCESSING = 1;
+  // In the catalogue under its own name.
+  IMPORT_ENTRY_STATUS_IMPORTED = 2;
+  // In the catalogue under another name (`ImportEntry.name`), because its
+  // own was taken.
+  IMPORT_ENTRY_STATUS_RENAMED = 3;
+  // Left out because its name was taken.
+  IMPORT_ENTRY_STATUS_SKIPPED = 4;
+  // Could not be imported; `ImportEntry.reason` says why.
+  IMPORT_ENTRY_STATUS_FAILED = 5;
+}
+
+// One entry of an imported pack.
+message ImportEntry {
+  // The name in the pack's `meta.json`.
+  string source_name = 1;
+  // The image file the pack names for it.
+  string file_name = 2;
+  ImportEntryStatus status = 3;
+  // The name it has (or would have had) here: lowercase, with characters
+  // outside `a-z0-9_` replaced, possibly numbered. Empty when no valid name
+  // could be made.
+  string name = 4;
+  // For SKIPPED and FAILED entries: `NAME_TAKEN`, `NAME_INVALID`,
+  // `DUPLICATE_NAME` (the pack has the name twice), `NOT_DOWNLOADED` (the
+  // pack says it has no file for it), `FILE_NAME_INVALID`, `FILE_MISSING`,
+  // `FILE_UNREADABLE`, `IMAGE_TOO_LARGE`, `IMAGE_TOO_SMALL`,
+  // `UNSUPPORTED_CONTENT` or another media processing error,
+  // `PROCESSING_TIMEOUT`.
+  string reason = 5;
+  // The emoji, for IMPORTED and RENAMED entries.
+  string emoji_id = 6;
+}
+
+// An import of an emoji pack.
+message Import {
+  string id = 1;
+  ImportStatus status = 2;
+  ImportConflictPolicy on_conflict = 3;
+  // The category every entry was put in; empty when the pack's own
+  // categories were used.
+  string category = 4;
+  // The `host` the pack says it was exported from.
+  string source_host = 5;
+  // Entries in the pack.
+  int32 total_count = 6;
+  // Entries now in the catalogue (IMPORTED and RENAMED).
+  int32 imported_count = 7;
+  int32 skipped_count = 8;
+  int32 failed_count = 9;
+  // Why the whole import failed: `ARCHIVE_INVALID`, `ARCHIVE_TOO_LARGE`,
+  // `META_MISSING`, `META_INVALID`, `TOO_MANY_ENTRIES` or `INTERNAL`.
+  string error = 10;
+  // Unset when that account is gone.
+  tokuly.common.v1.UserSummary requested_by = 11;
+  google.protobuf.Timestamp created_at = 12;
+  // When the last entry got its outcome.
+  google.protobuf.Timestamp completed_at = 13;
+}
+
+message StartImportRequest {
+  // A READY upload with `ASSET_PURPOSE_CHAT_FILE` owned by the caller.
+  string asset_id = 1;
+  ImportConflictPolicy on_conflict = 2;
+  // Puts every entry into this category (created if it does not exist)
+  // instead of the categories the pack names (which are created as needed).
+  string category = 3;
+}
+
+message StartImportResponse {
+  Import import = 1;
+}
+
+message GetImportRequest {
+  string import_id = 1;
+  // Pages through the entries: default 100, at most 500 per page.
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message GetImportResponse {
+  Import import = 1;
+  repeated ImportEntry entries = 2;
+  tokuly.common.v1.PageInfo page = 3;
+}
+
+message ListImportsRequest {
+  // Default 30, at most 100 per page.
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListImportsResponse {
+  repeated Import imports = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+enum ExportStatus {
+  EXPORT_STATUS_UNSPECIFIED = 0;
+  // Waiting for a worker.
+  EXPORT_STATUS_QUEUED = 1;
+  EXPORT_STATUS_RUNNING = 2;
+  // The file can be downloaded.
+  EXPORT_STATUS_READY = 3;
+  // `Export.error` says why.
+  EXPORT_STATUS_FAILED = 4;
+  // The file was deleted after its retention time.
+  EXPORT_STATUS_EXPIRED = 5;
+}
+
+// An export of the catalogue as a ZIP.
+message Export {
+  string id = 1;
+  ExportStatus status = 2;
+  // True when only one category was exported; `category` names it (empty =
+  // the emoji without a category).
+  bool by_category = 3;
+  string category = 4;
+  // Emoji in the file.
+  int32 emoji_count = 5;
+  int64 size_bytes = 6;
+  // A link to the file, valid for one hour from this response. Only while READY.
+  string download_url = 7;
+  // `INTERNAL` when the export failed.
+  string error = 8;
+  // Unset when that account is gone.
+  tokuly.common.v1.UserSummary requested_by = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp completed_at = 11;
+  // When the file is deleted.
+  google.protobuf.Timestamp expires_at = 12;
+}
+
+message StartExportRequest {
+  // Only this category; the empty string means emoji without one. Unset
+  // exports the whole catalogue.
+  optional string category = 1;
+}
+
+message StartExportResponse {
+  Export export = 1;
+}
+
+message GetExportRequest {
+  string export_id = 1;
+}
+
+message GetExportResponse {
+  Export export = 1;
+}
+
+message ListExportsRequest {
+  // Default 30, at most 100 per page.
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListExportsResponse {
+  repeated Export exports = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// ───────────────────────────── Realtime ─────────────────────────────
+
+// The catalogue has a newer version: call `GetCatalogChanges`. Bursts of
+// changes are announced together, about once a second.
+message CatalogChanged {
+  int64 version = 1;
+}
 
 // Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.emoji).
 message EmojiEvent {
-  // Placeholder so the realtime envelope compiles; replace with a oneof of real events.
-  tokuly.common.v1.SubjectRef subject = 1;
+  oneof event {
+    // To everyone subscribed to the public topic `emoji:catalog`.
+    CatalogChanged catalog_changed = 1;
+    // To the author: a moderator decided on (or changed) one of their emoji.
+    EmojiDetail submission_updated = 2;
+    // To the moderator who started an import: it progressed or finished.
+    Import import_updated = 3;
+    // To the moderator who started an export: it finished or failed.
+    Export export_updated = 4;
+  }
 }
