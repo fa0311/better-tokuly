@@ -136,7 +136,9 @@ message LedgerEntry {
   google.protobuf.Timestamp created_at = 13;
   // The other side of this movement is not shown to this user (`counterpart`
   // is unset): what was paid is a channel, not an account. `memo_json` says
-  // which (`channel_id`), and clients show that instead.
+  // which (`channel_id`), and clients show that instead. In the staff view
+  // (WalletAdminService.ListUserLedgerEntries) `counterpart` is set all the
+  // same, and this flag says that the account's owner does not see it.
   bool counterpart_hidden = 14;
 }
 
@@ -557,7 +559,9 @@ service WalletAdminService {
   // A user's wallet at a glance, for support.
   // Errors: USER_NOT_FOUND.
   rpc GetUserWallet(GetUserWalletRequest) returns (GetUserWalletResponse);
-  // A user's ledger history, newest first.
+  // A user's ledger history, newest first. Unlike the user's own view it
+  // names both parties of every transfer, also a counterpart that is hidden
+  // from the user (`LedgerEntry.counterpart_hidden`).
   // Errors: USER_NOT_FOUND, INVALID_CURSOR.
   rpc ListUserLedgerEntries(ListUserLedgerEntriesRequest) returns (ListUserLedgerEntriesResponse);
 

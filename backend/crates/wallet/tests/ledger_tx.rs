@@ -239,6 +239,10 @@ async fn closing_an_account_forfeits_what_is_left() {
     let leaver = creator_with_earnings(&app, 700).await;
     fund(&app, &leaver, 300).await;
     let held = hold(&app, &leaver, 500, &key("hold")).await.unwrap();
+    // The leaver was also paid as a hidden recipient: that mark names them too.
+    let fan = app.user("fan").await;
+    fund(&app, &fan, 100).await;
+    let hidden = ledger::transfer_to_hidden_recipient(&app.core, fan.id, leaver.id, 100, 0, "live.gift", &key("hidden"), serde_json::json!({})).await.unwrap();
 
     let mut tx = app.core.db.begin().await.unwrap();
     ledger_tx::unlink_user(&mut tx, leaver.id).await.unwrap();
@@ -248,14 +252,16 @@ async fn closing_an_account_forfeits_what_is_left() {
     tx.commit().await.unwrap();
 
     assert_eq!(posted(&app, forfeited_hold, "system:forfeited").await, 500);
-    assert_eq!(posted(&app, closing, "system:forfeited").await, 500, "300 coins + 200 earnings");
+    assert_eq!(posted(&app, closing, "system:forfeited").await, 600, "300 coins + 300 earnings");
     assert_eq!(posted(&app, closing, &Account::Coins.of(leaver.id)).await, -300);
-    assert_eq!(posted(&app, closing, &Account::Earnings.of(leaver.id)).await, -200);
+    assert_eq!(posted(&app, closing, &Account::Earnings.of(leaver.id)).await, -300);
     assert_eq!(account_sum(&app, &Account::Coins.of(leaver.id)).await, 0);
     assert_eq!(account_sum(&app, &Account::Earnings.of(leaver.id)).await, 0);
     assert_eq!(ledger_balance(&app, &leaver).await, Balance { coins: 0, earnings: 0 });
     let linked: i64 = sqlx::query_scalar("SELECT count(*) FROM wallet_entries WHERE from_user_id = $1 OR to_user_id = $1").bind(leaver.id).fetch_one(&app.core.db).await.unwrap();
     assert_eq!(linked, 0);
+    let still_hidden: Option<Uuid> = sqlx::query_scalar("SELECT hidden_user_id FROM wallet_entries WHERE id = $1").bind(hidden.entry_id).fetch_one(&app.core.db).await.unwrap();
+    assert_eq!(still_hidden, None, "the hidden mark does not keep the deleted user's ID either");
 
     // Nothing left to close the second time; an account that never existed is fine too.
     let mut tx = app.core.db.begin().await.unwrap();

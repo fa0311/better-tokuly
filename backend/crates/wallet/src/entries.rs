@@ -74,15 +74,20 @@ macro_rules! viewer_postings {
 }
 
 impl EntryRow {
+    /// The other user of a movement between two users, seen from `owner`'s
+    /// side of it, whether or not `owner` is told who that is.
+    fn other_party(&self, owner: Uuid) -> Option<Uuid> {
+        match (self.from_user_id, self.to_user_id) {
+            (Some(from), Some(to)) if from == owner => Some(to),
+            (Some(from), Some(to)) if to == owner => Some(from),
+            _ => None,
+        }
+    }
+
     /// The other user of a movement between two users, from `viewer`'s side.
     fn counterpart_id(&self, viewer: Uuid) -> Option<Uuid> {
-        let other = match (self.from_user_id, self.to_user_id) {
-            (Some(from), Some(to)) if from == viewer => Some(to),
-            (Some(from), Some(to)) if to == viewer => Some(from),
-            _ => None,
-        };
         // A hidden party: the viewer is told what they paid for (the memo), not which account was paid.
-        other.filter(|other| !self.hides(*other, viewer))
+        self.other_party(viewer).filter(|other| !self.hides(*other, viewer))
     }
 
     /// Whether `user_id` is the entry's hidden party as far as `viewer` is
@@ -102,7 +107,15 @@ impl EntryRow {
         (shown(self.from_user_id), shown(self.to_user_id))
     }
 
-    fn to_proto(&self, viewer: Uuid, locale: &str, users: &HashMap<Uuid, UserSummary>) -> LedgerEntry {
+    /// The entry in `viewer`'s history. `reader` says who is looking at it:
+    /// staff tracing a payment are shown both parties, also the one the
+    /// account's owner is not told (`counterpart_hidden` stays set, so they
+    /// know the owner does not see it).
+    fn to_proto(&self, viewer: Uuid, reader: Reader, locale: &str, users: &HashMap<Uuid, UserSummary>) -> LedgerEntry {
+        let counterpart = match reader {
+            Reader::Owner => self.counterpart_id(viewer),
+            Reader::Staff => self.other_party(viewer),
+        };
         LedgerEntry {
             id: self.id.to_string(),
             kind: describe::entry_kind(&self.kind).into(),
@@ -112,7 +125,7 @@ impl EntryRow {
             earnings_delta: self.earnings_delta,
             amount: self.amount,
             fee: self.fee,
-            counterpart: self.counterpart_id(viewer).map(|id| tokuly_identity::users::pick(users, id)).into(),
+            counterpart: counterpart.map(|id| tokuly_identity::users::pick(users, id)).into(),
             counterpart_hidden: self.counterpart_hidden(viewer),
             refunded: self.refunded,
             refund_of_entry_id: self.refund_of.map(|id| id.to_string()).unwrap_or_default(),
@@ -124,6 +137,15 @@ impl EntryRow {
 }
 
 /// Which of a user's balances a history list covers.
+/// Who a history is rendered for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Reader {
+    /// The account's owner: a hidden counterpart stays hidden.
+    Owner,
+    /// Staff looking into the account: every party is named.
+    Staff,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Scope {
     pub coins: bool,
@@ -210,10 +232,10 @@ impl Wallet {
 
     /// One page of `user_id`'s history within `scope`, newest first, worded
     /// for `locale`.
-    pub(crate) async fn list_entries(&self, user_id: Uuid, scope: Scope, page: &Page, locale: &str) -> AppResult<(Vec<LedgerEntry>, PageInfo)> {
+    pub(crate) async fn list_entries(&self, user_id: Uuid, reader: Reader, scope: Scope, page: &Page, locale: &str) -> AppResult<(Vec<LedgerEntry>, PageInfo)> {
         let mut rows = fetch_entries(&self.core.db, user_id, scope, page.decode()?, page.fetch()).await?;
         let info = page.finish(&mut rows, |row| row.position);
-        Ok((self.entries_to_proto(&rows, user_id, locale).await?, info))
+        Ok((self.entries_to_proto(&rows, user_id, reader, locale).await?, info))
     }
 
     /// One entry as `user_id` sees it; `None` when it does not exist.
@@ -227,10 +249,10 @@ impl Wallet {
     }
 
     /// Converts rows to API entries, resolving every counterpart in one query.
-    pub(crate) async fn entries_to_proto(&self, rows: &[EntryRow], viewer: Uuid, locale: &str) -> AppResult<Vec<LedgerEntry>> {
-        let counterparts: Vec<Uuid> = rows.iter().filter_map(|row| row.counterpart_id(viewer)).collect();
+    pub(crate) async fn entries_to_proto(&self, rows: &[EntryRow], viewer: Uuid, reader: Reader, locale: &str) -> AppResult<Vec<LedgerEntry>> {
+        let counterparts: Vec<Uuid> = rows.iter().filter_map(|row| row.other_party(viewer)).collect();
         let users = tokuly_identity::summaries(&self.core, &counterparts).await?;
-        Ok(rows.iter().map(|row| row.to_proto(viewer, locale, &users)).collect())
+        Ok(rows.iter().map(|row| row.to_proto(viewer, reader, locale, &users)).collect())
     }
 }
 
@@ -267,8 +289,11 @@ mod tests {
         assert_eq!(gift.counterpart_id(payer), None);
         assert!(gift.counterpart_hidden(payer));
         assert_eq!(gift.parties_for(payer), (Some(payer), None));
-        let shown = gift.to_proto(payer, "ja", &HashMap::new());
+        let shown = gift.to_proto(payer, Reader::Owner, "ja", &HashMap::new());
         assert!(!shown.counterpart.is_set() && shown.counterpart_hidden);
+        // Staff looking into the payer's wallet are shown the recipient, and that the payer is not.
+        let traced = gift.to_proto(payer, Reader::Staff, "ja", &HashMap::new());
+        assert!(traced.counterpart.is_set() && traced.counterpart_hidden);
         // ...while the recipient sees who paid, and both sides of their own entry.
         assert_eq!(gift.counterpart_id(recipient), Some(payer));
         assert!(!gift.counterpart_hidden(recipient));
@@ -293,7 +318,7 @@ mod tests {
     #[test]
     fn entries_are_worded_for_the_viewer() {
         let (payer, recipient) = (new_id(), new_id());
-        let entry = row(Some(payer), Some(recipient)).to_proto(payer, "en", &HashMap::new());
+        let entry = row(Some(payer), Some(recipient)).to_proto(payer, Reader::Owner, "en", &HashMap::new());
         assert_eq!(entry.description, "Sent a live gift");
         assert_eq!((entry.coins_delta, entry.amount, entry.fee), (-300, 300, 90));
         assert_eq!(entry.memo_json, r#"{"stream_id":"s1"}"#);

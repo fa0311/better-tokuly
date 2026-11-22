@@ -238,6 +238,28 @@ async fn a_hidden_recipient_is_not_shown_to_the_payer() {
     assert_eq!(received.counterpart.as_option().unwrap().id, fan.id.to_string());
     assert!(!received.counterpart_hidden);
 
+    // Staff tracing the payment see both parties, in either wallet, and that the payer is not told.
+    let moderator = app.user_with_roles("mod", &["moderator"]).await;
+    let traced: ListUserLedgerEntriesResponse = app
+        .call(
+            "tokuly.wallet.v1.WalletAdminService/ListUserLedgerEntries",
+            Some(&moderator),
+            &ListUserLedgerEntriesRequest { user_id: fan.id.to_string(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    assert_eq!(traced.entries[0].counterpart.as_option().unwrap().id, streamer_id);
+    assert!(traced.entries[0].counterpart_hidden);
+    let traced: ListUserLedgerEntriesResponse = app
+        .call(
+            "tokuly.wallet.v1.WalletAdminService/ListUserLedgerEntries",
+            Some(&moderator),
+            &ListUserLedgerEntriesRequest { user_id: streamer.id.to_string(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    assert_eq!(traced.entries[0].counterpart.as_option().unwrap().id, fan.id.to_string());
+
     // The refund runs the other way and keeps the same account hidden.
     ledger::refund(&app.core, gift.entry_id, "live.gift.returned").await.unwrap();
     let entries = history(&app, &fan).await;

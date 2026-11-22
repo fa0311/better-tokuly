@@ -47,7 +47,8 @@ Conventions for callers of the ledger:
   (`wallet_entries.hidden_user_id`): the payer's history, balance push and
   data export carry no counterpart and `LedgerEntry.counterpart_hidden`, and
   so does the refund of such a transfer. The recipient sees the payer as
-  usual. Say in `memo` what was paid.
+  usual, and staff see both parties (`WalletAdminService.ListUserLedgerEntries`,
+  with `counterpart_hidden` still set). Say in `memo` what was paid.
 - Take the platform fee from `Wallet::transfer_with_fee` /
   `Wallet::platform_fee_percent` rather than hard-coding it.
 
