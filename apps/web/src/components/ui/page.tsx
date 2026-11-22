@@ -42,7 +42,8 @@ export function Page({
           {actions}
         </div>
       </header>
-      <div className={cn("mx-auto px-4 pt-4 pb-32 md:pb-10", wide ? "max-w-6xl" : "max-w-2xl")}>
+      {/* Room below the last control on phones: the tab bar, and a toast that may sit above it. */}
+      <div className={cn("mx-auto px-4 pt-4 pb-44 md:pb-10", wide ? "max-w-6xl" : "max-w-2xl")}>
         {children}
       </div>
     </div>

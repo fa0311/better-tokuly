@@ -26,7 +26,7 @@ type Icon = ComponentType<{ className?: string }>;
 /**
  * The primary destinations: one tap away on every screen. Everything else is
  * reached from the hub (`/me`, the last slot of the phone tab bar), the
- * launcher (the rail's "メニュー") and the quick search.
+ * launcher (the rail's "アプリ") and the quick search.
  *
  * Which of these a page belongs to is declared by its feature
  * (`src/features/<area>/nav.ts`, see `#/seams/nav`).

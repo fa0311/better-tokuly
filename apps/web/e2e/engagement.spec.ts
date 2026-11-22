@@ -229,9 +229,8 @@ test("sharing copies the note's link and is counted", async ({ page, me, request
 
   await page.goto(`/notes/${noteId}`);
   await card(page, text).getByRole("button", { name: "シェアする" }).click();
-  // Where the device has a share sheet the button opens a menu first.
-  const copy = page.getByRole("menuitem", { name: "リンクをコピー" });
-  if (await copy.isVisible().catch(() => false)) await copy.click();
+  // The share control is a menu: send in chat, copy the link, and the share sheet where there is one.
+  await page.getByRole("menuitem", { name: "リンクをコピー" }).click();
   await expect(page.getByText("リンクをコピーしたよ!")).toBeVisible();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(`/notes/${noteId}`);
   await expect.poll(async () => (await engagementOf(request, noteId, me)).shareCount).toBe("1");

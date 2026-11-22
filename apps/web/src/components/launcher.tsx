@@ -18,7 +18,7 @@ export function useLauncherOpen(): boolean {
 
 /**
  * The launcher: every part of the app in one sheet, without leaving the page
- * that is open. The rail's "メニュー" opens it; the hub page (`/me`) shows the
+ * that is open. The rail's "アプリ" opens it; the hub page (`/me`) shows the
  * same tiles on phones.
  */
 export function Launcher() {

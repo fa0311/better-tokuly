@@ -115,8 +115,8 @@ test("on a wide screen the rail opens search and a launcher over the page that i
   await page.keyboard.press("Escape");
   await expect(palette).toBeHidden();
 
-  await rail.getByRole("button", { name: "メニュー" }).click();
-  const launcher = page.getByRole("dialog", { name: "メニュー" });
+  await rail.getByRole("button", { name: "アプリ" }).click();
+  const launcher = page.getByRole("dialog", { name: "アプリ" });
   for (const section of ["あそぶ", "おでかけ", "つくる・みる", "アカウント"])
     await expect(launcher.getByRole("heading", { name: section, exact: true })).toBeVisible();
   // Still on the page it was opened from.
