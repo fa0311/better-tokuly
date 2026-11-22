@@ -11,6 +11,7 @@ import { Card } from "#/components/ui/card";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { ReportButton } from "#/features/engagement";
 import { ProfileNotes } from "#/features/notes";
+import { ProfilePlans } from "#/features/plans";
 import { forgetUser, ProfileHighlights, StoryRing } from "#/features/stories";
 import { api, profileClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
@@ -150,6 +151,9 @@ export function ProfileScreen({ handle }: { handle: string }) {
             </>
           )}
         </div>
+
+        {/* ひま right now, pinned countdowns, a couple counter. */}
+        <ProfilePlans cards={profile.cards} user={user} isSelf={isSelf} className="mt-5" />
 
         <ProfileHighlights user={user} isSelf={isSelf} />
 
