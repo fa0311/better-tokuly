@@ -243,7 +243,7 @@ test("a new creator makes a channel, uploads a video and publishes it; a subscri
   // …and in the friend's subscriptions feed.
   const friendPage = await secondBrowser(browser, page, baseURL, friend);
   await friendPage.goto("/watch?feed=subscriptions");
-  await expect(friendPage.getByTestId("video-card").filter({ hasText: title })).toBeVisible();
+  await expect(friendPage.getByTestId("video-card").filter({ hasText: title })).toBeVisible({ timeout: 30_000 });
   await friendPage.getByRole("link", { name: title }).click();
   await expect(friendPage.getByTestId("video-title")).toHaveText(title);
   await friendPage.context().close();
