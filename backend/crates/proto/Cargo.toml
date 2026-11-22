@@ -9,12 +9,13 @@ publish.workspace = true
 [lints]
 workspace = true
 
-# The library has no unit tests and no doc tests (its tests are in `tests/`).
-# Without this, `cargo test` and `cargo build --all-targets` compile the whole
-# generated API a second time as an empty test binary, next to the library:
-# two multi-GB compilers at once, which CI runners did not survive.
+# The library has no unit tests, benchmarks or doc tests (its tests are in
+# `tests/`). Without this, `cargo test` and `cargo build --all-targets` compile
+# the whole generated API a second time as an empty test harness, next to the
+# library: two multi-GB compilers at once, which CI runners did not survive.
 [lib]
 test = false
+bench = false
 doctest = false
 
 # One feature per proto package (`proto/tokuly/<package>`), listing the
