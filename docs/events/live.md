@@ -27,7 +27,8 @@ owned by the **owner of the channel** it was cut from (`owner_id`, not the
 person who cut it) and held by `live:clip:<clip_id>`; a domain that reuses it
 attaches its own holder.
 
-**Wiring the server has to do** (`crates/server/src/app.rs`):
+**Wiring the server does** (`crates/server/src/app.rs`, `compose.yaml`,
+`infra/caddy/Caddyfile`; all of it is in place):
 
 - construct `Live::new(core, identity, cfg, wallet)` in every process (it
   registers the guards of the `live:` and `overlay:` realtime topics, which
@@ -92,6 +93,25 @@ and the stack must not publish the API listener's port (8081) or MediaMTX's
 control API (9997) to the outside. Behind the edge every request would also
 share the edge's address, so the per-address lockout would be one bucket for
 everyone: the block is what protects the hook, the lockout is the second line.
+
+How the stack does it: `infra/caddy/Caddyfile` answers `404` for `/api/hooks`,
+`/api/hooks/*`, `/hooks` and `/hooks/*`; `compose.yaml` publishes neither
+8081 nor 9997; and `tools/ci/smoke.sh` asks for all of them from outside.
+
+**In the Compose stack.** `tools/init-env.sh` generates the two secrets
+(`TOKULY_LIVE_HOOK_SECRET`, `TOKULY_MEDIAMTX_API_SECRET`). MediaMTX runs as
+the backend's user (10001) and records into the `recordings` volume, which
+the worker mounts at `/recordings`; the backend image owns that directory,
+and the worker starts first, so a fresh volume belongs to that user and the
+worker can delete what was recorded. `TOKULY_LIVE_PUBLIC_HOST` and the
+`TOKULY_LIVE_*_URL` settings in `.env` name the machine as encoders and
+players reach it.
+
+**In development** MediaMTX is started on request only, because
+`tests/mediamtx.rs` starts its own on the same ports:
+`TOKULY_DEV_MEDIAMTX=1 tools/dev/infra.sh up` (or the `live` profile of
+`compose.dev.yaml`), then `eval "$(tools/dev/infra.sh env)"`, which prints
+the `TOKULY_LIVE_*` settings while that media server runs.
 
 ### Playback tokens
 

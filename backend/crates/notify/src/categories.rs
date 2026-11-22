@@ -275,6 +275,9 @@ mod tests {
         assert_eq!(of_kind("spaces.hangout_joined").id, "spaces");
         assert_eq!(of_kind("community.mention").id, "community");
         assert_eq!(of_kind("shorts.published").id, "shorts");
+        for kind in ["live.started", "live.reminder", "live.gift", "live.moderator"] {
+            assert_eq!(of_kind(kind).id, "live", "{kind}");
+        }
         // Tokens and connected applications are about the account's security.
         assert_eq!(of_kind("dev.token_created").id, "system");
         assert_eq!(of_kind("dev.app_authorized").id, "system");

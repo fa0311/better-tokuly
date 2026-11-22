@@ -108,3 +108,23 @@ services:
     ports: ["7880:7880", "7881:7881", "7882:7882/udp"]
     volumes:
       - ./infra/livekit/livekit.yaml:/etc/livekit.yaml:ro
+
+  # The media server for live streams. On request only, because the live
+  # domain's own test starts one on the same ports:
+  #   docker compose -f compose.dev.yaml --profile live up -d
+  #   TOKULY_DEV_MEDIAMTX=1 eval "$(tools/dev/infra.sh env)"
+  mediamtx:
+    profiles: [live]
+    image: bluenviron/mediamtx:1.21.4
+    # Your own user, so the API on the host can delete what this records.
+    user: "${UID:-1000}:${GID:-1000}"
+    environment:
+      # The hook of the API on the host, with the development hook secret.
+      MTX_AUTHHTTPADDRESS: http://mediamtx:tokuly-live-hook-dev-secret-0123456789@api:8081/hooks/live/auth
+      MTX_WEBRTCADDITIONALHOSTS: localhost
+    extra_hosts: ["api:host-gateway"]
+    # The control API (9997) only on this machine: the API on the host reads it.
+    ports: ["1935:1935", "8890:8890/udp", "8888:8888", "8889:8889", "8189:8189/udp", "9996:9996", "127.0.0.1:9997:9997"]
+    volumes:
+      - ./infra/mediamtx/mediamtx.yml:/mediamtx.yml:ro
+      - ${TOKULY_DEV_HOME:-${HOME}/tokuly-dev}/data/mediamtx/recordings:/recordings
