@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Bell, Bookmark, ChevronRight, Clapperboard, History, ListVideo, LogOut, MailQuestionMark, Megaphone, Newspaper, Settings, ShieldCheck, Smile, SmilePlus, UserRound, Users, Wallet } from "lucide-react";
+import { Bell, Bookmark, CalendarHeart, ChevronRight, Clapperboard, History, ListVideo, LogOut, MailQuestionMark, Megaphone, Newspaper, Settings, ShieldCheck, Smile, SmilePlus, UserRound, Users, Wallet } from "lucide-react";
 import type { ComponentType } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
@@ -15,6 +15,7 @@ import { useMe } from "#/stores/session";
 interface Tile {
   to:
     | "/friends"
+    | "/plans"
     | "/ask"
     | "/stamps"
     | "/emoji"
@@ -41,6 +42,7 @@ interface Tile {
 const TILES: Tile[] = [
   { to: "/friends", labelKey: "tiles.friends", icon: Users, tint: "bg-sky", badge: "friends" },
   { to: "/notifications", labelKey: "tiles.notifications", icon: Bell, tint: "bg-pink", badge: "notifications" },
+  { to: "/plans", labelKey: "plans:tile", icon: CalendarHeart, tint: "bg-lime" },
   { to: "/ask", labelKey: "ask:tile", icon: MailQuestionMark, tint: "bg-sun", badge: "ask" },
   { to: "/bookmarks", labelKey: "engagement:tile", icon: Bookmark, tint: "bg-sky" },
   { to: "/activity", labelKey: "notes:activityTile", icon: History, tint: "bg-brand" },
