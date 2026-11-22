@@ -13,7 +13,7 @@ import {
   Send,
   XCircle,
 } from "lucide-react";
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
@@ -45,6 +45,11 @@ import { Participants } from "./participants";
 import { PlanForm } from "./plan-form";
 import { RsvpCard } from "./rsvp";
 import { CostSplit } from "./split";
+
+// The map library is big: it loads when a plan with a place on the map is opened.
+const StaticMapPreview = lazy(() =>
+  import("#/features/map").then((module) => ({ default: module.StaticMapPreview })),
+);
 
 /** `/plans/<id>`: a plan with everything around it — answers, people, the checklist, the cost split, comments. */
 export function PlanScreen({ planId }: { planId: string }) {
@@ -254,6 +259,16 @@ function LoadedPlan({ plan }: { plan: plans.Plan }) {
                       <span className="block text-sm break-words text-ink-soft">
                         {plan.place.address}
                       </span>
+                    )}
+                    {plan.place.location && (
+                      <Suspense fallback={<Skeleton className="mt-2 h-32" />}>
+                        <StaticMapPreview
+                          lat={plan.place.location.lat}
+                          lng={plan.place.location.lng}
+                          label={plan.place.name}
+                          className="mt-2 aspect-auto h-32"
+                        />
+                      </Suspense>
                     )}
                   </dd>
                 </div>

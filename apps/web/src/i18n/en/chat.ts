@@ -183,6 +183,7 @@ export default {
     pinned: "{{actor}} pinned a message",
   },
   message: {
+    report: "Report",
     reply: "Reply",
     copy: "Copy",
     edit: "Edit",

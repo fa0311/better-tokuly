@@ -7,6 +7,7 @@ import {
   CornerUpLeft,
   CornerUpRight,
   Eye,
+  Flag,
   Languages,
   MoreHorizontal,
   Pencil,
@@ -176,6 +177,12 @@ function useMessageMenu(
       label: t("message.reactions"),
       icon: <SmilePlus />,
       onSelect: () => context.showReactions(message),
+    });
+  if (!own && !message.deleted && message.sender)
+    entries.push({
+      label: t("message.report"),
+      icon: <Flag />,
+      onSelect: () => context.report(message),
     });
   if (can.delete)
     entries.push({

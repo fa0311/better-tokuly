@@ -12,7 +12,9 @@ export interface ErrorMessageOptions {
 
 /**
  * The localized text for an API reason: the calling feature's own wording
- * first, then the shared list, then any other feature's `errors` group.
+ * first, then the shared list (`i18n/<lang>/errors.ts`: reasons any screen
+ * can hit, such as a failed upload, in neutral words), then any other
+ * feature's `errors` group.
  */
 function reasonMessage(reason: string, namespace?: string): string | undefined {
   if (namespace && i18n.exists(`errors.${reason}`, { ns: namespace }))

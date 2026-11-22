@@ -61,7 +61,8 @@ export function PublicBoxScreen({ handle, answerId }: { handle: string; answerId
 
   const toAccount = (to: "/signup" | "/login") => {
     rememberPendingAsk({ handle, text });
-    void navigate(to === "/login" ? { to, search: { redirect: `/ask/u/${handle}` } } : { to });
+    // Either way leads back to this box, where the draft is waiting.
+    void navigate({ to, search: { redirect: `/ask/u/${handle}` } });
   };
   const owner = box.data?.owner;
   const sharedQuestion =

@@ -342,6 +342,7 @@ export default {
       placeholder: "メッセージを送る…",
       send: "送信",
       stamp: "スタンプを送る",
+      report: "{{name}}さんのメッセージを通報",
       joined: "{{name}}さんが参加しました",
       left: "{{name}}さんが退出しました",
       removed: "{{name}}さんが退出させられました",

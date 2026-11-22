@@ -9,7 +9,8 @@ import { Button } from "#/components/ui/button";
 import { Menu } from "#/components/ui/menu";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { EmojiText } from "#/features/emoji";
-import { deviceTimeZone, GazetteerCredit, toLatLng } from "#/features/places";
+import { GazetteerCredit, toLatLng } from "#/features/places";
+import { useAccountTimeZone, useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
 import { compactDuration, formatDistance, kmh } from "#/lib/format";
 import { activityMeta } from "./activity";
@@ -25,9 +26,9 @@ import { VisitCard, visitEmoji, visitName } from "./visit-card";
 export function DayScreen({ date }: { date: string }) {
   const { t, i18n } = useTranslation("history");
   const navigate = useNavigate();
-  const timeZone = deviceTimeZone();
-  const range = dayRange(date);
-  const today = formatDay(new Date());
+  const timeZone = useAccountTimeZone();
+  const range = dayRange(date, timeZone);
+  const today = useAccountToday();
   const [focus, setFocus] = useState<{ id: string; nonce: number } | null>(null);
   const [deleting, setDeleting] = useState(false);
 

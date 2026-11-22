@@ -1,4 +1,5 @@
 import { type common, geo, social } from "@tokuly/api";
+import { accountTimeZone, zonedDate } from "#/lib/account-time";
 import { api } from "#/lib/api";
 
 export const placeClient = () => api().service(geo.PlaceService);
@@ -49,11 +50,6 @@ export function currentPosition(): Promise<LatLng> {
   });
 }
 
-/** The IANA time zone of this device: what "today" and "this month" mean to the person. */
-export function deviceTimeZone(): string {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-}
-
 /**
  * The caller's friends, all pages. Uses the cache entry the live map keeps
  * (`["social", "friends"]`), so the two never ask twice.
@@ -73,7 +69,10 @@ export async function loadFriends(): Promise<social.Friend[]> {
 
 export const FRIENDS_KEY = ["social", "friends"] as const;
 
-/** `YYYY-MM-DD` of a moment on this device's calendar: the form the history API and `/history/<date>` take. */
+/**
+ * `YYYY-MM-DD` of a moment on the account's calendar (its time zone, wherever
+ * the device is): the form the history API and `/history/<date>` take.
+ */
 export function localDate(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  return zonedDate(date.getTime(), accountTimeZone());
 }

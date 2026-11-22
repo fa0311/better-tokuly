@@ -60,8 +60,10 @@ export default {
     noReactions: "まだリアクションしてないよ",
     noReactionsBody: "いいねや絵文字でリアクションしたものが、ここにならぶよ!",
   },
+  more: "シェア・通報",
   share: {
     label: "シェアする",
+    chat: "チャットで送る",
     copy: "リンクをコピー",
     other: "ほかのアプリでシェア",
     copied: "リンクをコピーしたよ!",

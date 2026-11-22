@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
-import type { video } from "@tokuly/api";
+import { common, type video } from "@tokuly/api";
 import { Clapperboard, Pencil } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
+import { SubjectMoreButton } from "#/features/engagement";
 import { channelClient, videoKeys } from "../api";
 import { formatCount } from "../format";
 import { SubscribeButton } from "../subscribe-button";
@@ -144,6 +145,12 @@ export function ChannelLayout({ handle }: { handle: string }) {
                 notificationLevel={channel.viewer?.notificationLevel}
               />
             )}
+            <SubjectMoreButton
+              subject={{ type: common.SubjectType.CHANNEL, id: summary.id }}
+              title={summary.name}
+              label={`${summary.name} (@${summary.handle})`}
+              report={!isOwner}
+            />
           </div>
         </header>
 

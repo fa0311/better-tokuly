@@ -25,6 +25,8 @@ export interface ConversationContextValue {
   edit(message: chat.Message): void;
   forward(message: chat.Message): void;
   remove(message: chat.Message): void;
+  /** Opens the report dialog for someone else's message. */
+  report(message: chat.Message): void;
   /** Scrolls to a message, loading the part of the conversation it is in when needed. */
   jumpTo(messageId: string): void;
   openMedia(target: MediaTarget): void;

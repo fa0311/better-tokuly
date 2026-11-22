@@ -59,8 +59,10 @@ export default {
     noReactions: "No reactions yet",
     noReactionsBody: "Whatever you like or react to with an emoji shows up here!",
   },
+  more: "Share or report",
   share: {
     label: "Share",
+    chat: "Send in chat",
     copy: "Copy link",
     other: "Share to another app",
     copied: "Link copied!",

@@ -5,7 +5,7 @@ import {
   getResolution,
   isValidCell,
 } from "h3-js";
-import type { GeoFeature, GeoFeatures, GeoRing } from "#/features/places";
+import type { GeoFeature, GeoFeatures, GeoRing } from "#/features/map";
 
 /** The whole map as one ring: what the fog covers before anything is uncovered. */
 const WORLD_RING: [number, number][] = [

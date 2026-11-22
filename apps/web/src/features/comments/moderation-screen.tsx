@@ -4,8 +4,18 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import { engagement } from "@tokuly/api";
-import { Ban, Check, EyeOff, MoreVertical, Search, Trash2, UserSearch, X } from "lucide-react";
+import { common, engagement } from "@tokuly/api";
+import {
+  Ban,
+  Check,
+  EyeOff,
+  Flag,
+  MoreVertical,
+  Search,
+  Trash2,
+  UserSearch,
+  X,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -15,6 +25,7 @@ import { LoadMore } from "#/components/ui/load-more";
 import { Menu } from "#/components/ui/menu";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
+import { ReportDialog } from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import {
@@ -113,6 +124,7 @@ function Received({ queue }: { queue?: boolean }) {
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [authorOf, setAuthorOf] = useState<{ commentId: string; name: string } | null>(null);
+  const [reporting, setReporting] = useState<engagement.Comment | null>(null);
   const [confirming, setConfirming] = useState<{
     kind: "delete" | "block";
     comment: engagement.Comment;
@@ -361,6 +373,11 @@ function Received({ queue }: { queue?: boolean }) {
                             }),
                         },
                         {
+                          label: t("engagement:report.action"),
+                          icon: <Flag />,
+                          onSelect: () => setReporting(comment),
+                        },
+                        {
                           label: t("actions.block"),
                           icon: <Ban />,
                           danger: true,
@@ -377,6 +394,14 @@ function Received({ queue }: { queue?: boolean }) {
         </>
       )}
 
+      {reporting && (
+        <ReportDialog
+          subject={{ type: common.SubjectType.COMMENT, id: reporting.id }}
+          open
+          onOpenChange={(open) => !open && setReporting(null)}
+          label={`${authorName(reporting.author)}: ${reporting.text.slice(0, 80)}`}
+        />
+      )}
       <ConfirmDialog
         open={confirming?.kind === "delete"}
         onOpenChange={(open) => !open && setConfirming(null)}

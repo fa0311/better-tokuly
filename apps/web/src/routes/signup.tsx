@@ -7,10 +7,14 @@ import { Button } from "#/components/ui/button";
 import { TextField } from "#/components/ui/field";
 import { api, authClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
+import { parseRedirect } from "#/lib/redirect";
 
 export const Route = createFileRoute("/signup")({
-  validateSearch: (search): { invite?: string } => ({
+  // `redirect`: where a visitor of a public page (`/q/<handle>`, `/join/party/<code>`,
+  // `/share/<token>`) goes back to once the account exists; the map otherwise.
+  validateSearch: (search): { invite?: string; redirect?: string } => ({
     invite: typeof search.invite === "string" ? search.invite : undefined,
+    redirect: parseRedirect(search.redirect),
   }),
   component: SignUp,
 });
@@ -53,7 +57,7 @@ function useHandleCheck(handle: string): HandleState {
 function SignUp() {
   const { t } = useTranslation("auth");
   const navigate = useNavigate();
-  const { invite } = Route.useSearch();
+  const { invite, redirect } = Route.useSearch();
   const [form, setForm] = useState({
     displayName: "",
     handle: "",
@@ -95,7 +99,7 @@ function SignUp() {
         },
       });
       await api().session.adopt(response);
-      await navigate({ to: "/map", replace: true });
+      await navigate({ to: redirect ?? "/map", replace: true });
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -109,7 +113,11 @@ function SignUp() {
       footer={
         <>
           {t("signUp.haveAccount")}{" "}
-          <Link to="/login" className="font-black text-brand underline-offset-4 hover:underline">
+          <Link
+            to="/login"
+            search={{ redirect }}
+            className="font-black text-brand underline-offset-4 hover:underline"
+          >
             {t("signUp.toSignIn")}
           </Link>
         </>

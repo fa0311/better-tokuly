@@ -11,6 +11,17 @@ import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { SelectField } from "#/components/ui/select";
 import { Slider } from "#/components/ui/slider";
 import { EmojiPicker } from "#/features/engagement";
+import {
+  cameraMs,
+  circlePolygon,
+  GeoLayer,
+  MapClick,
+  MapFrame,
+  Pin,
+  useIsDark,
+  useMap,
+  zoomForRadius,
+} from "#/features/map";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { uploadAndProcess } from "#/lib/upload";
@@ -31,17 +42,6 @@ import {
   VISIBILITIES,
   visibilityKey,
 } from "./labels";
-import {
-  cameraMs,
-  circlePolygon,
-  GeoLayer,
-  MapClick,
-  MapFrame,
-  Pin,
-  useIsDark,
-  useMap,
-  zoomForRadius,
-} from "./map-kit";
 
 const DEFAULT_RADIUS = 100;
 /** The kinds of place in the order they are offered. */

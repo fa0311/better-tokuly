@@ -30,6 +30,7 @@ import { Dialog } from "#/components/ui/dialog";
 import { Menu, type MenuAction } from "#/components/ui/menu";
 import { Spinner } from "#/components/ui/spinner";
 import { EmojiText } from "#/features/emoji";
+import { useSubjectMenu } from "#/features/engagement";
 import { StampImage, StampSheet } from "#/features/stamps";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
@@ -275,6 +276,16 @@ export function CommentItem({ comment, focused, focusReply, onReply }: CommentIt
       onSelect: () => setConfirming("block"),
     });
   }
+  // Anyone but its author can report a comment that is up.
+  const reportMenu = useSubjectMenu(
+    { type: common.SubjectType.COMMENT, id: comment.id },
+    {
+      share: false,
+      report: Boolean(viewer) && !viewer?.isAuthor && published,
+      label: `${authorName(comment.author)}: ${comment.text.slice(0, 80)}`,
+    },
+  );
+  actions.push(...reportMenu.actions);
   if (viewer?.canDelete)
     actions.push({
       label: t("actions.delete"),
@@ -554,6 +565,7 @@ export function CommentItem({ comment, focused, focusReply, onReply }: CommentIt
           />
         </Dialog>
       )}
+      {reportMenu.dialogs}
     </article>
   );
 }

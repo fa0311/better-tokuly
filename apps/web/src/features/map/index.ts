@@ -32,6 +32,18 @@
  * `decodePolyline(encoded)` turns the API's encoded polylines into
  * `[lng, lat]` pairs.
  *
+ * A map of your own in a box, with the pieces most screens need:
+ *
+ *   <MapFrame center={{ lat, lng }} zoom={14} className="h-64 rounded-card">
+ *     <GeoLayer id="area" data={geojson} layers={[{ id: "area-fill", type: "fill", paint: { … } }]} />
+ *     <Pin position={{ lat, lng }} onDragEnd={(position) => …}>…any React content…</Pin>   // a pin that can be dragged
+ *     <FitTo points={points} fitKey={date} />
+ *     <MapClick onClick={(position) => …} />
+ *   </MapFrame>
+ *
+ * and `circlePolygon(center, meters)`, `zoomForRadius(meters)`,
+ * `boundsOf(points)`, `cameraMs(ms)` (camera moves that follow ドパガキ度).
+ *
  * `<StaticMapPreview lat lng>` is a picture of the map around a point with a
  * pin on it — for place cards, history entries, location messages and place
  * tags. It is an image, cheap enough for long lists:
@@ -48,6 +60,24 @@
  *
  * A link to `/map?friend=<user id>` opens the live map on that friend.
  */
+
+export {
+  boundsOf,
+  cameraMs,
+  circlePolygon,
+  FitTo,
+  type GeoData,
+  type GeoFeature,
+  type GeoFeatures,
+  type GeoGeometry,
+  GeoLayer,
+  type GeoLayerStyle,
+  type GeoRing,
+  MapClick,
+  MapFrame,
+  Pin,
+  zoomForRadius,
+} from "./kit";
 export {
   DEFAULT_CENTER,
   fitMapToPoints,

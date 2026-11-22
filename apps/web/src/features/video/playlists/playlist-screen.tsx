@@ -6,7 +6,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { toMillis, video } from "@tokuly/api";
+import { common, toMillis, video } from "@tokuly/api";
 import { GripVertical, ListVideo, ListX, Pencil, Play, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -17,6 +17,7 @@ import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { Sortable } from "#/components/ui/sortable";
 import { EmojiText } from "#/features/emoji";
+import { SubjectMoreButton } from "#/features/engagement";
 import { errorMessage } from "#/lib/errors";
 import { nextCursor, playlistClient, videoKeys } from "../api";
 import { formatAge } from "../format";
@@ -241,6 +242,15 @@ export function PlaylistScreen({ playlistId }: { playlistId: string }) {
                   {t("actions.delete")}
                 </Button>
               </>
+            )}
+            {custom && (
+              <SubjectMoreButton
+                subject={{ type: common.SubjectType.PLAYLIST, id: playlist.id }}
+                title={name}
+                label={name}
+                share={playlist.visibility !== common.Visibility.PRIVATE}
+                report={!playlist.isOwner}
+              />
             )}
           </div>
         </div>

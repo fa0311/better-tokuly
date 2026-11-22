@@ -8,13 +8,11 @@ import { Button } from "#/components/ui/button";
 import { TextField } from "#/components/ui/field";
 import { api, authClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
+import { parseRedirect } from "#/lib/redirect";
 
 export const Route = createFileRoute("/login")({
   validateSearch: (search): { redirect?: string } => ({
-    redirect:
-      typeof search.redirect === "string" && search.redirect.startsWith("/")
-        ? search.redirect
-        : undefined,
+    redirect: parseRedirect(search.redirect),
   }),
   component: Login,
 });
@@ -78,7 +76,12 @@ function Login() {
       footer={
         <>
           {t("signIn.noAccount")}{" "}
-          <Link to="/signup" className="font-black text-brand underline-offset-4 hover:underline">
+          {/* Whoever came from a public page comes back to it, whichever way they get an account. */}
+          <Link
+            to="/signup"
+            search={{ redirect }}
+            className="font-black text-brand underline-offset-4 hover:underline"
+          >
             {t("signIn.toSignUp")}
           </Link>
         </>

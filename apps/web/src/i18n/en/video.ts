@@ -338,6 +338,7 @@ export default {
       placeholder: "Send a message…",
       send: "Send",
       stamp: "Send a stamp",
+      report: "Report {{name}}'s message",
       joined: "{{name}} joined",
       left: "{{name}} left",
       removed: "{{name}} was removed",

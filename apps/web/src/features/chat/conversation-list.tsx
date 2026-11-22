@@ -11,6 +11,7 @@ import { Menu } from "#/components/ui/menu";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { EmojiText } from "#/features/emoji";
+import { FreeFriendsStrip } from "#/features/plans";
 import { cn } from "#/lib/cn";
 import { useMe } from "#/stores/session";
 import { useConversationActions } from "./actions";
@@ -100,6 +101,8 @@ export function ConversationList({
         className="min-h-0 flex-1 overflow-y-auto px-2 pb-32 md:pb-4"
         data-testid="conversation-list"
       >
+        {/* Who is free right now: "あそぼ!" starts right where the conversations are. */}
+        {filter === "inbox" && !searching && <FreeFriendsStrip bare quiet className="px-2 pb-3" />}
         {list.isPending ? (
           <div className="flex flex-col gap-2 px-2">
             {[0, 1, 2, 3, 4].map((index) => (

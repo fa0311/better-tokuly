@@ -1,10 +1,12 @@
-import { toMillis, video } from "@tokuly/api";
-import { SendHorizontal, Smile } from "lucide-react";
+import { common, toMillis, video } from "@tokuly/api";
+import { Flag, SendHorizontal, Smile } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
+import { EmojiText } from "#/features/emoji";
+import { ReportDialog } from "#/features/engagement";
 import { StampImage, StampPicker } from "#/features/stamps";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
@@ -59,6 +61,7 @@ export function PartyChat({
   const pinned = useRef(true);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const [reporting, setReporting] = useState<video.PartyMessage | null>(null);
 
   const entries: Entry[] = [
     ...messages.map(
@@ -139,6 +142,18 @@ export function PartyChat({
                     </span>
                   )}
                   <span className="shrink-0 text-ink-faint">{time(entry.atMs)}</span>
+                  {/* Party messages are not kept as reportable subjects: the report is about who wrote it, quoting it. */}
+                  {!mine && sender?.user && (
+                    <button
+                      type="button"
+                      aria-label={t("party.chat.report", { name: sender.name })}
+                      title={t("party.chat.report", { name: sender.name })}
+                      className="grid size-6 shrink-0 place-items-center rounded-full text-ink-faint hover:bg-surface-2 hover:text-ink"
+                      onClick={() => setReporting(message)}
+                    >
+                      <Flag className="size-3.5" />
+                    </button>
+                  )}
                 </p>
                 {message.text && (
                   <p
@@ -147,7 +162,7 @@ export function PartyChat({
                       mine ? "bg-brand text-on-brand" : "bg-surface-2",
                     )}
                   >
-                    {message.text}
+                    <EmojiText text={message.text} />
                   </p>
                 )}
                 {message.stamp && <StampImage stamp={message.stamp} size={96} className="mt-1" />}
@@ -190,6 +205,14 @@ export function PartyChat({
           <SendHorizontal className="size-4" />
         </Button>
       </form>
+      {reporting?.sender?.user && (
+        <ReportDialog
+          subject={{ type: common.SubjectType.USER, id: reporting.sender.user.id }}
+          open
+          onOpenChange={(open) => !open && setReporting(null)}
+          label={`${reporting.sender.name}: ${reporting.text || t("party.chat.stamp")}`}
+        />
+      )}
     </div>
   );
 }

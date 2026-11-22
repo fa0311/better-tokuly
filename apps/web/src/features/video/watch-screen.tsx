@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { CommentThread } from "#/features/comments";
+import { SubjectMoreButton } from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { feedClient, playlistClient, useVideo, videoClient, videoKeys } from "./api";
@@ -573,6 +574,14 @@ function Actions({
         <ActionButton icon={<PartyPopper className="size-4" />} onClick={onParty}>
           {t("party.start")}
         </ActionButton>
+      )}
+      {published && (
+        <SubjectMoreButton
+          subject={{ type: common.SubjectType.VIDEO, id: summary.id }}
+          title={summary.title}
+          label={summary.title}
+          report={!item.viewer?.isOwner}
+        />
       )}
       {item.viewer?.isOwner && (
         <Link

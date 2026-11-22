@@ -28,6 +28,7 @@ import {
   ShareButton,
   useEngagement,
 } from "#/features/engagement";
+import { circlePolygon, GeoLayer, MapFrame, Pin, useIsDark, zoomForRadius } from "#/features/map";
 import { api } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { compactAge, compactDuration, distanceMeters } from "#/lib/format";
@@ -44,7 +45,6 @@ import {
 import { CheckInDialog } from "./check-in-dialog";
 import { GazetteerCredit } from "./credit";
 import { labelMeta, visibilityKey } from "./labels";
-import { circlePolygon, GeoLayer, MapFrame, Pin, useIsDark, zoomForRadius } from "./map-kit";
 import { PlaceBubble } from "./place-row";
 
 /** A friend counts as "here now" while their pin is this fresh. */

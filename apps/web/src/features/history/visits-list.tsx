@@ -9,6 +9,7 @@ import { EmptyState, Skeleton } from "#/components/ui/page";
 import { SelectField } from "#/components/ui/select";
 import { Tabs } from "#/components/ui/tabs";
 import { GazetteerCredit, placeClient, placeEmoji, placeKeys } from "#/features/places";
+import { shiftDate, useAccountTimeZone, useAccountToday, zonedMoment } from "#/lib/account-time";
 import { historyClient, historyKeys } from "./api";
 import { dayRange, formatDay } from "./dates";
 import { VisitCard } from "./visit-card";
@@ -19,7 +20,8 @@ const ANY_PLACE = "any";
 /** Every visit, newest first, narrowed by when and by which of my places. */
 export function VisitsList() {
   const { t, i18n } = useTranslation("history");
-  const today = formatDay(new Date());
+  const zone = useAccountTimeZone();
+  const today = useAccountToday();
   const [period, setPeriod] = useState<Period>("all");
   const [placeId, setPlaceId] = useState(ANY_PLACE);
   const [customFrom, setCustomFrom] = useState(today);
@@ -30,13 +32,13 @@ export function VisitsList() {
     queryFn: () => placeClient().listMyPlaces({}),
   });
 
-  const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  // Days begin at the account's midnight.
+  const startOf = (day: string) => new Date(zonedMoment(day, 0, zone));
   const from: Date | null =
     period === "week"
-      ? new Date(startOfToday.getFullYear(), startOfToday.getMonth(), startOfToday.getDate() - 6)
+      ? startOf(shiftDate(today, -6))
       : period === "month"
-        ? new Date(now.getFullYear(), now.getMonth(), 1)
+        ? startOf(`${today.slice(0, 7)}-01`)
         : period === "custom"
           ? (dayRange(customFrom)?.from ?? null)
           : null;

@@ -3,17 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { Slider } from "#/components/ui/slider";
-import {
-  cameraMs,
-  DEFAULT_CENTER,
-  FitTo,
-  GeoLayer,
-  type LatLng,
-  MapFrame,
-  Pin,
-  useIsDark,
-  useMap,
-} from "#/features/places";
+import { cameraMs, FitTo, GeoLayer, MapFrame, Pin, useIsDark, useMap } from "#/features/map";
+import { DEFAULT_CENTER, type LatLng } from "#/features/places";
 import { dopamineFactor } from "#/lib/appearance";
 import { cn } from "#/lib/cn";
 import { useMe } from "#/stores/session";

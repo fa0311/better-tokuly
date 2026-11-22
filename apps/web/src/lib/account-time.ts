@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useMe } from "#/stores/session";
+import { useMe, useSessionStore } from "#/stores/session";
 
 /**
  * Time as the account sees it.
@@ -123,6 +123,27 @@ export function watchToday(zone: string, onChange: (date: string) => void): () =
       window.removeEventListener("focus", check);
     }
   };
+}
+
+/**
+ * The signed-in account's time zone, read once (outside React, or where a
+ * date is only needed at the moment something happens). Components that show
+ * "today" use the hooks below, which follow midnight.
+ */
+export function accountTimeZone(): string {
+  const { state } = useSessionStore.getState();
+  return (state.status === "signedIn" && state.me.timeZone) || DEFAULT_TIME_ZONE;
+}
+
+/** Today's date (`YYYY-MM-DD`) on the account's calendar, at the moment `ms`. */
+export function accountToday(ms: number = Date.now()): string {
+  return zonedDate(ms, accountTimeZone());
+}
+
+/** The calendar day `days` after (or before) a `YYYY-MM-DD` date. */
+export function shiftDate(date: string, days: number): string {
+  const [year = 1970, month = 1, day = 1] = date.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
 }
 
 /** The signed-in account's time zone. */

@@ -56,7 +56,7 @@ export function ProfileImages({ me }: { me: identity.Me }) {
       setPicked(null);
       toast.success(t(`profile.${slot}.changed`));
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "settings" })),
   });
 
   const remove = useMutation({
@@ -70,7 +70,7 @@ export function ProfileImages({ me }: { me: identity.Me }) {
       closeRemove();
       toast.success(t(`profile.${slot}.removed`));
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "settings" })),
   });
 
   const pick = (slot: Slot) => (event: ChangeEvent<HTMLInputElement>) => {

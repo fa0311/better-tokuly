@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { Avatar, type AvatarProps } from "#/components/ui/avatar";
 import { Menu, type MenuAction } from "#/components/ui/menu";
 import { Skeleton } from "#/components/ui/page";
+import { useSubjectMenu } from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { playlistClient, videoKeys } from "./api";
@@ -246,10 +247,16 @@ export function VideoCard({
     },
     onError: (error) => toast.error(errorMessage(error)),
   });
+  const more = useSubjectMenu(
+    { type: common.SubjectType.VIDEO, id: summary.id },
+    { title: summary.title, label: summary.title },
+  );
   const menu: MenuAction[] = [
     { label: t("save.watchLater"), icon: <Clock3 />, onSelect: () => watchLater.mutate() },
     { label: t("save.toPlaylist"), icon: <ListPlus />, onSelect: () => openSaveDialog(summary) },
     ...actions,
+    // Send in chat, copy the link, report.
+    ...more.actions,
   ];
 
   const link = {
@@ -325,6 +332,7 @@ export function VideoCard({
           actions={menu}
         />
       </div>
+      {more.dialogs}
     </article>
   );
 }

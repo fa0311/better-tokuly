@@ -179,6 +179,7 @@ export default {
     pinned: "{{actor}}がメッセージをピン留めしました",
   },
   message: {
+    report: "通報する",
     reply: "返信",
     copy: "コピー",
     edit: "編集",

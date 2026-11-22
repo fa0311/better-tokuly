@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { engagement } from "@tokuly/api";
-import { Link2, Share2, Upload } from "lucide-react";
+import { Link2, MessageCircle, Share2, Upload } from "lucide-react";
+import { lazy, Suspense, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Menu } from "#/components/ui/menu";
@@ -16,6 +17,36 @@ export interface ShareButtonProps {
   /** Show how often the subject was shared next to the icon. */
   showCount?: boolean;
   className?: string;
+}
+
+// Loaded when someone first sends to a chat: chat itself uses this feature (reports, links).
+const ShareToChat = lazy(() =>
+  import("#/features/chat").then((module) => ({ default: module.ShareToChat })),
+);
+
+/**
+ * "Send to a friend" for any subject, for menus that have their own share
+ * entry: render `sheet` once and call `open()` from the menu item.
+ *
+ *   const toChat = useShareToChat(subject, video.title);
+ *   …{ label: t("engagement:share.chat"), onSelect: toChat.open }…
+ *   {toChat.sheet}
+ */
+export function useShareToChat(subject: Subject, title?: string) {
+  const [open, setOpen] = useState(false);
+  // Kept mounted after the first opening, so the sheet can animate out.
+  const [used, setUsed] = useState(false);
+  return {
+    open: () => {
+      setUsed(true);
+      setOpen(true);
+    },
+    sheet: used ? (
+      <Suspense fallback={null}>
+        <ShareToChat open={open} onOpenChange={setOpen} share={{ subject }} title={title} />
+      </Suspense>
+    ) : null,
+  };
 }
 
 /** Puts text on the clipboard, also where the async clipboard API is unavailable (older browsers, a lost focus). */
@@ -53,15 +84,16 @@ export function useCopySubjectLink(subject: Subject): () => Promise<void> {
 }
 
 /**
- * Shares a subject: the link is copied, or handed to the device's share
- * sheet where there is one. Either way the share is recorded, which is what
- * the share count shows.
+ * Shares a subject: sent to a friend in chat, copied as a link, or handed to
+ * the device's share sheet where there is one. Every way is recorded, which
+ * is what the share count shows.
  */
 export function ShareButton({ subject, title, showCount, className }: ShareButtonProps) {
   const { t, i18n } = useTranslation("engagement");
   const queryClient = useQueryClient();
   const { data } = useEngagement(subject);
   const copyLink = useCopySubjectLink(subject);
+  const toChat = useShareToChat(subject, title);
   const canShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
 
   const shareOut = async () => {
@@ -75,30 +107,33 @@ export function ShareButton({ subject, title, showCount, className }: ShareButto
     }
   };
 
-  const button = (
-    <button
-      type="button"
-      aria-label={t("share.label")}
-      onClick={canShare ? undefined : () => void copyLink()}
-      className={cn(
-        "inline-flex h-9 min-w-9 items-center justify-center gap-1.5 rounded-full px-2 text-sm font-black text-ink-soft transition-colors hover:bg-surface-2 hover:text-ink",
-        className,
-      )}
-    >
-      <Share2 className="size-[18px]" />
-      {showCount && data && data.shareCount > 0 && (
-        <span className="tabular-nums">{compactCount(data.shareCount, i18n.language)}</span>
-      )}
-    </button>
-  );
-  if (!canShare) return button;
   return (
-    <Menu
-      trigger={button}
-      actions={[
-        { label: t("share.copy"), icon: <Link2 />, onSelect: () => void copyLink() },
-        { label: t("share.other"), icon: <Upload />, onSelect: () => void shareOut() },
-      ]}
-    />
+    <>
+      <Menu
+        trigger={
+          <button
+            type="button"
+            aria-label={t("share.label")}
+            className={cn(
+              "inline-flex h-9 min-w-9 items-center justify-center gap-1.5 rounded-full px-2 text-sm font-black text-ink-soft transition-colors hover:bg-surface-2 hover:text-ink",
+              className,
+            )}
+          >
+            <Share2 className="size-[18px]" />
+            {showCount && data && data.shareCount > 0 && (
+              <span className="tabular-nums">{compactCount(data.shareCount, i18n.language)}</span>
+            )}
+          </button>
+        }
+        actions={[
+          { label: t("share.chat"), icon: <MessageCircle />, onSelect: toChat.open },
+          { label: t("share.copy"), icon: <Link2 />, onSelect: () => void copyLink() },
+          ...(canShare
+            ? [{ label: t("share.other"), icon: <Upload />, onSelect: () => void shareOut() }]
+            : []),
+        ]}
+      />
+      {toChat.sheet}
+    </>
   );
 }

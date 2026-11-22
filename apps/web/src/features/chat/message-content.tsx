@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { type chat, media } from "@tokuly/api";
 import { CornerUpRight, MapPin, Play } from "lucide-react";
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { EmojiText } from "#/features/emoji";
 import { resolveTargetPath, useOpenTargetPath } from "#/features/notifications";
@@ -11,6 +11,11 @@ import { FileRow, isVisual, VisualTile, VoicePlayer } from "./media-parts";
 import { displayName } from "./people";
 import { replyText } from "./preview";
 import { tokenize } from "./text";
+
+// The map library is big: it loads with the first location a conversation shows.
+const StaticMapPreview = lazy(() =>
+  import("#/features/map").then((module) => ({ default: module.StaticMapPreview })),
+);
 
 /** What goes inside a message: its text, pictures, quote, preview… one component per part. */
 
@@ -221,6 +226,14 @@ export function LocationCard({
   onOpen(): void;
 }) {
   const { t } = useTranslation("chat");
+  const placeholder = (
+    <span className="relative block h-24 bg-[linear-gradient(135deg,var(--mint)_0%,var(--sky)_100%)]">
+      <span className="absolute inset-0 opacity-30 [background-image:linear-gradient(var(--surface)_2px,transparent_2px),linear-gradient(90deg,var(--surface)_2px,transparent_2px)] [background-size:28px_28px]" />
+      <span className="sticker-sm absolute top-1/2 left-1/2 grid size-11 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-pink text-white">
+        <MapPin className="size-6" />
+      </span>
+    </span>
+  );
   return (
     <button
       type="button"
@@ -228,12 +241,19 @@ export function LocationCard({
       className="block w-60 max-w-full overflow-hidden rounded-2xl border-2 border-line bg-surface text-left text-ink"
       data-testid="location-card"
     >
-      <span className="relative block h-24 bg-[linear-gradient(135deg,var(--mint)_0%,var(--sky)_100%)]">
-        <span className="absolute inset-0 opacity-30 [background-image:linear-gradient(var(--surface)_2px,transparent_2px),linear-gradient(90deg,var(--surface)_2px,transparent_2px)] [background-size:28px_28px]" />
-        <span className="sticker-sm absolute top-1/2 left-1/2 grid size-11 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-pink text-white">
-          <MapPin className="size-6" />
-        </span>
-      </span>
+      {location.position ? (
+        // The real map around the place, as a picture (the map library loads when one is first shown).
+        <Suspense fallback={placeholder}>
+          <StaticMapPreview
+            lat={location.position.lat}
+            lng={location.position.lng}
+            label={location.name || t("location.shared")}
+            className="aspect-auto h-24 rounded-none"
+          />
+        </Suspense>
+      ) : (
+        placeholder
+      )}
       <span className="block px-3 py-2">
         <span className="block truncate text-sm font-black">
           {location.name || t("location.shared")}

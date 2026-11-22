@@ -17,7 +17,7 @@ export function hasEnded(status: plans.FreeStatus, now: number): boolean {
 /** A time of day, with the day in front when it is not today: "18:00" / "11月28日(土) 0:00". */
 export function clock(date: Date, language: string, now: number): string {
   const time = formatTime(date, language);
-  return ymd(date) === todayYmd(new Date(now))
+  return todayYmd(date) === todayYmd(new Date(now))
     ? time
     : `${formatDay(ymd(date), language, new Date(now))} ${time}`;
 }

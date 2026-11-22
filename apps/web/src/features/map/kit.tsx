@@ -1,18 +1,18 @@
-import type {
-  GeoJSONSource,
-  LayerSpecification,
-  LngLatBoundsLike,
-  MapMouseEvent,
-} from "maplibre-gl";
+import type { LayerSpecification, LngLatBoundsLike, MapMouseEvent } from "maplibre-gl";
 import { Marker } from "maplibre-gl";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { MapView, useMap } from "#/features/map/map-view";
 import { dopamineFactor } from "#/lib/appearance";
 import { cn } from "#/lib/cn";
-import type { LatLng } from "./api";
+import { type MapGeoJson, type MapPoint, MapView, useMap, useMapLayer } from "./map-view";
 
-export { useIsDark, useMap } from "#/features/map/map-view";
+/*
+ * The pieces features draw their own maps with: a framed map, GeoJSON
+ * layers, a draggable pin, taps, fitting the camera, and a little geometry.
+ * (They started in the places feature; history and footprints use them too.)
+ */
+
+type LatLng = MapPoint;
 
 /**
  * A box with the Tokuly map in it. `<MapView>` fills its nearest positioned
@@ -62,8 +62,6 @@ export interface GeoFeatures<G extends GeoGeometry = GeoGeometry> {
 /** What a `<GeoLayer>` draws. */
 export type GeoData = GeoFeature | GeoFeatures;
 
-type SourceData = Parameters<GeoJSONSource["setData"]>[0];
-
 /** One style layer of a `<GeoLayer>`: a MapLibre layer without its source, which the component fills in. */
 export interface GeoLayerStyle {
   id: string;
@@ -75,9 +73,8 @@ export interface GeoLayerStyle {
 
 /**
  * Draws GeoJSON on the map with the given style layers (ids must be unique
- * on the map). The basemap style is replaced when the theme or language
- * changes, which drops everything added to it, so the source and layers are
- * put back whenever they are missing.
+ * on the map): `useMapLayer` as a component, with the GeoJSON spelled out
+ * in the app's own types. It survives theme and language changes.
  */
 export function GeoLayer({
   id,
@@ -88,43 +85,7 @@ export function GeoLayer({
   data: GeoData;
   layers: GeoLayerStyle[];
 }) {
-  const map = useMap();
-  const latest = useRef({ data, layers });
-  latest.current = { data, layers };
-
-  useEffect(() => {
-    const ensure = () => {
-      try {
-        if (!map.getSource(id))
-          map.addSource(id, { type: "geojson", data: latest.current.data as SourceData });
-        for (const layer of latest.current.layers) {
-          if (!map.getLayer(layer.id)) map.addLayer({ ...layer, source: id } as LayerSpecification);
-        }
-      } catch {
-        // The new style is still loading; `styledata` fires again when it is in.
-      }
-    };
-    ensure();
-    map.on("styledata", ensure);
-    map.on("style.load", ensure);
-    return () => {
-      map.off("styledata", ensure);
-      map.off("style.load", ensure);
-      // The map may already be gone when the page unmounts.
-      try {
-        for (const layer of latest.current.layers)
-          if (map.getLayer(layer.id)) map.removeLayer(layer.id);
-        if (map.getSource(id)) map.removeSource(id);
-      } catch {
-        // Removed together with the map.
-      }
-    };
-  }, [map, id]);
-
-  useEffect(() => {
-    (map.getSource(id) as GeoJSONSource | undefined)?.setData(data as SourceData);
-  }, [map, id, data]);
-
+  useMapLayer(id, data as MapGeoJson, layers as Omit<LayerSpecification, "source">[]);
   return null;
 }
 

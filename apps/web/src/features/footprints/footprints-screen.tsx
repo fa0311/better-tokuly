@@ -8,13 +8,13 @@ import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Page, Skeleton } from "#/components/ui/page";
+import { useMap } from "#/features/map";
 import {
   DEFAULT_CENTER,
   GazetteerCredit,
   type LatLng,
   locationClient,
   toLatLng,
-  useMap,
 } from "#/features/places";
 import { profileClient } from "#/lib/api";
 import { useMe } from "#/stores/session";

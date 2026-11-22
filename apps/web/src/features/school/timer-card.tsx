@@ -10,6 +10,7 @@ import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { TextField } from "#/components/ui/field";
 import { Skeleton } from "#/components/ui/page";
+import { useAccountTimeZone } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
 import { keys, refresh, studyClient, toastError, useSchoolSettings } from "./api";
 import { studyTime, timerText } from "./dates";
@@ -373,6 +374,7 @@ function StopDialog({ session, onClose }: { session: school.StudySession; onClos
 /** Who cheered during a session. */
 export function CheersDialog({ sessionId, onClose }: { sessionId: string; onClose(): void }) {
   const { t, i18n } = useTranslation("school");
+  const zone = useAccountTimeZone();
   const cheers = useQuery({
     queryKey: keys.cheers(sessionId),
     queryFn: async () =>
@@ -393,9 +395,11 @@ export function CheersDialog({ sessionId, onClose }: { sessionId: string; onClos
                 {t("study.cheerFrom", { name: cheer.from?.displayName ?? "" })}
               </span>
               <span className="text-xs text-ink-faint">
+                {/* The account's clock, like every other time of the school day. */}
                 {toDate(cheer.createdAt)?.toLocaleTimeString(i18n.language, {
                   hour: "numeric",
                   minute: "2-digit",
+                  timeZone: zone,
                 })}
               </span>
             </li>

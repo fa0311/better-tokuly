@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { PlaceRow, placeClient, placeKeys } from "#/features/places";
+import { shiftDate, useAccountTimeZone, useAccountToday, zonedMoment } from "#/lib/account-time";
 import { compactDuration, formatDistance, kmh } from "#/lib/format";
 import { activityMeta } from "./activity";
 import { historyClient, historyKeys } from "./api";
@@ -23,15 +24,17 @@ const flag = (code: string) =>
 export function StatsPanel() {
   const { t } = useTranslation("history");
   const [period, setPeriod] = useState<Period>("month");
-  const now = new Date();
-  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  // Days begin at the account's midnight.
+  const zone = useAccountTimeZone();
+  const today = useAccountToday();
+  const startOf = (day: string) => new Date(zonedMoment(day, 0, zone));
   const from: Date | null =
     period === "week"
-      ? new Date(midnight.getFullYear(), midnight.getMonth(), midnight.getDate() - 6)
+      ? startOf(shiftDate(today, -6))
       : period === "month"
-        ? new Date(midnight.getFullYear(), midnight.getMonth(), midnight.getDate() - 29)
+        ? startOf(shiftDate(today, -29))
         : period === "year"
-          ? new Date(now.getFullYear(), 0, 1)
+          ? startOf(`${today.slice(0, 4)}-01-01`)
           : null;
 
   const stats = useQuery({

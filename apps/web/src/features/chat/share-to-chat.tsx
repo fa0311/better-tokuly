@@ -24,7 +24,7 @@ export interface ShareToChatProps {
    * (`{ subject }`: a note, a video, a place…), which is sent as its link and
    * counted as a share of it. Chat shows either with its preview.
    */
-  share: { url: string } | { subject: common.SubjectRef };
+  share: { url: string } | { subject: Pick<common.SubjectRef, "type" | "id"> };
   /** Reminds the person what they are sending ("ノート: 放課後の空"); optional. */
   title?: string;
   /** Called once it was sent, with the conversations it went to. */

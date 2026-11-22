@@ -1,7 +1,9 @@
+import { accountTimeZone, shiftDate, zonedMoment } from "#/lib/account-time";
+
 /**
- * Calendar days of the history, as `YYYY-MM-DD` strings in the device's own
- * time zone (the same zone the requests name, so "today" means the same on
- * the screen and on the server).
+ * Calendar days of the history, as `YYYY-MM-DD` strings on the account's
+ * calendar (its time zone — the same zone the requests name, so "today"
+ * means the same on the screen and on the server, wherever the device is).
  */
 
 const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -31,14 +33,23 @@ export function shiftDay(date: string, days: number): string {
   return formatDay(parsed);
 }
 
-/** The moments a day begins and ends (the start of the next day). */
-export function dayRange(date: string): { from: Date; to: Date } | null {
-  const from = parseDay(date);
-  if (!from) return null;
-  const to = new Date(from);
-  to.setDate(to.getDate() + 1);
-  return { from, to };
+/** The moments a day begins and ends (the start of the next day) in `zone`: the account's unless given. */
+export function dayRange(
+  date: string,
+  zone: string = accountTimeZone(),
+): { from: Date; to: Date } | null {
+  if (!parseDay(date)) return null;
+  return {
+    from: new Date(zonedMoment(date, 0, zone)),
+    to: new Date(zonedMoment(shiftDate(date, 1), 0, zone)),
+  };
 }
+
+/** The month a `YYYY-MM-DD` day is in. */
+export const monthOfDay = (date: string): Month => ({
+  year: Number(date.slice(0, 4)),
+  month: Number(date.slice(5, 7)),
+});
 
 export interface Month {
   year: number;

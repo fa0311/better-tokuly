@@ -7,7 +7,8 @@ import { ConfirmDialog } from "#/components/ui/confirm";
 import { TextField } from "#/components/ui/field";
 import { SwitchRow } from "#/components/ui/switch";
 import { Tabs } from "#/components/ui/tabs";
-import { deviceTimeZone, placeKeys } from "#/features/places";
+import { placeKeys } from "#/features/places";
+import { accountTimeZone, useAccountToday } from "#/lib/account-time";
 import { errorMessage } from "#/lib/errors";
 import { historyClient, historyKeys } from "./api";
 import { dayRange, formatDay } from "./dates";
@@ -35,7 +36,7 @@ export function DeleteHistoryDialog({
 }) {
   const { t } = useTranslation("history");
   const queryClient = useQueryClient();
-  const today = formatDay(new Date());
+  const today = useAccountToday();
   const [scope, setScope] = useState<Scope>("range");
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
@@ -64,7 +65,7 @@ export function DeleteHistoryDialog({
       if (date) {
         // The day on screen is empty now; the re-read adds back what remains (a memo stays).
         queryClient.setQueryData(
-          historyKeys.day(date, deviceTimeZone()),
+          historyKeys.day(date, accountTimeZone()),
           create(geo.GetDayResponseSchema, {}),
         );
         queryClient.setQueryData(historyKeys.route(date), create(geo.GetRouteResponseSchema, {}));

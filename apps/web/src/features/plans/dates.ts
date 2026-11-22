@@ -1,3 +1,5 @@
+import { accountToday } from "#/lib/account-time";
+
 /**
  * Days and times for plans. A day without a time is a `YYYY-MM-DD` string
  * (the API's `*_date` fields) and always means that day where the person is;
@@ -10,8 +12,9 @@ export function ymd(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+/** Today on the account's calendar (its time zone, not the device's): what the API's dates are compared with. */
 export function todayYmd(now: Date = new Date()): string {
-  return ymd(now);
+  return accountToday(now.getTime());
 }
 
 /** Local midnight of a `YYYY-MM-DD` day; `null` when the text is not a real day. */

@@ -20,6 +20,12 @@ import { SetFreeSheet } from "./set-free-sheet";
 export interface FreeFriendsStripProps {
   /** Leave the heading (and the link to the ひま page) out, for places that have their own. */
   bare?: boolean;
+  /**
+   * For a place where the strip is a guest (the map's friend list, the chat
+   * list): while nobody is free it is one slim "ひま!" row instead of the
+   * strip with its empty state.
+   */
+  quiet?: boolean;
   className?: string;
 }
 
@@ -29,7 +35,7 @@ export interface FreeFriendsStripProps {
  * status they may see, each with an "あそぼ!" button that answers in one tap.
  * It keeps itself current and drops statuses the moment they run out.
  */
-export function FreeFriendsStrip({ bare, className }: FreeFriendsStripProps) {
+export function FreeFriendsStrip({ bare, quiet, className }: FreeFriendsStripProps) {
   const { t } = useTranslation("plans");
   const me = useMe();
   const now = useNow(15_000);
@@ -53,6 +59,41 @@ export function FreeFriendsStrip({ bare, className }: FreeFriendsStripProps) {
       { onSuccess: (response) => setOpened({ userId, draft: response.planDraft }) },
     );
   };
+
+  const sheets = (
+    <>
+      <SetFreeSheet open={setting} onOpenChange={setSetting} current={mine} />
+      <FreeFriendSheet
+        status={openedStatus}
+        draft={opened?.draft}
+        onOpenChange={(open) => !open && setOpened(undefined)}
+      />
+    </>
+  );
+
+  if (quiet && !mine && statuses.length === 0) {
+    // Still loading: nothing yet, so the row does not flash before a full strip.
+    if (board.isPending) return null;
+    return (
+      <section aria-label={t("free.strip.title")} className={className}>
+        <button
+          type="button"
+          onClick={() => setSetting(true)}
+          className="pressable sticker-sm flex h-12 w-full items-center gap-2.5 rounded-full bg-surface px-4 text-left"
+        >
+          <span className="text-xl" aria-hidden>
+            🙌
+          </span>
+          <span className="shrink-0 font-black">{t("free.strip.set")}</span>
+          <span className="min-w-0 flex-1 truncate text-xs font-bold text-ink-soft">
+            {t("free.strip.setHint")}
+          </span>
+          <Plus className="size-5 shrink-0 text-ink-soft" />
+        </button>
+        {sheets}
+      </section>
+    );
+  }
 
   return (
     <section aria-label={t("free.strip.title")} className={className}>
@@ -137,12 +178,7 @@ export function FreeFriendsStrip({ bare, className }: FreeFriendsStripProps) {
         )}
       </ul>
 
-      <SetFreeSheet open={setting} onOpenChange={setSetting} current={mine} />
-      <FreeFriendSheet
-        status={openedStatus}
-        draft={opened?.draft}
-        onOpenChange={(open) => !open && setOpened(undefined)}
-      />
+      {sheets}
     </section>
   );
 }

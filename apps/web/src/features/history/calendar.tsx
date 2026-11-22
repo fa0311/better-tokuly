@@ -5,18 +5,20 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { EmptyState, Skeleton } from "#/components/ui/page";
-import { deviceTimeZone, GazetteerCredit } from "#/features/places";
+import { GazetteerCredit } from "#/features/places";
+import { useAccountTimeZone, useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
 import { formatDistance } from "#/lib/format";
 import { historyClient, historyKeys } from "./api";
-import { formatDay, type Month, monthGrid, monthOf, parseDay, shiftMonth } from "./dates";
+import { formatDay, type Month, monthGrid, monthOfDay, parseDay, shiftMonth } from "./dates";
 
 /** The month at a glance: active days stand out, and each leads to its diary page. */
 export function HistoryCalendar() {
   const { t, i18n } = useTranslation("history");
-  const timeZone = deviceTimeZone();
-  const thisMonth = monthOf(new Date());
-  const today = formatDay(new Date());
+  // The account's calendar: its "today" and its months, wherever the device is.
+  const timeZone = useAccountTimeZone();
+  const today = useAccountToday();
+  const thisMonth = monthOfDay(today);
   const [month, setMonth] = useState<Month>(thisMonth);
   const isCurrent = month.year === thisMonth.year && month.month === thisMonth.month;
 

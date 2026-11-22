@@ -9,6 +9,7 @@ import { LogoMark } from "#/components/ui/logo";
 import { PaneSpinner } from "#/components/ui/spinner";
 import { errorMessage } from "#/lib/errors";
 import { compactAge, compactDuration, kmh } from "#/lib/format";
+import { useSessionStatus } from "#/stores/session";
 import { locationClient, useNow } from "./data";
 import { MapPin, MapView, useMap } from "./map-view";
 import { MOVING_SPEED_MPS, STALE_AFTER_MS } from "./model";
@@ -29,6 +30,7 @@ function Follow({ lat, lng }: { lat: number; lng: number }) {
  * share has ended.
  */
 export function ShareScreen({ token }: { token: string }) {
+  const signedIn = useSessionStatus() === "signedIn";
   const { t } = useTranslation("map");
   const queryClient = useQueryClient();
   const now = useNow(10_000);
@@ -219,8 +221,10 @@ export function ShareScreen({ token }: { token: string }) {
       </header>
 
       <footer className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center p-4 pb-safe">
+        {/* A visitor who makes an account comes back to the share they were looking at. */}
         <Link
-          to="/"
+          to={signedIn ? "/map" : "/signup"}
+          search={signedIn ? undefined : { redirect: `/share/${token}` }}
           className="glass sticker-sm pressable pointer-events-auto mb-4 flex h-11 items-center gap-2 rounded-full px-4 text-sm font-black"
         >
           <LogoMark className="size-6" /> {t("public.cta")}

@@ -96,7 +96,6 @@ export function LocationShareDialog({
                 lat={chosen ? chosen.lat : start.lat}
                 lng={chosen ? chosen.lng : start.lng}
                 onMove={setChosen}
-                language={i18n.language}
               />
             </Suspense>
           )}
@@ -159,7 +158,7 @@ export function LocationViewDialog({
       <div className="h-72 overflow-hidden rounded-card border-2 border-line bg-surface-2">
         {location !== null && (
           <Suspense fallback={<PaneSpinner />}>
-            <LocationMap lat={position.lat} lng={position.lng} language={i18n.language} />
+            <LocationMap lat={position.lat} lng={position.lng} />
           </Suspense>
         )}
       </div>

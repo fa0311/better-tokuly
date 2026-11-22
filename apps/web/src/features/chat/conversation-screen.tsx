@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { chat, type common, errorReason } from "@tokuly/api";
+import { chat, common, errorReason } from "@tokuly/api";
 import {
   type DragEvent,
   type HTMLAttributes,
@@ -15,6 +15,7 @@ import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
 import { EmptyState } from "#/components/ui/page";
 import { PaneSpinner } from "#/components/ui/spinner";
+import { ReportDialog } from "#/features/engagement";
 import { StampSheet } from "#/features/stamps";
 import { cn } from "#/lib/cn";
 import { realtime } from "#/lib/realtime";
@@ -64,6 +65,7 @@ import { MediaPanel, PinnedPanel, SearchPanel, SidePanel } from "./panels";
 import { displayName } from "./people";
 import { PovRequestDialog } from "./pov";
 import { PovCamera } from "./pov-camera";
+import { contentText } from "./preview";
 import { buildRows } from "./timeline";
 
 /** A member who keeps a conversation open repeats that this often; the server forgets after 75 s. */
@@ -174,6 +176,7 @@ function OpenConversation({
   const [place, setPlace] = useState<chat.LocationShare | null>(null);
   const [reacting, setReacting] = useState<chat.Message | null>(null);
   const [forwarding, setForwarding] = useState<chat.Message | null>(null);
+  const [reporting, setReporting] = useState<chat.Message | null>(null);
   const [removing, setRemoving] = useState<chat.Message | null>(null);
   const [removingBusy, setRemovingBusy] = useState(false);
   const [reactionsOf, setReactionsOf] = useState<chat.Message | null>(null);
@@ -361,6 +364,7 @@ function OpenConversation({
       setEditing(message);
     },
     forward: setForwarding,
+    report: setReporting,
     remove: setRemoving,
     jumpTo,
     openMedia,
@@ -520,6 +524,14 @@ function OpenConversation({
           }}
         />
         <ForwardDialog message={forwarding} onClose={() => setForwarding(null)} />
+        {reporting && (
+          <ReportDialog
+            subject={{ type: common.SubjectType.CHAT_MESSAGE, id: reporting.id }}
+            open
+            onOpenChange={(open) => !open && setReporting(null)}
+            label={`${displayName(reporting.sender)}: ${contentText(reporting, me.id)}`}
+          />
+        )}
         <ReactionsSheet message={reactionsOf} onClose={() => setReactionsOf(null)} />
         <ReceiptsSheet message={receiptsOf} onClose={() => setReceiptsOf(null)} />
         <ConfirmDialog

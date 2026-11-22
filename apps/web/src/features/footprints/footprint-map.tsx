@@ -1,7 +1,8 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { GeoLayer, type LatLng, MapFrame, useIsDark, useMap } from "#/features/places";
+import { GeoLayer, MapFrame, useIsDark, useMap } from "#/features/map";
+import { type LatLng } from "#/features/places";
 import { footprintClient, footprintKeys } from "./api";
 import { cellPolygons, fogShapes } from "./hexes";
 
