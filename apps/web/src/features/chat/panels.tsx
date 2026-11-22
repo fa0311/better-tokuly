@@ -9,7 +9,7 @@ import { Dialog } from "#/components/ui/dialog";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
-import { errorMessage } from "#/lib/errors";
+import { errorMessage } from "./errors";
 import { chatKeys, messageClient } from "./api";
 import { useConversationContext } from "./conversation-context";
 import { Lightbox, type LightboxItem } from "./lightbox";

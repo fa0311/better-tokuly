@@ -24,12 +24,16 @@ const LIVE_BARS = 36;
 export function VoiceRecorderControl({ recording, onRecordingChange, onRecorded }: { recording: boolean; onRecordingChange(recording: boolean): void; onRecorded(file: OutgoingFile): void }) {
   const { t } = useTranslation("chat");
   const session = useRef<VoiceRecorder | null>(null);
+  /** The request for the microphone that is under way; cancelled when nobody waits for it any more. */
+  const attempt = useRef<{ cancelled: boolean } | null>(null);
   const [levels, setLevels] = useState<number[]>([]);
   const [elapsed, setElapsed] = useState(0);
 
   const finish = async (keep: boolean) => {
     const current = session.current;
     session.current = null;
+    // Let go (or left) while the microphone was still being asked for: that recording must not start.
+    if (attempt.current) attempt.current.cancelled = true;
     onRecordingChange(false);
     setLevels([]);
     setElapsed(0);
@@ -44,13 +48,22 @@ export function VoiceRecorderControl({ recording, onRecordingChange, onRecorded 
   };
 
   const start = async () => {
-    if (session.current) return;
+    if (session.current || attempt.current) return;
+    const mine = { cancelled: false };
+    attempt.current = mine;
     try {
       const started = await VoiceRecorder.start((level) => setLevels((current) => [...current.slice(-(LIVE_BARS - 1)), level]));
+      // Nobody is waiting for it any more: free the microphone at once.
+      if (mine.cancelled) {
+        started.cancel();
+        return;
+      }
       session.current = started;
       onRecordingChange(true);
     } catch {
-      toast.error(t("voice.noMicrophone"));
+      if (!mine.cancelled) toast.error(t("voice.noMicrophone"));
+    } finally {
+      if (attempt.current === mine) attempt.current = null;
     }
   };
 
@@ -69,6 +82,7 @@ export function VoiceRecorderControl({ recording, onRecordingChange, onRecorded 
   // Leaving the screen mid-recording throws the recording away and frees the microphone.
   useEffect(
     () => () => {
+      if (attempt.current) attempt.current.cancelled = true;
       session.current?.cancel();
       session.current = null;
     },

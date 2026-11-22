@@ -798,3 +798,92 @@ test("the message button on a friend's profile leads to their chat", async ({ pa
   await expect(page).toHaveURL(new RegExp(`/chat/${conversationId}$`));
   await expect(page.getByTestId("conversation-title")).toHaveText("aoi");
 });
+
+test("the microphone is let go when recording is abandoned before it began", async ({ page, request, me }) => {
+  const { conversationId } = await withFriend(request, me);
+  // The browser takes a while to hand the microphone over (a permission prompt, a slow device).
+  await page.addInitScript(() => {
+    const devices = navigator.mediaDevices;
+    const original = devices.getUserMedia.bind(devices);
+    const handed: MediaStream[] = [];
+    Object.assign(window, { __microphones: handed });
+    devices.getUserMedia = async (constraints) => {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const stream = await original(constraints);
+      handed.push(stream);
+      return stream;
+    };
+  });
+  const live = () => page.evaluate(() => (window as unknown as { __microphones: MediaStream[] }).__microphones.map((stream) => stream.getTracks().some((track) => track.readyState === "live")));
+  await openConversation(page, conversationId);
+
+  // Held to talk, and let go before the microphone arrived: nothing is recorded, nothing stays on.
+  const button = page.getByRole("button", { name: "ボイスメッセージを録音" });
+  const box = await button.boundingBox();
+  await page.mouse.move((box?.x ?? 0) + 10, (box?.y ?? 0) + 10);
+  await page.mouse.down();
+  await page.waitForTimeout(700);
+  await page.mouse.up();
+  await expect.poll(live).toEqual([false]);
+  await expect(page.getByTestId("voice-recording")).toHaveCount(0);
+
+  // Tapped, and the screen left before the microphone arrived.
+  await button.click();
+  if ((page.viewportSize()?.width ?? 0) < 768) await page.getByRole("link", { name: "もどる" }).click();
+  else await page.locator('nav[aria-label="main"] a[href="/friends"], nav[aria-label="main"] a[href="/notifications"]').first().click();
+  await expect(page.getByTestId("composer")).toHaveCount(0);
+  await expect.poll(live).toEqual([false, false]);
+});
+
+test("what one account typed or failed to send is gone for the next one on the same browser", async ({ page, request, me }) => {
+  const ren = await createAccount(request, "ren");
+  await befriend(request, me, ren);
+  const { conversation } = await rpc<{ conversation: { id: string } }>(request, `${CONVERSATIONS}/CreateGroup`, { name: "共有グループ", memberIds: [ren.userId] }, me);
+  await openConversation(page, conversation.id);
+
+  // A draft, and a message the server never got.
+  await page.route("**/api/tokuly.chat.v1.MessageService/SendMessage", (route) => route.abort("connectionfailed"));
+  await send(page, "これは届かない");
+  await expect(bubble(page, "これは届かない")).toHaveAttribute("data-pending", "failed");
+  await composer(page).fill("ひみつの下書き");
+  await page.waitForTimeout(700);
+  await page.unroute("**/api/tokuly.chat.v1.MessageService/SendMessage");
+
+  await page.goto("/me");
+  await page.getByRole("button", { name: "ログアウト" }).click();
+  await expect(page).toHaveURL(/\/$/);
+  expect(await page.evaluate(() => Object.keys(localStorage).filter((key) => key.includes("draft")))).toEqual([]);
+
+  // The other member of the group signs in on this browser.
+  await signInAs(page, ren);
+  await openConversation(page, conversation.id);
+  await expect(composer(page)).toHaveValue("");
+  await expect(page.getByTestId("message").filter({ hasText: "これは届かない" })).toHaveCount(0);
+  await expect(page.getByText("ひみつの下書き")).toHaveCount(0);
+});
+
+test("only what was on screen counts as read", async ({ page, request, me }) => {
+  const { friend, conversationId } = await withFriend(request, me);
+  for (let index = 1; index <= 40; index++) await sendText(request, friend, conversationId, `おしらせ ${index}`);
+  const unread = async () => (await rpc<{ unread?: { badge?: number } }>(request, `${CONVERSATIONS}/GetUnreadCounts`, {}, me)).unread?.badge ?? 0;
+  expect(await unread()).toBe(40);
+
+  await openConversation(page, conversationId);
+  // The conversation opens at the first unread message: the ones in view are read, the rest are not.
+  await expect(bubble(page, "おしらせ 1").first()).toBeVisible();
+  await expect.poll(unread).toBeLessThan(40);
+  await page.waitForTimeout(1500);
+  const left = await unread();
+  expect(left).toBeGreaterThan(10);
+  // The friend sees how far it was read: the first message, not the last.
+  const cursors = await rpc<{ readCursors?: { userId: string; readSeq?: string }[] }>(request, `${CONVERSATIONS}/GetConversation`, { conversationId }, friend);
+  const mine = Number(cursors.readCursors?.find((cursor) => cursor.userId === me.userId)?.readSeq ?? 0);
+  expect(mine).toBeGreaterThan(0);
+  expect(mine).toBeLessThan(40);
+
+  // Going to the newest message reads the rest.
+  await page.getByTestId("jump-to-latest").click();
+  await expect(bubble(page, "おしらせ 40")).toBeVisible();
+  await expect.poll(unread).toBe(0);
+  await expect(chatBadge(page)).not.toContainText(/\d/);
+});

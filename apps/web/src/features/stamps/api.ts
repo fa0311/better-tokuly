@@ -134,7 +134,7 @@ export function useInstallPack() {
       toast.success(i18n.t("toast.installed", { ns: "stamps" }));
       return refreshHoldings(queryClient);
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "stamps" })),
   });
 }
 
@@ -148,7 +148,7 @@ export function useUninstallPack() {
       toast.success(i18n.t("toast.uninstalled", { ns: "stamps" }));
       return refreshHoldings(queryClient);
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "stamps" })),
   });
 }
 
@@ -163,7 +163,7 @@ export function useToggleFavorite() {
     onMutate: ({ stampId, favorited }) => patchStamp(queryClient, stampId, { favorited }),
     onError: (error, { stampId, favorited }) => {
       patchStamp(queryClient, stampId, { favorited: !favorited });
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "stamps" }));
     },
     onSettled: () =>
       Promise.all([queryClient.invalidateQueries({ queryKey: stampKeys.favorites }), queryClient.invalidateQueries({ queryKey: stampKeys.libraryHome })]),
@@ -182,7 +182,7 @@ export function uploadErrorMessage(error: unknown): string {
     const key = `uploadErrors.${error.message}`;
     return i18n.t(i18n.exists(key, { ns: "stamps" }) ? key : "uploadErrors.generic", { ns: "stamps" });
   }
-  return errorMessage(error);
+  return errorMessage(error, { namespace: "stamps" });
 }
 
 // ───────────────────────────── Formatting ─────────────────────────────

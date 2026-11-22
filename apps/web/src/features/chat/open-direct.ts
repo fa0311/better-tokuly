@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import type { chat } from "@tokuly/api";
 import { toast } from "sonner";
-import { errorMessage } from "#/lib/errors";
+import { errorMessage } from "./errors";
 import { chatKeys, conversationClient } from "./api";
 import { resolveUserId } from "./people";
 

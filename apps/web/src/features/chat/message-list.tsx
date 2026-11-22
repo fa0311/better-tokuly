@@ -57,6 +57,7 @@ export function MessageList({
   onNearStart,
   onNearEnd,
   onAtEndChange,
+  onSeen,
   onOpenLocation,
 }: {
   ref?: Ref<MessageListHandle>;
@@ -69,6 +70,8 @@ export function MessageList({
   onNearStart(): void;
   onNearEnd(): void;
   onAtEndChange(atEnd: boolean): void;
+  /** Told the newest stored message that has been on screen, as the reader moves through the conversation. */
+  onSeen(message: chat.Message): void;
   onOpenLocation(location: chat.LocationShare): void;
 }) {
   // The virtualizer is a mutable object whose answers change without its identity changing,
@@ -202,6 +205,25 @@ export function MessageList({
       observer.disconnect();
     };
   }, [virtualizer]);
+
+  // The newest message on screen right now: its row has come into the viewport by at least a line or two.
+  // Nothing counts before the list has taken its opening position.
+  const viewTop = virtualizer.scrollOffset ?? 0;
+  const viewBottom = viewTop + (virtualizer.scrollRect?.height ?? 0);
+  let onScreen: chat.Message | undefined;
+  if (ready) {
+    for (const item of items) {
+      const row = rows[item.index];
+      if (row?.type !== "message" || row.pending) continue;
+      if (item.end > viewTop && item.start + Math.min(item.size, 48) <= viewBottom && (!onScreen || row.message.seq > onScreen.seq)) onScreen = row.message;
+    }
+  }
+  const seenId = useRef("");
+  useEffect(() => {
+    if (!onScreen || onScreen.id === seenId.current) return;
+    seenId.current = onScreen.id;
+    onSeen(onScreen);
+  });
 
   const atEnd = !hasNewer && (rows.length === 0 || virtualizer.isAtEnd(END_THRESHOLD));
   const reported = useRef<boolean | null>(null);

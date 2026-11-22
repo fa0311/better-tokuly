@@ -8,7 +8,7 @@ import { Avatar } from "#/components/ui/avatar";
 import { Menu, type MenuAction } from "#/components/ui/menu";
 import { StampPicker } from "#/features/stamps";
 import { cn } from "#/lib/cn";
-import { errorMessage } from "#/lib/errors";
+import { errorMessage } from "./errors";
 import { realtime } from "#/lib/realtime";
 import { AssistButton, SuggestedReplies } from "./assist";
 import { describeFile, type OutgoingFile, releaseFiles } from "./attachments";
@@ -71,7 +71,7 @@ export function Composer({
   const picker = useRef<HTMLInputElement>(null);
   const filePicker = useRef<HTMLInputElement>(null);
   const typedAt = useRef(0);
-  const [text, setText] = useState(() => loadDraft(conversation.id));
+  const [text, setText] = useState(() => loadDraft(me.id, conversation.id));
   const [caret, setCaret] = useState(0);
   const [files, setFiles] = useState<OutgoingFile[]>([]);
   const [recording, setRecording] = useState(false);
@@ -101,14 +101,14 @@ export function Composer({
 
   useEffect(() => {
     if (editing) return;
-    const timer = setTimeout(() => saveDraft(conversation.id, text), 400);
+    const timer = setTimeout(() => saveDraft(me.id, conversation.id, text), 400);
     return () => clearTimeout(timer);
-  }, [text, editing, conversation.id]);
+  }, [text, editing, me.id, conversation.id]);
 
   // Editing takes over the field; the draft comes back afterwards.
   const editingId = editing?.id;
   useEffect(() => {
-    setText(editing ? editing.text : loadDraft(conversation.id));
+    setText(editing ? editing.text : loadDraft(me.id, conversation.id));
     if (editingId) input.current?.focus();
     // Only switching into or out of editing resets the field.
   }, [editingId]);
@@ -231,7 +231,7 @@ export function Composer({
     held.current = [];
     setFiles([]);
     setText("");
-    saveDraft(conversation.id, "");
+    saveDraft(me.id, conversation.id, "");
     typedAt.current = 0;
     input.current?.focus();
   };

@@ -186,6 +186,9 @@ export function LinkPreviewCard({ preview, tone }: { preview: media.LinkPreview;
           title={preview.title || "YouTube"}
           allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
           allowFullScreen
+          // The player needs its own scripts and origin, and opens YouTube when its logo is tapped.
+          sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"
+          referrerPolicy="strict-origin-when-cross-origin"
           className="size-full"
         />
       </div>
@@ -199,6 +202,9 @@ export function LinkPreviewCard({ preview, tone }: { preview: media.LinkPreview;
           src={`https://open.spotify.com/embed/${preview.embedId.split("/").map(encodeURIComponent).join("/")}`}
           title={preview.title || "Spotify"}
           allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+          // The player needs its own scripts and origin, and opens Spotify from its links.
+          sandbox="allow-scripts allow-same-origin allow-popups"
+          referrerPolicy="strict-origin-when-cross-origin"
           className="block w-full"
           style={{ height: SPOTIFY_HEIGHT[type] ?? 352 }}
         />

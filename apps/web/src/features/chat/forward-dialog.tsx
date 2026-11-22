@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
-import { errorMessage } from "#/lib/errors";
+import { errorMessage } from "./errors";
 import { messageClient } from "./api";
 import { storeCreated } from "./messages";
 import { type Target, TargetPicker, useResolveTargets } from "./target-picker";

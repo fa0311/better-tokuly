@@ -10,7 +10,7 @@ import { Dialog } from "#/components/ui/dialog";
 import { TextField } from "#/components/ui/field";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { profileClient } from "#/lib/api";
-import { errorMessage } from "#/lib/errors";
+import { errorMessage } from "./errors";
 import { useMe } from "#/stores/session";
 import { conversationClient, useCapabilities } from "./api";
 import { putConversation } from "./conversations";

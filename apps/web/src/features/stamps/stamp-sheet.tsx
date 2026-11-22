@@ -59,7 +59,7 @@ function Sheet({ stampId, open, onClose }: { stampId: string; open: boolean; onC
   const [buying, setBuying] = useState<stamp.PackSummary | null>(null);
 
   const refresh = () => Promise.all([refreshHoldings(queryClient), queryClient.invalidateQueries({ queryKey: stampKeys.stamp(stampId) })]);
-  const onError = (error: unknown) => toast.error(errorMessage(error));
+  const onError = (error: unknown) => toast.error(errorMessage(error, { namespace: "stamps" }));
 
   const save = useMutation({
     mutationFn: () => libraryClient().saveStamp({ stampId }),

@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { api } from "#/lib/api";
-import { errorMessage } from "#/lib/errors";
+import { errorMessage } from "./errors";
 import { messageClient } from "./api";
 import { storeCreated } from "./messages";
 import { type Target, TargetPicker, useResolveTargets } from "./target-picker";

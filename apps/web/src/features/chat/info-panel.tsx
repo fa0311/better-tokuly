@@ -14,7 +14,7 @@ import { LoadMore } from "#/components/ui/load-more";
 import { Menu, type MenuAction } from "#/components/ui/menu";
 import { Skeleton } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
-import { errorMessage } from "#/lib/errors";
+import { errorMessage } from "./errors";
 import { useConversationActions } from "./actions";
 import { chatKeys, conversationClient } from "./api";
 import { ConversationAvatar } from "./conversation-avatar";

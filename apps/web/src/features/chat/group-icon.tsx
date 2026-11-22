@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Spinner } from "#/components/ui/spinner";
-import { errorMessage } from "#/lib/errors";
+import { errorMessage } from "./errors";
 import { uploadAndProcess } from "#/lib/upload";
 
 /**

@@ -8,9 +8,11 @@ import { callClient, chatKeys } from "./api";
 import { CallHost } from "./calls/call-host";
 import { hangUp } from "./calls/session";
 import { useConversationList, useUnread } from "./conversations";
+import { clearDrafts } from "./drafts";
 import { applyChatEvent, resynchronize } from "./events";
 import { useLive } from "./live";
 import { setChatRouter } from "./navigation";
+import { clearOutbox } from "./outbox";
 
 /**
  * Chat, for as long as someone is signed in and whatever page they are on:
@@ -63,6 +65,8 @@ export default function ChatBackground() {
       // (Checked, because development double-mounts effects while still signed in.)
       if (useSessionStore.getState().state.status === "signedIn") return;
       void hangUp();
+      clearOutbox();
+      clearDrafts();
       queryClient.removeQueries({ queryKey: chatKeys.all });
       useLive.getState().reset();
       setBadge("chat", 0);

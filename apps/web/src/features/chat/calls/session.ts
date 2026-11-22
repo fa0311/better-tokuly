@@ -3,7 +3,7 @@ import { type chat, errorReason } from "@tokuly/api";
 import type { Room } from "livekit-client";
 import { toast } from "sonner";
 import { create } from "zustand";
-import { errorMessage } from "#/lib/errors";
+import { errorMessage } from "../errors";
 import i18n from "#/lib/i18n";
 import { callClient } from "../api";
 import { patchConversation, readConversation } from "../conversations";
@@ -140,6 +140,8 @@ export async function joinCall(queryClient: QueryClient, call: Pick<chat.Call, "
   } catch (error) {
     toast.error(errorMessage(error));
     await close();
+    // Joined on the server but never connected: do not stay in the call as a ghost.
+    void callClient().leaveCall({ callId: call.id }).catch(() => {});
   }
 }
 
@@ -159,7 +161,10 @@ export async function startCall(queryClient: QueryClient, conversationId: string
     }
     await connect(response.credentials, video);
   } catch (error) {
+    const started = useCallSession.getState().active?.callId;
     await close();
+    // The call exists but could not be connected to: end it rather than let it ring on.
+    if (started) void callClient().leaveCall({ callId: started }).catch(() => {});
     // Somebody else started one in the meantime: join theirs instead.
     const running = readConversation(queryClient, conversationId)?.activeCallId;
     if (errorReason(error) === "CALL_IN_PROGRESS" && running) return joinCall(queryClient, { id: running, conversationId, video });

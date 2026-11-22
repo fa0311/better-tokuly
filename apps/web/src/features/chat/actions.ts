@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { type chat, fromDate } from "@tokuly/api";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { errorMessage } from "#/lib/errors";
+import { errorMessage } from "./errors";
 import { conversationClient } from "./api";
 import { dropConversation, putConversation, refreshUnread } from "./conversations";
 import { markRead } from "./messages";

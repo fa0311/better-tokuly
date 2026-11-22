@@ -1,7 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { chat, type common, create, fromDate } from "@tokuly/api";
 import { create as createStore } from "zustand";
-import { errorMessage } from "#/lib/errors";
+import { errorMessage } from "./errors";
 import { realtime } from "#/lib/realtime";
 import { uploadAndProcess, uploadFile } from "#/lib/upload";
 import { messageClient, povClient } from "./api";
@@ -125,7 +125,7 @@ export function bigEmojiCount(text: string): number {
   return count;
 }
 
-/** One conversation's sends reach the server in the order they were written. */
+/** One conversation's deliveries run one after the other, in the order they were written. */
 const queues = new Map<string, Promise<void>>();
 
 function inOrder(conversationId: string, work: () => Promise<void>): Promise<void> {
@@ -163,12 +163,18 @@ async function upload(item: Outgoing): Promise<string[]> {
   );
 }
 
-async function deliver(queryClient: QueryClient, conversationId: string, clientId: string): Promise<void> {
-  const item = find(conversationId, clientId);
-  if (!item) return;
-  try {
-    const assetIds = await upload(item);
-    await inOrder(conversationId, async () => {
+/**
+ * Takes one message to the server: its files first, then the message. The
+ * whole of it waits its turn in the conversation's queue, so what was written
+ * first arrives first, even when it carries a photo and the next one is text.
+ */
+function deliver(queryClient: QueryClient, conversationId: string, clientId: string): Promise<void> {
+  return inOrder(conversationId, async () => {
+    const item = find(conversationId, clientId);
+    // Discarded while it was waiting.
+    if (!item) return;
+    try {
+      const assetIds = await upload(item);
       // Discarded while its files were uploading.
       if (!find(conversationId, clientId)) return;
       const message = item.povRequestId
@@ -192,10 +198,11 @@ async function deliver(queryClient: QueryClient, conversationId: string, clientI
       // Writing in a message request answers it, and a request of one's own counts down: both change the viewer's state.
       const viewer = before?.viewer;
       if (!viewer || viewer.requestState !== chat.RequestState.ACCEPTED || viewer.requestMessagesLeft >= 0) void fetchConversation(queryClient, conversationId).catch(() => {});
-    });
-  } catch (error) {
-    patch(conversationId, clientId, { status: "failed", error: errorMessage(error) });
-  }
+    } catch (error) {
+      // A message that failed waits for the person; the ones behind it go on.
+      patch(conversationId, clientId, { status: "failed", error: errorMessage(error) });
+    }
+  });
 }
 
 export type Draft = Pick<Outgoing, "text"> & Partial<Pick<Outgoing, "stamp" | "files" | "location" | "replyTo" | "povRequestId">>;
@@ -224,6 +231,13 @@ export function send(queryClient: QueryClient, conversationId: string, draft: Dr
 export function retry(queryClient: QueryClient, item: Outgoing): void {
   patch(item.conversationId, item.clientId, { status: "sending", error: undefined });
   void deliver(queryClient, item.conversationId, item.clientId);
+}
+
+/** Forgets everything on its way (the account signed out: none of it may be sent, or seen, by the next one). */
+export function clearOutbox(): void {
+  for (const items of Object.values(useOutbox.getState().items)) for (const item of items) releaseFiles(item.files);
+  useOutbox.setState({ items: {} });
+  queues.clear();
 }
 
 /** Gives up on a message that is not on the server. */

@@ -10,7 +10,7 @@ import { EmptyState } from "#/components/ui/page";
 import { PaneSpinner } from "#/components/ui/spinner";
 import { StampSheet } from "#/features/stamps";
 import { cn } from "#/lib/cn";
-import { errorMessage } from "#/lib/errors";
+import { errorMessage } from "./errors";
 import { realtime } from "#/lib/realtime";
 import { useMe } from "#/stores/session";
 import { messageClient, useCapabilities } from "./api";
@@ -121,7 +121,6 @@ function OpenConversation({ conversation, me, openAtMessageId }: { conversation:
   const [dragging, setDragging] = useState(false);
   /** Where "unread from here" goes: the viewer's read position when the conversation was opened (`null`: nothing was unread). */
   const [unreadAfter, setUnreadAfter] = useState<bigint | null>();
-  const [opened, setOpened] = useState(false);
 
   const viewer = conversation.viewer;
   const accepted = viewer?.requestState === chat.RequestState.ACCEPTED;
@@ -153,26 +152,27 @@ function OpenConversation({ conversation, me, openAtMessageId }: { conversation:
   // before the first messages are drawn, so the list can open on it.
   if (unreadAfter === undefined && loaded && viewer) setUnreadAfter(viewer.unreadCount > 0 ? viewer.readSeq : null);
 
-  // Opening a conversation reads what it shows.
-  const newestId = messages.at(-1)?.id;
-  const ready = loaded !== undefined && viewer !== undefined && visible;
+  // "Read" means it was on screen: the read position follows the newest message the reader has actually
+  // had in view while the page was visible, and moves on as they scroll.
+  const [seen, setSeen] = useState<chat.Message>();
+  const noteSeen = (message: chat.Message) => setSeen((current) => (!current || message.seq > current.seq ? message : current));
+  const readSeq = viewer?.readSeq;
+  const seenId = seen?.id;
+  const seenUpTo = seen?.seq;
   useEffect(() => {
-    if (opened || !ready || !viewer) return;
-    setOpened(true);
-    if (viewer.unreadCount > 0 || conversation.lastSeq > viewer.readSeq) void markRead(queryClient, conversationId, hasNewer ? newestId : "").catch(() => {});
-    // Runs once, when the first messages and the viewer's state are in.
-  }, [opened, ready]);
+    if (!visible || !seenId || seenUpTo === undefined || readSeq === undefined || seenUpTo <= readSeq) return;
+    // A moment of scrolling is one request, not one per message passed.
+    const timer = setTimeout(() => void markRead(queryClient, conversationId, seenId).catch(() => {}), 150);
+    return () => clearTimeout(timer);
+  }, [visible, seenId, seenUpTo, readSeq, conversationId, queryClient]);
 
-  // After that, new messages are read as they arrive while the reader is at the bottom of a visible page.
-  const reading = visible && atEnd && !hasNewer && opened;
+  // While the reader is at the bottom of a visible page, messages that arrive are on screen at once:
+  // they do not count as unread in the meantime.
+  const reading = visible && atEnd && !hasNewer && loaded !== undefined;
   useEffect(() => {
     useLive.getState().setReading(reading ? conversationId : null);
     return () => useLive.getState().setReading(null);
   }, [reading, conversationId]);
-  const behind = viewer ? conversation.lastSeq > viewer.readSeq || viewer.unreadCount > 0 : false;
-  useEffect(() => {
-    if (reading && behind) void markRead(queryClient, conversationId).catch(() => {});
-  }, [reading, behind, conversation.lastSeq, conversationId, queryClient]);
 
   // ── New messages while scrolled away ──
   const newestSeq = messages.at(-1)?.seq;
@@ -352,6 +352,7 @@ function OpenConversation({ conversation, me, openAtMessageId }: { conversation:
                 onNearStart={() => void loadOlder(queryClient, conversationId).catch(() => {})}
                 onNearEnd={() => void loadNewer(queryClient, conversationId).catch(() => {})}
                 onAtEndChange={setAtEnd}
+                onSeen={noteSeen}
                 onOpenLocation={setPlace}
               />
             )}

@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { TextArea } from "#/components/ui/field";
-import { errorMessage } from "#/lib/errors";
+import { errorMessage } from "./errors";
 import { povClient } from "./api";
 import { useConversationContext } from "./conversation-context";
 import { useLive } from "./live";

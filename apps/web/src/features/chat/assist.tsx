@@ -10,7 +10,7 @@ import { ConfirmDialog } from "#/components/ui/confirm";
 import { Menu, type MenuAction } from "#/components/ui/menu";
 import { Spinner } from "#/components/ui/spinner";
 import { cn } from "#/lib/cn";
-import { errorMessage } from "#/lib/errors";
+import { errorMessage } from "./errors";
 import { assistClient } from "./api";
 
 /**
