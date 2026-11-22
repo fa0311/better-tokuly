@@ -1,15 +1,1157 @@
 syntax = "proto3";
 
-// Drop-in audio rooms and always-on hangout rooms on LiveKit.
+// Drop-in audio rooms and always-on hangout rooms (たまり場) on LiveKit.
 //
-// SKELETON: the owning domain implements this file. Keep the package name
-// and the realtime event message name stable; everything else is yours.
+// Two products share this package:
+//
+// - A **room** (`Space`, SpaceService) is a talk with a stage and an
+//   audience, in the manner of Twitter Spaces: a host, co-hosts and speakers
+//   talk, listeners listen, raise a hand and send emoji. It is scheduled or
+//   started on the spot, runs once and ends.
+// - A **hangout** (`Hangout`, HangoutService) is a voice room that belongs
+//   to a group of friends and never ends: it is simply open whenever
+//   someone is inside, and who is inside is the whole point.
+//
+// Audio never passes through this API. JoinSpace / JoinHangout return
+// `AudioCredentials`: a LiveKit URL, room name and access token a LiveKit
+// client SDK connects with. What the token allows follows the role
+// (listeners can only subscribe), and a role change takes effect on the
+// connection at once. A person is inside one room or hangout at a time:
+// joining another leaves the first.
+//
+// The server keeps "who is inside" true by comparing with LiveKit: someone
+// whose app crashed disappears after a short grace period, and a room whose
+// host stays away is handed to a co-host or ended.
+//
+// RPCs that need audio fail with AUDIO_NOT_CONFIGURED (unavailable) when the
+// server has no LiveKit, and with AUDIO_UNAVAILABLE (unavailable) when
+// LiveKit cannot be reached; everything else keeps working.
+// GetSpacesConfig tells clients in advance.
 package tokuly.spaces.v1;
 
+import "google/protobuf/timestamp.proto";
 import "tokuly/common/v1/common.proto";
 
+// Audio rooms with a stage and an audience.
+//
+// Unless noted, RPCs need a signed-in caller (SIGN_IN_REQUIRED) and answer
+// SPACE_NOT_FOUND for a room the caller may not see: a room that is not
+// public and to which they are neither invited nor (for friends rooms) a
+// friend of the host, and any room of a host on either side of a block.
+// "Moderator" below means the host or a co-host. Lists are rate limited
+// per caller (RATE_LIMITED), like everything that reaches other people.
+service SpaceService {
+  // What this server offers: whether audio is configured and the limits
+  // rooms and hangouts are held to. Callable without signing in.
+  rpc GetSpacesConfig(GetSpacesConfigRequest) returns (GetSpacesConfigResponse);
+
+  // Creates a room. Without `scheduled_at` it goes live at once with the
+  // caller inside as host (credentials are returned); with it, the room is
+  // announced as upcoming and waits for StartSpace. A host has one live
+  // room at a time.
+  // Errors: INVALID_TITLE, INVALID_TAGS, INVALID_LANGUAGE, INVALID_AUDIENCE,
+  // INVALID_SCHEDULE (in the past, or too far ahead), TOO_MANY_SPACES (too
+  // many upcoming rooms), ALREADY_HOSTING, NOT_FRIENDS / TOO_MANY_INVITES (see
+  // InviteToSpace), AUDIO_NOT_CONFIGURED / AUDIO_UNAVAILABLE (instant rooms
+  // only), RATE_LIMITED.
+  rpc CreateSpace(CreateSpaceRequest) returns (CreateSpaceResponse);
+  // Changes a room's title, tags and language (any time before it ends) or
+  // its audience and schedule (only while it is upcoming). Host only.
+  // Errors: SPACE_NOT_FOUND, NOT_HOST, SPACE_ENDED, SPACE_NOT_SCHEDULED
+  // (audience or schedule of a room that already started), RATE_LIMITED,
+  // and the validation errors of CreateSpace.
+  rpc UpdateSpace(UpdateSpaceRequest) returns (UpdateSpaceResponse);
+  // Starts an upcoming room, early or late, with the host inside. People
+  // who asked to be reminded are told, as are the host's friends when it is
+  // a friends room.
+  // Errors: SPACE_NOT_FOUND, NOT_HOST, SPACE_NOT_SCHEDULED, ALREADY_HOSTING,
+  // AUDIO_NOT_CONFIGURED, AUDIO_UNAVAILABLE, RATE_LIMITED (a host takes a few
+  // rooms live per hour).
+  rpc StartSpace(StartSpaceRequest) returns (StartSpaceResponse);
+  // Calls an upcoming room off. Host only.
+  // Errors: SPACE_NOT_FOUND, NOT_HOST, SPACE_NOT_SCHEDULED.
+  rpc CancelSpace(CancelSpaceRequest) returns (CancelSpaceResponse);
+  // Ends a live room for everyone. Host only. Ending a room that already
+  // ended succeeds.
+  // Errors: SPACE_NOT_FOUND, NOT_HOST, SPACE_NOT_LIVE (still upcoming).
+  rpc EndSpace(EndSpaceRequest) returns (EndSpaceResponse);
+  // Removes a room that ended or was cancelled from the host's history; it
+  // reads as SPACE_NOT_FOUND from then on. What moderation needs of it
+  // (who was there) is kept for a while longer, and people who were in the
+  // room or invited to it can still report it.
+  // Errors: SPACE_NOT_FOUND, NOT_HOST, SPACE_NOT_ENDED.
+  rpc DeleteSpace(DeleteSpaceRequest) returns (DeleteSpaceResponse);
+  // One room with its stage, as the caller sees it. Public rooms can be
+  // read without signing in.
+  // Errors: SPACE_NOT_FOUND.
+  rpc GetSpace(GetSpaceRequest) returns (GetSpaceResponse);
+
+  // Enters a live room and returns the credentials to connect. The caller
+  // comes in with the role they hold: the host as host, a co-host as
+  // co-host, everyone else as a listener. Joining again (a reconnect,
+  // another device) returns fresh credentials for the current role.
+  // Errors: SPACE_NOT_FOUND, SPACE_NOT_LIVE, BANNED_FROM_SPACE, SPACE_FULL,
+  // AUDIO_NOT_CONFIGURED, AUDIO_UNAVAILABLE, RATE_LIMITED.
+  rpc JoinSpace(JoinSpaceRequest) returns (JoinSpaceResponse);
+  // Leaves a room. A speaker returns as a listener; the host keeps the room
+  // for a while (see `SpacesConfig.host_grace_seconds`). Leaving a room one
+  // is not in succeeds.
+  // Errors: SPACE_NOT_FOUND.
+  rpc LeaveSpace(LeaveSpaceRequest) returns (LeaveSpaceResponse);
+  // The people inside a live room: the stage first (host, co-hosts,
+  // speakers), then raised hands in the order they went up, then the rest
+  // of the audience. PARTICIPANT_FILTER_PAST lists who is gone instead.
+  // Errors: SPACE_NOT_FOUND, RATE_LIMITED.
+  rpc ListParticipants(ListParticipantsRequest) returns (ListParticipantsResponse);
+
+  // Raises or lowers the caller's hand to ask for the stage.
+  // Errors: SPACE_NOT_FOUND, SPACE_NOT_LIVE, NOT_IN_SPACE, ALREADY_ON_STAGE,
+  // RATE_LIMITED.
+  rpc SetHandRaised(SetHandRaisedRequest) returns (SetHandRaisedResponse);
+  // Brings a listener on stage. Someone whose hand is up becomes a speaker
+  // at once (`on_stage` is set); anyone else gets an invitation to answer
+  // with RespondToStageInvite. Moderators only.
+  // Errors: SPACE_NOT_FOUND, SPACE_NOT_LIVE, NOT_MODERATOR,
+  // TARGET_NOT_IN_SPACE, ALREADY_ON_STAGE, STAGE_FULL, RATE_LIMITED (also when
+  // the same person is invited over and over).
+  rpc InviteToStage(InviteToStageRequest) returns (InviteToStageResponse);
+  // Accepts (the caller becomes a speaker) or declines a stage invitation.
+  // Errors: SPACE_NOT_FOUND, SPACE_NOT_LIVE, NOT_IN_SPACE,
+  // NO_STAGE_INVITATION, STAGE_FULL.
+  rpc RespondToStageInvite(RespondToStageInviteRequest) returns (RespondToStageInviteResponse);
+  // Moves a speaker back to the audience. With an empty `user_id` the
+  // caller steps down themselves (a co-host gives up the role too);
+  // otherwise moderators only, and it also withdraws a stage invitation and
+  // dismisses a raised hand of someone in the audience. The host cannot be
+  // moved; a co-host only by the host.
+  // Errors: SPACE_NOT_FOUND, SPACE_NOT_LIVE, NOT_IN_SPACE, NOT_MODERATOR,
+  // TARGET_NOT_IN_SPACE, CANNOT_MODERATE_USER, HOST_CANNOT_STEP_DOWN (use
+  // TransferHost or EndSpace), RATE_LIMITED.
+  rpc MoveToAudience(MoveToAudienceRequest) returns (MoveToAudienceResponse);
+  // Makes someone inside a co-host, or takes the role away again (they stay
+  // on stage as a speaker). Host only.
+  // Errors: SPACE_NOT_FOUND, SPACE_NOT_LIVE, NOT_HOST, TARGET_NOT_IN_SPACE,
+  // TOO_MANY_COHOSTS, STAGE_FULL, INVALID_USER (the host themselves),
+  // RATE_LIMITED.
+  rpc SetCohost(SetCohostRequest) returns (SetCohostResponse);
+  // Hands the room to someone inside; the caller stays as a co-host.
+  // Host only.
+  // Errors: SPACE_NOT_FOUND, SPACE_NOT_LIVE, NOT_HOST, TARGET_NOT_IN_SPACE,
+  // ALREADY_HOSTING (the new host runs another live room), STAGE_FULL,
+  // INVALID_USER, RATE_LIMITED.
+  rpc TransferHost(TransferHostRequest) returns (TransferHostResponse);
+  // Mutes a speaker's microphone on the server. They can unmute themselves;
+  // to keep someone quiet, move them to the audience. Moderators only; the
+  // host can only be muted by themselves, a co-host only by the host.
+  // Errors: SPACE_NOT_FOUND, SPACE_NOT_LIVE, NOT_MODERATOR,
+  // TARGET_NOT_IN_SPACE, NOT_ON_STAGE, CANNOT_MODERATE_USER,
+  // AUDIO_NOT_CONFIGURED, AUDIO_UNAVAILABLE, RATE_LIMITED.
+  rpc MuteSpeaker(MuteSpeakerRequest) returns (MuteSpeakerResponse);
+  // Removes someone from the room; with `ban` they cannot come back (and
+  // need not be inside to be banned). Moderators only; the host cannot be
+  // removed, a co-host only by the host.
+  // Errors: SPACE_NOT_FOUND, SPACE_NOT_LIVE, NOT_MODERATOR,
+  // TARGET_NOT_IN_SPACE (without `ban`), CANNOT_MODERATE_USER, INVALID_USER,
+  // RATE_LIMITED.
+  rpc RemoveParticipant(RemoveParticipantRequest) returns (RemoveParticipantResponse);
+  // Lifts a ban. Moderators only. Succeeds when there was none.
+  // Errors: SPACE_NOT_FOUND, NOT_MODERATOR.
+  rpc UnbanUser(UnbanUserRequest) returns (UnbanUserResponse);
+  // The people banned from a room, newest first. Moderators only.
+  // Errors: SPACE_NOT_FOUND, NOT_MODERATOR.
+  rpc ListBans(ListBansRequest) returns (ListBansResponse);
+
+  // Sends an emoji burst to everyone in the room. Not stored; delivered
+  // over realtime only, and thinned out when a large room sends more than
+  // anyone could watch. Callers must be inside.
+  // Errors: SPACE_NOT_FOUND, SPACE_NOT_LIVE, NOT_IN_SPACE, INVALID_EMOJI,
+  // RATE_LIMITED.
+  rpc SendReaction(SendReactionRequest) returns (SendReactionResponse);
+  // Pins a note, a link or both at the top of the room; empty `text` and
+  // `url` unpin. Moderators only.
+  // Errors: SPACE_NOT_FOUND, SPACE_ENDED, NOT_MODERATOR, INVALID_PIN,
+  // RATE_LIMITED.
+  rpc SetPin(SetPinRequest) returns (SetPinResponse);
+
+  // Invites friends of the caller to a room and notifies them. An
+  // invitation lets its holder into a friends or invited-only room. In a
+  // public room anyone inside may invite; otherwise moderators only.
+  // People who are already invited, banned from the room or unable to see
+  // the host's rooms are skipped without a word. Someone the caller keeps
+  // inviting is told only the first few times a day.
+  // Errors: SPACE_NOT_FOUND, SPACE_ENDED, NOT_MODERATOR, NOT_FRIENDS (someone
+  // is not the caller's friend), TOO_MANY_INVITES, RATE_LIMITED.
+  rpc InviteToSpace(InviteToSpaceRequest) returns (InviteToSpaceResponse);
+  // Takes an invitation back. Moderators only. The person is not removed
+  // from the room if they are already inside, and can still report the
+  // room they were invited to.
+  // Errors: SPACE_NOT_FOUND, NOT_MODERATOR.
+  rpc RevokeSpaceInvite(RevokeSpaceInviteRequest) returns (RevokeSpaceInviteResponse);
+  // The people invited to a room, newest first. Moderators only.
+  // Errors: SPACE_NOT_FOUND, NOT_MODERATOR.
+  rpc ListSpaceInvites(ListSpaceInvitesRequest) returns (ListSpaceInvitesResponse);
+  // Asks to be told when an upcoming room starts, or takes that back.
+  // Errors: SPACE_NOT_FOUND, SPACE_NOT_SCHEDULED, RATE_LIMITED.
+  rpc SetReminder(SetReminderRequest) returns (SetReminderResponse);
+
+  // Rooms that are live right now. FRIENDS: rooms the caller may enter in
+  // which a friend is inside, with those friends. PUBLIC: public rooms
+  // ranked by listeners, optionally of one tag or language; callable
+  // without signing in. Rooms the caller is banned from and rooms of hosts
+  // on either side of a block are left out.
+  // Errors: INVALID_SCOPE, SIGN_IN_REQUIRED (FRIENDS), RATE_LIMITED.
+  rpc ListLiveSpaces(ListLiveSpacesRequest) returns (ListLiveSpacesResponse);
+  // Upcoming rooms the caller may enter, soonest first: public rooms
+  // (optionally of one tag or language), rooms of friends and rooms they are
+  // invited to. Without signing in: public rooms only.
+  rpc ListUpcomingSpaces(ListUpcomingSpacesRequest) returns (ListUpcomingSpacesResponse);
+  // The caller's own rooms: live and upcoming first, then past ones,
+  // newest first.
+  rpc ListMySpaces(ListMySpacesRequest) returns (ListMySpacesResponse);
+  // Tags of the public rooms that are live right now, most listeners first.
+  // Callable without signing in.
+  rpc ListPopularTags(ListPopularTagsRequest) returns (ListPopularTagsResponse);
+  // Friends who are inside a room or hangout the caller could enter right
+  // now, for friend lists and the map. Friends who hide their online
+  // status are left out.
+  rpc ListFriendsInRooms(ListFriendsInRoomsRequest) returns (ListFriendsInRoomsResponse);
+}
+
+// Always-on voice rooms of friend groups (たまり場).
+//
+// Every RPC needs a signed-in caller and answers HANGOUT_NOT_FOUND for a
+// hangout the caller neither belongs nor is invited to.
+service HangoutService {
+  // Creates a hangout owned by the caller and invites `invitee_ids` to it.
+  // Errors: INVALID_NAME, INVALID_EMOJI, TOO_MANY_HANGOUTS, NOT_FRIENDS,
+  // HANGOUT_FULL, RATE_LIMITED.
+  rpc CreateHangout(CreateHangoutRequest) returns (CreateHangoutResponse);
+  // Renames a hangout, changes its emoji or who may invite. Owner only.
+  // Errors: HANGOUT_NOT_FOUND, NOT_OWNER, INVALID_NAME, INVALID_EMOJI,
+  // RATE_LIMITED.
+  rpc UpdateHangout(UpdateHangoutRequest) returns (UpdateHangoutResponse);
+  // Closes a hangout for good; anyone inside is disconnected. Owner only.
+  // People who belonged to it can still report it for a while.
+  // Errors: HANGOUT_NOT_FOUND, NOT_OWNER.
+  rpc DeleteHangout(DeleteHangoutRequest) returns (DeleteHangoutResponse);
+  // One hangout with its members and who is inside right now.
+  // Errors: HANGOUT_NOT_FOUND.
+  rpc GetHangout(GetHangoutRequest) returns (GetHangoutResponse);
+  // The caller's hangouts — open ones first, then the most recently used —
+  // each with who is inside right now, and the invitations waiting for an
+  // answer.
+  rpc ListHangouts(ListHangoutsRequest) returns (ListHangoutsResponse);
+  // Invites friends of the caller. The owner always may; members when the
+  // hangout allows it. People who are already part of it, or in a block
+  // with the owner, are skipped without a word. Someone the caller keeps
+  // inviting is told only the first few times a day.
+  // Errors: HANGOUT_NOT_FOUND, INVITES_NOT_ALLOWED, NOT_FRIENDS (someone is
+  // not the caller's friend), TOO_MANY_INVITES (more than 50 at a time),
+  // HANGOUT_FULL, RATE_LIMITED.
+  rpc InviteToHangout(InviteToHangoutRequest) returns (InviteToHangoutResponse);
+  // Accepts or declines an invitation.
+  // Errors: HANGOUT_NOT_FOUND, NO_INVITATION, HANGOUT_FULL,
+  // TOO_MANY_HANGOUTS (the caller belongs to too many).
+  rpc RespondToHangoutInvite(RespondToHangoutInviteRequest) returns (RespondToHangoutInviteResponse);
+  // Removes a member, or takes an invitation back. The owner may remove
+  // anyone; a member may take back an invitation they sent.
+  // Errors: HANGOUT_NOT_FOUND, NOT_OWNER, TARGET_NOT_A_MEMBER,
+  // INVALID_USER (the owner themselves).
+  rpc RemoveHangoutMember(RemoveHangoutMemberRequest) returns (RemoveHangoutMemberResponse);
+  // Stops being a member. The owner hands the hangout over first
+  // (TransferHangout) or deletes it.
+  // Errors: HANGOUT_NOT_FOUND, OWNER_CANNOT_QUIT.
+  rpc QuitHangout(QuitHangoutRequest) returns (QuitHangoutResponse);
+  // Makes another member the owner. Owner only.
+  // Errors: HANGOUT_NOT_FOUND, NOT_OWNER, TARGET_NOT_A_MEMBER, INVALID_USER,
+  // TOO_MANY_HANGOUTS (the new owner owns too many).
+  rpc TransferHangout(TransferHangoutRequest) returns (TransferHangoutResponse);
+  // Silences (or restores) the caller's "someone is in the hangout"
+  // notifications for one hangout.
+  // Errors: HANGOUT_NOT_FOUND.
+  rpc SetHangoutMuted(SetHangoutMutedRequest) returns (SetHangoutMutedResponse);
+
+  // Enters the hangout's voice room and returns the credentials to
+  // connect; everyone inside can talk. The other members see the caller
+  // inside at once, and friends among them are notified when the caller is
+  // the first one in. Joining again returns fresh credentials. Members only.
+  // Errors: HANGOUT_NOT_FOUND, NOT_A_MEMBER (invited, not yet accepted),
+  // AUDIO_NOT_CONFIGURED, AUDIO_UNAVAILABLE, RATE_LIMITED.
+  rpc JoinHangout(JoinHangoutRequest) returns (JoinHangoutResponse);
+  // Leaves the voice room; the membership stays. Leaving when not inside
+  // succeeds.
+  // Errors: HANGOUT_NOT_FOUND.
+  rpc LeaveHangout(LeaveHangoutRequest) returns (LeaveHangoutResponse);
+}
+
+// ───────────────────────────── rooms ─────────────────────────────
+
+// Who may enter a room.
+enum SpaceAudience {
+  SPACE_AUDIENCE_UNSPECIFIED = 0;
+  // Anyone signed in. Listed in discovery and search.
+  SPACE_AUDIENCE_PUBLIC = 1;
+  // Friends of the host, and people invited by a moderator. The default.
+  SPACE_AUDIENCE_FRIENDS = 2;
+  // Only people invited by a moderator.
+  SPACE_AUDIENCE_INVITED = 3;
+}
+
+enum SpaceState {
+  SPACE_STATE_UNSPECIFIED = 0;
+  // Announced for `scheduled_at`; nobody can enter yet.
+  SPACE_STATE_SCHEDULED = 1;
+  SPACE_STATE_LIVE = 2;
+  SPACE_STATE_ENDED = 3;
+  // An upcoming room that was called off or never started.
+  SPACE_STATE_CANCELLED = 4;
+}
+
+// Why a room ended or was cancelled.
+enum SpaceEndReason {
+  SPACE_END_REASON_UNSPECIFIED = 0;
+  // The host ended (or cancelled) it.
+  SPACE_END_REASON_HOST_ENDED = 1;
+  // The host stayed away and no co-host was there to take over.
+  SPACE_END_REASON_HOST_LEFT = 2;
+  // Nobody was inside any more.
+  SPACE_END_REASON_EMPTY = 3;
+  // Taken down by moderation.
+  SPACE_END_REASON_MODERATION = 4;
+  // The host's account was closed. Only the host is told so; everyone
+  // else sees HOST_LEFT.
+  SPACE_END_REASON_ACCOUNT_CLOSED = 5;
+  // An upcoming room nobody started within a day of its time.
+  SPACE_END_REASON_NEVER_STARTED = 6;
+}
+
+// What someone is in a room. Everything from SPEAKER up is "on stage" and
+// may talk.
+enum SpaceRole {
+  SPACE_ROLE_UNSPECIFIED = 0;
+  // In the audience: hears the room, cannot talk.
+  SPACE_ROLE_LISTENER = 1;
+  SPACE_ROLE_SPEAKER = 2;
+  // Moderates like the host, short of ending the room, handing it over
+  // and naming co-hosts.
+  SPACE_ROLE_COHOST = 3;
+  SPACE_ROLE_HOST = 4;
+}
+
+// Why someone is no longer inside.
+enum SpaceLeaveReason {
+  SPACE_LEAVE_REASON_UNSPECIFIED = 0;
+  // They left (or entered another room).
+  SPACE_LEAVE_REASON_LEFT = 1;
+  // A moderator removed them.
+  SPACE_LEAVE_REASON_REMOVED = 2;
+  // A moderator removed and banned them.
+  SPACE_LEAVE_REASON_BANNED = 3;
+  // Their connection was gone for too long.
+  SPACE_LEAVE_REASON_DISCONNECTED = 4;
+  // The room ended.
+  SPACE_LEAVE_REASON_ENDED = 5;
+}
+
+// An audio room.
+message Space {
+  string id = 1;
+  string title = 2;
+  // Topic tags without the leading '#', lowercase.
+  repeated string tags = 3;
+  // Language the room is held in: a BCP 47 primary tag ("ja", "en"), or
+  // empty when the host did not say.
+  string language = 4;
+  SpaceAudience audience = 5;
+  SpaceState state = 6;
+  tokuly.common.v1.UserSummary host = 7;
+  // Planned start; unset for rooms started on the spot.
+  google.protobuf.Timestamp scheduled_at = 8;
+  google.protobuf.Timestamp started_at = 9;
+  google.protobuf.Timestamp ended_at = 10;
+  // Set once the room ended or was cancelled.
+  SpaceEndReason end_reason = 11;
+  // Everyone inside right now, the stage included.
+  int32 listener_count = 12;
+  // People on stage right now (host, co-hosts, speakers).
+  int32 speaker_count = 13;
+  // Hands that are up right now.
+  int32 hand_count = 14;
+  // The most people that were inside at once.
+  int32 peak_listeners = 15;
+  // Different people who entered the room at some point.
+  int32 total_listeners = 16;
+  // Seats on stage, the host's included.
+  int32 max_speakers = 17;
+  SpacePin pin = 18;
+  // Who is on stage right now, host first. Filled in GetSpace, in the
+  // responses of RPCs that act on one room, and in realtime pushes; lists
+  // carry at most a few for avatars.
+  repeated SpaceParticipant stage = 19;
+  // People who asked to be reminded of an upcoming room.
+  int32 reminder_count = 20;
+  google.protobuf.Timestamp created_at = 21;
+  // The caller's own relation to the room. Unset in realtime pushes and
+  // for anonymous callers.
+  SpaceViewer viewer = 22;
+  // Friends of the caller who are inside (ListLiveSpaces only).
+  repeated tokuly.common.v1.UserSummary friends_inside = 23;
+}
+
+// A note or a link pinned at the top of a room.
+message SpacePin {
+  // Up to 200 characters.
+  string text = 1;
+  // An http(s) link, or empty.
+  string url = 2;
+  google.protobuf.Timestamp pinned_at = 3;
+  string pinned_by_id = 4;
+}
+
+// The caller's relation to a room.
+message SpaceViewer {
+  // Inside right now.
+  bool inside = 1;
+  // The role the caller has, or would enter with (the host and co-hosts
+  // keep theirs while away).
+  SpaceRole role = 2;
+  bool hand_raised = 3;
+  // A moderator invited the caller on stage; answer with
+  // RespondToStageInvite.
+  bool stage_invited = 4;
+  // The caller asked to be reminded when the room starts.
+  bool reminder_set = 5;
+  // The caller holds an invitation to the room.
+  bool invited = 6;
+  // The caller is banned and cannot enter.
+  bool banned = 7;
+}
+
+// Someone inside a room.
+message SpaceParticipant {
+  tokuly.common.v1.UserSummary user = 1;
+  SpaceRole role = 2;
+  // Set while their hand is up.
+  google.protobuf.Timestamp hand_raised_at = 3;
+  // A stage invitation is waiting for their answer. Only shown to
+  // moderators and to the person themselves; never set in realtime pushes.
+  bool stage_invited = 4;
+  // When they entered (this time).
+  google.protobuf.Timestamp joined_at = 5;
+  // PARTICIPANT_FILTER_PAST only: when and why they are no longer inside.
+  // `role` is then the highest role they held in the room.
+  google.protobuf.Timestamp left_at = 6;
+  SpaceLeaveReason leave_reason = 7;
+}
+
+// What a LiveKit client needs to connect to a room's audio.
+message AudioCredentials {
+  // LiveKit server URL (`ws://` / `wss://`).
+  string url = 1;
+  // LiveKit room name.
+  string room = 2;
+  // Access token for this user, room and role. Connect before `expires_at`;
+  // an established connection outlives it.
+  string token = 3;
+  google.protobuf.Timestamp expires_at = 4;
+  // What the token allows; changes later arrive through LiveKit itself.
+  bool can_publish = 5;
+}
+
+message GetSpacesConfigRequest {}
+
+// Limits of this server.
+message SpacesConfig {
+  // False when the server runs without LiveKit: rooms cannot go live and
+  // nobody can enter a hangout.
+  bool audio_enabled = 1;
+  // Seats on stage, the host's included.
+  int32 max_speakers = 2;
+  int32 max_cohosts = 3;
+  // People a room holds, the stage included.
+  int32 max_listeners = 4;
+  int32 max_title_length = 5;
+  int32 max_tags = 6;
+  // How far ahead a room can be scheduled.
+  int32 max_schedule_days = 7;
+  // How long a room waits for its host before it is handed to a co-host
+  // or ended.
+  int32 host_grace_seconds = 8;
+  // Hangouts one person may own.
+  int32 max_hangouts = 9;
+  int32 max_hangout_members = 10;
+}
+
+message GetSpacesConfigResponse {
+  SpacesConfig config = 1;
+}
+
+message CreateSpaceRequest {
+  // 1–80 characters.
+  string title = 1;
+  // Up to 5 tags of up to 30 characters; a leading '#' is dropped.
+  repeated string tags = 2;
+  // BCP 47 primary tag ("ja"), or empty.
+  string language = 3;
+  // UNSPECIFIED means FRIENDS.
+  SpaceAudience audience = 4;
+  // Unset: start now. Otherwise at least a minute from now.
+  google.protobuf.Timestamp scheduled_at = 5;
+  // Friends to invite right away (see InviteToSpace).
+  repeated string invitee_ids = 6;
+}
+
+message CreateSpaceResponse {
+  Space space = 1;
+  // Set when the room went live at once.
+  AudioCredentials credentials = 2;
+}
+
+message UpdateSpaceRequest {
+  string space_id = 1;
+  optional string title = 2;
+  // Replaces the tags when `set_tags` is true.
+  repeated string tags = 3;
+  bool set_tags = 4;
+  optional string language = 5;
+  optional SpaceAudience audience = 6;
+  // Moves the planned start.
+  google.protobuf.Timestamp scheduled_at = 7;
+}
+
+message UpdateSpaceResponse {
+  Space space = 1;
+}
+
+message StartSpaceRequest {
+  string space_id = 1;
+}
+
+message StartSpaceResponse {
+  Space space = 1;
+  AudioCredentials credentials = 2;
+}
+
+message CancelSpaceRequest {
+  string space_id = 1;
+}
+
+message CancelSpaceResponse {
+  Space space = 1;
+}
+
+message EndSpaceRequest {
+  string space_id = 1;
+}
+
+message EndSpaceResponse {
+  Space space = 1;
+}
+
+message DeleteSpaceRequest {
+  string space_id = 1;
+}
+
+message DeleteSpaceResponse {}
+
+message GetSpaceRequest {
+  string space_id = 1;
+}
+
+message GetSpaceResponse {
+  Space space = 1;
+}
+
+message JoinSpaceRequest {
+  string space_id = 1;
+}
+
+message JoinSpaceResponse {
+  Space space = 1;
+  AudioCredentials credentials = 2;
+  // The caller as a participant.
+  SpaceParticipant me = 3;
+}
+
+message LeaveSpaceRequest {
+  string space_id = 1;
+}
+
+message LeaveSpaceResponse {}
+
+// Which of the people inside to list.
+enum ParticipantFilter {
+  // Everyone: stage, raised hands, then the rest.
+  PARTICIPANT_FILTER_UNSPECIFIED = 0;
+  // Host, co-hosts and speakers.
+  PARTICIPANT_FILTER_STAGE = 1;
+  // Listeners whose hand is up, first raised first.
+  PARTICIPANT_FILTER_HANDS = 2;
+  // Listeners.
+  PARTICIPANT_FILTER_AUDIENCE = 3;
+  // People who were inside and are not any more (they left, dropped off,
+  // were removed or banned, or the room ended), last to leave first: the
+  // way to find someone to report or block after they are gone. Everyone
+  // who may see the room gets those who were on stage at some point;
+  // moderators get everyone. Works on rooms that ended, too.
+  PARTICIPANT_FILTER_PAST = 4;
+}
+
+message ListParticipantsRequest {
+  string space_id = 1;
+  ParticipantFilter filter = 2;
+  tokuly.common.v1.PageRequest page = 3;
+}
+
+message ListParticipantsResponse {
+  repeated SpaceParticipant participants = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message SetHandRaisedRequest {
+  string space_id = 1;
+  bool raised = 2;
+}
+
+message SetHandRaisedResponse {
+  SpaceParticipant me = 1;
+}
+
+message InviteToStageRequest {
+  string space_id = 1;
+  string user_id = 2;
+}
+
+message InviteToStageResponse {
+  SpaceParticipant participant = 1;
+  // True when their hand was up and they are a speaker now; false when an
+  // invitation was sent.
+  bool on_stage = 2;
+}
+
+message RespondToStageInviteRequest {
+  string space_id = 1;
+  bool accept = 2;
+}
+
+message RespondToStageInviteResponse {
+  SpaceParticipant me = 1;
+  // Fresh credentials for the new role are not needed: the connection's
+  // permissions change in place. Set anyway for clients that reconnect.
+  AudioCredentials credentials = 2;
+}
+
+message MoveToAudienceRequest {
+  string space_id = 1;
+  // Empty: the caller themselves.
+  string user_id = 2;
+}
+
+message MoveToAudienceResponse {
+  SpaceParticipant participant = 1;
+}
+
+message SetCohostRequest {
+  string space_id = 1;
+  string user_id = 2;
+  bool cohost = 3;
+}
+
+message SetCohostResponse {
+  SpaceParticipant participant = 1;
+}
+
+message TransferHostRequest {
+  string space_id = 1;
+  string user_id = 2;
+}
+
+message TransferHostResponse {
+  Space space = 1;
+}
+
+message MuteSpeakerRequest {
+  string space_id = 1;
+  string user_id = 2;
+}
+
+message MuteSpeakerResponse {
+  // Microphone tracks that were muted; 0 when they were not publishing.
+  int32 muted_tracks = 1;
+}
+
+message RemoveParticipantRequest {
+  string space_id = 1;
+  string user_id = 2;
+  // Also keep them from coming back.
+  bool ban = 3;
+}
+
+message RemoveParticipantResponse {}
+
+message UnbanUserRequest {
+  string space_id = 1;
+  string user_id = 2;
+}
+
+message UnbanUserResponse {}
+
+message ListBansRequest {
+  string space_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+// Someone banned from a room.
+message SpaceBan {
+  tokuly.common.v1.UserSummary user = 1;
+  string banned_by_id = 2;
+  google.protobuf.Timestamp banned_at = 3;
+}
+
+message ListBansResponse {
+  repeated SpaceBan bans = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message SendReactionRequest {
+  string space_id = 1;
+  // One emoji, or a custom emoji as `:shortcode:`.
+  string emoji = 2;
+}
+
+message SendReactionResponse {}
+
+message SetPinRequest {
+  string space_id = 1;
+  // Up to 200 characters.
+  string text = 2;
+  // An http(s) link of up to 2000 characters.
+  string url = 3;
+}
+
+message SetPinResponse {
+  Space space = 1;
+}
+
+message InviteToSpaceRequest {
+  string space_id = 1;
+  // Up to 50 friends of the caller per call.
+  repeated string user_ids = 2;
+}
+
+message InviteToSpaceResponse {
+  // How many new invitations went out.
+  int32 invited_count = 1;
+}
+
+message RevokeSpaceInviteRequest {
+  string space_id = 1;
+  string user_id = 2;
+}
+
+message RevokeSpaceInviteResponse {}
+
+message ListSpaceInvitesRequest {
+  string space_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+// An invitation to a room.
+message SpaceInvite {
+  tokuly.common.v1.UserSummary user = 1;
+  string invited_by_id = 2;
+  google.protobuf.Timestamp invited_at = 3;
+}
+
+message ListSpaceInvitesResponse {
+  repeated SpaceInvite invites = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message SetReminderRequest {
+  string space_id = 1;
+  bool remind = 2;
+}
+
+message SetReminderResponse {
+  Space space = 1;
+}
+
+// Which live rooms to list.
+enum LiveScope {
+  LIVE_SCOPE_UNSPECIFIED = 0;
+  // Rooms with friends of the caller inside.
+  LIVE_SCOPE_FRIENDS = 1;
+  // Public rooms, most listeners first.
+  LIVE_SCOPE_PUBLIC = 2;
+}
+
+message ListLiveSpacesRequest {
+  LiveScope scope = 1;
+  // PUBLIC only: rooms carrying this tag.
+  string tag = 2;
+  // PUBLIC only: rooms held in this language.
+  string language = 3;
+  tokuly.common.v1.PageRequest page = 4;
+}
+
+message ListLiveSpacesResponse {
+  repeated Space spaces = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListUpcomingSpacesRequest {
+  // Rooms carrying this tag.
+  string tag = 1;
+  // Rooms held in this language.
+  string language = 2;
+  // Only rooms the caller asked to be reminded of.
+  bool reminders_only = 3;
+  tokuly.common.v1.PageRequest page = 4;
+}
+
+message ListUpcomingSpacesResponse {
+  repeated Space spaces = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListMySpacesRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListMySpacesResponse {
+  repeated Space spaces = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListPopularTagsRequest {
+  // Tags of rooms held in this language; empty for all.
+  string language = 1;
+  // How many tags (default 20, at most 50).
+  int32 limit = 2;
+}
+
+// A tag with what is happening under it right now.
+message PopularTag {
+  string tag = 1;
+  // Live public rooms carrying it.
+  int32 space_count = 2;
+  // People inside those rooms.
+  int32 listener_count = 3;
+}
+
+message ListPopularTagsResponse {
+  repeated PopularTag tags = 1;
+}
+
+message ListFriendsInRoomsRequest {}
+
+// A friend who is inside a room or hangout the caller could enter.
+message FriendInRoom {
+  tokuly.common.v1.UserSummary user = 1;
+  // Exactly one of the two is set.
+  string space_id = 2;
+  string hangout_id = 3;
+  // The room's title or the hangout's name.
+  string title = 4;
+  // The hangout's emoji; empty for rooms.
+  string emoji = 5;
+  // Rooms only.
+  SpaceRole role = 6;
+  google.protobuf.Timestamp since = 7;
+}
+
+message ListFriendsInRoomsResponse {
+  repeated FriendInRoom friends = 1;
+}
+
+// ───────────────────────────── hangouts ─────────────────────────────
+
+enum HangoutMemberState {
+  HANGOUT_MEMBER_STATE_UNSPECIFIED = 0;
+  // Invited; has not answered yet.
+  HANGOUT_MEMBER_STATE_INVITED = 1;
+  HANGOUT_MEMBER_STATE_MEMBER = 2;
+}
+
+// A persistent voice room of a friend group.
+message Hangout {
+  string id = 1;
+  // 1–40 characters.
+  string name = 2;
+  // One emoji standing in for an icon.
+  string emoji = 3;
+  tokuly.common.v1.UserSummary owner = 4;
+  // Members may invite their friends too; otherwise only the owner.
+  bool members_can_invite = 5;
+  // Members, the owner included; invitations are not counted.
+  int32 member_count = 6;
+  // People in the voice room right now. The hangout is "open" when > 0.
+  int32 inside_count = 7;
+  // Members first (those inside leading), then open invitations. Invitees
+  // only see the members.
+  repeated HangoutMember members = 8;
+  // The last time somebody was inside.
+  google.protobuf.Timestamp last_active_at = 9;
+  google.protobuf.Timestamp created_at = 10;
+  // The caller's own relation to the hangout. Unset in realtime pushes.
+  HangoutViewer viewer = 11;
+}
+
+message HangoutMember {
+  tokuly.common.v1.UserSummary user = 1;
+  HangoutMemberState state = 2;
+  bool owner = 3;
+  // In the voice room right now.
+  bool inside = 4;
+  google.protobuf.Timestamp inside_since = 5;
+  // Who invited them; empty for the owner.
+  string invited_by_id = 6;
+  // When they became a member (or were invited).
+  google.protobuf.Timestamp joined_at = 7;
+}
+
+// The caller's relation to a hangout.
+message HangoutViewer {
+  HangoutMemberState state = 1;
+  bool owner = 2;
+  bool inside = 3;
+  // "Someone is in the hangout" notifications are silenced.
+  bool muted = 4;
+  // The caller may invite friends.
+  bool can_invite = 5;
+}
+
+message CreateHangoutRequest {
+  // 1–40 characters.
+  string name = 1;
+  // One emoji; empty picks the default.
+  string emoji = 2;
+  bool members_can_invite = 3;
+  // Friends to invite right away.
+  repeated string invitee_ids = 4;
+}
+
+message CreateHangoutResponse {
+  Hangout hangout = 1;
+}
+
+message UpdateHangoutRequest {
+  string hangout_id = 1;
+  optional string name = 2;
+  optional string emoji = 3;
+  optional bool members_can_invite = 4;
+}
+
+message UpdateHangoutResponse {
+  Hangout hangout = 1;
+}
+
+message DeleteHangoutRequest {
+  string hangout_id = 1;
+}
+
+message DeleteHangoutResponse {}
+
+message GetHangoutRequest {
+  string hangout_id = 1;
+}
+
+message GetHangoutResponse {
+  Hangout hangout = 1;
+}
+
+message ListHangoutsRequest {}
+
+message ListHangoutsResponse {
+  // Hangouts the caller is a member of.
+  repeated Hangout hangouts = 1;
+  // Hangouts the caller is invited to and has not answered.
+  repeated Hangout invitations = 2;
+}
+
+message InviteToHangoutRequest {
+  string hangout_id = 1;
+  // Up to 50 friends of the caller per call.
+  repeated string user_ids = 2;
+}
+
+message InviteToHangoutResponse {
+  Hangout hangout = 1;
+  // How many new invitations went out.
+  int32 invited_count = 2;
+}
+
+message RespondToHangoutInviteRequest {
+  string hangout_id = 1;
+  bool accept = 2;
+}
+
+message RespondToHangoutInviteResponse {
+  // Set when the invitation was accepted.
+  Hangout hangout = 1;
+}
+
+message RemoveHangoutMemberRequest {
+  string hangout_id = 1;
+  string user_id = 2;
+}
+
+message RemoveHangoutMemberResponse {
+  Hangout hangout = 1;
+}
+
+message QuitHangoutRequest {
+  string hangout_id = 1;
+}
+
+message QuitHangoutResponse {}
+
+message TransferHangoutRequest {
+  string hangout_id = 1;
+  string user_id = 2;
+}
+
+message TransferHangoutResponse {
+  Hangout hangout = 1;
+}
+
+message SetHangoutMutedRequest {
+  string hangout_id = 1;
+  bool muted = 2;
+}
+
+message SetHangoutMutedResponse {
+  Hangout hangout = 1;
+}
+
+message JoinHangoutRequest {
+  string hangout_id = 1;
+}
+
+message JoinHangoutResponse {
+  Hangout hangout = 1;
+  AudioCredentials credentials = 2;
+}
+
+message LeaveHangoutRequest {
+  string hangout_id = 1;
+}
+
+message LeaveHangoutResponse {}
+
+// ───────────────────────────── realtime ─────────────────────────────
+
 // Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.spaces).
+//
+// Events about a room go to the topic `space:<space id>`, which may be
+// followed by anyone who may see the room (public rooms: anyone, signed in
+// or not). Events about one person, and everything about hangouts, go to
+// the users concerned.
 message SpacesEvent {
-  // Placeholder so the realtime envelope compiles; replace with a oneof of real events.
-  tokuly.common.v1.SubjectRef subject = 1;
+  oneof event {
+    // Topic: the room started, ended, was handed over, or its title, tags,
+    // audience, schedule or pin changed.
+    SpaceUpdated space_updated = 1;
+    // Topic: someone came on stage, changed role, or raised or lowered a
+    // hand. Listeners entering quietly are not announced one by one; see
+    // `counts`.
+    SpaceParticipantUpdated participant_updated = 2;
+    // Topic, when the person was on stage or had a hand up; and always to
+    // the person themselves when it was not their own doing.
+    SpaceParticipantLeft participant_left = 3;
+    // Topic: how many people are inside. Sent on every change in small
+    // rooms and every few seconds at most in large ones.
+    SpaceCounts counts = 4;
+    // Topic: an emoji burst.
+    SpaceReaction reaction = 5;
+    // Topic: a moderator muted a speaker.
+    SpeakerMuted speaker_muted = 6;
+    // User: a moderator invited them on stage, or took the invitation back.
+    StageInvitation stage_invitation = 7;
+    // User: they were invited to a room.
+    SpaceInvitation space_invitation = 8;
+    // Members and invitees: the hangout or its members changed.
+    HangoutUpdated hangout_updated = 9;
+    // Members and invitees: the hangout is gone, or they are no longer part
+    // of it.
+    HangoutRemoved hangout_removed = 10;
+    // Members: someone entered or left the voice room.
+    HangoutPresence hangout_presence = 11;
+    // User: they were invited to a hangout.
+    HangoutInvitation hangout_invitation = 12;
+  }
+}
+
+message SpaceUpdated {
+  // Without `viewer`.
+  Space space = 1;
+}
+
+message SpaceParticipantUpdated {
+  string space_id = 1;
+  SpaceParticipant participant = 2;
+}
+
+message SpaceParticipantLeft {
+  string space_id = 1;
+  string user_id = 2;
+  SpaceLeaveReason reason = 3;
+}
+
+message SpaceCounts {
+  string space_id = 1;
+  int32 listener_count = 2;
+  int32 speaker_count = 3;
+  int32 hand_count = 4;
+  int32 peak_listeners = 5;
+}
+
+message SpaceReaction {
+  string space_id = 1;
+  string user_id = 2;
+  string emoji = 3;
+}
+
+message SpeakerMuted {
+  string space_id = 1;
+  string user_id = 2;
+  string muted_by_id = 3;
+}
+
+message StageInvitation {
+  string space_id = 1;
+  // False when the invitation was taken back.
+  bool invited = 2;
+  tokuly.common.v1.UserSummary invited_by = 3;
+}
+
+message SpaceInvitation {
+  // Without `viewer`.
+  Space space = 1;
+  tokuly.common.v1.UserSummary invited_by = 2;
+}
+
+message HangoutUpdated {
+  // Without `viewer`.
+  Hangout hangout = 1;
+}
+
+message HangoutRemoved {
+  string hangout_id = 1;
+}
+
+message HangoutPresence {
+  string hangout_id = 1;
+  tokuly.common.v1.UserSummary user = 2;
+  // True: entered; false: left.
+  bool inside = 3;
+  // People inside after the change.
+  int32 inside_count = 4;
+}
+
+message HangoutInvitation {
+  // Without `viewer`.
+  Hangout hangout = 1;
+  tokuly.common.v1.UserSummary invited_by = 2;
 }
