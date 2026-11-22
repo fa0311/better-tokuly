@@ -101,7 +101,7 @@ const RUNTIME_CACHES = [
     // `name-<hash>.ext`, as the build writes it. Anything else under /assets/ is not known to be immutable.
     matches: (url) => url.pathname.startsWith("/assets/") && /-[\w-]{8,}\.[a-z0-9]+$/i.test(url.pathname),
     strategy: cacheFirst,
-    // A build is around 150 files, most of them font slices; this holds a few builds.
+    // A visit uses around a hundred of a build's files (most are font slices); this holds a few builds.
     maxEntries: 500,
     maxAgeMs: 45 * DAY_MS,
   },
