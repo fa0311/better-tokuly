@@ -153,15 +153,16 @@ pub struct Claims {
     pub video: VideoGrant,
 }
 
-/// What a join token says about its holder. Start from
-/// [`TokenOptions::join`] and narrow it down:
+/// What a join token says about its holder. [`TokenOptions::join`] lets
+/// them into the room to watch and listen, and nothing else; everything
+/// more is asked for by name:
 ///
 /// ```ignore
-/// let listener = TokenOptions::join(&room, &user_id.to_string())
+/// let speaker = TokenOptions::join(&room, &user_id.to_string())
 ///     .name(&display_name)
-///     .publish(false)
-///     .publish_data(false);
-/// let token = core.livekit.token(&listener)?;
+///     .publish(true)
+///     .sources(&[TrackSource::Microphone]);
+/// let token = core.livekit.token(&speaker)?;
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TokenOptions {
@@ -186,8 +187,9 @@ pub struct TokenOptions {
 }
 
 impl TokenOptions {
-    /// A participant who may join `room`, publish anything and subscribe,
-    /// for [`DEFAULT_TOKEN_TTL`].
+    /// A participant who may join `room` and subscribe, for
+    /// [`DEFAULT_TOKEN_TTL`]. Publishing (media, data) is off until it is
+    /// switched on with [`Self::publish`] / [`Self::publish_data`].
     pub fn join(room: &str, identity: &str) -> Self {
         Self {
             room: room.to_owned(),
@@ -196,9 +198,9 @@ impl TokenOptions {
             metadata: String::new(),
             ttl: DEFAULT_TOKEN_TTL,
             join: true,
-            can_publish: true,
+            can_publish: false,
             can_subscribe: true,
-            can_publish_data: true,
+            can_publish_data: false,
             publish_sources: Vec::new(),
             admin: false,
             hidden: false,
@@ -235,7 +237,8 @@ impl TokenOptions {
         self
     }
 
-    /// Limits what may be published to these sources.
+    /// Limits what may be published (once [`Self::publish`] allows it) to
+    /// these sources.
     pub fn sources(mut self, sources: &[TrackSource]) -> Self {
         self.publish_sources = sources.to_vec();
         self
@@ -966,12 +969,17 @@ mod tests {
             VideoGrant {
                 room: "room-1".into(),
                 room_join: true,
-                can_publish: Some(true),
+                can_publish: Some(false),
                 can_subscribe: Some(true),
-                can_publish_data: Some(true),
+                can_publish_data: Some(false),
                 ..Default::default()
-            }
+            },
+            "a join token lets its holder watch and listen; the rest is opted into"
         );
+        let speaker = options.clone().publish(true).sources(&[TrackSource::Microphone]);
+        let granted = livekit.decode_token(&livekit.token(&speaker).unwrap()).unwrap().video;
+        assert_eq!((granted.can_publish, granted.can_publish_data), (Some(true), Some(false)));
+        assert_eq!(granted.can_publish_sources, ["microphone"]);
         let now = jsonwebtoken::get_current_timestamp();
         let lifetime = claims.exp - now;
         assert!((595..=600).contains(&lifetime), "expires in ten minutes, got {lifetime}s");
