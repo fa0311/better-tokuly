@@ -1,11 +1,59 @@
 {
+  "id": "/",
   "name": "Tokuly",
   "short_name": "Tokuly",
-  "description": "友達と位置情報共有を楽しもう! Your now to your friends.",
-  "start_url": "/map",
-  "display": "standalone",
-  "background_color": "#0d0b14",
-  "theme_color": "#7c5cff",
+  "description": "友達と位置情報共有を楽しもう！マップ、チャット、ノート、動画、ライブ、ショートがひとつになったアプリ。",
   "lang": "ja",
-  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+  "dir": "ltr",
+  "start_url": "/map?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "natural",
+  "theme_color": "#f4f1ff",
+  "background_color": "#f4f1ff",
+  "categories": ["social", "navigation", "entertainment"],
+  "prefer_related_applications": false,
+  "launch_handler": { "client_mode": ["navigate-existing", "auto"] },
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/monochrome-512.png", "sizes": "512x512", "type": "image/png", "purpose": "monochrome" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "shortcuts": [
+    {
+      "name": "マップ",
+      "description": "友達がいまどこにいるか見る",
+      "url": "/map?source=shortcut",
+      "icons": [{ "src": "/icons/shortcut-map.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "チャット",
+      "description": "友達とトークする",
+      "url": "/chat?source=shortcut",
+      "icons": [{ "src": "/icons/shortcut-chat.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "ノート",
+      "description": "みんなのノートを読む・書く",
+      "url": "/notes?source=shortcut",
+      "icons": [{ "src": "/icons/shortcut-notes.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "お知らせ",
+      "description": "届いたお知らせを見る",
+      "url": "/notifications?source=shortcut",
+      "icons": [{ "src": "/icons/shortcut-notifications.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ],
+  "screenshots": [
+    { "src": "/screenshots/phone-map.png", "sizes": "390x844", "type": "image/png", "form_factor": "narrow", "label": "友達のいまが、マップでわかる" },
+    { "src": "/screenshots/phone-friends.png", "sizes": "390x844", "type": "image/png", "form_factor": "narrow", "label": "ともだちとつながる" },
+    { "src": "/screenshots/phone-stamps.png", "sizes": "390x844", "type": "image/png", "form_factor": "narrow", "label": "スタンプをさがす・つくる" },
+    { "src": "/screenshots/wide-map.png", "sizes": "1280x800", "type": "image/png", "form_factor": "wide", "label": "友達のいまが、マップでわかる" },
+    { "src": "/screenshots/wide-stamps.png", "sizes": "1280x800", "type": "image/png", "form_factor": "wide", "label": "スタンプをさがす・つくる" }
+  ]
 }
