@@ -212,8 +212,8 @@ function ChannelForm({ channel }: { channel?: video.Channel }) {
         </FormSection>
       )}
 
-      <div className="sticky bottom-24 z-10 flex justify-end gap-2 md:bottom-4">
-        <Button type="submit" size="lg" disabled={!canSave} loading={save.isPending} className="shadow-pop">
+      <div className="flex justify-end">
+        <Button type="submit" size="lg" disabled={!canSave} loading={save.isPending}>
           {channel ? t("actions.save") : t("studio.channel.create")}
         </Button>
       </div>

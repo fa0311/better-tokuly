@@ -300,20 +300,22 @@ export function Composer({ replyTo, autoFocus, onCancel, onPosted }: ComposerPro
                   ]}
                 />
               )}
-              <span className="flex-1" />
-              {text.length > MAX_LENGTH - 100 && (
-                <span className={cn("px-1 text-xs font-bold tabular-nums", text.length > MAX_LENGTH ? "text-danger" : "text-ink-faint")}>
-                  {text.length}/{MAX_LENGTH}
-                </span>
-              )}
-              {onCancel && (
-                <Button variant="ghost" size="sm" onClick={onCancel}>
-                  {t("composer.cancel")}
+              {/* Kept together and to the right, also when the row wraps on a narrow phone. */}
+              <div className="ml-auto flex items-center gap-1">
+                {text.length > MAX_LENGTH - 100 && (
+                  <span className={cn("px-1 text-xs font-bold tabular-nums", text.length > MAX_LENGTH ? "text-danger" : "text-ink-faint")}>
+                    {text.length}/{MAX_LENGTH}
+                  </span>
+                )}
+                {onCancel && (
+                  <Button variant="ghost" size="sm" onClick={onCancel}>
+                    {t("composer.cancel")}
+                  </Button>
+                )}
+                <Button type="submit" size="sm" disabled={!canPost} loading={post.isPending} icon={<SendHorizontal className="size-4" />}>
+                  {replyTo ? t("composer.reply") : t("composer.post")}
                 </Button>
-              )}
-              <Button type="submit" size="sm" disabled={!canPost} loading={post.isPending} icon={<SendHorizontal className="size-4" />}>
-                {replyTo ? t("composer.reply") : t("composer.post")}
-              </Button>
+              </div>
             </div>
           )}
         </div>
