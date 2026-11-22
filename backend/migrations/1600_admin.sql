@@ -89,6 +89,10 @@ CREATE TABLE moderation_actions (
     -- NULL for automatic actions (expired suspensions) and deleted staff.
     moderator_id   uuid REFERENCES users (id) ON DELETE SET NULL,
     target_user_id uuid REFERENCES users (id) ON DELETE SET NULL,
+    -- The action is about content that hides its author (see
+    -- moderation_cases.owner_hidden): the target above is that author, and is
+    -- not shown to a moderator who is involved in the content.
+    target_hidden  boolean     NOT NULL DEFAULT false,
     subject_type   integer,
     subject_id     uuid,
     subject_title  text        NOT NULL DEFAULT '',

@@ -84,8 +84,6 @@ pub(crate) struct Takedown {
     pub action: ActionRow,
     /// The open case the takedown resolved, if there was one.
     pub resolved_case: Option<CaseRow>,
-    /// The content hides its author: the answer must not name them.
-    pub owner_hidden: bool,
 }
 
 /// The content a takedown removes.
@@ -93,6 +91,8 @@ struct Removal<'a> {
     subject_type: i32,
     subject_id: Uuid,
     owner_id: Option<Uuid>,
+    /// `owner_id` is the hidden author of anonymous content.
+    owner_hidden: bool,
     title: &'a str,
     reason: &'a str,
     note: &'a str,
@@ -137,6 +137,7 @@ impl Admin {
             (DISMISS, _) => {
                 let dismissal = NewAction::new(DISMISS, Some(staff.id))
                     .target(case.subject_owner_id)
+                    .hidden_target(case.owner_hidden)
                     .case(Some(case.id))
                     .subject(case.subject_type, case.subject_id, &case.subject_title)
                     .texts("", &resolution.note);
@@ -149,6 +150,7 @@ impl Admin {
                 subject_type: case.subject_type,
                 subject_id: case.subject_id,
                 owner_id: case.subject_owner_id,
+                owner_hidden: case.owner_hidden,
                 title: &case.subject_title,
                 reason: &resolution.reason,
                 note: &resolution.note,
@@ -217,8 +219,7 @@ impl Admin {
                 Ok(resolved) => {
                     let removal = resolved.actions.iter().find(|a| a.kind == REMOVE_CONTENT as i32).cloned();
                     let action = removal.ok_or_else(|| AppError::internal(anyhow::anyhow!("takedown resolution wrote no removal entry")))?;
-                    let owner_hidden = resolved.case.owner_hidden;
-                    return Ok(Takedown { action, resolved_case: Some(resolved.case), owner_hidden });
+                    return Ok(Takedown { action, resolved_case: Some(resolved.case) });
                 }
                 // Another moderator closed it in the meantime: take the content down directly.
                 Err(e) if e.reason == "CASE_ALREADY_RESOLVED" => {}
@@ -240,6 +241,7 @@ impl Admin {
             subject_type: subject_type as i32,
             subject_id: subject.id,
             owner_id: subject.owner_id,
+            owner_hidden: subject.owner_hidden,
             title: &subject.title,
             reason: &resolution.reason,
             note: &resolution.note,
@@ -247,7 +249,7 @@ impl Admin {
         };
         let action = self.remove_content(&mut tx, staff, removal).await?;
         tx.commit().await?;
-        Ok(Takedown { action, resolved_case: None, owner_hidden: subject.owner_hidden })
+        Ok(Takedown { action, resolved_case: None })
     }
 
     /// Whether `staff` may apply `resolution` to `case`. Returns the content
@@ -290,6 +292,7 @@ impl Admin {
         }
         let action = NewAction::new(REMOVE_CONTENT, Some(staff.id))
             .target(removal.owner_id)
+            .hidden_target(removal.owner_hidden)
             .subject(removal.subject_type, removal.subject_id, removal.title)
             .case(removal.case_id)
             .texts(removal.reason, removal.note)

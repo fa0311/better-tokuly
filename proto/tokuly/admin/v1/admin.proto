@@ -197,7 +197,8 @@ message ModerationAction {
   // Staff member who acted. Unset for automatic actions (an expired
   // suspension) and for deleted staff accounts.
   tokuly.common.v1.UserSummary moderator = 3;
-  // The account the action was taken against, when there is one.
+  // The account the action was taken against, when there is one. Unset
+  // while `target_withheld` is set.
   tokuly.common.v1.UserSummary target_user = 4;
   // The content concerned, when there is one.
   tokuly.common.v1.SubjectRef subject = 5;
@@ -211,6 +212,11 @@ message ModerationAction {
   // SUSPEND only: when the suspension ends on its own.
   google.protobuf.Timestamp expires_at = 10;
   google.protobuf.Timestamp created_at = 11;
+  // The action is about an anonymous post and this message does not name
+  // its author: always in the answer to the change that made it, and in the
+  // moderation log for a moderator who is involved in the post. (Such a
+  // moderator does not find the action in an account's history at all.)
+  bool target_withheld = 12;
 }
 
 // An account's moderation record in numbers.

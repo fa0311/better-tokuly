@@ -401,7 +401,7 @@ async fn content_reported_without_an_owner_gets_one_from_the_domain_that_keeps_i
     assert!(kinds.contains(&"system.warning".to_owned()) && kinds.contains(&"system.content_removed".to_owned()), "{kinds:?}");
     // The answer to the resolution does not name the author; the audit log does.
     assert!(resolved.moderation_case.owner_withheld && resolved.moderation_case.subject_owner.is_unset());
-    assert!(resolved.actions.iter().all(|action| action.target_user.is_unset()));
+    assert!(resolved.actions.iter().all(|action| action.target_user.is_unset() && action.target_withheld));
     assert_eq!(audit_of_case(&app, &case.id, "case.resolved").await, vec![(admin_user.id, Some(author.id))]);
 
     // What the lookup does not know stays without an owner, as before.
@@ -423,7 +423,7 @@ async fn content_reported_without_an_owner_gets_one_from_the_domain_that_keeps_i
     assert_eq!((refused.code.as_str(), refused.reason.as_str()), ("permission_denied", "CONFLICT_OF_INTEREST"));
     assert!(notifications_for(&app2, writer.id).await.is_empty());
     let done: TakedownContentResponse = app2.call(&format!("{MODERATION}/TakedownContent"), Some(&moderator), &request).await.unwrap();
-    assert!(done.action.target_user.is_unset(), "the answer does not name the author");
+    assert!(done.action.target_user.is_unset() && done.action.target_withheld, "the answer does not name the author");
     assert_eq!(notifications_for(&app2, writer.id).await.len(), 1, "the author is told");
     let logged: Option<Uuid> = sqlx::query_scalar("SELECT target_user_id FROM admin_audit_log WHERE action = 'content.removed' AND actor_id = $1")
         .bind(moderator.id)
@@ -486,12 +486,54 @@ async fn the_author_of_an_anonymous_post_is_withheld_from_moderators_who_are_inv
     assert_eq!((entry.target_id.as_str(), entry.created_at.is_set()), (case_id.as_str(), true));
 
     // And they handle it; once it is resolved the involved ones still learn nothing from it.
-    resolve(&app, &neutral, resolution(case, WARN, "嫌がらせ")).await.unwrap();
+    resolve(&app, &neutral, ResolveCaseRequest { remove_content: true, ..resolution(case, WARN, "嫌がらせ") }).await.unwrap();
+    let log = |staff: &tokuly_testkit::TestUser, request: ListModerationActionsRequest| {
+        let (app, staff) = (&app, staff.clone());
+        async move {
+            let listed: ListModerationActionsResponse = app.call(&format!("{MODERATION}/ListModerationActions"), Some(&staff), &request).await.unwrap();
+            listed.actions
+        }
+    };
+    let of_case = ListModerationActionsRequest { case_id: case_id.clone(), ..Default::default() };
+    let of_author = ListModerationActionsRequest { user_id: author.id.to_string(), ..Default::default() };
+    let staff_view = |staff: &tokuly_testkit::TestUser| {
+        let (app, staff, user_id) = (&app, staff.clone(), author.id.to_string());
+        async move {
+            let view: GetUserResponse = app.call(&format!("{USERS}/GetUser"), Some(&staff), &GetUserRequest { user_id, ..Default::default() }).await.unwrap();
+            view.recent_actions
+        }
+    };
     for staff in [&reporting, &answered] {
         let closed = get_case(&app, staff, &case_id).await;
         assert!(closed.moderation_case.subject_owner.is_unset() && closed.moderation_case.conflict_of_interest);
-        assert!(!closed.actions.is_empty() && closed.actions.iter().all(|action| action.target_user.is_unset()), "{}", staff.handle);
+        assert_eq!(closed.actions.len(), 2, "{}", staff.handle);
+        assert!(closed.actions.iter().all(|action| action.target_user.is_unset() && action.target_withheld), "{}", staff.handle);
+        // The moderation log has the warning and the takedown, without whom they hit...
+        let entries = log(staff, of_case.clone()).await;
+        assert_eq!(entries.len(), 2, "{}", staff.handle);
+        assert!(entries.iter().all(|action| action.target_user.is_unset() && action.target_withheld), "{}", staff.handle);
+        assert!(log(staff, ListModerationActionsRequest::default()).await.iter().all(|action| action.target_user.is_unset() || action.case_id != case_id));
+        // ...and the author's own history does not have them: there they would say whose post it was.
+        assert!(log(staff, of_author.clone()).await.is_empty(), "{}", staff.handle);
+        assert!(staff_view(staff).await.is_empty(), "{}", staff.handle);
     }
+    // The moderator who is not involved reads the log as it is.
+    for entries in [log(&neutral, of_case.clone()).await, log(&neutral, of_author.clone()).await, staff_view(&neutral).await] {
+        assert_eq!(entries.len(), 2);
+        assert!(entries.iter().all(|action| action.target_user.id == author.id.to_string() && !action.target_withheld));
+    }
+
+    // A sanction that has nothing to do with the anonymous post is in everyone's view of the account.
+    let _: WarnUserResponse = app
+        .call(&format!("{USERS}/WarnUser"), Some(&neutral), &WarnUserRequest { user_id: author.id.to_string(), reason: "別件".into(), ..Default::default() })
+        .await
+        .unwrap();
+    for staff in [&reporting, &answered] {
+        let seen = staff_view(staff).await;
+        assert_eq!(seen.len(), 1, "{}", staff.handle);
+        assert_eq!((seen[0].reason.as_str(), seen[0].target_user.id.as_str()), ("別件", author.id.to_string().as_str()));
+    }
+    assert_eq!(staff_view(&neutral).await.len(), 3);
 }
 
 #[tokio::test]

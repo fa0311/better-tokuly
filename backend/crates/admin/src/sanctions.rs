@@ -59,7 +59,10 @@ impl<'a> Sanction<'a> {
     fn action(&self, kind: ModerationActionKind, staff: &Staff, target: &Target) -> NewAction<'a> {
         let action = NewAction::new(kind, Some(staff.id)).target(Some(target.id)).texts(self.reason, self.note);
         match self.case {
-            Some(case) => action.case(Some(case.id)).subject(case.subject_type, case.subject_id, &case.subject_title),
+            Some(case) => action
+                .case(Some(case.id))
+                .subject(case.subject_type, case.subject_id, &case.subject_title)
+                .hidden_target(case.owner_hidden),
             None => action,
         }
     }

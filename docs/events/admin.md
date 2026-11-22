@@ -44,7 +44,7 @@ A hidden owner is handled the way the community handles it:
 
 | | |
 |---|---|
-| Lists (`ListCases`) and the answers to changes (`AssignCase`, `ResolveCase`, `ReopenCase`, `TakedownContent`) | never name a hidden owner: `owner_withheld`, no `subject_owner`, no `target_user` on the actions. `ListCases` by `owner_id` leaves these cases out. |
+| Lists (`ListCases`) and the answers to changes (`AssignCase`, `ResolveCase`, `ReopenCase`, `TakedownContent`) | never name a hidden owner: `owner_withheld`, no `subject_owner`, and `target_withheld` without `target_user` on the actions. `ListCases` by `owner_id` leaves these cases out. |
 | `GetCase` by a moderator who is **not involved** | names the owner and returns their moderation record, and writes `case.author_revealed` (actor, case, owner, time) to the audit log, every time. |
 | `GetCase` by a moderator who **is involved** | `owner_withheld` and `conflict_of_interest`: another moderator has to handle the case. |
 | `ResolveCase`, `TakedownContent` by a moderator who is involved | `CONFLICT_OF_INTEREST`, whatever the action. |
@@ -55,11 +55,19 @@ community: wrote in that thread, is mentioned or answered by its author
 there, reported it to the community's staff, or wrote the post). A case
 marked hidden on a server without a lookup is withheld from everyone.
 
-What this does not cover: the moderation log (`ListModerationActions`) and
-the staff view of an account list sanctions by the account they hit, with
-the subject; a moderator who goes through those can match a warning to an
-anonymous post after another moderator has acted on it. The audit log
-(admins only) names the owner of every case it mentions.
+The moderation log follows the same rule. An entry about an anonymous post
+is marked (`moderation_actions.target_hidden`). `ListModerationActions` and
+the actions in `GetCase` show it to an involved moderator without the account
+it hit (`target_withheld`); in the history of one account
+(`ListModerationActions` by `user_id`, the staff view `GetUser`) such a
+moderator does not get the entry at all, because there the entry itself would
+say whose post it was. A moderator who is not involved reads the log as it
+is. The answers to `ResolveCase` and `TakedownContent` never name the target
+of such an entry.
+
+What this does not cover: the numbers in an account's moderation record
+(`UserModerationSummary`) count these cases and sanctions for every reader,
+and the audit log (admins only) names the owner of every case it mentions.
 
 Everything a resolution does (case update, events, notifications, both logs)
 commits in one transaction. The account lock itself is committed by identity
