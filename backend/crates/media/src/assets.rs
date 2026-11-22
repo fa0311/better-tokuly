@@ -172,10 +172,14 @@ impl AssetRow {
         }
     }
 
-    /// The asset as anyone else sees it: no file name, and no URL when the
-    /// file is private.
+    /// The asset as anyone else sees it: no owner, no file name, and no URL
+    /// when the file is private. Who uploaded a file is for the content
+    /// around it to say (the sender of a message, the author of a note);
+    /// where that content is anonymous, the file must not give its author
+    /// away.
     pub fn to_public_proto(&self) -> Asset {
         let mut asset = self.to_proto();
+        asset.owner_id.clear();
         asset.file_name.clear();
         if self.is_private_file() {
             asset.url.clear();
