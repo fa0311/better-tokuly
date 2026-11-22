@@ -726,7 +726,7 @@ message SaveCoinPackageResponse {
 
 // ───────────────────────────── Realtime ─────────────────────────────
 
-// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.wallet)
+// Pushed over the realtime gateway (as a tokuly.realtime.v1.Event)
 // to the user whose wallet changed.
 message WalletEvent {
   oneof event {

@@ -8,7 +8,7 @@ package tokuly.live.v1;
 
 import "tokuly/common/v1/common.proto";
 
-// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.live).
+// Pushed over the realtime gateway (as a tokuly.realtime.v1.Event).
 message LiveEvent {
   // Placeholder so the realtime envelope compiles; replace with a oneof of real events.
   tokuly.common.v1.SubjectRef subject = 1;
