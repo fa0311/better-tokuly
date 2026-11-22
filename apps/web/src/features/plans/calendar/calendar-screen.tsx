@@ -1,3 +1,4 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { plans, toDate } from "@tokuly/api";
 import { CalendarPlus, ChevronRight, Download, Hourglass } from "lucide-react";
@@ -10,13 +11,15 @@ import { Card } from "#/components/ui/card";
 import { Page, Skeleton } from "#/components/ui/page";
 import { useOpenTargetPath } from "#/features/notifications";
 import { cn } from "#/lib/cn";
-import { useCalendar } from "../api";
+import { errorMessage } from "#/lib/errors";
+import { keys, planClient, useCalendar } from "../api";
 import { CountdownDialog } from "../countdown/countdown-dialog";
 import { localized } from "../countdown/model";
 import { formatDay, formatMonth, formatTime, localTimeZone, monthOf, todayYmd } from "../dates";
 import { setPlanDraft } from "../draft";
-import { buildIcs, downloadIcs, type IcsEvent } from "../ics";
+import { buildIcs, downloadIcs } from "../ics";
 import { RsvpChip } from "../plan/plan-card";
+import { calendarIcsEvents, entryTitle } from "./ics-events";
 import { MonthGrid } from "./month-grid";
 
 const KIND: Record<number, { emoji: string; dot: string; key: "plan" | "poll" | "countdown" | "anniversary" | "birthday" }> = {
@@ -28,26 +31,6 @@ const KIND: Record<number, { emoji: string; dot: string; key: "plan" | "poll" | 
 };
 const kindOf = (entry: plans.CalendarEntry) => KIND[entry.kind] ?? KIND[plans.CalendarEntryKind.PLAN]!;
 
-/** What an entry is called: its own title, or the server's description of it ("〇〇の誕生日"). */
-function entryTitle(entry: plans.CalendarEntry, language: string): string {
-  return entry.title || localized(entry.label, language);
-}
-
-/** A month's entries as calendar-file events. */
-function toIcsEvents(entries: plans.CalendarEntry[], language: string, origin: string): IcsEvent[] {
-  return entries.map((entry) => {
-    const label = entry.title ? localized(entry.label, language) : "";
-    return {
-      uid: `${kindOf(entry).key}-${entry.refId || entry.user?.id || "x"}-${entry.date}`,
-      title: `${entry.emoji || kindOf(entry).emoji} ${entryTitle(entry, language)}`,
-      date: entry.startAt ? undefined : entry.date,
-      start: toDate(entry.startAt),
-      description: label || undefined,
-      url: entry.path ? `${origin}${entry.path}` : undefined,
-    };
-  });
-}
-
 /**
  * `/plans/calendar`: the month with everything dated — plans, poll
  * deadlines, countdowns, milestones, friends' birthdays — the day that is
@@ -57,6 +40,7 @@ export function CalendarScreen({ month, day, onChange }: { month: string; day: s
   const { t, i18n } = useTranslation("plans");
   const navigate = useNavigate();
   const openPath = useOpenTargetPath();
+  const queryClient = useQueryClient();
   const calendar = useCalendar(month);
   const [counting, setCounting] = useState(false);
   const today = todayYmd();
@@ -65,11 +49,24 @@ export function CalendarScreen({ month, day, onChange }: { month: string; day: s
   for (const entry of entries) byDay.set(entry.date, [...(byDay.get(entry.date) ?? []), entry]);
   const dayEntries = byDay.get(day) ?? [];
 
-  const exportMonth = () => {
-    if (entries.length === 0) return toast(t("calendar.exportEmpty"));
-    downloadIcs(`tokuly-${month}.ics`, buildIcs(toIcsEvents(entries, i18n.language, window.location.origin)));
-    toast.success(t("calendar.exported", { count: entries.length }));
-  };
+  const exportMonth = useMutation({
+    mutationFn: async () => {
+      // A calendar entry only knows when a plan starts; the plan itself has its end, place and notes.
+      const planIds = [...new Set(entries.filter((entry) => entry.kind === plans.CalendarEntryKind.PLAN && entry.refId).map((entry) => entry.refId))];
+      const loaded = await Promise.all(
+        planIds.map((planId) =>
+          queryClient
+            .fetchQuery({ queryKey: keys.plan(planId), queryFn: async () => (await planClient().getPlan({ planId })).plan ?? null, staleTime: 30_000 })
+            // A plan that cannot be read is written from its entry.
+            .catch(() => null),
+        ),
+      );
+      const plansById = new Map(loaded.flatMap((plan) => (plan ? [[plan.id, plan] as const] : [])));
+      downloadIcs(`tokuly-${month}.ics`, buildIcs(calendarIcsEvents(entries, plansById, i18n.language, window.location.origin)));
+    },
+    onSuccess: () => toast.success(t("calendar.exported", { count: entries.length })),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "plans" })),
+  });
   const planOnDay = () => {
     setPlanDraft({ time: { start: { case: "startDate", value: day }, end: { case: undefined }, timeZone: localTimeZone() } as plans.PlanTime });
     void navigate({ to: "/plans/new" });
@@ -87,8 +84,8 @@ export function CalendarScreen({ month, day, onChange }: { month: string; day: s
               {t("calendar.today")}
             </Button>
           )}
-          <Button variant="ghost" size="icon" aria-label={t("calendar.export")} onClick={exportMonth}>
-            <Download className="size-5" />
+          <Button variant="ghost" size="icon" aria-label={t("calendar.export")} loading={exportMonth.isPending} onClick={() => (entries.length === 0 ? toast(t("calendar.exportEmpty")) : exportMonth.mutate())}>
+            {!exportMonth.isPending && <Download className="size-5" />}
           </Button>
         </>
       }

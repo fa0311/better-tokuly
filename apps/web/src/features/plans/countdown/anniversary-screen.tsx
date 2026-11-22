@@ -60,6 +60,7 @@ function LoadedAnniversary({ anniversary }: { anniversary: plans.Anniversary }) 
   const queryClient = useQueryClient();
   const [ending, setEnding] = useState(false);
   const [celebrating, setCelebrating] = useState(false);
+  const myId = me?.user?.id ?? "";
   const [title, setTitle] = useState<string | null>(null);
   const [startDate, setStartDate] = useState<string | null>(null);
 
@@ -68,11 +69,11 @@ function LoadedAnniversary({ anniversary }: { anniversary: plans.Anniversary }) 
   const today = anniversary.upcoming.find((milestone) => milestone.daysLeft === 0);
   const todayLabel = localized(today?.label, i18n.language);
   useEffect(() => {
-    if (today && !momentSeen(anniversary.id, today.date)) {
-      markMomentSeen(anniversary.id, today.date);
+    if (today && myId && !momentSeen(myId, anniversary.id, today.date)) {
+      markMomentSeen(myId, anniversary.id, today.date);
       setCelebrating(true);
     }
-  }, [today, anniversary.id]);
+  }, [today, myId, anniversary.id]);
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: keys.anniversaries });

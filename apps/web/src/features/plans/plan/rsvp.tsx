@@ -33,8 +33,10 @@ export function RsvpCard({ plan }: { plan: plans.Plan }) {
 
   const respond = useMutation({
     mutationFn: (rsvp: plans.Rsvp) => planClient().respondToPlan({ planId: plan.id, rsvp, comment: text.trim() }),
-    onMutate: (rsvp) => {
-      const before = queryClient.getQueryData<plans.Plan | null>(keys.plan(plan.id));
+    onMutate: async (rsvp) => {
+      // A read that is on its way would put the old answer back over this one.
+      await queryClient.cancelQueries({ queryKey: keys.plan(plan.id) });
+      const before = queryClient.getQueryData<plans.Plan | null>(keys.plan(plan.id))?.myRsvp;
       queryClient.setQueryData<plans.Plan | null>(keys.plan(plan.id), (current) => current && { ...current, myRsvp: rsvp });
       return { before };
     },
@@ -46,7 +48,10 @@ export function RsvpCard({ plan }: { plan: plans.Plan }) {
       else toast.success(t(`rsvp.toast.${asked === plans.Rsvp.GOING ? "going" : asked === plans.Rsvp.MAYBE ? "maybe" : "declined"}`));
     },
     onError: (error, _rsvp, context) => {
-      if (context?.before !== undefined) queryClient.setQueryData(keys.plan(plan.id), context.before);
+      // Only the answer goes back: whatever else arrived meanwhile (a new item, someone else's answer) stays.
+      const before = context?.before;
+      if (before !== undefined) queryClient.setQueryData<plans.Plan | null>(keys.plan(plan.id), (current) => current && { ...current, myRsvp: before });
+      void queryClient.invalidateQueries({ queryKey: keys.plan(plan.id) });
       toast.error(errorMessage(error, { namespace: "plans" }));
     },
   });

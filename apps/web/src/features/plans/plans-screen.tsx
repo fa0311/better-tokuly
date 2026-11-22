@@ -3,6 +3,7 @@ import { plans } from "@tokuly/api";
 import { CalendarDays, Plus } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { useCountdowns, usePlanList, usePolls } from "./api";
@@ -92,6 +93,9 @@ export function PlansScreen({ tab, onTabChange }: { tab: PlansTab; onTabChange(t
                   <PollCard poll={poll} />
                 </li>
               ))}
+              <li className="lg:col-span-2">
+                <LoadMore query={polls.paging} />
+              </li>
             </ul>
           ) : (
             <EmptyState emoji="🗳️" title={t("poll.empty")} body={t("poll.emptyBody")} />
@@ -146,6 +150,9 @@ function PlansTabBody({ invitedCount }: { invitedCount: number }) {
               <PlanCard plan={plan} />
             </li>
           ))}
+          <li className="lg:col-span-2">
+            <LoadMore query={list.paging} showEnd={filter === "past" && list.data.length > 30} />
+          </li>
         </ul>
       ) : (
         <EmptyState emoji={filter === "past" ? "📼" : filter === "invited" ? "💌" : "🎈"} title={t(`plan.empty.${filter}`)} body={t(`plan.emptyBody.${filter}`)} />

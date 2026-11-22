@@ -1,4 +1,4 @@
-import { type QueryClient, useQuery } from "@tanstack/react-query";
+import { type InfiniteData, type QueryClient, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { type common, plans, social } from "@tokuly/api";
 import { api } from "#/lib/api";
 import { localTimeZone } from "./dates";
@@ -16,6 +16,9 @@ export const keys = {
   freeFriends: ["plans", "free", "friends"] as const,
   freeAnswers: ["plans", "free", "answers"] as const,
   freeAlerts: ["plans", "free", "alerts"] as const,
+  freeStatuses: ["plans", "free", "status"] as const,
+  /** One person's status; the caller's own under the empty ID. */
+  freeStatus: (userId: string) => ["plans", "free", "status", userId] as const,
   planLists: ["plans", "list"] as const,
   planList: (filter: plans.PlanListFilter) => ["plans", "list", filter] as const,
   plan: (planId: string) => ["plans", "plan", planId] as const,
@@ -39,14 +42,64 @@ export interface FreeBoard {
   mine?: plans.FreeStatus;
 }
 
+/** One page of the board as it is cached; `mine` comes with the first page only. */
+interface FreeBoardPage extends FreeBoard {
+  nextCursor: string;
+}
+
+/** How many rows a list asks for at a time; the rest follows through the load-more control. */
+const PAGE_SIZE = 30;
+const nextCursorOf = (page: { nextCursor: string }) => page.nextCursor || undefined;
+
+/**
+ * Who is free, as far as it is loaded: `data` is every loaded page in one
+ * list, `paging` goes to `<LoadMore>` for the rest.
+ */
 export function useFreeBoard() {
-  return useQuery({
+  const query = useInfiniteQuery({
     queryKey: keys.freeFriends,
-    queryFn: async (): Promise<FreeBoard> => {
-      const response = await freeClient().listFreeFriends({ page: { limit: 50, cursor: "" } });
-      return { statuses: response.statuses, mine: response.mine };
+    queryFn: async ({ pageParam }): Promise<FreeBoardPage> => {
+      const response = await freeClient().listFreeFriends({ page: { limit: PAGE_SIZE, cursor: pageParam } });
+      return { statuses: response.statuses, mine: response.mine, nextCursor: response.page?.nextCursor ?? "" };
     },
+    initialPageParam: "",
+    getNextPageParam: nextCursorOf,
   });
+  const pages = query.data?.pages;
+  const data: FreeBoard | undefined = pages && { statuses: pages.flatMap((page) => page.statuses), mine: pages[0]?.mine };
+  return { data, isPending: query.isPending, paging: query };
+}
+
+/** Rewrites the loaded statuses of friends, page by page (the first page has index 0). */
+export function patchFreeStatuses(queryClient: QueryClient, patch: (statuses: plans.FreeStatus[], pageIndex: number) => plans.FreeStatus[]): void {
+  queryClient.setQueryData<InfiniteData<FreeBoardPage, string>>(keys.freeFriends, (board) => board && { ...board, pages: board.pages.map((page, index) => ({ ...page, statuses: patch(page.statuses, index) })) });
+}
+
+/** Sets (or clears) the caller's own status in what is loaded. */
+export function setMyFreeStatus(queryClient: QueryClient, mine: plans.FreeStatus | undefined): void {
+  queryClient.setQueryData<InfiniteData<FreeBoardPage, string>>(keys.freeFriends, (board) => board && { ...board, pages: board.pages.map((page, index) => (index === 0 ? { ...page, mine } : page)) });
+}
+
+/** A friend's status (the caller's own without `userId`); `null` when there is none to see. */
+export function useFreeStatus(userId: string, enabled = true) {
+  return useQuery({
+    queryKey: keys.freeStatus(userId),
+    queryFn: async () => (await freeClient().getFreeStatus({ userId })).status ?? null,
+    enabled,
+  });
+}
+
+export function useFreeAnswers() {
+  const query = useInfiniteQuery({
+    queryKey: keys.freeAnswers,
+    queryFn: async ({ pageParam }) => {
+      const response = await freeClient().listFreeAnswers({ page: { limit: PAGE_SIZE, cursor: pageParam } });
+      return { answers: response.answers, nextCursor: response.page?.nextCursor ?? "" };
+    },
+    initialPageParam: "",
+    getNextPageParam: nextCursorOf,
+  });
+  return { data: query.data?.pages.flatMap((page) => page.answers), isPending: query.isPending, paging: query };
 }
 
 export function usePlan(planId: string) {
@@ -56,11 +109,18 @@ export function usePlan(planId: string) {
   });
 }
 
+/** The caller's plans of one kind, as far as they are loaded; `paging` goes to `<LoadMore>`. */
 export function usePlanList(filter: plans.PlanListFilter) {
-  return useQuery({
+  const query = useInfiniteQuery({
     queryKey: keys.planList(filter),
-    queryFn: async () => (await planClient().listPlans({ filter, includeDeclined: false, page: { limit: 50, cursor: "" } })).plans,
+    queryFn: async ({ pageParam }) => {
+      const response = await planClient().listPlans({ filter, includeDeclined: false, page: { limit: PAGE_SIZE, cursor: pageParam } });
+      return { plans: response.plans, nextCursor: response.page?.nextCursor ?? "" };
+    },
+    initialPageParam: "",
+    getNextPageParam: nextCursorOf,
   });
+  return { data: query.data?.pages.flatMap((page) => page.plans), isPending: query.isPending, paging: query };
 }
 
 export function usePoll(pollId: string) {
@@ -70,11 +130,18 @@ export function usePoll(pollId: string) {
   });
 }
 
+/** The polls the caller created or takes part in, as far as they are loaded. */
 export function usePolls() {
-  return useQuery({
+  const query = useInfiniteQuery({
     queryKey: keys.polls,
-    queryFn: async () => (await pollClient().listPolls({ page: { limit: 50, cursor: "" } })).polls,
+    queryFn: async ({ pageParam }) => {
+      const response = await pollClient().listPolls({ page: { limit: PAGE_SIZE, cursor: pageParam } });
+      return { polls: response.polls, nextCursor: response.page?.nextCursor ?? "" };
+    },
+    initialPageParam: "",
+    getNextPageParam: nextCursorOf,
   });
+  return { data: query.data?.pages.flatMap((page) => page.polls), isPending: query.isPending, paging: query };
 }
 
 export function useCountdowns() {

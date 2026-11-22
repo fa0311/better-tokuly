@@ -10,7 +10,8 @@ import { TextField } from "#/components/ui/field";
 import { SwitchRow } from "#/components/ui/switch";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
-import { type FreeBoard, freeClient, keys, useFriends } from "../api";
+import { useMe } from "#/stores/session";
+import { freeClient, keys, setMyFreeStatus, useFriends } from "../api";
 import { FriendChips } from "../friend-picker";
 import { ChoiceChips } from "../parts";
 import { clock, rememberAudience, rememberedAudience } from "./model";
@@ -42,6 +43,7 @@ export function SetFreeSheet({ open, onOpenChange, current }: { open: boolean; o
   const { t, i18n } = useTranslation("plans");
   const queryClient = useQueryClient();
   const friends = useFriends();
+  const myId = useMe()?.user?.id ?? "";
   const [note, setNote] = useState("");
   const [audience, setAudience] = useState<plans.FreeAudience>(plans.FreeAudience.FRIENDS);
   const [chosen, setChosen] = useState<common.UserSummary[] | null>(null);
@@ -58,7 +60,7 @@ export function SetFreeSheet({ open, onOpenChange, current }: { open: boolean; o
   if (open !== wasOpen) {
     setWasOpen(open);
     if (open) {
-      const remembered = rememberedAudience();
+      const remembered = rememberedAudience(myId);
       setNote(current?.note ?? "");
       setAudience(current?.audience || remembered.audience);
       setChosen(current ? current.chosen : null);
@@ -92,8 +94,8 @@ export function SetFreeSheet({ open, onOpenChange, current }: { open: boolean; o
       return response.status;
     },
     onSuccess: (status) => {
-      rememberAudience(audience, chosenUsers);
-      queryClient.setQueryData<FreeBoard>(keys.freeFriends, (board) => (board ? { ...board, mine: status } : board));
+      rememberAudience(myId, audience, chosenUsers);
+      setMyFreeStatus(queryClient, status);
       void queryClient.invalidateQueries({ queryKey: keys.free });
       const end = toDate(status?.endsAt);
       toast.success(t("free.published"), { description: end ? t("free.publishedUntil", { time: clock(end, i18n.language, Date.now()) }) : undefined });

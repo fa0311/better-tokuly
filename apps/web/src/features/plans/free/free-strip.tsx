@@ -4,6 +4,7 @@ import { Check, ChevronRight, Plus } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
+import { LoadMore } from "#/components/ui/load-more";
 import { Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
 import { useMe } from "#/stores/session";
@@ -86,7 +87,12 @@ export function FreeFriendsStrip({ bare, className }: FreeFriendsStripProps) {
             <FriendTile status={status} now={now} onOpen={() => setOpened({ userId: status.user?.id ?? "" })} onAsobo={() => asobo(status)} />
           </li>
         ))}
-        {!board.isPending && statuses.length === 0 && (
+        {board.paging.hasNextPage && (
+          <li className="flex h-44 w-16 shrink-0 items-center justify-center">
+            <LoadMore query={board.paging} />
+          </li>
+        )}
+        {!board.isPending && statuses.length === 0 && !board.paging.hasNextPage && (
           <li className="flex h-44 w-56 shrink-0 flex-col justify-center rounded-card border-2 border-dashed border-line px-4 text-sm font-bold text-ink-soft">
             <span className="text-2xl">🦗</span>
             <span className="mt-1">{t("free.strip.empty")}</span>

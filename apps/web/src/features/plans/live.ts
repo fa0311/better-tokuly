@@ -1,6 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { plans } from "@tokuly/api";
-import { type FreeBoard, keys } from "./api";
+import { keys, patchFreeStatuses } from "./api";
 
 /**
  * Applies a pushed `PlansEvent` to what is loaded. Events carry IDs and
@@ -12,11 +12,11 @@ export function applyPlansEvent(queryClient: QueryClient, event: plans.PlansEven
   switch (event.case) {
     case "freeStatusChanged": {
       const { userId, status } = event.value;
-      queryClient.setQueryData<FreeBoard>(keys.freeFriends, (board) => {
-        if (!board) return board;
-        const others = board.statuses.filter((existing) => existing.user?.id !== userId);
-        return { ...board, statuses: status ? [status, ...others] : others };
+      patchFreeStatuses(queryClient, (statuses, pageIndex) => {
+        const others = statuses.filter((existing) => existing.user?.id !== userId);
+        return status && pageIndex === 0 ? [status, ...others] : others;
       });
+      queryClient.setQueryData(keys.freeStatus(userId), status ?? null);
       // The server's order (running first, then by start) comes with the next read.
       void queryClient.invalidateQueries({ queryKey: keys.freeFriends });
       break;

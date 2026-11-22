@@ -53,12 +53,13 @@ export function draftFromStatus(status: plans.FreeStatus, now: number): PlanDraf
   };
 }
 
-const AUDIENCE_KEY = "tokuly.plans.freeAudience";
+/** Per account: several people may use one browser, and their audiences are their own. */
+const audienceKey = (userId: string) => `tokuly.plans.freeAudience.${userId}`;
 
-/** The audience chosen last time, so setting a status again stays two taps. */
-export function rememberedAudience(): { audience: plans.FreeAudience; chosenIds: string[] } {
+/** The audience this account chose last time, so setting a status again stays two taps. */
+export function rememberedAudience(userId: string): { audience: plans.FreeAudience; chosenIds: string[] } {
   try {
-    const stored = JSON.parse(window.localStorage.getItem(AUDIENCE_KEY) ?? "null") as { audience?: number; chosenIds?: string[] } | null;
+    const stored = JSON.parse(window.localStorage.getItem(audienceKey(userId)) ?? "null") as { audience?: number; chosenIds?: string[] } | null;
     if (stored && (stored.audience === plans.FreeAudience.BEST_FRIENDS || stored.audience === plans.FreeAudience.CHOSEN)) {
       return { audience: stored.audience, chosenIds: Array.isArray(stored.chosenIds) ? stored.chosenIds : [] };
     }
@@ -68,9 +69,9 @@ export function rememberedAudience(): { audience: plans.FreeAudience; chosenIds:
   return { audience: plans.FreeAudience.FRIENDS, chosenIds: [] };
 }
 
-export function rememberAudience(audience: plans.FreeAudience, chosen: common.UserSummary[]): void {
+export function rememberAudience(userId: string, audience: plans.FreeAudience, chosen: common.UserSummary[]): void {
   try {
-    window.localStorage.setItem(AUDIENCE_KEY, JSON.stringify({ audience, chosenIds: chosen.map((user) => user.id) }));
+    window.localStorage.setItem(audienceKey(userId), JSON.stringify({ audience, chosenIds: chosen.map((user) => user.id) }));
   } catch {
     // Not remembered, then.
   }

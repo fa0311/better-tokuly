@@ -32,16 +32,17 @@ export function CountdownScreen({ countdownId }: { countdownId: string }) {
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [celebrating, setCelebrating] = useState(false);
+  const myId = me?.user?.id ?? "";
 
   // On the day, the moment opens by itself the first time the countdown is looked at.
   const isToday = countdown?.daysLeft === 0;
   const day = countdown?.nextDate || countdown?.date || "";
   useEffect(() => {
-    if (isToday && !momentSeen(countdownId, day)) {
-      markMomentSeen(countdownId, day);
+    if (isToday && myId && !momentSeen(myId, countdownId, day)) {
+      markMomentSeen(myId, countdownId, day);
       setCelebrating(true);
     }
-  }, [isToday, countdownId, day]);
+  }, [isToday, myId, countdownId, day]);
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: keys.countdowns });

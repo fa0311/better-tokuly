@@ -263,6 +263,8 @@ test("the hub is reachable from じぶん and lists what needs an answer", async
   await expect(page.getByText("行く？ 返事してね！")).toBeVisible();
   await page.getByRole("radio", { name: /行けない/ }).click();
   await expect(page.getByText("「行けない」で返事したよ")).toBeVisible();
+  // On a phone the toast lies over the header for a moment.
+  await expect(page.getByText("「行けない」で返事したよ")).toBeHidden({ timeout: 15_000 });
 
   // Leaving is for good, and says so first.
   await page.getByRole("button", { name: "予定のメニュー" }).click();
@@ -272,4 +274,47 @@ test("the hub is reachable from じぶん and lists what needs an answer", async
   await expect(page).toHaveURL(/\/plans$/);
   const again = await rpc<{ invitedCount: number }>(request, `${PLAN}/InviteToPlan`, { planId: (await rpc<{ plans: { id: string }[] }>(request, `${PLAN}/ListPlans`, {}, friend)).plans[0]?.id, userIds: [me.userId] }, friend);
   expect(again.invitedCount ?? 0).toBe(0);
+});
+
+test("lists go on past their first page: every past plan can be reached", async ({ page, request, me }) => {
+  // More than one page (30) of plans that are over: each created and called off.
+  const total = 34;
+  for (let index = 1; index <= total; index++) {
+    const { plan } = await rpc<{ plan: { id: string } }>(request, `${PLAN}/CreatePlan`, { title: `おわった予定 ${String(index).padStart(2, "0")}` }, me);
+    await rpc(request, `${PLAN}/CancelPlan`, { planId: plan.id }, me);
+  }
+
+  await page.goto("/plans");
+  await page.getByRole("radio", { name: "おわった" }).click();
+  const cards = page.getByRole("link", { name: /おわった予定 \d\d/ });
+  await expect(cards.first()).toBeVisible();
+  // The rest arrives as the list is scrolled.
+  await expect(async () => {
+    await cards.last().scrollIntoViewIfNeeded();
+    await expect(cards).toHaveCount(total, { timeout: 2_000 });
+  }).toPass({ timeout: 20_000 });
+  // The oldest one, far beyond the first page, opens.
+  await page.getByRole("link", { name: /おわった予定 01/ }).click();
+  await expect(page.getByRole("heading", { name: "おわった予定 01", level: 2 })).toBeVisible();
+});
+
+test("a friend's profile shows ひま from the profile itself, and answers from there", async ({ page, request, me }) => {
+  const friend = await createAccount(request, "Nana");
+  await befriend(request, me, friend);
+  await rpc(request, `${FREE}/SetFreeStatus`, { window: "FREE_WINDOW_TODAY", note: "アイス食べたい", audience: "FREE_AUDIENCE_FRIENDS" }, friend);
+
+  await page.goto(`/u/${friend.handle}`);
+  const card = page.getByTestId("profile-free");
+  await expect(card).toContainText("アイス食べたい");
+  await expect(card).toContainText(/まで/);
+  await card.getByRole("button", { name: "あそぼ！" }).click();
+  await expect(page.getByRole("dialog").getByText("「あそぼ！」を送ったよ")).toBeVisible();
+  const { answers } = await rpc<{ answers: { user: { id: string } }[] }>(request, `${FREE}/ListFreeAnswers`, {}, friend);
+  expect(answers.map((answer) => answer.user.id)).toEqual([me.userId]);
+
+  // Once the status has ended, the card is gone on the next visit.
+  await rpc(request, `${FREE}/ClearFreeStatus`, {}, friend);
+  await page.goto(`/u/${friend.handle}`);
+  await expect(page.getByRole("heading", { name: friend.displayName })).toBeVisible();
+  await expect(card).toHaveCount(0);
 });

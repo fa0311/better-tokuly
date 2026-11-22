@@ -6,11 +6,11 @@ import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { useOpenTargetPath } from "#/features/notifications";
 import { cn } from "#/lib/cn";
-import { nameOf, useFreeBoard } from "../api";
+import { nameOf, useFreeStatus } from "../api";
 import { daysBetween, formatDay, todayYmd } from "../dates";
 import { useAnswerFree } from "../free/answer";
 import { FreeFriendSheet } from "../free/friend-sheet";
-import { expiryText, hasEnded, whenText } from "../free/model";
+import { clock, expiryText, hasEnded, whenText } from "../free/model";
 import { useNow } from "../parts";
 import { countdownParts, localized, tintOf } from "./model";
 
@@ -88,19 +88,31 @@ export function ProfilePlans({ cards, user, isSelf, className }: ProfilePlansPro
   );
 }
 
-/** "ひま" on a profile: the note and the time from the card, "あそぼ!" through the friend's live status. */
+/**
+ * "ひま" on a profile. Whether it shows is decided by the card the profile
+ * came with (its window) and by the person's status itself, asked for by
+ * ID — never by whether they happen to be among the loaded list of friends.
+ */
 function FreeCard({ card, user, isSelf }: { card: identity.ProfileCard; user: common.UserSummary; isSelf: boolean }) {
   const { t, i18n } = useTranslation("plans");
   const now = useNow();
-  const board = useFreeBoard();
+  const status = useFreeStatus(isSelf ? "" : user.id);
   const answer = useAnswerFree();
   const [open, setOpen] = useState(false);
-  const status = isSelf ? board.data?.mine : board.data?.statuses.find((other) => other.user?.id === user.id);
-  const live = status && !hasEnded(status, now) ? status : undefined;
-  // The card is as old as the profile; once the status itself is known to be over, it goes.
-  if (board.data && !live) return null;
+  const [startsAt, endsAt] = [Date.parse(card.data.starts_at ?? ""), Date.parse(card.data.ends_at ?? "")];
+  // Over by the card's own clock, or ended early since the profile was read.
+  if ((Number.isFinite(endsAt) && endsAt <= now) || status.data === null) return null;
+  const live = status.data && !hasEnded(status.data, now) ? status.data : undefined;
+  if (status.data && !live) return null;
   const note = live?.note ?? card.data.note ?? "";
   const areaName = live?.areaName ?? card.data.area_name ?? "";
+  const when = live
+    ? `${whenText(live, now, i18n.language, t)} · ${expiryText(live, now, t)}`
+    : Number.isFinite(endsAt)
+      ? Number.isFinite(startsAt) && startsAt > now
+        ? t("free.from", { time: clock(new Date(startsAt), i18n.language, now) })
+        : t("free.until", { time: clock(new Date(endsAt), i18n.language, now) })
+      : "";
 
   return (
     <div className="sticker flex items-center gap-3 rounded-card bg-lime p-4 text-[#17122b]" data-testid="profile-free">
@@ -114,11 +126,7 @@ function FreeCard({ card, user, isSelf }: { card: identity.ProfileCard; user: co
           {areaName && <span className="ml-1.5 text-sm font-bold opacity-75">📍{areaName}</span>}
         </p>
         {note && <p className="truncate text-sm font-bold">「{note}」</p>}
-        {live && (
-          <p className="truncate text-xs font-bold opacity-75">
-            {whenText(live, now, i18n.language, t)} · {expiryText(live, now, t)}
-          </p>
-        )}
+        {when && <p className="truncate text-xs font-bold opacity-75">{when}</p>}
       </div>
       {isSelf ? (
         <Link to="/plans/free" className="pressable sticker-sm inline-flex h-9 shrink-0 items-center rounded-full bg-surface px-4 text-sm font-black text-ink">

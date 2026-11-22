@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { plans } from "@tokuly/api";
 import { toast } from "sonner";
 import { errorMessage } from "#/lib/errors";
-import { type FreeBoard, freeClient, keys } from "../api";
+import { freeClient, keys, patchFreeStatuses } from "../api";
 
 /**
  * "あそぼ!" to a friend's status. The face in the strip shows it as sent at
@@ -10,10 +10,11 @@ import { type FreeBoard, freeClient, keys } from "../api";
  */
 export function useAnswerFree() {
   const queryClient = useQueryClient();
-  const mark = (userId: string, answered: boolean) =>
-    queryClient.setQueryData<FreeBoard>(keys.freeFriends, (board) =>
-      board ? { ...board, statuses: board.statuses.map((status) => (status.user?.id === userId ? { ...status, answeredByMe: answered } : status)) } : board,
-    );
+  const mark = (userId: string, answered: boolean) =>  {
+    patchFreeStatuses(queryClient, (statuses) => statuses.map((status) => (status.user?.id === userId ? { ...status, answeredByMe: answered } : status)));
+    // The same status as a profile shows it.
+    queryClient.setQueryData<plans.FreeStatus | null>(keys.freeStatus(userId), (status) => status && { ...status, answeredByMe: answered });
+  };
   return useMutation({
     mutationFn: ({ status, message }: { status: plans.FreeStatus; message?: string }) => freeClient().answerFreeStatus({ userId: status.user?.id ?? "", message: message?.trim() ?? "" }),
     onMutate: ({ status }) => {
@@ -26,6 +27,7 @@ export function useAnswerFree() {
       toast.error(errorMessage(error, { namespace: "plans" }));
       // A status that is gone should leave the strip.
       void queryClient.invalidateQueries({ queryKey: keys.freeFriends });
+      void queryClient.invalidateQueries({ queryKey: keys.freeStatuses });
     },
   });
 }

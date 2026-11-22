@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { plans, toMillis } from "@tokuly/api";
 import { BellPlus, BellRing, CalendarPlus, MapPin, MessageCircle, Pencil, X } from "lucide-react";
@@ -8,12 +8,13 @@ import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Card, Chip } from "#/components/ui/card";
+import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, ListRow, Page, Skeleton } from "#/components/ui/page";
 import { openDirectChat } from "#/features/chat";
 import { errorMessage } from "#/lib/errors";
 import { compactAge } from "#/lib/format";
 import { useMe } from "#/stores/session";
-import { type FreeBoard, freeClient, keys, nameOf, useFreeBoard } from "../api";
+import { freeClient, keys, nameOf, setMyFreeStatus, useFreeAnswers, useFreeBoard } from "../api";
 import { type PlanDraft, setPlanDraft } from "../draft";
 import { FriendPicker } from "../friend-picker";
 import { AvatarStack, SectionTitle, useNow } from "../parts";
@@ -52,7 +53,10 @@ export function FreeScreen() {
               <EmptyState emoji="🦗" title={t("free.strip.empty")} body={t("free.emptyBody")} />
             </Card>
           ) : (
-            <FriendList statuses={statuses} now={now} />
+            <>
+              <FriendList statuses={statuses} now={now} />
+              <LoadMore query={board.paging} />
+            </>
           )}
         </section>
       </div>
@@ -68,7 +72,7 @@ function MyStatus({ status, now, onEdit }: { status: plans.FreeStatus | undefine
   const end = useMutation({
     mutationFn: () => freeClient().clearFreeStatus({}),
     onSuccess: () => {
-      queryClient.setQueryData<FreeBoard>(keys.freeFriends, (board) => (board ? { ...board, mine: undefined } : board));
+      setMyFreeStatus(queryClient, undefined);
       void queryClient.invalidateQueries({ queryKey: keys.free });
       toast(t("free.ended"));
     },
@@ -128,10 +132,7 @@ function Answers() {
   const { t } = useTranslation("plans");
   const navigate = useNavigate();
   const now = useNow();
-  const answers = useQuery({
-    queryKey: keys.freeAnswers,
-    queryFn: async () => (await freeClient().listFreeAnswers({ page: { limit: 50, cursor: "" } })).answers,
-  });
+  const answers = useFreeAnswers();
   const planWith = (userId: string) => {
     setPlanDraft({ inviteeIds: [userId] });
     void navigate({ to: "/plans/new" });
@@ -163,6 +164,7 @@ function Answers() {
               </div>
             </li>
           ))}
+          <LoadMore query={answers.paging} />
         </ul>
       ) : (
         <p className="rounded-card border-2 border-dashed border-line px-4 py-5 text-center text-sm font-bold text-ink-soft">{t("free.answers.empty")}</p>

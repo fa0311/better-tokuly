@@ -79,21 +79,22 @@ export function TodayMoment({ open, onOpenChange, emoji, title, kicker, detail }
   );
 }
 
-const SEEN_KEY = "tokuly.plans.momentSeen";
+/** Per account: what one person celebrated is not seen by the next one on this browser. */
+const seenKey = (userId: string) => `tokuly.plans.momentSeen.${userId}`;
 
-/** Whether the moment for `id` on `day` was shown in this browser already (it opens by itself once). */
-export function momentSeen(id: string, day: string): boolean {
+/** Whether the moment for `id` on `day` was shown to this account in this browser already (it opens by itself once). */
+export function momentSeen(userId: string, id: string, day: string): boolean {
   try {
-    return window.localStorage.getItem(SEEN_KEY)?.split(",").includes(`${id}:${day}`) ?? false;
+    return window.localStorage.getItem(seenKey(userId))?.split(",").includes(`${id}:${day}`) ?? false;
   } catch {
     return false;
   }
 }
 
-export function markMomentSeen(id: string, day: string): void {
+export function markMomentSeen(userId: string, id: string, day: string): void {
   try {
-    const seen = (window.localStorage.getItem(SEEN_KEY) ?? "").split(",").filter(Boolean);
-    if (!seen.includes(`${id}:${day}`)) window.localStorage.setItem(SEEN_KEY, [...seen.slice(-30), `${id}:${day}`].join(","));
+    const seen = (window.localStorage.getItem(seenKey(userId)) ?? "").split(",").filter(Boolean);
+    if (!seen.includes(`${id}:${day}`)) window.localStorage.setItem(seenKey(userId), [...seen.slice(-30), `${id}:${day}`].join(","));
   } catch {
     // Shown again next time, then.
   }
