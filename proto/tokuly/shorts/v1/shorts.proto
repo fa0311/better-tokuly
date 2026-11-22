@@ -1,14 +1,932 @@
 syntax = "proto3";
 
-// Vertical short videos and the swipe feed.
+// Shorts (ショート): vertical videos of at most 180 seconds, the swipe feed
+// that plays them, and what surrounds it: hashtags, sounds, the creator grid
+// and creator analytics.
 //
-// SKELETON: the owning domain implements this file. Keep the package name
-// and the realtime event message name stable; everything else is yours.
+// A short belongs to a channel of the video domain (`tokuly.video.v1`) and
+// is made from a media upload (`ASSET_PURPOSE_SHORT`) or from the media of a
+// clip. It is a draft while the upload is processed and goes live by itself
+// when processing finishes:
+//   PROCESSING → PUBLISHED, or → FAILED (the upload could not be processed,
+//   is longer than 180 seconds, or is wider than 16:9).
+// Only PUBLISHED shorts are visible to anyone but the owner. Who sees a
+// published short is its `Visibility`:
+//   PUBLIC    everyone; in feeds, on hashtag and sound pages, in search
+//   NO_FEED   everyone; listed on the channel grid only
+//   UNLISTED  everyone with the link; listed nowhere
+//   FRIENDS   friends of the channel's owner: on the grid, in their friends
+//             feed and (if they subscribe) their following feed
+//   PRIVATE   the owner
+//
+// Every `short_id` field accepts the UUID or the 11-character short ID;
+// every `channel_id` field the channel's UUID or handle (with or without a
+// leading '@').
+//
+// Likes and comments belong to the engagement domain
+// (`tokuly.engagement.v1`, subject type `SUBJECT_TYPE_SHORT`); the counts
+// shown here follow it. Saves, shares and playback signals are part of this
+// API.
+//
+// Blocks: nothing owned by a user in a block relation with the caller is
+// ever returned; it reads as not found. The same goes for everything owned
+// by a suspended account, for everyone but that account.
 package tokuly.shorts.v1;
 
+import "google/protobuf/timestamp.proto";
 import "tokuly/common/v1/common.proto";
+import "tokuly/media/v1/media.proto";
 
-// Placeholder message so the file is a valid module member.
-message ShortsPlaceholder {
-  tokuly.common.v1.SubjectRef subject = 1;
+// ───────────────────────────── Shorts ─────────────────────────────
+
+// Creating, editing and reading shorts, and what one viewer does with one
+// short: save, share, list what they saved and liked.
+service ShortService {
+  // Creates a short on a channel of the caller.
+  //
+  // From an upload: `asset_id` is an upload of the caller with
+  // `ASSET_PURPOSE_SHORT`, READY or still processing. The short is a draft
+  // (PROCESSING) until the upload is READY and goes live by itself then.
+  //
+  // From a clip: `asset_id` is the media of a clip the caller created and
+  // `source` names the clip. The asset must be READY.
+  //
+  // Errors: CHANNEL_REQUIRED (the caller has no channel), CHANNEL_NOT_FOUND,
+  // ASSET_NOT_FOUND, ASSET_WRONG_PURPOSE, ASSET_NOT_READY (the upload is not
+  // complete, or a clip's media is not READY), ASSET_FAILED,
+  // ASSET_ALREADY_USED, SHORT_TOO_LONG, SHORT_NOT_VERTICAL, CAPTION_TOO_LONG,
+  // VISIBILITY_INVALID, COVER_OFFSET_INVALID, ASSET_NOT_IMAGE (cover),
+  // SOUND_NOT_FOUND, SOUND_NOT_REUSABLE, SOUND_TITLE_INVALID,
+  // SOURCE_INVALID, SOURCE_NOT_FOUND, REMIX_NOT_FOUND, REMIX_NOT_ALLOWED,
+  // REMIX_KIND_INVALID, INVALID_ID, RATE_LIMITED.
+  rpc CreateShort(CreateShortRequest) returns (CreateShortResponse);
+  // Changes a short of the caller. Unset fields stay as they are. Hashtags
+  // and mentions follow the caption; people mentioned for the first time
+  // are notified (nobody is notified twice about one short).
+  //
+  // Errors: SHORT_NOT_FOUND, plus the caption, visibility and cover errors
+  // of CreateShort, RATE_LIMITED.
+  rpc UpdateShort(UpdateShortRequest) returns (UpdateShortResponse);
+  // Deletes a short of the caller, with its upload: it is gone for everyone
+  // at once. A short that has been reported is kept out of sight for a
+  // retention period first, so that moderators can still look at what was
+  // reported (WITHDRAWN), and deleted for good after it.
+  // Errors: SHORT_NOT_FOUND.
+  rpc DeleteShort(DeleteShortRequest) returns (DeleteShortResponse);
+  // One short as the caller may see it. Callable without signing in.
+  // Moderators also see withdrawn shorts, except their own.
+  // Errors: SHORT_NOT_FOUND.
+  rpc GetShort(GetShortRequest) returns (GetShortResponse);
+  // Up to 50 shorts, in request order; unknown or invisible ones are
+  // skipped. Callable without signing in. Errors: TOO_MANY_SHORTS.
+  rpc BatchGetShorts(BatchGetShortsRequest) returns (BatchGetShortsResponse);
+  // The caller's own shorts in every state, newest first (the studio list).
+  // Errors: CHANNEL_NOT_FOUND, INVALID_CURSOR.
+  rpc ListMyShorts(ListMyShortsRequest) returns (ListMyShortsResponse);
+
+  // Pins a published short to the top of its channel's grid. A channel has
+  // at most three pins; the newest pin comes first. Pinning a pinned short
+  // changes nothing.
+  // Errors: SHORT_NOT_FOUND, SHORT_NOT_PUBLISHED, PIN_LIMIT_REACHED.
+  rpc PinShort(PinShortRequest) returns (PinShortResponse);
+  // Removes a pin. Errors: SHORT_NOT_FOUND.
+  rpc UnpinShort(UnpinShortRequest) returns (UnpinShortResponse);
+
+  // Adds a short to the caller's saved list (private: only the count is
+  // public). Saving a saved short changes nothing.
+  // Errors: SHORT_NOT_FOUND, SAVE_LIMIT_REACHED, RATE_LIMITED.
+  rpc SaveShort(SaveShortRequest) returns (SaveShortResponse);
+  // Removes a short from the caller's saved list. Succeeds whether or not
+  // the short was saved, still exists or is still visible to the caller.
+  // Errors: INVALID_ID (not an ID at all).
+  rpc UnsaveShort(UnsaveShortRequest) returns (UnsaveShortResponse);
+  // The caller's saved shorts, most recently saved first. Shorts that are
+  // gone or no longer visible to the caller are left out.
+  rpc ListSavedShorts(ListSavedShortsRequest) returns (ListSavedShortsResponse);
+  // The shorts the caller liked (through the engagement service), most
+  // recently liked first. Follows likes with a short delay.
+  rpc ListLikedShorts(ListLikedShortsRequest) returns (ListLikedShortsResponse);
+
+  // Records a share and returns the link to pass on. Callable without
+  // signing in. A viewer's shares of one short count once a week; the link
+  // is returned every time.
+  // Errors: SHORT_NOT_FOUND, SHARE_TARGET_INVALID, RATE_LIMITED.
+  rpc ShareShort(ShareShortRequest) returns (ShareShortResponse);
+  // Public remixes and duets of a short, newest first. Callable without
+  // signing in. Errors: SHORT_NOT_FOUND.
+  rpc ListRemixes(ListRemixesRequest) returns (ListRemixesResponse);
+}
+
+enum ShortStatus {
+  SHORT_STATUS_UNSPECIFIED = 0;
+  // A draft: the upload is being processed. Only the owner sees it.
+  SHORT_STATUS_PROCESSING = 1;
+  SHORT_STATUS_PUBLISHED = 2;
+  // The upload could not be used; `ShortStudioInfo.processing_error` says why.
+  SHORT_STATUS_FAILED = 3;
+  // Deleted by its owner after it had been reported. Nobody sees it any
+  // more, the owner included; moderators can until it is deleted for good.
+  SHORT_STATUS_WITHDRAWN = 4;
+}
+
+// Where a short's cover comes from.
+enum CoverKind {
+  COVER_KIND_UNSPECIFIED = 0;
+  // The poster frame the media pipeline chose.
+  COVER_KIND_POSTER = 1;
+  // The frame of the video at an offset the creator chose.
+  COVER_KIND_FRAME = 2;
+  // An image the creator uploaded.
+  COVER_KIND_IMAGE = 3;
+}
+
+enum SoundKind {
+  SOUND_KIND_UNSPECIFIED = 0;
+  // The audio of a short ("original sound"), which other shorts may use.
+  SOUND_KIND_ORIGINAL = 1;
+  // A named track from outside Tokuly, given as text.
+  SOUND_KIND_EXTERNAL = 2;
+}
+
+// How a short builds on another one.
+enum RemixKind {
+  REMIX_KIND_UNSPECIFIED = 0;
+  // Reuses parts of the other short.
+  REMIX_KIND_REMIX = 1;
+  // Plays side by side with the other short.
+  REMIX_KIND_DUET = 2;
+}
+
+// An `@handle` in a caption that names an account.
+message Mention {
+  // Without the leading '@', lowercase.
+  string handle = 1;
+  string user_id = 2;
+}
+
+// A sound: what a short is set to, and the page listing the shorts using it.
+message Sound {
+  string id = 1;
+  SoundKind kind = 2;
+  // EXTERNAL: the track's title. ORIGINAL: the name its creator gave it;
+  // may be empty, clients then show 「オリジナル音源」 with the channel name.
+  string title = 3;
+  // EXTERNAL: the artist; may be empty.
+  string artist = 4;
+  // ORIGINAL: the channel whose short the sound comes from. Unset once that
+  // short is gone.
+  tokuly.common.v1.ChannelSummary channel = 5;
+  // ORIGINAL: short ID of the short it comes from; empty when that short is
+  // gone or the caller may not see it.
+  string origin_short_id = 6;
+  // Public shorts using the sound, as far as the caller may see them.
+  int64 use_count = 7;
+  // ORIGINAL: the cover of the short it comes from, under the same condition
+  // as `origin_short_id`.
+  tokuly.common.v1.Image cover = 8;
+  // The caller may create shorts with this sound (`SoundInput.sound_id`).
+  bool reusable = 9;
+}
+
+// The short another short was made from, as far as the caller may see it.
+message RemixSource {
+  RemixKind kind = 1;
+  // Empty when the original is gone or the caller may not see it.
+  string short_id = 2;
+  tokuly.common.v1.ChannelSummary channel = 3;
+  tokuly.common.v1.Image cover = 4;
+}
+
+// What the caller has to do with a short. Unset for anonymous callers.
+message ShortViewerState {
+  bool is_owner = 1;
+  // Follows the engagement service with a short delay; clients that just
+  // sent a like show their own state.
+  bool liked = 2;
+  bool saved = 3;
+  // The caller subscribes to the short's channel.
+  bool subscribed = 4;
+  // The caller played it before (as far as the seen list reaches back).
+  bool seen = 5;
+  // The caller marked it "not interested".
+  bool not_interested = 6;
+}
+
+// Details only the owner sees.
+message ShortStudioInfo {
+  // The media asset the short plays.
+  string asset_id = 1;
+  // While FAILED: the media failure reason (e.g. CORRUPT_MEDIA),
+  // SHORT_TOO_LONG or SHORT_NOT_VERTICAL.
+  string processing_error = 2;
+  // The offset of a FRAME cover, in milliseconds.
+  int32 cover_offset_ms = 3;
+  // A FRAME cover was asked for and is still being made; `Short.cover` shows
+  // the previous cover until then.
+  bool cover_pending = 4;
+  // Subscribers are told when the short first goes public.
+  bool notify_subscribers = 5;
+  // Times the short was replayed past its end. 0 until five plays have
+  // been reported: how one particular viewer watched is theirs to know.
+  int64 loop_count = 6;
+  // Average share of the short that viewers watched (0-1). 0 until five
+  // plays have been reported.
+  double average_watch_ratio = 7;
+}
+
+// A short with everything the player and the cards around it show.
+message Short {
+  string id = 1;
+  string short_id = 2;
+  tokuly.common.v1.ChannelSummary channel = 3;
+  // At most 500 characters.
+  string caption = 4;
+  // The caption's hashtags: lowercase, without '#', in order of appearance.
+  repeated string hashtags = 5;
+  // The caption's mentions that name an account.
+  repeated Mention mentions = 6;
+  // Unset while PROCESSING without a custom cover.
+  tokuly.common.v1.Image cover = 7;
+  CoverKind cover_kind = 8;
+  // Streams and preview of the processed upload. Unset until PUBLISHED.
+  tokuly.media.v1.VideoInfo playback = 9;
+  double duration_seconds = 10;
+  // Pixel size of the video. Portrait and square videos fill the player;
+  // landscape ones (at most 16:9) are centre-cropped by clients.
+  int32 width = 11;
+  int32 height = 12;
+  tokuly.common.v1.Visibility visibility = 13;
+  ShortStatus status = 14;
+  // Comments are accepted (engagement service, `SUBJECT_TYPE_SHORT`). The
+  // engagement service has one switch per subject for comments and
+  // reactions alike, so a short with comments off takes no new likes either.
+  bool comments_enabled = 15;
+  // Others may make remixes of it and use its original sound.
+  bool allow_remix = 16;
+  // Others may make duets with it.
+  bool allow_duet = 17;
+  // Unset when the short has no sound attribution (e.g. a silent video).
+  Sound sound = 18;
+  // Set when the short is a remix or duet.
+  RemixSource remix_of = 19;
+  // What the short was made from (a clip, a video, a live stream); unset
+  // for plain uploads.
+  tokuly.common.v1.SubjectRef source = 20;
+  int64 view_count = 21;
+  int64 like_count = 22;
+  int64 comment_count = 23;
+  int64 share_count = 24;
+  int64 save_count = 25;
+  // Pinned to the top of its channel's grid.
+  bool pinned = 26;
+  google.protobuf.Timestamp created_at = 27;
+  // When it went live. Unset for drafts.
+  google.protobuf.Timestamp published_at = 28;
+  ShortViewerState viewer = 29;
+  // Only set for the owner.
+  ShortStudioInfo studio = 30;
+  // Link to the short in the web app.
+  string share_url = 31;
+  // Public remixes and duets made of it, as far as the caller may see them.
+  int64 remix_count = 32;
+}
+
+// Which picture stands for a short in grids and before playback starts.
+message CoverInput {
+  oneof cover {
+    // The frame at this offset from the start, in milliseconds. Made once
+    // the upload is processed; an offset past the end means the last frame.
+    int32 offset_ms = 1;
+    // A READY image upload of the caller with `ASSET_PURPOSE_THUMBNAIL`.
+    string asset_id = 2;
+    // The poster frame of the media pipeline (the default).
+    bool poster = 3;
+  }
+}
+
+// A track from outside Tokuly.
+message ExternalTrack {
+  // 1-100 characters.
+  string title = 1;
+  // At most 100 characters; may be empty.
+  string artist = 2;
+}
+
+// What a new short is set to. Without one, a short whose video has audio
+// gets an original sound of its own.
+message SoundInput {
+  oneof sound {
+    // An existing sound: another short's original sound (that short must
+    // allow remixes) or an external track.
+    string sound_id = 1;
+    // A named track; shorts naming the same title and artist share a sound.
+    ExternalTrack external = 2;
+    // A name for this short's own original sound (at most 100 characters).
+    string original_title = 3;
+  }
+}
+
+// The short a new short builds on.
+message RemixInput {
+  string short_id = 1;
+  RemixKind kind = 2;
+}
+
+message CreateShortRequest {
+  // Empty = the caller's default channel.
+  string channel_id = 1;
+  string asset_id = 2;
+  // At most 500 characters. `#hashtags` (up to 30) and `@mentions` (up to
+  // 20) are read out of it.
+  string caption = 3;
+  // Unspecified = FRIENDS.
+  tokuly.common.v1.Visibility visibility = 4;
+  // Unset = comments enabled.
+  optional bool comments_enabled = 5;
+  // Unset = remixes allowed.
+  optional bool allow_remix = 6;
+  // Unset = duets allowed.
+  optional bool allow_duet = 7;
+  // Unset = the poster frame.
+  CoverInput cover = 8;
+  SoundInput sound = 9;
+  // What the short was made from, for attribution: a clip
+  // (`SUBJECT_TYPE_CLIP`), a video or a live stream the caller may see.
+  // Required when `asset_id` is the media of a clip.
+  tokuly.common.v1.SubjectRef source = 10;
+  // Set to make the short a remix or duet of another one.
+  RemixInput remix = 11;
+  // Unset = subscribers are told when the short first goes public.
+  optional bool notify_subscribers = 12;
+}
+
+message CreateShortResponse {
+  Short short = 1;
+}
+
+message UpdateShortRequest {
+  string short_id = 1;
+  optional string caption = 2;
+  optional tokuly.common.v1.Visibility visibility = 3;
+  optional bool comments_enabled = 4;
+  optional bool allow_remix = 5;
+  optional bool allow_duet = 6;
+  // Unset = keep the cover.
+  CoverInput cover = 7;
+}
+
+message UpdateShortResponse {
+  Short short = 1;
+}
+
+message DeleteShortRequest {
+  string short_id = 1;
+}
+
+message DeleteShortResponse {}
+
+message GetShortRequest {
+  string short_id = 1;
+}
+
+message GetShortResponse {
+  Short short = 1;
+}
+
+message BatchGetShortsRequest {
+  repeated string short_ids = 1;
+}
+
+message BatchGetShortsResponse {
+  repeated Short shorts = 1;
+}
+
+message ListMyShortsRequest {
+  // Empty = all channels of the caller.
+  string channel_id = 1;
+  // Unspecified = every state.
+  ShortStatus status = 2;
+  tokuly.common.v1.PageRequest page = 3;
+}
+
+message ListMyShortsResponse {
+  repeated Short shorts = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message PinShortRequest {
+  string short_id = 1;
+}
+
+message PinShortResponse {
+  Short short = 1;
+}
+
+message UnpinShortRequest {
+  string short_id = 1;
+}
+
+message UnpinShortResponse {
+  Short short = 1;
+}
+
+message SaveShortRequest {
+  string short_id = 1;
+}
+
+message SaveShortResponse {
+  int64 save_count = 1;
+}
+
+message UnsaveShortRequest {
+  string short_id = 1;
+}
+
+message UnsaveShortResponse {
+  // 0 when the short is gone or the caller may not see it.
+  int64 save_count = 1;
+}
+
+message ListSavedShortsRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListSavedShortsResponse {
+  repeated Short shorts = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListLikedShortsRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListLikedShortsResponse {
+  repeated Short shorts = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// Where a share goes.
+enum ShareTarget {
+  SHARE_TARGET_UNSPECIFIED = 0;
+  SHARE_TARGET_COPY_LINK = 1;
+  // A Tokuly chat.
+  SHARE_TARGET_CHAT = 2;
+  // A Tokuly note.
+  SHARE_TARGET_NOTE = 3;
+  // The system share sheet (another app).
+  SHARE_TARGET_SYSTEM = 4;
+  SHARE_TARGET_QR_CODE = 5;
+  SHARE_TARGET_OTHER = 6;
+}
+
+message ShareShortRequest {
+  string short_id = 1;
+  // Unspecified = OTHER.
+  ShareTarget target = 2;
+}
+
+message ShareShortResponse {
+  // Link to the short in the web app; opening it plays the short with
+  // `PLAYBACK_SOURCE_SHARE_LINK`.
+  string url = 1;
+  int64 share_count = 2;
+}
+
+message ListRemixesRequest {
+  string short_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListRemixesResponse {
+  repeated Short shorts = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// ───────────────────────────── Feeds ─────────────────────────────
+
+// The swipe feeds and the signals that come back from them.
+//
+// All three feeds are paged with cursors that stay valid while shorts are
+// published and deleted around them: a page never repeats or skips a short
+// because something new arrived.
+//
+// Seen-tracking: every short a signed-in viewer reports through
+// ReportPlayback is remembered (the most recent few thousand). The for-you
+// feed leaves those out; the other two flag them (`ShortViewerState.seen`)
+// and can leave them out on request.
+service ShortFeedService {
+  // The ranked feed (おすすめ). Never ends: when every candidate has been
+  // seen, shorts come round again, flagged `repeat`. Without signing in it
+  // is the same feed without anything personal. The caller's own shorts,
+  // shorts marked "not interested" and friends-only shorts of people who
+  // are not friends never appear.
+  //
+  // The first call (empty cursor) ranks a batch of candidates and keeps it
+  // for half an hour; pages are read off that batch, and a new batch starts
+  // when it is used up or expired.
+  // Errors: INVALID_CURSOR, RATE_LIMITED.
+  rpc GetForYouFeed(GetForYouFeedRequest) returns (GetForYouFeedResponse);
+  // Shorts of the channels the caller subscribes to, newest first: public
+  // ones, and friends-only ones when the channel's owner is a friend.
+  // Errors: INVALID_CURSOR.
+  rpc GetFollowingFeed(GetFollowingFeedRequest) returns (GetFollowingFeedResponse);
+  // Shorts of channels owned by the caller's friends, newest first,
+  // friends-only ones included. Each item names the friend.
+  // Errors: INVALID_CURSOR.
+  rpc GetFriendsFeed(GetFriendsFeedRequest) returns (GetFriendsFeedResponse);
+
+  // Reports what happened to shorts on screen, in batches (up to 50 per
+  // call): one report per short each time the viewer leaves it. Callable
+  // without signing in.
+  //
+  // Every stay marks the short as seen. What it adds to the short's numbers
+  // is bounded per viewer, so that nobody moves a ranking by reporting
+  // more: per viewer, short and six hours, one view is counted (for a stay
+  // of at least one second, or of the whole short if it is shorter), and
+  // the watch-through ratio and replays of the first stay are taken as
+  // ranking signals. Reports about shorts the caller may not see, and about
+  // the caller's own shorts, are ignored.
+  // Errors: TOO_MANY_REPORTS, RATE_LIMITED.
+  rpc ReportPlayback(ReportPlaybackRequest) returns (ReportPlaybackResponse);
+
+  // "Not interested" (興味なし): hides the short from the caller's feeds and
+  // makes its channel and hashtags rank lower in their for-you feed.
+  // Errors: SHORT_NOT_FOUND.
+  rpc MarkNotInterested(MarkNotInterestedRequest) returns (MarkNotInterestedResponse);
+  // Takes a "not interested" back, with everything that followed from it.
+  // Succeeds whether or not there was one. Errors: INVALID_ID (not an ID
+  // at all).
+  rpc UndoNotInterested(UndoNotInterestedRequest) returns (UndoNotInterestedResponse);
+}
+
+// Why a short is in the for-you feed: the strongest of the things that put
+// it there.
+enum FeedReason {
+  FEED_REASON_UNSPECIFIED = 0;
+  // From a channel owned by a friend.
+  FEED_REASON_FRIEND = 1;
+  // From a channel the caller subscribes to.
+  FEED_REASON_FOLLOWING = 2;
+  // Carries a hashtag of shorts the caller liked or saved.
+  FEED_REASON_HASHTAG = 3;
+  // Popular right now.
+  FEED_REASON_TRENDING = 4;
+  // Recently published.
+  FEED_REASON_NEW = 5;
+}
+
+message FeedItem {
+  Short short = 1;
+  // For-you feed only.
+  FeedReason reason = 2;
+  // `FEED_REASON_HASHTAG`: the hashtag that matched.
+  string hashtag = 3;
+  // The friend who owns the channel. Only ever set for friends of the
+  // owner: in the friends feed, and in the for-you feed with
+  // `FEED_REASON_FRIEND`.
+  tokuly.common.v1.UserSummary friend = 4;
+  // For-you feed: the caller has seen this short before; it is shown again
+  // because nothing unseen is left.
+  bool repeat = 5;
+}
+
+message GetForYouFeedRequest {
+  // Up to 30 per page; 10 by default.
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message GetForYouFeedResponse {
+  repeated FeedItem items = 1;
+  // `has_more` is true as long as there is anything to show at all.
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message GetFollowingFeedRequest {
+  tokuly.common.v1.PageRequest page = 1;
+  // Leave out shorts the caller has seen.
+  bool skip_seen = 2;
+}
+
+message GetFollowingFeedResponse {
+  repeated FeedItem items = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message GetFriendsFeedRequest {
+  tokuly.common.v1.PageRequest page = 1;
+  // Leave out shorts the caller has seen.
+  bool skip_seen = 2;
+}
+
+message GetFriendsFeedResponse {
+  repeated FeedItem items = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// Where the viewer was when a short played.
+enum PlaybackSource {
+  // Counted as OTHER.
+  PLAYBACK_SOURCE_UNSPECIFIED = 0;
+  PLAYBACK_SOURCE_FOR_YOU = 1;
+  PLAYBACK_SOURCE_FOLLOWING = 2;
+  PLAYBACK_SOURCE_FRIENDS = 3;
+  // A channel's grid.
+  PLAYBACK_SOURCE_PROFILE = 4;
+  PLAYBACK_SOURCE_HASHTAG = 5;
+  // A link someone shared (`ShareShortResponse.url`).
+  PLAYBACK_SOURCE_SHARE_LINK = 6;
+  PLAYBACK_SOURCE_SOUND = 7;
+  PLAYBACK_SOURCE_SEARCH = 8;
+  PLAYBACK_SOURCE_NOTIFICATION = 9;
+  PLAYBACK_SOURCE_OTHER = 10;
+}
+
+// One stay on one short.
+message PlaybackReport {
+  string short_id = 1;
+  PlaybackSource source = 2;
+  // Milliseconds of playback during the stay, replays included.
+  int64 watched_ms = 3;
+  // Times playback reached the end of the short (2 = it looped once).
+  int32 completions = 4;
+}
+
+message ReportPlaybackRequest {
+  repeated PlaybackReport reports = 1;
+}
+
+message ReportPlaybackResponse {
+  // Reports that were taken into account.
+  int32 accepted = 1;
+  // Of those, the ones that counted as a new view.
+  int32 views_counted = 2;
+}
+
+message MarkNotInterestedRequest {
+  string short_id = 1;
+}
+
+message MarkNotInterestedResponse {}
+
+message UndoNotInterestedRequest {
+  string short_id = 1;
+}
+
+message UndoNotInterestedResponse {}
+
+// ───────────────────────────── Discovery ─────────────────────────────
+
+// The creator grid, hashtag pages and sound pages. Every RPC is callable
+// without signing in.
+service ShortDiscoveryService {
+  // A channel's shorts as the caller may see them listed: public and
+  // feed-hidden ones, plus friends-only ones for friends of the owner; the
+  // owner sees every published short of theirs. Sorted LATEST, the pinned
+  // shorts open the first page.
+  // Errors: CHANNEL_NOT_FOUND, INVALID_CURSOR.
+  rpc ListChannelShorts(ListChannelShortsRequest) returns (ListChannelShortsResponse);
+
+  // A hashtag with the number of public shorts carrying it.
+  // Errors: HASHTAG_INVALID, HASHTAG_NOT_FOUND (nothing public carries it).
+  rpc GetHashtag(GetHashtagRequest) returns (GetHashtagResponse);
+  // Public shorts carrying a hashtag: the best ranked first (TOP) or the
+  // newest first (RECENT). Errors: HASHTAG_INVALID, INVALID_CURSOR.
+  rpc ListHashtagShorts(ListHashtagShortsRequest) returns (ListHashtagShortsResponse);
+  // Hashtags that are being used and watched most right now.
+  rpc ListTrendingHashtags(ListTrendingHashtagsRequest) returns (ListTrendingHashtagsResponse);
+  // Hashtags starting with what the caller typed, the most used first, for
+  // completion while writing a caption. Errors: RATE_LIMITED.
+  rpc SuggestHashtags(SuggestHashtagsRequest) returns (SuggestHashtagsResponse);
+
+  // A sound. A sound outlives the short it came from: when that short is
+  // gone or not visible to the caller, the sound is still here, without its
+  // origin. Errors: SOUND_NOT_FOUND.
+  rpc GetSound(GetSoundRequest) returns (GetSoundResponse);
+  // Public shorts using a sound, newest first.
+  // Errors: SOUND_NOT_FOUND, INVALID_CURSOR.
+  rpc ListSoundShorts(ListSoundShortsRequest) returns (ListSoundShortsResponse);
+  // Sounds whose title or artist contains what the caller typed, the most
+  // used first; with an empty query, the most used sounds. For picking a
+  // sound while creating a short. Errors: RATE_LIMITED.
+  rpc SuggestSounds(SuggestSoundsRequest) returns (SuggestSoundsResponse);
+}
+
+enum ChannelShortSort {
+  // Same as LATEST.
+  CHANNEL_SHORT_SORT_UNSPECIFIED = 0;
+  // Pinned shorts, then newest first.
+  CHANNEL_SHORT_SORT_LATEST = 1;
+  // Most viewed first.
+  CHANNEL_SHORT_SORT_POPULAR = 2;
+}
+
+message ListChannelShortsRequest {
+  string channel_id = 1;
+  ChannelShortSort sort = 2;
+  tokuly.common.v1.PageRequest page = 3;
+}
+
+message ListChannelShortsResponse {
+  repeated Short shorts = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message Hashtag {
+  // Lowercase, without '#'.
+  string tag = 1;
+  // Public shorts carrying it, as far as the caller may see them.
+  int64 short_count = 2;
+  // Views of those shorts, as of the last ranking run.
+  int64 view_count = 3;
+  // 1-based position among the trending hashtags; 0 when it is not trending.
+  int32 trending_rank = 4;
+}
+
+message GetHashtagRequest {
+  // With or without '#'.
+  string tag = 1;
+}
+
+message GetHashtagResponse {
+  Hashtag hashtag = 1;
+}
+
+enum HashtagSort {
+  // Same as TOP.
+  HASHTAG_SORT_UNSPECIFIED = 0;
+  HASHTAG_SORT_TOP = 1;
+  HASHTAG_SORT_RECENT = 2;
+}
+
+message ListHashtagShortsRequest {
+  string tag = 1;
+  HashtagSort sort = 2;
+  tokuly.common.v1.PageRequest page = 3;
+}
+
+message ListHashtagShortsResponse {
+  repeated Short shorts = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListTrendingHashtagsRequest {
+  // Up to 50; 20 by default.
+  int32 limit = 1;
+}
+
+message ListTrendingHashtagsResponse {
+  repeated Hashtag hashtags = 1;
+}
+
+message SuggestHashtagsRequest {
+  // With or without '#'; at least one character.
+  string prefix = 1;
+  // Up to 20; 10 by default.
+  int32 limit = 2;
+}
+
+message SuggestHashtagsResponse {
+  repeated Hashtag hashtags = 1;
+}
+
+message GetSoundRequest {
+  string sound_id = 1;
+}
+
+message GetSoundResponse {
+  Sound sound = 1;
+}
+
+message ListSoundShortsRequest {
+  string sound_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListSoundShortsResponse {
+  repeated Short shorts = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message SuggestSoundsRequest {
+  string query = 1;
+  // Up to 20; 10 by default.
+  int32 limit = 2;
+}
+
+message SuggestSoundsResponse {
+  repeated Sound sounds = 1;
+}
+
+// ───────────────────────────── Creator analytics ─────────────────────────────
+
+// Numbers for creators, over a range of days. Only the owner of the short
+// or channel may ask.
+//
+// Counts (views, likes, comments, shares, saves, followers) are always
+// reported. How people watched (the watch-through ratio, replays, watch
+// time and plays) is reported only where at least five distinct viewers
+// stand behind the number (in the range, on the day, from the source, for
+// the short) and is zero below that: with one or two viewers these numbers
+// would describe a particular person.
+service ShortAnalyticsService {
+  // Totals, a daily series and traffic sources of one short.
+  // Errors: SHORT_NOT_FOUND, DATE_RANGE_INVALID, TIME_ZONE_INVALID,
+  // ANALYTICS_UNAVAILABLE, RATE_LIMITED.
+  rpc GetShortAnalytics(GetShortAnalyticsRequest) returns (GetShortAnalyticsResponse);
+  // The same over all shorts of a channel, plus its most viewed shorts.
+  // Errors: CHANNEL_NOT_FOUND, DATE_RANGE_INVALID, TIME_ZONE_INVALID,
+  // ANALYTICS_UNAVAILABLE, RATE_LIMITED.
+  rpc GetChannelShortsAnalytics(GetChannelShortsAnalyticsRequest) returns (GetChannelShortsAnalyticsResponse);
+}
+
+// An inclusive range of calendar days.
+message DateRange {
+  // `YYYY-MM-DD`.
+  string start_date = 1;
+  // `YYYY-MM-DD`; at most 366 days after `start_date`.
+  string end_date = 2;
+  // IANA zone the days are cut in, e.g. `Asia/Tokyo`. Empty = UTC.
+  string time_zone = 3;
+}
+
+message ShortAnalyticsTotals {
+  // Counted views.
+  int64 views = 1;
+  // Distinct viewers among them (accounts, and network addresses of
+  // anonymous viewers).
+  int64 unique_viewers = 2;
+  // Average share of a short that was watched per play (0-1).
+  double average_watch_ratio = 3;
+  // Replays past the end.
+  int64 loops = 4;
+  // Likes minus likes taken back.
+  int64 likes = 5;
+  // Comments minus comments removed.
+  int64 comments = 6;
+  int64 shares = 7;
+  // Saves minus saves taken back.
+  int64 saves = 8;
+  // Subscriptions to the channel made within an hour of watching one of
+  // its shorts.
+  int64 followers_gained = 9;
+  double watch_time_seconds = 10;
+  // Reported plays, counted views or not.
+  int64 plays = 11;
+}
+
+message DailyShortAnalytics {
+  // `YYYY-MM-DD` in the requested time zone.
+  string date = 1;
+  int64 views = 2;
+  int64 unique_viewers = 3;
+  double average_watch_ratio = 4;
+  int64 loops = 5;
+  int64 likes = 6;
+  int64 comments = 7;
+  int64 shares = 8;
+  int64 saves = 9;
+  int64 followers_gained = 10;
+  double watch_time_seconds = 11;
+  // Reported plays, counted views or not.
+  int64 plays = 12;
+}
+
+message PlaybackSourceStats {
+  PlaybackSource source = 1;
+  int64 views = 2;
+  double average_watch_ratio = 3;
+}
+
+message ShortStats {
+  Short short = 1;
+  int64 views = 2;
+  double average_watch_ratio = 3;
+}
+
+message GetShortAnalyticsRequest {
+  string short_id = 1;
+  DateRange range = 2;
+}
+
+message GetShortAnalyticsResponse {
+  ShortAnalyticsTotals totals = 1;
+  // One entry per day of the range, including days without activity.
+  repeated DailyShortAnalytics daily = 2;
+  // Sources with at least one view, the largest first.
+  repeated PlaybackSourceStats traffic_sources = 3;
+}
+
+message GetChannelShortsAnalyticsRequest {
+  string channel_id = 1;
+  DateRange range = 2;
+}
+
+message GetChannelShortsAnalyticsResponse {
+  ShortAnalyticsTotals totals = 1;
+  repeated DailyShortAnalytics daily = 2;
+  repeated PlaybackSourceStats traffic_sources = 3;
+  // The ten most viewed shorts of the range.
+  repeated ShortStats top_shorts = 4;
+  // Shorts on the channel that are published right now.
+  int64 short_count = 5;
 }
