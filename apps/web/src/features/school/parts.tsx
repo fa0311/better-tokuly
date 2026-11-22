@@ -5,9 +5,8 @@ import { type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
-import { SelectField } from "#/components/ui/select";
 import { cn } from "#/lib/cn";
-import { useFriends, useSubjects } from "./api";
+import { useFriends } from "./api";
 
 export type Section = "today" | "timetable" | "study" | "rooms" | "exams";
 
@@ -96,21 +95,6 @@ export function SubjectPill({ subject, className }: { subject: SubjectLike | und
       <span className="truncate">{subject.name}</span>
     </span>
   );
-}
-
-const NONE = "none";
-
-/** Chooses one of the caller's subjects, or none. */
-export function SubjectSelect({ value, onChange, label, disabled }: { value: string; onChange(subjectId: string): void; label?: ReactNode; disabled?: boolean }) {
-  const { t } = useTranslation("school");
-  const subjects = useSubjects();
-  const options = [
-    { value: NONE, label: t("subjects.none") },
-    ...(subjects.data ?? []).map((subject) => ({ value: subject.id, label: `${subject.emoji ? `${subject.emoji} ` : ""}${subject.name}` })),
-  ];
-  // A subject that is archived (or not loaded yet) is not among the choices.
-  const known = options.some((option) => option.value === value);
-  return <SelectField label={label ?? t("subjects.one")} value={known ? value : NONE} onChange={(next) => onChange(next === NONE ? "" : next)} options={options} disabled={disabled} />;
 }
 
 /** Ticks friends in a list. `only` limits the choice (for example to friends who share a timetable). */

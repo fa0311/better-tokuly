@@ -13,7 +13,8 @@ import { Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
 import { keys, refresh, studyClient, toastError, useSchoolSettings } from "./api";
 import { studyTime, timerText } from "./dates";
-import { Segmented, SubjectPill, SubjectSelect, useNow } from "./parts";
+import { Segmented, SubjectPill, useNow } from "./parts";
+import { SubjectSelect } from "./subject-select";
 import { setActiveSession, useActiveSession } from "./session-store";
 import { isBreak, studiedSecondsAt, type TimerView, timerAt } from "./timer";
 

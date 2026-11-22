@@ -12,7 +12,8 @@ import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState } from "#/components/ui/page";
 import { keys, refresh, studyClient, toastError } from "./api";
 import { fromLocalInput, momentLabel, studyTime, toLocalInput } from "./dates";
-import { Block, RowsSkeleton, SubjectPill, SubjectSelect } from "./parts";
+import { Block, RowsSkeleton, SubjectPill } from "./parts";
+import { SubjectSelect } from "./subject-select";
 import { CheersDialog } from "./timer-card";
 
 /** How a session came to be: the timer, a study room, or logged by hand. */

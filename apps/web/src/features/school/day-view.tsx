@@ -11,7 +11,8 @@ import { SelectField } from "#/components/ui/select";
 import { cn } from "#/lib/cn";
 import { refresh, timetableClient, toastError } from "./api";
 import { clock, dayLabel } from "./dates";
-import { inkOn, Segmented, SubjectSelect } from "./parts";
+import { inkOn, Segmented } from "./parts";
+import { SubjectSelect } from "./subject-select";
 
 /** Whether a listed class actually takes place (cancelled and moved-away ones are listed to show what changed). */
 export function takesPlace(item: school.ScheduledClass): boolean {

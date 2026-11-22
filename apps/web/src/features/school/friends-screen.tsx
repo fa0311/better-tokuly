@@ -137,7 +137,7 @@ function FreePeriods() {
                 .filter((period) => period.date === date)
                 .map((period) => (
                   <li key={period.period} className={cn("flex items-center gap-3 rounded-2xl px-3 py-2.5", period.freeFriends.length > 0 ? "sticker-sm bg-surface" : "bg-surface-2")}>
-                    <span className="flex w-14 shrink-0 flex-col items-center leading-tight">
+                    <span className="flex w-[4.75rem] shrink-0 flex-col items-center leading-tight whitespace-nowrap">
                       <span className="font-black">{t("day.period", { period: period.period })}</span>
                       <span className="text-[11px] font-bold text-ink-faint">
                         {clock(period.startMinute)}〜{clock(period.endMinute)}

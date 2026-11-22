@@ -170,13 +170,13 @@ export function TermDialog({ open, onOpenChange, term, onSaved }: { open: boolea
             <ol className="flex flex-col gap-1.5">
               {periods.map((period, index) => (
                 <li key={index} className="flex items-center gap-2">
-                  <span className="w-8 text-center text-sm font-black">{index + 1}</span>
+                  <span className="w-5 text-center text-sm font-black">{index + 1}</span>
                   <input
                     type="time"
                     aria-label={t("terms.periodStart", { period: index + 1 })}
                     value={period.start}
                     onChange={(event) => setPeriods(periods.map((item, at) => (at === index ? { ...item, start: event.target.value } : item)))}
-                    className="h-10 min-w-0 flex-1 rounded-control border-2 border-line bg-surface px-3 font-bold focus:border-brand focus:outline-none"
+                    className="h-10 min-w-0 flex-1 rounded-control border-2 border-line bg-surface px-2 text-sm font-bold focus:border-brand focus:outline-none"
                   />
                   <span className="text-ink-faint">〜</span>
                   <input
@@ -184,7 +184,7 @@ export function TermDialog({ open, onOpenChange, term, onSaved }: { open: boolea
                     aria-label={t("terms.periodEnd", { period: index + 1 })}
                     value={period.end}
                     onChange={(event) => setPeriods(periods.map((item, at) => (at === index ? { ...item, end: event.target.value } : item)))}
-                    className="h-10 min-w-0 flex-1 rounded-control border-2 border-line bg-surface px-3 font-bold focus:border-brand focus:outline-none"
+                    className="h-10 min-w-0 flex-1 rounded-control border-2 border-line bg-surface px-2 text-sm font-bold focus:border-brand focus:outline-none"
                   />
                   <Button size="icon-sm" variant="ghost" aria-label={t("terms.removePeriod", { period: index + 1 })} disabled={periods.length <= 1} onClick={() => setPeriods(periods.filter((_, at) => at !== index))}>
                     <X className="size-4" />

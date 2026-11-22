@@ -8,14 +8,13 @@ import { Button } from "#/components/ui/button";
 import { Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
 import { keys, timetableClient, useProgress } from "./api";
-import { addDays, dayLabel, mondayOf, parseYmd, studyTime, weekdayOf, ymd } from "./dates";
+import { addDays, dayLabel, mondayOf, parseYmd, studyTime, timerText, weekdayOf, ymd } from "./dates";
 import { DayView, takesPlace } from "./day-view";
 import { DueList } from "./due";
 import { ClassNowCard } from "./now-card";
 import { Block, SchoolPage, useNow } from "./parts";
 import { useActiveSession } from "./session-store";
 import { StudyingFriends } from "./study-social";
-import { timerText } from "./dates";
 import { studiedSecondsAt } from "./timer";
 
 /**

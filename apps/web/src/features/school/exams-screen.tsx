@@ -17,7 +17,8 @@ import { cn } from "#/lib/cn";
 import { examClient, keys, refresh, toastError, useAssignments, useExams } from "./api";
 import { addDays, dayLabel, isYmd, ymd } from "./dates";
 import { AssignmentDialog, AssignmentRow, AssignmentsEmpty, DueList, useExamCountdown } from "./due";
-import { Block, LoadFailed, RowsSkeleton, SchoolPage, SubjectPill, SubjectSelect } from "./parts";
+import { Block, LoadFailed, RowsSkeleton, SchoolPage, SubjectPill } from "./parts";
+import { SubjectSelect } from "./subject-select";
 
 /** Exams and assignments together: what is due, the exam periods, and the way to the assignment list. */
 export function ExamsScreen() {

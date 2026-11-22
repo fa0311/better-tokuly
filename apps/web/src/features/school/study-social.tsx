@@ -1,16 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { errorReason, school, toMillis } from "@tokuly/api";
+import { type common, errorReason, school, toMillis } from "@tokuly/api";
 import { ChevronLeft, ChevronRight, DoorOpen, Megaphone } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
+import { Dialog } from "#/components/ui/dialog";
 import { Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
 import { keys, refresh, settingsClient, studyClient, toastError } from "./api";
 import { addDays, dayLabel, studyTime, ymd } from "./dates";
+import { Heatmap } from "./heatmap";
 import { RowsSkeleton, SubjectPill, useNow } from "./parts";
 import { isBreak, serverNow } from "./timer";
 
@@ -89,6 +91,7 @@ export function Ranking() {
   const { t, i18n } = useTranslation("school");
   const queryClient = useQueryClient();
   const [anchor, setAnchor] = useState("");
+  const [viewing, setViewing] = useState<common.UserSummary | undefined>(undefined);
   const { data, isPending } = useQuery({ queryKey: keys.ranking(anchor), queryFn: () => studyClient().getStudyRanking({ anchorDate: anchor }) });
   const join = useMutation({
     mutationFn: () => settingsClient().updateSchoolSettings({ joinRanking: true }),
@@ -135,13 +138,24 @@ export function Ranking() {
             <li key={entry.user?.id} className={cn("flex items-center gap-3 rounded-2xl px-2 py-2", entry.me && "sticker-sm bg-lime text-[#17122b]")}>
               <span className="w-8 shrink-0 text-center text-lg font-black">{MEDALS[entry.rank - 1] ?? entry.rank}</span>
               <Avatar user={entry.user} size="sm" />
-              <span className="min-w-0 flex-1 truncate font-bold">{entry.me ? t("ranking.me") : entry.user?.displayName}</span>
+              {entry.me ? (
+                <span className="min-w-0 flex-1 truncate font-bold">{t("ranking.me")}</span>
+              ) : (
+                <button type="button" onClick={() => setViewing(entry.user)} className="min-w-0 flex-1 truncate text-left font-bold hover:underline" aria-label={t("heatmap.of", { name: entry.user?.displayName ?? "" })}>
+                  {entry.user?.displayName}
+                </button>
+              )}
               <span className="shrink-0 text-sm font-black">{studyTime(entry.seconds, i18n.language)}</span>
             </li>
           ))}
         </ol>
       )}
       <p className="mt-3 text-xs text-ink-faint">{t("ranking.rule")}</p>
+      {viewing && (
+        <Dialog open onOpenChange={(open) => !open && setViewing(undefined)} title={t("heatmap.of", { name: viewing.displayName })}>
+          <Heatmap userId={viewing.id} />
+        </Dialog>
+      )}
     </div>
   );
 }

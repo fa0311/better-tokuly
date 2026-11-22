@@ -35,7 +35,7 @@ export function ClassNowCard({ className }: { className?: string }) {
 
   if (isPending) return <Skeleton className={cn("h-36", className)} />;
   const current = data?.current && toMillis(data.current.endsAt) > now ? data.current : undefined;
-  const next = data?.next && toMillis(data.next.startsAt) > now ? data.next : data?.current && !current ? undefined : data?.next;
+  const next = data?.next;
   const color = current ? current.color || current.subject?.color || "#c6f24e" : undefined;
 
   return (

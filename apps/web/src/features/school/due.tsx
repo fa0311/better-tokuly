@@ -14,7 +14,8 @@ import { SwitchRow } from "#/components/ui/switch";
 import { cn } from "#/lib/cn";
 import { assignmentClient, refresh, toastError, useAssignments, useExams } from "./api";
 import { addDays, fromLocalInput, momentLabel, toLocalInput, ymd } from "./dates";
-import { RowsSkeleton, SubjectPill, SubjectSelect } from "./parts";
+import { RowsSkeleton, SubjectPill } from "./parts";
+import { SubjectSelect } from "./subject-select";
 
 const URGENCY_STYLE: Partial<Record<school.AssignmentUrgency, string>> = {
   [school.AssignmentUrgency.OVERDUE]: "bg-danger text-white",

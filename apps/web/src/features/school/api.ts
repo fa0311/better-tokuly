@@ -57,10 +57,11 @@ export function useSchoolSettings() {
 }
 
 /** The caller's subjects by name; archived ones only when asked for. */
-export function useSubjects(includeArchived = false) {
+export function useSubjects(includeArchived = false, enabled = true) {
   return useQuery({
     queryKey: keys.subjects(includeArchived),
     queryFn: async () => (await timetableClient().listSubjects({ includeArchived })).subjects,
+    enabled,
   });
 }
 

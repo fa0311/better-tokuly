@@ -43,7 +43,8 @@ export function SubjectsDialog({
 }) {
   const { t } = useTranslation("school");
   const queryClient = useQueryClient();
-  const subjects = useSubjects(true);
+  // The full list (archived ones too) is only needed while the dialog is open.
+  const subjects = useSubjects(true, open);
   const [draft, setDraft] = useState<Draft | undefined>(undefined);
   const [removing, setRemoving] = useState<school.Subject | undefined>(undefined);
   const list = subjects.data ?? [];
