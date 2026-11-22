@@ -617,7 +617,10 @@ test("a live share link shows my moving pin to someone signed out, until it is r
   const outside = await browser.newContext({ locale: "ja-JP" });
   const visitor = await outside.newPage();
   await visitor.goto(url);
-  await expect(visitor.getByTestId("share-card")).toContainText(`${me.displayName}のいま`);
+  // A fresh browser loads the whole app first: give it time.
+  await expect(visitor.getByTestId("share-card")).toContainText(`${me.displayName}のいま`, {
+    timeout: 30_000,
+  });
   await expect(visitor.getByTestId("share-card")).toContainText("むかえに来て");
   const pin = visitor.getByTestId("share-pin");
   await expect(pin).toBeVisible({ timeout: 30_000 });

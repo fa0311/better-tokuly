@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { geo } from "@tokuly/api";
 import { BellRing, ChevronRight, Ghost, Link2, MapPinOff, Navigation, Play } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -114,7 +115,9 @@ export function MeSheet() {
     staleTime: 60_000,
   });
   const summary = ghostSummary(ghost, now);
-  const pendingAlerts = alerts?.aboutMe.filter((alert) => alert.status === 1).length ?? 0;
+  const pendingAlerts =
+    alerts?.aboutMe.filter((alert) => alert.status === geo.AlertStatus.PENDING_APPROVAL).length ??
+    0;
 
   return (
     <MapSheet
