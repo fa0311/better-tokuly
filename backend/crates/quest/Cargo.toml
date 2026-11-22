@@ -11,4 +11,30 @@ workspace = true
 
 [dependencies]
 tokuly-core.workspace = true
-tokuly-proto = { workspace = true, features = ["common", "quest"] }
+tokuly-proto = { workspace = true, features = ["common", "identity", "quest"] }
+tokuly-identity.workspace = true
+tokuly-social.workspace = true
+tokuly-wallet.workspace = true
+tokio.workspace = true
+futures.workspace = true
+async-trait.workspace = true
+async-nats.workspace = true
+connectrpc.workspace = true
+buffa.workspace = true
+sqlx.workspace = true
+redis.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+moka.workspace = true
+parking_lot.workspace = true
+clap.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+# API packages only the tests name.
+tokuly-proto = { workspace = true, features = ["social"] }
+tokuly-testkit.workspace = true

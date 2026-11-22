@@ -11,4 +11,33 @@ workspace = true
 
 [dependencies]
 tokuly-core.workspace = true
-tokuly-proto = { workspace = true, features = ["common", "spaces"] }
+tokuly-proto = { workspace = true, features = ["common", "identity", "spaces"] }
+tokuly-identity.workspace = true
+tokuly-social.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
+axum.workspace = true
+bytes.workspace = true
+connectrpc.workspace = true
+buffa.workspace = true
+sqlx.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+clap.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+url.workspace = true
+unicode-segmentation.workspace = true
+
+[dev-dependencies]
+# API packages only the tests name.
+tokuly-proto = { workspace = true, features = ["social"] }
+tokuly-testkit.workspace = true
+futures.workspace = true
+http.workspace = true
+http-body-util.workspace = true
+tower.workspace = true
+# A signalling connection to LiveKit stands in for a client that joined a room.
+tokio-tungstenite = "0.29"

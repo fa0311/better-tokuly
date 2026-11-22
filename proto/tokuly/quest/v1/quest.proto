@@ -2,14 +2,898 @@ syntax = "proto3";
 
 // XP and levels, missions, badges, friend streaks and leaderboards.
 //
-// SKELETON: the owning domain implements this file. Keep the package name
-// and the realtime event message name stable; everything else is yours.
+// The quest domain rewards using the app with friends. It is fed entirely by
+// what the other domains announce (see `docs/events/quest.md`): nothing here
+// "does" an action, the RPCs read progress and collect rewards.
+//
+// Conventions of this package:
+// - A "day" is a calendar date in the caller's time zone (account setting),
+//   written `YYYY-MM-DD`. Days, weeks (Monday to Sunday) and seasons
+//   (calendar months) all turn over at local midnight.
+// - XP sources, badges, missions and leaderboards are identified by stable
+//   string keys and always come with their display text, so a client shows
+//   new ones without a release.
+// - Nothing can be bought here except one streak restore a month.
 package tokuly.quest.v1;
 
+import "google/protobuf/timestamp.proto";
 import "tokuly/common/v1/common.proto";
 
-// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.quest).
+// ───────────────────────────── XP and levels ─────────────────────────────
+
+// XP, levels, the rules that earn XP, and what others see of a player.
+service QuestService {
+  // The caller's level, total XP and what they earned today per source,
+  // with each source's daily cap.
+  rpc GetProgress(GetProgressRequest) returns (GetProgressResponse);
+  // XP earned per day and source, newest day first.
+  // Errors: INVALID_CURSOR.
+  rpc ListXpHistory(ListXpHistoryRequest) returns (ListXpHistoryResponse);
+  // "How to earn XP": every source with its daily cap, every rule with what
+  // it is worth, and the level curve. Public.
+  rpc ListEarningRules(ListEarningRulesRequest) returns (ListEarningRulesResponse);
+  // What a player shows of their quest progress: level, title, showcased
+  // badges, and (for friends) the streak with the caller. Public, but a
+  // signed-in caller is needed for the streak.
+  // Errors: USER_NOT_FOUND (also when either side blocked the other).
+  rpc GetProfile(GetProfileRequest) returns (GetProfileResponse);
+  // The caller's quest settings.
+  rpc GetPreferences(GetPreferencesRequest) returns (GetPreferencesResponse);
+  // Changes the caller's quest settings; unset fields keep their value.
+  rpc UpdatePreferences(UpdatePreferencesRequest) returns (UpdatePreferencesResponse);
+}
+
+// Where a player stands on the level curve.
+//
+// Level L is reached at `25 × (L − 1) × (L + 2)` total XP: level 2 takes 100
+// XP and every further level 50 XP more than the one before.
+message LevelProgress {
+  // Starts at 1.
+  int32 level = 1;
+  // Everything ever earned. XP is never taken away.
+  int64 total_xp = 2;
+  // XP earned since reaching `level`.
+  int64 xp_into_level = 3;
+  // XP between `level` and the next one.
+  int64 xp_for_next_level = 4;
+}
+
+// A group of rules sharing one daily cap, e.g. everything done in chat.
+message XpSource {
+  // Stable key: `chat`, `friends`, `map`, `study`, `missions`, ...
+  string key = 1;
+  tokuly.common.v1.LocalizedText name = 2;
+  string emoji = 3;
+  // Most XP the source gives per local day; 0 = no cap (rewards that are
+  // limited by themselves, such as mission claims).
+  int32 daily_cap = 4;
+}
+
+// Today's earnings from one source.
+message SourceProgress {
+  XpSource source = 1;
+  int32 xp_today = 2;
+  // The cap is reached: more of the same earns nothing until tomorrow.
+  bool capped = 3;
+}
+
+message Progress {
+  LevelProgress level = 1;
+  // XP earned today from all sources.
+  int32 xp_today = 2;
+  // Every source, including those that earned nothing today.
+  repeated SourceProgress sources = 3;
+  // The caller's current local date and the zone it was computed in.
+  string today = 4;
+  string time_zone = 5;
+  // Local midnight: when `xp_today`, the caps and the daily missions reset.
+  google.protobuf.Timestamp day_resets_at = 6;
+  // The title shown next to the name; unset when none is selected.
+  Title title = 7;
+  // Badges earned so far.
+  int32 badge_count = 8;
+  // Days on which the caller earned any XP. Counted, not consecutive: a
+  // day off costs nothing.
+  int32 active_days = 9;
+}
+
+message GetProgressRequest {}
+
+message GetProgressResponse {
+  Progress progress = 1;
+}
+
+// XP of one local day.
+message XpDay {
+  // `YYYY-MM-DD`.
+  string date = 1;
+  int32 xp = 2;
+  repeated XpDaySource sources = 3;
+}
+
+message XpDaySource {
+  // `XpSource.key`.
+  string source = 1;
+  int32 xp = 2;
+}
+
+message ListXpHistoryRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListXpHistoryResponse {
+  repeated XpDay days = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// One row of the rule table: something that earns XP.
+message EarningRule {
+  // Stable key, e.g. `chat.message`.
+  string key = 1;
+  // `XpSource.key` of the cap it counts against.
+  string source = 2;
+  // What to do, e.g. 「メッセージを送る」.
+  tokuly.common.v1.LocalizedText text = 3;
+  // XP per action, or per unit when `per_unit` is set.
+  int32 xp = 4;
+  // What one unit is when XP scales with an amount (「1分」 for study time);
+  // unset for rules that pay per action.
+  tokuly.common.v1.LocalizedText per_unit = 5;
+  // Doing this towards a friend counts for the streak with them.
+  bool counts_for_streak = 6;
+  // Something has triggered the rule recently on this server. Rules of
+  // features that are not in use yet are listed but not live; missions are
+  // only drawn from live rules.
+  bool live = 7;
+}
+
+// Parameters of the level curve, for clients that draw it.
+message LevelCurve {
+  // XP from level 1 to level 2.
+  int32 first_level_xp = 1;
+  // How much more XP each level takes than the one before.
+  int32 step_xp = 2;
+  // Total XP at which levels 2, 3, ... are reached (the first 50).
+  repeated int64 thresholds = 3;
+  // Coins granted on every level-up, and on every tenth level instead.
+  int32 level_up_coins = 4;
+  int32 milestone_level_coins = 5;
+}
+
+message ListEarningRulesRequest {}
+
+message ListEarningRulesResponse {
+  repeated XpSource sources = 1;
+  repeated EarningRule rules = 2;
+  LevelCurve curve = 3;
+}
+
+// A title (称号) shown next to a player's name. Titles come with badges.
+message Title {
+  // The badge that grants it.
+  string badge_key = 1;
+  tokuly.common.v1.LocalizedText text = 2;
+}
+
+// What a player shows of their quest progress.
+message QuestProfile {
+  tokuly.common.v1.UserSummary user = 1;
+  int32 level = 2;
+  Title title = 3;
+  // Up to 5 badges the player chose to show, in their order.
+  repeated Badge showcase = 4;
+  int32 badge_count = 5;
+  // The streak between the caller and this player; set only for friends.
+  Streak streak = 6;
+  // The player keeps their quest progress off their profile: only `user`
+  // is set (and `streak`, which belongs to both friends).
+  bool hidden = 7;
+}
+
+message GetProfileRequest {
+  string user_id = 1;
+}
+
+message GetProfileResponse {
+  QuestProfile profile = 1;
+}
+
+// A player's quest settings.
+message Preferences {
+  // Appear on friends' leaderboards and in season rankings. Default true.
+  bool show_on_leaderboards = 1;
+  // Show level, title and showcase on the profile. Default true.
+  bool show_on_profile = 2;
+  // Be reminded when a streak is about to expire. Default true.
+  bool streak_reminders = 3;
+}
+
+message GetPreferencesRequest {}
+
+message GetPreferencesResponse {
+  Preferences preferences = 1;
+}
+
+message UpdatePreferencesRequest {
+  optional bool show_on_leaderboards = 1;
+  optional bool show_on_profile = 2;
+  optional bool streak_reminders = 3;
+}
+
+message UpdatePreferencesResponse {
+  Preferences preferences = 1;
+}
+
+// ─────────────────────────────── Missions ────────────────────────────────
+
+// Daily and weekly missions.
+//
+// Every player gets 3 daily missions (reset at local midnight) and 1 weekly
+// mission (reset on Monday), drawn from a pool so that they suit what the
+// player can do. Progress counts what the player did during the period.
+// Finished missions stay claimable for a week; claiming all three dailies
+// of a day adds a bonus.
+service MissionService {
+  // The caller's missions for today and this week, drawing them if needed.
+  rpc ListMissions(ListMissionsRequest) returns (ListMissionsResponse);
+  // Collects the reward of a completed mission. Repeating the call returns
+  // the same result without granting twice. Claiming the last of a day's
+  // three daily missions also grants that day's bonus.
+  // Errors: MISSION_NOT_FOUND, MISSION_NOT_COMPLETED, RATE_LIMITED.
+  rpc ClaimMission(ClaimMissionRequest) returns (ClaimMissionResponse);
+  // Swaps a mission of the current day or week that is not completed yet
+  // for another one, which starts from zero. One reroll per local day.
+  // Errors: MISSION_NOT_FOUND, MISSION_NOT_ACTIVE (completed, claimed or of
+  // a past period), NO_REROLL_LEFT, NO_OTHER_MISSION (nothing else suits the
+  // caller right now), RATE_LIMITED.
+  rpc RerollMission(RerollMissionRequest) returns (RerollMissionResponse);
+}
+
+enum MissionPeriod {
+  MISSION_PERIOD_UNSPECIFIED = 0;
+  // One local day.
+  MISSION_PERIOD_DAILY = 1;
+  // Monday to Sunday.
+  MISSION_PERIOD_WEEKLY = 2;
+}
+
+enum MissionDifficulty {
+  MISSION_DIFFICULTY_UNSPECIFIED = 0;
+  MISSION_DIFFICULTY_EASY = 1;
+  MISSION_DIFFICULTY_NORMAL = 2;
+  MISSION_DIFFICULTY_HARD = 3;
+}
+
+enum MissionState {
+  MISSION_STATE_UNSPECIFIED = 0;
+  // In progress.
+  MISSION_STATE_ACTIVE = 1;
+  // Done; the reward waits to be claimed.
+  MISSION_STATE_COMPLETED = 2;
+  // Reward collected.
+  MISSION_STATE_CLAIMED = 3;
+  // Its period ended before it was completed.
+  MISSION_STATE_EXPIRED = 4;
+}
+
+// What claiming something gives.
+message Reward {
+  int32 coins = 1;
+  int32 xp = 2;
+  // Set for the few missions that also unlock a badge.
+  Badge badge = 3;
+}
+
+message Mission {
+  string id = 1;
+  // Key of the mission in the pool, e.g. `stamps_5`.
+  string key = 2;
+  MissionPeriod period = 3;
+  MissionDifficulty difficulty = 4;
+  tokuly.common.v1.LocalizedText title = 5;
+  tokuly.common.v1.LocalizedText description = 6;
+  string emoji = 7;
+  // `progress` never exceeds `target`.
+  int64 progress = 8;
+  int64 target = 9;
+  MissionState state = 10;
+  Reward reward = 11;
+  // First local day of the period (`YYYY-MM-DD`).
+  string period_start = 12;
+  // When the period ends (local midnight); progress stops counting then.
+  google.protobuf.Timestamp ends_at = 13;
+  google.protobuf.Timestamp completed_at = 14;
+  google.protobuf.Timestamp claimed_at = 15;
+  // The mission replaced another one through a reroll.
+  bool rerolled = 16;
+  // Where in the app the mission is done, e.g. `/chat`; empty if anywhere.
+  string path = 17;
+}
+
+// The reward for finishing the whole day.
+message DailyBonus {
+  Reward reward = 1;
+  // Daily missions claimed today, out of `required`.
+  int32 claimed = 2;
+  int32 required = 3;
+  // The bonus was granted (with the last claim).
+  bool granted = 4;
+}
+
+message ListMissionsRequest {}
+
+message ListMissionsResponse {
+  // Today's missions, in slot order.
+  repeated Mission daily = 1;
+  // This week's mission. Unset only when nothing in the pool suits the caller.
+  Mission weekly = 2;
+  DailyBonus daily_bonus = 3;
+  // Rerolls the caller may still use today (0 or 1).
+  int32 rerolls_left = 4;
+  // Completed missions of earlier days and weeks whose reward was never
+  // collected. They can still be claimed for a week.
+  repeated Mission unclaimed = 5;
+  google.protobuf.Timestamp daily_resets_at = 6;
+  google.protobuf.Timestamp weekly_resets_at = 7;
+}
+
+message ClaimMissionRequest {
+  string mission_id = 1;
+}
+
+message ClaimMissionResponse {
+  Mission mission = 1;
+  // The mission's reward.
+  Reward reward = 2;
+  // Set when this claim completed the day: the daily bonus granted with it.
+  Reward bonus = 3;
+  // False when the mission had been claimed before (nothing was granted now).
+  bool granted = 4;
+  // Level and XP after the claim.
+  Progress progress = 5;
+  DailyBonus daily_bonus = 6;
+}
+
+message RerollMissionRequest {
+  string mission_id = 1;
+}
+
+message RerollMissionResponse {
+  // The mission that took the slot (same `id`).
+  Mission mission = 1;
+  int32 rerolls_left = 2;
+}
+
+// ──────────────────────────────── Badges ─────────────────────────────────
+
+// The badge catalogue, a player's badges, the showcase and the title.
+service BadgeService {
+  // Every badge, grouped by family, with rarity and (for a signed-in
+  // caller) what they own and how far they are. Secret badges the caller
+  // does not own are listed without name, description or their real key.
+  // Public.
+  // Errors: RATE_LIMITED.
+  rpc ListBadgeCatalog(ListBadgeCatalogRequest) returns (ListBadgeCatalogResponse);
+  // One badge with the caller's friends who own it.
+  // Errors: BADGE_NOT_FOUND (also for the real key of a secret badge the
+  // caller does not own), RATE_LIMITED.
+  rpc GetBadge(GetBadgeRequest) returns (GetBadgeResponse);
+  // A player's badges, newest first, with their showcase and title.
+  // Everyone sees the showcase and the title (the player chose to show
+  // them); the full list is for the player and their friends, and `badges`
+  // holds only the showcase for anybody else. Public.
+  // Errors: USER_NOT_FOUND (also when either side blocked the other),
+  // RATE_LIMITED.
+  rpc ListUserBadges(ListUserBadgesRequest) returns (ListUserBadgesResponse);
+  // Chooses up to 5 owned badges to show on the profile, in order. An empty
+  // list clears the showcase.
+  // Errors: TOO_MANY_BADGES, DUPLICATE_BADGE, BADGE_NOT_OWNED, RATE_LIMITED.
+  rpc SetShowcase(SetShowcaseRequest) returns (SetShowcaseResponse);
+  // Selects the title of an owned badge to show next to the name; an empty
+  // key removes the title.
+  // Errors: BADGE_NOT_OWNED, BADGE_HAS_NO_TITLE, RATE_LIMITED.
+  rpc SetTitle(SetTitleRequest) returns (SetTitleResponse);
+}
+
+enum BadgeTier {
+  // A badge that stands alone (no tiers).
+  BADGE_TIER_UNSPECIFIED = 0;
+  BADGE_TIER_BRONZE = 1;
+  BADGE_TIER_SILVER = 2;
+  BADGE_TIER_GOLD = 3;
+}
+
+// How many of the active players own a badge.
+enum BadgeRarity {
+  // Not known: not computed yet, or too few players are active for a share
+  // to say anything other than who owns it.
+  BADGE_RARITY_UNSPECIFIED = 0;
+  // At least 40 %.
+  BADGE_RARITY_COMMON = 1;
+  // At least 15 %.
+  BADGE_RARITY_UNCOMMON = 2;
+  // At least 5 %.
+  BADGE_RARITY_RARE = 3;
+  // At least 1 %.
+  BADGE_RARITY_EPIC = 4;
+  // Less than 1 %.
+  BADGE_RARITY_LEGENDARY = 5;
+}
+
+message Badge {
+  // Stable key, e.g. `chatter_gold`. A secret badge the viewer does not own
+  // carries an opaque stand-in (`secret_…`) instead, which `GetBadge` accepts.
+  string key = 1;
+  // `BadgeFamily.key`.
+  string family = 2;
+  // Badges sharing a line are tiers of the same achievement
+  // (`chatter_bronze` / `_silver` / `_gold` → line `chatter`).
+  string line = 3;
+  BadgeTier tier = 4;
+  // Unset for a secret badge the viewer does not own.
+  tokuly.common.v1.LocalizedText name = 5;
+  // How it is earned. Unset for a secret badge the viewer does not own.
+  tokuly.common.v1.LocalizedText description = 6;
+  // Empty for a secret badge the viewer does not own.
+  string emoji = 7;
+  bool secret = 8;
+  // The title (称号) owning this badge unlocks; unset when it has none.
+  tokuly.common.v1.LocalizedText title = 9;
+  BadgeRarity rarity = 10;
+  // Share of active players owning it, 0–1 (0 while `rarity` is unknown).
+  double owner_share = 11;
+
+  // ── about the player the badge is shown for ──
+
+  bool owned = 12;
+  google.protobuf.Timestamp earned_at = 13;
+  // For badges earned by counting: how far the player is. `target` is 0
+  // for badges that are not counted; `progress` never exceeds `target`.
+  int64 progress = 14;
+  int64 target = 15;
+  // How often it was earned (season badges can be won again).
+  int32 times = 16;
+}
+
+message BadgeFamily {
+  // `friends`, `explore`, `chat`, `stamps`, `creators`, `study`, `streaks`,
+  // `seasons`, `journey`, `missions`, `together`, `secret`, `special`.
+  string key = 1;
+  tokuly.common.v1.LocalizedText name = 2;
+  string emoji = 3;
+  repeated Badge badges = 4;
+  // How many of them the caller owns.
+  int32 owned_count = 5;
+}
+
+message ListBadgeCatalogRequest {}
+
+message ListBadgeCatalogResponse {
+  repeated BadgeFamily families = 1;
+  int32 owned_count = 2;
+  int32 total_count = 3;
+}
+
+message GetBadgeRequest {
+  string key = 1;
+}
+
+message GetBadgeResponse {
+  Badge badge = 1;
+  // Friends of the caller who own it (up to 10), and how many do.
+  repeated tokuly.common.v1.UserSummary friend_owners = 2;
+  int32 friend_owner_count = 3;
+}
+
+message ListUserBadgesRequest {
+  // Empty = the caller.
+  string user_id = 1;
+}
+
+message ListUserBadgesResponse {
+  // Everything the player earned, for themselves and their friends; the
+  // showcase for anybody else.
+  repeated Badge badges = 1;
+  repeated Badge showcase = 2;
+  Title title = 3;
+  // The player keeps their badges off their profile; the lists are empty.
+  bool hidden = 4;
+}
+
+message SetShowcaseRequest {
+  repeated string badge_keys = 1;
+}
+
+message SetShowcaseResponse {
+  repeated Badge showcase = 1;
+}
+
+message SetTitleRequest {
+  string badge_key = 1;
+}
+
+message SetTitleResponse {
+  // Unset when the title was removed.
+  Title title = 1;
+}
+
+// ──────────────────────────── Friend streaks ─────────────────────────────
+
+// Friend streaks 🔥.
+//
+// Two friends keep a streak for every consecutive day on which each of them
+// did something towards the other (a message, a stamp, a map reaction, a
+// bump, a call...). A day is a calendar date, and each friend's part counts
+// on the date of their own time zone: the day is complete once both have
+// done their part on that date, and the streak ends when one of them lets
+// their own midnight pass without it. Unfriending or blocking ends a streak
+// for good.
+service StreakService {
+  // The caller's streaks, longest first, followed by streaks lost within
+  // the last 24 hours (which can still be restored).
+  // Errors: INVALID_CURSOR.
+  rpc ListStreaks(ListStreaksRequest) returns (ListStreaksResponse);
+  // The streak between the caller and a friend (`days` 0 when there is none).
+  // Errors: NOT_FRIENDS.
+  rpc GetStreak(GetStreakRequest) returns (GetStreakResponse);
+  // Brings back a streak lost within the last 24 hours, for coins. One
+  // restore per calendar month. Repeating the call for the same streak
+  // charges nothing; when the friend restored it first, nothing is charged
+  // either.
+  // Errors: NOT_FRIENDS, STREAK_NOT_LOST, RESTORE_WINDOW_OVER,
+  // RESTORE_ALREADY_USED, INSUFFICIENT_COINS, RATE_LIMITED.
+  rpc RestoreStreak(RestoreStreakRequest) returns (RestoreStreakResponse);
+}
+
+enum StreakState {
+  STREAK_STATE_UNSPECIFIED = 0;
+  // No streak is running between the two.
+  STREAK_STATE_NONE = 1;
+  // Running.
+  STREAK_STATE_ACTIVE = 2;
+  // Running, but it ends within 4 hours unless it is continued (⌛).
+  STREAK_STATE_EXPIRING = 3;
+  // It ended within the last 24 hours and can still be restored.
+  STREAK_STATE_LOST = 4;
+}
+
+// Whose part of the current day is still missing.
+enum StreakTurn {
+  STREAK_TURN_UNSPECIFIED = 0;
+  // Nobody's: the day is complete.
+  STREAK_TURN_NONE = 1;
+  // The caller still has to do something for the friend.
+  STREAK_TURN_MINE = 2;
+  // The friend still has to do something for the caller.
+  STREAK_TURN_THEIRS = 3;
+  STREAK_TURN_BOTH = 4;
+}
+
+message Streak {
+  tokuly.common.v1.UserSummary friend = 1;
+  // Consecutive days. 0 when no streak is running.
+  int32 days = 2;
+  // The longest the two ever reached.
+  int32 best_days = 3;
+  StreakState state = 4;
+  StreakTurn waiting_on = 5;
+  // When the streak ends unless whoever `waiting_on` names acts first: the
+  // local midnight of the first of them to run out of day. Unset when no
+  // streak is running.
+  google.protobuf.Timestamp expires_at = 6;
+  // The next milestone (3, 7, 30, 100, 365, 500, 1000); 0 past the last.
+  int32 next_milestone = 7;
+  // The date of the streak's first day.
+  string started_on = 8;
+
+  // ── set while a streak that ended can still be restored (always while
+  // `state` is LOST; also when the two already started a new one) ──
+
+  // How long the streak was when it ended.
+  int32 lost_days = 9;
+  google.protobuf.Timestamp lost_at = 10;
+  // Until when it can be restored.
+  google.protobuf.Timestamp restorable_until = 11;
+}
+
+// What restoring a streak costs the caller, and whether they may.
+message RestoreOffer {
+  int32 cost_coins = 1;
+  // False when the caller already restored a streak this calendar month.
+  bool available = 2;
+  // First day of the month in which the next restore becomes available;
+  // empty while `available`.
+  string available_again_on = 3;
+}
+
+message ListStreaksRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListStreaksResponse {
+  repeated Streak streaks = 1;
+  tokuly.common.v1.PageInfo page = 2;
+  RestoreOffer restore = 3;
+}
+
+message GetStreakRequest {
+  // The friend.
+  string user_id = 1;
+}
+
+message GetStreakResponse {
+  Streak streak = 1;
+  RestoreOffer restore = 2;
+}
+
+message RestoreStreakRequest {
+  // The friend.
+  string user_id = 1;
+}
+
+message RestoreStreakResponse {
+  Streak streak = 1;
+  // Coins taken by this call (0 when it repeated an earlier restore).
+  int32 coins_spent = 2;
+}
+
+// ──────────────────────── Leaderboards and seasons ───────────────────────
+
+// Rankings among friends, and monthly seasons.
+//
+// A leaderboard ranks the caller and their friends; nobody else is ever
+// listed. Players who switched `show_on_leaderboards` off are left out
+// (the caller always sees their own row).
+service LeaderboardService {
+  // The boards that have data on this server.
+  rpc ListLeaderboards(ListLeaderboardsRequest) returns (ListLeaderboardsResponse);
+  // One board for one period.
+  // Errors: BOARD_NOT_FOUND, PERIOD_NOT_SUPPORTED, RATE_LIMITED.
+  rpc GetLeaderboard(GetLeaderboardRequest) returns (GetLeaderboardResponse);
+  // The running season: the caller's XP this month and their rank among
+  // friends. The top third of a friend group wins the season badge.
+  // Errors: RATE_LIMITED.
+  rpc GetSeason(GetSeasonRequest) returns (GetSeasonResponse);
+  // The caller's results in finished seasons, newest first.
+  // Errors: INVALID_CURSOR.
+  rpc ListSeasonResults(ListSeasonResultsRequest) returns (ListSeasonResultsResponse);
+}
+
+enum LeaderboardPeriod {
+  LEADERBOARD_PERIOD_UNSPECIFIED = 0;
+  // The current week, Monday to Sunday.
+  LEADERBOARD_PERIOD_WEEK = 1;
+  // The current season (calendar month).
+  LEADERBOARD_PERIOD_SEASON = 2;
+  LEADERBOARD_PERIOD_ALL_TIME = 3;
+}
+
+// A board that can be requested.
+message Leaderboard {
+  // `xp` or `streak`.
+  string key = 1;
+  tokuly.common.v1.LocalizedText name = 2;
+  string emoji = 3;
+  // What `LeaderboardEntry.value` counts, e.g. 「分」/ "min".
+  tokuly.common.v1.LocalizedText unit = 4;
+  repeated LeaderboardPeriod periods = 5;
+}
+
+message LeaderboardEntry {
+  // 1-based; players with the same value share a rank.
+  int32 rank = 1;
+  tokuly.common.v1.UserSummary user = 2;
+  int64 value = 3;
+  // This row is the caller.
+  bool me = 4;
+  int32 level = 5;
+  Title title = 6;
+}
+
+message ListLeaderboardsRequest {}
+
+message ListLeaderboardsResponse {
+  repeated Leaderboard boards = 1;
+}
+
+message GetLeaderboardRequest {
+  // `Leaderboard.key`.
+  string board = 1;
+  LeaderboardPeriod period = 2;
+  // Rows to return from the top (default 50, at most 200).
+  int32 limit = 3;
+}
+
+message GetLeaderboardResponse {
+  Leaderboard board = 1;
+  LeaderboardPeriod period = 2;
+  // First and last local date of the period; empty for ALL_TIME.
+  string period_start = 3;
+  string period_end = 4;
+  // The top of the board. Players without a value are not ranked.
+  repeated LeaderboardEntry entries = 5;
+  // The caller's row, also when it is below the returned top or has no
+  // value yet (`rank` 0).
+  LeaderboardEntry me = 6;
+  // Players ranked (with a value), the caller included.
+  int32 ranked_count = 7;
+}
+
+// A season: one calendar month of XP among friends.
+message Season {
+  // `YYYY-MM`.
+  string id = 1;
+  tokuly.common.v1.LocalizedText name = 2;
+  // First and last local date.
+  string starts_on = 3;
+  string ends_on = 4;
+  // The caller's XP in the season.
+  int64 xp = 5;
+  // The caller's rank among themselves and their friends (0 without XP).
+  int32 rank = 6;
+  // How many of that group earned XP in the season.
+  int32 group_size = 7;
+  // Ranks up to this one win the season badge: the top third, rounded up.
+  // 0 while fewer than two of the group took part.
+  int32 badge_rank = 8;
+  // The badge of this season's month.
+  Badge badge = 9;
+  // The season is over and `rank` is final.
+  bool final = 10;
+  // The caller won the badge (only set once `final`).
+  bool badge_won = 11;
+  // When the season ends for the caller (local midnight after `ends_on`).
+  google.protobuf.Timestamp ends_at = 12;
+}
+
+message GetSeasonRequest {}
+
+message GetSeasonResponse {
+  Season season = 1;
+}
+
+message ListSeasonResultsRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListSeasonResultsResponse {
+  repeated Season seasons = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// ───────────────────────────────── Staff ─────────────────────────────────
+
+// Badge administration. Requires the `admin` role. Every call is recorded
+// with the staff member and their reason, whether or not it changed
+// anything.
+service QuestAdminService {
+  // Gives a player a badge by hand (event prizes, the `special` family).
+  // Staff cannot award themselves.
+  // Errors: FORBIDDEN, SELF_AWARD, REASON_REQUIRED, REASON_TOO_LONG,
+  // USER_NOT_FOUND, BADGE_NOT_FOUND.
+  rpc AwardBadge(AwardBadgeRequest) returns (AwardBadgeResponse);
+  // Takes a badge away (awarded by mistake, or won by cheating). It also
+  // leaves the showcase and stops being the title.
+  // Errors: FORBIDDEN, SELF_AWARD, REASON_REQUIRED, REASON_TOO_LONG,
+  // USER_NOT_FOUND, BADGE_NOT_FOUND.
+  rpc RevokeBadge(RevokeBadgeRequest) returns (RevokeBadgeResponse);
+  // The record of badges given and taken by hand, newest first.
+  // Errors: FORBIDDEN.
+  rpc ListBadgeActions(ListBadgeActionsRequest) returns (ListBadgeActionsResponse);
+}
+
+message AwardBadgeRequest {
+  string user_id = 1;
+  string badge_key = 2;
+  // Why (the event it was a prize of, the ticket). Required, at most 500
+  // characters; kept with the record, never shown to the player.
+  string reason = 3;
+}
+
+message AwardBadgeResponse {
+  // False when the player already had it.
+  bool awarded = 1;
+  Badge badge = 2;
+}
+
+message RevokeBadgeRequest {
+  string user_id = 1;
+  string badge_key = 2;
+  // Why. Required, at most 500 characters; never shown to the player.
+  string reason = 3;
+}
+
+message RevokeBadgeResponse {
+  // False when the player did not have it.
+  bool revoked = 1;
+}
+
+enum BadgeActionKind {
+  BADGE_ACTION_KIND_UNSPECIFIED = 0;
+  BADGE_ACTION_KIND_AWARDED = 1;
+  BADGE_ACTION_KIND_REVOKED = 2;
+}
+
+// One award or revocation by staff.
+message BadgeAction {
+  string id = 1;
+  // Empty once the staff member's account was deleted.
+  string staff_id = 2;
+  string user_id = 3;
+  string badge_key = 4;
+  BadgeActionKind kind = 5;
+  string reason = 6;
+  // Whether the player's badges changed: false when they already had the
+  // badge (award) or did not have it (revoke).
+  bool changed = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+message ListBadgeActionsRequest {
+  // Only actions on this player; empty = everyone.
+  string user_id = 1;
+  // Default 50, at most 200.
+  int32 limit = 2;
+}
+
+message ListBadgeActionsResponse {
+  repeated BadgeAction actions = 1;
+}
+
+// ──────────────────────────────── Realtime ───────────────────────────────
+
+// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.quest),
+// always to the player concerned. Clients celebrate in proportion to the
+// account's ドパガキ度.
 message QuestEvent {
-  // Placeholder so the realtime envelope compiles; replace with a oneof of real events.
-  tokuly.common.v1.SubjectRef subject = 1;
+  oneof event {
+    // XP arrived. Coalesced: at most one push every few seconds per player,
+    // carrying everything earned since the last one.
+    XpGained xp_gained = 1;
+    LevelUp level_up = 2;
+    // The player earned this badge.
+    Badge badge_unlocked = 3;
+    // The mission reached its target; the reward can be claimed.
+    Mission mission_completed = 4;
+    StreakChanged streak_changed = 5;
+  }
+}
+
+message XpGained {
+  // XP earned since the last push.
+  int32 xp = 1;
+  // The same, per source.
+  repeated XpDaySource sources = 2;
+  // Where the player stands now.
+  LevelProgress level = 3;
+  int32 xp_today = 4;
+}
+
+message LevelUp {
+  // The level reached (the highest one, if several were crossed at once).
+  int32 level = 1;
+  // Coins granted for the level(s).
+  int32 coins = 2;
+  LevelProgress progress = 3;
+}
+
+// Why a `StreakChanged` was sent.
+enum StreakChange {
+  STREAK_CHANGE_UNSPECIFIED = 0;
+  // A day was completed: the streak started or grew.
+  STREAK_CHANGE_EXTENDED = 1;
+  // As EXTENDED, and `streak.days` is a milestone.
+  STREAK_CHANGE_MILESTONE = 2;
+  // It will end within 4 hours.
+  STREAK_CHANGE_EXPIRING = 3;
+  STREAK_CHANGE_LOST = 4;
+  STREAK_CHANGE_RESTORED = 5;
+  // The friendship ended, and the streak with it.
+  STREAK_CHANGE_ENDED = 6;
+}
+
+message StreakChanged {
+  // The streak as the receiving player sees it.
+  Streak streak = 1;
+  StreakChange change = 2;
 }
