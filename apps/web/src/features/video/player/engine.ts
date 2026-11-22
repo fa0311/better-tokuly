@@ -151,6 +151,7 @@ export function useMediaEngine(video: RefObject<HTMLVideoElement | null>, source
       begin();
     };
     const onNativeError = () => patch({ failed: true });
+    let resumeLoading = () => {};
 
     if (!hlsUrl) {
       element.addEventListener("error", onNativeError);
@@ -172,6 +173,8 @@ export function useMediaEngine(video: RefObject<HTMLVideoElement | null>, source
         const player = new HlsPlayer({ startPosition: startAt > 0 ? startAt : -1, capLevelToPlayerSize: true, maxBufferLength: 30 });
         hls.current = player;
         let mediaRecoveries = 0;
+        // Back online after a dropped connection: pick the stream up again (unless the player is gone by then).
+        resumeLoading = () => hls.current === player && player.startLoad();
         player.on(HlsPlayer.Events.MANIFEST_PARSED, () => {
           patch({ levels: player.levels.map((level, index) => ({ index, height: level.height })).filter((level) => level.height > 0) });
           begin();
@@ -184,7 +187,8 @@ export function useMediaEngine(video: RefObject<HTMLVideoElement | null>, source
             mediaRecoveries += 1;
             player.recoverMediaError();
           } else if (data.type === HlsPlayer.ErrorTypes.NETWORK_ERROR && navigator.onLine === false) {
-            window.addEventListener("online", () => player.startLoad(), { once: true });
+            window.removeEventListener("online", resumeLoading);
+            window.addEventListener("online", resumeLoading, { once: true });
           } else {
             player.destroy();
             hls.current = null;
@@ -200,6 +204,7 @@ export function useMediaEngine(video: RefObject<HTMLVideoElement | null>, source
       disposed = true;
       for (const [name, listener] of listeners) element.removeEventListener(name, listener);
       element.removeEventListener("error", onNativeError);
+      window.removeEventListener("online", resumeLoading);
       hls.current?.destroy();
       hls.current = null;
       element.removeAttribute("src");
