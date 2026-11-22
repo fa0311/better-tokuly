@@ -131,9 +131,10 @@ jobs:
         run: pnpm proto:gen
       - name: Client packages
         run: pnpm --filter @tokuly/api --filter @tokuly/realtime run --if-present test
+      # The build comes first: it writes the route tree the type check needs.
+      - name: Build
+        run: pnpm --filter @tokuly/web build
       - name: Type check
         run: pnpm --filter @tokuly/web typecheck
       - name: Unit tests
         run: pnpm --filter @tokuly/web test
-      - name: Build
-        run: pnpm --filter @tokuly/web build

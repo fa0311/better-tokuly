@@ -16,6 +16,8 @@ apps/studio/src-tauri/gen/
 
 # generated code (regenerate with `pnpm proto:gen`)
 packages/api/src/gen/
+# written by the web dev server and `vite build` from the route files
+apps/web/src/routeTree.gen.ts
 
 # expo / react native
 .expo/
