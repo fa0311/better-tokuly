@@ -22,7 +22,7 @@ Domains and their migration numbers:
 | core | 0001 | — |
 | identity | 0100 | media |
 | social | 0200 | identity |
-| geo | 0300 | social |
+| geo | 0300 | social, media |
 | media | 0400 | — |
 | stamp | 0500 | identity, media |
 | chat | 0600 | social, stamp, media |

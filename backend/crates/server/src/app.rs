@@ -9,6 +9,7 @@ use tokuly_chat::{Chat, ChatConfig};
 use tokuly_core::{Core, analytics, auth::auth_middleware, events};
 use tokuly_engagement::{Engagement, EngagementConfig};
 use tokuly_feed::{Feed, FeedConfig};
+use tokuly_geo::{Geo, GeoConfig};
 use tokuly_identity::{Identity, IdentityConfig};
 use tokuly_media::{Media, MediaConfig};
 use tokuly_notes::{Notes, NotesConfig};
@@ -33,6 +34,8 @@ pub struct DomainConfigs {
     pub media: MediaConfig,
     #[command(flatten)]
     pub social: SocialConfig,
+    #[command(flatten)]
+    pub geo: GeoConfig,
     #[command(flatten)]
     pub stamp: StampConfig,
     #[command(flatten)]
@@ -63,6 +66,7 @@ pub struct Domains {
     pub media: Media,
     pub identity: Identity,
     pub social: Social,
+    pub geo: Geo,
     pub stamp: Stamp,
     pub wallet: Wallet,
     pub notify: Notify,
@@ -83,6 +87,7 @@ impl Domains {
         let media = Media::new(core.clone(), cfg.media)?;
         let identity = Identity::new(core.clone(), cfg.identity)?;
         let social = Social::new(core.clone(), identity.clone(), cfg.social)?;
+        let geo = Geo::new(core.clone(), identity.clone(), cfg.geo)?;
         let wallet = Wallet::new(core.clone(), identity.clone(), cfg.wallet)?;
         let stamp = Stamp::new(core.clone(), identity.clone(), cfg.stamp)?;
         let notify = Notify::new(core.clone(), identity.clone(), cfg.notify)?;
@@ -96,7 +101,7 @@ impl Domains {
         // subject types nobody else registered a resolver for.
         let engagement = Engagement::new(core.clone(), identity.clone(), cfg.engagement)?;
         let gateway = Gateway::new(core.clone(), cfg.realtime)?;
-        let domains = Self { media, identity, social, stamp, wallet, notify, admin, feed, chat, notes, video, search, engagement, gateway };
+        let domains = Self { media, identity, social, geo, stamp, wallet, notify, admin, feed, chat, notes, video, search, engagement, gateway };
         crate::bridges::connect(&core, &domains);
         Ok(domains)
     }
@@ -107,6 +112,7 @@ impl Domains {
         router = self.identity.register(router);
         router = self.media.register(router);
         router = self.social.register(router);
+        router = self.geo.register(router);
         router = self.stamp.register(router);
         router = self.wallet.register(router);
         router = self.notify.register(router);
@@ -125,8 +131,13 @@ impl Domains {
 /// All PostgreSQL migrations, embedded at compile time from `backend/migrations`.
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
 
-/// ClickHouse schema files, embedded from `backend/clickhouse` (applied in order).
-const CLICKHOUSE_SCHEMA: &[(&str, &str)] = &[("0001_events", include_str!("../../../clickhouse/0001_events.sql"))];
+/// ClickHouse schema files, embedded from `backend/clickhouse` (applied in
+/// order): the shared event tables, then what the domains keep there.
+fn clickhouse_schema() -> Vec<(&'static str, &'static str)> {
+    let mut schema = vec![("0001_events", include_str!("../../../clickhouse/0001_events.sql"))];
+    schema.extend_from_slice(tokuly_geo::CLICKHOUSE_SCHEMA);
+    schema
+}
 
 /// One-time and idempotent setup: database migrations, analytics schema,
 /// buckets, streams, and the first admin.
@@ -136,7 +147,7 @@ pub async fn migrate(core: &Core, domains: &Domains) -> anyhow::Result<()> {
     core.bus.ensure_streams().await?;
     core.storage.ensure_buckets().await?;
     tracing::info!("object storage buckets ready");
-    match analytics::apply_schema(&core.cfg, CLICKHOUSE_SCHEMA).await {
+    match analytics::apply_schema(&core.cfg, &clickhouse_schema()).await {
         Ok(()) => tracing::info!("analytics schema applied"),
         // Analytics is not required to serve users; keep going and say so.
         Err(e) => tracing::warn!(error = %e, "analytics schema not applied; dashboards will be empty until ClickHouse is reachable"),
@@ -146,6 +157,9 @@ pub async fn migrate(core: &Core, domains: &Domains) -> anyhow::Result<()> {
         // Search is not required to serve users; the indexer creates the indexes when the engine is back.
         Err(e) => tracing::warn!(error = %e, "search indexes not prepared; search stays empty until Meilisearch is reachable"),
     }
+    // Country and prefecture boundaries for footprints, bundled with the binary.
+    domains.geo.seed_regions().await.map_err(|e| anyhow::anyhow!("could not load the map regions: {e}"))?;
+    tracing::info!("map regions ready");
     // The account named by TOKULY_ADMIN_USER, if it already exists; otherwise
     // the admin worker promotes it when it signs up.
     if let Err(e) = domains.admin.grant_bootstrap_admin().await {
@@ -163,6 +177,7 @@ pub fn spawn_workers(core: &Core, domains: &Domains) {
     domains.identity.spawn_workers();
     domains.media.spawn_workers();
     domains.social.spawn_workers();
+    domains.geo.spawn_workers();
     domains.stamp.spawn_workers();
     domains.wallet.spawn_workers();
     domains.notify.spawn_workers();
