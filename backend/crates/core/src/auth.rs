@@ -5,6 +5,11 @@
 //! each other's tokens without sharing key files. Revoked sessions are held in
 //! a small in-memory set (fed over the bus by the identity service) for the
 //! lifetime of an access token.
+//!
+//! The other kind of bearer credential is an API token (`tkl_…`): opaque,
+//! long-lived, limited to its scopes. [`auth_middleware`] hands those to
+//! [`crate::api_tokens`], which verifies them and enforces scopes and rate
+//! limits before a handler runs.
 use std::{sync::Arc, time::Duration};
 
 use axum::{extract::Request, middleware::Next, response::Response};
@@ -16,6 +21,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
+    api_tokens::{self, ApiGate, ApiToken, ApiTokens, Refusal, Scopes},
+    cache::Cache,
     error::{AppError, AppResult},
     keys::Keys,
     time::Time,
@@ -28,13 +35,50 @@ const ISSUER: &str = "tokuly";
 #[derive(Debug, Clone)]
 pub struct AuthContext {
     pub user_id: Uuid,
+    /// The session. For an API token, which has no session, the ID of the
+    /// credential ([`ApiToken::id`]): stable and unique, but not a row in
+    /// `sessions`.
     pub session_id: Uuid,
+    /// Staff roles. Always empty for API tokens.
     pub roles: Vec<String>,
     /// When the access token that proved this identity stops being valid.
     pub expires_at: Time,
+    /// The API token making the request, with the scopes that limit it.
+    /// `None` for a normal session, which may do everything its user may.
+    pub api_token: Option<ApiToken>,
 }
 
 impl AuthContext {
+    /// The caller an API token stands for. Tokens never carry roles, whoever
+    /// their account is.
+    pub fn from_api_token(token: ApiToken) -> Self {
+        Self {
+            user_id: token.user_id,
+            session_id: token.id,
+            roles: Vec::new(),
+            expires_at: token.expires_at.unwrap_or(Time::MAX_UTC),
+            api_token: Some(token),
+        }
+    }
+
+    /// The scopes limiting this caller; `None` for a session (no limit).
+    pub fn scopes(&self) -> Option<&Scopes> {
+        self.api_token.as_ref().map(|token| &token.scopes)
+    }
+
+    /// Whether the caller may use `scope` (`<domain>:read` / `<domain>:write`).
+    /// A session always may. The middleware already checked the scope of the
+    /// RPC being called; this is for handlers that reach into another
+    /// domain's data on the caller's behalf.
+    pub fn allows(&self, scope: &str) -> bool {
+        self.scopes().is_none_or(|scopes| scopes.allows(scope))
+    }
+
+    /// Whether this is a signed-in session rather than an API token.
+    pub fn is_session(&self) -> bool {
+        self.api_token.is_none()
+    }
+
     pub fn has_role(&self, role: &str) -> bool {
         self.roles.iter().any(|r| r == role || r == "admin")
     }
@@ -150,6 +194,7 @@ impl Tokens {
             session_id: data.claims.sid,
             roles: data.claims.roles,
             expires_at: chrono::DateTime::from_timestamp(data.claims.exp, 0).unwrap_or_default(),
+            api_token: None,
         })
     }
 
@@ -172,21 +217,40 @@ impl Tokens {
         }
     }
 
-    /// Extracts and verifies a bearer token from an `Authorization` header value.
+    /// Extracts and verifies a session's bearer token from an `Authorization`
+    /// header value. API tokens are not sessions: they are invalid here and
+    /// go through [`auth_middleware`].
     pub fn authenticate_header(&self, header: Option<&http::HeaderValue>) -> AuthState {
-        let Some(value) = header.and_then(|v| v.to_str().ok()) else {
-            return AuthState::Anonymous;
-        };
-        let Some(token) = value
-            .strip_prefix("Bearer ")
-            .or_else(|| value.strip_prefix("bearer "))
-        else {
-            return AuthState::Invalid("TOKEN_INVALID");
-        };
-        match self.verify(token.trim()) {
+        match bearer_token(header) {
+            Bearer::Absent => AuthState::Anonymous,
+            Bearer::Malformed => AuthState::Invalid("TOKEN_INVALID"),
+            Bearer::Token(token) => self.authenticate(token),
+        }
+    }
+
+    fn authenticate(&self, token: &str) -> AuthState {
+        match self.verify(token) {
             Ok(ctx) => AuthState::Authenticated(ctx),
             Err(reason) => AuthState::Invalid(reason),
         }
+    }
+}
+
+/// What an `Authorization` header holds.
+enum Bearer<'a> {
+    Absent,
+    /// A header that is not `Bearer <token>`.
+    Malformed,
+    Token(&'a str),
+}
+
+fn bearer_token(header: Option<&http::HeaderValue>) -> Bearer<'_> {
+    let Some(value) = header.and_then(|v| v.to_str().ok()) else {
+        return Bearer::Absent;
+    };
+    match value.strip_prefix("Bearer ").or_else(|| value.strip_prefix("bearer ")) {
+        Some(token) => Bearer::Token(token.trim()),
+        None => Bearer::Malformed,
     }
 }
 
@@ -205,22 +269,38 @@ pub struct ClientMeta {
     pub language: String,
 }
 
-/// What [`auth_middleware`] needs: the token verifier, and the proxies whose
-/// word is taken for a client's address.
+/// What [`auth_middleware`] needs: the verifiers of session tokens and of
+/// API tokens, and the proxies whose word is taken for a client's address.
 #[derive(Clone)]
 pub struct AuthLayer {
     tokens: Tokens,
     trusted_proxies: std::sync::Arc<crate::proxies::TrustedProxies>,
+    api: ApiGate,
 }
 
 impl AuthLayer {
+    /// A layer that knows sessions only; every API token is invalid until
+    /// [`Self::with_api_tokens`] names their registry.
     pub fn new(tokens: Tokens, trusted_proxies: crate::proxies::TrustedProxies) -> Self {
-        Self { tokens, trusted_proxies: std::sync::Arc::new(trusted_proxies) }
+        Self { tokens, trusted_proxies: std::sync::Arc::new(trusted_proxies), api: ApiGate::default() }
+    }
+
+    /// Accepts the API tokens of the verifier registered in `api_tokens`.
+    /// Their requests are counted in `limiter`; `None` switches the
+    /// per-token rate limits off.
+    pub fn with_api_tokens(mut self, api_tokens: ApiTokens, limiter: Option<Cache>) -> Self {
+        self.api = ApiGate { tokens: api_tokens, limiter };
+        self
     }
 }
 
-/// Axum middleware: authenticates the request (never rejects) and records
-/// [`AuthState`] and [`ClientMeta`] for handlers.
+/// Axum middleware: authenticates the request and records [`AuthState`] and
+/// [`ClientMeta`] for handlers.
+///
+/// A request with a session token, a bad token or none is never rejected
+/// here: handlers decide what an anonymous caller may do. A request with an
+/// API token is held to the token's rate limit and scopes first, and may end
+/// here (see [`crate::api_tokens`]).
 ///
 /// The client address is the TCP peer, or — when the peer is one of our
 /// proxies — the client that proxy names in `X-Forwarded-For`. Serve the
@@ -232,7 +312,6 @@ pub async fn auth_middleware(
     next: Next,
 ) -> Response {
     let headers = req.headers();
-    let state = layer.tokens.authenticate_header(headers.get(http::header::AUTHORIZATION));
     let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok());
     let text = |name: &str| header(name).unwrap_or_default().to_owned();
     let ip = req
@@ -255,9 +334,23 @@ pub async fn auth_middleware(
             .trim()
             .to_ascii_lowercase(),
     };
+    let (state, admitted) = match bearer_token(headers.get(http::header::AUTHORIZATION)) {
+        Bearer::Absent => (AuthState::Anonymous, None),
+        Bearer::Malformed => (AuthState::Invalid("TOKEN_INVALID"), None),
+        Bearer::Token(token) if api_tokens::is_api_token(token) => match layer.api.admit(token, req.uri().path(), headers, &meta).await {
+            Ok(admitted) => (AuthState::Authenticated(AuthContext::from_api_token(admitted.token.clone())), Some(admitted)),
+            Err(Refusal::Unauthenticated(reason)) => (AuthState::Invalid(reason), None),
+            Err(Refusal::Respond(response)) => return response,
+        },
+        Bearer::Token(token) => (layer.tokens.authenticate(token), None),
+    };
     req.extensions_mut().insert(state);
     req.extensions_mut().insert(meta);
-    next.run(req).await
+    let mut response = next.run(req).await;
+    if let Some(admitted) = admitted {
+        admitted.respond(&mut response);
+    }
+    response
 }
 
 #[cfg(test)]
@@ -334,5 +427,269 @@ mod tests {
         assert_eq!(address_seen(Some("198.51.100.4"), None).await, "198.51.100.4");
         // Served without peer information: unknown rather than whatever the header says.
         assert_eq!(address_seen(None, Some("203.0.113.7")).await, "");
+    }
+
+    // ───────────────────────────── API tokens ─────────────────────────────
+
+    use std::{
+        collections::HashMap,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
+
+    use axum::response::IntoResponse as _;
+
+    use crate::api_tokens::{ApiCall, ApiTokenKind, ApiTokenVerifier, RateTier, TokenRejection};
+
+    /// A verifier that knows a fixed set of tokens and remembers what the
+    /// middleware reported.
+    #[derive(Default)]
+    struct FakeVerifier {
+        known: HashMap<&'static str, Result<ApiToken, TokenRejection>>,
+        calls: parking_lot::Mutex<Vec<(Uuid, ApiCall)>>,
+    }
+
+    #[async_trait::async_trait]
+    impl ApiTokenVerifier for FakeVerifier {
+        async fn verify(&self, token: &str) -> Result<ApiToken, TokenRejection> {
+            self.known.get(token).cloned().unwrap_or(Err(TokenRejection::Invalid))
+        }
+
+        async fn record(&self, token: &ApiToken, call: ApiCall) {
+            self.calls.lock().push((token.id, call));
+        }
+    }
+
+    impl FakeVerifier {
+        /// The calls reported so far, once `count` of them arrived (the hook runs after the response).
+        async fn calls(&self, count: usize) -> Vec<(Uuid, ApiCall)> {
+            for _ in 0..200 {
+                if self.calls.lock().len() >= count {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            self.calls.lock().clone()
+        }
+    }
+
+    fn api_token(scopes: &[&str]) -> ApiToken {
+        ApiToken {
+            kind: ApiTokenKind::Personal,
+            id: Uuid::now_v7(),
+            user_id: Uuid::now_v7(),
+            app_id: None,
+            scopes: Scopes::new(scopes.iter().copied()),
+            expires_at: None,
+            rate: RateTier { name: "standard".into(), per_minute: 0 },
+        }
+    }
+
+    /// An app whose only handler says what the middleware made of the caller.
+    struct TokenApp {
+        router: axum::Router,
+        verifier: Arc<FakeVerifier>,
+        /// Requests that reached the handler.
+        handled: Arc<AtomicUsize>,
+    }
+
+    impl TokenApp {
+        fn new(known: impl IntoIterator<Item = (&'static str, Result<ApiToken, TokenRejection>)>) -> Self {
+            let verifier = Arc::new(FakeVerifier { known: known.into_iter().collect(), ..Default::default() });
+            let registry = ApiTokens::default();
+            registry.register(verifier.clone());
+            let layer = AuthLayer::new(tokens(), crate::proxies::TrustedProxies::parse(&[]).unwrap()).with_api_tokens(registry, None);
+            Self::with_layer(layer, verifier)
+        }
+
+        fn with_layer(layer: AuthLayer, verifier: Arc<FakeVerifier>) -> Self {
+            let handled = Arc::new(AtomicUsize::new(0));
+            let counter = handled.clone();
+            let describe = move |axum::Extension(state): axum::Extension<AuthState>, uri: http::Uri| async move {
+                counter.fetch_add(1, Ordering::SeqCst);
+                if uri.path().ends_with("/GetMissing") {
+                    // What a handler's `AppError::not_found` looks like on the way out.
+                    return (http::StatusCode::NOT_FOUND, [(crate::error::REASON_HEADER, "THING_NOT_FOUND")]).into_response();
+                }
+                let seen = match state {
+                    AuthState::Anonymous => "anonymous".to_owned(),
+                    AuthState::Invalid(reason) => format!("invalid {reason}"),
+                    AuthState::Authenticated(auth) => format!(
+                        "user {} session {} roles {:?} scopes {}",
+                        auth.user_id,
+                        auth.session_id,
+                        auth.roles,
+                        auth.scopes().map(Scopes::to_string).unwrap_or_else(|| "everything".to_owned())
+                    ),
+                };
+                seen.into_response()
+            };
+            let router = axum::Router::new().fallback(describe).layer(axum::middleware::from_fn_with_state(layer, auth_middleware));
+            Self { router, verifier, handled }
+        }
+
+        async fn call(&self, path: &str, bearer: Option<&str>, content_type: &str) -> (http::response::Parts, bytes::Bytes) {
+            use tower::ServiceExt as _;
+
+            let mut request = http::Request::builder().method("POST").uri(path).header("content-type", content_type).header("user-agent", "curl/8");
+            if let Some(bearer) = bearer {
+                request = request.header("authorization", format!("Bearer {bearer}"));
+            }
+            let response = self.router.clone().oneshot(request.body(axum::body::Body::empty()).unwrap()).await.unwrap();
+            let (parts, body) = response.into_parts();
+            (parts, axum::body::to_bytes(body, 64 * 1024).await.unwrap())
+        }
+
+        /// A Connect unary call: status, error reason and body text.
+        async fn unary(&self, path: &str, bearer: Option<&str>) -> (u16, String, String) {
+            let (parts, body) = self.call(path, bearer, "application/json").await;
+            let reason = parts.headers.get(crate::error::REASON_HEADER).and_then(|v| v.to_str().ok()).unwrap_or_default().to_owned();
+            (parts.status.as_u16(), reason, String::from_utf8_lossy(&body).into_owned())
+        }
+    }
+
+    const LIST_NOTES: &str = "/tokuly.notes.v1.NoteService/ListNotes";
+    const CREATE_NOTE: &str = "/tokuly.notes.v1.NoteService/CreateNote";
+
+    #[tokio::test]
+    async fn an_api_token_acts_as_its_account_within_its_scopes() {
+        let token = api_token(&["notes:write", "geo:read"]);
+        let app = TokenApp::new([("tkl_pat_reader", Ok(token.clone()))]);
+        let expected = format!("user {} session {} roles [] scopes geo:read notes:write", token.user_id, token.id);
+        // Writing includes reading.
+        for path in [LIST_NOTES, CREATE_NOTE, "/tokuly.geo.v1.LocationService/ListFriendLocations"] {
+            assert_eq!(app.unary(path, Some("tkl_pat_reader")).await, (200, String::new(), expected.clone()), "{path}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_token_without_the_scope_never_reaches_the_handler() {
+        let app = TokenApp::new([("tkl_pat_reader", Ok(api_token(&["notes:read"])))]);
+        let (parts, body) = app.call(CREATE_NOTE, Some("tkl_pat_reader"), "application/json").await;
+        assert_eq!(parts.status, http::StatusCode::FORBIDDEN);
+        assert_eq!(parts.headers[crate::error::REASON_HEADER], "INSUFFICIENT_SCOPE");
+        assert_eq!(parts.headers["x-tokuly-scope"], "notes:write");
+        assert_eq!(parts.headers["www-authenticate"], r#"Bearer error="insufficient_scope", scope="notes:write""#);
+        let error: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(error["code"], "permission_denied");
+        assert_eq!(error["message"], "this token lacks the scope notes:write");
+        // Another domain entirely.
+        let (status, reason, _) = app.unary("/tokuly.geo.v1.LocationService/ListFriendLocations", Some("tkl_pat_reader")).await;
+        assert_eq!((status, reason.as_str()), (403, "INSUFFICIENT_SCOPE"));
+        assert_eq!(app.handled.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn refusals_speak_the_protocol_of_the_request() {
+        let app = TokenApp::new([("tkl_pat_reader", Ok(api_token(&["notes:read"])))]);
+        let reason = |parts: &http::response::Parts| parts.headers[crate::error::REASON_HEADER].to_str().unwrap().to_owned();
+
+        // Connect streaming: 200 and an end-of-stream envelope carrying the error.
+        let (parts, body) = app.call(CREATE_NOTE, Some("tkl_pat_reader"), "application/connect+json").await;
+        assert_eq!((parts.status.as_u16(), reason(&parts).as_str()), (200, "INSUFFICIENT_SCOPE"));
+        assert_eq!(parts.headers["content-type"], "application/connect+json");
+        assert_eq!(body[0], 0x02, "end-of-stream flag");
+        let end: serde_json::Value = serde_json::from_slice(&body[5..]).unwrap();
+        assert_eq!(end["error"]["code"], "permission_denied");
+        assert_eq!(end["metadata"][crate::error::REASON_HEADER][0], "INSUFFICIENT_SCOPE");
+
+        // gRPC: 200 with the status where a trailers-only response puts it.
+        let (parts, body) = app.call(CREATE_NOTE, Some("tkl_pat_reader"), "application/grpc").await;
+        assert_eq!((parts.status.as_u16(), reason(&parts).as_str()), (200, "INSUFFICIENT_SCOPE"));
+        assert_eq!(parts.headers["grpc-status"], "7");
+        assert_eq!(parts.headers["grpc-message"], "this token lacks the scope notes:write");
+        assert!(body.is_empty());
+
+        // gRPC-Web: 200 with the trailers as the only body frame.
+        let (parts, body) = app.call(CREATE_NOTE, Some("tkl_pat_reader"), "application/grpc-web+proto").await;
+        assert_eq!((parts.status.as_u16(), reason(&parts).as_str()), (200, "INSUFFICIENT_SCOPE"));
+        assert_eq!(body[0], 0x80, "trailer frame flag");
+        let trailers = String::from_utf8_lossy(&body[5..]).into_owned();
+        assert!(trailers.contains("grpc-status: 7\r\n") && trailers.contains("x-tokuly-error: INSUFFICIENT_SCOPE\r\n"), "{trailers}");
+        assert_eq!(app.handled.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn tokens_cannot_reach_session_only_rpcs_or_anything_that_is_not_an_rpc() {
+        // Even a token holding every scope of the domain.
+        let app = TokenApp::new([("tkl_pat_all", Ok(api_token(&["identity:write", "dev:write", "admin:write"])))]);
+        for path in [
+            "/tokuly.identity.v1.AuthService/SignIn",
+            "/tokuly.identity.v1.AccountService/ChangePassword",
+            "/tokuly.identity.v1.AccountService/RequestAccountDeletion",
+            "/tokuly.dev.v1.TokenService/CreateToken",
+            "/tokuly.admin.v1.UserAdminService/SuspendUser",
+        ] {
+            let (status, reason, _) = app.unary(path, Some("tkl_pat_all")).await;
+            assert_eq!((status, reason.as_str()), (403, "SESSION_REQUIRED"), "{path}");
+        }
+        for path in ["/oauth/token", "/healthz", "/"] {
+            let (status, reason, _) = app.unary(path, Some("tkl_pat_all")).await;
+            assert_eq!((status, reason.as_str()), (403, "TOKEN_NOT_ALLOWED"), "{path}");
+        }
+        assert_eq!(app.handled.load(Ordering::SeqCst), 0);
+        // What every token may call, whatever its scopes.
+        let (status, _, _) = app.unary("/tokuly.dev.v1.TokenService/GetCurrentToken", Some("tkl_pat_all")).await;
+        assert_eq!(status, 200);
+    }
+
+    #[tokio::test]
+    async fn a_rejected_token_leaves_the_request_unauthenticated_with_the_reason() {
+        let app = TokenApp::new([
+            ("tkl_pat_revoked", Err(TokenRejection::Revoked)),
+            ("tkl_pat_expired", Err(TokenRejection::Expired)),
+            ("tkl_pat_outage", Err(TokenRejection::Unavailable)),
+        ]);
+        for (token, seen) in [("tkl_pat_revoked", "invalid TOKEN_REVOKED"), ("tkl_pat_expired", "invalid TOKEN_EXPIRED"), ("tkl_pat_unknown", "invalid TOKEN_INVALID")] {
+            assert_eq!(app.unary(LIST_NOTES, Some(token)).await, (200, String::new(), seen.to_owned()), "{token}");
+        }
+        // A verifier that cannot answer fails the request instead of demoting the caller to a guest.
+        let (status, reason, _) = app.unary(LIST_NOTES, Some("tkl_pat_outage")).await;
+        assert_eq!((status, reason.as_str()), (503, "TOKEN_CHECK_UNAVAILABLE"));
+        assert!(app.verifier.calls(0).await.is_empty(), "nothing is recorded for tokens that were never valid");
+
+        // Without a verifier no API token is valid.
+        let bare = TokenApp::with_layer(AuthLayer::new(tokens(), crate::proxies::TrustedProxies::parse(&[]).unwrap()), Arc::default());
+        assert_eq!(bare.unary(LIST_NOTES, Some("tkl_pat_reader")).await.2, "invalid TOKEN_INVALID");
+    }
+
+    #[tokio::test]
+    async fn sessions_are_unaffected_by_the_token_rules() {
+        let app = TokenApp::new([]);
+        let (user, session) = (Uuid::now_v7(), Uuid::now_v7());
+        let (jwt, _) = tokens().issue(user, session, &["admin".into()]).unwrap();
+        let expected = format!("user {user} session {session} roles [\"admin\"] scopes everything");
+        // Including the RPCs and paths closed to API tokens.
+        for path in [CREATE_NOTE, "/tokuly.identity.v1.AccountService/ChangePassword", "/tokuly.admin.v1.UserAdminService/SuspendUser", "/healthz"] {
+            assert_eq!(app.unary(path, Some(&jwt)).await, (200, String::new(), expected.clone()), "{path}");
+        }
+        assert_eq!(app.unary(CREATE_NOTE, None).await.2, "anonymous");
+        assert_eq!(app.unary(CREATE_NOTE, Some("nope")).await.2, "invalid TOKEN_INVALID");
+        assert!(app.verifier.calls(0).await.is_empty());
+
+        let auth = tokens().verify(&jwt).unwrap();
+        assert!(auth.is_session() && auth.scopes().is_none() && auth.allows("geo:write"));
+        let auth = AuthContext::from_api_token(api_token(&["geo:read"]));
+        assert!(!auth.is_session() && auth.allows("geo:read") && !auth.allows("geo:write") && !auth.is_staff());
+    }
+
+    #[tokio::test]
+    async fn every_request_made_with_a_token_is_reported_to_its_verifier() {
+        let token = api_token(&["notes:read"]);
+        let app = TokenApp::new([("tkl_pat_reader", Ok(token.clone()))]);
+        app.unary(LIST_NOTES, Some("tkl_pat_reader")).await;
+        app.unary("/tokuly.notes.v1.NoteService/GetMissing", Some("tkl_pat_reader")).await;
+        app.unary(CREATE_NOTE, Some("tkl_pat_reader")).await;
+        let calls = app.verifier.calls(3).await;
+        let mut seen: Vec<(String, Option<String>)> = calls.iter().map(|(_, call)| (call.procedure.clone(), call.error.clone())).collect();
+        seen.sort();
+        assert_eq!(
+            seen,
+            [
+                ("tokuly.notes.v1.NoteService/CreateNote".to_owned(), Some("INSUFFICIENT_SCOPE".to_owned())),
+                ("tokuly.notes.v1.NoteService/GetMissing".to_owned(), Some("THING_NOT_FOUND".to_owned())),
+                ("tokuly.notes.v1.NoteService/ListNotes".to_owned(), None),
+            ]
+        );
+        assert!(calls.iter().all(|(id, call)| *id == token.id && call.user_agent == "curl/8"));
     }
 }

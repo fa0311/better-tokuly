@@ -3,10 +3,12 @@
 //! - [`Core`] bundles the infrastructure clients (database, cache, bus,
 //!   storage, tokens, mail, analytics, search).
 //! - [`error`] defines [`AppError`], which converts into Connect errors.
-//! - [`ctx`] gives RPC handlers the caller identity.
+//! - [`ctx`] gives RPC handlers the caller identity; [`auth`] and
+//!   [`api_tokens`] establish it from a session token or an API token.
 //! - [`events`] / [`jobs`] / [`realtime`] are the three ways domains talk to
 //!   each other and to clients asynchronously.
 pub mod analytics;
+pub mod api_tokens;
 pub mod auth;
 pub mod bus;
 pub mod cache;
