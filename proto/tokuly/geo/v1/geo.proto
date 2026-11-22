@@ -313,7 +313,9 @@ service PlaceService {
   // Errors: INVALID_NAME, INVALID_EMOJI, INVALID_LOCATION, INVALID_RADIUS
   // (25-1000 m; 0 = default), INVALID_LABEL, INVALID_VISIBILITY (public,
   // friends or private), INVALID_CATEGORY, LABEL_TAKEN (one home, one work and
-  // one school per account), TOO_MANY_PLACES, ASSET_NOT_FOUND, NOT_AN_IMAGE.
+  // one school per account), TOO_MANY_PLACES, RATE_LIMITED, and for the photo
+  // the upload errors of tokuly.media.v1 (ASSET_NOT_FOUND,
+  // ASSET_WRONG_PURPOSE, ASSET_NOT_READY, ASSET_FAILED, ASSET_NOT_IMAGE).
   rpc CreatePlace(CreatePlaceRequest) returns (CreatePlaceResponse);
   // Errors: PLACE_NOT_FOUND plus those of CreatePlace.
   rpc UpdatePlace(UpdatePlaceRequest) returns (UpdatePlaceResponse);
@@ -334,7 +336,7 @@ service PlaceService {
   rpc UnsavePlace(UnsavePlaceRequest) returns (UnsavePlaceResponse);
   rpc ListSavedPlaces(ListSavedPlacesRequest) returns (ListSavedPlacesResponse);
 
-  // Errors: INVALID_LOCATION.
+  // Errors: INVALID_LOCATION, RATE_LIMITED.
   rpc ReverseGeocode(ReverseGeocodeRequest) returns (ReverseGeocodeResponse);
   // Manual "I'm here" with optional friend tags; notifies friends.
   // Errors: MISSING_TARGET, PLACE_NOT_FOUND, INVALID_LOCATION,
@@ -536,20 +538,24 @@ service HistoryService {
   // Errors: INVALID_DATE, INVALID_TIME_ZONE.
   rpc GetDay(GetDayRequest) returns (GetDayResponse);
   // Raw-ish points for an animated route replay.
-  // Errors: INVALID_RANGE (both ends are required; at most 31 days).
+  // Errors: INVALID_RANGE (both ends are required; at most 31 days),
+  // HISTORY_UNAVAILABLE (the raw history store cannot be reached).
   rpc GetRoute(GetRouteRequest) returns (GetRouteResponse);
   // Diary entry for a day (text and photos). Empty text and no photos
   // removes the entry.
-  // Errors: INVALID_DATE, TEXT_TOO_LONG, TOO_MANY_PHOTOS, ASSET_NOT_FOUND,
-  // NOT_AN_IMAGE.
+  // Errors: INVALID_DATE, TEXT_TOO_LONG, TOO_MANY_PHOTOS, and for the photos
+  // the upload errors of tokuly.media.v1 (ASSET_NOT_FOUND,
+  // ASSET_WRONG_PURPOSE, ASSET_NOT_READY, ASSET_FAILED, ASSET_NOT_IMAGE).
   rpc SetDayMemo(SetDayMemoRequest) returns (SetDayMemoResponse);
   // Nights: where the caller slept and which friends were there.
   rpc ListNights(ListNightsRequest) returns (ListNightsResponse);
   // Errors: INVALID_RANGE.
   rpc GetStats(GetStatsRequest) returns (GetStatsResponse);
   // Permanently deletes raw history, visits and footprints in a time range.
-  // An unset end is open: no `from` and no `to` deletes everything.
-  // Errors: INVALID_RANGE.
+  // An unset end is open: no `from` and no `to` deletes everything. Distance
+  // totals are kept per hour, so the hours the range touches lose theirs.
+  // Errors: INVALID_RANGE, RATE_LIMITED, HISTORY_UNAVAILABLE (the raw
+  // history store cannot be reached; nothing was deleted).
   rpc DeleteHistory(DeleteHistoryRequest) returns (DeleteHistoryResponse);
 }
 
@@ -615,7 +621,8 @@ message GetDayRequest {
 
 message GetDayResponse {
   DaySummary summary = 1;
-  // Google encoded polyline (precision 5) of the simplified path.
+  // Google encoded polyline (precision 5) of the simplified path. Empty when
+  // the raw history store cannot be reached; the rest of the day is unaffected.
   string path_polyline = 2;
   repeated Visit visits = 3;
   repeated tokuly.common.v1.UserSummary friends_met = 4;
@@ -849,7 +856,8 @@ service TripService {
   // Starts a trip from the caller's current position; an earlier active trip
   // is cancelled. An unspecified mode means walking.
   // Errors: MISSING_DESTINATION, INVALID_LOCATION, PLACE_NOT_FOUND,
-  // NOT_FRIENDS (the destination friend or someone the trip is shared with),
+  // INVALID_NAME, NOT_FRIENDS (the destination friend or someone the trip is
+  // shared with),
   // DESTINATION_UNAVAILABLE (the friend has no position the caller may see),
   // LOCATION_UNKNOWN (the server has no position for the caller),
   // TOO_MANY_USERS, RATE_LIMITED.
@@ -862,8 +870,9 @@ service TripService {
   // The caller's active trip plus friends' trips shared with the caller.
   rpc ListActiveTrips(ListActiveTripsRequest) returns (ListActiveTripsResponse);
   // `origin` defaults to the caller's current position.
-  // Errors: MISSING_DESTINATION, INVALID_LOCATION, PLACE_NOT_FOUND,
-  // NOT_FRIENDS, DESTINATION_UNAVAILABLE, LOCATION_UNKNOWN, RATE_LIMITED.
+  // Errors: MISSING_DESTINATION, INVALID_LOCATION, INVALID_NAME,
+  // PLACE_NOT_FOUND, NOT_FRIENDS, DESTINATION_UNAVAILABLE, LOCATION_UNKNOWN,
+  // RATE_LIMITED.
   rpc GetDirections(GetDirectionsRequest) returns (GetDirectionsResponse);
 }
 

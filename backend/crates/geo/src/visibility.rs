@@ -94,7 +94,9 @@ pub struct Viewer {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Sight<'a> {
     /// Live and exact. `sos` = because of an SOS, with nothing withheld.
-    Precise { sos: bool },
+    Precise {
+        sos: bool,
+    },
     Blurred,
     /// The copy made when freezing began (`None`: nothing was known then).
     Frozen(Option<&'a FrozenPin>),
@@ -130,7 +132,8 @@ pub fn blur(mac: Mac<'_>, owner: Uuid, viewer: Uuid, base: Point) -> Point {
     seed.extend_from_slice(viewer.as_bytes());
     seed.extend_from_slice(&neighbourhood.to_be_bytes());
     let hash = mac(&seed);
-    let unit = |bytes: &[u8]| u64::from_be_bytes(bytes.try_into().expect("eight bytes")) as f64 / (u64::MAX as f64 + 1.0);
+    let unit =
+        |bytes: &[u8]| u64::from_be_bytes(bytes.try_into().expect("eight bytes")) as f64 / (u64::MAX as f64 + 1.0);
     let bearing = unit(&hash[0..8]) * 360.0;
     let distance = BLUR_MIN_M + unit(&hash[8..16]) * BLUR_SPAN_M;
     math::destination(center.0, center.1, bearing, distance)
@@ -173,7 +176,13 @@ pub struct ShownPlace {
 ///   a public place, the owner's own place shared with friends, or a place
 ///   the viewer owns. `friend` is false for viewers who are not friends
 ///   (public share links): they only get public places.
-pub fn shown_place(owner: Uuid, place: &StayPlace, share_labels: bool, viewer: Option<Uuid>, friend: bool) -> Option<ShownPlace> {
+pub fn shown_place(
+    owner: Uuid,
+    place: &StayPlace,
+    share_labels: bool,
+    viewer: Option<Uuid>,
+    friend: bool,
+) -> Option<ShownPlace> {
     let own = place.owner_id == owner;
     if own && matches!(place.label, 1..=3) {
         let label = buffa::EnumValue::<PlaceLabel>::from(place.label).as_known()?;
@@ -181,8 +190,14 @@ pub fn shown_place(owner: Uuid, place: &StayPlace, share_labels: bool, viewer: O
     }
     let named = viewer == Some(owner)
         || place.visibility == Visibility::VISIBILITY_PUBLIC as i32
-        || (friend && place.visibility == Visibility::VISIBILITY_FRIENDS as i32 && (own || viewer == Some(place.owner_id)));
-    named.then(|| ShownPlace { label: PlaceLabel::PLACE_LABEL_CUSTOM, name: place.name.clone(), emoji: place.emoji.clone() })
+        || (friend
+            && place.visibility == Visibility::VISIBILITY_FRIENDS as i32
+            && (own || viewer == Some(place.owner_id)));
+    named.then(|| ShownPlace {
+        label: PlaceLabel::PLACE_LABEL_CUSTOM,
+        name: place.name.clone(),
+        emoji: place.emoji.clone(),
+    })
 }
 
 /// How much of a pin a view includes.
@@ -233,7 +248,9 @@ fn precise_view(env: &ViewEnv<'_>, subject: &Subject<'_>, pin: &Pin, detail: Det
     }
     if let Some(place) = &pin.place {
         let share_labels = detail.everything || privacy.share_place_labels;
-        if let Some(shown) = shown_place(subject.id, place, share_labels, detail.viewer.map(|viewer| viewer.id), detail.social) {
+        if let Some(shown) =
+            shown_place(subject.id, place, share_labels, detail.viewer.map(|viewer| viewer.id), detail.social)
+        {
             view.place_label = shown.label.into();
             view.place_name = shown.name;
             view.place_emoji = shown.emoji;
@@ -305,8 +322,18 @@ pub fn friend_view(env: &ViewEnv<'_>, subject: &Subject<'_>, viewer: Viewer) -> 
             let frozen = frozen?;
             // Rendered exactly as it was shown before freezing. No weather and
             // no trip: both would be news about the present.
-            let stale = Subject { id: subject.id, pin: Some(&frozen.pin), ctx: subject.ctx, online: subject.online, weather: None };
-            let mut view = if frozen.base == BLURRED { blurred_view(env, &stale, &frozen.pin, viewer) } else { precise_view(env, &stale, &frozen.pin, friend) };
+            let stale = Subject {
+                id: subject.id,
+                pin: Some(&frozen.pin),
+                ctx: subject.ctx,
+                online: subject.online,
+                weather: None,
+            };
+            let mut view = if frozen.base == BLURRED {
+                blurred_view(env, &stale, &frozen.pin, viewer)
+            } else {
+                precise_view(env, &stale, &frozen.pin, friend)
+            };
             view.trip_id.clear();
             Some(view)
         }
@@ -421,7 +448,13 @@ pub(crate) mod tests {
     }
 
     fn active_ctx() -> OwnerCtx {
-        OwnerCtx { active: true, privacy: Privacy::default(), ja: true, time_zone: "Asia/Tokyo".into(), ..Default::default() }
+        OwnerCtx {
+            active: true,
+            privacy: Privacy::default(),
+            ja: true,
+            time_zone: "Asia/Tokyo".into(),
+            ..Default::default()
+        }
     }
 
     fn rule(mode: GhostMode, frozen: Option<FrozenPin>) -> GhostRule {
@@ -443,7 +476,13 @@ pub(crate) mod tests {
 
     impl World {
         fn new() -> Self {
-            Self { owner: Uuid::now_v7(), viewer: Viewer { id: Uuid::now_v7(), ja: true }, pin: pin_at(HOME, noon()), ctx: active_ctx(), online: true }
+            Self {
+                owner: Uuid::now_v7(),
+                viewer: Viewer { id: Uuid::now_v7(), ja: true },
+                pin: pin_at(HOME, noon()),
+                ctx: active_ctx(),
+                online: true,
+            }
         }
 
         fn subject(&self) -> Subject<'_> {
@@ -459,7 +498,8 @@ pub(crate) mod tests {
         }
 
         fn ghost_everyone(&mut self, mode: GhostMode) {
-            let frozen = (mode == GhostMode::GHOST_MODE_FROZEN).then(|| FrozenPin { pin: self.pin.clone(), base: PRECISE });
+            let frozen =
+                (mode == GhostMode::GHOST_MODE_FROZEN).then(|| FrozenPin { pin: self.pin.clone(), base: PRECISE });
             self.ctx.ghost.everyone = Some(rule(mode, frozen));
         }
     }
@@ -476,7 +516,10 @@ pub(crate) mod tests {
         assert_eq!((view.battery_percent, view.charging), (Some(64), true));
         assert_eq!(from_ts(view.recorded_at.as_option().unwrap()), noon());
         assert_eq!(from_ts(view.stationary_since.as_option().unwrap()), noon() - Duration::minutes(40));
-        assert_eq!((view.locality.as_str(), view.country_code.as_str(), view.time_zone.as_str()), ("渋谷区", "JP", "Asia/Tokyo"));
+        assert_eq!(
+            (view.locality.as_str(), view.country_code.as_str(), view.time_zone.as_str()),
+            ("渋谷区", "JP", "Asia/Tokyo")
+        );
         assert!(view.online && !view.sleeping && !view.sharing_paused);
         assert!(view.trip_id.is_empty() && view.place_name.is_empty());
     }
@@ -491,10 +534,23 @@ pub(crate) mod tests {
     #[test]
     fn privacy_switches_withhold_their_fields() {
         let mut world = World::new();
-        world.pin.place = Some(StayPlace { id: Uuid::now_v7(), owner_id: world.owner, label: 1, name: "うち".into(), emoji: "🏠".into(), visibility: 5 });
+        world.pin.place = Some(StayPlace {
+            id: Uuid::now_v7(),
+            owner_id: world.owner,
+            label: 1,
+            name: "うち".into(),
+            emoji: "🏠".into(),
+            visibility: 5,
+        });
         assert_eq!(world.seen().unwrap().place_label, PlaceLabel::PLACE_LABEL_HOME);
 
-        world.ctx.privacy = Privacy { share_battery: false, share_activity: false, share_online_status: false, share_place_labels: false, ..Privacy::default() };
+        world.ctx.privacy = Privacy {
+            share_battery: false,
+            share_activity: false,
+            share_online_status: false,
+            share_place_labels: false,
+            ..Privacy::default()
+        };
         let view = world.seen().unwrap();
         assert_eq!((view.battery_percent, view.charging), (None, false));
         assert_eq!((view.speed_mps, view.heading_degrees), (0.0, 0.0));
@@ -508,7 +564,14 @@ pub(crate) mod tests {
     #[test]
     fn home_is_a_badge_and_never_a_name() {
         let mut world = World::new();
-        world.pin.place = Some(StayPlace { id: Uuid::now_v7(), owner_id: world.owner, label: 1, name: "世田谷の実家".into(), emoji: "🏠".into(), visibility: 5 });
+        world.pin.place = Some(StayPlace {
+            id: Uuid::now_v7(),
+            owner_id: world.owner,
+            label: 1,
+            name: "世田谷の実家".into(),
+            emoji: "🏠".into(),
+            visibility: 5,
+        });
         let view = world.seen().unwrap();
         assert_eq!(view.place_label, PlaceLabel::PLACE_LABEL_HOME);
         assert!(view.place_name.is_empty() && view.place_emoji.is_empty());
@@ -519,7 +582,14 @@ pub(crate) mod tests {
         let mut world = World::new();
         let stranger = Uuid::now_v7();
         let place = |owner: Uuid, visibility: Visibility| {
-            Some(StayPlace { id: Uuid::now_v7(), owner_id: owner, label: 4, name: "カフェ モカ".into(), emoji: "☕".into(), visibility: visibility as i32 })
+            Some(StayPlace {
+                id: Uuid::now_v7(),
+                owner_id: owner,
+                label: 4,
+                name: "カフェ モカ".into(),
+                emoji: "☕".into(),
+                visibility: visibility as i32,
+            })
         };
         // The owner's own custom place: shown when shared with friends, hidden when private.
         world.pin.place = place(world.owner, Visibility::VISIBILITY_FRIENDS);
@@ -541,7 +611,14 @@ pub(crate) mod tests {
     #[test]
     fn blurred_moves_the_pin_and_withholds_details() {
         let mut world = World::new();
-        world.pin.place = Some(StayPlace { id: Uuid::now_v7(), owner_id: world.owner, label: 1, name: "うち".into(), emoji: "🏠".into(), visibility: 5 });
+        world.pin.place = Some(StayPlace {
+            id: Uuid::now_v7(),
+            owner_id: world.owner,
+            label: 1,
+            name: "うち".into(),
+            emoji: "🏠".into(),
+            visibility: 5,
+        });
         world.ctx.trip = Some(TripCtx {
             id: Uuid::now_v7(),
             dest_user_id: None,
@@ -655,7 +732,11 @@ pub(crate) mod tests {
         world.pin.stationary_since_ms = None;
         let view = world.seen_at(later).unwrap();
         assert_eq!(position_of(&view), HOME);
-        assert_eq!(from_ts(view.recorded_at.as_option().unwrap()), noon(), "the original recorded_at: the pin just looks stale");
+        assert_eq!(
+            from_ts(view.recorded_at.as_option().unwrap()),
+            noon(),
+            "the original recorded_at: the pin just looks stale"
+        );
         assert_eq!(view.battery_percent, Some(64));
         assert_eq!(view.stationary_since, at_freeze.stationary_since);
         assert_eq!(view.locality, at_freeze.locality);
@@ -687,7 +768,8 @@ pub(crate) mod tests {
     fn frozen_keeps_live_what_does_not_come_from_the_location() {
         let mut world = World::new();
         world.ghost_everyone(GhostMode::GHOST_MODE_FROZEN);
-        world.ctx.status = Some(StatusLite { emoji: "🍜".into(), text: String::new(), set_ms: None, expires_ms: None });
+        world.ctx.status =
+            Some(StatusLite { emoji: "🍜".into(), text: String::new(), set_ms: None, expires_ms: None });
         world.online = false;
         let view = world.seen().unwrap();
         assert!(!view.online);
@@ -725,7 +807,8 @@ pub(crate) mod tests {
         let mut world = World::new();
         world.ghost_everyone(GhostMode::GHOST_MODE_BLURRED);
         let before = world.seen().unwrap();
-        world.ctx.ghost.everyone = Some(rule(GhostMode::GHOST_MODE_FROZEN, Some(FrozenPin { pin: world.pin.clone(), base: BLURRED })));
+        world.ctx.ghost.everyone =
+            Some(rule(GhostMode::GHOST_MODE_FROZEN, Some(FrozenPin { pin: world.pin.clone(), base: BLURRED })));
         let later = noon() + Duration::hours(1);
         world.pin = pin_at(math::destination(HOME.0, HOME.1, 200.0, 15_000.0), later);
         let view = world.seen_at(later).unwrap();
@@ -766,8 +849,12 @@ pub(crate) mod tests {
     fn timed_rules_stop_applying_when_they_end() {
         let mut world = World::new();
         let until = noon() + Duration::hours(1);
-        world.ctx.ghost.everyone =
-            Some(GhostRule { mode: FROZEN, since_ms: 0, until_ms: Some(until.timestamp_millis()), frozen: Some(FrozenPin { pin: world.pin.clone(), base: PRECISE }) });
+        world.ctx.ghost.everyone = Some(GhostRule {
+            mode: FROZEN,
+            since_ms: 0,
+            until_ms: Some(until.timestamp_millis()),
+            frozen: Some(FrozenPin { pin: world.pin.clone(), base: PRECISE }),
+        });
         let moved = math::destination(HOME.0, HOME.1, 0.0, 3000.0);
         world.pin = pin_at(moved, noon() + Duration::minutes(59));
         assert_eq!(position_of(&world.seen_at(until - Duration::seconds(1)).unwrap()), HOME);
@@ -784,7 +871,12 @@ pub(crate) mod tests {
             let later = noon() + Duration::minutes(30);
             let here = math::destination(HOME.0, HOME.1, 135.0, 4000.0);
             world.pin = pin_at(here, later);
-            world.ctx.sos = Some(SosCtx { id: Uuid::now_v7(), message: "助けて".into(), notify: vec![world.viewer.id], started_ms: 0 });
+            world.ctx.sos = Some(SosCtx {
+                id: Uuid::now_v7(),
+                message: "助けて".into(),
+                notify: vec![world.viewer.id],
+                started_ms: 0,
+            });
 
             let view = world.seen_at(later).unwrap();
             assert_eq!(position_of(&view), here, "{mode:?}");
@@ -872,7 +964,12 @@ pub(crate) mod tests {
     #[test]
     fn expired_statuses_disappear_from_the_pin() {
         let mut world = World::new();
-        world.ctx.status = Some(StatusLite { emoji: "🎮".into(), text: "ゲーム中".into(), set_ms: None, expires_ms: Some((noon() + Duration::hours(1)).timestamp_millis()) });
+        world.ctx.status = Some(StatusLite {
+            emoji: "🎮".into(),
+            text: "ゲーム中".into(),
+            set_ms: None,
+            expires_ms: Some((noon() + Duration::hours(1)).timestamp_millis()),
+        });
         assert_eq!(world.seen().unwrap().status.as_option().unwrap().text, "ゲーム中");
         assert!(world.seen_at(noon() + Duration::hours(2)).unwrap().status.as_option().is_none());
     }
@@ -880,10 +977,23 @@ pub(crate) mod tests {
     #[test]
     fn the_owner_sees_everything_about_themselves() {
         let mut world = World::new();
-        world.ctx.privacy = Privacy { share_battery: false, share_activity: false, share_online_status: false, share_place_labels: false, ..Privacy::default() };
+        world.ctx.privacy = Privacy {
+            share_battery: false,
+            share_activity: false,
+            share_online_status: false,
+            share_place_labels: false,
+            ..Privacy::default()
+        };
         world.ghost_everyone(GhostMode::GHOST_MODE_FROZEN);
         world.pin = pin_at(math::destination(HOME.0, HOME.1, 0.0, 500.0), noon());
-        world.pin.place = Some(StayPlace { id: Uuid::now_v7(), owner_id: world.owner, label: 4, name: "ひみつ基地".into(), emoji: "🏕".into(), visibility: 5 });
+        world.pin.place = Some(StayPlace {
+            id: Uuid::now_v7(),
+            owner_id: world.owner,
+            label: 4,
+            name: "ひみつ基地".into(),
+            emoji: "🏕".into(),
+            visibility: 5,
+        });
         let view = own_view(&env(noon()), &world.subject()).unwrap();
         assert_eq!(position_of(&view), world.pin.position());
         assert_eq!(view.battery_percent, Some(64));
@@ -896,15 +1006,27 @@ pub(crate) mod tests {
     fn share_links_show_the_position_and_nothing_personal() {
         let mut world = World::new();
         world.ghost_everyone(GhostMode::GHOST_MODE_FROZEN);
-        world.ctx.status = Some(StatusLite { emoji: "🍜".into(), text: String::new(), set_ms: None, expires_ms: None });
-        world.pin.place = Some(StayPlace { id: Uuid::now_v7(), owner_id: world.owner, label: 1, name: "うち".into(), emoji: "🏠".into(), visibility: 5 });
+        world.ctx.status =
+            Some(StatusLite { emoji: "🍜".into(), text: String::new(), set_ms: None, expires_ms: None });
+        world.pin.place = Some(StayPlace {
+            id: Uuid::now_v7(),
+            owner_id: world.owner,
+            label: 1,
+            name: "うち".into(),
+            emoji: "🏠".into(),
+            visibility: 5,
+        });
         let view = share_view(&env(noon()), &world.subject(), false).unwrap();
         // A share link is an explicit grant: ghost mode does not apply to it.
         assert_eq!(position_of(&view), HOME);
         assert_eq!((view.speed_mps, view.battery_percent), (1.3, Some(64)));
         assert_eq!(view.locality, "Shibuya, Tokyo");
         assert_eq!(view.place_label, PlaceLabel::PLACE_LABEL_UNSPECIFIED);
-        assert!(view.place_name.is_empty() && view.status.as_option().is_none() && view.stationary_since.as_option().is_none());
+        assert!(
+            view.place_name.is_empty()
+                && view.status.as_option().is_none()
+                && view.stationary_since.as_option().is_none()
+        );
         assert!(!view.online && !view.sleeping);
     }
 
@@ -920,7 +1042,8 @@ pub(crate) mod tests {
         world.ghost_everyone(GhostMode::GHOST_MODE_FROZEN);
         assert_eq!(seen_position(&e, &world.subject(), world.viewer.id), None);
         assert!(!sees_precisely(&world.ctx, world.viewer.id, noon()));
-        world.ctx.sos = Some(SosCtx { id: Uuid::now_v7(), message: String::new(), notify: vec![world.viewer.id], started_ms: 0 });
+        world.ctx.sos =
+            Some(SosCtx { id: Uuid::now_v7(), message: String::new(), notify: vec![world.viewer.id], started_ms: 0 });
         assert!(sees_precisely(&world.ctx, world.viewer.id, noon()));
         assert_eq!(mode_for(&world.ctx, world.viewer.id, noon()), FROZEN, "the rule itself is unchanged by an SOS");
     }

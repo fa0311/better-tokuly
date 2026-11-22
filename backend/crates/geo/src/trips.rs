@@ -118,7 +118,11 @@ impl TripRow {
             distance_remaining_meters: self.distance_remaining_m,
             route_polyline: if reveal { self.route_polyline.clone() } else { String::new() },
             ended_at: opt_ts(self.ended_at),
-            shared_with_user_ids: if viewer == self.user_id { self.shared_with.iter().map(Uuid::to_string).collect() } else { Vec::new() },
+            shared_with_user_ids: if viewer == self.user_id {
+                self.shared_with.iter().map(Uuid::to_string).collect()
+            } else {
+                Vec::new()
+            },
             notify_on_arrival: self.notify_on_arrival,
             ..Default::default()
         }
@@ -127,7 +131,10 @@ impl TripRow {
 
 impl Geo {
     async fn trip_row(&self, trip_id: Uuid) -> AppResult<Option<TripRow>> {
-        Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {TRIP_COLUMNS} FROM geo_trips WHERE id = $1"))).bind(trip_id).fetch_optional(&self.core.db).await?)
+        Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {TRIP_COLUMNS} FROM geo_trips WHERE id = $1")))
+            .bind(trip_id)
+            .fetch_optional(&self.core.db)
+            .await?)
     }
 
     async fn trip_message(&self, row: &TripRow, viewer: Uuid) -> AppResult<Trip> {
@@ -137,7 +144,11 @@ impl Geo {
     /// The friends a trip is shared with (all of them when the list is empty).
     async fn trip_audience(&self, row: &TripRow) -> AppResult<Vec<Uuid>> {
         let friends = graph::friend_ids(&self.core, row.user_id).await?;
-        Ok(if row.shared_with.is_empty() { friends } else { friends.into_iter().filter(|friend| row.shared_with.contains(friend)).collect() })
+        Ok(if row.shared_with.is_empty() {
+            friends
+        } else {
+            friends.into_iter().filter(|friend| row.shared_with.contains(friend)).collect()
+        })
     }
 
     /// Pushes the trip to its traveller and audience, each in their own view.
@@ -149,22 +160,46 @@ impl Geo {
         Ok(())
     }
 
-    async fn resolve_destination(&self, caller: Uuid, destination: Option<&Destination>, ja: bool) -> AppResult<Resolved> {
+    async fn resolve_destination(
+        &self,
+        caller: Uuid,
+        destination: Option<&Destination>,
+        ja: bool,
+    ) -> AppResult<Resolved> {
         let missing = || AppError::invalid("MISSING_DESTINATION", "a destination is required");
         let destination = destination.ok_or_else(missing)?;
         let given_name = destination.name.trim();
-        ensure!(given_name.chars().count() <= 60 && !given_name.chars().any(char::is_control), invalid, "INVALID_NAME", "a destination name has at most 60 characters");
+        ensure!(
+            given_name.chars().count() <= 60 && !given_name.chars().any(char::is_control),
+            invalid,
+            "INVALID_NAME",
+            "a destination name has at most 60 characters"
+        );
         let named = |fallback: String| if given_name.is_empty() { fallback } else { given_name.to_owned() };
         match destination.target.as_ref().ok_or_else(missing)? {
             Target::UserId(user_id) => {
                 let friend = parse_id(user_id)?;
-                ensure!(friend != caller && graph::are_friends(&self.core, caller, friend).await?, precondition, "NOT_FRIENDS", "you can only head to a friend");
-                let (point, _) = self
-                    .seen_position(friend, caller)
-                    .await?
-                    .ok_or_else(|| AppError::precondition("DESTINATION_UNAVAILABLE", "this friend's location is not available to you right now"))?;
+                ensure!(
+                    friend != caller && graph::are_friends(&self.core, caller, friend).await?,
+                    precondition,
+                    "NOT_FRIENDS",
+                    "you can only head to a friend"
+                );
+                let (point, _) = self.seen_position(friend, caller).await?.ok_or_else(|| {
+                    AppError::precondition(
+                        "DESTINATION_UNAVAILABLE",
+                        "this friend's location is not available to you right now",
+                    )
+                })?;
                 let name = tokuly_identity::summary(&self.core, friend).await?.display_name;
-                Ok(Resolved { user_id: Some(friend), place_id: None, point, name: named(name), arrive_radius_m: FRIEND_RADIUS_M, hidden: true })
+                Ok(Resolved {
+                    user_id: Some(friend),
+                    place_id: None,
+                    point,
+                    name: named(name),
+                    arrive_radius_m: FRIEND_RADIUS_M,
+                    hidden: true,
+                })
             }
             Target::PlaceId(place_id) => {
                 let place = self.visible_place(caller, place_id).await?;
@@ -179,8 +214,18 @@ impl Geo {
             }
             Target::Position(position) => {
                 let point = places::clean_point(Some(position))?;
-                let locality = Gazetteer::shared().nearest(point.0, point.1).map(|found| found.locality(ja).to_owned()).unwrap_or_default();
-                Ok(Resolved { user_id: None, place_id: None, point, name: named(locality), arrive_radius_m: POINT_RADIUS_M, hidden: false })
+                let locality = Gazetteer::shared()
+                    .nearest(point.0, point.1)
+                    .map(|found| found.locality(ja).to_owned())
+                    .unwrap_or_default();
+                Ok(Resolved {
+                    user_id: None,
+                    place_id: None,
+                    point,
+                    name: named(locality),
+                    arrive_radius_m: POINT_RADIUS_M,
+                    hidden: false,
+                })
             }
         }
     }
@@ -230,7 +275,8 @@ impl Geo {
             return self.arrive(trip.id).await;
         }
         let eta_ms = now.timestamp_millis() + (eta_seconds(trip, remaining_m) * 1000.0) as i64;
-        let due = state.pin.recorded_ms - state.trip_pushed_ms >= PROGRESS_EVERY_MS || (eta_ms - state.trip_eta_ms).abs() >= ETA_JUMP_MS;
+        let due = state.pin.recorded_ms - state.trip_pushed_ms >= PROGRESS_EVERY_MS
+            || (eta_ms - state.trip_eta_ms).abs() >= ETA_JUMP_MS;
         if !due {
             return Ok(());
         }
@@ -266,14 +312,18 @@ impl Geo {
         let title = if row.dest_name.is_empty() {
             Localized::new(format!("{name}さんが到着しました!"), format!("{name} has arrived"))
         } else {
-            Localized::new(format!("{name}さんが{}に到着しました!", row.dest_name), format!("{name} arrived at {}", row.dest_name))
+            Localized::new(
+                format!("{name}さんが{}に到着しました!", row.dest_name),
+                format!("{name} arrived at {}", row.dest_name),
+            )
         };
         let mut tx = self.core.db.begin().await?;
         for recipient in self.trip_audience(&row).await? {
-            let notification = NotificationRequest::new(recipient, "geo.trip_arrived", title.clone(), Localized::default(), "/map")
-                .actor(row.user_id)
-                .collapse(format!("geo.trip:{}", row.id))
-                .data(serde_json::json!({ "trip_id": row.id }));
+            let notification =
+                NotificationRequest::new(recipient, "geo.trip_arrived", title.clone(), Localized::default(), "/map")
+                    .actor(row.user_id)
+                    .collapse(format!("geo.trip:{}", row.id))
+                    .data(serde_json::json!({ "trip_id": row.id }));
             outbound::notify(&mut *tx, &notification).await?;
         }
         tx.commit().await?;
@@ -325,7 +375,11 @@ impl Geo {
 }
 
 impl TripService for Geo {
-    async fn start_trip(&self, ctx: RequestContext, request: ServiceRequest<'_, StartTripRequest>) -> ServiceResult<StartTripResponse> {
+    async fn start_trip(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, StartTripRequest>,
+    ) -> ServiceResult<StartTripResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let req = request.to_owned_message();
@@ -406,11 +460,16 @@ impl TripService for Geo {
         .await
     }
 
-    async fn end_trip(&self, ctx: RequestContext, request: ServiceRequest<'_, EndTripRequest>) -> ServiceResult<EndTripResponse> {
+    async fn end_trip(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, EndTripRequest>,
+    ) -> ServiceResult<EndTripResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let trip_id = parse_id(request.trip_id)?;
-            let existing = self.trip_row(trip_id).await?.filter(|row| row.user_id == user_id).ok_or_else(trip_not_found)?;
+            let existing =
+                self.trip_row(trip_id).await?.filter(|row| row.user_id == user_id).ok_or_else(trip_not_found)?;
             let row = match self.finish_trip(trip_id, CANCELLED).await? {
                 Some(row) => {
                     self.refresh_friends(user_id).await?;
@@ -424,20 +483,33 @@ impl TripService for Geo {
         .await
     }
 
-    async fn get_trip(&self, ctx: RequestContext, request: ServiceRequest<'_, GetTripRequest>) -> ServiceResult<GetTripResponse> {
+    async fn get_trip(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, GetTripRequest>,
+    ) -> ServiceResult<GetTripResponse> {
         handle(async {
             let viewer = ctx.user_id()?;
             let row = self.trip_row(parse_id(request.trip_id)?).await?.ok_or_else(trip_not_found)?;
             if row.user_id != viewer {
                 let shared = row.shared_with.is_empty() || row.shared_with.contains(&viewer);
-                ensure!(shared && graph::are_friends(&self.core, viewer, row.user_id).await?, not_found, "TRIP_NOT_FOUND", "trip not found");
+                ensure!(
+                    shared && graph::are_friends(&self.core, viewer, row.user_id).await?,
+                    not_found,
+                    "TRIP_NOT_FOUND",
+                    "trip not found"
+                );
             }
             ok(GetTripResponse { trip: self.trip_message(&row, viewer).await?.into(), ..Default::default() })
         })
         .await
     }
 
-    async fn list_active_trips(&self, ctx: RequestContext, _request: ServiceRequest<'_, ListActiveTripsRequest>) -> ServiceResult<ListActiveTripsResponse> {
+    async fn list_active_trips(
+        &self,
+        ctx: RequestContext,
+        _request: ServiceRequest<'_, ListActiveTripsRequest>,
+    ) -> ServiceResult<ListActiveTripsResponse> {
         handle(async {
             let viewer = ctx.user_id()?;
             let friends = graph::friend_ids(&self.core, viewer).await?;
@@ -457,7 +529,11 @@ impl TripService for Geo {
         .await
     }
 
-    async fn get_directions(&self, ctx: RequestContext, request: ServiceRequest<'_, GetDirectionsRequest>) -> ServiceResult<GetDirectionsResponse> {
+    async fn get_directions(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, GetDirectionsRequest>,
+    ) -> ServiceResult<GetDirectionsResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let req = request.to_owned_message();

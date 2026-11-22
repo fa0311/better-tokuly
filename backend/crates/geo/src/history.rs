@@ -57,11 +57,9 @@ pub struct PointRow {
 
 impl PointRow {
     pub fn flags(mocked: bool, foreground: bool, charging: bool) -> u8 {
-        (if mocked { FLAG_MOCKED } else { 0 }) | (if foreground { FLAG_FOREGROUND } else { 0 }) | (if charging { FLAG_CHARGING } else { 0 })
-    }
-
-    pub fn mocked(&self) -> bool {
-        self.flags & FLAG_MOCKED != 0
+        (if mocked { FLAG_MOCKED } else { 0 })
+            | (if foreground { FLAG_FOREGROUND } else { 0 })
+            | (if charging { FLAG_CHARGING } else { 0 })
     }
 }
 
@@ -142,7 +140,13 @@ impl Geo {
 
     /// A user's points in `[from, to)`, oldest first, thinned out evenly to at
     /// most `max_points`.
-    pub(crate) async fn points(&self, user_id: Uuid, from: DateTime<Utc>, to: DateTime<Utc>, max_points: usize) -> AppResult<Vec<PointRow>> {
+    pub(crate) async fn points(
+        &self,
+        user_id: Uuid,
+        from: DateTime<Utc>,
+        to: DateTime<Utc>,
+        max_points: usize,
+    ) -> AppResult<Vec<PointRow>> {
         let ch = &self.core.analytics.ch;
         let (user, from, to) = (user_id.to_string(), from.timestamp_millis(), to.timestamp_millis());
         const RANGE: &str = "user_id = toUUID(?) AND recorded_at >= fromUnixTimestamp64Milli(?) AND recorded_at < fromUnixTimestamp64Milli(?)";
@@ -231,7 +235,13 @@ impl Geo {
     }
 
     /// Adds one hour's movement totals to `geo_activity_hours`.
-    pub(crate) async fn store_hours(&self, user_id: Uuid, bucket: &HourBucket, area: &Area, region: &RegionRef) -> AppResult<()> {
+    pub(crate) async fn store_hours(
+        &self,
+        user_id: Uuid,
+        bucket: &HourBucket,
+        area: &Area,
+        region: &RegionRef,
+    ) -> AppResult<()> {
         let Some(hour) = DateTime::from_timestamp_millis(bucket.hour_ms) else { return Ok(()) };
         let activities: Vec<i16> = bucket.totals.iter().map(|t| t.activity as i16).collect();
         let distances: Vec<f64> = bucket.totals.iter().map(|t| t.distance_m).collect();
@@ -309,9 +319,8 @@ mod tests {
     fn flags_pack_into_one_byte() {
         assert_eq!(PointRow::flags(false, false, false), 0);
         assert_eq!(PointRow::flags(true, true, true), 7);
-        let mocked = PointRow { flags: PointRow::flags(true, false, true), ..row(0) };
-        assert!(mocked.mocked());
-        assert!(!row(0).mocked());
+        assert_eq!(PointRow::flags(true, false, true), FLAG_MOCKED | FLAG_CHARGING);
+        assert_eq!(PointRow::flags(false, true, false), FLAG_FOREGROUND);
     }
 
     #[test]

@@ -51,7 +51,10 @@ impl Area {
             return self.region.clone();
         }
         // "Kita, Osaka" already names its region.
-        if self.region.is_empty() || self.locality == self.region || self.locality.ends_with(&format!(", {}", self.region)) {
+        if self.region.is_empty()
+            || self.locality == self.region
+            || self.locality.ends_with(&format!(", {}", self.region))
+        {
             return self.locality.clone();
         }
         format!("{}, {}", self.locality, self.region)
@@ -208,7 +211,8 @@ pub(crate) struct UserLock {
     token: String,
 }
 
-const RELEASE: &str = "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end";
+const RELEASE: &str =
+    "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end";
 
 impl Geo {
     /// The live state of a user (`None` if they never reported a location, or not for a long time).
@@ -247,7 +251,10 @@ impl Geo {
                 return Ok(UserLock { key, token });
             }
             if tokio::time::Instant::now() >= deadline {
-                return Err(AppError::unavailable("LOCATION_BUSY", "location updates for this account are busy; try again"));
+                return Err(AppError::unavailable(
+                    "LOCATION_BUSY",
+                    "location updates for this account are busy; try again",
+                ));
             }
             tokio::time::sleep(pause).await;
             pause = (pause * 2).min(Duration::from_millis(80));
@@ -257,8 +264,13 @@ impl Geo {
     /// Releases a lock taken with [`Self::lock_user`]. A lock that already
     /// timed out and was taken by someone else is left alone.
     pub(crate) async fn unlock_user(&self, lock: UserLock) {
-        let released: Result<i64, _> =
-            redis::cmd("EVAL").arg(RELEASE).arg(1).arg(&lock.key).arg(&lock.token).query_async(&mut self.core.cache.conn()).await;
+        let released: Result<i64, _> = redis::cmd("EVAL")
+            .arg(RELEASE)
+            .arg(1)
+            .arg(&lock.key)
+            .arg(&lock.token)
+            .query_async(&mut self.core.cache.conn())
+            .await;
         if let Err(e) = released {
             tracing::warn!(error = %e, "could not release a location lock; it expires by itself");
         }

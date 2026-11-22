@@ -49,7 +49,14 @@ fn zone_of(state: &LiveState, ctx: &OwnerCtx) -> Tz {
 impl Geo {
     /// A stay was confirmed: match it to a place and, when the user records
     /// history, open a visit.
-    pub(crate) async fn begin_stay(&self, user_id: Uuid, ctx: &OwnerCtx, state: &mut LiveState, center: (f64, f64), since_ms: i64) -> AppResult<VisitNews> {
+    pub(crate) async fn begin_stay(
+        &self,
+        user_id: Uuid,
+        ctx: &OwnerCtx,
+        state: &mut LiveState,
+        center: (f64, f64),
+        since_ms: i64,
+    ) -> AppResult<VisitNews> {
         let place = self.match_place(user_id, ctx, center).await?;
         let since = from_millis(since_ms);
         state.pin.stationary_since_ms = Some(since_ms);
@@ -82,7 +89,10 @@ impl Geo {
             .fetch_one(&mut *tx)
             .await?;
             if let Some(place) = &place {
-                sqlx::query("UPDATE geo_places SET visit_count = visit_count + 1 WHERE id = $1").bind(place.id).execute(&mut *tx).await?;
+                sqlx::query("UPDATE geo_places SET visit_count = visit_count + 1 WHERE id = $1")
+                    .bind(place.id)
+                    .execute(&mut *tx)
+                    .await?;
             }
             tx.commit().await?;
             state.visit_id = Some(visit_id);
@@ -91,15 +101,23 @@ impl Geo {
     }
 
     /// The stay ended: close the visit (and the night it may have been).
-    pub(crate) async fn finish_stay(&self, user_id: Uuid, ctx: &OwnerCtx, state: &mut LiveState, until_ms: i64) -> AppResult<VisitNews> {
+    pub(crate) async fn finish_stay(
+        &self,
+        user_id: Uuid,
+        ctx: &OwnerCtx,
+        state: &mut LiveState,
+        until_ms: i64,
+    ) -> AppResult<VisitNews> {
         let until = from_millis(until_ms);
         if let Some(visit_id) = state.visit_id {
             self.record_night(user_id, ctx, state, until, true).await?;
-            sqlx::query("UPDATE geo_visits SET departed_at = GREATEST(arrived_at, $2) WHERE id = $1 AND departed_at IS NULL")
-                .bind(visit_id)
-                .bind(until)
-                .execute(&self.core.db)
-                .await?;
+            sqlx::query(
+                "UPDATE geo_visits SET departed_at = GREATEST(arrived_at, $2) WHERE id = $1 AND departed_at IS NULL",
+            )
+            .bind(visit_id)
+            .bind(until)
+            .execute(&self.core.db)
+            .await?;
         }
         let place = state.pin.place.take();
         state.pin.stationary_since_ms = None;
@@ -113,8 +131,17 @@ impl Geo {
     /// Records the night the ongoing stay covers, if it covers one. During
     /// the stay each night is written once, when it first qualifies;
     /// `closing` writes it again with the stay's final end.
-    pub(crate) async fn record_night(&self, user_id: Uuid, ctx: &OwnerCtx, state: &mut LiveState, until: DateTime<Utc>, closing: bool) -> AppResult<()> {
-        let (Some(visit_id), Some(since_ms), Some(center)) = (state.visit_id, state.pin.stationary_since_ms, state.pin.stay_center) else {
+    pub(crate) async fn record_night(
+        &self,
+        user_id: Uuid,
+        ctx: &OwnerCtx,
+        state: &mut LiveState,
+        until: DateTime<Utc>,
+        closing: bool,
+    ) -> AppResult<()> {
+        let (Some(visit_id), Some(since_ms), Some(center)) =
+            (state.visit_id, state.pin.stationary_since_ms, state.pin.stay_center)
+        else {
             return Ok(());
         };
         let Some(night) = night_of(from_millis(since_ms), until, zone_of(state, ctx)) else { return Ok(()) };
@@ -156,11 +183,13 @@ impl Geo {
         if new.is_empty() {
             return Ok(());
         }
-        sqlx::query("UPDATE geo_visits SET with_user_ids = ARRAY(SELECT DISTINCT unnest(with_user_ids || $2)) WHERE id = $1")
-            .bind(visit_id)
-            .bind(&new)
-            .execute(&self.core.db)
-            .await?;
+        sqlx::query(
+            "UPDATE geo_visits SET with_user_ids = ARRAY(SELECT DISTINCT unnest(with_user_ids || $2)) WHERE id = $1",
+        )
+        .bind(visit_id)
+        .bind(&new)
+        .execute(&self.core.db)
+        .await?;
         state.visit_with.extend(new);
         Ok(())
     }
@@ -172,21 +201,31 @@ impl Geo {
         if rows.is_empty() {
             return Ok(Vec::new());
         }
-        let place_ids: Vec<Uuid> = rows.iter().filter_map(|row| row.place_id).collect::<HashSet<_>>().into_iter().collect();
-        let place_rows: Vec<PlaceRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {PLACE_COLUMNS} FROM geo_places WHERE id = ANY($1)")))
-            .bind(&place_ids)
-            .fetch_all(&self.core.db)
-            .await?;
+        let place_ids: Vec<Uuid> =
+            rows.iter().filter_map(|row| row.place_id).collect::<HashSet<_>>().into_iter().collect();
+        let place_rows: Vec<PlaceRow> =
+            sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {PLACE_COLUMNS} FROM geo_places WHERE id = ANY($1)")))
+                .bind(&place_ids)
+                .fetch_all(&self.core.db)
+                .await?;
         let mut visible = Vec::with_capacity(place_rows.len());
         for place in place_rows {
             if self.can_see_place(user_id, &place).await? {
                 visible.push(place);
             }
         }
-        let places: HashMap<Uuid, Place> = visible.iter().map(|row| row.id).zip(self.places_for(user_id, &visible).await?).collect();
+        let places: HashMap<Uuid, Place> =
+            visible.iter().map(|row| row.id).zip(self.places_for(user_id, &visible).await?).collect();
 
         let friends: HashSet<Uuid> = graph::friend_ids(&self.core, user_id).await?.into_iter().collect();
-        let companions: Vec<Uuid> = rows.iter().flat_map(|row| &row.with_user_ids).filter(|id| friends.contains(id)).copied().collect::<HashSet<_>>().into_iter().collect();
+        let companions: Vec<Uuid> = rows
+            .iter()
+            .flat_map(|row| &row.with_user_ids)
+            .filter(|id| friends.contains(id))
+            .copied()
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
         let users = tokuly_identity::summaries(&self.core, &companions).await?;
         let now = Utc::now();
         Ok(rows
@@ -201,7 +240,13 @@ impl Geo {
                     arrived_at: ts(row.arrived_at),
                     departed_at: opt_ts(row.departed_at),
                     duration_seconds: (row.departed_at.unwrap_or(now) - row.arrived_at).num_seconds().max(0),
-                    with_friends: row.with_user_ids.iter().filter_map(|id| users.get(id)).filter(|user| !user.deleted).cloned().collect(),
+                    with_friends: row
+                        .with_user_ids
+                        .iter()
+                        .filter_map(|id| users.get(id))
+                        .filter(|user| !user.deleted)
+                        .cloned()
+                        .collect(),
                     check_in: row.check_in,
                     message: row.message.clone(),
                     locality: locality.clone(),

@@ -124,7 +124,12 @@ impl StayTracker {
                 self.leaving = Some(Departure { lat, lng, at_ms });
             }
             Some(first_outside) => {
-                events.push(StayEvent::Ended { lat: anchor.lat, lng: anchor.lng, since_ms: anchor.since_ms, until_ms: anchor.last_ms });
+                events.push(StayEvent::Ended {
+                    lat: anchor.lat,
+                    lng: anchor.lng,
+                    since_ms: anchor.since_ms,
+                    until_ms: anchor.last_ms,
+                });
                 // The new cluster starts where the user went, counting the first outside sample if it fits.
                 let mut next = Anchor::at(first_outside.lat, first_outside.lng, first_outside.at_ms);
                 if math::distance((lat, lng), next.center()) <= reach {
@@ -145,7 +150,12 @@ impl StayTracker {
     pub fn stop(&mut self) -> Option<StayEvent> {
         self.leaving = None;
         let anchor = self.anchor.take()?;
-        anchor.confirmed.then_some(StayEvent::Ended { lat: anchor.lat, lng: anchor.lng, since_ms: anchor.since_ms, until_ms: anchor.last_ms })
+        anchor.confirmed.then_some(StayEvent::Ended {
+            lat: anchor.lat,
+            lng: anchor.lng,
+            since_ms: anchor.since_ms,
+            until_ms: anchor.last_ms,
+        })
     }
 }
 
@@ -199,7 +209,12 @@ impl ProximityTracker {
             }
             fresh
         });
-        update.together = self.near.iter().filter(|near| at_ms - near.since_ms >= rules.min_duration_ms).map(|near| near.user_id).collect();
+        update.together = self
+            .near
+            .iter()
+            .filter(|near| at_ms - near.since_ms >= rules.min_duration_ms)
+            .map(|near| near.user_id)
+            .collect();
         update
     }
 
@@ -249,7 +264,12 @@ pub fn speed_between(from: Point, from_ms: i64, to: Point, to_ms: i64) -> Option
 /// The activity and speed to record for a sample: the device's own activity
 /// wins; otherwise a confirmed stay means still, and anything else is guessed
 /// from the device speed or, failing that, the speed since the last sample.
-pub fn resolve_activity(reported: Activity, device_speed: Option<f64>, derived_speed: Option<f64>, staying: bool) -> (Activity, f64) {
+pub fn resolve_activity(
+    reported: Activity,
+    device_speed: Option<f64>,
+    derived_speed: Option<f64>,
+    staying: bool,
+) -> (Activity, f64) {
     let speed = device_speed.filter(|s| s.is_finite() && *s >= 0.0).or(derived_speed).unwrap_or(0.0);
     if reported != Activity::ACTIVITY_UNSPECIFIED {
         return (reported, speed);
@@ -299,7 +319,11 @@ fn local_instant(zone: Tz, day: NaiveDate, time: NaiveTime) -> DateTime<Utc> {
     match zone.from_local_datetime(&naive).earliest() {
         Some(instant) => instant.with_timezone(&Utc),
         // Skipped by a DST jump: an hour later exists.
-        None => zone.from_local_datetime(&(naive + Duration::hours(1))).earliest().map(|i| i.with_timezone(&Utc)).unwrap_or_else(|| naive.and_utc()),
+        None => zone
+            .from_local_datetime(&(naive + Duration::hours(1)))
+            .earliest()
+            .map(|i| i.with_timezone(&Utc))
+            .unwrap_or_else(|| naive.and_utc()),
     }
 }
 
@@ -369,7 +393,11 @@ pub fn is_workday_stay(since: DateTime<Utc>, until: DateTime<Utc>, zone: Tz) -> 
     }
     let (start, end) = (since.with_timezone(&zone), until.with_timezone(&zone));
     let weekday = !matches!(start.weekday(), Weekday::Sat | Weekday::Sun);
-    weekday && start.date_naive() == end.date_naive() && start.hour() >= 6 && end.hour() <= 20 && (8..=14).contains(&start.hour())
+    weekday
+        && start.date_naive() == end.date_naive()
+        && start.hour() >= 6
+        && end.hour() <= 20
+        && (8..=14).contains(&start.hour())
 }
 
 #[cfg(test)]
@@ -395,7 +423,8 @@ mod tests {
     fn standing_still_becomes_a_stay_after_five_minutes() {
         let mut tracker = StayTracker::default();
         // GPS wobble of a few meters around home, one sample every 30 s.
-        let track: Vec<(Point, i64)> = (0..=12).map(|i| (offset(HOME, (i * 67) as f64, (i % 4) as f64 * 6.0), i * 30)).collect();
+        let track: Vec<(Point, i64)> =
+            (0..=12).map(|i| (offset(HOME, (i * 67) as f64, (i % 4) as f64 * 6.0), i * 30)).collect();
         let events = replay(&mut tracker, &track[..10]);
         assert!(events.is_empty(), "4.5 minutes is not a stay yet");
         assert_eq!(tracker.stationary_since_ms(), None);
@@ -584,21 +613,47 @@ mod tests {
     #[test]
     fn the_device_activity_wins_over_inference() {
         assert_eq!(resolve_activity(Activity::ACTIVITY_CYCLING, Some(1.0), None, false).0, Activity::ACTIVITY_CYCLING);
-        assert_eq!(resolve_activity(Activity::ACTIVITY_UNSPECIFIED, Some(1.2), Some(30.0), false), (Activity::ACTIVITY_WALKING, 1.2));
-        assert_eq!(resolve_activity(Activity::ACTIVITY_UNSPECIFIED, None, Some(20.0), false), (Activity::ACTIVITY_DRIVING, 20.0));
+        assert_eq!(
+            resolve_activity(Activity::ACTIVITY_UNSPECIFIED, Some(1.2), Some(30.0), false),
+            (Activity::ACTIVITY_WALKING, 1.2)
+        );
+        assert_eq!(
+            resolve_activity(Activity::ACTIVITY_UNSPECIFIED, None, Some(20.0), false),
+            (Activity::ACTIVITY_DRIVING, 20.0)
+        );
         // A negative device speed means "unknown" on iOS.
-        assert_eq!(resolve_activity(Activity::ACTIVITY_UNSPECIFIED, Some(-1.0), Some(3.0), false).0, Activity::ACTIVITY_RUNNING);
+        assert_eq!(
+            resolve_activity(Activity::ACTIVITY_UNSPECIFIED, Some(-1.0), Some(3.0), false).0,
+            Activity::ACTIVITY_RUNNING
+        );
         // GPS wobble inside a stay is not walking.
         assert_eq!(resolve_activity(Activity::ACTIVITY_UNSPECIFIED, None, Some(1.0), true).0, Activity::ACTIVITY_STILL);
-        assert_eq!(resolve_activity(Activity::ACTIVITY_UNSPECIFIED, None, None, false), (Activity::ACTIVITY_STILL, 0.0));
+        assert_eq!(
+            resolve_activity(Activity::ACTIVITY_UNSPECIFIED, None, None, false),
+            (Activity::ACTIVITY_STILL, 0.0)
+        );
     }
 
     fn jst(day: u32, hour: u32, minute: u32) -> DateTime<Utc> {
         Tokyo.with_ymd_and_hms(2026, 11, day, hour, minute, 0).unwrap().with_timezone(&Utc)
     }
 
-    fn asleep(stationary: DateTime<Utc>, active: Option<DateTime<Utc>>, online: bool, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
-        sleeping_since(SleepInput { stationary_since: Some(stationary), last_active: active, last_sample: now - Duration::minutes(10), online, now }, Tokyo)
+    fn asleep(
+        stationary: DateTime<Utc>,
+        active: Option<DateTime<Utc>>,
+        online: bool,
+        now: DateTime<Utc>,
+    ) -> Option<DateTime<Utc>> {
+        sleeping_since(
+            SleepInput {
+                stationary_since: Some(stationary),
+                last_active: active,
+                last_sample: now - Duration::minutes(10),
+                online,
+                now,
+            },
+            Tokyo,
+        )
     }
 
     #[test]
@@ -625,7 +680,13 @@ mod tests {
         let now = jst(21, 2, 0);
         let moving = SleepInput { stationary_since: None, last_active: None, last_sample: now, online: false, now };
         assert_eq!(sleeping_since(moving, Tokyo), None);
-        let silent = SleepInput { stationary_since: Some(jst(19, 20, 0)), last_active: None, last_sample: jst(20, 8, 0), online: false, now };
+        let silent = SleepInput {
+            stationary_since: Some(jst(19, 20, 0)),
+            last_active: None,
+            last_sample: jst(20, 8, 0),
+            online: false,
+            now,
+        };
         assert_eq!(sleeping_since(silent, Tokyo), None, "nothing heard for 18 hours");
     }
 
@@ -633,7 +694,13 @@ mod tests {
     fn night_is_judged_in_the_local_time_zone() {
         // 02:00 in Tokyo is 12:00 the day before in New York: asleep here, not there.
         let now = jst(21, 2, 0);
-        let input = SleepInput { stationary_since: Some(jst(20, 18, 0)), last_active: None, last_sample: now, online: false, now };
+        let input = SleepInput {
+            stationary_since: Some(jst(20, 18, 0)),
+            last_active: None,
+            last_sample: now,
+            online: false,
+            now,
+        };
         assert!(sleeping_since(input, Tokyo).is_some());
         assert!(sleeping_since(input, chrono_tz::America::New_York).is_none());
     }
@@ -645,7 +712,10 @@ mod tests {
         assert_eq!(night.date, NaiveDate::from_ymd_opt(2026, 11, 20).unwrap());
         assert_eq!((night.from, night.to), (jst(20, 19, 30), jst(21, 8, 15)));
         // Still there at 01:00: three hours of the night have passed.
-        assert_eq!(night_of(jst(20, 19, 30), jst(21, 1, 0), Tokyo).unwrap().date, NaiveDate::from_ymd_opt(2026, 11, 20).unwrap());
+        assert_eq!(
+            night_of(jst(20, 19, 30), jst(21, 1, 0), Tokyo).unwrap().date,
+            NaiveDate::from_ymd_opt(2026, 11, 20).unwrap()
+        );
         assert_eq!(night_of(jst(20, 19, 30), jst(21, 0, 30), Tokyo), None, "two and a half hours so far");
     }
 

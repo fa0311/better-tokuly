@@ -56,7 +56,13 @@ impl Odometer {
         let index = match self.pending.iter().position(|totals| totals.activity == activity) {
             Some(index) => index,
             None => {
-                self.pending.push(ActivityTotals { activity, distance_m: 0.0, duration_s: 0.0, max_speed_mps: 0.0, points: 0 });
+                self.pending.push(ActivityTotals {
+                    activity,
+                    distance_m: 0.0,
+                    duration_s: 0.0,
+                    max_speed_mps: 0.0,
+                    points: 0,
+                });
                 self.pending.len() - 1
             }
         };
@@ -65,7 +71,14 @@ impl Odometer {
 
     /// Counts one sample. Returns the previous hour's bucket when the sample
     /// starts a new hour.
-    pub fn add(&mut self, point: Point, at_ms: i64, accuracy_m: f64, activity: i32, speed_mps: f64) -> Option<HourBucket> {
+    pub fn add(
+        &mut self,
+        point: Point,
+        at_ms: i64,
+        accuracy_m: f64,
+        activity: i32,
+        speed_mps: f64,
+    ) -> Option<HourBucket> {
         let hour_ms = at_ms.div_euclid(HOUR_MS) * HOUR_MS;
         let finished = if hour_ms != self.hour_ms { self.take() } else { None };
         self.hour_ms = hour_ms;

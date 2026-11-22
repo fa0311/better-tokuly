@@ -49,11 +49,10 @@ pub(crate) struct GatheringRow {
     pub place_name: String,
     pub at_private_place: bool,
     pub started_at: DateTime<Utc>,
-    pub ended_at: Option<DateTime<Utc>>,
     pub credited_until: DateTime<Utc>,
 }
 
-const GATHERING_COLUMNS: &str = "id, lat, lng, place_id, place_name, at_private_place, started_at, ended_at, credited_until";
+const GATHERING_COLUMNS: &str = "id, lat, lng, place_id, place_name, at_private_place, started_at, credited_until";
 
 /// What a membership sync changed.
 #[derive(Debug, Default)]
@@ -126,7 +125,11 @@ async fn join(tx: &mut Tx<'_>, gathering_id: Uuid, user_id: Uuid, at: DateTime<U
 /// Ends a gathering: everyone still in it leaves.
 async fn end(tx: &mut Tx<'_>, gathering_id: Uuid, at: DateTime<Utc>, changes: &mut Changes) -> AppResult<()> {
     let members = active_members(tx, gathering_id).await?;
-    sqlx::query("UPDATE geo_gathering_members SET left_at = $2 WHERE gathering_id = $1 AND left_at IS NULL").bind(gathering_id).bind(at).execute(&mut **tx).await?;
+    sqlx::query("UPDATE geo_gathering_members SET left_at = $2 WHERE gathering_id = $1 AND left_at IS NULL")
+        .bind(gathering_id)
+        .bind(at)
+        .execute(&mut **tx)
+        .await?;
     let row: Option<GatheringRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "UPDATE geo_gatherings SET ended_at = $2 WHERE id = $1 AND ended_at IS NULL RETURNING {GATHERING_COLUMNS}"
     )))
@@ -142,7 +145,13 @@ async fn end(tx: &mut Tx<'_>, gathering_id: Uuid, at: DateTime<Utc>, changes: &m
 }
 
 /// Takes one member out; a gathering left with fewer than two people ends.
-async fn leave(tx: &mut Tx<'_>, gathering_id: Uuid, user_id: Uuid, at: DateTime<Utc>, changes: &mut Changes) -> AppResult<()> {
+async fn leave(
+    tx: &mut Tx<'_>,
+    gathering_id: Uuid,
+    user_id: Uuid,
+    at: DateTime<Utc>,
+    changes: &mut Changes,
+) -> AppResult<()> {
     let before = active_members(tx, gathering_id).await?;
     if !before.contains(&user_id) {
         return Ok(());
@@ -150,12 +159,14 @@ async fn leave(tx: &mut Tx<'_>, gathering_id: Uuid, user_id: Uuid, at: DateTime<
     if before.len() <= 2 {
         return end(tx, gathering_id, at, changes).await;
     }
-    sqlx::query("UPDATE geo_gathering_members SET left_at = $3 WHERE gathering_id = $1 AND user_id = $2 AND left_at IS NULL")
-        .bind(gathering_id)
-        .bind(user_id)
-        .bind(at)
-        .execute(&mut **tx)
-        .await?;
+    sqlx::query(
+        "UPDATE geo_gathering_members SET left_at = $3 WHERE gathering_id = $1 AND user_id = $2 AND left_at IS NULL",
+    )
+    .bind(gathering_id)
+    .bind(user_id)
+    .bind(at)
+    .execute(&mut **tx)
+    .await?;
     changes.touch(gathering_id);
     Ok(())
 }
@@ -164,16 +175,23 @@ impl Geo {
     /// Brings the gatherings in line with who `user_id` is together with
     /// right now (`together`: friends near for long enough, from their
     /// proximity tracker). `position` is where the user is.
-    pub(crate) async fn sync_gathering(&self, user_id: Uuid, together: &[Uuid], position: Point, at: DateTime<Utc>) -> AppResult<Changes> {
+    pub(crate) async fn sync_gathering(
+        &self,
+        user_id: Uuid,
+        together: &[Uuid],
+        position: Point,
+        at: DateTime<Utc>,
+    ) -> AppResult<Changes> {
         let mut changes = Changes::default();
         let mut tx = self.core.db.begin().await?;
         // One membership change at a time: founding, joining and merging must
         // not interleave (changes are rare and quick).
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('geo:gatherings', 0))").execute(&mut *tx).await?;
-        let mine: Option<Uuid> = sqlx::query_scalar("SELECT gathering_id FROM geo_gathering_members WHERE user_id = $1 AND left_at IS NULL")
-            .bind(user_id)
-            .fetch_optional(&mut *tx)
-            .await?;
+        let mine: Option<Uuid> =
+            sqlx::query_scalar("SELECT gathering_id FROM geo_gathering_members WHERE user_id = $1 AND left_at IS NULL")
+                .bind(user_id)
+                .fetch_optional(&mut *tx)
+                .await?;
 
         if together.is_empty() {
             if let Some(gathering_id) = mine {
@@ -190,9 +208,13 @@ impl Geo {
         .bind(together)
         .fetch_all(&mut *tx)
         .await?;
-        let mut candidates: Vec<(DateTime<Utc>, Uuid)> = theirs.iter().map(|(_, gathering_id, started_at)| (*started_at, *gathering_id)).collect();
+        let mut candidates: Vec<(DateTime<Utc>, Uuid)> =
+            theirs.iter().map(|(_, gathering_id, started_at)| (*started_at, *gathering_id)).collect();
         if let Some(gathering_id) = mine {
-            let started_at: DateTime<Utc> = sqlx::query_scalar("SELECT started_at FROM geo_gatherings WHERE id = $1").bind(gathering_id).fetch_one(&mut *tx).await?;
+            let started_at: DateTime<Utc> = sqlx::query_scalar("SELECT started_at FROM geo_gatherings WHERE id = $1")
+                .bind(gathering_id)
+                .fetch_one(&mut *tx)
+                .await?;
             candidates.push((started_at, gathering_id));
         }
         candidates.sort();
@@ -226,7 +248,12 @@ impl Geo {
             join(&mut tx, target, *joiner, at).await?;
             changes.touch(target);
         }
-        sqlx::query("UPDATE geo_gathering_members SET last_seen_at = $3 WHERE gathering_id = $1 AND user_id = $2").bind(target).bind(user_id).bind(at).execute(&mut *tx).await?;
+        sqlx::query("UPDATE geo_gathering_members SET last_seen_at = $3 WHERE gathering_id = $1 AND user_id = $2")
+            .bind(target)
+            .bind(user_id)
+            .bind(at)
+            .execute(&mut *tx)
+            .await?;
         tx.commit().await?;
         Ok(changes)
     }
@@ -255,10 +282,12 @@ impl Geo {
 
     /// An active gathering and its members with their arrival times.
     async fn gathering(&self, gathering_id: Uuid) -> AppResult<Option<(GatheringRow, Vec<(Uuid, DateTime<Utc>)>)>> {
-        let row: Option<GatheringRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {GATHERING_COLUMNS} FROM geo_gatherings WHERE id = $1 AND ended_at IS NULL")))
-            .bind(gathering_id)
-            .fetch_optional(&self.core.db)
-            .await?;
+        let row: Option<GatheringRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT {GATHERING_COLUMNS} FROM geo_gatherings WHERE id = $1 AND ended_at IS NULL"
+        )))
+        .bind(gathering_id)
+        .fetch_optional(&self.core.db)
+        .await?;
         let Some(row) = row else { return Ok(None) };
         let members: Vec<(Uuid, DateTime<Utc>)> =
             sqlx::query_as("SELECT user_id, arrived_at FROM geo_gathering_members WHERE gathering_id = $1 AND left_at IS NULL ORDER BY arrived_at, user_id")
@@ -269,10 +298,15 @@ impl Geo {
     }
 
     /// Recomputes where a gathering is and what kind of spot that is.
-    async fn describe_gathering(&self, mut row: GatheringRow, members: &[(Uuid, DateTime<Utc>)]) -> AppResult<GatheringRow> {
+    async fn describe_gathering(
+        &self,
+        mut row: GatheringRow,
+        members: &[(Uuid, DateTime<Utc>)],
+    ) -> AppResult<GatheringRow> {
         let ids: Vec<Uuid> = members.iter().map(|(id, _)| *id).collect();
         let states = self.load_states(&ids).await?;
-        let positions: Vec<Point> = states.iter().flatten().filter(|state| state.located()).map(|state| state.pin.position()).collect();
+        let positions: Vec<Point> =
+            states.iter().flatten().filter(|state| state.located()).map(|state| state.pin.position()).collect();
         if !positions.is_empty() {
             row.lat = positions.iter().map(|p| p.0).sum::<f64>() / positions.len() as f64;
             row.lng = positions.iter().map(|p| p.1).sum::<f64>() / positions.len() as f64;
@@ -281,7 +315,11 @@ impl Geo {
         // At someone's home, work or school: no party, no announcement.
         let contexts = self.ctx_many(&ids).await?;
         row.at_private_place = contexts.values().any(|ctx| {
-            ctx.places.iter().any(|place| place.label != LABEL_CUSTOM && math::distance(center, (place.lat, place.lng)) <= place.radius_m + self.cfg.gathering_radius_meters)
+            ctx.places.iter().any(|place| {
+                place.label != LABEL_CUSTOM
+                    && math::distance(center, (place.lat, place.lng))
+                        <= place.radius_m + self.cfg.gathering_radius_meters
+            })
         });
         // A named place there: public, or a member's own shared with friends.
         let place: Option<(Uuid, String)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
@@ -323,12 +361,21 @@ impl Geo {
 
     /// A gathering as `viewer` sees it: members who are the viewer or friends
     /// whose precise location the viewer may see. `None` with fewer than two.
-    async fn gathering_for(&self, viewer: Uuid, visible_friends: &HashSet<Uuid>, row: &GatheringRow, members: &[(Uuid, DateTime<Utc>)], place: Option<&PlaceRow>) -> AppResult<Option<Gathering>> {
-        let shown: Vec<&(Uuid, DateTime<Utc>)> = members.iter().filter(|(id, _)| *id == viewer || visible_friends.contains(id)).collect();
+    async fn gathering_for(
+        &self,
+        viewer: Uuid,
+        visible_friends: &HashSet<Uuid>,
+        row: &GatheringRow,
+        members: &[(Uuid, DateTime<Utc>)],
+        place: Option<&PlaceRow>,
+    ) -> AppResult<Option<Gathering>> {
+        let shown: Vec<&(Uuid, DateTime<Utc>)> =
+            members.iter().filter(|(id, _)| *id == viewer || visible_friends.contains(id)).collect();
         if shown.len() < 2 {
             return Ok(None);
         }
-        let users = tokuly_identity::summaries(&self.core, &shown.iter().map(|(id, _)| *id).collect::<Vec<_>>()).await?;
+        let users =
+            tokuly_identity::summaries(&self.core, &shown.iter().map(|(id, _)| *id).collect::<Vec<_>>()).await?;
         // The place is named only to viewers who could see it themselves.
         let place_name = match place {
             Some(place) if self.can_see_place(viewer, place).await? => place.name.clone(),
@@ -339,7 +386,11 @@ impl Geo {
             center: math::lat_lng(row.lat, row.lng).into(),
             members: shown
                 .iter()
-                .map(|(id, arrived_at)| GatheringMember { user: tokuly_identity::users::pick(&users, *id).into(), arrived_at: ts(*arrived_at), ..Default::default() })
+                .map(|(id, arrived_at)| GatheringMember {
+                    user: tokuly_identity::users::pick(&users, *id).into(),
+                    arrived_at: ts(*arrived_at),
+                    ..Default::default()
+                })
                 .collect(),
             place_name,
             started_at: ts(row.started_at),
@@ -374,7 +425,12 @@ impl Geo {
         }
         let ids: Vec<Uuid> = members.iter().map(|(id, _)| *id).collect();
         let (first, second) = (ids[0].min(ids[1]), ids[0].max(ids[1]));
-        if !self.core.cache.set_nx(&format!("geo:gathering:announced:{}:{}", first.simple(), second.simple()), "1", ANNOUNCE_COOLDOWN).await? {
+        if !self
+            .core
+            .cache
+            .set_nx(&format!("geo:gathering:announced:{}:{}", first.simple(), second.simple()), "1", ANNOUNCE_COOLDOWN)
+            .await?
+        {
             return Ok(());
         }
         // Friends of at least two members, who may see at least two of them precisely.
@@ -389,7 +445,8 @@ impl Geo {
                 }
             }
         }
-        let mut recipients: Vec<Uuid> = seen_by.into_iter().filter(|(_, count)| *count >= 2).map(|(friend, _)| friend).collect();
+        let mut recipients: Vec<Uuid> =
+            seen_by.into_iter().filter(|(_, count)| *count >= 2).map(|(friend, _)| friend).collect();
         recipients.sort();
         recipients.truncate(MAX_ANNOUNCED);
         if recipients.is_empty() {
@@ -398,9 +455,15 @@ impl Geo {
         let users = tokuly_identity::summaries(&self.core, &ids).await?;
         let name = |id: &Uuid| users.get(id).map(|user| user.display_name.clone()).unwrap_or_default();
         let title = if ids.len() == 2 {
-            Localized::new(format!("{}さんと{}さんが集合中!", name(&ids[0]), name(&ids[1])), format!("{} and {} are together!", name(&ids[0]), name(&ids[1])))
+            Localized::new(
+                format!("{}さんと{}さんが集合中!", name(&ids[0]), name(&ids[1])),
+                format!("{} and {} are together!", name(&ids[0]), name(&ids[1])),
+            )
         } else {
-            Localized::new(format!("{}さんたち{}人が集合中!", name(&ids[0]), ids.len()), format!("{} and {} others are together!", name(&ids[0]), ids.len() - 1))
+            Localized::new(
+                format!("{}さんたち{}人が集合中!", name(&ids[0]), ids.len()),
+                format!("{} and {} others are together!", name(&ids[0]), ids.len() - 1),
+            )
         };
         let body = if row.place_name.is_empty() {
             Localized::new("マップで見てみよう!", "See them on the map!")
@@ -409,10 +472,16 @@ impl Geo {
         };
         let mut tx = self.core.db.begin().await?;
         for recipient in recipients {
-            let notification = NotificationRequest::new(recipient, "geo.gathering", title.clone(), body.clone(), format!("/map?gathering={}", row.id))
-                .actor(ids[0])
-                .collapse(format!("geo.gathering:{}", row.id))
-                .data(serde_json::json!({ "gathering_id": row.id, "user_ids": ids }));
+            let notification = NotificationRequest::new(
+                recipient,
+                "geo.gathering",
+                title.clone(),
+                body.clone(),
+                format!("/map?gathering={}", row.id),
+            )
+            .actor(ids[0])
+            .collapse(format!("geo.gathering:{}", row.id))
+            .data(serde_json::json!({ "gathering_id": row.id, "user_ids": ids }));
             outbound::notify(&mut *tx, &notification).await?;
         }
         tx.commit().await?;
@@ -421,7 +490,13 @@ impl Geo {
 
     /// Reports time together to the social domain for every pair of members,
     /// once per stretch (several workers may try; one wins).
-    async fn credit_gathering(&self, row: &GatheringRow, members: &[Uuid], now: DateTime<Utc>, closing: bool) -> AppResult<()> {
+    async fn credit_gathering(
+        &self,
+        row: &GatheringRow,
+        members: &[Uuid],
+        now: DateTime<Utc>,
+        closing: bool,
+    ) -> AppResult<()> {
         let Some((minutes, new_mark)) = credit(row.credited_until, now, closing) else { return Ok(()) };
         let won = sqlx::query("UPDATE geo_gatherings SET credited_until = $3 WHERE id = $1 AND credited_until = $2")
             .bind(row.id)
@@ -437,7 +512,8 @@ impl Geo {
         for (index, a) in members.iter().enumerate() {
             for b in &members[index + 1..] {
                 // (Pairs who are not friends are ignored by the social domain.)
-                graph::record_interaction(&self.core, *a.min(b), *a.max(b), InteractionKind::TimeTogether, minutes).await?;
+                graph::record_interaction(&self.core, *a.min(b), *a.max(b), InteractionKind::TimeTogether, minutes)
+                    .await?;
             }
         }
         Ok(())
@@ -533,7 +609,11 @@ mod tests {
     fn time_together_is_credited_in_steps() {
         let start = Utc::now();
         assert_eq!(credit(start, start + Duration::minutes(4), false), None, "not worth a report yet");
-        assert_eq!(credit(start, start + Duration::seconds(7 * 60 + 40), false), Some((7, start + Duration::minutes(7))), "whole minutes; the rest carries over");
+        assert_eq!(
+            credit(start, start + Duration::seconds(7 * 60 + 40), false),
+            Some((7, start + Duration::minutes(7))),
+            "whole minutes; the rest carries over"
+        );
         assert_eq!(credit(start, start + Duration::minutes(20), false), Some((20, start + Duration::minutes(20))));
     }
 

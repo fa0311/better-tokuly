@@ -71,7 +71,8 @@ pub fn great_circle_line(a: Point, b: Point, max_segment_m: f64, max_vertices: u
 /// around `a`, fine for the short segments of a recorded path).
 fn distance_to_segment(p: Point, a: Point, b: Point) -> f64 {
     let scale = a.0.to_radians().cos();
-    let to_xy = |q: Point| ((q.1 - a.1).to_radians() * scale * EARTH_RADIUS_M, (q.0 - a.0).to_radians() * EARTH_RADIUS_M);
+    let to_xy =
+        |q: Point| ((q.1 - a.1).to_radians() * scale * EARTH_RADIUS_M, (q.0 - a.0).to_radians() * EARTH_RADIUS_M);
     let (px, py) = to_xy(p);
     let (bx, by) = to_xy(b);
     let length_sq = bx * bx + by * by;
@@ -134,7 +135,9 @@ pub fn encode_polyline(points: &[Point]) -> String {
 
 /// Decodes an encoded polyline of the given precision (Valhalla uses 6).
 pub fn decode_polyline(encoded: &str, precision: u32) -> Vec<Point> {
-    polyline::decode_polyline(encoded, precision).map(|line| line.coords().map(|c| (c.y, c.x)).collect()).unwrap_or_default()
+    polyline::decode_polyline(encoded, precision)
+        .map(|line| line.coords().map(|c| (c.y, c.x)).collect())
+        .unwrap_or_default()
 }
 
 /// The smallest box containing every point (`None` for no points). Paths
@@ -161,7 +164,11 @@ pub fn in_bounds(lat: f64, lng: f64, south_west: Point, north_east: Point) -> bo
     if lat < south_west.0 || lat > north_east.0 {
         return false;
     }
-    if south_west.1 <= north_east.1 { lng >= south_west.1 && lng <= north_east.1 } else { lng >= south_west.1 || lng <= north_east.1 }
+    if south_west.1 <= north_east.1 {
+        lng >= south_west.1 && lng <= north_east.1
+    } else {
+        lng >= south_west.1 || lng <= north_east.1
+    }
 }
 
 // ── H3 ──────────────────────────────────────────────────────────────────────

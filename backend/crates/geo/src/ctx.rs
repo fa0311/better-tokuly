@@ -117,7 +117,10 @@ impl GhostConfig {
     /// default. Rules past their end no longer apply even if the sweeper has
     /// not removed them yet.
     pub fn rule_for(&self, viewer: Uuid, now_ms: i64) -> Option<&GhostRule> {
-        self.overrides.get(&viewer).filter(|rule| rule.active(now_ms)).or_else(|| self.everyone.as_ref().filter(|rule| rule.active(now_ms)))
+        self.overrides
+            .get(&viewer)
+            .filter(|rule| rule.active(now_ms))
+            .or_else(|| self.everyone.as_ref().filter(|rule| rule.active(now_ms)))
     }
 
     /// The default rule, if it still applies.
@@ -404,8 +407,12 @@ impl Geo {
             );
         }
 
-        let rules: Vec<GhostRow> =
-            sqlx::query_as("SELECT owner_id, viewer_id, mode, since, until, frozen FROM geo_ghost_rules WHERE owner_id = ANY($1)").bind(user_ids).fetch_all(db).await?;
+        let rules: Vec<GhostRow> = sqlx::query_as(
+            "SELECT owner_id, viewer_id, mode, since, until, frozen FROM geo_ghost_rules WHERE owner_id = ANY($1)",
+        )
+        .bind(user_ids)
+        .fetch_all(db)
+        .await?;
         for row in rules {
             let Some(ctx) = out.get_mut(&row.owner_id) else { continue };
             let rule = GhostRule {
@@ -449,7 +456,12 @@ impl Geo {
                 .await?;
         for sos in alarms {
             if let Some(ctx) = out.get_mut(&sos.user_id) {
-                ctx.sos = Some(SosCtx { id: sos.id, message: sos.message, notify: sos.notify_user_ids, started_ms: millis(sos.started_at) });
+                ctx.sos = Some(SosCtx {
+                    id: sos.id,
+                    message: sos.message,
+                    notify: sos.notify_user_ids,
+                    started_ms: millis(sos.started_at),
+                });
             }
         }
 
@@ -541,7 +553,8 @@ mod tests {
 
     #[test]
     fn expired_statuses_are_not_shown() {
-        let status = StatusLite { emoji: "🍜".into(), text: "ラーメン".into(), set_ms: Some(0), expires_ms: Some(10_000) };
+        let status =
+            StatusLite { emoji: "🍜".into(), text: "ラーメン".into(), set_ms: Some(0), expires_ms: Some(10_000) };
         let before = DateTime::from_timestamp_millis(9_000).unwrap();
         let after = DateTime::from_timestamp_millis(10_000).unwrap();
         assert_eq!(status.current(before).unwrap().emoji, "🍜");
@@ -553,7 +566,13 @@ mod tests {
     #[test]
     fn privacy_defaults_match_identity() {
         let privacy = Privacy::default();
-        assert!(privacy.share_battery && privacy.share_activity && privacy.share_online_status && privacy.share_place_labels && privacy.record_history);
+        assert!(
+            privacy.share_battery
+                && privacy.share_activity
+                && privacy.share_online_status
+                && privacy.share_place_labels
+                && privacy.record_history
+        );
         assert_eq!(privacy.history_days, 0);
         assert_eq!(privacy.footprints_audience, tokuly_proto::identity::Audience::AUDIENCE_FRIENDS as i32);
     }

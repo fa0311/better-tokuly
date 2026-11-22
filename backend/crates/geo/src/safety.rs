@@ -64,8 +64,7 @@ struct AlertRow {
     expires_at: Option<DateTime<Utc>>,
 }
 
-const ALERT_COLUMNS: &str =
-    "id, owner_id, subject_id, place_name, lat, lng, radius_m, subject_place_label, trigger, recurring, status, created_at, last_fired_at, expires_at";
+const ALERT_COLUMNS: &str = "id, owner_id, subject_id, place_name, lat, lng, radius_m, subject_place_label, trigger, recurring, status, created_at, last_fired_at, expires_at";
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 struct SosRow {
@@ -115,7 +114,13 @@ enum Verdict {
     Moved { inside: bool, fire: bool },
 }
 
-fn judge(alert: &AlertCtx, target: Option<(f64, f64, f64)>, pin: &Pin, owner_sees_precisely: bool, now_ms: i64) -> Verdict {
+fn judge(
+    alert: &AlertCtx,
+    target: Option<(f64, f64, f64)>,
+    pin: &Pin,
+    owner_sees_precisely: bool,
+    now_ms: i64,
+) -> Verdict {
     if !owner_sees_precisely {
         return if alert.inside.is_some() { Verdict::Forget } else { Verdict::Unchanged };
     }
@@ -135,7 +140,10 @@ fn judge(alert: &AlertCtx, target: Option<(f64, f64, f64)>, pin: &Pin, owner_see
 
 impl Geo {
     async fn alert_row(&self, alert_id: Uuid) -> AppResult<Option<AlertRow>> {
-        Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {ALERT_COLUMNS} FROM geo_place_alerts WHERE id = $1"))).bind(alert_id).fetch_optional(&self.core.db).await?)
+        Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {ALERT_COLUMNS} FROM geo_place_alerts WHERE id = $1")))
+            .bind(alert_id)
+            .fetch_optional(&self.core.db)
+            .await?)
     }
 
     async fn alert_messages(&self, rows: &[AlertRow]) -> AppResult<Vec<PlaceAlert>> {
@@ -186,12 +194,17 @@ impl Geo {
         let now = Utc::now();
         let mut changed = false;
         for alert in &ctx.alerts {
-            let target = alert.target.or_else(|| ctx.labelled_place(alert.label).map(|place| (place.lat, place.lng, place.radius_m)));
+            let target = alert
+                .target
+                .or_else(|| ctx.labelled_place(alert.label).map(|place| (place.lat, place.lng, place.radius_m)));
             let precise = visibility::sees_precisely(ctx, alert.owner_id, now);
             match judge(alert, target, pin, precise, now.timestamp_millis()) {
                 Verdict::Unchanged => {}
                 Verdict::Forget => {
-                    sqlx::query("UPDATE geo_place_alerts SET inside = NULL WHERE id = $1").bind(alert.id).execute(&self.core.db).await?;
+                    sqlx::query("UPDATE geo_place_alerts SET inside = NULL WHERE id = $1")
+                        .bind(alert.id)
+                        .execute(&self.core.db)
+                        .await?;
                     changed = true;
                 }
                 Verdict::Moved { inside, fire } => {
@@ -238,15 +251,24 @@ impl Geo {
         } else {
             Localized::new(format!("{name}さんが{place_ja}を出発しました"), format!("{name} left {place_en}"))
         };
-        let notification = NotificationRequest::new(row.owner_id, "geo.place_alert", title, Localized::default(), "/map")
-            .actor(row.subject_id)
-            .collapse(format!("geo.place_alert:{}", row.id))
-            .data(serde_json::json!({ "alert_id": row.id, "arrived": inside }));
+        let notification =
+            NotificationRequest::new(row.owner_id, "geo.place_alert", title, Localized::default(), "/map")
+                .actor(row.subject_id)
+                .collapse(format!("geo.place_alert:{}", row.id))
+                .data(serde_json::json!({ "alert_id": row.id, "arrived": inside }));
         outbound::notify(&mut *tx, &notification).await?;
         tx.commit().await?;
 
         let message = self.alert_message(&row).await?;
-        self.push(row.owner_id, Event::PlaceAlertFired(Box::new(PlaceAlertFired { alert: message.clone().into(), fired_at: ts(now), ..Default::default() }))).await;
+        self.push(
+            row.owner_id,
+            Event::PlaceAlertFired(Box::new(PlaceAlertFired {
+                alert: message.clone().into(),
+                fired_at: ts(now),
+                ..Default::default()
+            })),
+        )
+        .await;
         if row.status == FIRED {
             // A one-time alert is over for the subject as well.
             self.push(row.subject_id, Event::PlaceAlertUpdated(Box::new(message))).await;
@@ -288,7 +310,11 @@ impl Geo {
     /// everyone gets the sender's pin as they are allowed to see it (precise
     /// while the SOS is active).
     async fn sos_message(&self, row: &SosRow, viewer: Uuid) -> AppResult<Sos> {
-        let location = if viewer == row.user_id { self.own_location(row.user_id).await?.0 } else { self.location_as_seen(row.user_id, viewer).await? };
+        let location = if viewer == row.user_id {
+            self.own_location(row.user_id).await?.0
+        } else {
+            self.location_as_seen(row.user_id, viewer).await?
+        };
         Ok(Sos {
             id: row.id.to_string(),
             user: tokuly_identity::summary(&self.core, row.user_id).await?.into(),
@@ -296,16 +322,22 @@ impl Geo {
             started_at: ts(row.started_at),
             resolved_at: opt_ts(row.resolved_at),
             location: location.into(),
-            notified_user_ids: if viewer == row.user_id { row.notify_user_ids.iter().map(Uuid::to_string).collect() } else { Vec::new() },
+            notified_user_ids: if viewer == row.user_id {
+                row.notify_user_ids.iter().map(Uuid::to_string).collect()
+            } else {
+                Vec::new()
+            },
             ..Default::default()
         })
     }
 
     async fn active_sos(&self, user_id: Uuid) -> AppResult<Option<SosRow>> {
-        Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {SOS_COLUMNS} FROM geo_sos WHERE user_id = $1 AND resolved_at IS NULL")))
-            .bind(user_id)
-            .fetch_optional(&self.core.db)
-            .await?)
+        Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT {SOS_COLUMNS} FROM geo_sos WHERE user_id = $1 AND resolved_at IS NULL"
+        )))
+        .bind(user_id)
+        .fetch_optional(&self.core.db)
+        .await?)
     }
 
     /// Shows everyone involved the state of an SOS and the pin that goes with it.
@@ -371,7 +403,11 @@ impl Geo {
 }
 
 impl SafetyService for Geo {
-    async fn create_place_alert(&self, ctx: RequestContext, request: ServiceRequest<'_, CreatePlaceAlertRequest>) -> ServiceResult<CreatePlaceAlertResponse> {
+    async fn create_place_alert(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, CreatePlaceAlertRequest>,
+    ) -> ServiceResult<CreatePlaceAlertResponse> {
         handle(async {
             let owner = ctx.user_id()?;
             let req = request.to_owned_message();
@@ -492,13 +528,23 @@ impl SafetyService for Geo {
         .await
     }
 
-    async fn respond_place_alert(&self, ctx: RequestContext, request: ServiceRequest<'_, RespondPlaceAlertRequest>) -> ServiceResult<RespondPlaceAlertResponse> {
+    async fn respond_place_alert(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, RespondPlaceAlertRequest>,
+    ) -> ServiceResult<RespondPlaceAlertResponse> {
         handle(async {
             let subject = ctx.user_id()?;
             let alert_id = parse_id(request.alert_id)?;
             let approve = request.approve;
-            let existing = self.alert_row(alert_id).await?.filter(|row| row.subject_id == subject).ok_or_else(alert_not_found)?;
-            ensure!(existing.status == PENDING, precondition, "ALERT_NOT_PENDING", "this alert is not waiting for an answer");
+            let existing =
+                self.alert_row(alert_id).await?.filter(|row| row.subject_id == subject).ok_or_else(alert_not_found)?;
+            ensure!(
+                existing.status == PENDING,
+                precondition,
+                "ALERT_NOT_PENDING",
+                "this alert is not waiting for an answer"
+            );
             let mut tx = self.core.db.begin().await?;
             let row: Option<AlertRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
                 "UPDATE geo_place_alerts SET status = $2, responded_at = now(), expires_at = NULL
@@ -508,16 +554,24 @@ impl SafetyService for Geo {
             .bind(if approve { ACTIVE } else { DECLINED })
             .fetch_optional(&mut *tx)
             .await?;
-            let Some(row) = row else { bail!(precondition, "ALERT_NOT_PENDING", "this alert is not waiting for an answer") };
+            let Some(row) = row else {
+                bail!(precondition, "ALERT_NOT_PENDING", "this alert is not waiting for an answer")
+            };
             let name = self.display_name(subject).await?;
             let title = if approve {
                 Localized::new(format!("{name}さんが通知を承認しました"), format!("{name} approved your alert"))
             } else {
                 Localized::new(format!("{name}さんが通知を承認しませんでした"), format!("{name} declined your alert"))
             };
-            let notification = NotificationRequest::new(row.owner_id, "geo.place_alert_response", title, Localized::default(), "/safety/alerts")
-                .actor(subject)
-                .data(serde_json::json!({ "alert_id": row.id, "approved": approve }));
+            let notification = NotificationRequest::new(
+                row.owner_id,
+                "geo.place_alert_response",
+                title,
+                Localized::default(),
+                "/safety/alerts",
+            )
+            .actor(subject)
+            .data(serde_json::json!({ "alert_id": row.id, "approved": approve }));
             outbound::notify(&mut *tx, &notification).await?;
             tx.commit().await?;
             self.invalidate_ctx(&[subject]).await;
@@ -527,7 +581,11 @@ impl SafetyService for Geo {
         .await
     }
 
-    async fn list_place_alerts(&self, ctx: RequestContext, _request: ServiceRequest<'_, ListPlaceAlertsRequest>) -> ServiceResult<ListPlaceAlertsResponse> {
+    async fn list_place_alerts(
+        &self,
+        ctx: RequestContext,
+        _request: ServiceRequest<'_, ListPlaceAlertsRequest>,
+    ) -> ServiceResult<ListPlaceAlertsResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             // The owner also sees how their alerts ended, for a week.
@@ -550,7 +608,11 @@ impl SafetyService for Geo {
         .await
     }
 
-    async fn delete_place_alert(&self, ctx: RequestContext, request: ServiceRequest<'_, DeletePlaceAlertRequest>) -> ServiceResult<DeletePlaceAlertResponse> {
+    async fn delete_place_alert(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, DeletePlaceAlertRequest>,
+    ) -> ServiceResult<DeletePlaceAlertResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let alert_id = parse_id(request.alert_id)?;
@@ -571,25 +633,52 @@ impl SafetyService for Geo {
         .await
     }
 
-    async fn trigger_sos(&self, ctx: RequestContext, request: ServiceRequest<'_, TriggerSosRequest>) -> ServiceResult<TriggerSosResponse> {
+    async fn trigger_sos(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, TriggerSosRequest>,
+    ) -> ServiceResult<TriggerSosResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let req = request.to_owned_message();
             let message = req.message.trim();
-            ensure!(message.chars().count() <= MAX_SOS_MESSAGE_CHARS, invalid, "MESSAGE_TOO_LONG", "an SOS message has at most {MAX_SOS_MESSAGE_CHARS} characters");
-            ensure!(req.notify_user_ids.len() <= MAX_SOS_RECIPIENTS, invalid, "TOO_MANY_USERS", "at most {MAX_SOS_RECIPIENTS} people per SOS");
+            ensure!(
+                message.chars().count() <= MAX_SOS_MESSAGE_CHARS,
+                invalid,
+                "MESSAGE_TOO_LONG",
+                "an SOS message has at most {MAX_SOS_MESSAGE_CHARS} characters"
+            );
+            ensure!(
+                req.notify_user_ids.len() <= MAX_SOS_RECIPIENTS,
+                invalid,
+                "TOO_MANY_USERS",
+                "at most {MAX_SOS_RECIPIENTS} people per SOS"
+            );
             if let Some(active) = self.active_sos(user_id).await? {
-                return ok(TriggerSosResponse { sos: self.sos_message(&active, user_id).await?.into(), ..Default::default() });
+                return ok(TriggerSosResponse {
+                    sos: self.sos_message(&active, user_id).await?.into(),
+                    ..Default::default()
+                });
             }
             let friends = graph::friend_ids(&self.core, user_id).await?;
             let mut recipients = parse_ids(&req.notify_user_ids)?;
             recipients.sort();
             recipients.dedup();
-            ensure!(recipients.iter().all(|id| friends.contains(id)), precondition, "NOT_FRIENDS", "an SOS can only alert friends");
+            ensure!(
+                recipients.iter().all(|id| friends.contains(id)),
+                precondition,
+                "NOT_FRIENDS",
+                "an SOS can only alert friends"
+            );
             if recipients.is_empty() {
                 recipients = friends;
             }
-            ensure!(!recipients.is_empty(), precondition, "NO_RECIPIENTS", "there is nobody to alert: add a friend first");
+            ensure!(
+                !recipients.is_empty(),
+                precondition,
+                "NO_RECIPIENTS",
+                "there is nobody to alert: add a friend first"
+            );
             self.core.cache.rate_limit(&format!("geo-sos:{user_id}"), 10, Duration::from_secs(3600)).await?;
 
             let name = self.display_name(user_id).await?;
@@ -606,8 +695,12 @@ impl SafetyService for Geo {
             let Some(row) = inserted else {
                 // Two taps raced: the first one is the SOS.
                 drop(tx);
-                let active = self.active_sos(user_id).await?.ok_or_else(|| AppError::unavailable("SOS_BUSY", "try again"))?;
-                return ok(TriggerSosResponse { sos: self.sos_message(&active, user_id).await?.into(), ..Default::default() });
+                let active =
+                    self.active_sos(user_id).await?.ok_or_else(|| AppError::unavailable("SOS_BUSY", "try again"))?;
+                return ok(TriggerSosResponse {
+                    sos: self.sos_message(&active, user_id).await?.into(),
+                    ..Default::default()
+                });
             };
             let body = if message.is_empty() {
                 Localized::new("タップして現在地を確認してください", "Tap to see where they are")
@@ -635,7 +728,11 @@ impl SafetyService for Geo {
         .await
     }
 
-    async fn resolve_sos(&self, ctx: RequestContext, request: ServiceRequest<'_, ResolveSosRequest>) -> ServiceResult<ResolveSosResponse> {
+    async fn resolve_sos(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, ResolveSosRequest>,
+    ) -> ServiceResult<ResolveSosResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let sos_id = parse_id(request.sos_id)?;
@@ -663,7 +760,11 @@ impl SafetyService for Geo {
         .await
     }
 
-    async fn get_active_sos(&self, ctx: RequestContext, _request: ServiceRequest<'_, GetActiveSosRequest>) -> ServiceResult<GetActiveSosResponse> {
+    async fn get_active_sos(
+        &self,
+        ctx: RequestContext,
+        _request: ServiceRequest<'_, GetActiveSosRequest>,
+    ) -> ServiceResult<GetActiveSosResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let mine = match self.active_sos(user_id).await? {
@@ -695,7 +796,16 @@ mod tests {
     const HOME: (f64, f64) = (35.6595, 139.7005);
 
     fn alert(trigger: i32, inside: Option<bool>) -> AlertCtx {
-        AlertCtx { id: Uuid::now_v7(), owner_id: Uuid::now_v7(), target: Some((HOME.0, HOME.1, 100.0)), label: 0, trigger, recurring: true, inside, last_fired_ms: None }
+        AlertCtx {
+            id: Uuid::now_v7(),
+            owner_id: Uuid::now_v7(),
+            target: Some((HOME.0, HOME.1, 100.0)),
+            label: 0,
+            trigger,
+            recurring: true,
+            inside,
+            last_fired_ms: None,
+        }
     }
 
     fn pin_at(meters_from_home: f64) -> Pin {
@@ -728,7 +838,11 @@ mod tests {
         // Radius 100 m: in at 100, still in at 140, out beyond 145.
         assert_eq!(verdict(&alert(LEAVE, Some(true)), 140.0), Verdict::Unchanged);
         assert_eq!(verdict(&alert(LEAVE, Some(true)), 150.0), Verdict::Moved { inside: false, fire: true });
-        assert_eq!(verdict(&alert(ARRIVE, Some(false)), 120.0), Verdict::Unchanged, "entering takes being within the radius");
+        assert_eq!(
+            verdict(&alert(ARRIVE, Some(false)), 120.0),
+            Verdict::Unchanged,
+            "entering takes being within the radius"
+        );
         assert!(is_inside(100.0, 100.0, None) && !is_inside(100.1, 100.0, None));
     }
 

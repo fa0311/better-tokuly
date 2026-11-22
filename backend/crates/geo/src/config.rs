@@ -20,7 +20,12 @@ pub struct GeoConfig {
     pub weather_url: String,
 
     /// A user is "staying" once they have been within this many meters...
-    #[arg(id = "geo_stay_radius_meters", long = "geo-stay-radius-meters", env = "TOKULY_GEO_STAY_RADIUS_METERS", default_value_t = 80.0)]
+    #[arg(
+        id = "geo_stay_radius_meters",
+        long = "geo-stay-radius-meters",
+        env = "TOKULY_GEO_STAY_RADIUS_METERS",
+        default_value_t = 80.0
+    )]
     pub stay_radius_meters: f64,
     /// ...for this many seconds.
     #[arg(id = "geo_stay_seconds", long = "geo-stay-seconds", env = "TOKULY_GEO_STAY_SECONDS", default_value_t = 300)]
@@ -35,11 +40,21 @@ pub struct GeoConfig {
     )]
     pub gathering_radius_meters: f64,
     /// ...for this many seconds.
-    #[arg(id = "geo_gathering_seconds", long = "geo-gathering-seconds", env = "TOKULY_GEO_GATHERING_SECONDS", default_value_t = 120)]
+    #[arg(
+        id = "geo_gathering_seconds",
+        long = "geo-gathering-seconds",
+        env = "TOKULY_GEO_GATHERING_SECONDS",
+        default_value_t = 120
+    )]
     pub gathering_seconds: i64,
 
     /// Upload interval suggested to clients while moving.
-    #[arg(id = "geo_moving_interval_seconds", long = "geo-moving-interval-seconds", env = "TOKULY_GEO_MOVING_INTERVAL_SECONDS", default_value_t = 5)]
+    #[arg(
+        id = "geo_moving_interval_seconds",
+        long = "geo-moving-interval-seconds",
+        env = "TOKULY_GEO_MOVING_INTERVAL_SECONDS",
+        default_value_t = 5
+    )]
     pub moving_interval_seconds: i32,
     /// Upload interval suggested to clients while still.
     #[arg(
@@ -51,7 +66,12 @@ pub struct GeoConfig {
     pub stationary_interval_seconds: i32,
 
     /// Samples recorded longer ago than this are not accepted (backlog uploads).
-    #[arg(id = "geo_max_sample_age_hours", long = "geo-max-sample-age-hours", env = "TOKULY_GEO_MAX_SAMPLE_AGE_HOURS", default_value_t = 168)]
+    #[arg(
+        id = "geo_max_sample_age_hours",
+        long = "geo-max-sample-age-hours",
+        env = "TOKULY_GEO_MAX_SAMPLE_AGE_HOURS",
+        default_value_t = 168
+    )]
     pub max_sample_age_hours: i64,
 
     /// Nights at the same unlabelled spot before it is suggested as home.
@@ -59,14 +79,29 @@ pub struct GeoConfig {
     pub home_nights: i64,
 
     /// A one-time place alert that has not fired lapses after this many hours.
-    #[arg(id = "geo_one_time_alert_hours", long = "geo-one-time-alert-hours", env = "TOKULY_GEO_ONE_TIME_ALERT_HOURS", default_value_t = 24)]
+    #[arg(
+        id = "geo_one_time_alert_hours",
+        long = "geo-one-time-alert-hours",
+        env = "TOKULY_GEO_ONE_TIME_ALERT_HOURS",
+        default_value_t = 24
+    )]
     pub one_time_alert_hours: i64,
     /// A recurring place alert waiting for approval lapses after this many days.
-    #[arg(id = "geo_pending_alert_days", long = "geo-pending-alert-days", env = "TOKULY_GEO_PENDING_ALERT_DAYS", default_value_t = 7)]
+    #[arg(
+        id = "geo_pending_alert_days",
+        long = "geo-pending-alert-days",
+        env = "TOKULY_GEO_PENDING_ALERT_DAYS",
+        default_value_t = 7
+    )]
     pub pending_alert_days: i64,
 
     /// An SOS nobody resolved ends by itself after this many hours (ghost mode applies again).
-    #[arg(id = "geo_sos_max_hours", long = "geo-sos-max-hours", env = "TOKULY_GEO_SOS_MAX_HOURS", default_value_t = 24)]
+    #[arg(
+        id = "geo_sos_max_hours",
+        long = "geo-sos-max-hours",
+        env = "TOKULY_GEO_SOS_MAX_HOURS",
+        default_value_t = 24
+    )]
     pub sos_max_hours: i64,
 
     /// Most cells `GetCells` returns for one viewport.
@@ -75,7 +110,12 @@ pub struct GeoConfig {
 
     /// Location samples from the realtime gateway processed in parallel by
     /// one worker process (samples of one user always go through one lane).
-    #[arg(id = "geo_pipeline_lanes", long = "geo-pipeline-lanes", env = "TOKULY_GEO_PIPELINE_LANES", default_value_t = 16)]
+    #[arg(
+        id = "geo_pipeline_lanes",
+        long = "geo-pipeline-lanes",
+        env = "TOKULY_GEO_PIPELINE_LANES",
+        default_value_t = 16
+    )]
     pub pipeline_lanes: usize,
 }
 
@@ -105,9 +145,10 @@ impl Default for GeoConfig {
 impl GeoConfig {
     /// Rejects settings the domain cannot run with.
     pub fn validate(&self) -> anyhow::Result<()> {
-        for (name, meters) in
-            [("TOKULY_GEO_STAY_RADIUS_METERS", self.stay_radius_meters), ("TOKULY_GEO_GATHERING_RADIUS_METERS", self.gathering_radius_meters)]
-        {
+        for (name, meters) in [
+            ("TOKULY_GEO_STAY_RADIUS_METERS", self.stay_radius_meters),
+            ("TOKULY_GEO_GATHERING_RADIUS_METERS", self.gathering_radius_meters),
+        ] {
             anyhow::ensure!(meters.is_finite() && meters > 0.0, "{name} must be a positive number of meters");
         }
         for (name, value) in [
@@ -125,10 +166,15 @@ impl GeoConfig {
             anyhow::ensure!(value > 0, "{name} must be positive");
         }
         anyhow::ensure!(self.pipeline_lanes > 0, "TOKULY_GEO_PIPELINE_LANES must be positive");
-        for (name, url) in
-            [("TOKULY_GEOCODER_URL", &self.geocoder_url), ("TOKULY_ROUTING_URL", &self.routing_url), ("TOKULY_WEATHER_URL", &self.weather_url)]
-        {
-            anyhow::ensure!(url.is_empty() || url.starts_with("http://") || url.starts_with("https://"), "{name} must be an http(s) URL");
+        for (name, url) in [
+            ("TOKULY_GEOCODER_URL", &self.geocoder_url),
+            ("TOKULY_ROUTING_URL", &self.routing_url),
+            ("TOKULY_WEATHER_URL", &self.weather_url),
+        ] {
+            anyhow::ensure!(
+                url.is_empty() || url.starts_with("http://") || url.starts_with("https://"),
+                "{name} must be an http(s) URL"
+            );
         }
         Ok(())
     }

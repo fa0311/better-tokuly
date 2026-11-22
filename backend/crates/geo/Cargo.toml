@@ -29,14 +29,16 @@ redis.workspace = true
 clickhouse.workspace = true
 reqwest.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+# Positions round-trip through JSON (Valkey state, frozen pins in jsonb): they must come back bit for bit.
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 uuid.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
 clap.workspace = true
 tracing.workspace = true
 anyhow.workspace = true
-moka.workspace = true
+# The workspace enables the async cache only; the caches here are read on synchronous paths.
+moka = { workspace = true, features = ["sync"] }
 parking_lot.workspace = true
 h3o.workspace = true
 geo.workspace = true

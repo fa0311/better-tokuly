@@ -72,15 +72,32 @@ impl Geo {
         }
     }
 
-    pub(crate) async fn create_live_share(&self, owner: Uuid, duration_seconds: i32, label: &str) -> AppResult<LiveShare> {
-        ensure!((MIN_SECONDS..=MAX_SECONDS).contains(&duration_seconds), invalid, "INVALID_DURATION", "a live share lasts between 5 minutes and 24 hours");
+    pub(crate) async fn create_live_share(
+        &self,
+        owner: Uuid,
+        duration_seconds: i32,
+        label: &str,
+    ) -> AppResult<LiveShare> {
+        ensure!(
+            (MIN_SECONDS..=MAX_SECONDS).contains(&duration_seconds),
+            invalid,
+            "INVALID_DURATION",
+            "a live share lasts between 5 minutes and 24 hours"
+        );
         let label = label.trim();
-        ensure!(label.chars().count() <= MAX_LABEL_CHARS && !label.chars().any(char::is_control), invalid, "LABEL_TOO_LONG", "a label has at most {MAX_LABEL_CHARS} characters");
+        ensure!(
+            label.chars().count() <= MAX_LABEL_CHARS && !label.chars().any(char::is_control),
+            invalid,
+            "LABEL_TOO_LONG",
+            "a label has at most {MAX_LABEL_CHARS} characters"
+        );
         self.core.cache.rate_limit(&format!("geo-share:{owner}"), 20, Duration::from_secs(3600)).await?;
-        let active: i64 = sqlx::query_scalar("SELECT count(*) FROM geo_live_shares WHERE user_id = $1 AND ended_at IS NULL AND expires_at > now()")
-            .bind(owner)
-            .fetch_one(&self.core.db)
-            .await?;
+        let active: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM geo_live_shares WHERE user_id = $1 AND ended_at IS NULL AND expires_at > now()",
+        )
+        .bind(owner)
+        .fetch_one(&self.core.db)
+        .await?;
         ensure!(active < MAX_ACTIVE, precondition, "TOO_MANY_SHARES", "at most {MAX_ACTIVE} live shares at a time");
         let row: ShareRow = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "INSERT INTO geo_live_shares (user_id, token, label, expires_at) VALUES ($1, $2, $3, now() + make_interval(secs => $4))
@@ -121,11 +138,12 @@ impl Geo {
             }
             None => {
                 // Revoking twice is fine; revoking someone else's share is not a thing.
-                let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM geo_live_shares WHERE id = $1 AND user_id = $2)")
-                    .bind(share_id)
-                    .bind(owner)
-                    .fetch_one(&self.core.db)
-                    .await?;
+                let exists: bool =
+                    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM geo_live_shares WHERE id = $1 AND user_id = $2)")
+                        .bind(share_id)
+                        .bind(owner)
+                        .fetch_one(&self.core.db)
+                        .await?;
                 if exists { Ok(()) } else { Err(share_not_found()) }
             }
         }
@@ -174,13 +192,26 @@ impl Geo {
 
     /// Public: what a share link shows. `client_ip` rate-limits lookups and
     /// counts each visitor once an hour.
-    pub(crate) async fn get_live_share(&self, token: &str, client_ip: &str, ja: bool) -> AppResult<GetLiveShareResponse> {
+    pub(crate) async fn get_live_share(
+        &self,
+        token: &str,
+        client_ip: &str,
+        ja: bool,
+    ) -> AppResult<GetLiveShareResponse> {
         self.core.cache.rate_limit(&format!("geo-share-view:{client_ip}"), 120, Duration::from_secs(60)).await?;
         let share = self.live_share(token).await?;
         let user = tokuly_identity::summary(&self.core, share.user_id).await?;
         ensure!(!user.deleted, not_found, "SHARE_NOT_FOUND", "this share link does not exist or has ended");
-        if self.core.cache.set_nx(&format!("geo:share:seen:{}:{client_ip}", share.id.simple()), "1", Duration::from_secs(3600)).await? {
-            sqlx::query("UPDATE geo_live_shares SET view_count = view_count + 1 WHERE id = $1").bind(share.id).execute(&self.core.db).await?;
+        if self
+            .core
+            .cache
+            .set_nx(&format!("geo:share:seen:{}:{client_ip}", share.id.simple()), "1", Duration::from_secs(3600))
+            .await?
+        {
+            sqlx::query("UPDATE geo_live_shares SET view_count = view_count + 1 WHERE id = $1")
+                .bind(share.id)
+                .execute(&self.core.db)
+                .await?;
         }
         Ok(GetLiveShareResponse {
             user: user.into(),
@@ -192,7 +223,12 @@ impl Geo {
     }
 
     /// Public: the current position, then every update until the share ends.
-    pub(crate) async fn watch_live_share(&self, token: &str, client_ip: &str, ja: bool) -> AppResult<ServiceStream<WatchLiveShareResponse>> {
+    pub(crate) async fn watch_live_share(
+        &self,
+        token: &str,
+        client_ip: &str,
+        ja: bool,
+    ) -> AppResult<ServiceStream<WatchLiveShareResponse>> {
         self.core.cache.rate_limit(&format!("geo-share-watch:{client_ip}"), 30, Duration::from_secs(60)).await?;
         let share = self.live_share(token).await?;
         // Listen before reading the current position, so no update falls in between.
@@ -202,7 +238,11 @@ impl Geo {
         let shutdown = self.core.shutdown.clone();
         tokio::spawn(async move {
             if let Some(location) = current {
-                if sender.send(WatchLiveShareResponse { location: location.into(), ..Default::default() }).await.is_err() {
+                if sender
+                    .send(WatchLiveShareResponse { location: location.into(), ..Default::default() })
+                    .await
+                    .is_err()
+                {
                     return;
                 }
             }

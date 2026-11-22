@@ -53,10 +53,17 @@ impl Geo {
         let geo = self.clone();
         tokio::spawn(async move {
             let handler = geo.clone();
-            events::consume(geo.core.bus.clone(), "geo", consumers::TOPICS, ConsumeOptions::default(), geo.core.shutdown.clone(), move |event| {
-                let geo = handler.clone();
-                async move { geo.handle_event(&event).await }
-            })
+            events::consume(
+                geo.core.bus.clone(),
+                "geo",
+                consumers::TOPICS,
+                ConsumeOptions::default(),
+                geo.core.shutdown.clone(),
+                move |event| {
+                    let geo = handler.clone();
+                    async move { geo.handle_event(&event).await }
+                },
+            )
             .await;
         });
 
@@ -200,7 +207,18 @@ impl Geo {
             .collect();
         let filter = format!("{LOCATION_SUBJECT_PREFIX}.>");
         while !shutdown.is_cancelled() {
-            let consumer = match self.core.bus.durable_consumer(STREAM_LOCATIONS, LOCATION_CONSUMER, vec![filter.clone()], LOCATION_ACK_WAIT, LOCATION_MAX_DELIVER).await {
+            let consumer = match self
+                .core
+                .bus
+                .durable_consumer(
+                    STREAM_LOCATIONS,
+                    LOCATION_CONSUMER,
+                    vec![filter.clone()],
+                    LOCATION_ACK_WAIT,
+                    LOCATION_MAX_DELIVER,
+                )
+                .await
+            {
                 Ok(consumer) => consumer,
                 Err(e) => {
                     tracing::error!(error = %e, "location consumer setup failed; retrying");

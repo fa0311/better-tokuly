@@ -15,15 +15,12 @@ use tokuly_core::{
     outbound::{self, ActivityAudience, ActivityEntry, Localized, NotificationRequest},
     prelude::*,
 };
-use tokuly_proto::{
-    geo::*,
-    identity::Audience,
-};
+use tokuly_proto::{geo::*, identity::Audience};
 use tokuly_social::graph;
 
 use crate::{
     Geo,
-    ctx::Privacy,
+    ctx::OwnerCtx,
     math,
     regions::{KIND_ADMIN1, KIND_COUNTRY, RegionIndex, RegionMeta, WORLD_ID},
     state::RegionRef,
@@ -49,7 +46,10 @@ pub(crate) struct Uncovered {
 }
 
 pub(crate) fn audience_of(number: i32) -> Audience {
-    buffa::EnumValue::<Audience>::from(number).as_known().filter(|a| *a != Audience::AUDIENCE_UNSPECIFIED).unwrap_or(Audience::AUDIENCE_FRIENDS)
+    buffa::EnumValue::<Audience>::from(number)
+        .as_known()
+        .filter(|a| *a != Audience::AUDIENCE_UNSPECIFIED)
+        .unwrap_or(Audience::AUDIENCE_FRIENDS)
 }
 
 fn percent(explored_km2: f64, area_km2: f64) -> f64 {
@@ -69,14 +69,23 @@ fn region_stat(meta: &RegionMeta, cell_count: i64, explored_km2: f64, friend_ran
 
 fn new_region_copy(region: &RegionMeta) -> (Localized, Localized) {
     let (ja, en) = (region.display_name(true), region.display_name(false));
-    (Localized::new(format!("{ja}に初上陸!🎉"), format!("First time in {en}! 🎉")), Localized::new("足あとマップを見てみよう!", "Take a look at your footprint map!"))
+    (
+        Localized::new(format!("{ja}に初上陸!🎉"), format!("First time in {en}! 🎉")),
+        Localized::new("足あとマップを見てみよう!", "Take a look at your footprint map!"),
+    )
 }
 
 impl Geo {
     /// Marks cells as visited by a user at `at`. Cells already known change
     /// nothing. New regions are announced (activity entry and notification)
     /// in the same transaction.
-    pub(crate) async fn uncover(&self, user_id: Uuid, cells: &[CellIndex], at: DateTime<Utc>, privacy: &Privacy) -> AppResult<Uncovered> {
+    pub(crate) async fn uncover(
+        &self,
+        user_id: Uuid,
+        cells: &[CellIndex],
+        at: DateTime<Utc>,
+        owner: &OwnerCtx,
+    ) -> AppResult<Uncovered> {
         let mut out = Uncovered::default();
         if cells.is_empty() {
             return Ok(out);
@@ -115,7 +124,11 @@ impl Geo {
         .fetch_all(&mut *tx)
         .await?;
         if out.new_cells.is_empty() {
-            out.total = sqlx::query_scalar("SELECT cell_count FROM geo_users WHERE user_id = $1").bind(user_id).fetch_optional(&mut *tx).await?.unwrap_or(0);
+            out.total = sqlx::query_scalar("SELECT cell_count FROM geo_users WHERE user_id = $1")
+                .bind(user_id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .unwrap_or(0);
             return Ok(out);
         }
 
@@ -139,7 +152,9 @@ impl Geo {
             }
             for resolution in math::PARENT_RESOLUTIONS {
                 if let Some(parent) = cell.parent(resolution) {
-                    parents.entry((u8::from(resolution) as i16, math::cell_to_db(parent))).or_insert_with(|| math::cell_center(parent));
+                    parents
+                        .entry((u8::from(resolution) as i16, math::cell_to_db(parent)))
+                        .or_insert_with(|| math::cell_center(parent));
                 }
             }
         }
@@ -172,7 +187,7 @@ impl Geo {
              RETURNING cell_count",
         )
         .bind(user_id)
-        .bind(privacy.footprints_audience as i16)
+        .bind(owner.privacy.footprints_audience as i16)
         .bind(out.new_cells.len() as i64)
         .bind(added_km2)
         .fetch_one(&mut *tx)
@@ -197,7 +212,8 @@ impl Geo {
             .bind(areas)
             .fetch_all(&mut *tx)
             .await?;
-            let first_time: Vec<String> = touched.into_iter().filter(|(_, first_time)| *first_time).map(|(id, _)| id).collect();
+            let first_time: Vec<String> =
+                touched.into_iter().filter(|(_, first_time)| *first_time).map(|(id, _)| id).collect();
             if !first_time.is_empty() {
                 let index = self.region_index().await?;
                 let (country_count, admin1_count): (i64, i64) = sqlx::query_as(
@@ -207,24 +223,41 @@ impl Geo {
                 .bind(user_id)
                 .fetch_one(&mut *tx)
                 .await?;
-                let new_countries = first_time.iter().filter(|id| index.get(id).is_some_and(|r| r.kind == KIND_COUNTRY)).count() as i64;
+                let new_countries =
+                    first_time.iter().filter(|id| index.get(id).is_some_and(|r| r.kind == KIND_COUNTRY)).count() as i64;
                 let new_admin1s = first_time.len() as i64 - new_countries;
                 for id in &first_time {
                     let Some(region) = index.get(id) else { continue };
                     // The regions an account starts in are not an achievement.
-                    let had_before = if region.kind == KIND_COUNTRY { country_count - new_countries } else { admin1_count - new_admin1s };
+                    let had_before = if region.kind == KIND_COUNTRY {
+                        country_count - new_countries
+                    } else {
+                        admin1_count - new_admin1s
+                    };
                     let news = had_before > 0;
                     if news {
                         let (title, body) = new_region_copy(region);
-                        let audience = if privacy.footprints_audience == NOBODY { ActivityAudience::Private } else { ActivityAudience::Friends };
+                        let audience = if owner.privacy.footprints_audience == NOBODY {
+                            ActivityAudience::Private
+                        } else {
+                            ActivityAudience::Friends
+                        };
                         let entry = ActivityEntry::new(user_id, "geo.new_region", audience, title.clone())
                             .path("/footprints")
                             .at(region.center.0, region.center.1)
-                            .data(serde_json::json!({ "region_id": region.id, "kind": region.kind, "country_code": region.country_code }));
+                            // `region_code` and `region_name` are what the feed's recaps read.
+                            .data(serde_json::json!({
+                                "region_id": region.id,
+                                "region_code": region.id,
+                                "region_name": region.display_name(owner.ja),
+                                "kind": region.kind,
+                                "country_code": region.country_code,
+                            }));
                         outbound::activity(&mut *tx, &entry).await?;
-                        let notification = NotificationRequest::new(user_id, "geo.new_region", title, body, "/footprints")
-                            .collapse(format!("geo.new_region:{}", region.id))
-                            .data(serde_json::json!({ "region_id": region.id }));
+                        let notification =
+                            NotificationRequest::new(user_id, "geo.new_region", title, body, "/footprints")
+                                .collapse(format!("geo.new_region:{}", region.id))
+                                .data(serde_json::json!({ "region_id": region.id }));
                         outbound::notify(&mut *tx, &notification).await?;
                     }
                     out.new_regions.push((region.clone(), news));
@@ -237,9 +270,17 @@ impl Geo {
 
     /// Recomputes the parent cells and every total of a user from their
     /// resolution-9 cells (after cells were deleted).
-    pub(crate) async fn rebuild_footprints(&self, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, user_id: Uuid) -> AppResult<()> {
-        let cells: Vec<(i64, DateTime<Utc>, String, String)> =
-            sqlx::query_as("SELECT cell, first_at, country_id, admin1_id FROM geo_cells WHERE user_id = $1 AND res = 9").bind(user_id).fetch_all(&mut **tx).await?;
+    pub(crate) async fn rebuild_footprints(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        user_id: Uuid,
+    ) -> AppResult<()> {
+        let cells: Vec<(i64, DateTime<Utc>, String, String)> = sqlx::query_as(
+            "SELECT cell, first_at, country_id, admin1_id FROM geo_cells WHERE user_id = $1 AND res = 9",
+        )
+        .bind(user_id)
+        .fetch_all(&mut **tx)
+        .await?;
         let mut parents: BTreeMap<(i16, i64), ((f64, f64), DateTime<Utc>)> = BTreeMap::new();
         let mut per_region: BTreeMap<String, (i64, f64, DateTime<Utc>)> = BTreeMap::new();
         let mut total_km2 = 0.0;
@@ -257,7 +298,9 @@ impl Geo {
             }
             for resolution in math::PARENT_RESOLUTIONS {
                 if let Some(parent) = cell.parent(resolution) {
-                    let entry = parents.entry((u8::from(resolution) as i16, math::cell_to_db(parent))).or_insert_with(|| (math::cell_center(parent), *first_at));
+                    let entry = parents
+                        .entry((u8::from(resolution) as i16, math::cell_to_db(parent)))
+                        .or_insert_with(|| (math::cell_center(parent), *first_at));
                     entry.1 = entry.1.min(*first_at);
                 }
             }
@@ -307,7 +350,12 @@ impl Geo {
             return Ok((owner, true));
         }
         let ctx = self.ctx_of(owner).await?;
-        ensure!(ctx.active && !graph::is_blocked_either(&self.core, owner, viewer).await?, not_found, "USER_NOT_FOUND", "user not found");
+        ensure!(
+            ctx.active && !graph::is_blocked_either(&self.core, owner, viewer).await?,
+            not_found,
+            "USER_NOT_FOUND",
+            "user not found"
+        );
         let full = graph::allows(&self.core, owner, Some(viewer), audience_of(ctx.privacy.footprints_audience)).await?;
         Ok((owner, full))
     }
@@ -331,18 +379,30 @@ impl Geo {
     pub(crate) async fn explored_summary(&self, user_id: Uuid) -> AppResult<(f64, i32)> {
         let index = self.region_index().await?;
         let rows: Vec<(String, i64, f64)> =
-            sqlx::query_as("SELECT region_id, cell_count, explored_km2 FROM geo_region_stats WHERE user_id = $1").bind(user_id).fetch_all(&self.core.db).await?;
-        let countries: Vec<(&RegionMeta, i64, f64)> =
-            rows.iter().filter_map(|(id, cells, km2)| index.get(id).filter(|r| r.kind == KIND_COUNTRY).map(|r| (r, *cells, *km2))).collect();
+            sqlx::query_as("SELECT region_id, cell_count, explored_km2 FROM geo_region_stats WHERE user_id = $1")
+                .bind(user_id)
+                .fetch_all(&self.core.db)
+                .await?;
+        let countries: Vec<(&RegionMeta, i64, f64)> = rows
+            .iter()
+            .filter_map(|(id, cells, km2)| index.get(id).filter(|r| r.kind == KIND_COUNTRY).map(|r| (r, *cells, *km2)))
+            .collect();
         if countries.is_empty() {
             return Ok((0.0, 0));
         }
-        let home: Option<(f64, f64)> = sqlx::query_as("SELECT lat, lng FROM geo_places WHERE owner_id = $1 AND label = 1").bind(user_id).fetch_optional(&self.core.db).await?;
+        let home: Option<(f64, f64)> =
+            sqlx::query_as("SELECT lat, lng FROM geo_places WHERE owner_id = $1 AND label = 1")
+                .bind(user_id)
+                .fetch_optional(&self.core.db)
+                .await?;
         let home_country = match home {
             Some((lat, lng)) => self.regions_at(lat, lng).await?.country_id,
             None => String::new(),
         };
-        let best = countries.iter().find(|(region, _, _)| region.id == home_country).or_else(|| countries.iter().max_by_key(|(_, cells, _)| *cells));
+        let best = countries
+            .iter()
+            .find(|(region, _, _)| region.id == home_country)
+            .or_else(|| countries.iter().max_by_key(|(_, cells, _)| *cells));
         Ok((best.map_or(0.0, |(region, _, km2)| percent(*km2, region.area_km2)), countries.len() as i32))
     }
 }
@@ -369,7 +429,12 @@ enum Rivals {
 /// Starts a query over the ranked users of a region (`None` = the world,
 /// ranked by the totals in `geo_users`). Callers append ordering or more
 /// conditions.
-fn ranking_query<'a>(select: &str, region_id: Option<&'a str>, viewer: Uuid, rivals: &'a Rivals) -> sqlx::QueryBuilder<'a, sqlx::Postgres> {
+fn ranking_query(
+    select: &str,
+    region_id: Option<&str>,
+    viewer: Uuid,
+    rivals: &Rivals,
+) -> sqlx::QueryBuilder<sqlx::Postgres> {
     let mut query = sqlx::QueryBuilder::new(select);
     match region_id {
         Some(id) => {
@@ -405,11 +470,16 @@ fn world_stat(index: &RegionIndex, cell_count: i64, explored_km2: f64, friend_ra
 }
 
 impl FootprintService for Geo {
-    async fn get_cells(&self, ctx: RequestContext, request: ServiceRequest<'_, GetCellsRequest>) -> ServiceResult<GetCellsResponse> {
+    async fn get_cells(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, GetCellsRequest>,
+    ) -> ServiceResult<GetCellsResponse> {
         handle(async {
             let viewer = ctx.user_id()?;
             let req = request.to_owned_message();
-            let bounds = req.bounds.as_option().ok_or_else(|| AppError::invalid("INVALID_BOUNDS", "a viewport is required"))?;
+            let bounds =
+                req.bounds.as_option().ok_or_else(|| AppError::invalid("INVALID_BOUNDS", "a viewport is required"))?;
             let (Some(sw), Some(ne)) = (bounds.south_west.as_option(), bounds.north_east.as_option()) else {
                 bail!(invalid, "INVALID_BOUNDS", "a viewport is required");
             };
@@ -457,7 +527,11 @@ impl FootprintService for Geo {
         .await
     }
 
-    async fn get_stats(&self, ctx: RequestContext, request: ServiceRequest<'_, GetFootprintStatsRequest>) -> ServiceResult<GetFootprintStatsResponse> {
+    async fn get_stats(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, GetFootprintStatsRequest>,
+    ) -> ServiceResult<GetFootprintStatsResponse> {
         handle(async {
             let viewer = ctx.user_id()?;
             let req = request.to_owned_message();
@@ -532,7 +606,11 @@ impl FootprintService for Geo {
         .await
     }
 
-    async fn get_leaderboard(&self, ctx: RequestContext, request: ServiceRequest<'_, GetLeaderboardRequest>) -> ServiceResult<GetLeaderboardResponse> {
+    async fn get_leaderboard(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, GetLeaderboardRequest>,
+    ) -> ServiceResult<GetLeaderboardResponse> {
         handle(async {
             let viewer = ctx.user_id()?;
             let limit = if request.limit <= 0 { 20 } else { request.limit.min(100) } as i64;
@@ -610,7 +688,11 @@ impl FootprintService for Geo {
         .await
     }
 
-    async fn get_recap(&self, ctx: RequestContext, request: ServiceRequest<'_, GetRecapRequest>) -> ServiceResult<GetRecapResponse> {
+    async fn get_recap(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, GetRecapRequest>,
+    ) -> ServiceResult<GetRecapResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let db = &self.core.db;
@@ -723,7 +805,15 @@ mod tests {
 
     #[test]
     fn new_regions_are_announced_in_both_languages() {
-        let tokyo = RegionMeta { id: "JP-13".into(), kind: KIND_ADMIN1, name: "Tokyo".into(), name_ja: "東京都".into(), country_code: "JP".into(), area_km2: 2194.0, center: (35.7, 139.7) };
+        let tokyo = RegionMeta {
+            id: "JP-13".into(),
+            kind: KIND_ADMIN1,
+            name: "Tokyo".into(),
+            name_ja: "東京都".into(),
+            country_code: "JP".into(),
+            area_km2: 2194.0,
+            center: (35.7, 139.7),
+        };
         let (title, _) = new_region_copy(&tokyo);
         assert_eq!(title.ja, "東京都に初上陸!🎉");
         assert_eq!(title.en, "First time in Tokyo! 🎉");

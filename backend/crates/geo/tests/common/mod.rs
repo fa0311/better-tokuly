@@ -13,7 +13,10 @@ use tokuly_proto::{
     geo::{geo_event::Event as Push, *},
     identity::{PrivacySettings, UpdateSettingsRequest, UpdateSettingsResponse},
     realtime::server_frame::Body,
-    social::{FriendSource, RemoveFriendRequest, RemoveFriendResponse, RespondFriendRequestRequest, RespondFriendRequestResponse, SendFriendRequestRequest, SendFriendRequestResponse, send_friend_request_request},
+    social::{
+        FriendSource, RemoveFriendRequest, RemoveFriendResponse, RespondFriendRequestRequest,
+        RespondFriendRequestResponse, SendFriendRequestRequest, SendFriendRequestResponse, send_friend_request_request,
+    },
 };
 use tokuly_social::{Social, SocialConfig};
 use tokuly_testkit::{FrameListener, RpcError, TestApp, TestUser};
@@ -56,31 +59,67 @@ pub async fn start_with(cfg: GeoConfig) -> Ctx {
 
 impl Ctx {
     /// Calls an RPC of `tokuly.geo.v1.<service>`.
-    pub async fn rpc<Req: serde::Serialize, Resp: serde::de::DeserializeOwned>(&self, service: &str, method: &str, user: &TestUser, request: &Req) -> Result<Resp, RpcError> {
+    pub async fn rpc<Req: serde::Serialize, Resp: serde::de::DeserializeOwned>(
+        &self,
+        service: &str,
+        method: &str,
+        user: &TestUser,
+        request: &Req,
+    ) -> Result<Resp, RpcError> {
         self.app.call(&format!("tokuly.geo.v1.{service}/{method}"), Some(user), request).await
     }
 
-    pub async fn location<Req: serde::Serialize, Resp: serde::de::DeserializeOwned>(&self, method: &str, user: &TestUser, request: &Req) -> Result<Resp, RpcError> {
+    pub async fn location<Req: serde::Serialize, Resp: serde::de::DeserializeOwned>(
+        &self,
+        method: &str,
+        user: &TestUser,
+        request: &Req,
+    ) -> Result<Resp, RpcError> {
         self.rpc("LocationService", method, user, request).await
     }
 
-    pub async fn places<Req: serde::Serialize, Resp: serde::de::DeserializeOwned>(&self, method: &str, user: &TestUser, request: &Req) -> Result<Resp, RpcError> {
+    pub async fn places<Req: serde::Serialize, Resp: serde::de::DeserializeOwned>(
+        &self,
+        method: &str,
+        user: &TestUser,
+        request: &Req,
+    ) -> Result<Resp, RpcError> {
         self.rpc("PlaceService", method, user, request).await
     }
 
-    pub async fn history<Req: serde::Serialize, Resp: serde::de::DeserializeOwned>(&self, method: &str, user: &TestUser, request: &Req) -> Result<Resp, RpcError> {
+    pub async fn history<Req: serde::Serialize, Resp: serde::de::DeserializeOwned>(
+        &self,
+        method: &str,
+        user: &TestUser,
+        request: &Req,
+    ) -> Result<Resp, RpcError> {
         self.rpc("HistoryService", method, user, request).await
     }
 
-    pub async fn footprints<Req: serde::Serialize, Resp: serde::de::DeserializeOwned>(&self, method: &str, user: &TestUser, request: &Req) -> Result<Resp, RpcError> {
+    pub async fn footprints<Req: serde::Serialize, Resp: serde::de::DeserializeOwned>(
+        &self,
+        method: &str,
+        user: &TestUser,
+        request: &Req,
+    ) -> Result<Resp, RpcError> {
         self.rpc("FootprintService", method, user, request).await
     }
 
-    pub async fn trips<Req: serde::Serialize, Resp: serde::de::DeserializeOwned>(&self, method: &str, user: &TestUser, request: &Req) -> Result<Resp, RpcError> {
+    pub async fn trips<Req: serde::Serialize, Resp: serde::de::DeserializeOwned>(
+        &self,
+        method: &str,
+        user: &TestUser,
+        request: &Req,
+    ) -> Result<Resp, RpcError> {
         self.rpc("TripService", method, user, request).await
     }
 
-    pub async fn safety<Req: serde::Serialize, Resp: serde::de::DeserializeOwned>(&self, method: &str, user: &TestUser, request: &Req) -> Result<Resp, RpcError> {
+    pub async fn safety<Req: serde::Serialize, Resp: serde::de::DeserializeOwned>(
+        &self,
+        method: &str,
+        user: &TestUser,
+        request: &Req,
+    ) -> Result<Resp, RpcError> {
         self.rpc("SafetyService", method, user, request).await
     }
 
@@ -91,25 +130,46 @@ impl Ctx {
             source: FriendSource::FRIEND_SOURCE_PROFILE.into(),
             ..Default::default()
         };
-        let sent: SendFriendRequestResponse = self.app.call("tokuly.social.v1.FriendService/SendFriendRequest", Some(a), &request).await.expect("send friend request");
+        let sent: SendFriendRequestResponse = self
+            .app
+            .call("tokuly.social.v1.FriendService/SendFriendRequest", Some(a), &request)
+            .await
+            .expect("send friend request");
         let Some(request) = sent.request.as_option() else { return };
         let _: RespondFriendRequestResponse = self
             .app
-            .call("tokuly.social.v1.FriendService/RespondFriendRequest", Some(b), &RespondFriendRequestRequest { request_id: request.id.clone(), accept: true, ..Default::default() })
+            .call(
+                "tokuly.social.v1.FriendService/RespondFriendRequest",
+                Some(b),
+                &RespondFriendRequestRequest { request_id: request.id.clone(), accept: true, ..Default::default() },
+            )
             .await
             .expect("accept");
     }
 
     /// Ends a friendship through the social API and delivers the event the geo domain would consume.
     pub async fn unfriend(&self, a: &TestUser, b: &TestUser) {
-        let _: RemoveFriendResponse =
-            self.app.call("tokuly.social.v1.FriendService/RemoveFriend", Some(a), &RemoveFriendRequest { user_id: b.id.to_string(), ..Default::default() }).await.expect("remove friend");
-        self.deliver("social.friend.removed", a.id, serde_json::json!({ "user_id": a.id, "friend_id": b.id, "blocked": false })).await;
+        let _: RemoveFriendResponse = self
+            .app
+            .call(
+                "tokuly.social.v1.FriendService/RemoveFriend",
+                Some(a),
+                &RemoveFriendRequest { user_id: b.id.to_string(), ..Default::default() },
+            )
+            .await
+            .expect("remove friend");
+        self.deliver(
+            "social.friend.removed",
+            a.id,
+            serde_json::json!({ "user_id": a.id, "friend_id": b.id, "blocked": false }),
+        )
+        .await;
     }
 
     /// Delivers an event to the geo domain's consumer (no relay runs in tests).
     pub async fn deliver(&self, topic: &str, actor: Uuid, data: serde_json::Value) {
-        let event = Event { id: Uuid::now_v7(), topic: topic.to_owned(), actor_id: Some(actor), occurred_at: Utc::now(), data };
+        let event =
+            Event { id: Uuid::now_v7(), topic: topic.to_owned(), actor_id: Some(actor), occurred_at: Utc::now(), data };
         self.geo.handle_event(&event).await.unwrap_or_else(|e| panic!("handling {topic}: {e}"));
     }
 
@@ -119,7 +179,11 @@ impl Ctx {
         change(&mut privacy);
         let _: UpdateSettingsResponse = self
             .app
-            .call("tokuly.identity.v1.AccountService/UpdateSettings", Some(user), &UpdateSettingsRequest { privacy: privacy.into(), ..Default::default() })
+            .call(
+                "tokuly.identity.v1.AccountService/UpdateSettings",
+                Some(user),
+                &UpdateSettingsRequest { privacy: privacy.into(), ..Default::default() },
+            )
             .await
             .expect("update settings");
         self.deliver("identity.user.privacy_changed", user.id, serde_json::json!({ "user_id": user.id })).await;
@@ -127,7 +191,9 @@ impl Ctx {
 
     /// Uploads samples through `ReportLocations`.
     pub async fn report(&self, user: &TestUser, samples: Vec<LocationSample>) -> ReportLocationsResponse {
-        self.location("ReportLocations", user, &ReportLocationsRequest { samples, ..Default::default() }).await.expect("report locations")
+        self.location("ReportLocations", user, &ReportLocationsRequest { samples, ..Default::default() })
+            .await
+            .expect("report locations")
     }
 
     /// One good fix at `point`, right now.
@@ -152,7 +218,10 @@ impl Ctx {
     }
 
     pub async fn friend_locations(&self, viewer: &TestUser) -> Vec<FriendLocation> {
-        let response: ListFriendLocationsResponse = self.location("ListFriendLocations", viewer, &ListFriendLocationsRequest::default()).await.expect("list friend locations");
+        let response: ListFriendLocationsResponse = self
+            .location("ListFriendLocations", viewer, &ListFriendLocationsRequest::default())
+            .await
+            .expect("list friend locations");
         response.locations
     }
 
@@ -165,8 +234,19 @@ impl Ctx {
         self.location("GetMyLocation", user, &GetMyLocationRequest::default()).await.expect("get my location")
     }
 
-    pub async fn ghost(&self, user: &TestUser, viewers: &[&TestUser], mode: GhostMode, duration_seconds: i32) -> Result<GetGhostSettingsResponse, RpcError> {
-        let request = SetGhostModeRequest { user_ids: viewers.iter().map(|viewer| viewer.id.to_string()).collect(), mode: mode.into(), duration_seconds, ..Default::default() };
+    pub async fn ghost(
+        &self,
+        user: &TestUser,
+        viewers: &[&TestUser],
+        mode: GhostMode,
+        duration_seconds: i32,
+    ) -> Result<GetGhostSettingsResponse, RpcError> {
+        let request = SetGhostModeRequest {
+            user_ids: viewers.iter().map(|viewer| viewer.id.to_string()).collect(),
+            mode: mode.into(),
+            duration_seconds,
+            ..Default::default()
+        };
         let response: SetGhostModeResponse = self.location("SetGhostMode", user, &request).await?;
         Ok(response.settings.into_option().expect("settings"))
     }
@@ -183,13 +263,24 @@ impl Ctx {
 
     /// Activity entries (`activity.recorded`) of `user`, by kind.
     pub async fn activities_of(&self, user: Uuid, kind: &str) -> Vec<Event> {
-        self.app.events_by("activity.recorded", user).await.into_iter().filter(|e| e.data["kind"] == serde_json::json!(kind)).collect()
+        self.app
+            .events_by("activity.recorded", user)
+            .await
+            .into_iter()
+            .filter(|e| e.data["kind"] == serde_json::json!(kind))
+            .collect()
     }
 }
 
 /// A device reading with good accuracy.
 pub fn sample(point: Point, at: DateTime<Utc>) -> LocationSample {
-    LocationSample { position: lat_lng(point).into(), accuracy_meters: 8.0, recorded_at: tokuly_core::time::ts(at), foreground: true, ..Default::default() }
+    LocationSample {
+        position: lat_lng(point).into(),
+        accuracy_meters: 8.0,
+        recorded_at: tokuly_core::time::ts(at),
+        foreground: true,
+        ..Default::default()
+    }
 }
 
 pub fn lat_lng((lat, lng): Point) -> LatLng {
@@ -224,6 +315,27 @@ pub fn offset(origin: Point, bearing: f64, meters: f64) -> Point {
 pub fn distance(a: Point, b: Point) -> f64 {
     math::distance(a, b)
 }
+
+/// Whether two points are the same spot. Coordinates travel through JSON,
+/// which may change the last bit of a float: equality is "within a centimeter".
+pub fn at(a: Point, b: Point) -> bool {
+    math::distance(a, b) < 0.01
+}
+
+/// Asserts that a position is where it should be (see [`at`]).
+#[allow(unused_macros)] // not every test binary compares positions
+macro_rules! assert_at {
+    ($actual:expr, $expected:expr $(,)?) => {{
+        let (actual, expected) = ($actual, $expected);
+        assert!($crate::common::at(actual, expected), "expected {expected:?}, got {actual:?}");
+    }};
+    ($actual:expr, $expected:expr, $($message:tt)+) => {{
+        let (actual, expected) = ($actual, $expected);
+        assert!($crate::common::at(actual, expected), "expected {expected:?}, got {actual:?}: {}", format!($($message)+));
+    }};
+}
+#[allow(unused_imports)] // not every test binary compares positions
+pub(crate) use assert_at;
 
 pub fn minutes_ago(minutes: i64) -> DateTime<Utc> {
     Utc::now() - chrono::Duration::minutes(minutes)

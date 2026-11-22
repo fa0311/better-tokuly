@@ -13,7 +13,6 @@ use crate::{
     Geo,
     ctx::{FrozenPin, OwnerCtx},
     state::Pin,
-    visibility,
 };
 
 const PRECISE: i32 = GhostMode::GHOST_MODE_PRECISE as i32;
@@ -62,25 +61,50 @@ impl Geo {
                 overrides.insert(viewer_id.to_string(), rule);
             }
         }
-        Ok(GetGhostSettingsResponse { everyone: everyone.into(), overrides: overrides.into_iter().collect(), ..Default::default() })
+        Ok(GetGhostSettingsResponse {
+            everyone: everyone.into(),
+            overrides: overrides.into_iter().collect(),
+            ..Default::default()
+        })
     }
 
     /// Sets the default ghost mode (`viewers` empty) or overrides for some friends.
-    pub(crate) async fn set_ghost_mode(&self, owner: Uuid, viewers: &[String], mode: buffa::EnumValue<GhostMode>, duration_seconds: i32) -> AppResult<()> {
+    pub(crate) async fn set_ghost_mode(
+        &self,
+        owner: Uuid,
+        viewers: &[String],
+        mode: buffa::EnumValue<GhostMode>,
+        duration_seconds: i32,
+    ) -> AppResult<()> {
         let mode = match mode.as_known() {
             Some(GhostMode::GHOST_MODE_PRECISE) => PRECISE,
             Some(GhostMode::GHOST_MODE_BLURRED) => BLURRED,
             Some(GhostMode::GHOST_MODE_FROZEN) => FROZEN,
             _ => bail!(invalid, "INVALID_GHOST_MODE", "ghost mode must be precise, blurred or frozen"),
         };
-        ensure!((0..=MAX_DURATION_SECONDS).contains(&duration_seconds), invalid, "INVALID_DURATION", "a ghost mode lasts at most 30 days");
-        ensure!(viewers.len() <= MAX_OVERRIDES_PER_CALL, invalid, "TOO_MANY_USERS", "at most {MAX_OVERRIDES_PER_CALL} friends per call");
+        ensure!(
+            (0..=MAX_DURATION_SECONDS).contains(&duration_seconds),
+            invalid,
+            "INVALID_DURATION",
+            "a ghost mode lasts at most 30 days"
+        );
+        ensure!(
+            viewers.len() <= MAX_OVERRIDES_PER_CALL,
+            invalid,
+            "TOO_MANY_USERS",
+            "at most {MAX_OVERRIDES_PER_CALL} friends per call"
+        );
         let mut viewers = parse_ids(viewers)?;
         viewers.sort();
         viewers.dedup();
         if !viewers.is_empty() {
             let friends = graph::friend_ids(&self.core, owner).await?;
-            ensure!(viewers.iter().all(|viewer| friends.contains(viewer)), precondition, "NOT_FRIENDS", "ghost mode can only be set for friends");
+            ensure!(
+                viewers.iter().all(|viewer| friends.contains(viewer)),
+                precondition,
+                "NOT_FRIENDS",
+                "ghost mode can only be set for friends"
+            );
         }
 
         // Under the owner's pipeline lock: the frozen copy must be exactly the
@@ -144,7 +168,9 @@ impl Geo {
     /// the pin they see now. Returns how many rules ended.
     pub async fn expire_ghost_rules(&self) -> AppResult<u64> {
         let ended: Vec<(Uuid, Uuid)> =
-            sqlx::query_as("DELETE FROM geo_ghost_rules WHERE until <= now() RETURNING owner_id, viewer_id").fetch_all(&self.core.db).await?;
+            sqlx::query_as("DELETE FROM geo_ghost_rules WHERE until <= now() RETURNING owner_id, viewer_id")
+                .fetch_all(&self.core.db)
+                .await?;
         let mut by_owner: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
         for (owner, viewer) in &ended {
             by_owner.entry(*owner).or_default().push(*viewer);
@@ -164,7 +190,11 @@ impl Geo {
                 .await?;
             }
             self.invalidate_ctx(&[owner]).await;
-            let refreshed = if default_ended { self.refresh_friends(owner).await } else { self.refresh_viewers(owner, &viewers).await };
+            let refreshed = if default_ended {
+                self.refresh_friends(owner).await
+            } else {
+                self.refresh_viewers(owner, &viewers).await
+            };
             if let Err(e) = refreshed {
                 tracing::warn!(%owner, error = %e, "could not refresh pins after a ghost rule ended");
             }
@@ -180,11 +210,6 @@ impl Geo {
             .execute(&self.core.db)
             .await?;
         Ok(())
-    }
-
-    /// The `GhostMode` number `viewer` is under for `owner` right now.
-    pub(crate) async fn ghost_mode_between(&self, owner: Uuid, viewer: Uuid) -> AppResult<i32> {
-        Ok(visibility::mode_for(&self.ctx_of(owner).await?, viewer, Utc::now()))
     }
 }
 
@@ -240,7 +265,8 @@ mod tests {
     fn an_expired_frozen_rule_does_not_carry_over() {
         let now = Utc::now();
         let stale = FrozenPin { pin: pin(35.0), base: PRECISE };
-        let expired = GhostRule { mode: FROZEN, since_ms: 0, until_ms: Some(now.timestamp_millis() - 1), frozen: Some(stale) };
+        let expired =
+            GhostRule { mode: FROZEN, since_ms: 0, until_ms: Some(now.timestamp_millis() - 1), frozen: Some(stale) };
         let config = ctx(GhostConfig { everyone: Some(expired), ..Default::default() });
         let fresh = frozen_copy(&config, None, Some(&pin(36.0)), now).unwrap();
         assert_eq!(fresh.pin.lat, 36.0);

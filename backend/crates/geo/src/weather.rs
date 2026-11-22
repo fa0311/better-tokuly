@@ -69,14 +69,18 @@ impl Geo {
         if self.cfg.weather_url.is_empty() || points.iter().all(Option::is_none) {
             return vec![None; points.len()];
         }
-        let keys: Vec<String> = points.iter().map(|point| point.map_or_else(|| "geo:wx:none".to_owned(), |point| cache_key(cell(point)))).collect();
-        let cached: Vec<Option<Vec<u8>>> = match redis::cmd("MGET").arg(&keys).query_async(&mut self.core.cache.conn()).await {
-            Ok(values) => values,
-            Err(e) => {
-                tracing::debug!(error = %e, "weather cache unavailable");
-                return vec![None; points.len()];
-            }
-        };
+        let keys: Vec<String> = points
+            .iter()
+            .map(|point| point.map_or_else(|| "geo:wx:none".to_owned(), |point| cache_key(cell(point))))
+            .collect();
+        let cached: Vec<Option<Vec<u8>>> =
+            match redis::cmd("MGET").arg(&keys).query_async(&mut self.core.cache.conn()).await {
+                Ok(values) => values,
+                Err(e) => {
+                    tracing::debug!(error = %e, "weather cache unavailable");
+                    return vec![None; points.len()];
+                }
+            };
         let mut out = Vec::with_capacity(points.len());
         let mut requested = Vec::new();
         for (point, bytes) in points.iter().zip(cached) {
@@ -119,14 +123,21 @@ impl Geo {
             .core
             .http
             .get(url)
-            .query(&[("latitude", format!("{:.2}", point.0)), ("longitude", format!("{:.2}", point.1)), ("current", "temperature_2m,weather_code,is_day".to_owned())])
+            .query(&[
+                ("latitude", format!("{:.2}", point.0)),
+                ("longitude", format!("{:.2}", point.1)),
+                ("current", "temperature_2m,weather_code,is_day".to_owned()),
+            ])
             .timeout(Duration::from_secs(5))
             .send()
             .await?
             .error_for_status()?
             .json()
             .await?;
-        Ok(Weather { temperature_c: forecast.current.temperature_2m, icon: icon_for(forecast.current.weather_code, forecast.current.is_day != 0).to_owned() })
+        Ok(Weather {
+            temperature_c: forecast.current.temperature_2m,
+            icon: icon_for(forecast.current.weather_code, forecast.current.is_day != 0).to_owned(),
+        })
     }
 }
 
@@ -163,7 +174,10 @@ mod tests {
         let body = r#"{"latitude":35.7,"longitude":139.69,"current_units":{"temperature_2m":"°C"},
                        "current":{"time":"2026-11-20T12:00","interval":900,"temperature_2m":14.3,"weather_code":61,"is_day":1}}"#;
         let forecast: Forecast = serde_json::from_str(body).unwrap();
-        assert_eq!((forecast.current.temperature_2m, forecast.current.weather_code, forecast.current.is_day), (14.3, 61, 1));
+        assert_eq!(
+            (forecast.current.temperature_2m, forecast.current.weather_code, forecast.current.is_day),
+            (14.3, 61, 1)
+        );
         // Older servers without the extra fields still give a temperature.
         let minimal: Forecast = serde_json::from_str(r#"{"current":{"temperature_2m":-2.0}}"#).unwrap();
         assert_eq!((minimal.current.weather_code, minimal.current.is_day), (0, 1));

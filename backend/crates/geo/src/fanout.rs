@@ -84,7 +84,10 @@ impl Geo {
             }
         }
         if !unknown.is_empty() {
-            let rows: Vec<(Uuid, String)> = sqlx::query_as("SELECT id, locale FROM users WHERE id = ANY($1)").bind(&unknown).fetch_all(&self.core.db).await?;
+            let rows: Vec<(Uuid, String)> = sqlx::query_as("SELECT id, locale FROM users WHERE id = ANY($1)")
+                .bind(&unknown)
+                .fetch_all(&self.core.db)
+                .await?;
             for (user_id, locale) in rows {
                 let ja = locale.to_ascii_lowercase().starts_with("ja");
                 self.locales.insert(user_id, ja);
@@ -108,7 +111,14 @@ impl Geo {
     /// ghost rule. Friends who see a frozen pin get nothing — a frozen pin
     /// does not move — unless `refresh` is set, which re-sends everyone their
     /// current view (after a change to ghost rules, privacy or status).
-    pub(crate) async fn fan_out(&self, owner: Uuid, pin: Option<&Pin>, ctx: &OwnerCtx, audience: Audience<'_>, refresh: bool) -> AppResult<()> {
+    pub(crate) async fn fan_out(
+        &self,
+        owner: Uuid,
+        pin: Option<&Pin>,
+        ctx: &OwnerCtx,
+        audience: Audience<'_>,
+        refresh: bool,
+    ) -> AppResult<()> {
         let friends = match audience {
             Audience::Friends => graph::friend_ids(&self.core, owner).await?,
             Audience::Only(ids) => ids.to_vec(),
@@ -156,21 +166,30 @@ impl Geo {
     /// Publishes the owner's pin on the topic of each of their live shares.
     pub(crate) async fn publish_shares(&self, owner: Uuid, pin: &Pin, ctx: &OwnerCtx) {
         let now = Utc::now();
-        let live: Vec<&str> = ctx.shares.iter().filter(|share| share.expires_ms > now.timestamp_millis()).map(|share| share.token.as_str()).collect();
+        let live: Vec<&str> = ctx
+            .shares
+            .iter()
+            .filter(|share| share.expires_ms > now.timestamp_millis())
+            .map(|share| share.token.as_str())
+            .collect();
         if live.is_empty() {
             return;
         }
         let subject = Subject { id: owner, pin: Some(pin), ctx, online: false, weather: None };
         let Some(view) = visibility::share_view(&self.view_env(now), &subject, ctx.ja) else { return };
         for token in live {
-            self.core.rt.notify_topic(&crate::shares::topic(token), frame(Event::Location(Box::new(view.clone())))).await;
+            self.core
+                .rt
+                .notify_topic(&crate::shares::topic(token), frame(Event::Location(Box::new(view.clone()))))
+                .await;
         }
     }
 
     /// Tells friends that the owner arrived at or left a place — those who
     /// see the precise pin, and only what each may know about the place.
     pub(crate) async fn push_visit_news(&self, owner: Uuid, ctx: &OwnerCtx, news: &[VisitNews]) -> AppResult<()> {
-        let with_place: Vec<(&VisitNews, &StayPlace)> = news.iter().filter_map(|item| item.place.as_ref().map(|place| (item, place))).collect();
+        let with_place: Vec<(&VisitNews, &StayPlace)> =
+            news.iter().filter_map(|item| item.place.as_ref().map(|place| (item, place))).collect();
         if with_place.is_empty() || !ctx.active {
             return Ok(());
         }
@@ -181,7 +200,9 @@ impl Geo {
             }
             let share_labels = ctx.privacy.share_place_labels || ctx.sos_for(viewer);
             for (item, place) in &with_place {
-                let Some(shown) = visibility::shown_place(owner, place, share_labels, Some(viewer), true) else { continue };
+                let Some(shown) = visibility::shown_place(owner, place, share_labels, Some(viewer), true) else {
+                    continue;
+                };
                 let event = VisitEvent {
                     user_id: owner.to_string(),
                     arrived: item.arrived,
@@ -205,7 +226,8 @@ impl Geo {
         let states = self.load_states(&friends).await?;
         let contexts = self.ctx_many(&friends).await?;
         let online: HashSet<Uuid> = presence::online_among(&self.core.cache, &friends).await?.into_iter().collect();
-        let positions: Vec<Option<Point>> = states.iter().map(|state| state.as_ref().filter(|s| s.located()).map(|s| s.pin.position())).collect();
+        let positions: Vec<Option<Point>> =
+            states.iter().map(|state| state.as_ref().filter(|s| s.located()).map(|s| s.pin.position())).collect();
         let weather = self.weather_at(&positions).await;
         let now = Utc::now();
         let env = self.view_env(now);
@@ -264,6 +286,9 @@ impl Geo {
         let friends = graph::friend_ids(&self.core, viewer).await?;
         let contexts = self.ctx_many(&friends).await?;
         let now = Utc::now();
-        Ok(friends.into_iter().filter(|friend| contexts.get(friend).is_some_and(|ctx| visibility::sees_precisely(ctx, viewer, now))).collect())
+        Ok(friends
+            .into_iter()
+            .filter(|friend| contexts.get(friend).is_some_and(|ctx| visibility::sees_precisely(ctx, viewer, now)))
+            .collect())
     }
 }
