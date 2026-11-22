@@ -212,28 +212,65 @@ async fn use_is_counted_in_batches_and_popular_is_what_several_people_use() {
     // With a third person it is, and its use counts.
     ctx.record_use(&ctx.app.user("third").await, &[&liked]).await;
     ctx.emoji.aggregate_usage().await.unwrap();
-    let order = positions(&popular(&ctx).await, &[&liked, &loved]);
-    assert!(order[0] < order[1], "now that three people use it, its 22 uses lead");
+    assert!(named(&popular(&ctx).await, &liked).is_some(), "three people are");
 
-    // Popularity looks at recent days only, older ones weighing less.
+    // Popularity counts people, on recent days, older days weighing less —
+    // and only days on which enough people used the emoji.
     sqlx::query(
-        "INSERT INTO emoji_usage_daily (emoji_id, day, uses)
-         VALUES ($1::uuid, (now() AT TIME ZONE 'Asia/Tokyo')::date - 3, 10), ($1::uuid, (now() AT TIME ZONE 'Asia/Tokyo')::date - 30, 1000)",
+        "INSERT INTO emoji_usage_daily (emoji_id, day, uses, users)
+         SELECT $1::uuid, (now() AT TIME ZONE 'Asia/Tokyo')::date - age, uses, users
+         FROM (VALUES (3, 10, 4), (2, 500, 2), (30, 1000, 50)) AS past (age, uses, users)",
     )
     .bind(&loved_id)
     .execute(db)
     .await
     .unwrap();
     ctx.emoji.aggregate_usage().await.unwrap();
-    let score: f64 = sqlx::query_scalar("SELECT popularity FROM emoji_stats WHERE emoji_id = $1::uuid")
-        .bind(&loved_id)
-        .fetch_one(db)
-        .await
-        .unwrap();
-    let expected = 3.0 + 10.0 * 0.85f64.powi(3);
-    assert!((score - expected).abs() < 1e-6, "{score} vs {expected}: a month-old day is out of the window");
-    let order = positions(&popular(&ctx).await, &[&liked, &loved]);
-    assert!(order[0] < order[1], "22 uses today outweigh 3 today and 10 three days ago");
+    let popularity = async |emoji_id: &str| -> f64 {
+        sqlx::query_scalar("SELECT popularity FROM emoji_stats WHERE emoji_id = $1::uuid")
+            .bind(emoji_id)
+            .fetch_one(db)
+            .await
+            .unwrap()
+    };
+    let expected = 3.0 + 4.0 * 0.85f64.powi(3);
+    let score = popularity(&loved_id).await;
+    assert!((score - expected).abs() < 1e-6, "{score} vs {expected}: today's three and the four of three days ago");
+    // The spammer's twenty uses weigh as one person: three people used it.
+    assert!((popularity(&liked_id).await - 3.0).abs() < 1e-6);
+    let order = positions(&popular(&ctx).await, &[&loved, &liked]);
+    assert!(order[0] < order[1], "more people over the week lead, not more uses");
+
+    // Once an emoji had its crowd, one account using it twenty times a day
+    // for the rest of the week adds nothing; one person's use on a day when
+    // nobody else uses it does not show anywhere.
+    let steady = format!("{token}_steady");
+    let steady_id = ctx.add(&moderator, &steady).await.emoji.id.clone();
+    sqlx::query(
+        "INSERT INTO emoji_usage_daily (emoji_id, day, uses, users)
+         VALUES ($1::uuid, (now() AT TIME ZONE 'Asia/Tokyo')::date - 6, 3, 3)",
+    )
+    .bind(&steady_id)
+    .execute(db)
+    .await
+    .unwrap();
+    ctx.emoji.aggregate_usage().await.unwrap();
+    let crowd_only = popularity(&steady_id).await;
+    assert!((crowd_only - 3.0 * 0.85f64.powi(6)).abs() < 1e-6);
+    sqlx::query(
+        "INSERT INTO emoji_usage_daily (emoji_id, day, uses, users)
+         SELECT $1::uuid, (now() AT TIME ZONE 'Asia/Tokyo')::date - age, 20, 1 FROM generate_series(1, 5) AS age",
+    )
+    .bind(&steady_id)
+    .execute(db)
+    .await
+    .unwrap();
+    for _ in 0..25 {
+        ctx.record_use(&spammer, &[&steady]).await;
+    }
+    assert_eq!(ctx.emoji.aggregate_usage().await.unwrap(), 20);
+    assert_eq!(use_count(&steady).await, 20);
+    assert_eq!(popularity(&steady_id).await, crowd_only, "one account, however busy, does not move the score");
 
     // A deleted emoji takes its numbers along, and uses reported for it
     // afterwards are dropped.

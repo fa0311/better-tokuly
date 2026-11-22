@@ -190,7 +190,7 @@ pub fn plan(
 /// is ready.
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct EntryMeta {
-    /// Stored name of the category it goes into.
+    /// The category the pack names for it, as the pack writes it.
     #[serde(default)]
     category: Option<String>,
     #[serde(default)]
@@ -551,7 +551,7 @@ impl Emoji {
     }
 
     /// Reads `meta.json`, decides what happens with every entry and stores
-    /// the result. Categories the pack needs are created here.
+    /// the result.
     async fn plan_import(&self, import: &ImportRow, archive: &Arc<Mutex<Archive>>) -> Result<(), Halt> {
         let max_entries = self.cfg.import_max_entries;
         let (pack, files) = {
@@ -565,7 +565,6 @@ impl Emoji {
         };
 
         let mut tx = self.core.db.begin().await?;
-        let mut fx = Effects::default();
         // A job delivered twice plans once: the second waits here and then
         // sees the first one's plan.
         let Some(current) = lock_import(&mut tx, import.id).await? else { return Ok(()) };
@@ -579,11 +578,6 @@ impl Emoji {
             .collect();
         let plans = plan(&pack.entries, &files, &mut taken, import.policy(), self.cfg.max_image_bytes() as u64);
 
-        let forced = match &import.category {
-            Some(name) => Some(categories::ensure(&mut tx, &mut fx, name).await?),
-            None => None,
-        };
-        let mut pack_categories: HashMap<&str, Option<String>> = HashMap::new();
         let (mut positions, mut source_names, mut file_names, mut names) =
             (Vec::new(), Vec::new(), Vec::new(), Vec::new());
         let (mut statuses, mut reasons, mut metas) = (Vec::new(), Vec::new(), Vec::new());
@@ -602,20 +596,8 @@ impl Emoji {
             };
             let mut meta = EntryMeta::default();
             if entry_state == entry_status::PROCESSING {
-                let category = match (&forced, &entry.category) {
-                    (Some(forced), _) => forced.clone(),
-                    (None, None) => None,
-                    (None, Some(named)) => match pack_categories.get(named.as_str()) {
-                        Some(known) => known.clone(),
-                        None => {
-                            let stored = categories::ensure(&mut tx, &mut fx, named).await?;
-                            pack_categories.insert(named.as_str(), stored.clone());
-                            stored
-                        }
-                    },
-                };
                 meta = EntryMeta {
-                    category,
+                    category: entry.category.clone(),
                     aliases: validate::lenient_aliases(&entry.aliases),
                     license: validate::lenient_license(&entry.license),
                     sensitive: entry.sensitive,
@@ -659,7 +641,7 @@ impl Emoji {
         .bind(failed)
         .execute(&mut *tx)
         .await?;
-        self.commit(tx, fx).await?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -896,14 +878,12 @@ impl Emoji {
         picture: Picture,
     ) -> AppResult<Outcome> {
         let meta: EntryMeta = serde_json::from_value(entry.meta.clone()).unwrap_or_default();
-        // The category may have been deleted since the pack was read.
-        let category: Option<String> = match &meta.category {
-            Some(name) => {
-                sqlx::query_scalar("SELECT name FROM emoji_categories WHERE name = $1 FOR KEY SHARE")
-                    .bind(name)
-                    .fetch_optional(&mut **tx)
-                    .await?
-            }
+        // The category is created here, with the first emoji that goes into
+        // it, so a pack whose entries all fail leaves no empty categories
+        // behind. `ensure` queues up behind every other change to the list:
+        // a category cannot be deleted between this lookup and the insert.
+        let category = match import.category.as_ref().or(meta.category.as_ref()) {
+            Some(name) => categories::ensure(tx, fx, name).await?,
             None => None,
         };
         let own_name = validate::import_name(&entry.source_name).unwrap_or_else(|| entry.name.clone());

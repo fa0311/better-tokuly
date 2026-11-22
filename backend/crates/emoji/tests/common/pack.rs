@@ -52,6 +52,57 @@ pub fn gif(size: u32) -> Vec<u8> {
     out
 }
 
+/// A JPEG as a phone writes it: with an EXIF block that says where the
+/// photo was taken (35°41'22"N).
+pub fn photo_with_gps() -> Vec<u8> {
+    let mut jpeg = Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(48, 48, image::Rgb([200, 80, 40])))
+        .write_to(&mut jpeg, image::ImageFormat::Jpeg)
+        .expect("jpeg");
+    let jpeg = jpeg.into_inner();
+    // A little-endian TIFF: IFD0 points to a GPS IFD with a latitude.
+    let mut tiff: Vec<u8> = vec![b'I', b'I', 0x2A, 0, 8, 0, 0, 0];
+    tiff.extend([1, 0]);
+    tiff.extend([0x25, 0x88, 4, 0, 1, 0, 0, 0, 26, 0, 0, 0]);
+    tiff.extend([0, 0, 0, 0]);
+    tiff.extend([2, 0]);
+    tiff.extend([1, 0, 2, 0, 2, 0, 0, 0, b'N', 0, 0, 0]);
+    tiff.extend([2, 0, 5, 0, 3, 0, 0, 0, 56, 0, 0, 0]);
+    tiff.extend([0, 0, 0, 0]);
+    for (numerator, denominator) in [(35u32, 1u32), (41, 1), (2222, 100)] {
+        tiff.extend(numerator.to_le_bytes());
+        tiff.extend(denominator.to_le_bytes());
+    }
+    let mut exif = b"Exif\0\0".to_vec();
+    exif.extend(tiff);
+    // The APP1 segment goes right after the start-of-image marker.
+    let mut out = jpeg[..2].to_vec();
+    out.extend([0xFF, 0xE1]);
+    out.extend(((exif.len() + 2) as u16).to_be_bytes());
+    out.extend(exif);
+    out.extend(&jpeg[2..]);
+    out
+}
+
+/// Uploads `bytes` as an emoji picture of `owner` and lets the media domain
+/// process it for real. Returns the upload's ID.
+pub async fn processed_picture(ctx: &Ctx, owner: &TestUser, bytes: &[u8], file_name: &str) -> String {
+    let dir = tempfile::tempdir().expect("scratch directory");
+    let path = dir.path().join(file_name);
+    std::fs::write(&path, bytes).expect("write picture");
+    let upload = tokuly_media::create_asset_from_file(
+        &ctx.app.core,
+        owner.id,
+        AssetPurpose::ASSET_PURPOSE_STAMP,
+        &path,
+        file_name,
+    )
+    .await
+    .expect("store picture");
+    ctx.media.process_now(upload.id).await.expect("media processing");
+    upload.id.to_string()
+}
+
 /// A ZIP archive of the given files.
 pub fn zip_of(files: &[(&str, &[u8])]) -> Vec<u8> {
     let mut zip = ZipWriter::new(Cursor::new(Vec::new()));

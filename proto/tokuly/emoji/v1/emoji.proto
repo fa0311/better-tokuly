@@ -178,9 +178,10 @@ service EmojiService {
   // case, width and the difference between hiragana and katakana. Without a
   // query it lists a category. Errors: `QUERY_TOO_LONG`, `RATE_LIMITED`.
   rpc SearchEmoji(SearchEmojiRequest) returns (SearchEmojiResponse);
-  // The emoji used the most over the last days, most used first. An emoji
-  // is listed once at least three different people used it on one day, so
-  // the list says what the crowd likes, never what one person does.
+  // The emoji the most people used over the last days. A day counts for an
+  // emoji only if at least three different people used it that day, and it
+  // counts those people, not their uses: the list says what the crowd
+  // likes, and never moves with what one person does.
   rpc ListPopularEmoji(ListPopularEmojiRequest) returns (ListPopularEmojiResponse);
   // The emoji that joined the catalogue last, newest first.
   rpc ListNewestEmoji(ListNewestEmojiRequest) returns (ListNewestEmojiResponse);
@@ -568,7 +569,8 @@ service EmojiAdminService {
   rpc ListImports(ListImportsRequest) returns (ListImportsResponse);
 
   // Starts exporting the catalogue, or one category of it, as a ZIP in the
-  // same format, with the pictures as they were uploaded. The export runs
+  // same format. The pictures are the processed renditions (WebP), which
+  // carry none of the metadata an upload may hold. The export runs
   // in the background; follow it with `GetExport` or the `export_updated`
   // realtime event. Errors: `CATEGORY_NOT_FOUND`, `RATE_LIMITED`.
   rpc StartExport(StartExportRequest) returns (StartExportResponse);

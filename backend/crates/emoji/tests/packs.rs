@@ -24,6 +24,8 @@ async fn a_misskey_pack_becomes_emoji_entry_by_entry() {
     let taken = format!("taken{t}");
     ctx.add(&moderator, &taken).await;
     let category = format!("Blobs{t}");
+    // A category that only entries which fail ask for.
+    let ghost = format!("Ghost{t}");
 
     let (cat, party, broken) = (format!("Blob-Cat{t}"), format!("party{t}"), format!("broken{t}"));
     let records = vec![
@@ -41,10 +43,10 @@ async fn a_misskey_pack_becomes_emoji_entry_by_entry() {
         ),
         record(&taken, "taken.png", serde_json::json!({})),
         serde_json::json!({ "fileName": "gone.png", "downloaded": false, "emoji": { "name": format!("gone{t}") } }),
-        record(&format!("missing{t}"), "missing.png", serde_json::json!({})),
+        record(&format!("missing{t}"), "missing.png", serde_json::json!({ "category": ghost })),
         record("ねこ", "neko.png", serde_json::json!({})),
         record(&format!("text{t}"), "notes.png", serde_json::json!({})),
-        record(&broken, "broken.png", serde_json::json!({})),
+        record(&broken, "broken.png", serde_json::json!({ "category": ghost })),
         record(&format!("escape{t}"), "../evil.png", serde_json::json!({})),
         record(&format!("blob_cat{t}"), "blobcat.png", serde_json::json!({})),
     ];
@@ -103,6 +105,7 @@ async fn a_misskey_pack_becomes_emoji_entry_by_entry() {
         !catalog::exists(&ctx.app.core, &format!("blob_cat{t}")).await.unwrap(),
         "nothing is usable before its picture is"
     );
+    assert!(ctx.catalog().await.categories.iter().all(|c| c.name != category), "nor is its category there yet");
     // Running the job again changes nothing.
     run_import(&ctx, &queued.id).await;
     assert_eq!(picture_uploads(&ctx, &queued.id).await.len(), 3);
@@ -146,6 +149,7 @@ async fn a_misskey_pack_becomes_emoji_entry_by_entry() {
         catalogue.categories.iter().find(|c| c.name == category).expect("the pack's category was created").emoji_count,
         2
     );
+    assert!(catalogue.categories.iter().all(|c| c.name != ghost), "no category is made for entries that all failed");
     let added = ctx.emoji_events("emoji.emoji.added", &imported.emoji_id).await;
     assert_eq!((added.len(), added[0]["via"].as_str()), (1, Some("import")));
 
@@ -340,19 +344,6 @@ async fn a_pack_that_cannot_be_read_fails_as_a_whole() {
     assert_eq!((done.import.status, done.import.total_count), (ImportStatus::IMPORT_STATUS_COMPLETED.into(), 0));
 }
 
-/// Makes a fixture upload look like a real one: bytes in storage, and the
-/// content type they have.
-async fn store_original(ctx: &Ctx, asset_id: &str, bytes: &[u8], content_type: &str) {
-    let key: String =
-        sqlx::query_scalar("UPDATE media_assets SET content_type = $2 WHERE id = $1::uuid RETURNING original_key")
-            .bind(asset_id)
-            .bind(content_type)
-            .fetch_one(&ctx.app.core.db)
-            .await
-            .unwrap();
-    ctx.app.core.storage.put(Bucket::Private, &key, bytes.to_vec(), content_type).await.unwrap();
-}
-
 async fn start_export(ctx: &Ctx, moderator: &TestUser, category: Option<&str>) -> Export {
     let request = StartExportRequest { category: category.map(str::to_owned), ..Default::default() };
     let response: StartExportResponse = ctx.call("Admin", "StartExport", Some(moderator), &request).await.unwrap();
@@ -391,26 +382,27 @@ async fn the_catalogue_is_exported_as_a_pack_that_can_be_imported_again() {
     let category = format!("えくすぽーと{t}");
     ctx.create_category(&moderator, &category).await;
     let (still, moving, lost) = (format!("a_still{t}"), format!("b_moving{t}"), format!("c_lost{t}"));
-    let (still_png, moving_gif) = (png(48), gif(32));
+    // A photo straight from a phone, and an animation.
+    let photo = photo_with_gps();
+    assert!(photo.windows(4).any(|bytes| bytes == b"Exif"));
 
     let request = AddEmojiRequest {
         category: category.clone(),
         aliases: strings(&["ねこ", "cat"]),
         license: "CC BY 4.0".to_owned(),
         sensitive: true,
+        asset_id: processed_picture(&ctx, &moderator, &photo, "photo.jpg").await,
         ..ctx.add_request(&moderator, &still).await
     };
-    store_original(&ctx, &request.asset_id, &still_png, "image/png").await;
     let still_id = ctx.add_with(&moderator, request).await.emoji.id.clone();
     let request = AddEmojiRequest {
         category: category.clone(),
         local_only: true,
-        asset_id: ctx.animation(&moderator).await,
+        asset_id: processed_picture(&ctx, &moderator, &gif(32), "moving.gif").await,
         ..ctx.add_request(&moderator, &moving).await
     };
-    store_original(&ctx, &request.asset_id, &moving_gif, "image/gif").await;
     ctx.add_with(&moderator, request).await;
-    // An emoji whose original cannot be read is listed without a file.
+    // An emoji whose picture cannot be read is listed without a file.
     let request = AddEmojiRequest { category: category.clone(), ..ctx.add_request(&moderator, &lost).await };
     ctx.add_with(&moderator, request).await;
     let elsewhere = ctx.add(&moderator, &format!("d_elsewhere{t}")).await;
@@ -436,7 +428,7 @@ async fn the_catalogue_is_exported_as_a_pack_that_can_be_imported_again() {
     .await;
     assert_eq!(told, Some(ExportStatus::EXPORT_STATUS_READY.into()));
 
-    // The archive is a Misskey pack: meta.json plus the pictures as uploaded.
+    // The archive is a Misskey pack: meta.json plus the pictures as rendered.
     let mut archive = ZipArchive::new(Cursor::new(bytes.clone())).unwrap();
     let meta: serde_json::Value = serde_json::from_slice(&file_of(&mut archive, "meta.json")).unwrap();
     assert_eq!((meta["metaVersion"].as_i64(), meta["host"].as_str()), (Some(2), Some("localhost")));
@@ -447,25 +439,40 @@ async fn the_catalogue_is_exported_as_a_pack_that_can_be_imported_again() {
     let first = &records[0];
     assert_eq!(
         (first["fileName"].as_str(), first["downloaded"].as_bool()),
-        (Some(format!("{still}.png").as_str()), Some(true))
+        (Some(format!("{still}.webp").as_str()), Some(true))
     );
     let emoji = &first["emoji"];
     assert_eq!(emoji["id"], still_id);
     assert_eq!(
         (emoji["category"].as_str(), emoji["license"].as_str(), emoji["type"].as_str()),
-        (Some(category.as_str()), Some("CC BY 4.0"), Some("image/png"))
+        (Some(category.as_str()), Some("CC BY 4.0"), Some("image/webp"))
     );
     assert_eq!(emoji["aliases"], serde_json::json!(["ねこ", "cat"]));
     assert_eq!((emoji["isSensitive"].as_bool(), emoji["localOnly"].as_bool()), (Some(true), Some(false)));
     assert!(emoji["host"].is_null() && emoji["uri"].is_null());
     assert_eq!(emoji["roleIdsThatCanBeUsedThisEmojiAsReaction"], serde_json::json!([]));
     assert!(emoji["publicUrl"].as_str().unwrap().starts_with("http") && emoji["updatedAt"].is_string());
-    assert_eq!(file_of(&mut archive, &format!("{still}.png")), still_png, "the picture is the upload, byte for byte");
-    assert_eq!(records[1]["fileName"], format!("{moving}.gif"));
+
+    // The picture is the rendition, not the upload: what the photo said
+    // about where it was taken stays behind.
+    let exported = file_of(&mut archive, &format!("{still}.webp"));
+    assert!(exported.starts_with(b"RIFF") && &exported[8..12] == b"WEBP");
+    assert_eq!(image::load_from_memory(&exported).unwrap().width(), 48);
+    let latitude: Vec<u8> = [35u32, 1, 41, 1, 2222, 100].iter().flat_map(|n| n.to_le_bytes()).collect();
+    assert!(photo.windows(latitude.len()).any(|bytes| bytes == latitude.as_slice()), "the upload does carry it");
+    for (what, trace) in
+        [("an EXIF block", &b"Exif"[..]), ("an EXIF chunk", &b"EXIF"[..]), ("the latitude", &latitude[..])]
+    {
+        assert!(!exported.windows(trace.len()).any(|bytes| bytes == trace), "the exported picture carries {what}");
+    }
+    assert_eq!(records[1]["fileName"], format!("{moving}.webp"));
     assert_eq!(records[1]["emoji"]["localOnly"], true);
-    assert_eq!(file_of(&mut archive, &format!("{moving}.gif")), moving_gif);
+    let animation = file_of(&mut archive, &format!("{moving}.webp"));
+    assert!(animation.windows(4).any(|bytes| bytes == b"ANIM"), "the animation is kept");
     assert_eq!(records[2]["downloaded"], false);
     assert_eq!(archive.len(), 3, "meta.json and the two pictures that could be read");
+    // Nothing in the whole archive holds the photo's position.
+    assert!(!bytes.windows(latitude.len()).any(|window| window == latitude.as_slice()));
 
     // The pack reads back in: the names are taken, so they are numbered.
     let pack = upload_archive(&ctx, &moderator, bytes).await;
@@ -636,4 +643,54 @@ async fn work_that_got_stuck_is_given_up_but_waiting_for_a_worker_is_not() {
     }
     ctx.emoji.run_export(waiting_export.id.parse().unwrap()).await.unwrap();
     assert_eq!(get_export(&ctx, &moderator, &waiting_export.id).await.status, ExportStatus::EXPORT_STATUS_READY);
+}
+
+#[tokio::test]
+async fn a_category_deleted_while_a_pack_is_imported_does_not_leave_clients_behind() {
+    let ctx = start().await;
+    ctx.app.core.storage.ensure_buckets().await.unwrap();
+    let moderator = ctx.moderator().await;
+    let t = unique("");
+    let (shelf, first, second) = (format!("たな{t}"), format!("first{t}"), format!("second{t}"));
+    let records = vec![
+        record(&first, "a.png", serde_json::json!({ "category": shelf })),
+        record(&second, "a.png", serde_json::json!({ "category": shelf })),
+    ];
+    let archive = upload_archive(&ctx, &moderator, zip_of(&[("meta.json", &meta(records)), ("a.png", &png(40))])).await;
+    let import = start_import(&ctx, &moderator, &archive, ImportConflictPolicy::IMPORT_CONFLICT_POLICY_SKIP, "").await;
+    run_import(&ctx, &import.id).await;
+    let uploads = process_pictures(&ctx, &import.id).await;
+
+    // The first picture arrives: its emoji brings the category along.
+    let events = ctx.app.events("media.asset.ready").await;
+    let event_for =
+        |upload: Uuid| events.iter().find(|event| event.data["asset_id"] == serde_json::json!(upload)).unwrap().clone();
+    ctx.emoji.handle_event(event_for(uploads[0])).await.unwrap();
+    assert_eq!(ctx.get(None, &first).await.unwrap().emoji.category, shelf);
+    let synced = ctx.catalog().await.version;
+
+    // A moderator deletes the category before the second picture arrives.
+    let request = DeleteCategoryRequest { name: shelf.clone(), ..Default::default() };
+    let _: DeleteCategoryResponse = ctx.call("Admin", "DeleteCategory", Some(&moderator), &request).await.unwrap();
+    ctx.emoji.handle_event(event_for(uploads[1])).await.unwrap();
+    assert_eq!(get_import(&ctx, &moderator, &import.id).await.import.imported_count, 2);
+
+    // Whatever became of the category, a client that syncs holds exactly
+    // what the server holds: no emoji is left pointing at a category that
+    // is gone, and none changed category without a new version.
+    let changes = ctx.changes(synced).await;
+    let catalogue = ctx.catalog().await;
+    for name in [&first, &second] {
+        let stored = ctx.get(None, name).await.unwrap().emoji.category.clone();
+        let synced_copy = named(&changes.upserted, name).expect("the client hears of every change");
+        assert_eq!(synced_copy.category, stored);
+        assert_eq!(named(&catalogue.emojis, name).unwrap().category, stored);
+        assert!(stored.is_empty() || catalogue.categories.iter().any(|c| c.name == stored));
+    }
+    assert_eq!(ctx.get(None, &first).await.unwrap().emoji.category, "", "the deletion took the first emoji out of it");
+    assert_eq!(
+        ctx.get(None, &second).await.unwrap().emoji.category,
+        shelf,
+        "the second brought it back, as the pack says"
+    );
 }

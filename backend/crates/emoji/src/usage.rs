@@ -11,13 +11,13 @@
 //!   `emoji_stats` in batches and recomputes the popularity scores
 //!   ([`refresh_popularity`]), so counting costs no database write per use.
 //!
-//! Two rules keep the numbers about the crowd and not about a person. One
-//! user counts at most [`DAILY_USE_CAP`] times per emoji and day, so
-//! "popular" cannot be decided by a single account. And an emoji has no
-//! popularity until [`POPULAR_MIN_USERS`] different people used it on one
-//! day: emoji are used in private chats, and a list that moved when one
-//! person used one would tell the others what that person does there. For
-//! the same reason the exact use count is shown to moderators only.
+//! Popularity is about the crowd, never about a person. It counts the
+//! different people who used an emoji on a day, not their uses, and only on
+//! days when at least [`POPULAR_MIN_USERS`] of them did: emoji are used in
+//! private chats, and a list that moved when one person used one would tell
+//! the others what that person does there. For the same reason the exact
+//! use count is shown to moderators only; one user adds at most
+//! [`DAILY_USE_CAP`] to it per emoji and day.
 use std::{collections::HashMap, sync::LazyLock};
 
 use chrono::{Duration as ChronoDuration, Utc};
@@ -303,10 +303,13 @@ pub async fn flush(core: &Core) -> AppResult<u64> {
     Ok(written as u64)
 }
 
-/// Recomputes every emoji's popularity: its uses of the last `days` days,
-/// each day weighing [`DAILY_DECAY`] of the day after it — provided that on
-/// one of those days at least [`POPULAR_MIN_USERS`] different people used
-/// it. An emoji only a person or two use has no popularity at all.
+/// Recomputes every emoji's popularity: the number of different people who
+/// used it on each of the last `days` days, each day weighing
+/// [`DAILY_DECAY`] of the day after it. A day counts only if at least
+/// [`POPULAR_MIN_USERS`] people used the emoji on that very day, and it
+/// counts people, not uses: however often one account uses an emoji, and
+/// whatever one person does on a day when nobody else uses it, the score
+/// does not move.
 pub async fn refresh_popularity(core: &Core, days: i32) -> AppResult<()> {
     let mut tx = core.db.begin().await?;
     // One recomputation at a time: every worker process runs this on the
@@ -322,11 +325,10 @@ pub async fn refresh_popularity(core: &Core, days: i32) -> AppResult<()> {
         "WITH today AS (
              SELECT (now() AT TIME ZONE $1)::date AS day
          ), recent AS (
-             SELECT d.emoji_id, sum(d.uses * power($2::float8, (today.day - d.day)::float8)) AS score
+             SELECT d.emoji_id, sum(d.users * power($2::float8, (today.day - d.day)::float8)) AS score
              FROM emoji_usage_daily d, today
-             WHERE d.day > today.day - $3::int AND d.day <= today.day
+             WHERE d.day > today.day - $3::int AND d.day <= today.day AND d.users >= $4
              GROUP BY d.emoji_id
-             HAVING max(d.users) >= $4
          ), scored AS (
              INSERT INTO emoji_stats (emoji_id, popularity)
              SELECT emoji_id, score FROM recent

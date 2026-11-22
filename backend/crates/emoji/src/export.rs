@@ -2,13 +2,13 @@
 //!
 //! `StartExport` records the request and queues the `emoji.export` job. The
 //! job writes every approved emoji in scope — metadata into `meta.json`,
-//! the picture as it was uploaded — into a ZIP in the private bucket.
+//! the picture as the media domain rendered it (WebP, without the
+//! metadata an upload may carry) — into a ZIP in the private bucket.
 //! `GetExport` hands out a link to it that is valid for an hour; the file
 //! itself is deleted after `TOKULY_EMOJI_EXPORT_TTL_HOURS`.
-use std::{collections::HashMap, time::Duration};
+use std::time::Duration;
 
 use tokuly_core::{prelude::*, storage::Bucket};
-use tokuly_media::assets::{self, AssetRow};
 use tokuly_proto::{
     common::PageInfo,
     emoji::{EmojiEvent, Export},
@@ -44,11 +44,8 @@ const _: () = {
 
 /// How long a download link handed out by `GetExport` works.
 const DOWNLOAD_URL_TTL: Duration = Duration::from_secs(3600);
-/// Largest original read into memory for the archive. Emoji pictures are
-/// far smaller; this only guards against a surprise.
-const MAX_ORIGINAL_BYTES: i64 = 64 * 1024 * 1024;
-/// Uploads looked up per query while writing.
-const CHUNK: usize = 100;
+/// Every rendition the media domain publishes of a picture is WebP.
+const RENDITION_CONTENT_TYPE: &str = "image/webp";
 
 /// Which emoji an export covers.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,6 +99,13 @@ struct Written {
 
 fn pack_error(error: PackError) -> AppError {
     AppError::internal(anyhow::anyhow!("writing the emoji export failed: {error}"))
+}
+
+/// The media bucket key of a published rendition, from its URL. `None` for
+/// a URL that does not point into the media bucket.
+fn rendition_key(core: &Core, url: &str) -> Option<String> {
+    let key = url.strip_prefix(core.storage.media_url("").as_str())?;
+    (!key.is_empty()).then(|| key.to_owned())
 }
 
 /// Where an export's archive lives in the private bucket.
@@ -267,46 +271,43 @@ impl Emoji {
             let path = path.clone();
             blocking(move || Writer::create(&path)).await?.map_err(pack_error)?
         };
-        for chunk in emojis.chunks(CHUNK) {
-            let upload_ids: Vec<Uuid> = chunk.iter().map(|emoji| emoji.asset_id).collect();
-            let uploads: HashMap<Uuid, AssetRow> =
-                assets::find_many(core, &upload_ids).await?.into_iter().map(|upload| (upload.id, upload)).collect();
-            for emoji in chunk {
-                let upload = uploads.get(&emoji.asset_id);
-                // A picture that cannot be read is listed without a file, as
-                // the format provides for; it does not sink the export.
-                let image = match upload {
-                    Some(upload) => match assets::read_original(core, upload, MAX_ORIGINAL_BYTES).await {
-                        Ok(bytes) => Some(bytes),
-                        Err(error) => {
-                            tracing::warn!(emoji = %emoji.name, %error, "original of an emoji could not be read for export");
-                            None
-                        }
-                    },
-                    None => None,
-                };
-                let exported = ExportedEmoji {
-                    id: emoji.id.to_string(),
-                    name: emoji.name.clone(),
-                    category: emoji.category.clone(),
-                    aliases: emoji.aliases.clone(),
-                    license: emoji.license.clone(),
-                    sensitive: emoji.sensitive,
-                    local_only: emoji.local_only,
-                    content_type: upload
-                        .map(|upload| upload.content_type.clone())
-                        .unwrap_or_else(|| "application/octet-stream".to_owned()),
-                    url: emoji.image().url,
-                    updated_at: emoji.updated_at.to_rfc3339(),
-                };
-                writer = blocking(move || {
-                    let mut writer = writer;
-                    writer.add(exported, image.as_deref())?;
-                    Ok::<_, PackError>(writer)
-                })
-                .await?
-                .map_err(pack_error)?;
-            }
+        for emoji in &emojis {
+            // The picture goes out as the media domain rendered it: decoded
+            // and encoded again as WebP, which leaves the pixels and nothing
+            // else. The upload itself may carry EXIF — where and when a
+            // photo was taken — and a pack is made to be passed around.
+            let picture = emoji.image();
+            let image = match rendition_key(core, &picture.url) {
+                Some(key) => match core.storage.get(Bucket::Media, &key).await {
+                    Ok(bytes) => Some(bytes),
+                    Err(error) => {
+                        tracing::warn!(emoji = %emoji.name, %error, "picture of an emoji could not be read for export");
+                        None
+                    }
+                },
+                None => None,
+            };
+            // A picture that cannot be read is listed without a file, as the
+            // format provides for; it does not sink the export.
+            let exported = ExportedEmoji {
+                id: emoji.id.to_string(),
+                name: emoji.name.clone(),
+                category: emoji.category.clone(),
+                aliases: emoji.aliases.clone(),
+                license: emoji.license.clone(),
+                sensitive: emoji.sensitive,
+                local_only: emoji.local_only,
+                content_type: RENDITION_CONTENT_TYPE.to_owned(),
+                url: picture.url,
+                updated_at: emoji.updated_at.to_rfc3339(),
+            };
+            writer = blocking(move || {
+                let mut writer = writer;
+                writer.add(exported, image.as_deref())?;
+                Ok::<_, PackError>(writer)
+            })
+            .await?
+            .map_err(pack_error)?;
         }
         let host = core.cfg.public_host();
         let exported_at = now().to_rfc3339();

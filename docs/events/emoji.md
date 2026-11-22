@@ -130,7 +130,7 @@ is idempotent.
 
 | Job | Payload | What |
 |---|---|---|
-| `emoji.import` | `{ import_id }` | Reads an uploaded pack: plans every entry, creates missing categories, hands the pictures to the media domain. Resumable; a pack that cannot be read fails the import without retry. Concurrency 1, 3 attempts. |
+| `emoji.import` | `{ import_id }` | Reads an uploaded pack: plans every entry, hands the pictures to the media domain. Resumable; a pack that cannot be read fails the import without retry. Concurrency 1, 3 attempts. |
 | `emoji.export` | `{ export_id }` | Writes the catalogue (or one category) to a ZIP in the private bucket. Marks the export FAILED instead of retrying. Concurrency 1. |
 
 ## Import and export
@@ -151,7 +151,9 @@ Import (`StartImport`, upload with `ASSET_PURPOSE_CHAT_FILE`):
    and stored as an upload of the importing moderator
    (`tokuly_media::create_asset_from_file`, `ASSET_PURPOSE_STAMP`).
 3. When media has processed a picture, the entry is settled: the emoji is
-   created APPROVED (history `IMPORTED`, no author). If the planned name was
+   created APPROVED (history `IMPORTED`, no author), and its category is
+   created with it if the list does not have it — so a pack whose entries
+   all fail leaves no empty categories. If the planned name was
    taken meanwhile, the policy applies again. Pictures of entries that end
    skipped or failed are deleted.
 4. The import is COMPLETED when its last entry is settled.
@@ -163,12 +165,15 @@ Entry outcomes: `IMPORTED`, `RENAMED`, `SKIPPED` (`NAME_TAKEN`,
 `PROCESSING_TIMEOUT`). Import failures: `ARCHIVE_INVALID`, `META_MISSING`,
 `META_INVALID`, `TOO_MANY_ENTRIES`, `INTERNAL`.
 
-Export (`StartExport`): the pictures go into the archive as they were
-uploaded (the originals in the private bucket); an emoji whose original
-cannot be read is listed with `downloaded: false`. The archive is stored
-under `emoji/exports/<export_id>.zip` in the private bucket; `GetExport`
-returns a presigned link valid for one hour, and the file is deleted after
-`TOKULY_EMOJI_EXPORT_TTL_HOURS`.
+Export (`StartExport`): the pictures go into the archive as the media
+domain rendered them (WebP: the animated rendition of an animated emoji,
+the largest still otherwise), read from the media bucket. Renditions are
+decoded and encoded again, so nothing of an upload's metadata (EXIF, GPS
+position) reaches a pack that is made to be passed around. An emoji whose
+rendition cannot be read is listed with `downloaded: false`. The archive is
+stored under `emoji/exports/<export_id>.zip` in the private bucket;
+`GetExport` returns a presigned link valid for one hour, and the file is
+deleted after `TOKULY_EMOJI_EXPORT_TTL_HOURS`.
 
 Not carried over from Misskey: role-restricted reactions
 (`roleIdsThatCanBeUsedThisEmojiAsReaction` is ignored on import and written
@@ -264,7 +269,7 @@ recently used list and whether they are a trusted submitter.
 |---|---|---|
 | event consumer `emoji` | — | See "Events consumed". |
 | jobs `emoji.import`, `emoji.export` | — | See "Jobs". |
-| usage worker | `TOKULY_EMOJI_USAGE_FLUSH_SECONDS` | Moves the use counters from Valkey into `emoji_usage_daily` (uses and distinct users per day) and `emoji_stats` in batches that are applied exactly once (`emoji_usage_batches`), then recomputes popularity: the uses of the last `TOKULY_EMOJI_POPULAR_DAYS` days, each day weighing 0.85 of the day after it, for emoji that enough people used. |
+| usage worker | `TOKULY_EMOJI_USAGE_FLUSH_SECONDS` | Moves the use counters from Valkey into `emoji_usage_daily` (uses and distinct users per day) and `emoji_stats` in batches that are applied exactly once (`emoji_usage_batches`), then recomputes popularity: the people who used an emoji on each of the last `TOKULY_EMOJI_POPULAR_DAYS` days, each day weighing 0.85 of the day after it. |
 | maintenance | every minute | Reconciles the catalogue cache and its announcements with the database; settles import entries whose upload finished without its event being handled; gives up on work that got stuck; deletes expired export files. |
 | pruning | hourly | Forgets removals past their retention (raising the floor version), daily counters older than 400 days and batch markers older than a day. |
 
@@ -274,14 +279,16 @@ entry the job has not unpacked six hours after it last started, an import
 or export whose job started six hours ago and did not get through. Work
 that only waits for a worker (QUEUED) is left alone however old it is.
 
-Statistics days are counted in Japan time (`Asia/Tokyo`). Two rules keep
-the numbers about the crowd and not about a person: one user counts at most
-20 times per emoji and day, and an emoji has no popularity (it is not in
-`ListPopularEmoji`, and gets no boost in `SearchEmoji`) until at least three
-different people used it on one day of the window. Emoji are used in private
-chats; a list that moved when one person used an emoji would tell the others
-what that person does there. For the same reason `EmojiDetail.use_count` is
-filled for moderators only. Several worker processes
+Statistics days are counted in Japan time (`Asia/Tokyo`). Popularity is
+about the crowd, never about a person: it sums, over the window, the number
+of different people who used an emoji on a day — not their uses — and only
+for days on which at least three of them did. However often one account
+uses an emoji, and whatever one person does on a day when nobody else uses
+it, `ListPopularEmoji` and the boost in `SearchEmoji` do not move. Emoji are
+used in private chats; a list that moved with one person's use would tell
+the others what that person does there. For the same reason
+`EmojiDetail.use_count` is filled for moderators only (one user adds at most
+20 to it per emoji and day). Several worker processes
 may run the usage worker at once: a batch of counters is written exactly
 once, and only one process at a time recomputes popularity.
 
