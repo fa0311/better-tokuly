@@ -1,11 +1,13 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Bell, Bookmark, ChevronRight, Clapperboard, History, ListVideo, LogOut, Megaphone, Newspaper, Settings, ShieldCheck, Smile, SmilePlus, UserRound, Users, Wallet } from "lucide-react";
+import { Bell, Bookmark, CalendarHeart, ChevronRight, Clapperboard, History, ListVideo, LogOut, MailQuestionMark, Megaphone, Newspaper, Settings, ShieldCheck, Smile, SmilePlus, UserRound, Users, Wallet } from "lucide-react";
 import type { ComponentType } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { CountBadge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Page } from "#/components/ui/page";
+import { SchoolHubTile } from "#/features/school";
+import { useAskBadge } from "#/features/ask";
 import { cn } from "#/lib/cn";
 import { type BadgeKey, useBadges } from "#/stores/badges";
 import { signOut as signOutOfApp, useMe } from "#/stores/session";
@@ -13,6 +15,8 @@ import { signOut as signOutOfApp, useMe } from "#/stores/session";
 interface Tile {
   to:
     | "/friends"
+    | "/plans"
+    | "/ask"
     | "/stamps"
     | "/emoji"
     | "/wallet"
@@ -31,12 +35,15 @@ interface Tile {
   icon: ComponentType<{ className?: string }>;
   /** Background of the icon bubble. */
   tint: string;
-  badge?: BadgeKey;
+  /** `"ask"`: unread questions and unseen flames, which the question-box feature counts itself. */
+  badge?: BadgeKey | "ask";
 }
 
 const TILES: Tile[] = [
   { to: "/friends", labelKey: "tiles.friends", icon: Users, tint: "bg-sky", badge: "friends" },
   { to: "/notifications", labelKey: "tiles.notifications", icon: Bell, tint: "bg-pink", badge: "notifications" },
+  { to: "/plans", labelKey: "plans:tile", icon: CalendarHeart, tint: "bg-lime" },
+  { to: "/ask", labelKey: "ask:tile", icon: MailQuestionMark, tint: "bg-sun", badge: "ask" },
   { to: "/bookmarks", labelKey: "engagement:tile", icon: Bookmark, tint: "bg-sky" },
   { to: "/activity", labelKey: "notes:activityTile", icon: History, tint: "bg-brand" },
   { to: "/stamps", labelKey: "tiles.stamps", icon: Smile, tint: "bg-sun" },
@@ -82,6 +89,11 @@ export function MeScreen() {
         <ChevronRight className="size-6 shrink-0 text-ink-faint" />
       </Link>
 
+      {/* School: the class that is on, or the next one. */}
+      <div className="mt-3">
+        <SchoolHubTile />
+      </div>
+
       <ul className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
         {tiles.map((tile) => (
           <li key={tile.to}>
@@ -99,7 +111,9 @@ export function MeScreen() {
 
 function HubTile({ tile, label }: { tile: Tile; label: string }) {
   const Icon = tile.icon;
-  const count = useBadges((badges) => (tile.badge ? badges[tile.badge] : 0));
+  const navigationCount = useBadges((badges) => (tile.badge && tile.badge !== "ask" ? badges[tile.badge] : 0));
+  const askCount = useAskBadge(tile.badge === "ask");
+  const count = tile.badge === "ask" ? askCount : navigationCount;
   return (
     <Link to={tile.to} className="pressable sticker flex h-28 flex-col justify-between rounded-card bg-surface p-4">
       <span className="flex items-start justify-between">
