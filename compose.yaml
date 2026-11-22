@@ -154,7 +154,10 @@ services:
 
   # ── Data ───────────────────────────────────────────────────────────────────
   postgres:
-    image: postgis/postgis:18-3.7
+    image: ${TOKULY_IMAGES:-ghcr.io/fa0311/better-tokuly}/postgres:${TOKULY_VERSION:-edge}
+    build:
+      context: infra/postgres
+    pull_policy: ${TOKULY_PULL_POLICY:-missing}
     restart: unless-stopped
     environment:
       POSTGRES_USER: tokuly

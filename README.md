@@ -37,7 +37,7 @@ proto/      API の契約（Protobuf）。Connect RPC / gRPC / gRPC-Web とし�
 backend/    Rust ワークスペース。ドメインごとに 1 クレート、バイナリは 1 つ（api / realtime / worker / migrate）
 apps/web    Web アプリ（TanStack Start, React 19, Tailwind 4, MapLibre GL）
 packages/   TypeScript の API クライアントとリアルタイムクライアント
-infra/      Docker Compose で使う設定（Caddy, LiveKit, 地図タイル）
+infra/      Docker Compose で使う設定とイメージ（Caddy, LiveKit, 地図タイル, PostGIS 入り PostgreSQL）
 docs/       ドメインごとの機能範囲（domains.md）とイベント一覧（events.md, events/）
 tools/      開発用スクリプト
 ```
@@ -57,7 +57,8 @@ docker compose up -d     # http://localhost
 ```
 
 アプリのイメージは GitHub Container Registry のビルド済みのもの（`edge` = 通し検証を通った最新ビルド、
-またはリリース版）を取得します。手元のソースからビルドする場合は `docker compose up -d --build`。
+またはリリース版）を取得します。amd64 と arm64（Apple Silicon、ARM サーバー）の両方を配布しています。
+手元のソースからビルドする場合は `docker compose up -d --build`。
 スタック全体の起動確認は GitHub Actions の [Stack](.github/workflows/stack.yml) ワークフローが
 `tools/ci/smoke.sh`（サインアップ、メール、アップロード、地図、リアルタイム接続）で行い、
 画面の操作は [Browser tests](.github/workflows/e2e.yml) が同じスタックの上で Playwright を走らせて確かめています。

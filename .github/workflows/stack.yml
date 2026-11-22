@@ -1,8 +1,7 @@
-# Builds the Docker images, brings the whole Compose stack up the way a
-# self-hoster would, and checks it end to end (tools/ci/smoke.sh): sign-up,
-# mail, an upload through object storage and the worker, map tiles, realtime.
-# When that passes on main, the images are published to the
-# GitHub Container Registry as `edge` — what `docker compose up` pulls by default.
+# Builds the Docker images and checks the whole Compose stack end to end, on
+# amd64 and arm64 (see images.yml). When that passes on main, the images are
+# published to the GitHub Container Registry as `edge` — what
+# `docker compose up` pulls by default.
 name: Stack
 
 on:
@@ -28,6 +27,7 @@ on:
       - tools/ci/smoke.sh
       - tools/ci/stack-up.sh
       - .github/workflows/stack.yml
+      - .github/workflows/images.yml
 
 concurrency:
   group: stack-${{ github.ref }}
@@ -38,51 +38,7 @@ permissions:
   packages: write
 
 jobs:
-  compose:
-    name: Compose stack
-    runs-on: ubuntu-latest
-    timeout-minutes: 240
-    env:
-      TOKULY_VERSION: edge
-    steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
-
-      - name: Write .env
-        run: |
-          tools/init-env.sh
-          # A few city blocks instead of greater Tokyo: the check needs tiles to exist, not a real map.
-          sed -i 's/^TOKULY_MAP_REGION_BBOX=.*/TOKULY_MAP_REGION_BBOX=139.695,35.655,139.705,35.665/; s/^TOKULY_MAP_REGION_MAXZOOM=.*/TOKULY_MAP_REGION_MAXZOOM=12/' .env
-
-      - name: Build the images
-        run: docker compose build
-
-      - name: Start the stack
-        run: tools/ci/stack-up.sh
-
-      - name: End-to-end checks
-        run: tools/ci/smoke.sh http://localhost
-
-      - name: Data survives a restart
-        run: |
-          docker compose down
-          tools/ci/stack-up.sh
-          tools/ci/smoke.sh http://localhost
-
-      - name: Diagnostics
-        if: failure()
-        run: |
-          docker compose ps -a
-          docker compose logs --tail 120
-
-      - name: Publish the images as `edge`
-        if: github.event_name != 'pull_request' && github.ref_name == 'main'
-        env:
-          REGISTRY: ghcr.io/${{ github.repository }}
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          for image in backend web tiles; do
-            docker tag "$REGISTRY/$image:edge" "$REGISTRY/$image:sha-${GITHUB_SHA::12}"
-            docker push "$REGISTRY/$image:edge"
-            docker push "$REGISTRY/$image:sha-${GITHUB_SHA::12}"
-          done
+  images:
+    uses: ./.github/workflows/images.yml
+    with:
+      tags: ${{ github.ref_name == 'main' && 'edge' || '' }}
