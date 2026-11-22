@@ -460,3 +460,58 @@ test("a friend's profile shows ひま from the profile itself, and answers from 
   await expect(page.getByRole("heading", { name: friend.displayName })).toBeVisible();
   await expect(card).toHaveCount(0);
 });
+
+test("plans follow the account's clock on a device that is in another time zone", async ({
+  request,
+  me,
+  browser,
+}, testInfo) => {
+  // A device whose calendar shows another day than the account's (Asia/Tokyo) right now:
+  // Honolulu is 19 hours behind, Kiritimati 5 hours ahead.
+  const tokyoHour = Number(
+    new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Tokyo", hour: "2-digit", hourCycle: "h23" })
+      .format(new Date())
+      .slice(0, 2),
+  );
+  const deviceZone = tokyoHour < 19 ? "Pacific/Honolulu" : "Pacific/Kiritimati";
+  const today = tokyoDay(0);
+  const deviceDay = new Intl.DateTimeFormat("sv-SE", { timeZone: deviceZone }).format(new Date());
+  expect(deviceDay, "the device is on another day").not.toBe(today);
+
+  // 23:00 tonight in Tokyo.
+  await rpc(
+    request,
+    `${PLAN}/CreatePlan`,
+    {
+      title: "夜のさんぽ",
+      emoji: "🌙",
+      time: { startAt: `${today}T23:00:00+09:00`, timeZone: "Asia/Tokyo" },
+    },
+    me,
+  );
+
+  const context = await browser.newContext({
+    baseURL: testInfo.project.use.baseURL,
+    locale: "ja-JP",
+    timezoneId: deviceZone,
+    viewport: testInfo.project.use.viewport,
+    hasTouch: testInfo.project.use.hasTouch,
+  });
+  const page = await context.newPage();
+  await signInAs(page, me);
+
+  // The calendar opens on the account's today, marks it, and files the plan under it at the account's time.
+  await page.goto("/plans/calendar");
+  const day = page.getByTestId("calendar-day");
+  const entry = day.getByTestId("calendar-entry").filter({ hasText: "夜のさんぽ" });
+  await expect(entry).toContainText("23:00");
+  const marked = page.locator('button[aria-current="date"]');
+  await expect(marked).toHaveCount(1);
+  await expect(marked).toHaveAttribute("aria-pressed", "true");
+  await expect(marked).toHaveText(new RegExp(`^${Number(today.slice(8))}`));
+  // The device's own day is just another day of the month.
+  await page.goto(`/plans/calendar?day=${deviceDay}`);
+  await expect(page.getByTestId("calendar-day").getByTestId("calendar-entry")).toHaveCount(0);
+
+  await context.close();
+});

@@ -141,7 +141,8 @@ export default {
       title: "This case is for another moderator",
       body: "You are involved in this anonymous post: you reported it, wrote in the same thread, or were mentioned or answered by its author. Its author is not shown to you, and you cannot act on the case.",
       ownerHidden: "Not shown to you",
-      cannotResolve: "You are involved in this post, so you cannot resolve the case. Another moderator will.",
+      cannotResolve:
+        "You are involved in this post, so you cannot resolve the case. Another moderator will.",
     },
     autoClosed: "Closed automatically",
     reportCount: "Reports: {{count}}",

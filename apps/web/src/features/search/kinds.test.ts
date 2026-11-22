@@ -74,20 +74,41 @@ describe("where a result leads", () => {
   });
 
   it("uses this app's addresses for emoji, communities and their threads", () => {
-    expect(hitHref(hit(K.EMOJI, { path: "/emoji/party_parrot", extra: { name: "party_parrot" } }))).toBe("/emoji/party_parrot");
-    expect(hitHref(hit(K.EMOJI, { path: "/emoji/old_name", title: "ねこ", extra: { name: "ねこ" } }))).toBe(`/emoji/${encodeURIComponent("ねこ")}`);
+    expect(
+      hitHref(hit(K.EMOJI, { path: "/emoji/party_parrot", extra: { name: "party_parrot" } })),
+    ).toBe("/emoji/party_parrot");
+    expect(
+      hitHref(hit(K.EMOJI, { path: "/emoji/old_name", title: "ねこ", extra: { name: "ねこ" } })),
+    ).toBe(`/emoji/${encodeURIComponent("ねこ")}`);
     // `/c/<handle>` is a video channel here: communities live under `/g`.
-    expect(hitHref(hit(K.COMMUNITY, { path: "/c/photo_club", extra: { handle: "photo_club" } }))).toBe("/g/photo_club");
-    expect(hitHref(hit(K.THREAD, { path: "/c/photo_club/t/junEDItkYwO", extra: { community_handle: "photo_club" } }))).toBe("/g/photo_club/t/junEDItkYwO");
+    expect(
+      hitHref(hit(K.COMMUNITY, { path: "/c/photo_club", extra: { handle: "photo_club" } })),
+    ).toBe("/g/photo_club");
+    expect(
+      hitHref(
+        hit(K.THREAD, {
+          path: "/c/photo_club/t/junEDItkYwO",
+          extra: { community_handle: "photo_club" },
+        }),
+      ),
+    ).toBe("/g/photo_club/t/junEDItkYwO");
     // Without what the address is built from, the published path is the best there is.
     expect(hitHref(hit(K.COMMUNITY, { path: "/c/photo_club" }))).toBe("/c/photo_club");
-    expect(hitHref(hit(K.THREAD, { path: "/somewhere/else", extra: { community_handle: "photo_club" } }))).toBe("/somewhere/else");
+    expect(
+      hitHref(
+        hit(K.THREAD, { path: "/somewhere/else", extra: { community_handle: "photo_club" } }),
+      ),
+    ).toBe("/somewhere/else");
   });
 
   it("opens answers and audio rooms where their domains published them", () => {
     expect(hitHref(hit(K.ANSWER, { id: "q1", path: "/ask/q/q1" }))).toBe("/ask/q/q1");
     expect(hitHref(hit(K.SPACE, { id: "s1", path: "/spaces/s1" }))).toBe("/spaces/s1");
-    expect(hitHref(hit(K.THREAD, { path: "//evil.example", title: "t", extra: { community_handle: "x" } })).startsWith("/search?")).toBe(true);
+    expect(
+      hitHref(
+        hit(K.THREAD, { path: "//evil.example", title: "t", extra: { community_handle: "x" } }),
+      ).startsWith("/search?"),
+    ).toBe(true);
   });
 
   it("opens everything else at the path its domain published", () => {

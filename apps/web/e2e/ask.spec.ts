@@ -103,7 +103,12 @@ async function grantCoins(request: APIRequestContext, to: Account): Promise<void
   const hundred = shop.packages.find((candidate) => candidate.sku === "coins_100");
   expect(hundred, "the seeded coins_100 package").toBeTruthy();
   await rpc(request, `${WALLET}/StartPurchase`, { packageId: hundred?.id }, to);
-  await expect.poll(async () => (await movementsOf(request, to, "purchase")).map((entry) => entry.coinsDelta), { timeout: 20_000 }).toEqual(["100"]);
+  await expect
+    .poll(
+      async () => (await movementsOf(request, to, "purchase")).map((entry) => entry.coinsDelta),
+      { timeout: 20_000 },
+    )
+    .toEqual(["100"]);
 }
 
 async function coinsOf(request: APIRequestContext, account: Account): Promise<string> {
@@ -120,8 +125,17 @@ async function coinsOf(request: APIRequestContext, account: Account): Promise<st
  * things move coins too (levelling up in quests grants some, whenever the XP
  * happens to arrive), so the balance at a given moment says little about one action.
  */
-async function movementsOf(request: APIRequestContext, account: Account, reason: string): Promise<{ reason: string; coinsDelta?: string }[]> {
-  const ledger = await rpc<{ entries?: { reason: string; coinsDelta?: string }[] }>(request, `${WALLET}/ListLedgerEntries`, { page: { limit: 100 } }, account);
+async function movementsOf(
+  request: APIRequestContext,
+  account: Account,
+  reason: string,
+): Promise<{ reason: string; coinsDelta?: string }[]> {
+  const ledger = await rpc<{ entries?: { reason: string; coinsDelta?: string }[] }>(
+    request,
+    `${WALLET}/ListLedgerEntries`,
+    { page: { limit: 100 } },
+    account,
+  );
   return (ledger.entries ?? []).filter((entry) => entry.reason === reason);
 }
 
@@ -892,7 +906,12 @@ test("a compliment round: pick a friend, they get a flame, and finishing pays th
   await expect(cooldown.getByTestId("poll-reward").getByText(coins(11))).toBeVisible();
   await expect(cooldown.getByTestId("poll-countdown")).toHaveText(/^\d{2}:\d{2}$/);
   // The round paid its reward, once.
-  await expect.poll(async () => (await movementsOf(request, me, "ask.round")).map((entry) => entry.coinsDelta), { timeout: 20_000 }).toEqual(["11"]);
+  await expect
+    .poll(
+      async () => (await movementsOf(request, me, "ask.round")).map((entry) => entry.coinsDelta),
+      { timeout: 20_000 },
+    )
+    .toEqual(["11"]);
 });
 
 test("someone without enough friends is sent to find some instead of a poll", async ({
@@ -935,7 +954,9 @@ test("buying a hint about a flame is confirmed and lowers the coin balance", asy
   // The toast says what the server charged, and the balance drops by exactly that.
   await expect(page.getByText("ヒントをゲット! 30コインつかったよ")).toBeVisible();
   await expect(flame.getByTestId("flame-hints").getByRole("listitem")).toHaveCount(1);
-  expect((await movementsOf(request, me, "ask.hint")).map((entry) => entry.coinsDelta)).toEqual(["-30"]);
+  expect((await movementsOf(request, me, "ask.hint")).map((entry) => entry.coinsDelta)).toEqual([
+    "-30",
+  ]);
   const after = Number(await coinsOf(request, me));
   // Nothing but the hint took coins away (a level-up in between could only add some).
   expect(after).toBeGreaterThanOrEqual(before - 30);

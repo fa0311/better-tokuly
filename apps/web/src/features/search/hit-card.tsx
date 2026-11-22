@@ -387,17 +387,28 @@ function AnswerFace({ hit, extra }: FaceProps) {
   const comments = extraNumber(extra, "comment_count");
   return (
     <>
-      {answerer ? <Avatar user={answerer} size="sm" /> : <KindTile kind={hit.kind} className="size-8 rounded-[0.6rem]" iconClassName="size-4" />}
+      {answerer ? (
+        <Avatar user={answerer} size="sm" />
+      ) : (
+        <KindTile kind={hit.kind} className="size-8 rounded-[0.6rem]" iconClassName="size-4" />
+      )}
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="flex min-w-0 items-start gap-1.5">
-          <span aria-hidden className="mt-0.5 shrink-0 rounded-md bg-coral px-1.5 text-xs leading-5 font-black text-[#17122b]">
+          <span
+            aria-hidden
+            className="mt-0.5 shrink-0 rounded-md bg-coral px-1.5 text-xs leading-5 font-black text-[#17122b]"
+          >
             Q
           </span>
           <Title hit={hit} className="line-clamp-2 leading-snug" />
         </span>
         <Snippet hit={hit} lines={3} />
         <Meta>
-          {answerer && <span className="truncate font-bold text-ink">{t("hit.answeredBy", { name: answerer.displayName || answerer.handle })}</span>}
+          {answerer && (
+            <span className="truncate font-bold text-ink">
+              {t("hit.answeredBy", { name: answerer.displayName || answerer.handle })}
+            </span>
+          )}
           {answerer && <Dot />}
           <span>{ageLabel(hit.createdAt)}</span>
           {extraFlag(extra, "anonymous") && (
@@ -414,7 +425,16 @@ function AnswerFace({ hit, extra }: FaceProps) {
           )}
         </Meta>
       </span>
-      {hit.imageUrl && <img src={hit.imageUrl} alt="" className="size-16 shrink-0 rounded-xl bg-surface-3 object-cover" loading="lazy" decoding="async" draggable={false} />}
+      {hit.imageUrl && (
+        <img
+          src={hit.imageUrl}
+          alt=""
+          className="size-16 shrink-0 rounded-xl bg-surface-3 object-cover"
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+        />
+      )}
     </>
   );
 }
@@ -429,7 +449,14 @@ function EmojiFace({ hit, extra }: FaceProps) {
   return (
     <>
       {hit.imageUrl && !sensitive ? (
-        <img src={hit.imageUrl} alt="" className="size-11 shrink-0 rounded-[0.85rem] bg-surface-2 object-contain p-1" loading="lazy" decoding="async" draggable={false} />
+        <img
+          src={hit.imageUrl}
+          alt=""
+          className="size-11 shrink-0 rounded-[0.85rem] bg-surface-2 object-contain p-1"
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+        />
       ) : (
         <KindTile kind={hit.kind} />
       )}
@@ -466,7 +493,18 @@ function CommunityFace({ hit, extra }: FaceProps) {
   const school = extraText(extra, "school_name");
   return (
     <>
-      {hit.imageUrl ? <img src={hit.imageUrl} alt="" className="size-11 shrink-0 rounded-[0.85rem] border-2 border-ink bg-surface-3 object-cover" loading="lazy" decoding="async" draggable={false} /> : <KindTile kind={hit.kind} />}
+      {hit.imageUrl ? (
+        <img
+          src={hit.imageUrl}
+          alt=""
+          className="size-11 shrink-0 rounded-[0.85rem] border-2 border-ink bg-surface-3 object-cover"
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+        />
+      ) : (
+        <KindTile kind={hit.kind} />
+      )}
       <span className="flex min-w-0 flex-1 flex-col">
         <Title hit={hit} className="truncate" />
         <Meta>
@@ -491,7 +529,9 @@ function CommunityFace({ hit, extra }: FaceProps) {
 function ThreadFace({ hit, extra }: FaceProps) {
   const { t } = useTranslation("search");
   const community = extraText(extra, "community_name") || extraText(extra, "community_handle");
-  const author = extraFlag(extra, "anonymous") ? t("hit.anonymousAuthor") : hit.owner?.displayName || hit.owner?.handle;
+  const author = extraFlag(extra, "anonymous")
+    ? t("hit.anonymousAuthor")
+    : hit.owner?.displayName || hit.owner?.handle;
   const replies = extraNumber(extra, "reply_count");
   return (
     <>
@@ -511,7 +551,18 @@ function ThreadFace({ hit, extra }: FaceProps) {
           )}
         </Meta>
       </span>
-      {hit.imageUrl ? <img src={hit.imageUrl} alt="" className="size-16 shrink-0 rounded-xl bg-surface-3 object-cover" loading="lazy" decoding="async" draggable={false} /> : <KindTile kind={hit.kind} />}
+      {hit.imageUrl ? (
+        <img
+          src={hit.imageUrl}
+          alt=""
+          className="size-16 shrink-0 rounded-xl bg-surface-3 object-cover"
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+        />
+      ) : (
+        <KindTile kind={hit.kind} />
+      )}
     </>
   );
 }
@@ -530,9 +581,13 @@ function SpaceFace({ hit, extra }: FaceProps) {
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="flex min-w-0 items-center gap-1.5">
           {live ? (
-            <span className="shrink-0 rounded-md bg-live px-1.5 py-0.5 text-[10px] font-black tracking-wide text-white">LIVE</span>
+            <span className="shrink-0 rounded-md bg-live px-1.5 py-0.5 text-[10px] font-black tracking-wide text-white">
+              LIVE
+            </span>
           ) : (
-            <span className="shrink-0 rounded-md bg-surface-2 px-1.5 py-0.5 text-[10px] font-black text-ink-soft">{t("hit.upcoming")}</span>
+            <span className="shrink-0 rounded-md bg-surface-2 px-1.5 py-0.5 text-[10px] font-black text-ink-soft">
+              {t("hit.upcoming")}
+            </span>
           )}
           <Title hit={hit} className="truncate" />
         </span>

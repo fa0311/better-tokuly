@@ -716,12 +716,20 @@ test.describe("moderation", () => {
     await expect(page.getByRole("region", { name: "このケースを解決する" })).toBeVisible();
   });
 
-  test("the author of an anonymous post is hidden from a moderator who reported it, and shown to one who did not", async ({ page, request }) => {
+  test("the author of an anonymous post is hidden from a moderator who reported it, and shown to one who did not", async ({
+    page,
+    request,
+  }) => {
     test.setTimeout(120_000);
     const admin = await adminAccount(request);
     const moderator = async (name: string) => {
       const account = await createAccount(request, name);
-      await rpc(request, `${USERS}/SetUserRoles`, { userId: account.userId, roles: ["moderator"], note: "e2e" }, admin);
+      await rpc(
+        request,
+        `${USERS}/SetUserRoles`,
+        { userId: account.userId, roles: ["moderator"], note: "e2e" },
+        admin,
+      );
       return refreshAccount(request, account);
     };
     const author = await createAccount(request, "anon");
@@ -734,29 +742,76 @@ test.describe("moderation", () => {
     const handle = `e2e${tag()}`;
     let community: { community: { id: string } };
     try {
-      community = await rpc(request, `${COMMUNITY}/CreateCommunity`, { name: `匿名テスト ${handle}`, handle, category: "COMMUNITY_CATEGORY_CLUB", visibility: "COMMUNITY_VISIBILITY_PUBLIC", schoolName: "東高校" }, author);
+      community = await rpc(
+        request,
+        `${COMMUNITY}/CreateCommunity`,
+        {
+          name: `匿名テスト ${handle}`,
+          handle,
+          category: "COMMUNITY_CATEGORY_CLUB",
+          visibility: "COMMUNITY_VISIBILITY_PUBLIC",
+          schoolName: "東高校",
+        },
+        author,
+      );
     } catch (error) {
-      test.skip(error instanceof RpcError && error.status === 404, "the community domain is not served by this stack yet");
+      test.skip(
+        error instanceof RpcError && error.status === 404,
+        "the community domain is not served by this stack yet",
+      );
       throw error;
     }
     const communityId = community.community.id;
     await rpc(request, `${COMMUNITY}/JoinCommunity`, { communityId }, reporting);
-    for (let member = 0; member < 4; member++) await rpc(request, `${COMMUNITY}/JoinCommunity`, { communityId }, await createAccount(request, "member"));
-    const channel = await rpc<{ channel: { id: string } }>(request, `${BOARD}/CreateChannel`, { communityId, name: "ないしょ", anonymous: true }, author);
+    for (let member = 0; member < 4; member++)
+      await rpc(
+        request,
+        `${COMMUNITY}/JoinCommunity`,
+        { communityId },
+        await createAccount(request, "member"),
+      );
+    const channel = await rpc<{ channel: { id: string } }>(
+      request,
+      `${BOARD}/CreateChannel`,
+      { communityId, name: "ないしょ", anonymous: true },
+      author,
+    );
     const title = `ひみつの話 ${handle}`;
-    const thread = await rpc<{ thread: { id: string } }>(request, `${BOARD}/CreateThread`, { channelId: channel.channel.id, title, body: "だれにも言わないで" }, author);
-    await rpc(request, "tokuly.engagement.v1.ReportService/CreateReport", { subject: { type: "SUBJECT_TYPE_COMMUNITY_THREAD", id: thread.thread.id }, category: "REPORT_CATEGORY_HARASSMENT", text: "e2e" }, reporting);
+    const thread = await rpc<{ thread: { id: string } }>(
+      request,
+      `${BOARD}/CreateThread`,
+      { channelId: channel.channel.id, title, body: "だれにも言わないで" },
+      author,
+    );
+    await rpc(
+      request,
+      "tokuly.engagement.v1.ReportService/CreateReport",
+      {
+        subject: { type: "SUBJECT_TYPE_COMMUNITY_THREAD", id: thread.thread.id },
+        category: "REPORT_CATEGORY_HARASSMENT",
+        text: "e2e",
+      },
+      reporting,
+    );
     let caseId = "";
     await expect(async () => {
-      const queue = await rpc<{ cases?: { id: string; subject?: { id: string } }[] }>(request, `${MODERATION}/ListCases`, {}, neutral);
-      caseId = queue.cases?.find((candidate) => candidate.subject?.id === thread.thread.id)?.id ?? "";
+      const queue = await rpc<{ cases?: { id: string; subject?: { id: string } }[] }>(
+        request,
+        `${MODERATION}/ListCases`,
+        {},
+        neutral,
+      );
+      caseId =
+        queue.cases?.find((candidate) => candidate.subject?.id === thread.thread.id)?.id ?? "";
       expect(caseId).not.toBe("");
     }).toPass({ timeout: 20_000 });
 
     // The moderator who reported it: told to leave it to someone else, with nothing to resolve it with.
     await signInAs(page, reporting);
     await page.goto(`/admin/moderation/${caseId}`);
-    await expect(page.getByTestId("case-conflict")).toContainText("このケースは、ほかのモデレーターにおまかせ");
+    await expect(page.getByTestId("case-conflict")).toContainText(
+      "このケースは、ほかのモデレーターにおまかせ",
+    );
     await expect(page.getByTestId("owner-withheld")).toHaveText("あなたには表示されません");
     await expect(page.getByTestId("resolve-conflict")).toBeVisible();
     await expect(page.getByRole("radiogroup", { name: "このケースを解決する" })).toHaveCount(0);
@@ -769,8 +824,17 @@ test.describe("moderation", () => {
     await expect(page.getByTestId("case-conflict")).toHaveCount(0);
     await expect(page.getByRole("radiogroup", { name: "このケースを解決する" })).toBeVisible();
     // Each such look is on record.
-    const audit = await rpc<{ entries?: { action: string; targetId: string }[] }>(request, "tokuly.admin.v1.SystemService/ListAuditLog", { actorId: neutral.userId }, admin);
-    expect((audit.entries ?? []).filter((entry) => entry.action === "case.author_revealed" && entry.targetId === caseId).length).toBeGreaterThan(0);
+    const audit = await rpc<{ entries?: { action: string; targetId: string }[] }>(
+      request,
+      "tokuly.admin.v1.SystemService/ListAuditLog",
+      { actorId: neutral.userId },
+      admin,
+    );
+    expect(
+      (audit.entries ?? []).filter(
+        (entry) => entry.action === "case.author_revealed" && entry.targetId === caseId,
+      ).length,
+    ).toBeGreaterThan(0);
   });
 });
 
