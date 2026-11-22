@@ -8,7 +8,8 @@ import { cn } from "#/lib/cn";
 import { useHistoryActions } from "./api";
 import { useHasKeyboard } from "./hooks";
 import { KindTile } from "./kind-icon";
-import { extraFlag, extraNumber, extraText, hitExtra, hitHref, isKind, kindSlug } from "./kinds";
+import { hitHref } from "./hit-href";
+import { extraFlag, extraNumber, extraText, hitExtra, isKind, kindSlug } from "./kinds";
 import type { Suggestion, SuggestionGroup } from "./suggestions";
 
 /**

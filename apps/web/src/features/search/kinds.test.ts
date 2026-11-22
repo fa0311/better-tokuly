@@ -1,6 +1,9 @@
 import { search } from "@tokuly/api";
+import { defaultParseSearch } from "@tanstack/react-router";
 import { describe, expect, it } from "vitest";
-import { hitExtra, hitHref, isKind, KINDS, kindFromSlug, kindSlug } from "./kinds";
+import { hitHref, isAppPath } from "./hit-href";
+import { hitExtra, isKind, KINDS, kindFromSlug, kindSlug } from "./kinds";
+import { parseSearchParams } from "./params";
 
 const K = search.SearchKind;
 
@@ -62,5 +65,17 @@ describe("where a result leads", () => {
     expect(hitExtra({ extraJson: "[1,2]" })).toEqual({});
     expect(hitExtra({ extraJson: "null" })).toEqual({});
     expect(hitHref(hit(K.USER, { path: "/u/a", extra: "{broken" }))).toBe("/u/a");
+  });
+
+  it("never follows a published path that leaves this site", () => {
+    for (const path of ["https://evil.example/x", "//evil.example/x", "/\\evil.example", "javascript:alert(1)", "watch/abc", ""]) {
+      expect(isAppPath(path), path).toBe(false);
+      const href = hitHref(hit(K.VIDEO, { path, title: "ねこ動画" }));
+      expect(href.startsWith("/search?"), path).toBe(true);
+      expect(parseSearchParams(defaultParseSearch(href.slice(href.indexOf("?"))))).toMatchObject({ q: "ねこ動画", kind: "videos" });
+    }
+    expect(isAppPath("/watch/abc?t=3")).toBe(true);
+    // The same goes for kinds whose own address cannot be built.
+    expect(hitHref(hit(K.CHANNEL, { path: "//evil.example", title: "ch" })).startsWith("/search?")).toBe(true);
   });
 });

@@ -1,3 +1,4 @@
+import { defaultStringifySearch } from "@tanstack/react-router";
 import { search } from "@tokuly/api";
 import { type Kind, kindFromSlug, kindSlug } from "./kinds";
 
@@ -52,13 +53,14 @@ export function sortValue(sort: Sort | undefined): search.SearchSort {
   return search.SearchSort.RELEVANCE;
 }
 
-/** The address of a result page: `/search?q=…&kind=…`. */
+/**
+ * The address of a result page: `/search?q=…&kind=…`. Written with the
+ * router's own search serialisation, so the router reads back exactly what
+ * was put in: a quoted phrase, a number or `{…}` stay the text they are.
+ */
 export function searchHref(query: string, options: { kind?: Kind; sort?: Sort; owner?: string } = {}): string {
-  const params = new URLSearchParams({ q: query.trim() });
-  if (options.kind !== undefined) params.set("kind", kindSlug(options.kind));
-  if (options.sort) params.set("sort", options.sort);
-  if (options.owner) params.set("owner", options.owner);
-  return `/search?${params.toString()}`;
+  const params: SearchParams = { q: query.trim(), kind: options.kind === undefined ? undefined : kindSlug(options.kind), sort: options.sort, owner: options.owner || undefined };
+  return `/search${defaultStringifySearch(params)}`;
 }
 
 /** A query that only looks at tags starts with '#'. */

@@ -31,7 +31,9 @@ export function NewsScreen({ params }: { params: NewsParams }) {
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
   const articles = list.data?.pages.flatMap((page) => page.articles) ?? [];
-  const filtered = Boolean(params.tag || params.source || params.lang);
+  // A tag or a source makes the list newest-first; a language only narrows it, in either order.
+  const filtered = Boolean(params.tag || params.source);
+  const narrowed = filtered || Boolean(params.lang);
   // Filtered lists are always newest first; the API says which order a page is in.
   const recommended = list.data?.pages[0]?.recommended ?? (!filtered && params.order !== "latest");
 
@@ -72,7 +74,7 @@ export function NewsScreen({ params }: { params: NewsParams }) {
           }
         />
       ) : articles.length === 0 ? (
-        filtered ? (
+        narrowed ? (
           <EmptyState
             emoji="🗞️"
             title={t("empty.filteredTitle")}

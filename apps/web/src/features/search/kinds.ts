@@ -49,33 +49,3 @@ export function hitExtra(hit: Pick<search.SearchHit, "extraJson">): HitExtra {
 export const extraText = (extra: HitExtra, key: string): string => (typeof extra[key] === "string" ? (extra[key] as string) : "");
 export const extraNumber = (extra: HitExtra, key: string): number | undefined => (typeof extra[key] === "number" && Number.isFinite(extra[key]) ? (extra[key] as number) : undefined);
 export const extraFlag = (extra: HitExtra, key: string): boolean => extra[key] === true;
-
-/**
- * Where a result leads in this app. People, channels, notes, hashtags and
- * news have pages whose address the web app decides; everything else opens at
- * the path its domain published.
- */
-export function hitHref(hit: Pick<search.SearchHit, "kind" | "id" | "path" | "title" | "extraJson" | "owner">): string {
-  const extra = hitExtra(hit);
-  const segment = encodeURIComponent;
-  switch (hit.kind) {
-    case K.USER: {
-      const handle = extraText(extra, "handle") || hit.owner?.handle;
-      return handle ? `/u/${segment(handle)}` : hit.path;
-    }
-    case K.CHANNEL: {
-      const handle = extraText(extra, "handle");
-      return handle ? `/c/${segment(handle)}` : hit.path;
-    }
-    case K.NOTE:
-      return `/notes/${segment(hit.id)}`;
-    case K.HASHTAG: {
-      const tag = extraText(extra, "tag") || hit.title.replace(/^[#＃]+/, "");
-      return tag ? `/tag/${segment(tag)}` : hit.path;
-    }
-    case K.NEWS:
-      return `/news/${segment(hit.id)}`;
-    default:
-      return hit.path;
-  }
-}

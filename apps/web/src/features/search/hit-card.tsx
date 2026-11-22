@@ -9,7 +9,8 @@ import { AppLink } from "./app-link";
 import { ageLabel, formatCount, formatDuration } from "./format";
 import { Segments } from "./highlight";
 import { KindTile } from "./kind-icon";
-import { extraFlag, extraNumber, extraText, type HitExtra, hitExtra, hitHref } from "./kinds";
+import { hitHref } from "./hit-href";
+import { extraFlag, extraNumber, extraText, type HitExtra, hitExtra } from "./kinds";
 
 const K = search.SearchKind;
 
