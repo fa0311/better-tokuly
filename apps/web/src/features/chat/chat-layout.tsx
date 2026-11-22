@@ -18,14 +18,21 @@ export function ChatLayout({ openUser }: { openUser?: string }) {
   const inner = Boolean(section);
   const activeId = section && section !== "calls" ? section : undefined;
 
-  const open = (conversationId: string) => void navigate({ to: "/chat/$conversationId", params: { conversationId }, search: {} });
+  const open = (conversationId: string) =>
+    void navigate({ to: "/chat/$conversationId", params: { conversationId }, search: {} });
 
   useEffect(() => {
     if (!openUser) return;
     let cancelled = false;
     void openDirect(openUser).then((conversation) => {
       if (cancelled) return;
-      if (conversation) void navigate({ to: "/chat/$conversationId", params: { conversationId: conversation.id }, search: {}, replace: true });
+      if (conversation)
+        void navigate({
+          to: "/chat/$conversationId",
+          params: { conversationId: conversation.id },
+          search: {},
+          replace: true,
+        });
       else void navigate({ to: "/chat", search: {}, replace: true });
     });
     return () => {
@@ -36,7 +43,12 @@ export function ChatLayout({ openUser }: { openUser?: string }) {
 
   return (
     <div className="flex h-full">
-      <aside className={cn("h-full w-full shrink-0 border-line md:w-[21rem] md:border-r-2 lg:w-[24rem]", inner && "hidden md:block")}>
+      <aside
+        className={cn(
+          "h-full w-full shrink-0 border-line md:w-[21rem] md:border-r-2 lg:w-[24rem]",
+          inner && "hidden md:block",
+        )}
+      >
         <ConversationList activeId={activeId} onOpen={open} />
       </aside>
       <section className={cn("h-full min-w-0 flex-1", !inner && "hidden md:block")}>

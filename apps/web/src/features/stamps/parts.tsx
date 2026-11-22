@@ -11,18 +11,41 @@ import { statusKey } from "./api";
 import { StampImage } from "./stamp-image";
 
 /** A pack's cover on a soft tile tinted with the cover's own colour. */
-export function PackCover({ pack, className }: { pack: Pick<stamp.PackSummary, "cover" | "name">; className?: string }) {
+export function PackCover({
+  pack,
+  className,
+}: {
+  pack: Pick<stamp.PackSummary, "cover" | "name">;
+  className?: string;
+}) {
   const cover = pack.cover;
   // The middle rendition is plenty for cards; the full picture only when there is nothing smaller.
-  const url = cover ? (cover.variants.filter((variant) => variant.size >= 160).sort((a, b) => a.size - b.size)[0]?.url ?? cover.url) : undefined;
+  const url = cover
+    ? (cover.variants.filter((variant) => variant.size >= 160).sort((a, b) => a.size - b.size)[0]
+        ?.url ?? cover.url)
+    : undefined;
   return (
     <span
-      className={cn("relative block aspect-square overflow-hidden rounded-2xl bg-surface-2", className)}
-      style={cover?.dominantColor ? { background: `color-mix(in srgb, ${cover.dominantColor} 24%, var(--surface-2))` } : undefined}
+      className={cn(
+        "relative block aspect-square overflow-hidden rounded-2xl bg-surface-2",
+        className,
+      )}
+      style={
+        cover?.dominantColor
+          ? { background: `color-mix(in srgb, ${cover.dominantColor} 24%, var(--surface-2))` }
+          : undefined
+      }
     >
       {/* Placed by offsets, so the picture has its size whether the tile gets its own from a width, a height or its proportions. */}
       {url ? (
-        <img src={url} alt="" className="absolute inset-[12%] h-[76%] w-[76%] object-contain drop-shadow-[0_2px_0_rgb(23_18_43/0.18)]" loading="lazy" decoding="async" draggable={false} />
+        <img
+          src={url}
+          alt=""
+          className="absolute inset-[12%] h-[76%] w-[76%] object-contain drop-shadow-[0_2px_0_rgb(23_18_43/0.18)]"
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+        />
       ) : (
         <Sparkles className="absolute inset-1/4 size-1/2 text-ink-faint" aria-hidden />
       )}
@@ -31,7 +54,13 @@ export function PackCover({ pack, className }: { pack: Pick<stamp.PackSummary, "
 }
 
 /** Who made a pack: the team's badge, or the creator's name. */
-export function PackMaker({ pack, className }: { pack: Pick<stamp.PackSummary, "official" | "creator">; className?: string }) {
+export function PackMaker({
+  pack,
+  className,
+}: {
+  pack: Pick<stamp.PackSummary, "official" | "creator">;
+  className?: string;
+}) {
   const { t } = useTranslation("stamps");
   if (pack.official) {
     return (
@@ -41,22 +70,41 @@ export function PackMaker({ pack, className }: { pack: Pick<stamp.PackSummary, "
       </span>
     );
   }
-  return <span className={cn("truncate text-ink-soft", className)}>{pack.creator?.deleted ? t("deletedCreator") : (pack.creator?.displayName ?? "")}</span>;
+  return (
+    <span className={cn("truncate text-ink-soft", className)}>
+      {pack.creator?.deleted ? t("deletedCreator") : (pack.creator?.displayName ?? "")}
+    </span>
+  );
 }
 
 /** Price of a pack, or what the viewer already has of it. */
-export function PriceTag({ pack, className }: { pack: Pick<stamp.PackSummary, "price" | "viewer">; className?: string }) {
+export function PriceTag({
+  pack,
+  className,
+}: {
+  pack: Pick<stamp.PackSummary, "price" | "viewer">;
+  className?: string;
+}) {
   const { t } = useTranslation("stamps");
   if (pack.viewer?.installed) {
     return (
-      <span className={cn("inline-flex items-center gap-0.5 text-xs font-black text-success", className)}>
+      <span
+        className={cn(
+          "inline-flex items-center gap-0.5 text-xs font-black text-success",
+          className,
+        )}
+      >
         <Check className="size-3.5" strokeWidth={3} />
         {t("state.installed")}
       </span>
     );
   }
-  if (pack.viewer?.owned) return <span className={cn("text-xs font-black text-brand", className)}>{t("state.owned")}</span>;
-  if (pack.price === 0) return <span className={cn("text-xs font-black text-ink-soft", className)}>{t("free")}</span>;
+  if (pack.viewer?.owned)
+    return (
+      <span className={cn("text-xs font-black text-brand", className)}>{t("state.owned")}</span>
+    );
+  if (pack.price === 0)
+    return <span className={cn("text-xs font-black text-ink-soft", className)}>{t("free")}</span>;
   return <Coins amount={pack.price} size="sm" className={className} />;
 }
 
@@ -64,7 +112,13 @@ export function PriceTag({ pack, className }: { pack: Pick<stamp.PackSummary, "p
 export function AnimatedMark({ className }: { className?: string }) {
   const { t } = useTranslation("stamps");
   return (
-    <span title={t("animated")} className={cn("inline-grid size-5 place-items-center rounded-full border-2 border-ink bg-sun text-[#17122b]", className)}>
+    <span
+      title={t("animated")}
+      className={cn(
+        "inline-grid size-5 place-items-center rounded-full border-2 border-ink bg-sun text-[#17122b]",
+        className,
+      )}
+    >
       <Clapperboard className="size-3" aria-label={t("animated")} />
     </span>
   );
@@ -76,7 +130,10 @@ export function PackCard({ pack, className }: { pack: stamp.PackSummary; classNa
     <Link
       to="/stamps/$packId"
       params={{ packId: pack.shortId || pack.id }}
-      className={cn("pressable sticker flex min-w-0 flex-col gap-2 rounded-card bg-surface p-2.5", className)}
+      className={cn(
+        "pressable sticker flex min-w-0 flex-col gap-2 rounded-card bg-surface p-2.5",
+        className,
+      )}
       data-testid="pack-card"
     >
       <span className="relative block">
@@ -93,12 +150,35 @@ export function PackCard({ pack, className }: { pack: stamp.PackSummary; classNa
 }
 
 /** A pack as a row: ranked lists, the library, search results. */
-export function PackRow({ pack, rank, trailing, className }: { pack: stamp.PackSummary; rank?: number; trailing?: ReactNode; className?: string }) {
+export function PackRow({
+  pack,
+  rank,
+  trailing,
+  className,
+}: {
+  pack: stamp.PackSummary;
+  rank?: number;
+  trailing?: ReactNode;
+  className?: string;
+}) {
   const { t } = useTranslation("stamps");
   return (
     <div className={cn("flex items-center gap-3 rounded-2xl px-2 py-2", className)}>
-      {rank !== undefined && <span className={cn("w-6 shrink-0 text-center text-lg font-black tabular-nums", rank <= 3 ? "text-pink" : "text-ink-faint")}>{rank}</span>}
-      <Link to="/stamps/$packId" params={{ packId: pack.shortId || pack.id }} className="flex min-w-0 flex-1 items-center gap-3">
+      {rank !== undefined && (
+        <span
+          className={cn(
+            "w-6 shrink-0 text-center text-lg font-black tabular-nums",
+            rank <= 3 ? "text-pink" : "text-ink-faint",
+          )}
+        >
+          {rank}
+        </span>
+      )}
+      <Link
+        to="/stamps/$packId"
+        params={{ packId: pack.shortId || pack.id }}
+        className="flex min-w-0 flex-1 items-center gap-3"
+      >
         <PackCover pack={pack} className="size-14 shrink-0 rounded-xl" />
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5">
@@ -107,7 +187,9 @@ export function PackRow({ pack, rank, trailing, className }: { pack: stamp.PackS
           </span>
           <span className="flex min-w-0 items-center gap-1.5 text-xs">
             <PackMaker pack={pack} />
-            <span className="shrink-0 text-ink-faint">· {t("stampCount", { count: pack.stampCount })}</span>
+            <span className="shrink-0 text-ink-faint">
+              · {t("stampCount", { count: pack.stampCount })}
+            </span>
           </span>
         </span>
       </Link>
@@ -125,13 +207,31 @@ const STATUS_TINT: Record<number, string> = {
 };
 
 /** Where a pack is in its lifecycle, as a coloured label (the text carries the meaning). */
-export function StatusChip({ status, className }: { status: stamp.PackStatus; className?: string }) {
+export function StatusChip({
+  status,
+  className,
+}: {
+  status: stamp.PackStatus;
+  className?: string;
+}) {
   const { t } = useTranslation("stamps");
-  return <Chip className={cn(STATUS_TINT[status] ?? STATUS_TINT[stamp.PackStatus.DRAFT], className)}>{t(statusKey(status))}</Chip>;
+  return (
+    <Chip className={cn(STATUS_TINT[status] ?? STATUS_TINT[stamp.PackStatus.DRAFT], className)}>
+      {t(statusKey(status))}
+    </Chip>
+  );
 }
 
 /** Heading of a shelf, with an optional "more" link on the right. */
-export function SectionHeading({ title, action, className }: { title: ReactNode; action?: ReactNode; className?: string }) {
+export function SectionHeading({
+  title,
+  action,
+  className,
+}: {
+  title: ReactNode;
+  action?: ReactNode;
+  className?: string;
+}) {
   return (
     <div className={cn("flex items-end justify-between gap-3 px-1 pb-2", className)}>
       <h2 className="text-lg font-black">{title}</h2>
@@ -164,7 +264,10 @@ export function SearchField({
   }, [autoFocus]);
   return (
     <form
-      className={cn("flex h-12 items-center gap-2 rounded-control border-2 border-line bg-surface px-4 focus-within:border-brand", className)}
+      className={cn(
+        "flex h-12 items-center gap-2 rounded-control border-2 border-line bg-surface px-4 focus-within:border-brand",
+        className,
+      )}
       onSubmit={(event) => {
         event.preventDefault();
         onSubmit?.();
@@ -183,7 +286,12 @@ export function SearchField({
         className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-ink-faint [&::-webkit-search-cancel-button]:hidden"
       />
       {value && (
-        <button type="button" aria-label={t("search.clear")} onClick={() => onChange("")} className="grid size-7 shrink-0 place-items-center rounded-full bg-surface-2 text-ink-soft hover:bg-surface-3">
+        <button
+          type="button"
+          aria-label={t("search.clear")}
+          onClick={() => onChange("")}
+          className="grid size-7 shrink-0 place-items-center rounded-full bg-surface-2 text-ink-soft hover:bg-surface-3"
+        >
           <X className="size-4" />
         </button>
       )}
@@ -239,13 +347,27 @@ export function StampTile({
 
 /** Grid for stamp tiles: four across on phones, more as the screen widens. */
 export function StampGrid({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn("grid grid-cols-4 gap-1 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8", className)}>{children}</div>;
+  return (
+    <div
+      className={cn(
+        "grid grid-cols-4 gap-1 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
 }
 
 /** Placeholder for a grid of packs that is still loading. */
 export function PackGridSkeleton({ count = 6, className }: { count?: number; className?: string }) {
   return (
-    <div className={cn("grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6", className)}>
+    <div
+      className={cn(
+        "grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6",
+        className,
+      )}
+    >
       {Array.from({ length: count }, (_, index) => (
         <Skeleton key={index} className="aspect-[4/5]" />
       ))}

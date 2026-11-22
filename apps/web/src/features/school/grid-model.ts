@@ -1,7 +1,10 @@
 import { school } from "@tokuly/api";
 
 /** What the grid needs of a class; a friend's entries and the caller's own both fit. */
-export type GridEntry = Pick<school.TimetableEntry, "id" | "weekday" | "period" | "weekPattern" | "subject" | "room" | "teacher" | "color" | "memo">;
+export type GridEntry = Pick<
+  school.TimetableEntry,
+  "id" | "weekday" | "period" | "weekPattern" | "subject" | "room" | "teacher" | "color" | "memo"
+>;
 
 /** The classes of one slot: one for every week, or one for week A and/or one for week B. */
 export interface Slot {
@@ -29,7 +32,10 @@ export function slots(entries: GridEntry[]): Map<string, Slot> {
 }
 
 /** The class of a slot in weeks of `pattern` (EVERY: the every-week class only). */
-export function entryFor(slot: Slot | undefined, pattern: school.WeekPattern): GridEntry | undefined {
+export function entryFor(
+  slot: Slot | undefined,
+  pattern: school.WeekPattern,
+): GridEntry | undefined {
   if (!slot) return undefined;
   if (pattern === school.WeekPattern.A) return slot.a ?? slot.every;
   if (pattern === school.WeekPattern.B) return slot.b ?? slot.every;
@@ -41,7 +47,12 @@ export function entryFor(slot: Slot | undefined, pattern: school.WeekPattern): G
  * every-week class replaces everything, a week-A class replaces the
  * every-week class and the other week-A class (the server's rule).
  */
-export function collides(existing: GridEntry, weekday: school.Weekday, period: number, pattern: school.WeekPattern): boolean {
+export function collides(
+  existing: GridEntry,
+  weekday: school.Weekday,
+  period: number,
+  pattern: school.WeekPattern,
+): boolean {
   if (existing.weekday !== weekday || existing.period !== period) return false;
   const every = school.WeekPattern.EVERY;
   const own = existing.weekPattern || every;

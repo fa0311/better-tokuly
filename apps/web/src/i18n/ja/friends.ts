@@ -2,7 +2,11 @@ export default {
   title: "ともだち",
   tabs: { friends: "ともだち", requests: "リクエスト", find: "さがす", invite: "招待" },
   search: { placeholder: "なまえ または @ハンドル", empty: "見つかりませんでした" },
-  list: { empty: "まだともだちがいません", emptyBody: "さがす・招待タブから追加しよう！", count: "{{count}}人" },
+  list: {
+    empty: "まだともだちがいません",
+    emptyBody: "さがす・招待タブから追加しよう！",
+    count: "{{count}}人",
+  },
   requests: {
     incoming: "リクエスト",
     outgoing: "保留中",
@@ -13,8 +17,19 @@ export default {
     cancel: "取り消す",
     mutual: "共通のともだち {{count}}人",
   },
-  actions: { add: "追加", requested: "リクエスト済み", friends: "ともだち", accept: "承認する", remove: "ともだちから削除", block: "ブロック" },
-  suggestions: { title: "もしかして、友達!?", mutual: "共通のともだち {{count}}人", dismiss: "非表示" },
+  actions: {
+    add: "追加",
+    requested: "リクエスト済み",
+    friends: "ともだち",
+    accept: "承認する",
+    remove: "ともだちから削除",
+    block: "ブロック",
+  },
+  suggestions: {
+    title: "もしかして、友達!?",
+    mutual: "共通のともだち {{count}}人",
+    dismiss: "非表示",
+  },
   nearby: {
     title: "近くの人をさがす",
     lead: "あなたから50m以内にいるユーザーを検索中です...",
@@ -30,5 +45,10 @@ export default {
     share: "このリンクを他の人にシェアしよう！",
     intros: "あなたの招待で {{count}}人が参加しました",
   },
-  toast: { sent: "リクエストを送りました！", accepted: "ともだちになりました！", removed: "削除しました", cancelled: "取り消しました" },
+  toast: {
+    sent: "リクエストを送りました！",
+    accepted: "ともだちになりました！",
+    removed: "削除しました",
+    cancelled: "取り消しました",
+  },
 } as const;

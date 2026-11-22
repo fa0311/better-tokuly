@@ -20,11 +20,22 @@ export const PAGE_SIZE = 20;
 type Entry = notify.Notification;
 
 function matches(filter: InboxFilter, entry: Entry): boolean {
-  return (!filter.category || entry.category === filter.category) && (!filter.unreadOnly || !entry.read);
+  return (
+    (!filter.category || entry.category === filter.category) && (!filter.unreadOnly || !entry.read)
+  );
 }
 
-function mapEntries(pages: InboxPages, edit: (entries: Entry[], pageIndex: number) => Entry[]): InboxPages {
-  return { ...pages, pages: pages.pages.map((page, index) => ({ ...page, notifications: edit(page.notifications, index) })) };
+function mapEntries(
+  pages: InboxPages,
+  edit: (entries: Entry[], pageIndex: number) => Entry[],
+): InboxPages {
+  return {
+    ...pages,
+    pages: pages.pages.map((page, index) => ({
+      ...page,
+      notifications: edit(page.notifications, index),
+    })),
+  };
 }
 
 /** Every entry currently loaded, in display order. */
@@ -46,17 +57,31 @@ export function withReceived(pages: InboxPages, entry: Entry, filter: InboxFilte
 }
 
 /** Entries were read. `ids` = which ones; `"all"` = every entry of `category` (empty = any). */
-export function withRead(pages: InboxPages, ids: ReadonlySet<string> | "all", filter: InboxFilter, category = ""): InboxPages {
-  const affected = (entry: Entry) => !entry.read && (ids === "all" ? !category || entry.category === category : ids.has(entry.id));
+export function withRead(
+  pages: InboxPages,
+  ids: ReadonlySet<string> | "all",
+  filter: InboxFilter,
+  category = "",
+): InboxPages {
+  const affected = (entry: Entry) =>
+    !entry.read && (ids === "all" ? !category || entry.category === category : ids.has(entry.id));
   return mapEntries(pages, (entries) =>
     // A view of unread entries loses them; the others show them as read.
-    filter.unreadOnly ? entries.filter((entry) => !affected(entry)) : entries.map((entry) => (affected(entry) ? { ...entry, read: true } : entry)),
+    filter.unreadOnly
+      ? entries.filter((entry) => !affected(entry))
+      : entries.map((entry) => (affected(entry) ? { ...entry, read: true } : entry)),
   );
 }
 
 /** Entries were deleted: specific ones, or (cleared) all / all read ones of a category. */
-export function withRemoved(pages: InboxPages, target: ReadonlySet<string> | { category: string; readOnly: boolean }): InboxPages {
+export function withRemoved(
+  pages: InboxPages,
+  target: ReadonlySet<string> | { category: string; readOnly: boolean },
+): InboxPages {
   const removed = (entry: Entry) =>
-    "has" in target ? target.has(entry.id) : (!target.category || entry.category === target.category) && (!target.readOnly || entry.read);
+    "has" in target
+      ? target.has(entry.id)
+      : (!target.category || entry.category === target.category) &&
+        (!target.readOnly || entry.read);
   return mapEntries(pages, (entries) => entries.filter((entry) => !removed(entry)));
 }

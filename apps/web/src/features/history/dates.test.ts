@@ -39,7 +39,15 @@ describe("months", () => {
     expect(november[4]).toEqual(["2026-11-29", "2026-11-30", null, null, null, null, null]);
     // December 2026 starts on a Tuesday.
     const december = monthGrid({ year: 2026, month: 12 });
-    expect(december[0]).toEqual([null, null, "2026-12-01", "2026-12-02", "2026-12-03", "2026-12-04", "2026-12-05"]);
+    expect(december[0]).toEqual([
+      null,
+      null,
+      "2026-12-01",
+      "2026-12-02",
+      "2026-12-03",
+      "2026-12-04",
+      "2026-12-05",
+    ]);
     expect(december.flat().filter(Boolean)).toHaveLength(31);
     expect(december.every((week) => week.length === 7)).toBe(true);
   });

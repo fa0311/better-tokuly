@@ -38,7 +38,8 @@ export function realtime(): RealtimeClient {
       client?.setForeground(document.visibilityState === "visible");
     });
     // Development aid: inspect the connection from the browser console.
-    if (import.meta.env.DEV) (window as unknown as { __tokulyRealtime?: RealtimeClient }).__tokulyRealtime = client;
+    if (import.meta.env.DEV)
+      (window as unknown as { __tokulyRealtime?: RealtimeClient }).__tokulyRealtime = client;
   }
   return client;
 }

@@ -9,7 +9,13 @@ import { Dialog } from "#/components/ui/dialog";
 import { cn } from "#/lib/cn";
 import { uploadAndProcess } from "#/lib/upload";
 import { libraryClient, refreshHoldings, uploadErrorMessage } from "../api";
-import { EMPTY_META, nameFromFile, parseKeywords, type StampMeta, StampMetaFields } from "../stamp-meta";
+import {
+  EMPTY_META,
+  nameFromFile,
+  parseKeywords,
+  type StampMeta,
+  StampMetaFields,
+} from "../stamp-meta";
 import { CutoutEditor } from "./cutout-editor";
 
 /** A finished cut-out, uploaded and ready to become a stamp. */
@@ -78,8 +84,16 @@ export function StampMaker({ open, onOpenChange, title, submitLabel, onSubmit }:
       const extension = cutout.type === "image/webp" ? "webp" : "png";
       const upload = new File([cutout], `stamp.${extension}`, { type: cutout.type });
       // The upload is most of the wait; processing the small image takes a moment more.
-      const asset = await uploadAndProcess(upload, { purpose: media.AssetPurpose.STAMP, onProgress: (fraction) => setProgress(fraction * 0.9) });
-      await onSubmit({ assetId: asset.id, name: meta.name.trim(), emoji: meta.emoji, keywords: parseKeywords(meta.keywords) });
+      const asset = await uploadAndProcess(upload, {
+        purpose: media.AssetPurpose.STAMP,
+        onProgress: (fraction) => setProgress(fraction * 0.9),
+      });
+      await onSubmit({
+        assetId: asset.id,
+        name: meta.name.trim(),
+        emoji: meta.emoji,
+        keywords: parseKeywords(meta.keywords),
+      });
       onOpenChange(false);
     } catch (error) {
       toast.error(uploadErrorMessage(error));
@@ -93,7 +107,9 @@ export function StampMaker({ open, onOpenChange, title, submitLabel, onSubmit }:
     <Dialog
       open={open}
       onOpenChange={(next) => !busy && onOpenChange(next)}
-      title={step === "pick" ? t("editor.pickTitle") : step === "edit" ? t("editor.editTitle") : title}
+      title={
+        step === "pick" ? t("editor.pickTitle") : step === "edit" ? t("editor.editTitle") : title
+      }
       description={step === "pick" ? t("editor.pickLead") : undefined}
       className="sm:w-[min(34rem,calc(100vw-2rem))]"
     >
@@ -121,14 +137,34 @@ export function StampMaker({ open, onOpenChange, title, submitLabel, onSubmit }:
         >
           <div
             className="sticker mx-auto grid size-40 place-items-center rounded-[1.75rem] bg-surface"
-            style={{ backgroundImage: "repeating-conic-gradient(var(--surface-3) 0% 25%, transparent 0% 50%)", backgroundSize: "20px 20px" }}
+            style={{
+              backgroundImage:
+                "repeating-conic-gradient(var(--surface-3) 0% 25%, transparent 0% 50%)",
+              backgroundSize: "20px 20px",
+            }}
           >
-            {preview && <img src={preview} alt={t("editor.preview")} className="size-36 animate-pop-in object-contain" data-testid="cutout-preview" />}
+            {preview && (
+              <img
+                src={preview}
+                alt={t("editor.preview")}
+                className="size-36 animate-pop-in object-contain"
+                data-testid="cutout-preview"
+              />
+            )}
           </div>
           <StampMetaFields value={meta} onChange={setMeta} />
           {busy && (
-            <div role="progressbar" aria-valuenow={Math.round((progress ?? 0) * 100)} aria-valuemin={0} aria-valuemax={100} className="h-3 overflow-hidden rounded-full border-2 border-ink bg-surface-2">
-              <div className="h-full bg-lime transition-[width] duration-200" style={{ width: `${Math.max(6, Math.round((progress ?? 0) * 100))}%` }} />
+            <div
+              role="progressbar"
+              aria-valuenow={Math.round((progress ?? 0) * 100)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              className="h-3 overflow-hidden rounded-full border-2 border-ink bg-surface-2"
+            >
+              <div
+                className="h-full bg-lime transition-[width] duration-200"
+                style={{ width: `${Math.max(6, Math.round((progress ?? 0) * 100))}%` }}
+              />
             </div>
           )}
           <div className="flex justify-end gap-2">
@@ -160,7 +196,9 @@ function DropZone({ onPick }: { onPick(file: File | undefined): void }) {
   // A picture copied elsewhere can be pasted straight in.
   useEffect(() => {
     const onPaste = (event: ClipboardEvent) => {
-      const pasted = [...(event.clipboardData?.files ?? [])].find((item) => item.type.startsWith("image/"));
+      const pasted = [...(event.clipboardData?.files ?? [])].find((item) =>
+        item.type.startsWith("image/"),
+      );
       if (pasted) onPick(pasted);
     };
     window.addEventListener("paste", onPaste);
@@ -189,7 +227,15 @@ function DropZone({ onPick }: { onPick(file: File | undefined): void }) {
         <span className="text-lg font-black">{t("editor.pick")}</span>
         <span className="text-sm text-ink-soft">{t("editor.pickHint")}</span>
       </button>
-      <input ref={input} type="file" accept="image/*" className="sr-only" tabIndex={-1} aria-label={t("editor.pick")} onChange={(event) => onPick(event.target.files?.[0])} />
+      <input
+        ref={input}
+        type="file"
+        accept="image/*"
+        className="sr-only"
+        tabIndex={-1}
+        aria-label={t("editor.pick")}
+        onChange={(event) => onPick(event.target.files?.[0])}
+      />
       <p className="px-1 text-xs leading-relaxed text-ink-faint">{t("editor.pickTip")}</p>
     </div>
   );
@@ -211,7 +257,13 @@ function useObjectUrl(blob: Blob | null): string | null {
 }
 
 /** Makes a personal stamp ("quick sticker"): cut out a picture and it is in the picker. */
-export function PersonalStampMaker({ open, onOpenChange }: { open: boolean; onOpenChange(open: boolean): void }) {
+export function PersonalStampMaker({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange(open: boolean): void;
+}) {
   const { t } = useTranslation("stamps");
   const queryClient = useQueryClient();
   return (

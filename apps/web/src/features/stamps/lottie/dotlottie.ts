@@ -12,11 +12,20 @@ interface Manifest {
 }
 
 /** The entry holding the animation to play: the manifest's first, else the first JSON file. */
-export function animationEntry(entries: ZipEntry[], manifest: Manifest | undefined): ZipEntry | undefined {
+export function animationEntry(
+  entries: ZipEntry[],
+  manifest: Manifest | undefined,
+): ZipEntry | undefined {
   const id = manifest?.animations?.[0]?.id;
   // dotLottie 1 keeps animations in `animations/`, dotLottie 2 in `a/`.
-  const named = id ? entries.find((entry) => entry.name === `animations/${id}.json` || entry.name === `a/${id}.json`) : undefined;
-  return named ?? entries.find((entry) => entry.name.endsWith(".json") && entry.name !== "manifest.json");
+  const named = id
+    ? entries.find(
+        (entry) => entry.name === `animations/${id}.json` || entry.name === `a/${id}.json`,
+      )
+    : undefined;
+  return (
+    named ?? entries.find((entry) => entry.name.endsWith(".json") && entry.name !== "manifest.json")
+  );
 }
 
 async function decodeImage(source: Blob | string): Promise<CanvasImageSource | undefined> {
@@ -32,9 +41,20 @@ async function decodeImage(source: Blob | string): Promise<CanvasImageSource | u
   }
 }
 
-const IMAGE_TYPES: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif", svg: "image/svg+xml" };
+const IMAGE_TYPES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+  gif: "image/gif",
+  svg: "image/svg+xml",
+};
 
-async function loadImages(animation: Animation, bytes: Uint8Array, entries: ZipEntry[]): Promise<Map<string, CanvasImageSource>> {
+async function loadImages(
+  animation: Animation,
+  bytes: Uint8Array,
+  entries: ZipEntry[],
+): Promise<Map<string, CanvasImageSource>> {
   const images = new Map<string, CanvasImageSource>();
   await Promise.all(
     (animation.assets ?? []).map(async (asset) => {
@@ -43,10 +63,16 @@ async function loadImages(animation: Animation, bytes: Uint8Array, entries: ZipE
       if (asset.p.startsWith("data:")) {
         image = await decodeImage(asset.p);
       } else {
-        const entry = entries.find((candidate) => candidate.name === asset.p || candidate.name.endsWith(`/${asset.p}`));
+        const entry = entries.find(
+          (candidate) => candidate.name === asset.p || candidate.name.endsWith(`/${asset.p}`),
+        );
         if (!entry) return;
         const extension = asset.p.slice(asset.p.lastIndexOf(".") + 1).toLowerCase();
-        image = await decodeImage(new Blob([new Uint8Array(await readZipEntry(bytes, entry))], { type: IMAGE_TYPES[extension] ?? "" }));
+        image = await decodeImage(
+          new Blob([new Uint8Array(await readZipEntry(bytes, entry))], {
+            type: IMAGE_TYPES[extension] ?? "",
+          }),
+        );
       }
       if (image) images.set(asset.id, image);
     }),
@@ -63,7 +89,9 @@ export async function parseDotLottie(bytes: Uint8Array): Promise<LoadedAnimation
   if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
     entries = listZipEntries(bytes);
     const manifestEntry = entries.find((entry) => entry.name === "manifest.json");
-    const manifest = manifestEntry ? (JSON.parse(decoder.decode(await readZipEntry(bytes, manifestEntry))) as Manifest) : undefined;
+    const manifest = manifestEntry
+      ? (JSON.parse(decoder.decode(await readZipEntry(bytes, manifestEntry))) as Manifest)
+      : undefined;
     const entry = animationEntry(entries, manifest);
     if (!entry) throw new Error("the dotLottie file holds no animation");
     json = decoder.decode(await readZipEntry(bytes, entry));

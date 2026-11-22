@@ -22,7 +22,13 @@ function RowsSkeleton() {
 }
 
 /** Who reacted to a message, all together or one emoji at a time. */
-export function ReactionsSheet({ message, onClose }: { message: chat.Message | null; onClose(): void }) {
+export function ReactionsSheet({
+  message,
+  onClose,
+}: {
+  message: chat.Message | null;
+  onClose(): void;
+}) {
   const { t } = useTranslation("chat");
   // The last message stays while the sheet animates out.
   const [shown, setShown] = useState(message);
@@ -31,7 +37,8 @@ export function ReactionsSheet({ message, onClose }: { message: chat.Message | n
   const messageId = shown?.id ?? "";
   const reactions = useInfiniteQuery({
     queryKey: chatKeys.reactions(messageId, emoji),
-    queryFn: ({ pageParam }) => messageClient().listReactions({ messageId, emoji, page: { cursor: pageParam, limit: 50 } }),
+    queryFn: ({ pageParam }) =>
+      messageClient().listReactions({ messageId, emoji, page: { cursor: pageParam, limit: 50 } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
     enabled: message !== null,
@@ -41,19 +48,35 @@ export function ReactionsSheet({ message, onClose }: { message: chat.Message | n
   const rows = reactions.data?.pages.flatMap((page) => page.reactions) ?? [];
 
   return (
-    <Dialog open={message !== null} onOpenChange={(open) => !open && onClose()} title={t("reactions.title")} className="h-[70dvh] sm:h-[32rem]">
+    <Dialog
+      open={message !== null}
+      onOpenChange={(open) => !open && onClose()}
+      title={t("reactions.title")}
+      className="h-[70dvh] sm:h-[32rem]"
+    >
       <Tabs<string>
         className="mb-3"
         value={emoji}
         onChange={setEmoji}
-        items={[{ value: "", label: t("reactions.all", { count: total }) }, ...shown.reactions.map((reaction) => ({ value: reaction.emoji, label: `${reaction.emoji} ${reaction.count}` }))]}
+        items={[
+          { value: "", label: t("reactions.all", { count: total }) },
+          ...shown.reactions.map((reaction) => ({
+            value: reaction.emoji,
+            label: `${reaction.emoji} ${reaction.count}`,
+          })),
+        ]}
       />
       {reactions.isPending ? (
         <RowsSkeleton />
       ) : (
         <div className="-mx-3" data-testid="reaction-list">
           {rows.map((reaction) => (
-            <ListRow key={`${reaction.user?.id}:${reaction.emoji}`} leading={<Avatar user={reaction.user} size="sm" />} title={displayName(reaction.user)} trailing={<span className="text-2xl">{reaction.emoji}</span>} />
+            <ListRow
+              key={`${reaction.user?.id}:${reaction.emoji}`}
+              leading={<Avatar user={reaction.user} size="sm" />}
+              title={displayName(reaction.user)}
+              trailing={<span className="text-2xl">{reaction.emoji}</span>}
+            />
           ))}
           <LoadMore query={reactions} />
         </div>
@@ -63,7 +86,13 @@ export function ReactionsSheet({ message, onClose }: { message: chat.Message | n
 }
 
 /** Which members of a group have read a message, and how many have not yet. */
-export function ReceiptsSheet({ message, onClose }: { message: chat.Message | null; onClose(): void }) {
+export function ReceiptsSheet({
+  message,
+  onClose,
+}: {
+  message: chat.Message | null;
+  onClose(): void;
+}) {
   const { t } = useTranslation("chat");
   const [shown, setShown] = useState(message);
   if (message && message !== shown) setShown(message);
@@ -81,7 +110,14 @@ export function ReceiptsSheet({ message, onClose }: { message: chat.Message | nu
       open={message !== null}
       onOpenChange={(open) => !open && onClose()}
       title={t("receipts.title")}
-      description={receipts.data ? t("receipts.summary", { read: receipts.data.receipts.length, unread: receipts.data.unreadMemberCount }) : undefined}
+      description={
+        receipts.data
+          ? t("receipts.summary", {
+              read: receipts.data.receipts.length,
+              unread: receipts.data.unreadMemberCount,
+            })
+          : undefined
+      }
       className="h-[70dvh] sm:h-[32rem]"
     >
       {receipts.isPending ? (
@@ -89,7 +125,12 @@ export function ReceiptsSheet({ message, onClose }: { message: chat.Message | nu
       ) : receipts.data && receipts.data.receipts.length > 0 ? (
         <div className="-mx-3" data-testid="receipt-list">
           {receipts.data.receipts.map((receipt) => (
-            <ListRow key={receipt.user?.id} leading={<Avatar user={receipt.user} size="sm" />} title={displayName(receipt.user)} subtitle={dateTime(toMillis(receipt.readAt))} />
+            <ListRow
+              key={receipt.user?.id}
+              leading={<Avatar user={receipt.user} size="sm" />}
+              title={displayName(receipt.user)}
+              subtitle={dateTime(toMillis(receipt.readAt))}
+            />
           ))}
         </div>
       ) : (

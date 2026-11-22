@@ -48,8 +48,12 @@ export function CreateStoryDialog({ onClose }: { onClose(): void }) {
     mutationFn: () =>
       storyClient().createStory({
         title: title.trim(),
-        items: uploads.uploads.map((upload) => ({ assetId: upload.assetId ?? "", caption: (captions[upload.key] ?? "").trim() })),
-        audience: audience === "close" ? notes.StoryAudience.CLOSE_FRIENDS : notes.StoryAudience.FRIENDS,
+        items: uploads.uploads.map((upload) => ({
+          assetId: upload.assetId ?? "",
+          caption: (captions[upload.key] ?? "").trim(),
+        })),
+        audience:
+          audience === "close" ? notes.StoryAudience.CLOSE_FRIENDS : notes.StoryAudience.FRIENDS,
         audienceUserIds: audience === "close" ? [...chosen] : [],
         idempotencyKey,
       }),
@@ -62,7 +66,11 @@ export function CreateStoryDialog({ onClose }: { onClose(): void }) {
   });
 
   const titleLength = charCount(title.trim());
-  const ready = uploads.uploads.length > 0 && !uploads.busy && titleLength <= TITLE_MAX && (audience === "friends" || chosen.size > 0);
+  const ready =
+    uploads.uploads.length > 0 &&
+    !uploads.busy &&
+    titleLength <= TITLE_MAX &&
+    (audience === "friends" || chosen.size > 0);
 
   return (
     <Dialog
@@ -76,7 +84,12 @@ export function CreateStoryDialog({ onClose }: { onClose(): void }) {
           <Button variant="ghost" onClick={onClose} disabled={post.isPending}>
             {t("create.cancel")}
           </Button>
-          <Button variant="lime" disabled={!ready} loading={post.isPending} onClick={() => post.mutate()}>
+          <Button
+            variant="lime"
+            disabled={!ready}
+            loading={post.isPending}
+            onClick={() => post.mutate()}
+          >
             {t("create.post")}
           </Button>
         </>
@@ -113,23 +126,41 @@ export function CreateStoryDialog({ onClose }: { onClose(): void }) {
               <ImagePlus className="size-7" />
             </span>
             <span className="font-black">{t("create.pick")}</span>
-            <span className="text-sm text-ink-soft">{t("create.pickHint", { count: MAX_ITEMS })}</span>
+            <span className="text-sm text-ink-soft">
+              {t("create.pickHint", { count: MAX_ITEMS })}
+            </span>
           </button>
         ) : (
           <>
-            <Sortable<Upload> items={uploads.uploads} getKey={(upload) => upload.key} onReorder={uploads.reorder} className="flex flex-col gap-2">
+            <Sortable<Upload>
+              items={uploads.uploads}
+              getKey={(upload) => upload.key}
+              onReorder={uploads.reorder}
+              className="flex flex-col gap-2"
+            >
               {(upload, { grip }) => (
                 <div className="flex items-center gap-2 rounded-2xl bg-surface-2 p-2">
-                  <button type="button" aria-label={t("create.move")} className="grid h-16 w-6 shrink-0 place-items-center rounded-lg text-ink-faint hover:text-ink" {...grip}>
+                  <button
+                    type="button"
+                    aria-label={t("create.move")}
+                    className="grid h-16 w-6 shrink-0 place-items-center rounded-lg text-ink-faint hover:text-ink"
+                    {...grip}
+                  >
                     <GripVertical className="size-5" />
                   </button>
-                  <UploadTile upload={upload} onRemove={() => uploads.remove(upload.key)} className="size-16 shrink-0 rounded-xl" />
+                  <UploadTile
+                    upload={upload}
+                    onRemove={() => uploads.remove(upload.key)}
+                    className="size-16 shrink-0 rounded-xl"
+                  />
                   <input
                     value={captions[upload.key] ?? ""}
                     maxLength={CAPTION_MAX}
                     placeholder={t("create.caption")}
                     aria-label={t("create.caption")}
-                    onChange={(event) => setCaptions({ ...captions, [upload.key]: event.target.value })}
+                    onChange={(event) =>
+                      setCaptions({ ...captions, [upload.key]: event.target.value })
+                    }
                     className="h-11 min-w-0 flex-1 rounded-control border-2 border-line bg-surface px-3 text-[15px] outline-none placeholder:text-ink-faint focus:border-brand"
                   />
                 </div>
@@ -151,7 +182,12 @@ export function CreateStoryDialog({ onClose }: { onClose(): void }) {
         <label className="mt-4 block">
           <span className="flex items-baseline justify-between px-1 text-sm font-bold text-ink-soft">
             {t("create.titleLabel")}
-            <span className={cn("text-xs tabular-nums", titleLength > TITLE_MAX ? "text-danger" : "text-ink-faint")}>
+            <span
+              className={cn(
+                "text-xs tabular-nums",
+                titleLength > TITLE_MAX ? "text-danger" : "text-ink-faint",
+              )}
+            >
               {titleLength}/{TITLE_MAX}
             </span>
           </span>
@@ -170,7 +206,13 @@ export function CreateStoryDialog({ onClose }: { onClose(): void }) {
             onChange={setAudience}
             items={[
               { value: "friends", label: t("create.everyFriend") },
-              { value: "close", label: chosen.size > 0 ? t("create.closeCount", { count: chosen.size }) : t("create.close") },
+              {
+                value: "close",
+                label:
+                  chosen.size > 0
+                    ? t("create.closeCount", { count: chosen.size })
+                    : t("create.close"),
+              },
             ]}
           />
           {audience === "close" && <FriendPicker chosen={chosen} onChange={setChosen} />}
@@ -181,7 +223,13 @@ export function CreateStoryDialog({ onClose }: { onClose(): void }) {
 }
 
 /** Ticks the friends a close-friends story is shown to. */
-function FriendPicker({ chosen, onChange }: { chosen: ReadonlySet<string>; onChange(next: ReadonlySet<string>): void }) {
+function FriendPicker({
+  chosen,
+  onChange,
+}: {
+  chosen: ReadonlySet<string>;
+  onChange(next: ReadonlySet<string>): void;
+}) {
   const { t } = useTranslation("stories");
   const [query, setQuery] = useState("");
   const friends = useQuery({
@@ -200,11 +248,19 @@ function FriendPicker({ chosen, onChange }: { chosen: ReadonlySet<string>; onCha
     <div className="mt-2 rounded-2xl bg-surface-2 p-2">
       <label className="flex h-10 items-center gap-2 rounded-control border-2 border-line bg-surface px-3 focus-within:border-brand">
         <Search className="size-4 shrink-0 text-ink-faint" />
-        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("create.searchFriends")} aria-label={t("create.searchFriends")} className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-ink-faint" />
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={t("create.searchFriends")}
+          aria-label={t("create.searchFriends")}
+          className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-ink-faint"
+        />
       </label>
       <ul className="mt-1.5 flex max-h-56 flex-col overflow-y-auto">
         {friends.isPending && <Skeleton className="h-11" />}
-        {friends.data?.friends.length === 0 && <li className="px-2 py-3 text-sm text-ink-soft">{t("create.noFriends")}</li>}
+        {friends.data?.friends.length === 0 && (
+          <li className="px-2 py-3 text-sm text-ink-soft">{t("create.noFriends")}</li>
+        )}
         {friends.data?.friends.map(
           (friend) =>
             friend.user && (
@@ -218,8 +274,17 @@ function FriendPicker({ chosen, onChange }: { chosen: ReadonlySet<string>; onCha
                   className="flex w-full items-center gap-2.5 rounded-xl px-2 py-1.5 text-left hover:bg-surface-3"
                 >
                   <Avatar user={friend.user} size="sm" />
-                  <span className="min-w-0 flex-1 truncate font-bold">{friend.user.displayName}</span>
-                  <span className={cn("grid size-6 shrink-0 place-items-center rounded-lg border-2", chosen.has(friend.user.id) ? "border-ink bg-lime text-[#17122b]" : "border-line bg-surface")}>
+                  <span className="min-w-0 flex-1 truncate font-bold">
+                    {friend.user.displayName}
+                  </span>
+                  <span
+                    className={cn(
+                      "grid size-6 shrink-0 place-items-center rounded-lg border-2",
+                      chosen.has(friend.user.id)
+                        ? "border-ink bg-lime text-[#17122b]"
+                        : "border-line bg-surface",
+                    )}
+                  >
                     {chosen.has(friend.user.id) && <Check className="size-4" strokeWidth={3.5} />}
                   </span>
                 </button>

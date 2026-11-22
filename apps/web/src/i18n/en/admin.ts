@@ -241,7 +241,8 @@ export default {
     takedown: {
       open: "Take content down",
       title: "Take content down",
-      description: "Remove a piece of content by its ID, without a report. Its owner is told the reason.",
+      description:
+        "Remove a piece of content by its ID, without a report. Its owner is told the reason.",
       type: "Subject type",
       id: "Subject ID",
       idHint: "The UUID, or the short share ID. Private content needs its UUID.",
@@ -354,7 +355,8 @@ export default {
       open: "Suspend account",
       openReplace: "Change suspension",
       title: "Suspend @{{handle}}?",
-      description: "They are signed out everywhere and cannot sign in. The reason is emailed to them.",
+      description:
+        "They are signed out everywhere and cannot sign in. The reason is emailed to them.",
       descriptionReplace: "This replaces the current suspension.",
       timed: "For a while",
       permanent: "Permanently (ban)",
@@ -381,7 +383,8 @@ export default {
     revoke: {
       open: "Sign out everywhere",
       title: "Sign @{{handle}} out of every device?",
-      description: "All devices currently signed in ({{count}}) will have to sign in again. Use this when an account may be compromised.",
+      description:
+        "All devices currently signed in ({{count}}) will have to sign in again. Use this when an account may be compromised.",
       confirm: "Sign out",
     },
     roles: {
@@ -428,7 +431,8 @@ export default {
     },
     fields: {
       name: "Flag name",
-      nameHint: "a-z, 0-9, _ - . are allowed. Start with a letter, 2-64 characters. Cannot be changed later.",
+      nameHint:
+        "a-z, 0-9, _ - . are allowed. Start with a letter, 2-64 characters. Cannot be changed later.",
       description: "Description",
       enabled: "Enabled",
       enabledHint: "Even when off, allow-listed users still get the flag.",
@@ -502,7 +506,8 @@ export default {
       pinnedHint: "Stays at the top of the list.",
       title: "Title",
       summary: "Summary",
-      summaryHint: "One or two sentences for the list and notifications. Empty uses the start of the body.",
+      summaryHint:
+        "One or two sentences for the list and notifications. Empty uses the start of the body.",
       body: "Body",
       bodyHint: "Markdown works here (headings, lists, links, images).",
     },
@@ -538,7 +543,8 @@ export default {
       confirmBody: "It shows up in the update log right away.",
       confirmScheduleTitle: "Schedule this announcement?",
       confirmScheduleBody: "It goes live at {{time}}.",
-      confirmNotify: "Every active user will be notified. A sent notification cannot be taken back.",
+      confirmNotify:
+        "Every active user will be notified. A sent notification cannot be taken back.",
     },
     unpublish: {
       open: "Unpublish",
@@ -692,7 +698,12 @@ export default {
       IN_ROLLOUT: "On: inside the rollout share",
       OUT_OF_ROLLOUT: "Off: outside the rollout share",
     },
-    announcementStatus: { UNSPECIFIED: "Unknown", DRAFT: "Draft", SCHEDULED: "Scheduled", PUBLISHED: "Published" },
+    announcementStatus: {
+      UNSPECIFIED: "Unknown",
+      DRAFT: "Draft",
+      SCHEDULED: "Scheduled",
+      PUBLISHED: "Published",
+    },
   },
   errors: {
     INVALID_CURSOR: "Couldn't load more of this list. Please reopen the page",

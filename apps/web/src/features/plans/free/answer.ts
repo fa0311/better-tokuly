@@ -10,13 +10,24 @@ import { freeClient, keys, patchFreeStatuses } from "../api";
  */
 export function useAnswerFree() {
   const queryClient = useQueryClient();
-  const mark = (userId: string, answered: boolean) =>  {
-    patchFreeStatuses(queryClient, (statuses) => statuses.map((status) => (status.user?.id === userId ? { ...status, answeredByMe: answered } : status)));
+  const mark = (userId: string, answered: boolean) => {
+    patchFreeStatuses(queryClient, (statuses) =>
+      statuses.map((status) =>
+        status.user?.id === userId ? { ...status, answeredByMe: answered } : status,
+      ),
+    );
     // The same status as a profile shows it.
-    queryClient.setQueryData<plans.FreeStatus | null>(keys.freeStatus(userId), (status) => status && { ...status, answeredByMe: answered });
+    queryClient.setQueryData<plans.FreeStatus | null>(
+      keys.freeStatus(userId),
+      (status) => status && { ...status, answeredByMe: answered },
+    );
   };
   return useMutation({
-    mutationFn: ({ status, message }: { status: plans.FreeStatus; message?: string }) => freeClient().answerFreeStatus({ userId: status.user?.id ?? "", message: message?.trim() ?? "" }),
+    mutationFn: ({ status, message }: { status: plans.FreeStatus; message?: string }) =>
+      freeClient().answerFreeStatus({
+        userId: status.user?.id ?? "",
+        message: message?.trim() ?? "",
+      }),
     onMutate: ({ status }) => {
       const before = status.answeredByMe;
       if (status.user) mark(status.user.id, true);
@@ -37,10 +48,12 @@ export function useFreeAlerts() {
   const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: keys.freeAlerts,
-    queryFn: async () => (await freeClient().listFreeAlerts({ page: { limit: 200, cursor: "" } })).users,
+    queryFn: async () =>
+      (await freeClient().listFreeAlerts({ page: { limit: 200, cursor: "" } })).users,
   });
   const set = useMutation({
-    mutationFn: ({ userIds, enabled }: { userIds: string[]; enabled: boolean }) => Promise.all(userIds.map((userId) => freeClient().setFreeAlert({ userId, enabled }))),
+    mutationFn: ({ userIds, enabled }: { userIds: string[]; enabled: boolean }) =>
+      Promise.all(userIds.map((userId) => freeClient().setFreeAlert({ userId, enabled }))),
     onSettled: () => queryClient.invalidateQueries({ queryKey: keys.freeAlerts }),
     onError: (error) => toast.error(errorMessage(error, { namespace: "plans" })),
   });

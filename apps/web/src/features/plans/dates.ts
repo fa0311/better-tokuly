@@ -20,7 +20,11 @@ export function parseYmd(day: string): Date | null {
   if (!match) return null;
   const [year, month, date] = [Number(match[1]), Number(match[2]), Number(match[3])];
   const parsed = new Date(year, month - 1, date);
-  return parsed.getFullYear() === year && parsed.getMonth() === month - 1 && parsed.getDate() === date ? parsed : null;
+  return parsed.getFullYear() === year &&
+    parsed.getMonth() === month - 1 &&
+    parsed.getDate() === date
+    ? parsed
+    : null;
 }
 
 export function addDays(day: string, count: number): string {
@@ -35,7 +39,11 @@ export function daysBetween(from: string, to: string): number {
   const [a, b] = [parseYmd(from), parseYmd(to)];
   if (!a || !b) return 0;
   // Noon to noon, so a daylight-saving hour never rounds a day away.
-  return Math.round((Date.UTC(b.getFullYear(), b.getMonth(), b.getDate()) - Date.UTC(a.getFullYear(), a.getMonth(), a.getDate())) / 86_400_000);
+  return Math.round(
+    (Date.UTC(b.getFullYear(), b.getMonth(), b.getDate()) -
+      Date.UTC(a.getFullYear(), a.getMonth(), a.getDate())) /
+      86_400_000,
+  );
 }
 
 /** `YYYY-MM` of a day. */
@@ -108,7 +116,9 @@ export function formatTime(date: Date, language: string): string {
 /** "2026年12月" / "December 2026". */
 export function formatMonth(month: string, language: string): string {
   const date = parseYmd(`${month}-01`);
-  return date ? new Intl.DateTimeFormat(language, { year: "numeric", month: "long" }).format(date) : month;
+  return date
+    ? new Intl.DateTimeFormat(language, { year: "numeric", month: "long" }).format(date)
+    : month;
 }
 
 /** The seven weekday initials of a month page, Sunday first. */

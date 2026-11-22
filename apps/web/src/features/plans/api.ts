@@ -1,4 +1,9 @@
-import { type InfiniteData, type QueryClient, useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import {
+  type InfiniteData,
+  type QueryClient,
+  useInfiniteQuery,
+  useQuery,
+} from "@tanstack/react-query";
 import { type common, plans, social } from "@tokuly/api";
 import { api } from "#/lib/api";
 import { localTimeZone } from "./dates";
@@ -59,25 +64,57 @@ export function useFreeBoard() {
   const query = useInfiniteQuery({
     queryKey: keys.freeFriends,
     queryFn: async ({ pageParam }): Promise<FreeBoardPage> => {
-      const response = await freeClient().listFreeFriends({ page: { limit: PAGE_SIZE, cursor: pageParam } });
-      return { statuses: response.statuses, mine: response.mine, nextCursor: response.page?.nextCursor ?? "" };
+      const response = await freeClient().listFreeFriends({
+        page: { limit: PAGE_SIZE, cursor: pageParam },
+      });
+      return {
+        statuses: response.statuses,
+        mine: response.mine,
+        nextCursor: response.page?.nextCursor ?? "",
+      };
     },
     initialPageParam: "",
     getNextPageParam: nextCursorOf,
   });
   const pages = query.data?.pages;
-  const data: FreeBoard | undefined = pages && { statuses: pages.flatMap((page) => page.statuses), mine: pages[0]?.mine };
+  const data: FreeBoard | undefined = pages && {
+    statuses: pages.flatMap((page) => page.statuses),
+    mine: pages[0]?.mine,
+  };
   return { data, isPending: query.isPending, paging: query };
 }
 
 /** Rewrites the loaded statuses of friends, page by page (the first page has index 0). */
-export function patchFreeStatuses(queryClient: QueryClient, patch: (statuses: plans.FreeStatus[], pageIndex: number) => plans.FreeStatus[]): void {
-  queryClient.setQueryData<InfiniteData<FreeBoardPage, string>>(keys.freeFriends, (board) => board && { ...board, pages: board.pages.map((page, index) => ({ ...page, statuses: patch(page.statuses, index) })) });
+export function patchFreeStatuses(
+  queryClient: QueryClient,
+  patch: (statuses: plans.FreeStatus[], pageIndex: number) => plans.FreeStatus[],
+): void {
+  queryClient.setQueryData<InfiniteData<FreeBoardPage, string>>(
+    keys.freeFriends,
+    (board) =>
+      board && {
+        ...board,
+        pages: board.pages.map((page, index) => ({
+          ...page,
+          statuses: patch(page.statuses, index),
+        })),
+      },
+  );
 }
 
 /** Sets (or clears) the caller's own status in what is loaded. */
-export function setMyFreeStatus(queryClient: QueryClient, mine: plans.FreeStatus | undefined): void {
-  queryClient.setQueryData<InfiniteData<FreeBoardPage, string>>(keys.freeFriends, (board) => board && { ...board, pages: board.pages.map((page, index) => (index === 0 ? { ...page, mine } : page)) });
+export function setMyFreeStatus(
+  queryClient: QueryClient,
+  mine: plans.FreeStatus | undefined,
+): void {
+  queryClient.setQueryData<InfiniteData<FreeBoardPage, string>>(
+    keys.freeFriends,
+    (board) =>
+      board && {
+        ...board,
+        pages: board.pages.map((page, index) => (index === 0 ? { ...page, mine } : page)),
+      },
+  );
 }
 
 /** A friend's status (the caller's own without `userId`); `null` when there is none to see. */
@@ -93,13 +130,19 @@ export function useFreeAnswers() {
   const query = useInfiniteQuery({
     queryKey: keys.freeAnswers,
     queryFn: async ({ pageParam }) => {
-      const response = await freeClient().listFreeAnswers({ page: { limit: PAGE_SIZE, cursor: pageParam } });
+      const response = await freeClient().listFreeAnswers({
+        page: { limit: PAGE_SIZE, cursor: pageParam },
+      });
       return { answers: response.answers, nextCursor: response.page?.nextCursor ?? "" };
     },
     initialPageParam: "",
     getNextPageParam: nextCursorOf,
   });
-  return { data: query.data?.pages.flatMap((page) => page.answers), isPending: query.isPending, paging: query };
+  return {
+    data: query.data?.pages.flatMap((page) => page.answers),
+    isPending: query.isPending,
+    paging: query,
+  };
 }
 
 export function usePlan(planId: string) {
@@ -114,13 +157,21 @@ export function usePlanList(filter: plans.PlanListFilter) {
   const query = useInfiniteQuery({
     queryKey: keys.planList(filter),
     queryFn: async ({ pageParam }) => {
-      const response = await planClient().listPlans({ filter, includeDeclined: false, page: { limit: PAGE_SIZE, cursor: pageParam } });
+      const response = await planClient().listPlans({
+        filter,
+        includeDeclined: false,
+        page: { limit: PAGE_SIZE, cursor: pageParam },
+      });
       return { plans: response.plans, nextCursor: response.page?.nextCursor ?? "" };
     },
     initialPageParam: "",
     getNextPageParam: nextCursorOf,
   });
-  return { data: query.data?.pages.flatMap((page) => page.plans), isPending: query.isPending, paging: query };
+  return {
+    data: query.data?.pages.flatMap((page) => page.plans),
+    isPending: query.isPending,
+    paging: query,
+  };
 }
 
 export function usePoll(pollId: string) {
@@ -135,19 +186,26 @@ export function usePolls() {
   const query = useInfiniteQuery({
     queryKey: keys.polls,
     queryFn: async ({ pageParam }) => {
-      const response = await pollClient().listPolls({ page: { limit: PAGE_SIZE, cursor: pageParam } });
+      const response = await pollClient().listPolls({
+        page: { limit: PAGE_SIZE, cursor: pageParam },
+      });
       return { polls: response.polls, nextCursor: response.page?.nextCursor ?? "" };
     },
     initialPageParam: "",
     getNextPageParam: nextCursorOf,
   });
-  return { data: query.data?.pages.flatMap((page) => page.polls), isPending: query.isPending, paging: query };
+  return {
+    data: query.data?.pages.flatMap((page) => page.polls),
+    isPending: query.isPending,
+    paging: query,
+  };
 }
 
 export function useCountdowns() {
   return useQuery({
     queryKey: keys.countdowns,
-    queryFn: async () => (await anniversaryClient().listCountdowns({ page: { limit: 100, cursor: "" } })).countdowns,
+    queryFn: async () =>
+      (await anniversaryClient().listCountdowns({ page: { limit: 100, cursor: "" } })).countdowns,
   });
 }
 
@@ -168,7 +226,8 @@ export function useBirthdays() {
 export function useCalendar(month: string) {
   return useQuery({
     queryKey: keys.calendar(month),
-    queryFn: async () => (await calendarClient().getCalendar({ month, timeZone: localTimeZone() })).entries,
+    queryFn: async () =>
+      (await calendarClient().getCalendar({ month, timeZone: localTimeZone() })).entries,
   });
 }
 
@@ -180,7 +239,9 @@ export function useFriends() {
       const friends: social.Friend[] = [];
       let cursor = "";
       do {
-        const page = await api().service(social.FriendService).listFriends({ page: { limit: 100, cursor } });
+        const page = await api()
+          .service(social.FriendService)
+          .listFriends({ page: { limit: 100, cursor } });
         friends.push(...page.friends);
         cursor = page.page?.nextCursor ?? "";
       } while (cursor);

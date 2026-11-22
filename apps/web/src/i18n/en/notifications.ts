@@ -43,13 +43,21 @@ export default {
   },
   push: {
     title: "Push on this browser",
-    status: { on: "On", off: "Off", denied: "Blocked", unsupported: "Not supported", unavailable: "Unavailable" },
+    status: {
+      on: "On",
+      off: "Off",
+      denied: "Blocked",
+      unsupported: "Not supported",
+      unavailable: "Unavailable",
+    },
     lead: {
       on: "This browser gets your notifications even when Tokuly is closed!",
       off: "Turn it on to hear from your friends right away, even when Tokuly isn't open!",
-      denied: "Your browser is blocking notifications for this site. Allow “Notifications” in the site settings next to the address bar, then try again.",
+      denied:
+        "Your browser is blocking notifications for this site. Allow “Notifications” in the site settings next to the address bar, then try again.",
       unsupported: "Sorry, this browser doesn't support push notifications.",
-      install: "On iPhone and iPad, push works once you add Tokuly to your Home Screen from the Share menu!",
+      install:
+        "On iPhone and iPad, push works once you add Tokuly to your Home Screen from the Share menu!",
       unavailable: "Push notifications aren't available on this server yet.",
     },
     enable: "Turn on push notifications",
@@ -84,7 +92,8 @@ export default {
     neverDelivered: "Nothing delivered yet",
     remove: "Remove {{name}}",
     removeTitle: "Stop notifying “{{name}}”?",
-    removeBody: "That device won't get push notifications anymore. Turn push back on there to undo this!",
+    removeBody:
+      "That device won't get push notifications anymore. Turn push back on there to undo this!",
     removeConfirm: "Remove",
   },
   pause: {
@@ -95,7 +104,13 @@ export default {
     untilResumed: "Push notifications are taking a break until you resume",
     resume: "Resume now",
     choose: "Pause for",
-    durations: { "30m": "30 min", "1h": "1 hour", "8h": "8 hours", "24h": "24 hours", manual: "Until I resume" },
+    durations: {
+      "30m": "30 min",
+      "1h": "1 hour",
+      "8h": "8 hours",
+      "24h": "24 hours",
+      manual: "Until I resume",
+    },
     toast: { paused: "Push notifications paused", resumed: "Push notifications are back!" },
   },
   quiet: {

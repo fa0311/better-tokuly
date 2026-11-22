@@ -14,7 +14,11 @@ export function scriptUrl(url: string): string {
   try {
     const parsed = new URL(url, window.location.origin);
     const local = /^(localhost|127\.0\.0\.1)$/.test(parsed.hostname);
-    return local && parsed.origin !== window.location.origin && parsed.pathname.startsWith("/media/") ? parsed.pathname + parsed.search : url;
+    return local &&
+      parsed.origin !== window.location.origin &&
+      parsed.pathname.startsWith("/media/")
+      ? parsed.pathname + parsed.search
+      : url;
   } catch {
     return url;
   }

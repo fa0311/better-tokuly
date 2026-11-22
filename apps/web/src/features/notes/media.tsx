@@ -8,8 +8,11 @@ import { cn } from "#/lib/cn";
 /** The smallest stored rendition that still covers `cssPixels` on this screen. */
 export function imageUrl(image: common.Image | undefined, cssPixels: number): string {
   if (!image) return "";
-  const wanted = cssPixels * Math.min(2, typeof window === "undefined" ? 1 : window.devicePixelRatio || 1);
-  const fitting = image.variants.filter((variant) => variant.size >= wanted).sort((a, b) => a.size - b.size)[0];
+  const wanted =
+    cssPixels * Math.min(2, typeof window === "undefined" ? 1 : window.devicePixelRatio || 1);
+  const fitting = image.variants
+    .filter((variant) => variant.size >= wanted)
+    .sort((a, b) => a.size - b.size)[0];
   return fitting?.url ?? image.url;
 }
 
@@ -18,11 +21,15 @@ export function attachmentImage(attachment: media.Attachment): common.Image | un
   return attachment.kind === media.AssetKind.VIDEO ? attachment.video?.poster : attachment.image;
 }
 
-export const isVideo = (attachment: media.Attachment): boolean => attachment.kind === media.AssetKind.VIDEO;
+export const isVideo = (attachment: media.Attachment): boolean =>
+  attachment.kind === media.AssetKind.VIDEO;
 
 /** The person asked for no motion: ドパガキ度 0, or the system setting. */
 function motionOff(): boolean {
-  return document.documentElement.dataset.dopa === "0" || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  return (
+    document.documentElement.dataset.dopa === "0" ||
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
 }
 
 /** True while at least `ratio` of the element is on screen. */
@@ -31,7 +38,10 @@ export function useOnScreen(target: RefObject<Element | null>, ratio: number): b
   useEffect(() => {
     const element = target.current;
     if (!element) return;
-    const observer = new IntersectionObserver(([entry]) => setVisible(Boolean(entry?.isIntersecting && entry.intersectionRatio >= ratio)), { threshold: [0, ratio, 1] });
+    const observer = new IntersectionObserver(
+      ([entry]) => setVisible(Boolean(entry?.isIntersecting && entry.intersectionRatio >= ratio)),
+      { threshold: [0, ratio, 1] },
+    );
     observer.observe(element);
     return () => observer.disconnect();
   }, [target, ratio]);
@@ -51,21 +61,38 @@ const GRID: Record<number, string> = {
  * Up to four pictures of a note: one keeps its own shape, two sit side by
  * side, three and four share a grid. A tap opens the full-screen viewer.
  */
-export function ImageGrid({ attachments, className }: { attachments: media.Attachment[]; className?: string }) {
+export function ImageGrid({
+  attachments,
+  className,
+}: {
+  attachments: media.Attachment[];
+  className?: string;
+}) {
   const { t } = useTranslation("notes");
   const [viewing, setViewing] = useState<number>();
   const images = attachments.slice(0, 4);
   if (images.length === 0) return null;
   const single = images.length === 1 ? images[0]!.image : undefined;
   // A lone picture keeps its proportions, within what a timeline can take.
-  const ratio = single?.width && single.height ? Math.min(2, Math.max(0.75, single.width / single.height)) : 16 / 10;
+  const ratio =
+    single?.width && single.height
+      ? Math.min(2, Math.max(0.75, single.width / single.height))
+      : 16 / 10;
 
   return (
     <>
       <div
-        className={cn("grid gap-1 overflow-hidden rounded-2xl border-2 border-ink", GRID[images.length], className)}
+        className={cn(
+          "grid gap-1 overflow-hidden rounded-2xl border-2 border-ink",
+          GRID[images.length],
+          className,
+        )}
         // A tall picture is as wide as its height allows, not letterboxed in a wide box.
-        style={images.length === 1 ? { aspectRatio: String(ratio), width: `min(100%, calc(28rem * ${ratio}))` } : undefined}
+        style={
+          images.length === 1
+            ? { aspectRatio: String(ratio), width: `min(100%, calc(28rem * ${ratio}))` }
+            : undefined
+        }
       >
         {images.map((attachment, index) => (
           <button
@@ -73,20 +100,44 @@ export function ImageGrid({ attachments, className }: { attachments: media.Attac
             type="button"
             aria-label={t("media.open", { index: index + 1, count: images.length })}
             onClick={() => setViewing(index)}
-            className={cn("relative min-h-0 overflow-hidden bg-surface-3", images.length === 3 && index === 0 && "row-span-2")}
+            className={cn(
+              "relative min-h-0 overflow-hidden bg-surface-3",
+              images.length === 3 && index === 0 && "row-span-2",
+            )}
             style={{ background: attachment.image?.dominantColor || undefined }}
           >
-            <img src={imageUrl(attachment.image, images.length === 1 ? 640 : 320)} alt="" loading="lazy" decoding="async" draggable={false} className="size-full object-cover" />
+            <img
+              src={imageUrl(attachment.image, images.length === 1 ? 640 : 320)}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              draggable={false}
+              className="size-full object-cover"
+            />
           </button>
         ))}
       </div>
-      {viewing !== undefined && <ImageViewer images={images.map((attachment) => attachment.image)} start={viewing} onClose={() => setViewing(undefined)} />}
+      {viewing !== undefined && (
+        <ImageViewer
+          images={images.map((attachment) => attachment.image)}
+          start={viewing}
+          onClose={() => setViewing(undefined)}
+        />
+      )}
     </>
   );
 }
 
 /** Pictures full screen: swipe or use the arrows to move between them, Escape or the cross to leave. */
-export function ImageViewer({ images, start, onClose }: { images: (common.Image | undefined)[]; start: number; onClose(): void }) {
+export function ImageViewer({
+  images,
+  start,
+  onClose,
+}: {
+  images: (common.Image | undefined)[];
+  start: number;
+  onClose(): void;
+}) {
   const { t } = useTranslation("notes");
   const strip = useRef<HTMLDivElement>(null);
   const [index, setIndex] = useState(start);
@@ -95,7 +146,10 @@ export function ImageViewer({ images, start, onClose }: { images: (common.Image 
     const element = strip.current;
     if (!element) return;
     const clamped = Math.min(images.length - 1, Math.max(0, next));
-    element.scrollTo({ left: clamped * element.clientWidth, behavior: smooth && !motionOff() ? "smooth" : "auto" });
+    element.scrollTo({
+      left: clamped * element.clientWidth,
+      behavior: smooth && !motionOff() ? "smooth" : "auto",
+    });
     setIndex(clamped);
   };
   // Open on the picture that was tapped.
@@ -118,7 +172,10 @@ export function ImageViewer({ images, start, onClose }: { images: (common.Image 
             <span className="rounded-full bg-white/15 px-3 py-1 text-sm font-black tabular-nums">
               {index + 1} / {images.length}
             </span>
-            <BaseDialog.Close aria-label={t("media.close")} className="grid size-10 place-items-center rounded-full bg-white/15 hover:bg-white/25">
+            <BaseDialog.Close
+              aria-label={t("media.close")}
+              className="grid size-10 place-items-center rounded-full bg-white/15 hover:bg-white/25"
+            >
               <X className="size-5" />
             </BaseDialog.Close>
           </div>
@@ -133,17 +190,34 @@ export function ImageViewer({ images, start, onClose }: { images: (common.Image 
           >
             {images.map((image, position) => (
               // A tap beside the picture closes the viewer, like tapping the backdrop of a dialog.
-              <div key={position} className="grid size-full shrink-0 snap-center place-items-center p-2" onClick={(event) => event.target === event.currentTarget && onClose()}>
-                <img src={image?.url} alt="" draggable={false} className="max-h-full max-w-full rounded-lg object-contain" />
+              <div
+                key={position}
+                className="grid size-full shrink-0 snap-center place-items-center p-2"
+                onClick={(event) => event.target === event.currentTarget && onClose()}
+              >
+                <img
+                  src={image?.url}
+                  alt=""
+                  draggable={false}
+                  className="max-h-full max-w-full rounded-lg object-contain"
+                />
               </div>
             ))}
           </div>
           {images.length > 1 && (
             <div className="pointer-events-none absolute inset-x-2 top-1/2 hidden -translate-y-1/2 justify-between sm:flex">
-              <ViewerArrow label={t("media.previous")} disabled={index === 0} onClick={() => go(index - 1)}>
+              <ViewerArrow
+                label={t("media.previous")}
+                disabled={index === 0}
+                onClick={() => go(index - 1)}
+              >
                 <ChevronLeft className="size-6" />
               </ViewerArrow>
-              <ViewerArrow label={t("media.next")} disabled={index === images.length - 1} onClick={() => go(index + 1)}>
+              <ViewerArrow
+                label={t("media.next")}
+                disabled={index === images.length - 1}
+                onClick={() => go(index + 1)}
+              >
                 <ChevronRight className="size-6" />
               </ViewerArrow>
             </div>
@@ -155,9 +229,25 @@ export function ImageViewer({ images, start, onClose }: { images: (common.Image 
   );
 }
 
-function ViewerArrow({ label, disabled, onClick, children }: { label: string; disabled: boolean; onClick(): void; children: ReactNode }) {
+function ViewerArrow({
+  label,
+  disabled,
+  onClick,
+  children,
+}: {
+  label: string;
+  disabled: boolean;
+  onClick(): void;
+  children: ReactNode;
+}) {
   return (
-    <button type="button" aria-label={label} disabled={disabled} onClick={onClick} className="pointer-events-auto grid size-11 place-items-center rounded-full bg-white/15 hover:bg-white/25 disabled:opacity-0">
+    <button
+      type="button"
+      aria-label={label}
+      disabled={disabled}
+      onClick={onClick}
+      className="pointer-events-auto grid size-11 place-items-center rounded-full bg-white/15 hover:bg-white/25 disabled:opacity-0"
+    >
       {children}
     </button>
   );
@@ -170,7 +260,11 @@ function ViewerArrow({ label, disabled, onClick, children }: { label: string; di
  * where the browser needs it, natively where it does not (Safari), the MP4
  * as a last resort. The player library is only fetched once `active`.
  */
-export function useVideoSource(element: RefObject<HTMLVideoElement | null>, video: media.VideoInfo | undefined, active: boolean): void {
+export function useVideoSource(
+  element: RefObject<HTMLVideoElement | null>,
+  video: media.VideoInfo | undefined,
+  active: boolean,
+): void {
   const hlsUrl = video?.hlsUrl ?? "";
   const mp4Url = video?.mp4Url ?? "";
   useEffect(() => {
@@ -212,7 +306,13 @@ export function useVideoSource(element: RefObject<HTMLVideoElement | null>, vide
  * (unless motion is off), with a button for the sound and the browser's
  * controls once the person takes over.
  */
-export function NoteVideo({ attachment, className }: { attachment: media.Attachment; className?: string }) {
+export function NoteVideo({
+  attachment,
+  className,
+}: {
+  attachment: media.Attachment;
+  className?: string;
+}) {
   const { t } = useTranslation("notes");
   const box = useRef<HTMLDivElement>(null);
   const element = useRef<HTMLVideoElement>(null);
@@ -233,10 +333,18 @@ export function NoteVideo({ attachment, className }: { attachment: media.Attachm
     else if (!onScreen) target.pause();
   }, [onScreen, seen, takenOver]);
 
-  const ratio = video?.width && video.height ? Math.min(16 / 9, Math.max(0.75, video.width / video.height)) : 16 / 9;
+  const ratio =
+    video?.width && video.height
+      ? Math.min(16 / 9, Math.max(0.75, video.width / video.height))
+      : 16 / 9;
   const poster = imageUrl(video?.poster, 640);
   return (
-    <div ref={box} className={cn("relative overflow-hidden rounded-2xl border-2 border-ink bg-black", className)} style={{ aspectRatio: String(ratio), width: `min(100%, calc(30rem * ${ratio}))` }} data-testid="note-video">
+    <div
+      ref={box}
+      className={cn("relative overflow-hidden rounded-2xl border-2 border-ink bg-black", className)}
+      style={{ aspectRatio: String(ratio), width: `min(100%, calc(30rem * ${ratio}))` }}
+      data-testid="note-video"
+    >
       <video
         ref={element}
         poster={poster || undefined}

@@ -15,7 +15,10 @@ export function PlaylistLibraryScreen() {
   const { t } = useTranslation("video");
   const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
-  const lists = useQuery({ queryKey: videoKeys.myPlaylists(), queryFn: () => playlistClient().listMyPlaylists({}) });
+  const lists = useQuery({
+    queryKey: videoKeys.myPlaylists(),
+    queryFn: () => playlistClient().listMyPlaylists({}),
+  });
   const playlists = lists.data?.playlists ?? [];
 
   return (
@@ -44,7 +47,11 @@ export function PlaylistLibraryScreen() {
               <PlaylistCard key={playlist.id} playlist={playlist} showVisibility />
             ))}
           </div>
-          {playlists.length <= 2 && <p className="mt-8 text-center text-sm leading-relaxed text-ink-soft">{t("playlist.libraryHint")}</p>}
+          {playlists.length <= 2 && (
+            <p className="mt-8 text-center text-sm leading-relaxed text-ink-soft">
+              {t("playlist.libraryHint")}
+            </p>
+          )}
         </>
       )}
       <PlaylistFormDialog
@@ -52,7 +59,10 @@ export function PlaylistLibraryScreen() {
         onOpenChange={setCreating}
         onSaved={(playlist) => {
           setCreating(false);
-          void navigate({ to: "/playlist/$playlistId", params: { playlistId: playlist.shortId || playlist.id } });
+          void navigate({
+            to: "/playlist/$playlistId",
+            params: { playlistId: playlist.shortId || playlist.id },
+          });
         }}
       />
     </Page>

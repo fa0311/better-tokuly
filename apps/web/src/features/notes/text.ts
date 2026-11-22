@@ -11,7 +11,10 @@
 export const NOTE_MAX_CHARS = 300;
 const MAX_HASHTAG_CHARS = 50;
 
-const segmenter = typeof Intl !== "undefined" && "Segmenter" in Intl ? new Intl.Segmenter(undefined, { granularity: "grapheme" }) : null;
+const segmenter =
+  typeof Intl !== "undefined" && "Segmenter" in Intl
+    ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
+    : null;
 
 /** Length as people count it: an emoji family or a kana with dakuten is one character. */
 export function charCount(text: string): number {
@@ -47,7 +50,13 @@ function runEnd(chars: string[], from: number, accept: (char: string) => boolean
 /** If a link starts at `start`, the index just past it. */
 function urlEnd(chars: string[], start: number, previous: string | undefined): number | undefined {
   if (previous !== undefined && ASCII_ALPHANUMERIC.test(previous)) return undefined;
-  const schemeLength = ["https://", "http://"].find((scheme) => chars.slice(start, start + scheme.length).join("").toLowerCase() === scheme)?.length;
+  const schemeLength = ["https://", "http://"].find(
+    (scheme) =>
+      chars
+        .slice(start, start + scheme.length)
+        .join("")
+        .toLowerCase() === scheme,
+  )?.length;
   if (!schemeLength) return undefined;
   let end = runEnd(chars, start + schemeLength, (char) => {
     const code = char.codePointAt(0)!;
@@ -57,7 +66,9 @@ function urlEnd(chars: string[], start: number, previous: string | undefined): n
   while (end > start + schemeLength) {
     const last = chars[end - 1]!;
     const inside = chars.slice(start, end);
-    const unbalancedClose = last === ")" && inside.filter((char) => char === ")").length > inside.filter((char) => char === "(").length;
+    const unbalancedClose =
+      last === ")" &&
+      inside.filter((char) => char === ")").length > inside.filter((char) => char === "(").length;
     if (URL_TRAILING.has(last) || unbalancedClose) end--;
     else break;
   }
@@ -73,7 +84,11 @@ export function normalizeHashtag(input: string): string | undefined {
   const trimmed = input.trim().replace(/^[#＃]/, "");
   const tag = trimmed.normalize("NFKC").toLowerCase();
   const chars = Array.from(tag);
-  const valid = chars.length > 0 && charCount(tag) <= MAX_HASHTAG_CHARS && chars.every(isWord) && !NUMERIC_OR_UNDERSCORE.test(tag);
+  const valid =
+    chars.length > 0 &&
+    charCount(tag) <= MAX_HASHTAG_CHARS &&
+    chars.every(isWord) &&
+    !NUMERIC_OR_UNDERSCORE.test(tag);
   return valid ? tag : undefined;
 }
 
@@ -100,9 +115,12 @@ export function parseNoteText(text: string): Segment[] {
     }
     const char = chars[index]!;
     // A `#` glued to the end of a word (`a#b`, `C#`, `色#fff`) is part of that word.
-    const startsHashtag = previous === undefined || (!isWord(previous) && previous !== "/" && previous !== "&");
+    const startsHashtag =
+      previous === undefined || (!isWord(previous) && previous !== "/" && previous !== "&");
     // An `@` glued to Latin text is an address; Japanese is written without spaces, so `友達の@taro` mentions someone.
-    const startsMention = previous === undefined || (!ASCII_ALPHANUMERIC.test(previous) && !["_", "/", "@", "＠"].includes(previous));
+    const startsMention =
+      previous === undefined ||
+      (!ASCII_ALPHANUMERIC.test(previous) && !["_", "/", "@", "＠"].includes(previous));
     if ((char === "#" || char === "＃") && startsHashtag) {
       const end = runEnd(chars, index + 1, isWord);
       const raw = chars.slice(index + 1, end).join("");
@@ -118,7 +136,8 @@ export function parseNoteText(text: string): Segment[] {
       const handle = raw.toLowerCase();
       // `@name@example.com` is an address on another service.
       const foreign = chars[end] === "@";
-      const shaped = handle.length >= 3 && handle.length <= 24 && ASCII_ALPHANUMERIC.test(handle[0]!);
+      const shaped =
+        handle.length >= 3 && handle.length <= 24 && ASCII_ALPHANUMERIC.test(handle[0]!);
       if (shaped && !foreign) push({ type: "mention", text: char + raw, handle });
       else plain += char + raw;
       index = Math.max(end, index + 1);
@@ -148,15 +167,32 @@ const MENTION_AT_CARET = /(?:^|[^a-z0-9_/@＠])[@＠]([a-z0-9_-]{0,24})$/i;
 export function completionAt(text: string, caret: number): Completion | undefined {
   const before = text.slice(0, caret);
   const hashtag = HASHTAG_AT_CARET.exec(before);
-  if (hashtag) return { kind: "hashtag", query: hashtag[1]!, start: caret - hashtag[1]!.length - 1, end: caret };
+  if (hashtag)
+    return {
+      kind: "hashtag",
+      query: hashtag[1]!,
+      start: caret - hashtag[1]!.length - 1,
+      end: caret,
+    };
   const mention = MENTION_AT_CARET.exec(before);
-  if (mention) return { kind: "mention", query: mention[1]!, start: caret - mention[1]!.length - 1, end: caret };
+  if (mention)
+    return {
+      kind: "mention",
+      query: mention[1]!,
+      start: caret - mention[1]!.length - 1,
+      end: caret,
+    };
   return undefined;
 }
 
 /** The text with the token being typed replaced by `replacement` and a space, plus the caret's new place. */
-export function applyCompletion(text: string, completion: Completion, replacement: string): { text: string; caret: number } {
+export function applyCompletion(
+  text: string,
+  completion: Completion,
+  replacement: string,
+): { text: string; caret: number } {
   const inserted = `${replacement} `;
-  const next = text.slice(0, completion.start) + inserted + text.slice(completion.end).replace(/^ /, "");
+  const next =
+    text.slice(0, completion.start) + inserted + text.slice(completion.end).replace(/^ /, "");
   return { text: next, caret: completion.start + inserted.length };
 }

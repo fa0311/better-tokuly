@@ -22,7 +22,12 @@ export function SearchField({
 }) {
   const { t } = useTranslation("chat");
   return (
-    <label className={cn("flex h-11 items-center gap-2 rounded-full border-2 border-line bg-surface px-4 focus-within:border-brand", className)}>
+    <label
+      className={cn(
+        "flex h-11 items-center gap-2 rounded-full border-2 border-line bg-surface px-4 focus-within:border-brand",
+        className,
+      )}
+    >
       <Search className="size-[18px] shrink-0 text-ink-faint" />
       <input
         value={value}
@@ -38,7 +43,12 @@ export function SearchField({
         enterKeyHint="search"
       />
       {value && (
-        <button type="button" aria-label={t("actions.clear")} onClick={() => onChange("")} className="grid size-6 shrink-0 place-items-center rounded-full text-ink-faint hover:bg-surface-2 hover:text-ink">
+        <button
+          type="button"
+          aria-label={t("actions.clear")}
+          onClick={() => onChange("")}
+          className="grid size-6 shrink-0 place-items-center rounded-full text-ink-faint hover:bg-surface-2 hover:text-ink"
+        >
           <X className="size-4" />
         </button>
       )}
@@ -58,7 +68,10 @@ export function ContextActions({
 }: {
   actions: MenuAction[];
   /** A row of one-tap choices above the actions (the quick reactions of a message). */
-  quick?: { label: string; items: { key: string; label: string; content: ReactNode; onSelect(): void }[] };
+  quick?: {
+    label: string;
+    items: { key: string; label: string; content: ReactNode; onSelect(): void }[];
+  };
   children: ReactElement<Record<string, unknown>>;
 }) {
   if (actions.length === 0 && !quick) return children;
@@ -69,7 +82,10 @@ export function ContextActions({
         <ContextMenu.Positioner className="z-50 outline-none">
           <ContextMenu.Popup className="sticker min-w-44 origin-[var(--transform-origin)] rounded-2xl bg-surface p-1.5 outline-none transition-[transform,opacity] duration-150 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0">
             {quick && (
-              <ContextMenu.Group aria-label={quick.label} className="mb-1 flex items-center gap-0.5 border-b-2 border-line pb-1.5">
+              <ContextMenu.Group
+                aria-label={quick.label}
+                className="mb-1 flex items-center gap-0.5 border-b-2 border-line pb-1.5"
+              >
                 {quick.items.map((item) => (
                   <ContextMenu.Item
                     key={item.key}
@@ -92,7 +108,11 @@ export function ContextActions({
                   action.danger && "text-danger",
                 )}
               >
-                {action.icon && <span className="grid size-5 place-items-center [&>svg]:size-5">{action.icon}</span>}
+                {action.icon && (
+                  <span className="grid size-5 place-items-center [&>svg]:size-5">
+                    {action.icon}
+                  </span>
+                )}
                 {action.label}
               </ContextMenu.Item>
             ))}
@@ -105,7 +125,11 @@ export function ContextActions({
 
 /** Heading of a group of rows. */
 export function SectionTitle({ children, className }: { children: ReactNode; className?: string }) {
-  return <h2 className={cn("px-3 pt-3 pb-1 text-xs font-black text-ink-faint", className)}>{children}</h2>;
+  return (
+    <h2 className={cn("px-3 pt-3 pb-1 text-xs font-black text-ink-faint", className)}>
+      {children}
+    </h2>
+  );
 }
 
 /** Whether a CSS media query matches, kept current. */

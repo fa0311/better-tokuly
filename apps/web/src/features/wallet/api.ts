@@ -35,7 +35,8 @@ export const walletKeys = {
     payout: (payoutId: string) => ["wallet", "admin", "payout", payoutId] as const,
     userSearch: (query: string) => ["wallet", "admin", "userSearch", query] as const,
     userWallet: (userId: string) => ["wallet", "admin", "user", userId] as const,
-    userLedger: (userId: string, account: wallet.LedgerAccount) => ["wallet", "admin", "userLedger", userId, account] as const,
+    userLedger: (userId: string, account: wallet.LedgerAccount) =>
+      ["wallet", "admin", "userLedger", userId, account] as const,
     adjustments: (userId: string) => ["wallet", "admin", "adjustments", userId] as const,
     allAdjustments: ["wallet", "admin", "adjustments"] as const,
     packages: ["wallet", "admin", "packages"] as const,
@@ -49,9 +50,14 @@ type Paged<T> = InfiniteData<T, string>;
  * arrive from RPC responses and realtime pushes in any order; the one with
  * the highest revision is the truth.
  */
-export function rememberBalance(queryClient: QueryClient, balance: wallet.Balance | undefined): void {
+export function rememberBalance(
+  queryClient: QueryClient,
+  balance: wallet.Balance | undefined,
+): void {
   if (!balance) return;
-  queryClient.setQueryData<wallet.Balance>(walletKeys.balance, (known) => (known && known.revision >= balance.revision ? known : balance));
+  queryClient.setQueryData<wallet.Balance>(walletKeys.balance, (known) =>
+    known && known.revision >= balance.revision ? known : balance,
+  );
 }
 
 /** Asks the server for the balance; the answer still loses against a newer snapshot pushed meanwhile. */
@@ -63,20 +69,41 @@ export async function fetchBalance(queryClient: QueryClient): Promise<wallet.Bal
 
 /** Puts a new movement at the top of every loaded history list it belongs to. */
 export function rememberEntry(queryClient: QueryClient, entry: wallet.LedgerEntry): void {
-  for (const account of [wallet.LedgerAccount.UNSPECIFIED, wallet.LedgerAccount.COINS, wallet.LedgerAccount.EARNINGS]) {
+  for (const account of [
+    wallet.LedgerAccount.UNSPECIFIED,
+    wallet.LedgerAccount.COINS,
+    wallet.LedgerAccount.EARNINGS,
+  ]) {
     const touches =
-      account === wallet.LedgerAccount.UNSPECIFIED || (account === wallet.LedgerAccount.COINS ? entry.coinsDelta !== 0n : entry.earningsDelta !== 0n);
+      account === wallet.LedgerAccount.UNSPECIFIED ||
+      (account === wallet.LedgerAccount.COINS
+        ? entry.coinsDelta !== 0n
+        : entry.earningsDelta !== 0n);
     if (!touches) continue;
-    queryClient.setQueryData<Paged<wallet.ListLedgerEntriesResponse>>(walletKeys.ledger(account), (data) => {
-      const first = data?.pages[0];
-      if (!data || !first || data.pages.some((page) => page.entries.some((known) => known.id === entry.id))) return data;
-      return { ...data, pages: [{ ...first, entries: [entry, ...first.entries] }, ...data.pages.slice(1)] };
-    });
+    queryClient.setQueryData<Paged<wallet.ListLedgerEntriesResponse>>(
+      walletKeys.ledger(account),
+      (data) => {
+        const first = data?.pages[0];
+        if (
+          !data ||
+          !first ||
+          data.pages.some((page) => page.entries.some((known) => known.id === entry.id))
+        )
+          return data;
+        return {
+          ...data,
+          pages: [{ ...first, entries: [entry, ...first.entries] }, ...data.pages.slice(1)],
+        };
+      },
+    );
   }
 }
 
 /** Stores the latest state of a purchase wherever it is cached. */
-export function rememberPurchase(queryClient: QueryClient, purchase: wallet.Purchase | undefined): void {
+export function rememberPurchase(
+  queryClient: QueryClient,
+  purchase: wallet.Purchase | undefined,
+): void {
   if (!purchase) return;
   queryClient.setQueryData(walletKeys.purchase(purchase.id), purchase);
   let listed = false;
@@ -97,7 +124,10 @@ export function rememberPurchase(queryClient: QueryClient, purchase: wallet.Purc
 }
 
 /** Stores the latest state of one of the user's payout requests and refreshes what depends on it. */
-export function rememberPayout(queryClient: QueryClient, payout: wallet.PayoutRequest | undefined): void {
+export function rememberPayout(
+  queryClient: QueryClient,
+  payout: wallet.PayoutRequest | undefined,
+): void {
   if (!payout) return;
   queryClient.setQueryData(walletKeys.payout(payout.id), payout);
   let listed = false;
@@ -126,9 +156,13 @@ export function applyWalletEvent(queryClient: QueryClient, event: wallet.WalletE
       rememberBalance(queryClient, balance);
       if (!entry) return;
       rememberEntry(queryClient, entry);
-      if (entry.earningsDelta !== 0n) void queryClient.invalidateQueries({ queryKey: walletKeys.earnings });
+      if (entry.earningsDelta !== 0n)
+        void queryClient.invalidateQueries({ queryKey: walletKeys.earnings });
       // Claimed on another device: the bonus card must stop offering it here.
-      if (entry.reason === "daily_bonus" && queryClient.getQueryData<wallet.DailyBonus>(walletKeys.dailyBonus)?.claimable) {
+      if (
+        entry.reason === "daily_bonus" &&
+        queryClient.getQueryData<wallet.DailyBonus>(walletKeys.dailyBonus)?.claimable
+      ) {
         void queryClient.invalidateQueries({ queryKey: walletKeys.dailyBonus });
       }
       return;

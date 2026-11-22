@@ -40,7 +40,9 @@ export function applyPlansEvent(queryClient: QueryClient, event: plans.PlansEven
     case "planRsvpChanged": {
       const { planId, counts } = event.value;
       // The counts are right at once; names, comments and the waitlist order follow.
-      queryClient.setQueryData<plans.Plan | null>(keys.plan(planId), (plan) => (plan && counts ? { ...plan, counts } : plan));
+      queryClient.setQueryData<plans.Plan | null>(keys.plan(planId), (plan) =>
+        plan && counts ? { ...plan, counts } : plan,
+      );
       void queryClient.invalidateQueries({ queryKey: keys.plan(planId) });
       void queryClient.invalidateQueries({ queryKey: keys.planLists });
       // Who may hold a share of an expense follows who is going.
@@ -49,7 +51,11 @@ export function applyPlansEvent(queryClient: QueryClient, event: plans.PlansEven
     }
     case "checklistChanged": {
       const { planId, item, removedItemId } = event.value;
-      queryClient.setQueryData<plans.Plan | null>(keys.plan(planId), (plan) => plan && { ...plan, checklist: mergeChecklist(plan.checklist, item, removedItemId) });
+      queryClient.setQueryData<plans.Plan | null>(
+        keys.plan(planId),
+        (plan) =>
+          plan && { ...plan, checklist: mergeChecklist(plan.checklist, item, removedItemId) },
+      );
       void queryClient.invalidateQueries({ queryKey: keys.planLists });
       break;
     }
@@ -63,7 +69,9 @@ export function applyPlansEvent(queryClient: QueryClient, event: plans.PlansEven
     case "pollChanged": {
       const changed = event.value;
       const isIt = (poll: plans.Poll | null | undefined) => poll?.id === changed.pollId;
-      for (const [key, poll] of queryClient.getQueriesData<plans.Poll | null>({ queryKey: ["plans", "poll"] })) {
+      for (const [key, poll] of queryClient.getQueriesData<plans.Poll | null>({
+        queryKey: ["plans", "poll"],
+      })) {
         if (!isIt(poll)) continue;
         if (changed.deleted) queryClient.setQueryData(key, null);
         else {
@@ -87,10 +95,16 @@ export function applyPlansEvent(queryClient: QueryClient, event: plans.PlansEven
 }
 
 /** The checklist with one item added, replaced or removed. */
-export function mergeChecklist(items: plans.ChecklistItem[], item: plans.ChecklistItem | undefined, removedItemId = ""): plans.ChecklistItem[] {
+export function mergeChecklist(
+  items: plans.ChecklistItem[],
+  item: plans.ChecklistItem | undefined,
+  removedItemId = "",
+): plans.ChecklistItem[] {
   const rest = items.filter((existing) => existing.id !== removedItemId);
   if (!item) return rest;
-  return rest.some((existing) => existing.id === item.id) ? rest.map((existing) => (existing.id === item.id ? item : existing)) : [...rest, item];
+  return rest.some((existing) => existing.id === item.id)
+    ? rest.map((existing) => (existing.id === item.id ? item : existing))
+    : [...rest, item];
 }
 
 function applyTallies(poll: plans.Poll, changed: plans.PollChanged): plans.Poll {
@@ -103,7 +117,14 @@ function applyTallies(poll: plans.Poll, changed: plans.PollChanged): plans.Poll 
     planId: changed.planId || poll.planId,
     slots: poll.slots.map((slot) => {
       const tally = tallies.get(slot.id);
-      return tally ? { ...slot, yesCount: tally.yesCount, maybeCount: tally.maybeCount, noCount: tally.noCount } : slot;
+      return tally
+        ? {
+            ...slot,
+            yesCount: tally.yesCount,
+            maybeCount: tally.maybeCount,
+            noCount: tally.noCount,
+          }
+        : slot;
     }),
   };
 }

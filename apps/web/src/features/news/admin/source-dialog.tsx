@@ -12,7 +12,8 @@ import { MAX_TAGS, parseTags } from "./input";
 import { staffErrorMessage } from "./parts";
 
 /** A field's value when it differs from what the source has, else `undefined` (leave it alone). */
-const changed = (value: string, before: string): string | undefined => (value.trim() === before ? undefined : value.trim());
+const changed = (value: string, before: string): string | undefined =>
+  value.trim() === before ? undefined : value.trim();
 
 /** Reasons the API gives for one field of the form. */
 const FIELD_OF_REASON: Record<string, "feedUrl" | "name" | "siteUrl" | "language" | "tags"> = {
@@ -30,7 +31,15 @@ const FIELD_OF_REASON: Record<string, "feedUrl" | "name" | "siteUrl" | "language
  * Adds an RSS/Atom feed as a news source, or changes one. Name and site URL
  * may stay empty: the feed says what it is called on the first fetch.
  */
-export function SourceDialog({ source, onClose, onSaved }: { /** The source to change; absent to add one. */ source?: feed.ManagedNewsSource; onClose(): void; /** The source was added or changed (a fetch may have been queued). */ onSaved?(): void }) {
+export function SourceDialog({
+  source,
+  onClose,
+  onSaved,
+}: {
+  /** The source to change; absent to add one. */ source?: feed.ManagedNewsSource;
+  onClose(): void /** The source was added or changed (a fetch may have been queued). */;
+  onSaved?(): void;
+}) {
   const { t } = useTranslation(["news", "common"]);
   const queryClient = useQueryClient();
   const [feedUrl, setFeedUrl] = useState(source?.feedUrl ?? "");
@@ -56,16 +65,30 @@ export function SourceDialog({ source, onClose, onSaved }: { /** The source to c
           enabled: enabled === source.enabled ? undefined : enabled,
         });
       } else {
-        await newsAdminClient().createNewsSource({ feedUrl: feedUrl.trim(), name: name.trim(), siteUrl: siteUrl.trim(), language: language.trim(), defaultTags: tags, disabled: !enabled });
+        await newsAdminClient().createNewsSource({
+          feedUrl: feedUrl.trim(),
+          name: name.trim(),
+          siteUrl: siteUrl.trim(),
+          language: language.trim(),
+          defaultTags: tags,
+          disabled: !enabled,
+        });
       }
     },
     onSuccess: () => {
       toast.success(t(source ? "news:staff.sources.saved" : "news:staff.sources.created"));
       onSaved?.();
       onClose();
-      return Promise.all([queryClient.invalidateQueries({ queryKey: newsKeys.admin.sources }), queryClient.invalidateQueries({ queryKey: newsKeys.sources })]);
+      return Promise.all([
+        queryClient.invalidateQueries({ queryKey: newsKeys.admin.sources }),
+        queryClient.invalidateQueries({ queryKey: newsKeys.sources }),
+      ]);
     },
-    onError: (error) => setFailed({ field: FIELD_OF_REASON[errorReason(error) ?? ""], message: staffErrorMessage(error) }),
+    onError: (error) =>
+      setFailed({
+        field: FIELD_OF_REASON[errorReason(error) ?? ""],
+        message: staffErrorMessage(error),
+      }),
   });
   const errorFor = (field: string) => (failed?.field === field ? failed.message : undefined);
   const edit = (set: (value: string) => void) => (event: { target: { value: string } }) => {
@@ -84,7 +107,11 @@ export function SourceDialog({ source, onClose, onSaved }: { /** The source to c
           <Button variant="ghost" onClick={onClose} disabled={save.isPending}>
             {t("common:actions.cancel")}
           </Button>
-          <Button onClick={() => save.mutate()} disabled={!feedUrl.trim() || tags.length > MAX_TAGS} loading={save.isPending}>
+          <Button
+            onClick={() => save.mutate()}
+            disabled={!feedUrl.trim() || tags.length > MAX_TAGS}
+            loading={save.isPending}
+          >
             {t(source ? "common:actions.save" : "news:staff.sources.add")}
           </Button>
         </>
@@ -97,14 +124,59 @@ export function SourceDialog({ source, onClose, onSaved }: { /** The source to c
           if (feedUrl.trim() && tags.length <= MAX_TAGS) save.mutate();
         }}
       >
-        <TextField label={t("news:staff.sources.feedUrl")} hint={t("news:staff.sources.feedUrlHint")} error={errorFor("feedUrl")} type="url" inputMode="url" value={feedUrl} onChange={edit(setFeedUrl)} placeholder="https://example.com/rss.xml" autoCapitalize="none" autoComplete="off" spellCheck={false} required />
-        <TextField label={t("news:staff.sources.name")} hint={t("news:staff.sources.nameHint")} error={errorFor("name")} value={name} onChange={edit(setName)} autoComplete="off" />
-        <TextField label={t("news:staff.sources.siteUrl")} hint={t("news:staff.sources.siteUrlHint")} error={errorFor("siteUrl")} type="url" inputMode="url" value={siteUrl} onChange={edit(setSiteUrl)} placeholder="https://example.com" autoCapitalize="none" autoComplete="off" spellCheck={false} />
-        <TextField label={t("news:staff.sources.language")} hint={t("news:staff.sources.languageHint")} error={errorFor("language")} value={language} onChange={edit(setLanguage)} placeholder="ja" autoCapitalize="none" autoComplete="off" spellCheck={false} />
+        <TextField
+          label={t("news:staff.sources.feedUrl")}
+          hint={t("news:staff.sources.feedUrlHint")}
+          error={errorFor("feedUrl")}
+          type="url"
+          inputMode="url"
+          value={feedUrl}
+          onChange={edit(setFeedUrl)}
+          placeholder="https://example.com/rss.xml"
+          autoCapitalize="none"
+          autoComplete="off"
+          spellCheck={false}
+          required
+        />
+        <TextField
+          label={t("news:staff.sources.name")}
+          hint={t("news:staff.sources.nameHint")}
+          error={errorFor("name")}
+          value={name}
+          onChange={edit(setName)}
+          autoComplete="off"
+        />
+        <TextField
+          label={t("news:staff.sources.siteUrl")}
+          hint={t("news:staff.sources.siteUrlHint")}
+          error={errorFor("siteUrl")}
+          type="url"
+          inputMode="url"
+          value={siteUrl}
+          onChange={edit(setSiteUrl)}
+          placeholder="https://example.com"
+          autoCapitalize="none"
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <TextField
+          label={t("news:staff.sources.language")}
+          hint={t("news:staff.sources.languageHint")}
+          error={errorFor("language")}
+          value={language}
+          onChange={edit(setLanguage)}
+          placeholder="ja"
+          autoCapitalize="none"
+          autoComplete="off"
+          spellCheck={false}
+        />
         <TextField
           label={t("news:staff.sources.tags")}
           hint={t("news:staff.sources.tagsHint", { count: tags.length })}
-          error={errorFor("tags") ?? (tags.length > MAX_TAGS ? t("news:staff.errors.TOO_MANY_TAGS") : undefined)}
+          error={
+            errorFor("tags") ??
+            (tags.length > MAX_TAGS ? t("news:staff.errors.TOO_MANY_TAGS") : undefined)
+          }
           value={tagsText}
           onChange={edit(setTagsText)}
           placeholder="tech, ゲーム"
@@ -112,7 +184,12 @@ export function SourceDialog({ source, onClose, onSaved }: { /** The source to c
           autoComplete="off"
           spellCheck={false}
         />
-        <SwitchRow label={t("news:staff.sources.enabled")} hint={t("news:staff.sources.enabledHint")} checked={enabled} onChange={setEnabled} />
+        <SwitchRow
+          label={t("news:staff.sources.enabled")}
+          hint={t("news:staff.sources.enabledHint")}
+          checked={enabled}
+          onChange={setEnabled}
+        />
         {failed && !failed.field && (
           <p role="alert" className="px-1 text-sm font-medium text-danger">
             {failed.message}

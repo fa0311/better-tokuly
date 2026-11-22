@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { addDays, addMonths, combine, daysBetween, monthGrid, monthOf, parseYmd, timeOf, ymd } from "./dates";
+import {
+  addDays,
+  addMonths,
+  combine,
+  daysBetween,
+  monthGrid,
+  monthOf,
+  parseYmd,
+  timeOf,
+  ymd,
+} from "./dates";
 
 describe("days", () => {
   it("round-trips a day and refuses days that do not exist", () => {

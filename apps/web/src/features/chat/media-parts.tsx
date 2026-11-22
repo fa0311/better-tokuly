@@ -10,7 +10,11 @@ import { waveformBars } from "./waveform";
 /** How attachments are drawn inside messages, the gallery and the composer. */
 
 export function isVisual(attachment: media.Attachment): boolean {
-  return attachment.kind === media.AssetKind.IMAGE || attachment.kind === media.AssetKind.ANIMATION || attachment.kind === media.AssetKind.VIDEO;
+  return (
+    attachment.kind === media.AssetKind.IMAGE ||
+    attachment.kind === media.AssetKind.ANIMATION ||
+    attachment.kind === media.AssetKind.VIDEO
+  );
 }
 
 /** The still picture of an attachment: the image itself, or a video's poster. */
@@ -21,7 +25,9 @@ export function pictureOf(attachment: media.Attachment): common.Image | undefine
 /** Smallest stored rendition that still covers `pixels` on a 2x screen. */
 export function pictureUrl(image: common.Image | undefined, pixels: number): string {
   if (!image) return "";
-  const fitting = image.variants.filter((variant) => variant.size >= pixels * 2).sort((a, b) => a.size - b.size)[0];
+  const fitting = image.variants
+    .filter((variant) => variant.size >= pixels * 2)
+    .sort((a, b) => a.size - b.size)[0];
   return fitting?.url ?? image.url;
 }
 
@@ -30,13 +36,30 @@ export function pictureUrl(image: common.Image | undefined, pixels: number): str
  * its poster with a play mark (and says so while the server is still
  * processing it). `pixels` is the longest edge it is drawn at.
  */
-export function VisualTile({ attachment, pixels, className, onOpen, label }: { attachment: media.Attachment; pixels: number; className?: string; onOpen?(): void; label: string }) {
+export function VisualTile({
+  attachment,
+  pixels,
+  className,
+  onOpen,
+  label,
+}: {
+  attachment: media.Attachment;
+  pixels: number;
+  className?: string;
+  onOpen?(): void;
+  label: string;
+}) {
   const { t } = useTranslation("chat");
   const video = attachment.kind === media.AssetKind.VIDEO;
   const picture = pictureOf(attachment);
   // An animation is its own moving picture; a still loads the rendition that fits.
-  const source = attachment.kind === media.AssetKind.ANIMATION ? attachment.url || pictureUrl(picture, pixels) : pictureUrl(picture, pixels) || (video ? "" : attachment.url);
-  const processing = attachment.status === media.AssetStatus.PROCESSING || attachment.status === media.AssetStatus.UPLOADING;
+  const source =
+    attachment.kind === media.AssetKind.ANIMATION
+      ? attachment.url || pictureUrl(picture, pixels)
+      : pictureUrl(picture, pixels) || (video ? "" : attachment.url);
+  const processing =
+    attachment.status === media.AssetStatus.PROCESSING ||
+    attachment.status === media.AssetStatus.UPLOADING;
   const failed = attachment.status === media.AssetStatus.FAILED;
   const localVideo = video && !source && attachment.video?.mp4Url;
 
@@ -50,10 +73,23 @@ export function VisualTile({ attachment, pixels, className, onOpen, label }: { a
       style={picture?.dominantColor ? { background: picture.dominantColor } : undefined}
     >
       {source ? (
-        <img src={source} alt="" className="size-full object-cover" loading="lazy" decoding="async" draggable={false} />
+        <img
+          src={source}
+          alt=""
+          className="size-full object-cover"
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+        />
       ) : localVideo ? (
         // A video that is still on its way up: its first frame stands in for the poster.
-        <video src={`${attachment.video!.mp4Url}#t=0.1`} muted playsInline preload="metadata" className="size-full object-cover" />
+        <video
+          src={`${attachment.video!.mp4Url}#t=0.1`}
+          muted
+          playsInline
+          preload="metadata"
+          className="size-full object-cover"
+        />
       ) : null}
       {video && !failed && (
         <span className="absolute inset-0 grid place-items-center bg-black/15">
@@ -70,7 +106,9 @@ export function VisualTile({ attachment, pixels, className, onOpen, label }: { a
         </span>
       )}
       {video && (attachment.video?.durationSeconds ?? 0) > 0 && (
-        <span className="absolute right-1.5 bottom-1.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[11px] font-bold text-white tabular-nums">{playTime(attachment.video!.durationSeconds)}</span>
+        <span className="absolute right-1.5 bottom-1.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[11px] font-bold text-white tabular-nums">
+          {playTime(attachment.video!.durationSeconds)}
+        </span>
       )}
       {failed && (
         <span className="absolute inset-0 grid place-items-center gap-1 bg-surface-3 p-2 text-center text-xs font-bold text-ink-soft">
@@ -86,7 +124,13 @@ export function VisualTile({ attachment, pixels, className, onOpen, label }: { a
 let playing: HTMLAudioElement | null = null;
 
 /** A voice message: play/pause, the waveform as a seek bar, and the time. */
-export function VoicePlayer({ attachment, tone }: { attachment: media.Attachment; /** On the viewer's own (brand coloured) bubble. */ tone: "own" | "other" }) {
+export function VoicePlayer({
+  attachment,
+  tone,
+}: {
+  attachment: media.Attachment /** On the viewer's own (brand coloured) bubble. */;
+  tone: "own" | "other";
+}) {
   const { t } = useTranslation("chat");
   const audio = useRef<HTMLAudioElement>(null);
   const [isPlaying, setPlaying] = useState(false);
@@ -130,9 +174,16 @@ export function VoicePlayer({ attachment, tone }: { attachment: media.Attachment
         type="button"
         onClick={toggle}
         aria-label={isPlaying ? t("media.pause") : t("media.play")}
-        className={cn("grid size-10 shrink-0 place-items-center rounded-full", own ? "bg-on-brand text-brand" : "bg-brand text-on-brand")}
+        className={cn(
+          "grid size-10 shrink-0 place-items-center rounded-full",
+          own ? "bg-on-brand text-brand" : "bg-brand text-on-brand",
+        )}
       >
-        {isPlaying ? <Pause className="size-5 fill-current" /> : <Play className="size-5 translate-x-px fill-current" />}
+        {isPlaying ? (
+          <Pause className="size-5 fill-current" />
+        ) : (
+          <Play className="size-5 translate-x-px fill-current" />
+        )}
       </button>
       <div className="min-w-0 flex-1">
         <div
@@ -146,19 +197,38 @@ export function VoicePlayer({ attachment, tone }: { attachment: media.Attachment
           onKeyDown={(event) => {
             const element = audio.current;
             if (!element || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return;
-            element.currentTime = Math.min(duration, Math.max(0, element.currentTime + (event.key === "ArrowRight" ? 2 : -2)));
+            element.currentTime = Math.min(
+              duration,
+              Math.max(0, element.currentTime + (event.key === "ArrowRight" ? 2 : -2)),
+            );
           }}
           className="flex h-8 cursor-pointer items-center gap-[2px]"
         >
           {bars.map((height, index) => (
             <span
               key={index}
-              className={cn("min-w-0 flex-1 rounded-full", index / bars.length < progress ? (own ? "bg-on-brand" : "bg-brand") : own ? "bg-on-brand/40" : "bg-ink-faint/50")}
+              className={cn(
+                "min-w-0 flex-1 rounded-full",
+                index / bars.length < progress
+                  ? own
+                    ? "bg-on-brand"
+                    : "bg-brand"
+                  : own
+                    ? "bg-on-brand/40"
+                    : "bg-ink-faint/50",
+              )}
               style={{ height: `${Math.round(height * 100)}%` }}
             />
           ))}
         </div>
-        <p className={cn("text-[11px] font-bold tabular-nums", own ? "text-on-brand/80" : "text-ink-soft")}>{playTime(isPlaying || position > 0 ? position : duration)}</p>
+        <p
+          className={cn(
+            "text-[11px] font-bold tabular-nums",
+            own ? "text-on-brand/80" : "text-ink-soft",
+          )}
+        >
+          {playTime(isPlaying || position > 0 ? position : duration)}
+        </p>
       </div>
       <audio
         ref={audio}
@@ -171,14 +241,22 @@ export function VoicePlayer({ attachment, tone }: { attachment: media.Attachment
           setPosition(0);
         }}
         onTimeUpdate={(event) => setPosition(event.currentTarget.currentTime)}
-        onLoadedMetadata={(event) => Number.isFinite(event.currentTarget.duration) && setMeasured(event.currentTarget.duration)}
+        onLoadedMetadata={(event) =>
+          Number.isFinite(event.currentTarget.duration) && setMeasured(event.currentTarget.duration)
+        }
       />
     </div>
   );
 }
 
 /** A file to download: its name, its size, and where it leads. */
-export function FileRow({ attachment, tone }: { attachment: media.Attachment; tone: "own" | "other" | "plain" }) {
+export function FileRow({
+  attachment,
+  tone,
+}: {
+  attachment: media.Attachment;
+  tone: "own" | "other" | "plain";
+}) {
   const { t } = useTranslation("chat");
   const own = tone === "own";
   const name = attachment.fileName || t("preview.file");
@@ -188,16 +266,29 @@ export function FileRow({ attachment, tone }: { attachment: media.Attachment; to
       download={name}
       target="_blank"
       rel="noreferrer"
-      className={cn("flex w-64 max-w-full items-center gap-3 rounded-xl p-1 text-left", tone === "plain" && "w-full rounded-2xl px-3 py-2.5 hover:bg-surface-2")}
+      className={cn(
+        "flex w-64 max-w-full items-center gap-3 rounded-xl p-1 text-left",
+        tone === "plain" && "w-full rounded-2xl px-3 py-2.5 hover:bg-surface-2",
+      )}
     >
-      <span className={cn("grid size-10 shrink-0 place-items-center rounded-xl", own ? "bg-on-brand/20" : "bg-surface-2 text-ink-soft")}>
+      <span
+        className={cn(
+          "grid size-10 shrink-0 place-items-center rounded-xl",
+          own ? "bg-on-brand/20" : "bg-surface-2 text-ink-soft",
+        )}
+      >
         <FileText className="size-5" />
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-bold">{name}</span>
-        <span className={cn("block text-xs", own ? "text-on-brand/75" : "text-ink-soft")}>{fileSize(Number(attachment.sizeBytes))}</span>
+        <span className={cn("block text-xs", own ? "text-on-brand/75" : "text-ink-soft")}>
+          {fileSize(Number(attachment.sizeBytes))}
+        </span>
       </span>
-      <Download className={cn("size-5 shrink-0", own ? "text-on-brand/80" : "text-ink-faint")} aria-label={t("media.download")} />
+      <Download
+        className={cn("size-5 shrink-0", own ? "text-on-brand/80" : "text-ink-faint")}
+        aria-label={t("media.download")}
+      />
     </a>
   );
 }

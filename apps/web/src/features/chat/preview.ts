@@ -4,7 +4,8 @@ import { playTime } from "./text";
 
 /** Sentences built from messages: the list preview, system notices, call outcomes. */
 
-const t = (key: string, options?: Record<string, unknown>) => i18n.t(key, { ns: "chat", ...options });
+const t = (key: string, options?: Record<string, unknown>) =>
+  i18n.t(key, { ns: "chat", ...options });
 
 /** A person's name as shown in a sentence ("あなた" for the viewer). */
 export function nameOf(user: common.UserSummary | undefined, myId: string): string {
@@ -17,7 +18,10 @@ export function nameOf(user: common.UserSummary | undefined, myId: string): stri
 function namesOf(users: common.UserSummary[], myId: string): string {
   const names = users.map((user) => nameOf(user, myId));
   if (names.length <= 3) return names.join(t("people.separator"));
-  return t("people.andMore", { names: names.slice(0, 2).join(t("people.separator")), count: names.length - 2 });
+  return t("people.andMore", {
+    names: names.slice(0, 2).join(t("people.separator")),
+    count: names.length - 2,
+  });
 }
 
 /** The sentence of a system message ("Aoi added Ren"). */
@@ -39,7 +43,9 @@ export function systemText(event: chat.SystemEvent | undefined, myId: string): s
     case chat.SystemEventType.ICON_CHANGED:
       return t("system.iconChanged", { actor });
     case chat.SystemEventType.OWNER_CHANGED:
-      return event.actor ? t("system.ownerHanded", { actor, targets }) : t("system.ownerInherited", { targets });
+      return event.actor
+        ? t("system.ownerHanded", { actor, targets })
+        : t("system.ownerInherited", { targets });
     case chat.SystemEventType.ADMIN_ADDED:
       return t("system.adminAdded", { actor, targets });
     case chat.SystemEventType.ADMIN_REMOVED:
@@ -55,10 +61,13 @@ export function systemText(event: chat.SystemEvent | undefined, myId: string): s
 export function callText(call: chat.CallSummary | undefined, myId: string): string {
   if (!call) return "";
   const outgoing = call.startedById === myId;
-  if (call.state !== chat.CallState.ENDED) return call.video ? t("call.summary.ongoingVideo") : t("call.summary.ongoing");
+  if (call.state !== chat.CallState.ENDED)
+    return call.video ? t("call.summary.ongoingVideo") : t("call.summary.ongoing");
   switch (call.endReason) {
     case chat.CallEndReason.COMPLETED:
-      return t(call.video ? "call.summary.video" : "call.summary.voice", { duration: playTime(call.durationSeconds) });
+      return t(call.video ? "call.summary.video" : "call.summary.voice", {
+        duration: playTime(call.durationSeconds),
+      });
     case chat.CallEndReason.MISSED:
       return outgoing ? t("call.summary.noAnswer") : t("call.summary.missed");
     case chat.CallEndReason.DECLINED:
@@ -89,7 +98,13 @@ export function attachmentsText(attachments: media.Attachment[]): string {
 }
 
 /** The content of a message in one line, without saying who sent it. */
-export function contentText(message: Pick<chat.Message, "kind" | "text" | "deleted" | "attachments" | "system" | "call" | "povReply" | "stamp">, myId: string): string {
+export function contentText(
+  message: Pick<
+    chat.Message,
+    "kind" | "text" | "deleted" | "attachments" | "system" | "call" | "povReply" | "stamp"
+  >,
+  myId: string,
+): string {
   if (message.deleted) return t("preview.deleted");
   switch (message.kind) {
     case chat.MessageKind.TEXT:
@@ -118,10 +133,19 @@ export function contentText(message: Pick<chat.Message, "kind" | "text" | "delet
 }
 
 /** The preview under a conversation's name: "あなた: …" for own messages, the sender's name in groups. */
-export function previewText(message: chat.Message | undefined, myId: string, group: boolean): string {
+export function previewText(
+  message: chat.Message | undefined,
+  myId: string,
+  group: boolean,
+): string {
   if (!message) return "";
   const content = contentText(message, myId);
-  if (message.kind === chat.MessageKind.SYSTEM || message.kind === chat.MessageKind.CALL || !message.sender) return content;
+  if (
+    message.kind === chat.MessageKind.SYSTEM ||
+    message.kind === chat.MessageKind.CALL ||
+    !message.sender
+  )
+    return content;
   if (message.sender.id === myId) return t("preview.fromYou", { content });
   return group ? t("preview.from", { name: nameOf(message.sender, myId), content }) : content;
 }
@@ -140,6 +164,18 @@ export function replyText(reply: chat.ReplyReference, myId: string): string {
     case chat.MessageKind.HELLO:
       return t("preview.hello");
     default:
-      return contentText({ kind: reply.kind, text: reply.text, deleted: false, attachments: [], system: undefined, call: undefined, povReply: undefined, stamp: undefined }, myId);
+      return contentText(
+        {
+          kind: reply.kind,
+          text: reply.text,
+          deleted: false,
+          attachments: [],
+          system: undefined,
+          call: undefined,
+          povReply: undefined,
+          stamp: undefined,
+        },
+        myId,
+      );
   }
 }

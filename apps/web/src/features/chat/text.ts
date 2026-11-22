@@ -23,7 +23,11 @@ const TRAILING = /[.,!?;:'")\]]+$/;
  * server reported as mentions are marked (`@someone` written about a
  * stranger stays text), and `@all` only when it reached everyone.
  */
-export function tokenize(text: string, mentionedHandles: string[], mentionsEveryone: boolean): Token[] {
+export function tokenize(
+  text: string,
+  mentionedHandles: string[],
+  mentionsEveryone: boolean,
+): Token[] {
   const handles = new Set(mentionedHandles.map((handle) => handle.toLowerCase()));
   const tokens: Token[] = [];
   let position = 0;
@@ -41,7 +45,11 @@ export function tokenize(text: string, mentionedHandles: string[], mentionsEvery
     if (match[1]) {
       // A closing bracket belongs to the link when the link opened it ("…/wiki/Tokyo_(city)").
       let trailing = match[1].match(TRAILING)?.[0] ?? "";
-      while (trailing.startsWith(")") && match[1].slice(0, match[1].length - trailing.length).includes("(")) trailing = trailing.slice(1);
+      while (
+        trailing.startsWith(")") &&
+        match[1].slice(0, match[1].length - trailing.length).includes("(")
+      )
+        trailing = trailing.slice(1);
       const href = trailing ? match[1].slice(0, -trailing.length) : match[1];
       tokens.push({ type: "link", text: href, href });
       pushText(trailing);
@@ -49,8 +57,10 @@ export function tokenize(text: string, mentionedHandles: string[], mentionsEvery
       const handle = match[2]!;
       // A mention starts a word: "mail@example" is not one.
       const startsWord = start === 0 || /[\s(（「、。]/.test(text[start - 1]!);
-      if (startsWord && mentionsEveryone && handle.toLowerCase() === "all") tokens.push({ type: "everyone", text: match[0] });
-      else if (startsWord && handles.has(handle.toLowerCase())) tokens.push({ type: "mention", text: match[0], handle });
+      if (startsWord && mentionsEveryone && handle.toLowerCase() === "all")
+        tokens.push({ type: "everyone", text: match[0] });
+      else if (startsWord && handles.has(handle.toLowerCase()))
+        tokens.push({ type: "mention", text: match[0], handle });
       else pushText(match[0]);
     }
   }
@@ -95,7 +105,12 @@ export function dayLabel(ms: number, nowMs = Date.now()): string {
   if (days === 0) return i18n.t("time.today", { ns: "chat" });
   if (days === 1) return i18n.t("time.yesterday", { ns: "chat" });
   const sameYear = new Date(ms).getFullYear() === new Date(nowMs).getFullYear();
-  return new Date(ms).toLocaleDateString(i18n.language, { year: sameYear ? undefined : "numeric", month: "long", day: "numeric", weekday: "short" });
+  return new Date(ms).toLocaleDateString(i18n.language, {
+    year: sameYear ? undefined : "numeric",
+    month: "long",
+    day: "numeric",
+    weekday: "short",
+  });
 }
 
 /** When a conversation was last active, as short as the list needs: 14:05 / 昨日 / 火曜日 / 11/3 / 2025/11/3. */
@@ -106,12 +121,21 @@ export function listTime(ms: number, nowMs = Date.now()): string {
   if (days === 1) return i18n.t("time.yesterday", { ns: "chat" });
   if (days < 7) return new Date(ms).toLocaleDateString(i18n.language, { weekday: "long" });
   const sameYear = new Date(ms).getFullYear() === new Date(nowMs).getFullYear();
-  return new Date(ms).toLocaleDateString(i18n.language, { year: sameYear ? undefined : "numeric", month: "numeric", day: "numeric" });
+  return new Date(ms).toLocaleDateString(i18n.language, {
+    year: sameYear ? undefined : "numeric",
+    month: "numeric",
+    day: "numeric",
+  });
 }
 
 /** A full date and time, for details ("read at", call history). */
 export function dateTime(ms: number): string {
-  return new Date(ms).toLocaleString(i18n.language, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return new Date(ms).toLocaleString(i18n.language, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 /** A length of time as a player shows it: 0:07, 3:25, 1:02:03. */

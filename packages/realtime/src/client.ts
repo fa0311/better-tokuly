@@ -247,7 +247,10 @@ export class RealtimeClient {
         this.transport?.close();
         return;
       }
-      this.sendFrame({ case: "ping", value: create(realtime.PingSchema, { nonce: BigInt(Date.now()) }) }, false);
+      this.sendFrame(
+        { case: "ping", value: create(realtime.PingSchema, { nonce: BigInt(Date.now()) }) },
+        false,
+      );
     }, intervalMs);
     this.setStatus("connected");
   }
@@ -277,7 +280,10 @@ export class RealtimeClient {
   private sendFrame(body: realtime.ClientFrame["body"], withId = true, unreliable = false): void {
     const transport = this.transport;
     if (!transport) return;
-    const frame = create(realtime.ClientFrameSchema, { id: withId ? this.nextFrameId++ : 0n, body });
+    const frame = create(realtime.ClientFrameSchema, {
+      id: withId ? this.nextFrameId++ : 0n,
+      body,
+    });
     const bytes = toBinary(realtime.ClientFrameSchema, frame);
     if (unreliable) transport.sendUnreliable(bytes);
     else transport.send(bytes);
@@ -292,7 +298,10 @@ export class RealtimeClient {
     const count = this.topics.get(topic) ?? 0;
     this.topics.set(topic, count + 1);
     if (count === 0) {
-      this.sendFrame({ case: "subscribe", value: create(realtime.SubscribeSchema, { topics: [topic] }) });
+      this.sendFrame({
+        case: "subscribe",
+        value: create(realtime.SubscribeSchema, { topics: [topic] }),
+      });
     }
     let released = false;
     return () => {
@@ -303,7 +312,10 @@ export class RealtimeClient {
         this.topics.set(topic, remaining);
       } else {
         this.topics.delete(topic);
-        this.sendFrame({ case: "unsubscribe", value: create(realtime.UnsubscribeSchema, { topics: [topic] }) });
+        this.sendFrame({
+          case: "unsubscribe",
+          value: create(realtime.UnsubscribeSchema, { topics: [topic] }),
+        });
       }
     };
   }
@@ -325,7 +337,10 @@ export class RealtimeClient {
   }
 
   sendTyping(conversationId: string, typing: boolean): void {
-    this.sendFrame({ case: "typing", value: create(realtime.TypingSchema, { conversationId, typing }) }, false);
+    this.sendFrame(
+      { case: "typing", value: create(realtime.TypingSchema, { conversationId, typing }) },
+      false,
+    );
   }
 
   sendConversationPresence(conversationId: string, present: boolean): void {

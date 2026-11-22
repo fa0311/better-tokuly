@@ -13,7 +13,14 @@ const TYPEAHEAD_DELAY_MS = 150;
  * each input has its own cache entry and the request for the old one is
  * cancelled.
  */
-export function useSuggestions(text: string, options: { kind?: search.SearchKind; /** Offer recent searches and trends while the field is empty. */ idle?: boolean; enabled?: boolean } = {}) {
+export function useSuggestions(
+  text: string,
+  options: {
+    kind?: search.SearchKind /** Offer recent searches and trends while the field is empty. */;
+    idle?: boolean;
+    enabled?: boolean;
+  } = {},
+) {
   const { kind = search.SearchKind.UNSPECIFIED, idle = true, enabled = true } = options;
   const typed = text.trim();
   const debounced = useDebounced(typed, TYPEAHEAD_DELAY_MS);
@@ -28,7 +35,11 @@ export function useSuggestions(text: string, options: { kind?: search.SearchKind
   const recent = useRecentSearches(wantsIdle);
   const trending = useTrending();
 
-  const suggestions = typed ? typedSuggestions(typed, suggest.data) : wantsIdle ? idleSuggestions(recent.data?.searches ?? [], trending.data?.queries ?? []) : [];
+  const suggestions = typed
+    ? typedSuggestions(typed, suggest.data)
+    : wantsIdle
+      ? idleSuggestions(recent.data?.searches ?? [], trending.data?.queries ?? [])
+      : [];
   return {
     suggestions,
     /** The typeahead has not answered for the current text yet. */

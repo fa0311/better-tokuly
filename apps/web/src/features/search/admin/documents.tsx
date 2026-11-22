@@ -35,11 +35,13 @@ export function Documents() {
   const results = useQuery({
     queryKey: [...searchKeys.admin.all, "documents", query],
     // Looking for something to remove is not a search worth remembering.
-    queryFn: ({ signal }) => searchClient().search({ query, page: { limit: 30 }, skipHistory: true }, { signal }),
+    queryFn: ({ signal }) =>
+      searchClient().search({ query, page: { limit: 30 }, skipHistory: true }, { signal }),
     enabled: query.length > 0,
   });
   const remove = useMutation({
-    mutationFn: (document: Target) => searchAdminClient().deleteDocument({ kind: document.kind, id: document.id }),
+    mutationFn: (document: Target) =>
+      searchAdminClient().deleteDocument({ kind: document.kind, id: document.id }),
     onSuccess: (response) => {
       if (response.existed) toast.success(t("staff.documents.removed"));
       else toast.message(t("staff.documents.notHeld"));
@@ -48,7 +50,8 @@ export function Documents() {
     onError: (error) => toast.error(staffErrorMessage(error)),
     onSettled: () => setTarget(undefined),
   });
-  const kindName = (kind: search.SearchKind) => (isKind(kind) ? t(`kinds.${kindSlug(kind)}`) : String(kind));
+  const kindName = (kind: search.SearchKind) =>
+    isKind(kind) ? t(`kinds.${kindSlug(kind)}`) : String(kind);
   const hits = results.data?.hits ?? [];
 
   return (
@@ -69,7 +72,9 @@ export function Documents() {
               spellCheck={false}
             />
           </label>
-          <p className="mt-2 px-1 text-xs leading-relaxed text-ink-faint">{t("staff.documents.hint")}</p>
+          <p className="mt-2 px-1 text-xs leading-relaxed text-ink-faint">
+            {t("staff.documents.hint")}
+          </p>
         </div>
         {query.length === 0 ? null : results.isPending ? (
           <div className="flex flex-col gap-2 px-4 pb-4" aria-busy>
@@ -81,17 +86,34 @@ export function Documents() {
         ) : hits.length === 0 ? (
           <p className="px-5 pb-5 text-sm text-ink-soft">{t("staff.documents.none", { query })}</p>
         ) : (
-          <ul aria-label={t("staff.documents.results")} className="divide-y-2 divide-line border-t-2 border-line">
+          <ul
+            aria-label={t("staff.documents.results")}
+            className="divide-y-2 divide-line border-t-2 border-line"
+          >
             {hits.map((hit) => (
-              <li key={`${hit.kind}:${hit.id}`} data-testid="document-row" className="flex items-center gap-3 px-4 py-2.5">
-                <KindTile kind={hit.kind} className="size-9 rounded-xl" iconClassName="size-[18px]" />
+              <li
+                key={`${hit.kind}:${hit.id}`}
+                data-testid="document-row"
+                className="flex items-center gap-3 px-4 py-2.5"
+              >
+                <KindTile
+                  kind={hit.kind}
+                  className="size-9 rounded-xl"
+                  iconClassName="size-[18px]"
+                />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-bold">{hit.title}</p>
                   <p className="truncate text-xs text-ink-soft">
                     {kindName(hit.kind)} · <span className="font-mono">{hit.id}</span>
                   </p>
                 </div>
-                <Button size="sm" variant="secondary" icon={<Trash2 className="size-4" />} onClick={() => setTarget({ kind: hit.kind, id: hit.id, title: hit.title })} aria-label={t("staff.documents.removeNamed", { title: hit.title })}>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon={<Trash2 className="size-4" />}
+                  onClick={() => setTarget({ kind: hit.kind, id: hit.id, title: hit.title })}
+                  aria-label={t("staff.documents.removeNamed", { title: hit.title })}
+                >
                   {t("staff.documents.remove")}
                 </Button>
               </li>
@@ -142,7 +164,12 @@ function ById({ onPick }: { onPick(target: Target): void }) {
           <label htmlFor={selectId} className="px-1 text-sm font-bold text-ink-soft">
             {t("staff.documents.kind")}
           </label>
-          <select id={selectId} value={kind} onChange={(event) => setKind(Number(event.target.value) as Kind)} className="h-12 w-full rounded-control border-2 border-line bg-surface px-3 text-[15px] font-bold text-ink focus:border-brand focus:outline-none">
+          <select
+            id={selectId}
+            value={kind}
+            onChange={(event) => setKind(Number(event.target.value) as Kind)}
+            className="h-12 w-full rounded-control border-2 border-line bg-surface px-3 text-[15px] font-bold text-ink focus:border-brand focus:outline-none"
+          >
             {KINDS.map((option) => (
               <option key={option} value={option}>
                 {t(`kinds.${kindSlug(option)}`)}
@@ -150,8 +177,21 @@ function ById({ onPick }: { onPick(target: Target): void }) {
             ))}
           </select>
         </div>
-        <TextField label={t("staff.documents.id")} value={id} onChange={(event) => setId(event.target.value)} placeholder="01a200b9-ba8c-7882-b900-6820e398de5d" autoCapitalize="none" autoComplete="off" spellCheck={false} />
-        <Button type="submit" variant="secondary" disabled={!id.trim()} icon={<Trash2 className="size-4" />}>
+        <TextField
+          label={t("staff.documents.id")}
+          value={id}
+          onChange={(event) => setId(event.target.value)}
+          placeholder="01a200b9-ba8c-7882-b900-6820e398de5d"
+          autoCapitalize="none"
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <Button
+          type="submit"
+          variant="secondary"
+          disabled={!id.trim()}
+          icon={<Trash2 className="size-4" />}
+        >
           {t("staff.documents.remove")}
         </Button>
       </form>

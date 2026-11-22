@@ -77,14 +77,20 @@ export function commandForKey(press: KeyPress): PlayerCommand | null {
       break;
   }
   // Digits by key or — on layouts where the digit row needs Shift — by position.
-  const digit = /^[0-9]$/.test(press.key) ? Number(press.key) : !press.shiftKey && /^(Digit|Numpad)[0-9]$/.test(press.code ?? "") ? Number((press.code ?? "").slice(-1)) : null;
+  const digit = /^[0-9]$/.test(press.key)
+    ? Number(press.key)
+    : !press.shiftKey && /^(Digit|Numpad)[0-9]$/.test(press.code ?? "")
+      ? Number((press.code ?? "").slice(-1))
+      : null;
   return digit === null ? null : { type: "seekToFraction", fraction: digit / 10 };
 }
 
 const EDITABLE = "input, textarea, select, [contenteditable]:not([contenteditable='false'])";
 /** Widgets that use the arrow keys, space or letters themselves. */
-const BUSY_WIDGET = "[role='dialog'], [role='menu'], [role='listbox'], [role='tablist'], [role='slider']:not([data-player-scrubber]), [role='radiogroup']";
-const ACTIVATABLE = "button, a[href], summary, [role='button'], [role='tab'], [role='switch'], [role='option'], [role='menuitem']";
+const BUSY_WIDGET =
+  "[role='dialog'], [role='menu'], [role='listbox'], [role='tablist'], [role='slider']:not([data-player-scrubber]), [role='radiogroup']";
+const ACTIVATABLE =
+  "button, a[href], summary, [role='button'], [role='tab'], [role='switch'], [role='option'], [role='menuitem']";
 
 /**
  * Whether a key pressed with the focus on `target` is the player's to

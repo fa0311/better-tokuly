@@ -35,7 +35,11 @@ function zip(files: { name: string; text: string; deflate?: boolean }[], comment
   end.setUint32(0, 0x06054b50, true);
   end.setUint16(8, files.length, true);
   end.setUint16(10, files.length, true);
-  end.setUint32(12, directory.reduce((sum, part) => sum + part.length, 0), true);
+  end.setUint32(
+    12,
+    directory.reduce((sum, part) => sum + part.length, 0),
+    true,
+  );
   end.setUint32(16, offset, true);
   end.setUint16(20, note.length, true);
   const all = [...parts, ...directory, new Uint8Array(end.buffer), note];
@@ -56,7 +60,9 @@ const text = async (bytes: Uint8Array, name: string) => {
 
 describe("zip reader", () => {
   it("lists the entries and reads stored and deflated files", async () => {
-    const long = JSON.stringify({ layers: Array.from({ length: 50 }, (_, index) => ({ ind: index, nm: "まる" })) });
+    const long = JSON.stringify({
+      layers: Array.from({ length: 50 }, (_, index) => ({ ind: index, nm: "まる" })),
+    });
     const archive = zip([
       { name: "manifest.json", text: '{"animations":[{"id":"a"}]}' },
       { name: "animations/a.json", text: long, deflate: true },
@@ -76,7 +82,9 @@ describe("zip reader", () => {
   });
 
   it("refuses bytes that are not a ZIP archive", () => {
-    expect(() => listZipEntries(new TextEncoder().encode("this is definitely not a zip archive"))).toThrow("not a ZIP archive");
+    expect(() =>
+      listZipEntries(new TextEncoder().encode("this is definitely not a zip archive")),
+    ).toThrow("not a ZIP archive");
   });
 });
 
@@ -90,12 +98,16 @@ describe("the animation inside a dotLottie file", () => {
   );
 
   it("is the manifest's first animation, in either folder layout", () => {
-    expect(animationEntry(entries, { animations: [{ id: "wave" }] })?.name).toBe("animations/wave.json");
+    expect(animationEntry(entries, { animations: [{ id: "wave" }] })?.name).toBe(
+      "animations/wave.json",
+    );
     expect(animationEntry(entries, { animations: [{ id: "jump" }] })?.name).toBe("a/jump.json");
   });
 
   it("falls back to the first JSON file that is not the manifest", () => {
     expect(animationEntry(entries, undefined)?.name).toBe("animations/wave.json");
-    expect(animationEntry(entries, { animations: [{ id: "missing" }] })?.name).toBe("animations/wave.json");
+    expect(animationEntry(entries, { animations: [{ id: "missing" }] })?.name).toBe(
+      "animations/wave.json",
+    );
   });
 });

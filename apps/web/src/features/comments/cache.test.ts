@@ -1,20 +1,49 @@
 import { create, engagement, type MessageInitShape } from "@tokuly/api";
 import { describe, expect, it } from "vitest";
-import { findComment, mergeComment, type ReplyPages, type ThreadPages, withComment, withoutComment, withoutReply, withPatched, withPinned, withReply, withTotal, withUpdated } from "./cache";
+import {
+  findComment,
+  mergeComment,
+  type ReplyPages,
+  type ThreadPages,
+  withComment,
+  withoutComment,
+  withoutReply,
+  withPatched,
+  withPinned,
+  withReply,
+  withTotal,
+  withUpdated,
+} from "./cache";
 
-const comment = (id: string, fields: MessageInitShape<typeof engagement.CommentSchema> = {}) => create(engagement.CommentSchema, { text: id, ...fields, id });
-const viewer = create(engagement.CommentViewerStateSchema, { isAuthor: true, canEdit: true, canDelete: true });
+const comment = (id: string, fields: MessageInitShape<typeof engagement.CommentSchema> = {}) =>
+  create(engagement.CommentSchema, { text: id, ...fields, id });
+const viewer = create(engagement.CommentViewerStateSchema, {
+  isAuthor: true,
+  canEdit: true,
+  canDelete: true,
+});
 
 function thread(pages: engagement.Comment[][], total = 0n): ThreadPages {
   return {
     pageParams: pages.map((_, index) => String(index)),
-    pages: pages.map((comments, index) => create(engagement.ListCommentsResponseSchema, { comments, totalCount: total, page: { nextCursor: index < pages.length - 1 ? "more" : "" } })),
+    pages: pages.map((comments, index) =>
+      create(engagement.ListCommentsResponseSchema, {
+        comments,
+        totalCount: total,
+        page: { nextCursor: index < pages.length - 1 ? "more" : "" },
+      }),
+    ),
   };
 }
 function replies(pages: engagement.Comment[][], more = false): ReplyPages {
   return {
     pageParams: pages.map((_, index) => String(index)),
-    pages: pages.map((items, index) => create(engagement.ListRepliesResponseSchema, { replies: items, page: { nextCursor: more || index < pages.length - 1 ? "more" : "" } })),
+    pages: pages.map((items, index) =>
+      create(engagement.ListRepliesResponseSchema, {
+        replies: items,
+        page: { nextCursor: more || index < pages.length - 1 ? "more" : "" },
+      }),
+    ),
   };
 }
 const ids = (data: ThreadPages) => data.pages.map((page) => page.comments.map((item) => item.id));
@@ -42,9 +71,13 @@ describe("comment thread cache", () => {
   });
 
   it("keeps the viewer state when a pushed comment has none", () => {
-    expect(mergeComment(comment("a", { viewer }), comment("a", { hearted: true })).viewer).toBe(viewer);
+    expect(mergeComment(comment("a", { viewer }), comment("a", { hearted: true })).viewer).toBe(
+      viewer,
+    );
     const fresh = create(engagement.CommentViewerStateSchema, { canModerate: true });
-    expect(mergeComment(comment("a", { viewer }), comment("a", { viewer: fresh })).viewer).toBe(fresh);
+    expect(mergeComment(comment("a", { viewer }), comment("a", { viewer: fresh })).viewer).toBe(
+      fresh,
+    );
   });
 
   it("ignores updates of comments that are not loaded", () => {
@@ -85,12 +118,16 @@ describe("reply cache", () => {
     const data = replies([[comment("r1")]], true);
     expect(withReply(data, comment("r9"))).toBe(data);
     // The viewer's own reply is shown at once all the same.
-    expect(withReply(data, comment("mine"), true).pages[0]?.replies.map((reply) => reply.id)).toEqual(["r1", "mine"]);
+    expect(
+      withReply(data, comment("mine"), true).pages[0]?.replies.map((reply) => reply.id),
+    ).toEqual(["r1", "mine"]);
   });
 
   it("updates a reply in place and removes one", () => {
     const data = replies([[comment("r1"), comment("r2")]]);
-    expect(withReply(data, comment("r1", { text: "edited" })).pages[0]?.replies[0]?.text).toBe("edited");
+    expect(withReply(data, comment("r1", { text: "edited" })).pages[0]?.replies[0]?.text).toBe(
+      "edited",
+    );
     expect(withoutReply(data, "r1").pages[0]?.replies.map((reply) => reply.id)).toEqual(["r2"]);
     expect(withoutReply(data, "zzz")).toBe(data);
   });

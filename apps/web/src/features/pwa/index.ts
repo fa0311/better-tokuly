@@ -11,5 +11,12 @@
  *     const way = useInstallWay();
  *     {hasGuide(way) && <button onClick={openInstallGuide}>…</button>}
  */
-export { hasGuide, type InstallWay, isStandalone, openInstallGuide, useInstallWay, useIsStandalone } from "./install";
+export {
+  hasGuide,
+  type InstallWay,
+  isStandalone,
+  openInstallGuide,
+  useInstallWay,
+  useIsStandalone,
+} from "./install";
 export { useOnline } from "./online";

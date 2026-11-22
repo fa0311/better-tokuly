@@ -13,7 +13,9 @@ describe("comment text", () => {
   });
 
   it("does not take an e-mail address for a mention", () => {
-    expect(tokenize("mail yuki@yuki.example", handles, false)).toEqual([{ kind: "text", text: "mail yuki@yuki.example" }]);
+    expect(tokenize("mail yuki@yuki.example", handles, false)).toEqual([
+      { kind: "text", text: "mail yuki@yuki.example" },
+    ]);
   });
 
   it("links web addresses without the sentence's punctuation", () => {
@@ -46,7 +48,10 @@ describe("comment text", () => {
   });
 
   it("completes a mention and puts the caret after it", () => {
-    expect(completeMention("hi @yu there", 3, 6, "yuki")).toEqual({ text: "hi @yuki there", caret: 9 });
+    expect(completeMention("hi @yu there", 3, 6, "yuki")).toEqual({
+      text: "hi @yuki there",
+      caret: 9,
+    });
     expect(completeMention("@ta", 0, 3, "taro_99")).toEqual({ text: "@taro_99 ", caret: 9 });
   });
 });

@@ -1,6 +1,14 @@
 import { common } from "@tokuly/api";
 import { ImageOff } from "lucide-react";
-import { type CSSProperties, lazy, type RefObject, Suspense, useEffect, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  lazy,
+  type RefObject,
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { cn } from "#/lib/cn";
 
 const LottiePlayer = lazy(() => import("./lottie/player"));
@@ -35,20 +43,35 @@ export interface StampImageProps {
  */
 export function StampImage({ stamp, size, play = "visible", image, className }: StampImageProps) {
   const box = useRef<HTMLSpanElement>(null);
-  const animated = stamp.format === common.StampFormat.ANIMATED || stamp.format === common.StampFormat.LOTTIE;
+  const animated =
+    stamp.format === common.StampFormat.ANIMATED || stamp.format === common.StampFormat.LOTTIE;
   const onScreen = useOnScreen(box, animated);
   const [failed, setFailed] = useState(false);
   // Lottie files are fetched only once the stamp has come near the screen.
   const [seen, setSeen] = useState(false);
   if (onScreen && !seen) setSeen(true);
 
-  const moving = animated && (play === "always" || (play === "visible" && onScreen && !motionOff()));
+  const moving =
+    animated && (play === "always" || (play === "visible" && onScreen && !motionOff()));
   const style: CSSProperties | undefined = size ? { width: size, height: size } : undefined;
-  const boxClass = cn("relative inline-block shrink-0 select-none align-middle", !size && "aspect-square w-full", className);
+  const boxClass = cn(
+    "relative inline-block shrink-0 select-none align-middle",
+    !size && "aspect-square w-full",
+    className,
+  );
 
   if (failed || (!stamp.imageUrl && !stamp.animationUrl)) {
     return (
-      <span ref={box} role="img" aria-label={stamp.name} style={style} className={cn(boxClass, "grid place-items-center rounded-2xl border-2 border-dashed border-line text-ink-faint")}>
+      <span
+        ref={box}
+        role="img"
+        aria-label={stamp.name}
+        style={style}
+        className={cn(
+          boxClass,
+          "grid place-items-center rounded-2xl border-2 border-dashed border-line text-ink-faint",
+        )}
+      >
         <ImageOff className="size-1/3" />
       </span>
     );
@@ -59,10 +82,23 @@ export function StampImage({ stamp, size, play = "visible", image, className }: 
       <span ref={box} style={style} className={boxClass}>
         {seen || play === "always" ? (
           <Suspense fallback={null}>
-            <LottiePlayer url={stamp.animationUrl} playing={moving} label={stamp.name} className="absolute inset-0 size-full" onError={() => setFailed(true)} />
+            <LottiePlayer
+              url={stamp.animationUrl}
+              playing={moving}
+              label={stamp.name}
+              className="absolute inset-0 size-full"
+              onError={() => setFailed(true)}
+            />
           </Suspense>
         ) : (
-          stamp.imageUrl && <img src={stamp.imageUrl} alt={stamp.name} className="absolute inset-0 size-full object-contain" draggable={false} />
+          stamp.imageUrl && (
+            <img
+              src={stamp.imageUrl}
+              alt={stamp.name}
+              className="absolute inset-0 size-full object-contain"
+              draggable={false}
+            />
+          )
         )}
       </span>
     );
@@ -88,17 +124,26 @@ export function StampImage({ stamp, size, play = "visible", image, className }: 
 const GRID_TILE = 80;
 
 /** The smallest rendition that still looks sharp at `size` CSS pixels. */
-function stillUrl(stamp: common.StampRef, image: common.Image | undefined, size: number | undefined): string {
+function stillUrl(
+  stamp: common.StampRef,
+  image: common.Image | undefined,
+  size: number | undefined,
+): string {
   const fallback = stamp.imageUrl || stamp.animationUrl;
   if (!image) return fallback;
   const wanted = (size ?? GRID_TILE) * Math.min(window.devicePixelRatio || 1, 2);
-  const fitting = image.variants.filter((variant) => variant.size >= wanted).sort((a, b) => a.size - b.size)[0];
+  const fitting = image.variants
+    .filter((variant) => variant.size >= wanted)
+    .sort((a, b) => a.size - b.size)[0];
   return fitting?.url || fallback;
 }
 
 /** The person asked for no motion: ドパガキ度 0, or the system setting. */
 function motionOff(): boolean {
-  return document.documentElement.dataset.dopa === "0" || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  return (
+    document.documentElement.dataset.dopa === "0" ||
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
 }
 
 // One observer for every stamp on the page.

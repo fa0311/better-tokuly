@@ -28,10 +28,14 @@ export function usePreferenceActions() {
   const queryClient = useQueryClient();
 
   const guess = (edit: (preferences: notify.Preferences) => notify.Preferences) =>
-    queryClient.setQueryData<notify.Preferences>(notifyKeys.preferences, (preferences) => preferences && edit(preferences));
+    queryClient.setQueryData<notify.Preferences>(
+      notifyKeys.preferences,
+      (preferences) => preferences && edit(preferences),
+    );
   const settle = (preferences: notify.Preferences | undefined) => {
     // While other changes are still on their way, an answer is already out of date.
-    if (preferences && queryClient.isMutating({ mutationKey: MUTATION_KEY }) <= 1) queryClient.setQueryData(notifyKeys.preferences, preferences);
+    if (preferences && queryClient.isMutating({ mutationKey: MUTATION_KEY }) <= 1)
+      queryClient.setQueryData(notifyKeys.preferences, preferences);
   };
   const onError = (error: unknown) => {
     toast.error(errorMessage(error));
@@ -41,12 +45,19 @@ export function usePreferenceActions() {
   const setCategory = useMutation({
     mutationKey: MUTATION_KEY,
     scope: IN_ORDER,
-    mutationFn: (change: { category: string; inbox?: boolean; push?: boolean }) => preferencesClient().updatePreferences({ categories: [change] }),
+    mutationFn: (change: { category: string; inbox?: boolean; push?: boolean }) =>
+      preferencesClient().updatePreferences({ categories: [change] }),
     onMutate: (change) =>
       guess((preferences) => ({
         ...preferences,
         categories: preferences.categories.map((category) =>
-          category.category === change.category ? { ...category, inbox: change.inbox ?? category.inbox, push: change.push ?? category.push } : category,
+          category.category === change.category
+            ? {
+                ...category,
+                inbox: change.inbox ?? category.inbox,
+                push: change.push ?? category.push,
+              }
+            : category,
         ),
       })),
     onSuccess: (response) => settle(response.preferences),
@@ -56,8 +67,13 @@ export function usePreferenceActions() {
   const setQuietHours = useMutation({
     mutationKey: MUTATION_KEY,
     scope: IN_ORDER,
-    mutationFn: (quietHours: QuietHoursValue) => preferencesClient().updatePreferences({ quietHours }),
-    onMutate: (quietHours) => guess((preferences) => ({ ...preferences, quietHours: create(notify.QuietHoursSchema, quietHours) })),
+    mutationFn: (quietHours: QuietHoursValue) =>
+      preferencesClient().updatePreferences({ quietHours }),
+    onMutate: (quietHours) =>
+      guess((preferences) => ({
+        ...preferences,
+        quietHours: create(notify.QuietHoursSchema, quietHours),
+      })),
     onSuccess: (response) => settle(response.preferences),
     onError,
   });
@@ -91,8 +107,16 @@ export function usePreferenceActions() {
    * two quick changes must not be combined from what is on screen.
    */
   const latestQuietHours = (): QuietHoursValue | undefined => {
-    const quietHours = queryClient.getQueryData<notify.Preferences>(notifyKeys.preferences)?.quietHours;
-    return quietHours && { enabled: quietHours.enabled, startMinute: quietHours.startMinute, endMinute: quietHours.endMinute };
+    const quietHours = queryClient.getQueryData<notify.Preferences>(
+      notifyKeys.preferences,
+    )?.quietHours;
+    return (
+      quietHours && {
+        enabled: quietHours.enabled,
+        startMinute: quietHours.startMinute,
+        endMinute: quietHours.endMinute,
+      }
+    );
   };
 
   return { setCategory, setQuietHours, latestQuietHours, pause, resume };

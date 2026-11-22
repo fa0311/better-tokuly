@@ -1,6 +1,16 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { BellRing, ChevronRight, Download, PartyPopper, Signal, Smartphone, Sparkles, Trash2, Zap } from "lucide-react";
+import {
+  BellRing,
+  ChevronRight,
+  Download,
+  PartyPopper,
+  Signal,
+  Smartphone,
+  Sparkles,
+  Trash2,
+  Zap,
+} from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -8,9 +18,23 @@ import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
 import { Page, Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
-import { hasGuide, type InstallWay, openInstallGuide, promptInstall, useInstall, useInstallWay, useIsStandalone } from "./install";
+import {
+  hasGuide,
+  type InstallWay,
+  openInstallGuide,
+  promptInstall,
+  useInstall,
+  useInstallWay,
+  useIsStandalone,
+} from "./install";
 import { isIos } from "./platform";
-import { applyUpdate, checkForUpdate, clearOfflineData, pageIsBehind, useWorker } from "./service-worker";
+import {
+  applyUpdate,
+  checkForUpdate,
+  clearOfflineData,
+  pageIsBehind,
+  useWorker,
+} from "./service-worker";
 import { formatBytes, offlineData, storageUse, usedPercent } from "./storage";
 
 /** Everything this page reads about the device; refetched after an action that changes it. */
@@ -62,8 +86,12 @@ function InstallCard() {
           <PartyPopper className="size-7 animate-wiggle" />
         </span>
         <div className="min-w-0 flex-1">
-          <h2 className="text-lg font-black leading-snug">{way === "installed" ? t("install.installedTitle") : t("install.justInstalledTitle")}</h2>
-          <p className="mt-0.5 text-sm font-medium leading-relaxed">{way === "installed" ? t("install.installedBody") : t("install.justInstalledBody")}</p>
+          <h2 className="text-lg font-black leading-snug">
+            {way === "installed" ? t("install.installedTitle") : t("install.justInstalledTitle")}
+          </h2>
+          <p className="mt-0.5 text-sm font-medium leading-relaxed">
+            {way === "installed" ? t("install.installedBody") : t("install.justInstalledBody")}
+          </p>
         </div>
       </section>
     );
@@ -79,7 +107,9 @@ function InstallCard() {
     <section className="sticker rounded-card bg-surface p-5">
       <div className="flex items-center gap-4">
         <img src="/icon.svg" alt="" className="sticker-sm size-16 shrink-0 rounded-[22%]" />
-        <h2 className="min-w-0 flex-1 text-balance text-xl font-black leading-snug [word-break:auto-phrase]">{t("install.title")}</h2>
+        <h2 className="min-w-0 flex-1 text-balance text-xl font-black leading-snug [word-break:auto-phrase]">
+          {t("install.title")}
+        </h2>
       </div>
       <ul className="mt-4 flex flex-col gap-2.5">
         <Perk icon={<Zap />} tint="bg-sun">
@@ -93,7 +123,14 @@ function InstallCard() {
         </Perk>
       </ul>
       {way === "prompt" ? (
-        <Button size="lg" block className="mt-5" icon={<Download className="size-5" />} loading={busy} onClick={install}>
+        <Button
+          size="lg"
+          block
+          className="mt-5"
+          icon={<Download className="size-5" />}
+          loading={busy}
+          onClick={install}
+        >
           {t("install.install")}
         </Button>
       ) : hasGuide(way) ? (
@@ -101,7 +138,9 @@ function InstallCard() {
           {t("install.howTo")}
         </Button>
       ) : (
-        <p className="mt-5 rounded-2xl bg-surface-2 px-4 py-3 text-sm font-medium leading-relaxed text-ink-soft [word-break:auto-phrase]">{t(`install.hints.${hintKey(way)}`)}</p>
+        <p className="mt-5 rounded-2xl bg-surface-2 px-4 py-3 text-sm font-medium leading-relaxed text-ink-soft [word-break:auto-phrase]">
+          {t(`install.hints.${hintKey(way)}`)}
+        </p>
       )}
     </section>
   );
@@ -116,7 +155,14 @@ function hintKey(way: InstallWay): "menu" | "macDock" | "none" {
 function Perk({ icon, tint, children }: { icon: ReactNode; tint: string; children: ReactNode }) {
   return (
     <li className="flex items-center gap-3 font-bold">
-      <span className={cn("grid size-8 shrink-0 place-items-center rounded-xl border-2 border-ink text-[#17122b] [&>svg]:size-4", tint)}>{icon}</span>
+      <span
+        className={cn(
+          "grid size-8 shrink-0 place-items-center rounded-xl border-2 border-ink text-[#17122b] [&>svg]:size-4",
+          tint,
+        )}
+      >
+        {icon}
+      </span>
       {children}
     </li>
   );
@@ -133,7 +179,11 @@ function InstallRow() {
       tint="bg-lime"
       label={t("status.install.label")}
       hint={installed ? t("status.install.yesHint") : t("status.install.noHint")}
-      chip={<StateChip tone={installed ? "good" : "off"}>{installed ? t("status.install.yes") : t("status.install.no")}</StateChip>}
+      chip={
+        <StateChip tone={installed ? "good" : "off"}>
+          {installed ? t("status.install.yes") : t("status.install.no")}
+        </StateChip>
+      }
     />
   );
 }
@@ -142,7 +192,8 @@ type PushState = "on" | "off" | "blocked" | "unsupported";
 
 /** Whether this browser holds a push subscription it may use. The notification settings know the rest. */
 async function pushState(): Promise<PushState> {
-  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return "unsupported";
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window))
+    return "unsupported";
   if (Notification.permission === "denied") return "blocked";
   if (Notification.permission !== "granted") return "off";
   const registration = await navigator.serviceWorker.getRegistration();
@@ -154,17 +205,28 @@ function PushRow() {
   const installed = useIsStandalone();
   const { data: state } = useQuery({ queryKey: pwaKeys.push, queryFn: pushState, staleTime: 0 });
   // iOS only has push for the installed app: say what would turn "not supported" around.
-  const needsInstall = state === "unsupported" && !installed && isIos(navigator.userAgent, navigator.maxTouchPoints);
+  const needsInstall =
+    state === "unsupported" && !installed && isIos(navigator.userAgent, navigator.maxTouchPoints);
   return (
-    <Link to="/notifications/settings" aria-label={t("status.push.open")} className="block rounded-2xl transition-colors hover:bg-surface-2">
+    <Link
+      to="/notifications/settings"
+      aria-label={t("status.push.open")}
+      className="block rounded-2xl transition-colors hover:bg-surface-2"
+    >
       <Row
         icon={<BellRing />}
         tint="bg-pink"
         label={t("status.push.label")}
-        hint={state ? t(needsInstall ? "status.push.needsInstallHint" : `status.push.${state}Hint`) : undefined}
+        hint={
+          state
+            ? t(needsInstall ? "status.push.needsInstallHint" : `status.push.${state}Hint`)
+            : undefined
+        }
         chip={
           state ? (
-            <StateChip tone={state === "on" ? "good" : state === "blocked" ? "warn" : "off"}>{t(`status.push.${state}`)}</StateChip>
+            <StateChip tone={state === "on" ? "good" : state === "blocked" ? "warn" : "off"}>
+              {t(`status.push.${state}`)}
+            </StateChip>
           ) : (
             <Skeleton className="h-6 w-14 rounded-full" />
           )
@@ -179,15 +241,28 @@ function OfflineRow() {
   const { t } = useTranslation("pwa");
   const status = useWorker((state) => state.status);
   // The worker stores the offline page while it installs: look again once it runs.
-  const { data } = useQuery({ queryKey: [...pwaKeys.offline, status], queryFn: offlineData, staleTime: 0 });
-  const state = status === "unsupported" || status === "failed" ? "unsupported" : status === "active" && data?.ready ? "ready" : "preparing";
+  const { data } = useQuery({
+    queryKey: [...pwaKeys.offline, status],
+    queryFn: offlineData,
+    staleTime: 0,
+  });
+  const state =
+    status === "unsupported" || status === "failed"
+      ? "unsupported"
+      : status === "active" && data?.ready
+        ? "ready"
+        : "preparing";
   return (
     <Row
       icon={<Signal />}
       tint="bg-sky"
       label={t("status.offline.label")}
       hint={t(`status.offline.${state}Hint`)}
-      chip={<StateChip tone={state === "ready" ? "good" : "off"}>{t(`status.offline.${state}`)}</StateChip>}
+      chip={
+        <StateChip tone={state === "ready" ? "good" : "off"}>
+          {t(`status.offline.${state}`)}
+        </StateChip>
+      }
     />
   );
 }
@@ -212,7 +287,11 @@ function VersionRow() {
       tint="bg-sun"
       label={t("status.version.label")}
       hint={updateReady ? t("status.version.updateHint") : t("status.version.latestHint")}
-      chip={<StateChip tone={updateReady ? "warn" : "good"}>{updateReady ? t("status.version.update") : t("status.version.latest")}</StateChip>}
+      chip={
+        <StateChip tone={updateReady ? "warn" : "good"}>
+          {updateReady ? t("status.version.update") : t("status.version.latest")}
+        </StateChip>
+      }
       trailing={
         updateReady ? (
           <Button size="sm" onClick={applyUpdate}>
@@ -273,9 +352,14 @@ function StorageGroup() {
             aria-valuenow={Math.round(usedPercent(use.data))}
             className="mt-3 h-4 overflow-hidden rounded-full border-2 border-ink bg-surface-2"
           >
-            <div className="h-full rounded-full bg-brand transition-[width] duration-500" style={{ width: `${usedPercent(use.data)}%` }} />
+            <div
+              className="h-full rounded-full bg-brand transition-[width] duration-500"
+              style={{ width: `${usedPercent(use.data)}%` }}
+            />
           </div>
-          <p className="mt-2 text-sm text-ink-soft">{t("storage.of", { quota: formatBytes(use.data.quotaBytes, i18n.language) })}</p>
+          <p className="mt-2 text-sm text-ink-soft">
+            {t("storage.of", { quota: formatBytes(use.data.quotaBytes, i18n.language) })}
+          </p>
         </>
       ) : (
         <p className="text-sm leading-relaxed text-ink-soft">{t("storage.unknown")}</p>
@@ -283,7 +367,13 @@ function StorageGroup() {
       <p className="mt-4 text-sm font-bold" data-testid="offline-files">
         {t("storage.files", { count: offline.data?.files ?? 0 })}
       </p>
-      <Button variant="secondary" block className="mt-4" icon={<Trash2 className="size-4" />} onClick={() => setConfirming(true)}>
+      <Button
+        variant="secondary"
+        block
+        className="mt-4"
+        icon={<Trash2 className="size-4" />}
+        onClick={() => setConfirming(true)}
+      >
         {t("storage.clear")}
       </Button>
       <ConfirmDialog
@@ -303,27 +393,64 @@ function StorageGroup() {
 // ── Pieces ──────────────────────────────────────────────────────────
 
 /** A titled card of related things, as on the settings screens. */
-function Group({ title, lead, padded, children }: { title: string; lead?: string; /** A card that pads its content; otherwise rows reach its edge. */ padded?: boolean; children: ReactNode }) {
+function Group({
+  title,
+  lead,
+  padded,
+  children,
+}: {
+  title: string;
+  lead?: string /** A card that pads its content; otherwise rows reach its edge. */;
+  padded?: boolean;
+  children: ReactNode;
+}) {
   return (
     <section className="min-w-0">
       <h2 className="px-1 text-lg font-black">{title}</h2>
       {lead && <p className="mt-0.5 px-1 text-sm leading-relaxed text-ink-soft">{lead}</p>}
-      <div className={cn("sticker mt-3 rounded-card bg-surface", padded ? "p-4" : "p-2")}>{children}</div>
+      <div className={cn("sticker mt-3 rounded-card bg-surface", padded ? "p-4" : "p-2")}>
+        {children}
+      </div>
     </section>
   );
 }
 
 /** One fact about the app on this device: what it is, how it stands, and (sometimes) what to do about it. */
-function Row({ icon, tint, label, hint, chip, trailing }: { icon: ReactNode; tint: string; label: string; hint?: string; chip: ReactNode; trailing?: ReactNode }) {
+function Row({
+  icon,
+  tint,
+  label,
+  hint,
+  chip,
+  trailing,
+}: {
+  icon: ReactNode;
+  tint: string;
+  label: string;
+  hint?: string;
+  chip: ReactNode;
+  trailing?: ReactNode;
+}) {
   return (
     <div className="flex items-center gap-3 px-3 py-3">
-      <span className={cn("grid size-10 shrink-0 place-items-center rounded-xl border-2 border-ink text-[#17122b] [&>svg]:size-5", tint)}>{icon}</span>
+      <span
+        className={cn(
+          "grid size-10 shrink-0 place-items-center rounded-xl border-2 border-ink text-[#17122b] [&>svg]:size-5",
+          tint,
+        )}
+      >
+        {icon}
+      </span>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-black">
           {label}
           {chip}
         </div>
-        {hint && <p className="mt-0.5 text-sm leading-snug text-ink-soft [word-break:auto-phrase]">{hint}</p>}
+        {hint && (
+          <p className="mt-0.5 text-sm leading-snug text-ink-soft [word-break:auto-phrase]">
+            {hint}
+          </p>
+        )}
       </div>
       {trailing}
     </div>
@@ -338,5 +465,14 @@ const TONES = {
 
 /** A small state label. The text carries the meaning, the colour only backs it up. */
 function StateChip({ tone, children }: { tone: keyof typeof TONES; children: ReactNode }) {
-  return <span className={cn("inline-flex h-6 shrink-0 items-center rounded-full px-2.5 text-xs font-black", TONES[tone])}>{children}</span>;
+  return (
+    <span
+      className={cn(
+        "inline-flex h-6 shrink-0 items-center rounded-full px-2.5 text-xs font-black",
+        TONES[tone],
+      )}
+    >
+      {children}
+    </span>
+  );
 }

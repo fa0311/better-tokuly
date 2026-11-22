@@ -7,7 +7,8 @@ import { formatClock, parseClock } from "./format";
 import { categoryKey } from "./labels";
 
 // A web address runs as far as characters that belong in one: Japanese text often follows it without a space.
-const PATTERN = /(https?:\/\/[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]+)|\b(\d{1,2}:\d{2}(?::\d{2})?)\b/g;
+const PATTERN =
+  /(https?:\/\/[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]+)|\b(\d{1,2}:\d{2}(?::\d{2})?)\b/g;
 const TRAILING = /[.,!?;:)\]']+$/;
 
 /** A creator's free text with its web addresses and clock times (`1:23`) made tappable. */
@@ -21,7 +22,13 @@ function linked(text: string, onSeek?: (seconds: number) => void): ReactNode[] {
     if (match[1]) {
       token = token.replace(TRAILING, "");
       node = (
-        <a key={start} href={token} target="_blank" rel="noopener noreferrer nofollow ugc" className="font-bold text-brand underline-offset-2 hover:underline">
+        <a
+          key={start}
+          href={token}
+          target="_blank"
+          rel="noopener noreferrer nofollow ugc"
+          className="font-bold text-brand underline-offset-2 hover:underline"
+        >
           {token}
         </a>
       );
@@ -29,7 +36,12 @@ function linked(text: string, onSeek?: (seconds: number) => void): ReactNode[] {
       const seconds = parseClock(token);
       if (seconds === null || !onSeek) continue;
       node = (
-        <button key={start} type="button" className="font-bold text-brand hover:underline" onClick={() => onSeek(seconds)}>
+        <button
+          key={start}
+          type="button"
+          className="font-bold text-brand hover:underline"
+          onClick={() => onSeek(seconds)}
+        >
           {token}
         </button>
       );
@@ -47,23 +59,61 @@ function linked(text: string, onSeek?: (seconds: number) => void): ReactNode[] {
  * (folded until asked for), tags, genre, game, and the chapters as a list
  * that jumps to each.
  */
-export function Description({ video: item, currentTime, onSeek }: { video: video.Video; /** Position of the player, to mark the chapter playing. */ currentTime: number; onSeek(seconds: number): void }) {
+export function Description({
+  video: item,
+  currentTime,
+  onSeek,
+}: {
+  video: video.Video /** Position of the player, to mark the chapter playing. */;
+  currentTime: number;
+  onSeek(seconds: number): void;
+}) {
   const { t, i18n } = useTranslation("video");
   const [open, setOpen] = useState(false);
   const summary = item.summary;
   const published = summary?.publishedAt ? new Date(toMillis(summary.publishedAt)) : undefined;
   const category = summary ? categoryKey(summary.category) : undefined;
-  const hasMore = item.description.length > 140 || item.description.split("\n").length > 3 || item.chapters.length > 0 || item.tags.length > 0;
-  const playing = [...item.chapters].reverse().find((chapter) => chapter.startSeconds <= currentTime + 0.001);
+  const hasMore =
+    item.description.length > 140 ||
+    item.description.split("\n").length > 3 ||
+    item.chapters.length > 0 ||
+    item.tags.length > 0;
+  const playing = [...item.chapters]
+    .reverse()
+    .find((chapter) => chapter.startSeconds <= currentTime + 0.001);
 
   return (
-    <section data-testid="video-description" className="rounded-card bg-surface-2 p-4 text-[15px]" aria-label={t("watch.description")}>
+    <section
+      data-testid="video-description"
+      className="rounded-card bg-surface-2 p-4 text-[15px]"
+      aria-label={t("watch.description")}
+    >
       <p className="flex flex-wrap gap-x-3 gap-y-1 text-sm font-black">
-        <span>{t("card.views", { count: Number(summary?.viewCount ?? 0n), formatted: Number(summary?.viewCount ?? 0n).toLocaleString(i18n.language) })}</span>
-        {published && <span>{published.toLocaleDateString(i18n.language, { year: "numeric", month: "long", day: "numeric" })}</span>}
+        <span>
+          {t("card.views", {
+            count: Number(summary?.viewCount ?? 0n),
+            formatted: Number(summary?.viewCount ?? 0n).toLocaleString(i18n.language),
+          })}
+        </span>
+        {published && (
+          <span>
+            {published.toLocaleDateString(i18n.language, {
+              year: "numeric",
+              month: "long",
+              day: "numeric",
+            })}
+          </span>
+        )}
       </p>
       {item.description ? (
-        <p className={cn("mt-2 leading-relaxed break-words whitespace-pre-wrap", !open && "line-clamp-3")}>{linked(item.description, onSeek)}</p>
+        <p
+          className={cn(
+            "mt-2 leading-relaxed break-words whitespace-pre-wrap",
+            !open && "line-clamp-3",
+          )}
+        >
+          {linked(item.description, onSeek)}
+        </p>
       ) : (
         <p className="mt-2 text-ink-faint">{t("watch.noDescription")}</p>
       )}
@@ -82,18 +132,28 @@ export function Description({ video: item, currentTime, onSeek }: { video: video
             </p>
           )}
           {item.tags.length > 0 && (
-            <ul className="flex flex-wrap gap-x-3 gap-y-1 text-sm font-bold text-brand" aria-label={t("watch.tags")}>
+            <ul
+              className="flex flex-wrap gap-x-3 gap-y-1 text-sm font-bold text-brand"
+              aria-label={t("watch.tags")}
+            >
               {item.tags.map((tag) => (
                 <li key={tag}>#{tag}</li>
               ))}
             </ul>
           )}
-          {item.chapters.length > 0 && <Chapters chapters={item.chapters} playing={playing} onSeek={onSeek} />}
+          {item.chapters.length > 0 && (
+            <Chapters chapters={item.chapters} playing={playing} onSeek={onSeek} />
+          )}
         </div>
       )}
 
       {hasMore && (
-        <button type="button" aria-expanded={open} className="mt-2 inline-flex items-center gap-1 text-sm font-black text-ink-soft hover:text-ink" onClick={() => setOpen((value) => !value)}>
+        <button
+          type="button"
+          aria-expanded={open}
+          className="mt-2 inline-flex items-center gap-1 text-sm font-black text-ink-soft hover:text-ink"
+          onClick={() => setOpen((value) => !value)}
+        >
           {open ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
           {open ? t("watch.showLess") : t("watch.showMore")}
         </button>
@@ -103,10 +163,22 @@ export function Description({ video: item, currentTime, onSeek }: { video: video
 }
 
 function Tag({ children }: { children: ReactNode }) {
-  return <span className="inline-flex h-7 items-center gap-1 rounded-full bg-surface px-3 text-xs font-black text-ink-soft">{children}</span>;
+  return (
+    <span className="inline-flex h-7 items-center gap-1 rounded-full bg-surface px-3 text-xs font-black text-ink-soft">
+      {children}
+    </span>
+  );
 }
 
-function Chapters({ chapters, playing, onSeek }: { chapters: video.Chapter[]; playing?: video.Chapter; onSeek(seconds: number): void }) {
+function Chapters({
+  chapters,
+  playing,
+  onSeek,
+}: {
+  chapters: video.Chapter[];
+  playing?: video.Chapter;
+  onSeek(seconds: number): void;
+}) {
   const { t } = useTranslation("video");
   return (
     <div>
@@ -117,10 +189,15 @@ function Chapters({ chapters, playing, onSeek }: { chapters: video.Chapter[]; pl
             <button
               type="button"
               aria-current={chapter === playing ? "true" : undefined}
-              className={cn("flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-left hover:bg-surface", chapter === playing && "bg-surface")}
+              className={cn(
+                "flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-left hover:bg-surface",
+                chapter === playing && "bg-surface",
+              )}
               onClick={() => onSeek(chapter.startSeconds)}
             >
-              <span className="w-14 shrink-0 rounded-md bg-brand-soft px-1.5 text-center text-xs leading-6 font-black text-brand-strong tabular-nums">{formatClock(chapter.startSeconds)}</span>
+              <span className="w-14 shrink-0 rounded-md bg-brand-soft px-1.5 text-center text-xs leading-6 font-black text-brand-strong tabular-nums">
+                {formatClock(chapter.startSeconds)}
+              </span>
               <span className="min-w-0 flex-1 truncate font-bold">{chapter.title}</span>
             </button>
           </li>
@@ -131,7 +208,16 @@ function Chapters({ chapters, playing, onSeek }: { chapters: video.Chapter[]; pl
 }
 
 /** One line under a title saying who can see the video, for anything that is not plainly public. */
-export function audienceNote(visibility: common.Visibility, allowLink: boolean, t: (key: string) => string): string {
-  const key = { 2: "noFeed", 3: "unlisted", 4: allowLink ? "friendsOrLink" : "friends", 5: "private" }[visibility as number];
+export function audienceNote(
+  visibility: common.Visibility,
+  allowLink: boolean,
+  t: (key: string) => string,
+): string {
+  const key = {
+    2: "noFeed",
+    3: "unlisted",
+    4: allowLink ? "friendsOrLink" : "friends",
+    5: "private",
+  }[visibility as number];
   return key ? t(`watch.audience.${key}`) : "";
 }

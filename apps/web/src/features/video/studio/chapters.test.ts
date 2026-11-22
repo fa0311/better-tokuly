@@ -1,11 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { type ChapterDraft, normalizeTag, toChapters, toDrafts, validateChapters, withChapterAt } from "./chapters";
+import {
+  type ChapterDraft,
+  normalizeTag,
+  toChapters,
+  toDrafts,
+  validateChapters,
+  withChapterAt,
+} from "./chapters";
 
 const draft = (time: string, title = "part"): ChapterDraft => ({ key: time, time, title });
 
 describe("chapters", () => {
   it("accepts chapters that start at zero and are far enough apart", () => {
-    expect(validateChapters([draft("0:00"), draft("0:05"), draft("1:00")], 120)).toEqual([null, null, null]);
+    expect(validateChapters([draft("0:00"), draft("0:05"), draft("1:00")], 120)).toEqual([
+      null,
+      null,
+      null,
+    ]);
     expect(validateChapters([], 120)).toEqual([]);
   });
 
@@ -13,7 +24,11 @@ describe("chapters", () => {
     expect(validateChapters([draft("0:03")], 120)).toEqual(["first"]);
     expect(validateChapters([draft("0:00"), draft("soon")], 120)).toEqual([null, "time"]);
     expect(validateChapters([draft("0:00"), draft("0:04")], 120)).toEqual([null, "gap"]);
-    expect(validateChapters([draft("0:00"), draft("1:00"), draft("0:30")], 120)).toEqual([null, null, "order"]);
+    expect(validateChapters([draft("0:00"), draft("1:00"), draft("0:30")], 120)).toEqual([
+      null,
+      null,
+      "order",
+    ]);
     expect(validateChapters([draft("0:00"), draft("2:00")], 120)).toEqual([null, "end"]);
     expect(validateChapters([draft("0:00", "  ")], 120)).toEqual(["title"]);
   });
@@ -36,7 +51,11 @@ describe("chapters", () => {
 
   it("adds a chapter where it belongs in time, the first always at zero", () => {
     expect(withChapterAt([], 42).map((entry) => entry.time)).toEqual(["0:00"]);
-    expect(withChapterAt([draft("0:00"), draft("1:00")], 30.7).map((entry) => entry.time)).toEqual(["0:00", "0:30", "1:00"]);
+    expect(withChapterAt([draft("0:00"), draft("1:00")], 30.7).map((entry) => entry.time)).toEqual([
+      "0:00",
+      "0:30",
+      "1:00",
+    ]);
     expect(withChapterAt([draft("0:00")], 90).map((entry) => entry.time)).toEqual(["0:00", "1:30"]);
   });
 

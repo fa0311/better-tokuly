@@ -46,7 +46,11 @@ export function EmojiImage({ emoji, size = 24, className, reveal, still }: Emoji
       loading="lazy"
       decoding="async"
       draggable={false}
-      className={cn("inline-block h-[1.35em] w-auto max-w-none object-contain align-[-0.3em]", emoji.sensitive && !reveal && !showSensitive && "blur-[0.22em]", className)}
+      className={cn(
+        "inline-block h-[1.35em] w-auto max-w-none object-contain align-[-0.3em]",
+        emoji.sensitive && !reveal && !showSensitive && "blur-[0.22em]",
+        className,
+      )}
     />
   );
 }

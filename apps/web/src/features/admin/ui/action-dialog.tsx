@@ -76,7 +76,16 @@ export function ActionDialog({
   };
 
   return (
-    <ConfirmDialog open={open} onOpenChange={onOpenChange} title={title} description={description} confirmLabel={confirmLabel} danger={danger} loading={loading} onConfirm={confirm}>
+    <ConfirmDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={title}
+      description={description}
+      confirmLabel={confirmLabel}
+      danger={danger}
+      loading={loading}
+      onConfirm={confirm}
+    >
       <div className="flex flex-col gap-4">
         {children}
         {requireReason && (
@@ -92,7 +101,15 @@ export function ActionDialog({
             }}
           />
         )}
-        {note && <TextArea label={noteLabel ?? t("common.note")} hint={t("common.noteHint")} value={noteText} maxLength={NOTE_MAX} onChange={(event) => setNoteText(event.target.value)} />}
+        {note && (
+          <TextArea
+            label={noteLabel ?? t("common.note")}
+            hint={t("common.noteHint")}
+            value={noteText}
+            maxLength={NOTE_MAX}
+            onChange={(event) => setNoteText(event.target.value)}
+          />
+        )}
       </div>
     </ConfirmDialog>
   );

@@ -1,7 +1,21 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { fromDate, plans, toDate } from "@tokuly/api";
-import { BellRing, Crown, DoorOpen, Link2, Lock, LockOpen, MoreHorizontal, PartyPopper, Pencil, Send, Trash2, UserMinus, UserPlus } from "lucide-react";
+import {
+  BellRing,
+  Crown,
+  DoorOpen,
+  Link2,
+  Lock,
+  LockOpen,
+  MoreHorizontal,
+  PartyPopper,
+  Pencil,
+  Send,
+  Trash2,
+  UserMinus,
+  UserPlus,
+} from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -53,7 +67,11 @@ export function PollScreen({ pollId }: { pollId: string }) {
           title={t("poll.notFound")}
           body={t("poll.notFoundBody")}
           action={
-            <Link to="/plans" search={{ tab: "polls" }} className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand">
+            <Link
+              to="/plans"
+              search={{ tab: "polls" }}
+              className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand"
+            >
               {t("plan.backToPlans")}
             </Link>
           }
@@ -75,7 +93,9 @@ function LoadedPoll({ poll }: { poll: plans.Poll }) {
   const [editing, setEditing] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [sharing, setSharing] = useState(false);
-  const [confirming, setConfirming] = useState<{ kind: "delete" } | { kind: "leave" } | { kind: "remove"; participant: plans.PollParticipant }>();
+  const [confirming, setConfirming] = useState<
+    { kind: "delete" } | { kind: "leave" } | { kind: "remove"; participant: plans.PollParticipant }
+  >();
 
   const open = takesAnswers(poll, now);
   const finalized = poll.status === plans.PollStatus.FINALIZED;
@@ -108,7 +128,12 @@ function LoadedPoll({ poll }: { poll: plans.Poll }) {
   });
   const remind = useMutation({
     mutationFn: () => pollClient().remindPollParticipants({ pollId: poll.id }),
-    onSuccess: (response) => toast.success(response.remindedCount > 0 ? t("poll.reminded", { count: response.remindedCount }) : t("poll.remindedNone")),
+    onSuccess: (response) =>
+      toast.success(
+        response.remindedCount > 0
+          ? t("poll.reminded", { count: response.remindedCount })
+          : t("poll.remindedNone"),
+      ),
     onError,
   });
   const invite = useMutation({
@@ -116,7 +141,11 @@ function LoadedPoll({ poll }: { poll: plans.Poll }) {
     onSuccess: (response) => {
       remember(response.poll);
       setInviting(false);
-      toast.success(response.invitedCount > 0 ? t("people.invited", { count: response.invitedCount }) : t("people.invitedNone"));
+      toast.success(
+        response.invitedCount > 0
+          ? t("people.invited", { count: response.invitedCount })
+          : t("people.invitedNone"),
+      );
     },
     onError,
   });
@@ -156,16 +185,44 @@ function LoadedPoll({ poll }: { poll: plans.Poll }) {
       ? [
           ...(poll.status === plans.PollStatus.OPEN
             ? [
-                { label: t("poll.menu.invite"), icon: <UserPlus />, onSelect: () => setInviting(true) },
-                { label: t("poll.menu.remind"), icon: <BellRing />, onSelect: () => remind.mutate() },
+                {
+                  label: t("poll.menu.invite"),
+                  icon: <UserPlus />,
+                  onSelect: () => setInviting(true),
+                },
+                {
+                  label: t("poll.menu.remind"),
+                  icon: <BellRing />,
+                  onSelect: () => remind.mutate(),
+                },
                 { label: t("poll.menu.edit"), icon: <Pencil />, onSelect: () => setEditing(true) },
                 { label: t("poll.menu.close"), icon: <Lock />, onSelect: () => close.mutate() },
               ]
             : []),
-          ...(poll.status === plans.PollStatus.CLOSED ? [{ label: t("poll.menu.reopen"), icon: <LockOpen />, onSelect: () => reopen.mutate() }] : []),
-          { label: t("poll.menu.delete"), icon: <Trash2 />, danger: true, onSelect: () => setConfirming({ kind: "delete" }) },
+          ...(poll.status === plans.PollStatus.CLOSED
+            ? [
+                {
+                  label: t("poll.menu.reopen"),
+                  icon: <LockOpen />,
+                  onSelect: () => reopen.mutate(),
+                },
+              ]
+            : []),
+          {
+            label: t("poll.menu.delete"),
+            icon: <Trash2 />,
+            danger: true,
+            onSelect: () => setConfirming({ kind: "delete" }),
+          },
         ]
-      : [{ label: t("poll.menu.leave"), icon: <DoorOpen />, danger: true, onSelect: () => setConfirming({ kind: "leave" }) }]),
+      : [
+          {
+            label: t("poll.menu.leave"),
+            icon: <DoorOpen />,
+            danger: true,
+            onSelect: () => setConfirming({ kind: "leave" }),
+          },
+        ]),
   ];
 
   const best = poll.slots.find((slot) => slot.id === poll.bestSlotId);
@@ -191,7 +248,10 @@ function LoadedPoll({ poll }: { poll: plans.Poll }) {
         <div className="flex flex-col gap-6">
           <Card>
             <div className="flex items-start gap-3">
-              <span className="grid size-16 shrink-0 place-items-center rounded-2xl border-[2.5px] border-ink bg-sky text-4xl" aria-hidden>
+              <span
+                className="grid size-16 shrink-0 place-items-center rounded-2xl border-[2.5px] border-ink bg-sky text-4xl"
+                aria-hidden
+              >
                 🗳️
               </span>
               <div className="min-w-0 flex-1">
@@ -199,30 +259,54 @@ function LoadedPoll({ poll }: { poll: plans.Poll }) {
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                   <PollStatusChip poll={poll} />
                   <span className="text-sm font-bold text-ink-soft" data-testid="poll-answered">
-                    {t("poll.answered", { answered: poll.answeredCount, total: poll.participantCount })}
+                    {t("poll.answered", {
+                      answered: poll.answeredCount,
+                      total: poll.participantCount,
+                    })}
                   </span>
                 </div>
               </div>
             </div>
-            {poll.description && <p className="mt-3 leading-relaxed break-words whitespace-pre-wrap">{poll.description}</p>}
+            {poll.description && (
+              <p className="mt-3 leading-relaxed break-words whitespace-pre-wrap">
+                {poll.description}
+              </p>
+            )}
             <p className="mt-3 flex items-center gap-2 text-sm font-bold text-ink-faint">
               <Avatar user={poll.creator} size="xs" />
               {t("poll.by", { name: nameOf(poll.creator) })}
             </p>
-            {deadline && !finalized && <p className="mt-1 text-sm font-bold text-ink-soft">⏰ {t("poll.deadline", { time: `${formatDay(ymd(deadline), i18n.language)} ${formatTime(deadline, i18n.language)}` })}</p>}
+            {deadline && !finalized && (
+              <p className="mt-1 text-sm font-bold text-ink-soft">
+                ⏰{" "}
+                {t("poll.deadline", {
+                  time: `${formatDay(ymd(deadline), i18n.language)} ${formatTime(deadline, i18n.language)}`,
+                })}
+              </p>
+            )}
 
             {final ? (
-              <div className="mt-4 rounded-2xl border-[2.5px] border-ink bg-lime p-4 text-[#17122b]" data-testid="poll-final">
+              <div
+                className="mt-4 rounded-2xl border-[2.5px] border-ink bg-lime p-4 text-[#17122b]"
+                data-testid="poll-final"
+              >
                 <p className="text-sm font-black">🎉 {t("poll.finalTitle")}</p>
                 <p className="text-xl font-black">{slotText(final, i18n.language)}</p>
                 {poll.planId && (
-                  <Link to="/plans/$planId" params={{ planId: poll.planId }} className="pressable sticker-sm mt-3 inline-flex h-10 items-center rounded-full bg-surface px-4 text-sm font-black text-ink">
+                  <Link
+                    to="/plans/$planId"
+                    params={{ planId: poll.planId }}
+                    className="pressable sticker-sm mt-3 inline-flex h-10 items-center rounded-full bg-surface px-4 text-sm font-black text-ink"
+                  >
                     {t("poll.openPlan")}
                   </Link>
                 )}
               </div>
             ) : best ? (
-              <div className="mt-4 rounded-2xl border-[2.5px] border-ink bg-sun p-4 text-[#17122b]" data-testid="poll-best">
+              <div
+                className="mt-4 rounded-2xl border-[2.5px] border-ink bg-sun p-4 text-[#17122b]"
+                data-testid="poll-best"
+              >
                 <p className="flex items-center gap-1 text-sm font-black">
                   <Crown className="size-4" />
                   {t("poll.bestTitle")}
@@ -233,16 +317,31 @@ function LoadedPoll({ poll }: { poll: plans.Poll }) {
                 </p>
               </div>
             ) : (
-              <p className="mt-4 rounded-2xl bg-surface-2 px-4 py-3 text-sm font-bold text-ink-soft">{t("poll.noAnswersYet")}</p>
+              <p className="mt-4 rounded-2xl bg-surface-2 px-4 py-3 text-sm font-bold text-ink-soft">
+                {t("poll.noAnswersYet")}
+              </p>
             )}
 
             {poll.mine && !finalized && (
-              <Button variant="lime" block className="mt-4" icon={<PartyPopper className="size-5" />} disabled={poll.answeredCount === 0} onClick={() => setFinalizing(true)}>
+              <Button
+                variant="lime"
+                block
+                className="mt-4"
+                icon={<PartyPopper className="size-5" />}
+                disabled={poll.answeredCount === 0}
+                onClick={() => setFinalizing(true)}
+              >
                 {t("poll.finalize")}
               </Button>
             )}
             {poll.openToFriends && !finalized && (
-              <Button variant="secondary" block className="mt-3" icon={<Link2 className="size-4" />} onClick={() => void copyLink()}>
+              <Button
+                variant="secondary"
+                block
+                className="mt-3"
+                icon={<Link2 className="size-4" />}
+                onClick={() => void copyLink()}
+              >
                 {t("poll.menu.copyLink")}
               </Button>
             )}
@@ -257,14 +356,28 @@ function LoadedPoll({ poll }: { poll: plans.Poll }) {
             <SectionTitle>{t("poll.people", { count: poll.participants.length })}</SectionTitle>
             <ul className="rounded-card bg-surface p-1.5">
               {poll.participants.map((participant) => (
-                <li key={participant.user?.id} className="flex items-center gap-3 rounded-2xl px-2 py-1.5">
+                <li
+                  key={participant.user?.id}
+                  className="flex items-center gap-3 rounded-2xl px-2 py-1.5"
+                >
                   <Avatar user={participant.user} size="sm" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-bold">{nameOf(participant.user)}</p>
-                    <p className="text-sm break-words text-ink-soft">{participant.comment ? `「${participant.comment}」` : participant.answers.length > 0 ? t("poll.didAnswer") : t("poll.notAnswered")}</p>
+                    <p className="text-sm break-words text-ink-soft">
+                      {participant.comment
+                        ? `「${participant.comment}」`
+                        : participant.answers.length > 0
+                          ? t("poll.didAnswer")
+                          : t("poll.notAnswered")}
+                    </p>
                   </div>
                   {poll.mine && participant.user?.id !== myId && (
-                    <Button variant="ghost" size="icon-sm" aria-label={t("people.removeFrom", { name: nameOf(participant.user) })} onClick={() => setConfirming({ kind: "remove", participant })}>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={t("people.removeFrom", { name: nameOf(participant.user) })}
+                      onClick={() => setConfirming({ kind: "remove", participant })}
+                    >
                       <UserMinus className="size-4" />
                     </Button>
                   )}
@@ -284,21 +397,47 @@ function LoadedPoll({ poll }: { poll: plans.Poll }) {
         exclude={poll.participants.map((participant) => participant.user?.id ?? "")}
         confirmLabel={t("people.inviteConfirm")}
         loading={invite.isPending}
-        onConfirm={(users) => (users.length ? invite.mutate(users.map((user) => user.id)) : setInviting(false))}
+        onConfirm={(users) =>
+          users.length ? invite.mutate(users.map((user) => user.id)) : setInviting(false)
+        }
       />
-      <ShareToChat open={sharing} onOpenChange={setSharing} share={{ url: link }} title={poll.title} />
+      <ShareToChat
+        open={sharing}
+        onOpenChange={setSharing}
+        share={{ url: link }}
+        title={poll.title}
+      />
       <ConfirmDialog
         open={Boolean(confirming)}
         onOpenChange={(isOpen) => !isOpen && setConfirming(undefined)}
-        title={confirming?.kind === "remove" ? t("people.removeTitle", { name: nameOf(confirming.participant.user) }) : confirming?.kind === "delete" ? t("poll.deleteTitle") : t("poll.leaveTitle")}
-        description={confirming?.kind === "delete" ? t("poll.deleteBody") : confirming?.kind === "leave" ? t("poll.leaveBody") : t("poll.removeBody")}
-        confirmLabel={confirming?.kind === "delete" ? t("poll.menu.delete") : confirming?.kind === "leave" ? t("poll.menu.leave") : t("people.remove")}
+        title={
+          confirming?.kind === "remove"
+            ? t("people.removeTitle", { name: nameOf(confirming.participant.user) })
+            : confirming?.kind === "delete"
+              ? t("poll.deleteTitle")
+              : t("poll.leaveTitle")
+        }
+        description={
+          confirming?.kind === "delete"
+            ? t("poll.deleteBody")
+            : confirming?.kind === "leave"
+              ? t("poll.leaveBody")
+              : t("poll.removeBody")
+        }
+        confirmLabel={
+          confirming?.kind === "delete"
+            ? t("poll.menu.delete")
+            : confirming?.kind === "leave"
+              ? t("poll.menu.leave")
+              : t("people.remove")
+        }
         danger
         loading={destroy.isPending || leave.isPending || remove.isPending}
         onConfirm={() => {
           if (confirming?.kind === "delete") destroy.mutate();
           else if (confirming?.kind === "leave") leave.mutate();
-          else if (confirming?.kind === "remove") remove.mutate(confirming.participant.user?.id ?? "");
+          else if (confirming?.kind === "remove")
+            remove.mutate(confirming.participant.user?.id ?? "");
         }}
       />
     </Page>
@@ -314,7 +453,11 @@ function AnswerPanel({ poll, open }: { poll: plans.Poll; open: boolean }) {
   const me = useMe();
   const queryClient = useQueryClient();
   const mine = poll.participants.find((participant) => participant.user?.id === me?.user?.id);
-  const saved: Record<string, plans.PollAnswer> = Object.fromEntries(poll.slots.filter((slot) => slot.myAnswer !== plans.PollAnswer.UNSPECIFIED).map((slot) => [slot.id, slot.myAnswer]));
+  const saved: Record<string, plans.PollAnswer> = Object.fromEntries(
+    poll.slots
+      .filter((slot) => slot.myAnswer !== plans.PollAnswer.UNSPECIFIED)
+      .map((slot) => [slot.id, slot.myAnswer]),
+  );
   const [edited, setEdited] = useState<Record<string, plans.PollAnswer> | null>(null);
   const [comment, setComment] = useState<string | null>(null);
   const answers = edited ?? saved;
@@ -326,7 +469,9 @@ function AnswerPanel({ poll, open }: { poll: plans.Poll; open: boolean }) {
       pollClient().answerPoll({
         pollId: poll.id,
         // A candidate removed meanwhile is not answered.
-        answers: poll.slots.flatMap((slot) => (answers[slot.id] ? [{ slotId: slot.id, answer: answers[slot.id]! }] : [])),
+        answers: poll.slots.flatMap((slot) =>
+          answers[slot.id] ? [{ slotId: slot.id, answer: answers[slot.id]! }] : [],
+        ),
         comment: text.trim(),
       }),
     onSuccess: (response) => {
@@ -351,7 +496,15 @@ function AnswerPanel({ poll, open }: { poll: plans.Poll; open: boolean }) {
       <SectionTitle
         action={
           open && (
-            <Button variant="ghost" size="sm" onClick={() => setEdited(Object.fromEntries(poll.slots.map((slot) => [slot.id, plans.PollAnswer.YES])))}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() =>
+                setEdited(
+                  Object.fromEntries(poll.slots.map((slot) => [slot.id, plans.PollAnswer.YES])),
+                )
+              }
+            >
               {t("poll.allYes")}
             </Button>
           )
@@ -364,10 +517,23 @@ function AnswerPanel({ poll, open }: { poll: plans.Poll; open: boolean }) {
           const label = slotLabel(slot, i18n.language);
           const isBest = slot.id === (poll.finalSlotId || poll.bestSlotId);
           return (
-            <li key={slot.id} className={cn("flex items-center gap-2 rounded-card bg-surface p-2.5 pl-3.5", isBest && "sticker bg-sun/25")} data-testid="poll-slot" data-best={isBest || undefined}>
+            <li
+              key={slot.id}
+              className={cn(
+                "flex items-center gap-2 rounded-card bg-surface p-2.5 pl-3.5",
+                isBest && "sticker bg-sun/25",
+              )}
+              data-testid="poll-slot"
+              data-best={isBest || undefined}
+            >
               <div className="min-w-0 flex-1">
                 <p className="flex items-center gap-1 font-black">
-                  {isBest && <Crown className="size-4 shrink-0 text-coral" aria-label={t("poll.bestTitle")} />}
+                  {isBest && (
+                    <Crown
+                      className="size-4 shrink-0 text-coral"
+                      aria-label={t("poll.bestTitle")}
+                    />
+                  )}
                   <span className="truncate">{label.day}</span>
                 </p>
                 {label.time && <p className="text-sm font-bold text-ink-soft">{label.time}</p>}
@@ -375,7 +541,11 @@ function AnswerPanel({ poll, open }: { poll: plans.Poll; open: boolean }) {
                   ○{slot.yesCount} △{slot.maybeCount} ×{slot.noCount}
                 </p>
               </div>
-              <div role="radiogroup" aria-label={slotText(slot, i18n.language)} className="flex shrink-0 gap-1.5">
+              <div
+                role="radiogroup"
+                aria-label={slotText(slot, i18n.language)}
+                className="flex shrink-0 gap-1.5"
+              >
                 {ANSWERS.map((choice) => {
                   const active = answers[slot.id] === choice.answer;
                   return (
@@ -390,7 +560,9 @@ function AnswerPanel({ poll, open }: { poll: plans.Poll; open: boolean }) {
                       onClick={() => pick(slot.id, choice.answer)}
                       className={cn(
                         "grid size-12 place-items-center rounded-2xl border-[2.5px] text-2xl leading-none font-black transition-colors disabled:opacity-60",
-                        active ? cn("border-ink shadow-pop-sm", choice.tone) : "border-line bg-surface text-ink-faint",
+                        active
+                          ? cn("border-ink shadow-pop-sm", choice.tone)
+                          : "border-line bg-surface text-ink-faint",
                       )}
                     >
                       {ANSWER_MARK[choice.answer]}
@@ -404,14 +576,32 @@ function AnswerPanel({ poll, open }: { poll: plans.Poll; open: boolean }) {
       </ul>
       {open ? (
         <div className="mt-3 flex flex-col gap-3">
-          <TextField aria-label={t("poll.comment")} placeholder={t("poll.commentPlaceholder")} value={text} maxLength={140} onChange={(event) => setComment(event.target.value)} />
-          <Button size="lg" block loading={send.isPending} disabled={!changed && poll.answeredByMe} onClick={() => send.mutate()}>
+          <TextField
+            aria-label={t("poll.comment")}
+            placeholder={t("poll.commentPlaceholder")}
+            value={text}
+            maxLength={140}
+            onChange={(event) => setComment(event.target.value)}
+          />
+          <Button
+            size="lg"
+            block
+            loading={send.isPending}
+            disabled={!changed && poll.answeredByMe}
+            onClick={() => send.mutate()}
+          >
             {poll.answeredByMe ? t("poll.updateAnswer") : t("poll.sendAnswer")}
           </Button>
-          {!answeredAll && changed && <p className="px-1 text-xs font-bold text-ink-faint">{t("poll.partial")}</p>}
+          {!answeredAll && changed && (
+            <p className="px-1 text-xs font-bold text-ink-faint">{t("poll.partial")}</p>
+          )}
         </div>
       ) : (
-        <p className="mt-3 px-1 text-sm font-bold text-ink-soft">{poll.status === plans.PollStatus.FINALIZED ? t("poll.finalizedHint") : t("poll.closedHint")}</p>
+        <p className="mt-3 px-1 text-sm font-bold text-ink-soft">
+          {poll.status === plans.PollStatus.FINALIZED
+            ? t("poll.finalizedHint")
+            : t("poll.closedHint")}
+        </p>
       )}
     </section>
   );
@@ -426,23 +616,36 @@ function ResultsGrid({ poll }: { poll: plans.Poll }) {
     <section>
       <SectionTitle>{t("poll.everyone")}</SectionTitle>
       {answered.length === 0 ? (
-        <p className="rounded-card border-2 border-dashed border-line px-4 py-6 text-center text-sm font-bold text-ink-soft">{t("poll.gridEmpty")}</p>
+        <p className="rounded-card border-2 border-dashed border-line px-4 py-6 text-center text-sm font-bold text-ink-soft">
+          {t("poll.gridEmpty")}
+        </p>
       ) : (
         <div className="overflow-x-auto rounded-card bg-surface">
-          <table className="w-full border-separate border-spacing-0 text-center text-sm" data-testid="poll-grid">
+          <table
+            className="w-full border-separate border-spacing-0 text-center text-sm"
+            data-testid="poll-grid"
+          >
             <thead>
               <tr>
-                <th scope="col" className="sticky left-0 z-10 min-w-32 bg-surface px-3 py-2 text-left text-xs font-black text-ink-faint">
+                <th
+                  scope="col"
+                  className="sticky left-0 z-10 min-w-32 bg-surface px-3 py-2 text-left text-xs font-black text-ink-faint"
+                >
                   {t("poll.gridSlot")}
                 </th>
-                <th scope="col" className="px-2 py-2 text-xs font-black whitespace-nowrap text-ink-faint">
+                <th
+                  scope="col"
+                  className="px-2 py-2 text-xs font-black whitespace-nowrap text-ink-faint"
+                >
                   ○ △ ×
                 </th>
                 {answered.map((participant) => (
                   <th key={participant.user?.id} scope="col" className="min-w-14 px-1.5 py-2">
                     <span className="flex flex-col items-center gap-0.5">
                       <Avatar user={participant.user} size="xs" />
-                      <span className="max-w-14 truncate text-[11px] font-bold">{nameOf(participant.user)}</span>
+                      <span className="max-w-14 truncate text-[11px] font-bold">
+                        {nameOf(participant.user)}
+                      </span>
                     </span>
                   </th>
                 ))}
@@ -453,21 +656,47 @@ function ResultsGrid({ poll }: { poll: plans.Poll }) {
                 const label = slotLabel(slot, i18n.language);
                 const top = slot.id === topSlot;
                 return (
-                  <tr key={slot.id} className={cn(top && "[&>*]:bg-sun/25")} data-best={top || undefined}>
-                    <th scope="row" className={cn("sticky left-0 z-10 border-t-2 border-line px-3 py-2 text-left font-bold", top ? "bg-[color-mix(in_srgb,var(--sun)_25%,var(--surface))]!" : "bg-surface")}>
+                  <tr
+                    key={slot.id}
+                    className={cn(top && "[&>*]:bg-sun/25")}
+                    data-best={top || undefined}
+                  >
+                    <th
+                      scope="row"
+                      className={cn(
+                        "sticky left-0 z-10 border-t-2 border-line px-3 py-2 text-left font-bold",
+                        top
+                          ? "bg-[color-mix(in_srgb,var(--sun)_25%,var(--surface))]!"
+                          : "bg-surface",
+                      )}
+                    >
                       <span className="flex items-center gap-1 whitespace-nowrap">
-                        {top && <Crown className="size-3.5 shrink-0 text-coral" aria-label={t("poll.bestTitle")} />}
+                        {top && (
+                          <Crown
+                            className="size-3.5 shrink-0 text-coral"
+                            aria-label={t("poll.bestTitle")}
+                          />
+                        )}
                         {label.day}
                       </span>
-                      {label.time && <span className="block text-xs whitespace-nowrap text-ink-soft">{label.time}</span>}
+                      {label.time && (
+                        <span className="block text-xs whitespace-nowrap text-ink-soft">
+                          {label.time}
+                        </span>
+                      )}
                     </th>
                     <td className="border-t-2 border-line px-2 py-2 text-xs font-black whitespace-nowrap">
                       {slot.yesCount} {slot.maybeCount} {slot.noCount}
                     </td>
                     {answered.map((participant) => {
-                      const answer = participant.answers.find((given) => given.slotId === slot.id)?.answer ?? plans.PollAnswer.UNSPECIFIED;
+                      const answer =
+                        participant.answers.find((given) => given.slotId === slot.id)?.answer ??
+                        plans.PollAnswer.UNSPECIFIED;
                       return (
-                        <td key={participant.user?.id} className="border-t-2 border-line px-1.5 py-2">
+                        <td
+                          key={participant.user?.id}
+                          className="border-t-2 border-line px-1.5 py-2"
+                        >
                           <span
                             role="img"
                             className={cn(
@@ -477,7 +706,13 @@ function ResultsGrid({ poll }: { poll: plans.Poll }) {
                               answer === plans.PollAnswer.NO && "bg-pink text-white",
                               answer === plans.PollAnswer.UNSPECIFIED && "text-ink-faint",
                             )}
-                            aria-label={answer === plans.PollAnswer.UNSPECIFIED ? t("poll.answer.none") : t(`poll.answer.${answer === plans.PollAnswer.YES ? "yes" : answer === plans.PollAnswer.MAYBE ? "maybe" : "no"}`)}
+                            aria-label={
+                              answer === plans.PollAnswer.UNSPECIFIED
+                                ? t("poll.answer.none")
+                                : t(
+                                    `poll.answer.${answer === plans.PollAnswer.YES ? "yes" : answer === plans.PollAnswer.MAYBE ? "maybe" : "no"}`,
+                                  )
+                            }
                           >
                             {ANSWER_MARK[answer] ?? "–"}
                           </span>
@@ -496,7 +731,15 @@ function ResultsGrid({ poll }: { poll: plans.Poll }) {
 }
 
 /** Picks the day and turns the poll into a plan: the creator hosts, everyone who said ○ or △ is invited. */
-function FinalizeDialog({ poll, open, onOpenChange }: { poll: plans.Poll; open: boolean; onOpenChange(open: boolean): void }) {
+function FinalizeDialog({
+  poll,
+  open,
+  onOpenChange,
+}: {
+  poll: plans.Poll;
+  open: boolean;
+  onOpenChange(open: boolean): void;
+}) {
   const { t, i18n } = useTranslation("plans");
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -506,13 +749,21 @@ function FinalizeDialog({ poll, open, onOpenChange }: { poll: plans.Poll; open: 
   const chosen = slotId || poll.bestSlotId;
 
   const finalize = useMutation({
-    mutationFn: () => pollClient().finalizePoll({ pollId: poll.id, slotId: chosen, emoji, place: place.trim() ? { name: place.trim() } : undefined, description: "" }),
+    mutationFn: () =>
+      pollClient().finalizePoll({
+        pollId: poll.id,
+        slotId: chosen,
+        emoji,
+        place: place.trim() ? { name: place.trim() } : undefined,
+        description: "",
+      }),
     onSuccess: (response) => {
       rememberPoll(queryClient, response.poll);
       rememberPlan(queryClient, response.plan);
       onOpenChange(false);
       toast.success(t("poll.finalized"));
-      if (response.plan) void navigate({ to: "/plans/$planId", params: { planId: response.plan.id } });
+      if (response.plan)
+        void navigate({ to: "/plans/$planId", params: { planId: response.plan.id } });
     },
     onError: (error) => toast.error(errorMessage(error, { namespace: "plans" })),
   });
@@ -524,13 +775,22 @@ function FinalizeDialog({ poll, open, onOpenChange }: { poll: plans.Poll; open: 
       title={t("poll.finalizeTitle")}
       description={t("poll.finalizeLead")}
       footer={
-        <Button variant="lime" loading={finalize.isPending} disabled={!chosen} onClick={() => finalize.mutate()}>
+        <Button
+          variant="lime"
+          loading={finalize.isPending}
+          disabled={!chosen}
+          onClick={() => finalize.mutate()}
+        >
           {t("poll.finalizeConfirm")}
         </Button>
       }
     >
       <div className="flex flex-col gap-4">
-        <div role="radiogroup" aria-label={t("poll.finalizeSlot")} className="flex flex-col gap-1.5">
+        <div
+          role="radiogroup"
+          aria-label={t("poll.finalizeSlot")}
+          className="flex flex-col gap-1.5"
+        >
           {poll.slots.map((slot) => {
             const active = slot.id === chosen;
             return (
@@ -541,7 +801,10 @@ function FinalizeDialog({ poll, open, onOpenChange }: { poll: plans.Poll; open: 
                 role="radio"
                 aria-checked={active}
                 onClick={() => setSlotId(slot.id)}
-                className={cn("flex items-center gap-2 rounded-2xl border-[2.5px] px-3 py-2.5 text-left", active ? "border-ink bg-lime text-[#17122b]" : "border-line bg-surface")}
+                className={cn(
+                  "flex items-center gap-2 rounded-2xl border-[2.5px] px-3 py-2.5 text-left",
+                  active ? "border-ink bg-lime text-[#17122b]" : "border-line bg-surface",
+                )}
               >
                 <span className="min-w-0 flex-1 truncate font-black">
                   {slot.id === poll.bestSlotId && "👑 "}
@@ -558,12 +821,23 @@ function FinalizeDialog({ poll, open, onOpenChange }: { poll: plans.Poll; open: 
           <EmojiPicker
             onPick={setEmoji}
             trigger={
-              <button type="button" aria-label={t("plan.form.emoji")} className="pressable sticker grid size-12 shrink-0 place-items-center rounded-2xl bg-brand-soft text-2xl">
+              <button
+                type="button"
+                aria-label={t("plan.form.emoji")}
+                className="pressable sticker grid size-12 shrink-0 place-items-center rounded-2xl bg-brand-soft text-2xl"
+              >
                 {emoji || "📅"}
               </button>
             }
           />
-          <TextField className="min-w-0 flex-1" label={t("plan.form.place")} placeholder={t("plan.form.placePlaceholder")} value={place} maxLength={80} onChange={(event) => setPlace(event.target.value)} />
+          <TextField
+            className="min-w-0 flex-1"
+            label={t("plan.form.place")}
+            placeholder={t("plan.form.placePlaceholder")}
+            value={place}
+            maxLength={80}
+            onChange={(event) => setPlace(event.target.value)}
+          />
         </div>
       </div>
     </Dialog>
@@ -571,12 +845,22 @@ function FinalizeDialog({ poll, open, onOpenChange }: { poll: plans.Poll; open: 
 }
 
 /** The creator's changes to an open poll: texts, deadline, the link, and the candidates. */
-function EditPollDialog({ poll, open, onOpenChange }: { poll: plans.Poll; open: boolean; onOpenChange(open: boolean): void }) {
+function EditPollDialog({
+  poll,
+  open,
+  onOpenChange,
+}: {
+  poll: plans.Poll;
+  open: boolean;
+  onOpenChange(open: boolean): void;
+}) {
   const { t, i18n } = useTranslation("plans");
   const queryClient = useQueryClient();
   const deadlineInput = () => {
     const date = toDate(poll.deadline);
-    return date ? `${ymd(date)}T${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}` : "";
+    return date
+      ? `${ymd(date)}T${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`
+      : "";
   };
   const [title, setTitle] = useState(poll.title);
   const [description, setDescription] = useState(poll.description);
@@ -626,32 +910,79 @@ function EditPollDialog({ poll, open, onOpenChange }: { poll: plans.Poll; open: 
       onOpenChange={onOpenChange}
       title={t("poll.editTitle")}
       footer={
-        <Button loading={save.isPending} disabled={!title.trim() || remaining < 1} onClick={() => save.mutate()}>
+        <Button
+          loading={save.isPending}
+          disabled={!title.trim() || remaining < 1}
+          onClick={() => save.mutate()}
+        >
           {t("plan.save")}
         </Button>
       }
     >
       <div className="flex flex-col gap-4">
-        <TextField label={t("poll.form.title")} value={title} maxLength={80} onChange={(event) => setTitle(event.target.value)} />
-        <TextArea label={t("poll.form.description")} value={description} maxLength={1000} onChange={(event) => setDescription(event.target.value)} />
-        <TextField type="datetime-local" label={t("poll.form.deadline")} hint={t("poll.form.deadlineHint")} value={deadline} onChange={(event) => setDeadline(event.target.value)} />
-        <SwitchRow label={t("poll.form.openToFriends")} hint={t("poll.form.openToFriendsHint")} checked={openToFriends} onChange={setOpenToFriends} />
+        <TextField
+          label={t("poll.form.title")}
+          value={title}
+          maxLength={80}
+          onChange={(event) => setTitle(event.target.value)}
+        />
+        <TextArea
+          label={t("poll.form.description")}
+          value={description}
+          maxLength={1000}
+          onChange={(event) => setDescription(event.target.value)}
+        />
+        <TextField
+          type="datetime-local"
+          label={t("poll.form.deadline")}
+          hint={t("poll.form.deadlineHint")}
+          value={deadline}
+          onChange={(event) => setDeadline(event.target.value)}
+        />
+        <SwitchRow
+          label={t("poll.form.openToFriends")}
+          hint={t("poll.form.openToFriendsHint")}
+          checked={openToFriends}
+          onChange={setOpenToFriends}
+        />
         <div className="flex flex-col gap-2">
           <p className="px-1 text-sm font-bold text-ink-soft">{t("poll.editSlots")}</p>
           <ul className="flex flex-col gap-1">
             {poll.slots.map((slot) => {
               const removed = removeIds.includes(slot.id);
               return (
-                <li key={slot.id} className="flex items-center gap-2 rounded-2xl bg-surface-2 px-3 py-1.5">
-                  <span className={cn("min-w-0 flex-1 truncate font-bold", removed && "text-ink-faint line-through")}>{slotText(slot, i18n.language)}</span>
-                  <Button variant="ghost" size="sm" onClick={() => setRemoveIds(removed ? removeIds.filter((id) => id !== slot.id) : [...removeIds, slot.id])}>
+                <li
+                  key={slot.id}
+                  className="flex items-center gap-2 rounded-2xl bg-surface-2 px-3 py-1.5"
+                >
+                  <span
+                    className={cn(
+                      "min-w-0 flex-1 truncate font-bold",
+                      removed && "text-ink-faint line-through",
+                    )}
+                  >
+                    {slotText(slot, i18n.language)}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      setRemoveIds(
+                        removed
+                          ? removeIds.filter((id) => id !== slot.id)
+                          : [...removeIds, slot.id],
+                      )
+                    }
+                  >
                     {removed ? t("poll.keepSlot") : t("poll.removeSlot")}
                   </Button>
                 </li>
               );
             })}
           </ul>
-          {removeIds.length > 0 && <p className="px-1 text-xs font-bold text-danger">{t("poll.removeSlotHint")}</p>}
+          {removeIds.length > 0 && (
+            <p className="px-1 text-xs font-bold text-danger">{t("poll.removeSlotHint")}</p>
+          )}
           {dayPoll && (
             <div className="rounded-card border-2 border-line p-2">
               <p className="px-1 pb-1 text-sm font-bold text-ink-soft">{t("poll.addSlots")}</p>

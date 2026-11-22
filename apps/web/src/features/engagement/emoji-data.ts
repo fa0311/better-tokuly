@@ -20,32 +20,44 @@ export const EMOJI_GROUPS: EmojiGroup[] = [
   {
     id: "hearts",
     icon: "❤️",
-    emoji: list("❤️ 🩷 🧡 💛 💚 🩵 💙 💜 🖤 🩶 🤍 🤎 💔 ❤️‍🔥 ❤️‍🩹 ❣️ 💕 💞 💓 💗 💖 💘 💝 💟 💌 💋 💯 💢 💥 💫 💦 💨 💤"),
+    emoji: list(
+      "❤️ 🩷 🧡 💛 💚 🩵 💙 💜 🖤 🩶 🤍 🤎 💔 ❤️‍🔥 ❤️‍🩹 ❣️ 💕 💞 💓 💗 💖 💘 💝 💟 💌 💋 💯 💢 💥 💫 💦 💨 💤",
+    ),
   },
   {
     id: "hands",
     icon: "👍",
-    emoji: list("👍 👎 👏 🙌 🫶 🤝 🙏 👌 🤌 🤏 ✌️ 🤞 🫰 🤟 🤘 🤙 👈 👉 👆 👇 ☝️ ✋ 🖐️ 👋 🤚 🫡 💪 🫵 ✊ 👊 🤛 🤜 ✍️ 💅 🤳 👀 👁️ 🧠 🫀 👑"),
+    emoji: list(
+      "👍 👎 👏 🙌 🫶 🤝 🙏 👌 🤌 🤏 ✌️ 🤞 🫰 🤟 🤘 🤙 👈 👉 👆 👇 ☝️ ✋ 🖐️ 👋 🤚 🫡 💪 🫵 ✊ 👊 🤛 🤜 ✍️ 💅 🤳 👀 👁️ 🧠 🫀 👑",
+    ),
   },
   {
     id: "animals",
     icon: "🐱",
-    emoji: list("🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐻‍❄️ 🐨 🐯 🦁 🐮 🐷 🐸 🐵 🐔 🐧 🐦 🐤 🦆 🦉 🦄 🐝 🦋 🐌 🐞 🐢 🐍 🐙 🦀 🐠 🐬 🐳 🦈 🐘 🦒 🦥 🦦 🐾 🌸 🌷 🌹 🌻 🌼 🍀 🌱 🌵 🌴 🍁 🍂 🌙 ⭐ 🌟 ☀️ 🌈 ☁️ ⚡ ❄️ 🔥 💧 🌊"),
+    emoji: list(
+      "🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐻‍❄️ 🐨 🐯 🦁 🐮 🐷 🐸 🐵 🐔 🐧 🐦 🐤 🦆 🦉 🦄 🐝 🦋 🐌 🐞 🐢 🐍 🐙 🦀 🐠 🐬 🐳 🦈 🐘 🦒 🦥 🦦 🐾 🌸 🌷 🌹 🌻 🌼 🍀 🌱 🌵 🌴 🍁 🍂 🌙 ⭐ 🌟 ☀️ 🌈 ☁️ ⚡ ❄️ 🔥 💧 🌊",
+    ),
   },
   {
     id: "food",
     icon: "🍙",
-    emoji: list("🍙 🍘 🍣 🍱 🍜 🍛 🍚 🍡 🍢 🥟 🍤 🍥 🍕 🍔 🍟 🌭 🌮 🥪 🍝 🥗 🍳 🧇 🥞 🍞 🥐 🧀 🍗 🍖 🍰 🎂 🧁 🍮 🍩 🍪 🍫 🍬 🍭 🍦 🍨 🍧 🍎 🍊 🍋 🍌 🍉 🍇 🍓 🍑 🍒 🥝 🍵 ☕ 🧋 🥤 🧃 🍺 🍻 🥂"),
+    emoji: list(
+      "🍙 🍘 🍣 🍱 🍜 🍛 🍚 🍡 🍢 🥟 🍤 🍥 🍕 🍔 🍟 🌭 🌮 🥪 🍝 🥗 🍳 🧇 🥞 🍞 🥐 🧀 🍗 🍖 🍰 🎂 🧁 🍮 🍩 🍪 🍫 🍬 🍭 🍦 🍨 🍧 🍎 🍊 🍋 🍌 🍉 🍇 🍓 🍑 🍒 🥝 🍵 ☕ 🧋 🥤 🧃 🍺 🍻 🥂",
+    ),
   },
   {
     id: "fun",
     icon: "🎉",
-    emoji: list("🎉 🎊 🎈 🎁 🎀 🏆 🥇 🎯 🎮 🕹️ 🎲 🧩 🎨 🎬 🎤 🎧 🎵 🎶 🎸 🎹 🥁 📸 📱 💻 📚 ✏️ 📝 🎓 🏫 ⚽ 🏀 ⚾ 🎾 🏐 🏓 🏸 🏃 🚴 🏊 ⛷️ 🎿 🛹 🚃 🚗 ✈️ 🚀 🗼 🗾 ⛩️ 🏯 🎡 🎢 🎆 🎇 🏝️ ⛰️ 🏕️ 💸 💰 💎"),
+    emoji: list(
+      "🎉 🎊 🎈 🎁 🎀 🏆 🥇 🎯 🎮 🕹️ 🎲 🧩 🎨 🎬 🎤 🎧 🎵 🎶 🎸 🎹 🥁 📸 📱 💻 📚 ✏️ 📝 🎓 🏫 ⚽ 🏀 ⚾ 🎾 🏐 🏓 🏸 🏃 🚴 🏊 ⛷️ 🎿 🛹 🚃 🚗 ✈️ 🚀 🗼 🗾 ⛩️ 🏯 🎡 🎢 🎆 🎇 🏝️ ⛰️ 🏕️ 💸 💰 💎",
+    ),
   },
   {
     id: "symbols",
     icon: "✨",
-    emoji: list("✨ ⭐ 🌟 💫 🔥 💯 ✅ ❌ ⭕ ❗ ❓ ‼️ ⁉️ 💤 💢 💬 💭 🗯️ 🔔 🔕 📣 📢 🆗 🆒 🆕 🆙 🈵 🈳 🉐 ㊗️ ㊙️ 🔞 🚫 ⚠️ ♻️ 🔴 🟠 🟡 🟢 🔵 🟣 ⚫ ⚪ 🟤 🔺 🔻 🔸 🔹 ▶️ ⏸️ ⏹️ 🔁 🔀 ➕ ➖ ✖️ ➗ ♾️ 🏳️‍🌈 🇯🇵"),
+    emoji: list(
+      "✨ ⭐ 🌟 💫 🔥 💯 ✅ ❌ ⭕ ❗ ❓ ‼️ ⁉️ 💤 💢 💬 💭 🗯️ 🔔 🔕 📣 📢 🆗 🆒 🆕 🆙 🈵 🈳 🉐 ㊗️ ㊙️ 🔞 🚫 ⚠️ ♻️ 🔴 🟠 🟡 🟢 🔵 🟣 ⚫ ⚪ 🟤 🔺 🔻 🔸 🔹 ▶️ ⏸️ ⏹️ 🔁 🔀 ➕ ➖ ✖️ ➗ ♾️ 🏳️‍🌈 🇯🇵",
+    ),
   },
 ];
 
@@ -59,7 +71,9 @@ const RECENT_LIMIT = 16;
 export function recentEmoji(): string[] {
   try {
     const stored: unknown = JSON.parse(window.localStorage.getItem(RECENT_KEY) ?? "[]");
-    return Array.isArray(stored) ? stored.filter((item): item is string => typeof item === "string").slice(0, RECENT_LIMIT) : [];
+    return Array.isArray(stored)
+      ? stored.filter((item): item is string => typeof item === "string").slice(0, RECENT_LIMIT)
+      : [];
   } catch {
     return [];
   }

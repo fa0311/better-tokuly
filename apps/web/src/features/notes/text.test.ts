@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { applyCompletion, charCount, completionAt, normalizeHashtag, parseNoteText } from "./text";
 
-const kinds = (text: string) => parseNoteText(text).map((segment) => `${segment.type}:${segment.text}`);
+const kinds = (text: string) =>
+  parseNoteText(text).map((segment) => `${segment.type}:${segment.text}`);
 
 describe("charCount", () => {
   it("counts what people see", () => {
@@ -42,13 +43,27 @@ describe("parseNoteText", () => {
   });
 
   it("does not read hashtags or mentions inside links", () => {
-    expect(kinds("https://example.com/#top https://example.com/@someone")).toEqual(["url:https://example.com/#top", "text: ", "url:https://example.com/@someone"]);
+    expect(kinds("https://example.com/#top https://example.com/@someone")).toEqual([
+      "url:https://example.com/#top",
+      "text: ",
+      "url:https://example.com/@someone",
+    ]);
   });
 
   it("ends a link at Japanese text and before sentence punctuation", () => {
-    expect(kinds("見てhttps://example.com/aだよ")).toEqual(["text:見て", "url:https://example.com/a", "text:だよ"]);
-    expect(kinds("(https://example.com/a).")).toEqual(["text:(", "url:https://example.com/a", "text:)."]);
-    expect(kinds("https://en.wikipedia.org/wiki/Tokyo_(disambiguation)")).toEqual(["url:https://en.wikipedia.org/wiki/Tokyo_(disambiguation)"]);
+    expect(kinds("見てhttps://example.com/aだよ")).toEqual([
+      "text:見て",
+      "url:https://example.com/a",
+      "text:だよ",
+    ]);
+    expect(kinds("(https://example.com/a).")).toEqual([
+      "text:(",
+      "url:https://example.com/a",
+      "text:).",
+    ]);
+    expect(kinds("https://en.wikipedia.org/wiki/Tokyo_(disambiguation)")).toEqual([
+      "url:https://en.wikipedia.org/wiki/Tokyo_(disambiguation)",
+    ]);
   });
 
   it("treats addresses on other services and short handles as text", () => {
@@ -59,9 +74,19 @@ describe("parseNoteText", () => {
 
 describe("completion", () => {
   it("offers the hashtag or mention being typed at the caret", () => {
-    expect(completionAt("今日は #しぶ", 7)).toEqual({ kind: "hashtag", query: "しぶ", start: 4, end: 7 });
+    expect(completionAt("今日は #しぶ", 7)).toEqual({
+      kind: "hashtag",
+      query: "しぶ",
+      start: 4,
+      end: 7,
+    });
     expect(completionAt("@ta", 3)).toEqual({ kind: "mention", query: "ta", start: 0, end: 3 });
-    expect(completionAt("友達の@ta", 6)).toEqual({ kind: "mention", query: "ta", start: 3, end: 6 });
+    expect(completionAt("友達の@ta", 6)).toEqual({
+      kind: "mention",
+      query: "ta",
+      start: 3,
+      end: 6,
+    });
     expect(completionAt("#", 1)).toEqual({ kind: "hashtag", query: "", start: 0, end: 1 });
   });
 
@@ -74,6 +99,9 @@ describe("completion", () => {
   it("replaces the token and moves the caret behind it", () => {
     const text = "今日は #しぶ だよ";
     const completion = completionAt(text, 7)!;
-    expect(applyCompletion(text, completion, "#渋谷")).toEqual({ text: "今日は #渋谷 だよ", caret: 8 });
+    expect(applyCompletion(text, completion, "#渋谷")).toEqual({
+      text: "今日は #渋谷 だよ",
+      caret: 8,
+    });
   });
 });

@@ -25,7 +25,8 @@ export function FriendsScreen() {
   const [tab, setTab] = useState<Tab>("friends");
   const requests = useQuery({
     queryKey: ["social", "requests", "incoming"],
-    queryFn: () => friendClient().listFriendRequests({ direction: social.FriendRequestDirection.INCOMING }),
+    queryFn: () =>
+      friendClient().listFriendRequests({ direction: social.FriendRequestDirection.INCOMING }),
   });
 
   return (
@@ -49,7 +50,15 @@ export function FriendsScreen() {
   );
 }
 
-function UserRow({ user, subtitle, trailing }: { user: common.UserSummary; subtitle?: ReactNode; trailing?: ReactNode }) {
+function UserRow({
+  user,
+  subtitle,
+  trailing,
+}: {
+  user: common.UserSummary;
+  subtitle?: ReactNode;
+  trailing?: ReactNode;
+}) {
   return (
     <ListRow
       leading={
@@ -94,19 +103,27 @@ function FriendList() {
         <RowsSkeleton />
       ) : data && data.friends.length > 0 ? (
         <>
-          <p className="px-3 pt-1 text-xs font-bold text-ink-faint">{t("list.count", { count: data.total })}</p>
+          <p className="px-3 pt-1 text-xs font-bold text-ink-faint">
+            {t("list.count", { count: data.total })}
+          </p>
           {data.friends.map(
             (friend) =>
               friend.user && (
                 <UserRow
                   key={friend.user.id}
                   user={friend.user}
-                  subtitle={friend.status?.text ? `${friend.status.emoji} ${friend.status.text}` : `@${friend.user.handle}`}
+                  subtitle={
+                    friend.status?.text
+                      ? `${friend.status.emoji} ${friend.status.text}`
+                      : `@${friend.user.handle}`
+                  }
                   trailing={
                     <span className="flex items-center gap-2 text-lg">
                       {friend.bestFriendRank > 0 && <span title="best friend">💜</span>}
                       {friend.favorite && <span title="favorite">⭐</span>}
-                      {online[friend.user.id] && <span className="size-2.5 rounded-full bg-success" />}
+                      {online[friend.user.id] && (
+                        <span className="size-2.5 rounded-full bg-success" />
+                      )}
                     </span>
                   }
                 />
@@ -114,13 +131,25 @@ function FriendList() {
           )}
         </>
       ) : (
-        <EmptyState emoji="🫡" title={query ? t("search.empty") : t("list.empty")} body={query ? undefined : t("list.emptyBody")} />
+        <EmptyState
+          emoji="🫡"
+          title={query ? t("search.empty") : t("list.empty")}
+          body={query ? undefined : t("list.emptyBody")}
+        />
       )}
     </div>
   );
 }
 
-function SearchInput({ value, onChange, placeholder }: { value: string; onChange(value: string): void; placeholder: string }) {
+function SearchInput({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange(value: string): void;
+  placeholder: string;
+}) {
   return (
     <label className="flex h-12 items-center gap-2 rounded-control border-2 border-line bg-surface px-4 focus-within:border-brand">
       <Search className="size-5 text-ink-faint" />
@@ -141,16 +170,19 @@ function Requests() {
   const queryClient = useQueryClient();
   const incoming = useQuery({
     queryKey: ["social", "requests", "incoming"],
-    queryFn: () => friendClient().listFriendRequests({ direction: social.FriendRequestDirection.INCOMING }),
+    queryFn: () =>
+      friendClient().listFriendRequests({ direction: social.FriendRequestDirection.INCOMING }),
   });
   const outgoing = useQuery({
     queryKey: ["social", "requests", "outgoing"],
-    queryFn: () => friendClient().listFriendRequests({ direction: social.FriendRequestDirection.OUTGOING }),
+    queryFn: () =>
+      friendClient().listFriendRequests({ direction: social.FriendRequestDirection.OUTGOING }),
   });
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["social"] });
 
   const respond = useMutation({
-    mutationFn: (input: { requestId: string; accept: boolean }) => friendClient().respondFriendRequest(input),
+    mutationFn: (input: { requestId: string; accept: boolean }) =>
+      friendClient().respondFriendRequest(input),
     onSuccess: (_, input) => {
       if (input.accept) toast.success(t("toast.accepted"));
       return refresh();
@@ -179,13 +211,28 @@ function Requests() {
                 <UserRow
                   key={request.id}
                   user={request.from}
-                  subtitle={request.message || (request.mutualFriendCount > 0 ? t("requests.mutual", { count: request.mutualFriendCount }) : undefined)}
+                  subtitle={
+                    request.message ||
+                    (request.mutualFriendCount > 0
+                      ? t("requests.mutual", { count: request.mutualFriendCount })
+                      : undefined)
+                  }
                   trailing={
                     <span className="flex gap-2">
-                      <Button size="sm" variant="lime" icon={<Check className="size-4" />} onClick={() => respond.mutate({ requestId: request.id, accept: true })}>
+                      <Button
+                        size="sm"
+                        variant="lime"
+                        icon={<Check className="size-4" />}
+                        onClick={() => respond.mutate({ requestId: request.id, accept: true })}
+                      >
                         {t("requests.accept")}
                       </Button>
-                      <Button size="icon-sm" variant="ghost" aria-label={t("requests.decline")} onClick={() => respond.mutate({ requestId: request.id, accept: false })}>
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label={t("requests.decline")}
+                        onClick={() => respond.mutate({ requestId: request.id, accept: false })}
+                      >
                         <X className="size-4" />
                       </Button>
                     </span>
@@ -225,25 +272,53 @@ function Requests() {
 }
 
 /** The add/requested/friends control next to a person. */
-function RelationshipButton({ user, relationship, source }: { user: common.UserSummary; relationship: identity.Relationship; source: social.FriendSource }) {
+function RelationshipButton({
+  user,
+  relationship,
+  source,
+}: {
+  user: common.UserSummary;
+  relationship: identity.Relationship;
+  source: social.FriendSource;
+}) {
   const { t } = useTranslation("friends");
   const queryClient = useQueryClient();
   const [current, setCurrent] = useState(relationship);
   const add = useMutation({
-    mutationFn: () => friendClient().sendFriendRequest({ target: { case: "userId", value: user.id }, source }),
+    mutationFn: () =>
+      friendClient().sendFriendRequest({ target: { case: "userId", value: user.id }, source }),
     onSuccess: (response) => {
       setCurrent(response.relationship);
-      toast.success(response.relationship === identity.Relationship.FRIENDS ? t("toast.accepted") : t("toast.sent"));
+      toast.success(
+        response.relationship === identity.Relationship.FRIENDS
+          ? t("toast.accepted")
+          : t("toast.sent"),
+      );
       return queryClient.invalidateQueries({ queryKey: ["social"] });
     },
     onError: (error) => toast.error(errorMessage(error)),
   });
 
   if (current === identity.Relationship.SELF) return null;
-  if (current === identity.Relationship.FRIENDS) return <span className="rounded-full bg-surface-2 px-3 py-1 text-xs font-bold text-ink-soft">{t("actions.friends")}</span>;
-  if (current === identity.Relationship.REQUEST_SENT) return <span className="rounded-full bg-surface-2 px-3 py-1 text-xs font-bold text-ink-soft">{t("actions.requested")}</span>;
+  if (current === identity.Relationship.FRIENDS)
+    return (
+      <span className="rounded-full bg-surface-2 px-3 py-1 text-xs font-bold text-ink-soft">
+        {t("actions.friends")}
+      </span>
+    );
+  if (current === identity.Relationship.REQUEST_SENT)
+    return (
+      <span className="rounded-full bg-surface-2 px-3 py-1 text-xs font-bold text-ink-soft">
+        {t("actions.requested")}
+      </span>
+    );
   return (
-    <Button size="sm" icon={<UserPlus className="size-4" />} loading={add.isPending} onClick={() => add.mutate()}>
+    <Button
+      size="sm"
+      icon={<UserPlus className="size-4" />}
+      loading={add.isPending}
+      onClick={() => add.mutate()}
+    >
       {current === identity.Relationship.REQUEST_RECEIVED ? t("actions.accept") : t("actions.add")}
     </Button>
   );
@@ -282,8 +357,18 @@ function Find() {
                   <UserRow
                     key={result.user.id}
                     user={result.user}
-                    subtitle={result.mutualFriendCount > 0 ? t("requests.mutual", { count: result.mutualFriendCount }) : undefined}
-                    trailing={<RelationshipButton user={result.user} relationship={result.relationship} source={social.FriendSource.HANDLE} />}
+                    subtitle={
+                      result.mutualFriendCount > 0
+                        ? t("requests.mutual", { count: result.mutualFriendCount })
+                        : undefined
+                    }
+                    trailing={
+                      <RelationshipButton
+                        user={result.user}
+                        relationship={result.relationship}
+                        source={social.FriendSource.HANDLE}
+                      />
+                    }
                   />
                 ),
             )}
@@ -296,15 +381,27 @@ function Find() {
           <Nearby />
           {suggestions.data && suggestions.data.suggestions.length > 0 && (
             <section>
-              <h2 className="px-3 pb-1 text-sm font-black text-ink-soft">{t("suggestions.title")}</h2>
+              <h2 className="px-3 pb-1 text-sm font-black text-ink-soft">
+                {t("suggestions.title")}
+              </h2>
               {suggestions.data.suggestions.map(
                 (suggestion) =>
                   suggestion.user && (
                     <UserRow
                       key={suggestion.user.id}
                       user={suggestion.user}
-                      subtitle={suggestion.mutualFriendCount > 0 ? t("suggestions.mutual", { count: suggestion.mutualFriendCount }) : undefined}
-                      trailing={<RelationshipButton user={suggestion.user} relationship={identity.Relationship.NONE} source={social.FriendSource.SUGGESTION} />}
+                      subtitle={
+                        suggestion.mutualFriendCount > 0
+                          ? t("suggestions.mutual", { count: suggestion.mutualFriendCount })
+                          : undefined
+                      }
+                      trailing={
+                        <RelationshipButton
+                          user={suggestion.user}
+                          relationship={identity.Relationship.NONE}
+                          source={social.FriendSource.SUGGESTION}
+                        />
+                      }
                     />
                   ),
               )}
@@ -334,7 +431,10 @@ function Nearby() {
     const abort = new AbortController();
     void (async () => {
       try {
-        const stream = friendClient().discoverNearby({ location: { lat, lng }, accuracyMeters: accuracy ?? 0 }, { signal: abort.signal });
+        const stream = friendClient().discoverNearby(
+          { location: { lat, lng }, accuracyMeters: accuracy ?? 0 },
+          { signal: abort.signal },
+        );
         for await (const update of stream) setUsers(update.users);
       } catch (error) {
         if (!abort.signal.aborted) toast.error(errorMessage(error));
@@ -345,19 +445,33 @@ function Nearby() {
       setUsers([]);
     };
     // Coordinates are rounded so tiny GPS jitter does not restart the stream.
-  }, [active, lat !== undefined && Math.round(lat * 2000), lng !== undefined && Math.round(lng * 2000), accuracy !== undefined && Math.round(accuracy / 25)]);
+  }, [
+    active,
+    lat !== undefined && Math.round(lat * 2000),
+    lng !== undefined && Math.round(lng * 2000),
+    accuracy !== undefined && Math.round(accuracy / 25),
+  ]);
 
   return (
     <Card className="p-4">
       <div className="flex items-center gap-3">
-        <div className={`sticker-sm grid size-12 place-items-center rounded-2xl bg-sky text-[#17122b] ${active ? "animate-wiggle" : ""}`}>
+        <div
+          className={`sticker-sm grid size-12 place-items-center rounded-2xl bg-sky text-[#17122b] ${active ? "animate-wiggle" : ""}`}
+        >
           <Radar className="size-6" />
         </div>
         <div className="min-w-0 flex-1">
           <p className="font-black">{t("nearby.title")}</p>
-          <p className="text-sm text-ink-soft">{active ? t("nearby.lead") : !own ? t("nearby.needLocation") : ""}</p>
+          <p className="text-sm text-ink-soft">
+            {active ? t("nearby.lead") : !own ? t("nearby.needLocation") : ""}
+          </p>
         </div>
-        <Button size="sm" variant={active ? "secondary" : "primary"} disabled={!own} onClick={() => setActive((value) => !value)}>
+        <Button
+          size="sm"
+          variant={active ? "secondary" : "primary"}
+          disabled={!own}
+          onClick={() => setActive((value) => !value)}
+        >
           {active ? t("nearby.stop") : t("nearby.start")}
         </Button>
       </div>
@@ -370,7 +484,13 @@ function Nearby() {
                   key={nearby.user.id}
                   user={nearby.user}
                   subtitle={t("nearby.distance", { meters: Math.round(nearby.distanceMeters) })}
-                  trailing={<RelationshipButton user={nearby.user} relationship={nearby.relationship} source={social.FriendSource.NEARBY} />}
+                  trailing={
+                    <RelationshipButton
+                      user={nearby.user}
+                      relationship={nearby.relationship}
+                      source={social.FriendSource.NEARBY}
+                    />
+                  }
                 />
               ),
           )}
@@ -382,14 +502,21 @@ function Nearby() {
 
 function Invite() {
   const { t } = useTranslation(["friends", "common"]);
-  const { data } = useQuery({ queryKey: ["social", "invite"], queryFn: () => friendClient().getMyInvite({}) });
+  const { data } = useQuery({
+    queryKey: ["social", "invite"],
+    queryFn: () => friendClient().getMyInvite({}),
+  });
   const [qr, setQr] = useState<string | null>(null);
   const url = data?.invite?.url;
 
   useEffect(() => {
     if (!url) return;
     let cancelled = false;
-    QRCode.toDataURL(url, { margin: 1, width: 480, color: { dark: "#17122b", light: "#ffffff" } }).then((dataUrl) => {
+    QRCode.toDataURL(url, {
+      margin: 1,
+      width: 480,
+      color: { dark: "#17122b", light: "#ffffff" },
+    }).then((dataUrl) => {
       if (!cancelled) setQr(dataUrl);
     });
     return () => {
@@ -404,7 +531,10 @@ function Invite() {
   };
   const share = async () => {
     if (!url) return;
-    if (navigator.share) await navigator.share({ title: "Tokuly", text: t("friends:invite.share"), url }).catch(() => {});
+    if (navigator.share)
+      await navigator
+        .share({ title: "Tokuly", text: t("friends:invite.share"), url })
+        .catch(() => {});
     else await copy();
   };
 
@@ -415,16 +545,29 @@ function Invite() {
       <div className="sticker grid size-60 place-items-center rounded-3xl bg-white p-3">
         {qr ? <img src={qr} alt="QR" className="size-full" /> : <Skeleton className="size-full" />}
       </div>
-      {url && <p className="max-w-full truncate rounded-full bg-surface-2 px-4 py-2 text-sm font-bold">{url}</p>}
+      {url && (
+        <p className="max-w-full truncate rounded-full bg-surface-2 px-4 py-2 text-sm font-bold">
+          {url}
+        </p>
+      )}
       <div className="flex gap-2">
-        <Button variant="secondary" icon={<Copy className="size-4" />} onClick={copy} disabled={!url}>
+        <Button
+          variant="secondary"
+          icon={<Copy className="size-4" />}
+          onClick={copy}
+          disabled={!url}
+        >
           {t("friends:invite.copy")}
         </Button>
         <Button onClick={share} disabled={!url}>
           {t("common:actions.share")}
         </Button>
       </div>
-      {data?.invite && data.invite.introCount > 0 && <p className="text-sm font-bold text-brand">{t("friends:invite.intros", { count: data.invite.introCount })}</p>}
+      {data?.invite && data.invite.introCount > 0 && (
+        <p className="text-sm font-bold text-brand">
+          {t("friends:invite.intros", { count: data.invite.introCount })}
+        </p>
+      )}
     </Card>
   );
 }

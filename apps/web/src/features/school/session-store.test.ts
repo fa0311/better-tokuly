@@ -1,15 +1,33 @@
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import { create, type MessageInitShape, school } from "@tokuly/api";
 import { beforeEach, describe, expect, it } from "vitest";
-import { loadActiveSession, resetActiveSession, setActiveSession, setActiveTimer, useActiveSession } from "./session-store";
+import {
+  loadActiveSession,
+  resetActiveSession,
+  setActiveSession,
+  setActiveTimer,
+  useActiveSession,
+} from "./session-store";
 
 const T0 = Date.UTC(2026, 10, 24, 9, 0, 0);
 
-function session(id: string, state: school.SessionState, serverMs?: number, extra: MessageInitShape<typeof school.StudySessionSchema> = {}): school.StudySession {
+function session(
+  id: string,
+  state: school.SessionState,
+  serverMs?: number,
+  extra: MessageInitShape<typeof school.StudySessionSchema> = {},
+): school.StudySession {
   return create(school.StudySessionSchema, {
     id,
     state,
-    timer: serverMs === undefined ? undefined : create(school.TimerSnapshotSchema, { mode: school.StudyMode.STOPWATCH, state: school.TimerState.RUNNING, serverTime: timestampFromMs(serverMs) }),
+    timer:
+      serverMs === undefined
+        ? undefined
+        : create(school.TimerSnapshotSchema, {
+            mode: school.StudyMode.STOPWATCH,
+            state: school.TimerState.RUNNING,
+            serverTime: timestampFromMs(serverMs),
+          }),
     ...extra,
   });
 }
@@ -41,7 +59,11 @@ describe("the active study session", () => {
 
   it("follows a room's timer only for the room the session is in, and never backwards", () => {
     setActiveSession(session("a", RUNNING, T0 + 10_000, { roomId: "room" }));
-    const timer = (serverMs: number) => create(school.TimerSnapshotSchema, { state: school.TimerState.PAUSED, serverTime: timestampFromMs(serverMs) });
+    const timer = (serverMs: number) =>
+      create(school.TimerSnapshotSchema, {
+        state: school.TimerState.PAUSED,
+        serverTime: timestampFromMs(serverMs),
+      });
 
     setActiveTimer("other", timer(T0 + 20_000));
     expect(stored()?.timer?.state).toBe(school.TimerState.RUNNING);
@@ -55,8 +77,14 @@ describe("the active study session", () => {
     await loadActiveSession(() => Promise.reject(new Error("offline")));
     expect(useActiveSession.getState()).toMatchObject({ loaded: false, failed: true });
 
-    await loadActiveSession(() => Promise.resolve({ session: session("a", RUNNING, T0), heartbeatIntervalSeconds: 30 }));
-    expect(useActiveSession.getState()).toMatchObject({ loaded: true, failed: false, heartbeatSeconds: 30 });
+    await loadActiveSession(() =>
+      Promise.resolve({ session: session("a", RUNNING, T0), heartbeatIntervalSeconds: 30 }),
+    );
+    expect(useActiveSession.getState()).toMatchObject({
+      loaded: true,
+      failed: false,
+      heartbeatSeconds: 30,
+    });
     expect(stored()?.id).toBe("a");
 
     // A later failure does not throw away what is known.
@@ -65,7 +93,7 @@ describe("the active study session", () => {
     expect(stored()?.id).toBe("a");
   });
 
-  it("drops an answer of \"no session\" that a start overtook", async () => {
+  it('drops an answer of "no session" that a start overtook', async () => {
     let answer: (value: { heartbeatIntervalSeconds: number }) => void = () => {};
     const loading = loadActiveSession(() => new Promise((resolve) => (answer = resolve)));
     // The timer is started while the question is still on its way.

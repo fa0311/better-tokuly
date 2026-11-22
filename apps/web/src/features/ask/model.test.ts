@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { parsePendingAsk } from "./guest-return";
-import { answerShareUrl, boxShareUrl, charCount, countdownClock, localized, parseMutedWords, wrapText } from "./model";
+import {
+  answerShareUrl,
+  boxShareUrl,
+  charCount,
+  countdownClock,
+  localized,
+  parseMutedWords,
+  wrapText,
+} from "./model";
 import { noteServerTime, serverNow } from "./server-clock";
 
 describe("charCount", () => {
@@ -26,7 +34,9 @@ describe("localized", () => {
 describe("share links", () => {
   it("point at the public page of the box", () => {
     expect(boxShareUrl("alice", "https://tokuly.example")).toBe("https://tokuly.example/q/alice");
-    expect(answerShareUrl("alice", "q1", "https://tokuly.example")).toBe("https://tokuly.example/q/alice?a=q1");
+    expect(answerShareUrl("alice", "q1", "https://tokuly.example")).toBe(
+      "https://tokuly.example/q/alice?a=q1",
+    );
   });
 });
 
@@ -44,7 +54,11 @@ describe("countdownClock", () => {
 
 describe("parseMutedWords", () => {
   it("splits on commas of either width and line breaks, dropping blanks and repeats", () => {
-    expect(parseMutedWords("きらい, うざい、きらい\n ばか ，")).toEqual(["きらい", "うざい", "ばか"]);
+    expect(parseMutedWords("きらい, うざい、きらい\n ばか ，")).toEqual([
+      "きらい",
+      "うざい",
+      "ばか",
+    ]);
     expect(parseMutedWords("  ")).toEqual([]);
   });
 });
@@ -76,12 +90,20 @@ describe("parsePendingAsk", () => {
   const stored = (value: object) => JSON.stringify(value);
 
   it("reads a fresh entry", () => {
-    expect(parsePendingAsk(stored({ handle: "alice", text: "好きな色は?", at: now - 60_000 }), now)).toEqual({ handle: "alice", text: "好きな色は?" });
+    expect(
+      parsePendingAsk(stored({ handle: "alice", text: "好きな色は?", at: now - 60_000 }), now),
+    ).toEqual({ handle: "alice", text: "好きな色は?" });
   });
   it("forgets an entry after a quarter of an hour, and one from the future", () => {
-    expect(parsePendingAsk(stored({ handle: "alice", text: "まだ?", at: now - 14 * 60_000 }), now)).not.toBeNull();
-    expect(parsePendingAsk(stored({ handle: "alice", text: "まだ?", at: now - 16 * 60_000 }), now)).toBeNull();
-    expect(parsePendingAsk(stored({ handle: "alice", text: "まだ?", at: now + 1000 }), now)).toBeNull();
+    expect(
+      parsePendingAsk(stored({ handle: "alice", text: "まだ?", at: now - 14 * 60_000 }), now),
+    ).not.toBeNull();
+    expect(
+      parsePendingAsk(stored({ handle: "alice", text: "まだ?", at: now - 16 * 60_000 }), now),
+    ).toBeNull();
+    expect(
+      parsePendingAsk(stored({ handle: "alice", text: "まだ?", at: now + 1000 }), now),
+    ).toBeNull();
   });
   it("has nothing to bring back when nothing was written", () => {
     expect(parsePendingAsk(stored({ handle: "alice", text: "", at: now }), now)).toBeNull();

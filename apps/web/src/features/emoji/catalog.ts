@@ -54,7 +54,9 @@ export function toCatalogEmoji(message: emoji.CustomEmoji): CatalogEmoji {
     id: message.id,
     name: message.name,
     url: message.image?.url ?? "",
-    stills: (message.image?.variants ?? []).map((variant) => ({ size: variant.size, url: variant.url })).sort((a, b) => a.size - b.size),
+    stills: (message.image?.variants ?? [])
+      .map((variant) => ({ size: variant.size, url: variant.url }))
+      .sort((a, b) => a.size - b.size),
     animated: message.animated,
     category: message.category,
     aliases: [...message.aliases],
@@ -64,24 +66,51 @@ export function toCatalogEmoji(message: emoji.CustomEmoji): CatalogEmoji {
   };
 }
 
-const toCategory = (message: emoji.Category): CatalogCategory => ({ name: message.name, emojiCount: message.emojiCount });
+const toCategory = (message: emoji.Category): CatalogCategory => ({
+  name: message.name,
+  emojiCount: message.emojiCount,
+});
 
-function build(version: bigint, emojis: CatalogEmoji[], categories: CatalogCategory[], status: Catalog["status"]): Catalog {
+function build(
+  version: bigint,
+  emojis: CatalogEmoji[],
+  categories: CatalogCategory[],
+  status: Catalog["status"],
+): Catalog {
   const sorted = [...emojis].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-  return { status, version, emojis: sorted, categories, byName: new Map(sorted.map((entry) => [entry.name, entry])) };
+  return {
+    status,
+    version,
+    emojis: sorted,
+    categories,
+    byName: new Map(sorted.map((entry) => [entry.name, entry])),
+  };
 }
 
 /** Applies a `GetCatalogChanges` answer to a copy: pure, so it can be tested. */
 export function applyChanges(
   current: Pick<Catalog, "version" | "emojis" | "categories">,
-  changes: { version: bigint; full: boolean; upserted: CatalogEmoji[]; removedIds: string[]; categories: CatalogCategory[] },
+  changes: {
+    version: bigint;
+    full: boolean;
+    upserted: CatalogEmoji[];
+    removedIds: string[];
+    categories: CatalogCategory[];
+  },
 ): Catalog {
-  const byId = new Map<string, CatalogEmoji>(changes.full ? [] : current.emojis.map((entry) => [entry.id, entry]));
+  const byId = new Map<string, CatalogEmoji>(
+    changes.full ? [] : current.emojis.map((entry) => [entry.id, entry]),
+  );
   for (const id of changes.removedIds) byId.delete(id);
   for (const entry of changes.upserted) byId.set(entry.id, entry);
   // The API sends every category whenever the version moved (an empty list then means there are none).
   const changed = changes.full || changes.version !== current.version;
-  return build(changes.version, [...byId.values()], changed ? changes.categories : current.categories, "ready");
+  return build(
+    changes.version,
+    [...byId.values()],
+    changed ? changes.categories : current.categories,
+    "ready",
+  );
 }
 
 // ───────────────────────────── The copy in IndexedDB ─────────────────────────────
@@ -112,7 +141,12 @@ async function sync(): Promise<void> {
     let next: Catalog;
     if (catalog.version === 0n) {
       const whole = await emojiClient().getCatalog({});
-      next = build(whole.version, whole.emojis.map(toCatalogEmoji), whole.categories.map(toCategory), "ready");
+      next = build(
+        whole.version,
+        whole.emojis.map(toCatalogEmoji),
+        whole.categories.map(toCategory),
+        "ready",
+      );
     } else {
       const changes = await emojiClient().getCatalogChanges({ sinceVersion: catalog.version });
       if (changes.version === catalog.version && !changes.full) {
@@ -128,10 +162,17 @@ async function sync(): Promise<void> {
       });
     }
     publish(next);
-    void store.write({ version: next.version.toString(), emojis: next.emojis, categories: next.categories });
+    void store.write({
+      version: next.version.toString(),
+      emojis: next.emojis,
+      categories: next.categories,
+    });
   } catch (error) {
     // A stored copy keeps working offline; without one the pickers show Unicode emoji only.
-    publish({ ...catalog, status: catalog.version > 0n || catalog.emojis.length > 0 ? "ready" : "error" });
+    publish({
+      ...catalog,
+      status: catalog.version > 0n || catalog.emojis.length > 0 ? "ready" : "error",
+    });
     throw error;
   }
 }
@@ -143,7 +184,8 @@ async function sync(): Promise<void> {
  */
 export function syncCatalog(version?: bigint): Promise<void> {
   if (typeof window === "undefined") return Promise.resolve();
-  if (version !== undefined && catalog.status === "ready" && version <= catalog.version) return Promise.resolve();
+  if (version !== undefined && catalog.status === "ready" && version <= catalog.version)
+    return Promise.resolve();
   if (syncing) {
     if (version !== undefined && version > announced) announced = version;
     return syncing;
@@ -172,7 +214,8 @@ export function getCatalog(): Catalog {
 
 /** The approved emoji with this name (any case, with or without colons), or `undefined`. */
 export function lookupEmoji(name: string): CatalogEmoji | undefined {
-  const bare = name.startsWith(":") && name.endsWith(":") && name.length > 2 ? name.slice(1, -1) : name;
+  const bare =
+    name.startsWith(":") && name.endsWith(":") && name.length > 2 ? name.slice(1, -1) : name;
   return catalog.byName.get(bare.toLowerCase());
 }
 
@@ -197,5 +240,8 @@ export function useCatalog(): Catalog {
 /** The smallest still that covers `pixels` on a 2x screen (the picture itself when there is none). */
 export function stillUrl(entry: CatalogEmoji, pixels: number): string {
   const wanted = pixels * 2;
-  return (entry.stills.find((still) => still.size >= wanted) ?? entry.stills[entry.stills.length - 1])?.url ?? entry.url;
+  return (
+    (entry.stills.find((still) => still.size >= wanted) ?? entry.stills[entry.stills.length - 1])
+      ?.url ?? entry.url
+  );
 }

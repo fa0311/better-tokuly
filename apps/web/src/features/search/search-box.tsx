@@ -44,7 +44,11 @@ export function SearchBox({
   }
 
   // Before a first search the page under the field already shows recent searches and trends.
-  const { suggestions, loading } = useSuggestions(text, { kind, idle: query !== "", enabled: open });
+  const { suggestions, loading } = useSuggestions(text, {
+    kind,
+    idle: query !== "",
+    enabled: open,
+  });
   const submit = (value: string) => {
     const next = value.trim();
     setOpen(false);
@@ -59,7 +63,12 @@ export function SearchBox({
     input.current?.blur();
     openSuggestion(suggestion);
   };
-  const keys = useSuggestionKeys({ suggestions: open ? suggestions : [], onChoose: choose, onSubmit: () => submit(text), onEscape: () => setOpen(false) });
+  const keys = useSuggestionKeys({
+    suggestions: open ? suggestions : [],
+    onChoose: choose,
+    onSubmit: () => submit(text),
+    onEscape: () => setOpen(false),
+  });
   const expanded = open && suggestions.length > 0;
 
   return (
@@ -80,7 +89,9 @@ export function SearchBox({
           aria-expanded={expanded}
           aria-controls={expanded ? listId : undefined}
           aria-autocomplete="list"
-          aria-activedescendant={expanded && keys.active >= 0 ? optionId(listId, keys.active) : undefined}
+          aria-activedescendant={
+            expanded && keys.active >= 0 ? optionId(listId, keys.active) : undefined
+          }
           value={text}
           onChange={(event) => {
             setText(event.target.value);
@@ -120,7 +131,14 @@ export function SearchBox({
       </form>
       {expanded && (
         <div className="sticker absolute inset-x-0 top-full z-30 mt-2 max-h-[min(26rem,60dvh)] overflow-y-auto rounded-3xl bg-surface p-1.5">
-          <SuggestionList listId={listId} label={t("suggest.label")} suggestions={suggestions} active={keys.active} onActive={keys.setActive} onChoose={choose} />
+          <SuggestionList
+            listId={listId}
+            label={t("suggest.label")}
+            suggestions={suggestions}
+            active={keys.active}
+            onActive={keys.setActive}
+            onChoose={choose}
+          />
         </div>
       )}
     </search>

@@ -34,7 +34,9 @@ export function storedDopamineLevel(): number {
 /** How lively animations should be right now: 0 (off) … 1.6. */
 export function dopamineFactor(): number {
   if (typeof window === "undefined") return 1;
-  const value = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--dopa"));
+  const value = Number.parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue("--dopa"),
+  );
   return Number.isFinite(value) ? value : 1;
 }
 

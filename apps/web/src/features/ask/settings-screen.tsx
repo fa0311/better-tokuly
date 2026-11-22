@@ -13,7 +13,13 @@ import { SelectField } from "#/components/ui/select";
 import { SwitchRow } from "#/components/ui/switch";
 import { compactAge } from "#/lib/format";
 import { askKeys, boxClient, useSenderBlocks, useSettings } from "./api";
-import { BOX_PROMPT_MAX, charCount, MUTED_WORD_MAX, MUTED_WORDS_MAX, parseMutedWords } from "./model";
+import {
+  BOX_PROMPT_MAX,
+  charCount,
+  MUTED_WORD_MAX,
+  MUTED_WORDS_MAX,
+  parseMutedWords,
+} from "./model";
 import { Counter, SectionTitle, toastError } from "./parts";
 
 type SettingsChange = MessageInitShape<typeof ask.UpdateSettingsRequestSchema>;
@@ -26,7 +32,8 @@ export function SettingsScreen() {
 
   // Switches flip at once; the server's answer (or a failure) settles what is shown.
   const update = useMutation({
-    mutationFn: async (change: SettingsChange) => (await boxClient().updateSettings(change)).settings!,
+    mutationFn: async (change: SettingsChange) =>
+      (await boxClient().updateSettings(change)).settings!,
     onSuccess: (saved) => {
       queryClient.setQueryData(askKeys.settings, saved);
       void queryClient.invalidateQueries({ queryKey: ["ask", "box"] });
@@ -36,10 +43,14 @@ export function SettingsScreen() {
       void queryClient.invalidateQueries({ queryKey: askKeys.settings });
     },
   });
-  const flip = (field: "boxOpen" | "allowSigned" | "allowImages" | "inPolls" | "allowHints") => (value: boolean) => {
-    queryClient.setQueryData<ask.Settings>(askKeys.settings, (known) => (known ? { ...known, [field]: value } : known));
-    update.mutate({ [field]: value });
-  };
+  const flip =
+    (field: "boxOpen" | "allowSigned" | "allowImages" | "inPolls" | "allowHints") =>
+    (value: boolean) => {
+      queryClient.setQueryData<ask.Settings>(askKeys.settings, (known) =>
+        known ? { ...known, [field]: value } : known,
+      );
+      update.mutate({ [field]: value });
+    };
 
   if (isPending || !settings) {
     return (
@@ -53,35 +64,85 @@ export function SettingsScreen() {
     <Page title={t("settings.title")} back="/ask">
       <SectionTitle className="mt-0">{t("settings.box")}</SectionTitle>
       <Card className="flex flex-col gap-3 p-3">
-        <SwitchRow label={t("hub.openSwitch")} hint={t("hub.openHint")} checked={settings.boxOpen} onChange={flip("boxOpen")} />
-        <PromptField key={settings.boxPrompt} saved={settings.boxPrompt} saving={update.isPending} onSave={(boxPrompt) => update.mutate({ boxPrompt }, { onSuccess: () => toast.success(t("settings.promptSaved")) })} />
+        <SwitchRow
+          label={t("hub.openSwitch")}
+          hint={t("hub.openHint")}
+          checked={settings.boxOpen}
+          onChange={flip("boxOpen")}
+        />
+        <PromptField
+          key={settings.boxPrompt}
+          saved={settings.boxPrompt}
+          saving={update.isPending}
+          onSave={(boxPrompt) =>
+            update.mutate(
+              { boxPrompt },
+              { onSuccess: () => toast.success(t("settings.promptSaved")) },
+            )
+          }
+        />
         <SelectField
           className="px-3"
           label={t("settings.audience")}
           value={settings.audience === ask.AskerAudience.SIGNED_IN ? "signedIn" : "friends"}
           onChange={(value) => {
-            const audience = value === "signedIn" ? ask.AskerAudience.SIGNED_IN : ask.AskerAudience.FRIENDS;
-            queryClient.setQueryData<ask.Settings>(askKeys.settings, (known) => (known ? { ...known, audience } : known));
+            const audience =
+              value === "signedIn" ? ask.AskerAudience.SIGNED_IN : ask.AskerAudience.FRIENDS;
+            queryClient.setQueryData<ask.Settings>(askKeys.settings, (known) =>
+              known ? { ...known, audience } : known,
+            );
             update.mutate({ audience });
           }}
           options={[
-            { value: "friends", label: t("settings.audienceFriends"), hint: t("settings.audienceFriendsHint") },
-            { value: "signedIn", label: t("settings.audienceSignedIn"), hint: t("settings.audienceSignedInHint") },
+            {
+              value: "friends",
+              label: t("settings.audienceFriends"),
+              hint: t("settings.audienceFriendsHint"),
+            },
+            {
+              value: "signedIn",
+              label: t("settings.audienceSignedIn"),
+              hint: t("settings.audienceSignedInHint"),
+            },
           ]}
         />
-        <SwitchRow label={t("settings.allowSigned")} hint={t("settings.allowSignedHint")} checked={settings.allowSigned} onChange={flip("allowSigned")} />
-        <SwitchRow label={t("settings.allowImages")} hint={t("settings.allowImagesHint")} checked={settings.allowImages} onChange={flip("allowImages")} />
+        <SwitchRow
+          label={t("settings.allowSigned")}
+          hint={t("settings.allowSignedHint")}
+          checked={settings.allowSigned}
+          onChange={flip("allowSigned")}
+        />
+        <SwitchRow
+          label={t("settings.allowImages")}
+          hint={t("settings.allowImagesHint")}
+          checked={settings.allowImages}
+          onChange={flip("allowImages")}
+        />
       </Card>
 
       <SectionTitle>{t("settings.filter")}</SectionTitle>
       <Card>
-        <MutedWords words={settings.mutedWords} saving={update.isPending} onChange={(words) => update.mutate({ mutedWords: { words } })} />
+        <MutedWords
+          words={settings.mutedWords}
+          saving={update.isPending}
+          onChange={(words) => update.mutate({ mutedWords: { words } })}
+        />
       </Card>
 
       <SectionTitle>{t("settings.polls")}</SectionTitle>
       <Card className="p-3">
-        <SwitchRow label={t("settings.inPolls")} hint={t("settings.inPollsHint")} checked={settings.inPolls} onChange={flip("inPolls")} />
-        <SwitchRow label={t("settings.allowHints")} hint={t("settings.allowHintsHint")} checked={settings.allowHints} onChange={flip("allowHints")} />
+        <SwitchRow
+          label={t("settings.inPolls")}
+          hint={t("settings.inPollsHint")}
+          checked={settings.inPolls}
+          onChange={flip("inPolls")}
+        />
+        <SwitchRow
+          label={t("settings.allowHints")}
+          hint={t("settings.allowHintsHint")}
+          checked={settings.allowHints}
+          onChange={flip("allowHints")}
+        />
       </Card>
 
       <SectionTitle>{t("settings.blocks")}</SectionTitle>
@@ -91,7 +152,15 @@ export function SettingsScreen() {
 }
 
 /** The line above the box. Saved with its button (or Enter), not on every key. */
-function PromptField({ saved, saving, onSave }: { saved: string; saving: boolean; onSave(prompt: string): void }) {
+function PromptField({
+  saved,
+  saving,
+  onSave,
+}: {
+  saved: string;
+  saving: boolean;
+  onSave(prompt: string): void;
+}) {
   const { t } = useTranslation("ask");
   const [value, setValue] = useState(saved);
   const changed = value.trim() !== saved;
@@ -117,7 +186,13 @@ function PromptField({ saved, saving, onSave }: { saved: string; saving: boolean
           </span>
         }
       />
-      <Button type="submit" className="mt-[1.85rem]" variant="secondary" disabled={!changed || tooLong} loading={saving && changed}>
+      <Button
+        type="submit"
+        className="mt-[1.85rem]"
+        variant="secondary"
+        disabled={!changed || tooLong}
+        loading={saving && changed}
+      >
         {t("actions.save", { ns: "common" })}
       </Button>
     </form>
@@ -125,15 +200,25 @@ function PromptField({ saved, saving, onSave }: { saved: string; saving: boolean
 }
 
 /** The owner's word filter: chips that can be taken out, and a field to add more (several at once, separated by commas). */
-function MutedWords({ words, saving, onChange }: { words: string[]; saving: boolean; onChange(words: string[]): void }) {
+function MutedWords({
+  words,
+  saving,
+  onChange,
+}: {
+  words: string[];
+  saving: boolean;
+  onChange(words: string[]): void;
+}) {
   const { t } = useTranslation("ask");
   const [input, setInput] = useState("");
 
   const add = () => {
     const added = parseMutedWords(input).filter((word) => !words.includes(word));
     if (added.length === 0) return setInput("");
-    if (added.some((word) => charCount(word) > MUTED_WORD_MAX)) return void toast.error(t("settings.filterTooLong", { max: MUTED_WORD_MAX }));
-    if (words.length + added.length > MUTED_WORDS_MAX) return void toast.error(t("settings.filterTooMany", { max: MUTED_WORDS_MAX }));
+    if (added.some((word) => charCount(word) > MUTED_WORD_MAX))
+      return void toast.error(t("settings.filterTooLong", { max: MUTED_WORD_MAX }));
+    if (words.length + added.length > MUTED_WORDS_MAX)
+      return void toast.error(t("settings.filterTooMany", { max: MUTED_WORDS_MAX }));
     onChange([...words, ...added]);
     setInput("");
   };
@@ -148,8 +233,21 @@ function MutedWords({ words, saving, onChange }: { words: string[]; saving: bool
           add();
         }}
       >
-        <TextField className="min-w-0 flex-1" aria-label={t("settings.filter")} placeholder={t("settings.filterPlaceholder")} value={input} onChange={(event) => setInput(event.target.value)} />
-        <Button type="submit" variant="secondary" className="mt-0.5" icon={<Plus className="size-4" />} disabled={!input.trim()} loading={saving && Boolean(input.trim())}>
+        <TextField
+          className="min-w-0 flex-1"
+          aria-label={t("settings.filter")}
+          placeholder={t("settings.filterPlaceholder")}
+          value={input}
+          onChange={(event) => setInput(event.target.value)}
+        />
+        <Button
+          type="submit"
+          variant="secondary"
+          className="mt-0.5"
+          icon={<Plus className="size-4" />}
+          disabled={!input.trim()}
+          loading={saving && Boolean(input.trim())}
+        >
           {t("settings.filterAdd")}
         </Button>
       </form>
@@ -158,9 +256,17 @@ function MutedWords({ words, saving, onChange }: { words: string[]; saving: bool
       ) : (
         <ul className="mt-3 flex flex-wrap gap-2" data-testid="muted-words">
           {words.map((word) => (
-            <li key={word} className="inline-flex items-center gap-1 rounded-full bg-surface-2 py-1 pr-1 pl-3 text-sm font-bold">
+            <li
+              key={word}
+              className="inline-flex items-center gap-1 rounded-full bg-surface-2 py-1 pr-1 pl-3 text-sm font-bold"
+            >
               {word}
-              <button type="button" aria-label={t("settings.filterRemove", { word })} onClick={() => onChange(words.filter((known) => known !== word))} className="grid size-6 place-items-center rounded-full hover:bg-surface-3">
+              <button
+                type="button"
+                aria-label={t("settings.filterRemove", { word })}
+                onClick={() => onChange(words.filter((known) => known !== word))}
+                className="grid size-6 place-items-center rounded-full hover:bg-surface-3"
+              >
                 <X className="size-3.5" />
               </button>
             </li>
@@ -195,7 +301,9 @@ function SenderBlocks() {
       {query.isPending ? (
         <Skeleton className="h-16" />
       ) : blocks.length === 0 ? (
-        <p className="rounded-card bg-surface px-4 py-6 text-center text-sm font-bold text-ink-soft">🕊️ {t("settings.blocksEmpty")}</p>
+        <p className="rounded-card bg-surface px-4 py-6 text-center text-sm font-bold text-ink-soft">
+          🕊️ {t("settings.blocksEmpty")}
+        </p>
       ) : (
         <ul className="flex flex-col gap-1 rounded-card bg-surface p-2" data-testid="sender-blocks">
           {blocks.map((block) => (
@@ -206,7 +314,12 @@ function SenderBlocks() {
                   {SOURCES[block.source] ?? ""} ・ {compactAge(toMillis(block.createdAt))}
                 </span>
               </span>
-              <Button size="sm" variant="secondary" loading={unblock.isPending && unblock.variables === block.id} onClick={() => unblock.mutate(block.id)}>
+              <Button
+                size="sm"
+                variant="secondary"
+                loading={unblock.isPending && unblock.variables === block.id}
+                onClick={() => unblock.mutate(block.id)}
+              >
                 {t("settings.unblock")}
               </Button>
             </li>

@@ -23,7 +23,11 @@ export function DashboardScreen() {
 
 function Dashboard() {
   const { t } = useTranslation("admin");
-  const stats = useQuery({ queryKey: ["admin", "stats"], queryFn: () => systemClient().getServerStats({}), staleTime: 0 });
+  const stats = useQuery({
+    queryKey: ["admin", "stats"],
+    queryFn: () => systemClient().getServerStats({}),
+    staleTime: 0,
+  });
   const data = stats.data;
 
   return (
@@ -31,8 +35,18 @@ function Dashboard() {
       title={t("dashboard.title")}
       actions={
         <>
-          {data?.generatedAt && <span className="hidden text-xs text-ink-faint sm:inline">{t("dashboard.generatedAt", { time: formatDateTime(data.generatedAt) })}</span>}
-          <Button size="sm" variant="secondary" icon={<RefreshCw className="size-4" />} loading={stats.isFetching} onClick={() => stats.refetch()}>
+          {data?.generatedAt && (
+            <span className="hidden text-xs text-ink-faint sm:inline">
+              {t("dashboard.generatedAt", { time: formatDateTime(data.generatedAt) })}
+            </span>
+          )}
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={<RefreshCw className="size-4" />}
+            loading={stats.isFetching}
+            onClick={() => stats.refetch()}
+          >
             {t("common.refresh")}
           </Button>
         </>
@@ -44,7 +58,9 @@ function Dashboard() {
         <ErrorState error={stats.error} onRetry={() => stats.refetch()} />
       ) : (
         // A refresh keeps the previous numbers on screen, dimmed, until the new ones arrive.
-        <div className={cn("flex flex-col gap-4 transition-opacity", stats.isFetching && "opacity-60")}>
+        <div
+          className={cn("flex flex-col gap-4 transition-opacity", stats.isFetching && "opacity-60")}
+        >
           <UsersBlock users={data.users} />
           <div className="grid gap-4 lg:grid-cols-2">
             <ModerationBlock moderation={data.moderation} />
@@ -87,21 +103,35 @@ function UsersBlock({ users }: { users?: admin.UserStats }) {
   ].map((row) => ({
     ...row,
     display: formatCount(row.value),
-    detail: t("dashboard.users.shareOfAccounts", { share: total > 0 ? Math.round((row.value / total) * 100) : 0 }),
+    detail: t("dashboard.users.shareOfAccounts", {
+      share: total > 0 ? Math.round((row.value / total) * 100) : 0,
+    }),
   }));
 
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatTile hero className="col-span-2" label={t("dashboard.users.total")} value={formatCompact(users.total)} detail={t("dashboard.users.totalDetail", { total: formatCount(users.total) })} />
+        <StatTile
+          hero
+          className="col-span-2"
+          label={t("dashboard.users.total")}
+          value={formatCompact(users.total)}
+          detail={t("dashboard.users.totalDetail", { total: formatCount(users.total) })}
+        />
         <StatTile label={t("dashboard.users.newToday")} value={formatCount(users.newToday)} />
         <StatTile label={t("dashboard.users.new7d")} value={formatCount(users.new7d)} />
         <StatTile label={t("dashboard.users.sessions")} value={formatCount(users.activeSessions)} />
         <StatTile label={t("dashboard.users.verified")} value={formatCount(users.verified)} />
         <StatTile label={t("dashboard.users.suspended")} value={formatCount(users.suspended)} />
-        <StatTile label={t("dashboard.users.deletionScheduled")} value={formatCount(users.deletionScheduled)} />
+        <StatTile
+          label={t("dashboard.users.deletionScheduled")}
+          value={formatCount(users.deletionScheduled)}
+        />
       </div>
-      <Section title={t("dashboard.users.activity")} aside={<span className="text-xs text-ink-faint">{t("dashboard.users.activityHint")}</span>}>
+      <Section
+        title={t("dashboard.users.activity")}
+        aside={<span className="text-xs text-ink-faint">{t("dashboard.users.activityHint")}</span>}
+      >
         <div className="py-2">
           <BarList label={t("dashboard.users.activity")} data={activity} max={Math.max(total, 1)} />
         </div>
@@ -124,13 +154,30 @@ function ModerationBlock({ moderation }: { moderation?: admin.ModerationStats })
       }
     >
       <div className="grid grid-cols-2 gap-3 p-3 sm:grid-cols-4 lg:grid-cols-2 2xl:grid-cols-4">
-        <StatTile label={t("dashboard.moderation.openCases")} value={formatCount(open)} tone={open > 0n ? "alert" : undefined} />
-        <StatTile label={t("dashboard.moderation.unassigned")} value={formatCount(moderation?.unassignedCases ?? 0n)} />
-        <StatTile label={t("dashboard.moderation.reports24h")} value={formatCount(moderation?.reports24h ?? 0n)} />
-        <StatTile label={t("dashboard.moderation.resolved7d")} value={formatCount(moderation?.resolved7d ?? 0n)} />
+        <StatTile
+          label={t("dashboard.moderation.openCases")}
+          value={formatCount(open)}
+          tone={open > 0n ? "alert" : undefined}
+        />
+        <StatTile
+          label={t("dashboard.moderation.unassigned")}
+          value={formatCount(moderation?.unassignedCases ?? 0n)}
+        />
+        <StatTile
+          label={t("dashboard.moderation.reports24h")}
+          value={formatCount(moderation?.reports24h ?? 0n)}
+        />
+        <StatTile
+          label={t("dashboard.moderation.resolved7d")}
+          value={formatCount(moderation?.resolved7d ?? 0n)}
+        />
       </div>
       <p className="border-t-2 border-line px-4 py-2.5 text-sm text-ink-soft">
-        {oldest ? t("dashboard.moderation.oldest", { age: compactDuration(Date.now() - oldest.getTime()) }) : t("dashboard.moderation.queueEmpty")}
+        {oldest
+          ? t("dashboard.moderation.oldest", {
+              age: compactDuration(Date.now() - oldest.getTime()),
+            })
+          : t("dashboard.moderation.queueEmpty")}
       </p>
     </Section>
   );
@@ -140,17 +187,38 @@ function DependenciesBlock({ dependencies }: { dependencies: admin.DependencySta
   const { t } = useTranslation("admin");
   const down = dependencies.filter((dependency) => !dependency.reachable).length;
   return (
-    <Section title={t("dashboard.dependencies.title")} aside={<ToneChip tone={down ? "danger" : "good"}>{down ? t("dashboard.dependencies.someDown", { count: down }) : t("dashboard.dependencies.allUp")}</ToneChip>}>
+    <Section
+      title={t("dashboard.dependencies.title")}
+      aside={
+        <ToneChip tone={down ? "danger" : "good"}>
+          {down
+            ? t("dashboard.dependencies.someDown", { count: down })
+            : t("dashboard.dependencies.allUp")}
+        </ToneChip>
+      }
+    >
       <ul className="divide-y divide-line">
         {dependencies.map((dependency) => (
           <li key={dependency.name} className="flex items-center gap-3 px-4 py-2 text-sm">
-            {dependency.reachable ? <CircleCheck className="size-5 shrink-0 text-success" aria-hidden /> : <CircleAlert className="size-5 shrink-0 text-danger" aria-hidden />}
+            {dependency.reachable ? (
+              <CircleCheck className="size-5 shrink-0 text-success" aria-hidden />
+            ) : (
+              <CircleAlert className="size-5 shrink-0 text-danger" aria-hidden />
+            )}
             <span className="min-w-0 flex-1">
               <span className="block font-bold">{dependency.name}</span>
-              {!dependency.reachable && dependency.detail && <span className="block truncate text-xs text-danger">{dependency.detail}</span>}
+              {!dependency.reachable && dependency.detail && (
+                <span className="block truncate text-xs text-danger">{dependency.detail}</span>
+              )}
             </span>
-            <span className="text-xs font-bold text-ink-soft">{dependency.reachable ? t("dashboard.dependencies.up") : t("dashboard.dependencies.down")}</span>
-            <span className="w-16 text-right tabular-nums text-ink-soft">{t("dashboard.dependencies.latency", { ms: formatCount(dependency.latencyMs) })}</span>
+            <span className="text-xs font-bold text-ink-soft">
+              {dependency.reachable
+                ? t("dashboard.dependencies.up")
+                : t("dashboard.dependencies.down")}
+            </span>
+            <span className="w-16 text-right tabular-nums text-ink-soft">
+              {t("dashboard.dependencies.latency", { ms: formatCount(dependency.latencyMs) })}
+            </span>
           </li>
         ))}
       </ul>
@@ -164,13 +232,18 @@ function ContentBlock({ content }: { content: admin.ContentCount[] }) {
     .sort((a, b) => Number(b.count - a.count))
     .map((entry) => ({
       key: entry.name,
-      label: i18n.exists(`admin:dashboard.content.names.${entry.name}`) ? t(`dashboard.content.names.${entry.name}`) : entry.name,
+      label: i18n.exists(`admin:dashboard.content.names.${entry.name}`)
+        ? t(`dashboard.content.names.${entry.name}`)
+        : entry.name,
       value: Number(entry.count),
       display: `${entry.approximate ? "≈" : ""}${formatCount(entry.count)}`,
       detail: entry.approximate ? t("dashboard.content.approximate") : entry.name,
     }));
   return (
-    <Section title={t("dashboard.content.title")} aside={<span className="text-xs text-ink-faint">{t("dashboard.content.hint")}</span>}>
+    <Section
+      title={t("dashboard.content.title")}
+      aside={<span className="text-xs text-ink-faint">{t("dashboard.content.hint")}</span>}
+    >
       <div className="py-2">
         <BarList label={t("dashboard.content.title")} data={ranked} />
       </div>
@@ -185,8 +258,15 @@ function QueuesBlock({ queues }: { queues?: admin.QueueStats }) {
   return (
     <Section title={t("dashboard.queues.title")}>
       <div className="grid grid-cols-2 gap-3 p-3">
-        <StatTile label={t("dashboard.queues.outboxPending")} value={formatCount(queues.outboxPending)} tone={queues.outboxPending > 100n ? "alert" : undefined} />
-        <StatTile label={t("dashboard.queues.outboxOldest")} value={queues.outboxPending > 0n ? compactDuration(outboxAge * 1000) : "—"} />
+        <StatTile
+          label={t("dashboard.queues.outboxPending")}
+          value={formatCount(queues.outboxPending)}
+          tone={queues.outboxPending > 100n ? "alert" : undefined}
+        />
+        <StatTile
+          label={t("dashboard.queues.outboxOldest")}
+          value={queues.outboxPending > 0n ? compactDuration(outboxAge * 1000) : "—"}
+        />
       </div>
       <div className="flex flex-col">
         {queues.streams.map((stream) => (
@@ -205,14 +285,26 @@ function StreamTable({ stream }: { stream: admin.StreamStats }) {
     <div className="border-t-2 border-line">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 pt-3 pb-1">
         <h3 className="font-black">{stream.name}</h3>
-        <span className="text-xs text-ink-soft">{t("dashboard.queues.streamSize", { messages: formatCount(stream.messages), bytes: formatBytes(stream.bytes) })}</span>
+        <span className="text-xs text-ink-soft">
+          {t("dashboard.queues.streamSize", {
+            messages: formatCount(stream.messages),
+            bytes: formatBytes(stream.bytes),
+          })}
+        </span>
         <span className="flex-1" />
-        <ToneChip tone={lag > 0n ? "warn" : "neutral"}>{lag > 0n ? t("dashboard.queues.lagging", { lag: formatCount(lag) }) : t("dashboard.queues.caughtUp")}</ToneChip>
+        <ToneChip tone={lag > 0n ? "warn" : "neutral"}>
+          {lag > 0n
+            ? t("dashboard.queues.lagging", { lag: formatCount(lag) })
+            : t("dashboard.queues.caughtUp")}
+        </ToneChip>
       </div>
       {stream.consumers.length === 0 ? (
         <p className="px-4 pb-3 text-sm text-ink-faint">{t("dashboard.queues.noConsumers")}</p>
       ) : (
-        <table className="mb-2 w-full text-sm" aria-label={t("dashboard.queues.consumersOf", { stream: stream.name })}>
+        <table
+          className="mb-2 w-full text-sm"
+          aria-label={t("dashboard.queues.consumersOf", { stream: stream.name })}
+        >
           <thead>
             <tr className="text-xs text-ink-faint">
               <th scope="col" className="px-4 py-1 text-left font-bold">
@@ -232,12 +324,31 @@ function StreamTable({ stream }: { stream: admin.StreamStats }) {
           <tbody>
             {stream.consumers.map((consumer) => (
               <tr key={consumer.name} className="hover:bg-surface-2">
-                <th scope="row" className="max-w-0 truncate px-4 py-1 text-left font-medium text-ink-soft">
+                <th
+                  scope="row"
+                  className="max-w-0 truncate px-4 py-1 text-left font-medium text-ink-soft"
+                >
                   {consumer.name}
                 </th>
-                <td className={cn("px-2 py-1 text-right tabular-nums", consumer.pending > 0n && "font-black")}>{formatCount(consumer.pending)}</td>
-                <td className="px-2 py-1 text-right tabular-nums">{formatCount(consumer.ackPending)}</td>
-                <td className={cn("py-1 pr-4 pl-2 text-right tabular-nums", consumer.redelivered > 0n && "font-black text-danger")}>{formatCount(consumer.redelivered)}</td>
+                <td
+                  className={cn(
+                    "px-2 py-1 text-right tabular-nums",
+                    consumer.pending > 0n && "font-black",
+                  )}
+                >
+                  {formatCount(consumer.pending)}
+                </td>
+                <td className="px-2 py-1 text-right tabular-nums">
+                  {formatCount(consumer.ackPending)}
+                </td>
+                <td
+                  className={cn(
+                    "py-1 pr-4 pl-2 text-right tabular-nums",
+                    consumer.redelivered > 0n && "font-black text-danger",
+                  )}
+                >
+                  {formatCount(consumer.redelivered)}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -256,13 +367,18 @@ function StaffHome() {
     <ConsolePage title={t("title")}>
       <div className="mx-auto max-w-2xl">
         <p className="text-2xl font-black">{t("home.greeting")}</p>
-        <p className="mt-1 text-sm text-ink-soft">{t(access.moderator ? "home.moderatorLead" : "home.staffLead")}</p>
+        <p className="mt-1 text-sm text-ink-soft">
+          {t(access.moderator ? "home.moderatorLead" : "home.staffLead")}
+        </p>
         <ul className="mt-5 grid grid-cols-2 gap-3">
           {sections.map((item) => {
             const Icon = item.icon;
             return (
               <li key={item.to}>
-                <Link to={item.to} className="pressable sticker flex h-24 flex-col justify-between rounded-card bg-surface p-4">
+                <Link
+                  to={item.to}
+                  className="pressable sticker flex h-24 flex-col justify-between rounded-card bg-surface p-4"
+                >
                   <span className="grid size-9 place-items-center rounded-xl border-2 border-ink bg-coral text-[#17122b]">
                     <Icon className="size-5" />
                   </span>

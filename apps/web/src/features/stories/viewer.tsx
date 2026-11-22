@@ -2,8 +2,28 @@ import { Dialog as BaseDialog } from "@base-ui/react/dialog";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { common, type notes, toMillis } from "@tokuly/api";
-import { ChevronLeft, ChevronRight, Ellipsis, Eye, Flag, Pause, Pencil, SmilePlus, Sparkles, Trash2, Volume2, VolumeX, X } from "lucide-react";
-import { type PointerEvent as ReactPointerEvent, type RefObject, useEffect, useRef, useState } from "react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Ellipsis,
+  Eye,
+  Flag,
+  Pause,
+  Pencil,
+  SmilePlus,
+  Sparkles,
+  Trash2,
+  Volume2,
+  VolumeX,
+  X,
+} from "lucide-react";
+import {
+  type PointerEvent as ReactPointerEvent,
+  type RefObject,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
@@ -38,18 +58,25 @@ interface Segment {
 }
 
 function segmentsOf(reel: ViewerReel): Segment[] {
-  return reel.stories.flatMap((story) => story.items.map((item, index) => ({ story, item, key: `${story.id}:${index}` })));
+  return reel.stories.flatMap((story) =>
+    story.items.map((item, index) => ({ story, item, key: `${story.id}:${index}` })),
+  );
 }
 
 /** Where a reel starts: at the story asked for, else at the first one not watched yet, else at the beginning. */
 function startOf(reel: ViewerReel, storyId?: string): number {
   const segments = segmentsOf(reel);
-  const wanted = storyId ? segments.findIndex((segment) => segment.story.id === storyId) : segments.findIndex((segment) => !segment.story.viewed);
+  const wanted = storyId
+    ? segments.findIndex((segment) => segment.story.id === storyId)
+    : segments.findIndex((segment) => !segment.story.viewed);
   return Math.max(0, wanted);
 }
 
 function motionOff(): boolean {
-  return document.documentElement.dataset.dopa === "0" || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  return (
+    document.documentElement.dataset.dopa === "0" ||
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
 }
 
 /** The viewer, mounted once with the stories background. */
@@ -68,11 +95,22 @@ type Sheet = "viewers" | "delete" | "report" | "highlight" | "editHighlight" | "
  * back, holding pauses, a swipe sideways moves between people and a swipe
  * down closes. Friends react with an emoji; the owner sees who watched.
  */
-function StoryViewer({ reels, startReel, startStoryId }: { reels: ViewerReel[]; startReel: number; startStoryId?: string }) {
+function StoryViewer({
+  reels,
+  startReel,
+  startStoryId,
+}: {
+  reels: ViewerReel[];
+  startReel: number;
+  startStoryId?: string;
+}) {
   const { t } = useTranslation("stories");
   const me = useMe();
   const queryClient = useQueryClient();
-  const [position, setPosition] = useState(() => ({ reel: startReel, segment: startOf(reels[startReel]!, startStoryId) }));
+  const [position, setPosition] = useState(() => ({
+    reel: startReel,
+    segment: startOf(reels[startReel]!, startStoryId),
+  }));
   const [holding, setHolding] = useState(false);
   const [sheet, setSheet] = useState<Sheet>();
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -86,7 +124,13 @@ function StoryViewer({ reels, startReel, startStoryId }: { reels: ViewerReel[]; 
   const marked = useRef(new Set<string>());
   const bar = useRef<HTMLSpanElement>(null);
   const video = useRef<HTMLVideoElement>(null);
-  const press = useRef<{ x: number; y: number; timer: ReturnType<typeof setTimeout> | undefined; held: boolean; swiped: boolean } | null>(null);
+  const press = useRef<{
+    x: number;
+    y: number;
+    timer: ReturnType<typeof setTimeout> | undefined;
+    held: boolean;
+    swiped: boolean;
+  } | null>(null);
   const deleteHighlight = useDeleteHighlight();
   const { fire, burst } = useBurst(["💜"]);
 
@@ -144,7 +188,14 @@ function StoryViewer({ reels, startReel, startStoryId }: { reels: ViewerReel[]; 
       const target = event.target instanceof HTMLElement ? event.target : document.body;
       const inside = target === document.body || Boolean(popup.current?.contains(target));
       // A menu that is open owns the arrows, also in the moment before the focus has moved into it.
-      if (keys.current.blocked || !inside || document.querySelector('[role="menu"]') || target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+      if (
+        keys.current.blocked ||
+        !inside ||
+        document.querySelector('[role="menu"]') ||
+        target.isContentEditable ||
+        ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)
+      )
+        return;
       if (event.key === "ArrowRight") live.current.next();
       else if (event.key === "ArrowLeft") live.current.previous();
       // On a button or a link, Space presses it.
@@ -248,7 +299,11 @@ function StoryViewer({ reels, startReel, startStoryId }: { reels: ViewerReel[]; 
     try {
       if (taking) await storyClient().removeStoryReaction({ storyId: story.id });
       else await storyClient().reactToStory({ storyId: story.id, emoji });
-      patchStory(queryClient, story.id, (current) => ({ ...current, myReaction: taking ? "" : emoji, viewed: true }));
+      patchStory(queryClient, story.id, (current) => ({
+        ...current,
+        myReaction: taking ? "" : emoji,
+        viewed: true,
+      }));
     } catch (error) {
       setReacted({ ...reacted, [story.id]: myReaction });
       toast.error(errorMessage(error));
@@ -257,7 +312,13 @@ function StoryViewer({ reels, startReel, startStoryId }: { reels: ViewerReel[]; 
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerType === "mouse" && event.button !== 0) return;
-    const state = { x: event.clientX, y: event.clientY, held: false, swiped: false, timer: undefined as ReturnType<typeof setTimeout> | undefined };
+    const state = {
+      x: event.clientX,
+      y: event.clientY,
+      held: false,
+      swiped: false,
+      timer: undefined as ReturnType<typeof setTimeout> | undefined,
+    };
     state.timer = setTimeout(() => {
       state.held = true;
       setHolding(true);
@@ -305,13 +366,40 @@ function StoryViewer({ reels, startReel, startStoryId }: { reels: ViewerReel[]; 
     ? [
         ...(reel.highlight
           ? [
-              { label: t("viewer.editHighlight"), icon: <Pencil />, onSelect: () => setSheet("editHighlight") },
-              { label: t("viewer.deleteHighlight"), icon: <Trash2 />, danger: true, onSelect: () => setSheet("deleteHighlight") },
+              {
+                label: t("viewer.editHighlight"),
+                icon: <Pencil />,
+                onSelect: () => setSheet("editHighlight"),
+              },
+              {
+                label: t("viewer.deleteHighlight"),
+                icon: <Trash2 />,
+                danger: true,
+                onSelect: () => setSheet("deleteHighlight"),
+              },
             ]
-          : [{ label: t("viewer.addToHighlight"), icon: <Sparkles />, onSelect: () => setSheet("highlight") }]),
-        { label: t("viewer.delete"), icon: <Trash2 />, danger: true, onSelect: () => setSheet("delete") },
+          : [
+              {
+                label: t("viewer.addToHighlight"),
+                icon: <Sparkles />,
+                onSelect: () => setSheet("highlight"),
+              },
+            ]),
+        {
+          label: t("viewer.delete"),
+          icon: <Trash2 />,
+          danger: true,
+          onSelect: () => setSheet("delete"),
+        },
       ]
-    : [{ label: t("viewer.report"), icon: <Flag />, danger: true, onSelect: () => setSheet("report") }];
+    : [
+        {
+          label: t("viewer.report"),
+          icon: <Flag />,
+          danger: true,
+          onSelect: () => setSheet("report"),
+        },
+      ];
 
   return (
     <BaseDialog.Root open onOpenChange={(open) => !open && close()}>
@@ -324,15 +412,35 @@ function StoryViewer({ reels, startReel, startStoryId }: { reels: ViewerReel[]; 
           ref={popup}
           initialFocus={popup}
         >
-          <BaseDialog.Title className="sr-only">{t("viewer.label", { name: reel.user?.displayName ?? "" })}</BaseDialog.Title>
-          <button type="button" aria-label={t("viewer.previous")} onClick={previous} className="mr-3 hidden size-11 shrink-0 place-items-center rounded-full bg-white/15 hover:bg-white/25 sm:grid">
+          <BaseDialog.Title className="sr-only">
+            {t("viewer.label", { name: reel.user?.displayName ?? "" })}
+          </BaseDialog.Title>
+          <button
+            type="button"
+            aria-label={t("viewer.previous")}
+            onClick={previous}
+            className="mr-3 hidden size-11 shrink-0 place-items-center rounded-full bg-white/15 hover:bg-white/25 sm:grid"
+          >
             <ChevronLeft className="size-6" />
           </button>
 
           <div className="relative flex size-full flex-col overflow-hidden bg-black sm:aspect-[9/16] sm:h-[min(92dvh,56rem)] sm:w-auto sm:shrink-0 sm:rounded-[1.75rem] sm:border-2 sm:border-white/25">
             {/* The picture or video, and the surface that takes taps, holds and swipes. */}
-            <div className="absolute inset-0 touch-none select-none" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel} data-testid="story-stage">
-              <SegmentMedia key={segment.key} segment={segment} video={video} muted={muted} onReady={() => setReady(true)} />
+            <div
+              className="absolute inset-0 touch-none select-none"
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerCancel={onPointerCancel}
+              data-testid="story-stage"
+            >
+              <SegmentMedia
+                key={segment.key}
+                segment={segment}
+                video={video}
+                muted={muted}
+                onReady={() => setReady(true)}
+              />
               {!ready && (
                 <span className="absolute inset-0 grid place-items-center">
                   <Spinner className="size-8 text-white/80" />
@@ -347,10 +455,24 @@ function StoryViewer({ reels, startReel, startStoryId }: { reels: ViewerReel[]; 
               )}
             </div>
 
-            <div className={cn("pointer-events-none relative z-10 bg-gradient-to-b from-black/65 to-transparent px-3 pt-safe pb-8 transition-opacity", holding && "opacity-0")}>
-              <div className="flex gap-1" role="progressbar" aria-valuemin={1} aria-valuemax={segments.length} aria-valuenow={position.segment + 1}>
+            <div
+              className={cn(
+                "pointer-events-none relative z-10 bg-gradient-to-b from-black/65 to-transparent px-3 pt-safe pb-8 transition-opacity",
+                holding && "opacity-0",
+              )}
+            >
+              <div
+                className="flex gap-1"
+                role="progressbar"
+                aria-valuemin={1}
+                aria-valuemax={segments.length}
+                aria-valuenow={position.segment + 1}
+              >
                 {segments.map((item, index) => (
-                  <span key={item.key} className="h-1 flex-1 overflow-hidden rounded-full bg-white/35">
+                  <span
+                    key={item.key}
+                    className="h-1 flex-1 overflow-hidden rounded-full bg-white/35"
+                  >
                     <span
                       ref={index === position.segment ? bar : undefined}
                       className="block h-full origin-left bg-white"
@@ -361,30 +483,50 @@ function StoryViewer({ reels, startReel, startStoryId }: { reels: ViewerReel[]; 
               </div>
               <div className="pointer-events-auto mt-2.5 flex items-center gap-2.5">
                 {reel.user && (
-                  <Link to="/u/$handle" params={{ handle: reel.user.handle }} onClick={close} className="flex min-w-0 flex-1 items-center gap-2.5">
+                  <Link
+                    to="/u/$handle"
+                    params={{ handle: reel.user.handle }}
+                    onClick={close}
+                    className="flex min-w-0 flex-1 items-center gap-2.5"
+                  >
                     <Avatar user={reel.user} size="sm" />
                     <span className="min-w-0">
-                      <span className="block truncate text-sm font-black">{reel.highlight ? reel.highlight.title : reel.user.displayName}</span>
+                      <span className="block truncate text-sm font-black">
+                        {reel.highlight ? reel.highlight.title : reel.user.displayName}
+                      </span>
                       <span className="block truncate text-xs text-white/75">
-                        {reel.highlight ? reel.user.displayName : `@${reel.user.handle}`} · {compactAge(toMillis(story.createdAt))}
+                        {reel.highlight ? reel.user.displayName : `@${reel.user.handle}`} ·{" "}
+                        {compactAge(toMillis(story.createdAt))}
                       </span>
                     </span>
                   </Link>
                 )}
                 {segmentIsVideo && (
-                  <button type="button" aria-label={muted ? t("viewer.unmute") : t("viewer.mute")} onClick={() => setMuted(!muted)} className="grid size-9 place-items-center rounded-full hover:bg-white/15">
+                  <button
+                    type="button"
+                    aria-label={muted ? t("viewer.unmute") : t("viewer.mute")}
+                    onClick={() => setMuted(!muted)}
+                    className="grid size-9 place-items-center rounded-full hover:bg-white/15"
+                  >
                     {muted ? <VolumeX className="size-5" /> : <Volume2 className="size-5" />}
                   </button>
                 )}
                 <Menu
                   trigger={
-                    <button type="button" aria-label={t("viewer.menu")} className="grid size-9 place-items-center rounded-full hover:bg-white/15">
+                    <button
+                      type="button"
+                      aria-label={t("viewer.menu")}
+                      className="grid size-9 place-items-center rounded-full hover:bg-white/15"
+                    >
                       <Ellipsis className="size-5" />
                     </button>
                   }
                   actions={actions}
                 />
-                <BaseDialog.Close aria-label={t("viewer.close")} className="grid size-9 place-items-center rounded-full hover:bg-white/15">
+                <BaseDialog.Close
+                  aria-label={t("viewer.close")}
+                  className="grid size-9 place-items-center rounded-full hover:bg-white/15"
+                >
                   <X className="size-5" />
                 </BaseDialog.Close>
               </div>
@@ -392,15 +534,30 @@ function StoryViewer({ reels, startReel, startStoryId }: { reels: ViewerReel[]; 
 
             <div className="flex-1" />
 
-            <div className={cn("pointer-events-none relative z-10 bg-gradient-to-t from-black/75 to-transparent px-4 pt-10 pb-safe transition-opacity", holding && "opacity-0")}>
-              {story.title && <p className="text-lg font-black leading-snug break-words">{story.title}</p>}
-              {segment.item.caption && <p className="mt-1 text-[15px] leading-relaxed break-words whitespace-pre-wrap text-white/90">{segment.item.caption}</p>}
+            <div
+              className={cn(
+                "pointer-events-none relative z-10 bg-gradient-to-t from-black/75 to-transparent px-4 pt-10 pb-safe transition-opacity",
+                holding && "opacity-0",
+              )}
+            >
+              {story.title && (
+                <p className="text-lg font-black leading-snug break-words">{story.title}</p>
+              )}
+              {segment.item.caption && (
+                <p className="mt-1 text-[15px] leading-relaxed break-words whitespace-pre-wrap text-white/90">
+                  {segment.item.caption}
+                </p>
+              )}
               <div className="pointer-events-auto mt-3 mb-1">
                 {mine ? (
                   <OwnerBar story={story} onOpen={() => setSheet("viewers")} />
                 ) : (
                   // biome-ignore lint/a11y/useSemanticElements: a row of emoji buttons, not a form group.
-                  <div className="relative flex items-center justify-between gap-1" role="group" aria-label={t("viewer.react")}>
+                  <div
+                    className="relative flex items-center justify-between gap-1"
+                    role="group"
+                    aria-label={t("viewer.react")}
+                  >
                     {QUICK_REACTIONS.map((emoji) => (
                       <button
                         key={emoji}
@@ -408,31 +565,55 @@ function StoryViewer({ reels, startReel, startStoryId }: { reels: ViewerReel[]; 
                         aria-label={emoji}
                         aria-pressed={myReaction === emoji}
                         onClick={() => void react(emoji)}
-                        className={cn("grid size-11 place-items-center rounded-full text-2xl transition-transform active:scale-125", myReaction === emoji ? "bg-white/30 ring-2 ring-white" : "bg-white/10 hover:bg-white/20")}
+                        className={cn(
+                          "grid size-11 place-items-center rounded-full text-2xl transition-transform active:scale-125",
+                          myReaction === emoji
+                            ? "bg-white/30 ring-2 ring-white"
+                            : "bg-white/10 hover:bg-white/20",
+                        )}
                       >
                         <span aria-hidden>{emoji}</span>
                       </button>
                     ))}
                     <EmojiPickerButton
-                      current={myReaction && !QUICK_REACTIONS.includes(myReaction) ? myReaction : undefined}
+                      current={
+                        myReaction && !QUICK_REACTIONS.includes(myReaction) ? myReaction : undefined
+                      }
                       onOpenChange={setPickerOpen}
                       onPick={(emoji) => void react(emoji)}
                       label={t("viewer.moreReactions")}
                     />
-                    <span className="pointer-events-none absolute top-0 left-1/2 text-2xl">{burst}</span>
+                    <span className="pointer-events-none absolute top-0 left-1/2 text-2xl">
+                      {burst}
+                    </span>
                   </div>
                 )}
               </div>
             </div>
           </div>
 
-          <button type="button" aria-label={t("viewer.next")} onClick={next} className="ml-3 hidden size-11 shrink-0 place-items-center rounded-full bg-white/15 hover:bg-white/25 sm:grid">
+          <button
+            type="button"
+            aria-label={t("viewer.next")}
+            onClick={next}
+            className="ml-3 hidden size-11 shrink-0 place-items-center rounded-full bg-white/15 hover:bg-white/25 sm:grid"
+          >
             <ChevronRight className="size-6" />
           </button>
 
-          {sheet === "viewers" && <ViewersDialog storyId={story.id} onClose={() => setSheet(undefined)} />}
-          {sheet === "highlight" && <HighlightPicker storyId={story.id} onClose={() => setSheet(undefined)} />}
-          {sheet === "editHighlight" && reel.highlight && <HighlightEditor highlight={reel.highlight} onClose={() => setSheet(undefined)} onSaved={close} />}
+          {sheet === "viewers" && (
+            <ViewersDialog storyId={story.id} onClose={() => setSheet(undefined)} />
+          )}
+          {sheet === "highlight" && (
+            <HighlightPicker storyId={story.id} onClose={() => setSheet(undefined)} />
+          )}
+          {sheet === "editHighlight" && reel.highlight && (
+            <HighlightEditor
+              highlight={reel.highlight}
+              onClose={() => setSheet(undefined)}
+              onSaved={close}
+            />
+          )}
           <ConfirmDialog
             open={sheet === "deleteHighlight"}
             onOpenChange={(open) => !open && setSheet(undefined)}
@@ -477,13 +658,32 @@ function StoryViewer({ reels, startReel, startStoryId }: { reels: ViewerReel[]; 
 }
 
 /** One photo or video of a story, filling the stage. It says when it can be shown, which is when its time starts. */
-function SegmentMedia({ segment, video, muted, onReady }: { segment: Segment; video: RefObject<HTMLVideoElement | null>; muted: boolean; onReady(): void }) {
+function SegmentMedia({
+  segment,
+  video,
+  muted,
+  onReady,
+}: {
+  segment: Segment;
+  video: RefObject<HTMLVideoElement | null>;
+  muted: boolean;
+  onReady(): void;
+}) {
   const attachment = segment.item.media!;
   const info = attachment.video;
   useVideoSource(video, info, isVideo(attachment));
   if (isVideo(attachment)) {
     return (
-      <video ref={video} poster={imageUrl(info?.poster, 720) || undefined} muted={muted} playsInline preload="auto" onCanPlay={onReady} onError={onReady} className="size-full object-contain" />
+      <video
+        ref={video}
+        poster={imageUrl(info?.poster, 720) || undefined}
+        muted={muted}
+        playsInline
+        preload="auto"
+        onCanPlay={onReady}
+        onError={onReady}
+        className="size-full object-contain"
+      />
     );
   }
   return (
@@ -511,10 +711,19 @@ function OwnerBar({ story, onOpen }: { story: notes.Story; onOpen(): void }) {
   });
   const current = data ?? story;
   return (
-    <button type="button" onClick={onOpen} className="flex h-11 w-full items-center gap-3 rounded-full bg-white/15 px-4 text-sm font-black hover:bg-white/25" data-testid="story-views">
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex h-11 w-full items-center gap-3 rounded-full bg-white/15 px-4 text-sm font-black hover:bg-white/25"
+      data-testid="story-views"
+    >
       <Eye className="size-5" />
       <span>{t("viewer.views", { count: current.viewCount })}</span>
-      {current.reactionCount > 0 && <span className="text-white/80">· {t("viewer.reactions", { count: current.reactionCount })}</span>}
+      {current.reactionCount > 0 && (
+        <span className="text-white/80">
+          · {t("viewer.reactions", { count: current.reactionCount })}
+        </span>
+      )}
       <span className="flex-1" />
       <ChevronRight className="size-4 opacity-70" />
     </button>
@@ -522,13 +731,31 @@ function OwnerBar({ story, onOpen }: { story: notes.Story; onOpen(): void }) {
 }
 
 /** The "any emoji" button at the end of the quick reactions. It shows the viewer's reaction when that is not a quick one. */
-function EmojiPickerButton({ current, label, onPick, onOpenChange }: { current?: string; label: string; onPick(emoji: string): void; onOpenChange(open: boolean): void }) {
+function EmojiPickerButton({
+  current,
+  label,
+  onPick,
+  onOpenChange,
+}: {
+  current?: string;
+  label: string;
+  onPick(emoji: string): void;
+  onOpenChange(open: boolean): void;
+}) {
   return (
     <EmojiPicker
       onPick={onPick}
       onOpenChange={onOpenChange}
       trigger={
-        <button type="button" aria-label={label} aria-pressed={Boolean(current)} className={cn("grid size-11 place-items-center rounded-full text-2xl", current ? "bg-white/30 ring-2 ring-white" : "bg-white/10 hover:bg-white/20")}>
+        <button
+          type="button"
+          aria-label={label}
+          aria-pressed={Boolean(current)}
+          className={cn(
+            "grid size-11 place-items-center rounded-full text-2xl",
+            current ? "bg-white/30 ring-2 ring-white" : "bg-white/10 hover:bg-white/20",
+          )}
+        >
           {current ? <span aria-hidden>{current}</span> : <SmilePlus className="size-5" />}
         </button>
       }

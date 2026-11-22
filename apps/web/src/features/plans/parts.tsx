@@ -4,7 +4,15 @@ import { Avatar } from "#/components/ui/avatar";
 import { cn } from "#/lib/cn";
 
 /** A heading inside a page of this area, with an optional control on the right. */
-export function SectionTitle({ children, action, className }: { children: ReactNode; action?: ReactNode; className?: string }) {
+export function SectionTitle({
+  children,
+  action,
+  className,
+}: {
+  children: ReactNode;
+  action?: ReactNode;
+  className?: string;
+}) {
   return (
     <div className={cn("mb-2 flex min-h-9 items-center gap-2 px-1", className)}>
       <h2 className="min-w-0 flex-1 truncate text-base font-black">{children}</h2>
@@ -14,14 +22,27 @@ export function SectionTitle({ children, action, className }: { children: ReactN
 }
 
 /** A few faces overlapping, and how many more there are. */
-export function AvatarStack({ users, max = 4, total }: { users: common.UserSummary[]; max?: number; total?: number }) {
+export function AvatarStack({
+  users,
+  max = 4,
+  total,
+}: {
+  users: common.UserSummary[];
+  max?: number;
+  total?: number;
+}) {
   const shown = users.slice(0, max);
   const more = (total ?? users.length) - shown.length;
   return (
     <span className="flex items-center">
       <span className="flex -space-x-2">
         {shown.map((user) => (
-          <Avatar key={user.id} user={user} size="xs" className="rounded-[0.5rem] ring-2 ring-surface" />
+          <Avatar
+            key={user.id}
+            user={user}
+            size="xs"
+            className="rounded-[0.5rem] ring-2 ring-surface"
+          />
         ))}
       </span>
       {more > 0 && <span className="ml-1.5 text-xs font-black text-ink-soft">+{more}</span>}
@@ -68,7 +89,9 @@ export function ChoiceChips<T extends string | number>({
             onClick={() => onChange(option.value)}
             className={cn(
               "inline-flex h-10 items-center gap-1.5 rounded-full border-2 px-4 text-sm font-bold transition-colors",
-              active ? "border-ink bg-brand text-on-brand" : "border-line bg-surface text-ink-soft hover:border-ink-faint",
+              active
+                ? "border-ink bg-brand text-on-brand"
+                : "border-line bg-surface text-ink-soft hover:border-ink-faint",
             )}
           >
             {option.label}

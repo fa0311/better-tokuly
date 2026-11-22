@@ -3,7 +3,20 @@ import { search } from "@tokuly/api";
 const K = search.SearchKind;
 
 /** Every kind of thing search can find, in the order their tabs are shown. */
-export const KINDS = [K.USER, K.CHANNEL, K.NOTE, K.VIDEO, K.SHORT, K.LIVE, K.CLIP, K.PLAYLIST, K.STAMP_PACK, K.PLACE, K.HASHTAG, K.NEWS] as const;
+export const KINDS = [
+  K.USER,
+  K.CHANNEL,
+  K.NOTE,
+  K.VIDEO,
+  K.SHORT,
+  K.LIVE,
+  K.CLIP,
+  K.PLAYLIST,
+  K.STAMP_PACK,
+  K.PLACE,
+  K.HASHTAG,
+  K.NEWS,
+] as const;
 export type Kind = (typeof KINDS)[number];
 
 /** A kind's name in the address (`/search?kind=people`) and in the `kinds.*` strings. */
@@ -40,12 +53,18 @@ export type HitExtra = Record<string, unknown>;
 export function hitExtra(hit: Pick<search.SearchHit, "extraJson">): HitExtra {
   try {
     const parsed: unknown = JSON.parse(hit.extraJson || "{}");
-    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as HitExtra) : {};
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as HitExtra)
+      : {};
   } catch {
     return {};
   }
 }
 
-export const extraText = (extra: HitExtra, key: string): string => (typeof extra[key] === "string" ? (extra[key] as string) : "");
-export const extraNumber = (extra: HitExtra, key: string): number | undefined => (typeof extra[key] === "number" && Number.isFinite(extra[key]) ? (extra[key] as number) : undefined);
+export const extraText = (extra: HitExtra, key: string): string =>
+  typeof extra[key] === "string" ? (extra[key] as string) : "";
+export const extraNumber = (extra: HitExtra, key: string): number | undefined =>
+  typeof extra[key] === "number" && Number.isFinite(extra[key])
+    ? (extra[key] as number)
+    : undefined;
 export const extraFlag = (extra: HitExtra, key: string): boolean => extra[key] === true;

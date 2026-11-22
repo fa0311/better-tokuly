@@ -70,7 +70,8 @@ export function ShareButton({ subject, title, showCount, className }: ShareButto
       await navigator.share({ url, title });
     } catch (error) {
       // Closing the share sheet is not an error worth a toast.
-      if (!(error instanceof DOMException && error.name === "AbortError")) toast.error(errorMessage(error));
+      if (!(error instanceof DOMException && error.name === "AbortError"))
+        toast.error(errorMessage(error));
     }
   };
 
@@ -79,10 +80,15 @@ export function ShareButton({ subject, title, showCount, className }: ShareButto
       type="button"
       aria-label={t("share.label")}
       onClick={canShare ? undefined : () => void copyLink()}
-      className={cn("inline-flex h-9 min-w-9 items-center justify-center gap-1.5 rounded-full px-2 text-sm font-black text-ink-soft transition-colors hover:bg-surface-2 hover:text-ink", className)}
+      className={cn(
+        "inline-flex h-9 min-w-9 items-center justify-center gap-1.5 rounded-full px-2 text-sm font-black text-ink-soft transition-colors hover:bg-surface-2 hover:text-ink",
+        className,
+      )}
     >
       <Share2 className="size-[18px]" />
-      {showCount && data && data.shareCount > 0 && <span className="tabular-nums">{compactCount(data.shareCount, i18n.language)}</span>}
+      {showCount && data && data.shareCount > 0 && (
+        <span className="tabular-nums">{compactCount(data.shareCount, i18n.language)}</span>
+      )}
     </button>
   );
   if (!canShare) return button;

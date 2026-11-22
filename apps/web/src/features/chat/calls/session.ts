@@ -3,10 +3,10 @@ import { type chat, errorReason } from "@tokuly/api";
 import type { Room } from "livekit-client";
 import { toast } from "sonner";
 import { create } from "zustand";
-import { errorMessage } from "../errors";
 import i18n from "#/lib/i18n";
 import { callClient } from "../api";
 import { patchConversation, readConversation } from "../conversations";
+import { errorMessage } from "../errors";
 import { useLive } from "../live";
 
 /**
@@ -45,16 +45,24 @@ export function currentRoom(): Room | null {
 const t = (key: string) => i18n.t(key, { ns: "chat" });
 
 function update(change: Partial<ActiveCall>): void {
-  useCallSession.setState((state) => (state.active ? { active: { ...state.active, ...change } } : state));
+  useCallSession.setState((state) =>
+    state.active ? { active: { ...state.active, ...change } } : state,
+  );
 }
 
 function touch(): void {
-  useCallSession.setState((state) => (state.active ? { active: { ...state.active, revision: state.active.revision + 1 } } : state));
+  useCallSession.setState((state) =>
+    state.active ? { active: { ...state.active, revision: state.active.revision + 1 } } : state,
+  );
 }
 
 function noteCall(queryClient: QueryClient, call: chat.Call): void {
   useLive.getState().setCall(call);
-  patchConversation(queryClient, call.conversationId, (conversation) => (conversation.activeCallId === call.id ? conversation : { ...conversation, activeCallId: call.id }));
+  patchConversation(queryClient, call.conversationId, (conversation) =>
+    conversation.activeCallId === call.id
+      ? conversation
+      : { ...conversation, activeCallId: call.id },
+  );
 }
 
 /** Lets go of the room and the devices, and closes the call screen. */
@@ -65,7 +73,10 @@ async function close(): Promise<void> {
   await leaving?.disconnect().catch(() => {});
 }
 
-async function connect(credentials: chat.CallCredentials | undefined, video: boolean): Promise<void> {
+async function connect(
+  credentials: chat.CallCredentials | undefined,
+  video: boolean,
+): Promise<void> {
   if (!credentials) throw new Error("no call credentials");
   const { Room, RoomEvent } = await import("livekit-client");
   // The person hung up while the client was loading.
@@ -88,9 +99,20 @@ async function connect(credentials: chat.CallCredentials | undefined, video: boo
   }
   session.on(RoomEvent.Reconnecting, () => mine() && update({ phase: "reconnecting" }));
   session.on(RoomEvent.Reconnected, () => mine() && update({ phase: "connected" }));
-  session.on(RoomEvent.AudioPlaybackStatusChanged, () => mine() && update({ audioBlocked: !session.canPlaybackAudio }));
+  session.on(
+    RoomEvent.AudioPlaybackStatusChanged,
+    () => mine() && update({ audioBlocked: !session.canPlaybackAudio }),
+  );
   // Screen sharing can be stopped from the browser's own bar.
-  session.on(RoomEvent.LocalTrackUnpublished, () => mine() && update({ screenOn: session.localParticipant.isScreenShareEnabled, cameraOn: session.localParticipant.isCameraEnabled }));
+  session.on(
+    RoomEvent.LocalTrackUnpublished,
+    () =>
+      mine() &&
+      update({
+        screenOn: session.localParticipant.isScreenShareEnabled,
+        cameraOn: session.localParticipant.isCameraEnabled,
+      }),
+  );
   session.on(RoomEvent.Disconnected, () => {
     if (!mine()) return;
     // The connection is gone for good (the call ended, or the network did).
@@ -125,13 +147,28 @@ function begin(conversationId: string, video: boolean, startedByMe: boolean, cal
     return false;
   }
   useCallSession.setState({
-    active: { callId, conversationId, video, startedByMe, phase: "starting", minimized: false, micOn: false, cameraOn: false, screenOn: false, audioBlocked: false, revision: 0 },
+    active: {
+      callId,
+      conversationId,
+      video,
+      startedByMe,
+      phase: "starting",
+      minimized: false,
+      micOn: false,
+      cameraOn: false,
+      screenOn: false,
+      audioBlocked: false,
+      revision: 0,
+    },
   });
   return true;
 }
 
 /** Accepts a ringing call, or joins the call running in a group. */
-export async function joinCall(queryClient: QueryClient, call: Pick<chat.Call, "id" | "conversationId" | "video">): Promise<void> {
+export async function joinCall(
+  queryClient: QueryClient,
+  call: Pick<chat.Call, "id" | "conversationId" | "video">,
+): Promise<void> {
   if (!begin(call.conversationId, call.video, false, call.id)) return;
   try {
     const response = await callClient().joinCall({ callId: call.id });
@@ -141,18 +178,27 @@ export async function joinCall(queryClient: QueryClient, call: Pick<chat.Call, "
     toast.error(errorMessage(error));
     await close();
     // Joined on the server but never connected: do not stay in the call as a ghost.
-    void callClient().leaveCall({ callId: call.id }).catch(() => {});
+    void callClient()
+      .leaveCall({ callId: call.id })
+      .catch(() => {});
   }
 }
 
 /** Starts a voice or video call in a conversation and rings the others. */
-export async function startCall(queryClient: QueryClient, conversationId: string, video: boolean): Promise<void> {
+export async function startCall(
+  queryClient: QueryClient,
+  conversationId: string,
+  video: boolean,
+): Promise<void> {
   if (!begin(conversationId, video, true)) return;
   try {
     const response = await callClient().startCall({ conversationId, video });
     if (!useCallSession.getState().active) {
       // Hung up before the call existed: take it back.
-      if (response.call) void callClient().leaveCall({ callId: response.call.id }).catch(() => {});
+      if (response.call)
+        void callClient()
+          .leaveCall({ callId: response.call.id })
+          .catch(() => {});
       return;
     }
     if (response.call) {
@@ -164,10 +210,14 @@ export async function startCall(queryClient: QueryClient, conversationId: string
     const started = useCallSession.getState().active?.callId;
     await close();
     // The call exists but could not be connected to: end it rather than let it ring on.
-    if (started) void callClient().leaveCall({ callId: started }).catch(() => {});
+    if (started)
+      void callClient()
+        .leaveCall({ callId: started })
+        .catch(() => {});
     // Somebody else started one in the meantime: join theirs instead.
     const running = readConversation(queryClient, conversationId)?.activeCallId;
-    if (errorReason(error) === "CALL_IN_PROGRESS" && running) return joinCall(queryClient, { id: running, conversationId, video });
+    if (errorReason(error) === "CALL_IN_PROGRESS" && running)
+      return joinCall(queryClient, { id: running, conversationId, video });
     toast.error(errorMessage(error));
   }
 }
@@ -179,7 +229,8 @@ export async function declineCall(callId: string): Promise<void> {
     if (call) useLive.getState().setCall(call);
   } catch (error) {
     // Ended or answered elsewhere in the meantime: nothing left to decline.
-    if (errorReason(error) !== "CALL_ENDED" && errorReason(error) !== "ALREADY_JOINED") toast.error(errorMessage(error));
+    if (errorReason(error) !== "CALL_ENDED" && errorReason(error) !== "ALREADY_JOINED")
+      toast.error(errorMessage(error));
   }
 }
 
@@ -188,7 +239,10 @@ export async function hangUp(): Promise<void> {
   const active = useCallSession.getState().active;
   if (!active) return;
   await close();
-  if (active.callId) await callClient().leaveCall({ callId: active.callId }).catch(() => {});
+  if (active.callId)
+    await callClient()
+      .leaveCall({ callId: active.callId })
+      .catch(() => {});
 }
 
 /** The call ended for everyone (an event said so): close the screen without leaving again. */
@@ -226,7 +280,10 @@ export async function toggleCamera(): Promise<void> {
 
 /** Whether this browser can share the screen at all (phones cannot). */
 export function canShareScreen(): boolean {
-  return typeof navigator !== "undefined" && typeof navigator.mediaDevices?.getDisplayMedia === "function";
+  return (
+    typeof navigator !== "undefined" &&
+    typeof navigator.mediaDevices?.getDisplayMedia === "function"
+  );
 }
 
 export async function toggleScreenShare(): Promise<void> {

@@ -1,4 +1,9 @@
-import { type InfiniteData, type QueryClient, useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import {
+  type InfiniteData,
+  type QueryClient,
+  useInfiniteQuery,
+  useQuery,
+} from "@tanstack/react-query";
 import { create, notes } from "@tokuly/api";
 import { create as createStore } from "zustand";
 import { api } from "#/lib/api";
@@ -52,7 +57,11 @@ export const notesKeys = {
 };
 
 /** Reads one page of a timeline. */
-export async function fetchTimeline(source: TimelineSource, cursor: string, limit = PAGE_SIZE): Promise<TimelinePage> {
+export async function fetchTimeline(
+  source: TimelineSource,
+  cursor: string,
+  limit = PAGE_SIZE,
+): Promise<TimelinePage> {
   const page = { cursor, limit };
   const client = noteClient();
   switch (source.kind) {
@@ -69,12 +78,24 @@ export async function fetchTimeline(source: TimelineSource, cursor: string, limi
       return { entries: response.entries, nextCursor: response.page?.nextCursor ?? "" };
     }
     case "user": {
-      const response = await client.getUserTimeline({ userId: source.userId, filter: source.filter, page });
-      return { entries: response.entries, nextCursor: response.page?.nextCursor ?? "", pinnedNote: response.pinnedNote };
+      const response = await client.getUserTimeline({
+        userId: source.userId,
+        filter: source.filter,
+        page,
+      });
+      return {
+        entries: response.entries,
+        nextCursor: response.page?.nextCursor ?? "",
+        pinnedNote: response.pinnedNote,
+      };
     }
     case "hashtag": {
       const response = await client.getHashtagTimeline({ tag: source.tag, page });
-      return { entries: response.entries, nextCursor: response.page?.nextCursor ?? "", hashtag: response.hashtag };
+      return {
+        entries: response.entries,
+        nextCursor: response.page?.nextCursor ?? "",
+        hashtag: response.hashtag,
+      };
     }
   }
 }
@@ -100,7 +121,8 @@ export function useTimeline(source: TimelineSource, enabled = true) {
 export function useThread(noteId: string) {
   return useInfiniteQuery({
     queryKey: notesKeys.thread(noteId),
-    queryFn: ({ pageParam }) => noteClient().getNoteThread({ noteId, page: { cursor: pageParam, limit: PAGE_SIZE } }),
+    queryFn: ({ pageParam }) =>
+      noteClient().getNoteThread({ noteId, page: { cursor: pageParam, limit: PAGE_SIZE } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
@@ -112,7 +134,8 @@ export type ThreadData = InfiniteData<notes.GetNoteThreadResponse, string>;
 export function useQuotes(noteId: string, enabled = true) {
   return useInfiniteQuery({
     queryKey: notesKeys.quotes(noteId),
-    queryFn: ({ pageParam }) => noteClient().listNoteQuotes({ noteId, page: { cursor: pageParam, limit: PAGE_SIZE } }),
+    queryFn: ({ pageParam }) =>
+      noteClient().listNoteQuotes({ noteId, page: { cursor: pageParam, limit: PAGE_SIZE } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
     enabled,
@@ -163,7 +186,12 @@ export function loadNote(noteId: string): Promise<notes.Note | null> {
 
 /** A note shown outside a timeline (a saved note, a feed card). Kept current by the same live updates as timelines. */
 export function useNote(noteId: string, enabled = true) {
-  return useQuery({ queryKey: notesKeys.note(noteId), queryFn: () => loadNote(noteId), enabled: enabled && Boolean(noteId), staleTime: 60_000 });
+  return useQuery({
+    queryKey: notesKeys.note(noteId),
+    queryFn: () => loadNote(noteId),
+    enabled: enabled && Boolean(noteId),
+    staleTime: 60_000,
+  });
 }
 
 // ───────────────────────────── Cache patching ─────────────────────────────
@@ -195,18 +223,25 @@ export function mapNotes<T>(value: T, update: (note: notes.Note) => notes.Note):
     }
   }
   const result = (next ?? value) as T;
-  return (result as { $typeName?: string }).$typeName === NOTE_TYPE ? (update(result as notes.Note) as T) : result;
+  return (result as { $typeName?: string }).$typeName === NOTE_TYPE
+    ? (update(result as notes.Note) as T)
+    : result;
 }
 
 /** Applies `update` to a note wherever it is cached: timelines, threads, quote lists, single notes, quote embeds. */
-export function patchNote(queryClient: QueryClient, noteId: string, update: (note: notes.Note) => notes.Note): void {
+export function patchNote(
+  queryClient: QueryClient,
+  noteId: string,
+  update: (note: notes.Note) => notes.Note,
+): void {
   const apply = (note: notes.Note) => (note.id === noteId ? update(note) : note);
   for (const query of queryClient.getQueryCache().findAll({ queryKey: notesKeys.all })) {
     const data = query.state.data;
     if (data === undefined) continue;
     const next = mapNotes(data, apply);
     // Keep the entry's age: a counter that moved does not make a page of notes fresh.
-    if (next !== data) queryClient.setQueryData(query.queryKey, next, { updatedAt: query.state.dataUpdatedAt });
+    if (next !== data)
+      queryClient.setQueryData(query.queryKey, next, { updatedAt: query.state.dataUpdatedAt });
   }
 }
 
@@ -228,14 +263,24 @@ export function withCounters(note: notes.Note, counters: notes.NoteCounters): no
 }
 
 /** The note's counters with one of them moved by `delta`: the guess shown before the server answers. */
-export function bumpCounter(note: notes.Note, counter: "likeCount" | "renoteCount" | "replyCount" | "quoteCount", delta: number): notes.NoteCounters {
+export function bumpCounter(
+  note: notes.Note,
+  counter: "likeCount" | "renoteCount" | "replyCount" | "quoteCount",
+  delta: number,
+): notes.NoteCounters {
   const current = note.counters ?? create(notes.NoteCountersSchema, { noteId: note.id });
   const next = current[counter] + BigInt(delta);
   return { ...current, [counter]: next < 0n ? 0n : next };
 }
 
-export function withViewer(note: notes.Note, viewer: Partial<Pick<notes.NoteViewerState, "liked" | "renoted">>): notes.Note {
-  return { ...note, viewer: { ...(note.viewer ?? create(notes.NoteViewerStateSchema)), ...viewer } };
+export function withViewer(
+  note: notes.Note,
+  viewer: Partial<Pick<notes.NoteViewerState, "liked" | "renoted">>,
+): notes.Note {
+  return {
+    ...note,
+    viewer: { ...(note.viewer ?? create(notes.NoteViewerStateSchema)), ...viewer },
+  };
 }
 
 // ───────────────────────────── Deleted notes ─────────────────────────────
@@ -245,7 +290,9 @@ export function withViewer(note: notes.Note, viewer: Partial<Pick<notes.NoteView
  * realtime). Lists hide them and quote embeds show them as unavailable
  * without anyone rewriting cached pages.
  */
-export const useDeletedNotes = createStore<{ ids: ReadonlySet<string> }>(() => ({ ids: new Set() }));
+export const useDeletedNotes = createStore<{ ids: ReadonlySet<string> }>(() => ({
+  ids: new Set(),
+}));
 
 export function markNoteDeleted(noteId: string): void {
   const { ids } = useDeletedNotes.getState();
@@ -271,14 +318,29 @@ export function resetDeletedNotes(): void {
  */
 export function forgetUserNotes(queryClient: QueryClient, userId: string): void {
   if (!userId) return;
-  const theirs = (entry: notes.TimelineEntry) => entry.note?.author?.id === userId || entry.renote?.user?.id === userId || entry.note?.quote?.note?.author?.id === userId;
+  const theirs = (entry: notes.TimelineEntry) =>
+    entry.note?.author?.id === userId ||
+    entry.renote?.user?.id === userId ||
+    entry.note?.quote?.note?.author?.id === userId;
   queryClient.removeQueries({ queryKey: notesKeys.userTimelines(userId) });
   for (const query of queryClient.getQueryCache().findAll({ queryKey: notesKeys.timelines })) {
     const data = query.state.data as TimelineData | undefined;
-    if (!data?.pages.some((page) => page.entries.some(theirs) || page.pinnedNote?.author?.id === userId)) continue;
+    if (
+      !data?.pages.some(
+        (page) => page.entries.some(theirs) || page.pinnedNote?.author?.id === userId,
+      )
+    )
+      continue;
     queryClient.setQueryData<TimelineData>(
       query.queryKey,
-      { ...data, pages: data.pages.map((page) => ({ ...page, entries: page.entries.filter((entry) => !theirs(entry)), pinnedNote: page.pinnedNote?.author?.id === userId ? undefined : page.pinnedNote })) },
+      {
+        ...data,
+        pages: data.pages.map((page) => ({
+          ...page,
+          entries: page.entries.filter((entry) => !theirs(entry)),
+          pinnedNote: page.pinnedNote?.author?.id === userId ? undefined : page.pinnedNote,
+        })),
+      },
       { updatedAt: query.state.dataUpdatedAt },
     );
   }
@@ -302,7 +364,10 @@ export function entryKey(entry: notes.TimelineEntry): string {
  * first row already on screen. `undefined` when that row is not in `fresh`
  * at all: more arrived than one page holds.
  */
-export function countNewEntries(current: TimelineData | undefined, fresh: TimelinePage): number | undefined {
+export function countNewEntries(
+  current: TimelineData | undefined,
+  fresh: TimelinePage,
+): number | undefined {
   const top = current?.pages[0]?.entries[0];
   if (!top) return fresh.entries.length;
   const index = fresh.entries.findIndex((entry) => entryKey(entry) === entryKey(top));
@@ -315,12 +380,23 @@ export function countNewEntries(current: TimelineData | undefined, fresh: Timeli
  * leaves its old place. When `fresh` does not reach the rows on screen, the
  * list starts over from it rather than hiding a gap.
  */
-export function withFreshEntries(current: TimelineData | undefined, fresh: TimelinePage): TimelineData {
+export function withFreshEntries(
+  current: TimelineData | undefined,
+  fresh: TimelinePage,
+): TimelineData {
   const count = countNewEntries(current, fresh);
-  if (!current || current.pages.length === 0 || count === undefined) return { pages: [fresh], pageParams: [""] };
+  if (!current || current.pages.length === 0 || count === undefined)
+    return { pages: [fresh], pageParams: [""] };
   if (count === 0) {
     // Nothing new on top; the first page still learns what only it carries (the pinned note).
-    return { ...current, pages: current.pages.map((page, index) => (index === 0 ? { ...page, pinnedNote: fresh.pinnedNote, hashtag: fresh.hashtag ?? page.hashtag } : page)) };
+    return {
+      ...current,
+      pages: current.pages.map((page, index) =>
+        index === 0
+          ? { ...page, pinnedNote: fresh.pinnedNote, hashtag: fresh.hashtag ?? page.hashtag }
+          : page,
+      ),
+    };
   }
   const added = fresh.entries.slice(0, count);
   const addedIds = new Set(added.map((entry) => entry.note?.id));
@@ -328,17 +404,38 @@ export function withFreshEntries(current: TimelineData | undefined, fresh: Timel
     ...current,
     pages: current.pages.map((page, index) => {
       const kept = page.entries.filter((entry) => !addedIds.has(entry.note?.id));
-      return index === 0 ? { ...page, pinnedNote: fresh.pinnedNote, hashtag: fresh.hashtag ?? page.hashtag, entries: [...added, ...kept] } : { ...page, entries: kept };
+      return index === 0
+        ? {
+            ...page,
+            pinnedNote: fresh.pinnedNote,
+            hashtag: fresh.hashtag ?? page.hashtag,
+            entries: [...added, ...kept],
+          }
+        : { ...page, entries: kept };
     }),
   };
 }
 
 /** Puts a note the viewer just posted on top of a cached timeline (if that timeline is cached at all). */
-export function prependNote(queryClient: QueryClient, source: TimelineSource, note: notes.Note): void {
+export function prependNote(
+  queryClient: QueryClient,
+  source: TimelineSource,
+  note: notes.Note,
+): void {
   queryClient.setQueryData<TimelineData>(notesKeys.timeline(source), (current) => {
     if (!current || current.pages.length === 0) return current;
     const entry = create(notes.TimelineEntrySchema, { note });
-    return { ...current, pages: current.pages.map((page, index) => (index === 0 ? { ...page, entries: [entry, ...page.entries.filter((item) => item.note?.id !== note.id)] } : page)) };
+    return {
+      ...current,
+      pages: current.pages.map((page, index) =>
+        index === 0
+          ? {
+              ...page,
+              entries: [entry, ...page.entries.filter((item) => item.note?.id !== note.id)],
+            }
+          : page,
+      ),
+    };
   });
 }
 

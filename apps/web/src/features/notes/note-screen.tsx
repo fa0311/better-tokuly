@@ -40,7 +40,9 @@ export function NoteScreen({ noteId }: { noteId: string }) {
   const first = thread.data?.pages[0];
   const note = first?.note;
   const ancestors = first?.ancestors.filter((ancestor) => !deleted.has(ancestor.id)) ?? [];
-  const replies = (thread.data?.pages.flatMap((page) => page.replies) ?? []).filter((reply) => !deleted.has(reply.id));
+  const replies = (thread.data?.pages.flatMap((page) => page.replies) ?? []).filter(
+    (reply) => !deleted.has(reply.id),
+  );
 
   // The note the page is about starts at the top; what it answers is a scroll up away.
   const loadedId = note?.id;
@@ -49,7 +51,8 @@ export function NoteScreen({ noteId }: { noteId: string }) {
     if (loadedId && hasAncestors) focus.current?.scrollIntoView({ block: "start" });
   }, [loadedId, hasAncestors]);
 
-  const leave = () => (router.history.canGoBack() ? router.history.back() : void navigate({ to: "/notes" }));
+  const leave = () =>
+    router.history.canGoBack() ? router.history.back() : void navigate({ to: "/notes" });
 
   if (thread.isPending) {
     return (
@@ -70,7 +73,10 @@ export function NoteScreen({ noteId }: { noteId: string }) {
           title={missing ? t("thread.notFound") : errorMessage(thread.error)}
           body={missing ? t("thread.notFoundBody") : undefined}
           action={
-            <Link to="/notes" className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand">
+            <Link
+              to="/notes"
+              className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand"
+            >
               {t("thread.toTimeline")}
             </Link>
           }
@@ -82,7 +88,12 @@ export function NoteScreen({ noteId }: { noteId: string }) {
   const replyCount = Number(note.counters?.replyCount ?? 0n);
   const quoteCount = Number(note.counters?.quoteCount ?? 0n);
   return (
-    <NotesPage title={t("thread.title")} back="/notes" scrollId={`note-${noteId}`} onRefresh={() => thread.refetch()}>
+    <NotesPage
+      title={t("thread.title")}
+      back="/notes"
+      scrollId={`note-${noteId}`}
+      onRefresh={() => thread.refetch()}
+    >
       {ancestors.map((ancestor) => (
         <div key={ancestor.id}>
           <NoteCard note={ancestor} />
@@ -100,8 +111,18 @@ export function NoteScreen({ noteId }: { noteId: string }) {
         value={tab}
         onChange={setTab}
         items={[
-          { value: "replies", label: replyCount > 0 ? t("thread.repliesCount", { count: replyCount }) : t("thread.replies") },
-          { value: "quotes", label: quoteCount > 0 ? t("thread.quotesCount", { count: quoteCount }) : t("thread.quotes") },
+          {
+            value: "replies",
+            label:
+              replyCount > 0
+                ? t("thread.repliesCount", { count: replyCount })
+                : t("thread.replies"),
+          },
+          {
+            value: "quotes",
+            label:
+              quoteCount > 0 ? t("thread.quotesCount", { count: quoteCount }) : t("thread.quotes"),
+          },
         ]}
       />
       {tab === "replies" ? (
@@ -129,7 +150,11 @@ function FocusStats({ note, onShowQuotes }: { note: notes.Note; onShowQuotes(): 
   const counters = note.counters;
   const stats = [
     { key: "likes", count: Number(counters?.likeCount ?? 0n), onClick: () => setPeople("likers") },
-    { key: "renotes", count: Number(counters?.renoteCount ?? 0n), onClick: () => setPeople("renoters") },
+    {
+      key: "renotes",
+      count: Number(counters?.renoteCount ?? 0n),
+      onClick: () => setPeople("renoters"),
+    },
     { key: "quotes", count: Number(counters?.quoteCount ?? 0n), onClick: onShowQuotes },
     { key: "views", count: Number(counters?.viewCount ?? 0n), onClick: undefined },
   ].filter((stat) => stat.count > 0);
@@ -140,18 +165,28 @@ function FocusStats({ note, onShowQuotes }: { note: notes.Note; onShowQuotes(): 
       {stats.map((stat) => {
         const body = (
           <>
-            <span className="font-black text-ink tabular-nums">{compactCount(stat.count, i18n.language)}</span> {t(`thread.stats.${stat.key}`)}
+            <span className="font-black text-ink tabular-nums">
+              {compactCount(stat.count, i18n.language)}
+            </span>{" "}
+            {t(`thread.stats.${stat.key}`)}
           </>
         );
         return stat.onClick ? (
-          <button key={stat.key} type="button" onClick={stat.onClick} className="rounded-md hover:underline">
+          <button
+            key={stat.key}
+            type="button"
+            onClick={stat.onClick}
+            className="rounded-md hover:underline"
+          >
             {body}
           </button>
         ) : (
           <span key={stat.key}>{body}</span>
         );
       })}
-      {people && <PeopleDialog kind={people} noteId={note.id} onClose={() => setPeople(undefined)} />}
+      {people && (
+        <PeopleDialog kind={people} noteId={note.id} onClose={() => setPeople(undefined)} />
+      )}
     </div>
   );
 }
@@ -181,14 +216,16 @@ function ReplyBox({ note }: { note: notes.Note }) {
   }, [text]);
 
   const send = useMutation({
-    mutationFn: () => postNote(queryClient, { text: text.trim(), replyToId: note.id, idempotencyKey }),
+    mutationFn: () =>
+      postNote(queryClient, { text: text.trim(), replyToId: note.id, idempotencyKey }),
     onSuccess: () => {
       setText("");
       setIdempotencyKey(crypto.randomUUID());
       toast.success(t("toast.replied"));
     },
     onError: (error) => {
-      if (errorReason(error) === "RULES_NOT_ACCEPTED") void queryClient.invalidateQueries({ queryKey: notesKeys.rules });
+      if (errorReason(error) === "RULES_NOT_ACCEPTED")
+        void queryClient.invalidateQueries({ queryKey: notesKeys.rules });
       toast.error(errorMessage(error));
     },
   });
@@ -205,7 +242,10 @@ function ReplyBox({ note }: { note: notes.Note }) {
 
   if (!me?.user) return null;
   return (
-    <div className="mt-3 flex items-end gap-2.5 rounded-[1.25rem] border-2 border-line bg-surface p-2.5 focus-within:border-brand" data-testid="reply-box">
+    <div
+      className="mt-3 flex items-end gap-2.5 rounded-[1.25rem] border-2 border-line bg-surface p-2.5 focus-within:border-brand"
+      data-testid="reply-box"
+    >
       <Avatar user={me.user} size="sm" className="mb-0.5" />
       <textarea
         ref={field}
@@ -220,11 +260,31 @@ function ReplyBox({ note }: { note: notes.Note }) {
         onKeyDown={onKeyDown}
         className="max-h-40 min-w-0 flex-1 resize-none bg-transparent py-1.5 text-[15px] leading-relaxed outline-none placeholder:text-ink-faint"
       />
-      {length > NOTE_MAX_CHARS - 20 && <span className={cn("mb-2 text-xs font-black tabular-nums", over ? "text-danger" : "text-coral")}>{NOTE_MAX_CHARS - length}</span>}
-      <button type="button" aria-label={t("thread.replyWithMore")} onClick={openFull} className="grid size-9 shrink-0 place-items-center rounded-full text-brand hover:bg-brand-soft">
+      {length > NOTE_MAX_CHARS - 20 && (
+        <span
+          className={cn(
+            "mb-2 text-xs font-black tabular-nums",
+            over ? "text-danger" : "text-coral",
+          )}
+        >
+          {NOTE_MAX_CHARS - length}
+        </span>
+      )}
+      <button
+        type="button"
+        aria-label={t("thread.replyWithMore")}
+        onClick={openFull}
+        className="grid size-9 shrink-0 place-items-center rounded-full text-brand hover:bg-brand-soft"
+      >
         <ImagePlus className="size-5" />
       </button>
-      <Button size="icon-sm" aria-label={t("thread.sendReply")} disabled={!canSend} loading={send.isPending} onClick={() => send.mutate()}>
+      <Button
+        size="icon-sm"
+        aria-label={t("thread.sendReply")}
+        disabled={!canSend}
+        loading={send.isPending}
+        onClick={() => send.mutate()}
+      >
         {!send.isPending && <SendHorizontal className="size-4" />}
       </Button>
     </div>
@@ -235,9 +295,12 @@ function Quotes({ noteId }: { noteId: string }) {
   const { t } = useTranslation("notes");
   const query = useQuotes(noteId);
   const deleted = useDeletedNotes((state) => state.ids);
-  const quotes = (query.data?.pages.flatMap((page) => page.notes) ?? []).filter((quote) => !deleted.has(quote.id));
+  const quotes = (query.data?.pages.flatMap((page) => page.notes) ?? []).filter(
+    (quote) => !deleted.has(quote.id),
+  );
   if (query.isPending) return <TimelineSkeleton count={2} />;
-  if (quotes.length === 0) return <EmptyState emoji="🗯️" title={t("thread.noQuotes")} body={t("thread.noQuotesBody")} />;
+  if (quotes.length === 0)
+    return <EmptyState emoji="🗯️" title={t("thread.noQuotes")} body={t("thread.noQuotesBody")} />;
   return (
     <div className="flex flex-col gap-2.5" data-testid="quotes">
       {quotes.map((quote) => (

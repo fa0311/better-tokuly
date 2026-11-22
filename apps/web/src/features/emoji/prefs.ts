@@ -15,7 +15,10 @@ function subscribe(listener: () => void): () => void {
     watching = true;
     window.matchMedia("(prefers-reduced-motion: reduce)").addEventListener("change", notify);
     // ドパガキ度 0 means "no movement" too; it lives in an attribute of <html>.
-    new MutationObserver(notify).observe(document.documentElement, { attributes: true, attributeFilter: ["data-dopa"] });
+    new MutationObserver(notify).observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-dopa"],
+    });
     window.addEventListener("storage", notify);
   }
   listeners.add(listener);
@@ -23,7 +26,10 @@ function subscribe(listener: () => void): () => void {
 }
 
 function motionAllowed(): boolean {
-  return !window.matchMedia("(prefers-reduced-motion: reduce)").matches && document.documentElement.dataset.dopa !== "0";
+  return (
+    !window.matchMedia("(prefers-reduced-motion: reduce)").matches &&
+    document.documentElement.dataset.dopa !== "0"
+  );
 }
 
 /** False when the person asked for less movement (the system setting, or ドパガキ度 0): animated emoji show their still. */
@@ -63,7 +69,10 @@ let observer: IntersectionObserver | undefined;
  * Tells `onChange` whether `element` is on screen (or about to be). One
  * observer serves every animated emoji of the page.
  */
-export function watchVisibility(element: Element, onChange: (visible: boolean) => void): () => void {
+export function watchVisibility(
+  element: Element,
+  onChange: (visible: boolean) => void,
+): () => void {
   observer ??= new IntersectionObserver(
     (entries) => {
       for (const entry of entries) visibility.get(entry.target)?.(entry.isIntersecting);

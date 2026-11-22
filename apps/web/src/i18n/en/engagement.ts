@@ -16,7 +16,15 @@ export default {
   emoji: {
     title: "Pick an emoji",
     quick: "Your usual emoji",
-    groups: { smileys: "Faces", hearts: "Hearts", hands: "Hands & body", animals: "Animals & nature", food: "Food", fun: "Fun & places", symbols: "Symbols" },
+    groups: {
+      smileys: "Faces",
+      hearts: "Hearts",
+      hands: "Hands & body",
+      animals: "Animals & nature",
+      food: "Food",
+      fun: "Fun & places",
+      symbols: "Symbols",
+    },
   },
   bookmarks: {
     title: "Bookmarks",
@@ -96,7 +104,12 @@ export default {
     send: "Report",
     sent: "Report received. Thanks for telling us!",
     viewMine: "My reports",
-    status: { submitted: "Waiting for review", actionTaken: "Action taken", noAction: "No rule broken", superseded: "Replaced by a newer report" },
+    status: {
+      submitted: "Waiting for review",
+      actionTaken: "Action taken",
+      noAction: "No rule broken",
+      superseded: "Replaced by a newer report",
+    },
     mine: {
       empty: "You haven't reported anything",
       emptyBody: "If something doesn't belong, use “Report” in its menu.",

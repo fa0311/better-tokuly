@@ -1,7 +1,16 @@
 import { useMutation } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { video } from "@tokuly/api";
-import { DoorOpen, ListVideo, MoreVertical, PartyPopper, Play, Power, UserPlus, Users } from "lucide-react";
+import {
+  DoorOpen,
+  ListVideo,
+  MoreVertical,
+  PartyPopper,
+  Play,
+  Power,
+  UserPlus,
+  Users,
+} from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -45,7 +54,13 @@ export interface PartyRoomProps {
  * the people in it. The host and co-hosts drive playback with the player's
  * own controls — everyone else's player follows, and says so.
  */
-export function PartyRoomView({ session, guestToken = "", standalone, onRejoin, onLeft }: PartyRoomProps) {
+export function PartyRoomView({
+  session,
+  guestToken = "",
+  standalone,
+  onRejoin,
+  onLeft,
+}: PartyRoomProps) {
   const { t } = useTranslation("video");
   const room = usePartyRoom(session, guestToken);
   const { state } = room;
@@ -69,7 +84,13 @@ export function PartyRoomView({ session, guestToken = "", standalone, onRejoin, 
 
   const local = () => {
     const handle = player.current;
-    return handle ? { positionSeconds: handle.currentTime(), paused: handle.paused(), rate: handle.element()?.playbackRate ?? 1 } : null;
+    return handle
+      ? {
+          positionSeconds: handle.currentTime(),
+          paused: handle.paused(),
+          rate: handle.element()?.playbackRate ?? 1,
+        }
+      : null;
   };
   const serverNow = () => Date.now() + room.latest.current.clockOffsetMs;
 
@@ -83,7 +104,11 @@ export function PartyRoomView({ session, guestToken = "", standalone, onRejoin, 
     if (action.seekTo !== undefined) handle.seek(action.seekTo);
     if (action.pause) handle.pause();
     // A browser may refuse to start sound nobody asked for: then the member taps once to join in.
-    if (action.play) handle.play().then(() => setNeedsTap(false), () => setNeedsTap(true));
+    if (action.play)
+      handle.play().then(
+        () => setNeedsTap(false),
+        () => setNeedsTap(true),
+      );
   };
   const syncRef = useRef(sync);
   useEffect(() => {
@@ -106,7 +131,11 @@ export function PartyRoomView({ session, guestToken = "", standalone, onRejoin, 
     if (!differsFromShared(room.latest.current.playback, mine, serverNow(), duration)) return;
     pending.current += 1;
     room
-      .setPlayback({ playing: !mine.paused, positionSeconds: Math.min(mine.positionSeconds, Math.max(0, duration - 0.1)), rate: mine.rate })
+      .setPlayback({
+        playing: !mine.paused,
+        positionSeconds: Math.min(mine.positionSeconds, Math.max(0, duration - 0.1)),
+        rate: mine.rate,
+      })
       .catch((error) => toast.error(errorMessage(error)))
       .finally(() => {
         pending.current -= 1;
@@ -122,7 +151,8 @@ export function PartyRoomView({ session, guestToken = "", standalone, onRejoin, 
     },
   });
   const guests = useMutation({
-    mutationFn: (allowGuests: boolean) => partyClient().updateParty({ partyId: party.id, allowGuests }),
+    mutationFn: (allowGuests: boolean) =>
+      partyClient().updateParty({ partyId: party.id, allowGuests }),
     onSuccess: (_response, allowGuests) => {
       toast.success(allowGuests ? t("party.guestsOn") : t("party.guestsOff"));
       void room.reload();
@@ -134,12 +164,30 @@ export function PartyRoomView({ session, guestToken = "", standalone, onRejoin, 
     onLeft();
   };
 
-  if (state.exit && state.exit.kind !== "left") return <Farewell exit={state.exit} videoId={party.video?.shortId} standalone={standalone} onRejoin={onRejoin} />;
+  if (state.exit && state.exit.kind !== "left")
+    return (
+      <Farewell
+        exit={state.exit}
+        videoId={party.video?.shortId}
+        standalone={standalone}
+        onRejoin={onRejoin}
+      />
+    );
 
   const menu: MenuAction[] = [
-    ...(isHost ? [{ label: party.allowGuests ? t("party.disallowGuests") : t("party.allowGuestsAction"), icon: <Users />, onSelect: () => guests.mutate(!party.allowGuests) }] : []),
+    ...(isHost
+      ? [
+          {
+            label: party.allowGuests ? t("party.disallowGuests") : t("party.allowGuestsAction"),
+            icon: <Users />,
+            onSelect: () => guests.mutate(!party.allowGuests),
+          },
+        ]
+      : []),
     { label: t("party.leave"), icon: <DoorOpen />, onSelect: () => void leave() },
-    ...(isHost ? [{ label: t("party.end"), icon: <Power />, danger: true, onSelect: () => setEnding(true) }] : []),
+    ...(isHost
+      ? [{ label: t("party.end"), icon: <Power />, danger: true, onSelect: () => setEnding(true) }]
+      : []),
   ];
 
   return (
@@ -155,11 +203,20 @@ export function PartyRoomView({ session, guestToken = "", standalone, onRejoin, 
               {t("party.watching", { count: party.memberCount })}
             </p>
           </div>
-          <Button size="sm" icon={<UserPlus className="size-4" />} onClick={() => setInviting(true)}>
+          <Button
+            size="sm"
+            icon={<UserPlus className="size-4" />}
+            onClick={() => setInviting(true)}
+          >
             {t("party.invite.action")}
           </Button>
           {canControl && (
-            <Button size="icon-sm" variant="ghost" aria-label={t("party.change.title")} onClick={() => setChanging(true)}>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label={t("party.change.title")}
+              onClick={() => setChanging(true)}
+            >
               <ListVideo className="size-5" />
             </Button>
           )}
@@ -191,7 +248,11 @@ export function PartyRoomView({ session, guestToken = "", standalone, onRejoin, 
               className="lg:rounded-card"
               endScreen={
                 canControl ? (
-                  <button type="button" className="pressable inline-flex h-12 items-center gap-2 rounded-full bg-white px-6 font-black text-[#17122b]" onClick={() => setChanging(true)}>
+                  <button
+                    type="button"
+                    className="pressable inline-flex h-12 items-center gap-2 rounded-full bg-white px-6 font-black text-[#17122b]"
+                    onClick={() => setChanging(true)}
+                  >
                     <ListVideo className="size-5" />
                     {t("party.change.next")}
                   </button>
@@ -202,11 +263,19 @@ export function PartyRoomView({ session, guestToken = "", standalone, onRejoin, 
             />
           ) : (
             <div className="grid aspect-video w-full place-items-center bg-black text-center text-sm font-bold text-white lg:rounded-card">
-              {details.isError || (!details.isPending && !playback) ? <p className="max-w-xs p-4">{t("party.videoUnavailable")}</p> : <Skeleton className="size-full rounded-none bg-white/10" />}
+              {details.isError || (!details.isPending && !playback) ? (
+                <p className="max-w-xs p-4">{t("party.videoUnavailable")}</p>
+              ) : (
+                <Skeleton className="size-full rounded-none bg-white/10" />
+              )}
             </div>
           )}
           {needsTap && (
-            <button type="button" className="absolute inset-0 grid place-items-center bg-black/60 lg:mx-4 lg:rounded-card" onClick={() => syncRef.current()}>
+            <button
+              type="button"
+              className="absolute inset-0 grid place-items-center bg-black/60 lg:mx-4 lg:rounded-card"
+              onClick={() => syncRef.current()}
+            >
               <span className="pressable sticker inline-flex h-14 items-center gap-2 rounded-full bg-brand px-7 text-lg font-bold text-on-brand">
                 <Play className="size-5 fill-current" />
                 {t("party.tapToJoin")}
@@ -225,23 +294,58 @@ export function PartyRoomView({ session, guestToken = "", standalone, onRejoin, 
         <p className="truncate px-4 py-2 text-sm font-black lg:hidden">{party.video?.title}</p>
       </div>
 
-      <aside className={cn("flex min-h-0 flex-1 flex-col border-line lg:w-96 lg:flex-none lg:border-l-2", !standalone && "pb-24 md:pb-0")}>
+      <aside
+        className={cn(
+          "flex min-h-0 flex-1 flex-col border-line lg:w-96 lg:flex-none lg:border-l-2",
+          !standalone && "pb-24 md:pb-0",
+        )}
+      >
         <div className="px-3 pt-1 pb-2 lg:pt-3">
           <Tabs<"chat" | "members">
             value={panel}
             onChange={setPanel}
             items={[
               { value: "chat", label: t("party.chat.title") },
-              { value: "members", label: t("party.members.title", { count: state.members.length }) },
+              {
+                value: "members",
+                label: t("party.members.title", { count: state.members.length }),
+              },
             ]}
           />
         </div>
-        {panel === "chat" ? <PartyChat room={room} canStamp={!isGuest} /> : <PartyMembers room={room} />}
+        {panel === "chat" ? (
+          <PartyChat room={room} canStamp={!isGuest} />
+        ) : (
+          <PartyMembers room={room} />
+        )}
       </aside>
 
-      <InviteDialog open={inviting} onOpenChange={setInviting} partyId={party.id} code={party.code} allowGuests={party.allowGuests} canInviteFriends={!isGuest} />
-      {canControl && <ChangeVideoDialog open={changing} onOpenChange={setChanging} party={party} onChanged={() => void room.reload()} />}
-      <ConfirmDialog open={ending} onOpenChange={setEnding} title={t("party.confirmEnd")} description={t("party.confirmEndBody")} confirmLabel={t("party.end")} danger loading={end.isPending} onConfirm={() => end.mutate()} />
+      <InviteDialog
+        open={inviting}
+        onOpenChange={setInviting}
+        partyId={party.id}
+        code={party.code}
+        allowGuests={party.allowGuests}
+        canInviteFriends={!isGuest}
+      />
+      {canControl && (
+        <ChangeVideoDialog
+          open={changing}
+          onOpenChange={setChanging}
+          party={party}
+          onChanged={() => void room.reload()}
+        />
+      )}
+      <ConfirmDialog
+        open={ending}
+        onOpenChange={setEnding}
+        title={t("party.confirmEnd")}
+        description={t("party.confirmEndBody")}
+        confirmLabel={t("party.end")}
+        danger
+        loading={end.isPending}
+        onConfirm={() => end.mutate()}
+      />
     </div>
   );
 }
@@ -254,11 +358,22 @@ const END_REASON_KEYS: Partial<Record<video.PartyEndReason, string>> = {
 };
 
 /** What is left of the room once the viewer is no longer in it. */
-function Farewell({ exit, videoId, standalone, onRejoin }: { exit: PartyExit; videoId?: string; standalone?: boolean; onRejoin?(): void }) {
+function Farewell({
+  exit,
+  videoId,
+  standalone,
+  onRejoin,
+}: {
+  exit: PartyExit;
+  videoId?: string;
+  standalone?: boolean;
+  onRejoin?(): void;
+}) {
   const { t } = useTranslation("video");
   let emoji = "👋";
   let title = t("party.ended.title");
-  let body: string | undefined = exit.kind === "ended" ? t(END_REASON_KEYS[exit.reason] ?? "party.ended.generic") : undefined;
+  let body: string | undefined =
+    exit.kind === "ended" ? t(END_REASON_KEYS[exit.reason] ?? "party.ended.generic") : undefined;
   let action: ReactNode = null;
   if (exit.kind === "removed") {
     emoji = "🚪";
@@ -285,7 +400,12 @@ function Farewell({ exit, videoId, standalone, onRejoin }: { exit: PartyExit; vi
         <div className="mt-5 flex flex-wrap justify-center gap-2">
           {action}
           {!standalone && videoId && (
-            <Link to="/watch/$videoId" params={{ videoId }} search={{}} className="pressable sticker inline-flex h-11 items-center gap-2 rounded-full bg-surface px-5 font-bold">
+            <Link
+              to="/watch/$videoId"
+              params={{ videoId }}
+              search={{}}
+              className="pressable sticker inline-flex h-11 items-center gap-2 rounded-full bg-surface px-5 font-bold"
+            >
               <Play className="size-4" />
               {t("party.keepWatching")}
             </Link>

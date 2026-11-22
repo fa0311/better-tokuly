@@ -4,7 +4,13 @@ export default {
   activityTile: "ログ",
   tabs: { feed: "ホーム", home: "ともだち", global: "みんな", mentions: "メンション" },
   shell: { back: "もどる", refresh: "更新する", bookmarks: "ブックマーク" },
-  shortcuts: { title: "じぶんのもの", bookmarks: "ブックマーク", activity: "ログ", archive: "記憶のアーカイブ", recap: "まとめ" },
+  shortcuts: {
+    title: "じぶんのもの",
+    bookmarks: "ブックマーク",
+    activity: "ログ",
+    archive: "記憶のアーカイブ",
+    recap: "まとめ",
+  },
   timeline: {
     new: "新しいノート {{count}}件",
     newMany: "新しいノートがたくさん!",
@@ -54,7 +60,11 @@ export default {
     report: "通報する",
   },
   people: { likers: "いいねした人", renoters: "リノートした人", empty: "まだだれもいないよ" },
-  delete: { title: "このノートを削除する?", body: "削除すると元にもどせないよ。ついた返信は残るよ。", confirm: "削除する" },
+  delete: {
+    title: "このノートを削除する?",
+    body: "削除すると元にもどせないよ。ついた返信は残るよ。",
+    confirm: "削除する",
+  },
   visibility: {
     title: "公開範囲",
     changeTitle: "公開範囲を変える",
@@ -76,7 +86,12 @@ export default {
     saves: "保存",
     shares: "シェア",
     shareBreakdown: "シェアのうちわけ",
-    targets: { linkCopy: "リンクをコピー", chat: "チャットで送信", external: "ほかのアプリ", other: "そのほか" },
+    targets: {
+      linkCopy: "リンクをコピー",
+      chat: "チャットで送信",
+      external: "ほかのアプリ",
+      other: "そのほか",
+    },
   },
   share: { title: "@{{handle}}さんのノート" },
   report: { label: "@{{handle}}さんのノート" },
@@ -183,11 +198,20 @@ export default {
   },
   profile: {
     title: "ノート",
-    tabs: { notes: "ノート", replies: "返信", media: "メディア", likes: "いいね", activity: "ログ" },
+    tabs: {
+      notes: "ノート",
+      replies: "返信",
+      media: "メディア",
+      likes: "いいね",
+      activity: "ログ",
+    },
     empty: {
       notes: { self: "まだノートしてないよ。今何してる?", other: "まだノートがないよ" },
       replies: { self: "まだ返信してないよ", other: "まだ返信がないよ" },
-      media: { self: "写真や動画つきのノートがここにならぶよ", other: "写真や動画つきのノートはまだないよ" },
+      media: {
+        self: "写真や動画つきのノートがここにならぶよ",
+        other: "写真や動画つきのノートはまだないよ",
+      },
       likes: { self: "いいねしたノートがここにならぶよ", other: "いいねしたノートはまだないよ" },
       activity: "見られるログはまだないよ",
     },
@@ -199,7 +223,12 @@ export default {
     tabs: { mine: "じぶん", friends: "ともだち", reports: "通報履歴" },
     filter: "種類でしぼる",
     allKinds: "ぜんぶ",
-    audience: { private: "じぶんだけ", friends: "ともだち", public: "みんな", hidden: "非公開にした種類" },
+    audience: {
+      private: "じぶんだけ",
+      friends: "ともだち",
+      public: "みんな",
+      hidden: "非公開にした種類",
+    },
     delete: "このログを消す",
     deleteTitle: "このログを消す?",
     deleteBody: "プロフィールやともだちのフィード、まとめからも消えるよ。元にはもどせないよ。",

@@ -46,10 +46,18 @@ export const VIDEO_VISIBILITIES: VisibilityOption[] = [
 ];
 
 /** Playlists know three audiences. */
-export const PLAYLIST_VISIBILITIES: VisibilityOption[] = VIDEO_VISIBILITIES.filter((option) => option.value === Visibility.PUBLIC || option.value === Visibility.UNLISTED || option.value === Visibility.PRIVATE);
+export const PLAYLIST_VISIBILITIES: VisibilityOption[] = VIDEO_VISIBILITIES.filter(
+  (option) =>
+    option.value === Visibility.PUBLIC ||
+    option.value === Visibility.UNLISTED ||
+    option.value === Visibility.PRIVATE,
+);
 
 export function visibilityOption(visibility: common.Visibility): VisibilityOption {
-  return VIDEO_VISIBILITIES.find((option) => option.value === visibility) ?? (VIDEO_VISIBILITIES.at(-1) as VisibilityOption);
+  return (
+    VIDEO_VISIBILITIES.find((option) => option.value === visibility) ??
+    (VIDEO_VISIBILITIES.at(-1) as VisibilityOption)
+  );
 }
 
 /** `traffic.<key>` names where viewers came from, in the studio's analytics. */

@@ -11,14 +11,26 @@ import { Dialog } from "#/components/ui/dialog";
 import { TextField } from "#/components/ui/field";
 import { ListRow, Skeleton } from "#/components/ui/page";
 import { accountClient, authClient } from "#/lib/api";
-import { keys, refreshMe } from "../data";
 import { errorMessage } from "#/lib/errors";
+import { keys, refreshMe } from "../data";
 import { Group } from "../shell/settings-page";
 
 /** A starting name for a new passkey, from what the browser says it runs on. */
 function suggestedName(fallback: string): string {
   const agent = navigator.userAgent;
-  const system = /iPhone/.test(agent) ? "iPhone" : /iPad/.test(agent) ? "iPad" : /Android/.test(agent) ? "Android" : /Mac OS X/.test(agent) ? "Mac" : /Windows/.test(agent) ? "Windows" : /Linux/.test(agent) ? "Linux" : "";
+  const system = /iPhone/.test(agent)
+    ? "iPhone"
+    : /iPad/.test(agent)
+      ? "iPad"
+      : /Android/.test(agent)
+        ? "Android"
+        : /Mac OS X/.test(agent)
+          ? "Mac"
+          : /Windows/.test(agent)
+            ? "Windows"
+            : /Linux/.test(agent)
+              ? "Linux"
+              : "";
   return system || fallback;
 }
 
@@ -26,14 +38,24 @@ function suggestedName(fallback: string): string {
 export function PasskeysCard() {
   const { t, i18n } = useTranslation("settings");
   const queryClient = useQueryClient();
-  const { data, isPending } = useQuery({ queryKey: keys.passkeys, queryFn: () => accountClient().listPasskeys({}) });
+  const { data, isPending } = useQuery({
+    queryKey: keys.passkeys,
+    queryFn: () => accountClient().listPasskeys({}),
+  });
   const [adding, setAdding] = useState(false);
-  const [removing, setRemoving] = useState<{ passkey: identity.Passkey | null; open: boolean }>({ passkey: null, open: false });
+  const [removing, setRemoving] = useState<{ passkey: identity.Passkey | null; open: boolean }>({
+    passkey: null,
+    open: false,
+  });
   const supported = browserSupportsWebAuthn();
 
   // The account carries the passkey count and whether a password exists.
   const changed = () =>
-    Promise.all([queryClient.invalidateQueries({ queryKey: keys.passkeys }), queryClient.invalidateQueries({ queryKey: keys.securityEvents }), refreshMe().catch(() => {})]);
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: keys.passkeys }),
+      queryClient.invalidateQueries({ queryKey: keys.securityEvents }),
+      refreshMe().catch(() => {}),
+    ]);
 
   const remove = useMutation({
     mutationFn: (passkeyId: string) => accountClient().deletePasskey({ passkeyId }),
@@ -48,7 +70,8 @@ export function PasskeysCard() {
     },
   });
 
-  const date = (timestamp: identity.Passkey["createdAt"]) => toDate(timestamp)?.toLocaleDateString(i18n.language, { dateStyle: "medium" });
+  const date = (timestamp: identity.Passkey["createdAt"]) =>
+    toDate(timestamp)?.toLocaleDateString(i18n.language, { dateStyle: "medium" });
   const passkeys = data?.passkeys ?? [];
 
   return (
@@ -70,11 +93,19 @@ export function PasskeysCard() {
                 title={passkey.name}
                 subtitle={
                   passkey.lastUsedAt
-                    ? t("security.passkeys.addedAndUsed", { added: date(passkey.createdAt), used: date(passkey.lastUsedAt) })
+                    ? t("security.passkeys.addedAndUsed", {
+                        added: date(passkey.createdAt),
+                        used: date(passkey.lastUsedAt),
+                      })
                     : t("security.passkeys.added", { added: date(passkey.createdAt) })
                 }
                 trailing={
-                  <Button size="icon-sm" variant="ghost" aria-label={t("security.passkeys.remove", { name: passkey.name })} onClick={() => setRemoving({ passkey, open: true })}>
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label={t("security.passkeys.remove", { name: passkey.name })}
+                    onClick={() => setRemoving({ passkey, open: true })}
+                  >
                     <Trash2 className="size-4" />
                   </Button>
                 }
@@ -84,10 +115,18 @@ export function PasskeysCard() {
         </ul>
       )}
       <div className="px-2 pt-2 pb-1">
-        <Button size="sm" variant="secondary" icon={<Plus className="size-4" />} disabled={!supported} onClick={() => setAdding(true)}>
+        <Button
+          size="sm"
+          variant="secondary"
+          icon={<Plus className="size-4" />}
+          disabled={!supported}
+          onClick={() => setAdding(true)}
+        >
           {t("security.passkeys.add")}
         </Button>
-        {!supported && <p className="mt-2 px-1 text-sm text-ink-soft">{t("security.passkeys.unsupported")}</p>}
+        {!supported && (
+          <p className="mt-2 px-1 text-sm text-ink-soft">{t("security.passkeys.unsupported")}</p>
+        )}
       </div>
 
       {adding && <AddPasskeyDialog onClose={() => setAdding(false)} onAdded={changed} />}
@@ -107,13 +146,18 @@ export function PasskeysCard() {
 
 function AddPasskeyDialog({ onClose, onAdded }: { onClose(): void; onAdded(): Promise<unknown> }) {
   const { t } = useTranslation(["settings", "common"]);
-  const [name, setName] = useState(() => suggestedName(t("settings:security.passkeys.defaultName")));
+  const [name, setName] = useState(() =>
+    suggestedName(t("settings:security.passkeys.defaultName")),
+  );
 
   const add = useMutation({
     mutationFn: async () => {
       const begin = await authClient().beginPasskeyRegistration({ name: name.trim() });
       const credential = await startRegistration({ optionsJSON: JSON.parse(begin.optionsJson) });
-      return authClient().finishPasskeyRegistration({ challengeId: begin.challengeId, credentialJson: JSON.stringify(credential) });
+      return authClient().finishPasskeyRegistration({
+        challengeId: begin.challengeId,
+        credentialJson: JSON.stringify(credential),
+      });
     },
     onSuccess: async () => {
       toast.success(t("settings:security.passkeys.addedToast"));
@@ -122,9 +166,14 @@ function AddPasskeyDialog({ onClose, onAdded }: { onClose(): void; onAdded(): Pr
     },
     onError: (error) => {
       // Closing the browser's passkey sheet is a decision, not a failure.
-      if (error instanceof Error && (error.name === "NotAllowedError" || error.name === "AbortError")) return;
+      if (
+        error instanceof Error &&
+        (error.name === "NotAllowedError" || error.name === "AbortError")
+      )
+        return;
       // The authenticator already holds a passkey for this account.
-      if (error instanceof Error && error.name === "InvalidStateError") toast.error(t("settings:errors.PASSKEY_EXISTS"));
+      if (error instanceof Error && error.name === "InvalidStateError")
+        toast.error(t("settings:errors.PASSKEY_EXISTS"));
       else toast.error(errorMessage(error));
     },
   });
@@ -135,7 +184,12 @@ function AddPasskeyDialog({ onClose, onAdded }: { onClose(): void; onAdded(): Pr
   };
 
   return (
-    <Dialog open onOpenChange={(open) => !open && !add.isPending && onClose()} title={t("settings:security.passkeys.addTitle")} description={t("settings:security.passkeys.addLead")}>
+    <Dialog
+      open
+      onOpenChange={(open) => !open && !add.isPending && onClose()}
+      title={t("settings:security.passkeys.addTitle")}
+      description={t("settings:security.passkeys.addLead")}
+    >
       <form onSubmit={submit} className="flex flex-col gap-4">
         <TextField
           label={t("settings:security.passkeys.name")}

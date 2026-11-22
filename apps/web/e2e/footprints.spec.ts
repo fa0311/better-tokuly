@@ -13,11 +13,17 @@ interface Point {
   lng: number;
 }
 
-const somewhereInTokyo = (): Point => ({ lat: 35.66 + Math.random() * 0.08, lng: 139.6 + Math.random() * 0.15 });
+const somewhereInTokyo = (): Point => ({
+  lat: 35.66 + Math.random() * 0.08,
+  lng: 139.6 + Math.random() * 0.15,
+});
 
 /** The point `meters` east of `from`. */
 function east(from: Point, meters: number): Point {
-  return { lat: from.lat, lng: from.lng + meters / (111_320 * Math.cos((from.lat * Math.PI) / 180)) };
+  return {
+    lat: from.lat,
+    lng: from.lng + meters / (111_320 * Math.cos((from.lat * Math.PI) / 180)),
+  };
 }
 
 /** A walk east from `from` at 1.4 m/s (a sample every 10 s) that ended `endedMinutesAgo` minutes ago. */
@@ -36,7 +42,12 @@ function walk(from: Point, meters: number, endedMinutesAgo: number) {
 async function report(request: APIRequestContext, as: Account, samples: object[]): Promise<void> {
   for (let index = 0; index < samples.length; index += 400) {
     const batch = samples.slice(index, index + 400);
-    const response = await rpc<{ acceptedCount?: number }>(request, "tokuly.geo.v1.LocationService/ReportLocations", { samples: batch }, as);
+    const response = await rpc<{ acceptedCount?: number }>(
+      request,
+      "tokuly.geo.v1.LocationService/ReportLocations",
+      { samples: batch },
+      as,
+    );
     expect(response.acceptedCount, "every sample of the walk was accepted").toBe(batch.length);
   }
 }
@@ -44,13 +55,19 @@ async function report(request: APIRequestContext, as: Account, samples: object[]
 // The map draws with software WebGL here: give it time before looking at what is on it.
 const MAP_TIMEOUT = 40_000;
 
-test("a walk lifts the fog: cells on the map, a percentage and a level", async ({ page, request, me }) => {
+test("a walk lifts the fog: cells on the map, a percentage and a level", async ({
+  page,
+  request,
+  me,
+}) => {
   test.slow();
   await report(request, me, walk(somewhereInTokyo(), 1200, 1));
 
   await page.goto("/footprints");
   // "東京都を 0.0…% 開拓した!"
-  await expect(page.getByTestId("footprint-headline")).toHaveText(/東京都を \d+(\.\d+)?% 開拓した!/);
+  await expect(page.getByTestId("footprint-headline")).toHaveText(
+    /東京都を \d+(\.\d+)?% 開拓した!/,
+  );
   const hero = page.getByRole("region", { name: "開拓のきろく" });
   await expect(hero.getByText("おさんぽビギナー")).toBeVisible();
   await expect(hero.getByText(/あと \d+ マスで Lv\.\d+!/)).toBeVisible();
@@ -97,7 +114,11 @@ test("the ranking lists a friend, and leads to their footprints", async ({ page,
   await expect(page.getByTestId("footprint-cells")).toBeVisible({ timeout: MAP_TIMEOUT });
 });
 
-test("the recap shows what is new and starts over once it was seen", async ({ page, request, me }) => {
+test("the recap shows what is new and starts over once it was seen", async ({
+  page,
+  request,
+  me,
+}) => {
   await report(request, me, walk(somewhereInTokyo(), 700, 1));
 
   await page.goto("/footprints");
@@ -113,7 +134,9 @@ test("the recap shows what is new and starts over once it was seen", async ({ pa
   await recap.getByRole("button", { name: "close" }).click();
   await expect(page.getByRole("button", { name: /新しく \d+ マス開拓したよ!/ })).toHaveCount(0);
   await page.getByRole("button", { name: "レポート" }).click();
-  await expect(page.getByRole("dialog", { name: "あしあとレポート" }).getByText("新しいマスはまだないよ")).toBeVisible();
+  await expect(
+    page.getByRole("dialog", { name: "あしあとレポート" }).getByText("新しいマスはまだないよ"),
+  ).toBeVisible();
 });
 
 test("a new account is told how footprints fill up", async ({ page, me: _me }) => {
@@ -124,20 +147,38 @@ test("a new account is told how footprints fill up", async ({ page, me: _me }) =
   await expect(page.getByText("ともだちを追加して、開拓バトルしよう!")).toBeVisible();
 });
 
-test("footprints someone keeps to themselves are simply not there", async ({ page, request, me }) => {
+test("footprints someone keeps to themselves are simply not there", async ({
+  page,
+  request,
+  me,
+}) => {
   const friend = await createAccount(request, "Mio");
   await befriend(request, me, friend);
   await report(request, friend, walk(somewhereInTokyo(), 600, 1));
   // The settings group is replaced as a whole: read it, change the one field, write it back.
-  const { settings } = await rpc<{ settings: { privacy: object } }>(request, "tokuly.identity.v1.AccountService/GetSettings", {}, friend);
-  await rpc(request, "tokuly.identity.v1.AccountService/UpdateSettings", { privacy: { ...settings.privacy, footprintsVisibleTo: "AUDIENCE_NOBODY" } }, friend);
+  const { settings } = await rpc<{ settings: { privacy: object } }>(
+    request,
+    "tokuly.identity.v1.AccountService/GetSettings",
+    {},
+    friend,
+  );
+  await rpc(
+    request,
+    "tokuly.identity.v1.AccountService/UpdateSettings",
+    { privacy: { ...settings.privacy, footprintsVisibleTo: "AUDIENCE_NOBODY" } },
+    friend,
+  );
 
   await page.goto(`/footprints?user=${friend.userId}`);
   await expect(page.getByText("Mioのあしあとはひみつ")).toBeVisible();
   await expect(page.getByTestId("footprint-cells")).toHaveCount(0);
 });
 
-test("a failed request for someone's footprints offers another try, not a verdict", async ({ page, request, me }) => {
+test("a failed request for someone's footprints offers another try, not a verdict", async ({
+  page,
+  request,
+  me,
+}) => {
   test.slow();
   const friend = await createAccount(request, "Sora");
   await befriend(request, me, friend);
@@ -145,7 +186,9 @@ test("a failed request for someone's footprints offers another try, not a verdic
 
   // The numbers cannot be fetched (once the page is retried, they can).
   let failing = true;
-  await page.route("**/tokuly.geo.v1.FootprintService/GetStats", (route) => (failing ? route.abort() : route.continue()));
+  await page.route("**/tokuly.geo.v1.FootprintService/GetStats", (route) =>
+    failing ? route.abort() : route.continue(),
+  );
   await page.goto(`/footprints?user=${friend.userId}`);
   await expect(page.getByText("読み込めませんでした")).toBeVisible();
   await expect(page.getByText("Soraのあしあとはひみつ")).toHaveCount(0);
@@ -157,13 +200,22 @@ test("a failed request for someone's footprints offers another try, not a verdic
   await expect(page.getByText("Place names ©")).toBeVisible();
 });
 
-test("celebrated levels are remembered per account, without naming regions, until sign-out", async ({ page, request, me }) => {
+test("celebrated levels are remembered per account, without naming regions, until sign-out", async ({
+  page,
+  request,
+  me,
+}) => {
   await report(request, me, walk(somewhereInTokyo(), 600, 1));
   await page.goto("/footprints");
   await expect(page.getByTestId("footprint-headline")).toBeVisible();
 
-  const remembered = () => page.evaluate(() => Object.entries(window.localStorage).filter(([key]) => key.startsWith("tokuly.footprints.")));
-  await expect.poll(async () => (await remembered()).map(([key]) => key)).toEqual([`tokuly.footprints.levels.${me.userId}`]);
+  const remembered = () =>
+    page.evaluate(() =>
+      Object.entries(window.localStorage).filter(([key]) => key.startsWith("tokuly.footprints.")),
+    );
+  await expect
+    .poll(async () => (await remembered()).map(([key]) => key))
+    .toEqual([`tokuly.footprints.levels.${me.userId}`]);
   const stored = (await remembered())[0]![1];
   expect(stored).not.toContain("JP");
   expect(Object.keys(JSON.parse(stored).regions).length).toBeGreaterThan(0);
@@ -190,6 +242,8 @@ test("the hub leads to places, history and footprints", async ({ page, me: _me }
     ["りれき", "/history"],
     ["場所", "/places"],
   ] as const) {
-    await expect(page.getByRole("main").getByRole("link", { name: label, exact: true })).toHaveAttribute("href", path);
+    await expect(
+      page.getByRole("main").getByRole("link", { name: label, exact: true }),
+    ).toHaveAttribute("href", path);
   }
 });

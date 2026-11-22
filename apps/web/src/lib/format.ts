@@ -32,7 +32,9 @@ export function kmh(speedMps: number): number {
 export function formatDistance(meters: number, unit: "km" | "mi" = "km"): string {
   if (unit === "mi") {
     const miles = meters / 1609.344;
-    return miles < 0.1 ? `${Math.round(meters * 3.28084)} ft` : `${miles < 10 ? miles.toFixed(1) : Math.round(miles).toLocaleString()} mi`;
+    return miles < 0.1
+      ? `${Math.round(meters * 3.28084)} ft`
+      : `${miles < 10 ? miles.toFixed(1) : Math.round(miles).toLocaleString()} mi`;
   }
   if (meters < 1000) return `${Math.round(meters / 10) * 10} m`;
   const km = meters / 1000;
@@ -40,11 +42,16 @@ export function formatDistance(meters: number, unit: "km" | "mi" = "km"): string
 }
 
 /** Great-circle distance in metres between two coordinates. */
-export function distanceMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+export function distanceMeters(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number },
+): number {
   const R = 6_371_008.8;
   const toRad = (deg: number) => (deg * Math.PI) / 180;
   const dLat = toRad(b.lat - a.lat);
   const dLng = toRad(b.lng - a.lng);
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 }

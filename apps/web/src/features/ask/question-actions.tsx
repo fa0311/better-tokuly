@@ -1,7 +1,17 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { ask } from "@tokuly/api";
-import { Archive, ArchiveRestore, ExternalLink, Flag, Inbox, PenLine, ShieldBan, Trash2, Undo2 } from "lucide-react";
+import {
+  Archive,
+  ArchiveRestore,
+  ExternalLink,
+  Flag,
+  Inbox,
+  PenLine,
+  ShieldBan,
+  Trash2,
+  Undo2,
+} from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -32,20 +42,34 @@ export interface QuestionActions {
  * wherever the question is shown. Moves are applied to the loaded lists at
  * once and confirmed by the server afterwards.
  */
-export function useQuestionActions(question: ask.Question, options: { /** Called after the question was deleted (a page showing only it goes elsewhere). */ onDeleted?(): void } = {}): QuestionActions {
+export function useQuestionActions(
+  question: ask.Question,
+  options: {
+    /** Called after the question was deleted (a page showing only it goes elsewhere). */ onDeleted?(): void;
+  } = {},
+): QuestionActions {
   const { t } = useTranslation("ask");
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const [dialog, setDialog] = useState<"answer" | "delete" | "deleteAnswer" | "block" | "report" | null>(null);
+  const [dialog, setDialog] = useState<
+    "answer" | "delete" | "deleteAnswer" | "block" | "report" | null
+  >(null);
   const close = () => setDialog(null);
   const id = question.id;
   const answered = Boolean(question.answer);
 
   const move = useMutation({
-    mutationFn: (folder: ask.QuestionFolder) => boxClient().moveQuestion({ questionId: id, folder }),
+    mutationFn: (folder: ask.QuestionFolder) =>
+      boxClient().moveQuestion({ questionId: id, folder }),
     onMutate: () => dropFromInbox(queryClient, id),
     onSuccess: (_response, folder) => {
-      toast.success(question.folder === QuestionFolder.FILTERED ? t("inbox.toast.released") : folder === QuestionFolder.ARCHIVED ? t("inbox.toast.archived") : t("inbox.toast.unarchived"));
+      toast.success(
+        question.folder === QuestionFolder.FILTERED
+          ? t("inbox.toast.released")
+          : folder === QuestionFolder.ARCHIVED
+            ? t("inbox.toast.archived")
+            : t("inbox.toast.unarchived"),
+      );
     },
     onError: toastError,
     onSettled: () => refreshInbox(queryClient),
@@ -82,26 +106,58 @@ export function useQuestionActions(question: ask.Question, options: { /** Called
     onError: toastError,
   });
 
-  const toggleArchive = () => move.mutate(question.folder === QuestionFolder.ARCHIVED ? QuestionFolder.INBOX : QuestionFolder.ARCHIVED);
+  const toggleArchive = () =>
+    move.mutate(
+      question.folder === QuestionFolder.ARCHIVED ? QuestionFolder.INBOX : QuestionFolder.ARCHIVED,
+    );
 
   const menu: MenuAction[] = [
     ...(answered
       ? [
-          { label: t("inbox.actions.open"), icon: <ExternalLink />, onSelect: () => void navigate({ to: "/ask/q/$questionId", params: { questionId: id } }) },
-          { label: t("inbox.actions.editAnswer"), icon: <PenLine />, onSelect: () => setDialog("answer") },
-          { label: t("inbox.actions.deleteAnswer"), icon: <Undo2 />, onSelect: () => setDialog("deleteAnswer") },
+          {
+            label: t("inbox.actions.open"),
+            icon: <ExternalLink />,
+            onSelect: () => void navigate({ to: "/ask/q/$questionId", params: { questionId: id } }),
+          },
+          {
+            label: t("inbox.actions.editAnswer"),
+            icon: <PenLine />,
+            onSelect: () => setDialog("answer"),
+          },
+          {
+            label: t("inbox.actions.deleteAnswer"),
+            icon: <Undo2 />,
+            onSelect: () => setDialog("deleteAnswer"),
+          },
         ]
       : [
-          { label: t("inbox.actions.answer"), icon: <PenLine />, onSelect: () => setDialog("answer") },
+          {
+            label: t("inbox.actions.answer"),
+            icon: <PenLine />,
+            onSelect: () => setDialog("answer"),
+          },
           question.folder === QuestionFolder.FILTERED
-            ? { label: t("inbox.actions.release"), icon: <Inbox />, onSelect: () => move.mutate(QuestionFolder.INBOX) }
+            ? {
+                label: t("inbox.actions.release"),
+                icon: <Inbox />,
+                onSelect: () => move.mutate(QuestionFolder.INBOX),
+              }
             : question.folder === QuestionFolder.ARCHIVED
-              ? { label: t("inbox.actions.unarchive"), icon: <ArchiveRestore />, onSelect: toggleArchive }
+              ? {
+                  label: t("inbox.actions.unarchive"),
+                  icon: <ArchiveRestore />,
+                  onSelect: toggleArchive,
+                }
               : { label: t("inbox.actions.archive"), icon: <Archive />, onSelect: toggleArchive },
         ]),
     { label: t("inbox.actions.block"), icon: <ShieldBan />, onSelect: () => setDialog("block") },
     { label: t("inbox.actions.report"), icon: <Flag />, onSelect: () => setDialog("report") },
-    { label: t("inbox.actions.delete"), icon: <Trash2 />, danger: true, onSelect: () => setDialog("delete") },
+    {
+      label: t("inbox.actions.delete"),
+      icon: <Trash2 />,
+      danger: true,
+      onSelect: () => setDialog("delete"),
+    },
   ];
 
   const dialogs = (
@@ -137,7 +193,12 @@ export function useQuestionActions(question: ask.Question, options: { /** Called
         loading={block.isPending}
         onConfirm={() => block.mutate()}
       />
-      <ReportDialog subject={questionSubject(id)} open={dialog === "report"} onOpenChange={(open) => !open && close()} label={question.text} />
+      <ReportDialog
+        subject={questionSubject(id)}
+        open={dialog === "report"}
+        onOpenChange={(open) => !open && close()}
+        label={question.text}
+      />
     </>
   );
 

@@ -1,4 +1,13 @@
-import { BookOpen, ChevronLeft, ChevronRight, Copy, Ellipsis, Link2, Share, SquarePlus } from "lucide-react";
+import {
+  BookOpen,
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  Ellipsis,
+  Link2,
+  Share,
+  SquarePlus,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -31,13 +40,23 @@ export function InstallGuide() {
     >
       {way === "ios-in-app" && <OpenInSafari />}
       <ol className="flex flex-col gap-5">
-        <Step number={1} title={t("guide.steps.share.title")} body={way === "ios-browser" ? t("guide.steps.share.browser") : t("guide.steps.share.safari")}>
+        <Step
+          number={1}
+          title={t("guide.steps.share.title")}
+          body={
+            way === "ios-browser" ? t("guide.steps.share.browser") : t("guide.steps.share.safari")
+          }
+        >
           <ToolbarArt />
         </Step>
         <Step number={2} title={t("guide.steps.add.title")} body={t("guide.steps.add.body")}>
           <ShareSheetArt />
         </Step>
-        <Step number={3} title={t("guide.steps.confirm.title")} body={t("guide.steps.confirm.body")}>
+        <Step
+          number={3}
+          title={t("guide.steps.confirm.title")}
+          body={t("guide.steps.confirm.body")}
+        >
           <ConfirmArt />
         </Step>
       </ol>
@@ -45,15 +64,30 @@ export function InstallGuide() {
   );
 }
 
-function Step({ number, title, body, children }: { number: number; title: string; body: string; children: ReactNode }) {
+function Step({
+  number,
+  title,
+  body,
+  children,
+}: {
+  number: number;
+  title: string;
+  body: string;
+  children: ReactNode;
+}) {
   return (
     <li className="flex gap-3">
-      <span aria-hidden className="sticker-sm grid size-8 shrink-0 place-items-center rounded-full bg-brand text-sm font-black text-on-brand">
+      <span
+        aria-hidden
+        className="sticker-sm grid size-8 shrink-0 place-items-center rounded-full bg-brand text-sm font-black text-on-brand"
+      >
         {number}
       </span>
       <div className="min-w-0 flex-1">
         <p className="font-black leading-snug">{title}</p>
-        <p className="mt-0.5 text-sm leading-relaxed text-ink-soft [word-break:auto-phrase]">{body}</p>
+        <p className="mt-0.5 text-sm leading-relaxed text-ink-soft [word-break:auto-phrase]">
+          {body}
+        </p>
         <div aria-hidden className="mt-2.5 select-none rounded-2xl bg-surface-2 p-3">
           {children}
         </div>
@@ -111,7 +145,9 @@ function ConfirmArt() {
       <div className="flex items-center justify-between gap-2 text-sm font-bold">
         <span className="shrink-0 text-ink-faint">{t("guide.art.cancel")}</span>
         <span className="min-w-0 truncate text-ink-soft">{t("guide.art.addToHome")}</span>
-        <span className={cn("shrink-0 rounded-full px-3 py-0.5 font-black", SPOT)}>{t("guide.art.add")}</span>
+        <span className={cn("shrink-0 rounded-full px-3 py-0.5 font-black", SPOT)}>
+          {t("guide.art.add")}
+        </span>
       </div>
       <div className="mt-3 flex items-center gap-3 rounded-xl bg-surface-2 p-2">
         <img src="/icon.svg" alt="" className="size-10 rounded-[22%]" />
@@ -136,7 +172,13 @@ function OpenInSafari() {
     <section className="sticker mb-5 rounded-card bg-sun p-4 text-[#17122b]">
       <p className="font-black leading-snug">{t("guide.inApp.title")}</p>
       <p className="mt-1 text-sm font-medium leading-relaxed">{t("guide.inApp.body")}</p>
-      <Button variant="secondary" size="sm" className="mt-3" icon={<Link2 className="size-4" />} onClick={copy}>
+      <Button
+        variant="secondary"
+        size="sm"
+        className="mt-3"
+        icon={<Link2 className="size-4" />}
+        onClick={copy}
+      >
         {t("guide.inApp.copy")}
       </Button>
     </section>

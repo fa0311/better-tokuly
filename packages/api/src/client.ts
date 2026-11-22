@@ -1,6 +1,6 @@
+import type { DescService } from "@bufbuild/protobuf";
 import { type Client, createClient, type Interceptor, type Transport } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
-import type { DescService } from "@bufbuild/protobuf";
 import { isStaleToken } from "./errors.js";
 import { type RefreshTokenStore, Session } from "./session.js";
 

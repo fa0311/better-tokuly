@@ -41,7 +41,11 @@ export function RecentPanel({ className }: { className?: string }) {
         <h2 className={heading}>
           <Clock className="size-5 shrink-0 text-ink-soft" />
           <span className="truncate">{t("recent.title")}</span>
-          {paused && <span className="shrink-0 rounded-full bg-sun px-2 py-0.5 text-[11px] font-black text-[#17122b]">{t("recent.paused")}</span>}
+          {paused && (
+            <span className="shrink-0 rounded-full bg-sun px-2 py-0.5 text-[11px] font-black text-[#17122b]">
+              {t("recent.paused")}
+            </span>
+          )}
         </h2>
         <Menu
           trigger={
@@ -51,26 +55,55 @@ export function RecentPanel({ className }: { className?: string }) {
           }
           actions={[
             paused
-              ? { label: t("recent.resume"), icon: <Play />, onSelect: () => setPaused.mutate(false, { onSuccess: () => toast.success(t("recent.resumed")) }) }
-              : { label: t("recent.pause"), icon: <Pause />, onSelect: () => setPaused.mutate(true, { onSuccess: () => toast.success(t("recent.pausedToast")) }) },
-            { label: t("recent.clear"), icon: <Trash2 />, danger: true, disabled: searches.length === 0, onSelect: () => setConfirming(true) },
+              ? {
+                  label: t("recent.resume"),
+                  icon: <Play />,
+                  onSelect: () =>
+                    setPaused.mutate(false, {
+                      onSuccess: () => toast.success(t("recent.resumed")),
+                    }),
+                }
+              : {
+                  label: t("recent.pause"),
+                  icon: <Pause />,
+                  onSelect: () =>
+                    setPaused.mutate(true, {
+                      onSuccess: () => toast.success(t("recent.pausedToast")),
+                    }),
+                },
+            {
+              label: t("recent.clear"),
+              icon: <Trash2 />,
+              danger: true,
+              disabled: searches.length === 0,
+              onSelect: () => setConfirming(true),
+            },
           ]}
         />
       </header>
       {searches.length === 0 ? (
-        <p className="px-1 py-2 text-sm leading-relaxed text-ink-soft">{t(paused ? "recent.emptyPaused" : "recent.empty")}</p>
+        <p className="px-1 py-2 text-sm leading-relaxed text-ink-soft">
+          {t(paused ? "recent.emptyPaused" : "recent.empty")}
+        </p>
       ) : (
         <ul className="flex flex-col">
           {shown.map((item) => (
             <li key={item.id} className="flex items-center rounded-2xl hover:bg-surface-2">
               <Link
                 to="/search"
-                search={{ q: item.query, kind: isKind(item.kind) ? kindSlug(item.kind) : undefined }}
+                search={{
+                  q: item.query,
+                  kind: isKind(item.kind) ? kindSlug(item.kind) : undefined,
+                }}
                 onClick={() => submitSearch(queryClient, item.query)}
                 className="flex min-h-11 min-w-0 flex-1 items-center gap-3 px-3 py-1.5"
               >
                 <span className="min-w-0 flex-1 truncate font-bold">{item.query}</span>
-                {isKind(item.kind) && <span className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-bold text-ink-soft">{t(`kinds.${kindSlug(item.kind)}`)}</span>}
+                {isKind(item.kind) && (
+                  <span className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-bold text-ink-soft">
+                    {t(`kinds.${kindSlug(item.kind)}`)}
+                  </span>
+                )}
                 <span className="shrink-0 text-xs text-ink-faint">{ageLabel(item.searchedAt)}</span>
               </Link>
               <button
@@ -86,7 +119,12 @@ export function RecentPanel({ className }: { className?: string }) {
         </ul>
       )}
       {searches.length > RECENT_PREVIEW && (
-        <button type="button" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)} className="mt-1 ml-3 inline-flex h-9 items-center text-sm font-bold text-brand hover:underline">
+        <button
+          type="button"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
+          className="mt-1 ml-3 inline-flex h-9 items-center text-sm font-bold text-brand hover:underline"
+        >
           {expanded ? t("recent.showLess") : t("recent.showAll", { count: searches.length })}
         </button>
       )}
@@ -136,8 +174,20 @@ export function TrendingPanel({ limit = 10, className }: { limit?: number; class
         <ol className="flex flex-col">
           {queries.map((item) => (
             <li key={item.query} className="min-w-0">
-              <Link to="/search" search={{ q: item.query }} onClick={() => submitSearch(queryClient, item.query)} className="flex min-h-11 items-center gap-3 rounded-2xl px-2 py-1.5 hover:bg-surface-2">
-                <span className={cn("grid size-7 shrink-0 place-items-center rounded-lg text-sm font-black tabular-nums", item.rank <= 3 ? "bg-pink text-white" : "bg-surface-2 text-ink-soft")}>{item.rank}</span>
+              <Link
+                to="/search"
+                search={{ q: item.query }}
+                onClick={() => submitSearch(queryClient, item.query)}
+                className="flex min-h-11 items-center gap-3 rounded-2xl px-2 py-1.5 hover:bg-surface-2"
+              >
+                <span
+                  className={cn(
+                    "grid size-7 shrink-0 place-items-center rounded-lg text-sm font-black tabular-nums",
+                    item.rank <= 3 ? "bg-pink text-white" : "bg-surface-2 text-ink-soft",
+                  )}
+                >
+                  {item.rank}
+                </span>
                 <span className="min-w-0 flex-1 truncate font-bold">{item.query}</span>
               </Link>
             </li>

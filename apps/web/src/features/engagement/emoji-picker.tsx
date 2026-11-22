@@ -37,7 +37,13 @@ export function EmojiPicker({ onPick, trigger, side = "top", onOpenChange }: Emo
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger render={trigger} />
       <Popover.Portal>
-        <Popover.Positioner side={side} align="center" sideOffset={8} collisionPadding={10} className="z-50 outline-none">
+        <Popover.Positioner
+          side={side}
+          align="center"
+          sideOffset={8}
+          collisionPadding={10}
+          className="z-50 outline-none"
+        >
           <Popover.Popup
             aria-label={t("emoji.title")}
             data-testid="emoji-picker"
@@ -64,7 +70,11 @@ function PickerPanel({ onPick }: { onPick(emoji: string): void }) {
   return (
     <>
       {/* biome-ignore lint/a11y/useSemanticElements: a row of emoji buttons, not a form group. */}
-      <div className="flex shrink-0 items-center justify-between gap-0.5 border-b-2 border-line px-2 py-2" role="group" aria-label={t("emoji.quick")}>
+      <div
+        className="flex shrink-0 items-center justify-between gap-0.5 border-b-2 border-line px-2 py-2"
+        role="group"
+        aria-label={t("emoji.quick")}
+      >
         {quick.map((emoji) => (
           <EmojiButton key={emoji} emoji={emoji} onPick={onPick} large />
         ))}
@@ -78,13 +88,22 @@ function PickerPanel({ onPick }: { onPick(emoji: string): void }) {
             aria-selected={item.id === groupId}
             aria-label={t(`emoji.groups.${item.id}`)}
             onClick={() => setGroupId(item.id)}
-            className={cn("grid h-9 flex-1 place-items-center rounded-xl text-lg transition-colors", item.id === groupId ? "bg-brand-soft" : "opacity-60 hover:bg-surface-2 hover:opacity-100")}
+            className={cn(
+              "grid h-9 flex-1 place-items-center rounded-xl text-lg transition-colors",
+              item.id === groupId
+                ? "bg-brand-soft"
+                : "opacity-60 hover:bg-surface-2 hover:opacity-100",
+            )}
           >
             <span aria-hidden>{item.icon}</span>
           </button>
         ))}
       </div>
-      <div role="tabpanel" aria-label={t(`emoji.groups.${group.id}`)} className="grid min-h-0 flex-1 grid-cols-8 content-start gap-0.5 overflow-y-auto p-2">
+      <div
+        role="tabpanel"
+        aria-label={t(`emoji.groups.${group.id}`)}
+        className="grid min-h-0 flex-1 grid-cols-8 content-start gap-0.5 overflow-y-auto p-2"
+      >
         {group.emoji.map((emoji) => (
           <EmojiButton key={emoji} emoji={emoji} onPick={onPick} />
         ))}
@@ -93,13 +112,24 @@ function PickerPanel({ onPick }: { onPick(emoji: string): void }) {
   );
 }
 
-function EmojiButton({ emoji, onPick, large }: { emoji: string; onPick(emoji: string): void; large?: boolean }) {
+function EmojiButton({
+  emoji,
+  onPick,
+  large,
+}: {
+  emoji: string;
+  onPick(emoji: string): void;
+  large?: boolean;
+}) {
   return (
     <button
       type="button"
       aria-label={emoji}
       onClick={() => onPick(emoji)}
-      className={cn("grid aspect-square place-items-center rounded-xl leading-none transition-transform hover:bg-surface-2 active:scale-125", large ? "size-9 text-2xl" : "text-[1.35rem]")}
+      className={cn(
+        "grid aspect-square place-items-center rounded-xl leading-none transition-transform hover:bg-surface-2 active:scale-125",
+        large ? "size-9 text-2xl" : "text-[1.35rem]",
+      )}
     >
       <span aria-hidden>{emoji}</span>
     </button>

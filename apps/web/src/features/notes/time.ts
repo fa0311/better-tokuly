@@ -8,12 +8,23 @@ export function noteAge(postedMs: number, language: string, nowMs = Date.now()):
   if (nowMs - postedMs < WEEK_MS) return compactAge(postedMs, nowMs);
   const posted = new Date(postedMs);
   const sameYear = posted.getFullYear() === new Date(nowMs).getFullYear();
-  return posted.toLocaleDateString(language, sameYear ? { month: "short", day: "numeric" } : { year: "numeric", month: "short", day: "numeric" });
+  return posted.toLocaleDateString(
+    language,
+    sameYear
+      ? { month: "short", day: "numeric" }
+      : { year: "numeric", month: "short", day: "numeric" },
+  );
 }
 
 /** The full date and time, for tooltips and the note page. */
 export function noteDateTime(postedMs: number, language: string): string {
-  return new Date(postedMs).toLocaleString(language, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return new Date(postedMs).toLocaleString(language, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 const TICK_MS = 30_000;

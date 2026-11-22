@@ -52,7 +52,8 @@ export function DailyBonusCard() {
     onError: (error) => {
       toast.error(errorMessage(error));
       // Claimed elsewhere a moment ago, or switched off: show the real state.
-      if (errorReason(error)) void queryClient.invalidateQueries({ queryKey: walletKeys.dailyBonus });
+      if (errorReason(error))
+        void queryClient.invalidateQueries({ queryKey: walletKeys.dailyBonus });
     },
   });
 
@@ -63,12 +64,19 @@ export function DailyBonusCard() {
   return (
     <Card className="relative p-4" role="region" aria-label={t("bonus.title")}>
       <div className="flex items-center gap-3">
-        <span className={cn("sticker-sm grid size-12 shrink-0 place-items-center rounded-2xl bg-sun text-[#17122b]", bonus.claimable && "animate-wiggle")}>
+        <span
+          className={cn(
+            "sticker-sm grid size-12 shrink-0 place-items-center rounded-2xl bg-sun text-[#17122b]",
+            bonus.claimable && "animate-wiggle",
+          )}
+        >
           <Gift className="size-6" />
         </span>
         <div className="min-w-0 flex-1">
           <h2 className="font-black">{t("bonus.title")}</h2>
-          <p className="text-sm leading-snug text-ink-soft">{bonus.claimable ? t("bonus.leadClaimable") : t("bonus.leadClaimed")}</p>
+          <p className="text-sm leading-snug text-ink-soft">
+            {bonus.claimable ? t("bonus.leadClaimable") : t("bonus.leadClaimed")}
+          </p>
         </div>
         {bonus.streak > 0 && (
           <span className="sticker-sm inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-coral px-3 text-sm font-black text-[#17122b]">
@@ -82,7 +90,13 @@ export function DailyBonusCard() {
 
       <div className="relative mt-4">
         {bonus.claimable ? (
-          <Button variant="lime" size="lg" block loading={claim.isPending} onClick={() => claim.mutate()}>
+          <Button
+            variant="lime"
+            size="lg"
+            block
+            loading={claim.isPending}
+            onClick={() => claim.mutate()}
+          >
             {t("bonus.claim")}
             <Coins amount={bonus.nextCoins} signed />
           </Button>
@@ -106,7 +120,11 @@ function Ladder({ bonus, collected }: { bonus: wallet.DailyBonus; collected: num
   const { t } = useTranslation("wallet");
   const columns = Math.min(bonus.cycle.length, 7);
   return (
-    <ol className="mt-4 grid gap-1.5" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }} aria-label={t("bonus.ladder")}>
+    <ol
+      className="mt-4 grid gap-1.5"
+      style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+      aria-label={t("bonus.ladder")}
+    >
       {bonus.cycle.map((coins, index) => {
         const day = index + 1;
         const done = day <= collected;
@@ -118,12 +136,20 @@ function Ladder({ bonus, collected }: { bonus: wallet.DailyBonus; collected: num
             aria-current={next ? "step" : undefined}
             className={cn(
               "flex flex-col items-center gap-1 rounded-2xl border-2 px-0.5 py-2 text-center",
-              done ? "border-ink bg-lime text-[#17122b]" : next ? "sticker-sm bg-sun text-[#17122b]" : "border-line bg-surface-2 text-ink-soft",
+              done
+                ? "border-ink bg-lime text-[#17122b]"
+                : next
+                  ? "sticker-sm bg-sun text-[#17122b]"
+                  : "border-line bg-surface-2 text-ink-soft",
             )}
           >
             <span className="text-[10px] font-black leading-none">{t("bonus.day", { day })}</span>
             {done ? (
-              <span className="grid size-5 place-items-center" role="img" aria-label={t("bonus.collected")}>
+              <span
+                className="grid size-5 place-items-center"
+                role="img"
+                aria-label={t("bonus.collected")}
+              >
                 <Check className="size-5" strokeWidth={4} />
               </span>
             ) : (
@@ -152,11 +178,18 @@ function Claimed({ bonus, won }: { bonus: wallet.DailyBonus; won: bigint | null 
   }, [unlocked, queryClient]);
 
   return (
-    <div className="flex min-h-14 flex-col items-center justify-center gap-1 rounded-[1.75rem] border-2 border-dashed border-line px-4 py-2.5 text-center" role="status">
+    <div
+      className="flex min-h-14 flex-col items-center justify-center gap-1 rounded-[1.75rem] border-2 border-dashed border-line px-4 py-2.5 text-center"
+      role="status"
+    >
       {won !== null ? (
         <p className="animate-pop-in flex items-center gap-2 text-lg font-black">
           {t("bonus.won")}
-          <Coins amount={won} signed className="rounded-full bg-lime py-0.5 pr-2.5 pl-1.5 text-lg text-[#17122b]" />
+          <Coins
+            amount={won}
+            signed
+            className="rounded-full bg-lime py-0.5 pr-2.5 pl-1.5 text-lg text-[#17122b]"
+          />
         </p>
       ) : (
         <p className="flex items-center gap-1.5 font-black">
@@ -166,7 +199,9 @@ function Claimed({ bonus, won }: { bonus: wallet.DailyBonus; won: bigint | null 
       )}
       {unlocksAt > 0 && (
         <p className="flex flex-wrap items-center justify-center gap-x-1.5 text-sm font-bold text-ink-soft">
-          {left.hours > 0 ? t("bonus.nextInHours", { hours: left.hours, minutes: left.minutes }) : t("bonus.nextInMinutes", { minutes: left.minutes })}
+          {left.hours > 0
+            ? t("bonus.nextInHours", { hours: left.hours, minutes: left.minutes })
+            : t("bonus.nextInMinutes", { minutes: left.minutes })}
           <Coins amount={bonus.nextCoins} signed size="sm" />
         </p>
       )}

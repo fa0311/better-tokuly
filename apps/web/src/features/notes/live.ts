@@ -42,7 +42,8 @@ const NOTE_KINDS = new Set(["notes.reply", "notes.quote", "notes.mention", "note
 export function applyNotesFrame(queryClient: QueryClient, frame: ServerFrame): void {
   if (frame.body.case === "notify") {
     const event = frame.body.value.event;
-    if (event.case === "received" && NOTE_KINDS.has(event.value.notification?.kind ?? "")) hintTimelines();
+    if (event.case === "received" && NOTE_KINDS.has(event.value.notification?.kind ?? ""))
+      hintTimelines();
     return;
   }
   if (frame.body.case !== "notes") return;
@@ -53,7 +54,13 @@ export function applyNotesFrame(queryClient: QueryClient, frame: ServerFrame): v
       const before = cachedCounters(queryClient, counters.noteId);
       patchNote(queryClient, counters.noteId, (note) => withCounters(note, counters));
       // A new reply, quote or renote of a note on screen is a new row for the timeline.
-      if (before && (counters.replyCount > before.replyCount || counters.quoteCount > before.quoteCount || counters.renoteCount > before.renoteCount)) hintTimelines();
+      if (
+        before &&
+        (counters.replyCount > before.replyCount ||
+          counters.quoteCount > before.quoteCount ||
+          counters.renoteCount > before.renoteCount)
+      )
+        hintTimelines();
       break;
     }
     case "noteDeletedId":

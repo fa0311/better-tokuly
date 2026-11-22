@@ -7,7 +7,12 @@ export function parseTags(text: string): string[] {
     ...new Set(
       text
         .split(/[,、\s]+/)
-        .map((tag) => tag.trim().replace(/^[#＃]+/, "").toLowerCase())
+        .map((tag) =>
+          tag
+            .trim()
+            .replace(/^[#＃]+/, "")
+            .toLowerCase(),
+        )
         .filter(Boolean),
     ),
   ];

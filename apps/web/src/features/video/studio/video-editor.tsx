@@ -15,13 +15,25 @@ import { Tabs } from "#/components/ui/tabs";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { waitForAsset } from "#/lib/upload";
-import { patchVideoEverywhere, removeVideoEverywhere, useVideo, videoClient, videoKeys } from "../api";
+import {
+  patchVideoEverywhere,
+  removeVideoEverywhere,
+  useVideo,
+  videoClient,
+  videoKeys,
+} from "../api";
 import { toLocalInput } from "../format";
 import { VIDEO_VISIBILITIES } from "../labels";
 import { type PlayerHandle, VideoPlayer } from "../player/player";
-import { RangePicker, type RangeDays, VideoAnalytics } from "./analytics";
+import { type RangeDays, RangePicker, VideoAnalytics } from "./analytics";
 import { toChapters } from "./chapters";
-import { type DetailsDraft, DetailsForm, draftFrom, draftProblem, draftSignature } from "./details-form";
+import {
+  type DetailsDraft,
+  DetailsForm,
+  draftFrom,
+  draftProblem,
+  draftSignature,
+} from "./details-form";
 import { FormSection, VideoStateChips } from "./shared";
 import { SubtitlesTab } from "./subtitles";
 import { ThumbnailField } from "./thumbnail-field";
@@ -37,7 +49,15 @@ export type EditorTab = (typeof EDITOR_TABS)[number];
  * stands — still processing, a draft, scheduled, published — and offers the
  * next step.
  */
-export function VideoEditorScreen({ videoId, tab, onTabChange }: { videoId: string; tab: EditorTab; onTabChange(tab: EditorTab): void }) {
+export function VideoEditorScreen({
+  videoId,
+  tab,
+  onTabChange,
+}: {
+  videoId: string;
+  tab: EditorTab;
+  onTabChange(tab: EditorTab): void;
+}) {
   const { t } = useTranslation("video");
   const query = useVideo(videoId);
   const item = query.data;
@@ -53,14 +73,36 @@ export function VideoEditorScreen({ videoId, tab, onTabChange }: { videoId: stri
   if (query.isError || !item?.summary || !item.viewer?.isOwner) {
     return (
       <Page title={t("studio.editor.pageTitle")} back="/studio">
-        <EmptyState emoji="🫥" title={t("studio.editor.notFound")} body={t("studio.editor.notFoundBody")} />
+        <EmptyState
+          emoji="🫥"
+          title={t("studio.editor.notFound")}
+          body={t("studio.editor.notFoundBody")}
+        />
       </Page>
     );
   }
-  return <Editor key={item.summary.id} item={item} videoKey={videoId} tab={tab} onTabChange={onTabChange} />;
+  return (
+    <Editor
+      key={item.summary.id}
+      item={item}
+      videoKey={videoId}
+      tab={tab}
+      onTabChange={onTabChange}
+    />
+  );
 }
 
-function Editor({ item, videoKey, tab, onTabChange }: { item: video.Video; videoKey: string; tab: EditorTab; onTabChange(tab: EditorTab): void }) {
+function Editor({
+  item,
+  videoKey,
+  tab,
+  onTabChange,
+}: {
+  item: video.Video;
+  videoKey: string;
+  tab: EditorTab;
+  onTabChange(tab: EditorTab): void;
+}) {
   const { t } = useTranslation("video");
   const queryClient = useQueryClient();
   const player = useRef<PlayerHandle>(null);
@@ -75,7 +117,8 @@ function Editor({ item, videoKey, tab, onTabChange }: { item: video.Video; video
   const store = (updated: video.Video | undefined) => {
     if (!updated) return;
     queryClient.setQueryData(videoKeys.video(videoKey), updated);
-    if (updated.summary) patchVideoEverywhere(queryClient, updated.summary.id, () => updated.summary ?? null);
+    if (updated.summary)
+      patchVideoEverywhere(queryClient, updated.summary.id, () => updated.summary ?? null);
     void queryClient.invalidateQueries({ queryKey: videoKeys.studio });
   };
 
@@ -117,9 +160,23 @@ function Editor({ item, videoKey, tab, onTabChange }: { item: video.Video; video
     <Page title={summary.title || t("studio.editor.pageTitle")} back="/studio" wide>
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <aside className="flex flex-col gap-4 lg:col-start-2 lg:row-start-1">
-          <StatusCard item={item} videoKey={videoKey} draft={draft} dirty={dirty} problem={problem} saveDraft={() => save.mutateAsync(draft)} onStored={storePublished} />
+          <StatusCard
+            item={item}
+            videoKey={videoKey}
+            draft={draft}
+            dirty={dirty}
+            problem={problem}
+            saveDraft={() => save.mutateAsync(draft)}
+            onStored={storePublished}
+          />
           {item.playback ? (
-            <VideoPlayer ref={player} source={item.playback} chapters={item.chapters} subtitles={item.subtitles} className="sticker rounded-card" />
+            <VideoPlayer
+              ref={player}
+              source={item.playback}
+              chapters={item.chapters}
+              subtitles={item.subtitles}
+              className="sticker rounded-card"
+            />
           ) : (
             <ProcessingCard item={item} videoKey={videoKey} />
           )}
@@ -141,10 +198,32 @@ function Editor({ item, videoKey, tab, onTabChange }: { item: video.Video; video
           />
           {tab === "details" && (
             <>
-              <DetailsForm draft={draft} onChange={setDraft} durationSeconds={summary.durationSeconds} playerTime={item.playback ? () => player.current?.currentTime() ?? 0 : undefined} />
-              <div className={cn("sticky bottom-24 z-10 mt-5 flex items-center justify-end gap-3 md:bottom-4", !dirty && "pointer-events-none opacity-0")} aria-hidden={!dirty}>
-                <p className="sticker-sm rounded-full bg-surface px-4 py-2 text-sm font-bold">{problem ? t(`studio.editor.problem.${problem}`) : t("studio.editor.unsaved")}</p>
-                <Button size="lg" className="shadow-pop" disabled={!dirty || problem !== null} loading={save.isPending} tabIndex={dirty ? 0 : -1} onClick={() => save.mutate(draft, { onSuccess: () => toast.success(t("studio.toast.saved")) })}>
+              <DetailsForm
+                draft={draft}
+                onChange={setDraft}
+                durationSeconds={summary.durationSeconds}
+                playerTime={item.playback ? () => player.current?.currentTime() ?? 0 : undefined}
+              />
+              <div
+                className={cn(
+                  "sticky bottom-24 z-10 mt-5 flex items-center justify-end gap-3 md:bottom-4",
+                  !dirty && "pointer-events-none opacity-0",
+                )}
+                aria-hidden={!dirty}
+              >
+                <p className="sticker-sm rounded-full bg-surface px-4 py-2 text-sm font-bold">
+                  {problem ? t(`studio.editor.problem.${problem}`) : t("studio.editor.unsaved")}
+                </p>
+                <Button
+                  size="lg"
+                  className="shadow-pop"
+                  disabled={!dirty || problem !== null}
+                  loading={save.isPending}
+                  tabIndex={dirty ? 0 : -1}
+                  onClick={() =>
+                    save.mutate(draft, { onSuccess: () => toast.success(t("studio.toast.saved")) })
+                  }
+                >
                   {t("actions.save")}
                 </Button>
               </div>
@@ -154,7 +233,11 @@ function Editor({ item, videoKey, tab, onTabChange }: { item: video.Video; video
           {tab === "analytics" && (
             <div className="flex flex-col gap-4">
               <RangePicker days={days} onChange={setDays} />
-              <VideoAnalytics videoId={summary.id} durationSeconds={summary.durationSeconds} days={days} />
+              <VideoAnalytics
+                videoId={summary.id}
+                durationSeconds={summary.durationSeconds}
+                days={days}
+              />
             </div>
           )}
         </div>
@@ -193,15 +276,37 @@ function ProcessingCard({ item, videoKey }: { item: video.Video; videoKey: strin
 
   const failed = item.summary?.processing === ProcessingState.FAILED;
   return (
-    <section className="sticker rounded-card bg-surface p-4" data-testid="processing-card" aria-live="polite">
+    <section
+      className="sticker rounded-card bg-surface p-4"
+      data-testid="processing-card"
+      aria-live="polite"
+    >
       <p className="text-3xl" aria-hidden>
         {failed ? "😢" : "⏳"}
       </p>
-      <h2 className="mt-1 font-black">{failed ? t("studio.processing.failedTitle") : t("studio.processing.title")}</h2>
-      <p className="mt-0.5 text-sm leading-relaxed text-ink-soft">{failed ? t(`studio.processing.reasons.${item.studio?.processingError || "PROCESSING_FAILED"}`, { defaultValue: t("studio.processing.reasons.PROCESSING_FAILED") }) : t("studio.processing.lead")}</p>
+      <h2 className="mt-1 font-black">
+        {failed ? t("studio.processing.failedTitle") : t("studio.processing.title")}
+      </h2>
+      <p className="mt-0.5 text-sm leading-relaxed text-ink-soft">
+        {failed
+          ? t(`studio.processing.reasons.${item.studio?.processingError || "PROCESSING_FAILED"}`, {
+              defaultValue: t("studio.processing.reasons.PROCESSING_FAILED"),
+            })
+          : t("studio.processing.lead")}
+      </p>
       {!failed && (
-        <div className="mt-3 h-3 overflow-hidden rounded-full border-2 border-ink bg-surface-3" role="progressbar" aria-label={t("studio.processing.title")} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}>
-          <div className="h-full bg-lime transition-[width] duration-300" style={{ width: `${Math.max(4, progress)}%` }} />
+        <div
+          className="mt-3 h-3 overflow-hidden rounded-full border-2 border-ink bg-surface-3"
+          role="progressbar"
+          aria-label={t("studio.processing.title")}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={progress}
+        >
+          <div
+            className="h-full bg-lime transition-[width] duration-300"
+            style={{ width: `${Math.max(4, progress)}%` }}
+          />
         </div>
       )}
     </section>
@@ -209,7 +314,23 @@ function ProcessingCard({ item, videoKey }: { item: video.Video; videoKey: strin
 }
 
 /** Where the video stands and the step that comes next: publish, schedule, take back, delete. */
-function StatusCard({ item, videoKey, draft, dirty, problem, saveDraft, onStored }: { item: video.Video; videoKey: string; draft: DetailsDraft; dirty: boolean; problem: string | null; saveDraft(): Promise<unknown>; onStored(updated: video.Video | undefined): void }) {
+function StatusCard({
+  item,
+  videoKey,
+  draft,
+  dirty,
+  problem,
+  saveDraft,
+  onStored,
+}: {
+  item: video.Video;
+  videoKey: string;
+  draft: DetailsDraft;
+  dirty: boolean;
+  problem: string | null;
+  saveDraft(): Promise<unknown>;
+  onStored(updated: video.Video | undefined): void;
+}) {
   const { t } = useTranslation("video");
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -261,12 +382,21 @@ function StatusCard({ item, videoKey, draft, dirty, problem, saveDraft, onStored
           : t("studio.status.draft");
 
   return (
-    <section className="sticker rounded-card bg-surface p-4" data-testid="video-status" aria-label={t("studio.status.title")}>
+    <section
+      className="sticker rounded-card bg-surface p-4"
+      data-testid="video-status"
+      aria-label={t("studio.status.title")}
+    >
       <VideoStateChips summary={summary} />
       <p className="mt-2 text-sm leading-relaxed text-ink-soft">{lead}</p>
       <div className="mt-3 flex flex-wrap gap-2">
         {summary.status === VideoStatus.DRAFT ? (
-          <Button size="sm" icon={<Rocket className="size-4" />} disabled={failed} onClick={openPublish}>
+          <Button
+            size="sm"
+            icon={<Rocket className="size-4" />}
+            disabled={failed}
+            onClick={openPublish}
+          >
             {t("studio.publish.action")}
           </Button>
         ) : (
@@ -276,16 +406,35 @@ function StatusCard({ item, videoKey, draft, dirty, problem, saveDraft, onStored
                 {t("studio.publish.change")}
               </Button>
             )}
-            <Button size="sm" variant="secondary" icon={<EyeOff className="size-4" />} loading={unpublish.isPending} onClick={() => unpublish.mutate()}>
-              {summary.status === VideoStatus.SCHEDULED ? t("studio.publish.cancelSchedule") : t("studio.publish.unpublish")}
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={<EyeOff className="size-4" />}
+              loading={unpublish.isPending}
+              onClick={() => unpublish.mutate()}
+            >
+              {summary.status === VideoStatus.SCHEDULED
+                ? t("studio.publish.cancelSchedule")
+                : t("studio.publish.unpublish")}
             </Button>
           </>
         )}
-        <Link to="/watch/$videoId" params={{ videoId: summary.shortId }} search={{}} className="pressable sticker inline-flex h-9 items-center gap-2 rounded-full bg-surface px-4 text-sm font-bold">
+        <Link
+          to="/watch/$videoId"
+          params={{ videoId: summary.shortId }}
+          search={{}}
+          className="pressable sticker inline-flex h-9 items-center gap-2 rounded-full bg-surface px-4 text-sm font-bold"
+        >
           <Play className="size-4" />
           {t("studio.videos.watch")}
         </Link>
-        <Button variant="ghost" size="icon-sm" className="ml-auto text-danger" aria-label={t("studio.deleteVideo")} onClick={() => setDeleting(true)}>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="ml-auto text-danger"
+          aria-label={t("studio.deleteVideo")}
+          onClick={() => setDeleting(true)}
+        >
           <Trash2 className="size-5" />
         </Button>
       </div>
@@ -338,22 +487,42 @@ function PublishDialog({
   const { t } = useTranslation("video");
   // "Publish" on a video that is still private means: show it to people.
   const [audience, setAudience] = useState<common.Visibility | null>(null);
-  const chosen = audience ?? (visibility === common.Visibility.PRIVATE ? common.Visibility.PUBLIC : visibility);
+  const chosen =
+    audience ?? (visibility === common.Visibility.PRIVATE ? common.Visibility.PUBLIC : visibility);
   const [when, setWhen] = useState<"now" | "later">(summary.scheduledAt ? "later" : "now");
-  const [at, setAt] = useState(() => toLocalInput(summary.scheduledAt ? new Date(toMillis(summary.scheduledAt)) : new Date(Date.now() + 3_600_000)));
+  const [at, setAt] = useState(() =>
+    toLocalInput(
+      summary.scheduledAt
+        ? new Date(toMillis(summary.scheduledAt))
+        : new Date(Date.now() + 3_600_000),
+    ),
+  );
   const atDate = new Date(at);
-  const validTime = when === "now" || (!Number.isNaN(atDate.getTime()) && atDate.getTime() > Date.now());
+  const validTime =
+    when === "now" || (!Number.isNaN(atDate.getTime()) && atDate.getTime() > Date.now());
 
   const publish = useMutation({
     mutationFn: async () => {
       await beforePublish?.();
-      return (await videoClient().publishVideo({ videoId: summary.id, visibility: chosen, publishAt: when === "later" ? fromDate(atDate) : undefined })).video;
+      return (
+        await videoClient().publishVideo({
+          videoId: summary.id,
+          visibility: chosen,
+          publishAt: when === "later" ? fromDate(atDate) : undefined,
+        })
+      ).video;
     },
     onSuccess: (updated) => {
       onPublished(updated);
       onOpenChange(false);
       const status = updated?.summary?.status;
-      toast.success(status === VideoStatus.PUBLISHED ? t("studio.toast.published") : when === "later" ? t("studio.toast.scheduled") : t("studio.toast.publishWhenReady"));
+      toast.success(
+        status === VideoStatus.PUBLISHED
+          ? t("studio.toast.published")
+          : when === "later"
+            ? t("studio.toast.scheduled")
+            : t("studio.toast.publishWhenReady"),
+      );
     },
     onError: (error) => toast.error(errorMessage(error)),
   });
@@ -363,13 +532,24 @@ function PublishDialog({
       open={open}
       onOpenChange={onOpenChange}
       title={t("studio.publish.title")}
-      description={summary.processing === ProcessingState.PROCESSING ? t("studio.publish.leadProcessing") : t("studio.publish.lead")}
+      description={
+        summary.processing === ProcessingState.PROCESSING
+          ? t("studio.publish.leadProcessing")
+          : t("studio.publish.lead")
+      }
       footer={
         <>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             {t("actions.cancel")}
           </Button>
-          <Button icon={when === "later" ? <CalendarClock className="size-4" /> : <Eye className="size-4" />} disabled={!validTime || blocked} loading={publish.isPending} onClick={() => publish.mutate()}>
+          <Button
+            icon={
+              when === "later" ? <CalendarClock className="size-4" /> : <Eye className="size-4" />
+            }
+            disabled={!validTime || blocked}
+            loading={publish.isPending}
+            onClick={() => publish.mutate()}
+          >
             {when === "later" ? t("studio.publish.schedule") : t("studio.publish.now")}
           </Button>
         </>
@@ -380,7 +560,11 @@ function PublishDialog({
           label={t("studio.editor.audience")}
           value={String(chosen)}
           onChange={(value) => setAudience(Number(value) as common.Visibility)}
-          options={VIDEO_VISIBILITIES.map((option) => ({ value: String(option.value), label: t(`visibility.${option.key}`), hint: t(`visibility.${option.key}Hint`) }))}
+          options={VIDEO_VISIBILITIES.map((option) => ({
+            value: String(option.value),
+            label: t(`visibility.${option.key}`),
+            hint: t(`visibility.${option.key}Hint`),
+          }))}
         />
         <Tabs<"now" | "later">
           value={when}

@@ -55,13 +55,22 @@ export function ProgressCard({ className }: { className?: string }) {
   const goalSeconds = data.goalMinutes * 60;
   const fraction = goalSeconds > 0 ? Math.min(1, data.todaySeconds / goalSeconds) : 0;
   return (
-    <section aria-label={t("study.progress")} className={cn("mt-4 rounded-card bg-surface p-4", className)}>
+    <section
+      aria-label={t("study.progress")}
+      className={cn("mt-4 rounded-card bg-surface p-4", className)}
+    >
       <div className="flex items-end gap-4">
-        <Figure className="flex-1" value={studyTime(data.todaySeconds, i18n.language)} label={t("study.today")} />
+        <Figure
+          className="flex-1"
+          value={studyTime(data.todaySeconds, i18n.language)}
+          label={t("study.today")}
+        />
         <Figure
           value={
             <span className="inline-flex items-center gap-1">
-              <Flame className={cn("size-5", data.streakDays > 0 ? "text-coral" : "text-ink-faint")} />
+              <Flame
+                className={cn("size-5", data.streakDays > 0 ? "text-coral" : "text-ink-faint")}
+              />
               {t("study.streakDays", { count: data.streakDays })}
             </span>
           }
@@ -70,36 +79,67 @@ export function ProgressCard({ className }: { className?: string }) {
       </div>
       {goalSeconds > 0 ? (
         <div className="mt-3">
-          <div role="progressbar" aria-label={t("study.goal")} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(fraction * 100)} className="h-4 overflow-hidden rounded-full border-2 border-ink bg-surface-3">
-            <div className={cn("h-full transition-[width] duration-500", data.goalReached ? "bg-lime" : "bg-brand")} style={{ width: `${fraction * 100}%` }} />
+          <div
+            role="progressbar"
+            aria-label={t("study.goal")}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(fraction * 100)}
+            className="h-4 overflow-hidden rounded-full border-2 border-ink bg-surface-3"
+          >
+            <div
+              className={cn(
+                "h-full transition-[width] duration-500",
+                data.goalReached ? "bg-lime" : "bg-brand",
+              )}
+              style={{ width: `${fraction * 100}%` }}
+            />
           </div>
           <p className="mt-1.5 flex items-center gap-1 text-xs font-bold text-ink-soft">
             <Target className="size-3.5" />
-            {data.goalReached ? t("study.goalReached", { goal: studyTime(goalSeconds, i18n.language) }) : t("study.goalLeft", { goal: studyTime(goalSeconds, i18n.language), left: studyTime(goalSeconds - data.todaySeconds, i18n.language) })}
+            {data.goalReached
+              ? t("study.goalReached", { goal: studyTime(goalSeconds, i18n.language) })
+              : t("study.goalLeft", {
+                  goal: studyTime(goalSeconds, i18n.language),
+                  left: studyTime(goalSeconds - data.todaySeconds, i18n.language),
+                })}
           </p>
         </div>
       ) : (
-        <Link to="/school/settings" className="mt-3 flex items-center gap-1 text-sm font-bold text-brand">
+        <Link
+          to="/school/settings"
+          className="mt-3 flex items-center gap-1 text-sm font-bold text-brand"
+        >
           <Target className="size-4" />
           {t("study.setGoal")}
         </Link>
       )}
       <div className="mt-3 grid grid-cols-2 gap-3 border-t-2 border-line pt-3">
         <Figure value={studyTime(data.weekSeconds, i18n.language)} label={t("study.thisWeek")} />
-        <Figure value={studyTime(Number(data.totalSeconds), i18n.language)} label={t("study.allTime")} />
+        <Figure
+          value={studyTime(Number(data.totalSeconds), i18n.language)}
+          label={t("study.allTime")}
+        />
       </div>
     </section>
   );
 }
 
 type PeriodTab = "day" | "week" | "month";
-const PERIODS: Record<PeriodTab, school.StatsPeriod> = { day: school.StatsPeriod.DAY, week: school.StatsPeriod.WEEK, month: school.StatsPeriod.MONTH };
+const PERIODS: Record<PeriodTab, school.StatsPeriod> = {
+  day: school.StatsPeriod.DAY,
+  week: school.StatsPeriod.WEEK,
+  month: school.StatsPeriod.MONTH,
+};
 
 /** Study time of today, this week or this month: the total, each day as a bar, each subject's share. */
 function Summary() {
   const { t, i18n } = useTranslation("school");
   const [tab, setTab] = useState<PeriodTab>("week");
-  const { data, isPending } = useQuery({ queryKey: keys.summary(PERIODS[tab]), queryFn: () => studyClient().getStudySummary({ period: PERIODS[tab] }) });
+  const { data, isPending } = useQuery({
+    queryKey: keys.summary(PERIODS[tab]),
+    queryFn: () => studyClient().getStudySummary({ period: PERIODS[tab] }),
+  });
   const max = Math.max(1, ...(data?.days ?? []).map((day) => day.seconds));
   const difference = data ? data.totalSeconds - data.previousTotalSeconds : 0;
   const today = useAccountToday();
@@ -120,9 +160,18 @@ function Summary() {
       ) : (
         <>
           <div className="mt-4 flex items-end gap-3">
-            <Figure className="flex-1" value={studyTime(data.totalSeconds, i18n.language)} label={t(`study.periodTotal.${tab}`)} />
+            <Figure
+              className="flex-1"
+              value={studyTime(data.totalSeconds, i18n.language)}
+              label={t(`study.periodTotal.${tab}`)}
+            />
             {data.previousTotalSeconds > 0 || data.totalSeconds > 0 ? (
-              <p className={cn("rounded-full px-2.5 py-1 text-xs font-black", difference >= 0 ? "bg-lime text-[#17122b]" : "bg-surface-3 text-ink-soft")}>
+              <p
+                className={cn(
+                  "rounded-full px-2.5 py-1 text-xs font-black",
+                  difference >= 0 ? "bg-lime text-[#17122b]" : "bg-surface-3 text-ink-soft",
+                )}
+              >
                 {t(`study.versus.${tab}`)} {difference >= 0 ? "+" : "−"}
                 {studyTime(Math.abs(difference), i18n.language)}
               </p>
@@ -131,12 +180,40 @@ function Summary() {
           {data.days.length > 1 && (
             <ol className="mt-4 flex h-28 items-end gap-1" aria-label={t("study.byDay")}>
               {data.days.map((day) => (
-                <li key={day.date} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1" title={`${dayLabel(day.date, i18n.language)} ${studyTime(day.seconds, i18n.language)}`}>
+                <li
+                  key={day.date}
+                  className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1"
+                  title={`${dayLabel(day.date, i18n.language)} ${studyTime(day.seconds, i18n.language)}`}
+                >
                   <span className="sr-only">
                     {dayLabel(day.date, i18n.language)} {studyTime(day.seconds, i18n.language)}
                   </span>
-                  <span aria-hidden className={cn("w-full max-w-8 rounded-t-md", day.seconds > 0 ? "border-2 border-b-0 border-ink bg-brand" : "h-0.5 bg-surface-3", day.date === today && day.seconds > 0 && "bg-lime")} style={day.seconds > 0 ? { height: `${Math.max(6, (day.seconds / max) * 100)}%` } : undefined} />
-                  {data.days.length <= 7 && <span aria-hidden className={cn("text-[10px] font-black", day.date === today ? "text-ink" : "text-ink-faint")}>{t(`weekdays.short.${weekdayOf(day.date)}`)}</span>}
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "w-full max-w-8 rounded-t-md",
+                      day.seconds > 0
+                        ? "border-2 border-b-0 border-ink bg-brand"
+                        : "h-0.5 bg-surface-3",
+                      day.date === today && day.seconds > 0 && "bg-lime",
+                    )}
+                    style={
+                      day.seconds > 0
+                        ? { height: `${Math.max(6, (day.seconds / max) * 100)}%` }
+                        : undefined
+                    }
+                  />
+                  {data.days.length <= 7 && (
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "text-[10px] font-black",
+                        day.date === today ? "text-ink" : "text-ink-faint",
+                      )}
+                    >
+                      {t(`weekdays.short.${weekdayOf(day.date)}`)}
+                    </span>
+                  )}
                 </li>
               ))}
             </ol>
@@ -147,9 +224,17 @@ function Summary() {
                 <li key={item.subject?.id ?? "none"} className="flex items-center gap-2">
                   <SubjectPill subject={item.subject} className="shrink-0" />
                   <span className="h-2.5 min-w-0 flex-1 overflow-hidden rounded-full bg-surface-3">
-                    <span className="block h-full rounded-full" style={{ width: `${(item.seconds / Math.max(1, data.totalSeconds)) * 100}%`, background: item.subject?.color ?? "var(--ink-faint)" }} />
+                    <span
+                      className="block h-full rounded-full"
+                      style={{
+                        width: `${(item.seconds / Math.max(1, data.totalSeconds)) * 100}%`,
+                        background: item.subject?.color ?? "var(--ink-faint)",
+                      }}
+                    />
                   </span>
-                  <span className="w-20 shrink-0 text-right text-sm font-bold">{studyTime(item.seconds, i18n.language)}</span>
+                  <span className="w-20 shrink-0 text-right text-sm font-bold">
+                    {studyTime(item.seconds, i18n.language)}
+                  </span>
                 </li>
               ))}
             </ul>

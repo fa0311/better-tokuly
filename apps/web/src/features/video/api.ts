@@ -22,7 +22,8 @@ export const videoKeys = {
   videos: ["video", "video"] as const,
   channels: ["video", "channel"] as const,
   channel: (handle: string) => ["video", "channel", "page", handle] as const,
-  channelVideos: (handle: string, sort: video.ChannelVideoSort, origin: video.VideoOrigin) => ["video", "channel", "videos", handle, sort, origin] as const,
+  channelVideos: (handle: string, sort: video.ChannelVideoSort, origin: video.VideoOrigin) =>
+    ["video", "channel", "videos", handle, sort, origin] as const,
   channelPlaylists: (handle: string) => ["video", "channel", "playlists", handle] as const,
   subscribers: (channelId: string) => ["video", "channel", "subscribers", channelId] as const,
   myChannels: ["video", "channel", "mine"] as const,
@@ -35,19 +36,27 @@ export const videoKeys = {
   playlistItems: (playlistId: string) => ["video", "playlist", "items", playlistId] as const,
   history: ["video", "history"] as const,
   studio: ["video", "studio"] as const,
-  studioVideos: (channelId: string, status: video.VideoStatus) => ["video", "studio", "videos", channelId, status] as const,
+  studioVideos: (channelId: string, status: video.VideoStatus) =>
+    ["video", "studio", "videos", channelId, status] as const,
   games: (query: string) => ["video", "studio", "games", query] as const,
   subtitles: (videoId: string) => ["video", "studio", "subtitles", videoId] as const,
-  channelAnalytics: (channelId: string, days: number) => ["video", "studio", "analytics", "channel", channelId, days] as const,
-  videoAnalytics: (videoId: string, days: number) => ["video", "studio", "analytics", "video", videoId, days] as const,
-  realtimeAnalytics: (kind: "channel" | "video", id: string) => ["video", "studio", "analytics", "realtime", kind, id] as const,
+  channelAnalytics: (channelId: string, days: number) =>
+    ["video", "studio", "analytics", "channel", channelId, days] as const,
+  videoAnalytics: (videoId: string, days: number) =>
+    ["video", "studio", "analytics", "video", videoId, days] as const,
+  realtimeAnalytics: (kind: "channel" | "video", id: string) =>
+    ["video", "studio", "analytics", "realtime", kind, id] as const,
   party: (code: string) => ["video", "party", code] as const,
   partyPreview: (code: string) => ["video", "party", "preview", code] as const,
 };
 
 /** The signed-in person's channels (default first) and how many they may have. */
 export function useMyChannels() {
-  return useQuery({ queryKey: videoKeys.myChannels, queryFn: () => channelClient().listMyChannels({}), staleTime: 60_000 });
+  return useQuery({
+    queryKey: videoKeys.myChannels,
+    queryFn: () => channelClient().listMyChannels({}),
+    staleTime: 60_000,
+  });
 }
 
 /** A video as the watch page and the studio editor show it. `videoId` is the UUID or the short ID. */
@@ -101,9 +110,17 @@ function patchSummaries(value: unknown, patch: SummaryPatch): unknown {
 const REMOVED = Symbol("removed");
 
 /** Applies `patch` to every cached card of the video, wherever it is listed. */
-export function patchVideoEverywhere(queryClient: QueryClient, videoId: string, patch: (summary: video.VideoSummary) => video.VideoSummary | null): void {
+export function patchVideoEverywhere(
+  queryClient: QueryClient,
+  videoId: string,
+  patch: (summary: video.VideoSummary) => video.VideoSummary | null,
+): void {
   queryClient.setQueriesData({ queryKey: videoKeys.all }, (data: unknown) =>
-    data === undefined ? data : patchSummaries(data, (summary) => (summary.id === videoId || summary.shortId === videoId ? patch(summary) : summary)),
+    data === undefined
+      ? data
+      : patchSummaries(data, (summary) =>
+          summary.id === videoId || summary.shortId === videoId ? patch(summary) : summary,
+        ),
   );
 }
 

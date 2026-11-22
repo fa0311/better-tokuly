@@ -19,20 +19,54 @@ interface Question {
 }
 
 /** Opens an account's box. By default anyone signed in may ask, so tests need no friendships. */
-async function openBox(request: APIRequestContext, owner: Account, settings: Record<string, unknown> = {}): Promise<void> {
-  await rpc(request, `${BOX}/UpdateSettings`, { boxOpen: true, audience: "ASKER_AUDIENCE_SIGNED_IN", ...settings }, owner);
+async function openBox(
+  request: APIRequestContext,
+  owner: Account,
+  settings: Record<string, unknown> = {},
+): Promise<void> {
+  await rpc(
+    request,
+    `${BOX}/UpdateSettings`,
+    { boxOpen: true, audience: "ASKER_AUDIENCE_SIGNED_IN", ...settings },
+    owner,
+  );
 }
 
-async function ask(request: APIRequestContext, from: Account, to: Account, text: string, signed = false): Promise<Question> {
-  return (await rpc<{ question: Question }>(request, `${BOX}/AskQuestion`, { user: to.userId, text, signed }, from)).question;
+async function ask(
+  request: APIRequestContext,
+  from: Account,
+  to: Account,
+  text: string,
+  signed = false,
+): Promise<Question> {
+  return (
+    await rpc<{ question: Question }>(
+      request,
+      `${BOX}/AskQuestion`,
+      { user: to.userId, text, signed },
+      from,
+    )
+  ).question;
 }
 
-async function inboxOf(request: APIRequestContext, owner: Account, folder = "QUESTION_FOLDER_INBOX"): Promise<Question[]> {
-  return (await rpc<{ questions?: Question[] }>(request, `${BOX}/ListInbox`, { folder }, owner)).questions ?? [];
+async function inboxOf(
+  request: APIRequestContext,
+  owner: Account,
+  folder = "QUESTION_FOLDER_INBOX",
+): Promise<Question[]> {
+  return (
+    (await rpc<{ questions?: Question[] }>(request, `${BOX}/ListInbox`, { folder }, owner))
+      .questions ?? []
+  );
 }
 
 /** Waits until the delivery worker put a question into its owner's inbox, and returns it. */
-async function delivered(request: APIRequestContext, owner: Account, text: string, folder?: string): Promise<Question> {
+async function delivered(
+  request: APIRequestContext,
+  owner: Account,
+  text: string,
+  folder?: string,
+): Promise<Question> {
   let found: Question | undefined;
   await expect(async () => {
     found = (await inboxOf(request, owner, folder)).find((question) => question.text === text);
@@ -42,19 +76,30 @@ async function delivered(request: APIRequestContext, owner: Account, text: strin
 }
 
 /** `count` fresh accounts who are all friends with each other and with `me`: enough of a crowd for anything anonymous among friends. */
-async function circleOf(request: APIRequestContext, me: Account, count: number): Promise<Account[]> {
+async function circleOf(
+  request: APIRequestContext,
+  me: Account,
+  count: number,
+): Promise<Account[]> {
   const friends: Account[] = [];
-  for (let index = 0; index < count; index++) friends.push(await createAccount(request, `tomo${index + 1}`));
+  for (let index = 0; index < count; index++)
+    friends.push(await createAccount(request, `tomo${index + 1}`));
   const everyone = [me, ...friends];
   for (let a = 0; a < everyone.length; a++) {
-    for (let b = a + 1; b < everyone.length; b++) await befriend(request, everyone[a]!, everyone[b]!);
+    for (let b = a + 1; b < everyone.length; b++)
+      await befriend(request, everyone[a]!, everyone[b]!);
   }
   return friends;
 }
 
 /** Buys the 100-coin package with the development payment provider. */
 async function grantCoins(request: APIRequestContext, to: Account): Promise<void> {
-  const shop = await rpc<{ packages: { id: string; sku: string }[] }>(request, `${WALLET}/ListCoinPackages`, {}, to);
+  const shop = await rpc<{ packages: { id: string; sku: string }[] }>(
+    request,
+    `${WALLET}/ListCoinPackages`,
+    {},
+    to,
+  );
   const hundred = shop.packages.find((candidate) => candidate.sku === "coins_100");
   expect(hundred, "the seeded coins_100 package").toBeTruthy();
   await rpc(request, `${WALLET}/StartPurchase`, { packageId: hundred?.id }, to);
@@ -62,7 +107,10 @@ async function grantCoins(request: APIRequestContext, to: Account): Promise<void
 }
 
 async function coinsOf(request: APIRequestContext, account: Account): Promise<string> {
-  return (await rpc<{ balance: { coins?: string } }>(request, `${WALLET}/GetBalance`, {}, account)).balance.coins ?? "0";
+  return (
+    (await rpc<{ balance: { coins?: string } }>(request, `${WALLET}/GetBalance`, {}, account))
+      .balance.coins ?? "0"
+  );
 }
 
 interface Round {
@@ -71,7 +119,11 @@ interface Round {
 }
 
 /** Has `voter` pick `target` in their current poll (the four choices of someone with four friends are those four). */
-async function sendFlame(request: APIRequestContext, voter: Account, target: Account): Promise<void> {
+async function sendFlame(
+  request: APIRequestContext,
+  voter: Account,
+  target: Account,
+): Promise<void> {
   const { round } = await rpc<{ round: Round }>(request, `${POLLS}/GetRound`, {}, voter);
   expect(
     round.poll?.choices.map((choice) => choice.id),
@@ -81,7 +133,11 @@ async function sendFlame(request: APIRequestContext, voter: Account, target: Acc
 }
 
 /** A valid PNG of one colour, so image uploads need no fixture file. */
-function solidPng(width: number, height: number, [red, green, blue]: [number, number, number]): Buffer {
+function solidPng(
+  width: number,
+  height: number,
+  [red, green, blue]: [number, number, number],
+): Buffer {
   const chunk = (type: string, data: Buffer) => {
     const body = Buffer.concat([Buffer.from(type, "latin1"), data]);
     const length = Buffer.alloc(4);
@@ -94,9 +150,17 @@ function solidPng(width: number, height: number, [red, green, blue]: [number, nu
   header.writeUInt32BE(width, 0);
   header.writeUInt32BE(height, 4);
   header.set([8, 2, 0, 0, 0], 8); // 8-bit RGB, no interlacing
-  const row = Buffer.concat([Buffer.from([0]), Buffer.alloc(width * 3, Buffer.from([red, green, blue]))]);
+  const row = Buffer.concat([
+    Buffer.from([0]),
+    Buffer.alloc(width * 3, Buffer.from([red, green, blue])),
+  ]);
   const pixels = Buffer.concat(Array.from({ length: height }, () => row));
-  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", header), chunk("IDAT", deflateSync(pixels)), chunk("IEND", Buffer.alloc(0))]);
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", header),
+    chunk("IDAT", deflateSync(pixels)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
 }
 
 // ───────────────────────────── Things on screen ─────────────────────────────
@@ -111,22 +175,29 @@ async function open(page: Page, url: string): Promise<void> {
 async function live(page: Page): Promise<void> {
   await expect(page.getByRole("navigation", { name: "main" }).first()).toBeVisible();
   const connected = () => {
-    const connection = (window as { __tokulyRealtime?: { connectionStatus: string } }).__tokulyRealtime;
+    const connection = (window as { __tokulyRealtime?: { connectionStatus: string } })
+      .__tokulyRealtime;
     return connection ? connection.connectionStatus === "connected" : null;
   };
   if ((await page.evaluate(connected)) === null) await page.waitForTimeout(3000);
   else await page.waitForFunction(connected, null, { timeout: 20_000 });
 }
 
-const questionRow = (page: Page, text: string): Locator => page.getByTestId("question-row").filter({ hasText: text });
-const qaCard = (page: Page, text: string): Locator => page.getByTestId("qa-card").filter({ hasText: text });
+const questionRow = (page: Page, text: string): Locator =>
+  page.getByTestId("question-row").filter({ hasText: text });
+const qaCard = (page: Page, text: string): Locator =>
+  page.getByTestId("qa-card").filter({ hasText: text });
 
 /** An amount as the `Coins` glyph writes it: the coin's "T", then the number. */
 const coins = (amount: number) => new RegExp(`^T\\+?${amount.toLocaleString("en-US")}$`);
 
 // ───────────────────────────── My question box ─────────────────────────────
 
-test("the hub opens the box, and the share sheet has the public link and an image card", async ({ page, request, me }) => {
+test("the hub opens the box, and the share sheet has the public link and an image card", async ({
+  page,
+  request,
+  me,
+}) => {
   await open(page, "/ask");
   const box = page.getByTestId("my-box");
   await expect(box.getByTestId("box-state")).toHaveText("おやすみ中");
@@ -134,7 +205,11 @@ test("the hub opens the box, and the share sheet has the public link and an imag
   await box.getByRole("switch").click();
   await expect(box.getByTestId("box-state")).toHaveText("受付中");
   await expect
-    .poll(async () => (await rpc<{ settings: { boxOpen?: boolean } }>(request, `${BOX}/GetSettings`, {}, me)).settings.boxOpen)
+    .poll(
+      async () =>
+        (await rpc<{ settings: { boxOpen?: boolean } }>(request, `${BOX}/GetSettings`, {}, me))
+          .settings.boxOpen,
+    )
     .toBe(true);
 
   await box.getByRole("button", { name: "シェアする" }).click();
@@ -143,10 +218,18 @@ test("the hub opens the box, and the share sheet has the public link and an imag
   // The card is drawn in the browser: a story-sized picture.
   const card = sheet.getByTestId("share-card");
   await expect(card).toBeVisible({ timeout: 20_000 });
-  expect(await card.evaluate((image: HTMLImageElement) => image.decode().then(() => [image.naturalWidth, image.naturalHeight]))).toEqual([1080, 1920]);
+  expect(
+    await card.evaluate((image: HTMLImageElement) =>
+      image.decode().then(() => [image.naturalWidth, image.naturalHeight]),
+    ),
+  ).toEqual([1080, 1920]);
 });
 
-test("the prompt line, who may ask and the word filter are settings of the box", async ({ page, request, me }) => {
+test("the prompt line, who may ask and the word filter are settings of the box", async ({
+  page,
+  request,
+  me,
+}) => {
   const asker = await createAccount(request, "asker");
   await openBox(request, me);
   await open(page, "/ask/settings");
@@ -168,13 +251,19 @@ test("the prompt line, who may ask and the word filter are settings of the box",
   await expect(questionRow(page, "きらいな食べ物は?")).toBeVisible();
 
   // The box page shows the new prompt line to the asker.
-  const box = (await rpc<{ box: { prompt: string } }>(request, `${BOX}/GetBox`, { user: me.handle }, asker)).box;
+  const box = (
+    await rpc<{ box: { prompt: string } }>(request, `${BOX}/GetBox`, { user: me.handle }, asker)
+  ).box;
   expect(box.prompt).toBe("恋バナ大歓迎!");
 });
 
 // ───────────────────────────── Asking ─────────────────────────────
 
-test("a question asked anonymously from a second account arrives live, without a name", async ({ page, request, me }) => {
+test("a question asked anonymously from a second account arrives live, without a name", async ({
+  page,
+  request,
+  me,
+}) => {
   const asker = await createAccount(request, "himitsu");
   await openBox(request, me);
   await open(page, "/ask/inbox");
@@ -189,7 +278,11 @@ test("a question asked anonymously from a second account arrives live, without a
   await expect(page.getByRole("main")).not.toContainText(asker.handle);
 });
 
-test("asking on someone's box is anonymous by default and says what they will see", async ({ page, request, me: _me }) => {
+test("asking on someone's box is anonymous by default and says what they will see", async ({
+  page,
+  request,
+  me: _me,
+}) => {
   const owner = await createAccount(request, "hakonushi");
   await openBox(request, owner, { boxPrompt: "なんでもきいて!" });
   await open(page, `/ask/u/${owner.handle}`);
@@ -227,15 +320,25 @@ test("a signed question shows the asker's name to the owner", async ({ page, req
   // The owner's inbox names the asker.
   await signInAs(page, owner);
   await open(page, "/ask/inbox");
-  await expect(questionRow(page, "今度あそぼ!").getByTestId("sender")).toContainText(me.displayName);
+  await expect(questionRow(page, "今度あそぼ!").getByTestId("sender")).toContainText(
+    me.displayName,
+  );
 });
 
-test("an anonymous question can carry a picture when the owner takes pictures", async ({ page, request, me: _me }) => {
+test("an anonymous question can carry a picture when the owner takes pictures", async ({
+  page,
+  request,
+  me: _me,
+}) => {
   const owner = await createAccount(request, "hakonushi");
   await openBox(request, owner, { allowImages: true });
   await open(page, `/ask/u/${owner.handle}`);
 
-  await page.getByTestId("image-input").setInputFiles({ name: "photo.png", mimeType: "image/png", buffer: solidPng(320, 240, [255, 92, 157]) });
+  await page.getByTestId("image-input").setInputFiles({
+    name: "photo.png",
+    mimeType: "image/png",
+    buffer: solidPng(320, 240, [255, 92, 157]),
+  });
   await expect(page.getByText("画像は相手に送られるよ")).toBeVisible();
   await page.getByPlaceholder("質問を書いてね").fill("これどこだと思う?");
   // The button waits for the upload to be processed.
@@ -243,7 +346,9 @@ test("an anonymous question can carry a picture when the owner takes pictures", 
   await page.getByRole("button", { name: "質問を送る" }).click();
   await expect(page.getByTestId("ask-sent")).toBeVisible();
 
-  const arrived = (await delivered(request, owner, "これどこだと思う?")) as Question & { image?: { url?: string } };
+  const arrived = (await delivered(request, owner, "これどこだと思う?")) as Question & {
+    image?: { url?: string };
+  };
   expect(arrived.anonymous).toBe(true);
   expect(arrived.image?.url).toBeTruthy();
 
@@ -253,10 +358,19 @@ test("an anonymous question can carry a picture when the owner takes pictures", 
   await expect(questionRow(page, "これどこだと思う?").locator("img")).toBeVisible();
 });
 
-test("a friends-only box whose owner has few friends takes signed questions only, and says why", async ({ page, request, me }) => {
+test("a friends-only box whose owner has few friends takes signed questions only, and says why", async ({
+  page,
+  request,
+  me,
+}) => {
   const owner = await createAccount(request, "shinyu");
   await befriend(request, me, owner);
-  await rpc(request, `${BOX}/UpdateSettings`, { boxOpen: true, audience: "ASKER_AUDIENCE_FRIENDS" }, owner);
+  await rpc(
+    request,
+    `${BOX}/UpdateSettings`,
+    { boxOpen: true, audience: "ASKER_AUDIENCE_FRIENDS" },
+    owner,
+  );
   await open(page, `/ask/u/${owner.handle}`);
 
   await expect(page.getByTestId("privacy-note")).toContainText("名前つきでだけ送れるよ");
@@ -267,10 +381,19 @@ test("a friends-only box whose owner has few friends takes signed questions only
   expect((await delivered(request, owner, "テスト勉強してる?")).asker?.handle).toBe(me.handle);
 });
 
-test("a closed box and a friends-only box turn strangers away kindly", async ({ page, request, me: _me }) => {
+test("a closed box and a friends-only box turn strangers away kindly", async ({
+  page,
+  request,
+  me: _me,
+}) => {
   const closed = await createAccount(request, "oyasumi");
   const friendsOnly = await createAccount(request, "nakayoshi");
-  await rpc(request, `${BOX}/UpdateSettings`, { boxOpen: true, audience: "ASKER_AUDIENCE_FRIENDS" }, friendsOnly);
+  await rpc(
+    request,
+    `${BOX}/UpdateSettings`,
+    { boxOpen: true, audience: "ASKER_AUDIENCE_FRIENDS" },
+    friendsOnly,
+  );
 
   await open(page, `/ask/u/${closed.handle}`);
   await expect(page.getByTestId("cannot-ask")).toContainText("いまは質問をお休み中だよ");
@@ -281,14 +404,22 @@ test("a closed box and a friends-only box turn strangers away kindly", async ({ 
 
 // ───────────────────────────── Inbox and answers ─────────────────────────────
 
-test("a public answer appears on the Q&A page, on the profile, and on the public page signed out", async ({ page, request, me, browser, baseURL }) => {
+test("a public answer appears on the Q&A page, on the profile, and on the public page signed out", async ({
+  page,
+  request,
+  me,
+  browser,
+  baseURL,
+}) => {
   const asker = await createAccount(request, "asker");
   await openBox(request, me);
   await ask(request, asker, me, "得意な教科は?");
   await delivered(request, me, "得意な教科は?");
 
   await open(page, "/ask/inbox");
-  await questionRow(page, "得意な教科は?").getByRole("button", { name: "答える", exact: true }).click();
+  await questionRow(page, "得意な教科は?")
+    .getByRole("button", { name: "答える", exact: true })
+    .click();
   const composer = page.getByRole("dialog");
   await expect(composer.getByRole("radio", { name: "みんな" })).toBeChecked();
   await composer.getByPlaceholder("回答を書いてね").fill("体育だけは自信ある!");
@@ -305,7 +436,11 @@ test("a public answer appears on the Q&A page, on the profile, and on the public
   await expect(page.getByTestId("profile-answers")).toContainText("体育だけは自信ある!");
 
   // Someone without an account sees the box and the answer, and is led to sign up to ask.
-  const guest = await browser.newContext({ baseURL, locale: "ja-JP", viewport: page.viewportSize() });
+  const guest = await browser.newContext({
+    baseURL,
+    locale: "ja-JP",
+    viewport: page.viewportSize(),
+  });
   try {
     const visitor = await guest.newPage();
     await visitor.goto(`/q/${me.handle}`);
@@ -329,7 +464,11 @@ test("a public answer appears on the Q&A page, on the profile, and on the public
   await expect(qaCard(page, "得意な教科は?")).toContainText("体育だけは自信ある!");
 });
 
-test("the asker sees their question turn answered live, and a private answer stays between the two", async ({ page, request, me }) => {
+test("the asker sees their question turn answered live, and a private answer stays between the two", async ({
+  page,
+  request,
+  me,
+}) => {
   const owner = await createAccount(request, "hakonushi");
   const outsider = await createAccount(request, "soto");
   await openBox(request, owner);
@@ -341,19 +480,42 @@ test("the asker sees their question turn answered live, and a private answer sta
   await expect(sent.getByTestId("sent-state")).toContainText("回答まち");
   await live(page);
 
-  await rpc(request, `${BOX}/AnswerQuestion`, { questionId: question.id, text: "ここだけの話ね", audience: "ANSWER_AUDIENCE_PRIVATE" }, owner);
+  await rpc(
+    request,
+    `${BOX}/AnswerQuestion`,
+    { questionId: question.id, text: "ここだけの話ね", audience: "ANSWER_AUDIENCE_PRIVATE" },
+    owner,
+  );
   await expect(sent.getByTestId("sent-state")).toContainText("回答きたよ!", { timeout: 20_000 });
   await sent.getByRole("link", { name: /回答きたよ!/ }).click();
   await expect(qaCard(page, "ひみつの質問")).toContainText("ここだけの話ね");
   await expect(page.getByText(/この回答はあなたと.+だけが見られるよ/)).toBeVisible();
 
   // Nobody else gets it, and it is not on the Q&A page.
-  const seenByOutsider = await rpc<{ question: Question }>(request, `${BOX}/GetQuestion`, { questionId: question.id }, outsider).catch(() => undefined);
+  const seenByOutsider = await rpc<{ question: Question }>(
+    request,
+    `${BOX}/GetQuestion`,
+    { questionId: question.id },
+    outsider,
+  ).catch(() => undefined);
   expect(seenByOutsider?.question.answer).toBeUndefined();
-  expect((await rpc<{ questions?: Question[] }>(request, `${BOX}/ListAnswers`, { user: owner.userId }, outsider)).questions ?? []).toHaveLength(0);
+  expect(
+    (
+      await rpc<{ questions?: Question[] }>(
+        request,
+        `${BOX}/ListAnswers`,
+        { user: owner.userId },
+        outsider,
+      )
+    ).questions ?? [],
+  ).toHaveLength(0);
 });
 
-test("an answer can be edited, limited to friends and taken back", async ({ page, request, me }) => {
+test("an answer can be edited, limited to friends and taken back", async ({
+  page,
+  request,
+  me,
+}) => {
   const asker = await createAccount(request, "asker");
   await openBox(request, me);
   const question = await ask(request, asker, me, "将来の夢は?");
@@ -374,7 +536,18 @@ test("an answer can be edited, limited to friends and taken back", async ({ page
   await expect(card).toContainText("ともだち限定");
   await expect(card).toContainText("編集済み");
   // No longer for everyone: the public Q&A page is empty again.
-  await expect.poll(async () => ((await rpc<{ questions?: Question[] }>(request, `${BOX}/ListAnswers`, { user: me.userId })).questions ?? []).length).toBe(0);
+  await expect
+    .poll(
+      async () =>
+        (
+          (
+            await rpc<{ questions?: Question[] }>(request, `${BOX}/ListAnswers`, {
+              user: me.userId,
+            })
+          ).questions ?? []
+        ).length,
+    )
+    .toBe(0);
 
   await card.getByRole("button", { name: "その他" }).click();
   await page.getByRole("menuitem", { name: "回答を取り消す" }).click();
@@ -385,7 +558,11 @@ test("an answer can be edited, limited to friends and taken back", async ({ page
   await expect(questionRow(page, "将来の夢は?")).toBeVisible();
 });
 
-test("blocking a sender keeps their next question out, without saying who it was", async ({ page, request, me }) => {
+test("blocking a sender keeps their next question out, without saying who it was", async ({
+  page,
+  request,
+  me,
+}) => {
   const troll = await createAccount(request, "arashi");
   const friend = await createAccount(request, "yasashii");
   await openBox(request, me);
@@ -418,7 +595,11 @@ test("blocking a sender keeps their next question out, without saying who it was
   await expect(page.getByText("ブロックした送り主はいないよ")).toBeVisible();
 });
 
-test("a question its sender took back can still be blocked and reported", async ({ page, request, me }) => {
+test("a question its sender took back can still be blocked and reported", async ({
+  page,
+  request,
+  me,
+}) => {
   const troll = await createAccount(request, "arashi");
   await openBox(request, me);
   const question = await ask(request, troll, me, "やっぱりなし");
@@ -445,7 +626,9 @@ test("a question its sender took back can still be blocked and reported", async 
   await page.getByRole("menuitem", { name: "この送り主をブロック" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "ブロックする" }).click();
   await expect(page.getByText("この送り主をブロックしたよ")).toBeVisible();
-  const blocks = (await rpc<{ blocks?: { preview: string }[] }>(request, `${BOX}/ListSenderBlocks`, {}, me)).blocks ?? [];
+  const blocks =
+    (await rpc<{ blocks?: { preview: string }[] }>(request, `${BOX}/ListSenderBlocks`, {}, me))
+      .blocks ?? [];
   expect(blocks.map((block) => block.preview)).toEqual(["やっぱりなし"]);
 
   // The block holds: what they send next does not arrive.
@@ -455,7 +638,11 @@ test("a question its sender took back can still be blocked and reported", async 
   expect((await inboxOf(request, me)).map((item) => item.text)).not.toContain("もういっかい");
 });
 
-test("a question can be archived, brought back and deleted from its menu", async ({ page, request, me }) => {
+test("a question can be archived, brought back and deleted from its menu", async ({
+  page,
+  request,
+  me,
+}) => {
   const asker = await createAccount(request, "asker");
   await openBox(request, me);
   await ask(request, asker, me, "あとで答えてね");
@@ -492,14 +679,24 @@ test("on a phone, swiping a question left archives it", async ({ page, request, 
   await expect(row).toBeVisible();
   const box = (await row.boundingBox())!;
   const y = box.y + box.height / 2;
-  const pointer = (type: string, x: number) => row.dispatchEvent(type, { pointerId: 7, pointerType: "touch", isPrimary: true, clientX: x, clientY: y, bubbles: true });
+  const pointer = (type: string, x: number) =>
+    row.dispatchEvent(type, {
+      pointerId: 7,
+      pointerType: "touch",
+      isPrimary: true,
+      clientX: x,
+      clientY: y,
+      bubbles: true,
+    });
   await pointer("pointerdown", box.x + box.width - 30);
   for (const dx of [20, 60, 110, 150]) await pointer("pointermove", box.x + box.width - 30 - dx);
   await pointer("pointerup", box.x + box.width - 180);
 
   await expect(page.getByText("アーカイブしたよ")).toBeVisible();
   await expect(questionRow(page, "スワイプしてね")).toHaveCount(0);
-  expect((await delivered(request, me, "スワイプしてね", "QUESTION_FOLDER_ARCHIVED")).text).toBe("スワイプしてね");
+  expect((await delivered(request, me, "スワイプしてね", "QUESTION_FOLDER_ARCHIVED")).text).toBe(
+    "スワイプしてね",
+  );
 });
 
 test("an answered question takes likes and comments on its page", async ({ page, request, me }) => {
@@ -507,14 +704,30 @@ test("an answered question takes likes and comments on its page", async ({ page,
   await openBox(request, owner);
   const question = await ask(request, me, owner, "おすすめの曲は?");
   await delivered(request, owner, "おすすめの曲は?");
-  await rpc(request, `${BOX}/AnswerQuestion`, { questionId: question.id, text: "さいきんはボカロ!" }, owner);
+  await rpc(
+    request,
+    `${BOX}/AnswerQuestion`,
+    { questionId: question.id, text: "さいきんはボカロ!" },
+    owner,
+  );
 
   await open(page, `/ask/q/${question.id}`);
   const card = qaCard(page, "おすすめの曲は?");
   await expect(card).toContainText("さいきんはボカロ!");
   await card.getByRole("button", { name: /いいね/ }).click();
   await expect
-    .poll(async () => (await rpc<{ question: { likeCount?: number } }>(request, `${BOX}/GetQuestion`, { questionId: question.id }, owner)).question.likeCount ?? 0, { timeout: 20_000 })
+    .poll(
+      async () =>
+        (
+          await rpc<{ question: { likeCount?: number } }>(
+            request,
+            `${BOX}/GetQuestion`,
+            { questionId: question.id },
+            owner,
+          )
+        ).question.likeCount ?? 0,
+      { timeout: 20_000 },
+    )
     .toBe(1);
   await page.getByPlaceholder("コメントを書く…").fill("わかる、ボカロいいよね");
   await page.getByPlaceholder("コメントを書く…").press("Enter");
@@ -523,7 +736,11 @@ test("an answered question takes likes and comments on its page", async ({ page,
 
 // ───────────────────────────── Prompts ─────────────────────────────
 
-test("a prompt round trip: post it, a friend's response arrives live, publish it for friends", async ({ page, request, me }) => {
+test("a prompt round trip: post it, a friend's response arrives live, publish it for friends", async ({
+  page,
+  request,
+  me,
+}) => {
   const [friend, other] = await circleOf(request, me, 3);
   await open(page, "/ask/prompts");
   await page.getByRole("button", { name: "お題をつくる" }).first().click();
@@ -538,9 +755,19 @@ test("a prompt round trip: post it, a friend's response arrives live, publish it
   await live(page);
 
   // The friend finds it among their friends' prompts and responds anonymously.
-  const listed = await rpc<{ prompts?: { id: string }[] }>(request, `${PROMPTS}/ListFriendPrompts`, {}, friend!);
+  const listed = await rpc<{ prompts?: { id: string }[] }>(
+    request,
+    `${PROMPTS}/ListFriendPrompts`,
+    {},
+    friend!,
+  );
   expect((listed.prompts ?? []).map((prompt) => prompt.id)).toContain(promptId);
-  await rpc(request, `${PROMPTS}/RespondToPrompt`, { promptId, text: "しっかり者っぽい!" }, friend!);
+  await rpc(
+    request,
+    `${PROMPTS}/RespondToPrompt`,
+    { promptId, text: "しっかり者っぽい!" },
+    friend!,
+  );
 
   const response = page.getByTestId("response-row").filter({ hasText: "しっかり者っぽい!" });
   await expect(response).toBeVisible({ timeout: 20_000 });
@@ -550,31 +777,71 @@ test("a prompt round trip: post it, a friend's response arrives live, publish it
 
   // Another friend reads it on the prompt's page.
   await expect
-    .poll(async () => ((await rpc<{ responses?: { text: string }[] }>(request, `${PROMPTS}/ListPublishedResponses`, { promptId }, other!)).responses ?? []).map((item) => item.text))
+    .poll(async () =>
+      (
+        (
+          await rpc<{ responses?: { text: string }[] }>(
+            request,
+            `${PROMPTS}/ListPublishedResponses`,
+            { promptId },
+            other!,
+          )
+        ).responses ?? []
+      ).map((item) => item.text),
+    )
     .toEqual(["しっかり者っぽい!"]);
 });
 
-test("responding to a friend's prompt from the list of friends' prompts", async ({ page, request, me }) => {
+test("responding to a friend's prompt from the list of friends' prompts", async ({
+  page,
+  request,
+  me,
+}) => {
   const [owner] = await circleOf(request, me, 3);
-  const { prompt } = await rpc<{ prompt: { id: string } }>(request, `${PROMPTS}/CreatePrompt`, { text: "私を動物にたとえると?", emoji: "🐾" }, owner!);
+  const { prompt } = await rpc<{ prompt: { id: string } }>(
+    request,
+    `${PROMPTS}/CreatePrompt`,
+    { text: "私を動物にたとえると?", emoji: "🐾" },
+    owner!,
+  );
 
   await open(page, "/ask/prompts");
-  await page.getByTestId("friend-prompts").getByRole("link", { name: /私を動物にたとえると\?/ }).click();
+  await page
+    .getByTestId("friend-prompts")
+    .getByRole("link", { name: /私を動物にたとえると\?/ })
+    .click();
   await expect(page.getByTestId("prompt-header")).toContainText("私を動物にたとえると?");
   await page.getByPlaceholder("回答を書いてね").fill("ぜったい柴犬");
   await page.getByRole("button", { name: "回答を送る" }).click();
   await expect(page.getByTestId("my-response")).toContainText("ぜったい柴犬");
 
   await expect
-    .poll(async () => ((await rpc<{ responses?: { text: string; anonymous?: boolean }[] }>(request, `${PROMPTS}/ListPromptResponses`, { promptId: prompt.id }, owner!)).responses ?? []).map((item) => [item.text, item.anonymous]), {
-      timeout: 20_000,
-    })
+    .poll(
+      async () =>
+        (
+          (
+            await rpc<{ responses?: { text: string; anonymous?: boolean }[] }>(
+              request,
+              `${PROMPTS}/ListPromptResponses`,
+              { promptId: prompt.id },
+              owner!,
+            )
+          ).responses ?? []
+        ).map((item) => [item.text, item.anonymous]),
+      {
+        timeout: 20_000,
+      },
+    )
     .toEqual([["ぜったい柴犬", true]]);
 });
 
 // ───────────────────────────── Compliment polls ─────────────────────────────
 
-test("a compliment round: pick a friend, they get a flame, and finishing pays the reward", async ({ page, request, me }) => {
+test("a compliment round: pick a friend, they get a flame, and finishing pays the reward", async ({
+  page,
+  request,
+  me,
+}) => {
   test.setTimeout(120_000);
   // Five friends: four to show, one more for the shuffle to bring in.
   const friends = await circleOf(request, me, 5);
@@ -595,13 +862,17 @@ test("a compliment round: pick a friend, they get a flame, and finishing pays th
   expect(picked, `the friend called ${pickedName}`).toBeTruthy();
   await choice.click();
   await expect(page.getByTestId("poll-progress")).toHaveText("3 / 12", { timeout: 15_000 });
-  const flamesOf = async (account: Account) => (await rpc<{ flames?: Record<string, unknown>[] }>(request, `${POLLS}/ListFlames`, {}, account)).flames ?? [];
+  const flamesOf = async (account: Account) =>
+    (await rpc<{ flames?: Record<string, unknown>[] }>(request, `${POLLS}/ListFlames`, {}, account))
+      .flames ?? [];
   await expect.poll(async () => (await flamesOf(picked)).length, { timeout: 20_000 }).toBe(1);
   expect(JSON.stringify(await flamesOf(picked))).not.toContain(me.userId);
 
   // Play to the end: the reward (11 of 12 polls voted on) and the clock until the next round.
   for (let position = 3; position <= 12; position++) {
-    await expect(page.getByTestId("poll-progress")).toHaveText(`${position} / 12`, { timeout: 15_000 });
+    await expect(page.getByTestId("poll-progress")).toHaveText(`${position} / 12`, {
+      timeout: 15_000,
+    });
     await page.getByTestId("poll-choices").getByRole("button").first().click();
   }
   const cooldown = page.getByTestId("poll-cooldown");
@@ -611,13 +882,22 @@ test("a compliment round: pick a friend, they get a flame, and finishing pays th
   await expect.poll(() => coinsOf(request, me), { timeout: 20_000 }).toBe("11");
 });
 
-test("someone without enough friends is sent to find some instead of a poll", async ({ page, me: _me }) => {
+test("someone without enough friends is sent to find some instead of a poll", async ({
+  page,
+  me: _me,
+}) => {
   await open(page, "/ask/polls");
   await expect(page.getByText("ともだちがもうすこし必要みたい")).toBeVisible();
-  await expect(page.getByRole("main").getByRole("link", { name: "ともだちをさがす" })).toHaveAttribute("href", "/friends");
+  await expect(
+    page.getByRole("main").getByRole("link", { name: "ともだちをさがす" }),
+  ).toHaveAttribute("href", "/friends");
 });
 
-test("buying a hint about a flame is confirmed and lowers the coin balance", async ({ page, request, me }) => {
+test("buying a hint about a flame is confirmed and lowers the coin balance", async ({
+  page,
+  request,
+  me,
+}) => {
   const [voter] = await circleOf(request, me, 4);
   await sendFlame(request, voter!, me);
   await grantCoins(request, me);
@@ -643,12 +923,20 @@ test("buying a hint about a flame is confirmed and lowers the coin balance", asy
   expect(await coinsOf(request, me)).toBe("70");
 });
 
-test("someone short on coins is sent to the wallet instead of being charged", async ({ page, request, me }) => {
+test("someone short on coins is sent to the wallet instead of being charged", async ({
+  page,
+  request,
+  me,
+}) => {
   const [voter] = await circleOf(request, me, 4);
   await sendFlame(request, voter!, me);
 
   await open(page, "/ask/flames");
-  await page.getByTestId("flame-row").first().getByRole("button", { name: /ヒントを見る/ }).click({ timeout: 20_000 });
+  await page
+    .getByTestId("flame-row")
+    .first()
+    .getByRole("button", { name: /ヒントを見る/ })
+    .click({ timeout: 20_000 });
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByTestId("hint-short")).toHaveText("コインが30たりないよ");
   await expect(dialog.getByRole("button", { name: "コインをつかう" })).toHaveCount(0);
@@ -659,18 +947,30 @@ test("someone short on coins is sent to the wallet instead of being charged", as
 
 // ───────────────────────────── Ways in ─────────────────────────────
 
-test("the hub tile, a friend's profile and a visitor's draft all lead to a box", async ({ page, request, me, browser, baseURL }) => {
+test("the hub tile, a friend's profile and a visitor's draft all lead to a box", async ({
+  page,
+  request,
+  me,
+  browser,
+  baseURL,
+}) => {
   const owner = await createAccount(request, "hakonushi");
   await openBox(request, owner);
 
   await open(page, "/me");
-  await expect(page.getByRole("main").getByRole("link", { name: "質問箱・ほめ投票" })).toHaveAttribute("href", "/ask");
+  await expect(
+    page.getByRole("main").getByRole("link", { name: "質問箱・ほめ投票" }),
+  ).toHaveAttribute("href", "/ask");
   await open(page, `/u/${owner.handle}`);
   await page.getByRole("link", { name: "質問する" }).click();
   await expect(page).toHaveURL(new RegExp(`/ask/u/${owner.handle}$`));
 
   // A visitor writes a question first, then signs in: they land on the box with their words still there.
-  const guest = await browser.newContext({ baseURL, locale: "ja-JP", viewport: page.viewportSize() });
+  const guest = await browser.newContext({
+    baseURL,
+    locale: "ja-JP",
+    viewport: page.viewportSize(),
+  });
   try {
     const visitor = await guest.newPage();
     await visitor.goto(`/q/${owner.handle}`);
@@ -686,12 +986,22 @@ test("the hub tile, a friend's profile and a visitor's draft all lead to a box",
   }
 });
 
-test("what a visitor wrote stays in their tab: the next person to sign in on the device does not get it", async ({ page, request, me, browser, baseURL }) => {
+test("what a visitor wrote stays in their tab: the next person to sign in on the device does not get it", async ({
+  page,
+  request,
+  me,
+  browser,
+  baseURL,
+}) => {
   const owner = await createAccount(request, "hakonushi");
   await openBox(request, owner);
 
   // A writes a question as a visitor, heads for sign-up, and leaves.
-  const first = await browser.newContext({ baseURL, locale: "ja-JP", viewport: page.viewportSize() });
+  const first = await browser.newContext({
+    baseURL,
+    locale: "ja-JP",
+    viewport: page.viewportSize(),
+  });
   let shared: Awaited<ReturnType<typeof first.storageState>>;
   try {
     const visitor = await first.newPage();
@@ -700,14 +1010,21 @@ test("what a visitor wrote stays in their tab: the next person to sign in on the
     await visitor.getByRole("button", { name: "はじめる（無料）" }).click();
     await expect(visitor).toHaveURL(/\/signup/);
     // Nothing of it is in the storage every tab of this browser shares.
-    expect(await visitor.evaluate(() => JSON.stringify(window.localStorage))).not.toContain("だれにも言わないでね");
+    expect(await visitor.evaluate(() => JSON.stringify(window.localStorage))).not.toContain(
+      "だれにも言わないでね",
+    );
     shared = await first.storageState();
   } finally {
     await first.close();
   }
 
   // B signs in on the same browser (same cookies and local storage, another tab).
-  const second = await browser.newContext({ baseURL, locale: "ja-JP", viewport: page.viewportSize(), storageState: shared });
+  const second = await browser.newContext({
+    baseURL,
+    locale: "ja-JP",
+    viewport: page.viewportSize(),
+    storageState: shared,
+  });
   try {
     const other = await second.newPage();
     await signInAs(other, me);
@@ -722,11 +1039,20 @@ test("what a visitor wrote stays in their tab: the next person to sign in on the
   }
 });
 
-test("a box that does not exist says so, signed in and signed out", async ({ page, me: _me, browser, baseURL }) => {
+test("a box that does not exist says so, signed in and signed out", async ({
+  page,
+  me: _me,
+  browser,
+  baseURL,
+}) => {
   await open(page, "/ask/u/nobody_here_0000");
   await expect(page.getByText("質問箱が見つかりません")).toBeVisible();
 
-  const guest = await browser.newContext({ baseURL, locale: "ja-JP", viewport: page.viewportSize() });
+  const guest = await browser.newContext({
+    baseURL,
+    locale: "ja-JP",
+    viewport: page.viewportSize(),
+  });
   try {
     const visitor = await guest.newPage();
     await visitor.goto("/q/nobody_here_0000");

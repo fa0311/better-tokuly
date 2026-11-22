@@ -12,7 +12,8 @@ export interface Subject {
 export const subjectKey = (subject: Subject): string => `${subject.type}:${subject.id}`;
 
 /** The realtime topic of a subject. It takes the UUID, never a short ID. */
-export const subjectTopic = (type: common.SubjectType, uuid: string): string => `subject:${type}:${uuid}`;
+export const subjectTopic = (type: common.SubjectType, uuid: string): string =>
+  `subject:${type}:${uuid}`;
 
 /** The caller's own reaction: a like, a dislike or one emoji. */
 export interface ViewerReaction {
@@ -46,9 +47,15 @@ export interface Engagement {
 
 export const LIKE: ViewerReaction = { kind: engagement.ReactionKind.LIKE, emoji: "" };
 
-export const emojiReaction = (emoji: string): ViewerReaction => ({ kind: engagement.ReactionKind.EMOJI, emoji });
+export const emojiReaction = (emoji: string): ViewerReaction => ({
+  kind: engagement.ReactionKind.EMOJI,
+  emoji,
+});
 
-export function sameReaction(a: ViewerReaction | undefined, b: ViewerReaction | undefined): boolean {
+export function sameReaction(
+  a: ViewerReaction | undefined,
+  b: ViewerReaction | undefined,
+): boolean {
   return a?.kind === b?.kind && (a?.emoji ?? "") === (b?.emoji ?? "");
 }
 
@@ -58,11 +65,19 @@ function toViewerReaction(reaction: engagement.Reaction | undefined): ViewerReac
 }
 
 /** The reaction part of an engagement, from what the server sent. */
-export function reactionFields(summary: engagement.ReactionSummary | undefined): Pick<Engagement, "likeCount" | "dislikeCount" | "emojiCounts" | "emojiTotal" | "viewerReaction"> {
+export function reactionFields(
+  summary: engagement.ReactionSummary | undefined,
+): Pick<
+  Engagement,
+  "likeCount" | "dislikeCount" | "emojiCounts" | "emojiTotal" | "viewerReaction"
+> {
   return {
     likeCount: Number(summary?.likeCount ?? 0n),
     dislikeCount: Number(summary?.dislikeCount ?? 0n),
-    emojiCounts: (summary?.emojiCounts ?? []).map((entry) => ({ emoji: entry.emoji, count: Number(entry.count) })),
+    emojiCounts: (summary?.emojiCounts ?? []).map((entry) => ({
+      emoji: entry.emoji,
+      count: Number(entry.count),
+    })),
     emojiTotal: Number(summary?.emojiTotal ?? 0n),
     viewerReaction: toViewerReaction(summary?.viewerReaction),
   };
@@ -82,7 +97,11 @@ export function toEngagement(message: engagement.SubjectEngagement): Engagement 
 
 function adjustEmoji(counts: EmojiCount[], emoji: string, delta: number): EmojiCount[] {
   const known = counts.some((entry) => entry.emoji === emoji);
-  const next = known ? counts.map((entry) => (entry.emoji === emoji ? { ...entry, count: entry.count + delta } : entry)) : [...counts, { emoji, count: delta }];
+  const next = known
+    ? counts.map((entry) =>
+        entry.emoji === emoji ? { ...entry, count: entry.count + delta } : entry,
+      )
+    : [...counts, { emoji, count: delta }];
   // The server lists the most used first; an emoji that ties keeps its place, so chips do not jump around under a finger.
   return next.filter((entry) => entry.count > 0);
 }
@@ -92,12 +111,16 @@ function adjustEmoji(counts: EmojiCount[], emoji: string, delta: number): EmojiC
  * (`undefined` = taken back): the previous reaction leaves its counter, the
  * new one joins its own. Used to show a tap at once, before the server answers.
  */
-export function withViewerReaction(current: Engagement, next: ViewerReaction | undefined): Engagement {
+export function withViewerReaction(
+  current: Engagement,
+  next: ViewerReaction | undefined,
+): Engagement {
   let { likeCount, dislikeCount, emojiCounts, emojiTotal } = current;
   const apply = (reaction: ViewerReaction | undefined, delta: number) => {
     if (!reaction) return;
     if (reaction.kind === engagement.ReactionKind.LIKE) likeCount = Math.max(0, likeCount + delta);
-    else if (reaction.kind === engagement.ReactionKind.DISLIKE) dislikeCount = Math.max(0, dislikeCount + delta);
+    else if (reaction.kind === engagement.ReactionKind.DISLIKE)
+      dislikeCount = Math.max(0, dislikeCount + delta);
     else if (reaction.kind === engagement.ReactionKind.EMOJI) {
       emojiCounts = adjustEmoji(emojiCounts, reaction.emoji, delta);
       emojiTotal = Math.max(0, emojiTotal + delta);
@@ -109,7 +132,10 @@ export function withViewerReaction(current: Engagement, next: ViewerReaction | u
 }
 
 /** A realtime `counters_changed` applied on top of what is cached: totals from the server, the caller's own state kept. */
-export function withCounters(current: Engagement, counters: engagement.CountersChanged): Engagement {
+export function withCounters(
+  current: Engagement,
+  counters: engagement.CountersChanged,
+): Engagement {
   const { viewerReaction: _ignored, ...reactions } = reactionFields(counters.reactions);
   return {
     ...current,
@@ -123,5 +149,7 @@ export function withCounters(current: Engagement, counters: engagement.CountersC
 /** 1234 → "1,234", 12_345 → "1.2万" (ja) / "12K" (en): counts next to icons stay short. */
 export function compactCount(count: number, language: string): string {
   if (count < 10_000) return count.toLocaleString(language);
-  return new Intl.NumberFormat(language, { notation: "compact", maximumFractionDigits: 1 }).format(count);
+  return new Intl.NumberFormat(language, { notation: "compact", maximumFractionDigits: 1 }).format(
+    count,
+  );
 }

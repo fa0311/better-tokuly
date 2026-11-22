@@ -18,7 +18,15 @@ export interface DialogProps {
  * A modal. On phones it rises from the bottom as a sheet; on wider screens it
  * is a centered card.
  */
-export function Dialog({ open, onOpenChange, title, description, children, footer, className }: DialogProps) {
+export function Dialog({
+  open,
+  onOpenChange,
+  title,
+  description,
+  children,
+  footer,
+  className,
+}: DialogProps) {
   return (
     <BaseDialog.Root open={open} onOpenChange={onOpenChange}>
       <BaseDialog.Portal>
@@ -34,10 +42,19 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
         >
           <header className="flex items-start gap-3 px-6 pt-6">
             <div className="min-w-0 flex-1">
-              <BaseDialog.Title className="text-xl font-black leading-snug">{title}</BaseDialog.Title>
-              {description && <BaseDialog.Description className="mt-1 text-sm text-ink-soft">{description}</BaseDialog.Description>}
+              <BaseDialog.Title className="text-xl font-black leading-snug">
+                {title}
+              </BaseDialog.Title>
+              {description && (
+                <BaseDialog.Description className="mt-1 text-sm text-ink-soft">
+                  {description}
+                </BaseDialog.Description>
+              )}
             </div>
-            <BaseDialog.Close aria-label="close" className="grid size-9 shrink-0 place-items-center rounded-full hover:bg-surface-2">
+            <BaseDialog.Close
+              aria-label="close"
+              className="grid size-9 shrink-0 place-items-center rounded-full hover:bg-surface-2"
+            >
               <X className="size-5" />
             </BaseDialog.Close>
           </header>

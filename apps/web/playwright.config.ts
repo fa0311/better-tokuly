@@ -36,7 +36,13 @@ export default defineConfig({
     launchOptions: {
       // Software WebGL so the map renders on machines without a GPU;
       // containers often have a tiny /dev/shm, which crashes renderers.
-      args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist", "--enable-webgl", "--disable-dev-shm-usage"],
+      args: [
+        "--use-angle=swiftshader",
+        "--enable-unsafe-swiftshader",
+        "--ignore-gpu-blocklist",
+        "--enable-webgl",
+        "--disable-dev-shm-usage",
+      ],
     },
   },
   projects: [

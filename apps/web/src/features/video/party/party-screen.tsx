@@ -16,15 +16,28 @@ import { PartyRoomView } from "./party-room";
 
 /** What an invite link shows before joining: the video, who hosts, how many are in. */
 export function usePartyPreview(code: string) {
-  return useQuery({ queryKey: videoKeys.partyPreview(code), queryFn: () => partyClient().previewParty({ code }), retry: false });
+  return useQuery({
+    queryKey: videoKeys.partyPreview(code),
+    queryFn: () => partyClient().previewParty({ code }),
+    retry: false,
+  });
 }
 
 /** The card of a party one is about to join; `children` is the way in (a button, or a guest's name form). */
-export function PartyPreviewCard({ preview, children }: { preview: video.PreviewPartyResponse; children: ReactNode }) {
+export function PartyPreviewCard({
+  preview,
+  children,
+}: {
+  preview: video.PreviewPartyResponse;
+  children: ReactNode;
+}) {
   const { t } = useTranslation("video");
   const party = preview.party;
   return (
-    <div className="sticker w-full max-w-md rounded-card bg-surface p-5 text-center" data-testid="party-preview">
+    <div
+      className="sticker w-full max-w-md rounded-card bg-surface p-5 text-center"
+      data-testid="party-preview"
+    >
       <p className="inline-flex items-center gap-1.5 rounded-full bg-pink px-3 py-1 text-sm font-black text-white">
         <PartyPopper className="size-4" />
         {t("party.title")}
@@ -64,7 +77,12 @@ export function PartyGone({ ended, videoId }: { ended: boolean; videoId?: string
       body={ended ? t("party.ended.generic") : t("party.notFoundBody")}
       action={
         videoId && (
-          <Link to="/watch/$videoId" params={{ videoId }} search={{}} className="pressable sticker inline-flex h-11 items-center gap-2 rounded-full bg-brand px-5 font-bold text-on-brand">
+          <Link
+            to="/watch/$videoId"
+            params={{ videoId }}
+            search={{}}
+            className="pressable sticker inline-flex h-11 items-center gap-2 rounded-full bg-brand px-5 font-bold text-on-brand"
+          >
             <Play className="size-4" />
             {t("party.keepWatching")}
           </Link>
@@ -83,7 +101,9 @@ export function PartyScreen({ code }: { code: string }) {
   const { t } = useTranslation("video");
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const [session, setSession] = useState<video.PartySession | undefined>(() => queryClient.getQueryData<video.PartySession>(videoKeys.party(code)));
+  const [session, setSession] = useState<video.PartySession | undefined>(() =>
+    queryClient.getQueryData<video.PartySession>(videoKeys.party(code)),
+  );
   const [seat, setSeat] = useState(0);
   const preview = usePartyPreview(code);
   const partyId = preview.data?.party?.id ?? "";
@@ -123,13 +143,24 @@ export function PartyScreen({ code }: { code: string }) {
         onLeft={() => {
           queryClient.removeQueries({ queryKey: videoKeys.party(code) });
           const videoId = current.party?.video?.shortId;
-          void (videoId ? navigate({ to: "/watch/$videoId", params: { videoId }, search: {} }) : navigate({ to: "/watch" }));
+          void (videoId
+            ? navigate({ to: "/watch/$videoId", params: { videoId }, search: {} })
+            : navigate({ to: "/watch" }));
         }}
       />
     );
   }
   if (preview.isPending || (open && existing.isPending)) return <PaneSpinner />;
-  if (preview.isError || !preview.data?.party) return <div className="grid h-full place-items-center">{preview.isError && !isNotFound(preview.error) ? <EmptyState emoji="😵‍💫" title={errorMessage(preview.error)} /> : <PartyGone ended={false} />}</div>;
+  if (preview.isError || !preview.data?.party)
+    return (
+      <div className="grid h-full place-items-center">
+        {preview.isError && !isNotFound(preview.error) ? (
+          <EmptyState emoji="😵‍💫" title={errorMessage(preview.error)} />
+        ) : (
+          <PartyGone ended={false} />
+        )}
+      </div>
+    );
   if (!open) {
     return (
       <div className="grid h-full place-items-center">
@@ -140,7 +171,13 @@ export function PartyScreen({ code }: { code: string }) {
   return (
     <div className="grid h-full place-items-center overflow-y-auto p-4 pb-32 md:pb-4">
       <PartyPreviewCard preview={preview.data}>
-        <Button size="lg" block icon={<PartyPopper className="size-5" />} loading={join.isPending} onClick={() => join.mutate()}>
+        <Button
+          size="lg"
+          block
+          icon={<PartyPopper className="size-5" />}
+          loading={join.isPending}
+          onClick={() => join.mutate()}
+        >
           {t("party.preview.join")}
         </Button>
       </PartyPreviewCard>

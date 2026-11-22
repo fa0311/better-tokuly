@@ -45,7 +45,11 @@ self.addEventListener("activate", (event) => {
       await enableNavigationPreload().catch(() => {});
       await self.clients.claim();
       // Housekeeping after the pages are taken, so it never holds up their requests.
-      await Promise.allSettled([dropForeignCaches(), storeOfflinePage(), ...RUNTIME_CACHES.map(trim)]);
+      await Promise.allSettled([
+        dropForeignCaches(),
+        storeOfflinePage(),
+        ...RUNTIME_CACHES.map(trim),
+      ]);
     })(),
   );
 });
@@ -60,7 +64,10 @@ self.addEventListener("activate", (event) => {
 function bypassWorker(event) {
   if (!event.addRoutes) return;
   try {
-    const routes = UNTOUCHED.map((prefix) => ({ condition: { urlPattern: new URLPattern({ pathname: `${prefix}*` }) }, source: "network" }));
+    const routes = UNTOUCHED.map((prefix) => ({
+      condition: { urlPattern: new URLPattern({ pathname: `${prefix}*` }) },
+      source: "network",
+    }));
     event.waitUntil(event.addRoutes(routes).catch(() => {}));
   } catch {
     // The listener's own check covers it.
@@ -99,7 +106,8 @@ const RUNTIME_CACHES = [
   {
     cache: `${CACHE_PREFIX}assets-v1`,
     // `name-<hash>.ext`, as the build writes it. Anything else under /assets/ is not known to be immutable.
-    matches: (url) => url.pathname.startsWith("/assets/") && /-[\w-]{8,}\.[a-z0-9]+$/i.test(url.pathname),
+    matches: (url) =>
+      url.pathname.startsWith("/assets/") && /-[\w-]{8,}\.[a-z0-9]+$/i.test(url.pathname),
     strategy: cacheFirst,
     // A visit uses around a hundred of a build's files (most are font slices); this holds a few builds.
     maxEntries: 500,
@@ -171,9 +179,12 @@ async function navigate(event) {
 function bareOfflinePage() {
   const html =
     '<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
-    "<title>Tokuly</title><body style=\"font-family:system-ui,sans-serif;text-align:center;padding:4rem 1.5rem\">" +
-    "<h1>オフラインみたい</h1><p>You are offline.</p><p><button onclick=\"location.reload()\">もう一度ためす / Try again</button></p>";
-  return new Response(html, { status: 503, headers: { "content-type": "text/html; charset=utf-8" } });
+    '<title>Tokuly</title><body style="font-family:system-ui,sans-serif;text-align:center;padding:4rem 1.5rem">' +
+    '<h1>オフラインみたい</h1><p>You are offline.</p><p><button onclick="location.reload()">もう一度ためす / Try again</button></p>';
+  return new Response(html, {
+    status: 503,
+    headers: { "content-type": "text/html; charset=utf-8" },
+  });
 }
 
 /** When this worker last made sure the offline page is stored and recent (it forgets when it is stopped). */
@@ -203,7 +214,11 @@ async function enableNavigationPreload() {
 /** Caches of earlier versions of this worker. */
 async function dropForeignCaches() {
   const names = await caches.keys();
-  await Promise.all(names.filter((name) => name.startsWith(CACHE_PREFIX) && !KNOWN_CACHES.includes(name)).map((name) => caches.delete(name)));
+  await Promise.all(
+    names
+      .filter((name) => name.startsWith(CACHE_PREFIX) && !KNOWN_CACHES.includes(name))
+      .map((name) => caches.delete(name)),
+  );
 }
 
 /** The stored copy if there is one, the network (storing the answer) otherwise. */
@@ -265,7 +280,11 @@ function storable(response) {
 async function stamped(response) {
   const headers = new Headers(response.headers);
   headers.set(STORED_AT, String(Date.now()));
-  return new Response(await response.blob(), { status: response.status, statusText: response.statusText, headers });
+  return new Response(await response.blob(), {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 
 function fresh(response, rule) {
@@ -290,13 +309,16 @@ async function trim(rule) {
     if (response && fresh(response, rule)) kept.push(request);
     else await cache.delete(request);
   }
-  for (const request of kept.slice(0, Math.max(0, kept.length - rule.maxEntries))) await cache.delete(request);
+  for (const request of kept.slice(0, Math.max(0, kept.length - rule.maxEntries)))
+    await cache.delete(request);
 }
 
 /** Forgets everything stored for offline use, then stores the offline page again. */
 async function clearOfflineData() {
   const names = await caches.keys();
-  await Promise.all(names.filter((name) => name.startsWith(CACHE_PREFIX)).map((name) => caches.delete(name)));
+  await Promise.all(
+    names.filter((name) => name.startsWith(CACHE_PREFIX)).map((name) => caches.delete(name)),
+  );
   additions.clear();
   offlinePageCheckedAt = 0;
   await storeOfflinePage().catch(() => {});
@@ -322,10 +344,14 @@ async function showPush(data) {
   } catch {
     // Not JSON: fall through to the generic notification.
   }
-  const notification = message && typeof message.notification === "object" ? message.notification : null;
+  const notification =
+    message && typeof message.notification === "object" ? message.notification : null;
 
   // A push must always end in a visible notification, even one we cannot read.
-  const title = notification && typeof notification.title === "string" && notification.title ? notification.title : "Tokuly";
+  const title =
+    notification && typeof notification.title === "string" && notification.title
+      ? notification.title
+      : "Tokuly";
   const details = notification || {};
   const options = {
     body: typeof details.body === "string" ? details.body : "",
@@ -376,7 +402,10 @@ async function openTarget(data) {
   if (click.id) fallback.searchParams.set("id", click.id);
 
   const pages = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-  const page = pages.find((client) => client.focused) || pages.find((client) => client.visibilityState === "visible") || pages[0];
+  const page =
+    pages.find((client) => client.focused) ||
+    pages.find((client) => client.visibilityState === "visible") ||
+    pages[0];
   if (!page) return self.clients.openWindow(fallback.href);
 
   const focused = await page.focus().catch(() => page);
@@ -421,6 +450,11 @@ self.addEventListener("message", (event) => {
     event.waitUntil(self.skipWaiting());
   } else if (type === "tokuly:clear-offline-data") {
     const reply = (ok) => event.ports[0]?.postMessage({ ok });
-    event.waitUntil(clearOfflineData().then(() => reply(true), () => reply(false)));
+    event.waitUntil(
+      clearOfflineData().then(
+        () => reply(true),
+        () => reply(false),
+      ),
+    );
   }
 });

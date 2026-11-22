@@ -1,4 +1,9 @@
-import { type QueryClient, useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  type QueryClient,
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { notify } from "@tokuly/api";
 import { api } from "#/lib/api";
 import { type InboxFilter, type InboxPages, PAGE_SIZE } from "./inbox-cache";
@@ -35,7 +40,10 @@ function toUnread(unread: notify.UnreadCount | undefined): Unread {
  * Stores the unread counts the server just told us (every inbox response and
  * realtime event carries them). The navigation badge follows this cache entry.
  */
-export function applyUnread(queryClient: QueryClient, unread: notify.UnreadCount | undefined): void {
+export function applyUnread(
+  queryClient: QueryClient,
+  unread: notify.UnreadCount | undefined,
+): void {
   if (!unread) return;
   queryClient.setQueryData<Unread>(notifyKeys.unread, toUnread(unread));
   // A count request still on its way was asked before this answer; it must not replace it.
@@ -79,11 +87,16 @@ export function useInbox(filter: InboxFilter) {
  * value says whether any was, so the caller can re-read the lists once the
  * server has the change.
  */
-export function updateInboxLists(queryClient: QueryClient, update: (pages: InboxPages, filter: InboxFilter) => InboxPages): boolean {
+export function updateInboxLists(
+  queryClient: QueryClient,
+  update: (pages: InboxPages, filter: InboxFilter) => InboxPages,
+): boolean {
   let dropped = false;
   for (const query of queryClient.getQueryCache().findAll({ queryKey: notifyKeys.inbox })) {
     const filter = query.queryKey[2] as InboxFilter;
-    queryClient.setQueryData<InboxPages>(query.queryKey, (pages) => (pages ? update(pages, filter) : pages));
+    queryClient.setQueryData<InboxPages>(query.queryKey, (pages) =>
+      pages ? update(pages, filter) : pages,
+    );
     if (query.state.fetchStatus === "fetching") {
       dropped = true;
       void queryClient.cancelQueries({ queryKey: query.queryKey, exact: true });
@@ -98,7 +111,10 @@ export function rereadInbox(queryClient: QueryClient): void {
 }
 
 /** A change the server already has (a realtime event): applied to the lists as they are. */
-export function applyInboxChange(queryClient: QueryClient, update: (pages: InboxPages, filter: InboxFilter) => InboxPages): void {
+export function applyInboxChange(
+  queryClient: QueryClient,
+  update: (pages: InboxPages, filter: InboxFilter) => InboxPages,
+): void {
   if (updateInboxLists(queryClient, update)) rereadInbox(queryClient);
 }
 

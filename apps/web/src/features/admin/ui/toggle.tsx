@@ -1,7 +1,17 @@
 import { Switch as BaseSwitch } from "@base-ui/react/switch";
 
 /** A bare on/off switch for table cells; `SwitchRow` is the labelled one for forms. */
-export function Toggle({ label, checked, onChange, disabled }: { label: string; checked: boolean; onChange(checked: boolean): void; disabled?: boolean }) {
+export function Toggle({
+  label,
+  checked,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  checked: boolean;
+  onChange(checked: boolean): void;
+  disabled?: boolean;
+}) {
   return (
     <BaseSwitch.Root
       aria-label={label}

@@ -40,7 +40,15 @@ export interface NoteCardProps {
  * live counters and every action. While it is on screen it follows the
  * note's realtime topic and counts as viewed.
  */
-export function NoteCard({ note, renote, variant = "list", showPinned, hideReplyContext, onDeleted, className }: NoteCardProps) {
+export function NoteCard({
+  note,
+  renote,
+  variant = "list",
+  showPinned,
+  hideReplyContext,
+  onDeleted,
+  className,
+}: NoteCardProps) {
   const { t, i18n } = useTranslation("notes");
   const navigate = useNavigate();
   const me = useMe();
@@ -57,7 +65,13 @@ export function NoteCard({ note, renote, variant = "list", showPinned, hideReply
 
   if (deleted) {
     return (
-      <div className={cn("rounded-[1.25rem] border-2 border-dashed border-line px-4 py-5 text-center text-sm font-bold text-ink-faint", className)} data-testid="note-deleted">
+      <div
+        className={cn(
+          "rounded-[1.25rem] border-2 border-dashed border-line px-4 py-5 text-center text-sm font-bold text-ink-faint",
+          className,
+        )}
+        data-testid="note-deleted"
+      >
         {t("card.deleted")}
       </div>
     );
@@ -75,7 +89,11 @@ export function NoteCard({ note, renote, variant = "list", showPinned, hideReply
 
   const names = author && (
     <span className={cn("flex min-w-0 gap-x-1.5", focus ? "flex-col" : "items-baseline")}>
-      <Link to="/u/$handle" params={{ handle: author.handle }} className={cn("truncate font-black hover:underline", !focus && "max-w-[62%] shrink-0")}>
+      <Link
+        to="/u/$handle"
+        params={{ handle: author.handle }}
+        className={cn("truncate font-black hover:underline", !focus && "max-w-[62%] shrink-0")}
+      >
         {author.displayName}
         {author.verified && (
           <span className="ml-1" role="img" aria-label={t("card.verified")}>
@@ -88,8 +106,15 @@ export function NoteCard({ note, renote, variant = "list", showPinned, hideReply
     </span>
   );
   const time = (
-    <Link to="/notes/$noteId" params={{ noteId: note.id }} className="shrink-0 text-sm text-ink-faint hover:underline" title={noteDateTime(posted, i18n.language)}>
-      <time dateTime={new Date(posted).toISOString()}>{focus ? noteDateTime(posted, i18n.language) : noteAge(posted, i18n.language)}</time>
+    <Link
+      to="/notes/$noteId"
+      params={{ noteId: note.id }}
+      className="shrink-0 text-sm text-ink-faint hover:underline"
+      title={noteDateTime(posted, i18n.language)}
+    >
+      <time dateTime={new Date(posted).toISOString()}>
+        {focus ? noteDateTime(posted, i18n.language) : noteAge(posted, i18n.language)}
+      </time>
     </Link>
   );
 
@@ -108,7 +133,11 @@ export function NoteCard({ note, renote, variant = "list", showPinned, hideReply
       {renote?.user && (
         <p className="mb-2 flex items-center gap-1.5 text-xs font-black text-success">
           <Repeat2 className="size-4 shrink-0" strokeWidth={3} />
-          <Link to="/u/$handle" params={{ handle: renote.user.handle }} className="truncate hover:underline">
+          <Link
+            to="/u/$handle"
+            params={{ handle: renote.user.handle }}
+            className="truncate hover:underline"
+          >
             {t("card.renotedBy", { name: renote.user.displayName })}
           </Link>
         </p>
@@ -122,7 +151,12 @@ export function NoteCard({ note, renote, variant = "list", showPinned, hideReply
 
       <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3">
         {author && (
-          <Link to="/u/$handle" params={{ handle: author.handle }} aria-label={author.displayName} className={cn("self-start", focus && "row-span-1")}>
+          <Link
+            to="/u/$handle"
+            params={{ handle: author.handle }}
+            aria-label={author.displayName}
+            className={cn("self-start", focus && "row-span-1")}
+          >
             <Avatar user={author} size="md" />
           </Link>
         )}
@@ -158,7 +192,10 @@ export function NoteCard({ note, renote, variant = "list", showPinned, hideReply
 
         <div className={cn("col-span-2 mt-1.5", !focus && "sm:col-span-1 sm:col-start-2")}>
           <ReactionChips subject={subject} className="mb-1" />
-          <NoteActions note={note} className={cn("-mx-1.5", focus && "border-t-2 border-line pt-1")} />
+          <NoteActions
+            note={note}
+            className={cn("-mx-1.5", focus && "border-t-2 border-line pt-1")}
+          />
         </div>
       </div>
     </article>
@@ -176,7 +213,11 @@ function ReplyContext({ note }: { note: notes.Note }) {
       {target.unavailable ? (
         <span>@{target.author.handle}</span>
       ) : (
-        <Link to="/notes/$noteId" params={{ noteId: target.noteId }} className="font-bold text-brand hover:underline">
+        <Link
+          to="/notes/$noteId"
+          params={{ noteId: target.noteId }}
+          className="font-bold text-brand hover:underline"
+        >
           @{target.author.handle}
         </Link>
       )}
@@ -188,17 +229,36 @@ function ReplyContext({ note }: { note: notes.Note }) {
  * What a note says: text, media, stamp, link preview, quoted note, place.
  * A note marked sensitive keeps all of it behind a tap.
  */
-export function NoteBody({ note, large, embedded, className }: { note: notes.Note; large?: boolean; /** Inside a quote: no nested quote, small media. */ embedded?: boolean; className?: string }) {
+export function NoteBody({
+  note,
+  large,
+  embedded,
+  className,
+}: {
+  note: notes.Note;
+  large?: boolean /** Inside a quote: no nested quote, small media. */;
+  embedded?: boolean;
+  className?: string;
+}) {
   const { t } = useTranslation("notes");
   const [revealed, setRevealed] = useState(false);
   const [stampOpen, setStampOpen] = useState(false);
 
   if (note.contentWarning && !revealed) {
     return (
-      <div className={cn("flex items-center gap-3 rounded-2xl border-2 border-dashed border-line bg-surface-2 px-3 py-3", className)}>
+      <div
+        className={cn(
+          "flex items-center gap-3 rounded-2xl border-2 border-dashed border-line bg-surface-2 px-3 py-3",
+          className,
+        )}
+      >
         <EyeOff className="size-5 shrink-0 text-ink-soft" />
         <p className="min-w-0 flex-1 text-sm font-bold text-ink-soft">{t("card.sensitive")}</p>
-        <button type="button" onClick={() => setRevealed(true)} className="sticker-sm pressable h-8 shrink-0 rounded-full bg-surface px-3 text-sm font-black">
+        <button
+          type="button"
+          onClick={() => setRevealed(true)}
+          className="sticker-sm pressable h-8 shrink-0 rounded-full bg-surface px-3 text-sm font-black"
+        >
           {t("card.reveal")}
         </button>
       </div>
@@ -209,15 +269,37 @@ export function NoteBody({ note, large, embedded, className }: { note: notes.Not
   const images = note.attachments.filter((attachment) => !isVideo(attachment));
   return (
     <div className={cn("flex flex-col gap-2.5", className)}>
-      <NoteText note={note} className={cn(large ? "text-[1.15rem] leading-relaxed" : "text-[15px] leading-relaxed", embedded && "line-clamp-4")} />
-      {embedded ? <EmbeddedMedia attachments={note.attachments} /> : video ? <NoteVideo attachment={video} /> : <ImageGrid attachments={images} />}
+      <NoteText
+        note={note}
+        className={cn(
+          large ? "text-[1.15rem] leading-relaxed" : "text-[15px] leading-relaxed",
+          embedded && "line-clamp-4",
+        )}
+      />
+      {embedded ? (
+        <EmbeddedMedia attachments={note.attachments} />
+      ) : video ? (
+        <NoteVideo attachment={video} />
+      ) : (
+        <ImageGrid attachments={images} />
+      )}
       {note.stamp && (
-        <button type="button" aria-label={note.stamp.name} onClick={() => setStampOpen(true)} className="w-fit" disabled={embedded}>
+        <button
+          type="button"
+          aria-label={note.stamp.name}
+          onClick={() => setStampOpen(true)}
+          className="w-fit"
+          disabled={embedded}
+        >
           <StampImage stamp={note.stamp} size={embedded ? 64 : 120} />
         </button>
       )}
-      {stampOpen && note.stamp && <StampSheet stampId={note.stamp.id} onClose={() => setStampOpen(false)} />}
-      {!embedded && note.linkPreview?.url && !note.quote && note.attachments.length === 0 && <LinkPreviewCard preview={note.linkPreview} />}
+      {stampOpen && note.stamp && (
+        <StampSheet stampId={note.stamp.id} onClose={() => setStampOpen(false)} />
+      )}
+      {!embedded && note.linkPreview?.url && !note.quote && note.attachments.length === 0 && (
+        <LinkPreviewCard preview={note.linkPreview} />
+      )}
       {!embedded && note.quote && <QuoteEmbed quote={note.quote} />}
       {note.place?.name && (
         <p className="flex w-fit max-w-full items-center gap-1 rounded-full bg-surface-2 px-2.5 py-1 text-xs font-black text-ink-soft">
@@ -235,8 +317,16 @@ function EmbeddedMedia({ attachments }: { attachments: media.Attachment[] }) {
   return (
     <div className="flex gap-1.5">
       {attachments.slice(0, 4).map((attachment, index) => (
-        <span key={attachment.assetId || index} className="relative size-16 overflow-hidden rounded-xl border-2 border-ink bg-surface-3">
-          <img src={imageUrl(attachmentImage(attachment), 64)} alt="" loading="lazy" className="size-full object-cover" />
+        <span
+          key={attachment.assetId || index}
+          className="relative size-16 overflow-hidden rounded-xl border-2 border-ink bg-surface-3"
+        >
+          <img
+            src={imageUrl(attachmentImage(attachment), 64)}
+            alt=""
+            loading="lazy"
+            className="size-full object-cover"
+          />
           {isVideo(attachment) && (
             <span className="absolute inset-0 grid place-items-center bg-black/25 text-white">
               <Play className="size-5 fill-current" />
@@ -255,7 +345,16 @@ export function QuoteEmbed({ quote, className }: { quote: notes.QuotedNote; clas
   const deleted = useIsDeleted(quote.noteId);
   const note = quote.note;
   if (quote.unavailable || deleted || !note) {
-    return <div className={cn("rounded-2xl border-2 border-dashed border-line px-3 py-3 text-sm font-bold text-ink-faint", className)}>{t("card.quoteUnavailable")}</div>;
+    return (
+      <div
+        className={cn(
+          "rounded-2xl border-2 border-dashed border-line px-3 py-3 text-sm font-bold text-ink-faint",
+          className,
+        )}
+      >
+        {t("card.quoteUnavailable")}
+      </div>
+    );
   }
   return (
     // biome-ignore lint/a11y/useSemanticElements: the embed holds links of its own (a profile, hashtags), which an anchor cannot contain.
@@ -269,15 +368,21 @@ export function QuoteEmbed({ quote, className }: { quote: notes.QuotedNote; clas
         void navigate({ to: "/notes/$noteId", params: { noteId: note.id } });
       }}
       onKeyDown={(event) => {
-        if (event.key === "Enter" && event.target === event.currentTarget) void navigate({ to: "/notes/$noteId", params: { noteId: note.id } });
+        if (event.key === "Enter" && event.target === event.currentTarget)
+          void navigate({ to: "/notes/$noteId", params: { noteId: note.id } });
       }}
-      className={cn("cursor-pointer rounded-2xl border-2 border-line bg-surface-2/60 p-3 transition-colors hover:border-ink-faint", className)}
+      className={cn(
+        "cursor-pointer rounded-2xl border-2 border-line bg-surface-2/60 p-3 transition-colors hover:border-ink-faint",
+        className,
+      )}
     >
       <div className="mb-1 flex items-center gap-1.5">
         <Avatar user={note.author} size="xs" />
         <span className="truncate text-sm font-black">{note.author?.displayName}</span>
         <span className="truncate text-xs text-ink-faint">@{note.author?.handle}</span>
-        <span className="shrink-0 text-xs text-ink-faint">· {noteAge(toMillis(note.createdAt), i18n.language)}</span>
+        <span className="shrink-0 text-xs text-ink-faint">
+          · {noteAge(toMillis(note.createdAt), i18n.language)}
+        </span>
       </div>
       <NoteBody note={note} embedded />
     </div>
@@ -291,7 +396,10 @@ function LinkPreviewCard({ preview }: { preview: media.LinkPreview }) {
   const [playing, setPlaying] = useState(false);
   const embed =
     preview.embedProvider === "youtube" && preview.embedId
-      ? { src: `https://www.youtube-nocookie.com/embed/${encodeURIComponent(preview.embedId)}?autoplay=1`, className: "aspect-video" }
+      ? {
+          src: `https://www.youtube-nocookie.com/embed/${encodeURIComponent(preview.embedId)}?autoplay=1`,
+          className: "aspect-video",
+        }
       : preview.embedProvider === "spotify" && /^[a-z]+\/[A-Za-z0-9]+$/.test(preview.embedId)
         ? { src: `https://open.spotify.com/embed/${preview.embedId}`, className: "h-[152px]" }
         : undefined;
@@ -318,7 +426,12 @@ function LinkPreviewCard({ preview }: { preview: media.LinkPreview }) {
     <>
       {preview.imageUrl && (
         <span className="relative block w-24 shrink-0 self-stretch bg-surface-3 sm:w-32">
-          <img src={preview.imageUrl} alt="" loading="lazy" className="absolute inset-0 size-full object-cover" />
+          <img
+            src={preview.imageUrl}
+            alt=""
+            loading="lazy"
+            className="absolute inset-0 size-full object-cover"
+          />
           {embed && (
             <span className="absolute inset-0 grid place-items-center bg-black/25 text-white">
               <Play className="size-7 fill-current" />
@@ -328,18 +441,30 @@ function LinkPreviewCard({ preview }: { preview: media.LinkPreview }) {
       )}
       <span className="min-w-0 flex-1 px-3 py-2.5">
         <span className="flex items-center gap-1.5 text-xs font-bold text-ink-faint">
-          {preview.faviconUrl && <img src={preview.faviconUrl} alt="" className="size-3.5 rounded-sm" />}
+          {preview.faviconUrl && (
+            <img src={preview.faviconUrl} alt="" className="size-3.5 rounded-sm" />
+          )}
           <span className="truncate">{host}</span>
         </span>
-        <span className="mt-0.5 line-clamp-2 text-sm font-black leading-snug">{preview.title || preview.url}</span>
-        {preview.description && <span className="mt-0.5 line-clamp-1 text-xs text-ink-soft">{preview.description}</span>}
+        <span className="mt-0.5 line-clamp-2 text-sm font-black leading-snug">
+          {preview.title || preview.url}
+        </span>
+        {preview.description && (
+          <span className="mt-0.5 line-clamp-1 text-xs text-ink-soft">{preview.description}</span>
+        )}
       </span>
     </>
   );
-  const classes = "flex min-h-20 overflow-hidden rounded-2xl border-2 border-line bg-surface text-left transition-colors hover:border-ink-faint";
+  const classes =
+    "flex min-h-20 overflow-hidden rounded-2xl border-2 border-line bg-surface text-left transition-colors hover:border-ink-faint";
   if (embed) {
     return (
-      <button type="button" aria-label={t("card.playEmbed", { title: preview.title })} onClick={() => setPlaying(true)} className={classes}>
+      <button
+        type="button"
+        aria-label={t("card.playEmbed", { title: preview.title })}
+        onClick={() => setPlaying(true)}
+        className={classes}
+      >
         {body}
       </button>
     );

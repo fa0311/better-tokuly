@@ -10,7 +10,14 @@ export interface UnicodeEmoji {
   ja: string[];
 }
 
-export type UnicodeGroupId = "smileys" | "hearts" | "hands" | "animals" | "food" | "fun" | "symbols";
+export type UnicodeGroupId =
+  | "smileys"
+  | "hearts"
+  | "hands"
+  | "animals"
+  | "food"
+  | "fun"
+  | "symbols";
 
 export interface UnicodeGroup {
   /** Key of the group's name in the `emoji` strings (`picker.groups.<id>`). */

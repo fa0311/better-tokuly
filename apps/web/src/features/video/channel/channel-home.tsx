@@ -32,7 +32,10 @@ export function ChannelHome({ handle }: { handle: string }) {
         title={t("channel.emptyOwner")}
         body={t("channel.emptyOwnerBody")}
         action={
-          <Link to="/studio/upload" className="pressable sticker inline-flex h-11 items-center gap-2 rounded-full bg-brand px-5 font-bold text-on-brand">
+          <Link
+            to="/studio/upload"
+            className="pressable sticker inline-flex h-11 items-center gap-2 rounded-full bg-brand px-5 font-bold text-on-brand"
+          >
             <Upload className="size-4" />
             {t("studio.upload.action")}
           </Link>
@@ -50,9 +53,21 @@ export function ChannelHome({ handle }: { handle: string }) {
           const trailer = section.videos[0];
           return (
             trailer && (
-              <section key="trailer" aria-label={t("channel.sections.trailer")} className="sticker rounded-card bg-surface p-3 sm:p-4">
-                <p className="mb-2 text-xs font-black text-brand">{t("channel.sections.trailer")}</p>
-                <VideoCard video={trailer} layout="row" source={TrafficSource.CHANNEL} hideChannel className="[&>a]:w-44 sm:[&>a]:w-72 sm:[&_h3]:text-lg" />
+              <section
+                key="trailer"
+                aria-label={t("channel.sections.trailer")}
+                className="sticker rounded-card bg-surface p-3 sm:p-4"
+              >
+                <p className="mb-2 text-xs font-black text-brand">
+                  {t("channel.sections.trailer")}
+                </p>
+                <VideoCard
+                  video={trailer}
+                  layout="row"
+                  source={TrafficSource.CHANNEL}
+                  hideChannel
+                  className="[&>a]:w-44 sm:[&>a]:w-72 sm:[&_h3]:text-lg"
+                />
               </section>
             )
           );
@@ -63,7 +78,11 @@ export function ChannelHome({ handle }: { handle: string }) {
           return (
             <Shelf key={section.kind} title={t(heading)} more={{ handle, tab: "playlists" }}>
               {section.playlists.map((playlist) => (
-                <PlaylistCard key={playlist.id} playlist={playlist} className="w-56 shrink-0 sm:w-64" />
+                <PlaylistCard
+                  key={playlist.id}
+                  playlist={playlist}
+                  className="w-56 shrink-0 sm:w-64"
+                />
               ))}
             </Shelf>
           );
@@ -71,7 +90,13 @@ export function ChannelHome({ handle }: { handle: string }) {
         return (
           <Shelf key={section.kind} title={t(heading)} more={{ handle, tab: "videos" }}>
             {section.videos.map((summary) => (
-              <VideoCard key={summary.id} video={summary} source={TrafficSource.CHANNEL} hideChannel className="w-60 shrink-0 sm:w-64" />
+              <VideoCard
+                key={summary.id}
+                video={summary}
+                source={TrafficSource.CHANNEL}
+                hideChannel
+                className="w-60 shrink-0 sm:w-64"
+              />
             ))}
           </Shelf>
         );
@@ -81,13 +106,25 @@ export function ChannelHome({ handle }: { handle: string }) {
 }
 
 /** A titled row that scrolls sideways, with a way to the full list. */
-function Shelf({ title, more, children }: { title: string; more: { handle: string; tab: string }; children: ReactNode }) {
+function Shelf({
+  title,
+  more,
+  children,
+}: {
+  title: string;
+  more: { handle: string; tab: string };
+  children: ReactNode;
+}) {
   const { t } = useTranslation("video");
   return (
     <section aria-label={title}>
       <div className="mb-3 flex items-center gap-2">
         <h2 className="min-w-0 flex-1 truncate text-lg font-black">{title}</h2>
-        <Link to="/c/$handle/$tab" params={more} className="inline-flex h-9 shrink-0 items-center gap-0.5 rounded-full px-3 text-sm font-bold text-ink-soft hover:bg-surface-2 hover:text-ink">
+        <Link
+          to="/c/$handle/$tab"
+          params={more}
+          className="inline-flex h-9 shrink-0 items-center gap-0.5 rounded-full px-3 text-sm font-bold text-ink-soft hover:bg-surface-2 hover:text-ink"
+        >
           {t("channel.seeAll")}
           <ChevronRight className="size-4" />
         </Link>

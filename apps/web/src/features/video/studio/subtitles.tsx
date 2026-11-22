@@ -38,7 +38,10 @@ export function SubtitlesTab({ videoId }: { videoId: string }) {
   const { t } = useTranslation("video");
   const queryClient = useQueryClient();
   const key = videoKeys.subtitles(videoId);
-  const tracks = useQuery({ queryKey: key, queryFn: async () => (await videoClient().listSubtitles({ videoId })).subtitles });
+  const tracks = useQuery({
+    queryKey: key,
+    queryFn: async () => (await videoClient().listSubtitles({ videoId })).subtitles,
+  });
   const [editing, setEditing] = useState<{ track?: video.SubtitleTrack } | null>(null);
   const [deleting, setDeleting] = useState<video.SubtitleTrack | null>(null);
   const refresh = () => {
@@ -49,15 +52,19 @@ export function SubtitlesTab({ videoId }: { videoId: string }) {
   const onError = (error: unknown) => toast.error(errorMessage(error));
 
   const setDefault = useMutation({
-    mutationFn: ({ track, isDefault }: { track: video.SubtitleTrack; isDefault: boolean }) => videoClient().updateSubtitle({ subtitleId: track.id, isDefault }),
+    mutationFn: ({ track, isDefault }: { track: video.SubtitleTrack; isDefault: boolean }) =>
+      videoClient().updateSubtitle({ subtitleId: track.id, isDefault }),
     onSuccess: (_response, { isDefault }) => {
       refresh();
-      toast.success(isDefault ? t("studio.subtitles.defaultSet") : t("studio.subtitles.defaultCleared"));
+      toast.success(
+        isDefault ? t("studio.subtitles.defaultSet") : t("studio.subtitles.defaultCleared"),
+      );
     },
     onError,
   });
   const remove = useMutation({
-    mutationFn: (track: video.SubtitleTrack) => videoClient().deleteSubtitle({ subtitleId: track.id }),
+    mutationFn: (track: video.SubtitleTrack) =>
+      videoClient().deleteSubtitle({ subtitleId: track.id }),
     onSuccess: () => {
       setDeleting(null);
       refresh();
@@ -73,7 +80,9 @@ export function SubtitlesTab({ videoId }: { videoId: string }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
-        <p className="min-w-0 flex-1 text-sm leading-relaxed text-ink-soft">{t("studio.subtitles.lead")}</p>
+        <p className="min-w-0 flex-1 text-sm leading-relaxed text-ink-soft">
+          {t("studio.subtitles.lead")}
+        </p>
         <Button icon={<Plus className="size-4" />} onClick={() => setEditing({})}>
           {t("studio.subtitles.add")}
         </Button>
@@ -84,11 +93,19 @@ export function SubtitlesTab({ videoId }: { videoId: string }) {
       ) : tracks.isError ? (
         <EmptyState emoji="😵‍💫" title={errorMessage(tracks.error)} />
       ) : tracks.data.length === 0 ? (
-        <EmptyState emoji="💬" title={t("studio.subtitles.empty")} body={t("studio.subtitles.emptyBody")} />
+        <EmptyState
+          emoji="💬"
+          title={t("studio.subtitles.empty")}
+          body={t("studio.subtitles.emptyBody")}
+        />
       ) : (
         <ul className="flex flex-col gap-3">
           {tracks.data.map((track) => (
-            <li key={track.id} data-testid="subtitle-track" className="sticker flex flex-wrap items-center gap-3 rounded-card bg-surface p-4">
+            <li
+              key={track.id}
+              data-testid="subtitle-track"
+              className="sticker flex flex-wrap items-center gap-3 rounded-card bg-surface p-4"
+            >
               <div className="min-w-0 flex-1">
                 <p className="flex flex-wrap items-center gap-2 font-black">
                   <span lang={track.language}>{track.label || track.language}</span>
@@ -104,13 +121,34 @@ export function SubtitlesTab({ videoId }: { videoId: string }) {
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="secondary" icon={<Star className="size-4" />} loading={setDefault.isPending && setDefault.variables?.track.id === track.id} onClick={() => setDefault.mutate({ track, isDefault: !track.isDefault })}>
-                  {track.isDefault ? t("studio.subtitles.clearDefault") : t("studio.subtitles.makeDefault")}
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon={<Star className="size-4" />}
+                  loading={setDefault.isPending && setDefault.variables?.track.id === track.id}
+                  onClick={() => setDefault.mutate({ track, isDefault: !track.isDefault })}
+                >
+                  {track.isDefault
+                    ? t("studio.subtitles.clearDefault")
+                    : t("studio.subtitles.makeDefault")}
                 </Button>
-                <Button size="sm" variant="secondary" icon={<Pencil className="size-4" />} onClick={() => setEditing({ track })}>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon={<Pencil className="size-4" />}
+                  onClick={() => setEditing({ track })}
+                >
                   {t("actions.edit")}
                 </Button>
-                <Button size="icon-sm" variant="ghost" className="text-danger" aria-label={t("studio.subtitles.delete", { label: track.label || track.language })} onClick={() => setDeleting(track)}>
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  className="text-danger"
+                  aria-label={t("studio.subtitles.delete", {
+                    label: track.label || track.language,
+                  })}
+                  onClick={() => setDeleting(track)}
+                >
                   <Trash2 className="size-4" />
                 </Button>
               </div>
@@ -119,7 +157,12 @@ export function SubtitlesTab({ videoId }: { videoId: string }) {
         </ul>
       )}
 
-      <Dialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)} title={editing?.track ? t("studio.subtitles.editTitle") : t("studio.subtitles.addTitle")} className="sm:w-[min(40rem,calc(100vw-2rem))]">
+      <Dialog
+        open={editing !== null}
+        onOpenChange={(open) => !open && setEditing(null)}
+        title={editing?.track ? t("studio.subtitles.editTitle") : t("studio.subtitles.addTitle")}
+        className="sm:w-[min(40rem,calc(100vw-2rem))]"
+      >
         {editing && (
           <SubtitleForm
             key={editing.track?.id ?? "new"}
@@ -137,7 +180,9 @@ export function SubtitlesTab({ videoId }: { videoId: string }) {
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(open) => !open && setDeleting(null)}
-        title={t("studio.subtitles.confirmDelete", { label: deleting?.label || deleting?.language || "" })}
+        title={t("studio.subtitles.confirmDelete", {
+          label: deleting?.label || deleting?.language || "",
+        })}
         description={t("studio.subtitles.confirmDeleteBody")}
         confirmLabel={t("actions.delete")}
         danger
@@ -149,7 +194,19 @@ export function SubtitlesTab({ videoId }: { videoId: string }) {
 }
 
 /** Adds a track from a file or typed text, or changes an existing one's language, label, default flag and text. */
-function SubtitleForm({ videoId, track, usedLanguages, onDone, onCancel }: { videoId: string; track?: video.SubtitleTrack; usedLanguages: Set<string | undefined>; onDone(): void; onCancel(): void }) {
+function SubtitleForm({
+  videoId,
+  track,
+  usedLanguages,
+  onDone,
+  onCancel,
+}: {
+  videoId: string;
+  track?: video.SubtitleTrack;
+  usedLanguages: Set<string | undefined>;
+  onDone(): void;
+  onCancel(): void;
+}) {
   const { t } = useTranslation("video");
   const fileInput = useRef<HTMLInputElement>(null);
   const firstFree = LANGUAGES.find((language) => !usedLanguages.has(language.tag))?.tag ?? "ja";
@@ -174,9 +231,24 @@ function SubtitleForm({ videoId, track, usedLanguages, onDone, onCancel }: { vid
 
   const save = useMutation({
     mutationFn: async () => {
-      const name = label.trim() || LANGUAGES.find((entry) => entry.tag === language)?.name || language;
-      if (track) await videoClient().updateSubtitle({ subtitleId: track.id, language, label: name, isDefault, source: textChanged ? { case: "content", value: text } : { case: undefined } });
-      else await videoClient().addSubtitle({ videoId, language, label: name, isDefault, source: { case: "content", value: text } });
+      const name =
+        label.trim() || LANGUAGES.find((entry) => entry.tag === language)?.name || language;
+      if (track)
+        await videoClient().updateSubtitle({
+          subtitleId: track.id,
+          language,
+          label: name,
+          isDefault,
+          source: textChanged ? { case: "content", value: text } : { case: undefined },
+        });
+      else
+        await videoClient().addSubtitle({
+          videoId,
+          language,
+          label: name,
+          isDefault,
+          source: { case: "content", value: text },
+        });
     },
     onSuccess: () => {
       toast.success(track ? t("studio.subtitles.saved") : t("studio.subtitles.added"));
@@ -184,9 +256,12 @@ function SubtitleForm({ videoId, track, usedLanguages, onDone, onCancel }: { vid
     },
     onError: (error) => toast.error(errorMessage(error)),
   });
-  const options = LANGUAGES.filter((entry) => entry.tag === language || !usedLanguages.has(entry.tag)).map((entry) => ({ value: entry.tag, label: entry.name, hint: entry.tag }));
+  const options = LANGUAGES.filter(
+    (entry) => entry.tag === language || !usedLanguages.has(entry.tag),
+  ).map((entry) => ({ value: entry.tag, label: entry.name, hint: entry.tag }));
   // A language set through the API that this list does not know stays selectable.
-  if (!options.some((option) => option.value === language)) options.unshift({ value: language, label: language, hint: language });
+  if (!options.some((option) => option.value === language))
+    options.unshift({ value: language, label: language, hint: language });
 
   return (
     <form
@@ -197,12 +272,29 @@ function SubtitleForm({ videoId, track, usedLanguages, onDone, onCancel }: { vid
       }}
     >
       <div className="grid gap-4 sm:grid-cols-2">
-        <SelectField label={t("studio.subtitles.language")} value={language} onChange={setLanguage} options={options} />
-        <TextField label={t("studio.subtitles.label")} value={label} maxLength={40} placeholder={LANGUAGES.find((entry) => entry.tag === language)?.name ?? language} hint={t("studio.subtitles.labelHint")} onChange={(event) => setLabel(event.target.value)} />
+        <SelectField
+          label={t("studio.subtitles.language")}
+          value={language}
+          onChange={setLanguage}
+          options={options}
+        />
+        <TextField
+          label={t("studio.subtitles.label")}
+          value={label}
+          maxLength={40}
+          placeholder={LANGUAGES.find((entry) => entry.tag === language)?.name ?? language}
+          hint={t("studio.subtitles.labelHint")}
+          onChange={(event) => setLabel(event.target.value)}
+        />
       </div>
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="secondary" size="sm" icon={<FileUp className="size-4" />} onClick={() => fileInput.current?.click()}>
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={<FileUp className="size-4" />}
+            onClick={() => fileInput.current?.click()}
+          >
             {t("studio.subtitles.chooseFile")}
           </Button>
           <span className="text-xs text-ink-faint">{t("studio.subtitles.fileHint")}</span>
@@ -228,10 +320,23 @@ function SubtitleForm({ videoId, track, usedLanguages, onDone, onCancel }: { vid
         {track && stored.isPending ? (
           <Skeleton className="h-48" />
         ) : (
-          <TextArea label={t("studio.subtitles.content")} value={text} rows={10} spellCheck={false} placeholder={SAMPLE + t("studio.subtitles.sampleLine")} hint={t("studio.subtitles.contentHint")} onChange={(event) => setContent(event.target.value)} />
+          <TextArea
+            label={t("studio.subtitles.content")}
+            value={text}
+            rows={10}
+            spellCheck={false}
+            placeholder={SAMPLE + t("studio.subtitles.sampleLine")}
+            hint={t("studio.subtitles.contentHint")}
+            onChange={(event) => setContent(event.target.value)}
+          />
         )}
       </div>
-      <SwitchRow label={t("studio.subtitles.defaultSwitch")} hint={t("studio.subtitles.defaultHint")} checked={isDefault} onChange={setIsDefault} />
+      <SwitchRow
+        label={t("studio.subtitles.defaultSwitch")}
+        hint={t("studio.subtitles.defaultHint")}
+        checked={isDefault}
+        onChange={setIsDefault}
+      />
       <div className="flex justify-end gap-2 pb-safe">
         <Button variant="ghost" onClick={onCancel}>
           {t("actions.cancel")}

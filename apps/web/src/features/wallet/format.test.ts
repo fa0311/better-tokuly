@@ -61,7 +61,11 @@ describe("payoutProblem", () => {
 
 describe("parseMemo", () => {
   it("keeps scalar values as text", () => {
-    expect(parseMemo('{"sku":"coins_500","bonus_coins":20,"gift":true,"nested":{"a":1}}')).toEqual({ sku: "coins_500", bonus_coins: "20", gift: "true" });
+    expect(parseMemo('{"sku":"coins_500","bonus_coins":20,"gift":true,"nested":{"a":1}}')).toEqual({
+      sku: "coins_500",
+      bonus_coins: "20",
+      gift: "true",
+    });
   });
 
   it("is empty for missing or broken memos", () => {
@@ -112,15 +116,28 @@ describe("collectedSteps", () => {
 
 describe("checkoutStep", () => {
   it("sends a pending purchase to the provider's page when there is one", () => {
-    expect(checkoutStep({ status: wallet.PurchaseStatus.PENDING, checkoutUrl: "https://pay.example/c/1" })).toBe("redirect");
-    expect(checkoutStep({ status: wallet.PurchaseStatus.PENDING, checkoutUrl: "" })).toBe("waiting");
+    expect(
+      checkoutStep({
+        status: wallet.PurchaseStatus.PENDING,
+        checkoutUrl: "https://pay.example/c/1",
+      }),
+    ).toBe("redirect");
+    expect(checkoutStep({ status: wallet.PurchaseStatus.PENDING, checkoutUrl: "" })).toBe(
+      "waiting",
+    );
   });
 
   it("maps the settled states", () => {
-    expect(checkoutStep({ status: wallet.PurchaseStatus.COMPLETED, checkoutUrl: "" })).toBe("completed");
+    expect(checkoutStep({ status: wallet.PurchaseStatus.COMPLETED, checkoutUrl: "" })).toBe(
+      "completed",
+    );
     expect(checkoutStep({ status: wallet.PurchaseStatus.FAILED, checkoutUrl: "" })).toBe("failed");
-    expect(checkoutStep({ status: wallet.PurchaseStatus.CANCELLED, checkoutUrl: "" })).toBe("cancelled");
-    expect(checkoutStep({ status: wallet.PurchaseStatus.EXPIRED, checkoutUrl: "" })).toBe("expired");
+    expect(checkoutStep({ status: wallet.PurchaseStatus.CANCELLED, checkoutUrl: "" })).toBe(
+      "cancelled",
+    );
+    expect(checkoutStep({ status: wallet.PurchaseStatus.EXPIRED, checkoutUrl: "" })).toBe(
+      "expired",
+    );
   });
 });
 

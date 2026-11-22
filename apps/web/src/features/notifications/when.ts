@@ -21,7 +21,12 @@ export function formatWhen(atMs: number, nowMs: number, language: string): strin
   if (nowMs - atMs < 7 * DAY_MS) return compactAge(atMs, nowMs);
   const date = new Date(atMs);
   const sameYear = date.getFullYear() === new Date(nowMs).getFullYear();
-  return date.toLocaleDateString(language, sameYear ? { month: "short", day: "numeric" } : { year: "numeric", month: "short", day: "numeric" });
+  return date.toLocaleDateString(
+    language,
+    sameYear
+      ? { month: "short", day: "numeric" }
+      : { year: "numeric", month: "short", day: "numeric" },
+  );
 }
 
 /** The current time, re-rendering the caller every `everyMs` so relative times stay true. */

@@ -63,16 +63,28 @@ function SentRow({ question }: { question: ask.Question }) {
     <article className="sticker rounded-card bg-surface px-4 pt-3.5 pb-3" data-testid="sent-row">
       <div className="flex items-center gap-2">
         {owner && (
-          <Link to="/ask/u/$handle" params={{ handle: owner.handle }} className="inline-flex min-w-0 items-center gap-1.5 text-sm font-black">
+          <Link
+            to="/ask/u/$handle"
+            params={{ handle: owner.handle }}
+            className="inline-flex min-w-0 items-center gap-1.5 text-sm font-black"
+          >
             <Avatar user={owner} size="xs" />
             <span className="truncate">{t("sent.to", { name: owner.displayName })}</span>
           </Link>
         )}
-        {!question.anonymous && <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-black text-ink-soft">🙋 {t("sent.signed")}</span>}
+        {!question.anonymous && (
+          <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-black text-ink-soft">
+            🙋 {t("sent.signed")}
+          </span>
+        )}
         <span className="flex-1" />
-        <time className="text-xs font-bold text-ink-faint">{compactAge(toMillis(question.createdAt))}</time>
+        <time className="text-xs font-bold text-ink-faint">
+          {compactAge(toMillis(question.createdAt))}
+        </time>
       </div>
-      <p className="mt-2 leading-snug font-black break-words whitespace-pre-wrap">{question.text}</p>
+      <p className="mt-2 leading-snug font-black break-words whitespace-pre-wrap">
+        {question.text}
+      </p>
       {question.image && <Picture image={question.image} className="mt-2 max-w-40" />}
       <div className="mt-3 flex items-center gap-2">
         {answered ? (
@@ -87,11 +99,19 @@ function SentRow({ question }: { question: ask.Question }) {
           </Link>
         ) : (
           <>
-            <span className="inline-flex h-9 items-center rounded-full bg-surface-2 px-4 text-sm font-bold text-ink-soft" data-testid="sent-state">
+            <span
+              className="inline-flex h-9 items-center rounded-full bg-surface-2 px-4 text-sm font-bold text-ink-soft"
+              data-testid="sent-state"
+            >
               ⏳ {t("sent.waiting")}
             </span>
             <span className="flex-1" />
-            <Button size="sm" variant="ghost" className="text-ink-soft" onClick={() => setConfirming(true)}>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-ink-soft"
+              onClick={() => setConfirming(true)}
+            >
               {t("sent.withdraw")}
             </Button>
           </>

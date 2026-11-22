@@ -16,7 +16,13 @@ import { charCount, PROMPT_MAX } from "./model";
 import { Counter, SectionTitle, toastError } from "./parts";
 import { PromptCard } from "./prompt-card";
 
-const DURATIONS = { h1: 3600, h6: 6 * 3600, h24: 24 * 3600, d3: 3 * 86_400, d7: 7 * 86_400 } as const;
+const DURATIONS = {
+  h1: 3600,
+  h6: 6 * 3600,
+  h24: 24 * 3600,
+  d3: 3 * 86_400,
+  d7: 7 * 86_400,
+} as const;
 type DurationKey = keyof typeof DURATIONS;
 
 /** Prompts (お題): the ones friends are collecting responses for, and the viewer's own. */
@@ -46,7 +52,9 @@ export function PromptsScreen() {
           {friends.isPending ? (
             <Skeleton className="h-20" />
           ) : friendPrompts.length === 0 ? (
-            <p className="rounded-card bg-surface px-4 py-6 text-center text-sm font-bold text-ink-soft">🍃 {t("prompts.friendsEmpty")}</p>
+            <p className="rounded-card bg-surface px-4 py-6 text-center text-sm font-bold text-ink-soft">
+              🍃 {t("prompts.friendsEmpty")}
+            </p>
           ) : (
             <div className="flex flex-col gap-3" data-testid="friend-prompts">
               {friendPrompts.map((prompt) => (
@@ -97,7 +105,14 @@ function CreatePromptDialog({ onClose }: { onClose(): void }) {
   const length = charCount(text.trim());
 
   const create = useMutation({
-    mutationFn: async () => (await promptClient().createPrompt({ text: text.trim(), emoji, durationSeconds: DURATIONS[duration] })).prompt!,
+    mutationFn: async () =>
+      (
+        await promptClient().createPrompt({
+          text: text.trim(),
+          emoji,
+          durationSeconds: DURATIONS[duration],
+        })
+      ).prompt!,
     onSuccess: (prompt) => {
       void queryClient.invalidateQueries({ queryKey: askKeys.promptsAll });
       toast.success(t("prompts.form.created"));
@@ -113,7 +128,13 @@ function CreatePromptDialog({ onClose }: { onClose(): void }) {
       onOpenChange={(open) => !open && onClose()}
       title={t("prompts.form.title")}
       footer={
-        <Button block size="lg" loading={create.isPending} disabled={length === 0 || length > PROMPT_MAX} onClick={() => create.mutate()}>
+        <Button
+          block
+          size="lg"
+          loading={create.isPending}
+          disabled={length === 0 || length > PROMPT_MAX}
+          onClick={() => create.mutate()}
+        >
           {t("prompts.form.submit")}
         </Button>
       }
@@ -124,7 +145,11 @@ function CreatePromptDialog({ onClose }: { onClose(): void }) {
             side="bottom"
             onPick={setEmoji}
             trigger={
-              <button type="button" aria-label={t("prompts.form.emoji")} className="pressable sticker grid size-14 shrink-0 place-items-center rounded-2xl bg-sun text-3xl">
+              <button
+                type="button"
+                aria-label={t("prompts.form.emoji")}
+                className="pressable sticker grid size-14 shrink-0 place-items-center rounded-2xl bg-sun text-3xl"
+              >
                 {emoji || <SmilePlus className="size-6 text-[#17122b]" />}
               </button>
             }
@@ -141,7 +166,12 @@ function CreatePromptDialog({ onClose }: { onClose(): void }) {
         </div>
         <div className="flex flex-wrap gap-2">
           {ideas.map((idea) => (
-            <button key={idea} type="button" onClick={() => setText(idea)} className="rounded-full bg-surface-2 px-3 py-1.5 text-sm font-bold text-ink-soft hover:bg-surface-3 hover:text-ink">
+            <button
+              key={idea}
+              type="button"
+              onClick={() => setText(idea)}
+              className="rounded-full bg-surface-2 px-3 py-1.5 text-sm font-bold text-ink-soft hover:bg-surface-3 hover:text-ink"
+            >
               {idea}
             </button>
           ))}
@@ -150,7 +180,10 @@ function CreatePromptDialog({ onClose }: { onClose(): void }) {
           label={t("prompts.form.duration")}
           value={duration}
           onChange={setDuration}
-          options={(Object.keys(DURATIONS) as DurationKey[]).map((value) => ({ value, label: t(`prompts.form.durations.${value}`) }))}
+          options={(Object.keys(DURATIONS) as DurationKey[]).map((value) => ({
+            value,
+            label: t(`prompts.form.durations.${value}`),
+          }))}
         />
       </div>
     </Dialog>

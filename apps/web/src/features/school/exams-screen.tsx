@@ -17,7 +17,13 @@ import { useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
 import { examClient, keys, refresh, toastError, useAssignments, useExams } from "./api";
 import { addDays, dayLabel, isYmd } from "./dates";
-import { AssignmentDialog, AssignmentRow, AssignmentsEmpty, DueList, useExamCountdown } from "./due";
+import {
+  AssignmentDialog,
+  AssignmentRow,
+  AssignmentsEmpty,
+  DueList,
+  useExamCountdown,
+} from "./due";
 import { Block, LoadFailed, RowsSkeleton, SchoolPage, SubjectPill } from "./parts";
 import { SubjectSelect } from "./subject-select";
 
@@ -35,13 +41,21 @@ export function ExamsScreen() {
       <Block
         title={t("due.title")}
         action={
-          <Button size="sm" variant="secondary" icon={<Plus className="size-4" />} onClick={() => setAdding(true)}>
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={<Plus className="size-4" />}
+            onClick={() => setAdding(true)}
+          >
             {t("assignments.add")}
           </Button>
         }
       >
         <DueList />
-        <Link to="/school/assignments" className="mt-2 flex items-center justify-end gap-0.5 px-1 text-sm font-bold text-brand">
+        <Link
+          to="/school/assignments"
+          className="mt-2 flex items-center justify-end gap-0.5 px-1 text-sm font-bold text-brand"
+        >
           {t("assignments.all")}
           <ChevronRight className="size-4" />
         </Link>
@@ -67,12 +81,24 @@ export function ExamsScreen() {
               const finished = exam.status === school.ExamStatus.FINISHED;
               return (
                 <li key={exam.id}>
-                  <Link to="/school/exams/$examId" params={{ examId: exam.id }} className={cn("pressable sticker flex items-center gap-4 rounded-card p-4", finished ? "bg-surface-2" : exam.status === school.ExamStatus.ONGOING ? "bg-sun text-[#17122b]" : "bg-surface")}>
+                  <Link
+                    to="/school/exams/$examId"
+                    params={{ examId: exam.id }}
+                    className={cn(
+                      "pressable sticker flex items-center gap-4 rounded-card p-4",
+                      finished
+                        ? "bg-surface-2"
+                        : exam.status === school.ExamStatus.ONGOING
+                          ? "bg-sun text-[#17122b]"
+                          : "bg-surface",
+                    )}
+                  >
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-lg font-black">{exam.name}</span>
                       <span className="block text-sm font-bold opacity-70">
                         {dayLabel(exam.startDate, i18n.language)}
-                        {exam.endDate !== exam.startDate && ` 〜 ${dayLabel(exam.endDate, i18n.language)}`}
+                        {exam.endDate !== exam.startDate &&
+                          ` 〜 ${dayLabel(exam.endDate, i18n.language)}`}
                         {" · "}
                         {t("exams.subjectCount", { count: exam.subjects.length })}
                       </span>
@@ -80,7 +106,9 @@ export function ExamsScreen() {
                     <span className="shrink-0 text-right">
                       {exam.status === school.ExamStatus.UPCOMING && exam.daysUntilStart > 0 ? (
                         <>
-                          <span className="block text-xs font-black opacity-70">{t("exams.until")}</span>
+                          <span className="block text-xs font-black opacity-70">
+                            {t("exams.until")}
+                          </span>
                           <span className="block text-3xl font-black leading-none">
                             {exam.daysUntilStart}
                             <span className="text-base">{t("exams.days")}</span>
@@ -117,12 +145,15 @@ function ExamDialog({ exam, onClose }: { exam?: school.Exam; onClose(): void }) 
   const save = useMutation({
     mutationFn: async () => {
       const input = { name, startDate, endDate: endDate || startDate, showOnProfile, memo };
-      return exam ? (await examClient().updateExam({ examId: exam.id, ...input })).exam : (await examClient().createExam(input)).exam;
+      return exam
+        ? (await examClient().updateExam({ examId: exam.id, ...input })).exam
+        : (await examClient().createExam(input)).exam;
     },
     onSuccess: (saved) => {
       refresh(queryClient, "exams");
       onClose();
-      if (!exam && saved) void navigate({ to: "/school/exams/$examId", params: { examId: saved.id } });
+      if (!exam && saved)
+        void navigate({ to: "/school/exams/$examId", params: { examId: saved.id } });
     },
     onError: toastError,
   });
@@ -136,21 +167,53 @@ function ExamDialog({ exam, onClose }: { exam?: school.Exam; onClose(): void }) 
           <Button variant="ghost" onClick={onClose}>
             {t("common:actions.cancel")}
           </Button>
-          <Button loading={save.isPending} disabled={!name.trim() || !isYmd(startDate) || (endDate !== "" && !isYmd(endDate))} onClick={() => save.mutate()}>
+          <Button
+            loading={save.isPending}
+            disabled={!name.trim() || !isYmd(startDate) || (endDate !== "" && !isYmd(endDate))}
+            onClick={() => save.mutate()}
+          >
             {exam ? t("common:actions.save") : t("exams.addAction")}
           </Button>
         </>
       }
     >
       <div className="flex flex-col gap-4">
-        <TextField label={t("exams.name")} value={name} maxLength={40} placeholder={t("exams.namePlaceholder")} onChange={(event) => setName(event.target.value)} autoFocus />
+        <TextField
+          label={t("exams.name")}
+          value={name}
+          maxLength={40}
+          placeholder={t("exams.namePlaceholder")}
+          onChange={(event) => setName(event.target.value)}
+          autoFocus
+        />
         <div className="grid grid-cols-2 gap-3">
-          <TextField label={t("exams.start")} type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
-          <TextField label={t("exams.end")} type="date" value={endDate} min={startDate} onChange={(event) => setEndDate(event.target.value)} />
+          <TextField
+            label={t("exams.start")}
+            type="date"
+            value={startDate}
+            onChange={(event) => setStartDate(event.target.value)}
+          />
+          <TextField
+            label={t("exams.end")}
+            type="date"
+            value={endDate}
+            min={startDate}
+            onChange={(event) => setEndDate(event.target.value)}
+          />
         </div>
-        <TextArea label={t("exams.memo")} value={memo} maxLength={500} onChange={(event) => setMemo(event.target.value)} />
+        <TextArea
+          label={t("exams.memo")}
+          value={memo}
+          maxLength={500}
+          onChange={(event) => setMemo(event.target.value)}
+        />
         <div className="-mx-3">
-          <SwitchRow label={t("exams.showOnProfile")} hint={t("exams.showOnProfileHint")} checked={showOnProfile} onChange={setShowOnProfile} />
+          <SwitchRow
+            label={t("exams.showOnProfile")}
+            hint={t("exams.showOnProfileHint")}
+            checked={showOnProfile}
+            onChange={setShowOnProfile}
+          />
         </div>
       </div>
     </Dialog>
@@ -163,7 +226,14 @@ export function ExamScreen({ examId }: { examId: string }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const countdown = useExamCountdown();
-  const { data: exam, isPending, isError } = useQuery({ queryKey: keys.exam(examId), queryFn: async () => (await examClient().getExam({ examId })).exam });
+  const {
+    data: exam,
+    isPending,
+    isError,
+  } = useQuery({
+    queryKey: keys.exam(examId),
+    queryFn: async () => (await examClient().getExam({ examId })).exam,
+  });
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [subject, setSubject] = useState<school.ExamSubject | "new" | undefined>(undefined);
@@ -207,16 +277,31 @@ export function ExamScreen({ examId }: { examId: string }) {
       title={exam.name}
       actions={
         <>
-          <Button size="icon-sm" variant="ghost" aria-label={t("exams.edit")} onClick={() => setEditing(true)}>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label={t("exams.edit")}
+            onClick={() => setEditing(true)}
+          >
             <Pencil className="size-4" />
           </Button>
-          <Button size="icon-sm" variant="ghost" aria-label={t("exams.delete")} onClick={() => setDeleting(true)}>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label={t("exams.delete")}
+            onClick={() => setDeleting(true)}
+          >
             <Trash2 className="size-4" />
           </Button>
         </>
       }
     >
-      <div className={cn("sticker rounded-card p-5 text-center", ongoing ? "bg-sun text-[#17122b]" : finished ? "bg-surface-2" : "bg-lime text-[#17122b]")}>
+      <div
+        className={cn(
+          "sticker rounded-card p-5 text-center",
+          ongoing ? "bg-sun text-[#17122b]" : finished ? "bg-surface-2" : "bg-lime text-[#17122b]",
+        )}
+      >
         <p className="text-sm font-black opacity-70">
           {dayLabel(exam.startDate, i18n.language)}
           {exam.endDate !== exam.startDate && ` 〜 ${dayLabel(exam.endDate, i18n.language)}`}
@@ -230,10 +315,17 @@ export function ExamScreen({ examId }: { examId: string }) {
         ) : (
           <p className="mt-2 text-3xl font-black">{countdown(exam)}</p>
         )}
-        {exam.memo && <p className="mt-2 text-sm font-bold whitespace-pre-wrap opacity-80">{exam.memo}</p>}
+        {exam.memo && (
+          <p className="mt-2 text-sm font-bold whitespace-pre-wrap opacity-80">{exam.memo}</p>
+        )}
       </div>
       <div className="-mx-1 mt-2">
-        <SwitchRow label={t("exams.showOnProfile")} hint={t("exams.showOnProfileHint")} checked={exam.showOnProfile} onChange={(checked) => profile.mutate(checked)} />
+        <SwitchRow
+          label={t("exams.showOnProfile")}
+          hint={t("exams.showOnProfileHint")}
+          checked={exam.showOnProfile}
+          onChange={(checked) => profile.mutate(checked)}
+        />
       </div>
 
       <Block
@@ -256,26 +348,48 @@ export function ExamScreen({ examId }: { examId: string }) {
                     {item.date ? dayLabel(item.date, i18n.language) : t("exams.dateUnknown")}
                     {item.period > 0 && ` · ${t("day.period", { period: item.period })}`}
                   </span>
-                  <Button size="icon-sm" variant="ghost" aria-label={t("exams.editSubject", { name: item.subject?.name ?? "" })} onClick={() => setSubject(item)}>
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label={t("exams.editSubject", { name: item.subject?.name ?? "" })}
+                    onClick={() => setSubject(item)}
+                  >
                     <Pencil className="size-4" />
                   </Button>
                 </div>
-                {item.scope && <p className="mt-2 px-1 text-sm whitespace-pre-wrap">{item.scope}</p>}
+                {item.scope && (
+                  <p className="mt-2 px-1 text-sm whitespace-pre-wrap">{item.scope}</p>
+                )}
                 <div className="mt-2 flex items-center gap-2 px-1">
                   {item.result ? (
                     <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
                       {item.result.score !== undefined && (
                         <span className="text-lg font-black">
                           {item.result.score}
-                          <span className="text-sm text-ink-soft"> / {item.result.maxScore || 100}</span>
+                          <span className="text-sm text-ink-soft">
+                            {" "}
+                            / {item.result.maxScore || 100}
+                          </span>
                         </span>
                       )}
-                      {item.result.average !== undefined && <Chip>{t("exams.result.averageValue", { value: item.result.average })}</Chip>}
-                      {item.result.rank !== undefined && <Chip>{t("exams.result.rankValue", { value: item.result.rank })}</Chip>}
-                      {item.result.memo && <span className="min-w-0 truncate text-sm text-ink-soft">{item.result.memo}</span>}
+                      {item.result.average !== undefined && (
+                        <Chip>
+                          {t("exams.result.averageValue", { value: item.result.average })}
+                        </Chip>
+                      )}
+                      {item.result.rank !== undefined && (
+                        <Chip>{t("exams.result.rankValue", { value: item.result.rank })}</Chip>
+                      )}
+                      {item.result.memo && (
+                        <span className="min-w-0 truncate text-sm text-ink-soft">
+                          {item.result.memo}
+                        </span>
+                      )}
                     </span>
                   ) : (
-                    <span className="min-w-0 flex-1 text-sm text-ink-faint">{t("exams.result.none")}</span>
+                    <span className="min-w-0 flex-1 text-sm text-ink-faint">
+                      {t("exams.result.none")}
+                    </span>
                   )}
                   <Button size="sm" variant="secondary" onClick={() => setResult(item)}>
                     {item.result ? t("exams.result.edit") : t("exams.result.add")}
@@ -288,7 +402,13 @@ export function ExamScreen({ examId }: { examId: string }) {
       </Block>
 
       {editing && <ExamDialog exam={exam} onClose={() => setEditing(false)} />}
-      {subject && <ExamSubjectDialog exam={exam} item={subject === "new" ? undefined : subject} onClose={() => setSubject(undefined)} />}
+      {subject && (
+        <ExamSubjectDialog
+          exam={exam}
+          item={subject === "new" ? undefined : subject}
+          onClose={() => setSubject(undefined)}
+        />
+      )}
       {result && <ResultDialog item={result} onClose={() => setResult(undefined)} />}
       <ConfirmDialog
         open={deleting}
@@ -304,7 +424,15 @@ export function ExamScreen({ examId }: { examId: string }) {
   );
 }
 
-function ExamSubjectDialog({ exam, item, onClose }: { exam: school.Exam; item?: school.ExamSubject; onClose(): void }) {
+function ExamSubjectDialog({
+  exam,
+  item,
+  onClose,
+}: {
+  exam: school.Exam;
+  item?: school.ExamSubject;
+  onClose(): void;
+}) {
   const { t } = useTranslation("school");
   const queryClient = useQueryClient();
   const [subjectId, setSubjectId] = useState(item?.subject?.id ?? "");
@@ -316,7 +444,15 @@ function ExamSubjectDialog({ exam, item, onClose }: { exam: school.Exam; item?: 
     onClose();
   };
   const save = useMutation({
-    mutationFn: () => examClient().putExamSubject({ examId: exam.id, examSubjectId: item?.id ?? "", subjectId, date, period: Number(period) || 0, scope }),
+    mutationFn: () =>
+      examClient().putExamSubject({
+        examId: exam.id,
+        examSubjectId: item?.id ?? "",
+        subjectId,
+        date,
+        period: Number(period) || 0,
+        scope,
+      }),
     onSuccess: done,
     onError: toastError,
   });
@@ -329,11 +465,19 @@ function ExamSubjectDialog({ exam, item, onClose }: { exam: school.Exam; item?: 
     <Dialog
       open
       onOpenChange={(open) => !open && onClose()}
-      title={item ? t("exams.editSubject", { name: item.subject?.name ?? "" }) : t("exams.addSubject")}
+      title={
+        item ? t("exams.editSubject", { name: item.subject?.name ?? "" }) : t("exams.addSubject")
+      }
       footer={
         <>
           {item && (
-            <Button variant="ghost" className="mr-auto text-danger" icon={<Trash2 className="size-4" />} loading={remove.isPending} onClick={() => remove.mutate()}>
+            <Button
+              variant="ghost"
+              className="mr-auto text-danger"
+              icon={<Trash2 className="size-4" />}
+              loading={remove.isPending}
+              onClick={() => remove.mutate()}
+            >
               {t("exams.removeSubject")}
             </Button>
           )}
@@ -346,16 +490,38 @@ function ExamSubjectDialog({ exam, item, onClose }: { exam: school.Exam; item?: 
       <div className="flex flex-col gap-4">
         <SubjectSelect value={subjectId} onChange={setSubjectId} />
         <div className="grid grid-cols-2 gap-3">
-          <TextField label={t("exams.subjectDate")} type="date" value={date} min={exam.startDate} max={exam.endDate} onChange={(event) => setDate(event.target.value)} />
-          <TextField label={t("exams.subjectPeriod")} type="number" inputMode="numeric" min={1} max={12} value={period} onChange={(event) => setPeriod(event.target.value)} />
+          <TextField
+            label={t("exams.subjectDate")}
+            type="date"
+            value={date}
+            min={exam.startDate}
+            max={exam.endDate}
+            onChange={(event) => setDate(event.target.value)}
+          />
+          <TextField
+            label={t("exams.subjectPeriod")}
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={12}
+            value={period}
+            onChange={(event) => setPeriod(event.target.value)}
+          />
         </div>
-        <TextArea label={t("exams.scope")} value={scope} maxLength={1000} placeholder={t("exams.scopePlaceholder")} onChange={(event) => setScope(event.target.value)} />
+        <TextArea
+          label={t("exams.scope")}
+          value={scope}
+          maxLength={1000}
+          placeholder={t("exams.scopePlaceholder")}
+          onChange={(event) => setScope(event.target.value)}
+        />
       </div>
     </Dialog>
   );
 }
 
-const numberOrUndefined = (value: string) => (value.trim() === "" || Number.isNaN(Number(value)) ? undefined : Number(value));
+const numberOrUndefined = (value: string) =>
+  value.trim() === "" || Number.isNaN(Number(value)) ? undefined : Number(value);
 
 /** The private note of how one test went: score, average, rank. */
 function ResultDialog({ item, onClose }: { item: school.ExamSubject; onClose(): void }) {
@@ -370,7 +536,15 @@ function ResultDialog({ item, onClose }: { item: school.ExamSubject; onClose(): 
     mutationFn: (clear: boolean) =>
       examClient().setExamResult({
         examSubjectId: item.id,
-        result: clear ? undefined : { score: numberOrUndefined(score), maxScore: Number(maxScore) || 100, average: numberOrUndefined(average), rank: numberOrUndefined(rank), memo },
+        result: clear
+          ? undefined
+          : {
+              score: numberOrUndefined(score),
+              maxScore: Number(maxScore) || 100,
+              average: numberOrUndefined(average),
+              rank: numberOrUndefined(rank),
+              memo,
+            },
       }),
     onSuccess: () => {
       refresh(queryClient, "exams");
@@ -387,7 +561,11 @@ function ResultDialog({ item, onClose }: { item: school.ExamSubject; onClose(): 
       footer={
         <>
           {item.result && (
-            <Button variant="ghost" className="mr-auto text-danger" onClick={() => save.mutate(true)}>
+            <Button
+              variant="ghost"
+              className="mr-auto text-danger"
+              onClick={() => save.mutate(true)}
+            >
               {t("exams.result.clear")}
             </Button>
           )}
@@ -399,19 +577,53 @@ function ResultDialog({ item, onClose }: { item: school.ExamSubject; onClose(): 
     >
       <div className="flex flex-col gap-4">
         <div className="grid grid-cols-2 gap-3">
-          <TextField label={t("exams.result.score")} type="number" inputMode="numeric" value={score} onChange={(event) => setScore(event.target.value)} autoFocus />
-          <TextField label={t("exams.result.maxScore")} type="number" inputMode="numeric" value={maxScore} onChange={(event) => setMaxScore(event.target.value)} />
-          <TextField label={t("exams.result.average")} type="number" inputMode="decimal" value={average} onChange={(event) => setAverage(event.target.value)} />
-          <TextField label={t("exams.result.rank")} type="number" inputMode="numeric" value={rank} onChange={(event) => setRank(event.target.value)} />
+          <TextField
+            label={t("exams.result.score")}
+            type="number"
+            inputMode="numeric"
+            value={score}
+            onChange={(event) => setScore(event.target.value)}
+            autoFocus
+          />
+          <TextField
+            label={t("exams.result.maxScore")}
+            type="number"
+            inputMode="numeric"
+            value={maxScore}
+            onChange={(event) => setMaxScore(event.target.value)}
+          />
+          <TextField
+            label={t("exams.result.average")}
+            type="number"
+            inputMode="decimal"
+            value={average}
+            onChange={(event) => setAverage(event.target.value)}
+          />
+          <TextField
+            label={t("exams.result.rank")}
+            type="number"
+            inputMode="numeric"
+            value={rank}
+            onChange={(event) => setRank(event.target.value)}
+          />
         </div>
-        <TextField label={t("exams.result.memo")} value={memo} maxLength={200} onChange={(event) => setMemo(event.target.value)} />
+        <TextField
+          label={t("exams.result.memo")}
+          value={memo}
+          maxLength={200}
+          onChange={(event) => setMemo(event.target.value)}
+        />
       </div>
     </Dialog>
   );
 }
 
 type AssignmentTab = "open" | "done" | "all";
-const FILTERS: Record<AssignmentTab, school.AssignmentFilter> = { open: school.AssignmentFilter.OPEN, done: school.AssignmentFilter.DONE, all: school.AssignmentFilter.ALL };
+const FILTERS: Record<AssignmentTab, school.AssignmentFilter> = {
+  open: school.AssignmentFilter.OPEN,
+  done: school.AssignmentFilter.DONE,
+  all: school.AssignmentFilter.ALL,
+};
 
 /** Every assignment: the open ones by urgency, the finished ones, adding and changing them. */
 export function AssignmentsScreen() {
@@ -432,7 +644,11 @@ export function AssignmentsScreen() {
           value={tab}
           onChange={(next: AssignmentTab) => setTab(next)}
           items={[
-            { value: "open", label: t("assignments.tabs.open"), badge: tab === "open" ? undefined : assignments.data?.overdueCount },
+            {
+              value: "open",
+              label: t("assignments.tabs.open"),
+              badge: tab === "open" ? undefined : assignments.data?.overdueCount,
+            },
             { value: "done", label: t("assignments.tabs.done") },
             { value: "all", label: t("assignments.tabs.all") },
           ]}
@@ -440,7 +656,12 @@ export function AssignmentsScreen() {
         {assignments.data && tab === "open" && assignments.data.openCount > 0 && (
           <p className="text-sm font-bold text-ink-soft">
             {t("assignments.openCount", { count: assignments.data.openCount })}
-            {assignments.data.overdueCount > 0 && <span className="text-danger"> · {t("assignments.overdueCount", { count: assignments.data.overdueCount })}</span>}
+            {assignments.data.overdueCount > 0 && (
+              <span className="text-danger">
+                {" "}
+                · {t("assignments.overdueCount", { count: assignments.data.overdueCount })}
+              </span>
+            )}
           </p>
         )}
       </div>
@@ -461,7 +682,12 @@ export function AssignmentsScreen() {
           ))}
         </ul>
       )}
-      {opened && <AssignmentDialog assignment={opened === "new" ? undefined : opened} onClose={() => setOpened(undefined)} />}
+      {opened && (
+        <AssignmentDialog
+          assignment={opened === "new" ? undefined : opened}
+          onClose={() => setOpened(undefined)}
+        />
+      )}
     </SchoolPage>
   );
 }

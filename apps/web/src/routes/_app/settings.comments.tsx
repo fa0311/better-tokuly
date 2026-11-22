@@ -1,5 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { CommentModerationScreen, MODERATION_TABS, type ModerationTab } from "#/features/comments/moderation-screen";
+import {
+  CommentModerationScreen,
+  MODERATION_TABS,
+  type ModerationTab,
+} from "#/features/comments/moderation-screen";
 
 /** The comment manager. `?tab=` keeps the open tab in the address, so going back returns to it. */
 export const Route = createFileRoute("/_app/settings/comments")({
@@ -13,5 +17,12 @@ export const Route = createFileRoute("/_app/settings/comments")({
 function CommentsPage() {
   const { tab = "queue" } = Route.useSearch();
   const navigate = Route.useNavigate();
-  return <CommentModerationScreen tab={tab} onTabChange={(next) => navigate({ search: next === "queue" ? {} : { tab: next }, replace: true })} />;
+  return (
+    <CommentModerationScreen
+      tab={tab}
+      onTabChange={(next) =>
+        navigate({ search: next === "queue" ? {} : { tab: next }, replace: true })
+      }
+    />
+  );
 }

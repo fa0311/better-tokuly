@@ -4,7 +4,13 @@ export default {
   activityTile: "Log",
   tabs: { feed: "Home", home: "Friends", global: "Everyone", mentions: "Mentions" },
   shell: { back: "Back", refresh: "Refresh", bookmarks: "Bookmarks" },
-  shortcuts: { title: "Yours", bookmarks: "Bookmarks", activity: "Log", archive: "Story archive", recap: "Recap" },
+  shortcuts: {
+    title: "Yours",
+    bookmarks: "Bookmarks",
+    activity: "Log",
+    archive: "Story archive",
+    recap: "Recap",
+  },
   timeline: {
     new: "New notes: {{count}}",
     newMany: "Lots of new notes!",
@@ -54,7 +60,11 @@ export default {
     report: "Report",
   },
   people: { likers: "Liked by", renoters: "Renoted by", empty: "Nobody yet" },
-  delete: { title: "Delete this note?", body: "This can't be undone. Replies to it stay.", confirm: "Delete" },
+  delete: {
+    title: "Delete this note?",
+    body: "This can't be undone. Replies to it stay.",
+    confirm: "Delete",
+  },
   visibility: {
     title: "Who can see it",
     changeTitle: "Change who can see it",
@@ -76,7 +86,12 @@ export default {
     saves: "Saves",
     shares: "Shares",
     shareBreakdown: "How it was shared",
-    targets: { linkCopy: "Link copied", chat: "Sent in chat", external: "Other apps", other: "Other" },
+    targets: {
+      linkCopy: "Link copied",
+      chat: "Sent in chat",
+      external: "Other apps",
+      other: "Other",
+    },
   },
   share: { title: "A note by @{{handle}}" },
   report: { label: "a note by @{{handle}}" },
@@ -187,7 +202,10 @@ export default {
     empty: {
       notes: { self: "You haven't posted yet. What are you up to?", other: "No notes yet" },
       replies: { self: "You haven't replied to anything yet", other: "No replies yet" },
-      media: { self: "Your notes with photos or videos show up here", other: "No notes with photos or videos yet" },
+      media: {
+        self: "Your notes with photos or videos show up here",
+        other: "No notes with photos or videos yet",
+      },
       likes: { self: "Notes you like show up here", other: "No liked notes yet" },
       activity: "Nothing in the log you can see yet",
     },
@@ -202,7 +220,8 @@ export default {
     audience: { private: "Only me", friends: "Friends", public: "Everyone", hidden: "Hidden kind" },
     delete: "Delete this entry",
     deleteTitle: "Delete this entry?",
-    deleteBody: "It also disappears from your profile, your friends' feeds and your recaps. This can't be undone.",
+    deleteBody:
+      "It also disappears from your profile, your friends' feeds and your recaps. This can't be undone.",
     deleteConfirm: "Delete",
     deleted: "Entry deleted",
     empty: {
@@ -216,7 +235,12 @@ export default {
       title: "Clear the log",
       body: "Entries of the period you pick also disappear from your profile and your recaps. This can't be undone.",
       range: "Period",
-      ranges: { today: "Today", week: "Last 7 days", month: "Last 30 days", everything: "Everything" },
+      ranges: {
+        today: "Today",
+        week: "Last 7 days",
+        month: "Last 30 days",
+        everything: "Everything",
+      },
       kind: "Kind",
       confirm: "Clear",
       done: "Entries deleted: {{count}}",

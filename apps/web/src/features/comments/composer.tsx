@@ -64,7 +64,9 @@ export function Composer({ replyTo, autoFocus, onCancel, onPosted }: ComposerPro
   const fileInput = useRef<HTMLInputElement>(null);
 
   // Answering a reply starts with its author's handle, the way people expect a thread to read.
-  const [text, setText] = useState(() => (replyTo?.parentId && replyTo.author?.user ? `@${replyTo.author.user.handle} ` : ""));
+  const [text, setText] = useState(() =>
+    replyTo?.parentId && replyTo.author?.user ? `@${replyTo.author.user.handle} ` : "",
+  );
   const [active, setActive] = useState(Boolean(autoFocus));
   const [stamp, setStamp] = useState<common.StampRef | null>(null);
   const [image, setImage] = useState<ImageDraft | null>(null);
@@ -82,7 +84,10 @@ export function Composer({ replyTo, autoFocus, onCancel, onPosted }: ComposerPro
   const mentionQuery = mention?.query ?? "";
   const suggestions = useQuery({
     queryKey: ["identity", "search", "mention", mentionQuery],
-    queryFn: async () => (await profileClient().searchUsers({ query: mentionQuery, page: { limit: 6 } })).results.flatMap((result) => (result.user ? [result.user] : [])),
+    queryFn: async () =>
+      (
+        await profileClient().searchUsers({ query: mentionQuery, page: { limit: 6 } })
+      ).results.flatMap((result) => (result.user ? [result.user] : [])),
     enabled: mentionQuery.length > 0,
     staleTime: 60_000,
   });
@@ -108,7 +113,13 @@ export function Composer({ replyTo, autoFocus, onCancel, onPosted }: ComposerPro
       const published = comment.status === engagement.CommentStatus.PUBLISHED;
       if (comment.parentId) {
         updateReplies(queryClient, comment.parentId, (data) => withReply(data, comment, true));
-        if (published) updateThread(queryClient, thread.subject, (data) => withPatched(data, comment.parentId, (parent) => ({ ...parent, replyCount: parent.replyCount + 1 })));
+        if (published)
+          updateThread(queryClient, thread.subject, (data) =>
+            withPatched(data, comment.parentId, (parent) => ({
+              ...parent,
+              replyCount: parent.replyCount + 1,
+            })),
+          );
       } else {
         updateThread(queryClient, thread.subject, (data) => withComment(data, comment, published));
       }
@@ -130,9 +141,16 @@ export function Composer({ replyTo, autoFocus, onCancel, onPosted }: ComposerPro
     try {
       const asset = await uploadAndProcess(file, {
         purpose: media.AssetPurpose.NOTE_IMAGE,
-        onProgress: (progress) => setImage((current) => (current?.previewUrl === draft.previewUrl ? { ...current, progress } : current)),
+        onProgress: (progress) =>
+          setImage((current) =>
+            current?.previewUrl === draft.previewUrl ? { ...current, progress } : current,
+          ),
       });
-      setImage((current) => (current?.previewUrl === draft.previewUrl ? { ...current, assetId: asset.id, progress: 1 } : current));
+      setImage((current) =>
+        current?.previewUrl === draft.previewUrl
+          ? { ...current, assetId: asset.id, progress: 1 }
+          : current,
+      );
     } catch (error) {
       setImage((current) => (current?.previewUrl === draft.previewUrl ? null : current));
       toast.error(errorMessage(error));
@@ -152,7 +170,11 @@ export function Composer({ replyTo, autoFocus, onCancel, onPosted }: ComposerPro
   };
 
   const uploading = Boolean(image && !image.assetId);
-  const canPost = !uploading && !post.isPending && (text.trim().length > 0 || stamp !== null || Boolean(image?.assetId)) && text.length <= MAX_LENGTH;
+  const canPost =
+    !uploading &&
+    !post.isPending &&
+    (text.trim().length > 0 || stamp !== null || Boolean(image?.assetId)) &&
+    text.length <= MAX_LENGTH;
   const submit = () => {
     if (canPost) post.mutate();
   };
@@ -161,7 +183,10 @@ export function Composer({ replyTo, autoFocus, onCancel, onPosted }: ComposerPro
     if (suggested.length > 0) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
-        setMentionIndex((index) => (index + (event.key === "ArrowDown" ? 1 : suggested.length - 1)) % suggested.length);
+        setMentionIndex(
+          (index) =>
+            (index + (event.key === "ArrowDown" ? 1 : suggested.length - 1)) % suggested.length,
+        );
         return;
       }
       if (event.key === "Enter" || event.key === "Tab") {
@@ -229,9 +254,19 @@ export function Composer({ replyTo, autoFocus, onCancel, onPosted }: ComposerPro
               )}
               {image && (
                 <Attachment label={t("composer.removeImage")} onRemove={() => setImage(null)}>
-                  <img src={image.previewUrl} alt="" className="h-20 max-w-40 rounded-xl object-cover" />
+                  <img
+                    src={image.previewUrl}
+                    alt=""
+                    className="h-20 max-w-40 rounded-xl object-cover"
+                  />
                   {!image.assetId && (
-                    <span className="absolute inset-0 grid place-items-center rounded-xl bg-overlay text-white" role="status" aria-label={t("composer.uploading", { percent: Math.round(image.progress * 100) })}>
+                    <span
+                      className="absolute inset-0 grid place-items-center rounded-xl bg-overlay text-white"
+                      role="status"
+                      aria-label={t("composer.uploading", {
+                        percent: Math.round(image.progress * 100),
+                      })}
+                    >
                       <Spinner className="size-6" />
                     </span>
                   )}
@@ -241,7 +276,12 @@ export function Composer({ replyTo, autoFocus, onCancel, onPosted }: ComposerPro
                 <span className="inline-flex h-8 items-center gap-1 rounded-full bg-brand-soft pr-1 pl-3 text-sm font-black text-brand-strong">
                   <Clock className="size-4" />
                   {formatClock(moment)}
-                  <button type="button" aria-label={t("composer.removeTime")} className="grid size-6 place-items-center rounded-full hover:bg-surface" onClick={() => setMoment(null)}>
+                  <button
+                    type="button"
+                    aria-label={t("composer.removeTime")}
+                    className="grid size-6 place-items-center rounded-full hover:bg-surface"
+                    onClick={() => setMoment(null)}
+                  >
                     <X className="size-3.5" />
                   </button>
                 </span>
@@ -253,7 +293,12 @@ export function Composer({ replyTo, autoFocus, onCancel, onPosted }: ComposerPro
             <div className="flex flex-wrap items-center gap-1 border-t-2 border-line px-2 py-1.5">
               <StampPicker
                 trigger={
-                  <Button variant="ghost" size="icon-sm" aria-label={t("composer.stamp")} disabled={Boolean(image)}>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={t("composer.stamp")}
+                    disabled={Boolean(image)}
+                  >
                     <Smile className="size-5" />
                   </Button>
                 }
@@ -262,7 +307,13 @@ export function Composer({ replyTo, autoFocus, onCancel, onPosted }: ComposerPro
                   setStamp(picked);
                 }}
               />
-              <Button variant="ghost" size="icon-sm" aria-label={t("composer.image")} disabled={Boolean(stamp)} onClick={() => fileInput.current?.click()}>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={t("composer.image")}
+                disabled={Boolean(stamp)}
+                onClick={() => fileInput.current?.click()}
+              >
                 <ImagePlus className="size-5" />
               </Button>
               <input
@@ -277,7 +328,14 @@ export function Composer({ replyTo, autoFocus, onCancel, onPosted }: ComposerPro
                 }}
               />
               {thread.video && moment === null && (
-                <Button variant="ghost" size="sm" className="px-2.5" icon={<Clock className="size-4" />} onClick={() => setMoment(nowAt)} aria-label={t("composer.addTime", { time: formatClock(nowAt) })}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="px-2.5"
+                  icon={<Clock className="size-4" />}
+                  onClick={() => setMoment(nowAt)}
+                  aria-label={t("composer.addTime", { time: formatClock(nowAt) })}
+                >
                   {formatClock(nowAt)}
                 </Button>
               )}
@@ -285,13 +343,24 @@ export function Composer({ replyTo, autoFocus, onCancel, onPosted }: ComposerPro
                 <Menu
                   align="start"
                   trigger={
-                    <Button variant="ghost" size="sm" className="max-w-40 px-2.5" aria-label={t("composer.identity")}>
-                      <span className="truncate">{channel ? channel.name : t("composer.asMyself")}</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="max-w-40 px-2.5"
+                      aria-label={t("composer.identity")}
+                    >
+                      <span className="truncate">
+                        {channel ? channel.name : t("composer.asMyself")}
+                      </span>
                       <ChevronDown className="size-4 shrink-0" />
                     </Button>
                   }
                   actions={[
-                    { label: `${me.user.displayName} (@${me.user.handle})`, icon: <Avatar user={me.user} size="xs" />, onSelect: () => chooseIdentity("") },
+                    {
+                      label: `${me.user.displayName} (@${me.user.handle})`,
+                      icon: <Avatar user={me.user} size="xs" />,
+                      onSelect: () => chooseIdentity(""),
+                    },
                     ...(identities.data ?? []).map((candidate) => ({
                       label: `${candidate.name} (@${candidate.handle})`,
                       icon: <Avatar user={channelFace(candidate)} size="xs" />,
@@ -303,7 +372,12 @@ export function Composer({ replyTo, autoFocus, onCancel, onPosted }: ComposerPro
               {/* Kept together and to the right, also when the row wraps on a narrow phone. */}
               <div className="ml-auto flex items-center gap-1">
                 {text.length > MAX_LENGTH - 100 && (
-                  <span className={cn("px-1 text-xs font-bold tabular-nums", text.length > MAX_LENGTH ? "text-danger" : "text-ink-faint")}>
+                  <span
+                    className={cn(
+                      "px-1 text-xs font-bold tabular-nums",
+                      text.length > MAX_LENGTH ? "text-danger" : "text-ink-faint",
+                    )}
+                  >
                     {text.length}/{MAX_LENGTH}
                   </span>
                 )}
@@ -312,7 +386,13 @@ export function Composer({ replyTo, autoFocus, onCancel, onPosted }: ComposerPro
                     {t("composer.cancel")}
                   </Button>
                 )}
-                <Button type="submit" size="sm" disabled={!canPost} loading={post.isPending} icon={<SendHorizontal className="size-4" />}>
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={!canPost}
+                  loading={post.isPending}
+                  icon={<SendHorizontal className="size-4" />}
+                >
                   {replyTo ? t("composer.reply") : t("composer.post")}
                 </Button>
               </div>
@@ -321,14 +401,21 @@ export function Composer({ replyTo, autoFocus, onCancel, onPosted }: ComposerPro
         </div>
 
         {suggested.length > 0 && (
-          <div role="listbox" aria-label={t("composer.mentions")} className="sticker absolute inset-x-0 top-full z-30 mt-1 max-h-64 overflow-y-auto rounded-2xl bg-surface p-1.5">
+          <div
+            role="listbox"
+            aria-label={t("composer.mentions")}
+            className="sticker absolute inset-x-0 top-full z-30 mt-1 max-h-64 overflow-y-auto rounded-2xl bg-surface p-1.5"
+          >
             {suggested.map((user, index) => (
               <div
                 key={user.id}
                 role="option"
                 tabIndex={-1}
                 aria-selected={index === mentionIndex}
-                className={cn("flex cursor-pointer items-center gap-2.5 rounded-xl px-2.5 py-2", index === mentionIndex && "bg-surface-2")}
+                className={cn(
+                  "flex cursor-pointer items-center gap-2.5 rounded-xl px-2.5 py-2",
+                  index === mentionIndex && "bg-surface-2",
+                )}
                 // Keep the caret in the field: a mouse press would otherwise blur it first.
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => pickMention(user)}
@@ -357,11 +444,24 @@ export function Composer({ replyTo, autoFocus, onCancel, onPosted }: ComposerPro
   }
 }
 
-function Attachment({ label, onRemove, children }: { label: string; onRemove(): void; children: ReactNode }) {
+function Attachment({
+  label,
+  onRemove,
+  children,
+}: {
+  label: string;
+  onRemove(): void;
+  children: ReactNode;
+}) {
   return (
     <span className="relative inline-block">
       {children}
-      <button type="button" aria-label={label} className="sticker-sm absolute -top-2 -right-2 grid size-6 place-items-center rounded-full bg-surface" onClick={onRemove}>
+      <button
+        type="button"
+        aria-label={label}
+        className="sticker-sm absolute -top-2 -right-2 grid size-6 place-items-center rounded-full bg-surface"
+        onClick={onRemove}
+      >
         <X className="size-3.5" />
       </button>
     </span>

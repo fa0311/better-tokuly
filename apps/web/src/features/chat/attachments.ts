@@ -52,12 +52,19 @@ function imageSize(url: string): Promise<{ width: number; height: number } | und
   });
 }
 
-function videoSize(url: string): Promise<{ width: number; height: number; durationSeconds: number } | undefined> {
+function videoSize(
+  url: string,
+): Promise<{ width: number; height: number; durationSeconds: number } | undefined> {
   return new Promise((resolve) => {
     const video = document.createElement("video");
     video.preload = "metadata";
     video.muted = true;
-    video.onloadedmetadata = () => resolve({ width: video.videoWidth, height: video.videoHeight, durationSeconds: Number.isFinite(video.duration) ? video.duration : 0 });
+    video.onloadedmetadata = () =>
+      resolve({
+        width: video.videoWidth,
+        height: video.videoHeight,
+        durationSeconds: Number.isFinite(video.duration) ? video.duration : 0,
+      });
     video.onerror = () => resolve(undefined);
     video.src = url;
   });
@@ -66,11 +73,22 @@ function videoSize(url: string): Promise<{ width: number; height: number; durati
 let counter = 0;
 
 /** Wraps a picked, pasted, dropped or recorded file for sending, measuring what the preview needs. */
-export async function describeFile(file: Blob, extra: Partial<Pick<OutgoingFile, "name" | "kind" | "durationSeconds" | "waveform">> = {}): Promise<OutgoingFile> {
+export async function describeFile(
+  file: Blob,
+  extra: Partial<Pick<OutgoingFile, "name" | "kind" | "durationSeconds" | "waveform">> = {},
+): Promise<OutgoingFile> {
   const kind = extra.kind ?? classify(file.type);
   const previewUrl = URL.createObjectURL(file);
   const name = extra.name ?? (file as File).name ?? "file";
-  const base: OutgoingFile = { id: `f${Date.now().toString(36)}${counter++}`, file, name, kind, previewUrl, durationSeconds: extra.durationSeconds, waveform: extra.waveform };
+  const base: OutgoingFile = {
+    id: `f${Date.now().toString(36)}${counter++}`,
+    file,
+    name,
+    kind,
+    previewUrl,
+    durationSeconds: extra.durationSeconds,
+    waveform: extra.waveform,
+  };
   if (kind === "image") return { ...base, ...(await imageSize(previewUrl)) };
   if (kind === "video") {
     const size = await videoSize(previewUrl);
@@ -94,9 +112,18 @@ export function localAttachment(file: OutgoingFile): media.Attachment {
     contentType: file.file.type,
     sizeBytes: BigInt(file.file.size),
     fileName: file.name,
-    image: file.kind === "image" && file.width && file.height ? { url: file.previewUrl, width: file.width, height: file.height } : undefined,
+    image:
+      file.kind === "image" && file.width && file.height
+        ? { url: file.previewUrl, width: file.width, height: file.height }
+        : undefined,
     video: playable
-      ? { durationSeconds: file.durationSeconds ?? 0, width: file.width ?? 0, height: file.height ?? 0, mp4Url: file.kind === "video" ? file.previewUrl : "", hasAudio: true }
+      ? {
+          durationSeconds: file.durationSeconds ?? 0,
+          width: file.width ?? 0,
+          height: file.height ?? 0,
+          mp4Url: file.kind === "video" ? file.previewUrl : "",
+          hasAudio: true,
+        }
       : undefined,
     waveform: file.waveform ?? new Uint8Array(),
     status: media.AssetStatus.READY,

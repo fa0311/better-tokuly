@@ -2,7 +2,9 @@ import type { plans } from "@tokuly/api";
 import { create } from "zustand";
 
 /** What a new plan starts from: the fields of a `CreatePlanRequest` that are known already. */
-export type PlanDraft = Partial<Pick<plans.CreatePlanRequest, "title" | "emoji" | "description" | "time" | "place" | "inviteeIds">>;
+export type PlanDraft = Partial<
+  Pick<plans.CreatePlanRequest, "title" | "emoji" | "description" | "time" | "place" | "inviteeIds">
+>;
 
 /**
  * A plan somebody started from elsewhere — answering "あそぼ!", a day of the

@@ -28,7 +28,8 @@ function useDevicePosition(enabled: boolean): { position: Position | null; denie
     if (!enabled || known || !navigator.geolocation) return;
     let cancelled = false;
     navigator.geolocation.getCurrentPosition(
-      (result) => !cancelled && setAsked({ lat: result.coords.latitude, lng: result.coords.longitude }),
+      (result) =>
+        !cancelled && setAsked({ lat: result.coords.latitude, lng: result.coords.longitude }),
       () => !cancelled && setDenied(true),
       { enableHighAccuracy: true, timeout: 10_000, maximumAge: 60_000 },
     );
@@ -36,14 +37,25 @@ function useDevicePosition(enabled: boolean): { position: Position | null; denie
       cancelled = true;
     };
   }, [enabled, known]);
-  return { position: tracked ? { lat: tracked.lat, lng: tracked.lng } : asked, denied: denied && !tracked };
+  return {
+    position: tracked ? { lat: tracked.lat, lng: tracked.lng } : asked,
+    denied: denied && !tracked,
+  };
 }
 
 /**
  * "Share a place": the map opens on where the person is; dragging it moves
  * the pin somewhere else (a meeting point), and a name can be added.
  */
-export function LocationShareDialog({ open, onOpenChange, onShare }: { open: boolean; onOpenChange(open: boolean): void; onShare(location: { lat: number; lng: number; name: string; address: string }): void }) {
+export function LocationShareDialog({
+  open,
+  onOpenChange,
+  onShare,
+}: {
+  open: boolean;
+  onOpenChange(open: boolean): void;
+  onShare(location: { lat: number; lng: number; name: string; address: string }): void;
+}) {
   const { t, i18n } = useTranslation("chat");
   const device = useDevicePosition(open);
   const [chosen, setChosen] = useState<Position | null>(null);
@@ -80,7 +92,12 @@ export function LocationShareDialog({ open, onOpenChange, onShare }: { open: boo
         <div className="relative h-64 overflow-hidden rounded-card border-2 border-line bg-surface-2">
           {open && (
             <Suspense fallback={<PaneSpinner />}>
-              <LocationMap lat={chosen ? chosen.lat : start.lat} lng={chosen ? chosen.lng : start.lng} onMove={setChosen} language={i18n.language} />
+              <LocationMap
+                lat={chosen ? chosen.lat : start.lat}
+                lng={chosen ? chosen.lng : start.lng}
+                onMove={setChosen}
+                language={i18n.language}
+              />
             </Suspense>
           )}
           {device.position && chosen && (
@@ -95,14 +112,26 @@ export function LocationShareDialog({ open, onOpenChange, onShare }: { open: boo
             </button>
           )}
         </div>
-        <TextField label={t("location.name")} placeholder={t("location.namePlaceholder")} value={name} maxLength={100} onChange={(event) => setName(event.target.value)} />
+        <TextField
+          label={t("location.name")}
+          placeholder={t("location.namePlaceholder")}
+          value={name}
+          maxLength={100}
+          onChange={(event) => setName(event.target.value)}
+        />
       </div>
     </Dialog>
   );
 }
 
 /** A shared place on the map, with a way out to a maps app for directions. */
-export function LocationViewDialog({ location, onClose }: { location: chat.LocationShare | null; onClose(): void }) {
+export function LocationViewDialog({
+  location,
+  onClose,
+}: {
+  location: chat.LocationShare | null;
+  onClose(): void;
+}) {
   const { t, i18n } = useTranslation("chat");
   // The last place stays while the dialog animates out.
   const [shown, setShown] = useState(location);

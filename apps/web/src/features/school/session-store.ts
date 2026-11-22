@@ -20,9 +20,16 @@ interface ActiveSession {
  * the timer keeps its heartbeat whichever page is open; `background.tsx`
  * keeps it current from the API and the realtime connection.
  */
-export const useActiveSession = create<ActiveSession>(() => ({ session: undefined, loaded: false, failed: false, heartbeatSeconds: 60, revision: 0 }));
+export const useActiveSession = create<ActiveSession>(() => ({
+  session: undefined,
+  loaded: false,
+  failed: false,
+  heartbeatSeconds: 60,
+  revision: 0,
+}));
 
-const serverTime = (session: school.StudySession | undefined) => toMillis(session?.timer?.serverTime);
+const serverTime = (session: school.StudySession | undefined) =>
+  toMillis(session?.timer?.serverTime);
 
 /**
  * Takes a session the server returned or pushed: an ended one clears the
@@ -34,7 +41,10 @@ const serverTime = (session: school.StudySession | undefined) => toMillis(sessio
  * one, and the end of an earlier session never clears the one that followed
  * it. Returns whether the session was taken.
  */
-export function setActiveSession(session: school.StudySession | undefined, heartbeatSeconds?: number): boolean {
+export function setActiveSession(
+  session: school.StudySession | undefined,
+  heartbeatSeconds?: number,
+): boolean {
   const state = useActiveSession.getState();
   const stored = state.session;
   if (session && stored) {
@@ -45,14 +55,25 @@ export function setActiveSession(session: school.StudySession | undefined, heart
   }
   syncClock(session?.timer);
   const active = session && session.state !== school.SessionState.ENDED ? session : undefined;
-  useActiveSession.setState({ session: active, loaded: true, failed: false, heartbeatSeconds: heartbeatSeconds || state.heartbeatSeconds, revision: state.revision + 1 });
+  useActiveSession.setState({
+    session: active,
+    loaded: true,
+    failed: false,
+    heartbeatSeconds: heartbeatSeconds || state.heartbeatSeconds,
+    revision: state.revision + 1,
+  });
   return true;
 }
 
 /** A room's timer changed: the session of someone inside follows it (unless it already has a newer one). */
 export function setActiveTimer(roomId: string, timer: school.TimerSnapshot): void {
   const state = useActiveSession.getState();
-  if (!state.session || state.session.roomId !== roomId || toMillis(timer.serverTime) < serverTime(state.session)) return;
+  if (
+    !state.session ||
+    state.session.roomId !== roomId ||
+    toMillis(timer.serverTime) < serverTime(state.session)
+  )
+    return;
   syncClock(timer);
   useActiveSession.setState({ session: { ...state.session, timer }, revision: state.revision + 1 });
 }
@@ -63,7 +84,9 @@ export function setActiveTimer(roomId: string, timer: school.TimerSnapshot): voi
  * overtaken by a change made in the meantime is dropped; a failure is
  * remembered so the timer can say so instead of waiting forever.
  */
-export async function loadActiveSession(fetchCurrent: () => Promise<{ session?: school.StudySession; heartbeatIntervalSeconds: number }>): Promise<void> {
+export async function loadActiveSession(
+  fetchCurrent: () => Promise<{ session?: school.StudySession; heartbeatIntervalSeconds: number }>,
+): Promise<void> {
   const before = useActiveSession.getState().revision;
   try {
     const response = await fetchCurrent();

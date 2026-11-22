@@ -87,14 +87,20 @@ export function studyTime(totalSeconds: number, language: string): string {
 /** "5/12(火)" / "Tue, May 12". */
 export function dayLabel(value: string, language: string): string {
   const date = parseYmd(value);
-  if (language.startsWith("ja")) return `${date.getMonth() + 1}/${date.getDate()}(${"日月火水木金土"[date.getDay()]})`;
+  if (language.startsWith("ja"))
+    return `${date.getMonth() + 1}/${date.getDate()}(${"日月火水木金土"[date.getDay()]})`;
   return date.toLocaleDateString("en", { weekday: "short", month: "short", day: "numeric" });
 }
 
 /** A moment as "5/12(火) 17:00" / "Tue, May 12, 5:00 PM", on the clock of `zone` (the account's). */
 export function momentLabel(date: Date, language: string, zone: string): string {
   const shown = zonedTime(date.getTime(), zone);
-  const time = language.startsWith("ja") ? clock(shown.minute) : new Date(2000, 0, 1, 0, shown.minute).toLocaleTimeString("en", { hour: "numeric", minute: "2-digit" });
+  const time = language.startsWith("ja")
+    ? clock(shown.minute)
+    : new Date(2000, 0, 1, 0, shown.minute).toLocaleTimeString("en", {
+        hour: "numeric",
+        minute: "2-digit",
+      });
   return `${dayLabel(shown.date, language)} ${time}`;
 }
 

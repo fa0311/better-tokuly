@@ -9,7 +9,10 @@ export const CURRENCIES = ["JPY", "USD", "EUR", "KRW", "TWD"] as const;
 /** How many decimals a currency is written with (0 for yen, 2 for dollars). */
 export function minorDigits(currency: string): number {
   try {
-    return new Intl.NumberFormat("en", { style: "currency", currency }).resolvedOptions().maximumFractionDigits ?? 2;
+    return (
+      new Intl.NumberFormat("en", { style: "currency", currency }).resolvedOptions()
+        .maximumFractionDigits ?? 2
+    );
   } catch {
     return 2;
   }
@@ -22,7 +25,11 @@ export function formatMoney(amount: bigint, currency: string, language: string):
   // The way a receipt among friends is written.
   if (currency === "JPY" && language.startsWith("ja")) return `${value.toLocaleString("ja")}円`;
   try {
-    return new Intl.NumberFormat(language, { style: "currency", currency, currencyDisplay: "narrowSymbol" }).format(value);
+    return new Intl.NumberFormat(language, {
+      style: "currency",
+      currency,
+      currencyDisplay: "narrowSymbol",
+    }).format(value);
   } catch {
     return `${value.toLocaleString(language, { minimumFractionDigits: digits, maximumFractionDigits: digits })} ${currency}`;
   }
@@ -40,7 +47,8 @@ export function parseMoney(text: string, currency: string): bigint | null {
   if (!match) return null;
   const fraction = match[2] ?? "";
   if (fraction.length > digits) return null;
-  const amount = BigInt(match[1]!) * 10n ** BigInt(digits) + BigInt(fraction.padEnd(digits, "0") || "0");
+  const amount =
+    BigInt(match[1]!) * 10n ** BigInt(digits) + BigInt(fraction.padEnd(digits, "0") || "0");
   return amount > 0n ? amount : null;
 }
 

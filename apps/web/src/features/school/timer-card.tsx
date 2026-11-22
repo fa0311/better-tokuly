@@ -14,8 +14,8 @@ import { cn } from "#/lib/cn";
 import { keys, refresh, studyClient, toastError, useSchoolSettings } from "./api";
 import { studyTime, timerText } from "./dates";
 import { Segmented, SubjectPill, useNow } from "./parts";
-import { SubjectSelect } from "./subject-select";
 import { loadActiveSession, setActiveSession, useActiveSession } from "./session-store";
+import { SubjectSelect } from "./subject-select";
 import { isBreak, studiedSecondsAt, type TimerView, timerAt } from "./timer";
 
 /** The words for a timer's phase: 集中, 休憩, 長い休憩. */
@@ -30,19 +30,42 @@ export function phaseKey(view: Pick<TimerView, "phase" | "state">): string {
  * The face of a timer: the digits (counting up for a stopwatch, down for a
  * pomodoro phase) inside a ring that empties with the phase.
  */
-export function TimerFace({ view, studiedSeconds, className }: { view: TimerView; /** Shown under a pomodoro's countdown. */ studiedSeconds?: number; className?: string }) {
+export function TimerFace({
+  view,
+  studiedSeconds,
+  className,
+}: {
+  view: TimerView /** Shown under a pomodoro's countdown. */;
+  studiedSeconds?: number;
+  className?: string;
+}) {
   const { t, i18n } = useTranslation("school");
   const pomodoro = view.mode === school.StudyMode.POMODORO;
   const resting = isBreak(view.phase);
-  const digits = pomodoro ? timerText(Math.ceil(view.remainingMs / 1000)) : timerText(studiedSeconds ?? view.elapsedMs / 1000);
-  const fraction = pomodoro && view.phaseMs > 0 ? Math.min(1, Math.max(0, view.remainingMs / view.phaseMs)) : 1;
+  const digits = pomodoro
+    ? timerText(Math.ceil(view.remainingMs / 1000))
+    : timerText(studiedSeconds ?? view.elapsedMs / 1000);
+  const fraction =
+    pomodoro && view.phaseMs > 0 ? Math.min(1, Math.max(0, view.remainingMs / view.phaseMs)) : 1;
   const radius = 54;
   const circumference = 2 * Math.PI * radius;
   const running = view.state === school.TimerState.RUNNING;
   return (
-    <div className={cn("relative mx-auto grid aspect-square w-full max-w-64 place-items-center", className)}>
+    <div
+      className={cn(
+        "relative mx-auto grid aspect-square w-full max-w-64 place-items-center",
+        className,
+      )}
+    >
       <svg viewBox="0 0 120 120" className="absolute inset-0 size-full -rotate-90" aria-hidden>
-        <circle cx="60" cy="60" r={radius} fill="none" strokeWidth="9" className="stroke-surface-3" />
+        <circle
+          cx="60"
+          cy="60"
+          r={radius}
+          fill="none"
+          strokeWidth="9"
+          className="stroke-surface-3"
+        />
         <circle
           cx="60"
           cy="60"
@@ -52,18 +75,41 @@ export function TimerFace({ view, studiedSeconds, className }: { view: TimerView
           strokeLinecap="round"
           strokeDasharray={circumference}
           strokeDashoffset={circumference * (1 - fraction)}
-          className={cn("transition-[stroke-dashoffset] duration-500", !running ? "stroke-ink-faint" : resting ? "stroke-sky" : "stroke-brand")}
+          className={cn(
+            "transition-[stroke-dashoffset] duration-500",
+            !running ? "stroke-ink-faint" : resting ? "stroke-sky" : "stroke-brand",
+          )}
         />
       </svg>
       <div className="relative text-center">
-        <p className={cn("text-sm font-black", !running ? "text-ink-soft" : resting ? "text-sky" : "text-brand")}>
+        <p
+          className={cn(
+            "text-sm font-black",
+            !running ? "text-ink-soft" : resting ? "text-sky" : "text-brand",
+          )}
+        >
           {t(`timer.phase.${phaseKey(view)}`)}
-          {pomodoro && view.state !== school.TimerState.IDLE && <span className="ml-1.5 text-ink-faint">{t("timer.round", { round: ((view.round - 1) % view.rounds) + 1, rounds: view.rounds })}</span>}
+          {pomodoro && view.state !== school.TimerState.IDLE && (
+            <span className="ml-1.5 text-ink-faint">
+              {t("timer.round", {
+                round: ((view.round - 1) % view.rounds) + 1,
+                rounds: view.rounds,
+              })}
+            </span>
+          )}
         </p>
-        <p role="timer" aria-label={t("timer.clock")} className="font-black tabular-nums leading-none tracking-tight text-[2.75rem]">
+        <p
+          role="timer"
+          aria-label={t("timer.clock")}
+          className="font-black tabular-nums leading-none tracking-tight text-[2.75rem]"
+        >
           {digits}
         </p>
-        {pomodoro && studiedSeconds !== undefined && <p className="mt-1 text-xs font-bold text-ink-soft">{t("timer.studied", { time: studyTime(studiedSeconds, i18n.language) })}</p>}
+        {pomodoro && studiedSeconds !== undefined && (
+          <p className="mt-1 text-xs font-bold text-ink-soft">
+            {t("timer.studied", { time: studyTime(studiedSeconds, i18n.language) })}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -94,11 +140,18 @@ export function TimerCard() {
     },
     onError: toastError,
   });
-  const retry = useMutation({ mutationFn: () => loadActiveSession(() => studyClient().getCurrentStudySession({})) });
+  const retry = useMutation({
+    mutationFn: () => loadActiveSession(() => studyClient().getCurrentStudySession({})),
+  });
   const control = useMutation({
     mutationFn: async (action: "pause" | "resume" | "skip") => {
       const client = studyClient();
-      const response = action === "pause" ? await client.pauseStudySession({}) : action === "resume" ? await client.resumeStudySession({}) : await client.skipStudyPhase({});
+      const response =
+        action === "pause"
+          ? await client.pauseStudySession({})
+          : action === "resume"
+            ? await client.resumeStudySession({})
+            : await client.skipStudyPhase({});
       return response.session;
     },
     onSuccess: (next) => setActiveSession(next),
@@ -107,10 +160,18 @@ export function TimerCard() {
 
   if (!loaded && failed) {
     return (
-      <section aria-label={t("timer.title")} className="sticker flex flex-col items-center gap-3 rounded-card bg-surface p-6 text-center">
+      <section
+        aria-label={t("timer.title")}
+        className="sticker flex flex-col items-center gap-3 rounded-card bg-surface p-6 text-center"
+      >
         <span className="text-4xl">🫠</span>
         <p className="font-black">{t("timer.loadFailed")}</p>
-        <Button variant="secondary" icon={<RotateCw className="size-4" />} loading={retry.isPending} onClick={() => retry.mutate()}>
+        <Button
+          variant="secondary"
+          icon={<RotateCw className="size-4" />}
+          loading={retry.isPending}
+          onClick={() => retry.mutate()}
+        >
           {t("common:actions.retry")}
         </Button>
       </section>
@@ -121,7 +182,10 @@ export function TimerCard() {
   if (!session) {
     const pomodoro = settings.data?.pomodoro;
     return (
-      <section aria-label={t("timer.title")} className="sticker flex flex-col gap-4 rounded-card bg-surface p-5">
+      <section
+        aria-label={t("timer.title")}
+        className="sticker flex flex-col gap-4 rounded-card bg-surface p-5"
+      >
         <Segmented
           label={t("timer.mode")}
           className="w-full"
@@ -134,7 +198,11 @@ export function TimerCard() {
         />
         <p className="px-1 text-sm text-ink-soft">
           {mode === school.StudyMode.POMODORO
-            ? t("timer.pomodoroHint", { work: pomodoro?.workMinutes || 25, rest: pomodoro?.breakMinutes || 5, rounds: pomodoro?.rounds || 4 })
+            ? t("timer.pomodoroHint", {
+                work: pomodoro?.workMinutes || 25,
+                rest: pomodoro?.breakMinutes || 5,
+                rounds: pomodoro?.rounds || 4,
+              })
             : t("timer.stopwatchHint")}
           {mode === school.StudyMode.POMODORO && (
             <Link to="/school/settings" className="ml-1 font-bold text-brand">
@@ -143,8 +211,20 @@ export function TimerCard() {
           )}
         </p>
         <SubjectSelect value={subjectId} onChange={setSubjectId} />
-        <TextField label={t("timer.memo")} value={memo} maxLength={200} placeholder={t("timer.memoPlaceholder")} onChange={(event) => setMemo(event.target.value)} />
-        <Button size="lg" block icon={<Play className="size-5" />} loading={start.isPending} onClick={() => start.mutate()}>
+        <TextField
+          label={t("timer.memo")}
+          value={memo}
+          maxLength={200}
+          placeholder={t("timer.memoPlaceholder")}
+          onChange={(event) => setMemo(event.target.value)}
+        />
+        <Button
+          size="lg"
+          block
+          icon={<Play className="size-5" />}
+          loading={start.isPending}
+          onClick={() => start.mutate()}
+        >
           {t("timer.start")}
         </Button>
       </section>
@@ -152,13 +232,22 @@ export function TimerCard() {
   }
 
   return (
-    <section aria-label={t("timer.title")} className="sticker flex flex-col gap-4 rounded-card bg-surface p-5">
+    <section
+      aria-label={t("timer.title")}
+      className="sticker flex flex-col gap-4 rounded-card bg-surface p-5"
+    >
       <RunningFace session={session} />
       <div className="flex flex-wrap items-center justify-center gap-2">
         <SubjectPill subject={session.subject} className="h-7 px-2.5 text-sm" />
-        {session.memo && <span className="max-w-full truncate text-sm text-ink-soft">{session.memo}</span>}
+        {session.memo && (
+          <span className="max-w-full truncate text-sm text-ink-soft">{session.memo}</span>
+        )}
         {session.cheerCount > 0 && (
-          <button type="button" onClick={() => setCheersOpen(true)} className="inline-flex h-7 items-center gap-1 rounded-full bg-sun px-2.5 text-sm font-black text-[#17122b]">
+          <button
+            type="button"
+            onClick={() => setCheersOpen(true)}
+            className="inline-flex h-7 items-center gap-1 rounded-full bg-sun px-2.5 text-sm font-black text-[#17122b]"
+          >
             📣 {session.cheerCount}
           </button>
         )}
@@ -166,7 +255,11 @@ export function TimerCard() {
       {session.roomId ? (
         <div className="flex flex-col gap-2">
           <p className="text-center text-sm text-ink-soft">{t("timer.inRoom")}</p>
-          <Link to="/school/rooms/$roomId" params={{ roomId: session.roomId }} className="pressable sticker inline-flex h-11 items-center justify-center gap-2 rounded-full bg-brand px-5 font-bold text-on-brand">
+          <Link
+            to="/school/rooms/$roomId"
+            params={{ roomId: session.roomId }}
+            className="pressable sticker inline-flex h-11 items-center justify-center gap-2 rounded-full bg-brand px-5 font-bold text-on-brand"
+          >
             <DoorOpen className="size-4" />
             {t("timer.backToRoom")}
           </Link>
@@ -174,20 +267,42 @@ export function TimerCard() {
       ) : (
         <div className="flex items-center justify-center gap-3">
           {session.state === school.SessionState.PAUSED ? (
-            <Button variant="lime" icon={<Play className="size-4" />} loading={control.isPending} onClick={() => control.mutate("resume")}>
+            <Button
+              variant="lime"
+              icon={<Play className="size-4" />}
+              loading={control.isPending}
+              onClick={() => control.mutate("resume")}
+            >
               {t("timer.resume")}
             </Button>
           ) : (
-            <Button variant="secondary" icon={<Pause className="size-4" />} loading={control.isPending} onClick={() => control.mutate("pause")}>
+            <Button
+              variant="secondary"
+              icon={<Pause className="size-4" />}
+              loading={control.isPending}
+              onClick={() => control.mutate("pause")}
+            >
               {t("timer.pause")}
             </Button>
           )}
-          {session.timer?.mode === school.StudyMode.POMODORO && session.state === school.SessionState.RUNNING && (
-            <Button variant="ghost" size="icon" aria-label={t("timer.skip")} disabled={control.isPending} onClick={() => control.mutate("skip")}>
-              <SkipForward className="size-5" />
-            </Button>
-          )}
-          <Button variant="danger" icon={<Square className="size-4" />} disabled={control.isPending} onClick={() => setStopping(true)}>
+          {session.timer?.mode === school.StudyMode.POMODORO &&
+            session.state === school.SessionState.RUNNING && (
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={t("timer.skip")}
+                disabled={control.isPending}
+                onClick={() => control.mutate("skip")}
+              >
+                <SkipForward className="size-5" />
+              </Button>
+            )}
+          <Button
+            variant="danger"
+            icon={<Square className="size-4" />}
+            disabled={control.isPending}
+            onClick={() => setStopping(true)}
+          >
             {t("timer.stop")}
           </Button>
         </div>
@@ -201,7 +316,9 @@ export function TimerCard() {
 
 function RunningFace({ session }: { session: school.StudySession }) {
   const now = useNow(250);
-  return <TimerFace view={timerAt(session.timer, now)} studiedSeconds={studiedSecondsAt(session, now)} />;
+  return (
+    <TimerFace view={timerAt(session.timer, now)} studiedSeconds={studiedSecondsAt(session, now)} />
+  );
 }
 
 /** Ends the session, with a last chance to note what was done. */
@@ -215,7 +332,11 @@ function StopDialog({ session, onClose }: { session: school.StudySession; onClos
       setActiveSession(undefined);
       refresh(queryClient, "study", "studying");
       const seconds = response.session?.studiedSeconds ?? 0;
-      if (response.progress?.goalReached && response.progress.todaySeconds - seconds < response.progress.goalMinutes * 60) toast.success(t("timer.goalReached"), { icon: "🎉" });
+      if (
+        response.progress?.goalReached &&
+        response.progress.todaySeconds - seconds < response.progress.goalMinutes * 60
+      )
+        toast.success(t("timer.goalReached"), { icon: "🎉" });
       else toast.success(t("timer.stopped", { time: studyTime(seconds, i18n.language) }));
       onClose();
     },
@@ -238,7 +359,13 @@ function StopDialog({ session, onClose }: { session: school.StudySession; onClos
         </>
       }
     >
-      <TextField label={t("timer.memo")} value={memo} maxLength={200} placeholder={t("timer.memoPlaceholder")} onChange={(event) => setMemo(event.target.value)} />
+      <TextField
+        label={t("timer.memo")}
+        value={memo}
+        maxLength={200}
+        placeholder={t("timer.memoPlaceholder")}
+        onChange={(event) => setMemo(event.target.value)}
+      />
     </Dialog>
   );
 }
@@ -246,7 +373,11 @@ function StopDialog({ session, onClose }: { session: school.StudySession; onClos
 /** Who cheered during a session. */
 export function CheersDialog({ sessionId, onClose }: { sessionId: string; onClose(): void }) {
   const { t, i18n } = useTranslation("school");
-  const cheers = useQuery({ queryKey: keys.cheers(sessionId), queryFn: async () => (await studyClient().listStudyCheers({ sessionId, page: { limit: 100 } })).cheers });
+  const cheers = useQuery({
+    queryKey: keys.cheers(sessionId),
+    queryFn: async () =>
+      (await studyClient().listStudyCheers({ sessionId, page: { limit: 100 } })).cheers,
+  });
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()} title={t("study.cheersTitle")}>
       {cheers.isPending ? (
@@ -258,8 +389,15 @@ export function CheersDialog({ sessionId, onClose }: { sessionId: string; onClos
           {(cheers.data ?? []).map((cheer) => (
             <li key={cheer.id} className="flex items-center gap-3">
               <Avatar user={cheer.from} size="sm" />
-              <span className="min-w-0 flex-1 truncate font-bold">{t("study.cheerFrom", { name: cheer.from?.displayName ?? "" })}</span>
-              <span className="text-xs text-ink-faint">{toDate(cheer.createdAt)?.toLocaleTimeString(i18n.language, { hour: "numeric", minute: "2-digit" })}</span>
+              <span className="min-w-0 flex-1 truncate font-bold">
+                {t("study.cheerFrom", { name: cheer.from?.displayName ?? "" })}
+              </span>
+              <span className="text-xs text-ink-faint">
+                {toDate(cheer.createdAt)?.toLocaleTimeString(i18n.language, {
+                  hour: "numeric",
+                  minute: "2-digit",
+                })}
+              </span>
             </li>
           ))}
         </ul>

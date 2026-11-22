@@ -10,7 +10,14 @@ import { Dialog } from "#/components/ui/dialog";
 import { Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
-import { bookmarkClient, engagementKeys, refreshBookmarks, useBookmark, useCollectionsFor, useEngagement } from "./api";
+import {
+  bookmarkClient,
+  engagementKeys,
+  refreshBookmarks,
+  useBookmark,
+  useCollectionsFor,
+  useEngagement,
+} from "./api";
 import type { Subject } from "./model";
 
 /** The longest collection name the server takes. */
@@ -27,13 +34,22 @@ export function openCollectionChooser(subject: Subject): void {
 export function CollectionChooserHost() {
   const subject = useChooser((state) => state.subject);
   if (!subject) return null;
-  return <CollectionChooser key={`${subject.type}:${subject.id}`} subject={subject} onClose={() => useChooser.setState({ subject: null })} />;
+  return (
+    <CollectionChooser
+      key={`${subject.type}:${subject.id}`}
+      subject={subject}
+      onClose={() => useChooser.setState({ subject: null })}
+    />
+  );
 }
 
 /** A collection's name as people see it: the default one is called "saved" by the server and gets a localized name. */
-export function useCollectionName(): (collection: Pick<engagement.Collection, "name" | "isDefault">) => string {
+export function useCollectionName(): (
+  collection: Pick<engagement.Collection, "name" | "isDefault">,
+) => string {
   const { t } = useTranslation("engagement");
-  return (collection) => (collection.isDefault ? t("bookmarks.defaultCollection") : collection.name);
+  return (collection) =>
+    collection.isDefault ? t("bookmarks.defaultCollection") : collection.name;
 }
 
 /**
@@ -49,7 +65,8 @@ function CollectionChooser({ subject, onClose }: { subject: Subject; onClose(): 
   const bookmark = useBookmark(subject);
   const [name, setName] = useState("");
   const [busyId, setBusyId] = useState<string>();
-  const reread = () => queryClient.invalidateQueries({ queryKey: engagementKeys.collectionsFor(subject) });
+  const reread = () =>
+    queryClient.invalidateQueries({ queryKey: engagementKeys.collectionsFor(subject) });
 
   const toggle = async (collection: engagement.Collection) => {
     setBusyId(collection.id);
@@ -93,7 +110,12 @@ function CollectionChooser({ subject, onClose }: { subject: Subject; onClose(): 
       footer={
         <>
           {state?.bookmarked && (
-            <Button variant="ghost" className="mr-auto text-danger" icon={<BookmarkX className="size-4" />} onClick={stopSaving}>
+            <Button
+              variant="ghost"
+              className="mr-auto text-danger"
+              icon={<BookmarkX className="size-4" />}
+              onClick={stopSaving}
+            >
               {t("bookmarks.remove")}
             </Button>
           )}
@@ -108,7 +130,9 @@ function CollectionChooser({ subject, onClose }: { subject: Subject; onClose(): 
         </div>
       ) : (
         <ul className="flex flex-col gap-1">
-          {named.length === 0 && <li className="px-1 pb-2 text-sm text-ink-soft">{t("bookmarks.noCollections")}</li>}
+          {named.length === 0 && (
+            <li className="px-1 pb-2 text-sm text-ink-soft">{t("bookmarks.noCollections")}</li>
+          )}
           {named.map((collection) => (
             <li key={collection.id}>
               {/* biome-ignore lint/a11y/useSemanticElements: a row with a name and a count that is ticked as a whole, not a bare checkbox. */}
@@ -120,11 +144,20 @@ function CollectionChooser({ subject, onClose }: { subject: Subject; onClose(): 
                 onClick={() => void toggle(collection)}
                 className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left hover:bg-surface-2 disabled:opacity-60"
               >
-                <span className={cn("grid size-6 shrink-0 place-items-center rounded-lg border-2", collection.containsSubject ? "border-ink bg-lime text-[#17122b]" : "border-line")}>
+                <span
+                  className={cn(
+                    "grid size-6 shrink-0 place-items-center rounded-lg border-2",
+                    collection.containsSubject
+                      ? "border-ink bg-lime text-[#17122b]"
+                      : "border-line",
+                  )}
+                >
                   {collection.containsSubject && <Check className="size-4" strokeWidth={3.5} />}
                 </span>
                 <span className="min-w-0 flex-1 truncate font-bold">{collection.name}</span>
-                <span className="text-sm font-bold text-ink-faint tabular-nums">{collection.itemCount}</span>
+                <span className="text-sm font-bold text-ink-faint tabular-nums">
+                  {collection.itemCount}
+                </span>
               </button>
             </li>
           ))}
@@ -142,7 +175,13 @@ function CollectionChooser({ subject, onClose }: { subject: Subject; onClose(): 
             className="min-w-0 flex-1 bg-transparent font-bold outline-none placeholder:font-medium placeholder:text-ink-faint"
           />
         </label>
-        <Button type="submit" variant="secondary" size="sm" disabled={!name.trim()} loading={createCollection.isPending}>
+        <Button
+          type="submit"
+          variant="secondary"
+          size="sm"
+          disabled={!name.trim()}
+          loading={createCollection.isPending}
+        >
           {t("bookmarks.create")}
         </Button>
       </form>

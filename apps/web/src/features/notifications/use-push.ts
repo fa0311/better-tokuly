@@ -6,7 +6,14 @@ import { toast } from "sonner";
 import { errorMessage } from "#/lib/errors";
 import { useSessionStore } from "#/stores/session";
 import { notifyKeys, pushClient } from "./api";
-import { currentSubscription, disablePush, enablePush, PushError, type PushOwner, pushSupported } from "./push";
+import {
+  currentSubscription,
+  disablePush,
+  enablePush,
+  PushError,
+  type PushOwner,
+  pushSupported,
+} from "./push";
 
 /**
  * Push on this browser, for the signed-in account:
@@ -21,7 +28,9 @@ export type PushStatus = "loading" | "unsupported" | "unavailable" | "denied" | 
 const subscriptionKey = [...notifyKeys.devices, "subscription"] as const;
 
 function usePermission(): { permission: NotificationPermission; recheck(): void } {
-  const [permission, setPermission] = useState<NotificationPermission>(() => (pushSupported() ? Notification.permission : "denied"));
+  const [permission, setPermission] = useState<NotificationPermission>(() =>
+    pushSupported() ? Notification.permission : "denied",
+  );
   const recheck = () => {
     if (pushSupported()) setPermission(Notification.permission);
   };
@@ -51,8 +60,12 @@ function usePermission(): { permission: NotificationPermission; recheck(): void 
 
 /** The session push registrations are made for. */
 function useOwner(): PushOwner | null {
-  const userId = useSessionStore((s) => (s.state.status === "signedIn" ? (s.state.me.user?.id ?? "") : ""));
-  const sessionId = useSessionStore((s) => (s.state.status === "signedIn" ? s.state.sessionId : ""));
+  const userId = useSessionStore((s) =>
+    s.state.status === "signedIn" ? (s.state.me.user?.id ?? "") : "",
+  );
+  const sessionId = useSessionStore((s) =>
+    s.state.status === "signedIn" ? s.state.sessionId : "",
+  );
   return userId ? { userId, sessionId } : null;
 }
 
@@ -70,7 +83,10 @@ export function usePush() {
     staleTime: Number.POSITIVE_INFINITY,
     enabled: supported,
   });
-  const devices = useQuery({ queryKey: notifyKeys.devices, queryFn: async () => (await pushClient().listDevices({})).devices });
+  const devices = useQuery({
+    queryKey: notifyKeys.devices,
+    queryFn: async () => (await pushClient().listDevices({})).devices,
+  });
   const subscription = useQuery({
     queryKey: subscriptionKey,
     queryFn: async () => (await currentSubscription())?.endpoint ?? null,
@@ -78,8 +94,12 @@ export function usePush() {
     staleTime: 0,
   });
 
-  const thisDevice = devices.data?.find((device) => device.current && device.channel === notify.PushChannelKind.WEB_PUSH);
-  const offered = Boolean(config.data?.vapidPublicKey) && config.data?.channels.includes(notify.PushChannelKind.WEB_PUSH);
+  const thisDevice = devices.data?.find(
+    (device) => device.current && device.channel === notify.PushChannelKind.WEB_PUSH,
+  );
+  const offered =
+    Boolean(config.data?.vapidPublicKey) &&
+    config.data?.channels.includes(notify.PushChannelKind.WEB_PUSH);
 
   let status: PushStatus;
   if (!supported) status = "unsupported";
@@ -106,7 +126,9 @@ export function usePush() {
     onError: (error) => {
       // Closing the browser's prompt is an answer, not a problem.
       if (error instanceof PushError && error.failure === "dismissed") return;
-      toast.error(error instanceof PushError ? t(`push.failure.${error.failure}`) : errorMessage(error));
+      toast.error(
+        error instanceof PushError ? t(`push.failure.${error.failure}`) : errorMessage(error),
+      );
     },
     onSettled: refresh,
   });
@@ -128,11 +150,21 @@ export function usePush() {
 
   const sendTest = useMutation({
     mutationFn: () => pushClient().sendTestPush({}),
-    onSuccess: (response) => toast.success(t("push.toast.testSent", { count: response.deviceCount })),
+    onSuccess: (response) =>
+      toast.success(t("push.toast.testSent", { count: response.deviceCount })),
     onError: (error) => toast.error(errorMessage(error)),
     // A device whose subscription turned out to be dead is dropped by the server right after.
     onSettled: () => setTimeout(refresh, 3000),
   });
 
-  return { status, devices: devices.data ?? [], devicesPending: devices.isPending, thisDevice, enable, disable, removeDevice, sendTest };
+  return {
+    status,
+    devices: devices.data ?? [],
+    devicesPending: devices.isPending,
+    thisDevice,
+    enable,
+    disable,
+    removeDevice,
+    sendTest,
+  };
 }

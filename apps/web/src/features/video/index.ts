@@ -27,4 +27,12 @@ export { announceTrafficSource } from "./playback-session";
 export { type PlayerHandle, VideoPlayer, type VideoPlayerProps } from "./player/player";
 export { openSaveDialog } from "./save-dialog";
 export { SubscribeButton, type SubscribeButtonProps } from "./subscribe-button";
-export { ChannelAvatar, ChannelName, Thumbnail, VideoCard, type VideoCardProps, VideoCardSkeleton, VideoGrid } from "./video-card";
+export {
+  ChannelAvatar,
+  ChannelName,
+  Thumbnail,
+  VideoCard,
+  type VideoCardProps,
+  VideoCardSkeleton,
+  VideoGrid,
+} from "./video-card";

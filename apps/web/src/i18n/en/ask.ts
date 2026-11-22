@@ -56,7 +56,8 @@ export default {
     inPolls: "Appear in friends' polls",
     inPollsHint: "While this is off, friends are not offered you as a choice",
     allowHints: "Let people buy hints",
-    allowHintsHint: "Hints about flames you send (like your first initial) can be bought with coins. Applies to the ones you send from now on",
+    allowHintsHint:
+      "Hints about flames you send (like your first initial) can be bought with coins. Applies to the ones you send from now on",
     blocks: "Blocked senders",
     blocksLead: "Who they are is never shown, not even to you. They are not told about the block",
     blocksEmpty: "No blocked senders",
@@ -112,7 +113,8 @@ export default {
     anonymousNote: "🙈 They can't see who sent this: only what you wrote and when it was sent.",
     anonymousNote2: "If it gets reported, the Tokuly team may check who sent it.",
     signedNote: "🙋 {{name}} and anyone who reads the answer will see your name.",
-    signedOnly: "While {{name}} has fewer than three friends, an anonymous question could give you away, so only signed ones can be sent.",
+    signedOnly:
+      "While {{name}} has fewer than three friends, an anonymous question could give you away, so only signed ones can be sent.",
     unavailable: "Once {{name}} has three friends or more, you can ask anonymously.",
     addImage: "Add a picture",
     removeImage: "Remove picture",
@@ -168,8 +170,16 @@ export default {
       blocked: "Sender blocked",
       answerDeleted: "Answer taken back",
     },
-    confirmDelete: { title: "Delete this question?", body: "Its answer goes with it. This can't be undone.", confirm: "Delete" },
-    confirmDeleteAnswer: { title: "Take the answer back?", body: "The question returns to your inbox.", confirm: "Take back" },
+    confirmDelete: {
+      title: "Delete this question?",
+      body: "Its answer goes with it. This can't be undone.",
+      confirm: "Delete",
+    },
+    confirmDeleteAnswer: {
+      title: "Take the answer back?",
+      body: "The question returns to your inbox.",
+      confirm: "Take back",
+    },
     confirmBlock: {
       title: "Block this sender?",
       body: "Questions, prompt responses and flames from this person will no longer reach you. You won't see who it is, and they won't be told.",
@@ -220,7 +230,11 @@ export default {
     answered: "Answered!",
     signed: "Signed",
     withdraw: "Take back",
-    confirmWithdraw: { title: "Take this question back?", body: "It leaves their question box.", confirm: "Take back" },
+    confirmWithdraw: {
+      title: "Take this question back?",
+      body: "It leaves their question box.",
+      confirm: "Take back",
+    },
     withdrawn: "Question taken back",
   },
   prompts: {
@@ -249,7 +263,13 @@ export default {
       durations: { h1: "1 hour", h6: "6 hours", h24: "24 hours", d3: "3 days", d7: "7 days" },
       submit: "Post to friends",
       created: "Prompt posted!",
-      ideas: ["First impression of me?", "Which animal am I?", "What haircut would suit me?", "What should I try next?", "What do you like about me?"],
+      ideas: [
+        "First impression of me?",
+        "Which animal am I?",
+        "What haircut would suit me?",
+        "What should I try next?",
+        "What do you like about me?",
+      ],
     },
     page: {
       notFound: "Prompt not found",
@@ -269,9 +289,21 @@ export default {
       delete: "Delete prompt",
       closedToast: "Prompt closed",
       deletedToast: "Prompt deleted",
-      confirmClose: { title: "Close this prompt?", body: "No more responses will arrive. The ones you have stay.", confirm: "Close" },
-      confirmDelete: { title: "Delete this prompt?", body: "Every response goes with it. This can't be undone.", confirm: "Delete" },
-      confirmDeleteResponse: { title: "Delete this response?", body: "This can't be undone.", confirm: "Delete" },
+      confirmClose: {
+        title: "Close this prompt?",
+        body: "No more responses will arrive. The ones you have stay.",
+        confirm: "Close",
+      },
+      confirmDelete: {
+        title: "Delete this prompt?",
+        body: "Every response goes with it. This can't be undone.",
+        confirm: "Delete",
+      },
+      confirmDeleteResponse: {
+        title: "Delete this response?",
+        body: "This can't be undone.",
+        confirm: "Delete",
+      },
       responseDeleted: "Response deleted",
       yourResponse: "Your response",
       yourResponseNote: "Whether it gets published is up to {{name}}!",
@@ -302,7 +334,8 @@ export default {
     start: "Start",
     seeFlames: "See my flames",
     notEnough: "You need a few more friends",
-    notEnoughBody: "A poll needs four friends who take part in compliment polls (each with at least three friends of their own)",
+    notEnoughBody:
+      "A poll needs four friends who take part in compliment polls (each with at least three friends of their own)",
     findFriends: "Find friends",
     unavailable: "Polls are taking a break",
     unavailableBody: "Come back a little later",

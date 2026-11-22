@@ -40,7 +40,8 @@ export function writeDeviceMemory(key: string, value: unknown): void {
 /** Removes every entry whose key starts with one of `prefixes`: the next person to sign in must not find them. */
 export function forgetDeviceMemory(...prefixes: string[]): void {
   try {
-    for (const key of Object.keys(window.localStorage)) if (prefixes.some((prefix) => key.startsWith(prefix))) window.localStorage.removeItem(key);
+    for (const key of Object.keys(window.localStorage))
+      if (prefixes.some((prefix) => key.startsWith(prefix))) window.localStorage.removeItem(key);
   } catch {
     // Storage that cannot be read holds nothing to clear.
   }

@@ -50,7 +50,10 @@ function Rail({ isActive }: { isActive: (to: string) => boolean }) {
   const { t } = useTranslation("common");
   const me = useMe();
   return (
-    <nav aria-label="main" className="z-30 hidden w-[76px] shrink-0 flex-col items-center gap-2 border-r-2 border-line bg-surface py-4 md:flex">
+    <nav
+      aria-label="main"
+      className="z-30 hidden w-[76px] shrink-0 flex-col items-center gap-2 border-r-2 border-line bg-surface py-4 md:flex"
+    >
       <Link to="/map" className="mb-3" aria-label="Tokuly">
         <LogoMark className="size-11" />
       </Link>
@@ -78,7 +81,12 @@ function RailLink({ item, active, label }: { item: NavItem; active: boolean; lab
         active ? "text-brand" : "text-ink-soft hover:bg-surface-2 hover:text-ink",
       )}
     >
-      <span className={cn("relative grid size-10 place-items-center rounded-2xl transition-all", active && "sticker-sm bg-brand text-on-brand")}>
+      <span
+        className={cn(
+          "relative grid size-10 place-items-center rounded-2xl transition-all",
+          active && "sticker-sm bg-brand text-on-brand",
+        )}
+      >
         <Icon className="size-[22px]" />
         <NavBadge badge={item.badge} />
       </span>
@@ -91,7 +99,10 @@ function TabBar({ isActive }: { isActive: (to: string) => boolean }) {
   const { t } = useTranslation("common");
   const me = useMe();
   return (
-    <nav aria-label="main" className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center px-4 pb-safe md:hidden">
+    <nav
+      aria-label="main"
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center px-4 pb-safe md:hidden"
+    >
       <div className="glass sticker pointer-events-auto flex items-center gap-1 rounded-full p-1.5">
         {NAV.filter((item) => item.primary).map((item) => {
           const Icon = item.icon;
@@ -102,7 +113,10 @@ function TabBar({ isActive }: { isActive: (to: string) => boolean }) {
               to={item.to}
               aria-label={t(item.labelKey)}
               aria-current={active ? "page" : undefined}
-              className={cn("relative grid size-12 place-items-center rounded-full transition-all", active ? "bg-brand text-on-brand" : "text-ink-soft")}
+              className={cn(
+                "relative grid size-12 place-items-center rounded-full transition-all",
+                active ? "bg-brand text-on-brand" : "text-ink-soft",
+              )}
             >
               <Icon className="size-6" />
               <NavBadge badge={item.badge} />
@@ -110,7 +124,11 @@ function TabBar({ isActive }: { isActive: (to: string) => boolean }) {
           );
         })}
         {me?.user && (
-          <Link to="/me" aria-label={t("nav.me")} className="relative grid size-12 place-items-center">
+          <Link
+            to="/me"
+            aria-label={t("nav.me")}
+            className="relative grid size-12 place-items-center"
+          >
             <Avatar user={me.user} size="sm" outlined />
             {/* Notifications have no tab of their own on phones: their count rides on "me". */}
             <NavBadge badge="notifications" />

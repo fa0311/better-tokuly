@@ -35,7 +35,11 @@ export function QuietHoursCard({ preferences }: { preferences: notify.Preference
 
   const change = (edge: "start" | "end", value: string) => {
     const saved = latest();
-    const next = { start: draft.start ?? minutesToTime(saved.startMinute), end: draft.end ?? minutesToTime(saved.endMinute), [edge]: value };
+    const next = {
+      start: draft.start ?? minutesToTime(saved.startMinute),
+      end: draft.end ?? minutesToTime(saved.endMinute),
+      [edge]: value,
+    };
     const startMinute = timeToMinutes(next.start);
     const endMinute = timeToMinutes(next.end);
     // The window needs two different, complete times; until then nothing is sent.
@@ -50,19 +54,40 @@ export function QuietHoursCard({ preferences }: { preferences: notify.Preference
   return (
     <Card>
       <div className="flex items-center gap-3">
-        <span className={cn("sticker-sm grid size-12 shrink-0 place-items-center rounded-2xl", quiet.enabled ? "bg-brand text-on-brand" : "bg-surface-3 text-ink")}>
+        <span
+          className={cn(
+            "sticker-sm grid size-12 shrink-0 place-items-center rounded-2xl",
+            quiet.enabled ? "bg-brand text-on-brand" : "bg-surface-3 text-ink",
+          )}
+        >
           <Moon className="size-6" />
         </span>
         <h2 className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-lg font-black leading-snug">
           {t("quiet.title")}
-          {preferences.quietNow && <Chip className="bg-brand-soft text-brand-strong">{t("quiet.now")}</Chip>}
+          {preferences.quietNow && (
+            <Chip className="bg-brand-soft text-brand-strong">{t("quiet.now")}</Chip>
+          )}
         </h2>
-        <Toggle label={t("quiet.title")} checked={quiet.enabled} onChange={(enabled) => actions.setQuietHours.mutate({ ...latest(), enabled })} />
+        <Toggle
+          label={t("quiet.title")}
+          checked={quiet.enabled}
+          onChange={(enabled) => actions.setQuietHours.mutate({ ...latest(), enabled })}
+        />
       </div>
       <p className="mt-3 text-sm leading-relaxed text-ink-soft">{t("quiet.lead")}</p>
 
-      <div className={cn("mt-4 grid grid-cols-2 gap-3 transition-opacity", !quiet.enabled && "opacity-60")}>
-        <TextField type="time" label={t("quiet.start")} value={start} onChange={(event) => change("start", event.target.value)} />
+      <div
+        className={cn(
+          "mt-4 grid grid-cols-2 gap-3 transition-opacity",
+          !quiet.enabled && "opacity-60",
+        )}
+      >
+        <TextField
+          type="time"
+          label={t("quiet.start")}
+          value={start}
+          onChange={(event) => change("start", event.target.value)}
+        />
         <TextField
           type="time"
           label={t("quiet.end")}
@@ -87,7 +112,8 @@ function TimeZone({ accountZone }: { accountZone: string }) {
   const queryClient = useQueryClient();
   const deviceZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const adopt = useMutation({
-    mutationFn: () => api().service(identity.AccountService).updateProfile({ timeZone: deviceZone }),
+    mutationFn: () =>
+      api().service(identity.AccountService).updateProfile({ timeZone: deviceZone }),
     onSuccess: (response) => {
       if (response.me) api().session.updateMe(response.me);
       toast.success(t("quiet.zoneChanged", { zone: deviceZone }));
@@ -101,10 +127,19 @@ function TimeZone({ accountZone }: { accountZone: string }) {
       <Globe className="size-4 shrink-0 text-ink-soft" />
       <p className="min-w-0 flex-1 font-bold">
         {t("quiet.zone", { zone: accountZone })}
-        {deviceZone && deviceZone !== accountZone && <span className="block font-medium text-ink-soft">{t("quiet.zoneDiffers", { zone: deviceZone })}</span>}
+        {deviceZone && deviceZone !== accountZone && (
+          <span className="block font-medium text-ink-soft">
+            {t("quiet.zoneDiffers", { zone: deviceZone })}
+          </span>
+        )}
       </p>
       {deviceZone && deviceZone !== accountZone && (
-        <Button variant="secondary" size="sm" loading={adopt.isPending} onClick={() => adopt.mutate()}>
+        <Button
+          variant="secondary"
+          size="sm"
+          loading={adopt.isPending}
+          onClick={() => adopt.mutate()}
+        >
           {t("quiet.zoneAdopt")}
         </Button>
       )}

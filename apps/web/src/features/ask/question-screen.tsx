@@ -13,7 +13,13 @@ import { hasEngagement, QaCard, questionSubject } from "./qa-card";
 import { useQuestionActions } from "./question-actions";
 
 /** One question with its answer and the comments on it: where notifications, search and shared links lead. */
-export function QuestionScreen({ questionId, focusCommentId }: { questionId: string; focusCommentId?: string }) {
+export function QuestionScreen({
+  questionId,
+  focusCommentId,
+}: {
+  questionId: string;
+  focusCommentId?: string;
+}) {
   const { t } = useTranslation("ask");
   const { data: question, isPending, isError } = useQuestion(questionId);
 
@@ -34,19 +40,33 @@ export function QuestionScreen({ questionId, focusCommentId }: { questionId: str
   return <QuestionView question={question} focusCommentId={focusCommentId} />;
 }
 
-function QuestionView({ question, focusCommentId }: { question: ask.Question; focusCommentId?: string }) {
+function QuestionView({
+  question,
+  focusCommentId,
+}: {
+  question: ask.Question;
+  focusCommentId?: string;
+}) {
   const { t } = useTranslation("ask");
   const me = useMe();
   const navigate = useNavigate();
   const owner = question.owner;
   const isOwner = Boolean(owner && owner.id === me?.user?.id);
-  const actions = useQuestionActions(question, { onDeleted: () => void navigate({ to: "/ask/inbox", replace: true }) });
+  const actions = useQuestionActions(question, {
+    onDeleted: () => void navigate({ to: "/ask/inbox", replace: true }),
+  });
   const answer = question.answer;
 
   return (
-    <Page title={t("question.title")} back={isOwner ? "/ask/inbox" : question.sentByMe ? "/ask/sent" : "/ask"}>
+    <Page
+      title={t("question.title")}
+      back={isOwner ? "/ask/inbox" : question.sentByMe ? "/ask/sent" : "/ask"}
+    >
       {question.sentByMe && (
-        <p className="mb-3 inline-flex rounded-full bg-lime px-3 py-1 text-sm font-black text-[#17122b] sticker-sm" data-testid="sent-by-me">
+        <p
+          className="mb-3 inline-flex rounded-full bg-lime px-3 py-1 text-sm font-black text-[#17122b] sticker-sm"
+          data-testid="sent-by-me"
+        >
           💌 {t("question.yours")}
         </p>
       )}
@@ -86,12 +106,18 @@ function QuestionView({ question, focusCommentId }: { question: ask.Question; fo
           <EmptyState emoji="⏳" title={t("question.waiting")} body={t("question.waitingBody")} />
         ))}
       {answer?.audience === ask.AnswerAudience.PRIVATE && question.sentByMe && owner && (
-        <p className="mt-3 rounded-2xl bg-surface-2 px-4 py-3 text-sm font-bold text-ink-soft">🔒 {t("question.privateNote", { name: owner.displayName })}</p>
+        <p className="mt-3 rounded-2xl bg-surface-2 px-4 py-3 text-sm font-bold text-ink-soft">
+          🔒 {t("question.privateNote", { name: owner.displayName })}
+        </p>
       )}
 
       {!isOwner && owner && (
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          <Link to="/ask/u/$handle" params={{ handle: owner.handle }} className="pressable sticker inline-flex h-11 items-center gap-2 rounded-full bg-surface px-5 font-bold">
+          <Link
+            to="/ask/u/$handle"
+            params={{ handle: owner.handle }}
+            className="pressable sticker inline-flex h-11 items-center gap-2 rounded-full bg-surface px-5 font-bold"
+          >
             💌 {t("question.askToo", { name: owner.displayName })}
           </Link>
           {answer && <ReportButton subject={questionSubject(question.id)} label={question.text} />}
@@ -100,7 +126,11 @@ function QuestionView({ question, focusCommentId }: { question: ask.Question; fo
 
       {hasEngagement(question) && (
         <section className="mt-6">
-          <CommentThread subject={questionSubject(question.id)} subjectAuthor={owner ? create(common.AuthorSchema, { user: owner }) : undefined} focusCommentId={focusCommentId} />
+          <CommentThread
+            subject={questionSubject(question.id)}
+            subjectAuthor={owner ? create(common.AuthorSchema, { user: owner }) : undefined}
+            focusCommentId={focusCommentId}
+          />
         </section>
       )}
       {isOwner && actions.dialogs}

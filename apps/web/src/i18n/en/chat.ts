@@ -1,5 +1,13 @@
 export default {
-  actions: { back: "Back", cancel: "Cancel", clear: "Clear", close: "Close", remove: "Remove", retry: "Try again", save: "Save" },
+  actions: {
+    back: "Back",
+    cancel: "Cancel",
+    clear: "Clear",
+    close: "Close",
+    remove: "Remove",
+    retry: "Try again",
+    save: "Save",
+  },
   home: { title: "Pick a chat", body: "Open one from the list, or start a new chat!" },
   list: {
     title: "Chats",
@@ -12,8 +20,14 @@ export default {
     mentioned: "You were mentioned",
     empty: {
       inbox: { title: "No chats yet", body: "Send a friend your first message!" },
-      requests: { title: "No requests", body: "Messages from people who aren't your friends land here" },
-      archived: { title: "The archive is empty", body: "Tuck chats away here when you want them out of sight" },
+      requests: {
+        title: "No requests",
+        body: "Messages from people who aren't your friends land here",
+      },
+      archived: {
+        title: "The archive is empty",
+        body: "Tuck chats away here when you want them out of sight",
+      },
       search: { title: "Nothing found", body: "Try a name or an @handle" },
     },
   },
@@ -97,23 +111,46 @@ export default {
     confirm: "Hide",
     confirmClear: "Clear and hide",
   },
-  leave: { title: "Leave {{name}}?", lead: "You won't see this group's messages any more.", confirm: "Leave" },
+  leave: {
+    title: "Leave {{name}}?",
+    lead: "You won't see this group's messages any more.",
+    confirm: "Leave",
+  },
   request: {
     title: "Message request from {{name}}",
     lead: "Accept to reply. If you delete it, they won't be told.",
     accept: "Accept",
     decline: "Delete",
   },
-  gone: { title: "This chat can't be opened", body: "You left it, or it no longer exists.", back: "Back to chats" },
+  gone: {
+    title: "This chat can't be opened",
+    body: "You left it, or it no longer exists.",
+    back: "Back to chats",
+  },
   empty: {
     direct: { title: "Say hi to {{name}}!", body: "Start with a wave?" },
     group: { title: "Your group is ready!", body: "Send the first message!" },
   },
-  hello: { wave: "👋 Wave", sent: "You waved!", received: "{{name}} is waving at you!", back: "👋 Wave back" },
-  people: { you: "You", someone: "Someone", deleted: "Deleted user", separator: ", ", andMore: "{{names}} and {{count}} more" },
+  hello: {
+    wave: "👋 Wave",
+    sent: "You waved!",
+    received: "{{name}} is waving at you!",
+    back: "👋 Wave back",
+  },
+  people: {
+    you: "You",
+    someone: "Someone",
+    deleted: "Deleted user",
+    separator: ", ",
+    andMore: "{{names}} and {{count}} more",
+  },
   time: { today: "Today", yesterday: "Yesterday" },
   typing: { short: "typing…", named: "{{names}} typing…" },
-  presence: { online: "Online", direct: "Looking at this chat right now", group: "{{names}} here now" },
+  presence: {
+    online: "Online",
+    direct: "Looking at this chat right now",
+    group: "{{names}} here now",
+  },
   preview: {
     fromYou: "You: {{content}}",
     from: "{{name}}: {{content}}",
@@ -215,7 +252,16 @@ export default {
   emoji: {
     title: "Emoji",
     groups: "Emoji categories",
-    group: { recent: "Recent", smileys: "Smileys", hearts: "Hearts", hands: "Hands", animals: "Animals & nature", food: "Food", activities: "Play & travel", objects: "Objects & symbols" },
+    group: {
+      recent: "Recent",
+      smileys: "Smileys",
+      hearts: "Hearts",
+      hands: "Hands",
+      animals: "Animals & nature",
+      food: "Food",
+      activities: "Play & travel",
+      objects: "Objects & symbols",
+    },
   },
   media: {
     viewer: "Photo and video viewer",
@@ -232,7 +278,11 @@ export default {
     next: "Next",
     showInChat: "Show in chat",
     tabs: { visual: "Photos & videos", audio: "Voice", files: "Files" },
-    empty: { visual: "No photos or videos yet", audio: "No voice messages yet", files: "No files yet" },
+    empty: {
+      visual: "No photos or videos yet",
+      audio: "No voice messages yet",
+      files: "No files yet",
+    },
   },
   link: { playHere: "Tap to play", play: "Play {{title}}" },
   location: {
@@ -247,7 +297,12 @@ export default {
     open: "Tap to open the map",
     directions: "Open in a maps app",
   },
-  panel: { info: "Chat info", search: "Search this chat", pinned: "Pinned", media: "Photos, videos & files" },
+  panel: {
+    info: "Chat info",
+    search: "Search this chat",
+    pinned: "Pinned",
+    media: "Photos, videos & files",
+  },
   info: {
     open: "Info about {{name}}",
     profile: "View profile",
@@ -261,11 +316,27 @@ export default {
     archived: "Archive",
     archivedHint: "Tucks the chat out of your list",
   },
-  search: { placeholder: "Search messages", start: "Type a word to search", empty: "Nothing found" },
-  pins: { empty: "Nothing pinned yet", emptyBody: "Long-press an important message and choose “Pin”!" },
+  search: {
+    placeholder: "Search messages",
+    start: "Type a word to search",
+    empty: "Nothing found",
+  },
+  pins: {
+    empty: "Nothing pinned yet",
+    emptyBody: "Long-press an important message and choose “Pin”!",
+  },
   reactions: { title: "Reactions", all: "All {{count}}" },
-  receipts: { title: "Read by", summary: "{{read}} read · {{unread}} not yet", none: "Nobody has read it yet" },
-  forward: { title: "Forward message", lead: "Choose where it goes (up to {{count}})", send: "Forward ({{count}})", done: "Forwarded to {{count}} chats!" },
+  receipts: {
+    title: "Read by",
+    summary: "{{read}} read · {{unread}} not yet",
+    none: "Nobody has read it yet",
+  },
+  forward: {
+    title: "Forward message",
+    lead: "Choose where it goes (up to {{count}})",
+    send: "Forward ({{count}})",
+    done: "Forwarded to {{count}} chats!",
+  },
   share: {
     title: "Send to a friend",
     search: "Search chats and friends",
@@ -277,7 +348,8 @@ export default {
   },
   pov: {
     requestTitle: "Ask for a POV",
-    requestLead: "Ask {{name}} for a photo or video of what they see right now! They have {{hours}} hours to answer.",
+    requestLead:
+      "Ask {{name}} for a photo or video of what they see right now! They have {{hours}} hours to answer.",
     request: "Send request",
     note: "Note (optional)",
     notePlaceholder: "Where are you?",
@@ -299,7 +371,8 @@ export default {
     banner: { asked: "You have a POV request!", waiting: "Waiting for their POV" },
     cameraTitle: "Take your POV",
     cameraLead: "Send exactly what you see right now!",
-    cameraUnavailable: "Couldn't use the camera here. Use your device's camera or pick a file instead.",
+    cameraUnavailable:
+      "Couldn't use the camera here. Use your device's camera or pick a file instead.",
     openCamera: "Open camera",
     photo: "Photo",
     video: "Video",
@@ -391,7 +464,16 @@ export default {
     hideTranslation: "Hide translation",
     translation: "Translation",
     translatedFrom: "Translated from {{language}}",
-    tone: { casual: "Casual", polite: "Polite", cute: "Cute", funny: "Funny", cool: "Cool", excited: "Excited", shorter: "Shorter", kansai: "Kansai dialect" },
+    tone: {
+      casual: "Casual",
+      polite: "Polite",
+      cute: "Cute",
+      funny: "Funny",
+      cool: "Cool",
+      excited: "Excited",
+      shorter: "Shorter",
+      kansai: "Kansai dialect",
+    },
     consent: {
       title: "Before you use AI assist",
       lead: "AI assist sends text to an AI service outside this server (Anthropic). It is only sent when you use it, and never with names or IDs.",

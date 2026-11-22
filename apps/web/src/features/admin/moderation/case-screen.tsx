@@ -25,7 +25,13 @@ import { ToneChip } from "../ui/tone";
 import { UserCell } from "../ui/user";
 import { UserPicker } from "../ui/user-picker";
 import { ActionList } from "./action-list";
-import { CaseStateChip, CategoryChips, ModerationRecord, SubjectTypeChip, useCaseTitle } from "./parts";
+import {
+  CaseStateChip,
+  CategoryChips,
+  ModerationRecord,
+  SubjectTypeChip,
+  useCaseTitle,
+} from "./parts";
 import { type QueueSearch, useCaseQueue } from "./queue";
 import { type Resolution, ResolvePanel } from "./resolve-panel";
 
@@ -49,8 +55,13 @@ function QueueRail({ search, currentId }: { search: QueueSearch; currentId: stri
   const caseTitle = useCaseTitle();
   const cases = queue.data?.pages.flatMap((page) => page.cases) ?? [];
   return (
-    <aside aria-label={t("moderation.rail.label")} className="flex w-72 shrink-0 flex-col border-r-2 border-line bg-surface">
-      <p className="flex h-14 shrink-0 items-center border-b-2 border-line px-4 text-sm font-black">{t(search.status === "resolved" ? "moderation.rail.resolved" : "moderation.rail.open")}</p>
+    <aside
+      aria-label={t("moderation.rail.label")}
+      className="flex w-72 shrink-0 flex-col border-r-2 border-line bg-surface"
+    >
+      <p className="flex h-14 shrink-0 items-center border-b-2 border-line px-4 text-sm font-black">
+        {t(search.status === "resolved" ? "moderation.rail.resolved" : "moderation.rail.open")}
+      </p>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {queue.isPending ? (
           <div className="flex flex-col gap-2">
@@ -69,7 +80,10 @@ function QueueRail({ search, currentId }: { search: QueueSearch; currentId: stri
                   params={{ caseId: item.id }}
                   search={search}
                   aria-current={item.id === currentId ? "page" : undefined}
-                  className={cn("block rounded-xl px-3 py-2 text-sm", item.id === currentId ? "bg-brand-soft" : "hover:bg-surface-2")}
+                  className={cn(
+                    "block rounded-xl px-3 py-2 text-sm",
+                    item.id === currentId ? "bg-brand-soft" : "hover:bg-surface-2",
+                  )}
                 >
                   <span className="line-clamp-1 font-bold">{caseTitle(item)}</span>
                   <span className="mt-0.5 flex items-center gap-2 text-xs text-ink-soft">
@@ -96,13 +110,21 @@ function CaseDetail({ caseId, search }: { caseId: string; search: QueueSearch })
 
   /** Shows the server's new version of the case at once, then re-reads everything that lists it. */
   const applied = (moderationCase: admin.ModerationCase | undefined) => {
-    if (moderationCase) queryClient.setQueryData<admin.GetCaseResponse>(key, (previous) => (previous ? { ...previous, moderationCase } : previous));
+    if (moderationCase)
+      queryClient.setQueryData<admin.GetCaseResponse>(key, (previous) =>
+        previous ? { ...previous, moderationCase } : previous,
+      );
     return queryClient.invalidateQueries({ queryKey: ["admin"] });
   };
   const onError = (error: unknown) => toast.error(errorMessage(error));
 
   const resolve = useMutation({
-    mutationFn: (resolution: Resolution) => moderationClient().resolveCase({ caseId, ...resolution, suspensionSeconds: BigInt(resolution.suspensionSeconds) }),
+    mutationFn: (resolution: Resolution) =>
+      moderationClient().resolveCase({
+        caseId,
+        ...resolution,
+        suspensionSeconds: BigInt(resolution.suspensionSeconds),
+      }),
     onSuccess: (response) => {
       toast.success(t("moderation.toast.resolved"));
       return applied(response.moderationCase);
@@ -125,26 +147,55 @@ function CaseDetail({ caseId, search }: { caseId: string; search: QueueSearch })
   if (!detail.data || !moderationCase) {
     return (
       <ConsolePage title={back} back="/admin/moderation" backSearch={search}>
-        {detail.isError ? <ErrorState error={detail.error} onRetry={() => detail.refetch()} /> : <EmptyState emoji="🧭" title={t("errors.CASE_NOT_FOUND")} />}
+        {detail.isError ? (
+          <ErrorState error={detail.error} onRetry={() => detail.refetch()} />
+        ) : (
+          <EmptyState emoji="🧭" title={t("errors.CASE_NOT_FOUND")} />
+        )}
       </ConsolePage>
     );
   }
   const isOpen = moderationCase.status === admin.CaseStatus.OPEN;
 
   return (
-    <ConsolePage title={caseTitle(moderationCase)} back="/admin/moderation" backSearch={search} actions={<CaseStateChip moderationCase={moderationCase} />}>
+    <ConsolePage
+      title={caseTitle(moderationCase)}
+      back="/admin/moderation"
+      backSearch={search}
+      actions={<CaseStateChip moderationCase={moderationCase} />}
+    >
       <div className="@container">
         <div className="grid items-start gap-4 @4xl:grid-cols-[minmax(0,1fr)_22rem]">
           <div className="flex min-w-0 flex-col gap-4">
             <SubjectCard moderationCase={moderationCase} ownerRecord={detail.data.ownerRecord} />
-            <Reports caseId={caseId} total={moderationCase.reportCount} latest={detail.data.reports} />
-            <Notes caseId={caseId} notes={detail.data.notes} onAdded={() => queryClient.invalidateQueries({ queryKey: key })} />
+            <Reports
+              caseId={caseId}
+              total={moderationCase.reportCount}
+              latest={detail.data.reports}
+            />
+            <Notes
+              caseId={caseId}
+              notes={detail.data.notes}
+              onAdded={() => queryClient.invalidateQueries({ queryKey: key })}
+            />
           </div>
           <div className="flex min-w-0 flex-col gap-4">
             <Assignment moderationCase={moderationCase} onChanged={applied} />
-            {isOpen ? <ResolvePanel moderationCase={moderationCase} loading={resolve.isPending} onResolve={(resolution) => resolve.mutate(resolution)} /> : <ResolutionCard moderationCase={moderationCase} onChanged={applied} />}
+            {isOpen ? (
+              <ResolvePanel
+                moderationCase={moderationCase}
+                loading={resolve.isPending}
+                onResolve={(resolution) => resolve.mutate(resolution)}
+              />
+            ) : (
+              <ResolutionCard moderationCase={moderationCase} onChanged={applied} />
+            )}
             <Section title={t("moderation.history.title")}>
-              <ActionList actions={detail.data.actions} showTarget empty={t("moderation.history.empty")} />
+              <ActionList
+                actions={detail.data.actions}
+                showTarget
+                empty={t("moderation.history.empty")}
+              />
             </Section>
           </div>
         </div>
@@ -153,7 +204,13 @@ function CaseDetail({ caseId, search }: { caseId: string; search: QueueSearch })
   );
 }
 
-function SubjectCard({ moderationCase, ownerRecord }: { moderationCase: admin.ModerationCase; ownerRecord?: admin.UserModerationSummary }) {
+function SubjectCard({
+  moderationCase,
+  ownerRecord,
+}: {
+  moderationCase: admin.ModerationCase;
+  ownerRecord?: admin.UserModerationSummary;
+}) {
   const { t } = useTranslation("admin");
   const caseTitle = useCaseTitle();
   return (
@@ -162,19 +219,30 @@ function SubjectCard({ moderationCase, ownerRecord }: { moderationCase: admin.Mo
         <div className="flex flex-wrap items-center gap-2">
           <SubjectTypeChip type={moderationCase.subject?.type} />
           <CategoryChips categories={moderationCase.categories} />
-          <span className="text-xs font-bold text-ink-soft">{t("moderation.reportCount", { count: moderationCase.reportCount })}</span>
+          <span className="text-xs font-bold text-ink-soft">
+            {t("moderation.reportCount", { count: moderationCase.reportCount })}
+          </span>
         </div>
         <p className="break-words text-xl leading-snug font-black">{caseTitle(moderationCase)}</p>
         {moderationCase.subjectPath && (
-          <a href={moderationCase.subjectPath} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 self-start text-sm font-bold text-brand hover:underline">
+          <a
+            href={moderationCase.subjectPath}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 self-start text-sm font-bold text-brand hover:underline"
+          >
             <ExternalLink className="size-4" />
             {t("moderation.case.openInApp")}
-            <span className="max-w-48 truncate font-mono text-xs font-normal text-ink-soft">{moderationCase.subjectPath}</span>
+            <span className="max-w-48 truncate font-mono text-xs font-normal text-ink-soft">
+              {moderationCase.subjectPath}
+            </span>
           </a>
         )}
       </div>
       <dl className="divide-y divide-line border-t-2 border-line">
-        <Fact label={t("moderation.case.subjectId")}>{moderationCase.subject?.id ? <CopyableId value={moderationCase.subject.id} /> : "—"}</Fact>
+        <Fact label={t("moderation.case.subjectId")}>
+          {moderationCase.subject?.id ? <CopyableId value={moderationCase.subject.id} /> : "—"}
+        </Fact>
         <Fact label={t("moderation.columns.owner")}>
           <UserCell user={moderationCase.subjectOwner} fallback={t("moderation.ownerGone")} />
         </Fact>
@@ -183,22 +251,35 @@ function SubjectCard({ moderationCase, ownerRecord }: { moderationCase: admin.Mo
             <ModerationRecord record={ownerRecord} />
           </Fact>
         )}
-        <Fact label={t("moderation.case.firstReported")}>{formatDateTime(moderationCase.createdAt)}</Fact>
-        <Fact label={t("moderation.columns.lastReported")}>{formatDateTime(moderationCase.lastReportedAt)}</Fact>
+        <Fact label={t("moderation.case.firstReported")}>
+          {formatDateTime(moderationCase.createdAt)}
+        </Fact>
+        <Fact label={t("moderation.columns.lastReported")}>
+          {formatDateTime(moderationCase.lastReportedAt)}
+        </Fact>
       </dl>
     </Section>
   );
 }
 
-function Assignment({ moderationCase, onChanged }: { moderationCase: admin.ModerationCase; onChanged(moderationCase: admin.ModerationCase | undefined): unknown }) {
+function Assignment({
+  moderationCase,
+  onChanged,
+}: {
+  moderationCase: admin.ModerationCase;
+  onChanged(moderationCase: admin.ModerationCase | undefined): unknown;
+}) {
   const { t } = useTranslation("admin");
   const me = useMe();
   const [picking, setPicking] = useState(false);
   const assign = useMutation({
-    mutationFn: (input: { assigneeId?: string; unassign?: boolean }) => moderationClient().assignCase({ caseId: moderationCase.id, ...input }),
+    mutationFn: (input: { assigneeId?: string; unassign?: boolean }) =>
+      moderationClient().assignCase({ caseId: moderationCase.id, ...input }),
     onSuccess: (response, input) => {
       setPicking(false);
-      toast.success(t(input.unassign ? "moderation.toast.unassigned" : "moderation.toast.assigned"));
+      toast.success(
+        t(input.unassign ? "moderation.toast.unassigned" : "moderation.toast.assigned"),
+      );
       return onChanged(response.moderationCase);
     },
     onError: (error) => toast.error(errorMessage(error)),
@@ -211,37 +292,71 @@ function Assignment({ moderationCase, onChanged }: { moderationCase: admin.Moder
       <div className="flex flex-col gap-3 p-4">
         <div className="flex items-center gap-2 text-sm">
           <UserCell user={moderationCase.assignee} fallback={t("moderation.unassigned")} />
-          {moderationCase.assignedAt && <span className="text-xs text-ink-faint">{compactAge(toMillis(moderationCase.assignedAt))}</span>}
+          {moderationCase.assignedAt && (
+            <span className="text-xs text-ink-faint">
+              {compactAge(toMillis(moderationCase.assignedAt))}
+            </span>
+          )}
         </div>
         {isOpen && (
           <div className="flex flex-wrap gap-2">
             {!mine && (
-              <Button size="sm" variant="lime" icon={<Hand className="size-4" />} loading={assign.isPending && !picking} onClick={() => assign.mutate({})}>
+              <Button
+                size="sm"
+                variant="lime"
+                icon={<Hand className="size-4" />}
+                loading={assign.isPending && !picking}
+                onClick={() => assign.mutate({})}
+              >
                 {t("moderation.assignment.takeIt")}
               </Button>
             )}
-            <Button size="sm" variant="secondary" icon={<UserPlus className="size-4" />} onClick={() => setPicking((value) => !value)}>
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={<UserPlus className="size-4" />}
+              onClick={() => setPicking((value) => !value)}
+            >
               {t("moderation.assignment.someone")}
             </Button>
             {moderationCase.assignee && (
-              <Button size="sm" variant="ghost" icon={<UserMinus className="size-4" />} onClick={() => assign.mutate({ unassign: true })}>
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={<UserMinus className="size-4" />}
+                onClick={() => assign.mutate({ unassign: true })}
+              >
                 {t("moderation.assignment.clear")}
               </Button>
             )}
           </div>
         )}
-        {isOpen && picking && <UserPicker label={t("moderation.assignment.pick")} staffOnly excludeIds={moderationCase.assignee ? [moderationCase.assignee.id] : undefined} onPick={(account) => assign.mutate({ assigneeId: account.user?.id })} />}
+        {isOpen && picking && (
+          <UserPicker
+            label={t("moderation.assignment.pick")}
+            staffOnly
+            excludeIds={moderationCase.assignee ? [moderationCase.assignee.id] : undefined}
+            onPick={(account) => assign.mutate({ assigneeId: account.user?.id })}
+          />
+        )}
       </div>
     </Section>
   );
 }
 
 /** How a closed case ended, with the way back into the queue. */
-function ResolutionCard({ moderationCase, onChanged }: { moderationCase: admin.ModerationCase; onChanged(moderationCase: admin.ModerationCase | undefined): unknown }) {
+function ResolutionCard({
+  moderationCase,
+  onChanged,
+}: {
+  moderationCase: admin.ModerationCase;
+  onChanged(moderationCase: admin.ModerationCase | undefined): unknown;
+}) {
   const { t } = useTranslation("admin");
   const [reopening, setReopening] = useState(false);
   const reopen = useMutation({
-    mutationFn: (note: string) => moderationClient().reopenCase({ caseId: moderationCase.id, note }),
+    mutationFn: (note: string) =>
+      moderationClient().reopenCase({ caseId: moderationCase.id, note }),
     onSuccess: (response) => {
       setReopening(false);
       toast.success(t("moderation.toast.reopened"));
@@ -255,7 +370,13 @@ function ResolutionCard({ moderationCase, onChanged }: { moderationCase: admin.M
         <Fact label={t("moderation.resolution.outcome")}>
           <CaseStateChip moderationCase={moderationCase} />
         </Fact>
-        <Fact label={t("moderation.resolution.content")}>{t(moderationCase.contentRemoved ? "moderation.resolution.removed" : "moderation.resolution.kept")}</Fact>
+        <Fact label={t("moderation.resolution.content")}>
+          {t(
+            moderationCase.contentRemoved
+              ? "moderation.resolution.removed"
+              : "moderation.resolution.kept",
+          )}
+        </Fact>
         {moderationCase.resolutionReason && (
           <Fact label={t("common.reasonShort")}>
             <span className="whitespace-pre-wrap">{moderationCase.resolutionReason}</span>
@@ -264,10 +385,17 @@ function ResolutionCard({ moderationCase, onChanged }: { moderationCase: admin.M
         <Fact label={t("moderation.resolution.by")}>
           <UserCell user={moderationCase.resolvedBy} fallback={t("common.system")} />
         </Fact>
-        <Fact label={t("moderation.resolution.at")}>{formatDateTime(moderationCase.resolvedAt)}</Fact>
+        <Fact label={t("moderation.resolution.at")}>
+          {formatDateTime(moderationCase.resolvedAt)}
+        </Fact>
       </dl>
       <div className="border-t-2 border-line p-4">
-        <Button size="sm" variant="secondary" icon={<RotateCcw className="size-4" />} onClick={() => setReopening(true)}>
+        <Button
+          size="sm"
+          variant="secondary"
+          icon={<RotateCcw className="size-4" />}
+          onClick={() => setReopening(true)}
+        >
           {t("moderation.reopen.open")}
         </Button>
         <p className="mt-2 text-xs text-ink-faint">{t("moderation.reopen.hint")}</p>
@@ -290,18 +418,31 @@ function ResolutionCard({ moderationCase, onChanged }: { moderationCase: admin.M
 const REPORTS_SHOWN = 5;
 
 /** The newest few reports from the case itself; "show all" pages through every one of them. */
-function Reports({ caseId, total, latest }: { caseId: string; total: number; latest: admin.CaseReport[] }) {
+function Reports({
+  caseId,
+  total,
+  latest,
+}: {
+  caseId: string;
+  total: number;
+  latest: admin.CaseReport[];
+}) {
   const { t } = useTranslation("admin");
   const [showAll, setShowAll] = useState(false);
   const all = useInfiniteQuery({
     queryKey: ["admin", "case", caseId, "reports"],
-    queryFn: ({ pageParam }) => moderationClient().listCaseReports({ caseId, page: { cursor: pageParam, limit: 50 } }),
+    queryFn: ({ pageParam }) =>
+      moderationClient().listCaseReports({ caseId, page: { cursor: pageParam, limit: 50 } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
     enabled: showAll,
   });
   // Until the full list arrives, "show all" shows what the case came with.
-  const reports = !showAll ? latest.slice(0, REPORTS_SHOWN) : all.data ? all.data.pages.flatMap((page) => page.reports) : latest;
+  const reports = !showAll
+    ? latest.slice(0, REPORTS_SHOWN)
+    : all.data
+      ? all.data.pages.flatMap((page) => page.reports)
+      : latest;
 
   return (
     <Section title={t("moderation.reports.title", { count: total })}>
@@ -316,7 +457,11 @@ function Reports({ caseId, total, latest }: { caseId: string; total: number; lat
                 <ToneChip>{t(categoryKey(report.category))}</ToneChip>
                 <span className="text-xs text-ink-soft">{formatDateTime(report.createdAt)}</span>
               </div>
-              {report.text ? <p className="whitespace-pre-wrap break-words">{report.text}</p> : <p className="text-ink-faint">{t("moderation.reports.noText")}</p>}
+              {report.text ? (
+                <p className="whitespace-pre-wrap break-words">{report.text}</p>
+              ) : (
+                <p className="text-ink-faint">{t("moderation.reports.noText")}</p>
+              )}
             </li>
           ))}
         </ul>
@@ -336,7 +481,15 @@ function Reports({ caseId, total, latest }: { caseId: string; total: number; lat
   );
 }
 
-function Notes({ caseId, notes, onAdded }: { caseId: string; notes: admin.CaseNote[]; onAdded(): unknown }) {
+function Notes({
+  caseId,
+  notes,
+  onAdded,
+}: {
+  caseId: string;
+  notes: admin.CaseNote[];
+  onAdded(): unknown;
+}) {
   const { t } = useTranslation("admin");
   const [body, setBody] = useState("");
   const add = useMutation({
@@ -349,7 +502,10 @@ function Notes({ caseId, notes, onAdded }: { caseId: string; notes: admin.CaseNo
     onError: (error) => toast.error(errorMessage(error)),
   });
   return (
-    <Section title={t("moderation.notes.title")} aside={<span className="text-xs text-ink-faint">{t("moderation.notes.internal")}</span>}>
+    <Section
+      title={t("moderation.notes.title")}
+      aside={<span className="text-xs text-ink-faint">{t("moderation.notes.internal")}</span>}
+    >
       {notes.length > 0 && (
         <ul className="divide-y divide-line">
           {notes.map((note) => (
@@ -370,8 +526,21 @@ function Notes({ caseId, notes, onAdded }: { caseId: string; notes: admin.CaseNo
           if (body.trim()) add.mutate();
         }}
       >
-        <TextArea aria-label={t("moderation.notes.add")} placeholder={t("moderation.notes.placeholder")} value={body} maxLength={NOTE_MAX} onChange={(event) => setBody(event.target.value)} />
-        <Button type="submit" size="sm" variant="secondary" className="self-end" disabled={!body.trim()} loading={add.isPending}>
+        <TextArea
+          aria-label={t("moderation.notes.add")}
+          placeholder={t("moderation.notes.placeholder")}
+          value={body}
+          maxLength={NOTE_MAX}
+          onChange={(event) => setBody(event.target.value)}
+        />
+        <Button
+          type="submit"
+          size="sm"
+          variant="secondary"
+          className="self-end"
+          disabled={!body.trim()}
+          loading={add.isPending}
+        >
           {t("moderation.notes.add")}
         </Button>
       </form>

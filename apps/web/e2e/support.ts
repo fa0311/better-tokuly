@@ -36,20 +36,37 @@ export class RpcError extends Error {
  * what the UI did. `procedure` is `package.Service/Method`; request and
  * response use the proto JSON field names (camelCase).
  */
-export async function rpc<T = Record<string, unknown>>(request: APIRequestContext, procedure: string, body: object = {}, as?: Account): Promise<T> {
+export async function rpc<T = Record<string, unknown>>(
+  request: APIRequestContext,
+  procedure: string,
+  body: object = {},
+  as?: Account,
+): Promise<T> {
   const response = await request.post(`/api/${procedure}`, {
     data: body,
-    headers: { "content-type": "application/json", ...(as ? { authorization: `Bearer ${as.accessToken}` } : {}) },
+    headers: {
+      "content-type": "application/json",
+      ...(as ? { authorization: `Bearer ${as.accessToken}` } : {}),
+    },
   });
   if (!response.ok()) {
-    throw new RpcError(procedure, response.status(), response.headers()["x-tokuly-error"] ?? "", (await response.text()).slice(0, 300));
+    throw new RpcError(
+      procedure,
+      response.status(),
+      response.headers()["x-tokuly-error"] ?? "",
+      (await response.text()).slice(0, 300),
+    );
   }
   return (await response.json()) as T;
 }
 
 interface AuthResponse {
   accessToken: string;
-  me: { user: { id: string; handle: string; displayName: string }; email: string; roles?: string[] };
+  me: {
+    user: { id: string; handle: string; displayName: string };
+    email: string;
+    roles?: string[];
+  };
 }
 
 function toAccount(auth: AuthResponse): Account {
@@ -69,7 +86,10 @@ function uniqueSuffix(): string {
 
 /** Signs up a fresh account. `name` becomes the display name and the start of the handle. */
 export async function createAccount(request: APIRequestContext, name: string): Promise<Account> {
-  const handle = `${name.toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 12)}_${uniqueSuffix()}`;
+  const handle = `${name
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, "")
+    .slice(0, 12)}_${uniqueSuffix()}`;
   const auth = await rpc<AuthResponse>(request, "tokuly.identity.v1.AuthService/SignUp", {
     email: `${handle}@e2e.tokuly.test`,
     password: PASSWORD,
@@ -82,8 +102,16 @@ export async function createAccount(request: APIRequestContext, name: string): P
 }
 
 /** A fresh access token for an account (roles and other claims are re-read). */
-export async function refreshAccount(request: APIRequestContext, account: Account): Promise<Account> {
-  return toAccount(await rpc<AuthResponse>(request, "tokuly.identity.v1.AuthService/SignIn", { identifier: account.handle, password: PASSWORD }));
+export async function refreshAccount(
+  request: APIRequestContext,
+  account: Account,
+): Promise<Account> {
+  return toAccount(
+    await rpc<AuthResponse>(request, "tokuly.identity.v1.AuthService/SignIn", {
+      identifier: account.handle,
+      password: PASSWORD,
+    }),
+  );
 }
 
 /**
@@ -107,7 +135,12 @@ export async function adminAccount(request: APIRequestContext): Promise<Account>
   }
   let account: Account | undefined;
   await expect(async () => {
-    account = toAccount(await rpc<AuthResponse>(request, "tokuly.identity.v1.AuthService/SignIn", { identifier: ADMIN_HANDLE, password: PASSWORD }));
+    account = toAccount(
+      await rpc<AuthResponse>(request, "tokuly.identity.v1.AuthService/SignIn", {
+        identifier: ADMIN_HANDLE,
+        password: PASSWORD,
+      }),
+    );
     expect(account.roles).toContain("admin");
   }).toPass({ timeout: 20_000 });
   return account as Account;

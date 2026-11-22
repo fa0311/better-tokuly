@@ -8,10 +8,25 @@ import { shortcodePrefixAt, shortcodesIn, splitEmojiText } from "./text";
 import { UNICODE_EMOJI, UNICODE_GROUPS } from "./unicode-data";
 
 function custom(name: string, fields: Partial<CatalogEmoji> = {}): CatalogEmoji {
-  return { id: `id-${name}`, name, url: `/${name}.webp`, stills: [], animated: false, category: "", aliases: [], sensitive: false, localOnly: false, addedAt: 0, ...fields };
+  return {
+    id: `id-${name}`,
+    name,
+    url: `/${name}.webp`,
+    stills: [],
+    animated: false,
+    category: "",
+    aliases: [],
+    sensitive: false,
+    localOnly: false,
+    addedAt: 0,
+    ...fields,
+  };
 }
 
-const known = (...names: string[]) => (name: string) => names.includes(name);
+const known =
+  (...names: string[]) =>
+  (name: string) =>
+    names.includes(name);
 
 describe("splitEmojiText", () => {
   it("turns known shortcodes into emoji and keeps the text around them", () => {
@@ -31,17 +46,23 @@ describe("splitEmojiText", () => {
   });
 
   it("matches names without regard to case and keeps what was typed", () => {
-    expect(splitEmojiText(":Neko:", known("neko"))).toEqual([{ kind: "emoji", name: "neko", raw: ":Neko:" }]);
+    expect(splitEmojiText(":Neko:", known("neko"))).toEqual([
+      { kind: "emoji", name: "neko", raw: ":Neko:" },
+    ]);
   });
 
   it("does not read a time or a glued code as an emoji", () => {
     expect(splitEmojiText("12:30:45", known("30"))).toEqual([{ kind: "text", text: "12:30:45" }]);
-    expect(splitEmojiText("abc:neko:", known("neko"))).toEqual([{ kind: "text", text: "abc:neko:" }]);
+    expect(splitEmojiText("abc:neko:", known("neko"))).toEqual([
+      { kind: "text", text: "abc:neko:" },
+    ]);
     expect(splitEmojiText("ねこ:neko:だよ", known("neko"))).toHaveLength(3);
   });
 
   it("finds codes that follow each other, also after an unknown one", () => {
-    expect(splitEmojiText(":neko::inu:", known("neko", "inu")).map((segment) => segment.kind)).toEqual(["emoji", "emoji"]);
+    expect(
+      splitEmojiText(":neko::inu:", known("neko", "inu")).map((segment) => segment.kind),
+    ).toEqual(["emoji", "emoji"]);
     expect(splitEmojiText(":あ:neko:", known("neko"))).toEqual([
       { kind: "text", text: ":あ" },
       { kind: "emoji", name: "neko", raw: ":neko:" },
@@ -49,7 +70,10 @@ describe("splitEmojiText", () => {
   });
 
   it("lists each emoji of a text once", () => {
-    expect(shortcodesIn(":neko: :inu: :neko: :nope:", known("neko", "inu"))).toEqual(["neko", "inu"]);
+    expect(shortcodesIn(":neko: :inu: :neko: :nope:", known("neko", "inu"))).toEqual([
+      "neko",
+      "inu",
+    ]);
   });
 });
 
@@ -67,7 +91,11 @@ describe("shortcodePrefixAt", () => {
 });
 
 describe("searchEmoji", () => {
-  const customs = [custom("neko", { aliases: ["ねこ", "cat"] }), custom("neko_love", { aliases: ["猫"] }), custom("inu", { aliases: ["いぬ", "catdog"] })];
+  const customs = [
+    custom("neko", { aliases: ["ねこ", "cat"] }),
+    custom("neko_love", { aliases: ["猫"] }),
+    custom("inu", { aliases: ["いぬ", "catdog"] }),
+  ];
 
   it("normalizes case, width and kana", () => {
     expect(normalizeQuery("ＮＥＫＯ")).toBe("neko");
@@ -77,7 +105,10 @@ describe("searchEmoji", () => {
   });
 
   it("finds custom emoji by name and by a Japanese alias", () => {
-    expect(searchEmoji("neko", customs, []).map((choice) => choice.emoji)).toEqual([":neko:", ":neko_love:"]);
+    expect(searchEmoji("neko", customs, []).map((choice) => choice.emoji)).toEqual([
+      ":neko:",
+      ":neko_love:",
+    ]);
     expect(searchEmoji("ネコ", customs, []).map((choice) => choice.emoji)).toEqual([":neko:"]);
   });
 
@@ -96,10 +127,20 @@ describe("searchEmoji", () => {
 });
 
 describe("applyChanges", () => {
-  const current = { version: 3n, emojis: [custom("neko"), custom("inu")], categories: [{ name: "どうぶつ", emojiCount: 2 }] };
+  const current = {
+    version: 3n,
+    emojis: [custom("neko"), custom("inu")],
+    categories: [{ name: "どうぶつ", emojiCount: 2 }],
+  };
 
   it("replaces by ID, removes, and keeps the list ordered by name", () => {
-    const next = applyChanges(current, { version: 5n, full: false, upserted: [{ ...custom("neko"), name: "nyan" }, custom("ahiru")], removedIds: ["id-inu"], categories: [] });
+    const next = applyChanges(current, {
+      version: 5n,
+      full: false,
+      upserted: [{ ...custom("neko"), name: "nyan" }, custom("ahiru")],
+      removedIds: ["id-inu"],
+      categories: [],
+    });
     expect(next.version).toBe(5n);
     expect(next.emojis.map((entry) => entry.name)).toEqual(["ahiru", "nyan"]);
     expect(next.byName.has("neko")).toBe(false);
@@ -108,7 +149,13 @@ describe("applyChanges", () => {
   });
 
   it("drops the copy when the answer is the whole catalogue", () => {
-    const next = applyChanges(current, { version: 9n, full: true, upserted: [custom("tori")], removedIds: [], categories: [{ name: "とり", emojiCount: 1 }] });
+    const next = applyChanges(current, {
+      version: 9n,
+      full: true,
+      upserted: [custom("tori")],
+      removedIds: [],
+      categories: [{ name: "とり", emojiCount: 1 }],
+    });
     expect(next.emojis.map((entry) => entry.name)).toEqual(["tori"]);
     expect(next.categories).toEqual([{ name: "とり", emojiCount: 1 }]);
   });
@@ -129,7 +176,10 @@ describe("the Unicode table", () => {
 
 describe("strings", () => {
   type Strings = { [key: string]: string | Strings };
-  const keysOf = (strings: Strings, prefix = ""): string[] => Object.entries(strings).flatMap(([key, value]) => (typeof value === "string" ? [prefix + key] : keysOf(value, `${prefix}${key}.`)));
+  const keysOf = (strings: Strings, prefix = ""): string[] =>
+    Object.entries(strings).flatMap(([key, value]) =>
+      typeof value === "string" ? [prefix + key] : keysOf(value, `${prefix}${key}.`),
+    );
 
   it("has the same keys in Japanese and English", () => {
     expect(keysOf(jaStrings).sort()).toEqual(keysOf(enStrings).sort());
@@ -203,14 +253,19 @@ describe("the stored catalogue copy", () => {
     const { factory, requests } = fakeIndexedDb();
     const store = createCatalogStore(() => factory);
     const reading = store.read();
-    requests[0]?.onblocked?.call(requests[0] as IDBOpenDBRequest, new Event("blocked") as IDBVersionChangeEvent);
+    requests[0]?.onblocked?.call(
+      requests[0] as IDBOpenDBRequest,
+      new Event("blocked") as IDBVersionChangeEvent,
+    );
     await expect(reading).resolves.toBeUndefined();
   });
 
   it("works without IndexedDB at all", async () => {
     const store = createCatalogStore(() => undefined);
     await expect(store.read()).resolves.toBeUndefined();
-    await expect(store.write({ version: "1", emojis: [], categories: [] })).resolves.toBeUndefined();
+    await expect(
+      store.write({ version: "1", emojis: [], categories: [] }),
+    ).resolves.toBeUndefined();
   });
 
   it("uses one connection for reads and writes, and lets go of it when another tab upgrades the database", async () => {
@@ -226,10 +281,17 @@ describe("the stored catalogue copy", () => {
     answer(0);
     await expect(reading).resolves.toEqual({ version: "7", emojis: ["neko"], categories: [] });
     await store.write({ version: "8", emojis: ["neko", "inu"], categories: [] });
-    await expect(store.read()).resolves.toEqual({ version: "8", emojis: ["neko", "inu"], categories: [] });
+    await expect(store.read()).resolves.toEqual({
+      version: "8",
+      emojis: ["neko", "inu"],
+      categories: [],
+    });
     expect(factory.open).toHaveBeenCalledTimes(1);
 
-    database.db.onversionchange?.call(database.db, new Event("versionchange") as IDBVersionChangeEvent);
+    database.db.onversionchange?.call(
+      database.db,
+      new Event("versionchange") as IDBVersionChangeEvent,
+    );
     expect(database.close).toHaveBeenCalled();
     const again = store.read();
     expect(factory.open).toHaveBeenCalledTimes(2);

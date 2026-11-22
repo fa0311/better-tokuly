@@ -21,7 +21,10 @@ export interface AdminSearch {
 }
 
 export function validateAdminSearch(search: Record<string, unknown>): AdminSearch {
-  return { tab: TABS.find((tab) => tab === search.tab), q: typeof search.q === "string" ? search.q.slice(0, 64) : undefined };
+  return {
+    tab: TABS.find((tab) => tab === search.tab),
+    q: typeof search.q === "string" ? search.q.slice(0, 64) : undefined,
+  };
 }
 
 /**
@@ -44,7 +47,17 @@ export function AdminScreen({ search }: { search: AdminSearch }) {
       </header>
       <div className="px-4 pt-4 pb-32 md:pb-10">
         {access.moderator ? (
-          <Moderation tab={tab} query={search.q ?? ""} onTab={(next) => navigate({ to: "/admin/emoji", search: { tab: next === "queue" ? undefined : next }, replace: true })} />
+          <Moderation
+            tab={tab}
+            query={search.q ?? ""}
+            onTab={(next) =>
+              navigate({
+                to: "/admin/emoji",
+                search: { tab: next === "queue" ? undefined : next },
+                replace: true,
+              })
+            }
+          />
         ) : (
           <EmptyState emoji="🔐" title={t("admin.gateTitle")} body={t("admin.gateBody")} />
         )}
@@ -60,12 +73,22 @@ function Moderation({ tab, query, onTab }: { tab: Tab; query: string; onTab(tab:
   const strip = useRef<HTMLDivElement>(null);
   // On phones the tabs scroll sideways: keep the open one in view (also when arriving with `?tab=`).
   useEffect(() => {
-    strip.current?.querySelector('[role="tab"][aria-selected="true"]')?.scrollIntoView({ block: "nearest", inline: "center" });
+    strip.current
+      ?.querySelector('[role="tab"][aria-selected="true"]')
+      ?.scrollIntoView({ block: "nearest", inline: "center" });
   }, [tab]);
   return (
     <>
       <div ref={strip}>
-        <Tabs<Tab> value={tab} onChange={onTab} items={TABS.map((value) => ({ value, label: t(`admin.tabs.${value}`), badge: value === "queue" ? waiting : undefined }))} />
+        <Tabs<Tab>
+          value={tab}
+          onChange={onTab}
+          items={TABS.map((value) => ({
+            value,
+            label: t(`admin.tabs.${value}`),
+            badge: value === "queue" ? waiting : undefined,
+          }))}
+        />
       </div>
       <div className="mt-4">
         {tab === "queue" && <ReviewQueue />}

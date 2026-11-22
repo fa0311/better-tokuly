@@ -19,7 +19,15 @@ const formatters = new Map<string, Intl.DateTimeFormat>();
 function formatter(zone: string): Intl.DateTimeFormat {
   let format = formatters.get(zone);
   if (!format) {
-    const options = { hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" } as const;
+    const options = {
+      hourCycle: "h23",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    } as const;
     try {
       format = new Intl.DateTimeFormat("en-US", { ...options, timeZone: zone });
     } catch {
@@ -43,7 +51,11 @@ export interface ZonedTime {
 export function zonedTime(ms: number, zone: string): ZonedTime {
   const parts: Record<string, string> = {};
   for (const part of formatter(zone).formatToParts(new Date(ms))) parts[part.type] = part.value;
-  return { date: `${parts.year}-${parts.month}-${parts.day}`, minute: Number(parts.hour) * 60 + Number(parts.minute), second: Number(parts.second) };
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    minute: Number(parts.hour) * 60 + Number(parts.minute),
+    second: Number(parts.second),
+  };
 }
 
 /** The calendar date in `zone` at the moment `ms`. */

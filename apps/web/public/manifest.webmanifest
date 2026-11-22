@@ -18,9 +18,24 @@
   "icons": [
     { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "/icons/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
-    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
-    { "src": "/icons/monochrome-512.png", "sizes": "512x512", "type": "image/png", "purpose": "monochrome" },
+    {
+      "src": "/icons/maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/monochrome-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "monochrome"
+    },
     { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ],
   "shortcuts": [
@@ -46,14 +61,46 @@
       "name": "お知らせ",
       "description": "届いたお知らせを見る",
       "url": "/notifications?source=shortcut",
-      "icons": [{ "src": "/icons/shortcut-notifications.png", "sizes": "192x192", "type": "image/png" }]
+      "icons": [
+        { "src": "/icons/shortcut-notifications.png", "sizes": "192x192", "type": "image/png" }
+      ]
     }
   ],
   "screenshots": [
-    { "src": "/screenshots/phone-map.png", "sizes": "390x844", "type": "image/png", "form_factor": "narrow", "label": "友達のいまが、マップでわかる" },
-    { "src": "/screenshots/phone-friends.png", "sizes": "390x844", "type": "image/png", "form_factor": "narrow", "label": "ともだちとつながる" },
-    { "src": "/screenshots/phone-stamps.png", "sizes": "390x844", "type": "image/png", "form_factor": "narrow", "label": "スタンプをさがす・つくる" },
-    { "src": "/screenshots/wide-map.png", "sizes": "1280x800", "type": "image/png", "form_factor": "wide", "label": "友達のいまが、マップでわかる" },
-    { "src": "/screenshots/wide-stamps.png", "sizes": "1280x800", "type": "image/png", "form_factor": "wide", "label": "スタンプをさがす・つくる" }
+    {
+      "src": "/screenshots/phone-map.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "友達のいまが、マップでわかる"
+    },
+    {
+      "src": "/screenshots/phone-friends.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "ともだちとつながる"
+    },
+    {
+      "src": "/screenshots/phone-stamps.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "スタンプをさがす・つくる"
+    },
+    {
+      "src": "/screenshots/wide-map.png",
+      "sizes": "1280x800",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "友達のいまが、マップでわかる"
+    },
+    {
+      "src": "/screenshots/wide-stamps.png",
+      "sizes": "1280x800",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "スタンプをさがす・つくる"
+    }
   ]
 }

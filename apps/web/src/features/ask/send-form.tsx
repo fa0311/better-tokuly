@@ -31,7 +31,16 @@ export interface SendFormProps {
  * unless the sender chooses to sign, and a plain line about what the
  * recipient will and will not see.
  */
-export function SendForm({ recipientName, allowSigned, anonymousAvailable, allowImages, placeholder, submitLabel, initialText = "", onSend }: SendFormProps) {
+export function SendForm({
+  recipientName,
+  allowSigned,
+  anonymousAvailable,
+  allowImages,
+  placeholder,
+  submitLabel,
+  initialText = "",
+  onSend,
+}: SendFormProps) {
   const { t } = useTranslation("ask");
   const [text, setText] = useState(initialText);
   const [wantSigned, setWantSigned] = useState(false);
@@ -53,7 +62,12 @@ export function SendForm({ recipientName, allowSigned, anonymousAvailable, allow
     onError: toastError,
   });
 
-  if (!possible) return <p className="rounded-2xl bg-surface-2 px-4 py-3 text-sm font-bold text-ink-soft">{t("askForm.unavailable", { name: recipientName })}</p>;
+  if (!possible)
+    return (
+      <p className="rounded-2xl bg-surface-2 px-4 py-3 text-sm font-bold text-ink-soft">
+        {t("askForm.unavailable", { name: recipientName })}
+      </p>
+    );
 
   return (
     <form
@@ -73,14 +87,22 @@ export function SendForm({ recipientName, allowSigned, anonymousAvailable, allow
           className="block w-full resize-none bg-transparent px-4 pt-3 text-[15px] leading-relaxed placeholder:text-ink-faint focus:outline-none"
         />
         <div className="flex items-end gap-2 px-2 pb-2">
-          {allowImages && <ImageAttachmentField attachment={image} addLabel={t("askForm.addImage")} removeLabel={t("askForm.removeImage")} />}
+          {allowImages && (
+            <ImageAttachmentField
+              attachment={image}
+              addLabel={t("askForm.addImage")}
+              removeLabel={t("askForm.removeImage")}
+            />
+          )}
           <span className="flex-1" />
           <span className="pr-2 pb-1">
             <Counter text={text.trim()} max={QUESTION_MAX} />
           </span>
         </div>
       </div>
-      {allowImages && image.previewUrl && <p className="px-1 text-xs text-ink-soft">{t("askForm.imageNote")}</p>}
+      {allowImages && image.previewUrl && (
+        <p className="px-1 text-xs text-ink-soft">{t("askForm.imageNote")}</p>
+      )}
 
       {anonymousAvailable && allowSigned && (
         <Segmented
@@ -88,13 +110,22 @@ export function SendForm({ recipientName, allowSigned, anonymousAvailable, allow
           value={wantSigned ? "signed" : "anonymous"}
           onChange={(value) => setWantSigned(value === "signed")}
           options={[
-            { value: "anonymous", label: t("askForm.anonymous"), icon: <span aria-hidden>🙈</span> },
+            {
+              value: "anonymous",
+              label: t("askForm.anonymous"),
+              icon: <span aria-hidden>🙈</span>,
+            },
             { value: "signed", label: t("askForm.signed"), icon: <span aria-hidden>🙋</span> },
           ]}
         />
       )}
-      <div className="rounded-2xl bg-surface-2 px-4 py-3 text-sm leading-relaxed" data-testid="privacy-note">
-        {!anonymousAvailable && <p className="mb-1 font-bold">{t("askForm.signedOnly", { name: recipientName })}</p>}
+      <div
+        className="rounded-2xl bg-surface-2 px-4 py-3 text-sm leading-relaxed"
+        data-testid="privacy-note"
+      >
+        {!anonymousAvailable && (
+          <p className="mb-1 font-bold">{t("askForm.signedOnly", { name: recipientName })}</p>
+        )}
         {signed ? (
           <p className="font-bold">{t("askForm.signedNote", { name: recipientName })}</p>
         ) : (
@@ -106,7 +137,14 @@ export function SendForm({ recipientName, allowSigned, anonymousAvailable, allow
       </div>
 
       <span className="relative self-stretch">
-        <Button type="submit" block size="lg" icon={<Send className="size-5" />} loading={send.isPending} disabled={length === 0 || length > QUESTION_MAX || image.busy}>
+        <Button
+          type="submit"
+          block
+          size="lg"
+          icon={<Send className="size-5" />}
+          loading={send.isPending}
+          disabled={length === 0 || length > QUESTION_MAX || image.busy}
+        >
           {image.busy ? t("askForm.uploading") : submitLabel}
         </Button>
         {burst}
@@ -124,7 +162,10 @@ export function AskForm({ box, initialText }: { box: ask.QuestionBox; initialTex
 
   if (sent) {
     return (
-      <div className="flex animate-pop-in flex-col items-center gap-2 py-4 text-center" data-testid="ask-sent">
+      <div
+        className="flex animate-pop-in flex-col items-center gap-2 py-4 text-center"
+        data-testid="ask-sent"
+      >
         <div className="text-5xl">💌</div>
         <p className="text-lg font-black">{t("askForm.sent")}</p>
         <p className="text-sm text-ink-soft">{t("askForm.sentBody")}</p>
@@ -132,7 +173,10 @@ export function AskForm({ box, initialText }: { box: ask.QuestionBox; initialTex
           <Button variant="secondary" size="sm" onClick={() => setSent(false)}>
             {t("askForm.another")}
           </Button>
-          <Link to="/ask/sent" className="pressable sticker inline-flex h-9 items-center rounded-full bg-surface px-4 text-sm font-bold">
+          <Link
+            to="/ask/sent"
+            className="pressable sticker inline-flex h-9 items-center rounded-full bg-surface px-4 text-sm font-bold"
+          >
             {t("askForm.seeSent")}
           </Link>
         </div>

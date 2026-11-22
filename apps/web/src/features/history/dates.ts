@@ -12,7 +12,11 @@ export function parseDay(date: string): Date | null {
   if (!match) return null;
   const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
   const parsed = new Date(year, month - 1, day);
-  return parsed.getFullYear() === year && parsed.getMonth() === month - 1 && parsed.getDate() === day ? parsed : null;
+  return parsed.getFullYear() === year &&
+    parsed.getMonth() === month - 1 &&
+    parsed.getDate() === day
+    ? parsed
+    : null;
 }
 
 export function formatDay(date: Date): string {
@@ -47,7 +51,10 @@ export function shiftMonth({ year, month }: Month, by: number): Month {
   return { year: Math.floor(index / 12), month: (index % 12) + 1 };
 }
 
-export const monthOf = (date: Date): Month => ({ year: date.getFullYear(), month: date.getMonth() + 1 });
+export const monthOf = (date: Date): Month => ({
+  year: date.getFullYear(),
+  month: date.getMonth() + 1,
+});
 
 /**
  * The days of a month laid out in weeks starting on Sunday; `null` pads

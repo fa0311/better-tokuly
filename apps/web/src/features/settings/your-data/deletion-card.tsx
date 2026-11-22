@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { type identity, toDate } from "@tokuly/api";
+import { errorReason, type identity, toDate } from "@tokuly/api";
 import { CalendarClock } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,10 +8,9 @@ import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { TextArea, TextField } from "#/components/ui/field";
 import { accountClient } from "#/lib/api";
+import { errorMessage } from "#/lib/errors";
 import { PasswordField } from "../account/password-field";
 import { adoptMe } from "../data";
-import { errorReason } from "@tokuly/api";
-import { errorMessage } from "#/lib/errors";
 import { Group } from "../shell/settings-page";
 
 /**
@@ -33,17 +32,35 @@ export function DeletionCard({ me }: { me: identity.Me }) {
   });
 
   if (scheduled) {
-    const daysLeft = Math.max(0, Math.ceil((scheduled.getTime() - Date.now()) / (24 * 3600 * 1000)));
+    const daysLeft = Math.max(
+      0,
+      Math.ceil((scheduled.getTime() - Date.now()) / (24 * 3600 * 1000)),
+    );
     return (
       <Group title={t("data.deletion.title")}>
-        <div role="status" className="flex items-start gap-3 rounded-2xl bg-sun p-4 text-[#17122b]" data-testid="deletion-scheduled">
+        <div
+          role="status"
+          className="flex items-start gap-3 rounded-2xl bg-sun p-4 text-[#17122b]"
+          data-testid="deletion-scheduled"
+        >
           <CalendarClock className="mt-0.5 size-6 shrink-0" />
           <div className="min-w-0">
-            <p className="font-black">{t("data.deletion.scheduled", { date: scheduled.toLocaleDateString(i18n.language, { dateStyle: "long" }) })}</p>
-            <p className="mt-1 text-sm leading-relaxed">{t("data.deletion.scheduledBody", { count: daysLeft })}</p>
+            <p className="font-black">
+              {t("data.deletion.scheduled", {
+                date: scheduled.toLocaleDateString(i18n.language, { dateStyle: "long" }),
+              })}
+            </p>
+            <p className="mt-1 text-sm leading-relaxed">
+              {t("data.deletion.scheduledBody", { count: daysLeft })}
+            </p>
           </div>
         </div>
-        <Button variant="lime" className="mt-4" loading={cancel.isPending} onClick={() => cancel.mutate()}>
+        <Button
+          variant="lime"
+          className="mt-4"
+          loading={cancel.isPending}
+          onClick={() => cancel.mutate()}
+        >
           {t("data.deletion.cancel")}
         </Button>
       </Group>
@@ -69,14 +86,16 @@ function DeletionDialog({ me, onClose }: { me: identity.Me; onClose(): void }) {
   const [passwordError, setPasswordError] = useState<string | null>(null);
 
   const request = useMutation({
-    mutationFn: () => accountClient().requestAccountDeletion({ currentPassword: password, reason: reason.trim() }),
+    mutationFn: () =>
+      accountClient().requestAccountDeletion({ currentPassword: password, reason: reason.trim() }),
     onSuccess: (response) => {
       adoptMe({ ...me, deletionScheduledAt: response.deletionScheduledAt });
       toast.success(t("settings:data.deletion.requested"));
       onClose();
     },
     onError: (error) => {
-      if (errorReason(error) === "INVALID_CREDENTIALS") setPasswordError(t("settings:account.password.wrongCurrent"));
+      if (errorReason(error) === "INVALID_CREDENTIALS")
+        setPasswordError(t("settings:account.password.wrongCurrent"));
       else toast.error(errorMessage(error));
     },
   });
@@ -90,14 +109,26 @@ function DeletionDialog({ me, onClose }: { me: identity.Me; onClose(): void }) {
   };
 
   return (
-    <Dialog open onOpenChange={(open) => !open && !request.isPending && onClose()} title={t("settings:data.deletion.dialogTitle")} description={t("settings:data.deletion.dialogLead")}>
+    <Dialog
+      open
+      onOpenChange={(open) => !open && !request.isPending && onClose()}
+      title={t("settings:data.deletion.dialogTitle")}
+      description={t("settings:data.deletion.dialogLead")}
+    >
       <form onSubmit={submit} className="flex flex-col gap-4">
         <ul className="flex list-disc flex-col gap-1 rounded-2xl bg-surface-2 py-3 pr-4 pl-8 text-sm leading-relaxed">
           <li>{t("settings:data.deletion.points.grace")}</li>
           <li>{t("settings:data.deletion.points.everything")}</li>
           <li>{t("settings:data.deletion.points.handle")}</li>
         </ul>
-        <TextArea label={t("settings:data.deletion.reason")} placeholder={t("settings:data.deletion.reasonPlaceholder")} value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} rows={2} />
+        <TextArea
+          label={t("settings:data.deletion.reason")}
+          placeholder={t("settings:data.deletion.reasonPlaceholder")}
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          maxLength={500}
+          rows={2}
+        />
         {me.hasPassword && (
           <PasswordField
             label={t("settings:account.password.current")}
@@ -122,7 +153,12 @@ function DeletionDialog({ me, onClose }: { me: identity.Me; onClose(): void }) {
           <Button variant="ghost" onClick={onClose} disabled={request.isPending}>
             {t("settings:data.deletion.keep")}
           </Button>
-          <Button type="submit" variant="danger" loading={request.isPending} disabled={!confirmed || (me.hasPassword && !password)}>
+          <Button
+            type="submit"
+            variant="danger"
+            loading={request.isPending}
+            disabled={!confirmed || (me.hasPassword && !password)}
+          >
             {t("settings:data.deletion.confirm")}
           </Button>
         </div>

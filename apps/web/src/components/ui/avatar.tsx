@@ -10,7 +10,15 @@ const SIZES = {
 } as const;
 
 /** Fallback tile colours, picked from the user ID so a person keeps theirs. */
-const TINTS = ["bg-brand text-on-brand", "bg-lime text-[#17122b]", "bg-pink text-white", "bg-sky text-[#17122b]", "bg-sun text-[#17122b]", "bg-coral text-white", "bg-mint text-[#17122b]"];
+const TINTS = [
+  "bg-brand text-on-brand",
+  "bg-lime text-[#17122b]",
+  "bg-pink text-white",
+  "bg-sky text-[#17122b]",
+  "bg-sun text-[#17122b]",
+  "bg-coral text-white",
+  "bg-mint text-[#17122b]",
+];
 
 function tintFor(seed: string): string {
   let hash = 0;
@@ -54,16 +62,28 @@ export function Avatar({ user, size = "md", outlined, online, className }: Avata
           outlined && "sticker-sm",
           !url && (user?.deleted ? "bg-surface-3 text-ink-faint" : tintFor(user?.id ?? name)),
         )}
-        style={url && user?.avatar?.dominantColor ? { background: user.avatar.dominantColor } : undefined}
+        style={
+          url && user?.avatar?.dominantColor ? { background: user.avatar.dominantColor } : undefined
+        }
       >
         {url ? (
-          <img src={url} alt="" className="size-full object-cover" loading="lazy" decoding="async" draggable={false} />
+          <img
+            src={url}
+            alt=""
+            className="size-full object-cover"
+            loading="lazy"
+            decoding="async"
+            draggable={false}
+          />
         ) : (
           <span aria-hidden>{user?.deleted ? "?" : Array.from(name)[0]?.toUpperCase()}</span>
         )}
       </span>
       {online && (
-        <span className="absolute -right-0.5 -bottom-0.5 size-3 rounded-full border-2 border-surface bg-success" aria-label="online" />
+        <span
+          className="absolute -right-0.5 -bottom-0.5 size-3 rounded-full border-2 border-surface bg-success"
+          aria-label="online"
+        />
       )}
     </span>
   );

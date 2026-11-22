@@ -35,7 +35,8 @@ export default {
     noVisits: "No stops that day",
     friendsMet: "Friends you met",
     friendsMetCount: "You met {{count}} friends!",
-    routeMissing: "The route of this day cannot be shown right now. The places you went are all still here",
+    routeMissing:
+      "The route of this day cannot be shown right now. The places you went are all still here",
     emptyTitle: "Nothing recorded this day",
     emptyBody: "A lazy day at home, maybe? You can still leave a memo",
     emptyToday: "You have not been anywhere yet today. Head out and it lands here!",
@@ -135,7 +136,8 @@ export default {
     done: "History deleted",
   },
   errors: {
-    HISTORY_UNAVAILABLE: "History cannot be changed right now. Nothing was deleted; try again in a little while",
+    HISTORY_UNAVAILABLE:
+      "History cannot be changed right now. Nothing was deleted; try again in a little while",
     INVALID_RANGE: "Choose a valid range",
     INVALID_DATE: "That date cannot be used",
     INVALID_TIME_ZONE: "Could not read the time zone",

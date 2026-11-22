@@ -1,7 +1,15 @@
 import { create, engagement } from "@tokuly/api";
 import { describe, expect, it } from "vitest";
 import { EMOJI_GROUPS, QUICK_EMOJI } from "./emoji-data";
-import { compactCount, type Engagement, emojiReaction, LIKE, toEngagement, withCounters, withViewerReaction } from "./model";
+import {
+  compactCount,
+  type Engagement,
+  emojiReaction,
+  LIKE,
+  toEngagement,
+  withCounters,
+  withViewerReaction,
+} from "./model";
 
 const base: Engagement = {
   subjectId: "s1",
@@ -27,7 +35,10 @@ describe("withViewerReaction", () => {
   });
 
   it("joins an emoji that is already there and starts a new one", () => {
-    expect(withViewerReaction(base, emojiReaction("🎉")).emojiCounts[0]).toEqual({ emoji: "🎉", count: 4 });
+    expect(withViewerReaction(base, emojiReaction("🎉")).emojiCounts[0]).toEqual({
+      emoji: "🎉",
+      count: 4,
+    });
     const fresh = withViewerReaction(base, emojiReaction("✨"));
     expect(fresh.emojiCounts.at(-1)).toEqual({ emoji: "✨", count: 1 });
     expect(fresh.emojiTotal).toBe(5);
@@ -45,7 +56,10 @@ describe("withViewerReaction", () => {
   });
 
   it("drops an emoji nobody uses anymore when the reaction is taken back", () => {
-    const only = withViewerReaction({ ...base, emojiCounts: [], emojiTotal: 0 }, emojiReaction("✨"));
+    const only = withViewerReaction(
+      { ...base, emojiCounts: [], emojiTotal: 0 },
+      emojiReaction("✨"),
+    );
     const back = withViewerReaction(only, undefined);
     expect(back.emojiCounts).toEqual([]);
     expect(back.emojiTotal).toBe(0);
@@ -57,19 +71,40 @@ describe("server data", () => {
   it("reads an engagement message", () => {
     const message = create(engagement.SubjectEngagementSchema, {
       subject: { type: 3, id: "uuid" },
-      reactions: { likeCount: 5n, emojiCounts: [{ emoji: "🎉", count: 2n }], emojiTotal: 2n, viewerReaction: { kind: engagement.ReactionKind.EMOJI, emoji: "🎉" } },
+      reactions: {
+        likeCount: 5n,
+        emojiCounts: [{ emoji: "🎉", count: 2n }],
+        emojiTotal: 2n,
+        viewerReaction: { kind: engagement.ReactionKind.EMOJI, emoji: "🎉" },
+      },
       bookmarkCount: 1n,
       bookmarked: true,
       interactionsEnabled: true,
     });
-    expect(toEngagement(message)).toMatchObject({ subjectId: "uuid", likeCount: 5, emojiCounts: [{ emoji: "🎉", count: 2 }], viewerReaction: { emoji: "🎉" }, bookmarked: true });
+    expect(toEngagement(message)).toMatchObject({
+      subjectId: "uuid",
+      likeCount: 5,
+      emojiCounts: [{ emoji: "🎉", count: 2 }],
+      viewerReaction: { emoji: "🎉" },
+      bookmarked: true,
+    });
   });
 
   it("applies pushed counters without losing the viewer's own state", () => {
     const mine = withViewerReaction({ ...base, bookmarked: true }, emojiReaction("🎉"));
-    const pushed = create(engagement.CountersChangedSchema, { reactions: { likeCount: 9n, emojiCounts: [{ emoji: "🎉", count: 7n }], emojiTotal: 7n }, bookmarkCount: 4n, shareCount: 2n });
+    const pushed = create(engagement.CountersChangedSchema, {
+      reactions: { likeCount: 9n, emojiCounts: [{ emoji: "🎉", count: 7n }], emojiTotal: 7n },
+      bookmarkCount: 4n,
+      shareCount: 2n,
+    });
     const next = withCounters(mine, pushed);
-    expect(next).toMatchObject({ likeCount: 9, emojiTotal: 7, bookmarkCount: 4, shareCount: 2, bookmarked: true });
+    expect(next).toMatchObject({
+      likeCount: 9,
+      emojiTotal: 7,
+      bookmarkCount: 4,
+      shareCount: 2,
+      bookmarked: true,
+    });
     expect(next.viewerReaction).toEqual(emojiReaction("🎉"));
   });
 });
@@ -87,10 +122,12 @@ describe("emoji offered for reactions", () => {
   const graphemes = (text: string) => [...segmenter.segment(text)].length;
 
   it("are single emoji, which is all the server takes", () => {
-    for (const emoji of [...QUICK_EMOJI, ...EMOJI_GROUPS.flatMap((group) => group.emoji)]) expect(graphemes(emoji), emoji).toBe(1);
+    for (const emoji of [...QUICK_EMOJI, ...EMOJI_GROUPS.flatMap((group) => group.emoji)])
+      expect(graphemes(emoji), emoji).toBe(1);
   });
 
   it("appear once per group", () => {
-    for (const group of EMOJI_GROUPS) expect(new Set(group.emoji).size, group.id).toBe(group.emoji.length);
+    for (const group of EMOJI_GROUPS)
+      expect(new Set(group.emoji).size, group.id).toBe(group.emoji.length);
   });
 });

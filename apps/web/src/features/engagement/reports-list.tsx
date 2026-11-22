@@ -33,7 +33,10 @@ export function ReportsList() {
       </div>
     );
   }
-  if (reports.length === 0) return <EmptyState emoji="🕊️" title={t("report.mine.empty")} body={t("report.mine.emptyBody")} />;
+  if (reports.length === 0)
+    return (
+      <EmptyState emoji="🕊️" title={t("report.mine.empty")} body={t("report.mine.emptyBody")} />
+    );
 
   return (
     <ul className="flex flex-col gap-3">
@@ -42,16 +45,25 @@ export function ReportsList() {
         const category = REPORT_CATEGORIES.find((entry) => entry.category === report.category);
         const created = toDate(report.createdAt);
         const resolved = toDate(report.resolvedAt);
-        const date = (value: Date) => value.toLocaleDateString(i18n.language, { year: "numeric", month: "short", day: "numeric" });
+        const date = (value: Date) =>
+          value.toLocaleDateString(i18n.language, {
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+          });
         return (
           <li key={report.id} data-testid="report" className="sticker rounded-card bg-surface p-4">
             <div className="flex flex-wrap items-center gap-2">
-              <Chip className={cn("border-2 border-ink font-black", status.tone)}>{t(`report.status.${status.key}`)}</Chip>
+              <Chip className={cn("border-2 border-ink font-black", status.tone)}>
+                {t(`report.status.${status.key}`)}
+              </Chip>
               <Chip>
                 <span aria-hidden>{category?.emoji}</span>
                 {t(`report.categories.${reportCategoryKey(report.category)}`)}
               </Chip>
-              <span className="ml-auto text-xs font-bold text-ink-faint">{created && date(created)}</span>
+              <span className="ml-auto text-xs font-bold text-ink-faint">
+                {created && date(created)}
+              </span>
             </div>
             <button
               type="button"
@@ -60,13 +72,25 @@ export function ReportsList() {
               className="mt-3 flex w-full items-center gap-2 rounded-2xl bg-surface-2 px-3 py-2.5 text-left enabled:hover:bg-surface-3"
             >
               <span className="min-w-0 flex-1">
-                <span className="block text-xs font-black text-brand">{t(`subjects.${subjectTypeKey(report.subject?.type)}`)}</span>
-                <span className="line-clamp-2 text-[15px] font-bold leading-snug">{report.subjectTitle || t("subjects.untitled")}</span>
+                <span className="block text-xs font-black text-brand">
+                  {t(`subjects.${subjectTypeKey(report.subject?.type)}`)}
+                </span>
+                <span className="line-clamp-2 text-[15px] font-bold leading-snug">
+                  {report.subjectTitle || t("subjects.untitled")}
+                </span>
               </span>
               {report.subjectPath && <ChevronRight className="size-5 shrink-0 text-ink-faint" />}
             </button>
-            {report.text && <p className="mt-3 text-sm leading-relaxed whitespace-pre-wrap text-ink-soft">{report.text}</p>}
-            {resolved && <p className="mt-2 text-xs font-bold text-ink-faint">{t("report.mine.resolvedOn", { date: date(resolved) })}</p>}
+            {report.text && (
+              <p className="mt-3 text-sm leading-relaxed whitespace-pre-wrap text-ink-soft">
+                {report.text}
+              </p>
+            )}
+            {resolved && (
+              <p className="mt-2 text-xs font-bold text-ink-faint">
+                {t("report.mine.resolvedOn", { date: date(resolved) })}
+              </p>
+            )}
           </li>
         );
       })}

@@ -89,7 +89,13 @@ export function CoinBurst({ burst }: { burst: Burst | null }) {
         <motion.span
           key={`${burst.id}-${particle.id}`}
           className="absolute top-0 left-0 grid place-items-center leading-none"
-          style={{ width: particle.size, height: particle.size, marginLeft: -particle.size / 2, marginTop: -particle.size / 2, fontSize: particle.size * 0.9 }}
+          style={{
+            width: particle.size,
+            height: particle.size,
+            marginLeft: -particle.size / 2,
+            marginTop: -particle.size / 2,
+            fontSize: particle.size * 0.9,
+          }}
           initial={{ x: 0, y: 0, scale: 0.3, opacity: 1, rotate: 0 }}
           animate={{
             x: particle.x,
@@ -98,7 +104,12 @@ export function CoinBurst({ burst }: { burst: Burst | null }) {
             opacity: [1, 1, 0],
             rotate: particle.rotate,
           }}
-          transition={{ duration: burst.seconds, delay: particle.delay, ease: "easeOut", times: [0, 0.6, 1] }}
+          transition={{
+            duration: burst.seconds,
+            delay: particle.delay,
+            ease: "easeOut",
+            times: [0, 0.6, 1],
+          }}
         >
           {particle.sparkle ?? <CoinIcon className="size-full text-[0.6em]" />}
         </motion.span>

@@ -11,8 +11,8 @@ import { TextField } from "#/components/ui/field";
 import { Skeleton } from "#/components/ui/page";
 import { accountClient } from "#/lib/api";
 import { cn } from "#/lib/cn";
-import { keys, refreshMe } from "../data";
 import { errorMessage } from "#/lib/errors";
+import { keys, refreshMe } from "../data";
 import { Group, StateChip } from "../shell/settings-page";
 
 /** Two-step verification with an authenticator app: turn on (QR, code, recovery codes) and off. */
@@ -23,14 +23,26 @@ export function TotpCard({ me }: { me: identity.Me }) {
   return (
     <Group title={t("security.totp.title")} lead={t("security.totp.lead")}>
       <div className="flex items-center gap-3">
-        <span className={cn("grid size-10 shrink-0 place-items-center rounded-xl border-2 border-ink", me.totpEnabled ? "bg-mint text-[#17122b]" : "bg-surface-3 text-ink")}>
+        <span
+          className={cn(
+            "grid size-10 shrink-0 place-items-center rounded-xl border-2 border-ink",
+            me.totpEnabled ? "bg-mint text-[#17122b]" : "bg-surface-3 text-ink",
+          )}
+        >
           {me.totpEnabled ? <ShieldCheck className="size-5" /> : <ShieldOff className="size-5" />}
         </span>
         <div className="min-w-0 flex-1">
-          <StateChip tone={me.totpEnabled ? "good" : "off"}>{me.totpEnabled ? t("security.totp.on") : t("security.totp.off")}</StateChip>
+          <StateChip tone={me.totpEnabled ? "good" : "off"}>
+            {me.totpEnabled ? t("security.totp.on") : t("security.totp.off")}
+          </StateChip>
         </div>
         {me.totpEnabled ? (
-          <Button size="sm" variant="secondary" className="shrink-0" onClick={() => setDialog("disable")}>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="shrink-0"
+            onClick={() => setDialog("disable")}
+          >
             {t("security.totp.disable")}
           </Button>
         ) : (
@@ -39,7 +51,9 @@ export function TotpCard({ me }: { me: identity.Me }) {
           </Button>
         )}
       </div>
-      <p className="mt-3 text-sm leading-relaxed text-ink-soft">{me.totpEnabled ? t("security.totp.onHint") : t("security.totp.offHint")}</p>
+      <p className="mt-3 text-sm leading-relaxed text-ink-soft">
+        {me.totpEnabled ? t("security.totp.onHint") : t("security.totp.offHint")}
+      </p>
       {dialog === "setup" && <TotpSetupDialog onClose={() => setDialog(null)} />}
       {dialog === "disable" && <TotpDisableDialog onClose={() => setDialog(null)} />}
     </Group>
@@ -61,7 +75,11 @@ function TotpSetupDialog({ onClose }: { onClose(): void }) {
     queryKey: ["identity", "totp-setup"],
     queryFn: async () => {
       const begun = await accountClient().beginTotpSetup({});
-      const qr = await QRCode.toDataURL(begun.otpauthUrl, { margin: 1, width: 440, color: { dark: "#17122b", light: "#ffffff" } });
+      const qr = await QRCode.toDataURL(begun.otpauthUrl, {
+        margin: 1,
+        width: 440,
+        color: { dark: "#17122b", light: "#ffffff" },
+      });
       return { secret: begun.secret, qr };
     },
     // Never reuse or silently replace a secret: the person may already have scanned it.
@@ -95,7 +113,12 @@ function TotpSetupDialog({ onClose }: { onClose(): void }) {
   if (recoveryCodes) return <RecoveryCodesDialog codes={recoveryCodes} onClose={onClose} />;
 
   return (
-    <Dialog open onOpenChange={(open) => !open && !enable.isPending && onClose()} title={t("settings:security.totp.setupTitle")} description={t("settings:security.totp.setupLead")}>
+    <Dialog
+      open
+      onOpenChange={(open) => !open && !enable.isPending && onClose()}
+      title={t("settings:security.totp.setupTitle")}
+      description={t("settings:security.totp.setupLead")}
+    >
       {setup.isError ? (
         <div className="flex flex-col items-center gap-3 py-6 text-center">
           <p className="text-sm font-bold text-danger">{errorMessage(setup.error)}</p>
@@ -108,18 +131,35 @@ function TotpSetupDialog({ onClose }: { onClose(): void }) {
           <div>
             <p className="px-1 pb-2 text-sm font-black">{t("settings:security.totp.step1")}</p>
             <div className="sticker mx-auto grid size-52 place-items-center rounded-3xl bg-white p-3">
-              {setup.data ? <img src={setup.data.qr} alt={t("settings:security.totp.qrAlt")} className="size-full" /> : <Skeleton className="size-full" />}
+              {setup.data ? (
+                <img
+                  src={setup.data.qr}
+                  alt={t("settings:security.totp.qrAlt")}
+                  className="size-full"
+                />
+              ) : (
+                <Skeleton className="size-full" />
+              )}
             </div>
             <p className="mt-4 px-1 text-sm text-ink-soft">{t("settings:security.totp.manual")}</p>
             <div className="mt-1.5 flex items-center gap-2 rounded-2xl bg-surface-2 py-1.5 pr-1.5 pl-4">
               {setup.data ? (
-                <code data-testid="totp-secret" className="min-w-0 flex-1 break-all font-mono text-sm font-bold tracking-wider">
+                <code
+                  data-testid="totp-secret"
+                  className="min-w-0 flex-1 break-all font-mono text-sm font-bold tracking-wider"
+                >
                   {setup.data.secret}
                 </code>
               ) : (
                 <Skeleton className="h-5 flex-1" />
               )}
-              <Button size="icon-sm" variant="ghost" aria-label={t("settings:security.totp.copySecret")} onClick={copySecret} disabled={!setup.data}>
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                aria-label={t("settings:security.totp.copySecret")}
+                onClick={copySecret}
+                disabled={!setup.data}
+              >
                 <Copy className="size-4" />
               </Button>
             </div>
@@ -139,7 +179,11 @@ function TotpSetupDialog({ onClose }: { onClose(): void }) {
             <Button variant="ghost" onClick={onClose} disabled={enable.isPending}>
               {t("common:actions.cancel")}
             </Button>
-            <Button type="submit" loading={enable.isPending} disabled={!setup.data || code.replace(/\s/g, "").length !== 6}>
+            <Button
+              type="submit"
+              loading={enable.isPending}
+              disabled={!setup.data || code.replace(/\s/g, "").length !== 6}
+            >
               {t("settings:security.totp.confirm")}
             </Button>
           </div>
@@ -158,7 +202,11 @@ function RecoveryCodesDialog({ codes, onClose }: { codes: string[]; onClose(): v
     toast.success(t("common:actions.copied"));
   };
   const download = () => {
-    const url = URL.createObjectURL(new Blob([`${t("settings:security.totp.recoveryFileHeader")}\n\n${text}\n`], { type: "text/plain" }));
+    const url = URL.createObjectURL(
+      new Blob([`${t("settings:security.totp.recoveryFileHeader")}\n\n${text}\n`], {
+        type: "text/plain",
+      }),
+    );
     const link = document.createElement("a");
     link.href = url;
     link.download = "tokuly-recovery-codes.txt";
@@ -174,7 +222,10 @@ function RecoveryCodesDialog({ codes, onClose }: { codes: string[]; onClose(): v
       description={t("settings:security.totp.recoveryLead")}
       footer={<Button onClick={onClose}>{t("settings:security.totp.recoveryDone")}</Button>}
     >
-      <ul data-testid="recovery-codes" className="grid grid-cols-2 gap-2 rounded-2xl bg-surface-2 p-4 font-mono text-sm font-bold">
+      <ul
+        data-testid="recovery-codes"
+        className="grid grid-cols-2 gap-2 rounded-2xl bg-surface-2 p-4 font-mono text-sm font-bold"
+      >
         {codes.map((code) => (
           <li key={code} className="text-center tracking-wider">
             {code}
@@ -185,7 +236,12 @@ function RecoveryCodesDialog({ codes, onClose }: { codes: string[]; onClose(): v
         <Button size="sm" variant="secondary" icon={<Copy className="size-4" />} onClick={copy}>
           {t("common:actions.copy")}
         </Button>
-        <Button size="sm" variant="secondary" icon={<Download className="size-4" />} onClick={download}>
+        <Button
+          size="sm"
+          variant="secondary"
+          icon={<Download className="size-4" />}
+          onClick={download}
+        >
           {t("settings:security.totp.recoveryDownload")}
         </Button>
       </div>
@@ -217,7 +273,12 @@ function TotpDisableDialog({ onClose }: { onClose(): void }) {
   };
 
   return (
-    <Dialog open onOpenChange={(open) => !open && !disable.isPending && onClose()} title={t("settings:security.totp.disableTitle")} description={t("settings:security.totp.disableLead")}>
+    <Dialog
+      open
+      onOpenChange={(open) => !open && !disable.isPending && onClose()}
+      title={t("settings:security.totp.disableTitle")}
+      description={t("settings:security.totp.disableLead")}
+    >
       <form onSubmit={submit} className="flex flex-col gap-4">
         <TextField
           label={t("settings:security.totp.disableCode")}

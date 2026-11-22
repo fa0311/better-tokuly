@@ -13,7 +13,12 @@ export const searchKeys = {
   all: ["search"] as const,
   /** Every result list of a query, whatever the tab. */
   query: (query: string) => ["search", "results", query] as const,
-  results: (query: string, kind: search.SearchKind, sort: Sort | undefined, owner: string | undefined) => ["search", "results", query, kind, sort ?? "relevance", owner ?? ""] as const,
+  results: (
+    query: string,
+    kind: search.SearchKind,
+    sort: Sort | undefined,
+    owner: string | undefined,
+  ) => ["search", "results", query, kind, sort ?? "relevance", owner ?? ""] as const,
   /** Every typeahead answer. */
   suggestions: ["search", "suggest"] as const,
   suggest: (text: string, kind: search.SearchKind) => ["search", "suggest", text, kind] as const,
@@ -110,7 +115,8 @@ export function useHistoryActions() {
 
   const forget = useMutation({
     mutationFn: (id: string) => searchClient().deleteRecentSearch({ id }),
-    onMutate: (id) => patch((data) => ({ ...data, searches: data.searches.filter((item) => item.id !== id) })),
+    onMutate: (id) =>
+      patch((data) => ({ ...data, searches: data.searches.filter((item) => item.id !== id) })),
     onError: (error, _id, context) => rollback(error, context),
     onSettled: settle,
   });

@@ -14,18 +14,32 @@ vi.mock("./api", () => ({
   }),
   povClient: () => ({}),
   conversationClient: () => ({}),
-  chatKeys: { timeline: (id: string) => ["chat", "timeline", id], conversation: (id: string) => ["chat", "conversation", id], list: (filter: string) => ["chat", "list", filter], unread: ["chat", "unread"] },
+  chatKeys: {
+    timeline: (id: string) => ["chat", "timeline", id],
+    conversation: (id: string) => ["chat", "conversation", id],
+    list: (filter: string) => ["chat", "list", filter],
+    unread: ["chat", "unread"],
+  },
   LIST_FILTERS: {},
 }));
 vi.mock("#/lib/realtime", () => ({ realtime: () => ({ sendTyping: () => {} }) }));
 vi.mock("#/lib/upload", () => {
-  const upload = () => new Promise((resolve) => uploads.push({ resolve: () => resolve({ id: `asset-${uploads.length}` }) }));
+  const upload = () =>
+    new Promise((resolve) =>
+      uploads.push({ resolve: () => resolve({ id: `asset-${uploads.length}` }) }),
+    );
   return { uploadFile: upload, uploadAndProcess: upload };
 });
 
 const { send, useOutbox, clearOutbox } = await import("./outbox");
 
-const photo = () => ({ id: "f1", file: new File(["x"], "a.png", { type: "image/png" }), name: "a.png", kind: "image" as const, previewUrl: "blob:a" });
+const photo = () => ({
+  id: "f1",
+  file: new File(["x"], "a.png", { type: "image/png" }),
+  name: "a.png",
+  kind: "image" as const,
+  previewUrl: "blob:a",
+});
 const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 beforeEach(() => {
@@ -63,7 +77,9 @@ describe("sending", () => {
     await settled();
     await settled();
     expect(sent).toEqual(["refused", "after"]);
-    expect(useOutbox.getState().items.c1?.find((item) => item.text === "refused")?.status).toBe("failed");
+    expect(useOutbox.getState().items.c1?.find((item) => item.text === "refused")?.status).toBe(
+      "failed",
+    );
   });
 
   it("forgets everything on its way when the account signs out", async () => {

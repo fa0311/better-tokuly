@@ -1,4 +1,9 @@
-import type { GeoJSONSource, LayerSpecification, LngLatBoundsLike, MapMouseEvent } from "maplibre-gl";
+import type {
+  GeoJSONSource,
+  LayerSpecification,
+  LngLatBoundsLike,
+  MapMouseEvent,
+} from "maplibre-gl";
 import { Marker } from "maplibre-gl";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -14,7 +19,17 @@ export { useIsDark, useMap } from "#/features/map/map-view";
  * ancestor, so this gives it one with a size; children are map children
  * (layers, pins, controls) and may call `useMap()`.
  */
-export function MapFrame({ center, zoom = 14, className, children }: { center: LatLng; zoom?: number; className?: string; children?: ReactNode }) {
+export function MapFrame({
+  center,
+  zoom = 14,
+  className,
+  children,
+}: {
+  center: LatLng;
+  zoom?: number;
+  className?: string;
+  children?: ReactNode;
+}) {
   return (
     <div className={cn("relative isolate overflow-hidden bg-surface-2", className)}>
       <MapView styleId="tokuly" initialCenter={[center.lng, center.lat]} initialZoom={zoom}>
@@ -64,7 +79,15 @@ export interface GeoLayerStyle {
  * changes, which drops everything added to it, so the source and layers are
  * put back whenever they are missing.
  */
-export function GeoLayer({ id, data, layers }: { id: string; data: GeoData; layers: GeoLayerStyle[] }) {
+export function GeoLayer({
+  id,
+  data,
+  layers,
+}: {
+  id: string;
+  data: GeoData;
+  layers: GeoLayerStyle[];
+}) {
   const map = useMap();
   const latest = useRef({ data, layers });
   latest.current = { data, layers };
@@ -72,7 +95,8 @@ export function GeoLayer({ id, data, layers }: { id: string; data: GeoData; laye
   useEffect(() => {
     const ensure = () => {
       try {
-        if (!map.getSource(id)) map.addSource(id, { type: "geojson", data: latest.current.data as SourceData });
+        if (!map.getSource(id))
+          map.addSource(id, { type: "geojson", data: latest.current.data as SourceData });
         for (const layer of latest.current.layers) {
           if (!map.getLayer(layer.id)) map.addLayer({ ...layer, source: id } as LayerSpecification);
         }
@@ -88,7 +112,8 @@ export function GeoLayer({ id, data, layers }: { id: string; data: GeoData; laye
       map.off("style.load", ensure);
       // The map may already be gone when the page unmounts.
       try {
-        for (const layer of latest.current.layers) if (map.getLayer(layer.id)) map.removeLayer(layer.id);
+        for (const layer of latest.current.layers)
+          if (map.getLayer(layer.id)) map.removeLayer(layer.id);
         if (map.getSource(id)) map.removeSource(id);
       } catch {
         // Removed together with the map.
@@ -197,7 +222,17 @@ export function boundsOf(points: LatLng[]): LngLatBoundsLike | null {
  * Moves the camera so that all `points` are in view whenever `fitKey`
  * changes (not on every render: the person may have moved the map since).
  */
-export function FitTo({ points, fitKey, padding = 56, maxZoom = 16 }: { points: LatLng[]; fitKey: string; padding?: number; maxZoom?: number }) {
+export function FitTo({
+  points,
+  fitKey,
+  padding = 56,
+  maxZoom = 16,
+}: {
+  points: LatLng[];
+  fitKey: string;
+  padding?: number;
+  maxZoom?: number;
+}) {
   const map = useMap();
   const latest = useRef(points);
   latest.current = points;
@@ -209,9 +244,14 @@ export function FitTo({ points, fitKey, padding = 56, maxZoom = 16 }: { points: 
 }
 
 /** A circle of `radiusMeters` around a point as a polygon ring (the map has no metric circles). */
-export function circlePolygon(center: LatLng, radiusMeters: number, steps = 64): GeoFeature<{ type: "Polygon"; coordinates: GeoRing[] }> {
+export function circlePolygon(
+  center: LatLng,
+  radiusMeters: number,
+  steps = 64,
+): GeoFeature<{ type: "Polygon"; coordinates: GeoRing[] }> {
   const latRadius = radiusMeters / 111_320;
-  const lngRadius = radiusMeters / (111_320 * Math.max(0.01, Math.cos((center.lat * Math.PI) / 180)));
+  const lngRadius =
+    radiusMeters / (111_320 * Math.max(0.01, Math.cos((center.lat * Math.PI) / 180)));
   const ring: [number, number][] = [];
   for (let step = 0; step <= steps; step++) {
     const angle = (step / steps) * Math.PI * 2;

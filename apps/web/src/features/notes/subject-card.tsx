@@ -1,5 +1,5 @@
-import { GenericSubjectCard, type SubjectCardProps } from "#/features/engagement";
 import { Skeleton } from "#/components/ui/page";
+import { GenericSubjectCard, type SubjectCardProps } from "#/features/engagement";
 import { useNote } from "./api";
 import { NoteCard } from "./note-card";
 

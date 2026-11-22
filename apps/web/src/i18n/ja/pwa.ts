@@ -54,7 +54,13 @@ export default {
       confirm: { title: "右上の「追加」をタップ", body: "これでTokulyがホーム画面にならぶよ！" },
     },
     // Labels inside the little pictures of the steps, as iOS shows them.
-    art: { copy: "コピー", addToHome: "ホーム画面に追加", bookmark: "ブックマークを追加", cancel: "キャンセル", add: "追加" },
+    art: {
+      copy: "コピー",
+      addToHome: "ホーム画面に追加",
+      bookmark: "ブックマークを追加",
+      cancel: "キャンセル",
+      add: "追加",
+    },
     done: "わかった！",
   },
 
@@ -111,7 +117,8 @@ export default {
     files: "すばやく開くために保存したファイル: {{count}}個",
     clear: "オフラインデータを消す",
     clearTitle: "オフラインデータを消す？",
-    clearBody: "すばやく開くために保存したファイルを消して、容量を空けるよ。アカウントやメッセージは消えないから安心してね。次に開くときだけ、読み込みがすこし長くなるかも。",
+    clearBody:
+      "すばやく開くために保存したファイルを消して、容量を空けるよ。アカウントやメッセージは消えないから安心してね。次に開くときだけ、読み込みがすこし長くなるかも。",
     clearConfirm: "消す",
     cleared: "オフラインデータを消したよ！",
     clearFailed: "うまく消せなかった…もう一度ためしてね",

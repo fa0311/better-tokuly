@@ -2,7 +2,15 @@ import zlib from "node:zlib";
 import { create, toBinary } from "@bufbuild/protobuf";
 import type { APIRequestContext, Browser, Locator, Page, TestInfo } from "@playwright/test";
 import { chat } from "@tokuly/api";
-import { type Account, expect as baseExpect, befriend, createAccount, rpc, signInAs, test } from "./support";
+import {
+  type Account,
+  expect as baseExpect,
+  befriend,
+  createAccount,
+  rpc,
+  signInAs,
+  test,
+} from "./support";
 
 // These tests share a machine with many other builds and browsers: a cold page
 // or a busy API can take a while to answer. Waiting longer costs nothing when
@@ -15,7 +23,15 @@ test.describe.configure({ timeout: 120_000 });
 // the configuration as a whole, so its flags are repeated here.
 test.use({
   launchOptions: {
-    args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist", "--enable-webgl", "--disable-dev-shm-usage", "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"],
+    args: [
+      "--use-angle=swiftshader",
+      "--enable-unsafe-swiftshader",
+      "--ignore-gpu-blocklist",
+      "--enable-webgl",
+      "--disable-dev-shm-usage",
+      "--use-fake-device-for-media-stream",
+      "--use-fake-ui-for-media-stream",
+    ],
   },
 });
 
@@ -44,22 +60,59 @@ interface ApiMessage {
 }
 
 /** The direct conversation between `as` and `other` (created when they never talked). */
-async function directWith(request: APIRequestContext, as: Account, other: Account): Promise<string> {
-  const { conversation } = await rpc<{ conversation: { id: string } }>(request, `${CONVERSATIONS}/OpenDirect`, { userId: other.userId }, as);
+async function directWith(
+  request: APIRequestContext,
+  as: Account,
+  other: Account,
+): Promise<string> {
+  const { conversation } = await rpc<{ conversation: { id: string } }>(
+    request,
+    `${CONVERSATIONS}/OpenDirect`,
+    { userId: other.userId },
+    as,
+  );
   return conversation.id;
 }
 
-async function sendText(request: APIRequestContext, as: Account, conversationId: string, text: string): Promise<ApiMessage> {
-  const { message } = await rpc<{ message: ApiMessage }>(request, `${MESSAGES}/SendMessage`, { conversationId, clientId: crypto.randomUUID(), text }, as);
+async function sendText(
+  request: APIRequestContext,
+  as: Account,
+  conversationId: string,
+  text: string,
+): Promise<ApiMessage> {
+  const { message } = await rpc<{ message: ApiMessage }>(
+    request,
+    `${MESSAGES}/SendMessage`,
+    { conversationId, clientId: crypto.randomUUID(), text },
+    as,
+  );
   return message;
 }
 
-async function messagesOf(request: APIRequestContext, as: Account, conversationId: string): Promise<ApiMessage[]> {
-  return (await rpc<{ messages?: ApiMessage[] }>(request, `${MESSAGES}/ListMessages`, { conversationId, limit: 100 }, as)).messages ?? [];
+async function messagesOf(
+  request: APIRequestContext,
+  as: Account,
+  conversationId: string,
+): Promise<ApiMessage[]> {
+  return (
+    (
+      await rpc<{ messages?: ApiMessage[] }>(
+        request,
+        `${MESSAGES}/ListMessages`,
+        { conversationId, limit: 100 },
+        as,
+      )
+    ).messages ?? []
+  );
 }
 
 /** Waits until `as` can see a message matching `matches` in the conversation, and returns it. */
-async function expectMessage(request: APIRequestContext, as: Account, conversationId: string, matches: (message: ApiMessage) => boolean): Promise<ApiMessage> {
+async function expectMessage(
+  request: APIRequestContext,
+  as: Account,
+  conversationId: string,
+  matches: (message: ApiMessage) => boolean,
+): Promise<ApiMessage> {
   let found: ApiMessage | undefined;
   await expect(async () => {
     found = (await messagesOf(request, as, conversationId)).find(matches);
@@ -69,14 +122,22 @@ async function expectMessage(request: APIRequestContext, as: Account, conversati
 }
 
 /** Two accounts that are friends, with their direct conversation: `me` (signed in in the browser) and "aoi". */
-async function withFriend(request: APIRequestContext, me: Account, name = "aoi"): Promise<{ friend: Account; conversationId: string }> {
+async function withFriend(
+  request: APIRequestContext,
+  me: Account,
+  name = "aoi",
+): Promise<{ friend: Account; conversationId: string }> {
   const friend = await createAccount(request, name);
   await befriend(request, me, friend);
   return { friend, conversationId: await directWith(request, friend, me) };
 }
 
 /** A PNG picture: a coloured disc on white. */
-function picture(name: string, color: [number, number, number] = [230, 40, 60], size = 160): { name: string; mimeType: string; buffer: Buffer } {
+function picture(
+  name: string,
+  color: [number, number, number] = [230, 40, 60],
+  size = 160,
+): { name: string; mimeType: string; buffer: Buffer } {
   const row = size * 4 + 1;
   const raw = Buffer.alloc(row * size);
   for (let y = 0; y < size; y++) {
@@ -98,23 +159,50 @@ function picture(name: string, color: [number, number, number] = [230, 40, 60], 
   header.writeUInt32BE(size, 4);
   header.set([8, 6, 0, 0, 0], 8);
   const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-  return { name, mimeType: "image/png", buffer: Buffer.concat([signature, chunk("IHDR", header), chunk("IDAT", zlib.deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]) };
+  return {
+    name,
+    mimeType: "image/png",
+    buffer: Buffer.concat([
+      signature,
+      chunk("IHDR", header),
+      chunk("IDAT", zlib.deflateSync(raw)),
+      chunk("IEND", Buffer.alloc(0)),
+    ]),
+  };
 }
 
 /** Gives `as` a personal stamp called `name`, ready to send. */
 async function personalStamp(request: APIRequestContext, as: Account, name: string): Promise<void> {
   const file = picture("stamp.png", [60, 120, 240], 240);
-  const created = await rpc<{ assetId: string; uploadId: string; putUrl: string; putHeaders?: Record<string, string> }>(
+  const created = await rpc<{
+    assetId: string;
+    uploadId: string;
+    putUrl: string;
+    putHeaders?: Record<string, string>;
+  }>(
     request,
     `${MEDIA}/CreateUpload`,
-    { purpose: "ASSET_PURPOSE_STAMP", fileName: file.name, contentType: file.mimeType, sizeBytes: String(file.buffer.length) },
+    {
+      purpose: "ASSET_PURPOSE_STAMP",
+      fileName: file.name,
+      contentType: file.mimeType,
+      sizeBytes: String(file.buffer.length),
+    },
     as,
   );
-  const put = await request.put(created.putUrl, { data: file.buffer, headers: created.putHeaders ?? {} });
+  const put = await request.put(created.putUrl, {
+    data: file.buffer,
+    headers: created.putHeaders ?? {},
+  });
   expect(put.ok(), "stamp upload").toBeTruthy();
   await rpc(request, `${MEDIA}/CompleteUpload`, { uploadId: created.uploadId }, as);
   await expect(async () => {
-    const { asset } = await rpc<{ asset: { status: string } }>(request, `${MEDIA}/GetAsset`, { assetId: created.assetId }, as);
+    const { asset } = await rpc<{ asset: { status: string } }>(
+      request,
+      `${MEDIA}/GetAsset`,
+      { assetId: created.assetId },
+      as,
+    );
     expect(asset.status).toBe("ASSET_STATUS_READY");
   }).toPass({ timeout: 30_000 });
   await rpc(request, `${STAMPS}/CreatePersonalStamp`, { assetId: created.assetId, name }, as);
@@ -126,7 +214,9 @@ async function personalStamp(request: APIRequestContext, as: Account, name: stri
 async function openConversation(page: Page, conversationId: string): Promise<void> {
   await page.goto(`/chat/${conversationId}`);
   await expect(page.getByTestId("composer")).toBeVisible();
-  await expect(page.locator('[data-testid="message-list"][data-ready], [data-testid="empty-conversation"]')).toBeVisible();
+  await expect(
+    page.locator('[data-testid="message-list"][data-ready], [data-testid="empty-conversation"]'),
+  ).toBeVisible();
 }
 
 const composer = (page: Page) => page.getByRole("textbox", { name: "メッセージを入力" });
@@ -137,7 +227,8 @@ async function send(page: Page, text: string): Promise<void> {
 }
 
 /** The bubble of the message saying `text`. */
-const bubble = (page: Page, text: string | RegExp): Locator => page.getByTestId("message").filter({ hasText: text });
+const bubble = (page: Page, text: string | RegExp): Locator =>
+  page.getByTestId("message").filter({ hasText: text });
 
 /** Opens the actions of a message (right-click; a long press on touch screens). */
 async function openActions(page: Page, text: string | RegExp): Promise<void> {
@@ -146,11 +237,18 @@ async function openActions(page: Page, text: string | RegExp): Promise<void> {
 }
 
 /** The unread counter on the chat entry of the navigation (the rail on wide screens, the tab bar on phones). */
-const chatBadge = (page: Page): Locator => page.locator('nav[aria-label="main"] a[href="/chat"]:visible');
+const chatBadge = (page: Page): Locator =>
+  page.locator('nav[aria-label="main"] a[href="/chat"]:visible');
 
 /** A second person's browser, signed in, at the size of the running project. */
 async function browserOf(browser: Browser, testInfo: TestInfo, account: Account): Promise<Page> {
-  const context = await browser.newContext({ baseURL: testInfo.project.use.baseURL, locale: "ja-JP", timezoneId: "Asia/Tokyo", viewport: testInfo.project.use.viewport, hasTouch: testInfo.project.use.hasTouch });
+  const context = await browser.newContext({
+    baseURL: testInfo.project.use.baseURL,
+    locale: "ja-JP",
+    timezoneId: "Asia/Tokyo",
+    viewport: testInfo.project.use.viewport,
+    hasTouch: testInfo.project.use.hasTouch,
+  });
   const page = await context.newPage();
   await signInAs(page, account);
   return page;
@@ -158,7 +256,11 @@ async function browserOf(browser: Browser, testInfo: TestInfo, account: Account)
 
 // ───────────────────────────── Messages ─────────────────────────────
 
-test("a profile's message link opens the direct conversation, and text goes both ways live", async ({ page, request, me }) => {
+test("a profile's message link opens the direct conversation, and text goes both ways live", async ({
+  page,
+  request,
+  me,
+}) => {
   const { friend, conversationId } = await withFriend(request, me);
 
   // `?user=<handle>` is how other screens link to a person's chat.
@@ -176,11 +278,19 @@ test("a profile's message link opens the direct conversation, and text goes both
   await expect(bubble(page, "おつかれ〜")).not.toHaveAttribute("data-own");
 
   // The message is in the list preview too.
-  if ((page.viewportSize()?.width ?? 0) < 768) await page.getByRole("link", { name: "もどる" }).click();
-  await expect(page.getByTestId("conversation-row").filter({ hasText: "aoi" })).toContainText("おつかれ〜");
+  if ((page.viewportSize()?.width ?? 0) < 768)
+    await page.getByRole("link", { name: "もどる" }).click();
+  await expect(page.getByTestId("conversation-row").filter({ hasText: "aoi" })).toContainText(
+    "おつかれ〜",
+  );
 });
 
-test("a message sent here arrives live in the other person's open conversation, and they see it was read", async ({ page, request, me, browser }, testInfo) => {
+test("a message sent here arrives live in the other person's open conversation, and they see it was read", async ({
+  page,
+  request,
+  me,
+  browser,
+}, testInfo) => {
   const { friend, conversationId } = await withFriend(request, me);
   const theirs = await browserOf(browser, testInfo, friend);
   await openConversation(theirs, conversationId);
@@ -203,7 +313,11 @@ test("a message sent here arrives live in the other person's open conversation, 
   await theirs.context().close();
 });
 
-test("an unread message shows on the navigation and clears when the conversation is opened", async ({ page, request, me }) => {
+test("an unread message shows on the navigation and clears when the conversation is opened", async ({
+  page,
+  request,
+  me,
+}) => {
   const { friend, conversationId } = await withFriend(request, me);
   await page.goto("/friends");
   await expect(page.getByRole("heading", { name: "ともだち" })).toBeVisible();
@@ -223,7 +337,12 @@ test("an unread message shows on the navigation and clears when the conversation
   await expect(page.getByTestId("unread-divider")).toBeVisible();
   await expect(bubble(page, "すごいの見つけた")).toBeVisible();
   await expect(chatBadge(page)).not.toContainText(/\d/);
-  const unread = await rpc<{ unread?: { badge?: number } }>(request, `${CONVERSATIONS}/GetUnreadCounts`, {}, me);
+  const unread = await rpc<{ unread?: { badge?: number } }>(
+    request,
+    `${CONVERSATIONS}/GetUnreadCounts`,
+    {},
+    me,
+  );
   expect(unread.unread?.badge ?? 0).toBe(0);
 });
 
@@ -239,7 +358,12 @@ test("a stamp is picked and sent", async ({ page, request, me }) => {
   await picker.getByRole("button", { name: "あおまる" }).click();
 
   await expect(page.getByTestId("stamp-message")).toBeVisible();
-  const sent = await expectMessage(request, friend, conversationId, (message) => message.kind === "MESSAGE_KIND_STAMP");
+  const sent = await expectMessage(
+    request,
+    friend,
+    conversationId,
+    (message) => message.kind === "MESSAGE_KIND_STAMP",
+  );
   expect(sent.stamp?.name).toBe("あおまる");
 });
 
@@ -256,7 +380,12 @@ test("a photo is attached, sent, and opens full screen", async ({ page, request,
   const message = bubble(page, "きれいだった！");
   await expect(message).toBeVisible();
   await expect(message).not.toHaveAttribute("data-pending", /.+/, { timeout: 60_000 });
-  const sent = await expectMessage(request, friend, conversationId, (candidate) => candidate.kind === "MESSAGE_KIND_MEDIA");
+  const sent = await expectMessage(
+    request,
+    friend,
+    conversationId,
+    (candidate) => candidate.kind === "MESSAGE_KIND_MEDIA",
+  );
   expect(sent.attachments?.[0]?.kind).toBe("ASSET_KIND_IMAGE");
   expect(sent.text).toBe("きれいだった！");
 
@@ -277,15 +406,27 @@ test("a message is answered, reacted to, edited and unsent", async ({ page, requ
   await expect(page.getByTestId("reply-bar")).toContainText("明日なんじ集合？");
   await send(page, "10時でどう？");
   await expect(bubble(page, "10時でどう？")).toContainText("明日なんじ集合？");
-  const answer = await expectMessage(request, friend, conversationId, (message) => message.text === "10時でどう？");
+  const answer = await expectMessage(
+    request,
+    friend,
+    conversationId,
+    (message) => message.text === "10時でどう？",
+  );
   expect(answer.replyTo?.messageId).toBe(question.id);
 
   // React: one tap on a quick reaction, and it can be taken back by tapping the chip.
   await openActions(page, "明日なんじ集合？");
   await page.getByRole("menuitem", { name: "❤️ でリアクション" }).click();
-  const chip = bubble(page, "明日なんじ集合？").getByTestId("reactions").getByRole("button", { name: /❤️/ });
+  const chip = bubble(page, "明日なんじ集合？")
+    .getByTestId("reactions")
+    .getByRole("button", { name: /❤️/ });
   await expect(chip).toHaveAttribute("aria-pressed", "true");
-  await expectMessage(request, friend, conversationId, (message) => message.id === question.id && message.reactions?.[0]?.emoji === "❤️");
+  await expectMessage(
+    request,
+    friend,
+    conversationId,
+    (message) => message.id === question.id && message.reactions?.[0]?.emoji === "❤️",
+  );
   // A reaction from the other side joins in live.
   await rpc(request, `${MESSAGES}/AddReaction`, { messageId: answer.id, emoji: "👍" }, friend);
   await expect(bubble(page, "10時でどう？").getByTestId("reactions")).toContainText("👍");
@@ -297,24 +438,42 @@ test("a message is answered, reacted to, edited and unsent", async ({ page, requ
   await page.getByRole("textbox", { name: "メッセージを入力" }).fill("やっぱ11時で！");
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(bubble(page, "やっぱ11時で！")).toContainText("編集済み");
-  await expectMessage(request, friend, conversationId, (message) => message.id === answer.id && message.text === "やっぱ11時で！");
+  await expectMessage(
+    request,
+    friend,
+    conversationId,
+    (message) => message.id === answer.id && message.text === "やっぱ11時で！",
+  );
 
   // Unsend: a tombstone stays for everyone.
   await openActions(page, "やっぱ11時で！");
   await page.getByRole("menuitem", { name: "送信取消" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "送信取消" }).click();
-  await expect(page.getByTestId("message").filter({ hasText: "メッセージの送信を取り消しました" })).toBeVisible();
+  await expect(
+    page.getByTestId("message").filter({ hasText: "メッセージの送信を取り消しました" }),
+  ).toBeVisible();
   await expect(bubble(page, "やっぱ11時で！")).toHaveCount(0);
-  await expectMessage(request, friend, conversationId, (message) => message.id === answer.id && message.deleted === true);
+  await expectMessage(
+    request,
+    friend,
+    conversationId,
+    (message) => message.id === answer.id && message.deleted === true,
+  );
 });
 
-test("a message that could not be sent stays with a way to try again", async ({ page, request, me }) => {
+test("a message that could not be sent stays with a way to try again", async ({
+  page,
+  request,
+  me,
+}) => {
   const { conversationId } = await withFriend(request, me);
   await openConversation(page, conversationId);
 
   // The server is out of reach for the first attempt.
   let failing = true;
-  await page.route("**/api/tokuly.chat.v1.MessageService/SendMessage", (route) => (failing ? route.abort("connectionfailed") : route.continue()));
+  await page.route("**/api/tokuly.chat.v1.MessageService/SendMessage", (route) =>
+    failing ? route.abort("connectionfailed") : route.continue(),
+  );
   await send(page, "とどけ〜");
   const message = bubble(page, "とどけ〜");
   await expect(message).toHaveAttribute("data-pending", "failed");
@@ -325,10 +484,15 @@ test("a message that could not be sent stays with a way to try again", async ({ 
   await expect(page.getByTestId("message").filter({ hasText: "とどけ〜" })).toHaveCount(1);
 });
 
-test("a pinned message is kept at the top and found again; search finds old messages", async ({ page, request, me }) => {
+test("a pinned message is kept at the top and found again; search finds old messages", async ({
+  page,
+  request,
+  me,
+}) => {
   const { friend, conversationId } = await withFriend(request, me);
   await sendText(request, friend, conversationId, "集合は駅の東口ね");
-  for (let index = 1; index <= 30; index++) await sendText(request, friend, conversationId, `つぶやき ${index}`);
+  for (let index = 1; index <= 30; index++)
+    await sendText(request, friend, conversationId, `つぶやき ${index}`);
   await openConversation(page, conversationId);
   // With this much unread, the conversation opens where the reading left off; one tap goes to the newest.
   await expect(page.getByTestId("unread-divider")).toBeVisible();
@@ -349,7 +513,9 @@ test("a pinned message is kept at the top and found again; search finds old mess
   await expect(page.getByTestId("pinned-bar")).toContainText("集合は駅の東口ね");
   // The conversation notes who pinned it, down at the newest messages.
   await page.getByTestId("jump-to-latest").click();
-  await expect(page.getByTestId("system-message").filter({ hasText: "ピン留めしました" })).toBeVisible();
+  await expect(
+    page.getByTestId("system-message").filter({ hasText: "ピン留めしました" }),
+  ).toBeVisible();
 });
 
 // ───────────────────────────── Conversations ─────────────────────────────
@@ -385,14 +551,33 @@ test("a group is created with friends and renamed", async ({ page, request, me }
   await expect(page.getByTestId("system-message").filter({ hasText: "カラオケ部" })).toBeVisible();
 
   // The others have the group, under its new name.
-  const theirs = await rpc<{ conversations?: { name: string }[] }>(request, `${CONVERSATIONS}/ListConversations`, {}, aoi);
+  const theirs = await rpc<{ conversations?: { name: string }[] }>(
+    request,
+    `${CONVERSATIONS}/ListConversations`,
+    {},
+    aoi,
+  );
   expect(theirs.conversations?.map((conversation) => conversation.name)).toContain("カラオケ部");
 });
 
-test("a message from someone who is not a friend waits as a request until it is accepted", async ({ page, request, me }) => {
+test("a message from someone who is not a friend waits as a request until it is accepted", async ({
+  page,
+  request,
+  me,
+}) => {
   // Requests reach people who accept messages from everyone.
-  const { settings } = await rpc<{ settings: { privacy: object } }>(request, "tokuly.identity.v1.AccountService/GetSettings", {}, me);
-  await rpc(request, "tokuly.identity.v1.AccountService/UpdateSettings", { privacy: { ...settings.privacy, directMessagesFrom: "AUDIENCE_EVERYONE" } }, me);
+  const { settings } = await rpc<{ settings: { privacy: object } }>(
+    request,
+    "tokuly.identity.v1.AccountService/GetSettings",
+    {},
+    me,
+  );
+  await rpc(
+    request,
+    "tokuly.identity.v1.AccountService/UpdateSettings",
+    { privacy: { ...settings.privacy, directMessagesFrom: "AUDIENCE_EVERYONE" } },
+    me,
+  );
   const stranger = await createAccount(request, "kai");
   const conversationId = await directWith(request, stranger, me);
   await sendText(request, stranger, conversationId, "はじめまして！");
@@ -412,8 +597,18 @@ test("a message from someone who is not a friend waits as a request until it is 
   // Accepted: it can be answered, and it is an ordinary conversation from now on.
   await send(page, "よろしくね！");
   await expect(bubble(page, "よろしくね！")).toBeVisible();
-  await expectMessage(request, stranger, conversationId, (message) => message.text === "よろしくね！");
-  const inbox = await rpc<{ conversations?: { id: string }[] }>(request, `${CONVERSATIONS}/ListConversations`, {}, me);
+  await expectMessage(
+    request,
+    stranger,
+    conversationId,
+    (message) => message.text === "よろしくね！",
+  );
+  const inbox = await rpc<{ conversations?: { id: string }[] }>(
+    request,
+    `${CONVERSATIONS}/ListConversations`,
+    {},
+    me,
+  );
   expect(inbox.conversations?.map((conversation) => conversation.id)).toContain(conversationId);
 });
 
@@ -462,28 +657,49 @@ test("a POV request arrives, counts down, and can be declined", async ({ page, r
   await card.getByRole("button", { name: "ごめんね" }).click();
   await expect(card).toContainText("今回はパスしました");
   await expect(page.getByTestId("pov-banner")).toHaveCount(0);
-  const asked = await expectMessage(request, friend, conversationId, (message) => message.kind === "MESSAGE_KIND_POV_REQUEST");
+  const asked = await expectMessage(
+    request,
+    friend,
+    conversationId,
+    (message) => message.kind === "MESSAGE_KIND_POV_REQUEST",
+  );
   expect(asked.povRequest?.state).toBe("POV_STATE_DECLINED");
 });
 
-test("a POV request is answered with the camera, and the answer is kept once it is saved", async ({ page, request, me }) => {
+test("a POV request is answered with the camera, and the answer is kept once it is saved", async ({
+  page,
+  request,
+  me,
+}) => {
   test.setTimeout(150_000);
   const { friend, conversationId } = await withFriend(request, me);
-  const { request: asked } = await rpc<{ request: { id: string } }>(request, `${POV}/RequestPov`, { conversationId, note: "見せて〜！" }, friend);
+  const { request: asked } = await rpc<{ request: { id: string } }>(
+    request,
+    `${POV}/RequestPov`,
+    { conversationId, note: "見せて〜！" },
+    friend,
+  );
   await openConversation(page, conversationId);
 
   await page.getByTestId("pov-request").getByRole("button", { name: "撮って送る" }).click();
   const camera = page.getByRole("dialog");
   await expect(camera.getByTestId("pov-preview")).toBeVisible();
   await camera.getByRole("button", { name: "写真を撮る" }).click();
-  await expect(camera.getByRole("list", { name: "撮ったもの" }).getByRole("listitem")).toHaveCount(1);
+  await expect(camera.getByRole("list", { name: "撮ったもの" }).getByRole("listitem")).toHaveCount(
+    1,
+  );
   await camera.getByRole("button", { name: "POVを送る" }).click();
 
   // The answer is a photo that disappears after a day unless the person who asked saves it.
   const answer = page.getByTestId("message").filter({ hasText: "で消えるよ" });
   await expect(answer).toBeVisible({ timeout: 60_000 });
   await expect(page.getByTestId("pov-request")).toContainText("POVが届いたよ！");
-  await expectMessage(request, friend, conversationId, (message) => message.kind === "MESSAGE_KIND_MEDIA");
+  await expectMessage(
+    request,
+    friend,
+    conversationId,
+    (message) => message.kind === "MESSAGE_KIND_MEDIA",
+  );
   await rpc(request, `${POV}/SavePov`, { requestId: asked.id }, friend);
   await expect(page.getByTestId("message").filter({ hasText: "保存済み" })).toBeVisible();
 });
@@ -501,21 +717,35 @@ test("a POV is asked for from the composer and withdrawn again", async ({ page, 
   const card = page.getByTestId("pov-request");
   await expect(card).toContainText("aoiにPOVをリクエスト中！");
   await expect(card).toContainText("なにしてる？");
-  const asked = await expectMessage(request, friend, conversationId, (message) => message.kind === "MESSAGE_KIND_POV_REQUEST");
+  const asked = await expectMessage(
+    request,
+    friend,
+    conversationId,
+    (message) => message.kind === "MESSAGE_KIND_POV_REQUEST",
+  );
   expect(asked.povRequest?.state).toBe("POV_STATE_OPEN");
 
   await card.getByRole("button", { name: "リクエストを取り消す" }).click();
   await expect(card).toContainText("リクエストは取り消されました");
 });
 
-test("the first hello: a wave opens a conversation that is still empty", async ({ page, request, me }) => {
+test("the first hello: a wave opens a conversation that is still empty", async ({
+  page,
+  request,
+  me,
+}) => {
   const { friend, conversationId } = await withFriend(request, me);
   await openConversation(page, conversationId);
 
   await expect(page.getByTestId("empty-conversation")).toContainText("aoiと話してみよう！");
   await page.getByRole("button", { name: "👋 手を振る" }).click();
   await expect(page.getByTestId("hello-message")).toContainText("手を振りました！");
-  await expectMessage(request, friend, conversationId, (message) => message.kind === "MESSAGE_KIND_HELLO");
+  await expectMessage(
+    request,
+    friend,
+    conversationId,
+    (message) => message.kind === "MESSAGE_KIND_HELLO",
+  );
 
   // The friend waves back with an ordinary 👋.
   await sendText(request, friend, conversationId, "👋");
@@ -535,16 +765,27 @@ test("a place is picked on the map and shared", async ({ page, request, me }) =>
   await dialog.getByRole("button", { name: "この場所を送る" }).click();
 
   await expect(page.getByTestId("location-card")).toContainText("ハチ公前");
-  const sent = await expectMessage(request, friend, conversationId, (message) => message.kind === "MESSAGE_KIND_LOCATION");
+  const sent = await expectMessage(
+    request,
+    friend,
+    conversationId,
+    (message) => message.kind === "MESSAGE_KIND_LOCATION",
+  );
   // The browser of the tests is at Shibuya crossing.
-  expect((sent as { location?: { position?: { lat: number } } }).location?.position?.lat).toBeCloseTo(35.6595, 2);
+  expect(
+    (sent as { location?: { position?: { lat: number } } }).location?.position?.lat,
+  ).toBeCloseTo(35.6595, 2);
 
   // Tapping the card shows the place on a map.
   await page.getByTestId("location-card").click();
   await expect(page.getByRole("dialog").getByRole("heading", { name: "ハチ公前" })).toBeVisible();
 });
 
-test("a message is forwarded to another conversation and to a friend without one", async ({ page, request, me }) => {
+test("a message is forwarded to another conversation and to a friend without one", async ({
+  page,
+  request,
+  me,
+}) => {
   const { friend, conversationId } = await withFriend(request, me);
   const { friend: ren, conversationId: renId } = await withFriend(request, me, "ren");
   const mio = await createAccount(request, "mio");
@@ -562,18 +803,37 @@ test("a message is forwarded to another conversation and to a friend without one
   await dialog.getByRole("button", { name: /転送する/ }).click();
   await expect(page.getByText("2件のトークに転送しました！")).toBeVisible();
 
-  const forwarded = await expectMessage(request, ren, renId, (message) => message.text === "土曜14時、駅前集合！");
+  const forwarded = await expectMessage(
+    request,
+    ren,
+    renId,
+    (message) => message.text === "土曜14時、駅前集合！",
+  );
   expect((forwarded as { forwarded?: boolean }).forwarded).toBe(true);
   const mioConversation = await directWith(request, mio, me);
-  await expectMessage(request, mio, mioConversation, (message) => message.text === "土曜14時、駅前集合！");
+  await expectMessage(
+    request,
+    mio,
+    mioConversation,
+    (message) => message.text === "土曜14時、駅前集合！",
+  );
 });
 
-test("a group's members are mentioned, see who read, and are managed by its owner", async ({ page, request, me }) => {
+test("a group's members are mentioned, see who read, and are managed by its owner", async ({
+  page,
+  request,
+  me,
+}) => {
   const aoi = await createAccount(request, "aoi");
   const ren = await createAccount(request, "ren");
   const mio = await createAccount(request, "mio");
   for (const friend of [aoi, ren, mio]) await befriend(request, me, friend);
-  const { conversation } = await rpc<{ conversation: { id: string } }>(request, `${CONVERSATIONS}/CreateGroup`, { name: "テスト勉強会", memberIds: [aoi.userId, ren.userId] }, me);
+  const { conversation } = await rpc<{ conversation: { id: string } }>(
+    request,
+    `${CONVERSATIONS}/CreateGroup`,
+    { name: "テスト勉強会", memberIds: [aoi.userId, ren.userId] },
+    me,
+  );
   await openConversation(page, conversation.id);
 
   // Typing "@" offers the members; the mention reaches the person.
@@ -581,7 +841,9 @@ test("a group's members are mentioned, see who read, and are managed by its owne
   await page.getByRole("option", { name: /aoi/ }).click();
   await composer(page).pressSequentially("ノート見せて！");
   await page.getByRole("button", { name: "送信", exact: true }).click();
-  const mention = await expectMessage(request, aoi, conversation.id, (message) => Boolean(message.text?.includes("ノート見せて！")));
+  const mention = await expectMessage(request, aoi, conversation.id, (message) =>
+    Boolean(message.text?.includes("ノート見せて！")),
+  );
   expect((mention as { mentions?: { handle: string }[] }).mentions?.[0]?.handle).toBe(aoi.handle);
 
   // Read marks count the members who have read it, and name them.
@@ -607,31 +869,55 @@ test("a group's members are mentioned, see who read, and are managed by its owne
 
   await page.getByRole("button", { name: "renのメニュー" }).click();
   await page.getByRole("menuitem", { name: "グループから外す" }).click();
-  await page.getByRole("dialog").filter({ hasText: "renをグループから外す？" }).getByRole("button", { name: "グループから外す" }).click();
+  await page
+    .getByRole("dialog")
+    .filter({ hasText: "renをグループから外す？" })
+    .getByRole("button", { name: "グループから外す" })
+    .click();
   await expect(page.getByTestId("member-row")).toHaveCount(3);
-  const groups = await rpc<{ conversations?: { id: string }[] }>(request, `${CONVERSATIONS}/ListConversations`, {}, ren);
+  const groups = await rpc<{ conversations?: { id: string }[] }>(
+    request,
+    `${CONVERSATIONS}/ListConversations`,
+    {},
+    ren,
+  );
   expect(groups.conversations ?? []).toHaveLength(0);
 });
 
-test("the photos shared in a conversation are collected in its gallery", async ({ page, request, me }) => {
+test("the photos shared in a conversation are collected in its gallery", async ({
+  page,
+  request,
+  me,
+}) => {
   test.setTimeout(150_000);
   const { conversationId } = await withFriend(request, me);
   await openConversation(page, conversationId);
-  await page.getByTestId("photo-input").setInputFiles([picture("one.png"), picture("two.png", [60, 160, 90])]);
+  await page
+    .getByTestId("photo-input")
+    .setInputFiles([picture("one.png"), picture("two.png", [60, 160, 90])]);
   await expect(page.getByTestId("attachment-chip")).toHaveCount(2);
   await page.getByRole("button", { name: "送信", exact: true }).click();
-  await expect(page.getByTestId("message").filter({ has: page.getByRole("button", { name: "写真をひらく" }) })).not.toHaveAttribute("data-pending", /.+/, { timeout: 60_000 });
+  await expect(
+    page.getByTestId("message").filter({ has: page.getByRole("button", { name: "写真をひらく" }) }),
+  ).not.toHaveAttribute("data-pending", /.+/, { timeout: 60_000 });
 
   await page.getByRole("button", { name: "トークのメニュー" }).click();
   await page.getByRole("menuitem", { name: "メディア" }).click();
   // The gallery is a sheet on phones and a column beside the conversation on wide screens.
-  const gallery = page.getByTestId("side-panel").or(page.getByRole("dialog")).getByRole("button", { name: "写真をひらく" });
+  const gallery = page
+    .getByTestId("side-panel")
+    .or(page.getByRole("dialog"))
+    .getByRole("button", { name: "写真をひらく" });
   await expect(gallery).toHaveCount(2);
   await gallery.first().click();
   await expect(page.getByTestId("lightbox")).toContainText("1 / 2");
 });
 
-test("the AI assistant rewrites a draft, suggests replies and translates, once the person agreed", async ({ page, request, me }) => {
+test("the AI assistant rewrites a draft, suggests replies and translates, once the person agreed", async ({
+  page,
+  request,
+  me,
+}) => {
   const { friend, conversationId } = await withFriend(request, me);
   await sendText(request, friend, conversationId, "See you at the station at five!");
 
@@ -640,17 +926,55 @@ test("the AI assistant rewrites a draft, suggests replies and translates, once t
   await expect(page.getByRole("button", { name: "AIアシスト" })).toHaveCount(0);
 
   // With a server that offers it (its answers stand in for the real ones here).
-  const answer = (bytes: Uint8Array) => ({ status: 200, contentType: "application/proto", body: Buffer.from(bytes) });
-  const capabilities = create(chat.GetCapabilitiesResponseSchema, { capabilities: { maxTextLength: 4000, maxAttachments: 10, editWindowSeconds: 900, assistEnabled: true } });
-  await page.route("**/api/tokuly.chat.v1.ConversationService/GetCapabilities", (route) => route.fulfill(answer(toBinary(chat.GetCapabilitiesResponseSchema, capabilities))));
+  const answer = (bytes: Uint8Array) => ({
+    status: 200,
+    contentType: "application/proto",
+    body: Buffer.from(bytes),
+  });
+  const capabilities = create(chat.GetCapabilitiesResponseSchema, {
+    capabilities: {
+      maxTextLength: 4000,
+      maxAttachments: 10,
+      editWindowSeconds: 900,
+      assistEnabled: true,
+    },
+  });
+  await page.route("**/api/tokuly.chat.v1.ConversationService/GetCapabilities", (route) =>
+    route.fulfill(answer(toBinary(chat.GetCapabilitiesResponseSchema, capabilities))),
+  );
   await page.route("**/api/tokuly.chat.v1.AssistService/SuggestReplies", (route) =>
-    route.fulfill(answer(toBinary(chat.SuggestRepliesResponseSchema, create(chat.SuggestRepliesResponseSchema, { replies: ["OK, see you!", "Running late…"] })))),
+    route.fulfill(
+      answer(
+        toBinary(
+          chat.SuggestRepliesResponseSchema,
+          create(chat.SuggestRepliesResponseSchema, { replies: ["OK, see you!", "Running late…"] }),
+        ),
+      ),
+    ),
   );
   await page.route("**/api/tokuly.chat.v1.AssistService/RewriteDraft", (route) =>
-    route.fulfill(answer(toBinary(chat.RewriteDraftResponseSchema, create(chat.RewriteDraftResponseSchema, { text: "ほな5時に駅でな！" })))),
+    route.fulfill(
+      answer(
+        toBinary(
+          chat.RewriteDraftResponseSchema,
+          create(chat.RewriteDraftResponseSchema, { text: "ほな5時に駅でな！" }),
+        ),
+      ),
+    ),
   );
   await page.route("**/api/tokuly.chat.v1.AssistService/TranslateMessage", (route) =>
-    route.fulfill(answer(toBinary(chat.TranslateMessageResponseSchema, create(chat.TranslateMessageResponseSchema, { text: "5時に駅で会おうね！", sourceLanguage: "en", targetLanguage: "ja" })))),
+    route.fulfill(
+      answer(
+        toBinary(
+          chat.TranslateMessageResponseSchema,
+          create(chat.TranslateMessageResponseSchema, {
+            text: "5時に駅で会おうね！",
+            sourceLanguage: "en",
+            targetLanguage: "ja",
+          }),
+        ),
+      ),
+    ),
   );
   await page.reload();
   await expect(page.locator('[data-testid="message-list"][data-ready]')).toBeVisible();
@@ -684,7 +1008,12 @@ test("the AI assistant rewrites a draft, suggests replies and translates, once t
 
 // ───────────────────────────── Calls and the microphone ─────────────────────────────
 
-test("a call rings on the other person's screen wherever they are, and declining ends it", async ({ page, request, me, browser }, testInfo) => {
+test("a call rings on the other person's screen wherever they are, and declining ends it", async ({
+  page,
+  request,
+  me,
+  browser,
+}, testInfo) => {
   const { friend, conversationId } = await withFriend(request, me);
   const theirs = await browserOf(browser, testInfo, friend);
   await theirs.goto("/friends");
@@ -704,12 +1033,22 @@ test("a call rings on the other person's screen wherever they are, and declining
   // The caller's screen closes, and the conversation remembers the call.
   await expect(page.getByTestId("call-screen")).toHaveCount(0);
   await expect(page.getByTestId("call-message")).toBeVisible();
-  const call = await expectMessage(request, me, conversationId, (message) => message.kind === "MESSAGE_KIND_CALL" && message.call?.state === "CALL_STATE_ENDED");
+  const call = await expectMessage(
+    request,
+    me,
+    conversationId,
+    (message) => message.kind === "MESSAGE_KIND_CALL" && message.call?.state === "CALL_STATE_ENDED",
+  );
   expect(call.call?.endReason).toBe("CALL_END_REASON_DECLINED");
   await theirs.context().close();
 });
 
-test("an answered call connects both sides and ends for both when one hangs up", async ({ page, request, me, browser }, testInfo) => {
+test("an answered call connects both sides and ends for both when one hangs up", async ({
+  page,
+  request,
+  me,
+  browser,
+}, testInfo) => {
   const { friend, conversationId } = await withFriend(request, me);
   const theirs = await browserOf(browser, testInfo, friend);
   await theirs.goto("/chat");
@@ -734,13 +1073,23 @@ test("an answered call connects both sides and ends for both when one hangs up",
   await page.getByRole("button", { name: "通話を終了" }).click();
   await expect(page.getByTestId("call-screen")).toHaveCount(0);
   await expect(theirs.getByTestId("call-screen")).toHaveCount(0);
-  const call = await expectMessage(request, me, conversationId, (message) => message.kind === "MESSAGE_KIND_CALL" && message.call?.state === "CALL_STATE_ENDED");
+  const call = await expectMessage(
+    request,
+    me,
+    conversationId,
+    (message) => message.kind === "MESSAGE_KIND_CALL" && message.call?.state === "CALL_STATE_ENDED",
+  );
   expect(call.call?.endReason).toBe("CALL_END_REASON_COMPLETED");
 
   // It is in the call history of both.
   await page.goto("/chat/calls");
   await expect(page.getByTestId("call-row").filter({ hasText: "aoi" })).toBeVisible();
-  const history = await rpc<{ calls?: { id: string }[] }>(request, `${CALLS}/ListCalls`, {}, friend);
+  const history = await rpc<{ calls?: { id: string }[] }>(
+    request,
+    `${CALLS}/ListCalls`,
+    {},
+    friend,
+  );
   expect(history.calls).toHaveLength(1);
   await theirs.context().close();
 });
@@ -756,16 +1105,31 @@ test("a voice message is recorded and sent", async ({ page, request, me }) => {
   await page.getByRole("button", { name: "ボイスメッセージを送信" }).click();
 
   await expect(page.getByTestId("voice-message")).toBeVisible();
-  const sent = await expectMessage(request, friend, conversationId, (message) => message.kind === "MESSAGE_KIND_MEDIA");
+  const sent = await expectMessage(
+    request,
+    friend,
+    conversationId,
+    (message) => message.kind === "MESSAGE_KIND_MEDIA",
+  );
   expect(sent.attachments?.[0]?.kind).toBe("ASSET_KIND_AUDIO");
 });
 
-test("a call in a group can be joined while it is running", async ({ page, request, me, browser }, testInfo) => {
+test("a call in a group can be joined while it is running", async ({
+  page,
+  request,
+  me,
+  browser,
+}, testInfo) => {
   const aoi = await createAccount(request, "aoi");
   const ren = await createAccount(request, "ren");
   await befriend(request, me, aoi);
   await befriend(request, me, ren);
-  const { conversation } = await rpc<{ conversation: { id: string } }>(request, `${CONVERSATIONS}/CreateGroup`, { name: "通話テスト", memberIds: [aoi.userId, ren.userId] }, me);
+  const { conversation } = await rpc<{ conversation: { id: string } }>(
+    request,
+    `${CONVERSATIONS}/CreateGroup`,
+    { name: "通話テスト", memberIds: [aoi.userId, ren.userId] },
+    me,
+  );
   const theirs = await browserOf(browser, testInfo, aoi);
   await openConversation(theirs, conversation.id);
   await openConversation(page, conversation.id);
@@ -774,7 +1138,9 @@ test("a call in a group can be joined while it is running", async ({ page, reque
   await expect(page.getByTestId("call-screen")).toBeVisible();
 
   // It rings for the members; the conversation also shows the call with a way in.
-  await expect(theirs.getByTestId("incoming-call")).toContainText("「通話テスト」で音声通話がはじまったよ！");
+  await expect(theirs.getByTestId("incoming-call")).toContainText(
+    "「通話テスト」で音声通話がはじまったよ！",
+  );
   await theirs.getByTestId("call-banner").getByRole("button", { name: "参加する" }).click();
   await expect(theirs.getByTestId("incoming-call")).toHaveCount(0);
   await expect(page.getByTestId("call-status")).toHaveText(/^\d+:\d\d$/, { timeout: 40_000 });
@@ -787,11 +1153,20 @@ test("a call in a group can be joined while it is running", async ({ page, reque
   await expect(page.getByTestId("call-banner")).toBeVisible();
   await theirs.getByRole("button", { name: "通話を終了" }).click();
   await expect(page.getByTestId("call-banner")).toHaveCount(0);
-  await expectMessage(request, me, conversation.id, (message) => message.kind === "MESSAGE_KIND_CALL" && message.call?.state === "CALL_STATE_ENDED");
+  await expectMessage(
+    request,
+    me,
+    conversation.id,
+    (message) => message.kind === "MESSAGE_KIND_CALL" && message.call?.state === "CALL_STATE_ENDED",
+  );
   await theirs.context().close();
 });
 
-test("the message button on a friend's profile leads to their chat", async ({ page, request, me }) => {
+test("the message button on a friend's profile leads to their chat", async ({
+  page,
+  request,
+  me,
+}) => {
   const { friend, conversationId } = await withFriend(request, me);
   await page.goto(`/u/${friend.handle}`);
   await page.getByRole("link", { name: "メッセージ" }).click();
@@ -799,7 +1174,11 @@ test("the message button on a friend's profile leads to their chat", async ({ pa
   await expect(page.getByTestId("conversation-title")).toHaveText("aoi");
 });
 
-test("the microphone is let go when recording is abandoned before it began", async ({ page, request, me }) => {
+test("the microphone is let go when recording is abandoned before it began", async ({
+  page,
+  request,
+  me,
+}) => {
   const { conversationId } = await withFriend(request, me);
   // The browser takes a while to hand the microphone over (a permission prompt, a slow device).
   await page.addInitScript(() => {
@@ -814,7 +1193,12 @@ test("the microphone is let go when recording is abandoned before it began", asy
       return stream;
     };
   });
-  const live = () => page.evaluate(() => (window as unknown as { __microphones: MediaStream[] }).__microphones.map((stream) => stream.getTracks().some((track) => track.readyState === "live")));
+  const live = () =>
+    page.evaluate(() =>
+      (window as unknown as { __microphones: MediaStream[] }).__microphones.map((stream) =>
+        stream.getTracks().some((track) => track.readyState === "live"),
+      ),
+    );
   await openConversation(page, conversationId);
 
   // Held to talk, and let go before the microphone arrived: nothing is recorded, nothing stays on.
@@ -829,20 +1213,38 @@ test("the microphone is let go when recording is abandoned before it began", asy
 
   // Tapped, and the screen left before the microphone arrived.
   await button.click();
-  if ((page.viewportSize()?.width ?? 0) < 768) await page.getByRole("link", { name: "もどる" }).click();
-  else await page.locator('nav[aria-label="main"] a[href="/friends"], nav[aria-label="main"] a[href="/notifications"]').first().click();
+  if ((page.viewportSize()?.width ?? 0) < 768)
+    await page.getByRole("link", { name: "もどる" }).click();
+  else
+    await page
+      .locator(
+        'nav[aria-label="main"] a[href="/friends"], nav[aria-label="main"] a[href="/notifications"]',
+      )
+      .first()
+      .click();
   await expect(page.getByTestId("composer")).toHaveCount(0);
   await expect.poll(live).toEqual([false, false]);
 });
 
-test("what one account typed or failed to send is gone for the next one on the same browser", async ({ page, request, me }) => {
+test("what one account typed or failed to send is gone for the next one on the same browser", async ({
+  page,
+  request,
+  me,
+}) => {
   const ren = await createAccount(request, "ren");
   await befriend(request, me, ren);
-  const { conversation } = await rpc<{ conversation: { id: string } }>(request, `${CONVERSATIONS}/CreateGroup`, { name: "共有グループ", memberIds: [ren.userId] }, me);
+  const { conversation } = await rpc<{ conversation: { id: string } }>(
+    request,
+    `${CONVERSATIONS}/CreateGroup`,
+    { name: "共有グループ", memberIds: [ren.userId] },
+    me,
+  );
   await openConversation(page, conversation.id);
 
   // A draft, and a message the server never got.
-  await page.route("**/api/tokuly.chat.v1.MessageService/SendMessage", (route) => route.abort("connectionfailed"));
+  await page.route("**/api/tokuly.chat.v1.MessageService/SendMessage", (route) =>
+    route.abort("connectionfailed"),
+  );
   await send(page, "これは届かない");
   await expect(bubble(page, "これは届かない")).toHaveAttribute("data-pending", "failed");
   await composer(page).fill("ひみつの下書き");
@@ -852,7 +1254,9 @@ test("what one account typed or failed to send is gone for the next one on the s
   await page.goto("/me");
   await page.getByRole("button", { name: "ログアウト" }).click();
   await expect(page).toHaveURL(/\/$/);
-  expect(await page.evaluate(() => Object.keys(localStorage).filter((key) => key.includes("draft")))).toEqual([]);
+  expect(
+    await page.evaluate(() => Object.keys(localStorage).filter((key) => key.includes("draft"))),
+  ).toEqual([]);
 
   // The other member of the group signs in on this browser.
   await signInAs(page, ren);
@@ -864,8 +1268,17 @@ test("what one account typed or failed to send is gone for the next one on the s
 
 test("only what was on screen counts as read", async ({ page, request, me }) => {
   const { friend, conversationId } = await withFriend(request, me);
-  for (let index = 1; index <= 40; index++) await sendText(request, friend, conversationId, `おしらせ ${index}`);
-  const unread = async () => (await rpc<{ unread?: { badge?: number } }>(request, `${CONVERSATIONS}/GetUnreadCounts`, {}, me)).unread?.badge ?? 0;
+  for (let index = 1; index <= 40; index++)
+    await sendText(request, friend, conversationId, `おしらせ ${index}`);
+  const unread = async () =>
+    (
+      await rpc<{ unread?: { badge?: number } }>(
+        request,
+        `${CONVERSATIONS}/GetUnreadCounts`,
+        {},
+        me,
+      )
+    ).unread?.badge ?? 0;
   expect(await unread()).toBe(40);
 
   await openConversation(page, conversationId);
@@ -876,8 +1289,15 @@ test("only what was on screen counts as read", async ({ page, request, me }) => 
   const left = await unread();
   expect(left).toBeGreaterThan(10);
   // The friend sees how far it was read: the first message, not the last.
-  const cursors = await rpc<{ readCursors?: { userId: string; readSeq?: string }[] }>(request, `${CONVERSATIONS}/GetConversation`, { conversationId }, friend);
-  const mine = Number(cursors.readCursors?.find((cursor) => cursor.userId === me.userId)?.readSeq ?? 0);
+  const cursors = await rpc<{ readCursors?: { userId: string; readSeq?: string }[] }>(
+    request,
+    `${CONVERSATIONS}/GetConversation`,
+    { conversationId },
+    friend,
+  );
+  const mine = Number(
+    cursors.readCursors?.find((cursor) => cursor.userId === me.userId)?.readSeq ?? 0,
+  );
   expect(mine).toBeGreaterThan(0);
   expect(mine).toBeLessThan(40);
 

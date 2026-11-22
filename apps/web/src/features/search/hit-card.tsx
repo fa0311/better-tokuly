@@ -8,8 +8,8 @@ import { cn } from "#/lib/cn";
 import { AppLink } from "./app-link";
 import { ageLabel, formatCount, formatDuration } from "./format";
 import { Segments } from "./highlight";
-import { KindTile } from "./kind-icon";
 import { hitHref } from "./hit-href";
+import { KindTile } from "./kind-icon";
 import { extraFlag, extraNumber, extraText, type HitExtra, hitExtra } from "./kinds";
 
 const K = search.SearchKind;
@@ -22,7 +22,10 @@ export function HitCard({ hit, className }: { hit: search.SearchHit; className?:
       href={hitHref(hit)}
       data-testid="search-hit"
       data-kind={search.SearchKind[hit.kind]}
-      className={cn("flex min-w-0 gap-3 rounded-2xl border-2 border-line bg-surface p-3 transition-colors hover:border-ink-faint", className)}
+      className={cn(
+        "flex min-w-0 gap-3 rounded-2xl border-2 border-line bg-surface p-3 transition-colors hover:border-ink-faint",
+        className,
+      )}
     >
       <Face hit={hit} extra={extra} />
     </AppLink>
@@ -60,16 +63,34 @@ interface FaceProps {
 }
 
 function Title({ hit, className }: { hit: search.SearchHit; className?: string }) {
-  return <Segments segments={hit.titleSegments} fallback={hit.title} className={cn("font-black break-words", className)} />;
+  return (
+    <Segments
+      segments={hit.titleSegments}
+      fallback={hit.title}
+      className={cn("font-black break-words", className)}
+    />
+  );
 }
 
 function Snippet({ hit, lines = 2 }: { hit: search.SearchHit; lines?: 1 | 2 | 3 }) {
   if (hit.snippet.length === 0) return null;
-  return <Segments segments={hit.snippet} className={cn("text-sm leading-snug break-words text-ink-soft", lines === 1 ? "line-clamp-1" : lines === 2 ? "line-clamp-2" : "line-clamp-3")} />;
+  return (
+    <Segments
+      segments={hit.snippet}
+      className={cn(
+        "text-sm leading-snug break-words text-ink-soft",
+        lines === 1 ? "line-clamp-1" : lines === 2 ? "line-clamp-2" : "line-clamp-3",
+      )}
+    />
+  );
 }
 
 function Meta({ children }: { children: ReactNode }) {
-  return <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs text-ink-soft">{children}</span>;
+  return (
+    <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs text-ink-soft">
+      {children}
+    </span>
+  );
 }
 
 const Dot = () => <span aria-hidden>·</span>;
@@ -102,7 +123,18 @@ function ChannelFace({ hit, extra }: FaceProps) {
   const subscribers = extraNumber(extra, "subscriber_count");
   return (
     <>
-      {hit.imageUrl ? <img src={hit.imageUrl} alt="" className="size-11 shrink-0 rounded-full border-2 border-ink bg-surface-3 object-cover" loading="lazy" decoding="async" draggable={false} /> : <KindTile kind={hit.kind} className="rounded-full" />}
+      {hit.imageUrl ? (
+        <img
+          src={hit.imageUrl}
+          alt=""
+          className="size-11 shrink-0 rounded-full border-2 border-ink bg-surface-3 object-cover"
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+        />
+      ) : (
+        <KindTile kind={hit.kind} className="rounded-full" />
+      )}
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="flex min-w-0 items-center gap-1">
           <Title hit={hit} className="truncate" />
@@ -111,7 +143,11 @@ function ChannelFace({ hit, extra }: FaceProps) {
         <Meta>
           {handle && <span className="truncate">@{handle}</span>}
           {handle && subscribers !== undefined && <Dot />}
-          {subscribers !== undefined && <span>{t("hit.subscribers", { count: subscribers, formatted: formatCount(subscribers) })}</span>}
+          {subscribers !== undefined && (
+            <span>
+              {t("hit.subscribers", { count: subscribers, formatted: formatCount(subscribers) })}
+            </span>
+          )}
         </Meta>
         <Snippet hit={hit} />
       </span>
@@ -125,10 +161,16 @@ function NoteFace({ hit, extra }: FaceProps) {
   const hidden = extraFlag(extra, "content_warning");
   return (
     <>
-      {author ? <Avatar user={author} size="sm" /> : <KindTile kind={hit.kind} className="size-8 rounded-[0.6rem]" iconClassName="size-4" />}
+      {author ? (
+        <Avatar user={author} size="sm" />
+      ) : (
+        <KindTile kind={hit.kind} className="size-8 rounded-[0.6rem]" iconClassName="size-4" />
+      )}
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <Meta>
-          <span className="truncate font-bold text-ink">{author?.displayName || extraText(extra, "author_name") || author?.handle}</span>
+          <span className="truncate font-bold text-ink">
+            {author?.displayName || extraText(extra, "author_name") || author?.handle}
+          </span>
           <Dot />
           <span>{ageLabel(hit.createdAt)}</span>
           {typeof extra.reply_to_id === "string" && extra.reply_to_id && (
@@ -138,7 +180,14 @@ function NoteFace({ hit, extra }: FaceProps) {
             </span>
           )}
         </Meta>
-        {hit.snippet.length > 0 ? <Segments segments={hit.snippet} className="line-clamp-3 text-[15px] leading-snug break-words" /> : <Title hit={hit} className="line-clamp-3 text-[15px] leading-snug font-medium" />}
+        {hit.snippet.length > 0 ? (
+          <Segments
+            segments={hit.snippet}
+            className="line-clamp-3 text-[15px] leading-snug break-words"
+          />
+        ) : (
+          <Title hit={hit} className="line-clamp-3 text-[15px] leading-snug font-medium" />
+        )}
         {hidden && (
           <span className="mt-0.5 inline-flex w-fit items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-xs font-bold text-ink-soft">
             <EyeOff className="size-3.5" />
@@ -146,7 +195,16 @@ function NoteFace({ hit, extra }: FaceProps) {
           </span>
         )}
       </span>
-      {hit.imageUrl && <img src={hit.imageUrl} alt="" className="size-16 shrink-0 rounded-xl bg-surface-3 object-cover" loading="lazy" decoding="async" draggable={false} />}
+      {hit.imageUrl && (
+        <img
+          src={hit.imageUrl}
+          alt=""
+          className="size-16 shrink-0 rounded-xl bg-surface-3 object-cover"
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+        />
+      )}
     </>
   );
 }
@@ -159,24 +217,45 @@ function MediaFace({ hit, extra }: FaceProps) {
   const maker = extraText(extra, "channel_name") || hit.owner?.displayName || hit.owner?.handle;
   return (
     <>
-      <span className={cn("relative shrink-0 overflow-hidden rounded-xl bg-surface-3", tall ? "aspect-[9/16] w-20" : "aspect-video w-32 sm:w-40")}>
+      <span
+        className={cn(
+          "relative shrink-0 overflow-hidden rounded-xl bg-surface-3",
+          tall ? "aspect-[9/16] w-20" : "aspect-video w-32 sm:w-40",
+        )}
+      >
         {hit.imageUrl ? (
-          <img src={hit.imageUrl} alt="" className="size-full object-cover" loading="lazy" decoding="async" draggable={false} />
+          <img
+            src={hit.imageUrl}
+            alt=""
+            className="size-full object-cover"
+            loading="lazy"
+            decoding="async"
+            draggable={false}
+          />
         ) : (
           <span className="grid size-full place-items-center">
             <KindTile kind={hit.kind} className="size-9 rounded-xl" iconClassName="size-[18px]" />
           </span>
         )}
-        {hit.kind === K.LIVE && <span className="absolute top-1.5 left-1.5 rounded-md bg-live px-1.5 py-0.5 text-[10px] font-black tracking-wide text-white">LIVE</span>}
+        {hit.kind === K.LIVE && (
+          <span className="absolute top-1.5 left-1.5 rounded-md bg-live px-1.5 py-0.5 text-[10px] font-black tracking-wide text-white">
+            LIVE
+          </span>
+        )}
         {hit.kind === K.PLAYLIST && items !== undefined && (
           <span className="absolute inset-y-0 right-0 flex w-2/5 flex-col items-center justify-center gap-0.5 bg-black/70 text-xs font-black text-white">
             <ListVideo className="size-4" />
             {items}
           </span>
         )}
-        {hit.kind !== K.PLAYLIST && hit.kind !== K.LIVE && duration !== undefined && duration > 0 && (
-          <span className="absolute right-1.5 bottom-1.5 rounded-md bg-black/75 px-1.5 py-0.5 text-[11px] font-bold text-white tabular-nums">{formatDuration(duration)}</span>
-        )}
+        {hit.kind !== K.PLAYLIST &&
+          hit.kind !== K.LIVE &&
+          duration !== undefined &&
+          duration > 0 && (
+            <span className="absolute right-1.5 bottom-1.5 rounded-md bg-black/75 px-1.5 py-0.5 text-[11px] font-bold text-white tabular-nums">
+              {formatDuration(duration)}
+            </span>
+          )}
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <Title hit={hit} className="line-clamp-2 leading-snug" />
@@ -184,7 +263,9 @@ function MediaFace({ hit, extra }: FaceProps) {
           {maker && <span className="truncate">{maker}</span>}
           {maker && hit.createdAt && <Dot />}
           <span>{ageLabel(hit.createdAt)}</span>
-          {extraFlag(extra, "age_restricted") && <span className="rounded bg-surface-2 px-1 font-bold">{t("hit.ageRestricted")}</span>}
+          {extraFlag(extra, "age_restricted") && (
+            <span className="rounded bg-surface-2 px-1 font-bold">{t("hit.ageRestricted")}</span>
+          )}
         </Meta>
         <Snippet hit={hit} lines={tall ? 3 : 1} />
       </span>
@@ -199,20 +280,45 @@ function PackFace({ hit, extra }: FaceProps) {
   const official = extraFlag(extra, "official");
   return (
     <>
-      {hit.imageUrl ? <img src={hit.imageUrl} alt="" className="size-14 shrink-0 rounded-xl bg-surface-2 object-contain p-1" loading="lazy" decoding="async" draggable={false} /> : <KindTile kind={hit.kind} className="size-14 rounded-xl" />}
+      {hit.imageUrl ? (
+        <img
+          src={hit.imageUrl}
+          alt=""
+          className="size-14 shrink-0 rounded-xl bg-surface-2 object-contain p-1"
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+        />
+      ) : (
+        <KindTile kind={hit.kind} className="size-14 rounded-xl" />
+      )}
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="flex min-w-0 items-center gap-1.5">
           <Title hit={hit} className="truncate" />
-          {official && <span className="shrink-0 rounded-full bg-brand px-1.5 py-0.5 text-[10px] font-black text-on-brand">{t("hit.official")}</span>}
+          {official && (
+            <span className="shrink-0 rounded-full bg-brand px-1.5 py-0.5 text-[10px] font-black text-on-brand">
+              {t("hit.official")}
+            </span>
+          )}
         </span>
         <Meta>
-          {!official && hit.owner && !hit.owner.deleted && <span className="truncate">{hit.owner.displayName || hit.owner.handle}</span>}
+          {!official && hit.owner && !hit.owner.deleted && (
+            <span className="truncate">{hit.owner.displayName || hit.owner.handle}</span>
+          )}
           {!official && hit.owner && !hit.owner.deleted && stamps !== undefined && <Dot />}
           {stamps !== undefined && <span>{t("hit.stampCount", { count: stamps })}</span>}
         </Meta>
         <Snippet hit={hit} lines={1} />
       </span>
-      <span className="shrink-0 self-center">{price > 0 ? <Coins amount={price} size="sm" /> : <span className="rounded-full bg-lime px-2.5 py-1 text-xs font-black text-[#17122b]">{t("hit.free")}</span>}</span>
+      <span className="shrink-0 self-center">
+        {price > 0 ? (
+          <Coins amount={price} size="sm" />
+        ) : (
+          <span className="rounded-full bg-lime px-2.5 py-1 text-xs font-black text-[#17122b]">
+            {t("hit.free")}
+          </span>
+        )}
+      </span>
     </>
   );
 }
@@ -225,7 +331,9 @@ function HashtagFace({ hit, extra }: FaceProps) {
       <KindTile kind={hit.kind} />
       <span className="flex min-w-0 flex-1 flex-col justify-center">
         <Title hit={hit} className="truncate" />
-        {notes !== undefined && <span className="text-sm text-ink-soft">{t("hit.noteCount", { count: notes })}</span>}
+        {notes !== undefined && (
+          <span className="text-sm text-ink-soft">{t("hit.noteCount", { count: notes })}</span>
+        )}
       </span>
     </>
   );
@@ -236,9 +344,19 @@ function PlaceFace({ hit, extra }: FaceProps) {
   return (
     <>
       {hit.imageUrl ? (
-        <img src={hit.imageUrl} alt="" className="size-11 shrink-0 rounded-[0.85rem] bg-surface-3 object-cover" loading="lazy" decoding="async" draggable={false} />
+        <img
+          src={hit.imageUrl}
+          alt=""
+          className="size-11 shrink-0 rounded-[0.85rem] bg-surface-3 object-cover"
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+        />
       ) : emoji ? (
-        <span aria-hidden className="grid size-11 shrink-0 place-items-center rounded-[0.85rem] bg-surface-2 text-2xl">
+        <span
+          aria-hidden
+          className="grid size-11 shrink-0 place-items-center rounded-[0.85rem] bg-surface-2 text-2xl"
+        >
           {emoji}
         </span>
       ) : (
@@ -266,7 +384,18 @@ function ArticleFace({ hit, extra }: FaceProps) {
         </Meta>
         <Snippet hit={hit} />
       </span>
-      {hit.imageUrl ? <img src={hit.imageUrl} alt="" className="size-16 shrink-0 rounded-xl bg-surface-3 object-cover" loading="lazy" decoding="async" draggable={false} /> : <KindTile kind={hit.kind} />}
+      {hit.imageUrl ? (
+        <img
+          src={hit.imageUrl}
+          alt=""
+          className="size-16 shrink-0 rounded-xl bg-surface-3 object-cover"
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+        />
+      ) : (
+        <KindTile kind={hit.kind} />
+      )}
     </>
   );
 }

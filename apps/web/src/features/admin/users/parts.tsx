@@ -13,11 +13,18 @@ const STATE_TONES: Partial<Record<admin.AccountState, Tone>> = {
 /** Whether the account is usable, with the end of a timed suspension when there is one. */
 export function AccountStateChip({ account }: { account: admin.AdminUser }) {
   const { t } = useTranslation("admin");
-  const suspension = account.state === admin.AccountState.SUSPENDED ? account.suspension : undefined;
+  const suspension =
+    account.state === admin.AccountState.SUSPENDED ? account.suspension : undefined;
   return (
     <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
-      <ToneChip tone={STATE_TONES[account.state] ?? "neutral"}>{suspension?.permanent ? t("users.banned") : t(accountStateKey(account.state))}</ToneChip>
-      {suspension && !suspension.permanent && suspension.expiresAt && <span className="text-xs whitespace-nowrap text-ink-soft">{t("users.until", { time: formatDateTime(suspension.expiresAt) })}</span>}
+      <ToneChip tone={STATE_TONES[account.state] ?? "neutral"}>
+        {suspension?.permanent ? t("users.banned") : t(accountStateKey(account.state))}
+      </ToneChip>
+      {suspension && !suspension.permanent && suspension.expiresAt && (
+        <span className="text-xs whitespace-nowrap text-ink-soft">
+          {t("users.until", { time: formatDateTime(suspension.expiresAt) })}
+        </span>
+      )}
     </span>
   );
 }

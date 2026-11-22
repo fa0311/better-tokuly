@@ -23,32 +23,44 @@ export const EMOJI_GROUPS: EmojiGroup[] = [
   {
     key: "hearts",
     icon: "❤️",
-    emoji: split("❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 🩷 🩵 🩶 💔 ❤️‍🔥 ❤️‍🩹 💕 💞 💓 💗 💖 💘 💝 💟 💌 💋 💯 💢 💥 💫 💦 💨 ✨ ⭐ 🌟 🔥 🎉 🎊 💤"),
+    emoji: split(
+      "❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 🩷 🩵 🩶 💔 ❤️‍🔥 ❤️‍🩹 💕 💞 💓 💗 💖 💘 💝 💟 💌 💋 💯 💢 💥 💫 💦 💨 ✨ ⭐ 🌟 🔥 🎉 🎊 💤",
+    ),
   },
   {
     key: "hands",
     icon: "👍",
-    emoji: split("👍 👎 👌 🤌 🤏 ✌️ 🤞 🫰 🤟 🤘 🤙 👈 👉 👆 👇 ☝️ ✋ 🤚 🖐️ 🖖 👋 🫶 👏 🙌 🫷 🫸 🤲 🤝 🙏 ✍️ 💪 🫵 👀 👁️ 🧠 🙇 🙋 🙆 🙅 🤷 🤦 💁 🧍 🏃 💃 🕺"),
+    emoji: split(
+      "👍 👎 👌 🤌 🤏 ✌️ 🤞 🫰 🤟 🤘 🤙 👈 👉 👆 👇 ☝️ ✋ 🤚 🖐️ 🖖 👋 🫶 👏 🙌 🫷 🫸 🤲 🤝 🙏 ✍️ 💪 🫵 👀 👁️ 🧠 🙇 🙋 🙆 🙅 🤷 🤦 💁 🧍 🏃 💃 🕺",
+    ),
   },
   {
     key: "animals",
     icon: "🐶",
-    emoji: split("🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐨 🐯 🦁 🐮 🐷 🐸 🐵 🙈 🙉 🙊 🐔 🐧 🐦 🐤 🦆 🦉 🐺 🐴 🦄 🐝 🦋 🐌 🐞 🐢 🐍 🐙 🦀 🐠 🐬 🐳 🦭 🐘 🦒 🦥 🌸 🌷 🌹 🌻 🌼 🍀 🌈 ☀️ 🌙 ☁️ ⛄ ⚡ ☔ 🌊"),
+    emoji: split(
+      "🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐨 🐯 🦁 🐮 🐷 🐸 🐵 🙈 🙉 🙊 🐔 🐧 🐦 🐤 🦆 🦉 🐺 🐴 🦄 🐝 🦋 🐌 🐞 🐢 🐍 🐙 🦀 🐠 🐬 🐳 🦭 🐘 🦒 🦥 🌸 🌷 🌹 🌻 🌼 🍀 🌈 ☀️ 🌙 ☁️ ⛄ ⚡ ☔ 🌊",
+    ),
   },
   {
     key: "food",
     icon: "🍙",
-    emoji: split("🍙 🍘 🍣 🍛 🍜 🍝 🍱 🍤 🍡 🍢 🍥 🥟 🍔 🍟 🍕 🌭 🌮 🥪 🍳 🥞 🧇 🍞 🥐 🧀 🍗 🍖 🥗 🍿 🍦 🍧 🍨 🍩 🍪 🎂 🍰 🧁 🍫 🍬 🍭 🍮 🍎 🍊 🍋 🍌 🍉 🍇 🍓 🍑 🍒 🥝 🍍 🥑 ☕ 🍵 🧋 🥤 🧃 🍺 🍻 🥂"),
+    emoji: split(
+      "🍙 🍘 🍣 🍛 🍜 🍝 🍱 🍤 🍡 🍢 🍥 🥟 🍔 🍟 🍕 🌭 🌮 🥪 🍳 🥞 🧇 🍞 🥐 🧀 🍗 🍖 🥗 🍿 🍦 🍧 🍨 🍩 🍪 🎂 🍰 🧁 🍫 🍬 🍭 🍮 🍎 🍊 🍋 🍌 🍉 🍇 🍓 🍑 🍒 🥝 🍍 🥑 ☕ 🍵 🧋 🥤 🧃 🍺 🍻 🥂",
+    ),
   },
   {
     key: "activities",
     icon: "⚽",
-    emoji: split("⚽ 🏀 🏈 ⚾ 🎾 🏐 🏓 🏸 🥊 🎳 ⛳ 🎣 🎿 🏂 🏄 🏊 🚴 🏆 🥇 🎮 🕹️ 🎲 🧩 🎯 🎤 🎧 🎸 🎹 🥁 🎬 🎨 📷 🎪 🎡 🎢 🏖️ 🏕️ 🗻 🗼 ⛩️ 🚃 🚄 🚌 🚗 🚲 ✈️ 🚀"),
+    emoji: split(
+      "⚽ 🏀 🏈 ⚾ 🎾 🏐 🏓 🏸 🥊 🎳 ⛳ 🎣 🎿 🏂 🏄 🏊 🚴 🏆 🥇 🎮 🕹️ 🎲 🧩 🎯 🎤 🎧 🎸 🎹 🥁 🎬 🎨 📷 🎪 🎡 🎢 🏖️ 🏕️ 🗻 🗼 ⛩️ 🚃 🚄 🚌 🚗 🚲 ✈️ 🚀",
+    ),
   },
   {
     key: "objects",
     icon: "💡",
-    emoji: split("💡 📱 💻 ⌚ 📚 📖 ✏️ 📝 📌 📎 ✂️ 🔑 🔒 🎁 🎈 🎀 🛍️ 💰 💴 💳 ⏰ ⏳ 📅 🔔 🔕 📣 💬 💭 🗯️ ❗ ❓ ‼️ ⁉️ ✅ ❌ ⭕ 🚫 ⚠️ 🆗 🆒 🆕 🈁 ㊗️ ㊙️ 🔴 🟠 🟡 🟢 🔵 🟣"),
+    emoji: split(
+      "💡 📱 💻 ⌚ 📚 📖 ✏️ 📝 📌 📎 ✂️ 🔑 🔒 🎁 🎈 🎀 🛍️ 💰 💴 💳 ⏰ ⏳ 📅 🔔 🔕 📣 💬 💭 🗯️ ❗ ❓ ‼️ ⁉️ ✅ ❌ ⭕ 🚫 ⚠️ 🆗 🆒 🆕 🈁 ㊗️ ㊙️ 🔴 🟠 🟡 🟢 🔵 🟣",
+    ),
   },
 ];
 
@@ -59,7 +71,9 @@ const RECENT_MAX = 24;
 export function recentEmoji(): string[] {
   try {
     const stored = JSON.parse(window.localStorage.getItem(RECENT_KEY) ?? "[]");
-    return Array.isArray(stored) ? stored.filter((value): value is string => typeof value === "string").slice(0, RECENT_MAX) : [];
+    return Array.isArray(stored)
+      ? stored.filter((value): value is string => typeof value === "string").slice(0, RECENT_MAX)
+      : [];
   } catch {
     return [];
   }

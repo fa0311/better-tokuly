@@ -20,7 +20,11 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { title: "Tokuly — 友達と位置情報共有を楽しもう!" },
-      { name: "description", content: "位置情報共有、チャット、ノート、動画、ライブ、ショートがひとつになったアプリ。Your now to your friends." },
+      {
+        name: "description",
+        content:
+          "位置情報共有、チャット、ノート、動画、ライブ、ショートがひとつになったアプリ。Your now to your friends.",
+      },
       // Theme colour and the tags that make the installed app look like one.
       ...PWA_META,
     ],
@@ -44,11 +48,19 @@ function RootError({ error, reset }: { error: unknown; reset(): void }) {
     <main className="grid min-h-dvh place-items-center p-6 text-center">
       <div className="max-w-sm">
         <div className="text-6xl">{noWebGl ? "🗺️" : "😵‍💫"}</div>
-        <h1 className="mt-4 text-2xl font-black">{noWebGl ? "このブラウザでは地図を表示できません" : "うまくいきませんでした"}</h1>
+        <h1 className="mt-4 text-2xl font-black">
+          {noWebGl ? "このブラウザでは地図を表示できません" : "うまくいきませんでした"}
+        </h1>
         <p className="mt-2 text-sm leading-relaxed text-ink-soft">
-          {noWebGl ? "WebGL2 に対応したブラウザ、またはハードウェアアクセラレーションを有効にしてお試しください。" : "ページを読み込み直すと直ることがあります。"}
+          {noWebGl
+            ? "WebGL2 に対応したブラウザ、またはハードウェアアクセラレーションを有効にしてお試しください。"
+            : "ページを読み込み直すと直ることがあります。"}
         </p>
-        <button type="button" onClick={reset} className="pressable sticker mt-6 inline-flex h-12 items-center rounded-full bg-brand px-6 font-black text-on-brand">
+        <button
+          type="button"
+          onClick={reset}
+          className="pressable sticker mt-6 inline-flex h-12 items-center rounded-full bg-brand px-6 font-black text-on-brand"
+        >
           もう一度ためす
         </button>
       </div>
@@ -62,7 +74,10 @@ function NotFound() {
       <div>
         <div className="text-6xl">🧭</div>
         <h1 className="mt-4 text-2xl font-black">ページが見つかりません</h1>
-        <a href="/" className="pressable sticker mt-6 inline-flex h-12 items-center rounded-full bg-brand px-6 font-black text-on-brand">
+        <a
+          href="/"
+          className="pressable sticker mt-6 inline-flex h-12 items-center rounded-full bg-brand px-6 font-black text-on-brand"
+        >
           ホームへ
         </a>
       </div>
@@ -74,7 +89,9 @@ function RootDocument({ children }: { children: ReactNode }) {
   // While this module is hot-reloaded in development the loader data can be
   // missing for a moment; the document already says which language it is in.
   const loaded = Route.useLoaderData() as { language: Language } | undefined;
-  const language = loaded?.language ?? normalizeLanguage(typeof document === "undefined" ? undefined : document.documentElement.lang);
+  const language =
+    loaded?.language ??
+    normalizeLanguage(typeof document === "undefined" ? undefined : document.documentElement.lang);
   // Server: a fresh instance per request. Browser: the shared instance, which
   // booted in the same language from <html lang>.
   const instance = typeof window === "undefined" ? createI18n(language) : i18n;

@@ -11,7 +11,13 @@ import { UserName } from "../ui/user-name";
 import { UserPicker } from "../ui/user-picker";
 
 /** "Evaluate for a user": which flags one account gets, and why. */
-export function EvaluatePanel({ userId, onChange }: { userId?: string; onChange(userId: string | undefined): void }) {
+export function EvaluatePanel({
+  userId,
+  onChange,
+}: {
+  userId?: string;
+  onChange(userId: string | undefined): void;
+}) {
   const { t } = useTranslation("admin");
   const evaluation = useQuery({
     queryKey: ["admin", "flags", "evaluate", userId],
@@ -28,12 +34,20 @@ export function EvaluatePanel({ userId, onChange }: { userId?: string; onChange(
             <span className="min-w-0 flex-1">
               <UserName userId={userId} />
             </span>
-            <button type="button" aria-label={t("flags.evaluate.clear")} onClick={() => onChange(undefined)} className="grid size-7 shrink-0 place-items-center rounded-full hover:bg-surface">
+            <button
+              type="button"
+              aria-label={t("flags.evaluate.clear")}
+              onClick={() => onChange(undefined)}
+              className="grid size-7 shrink-0 place-items-center rounded-full hover:bg-surface"
+            >
               <X className="size-4" />
             </button>
           </div>
         ) : (
-          <UserPicker label={t("flags.evaluate.pick")} onPick={(account) => onChange(account.user?.id)} />
+          <UserPicker
+            label={t("flags.evaluate.pick")}
+            onPick={(account) => onChange(account.user?.id)}
+          />
         )}
       </div>
       {userId &&
@@ -47,16 +61,26 @@ export function EvaluatePanel({ userId, onChange }: { userId?: string; onChange(
             <ErrorState error={evaluation.error} onRetry={() => evaluation.refetch()} />
           </div>
         ) : evaluation.data.evaluations.length === 0 ? (
-          <p className="border-t-2 border-line px-4 py-4 text-sm text-ink-faint">{t("flags.evaluate.noFlags")}</p>
+          <p className="border-t-2 border-line px-4 py-4 text-sm text-ink-faint">
+            {t("flags.evaluate.noFlags")}
+          </p>
         ) : (
-          <ul aria-label={t("flags.evaluate.results")} className="divide-y divide-line border-t-2 border-line">
+          <ul
+            aria-label={t("flags.evaluate.results")}
+            className="divide-y divide-line border-t-2 border-line"
+          >
             {evaluation.data.evaluations.map((entry) => (
               <li key={entry.name} className="flex items-center gap-3 px-4 py-2.5 text-sm">
                 <span className="min-w-0 flex-1">
                   <code className="block truncate font-mono font-bold">{entry.name}</code>
-                  <span className="block text-xs text-ink-soft">{t(decisionKey(entry.decision))}</span>
+                  <span className="block text-xs text-ink-soft">
+                    {t(decisionKey(entry.decision))}
+                  </span>
                 </span>
-                <ToneChip tone={entry.on ? "good" : "neutral"} icon={entry.on ? <CircleCheck /> : <CircleMinus />}>
+                <ToneChip
+                  tone={entry.on ? "good" : "neutral"}
+                  icon={entry.on ? <CircleCheck /> : <CircleMinus />}
+                >
                   {t(entry.on ? "flags.on" : "flags.off")}
                 </ToneChip>
               </li>

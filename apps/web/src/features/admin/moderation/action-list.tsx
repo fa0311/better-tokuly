@@ -10,7 +10,17 @@ import { ActionChip } from "./parts";
  * and an account's recent record. `showTarget` adds who the action was taken
  * against; `showCase` links the case it belongs to.
  */
-export function ActionList({ actions, showTarget, showCase, empty }: { actions: admin.ModerationAction[]; showTarget?: boolean; showCase?: boolean; empty: string }) {
+export function ActionList({
+  actions,
+  showTarget,
+  showCase,
+  empty,
+}: {
+  actions: admin.ModerationAction[];
+  showTarget?: boolean;
+  showCase?: boolean;
+  empty: string;
+}) {
   const { t } = useTranslation("admin");
   if (actions.length === 0) return <p className="px-4 py-4 text-sm text-ink-faint">{empty}</p>;
   return (
@@ -21,7 +31,11 @@ export function ActionList({ actions, showTarget, showCase, empty }: { actions: 
             <ActionChip kind={action.kind} />
             <span className="text-xs text-ink-soft">{formatDateTime(action.createdAt)}</span>
             {showCase && action.caseId && (
-              <Link to="/admin/moderation/$caseId" params={{ caseId: action.caseId }} className="text-xs font-bold text-brand hover:underline">
+              <Link
+                to="/admin/moderation/$caseId"
+                params={{ caseId: action.caseId }}
+                className="text-xs font-bold text-brand hover:underline"
+              >
                 {t("moderation.log.viewCase")}
               </Link>
             )}
@@ -45,7 +59,11 @@ export function ActionList({ actions, showTarget, showCase, empty }: { actions: 
               {action.note}
             </p>
           )}
-          {action.expiresAt && <p className="text-xs text-ink-soft">{t("moderation.log.until", { time: formatDateTime(action.expiresAt) })}</p>}
+          {action.expiresAt && (
+            <p className="text-xs text-ink-soft">
+              {t("moderation.log.until", { time: formatDateTime(action.expiresAt) })}
+            </p>
+          )}
         </li>
       ))}
     </ol>

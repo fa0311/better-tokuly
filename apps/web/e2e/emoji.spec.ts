@@ -26,7 +26,8 @@ function discPicture(name: string, color: Rgb = [230, 40, 60], size = 128): Test
   const raw = Buffer.alloc(row * size);
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      if (Math.hypot(x - size / 2, y - size / 2) < size * 0.42) raw.set([...color, 255], y * row + 1 + x * 4);
+      if (Math.hypot(x - size / 2, y - size / 2) < size * 0.42)
+        raw.set([...color, 255], y * row + 1 + x * 4);
     }
   }
   const chunk = (type: string, data: Buffer) => {
@@ -43,7 +44,16 @@ function discPicture(name: string, color: Rgb = [230, 40, 60], size = 128): Test
   // 8 bits per channel, RGBA.
   header.set([8, 6, 0, 0, 0], 8);
   const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-  return { name, mimeType: "image/png", buffer: Buffer.concat([signature, chunk("IHDR", header), chunk("IDAT", zlib.deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]) };
+  return {
+    name,
+    mimeType: "image/png",
+    buffer: Buffer.concat([
+      signature,
+      chunk("IHDR", header),
+      chunk("IDAT", zlib.deflateSync(raw)),
+      chunk("IEND", Buffer.alloc(0)),
+    ]),
+  };
 }
 
 /**
@@ -83,7 +93,11 @@ function blinkingGif(name: string, size = 32): TestFile {
     descriptor.writeUInt16LE(size, 5);
     descriptor.writeUInt16LE(size, 7);
     // Graphic control: 0.4 s per frame.
-    return Buffer.concat([Buffer.from([0x21, 0xf9, 4, 0, 40, 0, 0, 0]), descriptor, Buffer.from([2, ...blocks, 0])]);
+    return Buffer.concat([
+      Buffer.from([0x21, 0xf9, 4, 0, 40, 0, 0, 0]),
+      descriptor,
+      Buffer.from([2, ...blocks, 0]),
+    ]);
   };
   const screen = Buffer.alloc(7);
   screen.writeUInt16LE(size, 0);
@@ -92,7 +106,19 @@ function blinkingGif(name: string, size = 32): TestFile {
   screen.writeUInt8(0x91, 4);
   const colors = Buffer.from([255, 255, 255, 230, 40, 60, 60, 120, 240, 0, 0, 0]);
   const loop = Buffer.from([0x21, 0xff, 11, ...Buffer.from("NETSCAPE2.0"), 3, 1, 0, 0, 0]);
-  return { name, mimeType: "image/gif", buffer: Buffer.concat([Buffer.from("GIF89a"), screen, colors, loop, frame(1), frame(2), Buffer.from([0x3b])]) };
+  return {
+    name,
+    mimeType: "image/gif",
+    buffer: Buffer.concat([
+      Buffer.from("GIF89a"),
+      screen,
+      colors,
+      loop,
+      frame(1),
+      frame(2),
+      Buffer.from([0x3b]),
+    ]),
+  };
 }
 
 /** A ZIP archive of the given files (deflated). */
@@ -138,7 +164,9 @@ function zipArchive(files: Record<string, Buffer | string>): Buffer {
 }
 
 /** An emoji pack the way Misskey exports one: `meta.json` next to the pictures it names. */
-function misskeyPack(entries: { name: string; file: TestFile; category?: string; aliases?: string[] }[]): TestFile {
+function misskeyPack(
+  entries: { name: string; file: TestFile; category?: string; aliases?: string[] }[],
+): TestFile {
   const meta = {
     metaVersion: 2,
     host: "misskey.e2e.example",
@@ -173,20 +201,43 @@ function misskeyPack(entries: { name: string; file: TestFile; category?: string;
 
 let counter = 0;
 /** A name no other test (or run) uses: emoji names are unique for the whole server. */
-const unique = (label: string) => `${label}_${Date.now().toString(36).slice(-6)}${(counter++).toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+const unique = (label: string) =>
+  `${label}_${Date.now().toString(36).slice(-6)}${(counter++).toString(36)}${Math.random().toString(36).slice(2, 5)}`;
 
-async function uploadPicture(request: APIRequestContext, as: Account, file: TestFile): Promise<string> {
-  const created = await rpc<{ assetId: string; uploadId: string; putUrl: string; putHeaders?: Record<string, string> }>(
+async function uploadPicture(
+  request: APIRequestContext,
+  as: Account,
+  file: TestFile,
+): Promise<string> {
+  const created = await rpc<{
+    assetId: string;
+    uploadId: string;
+    putUrl: string;
+    putHeaders?: Record<string, string>;
+  }>(
     request,
     `${MEDIA}/CreateUpload`,
-    { purpose: "ASSET_PURPOSE_STAMP", fileName: file.name, contentType: file.mimeType, sizeBytes: String(file.buffer.length) },
+    {
+      purpose: "ASSET_PURPOSE_STAMP",
+      fileName: file.name,
+      contentType: file.mimeType,
+      sizeBytes: String(file.buffer.length),
+    },
     as,
   );
-  const put = await request.put(created.putUrl, { data: file.buffer, headers: created.putHeaders ?? {} });
+  const put = await request.put(created.putUrl, {
+    data: file.buffer,
+    headers: created.putHeaders ?? {},
+  });
   expect(put.ok(), `upload of ${file.name}`).toBeTruthy();
   await rpc(request, `${MEDIA}/CompleteUpload`, { uploadId: created.uploadId }, as);
   await expect(async () => {
-    const { asset } = await rpc<{ asset: { status: string } }>(request, `${MEDIA}/GetAsset`, { assetId: created.assetId }, as);
+    const { asset } = await rpc<{ asset: { status: string } }>(
+      request,
+      `${MEDIA}/GetAsset`,
+      { assetId: created.assetId },
+      as,
+    );
     expect(asset.status).toBe("ASSET_STATUS_READY");
   }).toPass({ timeout: 30_000 });
   return created.assetId;
@@ -202,8 +253,10 @@ test.afterEach(async ({ request }) => {
   if (leftovers.emoji.size === 0 && leftovers.categories.size === 0) return;
   const admin = await adminAccount(request);
   // Whatever is gone already (deleted or withdrawn by the test itself) is fine.
-  for (const name of leftovers.emoji) await rpc(request, `${ADMIN}/DeleteEmoji`, { emojiId: name }, admin).catch(() => {});
-  for (const name of leftovers.categories) await rpc(request, `${ADMIN}/DeleteCategory`, { name }, admin).catch(() => {});
+  for (const name of leftovers.emoji)
+    await rpc(request, `${ADMIN}/DeleteEmoji`, { emojiId: name }, admin).catch(() => {});
+  for (const name of leftovers.categories)
+    await rpc(request, `${ADMIN}/DeleteCategory`, { name }, admin).catch(() => {});
   leftovers.emoji.clear();
   leftovers.categories.clear();
 });
@@ -215,18 +268,32 @@ interface Arranged {
 }
 
 /** An emoji a moderator put straight into the catalogue. */
-async function catalogEmoji(request: APIRequestContext, options: { label?: string; aliases?: string[]; color?: Rgb } = {}): Promise<Arranged> {
+async function catalogEmoji(
+  request: APIRequestContext,
+  options: { label?: string; aliases?: string[]; color?: Rgb } = {},
+): Promise<Arranged> {
   const admin = await adminAccount(request);
   const name = unique(options.label ?? "neko");
   leftovers.emoji.add(name);
   const assetId = await uploadPicture(request, admin, discPicture(`${name}.png`, options.color));
-  const added = await rpc<{ emoji: { emoji: { id: string } } }>(request, `${ADMIN}/AddEmoji`, { name, assetId, aliases: options.aliases ?? [], license: "e2e" }, admin);
+  const added = await rpc<{ emoji: { emoji: { id: string } } }>(
+    request,
+    `${ADMIN}/AddEmoji`,
+    { name, assetId, aliases: options.aliases ?? [], license: "e2e" },
+    admin,
+  );
   return { id: added.emoji.emoji.id, name, code: `:${name}:` };
 }
 
 /** Another person's browser, signed in, at the size of the running project. */
 async function browserOf(browser: Browser, testInfo: TestInfo, account: Account): Promise<Page> {
-  const context = await browser.newContext({ baseURL: testInfo.project.use.baseURL, locale: "ja-JP", timezoneId: "Asia/Tokyo", viewport: testInfo.project.use.viewport, hasTouch: testInfo.project.use.hasTouch });
+  const context = await browser.newContext({
+    baseURL: testInfo.project.use.baseURL,
+    locale: "ja-JP",
+    timezoneId: "Asia/Tokyo",
+    viewport: testInfo.project.use.viewport,
+    hasTouch: testInfo.project.use.hasTouch,
+  });
   const page = await context.newPage();
   await signInAs(page, account);
   return page;
@@ -234,11 +301,18 @@ async function browserOf(browser: Browser, testInfo: TestInfo, account: Account)
 
 // Tests that only need a signed-in browser ask for the `me` fixture without using the account (`me: _me`).
 
-const deckOf = async (request: APIRequestContext, as: Account) => (await rpc<{ items?: { emoji: string }[] }>(request, `${EMOJI}/GetDeck`, {}, as)).items?.map((item) => item.emoji) ?? [];
+const deckOf = async (request: APIRequestContext, as: Account) =>
+  (await rpc<{ items?: { emoji: string }[] }>(request, `${EMOJI}/GetDeck`, {}, as)).items?.map(
+    (item) => item.emoji,
+  ) ?? [];
 
 // ───────────────────────────── The picker ─────────────────────────────
 
-test("the picker finds an emoji by a Japanese alias and by name, and pins what is picked", async ({ page, request, me }) => {
+test("the picker finds an emoji by a Japanese alias and by name, and pins what is picked", async ({
+  page,
+  request,
+  me,
+}) => {
   const tag = unique("x").replace(/_/g, "");
   const emoji = await catalogEmoji(request, { aliases: [`ねこ${tag}`, "cat"] });
 
@@ -247,7 +321,9 @@ test("the picker finds an emoji by a Japanese alias and by name, and pins what i
   const picker = page.getByTestId("emoji-picker");
   await expect(picker).toBeVisible();
   // The deck comes first: a new account has the server's default one.
-  await expect(picker.getByRole("region", { name: "マイデッキ" }).getByRole("button", { name: "👍" })).toBeVisible();
+  await expect(
+    picker.getByRole("region", { name: "マイデッキ" }).getByRole("button", { name: "👍" }),
+  ).toBeVisible();
 
   // By alias, typed in katakana: kana and width make no difference.
   const search = picker.getByRole("searchbox");
@@ -278,7 +354,11 @@ test("the picker finds an emoji by a Japanese alias and by name, and pins what i
 
 // ───────────────────────────── Emoji in text ─────────────────────────────
 
-test("text shows a shortcode as its emoji and leaves an unknown one, Unicode and markup alone", async ({ page, request, me: _me }) => {
+test("text shows a shortcode as its emoji and leaves an unknown one, Unicode and markup alone", async ({
+  page,
+  request,
+  me: _me,
+}) => {
   const emoji = await catalogEmoji(request, { label: "inu", aliases: ["わんこ"] });
   const other = await catalogEmoji(request, { label: "tori", color: [60, 120, 240] });
 
@@ -299,17 +379,29 @@ test("text shows a shortcode as its emoji and leaves an unknown one, Unicode and
   // `:` autocomplete: a few letters of another emoji's name suggest it; picking writes its shortcode.
   await field.fill("");
   await field.pressSequentially(`いいね :${other.name.slice(0, 8)}`);
-  await page.getByRole("list", { name: "絵文字の候補" }).getByRole("button", { name: other.code }).click();
+  await page
+    .getByRole("list", { name: "絵文字の候補" })
+    .getByRole("button", { name: other.code })
+    .click();
   await expect(field).toHaveValue(`いいね ${other.code} `);
   await expect(preview.locator(`img[alt="${other.code}"]`)).toBeVisible();
 });
 
-test("an animated emoji moves only while it is on screen, and stands still for people who asked for less motion", async ({ page, request, me: _me }) => {
+test("an animated emoji moves only while it is on screen, and stands still for people who asked for less motion", async ({
+  page,
+  request,
+  me: _me,
+}) => {
   const admin = await adminAccount(request);
   const name = unique("blink");
   leftovers.emoji.add(name);
   const assetId = await uploadPicture(request, admin, blinkingGif(`${name}.gif`));
-  const added = await rpc<{ emoji: { emoji: { animated?: boolean; image: { url: string } } } }>(request, `${ADMIN}/AddEmoji`, { name, assetId }, admin);
+  const added = await rpc<{ emoji: { emoji: { animated?: boolean; image: { url: string } } } }>(
+    request,
+    `${ADMIN}/AddEmoji`,
+    { name, assetId },
+    admin,
+  );
   expect(added.emoji.emoji.animated).toBe(true);
   const moving = added.emoji.emoji.image.url;
 
@@ -335,7 +427,11 @@ test("an animated emoji moves only while it is on screen, and stands still for p
   await expect(picture).not.toHaveAttribute("src", moving);
 });
 
-test("a sensitive emoji is blurred on its own page too, until the visitor taps to see it", async ({ page, request, me: _me }) => {
+test("a sensitive emoji is blurred on its own page too, until the visitor taps to see it", async ({
+  page,
+  request,
+  me: _me,
+}) => {
   const admin = await adminAccount(request);
   const name = unique("spicy");
   leftovers.emoji.add(name);
@@ -354,7 +450,12 @@ test("a sensitive emoji is blurred on its own page too, until the visitor taps t
 
 // ───────────────────────────── Submitting and reviewing ─────────────────────────────
 
-test("a submitted emoji is approved by a moderator and reaches another account's catalogue without a reload", async ({ page, request, browser, me: _me }, testInfo) => {
+test("a submitted emoji is approved by a moderator and reaches another account's catalogue without a reload", async ({
+  page,
+  request,
+  browser,
+  me: _me,
+}, testInfo) => {
   // The catalogue has at least one emoji, so the other account starts from a real version.
   await catalogEmoji(request, { label: "base" });
   const admin = await adminAccount(request);
@@ -378,14 +479,27 @@ test("a submitted emoji is approved by a moderator and reaches another account's
   await page.goto("/emoji/new-emoji");
   // Something that is no picture is turned away before anything is uploaded.
   const uploads: string[] = [];
-  page.on("request", (sent) => sent.url().endsWith("MediaService/CreateUpload") && uploads.push(sent.url()));
-  await page.getByTestId("emoji-file").setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("not a picture") });
-  await expect(page.getByRole("alert").filter({ hasText: "画像ファイルをえらんでね" })).toBeVisible();
+  page.on(
+    "request",
+    (sent) => sent.url().endsWith("MediaService/CreateUpload") && uploads.push(sent.url()),
+  );
+  await page.getByTestId("emoji-file").setInputFiles({
+    name: "notes.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("not a picture"),
+  });
+  await expect(
+    page.getByRole("alert").filter({ hasText: "画像ファイルをえらんでね" }),
+  ).toBeVisible();
   expect(uploads).toHaveLength(0);
   await page.getByTestId("emoji-file").setInputFiles(discPicture("made.png", [255, 170, 0]));
   // The picture is previewed at text size on a light and on a dark tile.
-  await expect(page.getByTestId("preview-light").getByTestId("emoji-preview-line").locator("img")).toBeVisible();
-  await expect(page.getByTestId("preview-dark").getByTestId("emoji-preview-line").locator("img")).toBeVisible();
+  await expect(
+    page.getByTestId("preview-light").getByTestId("emoji-preview-line").locator("img"),
+  ).toBeVisible();
+  await expect(
+    page.getByTestId("preview-dark").getByTestId("emoji-preview-line").locator("img"),
+  ).toBeVisible();
   const nameField = page.getByRole("textbox", { name: "なまえ" });
   // A reserved name is refused while typing.
   await nameField.fill("admin");
@@ -428,7 +542,9 @@ test("a submitted emoji is approved by a moderator and reaches another account's
   await viewerPage.goto("/emoji/my-deck");
   await viewerPage.getByRole("button", { name: "追加" }).click();
   await viewerPage.getByTestId("emoji-picker").getByRole("searchbox").fill(name);
-  await expect(viewerPage.getByTestId("emoji-picker").getByRole("button", { name: code })).toBeVisible();
+  await expect(
+    viewerPage.getByTestId("emoji-picker").getByRole("button", { name: code }),
+  ).toBeVisible();
 
   // The author is told live: the submission is now in the catalogue.
   await expect(submission.locator('[data-state="approved"]')).toBeVisible({ timeout: 20_000 });
@@ -440,13 +556,27 @@ test("a submitted emoji is approved by a moderator and reaches another account's
   await adminPage.context().close();
 });
 
-test("a declined submission shows the reason and can be fixed, resubmitted and withdrawn", async ({ page, request, me }) => {
+test("a declined submission shows the reason and can be fixed, resubmitted and withdrawn", async ({
+  page,
+  request,
+  me,
+}) => {
   const admin = await adminAccount(request);
   const name = unique("fixme");
   leftovers.emoji.add(name).add(`${name}_v2`);
   const assetId = await uploadPicture(request, me, discPicture("fixme.png"));
-  const submitted = await rpc<{ emoji: { emoji: { id: string } } }>(request, `${SUBMISSIONS}/SubmitEmoji`, { name, assetId, aliases: ["なおす"] }, me);
-  await rpc(request, `${ADMIN}/RejectEmoji`, { emojiId: submitted.emoji.emoji.id, reason: "背景を透明にしてください" }, admin);
+  const submitted = await rpc<{ emoji: { emoji: { id: string } } }>(
+    request,
+    `${SUBMISSIONS}/SubmitEmoji`,
+    { name, assetId, aliases: ["なおす"] },
+    me,
+  );
+  await rpc(
+    request,
+    `${ADMIN}/RejectEmoji`,
+    { emojiId: submitted.emoji.emoji.id, reason: "背景を透明にしてください" },
+    admin,
+  );
 
   await page.goto("/emoji/submissions");
   const submission = page.getByTestId("submission").filter({ hasText: `:${name}:` });
@@ -467,13 +597,22 @@ test("a declined submission shows the reason and can be fixed, resubmitted and w
   await again.getByRole("button", { name: "とりさげる" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "とりさげる" }).click();
   await expect(again).toHaveCount(0);
-  const mine = await rpc<{ emojis?: unknown[] }>(request, `${SUBMISSIONS}/ListMySubmissions`, {}, me);
+  const mine = await rpc<{ emojis?: unknown[] }>(
+    request,
+    `${SUBMISSIONS}/ListMySubmissions`,
+    {},
+    me,
+  );
   expect(mine.emojis ?? []).toHaveLength(0);
 });
 
 // ───────────────────────────── The reaction deck ─────────────────────────────
 
-test("an emoji is pinned to the deck, moved to the front by dragging, moved with the keyboard and removed", async ({ page, request, me }) => {
+test("an emoji is pinned to the deck, moved to the front by dragging, moved with the keyboard and removed", async ({
+  page,
+  request,
+  me,
+}) => {
   const emoji = await catalogEmoji(request, { label: "pin" });
 
   await page.goto(`/emoji/${emoji.name}`);
@@ -482,7 +621,8 @@ test("an emoji is pinned to the deck, moved to the front by dragging, moved with
 
   await page.goto("/emoji/my-deck");
   const items = page.getByTestId("deck-item");
-  const codes = () => items.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-emoji")));
+  const codes = () =>
+    items.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-emoji")));
   // The server's default deck, then the pin.
   await expect(items).toHaveCount(11);
   expect((await codes()).at(-1)).toBe(emoji.code);
@@ -505,7 +645,9 @@ test("an emoji is pinned to the deck, moved to the front by dragging, moved with
   // The arrow keys move a focused tile one place.
   await items.first().focus();
   await page.keyboard.press("ArrowRight");
-  await expect.poll(() => deckOf(request, me)).toEqual([before[0], emoji.code, ...before.slice(1, -1)]);
+  await expect
+    .poll(() => deckOf(request, me))
+    .toEqual([before[0], emoji.code, ...before.slice(1, -1)]);
 
   // Take it off again.
   await page.getByRole("button", { name: `${emoji.code} をはずす` }).click();
@@ -520,7 +662,12 @@ test("an emoji is pinned to the deck, moved to the front by dragging, moved with
 
 // ───────────────────────────── Staff ─────────────────────────────
 
-test("a moderator imports a Misskey pack and gets a report; the emoji are in the catalogue", async ({ page, request, browser, me: _me }, testInfo) => {
+test("a moderator imports a Misskey pack and gets a report; the emoji are in the catalogue", async ({
+  page,
+  request,
+  browser,
+  me: _me,
+}, testInfo) => {
   const admin = await adminAccount(request);
   const taken = await catalogEmoji(request, { label: "taken" });
   const first = unique("pack_a");
@@ -545,9 +692,13 @@ test("a moderator imports a Misskey pack and gets a report; the emoji are in the
   await expect(report).toBeVisible({ timeout: 30_000 });
   await expect(report.getByRole("progressbar")).toBeVisible();
   await expect(report).toHaveAttribute("data-status", "completed", { timeout: 90_000 });
-  await expect(report.getByTestId("import-summary")).toHaveText("3個中：とりこみ 2・スキップ 1・失敗 0");
+  await expect(report.getByTestId("import-summary")).toHaveText(
+    "3個中：とりこみ 2・スキップ 1・失敗 0",
+  );
   await expect(report.getByText("misskey.e2e.example からのパック")).toBeVisible();
-  await expect(report.locator('[data-testid="import-entry"][data-status="imported"]')).toHaveCount(2);
+  await expect(report.locator('[data-testid="import-entry"][data-status="imported"]')).toHaveCount(
+    2,
+  );
   const skipped = report.locator('[data-testid="import-entry"][data-status="skipped"]');
   await expect(skipped).toContainText(taken.name);
   await expect(skipped).toContainText("おなじなまえの絵文字があります");
@@ -567,12 +718,23 @@ test("a moderator imports a Misskey pack and gets a report; the emoji are in the
   await adminPage.context().close();
 });
 
-test("a moderator edits, disables, enables and deletes an emoji, and trusts a submitter", async ({ request, browser }, testInfo) => {
+test("a moderator edits, disables, enables and deletes an emoji, and trusts a submitter", async ({
+  request,
+  browser,
+}, testInfo) => {
   const admin = await adminAccount(request);
   const emoji = await catalogEmoji(request, { label: "staff" });
   const maker = await createAccount(request, "maker");
   const adminPage = await browserOf(browser, testInfo, admin);
-  const stateOf = async () => (await rpc<{ emojis?: { state: string; emoji: { aliases?: string[] } }[] }>(request, `${ADMIN}/ListEmoji`, { query: emoji.name }, admin)).emojis?.[0];
+  const stateOf = async () =>
+    (
+      await rpc<{ emojis?: { state: string; emoji: { aliases?: string[] } }[] }>(
+        request,
+        `${ADMIN}/ListEmoji`,
+        { query: emoji.name },
+        admin,
+      )
+    ).emojis?.[0];
 
   await adminPage.goto(`/admin/emoji?tab=all&q=${emoji.name}`);
   const row = adminPage.locator(`[data-testid="admin-emoji"][data-name="${emoji.name}"]`);
@@ -611,16 +773,33 @@ test("a moderator edits, disables, enables and deletes an emoji, and trusts a su
   await adminPage.goto("/admin/emoji?tab=trusted");
   await adminPage.getByRole("textbox", { name: "信頼ユーザーを追加" }).fill(maker.handle);
   await adminPage.getByRole("button", { name: new RegExp(`@${maker.handle}`) }).click();
-  await expect(adminPage.getByTestId("trusted-row").filter({ hasText: `@${maker.handle}` })).toBeVisible();
-  const profile = await rpc<{ profile: { trusted?: boolean } }>(request, `${SUBMISSIONS}/GetSubmitterProfile`, {}, maker);
+  await expect(
+    adminPage.getByTestId("trusted-row").filter({ hasText: `@${maker.handle}` }),
+  ).toBeVisible();
+  const profile = await rpc<{ profile: { trusted?: boolean } }>(
+    request,
+    `${SUBMISSIONS}/GetSubmitterProfile`,
+    {},
+    maker,
+  );
   expect(profile.profile.trusted).toBe(true);
-  await adminPage.getByTestId("trusted-row").filter({ hasText: `@${maker.handle}` }).getByRole("button", { name: "はずす" }).click();
-  await expect(adminPage.getByTestId("trusted-row").filter({ hasText: `@${maker.handle}` })).toHaveCount(0);
+  await adminPage
+    .getByTestId("trusted-row")
+    .filter({ hasText: `@${maker.handle}` })
+    .getByRole("button", { name: "はずす" })
+    .click();
+  await expect(
+    adminPage.getByTestId("trusted-row").filter({ hasText: `@${maker.handle}` }),
+  ).toHaveCount(0);
 
   await adminPage.context().close();
 });
 
-test("the catalogue page filters by category and search, and someone without a staff role cannot open the staff page", async ({ page, request, me: _me }) => {
+test("the catalogue page filters by category and search, and someone without a staff role cannot open the staff page", async ({
+  page,
+  request,
+  me: _me,
+}) => {
   const tag = unique("s").replace(/_/g, "");
   const emoji = await catalogEmoji(request, { label: "find", aliases: [`さがす${tag}`] });
 

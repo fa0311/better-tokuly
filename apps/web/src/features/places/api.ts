@@ -11,8 +11,16 @@ export const placeKeys = {
   saved: ["geo", "places", "saved"] as const,
   suggestions: ["geo", "places", "suggestions"] as const,
   place: (id: string) => ["geo", "places", "place", id] as const,
-  search: (query: string, near: LatLng | null) => ["geo", "places", "search", query, near?.lat ?? null, near?.lng ?? null] as const,
-  reverse: (position: LatLng, language: string) => ["geo", "reverse", Number(position.lat.toFixed(4)), Number(position.lng.toFixed(4)), language] as const,
+  search: (query: string, near: LatLng | null) =>
+    ["geo", "places", "search", query, near?.lat ?? null, near?.lng ?? null] as const,
+  reverse: (position: LatLng, language: string) =>
+    [
+      "geo",
+      "reverse",
+      Number(position.lat.toFixed(4)),
+      Number(position.lng.toFixed(4)),
+      language,
+    ] as const,
 };
 
 export interface LatLng {
@@ -23,7 +31,8 @@ export interface LatLng {
 /** Shibuya crossing: where maps open before the device says where it is. */
 export const DEFAULT_CENTER: LatLng = { lat: 35.6595, lng: 139.7005 };
 
-export const toLatLng = (point: common.LatLng | undefined): LatLng | null => (point ? { lat: point.lat, lng: point.lng } : null);
+export const toLatLng = (point: common.LatLng | undefined): LatLng | null =>
+  point ? { lat: point.lat, lng: point.lng } : null;
 
 /** The device's position, asked once. Rejects when the browser cannot or may not say. */
 export function currentPosition(): Promise<LatLng> {
@@ -53,7 +62,9 @@ export async function loadFriends(): Promise<social.Friend[]> {
   const friends: social.Friend[] = [];
   let cursor = "";
   do {
-    const page = await api().service(social.FriendService).listFriends({ page: { limit: 100, cursor } });
+    const page = await api()
+      .service(social.FriendService)
+      .listFriends({ page: { limit: 100, cursor } });
     friends.push(...page.friends);
     cursor = page.page?.nextCursor ?? "";
   } while (cursor);

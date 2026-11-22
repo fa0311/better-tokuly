@@ -24,7 +24,16 @@ export interface SettingsMenuProps {
  * The gear menu: speed, quality and subtitles. It is drawn inside the player
  * (not in a portal), so it is still there in fullscreen.
  */
-export function SettingsMenu({ state, subtitles, trackId, rateLocked, onRate, onLevel, onTrack, onClose }: SettingsMenuProps) {
+export function SettingsMenu({
+  state,
+  subtitles,
+  trackId,
+  rateLocked,
+  onRate,
+  onLevel,
+  onTrack,
+  onClose,
+}: SettingsMenuProps) {
   const { t } = useTranslation("video");
   const [panel, setPanel] = useState<Panel>("main");
   const root = useRef<HTMLDivElement>(null);
@@ -37,7 +46,12 @@ export function SettingsMenu({ state, subtitles, trackId, rateLocked, onRate, on
 
   const quality = (height: number) => `${height}p`;
   const playing = state.levels.find((level) => level.index === state.playingLevel);
-  const currentQuality = state.level === -1 ? (playing ? t("player.autoAt", { quality: quality(playing.height) }) : t("player.auto")) : quality(state.levels.find((level) => level.index === state.level)?.height ?? 0);
+  const currentQuality =
+    state.level === -1
+      ? playing
+        ? t("player.autoAt", { quality: quality(playing.height) })
+        : t("player.auto")
+      : quality(state.levels.find((level) => level.index === state.level)?.height ?? 0);
   const currentTrack = subtitles.find((track) => track.id === trackId);
   const rateLabel = (rate: number) => (rate === 1 ? t("player.normalSpeed") : `${rate}×`);
 
@@ -62,20 +76,51 @@ export function SettingsMenu({ state, subtitles, trackId, rateLocked, onRate, on
     >
       {panel === "main" ? (
         <>
-          <Row label={t("player.speed")} value={rateLabel(state.rate)} disabled={rateLocked} onClick={() => setPanel("speed")} />
-          {state.levels.length > 0 && <Row label={t("player.quality")} value={currentQuality} onClick={() => setPanel("quality")} />}
-          {subtitles.length > 0 && <Row label={t("player.captions")} value={currentTrack ? currentTrack.label || currentTrack.language : t("player.off")} onClick={() => setPanel("captions")} />}
+          <Row
+            label={t("player.speed")}
+            value={rateLabel(state.rate)}
+            disabled={rateLocked}
+            onClick={() => setPanel("speed")}
+          />
+          {state.levels.length > 0 && (
+            <Row
+              label={t("player.quality")}
+              value={currentQuality}
+              onClick={() => setPanel("quality")}
+            />
+          )}
+          {subtitles.length > 0 && (
+            <Row
+              label={t("player.captions")}
+              value={currentTrack ? currentTrack.label || currentTrack.language : t("player.off")}
+              onClick={() => setPanel("captions")}
+            />
+          )}
         </>
       ) : (
         <>
-          <button type="button" className="flex h-10 items-center gap-1 rounded-xl px-2 text-left hover:bg-white/15" onClick={() => setPanel("main")}>
+          <button
+            type="button"
+            className="flex h-10 items-center gap-1 rounded-xl px-2 text-left hover:bg-white/15"
+            onClick={() => setPanel("main")}
+          >
             <ChevronLeft className="size-4" />
-            {t(panel === "speed" ? "player.speed" : panel === "quality" ? "player.quality" : "player.captions")}
+            {t(
+              panel === "speed"
+                ? "player.speed"
+                : panel === "quality"
+                  ? "player.quality"
+                  : "player.captions",
+            )}
           </button>
           <div className="my-1 border-t border-white/20" />
           {panel === "speed" &&
             RATES.map((rate) => (
-              <Option key={rate} selected={state.rate === rate} onClick={choose(() => onRate(rate))}>
+              <Option
+                key={rate}
+                selected={state.rate === rate}
+                onClick={choose(() => onRate(rate))}
+              >
                 {rateLabel(rate)}
               </Option>
             ))}
@@ -87,7 +132,11 @@ export function SettingsMenu({ state, subtitles, trackId, rateLocked, onRate, on
               {[...state.levels]
                 .sort((a, b) => b.height - a.height)
                 .map((level) => (
-                  <Option key={level.index} selected={state.level === level.index} onClick={choose(() => onLevel(level.index))}>
+                  <Option
+                    key={level.index}
+                    selected={state.level === level.index}
+                    onClick={choose(() => onLevel(level.index))}
+                  >
                     {quality(level.height)}
                   </Option>
                 ))}
@@ -99,7 +148,11 @@ export function SettingsMenu({ state, subtitles, trackId, rateLocked, onRate, on
                 {t("player.off")}
               </Option>
               {subtitles.map((track) => (
-                <Option key={track.id} selected={trackId === track.id} onClick={choose(() => onTrack(track.id))}>
+                <Option
+                  key={track.id}
+                  selected={trackId === track.id}
+                  onClick={choose(() => onTrack(track.id))}
+                >
                   <span lang={track.language}>{track.label || track.language}</span>
                 </Option>
               ))}
@@ -111,9 +164,24 @@ export function SettingsMenu({ state, subtitles, trackId, rateLocked, onRate, on
   );
 }
 
-function Row({ label, value, disabled, onClick }: { label: string; value: string; disabled?: boolean; onClick(): void }) {
+function Row({
+  label,
+  value,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  value: string;
+  disabled?: boolean;
+  onClick(): void;
+}) {
   return (
-    <button type="button" disabled={disabled} className="flex h-10 items-center gap-2 rounded-xl px-3 text-left hover:bg-white/15 disabled:opacity-40" onClick={onClick}>
+    <button
+      type="button"
+      disabled={disabled}
+      className="flex h-10 items-center gap-2 rounded-xl px-3 text-left hover:bg-white/15 disabled:opacity-40"
+      onClick={onClick}
+    >
       <span className="flex-1">{label}</span>
       <span className="max-w-24 truncate text-white/70">{value}</span>
       <ChevronRight className="size-4 text-white/70" />
@@ -121,10 +189,27 @@ function Row({ label, value, disabled, onClick }: { label: string; value: string
   );
 }
 
-function Option({ selected, onClick, children }: { selected: boolean; onClick(): void; children: ReactNode }) {
+function Option({
+  selected,
+  onClick,
+  children,
+}: {
+  selected: boolean;
+  onClick(): void;
+  children: ReactNode;
+}) {
   return (
     // biome-ignore lint/a11y/useSemanticElements: styled choices of one setting; a native radio cannot carry this layout.
-    <button type="button" role="radio" aria-checked={selected} className={cn("flex h-10 shrink-0 items-center gap-2 rounded-xl px-3 text-left hover:bg-white/15", selected && "text-white")} onClick={onClick}>
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      className={cn(
+        "flex h-10 shrink-0 items-center gap-2 rounded-xl px-3 text-left hover:bg-white/15",
+        selected && "text-white",
+      )}
+      onClick={onClick}
+    >
       <Check className={cn("size-4", !selected && "invisible")} />
       <span className="min-w-0 flex-1 truncate">{children}</span>
     </button>

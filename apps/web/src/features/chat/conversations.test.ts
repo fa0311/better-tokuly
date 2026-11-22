@@ -3,7 +3,11 @@ import { describe, expect, it } from "vitest";
 import { listAfter } from "./conversations";
 import { make } from "./test-support";
 
-function conversation(id: string, day: number, viewer: MessageInitShape<typeof chat.ViewerStateSchema> = {}): chat.Conversation {
+function conversation(
+  id: string,
+  day: number,
+  viewer: MessageInitShape<typeof chat.ViewerStateSchema> = {},
+): chat.Conversation {
   return create(chat.ConversationSchema, {
     id,
     kind: chat.ConversationKind.GROUP,
@@ -14,8 +18,12 @@ function conversation(id: string, day: number, viewer: MessageInitShape<typeof c
   });
 }
 
-const list = (conversations: chat.Conversation[], nextCursor = "") => ({ pages: [{ conversations, nextCursor }], pageParams: [""] });
-const ids = (data: ReturnType<typeof list>) => data.pages.flatMap((page) => page.conversations.map((item) => item.id));
+const list = (conversations: chat.Conversation[], nextCursor = "") => ({
+  pages: [{ conversations, nextCursor }],
+  pageParams: [""],
+});
+const ids = (data: ReturnType<typeof list>) =>
+  data.pages.flatMap((page) => page.conversations.map((item) => item.id));
 
 describe("conversation lists", () => {
   it("moves a conversation with a new message to the top", () => {
@@ -31,14 +39,18 @@ describe("conversation lists", () => {
   it("takes a conversation out of the list it no longer belongs in", () => {
     const data = list([conversation("a", 3), conversation("b", 2)]);
     expect(ids(listAfter(data, "inbox", conversation("b", 2, { archived: true })))).toEqual(["a"]);
-    expect(ids(listAfter(list([]), "archived", conversation("b", 2, { archived: true })))).toEqual(["b"]);
+    expect(ids(listAfter(list([]), "archived", conversation("b", 2, { archived: true })))).toEqual([
+      "b",
+    ]);
   });
 
   it("leaves a conversation older than everything loaded to the pages still to come", () => {
     const data = list([conversation("a", 3), conversation("b", 2)], "more");
     expect(ids(listAfter(data, "inbox", conversation("ancient", 1)))).toEqual(["a", "b"]);
     // With nothing more to load, it belongs at the end.
-    expect(ids(listAfter(list([conversation("a", 3)]), "inbox", conversation("ancient", 1)))).toEqual(["a", "ancient"]);
+    expect(
+      ids(listAfter(list([conversation("a", 3)]), "inbox", conversation("ancient", 1))),
+    ).toEqual(["a", "ancient"]);
   });
 
   it("changes nothing when nothing changed", () => {

@@ -1,6 +1,17 @@
 export default {
-  actions: { back: "もどる", cancel: "キャンセル", clear: "クリア", close: "閉じる", remove: "外す", retry: "もう一度", save: "保存する" },
-  home: { title: "トークをえらんでね", body: "左のリストからトークをひらくか、新しいチャットをはじめよう！" },
+  actions: {
+    back: "もどる",
+    cancel: "キャンセル",
+    clear: "クリア",
+    close: "閉じる",
+    remove: "外す",
+    retry: "もう一度",
+    save: "保存する",
+  },
+  home: {
+    title: "トークをえらんでね",
+    body: "左のリストからトークをひらくか、新しいチャットをはじめよう！",
+  },
   list: {
     title: "チャット",
     search: "トーク・ともだちをさがす",
@@ -12,7 +23,10 @@ export default {
     mentioned: "メンションされました",
     empty: {
       inbox: { title: "まだトークがないよ", body: "ともだちに最初のひとことを送ってみよう！" },
-      requests: { title: "リクエストはありません", body: "ともだち以外からのメッセージはここに届くよ" },
+      requests: {
+        title: "リクエストはありません",
+        body: "ともだち以外からのメッセージはここに届くよ",
+      },
       archived: { title: "アーカイブは空っぽ", body: "しまっておきたいトークをここに置けるよ" },
       search: { title: "見つかりませんでした", body: "なまえや @ハンドル でさがしてみてね" },
     },
@@ -97,20 +111,39 @@ export default {
     confirm: "非表示にする",
     confirmClear: "履歴を消して非表示",
   },
-  leave: { title: "{{name}}を退出する？", lead: "退出すると、このグループのメッセージは見られなくなります。", confirm: "退出する" },
+  leave: {
+    title: "{{name}}を退出する？",
+    lead: "退出すると、このグループのメッセージは見られなくなります。",
+    confirm: "退出する",
+  },
   request: {
     title: "{{name}}からメッセージリクエスト",
     lead: "承認すると返信できるようになるよ。削除しても相手には伝わりません。",
     accept: "承認",
     decline: "削除",
   },
-  gone: { title: "このトークはひらけません", body: "退出したか、もう存在しないみたい。", back: "チャットにもどる" },
+  gone: {
+    title: "このトークはひらけません",
+    body: "退出したか、もう存在しないみたい。",
+    back: "チャットにもどる",
+  },
   empty: {
     direct: { title: "{{name}}と話してみよう！", body: "まずは手を振ってあいさつしてみる？" },
     group: { title: "グループができたよ！", body: "最初のメッセージを送ってみよう！" },
   },
-  hello: { wave: "👋 手を振る", sent: "手を振りました！", received: "{{name}}が手を振ってるよ！", back: "👋 振り返す" },
-  people: { you: "あなた", someone: "だれか", deleted: "退会したユーザー", separator: "、", andMore: "{{names}} ほか{{count}}人" },
+  hello: {
+    wave: "👋 手を振る",
+    sent: "手を振りました！",
+    received: "{{name}}が手を振ってるよ！",
+    back: "👋 振り返す",
+  },
+  people: {
+    you: "あなた",
+    someone: "だれか",
+    deleted: "退会したユーザー",
+    separator: "、",
+    andMore: "{{names}} ほか{{count}}人",
+  },
   time: { today: "今日", yesterday: "昨日" },
   typing: { short: "入力中…", named: "{{names}}が入力中…" },
   presence: { online: "オンライン", direct: "いまトークを見てるよ", group: "{{names}}が見てるよ" },
@@ -215,7 +248,16 @@ export default {
   emoji: {
     title: "絵文字",
     groups: "絵文字のカテゴリ",
-    group: { recent: "よく使う", smileys: "かお", hearts: "ハート", hands: "ハンド", animals: "いきもの・自然", food: "たべもの", activities: "あそび・おでかけ", objects: "もの・記号" },
+    group: {
+      recent: "よく使う",
+      smileys: "かお",
+      hearts: "ハート",
+      hands: "ハンド",
+      animals: "いきもの・自然",
+      food: "たべもの",
+      activities: "あそび・おでかけ",
+      objects: "もの・記号",
+    },
   },
   media: {
     viewer: "写真・動画ビューア",
@@ -232,7 +274,11 @@ export default {
     next: "次へ",
     showInChat: "トークで見る",
     tabs: { visual: "写真・動画", audio: "ボイス", files: "ファイル" },
-    empty: { visual: "写真や動画はまだないよ", audio: "ボイスメッセージはまだないよ", files: "ファイルはまだないよ" },
+    empty: {
+      visual: "写真や動画はまだないよ",
+      audio: "ボイスメッセージはまだないよ",
+      files: "ファイルはまだないよ",
+    },
   },
   link: { playHere: "タップで再生", play: "{{title}}を再生" },
   location: {
@@ -247,7 +293,12 @@ export default {
     open: "タップでマップをひらく",
     directions: "マップアプリでひらく",
   },
-  panel: { info: "トーク情報", search: "トーク内をさがす", pinned: "ピン留め", media: "写真・動画・ファイル" },
+  panel: {
+    info: "トーク情報",
+    search: "トーク内をさがす",
+    pinned: "ピン留め",
+    media: "写真・動画・ファイル",
+  },
   info: {
     open: "{{name}}のトーク情報",
     profile: "プロフィールを見る",
@@ -261,11 +312,27 @@ export default {
     archived: "アーカイブ",
     archivedHint: "トークをリストからしまっておくよ",
   },
-  search: { placeholder: "メッセージをさがす", start: "キーワードを入れてさがしてみよう", empty: "見つかりませんでした" },
-  pins: { empty: "ピン留めはまだないよ", emptyBody: "大事なメッセージを長押しして「ピン留め」してみよう！" },
+  search: {
+    placeholder: "メッセージをさがす",
+    start: "キーワードを入れてさがしてみよう",
+    empty: "見つかりませんでした",
+  },
+  pins: {
+    empty: "ピン留めはまだないよ",
+    emptyBody: "大事なメッセージを長押しして「ピン留め」してみよう！",
+  },
   reactions: { title: "リアクション", all: "すべて {{count}}" },
-  receipts: { title: "既読メンバー", summary: "既読 {{read}}人・未読 {{unread}}人", none: "まだだれも読んでいないよ" },
-  forward: { title: "メッセージを転送", lead: "送り先をえらんでね（{{count}}件まで）", send: "転送する（{{count}}）", done: "{{count}}件のトークに転送しました！" },
+  receipts: {
+    title: "既読メンバー",
+    summary: "既読 {{read}}人・未読 {{unread}}人",
+    none: "まだだれも読んでいないよ",
+  },
+  forward: {
+    title: "メッセージを転送",
+    lead: "送り先をえらんでね（{{count}}件まで）",
+    send: "転送する（{{count}}）",
+    done: "{{count}}件のトークに転送しました！",
+  },
   share: {
     title: "ともだちに送る",
     search: "トーク・ともだちをさがす",
@@ -277,7 +344,8 @@ export default {
   },
   pov: {
     requestTitle: "POVをリクエスト",
-    requestLead: "{{name}}に「いま見てる景色」を写真か動画で送ってもらおう！{{hours}}時間以内に答えてもらえるよ。",
+    requestLead:
+      "{{name}}に「いま見てる景色」を写真か動画で送ってもらおう！{{hours}}時間以内に答えてもらえるよ。",
     request: "リクエストする",
     note: "ひとこと（なくてもOK）",
     notePlaceholder: "今どこ？",
@@ -391,7 +459,16 @@ export default {
     hideTranslation: "翻訳を閉じる",
     translation: "翻訳",
     translatedFrom: "{{language}}から翻訳",
-    tone: { casual: "タメ口で", polite: "敬語で", cute: "かわいく", funny: "おもしろく", cool: "クールに", excited: "テンション高めで", shorter: "もっと短く", kansai: "関西弁で" },
+    tone: {
+      casual: "タメ口で",
+      polite: "敬語で",
+      cute: "かわいく",
+      funny: "おもしろく",
+      cool: "クールに",
+      excited: "テンション高めで",
+      shorter: "もっと短く",
+      kansai: "関西弁で",
+    },
     consent: {
       title: "AIアシストを使う前に",
       lead: "AIアシストを使うと、テキストがこのサーバーの外にあるAIサービス（Anthropic）に送られます。使うときだけ送信され、なまえやIDは送られません。",

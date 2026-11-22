@@ -12,4 +12,5 @@ const ACTIVITIES: Record<number, { key: string; emoji: string }> = {
   [geo.Activity.BOAT]: { key: "boat", emoji: "⛴️" },
 };
 
-export const activityMeta = (activity: geo.Activity) => ACTIVITIES[activity] ?? { key: "moving", emoji: "➡️" };
+export const activityMeta = (activity: geo.Activity) =>
+  ACTIVITIES[activity] ?? { key: "moving", emoji: "➡️" };

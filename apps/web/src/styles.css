@@ -77,17 +77,31 @@
 }
 
 /* ドパガキ度: 0 = calm … 5 = maximum sparkle. */
-:root[data-dopa="0"] { --dopa: 0; }
-:root[data-dopa="1"] { --dopa: 0.5; }
-:root[data-dopa="2"] { --dopa: 0.75; }
-:root[data-dopa="3"] { --dopa: 1; }
-:root[data-dopa="4"] { --dopa: 1.3; }
-:root[data-dopa="5"] { --dopa: 1.6; }
+:root[data-dopa="0"] {
+  --dopa: 0;
+}
+:root[data-dopa="1"] {
+  --dopa: 0.5;
+}
+:root[data-dopa="2"] {
+  --dopa: 0.75;
+}
+:root[data-dopa="3"] {
+  --dopa: 1;
+}
+:root[data-dopa="4"] {
+  --dopa: 1.3;
+}
+:root[data-dopa="5"] {
+  --dopa: 1.6;
+}
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 @theme inline {
-  --font-sans: "M PLUS Rounded 1c", ui-rounded, "Hiragino Maru Gothic ProN", "Hiragino Sans", "Yu Gothic UI", system-ui, sans-serif;
+  --font-sans:
+    "M PLUS Rounded 1c", ui-rounded, "Hiragino Maru Gothic ProN", "Hiragino Sans", "Yu Gothic UI",
+    system-ui, sans-serif;
 
   --color-bg: var(--bg);
   --color-surface: var(--surface);
@@ -132,31 +146,69 @@
 }
 
 @keyframes pop-in {
-  from { opacity: 0; transform: scale(0.82); }
-  to { opacity: 1; transform: scale(1); }
+  from {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 @keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 @keyframes slide-up {
-  from { opacity: 0; transform: translateY(16px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 @keyframes wiggle {
-  0%, 100% { transform: rotate(0deg); }
-  20% { transform: rotate(-8deg); }
-  40% { transform: rotate(7deg); }
-  60% { transform: rotate(-5deg); }
-  80% { transform: rotate(3deg); }
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  20% {
+    transform: rotate(-8deg);
+  }
+  40% {
+    transform: rotate(7deg);
+  }
+  60% {
+    transform: rotate(-5deg);
+  }
+  80% {
+    transform: rotate(3deg);
+  }
 }
 @keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-6px); }
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
 }
 @keyframes pulse-ring {
-  0% { transform: scale(1); opacity: 0.7; }
-  100% { transform: scale(1.9); opacity: 0; }
+  0% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(1.9);
+    opacity: 0;
+  }
 }
 
 @layer base {
@@ -182,7 +234,10 @@
     background: var(--lime);
     color: #17122b;
   }
-  button, [role="button"], a, summary {
+  button,
+  [role="button"],
+  a,
+  summary {
     cursor: pointer;
   }
   button:disabled {

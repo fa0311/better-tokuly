@@ -39,10 +39,18 @@ export function StudioScreen() {
   const [creating, setCreating] = useState(false);
   const official = admin && scope === "official";
 
-  const profile = useQuery({ queryKey: stampKeys.creatorProfile, queryFn: async () => (await studioClient().getCreatorProfile({})).profile });
+  const profile = useQuery({
+    queryKey: stampKeys.creatorProfile,
+    queryFn: async () => (await studioClient().getCreatorProfile({})).profile,
+  });
   const packs = useInfiniteQuery({
     queryKey: [...stampKeys.myPacks(official), filter],
-    queryFn: ({ pageParam }) => studioClient().listMyPacks({ status: FILTER_STATUS[filter], official, page: { limit: 30, cursor: pageParam } }),
+    queryFn: ({ pageParam }) =>
+      studioClient().listMyPacks({
+        status: FILTER_STATUS[filter],
+        official,
+        page: { limit: 30, cursor: pageParam },
+      }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
@@ -53,7 +61,11 @@ export function StudioScreen() {
       const { pack } = await studioClient().createPack({ ...listing, official });
       await queryClient.invalidateQueries({ queryKey: stampKeys.all });
       toast.success(t("toast.packCreated"));
-      if (pack?.summary) await navigate({ to: "/stamps/studio/$packId", params: { packId: pack.summary.shortId || pack.summary.id } });
+      if (pack?.summary)
+        await navigate({
+          to: "/stamps/studio/$packId",
+          params: { packId: pack.summary.shortId || pack.summary.id },
+        });
     } catch (error) {
       toast.error(errorMessage(error, { namespace: "stamps" }));
       throw error;
@@ -73,7 +85,9 @@ export function StudioScreen() {
 
         <section aria-label={t("studio.packs")} className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-lg font-black">{official ? t("studio.officialPacks") : t("studio.packs")}</h2>
+            <h2 className="text-lg font-black">
+              {official ? t("studio.officialPacks") : t("studio.packs")}
+            </h2>
             {newPack}
           </div>
           <div className="flex flex-wrap gap-2">
@@ -87,7 +101,11 @@ export function StudioScreen() {
                 ]}
               />
             )}
-            <Tabs<Filter> value={filter} onChange={setFilter} items={FILTERS.map((value) => ({ value, label: t(`studio.filters.${value}`) }))} />
+            <Tabs<Filter>
+              value={filter}
+              onChange={setFilter}
+              items={FILTERS.map((value) => ({ value, label: t(`studio.filters.${value}`) }))}
+            />
           </div>
 
           {packs.isPending ? (
@@ -98,7 +116,12 @@ export function StudioScreen() {
             </div>
           ) : items.length === 0 ? (
             filter === "all" ? (
-              <EmptyState emoji="🎨" title={t("studio.empty")} body={t("studio.emptyBody")} action={newPack} />
+              <EmptyState
+                emoji="🎨"
+                title={t("studio.empty")}
+                body={t("studio.emptyBody")}
+                action={newPack}
+              />
             ) : (
               <EmptyState emoji="🫙" title={t("studio.emptyFilter")} />
             )
@@ -130,29 +153,55 @@ export function StudioScreen() {
   );
 }
 
-function CreatorCard({ profile, loading }: { profile: stamp.CreatorProfile | undefined; loading: boolean }) {
+function CreatorCard({
+  profile,
+  loading,
+}: {
+  profile: stamp.CreatorProfile | undefined;
+  loading: boolean;
+}) {
   const { t } = useTranslation("stamps");
   if (loading || !profile) return <Skeleton className="h-40" />;
   return (
-    <section aria-label={t("studio.profile")} className="sticker flex flex-col gap-4 rounded-card bg-surface p-4">
+    <section
+      aria-label={t("studio.profile")}
+      className="sticker flex flex-col gap-4 rounded-card bg-surface p-4"
+    >
       <div className="flex items-center gap-3">
-        <span className={`grid size-12 shrink-0 place-items-center rounded-2xl border-2 border-ink text-[#17122b] ${profile.trusted ? "bg-lime" : "bg-sun"}`}>
+        <span
+          className={`grid size-12 shrink-0 place-items-center rounded-2xl border-2 border-ink text-[#17122b] ${profile.trusted ? "bg-lime" : "bg-sun"}`}
+        >
           {profile.trusted ? <BadgeCheck className="size-6" /> : <ShieldCheck className="size-6" />}
         </span>
         <div className="min-w-0">
-          <p className="font-black">{profile.trusted ? t("studio.trusted") : t("studio.reviewed")}</p>
-          <p className="text-sm leading-snug text-ink-soft">{profile.trusted ? t("studio.trustedHint") : t("studio.reviewedHint")}</p>
+          <p className="font-black">
+            {profile.trusted ? t("studio.trusted") : t("studio.reviewed")}
+          </p>
+          <p className="text-sm leading-snug text-ink-soft">
+            {profile.trusted ? t("studio.trustedHint") : t("studio.reviewedHint")}
+          </p>
         </div>
       </div>
       <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-        <Figure label={t("studio.figures.packs")} value={`${profile.packCount} / ${profile.maxPacks}`} hint={t("studio.figures.published", { count: profile.publishedPackCount })} />
+        <Figure
+          label={t("studio.figures.packs")}
+          value={`${profile.packCount} / ${profile.maxPacks}`}
+          hint={t("studio.figures.published", { count: profile.publishedPackCount })}
+        />
         <Figure label={t("stats.installs")} value={formatCount(profile.installCount)} />
         <Figure label={t("stats.sends")} value={formatCount(profile.sendCount)} />
         <Figure label={t("stats.sales")} value={formatCount(profile.saleCount)} />
-        <Figure label={t("stats.earnings")} value={<Coins amount={profile.earnings} />} hint={t("studio.figures.fee", { fee: profile.feePercent })} />
+        <Figure
+          label={t("stats.earnings")}
+          value={<Coins amount={profile.earnings} />}
+          hint={t("studio.figures.fee", { fee: profile.feePercent })}
+        />
       </dl>
       {profile.earnings > 0n && (
-        <Link to="/wallet/earnings" className="inline-flex items-center self-start text-sm font-bold text-brand">
+        <Link
+          to="/wallet/earnings"
+          className="inline-flex items-center self-start text-sm font-bold text-brand"
+        >
           {t("studio.toEarnings")}
           <ChevronRight className="size-4" />
         </Link>
@@ -185,11 +234,18 @@ function MyPackCard({ pack }: { pack: stamp.PackSummary }) {
         <span className="block truncate font-black">{pack.name}</span>
         <span className="mt-1 flex flex-wrap items-center gap-1.5">
           <StatusChip status={pack.status} />
-          <span className="text-xs font-bold text-ink-soft">{t("stampCount", { count: pack.stampCount })}</span>
+          <span className="text-xs font-bold text-ink-soft">
+            {t("stampCount", { count: pack.stampCount })}
+          </span>
           {pack.price > 0 && <Coins amount={pack.price} size="sm" />}
         </span>
         {pack.status === stamp.PackStatus.PUBLISHED && (
-          <span className="mt-1 block text-xs text-ink-faint">{t("studio.packNumbers", { installs: formatCount(pack.installCount), sends: formatCount(pack.sendCount) })}</span>
+          <span className="mt-1 block text-xs text-ink-faint">
+            {t("studio.packNumbers", {
+              installs: formatCount(pack.installCount),
+              sends: formatCount(pack.sendCount),
+            })}
+          </span>
         )}
       </span>
       <ChevronRight className="size-5 shrink-0 text-ink-faint" />

@@ -11,7 +11,10 @@ import { errorMessage } from "#/lib/errors";
 
 export const Route = createFileRoute("/login")({
   validateSearch: (search): { redirect?: string } => ({
-    redirect: typeof search.redirect === "string" && search.redirect.startsWith("/") ? search.redirect : undefined,
+    redirect:
+      typeof search.redirect === "string" && search.redirect.startsWith("/")
+        ? search.redirect
+        : undefined,
   }),
   component: Login,
 });
@@ -114,19 +117,38 @@ function Login() {
           </>
         )}
         {error && (
-          <p role="alert" className="rounded-2xl bg-danger/10 px-4 py-3 text-sm font-bold text-danger">
+          <p
+            role="alert"
+            className="rounded-2xl bg-danger/10 px-4 py-3 text-sm font-bold text-danger"
+          >
             {error}
           </p>
         )}
-        <Button type="submit" size="lg" block loading={busy === "password"} disabled={busy !== null}>
+        <Button
+          type="submit"
+          size="lg"
+          block
+          loading={busy === "password"}
+          disabled={busy !== null}
+        >
           {t("signIn.submit")}
         </Button>
         {!needsTotp && (
           <>
-            <Button variant="secondary" block icon={<KeyRound className="size-4" />} loading={busy === "passkey"} disabled={busy !== null} onClick={signInWithPasskey}>
+            <Button
+              variant="secondary"
+              block
+              icon={<KeyRound className="size-4" />}
+              loading={busy === "passkey"}
+              disabled={busy !== null}
+              onClick={signInWithPasskey}
+            >
               {t("signIn.passkey")}
             </Button>
-            <Link to="/reset-password" className="text-center text-sm font-bold text-ink-soft underline-offset-4 hover:underline">
+            <Link
+              to="/reset-password"
+              className="text-center text-sm font-bold text-ink-soft underline-offset-4 hover:underline"
+            >
               {t("signIn.forgot")}
             </Link>
           </>

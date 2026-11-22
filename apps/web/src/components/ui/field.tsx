@@ -1,4 +1,9 @@
-import { type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes, useId } from "react";
+import {
+  type InputHTMLAttributes,
+  type ReactNode,
+  type TextareaHTMLAttributes,
+  useId,
+} from "react";
 import { cn } from "#/lib/cn";
 
 const control =
@@ -14,7 +19,14 @@ interface FieldShellProps {
   className?: string;
 }
 
-function FieldShell({ label, hint, error, className, id, children }: FieldShellProps & { id: string; children: ReactNode }) {
+function FieldShell({
+  label,
+  hint,
+  error,
+  className,
+  id,
+  children,
+}: FieldShellProps & { id: string; children: ReactNode }) {
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
       {label && (
@@ -38,12 +50,22 @@ function FieldShell({ label, hint, error, className, id, children }: FieldShellP
   );
 }
 
-export interface TextFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "className">, FieldShellProps {
+export interface TextFieldProps
+  extends Omit<InputHTMLAttributes<HTMLInputElement>, "className">,
+    FieldShellProps {
   /** Element rendered inside the control on the right (e.g. a show-password toggle). */
   trailing?: ReactNode;
 }
 
-export function TextField({ label, hint, error, className, trailing, id, ...props }: TextFieldProps) {
+export function TextField({
+  label,
+  hint,
+  error,
+  className,
+  trailing,
+  id,
+  ...props
+}: TextFieldProps) {
   const generated = useId();
   const fieldId = id ?? generated;
   return (
@@ -56,13 +78,17 @@ export function TextField({ label, hint, error, className, trailing, id, ...prop
           aria-describedby={error ? `${fieldId}-error` : hint ? `${fieldId}-hint` : undefined}
           {...props}
         />
-        {trailing && <div className="absolute inset-y-0 right-1.5 flex items-center">{trailing}</div>}
+        {trailing && (
+          <div className="absolute inset-y-0 right-1.5 flex items-center">{trailing}</div>
+        )}
       </div>
     </FieldShell>
   );
 }
 
-export interface TextAreaProps extends Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "className">, FieldShellProps {}
+export interface TextAreaProps
+  extends Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "className">,
+    FieldShellProps {}
 
 export function TextArea({ label, hint, error, className, id, ...props }: TextAreaProps) {
   const generated = useId();

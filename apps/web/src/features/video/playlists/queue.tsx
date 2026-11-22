@@ -22,7 +22,11 @@ export interface PlaylistQueueState {
 function usePlaylistItems(playlistId: string | undefined) {
   return useInfiniteQuery({
     queryKey: videoKeys.playlistItems(playlistId ?? ""),
-    queryFn: ({ pageParam }) => playlistClient().listPlaylistItems({ playlistId: playlistId ?? "", page: { limit: 50, cursor: pageParam } }),
+    queryFn: ({ pageParam }) =>
+      playlistClient().listPlaylistItems({
+        playlistId: playlistId ?? "",
+        page: { limit: 50, cursor: pageParam },
+      }),
     initialPageParam: "",
     getNextPageParam: nextCursor,
     enabled: Boolean(playlistId),
@@ -30,20 +34,35 @@ function usePlaylistItems(playlistId: string | undefined) {
 }
 
 /** The playlist a video is being played from (`?list=`): its videos and which one comes next. */
-export function usePlaylistQueue(playlistId: string | undefined, currentId: string | undefined): PlaylistQueueState {
+export function usePlaylistQueue(
+  playlistId: string | undefined,
+  currentId: string | undefined,
+): PlaylistQueueState {
   const query = usePlaylistItems(playlistId);
   const playlist = useQuery({
     queryKey: videoKeys.playlist(playlistId ?? ""),
-    queryFn: async () => (await playlistClient().getPlaylist({ playlistId: playlistId ?? "" })).playlist,
+    queryFn: async () =>
+      (await playlistClient().getPlaylist({ playlistId: playlistId ?? "" })).playlist,
     enabled: Boolean(playlistId),
   });
-  const items = query.data?.pages.flatMap((page) => page.items.flatMap((item) => (item.video ? [item.video] : []))) ?? [];
+  const items =
+    query.data?.pages.flatMap((page) =>
+      page.items.flatMap((item) => (item.video ? [item.video] : [])),
+    ) ?? [];
   const index = items.findIndex((item) => item.id === currentId);
   return { playlist: playlist.data, items, next: index >= 0 ? items[index + 1] : undefined, query };
 }
 
 /** The list being played, next to the player: where the viewer is in it and a tap to jump anywhere. */
-export function PlaylistQueue({ playlistId, currentId, queue }: { playlistId: string; currentId: string; queue: PlaylistQueueState }) {
+export function PlaylistQueue({
+  playlistId,
+  currentId,
+  queue,
+}: {
+  playlistId: string;
+  currentId: string;
+  queue: PlaylistQueueState;
+}) {
   const { t } = useTranslation("video");
   const current = useRef<HTMLAnchorElement>(null);
   const list = useRef<HTMLDivElement>(null);
@@ -60,14 +79,26 @@ export function PlaylistQueue({ playlistId, currentId, queue }: { playlistId: st
 
   if (!queue.playlist && queue.items.length === 0) return null;
   return (
-    <section data-testid="playlist-queue" className="sticker mb-6 overflow-hidden rounded-card bg-surface" aria-label={t("playlist.queue")}>
+    <section
+      data-testid="playlist-queue"
+      className="sticker mb-6 overflow-hidden rounded-card bg-surface"
+      aria-label={t("playlist.queue")}
+    >
       <header className="flex items-center gap-3 border-b-2 border-line px-4 py-3">
         <ListVideo className="size-5 shrink-0 text-brand" />
         <div className="min-w-0 flex-1">
-          <Link to="/playlist/$playlistId" params={{ playlistId }} className="block truncate font-black hover:text-brand">
+          <Link
+            to="/playlist/$playlistId"
+            params={{ playlistId }}
+            className="block truncate font-black hover:text-brand"
+          >
             {queue.playlist ? playlistTitle(queue.playlist, t) : t("playlist.queue")}
           </Link>
-          <p className="text-xs font-bold text-ink-soft tabular-nums">{index >= 0 ? `${index + 1} / ${queue.playlist?.itemCount ?? queue.items.length}` : t("playlist.items", { count: queue.playlist?.itemCount ?? queue.items.length })}</p>
+          <p className="text-xs font-bold text-ink-soft tabular-nums">
+            {index >= 0
+              ? `${index + 1} / ${queue.playlist?.itemCount ?? queue.items.length}`
+              : t("playlist.items", { count: queue.playlist?.itemCount ?? queue.items.length })}
+          </p>
         </div>
       </header>
       <div ref={list} className="relative max-h-80 overflow-y-auto p-1.5">
@@ -82,9 +113,14 @@ export function PlaylistQueue({ playlistId, currentId, queue }: { playlistId: st
               search={{ list: playlistId }}
               aria-current={playing ? "true" : undefined}
               onClick={() => announceTrafficSource(video.TrafficSource.PLAYLIST)}
-              className={cn("flex items-center gap-2.5 rounded-xl p-1.5", playing ? "bg-brand-soft" : "hover:bg-surface-2")}
+              className={cn(
+                "flex items-center gap-2.5 rounded-xl p-1.5",
+                playing ? "bg-brand-soft" : "hover:bg-surface-2",
+              )}
             >
-              <span className="grid w-5 shrink-0 place-items-center text-xs font-bold text-ink-faint tabular-nums">{playing ? <Play className="size-3.5 fill-current text-brand" /> : position + 1}</span>
+              <span className="grid w-5 shrink-0 place-items-center text-xs font-bold text-ink-faint tabular-nums">
+                {playing ? <Play className="size-3.5 fill-current text-brand" /> : position + 1}
+              </span>
               <Thumbnail video={item} sizes={96} className="w-24 shrink-0 rounded-lg" />
               <span className="min-w-0 flex-1">
                 <span className="line-clamp-2 text-sm leading-snug font-bold">{item.title}</span>

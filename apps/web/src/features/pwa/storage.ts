@@ -65,7 +65,12 @@ export function formatBytes(bytes: number, language: string): string {
   // Whole kilobytes (a few bytes still show as 1 kB); one decimal above, but "120 MB", not "120.0 MB".
   if (unit === 0) value = Math.ceil(value);
   const digits = unit === 0 || value >= 100 ? 0 : 1;
-  return new Intl.NumberFormat(language, { style: "unit", unit: UNITS[unit], unitDisplay: "short", maximumFractionDigits: digits }).format(value);
+  return new Intl.NumberFormat(language, {
+    style: "unit",
+    unit: UNITS[unit],
+    unitDisplay: "short",
+    maximumFractionDigits: digits,
+  }).format(value);
 }
 
 /** Share of the quota in use, 0–100, never shown as nothing when something is stored. */

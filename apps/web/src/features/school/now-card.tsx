@@ -15,13 +15,22 @@ function useUntil() {
   const { t } = useTranslation("school");
   return (ms: number) => {
     const minutes = Math.max(0, Math.ceil(ms / 60_000));
-    return minutes < 60 ? t("now.minutesLeft", { count: minutes }) : t("now.hoursLeft", { count: Math.floor(minutes / 60), minutes: minutes % 60 });
+    return minutes < 60
+      ? t("now.minutesLeft", { count: minutes })
+      : t("now.hoursLeft", { count: Math.floor(minutes / 60), minutes: minutes % 60 });
   };
 }
 
-function when(item: school.ScheduledClass, today: string, language: string, t: TFunction<"school">): string {
+function when(
+  item: school.ScheduledClass,
+  today: string,
+  language: string,
+  t: TFunction<"school">,
+): string {
   const period = t("day.period", { period: item.period });
-  return item.date === today ? `${period} ${clock(item.startMinute)}〜` : `${dayLabel(item.date, language)} ${period} ${clock(item.startMinute)}〜`;
+  return item.date === today
+    ? `${period} ${clock(item.startMinute)}〜`
+    : `${dayLabel(item.date, language)} ${period} ${clock(item.startMinute)}〜`;
 }
 
 /**
@@ -41,7 +50,10 @@ export function ClassNowCard({ className }: { className?: string }) {
   const color = current ? current.color || current.subject?.color || "#c6f24e" : undefined;
 
   return (
-    <section aria-label={t("now.title")} className={cn("sticker overflow-hidden rounded-card bg-surface", className)}>
+    <section
+      aria-label={t("now.title")}
+      className={cn("sticker overflow-hidden rounded-card bg-surface", className)}
+    >
       {current ? (
         <div className="p-4" style={{ background: color, color: inkOn(color ?? "") }}>
           <p className="flex items-center gap-2 text-xs font-black">
@@ -54,7 +66,9 @@ export function ClassNowCard({ className }: { className?: string }) {
             {current.subject?.emoji} {current.subject?.name}
           </p>
           <p className="mt-0.5 flex items-center gap-2 text-sm font-bold">
-            <span className="min-w-0 truncate">{[current.room, current.teacher].filter(Boolean).join(" · ") || " "}</span>
+            <span className="min-w-0 truncate">
+              {[current.room, current.teacher].filter(Boolean).join(" · ") || " "}
+            </span>
             <span className="ml-auto shrink-0">{until(toMillis(current.endsAt) - now)}</span>
           </p>
           <Progress from={toMillis(current.startsAt)} to={toMillis(current.endsAt)} now={now} />
@@ -62,27 +76,41 @@ export function ClassNowCard({ className }: { className?: string }) {
       ) : (
         <div className="p-4">
           <p className="text-xs font-black text-ink-soft">{t("now.title")}</p>
-          <p className="mt-1 text-2xl font-black">{next ? (next.date === today ? t("now.break") : t("now.doneToday")) : t("now.nothing")}</p>
+          <p className="mt-1 text-2xl font-black">
+            {next ? (next.date === today ? t("now.break") : t("now.doneToday")) : t("now.nothing")}
+          </p>
         </div>
       )}
       {next ? (
         <div className="flex items-center gap-3 border-t-2 border-ink px-4 py-3">
-          <span className="size-3 shrink-0 rounded-full border-2 border-ink" style={{ background: next.color || next.subject?.color }} />
+          <span
+            className="size-3 shrink-0 rounded-full border-2 border-ink"
+            style={{ background: next.color || next.subject?.color }}
+          />
           <span className="min-w-0 flex-1">
             <span className="block text-xs font-black text-ink-soft">{t("now.next")}</span>
             <span className="block truncate font-black">
               {next.subject?.emoji} {next.subject?.name}
-              {next.room && <span className="ml-2 text-sm font-bold text-ink-soft">{next.room}</span>}
+              {next.room && (
+                <span className="ml-2 text-sm font-bold text-ink-soft">{next.room}</span>
+              )}
             </span>
           </span>
           <span className="shrink-0 text-right text-sm font-bold">
             <span className="block">{when(next, today, i18n.language, t)}</span>
-            {next.date === today && <span className="block text-xs text-ink-soft">{until(toMillis(next.startsAt) - now)}</span>}
+            {next.date === today && (
+              <span className="block text-xs text-ink-soft">
+                {until(toMillis(next.startsAt) - now)}
+              </span>
+            )}
           </span>
         </div>
       ) : (
         !current && (
-          <Link to="/school/timetable" className="flex items-center gap-2 border-t-2 border-line px-4 py-3 text-sm font-bold text-brand">
+          <Link
+            to="/school/timetable"
+            className="flex items-center gap-2 border-t-2 border-line px-4 py-3 text-sm font-bold text-brand"
+          >
             <CalendarDays className="size-4" />
             {t("now.openTimetable")}
           </Link>
@@ -114,11 +142,19 @@ export function SchoolHubTile() {
   const line = current
     ? t("now.tileCurrent", { subject: current.subject?.name ?? "", end: clock(current.endMinute) })
     : next
-      ? t("now.tileNext", { subject: next.subject?.name ?? "", when: when(next, today, i18n.language, t) })
+      ? t("now.tileNext", {
+          subject: next.subject?.name ?? "",
+          when: when(next, today, i18n.language, t),
+        })
       : t("now.tileEmpty");
   return (
-    <Link to="/school" className="pressable sticker flex items-center gap-4 rounded-card bg-surface p-4">
-      <span className="grid size-11 shrink-0 place-items-center rounded-2xl border-2 border-ink bg-lime text-2xl">🏫</span>
+    <Link
+      to="/school"
+      className="pressable sticker flex items-center gap-4 rounded-card bg-surface p-4"
+    >
+      <span className="grid size-11 shrink-0 place-items-center rounded-2xl border-2 border-ink bg-lime text-2xl">
+        🏫
+      </span>
       <span className="min-w-0 flex-1">
         <span className="block font-black">{t("title")}</span>
         <span className="block truncate text-sm font-bold text-ink-soft">{line}</span>

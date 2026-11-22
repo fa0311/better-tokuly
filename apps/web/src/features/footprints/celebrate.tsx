@@ -39,7 +39,9 @@ export function CelebrationLayer() {
 
   useEffect(() => {
     const listener = (glyphs: string[]) => {
-      const factor = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : dopamineFactor();
+      const factor = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? 0
+        : dopamineFactor();
       if (factor <= 0 || glyphs.length === 0) return;
       const amount = Math.round(14 + 16 * factor);
       const seconds = 1.6 + 0.6 * factor;
@@ -68,7 +70,11 @@ export function CelebrationLayer() {
 
   if (!shower) return null;
   return (
-    <div key={shower.id} className="pointer-events-none fixed inset-0 z-[70] overflow-hidden" aria-hidden>
+    <div
+      key={shower.id}
+      className="pointer-events-none fixed inset-0 z-[70] overflow-hidden"
+      aria-hidden
+    >
       {shower.pieces.map((piece) => (
         <motion.span
           key={piece.id}

@@ -22,19 +22,30 @@ export function HistoryCalendar() {
 
   const { data, isPending } = useQuery({
     queryKey: historyKeys.month(month, timeZone),
-    queryFn: () => historyClient().listActiveDays({ year: month.year, month: month.month, timeZone }),
+    queryFn: () =>
+      historyClient().listActiveDays({ year: month.year, month: month.month, timeZone }),
   });
   const days = new Map((data?.days ?? []).map((day) => [day.date, day]));
   const active = [...days.values()].sort((a, b) => b.date.localeCompare(a.date));
-  const title = new Date(month.year, month.month - 1, 1).toLocaleDateString(i18n.language, { year: "numeric", month: "long" });
+  const title = new Date(month.year, month.month - 1, 1).toLocaleDateString(i18n.language, {
+    year: "numeric",
+    month: "long",
+  });
   // 2023-01-01 was a Sunday: the weekday names in the person's language.
-  const weekdays = Array.from({ length: 7 }, (_, index) => new Date(2023, 0, 1 + index).toLocaleDateString(i18n.language, { weekday: "narrow" }));
+  const weekdays = Array.from({ length: 7 }, (_, index) =>
+    new Date(2023, 0, 1 + index).toLocaleDateString(i18n.language, { weekday: "narrow" }),
+  );
 
   return (
     <div className="grid gap-5 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] lg:items-start">
       <section className="sticker rounded-card bg-surface p-4" aria-label={title}>
         <div className="flex items-center justify-between">
-          <button type="button" aria-label={t("calendar.previous")} onClick={() => setMonth(shiftMonth(month, -1))} className="grid size-10 place-items-center rounded-full hover:bg-surface-2">
+          <button
+            type="button"
+            aria-label={t("calendar.previous")}
+            onClick={() => setMonth(shiftMonth(month, -1))}
+            className="grid size-10 place-items-center rounded-full hover:bg-surface-2"
+          >
             <ChevronLeft className="size-5" />
           </button>
           <h2 className="text-lg font-black" aria-live="polite">
@@ -50,9 +61,15 @@ export function HistoryCalendar() {
             <ChevronRight className="size-5" />
           </button>
         </div>
-        <div className="mt-2 grid grid-cols-7 text-center text-xs font-black text-ink-faint" aria-hidden>
+        <div
+          className="mt-2 grid grid-cols-7 text-center text-xs font-black text-ink-faint"
+          aria-hidden
+        >
           {weekdays.map((weekday, index) => (
-            <span key={index} className={cn("py-1", index === 0 && "text-pink", index === 6 && "text-sky")}>
+            <span
+              key={index}
+              className={cn("py-1", index === 0 && "text-pink", index === 6 && "text-sky")}
+            >
               {weekday}
             </span>
           ))}
@@ -65,10 +82,16 @@ export function HistoryCalendar() {
               const day = days.get(date);
               const number = Number(date.slice(8));
               const future = date > today;
-              const label = parseDay(date)!.toLocaleDateString(i18n.language, { month: "long", day: "numeric" });
+              const label = parseDay(date)!.toLocaleDateString(i18n.language, {
+                month: "long",
+                day: "numeric",
+              });
               if (!day) {
                 return future ? (
-                  <span key={date} className="grid aspect-square place-items-center rounded-xl text-sm font-bold text-ink-faint opacity-40">
+                  <span
+                    key={date}
+                    className="grid aspect-square place-items-center rounded-xl text-sm font-bold text-ink-faint opacity-40"
+                  >
                     {number}
                   </span>
                 ) : (
@@ -77,7 +100,10 @@ export function HistoryCalendar() {
                     to="/history/$date"
                     params={{ date }}
                     aria-label={label}
-                    className={cn("grid aspect-square place-items-center rounded-xl text-sm font-bold text-ink-soft hover:bg-surface-2", date === today && "border-2 border-dashed border-ink-faint")}
+                    className={cn(
+                      "grid aspect-square place-items-center rounded-xl text-sm font-bold text-ink-soft hover:bg-surface-2",
+                      date === today && "border-2 border-dashed border-ink-faint",
+                    )}
                   >
                     {number}
                   </Link>
@@ -88,13 +114,27 @@ export function HistoryCalendar() {
                   key={date}
                   to="/history/$date"
                   params={{ date }}
-                  aria-label={t("calendar.activeDay", { date: label, distance: formatDistance(day.distanceMeters), count: day.visitCount })}
+                  aria-label={t("calendar.activeDay", {
+                    date: label,
+                    distance: formatDistance(day.distanceMeters),
+                    count: day.visitCount,
+                  })}
                   data-active="true"
                   className={cn(
                     "pressable sticker-sm relative grid aspect-square place-items-center overflow-hidden rounded-xl text-sm font-black",
-                    day.thumbnail?.url ? "bg-cover bg-center text-white" : day.newCellCount > 0 ? "bg-lime text-[#17122b]" : "bg-brand-soft text-brand-strong",
+                    day.thumbnail?.url
+                      ? "bg-cover bg-center text-white"
+                      : day.newCellCount > 0
+                        ? "bg-lime text-[#17122b]"
+                        : "bg-brand-soft text-brand-strong",
                   )}
-                  style={day.thumbnail?.url ? { backgroundImage: `linear-gradient(rgb(0 0 0 / 0.25), rgb(0 0 0 / 0.25)), url(${day.thumbnail.variants[0]?.url || day.thumbnail.url})` } : undefined}
+                  style={
+                    day.thumbnail?.url
+                      ? {
+                          backgroundImage: `linear-gradient(rgb(0 0 0 / 0.25), rgb(0 0 0 / 0.25)), url(${day.thumbnail.variants[0]?.url || day.thumbnail.url})`,
+                        }
+                      : undefined
+                  }
                 >
                   {number}
                   {day.hasMemo && (
@@ -127,7 +167,12 @@ export function HistoryCalendar() {
           </div>
         ) : active.length === 0 ? (
           isCurrent ? (
-            <EmptyState emoji="📔" title={t("empty.title")} body={t("empty.body")} action={<MapLink label={t("empty.action")} />} />
+            <EmptyState
+              emoji="📔"
+              title={t("empty.title")}
+              body={t("empty.body")}
+              action={<MapLink label={t("empty.action")} />}
+            />
           ) : (
             <EmptyState emoji="🍃" title={t("calendar.emptyMonth")} />
           )
@@ -151,7 +196,10 @@ export function HistoryCalendar() {
 
 function MapLink({ label }: { label: string }) {
   return (
-    <Link to="/map" className="pressable sticker-sm inline-flex h-11 items-center rounded-full bg-lime px-5 font-black text-[#17122b]">
+    <Link
+      to="/map"
+      className="pressable sticker-sm inline-flex h-11 items-center rounded-full bg-lime px-5 font-black text-[#17122b]"
+    >
       {label}
     </Link>
   );
@@ -174,22 +222,34 @@ function DayRow({ day }: { day: geo.DaySummary }) {
   const { t, i18n } = useTranslation("history");
   const date = parseDay(day.date);
   return (
-    <Link to="/history/$date" params={{ date: day.date }} className="pressable sticker flex items-center gap-3 rounded-card bg-surface p-3">
+    <Link
+      to="/history/$date"
+      params={{ date: day.date }}
+      className="pressable sticker flex items-center gap-3 rounded-card bg-surface p-3"
+    >
       <span className="grid size-14 shrink-0 place-items-center rounded-2xl border-2 border-ink bg-sun text-center leading-none text-[#17122b]">
         <span>
           <span className="block text-xl font-black">{date?.getDate()}</span>
-          <span className="block text-[10px] font-black">{date?.toLocaleDateString(i18n.language, { weekday: "short" })}</span>
+          <span className="block text-[10px] font-black">
+            {date?.toLocaleDateString(i18n.language, { weekday: "short" })}
+          </span>
         </span>
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate font-black">{day.topLocality || t("calendar.somewhere")}</span>
+        <span className="block truncate font-black">
+          {day.topLocality || t("calendar.somewhere")}
+        </span>
         <span className="block truncate text-sm text-ink-soft">
           {formatDistance(day.distanceMeters)}・{t("day.visits", { count: day.visitCount })}
           {day.newCellCount > 0 && `・${t("day.newCells", { count: day.newCellCount })}`}
         </span>
       </span>
       {day.thumbnail?.url ? (
-        <img src={day.thumbnail.variants[0]?.url || day.thumbnail.url} alt="" className="size-12 shrink-0 rounded-xl object-cover" />
+        <img
+          src={day.thumbnail.variants[0]?.url || day.thumbnail.url}
+          alt=""
+          className="size-12 shrink-0 rounded-xl object-cover"
+        />
       ) : (
         day.hasMemo && (
           <span className="shrink-0 text-xl" title={t("calendar.legendMemo")}>

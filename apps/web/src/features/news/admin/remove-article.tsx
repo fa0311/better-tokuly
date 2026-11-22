@@ -57,18 +57,33 @@ export function RemoveArticle() {
             setText(event.target.value);
             setArticleId(undefined);
           }}
-          error={text.trim() && !pasted ? t("staff.remove.invalid") : articleId && found.isError ? staffErrorMessage(found.error) : undefined}
+          error={
+            text.trim() && !pasted
+              ? t("staff.remove.invalid")
+              : articleId && found.isError
+                ? staffErrorMessage(found.error)
+                : undefined
+          }
           placeholder="/news/01a200b9-…"
           autoCapitalize="none"
           autoComplete="off"
           spellCheck={false}
         />
-        <Button type="submit" variant="secondary" disabled={!pasted} loading={Boolean(articleId) && found.isFetching} icon={<Search className="size-4" />}>
+        <Button
+          type="submit"
+          variant="secondary"
+          disabled={!pasted}
+          loading={Boolean(articleId) && found.isFetching}
+          icon={<Search className="size-4" />}
+        >
           {t("staff.remove.find")}
         </Button>
       </form>
       {article && (
-        <div className="flex flex-col gap-3 border-t-2 border-line p-4" data-testid="article-to-remove">
+        <div
+          className="flex flex-col gap-3 border-t-2 border-line p-4"
+          data-testid="article-to-remove"
+        >
           <div>
             <p className="leading-snug font-black break-words">{article.title}</p>
             <p className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-ink-soft">
@@ -78,7 +93,11 @@ export function RemoveArticle() {
               <PublishedAt at={article.publishedAt} className="shrink-0" />
             </p>
           </div>
-          <Button variant="danger" icon={<Trash2 className="size-4" />} onClick={() => setConfirming(true)}>
+          <Button
+            variant="danger"
+            icon={<Trash2 className="size-4" />}
+            onClick={() => setConfirming(true)}
+          >
             {t("staff.removeArticle")}
           </Button>
         </div>

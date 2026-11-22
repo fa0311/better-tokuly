@@ -6,8 +6,8 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
-import { errorMessage } from "./errors";
 import { messageClient } from "./api";
+import { errorMessage } from "./errors";
 import { storeCreated } from "./messages";
 import { type Target, TargetPicker, useResolveTargets } from "./target-picker";
 
@@ -15,7 +15,13 @@ import { type Target, TargetPicker, useResolveTargets } from "./target-picker";
 const MAX_TARGETS = 10;
 
 /** "Forward": copies a message into the conversations picked here. */
-export function ForwardDialog({ message, onClose }: { message: chat.Message | null; onClose(): void }) {
+export function ForwardDialog({
+  message,
+  onClose,
+}: {
+  message: chat.Message | null;
+  onClose(): void;
+}) {
   const { t } = useTranslation("chat");
   const queryClient = useQueryClient();
   const resolve = useResolveTargets();
@@ -31,7 +37,11 @@ export function ForwardDialog({ message, onClose }: { message: chat.Message | nu
     setSending(true);
     try {
       const conversationIds = await resolve(targets);
-      const response = await messageClient().forwardMessages({ messageIds: [message.id], conversationIds, clientId: crypto.randomUUID() });
+      const response = await messageClient().forwardMessages({
+        messageIds: [message.id],
+        conversationIds,
+        clientId: crypto.randomUUID(),
+      });
       for (const copy of response.messages) storeCreated(queryClient, copy);
       toast.success(t("forward.done", { count: conversationIds.length }));
       onClose();
@@ -50,7 +60,12 @@ export function ForwardDialog({ message, onClose }: { message: chat.Message | nu
       description={t("forward.lead", { count: MAX_TARGETS })}
       className="sm:h-[min(40rem,calc(100dvh-4rem))]"
       footer={
-        <Button onClick={forward} loading={sending} disabled={targets.length === 0} icon={<CornerUpRight className="size-4" />}>
+        <Button
+          onClick={forward}
+          loading={sending}
+          disabled={targets.length === 0}
+          icon={<CornerUpRight className="size-4" />}
+        >
           {t("forward.send", { count: targets.length })}
         </Button>
       }

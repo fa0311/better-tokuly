@@ -1,7 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { common, geo, toDate, toMillis } from "@tokuly/api";
-import { Bookmark, BookmarkCheck, EllipsisVertical, MapPinCheck, Navigation, Pencil, Trash2 } from "lucide-react";
+import {
+  Bookmark,
+  BookmarkCheck,
+  EllipsisVertical,
+  MapPinCheck,
+  Navigation,
+  Pencil,
+  Trash2,
+} from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -12,12 +20,26 @@ import { ConfirmDialog } from "#/components/ui/confirm";
 import { Menu } from "#/components/ui/menu";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { CommentThread } from "#/features/comments";
-import { BookmarkButton, ReactionBar, ReportButton, ShareButton, useEngagement } from "#/features/engagement";
+import {
+  BookmarkButton,
+  ReactionBar,
+  ReportButton,
+  ShareButton,
+  useEngagement,
+} from "#/features/engagement";
 import { api } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { compactAge, compactDuration, distanceMeters } from "#/lib/format";
 import { useMe } from "#/stores/session";
-import { FRIENDS_KEY, loadFriends, localDate, locationClient, placeClient, placeKeys, toLatLng } from "./api";
+import {
+  FRIENDS_KEY,
+  loadFriends,
+  localDate,
+  locationClient,
+  placeClient,
+  placeKeys,
+  toLatLng,
+} from "./api";
 import { CheckInDialog } from "./check-in-dialog";
 import { GazetteerCredit } from "./credit";
 import { labelMeta, visibilityKey } from "./labels";
@@ -37,7 +59,11 @@ export function PlaceScreen({ placeId }: { placeId: string }) {
   const [checkInOpen, setCheckInOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const { data, isPending, isError } = useQuery({ queryKey: placeKeys.place(placeId), queryFn: () => placeClient().getPlace({ placeId }), retry: false });
+  const { data, isPending, isError } = useQuery({
+    queryKey: placeKeys.place(placeId),
+    queryFn: () => placeClient().getPlace({ placeId }),
+    retry: false,
+  });
   const place = data?.place;
   const center = toLatLng(place?.center);
   const mine = Boolean(place && place.ownerId === me?.user?.id);
@@ -52,7 +78,10 @@ export function PlaceScreen({ placeId }: { placeId: string }) {
   });
   const visits = useQuery({
     queryKey: [...placeKeys.place(placeId), "visits"],
-    queryFn: () => api().service(geo.HistoryService).listVisits({ placeId, page: { limit: 5, cursor: "" } }),
+    queryFn: () =>
+      api()
+        .service(geo.HistoryService)
+        .listVisits({ placeId, page: { limit: 5, cursor: "" } }),
     enabled: Boolean(place),
   });
 
@@ -62,8 +91,10 @@ export function PlaceScreen({ placeId }: { placeId: string }) {
     },
     onMutate: (saved) => {
       // The button flips at once; the server's answer settles it.
-      queryClient.setQueryData(placeKeys.place(placeId), (current: geo.GetPlaceResponse | undefined) =>
-        current?.place ? { ...current, place: { ...current.place, saved } } : current,
+      queryClient.setQueryData(
+        placeKeys.place(placeId),
+        (current: geo.GetPlaceResponse | undefined) =>
+          current?.place ? { ...current, place: { ...current.place, saved } } : current,
       );
     },
     onSuccess: (_, saved) => toast.success(saved ? t("place.savedToast") : t("place.unsavedToast")),
@@ -100,7 +131,9 @@ export function PlaceScreen({ placeId }: { placeId: string }) {
 
   const subject = { type: common.SubjectType.PLACE, id: place.id };
   const meta = labelMeta(place.label);
-  const areaName = [area.data?.result?.name, area.data?.result?.region].filter((part, index, all) => part && all.indexOf(part) === index).join("・");
+  const areaName = [area.data?.result?.name, area.data?.result?.region]
+    .filter((part, index, all) => part && all.indexOf(part) === index)
+    .join("・");
   const lastVisit = toMillis(place.myLastVisitAt);
   const badges = (data?.badges ?? []).filter((badge) => KNOWN_BADGES.includes(badge));
 
@@ -118,8 +151,17 @@ export function PlaceScreen({ placeId }: { placeId: string }) {
               </Button>
             }
             actions={[
-              { label: t("place.edit"), icon: <Pencil className="size-4" />, onSelect: () => void navigate({ to: "/places/$placeId/edit", params: { placeId } }) },
-              { label: t("place.delete"), icon: <Trash2 className="size-4" />, danger: true, onSelect: () => setConfirmDelete(true) },
+              {
+                label: t("place.edit"),
+                icon: <Pencil className="size-4" />,
+                onSelect: () => void navigate({ to: "/places/$placeId/edit", params: { placeId } }),
+              },
+              {
+                label: t("place.delete"),
+                icon: <Trash2 className="size-4" />,
+                danger: true,
+                onSelect: () => setConfirmDelete(true),
+              },
             ]}
           />
         ) : undefined
@@ -127,7 +169,11 @@ export function PlaceScreen({ placeId }: { placeId: string }) {
     >
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_26rem] lg:items-start">
         <div className="lg:sticky lg:top-20">
-          <MapFrame center={center} zoom={zoomForRadius(place.radiusMeters || 100)} className="sticker h-64 rounded-card lg:h-[calc(100dvh-9rem)]">
+          <MapFrame
+            center={center}
+            zoom={zoomForRadius(place.radiusMeters || 100)}
+            className="sticker h-64 rounded-card lg:h-[calc(100dvh-9rem)]"
+          >
             <PlaceOnMap place={place} />
           </MapFrame>
         </div>
@@ -135,13 +181,28 @@ export function PlaceScreen({ placeId }: { placeId: string }) {
         <div className="flex flex-col gap-5">
           <section className="sticker rounded-card bg-surface p-5">
             <div className="flex items-start gap-4">
-              {place.photo?.url ? <img src={place.photo.url} alt="" className="sticker-sm size-16 shrink-0 rounded-3xl object-cover" /> : <PlaceBubble place={place} size="lg" />}
+              {place.photo?.url ? (
+                <img
+                  src={place.photo.url}
+                  alt=""
+                  className="sticker-sm size-16 shrink-0 rounded-3xl object-cover"
+                />
+              ) : (
+                <PlaceBubble place={place} size="lg" />
+              )}
               <div className="min-w-0 flex-1">
                 <h2 className="break-words text-2xl font-black leading-tight">{place.name}</h2>
                 <div className="mt-2 flex flex-wrap gap-1.5">
-                  {place.label !== geo.PlaceLabel.CUSTOM && place.label !== geo.PlaceLabel.UNSPECIFIED && <Chip>{t(`labels.${meta.key}`)}</Chip>}
+                  {place.label !== geo.PlaceLabel.CUSTOM &&
+                    place.label !== geo.PlaceLabel.UNSPECIFIED && (
+                      <Chip>{t(`labels.${meta.key}`)}</Chip>
+                    )}
                   {mine && <Chip>{t(`visibility.${visibilityKey(place.visibility)}`)}</Chip>}
-                  {place.category && <Chip>{t(`categories.${place.category}`, { defaultValue: place.category })}</Chip>}
+                  {place.category && (
+                    <Chip>
+                      {t(`categories.${place.category}`, { defaultValue: place.category })}
+                    </Chip>
+                  )}
                   {place.autoDetected && <Chip>{t("place.autoDetected")}</Chip>}
                 </div>
               </div>
@@ -155,14 +216,24 @@ export function PlaceScreen({ placeId }: { placeId: string }) {
               </div>
             )}
             <div className="mt-4 flex flex-wrap gap-2">
-              <Button variant="lime" icon={<MapPinCheck className="size-4" />} onClick={() => setCheckInOpen(true)}>
+              <Button
+                variant="lime"
+                icon={<MapPinCheck className="size-4" />}
+                onClick={() => setCheckInOpen(true)}
+              >
                 {t("actions.checkIn")}
               </Button>
               {!mine && (
                 <Button
                   variant="secondary"
                   aria-pressed={place.saved}
-                  icon={place.saved ? <BookmarkCheck className="size-4" /> : <Bookmark className="size-4" />}
+                  icon={
+                    place.saved ? (
+                      <BookmarkCheck className="size-4" />
+                    ) : (
+                      <Bookmark className="size-4" />
+                    )
+                  }
                   onClick={() => setSaved.mutate(!place.saved)}
                 >
                   {place.saved ? t("place.saved") : t("place.save")}
@@ -178,7 +249,11 @@ export function PlaceScreen({ placeId }: { placeId: string }) {
                 {t("place.directions")}
               </a>
               {mine && (
-                <Link to="/places/$placeId/edit" params={{ placeId }} className="pressable sticker inline-flex h-11 items-center gap-2 rounded-full bg-surface px-5 text-[15px] font-bold">
+                <Link
+                  to="/places/$placeId/edit"
+                  params={{ placeId }}
+                  className="pressable sticker inline-flex h-11 items-center gap-2 rounded-full bg-surface px-5 text-[15px] font-bold"
+                >
                   <Pencil className="size-4" />
                   {t("place.edit")}
                 </Link>
@@ -187,7 +262,10 @@ export function PlaceScreen({ placeId }: { placeId: string }) {
             {badges.length > 0 && (
               <ul className="mt-4 flex flex-wrap gap-2">
                 {badges.map((badge) => (
-                  <li key={badge} className="sticker-sm rounded-full bg-sun px-3 py-1 text-xs font-black text-[#17122b]">
+                  <li
+                    key={badge}
+                    className="sticker-sm rounded-full bg-sun px-3 py-1 text-xs font-black text-[#17122b]"
+                  >
                     {t(`badges.${badge}`)}
                   </li>
                 ))}
@@ -213,14 +291,29 @@ export function PlaceScreen({ placeId }: { placeId: string }) {
                     if (!arrived) return null;
                     return (
                       <li key={visit.id}>
-                        <Link to="/history/$date" params={{ date: localDate(arrived) }} className="flex items-center gap-3 rounded-2xl px-3 py-2 transition-colors hover:bg-surface-2">
+                        <Link
+                          to="/history/$date"
+                          params={{ date: localDate(arrived) }}
+                          className="flex items-center gap-3 rounded-2xl px-3 py-2 transition-colors hover:bg-surface-2"
+                        >
                           <span aria-hidden>{visit.checkIn ? "✅" : "👣"}</span>
                           <span className="min-w-0 flex-1 truncate font-bold">
-                            {arrived.toLocaleDateString(i18n.language, { month: "short", day: "numeric", weekday: "short" })}{" "}
-                            {arrived.toLocaleTimeString(i18n.language, { hour: "2-digit", minute: "2-digit" })}
+                            {arrived.toLocaleDateString(i18n.language, {
+                              month: "short",
+                              day: "numeric",
+                              weekday: "short",
+                            })}{" "}
+                            {arrived.toLocaleTimeString(i18n.language, {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
                           </span>
                           <span className="shrink-0 text-sm text-ink-soft">
-                            {visit.departedAt ? compactDuration(Number(visit.durationSeconds) * 1000) : visit.checkIn && Number(visit.durationSeconds) === 0 ? t("place.checkedIn") : t("place.now")}
+                            {visit.departedAt
+                              ? compactDuration(Number(visit.durationSeconds) * 1000)
+                              : visit.checkIn && Number(visit.durationSeconds) === 0
+                                ? t("place.checkedIn")
+                                : t("place.now")}
                           </span>
                         </Link>
                       </li>
@@ -232,18 +325,33 @@ export function PlaceScreen({ placeId }: { placeId: string }) {
           </section>
 
           {((data?.regulars.length ?? 0) > 0 || (data?.friendsVisited.length ?? 0) > 0) && (
-            <section className="sticker rounded-card bg-surface p-5" aria-label={t("place.regulars")}>
+            <section
+              className="sticker rounded-card bg-surface p-5"
+              aria-label={t("place.regulars")}
+            >
               <h3 className="font-black">{t("place.regulars")}</h3>
-              <p className="text-sm font-bold text-ink-soft">{t("place.totalVisits", { count: data?.totalVisitCount ?? 0 })}</p>
+              <p className="text-sm font-bold text-ink-soft">
+                {t("place.totalVisits", { count: data?.totalVisitCount ?? 0 })}
+              </p>
               <ol className="mt-3 flex flex-col gap-1">
                 {data!.regulars.map((regular) =>
                   regular.user ? (
                     <li key={regular.user.id}>
-                      <Link to="/u/$handle" params={{ handle: regular.user.handle }} className="flex items-center gap-3 rounded-2xl px-3 py-2 transition-colors hover:bg-surface-2">
-                        <span className="w-6 text-center font-black tabular-nums">{regular.rank}</span>
+                      <Link
+                        to="/u/$handle"
+                        params={{ handle: regular.user.handle }}
+                        className="flex items-center gap-3 rounded-2xl px-3 py-2 transition-colors hover:bg-surface-2"
+                      >
+                        <span className="w-6 text-center font-black tabular-nums">
+                          {regular.rank}
+                        </span>
                         <Avatar user={regular.user} size="sm" />
-                        <span className="min-w-0 flex-1 truncate font-bold">{regular.user.displayName}</span>
-                        <span className="shrink-0 text-sm text-ink-soft">{t("row.visits", { count: regular.visitCount })}</span>
+                        <span className="min-w-0 flex-1 truncate font-bold">
+                          {regular.user.displayName}
+                        </span>
+                        <span className="shrink-0 text-sm text-ink-soft">
+                          {t("row.visits", { count: regular.visitCount })}
+                        </span>
                       </Link>
                     </li>
                   ) : null,
@@ -266,7 +374,11 @@ export function PlaceScreen({ placeId }: { placeId: string }) {
         </div>
       </div>
 
-      <CheckInDialog open={checkInOpen} onOpenChange={setCheckInOpen} target={{ placeId: place.id, name: place.name }} />
+      <CheckInDialog
+        open={checkInOpen}
+        onOpenChange={setCheckInOpen}
+        target={{ placeId: place.id, name: place.name }}
+      />
       <ConfirmDialog
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
@@ -291,8 +403,16 @@ function PlaceOnMap({ place }: { place: geo.Place }) {
         id="place-radius"
         data={circlePolygon(center, place.radiusMeters || 100)}
         layers={[
-          { id: "place-radius-fill", type: "fill", paint: { "fill-color": tint, "fill-opacity": 0.18 } },
-          { id: "place-radius-edge", type: "line", paint: { "line-color": tint, "line-width": 2.5 } },
+          {
+            id: "place-radius-fill",
+            type: "fill",
+            paint: { "fill-color": tint, "fill-opacity": 0.18 },
+          },
+          {
+            id: "place-radius-edge",
+            type: "line",
+            paint: { "line-color": tint, "line-width": 2.5 },
+          },
         ]}
       />
       <Pin position={center}>
@@ -312,7 +432,12 @@ function PlaceOnMap({ place }: { place: geo.Place }) {
  */
 function FriendsHere({ place }: { place: geo.Place }) {
   const { t } = useTranslation("places");
-  const locations = useQuery({ queryKey: ["geo", "friend-locations"], queryFn: () => locationClient().listFriendLocations({}), staleTime: 30_000, retry: false });
+  const locations = useQuery({
+    queryKey: ["geo", "friend-locations"],
+    queryFn: () => locationClient().listFriendLocations({}),
+    staleTime: 30_000,
+    retry: false,
+  });
   const friends = useQuery({ queryKey: FRIENDS_KEY, queryFn: loadFriends, staleTime: 60_000 });
   const center = toLatLng(place.center);
   if (!center) return null;
@@ -331,14 +456,23 @@ function FriendsHere({ place }: { place: geo.Place }) {
   });
   if (users.length === 0) return null;
   return (
-    <section className="sticker animate-pop-in rounded-card bg-lime p-5 text-[#17122b]" aria-label={t("place.friendsHere")}>
+    <section
+      className="sticker animate-pop-in rounded-card bg-lime p-5 text-[#17122b]"
+      aria-label={t("place.friendsHere")}
+    >
       <h3 className="font-black">{t("place.friendsHereCount", { count: users.length })}</h3>
       <ul className="mt-3 flex flex-wrap gap-3">
         {users.map((user) => (
           <li key={user.id}>
-            <Link to="/u/$handle" params={{ handle: user.handle }} className="flex w-16 flex-col items-center gap-1">
+            <Link
+              to="/u/$handle"
+              params={{ handle: user.handle }}
+              className="flex w-16 flex-col items-center gap-1"
+            >
               <Avatar user={user} size="lg" outlined />
-              <span className="w-full truncate text-center text-[11px] font-black">{user.displayName}</span>
+              <span className="w-full truncate text-center text-[11px] font-black">
+                {user.displayName}
+              </span>
             </Link>
           </li>
         ))}
@@ -348,7 +482,15 @@ function FriendsHere({ place }: { place: geo.Place }) {
 }
 
 /** Reactions, saving to collections, sharing, reporting and the comments of a place others can see. */
-function PlaceEngagement({ subject, name, mine }: { subject: { type: common.SubjectType; id: string }; name: string; mine: boolean }) {
+function PlaceEngagement({
+  subject,
+  name,
+  mine,
+}: {
+  subject: { type: common.SubjectType; id: string };
+  name: string;
+  mine: boolean;
+}) {
   const { t } = useTranslation("places");
   const { data } = useEngagement(subject);
   // `null`: the engagement service does not show this place to the viewer.

@@ -11,11 +11,26 @@ import { Menu } from "#/components/ui/menu";
 import { profileClient } from "#/lib/api";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
-import { refreshRecentSearches, searchClient, searchKeys, submitSearch, useTrending, wasSubmitted } from "./api";
+import {
+  refreshRecentSearches,
+  searchClient,
+  searchKeys,
+  submitSearch,
+  useTrending,
+  wasSubmitted,
+} from "./api";
 import { formatCount } from "./format";
 import { HitCard, HitSkeleton } from "./hit-card";
 import { isKind, KINDS, type Kind, kindFromSlug, kindSlug } from "./kinds";
-import { fromTagQuery, isTagQuery, type SearchParams, SORTS, type Sort, sortValue, toTagQuery } from "./params";
+import {
+  fromTagQuery,
+  isTagQuery,
+  type SearchParams,
+  SORTS,
+  type Sort,
+  sortValue,
+  toTagQuery,
+} from "./params";
 
 const ALL = search.SearchKind.UNSPECIFIED;
 /** Hits asked for in the "all" tab (the API's maximum): enough to show the best of every kind. */
@@ -31,7 +46,13 @@ export type ResultParams = SearchParams & { q: string };
  * The results of a query: an "all" tab with the best of every kind in
  * sections, and a tab per kind that has matches, each an endless list.
  */
-export function Results({ params, onChange }: { params: ResultParams; /** Moves to another result page (a new address). */ onChange(next: ResultParams): void }) {
+export function Results({
+  params,
+  onChange,
+}: {
+  params: ResultParams /** Moves to another result page (a new address). */;
+  onChange(next: ResultParams): void;
+}) {
   const { t } = useTranslation("search");
   const queryClient = useQueryClient();
   const kind = kindFromSlug(params.kind) ?? ALL;
@@ -41,7 +62,14 @@ export function Results({ params, onChange }: { params: ResultParams; /** Moves 
       // Only searches the person made themselves are remembered (see `markSubmitted`).
       const skipHistory = !wasSubmitted(params.q);
       const response = await searchClient().search(
-        { query: params.q, kind, sort: sortValue(params.sort), ownerId: params.owner ?? "", page: { cursor: pageParam, limit: kind === ALL ? ALL_LIMIT : PAGE_LIMIT }, skipHistory },
+        {
+          query: params.q,
+          kind,
+          sort: sortValue(params.sort),
+          ownerId: params.owner ?? "",
+          page: { cursor: pageParam, limit: kind === ALL ? ALL_LIMIT : PAGE_LIMIT },
+          skipHistory,
+        },
         { signal },
       );
       if (!pageParam && !skipHistory) refreshRecentSearches(queryClient);
@@ -55,8 +83,11 @@ export function Results({ params, onChange }: { params: ResultParams; /** Moves 
   const scope = `${params.q}\n${params.owner ?? ""}`;
   const [known, setKnown] = useState<{ scope: string; counts: search.KindCount[] }>();
   const fresh = list.data?.pages[0]?.counts;
-  if (fresh && (known?.scope !== scope || known.counts !== fresh)) setKnown({ scope, counts: fresh });
-  const counts = new Map<search.SearchKind, number>((known?.scope === scope ? known.counts : []).map((entry) => [entry.kind, Number(entry.count)]));
+  if (fresh && (known?.scope !== scope || known.counts !== fresh))
+    setKnown({ scope, counts: fresh });
+  const counts = new Map<search.SearchKind, number>(
+    (known?.scope === scope ? known.counts : []).map((entry) => [entry.kind, Number(entry.count)]),
+  );
 
   const hits = list.data?.pages.flatMap((page) => page.hits) ?? [];
   const total = Number(list.data?.pages[0]?.total ?? 0);
@@ -64,7 +95,12 @@ export function Results({ params, onChange }: { params: ResultParams; /** Moves 
   return (
     <section aria-label={t("results.label", { query: params.q })}>
       <KindTabs params={params} kind={kind} counts={counts} />
-      <Filters params={params} onChange={onChange} total={list.isSuccess && hits.length > 0 ? total : undefined} ownerHint={hits.find((hit) => hit.owner?.id === params.owner)?.owner} />
+      <Filters
+        params={params}
+        onChange={onChange}
+        total={list.isSuccess && hits.length > 0 ? total : undefined}
+        ownerHint={hits.find((hit) => hit.owner?.id === params.owner)?.owner}
+      />
       {list.isPending ? (
         <div className="grid grid-cols-1 gap-2 lg:grid-cols-2" aria-busy>
           {Array.from({ length: 6 }, (_, index) => (
@@ -102,7 +138,15 @@ function HitGrid({ hits }: { hits: search.SearchHit[] }) {
 // ───────────────────────────── Tabs ─────────────────────────────
 
 /** "All" plus a tab for every kind the query matches. Tabs are links: the open tab lives in the address. */
-function KindTabs({ params, kind, counts }: { params: ResultParams; kind: search.SearchKind; counts: Map<search.SearchKind, number> }) {
+function KindTabs({
+  params,
+  kind,
+  counts,
+}: {
+  params: ResultParams;
+  kind: search.SearchKind;
+  counts: Map<search.SearchKind, number>;
+}) {
   const { t } = useTranslation("search");
   const kinds = KINDS.filter((candidate) => counts.has(candidate) || candidate === kind);
   const tab = (value: search.SearchKind, label: string, count?: number) => {
@@ -116,18 +160,31 @@ function KindTabs({ params, kind, counts }: { params: ResultParams; kind: search
         activeOptions={{ exact: true }}
         role="tab"
         aria-selected={active}
-        className={cn("flex h-9 shrink-0 items-center gap-1.5 rounded-full px-4 text-sm font-bold whitespace-nowrap transition-colors", active ? "sticker-sm bg-surface text-ink" : "text-ink-soft hover:text-ink")}
+        className={cn(
+          "flex h-9 shrink-0 items-center gap-1.5 rounded-full px-4 text-sm font-bold whitespace-nowrap transition-colors",
+          active ? "sticker-sm bg-surface text-ink" : "text-ink-soft hover:text-ink",
+        )}
       >
         {label}
-        {count !== undefined && <span className={cn("text-xs tabular-nums", active ? "text-ink-soft" : "text-ink-faint")}>{formatCount(count)}</span>}
+        {count !== undefined && (
+          <span className={cn("text-xs tabular-nums", active ? "text-ink-soft" : "text-ink-faint")}>
+            {formatCount(count)}
+          </span>
+        )}
       </Link>
     );
   };
   return (
-    <div role="tablist" aria-label={t("results.tabs")} className="scrollbar-none -mx-4 mb-3 flex gap-1 overflow-x-auto px-4 pb-1 md:mx-0 md:px-0">
+    <div
+      role="tablist"
+      aria-label={t("results.tabs")}
+      className="scrollbar-none -mx-4 mb-3 flex gap-1 overflow-x-auto px-4 pb-1 md:mx-0 md:px-0"
+    >
       <div className="flex gap-1 rounded-full bg-surface-2 p-1">
         {tab(ALL, t("kinds.all"))}
-        {kinds.map((candidate) => tab(candidate, t(`kinds.${kindSlug(candidate)}`), counts.get(candidate)))}
+        {kinds.map((candidate) =>
+          tab(candidate, t(`kinds.${kindSlug(candidate)}`), counts.get(candidate)),
+        )}
       </div>
     </div>
   );
@@ -135,12 +192,23 @@ function KindTabs({ params, kind, counts }: { params: ResultParams; kind: search
 
 // ───────────────────────────── Sort and filters ─────────────────────────────
 
-const chip = "inline-flex h-8 shrink-0 items-center gap-1 rounded-full border-2 px-3 text-xs font-black whitespace-nowrap transition-colors";
+const chip =
+  "inline-flex h-8 shrink-0 items-center gap-1 rounded-full border-2 px-3 text-xs font-black whitespace-nowrap transition-colors";
 const chipOff = "border-line bg-surface text-ink-soft hover:border-ink-faint hover:text-ink";
 const chipOn = "border-ink bg-ink text-surface";
 
 /** Sort order, "tags only" and the owner filter, with the number of matches. */
-function Filters({ params, onChange, total, ownerHint }: { params: ResultParams; onChange(next: ResultParams): void; total: number | undefined; ownerHint: search.SearchHit["owner"] }) {
+function Filters({
+  params,
+  onChange,
+  total,
+  ownerHint,
+}: {
+  params: ResultParams;
+  onChange(next: ResultParams): void;
+  total: number | undefined;
+  ownerHint: search.SearchHit["owner"];
+}) {
   const { t } = useTranslation("search");
   const tagsOnly = isTagQuery(params.q);
   const sortLabel = (sort: Sort | undefined) => t(`sort.${sort ?? "relevance"}`);
@@ -149,7 +217,11 @@ function Filters({ params, onChange, total, ownerHint }: { params: ResultParams;
       <Menu
         align="start"
         trigger={
-          <button type="button" aria-label={t("sort.label", { order: sortLabel(params.sort) })} className={cn(chip, params.sort ? chipOn : chipOff)}>
+          <button
+            type="button"
+            aria-label={t("sort.label", { order: sortLabel(params.sort) })}
+            className={cn(chip, params.sort ? chipOn : chipOff)}
+          >
             <ArrowUpDown className="size-3.5" />
             {sortLabel(params.sort)}
           </button>
@@ -160,12 +232,23 @@ function Filters({ params, onChange, total, ownerHint }: { params: ResultParams;
           onSelect: () => onChange({ ...params, sort }),
         }))}
       />
-      <button type="button" aria-pressed={tagsOnly} onClick={() => onChange({ ...params, q: tagsOnly ? fromTagQuery(params.q) : toTagQuery(params.q) })} className={cn(chip, tagsOnly ? chipOn : chipOff)}>
+      <button
+        type="button"
+        aria-pressed={tagsOnly}
+        onClick={() =>
+          onChange({ ...params, q: tagsOnly ? fromTagQuery(params.q) : toTagQuery(params.q) })
+        }
+        className={cn(chip, tagsOnly ? chipOn : chipOff)}
+      >
         <Hash className="size-3.5" />
         {t("filters.tagsOnly")}
       </button>
       {params.owner && <OwnerChip params={params} hint={ownerHint} />}
-      {total !== undefined && <p className="ml-auto text-xs font-bold text-ink-faint">{t("results.total", { count: total, formatted: total.toLocaleString() })}</p>}
+      {total !== undefined && (
+        <p className="ml-auto text-xs font-bold text-ink-faint">
+          {t("results.total", { count: total, formatted: total.toLocaleString() })}
+        </p>
+      )}
     </div>
   );
 }
@@ -175,7 +258,8 @@ function OwnerChip({ params, hint }: { params: ResultParams; hint: search.Search
   const { t } = useTranslation("search");
   const owner = useQuery({
     queryKey: ["identity", "users", params.owner],
-    queryFn: async () => (await profileClient().batchGetUsers({ userIds: [params.owner as string] })).users[0] ?? null,
+    queryFn: async () =>
+      (await profileClient().batchGetUsers({ userIds: [params.owner as string] })).users[0] ?? null,
     enabled: !hint,
     staleTime: 5 * 60_000,
   });
@@ -185,7 +269,12 @@ function OwnerChip({ params, hint }: { params: ResultParams; hint: search.Search
     <span className={cn(chip, chipOn, "pr-1")}>
       {user && <Avatar user={user} size="xs" className="-ml-1.5" />}
       <span className="max-w-40 truncate">{t("filters.owner", { name })}</span>
-      <Link to="/search" search={{ ...params, owner: undefined }} aria-label={t("filters.clearOwner")} className="grid size-6 place-items-center rounded-full hover:bg-surface/20">
+      <Link
+        to="/search"
+        search={{ ...params, owner: undefined }}
+        aria-label={t("filters.clearOwner")}
+        className="grid size-6 place-items-center rounded-full hover:bg-surface/20"
+      >
         <X className="size-3.5" />
       </Link>
     </span>
@@ -195,7 +284,15 @@ function OwnerChip({ params, hint }: { params: ResultParams; hint: search.Search
 // ───────────────────────────── The "all" tab ─────────────────────────────
 
 /** The best of every kind, in the order the engine ranked each kind's best match. */
-function Sections({ params, hits, counts }: { params: ResultParams; hits: search.SearchHit[]; counts: Map<search.SearchKind, number> }) {
+function Sections({
+  params,
+  hits,
+  counts,
+}: {
+  params: ResultParams;
+  hits: search.SearchHit[];
+  counts: Map<search.SearchKind, number>;
+}) {
   const { t } = useTranslation("search");
   const order: Kind[] = [];
   const byKind = new Map<Kind, search.SearchHit[]>();
@@ -220,9 +317,15 @@ function Sections({ params, hits, counts }: { params: ResultParams; hits: search
           <section key={kind} aria-label={name}>
             <header className="mb-2 flex items-baseline gap-2 px-1">
               <h2 className="text-lg font-black">{name}</h2>
-              <span className="text-sm font-bold text-ink-faint tabular-nums">{formatCount(count)}</span>
+              <span className="text-sm font-bold text-ink-faint tabular-nums">
+                {formatCount(count)}
+              </span>
               {count > shown.length && (
-                <Link to="/search" search={{ ...params, kind: kindSlug(kind) }} className="ml-auto inline-flex items-center text-sm font-bold text-brand hover:underline">
+                <Link
+                  to="/search"
+                  search={{ ...params, kind: kindSlug(kind) }}
+                  className="ml-auto inline-flex items-center text-sm font-bold text-brand hover:underline"
+                >
                   {t("results.seeAll")}
                   <ChevronRight className="size-4" />
                 </Link>
@@ -248,15 +351,29 @@ function Sections({ params, hits, counts }: { params: ResultParams; hits: search
   );
 }
 
-function KindLinks({ params, kinds, counts }: { params: ResultParams; kinds: Kind[]; counts: Map<search.SearchKind, number> }) {
+function KindLinks({
+  params,
+  kinds,
+  counts,
+}: {
+  params: ResultParams;
+  kinds: Kind[];
+  counts: Map<search.SearchKind, number>;
+}) {
   const { t } = useTranslation("search");
   return (
     <ul className="flex flex-wrap gap-2">
       {kinds.map((kind) => (
         <li key={kind}>
-          <Link to="/search" search={{ ...params, kind: kindSlug(kind) }} className="pressable sticker-sm inline-flex h-9 items-center gap-1.5 rounded-full bg-surface px-3.5 text-sm font-bold">
+          <Link
+            to="/search"
+            search={{ ...params, kind: kindSlug(kind) }}
+            className="pressable sticker-sm inline-flex h-9 items-center gap-1.5 rounded-full bg-surface px-3.5 text-sm font-bold"
+          >
             {t(`kinds.${kindSlug(kind)}`)}
-            <span className="text-xs text-ink-faint tabular-nums">{formatCount(counts.get(kind) ?? 0)}</span>
+            <span className="text-xs text-ink-faint tabular-nums">
+              {formatCount(counts.get(kind) ?? 0)}
+            </span>
           </Link>
         </li>
       ))}
@@ -267,7 +384,15 @@ function KindLinks({ params, kinds, counts }: { params: ResultParams; kinds: Kin
 // ───────────────────────────── Nothing found, or something broke ─────────────────────────────
 
 /** An empty result is never a dead end: other tabs that do match, ways to widen the search, what others look for. */
-function NoResults({ params, kind, counts }: { params: ResultParams; kind: search.SearchKind; counts: Map<search.SearchKind, number> }) {
+function NoResults({
+  params,
+  kind,
+  counts,
+}: {
+  params: ResultParams;
+  kind: search.SearchKind;
+  counts: Map<search.SearchKind, number>;
+}) {
   const { t } = useTranslation("search");
   const queryClient = useQueryClient();
   const trending = useTrending();
@@ -284,7 +409,11 @@ function NoResults({ params, kind, counts }: { params: ResultParams; kind: searc
   if (params.owner) {
     ideas.push(
       <Idea key="owner" title={t("empty.ownerFiltered")}>
-        <Link to="/search" search={{ ...params, owner: undefined }} className="pressable sticker-sm inline-flex h-9 items-center rounded-full bg-surface px-3.5 text-sm font-bold">
+        <Link
+          to="/search"
+          search={{ ...params, owner: undefined }}
+          className="pressable sticker-sm inline-flex h-9 items-center rounded-full bg-surface px-3.5 text-sm font-bold"
+        >
           {t("empty.searchEveryone")}
         </Link>
       </Idea>,
@@ -293,15 +422,24 @@ function NoResults({ params, kind, counts }: { params: ResultParams; kind: searc
   if (tagsOnly) {
     ideas.push(
       <Idea key="tags" title={t("empty.tagsOnly")}>
-        <Link to="/search" search={{ ...params, q: fromTagQuery(params.q) }} className="pressable sticker-sm inline-flex h-9 items-center rounded-full bg-surface px-3.5 text-sm font-bold">
+        <Link
+          to="/search"
+          search={{ ...params, q: fromTagQuery(params.q) }}
+          className="pressable sticker-sm inline-flex h-9 items-center rounded-full bg-surface px-3.5 text-sm font-bold"
+        >
           {t("empty.searchEverything", { query: fromTagQuery(params.q) })}
         </Link>
       </Idea>,
     );
   }
-  const trends = (trending.data?.queries ?? []).filter((item) => item.query.toLowerCase() !== params.q.toLowerCase()).slice(0, 8);
+  const trends = (trending.data?.queries ?? [])
+    .filter((item) => item.query.toLowerCase() !== params.q.toLowerCase())
+    .slice(0, 8);
   return (
-    <div className="mx-auto flex max-w-xl flex-col items-center gap-2 px-2 py-10 text-center" data-testid="search-empty">
+    <div
+      className="mx-auto flex max-w-xl flex-col items-center gap-2 px-2 py-10 text-center"
+      data-testid="search-empty"
+    >
       <div className="animate-float text-6xl">🔍</div>
       <p className="mt-2 text-lg font-black break-words">{t("empty.title", { query: params.q })}</p>
       <ul className="flex flex-col gap-1 text-sm leading-relaxed text-ink-soft">
@@ -315,7 +453,12 @@ function NoResults({ params, kind, counts }: { params: ResultParams; kind: searc
             <ul className="flex flex-wrap gap-2">
               {trends.map((item) => (
                 <li key={item.query}>
-                  <Link to="/search" search={{ q: item.query }} onClick={() => submitSearch(queryClient, item.query)} className="pressable sticker-sm inline-flex h-9 max-w-full items-center rounded-full bg-surface px-3.5 text-sm font-bold">
+                  <Link
+                    to="/search"
+                    search={{ q: item.query }}
+                    onClick={() => submitSearch(queryClient, item.query)}
+                    className="pressable sticker-sm inline-flex h-9 max-w-full items-center rounded-full bg-surface px-3.5 text-sm font-bold"
+                  >
                     <span className="truncate">{item.query}</span>
                   </Link>
                 </li>
@@ -334,7 +477,10 @@ function NoResults({ params, kind, counts }: { params: ResultParams; kind: searc
               ] as const
             ).map((place) => (
               <li key={place.to}>
-                <Link to={place.to} className="pressable sticker-sm inline-flex h-9 items-center rounded-full bg-surface px-3.5 text-sm font-bold">
+                <Link
+                  to={place.to}
+                  className="pressable sticker-sm inline-flex h-9 items-center rounded-full bg-surface px-3.5 text-sm font-bold"
+                >
                   {place.label}
                 </Link>
               </li>
@@ -361,7 +507,12 @@ function Problem({ error, onRetry }: { error: unknown; onRetry(): void }) {
     <div role="alert" className="flex flex-col items-center gap-3 px-6 py-12 text-center">
       <div className="text-5xl">🌀</div>
       <p className="max-w-sm font-bold">{errorMessage(error)}</p>
-      <Button size="sm" variant="secondary" icon={<RotateCw className="size-4" />} onClick={onRetry}>
+      <Button
+        size="sm"
+        variant="secondary"
+        icon={<RotateCw className="size-4" />}
+        onClick={onRetry}
+      >
         {t("actions.retry")}
       </Button>
     </div>

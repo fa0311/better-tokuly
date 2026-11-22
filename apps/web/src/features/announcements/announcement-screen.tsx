@@ -12,7 +12,8 @@ export function AnnouncementScreen({ announcementId }: { announcementId: string 
   const { t, i18n } = useTranslation("announcements");
   const detail = useQuery({
     queryKey: ["admin", "announcements", "published", i18n.language, "detail", announcementId],
-    queryFn: () => announcementClient().getAnnouncement({ id: announcementId, locale: i18n.language }),
+    queryFn: () =>
+      announcementClient().getAnnouncement({ id: announcementId, locale: i18n.language }),
   });
   const announcement = detail.data?.announcement;
 
@@ -28,7 +29,10 @@ export function AnnouncementScreen({ announcementId }: { announcementId: string 
           emoji="🧭"
           title={detail.isError ? errorMessage(detail.error) : t("errors.ANNOUNCEMENT_NOT_FOUND")}
           action={
-            <Link to="/announcements" className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand">
+            <Link
+              to="/announcements"
+              className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand"
+            >
               {t("backToList")}
             </Link>
           }
@@ -37,7 +41,10 @@ export function AnnouncementScreen({ announcementId }: { announcementId: string 
         <AnnouncementArticle
           announcement={announcement}
           footer={
-            <Link to="/announcements" className="mt-8 inline-flex items-center gap-1 text-sm font-bold text-brand hover:underline">
+            <Link
+              to="/announcements"
+              className="mt-8 inline-flex items-center gap-1 text-sm font-bold text-brand hover:underline"
+            >
               <ChevronLeft className="size-4" />
               {t("backToList")}
             </Link>

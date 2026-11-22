@@ -37,7 +37,13 @@ export function StartPartyDialog({
   const [allowGuests, setAllowGuests] = useState(true);
 
   const start = useMutation({
-    mutationFn: () => partyClient().createParty({ videoId: summary.id, playlistId: playlistId ?? "", allowGuests, positionSeconds: Math.min(position(), Math.max(0, summary.durationSeconds - 1)) }),
+    mutationFn: () =>
+      partyClient().createParty({
+        videoId: summary.id,
+        playlistId: playlistId ?? "",
+        allowGuests,
+        positionSeconds: Math.min(position(), Math.max(0, summary.durationSeconds - 1)),
+      }),
     onSuccess: ({ session }) => {
       const code = session?.party?.code;
       if (!session || !code) return;
@@ -60,7 +66,11 @@ export function StartPartyDialog({
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             {t("actions.cancel")}
           </Button>
-          <Button icon={<PartyPopper className="size-4" />} loading={start.isPending} onClick={() => start.mutate()}>
+          <Button
+            icon={<PartyPopper className="size-4" />}
+            loading={start.isPending}
+            onClick={() => start.mutate()}
+          >
             {t("party.startAction")}
           </Button>
         </>
@@ -71,7 +81,12 @@ export function StartPartyDialog({
         <p className="line-clamp-2 min-w-0 flex-1 text-sm font-black">{summary.title}</p>
       </div>
       <div className="mt-3">
-        <SwitchRow label={t("party.allowGuests")} hint={t("party.allowGuestsHint")} checked={allowGuests} onChange={setAllowGuests} />
+        <SwitchRow
+          label={t("party.allowGuests")}
+          hint={t("party.allowGuestsHint")}
+          checked={allowGuests}
+          onChange={setAllowGuests}
+        />
       </div>
     </Dialog>
   );

@@ -59,7 +59,14 @@ export default {
     openPayout: "View this payout request",
     openPack: "View this stamp pack",
   },
-  memo: { sku: "Package", bonus_coins: "Bonus", provider: "Paid with", streak: "Streak", date: "Date", pack_name: "Stamp pack" },
+  memo: {
+    sku: "Package",
+    bonus_coins: "Bonus",
+    provider: "Paid with",
+    streak: "Streak",
+    date: "Date",
+    pack_name: "Stamp pack",
+  },
   history: {
     title: "Coin history",
     filters: { all: "All", coins: "Coins", earnings: "Earnings" },
@@ -97,11 +104,18 @@ export default {
   },
   provider: {
     development: "Development (test payment)",
-    developmentNote: "This is the development payment provider: no money is charged and the coins arrive at once.",
+    developmentNote:
+      "This is the development payment provider: no money is charged and the coins arrive at once.",
     unknown: "Unknown",
   },
   purchase: {
-    status: { pending: "Awaiting payment", completed: "Completed", failed: "Failed", cancelled: "Cancelled", expired: "Expired" },
+    status: {
+      pending: "Awaiting payment",
+      completed: "Completed",
+      failed: "Failed",
+      cancelled: "Cancelled",
+      expired: "Expired",
+    },
     completed: { title: "Your coins are here!" },
     redirect: {
       title: "Finish your payment",
@@ -111,9 +125,15 @@ export default {
       title: "Checking your payment…",
       body: "Your coins will arrive as soon as {{provider}} confirms the payment.",
     },
-    failed: { title: "The payment didn't go through", body: "No coins were added. Try again or pick another way to pay." },
+    failed: {
+      title: "The payment didn't go through",
+      body: "No coins were added. Try again or pick another way to pay.",
+    },
     cancelled: { title: "This purchase was cancelled", body: "No coins were added." },
-    expired: { title: "This purchase expired", body: "The payment wasn't confirmed in time. No coins were added." },
+    expired: {
+      title: "This purchase expired",
+      body: "The payment wasn't confirmed in time. No coins were added.",
+    },
     expiresInHours: "Pay within {{hours}}h {{minutes}}m",
     expiresInMinutes: "Pay within {{minutes}}m",
     actions: {
@@ -123,7 +143,10 @@ export default {
       paidAnyway: "Paid but no coins? Check again",
       retry: "Try again",
     },
-    toast: { cancelled: "Purchase cancelled", stillPending: "The payment hasn't been confirmed yet" },
+    toast: {
+      cancelled: "Purchase cancelled",
+      stillPending: "The payment hasn't been confirmed yet",
+    },
   },
   purchases: {
     title: "Purchase history",
@@ -162,9 +185,16 @@ export default {
     requestsEmptyBody: "Once your earnings add up, you can ask for a payout here!",
     period: "By period",
     ranges: { "7d": "7 days", "30d": "30 days", "12m": "12 months" },
-    totals: { net: "You received", gross: "Gross", fee: "Fees", feePercent: "Fees ({{percent}}%)", count: "Transfers" },
+    totals: {
+      net: "You received",
+      gross: "Gross",
+      fee: "Fees",
+      feePercent: "Fees ({{percent}}%)",
+      count: "Transfers",
+    },
     byReason: "Breakdown",
-    byReasonEmpty: "No earnings in this period yet. Gifts on your lives and stamp sales will be broken down here!",
+    byReasonEmpty:
+      "No earnings in this period yet. Gifts on your lives and stamp sales will be broken down here!",
     reasonCount: "{{count}} transfers",
     chart: {
       title: "Earnings over time",
@@ -176,8 +206,21 @@ export default {
   },
   payout: {
     title: "Payout request",
-    status: { pending: "In review", approved: "Approved", rejected: "Rejected", paid: "Paid", cancelled: "Cancelled", unknown: "Unknown" },
-    method: { bank: "Bank transfer", paypal: "PayPal", giftCard: "Gift card", other: "Other", unknown: "Not set" },
+    status: {
+      pending: "In review",
+      approved: "Approved",
+      rejected: "Rejected",
+      paid: "Paid",
+      cancelled: "Cancelled",
+      unknown: "Unknown",
+    },
+    method: {
+      bank: "Bank transfer",
+      paypal: "PayPal",
+      giftCard: "Gift card",
+      other: "Other",
+      unknown: "Not set",
+    },
     rejectedReason: "Reason:",
     reviewNote: "From the team:",
     paymentReference: "Payment reference",
@@ -231,8 +274,16 @@ export default {
   },
   staff: {
     title: "Wallet administration",
-    gate: { title: "Moderators and admins only", body: "Reviewing payouts and looking up wallets needs the moderator or admin role." },
-    tabs: { payouts: "Payout review", users: "Users", adjustments: "Adjustment log", packages: "Coin packages" },
+    gate: {
+      title: "Moderators and admins only",
+      body: "Reviewing payouts and looking up wallets needs the moderator or admin role.",
+    },
+    tabs: {
+      payouts: "Payout review",
+      users: "Users",
+      adjustments: "Adjustment log",
+      packages: "Coin packages",
+    },
     deletedUser: "Deleted account",
     payouts: {
       filter: "Filter by status",
@@ -260,9 +311,21 @@ export default {
       approveNote: "Message to the requester (optional)",
       approveNoteHint: "Sent along with the approval notification.",
       confirm: {
-        approve: { title: "Approve this payout request?", body: "The requester is notified. Mark it as paid once the money has been sent.", confirm: "Approve" },
-        reject: { title: "Reject this payout request?", body: "The coins return to the requester's earnings and they are told why.", confirm: "Reject" },
-        paid: { title: "Mark as paid?", body: "Records that the money was sent and notifies the requester. This can't be undone.", confirm: "Mark as paid" },
+        approve: {
+          title: "Approve this payout request?",
+          body: "The requester is notified. Mark it as paid once the money has been sent.",
+          confirm: "Approve",
+        },
+        reject: {
+          title: "Reject this payout request?",
+          body: "The coins return to the requester's earnings and they are told why.",
+          confirm: "Reject",
+        },
+        paid: {
+          title: "Mark as paid?",
+          body: "Records that the money was sent and notifies the requester. This can't be undone.",
+          confirm: "Mark as paid",
+        },
       },
       toast: { approve: "Approved", reject: "Rejected", paid: "Marked as paid" },
     },
@@ -337,16 +400,34 @@ export default {
       retireLabel: "Retire {{sku}}",
       restore: "Put back on sale",
       restoreLabel: "Put {{sku}} back on sale",
-      columns: { sku: "SKU", coins: "Coins", bonus: "Bonus", price: "Price", badge: "Badge", order: "Order", window: "Sale window", state: "State" },
+      columns: {
+        sku: "SKU",
+        coins: "Coins",
+        bonus: "Bonus",
+        price: "Price",
+        badge: "Badge",
+        order: "Order",
+        window: "Sale window",
+        state: "State",
+      },
       state: { onSale: "On sale", scheduled: "Scheduled", ended: "Ended", retired: "Retired" },
-      retireConfirm: { title: "Retire {{sku}}?", body: "It disappears from the shop. Existing purchases are unaffected." },
+      retireConfirm: {
+        title: "Retire {{sku}}?",
+        body: "It disappears from the shop. Existing purchases are unaffected.",
+      },
       restoreConfirm: { title: "Put {{sku}} back on sale?", body: "It appears in the shop again." },
-      toast: { created: "Package created", saved: "Package saved", retired: "Package retired", restored: "Package back on sale" },
+      toast: {
+        created: "Package created",
+        saved: "Package saved",
+        retired: "Package retired",
+        restored: "Package back on sale",
+      },
       form: {
         createTitle: "New coin package",
         editTitle: "Edit coin package",
         sku: "SKU",
-        skuHint: "Also the product ID at payment providers. Lowercase letters, digits, _ - . ; 3 to 64 characters.",
+        skuHint:
+          "Also the product ID at payment providers. Lowercase letters, digits, _ - . ; 3 to 64 characters.",
         skuInvalid: "Use 3 to 64 lowercase letters, digits, _ - .",
         coins: "Coins",
         coinsInvalid: "Enter a number of 1 or more",

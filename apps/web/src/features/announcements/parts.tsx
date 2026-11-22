@@ -8,21 +8,38 @@ import { categoryKey } from "./api";
 import { Markdown } from "./markdown-view";
 
 /** What each category looks like: its sticker colour and icon. */
-const CATEGORY_STYLE: Record<number, { tint: string; icon: ComponentType<{ className?: string }> }> = {
+const CATEGORY_STYLE: Record<
+  number,
+  { tint: string; icon: ComponentType<{ className?: string }> }
+> = {
   [admin.AnnouncementCategory.UPDATE]: { tint: "bg-lime text-[#17122b]", icon: Sparkles },
   [admin.AnnouncementCategory.MAINTENANCE]: { tint: "bg-sun text-[#17122b]", icon: Wrench },
   [admin.AnnouncementCategory.EVENT]: { tint: "bg-pink text-white", icon: PartyPopper },
   [admin.AnnouncementCategory.IMPORTANT]: { tint: "bg-coral text-[#17122b]", icon: Megaphone },
 };
 
-const styleOf = (category: admin.AnnouncementCategory) => CATEGORY_STYLE[category] ?? (CATEGORY_STYLE[admin.AnnouncementCategory.UPDATE] as (typeof CATEGORY_STYLE)[number]);
+const styleOf = (category: admin.AnnouncementCategory) =>
+  CATEGORY_STYLE[category] ??
+  (CATEGORY_STYLE[admin.AnnouncementCategory.UPDATE] as (typeof CATEGORY_STYLE)[number]);
 
 /** The category of an announcement as a little sticker. */
-export function CategoryBadge({ category, className }: { category: admin.AnnouncementCategory; className?: string }) {
+export function CategoryBadge({
+  category,
+  className,
+}: {
+  category: admin.AnnouncementCategory;
+  className?: string;
+}) {
   const { t } = useTranslation("announcements");
   const { tint, icon: Icon } = styleOf(category);
   return (
-    <span className={cn("inline-flex h-7 shrink-0 items-center gap-1 rounded-full border-2 border-ink px-2.5 text-xs font-black whitespace-nowrap", tint, className)}>
+    <span
+      className={cn(
+        "inline-flex h-7 shrink-0 items-center gap-1 rounded-full border-2 border-ink px-2.5 text-xs font-black whitespace-nowrap",
+        tint,
+        className,
+      )}
+    >
       <Icon className="size-3.5" />
       {t(categoryKey(category))}
     </span>
@@ -44,9 +61,16 @@ function PublishedDate({ at }: { at: Timestamp | undefined }) {
   const date = toDate(at);
   if (!date) return null;
   return (
-    <time dateTime={date.toISOString()} className="inline-flex items-center gap-1 text-xs font-bold text-ink-soft">
+    <time
+      dateTime={date.toISOString()}
+      className="inline-flex items-center gap-1 text-xs font-bold text-ink-soft"
+    >
       <CalendarDays className="size-3.5" />
-      {new Intl.DateTimeFormat(i18n.language, { year: "numeric", month: "short", day: "numeric" }).format(date)}
+      {new Intl.DateTimeFormat(i18n.language, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      }).format(date)}
     </time>
   );
 }
@@ -54,7 +78,9 @@ function PublishedDate({ at }: { at: Timestamp | undefined }) {
 /** Smallest stored rendition that still covers `pixels` on a 2x screen. */
 function imageUrl(image: common.Image | undefined, pixels: number): string | undefined {
   if (!image?.url) return undefined;
-  const fitting = image.variants.filter((variant) => variant.size >= pixels * 2).sort((a, b) => a.size - b.size)[0];
+  const fitting = image.variants
+    .filter((variant) => variant.size >= pixels * 2)
+    .sort((a, b) => a.size - b.size)[0];
   return fitting?.url ?? image.url;
 }
 
@@ -74,13 +100,37 @@ export interface AnnouncementContent {
  * announcement's ID) the title links to the full announcement and the whole
  * card is its click target; without it the card is inert (the editor's preview).
  */
-export function AnnouncementCard({ announcement, linkTo, className }: { announcement: AnnouncementContent; linkTo?: string; className?: string }) {
+export function AnnouncementCard({
+  announcement,
+  linkTo,
+  className,
+}: {
+  announcement: AnnouncementContent;
+  linkTo?: string;
+  className?: string;
+}) {
   const image = imageUrl(announcement.image, 640);
   return (
-    <article className={cn("sticker relative flex h-full flex-col overflow-hidden rounded-card bg-surface", announcement.pinned && "bg-brand-soft", linkTo && "pressable", className)}>
+    <article
+      className={cn(
+        "sticker relative flex h-full flex-col overflow-hidden rounded-card bg-surface",
+        announcement.pinned && "bg-brand-soft",
+        linkTo && "pressable",
+        className,
+      )}
+    >
       {image && (
-        <div className="aspect-[16/7] w-full border-b-[2.5px] border-ink bg-surface-3" style={{ background: announcement.image?.dominantColor || undefined }}>
-          <img src={image} alt="" className="size-full object-cover" loading="lazy" decoding="async" />
+        <div
+          className="aspect-[16/7] w-full border-b-[2.5px] border-ink bg-surface-3"
+          style={{ background: announcement.image?.dominantColor || undefined }}
+        >
+          <img
+            src={image}
+            alt=""
+            className="size-full object-cover"
+            loading="lazy"
+            decoding="async"
+          />
         </div>
       )}
       <div className="flex flex-1 flex-col gap-2 p-4">
@@ -92,26 +142,43 @@ export function AnnouncementCard({ announcement, linkTo, className }: { announce
         <h2 className="text-lg leading-snug font-black">
           {linkTo ? (
             // The link is named by the title alone; its ::after stretches it over the card.
-            <Link to="/announcements/$announcementId" params={{ announcementId: linkTo }} className="rounded-card after:absolute after:inset-0 after:content-['']">
+            <Link
+              to="/announcements/$announcementId"
+              params={{ announcementId: linkTo }}
+              className="rounded-card after:absolute after:inset-0 after:content-['']"
+            >
               {announcement.title}
             </Link>
           ) : (
             announcement.title
           )}
         </h2>
-        {announcement.summary && <p className="line-clamp-3 text-sm leading-relaxed text-ink-soft">{announcement.summary}</p>}
+        {announcement.summary && (
+          <p className="line-clamp-3 text-sm leading-relaxed text-ink-soft">
+            {announcement.summary}
+          </p>
+        )}
       </div>
     </article>
   );
 }
 
 /** An announcement in full: header image, labels, title and the Markdown body. */
-export function AnnouncementArticle({ announcement, footer }: { announcement: AnnouncementContent; footer?: ReactNode }) {
+export function AnnouncementArticle({
+  announcement,
+  footer,
+}: {
+  announcement: AnnouncementContent;
+  footer?: ReactNode;
+}) {
   const image = imageUrl(announcement.image, 720);
   return (
     <article className="sticker overflow-hidden rounded-card bg-surface">
       {image && (
-        <div className="aspect-[16/7] w-full border-b-[2.5px] border-ink bg-surface-3" style={{ background: announcement.image?.dominantColor || undefined }}>
+        <div
+          className="aspect-[16/7] w-full border-b-[2.5px] border-ink bg-surface-3"
+          style={{ background: announcement.image?.dominantColor || undefined }}
+        >
           <img src={image} alt="" className="size-full object-cover" decoding="async" />
         </div>
       )}

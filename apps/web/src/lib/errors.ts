@@ -15,11 +15,13 @@ export interface ErrorMessageOptions {
  * first, then the shared list, then any other feature's `errors` group.
  */
 function reasonMessage(reason: string, namespace?: string): string | undefined {
-  if (namespace && i18n.exists(`errors.${reason}`, { ns: namespace })) return i18n.t(`errors.${reason}`, { ns: namespace });
+  if (namespace && i18n.exists(`errors.${reason}`, { ns: namespace }))
+    return i18n.t(`errors.${reason}`, { ns: namespace });
   if (i18n.exists(reason, { ns: "errors" })) return i18n.t(reason, { ns: "errors" });
   // Features keep the reasons only they can hit under `errors.<REASON>` in their own namespace.
   for (const other of Object.keys(i18n.getDataByLanguage(i18n.language) ?? {})) {
-    if (i18n.exists(`errors.${reason}`, { ns: other })) return i18n.t(`errors.${reason}`, { ns: other });
+    if (i18n.exists(`errors.${reason}`, { ns: other }))
+      return i18n.t(`errors.${reason}`, { ns: other });
   }
   return undefined;
 }
@@ -33,7 +35,9 @@ export function errorMessage(error: unknown, options: ErrorMessageOptions = {}):
   const reason = errorReason(error);
   const known = reason ? reasonMessage(reason, options.namespace) : undefined;
   if (known) return known;
-  if (reason === "RATE_LIMITED" || (isApiError(error) && error.code === Code.ResourceExhausted)) return i18n.t("RATE_LIMITED", { ns: "errors" });
-  if (!isApiError(error) || error.code === Code.Unavailable || error.code === Code.Unknown) return i18n.t("network", { ns: "errors" });
+  if (reason === "RATE_LIMITED" || (isApiError(error) && error.code === Code.ResourceExhausted))
+    return i18n.t("RATE_LIMITED", { ns: "errors" });
+  if (!isApiError(error) || error.code === Code.Unavailable || error.code === Code.Unknown)
+    return i18n.t("network", { ns: "errors" });
   return i18n.t("generic", { ns: "errors" });
 }

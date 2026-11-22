@@ -56,7 +56,12 @@ function IncomingCall({ call, myId }: { call: chat.Call; myId: string }) {
   const caller = call.startedBy;
   const group = conversation && isGroup(conversation);
   return (
-    <div role="alertdialog" aria-label={t("call.incoming.label", { name: displayName(caller) })} className="pointer-events-none fixed inset-x-0 top-0 z-[80] flex justify-center px-3 pt-safe" data-testid="incoming-call">
+    <div
+      role="alertdialog"
+      aria-label={t("call.incoming.label", { name: displayName(caller) })}
+      className="pointer-events-none fixed inset-x-0 top-0 z-[80] flex justify-center px-3 pt-safe"
+      data-testid="incoming-call"
+    >
       <div className="sticker-lg pointer-events-auto flex w-full max-w-sm animate-slide-up items-center gap-3 rounded-[2rem] bg-surface p-3">
         <span className="relative shrink-0">
           <span className="absolute inset-0 animate-pulse-ring rounded-[0.85rem] bg-success" />
@@ -65,7 +70,11 @@ function IncomingCall({ call, myId }: { call: chat.Call; myId: string }) {
         <div className="min-w-0 flex-1">
           <p className="truncate font-black">{displayName(caller)}</p>
           <p className="truncate text-sm font-bold text-ink-soft">
-            {group ? t(call.video ? "call.incoming.groupVideo" : "call.incoming.groupVoice", { group: titleOf(conversation, myId) }) : t(call.video ? "call.incoming.video" : "call.incoming.voice")}
+            {group
+              ? t(call.video ? "call.incoming.groupVideo" : "call.incoming.groupVoice", {
+                  group: titleOf(conversation, myId),
+                })
+              : t(call.video ? "call.incoming.video" : "call.incoming.voice")}
           </p>
         </div>
         <button

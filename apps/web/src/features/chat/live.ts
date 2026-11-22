@@ -36,7 +36,17 @@ interface LiveStore {
   reset(): void;
 }
 
-const EMPTY = { typing: {}, present: {}, cursors: {}, openPov: {}, calls: {}, online: {}, readingId: null, asOf: {}, endedCalls: {} };
+const EMPTY = {
+  typing: {},
+  present: {},
+  cursors: {},
+  openPov: {},
+  calls: {},
+  online: {},
+  readingId: null,
+  asOf: {},
+  endedCalls: {},
+};
 
 /**
  * What the realtime connection tells us about conversations that is not part
@@ -48,13 +58,21 @@ export const useLive = create<LiveStore>((set) => ({
   setTyping: (conversationId, userId, typing) =>
     set((state) => {
       const { [userId]: _gone, ...others } = state.typing[conversationId] ?? {};
-      return { typing: { ...state.typing, [conversationId]: typing ? { ...others, [userId]: Date.now() + TYPING_TTL_MS } : others } };
+      return {
+        typing: {
+          ...state.typing,
+          [conversationId]: typing ? { ...others, [userId]: Date.now() + TYPING_TTL_MS } : others,
+        },
+      };
     }),
   setPresent: (conversationId, userIds, asOf = Date.now()) =>
     set((state) => {
       const key = `present:${conversationId}`;
       if ((state.asOf[key] ?? 0) > asOf) return state;
-      return { present: { ...state.present, [conversationId]: userIds }, asOf: { ...state.asOf, [key]: asOf } };
+      return {
+        present: { ...state.present, [conversationId]: userIds },
+        asOf: { ...state.asOf, [key]: asOf },
+      };
     }),
   setCursors: (conversationId, cursors) =>
     set((state) => {
@@ -75,7 +93,13 @@ export const useLive = create<LiveStore>((set) => ({
     set((state) => {
       const key = `pov:${conversationId}`;
       if ((state.asOf[key] ?? 0) > asOf) return state;
-      return { openPov: { ...state.openPov, [conversationId]: request?.state === chat.PovState.OPEN ? request : undefined }, asOf: { ...state.asOf, [key]: asOf } };
+      return {
+        openPov: {
+          ...state.openPov,
+          [conversationId]: request?.state === chat.PovState.OPEN ? request : undefined,
+        },
+        asOf: { ...state.asOf, [key]: asOf },
+      };
     }),
   setCall: (call) =>
     set((state) => {
@@ -86,7 +110,10 @@ export const useLive = create<LiveStore>((set) => ({
       if (state.endedCalls[call.id]) return state;
       return { calls: { ...state.calls, [call.id]: call } };
     }),
-  setOnline: (userId, online) => set((state) => (state.online[userId] === online ? state : { online: { ...state.online, [userId]: online } })),
+  setOnline: (userId, online) =>
+    set((state) =>
+      state.online[userId] === online ? state : { online: { ...state.online, [userId]: online } },
+    ),
   setReading: (readingId) => set({ readingId }),
   reset: () => set(EMPTY),
 }));
@@ -98,12 +125,17 @@ export function useTyping(conversationId: string, myId: string): string[] {
   const entries = useLive((state) => state.typing[conversationId]);
   const [, tick] = useState(0);
   const now = Date.now();
-  const live = entries ? Object.entries(entries).filter(([userId, until]) => userId !== myId && until > now) : [];
+  const live = entries
+    ? Object.entries(entries).filter(([userId, until]) => userId !== myId && until > now)
+    : [];
   const soonest = live.length > 0 ? Math.min(...live.map(([, until]) => until)) : 0;
 
   useEffect(() => {
     if (!soonest) return;
-    const timer = setTimeout(() => tick((value) => value + 1), Math.max(50, soonest - Date.now() + 20));
+    const timer = setTimeout(
+      () => tick((value) => value + 1),
+      Math.max(50, soonest - Date.now() + 20),
+    );
     return () => clearTimeout(timer);
   }, [soonest]);
 

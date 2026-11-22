@@ -35,6 +35,10 @@ export function EmojiText({ text, emojiClassName, emojiSize }: EmojiTextProps) {
     if (segment.kind === "text") return <Fragment key={key}>{segment.text}</Fragment>;
     // Present: `splitEmojiText` only names emoji the catalogue has.
     const entry = catalog.byName.get(segment.name);
-    return entry ? <EmojiImage key={key} emoji={entry} size={emojiSize} className={emojiClassName} /> : <Fragment key={key}>{segment.raw}</Fragment>;
+    return entry ? (
+      <EmojiImage key={key} emoji={entry} size={emojiSize} className={emojiClassName} />
+    ) : (
+      <Fragment key={key}>{segment.raw}</Fragment>
+    );
   });
 }

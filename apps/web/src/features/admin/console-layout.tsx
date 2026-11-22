@@ -1,5 +1,18 @@
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { Flag, Gavel, LayoutDashboard, Megaphone, Newspaper, ScrollText, Search, ShieldCheck, SmilePlus, Sticker, Users, Wallet } from "lucide-react";
+import {
+  Flag,
+  Gavel,
+  LayoutDashboard,
+  Megaphone,
+  Newspaper,
+  ScrollText,
+  Search,
+  ShieldCheck,
+  SmilePlus,
+  Sticker,
+  Users,
+  Wallet,
+} from "lucide-react";
 import { type ComponentType, type ReactNode, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { EmptyState } from "#/components/ui/page";
@@ -8,7 +21,18 @@ import { type StaffAccess, type StaffLevel, useStaffAccess } from "./roles";
 import { ConsolePage } from "./ui/console-page";
 
 interface ConsoleNavItem {
-  to: "/admin" | "/admin/moderation" | "/admin/users" | "/admin/flags" | "/admin/announcements" | "/admin/audit" | "/admin/stamps" | "/admin/wallet" | "/admin/search" | "/admin/news" | "/admin/emoji";
+  to:
+    | "/admin"
+    | "/admin/moderation"
+    | "/admin/users"
+    | "/admin/flags"
+    | "/admin/announcements"
+    | "/admin/audit"
+    | "/admin/stamps"
+    | "/admin/wallet"
+    | "/admin/search"
+    | "/admin/news"
+    | "/admin/emoji";
   /** Key under `nav.` in the `admin` namespace. */
   key: string;
   icon: ComponentType<{ className?: string }>;
@@ -53,7 +77,10 @@ function ConsoleNav({ access }: { access: StaffAccess }) {
   const { t } = useTranslation("admin");
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const current = useRef<HTMLAnchorElement>(null);
-  const isActive = (to: string) => (to === "/admin" ? pathname === "/admin" || pathname === "/admin/" : pathname === to || pathname.startsWith(`${to}/`));
+  const isActive = (to: string) =>
+    to === "/admin"
+      ? pathname === "/admin" || pathname === "/admin/"
+      : pathname === to || pathname.startsWith(`${to}/`);
 
   // On phones the navigation scrolls sideways: keep the open section in view whenever the page changes.
   useEffect(() => {
@@ -61,14 +88,25 @@ function ConsoleNav({ access }: { access: StaffAccess }) {
   }, [pathname]);
 
   return (
-    <nav aria-label={t("title")} className="z-10 shrink-0 border-b-2 border-line bg-surface xl:flex xl:w-52 xl:flex-col xl:border-r-2 xl:border-b-0">
+    <nav
+      aria-label={t("title")}
+      className="z-10 shrink-0 border-b-2 border-line bg-surface xl:flex xl:w-52 xl:flex-col xl:border-r-2 xl:border-b-0"
+    >
       <div className="hidden items-center gap-2 px-4 pt-5 pb-3 xl:flex">
         <span className="grid size-9 place-items-center rounded-xl border-2 border-ink bg-coral text-[#17122b]">
           <ShieldCheck className="size-5" />
         </span>
         <span className="min-w-0">
           <span className="block truncate text-sm font-black">{t("title")}</span>
-          <span className="block truncate text-xs font-bold text-ink-faint">{t(access.admin ? "enums.role.admin" : access.moderator ? "enums.role.moderator" : "enums.role.staff")}</span>
+          <span className="block truncate text-xs font-bold text-ink-faint">
+            {t(
+              access.admin
+                ? "enums.role.admin"
+                : access.moderator
+                  ? "enums.role.moderator"
+                  : "enums.role.staff",
+            )}
+          </span>
         </span>
       </div>
       <ul className="scrollbar-none flex gap-1 overflow-x-auto px-3 py-2 xl:flex-col xl:overflow-visible xl:px-2 xl:py-1">
@@ -83,7 +121,9 @@ function ConsoleNav({ access }: { access: StaffAccess }) {
                 aria-current={active ? "page" : undefined}
                 className={cn(
                   "flex h-10 items-center gap-2 rounded-full px-3.5 text-sm font-bold whitespace-nowrap transition-colors xl:rounded-xl xl:px-3",
-                  active ? "bg-brand text-on-brand" : "text-ink-soft hover:bg-surface-2 hover:text-ink",
+                  active
+                    ? "bg-brand text-on-brand"
+                    : "text-ink-soft hover:bg-surface-2 hover:text-ink",
                 )}
               >
                 <Icon className="size-[18px] shrink-0" />
@@ -107,7 +147,10 @@ function NotForYou() {
         title={t("gate.title")}
         body={t("gate.body")}
         action={
-          <Link to="/map" className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand">
+          <Link
+            to="/map"
+            className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand"
+          >
             {t("gate.back")}
           </Link>
         }
@@ -127,7 +170,11 @@ export function RequireAccess({ level, children }: { level: StaffLevel; children
   if (access[level]) return children;
   return (
     <ConsolePage title={t("title")}>
-      <EmptyState emoji="🔐" title={t(level === "admin" ? "gate.adminOnlyTitle" : "gate.moderatorOnlyTitle")} body={t("gate.roleBody")} />
+      <EmptyState
+        emoji="🔐"
+        title={t(level === "admin" ? "gate.adminOnlyTitle" : "gate.moderatorOnlyTitle")}
+        body={t("gate.roleBody")}
+      />
     </ConsolePage>
   );
 }

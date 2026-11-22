@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { formatAge, formatClock, formatCount, isoDay, parseClock, parseTimeParam, toLocalInput, videoIdFromInput } from "./format";
+import {
+  formatAge,
+  formatClock,
+  formatCount,
+  isoDay,
+  parseClock,
+  parseTimeParam,
+  toLocalInput,
+  videoIdFromInput,
+} from "./format";
 
 describe("video formatting", () => {
   it("writes positions as clocks", () => {
@@ -61,7 +70,9 @@ describe("video formatting", () => {
   it("finds the video ID in a pasted link or ID", () => {
     expect(videoIdFromInput("4c0H3LG8Y60")).toBe("4c0H3LG8Y60");
     expect(videoIdFromInput("https://tokuly.example/watch/4c0H3LG8Y60?t=30")).toBe("4c0H3LG8Y60");
-    expect(videoIdFromInput("  /watch/01a200cf-886f-70f5-aa02-24095e5b378f ")).toBe("01a200cf-886f-70f5-aa02-24095e5b378f");
+    expect(videoIdFromInput("  /watch/01a200cf-886f-70f5-aa02-24095e5b378f ")).toBe(
+      "01a200cf-886f-70f5-aa02-24095e5b378f",
+    );
     expect(videoIdFromInput("not a link")).toBeNull();
     expect(videoIdFromInput("")).toBeNull();
   });

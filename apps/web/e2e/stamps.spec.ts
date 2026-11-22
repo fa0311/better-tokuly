@@ -26,7 +26,12 @@ const RED: Rgba = [230, 40, 60, 255];
 const BLUE: Rgba = [60, 120, 240, 255];
 
 /** A PNG picture: a coloured disc in the middle of a plain background (white unless said otherwise). */
-function discPicture(name: string, color: Rgba = RED, background: Rgba = WHITE, size = 240): TestFile {
+function discPicture(
+  name: string,
+  color: Rgba = RED,
+  background: Rgba = WHITE,
+  size = 240,
+): TestFile {
   const row = size * 4 + 1;
   const raw = Buffer.alloc(row * size);
   for (let y = 0; y < size; y++) {
@@ -49,7 +54,16 @@ function discPicture(name: string, color: Rgba = RED, background: Rgba = WHITE, 
   // 8 bits per channel, RGBA.
   header.set([8, 6, 0, 0, 0], 8);
   const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-  return { name, mimeType: "image/png", buffer: Buffer.concat([signature, chunk("IHDR", header), chunk("IDAT", zlib.deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]) };
+  return {
+    name,
+    mimeType: "image/png",
+    buffer: Buffer.concat([
+      signature,
+      chunk("IHDR", header),
+      chunk("IDAT", zlib.deflateSync(raw)),
+      chunk("IEND", Buffer.alloc(0)),
+    ]),
+  };
 }
 
 /** A ZIP archive of the given files (deflated), as dotLottie tools write them. */
@@ -129,7 +143,14 @@ function pulsingLottie(name: string): TestFile {
             it: [
               { ty: "el", p: { a: 0, k: [0, 0] }, s: { a: 0, k: [150, 150] } },
               { ty: "fl", c: { a: 0, k: [0.9, 0.1, 0.2, 1] }, o: { a: 0, k: 100 }, r: 1 },
-              { ty: "tr", p: { a: 0, k: [0, 0] }, a: { a: 0, k: [0, 0] }, s: { a: 0, k: [100, 100] }, r: { a: 0, k: 0 }, o: { a: 0, k: 100 } },
+              {
+                ty: "tr",
+                p: { a: 0, k: [0, 0] },
+                a: { a: 0, k: [0, 0] },
+                s: { a: 0, k: [100, 100] },
+                r: { a: 0, k: 0 },
+                o: { a: 0, k: 100 },
+              },
             ],
           },
         ],
@@ -137,7 +158,14 @@ function pulsingLottie(name: string): TestFile {
     ],
   };
   const manifest = { version: "1", generator: "tokuly-e2e", animations: [{ id: "pulse" }] };
-  return { name, mimeType: "application/zip", buffer: zipArchive({ "manifest.json": JSON.stringify(manifest), "animations/pulse.json": JSON.stringify(animation) }) };
+  return {
+    name,
+    mimeType: "application/zip",
+    buffer: zipArchive({
+      "manifest.json": JSON.stringify(manifest),
+      "animations/pulse.json": JSON.stringify(animation),
+    }),
+  };
 }
 
 // ───────────────────────────── Arranging state through the API ─────────────────────────────
@@ -151,53 +179,112 @@ interface PackInfo {
 }
 
 interface PackResponse {
-  pack: { summary: { id: string; shortId: string; status: string }; stamps?: { stampRef: { id: string; name?: string } }[] };
+  pack: {
+    summary: { id: string; shortId: string; status: string };
+    stamps?: { stampRef: { id: string; name?: string } }[];
+  };
 }
 
 let counter = 0;
 /** A name no other test (or earlier run) uses, so lists and searches can be asserted on. */
-const unique = (label: string) => `${label}${Date.now().toString(36).slice(-5)}${(counter++).toString(36)}`;
+const unique = (label: string) =>
+  `${label}${Date.now().toString(36).slice(-5)}${(counter++).toString(36)}`;
 
 /** Uploads a file as a stamp asset and waits until the server has processed it. */
-async function uploadStampAsset(request: APIRequestContext, as: Account, file: TestFile): Promise<string> {
-  const created = await rpc<{ assetId: string; uploadId: string; putUrl: string; putHeaders?: Record<string, string> }>(
+async function uploadStampAsset(
+  request: APIRequestContext,
+  as: Account,
+  file: TestFile,
+): Promise<string> {
+  const created = await rpc<{
+    assetId: string;
+    uploadId: string;
+    putUrl: string;
+    putHeaders?: Record<string, string>;
+  }>(
     request,
     `${MEDIA}/CreateUpload`,
-    { purpose: "ASSET_PURPOSE_STAMP", fileName: file.name, contentType: file.mimeType, sizeBytes: String(file.buffer.length) },
+    {
+      purpose: "ASSET_PURPOSE_STAMP",
+      fileName: file.name,
+      contentType: file.mimeType,
+      sizeBytes: String(file.buffer.length),
+    },
     as,
   );
-  const put = await request.put(created.putUrl, { data: file.buffer, headers: created.putHeaders ?? {} });
+  const put = await request.put(created.putUrl, {
+    data: file.buffer,
+    headers: created.putHeaders ?? {},
+  });
   expect(put.ok(), `upload of ${file.name}`).toBeTruthy();
   await rpc(request, `${MEDIA}/CompleteUpload`, { uploadId: created.uploadId }, as);
   await expect(async () => {
-    const { asset } = await rpc<{ asset: { status: string } }>(request, `${MEDIA}/GetAsset`, { assetId: created.assetId }, as);
+    const { asset } = await rpc<{ asset: { status: string } }>(
+      request,
+      `${MEDIA}/GetAsset`,
+      { assetId: created.assetId },
+      as,
+    );
     expect(asset.status).toBe("ASSET_STATUS_READY");
   }).toPass({ timeout: 30_000 });
   return created.assetId;
 }
 
 /** A draft pack of `creator` with stamps named "<name>1", "<name>2"… */
-async function draftPack(request: APIRequestContext, creator: Account, options: { name?: string; price?: number; stamps?: number } = {}): Promise<PackInfo> {
+async function draftPack(
+  request: APIRequestContext,
+  creator: Account,
+  options: { name?: string; price?: number; stamps?: number } = {},
+): Promise<PackInfo> {
   const name = options.name ?? unique("ぱっく");
-  const created = await rpc<PackResponse>(request, `${STUDIO}/CreatePack`, { name, description: "e2e のパックです", tags: ["e2e"], price: options.price ?? 0 }, creator);
+  const created = await rpc<PackResponse>(
+    request,
+    `${STUDIO}/CreatePack`,
+    { name, description: "e2e のパックです", tags: ["e2e"], price: options.price ?? 0 },
+    creator,
+  );
   const stamps = [];
   for (let index = 0; index < (options.stamps ?? 2); index++) {
-    const assetId = await uploadStampAsset(request, creator, discPicture(`s${index}.png`, index % 2 === 0 ? RED : BLUE, [0, 0, 0, 0]));
+    const assetId = await uploadStampAsset(
+      request,
+      creator,
+      discPicture(`s${index}.png`, index % 2 === 0 ? RED : BLUE, [0, 0, 0, 0]),
+    );
     stamps.push({ assetId, name: `${name}${index + 1}` });
   }
-  const added = stamps.length > 0 ? await rpc<PackResponse>(request, `${STUDIO}/AddStamps`, { packId: created.pack.summary.id, stamps }, creator) : created;
-  return { id: created.pack.summary.id, shortId: created.pack.summary.shortId, name, creator, stampIds: (added.pack.stamps ?? []).map((item) => item.stampRef.id) };
+  const added =
+    stamps.length > 0
+      ? await rpc<PackResponse>(
+          request,
+          `${STUDIO}/AddStamps`,
+          { packId: created.pack.summary.id, stamps },
+          creator,
+        )
+      : created;
+  return {
+    id: created.pack.summary.id,
+    shortId: created.pack.summary.shortId,
+    name,
+    creator,
+    stampIds: (added.pack.stamps ?? []).map((item) => item.stampRef.id),
+  };
 }
 
 /** A pack waiting in the review queue. */
-async function submittedPack(request: APIRequestContext, options: { name?: string; price?: number; stamps?: number } = {}): Promise<PackInfo> {
+async function submittedPack(
+  request: APIRequestContext,
+  options: { name?: string; price?: number; stamps?: number } = {},
+): Promise<PackInfo> {
   const pack = await draftPack(request, await createAccount(request, "creator"), options);
   await rpc(request, `${STUDIO}/SubmitPack`, { packId: pack.id }, pack.creator);
   return pack;
 }
 
 /** A pack that went through review and is in the store. */
-async function publishedPack(request: APIRequestContext, options: { name?: string; price?: number; stamps?: number } = {}): Promise<PackInfo> {
+async function publishedPack(
+  request: APIRequestContext,
+  options: { name?: string; price?: number; stamps?: number } = {},
+): Promise<PackInfo> {
   const pack = await submittedPack(request, options);
   await rpc(request, `${REVIEW}/ApprovePack`, { packId: pack.id }, await adminAccount(request));
   return pack;
@@ -210,14 +297,22 @@ async function withdraw(request: APIRequestContext, pack: PackInfo): Promise<voi
 
 /** Buys the 100-coin package with the development payment provider. */
 async function grantCoins(request: APIRequestContext, to: Account): Promise<void> {
-  const shop = await rpc<{ packages: { id: string; sku: string }[] }>(request, `${WALLET}/ListCoinPackages`, {}, to);
+  const shop = await rpc<{ packages: { id: string; sku: string }[] }>(
+    request,
+    `${WALLET}/ListCoinPackages`,
+    {},
+    to,
+  );
   const hundred = shop.packages.find((candidate) => candidate.sku === "coins_100");
   expect(hundred, "the seeded coins_100 package").toBeTruthy();
   await rpc(request, `${WALLET}/StartPurchase`, { packageId: hundred?.id }, to);
 }
 
 async function coinsOf(request: APIRequestContext, account: Account): Promise<string> {
-  return (await rpc<{ balance: { coins?: string } }>(request, `${WALLET}/GetBalance`, {}, account)).balance.coins ?? "0";
+  return (
+    (await rpc<{ balance: { coins?: string } }>(request, `${WALLET}/GetBalance`, {}, account))
+      .balance.coins ?? "0"
+  );
 }
 
 // ───────────────────────────── Things on screen ─────────────────────────────
@@ -249,7 +344,11 @@ async function cutOut(page: Page, file: TestFile): Promise<void> {
 }
 
 /** Reads a picture's size and a few pixels in the browser: `[r, g, b, a]` at each asked position (0..1 of the size). */
-async function readPixels(page: Page, url: string, points: [number, number][]): Promise<{ width: number; height: number; pixels: number[][] }> {
+async function readPixels(
+  page: Page,
+  url: string,
+  points: [number, number][],
+): Promise<{ width: number; height: number; pixels: number[][] }> {
   return page.evaluate(
     async ({ url, points }) => {
       const image = new Image();
@@ -264,7 +363,14 @@ async function readPixels(page: Page, url: string, points: [number, number][]): 
       return {
         width: canvas.width,
         height: canvas.height,
-        pixels: points.map(([x, y]) => [...context.getImageData(Math.floor(x * (canvas.width - 1)), Math.floor(y * (canvas.height - 1)), 1, 1).data]),
+        pixels: points.map(([x, y]) => [
+          ...context.getImageData(
+            Math.floor(x * (canvas.width - 1)),
+            Math.floor(y * (canvas.height - 1)),
+            1,
+            1,
+          ).data,
+        ]),
       };
     },
     { url, points },
@@ -274,7 +380,11 @@ async function readPixels(page: Page, url: string, points: [number, number][]): 
 // ───────────────────────────── Store and library ─────────────────────────────
 
 test.describe("store", () => {
-  test("a free pack is added from its page, shows up in the picker, and can be removed again", async ({ page, request, me: _me }) => {
+  test("a free pack is added from its page, shows up in the picker, and can be removed again", async ({
+    page,
+    request,
+    me: _me,
+  }) => {
     const pack = await publishedPack(request, { stamps: 3 });
 
     await open(page, `/stamps/${pack.shortId}`);
@@ -305,18 +415,32 @@ test.describe("store", () => {
     await expect(page.getByText("まだパックがないよ")).toBeVisible();
   });
 
-  test("the front page has shelves, tags and a search that finds a published pack", async ({ page, request, me: _me }) => {
+  test("the front page has shelves, tags and a search that finds a published pack", async ({
+    page,
+    request,
+    me: _me,
+  }) => {
     const pack = await publishedPack(request, { name: unique("さがせるぱっく"), stamps: 1 });
 
     await open(page, "/stamps");
     await expect(page.getByRole("heading", { name: "スタンプ", level: 1 })).toBeVisible();
-    await expect(page.getByRole("region", { name: "新着" }).getByTestId("pack-card").first()).toBeVisible();
-    await expect(page.getByRole("link", { name: /マイスタンプ/ })).toHaveAttribute("href", "/stamps/library");
-    await expect(page.getByRole("link", { name: /つくる/ })).toHaveAttribute("href", "/stamps/studio");
+    await expect(
+      page.getByRole("region", { name: "新着" }).getByTestId("pack-card").first(),
+    ).toBeVisible();
+    await expect(page.getByRole("link", { name: /マイスタンプ/ })).toHaveAttribute(
+      "href",
+      "/stamps/library",
+    );
+    await expect(page.getByRole("link", { name: /つくる/ })).toHaveAttribute(
+      "href",
+      "/stamps/studio",
+    );
 
     // The browse page offers the popular tags; the one every test pack carries leads to its shelf.
     await open(page, "/stamps/browse");
-    await expect(page.getByRole("navigation", { name: "人気のタグ" }).getByRole("link", { name: /e2e/ })).toBeVisible();
+    await expect(
+      page.getByRole("navigation", { name: "人気のタグ" }).getByRole("link", { name: /e2e/ }),
+    ).toBeVisible();
     await open(page, "/stamps/browse?tag=e2e&section=new");
     await expect(page.getByRole("heading", { name: "#e2e" })).toBeVisible();
     await expect(page.getByTestId("pack-card").filter({ hasText: pack.name })).toBeVisible();
@@ -324,7 +448,9 @@ test.describe("store", () => {
     // The search index follows publication a moment later.
     await expect(async () => {
       await open(page, `/stamps/browse?q=${encodeURIComponent(pack.name)}`);
-      await expect(page.getByTestId("pack-card").filter({ hasText: pack.name })).toBeVisible({ timeout: 3_000 });
+      await expect(page.getByTestId("pack-card").filter({ hasText: pack.name })).toBeVisible({
+        timeout: 3_000,
+      });
     }).toPass({ timeout: 30_000 });
     await page.getByTestId("pack-card").filter({ hasText: pack.name }).click();
     await expect(page).toHaveURL(new RegExp(`/stamps/${pack.shortId}$`));
@@ -335,7 +461,11 @@ test.describe("store", () => {
     await expect(page.getByTestId("pack-card").filter({ hasText: pack.name })).toBeVisible();
   });
 
-  test("a stamp is marked as a favourite from its preview and collected in the library", async ({ page, request, me }) => {
+  test("a stamp is marked as a favourite from its preview and collected in the library", async ({
+    page,
+    request,
+    me,
+  }) => {
     const pack = await publishedPack(request, { stamps: 2 });
     await rpc(request, `${LIBRARY}/InstallPack`, { packId: pack.id }, me);
 
@@ -346,7 +476,11 @@ test.describe("store", () => {
     await expect(preview.getByRole("button", { name: "お気に入りからはずす" })).toBeVisible();
     await page.keyboard.press("Escape");
     // The tile wears the heart.
-    await expect(stampTiles(page).filter({ has: page.getByRole("button", { name: `${pack.name}2` }) }).getByLabel("お気に入り")).toBeVisible();
+    await expect(
+      stampTiles(page)
+        .filter({ has: page.getByRole("button", { name: `${pack.name}2` }) })
+        .getByLabel("お気に入り"),
+    ).toBeVisible();
 
     await open(page, "/stamps/library?tab=favorites");
     await expect(stampTiles(page)).toHaveCount(1);
@@ -359,7 +493,11 @@ test.describe("store", () => {
     await expect(page.getByText("お気に入りはまだないよ")).toBeVisible();
   });
 
-  test("saving a stamp from its preview adds the pack it comes from", async ({ page, request, me }) => {
+  test("saving a stamp from its preview adds the pack it comes from", async ({
+    page,
+    request,
+    me,
+  }) => {
     const pack = await publishedPack(request, { stamps: 2 });
 
     await open(page, `/stamps/${pack.shortId}`);
@@ -371,11 +509,19 @@ test.describe("store", () => {
     await expect(preview.getByRole("button", { name: "保存する" })).toHaveCount(0);
     await expect(preview.getByRole("button", { name: "お気に入りに追加" })).toBeVisible();
     await expect
-      .poll(async () => (await rpc<{ packs?: { id: string }[] }>(request, `${LIBRARY}/ListInstalledPacks`, {}, me)).packs?.map((installed) => installed.id))
+      .poll(async () =>
+        (
+          await rpc<{ packs?: { id: string }[] }>(request, `${LIBRARY}/ListInstalledPacks`, {}, me)
+        ).packs?.map((installed) => installed.id),
+      )
       .toEqual([pack.id]);
   });
 
-  test("a paid pack is bought with coins after a confirmation, and the balance goes down", async ({ page, request, me }) => {
+  test("a paid pack is bought with coins after a confirmation, and the balance goes down", async ({
+    page,
+    request,
+    me,
+  }) => {
     const pack = await publishedPack(request, { price: 40, stamps: 1 });
     await grantCoins(request, me);
 
@@ -399,7 +545,11 @@ test.describe("store", () => {
     await expect(page.getByText(pack.name)).toBeVisible();
   });
 
-  test("someone short on coins is sent to the coin shop instead of being charged", async ({ page, request, me }) => {
+  test("someone short on coins is sent to the coin shop instead of being charged", async ({
+    page,
+    request,
+    me,
+  }) => {
     const pack = await publishedPack(request, { price: 40, stamps: 1 });
 
     await open(page, `/stamps/${pack.shortId}`);
@@ -407,13 +557,20 @@ test.describe("store", () => {
     const dialog = page.getByRole("dialog", { name: "コインで購入する" });
     await expect(dialog.getByRole("alert")).toHaveText("コインが40枚たりないよ…");
     await expect(dialog.getByRole("button", { name: "購入する" })).toHaveCount(0);
-    await expect(dialog.getByRole("link", { name: "コインをチャージ" })).toHaveAttribute("href", "/wallet/buy");
+    await expect(dialog.getByRole("link", { name: "コインをチャージ" })).toHaveAttribute(
+      "href",
+      "/wallet/buy",
+    );
     expect(await coinsOf(request, me)).toBe("0");
   });
 });
 
 test.describe("library", () => {
-  test("a personal stamp is cut out of a picture made in the test: background gone, white outline, 512 px", async ({ page, request, me }) => {
+  test("a personal stamp is cut out of a picture made in the test: background gone, white outline, 512 px", async ({
+    page,
+    request,
+    me,
+  }) => {
     await open(page, "/stamps/library?tab=personal");
     await expect(page.getByText("じぶんのスタンプはまだないよ")).toBeVisible();
     await page.getByRole("button", { name: "つくる", exact: true }).click();
@@ -432,7 +589,9 @@ test.describe("library", () => {
     await expect(page.getByRole("button", { name: "あかまる" })).toBeVisible();
 
     // What was uploaded: a square stamp, clear in the corner, the disc in the middle, a white rim around it.
-    const { stamps } = await rpc<{ stamps: { stampRef: { imageUrl: string; name: string }; keywords?: string[] }[] }>(request, `${LIBRARY}/ListPersonalStamps`, {}, me);
+    const { stamps } = await rpc<{
+      stamps: { stampRef: { imageUrl: string; name: string }; keywords?: string[] }[];
+    }>(request, `${LIBRARY}/ListPersonalStamps`, {}, me);
     expect(stamps[0]?.keywords).toEqual(["まる", "あか"]);
     const picture = await readPixels(page, stamps[0]?.stampRef.imageUrl ?? "", [
       [0, 0],
@@ -458,7 +617,11 @@ test.describe("library", () => {
     await expect(picker.getByRole("button", { name: "あかまる" })).toBeVisible();
   });
 
-  test("a personal stamp can be renamed, found by its keyword, and deleted", async ({ page, request, me }) => {
+  test("a personal stamp can be renamed, found by its keyword, and deleted", async ({
+    page,
+    request,
+    me,
+  }) => {
     const assetId = await uploadStampAsset(request, me, discPicture("a.png", BLUE, [0, 0, 0, 0]));
     await rpc(request, `${LIBRARY}/CreatePersonalStamp`, { assetId, name: "あおまる" }, me);
 
@@ -478,19 +641,30 @@ test.describe("library", () => {
     await expect(stampTiles(page)).toHaveCount(1);
     await page.getByRole("button", { name: "そらまる" }).click();
 
-    await page.getByRole("dialog", { name: "そらまる" }).getByRole("button", { name: "削除する" }).click();
-    await page.getByRole("dialog", { name: "このスタンプを削除する？" }).getByRole("button", { name: "削除する" }).click();
+    await page
+      .getByRole("dialog", { name: "そらまる" })
+      .getByRole("button", { name: "削除する" })
+      .click();
+    await page
+      .getByRole("dialog", { name: "このスタンプを削除する？" })
+      .getByRole("button", { name: "削除する" })
+      .click();
     await expect(page.getByText("削除しました")).toBeVisible();
     await page.getByRole("searchbox", { name: "持ってるスタンプをさがす" }).fill("");
     await expect(page.getByText("じぶんのスタンプはまだないよ")).toBeVisible();
   });
 
-  test("installed packs are reordered by dragging and with the keyboard, and the order sticks", async ({ page, request, me }) => {
+  test("installed packs are reordered by dragging and with the keyboard, and the order sticks", async ({
+    page,
+    request,
+    me,
+  }) => {
     // A creator's own drafts are installed for them: three packs without publishing anything.
     const names = [unique("いち"), unique("に"), unique("さん")];
     for (const name of names) await rpc(request, `${STUDIO}/CreatePack`, { name }, me);
     const rows = page.getByTestId("installed-pack");
-    const order = async () => (await rows.allInnerTexts()).map((text) => names.find((name) => text.includes(name)));
+    const order = async () =>
+      (await rows.allInnerTexts()).map((text) => names.find((name) => text.includes(name)));
 
     await open(page, "/stamps/library");
     // New installs go first.
@@ -515,13 +689,20 @@ test.describe("library", () => {
     await expect.poll(order).toEqual([names[0], names[1], names[2]]);
 
     await expect
-      .poll(async () => (await rpc<{ packs: { name: string }[] }>(request, `${LIBRARY}/ListInstalledPacks`, {}, me)).packs.map((pack) => pack.name))
+      .poll(async () =>
+        (
+          await rpc<{ packs: { name: string }[] }>(request, `${LIBRARY}/ListInstalledPacks`, {}, me)
+        ).packs.map((pack) => pack.name),
+      )
       .toEqual([names[0], names[1], names[2]]);
     await page.reload();
     await expect.poll(order).toEqual([names[0], names[1], names[2]]);
   });
 
-  test("the history tabs explain themselves while nothing was sent yet", async ({ page, me: _me }) => {
+  test("the history tabs explain themselves while nothing was sent yet", async ({
+    page,
+    me: _me,
+  }) => {
     await open(page, "/stamps/library?tab=recents");
     await expect(page.getByText("まだスタンプを使ってないよ")).toBeVisible();
     await page.getByRole("tab", { name: "ログ" }).click();
@@ -535,7 +716,11 @@ test.describe("library", () => {
 // ───────────────────────────── Studio and review ─────────────────────────────
 
 test.describe("studio", () => {
-  test("a creator makes a pack, adds finished files and a cut-out, and submits it for review", async ({ page, request, me }) => {
+  test("a creator makes a pack, adds finished files and a cut-out, and submits it for review", async ({
+    page,
+    request,
+    me,
+  }) => {
     const name = unique("つくったぱっく");
     await open(page, "/stamps/studio");
     await expect(page.getByText("公開には審査があります")).toBeVisible();
@@ -557,7 +742,12 @@ test.describe("studio", () => {
     await expect(page.getByText("#e2e")).toBeVisible();
 
     // Finished files go in as they are, named after the file.
-    await page.locator('input[type="file"][multiple]').setInputFiles([discPicture("にこにこ.png", RED, [0, 0, 0, 0]), discPicture("わくわく.png", BLUE, [0, 0, 0, 0])]);
+    await page
+      .locator('input[type="file"][multiple]')
+      .setInputFiles([
+        discPicture("にこにこ.png", RED, [0, 0, 0, 0]),
+        discPicture("わくわく.png", BLUE, [0, 0, 0, 0]),
+      ]);
     await expect(page.getByText("2個のスタンプを追加しました！")).toBeVisible({ timeout: 40_000 });
     await expect(stampTiles(page)).toHaveCount(2);
     await expect(page.getByRole("button", { name: "にこにこ" })).toBeVisible();
@@ -565,7 +755,10 @@ test.describe("studio", () => {
     // A picture goes through the cut-out editor first.
     await page.getByRole("button", { name: "画像からつくる" }).click();
     await cutOut(page, discPicture("まる.png"));
-    await page.getByRole("dialog", { name: "パックに追加" }).getByRole("button", { name: "パックに追加！" }).click();
+    await page
+      .getByRole("dialog", { name: "パックに追加" })
+      .getByRole("button", { name: "パックに追加！" })
+      .click();
     await expect(stampTiles(page)).toHaveCount(3, { timeout: 30_000 });
 
     // Rename one and make it the cover.
@@ -577,7 +770,11 @@ test.describe("studio", () => {
     await page.getByRole("button", { name: "どきどき" }).click();
     await editor.getByRole("button", { name: "カバーにする" }).click();
     await expect(page.getByText("カバーにしました")).toBeVisible();
-    await expect(stampTiles(page).filter({ has: page.getByRole("button", { name: "どきどき" }) }).getByLabel("カバー")).toBeVisible();
+    await expect(
+      stampTiles(page)
+        .filter({ has: page.getByRole("button", { name: "どきどき" }) })
+        .getByLabel("カバー"),
+    ).toBeVisible();
 
     await status.getByRole("button", { name: "審査に出す" }).click();
     await expect(page.getByText("審査に出しました！結果を待っててね")).toBeVisible();
@@ -586,19 +783,32 @@ test.describe("studio", () => {
     // While it waits, nothing can be changed.
     await expect(page.getByRole("button", { name: "画像からつくる" })).toBeDisabled();
 
-    const mine = await rpc<{ packs: { id: string; shortId: string; name: string; status: string; stampCount: number }[] }>(request, `${STUDIO}/ListMyPacks`, {}, me);
-    expect(mine.packs.map((pack) => [pack.name, pack.status, pack.stampCount])).toEqual([[name, "PACK_STATUS_IN_REVIEW", 3]]);
+    const mine = await rpc<{
+      packs: { id: string; shortId: string; name: string; status: string; stampCount: number }[];
+    }>(request, `${STUDIO}/ListMyPacks`, {}, me);
+    expect(mine.packs.map((pack) => [pack.name, pack.status, pack.stampCount])).toEqual([
+      [name, "PACK_STATUS_IN_REVIEW", 3],
+    ]);
 
     // Withdrawing makes it a draft again (and keeps the shared queue clean).
     await status.getByRole("button", { name: "審査を取り下げる" }).click();
     await expect(status.getByText("下書き")).toBeVisible();
     await open(page, "/stamps/studio");
-    await expect(page.getByTestId("studio-pack").filter({ hasText: name }).getByText("下書き")).toBeVisible();
+    await expect(
+      page.getByTestId("studio-pack").filter({ hasText: name }).getByText("下書き"),
+    ).toBeVisible();
   });
 
-  test("stamps of a pack are reordered by dragging, removed, and the pack deleted", async ({ page, request, me }) => {
+  test("stamps of a pack are reordered by dragging, removed, and the pack deleted", async ({
+    page,
+    request,
+    me,
+  }) => {
     const pack = await draftPack(request, me, { stamps: 3 });
-    const order = async () => stampTiles(page).getByRole("button").evaluateAll((buttons) => buttons.map((button) => button.getAttribute("aria-label")));
+    const order = async () =>
+      stampTiles(page)
+        .getByRole("button")
+        .evaluateAll((buttons) => buttons.map((button) => button.getAttribute("aria-label")));
 
     await open(page, `/stamps/studio/${pack.shortId}`);
     await expect.poll(order).toEqual([`${pack.name}1`, `${pack.name}2`, `${pack.name}3`]);
@@ -614,19 +824,32 @@ test.describe("studio", () => {
     await page.mouse.up();
     await expect.poll(order).toEqual([`${pack.name}2`, `${pack.name}3`, `${pack.name}1`]);
     await expect
-      .poll(async () => (await rpc<PackResponse>(request, `${STORE}/GetPack`, { packId: pack.id }, me)).pack.stamps?.map((item) => item.stampRef.name))
+      .poll(async () =>
+        (
+          await rpc<PackResponse>(request, `${STORE}/GetPack`, { packId: pack.id }, me)
+        ).pack.stamps?.map((item) => item.stampRef.name),
+      )
       .toEqual([`${pack.name}2`, `${pack.name}3`, `${pack.name}1`]);
 
     // A drag is not a tap: no editor opened. A tap opens it; the stamp can be removed there.
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await page.getByRole("button", { name: `${pack.name}3` }).click();
-    await page.getByRole("dialog", { name: "スタンプを編集" }).getByRole("button", { name: "削除" }).click();
-    await page.getByRole("dialog", { name: "このスタンプを削除する？" }).getByRole("button", { name: "削除" }).click();
+    await page
+      .getByRole("dialog", { name: "スタンプを編集" })
+      .getByRole("button", { name: "削除" })
+      .click();
+    await page
+      .getByRole("dialog", { name: "このスタンプを削除する？" })
+      .getByRole("button", { name: "削除" })
+      .click();
     await expect(stampTiles(page)).toHaveCount(2);
 
     await page.getByRole("button", { name: "パックのメニュー" }).click();
     await page.getByRole("menuitem", { name: "パックを削除" }).click();
-    await page.getByRole("dialog", { name: "パックを削除する？" }).getByRole("button", { name: "パックを削除" }).click();
+    await page
+      .getByRole("dialog", { name: "パックを削除する？" })
+      .getByRole("button", { name: "パックを削除" })
+      .click();
     await expect(page).toHaveURL(/\/stamps\/studio$/);
     await expect(page.getByText("まだパックがないよ")).toBeVisible();
   });
@@ -634,10 +857,17 @@ test.describe("studio", () => {
   test("an animated Lottie file becomes a stamp that plays", async ({ page, request, me }) => {
     const pack = await draftPack(request, me, { stamps: 0 });
     await open(page, `/stamps/studio/${pack.shortId}`);
-    await page.locator('input[type="file"][multiple]').setInputFiles(pulsingLottie("どきどき.lottie"));
+    await page
+      .locator('input[type="file"][multiple]')
+      .setInputFiles(pulsingLottie("どきどき.lottie"));
     await expect(page.getByText("1個のスタンプを追加しました！")).toBeVisible({ timeout: 40_000 });
 
-    const stored = await rpc<{ pack: { summary: { animated?: boolean }; stamps: { stampRef: { format: string; animationUrl?: string } }[] } }>(request, `${STORE}/GetPack`, { packId: pack.id }, me);
+    const stored = await rpc<{
+      pack: {
+        summary: { animated?: boolean };
+        stamps: { stampRef: { format: string; animationUrl?: string } }[];
+      };
+    }>(request, `${STORE}/GetPack`, { packId: pack.id }, me);
     expect(stored.pack.stamps[0]?.stampRef.format).toBe("STAMP_FORMAT_LOTTIE");
     expect(stored.pack.summary.animated).toBe(true);
 
@@ -647,10 +877,17 @@ test.describe("studio", () => {
     const redPixels = () =>
       canvas.evaluate((element) => {
         const target = element as HTMLCanvasElement;
-        const data = target.getContext("2d")?.getImageData(0, 0, target.width, target.height).data ?? new Uint8ClampedArray();
+        const data =
+          target.getContext("2d")?.getImageData(0, 0, target.width, target.height).data ??
+          new Uint8ClampedArray();
         let count = 0;
         for (let offset = 0; offset < data.length; offset += 4) {
-          if ((data[offset] ?? 0) > 180 && (data[offset + 1] ?? 255) < 90 && (data[offset + 3] ?? 0) > 200) count++;
+          if (
+            (data[offset] ?? 0) > 180 &&
+            (data[offset + 1] ?? 255) < 90 &&
+            (data[offset + 3] ?? 0) > 200
+          )
+            count++;
         }
         return count;
       });
@@ -668,13 +905,17 @@ test.describe("review", () => {
   async function queueItem(page: Page, name: string): Promise<Locator> {
     const item = page.getByRole("article", { name });
     await expect(async () => {
-      if (!(await item.isVisible())) await page.getByTestId("review-item").last().scrollIntoViewIfNeeded();
+      if (!(await item.isVisible()))
+        await page.getByTestId("review-item").last().scrollIntoViewIfNeeded();
       await expect(item).toBeVisible({ timeout: 2_000 });
     }).toPass({ timeout: 30_000 });
     return item;
   }
 
-  test("a moderator approves a submitted pack and it is in the store", async ({ page, request }) => {
+  test("a moderator approves a submitted pack and it is in the store", async ({
+    page,
+    request,
+  }) => {
     const pack = await submittedPack(request, { stamps: 2 });
     try {
       await signInAs(page, await adminAccount(request));
@@ -709,7 +950,14 @@ test.describe("review", () => {
       await shelf.getByRole("switch").click();
       await expect(page.getByText(`「${pack.name}」をおすすめにのせました`)).toBeVisible();
       await expect
-        .poll(async () => (await rpc<{ packs?: { id: string }[] }>(request, `${STORE}/ListStorePacks`, { section: "STORE_SECTION_FEATURED", page: { limit: 50 } })).packs?.some((listed) => listed.id === pack.id))
+        .poll(async () =>
+          (
+            await rpc<{ packs?: { id: string }[] }>(request, `${STORE}/ListStorePacks`, {
+              section: "STORE_SECTION_FEATURED",
+              page: { limit: 50 },
+            })
+          ).packs?.some((listed) => listed.id === pack.id),
+        )
         .toBe(true);
       // Off again: the featured shelf is shared with every other test.
       await shelf.getByRole("switch").click();
@@ -745,15 +993,32 @@ test.describe("review", () => {
       await expect(status.getByText("審査中")).toBeVisible();
 
       // The earlier decision travels with the pack for the next moderator.
-      const queue = await rpc<{ items?: { pack: { summary: { id: string } }; history?: { decision: string; note?: string }[] }[] }>(request, `${REVIEW}/ListReviewQueue`, { page: { limit: 30 } }, await adminAccount(request));
+      const queue = await rpc<{
+        items?: {
+          pack: { summary: { id: string } };
+          history?: { decision: string; note?: string }[];
+        }[];
+      }>(
+        request,
+        `${REVIEW}/ListReviewQueue`,
+        { page: { limit: 30 } },
+        await adminAccount(request),
+      );
       const waiting = queue.items?.find((entry) => entry.pack.summary.id === pack.id);
-      if (waiting) expect(waiting.history?.[0]).toMatchObject({ decision: "REVIEW_DECISION_REJECTED", note: "背景が切り抜かれていません" });
+      if (waiting)
+        expect(waiting.history?.[0]).toMatchObject({
+          decision: "REVIEW_DECISION_REJECTED",
+          note: "背景が切り抜かれていません",
+        });
     } finally {
       await withdraw(request, pack);
     }
   });
 
-  test("a creator the moderator trusts publishes the next pack without review", async ({ page, request }) => {
+  test("a creator the moderator trusts publishes the next pack without review", async ({
+    page,
+    request,
+  }) => {
     const pack = await submittedPack(request, { stamps: 1 });
     try {
       await signInAs(page, await adminAccount(request));
@@ -775,7 +1040,11 @@ test.describe("review", () => {
       await status.getByRole("button", { name: "公開する" }).click();
       await expect(page.getByText("公開しました！🎉")).toBeVisible();
       await expect(status.getByText("公開中")).toBeVisible();
-      await expect(page.getByRole("region", { name: "パックの成績" }).getByRole("slider", { name: /日ごとのグラフ/ })).toBeVisible();
+      await expect(
+        page
+          .getByRole("region", { name: "パックの成績" })
+          .getByRole("slider", { name: /日ごとのグラフ/ }),
+      ).toBeVisible();
     } finally {
       await withdraw(request, pack);
     }

@@ -8,9 +8,9 @@ import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
 import { accountClient } from "#/lib/api";
+import { errorMessage } from "#/lib/errors";
 import { uploadAndProcess } from "#/lib/upload";
 import { adoptMe } from "../data";
-import { errorMessage } from "#/lib/errors";
 import { AVATAR_FRAME, BANNER_FRAME } from "./crop";
 import { ImageCropDialog } from "./image-crop-dialog";
 
@@ -27,7 +27,10 @@ export function ProfileImages({ me }: { me: identity.Me }) {
   const queryClient = useQueryClient();
   const [picked, setPicked] = useState<{ slot: Slot; file: File } | null>(null);
   // The slot stays set while the confirmation closes, so its text does not vanish mid-animation.
-  const [removing, setRemoving] = useState<{ slot: Slot; open: boolean }>({ slot: "avatar", open: false });
+  const [removing, setRemoving] = useState<{ slot: Slot; open: boolean }>({
+    slot: "avatar",
+    open: false,
+  });
   const askRemove = (slot: Slot) => setRemoving({ slot, open: true });
   const closeRemove = () => setRemoving((current) => ({ ...current, open: false }));
   const inputs = { avatar: useRef<HTMLInputElement>(null), banner: useRef<HTMLInputElement>(null) };
@@ -39,8 +42,13 @@ export function ProfileImages({ me }: { me: identity.Me }) {
 
   const upload = useMutation({
     mutationFn: async ({ slot, image }: { slot: Slot; image: Blob }) => {
-      const asset = await uploadAndProcess(new File([image], `${slot}.jpg`, { type: "image/jpeg" }), { purpose: SLOTS[slot].purpose });
-      return accountClient().updateProfile(slot === "avatar" ? { avatarAssetId: asset.id } : { bannerAssetId: asset.id });
+      const asset = await uploadAndProcess(
+        new File([image], `${slot}.jpg`, { type: "image/jpeg" }),
+        { purpose: SLOTS[slot].purpose },
+      );
+      return accountClient().updateProfile(
+        slot === "avatar" ? { avatarAssetId: asset.id } : { bannerAssetId: asset.id },
+      );
     },
     onSuccess: (response, { slot }) => {
       applied(response);
@@ -52,7 +60,10 @@ export function ProfileImages({ me }: { me: identity.Me }) {
 
   const remove = useMutation({
     // An empty asset ID clears the image.
-    mutationFn: (slot: Slot) => accountClient().updateProfile(slot === "avatar" ? { avatarAssetId: "" } : { bannerAssetId: "" }),
+    mutationFn: (slot: Slot) =>
+      accountClient().updateProfile(
+        slot === "avatar" ? { avatarAssetId: "" } : { bannerAssetId: "" },
+      ),
     onSuccess: (response, slot) => {
       applied(response);
       closeRemove();
@@ -78,15 +89,29 @@ export function ProfileImages({ me }: { me: identity.Me }) {
       <div
         data-testid="banner-preview"
         className="relative aspect-[3/1] bg-cover bg-center"
-        style={banner ? { backgroundImage: `url(${banner})` } : { background: user?.avatar?.dominantColor ?? "var(--brand)" }}
+        style={
+          banner
+            ? { backgroundImage: `url(${banner})` }
+            : { background: user?.avatar?.dominantColor ?? "var(--brand)" }
+        }
       >
         <div className="absolute top-3 right-3 flex gap-2">
           {banner && (
-            <Button size="icon-sm" variant="secondary" aria-label={t("profile.banner.remove")} onClick={() => askRemove("banner")}>
+            <Button
+              size="icon-sm"
+              variant="secondary"
+              aria-label={t("profile.banner.remove")}
+              onClick={() => askRemove("banner")}
+            >
               <Trash2 className="size-4" />
             </Button>
           )}
-          <Button size="sm" variant="secondary" icon={<Camera className="size-4" />} onClick={() => inputs.banner.current?.click()}>
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={<Camera className="size-4" />}
+            onClick={() => inputs.banner.current?.click()}
+          >
             {t("profile.banner.change")}
           </Button>
         </div>
@@ -110,14 +135,34 @@ export function ProfileImages({ me }: { me: identity.Me }) {
           </div>
         </div>
         {hasAvatar && (
-          <Button size="sm" variant="ghost" className="mt-3 -ml-2 text-ink-soft" icon={<Trash2 className="size-4" />} onClick={() => askRemove("avatar")}>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="mt-3 -ml-2 text-ink-soft"
+            icon={<Trash2 className="size-4" />}
+            onClick={() => askRemove("avatar")}
+          >
             {t("profile.avatar.remove")}
           </Button>
         )}
       </div>
 
-      <input ref={inputs.avatar} type="file" accept="image/*" hidden aria-label={t("profile.avatar.file")} onChange={pick("avatar")} />
-      <input ref={inputs.banner} type="file" accept="image/*" hidden aria-label={t("profile.banner.file")} onChange={pick("banner")} />
+      <input
+        ref={inputs.avatar}
+        type="file"
+        accept="image/*"
+        hidden
+        aria-label={t("profile.avatar.file")}
+        onChange={pick("avatar")}
+      />
+      <input
+        ref={inputs.banner}
+        type="file"
+        accept="image/*"
+        hidden
+        aria-label={t("profile.banner.file")}
+        onChange={pick("banner")}
+      />
 
       {picked && (
         <ImageCropDialog

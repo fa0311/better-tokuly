@@ -1,7 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Code, errorReason, feed, isApiError } from "@tokuly/api";
-import { BookOpen, Dices, ExternalLink, MessageCircle, MoreHorizontal, Share2, Heart, Trash2 } from "lucide-react";
+import {
+  BookOpen,
+  Dices,
+  ExternalLink,
+  Heart,
+  MessageCircle,
+  MoreHorizontal,
+  Share2,
+  Trash2,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -42,7 +51,10 @@ function safeUrl(url: string): string | undefined {
 export function ArticleScreen({ articleId }: { articleId: string }) {
   const { t } = useTranslation("news");
   const queryClient = useQueryClient();
-  const detail = useQuery({ queryKey: newsKeys.article(articleId), queryFn: () => newsClient().getNewsArticle({ articleId }) });
+  const detail = useQuery({
+    queryKey: newsKeys.article(articleId),
+    queryFn: () => newsClient().getNewsArticle({ articleId }),
+  });
   const article = detail.data?.article;
 
   // Once per visit of the page, as soon as the article is known to exist.
@@ -65,7 +77,9 @@ export function ArticleScreen({ articleId }: { articleId: string }) {
     );
   }
   if (!article) {
-    const gone = isApiError(detail.error) && (detail.error.code === Code.NotFound || errorReason(detail.error) === "INVALID_ID");
+    const gone =
+      isApiError(detail.error) &&
+      (detail.error.code === Code.NotFound || errorReason(detail.error) === "INVALID_ID");
     return (
       <Page title={t("article.title")} back="/news">
         <EmptyState
@@ -73,7 +87,10 @@ export function ArticleScreen({ articleId }: { articleId: string }) {
           title={gone ? t("article.goneTitle") : errorMessage(detail.error)}
           body={gone ? t("article.goneBody") : undefined}
           action={
-            <Link to="/news" className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand">
+            <Link
+              to="/news"
+              className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand"
+            >
               {t("article.backToNews")}
             </Link>
           }
@@ -96,10 +113,22 @@ export function ArticleScreen({ articleId }: { articleId: string }) {
   return (
     <Page title={t("article.title")} back="/news" actions={<StaffMenu article={article} />}>
       <article className="flex flex-col gap-4">
-        {article.imageUrl && <img src={article.imageUrl} alt="" className="sticker aspect-video w-full rounded-card bg-surface-3 object-cover" decoding="async" draggable={false} />}
+        {article.imageUrl && (
+          <img
+            src={article.imageUrl}
+            alt=""
+            className="sticker aspect-video w-full rounded-card bg-surface-3 object-cover"
+            decoding="async"
+            draggable={false}
+          />
+        )}
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-soft">
           {article.source && (
-            <Link to="/news" search={{ source: article.source.id }} className="inline-flex min-w-0 items-center gap-1.5 font-bold text-ink hover:underline">
+            <Link
+              to="/news"
+              search={{ source: article.source.id }}
+              className="inline-flex min-w-0 items-center gap-1.5 font-bold text-ink hover:underline"
+            >
               <SourceIcon source={article.source} className="size-5" />
               <span className="truncate">{article.source.name}</span>
             </Link>
@@ -114,16 +143,29 @@ export function ArticleScreen({ articleId }: { articleId: string }) {
             {t("random.explain")}
           </p>
         )}
-        {article.summary && <p className="text-[15px] leading-relaxed break-words whitespace-pre-line text-ink-soft">{article.summary}</p>}
+        {article.summary && (
+          <p className="text-[15px] leading-relaxed break-words whitespace-pre-line text-ink-soft">
+            {article.summary}
+          </p>
+        )}
 
         {url && (
-          <a href={url} target="_blank" rel="noopener noreferrer" className="pressable sticker flex h-14 items-center justify-center gap-2 rounded-full bg-brand px-6 text-lg font-black text-on-brand">
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="pressable sticker flex h-14 items-center justify-center gap-2 rounded-full bg-brand px-6 text-lg font-black text-on-brand"
+          >
             <BookOpen className="size-5 shrink-0" />
             <span className="truncate">{t("article.read")}</span>
             <ExternalLink className="size-4 shrink-0 opacity-80" />
           </a>
         )}
-        {url && <p className="-mt-2 text-center text-xs text-ink-faint">{t("article.opensAt", { host: hostOf(url) })}</p>}
+        {url && (
+          <p className="-mt-2 text-center text-xs text-ink-faint">
+            {t("article.opensAt", { host: hostOf(url) })}
+          </p>
+        )}
 
         <section aria-label={t("feedback.title")} className="rounded-card bg-surface p-4">
           <h3 className="font-black">{t("feedback.title")}</h3>
@@ -131,7 +173,11 @@ export function ArticleScreen({ articleId }: { articleId: string }) {
           <FeedbackButtons article={article} />
           {article.feedback !== feed.NewsFeedback.UNSPECIFIED && (
             <p role="status" className="mt-3 text-sm font-bold text-brand">
-              {t(article.feedback === feed.NewsFeedback.MORE ? "feedback.thanksMore" : "feedback.thanksLess")}
+              {t(
+                article.feedback === feed.NewsFeedback.MORE
+                  ? "feedback.thanksMore"
+                  : "feedback.thanksLess",
+              )}
             </p>
           )}
         </section>
@@ -163,7 +209,13 @@ export function ArticleScreen({ articleId }: { articleId: string }) {
               {Number(article.commentCount).toLocaleString()}
             </span>
           )}
-          <Button variant="ghost" size="sm" className="ml-auto" icon={<Share2 className="size-4" />} onClick={share}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto"
+            icon={<Share2 className="size-4" />}
+            onClick={share}
+          >
             {t("article.share")}
           </Button>
         </div>
@@ -183,7 +235,9 @@ function Related({ article }: { article: feed.NewsArticle }) {
     enabled: Boolean(tag),
     staleTime: 60_000,
   });
-  const others = (related.data?.articles ?? []).filter((candidate) => candidate.id !== article.id).slice(0, 4);
+  const others = (related.data?.articles ?? [])
+    .filter((candidate) => candidate.id !== article.id)
+    .slice(0, 4);
   if (others.length === 0) return null;
   return (
     <section aria-label={t("article.related")} className="mt-8">
@@ -191,9 +245,20 @@ function Related({ article }: { article: feed.NewsArticle }) {
       <ul className="flex flex-col gap-2">
         {others.map((other) => (
           <li key={other.id}>
-            <Link to="/news/$articleId" params={{ articleId: other.id }} className="flex min-w-0 items-center gap-3 rounded-2xl border-2 border-line bg-surface p-3 transition-colors hover:border-ink-faint">
+            <Link
+              to="/news/$articleId"
+              params={{ articleId: other.id }}
+              className="flex min-w-0 items-center gap-3 rounded-2xl border-2 border-line bg-surface p-3 transition-colors hover:border-ink-faint"
+            >
               <span className="flex min-w-0 flex-1 flex-col gap-1">
-                <span className={cn("line-clamp-2 leading-snug font-black break-words", other.clicked && "text-ink-soft")}>{other.title}</span>
+                <span
+                  className={cn(
+                    "line-clamp-2 leading-snug font-black break-words",
+                    other.clicked && "text-ink-soft",
+                  )}
+                >
+                  {other.title}
+                </span>
                 <span className="flex min-w-0 items-center gap-1.5 text-xs text-ink-soft">
                   <SourceIcon source={other.source} />
                   <span className="truncate font-bold">{other.source?.name}</span>
@@ -201,7 +266,16 @@ function Related({ article }: { article: feed.NewsArticle }) {
                   <PublishedAt at={other.publishedAt} className="shrink-0" />
                 </span>
               </span>
-              {other.imageUrl && <img src={other.imageUrl} alt="" className="size-16 shrink-0 rounded-xl bg-surface-3 object-cover" loading="lazy" decoding="async" draggable={false} />}
+              {other.imageUrl && (
+                <img
+                  src={other.imageUrl}
+                  alt=""
+                  className="size-16 shrink-0 rounded-xl bg-surface-3 object-cover"
+                  loading="lazy"
+                  decoding="async"
+                  draggable={false}
+                />
+              )}
             </Link>
           </li>
         ))}
@@ -236,7 +310,14 @@ function StaffMenu({ article }: { article: feed.NewsArticle }) {
             <MoreHorizontal className="size-5" />
           </Button>
         }
-        actions={[{ label: t("staff.removeArticle"), icon: <Trash2 />, danger: true, onSelect: () => setConfirming(true) }]}
+        actions={[
+          {
+            label: t("staff.removeArticle"),
+            icon: <Trash2 />,
+            danger: true,
+            onSelect: () => setConfirming(true),
+          },
+        ]}
       />
       <ConfirmDialog
         open={confirming}

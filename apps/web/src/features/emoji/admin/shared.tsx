@@ -41,19 +41,38 @@ export function UserLine({ user }: { user: common.UserSummary | undefined }) {
 }
 
 /** Finds an account by name or handle and hands it to `onPick`. */
-export function UserSearch({ label, onPick, excludeIds = [] }: { label: string; onPick(user: common.UserSummary): void; excludeIds?: readonly string[] }) {
+export function UserSearch({
+  label,
+  onPick,
+  excludeIds = [],
+}: {
+  label: string;
+  onPick(user: common.UserSummary): void;
+  excludeIds?: readonly string[];
+}) {
   const { t } = useTranslation("emoji");
   const [text, setText] = useState("");
   const query = useDebounced(text.trim(), 250);
   const results = useQuery({
     queryKey: ["identity", "users", "search", query],
-    queryFn: async () => (await profileClient().searchUsers({ query, page: { limit: 8 } })).results.flatMap((result) => (result.user ? [result.user] : [])),
+    queryFn: async () =>
+      (await profileClient().searchUsers({ query, page: { limit: 8 } })).results.flatMap(
+        (result) => (result.user ? [result.user] : []),
+      ),
     enabled: query.length > 0,
   });
   const users = (results.data ?? []).filter((user) => !excludeIds.includes(user.id));
   return (
     <div>
-      <TextField label={label} value={text} onChange={(event) => setText(event.target.value)} placeholder={t("admin.userSearch")} trailing={results.isFetching ? <Spinner className="mr-2 size-4 text-ink-faint" /> : undefined} />
+      <TextField
+        label={label}
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        placeholder={t("admin.userSearch")}
+        trailing={
+          results.isFetching ? <Spinner className="mr-2 size-4 text-ink-faint" /> : undefined
+        }
+      />
       {query && (
         <ul className="mt-1.5 flex flex-col rounded-2xl border-2 border-line bg-surface p-1">
           {users.map((user) => (
@@ -70,7 +89,9 @@ export function UserSearch({ label, onPick, excludeIds = [] }: { label: string; 
               </button>
             </li>
           ))}
-          {results.isSuccess && users.length === 0 && <li className="px-3 py-2 text-sm text-ink-faint">{t("admin.userNone")}</li>}
+          {results.isSuccess && users.length === 0 && (
+            <li className="px-3 py-2 text-sm text-ink-faint">{t("admin.userNone")}</li>
+          )}
         </ul>
       )}
     </div>

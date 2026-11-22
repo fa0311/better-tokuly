@@ -8,7 +8,10 @@ export default {
       map: { title: "Map", body: "See your friends' now at a glance: battery, movement and all." },
       chat: { title: "Chat", body: "Stamps and calls. Say hi straight from the map." },
       watch: { title: "Video, live & shorts", body: "Watch it or stream it. It's all here." },
-      footprints: { title: "Footprints", body: "Everywhere you go stays on your map. How much of the world have you walked?" },
+      footprints: {
+        title: "Footprints",
+        body: "Everywhere you go stays on your map. How much of the world have you walked?",
+      },
     },
   },
   signIn: {

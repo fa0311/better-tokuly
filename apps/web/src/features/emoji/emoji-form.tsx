@@ -40,7 +40,14 @@ export interface EmojiDraft {
   localOnly: boolean;
 }
 
-export const EMPTY_DRAFT: EmojiDraft = { name: "", category: "", aliases: [], license: "", sensitive: false, localOnly: false };
+export const EMPTY_DRAFT: EmojiDraft = {
+  name: "",
+  category: "",
+  aliases: [],
+  license: "",
+  sensitive: false,
+  localOnly: false,
+};
 
 /** Whether a draft can be sent: a valid name and a picture that finished uploading. */
 export function draftReady(draft: EmojiDraft, uploading: boolean): boolean {
@@ -67,7 +74,15 @@ export interface EmojiFormProps {
  * check while typing, category, aliases, licence note and flags. Used by the
  * submission form and by the moderators' add and edit dialogs.
  */
-export function EmojiForm({ draft, onChange, onUploading, currentName, maxImageBytes = DEFAULT_MAX_BYTES, maxAliases = DEFAULT_MAX_ALIASES, staff }: EmojiFormProps) {
+export function EmojiForm({
+  draft,
+  onChange,
+  onUploading,
+  currentName,
+  maxImageBytes = DEFAULT_MAX_BYTES,
+  maxAliases = DEFAULT_MAX_ALIASES,
+  staff,
+}: EmojiFormProps) {
   const { t } = useTranslation("emoji");
   const catalog = useCatalog();
   const fileInput = useRef<HTMLInputElement>(null);
@@ -81,14 +96,18 @@ export function EmojiForm({ draft, onChange, onUploading, currentName, maxImageB
     if (!file) return;
     // The file chooser's filter is a suggestion ("all files", drag and drop): check before spending an upload.
     if (!ACCEPTED_TYPES.includes(file.type)) return setPictureError(t("errors.ASSET_NOT_IMAGE"));
-    if (file.size > maxImageBytes) return setPictureError(t("form.pictureTooLarge", { size: Math.round(maxImageBytes / 1024) }));
+    if (file.size > maxImageBytes)
+      return setPictureError(t("form.pictureTooLarge", { size: Math.round(maxImageBytes / 1024) }));
     setPictureError("");
     const local = URL.createObjectURL(file);
     onChange({ pictureUrl: local, assetId: undefined });
     setProgress(0);
     onUploading(true);
     try {
-      const asset = await uploadAndProcess(file, { purpose: media.AssetPurpose.STAMP, onProgress: setProgress });
+      const asset = await uploadAndProcess(file, {
+        purpose: media.AssetPurpose.STAMP,
+        onProgress: setProgress,
+      });
       onChange({ assetId: asset.id });
     } catch (error) {
       onChange({ pictureUrl: undefined, assetId: undefined });
@@ -113,8 +132,16 @@ export function EmojiForm({ draft, onChange, onUploading, currentName, maxImageB
     staleTime: 10_000,
   });
   // A moderator may give a reserved name; everything else the check says holds for them too.
-  const refused = check.data && !check.data.available && !(staff && check.data.reason === "NAME_RESERVED") ? check.data.reason : "";
-  const nameError = name && !wellFormed ? t("form.nameInvalid") : checkable && refused ? t(`errors.${refused}`, { defaultValue: t("errors.NAME_TAKEN") }) : undefined;
+  const refused =
+    check.data && !check.data.available && !(staff && check.data.reason === "NAME_RESERVED")
+      ? check.data.reason
+      : "";
+  const nameError =
+    name && !wellFormed
+      ? t("form.nameInvalid")
+      : checkable && refused
+        ? t(`errors.${refused}`, { defaultValue: t("errors.NAME_TAKEN") })
+        : undefined;
   const nameOk = wellFormed && (name === currentName || (checkable && check.data && !refused));
 
   // ── Aliases ──
@@ -139,11 +166,17 @@ export function EmojiForm({ draft, onChange, onUploading, currentName, maxImageB
 
   // A category the emoji has but the list lost (renamed meanwhile) stays selectable.
   const categoryNames = catalog.categories.map((entry) => entry.name);
-  const categories = draft.category && !categoryNames.includes(draft.category) ? [...categoryNames, draft.category] : categoryNames;
+  const categories =
+    draft.category && !categoryNames.includes(draft.category)
+      ? [...categoryNames, draft.category]
+      : categoryNames;
 
   // The local address of a chosen file is released when the form goes away.
   const picture = draft.pictureUrl;
-  useEffect(() => () => void (picture?.startsWith("blob:") && URL.revokeObjectURL(picture)), [picture]);
+  useEffect(
+    () => () => void (picture?.startsWith("blob:") && URL.revokeObjectURL(picture)),
+    [picture],
+  );
 
   return (
     <div className="flex flex-col gap-5">
@@ -169,14 +202,24 @@ export function EmojiForm({ draft, onChange, onUploading, currentName, maxImageB
               </span>
             )}
             {progress !== null && (
-              <span className="absolute inset-0 grid place-items-center bg-overlay text-white" role="status" aria-label={t("form.uploading")}>
+              <span
+                className="absolute inset-0 grid place-items-center bg-overlay text-white"
+                role="status"
+                aria-label={t("form.uploading")}
+              >
                 <Spinner className="size-7" />
               </span>
             )}
           </button>
           <div className="min-w-0 flex-1 self-center text-sm text-ink-soft">
             <p>{t("form.pictureHint", { size: Math.round(maxImageBytes / 1024) })}</p>
-            {progress !== null && <p className="mt-1 font-bold text-brand">{t(progress < 1 ? "form.uploadingPercent" : "form.processing", { percent: Math.round(progress * 100) })}</p>}
+            {progress !== null && (
+              <p className="mt-1 font-bold text-brand">
+                {t(progress < 1 ? "form.uploadingPercent" : "form.processing", {
+                  percent: Math.round(progress * 100),
+                })}
+              </p>
+            )}
             {pictureError && (
               <p role="alert" className="mt-1 font-bold text-danger">
                 {pictureError}
@@ -201,7 +244,12 @@ export function EmojiForm({ draft, onChange, onUploading, currentName, maxImageB
           <ThemePreview className="mt-3">
             <p data-testid="emoji-preview-line">
               {t("form.previewBefore")}
-              <img src={picture} alt={name ? `:${name}:` : ""} className="inline-block h-[1.35em] w-auto align-[-0.3em]" draggable={false} />
+              <img
+                src={picture}
+                alt={name ? `:${name}:` : ""}
+                className="inline-block h-[1.35em] w-auto align-[-0.3em]"
+                draggable={false}
+              />
               {t("form.previewAfter")}
             </p>
             <p className="mt-1.5 inline-flex h-7 items-center gap-1 rounded-full border-2 border-line px-2 text-xs font-bold">
@@ -219,17 +267,28 @@ export function EmojiForm({ draft, onChange, onUploading, currentName, maxImageB
         autoCorrect="off"
         spellCheck={false}
         placeholder="neko_love"
-        onChange={(event) => onChange({ name: event.target.value.toLowerCase().replace(/[\s-]+/g, "_") })}
+        onChange={(event) =>
+          onChange({ name: event.target.value.toLowerCase().replace(/[\s-]+/g, "_") })
+        }
         error={nameError}
         hint={name && nameOk ? t("form.nameOk", { code: `:${name}:` }) : t("form.nameHint")}
-        trailing={checkable && check.isFetching ? <Spinner className="mr-2 size-4 text-ink-faint" /> : nameOk ? <Check className="mr-2 size-5 text-success" aria-label={t("form.nameAvailable")} /> : undefined}
+        trailing={
+          checkable && check.isFetching ? (
+            <Spinner className="mr-2 size-4 text-ink-faint" />
+          ) : nameOk ? (
+            <Check className="mr-2 size-5 text-success" aria-label={t("form.nameAvailable")} />
+          ) : undefined
+        }
       />
 
       <SelectField
         label={t("fields.category")}
         value={draft.category}
         onChange={(category) => onChange({ category })}
-        options={[{ value: "", label: t("form.noCategory") }, ...categories.map((category) => ({ value: category, label: category }))]}
+        options={[
+          { value: "", label: t("form.noCategory") },
+          ...categories.map((category) => ({ value: category, label: category })),
+        ]}
       />
 
       <div className="flex flex-col gap-1.5">
@@ -240,7 +299,14 @@ export function EmojiForm({ draft, onChange, onUploading, currentName, maxImageB
           {draft.aliases.map((alias) => (
             <Chip key={alias} className="h-7 gap-0.5 pr-1">
               {alias}
-              <button type="button" aria-label={t("form.removeAlias", { alias })} onClick={() => onChange({ aliases: draft.aliases.filter((item) => item !== alias) })} className="grid size-5 place-items-center rounded-full hover:bg-surface-3">
+              <button
+                type="button"
+                aria-label={t("form.removeAlias", { alias })}
+                onClick={() =>
+                  onChange({ aliases: draft.aliases.filter((item) => item !== alias) })
+                }
+                className="grid size-5 place-items-center rounded-full hover:bg-surface-3"
+              >
                 <X className="size-3" />
               </button>
             </Chip>
@@ -257,7 +323,9 @@ export function EmojiForm({ draft, onChange, onUploading, currentName, maxImageB
             className="h-7 min-w-24 flex-1 bg-transparent text-[15px] outline-none placeholder:text-ink-faint"
           />
         </div>
-        <p className="px-1 text-xs text-ink-faint">{t("form.aliasHint", { count: draft.aliases.length, max: maxAliases })}</p>
+        <p className="px-1 text-xs text-ink-faint">
+          {t("form.aliasHint", { count: draft.aliases.length, max: maxAliases })}
+        </p>
       </div>
 
       <TextArea
@@ -270,8 +338,20 @@ export function EmojiForm({ draft, onChange, onUploading, currentName, maxImageB
       />
 
       <div className="rounded-2xl bg-surface-2">
-        <SwitchRow label={t("fields.sensitive")} hint={t("form.sensitiveHint")} checked={draft.sensitive} onChange={(sensitive) => onChange({ sensitive })} />
-        {staff && <SwitchRow label={t("fields.localOnly")} hint={t("form.localOnlyHint")} checked={draft.localOnly} onChange={(localOnly) => onChange({ localOnly })} />}
+        <SwitchRow
+          label={t("fields.sensitive")}
+          hint={t("form.sensitiveHint")}
+          checked={draft.sensitive}
+          onChange={(sensitive) => onChange({ sensitive })}
+        />
+        {staff && (
+          <SwitchRow
+            label={t("fields.localOnly")}
+            hint={t("form.localOnlyHint")}
+            checked={draft.localOnly}
+            onChange={(localOnly) => onChange({ localOnly })}
+          />
+        )}
       </div>
     </div>
   );

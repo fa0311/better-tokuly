@@ -20,7 +20,19 @@ export interface LightboxItem {
  * Photos and videos full screen: swipe or use the arrow keys to move between
  * them, double-tap a photo to zoom, save it, or jump to its message.
  */
-export function Lightbox({ items, index, onIndexChange, onClose, onShowInChat }: { items: LightboxItem[]; index: number | null; onIndexChange(index: number): void; onClose(): void; onShowInChat?(messageId: string): void }) {
+export function Lightbox({
+  items,
+  index,
+  onIndexChange,
+  onClose,
+  onShowInChat,
+}: {
+  items: LightboxItem[];
+  index: number | null;
+  onIndexChange(index: number): void;
+  onClose(): void;
+  onShowInChat?(messageId: string): void;
+}) {
   const { t } = useTranslation("chat");
   const open = index !== null && items.length > 0;
   // The last item stays up while the viewer fades out.
@@ -63,8 +75,11 @@ export function Lightbox({ items, index, onIndexChange, onClose, onShowInChat }:
 
   if (!item) return null;
   const video = item.attachment.kind === media.AssetKind.VIDEO;
-  const downloadUrl = video ? item.attachment.video?.mp4Url || item.attachment.url : item.attachment.url || pictureOf(item.attachment)?.url;
-  const round = "grid size-11 place-items-center rounded-full bg-white/15 text-white backdrop-blur transition-colors hover:bg-white/25";
+  const downloadUrl = video
+    ? item.attachment.video?.mp4Url || item.attachment.url
+    : item.attachment.url || pictureOf(item.attachment)?.url;
+  const round =
+    "grid size-11 place-items-center rounded-full bg-white/15 text-white backdrop-blur transition-colors hover:bg-white/25";
 
   return (
     <BaseDialog.Root open={open} onOpenChange={(next) => !next && onClose()}>
@@ -79,7 +94,9 @@ export function Lightbox({ items, index, onIndexChange, onClose, onShowInChat }:
             <BaseDialog.Close aria-label={t("actions.close")} className={round}>
               <X className="size-5" />
             </BaseDialog.Close>
-            <p className="min-w-0 flex-1 text-center text-sm font-bold tabular-nums">{items.length > 1 ? `${current + 1} / ${items.length}` : ""}</p>
+            <p className="min-w-0 flex-1 text-center text-sm font-bold tabular-nums">
+              {items.length > 1 ? `${current + 1} / ${items.length}` : ""}
+            </p>
             {item.messageId && onShowInChat && (
               <button
                 type="button"
@@ -95,13 +112,25 @@ export function Lightbox({ items, index, onIndexChange, onClose, onShowInChat }:
               </button>
             )}
             {downloadUrl && (
-              <a href={downloadUrl} download={item.attachment.fileName || true} target="_blank" rel="noreferrer" aria-label={t("media.save")} title={t("media.save")} className={round}>
+              <a
+                href={downloadUrl}
+                download={item.attachment.fileName || true}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={t("media.save")}
+                title={t("media.save")}
+                className={round}
+              >
                 <Download className="size-5" />
               </a>
             )}
           </header>
 
-          <div className="relative min-h-0 flex-1 touch-none select-none overflow-hidden" onPointerDown={onPointerDown} onPointerUp={onPointerUp}>
+          <div
+            className="relative min-h-0 flex-1 touch-none select-none overflow-hidden"
+            onPointerDown={onPointerDown}
+            onPointerUp={onPointerUp}
+          >
             {video ? (
               <LightboxVideo key={item.key} attachment={item.attachment} />
             ) : (
@@ -111,22 +140,37 @@ export function Lightbox({ items, index, onIndexChange, onClose, onShowInChat }:
                 alt={item.caption ?? ""}
                 draggable={false}
                 onDoubleClick={() => setZoomed((value) => !value)}
-                className={cn("size-full object-contain transition-transform duration-200", zoomed ? "scale-[2.2] cursor-zoom-out" : "cursor-zoom-in")}
+                className={cn(
+                  "size-full object-contain transition-transform duration-200",
+                  zoomed ? "scale-[2.2] cursor-zoom-out" : "cursor-zoom-in",
+                )}
               />
             )}
             {current > 0 && (
-              <button type="button" aria-label={t("media.previous")} onClick={() => go(-1)} className={cn(round, "absolute top-1/2 left-3 hidden -translate-y-1/2 md:grid")}>
+              <button
+                type="button"
+                aria-label={t("media.previous")}
+                onClick={() => go(-1)}
+                className={cn(round, "absolute top-1/2 left-3 hidden -translate-y-1/2 md:grid")}
+              >
                 <ChevronLeft className="size-6" />
               </button>
             )}
             {current < items.length - 1 && (
-              <button type="button" aria-label={t("media.next")} onClick={() => go(1)} className={cn(round, "absolute top-1/2 right-3 hidden -translate-y-1/2 md:grid")}>
+              <button
+                type="button"
+                aria-label={t("media.next")}
+                onClick={() => go(1)}
+                className={cn(round, "absolute top-1/2 right-3 hidden -translate-y-1/2 md:grid")}
+              >
                 <ChevronRight className="size-6" />
               </button>
             )}
           </div>
 
-          <footer className="min-h-12 shrink-0 px-4 pt-2 pb-safe text-center text-sm text-white/85">{item.caption}</footer>
+          <footer className="min-h-12 shrink-0 px-4 pt-2 pb-safe text-center text-sm text-white/85">
+            {item.caption}
+          </footer>
         </BaseDialog.Popup>
       </BaseDialog.Portal>
     </BaseDialog.Root>
@@ -137,7 +181,8 @@ export function Lightbox({ items, index, onIndexChange, onClose, onShowInChat }:
 function LightboxVideo({ attachment }: { attachment: media.Attachment }) {
   const element = useRef<HTMLVideoElement>(null);
   const info = attachment.video;
-  const direct = info?.mp4Url || (attachment.url && !attachment.url.includes(".m3u8") ? attachment.url : "");
+  const direct =
+    info?.mp4Url || (attachment.url && !attachment.url.includes(".m3u8") ? attachment.url : "");
   const stream = direct ? "" : info?.hlsUrl || attachment.url;
 
   useEffect(() => {
@@ -163,6 +208,14 @@ function LightboxVideo({ attachment }: { attachment: media.Attachment }) {
   }, [stream]);
 
   return (
-    <video ref={element} src={direct || undefined} poster={info?.poster?.url} controls autoPlay playsInline className="size-full object-contain" />
+    <video
+      ref={element}
+      src={direct || undefined}
+      poster={info?.poster?.url}
+      controls
+      autoPlay
+      playsInline
+      className="size-full object-contain"
+    />
   );
 }

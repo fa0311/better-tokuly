@@ -34,7 +34,10 @@ export default function PlansBackground() {
         const text = t("free.answerToast", { name: nameOf(event.value.user) });
         toast(event.value.message ? `${text}「${event.value.message}」` : text, {
           icon: "🙌",
-          action: { label: t("free.answerToastOpen"), onClick: () => void router.navigate({ to: "/plans/free" }) },
+          action: {
+            label: t("free.answerToastOpen"),
+            onClick: () => void router.navigate({ to: "/plans/free" }),
+          },
         });
       }
     });

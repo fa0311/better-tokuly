@@ -27,7 +27,8 @@ function roughPosition(): Promise<common.LatLng | undefined> {
   return new Promise((resolve) => {
     if (!navigator.geolocation) return resolve(undefined);
     navigator.geolocation.getCurrentPosition(
-      (position) => resolve({ lat: position.coords.latitude, lng: position.coords.longitude } as common.LatLng),
+      (position) =>
+        resolve({ lat: position.coords.latitude, lng: position.coords.longitude } as common.LatLng),
       () => resolve(undefined),
       { maximumAge: 300_000, timeout: 5_000 },
     );
@@ -39,7 +40,15 @@ function roughPosition(): Promise<common.LatLng | undefined> {
  * optional (the audience is remembered from last time); tapping a window
  * publishes the status, so the usual case is two taps: open, choose.
  */
-export function SetFreeSheet({ open, onOpenChange, current }: { open: boolean; onOpenChange(open: boolean): void; current?: plans.FreeStatus }) {
+export function SetFreeSheet({
+  open,
+  onOpenChange,
+  current,
+}: {
+  open: boolean;
+  onOpenChange(open: boolean): void;
+  current?: plans.FreeStatus;
+}) {
   const { t, i18n } = useTranslation("plans");
   const queryClient = useQueryClient();
   const friends = useFriends();
@@ -76,7 +85,11 @@ export function SetFreeSheet({ open, onOpenChange, current }: { open: boolean; o
   }
 
   // The friends chosen last time, once the friend list knows who they are.
-  const chosenUsers = chosen ?? (friends.data ?? []).flatMap((friend) => (friend.user && rememberedIds.includes(friend.user.id) ? [friend.user] : []));
+  const chosenUsers =
+    chosen ??
+    (friends.data ?? []).flatMap((friend) =>
+      friend.user && rememberedIds.includes(friend.user.id) ? [friend.user] : [],
+    );
 
   const publish = useMutation({
     mutationFn: async (window: plans.FreeWindow) => {
@@ -89,7 +102,8 @@ export function SetFreeSheet({ open, onOpenChange, current }: { open: boolean; o
         area,
         areaName: areaName.trim(),
         audience,
-        chosenUserIds: audience === plans.FreeAudience.CHOSEN ? chosenUsers.map((user) => user.id) : [],
+        chosenUserIds:
+          audience === plans.FreeAudience.CHOSEN ? chosenUsers.map((user) => user.id) : [],
       });
       return response.status;
     },
@@ -98,7 +112,11 @@ export function SetFreeSheet({ open, onOpenChange, current }: { open: boolean; o
       setMyFreeStatus(queryClient, status);
       void queryClient.invalidateQueries({ queryKey: keys.free });
       const end = toDate(status?.endsAt);
-      toast.success(t("free.published"), { description: end ? t("free.publishedUntil", { time: clock(end, i18n.language, Date.now()) }) : undefined });
+      toast.success(t("free.published"), {
+        description: end
+          ? t("free.publishedUntil", { time: clock(end, i18n.language, Date.now()) })
+          : undefined,
+      });
       onOpenChange(false);
     },
     onError: (error) => toast.error(errorMessage(error, { namespace: "plans" })),
@@ -108,7 +126,12 @@ export function SetFreeSheet({ open, onOpenChange, current }: { open: boolean; o
   const pending = publish.isPending ? publish.variables : undefined;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} title={current ? t("free.sheet.editTitle") : t("free.sheet.title")} description={t("free.sheet.lead")}>
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={current ? t("free.sheet.editTitle") : t("free.sheet.title")}
+      description={t("free.sheet.lead")}
+    >
       <div className="flex flex-col gap-5">
         <TextField
           label={t("free.sheet.note")}
@@ -131,12 +154,22 @@ export function SetFreeSheet({ open, onOpenChange, current }: { open: boolean; o
             ]}
           />
           {audience === plans.FreeAudience.CHOSEN && (
-            <FriendChips users={chosenUsers} onChange={setChosen} addLabel={t("free.sheet.choose")} pickerTitle={t("free.sheet.chooseTitle")} />
+            <FriendChips
+              users={chosenUsers}
+              onChange={setChosen}
+              addLabel={t("free.sheet.choose")}
+              pickerTitle={t("free.sheet.chooseTitle")}
+            />
           )}
         </div>
 
         <div>
-          <button type="button" aria-expanded={more} onClick={() => setMore(!more)} className="flex items-center gap-1 px-1 text-sm font-bold text-ink-soft hover:text-ink">
+          <button
+            type="button"
+            aria-expanded={more}
+            onClick={() => setMore(!more)}
+            className="flex items-center gap-1 px-1 text-sm font-bold text-ink-soft hover:text-ink"
+          >
             {t("free.sheet.place")}
             <ChevronDown className={cn("size-4 transition-transform", more && "rotate-180")} />
           </button>
@@ -149,7 +182,12 @@ export function SetFreeSheet({ open, onOpenChange, current }: { open: boolean; o
                 maxLength={40}
                 onChange={(event) => setAreaName(event.target.value)}
               />
-              <SwitchRow label={t("free.sheet.area")} hint={t("free.sheet.areaHint")} checked={withArea} onChange={setWithArea} />
+              <SwitchRow
+                label={t("free.sheet.area")}
+                hint={t("free.sheet.areaHint")}
+                checked={withArea}
+                onChange={setWithArea}
+              />
             </div>
           )}
         </div>
@@ -157,14 +195,53 @@ export function SetFreeSheet({ open, onOpenChange, current }: { open: boolean; o
         <div className="flex flex-col gap-2">
           <p className="px-1 text-sm font-bold text-ink-soft">{t("free.sheet.when")}</p>
           <div className="grid grid-cols-2 gap-2.5">
-            <WindowButton tint="bg-lime" icon={<Zap />} label={t("free.window.now")} hint={t("free.windowHint.now")} loading={pending === plans.FreeWindow.NOW} disabled={publish.isPending || needsPeople} onClick={() => publish.mutate(plans.FreeWindow.NOW)} />
-            <WindowButton tint="bg-sun" icon={<Sun />} label={t("free.window.today")} hint={t("free.windowHint.today")} loading={pending === plans.FreeWindow.TODAY} disabled={publish.isPending || needsPeople} onClick={() => publish.mutate(plans.FreeWindow.TODAY)} />
-            <WindowButton tint="bg-sky" icon={<Moon />} label={t("free.window.tonight")} hint={t("free.windowHint.tonight")} loading={pending === plans.FreeWindow.TONIGHT} disabled={publish.isPending || needsPeople} onClick={() => publish.mutate(plans.FreeWindow.TONIGHT)} />
-            <WindowButton tint="bg-pink" icon={<PartyPopper />} label={t("free.window.weekend")} hint={t("free.windowHint.weekend")} loading={pending === plans.FreeWindow.WEEKEND} disabled={publish.isPending || needsPeople} onClick={() => publish.mutate(plans.FreeWindow.WEEKEND)} />
+            <WindowButton
+              tint="bg-lime"
+              icon={<Zap />}
+              label={t("free.window.now")}
+              hint={t("free.windowHint.now")}
+              loading={pending === plans.FreeWindow.NOW}
+              disabled={publish.isPending || needsPeople}
+              onClick={() => publish.mutate(plans.FreeWindow.NOW)}
+            />
+            <WindowButton
+              tint="bg-sun"
+              icon={<Sun />}
+              label={t("free.window.today")}
+              hint={t("free.windowHint.today")}
+              loading={pending === plans.FreeWindow.TODAY}
+              disabled={publish.isPending || needsPeople}
+              onClick={() => publish.mutate(plans.FreeWindow.TODAY)}
+            />
+            <WindowButton
+              tint="bg-sky"
+              icon={<Moon />}
+              label={t("free.window.tonight")}
+              hint={t("free.windowHint.tonight")}
+              loading={pending === plans.FreeWindow.TONIGHT}
+              disabled={publish.isPending || needsPeople}
+              onClick={() => publish.mutate(plans.FreeWindow.TONIGHT)}
+            />
+            <WindowButton
+              tint="bg-pink"
+              icon={<PartyPopper />}
+              label={t("free.window.weekend")}
+              hint={t("free.windowHint.weekend")}
+              loading={pending === plans.FreeWindow.WEEKEND}
+              disabled={publish.isPending || needsPeople}
+              onClick={() => publish.mutate(plans.FreeWindow.WEEKEND)}
+            />
           </div>
-          {needsPeople && <p className="px-1 text-sm font-bold text-danger">{t("free.sheet.needPeople")}</p>}
+          {needsPeople && (
+            <p className="px-1 text-sm font-bold text-danger">{t("free.sheet.needPeople")}</p>
+          )}
 
-          <button type="button" aria-expanded={custom} onClick={() => setCustom(!custom)} className="mt-1 flex items-center gap-1.5 self-start px-1 text-sm font-bold text-ink-soft hover:text-ink">
+          <button
+            type="button"
+            aria-expanded={custom}
+            onClick={() => setCustom(!custom)}
+            className="mt-1 flex items-center gap-1.5 self-start px-1 text-sm font-bold text-ink-soft hover:text-ink"
+          >
             <CalendarClock className="size-4" />
             {t("free.window.custom")}
             <ChevronDown className={cn("size-4 transition-transform", custom && "rotate-180")} />
@@ -172,10 +249,25 @@ export function SetFreeSheet({ open, onOpenChange, current }: { open: boolean; o
           {custom && (
             <div className="flex flex-col gap-3 rounded-card bg-surface-2 p-3">
               <div className="grid gap-3 sm:grid-cols-2">
-                <TextField type="datetime-local" label={t("free.sheet.from")} value={from} onChange={(event) => setFrom(event.target.value)} />
-                <TextField type="datetime-local" label={t("free.sheet.until")} value={until} onChange={(event) => setUntil(event.target.value)} />
+                <TextField
+                  type="datetime-local"
+                  label={t("free.sheet.from")}
+                  value={from}
+                  onChange={(event) => setFrom(event.target.value)}
+                />
+                <TextField
+                  type="datetime-local"
+                  label={t("free.sheet.until")}
+                  value={until}
+                  onChange={(event) => setUntil(event.target.value)}
+                />
               </div>
-              <Button variant="lime" loading={pending === plans.FreeWindow.CUSTOM} disabled={publish.isPending || needsPeople || !until} onClick={() => publish.mutate(plans.FreeWindow.CUSTOM)}>
+              <Button
+                variant="lime"
+                loading={pending === plans.FreeWindow.CUSTOM}
+                disabled={publish.isPending || needsPeople || !until}
+                onClick={() => publish.mutate(plans.FreeWindow.CUSTOM)}
+              >
                 {t("free.sheet.publishCustom")}
               </Button>
             </div>
@@ -187,14 +279,34 @@ export function SetFreeSheet({ open, onOpenChange, current }: { open: boolean; o
   );
 }
 
-function WindowButton({ tint, icon, label, hint, loading, disabled, onClick }: { tint: string; icon: ReactNode; label: string; hint: string; loading: boolean; disabled: boolean; onClick(): void }) {
+function WindowButton({
+  tint,
+  icon,
+  label,
+  hint,
+  loading,
+  disabled,
+  onClick,
+}: {
+  tint: string;
+  icon: ReactNode;
+  label: string;
+  hint: string;
+  loading: boolean;
+  disabled: boolean;
+  onClick(): void;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
       aria-busy={loading || undefined}
-      className={cn("pressable sticker flex min-h-20 flex-col items-start justify-center gap-0.5 rounded-card px-4 py-3 text-left text-[#17122b] disabled:opacity-50", tint, loading && "animate-pulse")}
+      className={cn(
+        "pressable sticker flex min-h-20 flex-col items-start justify-center gap-0.5 rounded-card px-4 py-3 text-left text-[#17122b] disabled:opacity-50",
+        tint,
+        loading && "animate-pulse",
+      )}
     >
       <span className="flex items-center gap-1.5 text-lg font-black [&>svg]:size-5">
         {icon}

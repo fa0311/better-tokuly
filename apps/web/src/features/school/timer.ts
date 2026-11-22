@@ -12,7 +12,10 @@ import { school, toMillis } from "@tokuly/api";
 let offsetMs = 0;
 
 /** Notes the server's clock from a snapshot that just arrived. */
-export function syncClock(snapshot: school.TimerSnapshot | undefined, receivedAtMs: number = Date.now()): void {
+export function syncClock(
+  snapshot: school.TimerSnapshot | undefined,
+  receivedAtMs: number = Date.now(),
+): void {
   const server = toMillis(snapshot?.serverTime);
   if (server > 0) offsetMs = server - receivedAtMs;
 }
@@ -49,7 +52,8 @@ interface PhaseAt {
 /** The phase a pomodoro timeline is in at a position (the server's rule, mirrored). */
 function phaseAt(cycle: Cycle, positionMs: number): PhaseAt {
   const position = Math.max(0, positionMs);
-  const length = cycle.rounds * cycle.workMs + (cycle.rounds - 1) * cycle.breakMs + cycle.longBreakMs;
+  const length =
+    cycle.rounds * cycle.workMs + (cycle.rounds - 1) * cycle.breakMs + cycle.longBreakMs;
   const cycleIndex = Math.floor(position / length);
   const cycleStart = cycleIndex * length;
   const step = cycle.workMs + cycle.breakMs;
@@ -58,7 +62,13 @@ function phaseAt(cycle: Cycle, positionMs: number): PhaseAt {
   const workStart = cycleStart + round * step;
   const workEnd = workStart + cycle.workMs;
   const firstRound = cycleIndex * cycle.rounds + 1;
-  if (position < workEnd) return { phase: school.TimerPhase.WORK, round: firstRound + round, startMs: workStart, endMs: workEnd };
+  if (position < workEnd)
+    return {
+      phase: school.TimerPhase.WORK,
+      round: firstRound + round,
+      startMs: workStart,
+      endMs: workEnd,
+    };
   const long = round === cycle.rounds - 1;
   return {
     phase: long ? school.TimerPhase.LONG_BREAK : school.TimerPhase.BREAK,
@@ -103,7 +113,10 @@ export interface TimerView {
  * snapshot the server sent. A running pomodoro moves through its phases by
  * itself, exactly as the server computes them.
  */
-export function timerAt(snapshot: school.TimerSnapshot | undefined, nowMs: number = Date.now()): TimerView {
+export function timerAt(
+  snapshot: school.TimerSnapshot | undefined,
+  nowMs: number = Date.now(),
+): TimerView {
   const mode = snapshot?.mode || school.StudyMode.STOPWATCH;
   const state = snapshot?.state || school.TimerState.IDLE;
   const running = state === school.TimerState.RUNNING;
@@ -111,7 +124,17 @@ export function timerAt(snapshot: school.TimerSnapshot | undefined, nowMs: numbe
 
   if (mode !== school.StudyMode.POMODORO) {
     const elapsedMs = (snapshot?.elapsedSeconds ?? 0) * 1000 + since;
-    return { mode, state, phase: school.TimerPhase.WORK, round: 1, rounds: 1, elapsedMs, remainingMs: 0, phaseMs: 0, workSinceMs: since };
+    return {
+      mode,
+      state,
+      phase: school.TimerPhase.WORK,
+      round: 1,
+      rounds: 1,
+      elapsedMs,
+      remainingMs: 0,
+      phaseMs: 0,
+      workSinceMs: since,
+    };
   }
 
   const cycle = cycleOf(snapshot?.pomodoro);
@@ -139,7 +162,10 @@ export function timerAt(snapshot: school.TimerSnapshot | undefined, nowMs: numbe
 }
 
 /** A session's counted study time at `nowMs`, in seconds. */
-export function studiedSecondsAt(session: Pick<school.StudySession, "studiedSeconds" | "timer" | "state">, nowMs: number = Date.now()): number {
+export function studiedSecondsAt(
+  session: Pick<school.StudySession, "studiedSeconds" | "timer" | "state">,
+  nowMs: number = Date.now(),
+): number {
   if (session.state !== school.SessionState.RUNNING) return session.studiedSeconds;
   return session.studiedSeconds + Math.floor(timerAt(session.timer, nowMs).workSinceMs / 1000);
 }

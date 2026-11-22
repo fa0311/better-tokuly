@@ -1,5 +1,18 @@
 import { search } from "@tokuly/api";
-import { Clapperboard, Hash, ListVideo, MapPin, Newspaper, Radio, Scissors, Smartphone, Smile, StickyNote, Tv, UserRound } from "lucide-react";
+import {
+  Clapperboard,
+  Hash,
+  ListVideo,
+  MapPin,
+  Newspaper,
+  Radio,
+  Scissors,
+  Smartphone,
+  Smile,
+  StickyNote,
+  Tv,
+  UserRound,
+} from "lucide-react";
 import type { ComponentType } from "react";
 import { cn } from "#/lib/cn";
 
@@ -28,10 +41,21 @@ export function kindIcon(kind: search.SearchKind): ComponentType<{ className?: s
 }
 
 /** A kind's icon in a small rounded tile (suggestion rows, results without an image). */
-export function KindTile({ kind, className, iconClassName }: { kind: search.SearchKind; className?: string; iconClassName?: string }) {
+export function KindTile({
+  kind,
+  className,
+  iconClassName,
+}: {
+  kind: search.SearchKind;
+  className?: string;
+  iconClassName?: string;
+}) {
   const { icon: Icon, tint } = KIND_STYLE[kind] ?? FALLBACK;
   return (
-    <span aria-hidden className={cn("grid size-11 shrink-0 place-items-center rounded-[0.85rem]", tint, className)}>
+    <span
+      aria-hidden
+      className={cn("grid size-11 shrink-0 place-items-center rounded-[0.85rem]", tint, className)}
+    >
       <Icon className={cn("size-5", iconClassName)} />
     </span>
   );

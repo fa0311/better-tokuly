@@ -40,16 +40,43 @@ export function NotificationRow({
               <span className="sr-only">{t("row.unread")}</span>
             </span>
           )}
-          <span className={cn("min-w-0 truncate", entry.read ? "font-bold" : "font-black")}>{entry.title}</span>
+          <span className={cn("min-w-0 truncate", entry.read ? "font-bold" : "font-black")}>
+            {entry.title}
+          </span>
         </span>
-        {entry.body && <span className={cn("mt-0.5 line-clamp-2 text-sm leading-snug", entry.read ? "text-ink-soft" : "text-ink")}>{entry.body}</span>}
+        {entry.body && (
+          <span
+            className={cn(
+              "mt-0.5 line-clamp-2 text-sm leading-snug",
+              entry.read ? "text-ink-soft" : "text-ink",
+            )}
+          >
+            {entry.body}
+          </span>
+        )}
         <span className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs font-bold text-ink-faint">
-          <time dateTime={new Date(toMillis(entry.occurredAt)).toISOString()}>{formatWhen(toMillis(entry.occurredAt), now, i18n.language)}</time>
-          {more > 0 && <Chip className="h-5 bg-surface px-2 text-[11px]">{t("row.grouped", { count: more })}</Chip>}
-          {entry.urgent && <Chip className="h-5 bg-coral px-2 text-[11px] text-white">{t("row.urgent")}</Chip>}
+          <time dateTime={new Date(toMillis(entry.occurredAt)).toISOString()}>
+            {formatWhen(toMillis(entry.occurredAt), now, i18n.language)}
+          </time>
+          {more > 0 && (
+            <Chip className="h-5 bg-surface px-2 text-[11px]">
+              {t("row.grouped", { count: more })}
+            </Chip>
+          )}
+          {entry.urgent && (
+            <Chip className="h-5 bg-coral px-2 text-[11px] text-white">{t("row.urgent")}</Chip>
+          )}
         </span>
       </span>
-      {entry.imageUrl && <img src={entry.imageUrl} alt="" loading="lazy" decoding="async" className="size-14 shrink-0 rounded-xl border-2 border-line object-cover" />}
+      {entry.imageUrl && (
+        <img
+          src={entry.imageUrl}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          className="size-14 shrink-0 rounded-xl border-2 border-line object-cover"
+        />
+      )}
     </>
   );
   const action = "flex min-w-0 flex-1 items-start gap-3 rounded-xl p-1.5 text-left";
@@ -67,15 +94,25 @@ export function NotificationRow({
   return (
     <li className="relative overflow-hidden rounded-2xl" data-unread={entry.read ? undefined : ""}>
       {swipe.offset < 0 && (
-        <div aria-hidden className="absolute inset-0 flex items-center justify-end gap-2 rounded-2xl bg-danger pr-5 font-bold text-white">
+        <div
+          aria-hidden
+          className="absolute inset-0 flex items-center justify-end gap-2 rounded-2xl bg-danger pr-5 font-bold text-white"
+        >
           <Trash2 className="size-5" />
           {t("row.delete")}
         </div>
       )}
       <div
         {...swipe.handlers}
-        style={{ transform: swipe.offset ? `translateX(${swipe.offset}px)` : undefined, transition: swipe.dragging ? "none" : "transform 180ms ease-out" }}
-        className={cn("relative flex touch-pan-y items-start gap-1 rounded-2xl p-1.5", entry.read ? "bg-surface" : "bg-brand-soft", entry.urgent && !entry.read && "ring-2 ring-coral ring-inset")}
+        style={{
+          transform: swipe.offset ? `translateX(${swipe.offset}px)` : undefined,
+          transition: swipe.dragging ? "none" : "transform 180ms ease-out",
+        }}
+        className={cn(
+          "relative flex touch-pan-y items-start gap-1 rounded-2xl p-1.5",
+          entry.read ? "bg-surface" : "bg-brand-soft",
+          entry.urgent && !entry.read && "ring-2 ring-coral ring-inset",
+        )}
       >
         {target?.type === "internal" ? (
           <a href={target.href} onClick={openInPlace} className={action} draggable={false}>
@@ -88,12 +125,19 @@ export function NotificationRow({
         )}
         <Menu
           trigger={
-            <Button variant="ghost" size="icon-sm" className="mt-1 shrink-0 text-ink-soft" aria-label={t("row.menu")}>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="mt-1 shrink-0 text-ink-soft"
+              aria-label={t("row.menu")}
+            >
               <MoreHorizontal className="size-5" />
             </Button>
           }
           actions={[
-            ...(entry.read ? [] : [{ label: t("row.markRead"), icon: <MailCheck />, onSelect: onRead }]),
+            ...(entry.read
+              ? []
+              : [{ label: t("row.markRead"), icon: <MailCheck />, onSelect: onRead }]),
             { label: t("row.delete"), icon: <Trash2 />, danger: true, onSelect: onDelete },
           ]}
         />
@@ -114,13 +158,25 @@ const SLOP_PX = 8;
 function useSwipeAway(onCommit: () => void) {
   const [offset, setOffset] = useState(0);
   const [dragging, setDragging] = useState(false);
-  const gesture = useRef<{ pointerId: number; x: number; y: number; width: number; horizontal: boolean | null } | null>(null);
+  const gesture = useRef<{
+    pointerId: number;
+    x: number;
+    y: number;
+    width: number;
+    horizontal: boolean | null;
+  } | null>(null);
   const swallowClick = useRef(false);
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     swallowClick.current = false;
     if (event.pointerType === "mouse") return;
-    gesture.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, width: event.currentTarget.offsetWidth, horizontal: null };
+    gesture.current = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      width: event.currentTarget.offsetWidth,
+      horizontal: null,
+    };
   };
 
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {

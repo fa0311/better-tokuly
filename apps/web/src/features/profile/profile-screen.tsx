@@ -40,15 +40,25 @@ export function ProfileScreen({ handle }: { handle: string }) {
   // Count the visit once per open profile (the server de-duplicates per day).
   const userId = user?.id;
   useEffect(() => {
-    if (userId && !isSelf) void profileClient().recordProfileView({ userId }).catch(() => {});
+    if (userId && !isSelf)
+      void profileClient()
+        .recordProfileView({ userId })
+        .catch(() => {});
   }, [userId, isSelf]);
 
   const refresh = () =>
-    Promise.all([queryClient.invalidateQueries({ queryKey: ["identity", "profile", handle] }), queryClient.invalidateQueries({ queryKey: ["social"] })]);
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["identity", "profile", handle] }),
+      queryClient.invalidateQueries({ queryKey: ["social"] }),
+    ]);
   const onError = (error: unknown) => toast.error(errorMessage(error));
 
   const addFriend = useMutation({
-    mutationFn: () => friendClient().sendFriendRequest({ target: { case: "userId", value: user!.id }, source: social.FriendSource.PROFILE }),
+    mutationFn: () =>
+      friendClient().sendFriendRequest({
+        target: { case: "userId", value: user!.id },
+        source: social.FriendSource.PROFILE,
+      }),
     onSuccess: refresh,
     onError,
   });
@@ -93,11 +103,19 @@ export function ProfileScreen({ handle }: { handle: string }) {
   return (
     <div className="h-full overflow-y-auto pb-32 md:pb-10">
       {/* The banner falls back to the avatar's main colour, like the original app. */}
-      <div className="h-40 w-full bg-cover bg-center md:h-52" style={banner ? { backgroundImage: `url(${banner})` } : { background: tint }} />
+      <div
+        className="h-40 w-full bg-cover bg-center md:h-52"
+        style={banner ? { backgroundImage: `url(${banner})` } : { background: tint }}
+      />
       <div className="mx-auto -mt-14 max-w-2xl px-4">
         {/* While the person has stories to show, their face is ringed and plays them. */}
         <StoryRing user={user}>
-          <Avatar user={user} size="xl" outlined className="block [&>span]:size-28 [&>span]:rounded-[2rem]" />
+          <Avatar
+            user={user}
+            size="xl"
+            outlined
+            className="block [&>span]:size-28 [&>span]:rounded-[2rem]"
+          />
         </StoryRing>
         <h1 className="mt-3 truncate text-2xl font-black">
           {user.displayName} {user.verified && <span title="verified">✅</span>}
@@ -118,7 +136,10 @@ export function ProfileScreen({ handle }: { handle: string }) {
         <div className="mt-5 flex flex-wrap gap-2">
           {isSelf ? (
             <>
-              <Link to="/settings" className="pressable sticker inline-flex h-11 items-center gap-2 rounded-full bg-brand px-5 font-bold text-on-brand">
+              <Link
+                to="/settings"
+                className="pressable sticker inline-flex h-11 items-center gap-2 rounded-full bg-brand px-5 font-bold text-on-brand"
+              >
                 <Settings className="size-4" />
                 {t("actions.settings")}
               </Link>
@@ -130,7 +151,11 @@ export function ProfileScreen({ handle }: { handle: string }) {
           ) : (
             <>
               {isFriend ? (
-                <Link to="/chat" search={{ user: user.id }} className="pressable sticker inline-flex h-11 items-center gap-2 rounded-full bg-brand px-5 font-bold text-on-brand">
+                <Link
+                  to="/chat"
+                  search={{ user: user.id }}
+                  className="pressable sticker inline-flex h-11 items-center gap-2 rounded-full bg-brand px-5 font-bold text-on-brand"
+                >
                   <MessageCircle className="size-4" />
                   {t("actions.message")}
                 </Link>
@@ -139,8 +164,14 @@ export function ProfileScreen({ handle }: { handle: string }) {
                   {t("actions.requested")}
                 </Button>
               ) : (
-                <Button icon={<UserPlus className="size-4" />} loading={addFriend.isPending} onClick={() => addFriend.mutate()}>
-                  {profile.relationship === identity.Relationship.REQUEST_RECEIVED ? t("actions.accept") : t("actions.add")}
+                <Button
+                  icon={<UserPlus className="size-4" />}
+                  loading={addFriend.isPending}
+                  onClick={() => addFriend.mutate()}
+                >
+                  {profile.relationship === identity.Relationship.REQUEST_RECEIVED
+                    ? t("actions.accept")
+                    : t("actions.add")}
                 </Button>
               )}
               <ProfileAskButton user={user} isSelf={false} />
@@ -148,15 +179,27 @@ export function ProfileScreen({ handle }: { handle: string }) {
                 <Button
                   variant="ghost"
                   icon={<UserMinus className="size-4" />}
-                  onClick={() => window.confirm(t("confirmRemove", { name: user.displayName })) && removeFriend.mutate()}
+                  onClick={() =>
+                    window.confirm(t("confirmRemove", { name: user.displayName })) &&
+                    removeFriend.mutate()
+                  }
                 >
                   {t("actions.remove")}
                 </Button>
               )}
-              <Button variant="ghost" icon={<Ban className="size-4" />} onClick={() => window.confirm(t("confirmBlock", { name: user.displayName })) && block.mutate()}>
+              <Button
+                variant="ghost"
+                icon={<Ban className="size-4" />}
+                onClick={() =>
+                  window.confirm(t("confirmBlock", { name: user.displayName })) && block.mutate()
+                }
+              >
                 {t("actions.block")}
               </Button>
-              <ReportButton subject={{ type: common.SubjectType.USER, id: user.id }} label={`@${user.handle}`} />
+              <ReportButton
+                subject={{ type: common.SubjectType.USER, id: user.id }}
+                label={`@${user.handle}`}
+              />
             </>
           )}
         </div>
@@ -167,7 +210,9 @@ export function ProfileScreen({ handle }: { handle: string }) {
         <ProfileHighlights user={user} isSelf={isSelf} />
 
         {profile.distanceMeters !== undefined && (
-          <p className="mt-5 rounded-2xl bg-lime px-4 py-3 font-black text-[#17122b] sticker-sm">{t("distance", { distance: formatDistance(profile.distanceMeters) })}</p>
+          <p className="mt-5 rounded-2xl bg-lime px-4 py-3 font-black text-[#17122b] sticker-sm">
+            {t("distance", { distance: formatDistance(profile.distanceMeters) })}
+          </p>
         )}
 
         {stats && (
@@ -177,19 +222,40 @@ export function ProfileScreen({ handle }: { handle: string }) {
             <Stat value={Number(stats.profileViewCount)} label={t("stats.views")} />
             <Stat value={stats.bumpCount} label={t("stats.bumps")} />
             {/* The footprint numbers lead to the scratch map they come from: my own, or as much of theirs as they show. */}
-            <Link to="/footprints" search={isSelf ? {} : { user: user.id }} className="rounded-2xl transition-colors hover:bg-surface-2" aria-label={t("footprints:profile.explored", { percent: formatPercent(stats.exploredPercent) })}>
+            <Link
+              to="/footprints"
+              search={isSelf ? {} : { user: user.id }}
+              className="rounded-2xl transition-colors hover:bg-surface-2"
+              aria-label={t("footprints:profile.explored", {
+                percent: formatPercent(stats.exploredPercent),
+              })}
+            >
               <Stat value={formatPercent(stats.exploredPercent)} label={t("stats.explored")} />
             </Link>
-            <Link to="/footprints" search={isSelf ? {} : { user: user.id }} className="rounded-2xl transition-colors hover:bg-surface-2" aria-label={t("footprints:profile.countries", { count: stats.visitedCountryCount })}>
+            <Link
+              to="/footprints"
+              search={isSelf ? {} : { user: user.id }}
+              className="rounded-2xl transition-colors hover:bg-surface-2"
+              aria-label={t("footprints:profile.countries", { count: stats.visitedCountryCount })}
+            >
               <Stat value={stats.visitedCountryCount} label={t("stats.countries")} />
             </Link>
           </Card>
         )}
 
         {profile.nowPlaying?.title && (
-          <a href={profile.nowPlaying.trackUrl || undefined} target="_blank" rel="noreferrer" className="sticker mt-5 flex items-center gap-3 rounded-card bg-surface p-3">
+          <a
+            href={profile.nowPlaying.trackUrl || undefined}
+            target="_blank"
+            rel="noreferrer"
+            className="sticker mt-5 flex items-center gap-3 rounded-card bg-surface p-3"
+          >
             {profile.nowPlaying.artworkUrl ? (
-              <img src={profile.nowPlaying.artworkUrl} alt="" className="size-14 rounded-xl object-cover" />
+              <img
+                src={profile.nowPlaying.artworkUrl}
+                alt=""
+                className="size-14 rounded-xl object-cover"
+              />
             ) : (
               <div className="grid size-14 place-items-center rounded-xl bg-mint text-[#17122b]">
                 <Music className="size-6" />
@@ -204,8 +270,12 @@ export function ProfileScreen({ handle }: { handle: string }) {
         )}
 
         <div className="mt-5 flex flex-col gap-1 text-sm font-bold text-ink-soft">
-          {joined && <p>🎂 {t("joined", { name: user.displayName, count: stats?.daysSinceJoined ?? 0 })}</p>}
-          {isFriend && friendsSince && <p>🤝 {t("friendsSince", { date: friendsSince.toLocaleDateString(i18n.language) })}</p>}
+          {joined && (
+            <p>🎂 {t("joined", { name: user.displayName, count: stats?.daysSinceJoined ?? 0 })}</p>
+          )}
+          {isFriend && friendsSince && (
+            <p>🤝 {t("friendsSince", { date: friendsSince.toLocaleDateString(i18n.language) })}</p>
+          )}
           {profile.bestFriend && <p>💜 {t("bestFriend")}</p>}
           {!isSelf && profile.mutualFriendCount > 0 && (
             <p className="flex items-center gap-2">
@@ -221,7 +291,9 @@ export function ProfileScreen({ handle }: { handle: string }) {
 
         {/* Nothing of a blocked person is shown, and the server would not hand it out. */}
         {profile.relationship !== identity.Relationship.BLOCKED && <ProfileAnswers user={user} />}
-        {profile.relationship !== identity.Relationship.BLOCKED && <ProfileNotes userId={user.id} isSelf={isSelf} />}
+        {profile.relationship !== identity.Relationship.BLOCKED && (
+          <ProfileNotes userId={user.id} isSelf={isSelf} />
+        )}
       </div>
     </div>
   );
@@ -230,7 +302,9 @@ export function ProfileScreen({ handle }: { handle: string }) {
 function Stat({ value, label }: { value: number | string; label: string }) {
   return (
     <div>
-      <div className="text-xl font-black">{typeof value === "number" ? value.toLocaleString() : value}</div>
+      <div className="text-xl font-black">
+        {typeof value === "number" ? value.toLocaleString() : value}
+      </div>
       <div className="text-xs font-bold text-ink-faint">{label}</div>
     </div>
   );

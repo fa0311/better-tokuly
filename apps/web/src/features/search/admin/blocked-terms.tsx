@@ -26,12 +26,18 @@ export function BlockedTerms() {
   const [note, setNote] = useState("");
   const list = useInfiniteQuery({
     queryKey: searchKeys.admin.blockedTerms,
-    queryFn: ({ pageParam }) => searchAdminClient().listBlockedTerms({ page: { cursor: pageParam, limit: 50 } }),
+    queryFn: ({ pageParam }) =>
+      searchAdminClient().listBlockedTerms({ page: { cursor: pageParam, limit: 50 } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
   // What trends and completions show changes with the list.
-  const refresh = () => Promise.all([queryClient.invalidateQueries({ queryKey: searchKeys.admin.blockedTerms }), queryClient.invalidateQueries({ queryKey: searchKeys.trending }), queryClient.invalidateQueries({ queryKey: searchKeys.suggestions })]);
+  const refresh = () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: searchKeys.admin.blockedTerms }),
+      queryClient.invalidateQueries({ queryKey: searchKeys.trending }),
+      queryClient.invalidateQueries({ queryKey: searchKeys.suggestions }),
+    ]);
   const add = useMutation({
     mutationFn: () => searchAdminClient().addBlockedTerm({ term: term.trim(), note: note.trim() }),
     onSuccess: (response) => {
@@ -61,9 +67,29 @@ export function BlockedTerms() {
       <Pane title={t("staff.blocked.addTitle")}>
         <form onSubmit={submit} className="flex flex-col gap-3 p-4">
           <p className="text-sm leading-relaxed text-ink-soft">{t("staff.blocked.lead")}</p>
-          <TextField label={t("staff.blocked.term")} value={term} onChange={(event) => setTerm(event.target.value)} maxLength={TERM_MAX} autoCapitalize="none" autoComplete="off" spellCheck={false} />
-          <TextField label={t("staff.blocked.note")} hint={t("staff.blocked.noteHint")} value={note} onChange={(event) => setNote(event.target.value)} maxLength={NOTE_MAX} autoComplete="off" />
-          <Button type="submit" disabled={!term.trim()} loading={add.isPending} icon={<Ban className="size-4" />}>
+          <TextField
+            label={t("staff.blocked.term")}
+            value={term}
+            onChange={(event) => setTerm(event.target.value)}
+            maxLength={TERM_MAX}
+            autoCapitalize="none"
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <TextField
+            label={t("staff.blocked.note")}
+            hint={t("staff.blocked.noteHint")}
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            maxLength={NOTE_MAX}
+            autoComplete="off"
+          />
+          <Button
+            type="submit"
+            disabled={!term.trim()}
+            loading={add.isPending}
+            icon={<Ban className="size-4" />}
+          >
             {t("staff.blocked.add")}
           </Button>
         </form>
@@ -77,12 +103,20 @@ export function BlockedTerms() {
         ) : list.isError ? (
           <EmptyState emoji="🌀" title={staffErrorMessage(list.error)} />
         ) : terms.length === 0 ? (
-          <EmptyState emoji="🕊️" title={t("staff.blocked.empty")} body={t("staff.blocked.emptyBody")} />
+          <EmptyState
+            emoji="🕊️"
+            title={t("staff.blocked.empty")}
+            body={t("staff.blocked.emptyBody")}
+          />
         ) : (
           <>
             <ul aria-label={t("staff.blocked.listTitle")} className="divide-y-2 divide-line">
               {terms.map((entry) => (
-                <li key={entry.term} data-testid="blocked-term" className="flex items-center gap-3 px-4 py-2.5">
+                <li
+                  key={entry.term}
+                  data-testid="blocked-term"
+                  className="flex items-center gap-3 px-4 py-2.5"
+                >
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-black">{entry.term}</p>
                     {entry.note && <p className="truncate text-sm text-ink-soft">{entry.note}</p>}
@@ -90,14 +124,22 @@ export function BlockedTerms() {
                       {entry.addedBy && (
                         <>
                           <Avatar user={entry.addedBy} size="xs" />
-                          <span className="truncate">{entry.addedBy.displayName || entry.addedBy.handle}</span>
+                          <span className="truncate">
+                            {entry.addedBy.displayName || entry.addedBy.handle}
+                          </span>
                           <span aria-hidden>·</span>
                         </>
                       )}
                       <span className="shrink-0">{formatDateTime(entry.createdAt)}</span>
                     </p>
                   </div>
-                  <Button size="icon-sm" variant="ghost" aria-label={t("staff.blocked.remove", { term: entry.term })} onClick={() => remove.mutate(entry.term)} disabled={remove.isPending && remove.variables === entry.term}>
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label={t("staff.blocked.remove", { term: entry.term })}
+                    onClick={() => remove.mutate(entry.term)}
+                    disabled={remove.isPending && remove.variables === entry.term}
+                  >
                     <X className="size-4" />
                   </Button>
                 </li>

@@ -53,6 +53,7 @@ Primitives in `components/ui`: `Button`, `TextField` / `TextArea`,
 ## Conventions
 
 **Data**
+
 - Typed clients come from `api().service(<Service>)` (`#/lib/api`), with the
   generated messages under the domain namespaces of `@tokuly/api`
   (`social.FriendService`, `geo.FriendLocation`, ...).
@@ -75,6 +76,7 @@ Primitives in `components/ui`: `Button`, `TextField` / `TextArea`,
   `#/stores/badges`.
 
 **UI**
+
 - The look is "sticker pop" (see `src/styles.css`): `sticker` (ink outline +
   hard shadow) for standalone objects, `pressable` for things you can press,
   `glass` for chrome floating above the map. Colours are the semantic tokens
@@ -94,12 +96,14 @@ Primitives in `components/ui`: `Button`, `TextField` / `TextArea`,
 - No manual `useMemo`/`useCallback`/`memo`: the React Compiler memoizes.
 
 **Text**
+
 - Every string goes through `useTranslation("<namespace>")`, in Japanese
   (casual and friendly, like 「友達と位置情報共有を楽しもう!」) and English.
   A file in `src/i18n/ja/` and its twin in `src/i18n/en/` are a namespace
   named after the file; nothing needs registering.
 
 **Checks**
+
 - `pnpm --filter @tokuly/web typecheck` and `test` must pass; `vite build`
   must succeed.
 - Every feature has browser tests in `e2e/<area>.spec.ts` (Playwright, see

@@ -70,7 +70,8 @@ export default {
     deleteBody: "This cannot be undone.",
     deleteWithReplies: "The replies to it ({{count}}) are deleted too. This cannot be undone.",
     blockTitle: "Block {{name}} from commenting?",
-    blockBody: "They will no longer be able to comment on your content. They are not told, and what they already wrote is hidden.",
+    blockBody:
+      "They will no longer be able to comment on your content. They are not told, and what they already wrote is hidden.",
   },
   toast: {
     deleted: "Comment deleted",
@@ -96,12 +97,24 @@ export default {
   },
   moderation: {
     title: "Comments",
-    tabs: { queue: "To review", received: "Received", mine: "Mine", rules: "Rules", blocked: "Blocked" },
+    tabs: {
+      queue: "To review",
+      received: "Received",
+      mine: "Mine",
+      rules: "Rules",
+      blocked: "Blocked",
+    },
     queueLead: "These comments are waiting for you. Approve one and everybody can see it.",
     receivedLead: "Every comment people left on your videos and notes, in one place.",
     mineLead: "Comments you wrote. Tap one to go where you wrote it.",
     searchPlaceholder: "Search comments",
-    filter: { label: "Filter by state", all: "All", published: "Published", held: "To review", hidden: "Hidden" },
+    filter: {
+      label: "Filter by state",
+      all: "All",
+      published: "Published",
+      held: "To review",
+      hidden: "Hidden",
+    },
     byAuthor: "Only comments by {{name}}",
     clearAuthor: "Clear the filter",
     onlyThisAuthor: "Only this person's comments",
@@ -115,13 +128,15 @@ export default {
   },
   rules: {
     reviewTitle: "Review before publishing",
-    reviewLead: "What you turn on stays invisible to others until you approve it. It applies to comments written from now on.",
+    reviewLead:
+      "What you turn on stays invisible to others until you approve it. It applies to comments written from now on.",
     holdAll: "Review every comment",
     holdAllHint: "No comment is published before you approve it",
     holdLinks: "Review comments with links",
     holdLinksHint: "Only comments containing a URL wait for review",
     wordsTitle: "Blocked words",
-    wordsLead: "Comments containing one of these words wait for review. Upper and lower case, full and half width are treated alike.",
+    wordsLead:
+      "Comments containing one of these words wait for review. Upper and lower case, full and half width are treated alike.",
     wordPlaceholder: "Type a word (separate several with commas)",
     addWord: "Add",
     removeWord: "Remove “{{word}}”",

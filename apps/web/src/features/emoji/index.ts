@@ -22,7 +22,13 @@
  * `useCatalog()` inside. Nothing needs to be loaded or mounted first.
  */
 export { emojiPageParam, shortcode, shortcodeName } from "./api";
-export { type Catalog, type CatalogCategory, type CatalogEmoji, lookupEmoji, useCatalog } from "./catalog";
+export {
+  type Catalog,
+  type CatalogCategory,
+  type CatalogEmoji,
+  lookupEmoji,
+  useCatalog,
+} from "./catalog";
 export { Emoji, EmojiImage, type EmojiImageProps, type EmojiProps } from "./emoji";
 export { EmojiText, type EmojiTextProps } from "./emoji-text";
 export { EmojiPicker, type EmojiPickerProps } from "./picker";

@@ -13,7 +13,8 @@ export function CreatorScreen({ userId }: { userId: string }) {
   const { t } = useTranslation("stamps");
   const packs = useInfiniteQuery({
     queryKey: stampKeys.creator(userId),
-    queryFn: ({ pageParam }) => storeClient().listCreatorPacks({ userId, page: { limit: 24, cursor: pageParam } }),
+    queryFn: ({ pageParam }) =>
+      storeClient().listCreatorPacks({ userId, page: { limit: 24, cursor: pageParam } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
@@ -31,12 +32,18 @@ export function CreatorScreen({ userId }: { userId: string }) {
         <EmptyState emoji="🧭" title={t("creator.notFound")} />
       ) : (
         <>
-          <Link to="/u/$handle" params={{ handle: creator.handle }} className="pressable sticker mb-5 flex items-center gap-4 rounded-card bg-surface p-4">
+          <Link
+            to="/u/$handle"
+            params={{ handle: creator.handle }}
+            className="pressable sticker mb-5 flex items-center gap-4 rounded-card bg-surface p-4"
+          >
             <Avatar user={creator} size="lg" outlined />
             <span className="min-w-0 flex-1">
               <span className="block truncate text-xl font-black">{creator.displayName}</span>
               <span className="block truncate font-bold text-ink-soft">@{creator.handle}</span>
-              <span className="mt-0.5 block text-sm font-bold text-brand">{t("creator.profile")}</span>
+              <span className="mt-0.5 block text-sm font-bold text-brand">
+                {t("creator.profile")}
+              </span>
             </span>
             <ChevronRight className="size-6 shrink-0 text-ink-faint" />
           </Link>

@@ -8,7 +8,13 @@ import { Page } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
 import { planClient, rememberPlan, useFriends } from "../api";
 import { type PlanDraft, takePlanDraft } from "../draft";
-import { EMPTY_FORM, formFromDraft, formProblem, type PlanFormValue, toCreateRequest } from "./model";
+import {
+  EMPTY_FORM,
+  formFromDraft,
+  formProblem,
+  type PlanFormValue,
+  toCreateRequest,
+} from "./model";
 import { PlanForm } from "./plan-form";
 
 /** `/plans/new`: a new plan, empty or started from somewhere else ("あそぼ!", a day of the calendar). */
@@ -46,7 +52,12 @@ export function PlanNewScreen() {
           if (!problem) create.mutate();
         }}
       >
-        <PlanForm value={value} onChange={setEdited} withInvitees problem={tried && problem ? t(`plan.form.errors.${problem}`) : null} />
+        <PlanForm
+          value={value}
+          onChange={setEdited}
+          withInvitees
+          problem={tried && problem ? t(`plan.form.errors.${problem}`) : null}
+        />
         <Button type="submit" size="lg" block loading={create.isPending}>
           {t("plan.create")}
         </Button>

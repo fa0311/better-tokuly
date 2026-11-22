@@ -16,7 +16,8 @@ import { defineConfig } from "vite";
 const api = process.env.TOKULY_DEV_API_URL ?? "http://127.0.0.1:8081";
 const media = process.env.TOKULY_DEV_MEDIA_URL ?? "http://127.0.0.1:9000/tokuly-media";
 const tiles = process.env.TOKULY_DEV_TILES_URL ?? "http://127.0.0.1:8090";
-const mapAssets = process.env.TOKULY_DEV_MAP_ASSETS_URL ?? "https://protomaps.github.io/basemaps-assets";
+const mapAssets =
+  process.env.TOKULY_DEV_MAP_ASSETS_URL ?? "https://protomaps.github.io/basemaps-assets";
 
 export default defineConfig({
   resolve: { tsconfigPaths: true },

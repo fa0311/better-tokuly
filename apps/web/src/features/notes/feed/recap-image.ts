@@ -13,7 +13,12 @@ function token(name: string): string {
 }
 
 /** Breaks text into lines no wider than `maxWidth`. Japanese has no spaces to break at, so it goes character by character. */
-function wrap(context: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines: number): string[] {
+function wrap(
+  context: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+  maxLines: number,
+): string[] {
   const lines: string[] = [];
   let line = "";
   for (const char of Array.from(text)) {
@@ -26,11 +31,20 @@ function wrap(context: CanvasRenderingContext2D, text: string, maxWidth: number,
     }
   }
   if (lines.length < maxLines && line) lines.push(line);
-  else if (lines.length === maxLines && line) lines[maxLines - 1] = `${lines[maxLines - 1]!.slice(0, -1)}…`;
+  else if (lines.length === maxLines && line)
+    lines[maxLines - 1] = `${lines[maxLines - 1]!.slice(0, -1)}…`;
   return lines;
 }
 
-function roundRect(context: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number, fill: string): void {
+function roundRect(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+  fill: string,
+): void {
   context.beginPath();
   context.roundRect(x, y, width, height, radius);
   context.fillStyle = fill;
@@ -54,7 +68,10 @@ export interface RecapImageLabels {
  */
 export async function renderRecapImage(recap: feed.Recap, labels: RecapImageLabels): Promise<Blob> {
   // The app's font has to be ready, or the canvas falls back to a system face.
-  await Promise.all([document.fonts.load(`900 64px ${FONT}`), document.fonts.load(`700 40px ${FONT}`)]).catch(() => {});
+  await Promise.all([
+    document.fonts.load(`900 64px ${FONT}`),
+    document.fonts.load(`700 40px ${FONT}`),
+  ]).catch(() => {});
   const canvas = document.createElement("canvas");
   canvas.width = WIDTH;
   canvas.height = HEIGHT;
@@ -95,7 +112,11 @@ export async function renderRecapImage(recap: feed.Recap, labels: RecapImageLabe
   }
   context.font = `700 34px ${FONT}`;
   context.globalAlpha = 0.65;
-  context.fillText(`${recap.startDate.replaceAll("-", "/")} – ${recap.endDate.replaceAll("-", "/")}`, 150, y + 4);
+  context.fillText(
+    `${recap.startDate.replaceAll("-", "/")} – ${recap.endDate.replaceAll("-", "/")}`,
+    150,
+    y + 4,
+  );
   context.globalAlpha = 1;
   y += 84;
 
@@ -131,5 +152,10 @@ export async function renderRecapImage(recap: feed.Recap, labels: RecapImageLabe
   context.font = `900 56px ${FONT}`;
   context.fillText("Tokuly", 150, 1224);
 
-  return new Promise((resolve, reject) => canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("image export failed"))), "image/png"));
+  return new Promise((resolve, reject) =>
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error("image export failed"))),
+      "image/png",
+    ),
+  );
 }

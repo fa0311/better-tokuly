@@ -32,13 +32,26 @@ export function TimetableGrid({
   const today = weekdayOf(useAccountToday());
 
   return (
-    <table aria-label={t("timetable.grid")} className="w-full table-fixed border-separate border-spacing-1">
+    <table
+      aria-label={t("timetable.grid")}
+      className="w-full table-fixed border-separate border-spacing-1"
+    >
       <thead>
         <tr>
           <td className="w-9" />
           {weekdays.map((weekday) => (
-            <th key={weekday} scope="col" className="p-0" aria-current={highlightToday && weekday === today ? "date" : undefined}>
-              <span className={cn("grid h-7 place-items-center rounded-full text-xs font-black", highlightToday && weekday === today ? "bg-ink text-surface" : "text-ink-soft")}>
+            <th
+              key={weekday}
+              scope="col"
+              className="p-0"
+              aria-current={highlightToday && weekday === today ? "date" : undefined}
+            >
+              <span
+                className={cn(
+                  "grid h-7 place-items-center rounded-full text-xs font-black",
+                  highlightToday && weekday === today ? "bg-ink text-surface" : "text-ink-soft",
+                )}
+              >
                 {t(`weekdays.short.${weekday}`)}
               </span>
             </th>
@@ -50,16 +63,26 @@ export function TimetableGrid({
           <tr key={period.number}>
             <th scope="row" className="p-0 text-center leading-tight">
               <span className="block text-sm font-black">{period.label || period.number}</span>
-              <span className="block text-[10px] font-bold text-ink-faint">{clock(period.startMinute)}</span>
+              <span className="block text-[10px] font-bold text-ink-faint">
+                {clock(period.startMinute)}
+              </span>
             </th>
             {weekdays.map((weekday) => {
               const slot = bySlot.get(slotKey(weekday, period.number));
-              const label = t("timetable.slotLabel", { weekday: t(`weekdays.long.${weekday}`), period: period.number });
+              const label = t("timetable.slotLabel", {
+                weekday: t(`weekdays.long.${weekday}`),
+                period: period.number,
+              });
               const name = `${label} ${slotText(slot, t("timetable.weekA"), t("timetable.weekB")) || t("timetable.emptySlot")}`;
               return (
                 <td key={weekday} className="h-16 p-0 sm:h-[4.5rem]">
                   {onCell ? (
-                    <button type="button" aria-label={name} onClick={() => onCell(weekday, period, slot)} className="pressable block h-16 w-full rounded-xl text-left sm:h-[4.5rem]">
+                    <button
+                      type="button"
+                      aria-label={name}
+                      onClick={() => onCell(weekday, period, slot)}
+                      className="pressable block h-16 w-full rounded-xl text-left sm:h-[4.5rem]"
+                    >
                       <SlotContent slot={slot} editing={editing} />
                     </button>
                   ) : (
@@ -81,12 +104,25 @@ export function TimetableGrid({
 function slotText(slot: Slot | undefined, weekA: string, weekB: string): string {
   if (!slot) return "";
   if (slot.every) return slot.every.subject?.name ?? "";
-  return [slot.a && `${weekA} ${slot.a.subject?.name ?? ""}`, slot.b && `${weekB} ${slot.b.subject?.name ?? ""}`].filter(Boolean).join(" / ");
+  return [
+    slot.a && `${weekA} ${slot.a.subject?.name ?? ""}`,
+    slot.b && `${weekB} ${slot.b.subject?.name ?? ""}`,
+  ]
+    .filter(Boolean)
+    .join(" / ");
 }
 
 function SlotContent({ slot, editing }: { slot: Slot | undefined; editing?: boolean }) {
   if (!slot || (!slot.every && !slot.a && !slot.b)) {
-    return <span aria-hidden className={cn("block size-full rounded-xl border-2 border-dashed", editing ? "border-ink-faint bg-surface" : "border-line")} />;
+    return (
+      <span
+        aria-hidden
+        className={cn(
+          "block size-full rounded-xl border-2 border-dashed",
+          editing ? "border-ink-faint bg-surface" : "border-line",
+        )}
+      />
+    );
   }
   if (slot.every) return <ClassTile entry={slot.every} />;
   return (
@@ -101,8 +137,14 @@ function ClassTile({ entry }: { entry: GridEntry }) {
   const color = entryColor(entry);
   const room = entry.room || entry.subject?.room;
   return (
-    <span aria-hidden className="flex size-full flex-col justify-between overflow-hidden rounded-xl border-2 border-ink px-1.5 py-1" style={{ background: color, color: inkOn(color) }}>
-      <span className="line-clamp-2 text-[13px] font-black leading-tight break-all">{cellName(entry.subject)}</span>
+    <span
+      aria-hidden
+      className="flex size-full flex-col justify-between overflow-hidden rounded-xl border-2 border-ink px-1.5 py-1"
+      style={{ background: color, color: inkOn(color) }}
+    >
+      <span className="line-clamp-2 text-[13px] font-black leading-tight break-all">
+        {cellName(entry.subject)}
+      </span>
       {room && <span className="truncate text-[10px] font-bold opacity-80">{room}</span>}
     </span>
   );
@@ -110,11 +152,18 @@ function ClassTile({ entry }: { entry: GridEntry }) {
 
 function HalfTile({ entry, mark }: { entry: GridEntry | undefined; mark: "A" | "B" }) {
   if (!entry) {
-    return <span className="flex min-h-0 flex-1 items-center rounded-lg border-2 border-dashed border-line px-1 text-[10px] font-black text-ink-faint">{mark}</span>;
+    return (
+      <span className="flex min-h-0 flex-1 items-center rounded-lg border-2 border-dashed border-line px-1 text-[10px] font-black text-ink-faint">
+        {mark}
+      </span>
+    );
   }
   const color = entryColor(entry);
   return (
-    <span className="flex min-h-0 flex-1 items-center gap-1 overflow-hidden rounded-lg border-2 border-ink px-1" style={{ background: color, color: inkOn(color) }}>
+    <span
+      className="flex min-h-0 flex-1 items-center gap-1 overflow-hidden rounded-lg border-2 border-ink px-1"
+      style={{ background: color, color: inkOn(color) }}
+    >
       <span className="text-[10px] font-black opacity-70">{mark}</span>
       <span className="truncate text-xs font-black">{cellName(entry.subject)}</span>
     </span>

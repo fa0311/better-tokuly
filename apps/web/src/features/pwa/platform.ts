@@ -13,16 +13,25 @@
  * - `menu`: a browser that installs from its own menu (Chrome, Edge, Samsung Internet, Firefox on Android).
  * - `none`: no way to install from here.
  */
-export type ManualInstall = "ios-share" | "ios-browser" | "ios-in-app" | "mac-dock" | "menu" | "none";
+export type ManualInstall =
+  | "ios-share"
+  | "ios-browser"
+  | "ios-in-app"
+  | "mac-dock"
+  | "menu"
+  | "none";
 
 /** Apps that show web pages in a browser of their own, where nothing can be installed. */
-const IN_APP = /\bLine\/|Instagram|FBAN|FBAV|FB_IAB|Twitter|TikTok|musical_ly|Bytedance|Snapchat|KAKAOTALK|MicroMessenger|Discord|GSA\//i;
+const IN_APP =
+  /\bLine\/|Instagram|FBAN|FBAV|FB_IAB|Twitter|TikTok|musical_ly|Bytedance|Snapchat|KAKAOTALK|MicroMessenger|Discord|GSA\//i;
 /** Browsers on iOS other than Safari (which only names itself "Safari"). */
 const IOS_BROWSER = /CriOS|FxiOS|EdgiOS|OPiOS|OPT\/|DuckDuckGo|Brave/;
 
 /** Whether this is an iPhone, iPod touch or iPad (an iPad calls itself a Mac, but has a touch screen). */
 export function isIos(userAgent: string, maxTouchPoints: number): boolean {
-  return /iPhone|iPad|iPod/.test(userAgent) || (userAgent.includes("Macintosh") && maxTouchPoints > 1);
+  return (
+    /iPhone|iPad|iPod/.test(userAgent) || (userAgent.includes("Macintosh") && maxTouchPoints > 1)
+  );
 }
 
 export function manualInstall(userAgent: string, maxTouchPoints: number): ManualInstall {

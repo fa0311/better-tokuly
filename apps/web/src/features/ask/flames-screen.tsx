@@ -18,7 +18,15 @@ import { BalancePill, useBalance } from "#/features/wallet";
 import { cn } from "#/lib/cn";
 import { compactAge } from "#/lib/format";
 import { useMe } from "#/stores/session";
-import { askKeys, boxClient, complimentClient, rememberFlame, useFlameSummary, useFlames, useTopFlames } from "./api";
+import {
+  askKeys,
+  boxClient,
+  complimentClient,
+  rememberFlame,
+  useFlameSummary,
+  useFlames,
+  useTopFlames,
+} from "./api";
 import { localized } from "./model";
 import { SectionTitle, toastError } from "./parts";
 
@@ -38,7 +46,11 @@ export function FlamesScreen() {
     if (unseen <= 0) return;
     complimentClient()
       .markFlamesSeen({ all: true })
-      .then((response) => queryClient.setQueryData<ask.FlameSummary>(askKeys.flameSummary, (known) => (known ? { ...known, unseen: response.unseen } : known)))
+      .then((response) =>
+        queryClient.setQueryData<ask.FlameSummary>(askKeys.flameSummary, (known) =>
+          known ? { ...known, unseen: response.unseen } : known,
+        ),
+      )
       .catch(() => {});
   }, [unseen, queryClient]);
 
@@ -64,10 +76,17 @@ export function FlamesScreen() {
                 <p className="text-xs font-black opacity-70">{t("flames.top")}</p>
                 <ul className="mt-2 flex flex-col gap-1.5">
                   {summary.topQuestions.slice(0, 3).map((entry) => (
-                    <li key={entry.question?.id} className="flex items-center gap-2 text-sm font-black">
+                    <li
+                      key={entry.question?.id}
+                      className="flex items-center gap-2 text-sm font-black"
+                    >
                       <span aria-hidden>{entry.question?.emoji}</span>
-                      <span className="min-w-0 flex-1 truncate">{localized(entry.question?.text, i18n.language)}</span>
-                      <span className="tabular-nums opacity-70">{t("flames.times", { count: entry.count })}</span>
+                      <span className="min-w-0 flex-1 truncate">
+                        {localized(entry.question?.text, i18n.language)}
+                      </span>
+                      <span className="tabular-nums opacity-70">
+                        {t("flames.times", { count: entry.count })}
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -80,16 +99,31 @@ export function FlamesScreen() {
           {!top ? (
             <Skeleton className="h-24" />
           ) : top.entries.length === 0 ? (
-            <p className="rounded-card bg-surface px-4 py-6 text-center text-sm font-bold text-ink-soft">🏆 {t("flames.rankingEmpty")}</p>
+            <p className="rounded-card bg-surface px-4 py-6 text-center text-sm font-bold text-ink-soft">
+              🏆 {t("flames.rankingEmpty")}
+            </p>
           ) : (
-            <ol className="flex flex-col gap-1 rounded-card bg-surface p-2" data-testid="flame-ranking">
+            <ol
+              className="flex flex-col gap-1 rounded-card bg-surface p-2"
+              data-testid="flame-ranking"
+            >
               {top.entries.map((entry) => {
                 const isMe = entry.user?.id === me?.user?.id;
                 return (
-                  <li key={entry.user?.id} className={cn("flex items-center gap-3 rounded-2xl px-3 py-2", isMe && "bg-brand-soft")}>
-                    <span className="w-6 text-center font-black tabular-nums">{entry.rank <= 3 ? ["🥇", "🥈", "🥉"][entry.rank - 1] : entry.rank}</span>
+                  <li
+                    key={entry.user?.id}
+                    className={cn(
+                      "flex items-center gap-3 rounded-2xl px-3 py-2",
+                      isMe && "bg-brand-soft",
+                    )}
+                  >
+                    <span className="w-6 text-center font-black tabular-nums">
+                      {entry.rank <= 3 ? ["🥇", "🥈", "🥉"][entry.rank - 1] : entry.rank}
+                    </span>
                     <Avatar user={entry.user} size="sm" />
-                    <span className="min-w-0 flex-1 truncate font-bold">{isMe ? t("flames.you") : entry.user?.displayName}</span>
+                    <span className="min-w-0 flex-1 truncate font-bold">
+                      {isMe ? t("flames.you") : entry.user?.displayName}
+                    </span>
                     <span className="font-black tabular-nums">🔥{entry.count}</span>
                   </li>
                 );
@@ -111,7 +145,10 @@ export function FlamesScreen() {
               title={t("flames.empty")}
               body={t("flames.emptyBody")}
               action={
-                <Link to="/ask/polls" className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand">
+                <Link
+                  to="/ask/polls"
+                  className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand"
+                >
                   {t("flames.play")}
                 </Link>
               }
@@ -159,13 +196,22 @@ function FlameRow({ flame }: { flame: ask.Flame }) {
   return (
     <article className="sticker rounded-card bg-surface px-4 pt-3.5 pb-3" data-testid="flame-row">
       <div className="flex items-start gap-3">
-        <span aria-hidden className="grid size-12 shrink-0 place-items-center rounded-2xl border-2 border-ink bg-coral text-2xl">
+        <span
+          aria-hidden
+          className="grid size-12 shrink-0 place-items-center rounded-2xl border-2 border-ink bg-coral text-2xl"
+        >
           {flame.question?.emoji || "🔥"}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="leading-snug font-black break-words">{localized(flame.question?.text, i18n.language)}</p>
+          <p className="leading-snug font-black break-words">
+            {localized(flame.question?.text, i18n.language)}
+          </p>
           <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs font-bold text-ink-soft">
-            {!flame.seen && <span className="rounded-full bg-pink px-2 py-0.5 text-[11px] font-black text-white">{t("flames.new")}</span>}
+            {!flame.seen && (
+              <span className="rounded-full bg-pink px-2 py-0.5 text-[11px] font-black text-white">
+                {t("flames.new")}
+              </span>
+            )}
             <span>{t("flames.from")}</span>
             <time className="text-ink-faint">{compactAge(toMillis(flame.createdAt))}</time>
           </p>
@@ -176,14 +222,19 @@ function FlameRow({ flame }: { flame: ask.Flame }) {
               <MoreHorizontal className="size-5" />
             </Button>
           }
-          actions={[{ label: t("flames.block"), icon: <ShieldBan />, onSelect: () => setDialog("block") }]}
+          actions={[
+            { label: t("flames.block"), icon: <ShieldBan />, onSelect: () => setDialog("block") },
+          ]}
         />
       </div>
 
       {flame.hints.length > 0 && (
         <ul className="mt-3 flex flex-col gap-1.5" data-testid="flame-hints">
           {flame.hints.map((hint) => (
-            <li key={hint.kind} className="flex items-center gap-2 rounded-2xl bg-brand-soft px-3 py-2 text-sm font-bold">
+            <li
+              key={hint.kind}
+              className="flex items-center gap-2 rounded-2xl bg-brand-soft px-3 py-2 text-sm font-bold"
+            >
               <Lightbulb className="size-4 shrink-0 text-brand" />
               {localized(hint.text, i18n.language)}
             </li>
@@ -192,16 +243,26 @@ function FlameRow({ flame }: { flame: ask.Flame }) {
       )}
       <div className="mt-3 flex items-center gap-2">
         {flame.nextHintPrice > 0n ? (
-          <Button size="sm" variant="secondary" icon={<Lightbulb className="size-4" />} loading={checking} onClick={openPurchase}>
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={<Lightbulb className="size-4" />}
+            loading={checking}
+            onClick={openPurchase}
+          >
             {t("flames.buyHint")}
             <Coins amount={flame.nextHintPrice} size="sm" />
           </Button>
         ) : (
-          <span className="text-xs font-bold text-ink-faint">{flame.hints.length > 0 ? t("flames.allHints") : t("flames.noHints")}</span>
+          <span className="text-xs font-bold text-ink-faint">
+            {flame.hints.length > 0 ? t("flames.allHints") : t("flames.noHints")}
+          </span>
         )}
       </div>
 
-      {dialog === "buy" && flame.nextHintPrice > 0n && <HintPurchase flame={flame} onClose={() => setDialog(null)} />}
+      {dialog === "buy" && flame.nextHintPrice > 0n && (
+        <HintPurchase flame={flame} onClose={() => setDialog(null)} />
+      )}
       <ConfirmDialog
         open={dialog === "block"}
         onOpenChange={() => setDialog(null)}
@@ -232,7 +293,11 @@ function HintPurchase({ flame, onClose }: { flame: ask.Flame; onClose(): void })
       if (response.flame) rememberFlame(queryClient, response.flame);
       void balance.refresh();
       // What was actually charged, from the server: nothing when this purchase had already gone through.
-      toast.success(response.coinsSpent > 0n ? t("flames.purchase.boughtFor", { count: Number(response.coinsSpent) }) : t("flames.purchase.bought"));
+      toast.success(
+        response.coinsSpent > 0n
+          ? t("flames.purchase.boughtFor", { count: Number(response.coinsSpent) })
+          : t("flames.purchase.bought"),
+      );
       onClose();
     },
     onError: (error) => {
@@ -253,11 +318,18 @@ function HintPurchase({ flame, onClose }: { flame: ask.Flame; onClose(): void })
             {t("actions.cancel", { ns: "common" })}
           </Button>
           {short ? (
-            <Link to="/wallet" className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand">
+            <Link
+              to="/wallet"
+              className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand"
+            >
               {t("flames.purchase.toWallet")}
             </Link>
           ) : (
-            <Button loading={buy.isPending} disabled={balance.coins === undefined} onClick={() => buy.mutate()}>
+            <Button
+              loading={buy.isPending}
+              disabled={balance.coins === undefined}
+              onClick={() => buy.mutate()}
+            >
               {t("flames.purchase.confirm")}
             </Button>
           )}
@@ -273,10 +345,19 @@ function HintPurchase({ flame, onClose }: { flame: ask.Flame; onClose(): void })
         </div>
         <div className="flex items-center justify-between" data-testid="hint-balance">
           <dt>{t("flames.purchase.balance")}</dt>
-          <dd>{balance.coins === undefined ? <Skeleton className="h-5 w-14 rounded-full" /> : <Coins amount={balance.coins} />}</dd>
+          <dd>
+            {balance.coins === undefined ? (
+              <Skeleton className="h-5 w-14 rounded-full" />
+            ) : (
+              <Coins amount={balance.coins} />
+            )}
+          </dd>
         </div>
         {balance.coins !== undefined && !short && (
-          <div className="flex items-center justify-between border-t-2 border-line pt-2" data-testid="hint-after">
+          <div
+            className="flex items-center justify-between border-t-2 border-line pt-2"
+            data-testid="hint-after"
+          >
             <dt>{t("flames.purchase.after")}</dt>
             <dd>
               <Coins amount={balance.coins - price} />

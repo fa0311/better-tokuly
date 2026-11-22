@@ -26,7 +26,10 @@ export function openSaveDialog(summary: video.VideoSummary): void {
 }
 
 /** A playlist's name: built-in lists have none of their own. */
-export function playlistTitle(playlist: Pick<video.Playlist, "kind" | "title">, t: (key: string) => string): string {
+export function playlistTitle(
+  playlist: Pick<video.Playlist, "kind" | "title">,
+  t: (key: string) => string,
+): string {
   if (playlist.kind === PlaylistKind.WATCH_LATER) return t("playlist.watchLater");
   if (playlist.kind === PlaylistKind.LIKED) return t("playlist.liked");
   return playlist.title;
@@ -45,7 +48,12 @@ export function SaveDialogHost() {
   if (target && target !== shown) setShown(target);
 
   return (
-    <Dialog open={target !== null} onOpenChange={(open) => !open && useSaveTarget.setState({ video: null })} title={t("save.title")} description={shown?.title}>
+    <Dialog
+      open={target !== null}
+      onOpenChange={(open) => !open && useSaveTarget.setState({ video: null })}
+      title={t("save.title")}
+      description={shown?.title}
+    >
       {shown && <SaveBody key={shown.id} video={shown} />}
     </Dialog>
   );
@@ -56,17 +64,26 @@ function SaveBody({ video: summary }: { video: video.VideoSummary }) {
   const queryClient = useQueryClient();
   const [creating, setCreating] = useState(false);
   const key = videoKeys.myPlaylists(summary.id);
-  const lists = useQuery({ queryKey: key, queryFn: () => playlistClient().listMyPlaylists({ containsVideoId: summary.id }) });
+  const lists = useQuery({
+    queryKey: key,
+    queryFn: () => playlistClient().listMyPlaylists({ containsVideoId: summary.id }),
+  });
 
   const toggle = useMutation({
     mutationFn: async ({ playlist, add }: { playlist: video.Playlist; add: boolean }) => {
-      if (add) await playlistClient().addPlaylistItem({ playlistId: playlist.id, videoId: summary.id });
-      else await playlistClient().removePlaylistItem({ playlistId: playlist.id, videoId: summary.id });
+      if (add)
+        await playlistClient().addPlaylistItem({ playlistId: playlist.id, videoId: summary.id });
+      else
+        await playlistClient().removePlaylistItem({ playlistId: playlist.id, videoId: summary.id });
     },
     // The tick answers the tap; a refusal puts it back.
     onMutate: ({ playlist, add }) => setContains(playlist.id, add),
     onSuccess: (_result, { playlist, add }) => {
-      toast.success(add ? t("save.added", { name: playlistTitle(playlist, t) }) : t("save.removed", { name: playlistTitle(playlist, t) }));
+      toast.success(
+        add
+          ? t("save.added", { name: playlistTitle(playlist, t) })
+          : t("save.removed", { name: playlistTitle(playlist, t) }),
+      );
       void queryClient.invalidateQueries({ queryKey: videoKeys.playlists });
       void queryClient.invalidateQueries({ queryKey: videoKeys.video(summary.shortId) });
     },
@@ -77,18 +94,30 @@ function SaveBody({ video: summary }: { video: video.VideoSummary }) {
   });
 
   function setContains(playlistId: string, containsVideo: boolean) {
-    queryClient.setQueryData<video.ListMyPlaylistsResponse>(key, (data) => (data ? { ...data, playlists: data.playlists.map((playlist) => (playlist.id === playlistId ? { ...playlist, containsVideo } : playlist)) } : data));
+    queryClient.setQueryData<video.ListMyPlaylistsResponse>(key, (data) =>
+      data
+        ? {
+            ...data,
+            playlists: data.playlists.map((playlist) =>
+              playlist.id === playlistId ? { ...playlist, containsVideo } : playlist,
+            ),
+          }
+        : data,
+    );
   }
 
   // Liked videos change through the like button only.
-  const playlists = lists.data?.playlists.filter((playlist) => playlist.kind !== PlaylistKind.LIKED) ?? [];
+  const playlists =
+    lists.data?.playlists.filter((playlist) => playlist.kind !== PlaylistKind.LIKED) ?? [];
 
   return (
     <div className="flex flex-col gap-1">
       {lists.isPending ? (
         [0, 1, 2].map((row) => <Skeleton key={row} className="h-12" />)
       ) : lists.isError ? (
-        <p className="py-6 text-center text-sm font-bold text-ink-soft">{errorMessage(lists.error)}</p>
+        <p className="py-6 text-center text-sm font-bold text-ink-soft">
+          {errorMessage(lists.error)}
+        </p>
       ) : (
         playlists.map((playlist) => (
           // biome-ignore lint/a11y/useSemanticElements: a row-sized tick; a native checkbox cannot carry this layout.
@@ -100,10 +129,23 @@ function SaveBody({ video: summary }: { video: video.VideoSummary }) {
             className="flex min-h-12 items-center gap-3 rounded-2xl px-3 text-left hover:bg-surface-2"
             onClick={() => toggle.mutate({ playlist, add: !playlist.containsVideo })}
           >
-            <span className={cn("grid size-6 shrink-0 place-items-center rounded-lg border-2 border-ink", playlist.containsVideo ? "bg-lime text-[#17122b]" : "bg-surface")}>{playlist.containsVideo && <Check className="size-4" strokeWidth={3} />}</span>
+            <span
+              className={cn(
+                "grid size-6 shrink-0 place-items-center rounded-lg border-2 border-ink",
+                playlist.containsVideo ? "bg-lime text-[#17122b]" : "bg-surface",
+              )}
+            >
+              {playlist.containsVideo && <Check className="size-4" strokeWidth={3} />}
+            </span>
             <span className="min-w-0 flex-1 truncate font-bold">{playlistTitle(playlist, t)}</span>
-            {playlist.kind === PlaylistKind.WATCH_LATER ? <Clock3 className="size-4 text-ink-faint" /> : <ListVideo className="size-4 text-ink-faint" />}
-            <span className="text-xs font-bold text-ink-faint tabular-nums">{playlist.itemCount}</span>
+            {playlist.kind === PlaylistKind.WATCH_LATER ? (
+              <Clock3 className="size-4 text-ink-faint" />
+            ) : (
+              <ListVideo className="size-4 text-ink-faint" />
+            )}
+            <span className="text-xs font-bold text-ink-faint tabular-nums">
+              {playlist.itemCount}
+            </span>
           </button>
         ))
       )}
@@ -111,7 +153,12 @@ function SaveBody({ video: summary }: { video: video.VideoSummary }) {
       {creating ? (
         <NewPlaylistForm videoId={summary.id} onDone={() => setCreating(false)} />
       ) : (
-        <Button variant="secondary" className="mt-3 self-start" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
+        <Button
+          variant="secondary"
+          className="mt-3 self-start"
+          icon={<Plus className="size-4" />}
+          onClick={() => setCreating(true)}
+        >
           {t("save.newPlaylist")}
         </Button>
       )}
@@ -144,12 +191,23 @@ function NewPlaylistForm({ videoId, onDone }: { videoId: string; onDone(): void 
         if (title.trim()) create.mutate();
       }}
     >
-      <TextField label={t("playlist.form.title")} value={title} maxLength={100} autoFocus onChange={(event) => setTitle(event.target.value)} placeholder={t("playlist.form.titlePlaceholder")} />
+      <TextField
+        label={t("playlist.form.title")}
+        value={title}
+        maxLength={100}
+        autoFocus
+        onChange={(event) => setTitle(event.target.value)}
+        placeholder={t("playlist.form.titlePlaceholder")}
+      />
       <SelectField
         label={t("playlist.form.visibility")}
         value={String(visibility)}
         onChange={(value) => setVisibility(Number(value) as common.Visibility)}
-        options={PLAYLIST_VISIBILITIES.map((option) => ({ value: String(option.value), label: t(`visibility.${option.key}`), hint: t(`visibility.${option.key}ListHint`) }))}
+        options={PLAYLIST_VISIBILITIES.map((option) => ({
+          value: String(option.value),
+          label: t(`visibility.${option.key}`),
+          hint: t(`visibility.${option.key}ListHint`),
+        }))}
       />
       <div className="flex justify-end gap-2">
         <Button variant="ghost" onClick={onDone}>

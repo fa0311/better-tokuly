@@ -5,7 +5,14 @@ export default {
   mutual: "{{count}} mutual friends",
   friendsSince: "Friends since {{date}}",
   bestFriend: "Best friend",
-  stats: { friends: "Friends", intros: "Intros", views: "Views", bumps: "Bumps", explored: "Explored", countries: "Countries" },
+  stats: {
+    friends: "Friends",
+    intros: "Intros",
+    views: "Views",
+    bumps: "Bumps",
+    explored: "Explored",
+    countries: "Countries",
+  },
   nowPlaying: "Now playing",
   actions: {
     add: "Add friend",

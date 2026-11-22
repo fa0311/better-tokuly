@@ -37,7 +37,9 @@ export function FreeFriendsStrip({ bare, className }: FreeFriendsStripProps) {
   const [setting, setSetting] = useState(false);
   const [opened, setOpened] = useState<{ userId: string; draft?: PlanDraft }>();
 
-  const statuses = (board.data?.statuses ?? []).filter((status) => status.user && !hasEnded(status, now));
+  const statuses = (board.data?.statuses ?? []).filter(
+    (status) => status.user && !hasEnded(status, now),
+  );
   const mine = board.data?.mine && !hasEnded(board.data.mine, now) ? board.data.mine : undefined;
   const openedStatus = opened && statuses.find((status) => status.user?.id === opened.userId);
 
@@ -45,7 +47,10 @@ export function FreeFriendsStrip({ bare, className }: FreeFriendsStripProps) {
     const userId = status.user?.id ?? "";
     if (status.answeredByMe) return setOpened({ userId });
     // One tap answers; the sheet that follows offers a chat or a plan.
-    answer.mutate({ status }, { onSuccess: (response) => setOpened({ userId, draft: response.planDraft }) });
+    answer.mutate(
+      { status },
+      { onSuccess: (response) => setOpened({ userId, draft: response.planDraft }) },
+    );
   };
 
   return (
@@ -54,9 +59,16 @@ export function FreeFriendsStrip({ bare, className }: FreeFriendsStripProps) {
         <div className="mb-2 flex items-center gap-2 px-1">
           <h2 className="min-w-0 flex-1 truncate text-base font-black">
             {t("free.strip.title")}
-            {statuses.length > 0 && <span className="ml-2 rounded-full bg-lime px-2 py-0.5 text-xs font-black text-[#17122b]">{statuses.length}</span>}
+            {statuses.length > 0 && (
+              <span className="ml-2 rounded-full bg-lime px-2 py-0.5 text-xs font-black text-[#17122b]">
+                {statuses.length}
+              </span>
+            )}
           </h2>
-          <Link to="/plans/free" className="flex items-center text-sm font-bold text-ink-soft hover:text-ink">
+          <Link
+            to="/plans/free"
+            className="flex items-center text-sm font-bold text-ink-soft hover:text-ink"
+          >
             {t("free.strip.all")}
             <ChevronRight className="size-4" />
           </Link>
@@ -65,14 +77,27 @@ export function FreeFriendsStrip({ bare, className }: FreeFriendsStripProps) {
       <ul className="scrollbar-none -mx-4 flex snap-x gap-3 overflow-x-auto px-4 pt-1 pb-2">
         <li className="snap-start">
           {mine ? (
-            <Link to="/plans/free" className="pressable sticker flex h-44 w-32 flex-col items-center gap-1 rounded-card bg-lime p-3 text-center text-[#17122b]">
+            <Link
+              to="/plans/free"
+              className="pressable sticker flex h-44 w-32 flex-col items-center gap-1 rounded-card bg-lime p-3 text-center text-[#17122b]"
+            >
               <PulseFace user={me?.user} live={isRunning(mine, now)} />
               <span className="mt-1 text-sm font-black">{t("free.strip.mine")}</span>
-              <span className="line-clamp-2 text-xs font-bold opacity-80">{mine.note || expiryText(mine, now, t)}</span>
-              {mine.answerCount > 0 && <span className="mt-auto rounded-full bg-pink px-2 py-0.5 text-xs font-black text-white">{t("free.strip.answers", { count: mine.answerCount })}</span>}
+              <span className="line-clamp-2 text-xs font-bold opacity-80">
+                {mine.note || expiryText(mine, now, t)}
+              </span>
+              {mine.answerCount > 0 && (
+                <span className="mt-auto rounded-full bg-pink px-2 py-0.5 text-xs font-black text-white">
+                  {t("free.strip.answers", { count: mine.answerCount })}
+                </span>
+              )}
             </Link>
           ) : (
-            <button type="button" onClick={() => setSetting(true)} className="pressable sticker flex h-44 w-32 flex-col items-center justify-center gap-2 rounded-card bg-surface p-3 text-center">
+            <button
+              type="button"
+              onClick={() => setSetting(true)}
+              className="pressable sticker flex h-44 w-32 flex-col items-center justify-center gap-2 rounded-card bg-surface p-3 text-center"
+            >
               <span className="grid size-14 place-items-center rounded-[1.1rem] border-2 border-dashed border-ink-faint text-ink-soft">
                 <Plus className="size-7" />
               </span>
@@ -81,10 +106,20 @@ export function FreeFriendsStrip({ bare, className }: FreeFriendsStripProps) {
             </button>
           )}
         </li>
-        {board.isPending && [0, 1].map((i) => <li key={i}><Skeleton className="h-44 w-32 rounded-card" /></li>)}
+        {board.isPending &&
+          [0, 1].map((i) => (
+            <li key={i}>
+              <Skeleton className="h-44 w-32 rounded-card" />
+            </li>
+          ))}
         {statuses.map((status) => (
           <li key={status.user?.id} className="snap-start">
-            <FriendTile status={status} now={now} onOpen={() => setOpened({ userId: status.user?.id ?? "" })} onAsobo={() => asobo(status)} />
+            <FriendTile
+              status={status}
+              now={now}
+              onOpen={() => setOpened({ userId: status.user?.id ?? "" })}
+              onAsobo={() => asobo(status)}
+            />
           </li>
         ))}
         {board.paging.hasNextPage && (
@@ -102,23 +137,52 @@ export function FreeFriendsStrip({ bare, className }: FreeFriendsStripProps) {
       </ul>
 
       <SetFreeSheet open={setting} onOpenChange={setSetting} current={mine} />
-      <FreeFriendSheet status={openedStatus} draft={opened?.draft} onOpenChange={(open) => !open && setOpened(undefined)} />
+      <FreeFriendSheet
+        status={openedStatus}
+        draft={opened?.draft}
+        onOpenChange={(open) => !open && setOpened(undefined)}
+      />
     </section>
   );
 }
 
-function FriendTile({ status, now, onOpen, onAsobo }: { status: plans.FreeStatus; now: number; onOpen(): void; onAsobo(): void }) {
+function FriendTile({
+  status,
+  now,
+  onOpen,
+  onAsobo,
+}: {
+  status: plans.FreeStatus;
+  now: number;
+  onOpen(): void;
+  onAsobo(): void;
+}) {
   const { t, i18n } = useTranslation("plans");
   const live = isRunning(status, now);
   return (
-    <div className="sticker flex h-44 w-32 flex-col items-center rounded-card bg-surface p-3 text-center" data-testid="free-friend">
-      <button type="button" onClick={onOpen} className="flex min-h-0 w-full flex-1 flex-col items-center gap-0.5" aria-label={t("free.friend.title", { name: nameOf(status.user) })}>
+    <div
+      className="sticker flex h-44 w-32 flex-col items-center rounded-card bg-surface p-3 text-center"
+      data-testid="free-friend"
+    >
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex min-h-0 w-full flex-1 flex-col items-center gap-0.5"
+        aria-label={t("free.friend.title", { name: nameOf(status.user) })}
+      >
         <PulseFace user={status.user} live={live} />
         <span className="mt-1 w-full truncate text-sm font-black">{nameOf(status.user)}</span>
-        <span className={cn("max-w-full truncate rounded-full px-2 text-[11px] font-black", live ? "bg-lime text-[#17122b]" : "bg-surface-2 text-ink-soft")}>
+        <span
+          className={cn(
+            "max-w-full truncate rounded-full px-2 text-[11px] font-black",
+            live ? "bg-lime text-[#17122b]" : "bg-surface-2 text-ink-soft",
+          )}
+        >
           {badgeText(status, now, i18n.language, t)}
         </span>
-        {status.note && <span className="line-clamp-1 w-full text-xs font-bold text-ink-soft">{status.note}</span>}
+        {status.note && (
+          <span className="line-clamp-1 w-full text-xs font-bold text-ink-soft">{status.note}</span>
+        )}
       </button>
       <button
         type="button"
@@ -145,8 +209,18 @@ function FriendTile({ status, now, onOpen, onAsobo }: { status: plans.FreeStatus
 export function PulseFace({ user, live }: { user: plans.FreeStatus["user"]; live: boolean }) {
   return (
     <span className="relative grid place-items-center">
-      {live && <span className="absolute inset-0 animate-pulse-ring rounded-[1.1rem] bg-lime" aria-hidden />}
-      <Avatar user={user} size="lg" outlined className="relative [&>span]:size-14 [&>span]:rounded-[1.1rem]" />
+      {live && (
+        <span
+          className="absolute inset-0 animate-pulse-ring rounded-[1.1rem] bg-lime"
+          aria-hidden
+        />
+      )}
+      <Avatar
+        user={user}
+        size="lg"
+        outlined
+        className="relative [&>span]:size-14 [&>span]:rounded-[1.1rem]"
+      />
     </span>
   );
 }

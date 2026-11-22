@@ -4,7 +4,10 @@ import { clientIsOutdated, PROTOCOL_VERSION } from "./protocol.js";
 
 describe("protocol version", () => {
   it("is the one the gateway announces", () => {
-    const gateway = readFileSync(new URL("../../../backend/crates/realtime/src/frames.rs", import.meta.url), "utf8");
+    const gateway = readFileSync(
+      new URL("../../../backend/crates/realtime/src/frames.rs", import.meta.url),
+      "utf8",
+    );
     const announced = /const PROTOCOL_VERSION: u32 = (\d+);/.exec(gateway)?.[1];
     expect(Number(announced)).toBe(PROTOCOL_VERSION);
   });

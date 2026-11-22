@@ -15,7 +15,8 @@ export const feedKeys = {
   friends: (kindPrefix: string) => ["feed", "activity", "friends", kindPrefix] as const,
   user: (userId: string) => ["feed", "activity", "user", userId] as const,
   preferences: ["feed", "preferences"] as const,
-  recap: (period: feed.RecapPeriod, anchorDate: string) => ["feed", "recap", period, anchorDate] as const,
+  recap: (period: feed.RecapPeriod, anchorDate: string) =>
+    ["feed", "recap", period, anchorDate] as const,
 };
 
 const PAGE_SIZE = 30;
@@ -24,7 +25,8 @@ const PAGE_SIZE = 30;
 export function useHomeFeed(enabled = true) {
   return useInfiniteQuery({
     queryKey: feedKeys.home,
-    queryFn: ({ pageParam }) => homeFeedClient().listHomeFeed({ page: { cursor: pageParam, limit: PAGE_SIZE } }),
+    queryFn: ({ pageParam }) =>
+      homeFeedClient().listHomeFeed({ page: { cursor: pageParam, limit: PAGE_SIZE } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
     enabled,
@@ -36,7 +38,11 @@ export function useHomeFeed(enabled = true) {
 export function useMyActivity(kindPrefix: string) {
   return useInfiniteQuery({
     queryKey: feedKeys.mine(kindPrefix),
-    queryFn: ({ pageParam }) => activityClient().listMyActivity({ kindPrefix, page: { cursor: pageParam, limit: PAGE_SIZE } }),
+    queryFn: ({ pageParam }) =>
+      activityClient().listMyActivity({
+        kindPrefix,
+        page: { cursor: pageParam, limit: PAGE_SIZE },
+      }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
@@ -46,7 +52,11 @@ export function useMyActivity(kindPrefix: string) {
 export function useFriendsActivity(kindPrefix: string) {
   return useInfiniteQuery({
     queryKey: feedKeys.friends(kindPrefix),
-    queryFn: ({ pageParam }) => activityClient().listFriendsActivity({ kindPrefix, page: { cursor: pageParam, limit: PAGE_SIZE } }),
+    queryFn: ({ pageParam }) =>
+      activityClient().listFriendsActivity({
+        kindPrefix,
+        page: { cursor: pageParam, limit: PAGE_SIZE },
+      }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
@@ -56,7 +66,8 @@ export function useFriendsActivity(kindPrefix: string) {
 export function useUserActivity(userId: string, enabled = true) {
   return useInfiniteQuery({
     queryKey: feedKeys.user(userId),
-    queryFn: ({ pageParam }) => activityClient().listUserActivity({ userId, page: { cursor: pageParam, limit: PAGE_SIZE } }),
+    queryFn: ({ pageParam }) =>
+      activityClient().listUserActivity({ userId, page: { cursor: pageParam, limit: PAGE_SIZE } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
     enabled,
@@ -65,7 +76,11 @@ export function useUserActivity(userId: string, enabled = true) {
 
 /** Which kinds of the viewer's activity other people get to see. */
 export function useActivityPreferences(enabled = true) {
-  return useQuery({ queryKey: feedKeys.preferences, queryFn: async () => (await activityClient().getActivityPreferences({})).kinds, enabled });
+  return useQuery({
+    queryKey: feedKeys.preferences,
+    queryFn: async () => (await activityClient().getActivityPreferences({})).kinds,
+    enabled,
+  });
 }
 
 /** The recap of the month or year containing `anchorDate` (`YYYY-MM-DD`, empty = today). */

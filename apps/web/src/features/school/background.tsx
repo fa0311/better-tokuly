@@ -7,7 +7,13 @@ import { toast } from "sonner";
 import { realtime } from "#/lib/realtime";
 import { useSessionStore } from "#/stores/session";
 import { keys, refresh, studyClient } from "./api";
-import { loadActiveSession, resetActiveSession, setActiveSession, setActiveTimer, useActiveSession } from "./session-store";
+import {
+  loadActiveSession,
+  resetActiveSession,
+  setActiveSession,
+  setActiveTimer,
+  useActiveSession,
+} from "./session-store";
 
 /**
  * Runs while someone is signed in: restores their study timer after a
@@ -41,7 +47,8 @@ export default function SchoolBackground() {
       switch (event.case) {
         case "session": {
           setActiveSession(event.value);
-          if (event.value.state === school.SessionState.ENDED) refresh(queryClient, "study", "rooms");
+          if (event.value.state === school.SessionState.ENDED)
+            refresh(queryClient, "study", "rooms");
           break;
         }
         case "friendStudying":
@@ -51,14 +58,21 @@ export default function SchoolBackground() {
           toast(t("study.cheered", { name: event.value.from?.displayName ?? "" }), { icon: "📣" });
           void queryClient.invalidateQueries({ queryKey: keys.cheers(event.value.sessionId) });
           const current = useActiveSession.getState().session;
-          if (current?.id === event.value.sessionId) useActiveSession.setState({ session: { ...current, cheerCount: current.cheerCount + 1 } });
+          if (current?.id === event.value.sessionId)
+            useActiveSession.setState({
+              session: { ...current, cheerCount: current.cheerCount + 1 },
+            });
           break;
         }
         case "roomInvitation": {
           const room = event.value;
           toast(t("rooms.invited", { name: room.host?.displayName ?? "", title: room.title }), {
             icon: "🚪",
-            action: { label: t("rooms.open"), onClick: () => void router.navigate({ to: "/school/rooms/$roomId", params: { roomId: room.id } }) },
+            action: {
+              label: t("rooms.open"),
+              onClick: () =>
+                void router.navigate({ to: "/school/rooms/$roomId", params: { roomId: room.id } }),
+            },
           });
           refresh(queryClient, "rooms");
           break;
@@ -68,7 +82,11 @@ export default function SchoolBackground() {
           if (event.value.session) setActiveSession(event.value.session);
           else setActiveSession(undefined);
           toast(
-            reason === school.RoomLeaveReason.CLOSED ? t("rooms.left.closed") : reason === school.RoomLeaveReason.REMOVED ? t("rooms.left.removed") : t("rooms.left.idle"),
+            reason === school.RoomLeaveReason.CLOSED
+              ? t("rooms.left.closed")
+              : reason === school.RoomLeaveReason.REMOVED
+                ? t("rooms.left.removed")
+                : t("rooms.left.idle"),
             { icon: "🚪" },
           );
           refresh(queryClient, "rooms", "study");

@@ -29,11 +29,20 @@ function rank(words: readonly string[], query: string): number {
 
 /** An emoji a picker or an autocomplete offers: custom or Unicode. */
 export type EmojiChoice =
-  | { kind: "custom"; /** `:name:` */ emoji: string; name: string; custom: CatalogEmoji }
-  | { kind: "unicode"; /** The character itself. */ emoji: string; name: string };
+  | { kind: "custom" /** `:name:` */; emoji: string; name: string; custom: CatalogEmoji }
+  | { kind: "unicode" /** The character itself. */; emoji: string; name: string };
 
-export const customChoice = (custom: CatalogEmoji): EmojiChoice => ({ kind: "custom", emoji: `:${custom.name}:`, name: custom.name, custom });
-export const unicodeChoice = (entry: UnicodeEmoji): EmojiChoice => ({ kind: "unicode", emoji: entry.emoji, name: entry.en[0] ?? entry.emoji });
+export const customChoice = (custom: CatalogEmoji): EmojiChoice => ({
+  kind: "custom",
+  emoji: `:${custom.name}:`,
+  name: custom.name,
+  custom,
+});
+export const unicodeChoice = (entry: UnicodeEmoji): EmojiChoice => ({
+  kind: "unicode",
+  emoji: entry.emoji,
+  name: entry.en[0] ?? entry.emoji,
+});
 
 /**
  * Finds emoji by name and alias, custom and Unicode together, in Japanese
@@ -41,7 +50,12 @@ export const unicodeChoice = (entry: UnicodeEmoji): EmojiChoice => ({ kind: "uni
  * words containing it. Among equals custom emoji lead (they are what a
  * community made its own), then names before aliases.
  */
-export function searchEmoji(query: string, customs: readonly CatalogEmoji[], unicode: readonly UnicodeEmoji[], limit = 60): EmojiChoice[] {
+export function searchEmoji(
+  query: string,
+  customs: readonly CatalogEmoji[],
+  unicode: readonly UnicodeEmoji[],
+  limit = 60,
+): EmojiChoice[] {
   const wanted = normalizeQuery(query);
   if (!wanted) return [];
   const hits: { choice: EmojiChoice; score: number }[] = [];
@@ -58,7 +72,12 @@ export function searchEmoji(query: string, customs: readonly CatalogEmoji[], uni
       hits.push({ choice: unicodeChoice(entry), score: 0 });
       continue;
     }
-    const score = Math.min(...[rank(entry.en, wanted), rank(entry.ja, wanted)].filter((value) => value >= 0).map((value) => value * 2 + 1.5), 99);
+    const score = Math.min(
+      ...[rank(entry.en, wanted), rank(entry.ja, wanted)]
+        .filter((value) => value >= 0)
+        .map((value) => value * 2 + 1.5),
+      99,
+    );
     if (score < 99) hits.push({ choice: unicodeChoice(entry), score });
   }
   // A stable sort keeps the catalogue's and the table's own order among equals.

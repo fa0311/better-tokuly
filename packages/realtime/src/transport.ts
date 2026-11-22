@@ -70,7 +70,9 @@ export async function connectWebTransport(
   };
 
   await withTimeout(session.ready, timeoutMs, () => session.close());
-  const stream = await withTimeout(session.createBidirectionalStream(), timeoutMs, () => session.close());
+  const stream = await withTimeout(session.createBidirectionalStream(), timeoutMs, () =>
+    session.close(),
+  );
   const writer = stream.writable.getWriter();
   const datagramWriter = session.datagrams.writable.getWriter();
 
@@ -109,7 +111,10 @@ export async function connectWebTransport(
     }
   })();
 
-  const maxDatagram = Math.min(MAX_DATAGRAM_BYTES, session.datagrams.maxDatagramSize || MAX_DATAGRAM_BYTES);
+  const maxDatagram = Math.min(
+    MAX_DATAGRAM_BYTES,
+    session.datagrams.maxDatagramSize || MAX_DATAGRAM_BYTES,
+  );
   const send = (frame: Uint8Array) => {
     writer.write(sendable(encodeFrame(frame))).catch((error) => closeOnce(String(error)));
   };

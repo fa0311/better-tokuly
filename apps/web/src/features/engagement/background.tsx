@@ -20,13 +20,15 @@ export default function EngagementBackground() {
     const off = client.onFrame((frame) => {
       if (frame.body.case === "welcome") {
         // Counters that changed while the connection was down were missed: read them again.
-        if (connectedBefore) void queryClient.invalidateQueries({ queryKey: engagementKeys.subjects });
+        if (connectedBefore)
+          void queryClient.invalidateQueries({ queryKey: engagementKeys.subjects });
         connectedBefore = true;
         return;
       }
       if (frame.body.case !== "engagement") return;
       const { subject, event } = frame.body.value;
-      if (subject && event.case === "countersChanged") applyCounters(queryClient, subject.type, subject.id, event.value);
+      if (subject && event.case === "countersChanged")
+        applyCounters(queryClient, subject.type, subject.id, event.value);
     });
     client.start();
     return off;

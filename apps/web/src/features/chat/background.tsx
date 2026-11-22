@@ -25,7 +25,9 @@ export default function ChatBackground() {
   const queryClient = useQueryClient();
   const router = useRouter();
   const unread = useUnread();
-  const userId = useSessionStore((state) => (state.state.status === "signedIn" ? (state.state.me.user?.id ?? "") : ""));
+  const userId = useSessionStore((state) =>
+    state.state.status === "signedIn" ? (state.state.me.user?.id ?? "") : "",
+  );
   // Loaded up front: the chat tab opens without a spinner, and events have a list to update.
   const inbox = useConversationList("inbox");
 
@@ -49,7 +51,10 @@ export default function ChatBackground() {
           resynchronize(queryClient);
           break;
         case "chat":
-          applyChatEvent(queryClient, frame.body.value.event, { myId: userId, readingId: useLive.getState().readingId });
+          applyChatEvent(queryClient, frame.body.value.event, {
+            myId: userId,
+            readingId: useLive.getState().readingId,
+          });
           break;
         case "presence":
           useLive.getState().setOnline(frame.body.value.userId, frame.body.value.online);

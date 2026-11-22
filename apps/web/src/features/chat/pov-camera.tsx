@@ -23,10 +23,25 @@ const MAX_VIDEO_SECONDS = 15;
  * the spot. Where the camera cannot be used (no permission, no camera) the
  * device's own camera or file picker stands in.
  */
-export function PovCamera({ open, onClose, requestId, onSent }: { open: boolean; onClose(): void; requestId: string; onSent(): void }) {
+export function PovCamera({
+  open,
+  onClose,
+  requestId,
+  onSent,
+}: {
+  open: boolean;
+  onClose(): void;
+  requestId: string;
+  onSent(): void;
+}) {
   const { t } = useTranslation("chat");
   return (
-    <Dialog open={open} onOpenChange={(next) => !next && onClose()} title={t("pov.cameraTitle")} description={t("pov.cameraLead")}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => !next && onClose()}
+      title={t("pov.cameraTitle")}
+      description={t("pov.cameraLead")}
+    >
       {open && (
         <Camera
           requestId={requestId}
@@ -67,7 +82,10 @@ function Camera({ requestId, onDone }: { requestId: string; onDone(): void }) {
     let current: MediaStream | null = null;
     const start = async () => {
       try {
-        current = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing }, audio: true });
+        current = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: facing },
+          audio: true,
+        });
       } catch {
         // No microphone (or it was refused): photos and silent videos still work.
         current = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing } });
@@ -122,7 +140,11 @@ function Camera({ requestId, onDone }: { requestId: string; onDone(): void }) {
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     canvas.getContext("2d")?.drawImage(video, 0, 0);
-    canvas.toBlob((blob) => blob && void add(blob, `pov-${Date.now()}.jpg`, "image"), "image/jpeg", 0.9);
+    canvas.toBlob(
+      (blob) => blob && void add(blob, `pov-${Date.now()}.jpg`, "image"),
+      "image/jpeg",
+      0.9,
+    );
   };
 
   const startVideo = () => {
@@ -136,7 +158,12 @@ function Camera({ requestId, onDone }: { requestId: string; onDone(): void }) {
       setRecordingSince(null);
       setElapsed(0);
       const recorded = session.mimeType || type || "video/webm";
-      if (chunks.length > 0) void add(new Blob(chunks, { type: recorded }), `pov-${Date.now()}.${extensionOf(recorded)}`, "video");
+      if (chunks.length > 0)
+        void add(
+          new Blob(chunks, { type: recorded }),
+          `pov-${Date.now()}.${extensionOf(recorded)}`,
+          "video",
+        );
     };
     recorder.current = session;
     session.start(250);
@@ -157,7 +184,11 @@ function Camera({ requestId, onDone }: { requestId: string; onDone(): void }) {
   const submit = () => {
     if (shots.length === 0) return;
     kept.current = true;
-    send(queryClient, conversation.id, { text: caption.trim(), files: shots, povRequestId: requestId });
+    send(queryClient, conversation.id, {
+      text: caption.trim(),
+      files: shots,
+      povRequestId: requestId,
+    });
     onDone();
   };
 
@@ -168,14 +199,30 @@ function Camera({ requestId, onDone }: { requestId: string; onDone(): void }) {
         <div className="flex flex-col items-center gap-3 rounded-card bg-surface-2 p-6 text-center">
           <p className="text-5xl">📸</p>
           <p className="text-sm text-ink-soft">{t("pov.cameraUnavailable")}</p>
-          <Button variant="secondary" icon={<ImagePlus className="size-4" />} disabled={full} onClick={() => fallback.current?.click()}>
+          <Button
+            variant="secondary"
+            icon={<ImagePlus className="size-4" />}
+            disabled={full}
+            onClick={() => fallback.current?.click()}
+          >
             {t("pov.openCamera")}
           </Button>
         </div>
       ) : (
         <>
           <div className="relative overflow-hidden rounded-card bg-black">
-            <video ref={preview} autoPlay muted playsInline onPlaying={() => setLive(true)} className={cn("aspect-square w-full object-cover sm:aspect-[4/3]", facing === "user" && "-scale-x-100")} data-testid="pov-preview" />
+            <video
+              ref={preview}
+              autoPlay
+              muted
+              playsInline
+              onPlaying={() => setLive(true)}
+              className={cn(
+                "aspect-square w-full object-cover sm:aspect-[4/3]",
+                facing === "user" && "-scale-x-100",
+              )}
+              data-testid="pov-preview"
+            />
             {recording && (
               <span className="absolute top-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-live px-3 py-1 text-xs font-black text-white tabular-nums">
                 <span className="size-2 animate-pulse rounded-full bg-white" />
@@ -204,27 +251,66 @@ function Camera({ requestId, onDone }: { requestId: string; onDone(): void }) {
             <button
               type="button"
               disabled={!stream || !live || (full && !recording)}
-              aria-label={mode === "photo" ? t("pov.shoot") : recording ? t("pov.stop") : t("pov.record")}
-              onClick={() => (mode === "photo" ? takePhoto() : recording ? recorder.current?.stop() : startVideo())}
-              className={cn("pressable sticker grid size-16 shrink-0 place-items-center rounded-full disabled:opacity-40", mode === "video" ? "bg-live text-white" : "bg-surface text-ink")}
+              aria-label={
+                mode === "photo" ? t("pov.shoot") : recording ? t("pov.stop") : t("pov.record")
+              }
+              onClick={() =>
+                mode === "photo" ? takePhoto() : recording ? recorder.current?.stop() : startVideo()
+              }
+              className={cn(
+                "pressable sticker grid size-16 shrink-0 place-items-center rounded-full disabled:opacity-40",
+                mode === "video" ? "bg-live text-white" : "bg-surface text-ink",
+              )}
             >
-              {recording ? <Square className="size-6 fill-current" /> : <Circle className={cn("size-9", mode === "video" && "fill-current")} />}
+              {recording ? (
+                <Square className="size-6 fill-current" />
+              ) : (
+                <Circle className={cn("size-9", mode === "video" && "fill-current")} />
+              )}
             </button>
-            <button type="button" disabled={full || recording} onClick={() => fallback.current?.click()} className="grid size-11 place-items-center rounded-full text-ink-soft hover:bg-surface-2 disabled:opacity-40" aria-label={t("pov.pick")}>
+            <button
+              type="button"
+              disabled={full || recording}
+              onClick={() => fallback.current?.click()}
+              className="grid size-11 place-items-center rounded-full text-ink-soft hover:bg-surface-2 disabled:opacity-40"
+              aria-label={t("pov.pick")}
+            >
               <ImagePlus className="size-5" />
             </button>
           </div>
         </>
       )}
 
-      <input ref={fallback} type="file" accept="image/*,video/*" capture="environment" multiple className="hidden" data-testid="pov-file-input" onChange={(event) => void choose(event.target.files)} />
+      <input
+        ref={fallback}
+        type="file"
+        accept="image/*,video/*"
+        capture="environment"
+        multiple
+        className="hidden"
+        data-testid="pov-file-input"
+        onChange={(event) => void choose(event.target.files)}
+      />
 
       {shots.length > 0 && (
         <>
           <ul className="flex gap-2" aria-label={t("pov.shots")}>
             {shots.map((shot) => (
-              <li key={shot.id} className="relative size-20 overflow-hidden rounded-2xl bg-surface-3">
-                {shot.kind === "video" ? <video src={`${shot.previewUrl}#t=0.1`} muted playsInline preload="metadata" className="size-full object-cover" /> : <img src={shot.previewUrl} alt="" className="size-full object-cover" />}
+              <li
+                key={shot.id}
+                className="relative size-20 overflow-hidden rounded-2xl bg-surface-3"
+              >
+                {shot.kind === "video" ? (
+                  <video
+                    src={`${shot.previewUrl}#t=0.1`}
+                    muted
+                    playsInline
+                    preload="metadata"
+                    className="size-full object-cover"
+                  />
+                ) : (
+                  <img src={shot.previewUrl} alt="" className="size-full object-cover" />
+                )}
                 <button
                   type="button"
                   aria-label={t("actions.remove")}
@@ -249,7 +335,13 @@ function Camera({ requestId, onDone }: { requestId: string; onDone(): void }) {
           />
         </>
       )}
-      <Button block variant="lime" disabled={shots.length === 0 || recording} icon={<Send className="size-4" />} onClick={submit}>
+      <Button
+        block
+        variant="lime"
+        disabled={shots.length === 0 || recording}
+        icon={<Send className="size-4" />}
+        onClick={submit}
+      >
         {t("pov.send")}
       </Button>
     </div>

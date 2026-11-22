@@ -38,7 +38,10 @@ export function BoxHeader({ box, guest }: { box: ask.QuestionBox; guest?: boolea
           {who}
         </Link>
       )}
-      <p className="sticker relative mt-4 rounded-card bg-sun px-5 py-4 text-xl leading-snug font-black break-words text-[#17122b]" data-testid="box-prompt">
+      <p
+        className="sticker relative mt-4 rounded-card bg-sun px-5 py-4 text-xl leading-snug font-black break-words text-[#17122b]"
+        data-testid="box-prompt"
+      >
         <span aria-hidden className="mr-1.5">
           💌
         </span>
@@ -78,7 +81,8 @@ export function BoxScreen({ handle }: { handle: string }) {
 
   const owner = box.owner;
   const questions = answers.data?.pages.flatMap((page) => page.questions) ?? [];
-  const openPrompts = prompts.data?.pages.flatMap((page) => page.prompts).filter((prompt) => prompt.open) ?? [];
+  const openPrompts =
+    prompts.data?.pages.flatMap((page) => page.prompts).filter((prompt) => prompt.open) ?? [];
 
   return (
     <Page title={t("box.title", { name: owner.displayName })} back="/ask" wide>
@@ -92,7 +96,10 @@ export function BoxScreen({ handle }: { handle: string }) {
                 <Button block icon={<Share2 className="size-4" />} onClick={() => setSharing(true)}>
                   {t("box.ownShare")}
                 </Button>
-                <Link to="/ask/inbox" className="pressable sticker inline-flex h-11 items-center justify-center gap-2 rounded-full bg-surface px-5 font-bold">
+                <Link
+                  to="/ask/inbox"
+                  className="pressable sticker inline-flex h-11 items-center justify-center gap-2 rounded-full bg-surface px-5 font-bold"
+                >
                   <Inbox className="size-4" />
                   {t("hub.inbox")}
                 </Link>
@@ -100,11 +107,18 @@ export function BoxScreen({ handle }: { handle: string }) {
             ) : box.canAsk ? (
               <AskForm box={box} initialText={draft} />
             ) : (
-              <div className="flex flex-col items-center gap-3 py-2 text-center" data-testid="cannot-ask">
+              <div
+                className="flex flex-col items-center gap-3 py-2 text-center"
+                data-testid="cannot-ask"
+              >
                 <div className="text-4xl">{box.open ? "🔐" : "😴"}</div>
                 <p className="font-black">{box.open ? t("box.friendsOnly") : t("box.closed")}</p>
                 {box.open && (
-                  <Link to="/u/$handle" params={{ handle: owner.handle }} className="pressable sticker inline-flex h-10 items-center rounded-full bg-surface px-5 text-sm font-bold">
+                  <Link
+                    to="/u/$handle"
+                    params={{ handle: owner.handle }}
+                    className="pressable sticker inline-flex h-10 items-center rounded-full bg-surface px-5 text-sm font-bold"
+                  >
                     {t("box.addFriend")}
                   </Link>
                 )}
@@ -125,13 +139,24 @@ export function BoxScreen({ handle }: { handle: string }) {
         </div>
 
         <section>
-          <SectionTitle className="lg:mt-0" action={<span className="text-sm font-bold text-ink-faint">{t("box.answersCount", { count: box.answerCount })}</span>}>
+          <SectionTitle
+            className="lg:mt-0"
+            action={
+              <span className="text-sm font-bold text-ink-faint">
+                {t("box.answersCount", { count: box.answerCount })}
+              </span>
+            }
+          >
             {t("box.answers")}
           </SectionTitle>
           {answers.isPending ? (
             <Skeleton className="h-40" />
           ) : questions.length === 0 ? (
-            <EmptyState emoji="🫧" title={t("box.answersEmpty")} body={isSelf ? undefined : t("box.answersEmptyBody")} />
+            <EmptyState
+              emoji="🫧"
+              title={t("box.answersEmpty")}
+              body={isSelf ? undefined : t("box.answersEmptyBody")}
+            />
           ) : (
             <div className="flex flex-col gap-4">
               {questions.map((question) => (
@@ -142,7 +167,9 @@ export function BoxScreen({ handle }: { handle: string }) {
           )}
         </section>
       </div>
-      {sharing && <BoxShareSheet open onOpenChange={setSharing} handle={owner.handle} prompt={box.prompt} />}
+      {sharing && (
+        <BoxShareSheet open onOpenChange={setSharing} handle={owner.handle} prompt={box.prompt} />
+      )}
     </Page>
   );
 }

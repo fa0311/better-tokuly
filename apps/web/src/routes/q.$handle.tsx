@@ -9,7 +9,8 @@ import { PublicBoxScreen } from "#/features/ask/public-box-screen";
  */
 export const Route = createFileRoute("/q/$handle")({
   ssr: false,
-  validateSearch: (search: Record<string, unknown>): { a?: string } => (typeof search.a === "string" && search.a ? { a: search.a } : {}),
+  validateSearch: (search: Record<string, unknown>): { a?: string } =>
+    typeof search.a === "string" && search.a ? { a: search.a } : {},
   component: PublicBoxPage,
 });
 

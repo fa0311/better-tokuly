@@ -17,7 +17,13 @@ const REMOVABLE_TYPES = SUBJECT_TYPES.filter((type) => type !== common.SubjectTy
  * Takes a piece of content down by reference, without a report: the tool for
  * something staff found themselves or were told about elsewhere.
  */
-export function TakedownDialog({ open, onOpenChange }: { open: boolean; onOpenChange(open: boolean): void }) {
+export function TakedownDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange(open: boolean): void;
+}) {
   const { t } = useTranslation("admin");
   const queryClient = useQueryClient();
   const [type, setType] = useState<common.SubjectType>(common.SubjectType.NOTE);
@@ -25,9 +31,16 @@ export function TakedownDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   const [idMissing, setIdMissing] = useState(false);
 
   const takedown = useMutation({
-    mutationFn: (texts: ActionTexts) => moderationClient().takedownContent({ subject: { type, id: id.trim() }, reason: texts.reason, note: texts.note }),
+    mutationFn: (texts: ActionTexts) =>
+      moderationClient().takedownContent({
+        subject: { type, id: id.trim() },
+        reason: texts.reason,
+        note: texts.note,
+      }),
     onSuccess: (response) => {
-      toast.success(t(response.resolvedCase ? "moderation.takedown.doneWithCase" : "moderation.takedown.done"));
+      toast.success(
+        t(response.resolvedCase ? "moderation.takedown.doneWithCase" : "moderation.takedown.done"),
+      );
       setId("");
       onOpenChange(false);
       return queryClient.invalidateQueries({ queryKey: ["admin"] });
@@ -55,7 +68,10 @@ export function TakedownDialog({ open, onOpenChange }: { open: boolean; onOpenCh
         label={t("moderation.takedown.type")}
         value={String(type)}
         onChange={(value) => setType(Number(value) as common.SubjectType)}
-        options={REMOVABLE_TYPES.map((option) => ({ value: String(option), label: t(subjectTypeKey(option)) }))}
+        options={REMOVABLE_TYPES.map((option) => ({
+          value: String(option),
+          label: t(subjectTypeKey(option)),
+        }))}
       />
       <TextField
         label={t("moderation.takedown.id")}

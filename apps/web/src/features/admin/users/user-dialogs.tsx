@@ -32,7 +32,8 @@ const handleOf = (account: admin.AdminUser) => account.user?.handle ?? "";
 export function WarnDialog({ account, open, onOpenChange, onDone }: DialogProps) {
   const { t } = useTranslation("admin");
   const warn = useMutation({
-    mutationFn: (texts: { reason: string; note: string }) => userAdminClient().warnUser({ userId: account.user?.id, ...texts }),
+    mutationFn: (texts: { reason: string; note: string }) =>
+      userAdminClient().warnUser({ userId: account.user?.id, ...texts }),
     onSuccess: () => {
       toast.success(t("users.toast.warned"));
       onOpenChange(false);
@@ -60,7 +61,13 @@ export function SuspendDialog({ account, open, onOpenChange, onDone }: DialogPro
   const [permanent, setPermanent] = useState(false);
   const [seconds, setSeconds] = useState(7 * 86_400);
   const suspend = useMutation({
-    mutationFn: (texts: { reason: string; note: string }) => userAdminClient().suspendUser({ userId: account.user?.id, ...texts, permanent, suspensionSeconds: permanent ? 0n : BigInt(seconds) }),
+    mutationFn: (texts: { reason: string; note: string }) =>
+      userAdminClient().suspendUser({
+        userId: account.user?.id,
+        ...texts,
+        permanent,
+        suspensionSeconds: permanent ? 0n : BigInt(seconds),
+      }),
     onSuccess: (response) => {
       toast.success(t(permanent ? "users.toast.banned" : "users.toast.suspended"));
       onOpenChange(false);
@@ -73,7 +80,9 @@ export function SuspendDialog({ account, open, onOpenChange, onDone }: DialogPro
       open={open}
       onOpenChange={onOpenChange}
       title={t("users.suspend.title", { handle: handleOf(account) })}
-      description={t(account.suspension ? "users.suspend.descriptionReplace" : "users.suspend.description")}
+      description={t(
+        account.suspension ? "users.suspend.descriptionReplace" : "users.suspend.description",
+      )}
       confirmLabel={t(permanent ? "users.suspend.confirmBan" : "users.suspend.confirm")}
       danger
       loading={suspend.isPending}
@@ -88,7 +97,11 @@ export function SuspendDialog({ account, open, onOpenChange, onDone }: DialogPro
           { value: "permanent", label: t("users.suspend.permanent") },
         ]}
       />
-      {permanent ? <p className="text-sm text-ink-soft">{t("users.suspend.permanentHint")}</p> : <DurationSelect value={seconds} onChange={setSeconds} />}
+      {permanent ? (
+        <p className="text-sm text-ink-soft">{t("users.suspend.permanentHint")}</p>
+      ) : (
+        <DurationSelect value={seconds} onChange={setSeconds} />
+      )}
     </ActionDialog>
   );
 }
@@ -96,7 +109,8 @@ export function SuspendDialog({ account, open, onOpenChange, onDone }: DialogPro
 export function UnsuspendDialog({ account, open, onOpenChange, onDone }: DialogProps) {
   const { t } = useTranslation("admin");
   const unsuspend = useMutation({
-    mutationFn: (note: string) => userAdminClient().unsuspendUser({ userId: account.user?.id, note }),
+    mutationFn: (note: string) =>
+      userAdminClient().unsuspendUser({ userId: account.user?.id, note }),
     onSuccess: (response) => {
       toast.success(t("users.toast.unsuspended"));
       onOpenChange(false);
@@ -121,7 +135,8 @@ export function VerifyDialog({ account, open, onOpenChange, onDone }: DialogProp
   const { t } = useTranslation("admin");
   const verified = !account.user?.verified;
   const setVerified = useMutation({
-    mutationFn: (note: string) => userAdminClient().setUserVerified({ userId: account.user?.id, verified, note }),
+    mutationFn: (note: string) =>
+      userAdminClient().setUserVerified({ userId: account.user?.id, verified, note }),
     onSuccess: (response) => {
       toast.success(t(verified ? "users.toast.verified" : "users.toast.unverified"));
       onOpenChange(false);
@@ -133,7 +148,9 @@ export function VerifyDialog({ account, open, onOpenChange, onDone }: DialogProp
     <ActionDialog
       open={open}
       onOpenChange={onOpenChange}
-      title={t(verified ? "users.verify.grantTitle" : "users.verify.removeTitle", { handle: handleOf(account) })}
+      title={t(verified ? "users.verify.grantTitle" : "users.verify.removeTitle", {
+        handle: handleOf(account),
+      })}
       description={t(verified ? "users.verify.grantDescription" : "users.verify.removeDescription")}
       confirmLabel={t(verified ? "users.verify.grant" : "users.verify.remove")}
       danger={!verified}
@@ -146,7 +163,8 @@ export function VerifyDialog({ account, open, onOpenChange, onDone }: DialogProp
 export function RevokeSessionsDialog({ account, open, onOpenChange, onDone }: DialogProps) {
   const { t } = useTranslation("admin");
   const revoke = useMutation({
-    mutationFn: (note: string) => userAdminClient().revokeUserSessions({ userId: account.user?.id, note }),
+    mutationFn: (note: string) =>
+      userAdminClient().revokeUserSessions({ userId: account.user?.id, note }),
     onSuccess: (response) => {
       toast.success(t("users.toast.revoked", { count: response.revokedCount }));
       onOpenChange(false);
@@ -181,7 +199,8 @@ export function RolesDialog({ account, open, onOpenChange, onDone }: DialogProps
   }, [open, account.roles]);
 
   const save = useMutation({
-    mutationFn: () => userAdminClient().setUserRoles({ userId: account.user?.id, roles, note: note.trim() }),
+    mutationFn: () =>
+      userAdminClient().setUserRoles({ userId: account.user?.id, roles, note: note.trim() }),
     onSuccess: (response) => {
       toast.success(t("admin:users.toast.rolesChanged"));
       onOpenChange(false);
@@ -217,12 +236,28 @@ export function RolesDialog({ account, open, onOpenChange, onDone }: DialogProps
               label={t(`admin:${roleKey(role)}`)}
               hint={t(`admin:users.roles.hints.${role}`)}
               checked={roles.includes(role)}
-              onChange={(checked) => setRoles((current) => (checked ? [...current.filter((held) => held !== role), role] : current.filter((held) => held !== role)))}
+              onChange={(checked) =>
+                setRoles((current) =>
+                  checked
+                    ? [...current.filter((held) => held !== role), role]
+                    : current.filter((held) => held !== role),
+                )
+              }
             />
           ))}
         </div>
-        {removed.length > 0 && <p className="rounded-xl bg-sun px-3 py-2 text-sm font-bold text-[#17122b]">{t("admin:users.roles.removalNotice")}</p>}
-        <TextArea label={t("admin:common.note")} hint={t("admin:common.noteHint")} value={note} maxLength={NOTE_MAX} onChange={(event) => setNote(event.target.value)} />
+        {removed.length > 0 && (
+          <p className="rounded-xl bg-sun px-3 py-2 text-sm font-bold text-[#17122b]">
+            {t("admin:users.roles.removalNotice")}
+          </p>
+        )}
+        <TextArea
+          label={t("admin:common.note")}
+          hint={t("admin:common.noteHint")}
+          value={note}
+          maxLength={NOTE_MAX}
+          onChange={(event) => setNote(event.target.value)}
+        />
       </div>
     </Dialog>
   );

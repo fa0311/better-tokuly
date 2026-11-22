@@ -30,10 +30,19 @@ interface Size {
 }
 
 /** The rectangle of the image (in image pixels) that is inside the frame. */
-export function visibleRegion(view: CropView, source: Size, aspect: number): { x: number; y: number; width: number; height: number } {
+export function visibleRegion(
+  view: CropView,
+  source: Size,
+  aspect: number,
+): { x: number; y: number; width: number; height: number } {
   const width = Math.min(source.width, source.height * aspect) / view.zoom;
   const height = width / aspect;
-  return { x: view.centerX * source.width - width / 2, y: view.centerY * source.height - height / 2, width, height };
+  return {
+    x: view.centerX * source.width - width / 2,
+    y: view.centerY * source.height - height / 2,
+    width,
+    height,
+  };
 }
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
@@ -44,12 +53,24 @@ export function clampView(view: CropView, source: Size, aspect: number, maxZoom:
   const region = visibleRegion({ ...view, zoom }, source, aspect);
   const halfWidth = region.width / 2 / source.width;
   const halfHeight = region.height / 2 / source.height;
-  return { zoom, centerX: clamp(view.centerX, halfWidth, 1 - halfWidth), centerY: clamp(view.centerY, halfHeight, 1 - halfHeight) };
+  return {
+    zoom,
+    centerX: clamp(view.centerX, halfWidth, 1 - halfWidth),
+    centerY: clamp(view.centerY, halfHeight, 1 - halfHeight),
+  };
 }
 
 /** Renders the framed part of the image as a JPEG (transparent areas become white). */
-export function renderCrop(image: HTMLImageElement, view: CropView, frame: CropFrame): Promise<Blob> {
-  const region = visibleRegion(view, { width: image.naturalWidth, height: image.naturalHeight }, frame.aspect);
+export function renderCrop(
+  image: HTMLImageElement,
+  view: CropView,
+  frame: CropFrame,
+): Promise<Blob> {
+  const region = visibleRegion(
+    view,
+    { width: image.naturalWidth, height: image.naturalHeight },
+    frame.aspect,
+  );
   const width = Math.max(1, Math.round(Math.min(frame.outputWidth, region.width)));
   const height = Math.max(1, Math.round(width / frame.aspect));
   const canvas = document.createElement("canvas");
@@ -62,6 +83,10 @@ export function renderCrop(image: HTMLImageElement, view: CropView, frame: CropF
   context.imageSmoothingQuality = "high";
   context.drawImage(image, region.x, region.y, region.width, region.height, 0, 0, width, height);
   return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("the image could not be encoded"))), "image/jpeg", 0.9);
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error("the image could not be encoded"))),
+      "image/jpeg",
+      0.9,
+    );
   });
 }

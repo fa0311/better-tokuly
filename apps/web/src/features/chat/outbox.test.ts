@@ -5,8 +5,25 @@ import { bigEmojiCount, type Outgoing, previewMessage } from "./outbox";
 import { extensionOf } from "./recorder";
 import { rowKey } from "./timeline";
 
-const me = { $typeName: "tokuly.common.v1.UserSummary" as const, id: "me", handle: "me", displayName: "me", avatarVideoUrl: "", verified: false, deleted: false };
-const outgoing = (extra: Partial<Outgoing>): Outgoing => ({ clientId: "client-1", conversationId: "c1", createdAt: Date.now(), text: "", files: [], status: "sending", progress: 0, ...extra });
+const me = {
+  $typeName: "tokuly.common.v1.UserSummary" as const,
+  id: "me",
+  handle: "me",
+  displayName: "me",
+  avatarVideoUrl: "",
+  verified: false,
+  deleted: false,
+};
+const outgoing = (extra: Partial<Outgoing>): Outgoing => ({
+  clientId: "client-1",
+  conversationId: "c1",
+  createdAt: Date.now(),
+  text: "",
+  files: [],
+  status: "sending",
+  progress: 0,
+  ...extra,
+});
 
 describe("big emoji", () => {
   it("counts one to three emoji standing alone", () => {
@@ -26,7 +43,12 @@ describe("big emoji", () => {
 describe("messages on their way", () => {
   it("are drawn as the message they will become", () => {
     const { message, state } = previewMessage(outgoing({ text: "🥰" }), me);
-    expect(message).toMatchObject({ kind: chat.MessageKind.TEXT, text: "🥰", bigEmojiCount: 1, clientId: "client-1" });
+    expect(message).toMatchObject({
+      kind: chat.MessageKind.TEXT,
+      text: "🥰",
+      bigEmojiCount: 1,
+      clientId: "client-1",
+    });
     expect(message.sender?.id).toBe("me");
     expect(state).toEqual({ status: "sending", progress: undefined, error: undefined });
   });
@@ -38,13 +60,18 @@ describe("messages on their way", () => {
 
   it("carry the quote of the message they answer", () => {
     const answered = previewMessage(outgoing({ text: "a long question ".repeat(20) }), me).message;
-    const { message } = previewMessage(outgoing({ text: "yes", replyTo: { ...answered, id: "m1" } }), me);
+    const { message } = previewMessage(
+      outgoing({ text: "yes", replyTo: { ...answered, id: "m1" } }),
+      me,
+    );
     expect(message.replyTo?.messageId).toBe("m1");
     expect(message.replyTo?.text).toHaveLength(120);
   });
 
   it("report why they failed", () => {
-    expect(previewMessage(outgoing({ status: "failed", error: "通信できませんでした" }), me).state).toMatchObject({ status: "failed", error: "通信できませんでした" });
+    expect(
+      previewMessage(outgoing({ status: "failed", error: "通信できませんでした" }), me).state,
+    ).toMatchObject({ status: "failed", error: "通信できませんでした" });
   });
 });
 

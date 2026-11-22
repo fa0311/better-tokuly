@@ -1,13 +1,35 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Bell, Bookmark, CalendarDays, CalendarHeart, ChevronRight, Clapperboard, Footprints, History, ListVideo, LogOut, MailQuestionMark, MapPinned, Megaphone, Newspaper, Settings, ShieldCheck, Smile, SmilePlus, UserRound, Users, Wallet } from "lucide-react";
+import {
+  Bell,
+  Bookmark,
+  CalendarDays,
+  CalendarHeart,
+  ChevronRight,
+  Clapperboard,
+  Footprints,
+  History,
+  ListVideo,
+  LogOut,
+  MailQuestionMark,
+  MapPinned,
+  Megaphone,
+  Newspaper,
+  Settings,
+  ShieldCheck,
+  Smile,
+  SmilePlus,
+  UserRound,
+  Users,
+  Wallet,
+} from "lucide-react";
 import type { ComponentType } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { CountBadge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Page } from "#/components/ui/page";
-import { SchoolHubTile } from "#/features/school";
 import { useAskBadge } from "#/features/ask";
+import { SchoolHubTile } from "#/features/school";
 import { cn } from "#/lib/cn";
 import { type BadgeKey, useBadges } from "#/stores/badges";
 import { signOut as signOutOfApp, useMe } from "#/stores/session";
@@ -44,7 +66,13 @@ interface Tile {
 
 const TILES: Tile[] = [
   { to: "/friends", labelKey: "tiles.friends", icon: Users, tint: "bg-sky", badge: "friends" },
-  { to: "/notifications", labelKey: "tiles.notifications", icon: Bell, tint: "bg-pink", badge: "notifications" },
+  {
+    to: "/notifications",
+    labelKey: "tiles.notifications",
+    icon: Bell,
+    tint: "bg-pink",
+    badge: "notifications",
+  },
   { to: "/footprints", labelKey: "footprints:tile", icon: Footprints, tint: "bg-lime" },
   { to: "/history", labelKey: "history:tile", icon: CalendarDays, tint: "bg-sun" },
   { to: "/places", labelKey: "places:tile", icon: MapPinned, tint: "bg-mint" },
@@ -64,7 +92,12 @@ const TILES: Tile[] = [
   { to: "/announcements", labelKey: "tiles.announcements", icon: Megaphone, tint: "bg-brand-soft" },
 ];
 
-const STAFF_TILE: Tile = { to: "/admin", labelKey: "tiles.admin", icon: ShieldCheck, tint: "bg-coral" };
+const STAFF_TILE: Tile = {
+  to: "/admin",
+  labelKey: "tiles.admin",
+  icon: ShieldCheck,
+  tint: "bg-coral",
+};
 
 /** "じぶん": the hub for everything about the signed-in person. */
 export function MeScreen() {
@@ -73,7 +106,9 @@ export function MeScreen() {
   const navigate = useNavigate();
   if (!me?.user) return null;
 
-  const isStaff = me.roles.some((role) => role === "admin" || role === "moderator" || role === "staff");
+  const isStaff = me.roles.some(
+    (role) => role === "admin" || role === "moderator" || role === "staff",
+  );
   const tiles = isStaff ? [...TILES, STAFF_TILE] : TILES;
   const signOut = async () => {
     await signOutOfApp();
@@ -82,7 +117,11 @@ export function MeScreen() {
 
   return (
     <Page title={t("title")}>
-      <Link to="/u/$handle" params={{ handle: me.user.handle }} className="pressable sticker flex items-center gap-4 rounded-card bg-surface p-4">
+      <Link
+        to="/u/$handle"
+        params={{ handle: me.user.handle }}
+        className="pressable sticker flex items-center gap-4 rounded-card bg-surface p-4"
+      >
         <Avatar user={me.user} size="lg" outlined />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-xl font-black">{me.user.displayName}</span>
@@ -108,7 +147,13 @@ export function MeScreen() {
         ))}
       </ul>
 
-      <Button variant="ghost" block className="mt-8 text-ink-soft" icon={<LogOut className="size-4" />} onClick={signOut}>
+      <Button
+        variant="ghost"
+        block
+        className="mt-8 text-ink-soft"
+        icon={<LogOut className="size-4" />}
+        onClick={signOut}
+      >
         {t("signOut")}
       </Button>
     </Page>
@@ -117,13 +162,23 @@ export function MeScreen() {
 
 function HubTile({ tile, label }: { tile: Tile; label: string }) {
   const Icon = tile.icon;
-  const navigationCount = useBadges((badges) => (tile.badge && tile.badge !== "ask" ? badges[tile.badge] : 0));
+  const navigationCount = useBadges((badges) =>
+    tile.badge && tile.badge !== "ask" ? badges[tile.badge] : 0,
+  );
   const askCount = useAskBadge(tile.badge === "ask");
   const count = tile.badge === "ask" ? askCount : navigationCount;
   return (
-    <Link to={tile.to} className="pressable sticker flex h-28 flex-col justify-between rounded-card bg-surface p-4">
+    <Link
+      to={tile.to}
+      className="pressable sticker flex h-28 flex-col justify-between rounded-card bg-surface p-4"
+    >
       <span className="flex items-start justify-between">
-        <span className={cn("grid size-11 place-items-center rounded-2xl border-2 border-ink text-[#17122b]", tile.tint)}>
+        <span
+          className={cn(
+            "grid size-11 place-items-center rounded-2xl border-2 border-ink text-[#17122b]",
+            tile.tint,
+          )}
+        >
           <Icon className="size-6" />
         </span>
         <CountBadge count={count} />

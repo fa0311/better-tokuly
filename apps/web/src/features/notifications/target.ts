@@ -21,7 +21,10 @@ const ALIASES: Record<string, string> = {
  * `/u/alice?tab=notes`, a full URL of this site, occasionally an outside link).
  * `null` when there is nowhere to go: an empty path, or a scheme that is not http(s).
  */
-export function resolveTargetPath(path: string, origin: string = window.location.origin): Target | null {
+export function resolveTargetPath(
+  path: string,
+  origin: string = window.location.origin,
+): Target | null {
   const trimmed = path.trim();
   if (!trimmed) return null;
   let url: URL;
@@ -40,7 +43,11 @@ export function resolveTargetPath(path: string, origin: string = window.location
  * Goes where a notification points. Returns false when the path leads nowhere,
  * so the caller can stay put.
  */
-export function openTargetPath(router: AnyRouter, path: string, options: { replace?: boolean } = {}): boolean {
+export function openTargetPath(
+  router: AnyRouter,
+  path: string,
+  options: { replace?: boolean } = {},
+): boolean {
   const target = resolveTargetPath(path);
   if (!target) return false;
   if (target.type === "external") window.open(target.url, "_blank", "noopener,noreferrer");

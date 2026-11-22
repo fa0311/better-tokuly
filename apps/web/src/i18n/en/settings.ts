@@ -103,8 +103,15 @@ export default {
       },
     },
     bio: { label: "Bio", placeholder: "What you like, what you are into, anything!" },
-    school: { label: "School", hint: "Shown as a badge on your profile, and helps schoolmates find you", placeholder: "e.g. Tokuly High" },
-    birthdate: { label: "Birthday", hint: "Used to check your age. It is never shown and cannot be changed" },
+    school: {
+      label: "School",
+      hint: "Shown as a badge on your profile, and helps schoolmates find you",
+      placeholder: "e.g. Tokuly High",
+    },
+    birthdate: {
+      label: "Birthday",
+      hint: "Used to check your age. It is never shown and cannot be changed",
+    },
   },
 
   account: {
@@ -112,13 +119,16 @@ export default {
       title: "Email",
       verified: "Verified",
       unverified: "Not verified",
-      unverifiedLead: "Open the link in the verification mail, so you can get back in if you ever forget your password.",
+      unverifiedLead:
+        "Open the link in the verification mail, so you can get back in if you ever forget your password.",
       resend: "Send the verification mail again",
       verificationSent: "Verification mail sent to {{email}}!",
       change: "Change email",
-      changePending: "We sent a verification mail to {{email}}. Your address switches once you open the link in it.",
+      changePending:
+        "We sent a verification mail to {{email}}. Your address switches once you open the link in it.",
       changeTitle: "Change your email",
-      changeLead: "We send a verification mail to the new address. Until you open its link, your current address stays.",
+      changeLead:
+        "We send a verification mail to the new address. Until you open its link, your current address stays.",
       newEmail: "New email address",
       changeSubmit: "Send verification mail",
       changeSent: "Verification mail sent. Check your inbox!",
@@ -126,7 +136,8 @@ export default {
     password: {
       title: "Password",
       lead: "Changing it signs your other devices out.",
-      leadNone: "You have no password yet. With one you can still sign in when a passkey is not at hand.",
+      leadNone:
+        "You have no password yet. With one you can still sign in when a passkey is not at hand.",
       current: "Current password",
       new: "New password",
       newHint: "At least 8 characters",
@@ -168,7 +179,8 @@ export default {
       unsupported: "This browser does not support passkeys",
       removed: "Passkey removed",
       removeTitle: "Remove “{{name}}”?",
-      removeBody: "You can no longer sign in with this passkey. Remove what is left of it on the device from the device's own settings.",
+      removeBody:
+        "You can no longer sign in with this passkey. Remove what is left of it on the device from the device's own settings.",
       removeConfirm: "Remove",
       defaultName: "This device",
       addedToast: "Passkey added!",
@@ -197,7 +209,8 @@ export default {
       codeHint: "The code changes every 30 seconds",
       confirm: "Turn on",
       recoveryTitle: "Save your recovery codes",
-      recoveryLead: "If you lose your phone, one of these works in place of a code. Each works once, and they are not shown again.",
+      recoveryLead:
+        "If you lose your phone, one of these works in place of a code. Each works once, and they are not shown again.",
       recoveryDone: "I saved them",
       recoveryDownload: "Download",
       recoveryFileHeader: "Tokuly recovery codes (each works once)",
@@ -261,7 +274,8 @@ export default {
       approved: "Approved!",
       approvedBody: "Go back to the device. It will be signed in in a moment.",
       denied: "Refused",
-      deniedBody: "That device cannot sign in. If this was not you, changing your password is a good idea.",
+      deniedBody:
+        "That device cannot sign in. If this was not you, changing your password is a good idea.",
       invalidBody: "Show a new code on the device and try again.",
       expired: "This code has expired",
       used: "This code was already used",
@@ -272,7 +286,12 @@ export default {
       deny: "Refuse",
       approve: "Approve",
       warning: "If you did not start this sign-in yourself, always refuse.",
-      platforms: { web: "Browser", ios: "iPhone / iPad", android: "Android", desktop: "Desktop app" },
+      platforms: {
+        web: "Browser",
+        ios: "iPhone / iPad",
+        android: "Android",
+        desktop: "Desktop app",
+      },
     },
   },
 
@@ -286,8 +305,14 @@ export default {
     groups: {
       connect: { title: "Connecting", lead: "Who can find you and become your friend." },
       talk: { title: "Messages and calls" },
-      map: { title: "What you share on the map", lead: "What your friends see along with your location." },
-      history: { title: "Footprints and history", lead: "The record of where you have been, and who may see it." },
+      map: {
+        title: "What you share on the map",
+        lead: "What your friends see along with your location.",
+      },
+      history: {
+        title: "Footprints and history",
+        lead: "The record of where you have been, and who may see it.",
+      },
       other: { title: "More" },
     },
     friendRequestsFrom: {
@@ -340,22 +365,52 @@ export default {
         NOBODY: "You receive no calls",
       },
     },
-    discoverable: { label: "Appear in “People you may know”", hint: "You show up in suggestions and when someone searches their contacts" },
-    nearbyDiscoverable: { label: "Let people nearby find you", hint: "While the add-friend screen is open, people within 50 m see you" },
-    shareOnlineStatus: { label: "Online status", hint: "Your picture glows while you have the app open" },
-    shareBattery: { label: "Battery level", hint: "Friends see your battery and whether it is charging" },
-    shareActivity: { label: "Speed and activity", hint: "Friends can tell that you are walking, on a train and so on" },
-    sharePlaceLabels: { label: "Home, school and work badges", hint: "A badge tells friends when you are at one of your usual places" },
-    shareNowPlaying: { label: "What you are listening to", hint: "Shows the track playing on your connected music service" },
-    recordHistory: { label: "Record footprints", hint: "Places you go stay on your map and your visits are kept" },
+    discoverable: {
+      label: "Appear in “People you may know”",
+      hint: "You show up in suggestions and when someone searches their contacts",
+    },
+    nearbyDiscoverable: {
+      label: "Let people nearby find you",
+      hint: "While the add-friend screen is open, people within 50 m see you",
+    },
+    shareOnlineStatus: {
+      label: "Online status",
+      hint: "Your picture glows while you have the app open",
+    },
+    shareBattery: {
+      label: "Battery level",
+      hint: "Friends see your battery and whether it is charging",
+    },
+    shareActivity: {
+      label: "Speed and activity",
+      hint: "Friends can tell that you are walking, on a train and so on",
+    },
+    sharePlaceLabels: {
+      label: "Home, school and work badges",
+      hint: "A badge tells friends when you are at one of your usual places",
+    },
+    shareNowPlaying: {
+      label: "What you are listening to",
+      hint: "Shows the track playing on your connected music service",
+    },
+    recordHistory: {
+      label: "Record footprints",
+      hint: "Places you go stay on your map and your visits are kept",
+    },
     locationHistoryDays: {
       label: "Keep location history for",
       hint: "Used for your day timeline and for replaying routes",
       forever: "Forever",
       days: "{{count}} days",
     },
-    shareViews: { label: "Tell people when you look", hint: "When you view a profile or a location, you appear in their viewers" },
-    defaultNoteVisibility: { label: "Default audience for notes", hint: "You can still change it for each note" },
+    shareViews: {
+      label: "Tell people when you look",
+      hint: "When you view a profile or a location, you appear in their viewers",
+    },
+    defaultNoteVisibility: {
+      label: "Default audience for notes",
+      hint: "You can still change it for each note",
+    },
     visibility: {
       PUBLIC: { label: "Public", hint: "Anyone can see it, and it appears in feeds and search" },
       FRIENDS: { label: "Friends only", hint: "Only your friends see it" },
@@ -370,7 +425,8 @@ export default {
       unblock: "Unblock",
       unblocked: "{{name}} is unblocked",
       unblockTitle: "Unblock {{name}}?",
-      unblockBody: "You will be able to find each other again. You do not become friends again automatically.",
+      unblockBody:
+        "You will be able to find each other again. You do not become friends again automatically.",
     },
   },
 
@@ -390,9 +446,15 @@ export default {
       calm: "Calm",
       wild: "Wild",
       levels: {
-        "0": { name: "Calm", body: "No animation: screens simply switch. Easy on the eyes and the battery." },
+        "0": {
+          name: "Calm",
+          body: "No animation: screens simply switch. Easy on the eyes and the battery.",
+        },
         "1": { name: "Subtle", body: "As little motion as possible: quick, and settled at once." },
-        "2": { name: "Gentle", body: "Soft motion, and just a few sparkles when there is something to celebrate." },
+        "2": {
+          name: "Gentle",
+          body: "Soft motion, and just a few sparkles when there is something to celebrate.",
+        },
         "3": { name: "Normal", body: "Just the right amount of pop. Not sure? Pick this!" },
         "4": { name: "Lively", body: "Big bounces and more sparkles." },
         "5": { name: "Maximum", body: "The works! The biggest bounces and all the sparkles." },
@@ -410,7 +472,17 @@ export default {
     accent: {
       title: "Accent colour",
       lead: "The colour of buttons and links. It follows you to every device.",
-      colors: { violet: "Violet", pink: "Pink", coral: "Coral", orange: "Orange", green: "Green", teal: "Teal", blue: "Blue", ink: "Ink", custom: "Custom" },
+      colors: {
+        violet: "Violet",
+        pink: "Pink",
+        coral: "Coral",
+        orange: "Orange",
+        green: "Green",
+        teal: "Teal",
+        blue: "Blue",
+        ink: "Ink",
+        custom: "Custom",
+      },
     },
     map: {
       title: "Map",
@@ -443,13 +515,15 @@ export default {
     disconnect: "Disconnect",
     disconnected: "{{provider}} disconnected",
     disconnectTitle: "Disconnect {{provider}}?",
-    disconnectBody: "Friends no longer see what you are listening to. You can connect again any time.",
+    disconnectBody:
+      "Friends no longer see what you are listening to. You can connect again any time.",
     connectedToast: "{{provider}} connected!",
     providers: {
       spotify: {
         name: "Spotify",
         blurb: "Share what you are listening to with friends, on your profile and on the map.",
-        connectedHint: "Friends see the track you are playing. To keep it to yourself, turn off “What you are listening to” in privacy.",
+        connectedHint:
+          "Friends see the track you are playing. To keep it to yourself, turn off “What you are listening to” in privacy.",
       },
     },
     callback: {
@@ -467,7 +541,8 @@ export default {
       title: "Export your data",
       lead: "Download everything Tokuly holds about you in one archive: profile, friends, settings and more.",
       requested: "Requested {{date}}",
-      requestedBody: "When it is ready we mail a download link to {{email}}. The link works for {{days}} days.",
+      requestedBody:
+        "When it is ready we mail a download link to {{email}}. The link works for {{days}} days.",
       requestedNoEmail: "The download link arrives by mail. Add an email address first.",
       how: "After you ask, we mail a download link to {{email}} as soon as the archive is ready (valid for {{days}} days).",
       request: "Request my data",

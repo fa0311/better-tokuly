@@ -55,8 +55,18 @@ export function CountdownDialog({
 
   const save = useMutation({
     mutationFn: async () => {
-      const fields = { title: title.trim(), emoji, date, repeatsYearly: yearly, sharing, sharedWithIds: sharing === plans.CountdownSharing.CHOSEN ? sharedWith.map((user) => user.id) : [] };
-      const response = countdown ? await anniversaryClient().updateCountdown({ countdownId: countdown.id, ...fields }) : await anniversaryClient().createCountdown(fields);
+      const fields = {
+        title: title.trim(),
+        emoji,
+        date,
+        repeatsYearly: yearly,
+        sharing,
+        sharedWithIds:
+          sharing === plans.CountdownSharing.CHOSEN ? sharedWith.map((user) => user.id) : [],
+      };
+      const response = countdown
+        ? await anniversaryClient().updateCountdown({ countdownId: countdown.id, ...fields })
+        : await anniversaryClient().createCountdown(fields);
       return response.countdown;
     },
     onSuccess: (saved) => {
@@ -82,7 +92,11 @@ export function CountdownDialog({
       onOpenChange={onOpenChange}
       title={countdown ? t("countdown.editTitle") : t("countdown.newTitle")}
       footer={
-        <Button loading={save.isPending} disabled={!title.trim() || !date || needsPeople || past} onClick={() => save.mutate()}>
+        <Button
+          loading={save.isPending}
+          disabled={!title.trim() || !date || needsPeople || past}
+          onClick={() => save.mutate()}
+        >
           {countdown ? t("plan.save") : t("countdown.create")}
         </Button>
       }
@@ -96,7 +110,11 @@ export function CountdownDialog({
                 type="button"
                 onClick={() => {
                   setEmoji(preset.emoji);
-                  if (!title.trim() || COUNTDOWN_PRESETS.some((other) => t(`countdown.presets.${other.key}`) === title)) setTitle(t(`countdown.presets.${preset.key}`));
+                  if (
+                    !title.trim() ||
+                    COUNTDOWN_PRESETS.some((other) => t(`countdown.presets.${other.key}`) === title)
+                  )
+                    setTitle(t(`countdown.presets.${preset.key}`));
                   if (preset.key === "birthday") setYearly(true);
                 }}
                 className="inline-flex h-9 shrink-0 items-center gap-1 rounded-full border-2 border-line bg-surface px-3 text-sm font-bold hover:border-ink-faint"
@@ -112,15 +130,37 @@ export function CountdownDialog({
             side="bottom"
             onPick={setEmoji}
             trigger={
-              <button type="button" aria-label={t("plan.form.emoji")} className="pressable sticker grid size-12 shrink-0 place-items-center rounded-2xl bg-brand-soft text-2xl">
+              <button
+                type="button"
+                aria-label={t("plan.form.emoji")}
+                className="pressable sticker grid size-12 shrink-0 place-items-center rounded-2xl bg-brand-soft text-2xl"
+              >
                 {emoji || <SmilePlus className="size-5 text-ink-soft" />}
               </button>
             }
           />
-          <TextField className="min-w-0 flex-1" label={t("countdown.form.title")} placeholder={t("countdown.form.titlePlaceholder")} value={title} maxLength={60} onChange={(event) => setTitle(event.target.value)} />
+          <TextField
+            className="min-w-0 flex-1"
+            label={t("countdown.form.title")}
+            placeholder={t("countdown.form.titlePlaceholder")}
+            value={title}
+            maxLength={60}
+            onChange={(event) => setTitle(event.target.value)}
+          />
         </div>
-        <TextField type="date" label={t("countdown.form.date")} value={date} error={past ? t("countdown.form.past") : undefined} onChange={(event) => setDate(event.target.value)} />
-        <SwitchRow label={t("countdown.form.yearly")} hint={t("countdown.form.yearlyHint")} checked={yearly} onChange={setYearly} />
+        <TextField
+          type="date"
+          label={t("countdown.form.date")}
+          value={date}
+          error={past ? t("countdown.form.past") : undefined}
+          onChange={(event) => setDate(event.target.value)}
+        />
+        <SwitchRow
+          label={t("countdown.form.yearly")}
+          hint={t("countdown.form.yearlyHint")}
+          checked={yearly}
+          onChange={setYearly}
+        />
         <div className="flex flex-col gap-2">
           <p className="px-1 text-sm font-bold text-ink-soft">{t("countdown.form.sharing")}</p>
           <ChoiceChips<plans.CountdownSharing>
@@ -133,8 +173,17 @@ export function CountdownDialog({
               { value: plans.CountdownSharing.PROFILE, label: t("countdown.sharing.profile") },
             ]}
           />
-          {sharing === plans.CountdownSharing.CHOSEN && <FriendChips users={sharedWith} onChange={setSharedWith} addLabel={t("countdown.form.choose")} pickerTitle={t("countdown.form.chooseTitle")} />}
-          {sharing === plans.CountdownSharing.PROFILE && <p className="px-1 text-xs text-ink-faint">{t("countdown.form.profileHint")}</p>}
+          {sharing === plans.CountdownSharing.CHOSEN && (
+            <FriendChips
+              users={sharedWith}
+              onChange={setSharedWith}
+              addLabel={t("countdown.form.choose")}
+              pickerTitle={t("countdown.form.chooseTitle")}
+            />
+          )}
+          {sharing === plans.CountdownSharing.PROFILE && (
+            <p className="px-1 text-xs text-ink-faint">{t("countdown.form.profileHint")}</p>
+          )}
         </div>
       </div>
     </Dialog>

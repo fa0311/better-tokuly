@@ -11,11 +11,19 @@ export function parseText(input: unknown): string | undefined {
 
 /** A parameter holding one of the allowed enum numbers, else `undefined`. */
 export function parseEnum<T extends number>(input: unknown, allowed: readonly T[]): T | undefined {
-  const value = typeof input === "number" ? input : typeof input === "string" && input !== "" ? Number(input) : Number.NaN;
+  const value =
+    typeof input === "number"
+      ? input
+      : typeof input === "string" && input !== ""
+        ? Number(input)
+        : Number.NaN;
   return allowed.find((candidate) => candidate === value);
 }
 
 /** A parameter holding one of the allowed words, else `undefined`. */
-export function parseChoice<T extends string>(input: unknown, allowed: readonly T[]): T | undefined {
+export function parseChoice<T extends string>(
+  input: unknown,
+  allowed: readonly T[],
+): T | undefined {
   return allowed.find((candidate) => candidate === input);
 }

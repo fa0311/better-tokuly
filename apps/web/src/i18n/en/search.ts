@@ -119,13 +119,19 @@ export default {
       title: "Only admins can open this page",
       body: "Managing the search indexes and word lists needs the admin role.",
     },
-    tabs: { indexes: "Indexes", documents: "Documents", blocked: "Blocked terms", synonyms: "Synonyms" },
+    tabs: {
+      indexes: "Indexes",
+      documents: "Documents",
+      blocked: "Blocked terms",
+      synonyms: "Synonyms",
+    },
     indexes: {
       title: "Indexes",
       engine: "Search engine",
       healthy: "Running",
       unhealthy: "Not answering",
-      unhealthyHint: "Meilisearch is not answering. Changes pile up in the registry and are written once it is back.",
+      unhealthyHint:
+        "Meilisearch is not answering. Changes pile up in the registry and are written once it is back.",
       version: "Version",
       size: "Size",
       refresh: "Refresh",
@@ -137,7 +143,8 @@ export default {
       reindex: "Reindex",
       reindexKind: "Reindex {{kind}}",
       reindexTitle: "Reindex {{kind}}?",
-      reindexBody: "Every document of this kind is written to its index again, and the owning domain is asked to publish its documents afresh. It runs in the background; keep this page open to watch it progress.",
+      reindexBody:
+        "Every document of this kind is written to its index again, and the owning domain is asked to publish its documents afresh. It runs in the background; keep this page open to watch it progress.",
       queued: "{{count}} documents queued to be written",
     },
     documents: {

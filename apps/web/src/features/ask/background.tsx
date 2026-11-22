@@ -27,7 +27,9 @@ export function applyAskEvent(queryClient: QueryClient, event: ask.AskEvent["eve
     }
     case "flameReceived": {
       const unseen = event.value.unseen;
-      queryClient.setQueryData<ask.FlameSummary>(askKeys.flameSummary, (known) => (known ? { ...known, unseen } : known));
+      queryClient.setQueryData<ask.FlameSummary>(askKeys.flameSummary, (known) =>
+        known ? { ...known, unseen } : known,
+      );
       void queryClient.invalidateQueries({ queryKey: askKeys.flameSummary });
       void queryClient.invalidateQueries({ queryKey: askKeys.flames });
       void queryClient.invalidateQueries({ queryKey: askKeys.topFlames });
@@ -85,7 +87,11 @@ export default function AskBackground() {
     const pending = takePendingAsk();
     if (!pending) return;
     offerDraft(pending);
-    void router.navigate({ to: "/ask/u/$handle", params: { handle: pending.handle }, replace: true });
+    void router.navigate({
+      to: "/ask/u/$handle",
+      params: { handle: pending.handle },
+      replace: true,
+    });
   }, [router]);
 
   return null;

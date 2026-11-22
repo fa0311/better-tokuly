@@ -1,4 +1,9 @@
-import { type InfiniteData, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  type InfiniteData,
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { type admin, toMillis } from "@tokuly/api";
 import { Pencil, Plus, Trash2 } from "lucide-react";
@@ -44,18 +49,30 @@ export function FlagsScreen({ search }: { search: FlagsSearch }) {
   const queryClient = useQueryClient();
   const wide = useIsWide();
   // The list follows the typing; the address takes the search over once the typing is done.
-  const typed = useSearchText(search.q, (q) => navigate({ to: "/admin/flags", search: { ...search, q }, replace: true }));
-  const update = (changes: Partial<FlagsSearch>) => navigate({ to: "/admin/flags", search: { ...search, q: typed.query, ...changes }, replace: true });
+  const typed = useSearchText(search.q, (q) =>
+    navigate({ to: "/admin/flags", search: { ...search, q }, replace: true }),
+  );
+  const update = (changes: Partial<FlagsSearch>) =>
+    navigate({
+      to: "/admin/flags",
+      search: { ...search, q: typed.query, ...changes },
+      replace: true,
+    });
 
   const [tab, setTab] = useState<"flags" | "evaluate">(search.evaluate ? "evaluate" : "flags");
   // The editor is mounted anew for each opening (`session`), so it always starts from the flag as listed.
-  const [editor, setEditor] = useState<{ flag?: admin.FeatureFlag; session: number; open: boolean }>({ session: 0, open: false });
+  const [editor, setEditor] = useState<{
+    flag?: admin.FeatureFlag;
+    session: number;
+    open: boolean;
+  }>({ session: 0, open: false });
   const [deleting, setDeleting] = useState<admin.FeatureFlag | null>(null);
 
   const listKey = ["admin", "flags", "list", typed.query ?? ""];
   const flags = useInfiniteQuery({
     queryKey: listKey,
-    queryFn: ({ pageParam }) => flagClient().listFlags({ page: { cursor: pageParam, limit: 50 }, query: typed.query }),
+    queryFn: ({ pageParam }) =>
+      flagClient().listFlags({ page: { cursor: pageParam, limit: 50 }, query: typed.query }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
@@ -67,14 +84,29 @@ export function FlagsScreen({ search }: { search: FlagsSearch }) {
     onMutate: async (input) => {
       await queryClient.cancelQueries({ queryKey: listKey });
       const previous = queryClient.getQueryData<FlagPages>(listKey);
-      queryClient.setQueryData<FlagPages>(listKey, (data) => data && { ...data, pages: data.pages.map((page) => ({ ...page, flags: page.flags.map((flag) => (flag.name === input.name ? { ...flag, enabled: input.enabled } : flag)) })) });
+      queryClient.setQueryData<FlagPages>(
+        listKey,
+        (data) =>
+          data && {
+            ...data,
+            pages: data.pages.map((page) => ({
+              ...page,
+              flags: page.flags.map((flag) =>
+                flag.name === input.name ? { ...flag, enabled: input.enabled } : flag,
+              ),
+            })),
+          },
+      );
       return { previous };
     },
     onError: (error, _input, context) => {
       queryClient.setQueryData(listKey, context?.previous);
       toast.error(errorMessage(error));
     },
-    onSuccess: (_response, input) => toast.success(t(input.enabled ? "flags.toast.enabled" : "flags.toast.disabled", { name: input.name })),
+    onSuccess: (_response, input) =>
+      toast.success(
+        t(input.enabled ? "flags.toast.enabled" : "flags.toast.disabled", { name: input.name }),
+      ),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["admin", "flags"] }),
   });
 
@@ -97,14 +129,24 @@ export function FlagsScreen({ search }: { search: FlagsSearch }) {
       cell: (row) => (
         <span className="flex min-w-0 flex-col">
           <code className="font-mono font-bold [overflow-wrap:anywhere]">{row.name}</code>
-          {row.description && <span className="line-clamp-2 text-xs font-normal text-ink-soft">{row.description}</span>}
+          {row.description && (
+            <span className="line-clamp-2 text-xs font-normal text-ink-soft">
+              {row.description}
+            </span>
+          )}
         </span>
       ),
     },
     {
       key: "enabled",
       header: t("flags.columns.enabled"),
-      cell: (row) => <Toggle label={t("flags.toggle", { name: row.name })} checked={row.enabled} onChange={(enabled) => toggle.mutate({ name: row.name, enabled })} />,
+      cell: (row) => (
+        <Toggle
+          label={t("flags.toggle", { name: row.name })}
+          checked={row.enabled}
+          onChange={(enabled) => toggle.mutate({ name: row.name, enabled })}
+        />
+      ),
     },
     {
       key: "rollout",
@@ -113,7 +155,14 @@ export function FlagsScreen({ search }: { search: FlagsSearch }) {
         <span className="flex items-center gap-2">
           <svg className="w-20 shrink-0" height={8} aria-hidden>
             <rect width="100%" height={8} rx={4} className="fill-brand-soft" />
-            {row.rolloutPercent > 0 && <rect width={`${row.rolloutPercent}%`} height={8} rx={4} className={row.enabled ? "fill-brand" : "fill-ink-faint"} />}
+            {row.rolloutPercent > 0 && (
+              <rect
+                width={`${row.rolloutPercent}%`}
+                height={8}
+                rx={4}
+                className={row.enabled ? "fill-brand" : "fill-ink-faint"}
+              />
+            )}
           </svg>
           <span className="font-bold tabular-nums">{row.rolloutPercent}%</span>
         </span>
@@ -132,7 +181,9 @@ export function FlagsScreen({ search }: { search: FlagsSearch }) {
                 <Avatar key={user.id} user={user} size="xs" />
               ))}
             </span>
-            <span className="text-xs font-bold whitespace-nowrap text-ink-soft">{t("flags.allowCount", { count: row.allowUsers.length })}</span>
+            <span className="text-xs font-bold whitespace-nowrap text-ink-soft">
+              {t("flags.allowCount", { count: row.allowUsers.length })}
+            </span>
           </span>
         ),
     },
@@ -153,10 +204,23 @@ export function FlagsScreen({ search }: { search: FlagsSearch }) {
       className: "text-right whitespace-nowrap",
       cell: (row) => (
         <span className="inline-flex gap-1">
-          <Button size="icon-sm" variant="ghost" aria-label={t("flags.edit.open", { name: row.name })} onClick={() => setEditor((current) => ({ flag: row, session: current.session + 1, open: true }))}>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label={t("flags.edit.open", { name: row.name })}
+            onClick={() =>
+              setEditor((current) => ({ flag: row, session: current.session + 1, open: true }))
+            }
+          >
             <Pencil className="size-4" />
           </Button>
-          <Button size="icon-sm" variant="ghost" className="text-danger" aria-label={t("flags.delete.open", { name: row.name })} onClick={() => setDeleting(row)}>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            className="text-danger"
+            aria-label={t("flags.delete.open", { name: row.name })}
+            onClick={() => setDeleting(row)}
+          >
             <Trash2 className="size-4" />
           </Button>
         </span>
@@ -166,28 +230,49 @@ export function FlagsScreen({ search }: { search: FlagsSearch }) {
 
   const list = (
     <div className="flex min-w-0 flex-col gap-3">
-      <SearchBox label={t("flags.search")} placeholder={t("flags.search")} value={typed.text} onChange={typed.setText} onCommit={typed.commit} />
+      <SearchBox
+        label={t("flags.search")}
+        placeholder={t("flags.search")}
+        value={typed.text}
+        onChange={typed.setText}
+        onCommit={typed.commit}
+      />
       {flags.isPending ? (
         <RowsSkeleton />
       ) : flags.isError ? (
         <ErrorState error={flags.error} onRetry={() => flags.refetch()} />
       ) : rows.length === 0 ? (
-        <EmptyState emoji="🚩" title={t(typed.query ? "flags.emptySearch" : "flags.empty")} body={typed.query ? undefined : t("flags.emptyBody")} />
+        <EmptyState
+          emoji="🚩"
+          title={t(typed.query ? "flags.emptySearch" : "flags.empty")}
+          body={typed.query ? undefined : t("flags.emptyBody")}
+        />
       ) : (
         <>
-          <DataTable label={t("flags.title")} columns={columns} rows={rows} rowKey={(row) => row.name} />
+          <DataTable
+            label={t("flags.title")}
+            columns={columns}
+            rows={rows}
+            rowKey={(row) => row.name}
+          />
           <LoadMore query={flags} />
         </>
       )}
     </div>
   );
-  const evaluate = <EvaluatePanel userId={search.evaluate} onChange={(userId) => update({ evaluate: userId })} />;
+  const evaluate = (
+    <EvaluatePanel userId={search.evaluate} onChange={(userId) => update({ evaluate: userId })} />
+  );
 
   return (
     <ConsolePage
       title={t("flags.title")}
       actions={
-        <Button size="sm" icon={<Plus className="size-4" />} onClick={() => setEditor((current) => ({ session: current.session + 1, open: true }))}>
+        <Button
+          size="sm"
+          icon={<Plus className="size-4" />}
+          onClick={() => setEditor((current) => ({ session: current.session + 1, open: true }))}
+        >
           {t("flags.create.open")}
         </Button>
       }
@@ -212,7 +297,12 @@ export function FlagsScreen({ search }: { search: FlagsSearch }) {
         </>
       )}
 
-      <FlagDialog key={editor.session} flag={editor.flag} open={editor.open} onOpenChange={(open) => setEditor((current) => ({ ...current, open }))} />
+      <FlagDialog
+        key={editor.session}
+        flag={editor.flag}
+        open={editor.open}
+        onOpenChange={(open) => setEditor((current) => ({ ...current, open }))}
+      />
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(open) => !open && setDeleting(null)}

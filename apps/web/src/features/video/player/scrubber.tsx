@@ -1,5 +1,11 @@
 import type { video } from "@tokuly/api";
-import { type PointerEvent as ReactPointerEvent, type RefObject, useEffect, useRef, useState } from "react";
+import {
+  type PointerEvent as ReactPointerEvent,
+  type RefObject,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { cn } from "#/lib/cn";
 import { formatClock } from "../format";
 import { scriptUrl } from "./media-url";
@@ -53,7 +59,18 @@ export interface ScrubberProps {
  * dragged with the mouse or a finger; the keyboard moves it through the
  * player's shortcuts.
  */
-export function Scrubber({ media, time, duration, bufferedEnd, chapters, storyboardUrl, label, disabled, onSeek, onScrubbing }: ScrubberProps) {
+export function Scrubber({
+  media,
+  time,
+  duration,
+  bufferedEnd,
+  chapters,
+  storyboardUrl,
+  label,
+  disabled,
+  onSeek,
+  onScrubbing,
+}: ScrubberProps) {
   const track = useRef<HTMLDivElement>(null);
   const fill = useRef<HTMLDivElement>(null);
   const thumb = useRef<HTMLDivElement>(null);
@@ -114,8 +131,15 @@ export function Scrubber({ media, time, duration, bufferedEnd, chapters, storybo
   const hoverChapter = hover ? chapterAt(chapters, hover.time) : undefined;
   // The preview stays inside the bar's ends.
   const previewWidth = frame ? frame.width : 64;
-  const previewLeft = hover ? Math.min(Math.max(hover.x, previewWidth / 2), Math.max(previewWidth / 2, hover.width - previewWidth / 2)) : 0;
-  const starts = chapters.map((chapter) => chapter.startSeconds).filter((start) => start > 0.5 && start < length - 0.5);
+  const previewLeft = hover
+    ? Math.min(
+        Math.max(hover.x, previewWidth / 2),
+        Math.max(previewWidth / 2, hover.width - previewWidth / 2),
+      )
+    : 0;
+  const starts = chapters
+    .map((chapter) => chapter.startSeconds)
+    .filter((start) => start > 0.5 && start < length - 0.5);
 
   return (
     <div
@@ -129,37 +153,74 @@ export function Scrubber({ media, time, duration, bufferedEnd, chapters, storybo
       aria-valuenow={Math.round(time)}
       aria-valuetext={`${formatClock(time)} / ${formatClock(length)}`}
       aria-disabled={disabled || undefined}
-      className={cn("group/scrub relative flex h-5 touch-none items-center select-none", disabled ? "cursor-default" : "cursor-pointer")}
+      className={cn(
+        "group/scrub relative flex h-5 touch-none items-center select-none",
+        disabled ? "cursor-default" : "cursor-pointer",
+      )}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={(event) => finish(event, true)}
       onPointerCancel={(event) => finish(event, false)}
       onPointerLeave={(event) => !dragging && event.pointerType === "mouse" && setHover(null)}
     >
-      <div className={cn("relative h-1 w-full rounded-full bg-white/30 transition-[height] duration-100", !disabled && "group-hover/scrub:h-1.5", dragging && "h-1.5")}>
-        <div className="absolute inset-y-0 left-0 rounded-full bg-white/45" style={{ width: `${Math.min(100, (bufferedEnd / length) * 100)}%` }} />
+      <div
+        className={cn(
+          "relative h-1 w-full rounded-full bg-white/30 transition-[height] duration-100",
+          !disabled && "group-hover/scrub:h-1.5",
+          dragging && "h-1.5",
+        )}
+      >
+        <div
+          className="absolute inset-y-0 left-0 rounded-full bg-white/45"
+          style={{ width: `${Math.min(100, (bufferedEnd / length) * 100)}%` }}
+        />
         <div ref={fill} className="absolute inset-y-0 left-0 rounded-full bg-brand" />
         {starts.map((start) => (
-          <span key={start} aria-hidden className="absolute inset-y-0 w-0.5 -translate-x-1/2 bg-black/70" style={{ left: `${(start / length) * 100}%` }} />
+          <span
+            key={start}
+            aria-hidden
+            className="absolute inset-y-0 w-0.5 -translate-x-1/2 bg-black/70"
+            style={{ left: `${(start / length) * 100}%` }}
+          />
         ))}
       </div>
       {!disabled && (
         <div
           ref={thumb}
           aria-hidden
-          className={cn("pointer-events-none absolute top-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-brand transition-transform duration-100", dragging ? "scale-125" : "scale-0 group-hover/scrub:scale-100 group-focus-visible/scrub:scale-100")}
+          className={cn(
+            "pointer-events-none absolute top-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-brand transition-transform duration-100",
+            dragging
+              ? "scale-125"
+              : "scale-0 group-hover/scrub:scale-100 group-focus-visible/scrub:scale-100",
+          )}
         />
       )}
       {hover && !disabled && (
-        <div aria-hidden className="pointer-events-none absolute bottom-full mb-2 flex -translate-x-1/2 flex-col items-center gap-1" style={{ left: previewLeft }}>
+        <div
+          aria-hidden
+          className="pointer-events-none absolute bottom-full mb-2 flex -translate-x-1/2 flex-col items-center gap-1"
+          style={{ left: previewLeft }}
+        >
           {frame && (
             <div
               className="rounded-lg border-2 border-white bg-black bg-no-repeat"
-              style={{ width: frame.width, height: frame.height, backgroundImage: `url("${frame.url}")`, backgroundPosition: `-${frame.x}px -${frame.y}px` }}
+              style={{
+                width: frame.width,
+                height: frame.height,
+                backgroundImage: `url("${frame.url}")`,
+                backgroundPosition: `-${frame.x}px -${frame.y}px`,
+              }}
             />
           )}
-          {hoverChapter && <span className="max-w-48 truncate rounded-md bg-black/80 px-1.5 py-0.5 text-[11px] font-bold text-white">{hoverChapter.title}</span>}
-          <span className="rounded-md bg-black/80 px-1.5 py-0.5 text-xs font-black text-white tabular-nums">{formatClock(hover.time)}</span>
+          {hoverChapter && (
+            <span className="max-w-48 truncate rounded-md bg-black/80 px-1.5 py-0.5 text-[11px] font-bold text-white">
+              {hoverChapter.title}
+            </span>
+          )}
+          <span className="rounded-md bg-black/80 px-1.5 py-0.5 text-xs font-black text-white tabular-nums">
+            {formatClock(hover.time)}
+          </span>
         </div>
       )}
     </div>

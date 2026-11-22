@@ -14,14 +14,43 @@ import { EmojiPicker } from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { uploadAndProcess } from "#/lib/upload";
-import { currentPosition, DEFAULT_CENTER, type LatLng, placeClient, placeKeys, toLatLng } from "./api";
+import {
+  currentPosition,
+  DEFAULT_CENTER,
+  type LatLng,
+  placeClient,
+  placeKeys,
+  toLatLng,
+} from "./api";
 import { GazetteerCredit } from "./credit";
-import { CATEGORIES, EMOJI_CHOICES, LABELS, labelMeta, VISIBILITIES, visibilityKey } from "./labels";
-import { cameraMs, circlePolygon, GeoLayer, MapClick, MapFrame, Pin, useIsDark, useMap, zoomForRadius } from "./map-kit";
+import {
+  CATEGORIES,
+  EMOJI_CHOICES,
+  LABELS,
+  labelMeta,
+  VISIBILITIES,
+  visibilityKey,
+} from "./labels";
+import {
+  cameraMs,
+  circlePolygon,
+  GeoLayer,
+  MapClick,
+  MapFrame,
+  Pin,
+  useIsDark,
+  useMap,
+  zoomForRadius,
+} from "./map-kit";
 
 const DEFAULT_RADIUS = 100;
 /** The kinds of place in the order they are offered. */
-const LABEL_ORDER = [geo.PlaceLabel.HOME, geo.PlaceLabel.SCHOOL, geo.PlaceLabel.WORK, geo.PlaceLabel.CUSTOM] as const;
+const LABEL_ORDER = [
+  geo.PlaceLabel.HOME,
+  geo.PlaceLabel.SCHOOL,
+  geo.PlaceLabel.WORK,
+  geo.PlaceLabel.CUSTOM,
+] as const;
 const NO_CATEGORY = "none";
 
 /** What a new place starts from: a suggestion or a search hit fills some of it in. */
@@ -48,16 +77,25 @@ interface Form {
 /** `/places/new`: a new place, pin first. */
 export function NewPlaceScreen({ draft }: { draft: PlaceDraft }) {
   const { t } = useTranslation("places");
-  const given = draft.lat !== undefined && draft.lng !== undefined ? { lat: draft.lat, lng: draft.lng } : null;
+  const given =
+    draft.lat !== undefined && draft.lng !== undefined ? { lat: draft.lat, lng: draft.lng } : null;
   // Without a spot to start from, the pin starts where the device is.
-  const here = useQuery({ queryKey: ["geo", "device-position"], queryFn: currentPosition, enabled: !given, staleTime: 30_000, retry: false });
+  const here = useQuery({
+    queryKey: ["geo", "device-position"],
+    queryFn: currentPosition,
+    enabled: !given,
+    staleTime: 30_000,
+    retry: false,
+  });
   if (!given && here.isPending) return <EditorSkeleton title={t("editor.newTitle")} />;
   const label = draft.label ?? geo.PlaceLabel.CUSTOM;
   return (
     <PlaceEditor
       title={t("editor.newTitle")}
       initial={{
-        name: draft.name ?? (label === geo.PlaceLabel.CUSTOM ? "" : t(`labels.${labelMeta(label).key}`)),
+        name:
+          draft.name ??
+          (label === geo.PlaceLabel.CUSTOM ? "" : t(`labels.${labelMeta(label).key}`)),
         emoji: labelMeta(label).emoji,
         label,
         center: given ?? here.data ?? DEFAULT_CENTER,
@@ -72,7 +110,11 @@ export function NewPlaceScreen({ draft }: { draft: PlaceDraft }) {
 /** `/places/<id>/edit`: change a place of mine. */
 export function EditPlaceScreen({ placeId }: { placeId: string }) {
   const { t } = useTranslation("places");
-  const { data, isPending, isError } = useQuery({ queryKey: placeKeys.place(placeId), queryFn: () => placeClient().getPlace({ placeId }), retry: false });
+  const { data, isPending, isError } = useQuery({
+    queryKey: placeKeys.place(placeId),
+    queryFn: () => placeClient().getPlace({ placeId }),
+    retry: false,
+  });
   if (isPending) return <EditorSkeleton title={t("editor.editTitle")} />;
   const place = data?.place;
   if (isError || !place?.center) {
@@ -109,7 +151,15 @@ function EditorSkeleton({ title }: { title: string }) {
   );
 }
 
-function PlaceEditor({ title, placeId, initial }: { title: string; placeId?: string; initial: Form }) {
+function PlaceEditor({
+  title,
+  placeId,
+  initial,
+}: {
+  title: string;
+  placeId?: string;
+  initial: Form;
+}) {
   const { t, i18n } = useTranslation("places");
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -126,19 +176,34 @@ function PlaceEditor({ title, placeId, initial }: { title: string; placeId?: str
     staleTime: 10 * 60_000,
     retry: false,
   });
-  const areaName = [area.data?.result?.name, area.data?.result?.region].filter((part, index, all) => part && all.indexOf(part) === index).join("・");
+  const areaName = [area.data?.result?.name, area.data?.result?.region]
+    .filter((part, index, all) => part && all.indexOf(part) === index)
+    .join("・");
 
   const save = useMutation({
     mutationFn: async () => {
       const visibility = fixedPrivate ? common.Visibility.PRIVATE : form.visibility;
-      const shared = { name: form.name.trim(), emoji: form.emoji, label: form.label, center: form.center, radiusMeters: form.radius, visibility, category: form.category };
-      if (placeId) return (await placeClient().updatePlace({ placeId, ...shared, photoAssetId: form.photoAssetId })).place;
-      return (await placeClient().createPlace({ ...shared, photoAssetId: form.photoAssetId ?? "" })).place;
+      const shared = {
+        name: form.name.trim(),
+        emoji: form.emoji,
+        label: form.label,
+        center: form.center,
+        radiusMeters: form.radius,
+        visibility,
+        category: form.category,
+      };
+      if (placeId)
+        return (
+          await placeClient().updatePlace({ placeId, ...shared, photoAssetId: form.photoAssetId })
+        ).place;
+      return (await placeClient().createPlace({ ...shared, photoAssetId: form.photoAssetId ?? "" }))
+        .place;
     },
     onSuccess: async (place) => {
       await queryClient.invalidateQueries({ queryKey: placeKeys.all });
       toast.success(placeId ? t("editor.updated") : t("editor.created"));
-      if (place) await navigate({ to: "/places/$placeId", params: { placeId: place.id }, replace: true });
+      if (place)
+        await navigate({ to: "/places/$placeId", params: { placeId: place.id }, replace: true });
     },
     onError: (error) => toast.error(errorMessage(error, { namespace: "places" })),
   });
@@ -166,7 +231,11 @@ function PlaceEditor({ title, placeId, initial }: { title: string; placeId?: str
         }}
       >
         <div className="lg:sticky lg:top-20">
-          <MapFrame center={form.center} zoom={zoomForRadius(form.radius)} className="sticker h-[20rem] rounded-card lg:h-[calc(100dvh-10rem)]">
+          <MapFrame
+            center={form.center}
+            zoom={zoomForRadius(form.radius)}
+            className="sticker h-[20rem] rounded-card lg:h-[calc(100dvh-10rem)]"
+          >
             <EditorMap form={form} onMove={(center) => set({ center })} />
           </MapFrame>
           <p className="mt-2 px-1 text-sm font-bold text-ink-soft">{t("editor.pinHint")}</p>
@@ -192,8 +261,18 @@ function PlaceEditor({ title, placeId, initial }: { title: string; placeId?: str
                     key={meta.key}
                     type="button"
                     aria-pressed={selected}
-                    onClick={() => set({ label, emoji: EMOJI_DEFAULTS.has(form.emoji) ? meta.emoji : form.emoji })}
-                    className={cn("pressable flex flex-col items-center gap-1 rounded-2xl border-2 px-1 py-2.5 text-xs font-black", selected ? cn("border-ink text-[#17122b]", meta.tint) : "border-line bg-surface text-ink-soft")}
+                    onClick={() =>
+                      set({
+                        label,
+                        emoji: EMOJI_DEFAULTS.has(form.emoji) ? meta.emoji : form.emoji,
+                      })
+                    }
+                    className={cn(
+                      "pressable flex flex-col items-center gap-1 rounded-2xl border-2 px-1 py-2.5 text-xs font-black",
+                      selected
+                        ? cn("border-ink text-[#17122b]", meta.tint)
+                        : "border-line bg-surface text-ink-soft",
+                    )}
                   >
                     <span className="text-2xl" aria-hidden>
                       {meta.emoji}
@@ -205,7 +284,14 @@ function PlaceEditor({ title, placeId, initial }: { title: string; placeId?: str
             </div>
           </fieldset>
 
-          <TextField label={t("editor.name")} placeholder={t("editor.namePlaceholder")} value={form.name} maxLength={60} required onChange={(event) => set({ name: event.target.value })} />
+          <TextField
+            label={t("editor.name")}
+            placeholder={t("editor.namePlaceholder")}
+            value={form.name}
+            maxLength={60}
+            required
+            onChange={(event) => set({ name: event.target.value })}
+          />
 
           <fieldset>
             <legend className="px-1 text-sm font-bold text-ink-soft">{t("editor.icon")}</legend>
@@ -217,20 +303,32 @@ function PlaceEditor({ title, placeId, initial }: { title: string; placeId?: str
                   aria-pressed={form.emoji === emoji}
                   aria-label={emoji}
                   onClick={() => set({ emoji })}
-                  className={cn("grid size-10 place-items-center rounded-xl border-2 text-xl", form.emoji === emoji ? "border-ink bg-lime" : "border-transparent bg-surface-2")}
+                  className={cn(
+                    "grid size-10 place-items-center rounded-xl border-2 text-xl",
+                    form.emoji === emoji ? "border-ink bg-lime" : "border-transparent bg-surface-2",
+                  )}
                 >
                   {emoji}
                 </button>
               ))}
               {!EMOJI_CHOICES.includes(form.emoji) && form.emoji && (
-                <span className="grid size-10 place-items-center rounded-xl border-2 border-ink bg-lime text-xl" role="img" aria-label={form.emoji}>
+                <span
+                  className="grid size-10 place-items-center rounded-xl border-2 border-ink bg-lime text-xl"
+                  role="img"
+                  aria-label={form.emoji}
+                >
                   {form.emoji}
                 </span>
               )}
               <EmojiPicker
                 onPick={(emoji) => set({ emoji })}
                 trigger={
-                  <button type="button" aria-label={t("editor.moreEmoji")} title={t("editor.moreEmoji")} className="grid size-10 place-items-center rounded-xl border-2 border-dashed border-line text-ink-soft">
+                  <button
+                    type="button"
+                    aria-label={t("editor.moreEmoji")}
+                    title={t("editor.moreEmoji")}
+                    className="grid size-10 place-items-center rounded-xl border-2 border-dashed border-line text-ink-soft"
+                  >
                     <SmilePlus className="size-5" />
                   </button>
                 }
@@ -243,7 +341,15 @@ function PlaceEditor({ title, placeId, initial }: { title: string; placeId?: str
               <span className="text-sm font-bold text-ink-soft">{t("editor.radius")}</span>
               <span className="font-black tabular-nums">{form.radius} m</span>
             </div>
-            <Slider value={form.radius} min={25} max={1000} step={25} label={t("editor.radius")} valueText={`${form.radius} m`} onChange={(radius) => set({ radius })} />
+            <Slider
+              value={form.radius}
+              min={25}
+              max={1000}
+              step={25}
+              label={t("editor.radius")}
+              valueText={`${form.radius} m`}
+              onChange={(radius) => set({ radius })}
+            />
             <p className="px-1 text-xs text-ink-faint">{t("editor.radiusHint")}</p>
           </div>
 
@@ -252,10 +358,22 @@ function PlaceEditor({ title, placeId, initial }: { title: string; placeId?: str
             hint={fixedPrivate ? t("editor.visibilityFixed") : undefined}
             value={fixedPrivate ? "private" : visibilityKey(form.visibility)}
             disabled={fixedPrivate}
-            onChange={(key) => set({ visibility: VISIBILITIES.find((entry) => entry.key === key)?.value ?? common.Visibility.PRIVATE })}
-            options={VISIBILITIES.map((entry) => ({ value: entry.key, label: t(`visibility.${entry.key}`), hint: t(`visibility.${entry.key}Hint`) }))}
+            onChange={(key) =>
+              set({
+                visibility:
+                  VISIBILITIES.find((entry) => entry.key === key)?.value ??
+                  common.Visibility.PRIVATE,
+              })
+            }
+            options={VISIBILITIES.map((entry) => ({
+              value: entry.key,
+              label: t(`visibility.${entry.key}`),
+              hint: t(`visibility.${entry.key}Hint`),
+            }))}
           />
-          {fixedPrivate && <p className="-mt-3 px-1 text-xs text-ink-faint">{t("editor.visibilityFixed")}</p>}
+          {fixedPrivate && (
+            <p className="-mt-3 px-1 text-xs text-ink-faint">{t("editor.visibilityFixed")}</p>
+          )}
 
           <SelectField
             label={t("editor.category")}
@@ -263,9 +381,15 @@ function PlaceEditor({ title, placeId, initial }: { title: string; placeId?: str
             onChange={(category) => set({ category: category === NO_CATEGORY ? "" : category })}
             options={[
               { value: NO_CATEGORY, label: t("categories.none") },
-              ...CATEGORIES.map((category) => ({ value: category as string, label: t(`categories.${category}`) })),
+              ...CATEGORIES.map((category) => ({
+                value: category as string,
+                label: t(`categories.${category}`),
+              })),
               // A category set elsewhere (another client, an older version) stays selectable.
-              ...(form.category && !CATEGORIES.includes(form.category as (typeof CATEGORIES)[number]) ? [{ value: form.category, label: form.category }] : []),
+              ...(form.category &&
+              !CATEGORIES.includes(form.category as (typeof CATEGORIES)[number])
+                ? [{ value: form.category, label: form.category }]
+                : []),
             ]}
           />
 
@@ -273,19 +397,40 @@ function PlaceEditor({ title, placeId, initial }: { title: string; placeId?: str
             <p className="px-1 text-sm font-bold text-ink-soft">{t("editor.photo")}</p>
             <div className="mt-1.5 flex items-center gap-3">
               {form.photoUrl ? (
-                <img src={form.photoUrl} alt="" className="sticker-sm size-20 rounded-2xl object-cover" />
+                <img
+                  src={form.photoUrl}
+                  alt=""
+                  className="sticker-sm size-20 rounded-2xl object-cover"
+                />
               ) : (
                 <span className="grid size-20 place-items-center rounded-2xl border-2 border-dashed border-line text-ink-faint">
                   <ImagePlus className="size-6" />
                 </span>
               )}
               <div className="flex flex-col items-start gap-1">
-                <input ref={fileInput} type="file" accept="image/*" className="sr-only" aria-label={t("editor.photo")} onChange={(event) => void pickPhoto(event.target.files?.[0])} />
-                <Button variant="secondary" size="sm" loading={uploading} onClick={() => fileInput.current?.click()}>
+                <input
+                  ref={fileInput}
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  aria-label={t("editor.photo")}
+                  onChange={(event) => void pickPhoto(event.target.files?.[0])}
+                />
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  loading={uploading}
+                  onClick={() => fileInput.current?.click()}
+                >
                   {form.photoUrl ? t("editor.photoChange") : t("editor.photoAdd")}
                 </Button>
                 {form.photoUrl && (
-                  <Button variant="ghost" size="sm" icon={<Trash2 className="size-4" />} onClick={() => set({ photoAssetId: "", photoUrl: undefined })}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon={<Trash2 className="size-4" />}
+                    onClick={() => set({ photoAssetId: "", photoUrl: undefined })}
+                  >
                     {t("editor.photoRemove")}
                   </Button>
                 )}
@@ -293,7 +438,13 @@ function PlaceEditor({ title, placeId, initial }: { title: string; placeId?: str
             </div>
           </div>
 
-          <Button type="submit" size="lg" block loading={save.isPending} disabled={!form.name.trim() || uploading}>
+          <Button
+            type="submit"
+            size="lg"
+            block
+            loading={save.isPending}
+            disabled={!form.name.trim() || uploading}
+          >
             {placeId ? t("editor.save") : t("editor.create")}
           </Button>
         </div>
@@ -338,14 +489,34 @@ function EditorMap({ form, onMove }: { form: Form; onMove(center: LatLng): void 
         id="place-radius"
         data={circlePolygon(form.center, form.radius)}
         layers={[
-          { id: "place-radius-fill", type: "fill", paint: { "fill-color": tint, "fill-opacity": 0.18 } },
-          { id: "place-radius-edge", type: "line", paint: { "line-color": tint, "line-width": 2.5, "line-dasharray": [2, 1.5] } },
+          {
+            id: "place-radius-fill",
+            type: "fill",
+            paint: { "fill-color": tint, "fill-opacity": 0.18 },
+          },
+          {
+            id: "place-radius-edge",
+            type: "line",
+            paint: { "line-color": tint, "line-width": 2.5, "line-dasharray": [2, 1.5] },
+          },
         ]}
       />
       <MapClick onClick={onMove} />
       <Pin position={form.center} zIndex={5} onDragEnd={onMove}>
-        <div className="flex cursor-grab flex-col items-center active:cursor-grabbing" data-testid="place-pin" role="img" aria-label={t("editor.pin")}>
-          <span className={cn("sticker grid size-14 place-items-center rounded-[1.25rem] text-3xl", labelMeta(form.label).tint)}>{form.emoji || labelMeta(form.label).emoji}</span>
+        <div
+          className="flex cursor-grab flex-col items-center active:cursor-grabbing"
+          data-testid="place-pin"
+          role="img"
+          aria-label={t("editor.pin")}
+        >
+          <span
+            className={cn(
+              "sticker grid size-14 place-items-center rounded-[1.25rem] text-3xl",
+              labelMeta(form.label).tint,
+            )}
+          >
+            {form.emoji || labelMeta(form.label).emoji}
+          </span>
           <span className="h-3 w-[3px] bg-ink" aria-hidden />
           <span className="size-2 rounded-full bg-ink" aria-hidden />
         </div>

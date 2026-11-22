@@ -26,13 +26,26 @@ export function parseNotesSearch(search: Record<string, unknown>): { tab?: Notes
  * is more to it than notes), the friends timeline, everyone's public notes
  * and the notes that mention the viewer, with trends beside them.
  */
-export function NotesScreen({ tab: chosen, onTabChange, top }: { tab?: NotesTab; onTabChange(tab: NotesTab): void; /** Shown above the list on the feed and friends tabs: the story tray. */ top?: ReactNode }) {
+export function NotesScreen({
+  tab: chosen,
+  onTabChange,
+  top,
+}: {
+  tab?: NotesTab;
+  onTabChange(
+    tab: NotesTab,
+  ): void /** Shown above the list on the feed and friends tabs: the story tray. */;
+  top?: ReactNode;
+}) {
   const { t } = useTranslation("notes");
   const timeline = useRef<TimelineHandle>(null);
   const feed = useHomeFeed();
   const mixed = hasMoreThanNotes(feed.data?.pages[0]?.cards ?? []);
   // The feed tab exists only when the feed has more than notes; until that is known, nothing is picked for the viewer.
-  const tab: NotesTab | undefined = chosen === "feed" && !mixed && !feed.isPending ? "home" : (chosen ?? (feed.isPending ? undefined : mixed ? "feed" : "home"));
+  const tab: NotesTab | undefined =
+    chosen === "feed" && !mixed && !feed.isPending
+      ? "home"
+      : (chosen ?? (feed.isPending ? undefined : mixed ? "feed" : "home"));
 
   const items = [
     ...(mixed || chosen === "feed" ? [{ value: "feed" as const, label: t("tabs.feed") }] : []),
@@ -52,7 +65,11 @@ export function NotesScreen({ tab: chosen, onTabChange, top }: { tab?: NotesTab;
       scrollId="notes-home"
       onRefresh={() => timeline.current?.refresh() ?? Promise.resolve()}
       actions={
-        <Link to="/bookmarks" aria-label={t("shell.bookmarks")} className="grid size-9 shrink-0 place-items-center rounded-full text-ink-soft hover:bg-surface-2 hover:text-ink lg:hidden">
+        <Link
+          to="/bookmarks"
+          aria-label={t("shell.bookmarks")}
+          className="grid size-9 shrink-0 place-items-center rounded-full text-ink-soft hover:bg-surface-2 hover:text-ink lg:hidden"
+        >
           <Bookmark className="size-5" />
         </Link>
       }
@@ -71,17 +88,76 @@ export function NotesScreen({ tab: chosen, onTabChange, top }: { tab?: NotesTab;
         </div>
       )}
       {tab === undefined && <TimelineSkeleton />}
-      {tab === "feed" && <HomeFeed ref={timeline} empty={<EmptyState emoji="🫧" title={t("empty.feed")} body={t("empty.feedBody")} action={writeFirst} />} />}
-      {tab === "home" && <Timeline key="home" ref={timeline} source={{ kind: "home" }} live empty={<EmptyState emoji="📝" title={t("empty.home")} body={t("empty.homeBody")} action={writeFirst} />} />}
-      {tab === "global" && <Timeline key="global" ref={timeline} source={{ kind: "global" }} empty={<EmptyState emoji="🌏" title={t("empty.global")} body={t("empty.globalBody")} action={writeFirst} />} />}
-      {tab === "mentions" && <Timeline key="mentions" ref={timeline} source={{ kind: "mentions" }} live empty={<EmptyState emoji="💬" title={t("empty.mentions")} body={t("empty.mentionsBody")} />} />}
+      {tab === "feed" && (
+        <HomeFeed
+          ref={timeline}
+          empty={
+            <EmptyState
+              emoji="🫧"
+              title={t("empty.feed")}
+              body={t("empty.feedBody")}
+              action={writeFirst}
+            />
+          }
+        />
+      )}
+      {tab === "home" && (
+        <Timeline
+          key="home"
+          ref={timeline}
+          source={{ kind: "home" }}
+          live
+          empty={
+            <EmptyState
+              emoji="📝"
+              title={t("empty.home")}
+              body={t("empty.homeBody")}
+              action={writeFirst}
+            />
+          }
+        />
+      )}
+      {tab === "global" && (
+        <Timeline
+          key="global"
+          ref={timeline}
+          source={{ kind: "global" }}
+          empty={
+            <EmptyState
+              emoji="🌏"
+              title={t("empty.global")}
+              body={t("empty.globalBody")}
+              action={writeFirst}
+            />
+          }
+        />
+      )}
+      {tab === "mentions" && (
+        <Timeline
+          key="mentions"
+          ref={timeline}
+          source={{ kind: "mentions" }}
+          live
+          empty={
+            <EmptyState emoji="💬" title={t("empty.mentions")} body={t("empty.mentionsBody")} />
+          }
+        />
+      )}
       <ComposeButton />
     </NotesPage>
   );
 }
 
 /** The tab strip. Switching tabs starts the new list from its top. */
-function TabsRow({ items, value, onChange }: { items: { value: NotesTab; label: string }[]; value: NotesTab; onChange(tab: NotesTab): void }) {
+function TabsRow({
+  items,
+  value,
+  onChange,
+}: {
+  items: { value: NotesTab; label: string }[];
+  value: NotesTab;
+  onChange(tab: NotesTab): void;
+}) {
   const { element } = useScroller();
   return (
     <Tabs<NotesTab>
@@ -107,8 +183,14 @@ function Shortcuts() {
   return (
     <nav aria-label={t("shortcuts.title")} className="rounded-card bg-surface p-2">
       {links.map((link) => (
-        <Link key={link.to} to={link.to} className="flex items-center gap-3 rounded-2xl px-2 py-2 font-bold hover:bg-surface-2">
-          <span className={`grid size-8 place-items-center rounded-xl border-2 border-ink text-[#17122b] ${link.tint}`}>
+        <Link
+          key={link.to}
+          to={link.to}
+          className="flex items-center gap-3 rounded-2xl px-2 py-2 font-bold hover:bg-surface-2"
+        >
+          <span
+            className={`grid size-8 place-items-center rounded-xl border-2 border-ink text-[#17122b] ${link.tint}`}
+          >
             <link.icon className="size-4" />
           </span>
           {link.label}

@@ -17,10 +17,19 @@ export function BalancePill({ className }: { className?: string }) {
   return (
     <Link
       to="/wallet"
-      aria-label={coins === undefined ? t("pill.open") : t("pill.label", { coins: formatCoins(coins) })}
-      className={cn("pressable sticker-sm inline-flex h-9 shrink-0 items-center rounded-full bg-surface pr-3 pl-2", className)}
+      aria-label={
+        coins === undefined ? t("pill.open") : t("pill.label", { coins: formatCoins(coins) })
+      }
+      className={cn(
+        "pressable sticker-sm inline-flex h-9 shrink-0 items-center rounded-full bg-surface pr-3 pl-2",
+        className,
+      )}
     >
-      {coins === undefined ? <Skeleton className="h-4 w-12 rounded-full" /> : <Coins amount={coins} size="sm" />}
+      {coins === undefined ? (
+        <Skeleton className="h-4 w-12 rounded-full" />
+      ) : (
+        <Coins amount={coins} size="sm" />
+      )}
     </Link>
   );
 }

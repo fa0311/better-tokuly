@@ -72,8 +72,15 @@ export function LikeButton({ subject, className }: { subject: Subject; className
         className,
       )}
     >
-      <Heart className={cn("size-[18px] transition-transform duration-200 ease-bounce", liked && "scale-110 fill-current")} />
-      {data && data.likeCount > 0 && <span className="tabular-nums">{compactCount(data.likeCount, i18n.language)}</span>}
+      <Heart
+        className={cn(
+          "size-[18px] transition-transform duration-200 ease-bounce",
+          liked && "scale-110 fill-current",
+        )}
+      />
+      {data && data.likeCount > 0 && (
+        <span className="tabular-nums">{compactCount(data.likeCount, i18n.language)}</span>
+      )}
       {burst}
     </button>
   );
@@ -91,7 +98,8 @@ export function ReactionChips({ subject, className }: { subject: Subject; classN
   const [listOpen, setListOpen] = useState(false);
   if (!data || data.emojiCounts.length === 0) return null;
 
-  const mine = data.viewerReaction?.kind === engagement.ReactionKind.EMOJI ? data.viewerReaction.emoji : "";
+  const mine =
+    data.viewerReaction?.kind === engagement.ReactionKind.EMOJI ? data.viewerReaction.emoji : "";
   const shown = data.emojiCounts.slice(0, VISIBLE_CHIPS);
   return (
     <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
@@ -112,14 +120,28 @@ export function ReactionChips({ subject, className }: { subject: Subject; classN
         className="inline-flex h-8 items-center gap-1 rounded-full px-2 text-xs font-black text-ink-faint hover:bg-surface-2 hover:text-ink"
       >
         <UsersRound className="size-4" />
-        {data.emojiTotal > shown.reduce((sum, entry) => sum + entry.count, 0) && <span className="tabular-nums">{data.emojiTotal}</span>}
+        {data.emojiTotal > shown.reduce((sum, entry) => sum + entry.count, 0) && (
+          <span className="tabular-nums">{data.emojiTotal}</span>
+        )}
       </button>
       {listOpen && <ReactorsDialog subject={subject} onClose={() => setListOpen(false)} />}
     </div>
   );
 }
 
-function ReactionChip({ emoji, count, mine, disabled, onToggle }: { emoji: string; count: number; mine: boolean; disabled: boolean; onToggle(): void }) {
+function ReactionChip({
+  emoji,
+  count,
+  mine,
+  disabled,
+  onToggle,
+}: {
+  emoji: string;
+  count: number;
+  mine: boolean;
+  disabled: boolean;
+  onToggle(): void;
+}) {
   const { t, i18n } = useTranslation("engagement");
   const { fire, burst } = useBurst([emoji]);
   return (
@@ -134,7 +156,9 @@ function ReactionChip({ emoji, count, mine, disabled, onToggle }: { emoji: strin
       }}
       className={cn(
         "relative inline-flex h-8 animate-pop-in items-center gap-1 rounded-full border-2 px-2.5 text-sm font-black transition-colors disabled:opacity-60",
-        mine ? "border-brand bg-brand-soft text-ink" : "border-line bg-surface text-ink-soft hover:border-ink-faint",
+        mine
+          ? "border-brand bg-brand-soft text-ink"
+          : "border-line bg-surface text-ink-soft hover:border-ink-faint",
       )}
     >
       <span aria-hidden className="text-base leading-none">
@@ -147,7 +171,13 @@ function ReactionChip({ emoji, count, mine, disabled, onToggle }: { emoji: strin
 }
 
 /** The "add a reaction" button: opens the emoji picker and reacts with the pick. */
-export function AddReactionButton({ subject, className }: { subject: Subject; className?: string }) {
+export function AddReactionButton({
+  subject,
+  className,
+}: {
+  subject: Subject;
+  className?: string;
+}) {
   const { t } = useTranslation("engagement");
   const { data } = useEngagement(subject);
   const react = useReact(subject);
@@ -164,7 +194,10 @@ export function AddReactionButton({ subject, className }: { subject: Subject; cl
           type="button"
           aria-label={t("reactions.add")}
           disabled={disabled}
-          className={cn("relative grid size-9 place-items-center rounded-full text-ink-soft transition-colors hover:bg-surface-2 hover:text-brand disabled:opacity-50", className)}
+          className={cn(
+            "relative grid size-9 place-items-center rounded-full text-ink-soft transition-colors hover:bg-surface-2 hover:text-brand disabled:opacity-50",
+            className,
+          )}
         >
           <SmilePlus className="size-[18px]" />
           {burst}
@@ -191,7 +224,11 @@ export function ReactorsDialog({ subject, onClose }: { subject: Subject; onClose
             {t("reactions.all")}
           </FilterChip>
           {data.emojiCounts.map((entry) => (
-            <FilterChip key={entry.emoji} active={emoji === entry.emoji} onClick={() => setEmoji(entry.emoji)}>
+            <FilterChip
+              key={entry.emoji}
+              active={emoji === entry.emoji}
+              onClick={() => setEmoji(entry.emoji)}
+            >
               {entry.emoji} {entry.count}
             </FilterChip>
           ))}
@@ -203,14 +240,22 @@ export function ReactorsDialog({ subject, onClose }: { subject: Subject; onClose
           <Skeleton className="h-12" />
         </div>
       ) : reactors.length === 0 ? (
-        <EmptyState emoji={isPrivate ? "🙈" : "🫧"} title={isPrivate ? t("reactions.listPrivate") : t("reactions.nobody")} />
+        <EmptyState
+          emoji={isPrivate ? "🙈" : "🫧"}
+          title={isPrivate ? t("reactions.listPrivate") : t("reactions.nobody")}
+        />
       ) : (
         <ul className="flex flex-col">
           {reactors.map(
             (reactor) =>
               reactor.user && (
                 <li key={`${reactor.user.id}:${reactor.reaction?.emoji ?? ""}`}>
-                  <Link to="/u/$handle" params={{ handle: reactor.user.handle }} onClick={onClose} className="flex items-center gap-3 rounded-2xl px-2 py-2 hover:bg-surface-2">
+                  <Link
+                    to="/u/$handle"
+                    params={{ handle: reactor.user.handle }}
+                    onClick={onClose}
+                    className="flex items-center gap-3 rounded-2xl px-2 py-2 hover:bg-surface-2"
+                  >
                     <Avatar user={reactor.user} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-bold">{reactor.user.displayName}</span>
@@ -218,8 +263,14 @@ export function ReactorsDialog({ subject, onClose }: { subject: Subject; onClose
                         @{reactor.user.handle} · {compactAge(toMillis(reactor.reactedAt))}
                       </span>
                     </span>
-                    <span className="text-2xl leading-none" role="img" aria-label={reactor.reaction?.emoji || t("reactions.like")}>
-                      {reactor.reaction?.kind === engagement.ReactionKind.EMOJI ? reactor.reaction.emoji : "💜"}
+                    <span
+                      className="text-2xl leading-none"
+                      role="img"
+                      aria-label={reactor.reaction?.emoji || t("reactions.like")}
+                    >
+                      {reactor.reaction?.kind === engagement.ReactionKind.EMOJI
+                        ? reactor.reaction.emoji
+                        : "💜"}
                     </span>
                   </Link>
                 </li>
@@ -232,13 +283,26 @@ export function ReactorsDialog({ subject, onClose }: { subject: Subject; onClose
   );
 }
 
-function FilterChip({ active, onClick, children }: { active: boolean; onClick(): void; children: ReactNode }) {
+function FilterChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick(): void;
+  children: ReactNode;
+}) {
   return (
     <button
       type="button"
       aria-pressed={active}
       onClick={onClick}
-      className={cn("h-8 shrink-0 rounded-full border-2 px-3 text-sm font-black", active ? "border-ink bg-ink text-surface" : "border-line text-ink-soft hover:border-ink-faint")}
+      className={cn(
+        "h-8 shrink-0 rounded-full border-2 px-3 text-sm font-black",
+        active
+          ? "border-ink bg-ink text-surface"
+          : "border-line text-ink-soft hover:border-ink-faint",
+      )}
     >
       {children}
     </button>

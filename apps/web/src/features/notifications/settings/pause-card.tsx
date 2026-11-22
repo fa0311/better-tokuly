@@ -29,7 +29,12 @@ export function PauseCard({ preferences }: { preferences: notify.Preferences }) 
   return (
     <Card>
       <div className="flex items-start gap-3">
-        <span className={cn("sticker-sm grid size-12 shrink-0 place-items-center rounded-2xl", paused ? "bg-sun text-[#17122b]" : "bg-surface-3 text-ink")}>
+        <span
+          className={cn(
+            "sticker-sm grid size-12 shrink-0 place-items-center rounded-2xl",
+            paused ? "bg-sun text-[#17122b]" : "bg-surface-3 text-ink",
+          )}
+        >
           <CirclePause className="size-6" />
         </span>
         <div className="min-w-0 flex-1">
@@ -38,19 +43,34 @@ export function PauseCard({ preferences }: { preferences: notify.Preferences }) 
             {paused && <Chip className="bg-sun text-[#17122b]">{t("pause.active")}</Chip>}
           </h2>
           <p className="mt-1 text-sm leading-relaxed text-ink-soft" aria-live="polite">
-            {paused ? (until ? t("pause.until", { when: formatUntil(until, now, i18n.language) }) : t("pause.untilResumed")) : t("pause.lead")}
+            {paused
+              ? until
+                ? t("pause.until", { when: formatUntil(until, now, i18n.language) })
+                : t("pause.untilResumed")
+              : t("pause.lead")}
           </p>
         </div>
       </div>
       {paused ? (
-        <Button variant="lime" className="mt-4" icon={<Play className="size-4" />} loading={actions.resume.isPending} onClick={() => actions.resume.mutate()}>
+        <Button
+          variant="lime"
+          className="mt-4"
+          icon={<Play className="size-4" />}
+          loading={actions.resume.isPending}
+          onClick={() => actions.resume.mutate()}
+        >
           {t("pause.resume")}
         </Button>
       ) : (
         <fieldset className="mt-4 flex flex-wrap gap-2" disabled={busy}>
           <legend className="sr-only">{t("pause.choose")}</legend>
           {DURATIONS.map((duration) => (
-            <Button key={duration.seconds} variant="secondary" size="sm" onClick={() => actions.pause.mutate(duration.seconds)}>
+            <Button
+              key={duration.seconds}
+              variant="secondary"
+              size="sm"
+              onClick={() => actions.pause.mutate(duration.seconds)}
+            >
               {t(duration.key)}
             </Button>
           ))}
@@ -66,5 +86,10 @@ function formatUntil(untilMs: number, nowMs: number, language: string): string {
   const sameDay = until.toDateString() === new Date(nowMs).toDateString();
   return sameDay
     ? until.toLocaleTimeString(language, { hour: "2-digit", minute: "2-digit" })
-    : until.toLocaleString(language, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    : until.toLocaleString(language, {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
 }

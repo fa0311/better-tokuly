@@ -6,7 +6,9 @@ import { Spinner } from "#/components/ui/spinner";
 import { authClient } from "#/lib/api";
 
 export const Route = createFileRoute("/verify-email")({
-  validateSearch: (search): { token?: string } => ({ token: typeof search.token === "string" ? search.token : undefined }),
+  validateSearch: (search): { token?: string } => ({
+    token: typeof search.token === "string" ? search.token : undefined,
+  }),
   component: VerifyEmail,
 });
 
@@ -32,11 +34,26 @@ function VerifyEmail() {
   }, [token]);
 
   return (
-    <AuthLayout title={state === "working" ? t("verify.working") : state === "done" ? t("verify.done") : t("verify.failed")}>
+    <AuthLayout
+      title={
+        state === "working"
+          ? t("verify.working")
+          : state === "done"
+            ? t("verify.done")
+            : t("verify.failed")
+      }
+    >
       <div className="flex flex-col items-center gap-5 py-2 text-center">
-        {state === "working" ? <Spinner className="size-8 text-brand" /> : <div className="text-6xl">{state === "done" ? "🎉" : "😢"}</div>}
+        {state === "working" ? (
+          <Spinner className="size-8 text-brand" />
+        ) : (
+          <div className="text-6xl">{state === "done" ? "🎉" : "😢"}</div>
+        )}
         {state !== "working" && (
-          <Link to="/map" className="pressable sticker inline-flex h-12 items-center rounded-full bg-brand px-6 font-black text-on-brand">
+          <Link
+            to="/map"
+            className="pressable sticker inline-flex h-12 items-center rounded-full bg-brand px-6 font-black text-on-brand"
+          >
             {t("verify.toApp")}
           </Link>
         )}

@@ -1,7 +1,34 @@
 import { useQuery } from "@tanstack/react-query";
 import type { media, video } from "@tokuly/api";
-import { Captions, CaptionsOff, FastForward, Lock, Maximize, Minimize, Pause, PictureInPicture2, Play, RectangleHorizontal, Rewind, RotateCcw, Settings, Volume1, Volume2, VolumeX } from "lucide-react";
-import { type MouseEvent, type ReactNode, type Ref, type PointerEvent as ReactPointerEvent, type RefObject, useEffect, useImperativeHandle, useRef, useState } from "react";
+import {
+  Captions,
+  CaptionsOff,
+  FastForward,
+  Lock,
+  Maximize,
+  Minimize,
+  Pause,
+  PictureInPicture2,
+  Play,
+  RectangleHorizontal,
+  Rewind,
+  RotateCcw,
+  Settings,
+  Volume1,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
+import {
+  type MouseEvent,
+  type ReactNode,
+  type PointerEvent as ReactPointerEvent,
+  type Ref,
+  type RefObject,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { Spinner } from "#/components/ui/spinner";
 import { cn } from "#/lib/cn";
@@ -125,13 +152,18 @@ export function VideoPlayer({
   const [fullscreen, setFullscreen] = useState(false);
   const [pip, setPip] = useState(false);
   const [trackId, setTrackId] = useState<string | null>(() => initialTrack(subtitles));
-  const [flash, setFlash] = useState<{ id: number; text: string; side?: "left" | "right" } | null>(null);
+  const [flash, setFlash] = useState<{ id: number; text: string; side?: "left" | "right" } | null>(
+    null,
+  );
   const idleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const lastTap = useRef<{ at: number; zone: "left" | "center" | "right" } | null>(null);
 
   useImperativeHandle(ref, () => ({
     currentTime: () => element.current?.currentTime ?? 0,
-    duration: () => (element.current && Number.isFinite(element.current.duration) ? element.current.duration : source.durationSeconds),
+    duration: () =>
+      element.current && Number.isFinite(element.current.duration)
+        ? element.current.duration
+        : source.durationSeconds,
     paused: () => element.current?.paused ?? true,
     play: controls.play,
     pause: controls.pause,
@@ -147,7 +179,8 @@ export function VideoPlayer({
   };
   useEffect(() => () => clearTimeout(idleTimer.current), []);
 
-  const announce = (text: string, side?: "left" | "right") => setFlash({ id: Date.now(), text, side });
+  const announce = (text: string, side?: "left" | "right") =>
+    setFlash({ id: Date.now(), text, side });
   useEffect(() => {
     if (!flash) return;
     const timer = setTimeout(() => setFlash(null), 700);
@@ -175,7 +208,9 @@ export function VideoPlayer({
 
   const toggleFullscreen = () => {
     const box = container.current;
-    const media = element.current as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null;
+    const media = element.current as
+      | (HTMLVideoElement & { webkitEnterFullscreen?: () => void })
+      | null;
     if (document.fullscreenElement) void document.exitFullscreen();
     else if (box?.requestFullscreen) void box.requestFullscreen().catch(() => {});
     // iPhones only let the video element itself go fullscreen.
@@ -190,7 +225,10 @@ export function VideoPlayer({
   const selectTrack = (id: string | null) => {
     setTrackId(id);
     try {
-      window.localStorage.setItem(CAPTIONS_KEY, id ? (subtitles.find((track) => track.id === id)?.language ?? "") : "off");
+      window.localStorage.setItem(
+        CAPTIONS_KEY,
+        id ? (subtitles.find((track) => track.id === id)?.language ?? "") : "off",
+      );
     } catch {
       // Private mode: the choice lasts for this page.
     }
@@ -198,11 +236,22 @@ export function VideoPlayer({
   const toggleCaptions = () => {
     if (subtitles.length === 0) return;
     if (trackId) selectTrack(null);
-    else selectTrack((subtitles.find((track) => track.language === storedCaptions()) ?? subtitles.find((track) => track.isDefault) ?? subtitles[0])?.id ?? null);
+    else
+      selectTrack(
+        (
+          subtitles.find((track) => track.language === storedCaptions()) ??
+          subtitles.find((track) => track.isDefault) ??
+          subtitles[0]
+        )?.id ?? null,
+      );
   };
 
   const run = (command: PlayerCommand) => {
-    const transport = command.type === "toggle" || command.type === "seekBy" || command.type === "seekToFraction" || command.type === "rateBy";
+    const transport =
+      command.type === "toggle" ||
+      command.type === "seekBy" ||
+      command.type === "seekToFraction" ||
+      command.type === "rateBy";
     if (transport && locked) {
       announce(lockedReason ?? "");
       return;
@@ -213,13 +262,21 @@ export function VideoPlayer({
         break;
       case "seekBy":
         controls.seekBy(command.seconds);
-        announce(t(command.seconds < 0 ? "player.back" : "player.forward", { seconds: Math.abs(command.seconds) }), command.seconds < 0 ? "left" : "right");
+        announce(
+          t(command.seconds < 0 ? "player.back" : "player.forward", {
+            seconds: Math.abs(command.seconds),
+          }),
+          command.seconds < 0 ? "left" : "right",
+        );
         break;
       case "seekToFraction":
         controls.seek(state.duration * command.fraction);
         break;
       case "volumeBy": {
-        const next = Math.round(Math.min(1, Math.max(0, (state.muted ? 0 : state.volume) + command.delta)) * 100) / 100;
+        const next =
+          Math.round(
+            Math.min(1, Math.max(0, (state.muted ? 0 : state.volume) + command.delta)) * 100,
+          ) / 100;
         controls.setVolume(next);
         announce(t("player.volumeAt", { percent: Math.round(next * 100) }));
         break;
@@ -258,7 +315,11 @@ export function VideoPlayer({
   useEffect(() => {
     if (!shortcuts) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || !playerOwnsKey(event.target instanceof Element ? event.target : null, event)) return;
+      if (
+        event.defaultPrevented ||
+        !playerOwnsKey(event.target instanceof Element ? event.target : null, event)
+      )
+        return;
       const command = commandForKey(event);
       if (!command) return;
       event.preventDefault();
@@ -293,7 +354,11 @@ export function VideoPlayer({
     lastTap.current = { at: now, zone };
     if (previous && now - previous.at < DOUBLE_TAP_MS && previous.zone === zone) {
       // Double-tap: the sides jump, the middle plays or pauses. Further taps keep jumping.
-      run(zone === "center" ? { type: "toggle" } : { type: "seekBy", seconds: zone === "left" ? -10 : 10 });
+      run(
+        zone === "center"
+          ? { type: "toggle" }
+          : { type: "seekBy", seconds: zone === "left" ? -10 : 10 },
+      );
       return;
     }
     if (visible && !state.paused) {
@@ -304,7 +369,8 @@ export function VideoPlayer({
 
   const chapter = chapterAt(chapters, state.time);
   const track = subtitles.find((candidate) => candidate.id === trackId);
-  const VolumeIcon = state.muted || state.volume === 0 ? VolumeX : state.volume < 0.5 ? Volume1 : Volume2;
+  const VolumeIcon =
+    state.muted || state.volume === 0 ? VolumeX : state.volume < 0.5 ? Volume1 : Volume2;
 
   return (
     // biome-ignore lint/a11y/useSemanticElements: a region grouping the video with its custom controls.
@@ -313,8 +379,23 @@ export function VideoPlayer({
       role="group"
       aria-label={title ? t("player.labelFor", { title }) : t("player.label")}
       data-testid="video-player"
-      data-state={state.failed ? "failed" : state.ended ? "ended" : state.paused ? "paused" : state.waiting ? "buffering" : "playing"}
-      className={cn("@container relative isolate overflow-hidden bg-black text-white select-none", fullscreen ? "h-full w-full" : "aspect-video w-full", !visible && "cursor-none", className)}
+      data-state={
+        state.failed
+          ? "failed"
+          : state.ended
+            ? "ended"
+            : state.paused
+              ? "paused"
+              : state.waiting
+                ? "buffering"
+                : "playing"
+      }
+      className={cn(
+        "@container relative isolate overflow-hidden bg-black text-white select-none",
+        fullscreen ? "h-full w-full" : "aspect-video w-full",
+        !visible && "cursor-none",
+        className,
+      )}
       onPointerMove={(event) => event.pointerType === "mouse" && wake()}
       onFocus={wake}
     >
@@ -334,7 +415,14 @@ export function VideoPlayer({
       />
 
       {/* The surface under the controls: click or tap the picture itself. */}
-      <div className="absolute inset-0" onClick={onSurfaceClick} onDoubleClick={(event) => (event.nativeEvent as PointerEvent).pointerType !== "touch" && toggleFullscreen()} onPointerUp={onSurfaceTouch} />
+      <div
+        className="absolute inset-0"
+        onClick={onSurfaceClick}
+        onDoubleClick={(event) =>
+          (event.nativeEvent as PointerEvent).pointerType !== "touch" && toggleFullscreen()
+        }
+        onPointerUp={onSurfaceTouch}
+      />
 
       {track && <CaptionLayer media={element} track={track} raised={visible} />}
 
@@ -350,7 +438,11 @@ export function VideoPlayer({
           aria-hidden
           className={cn(
             "pointer-events-none absolute top-1/2 flex -translate-y-1/2 animate-fade-in items-center gap-1.5 rounded-full bg-black/65 px-4 py-2 text-sm font-black",
-            flash.side === "left" ? "left-[12%]" : flash.side === "right" ? "right-[12%]" : "left-1/2 -translate-x-1/2",
+            flash.side === "left"
+              ? "left-[12%]"
+              : flash.side === "right"
+                ? "right-[12%]"
+                : "left-1/2 -translate-x-1/2",
           )}
         >
           {flash.side === "left" && <Rewind className="size-4 fill-current" />}
@@ -360,26 +452,50 @@ export function VideoPlayer({
       )}
 
       {!state.started && !state.failed && !locked && (
-        <button type="button" aria-label={t("player.play")} className="pressable sticker absolute top-1/2 left-1/2 grid size-16 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-brand text-on-brand" onClick={() => controls.toggle()}>
+        <button
+          type="button"
+          aria-label={t("player.play")}
+          className="pressable sticker absolute top-1/2 left-1/2 grid size-16 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-brand text-on-brand"
+          onClick={() => controls.toggle()}
+        >
           <Play className="size-7 translate-x-0.5 fill-current" />
         </button>
       )}
 
       {lockedReason && (
-        <p className={cn("pointer-events-none absolute top-3 left-3 flex max-w-[80%] items-center gap-1.5 rounded-full bg-black/65 px-3 py-1.5 text-xs font-bold transition-opacity", visible ? "opacity-100" : "opacity-0")}>
+        <p
+          className={cn(
+            "pointer-events-none absolute top-3 left-3 flex max-w-[80%] items-center gap-1.5 rounded-full bg-black/65 px-3 py-1.5 text-xs font-bold transition-opacity",
+            visible ? "opacity-100" : "opacity-0",
+          )}
+        >
           <Lock className="size-3.5 shrink-0" />
           <span className="truncate">{lockedReason}</span>
         </p>
       )}
       {fullscreen && title && !lockedReason && (
-        <p className={cn("pointer-events-none absolute inset-x-0 top-0 truncate bg-gradient-to-b from-black/70 to-transparent px-5 pt-4 pb-10 text-lg font-black transition-opacity", visible ? "opacity-100" : "opacity-0")}>{title}</p>
+        <p
+          className={cn(
+            "pointer-events-none absolute inset-x-0 top-0 truncate bg-gradient-to-b from-black/70 to-transparent px-5 pt-4 pb-10 text-lg font-black transition-opacity",
+            visible ? "opacity-100" : "opacity-0",
+          )}
+        >
+          {title}
+        </p>
       )}
 
       {state.failed && (
-        <div role="alert" className="absolute inset-0 grid place-items-center bg-black/80 p-6 text-center">
+        <div
+          role="alert"
+          className="absolute inset-0 grid place-items-center bg-black/80 p-6 text-center"
+        >
           <div>
             <p className="font-black">{t("player.failed")}</p>
-            <button type="button" className="pressable mt-4 inline-flex h-11 items-center gap-2 rounded-full bg-white px-5 font-bold text-[#17122b]" onClick={controls.retry}>
+            <button
+              type="button"
+              className="pressable mt-4 inline-flex h-11 items-center gap-2 rounded-full bg-white px-5 font-bold text-[#17122b]"
+              onClick={controls.retry}
+            >
               <RotateCcw className="size-4" />
               {t("player.retry")}
             </button>
@@ -391,7 +507,11 @@ export function VideoPlayer({
         <div className="absolute inset-0 grid place-items-center bg-black/70 p-4">
           {endScreen ??
             (!locked && (
-              <button type="button" className="pressable inline-flex h-12 items-center gap-2 rounded-full bg-white px-6 font-black text-[#17122b]" onClick={() => controls.toggle()}>
+              <button
+                type="button"
+                className="pressable inline-flex h-12 items-center gap-2 rounded-full bg-white px-6 font-black text-[#17122b]"
+                onClick={() => controls.toggle()}
+              >
                 <RotateCcw className="size-5" />
                 {t("player.replay")}
               </button>
@@ -414,7 +534,10 @@ export function VideoPlayer({
 
       <div
         data-testid="player-controls"
-        className={cn("absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-2 pt-10 pb-1 transition-opacity duration-200 sm:px-3", visible ? "opacity-100" : "pointer-events-none opacity-0")}
+        className={cn(
+          "absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-2 pt-10 pb-1 transition-opacity duration-200 sm:px-3",
+          visible ? "opacity-100" : "pointer-events-none opacity-0",
+        )}
       >
         <Scrubber
           media={element}
@@ -429,10 +552,25 @@ export function VideoPlayer({
           onScrubbing={setScrubbing}
         />
         <div className="flex h-11 items-center gap-0.5">
-          <ControlButton label={state.ended ? t("player.replay") : state.paused ? t("player.play") : t("player.pause")} disabled={locked} onClick={() => run({ type: "toggle" })}>
-            {state.ended ? <RotateCcw className="size-5" /> : state.paused ? <Play className="size-5 fill-current" /> : <Pause className="size-5 fill-current" />}
+          <ControlButton
+            label={
+              state.ended ? t("player.replay") : state.paused ? t("player.play") : t("player.pause")
+            }
+            disabled={locked}
+            onClick={() => run({ type: "toggle" })}
+          >
+            {state.ended ? (
+              <RotateCcw className="size-5" />
+            ) : state.paused ? (
+              <Play className="size-5 fill-current" />
+            ) : (
+              <Pause className="size-5 fill-current" />
+            )}
           </ControlButton>
-          <ControlButton label={state.muted ? t("player.unmute") : t("player.mute")} onClick={() => controls.setMuted(!state.muted)}>
+          <ControlButton
+            label={state.muted ? t("player.unmute") : t("player.mute")}
+            onClick={() => controls.setMuted(!state.muted)}
+          >
             <VolumeIcon className="size-5" />
           </ControlButton>
           <input
@@ -452,24 +590,45 @@ export function VideoPlayer({
           </p>
           <span className="flex-1" />
           {subtitles.length > 0 && (
-            <ControlButton label={trackId ? t("player.captionsOff") : t("player.captionsOn")} pressed={Boolean(trackId)} onClick={toggleCaptions}>
+            <ControlButton
+              label={trackId ? t("player.captionsOff") : t("player.captionsOn")}
+              pressed={Boolean(trackId)}
+              onClick={toggleCaptions}
+            >
               {trackId ? <Captions className="size-5" /> : <CaptionsOff className="size-5" />}
             </ControlButton>
           )}
-          <ControlButton label={t("player.settings")} expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}>
+          <ControlButton
+            label={t("player.settings")}
+            expanded={menuOpen}
+            onClick={() => setMenuOpen((open) => !open)}
+          >
             <Settings className={cn("size-5 transition-transform", menuOpen && "rotate-45")} />
           </ControlButton>
           {pipSupported && (
-            <ControlButton label={t("player.pip")} pressed={pip} className="@max-md:hidden" onClick={togglePip}>
+            <ControlButton
+              label={t("player.pip")}
+              pressed={pip}
+              className="@max-md:hidden"
+              onClick={togglePip}
+            >
               <PictureInPicture2 className="size-5" />
             </ControlButton>
           )}
           {onTheatreChange && !fullscreen && (
-            <ControlButton label={theatre ? t("player.theatreOff") : t("player.theatreOn")} pressed={theatre} className="max-lg:hidden" onClick={() => onTheatreChange(!theatre)}>
+            <ControlButton
+              label={theatre ? t("player.theatreOff") : t("player.theatreOn")}
+              pressed={theatre}
+              className="max-lg:hidden"
+              onClick={() => onTheatreChange(!theatre)}
+            >
               <RectangleHorizontal className="size-5" />
             </ControlButton>
           )}
-          <ControlButton label={fullscreen ? t("player.fullscreenOff") : t("player.fullscreenOn")} onClick={toggleFullscreen}>
+          <ControlButton
+            label={fullscreen ? t("player.fullscreenOff") : t("player.fullscreenOn")}
+            onClick={toggleFullscreen}
+          >
             {fullscreen ? <Minimize className="size-5" /> : <Maximize className="size-5" />}
           </ControlButton>
         </div>
@@ -478,7 +637,23 @@ export function VideoPlayer({
   );
 }
 
-function ControlButton({ label, pressed, expanded, disabled, className, onClick, children }: { label: string; pressed?: boolean; expanded?: boolean; disabled?: boolean; className?: string; onClick(): void; children: ReactNode }) {
+function ControlButton({
+  label,
+  pressed,
+  expanded,
+  disabled,
+  className,
+  onClick,
+  children,
+}: {
+  label: string;
+  pressed?: boolean;
+  expanded?: boolean;
+  disabled?: boolean;
+  className?: string;
+  onClick(): void;
+  children: ReactNode;
+}) {
   return (
     <button
       type="button"
@@ -487,7 +662,10 @@ function ControlButton({ label, pressed, expanded, disabled, className, onClick,
       aria-pressed={pressed}
       aria-expanded={expanded}
       disabled={disabled}
-      className={cn("grid size-10 shrink-0 place-items-center rounded-full transition-colors hover:bg-white/15 disabled:opacity-40", className)}
+      className={cn(
+        "grid size-10 shrink-0 place-items-center rounded-full transition-colors hover:bg-white/15 disabled:opacity-40",
+        className,
+      )}
       onClick={onClick}
     >
       {children}
@@ -496,7 +674,15 @@ function ControlButton({ label, pressed, expanded, disabled, className, onClick,
 }
 
 /** Loads a subtitle track and shows the cue of the moment, in step with the picture. */
-function CaptionLayer({ media, track, raised }: { media: RefObject<HTMLVideoElement | null>; track: video.SubtitleTrack; raised: boolean }) {
+function CaptionLayer({
+  media,
+  track,
+  raised,
+}: {
+  media: RefObject<HTMLVideoElement | null>;
+  track: video.SubtitleTrack;
+  raised: boolean;
+}) {
   const cues = useQuery({
     queryKey: ["video", "captions", track.url],
     queryFn: async (): Promise<Cue[]> => {
@@ -525,8 +711,17 @@ function CaptionLayer({ media, track, raised }: { media: RefObject<HTMLVideoElem
 
   if (!text) return null;
   return (
-    <div className={cn("pointer-events-none absolute inset-x-0 flex justify-center px-4 transition-[bottom] duration-200", raised ? "bottom-20" : "bottom-6")}>
-      <p lang={track.language} data-testid="player-captions" className="max-w-[90%] rounded-lg bg-black/75 px-3 py-1 text-center text-[clamp(0.875rem,2.4cqw,1.5rem)] leading-snug font-bold whitespace-pre-line">
+    <div
+      className={cn(
+        "pointer-events-none absolute inset-x-0 flex justify-center px-4 transition-[bottom] duration-200",
+        raised ? "bottom-20" : "bottom-6",
+      )}
+    >
+      <p
+        lang={track.language}
+        data-testid="player-captions"
+        className="max-w-[90%] rounded-lg bg-black/75 px-3 py-1 text-center text-[clamp(0.875rem,2.4cqw,1.5rem)] leading-snug font-bold whitespace-pre-line"
+      >
         {text}
       </p>
     </div>

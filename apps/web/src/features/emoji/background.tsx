@@ -36,13 +36,24 @@ export default function EmojiBackground() {
       if (event.case === "catalogChanged") {
         void syncCatalog(event.value.version);
         // Lists drawn from the server (popular, newest, search, an emoji's page) may show what changed.
-        for (const key of [emojiKeys.popular, emojiKeys.newest, ["emoji", "search"], ["emoji", "author"], emojiKeys.details, emojiKeys.deck]) void queryClient.invalidateQueries({ queryKey: key });
+        for (const key of [
+          emojiKeys.popular,
+          emojiKeys.newest,
+          ["emoji", "search"],
+          ["emoji", "author"],
+          emojiKeys.details,
+          emojiKeys.deck,
+        ])
+          void queryClient.invalidateQueries({ queryKey: key });
       } else if (event.case === "submissionUpdated") {
         void queryClient.invalidateQueries({ queryKey: emojiKeys.submissions });
         void queryClient.invalidateQueries({ queryKey: emojiKeys.submitter });
         void queryClient.invalidateQueries({ queryKey: emojiKeys.details });
       } else if (event.case === "importUpdated") {
-        void queryClient.invalidateQueries({ queryKey: emojiKeys.adminImport(event.value.id), exact: true });
+        void queryClient.invalidateQueries({
+          queryKey: emojiKeys.adminImport(event.value.id),
+          exact: true,
+        });
         void queryClient.invalidateQueries({ queryKey: emojiKeys.adminImports });
       } else if (event.case === "exportUpdated") {
         void queryClient.invalidateQueries({ queryKey: emojiKeys.adminExports });

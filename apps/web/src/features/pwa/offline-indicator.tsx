@@ -27,7 +27,9 @@ export function OfflineIndicator() {
       role="status"
       className={cn(
         "pointer-events-none absolute inset-x-0 z-40 flex justify-center px-4",
-        low ? "bottom-0 pb-[calc(max(env(safe-area-inset-bottom),0.75rem)+5rem)] md:pb-4" : "top-0 pt-[max(env(safe-area-inset-top),0.5rem)]",
+        low
+          ? "bottom-0 pb-[calc(max(env(safe-area-inset-bottom),0.75rem)+5rem)] md:pb-4"
+          : "top-0 pt-[max(env(safe-area-inset-top),0.5rem)]",
       )}
     >
       {!online && (

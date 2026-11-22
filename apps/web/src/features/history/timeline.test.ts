@@ -17,9 +17,19 @@ function visit(id: string, lng: number, arrive: number, depart?: number) {
 }
 
 /** A walk east along one latitude: 14 m every 10 s. */
-function walk(fromLng: number, start: number, steps: number, activity = geo.Activity.WALKING): TrackPoint[] {
+function walk(
+  fromLng: number,
+  start: number,
+  steps: number,
+  activity = geo.Activity.WALKING,
+): TrackPoint[] {
   const metersPerDegree = 111_320 * Math.cos((35.6595 * Math.PI) / 180);
-  return Array.from({ length: steps + 1 }, (_, index) => ({ lat: 35.6595, lng: fromLng + (index * 14) / metersPerDegree, at: start + index * 10_000, activity }));
+  return Array.from({ length: steps + 1 }, (_, index) => ({
+    lat: 35.6595,
+    lng: fromLng + (index * 14) / metersPerDegree,
+    at: start + index * 10_000,
+    activity,
+  }));
 }
 
 describe("decodePolyline", () => {
@@ -53,7 +63,10 @@ describe("buildTimeline", () => {
   });
 
   it("guesses the way of travelling from the speed when the device did not say", () => {
-    const fast = walk(139.7005, minutes(9), 60, geo.Activity.UNSPECIFIED).map((point, index) => ({ ...point, at: minutes(9) + index * 1000 }));
+    const fast = walk(139.7005, minutes(9), 60, geo.Activity.UNSPECIFIED).map((point, index) => ({
+      ...point,
+      at: minutes(9) + index * 1000,
+    }));
     const quick = buildTimeline([a, visit("b", 139.7098, minutes(10) + 30_000)], fast)[1]!;
     expect(quick.kind === "move" && quick.activity).toBe(geo.Activity.DRIVING);
   });

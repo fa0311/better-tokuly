@@ -1,6 +1,17 @@
 import { crc32, deflateSync } from "node:zlib";
 import type { APIRequestContext, Page } from "@playwright/test";
-import { type Account, adminAccount, createAccount, expect, PASSWORD, RpcError, refreshAccount, rpc, signInAs, test } from "./support";
+import {
+  type Account,
+  adminAccount,
+  createAccount,
+  expect,
+  PASSWORD,
+  RpcError,
+  refreshAccount,
+  rpc,
+  signInAs,
+  test,
+} from "./support";
 
 const USERS = "tokuly.admin.v1.UserAdminService";
 const MODERATION = "tokuly.admin.v1.ModerationService";
@@ -11,7 +22,11 @@ const ANNOUNCEMENTS = "tokuly.admin.v1.AnnouncementService";
 const tag = () => `${Date.now().toString(36).slice(-5)}${Math.random().toString(36).slice(2, 6)}`;
 
 /** A valid PNG of one colour, so image uploads need no fixture file. */
-function solidPng(width: number, height: number, [red, green, blue]: [number, number, number]): Buffer {
+function solidPng(
+  width: number,
+  height: number,
+  [red, green, blue]: [number, number, number],
+): Buffer {
   const chunk = (type: string, data: Buffer) => {
     const body = Buffer.concat([Buffer.from(type, "latin1"), data]);
     const length = Buffer.alloc(4);
@@ -24,9 +39,17 @@ function solidPng(width: number, height: number, [red, green, blue]: [number, nu
   header.writeUInt32BE(width, 0);
   header.writeUInt32BE(height, 4);
   header.set([8, 2, 0, 0, 0], 8); // 8-bit RGB, no interlacing
-  const row = Buffer.concat([Buffer.from([0]), Buffer.alloc(width * 3, Buffer.from([red, green, blue]))]);
+  const row = Buffer.concat([
+    Buffer.from([0]),
+    Buffer.alloc(width * 3, Buffer.from([red, green, blue])),
+  ]);
   const pixels = Buffer.concat(Array.from({ length: height }, () => row));
-  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", header), chunk("IDAT", deflateSync(pixels)), chunk("IEND", Buffer.alloc(0))]);
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", header),
+    chunk("IDAT", deflateSync(pixels)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
 }
 
 /** Signs the browser in as the deployment's admin. */
@@ -40,7 +63,11 @@ async function asAdmin(page: Page, request: APIRequestContext): Promise<Account>
 const consoleNav = (page: Page) => page.getByRole("navigation", { name: "管理コンソール" });
 
 test.describe("who gets in", () => {
-  test("an account without a staff role finds a friendly dead end, and the API refuses it too", async ({ page, request, me }) => {
+  test("an account without a staff role finds a friendly dead end, and the API refuses it too", async ({
+    page,
+    request,
+    me,
+  }) => {
     await page.goto("/admin");
     await expect(page.getByText("ここはスタッフ専用だよ")).toBeVisible();
     await expect(consoleNav(page)).toHaveCount(0);
@@ -51,13 +78,23 @@ test.describe("who gets in", () => {
     await page.getByRole("link", { name: "マップにもどる" }).click();
     await expect(page).toHaveURL(/\/map$/);
 
-    await expect(rpc(request, `${USERS}/SearchUsers`, {}, me)).rejects.toMatchObject({ reason: "FORBIDDEN" });
+    await expect(rpc(request, `${USERS}/SearchUsers`, {}, me)).rejects.toMatchObject({
+      reason: "FORBIDDEN",
+    });
   });
 
-  test("a moderator gets moderation and users, but not the admin-only sections", async ({ page, request }) => {
+  test("a moderator gets moderation and users, but not the admin-only sections", async ({
+    page,
+    request,
+  }) => {
     const admin = await adminAccount(request);
     const moderator = await createAccount(request, "mod");
-    await rpc(request, `${USERS}/SetUserRoles`, { userId: moderator.userId, roles: ["moderator"], note: "e2e" }, admin);
+    await rpc(
+      request,
+      `${USERS}/SetUserRoles`,
+      { userId: moderator.userId, roles: ["moderator"], note: "e2e" },
+      admin,
+    );
     await signInAs(page, moderator);
 
     await page.goto("/admin");
@@ -74,7 +111,9 @@ test.describe("who gets in", () => {
     await page.goto(`/admin/users/${admin.userId}`);
     await expect(page.getByRole("button", { name: "警告を送る" })).toBeDisabled();
     await expect(page.getByRole("button", { name: "ロールを変更" })).toHaveCount(0);
-    await expect(page.getByText("スタッフへの警告・停止・ログアウトは管理者だけができます。")).toBeVisible();
+    await expect(
+      page.getByText("スタッフへの警告・停止・ログアウトは管理者だけができます。"),
+    ).toBeVisible();
   });
 });
 
@@ -86,13 +125,25 @@ test.describe("dashboard", () => {
 
     // Accounts, activity, the moderation queue, content volume, queues and the backing services.
     await expect(page.getByText("アカウント数")).toBeVisible();
-    await expect(page.getByRole("list", { name: "アクティブユーザー" }).getByRole("listitem")).toHaveCount(3);
-    await expect(page.getByRole("region", { name: "モデレーション" }).getByText("対応待ち")).toBeVisible();
-    await expect(page.getByRole("list", { name: "コンテンツ数" }).getByRole("listitem").first()).toBeVisible();
-    await expect(page.getByRole("region", { name: "キューの状態" }).getByRole("heading", { name: "EVENTS" })).toBeVisible();
-    await expect(page.getByRole("region", { name: "つながり先" }).getByText("postgres")).toBeVisible();
+    await expect(
+      page.getByRole("list", { name: "アクティブユーザー" }).getByRole("listitem"),
+    ).toHaveCount(3);
+    await expect(
+      page.getByRole("region", { name: "モデレーション" }).getByText("対応待ち"),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("list", { name: "コンテンツ数" }).getByRole("listitem").first(),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "キューの状態" }).getByRole("heading", { name: "EVENTS" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "つながり先" }).getByText("postgres"),
+    ).toBeVisible();
 
-    const stats = page.waitForResponse((response) => response.url().endsWith("SystemService/GetServerStats") && response.ok());
+    const stats = page.waitForResponse(
+      (response) => response.url().endsWith("SystemService/GetServerStats") && response.ok(),
+    );
     await page.getByRole("button", { name: "更新" }).click();
     await stats;
     await expect(page.getByText("アカウント数")).toBeVisible();
@@ -100,7 +151,12 @@ test.describe("dashboard", () => {
 });
 
 test.describe("users", () => {
-  test("searching an account, suspending it locks it out, lifting the suspension lets it back in", async ({ page, request, browser, baseURL }) => {
+  test("searching an account, suspending it locks it out, lifting the suspension lets it back in", async ({
+    page,
+    request,
+    browser,
+    baseURL,
+  }) => {
     await asAdmin(page, request);
     const target = await createAccount(request, "sus");
 
@@ -121,7 +177,9 @@ test.describe("users", () => {
     await suspend.getByRole("button", { name: "停止する", exact: true }).click();
     await expect(page.getByText("アカウントを停止しました")).toBeVisible();
     await expect(identity.getByText("停止中", { exact: true })).toBeVisible();
-    await expect(page.getByRole("region", { name: "アカウント停止中" }).getByText("e2e: スパム投稿のため")).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "アカウント停止中" }).getByText("e2e: スパム投稿のため"),
+    ).toBeVisible();
 
     // The suspended user is turned away at the login form.
     const visitorContext = await browser.newContext({ baseURL, locale: "ja-JP" });
@@ -134,10 +192,18 @@ test.describe("users", () => {
     await expect(visitor.getByRole("alert")).toBeVisible();
     await expect(visitor).toHaveURL(/\/login/);
     await visitorContext.close();
-    await expect(rpc(request, "tokuly.identity.v1.AuthService/SignIn", { identifier: target.handle, password: PASSWORD })).rejects.toMatchObject({ reason: "ACCOUNT_BANNED" });
+    await expect(
+      rpc(request, "tokuly.identity.v1.AuthService/SignIn", {
+        identifier: target.handle,
+        password: PASSWORD,
+      }),
+    ).rejects.toMatchObject({ reason: "ACCOUNT_BANNED" });
 
     // Lifting it shows at once, and the account can sign in again.
-    await page.getByRole("region", { name: "アカウント停止中" }).getByRole("button", { name: "停止を解除" }).click();
+    await page
+      .getByRole("region", { name: "アカウント停止中" })
+      .getByRole("button", { name: "停止を解除" })
+      .click();
     await page.getByRole("dialog").getByRole("button", { name: "解除する" }).click();
     await expect(page.getByText("停止を解除しました！")).toBeVisible();
     await expect(identity.getByText("有効", { exact: true })).toBeVisible();
@@ -169,13 +235,18 @@ test.describe("users", () => {
     const revoke = page.getByRole("dialog");
     await expect(revoke.getByRole("switch", { name: /モデレーター/ })).toBeChecked();
     await revoke.getByRole("switch", { name: /モデレーター/ }).click();
-    await expect(revoke.getByText("ロールを外すと、相手はいったんログアウトされます。")).toBeVisible();
+    await expect(
+      revoke.getByText("ロールを外すと、相手はいったんログアウトされます。"),
+    ).toBeVisible();
     await revoke.getByRole("button", { name: "ロールを保存" }).click();
     await expect(identity.getByText("モデレーター", { exact: true })).toHaveCount(0);
     expect((await refreshAccount(request, target)).roles).toEqual([]);
   });
 
-  test("warning, the verified badge and signing out everywhere each ask first and show their result", async ({ page, request }) => {
+  test("warning, the verified badge and signing out everywhere each ask first and show their result", async ({
+    page,
+    request,
+  }) => {
     await asAdmin(page, request);
     const target = await createAccount(request, "acts");
     await page.goto(`/admin/users/${target.userId}`);
@@ -187,7 +258,9 @@ test.describe("users", () => {
     await warn.getByLabel("内部メモ").fill("e2e: 通報をもとに警告");
     await warn.getByRole("button", { name: "警告を送る" }).click();
     await expect(page.getByText("警告を送りました")).toBeVisible();
-    await expect(page.getByRole("region", { name: "最近の対応" }).getByText("e2e: 言葉づかいに気をつけてね")).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "最近の対応" }).getByText("e2e: 言葉づかいに気をつけてね"),
+    ).toBeVisible();
 
     await page.getByRole("button", { name: "認証バッジを付ける" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "バッジを付ける" }).click();
@@ -199,17 +272,24 @@ test.describe("users", () => {
     await page.getByRole("button", { name: "全端末からログアウトさせる" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "ログアウトさせる" }).click();
     await expect(page.getByText(/\d+台をログアウトさせました/)).toBeVisible();
-    await expect(rpc(request, "tokuly.identity.v1.AccountService/GetMe", {}, target)).rejects.toBeInstanceOf(RpcError);
+    await expect(
+      rpc(request, "tokuly.identity.v1.AccountService/GetMe", {}, target),
+    ).rejects.toBeInstanceOf(RpcError);
   });
 });
 
 test.describe("feature flags", () => {
   /** On narrow screens the flag list and the per-user check are two tabs; wide screens show both. */
   const show = async (page: Page, tab: "フラグ一覧" | "ユーザーで確認") => {
-    if ((page.viewportSize()?.width ?? 0) < 1024) await page.getByRole("tab", { name: tab }).click();
+    if ((page.viewportSize()?.width ?? 0) < 1024)
+      await page.getByRole("tab", { name: tab }).click();
   };
   /** The row of one flag in the "evaluate for a user" result. */
-  const evaluation = (page: Page, name: string) => page.getByRole("list", { name: "フラグの判定結果" }).getByRole("listitem").filter({ hasText: name });
+  const evaluation = (page: Page, name: string) =>
+    page
+      .getByRole("list", { name: "フラグの判定結果" })
+      .getByRole("listitem")
+      .filter({ hasText: name });
 
   test("a flag is created, evaluated for a user and switched off", async ({ page, request }) => {
     const admin = await asAdmin(page, request);
@@ -248,11 +328,19 @@ test.describe("feature flags", () => {
     }
   });
 
-  test("a flag's allow-list is edited by user search, and the flag is deleted", async ({ page, request }) => {
+  test("a flag's allow-list is edited by user search, and the flag is deleted", async ({
+    page,
+    request,
+  }) => {
     const admin = await asAdmin(page, request);
     const subject = await createAccount(request, "allow");
     const name = `e2e_flag_${tag()}`;
-    await rpc(request, `${FLAGS}/CreateFlag`, { name, description: "e2e: 許可リストのテスト", enabled: false }, admin);
+    await rpc(
+      request,
+      `${FLAGS}/CreateFlag`,
+      { name, description: "e2e: 許可リストのテスト", enabled: false },
+      admin,
+    );
 
     try {
       // Opened from an account's page, the check starts with that account: the flag is off for it.
@@ -270,14 +358,19 @@ test.describe("feature flags", () => {
       await expect(page.getByText("フラグを更新しました")).toBeVisible();
       await expect(page.getByText("30%")).toBeVisible();
       await show(page, "ユーザーで確認");
-      await expect(evaluation(page, name).getByText("許可リストに入っているのでオン")).toBeVisible();
+      await expect(
+        evaluation(page, name).getByText("許可リストに入っているのでオン"),
+      ).toBeVisible();
 
       await show(page, "フラグ一覧");
       await page.getByRole("button", { name: `${name} を削除` }).click();
       await page.getByRole("dialog").getByRole("button", { name: "削除する" }).click();
       await expect(page.getByText("フラグを削除しました")).toBeVisible();
       await expect(page.getByText(name, { exact: true })).toHaveCount(0);
-      expect((await rpc<{ flags?: unknown[] }>(request, `${FLAGS}/ListFlags`, { query: name }, admin)).flags ?? []).toEqual([]);
+      expect(
+        (await rpc<{ flags?: unknown[] }>(request, `${FLAGS}/ListFlags`, { query: name }, admin))
+          .flags ?? [],
+      ).toEqual([]);
     } finally {
       await rpc(request, `${FLAGS}/DeleteFlag`, { name }, admin).catch(() => {});
     }
@@ -285,7 +378,10 @@ test.describe("feature flags", () => {
 });
 
 test.describe("announcements", () => {
-  test("an announcement is written, published to the update log and taken back to draft", async ({ page, request }) => {
+  test("an announcement is written, published to the update log and taken back to draft", async ({
+    page,
+    request,
+  }) => {
     const admin = await asAdmin(page, request);
     const title = `e2e お知らせ ${tag()}`;
     let id: string | undefined;
@@ -298,8 +394,13 @@ test.describe("announcements", () => {
       const japanese = page.getByRole("region", { name: "日本語" });
       await expect(japanese.getByText("日本語のタイトルを1〜120文字で入力してね")).toBeVisible();
       await japanese.getByLabel("タイトル").fill(title);
-      await japanese.getByLabel("本文").fill("## 変更点\n\n- **速く**なりました\n- [ヘルプ](https://tokuly.example/help)");
-      await page.getByRole("region", { name: "English" }).getByLabel("タイトル").fill(`${title} (EN)`);
+      await japanese
+        .getByLabel("本文")
+        .fill("## 変更点\n\n- **速く**なりました\n- [ヘルプ](https://tokuly.example/help)");
+      await page
+        .getByRole("region", { name: "English" })
+        .getByLabel("タイトル")
+        .fill(`${title} (EN)`);
 
       // The preview shows the article as readers will see it.
       const preview = page.getByRole("region", { name: "プレビュー" });
@@ -325,7 +426,10 @@ test.describe("announcements", () => {
       await expect(page).toHaveURL((url) => url.pathname === `/announcements/${id}`);
       const article = page.getByRole("article");
       await expect(article.getByRole("heading", { level: 1, name: title })).toBeVisible();
-      await expect(article.getByRole("link", { name: "ヘルプ" })).toHaveAttribute("href", "https://tokuly.example/help");
+      await expect(article.getByRole("link", { name: "ヘルプ" })).toHaveAttribute(
+        "href",
+        "https://tokuly.example/help",
+      );
       await article.getByRole("link", { name: "アップデート情報にもどる" }).click();
       await expect(page).toHaveURL((url) => url.pathname === "/announcements");
       await expect(page.getByRole("link", { name: title, exact: true })).toBeVisible();
@@ -339,18 +443,37 @@ test.describe("announcements", () => {
       await expect(page.getByText("下書きにもどしました")).toBeVisible();
       await expect(publishing.getByText("下書き", { exact: true })).toBeVisible();
       await expect(publishing.getByRole("link", { name: "公開ページを見る" })).toHaveCount(0);
-      const listed = await rpc<{ announcements?: { id: string }[] }>(request, `${ANNOUNCEMENTS}/ListAnnouncements`, { page: { limit: 50 } });
+      const listed = await rpc<{ announcements?: { id: string }[] }>(
+        request,
+        `${ANNOUNCEMENTS}/ListAnnouncements`,
+        { page: { limit: 50 } },
+      );
       expect((listed.announcements ?? []).map((announcement) => announcement.id)).not.toContain(id);
     } finally {
-      if (id) await rpc(request, `${ANNOUNCEMENTS}/DeleteAnnouncement`, { id }, admin).catch(() => {});
+      if (id)
+        await rpc(request, `${ANNOUNCEMENTS}/DeleteAnnouncement`, { id }, admin).catch(() => {});
     }
   });
 
-  test("a header image is uploaded, previewed, saved with the announcement and removed again", async ({ page, request }) => {
+  test("a header image is uploaded, previewed, saved with the announcement and removed again", async ({
+    page,
+    request,
+  }) => {
     const admin = await asAdmin(page, request);
-    const created = await rpc<{ announcement: { id: string } }>(request, `${ANNOUNCEMENTS}/CreateAnnouncement`, { title: { ja: `e2e 画像 ${tag()}` }, body: { ja: "ヘッダー画像つき" } }, admin);
+    const created = await rpc<{ announcement: { id: string } }>(
+      request,
+      `${ANNOUNCEMENTS}/CreateAnnouncement`,
+      { title: { ja: `e2e 画像 ${tag()}` }, body: { ja: "ヘッダー画像つき" } },
+      admin,
+    );
     const id = created.announcement.id;
-    const image = () => rpc<{ announcement: { image?: { url?: string } } }>(request, `${ANNOUNCEMENTS}/GetManagedAnnouncement`, { id }, admin).then((response) => response.announcement.image?.url);
+    const image = () =>
+      rpc<{ announcement: { image?: { url?: string } } }>(
+        request,
+        `${ANNOUNCEMENTS}/GetManagedAnnouncement`,
+        { id },
+        admin,
+      ).then((response) => response.announcement.image?.url);
 
     try {
       await page.goto(`/admin/announcements/${id}`);
@@ -359,8 +482,14 @@ test.describe("announcements", () => {
       await expect(preview.getByRole("img")).toHaveCount(0);
 
       // The upload goes through the media service; the preview shows the image once it is processed.
-      await page.getByLabel("画像を選ぶ").setInputFiles({ name: "header.png", mimeType: "image/png", buffer: solidPng(640, 280, [124, 92, 255]) });
-      await expect(page.getByRole("button", { name: "画像を変える" })).toBeVisible({ timeout: 30_000 });
+      await page.getByLabel("画像を選ぶ").setInputFiles({
+        name: "header.png",
+        mimeType: "image/png",
+        buffer: solidPng(640, 280, [124, 92, 255]),
+      });
+      await expect(page.getByRole("button", { name: "画像を変える" })).toBeVisible({
+        timeout: 30_000,
+      });
       await expect(preview.locator("img").first()).toBeVisible();
       await page.getByRole("button", { name: "保存する" }).click();
       await expect(page.getByText("保存しました", { exact: true })).toBeVisible();
@@ -379,7 +508,12 @@ test.describe("announcements", () => {
   test("a draft is scheduled, unscheduled and deleted", async ({ page, request }) => {
     const admin = await asAdmin(page, request);
     const title = `e2e 予約 ${tag()}`;
-    const created = await rpc<{ announcement: { id: string } }>(request, `${ANNOUNCEMENTS}/CreateAnnouncement`, { title: { ja: title }, body: { ja: "あとで公開します" } }, admin);
+    const created = await rpc<{ announcement: { id: string } }>(
+      request,
+      `${ANNOUNCEMENTS}/CreateAnnouncement`,
+      { title: { ja: title }, body: { ja: "あとで公開します" } },
+      admin,
+    );
     const id = created.announcement.id;
 
     try {
@@ -407,7 +541,11 @@ test.describe("announcements", () => {
       await expect(publishing.getByText("公開予定")).toBeVisible();
 
       // Not visible to readers until then.
-      const listed = await rpc<{ announcements?: { id: string }[] }>(request, `${ANNOUNCEMENTS}/ListAnnouncements`, { page: { limit: 50 } });
+      const listed = await rpc<{ announcements?: { id: string }[] }>(
+        request,
+        `${ANNOUNCEMENTS}/ListAnnouncements`,
+        { page: { limit: 50 } },
+      );
       expect((listed.announcements ?? []).map((announcement) => announcement.id)).not.toContain(id);
 
       await publishing.getByRole("button", { name: "予約を取り消す" }).click();
@@ -419,7 +557,9 @@ test.describe("announcements", () => {
       await page.getByRole("dialog").getByRole("button", { name: "削除する" }).click();
       await expect(page.getByText("お知らせを削除しました")).toBeVisible();
       await expect(page).toHaveURL(/\/admin\/announcements$/);
-      await expect(rpc(request, `${ANNOUNCEMENTS}/GetManagedAnnouncement`, { id }, admin)).rejects.toMatchObject({ reason: "ANNOUNCEMENT_NOT_FOUND" });
+      await expect(
+        rpc(request, `${ANNOUNCEMENTS}/GetManagedAnnouncement`, { id }, admin),
+      ).rejects.toMatchObject({ reason: "ANNOUNCEMENT_NOT_FOUND" });
     } finally {
       await rpc(request, `${ANNOUNCEMENTS}/DeleteAnnouncement`, { id }, admin).catch(() => {});
     }
@@ -427,7 +567,10 @@ test.describe("announcements", () => {
 });
 
 test.describe("moderation", () => {
-  test("a queue with nothing waiting says so, with its filters in the address", async ({ page, request }) => {
+  test("a queue with nothing waiting says so, with its filters in the address", async ({
+    page,
+    request,
+  }) => {
     await asAdmin(page, request);
     const quiet = await createAccount(request, "quiet");
 
@@ -448,7 +591,10 @@ test.describe("moderation", () => {
     await expect(page.getByText("解決済みのケースはまだありません")).toBeVisible();
   });
 
-  test("content is taken down by reference and the action lands in the moderation log", async ({ page, request }) => {
+  test("content is taken down by reference and the action lands in the moderation log", async ({
+    page,
+    request,
+  }) => {
     const admin = await asAdmin(page, request);
     const suffix = tag();
     const reason = `e2e: 規約違反のため ${suffix}`;
@@ -469,7 +615,9 @@ test.describe("moderation", () => {
     await dialog.getByLabel("対象のID").fill("not-an-id");
     await dialog.getByLabel("ユーザーに伝える理由").fill(reason);
     await dialog.getByRole("button", { name: "削除する" }).click();
-    await expect(page.getByText("対象が見つかりません。非公開のコンテンツはUUIDで指定してね")).toBeVisible();
+    await expect(
+      page.getByText("対象が見つかりません。非公開のコンテンツはUUIDで指定してね"),
+    ).toBeVisible();
 
     await dialog.getByLabel("対象のID").fill(subjectId);
     await dialog.getByLabel("内部メモ").fill(note);
@@ -483,11 +631,21 @@ test.describe("moderation", () => {
     await expect(page.getByText(reason)).toBeVisible();
     await expect(page.getByText(note)).toBeVisible();
 
-    const log = await rpc<{ actions?: { subject?: { id: string }; reason: string }[] }>(request, `${MODERATION}/ListModerationActions`, { moderatorId: admin.userId, kind: "MODERATION_ACTION_KIND_REMOVE_CONTENT" }, admin);
-    expect((log.actions ?? []).find((action) => action.reason === reason)?.subject?.id).toBe(subjectId);
+    const log = await rpc<{ actions?: { subject?: { id: string }; reason: string }[] }>(
+      request,
+      `${MODERATION}/ListModerationActions`,
+      { moderatorId: admin.userId, kind: "MODERATION_ACTION_KIND_REMOVE_CONTENT" },
+      admin,
+    );
+    expect((log.actions ?? []).find((action) => action.reason === reason)?.subject?.id).toBe(
+      subjectId,
+    );
   });
 
-  test("a reported account becomes a case that is taken, annotated, resolved and reopened", async ({ page, request }) => {
+  test("a reported account becomes a case that is taken, annotated, resolved and reopened", async ({
+    page,
+    request,
+  }) => {
     const admin = await asAdmin(page, request);
     const owner = await createAccount(request, "reported");
     const reporter = await createAccount(request, "reporter");
@@ -495,14 +653,31 @@ test.describe("moderation", () => {
 
     // Cases come from reports filed through the engagement domain.
     try {
-      await rpc(request, "tokuly.engagement.v1.ReportService/CreateReport", { subject: { type: "SUBJECT_TYPE_USER", id: owner.userId }, category: "REPORT_CATEGORY_IMPERSONATION", text }, reporter);
+      await rpc(
+        request,
+        "tokuly.engagement.v1.ReportService/CreateReport",
+        {
+          subject: { type: "SUBJECT_TYPE_USER", id: owner.userId },
+          category: "REPORT_CATEGORY_IMPERSONATION",
+          text,
+        },
+        reporter,
+      );
     } catch (error) {
-      test.skip(error instanceof RpcError && error.status === 404, "the engagement domain (reports) is not served by this stack yet");
+      test.skip(
+        error instanceof RpcError && error.status === 404,
+        "the engagement domain (reports) is not served by this stack yet",
+      );
       throw error;
     }
     let caseId = "";
     await expect(async () => {
-      const queue = await rpc<{ cases?: { id: string }[] }>(request, `${MODERATION}/ListCases`, { ownerId: owner.userId }, admin);
+      const queue = await rpc<{ cases?: { id: string }[] }>(
+        request,
+        `${MODERATION}/ListCases`,
+        { ownerId: owner.userId },
+        admin,
+      );
       caseId = queue.cases?.[0]?.id ?? "";
       expect(caseId).not.toBe("");
     }).toPass({ timeout: 20_000 });
@@ -528,8 +703,12 @@ test.describe("moderation", () => {
     await resolve.getByRole("button", { name: "この内容で解決する" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "解決する" }).click();
     await expect(page.getByText("ケースを解決しました！")).toBeVisible();
-    await expect(page.getByRole("region", { name: "対応結果" }).getByText("警告", { exact: true })).toBeVisible();
-    await expect(page.getByRole("region", { name: "対応履歴" }).getByText("e2e: 他の人になりすまさないでね")).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "対応結果" }).getByText("警告", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "対応履歴" }).getByText("e2e: 他の人になりすまさないでね"),
+    ).toBeVisible();
 
     await page.getByRole("button", { name: "ケースを再オープン" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "再オープンする" }).click();
@@ -539,12 +718,25 @@ test.describe("moderation", () => {
 });
 
 test.describe("audit log", () => {
-  test("lists what staff did, filtered by action and account, with the change spelled out", async ({ page, request }) => {
+  test("lists what staff did, filtered by action and account, with the change spelled out", async ({
+    page,
+    request,
+  }) => {
     const admin = await asAdmin(page, request);
     const target = await createAccount(request, "audit");
     const note = `e2e: 本人確認ずみ ${tag()}`;
-    await rpc(request, `${USERS}/SetUserVerified`, { userId: target.userId, verified: true, note }, admin);
-    await rpc(request, `${USERS}/WarnUser`, { userId: target.userId, reason: "e2e: 監査ログ用の警告" }, admin);
+    await rpc(
+      request,
+      `${USERS}/SetUserVerified`,
+      { userId: target.userId, verified: true, note },
+      admin,
+    );
+    await rpc(
+      request,
+      `${USERS}/WarnUser`,
+      { userId: target.userId, reason: "e2e: 監査ログ用の警告" },
+      admin,
+    );
 
     // From the account's page: everything that affected this account.
     await page.goto(`/admin/users/${target.userId}`);
@@ -561,7 +753,10 @@ test.describe("audit log", () => {
 
     // Expanded, the entry shows what changed.
     await page.getByRole("button", { name: "user.verified_changed の詳細を開く" }).click();
-    const change = page.getByRole("table", { name: "詳細" }).getByRole("row").filter({ hasText: "verified" });
+    const change = page
+      .getByRole("table", { name: "詳細" })
+      .getByRole("row")
+      .filter({ hasText: "verified" });
     await expect(change.getByRole("cell").nth(0)).toHaveText("false");
     await expect(change.getByRole("cell").nth(1)).toHaveText("true");
 

@@ -49,12 +49,17 @@ describe("server frames", () => {
     // form `//   tokuly.<package>.v1.<Name>   what it is about`.
     const protoRoot = new URL("../../../proto/tokuly/", import.meta.url);
     const protocol = readFileSync(new URL("realtime/v1/realtime.proto", protoRoot), "utf8");
-    const listed = [...protocol.matchAll(/^\/\/ {3}(tokuly\.[a-z]+\.v1\.[A-Za-z]+)/gm)].map((match) => match[1] ?? "");
+    const listed = [...protocol.matchAll(/^\/\/ {3}(tokuly\.[a-z]+\.v1\.[A-Za-z]+)/gm)].map(
+      (match) => match[1] ?? "",
+    );
     expect(listed.length).toBeGreaterThan(0);
     for (const type of listed) {
       const [, domain, , name] = type.split(".");
       const file = new URL(`${domain}/v1/${domain}.proto`, protoRoot);
-      expect(existsSync(file) && readFileSync(file, "utf8").includes(`\nmessage ${name} {`), type).toBe(true);
+      expect(
+        existsSync(file) && readFileSync(file, "utf8").includes(`\nmessage ${name} {`),
+        type,
+      ).toBe(true);
     }
     expect([...KNOWN_EVENT_TYPES].sort()).toEqual([...listed].sort());
     for (const type of KNOWN_EVENT_TYPES) {

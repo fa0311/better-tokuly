@@ -40,10 +40,23 @@ function SignOutCard() {
   return (
     <Group title={t("data.signOut.title")} lead={t("data.signOut.lead")}>
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" variant="secondary" icon={<LogOut className="size-4" />} loading={busy === "here"} disabled={busy !== null} onClick={() => signOut(false)}>
+        <Button
+          size="sm"
+          variant="secondary"
+          icon={<LogOut className="size-4" />}
+          loading={busy === "here"}
+          disabled={busy !== null}
+          onClick={() => signOut(false)}
+        >
           {t("data.signOut.here")}
         </Button>
-        <Button size="sm" variant="ghost" className="text-danger" disabled={busy !== null} onClick={() => setConfirming(true)}>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="text-danger"
+          disabled={busy !== null}
+          onClick={() => setConfirming(true)}
+        >
           {t("data.signOut.everywhere")}
         </Button>
       </div>

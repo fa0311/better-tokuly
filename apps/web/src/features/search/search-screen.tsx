@@ -28,14 +28,25 @@ export function SearchScreen({ params }: { params: SearchParams }) {
     void navigate({ to: "/search", search: { q: next, kind: params.kind, owner: params.owner } });
   };
 
-  const box = <SearchBox className="mb-5" query={query ?? ""} kind={kindFromSlug(params.kind)} onSearch={runSearch} autoFocus={!query && keyboard} />;
+  const box = (
+    <SearchBox
+      className="mb-5"
+      query={query ?? ""}
+      kind={kindFromSlug(params.kind)}
+      onSearch={runSearch}
+      autoFocus={!query && keyboard}
+    />
+  );
   return (
     <Page title={t("title")} wide>
       {query ? (
         <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_19rem] xl:gap-8">
           <div className="min-w-0">
             {box}
-            <Results params={{ ...params, q: query }} onChange={(next) => void navigate({ to: "/search", search: next })} />
+            <Results
+              params={{ ...params, q: query }}
+              onChange={(next) => void navigate({ to: "/search", search: next })}
+            />
           </div>
           <aside className="hidden flex-col gap-7 pt-1 xl:flex">
             <TrendingPanel limit={8} />

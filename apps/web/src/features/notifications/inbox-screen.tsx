@@ -1,7 +1,15 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useRouter } from "@tanstack/react-router";
 import { type notify, toMillis } from "@tokuly/api";
-import { CheckCheck, Inbox, MailCheck, MailOpen, MoreHorizontal, Settings, Trash2 } from "lucide-react";
+import {
+  CheckCheck,
+  Inbox,
+  MailCheck,
+  MailOpen,
+  MoreHorizontal,
+  Settings,
+  Trash2,
+} from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { CountBadge } from "#/components/ui/badge";
@@ -39,7 +47,13 @@ interface TabEntry {
 }
 
 /** The notification inbox: what happened, newest first, filterable by category. */
-export function InboxScreen({ tab, onTabChange }: { tab: InboxTab; onTabChange(tab: InboxTab): void }) {
+export function InboxScreen({
+  tab,
+  onTabChange,
+}: {
+  tab: InboxTab;
+  onTabChange(tab: InboxTab): void;
+}) {
   const { t } = useTranslation("notifications");
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -54,15 +68,23 @@ export function InboxScreen({ tab, onTabChange }: { tab: InboxTab; onTabChange(t
   const categories = preferences.data?.categories ?? [];
   const tabs: TabEntry[] = [
     { value: "all", label: t("tabs.all"), icon: <Inbox className="size-4" />, unread: 0 },
-    { value: "unread", label: t("tabs.unread"), icon: <MailOpen className="size-4" />, unread: unread.total },
-    ...categories.map((category): TabEntry => ({
-      value: `c:${category.category}`,
-      label: category.label,
-      icon: <CategoryIcon category={category.category} />,
-      unread: unread.byCategory[category.category] ?? 0,
-    })),
+    {
+      value: "unread",
+      label: t("tabs.unread"),
+      icon: <MailOpen className="size-4" />,
+      unread: unread.total,
+    },
+    ...categories.map(
+      (category): TabEntry => ({
+        value: `c:${category.category}`,
+        label: category.label,
+        icon: <CategoryIcon category={category.category} />,
+        unread: unread.byCategory[category.category] ?? 0,
+      }),
+    ),
   ];
-  const categoryLabel = categories.find((category) => category.category === filter.category)?.label ?? "";
+  const categoryLabel =
+    categories.find((category) => category.category === filter.category)?.label ?? "";
 
   const entries = entriesOf(inbox.data);
   const unreadHere = filter.category ? (unread.byCategory[filter.category] ?? 0) : unread.total;
@@ -77,7 +99,10 @@ export function InboxScreen({ tab, onTabChange }: { tab: InboxTab; onTabChange(t
 
   const clear = () => {
     if (!clearing) return;
-    actions.clear.mutate({ category: filter.category, readOnly: clearing === "read" }, { onSettled: () => setClearing(null) });
+    actions.clear.mutate(
+      { category: filter.category, readOnly: clearing === "read" },
+      { onSettled: () => setClearing(null) },
+    );
   };
 
   return (
@@ -92,11 +117,18 @@ export function InboxScreen({ tab, onTabChange }: { tab: InboxTab; onTabChange(t
             aria-label={t("actions.markAllRead")}
             title={t("actions.markAllRead")}
             disabled={unreadHere === 0 || actions.readAll.isPending}
-            onClick={() => actions.readAll.mutate({ category: filter.category, upToId: entries[0]?.id })}
+            onClick={() =>
+              actions.readAll.mutate({ category: filter.category, upToId: entries[0]?.id })
+            }
           >
             <CheckCheck className="size-5" />
           </Button>
-          <Link to="/notifications/settings" aria-label={t("actions.settings")} title={t("actions.settings")} className="grid size-9 place-items-center rounded-full hover:bg-surface-2">
+          <Link
+            to="/notifications/settings"
+            aria-label={t("actions.settings")}
+            title={t("actions.settings")}
+            className="grid size-9 place-items-center rounded-full hover:bg-surface-2"
+          >
             <Settings className="size-5" />
           </Link>
           <Menu
@@ -106,8 +138,17 @@ export function InboxScreen({ tab, onTabChange }: { tab: InboxTab; onTabChange(t
               </Button>
             }
             actions={[
-              { label: t("actions.clearRead"), icon: <MailCheck />, onSelect: () => setClearing("read") },
-              { label: t("actions.clearAll"), icon: <Trash2 />, danger: true, onSelect: () => setClearing("all") },
+              {
+                label: t("actions.clearRead"),
+                icon: <MailCheck />,
+                onSelect: () => setClearing("read"),
+              },
+              {
+                label: t("actions.clearAll"),
+                icon: <Trash2 />,
+                danger: true,
+                onSelect: () => setClearing("all"),
+              },
             ]}
           />
         </>
@@ -119,9 +160,18 @@ export function InboxScreen({ tab, onTabChange }: { tab: InboxTab; onTabChange(t
           className="mb-4 lg:hidden"
           value={tab}
           onChange={onTabChange}
-          items={tabs.map((entry) => ({ value: entry.value, label: entry.label, badge: entry.unread }))}
+          items={tabs.map((entry) => ({
+            value: entry.value,
+            label: entry.label,
+            badge: entry.unread,
+          }))}
         />
-        <div role="tablist" aria-orientation="vertical" aria-label={t("tabs.label")} className="sticky top-20 hidden flex-col gap-1 lg:flex">
+        <div
+          role="tablist"
+          aria-orientation="vertical"
+          aria-label={t("tabs.label")}
+          className="sticky top-20 hidden flex-col gap-1 lg:flex"
+        >
           {tabs.map((entry) => {
             const active = entry.value === tab;
             return (
@@ -133,7 +183,9 @@ export function InboxScreen({ tab, onTabChange }: { tab: InboxTab; onTabChange(t
                 onClick={() => onTabChange(entry.value)}
                 className={cn(
                   "flex h-11 items-center gap-3 rounded-2xl px-3 text-left text-[15px] font-bold transition-colors",
-                  active ? "sticker-sm bg-surface text-ink" : "text-ink-soft hover:bg-surface-2 hover:text-ink",
+                  active
+                    ? "sticker-sm bg-surface text-ink"
+                    : "text-ink-soft hover:bg-surface-2 hover:text-ink",
                 )}
               >
                 <span className="grid size-8 shrink-0 place-items-center">{entry.icon}</span>
@@ -167,8 +219,14 @@ export function InboxScreen({ tab, onTabChange }: { tab: InboxTab; onTabChange(t
             <>
               <PushPrompt />
               {sections.map((section) => (
-                <section key={section.bucket} aria-label={t(`sections.${section.bucket}`)} className="mb-4">
-                  <h2 className="px-2 pb-1.5 text-sm font-black text-ink-soft">{t(`sections.${section.bucket}`)}</h2>
+                <section
+                  key={section.bucket}
+                  aria-label={t(`sections.${section.bucket}`)}
+                  className="mb-4"
+                >
+                  <h2 className="px-2 pb-1.5 text-sm font-black text-ink-soft">
+                    {t(`sections.${section.bucket}`)}
+                  </h2>
                   <ul className="flex flex-col gap-2">
                     {section.entries.map((entry) => (
                       <NotificationRow
@@ -193,7 +251,12 @@ export function InboxScreen({ tab, onTabChange }: { tab: InboxTab; onTabChange(t
         open={clearing !== null}
         onOpenChange={(open) => !open && setClearing(null)}
         title={clearing === "read" ? t("clear.readTitle") : t("clear.allTitle")}
-        description={[clearing === "read" ? t("clear.readBody") : t("clear.allBody"), categoryLabel && t("clear.onlyCategory", { category: categoryLabel })].filter(Boolean).join(" ")}
+        description={[
+          clearing === "read" ? t("clear.readBody") : t("clear.allBody"),
+          categoryLabel && t("clear.onlyCategory", { category: categoryLabel }),
+        ]
+          .filter(Boolean)
+          .join(" ")}
         confirmLabel={t("clear.confirm")}
         danger
         loading={actions.clear.isPending}
@@ -205,15 +268,26 @@ export function InboxScreen({ tab, onTabChange }: { tab: InboxTab; onTabChange(t
 
 function Empty({ tab, categoryLabel }: { tab: InboxTab; categoryLabel: string }) {
   const { t } = useTranslation("notifications");
-  if (tab === "unread") return <EmptyState emoji="🎉" title={t("empty.unreadTitle")} body={t("empty.unreadBody")} />;
-  if (tab !== "all") return <EmptyState emoji="📭" title={t("empty.categoryTitle", { category: categoryLabel })} body={t("empty.categoryBody")} />;
+  if (tab === "unread")
+    return <EmptyState emoji="🎉" title={t("empty.unreadTitle")} body={t("empty.unreadBody")} />;
+  if (tab !== "all")
+    return (
+      <EmptyState
+        emoji="📭"
+        title={t("empty.categoryTitle", { category: categoryLabel })}
+        body={t("empty.categoryBody")}
+      />
+    );
   return (
     <EmptyState
       emoji="🔔"
       title={t("empty.title")}
       body={t("empty.body")}
       action={
-        <Link to="/friends" className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand">
+        <Link
+          to="/friends"
+          className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand"
+        >
           {t("empty.action")}
         </Link>
       }

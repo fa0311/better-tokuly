@@ -49,7 +49,11 @@ function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
  * their own). One connection serves every read and write; it is closed when
  * another tab wants to upgrade the database, and opened again on next use.
  */
-export function createCatalogStore<Emoji, Category>(factory: () => IDBFactory | undefined = () => (typeof indexedDB === "undefined" ? undefined : indexedDB), timeoutMs = STORE_TIMEOUT_MS): CatalogStore<Emoji, Category> {
+export function createCatalogStore<Emoji, Category>(
+  factory: () => IDBFactory | undefined = () =>
+    typeof indexedDB === "undefined" ? undefined : indexedDB,
+  timeoutMs = STORE_TIMEOUT_MS,
+): CatalogStore<Emoji, Category> {
   let connection: Promise<IDBDatabase> | null = null;
 
   const open = (): Promise<IDBDatabase> => {
@@ -75,7 +79,8 @@ export function createCatalogStore<Emoji, Category>(factory: () => IDBFactory | 
         db.onclose = forget;
         resolve(db);
       };
-      request.onerror = () => reject(request.error ?? new Error("the emoji database could not be opened"));
+      request.onerror = () =>
+        reject(request.error ?? new Error("the emoji database could not be opened"));
       // Another connection holds an older version open; waiting for it could take the whole visit.
       request.onblocked = () => reject(new Error("the emoji database is blocked"));
     });
@@ -96,7 +101,8 @@ export function createCatalogStore<Emoji, Category>(factory: () => IDBFactory | 
         return await withTimeout(
           new Promise<StoredCatalog<Emoji, Category> | undefined>((resolve, reject) => {
             const request = db.transaction(STORE, "readonly").objectStore(STORE).get(RECORD);
-            request.onsuccess = () => resolve(request.result as StoredCatalog<Emoji, Category> | undefined);
+            request.onsuccess = () =>
+              resolve(request.result as StoredCatalog<Emoji, Category> | undefined);
             request.onerror = () => reject(request.error);
           }),
           timeoutMs,

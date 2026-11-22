@@ -27,7 +27,18 @@ export interface FriendPickerProps {
 }
 
 /** A sheet for choosing among the person's friends: search, tick, confirm. */
-export function FriendPicker({ open, onOpenChange, title, description, initial, exclude, single, confirmLabel, loading, onConfirm }: FriendPickerProps) {
+export function FriendPicker({
+  open,
+  onOpenChange,
+  title,
+  description,
+  initial,
+  exclude,
+  single,
+  confirmLabel,
+  loading,
+  onConfirm,
+}: FriendPickerProps) {
   const { t } = useTranslation("plans");
   const friends = useFriends();
   const [selected, setSelected] = useState<string[]>(initial ?? []);
@@ -43,12 +54,22 @@ export function FriendPicker({ open, onOpenChange, title, description, initial, 
   }
 
   const excluded = new Set(exclude ?? []);
-  const users = (friends.data ?? []).flatMap((friend) => (friend.user && !excluded.has(friend.user.id) ? [friend.user] : []));
+  const users = (friends.data ?? []).flatMap((friend) =>
+    friend.user && !excluded.has(friend.user.id) ? [friend.user] : [],
+  );
   const needle = query.trim().toLowerCase();
-  const shown = needle ? users.filter((user) => user.displayName.toLowerCase().includes(needle) || user.handle.toLowerCase().includes(needle)) : users;
+  const shown = needle
+    ? users.filter(
+        (user) =>
+          user.displayName.toLowerCase().includes(needle) ||
+          user.handle.toLowerCase().includes(needle),
+      )
+    : users;
   const toggle = (user: common.UserSummary) => {
     if (single) return onConfirm([user]);
-    setSelected((current) => (current.includes(user.id) ? current.filter((id) => id !== user.id) : [...current, user.id]));
+    setSelected((current) =>
+      current.includes(user.id) ? current.filter((id) => id !== user.id) : [...current, user.id],
+    );
   };
 
   return (
@@ -59,9 +80,16 @@ export function FriendPicker({ open, onOpenChange, title, description, initial, 
       description={description}
       footer={
         single ? undefined : (
-          <Button block loading={loading} disabled={friends.isPending} onClick={() => onConfirm(users.filter((user) => selected.includes(user.id)))}>
+          <Button
+            block
+            loading={loading}
+            disabled={friends.isPending}
+            onClick={() => onConfirm(users.filter((user) => selected.includes(user.id)))}
+          >
             {confirmLabel ?? t("picker.confirm")}
-            {selected.length > 0 && <span className="rounded-full bg-on-brand/25 px-2 text-sm">{selected.length}</span>}
+            {selected.length > 0 && (
+              <span className="rounded-full bg-on-brand/25 px-2 text-sm">{selected.length}</span>
+            )}
           </Button>
         )
       }
@@ -95,7 +123,10 @@ export function FriendPicker({ open, onOpenChange, title, description, initial, 
                     type="button"
                     {...(single ? {} : { role: "checkbox", "aria-checked": checked })}
                     onClick={() => toggle(user)}
-                    className={cn("flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition-colors hover:bg-surface-2", checked && "bg-brand-soft")}
+                    className={cn(
+                      "flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition-colors hover:bg-surface-2",
+                      checked && "bg-brand-soft",
+                    )}
                   >
                     <Avatar user={user} outlined />
                     <span className="min-w-0 flex-1">
@@ -103,7 +134,12 @@ export function FriendPicker({ open, onOpenChange, title, description, initial, 
                       <span className="block truncate text-sm text-ink-soft">@{user.handle}</span>
                     </span>
                     {!single && (
-                      <span className={cn("grid size-7 shrink-0 place-items-center rounded-full border-2", checked ? "border-ink bg-lime text-[#17122b]" : "border-line")}>
+                      <span
+                        className={cn(
+                          "grid size-7 shrink-0 place-items-center rounded-full border-2",
+                          checked ? "border-ink bg-lime text-[#17122b]" : "border-line",
+                        )}
+                      >
                         {checked && <Check className="size-4" strokeWidth={3} />}
                       </span>
                     )}
@@ -112,7 +148,11 @@ export function FriendPicker({ open, onOpenChange, title, description, initial, 
               );
             })}
           </ul>
-          {shown.length === 0 && <p className="py-8 text-center text-sm font-bold text-ink-faint">{t("picker.noMatch")}</p>}
+          {shown.length === 0 && (
+            <p className="py-8 text-center text-sm font-bold text-ink-faint">
+              {t("picker.noMatch")}
+            </p>
+          )}
         </>
       )}
     </Dialog>
@@ -145,7 +185,10 @@ export function FriendChips({
       {label && <p className="px-1 text-sm font-bold text-ink-soft">{label}</p>}
       <div className="flex flex-wrap items-center gap-2">
         {users.map((user) => (
-          <span key={user.id} className="inline-flex h-10 max-w-full items-center gap-2 rounded-full border-2 border-line bg-surface pr-1 pl-1.5">
+          <span
+            key={user.id}
+            className="inline-flex h-10 max-w-full items-center gap-2 rounded-full border-2 border-line bg-surface pr-1 pl-1.5"
+          >
             <Avatar user={user} size="xs" />
             <span className="truncate text-sm font-bold">{nameOf(user)}</span>
             <button

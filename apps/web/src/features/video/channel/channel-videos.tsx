@@ -30,7 +30,13 @@ export function ChannelVideos({ channel }: { channel: video.Channel }) {
   const [origin, setOrigin] = useState<video.VideoOrigin>(VideoOrigin.UNSPECIFIED);
   const query = useInfiniteQuery({
     queryKey: videoKeys.channelVideos(handle, sort, origin),
-    queryFn: ({ pageParam }) => channelClient().listChannelVideos({ channelId: handle, sort, origin, page: { limit: 24, cursor: pageParam } }),
+    queryFn: ({ pageParam }) =>
+      channelClient().listChannelVideos({
+        channelId: handle,
+        sort,
+        origin,
+        page: { limit: 24, cursor: pageParam },
+      }),
     initialPageParam: "",
     getNextPageParam: nextCursor,
   });
@@ -40,13 +46,21 @@ export function ChannelVideos({ channel }: { channel: video.Channel }) {
     <div>
       <div className="scrollbar-none -mx-4 mb-4 flex gap-2 overflow-x-auto px-4">
         {SORTS.map((option) => (
-          <Chip key={option.value} active={sort === option.value} onClick={() => setSort(option.value)}>
+          <Chip
+            key={option.value}
+            active={sort === option.value}
+            onClick={() => setSort(option.value)}
+          >
             {t(option.key)}
           </Chip>
         ))}
         <span className="mx-1 w-0.5 shrink-0 self-stretch rounded-full bg-line" aria-hidden />
         {ORIGINS.map((option) => (
-          <Chip key={option.value} active={origin === option.value} onClick={() => setOrigin(option.value)}>
+          <Chip
+            key={option.value}
+            active={origin === option.value}
+            onClick={() => setOrigin(option.value)}
+          >
             {t(option.key)}
           </Chip>
         ))}
@@ -65,7 +79,12 @@ export function ChannelVideos({ channel }: { channel: video.Channel }) {
         <>
           <VideoGrid>
             {videos.map((summary) => (
-              <VideoCard key={summary.id} video={summary} source={TrafficSource.CHANNEL} hideChannel />
+              <VideoCard
+                key={summary.id}
+                video={summary}
+                source={TrafficSource.CHANNEL}
+                hideChannel
+              />
             ))}
           </VideoGrid>
           <LoadMore query={query} />
@@ -75,9 +94,27 @@ export function ChannelVideos({ channel }: { channel: video.Channel }) {
   );
 }
 
-function Chip({ active, onClick, children }: { active: boolean; onClick(): void; children: ReactNode }) {
+function Chip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick(): void;
+  children: ReactNode;
+}) {
   return (
-    <button type="button" aria-pressed={active} onClick={onClick} className={cn("h-9 shrink-0 rounded-full border-2 px-3.5 text-sm font-bold", active ? "border-ink bg-ink text-bg" : "border-line bg-surface text-ink-soft hover:text-ink")}>
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={cn(
+        "h-9 shrink-0 rounded-full border-2 px-3.5 text-sm font-bold",
+        active
+          ? "border-ink bg-ink text-bg"
+          : "border-line bg-surface text-ink-soft hover:text-ink",
+      )}
+    >
       {children}
     </button>
   );

@@ -65,13 +65,24 @@ export function MonthGrid({
           {formatMonth(month, i18n.language)}
         </p>
         {headerAction}
-        <button type="button" aria-label={t("calendar.next")} onClick={() => onMonthChange(addMonths(month, 1))} className="grid size-10 place-items-center rounded-full hover:bg-surface-2">
+        <button
+          type="button"
+          aria-label={t("calendar.next")}
+          onClick={() => onMonthChange(addMonths(month, 1))}
+          className="grid size-10 place-items-center rounded-full hover:bg-surface-2"
+        >
           <ChevronRight className="size-5" />
         </button>
       </div>
-      <div className="grid grid-cols-7 gap-1 text-center text-xs font-black text-ink-faint" aria-hidden>
+      <div
+        className="grid grid-cols-7 gap-1 text-center text-xs font-black text-ink-faint"
+        aria-hidden
+      >
         {weekdayLabels(i18n.language).map((label, index) => (
-          <span key={label + String(index)} className={cn("py-1", index === 0 && "text-pink", index === 6 && "text-sky")}>
+          <span
+            key={label + String(index)}
+            className={cn("py-1", index === 0 && "text-pink", index === 6 && "text-sky")}
+          >
             {label}
           </span>
         ))}

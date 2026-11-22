@@ -2,7 +2,15 @@ import { Dialog as BaseDialog } from "@base-ui/react/dialog";
 import { Popover } from "@base-ui/react/popover";
 import type { emoji as emojiApi } from "@tokuly/api";
 import { Search, Star, X } from "lucide-react";
-import { type KeyboardEvent, type ReactElement, type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  type KeyboardEvent,
+  type ReactElement,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
 import { useDeck, useRecentEmoji } from "./api";
@@ -38,7 +46,13 @@ export interface EmojiPickerProps {
  *
  *   <EmojiPicker trigger={<Button size="icon" aria-label="絵文字">…</Button>} onPick={(emoji) => insert(emoji)} />
  */
-export function EmojiPicker({ onPick, trigger, side = "top", keepOpen, onOpenChange }: EmojiPickerProps) {
+export function EmojiPicker({
+  onPick,
+  trigger,
+  side = "top",
+  keepOpen,
+  onOpenChange,
+}: EmojiPickerProps) {
   const { t } = useTranslation("emoji");
   const [open, setOpenState] = useState(false);
   const wide = useMediaQuery("(min-width: 640px)");
@@ -63,7 +77,13 @@ export function EmojiPicker({ onPick, trigger, side = "top", keepOpen, onOpenCha
       <Popover.Root open={open} onOpenChange={setOpen}>
         <Popover.Trigger render={trigger} />
         <Popover.Portal>
-          <Popover.Positioner side={side} align="center" sideOffset={8} collisionPadding={10} className="z-50 outline-none">
+          <Popover.Positioner
+            side={side}
+            align="center"
+            sideOffset={8}
+            collisionPadding={10}
+            className="z-50 outline-none"
+          >
             <Popover.Popup
               ref={popup}
               aria-label={t("picker.title")}
@@ -96,7 +116,10 @@ export function EmojiPicker({ onPick, trigger, side = "top", keepOpen, onOpenCha
           )}
         >
           <BaseDialog.Title className="sr-only">{t("picker.title")}</BaseDialog.Title>
-          <span aria-hidden className="mx-auto mt-2 h-1.5 w-10 shrink-0 rounded-full bg-surface-3" />
+          <span
+            aria-hidden
+            className="mx-auto mt-2 h-1.5 w-10 shrink-0 rounded-full bg-surface-3"
+          />
           {panel}
         </BaseDialog.Popup>
       </BaseDialog.Portal>
@@ -122,7 +145,9 @@ export function toChoices(items: readonly emojiApi.PickerItem[], catalog: Catalo
   for (const item of items) {
     if (item.emoji.startsWith(":")) {
       // The local copy first (it may be newer than the list), then what the server attached.
-      const custom = catalog.byName.get(item.emoji.slice(1, -1)) ?? (item.custom ? toCatalogEmoji(item.custom) : undefined);
+      const custom =
+        catalog.byName.get(item.emoji.slice(1, -1)) ??
+        (item.custom ? toCatalogEmoji(item.custom) : undefined);
       if (custom) choices.push(customChoice(custom));
     } else if (item.emoji) {
       choices.push({ kind: "unicode", emoji: item.emoji, name: item.emoji });
@@ -138,7 +163,13 @@ const UNCATEGORIZED = "custom:";
 /** Cells drawn at first in a long category; more follow as the list is scrolled. */
 const CHUNK = 240;
 
-function PickerPanel({ onPick, autoFocusSearch }: { onPick(choice: EmojiChoice): void; autoFocusSearch: boolean }) {
+function PickerPanel({
+  onPick,
+  autoFocusSearch,
+}: {
+  onPick(choice: EmojiChoice): void;
+  autoFocusSearch: boolean;
+}) {
   const { t } = useTranslation("emoji");
   const catalog = useCatalog();
   const unicode = useUnicodeTable();
@@ -155,11 +186,26 @@ function PickerPanel({ onPick, autoFocusSearch }: { onPick(choice: EmojiChoice):
 
   const uncategorized = catalog.emojis.filter((entry) => !entry.category);
   const customTabs = [
-    ...catalog.categories.filter((category) => category.emojiCount > 0).map((category) => ({ id: `custom:${category.name}`, label: category.name, emojis: catalog.emojis.filter((entry) => entry.category === category.name) })),
-    ...(uncategorized.length > 0 ? [{ id: UNCATEGORIZED, label: t(catalog.categories.length > 0 ? "picker.uncategorized" : "picker.custom"), emojis: uncategorized }] : []),
+    ...catalog.categories
+      .filter((category) => category.emojiCount > 0)
+      .map((category) => ({
+        id: `custom:${category.name}`,
+        label: category.name,
+        emojis: catalog.emojis.filter((entry) => entry.category === category.name),
+      })),
+    ...(uncategorized.length > 0
+      ? [
+          {
+            id: UNCATEGORIZED,
+            label: t(catalog.categories.length > 0 ? "picker.uncategorized" : "picker.custom"),
+            emojis: uncategorized,
+          },
+        ]
+      : []),
   ].filter((entry) => entry.emojis.length > 0);
 
-  const cells = (): HTMLElement[] => Array.from(body.current?.querySelectorAll<HTMLElement>("[data-emoji-cell]") ?? []);
+  const cells = (): HTMLElement[] =>
+    Array.from(body.current?.querySelectorAll<HTMLElement>("[data-emoji-cell]") ?? []);
 
   // Arrow keys walk the grid the way it looks: left and right in reading order, up and down to the nearest cell of the next row.
   const onGridKey = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -181,7 +227,10 @@ function PickerPanel({ onPick, autoFocusSearch }: { onPick(choice: EmojiChoice):
         const rowDistance = down ? box.top - from.top : from.top - box.top;
         if (rowDistance < 4) continue;
         const columnDistance = Math.abs(box.left - from.left);
-        if (rowDistance < bestRow - 2 || (Math.abs(rowDistance - bestRow) <= 2 && columnDistance < bestColumn)) {
+        if (
+          rowDistance < bestRow - 2 ||
+          (Math.abs(rowDistance - bestRow) <= 2 && columnDistance < bestColumn)
+        ) {
           bestRow = rowDistance;
           bestColumn = columnDistance;
           target = cell;
@@ -232,7 +281,12 @@ function PickerPanel({ onPick, autoFocusSearch }: { onPick(choice: EmojiChoice):
             className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-ink-faint [&::-webkit-search-cancel-button]:hidden"
           />
           {text && (
-            <button type="button" aria-label={t("picker.clear")} onClick={() => setText("")} className="grid size-6 place-items-center rounded-full text-ink-faint hover:bg-surface-2">
+            <button
+              type="button"
+              aria-label={t("picker.clear")}
+              onClick={() => setText("")}
+              className="grid size-6 place-items-center rounded-full text-ink-faint hover:bg-surface-2"
+            >
               <X className="size-4" />
             </button>
           )}
@@ -240,18 +294,41 @@ function PickerPanel({ onPick, autoFocusSearch }: { onPick(choice: EmojiChoice):
       </div>
 
       {!query && (
-        <div role="tablist" aria-label={t("picker.title")} className="scrollbar-none flex shrink-0 gap-0.5 overflow-x-auto px-2 pt-2">
+        <div
+          role="tablist"
+          aria-label={t("picker.title")}
+          className="scrollbar-none flex shrink-0 gap-0.5 overflow-x-auto px-2 pt-2"
+        >
           <TabButton id={HOME} current={tab} onSelect={setTab} label={t("picker.home")}>
             <Star className="size-[18px]" />
           </TabButton>
           {customTabs.map((entry) => (
-            <TabButton key={entry.id} id={entry.id} current={tab} onSelect={setTab} label={entry.label}>
+            <TabButton
+              key={entry.id}
+              id={entry.id}
+              current={tab}
+              onSelect={setTab}
+              label={entry.label}
+            >
               {/* The tab shows an emoji of the category that everyone may see as it is. */}
-              <EmojiImage emoji={entry.emojis.find((item) => !item.sensitive) ?? (entry.emojis[0] as CatalogEmoji)} size={22} still className="size-[22px]" />
+              <EmojiImage
+                emoji={
+                  entry.emojis.find((item) => !item.sensitive) ?? (entry.emojis[0] as CatalogEmoji)
+                }
+                size={22}
+                still
+                className="size-[22px]"
+              />
             </TabButton>
           ))}
           {unicode?.groups.map((group) => (
-            <TabButton key={group.id} id={`unicode:${group.id}`} current={tab} onSelect={setTab} label={t(`picker.groups.${group.id}`)}>
+            <TabButton
+              key={group.id}
+              id={`unicode:${group.id}`}
+              current={tab}
+              onSelect={setTab}
+              label={t(`picker.groups.${group.id}`)}
+            >
               <span aria-hidden className="text-lg leading-none">
                 {group.icon}
               </span>
@@ -261,36 +338,73 @@ function PickerPanel({ onPick, autoFocusSearch }: { onPick(choice: EmojiChoice):
       )}
 
       {/* The key handler moves focus between the emoji buttons inside. */}
-      <div ref={body} onKeyDown={onGridKey} className="min-h-0 flex-1 overflow-y-auto px-2 pt-1 pb-2" data-testid="emoji-picker-body">
+      <div
+        ref={body}
+        onKeyDown={onGridKey}
+        className="min-h-0 flex-1 overflow-y-auto px-2 pt-1 pb-2"
+        data-testid="emoji-picker-body"
+      >
         {query ? (
           results.length > 0 ? (
             <Grid label={t("picker.results")} choices={results} first {...cellProps} />
           ) : (
-            <p className="px-4 py-10 text-center text-sm font-bold text-ink-soft">{t(unicode && catalog.status !== "loading" ? "picker.noResults" : "picker.loading")}</p>
+            <p className="px-4 py-10 text-center text-sm font-bold text-ink-soft">
+              {t(unicode && catalog.status !== "loading" ? "picker.noResults" : "picker.loading")}
+            </p>
           )
         ) : tab === HOME ? (
           <>
             <Grid label={t("picker.deck")} choices={deckChoices} first {...cellProps} />
-            {recentChoices.length > 0 && <Grid label={t("picker.recent")} choices={recentChoices} {...cellProps} />}
+            {recentChoices.length > 0 && (
+              <Grid label={t("picker.recent")} choices={recentChoices} {...cellProps} />
+            )}
           </>
         ) : customTab ? (
-          <GrowingGrid key={customTab.id} label={customTab.label} choices={customTab.emojis.map(customChoice)} {...cellProps} />
+          <GrowingGrid
+            key={customTab.id}
+            label={customTab.label}
+            choices={customTab.emojis.map(customChoice)}
+            {...cellProps}
+          />
         ) : unicodeGroup ? (
           <Grid
             label={t(`picker.groups.${unicodeGroup.id}`)}
-            choices={unicodeGroup.emoji.map((entry) => ({ kind: "unicode", emoji: entry.emoji, name: entry.en[0] ?? entry.emoji }))}
+            choices={unicodeGroup.emoji.map((entry) => ({
+              kind: "unicode",
+              emoji: entry.emoji,
+              name: entry.en[0] ?? entry.emoji,
+            }))}
             first
             {...cellProps}
           />
         ) : null}
       </div>
 
-      <div className="flex h-9 shrink-0 items-center gap-2 border-t-2 border-line px-3 text-sm" aria-hidden>
+      <div
+        className="flex h-9 shrink-0 items-center gap-2 border-t-2 border-line px-3 text-sm"
+        aria-hidden
+      >
         {hovered ? (
           <>
-            <span className="grid size-6 shrink-0 place-items-center text-lg leading-none">{hovered.kind === "custom" ? <EmojiImage emoji={hovered.custom} size={24} still className="size-6" /> : hovered.emoji}</span>
-            <span className="truncate font-bold">{hovered.kind === "custom" ? `:${hovered.name}:` : hovered.name === hovered.emoji ? "" : hovered.name}</span>
-            {hovered.kind === "custom" && hovered.custom.aliases.length > 0 && <span className="truncate text-xs text-ink-faint">{hovered.custom.aliases.slice(0, 4).join(" · ")}</span>}
+            <span className="grid size-6 shrink-0 place-items-center text-lg leading-none">
+              {hovered.kind === "custom" ? (
+                <EmojiImage emoji={hovered.custom} size={24} still className="size-6" />
+              ) : (
+                hovered.emoji
+              )}
+            </span>
+            <span className="truncate font-bold">
+              {hovered.kind === "custom"
+                ? `:${hovered.name}:`
+                : hovered.name === hovered.emoji
+                  ? ""
+                  : hovered.name}
+            </span>
+            {hovered.kind === "custom" && hovered.custom.aliases.length > 0 && (
+              <span className="truncate text-xs text-ink-faint">
+                {hovered.custom.aliases.slice(0, 4).join(" · ")}
+              </span>
+            )}
           </>
         ) : (
           <span className="truncate text-xs font-bold text-ink-faint">{t("picker.hint")}</span>
@@ -300,7 +414,19 @@ function PickerPanel({ onPick, autoFocusSearch }: { onPick(choice: EmojiChoice):
   );
 }
 
-function TabButton({ id, current, onSelect, label, children }: { id: string; current: string; onSelect(id: string): void; label: string; children: ReactNode }) {
+function TabButton({
+  id,
+  current,
+  onSelect,
+  label,
+  children,
+}: {
+  id: string;
+  current: string;
+  onSelect(id: string): void;
+  label: string;
+  children: ReactNode;
+}) {
   const active = id === current;
   return (
     <button
@@ -310,7 +436,12 @@ function TabButton({ id, current, onSelect, label, children }: { id: string; cur
       aria-label={label}
       title={label}
       onClick={() => onSelect(id)}
-      className={cn("grid h-9 min-w-10 flex-1 shrink-0 place-items-center rounded-xl transition-colors", active ? "bg-brand-soft text-brand" : "text-ink-soft opacity-70 hover:bg-surface-2 hover:opacity-100")}
+      className={cn(
+        "grid h-9 min-w-10 flex-1 shrink-0 place-items-center rounded-xl transition-colors",
+        active
+          ? "bg-brand-soft text-brand"
+          : "text-ink-soft opacity-70 hover:bg-surface-2 hover:opacity-100",
+      )}
     >
       {children}
     </button>
@@ -322,7 +453,19 @@ interface CellHandlers {
   onHover(choice: EmojiChoice | null): void;
 }
 
-function Grid({ label, choices, first, onPick, onHover, children }: CellHandlers & { label: string; choices: EmojiChoice[]; /** Its first emoji is where Tab lands. */ first?: boolean; children?: ReactNode }) {
+function Grid({
+  label,
+  choices,
+  first,
+  onPick,
+  onHover,
+  children,
+}: CellHandlers & {
+  label: string;
+  choices: EmojiChoice[] /** Its first emoji is where Tab lands. */;
+  first?: boolean;
+  children?: ReactNode;
+}) {
   return (
     <section aria-label={label}>
       <h3 className="px-1.5 pt-2 pb-1 text-xs font-black text-ink-faint">{label}</h3>
@@ -333,13 +476,21 @@ function Grid({ label, choices, first, onPick, onHover, children }: CellHandlers
             type="button"
             data-emoji-cell
             tabIndex={first && index === 0 ? 0 : -1}
-            aria-label={choice.kind === "custom" ? choice.emoji : `${choice.emoji} ${choice.name === choice.emoji ? "" : choice.name}`.trim()}
+            aria-label={
+              choice.kind === "custom"
+                ? choice.emoji
+                : `${choice.emoji} ${choice.name === choice.emoji ? "" : choice.name}`.trim()
+            }
             onClick={() => onPick(choice)}
             onPointerEnter={() => onHover(choice)}
             onFocus={() => onHover(choice)}
             className="grid aspect-square place-items-center rounded-xl text-[1.4rem] leading-none transition-transform hover:bg-surface-2 focus-visible:bg-surface-2 active:scale-125"
           >
-            {choice.kind === "custom" ? <EmojiImage emoji={choice.custom} size={28} className="size-7" /> : <span aria-hidden>{choice.emoji}</span>}
+            {choice.kind === "custom" ? (
+              <EmojiImage emoji={choice.custom} size={28} className="size-7" />
+            ) : (
+              <span aria-hidden>{choice.emoji}</span>
+            )}
           </button>
         ))}
       </div>
@@ -349,7 +500,11 @@ function Grid({ label, choices, first, onPick, onHover, children }: CellHandlers
 }
 
 /** A grid that draws a long list a part at a time, adding the next part when its end scrolls into view. */
-function GrowingGrid({ label, choices, ...handlers }: CellHandlers & { label: string; choices: EmojiChoice[] }) {
+function GrowingGrid({
+  label,
+  choices,
+  ...handlers
+}: CellHandlers & { label: string; choices: EmojiChoice[] }) {
   const [shown, setShown] = useState(CHUNK);
   const sentinel = useRef<HTMLDivElement>(null);
   const more = shown < choices.length;

@@ -21,7 +21,11 @@ export function ViewersDialog({ storyId, onClose }: { storyId: string; onClose()
       open
       onOpenChange={(open) => !open && onClose()}
       title={t("viewers.title")}
-      description={totals ? t("viewers.summary", { views: totals.viewCount, reactions: totals.reactionCount }) : undefined}
+      description={
+        totals
+          ? t("viewers.summary", { views: totals.viewCount, reactions: totals.reactionCount })
+          : undefined
+      }
     >
       {query.isPending ? (
         <div className="flex flex-col gap-2">
@@ -53,7 +57,11 @@ export function ViewersDialog({ storyId, onClose }: { storyId: string; onClose()
                       </span>
                     </span>
                     {viewer.reaction && (
-                      <span className="text-2xl leading-none" role="img" aria-label={t("viewers.reacted", { emoji: viewer.reaction })}>
+                      <span
+                        className="text-2xl leading-none"
+                        role="img"
+                        aria-label={t("viewers.reacted", { emoji: viewer.reaction })}
+                      >
                         {viewer.reaction}
                       </span>
                     )}

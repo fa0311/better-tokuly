@@ -11,15 +11,32 @@ import { CreateStoryDialog } from "./create";
 import { openStoryViewer, type ViewerReel } from "./viewer-store";
 
 /** The ring around a face with stories: colourful while something is unseen, quiet once everything was watched. */
-export function Ring({ unseen, children, className }: { unseen: boolean; children: ReactNode; className?: string }) {
+export function Ring({
+  unseen,
+  children,
+  className,
+}: {
+  unseen: boolean;
+  children: ReactNode;
+  className?: string;
+}) {
   return (
-    <span className={cn("inline-block rounded-[1.45rem] p-[3px]", unseen ? "bg-gradient-to-tr from-sun via-pink to-brand" : "bg-line", className)}>
+    <span
+      className={cn(
+        "inline-block rounded-[1.45rem] p-[3px]",
+        unseen ? "bg-gradient-to-tr from-sun via-pink to-brand" : "bg-line",
+        className,
+      )}
+    >
       <span className="block rounded-[1.25rem] bg-bg p-[2px]">{children}</span>
     </span>
   );
 }
 
-const toViewerReel = (reel: notes.StoryReel): ViewerReel => ({ user: reel.user, stories: reel.stories });
+const toViewerReel = (reel: notes.StoryReel): ViewerReel => ({
+  user: reel.user,
+  stories: reel.stories,
+});
 
 /**
  * The story tray above the home timeline: the viewer's own reel first (with
@@ -36,17 +53,30 @@ export function StoryTray() {
   const reels = tray.data ?? [];
   const own = reels.find((reel) => reel.user?.id === me.user!.id);
   const friends = reels.filter((reel) => reel.user?.id !== me.user!.id);
-  const play = (reel: notes.StoryReel) => openStoryViewer(reels.map(toViewerReel), { reelIndex: reels.indexOf(reel) });
+  const play = (reel: notes.StoryReel) =>
+    openStoryViewer(reels.map(toViewerReel), { reelIndex: reels.indexOf(reel) });
 
   return (
-    <section aria-label={t("tray.title")} className="-mx-3 mb-2.5 sm:-mx-4" data-testid="story-tray">
+    <section
+      aria-label={t("tray.title")}
+      className="-mx-3 mb-2.5 sm:-mx-4"
+      data-testid="story-tray"
+    >
       <ul className="scrollbar-none flex gap-2.5 overflow-x-auto px-3 pt-1 pb-1.5 sm:px-4">
         <li className="relative shrink-0">
-          <button type="button" onClick={() => (own ? play(own) : setCreating(true))} aria-label={own ? t("tray.mine") : t("tray.add")} className="flex w-[4.75rem] flex-col items-center gap-1" data-testid="story-reel-own">
+          <button
+            type="button"
+            onClick={() => (own ? play(own) : setCreating(true))}
+            aria-label={own ? t("tray.mine") : t("tray.add")}
+            className="flex w-[4.75rem] flex-col items-center gap-1"
+            data-testid="story-reel-own"
+          >
             <Ring unseen={false} className={own ? undefined : "bg-transparent"}>
               <Avatar user={me.user} size="lg" />
             </Ring>
-            <span className="w-full truncate text-center text-xs font-bold text-ink-soft">{own ? t("tray.mine") : t("tray.add")}</span>
+            <span className="w-full truncate text-center text-xs font-bold text-ink-soft">
+              {own ? t("tray.mine") : t("tray.add")}
+            </span>
           </button>
           <button
             type="button"
@@ -60,7 +90,10 @@ export function StoryTray() {
         </li>
         {tray.isPending &&
           [0, 1, 2].map((index) => (
-            <li key={index} className="flex w-[4.75rem] shrink-0 flex-col items-center gap-1.5 pt-1">
+            <li
+              key={index}
+              className="flex w-[4.75rem] shrink-0 flex-col items-center gap-1.5 pt-1"
+            >
               <Skeleton className="size-[4.25rem] rounded-[1.25rem]" />
               <Skeleton className="h-3 w-12 rounded-full" />
             </li>
@@ -70,7 +103,9 @@ export function StoryTray() {
             <button
               type="button"
               onClick={() => play(reel)}
-              aria-label={t(reel.hasUnseen ? "tray.unseen" : "tray.seen", { name: reel.user?.displayName ?? "" })}
+              aria-label={t(reel.hasUnseen ? "tray.unseen" : "tray.seen", {
+                name: reel.user?.displayName ?? "",
+              })}
               className="flex w-[4.75rem] flex-col items-center gap-1"
               data-testid="story-reel"
               data-unseen={reel.hasUnseen}
@@ -78,12 +113,21 @@ export function StoryTray() {
               <Ring unseen={reel.hasUnseen}>
                 <Avatar user={reel.user} size="lg" />
               </Ring>
-              <span className={cn("w-full truncate text-center text-xs", reel.hasUnseen ? "font-black text-ink" : "font-bold text-ink-faint")}>{reel.user?.displayName}</span>
+              <span
+                className={cn(
+                  "w-full truncate text-center text-xs",
+                  reel.hasUnseen ? "font-black text-ink" : "font-bold text-ink-faint",
+                )}
+              >
+                {reel.user?.displayName}
+              </span>
             </button>
           </li>
         ))}
         {!tray.isPending && friends.length === 0 && (
-          <li className="flex min-w-0 items-center px-2 pb-5 text-sm leading-relaxed font-bold text-ink-faint">{t("tray.empty")}</li>
+          <li className="flex min-w-0 items-center px-2 pb-5 text-sm leading-relaxed font-bold text-ink-faint">
+            {t("tray.empty")}
+          </li>
         )}
       </ul>
       {creating && <CreateStoryDialog onClose={() => setCreating(false)} />}
@@ -101,8 +145,21 @@ export function StoryRing({ user, children }: { user: common.UserSummary; childr
   const live = stories.data ?? [];
   if (live.length === 0) return <>{children}</>;
   return (
-    <button type="button" aria-label={t("tray.play", { name: user.displayName })} onClick={() => openStoryViewer([{ user, stories: live }])} className="pressable rounded-[2.2rem]" data-testid="story-ring">
-      <span className={cn("block rounded-[2.35rem] p-1", live.some((story) => !story.viewed) ? "bg-gradient-to-tr from-sun via-pink to-brand" : "bg-line")}>
+    <button
+      type="button"
+      aria-label={t("tray.play", { name: user.displayName })}
+      onClick={() => openStoryViewer([{ user, stories: live }])}
+      className="pressable rounded-[2.2rem]"
+      data-testid="story-ring"
+    >
+      <span
+        className={cn(
+          "block rounded-[2.35rem] p-1",
+          live.some((story) => !story.viewed)
+            ? "bg-gradient-to-tr from-sun via-pink to-brand"
+            : "bg-line",
+        )}
+      >
         <span className="block rounded-[2.15rem] bg-bg p-[3px]">{children}</span>
       </span>
     </button>

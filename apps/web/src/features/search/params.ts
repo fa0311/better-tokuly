@@ -58,8 +58,16 @@ export function sortValue(sort: Sort | undefined): search.SearchSort {
  * router's own search serialisation, so the router reads back exactly what
  * was put in: a quoted phrase, a number or `{…}` stay the text they are.
  */
-export function searchHref(query: string, options: { kind?: Kind; sort?: Sort; owner?: string } = {}): string {
-  const params: SearchParams = { q: query.trim(), kind: options.kind === undefined ? undefined : kindSlug(options.kind), sort: options.sort, owner: options.owner || undefined };
+export function searchHref(
+  query: string,
+  options: { kind?: Kind; sort?: Sort; owner?: string } = {},
+): string {
+  const params: SearchParams = {
+    q: query.trim(),
+    kind: options.kind === undefined ? undefined : kindSlug(options.kind),
+    sort: options.sort,
+    owner: options.owner || undefined,
+  };
   return `/search${defaultStringifySearch(params)}`;
 }
 

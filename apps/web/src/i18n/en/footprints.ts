@@ -92,7 +92,10 @@ export default {
     failedBody: "The connection seems shaky. Try again",
     retry: "Try again",
   },
-  profile: { explored: "Footprints: {{percent}} explored", countries: "Footprints: {{count}} countries visited" },
+  profile: {
+    explored: "Footprints: {{percent}} explored",
+    countries: "Footprints: {{count}} countries visited",
+  },
   errors: {
     FOOTPRINTS_PRIVATE: "These footprints are not shown",
     REGION_NOT_FOUND: "That area was not found",

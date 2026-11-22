@@ -5,7 +5,12 @@ const LANDSCAPE = { width: 4000, height: 2000 };
 
 describe("visibleRegion", () => {
   it("covers the largest centered square of a landscape image at zoom 1", () => {
-    expect(visibleRegion({ centerX: 0.5, centerY: 0.5, zoom: 1 }, LANDSCAPE, 1)).toEqual({ x: 1000, y: 0, width: 2000, height: 2000 });
+    expect(visibleRegion({ centerX: 0.5, centerY: 0.5, zoom: 1 }, LANDSCAPE, 1)).toEqual({
+      x: 1000,
+      y: 0,
+      width: 2000,
+      height: 2000,
+    });
   });
 
   it("uses the full width for a frame wider than the image", () => {
@@ -15,7 +20,12 @@ describe("visibleRegion", () => {
   });
 
   it("shrinks with the zoom", () => {
-    expect(visibleRegion({ centerX: 0.5, centerY: 0.5, zoom: 2 }, LANDSCAPE, 1)).toEqual({ x: 1500, y: 500, width: 1000, height: 1000 });
+    expect(visibleRegion({ centerX: 0.5, centerY: 0.5, zoom: 2 }, LANDSCAPE, 1)).toEqual({
+      x: 1500,
+      y: 500,
+      width: 1000,
+      height: 1000,
+    });
   });
 });
 

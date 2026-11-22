@@ -37,17 +37,27 @@ export function useExamCountdown() {
   const { t } = useTranslation("school");
   return (exam: Pick<school.Exam, "status" | "daysUntilStart" | "daysLeft">) => {
     if (exam.status === school.ExamStatus.FINISHED) return t("exams.finished");
-    if (exam.status === school.ExamStatus.ONGOING) return t("exams.ongoing", { count: exam.daysLeft });
-    return exam.daysUntilStart === 0 ? t("exams.startsToday") : t("exams.daysUntil", { count: exam.daysUntilStart });
+    if (exam.status === school.ExamStatus.ONGOING)
+      return t("exams.ongoing", { count: exam.daysLeft });
+    return exam.daysUntilStart === 0
+      ? t("exams.startsToday")
+      : t("exams.daysUntil", { count: exam.daysUntilStart });
   };
 }
 
 /** One assignment: tick it off, see what it is for and when it is due, open it to change it. */
-export function AssignmentRow({ assignment, onOpen }: { assignment: school.Assignment; onOpen?(assignment: school.Assignment): void }) {
+export function AssignmentRow({
+  assignment,
+  onOpen,
+}: {
+  assignment: school.Assignment;
+  onOpen?(assignment: school.Assignment): void;
+}) {
   const { t, i18n } = useTranslation("school");
   const queryClient = useQueryClient();
   const toggle = useMutation({
-    mutationFn: (done: boolean) => assignmentClient().updateAssignment({ assignmentId: assignment.id, done }),
+    mutationFn: (done: boolean) =>
+      assignmentClient().updateAssignment({ assignmentId: assignment.id, done }),
     onSuccess: (_response, done) => {
       if (done) toast.success(t("assignments.doneToast"));
       refresh(queryClient, "assignments");
@@ -60,12 +70,29 @@ export function AssignmentRow({ assignment, onOpen }: { assignment: school.Assig
   const done = toggle.isPending ? toggle.variables : assignment.done;
   const text = (
     <>
-      <span className={cn("block truncate font-bold", done && "text-ink-faint line-through")}>{assignment.title}</span>
+      <span className={cn("block truncate font-bold", done && "text-ink-faint line-through")}>
+        {assignment.title}
+      </span>
       <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs font-bold text-ink-soft">
-        {assignment.subject && <SubjectPill subject={assignment.subject} className="h-5 border px-1.5 text-[11px]" />}
-        {!done && urgency && <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-black", URGENCY_STYLE[assignment.urgency])}>{t(`assignments.urgency.${urgency}`)}</span>}
-        {due && <span>{t("assignments.dueAt", { when: momentLabel(due, i18n.language, zone) })}</span>}
-        {!assignment.remind && !done && <BellOff className="size-3.5" aria-label={t("assignments.remindOff")} />}
+        {assignment.subject && (
+          <SubjectPill subject={assignment.subject} className="h-5 border px-1.5 text-[11px]" />
+        )}
+        {!done && urgency && (
+          <span
+            className={cn(
+              "rounded-full px-2 py-0.5 text-[11px] font-black",
+              URGENCY_STYLE[assignment.urgency],
+            )}
+          >
+            {t(`assignments.urgency.${urgency}`)}
+          </span>
+        )}
+        {due && (
+          <span>{t("assignments.dueAt", { when: momentLabel(due, i18n.language, zone) })}</span>
+        )}
+        {!assignment.remind && !done && (
+          <BellOff className="size-3.5" aria-label={t("assignments.remindOff")} />
+        )}
       </span>
     </>
   );
@@ -74,14 +101,23 @@ export function AssignmentRow({ assignment, onOpen }: { assignment: school.Assig
       <button
         type="button"
         aria-pressed={done}
-        aria-label={t(done ? "assignments.markOpen" : "assignments.markDone", { title: assignment.title })}
+        aria-label={t(done ? "assignments.markOpen" : "assignments.markDone", {
+          title: assignment.title,
+        })}
         onClick={() => toggle.mutate(!done)}
-        className={cn("pressable grid size-8 shrink-0 place-items-center rounded-full border-2 border-ink", done ? "bg-lime text-[#17122b]" : "bg-surface")}
+        className={cn(
+          "pressable grid size-8 shrink-0 place-items-center rounded-full border-2 border-ink",
+          done ? "bg-lime text-[#17122b]" : "bg-surface",
+        )}
       >
         {done && <Check className="size-5" />}
       </button>
       {onOpen ? (
-        <button type="button" onClick={() => onOpen(assignment)} className="min-w-0 flex-1 text-left">
+        <button
+          type="button"
+          onClick={() => onOpen(assignment)}
+          className="min-w-0 flex-1 text-left"
+        >
           {text}
         </button>
       ) : (
@@ -106,10 +142,21 @@ export function DueList({ limit }: { limit?: number }) {
   if (exams.isPending || assignments.isPending) return <RowsSkeleton rows={2} />;
 
   const items = [
-    ...(exams.data ?? []).filter((exam) => exam.status !== school.ExamStatus.FINISHED).map((exam) => ({ at: zonedMoment(exam.startDate, 0, zone), exam, assignment: undefined })),
-    ...(assignments.data?.assignments ?? []).map((assignment) => ({ at: toMillis(assignment.dueAt), exam: undefined, assignment })),
+    ...(exams.data ?? [])
+      .filter((exam) => exam.status !== school.ExamStatus.FINISHED)
+      .map((exam) => ({ at: zonedMoment(exam.startDate, 0, zone), exam, assignment: undefined })),
+    ...(assignments.data?.assignments ?? []).map((assignment) => ({
+      at: toMillis(assignment.dueAt),
+      exam: undefined,
+      assignment,
+    })),
   ].sort((a, b) => a.at - b.at);
-  if (items.length === 0) return <p className="rounded-card bg-surface-2 px-4 py-5 text-center text-sm font-bold text-ink-soft">{t("due.empty")}</p>;
+  if (items.length === 0)
+    return (
+      <p className="rounded-card bg-surface-2 px-4 py-5 text-center text-sm font-bold text-ink-soft">
+        {t("due.empty")}
+      </p>
+    );
   const shown = limit ? items.slice(0, limit) : items;
 
   return (
@@ -119,13 +166,32 @@ export function DueList({ limit }: { limit?: number }) {
           <AssignmentRow key={item.assignment.id} assignment={item.assignment} />
         ) : (
           <li key={item.exam.id}>
-            <Link to="/school/exams/$examId" params={{ examId: item.exam.id }} className="flex items-center gap-3 rounded-2xl bg-surface-2 px-3 py-2.5 transition-colors hover:bg-surface-3">
-              <span className="grid size-8 shrink-0 place-items-center rounded-full border-2 border-ink bg-sun text-base">📝</span>
+            <Link
+              to="/school/exams/$examId"
+              params={{ examId: item.exam.id }}
+              className="flex items-center gap-3 rounded-2xl bg-surface-2 px-3 py-2.5 transition-colors hover:bg-surface-3"
+            >
+              <span className="grid size-8 shrink-0 place-items-center rounded-full border-2 border-ink bg-sun text-base">
+                📝
+              </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-bold">{item.exam.name}</span>
-                <span className="block text-xs font-bold text-ink-soft">{i18n.language.startsWith("ja") ? `${item.exam.startDate.slice(5).replace("-", "/")} 〜` : item.exam.startDate}</span>
+                <span className="block text-xs font-bold text-ink-soft">
+                  {i18n.language.startsWith("ja")
+                    ? `${item.exam.startDate.slice(5).replace("-", "/")} 〜`
+                    : item.exam.startDate}
+                </span>
               </span>
-              <span className={cn("shrink-0 rounded-full px-2.5 py-1 text-xs font-black", item.exam.status === school.ExamStatus.ONGOING ? "bg-live text-white" : "bg-ink text-surface")}>{countdown(item.exam)}</span>
+              <span
+                className={cn(
+                  "shrink-0 rounded-full px-2.5 py-1 text-xs font-black",
+                  item.exam.status === school.ExamStatus.ONGOING
+                    ? "bg-live text-white"
+                    : "bg-ink text-surface",
+                )}
+              >
+                {countdown(item.exam)}
+              </span>
             </Link>
           </li>
         ),
@@ -140,7 +206,13 @@ export function DueList({ limit }: { limit?: number }) {
 }
 
 /** Adds an assignment or changes one: title, subject, due time, memo, reminders; removing it. */
-export function AssignmentDialog({ assignment, onClose }: { /** The assignment to change; a new one when unset. */ assignment?: school.Assignment; onClose(): void }) {
+export function AssignmentDialog({
+  assignment,
+  onClose,
+}: {
+  /** The assignment to change; a new one when unset. */ assignment?: school.Assignment;
+  onClose(): void;
+}) {
   const { t } = useTranslation("school");
   const queryClient = useQueryClient();
   const [title, setTitle] = useState(assignment?.title ?? "");
@@ -148,7 +220,12 @@ export function AssignmentDialog({ assignment, onClose }: { /** The assignment t
   // A new assignment is due at the end of the account's tomorrow.
   const zone = useAccountTimeZone();
   const today = useAccountToday();
-  const [due, setDue] = useState(() => toLocalInput(toDate(assignment?.dueAt) ?? new Date(zonedMoment(addDays(today, 1), 23 * 60 + 59, zone)), zone));
+  const [due, setDue] = useState(() =>
+    toLocalInput(
+      toDate(assignment?.dueAt) ?? new Date(zonedMoment(addDays(today, 1), 23 * 60 + 59, zone)),
+      zone,
+    ),
+  );
   const [memo, setMemo] = useState(assignment?.memo ?? "");
   const [remind, setRemind] = useState(assignment?.remind ?? true);
   const [deleting, setDeleting] = useState(false);
@@ -161,11 +238,20 @@ export function AssignmentDialog({ assignment, onClose }: { /** The assignment t
   const save = useMutation({
     mutationFn: async () => {
       const dueAt = dueDate ? fromDate(dueDate) : undefined;
-      if (assignment) await assignmentClient().updateAssignment({ assignmentId: assignment.id, title, subjectId, dueAt, memo, remind });
+      if (assignment)
+        await assignmentClient().updateAssignment({
+          assignmentId: assignment.id,
+          title,
+          subjectId,
+          dueAt,
+          memo,
+          remind,
+        });
       else await assignmentClient().createAssignment({ title, subjectId, dueAt, memo, remind });
     },
     onSuccess: () => {
-      if (!assignment) toast.success(remind ? t("assignments.addedWithReminder") : t("assignments.added"));
+      if (!assignment)
+        toast.success(remind ? t("assignments.addedWithReminder") : t("assignments.added"));
       done();
     },
     onError: toastError,
@@ -185,26 +271,57 @@ export function AssignmentDialog({ assignment, onClose }: { /** The assignment t
         footer={
           <>
             {assignment && (
-              <Button variant="ghost" className="mr-auto text-danger" icon={<Trash2 className="size-4" />} onClick={() => setDeleting(true)}>
+              <Button
+                variant="ghost"
+                className="mr-auto text-danger"
+                icon={<Trash2 className="size-4" />}
+                onClick={() => setDeleting(true)}
+              >
                 {t("common:actions.delete")}
               </Button>
             )}
             <Button variant="ghost" onClick={onClose}>
               {t("common:actions.cancel")}
             </Button>
-            <Button loading={save.isPending} disabled={!title.trim() || !dueDate} onClick={() => save.mutate()}>
+            <Button
+              loading={save.isPending}
+              disabled={!title.trim() || !dueDate}
+              onClick={() => save.mutate()}
+            >
               {assignment ? t("common:actions.save") : t("assignments.addAction")}
             </Button>
           </>
         }
       >
         <div className="flex flex-col gap-4">
-          <TextField label={t("assignments.titleField")} value={title} maxLength={80} placeholder={t("assignments.titlePlaceholder")} onChange={(event) => setTitle(event.target.value)} autoFocus />
+          <TextField
+            label={t("assignments.titleField")}
+            value={title}
+            maxLength={80}
+            placeholder={t("assignments.titlePlaceholder")}
+            onChange={(event) => setTitle(event.target.value)}
+            autoFocus
+          />
           <SubjectSelect value={subjectId} onChange={setSubjectId} />
-          <TextField label={t("assignments.due")} type="datetime-local" value={due} onChange={(event) => setDue(event.target.value)} />
-          <TextArea label={t("assignments.memo")} value={memo} maxLength={500} onChange={(event) => setMemo(event.target.value)} />
+          <TextField
+            label={t("assignments.due")}
+            type="datetime-local"
+            value={due}
+            onChange={(event) => setDue(event.target.value)}
+          />
+          <TextArea
+            label={t("assignments.memo")}
+            value={memo}
+            maxLength={500}
+            onChange={(event) => setMemo(event.target.value)}
+          />
           <div className="-mx-3">
-            <SwitchRow label={t("assignments.remind")} hint={t("assignments.remindHint")} checked={remind} onChange={setRemind} />
+            <SwitchRow
+              label={t("assignments.remind")}
+              hint={t("assignments.remindHint")}
+              checked={remind}
+              onChange={setRemind}
+            />
           </div>
         </div>
       </Dialog>
@@ -224,5 +341,12 @@ export function AssignmentDialog({ assignment, onClose }: { /** The assignment t
 
 export function AssignmentsEmpty({ action }: { action?: React.ReactNode }) {
   const { t } = useTranslation("school");
-  return <EmptyState emoji="🎒" title={t("assignments.empty")} body={t("assignments.emptyBody")} action={action} />;
+  return (
+    <EmptyState
+      emoji="🎒"
+      title={t("assignments.empty")}
+      body={t("assignments.emptyBody")}
+      action={action}
+    />
+  );
 }

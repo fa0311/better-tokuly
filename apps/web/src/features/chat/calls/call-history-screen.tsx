@@ -24,7 +24,10 @@ type Filter = "all" | "missed";
 function missedBy(call: chat.Call, myId: string): boolean {
   if (call.startedBy?.id === myId) return false;
   const state = participantState(call, myId);
-  return state === chat.CallParticipantState.MISSED || (call.state === chat.CallState.ENDED && state === chat.CallParticipantState.RINGING);
+  return (
+    state === chat.CallParticipantState.MISSED ||
+    (call.state === chat.CallState.ENDED && state === chat.CallParticipantState.RINGING)
+  );
 }
 
 /** The viewer's calls across all conversations, newest first; "missed" narrows it to the ones they did not answer. */
@@ -35,7 +38,8 @@ export function CallHistoryScreen() {
   const missedOnly = filter === "missed";
   const calls = useInfiniteQuery({
     queryKey: chatKeys.calls(missedOnly),
-    queryFn: ({ pageParam }) => callClient().listCalls({ missedOnly, page: { cursor: pageParam, limit: 30 } }),
+    queryFn: ({ pageParam }) =>
+      callClient().listCalls({ missedOnly, page: { cursor: pageParam, limit: 30 } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
@@ -44,7 +48,11 @@ export function CallHistoryScreen() {
   return (
     <div className="fixed inset-0 z-40 flex flex-col bg-bg md:static md:z-auto md:h-full">
       <header className="glass flex h-16 shrink-0 items-center gap-2 border-b-2 border-line px-3">
-        <Link to="/chat" aria-label={t("actions.back")} className="grid size-9 place-items-center rounded-full hover:bg-surface-2 md:hidden">
+        <Link
+          to="/chat"
+          aria-label={t("actions.back")}
+          className="grid size-9 place-items-center rounded-full hover:bg-surface-2 md:hidden"
+        >
           <ChevronLeft className="size-6" />
         </Link>
         <h1 className="min-w-0 flex-1 truncate px-1 text-xl font-black">{t("calls.history")}</h1>
@@ -67,7 +75,11 @@ export function CallHistoryScreen() {
               ))}
             </div>
           ) : rows.length === 0 ? (
-            <EmptyState emoji={missedOnly ? "🙌" : "📞"} title={missedOnly ? t("calls.emptyMissed") : t("calls.empty")} body={missedOnly ? undefined : t("calls.emptyBody")} />
+            <EmptyState
+              emoji={missedOnly ? "🙌" : "📞"}
+              title={missedOnly ? t("calls.emptyMissed") : t("calls.empty")}
+              body={missedOnly ? undefined : t("calls.emptyBody")}
+            />
           ) : (
             <ul className="flex flex-col">
               {rows.map((call) => (
@@ -93,9 +105,15 @@ function CallRow({ call, myId }: { call: chat.Call; myId: string }) {
   const live = call.state !== chat.CallState.ENDED;
   const conversation = readConversation(queryClient, call.conversationId);
   // A group call is known by its group; a direct one by the other person.
-  const others = call.participants.flatMap((participant) => (participant.user && participant.user.id !== myId ? [participant.user] : []));
+  const others = call.participants.flatMap((participant) =>
+    participant.user && participant.user.id !== myId ? [participant.user] : [],
+  );
   const face = outgoing ? others[0] : call.startedBy;
-  const name = conversation ? titleOf(conversation, myId) : others.length > 1 ? others.map(displayName).join(t("people.separator")) : displayName(face);
+  const name = conversation
+    ? titleOf(conversation, myId)
+    : others.length > 1
+      ? others.map(displayName).join(t("people.separator"))
+      : displayName(face);
   const Icon = missed ? PhoneMissed : outgoing ? PhoneOutgoing : PhoneIncoming;
   const outcome = live
     ? t("calls.live")
@@ -104,12 +122,25 @@ function CallRow({ call, myId }: { call: chat.Call; myId: string }) {
       : call.durationSeconds > 0
         ? playTime(call.durationSeconds)
         : outgoing
-          ? t(call.endReason === chat.CallEndReason.DECLINED ? "call.summary.declinedByThem" : call.endReason === chat.CallEndReason.CANCELLED ? "call.summary.cancelled" : "call.summary.noAnswer")
+          ? t(
+              call.endReason === chat.CallEndReason.DECLINED
+                ? "call.summary.declinedByThem"
+                : call.endReason === chat.CallEndReason.CANCELLED
+                  ? "call.summary.cancelled"
+                  : "call.summary.noAnswer",
+            )
           : t("call.summary.declined");
 
   return (
-    <div className="flex items-center gap-3 rounded-2xl px-3 py-2.5 hover:bg-surface-2" data-testid="call-row">
-      <Link to="/chat/$conversationId" params={{ conversationId: call.conversationId }} className="flex min-w-0 flex-1 items-center gap-3">
+    <div
+      className="flex items-center gap-3 rounded-2xl px-3 py-2.5 hover:bg-surface-2"
+      data-testid="call-row"
+    >
+      <Link
+        to="/chat/$conversationId"
+        params={{ conversationId: call.conversationId }}
+        className="flex min-w-0 flex-1 items-center gap-3"
+      >
         <Avatar user={face} outlined />
         <span className="min-w-0 flex-1">
           <span className={cn("block truncate font-black", missed && "text-danger")}>{name}</span>
@@ -128,7 +159,12 @@ function CallRow({ call, myId }: { call: chat.Call; myId: string }) {
             {t("call.join")}
           </Button>
         ) : (
-          <Button size="icon-sm" variant="ghost" aria-label={t("call.callBack", { name })} onClick={() => void startCall(queryClient, call.conversationId, call.video)}>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label={t("call.callBack", { name })}
+            onClick={() => void startCall(queryClient, call.conversationId, call.video)}
+          >
             {call.video ? <Video className="size-5" /> : <Phone className="size-5" />}
           </Button>
         ))}

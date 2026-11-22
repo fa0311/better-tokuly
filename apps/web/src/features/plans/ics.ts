@@ -17,7 +17,11 @@ export interface IcsEvent {
 }
 
 function escapeText(text: string): string {
-  return text.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+  return text
+    .replace(/\\/g, "\\\\")
+    .replace(/;/g, "\\;")
+    .replace(/,/g, "\\,")
+    .replace(/\r?\n/g, "\\n");
 }
 
 /** Lines longer than 75 bytes continue on the next line after a space (RFC 5545). */
@@ -50,15 +54,27 @@ const compactDay = (day: string) => day.replace(/-/g, "");
 
 /** The text of an `.ics` calendar holding `events`. */
 export function buildIcs(events: IcsEvent[], now: Date = new Date()): string {
-  const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Tokuly//Plans//JA", "CALSCALE:GREGORIAN", "METHOD:PUBLISH"];
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Tokuly//Plans//JA",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+  ];
   for (const event of events) {
     if (!event.date && !event.start) continue;
     lines.push("BEGIN:VEVENT", `UID:${event.uid}@tokuly`, `DTSTAMP:${utcStamp(now)}`);
     if (event.start) {
-      lines.push(`DTSTART:${utcStamp(event.start)}`, `DTEND:${utcStamp(event.end ?? new Date(event.start.getTime() + 3_600_000))}`);
+      lines.push(
+        `DTSTART:${utcStamp(event.start)}`,
+        `DTEND:${utcStamp(event.end ?? new Date(event.start.getTime() + 3_600_000))}`,
+      );
     } else if (event.date) {
       // An all-day event ends on the day after its last day.
-      lines.push(`DTSTART;VALUE=DATE:${compactDay(event.date)}`, `DTEND;VALUE=DATE:${compactDay(addDays(event.endDate ?? event.date, 1))}`);
+      lines.push(
+        `DTSTART;VALUE=DATE:${compactDay(event.date)}`,
+        `DTEND;VALUE=DATE:${compactDay(addDays(event.endDate ?? event.date, 1))}`,
+      );
     }
     lines.push(`SUMMARY:${escapeText(event.title)}`);
     if (event.description) lines.push(`DESCRIPTION:${escapeText(event.description)}`);

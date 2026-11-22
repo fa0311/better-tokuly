@@ -42,26 +42,51 @@ export function StoryArchiveScreen() {
     setDate("");
   };
   // Weekday names starting on Sunday, in the viewer's language.
-  const weekdays = Array.from({ length: 7 }, (_, index) => new Date(2023, 0, 1 + index).toLocaleDateString(i18n.language, { weekday: "narrow" }));
-  const play = (story: notes.Story) => me?.user && openStoryViewer([{ user: me.user, stories }], { storyId: story.id });
+  const weekdays = Array.from({ length: 7 }, (_, index) =>
+    new Date(2023, 0, 1 + index).toLocaleDateString(i18n.language, { weekday: "narrow" }),
+  );
+  const play = (story: notes.Story) =>
+    me?.user && openStoryViewer([{ user: me.user, stories }], { storyId: story.id });
 
   return (
     <Page
       title={t("archive.title")}
       back="/me"
       actions={
-        <Button size="sm" variant="lime" icon={<Plus className="size-4" strokeWidth={3} />} onClick={() => setCreating(true)}>
+        <Button
+          size="sm"
+          variant="lime"
+          icon={<Plus className="size-4" strokeWidth={3} />}
+          onClick={() => setCreating(true)}
+        >
           {t("archive.add")}
         </Button>
       }
     >
-      <section className="sticker rounded-card bg-surface p-4" aria-label={t("archive.calendar")} data-testid="story-calendar">
+      <section
+        className="sticker rounded-card bg-surface p-4"
+        aria-label={t("archive.calendar")}
+        data-testid="story-calendar"
+      >
         <div className="flex items-center gap-2">
-          <h2 className="flex-1 text-lg font-black">{first.toLocaleDateString(i18n.language, { year: "numeric", month: "long" })}</h2>
-          <Button variant="ghost" size="icon-sm" aria-label={t("archive.previousMonth")} onClick={() => move(-1)}>
+          <h2 className="flex-1 text-lg font-black">
+            {first.toLocaleDateString(i18n.language, { year: "numeric", month: "long" })}
+          </h2>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={t("archive.previousMonth")}
+            onClick={() => move(-1)}
+          >
             <ChevronLeft className="size-5" />
           </Button>
-          <Button variant="ghost" size="icon-sm" aria-label={t("archive.nextMonth")} disabled={isCurrentMonth} onClick={() => move(1)}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={t("archive.nextMonth")}
+            disabled={isCurrentMonth}
+            onClick={() => move(1)}
+          >
             <ChevronRight className="size-5" />
           </Button>
         </div>
@@ -80,7 +105,10 @@ export function StoryArchiveScreen() {
             const selected = date === key;
             if (!day) {
               return (
-                <span key={key} className="grid aspect-square place-items-center rounded-xl text-sm font-bold text-ink-faint">
+                <span
+                  key={key}
+                  className="grid aspect-square place-items-center rounded-xl text-sm font-bold text-ink-faint"
+                >
                   {index + 1}
                 </span>
               );
@@ -90,14 +118,36 @@ export function StoryArchiveScreen() {
                 key={key}
                 type="button"
                 aria-pressed={selected}
-                aria-label={t("archive.day", { date: new Date(month.year, month.month - 1, index + 1).toLocaleDateString(i18n.language, { month: "long", day: "numeric" }), count: day.storyCount })}
+                aria-label={t("archive.day", {
+                  date: new Date(month.year, month.month - 1, index + 1).toLocaleDateString(
+                    i18n.language,
+                    { month: "long", day: "numeric" },
+                  ),
+                  count: day.storyCount,
+                })}
                 onClick={() => setDate(selected ? "" : key)}
-                className={cn("relative aspect-square overflow-hidden rounded-xl border-2 bg-surface-3 text-sm font-black text-white", selected ? "border-ink shadow-pop-sm" : "border-transparent")}
+                className={cn(
+                  "relative aspect-square overflow-hidden rounded-xl border-2 bg-surface-3 text-sm font-black text-white",
+                  selected ? "border-ink shadow-pop-sm" : "border-transparent",
+                )}
                 data-testid="story-day"
               >
-                {day.cover?.url && <img src={imageUrl(day.cover, 56)} alt="" loading="lazy" className="absolute inset-0 size-full object-cover" />}
-                <span className="absolute inset-0 grid place-items-center bg-black/30">{index + 1}</span>
-                {day.storyCount > 1 && <span className="absolute top-0.5 right-0.5 rounded-full bg-pink px-1 text-[10px] leading-4">{day.storyCount}</span>}
+                {day.cover?.url && (
+                  <img
+                    src={imageUrl(day.cover, 56)}
+                    alt=""
+                    loading="lazy"
+                    className="absolute inset-0 size-full object-cover"
+                  />
+                )}
+                <span className="absolute inset-0 grid place-items-center bg-black/30">
+                  {index + 1}
+                </span>
+                {day.storyCount > 1 && (
+                  <span className="absolute top-0.5 right-0.5 rounded-full bg-pink px-1 text-[10px] leading-4">
+                    {day.storyCount}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -107,10 +157,21 @@ export function StoryArchiveScreen() {
 
       <div className="mt-5 mb-2.5 flex items-center gap-2">
         <h2 className="flex-1 text-lg font-black">
-          {date ? new Date(`${date}T00:00:00`).toLocaleDateString(i18n.language, { month: "long", day: "numeric", weekday: "short" }) : t("archive.all")}
+          {date
+            ? new Date(`${date}T00:00:00`).toLocaleDateString(i18n.language, {
+                month: "long",
+                day: "numeric",
+                weekday: "short",
+              })
+            : t("archive.all")}
         </h2>
         {date && (
-          <Button variant="ghost" size="sm" icon={<X className="size-4" />} onClick={() => setDate("")}>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<X className="size-4" />}
+            onClick={() => setDate("")}
+          >
             {t("archive.showAll")}
           </Button>
         )}
@@ -138,10 +199,24 @@ export function StoryArchiveScreen() {
           <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3" data-testid="archived-stories">
             {stories.map((story) => (
               <li key={story.id}>
-                <button type="button" onClick={() => play(story)} className="pressable sticker relative block aspect-[3/4] w-full overflow-hidden rounded-card bg-surface-3 text-left text-white" data-testid="archived-story">
-                  <img src={imageUrl(storyCover(story), 240)} alt="" loading="lazy" className="absolute inset-0 size-full object-cover" />
+                <button
+                  type="button"
+                  onClick={() => play(story)}
+                  className="pressable sticker relative block aspect-[3/4] w-full overflow-hidden rounded-card bg-surface-3 text-left text-white"
+                  data-testid="archived-story"
+                >
+                  <img
+                    src={imageUrl(storyCover(story), 240)}
+                    alt=""
+                    loading="lazy"
+                    className="absolute inset-0 size-full object-cover"
+                  />
                   <span className="absolute inset-x-0 top-0 flex flex-wrap gap-1 p-2">
-                    {!story.expired && <Chip className="border-2 border-ink bg-lime text-[11px] font-black text-[#17122b]">{t("archive.live")}</Chip>}
+                    {!story.expired && (
+                      <Chip className="border-2 border-ink bg-lime text-[11px] font-black text-[#17122b]">
+                        {t("archive.live")}
+                      </Chip>
+                    )}
                     {story.highlighted && (
                       <Chip className="border-2 border-ink bg-sun text-[11px] font-black text-[#17122b]">
                         <Sparkles className="size-3" />
@@ -150,9 +225,18 @@ export function StoryArchiveScreen() {
                     )}
                   </span>
                   <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-2.5 pt-8 pb-2">
-                    {story.title && <span className="line-clamp-2 text-sm font-black leading-snug">{story.title}</span>}
+                    {story.title && (
+                      <span className="line-clamp-2 text-sm font-black leading-snug">
+                        {story.title}
+                      </span>
+                    )}
                     <span className="mt-0.5 flex items-center gap-2 text-xs font-bold text-white/85">
-                      <span>{new Date(toMillis(story.createdAt)).toLocaleDateString(i18n.language, { month: "short", day: "numeric" })}</span>
+                      <span>
+                        {new Date(toMillis(story.createdAt)).toLocaleDateString(i18n.language, {
+                          month: "short",
+                          day: "numeric",
+                        })}
+                      </span>
                       <span className="inline-flex items-center gap-0.5">
                         <Eye className="size-3.5" />
                         {story.viewCount}

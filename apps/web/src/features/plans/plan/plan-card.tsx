@@ -16,7 +16,9 @@ const RSVP_TONE: Record<number, string> = {
 };
 
 /** The key of the short label for an answer ("行く", "たぶん", ...). */
-export function rsvpKey(rsvp: plans.Rsvp): "going" | "maybe" | "declined" | "invited" | "waitlisted" {
+export function rsvpKey(
+  rsvp: plans.Rsvp,
+): "going" | "maybe" | "declined" | "invited" | "waitlisted" {
   switch (rsvp) {
     case plans.Rsvp.GOING:
       return "going";
@@ -41,20 +43,47 @@ export function PlanCard({ plan }: { plan: plans.Plan }) {
   const { t, i18n } = useTranslation("plans");
   const cancelled = plan.status === plans.PlanStatus.CANCELLED;
   const until = !cancelled && !plan.over ? untilText(plan.time, t) : undefined;
-  const people = plan.participants.flatMap((participant) => (participant.user ? [participant.user] : []));
+  const people = plan.participants.flatMap((participant) =>
+    participant.user ? [participant.user] : [],
+  );
   return (
-    <Link to="/plans/$planId" params={{ planId: plan.id }} className={cn("pressable sticker flex gap-3 rounded-card bg-surface p-4", (cancelled || plan.over) && "opacity-75")}>
-      <span className="grid size-14 shrink-0 place-items-center rounded-2xl border-2 border-ink bg-brand-soft text-3xl" aria-hidden>
+    <Link
+      to="/plans/$planId"
+      params={{ planId: plan.id }}
+      className={cn(
+        "pressable sticker flex gap-3 rounded-card bg-surface p-4",
+        (cancelled || plan.over) && "opacity-75",
+      )}
+    >
+      <span
+        className="grid size-14 shrink-0 place-items-center rounded-2xl border-2 border-ink bg-brand-soft text-3xl"
+        aria-hidden
+      >
         {plan.emoji || "📅"}
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-2">
-          <span className={cn("min-w-0 flex-1 truncate text-lg font-black", cancelled && "line-through")}>{plan.title}</span>
-          {cancelled ? <Chip className="bg-danger text-white">{t("plan.cancelled")}</Chip> : <RsvpChip rsvp={plan.myRsvp} />}
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate text-lg font-black",
+              cancelled && "line-through",
+            )}
+          >
+            {plan.title}
+          </span>
+          {cancelled ? (
+            <Chip className="bg-danger text-white">{t("plan.cancelled")}</Chip>
+          ) : (
+            <RsvpChip rsvp={plan.myRsvp} />
+          )}
         </span>
         <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-sm font-bold text-ink-soft">
           <span>{planTimeText(plan.time, i18n.language, t)}</span>
-          {until && <span className="rounded-full bg-brand-soft px-2 text-xs font-black text-brand-strong">{until}</span>}
+          {until && (
+            <span className="rounded-full bg-brand-soft px-2 text-xs font-black text-brand-strong">
+              {until}
+            </span>
+          )}
         </span>
         {plan.place?.name && (
           <span className="mt-0.5 flex items-center gap-1 truncate text-sm text-ink-soft">

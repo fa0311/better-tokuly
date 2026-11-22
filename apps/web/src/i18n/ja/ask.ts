@@ -56,7 +56,8 @@ export default {
     inPolls: "ともだちの投票に出る",
     inPollsHint: "オフにすると、ともだちの選択肢に出なくなるよ",
     allowHints: "ヒントを買えるようにする",
-    allowHintsHint: "あなたが送った🔥のヒント（名前の頭文字など）をコインで買えるよ。これから送る分に反映されるよ",
+    allowHintsHint:
+      "あなたが送った🔥のヒント（名前の頭文字など）をコインで買えるよ。これから送る分に反映されるよ",
     blocks: "ブロックした送り主",
     blocksLead: "だれなのかは、あなたにも表示されないよ。ブロックしても相手には伝わらないよ",
     blocksEmpty: "ブロックした送り主はいないよ",
@@ -112,7 +113,8 @@ export default {
     anonymousNote: "🙈 だれが送ったかは相手に見えないよ。見えるのは書いた内容と送った時間だけ。",
     anonymousNote2: "通報されたときだけ、運営が送り主を確認することがあるよ。",
     signedNote: "🙋 {{name}}さんと、回答を読む人にあなたの名前が見えるよ。",
-    signedOnly: "{{name}}さんのともだちが3人より少ないあいだは、匿名だとバレちゃうかもしれないから、名前つきでだけ送れるよ。",
+    signedOnly:
+      "{{name}}さんのともだちが3人より少ないあいだは、匿名だとバレちゃうかもしれないから、名前つきでだけ送れるよ。",
     unavailable: "{{name}}さんのともだちが3人以上になると、匿名で送れるようになるよ。",
     addImage: "画像をつける",
     removeImage: "画像をはずす",
@@ -168,8 +170,16 @@ export default {
       blocked: "この送り主をブロックしたよ",
       answerDeleted: "回答を取り消したよ",
     },
-    confirmDelete: { title: "この質問を削除する?", body: "回答もいっしょに消えるよ。もとにはもどせないよ。", confirm: "削除する" },
-    confirmDeleteAnswer: { title: "回答を取り消す?", body: "質問は受信箱にもどるよ。", confirm: "取り消す" },
+    confirmDelete: {
+      title: "この質問を削除する?",
+      body: "回答もいっしょに消えるよ。もとにはもどせないよ。",
+      confirm: "削除する",
+    },
+    confirmDeleteAnswer: {
+      title: "回答を取り消す?",
+      body: "質問は受信箱にもどるよ。",
+      confirm: "取り消す",
+    },
     confirmBlock: {
       title: "この送り主をブロックする?",
       body: "これからこの人が送る質問・お題の回答・🔥は届かなくなるよ。だれなのかは表示されないし、相手にも伝わらないよ。",
@@ -220,7 +230,11 @@ export default {
     answered: "回答きたよ!",
     signed: "名前つき",
     withdraw: "取り消す",
-    confirmWithdraw: { title: "この質問を取り消す?", body: "相手の質問箱から消えるよ。", confirm: "取り消す" },
+    confirmWithdraw: {
+      title: "この質問を取り消す?",
+      body: "相手の質問箱から消えるよ。",
+      confirm: "取り消す",
+    },
     withdrawn: "質問を取り消したよ",
   },
   prompts: {
@@ -249,7 +263,13 @@ export default {
       durations: { h1: "1時間", h6: "6時間", h24: "24時間", d3: "3日間", d7: "7日間" },
       submit: "ともだちに出す",
       created: "お題を出したよ!",
-      ideas: ["私の第一印象は?", "私を動物にたとえると?", "私に似合いそうな髪型は?", "私にやってほしいことは?", "私の好きなところは?"],
+      ideas: [
+        "私の第一印象は?",
+        "私を動物にたとえると?",
+        "私に似合いそうな髪型は?",
+        "私にやってほしいことは?",
+        "私の好きなところは?",
+      ],
     },
     page: {
       notFound: "お題が見つかりません",
@@ -269,9 +289,21 @@ export default {
       delete: "お題を削除",
       closedToast: "お題をしめきったよ",
       deletedToast: "お題を削除したよ",
-      confirmClose: { title: "お題をしめきる?", body: "これ以上回答は届かなくなるよ。届いた回答は残るよ。", confirm: "しめきる" },
-      confirmDelete: { title: "お題を削除する?", body: "届いた回答もぜんぶ消えるよ。もとにはもどせないよ。", confirm: "削除する" },
-      confirmDeleteResponse: { title: "この回答を削除する?", body: "もとにはもどせないよ。", confirm: "削除する" },
+      confirmClose: {
+        title: "お題をしめきる?",
+        body: "これ以上回答は届かなくなるよ。届いた回答は残るよ。",
+        confirm: "しめきる",
+      },
+      confirmDelete: {
+        title: "お題を削除する?",
+        body: "届いた回答もぜんぶ消えるよ。もとにはもどせないよ。",
+        confirm: "削除する",
+      },
+      confirmDeleteResponse: {
+        title: "この回答を削除する?",
+        body: "もとにはもどせないよ。",
+        confirm: "削除する",
+      },
       responseDeleted: "回答を削除したよ",
       yourResponse: "あなたの回答",
       yourResponseNote: "公開されるかどうかは{{name}}さんしだい!",
@@ -302,7 +334,8 @@ export default {
     start: "はじめる",
     seeFlames: "もらった🔥を見る",
     notEnough: "ともだちがもうすこし必要みたい",
-    notEnoughBody: "投票には、ほめ投票に参加しているともだちが4人以上必要だよ（それぞれにともだちが3人以上いること）",
+    notEnoughBody:
+      "投票には、ほめ投票に参加しているともだちが4人以上必要だよ（それぞれにともだちが3人以上いること）",
     findFriends: "ともだちをさがす",
     unavailable: "いまは投票をお休み中だよ",
     unavailableBody: "すこし時間をおいて、またきてね",

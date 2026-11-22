@@ -13,7 +13,8 @@ export function useThemeColor(): void {
       const background = getComputedStyle(root).getPropertyValue("--bg").trim();
       if (!background) return;
       // Whichever of the tags the browser picked, it now says the same.
-      for (const meta of document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color" i]')) meta.content = background;
+      for (const meta of document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color" i]'))
+        meta.content = background;
     };
     apply();
     const observer = new MutationObserver(apply);

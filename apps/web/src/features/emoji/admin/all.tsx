@@ -21,7 +21,7 @@ import { LICENSE_MAX } from "../emoji-form";
 import { SearchBox, StateChip, useDebounced } from "../parts";
 import { EmojiEditDialog, ReasonDialog } from "./dialogs";
 import { History } from "./queue";
-import { emojiAdminClient, useAdminRefresh, useCategories, UserLine } from "./shared";
+import { emojiAdminClient, UserLine, useAdminRefresh, useCategories } from "./shared";
 
 const STATES = ["any", "approved", "pending", "rejected", "disabled"] as const;
 type StateFilter = (typeof STATES)[number];
@@ -53,20 +53,33 @@ export function AllEmoji({ initialQuery }: { initialQuery: string }) {
   const [bulk, setBulk] = useState<BulkChange | null>(null);
   const [deleting, setDeleting] = useState(false);
   const query = useDebounced(text.trim(), 250);
-  const filters = { state: STATE_VALUES[state], query, category: category === ANY ? undefined : category === NONE ? "" : category };
+  const filters = {
+    state: STATE_VALUES[state],
+    query,
+    category: category === ANY ? undefined : category === NONE ? "" : category,
+  };
   const list = useInfiniteQuery({
     queryKey: emojiKeys.adminList(filters),
-    queryFn: ({ pageParam }) => emojiAdminClient().listEmoji({ ...filters, page: { limit: 40, cursor: pageParam } }),
+    queryFn: ({ pageParam }) =>
+      emojiAdminClient().listEmoji({ ...filters, page: { limit: 40, cursor: pageParam } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
   const items = list.data?.pages.flatMap((page) => page.emojis) ?? [];
   const names = categories.data?.categories.map((entry) => entry.name) ?? [];
 
-  const toggle = (id: string) => setSelected((current) => (current.includes(id) ? current.filter((item) => item !== id) : current.length < BULK_MAX ? [...current, id] : current));
+  const toggle = (id: string) =>
+    setSelected((current) =>
+      current.includes(id)
+        ? current.filter((item) => item !== id)
+        : current.length < BULK_MAX
+          ? [...current, id]
+          : current,
+    );
   const onError = (error: unknown) => toast.error(errorMessage(error, { namespace: "emoji" }));
   const bulkUpdate = useMutation({
-    mutationFn: (change: emojiApi.BulkUpdateEmojiRequest["change"]) => emojiAdminClient().bulkUpdateEmoji({ emojiIds: selected, change }),
+    mutationFn: (change: emojiApi.BulkUpdateEmojiRequest["change"]) =>
+      emojiAdminClient().bulkUpdateEmoji({ emojiIds: selected, change }),
     onSuccess: async ({ updatedCount }) => {
       toast.success(t("admin.bulkDone", { count: updatedCount }));
       setBulk(null);
@@ -89,13 +102,30 @@ export function AllEmoji({ initialQuery }: { initialQuery: string }) {
   return (
     <>
       <div className="flex flex-wrap items-end gap-2">
-        <SearchBox value={text} onChange={setText} placeholder={t("admin.search")} className="h-12 min-w-56 flex-1" />
-        <SelectField<StateFilter> className="w-40" value={state} onChange={setState} options={STATES.map((value) => ({ value, label: t(value === "any" ? "admin.anyState" : `state.${value}`) }))} />
+        <SearchBox
+          value={text}
+          onChange={setText}
+          placeholder={t("admin.search")}
+          className="h-12 min-w-56 flex-1"
+        />
+        <SelectField<StateFilter>
+          className="w-40"
+          value={state}
+          onChange={setState}
+          options={STATES.map((value) => ({
+            value,
+            label: t(value === "any" ? "admin.anyState" : `state.${value}`),
+          }))}
+        />
         <SelectField
           className="w-44"
           value={category}
           onChange={setCategory}
-          options={[{ value: ANY, label: t("browse.allCategories") }, ...names.map((name) => ({ value: name, label: name })), { value: NONE, label: t("browse.uncategorized") }]}
+          options={[
+            { value: ANY, label: t("browse.allCategories") },
+            ...names.map((name) => ({ value: name, label: name })),
+            { value: NONE, label: t("browse.uncategorized") },
+          ]}
         />
         <Button icon={<Plus className="size-4" />} onClick={() => setAdding(true)}>
           {t("admin.add")}
@@ -103,8 +133,14 @@ export function AllEmoji({ initialQuery }: { initialQuery: string }) {
       </div>
 
       {selected.length > 0 && (
-        <div className="sticker sticky top-16 z-10 mt-3 flex flex-wrap items-center gap-2 rounded-2xl bg-brand-soft px-3 py-2" role="toolbar" aria-label={t("admin.bulk")}>
-          <p className="mr-auto text-sm font-black">{t("admin.selected", { count: selected.length })}</p>
+        <div
+          className="sticker sticky top-16 z-10 mt-3 flex flex-wrap items-center gap-2 rounded-2xl bg-brand-soft px-3 py-2"
+          role="toolbar"
+          aria-label={t("admin.bulk")}
+        >
+          <p className="mr-auto text-sm font-black">
+            {t("admin.selected", { count: selected.length })}
+          </p>
           <Menu
             trigger={
               <Button size="sm" variant="secondary">
@@ -115,10 +151,22 @@ export function AllEmoji({ initialQuery }: { initialQuery: string }) {
               { label: t("admin.bulkCategory"), onSelect: () => setBulk("category") },
               { label: t("admin.bulkAliases"), onSelect: () => setBulk("aliases") },
               { label: t("admin.bulkLicense"), onSelect: () => setBulk("license") },
-              { label: t("admin.bulkSensitiveOn"), onSelect: () => bulkUpdate.mutate({ case: "setSensitive", value: true }) },
-              { label: t("admin.bulkSensitiveOff"), onSelect: () => bulkUpdate.mutate({ case: "setSensitive", value: false }) },
-              { label: t("admin.bulkLocalOn"), onSelect: () => bulkUpdate.mutate({ case: "setLocalOnly", value: true }) },
-              { label: t("admin.bulkLocalOff"), onSelect: () => bulkUpdate.mutate({ case: "setLocalOnly", value: false }) },
+              {
+                label: t("admin.bulkSensitiveOn"),
+                onSelect: () => bulkUpdate.mutate({ case: "setSensitive", value: true }),
+              },
+              {
+                label: t("admin.bulkSensitiveOff"),
+                onSelect: () => bulkUpdate.mutate({ case: "setSensitive", value: false }),
+              },
+              {
+                label: t("admin.bulkLocalOn"),
+                onSelect: () => bulkUpdate.mutate({ case: "setLocalOnly", value: true }),
+              },
+              {
+                label: t("admin.bulkLocalOff"),
+                onSelect: () => bulkUpdate.mutate({ case: "setLocalOnly", value: false }),
+              },
               { label: t("admin.bulkDelete"), danger: true, onSelect: () => setDeleting(true) },
             ]}
           />
@@ -140,13 +188,34 @@ export function AllEmoji({ initialQuery }: { initialQuery: string }) {
         ) : items.length === 0 ? (
           <EmptyState emoji="🫥" title={t("admin.listEmpty")} />
         ) : (
-          <ul className="divide-y-2 divide-line">{items.map((item) => item.emoji && <Row key={item.emoji.id} detail={item} selected={selected.includes(item.emoji.id)} onToggle={toggle} />)}</ul>
+          <ul className="divide-y-2 divide-line">
+            {items.map(
+              (item) =>
+                item.emoji && (
+                  <Row
+                    key={item.emoji.id}
+                    detail={item}
+                    selected={selected.includes(item.emoji.id)}
+                    onToggle={toggle}
+                  />
+                ),
+            )}
+          </ul>
         )}
       </div>
       <LoadMore query={list} />
 
       {adding && <EmojiEditDialog open onOpenChange={setAdding} />}
-      {bulk && <BulkDialog change={bulk} count={selected.length} categories={names} loading={bulkUpdate.isPending} onClose={() => setBulk(null)} onApply={(change) => bulkUpdate.mutate(change)} />}
+      {bulk && (
+        <BulkDialog
+          change={bulk}
+          count={selected.length}
+          categories={names}
+          loading={bulkUpdate.isPending}
+          onClose={() => setBulk(null)}
+          onApply={(change) => bulkUpdate.mutate(change)}
+        />
+      )}
       <ConfirmDialog
         open={deleting}
         onOpenChange={setDeleting}
@@ -161,7 +230,15 @@ export function AllEmoji({ initialQuery }: { initialQuery: string }) {
   );
 }
 
-function Row({ detail, selected, onToggle }: { detail: emojiApi.EmojiDetail; selected: boolean; onToggle(id: string): void }) {
+function Row({
+  detail,
+  selected,
+  onToggle,
+}: {
+  detail: emojiApi.EmojiDetail;
+  selected: boolean;
+  onToggle(id: string): void;
+}) {
   const { t } = useTranslation("emoji");
   const refresh = useAdminRefresh();
   const entry = toCatalogEmoji(detail.emoji as emojiApi.CustomEmoji);
@@ -176,21 +253,51 @@ function Row({ detail, selected, onToggle }: { detail: emojiApi.EmojiDetail; sel
     await refresh();
   };
   const onError = (error: unknown) => toast.error(errorMessage(error, { namespace: "emoji" }));
-  const disable = useMutation({ mutationFn: (reason: string) => emojiAdminClient().disableEmoji({ emojiId: entry.id, reason }), onSuccess: done("admin.disabled"), onError });
-  const enable = useMutation({ mutationFn: () => emojiAdminClient().enableEmoji({ emojiId: entry.id }), onSuccess: done("admin.enabled"), onError });
-  const approve = useMutation({ mutationFn: () => emojiAdminClient().approveEmoji({ emojiId: entry.id }), onSuccess: done("admin.approved"), onError });
-  const remove = useMutation({ mutationFn: () => emojiAdminClient().deleteEmoji({ emojiId: entry.id }), onSuccess: done("admin.deleted"), onError });
+  const disable = useMutation({
+    mutationFn: (reason: string) => emojiAdminClient().disableEmoji({ emojiId: entry.id, reason }),
+    onSuccess: done("admin.disabled"),
+    onError,
+  });
+  const enable = useMutation({
+    mutationFn: () => emojiAdminClient().enableEmoji({ emojiId: entry.id }),
+    onSuccess: done("admin.enabled"),
+    onError,
+  });
+  const approve = useMutation({
+    mutationFn: () => emojiAdminClient().approveEmoji({ emojiId: entry.id }),
+    onSuccess: done("admin.approved"),
+    onError,
+  });
+  const remove = useMutation({
+    mutationFn: () => emojiAdminClient().deleteEmoji({ emojiId: entry.id }),
+    onSuccess: done("admin.deleted"),
+    onError,
+  });
 
   return (
-    <li data-testid="admin-emoji" data-name={entry.name} className="flex items-center gap-3 px-3 py-2.5">
-      <input type="checkbox" checked={selected} onChange={() => onToggle(entry.id)} aria-label={t("admin.select", { code })} className="size-5 shrink-0 accent-[var(--brand)]" />
+    <li
+      data-testid="admin-emoji"
+      data-name={entry.name}
+      className="flex items-center gap-3 px-3 py-2.5"
+    >
+      <input
+        type="checkbox"
+        checked={selected}
+        onChange={() => onToggle(entry.id)}
+        aria-label={t("admin.select", { code })}
+        className="size-5 shrink-0 accent-[var(--brand)]"
+      />
       <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-surface-2">
         <EmojiImage emoji={entry} size={32} reveal still className="size-8" />
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           {approved ? (
-            <Link to="/emoji/$name" params={{ name: emojiPageParam(entry.name) }} className="truncate font-mono font-bold hover:underline">
+            <Link
+              to="/emoji/$name"
+              params={{ name: emojiPageParam(entry.name) }}
+              className="truncate font-mono font-bold hover:underline"
+            >
               {code}
             </Link>
           ) : (
@@ -205,7 +312,9 @@ function Row({ detail, selected, onToggle }: { detail: emojiApi.EmojiDetail; sel
           {entry.sensitive && <span className="font-bold text-coral">{t("flags.sensitive")}</span>}
           {entry.localOnly && <span>{t("flags.localOnly")}</span>}
         </p>
-        {detail.reviewNote && !approved && <p className="mt-0.5 truncate text-xs text-ink-faint">{detail.reviewNote}</p>}
+        {detail.reviewNote && !approved && (
+          <p className="mt-0.5 truncate text-xs text-ink-faint">{detail.reviewNote}</p>
+        )}
       </div>
       <Menu
         trigger={
@@ -215,24 +324,70 @@ function Row({ detail, selected, onToggle }: { detail: emojiApi.EmojiDetail; sel
         }
         actions={[
           { label: t("admin.edit"), onSelect: () => setDialog("edit") },
-          ...(approved ? [{ label: t("admin.disable"), onSelect: () => setDialog("disable") }] : []),
+          ...(approved
+            ? [{ label: t("admin.disable"), onSelect: () => setDialog("disable") }]
+            : []),
           ...(disabled ? [{ label: t("admin.enable"), onSelect: () => enable.mutate() }] : []),
-          ...(detail.state === emojiApi.EmojiState.PENDING || detail.state === emojiApi.EmojiState.REJECTED ? [{ label: t("admin.approve"), onSelect: () => approve.mutate() }] : []),
+          ...(detail.state === emojiApi.EmojiState.PENDING ||
+          detail.state === emojiApi.EmojiState.REJECTED
+            ? [{ label: t("admin.approve"), onSelect: () => approve.mutate() }]
+            : []),
           { label: t("admin.historyTitle"), onSelect: () => setDialog("history") },
           { label: t("admin.delete"), danger: true, onSelect: () => setDialog("delete") },
         ]}
       />
-      {dialog === "edit" && <EmojiEditDialog detail={detail} open onOpenChange={() => setDialog(null)} />}
-      <ReasonDialog open={dialog === "disable"} onOpenChange={() => setDialog(null)} title={t("admin.disableTitle", { code })} confirmLabel={t("admin.disable")} loading={disable.isPending} onConfirm={(reason) => disable.mutate(reason)} />
-      <ConfirmDialog open={dialog === "delete"} onOpenChange={() => setDialog(null)} title={t("admin.deleteTitle", { code })} description={t("admin.deleteBody")} confirmLabel={t("admin.delete")} danger loading={remove.isPending} onConfirm={() => remove.mutate()} />
-      <Dialog open={dialog === "history"} onOpenChange={() => setDialog(null)} title={t("admin.historyTitle")} description={code}>
-        {detail.history.length > 0 ? <History records={detail.history} /> : <p className="text-sm text-ink-soft">{t("admin.historyEmpty")}</p>}
+      {dialog === "edit" && (
+        <EmojiEditDialog detail={detail} open onOpenChange={() => setDialog(null)} />
+      )}
+      <ReasonDialog
+        open={dialog === "disable"}
+        onOpenChange={() => setDialog(null)}
+        title={t("admin.disableTitle", { code })}
+        confirmLabel={t("admin.disable")}
+        loading={disable.isPending}
+        onConfirm={(reason) => disable.mutate(reason)}
+      />
+      <ConfirmDialog
+        open={dialog === "delete"}
+        onOpenChange={() => setDialog(null)}
+        title={t("admin.deleteTitle", { code })}
+        description={t("admin.deleteBody")}
+        confirmLabel={t("admin.delete")}
+        danger
+        loading={remove.isPending}
+        onConfirm={() => remove.mutate()}
+      />
+      <Dialog
+        open={dialog === "history"}
+        onOpenChange={() => setDialog(null)}
+        title={t("admin.historyTitle")}
+        description={code}
+      >
+        {detail.history.length > 0 ? (
+          <History records={detail.history} />
+        ) : (
+          <p className="text-sm text-ink-soft">{t("admin.historyEmpty")}</p>
+        )}
       </Dialog>
     </li>
   );
 }
 
-function BulkDialog({ change, count, categories, loading, onClose, onApply }: { change: BulkChange; count: number; categories: string[]; loading: boolean; onClose(): void; onApply(change: emojiApi.BulkUpdateEmojiRequest["change"]): void }) {
+function BulkDialog({
+  change,
+  count,
+  categories,
+  loading,
+  onClose,
+  onApply,
+}: {
+  change: BulkChange;
+  count: number;
+  categories: string[];
+  loading: boolean;
+  onClose(): void;
+  onApply(change: emojiApi.BulkUpdateEmojiRequest["change"]): void;
+}) {
   const { t } = useTranslation("emoji");
   const { t: tCommon } = useTranslation("common");
   const [category, setCategory] = useState("");
@@ -256,7 +411,13 @@ function BulkDialog({ change, count, categories, loading, onClose, onApply }: { 
     <Dialog
       open
       onOpenChange={onClose}
-      title={t(change === "category" ? "admin.bulkCategory" : change === "aliases" ? "admin.bulkAliases" : "admin.bulkLicense")}
+      title={t(
+        change === "category"
+          ? "admin.bulkCategory"
+          : change === "aliases"
+            ? "admin.bulkAliases"
+            : "admin.bulkLicense",
+      )}
       description={t("admin.selected", { count })}
       footer={
         <>
@@ -270,11 +431,29 @@ function BulkDialog({ change, count, categories, loading, onClose, onApply }: { 
       }
     >
       {change === "category" ? (
-        <SelectField label={t("fields.category")} value={category} onChange={setCategory} options={[{ value: "", label: t("form.noCategory") }, ...categories.map((name) => ({ value: name, label: name }))]} />
+        <SelectField
+          label={t("fields.category")}
+          value={category}
+          onChange={setCategory}
+          options={[
+            { value: "", label: t("form.noCategory") },
+            ...categories.map((name) => ({ value: name, label: name })),
+          ]}
+        />
       ) : change === "aliases" ? (
-        <TextField label={t("fields.aliases")} value={text} onChange={(event) => setText(event.target.value)} hint={t("admin.bulkAliasesHint")} />
+        <TextField
+          label={t("fields.aliases")}
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          hint={t("admin.bulkAliasesHint")}
+        />
       ) : (
-        <TextArea label={t("fields.license")} value={text} maxLength={LICENSE_MAX} onChange={(event) => setText(event.target.value)} />
+        <TextArea
+          label={t("fields.license")}
+          value={text}
+          maxLength={LICENSE_MAX}
+          onChange={(event) => setText(event.target.value)}
+        />
       )}
     </Dialog>
   );

@@ -1,4 +1,9 @@
-import { type InfiniteData, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  type InfiniteData,
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { engagement } from "@tokuly/api";
 import { Ban, Check, EyeOff, MoreVertical, Search, Trash2, UserSearch, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -12,7 +17,13 @@ import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
-import { commentClient, commentKeys, moderationClient, type ReceivedFilter, useHeldCount } from "./api";
+import {
+  commentClient,
+  commentKeys,
+  moderationClient,
+  type ReceivedFilter,
+  useHeldCount,
+} from "./api";
 import { authorName } from "./author";
 import { ContextRow } from "./context-row";
 import { BlockedCommenters, Rules } from "./moderation-rules";
@@ -31,7 +42,13 @@ type ReceivedPages = InfiniteData<engagement.ListReceivedCommentsResponse>;
  * on their own content, the ones they wrote, their screening rules and the
  * people they stopped from commenting.
  */
-export function CommentModerationScreen({ tab, onTabChange }: { tab: ModerationTab; onTabChange(tab: ModerationTab): void }) {
+export function CommentModerationScreen({
+  tab,
+  onTabChange,
+}: {
+  tab: ModerationTab;
+  onTabChange(tab: ModerationTab): void;
+}) {
   const { t } = useTranslation("comments");
   const held = useHeldCount();
   useReviewQueueRealtime();
@@ -39,7 +56,9 @@ export function CommentModerationScreen({ tab, onTabChange }: { tab: ModerationT
   const tabs = useRef<HTMLDivElement>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-run whenever another tab opens.
   useEffect(() => {
-    tabs.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest", inline: "center" });
+    tabs.current
+      ?.querySelector('[aria-selected="true"]')
+      ?.scrollIntoView({ block: "nearest", inline: "center" });
   }, [tab]);
 
   return (
@@ -88,11 +107,16 @@ const STATUS_FILTERS = [
 function Received({ queue }: { queue?: boolean }) {
   const { t } = useTranslation("comments");
   const queryClient = useQueryClient();
-  const [status, setStatus] = useState<engagement.CommentStatus>(queue ? CommentStatus.HELD : CommentStatus.UNSPECIFIED);
+  const [status, setStatus] = useState<engagement.CommentStatus>(
+    queue ? CommentStatus.HELD : CommentStatus.UNSPECIFIED,
+  );
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [authorOf, setAuthorOf] = useState<{ commentId: string; name: string } | null>(null);
-  const [confirming, setConfirming] = useState<{ kind: "delete" | "block"; comment: engagement.Comment } | null>(null);
+  const [confirming, setConfirming] = useState<{
+    kind: "delete" | "block";
+    comment: engagement.Comment;
+  } | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => setQuery(search.trim()), 300);
@@ -102,7 +126,11 @@ function Received({ queue }: { queue?: boolean }) {
   const filter: ReceivedFilter = { status, query, authorOfCommentId: authorOf?.commentId ?? "" };
   const list = useInfiniteQuery({
     queryKey: commentKeys.receivedList(filter),
-    queryFn: ({ pageParam }) => moderationClient().listReceivedComments({ ...filter, page: { limit: 30, cursor: pageParam } }),
+    queryFn: ({ pageParam }) =>
+      moderationClient().listReceivedComments({
+        ...filter,
+        page: { limit: 30, cursor: pageParam },
+      }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
@@ -115,7 +143,13 @@ function Received({ queue }: { queue?: boolean }) {
             ...data,
             pages: data.pages.map((page) => ({
               ...page,
-              comments: page.comments.flatMap((entry) => (entry.comment?.id !== commentId ? [entry] : next ? [{ ...entry, comment: next }] : [])),
+              comments: page.comments.flatMap((entry) =>
+                entry.comment?.id !== commentId
+                  ? [entry]
+                  : next
+                    ? [{ ...entry, comment: next }]
+                    : [],
+              ),
             })),
           }
         : data,
@@ -129,26 +163,39 @@ function Received({ queue }: { queue?: boolean }) {
   const onError = (error: unknown) => toast.error(errorMessage(error));
 
   const approve = useMutation({
-    mutationFn: (comment: engagement.Comment) => moderationClient().approveComment({ commentId: comment.id }),
+    mutationFn: (comment: engagement.Comment) =>
+      moderationClient().approveComment({ commentId: comment.id }),
     onSuccess: ({ comment }, original) => {
       // In the queue an approved comment is done with; elsewhere it stays, now published.
-      patchRow(original.id, status === CommentStatus.UNSPECIFIED || status === CommentStatus.PUBLISHED ? (comment ?? null) : null);
+      patchRow(
+        original.id,
+        status === CommentStatus.UNSPECIFIED || status === CommentStatus.PUBLISHED
+          ? (comment ?? null)
+          : null,
+      );
       refreshCounts();
       toast.success(t("toast.approved"));
     },
     onError,
   });
   const hide = useMutation({
-    mutationFn: (comment: engagement.Comment) => moderationClient().hideComment({ commentId: comment.id }),
+    mutationFn: (comment: engagement.Comment) =>
+      moderationClient().hideComment({ commentId: comment.id }),
     onSuccess: ({ comment }, original) => {
-      patchRow(original.id, status === CommentStatus.UNSPECIFIED || status === CommentStatus.HIDDEN ? (comment ?? null) : null);
+      patchRow(
+        original.id,
+        status === CommentStatus.UNSPECIFIED || status === CommentStatus.HIDDEN
+          ? (comment ?? null)
+          : null,
+      );
       refreshCounts();
       toast.success(t("toast.hidden"));
     },
     onError,
   });
   const remove = useMutation({
-    mutationFn: (comment: engagement.Comment) => commentClient().deleteComment({ commentId: comment.id }),
+    mutationFn: (comment: engagement.Comment) =>
+      commentClient().deleteComment({ commentId: comment.id }),
     onSuccess: (_response, original) => {
       setConfirming(null);
       patchRow(original.id, null);
@@ -161,7 +208,8 @@ function Received({ queue }: { queue?: boolean }) {
     },
   });
   const block = useMutation({
-    mutationFn: (comment: engagement.Comment) => moderationClient().blockCommenter({ target: { case: "commentId", value: comment.id } }),
+    mutationFn: (comment: engagement.Comment) =>
+      moderationClient().blockCommenter({ target: { case: "commentId", value: comment.id } }),
     onSuccess: (_response, original) => {
       setConfirming(null);
       // Their comments leave these lists altogether.
@@ -177,11 +225,14 @@ function Received({ queue }: { queue?: boolean }) {
   });
 
   const entries = list.data?.pages.flatMap((page) => page.comments) ?? [];
-  const filtered = query !== "" || authorOf !== null || (!queue && status !== CommentStatus.UNSPECIFIED);
+  const filtered =
+    query !== "" || authorOf !== null || (!queue && status !== CommentStatus.UNSPECIFIED);
 
   return (
     <div className="flex flex-col gap-3">
-      <p className="px-1 text-sm leading-relaxed text-ink-soft">{queue ? t("moderation.queueLead") : t("moderation.receivedLead")}</p>
+      <p className="px-1 text-sm leading-relaxed text-ink-soft">
+        {queue ? t("moderation.queueLead") : t("moderation.receivedLead")}
+      </p>
       {!queue && (
         <>
           <label className="flex h-12 items-center gap-2 rounded-control border-2 border-line bg-surface px-4 focus-within:border-brand">
@@ -202,7 +253,12 @@ function Received({ queue }: { queue?: boolean }) {
                 key={option.value}
                 type="button"
                 aria-pressed={status === option.value}
-                className={cn("h-9 shrink-0 rounded-full border-2 px-4 text-sm font-bold", status === option.value ? "border-ink bg-ink text-bg" : "border-line bg-surface text-ink-soft")}
+                className={cn(
+                  "h-9 shrink-0 rounded-full border-2 px-4 text-sm font-bold",
+                  status === option.value
+                    ? "border-ink bg-ink text-bg"
+                    : "border-line bg-surface text-ink-soft",
+                )}
                 onClick={() => setStatus(option.value)}
               >
                 {t(option.key)}
@@ -214,7 +270,12 @@ function Received({ queue }: { queue?: boolean }) {
       {authorOf && (
         <p className="flex items-center gap-2 self-start rounded-full bg-brand-soft py-1 pr-1 pl-4 text-sm font-black text-brand-strong">
           {t("moderation.byAuthor", { name: authorOf.name })}
-          <button type="button" aria-label={t("moderation.clearAuthor")} className="grid size-7 place-items-center rounded-full hover:bg-surface" onClick={() => setAuthorOf(null)}>
+          <button
+            type="button"
+            aria-label={t("moderation.clearAuthor")}
+            className="grid size-7 place-items-center rounded-full hover:bg-surface"
+            onClick={() => setAuthorOf(null)}
+          >
             <X className="size-4" />
           </button>
         </p>
@@ -228,9 +289,17 @@ function Received({ queue }: { queue?: boolean }) {
         filtered ? (
           <EmptyState emoji="🔍" title={t("moderation.emptyFiltered")} />
         ) : queue ? (
-          <EmptyState emoji="🎉" title={t("moderation.emptyQueue")} body={t("moderation.emptyQueueBody")} />
+          <EmptyState
+            emoji="🎉"
+            title={t("moderation.emptyQueue")}
+            body={t("moderation.emptyQueueBody")}
+          />
         ) : (
-          <EmptyState emoji="💌" title={t("moderation.emptyReceived")} body={t("moderation.emptyReceivedBody")} />
+          <EmptyState
+            emoji="💌"
+            title={t("moderation.emptyReceived")}
+            body={t("moderation.emptyReceivedBody")}
+          />
         )
       ) : (
         <>
@@ -246,15 +315,33 @@ function Received({ queue }: { queue?: boolean }) {
                 actions={
                   <>
                     {published ? (
-                      <Button size="sm" variant="secondary" icon={<EyeOff className="size-4" />} loading={hide.isPending && hide.variables?.id === comment.id} onClick={() => hide.mutate(comment)}>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        icon={<EyeOff className="size-4" />}
+                        loading={hide.isPending && hide.variables?.id === comment.id}
+                        onClick={() => hide.mutate(comment)}
+                      >
                         {t("actions.hide")}
                       </Button>
                     ) : (
-                      <Button size="sm" variant="lime" icon={<Check className="size-4" />} loading={approve.isPending && approve.variables?.id === comment.id} onClick={() => approve.mutate(comment)}>
+                      <Button
+                        size="sm"
+                        variant="lime"
+                        icon={<Check className="size-4" />}
+                        loading={approve.isPending && approve.variables?.id === comment.id}
+                        onClick={() => approve.mutate(comment)}
+                      >
                         {t("actions.approve")}
                       </Button>
                     )}
-                    <Button size="sm" variant="ghost" className="text-danger" icon={<Trash2 className="size-4" />} onClick={() => setConfirming({ kind: "delete", comment })}>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-danger"
+                      icon={<Trash2 className="size-4" />}
+                      onClick={() => setConfirming({ kind: "delete", comment })}
+                    >
                       {t("actions.delete")}
                     </Button>
                     <Menu
@@ -264,8 +351,21 @@ function Received({ queue }: { queue?: boolean }) {
                         </Button>
                       }
                       actions={[
-                        { label: t("moderation.onlyThisAuthor"), icon: <UserSearch />, onSelect: () => setAuthorOf({ commentId: comment.id, name: authorName(comment.author) }) },
-                        { label: t("actions.block"), icon: <Ban />, danger: true, onSelect: () => setConfirming({ kind: "block", comment }) },
+                        {
+                          label: t("moderation.onlyThisAuthor"),
+                          icon: <UserSearch />,
+                          onSelect: () =>
+                            setAuthorOf({
+                              commentId: comment.id,
+                              name: authorName(comment.author),
+                            }),
+                        },
+                        {
+                          label: t("actions.block"),
+                          icon: <Ban />,
+                          danger: true,
+                          onSelect: () => setConfirming({ kind: "block", comment }),
+                        },
                       ]}
                     />
                   </>
@@ -290,7 +390,9 @@ function Received({ queue }: { queue?: boolean }) {
       <ConfirmDialog
         open={confirming?.kind === "block"}
         onOpenChange={(open) => !open && setConfirming(null)}
-        title={t("confirm.blockTitle", { name: confirming ? authorName(confirming.comment.author) : "" })}
+        title={t("confirm.blockTitle", {
+          name: confirming ? authorName(confirming.comment.author) : "",
+        })}
         description={t("confirm.blockBody")}
         confirmLabel={t("actions.block")}
         danger
@@ -308,16 +410,28 @@ function MyComments() {
   const [deleting, setDeleting] = useState<engagement.Comment | null>(null);
   const list = useInfiniteQuery({
     queryKey: commentKeys.mine,
-    queryFn: ({ pageParam }) => commentClient().listMyComments({ page: { limit: 30, cursor: pageParam } }),
+    queryFn: ({ pageParam }) =>
+      commentClient().listMyComments({ page: { limit: 30, cursor: pageParam } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
   const remove = useMutation({
-    mutationFn: (comment: engagement.Comment) => commentClient().deleteComment({ commentId: comment.id }),
+    mutationFn: (comment: engagement.Comment) =>
+      commentClient().deleteComment({ commentId: comment.id }),
     onSuccess: (_response, comment) => {
       setDeleting(null);
-      queryClient.setQueryData<InfiniteData<engagement.ListMyCommentsResponse>>(commentKeys.mine, (data) =>
-        data ? { ...data, pages: data.pages.map((page) => ({ ...page, comments: page.comments.filter((entry) => entry.comment?.id !== comment.id) })) } : data,
+      queryClient.setQueryData<InfiniteData<engagement.ListMyCommentsResponse>>(
+        commentKeys.mine,
+        (data) =>
+          data
+            ? {
+                ...data,
+                pages: data.pages.map((page) => ({
+                  ...page,
+                  comments: page.comments.filter((entry) => entry.comment?.id !== comment.id),
+                })),
+              }
+            : data,
       );
       void queryClient.invalidateQueries({ queryKey: [...commentKeys.all, "thread"] });
       toast.success(t("toast.deleted"));
@@ -337,7 +451,11 @@ function MyComments() {
       ) : list.isError ? (
         <EmptyState emoji="😵‍💫" title={errorMessage(list.error)} />
       ) : entries.length === 0 ? (
-        <EmptyState emoji="✍️" title={t("moderation.emptyMine")} body={t("moderation.emptyMineBody")} />
+        <EmptyState
+          emoji="✍️"
+          title={t("moderation.emptyMine")}
+          body={t("moderation.emptyMineBody")}
+        />
       ) : (
         <>
           {entries.map(
@@ -348,7 +466,13 @@ function MyComments() {
                   entry={entry}
                   showAuthor={false}
                   actions={
-                    <Button size="sm" variant="ghost" className="text-danger" icon={<Trash2 className="size-4" />} onClick={() => setDeleting(entry.comment ?? null)}>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-danger"
+                      icon={<Trash2 className="size-4" />}
+                      onClick={() => setDeleting(entry.comment ?? null)}
+                    >
                       {t("actions.delete")}
                     </Button>
                   }

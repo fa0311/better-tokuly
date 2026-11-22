@@ -1,7 +1,26 @@
-import { type QueryClient, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  type QueryClient,
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { common, create, engagement, toMillis } from "@tokuly/api";
-import { Ban, ChevronDown, ChevronUp, Clock, EyeOff, Heart, MoreVertical, Pencil, Pin, PinOff, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react";
+import {
+  Ban,
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  EyeOff,
+  Heart,
+  MoreVertical,
+  Pencil,
+  Pin,
+  PinOff,
+  ThumbsDown,
+  ThumbsUp,
+  Trash2,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -14,9 +33,25 @@ import { StampImage, StampSheet } from "#/features/stamps";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { compactAge } from "#/lib/format";
-import { commentClient, commentKeys, moderationClient, reactionClient, type SubjectKey, updateReplies, updateThread } from "./api";
+import {
+  commentClient,
+  commentKeys,
+  moderationClient,
+  reactionClient,
+  type SubjectKey,
+  updateReplies,
+  updateThread,
+} from "./api";
 import { AuthorAvatar, AuthorLink, authorName, sameAuthor, VerifiedMark } from "./author";
-import { withoutComment, withoutReply, withPatched, withPatchedReply, withPinned, withUpdated, withUpdatedReply } from "./cache";
+import {
+  withoutComment,
+  withoutReply,
+  withPatched,
+  withPatchedReply,
+  withPinned,
+  withUpdated,
+  withUpdatedReply,
+} from "./cache";
 import { formatClock } from "./clock";
 import { Composer } from "./composer";
 import { tokenize } from "./text";
@@ -26,32 +61,60 @@ type Comment = engagement.Comment;
 const { CommentStatus, ReactionKind } = engagement;
 
 /** Changes one cached comment, wherever it is listed (the thread, or its parent's replies). */
-function patchComment(queryClient: QueryClient, subject: SubjectKey, comment: Comment, patch: (comment: Comment) => Comment): void {
-  if (comment.parentId) updateReplies(queryClient, comment.parentId, (data) => withPatchedReply(data, comment.id, patch));
+function patchComment(
+  queryClient: QueryClient,
+  subject: SubjectKey,
+  comment: Comment,
+  patch: (comment: Comment) => Comment,
+): void {
+  if (comment.parentId)
+    updateReplies(queryClient, comment.parentId, (data) =>
+      withPatchedReply(data, comment.id, patch),
+    );
   else updateThread(queryClient, subject, (data) => withPatched(data, comment.id, patch));
 }
 
 /** Stores the server's version of a comment after a change. */
 function putComment(queryClient: QueryClient, subject: SubjectKey, comment: Comment): void {
-  if (comment.parentId) updateReplies(queryClient, comment.parentId, (data) => withUpdatedReply(data, comment));
+  if (comment.parentId)
+    updateReplies(queryClient, comment.parentId, (data) => withUpdatedReply(data, comment));
   else updateThread(queryClient, subject, (data) => withUpdated(data, comment));
 }
 
 /** Takes a comment out of the lists; a public one also comes off the counts. */
-function dropComment(queryClient: QueryClient, subject: SubjectKey, comment: Comment, removedCount: number): void {
+function dropComment(
+  queryClient: QueryClient,
+  subject: SubjectKey,
+  comment: Comment,
+  removedCount: number,
+): void {
   const counted = comment.status === CommentStatus.PUBLISHED;
   if (comment.parentId) {
     updateReplies(queryClient, comment.parentId, (data) => withoutReply(data, comment.id));
-    if (counted) updateThread(queryClient, subject, (data) => withPatched(data, comment.parentId, (parent) => ({ ...parent, replyCount: Math.max(0, parent.replyCount - 1) })));
+    if (counted)
+      updateThread(queryClient, subject, (data) =>
+        withPatched(data, comment.parentId, (parent) => ({
+          ...parent,
+          replyCount: Math.max(0, parent.replyCount - 1),
+        })),
+      );
   } else {
-    updateThread(queryClient, subject, (data) => withoutComment(data, comment.id, counted ? removedCount : 0));
+    updateThread(queryClient, subject, (data) =>
+      withoutComment(data, comment.id, counted ? removedCount : 0),
+    );
   }
 }
 
 /** When a comment was written: an age for recent ones, the date after a month. */
 function writtenAt(comment: Comment, language: string): string {
   const at = toMillis(comment.createdAt);
-  return Date.now() - at < 30 * 86_400_000 ? compactAge(at) : new Date(at).toLocaleDateString(language, { year: "numeric", month: "short", day: "numeric" });
+  return Date.now() - at < 30 * 86_400_000
+    ? compactAge(at)
+    : new Date(at).toLocaleDateString(language, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
 }
 
 export interface CommentItemProps {
@@ -96,7 +159,10 @@ export function CommentItem({ comment, focused, focusReply, onReply }: CommentIt
   const react = useMutation({
     mutationFn: async (kind: engagement.ReactionKind | null) => {
       const subject = { type: common.SubjectType.COMMENT, id: comment.id };
-      const response = kind === null ? await reactionClient().removeReaction({ subject }) : await reactionClient().setReaction({ subject, reaction: { kind } });
+      const response =
+        kind === null
+          ? await reactionClient().removeReaction({ subject })
+          : await reactionClient().setReaction({ subject, reaction: { kind } });
       return response.reactions;
     },
     // The thumb answers the tap at once; the server's counts follow.
@@ -104,13 +170,22 @@ export function CommentItem({ comment, focused, focusReply, onReply }: CommentIt
       patchComment(queryClient, thread.subject, comment, (current) => ({
         ...current,
         likeCount: current.likeCount + (kind === ReactionKind.LIKE ? 1n : 0n) - (liked ? 1n : 0n),
-        dislikeCount: current.dislikeCount + (kind === ReactionKind.DISLIKE ? 1n : 0n) - (disliked ? 1n : 0n),
-        viewer: current.viewer && { ...current.viewer, reaction: kind === null ? undefined : create(engagement.ReactionSchema, { kind }) },
+        dislikeCount:
+          current.dislikeCount + (kind === ReactionKind.DISLIKE ? 1n : 0n) - (disliked ? 1n : 0n),
+        viewer: current.viewer && {
+          ...current.viewer,
+          reaction: kind === null ? undefined : create(engagement.ReactionSchema, { kind }),
+        },
       }));
       return { previous: comment };
     },
     onSuccess: (reactions) => {
-      if (reactions) patchComment(queryClient, thread.subject, comment, (current) => ({ ...current, likeCount: reactions.likeCount, dislikeCount: reactions.dislikeCount }));
+      if (reactions)
+        patchComment(queryClient, thread.subject, comment, (current) => ({
+          ...current,
+          likeCount: reactions.likeCount,
+          dislikeCount: reactions.dislikeCount,
+        }));
     },
     onError: (error, _kind, context) => {
       if (context) patchComment(queryClient, thread.subject, comment, () => context.previous);
@@ -143,10 +218,15 @@ export function CommentItem({ comment, focused, focusReply, onReply }: CommentIt
     onError,
   });
   const heart = useMutation({
-    mutationFn: (hearted: boolean) => commentClient().setCommentHeart({ commentId: comment.id, hearted }),
-    onMutate: (hearted) => patchComment(queryClient, thread.subject, comment, (current) => ({ ...current, hearted })),
+    mutationFn: (hearted: boolean) =>
+      commentClient().setCommentHeart({ commentId: comment.id, hearted }),
+    onMutate: (hearted) =>
+      patchComment(queryClient, thread.subject, comment, (current) => ({ ...current, hearted })),
     onError: (error, hearted) => {
-      patchComment(queryClient, thread.subject, comment, (current) => ({ ...current, hearted: !hearted }));
+      patchComment(queryClient, thread.subject, comment, (current) => ({
+        ...current,
+        hearted: !hearted,
+      }));
       onError(error);
     },
   });
@@ -160,7 +240,8 @@ export function CommentItem({ comment, focused, focusReply, onReply }: CommentIt
     onError,
   });
   const block = useMutation({
-    mutationFn: () => moderationClient().blockCommenter({ target: { case: "commentId", value: comment.id } }),
+    mutationFn: () =>
+      moderationClient().blockCommenter({ target: { case: "commentId", value: comment.id } }),
     onSuccess: () => {
       setConfirming(null);
       // Everything they wrote here is hidden now: read the thread again.
@@ -175,15 +256,31 @@ export function CommentItem({ comment, focused, focusReply, onReply }: CommentIt
   });
 
   const actions: MenuAction[] = [];
-  if (viewer?.canEdit) actions.push({ label: t("actions.edit"), icon: <Pencil />, onSelect: () => setEditing(true) });
+  if (viewer?.canEdit)
+    actions.push({ label: t("actions.edit"), icon: <Pencil />, onSelect: () => setEditing(true) });
   if (viewer?.canModerate && !isReply && published) {
-    actions.push(comment.pinned ? { label: t("actions.unpin"), icon: <PinOff />, onSelect: () => pin.mutate(false) } : { label: t("actions.pin"), icon: <Pin />, onSelect: () => pin.mutate(true) });
+    actions.push(
+      comment.pinned
+        ? { label: t("actions.unpin"), icon: <PinOff />, onSelect: () => pin.mutate(false) }
+        : { label: t("actions.pin"), icon: <Pin />, onSelect: () => pin.mutate(true) },
+    );
   }
   if (viewer?.canModerate && !viewer.isAuthor) {
-    if (published) actions.push({ label: t("actions.hide"), icon: <EyeOff />, onSelect: () => hide.mutate() });
-    actions.push({ label: t("actions.block"), icon: <Ban />, onSelect: () => setConfirming("block") });
+    if (published)
+      actions.push({ label: t("actions.hide"), icon: <EyeOff />, onSelect: () => hide.mutate() });
+    actions.push({
+      label: t("actions.block"),
+      icon: <Ban />,
+      onSelect: () => setConfirming("block"),
+    });
   }
-  if (viewer?.canDelete) actions.push({ label: t("actions.delete"), icon: <Trash2 />, danger: true, onSelect: () => setConfirming("delete") });
+  if (viewer?.canDelete)
+    actions.push({
+      label: t("actions.delete"),
+      icon: <Trash2 />,
+      danger: true,
+      onSelect: () => setConfirming("delete"),
+    });
 
   const isCreator = sameAuthor(comment.author, thread.subjectAuthor);
   const name = authorName(comment.author);
@@ -201,7 +298,11 @@ export function CommentItem({ comment, focused, focusReply, onReply }: CommentIt
       data-testid="comment"
       data-comment-id={comment.id}
       aria-label={t("item.label", { name })}
-      className={cn("flex gap-3 rounded-2xl", focused && "bg-brand-soft/60 p-3 ring-2 ring-brand", !published && "opacity-80")}
+      className={cn(
+        "flex gap-3 rounded-2xl",
+        focused && "bg-brand-soft/60 p-3 ring-2 ring-brand",
+        !published && "opacity-80",
+      )}
     >
       <AuthorLink author={comment.author} className="shrink-0 self-start">
         <AuthorAvatar author={comment.author} size={isReply ? "xs" : "sm"} />
@@ -218,13 +319,21 @@ export function CommentItem({ comment, focused, focusReply, onReply }: CommentIt
             {name || t("item.unknown")}
           </AuthorLink>
           <VerifiedMark author={comment.author} label={t("item.verified")} />
-          {isCreator && <span className="inline-flex h-5 items-center rounded-full bg-ink px-2 text-[11px] font-black text-bg">{t("item.creator")}</span>}
+          {isCreator && (
+            <span className="inline-flex h-5 items-center rounded-full bg-ink px-2 text-[11px] font-black text-bg">
+              {t("item.creator")}
+            </span>
+          )}
           <span className="text-xs text-ink-faint">
             {writtenAt(comment, i18n.language)}
             {comment.edited && ` · ${t("item.edited")}`}
           </span>
-          {comment.status === CommentStatus.HELD && <StatusChip tone="held">{t("status.held")}</StatusChip>}
-          {comment.status === CommentStatus.HIDDEN && <StatusChip tone="hidden">{t("status.hidden")}</StatusChip>}
+          {comment.status === CommentStatus.HELD && (
+            <StatusChip tone="held">{t("status.held")}</StatusChip>
+          )}
+          {comment.status === CommentStatus.HIDDEN && (
+            <StatusChip tone="hidden">{t("status.hidden")}</StatusChip>
+          )}
         </div>
 
         {editing ? (
@@ -246,24 +355,45 @@ export function CommentItem({ comment, focused, focusReply, onReply }: CommentIt
             {comment.text && <CommentText comment={comment} />}
             {comment.stamp &&
               (comment.stamp.imageUrl || comment.stamp.animationUrl ? (
-                <button type="button" className="mt-1.5 block rounded-2xl" aria-label={t("item.openStamp", { name: comment.stamp.name })} onClick={() => setOpenStamp(comment.stamp?.id)}>
+                <button
+                  type="button"
+                  className="mt-1.5 block rounded-2xl"
+                  aria-label={t("item.openStamp", { name: comment.stamp.name })}
+                  onClick={() => setOpenStamp(comment.stamp?.id)}
+                >
                   <StampImage stamp={comment.stamp} size={isReply ? 88 : 112} />
                 </button>
               ) : (
-                <p className="mt-1.5 inline-block rounded-xl border-2 border-dashed border-line px-3 py-2 text-xs font-bold text-ink-faint">{t("item.stampGone")}</p>
+                <p className="mt-1.5 inline-block rounded-xl border-2 border-dashed border-line px-3 py-2 text-xs font-bold text-ink-faint">
+                  {t("item.stampGone")}
+                </p>
               ))}
             {comment.image?.url && (
-              <button type="button" className="mt-1.5 block overflow-hidden rounded-2xl border-2 border-line" aria-label={t("item.openImage")} onClick={() => setImageOpen(true)}>
+              <button
+                type="button"
+                className="mt-1.5 block overflow-hidden rounded-2xl border-2 border-line"
+                aria-label={t("item.openImage")}
+                onClick={() => setImageOpen(true)}
+              >
                 <img
-                  src={comment.image.variants.find((variant) => variant.size >= 480)?.url ?? comment.image.url}
+                  src={
+                    comment.image.variants.find((variant) => variant.size >= 480)?.url ??
+                    comment.image.url
+                  }
                   alt=""
                   loading="lazy"
                   className="max-h-60 max-w-full object-cover"
-                  style={comment.image.dominantColor ? { background: comment.image.dominantColor } : undefined}
+                  style={
+                    comment.image.dominantColor
+                      ? { background: comment.image.dominantColor }
+                      : undefined
+                  }
                 />
               </button>
             )}
-            {comment.status === CommentStatus.HELD && viewer?.isAuthor && <p className="mt-1 text-xs leading-relaxed text-ink-soft">{t("status.heldHint")}</p>}
+            {comment.status === CommentStatus.HELD && viewer?.isAuthor && (
+              <p className="mt-1 text-xs leading-relaxed text-ink-soft">{t("status.heldHint")}</p>
+            )}
 
             <div className="-ml-2 mt-0.5 flex flex-wrap items-center gap-0.5">
               <button
@@ -271,18 +401,28 @@ export function CommentItem({ comment, focused, focusReply, onReply }: CommentIt
                 aria-pressed={liked}
                 aria-label={t("actions.like")}
                 disabled={!published || !viewer}
-                className={cn("inline-flex h-8 items-center gap-1 rounded-full px-2 text-xs font-black hover:bg-surface-2 disabled:opacity-50", liked ? "text-brand" : "text-ink-soft")}
+                className={cn(
+                  "inline-flex h-8 items-center gap-1 rounded-full px-2 text-xs font-black hover:bg-surface-2 disabled:opacity-50",
+                  liked ? "text-brand" : "text-ink-soft",
+                )}
                 onClick={() => react.mutate(liked ? null : ReactionKind.LIKE)}
               >
                 <ThumbsUp className={cn("size-4", liked && "fill-current")} />
-                {comment.likeCount > 0n && <span className="tabular-nums">{Number(comment.likeCount).toLocaleString(i18n.language)}</span>}
+                {comment.likeCount > 0n && (
+                  <span className="tabular-nums">
+                    {Number(comment.likeCount).toLocaleString(i18n.language)}
+                  </span>
+                )}
               </button>
               <button
                 type="button"
                 aria-pressed={disliked}
                 aria-label={t("actions.dislike")}
                 disabled={!published || !viewer}
-                className={cn("grid size-8 place-items-center rounded-full hover:bg-surface-2 disabled:opacity-50", disliked ? "text-ink" : "text-ink-soft")}
+                className={cn(
+                  "grid size-8 place-items-center rounded-full hover:bg-surface-2 disabled:opacity-50",
+                  disliked ? "text-ink" : "text-ink-soft",
+                )}
                 onClick={() => react.mutate(disliked ? null : ReactionKind.DISLIKE)}
               >
                 <ThumbsDown className={cn("size-4", disliked && "fill-current")} />
@@ -292,27 +432,43 @@ export function CommentItem({ comment, focused, focusReply, onReply }: CommentIt
                   type="button"
                   aria-pressed={comment.hearted}
                   aria-label={t("actions.heart")}
-                  className={cn("grid size-8 place-items-center rounded-full hover:bg-surface-2", comment.hearted ? "text-pink" : "text-ink-soft")}
+                  className={cn(
+                    "grid size-8 place-items-center rounded-full hover:bg-surface-2",
+                    comment.hearted ? "text-pink" : "text-ink-soft",
+                  )}
                   onClick={() => heart.mutate(!comment.hearted)}
                 >
                   <Heart className={cn("size-4", comment.hearted && "fill-current")} />
                 </button>
               ) : (
                 comment.hearted && (
-                  <span className="grid size-8 place-items-center text-pink" role="img" aria-label={t("item.hearted")} title={t("item.hearted")}>
+                  <span
+                    className="grid size-8 place-items-center text-pink"
+                    role="img"
+                    aria-label={t("item.hearted")}
+                    title={t("item.hearted")}
+                  >
                     <Heart className="size-4 fill-current" />
                   </span>
                 )
               )}
               {published && viewer && (
-                <button type="button" className="h-8 rounded-full px-3 text-xs font-black text-ink-soft hover:bg-surface-2" onClick={startReply}>
+                <button
+                  type="button"
+                  className="h-8 rounded-full px-3 text-xs font-black text-ink-soft hover:bg-surface-2"
+                  onClick={startReply}
+                >
                   {t("actions.reply")}
                 </button>
               )}
               {actions.length > 0 && (
                 <Menu
                   trigger={
-                    <button type="button" aria-label={t("actions.more")} className="grid size-8 place-items-center rounded-full text-ink-soft hover:bg-surface-2">
+                    <button
+                      type="button"
+                      aria-label={t("actions.more")}
+                      className="grid size-8 place-items-center rounded-full text-ink-soft hover:bg-surface-2"
+                    >
                       <MoreVertical className="size-4" />
                     </button>
                   }
@@ -332,14 +488,26 @@ export function CommentItem({ comment, focused, focusReply, onReply }: CommentIt
                 className="inline-flex h-8 items-center gap-1 rounded-full px-2.5 text-sm font-black text-brand hover:bg-brand-soft"
                 onClick={() => setRepliesOpen((open) => !open)}
               >
-                {repliesOpen ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+                {repliesOpen ? (
+                  <ChevronUp className="size-4" />
+                ) : (
+                  <ChevronDown className="size-4" />
+                )}
                 {t("replies.toggle", { count: Math.max(comment.replyCount, focusReply ? 1 : 0) })}
               </button>
             )}
-            {repliesOpen && <Replies parent={comment} focusReply={focusReply} onReply={setReplyingTo} />}
+            {repliesOpen && (
+              <Replies parent={comment} focusReply={focusReply} onReply={setReplyingTo} />
+            )}
             {replyingTo && (
               <div className="mt-3">
-                <Composer key={replyingTo.id} replyTo={replyingTo} autoFocus onCancel={() => setReplyingTo(null)} onPosted={() => setReplyingTo(null)} />
+                <Composer
+                  key={replyingTo.id}
+                  replyTo={replyingTo}
+                  autoFocus
+                  onCancel={() => setReplyingTo(null)}
+                  onPosted={() => setReplyingTo(null)}
+                />
               </div>
             )}
           </div>
@@ -350,7 +518,11 @@ export function CommentItem({ comment, focused, focusReply, onReply }: CommentIt
         open={confirming === "delete"}
         onOpenChange={(open) => !open && setConfirming(null)}
         title={t("confirm.deleteTitle")}
-        description={!isReply && comment.replyCount > 0 ? t("confirm.deleteWithReplies", { count: comment.replyCount }) : t("confirm.deleteBody")}
+        description={
+          !isReply && comment.replyCount > 0
+            ? t("confirm.deleteWithReplies", { count: comment.replyCount })
+            : t("confirm.deleteBody")
+        }
         confirmLabel={t("actions.delete")}
         danger
         loading={remove.isPending}
@@ -368,8 +540,17 @@ export function CommentItem({ comment, focused, focusReply, onReply }: CommentIt
       />
       <StampSheet stampId={openStamp} onClose={() => setOpenStamp(undefined)} />
       {comment.image?.url && (
-        <Dialog open={imageOpen} onOpenChange={setImageOpen} title={t("item.imageTitle", { name })} className="sm:w-[min(48rem,calc(100vw-2rem))]">
-          <img src={comment.image.url} alt={t("item.imageTitle", { name })} className="mx-auto max-h-[70dvh] max-w-full rounded-2xl object-contain" />
+        <Dialog
+          open={imageOpen}
+          onOpenChange={setImageOpen}
+          title={t("item.imageTitle", { name })}
+          className="sm:w-[min(48rem,calc(100vw-2rem))]"
+        >
+          <img
+            src={comment.image.url}
+            alt={t("item.imageTitle", { name })}
+            className="mx-auto max-h-[70dvh] max-w-full rounded-2xl object-contain"
+          />
         </Dialog>
       )}
     </article>
@@ -377,7 +558,16 @@ export function CommentItem({ comment, focused, focusReply, onReply }: CommentIt
 }
 
 function StatusChip({ tone, children }: { tone: "held" | "hidden"; children: string }) {
-  return <span className={cn("inline-flex h-5 items-center rounded-full px-2 text-[11px] font-black", tone === "held" ? "bg-sun text-[#17122b]" : "bg-surface-3 text-ink-soft")}>{children}</span>;
+  return (
+    <span
+      className={cn(
+        "inline-flex h-5 items-center rounded-full px-2 text-[11px] font-black",
+        tone === "held" ? "bg-sun text-[#17122b]" : "bg-surface-3 text-ink-soft",
+      )}
+    >
+      {children}
+    </span>
+  );
 }
 
 /** Above this the text is folded behind "read more". */
@@ -391,29 +581,53 @@ function CommentText({ comment }: { comment: Comment }) {
   const [expanded, setExpanded] = useState(false);
   const handles = new Set(comment.mentions.map((user) => user.handle.toLowerCase()));
   const tokens = tokenize(comment.text, handles, Boolean(thread.video));
-  const long = comment.text.length > FOLD_CHARACTERS || comment.text.split("\n").length > FOLD_LINES;
+  const long =
+    comment.text.length > FOLD_CHARACTERS || comment.text.split("\n").length > FOLD_LINES;
 
   return (
     <div className="mt-0.5">
-      <p data-testid="comment-text" className={cn("text-[15px] leading-relaxed break-words whitespace-pre-wrap", long && !expanded && "line-clamp-6")}>
+      <p
+        data-testid="comment-text"
+        className={cn(
+          "text-[15px] leading-relaxed break-words whitespace-pre-wrap",
+          long && !expanded && "line-clamp-6",
+        )}
+      >
         {tokens.map((token, index) => {
           if (token.kind === "mention") {
             return (
-              <Link key={index} to="/u/$handle" params={{ handle: token.handle }} className="font-bold text-brand hover:underline">
+              <Link
+                key={index}
+                to="/u/$handle"
+                params={{ handle: token.handle }}
+                className="font-bold text-brand hover:underline"
+              >
                 {token.text}
               </Link>
             );
           }
           if (token.kind === "link") {
             return (
-              <a key={index} href={token.url} target="_blank" rel="noopener noreferrer nofollow ugc" className="font-bold text-brand underline-offset-2 hover:underline">
+              <a
+                key={index}
+                href={token.url}
+                target="_blank"
+                rel="noopener noreferrer nofollow ugc"
+                className="font-bold text-brand underline-offset-2 hover:underline"
+              >
                 {token.text}
               </a>
             );
           }
           if (token.kind === "time") {
             return (
-              <button key={index} type="button" className="font-bold text-brand hover:underline" onClick={() => thread.video?.seekTo(token.seconds)} aria-label={t("item.jumpTo", { time: token.text })}>
+              <button
+                key={index}
+                type="button"
+                className="font-bold text-brand hover:underline"
+                onClick={() => thread.video?.seekTo(token.seconds)}
+                aria-label={t("item.jumpTo", { time: token.text })}
+              >
                 {token.text}
               </button>
             );
@@ -422,7 +636,11 @@ function CommentText({ comment }: { comment: Comment }) {
         })}
       </p>
       {long && (
-        <button type="button" className="mt-0.5 text-sm font-black text-ink-soft hover:text-ink" onClick={() => setExpanded((value) => !value)}>
+        <button
+          type="button"
+          className="mt-0.5 text-sm font-black text-ink-soft hover:text-ink"
+          onClick={() => setExpanded((value) => !value)}
+        >
           {expanded ? t("item.showLess") : t("item.showMore")}
         </button>
       )}
@@ -444,7 +662,8 @@ function EditForm({ comment, onDone }: { comment: Comment; onDone(): void }) {
       if (updated) {
         putComment(queryClient, thread.subject, updated);
         // The new words may have tripped the owner's filters.
-        if (comment.status === CommentStatus.PUBLISHED && updated.status === CommentStatus.HELD) toast.message(t("composer.held"));
+        if (comment.status === CommentStatus.PUBLISHED && updated.status === CommentStatus.HELD)
+          toast.message(t("composer.held"));
       }
       void queryClient.invalidateQueries({ queryKey: commentKeys.mine });
       onDone();
@@ -472,7 +691,8 @@ function EditForm({ comment, onDone }: { comment: Comment; onDone(): void }) {
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Escape") onDone();
-          else if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && canSave) save.mutate();
+          else if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && canSave)
+            save.mutate();
         }}
       />
       <div className="mt-2 flex justify-end gap-2">
@@ -488,17 +708,29 @@ function EditForm({ comment, onDone }: { comment: Comment; onDone(): void }) {
 }
 
 /** The replies under a top-level comment, oldest first, a page at a time. */
-function Replies({ parent, focusReply, onReply }: { parent: Comment; focusReply?: Comment; onReply(comment: Comment): void }) {
+function Replies({
+  parent,
+  focusReply,
+  onReply,
+}: {
+  parent: Comment;
+  focusReply?: Comment;
+  onReply(comment: Comment): void;
+}) {
   const { t } = useTranslation("comments");
   const query = useInfiniteQuery({
     queryKey: commentKeys.replies(parent.id),
-    queryFn: ({ pageParam }) => commentClient().listReplies({ commentId: parent.id, page: { limit: 20, cursor: pageParam } }),
+    queryFn: ({ pageParam }) =>
+      commentClient().listReplies({ commentId: parent.id, page: { limit: 20, cursor: pageParam } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
   const loaded = query.data?.pages.flatMap((page) => page.replies) ?? [];
   // The reply a link pointed at is shown even when its page has not been reached yet.
-  const replies = focusReply && !loaded.some((reply) => reply.id === focusReply.id) ? [...loaded, focusReply] : loaded;
+  const replies =
+    focusReply && !loaded.some((reply) => reply.id === focusReply.id)
+      ? [...loaded, focusReply]
+      : loaded;
 
   return (
     <div className="mt-2 flex flex-col gap-3">
@@ -509,7 +741,12 @@ function Replies({ parent, focusReply, onReply }: { parent: Comment; focusReply?
       )}
       {query.isError && <p className="text-sm font-bold text-ink-faint">{t("replies.error")}</p>}
       {replies.map((reply) => (
-        <CommentItem key={reply.id} comment={reply} focused={reply.id === focusReply?.id} onReply={onReply} />
+        <CommentItem
+          key={reply.id}
+          comment={reply}
+          focused={reply.id === focusReply?.id}
+          onReply={onReply}
+        />
       ))}
       {query.hasNextPage && (
         <button
@@ -518,7 +755,11 @@ function Replies({ parent, focusReply, onReply }: { parent: Comment; focusReply?
           disabled={query.isFetchingNextPage}
           onClick={() => void query.fetchNextPage()}
         >
-          {query.isFetchingNextPage ? <Spinner className="size-4" /> : <ChevronDown className="size-4" />}
+          {query.isFetchingNextPage ? (
+            <Spinner className="size-4" />
+          ) : (
+            <ChevronDown className="size-4" />
+          )}
           {t("replies.more")}
         </button>
       )}

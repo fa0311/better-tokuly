@@ -28,11 +28,22 @@ export interface SubscribeButtonProps {
  * notification level (all, personalized, none) and for unsubscribing. Not for
  * the viewer's own channels: the server refuses those.
  */
-export function SubscribeButton({ channel, subscribed, notificationLevel, sourceVideoId, size = "md", className }: SubscribeButtonProps) {
+export function SubscribeButton({
+  channel,
+  subscribed,
+  notificationLevel,
+  sourceVideoId,
+  size = "md",
+  className,
+}: SubscribeButtonProps) {
   const { t } = useTranslation("video");
   const queryClient = useQueryClient();
   // What the last tap made of it, until the server's answer has spread through the cache.
-  const [local, setLocal] = useState<{ subscribed: boolean; level: video.NotificationLevel; basis: string } | null>(null);
+  const [local, setLocal] = useState<{
+    subscribed: boolean;
+    level: video.NotificationLevel;
+    basis: string;
+  } | null>(null);
   // Once the server's state has moved on from what the tap was based on, it speaks again.
   const basis = `${subscribed}:${notificationLevel ?? 0}`;
   const pending = local?.basis === basis ? local : null;
@@ -50,7 +61,12 @@ export function SubscribeButton({ channel, subscribed, notificationLevel, source
   };
 
   const subscribe = useMutation({
-    mutationFn: (next: video.NotificationLevel) => channelClient().subscribe({ channelId: channel.id, notificationLevel: next, sourceVideoId: sourceVideoId ?? "" }),
+    mutationFn: (next: video.NotificationLevel) =>
+      channelClient().subscribe({
+        channelId: channel.id,
+        notificationLevel: next,
+        sourceVideoId: sourceVideoId ?? "",
+      }),
     onMutate: (next) => {
       const first = !isSubscribed;
       setLocal({ subscribed: true, level: next || NotificationLevel.PERSONALIZED, basis });
@@ -74,13 +90,19 @@ export function SubscribeButton({ channel, subscribed, notificationLevel, source
 
   if (!isSubscribed) {
     return (
-      <Button size={size} className={className} loading={subscribe.isPending} onClick={() => subscribe.mutate(NotificationLevel.UNSPECIFIED)}>
+      <Button
+        size={size}
+        className={className}
+        loading={subscribe.isPending}
+        onClick={() => subscribe.mutate(NotificationLevel.UNSPECIFIED)}
+      >
         {t("subscribe.action")}
       </Button>
     );
   }
 
-  const LevelIcon = level === NotificationLevel.ALL ? BellRing : level === NotificationLevel.NONE ? BellOff : Bell;
+  const LevelIcon =
+    level === NotificationLevel.ALL ? BellRing : level === NotificationLevel.NONE ? BellOff : Bell;
   const levelAction = (value: video.NotificationLevel, key: string, icon: ReactNode) => ({
     label: `${level === value ? "✓ " : ""}${t(`subscribe.level.${key}`)}`,
     icon,
@@ -89,7 +111,12 @@ export function SubscribeButton({ channel, subscribed, notificationLevel, source
   return (
     <Menu
       trigger={
-        <Button variant="secondary" size={size} className={className} aria-label={t("subscribe.manage", { name: channel.name })}>
+        <Button
+          variant="secondary"
+          size={size}
+          className={className}
+          aria-label={t("subscribe.manage", { name: channel.name })}
+        >
           <LevelIcon className="size-4" />
           {t("subscribe.subscribed")}
           <ChevronDown className="size-4" />
@@ -99,7 +126,12 @@ export function SubscribeButton({ channel, subscribed, notificationLevel, source
         levelAction(NotificationLevel.ALL, "all", <BellRing />),
         levelAction(NotificationLevel.PERSONALIZED, "personalized", <Bell />),
         levelAction(NotificationLevel.NONE, "none", <BellOff />),
-        { label: t("subscribe.cancel"), icon: <UserMinus />, danger: true, onSelect: () => unsubscribe.mutate() },
+        {
+          label: t("subscribe.cancel"),
+          icon: <UserMinus />,
+          danger: true,
+          onSelect: () => unsubscribe.mutate(),
+        },
       ]}
     />
   );

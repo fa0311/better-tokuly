@@ -4,7 +4,14 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { common, stamp } from "@tokuly/api";
 import { Clock, Heart, Plus, Scissors, Store } from "lucide-react";
-import { type ReactElement, type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  type ReactElement,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
@@ -58,7 +65,13 @@ export function StampPicker({ onPick, trigger, keepOpen }: StampPickerProps) {
       <Popover.Root open={open} onOpenChange={setOpen}>
         <Popover.Trigger render={trigger} />
         <Popover.Portal>
-          <Popover.Positioner side="top" align="end" sideOffset={10} collisionPadding={12} className="z-50 outline-none">
+          <Popover.Positioner
+            side="top"
+            align="end"
+            sideOffset={10}
+            collisionPadding={12}
+            className="z-50 outline-none"
+          >
             <Popover.Popup
               ref={popup}
               initialFocus={popup}
@@ -91,7 +104,10 @@ export function StampPicker({ onPick, trigger, keepOpen }: StampPickerProps) {
           )}
         >
           <BaseDialog.Title className="sr-only">{t("picker.title")}</BaseDialog.Title>
-          <span aria-hidden className="mx-auto mt-2 h-1.5 w-10 shrink-0 rounded-full bg-surface-3" />
+          <span
+            aria-hidden
+            className="mx-auto mt-2 h-1.5 w-10 shrink-0 rounded-full bg-surface-3"
+          />
           {panel}
         </BaseDialog.Popup>
       </BaseDialog.Portal>
@@ -114,7 +130,13 @@ function useMediaQuery(query: string): boolean {
 /** Tabs that are not packs. Pack tabs are keyed by the pack's ID. */
 const SHELVES = ["recents", "favorites", "personal"] as const;
 
-function PickerPanel({ onPick, onLeave }: { onPick(stamp: common.StampRef): void; onLeave(): void }) {
+function PickerPanel({
+  onPick,
+  onLeave,
+}: {
+  onPick(stamp: common.StampRef): void;
+  onLeave(): void;
+}) {
   const { t } = useTranslation("stamps");
   // What was sent since the picker was last open belongs in "recently used".
   const library = useLibrary({ refetchOnMount: "always" });
@@ -130,13 +152,20 @@ function PickerPanel({ onPick, onLeave }: { onPick(stamp: common.StampRef): void
 
   const packs = useInstalledPacks(library.data);
   // Start where there is something to pick: recents, else the first pack.
-  const tab = chosen ?? (library.data && library.data.recents.length === 0 && packs[0] ? packs[0].id : "recents");
+  const tab =
+    chosen ??
+    (library.data && library.data.recents.length === 0 && packs[0] ? packs[0].id : "recents");
   const shelf = SHELVES.find((value) => value === tab);
 
   return (
     <>
       <div className="flex shrink-0 items-center gap-2 px-3 pt-3">
-        <SearchField className="h-10 min-w-0 flex-1 px-3" value={text} onChange={setText} placeholder={t("picker.search")} />
+        <SearchField
+          className="h-10 min-w-0 flex-1 px-3"
+          value={text}
+          onChange={setText}
+          placeholder={t("picker.search")}
+        />
         <Link
           to="/stamps"
           onClick={onLeave}
@@ -149,18 +178,39 @@ function PickerPanel({ onPick, onLeave }: { onPick(stamp: common.StampRef): void
       </div>
 
       {!query && (
-        <div role="tablist" aria-label={t("picker.tabs")} className="scrollbar-none flex shrink-0 gap-1 overflow-x-auto border-b-2 border-line px-3 py-2">
-          <ShelfTab active={tab === "recents"} label={t("picker.recents")} onSelect={() => setChosen("recents")}>
+        <div
+          role="tablist"
+          aria-label={t("picker.tabs")}
+          className="scrollbar-none flex shrink-0 gap-1 overflow-x-auto border-b-2 border-line px-3 py-2"
+        >
+          <ShelfTab
+            active={tab === "recents"}
+            label={t("picker.recents")}
+            onSelect={() => setChosen("recents")}
+          >
             <Clock className="size-5" />
           </ShelfTab>
-          <ShelfTab active={tab === "favorites"} label={t("picker.favorites")} onSelect={() => setChosen("favorites")}>
+          <ShelfTab
+            active={tab === "favorites"}
+            label={t("picker.favorites")}
+            onSelect={() => setChosen("favorites")}
+          >
             <Heart className="size-5" />
           </ShelfTab>
-          <ShelfTab active={tab === "personal"} label={t("picker.personal")} onSelect={() => setChosen("personal")}>
+          <ShelfTab
+            active={tab === "personal"}
+            label={t("picker.personal")}
+            onSelect={() => setChosen("personal")}
+          >
             <Scissors className="size-5" />
           </ShelfTab>
           {packs.map((pack) => (
-            <ShelfTab key={pack.id} active={tab === pack.id} label={pack.name} onSelect={() => setChosen(pack.id)}>
+            <ShelfTab
+              key={pack.id}
+              active={tab === pack.id}
+              label={pack.name}
+              onSelect={() => setChosen(pack.id)}
+            >
               <PackCover pack={pack} className="size-8 rounded-lg" />
             </ShelfTab>
           ))}
@@ -181,12 +231,31 @@ function PickerPanel({ onPick, onLeave }: { onPick(stamp: common.StampRef): void
             stamps={library.data?.recents ?? []}
             onPick={onPick}
             onDetail={setDetail}
-            empty={<EmptyState emoji="🕊️" title={t("picker.recentsEmpty")} body={packs.length === 0 ? t("picker.noPacksBody") : t("picker.recentsEmptyBody")} />}
+            empty={
+              <EmptyState
+                emoji="🕊️"
+                title={t("picker.recentsEmpty")}
+                body={packs.length === 0 ? t("picker.noPacksBody") : t("picker.recentsEmptyBody")}
+              />
+            }
           />
         ) : shelf === "favorites" ? (
-          <PagedShelf kind="favorites" first={library.data?.favorites ?? []} more={library.data?.moreFavorites ?? false} onPick={onPick} onDetail={setDetail} />
+          <PagedShelf
+            kind="favorites"
+            first={library.data?.favorites ?? []}
+            more={library.data?.moreFavorites ?? false}
+            onPick={onPick}
+            onDetail={setDetail}
+          />
         ) : shelf === "personal" ? (
-          <PagedShelf kind="personal" first={library.data?.personal ?? []} more={library.data?.morePersonal ?? false} onPick={onPick} onDetail={setDetail} onMake={() => setMaking(true)} />
+          <PagedShelf
+            kind="personal"
+            first={library.data?.personal ?? []}
+            more={library.data?.morePersonal ?? false}
+            onPick={onPick}
+            onDetail={setDetail}
+            onMake={() => setMaking(true)}
+          />
         ) : (
           <PackShelf packId={tab} onPick={onPick} onDetail={setDetail} />
         )}
@@ -217,7 +286,17 @@ function useInstalledPacks(library: stamp.GetLibraryResponse | undefined): stamp
   return all.data ?? library?.installed ?? [];
 }
 
-function ShelfTab({ active, label, onSelect, children }: { active: boolean; label: string; onSelect(): void; children: ReactNode }) {
+function ShelfTab({
+  active,
+  label,
+  onSelect,
+  children,
+}: {
+  active: boolean;
+  label: string;
+  onSelect(): void;
+  children: ReactNode;
+}) {
   return (
     <button
       type="button"
@@ -226,7 +305,10 @@ function ShelfTab({ active, label, onSelect, children }: { active: boolean; labe
       aria-label={label}
       title={label}
       onClick={onSelect}
-      className={cn("grid size-11 shrink-0 place-items-center rounded-2xl transition-colors", active ? "sticker-sm bg-brand-soft text-brand" : "text-ink-soft hover:bg-surface-2")}
+      className={cn(
+        "grid size-11 shrink-0 place-items-center rounded-2xl transition-colors",
+        active ? "sticker-sm bg-brand-soft text-brand" : "text-ink-soft hover:bg-surface-2",
+      )}
     >
       {children}
     </button>
@@ -241,7 +323,15 @@ function TileGrid({ children }: { children: ReactNode }) {
 const LONG_PRESS_MS = 450;
 
 /** A stamp in the picker: a tap picks it, a long press or right-click opens its details. */
-function PickTile({ item, onPick, onDetail }: { item: stamp.Stamp; onPick(stamp: common.StampRef): void; onDetail(stampId: string): void }) {
+function PickTile({
+  item,
+  onPick,
+  onDetail,
+}: {
+  item: stamp.Stamp;
+  onPick(stamp: common.StampRef): void;
+  onDetail(stampId: string): void;
+}) {
   const { t } = useTranslation("stamps");
   const press = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number } | null>(null);
   const held = useRef(false);
@@ -280,7 +370,11 @@ function PickTile({ item, onPick, onDetail }: { item: stamp.Stamp; onPick(stamp:
       }}
       onPointerMove={(event) => {
         // Scrolling the grid is not a press.
-        if (press.current && Math.hypot(event.clientX - press.current.x, event.clientY - press.current.y) > 8) release();
+        if (
+          press.current &&
+          Math.hypot(event.clientX - press.current.x, event.clientY - press.current.y) > 8
+        )
+          release();
       }}
       onPointerUp={release}
       onPointerCancel={release}
@@ -342,7 +436,10 @@ function PagedShelf({
     queryKey: [...(kind === "favorites" ? stampKeys.favorites : stampKeys.personal), "picker"],
     queryFn: async ({ pageParam }) => {
       const page = { limit: 60, cursor: pageParam };
-      const response = kind === "favorites" ? await libraryClient().listFavoriteStamps({ page }) : await libraryClient().listPersonalStamps({ page });
+      const response =
+        kind === "favorites"
+          ? await libraryClient().listFavoriteStamps({ page })
+          : await libraryClient().listPersonalStamps({ page });
       return { stamps: response.stamps, next: response.page?.nextCursor ?? "" };
     },
     initialPageParam: "",
@@ -356,7 +453,9 @@ function PagedShelf({
   useEffect(() => {
     const element = sentinel.current;
     if (!element || !hasNextPage || isFetchingNextPage) return;
-    const observer = new IntersectionObserver((entries) => entries.some((entry) => entry.isIntersecting) && fetchNextPage());
+    const observer = new IntersectionObserver(
+      (entries) => entries.some((entry) => entry.isIntersecting) && fetchNextPage(),
+    );
     observer.observe(element);
     return () => observer.disconnect();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
@@ -381,14 +480,22 @@ function PagedShelf({
         before={make}
         empty={
           kind === "favorites" ? (
-            <EmptyState emoji="💗" title={t("picker.favoritesEmpty")} body={t("picker.favoritesEmptyBody")} />
+            <EmptyState
+              emoji="💗"
+              title={t("picker.favoritesEmpty")}
+              body={t("picker.favoritesEmptyBody")}
+            />
           ) : (
             <EmptyState
               emoji="✂️"
               title={t("picker.personalEmpty")}
               body={t("picker.personalEmptyBody")}
               action={
-                <button type="button" onClick={onMake} className="pressable sticker inline-flex h-10 items-center gap-1.5 rounded-full bg-lime px-4 text-sm font-bold text-[#17122b]">
+                <button
+                  type="button"
+                  onClick={onMake}
+                  className="pressable sticker inline-flex h-10 items-center gap-1.5 rounded-full bg-lime px-4 text-sm font-bold text-[#17122b]"
+                >
                   <Plus className="size-4" />
                   {t("picker.make")}
                 </button>
@@ -402,7 +509,15 @@ function PagedShelf({
   );
 }
 
-function PackShelf({ packId, onPick, onDetail }: { packId: string; onPick(stamp: common.StampRef): void; onDetail(stampId: string): void }) {
+function PackShelf({
+  packId,
+  onPick,
+  onDetail,
+}: {
+  packId: string;
+  onPick(stamp: common.StampRef): void;
+  onDetail(stampId: string): void;
+}) {
   const { t } = useTranslation("stamps");
   const { data: pack, isPending } = usePack(packId);
   if (isPending) {
@@ -416,18 +531,40 @@ function PackShelf({ packId, onPick, onDetail }: { packId: string; onPick(stamp:
   }
   return (
     <>
-      {pack?.summary && <p className="truncate px-2 pb-1 text-xs font-black text-ink-faint">{pack.summary.name}</p>}
-      <Tiles stamps={pack?.stamps.filter((item) => item.usable) ?? []} onPick={onPick} onDetail={onDetail} empty={<EmptyState emoji="🫙" title={t("picker.packEmpty")} />} />
+      {pack?.summary && (
+        <p className="truncate px-2 pb-1 text-xs font-black text-ink-faint">{pack.summary.name}</p>
+      )}
+      <Tiles
+        stamps={pack?.stamps.filter((item) => item.usable) ?? []}
+        onPick={onPick}
+        onDetail={onDetail}
+        empty={<EmptyState emoji="🫙" title={t("picker.packEmpty")} />}
+      />
     </>
   );
 }
 
-function SearchShelf({ query, onPick, onDetail }: { query: string; onPick(stamp: common.StampRef): void; onDetail(stampId: string): void }) {
+function SearchShelf({
+  query,
+  onPick,
+  onDetail,
+}: {
+  query: string;
+  onPick(stamp: common.StampRef): void;
+  onDetail(stampId: string): void;
+}) {
   const { t } = useTranslation("stamps");
   const { data, isPending } = useQuery({
     queryKey: stampKeys.librarySearch(query),
     queryFn: () => libraryClient().searchLibraryStamps({ query, limit: 60 }),
   });
   if (isPending) return null;
-  return <Tiles stamps={data?.stamps ?? []} onPick={onPick} onDetail={onDetail} empty={<EmptyState emoji="🔍" title={t("picker.searchEmpty", { query })} />} />;
+  return (
+    <Tiles
+      stamps={data?.stamps ?? []}
+      onPick={onPick}
+      onDetail={onDetail}
+      empty={<EmptyState emoji="🔍" title={t("picker.searchEmpty", { query })} />}
+    />
+  );
 }

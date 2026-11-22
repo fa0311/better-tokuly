@@ -5,13 +5,23 @@ import i18n from "#/lib/i18n";
 export function formatDateTime(timestamp: Timestamp | Date | undefined): string {
   const date = timestamp instanceof Date ? timestamp : toDate(timestamp);
   if (!date) return "—";
-  return new Intl.DateTimeFormat(i18n.language, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(date);
+  return new Intl.DateTimeFormat(i18n.language, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }
 
 export function formatDate(timestamp: Timestamp | Date | undefined): string {
   const date = timestamp instanceof Date ? timestamp : toDate(timestamp);
   if (!date) return "—";
-  return new Intl.DateTimeFormat(i18n.language, { year: "numeric", month: "short", day: "numeric" }).format(date);
+  return new Intl.DateTimeFormat(i18n.language, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  }).format(date);
 }
 
 /** Whole numbers with grouping; the API sends counters as 64-bit integers. */
@@ -21,7 +31,10 @@ export function formatCount(value: bigint | number): string {
 
 /** 1,284 / 12.9K / 4.2M: for tiles where the exact figure is in the tooltip or table. */
 export function formatCompact(value: bigint | number): string {
-  return new Intl.NumberFormat(i18n.language, { notation: "compact", maximumFractionDigits: 1 }).format(value);
+  return new Intl.NumberFormat(i18n.language, {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
 }
 
 const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"] as const;

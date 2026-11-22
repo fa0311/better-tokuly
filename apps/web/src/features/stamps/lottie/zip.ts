@@ -23,7 +23,11 @@ export function listZipEntries(bytes: Uint8Array): ZipEntry[] {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   // The end record is at the very end, followed only by an optional comment (up to 64 KiB).
   let end = -1;
-  for (let position = bytes.length - 22; position >= Math.max(0, bytes.length - 22 - 0xffff); position--) {
+  for (
+    let position = bytes.length - 22;
+    position >= Math.max(0, bytes.length - 22 - 0xffff);
+    position--
+  ) {
     if (view.getUint32(position, true) === END_OF_CENTRAL_DIRECTORY) {
       end = position;
       break;
@@ -36,7 +40,8 @@ export function listZipEntries(bytes: Uint8Array): ZipEntry[] {
   const decoder = new TextDecoder();
   const entries: ZipEntry[] = [];
   for (let index = 0; index < count; index++) {
-    if (position + 46 > bytes.length || view.getUint32(position, true) !== CENTRAL_ENTRY) throw new Error("damaged ZIP directory");
+    if (position + 46 > bytes.length || view.getUint32(position, true) !== CENTRAL_ENTRY)
+      throw new Error("damaged ZIP directory");
     const nameLength = view.getUint16(position + 28, true);
     const extraLength = view.getUint16(position + 30, true);
     const commentLength = view.getUint16(position + 32, true);
@@ -55,11 +60,18 @@ export function listZipEntries(bytes: Uint8Array): ZipEntry[] {
 /** The uncompressed bytes of one entry. */
 export async function readZipEntry(bytes: Uint8Array, entry: ZipEntry): Promise<Uint8Array> {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (entry.offset + 30 > bytes.length || view.getUint32(entry.offset, true) !== LOCAL_ENTRY) throw new Error("damaged ZIP entry");
-  const start = entry.offset + 30 + view.getUint16(entry.offset + 26, true) + view.getUint16(entry.offset + 28, true);
+  if (entry.offset + 30 > bytes.length || view.getUint32(entry.offset, true) !== LOCAL_ENTRY)
+    throw new Error("damaged ZIP entry");
+  const start =
+    entry.offset +
+    30 +
+    view.getUint16(entry.offset + 26, true) +
+    view.getUint16(entry.offset + 28, true);
   const compressed = bytes.subarray(start, start + entry.compressedSize);
   if (entry.method === 0) return compressed;
   if (entry.method !== 8) throw new Error(`unsupported ZIP compression (${entry.method})`);
-  const inflated = new Blob([new Uint8Array(compressed)]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  const inflated = new Blob([new Uint8Array(compressed)])
+    .stream()
+    .pipeThrough(new DecompressionStream("deflate-raw"));
   return new Uint8Array(await new Response(inflated).arrayBuffer());
 }

@@ -103,7 +103,11 @@ export default {
       },
     },
     bio: { label: "ひとこと", placeholder: "すきなもの、ハマってること、なんでも！" },
-    school: { label: "学校", hint: "プロフィールにバッジで表示されて、同じ学校の人が見つかりやすくなるよ", placeholder: "例：とくり高校" },
+    school: {
+      label: "学校",
+      hint: "プロフィールにバッジで表示されて、同じ学校の人が見つかりやすくなるよ",
+      placeholder: "例：とくり高校",
+    },
     birthdate: { label: "誕生日", hint: "年齢の確認に使っています。公開されず、変更もできません" },
   },
 
@@ -116,9 +120,11 @@ export default {
       resend: "確認メールをもう一度送る",
       verificationSent: "{{email}} に確認メールを送りました！",
       change: "メールアドレスを変える",
-      changePending: "{{email}} に確認メールを送りました。メールのリンクをひらくと、新しいアドレスに切り替わります。",
+      changePending:
+        "{{email}} に確認メールを送りました。メールのリンクをひらくと、新しいアドレスに切り替わります。",
       changeTitle: "メールアドレスを変える",
-      changeLead: "新しいアドレスに確認メールを送ります。リンクをひらくまでは、いまのアドレスのままです。",
+      changeLead:
+        "新しいアドレスに確認メールを送ります。リンクをひらくまでは、いまのアドレスのままです。",
       newEmail: "新しいメールアドレス",
       changeSubmit: "確認メールを送る",
       changeSent: "確認メールを送りました。受信トレイを見てね！",
@@ -126,7 +132,8 @@ export default {
     password: {
       title: "パスワード",
       lead: "変更すると、ほかのデバイスはログアウトされます。",
-      leadNone: "まだパスワードがありません。設定しておくと、パスキーが使えないときもログインできます。",
+      leadNone:
+        "まだパスワードがありません。設定しておくと、パスキーが使えないときもログインできます。",
       current: "いまのパスワード",
       new: "新しいパスワード",
       newHint: "8文字以上",
@@ -168,7 +175,8 @@ export default {
       unsupported: "このブラウザはパスキーに対応していません",
       removed: "パスキーを削除しました",
       removeTitle: "「{{name}}」を削除する？",
-      removeBody: "このパスキーではログインできなくなります。デバイスに残ったパスキーは、デバイスの設定から消してね。",
+      removeBody:
+        "このパスキーではログインできなくなります。デバイスに残ったパスキーは、デバイスの設定から消してね。",
       removeConfirm: "削除する",
       defaultName: "このデバイス",
       addedToast: "パスキーを追加しました！",
@@ -197,7 +205,8 @@ export default {
       codeHint: "コードは30秒ごとに変わります",
       confirm: "オンにする",
       recoveryTitle: "リカバリーコードを保存してね",
-      recoveryLead: "スマホをなくしたときに、認証コードのかわりに使えます。それぞれ1回だけ使えて、もう一度表示することはできません。",
+      recoveryLead:
+        "スマホをなくしたときに、認証コードのかわりに使えます。それぞれ1回だけ使えて、もう一度表示することはできません。",
       recoveryDone: "保存しました",
       recoveryDownload: "ダウンロード",
       recoveryFileHeader: "Tokuly リカバリーコード（それぞれ1回だけ使えます）",
@@ -261,7 +270,8 @@ export default {
       approved: "承認しました！",
       approvedBody: "デバイスに戻ってね。まもなくログインされます。",
       denied: "拒否しました",
-      deniedBody: "このデバイスはログインできません。心当たりがなければ、パスワードの変更もおすすめです。",
+      deniedBody:
+        "このデバイスはログインできません。心当たりがなければ、パスワードの変更もおすすめです。",
       invalidBody: "デバイスでもう一度コードを表示して、ためしてみてね。",
       expired: "このコードは期限が切れています",
       used: "このコードはすでに使われています",
@@ -272,7 +282,12 @@ export default {
       deny: "拒否する",
       approve: "承認する",
       warning: "自分で始めたログインでなければ、かならず拒否してね。",
-      platforms: { web: "ブラウザ", ios: "iPhone / iPad", android: "Android", desktop: "デスクトップアプリ" },
+      platforms: {
+        web: "ブラウザ",
+        ios: "iPhone / iPad",
+        android: "Android",
+        desktop: "デスクトップアプリ",
+      },
     },
   },
 
@@ -286,7 +301,10 @@ export default {
     groups: {
       connect: { title: "つながり", lead: "だれがあなたを見つけて、ともだちになれるか。" },
       talk: { title: "メッセージと通話" },
-      map: { title: "マップでシェアするもの", lead: "位置といっしょに、ともだちに見せる情報です。" },
+      map: {
+        title: "マップでシェアするもの",
+        lead: "位置といっしょに、ともだちに見せる情報です。",
+      },
       history: { title: "あしあとと履歴", lead: "行った場所の記録と、それを見られる人。" },
       other: { title: "そのほか" },
     },
@@ -340,22 +358,46 @@ export default {
         NOBODY: "通話を受け取りません",
       },
     },
-    discoverable: { label: "「もしかして、友達!?」に出る", hint: "知り合いかも、や連絡先からの検索にあなたが表示されます" },
-    nearbyDiscoverable: { label: "近くの人に見つけてもらう", hint: "ともだち追加の画面をひらいている間、50m以内の人に表示されます" },
-    shareOnlineStatus: { label: "オンライン状態", hint: "アプリをひらいているとき、アイコンが光って見えます" },
+    discoverable: {
+      label: "「もしかして、友達!?」に出る",
+      hint: "知り合いかも、や連絡先からの検索にあなたが表示されます",
+    },
+    nearbyDiscoverable: {
+      label: "近くの人に見つけてもらう",
+      hint: "ともだち追加の画面をひらいている間、50m以内の人に表示されます",
+    },
+    shareOnlineStatus: {
+      label: "オンライン状態",
+      hint: "アプリをひらいているとき、アイコンが光って見えます",
+    },
     shareBattery: { label: "バッテリー残量", hint: "残量と、充電中かどうかをともだちに見せます" },
-    shareActivity: { label: "スピードと移動手段", hint: "歩いている、電車に乗っている、などが伝わります" },
-    sharePlaceLabels: { label: "おうち・学校・職場のバッジ", hint: "よくいる場所にいるとき、バッジで伝えます" },
+    shareActivity: {
+      label: "スピードと移動手段",
+      hint: "歩いている、電車に乗っている、などが伝わります",
+    },
+    sharePlaceLabels: {
+      label: "おうち・学校・職場のバッジ",
+      hint: "よくいる場所にいるとき、バッジで伝えます",
+    },
     shareNowPlaying: { label: "聴いている曲", hint: "連携した音楽サービスで再生中の曲を見せます" },
-    recordHistory: { label: "あしあとを記録する", hint: "行った場所がマップに残り、訪れた場所の記録がたまります" },
+    recordHistory: {
+      label: "あしあとを記録する",
+      hint: "行った場所がマップに残り、訪れた場所の記録がたまります",
+    },
     locationHistoryDays: {
       label: "位置情報の履歴を残す期間",
       hint: "1日のタイムラインや、移動ルートのふりかえりに使われます",
       forever: "ずっと残す",
       days: "{{count}}日間",
     },
-    shareViews: { label: "見たことを相手に伝える", hint: "プロフィールや位置を見たとき、相手の「見た人」に表示されます" },
-    defaultNoteVisibility: { label: "ノートのはじめの公開範囲", hint: "投稿するときに、毎回変えることもできます" },
+    shareViews: {
+      label: "見たことを相手に伝える",
+      hint: "プロフィールや位置を見たとき、相手の「見た人」に表示されます",
+    },
+    defaultNoteVisibility: {
+      label: "ノートのはじめの公開範囲",
+      hint: "投稿するときに、毎回変えることもできます",
+    },
     visibility: {
       PUBLIC: { label: "みんなに公開", hint: "だれでも見られて、フィードや検索にも出ます" },
       FRIENDS: { label: "ともだちだけ", hint: "ともだちにだけ表示されます" },
@@ -390,7 +432,10 @@ export default {
       calm: "しずか",
       wild: "ドパガキ",
       levels: {
-        "0": { name: "しずか", body: "アニメーションなし。画面がぱっと切り替わるだけ。目にも電池にもやさしい。" },
+        "0": {
+          name: "しずか",
+          body: "アニメーションなし。画面がぱっと切り替わるだけ。目にも電池にもやさしい。",
+        },
         "1": { name: "ひかえめ", body: "動きは最小限。サッとすばやく動いて、すぐ落ち着きます。" },
         "2": { name: "おだやか", body: "やわらかく動きます。お祝いのキラキラもすこしだけ。" },
         "3": { name: "ふつう", body: "ちょうどいいポップ感。まよったらこれ！" },
@@ -405,12 +450,26 @@ export default {
         "4": "動き：×1.3（大きめ） ・ キラキラ：10こ",
         "5": "動き：×1.6（最大） ・ キラキラ：13こ",
       },
-      preview: { title: "ともだちが近くにいるよ！", body: "こんなふうに動きます", replay: "もう一度" },
+      preview: {
+        title: "ともだちが近くにいるよ！",
+        body: "こんなふうに動きます",
+        replay: "もう一度",
+      },
     },
     accent: {
       title: "アクセントカラー",
       lead: "ボタンやリンクの色です。どのデバイスでも同じ色になります。",
-      colors: { violet: "むらさき", pink: "ピンク", coral: "コーラル", orange: "オレンジ", green: "みどり", teal: "ティール", blue: "あお", ink: "インク", custom: "カスタム" },
+      colors: {
+        violet: "むらさき",
+        pink: "ピンク",
+        coral: "コーラル",
+        orange: "オレンジ",
+        green: "みどり",
+        teal: "ティール",
+        blue: "あお",
+        ink: "インク",
+        custom: "カスタム",
+      },
     },
     map: {
       title: "マップ",
@@ -436,7 +495,8 @@ export default {
     lead: "ほかのサービスとつなぐと、Tokulyがもっと楽しくなるよ。",
     connected: "連携中",
     unavailable: "利用できません",
-    unavailableBody: "このサーバーでは{{provider}}との連携が設定されていません。サーバーの管理者におたずねください。",
+    unavailableBody:
+      "このサーバーでは{{provider}}との連携が設定されていません。サーバーの管理者におたずねください。",
     connectedAs: "{{account}} ・ {{date}}から",
     toPrivacy: "プライバシー設定をひらく",
     connect: "{{provider}}とつなぐ",
@@ -449,7 +509,8 @@ export default {
       spotify: {
         name: "Spotify",
         blurb: "いま聴いている曲を、プロフィールとマップでともだちにシェアできます。",
-        connectedHint: "再生中の曲がともだちに表示されます。見せたくないときは、プライバシーの「聴いている曲」をオフにしてね。",
+        connectedHint:
+          "再生中の曲がともだちに表示されます。見せたくないときは、プライバシーの「聴いている曲」をオフにしてね。",
       },
     },
     callback: {
@@ -467,7 +528,8 @@ export default {
       title: "データのエクスポート",
       lead: "プロフィール、ともだち、設定など、Tokulyにあるあなたのデータをまとめてダウンロードできます。",
       requested: "{{date}}にリクエストしました",
-      requestedBody: "用意ができたら、{{email}} にダウンロードリンクをメールします。リンクは{{days}}日間有効です。",
+      requestedBody:
+        "用意ができたら、{{email}} にダウンロードリンクをメールします。リンクは{{days}}日間有効です。",
       requestedNoEmail: "ダウンロードリンクはメールで届きます。先にメールアドレスを登録してね。",
       how: "リクエストすると、準備ができしだい {{email}} にダウンロードリンクをメールします（{{days}}日間有効）。",
       request: "データをリクエスト",

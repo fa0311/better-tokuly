@@ -1,7 +1,18 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { common, plans, toDate } from "@tokuly/api";
-import { BellRing, CalendarClock, CalendarPlus, DoorOpen, Flag, MapPin, MoreHorizontal, Pencil, Send, XCircle } from "lucide-react";
+import {
+  BellRing,
+  CalendarClock,
+  CalendarPlus,
+  DoorOpen,
+  Flag,
+  MapPin,
+  MoreHorizontal,
+  Pencil,
+  Send,
+  XCircle,
+} from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -20,7 +31,16 @@ import { keys, nameOf, planClient, rememberPlan, usePlan } from "../api";
 import { formatDay, ymd } from "../dates";
 import { buildIcs, downloadIcs } from "../ics";
 import { Checklist } from "./checklist";
-import { formFromPlan, formProblem, isHostLike, type PlanFormValue, planIcsEvent, planTimeText, toUpdateRequest, untilText } from "./model";
+import {
+  formFromPlan,
+  formProblem,
+  isHostLike,
+  type PlanFormValue,
+  planIcsEvent,
+  planTimeText,
+  toUpdateRequest,
+  untilText,
+} from "./model";
 import { Participants } from "./participants";
 import { PlanForm } from "./plan-form";
 import { RsvpCard } from "./rsvp";
@@ -47,7 +67,10 @@ export function PlanScreen({ planId }: { planId: string }) {
           title={t("plan.notFound")}
           body={t("plan.notFoundBody")}
           action={
-            <Link to="/plans" className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand">
+            <Link
+              to="/plans"
+              className="pressable sticker inline-flex h-11 items-center rounded-full bg-brand px-5 font-bold text-on-brand"
+            >
               {t("plan.backToPlans")}
             </Link>
           }
@@ -70,13 +93,16 @@ function LoadedPlan({ plan }: { plan: plans.Plan }) {
   const [reporting, setReporting] = useState(false);
 
   const cancelled = plan.status === plans.PlanStatus.CANCELLED;
-  const host = plan.participants.find((participant) => participant.role === plans.PlanRole.HOST)?.user;
+  const host = plan.participants.find(
+    (participant) => participant.role === plans.PlanRole.HOST,
+  )?.user;
   const iAmHost = plan.myRole === plans.PlanRole.HOST;
   const subject = { type: common.SubjectType.PLAN, id: plan.id };
   const onError = (error: unknown) => toast.error(errorMessage(error, { namespace: "plans" }));
 
   const update = useMutation({
-    mutationFn: (edit: { before: PlanFormValue; value: PlanFormValue }) => planClient().updatePlan(toUpdateRequest(plan.id, edit.before, edit.value)),
+    mutationFn: (edit: { before: PlanFormValue; value: PlanFormValue }) =>
+      planClient().updatePlan(toUpdateRequest(plan.id, edit.before, edit.value)),
     onSuccess: (response) => {
       rememberPlan(queryClient, response.plan);
       setEditing(undefined);
@@ -108,15 +134,49 @@ function LoadedPlan({ plan }: { plan: plans.Plan }) {
     },
   });
 
-  const addToCalendar = () => downloadIcs(`${plan.title || "plan"}.ics`, buildIcs([planIcsEvent(plan, `${window.location.origin}/plans/${plan.id}`)]));
+  const addToCalendar = () =>
+    downloadIcs(
+      `${plan.title || "plan"}.ics`,
+      buildIcs([planIcsEvent(plan, `${window.location.origin}/plans/${plan.id}`)]),
+    );
   const hasDay = Boolean(plan.time?.start.case);
   const actions: MenuAction[] = [
-    ...(isHostLike(plan) && !cancelled ? [{ label: t("plan.menu.edit"), icon: <Pencil />, onSelect: () => setEditing({ before: formFromPlan(plan), value: formFromPlan(plan) }) }] : []),
-    ...(hasDay && !cancelled ? [{ label: t("plan.menu.calendar"), icon: <CalendarPlus />, onSelect: addToCalendar }] : []),
+    ...(isHostLike(plan) && !cancelled
+      ? [
+          {
+            label: t("plan.menu.edit"),
+            icon: <Pencil />,
+            onSelect: () => setEditing({ before: formFromPlan(plan), value: formFromPlan(plan) }),
+          },
+        ]
+      : []),
+    ...(hasDay && !cancelled
+      ? [{ label: t("plan.menu.calendar"), icon: <CalendarPlus />, onSelect: addToCalendar }]
+      : []),
     { label: t("plan.menu.share"), icon: <Send />, onSelect: () => setSharing(true) },
-    ...(iAmHost ? [] : [{ label: t("plan.menu.report"), icon: <Flag />, onSelect: () => setReporting(true) }]),
-    ...(iAmHost ? [] : [{ label: t("plan.menu.leave"), icon: <DoorOpen />, danger: true, onSelect: () => setLeaving(true) }]),
-    ...(iAmHost && !cancelled ? [{ label: t("plan.menu.cancel"), icon: <XCircle />, danger: true, onSelect: () => setCancelling(true) }] : []),
+    ...(iAmHost
+      ? []
+      : [{ label: t("plan.menu.report"), icon: <Flag />, onSelect: () => setReporting(true) }]),
+    ...(iAmHost
+      ? []
+      : [
+          {
+            label: t("plan.menu.leave"),
+            icon: <DoorOpen />,
+            danger: true,
+            onSelect: () => setLeaving(true),
+          },
+        ]),
+    ...(iAmHost && !cancelled
+      ? [
+          {
+            label: t("plan.menu.cancel"),
+            icon: <XCircle />,
+            danger: true,
+            onSelect: () => setCancelling(true),
+          },
+        ]
+      : []),
   ];
   const until = !cancelled && !plan.over ? untilText(plan.time, t) : undefined;
   const cancelledAt = toDate(plan.cancelledAt);
@@ -142,7 +202,10 @@ function LoadedPlan({ plan }: { plan: plans.Plan }) {
         <div className="flex flex-col gap-6">
           <Card className="animate-pop-in">
             <div className="flex items-start gap-4">
-              <span className="grid size-20 shrink-0 place-items-center rounded-[1.4rem] border-[2.5px] border-ink bg-brand-soft text-5xl" aria-hidden>
+              <span
+                className="grid size-20 shrink-0 place-items-center rounded-[1.4rem] border-[2.5px] border-ink bg-brand-soft text-5xl"
+                aria-hidden
+              >
                 {plan.emoji || "📅"}
               </span>
               <div className="min-w-0 flex-1">
@@ -162,8 +225,12 @@ function LoadedPlan({ plan }: { plan: plans.Plan }) {
 
             {cancelled && (
               <p className="mt-4 rounded-2xl bg-danger/10 px-4 py-3 text-sm font-bold">
-                {t("plan.cancelledBanner", { date: cancelledAt ? formatDay(ymd(cancelledAt), i18n.language) : "" })}
-                {plan.cancelReason && <span className="mt-1 block font-medium">「{plan.cancelReason}」</span>}
+                {t("plan.cancelledBanner", {
+                  date: cancelledAt ? formatDay(ymd(cancelledAt), i18n.language) : "",
+                })}
+                {plan.cancelReason && (
+                  <span className="mt-1 block font-medium">「{plan.cancelReason}」</span>
+                )}
               </p>
             )}
 
@@ -183,24 +250,43 @@ function LoadedPlan({ plan }: { plan: plans.Plan }) {
                   </dt>
                   <dd className="min-w-0 flex-1 self-center">
                     <span className="block font-bold break-words">{plan.place.name}</span>
-                    {plan.place.address && <span className="block text-sm break-words text-ink-soft">{plan.place.address}</span>}
+                    {plan.place.address && (
+                      <span className="block text-sm break-words text-ink-soft">
+                        {plan.place.address}
+                      </span>
+                    )}
                   </dd>
                 </div>
               )}
-              {!cancelled && !plan.over && hasDay && (plan.remindDayBefore || plan.remindMinutesBefore > 0) && (
-                <div className="flex items-start gap-3">
-                  <dt className="grid size-9 shrink-0 place-items-center rounded-xl bg-pink text-white">
-                    <BellRing className="size-5" aria-label={t("plan.reminders")} />
-                  </dt>
-                  <dd className="min-w-0 flex-1 self-center text-sm font-bold text-ink-soft">
-                    {[plan.remindDayBefore ? t("plan.remindDayBefore") : "", plan.remindMinutesBefore > 0 && plan.time?.start.case === "startAt" ? t("plan.remindMinutes", { count: plan.remindMinutesBefore }) : ""].filter(Boolean).join(" · ") ||
-                      t("plan.remindDayBefore")}
-                  </dd>
-                </div>
-              )}
+              {!cancelled &&
+                !plan.over &&
+                hasDay &&
+                (plan.remindDayBefore || plan.remindMinutesBefore > 0) && (
+                  <div className="flex items-start gap-3">
+                    <dt className="grid size-9 shrink-0 place-items-center rounded-xl bg-pink text-white">
+                      <BellRing className="size-5" aria-label={t("plan.reminders")} />
+                    </dt>
+                    <dd className="min-w-0 flex-1 self-center text-sm font-bold text-ink-soft">
+                      {[
+                        plan.remindDayBefore ? t("plan.remindDayBefore") : "",
+                        plan.remindMinutesBefore > 0 && plan.time?.start.case === "startAt"
+                          ? t("plan.remindMinutes", { count: plan.remindMinutesBefore })
+                          : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" · ") || t("plan.remindDayBefore")}
+                    </dd>
+                  </div>
+                )}
             </dl>
-            {plan.description && <p className="mt-4 leading-relaxed break-words whitespace-pre-wrap">{plan.description}</p>}
-            <p className="mt-4 text-sm font-bold text-ink-faint">{t("plan.hostedBy", { name: nameOf(host) })}</p>
+            {plan.description && (
+              <p className="mt-4 leading-relaxed break-words whitespace-pre-wrap">
+                {plan.description}
+              </p>
+            )}
+            <p className="mt-4 text-sm font-bold text-ink-faint">
+              {t("plan.hostedBy", { name: nameOf(host) })}
+            </p>
           </Card>
 
           <RsvpCard plan={plan} />
@@ -219,19 +305,63 @@ function LoadedPlan({ plan }: { plan: plans.Plan }) {
         onOpenChange={(open) => !open && setEditing(undefined)}
         title={t("plan.editTitle")}
         footer={
-          <Button loading={update.isPending} disabled={Boolean(editProblem)} onClick={() => editing && update.mutate(editing)}>
+          <Button
+            loading={update.isPending}
+            disabled={Boolean(editProblem)}
+            onClick={() => editing && update.mutate(editing)}
+          >
             {t("plan.save")}
           </Button>
         }
       >
-        {editing && <PlanForm value={editing.value} onChange={(value) => setEditing({ ...editing, value })} problem={editProblem ? t(`plan.form.errors.${editProblem}`) : null} />}
+        {editing && (
+          <PlanForm
+            value={editing.value}
+            onChange={(value) => setEditing({ ...editing, value })}
+            problem={editProblem ? t(`plan.form.errors.${editProblem}`) : null}
+          />
+        )}
       </Dialog>
-      <ConfirmDialog open={cancelling} onOpenChange={setCancelling} title={t("plan.cancelTitle")} description={t("plan.cancelBody")} confirmLabel={t("plan.cancelConfirm")} danger loading={cancel.isPending} onConfirm={() => cancel.mutate()}>
-        <TextField label={t("plan.cancelReason")} placeholder={t("plan.cancelReasonPlaceholder")} value={reason} maxLength={200} onChange={(event) => setReason(event.target.value)} />
+      <ConfirmDialog
+        open={cancelling}
+        onOpenChange={setCancelling}
+        title={t("plan.cancelTitle")}
+        description={t("plan.cancelBody")}
+        confirmLabel={t("plan.cancelConfirm")}
+        danger
+        loading={cancel.isPending}
+        onConfirm={() => cancel.mutate()}
+      >
+        <TextField
+          label={t("plan.cancelReason")}
+          placeholder={t("plan.cancelReasonPlaceholder")}
+          value={reason}
+          maxLength={200}
+          onChange={(event) => setReason(event.target.value)}
+        />
       </ConfirmDialog>
-      <ConfirmDialog open={leaving} onOpenChange={setLeaving} title={t("plan.leaveTitle")} description={t("plan.leaveBody")} confirmLabel={t("plan.leaveConfirm")} danger loading={leave.isPending} onConfirm={() => leave.mutate()} />
-      <ShareToChat open={sharing} onOpenChange={setSharing} share={{ url: `${window.location.origin}/plans/${plan.id}` }} title={plan.title} />
-      <ReportDialog subject={subject} open={reporting} onOpenChange={setReporting} label={plan.title} />
+      <ConfirmDialog
+        open={leaving}
+        onOpenChange={setLeaving}
+        title={t("plan.leaveTitle")}
+        description={t("plan.leaveBody")}
+        confirmLabel={t("plan.leaveConfirm")}
+        danger
+        loading={leave.isPending}
+        onConfirm={() => leave.mutate()}
+      />
+      <ShareToChat
+        open={sharing}
+        onOpenChange={setSharing}
+        share={{ url: `${window.location.origin}/plans/${plan.id}` }}
+        title={plan.title}
+      />
+      <ReportDialog
+        subject={subject}
+        open={reporting}
+        onOpenChange={setReporting}
+        label={plan.title}
+      />
     </Page>
   );
 }

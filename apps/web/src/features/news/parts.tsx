@@ -18,7 +18,14 @@ export function PublishedAt({ at, className }: { at: Timestamp | undefined; clas
   const date = new Date(millis);
   const recent = Date.now() - millis < WEEK_MS;
   const sameYear = date.getFullYear() === new Date().getFullYear();
-  const label = recent ? compactAge(millis) : new Intl.DateTimeFormat(i18n.language, sameYear ? { month: "short", day: "numeric" } : { year: "numeric", month: "short", day: "numeric" }).format(date);
+  const label = recent
+    ? compactAge(millis)
+    : new Intl.DateTimeFormat(
+        i18n.language,
+        sameYear
+          ? { month: "short", day: "numeric" }
+          : { year: "numeric", month: "short", day: "numeric" },
+      ).format(date);
   return (
     <time dateTime={date.toISOString()} className={className}>
       {label}
@@ -27,9 +34,16 @@ export function PublishedAt({ at, className }: { at: Timestamp | undefined; clas
 }
 
 /** A source's icon: its favicon, or a globe when it has none (or it fails to load). */
-export function SourceIcon({ source, className }: { source: Pick<feed.NewsSource, "faviconUrl"> | undefined; className?: string }) {
+export function SourceIcon({
+  source,
+  className,
+}: {
+  source: Pick<feed.NewsSource, "faviconUrl"> | undefined;
+  className?: string;
+}) {
   const [broken, setBroken] = useState(false);
-  if (!source?.faviconUrl || broken) return <Globe className={cn("size-4 shrink-0 text-ink-faint", className)} aria-hidden />;
+  if (!source?.faviconUrl || broken)
+    return <Globe className={cn("size-4 shrink-0 text-ink-faint", className)} aria-hidden />;
   return (
     <img
       src={source.faviconUrl}
@@ -49,7 +63,13 @@ export function SourceIcon({ source, className }: { source: Pick<feed.NewsSource
 export function RandomPickChip({ className }: { className?: string }) {
   const { t } = useTranslation("news");
   return (
-    <span title={t("random.explain")} className={cn("inline-flex h-6 shrink-0 items-center gap-1 rounded-full border-2 border-ink bg-sun px-2 text-[11px] font-black whitespace-nowrap text-[#17122b]", className)}>
+    <span
+      title={t("random.explain")}
+      className={cn(
+        "inline-flex h-6 shrink-0 items-center gap-1 rounded-full border-2 border-ink bg-sun px-2 text-[11px] font-black whitespace-nowrap text-[#17122b]",
+        className,
+      )}
+    >
       <Dices className="size-3.5" />
       {t("random.label")}
     </span>
@@ -59,14 +79,29 @@ export function RandomPickChip({ className }: { className?: string }) {
 /** A tag as a link to the list filtered by it. */
 export function TagLink({ tag, className }: { tag: string; className?: string }) {
   return (
-    <Link to="/news" search={{ tag }} className={cn("inline-flex h-7 max-w-full items-center rounded-full bg-surface-2 px-2.5 text-xs font-bold text-ink-soft hover:bg-surface-3 hover:text-ink", className)}>
+    <Link
+      to="/news"
+      search={{ tag }}
+      className={cn(
+        "inline-flex h-7 max-w-full items-center rounded-full bg-surface-2 px-2.5 text-xs font-bold text-ink-soft hover:bg-surface-3 hover:text-ink",
+        className,
+      )}
+    >
       <span className="truncate">#{tag}</span>
     </Link>
   );
 }
 
 /** "More like this" / "less like this": two toggles; pressing the chosen one again takes the feedback back. */
-export function FeedbackButtons({ article, compact, className }: { article: feed.NewsArticle; /** Icons only (cards). */ compact?: boolean; className?: string }) {
+export function FeedbackButtons({
+  article,
+  compact,
+  className,
+}: {
+  article: feed.NewsArticle /** Icons only (cards). */;
+  compact?: boolean;
+  className?: string;
+}) {
   const { t } = useTranslation("news");
   const feedback = useFeedback();
   const button = (value: feed.NewsFeedback, label: string, Icon: typeof ThumbsUp, tint: string) => {
@@ -77,11 +112,15 @@ export function FeedbackButtons({ article, compact, className }: { article: feed
         aria-pressed={pressed}
         aria-label={compact ? label : undefined}
         title={compact ? label : undefined}
-        onClick={() => feedback.mutate({ article, feedback: toggledFeedback(article.feedback, value) })}
+        onClick={() =>
+          feedback.mutate({ article, feedback: toggledFeedback(article.feedback, value) })
+        }
         className={cn(
           "pressable inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full border-2 font-bold transition-colors",
           compact ? "size-9" : "h-11 min-w-0 flex-1 px-4 text-sm",
-          pressed ? cn("border-ink shadow-pop-sm", tint) : "border-line bg-surface text-ink-soft hover:border-ink-faint hover:text-ink",
+          pressed
+            ? cn("border-ink shadow-pop-sm", tint)
+            : "border-line bg-surface text-ink-soft hover:border-ink-faint hover:text-ink",
         )}
       >
         <Icon className={cn("shrink-0", compact ? "size-4" : "size-[18px]")} />

@@ -1,4 +1,9 @@
-import { type InfiniteData, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  type InfiniteData,
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 import type { common, social } from "@tokuly/api";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,8 +13,8 @@ import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, ListRow, Skeleton } from "#/components/ui/page";
-import { friendClient, keys } from "../data";
 import { errorMessage } from "#/lib/errors";
+import { friendClient, keys } from "../data";
 import { SettingsPage } from "../shell/settings-page";
 
 /** `/settings/privacy/blocked`: the people you blocked, most recent first, each with "unblock". */
@@ -18,19 +23,33 @@ export function BlockedUsersScreen() {
   const queryClient = useQueryClient();
   const query = useInfiniteQuery({
     queryKey: keys.blocked,
-    queryFn: ({ pageParam }) => friendClient().listBlockedUsers({ page: { limit: 30, cursor: pageParam } }),
+    queryFn: ({ pageParam }) =>
+      friendClient().listBlockedUsers({ page: { limit: 30, cursor: pageParam } }),
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
-  const [confirming, setConfirming] = useState<{ user: common.UserSummary | null; open: boolean }>({ user: null, open: false });
+  const [confirming, setConfirming] = useState<{ user: common.UserSummary | null; open: boolean }>({
+    user: null,
+    open: false,
+  });
   const close = () => setConfirming((current) => ({ ...current, open: false }));
 
   const unblock = useMutation({
     mutationFn: (user: common.UserSummary) => friendClient().unblockUser({ userId: user.id }),
     onSuccess: (_, user) => {
       // Drop the row at once; the profile and friend screens re-read their side.
-      queryClient.setQueryData<InfiniteData<social.ListBlockedUsersResponse>>(keys.blocked, (data) =>
-        data ? { ...data, pages: data.pages.map((page) => ({ ...page, users: page.users.filter((blocked) => blocked.id !== user.id) })) } : data,
+      queryClient.setQueryData<InfiniteData<social.ListBlockedUsersResponse>>(
+        keys.blocked,
+        (data) =>
+          data
+            ? {
+                ...data,
+                pages: data.pages.map((page) => ({
+                  ...page,
+                  users: page.users.filter((blocked) => blocked.id !== user.id),
+                })),
+              }
+            : data,
       );
       toast.success(t("privacy.blocked.unblocked", { name: user.displayName }));
       close();
@@ -55,7 +74,11 @@ export function BlockedUsersScreen() {
           ))}
         </div>
       ) : users.length === 0 ? (
-        <EmptyState emoji="🕊️" title={t("privacy.blocked.empty")} body={t("privacy.blocked.emptyBody")} />
+        <EmptyState
+          emoji="🕊️"
+          title={t("privacy.blocked.empty")}
+          body={t("privacy.blocked.emptyBody")}
+        />
       ) : (
         <>
           <ul className="sticker rounded-card bg-surface p-2">
@@ -66,7 +89,12 @@ export function BlockedUsersScreen() {
                   title={user.displayName}
                   subtitle={`@${user.handle}`}
                   trailing={
-                    <Button size="sm" variant="secondary" className="shrink-0" onClick={() => setConfirming({ user, open: true })}>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="shrink-0"
+                      onClick={() => setConfirming({ user, open: true })}
+                    >
                       {t("privacy.blocked.unblock")}
                     </Button>
                   }
