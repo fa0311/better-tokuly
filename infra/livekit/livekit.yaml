@@ -7,5 +7,15 @@ rtc:
   # On a server with a public address set this to true so clients are told
   # that address; on a laptop or LAN the container's view of itself is enough.
   use_external_ip: false
+# LiveKit tells the API the moment someone connects to or leaves a room, so
+# that a connection without a seat (a banned or removed person coming back
+# on a token that has not expired yet) is cut at once. The request is
+# signed with the key pair below; `api_key` must be the LIVEKIT_API_KEY of
+# compose.yaml. Deliveries that fail are retried and then dropped: calls
+# and rooms work without them, only less promptly.
+webhook:
+  api_key: tokuly
+  urls:
+    - http://api:8081/spaces/livekit/webhook
 logging:
   level: info
