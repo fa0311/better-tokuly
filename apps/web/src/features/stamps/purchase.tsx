@@ -35,7 +35,7 @@ export function PurchaseDialog({ pack, open, onOpenChange }: { pack: stamp.PackS
       return Promise.all([refreshHoldings(queryClient), refreshBalance()]);
     },
     onError: (error) => {
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "stamps" }));
       const reason = errorReason(error);
       // The price or the balance on screen is out of date: show the real ones.
       if (reason === "PRICE_CHANGED") void queryClient.invalidateQueries({ queryKey: stampKeys.all });

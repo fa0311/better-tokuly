@@ -29,6 +29,8 @@ mkdir -p "$BIN" "$DATA" "$LOGS" "$RUN"
 : "${P_MEDIAMTX_RTMP:=1935}" "${P_MEDIAMTX_HLS:=8888}" "${P_MEDIAMTX_WEBRTC:=8889}" "${P_MEDIAMTX_API:=9997}"
 : "${P_MEDIAMTX_SRT:=8890}" "${P_MEDIAMTX_ICE:=8189}" "${P_MEDIAMTX_RTSP:=8554}"
 : "${P_LIVEKIT:=7880}" "${P_LIVEKIT_TCP:=7881}" "${P_LIVEKIT_UDP:=7882}"
+# Where the API listens (TOKULY_API_LISTEN): LiveKit posts its webhook there.
+: "${P_API:=8081}"
 : "${PG_BIN:=$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1)}"
 
 NATS_VERSION=2.15.3
@@ -155,8 +157,8 @@ up() {
     start mediamtx "$BIN/mediamtx" "$TOKULY_MEDIAMTX_CONFIG"
   fi
   if [ "${TOKULY_DEV_LIVEKIT:-1}" = "1" ]; then
-    start livekit "$BIN/livekit-server" --config-body "$(printf 'port: %s\nbind_addresses: ["127.0.0.1"]\nrtc:\n  tcp_port: %s\n  udp_port: %s\n  use_external_ip: false\nkeys:\n  %s: %s\nlogging:\n  level: info\n' \
-      "$P_LIVEKIT" "$P_LIVEKIT_TCP" "$P_LIVEKIT_UDP" "$LIVEKIT_KEY" "$LIVEKIT_SECRET")"
+    start livekit "$BIN/livekit-server" --config-body "$(printf 'port: %s\nbind_addresses: ["127.0.0.1"]\nrtc:\n  tcp_port: %s\n  udp_port: %s\n  use_external_ip: false\nkeys:\n  %s: %s\nwebhook:\n  api_key: %s\n  urls:\n    - http://127.0.0.1:%s/spaces/livekit/webhook\nlogging:\n  level: info\n' \
+      "$P_LIVEKIT" "$P_LIVEKIT_TCP" "$P_LIVEKIT_UDP" "$LIVEKIT_KEY" "$LIVEKIT_SECRET" "$LIVEKIT_KEY" "$P_API")"
   fi
   wait_port valkey "$P_VALKEY" || true
   wait_port nats "$P_NATS" || true

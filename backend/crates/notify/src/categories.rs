@@ -126,12 +126,12 @@ pub const CATEGORIES: &[Category] = &[
     },
     Category {
         id: "stamp",
-        label: ("スタンプ", "Stamps"),
+        label: ("スタンプ・絵文字", "Stamps & emoji"),
         description: (
-            "スタンプパックの審査結果や売れ行き",
-            "Stamp pack reviews and sales",
+            "スタンプパックの審査結果や売れ行き、絵文字の審査結果",
+            "Stamp pack reviews and sales, emoji reviews",
         ),
-        prefixes: &["stamp", "stamps"],
+        prefixes: &["stamp", "stamps", "emoji"],
         inbox_locked: false,
         high_priority: false,
     },
@@ -143,6 +143,39 @@ pub const CATEGORIES: &[Category] = &[
             "Coins received, purchases and payouts",
         ),
         prefixes: &["wallet"],
+        inbox_locked: false,
+        high_priority: false,
+    },
+    Category {
+        id: "ask",
+        label: ("質問箱・ほめ投票", "Questions & compliments"),
+        description: (
+            "届いた質問、回答、お題、ほめ投票",
+            "Questions you receive, answers, prompts and compliment polls",
+        ),
+        prefixes: &["ask"],
+        inbox_locked: false,
+        high_priority: false,
+    },
+    Category {
+        id: "plans",
+        label: ("予定・ひま", "Plans & free time"),
+        description: (
+            "ひまな友達、予定のおさそい、リマインダー、日程調整、記念日",
+            "Friends who are free, invitations, reminders, date polls and anniversaries",
+        ),
+        prefixes: &["plans", "plan"],
+        inbox_locked: false,
+        high_priority: true,
+    },
+    Category {
+        id: "school",
+        label: ("学校・勉強", "School & study"),
+        description: (
+            "次の授業、課題のしめきり、勉強部屋、応援",
+            "Next class, assignments due, study rooms and cheers",
+        ),
+        prefixes: &["school", "study"],
         inbox_locked: false,
         high_priority: false,
     },
@@ -247,7 +280,7 @@ mod tests {
             .filter(|c| c.high_priority)
             .map(|c| c.id)
             .collect();
-        assert_eq!(high, ["social", "chat", "geo", "live", "system"]);
+        assert_eq!(high, ["social", "chat", "geo", "live", "plans", "system"]);
     }
 
     #[test]
