@@ -35,6 +35,8 @@ const MAX_NOTE: usize = 60;
 const MAX_AREA_NAME: usize = 40;
 const MAX_CHOSEN: usize = 50;
 const MAX_ANSWER: usize = 100;
+/// "あそぼ!" answers one person may send the same friend in a minute.
+const ANSWERS_PER_FRIEND: u32 = 10;
 /// Most friends one user can ask to be told about.
 const MAX_ALERTS: i64 = 200;
 /// Longest custom window, and how far ahead one may start.
@@ -43,6 +45,9 @@ const MAX_AHEAD_DAYS: i64 = 30;
 /// When a status for best friends is set, at most this many of the friends
 /// who asked to be told are checked for being one (most recent requests first).
 const MAX_BEST_FRIEND_CHECKS: usize = 100;
+/// A friend who asked to be told hears about the same person at most once
+/// in this many minutes, however many different windows that person sets.
+const ALERT_PAUSE_MINUTES: i32 = 60;
 /// "Tonight" begins at this local hour.
 const TONIGHT_HOUR: u32 = 18;
 /// Where free statuses live in the app.
@@ -207,8 +212,17 @@ impl Plans {
             created_at: now,
         };
         let owner = tokuly_identity::summary(core, user_id).await?;
-        let told = self.friends_to_tell(&draft).await?;
+        let asked = self.friends_who_asked(&draft).await?;
         let previous = self.current_free_status(user_id).await?;
+        // Who sees the new status live, and who saw the old one.
+        let reached = match self.free_audience(&draft).await? {
+            Some(friends) => friends,
+            None => asked.clone(),
+        };
+        let before = match &previous {
+            Some(previous) => self.reached_by(previous).await?,
+            None => Vec::new(),
+        };
 
         let mut tx = core.db.begin().await?;
         // One status per user: two racing calls replace each other in turn.
@@ -245,44 +259,39 @@ impl Plans {
         };
         bus::emit(&mut *tx, FREE_SET, Some(user_id), &set).await?;
 
-        // The friends who asked to be told, as far as they may see this status.
-        if !told.is_empty() {
-            let line = copy::free_line(copy::free_window(window, starts_at, now, zone), &row.note);
-            let text = copy::friend_free(&people::name_of(&owner), line);
-            for friend in &told {
-                let request = NotificationRequest::new(
-                    *friend,
-                    "plans.friend_free",
-                    text.title.clone(),
-                    text.body.clone(),
-                    FREE_PATH,
-                )
-                .actor(user_id)
-                .subject(SubjectType::SUBJECT_TYPE_USER, user_id)
-                .collapse(format!("plans.friend_free:{user_id}"))
-                .data(serde_json::json!({ "status_id": row.id }));
-                outbound::notify(&mut *tx, &request).await?;
-            }
-            sqlx::query("UPDATE free_alerts SET notified_starts_at = $3, notified_ends_at = $4 WHERE friend_id = $1 AND user_id = ANY($2)")
-                .bind(user_id)
-                .bind(&told)
-                .bind(starts_at)
-                .bind(ends_at)
-                .execute(&mut *tx)
-                .await?;
+        // Of the friends who asked to be told and may see this status, the
+        // ones who have not heard about this window yet (and not about
+        // anything in the last hour). Claimed here, under the lock, so that
+        // two calls at once cannot both announce the same window.
+        let told: Vec<Uuid> = sqlx::query_scalar(
+            "UPDATE free_alerts SET notified_starts_at = $3, notified_ends_at = $4, notified_at = now()
+             WHERE friend_id = $1 AND user_id = ANY($2)
+               AND NOT COALESCE(notified_starts_at < $4 AND notified_ends_at > $3, false)
+               AND NOT COALESCE(notified_at > now() - make_interval(mins => $5), false)
+             RETURNING user_id",
+        )
+        .bind(user_id)
+        .bind(&asked)
+        .bind(starts_at)
+        .bind(ends_at)
+        .bind(ALERT_PAUSE_MINUTES)
+        .fetch_all(&mut *tx)
+        .await?;
+        let line = copy::free_line(copy::free_window(window, starts_at, now, zone), &row.note);
+        let text = copy::friend_free(&people::name_of(&owner), line);
+        for friend in told {
+            let request =
+                NotificationRequest::new(friend, "plans.friend_free", text.title.clone(), text.body.clone(), FREE_PATH)
+                    .actor(user_id)
+                    .subject(SubjectType::SUBJECT_TYPE_USER, user_id)
+                    .collapse(format!("plans.friend_free:{user_id}"))
+                    .data(serde_json::json!({ "status_id": row.id }));
+            outbound::notify(&mut *tx, &request).await?;
         }
         tx.commit().await?;
 
         // Live "who is free" lists: the friends who see the new status get
         // it, the ones who only saw the old one see it end.
-        let reached = match self.free_audience(&row).await? {
-            Some(friends) => friends,
-            None => told,
-        };
-        let before = match &previous {
-            Some(previous) => self.free_audience(previous).await?.unwrap_or_default(),
-            None => Vec::new(),
-        };
         let seen_by: HashSet<Uuid> = reached.iter().copied().collect();
         let status = row.to_proto(owner, now);
         self.push(
@@ -303,9 +312,7 @@ impl Plans {
     pub(crate) async fn clear_free_status(&self, user_id: Uuid) -> AppResult<()> {
         let Some(row) = self.current_free_status(user_id).await? else { return Ok(()) };
         sqlx::query("DELETE FROM free_statuses WHERE id = $1").bind(row.id).execute(&self.core.db).await?;
-        if let Some(friends) = self.free_audience(&row).await? {
-            self.push(friends, free_ended(user_id)).await;
-        }
+        self.push(self.reached_by(&row).await?, free_ended(user_id)).await;
         Ok(())
     }
 
@@ -356,19 +363,24 @@ impl Plans {
         })
     }
 
-    /// The friends to notify about a new status: they asked to be told about
-    /// the owner, may see the status, and have not been told about a window
-    /// overlapping this one.
-    async fn friends_to_tell(&self, row: &FreeRow) -> AppResult<Vec<Uuid>> {
+    /// The friends a status is pushed to: its audience, or — for best
+    /// friends, who cannot be listed — the best friends who asked to be told.
+    async fn reached_by(&self, row: &FreeRow) -> AppResult<Vec<Uuid>> {
+        match self.free_audience(row).await? {
+            Some(friends) => Ok(friends),
+            None => self.friends_who_asked(row).await,
+        }
+    }
+
+    /// The friends who asked to be told about the owner of a status and may
+    /// see it. (Whether they have already heard about its window is decided
+    /// when the status is stored.)
+    async fn friends_who_asked(&self, row: &FreeRow) -> AppResult<Vec<Uuid>> {
         let core = &self.core;
         let waiting: Vec<Uuid> = sqlx::query_scalar(
-            "SELECT user_id FROM free_alerts
-             WHERE friend_id = $1 AND NOT COALESCE(notified_starts_at < $3 AND notified_ends_at > $2, false)
-             ORDER BY created_at DESC, user_id",
+            "SELECT user_id FROM free_alerts WHERE friend_id = $1 ORDER BY created_at DESC, user_id",
         )
         .bind(row.user_id)
-        .bind(row.starts_at)
-        .bind(row.ends_at)
         .fetch_all(&core.db)
         .await?;
         if waiting.is_empty() {
@@ -384,13 +396,13 @@ impl Plans {
             FreeAudience::FREE_AUDIENCE_BEST_FRIENDS => {
                 // Best friends are asked about one by one (see `Plans::friendship`),
                 // so only so many of the people waiting are considered.
-                let mut told = Vec::new();
+                let mut asked = Vec::new();
                 for friend in waiting.take(MAX_BEST_FRIEND_CHECKS) {
                     if self.is_best_friend(row.user_id, friend).await? {
-                        told.push(friend);
+                        asked.push(friend);
                     }
                 }
-                Ok(told)
+                Ok(asked)
             }
             FreeAudience::FREE_AUDIENCE_UNSPECIFIED => Ok(Vec::new()),
         }
@@ -402,10 +414,14 @@ impl Plans {
         let mut status = row.to_proto(tokuly_identity::summary(core, row.user_id).await?, now());
         status.audience = row.audience().into();
         status.chosen = tokuly_identity::summaries_ordered(core, &row.chosen_ids).await?;
-        let answers: i64 = sqlx::query_scalar("SELECT count(*) FROM free_answers WHERE status_id = $1")
-            .bind(row.id)
-            .fetch_one(&core.db)
-            .await?;
+        // Counted the way `ListFreeAnswers` lists them.
+        let hidden = graph::blocked_ids_either(core, row.user_id).await?;
+        let answers: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM free_answers WHERE status_id = $1 AND NOT (user_id = ANY($2))")
+                .bind(row.id)
+                .bind(&hidden)
+                .fetch_one(&core.db)
+                .await?;
         status.answer_count = answers as i32;
         Ok(status)
     }
@@ -451,35 +467,49 @@ impl Plans {
         let hidden: HashSet<Uuid> = graph::blocked_ids_either(core, viewer).await?.into_iter().collect();
         let friends: Vec<Uuid> =
             graph::friend_ids(core, viewer).await?.into_iter().filter(|friend| !hidden.contains(friend)).collect();
-        let after: Option<(Time, Uuid)> = page.decode()?;
-        let mut rows: Vec<FreeRow> = sqlx::query_as(concat!(
-            "SELECT ",
-            free_columns!(),
-            " FROM free_statuses s JOIN users u ON u.id = s.user_id
-              WHERE s.user_id = ANY($1) AND s.ends_at > now() AND u.deleted_at IS NULL AND u.banned_at IS NULL
-                AND (s.audience <> 3 OR s.chosen_ids @> ARRAY[$2]::uuid[])
-                AND ($3::timestamptz IS NULL OR (s.starts_at, s.id) > ($3, $4))
-              ORDER BY s.starts_at, s.id
-              LIMIT $5"
-        ))
-        .bind(&friends)
-        .bind(viewer)
-        .bind(after.map(|(starts_at, _)| starts_at))
-        .bind(after.map(|(_, id)| id))
-        .bind(page.fetch())
-        .fetch_all(&core.db)
-        .await?;
-        let info = page.finish(&mut rows, |row| (row.starts_at, row.id));
-
-        // Whether the viewer is one of the owner's best friends is only known one pair at a time.
-        let mut visible = Vec::with_capacity(rows.len());
-        for row in rows {
-            if row.audience() != FreeAudience::FREE_AUDIENCE_BEST_FRIENDS
-                || self.is_best_friend(row.user_id, viewer).await?
-            {
-                visible.push(row);
+        // Statuses the viewer may not see are left out before the page is
+        // cut: a page is never short because of them, and its cursor only
+        // ever names a status the viewer was given. Whether the viewer is one
+        // of an owner's best friends is only known one pair at a time, so
+        // candidates are read in batches until the page is full.
+        let mut after: Option<(Time, Uuid)> = page.decode()?;
+        let mut visible: Vec<FreeRow> = Vec::new();
+        'batches: loop {
+            let batch: Vec<FreeRow> = sqlx::query_as(concat!(
+                "SELECT ",
+                free_columns!(),
+                " FROM free_statuses s JOIN users u ON u.id = s.user_id
+                  WHERE s.user_id = ANY($1) AND s.ends_at > now() AND u.deleted_at IS NULL AND u.banned_at IS NULL
+                    AND (s.audience <> 3 OR s.chosen_ids @> ARRAY[$2]::uuid[])
+                    AND ($3::timestamptz IS NULL OR (s.starts_at, s.id) > ($3, $4))
+                  ORDER BY s.starts_at, s.id
+                  LIMIT $5"
+            ))
+            .bind(&friends)
+            .bind(viewer)
+            .bind(after.map(|(starts_at, _)| starts_at))
+            .bind(after.map(|(_, id)| id))
+            .bind(page.fetch())
+            .fetch_all(&core.db)
+            .await?;
+            let last_batch = (batch.len() as i64) < page.fetch();
+            for row in batch {
+                after = Some((row.starts_at, row.id));
+                if row.audience() != FreeAudience::FREE_AUDIENCE_BEST_FRIENDS
+                    || self.is_best_friend(row.user_id, viewer).await?
+                {
+                    visible.push(row);
+                    // One more than the page: it tells whether there is a next one.
+                    if visible.len() as i64 == page.fetch() {
+                        break 'batches;
+                    }
+                }
+            }
+            if last_batch {
+                break;
             }
         }
+        let info = page.finish(&mut visible, |row| (row.starts_at, row.id));
         Ok((self.free_statuses_for_viewer(&visible, viewer).await?, info))
     }
 
@@ -493,6 +523,11 @@ impl Plans {
         let core = &self.core;
         ensure!(owner != user_id, invalid, "CANNOT_ANSWER_SELF", "you cannot answer your own status");
         core.cache.rate_limit(&format!("plans:free:answer:{user_id}"), 30, StdDuration::from_secs(60)).await?;
+        // The friend is notified once per status, but every answer shows up
+        // on their screen: rewriting it is not for flooding one person.
+        core.cache
+            .rate_limit(&format!("plans:free:answer:{user_id}:{owner}"), ANSWERS_PER_FRIEND, StdDuration::from_secs(60))
+            .await?;
         let message = input::line(message, MAX_ANSWER, "MESSAGE_TOO_LONG")?;
         let row = self
             .visible_free_status(user_id, owner)
@@ -501,6 +536,13 @@ impl Plans {
         let sender = tokuly_identity::summary(core, user_id).await?;
 
         let mut tx = core.db.begin().await?;
+        // The status may have been replaced or cleared since it was looked
+        // up; holding it here keeps it in place until the answer is stored.
+        let still_there: Option<Uuid> = sqlx::query_scalar("SELECT id FROM free_statuses WHERE id = $1 FOR KEY SHARE")
+            .bind(row.id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        still_there.or_not_found("FREE_STATUS_NOT_FOUND", "this friend has no status you can answer")?;
         // `xmax = 0` holds for a row this statement inserted, not for one it updated.
         let (created_at, first): (Time, bool) = sqlx::query_as(
             "INSERT INTO free_answers (status_id, user_id, message) VALUES ($1, $2, $3)
@@ -574,6 +616,7 @@ impl Plans {
     /// Turns "tell me when `friend` is free" on or off for `user_id`.
     pub(crate) async fn set_free_alert(&self, user_id: Uuid, friend: Uuid, enabled: bool) -> AppResult<()> {
         let core = &self.core;
+        core.cache.rate_limit(&format!("plans:free:alert:{user_id}"), 120, StdDuration::from_secs(3600)).await?;
         if !enabled {
             sqlx::query("DELETE FROM free_alerts WHERE user_id = $1 AND friend_id = $2")
                 .bind(user_id)
@@ -583,12 +626,19 @@ impl Plans {
             return Ok(());
         }
         people::require_friends(core, user_id, &[friend]).await?;
+
+        let mut tx = core.db.begin().await?;
+        // The count and the insert belong together: two calls at once must not both fit under the limit.
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(format!("plans:free-alerts:{}", user_id.simple()))
+            .execute(&mut *tx)
+            .await?;
         let (existing, total): (bool, i64) = sqlx::query_as(
             "SELECT EXISTS(SELECT 1 FROM free_alerts WHERE user_id = $1 AND friend_id = $2), (SELECT count(*) FROM free_alerts WHERE user_id = $1)",
         )
         .bind(user_id)
         .bind(friend)
-        .fetch_one(&core.db)
+        .fetch_one(&mut *tx)
         .await?;
         ensure!(
             existing || total < MAX_ALERTS,
@@ -599,8 +649,9 @@ impl Plans {
         sqlx::query("INSERT INTO free_alerts (user_id, friend_id) VALUES ($1, $2) ON CONFLICT DO NOTHING")
             .bind(user_id)
             .bind(friend)
-            .execute(&core.db)
+            .execute(&mut *tx)
             .await?;
+        tx.commit().await?;
         Ok(())
     }
 

@@ -5,6 +5,12 @@
 //! and anyone who answered), and — when it is open to friends — to any
 //! friend of the creator who has its link. The creator has a participant row
 //! of their own, so they answer like everyone else.
+//!
+//! Every RPC that changes a poll first finds it without a lock
+//! (`Plans::find_poll`, which may ask the social domain whether the caller is
+//! a friend of the creator) and then locks it inside its transaction
+//! ([`lock_poll`]). Between the lock and the commit only the transaction's
+//! own connection is used.
 use std::{collections::HashSet, time::Duration as StdDuration};
 
 use buffa::Enumeration as _;
@@ -17,6 +23,7 @@ use tokuly_core::{
     outbound::{self, NotificationRequest},
     prelude::*,
 };
+use tokuly_identity::users;
 use tokuly_proto::{
     common::PageInfo,
     plans::{plans_event::Event as Push, poll_slot, poll_slot_input, *},
@@ -26,8 +33,7 @@ use tokuly_social::graph;
 use crate::{
     Plans, copy, dates,
     events::{POLL_CREATED, POLL_FINALIZED, PollCreated, PollFinalized},
-    input,
-    people::{self, People, name_of},
+    input, people,
     plan::{NewPlan, Place, Schedule, When, plan_changed, plan_description},
 };
 
@@ -77,8 +83,10 @@ impl PollRow {
         PollStatus::from_i32(self.status as i32).unwrap_or(PollStatus::POLL_STATUS_UNSPECIFIED)
     }
 
+    /// Open, and not past its deadline: the worker closes a poll on its
+    /// next pass after the deadline, but answers stop at the deadline itself.
     fn is_open(&self) -> bool {
-        self.status() == PollStatus::POLL_STATUS_OPEN
+        self.status() == PollStatus::POLL_STATUS_OPEN && self.deadline.is_none_or(|deadline| deadline > now())
     }
 
     fn ensure_open(&self) -> AppResult<()> {
@@ -290,51 +298,106 @@ struct PollAccess {
     joined: bool,
 }
 
+/// What a first look at a poll found, before anything was locked.
+struct PollSight {
+    poll: PollRow,
+    /// The caller is a friend of the creator. Only asked when it matters: for
+    /// a poll that is open to friends and that the caller has not joined.
+    friend_of_creator: bool,
+}
+
+fn poll_not_found() -> AppError {
+    AppError::not_found("POLL_NOT_FOUND", "poll not found")
+}
+
+/// Whether someone may see a poll: its creator, the people in it, and — for
+/// a poll open to friends — any friend of the creator who has its link.
+fn may_see(poll: &PollRow, user_id: Uuid, joined: bool, friend_of_creator: bool) -> bool {
+    joined || poll.creator_id == user_id || (poll.open_to_friends && friend_of_creator)
+}
+
+/// Locks the poll a caller found with [`Plans::find_poll`] for the rest of
+/// the transaction and reads it again. Only the transaction's own connection
+/// is used: whether the caller is a friend of the creator was asked before.
+async fn lock_poll(conn: &mut PgConnection, sight: &PollSight, user_id: Uuid) -> AppResult<PollAccess> {
+    let poll: PollRow =
+        sqlx::query_as(concat!("SELECT ", poll_columns!(), " FROM date_polls q WHERE q.id = $1 FOR UPDATE"))
+            .bind(sight.poll.id)
+            .fetch_optional(&mut *conn)
+            .await?
+            .ok_or_else(poll_not_found)?;
+    let joined: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM date_poll_participants WHERE poll_id = $1 AND user_id = $2)")
+            .bind(poll.id)
+            .bind(user_id)
+            .fetch_one(&mut *conn)
+            .await?;
+    // Someone the creator took out does not get back in through the link.
+    let friend_of_creator = sight.friend_of_creator && !joined && !was_removed(&mut *conn, poll.id, user_id).await?;
+    if may_see(&poll, user_id, joined, friend_of_creator) {
+        Ok(PollAccess { poll, joined })
+    } else {
+        Err(poll_not_found())
+    }
+}
+
+/// Whether the creator took `user_id` out of the poll (and has not invited
+/// them again since).
+async fn was_removed<'e, E: sqlx::PgExecutor<'e>>(executor: E, poll_id: Uuid, user_id: Uuid) -> AppResult<bool> {
+    Ok(sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM date_poll_past_participants WHERE poll_id = $1 AND user_id = $2 AND removed)",
+    )
+    .bind(poll_id)
+    .bind(user_id)
+    .fetch_one(executor)
+    .await?)
+}
+
 impl Plans {
-    /// Loads a poll by ID or link as far as `user_id` may see it. `lock`
-    /// takes the poll's row lock for the rest of the transaction.
-    async fn poll_access(
-        &self,
-        conn: &mut PgConnection,
-        reference: &str,
-        user_id: Uuid,
-        lock: bool,
-    ) -> AppResult<PollAccess> {
-        let not_found = || AppError::not_found("POLL_NOT_FOUND", "poll not found");
-        let lock = if lock { " FOR UPDATE" } else { "" };
+    /// Finds a poll by ID or link as far as `user_id` may see it. This is the
+    /// first look, taken on the pool before a transaction is opened; RPCs
+    /// that change the poll then lock it with [`lock_poll`].
+    async fn find_poll(&self, reference: &str, user_id: Uuid) -> AppResult<PollSight> {
+        let core = &self.core;
         let poll: Option<PollRow> = match Ref::parse(reference)? {
             Ref::Id(id) => {
-                sqlx::query_as(sqlx::AssertSqlSafe(format!(
-                    "SELECT {} FROM date_polls q WHERE q.id = $1{lock}",
-                    poll_columns!()
-                )))
-                .bind(id)
-                .fetch_optional(&mut *conn)
-                .await?
+                sqlx::query_as(concat!("SELECT ", poll_columns!(), " FROM date_polls q WHERE q.id = $1"))
+                    .bind(id)
+                    .fetch_optional(&core.db)
+                    .await?
             }
             Ref::Short(short_id) => {
-                sqlx::query_as(sqlx::AssertSqlSafe(format!(
-                    "SELECT {} FROM date_polls q WHERE q.short_id = $1{lock}",
-                    poll_columns!()
-                )))
-                .bind(short_id)
-                .fetch_optional(&mut *conn)
-                .await?
+                sqlx::query_as(concat!("SELECT ", poll_columns!(), " FROM date_polls q WHERE q.short_id = $1"))
+                    .bind(short_id)
+                    .fetch_optional(&core.db)
+                    .await?
             }
         };
-        let poll = poll.ok_or_else(not_found)?;
+        let poll = poll.ok_or_else(poll_not_found)?;
         let joined: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM date_poll_participants WHERE poll_id = $1 AND user_id = $2)",
         )
         .bind(poll.id)
         .bind(user_id)
-        .fetch_one(&mut *conn)
+        .fetch_one(&core.db)
         .await?;
         // The link only opens the poll for friends of its creator.
-        let visible = joined
-            || poll.creator_id == user_id
-            || (poll.open_to_friends && graph::are_friends(&self.core, poll.creator_id, user_id).await?);
-        if visible { Ok(PollAccess { poll, joined }) } else { Err(not_found()) }
+        let friend_of_creator = !joined
+            && poll.creator_id != user_id
+            && poll.open_to_friends
+            && !was_removed(&core.db, poll.id, user_id).await?
+            && graph::are_friends(core, poll.creator_id, user_id).await?;
+        if may_see(&poll, user_id, joined, friend_of_creator) {
+            Ok(PollSight { poll, friend_of_creator })
+        } else {
+            Err(poll_not_found())
+        }
+    }
+
+    /// Changing, closing and reopening a poll redraws it on every
+    /// participant's screen; one account may do so this often.
+    async fn limit_poll_changes(&self, user_id: Uuid) -> AppResult<()> {
+        self.core.cache.rate_limit(&format!("plans:poll:manage:{user_id}"), 120, StdDuration::from_secs(3600)).await
     }
 
     /// One poll, in full, as `viewer` sees it.
@@ -366,7 +429,8 @@ impl Plans {
         if full {
             needed.extend(participants.iter().map(|participant| participant.user_id));
         }
-        let people = People::load(core, viewer, needed).await?;
+        let needed: Vec<Uuid> = needed.into_iter().collect();
+        let people = tokuly_identity::summaries(core, &needed).await?;
 
         Ok(rows
             .into_iter()
@@ -390,7 +454,7 @@ impl Plans {
                     short_id: row.short_id.clone(),
                     title: row.title.clone(),
                     description: row.description.clone(),
-                    creator: people.summary(row.creator_id).into(),
+                    creator: users::pick(&people, row.creator_id).into(),
                     time_zone: row.time_zone.clone(),
                     slots: slots
                         .iter()
@@ -415,25 +479,21 @@ impl Plans {
                     participants: if full {
                         participants
                             .iter()
-                            .map(|participant| {
-                                let hidden = people.is_hidden(participant.user_id);
-                                PollParticipant {
-                                    user: people.summary(participant.user_id).into(),
-                                    invited: participant.invited,
-                                    answers: answers
-                                        .iter()
-                                        .filter(|answer| answer.user_id == participant.user_id)
-                                        .map(|answer| SlotAnswer {
-                                            slot_id: answer.slot_id.to_string(),
-                                            answer: (answer.answer as i32).into(),
-                                            ..Default::default()
-                                        })
-                                        .collect(),
-                                    comment: if hidden { String::new() } else { participant.comment.clone() },
-                                    answered_at: opt_ts(participant.answered_at),
-                                    hidden,
-                                    ..Default::default()
-                                }
+                            .map(|participant| PollParticipant {
+                                user: users::pick(&people, participant.user_id).into(),
+                                invited: participant.invited,
+                                answers: answers
+                                    .iter()
+                                    .filter(|answer| answer.user_id == participant.user_id)
+                                    .map(|answer| SlotAnswer {
+                                        slot_id: answer.slot_id.to_string(),
+                                        answer: (answer.answer as i32).into(),
+                                        ..Default::default()
+                                    })
+                                    .collect(),
+                                comment: participant.comment.clone(),
+                                answered_at: opt_ts(participant.answered_at),
+                                ..Default::default()
                             })
                             .collect()
                     } else {
@@ -520,8 +580,8 @@ impl Plans {
         .bind(invitees)
         .execute(&mut *conn)
         .await?;
-        let by = tokuly_identity::summary(&self.core, poll.creator_id).await?;
-        let text = copy::poll_invited(&name_of(&by), &poll.title);
+        let by = people::name_on(conn, poll.creator_id).await?;
+        let text = copy::poll_invited(&by, &poll.title);
         for invitee in invitees {
             let request = NotificationRequest::new(
                 *invitee,
@@ -559,6 +619,7 @@ impl Plans {
             self.cfg.max_participants
         );
         people::require_friends(core, user_id, &invitees).await?;
+        people::limit_invitations(core, user_id, &invitees).await?;
 
         let mut tx = core.db.begin().await?;
         let row: PollRow = sqlx::query_as(concat!(
@@ -598,18 +659,39 @@ impl Plans {
 
     /// A poll by ID or by its link.
     pub(crate) async fn get_poll(&self, user_id: Uuid, reference: &str) -> AppResult<Poll> {
-        let mut conn = self.core.db.acquire().await?;
-        let access = self.poll_access(&mut conn, reference, user_id, false).await?;
-        drop(conn);
-        self.poll_for(access.poll, user_id).await
+        let sight = self.find_poll(reference, user_id).await?;
+        self.poll_for(sight.poll, user_id).await
     }
 
     /// Changes the texts, the deadline, the link setting or the slots of an open poll.
     pub(crate) async fn update_poll(&self, user_id: Uuid, req: &UpdatePollRequest) -> AppResult<Poll> {
         let now = now();
+        self.limit_poll_changes(user_id).await?;
+        let sight = self.find_poll(&req.poll_id, user_id).await?;
         let mut tx = self.core.db.begin().await?;
-        let poll = self.poll_access(&mut tx, &req.poll_id, user_id, true).await?.poll;
+        let poll = lock_poll(&mut tx, &sight, user_id).await?.poll;
         poll.ensure_creator(user_id)?;
+        // The link can be switched off whatever state the poll is in:
+        // a closed or finalized poll must not stay open to everyone who has it.
+        let only_closes_link = req.open_to_friends == Some(false)
+            && req.title.is_none()
+            && req.description.is_none()
+            && !req.deadline.is_set()
+            && !req.clear_deadline
+            && req.add_slots.is_empty()
+            && req.remove_slot_ids.is_empty();
+        if only_closes_link {
+            let row: PollRow = sqlx::query_as(concat!(
+                "UPDATE date_polls q SET open_to_friends = false WHERE q.id = $1 RETURNING ",
+                poll_columns!()
+            ))
+            .bind(poll.id)
+            .fetch_one(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            self.push_poll(poll.id, true).await?;
+            return self.poll_for(row, user_id).await;
+        }
         poll.ensure_open()?;
         let zone = dates::zone(&poll.time_zone);
 
@@ -661,7 +743,7 @@ impl Plans {
 
         let row: PollRow = sqlx::query_as(concat!(
             "UPDATE date_polls q SET title = $2, description = $3, open_to_friends = $4, deadline = $5,
-                    remind_due_at = CASE WHEN $6 THEN $7 ELSE remind_due_at END
+                    remind_due_at = CASE WHEN $6 AND reminded_at IS NULL THEN $7 ELSE remind_due_at END
              WHERE q.id = $1 RETURNING ",
             poll_columns!()
         ))
@@ -717,14 +799,29 @@ impl Plans {
         user_ids: &[String],
     ) -> AppResult<(Poll, i32)> {
         let core = &self.core;
-        core.cache.rate_limit(&format!("plans:invite:{user_id}"), 300, StdDuration::from_secs(3600)).await?;
+        core.cache.rate_limit(&format!("plans:invite:{user_id}"), 60, StdDuration::from_secs(3600)).await?;
         let wanted = input::people(user_ids, user_id)?;
 
+        // A first look without a lock; what is asked of the social domain
+        // and the per-friend invitation limit come before the poll is locked.
+        let sight = self.find_poll(reference, user_id).await?;
+        sight.poll.ensure_creator(user_id)?;
+        sight.poll.ensure_open()?;
+        people::require_friends(core, user_id, &wanted).await?;
+        let invited: HashSet<Uuid> =
+            sqlx::query_scalar("SELECT user_id FROM date_poll_participants WHERE poll_id = $1 AND invited")
+                .bind(sight.poll.id)
+                .fetch_all(&core.db)
+                .await?
+                .into_iter()
+                .collect();
+        let candidates: Vec<Uuid> = wanted.into_iter().filter(|id| !invited.contains(id)).collect();
+        people::limit_invitations(core, user_id, &candidates).await?;
+
         let mut tx = core.db.begin().await?;
-        let poll = self.poll_access(&mut tx, reference, user_id, true).await?.poll;
+        let poll = lock_poll(&mut tx, &sight, user_id).await?.poll;
         poll.ensure_creator(user_id)?;
         poll.ensure_open()?;
-        people::require_friends(core, user_id, &wanted).await?;
         let invited: HashSet<Uuid> =
             sqlx::query_scalar("SELECT user_id FROM date_poll_participants WHERE poll_id = $1 AND invited")
                 .bind(poll.id)
@@ -732,7 +829,24 @@ impl Plans {
                 .await?
                 .into_iter()
                 .collect();
-        let invitees: Vec<Uuid> = wanted.into_iter().filter(|id| !invited.contains(id)).collect();
+        // Whoever left by themselves is not invited again (and not told).
+        let left: HashSet<Uuid> = sqlx::query_scalar(
+            "SELECT user_id FROM date_poll_past_participants WHERE poll_id = $1 AND NOT removed AND user_id = ANY($2)",
+        )
+        .bind(poll.id)
+        .bind(&candidates)
+        .fetch_all(&mut *tx)
+        .await?
+        .into_iter()
+        .collect();
+        let invitees: Vec<Uuid> =
+            candidates.into_iter().filter(|id| !invited.contains(id) && !left.contains(id)).collect();
+        // An invitation takes back an earlier removal.
+        sqlx::query("DELETE FROM date_poll_past_participants WHERE poll_id = $1 AND user_id = ANY($2)")
+            .bind(poll.id)
+            .bind(&invitees)
+            .execute(&mut *tx)
+            .await?;
         let total: i64 = sqlx::query_scalar("SELECT count(*) FROM date_poll_participants WHERE poll_id = $1")
             .bind(poll.id)
             .fetch_one(&mut *tx)
@@ -757,9 +871,10 @@ impl Plans {
     pub(crate) async fn answer_poll(&self, user_id: Uuid, req: &AnswerPollRequest) -> AppResult<Poll> {
         let comment = input::line(&req.comment, MAX_COMMENT, "COMMENT_TOO_LONG")?;
         // Every answer redraws the tallies on everyone's screen.
-        self.core.cache.rate_limit(&format!("plans:poll:answer:{user_id}"), 60, StdDuration::from_secs(60)).await?;
+        self.core.cache.rate_limit(&format!("plans:poll:answer:{user_id}"), 20, StdDuration::from_secs(60)).await?;
+        let sight = self.find_poll(&req.poll_id, user_id).await?;
         let mut tx = self.core.db.begin().await?;
-        let access = self.poll_access(&mut tx, &req.poll_id, user_id, true).await?;
+        let access = lock_poll(&mut tx, &sight, user_id).await?;
         let poll = access.poll;
         poll.ensure_open()?;
 
@@ -800,14 +915,21 @@ impl Plans {
                 .bind(user_id)
                 .execute(&mut *tx)
                 .await?;
+            // Coming back by their own choice ends "I left".
+            sqlx::query("DELETE FROM date_poll_past_participants WHERE poll_id = $1 AND user_id = $2")
+                .bind(poll.id)
+                .bind(user_id)
+                .execute(&mut *tx)
+                .await?;
         }
-        let answered_before: bool = sqlx::query_scalar(
-            "SELECT answered_at IS NOT NULL FROM date_poll_participants WHERE poll_id = $1 AND user_id = $2",
-        )
-        .bind(poll.id)
-        .bind(user_id)
-        .fetch_one(&mut *tx)
-        .await?;
+        // The creator hears about each person's answer once, however often
+        // that person takes it back and answers again.
+        let announced: bool =
+            sqlx::query_scalar("SELECT announced FROM date_poll_participants WHERE poll_id = $1 AND user_id = $2")
+                .bind(poll.id)
+                .bind(user_id)
+                .fetch_one(&mut *tx)
+                .await?;
 
         sqlx::query("DELETE FROM date_poll_answers WHERE poll_id = $1 AND user_id = $2")
             .bind(poll.id)
@@ -824,16 +946,19 @@ impl Plans {
             .await?;
         // Taking every answer back (and saying nothing) is "not answered" again.
         let answered = !given.is_empty() || !comment.is_empty();
-        sqlx::query("UPDATE date_poll_participants SET comment = $3, answered_at = CASE WHEN $4 THEN now() END WHERE poll_id = $1 AND user_id = $2")
-            .bind(poll.id)
-            .bind(user_id)
-            .bind(&comment)
-            .bind(answered)
-            .execute(&mut *tx)
-            .await?;
-        if answered && !answered_before && poll.creator_id != user_id {
-            let by = tokuly_identity::summary(&self.core, user_id).await?;
-            let text = copy::poll_answered(&name_of(&by), &poll.title);
+        sqlx::query(
+            "UPDATE date_poll_participants SET comment = $3, answered_at = CASE WHEN $4 THEN now() END, announced = announced OR $4
+             WHERE poll_id = $1 AND user_id = $2",
+        )
+        .bind(poll.id)
+        .bind(user_id)
+        .bind(&comment)
+        .bind(answered)
+        .execute(&mut *tx)
+        .await?;
+        if answered && !announced && poll.creator_id != user_id {
+            let by = people::name_on(&mut tx, user_id).await?;
+            let text = copy::poll_answered(&by, &poll.title);
             let request = NotificationRequest::new(
                 poll.creator_id,
                 "plans.poll_answer",
@@ -854,8 +979,10 @@ impl Plans {
 
     /// Stops taking answers, or takes them again.
     pub(crate) async fn set_poll_closed(&self, user_id: Uuid, reference: &str, closed: bool) -> AppResult<Poll> {
+        self.limit_poll_changes(user_id).await?;
+        let sight = self.find_poll(reference, user_id).await?;
         let mut tx = self.core.db.begin().await?;
-        let poll = self.poll_access(&mut tx, reference, user_id, true).await?.poll;
+        let poll = lock_poll(&mut tx, &sight, user_id).await?.poll;
         poll.ensure_creator(user_id)?;
         let row: PollRow = if closed {
             poll.ensure_open()?;
@@ -890,9 +1017,13 @@ impl Plans {
         let core = &self.core;
         let emoji = input::emoji(&req.emoji)?;
         let place = Place::parse(req.place.as_option())?;
+        let sight = self.find_poll(&req.poll_id, user_id).await?;
+        sight.poll.ensure_creator(user_id)?;
+        // Asked before the poll is locked.
+        let friends: HashSet<Uuid> = graph::friend_ids(core, user_id).await?.into_iter().collect();
 
         let mut tx = core.db.begin().await?;
-        let poll = self.poll_access(&mut tx, &req.poll_id, user_id, true).await?.poll;
+        let poll = lock_poll(&mut tx, &sight, user_id).await?.poll;
         poll.ensure_creator(user_id)?;
         ensure!(
             poll.status() != PollStatus::POLL_STATUS_FINALIZED,
@@ -925,7 +1056,6 @@ impl Plans {
 
         // "The people who could make it": ○ or △ for the slot, as far as they
         // are still friends of the host.
-        let friends: HashSet<Uuid> = graph::friend_ids(core, user_id).await?.into_iter().collect();
         let could_make_it =
             |answer: &AnswerRow| answer.slot_id == slot_id && answer.answer != PollAnswer::POLL_ANSWER_NO as i32 as i16;
         let mut invitees: Vec<Uuid> = answers
@@ -977,14 +1107,65 @@ impl Plans {
 
     /// Deletes a poll. A plan made from it stays.
     pub(crate) async fn delete_poll(&self, user_id: Uuid, reference: &str) -> AppResult<()> {
+        let sight = self.find_poll(reference, user_id).await?;
         let mut tx = self.core.db.begin().await?;
-        let poll = self.poll_access(&mut tx, reference, user_id, true).await?.poll;
+        let poll = lock_poll(&mut tx, &sight, user_id).await?.poll;
         poll.ensure_creator(user_id)?;
         let everyone = poll_participant_ids(&mut tx, poll.id).await?;
         sqlx::query("DELETE FROM date_polls WHERE id = $1").bind(poll.id).execute(&mut *tx).await?;
         tx.commit().await?;
         self.push(everyone, poll_deleted(poll.id)).await;
         Ok(())
+    }
+
+    /// `user_id` leaves a poll, with their answers.
+    pub(crate) async fn leave_poll(&self, user_id: Uuid, reference: &str) -> AppResult<()> {
+        let sight = self.find_poll(reference, user_id).await?;
+        let mut tx = self.core.db.begin().await?;
+        let access = lock_poll(&mut tx, &sight, user_id).await?;
+        ensure!(
+            access.poll.creator_id != user_id,
+            precondition,
+            "CREATOR_CANNOT_LEAVE",
+            "the creator cannot leave their own poll; delete it instead"
+        );
+        // Someone who only has the link was never in it.
+        if !access.joined {
+            return Err(poll_not_found());
+        }
+        take_out_of_poll(&mut tx, access.poll.id, user_id, false).await?;
+        tx.commit().await?;
+        self.push([user_id], poll_deleted(access.poll.id)).await;
+        self.push_poll(access.poll.id, true).await
+    }
+
+    /// The creator takes `target` out of a poll, with their answers.
+    pub(crate) async fn remove_poll_participant(
+        &self,
+        user_id: Uuid,
+        reference: &str,
+        target: Uuid,
+    ) -> AppResult<Poll> {
+        self.limit_poll_changes(user_id).await?;
+        let sight = self.find_poll(reference, user_id).await?;
+        sight.poll.ensure_creator(user_id)?;
+        let mut tx = self.core.db.begin().await?;
+        let poll = lock_poll(&mut tx, &sight, user_id).await?.poll;
+        poll.ensure_creator(user_id)?;
+        ensure!(target != user_id, precondition, "CANNOT_REMOVE_CREATOR", "the creator cannot be removed");
+        let in_poll: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM date_poll_participants WHERE poll_id = $1 AND user_id = $2)",
+        )
+        .bind(poll.id)
+        .bind(target)
+        .fetch_one(&mut *tx)
+        .await?;
+        ensure!(in_poll, not_found, "PARTICIPANT_NOT_FOUND", "this person is not in the poll");
+        take_out_of_poll(&mut tx, poll.id, target, true).await?;
+        tx.commit().await?;
+        self.push([target], poll_deleted(poll.id)).await;
+        self.push_poll(poll.id, true).await?;
+        self.poll_for(poll, user_id).await
     }
 
     /// Reminds the invited people who have not answered. Returns how many.
@@ -1013,14 +1194,17 @@ impl Plans {
 
     /// The creator nudges the people who have not answered.
     pub(crate) async fn remind_poll_participants(&self, user_id: Uuid, reference: &str) -> AppResult<i32> {
-        let mut tx = self.core.db.begin().await?;
-        let poll = self.poll_access(&mut tx, reference, user_id, true).await?.poll;
-        poll.ensure_creator(user_id)?;
-        poll.ensure_open()?;
+        let sight = self.find_poll(reference, user_id).await?;
+        sight.poll.ensure_creator(user_id)?;
+        sight.poll.ensure_open()?;
         self.core
             .cache
-            .rate_limit(&format!("plans:poll:remind:{}", poll.id), 1, StdDuration::from_secs(12 * 3600))
+            .rate_limit(&format!("plans:poll:remind:{}", sight.poll.id), 1, StdDuration::from_secs(12 * 3600))
             .await?;
+        let mut tx = self.core.db.begin().await?;
+        let poll = lock_poll(&mut tx, &sight, user_id).await?.poll;
+        poll.ensure_creator(user_id)?;
+        poll.ensure_open()?;
         let reminded = self.remind_unanswered(&mut tx, &poll).await?;
         tx.commit().await?;
         Ok(reminded)
@@ -1063,8 +1247,8 @@ impl Plans {
     pub(crate) async fn remind_due_polls(&self) -> AppResult<u64> {
         let mut tx = self.core.db.begin().await?;
         let due: Vec<PollRow> = sqlx::query_as(concat!(
-            "UPDATE date_polls q SET remind_due_at = NULL
-             WHERE q.id IN (SELECT id FROM date_polls WHERE remind_due_at <= now() ORDER BY remind_due_at LIMIT 100 FOR UPDATE SKIP LOCKED)
+            "UPDATE date_polls q SET remind_due_at = NULL, reminded_at = now()
+             WHERE q.id IN (SELECT id FROM date_polls WHERE remind_due_at <= now() AND reminded_at IS NULL ORDER BY remind_due_at LIMIT 100 FOR UPDATE SKIP LOCKED)
              RETURNING ",
             poll_columns!()
         ))
@@ -1076,6 +1260,32 @@ impl Plans {
         tx.commit().await?;
         Ok(due.len() as u64)
     }
+}
+
+/// Deletes someone's participation in a poll and their answers, and
+/// remembers that they were in it (`removed`: taken out by the creator, as
+/// opposed to having left).
+async fn take_out_of_poll(conn: &mut PgConnection, poll_id: Uuid, user_id: Uuid, removed: bool) -> AppResult<()> {
+    sqlx::query("DELETE FROM date_poll_answers WHERE poll_id = $1 AND user_id = $2")
+        .bind(poll_id)
+        .bind(user_id)
+        .execute(&mut *conn)
+        .await?;
+    sqlx::query("DELETE FROM date_poll_participants WHERE poll_id = $1 AND user_id = $2")
+        .bind(poll_id)
+        .bind(user_id)
+        .execute(&mut *conn)
+        .await?;
+    sqlx::query(
+        "INSERT INTO date_poll_past_participants (poll_id, user_id, removed) VALUES ($1, $2, $3)
+         ON CONFLICT (poll_id, user_id) DO UPDATE SET removed = EXCLUDED.removed, left_at = now()",
+    )
+    .bind(poll_id)
+    .bind(user_id)
+    .bind(removed)
+    .execute(conn)
+    .await?;
+    Ok(())
 }
 
 /// The realtime event saying that a poll is gone.

@@ -28,11 +28,15 @@ use tokuly_social::graph;
 use crate::{
     Plans, copy, dates,
     events::{ANNIVERSARY_STARTED, AnniversaryStarted},
-    input, milestones,
-    people::{self, name_of},
+    input, milestones, people,
 };
 
 const MAX_TITLE: usize = 40;
+/// Counters started with, and couple invitations sent to, the same friend in
+/// a day: each of them notifies that friend.
+const PER_FRIEND_PER_DAY: u32 = 3;
+/// Friendship counters one person may start with the same friend in a day.
+const COUNTERS_PER_FRIEND_PER_DAY: u32 = 5;
 /// Milestones listed ahead on a counter.
 const UPCOMING_MILESTONES: usize = 3;
 
@@ -249,9 +253,11 @@ impl Plans {
         Ok(())
     }
 
-    async fn notice_due_for(&self, row: &AnniversaryRow) -> AppResult<Option<Time>> {
-        let zones = dates::zones_of(&self.core, &[row.user_lo, row.user_hi]).await?;
-        let zone_of = |user_id: Uuid| zones.get(&user_id).copied().unwrap_or(dates::FALLBACK_ZONE);
+    /// When the next milestone notice of `row` is due. The two people's time
+    /// zones are read on the caller's connection (it is inside a transaction).
+    async fn notice_due_on(&self, conn: &mut PgConnection, row: &AnniversaryRow) -> AppResult<Option<Time>> {
+        let locals = people::locals(conn, &[row.user_lo, row.user_hi]).await?;
+        let zone_of = |user_id: Uuid| locals.get(&user_id).map(|local| local.zone).unwrap_or(dates::FALLBACK_ZONE);
         Ok(notice_due(
             row.start_date,
             row.count_start_day,
@@ -289,9 +295,10 @@ impl Plans {
     /// Marks a counter as existing for real: schedules its first milestone
     /// notice and announces it to other domains.
     async fn start_counting(&self, conn: &mut PgConnection, row: &AnniversaryRow, actor: Uuid) -> AppResult<()> {
+        let due = self.notice_due_on(conn, row).await?;
         sqlx::query("UPDATE plan_anniversaries SET notice_due_at = $2 WHERE id = $1")
             .bind(row.id)
-            .bind(self.notice_due_for(row).await?)
+            .bind(due)
             .execute(&mut *conn)
             .await?;
         let started =
@@ -310,6 +317,13 @@ impl Plans {
         people::require_friends(core, user_id, &[friend]).await?;
         // Starting a counter tells the friend; starting and ending it over and over should not.
         core.cache.rate_limit(&format!("plans:counter:{user_id}"), 20, StdDuration::from_secs(24 * 3600)).await?;
+        core.cache
+            .rate_limit(
+                &format!("plans:counter:{user_id}:{friend}"),
+                COUNTERS_PER_FRIEND_PER_DAY,
+                StdDuration::from_secs(24 * 3600),
+            )
+            .await?;
         let zone = dates::zone_of(core, user_id).await?;
         let today = dates::day_in(zone, now());
         let start = if start.is_empty() {
@@ -339,8 +353,8 @@ impl Plans {
             )
             .await?;
         self.start_counting(&mut tx, &row, user_id).await?;
-        let by = tokuly_identity::summary(core, user_id).await?;
-        let text = copy::counter_started(&name_of(&by));
+        let by = people::name_on(&mut tx, user_id).await?;
+        let text = copy::counter_started(&by);
         let request =
             NotificationRequest::new(friend, "plans.counter_started", text.title, text.body, anniversary_path(row.id))
                 .actor(user_id)
@@ -359,6 +373,14 @@ impl Plans {
         let core = &self.core;
         people::require_friends(core, user_id, &[friend]).await?;
         core.cache.rate_limit(&format!("plans:couple:invite:{user_id}"), 10, StdDuration::from_secs(24 * 3600)).await?;
+        // Inviting, withdrawing and inviting again notifies the same person each time.
+        core.cache
+            .rate_limit(
+                &format!("plans:couple:invite:{user_id}:{friend}"),
+                PER_FRIEND_PER_DAY,
+                StdDuration::from_secs(24 * 3600),
+            )
+            .await?;
         let today = dates::day_in(dates::zone_of(core, user_id).await?, now());
         let start = if start.is_empty() { today } else { start_date(start, today)? };
 
@@ -394,8 +416,8 @@ impl Plans {
                 start,
             )
             .await?;
-        let by = tokuly_identity::summary(core, user_id).await?;
-        let text = copy::couple_invite(&name_of(&by));
+        let by = people::name_on(&mut tx, user_id).await?;
+        let text = copy::couple_invite(&by);
         let request =
             NotificationRequest::new(friend, "plans.couple_invite", text.title, text.body, anniversary_path(row.id))
                 .actor(user_id)
@@ -416,8 +438,7 @@ impl Plans {
         anniversary_id: Uuid,
         accept: bool,
     ) -> AppResult<Option<Anniversary>> {
-        let core = &self.core;
-        let mut tx = core.db.begin().await?;
+        let mut tx = self.core.db.begin().await?;
         let invitation = self.anniversary_of(&mut tx, anniversary_id, user_id, false).await?;
         // Only the invited person answers, and only while it is an invitation.
         ensure!(
@@ -438,11 +459,20 @@ impl Plans {
             return Ok(None);
         }
         ensure!(
-            !in_couple(&mut tx, user_id).await? && !in_couple(&mut tx, inviter).await?,
+            !in_couple(&mut tx, user_id).await?,
             precondition,
             "ALREADY_IN_COUPLE",
-            "one of you already has a couple counter"
+            "you already have a couple counter"
         );
+        // The sender found someone else in the meantime. Their invitations
+        // are withdrawn when that happens (below); if this one is still here
+        // it is treated the same way — the answer must not tell the invited
+        // person anything about the sender's other counters.
+        if in_couple(&mut tx, inviter).await? {
+            sqlx::query("DELETE FROM plan_anniversaries WHERE id = $1").bind(anniversary_id).execute(&mut *tx).await?;
+            tx.commit().await?;
+            return Err(not_found());
+        }
         let row: AnniversaryRow = sqlx::query_as(concat!(
             "UPDATE plan_anniversaries a SET status = 2 WHERE a.id = $1 RETURNING ",
             anniversary_columns!()
@@ -451,8 +481,17 @@ impl Plans {
         .fetch_one(&mut *tx)
         .await?;
         self.start_counting(&mut tx, &row, user_id).await?;
-        let by = tokuly_identity::summary(core, user_id).await?;
-        let text = copy::couple_accepted(&name_of(&by));
+        // The two are a couple now: whatever invitations either of them still
+        // had out are withdrawn, as if they had taken them back themselves.
+        let withdrawn: Vec<(Uuid, Uuid, Uuid, Uuid)> = sqlx::query_as(
+            "DELETE FROM plan_anniversaries WHERE kind = 2 AND status = 1 AND created_by = ANY($1)
+             RETURNING id, user_lo, user_hi, created_by",
+        )
+        .bind(vec![user_id, inviter])
+        .fetch_all(&mut *tx)
+        .await?;
+        let by = people::name_on(&mut tx, user_id).await?;
+        let text = copy::couple_accepted(&by);
         let request =
             NotificationRequest::new(inviter, "plans.couple_accepted", text.title, text.body, anniversary_path(row.id))
                 .actor(user_id)
@@ -461,6 +500,9 @@ impl Plans {
         outbound::notify(&mut *tx, &request).await?;
         tx.commit().await?;
 
+        for (withdrawn_id, lo, hi, sender) in withdrawn {
+            self.push([if lo == sender { hi } else { lo }], anniversary_ended(withdrawn_id)).await;
+        }
         self.push_anniversary(&row, inviter).await?;
         Ok(Some(self.anniversary_for(&row, user_id).await?))
     }
@@ -473,6 +515,8 @@ impl Plans {
     ) -> AppResult<Anniversary> {
         let core = &self.core;
         let anniversary_id = parse_id(&req.anniversary_id)?;
+        // Every change is pushed to the other person.
+        core.cache.rate_limit(&format!("plans:counter:update:{user_id}"), 120, StdDuration::from_secs(3600)).await?;
         let today = dates::day_in(dates::zone_of(core, user_id).await?, now());
 
         let mut tx = core.db.begin().await?;
@@ -508,7 +552,7 @@ impl Plans {
                 .execute(&mut *tx)
                 .await?;
         }
-        let due = self.notice_due_for(&row).await?;
+        let due = self.notice_due_on(&mut tx, &row).await?;
         sqlx::query(
             "UPDATE plan_anniversaries SET start_date = $2, count_start_day = $3, title = $4, emoji = $5, show_lo = $6, show_hi = $7,
                     notice_due_at = CASE WHEN $8 THEN $9 ELSE notice_due_at END
@@ -592,8 +636,7 @@ impl Plans {
     /// each of the two on their own morning, and schedules the next notice.
     /// Returns how many counters were handled.
     pub(crate) async fn announce_due_milestones(&self) -> AppResult<u64> {
-        let core = &self.core;
-        let mut tx = core.db.begin().await?;
+        let mut tx = self.core.db.begin().await?;
         let due: Vec<AnniversaryRow> = sqlx::query_as(concat!(
             "SELECT ",
             anniversary_columns!(),
@@ -601,12 +644,12 @@ impl Plans {
         ))
         .fetch_all(&mut *tx)
         .await?;
+        // Names and time zones are read on this transaction's connection.
         let people: Vec<Uuid> = due.iter().flat_map(|row| [row.user_lo, row.user_hi]).collect();
-        let zones = dates::zones_of(core, &people).await?;
-        let summaries = tokuly_identity::summaries(core, &people).await?;
+        let locals = people::locals(&mut tx, &people).await?;
         let now = now();
         for row in &due {
-            let zone_of = |user_id: Uuid| zones.get(&user_id).copied().unwrap_or(dates::FALLBACK_ZONE);
+            let zone_of = |user_id: Uuid| locals.get(&user_id).map(|local| local.zone).unwrap_or(dates::FALLBACK_ZONE);
             for user_id in [row.user_lo, row.user_hi].into_iter().filter(|_| row.is_active()) {
                 let zone = zone_of(user_id);
                 let today = dates::day_in(zone, now);
@@ -628,11 +671,8 @@ impl Plans {
                     continue;
                 }
                 let partner = row.partner_of(user_id);
-                let text = copy::milestone(
-                    &name_of(&tokuly_identity::users::pick(&summaries, partner)),
-                    milestone.mark,
-                    row.is_couple(),
-                );
+                let partner_name = locals.get(&partner).map(|local| local.name.as_str()).unwrap_or("@deleted");
+                let text = copy::milestone(partner_name, milestone.mark, row.is_couple());
                 let request = NotificationRequest::new(user_id, "plans.milestone", text.title, text.body, anniversary_path(row.id))
                     .actor(partner)
                     .subject(SubjectType::SUBJECT_TYPE_USER, partner)

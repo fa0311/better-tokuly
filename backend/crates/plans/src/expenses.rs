@@ -12,7 +12,7 @@ use std::{
 };
 
 use buffa::Enumeration as _;
-use sqlx::PgConnection;
+use sqlx::{PgConnection, PgExecutor};
 use tokuly_core::{
     outbound::{self, NotificationRequest},
     prelude::*,
@@ -24,8 +24,7 @@ use tokuly_proto::{
 use tokuly_social::graph;
 
 use crate::{
-    Plans, copy, input,
-    people::name_of,
+    Plans, copy, input, people,
     plan::{Access, load_access, participant_ids, plan_path},
     split::{self, Paid},
 };
@@ -35,6 +34,8 @@ const MAX_TITLE: usize = 80;
 const MAX_AMOUNT: i64 = 1_000_000_000_000;
 const MAX_WEIGHT: i32 = 1000;
 const MAX_EXPENSES: i64 = 500;
+/// Transfers one account may record or take back in an hour.
+const SETTLEMENTS_PER_HOUR: u32 = 60;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 struct ExpenseRow {
@@ -74,11 +75,15 @@ struct SettlementRow {
     currency: String,
     recorded_by: Uuid,
     created_at: Time,
+    /// Set when the transfer was taken back: the row stays as a record and
+    /// no longer counts.
+    removed_at: Option<Time>,
+    removed_by: Option<Uuid>,
 }
 
 macro_rules! settlement_columns {
     () => {
-        "id, plan_id, from_user_id, to_user_id, amount, currency, recorded_by, created_at"
+        "id, plan_id, from_user_id, to_user_id, amount, currency, recorded_by, created_at, removed_at, removed_by"
     };
 }
 
@@ -120,6 +125,8 @@ impl SettlementRow {
             currency: self.currency.clone(),
             recorded_by_user_id: self.recorded_by.to_string(),
             created_at: ts(self.created_at),
+            removed_at: self.removed_at.map(ts).unwrap_or_default(),
+            removed_by_user_id: self.removed_by.map(|by| by.to_string()).unwrap_or_default(),
             ..Default::default()
         }
     }
@@ -147,18 +154,22 @@ fn amount(value: i64) -> AppResult<i64> {
 }
 
 /// Validates an expense as written by a client and divides it.
-/// `members` are the people in the plan.
+/// `members` are the people in the plan; `chargeable` those of them an
+/// expense may name as payer or give a share: the people who are going.
+/// Nobody is charged for a plan they declined or never answered.
 fn check_expense(
     input: &ExpenseInput,
     caller: Uuid,
     plan_currency: &str,
     members: &HashSet<Uuid>,
+    chargeable: &HashSet<Uuid>,
 ) -> AppResult<CheckedExpense> {
     let title = input::required_line(&input.title, MAX_TITLE, "TITLE_REQUIRED", "TITLE_TOO_LONG")?;
     let total = amount(input.amount)?;
     let currency = input::currency(&input.currency, plan_currency)?;
     let paid_by = parse_opt_id(&input.paid_by_user_id)?.unwrap_or(caller);
     ensure!(members.contains(&paid_by), invalid, "PAYER_NOT_IN_PLAN", "the payer is not in the plan");
+    ensure!(chargeable.contains(&paid_by), invalid, "PAYER_NOT_GOING", "the payer is not going to the plan");
     let method = match input.method.as_known() {
         Some(method) if method != SplitMethod::SPLIT_METHOD_UNSPECIFIED => method,
         _ => bail!(invalid, "SPLIT_METHOD_REQUIRED", "say how the expense is split"),
@@ -174,6 +185,12 @@ fn check_expense(
             invalid,
             "SHARE_NOT_IN_PLAN",
             "someone the expense is split with is not in the plan"
+        );
+        ensure!(
+            chargeable.contains(&person),
+            invalid,
+            "SHARE_NOT_GOING",
+            "an expense is only split between people who are going"
         );
         ensure!(seen.insert(person), invalid, "SHARE_DUPLICATE", "everyone can only have one share of an expense");
         given.push((person, share.amount, share.weight));
@@ -237,6 +254,95 @@ async fn insert_shares(
     .await?)
 }
 
+/// The shares of several expenses, each in ascending order of user ID.
+async fn shares_of<'e, E: PgExecutor<'e>>(
+    executor: E,
+    expense_ids: &[Uuid],
+) -> AppResult<HashMap<Uuid, Vec<ShareRow>>> {
+    let rows: Vec<ShareRow> = sqlx::query_as("SELECT expense_id, user_id, amount, weight FROM plan_expense_shares WHERE expense_id = ANY($1) ORDER BY expense_id, user_id")
+        .bind(expense_ids)
+        .fetch_all(executor)
+        .await?;
+    let mut by_expense: HashMap<Uuid, Vec<ShareRow>> = HashMap::new();
+    for row in rows {
+        by_expense.entry(row.expense_id).or_default().push(row);
+    }
+    Ok(by_expense)
+}
+
+/// Everything the split of a plan is computed from. Currencies do not mix:
+/// each one is a split of its own.
+struct Ledger {
+    /// The expenses of each currency (a currency that only has recorded
+    /// transfers left is listed with none).
+    paid: BTreeMap<String, Vec<Paid>>,
+    /// The transfers marked as received, by currency.
+    made: BTreeMap<String, Vec<split::Transfer>>,
+    /// The same transfers as stored, newest first.
+    settlements: Vec<SettlementRow>,
+    /// Transfers that were taken back, most recently removed first. They
+    /// count for nothing; they are the record of what happened.
+    removed: Vec<SettlementRow>,
+}
+
+impl Ledger {
+    /// Reads the expenses and recorded transfers of a plan on one connection
+    /// (the caller's transaction, when the result decides a write).
+    async fn load(conn: &mut PgConnection, plan_id: Uuid) -> AppResult<Self> {
+        let expenses: Vec<ExpenseRow> =
+            sqlx::query_as(concat!("SELECT ", expense_columns!(), " FROM plan_expenses WHERE plan_id = $1"))
+                .bind(plan_id)
+                .fetch_all(&mut *conn)
+                .await?;
+        let ids: Vec<Uuid> = expenses.iter().map(|row| row.id).collect();
+        let mut shares = shares_of(&mut *conn, &ids).await?;
+        let recorded: Vec<SettlementRow> = sqlx::query_as(concat!(
+            "SELECT ",
+            settlement_columns!(),
+            " FROM plan_settlements WHERE plan_id = $1 ORDER BY id DESC"
+        ))
+        .bind(plan_id)
+        .fetch_all(&mut *conn)
+        .await?;
+        let (mut removed, settlements): (Vec<SettlementRow>, Vec<SettlementRow>) =
+            recorded.into_iter().partition(|row| row.removed_at.is_some());
+        removed.sort_by_key(|row| std::cmp::Reverse(row.removed_at));
+
+        let mut paid: BTreeMap<String, Vec<Paid>> = BTreeMap::new();
+        for row in &expenses {
+            let owed = shares
+                .remove(&row.id)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|share| (share.user_id, share.amount))
+                .collect();
+            paid.entry(row.currency.clone()).or_default().push(Paid {
+                payer: row.paid_by,
+                amount: row.amount,
+                shares: owed,
+            });
+        }
+        let mut made: BTreeMap<String, Vec<split::Transfer>> = BTreeMap::new();
+        for row in &settlements {
+            made.entry(row.currency.clone()).or_default().push(split::Transfer {
+                from: row.from_user_id,
+                to: row.to_user_id,
+                amount: row.amount,
+            });
+            paid.entry(row.currency.clone()).or_default();
+        }
+        Ok(Self { paid, made, settlements, removed })
+    }
+
+    /// Everyone's position in one currency.
+    fn positions(&self, currency: &str) -> BTreeMap<Uuid, split::Position> {
+        split::positions(
+            self.paid.get(currency).map(Vec::as_slice).unwrap_or_default(),
+            self.made.get(currency).map(Vec::as_slice).unwrap_or_default(),
+        )
+    }
+}
+
 impl Plans {
     /// An expense together with the caller's access to its plan
     /// (`EXPENSE_NOT_FOUND` also for someone who is not in the plan).
@@ -278,7 +384,9 @@ impl Plans {
         let access = load_access(&mut tx, plan_id, user_id, true).await?;
         access.ensure_going()?;
         let everyone = participant_ids(&mut tx, plan_id).await?;
-        let checked = check_expense(input, user_id, &access.plan.currency, &everyone.iter().copied().collect())?;
+        let going = going_ids(&mut tx, plan_id).await?;
+        let checked =
+            check_expense(input, user_id, &access.plan.currency, &everyone.iter().copied().collect(), &going)?;
         let count: i64 = sqlx::query_scalar("SELECT count(*) FROM plan_expenses WHERE plan_id = $1")
             .bind(plan_id)
             .fetch_one(&mut *tx)
@@ -333,7 +441,20 @@ impl Plans {
             "only whoever recorded an expense, its payer or a host can change it"
         );
         let everyone = participant_ids(&mut tx, old.plan_id).await?;
-        let checked = check_expense(input, user_id, &access.plan.currency, &everyone.iter().copied().collect())?;
+        // Whoever is part of the expense already may stay in it, even if
+        // they changed their answer since.
+        let mut chargeable = going_ids(&mut tx, old.plan_id).await?;
+        chargeable.insert(old.paid_by);
+        chargeable.extend(
+            shares_of(&mut *tx, &[expense_id])
+                .await?
+                .remove(&expense_id)
+                .unwrap_or_default()
+                .iter()
+                .map(|share| share.user_id),
+        );
+        let checked =
+            check_expense(input, user_id, &access.plan.currency, &everyone.iter().copied().collect(), &chargeable)?;
 
         let row: ExpenseRow = sqlx::query_as(concat!(
             "UPDATE plan_expenses SET title = $2, amount = $3, currency = $4, paid_by = $5, method = $6 WHERE id = $1 RETURNING ",
@@ -363,6 +484,7 @@ impl Plans {
 
     /// Deletes an expense (same people as [`Self::update_expense`]).
     pub(crate) async fn remove_expense(&self, user_id: Uuid, expense_id: Uuid) -> AppResult<()> {
+        self.core.cache.rate_limit(&format!("plans:expense:{user_id}"), 300, Duration::from_secs(3600)).await?;
         let mut tx = self.core.db.begin().await?;
         let (old, access) = self.expense(&mut tx, expense_id, user_id).await?;
         ensure!(
@@ -405,76 +527,27 @@ impl Plans {
         .await?;
         let info = page.finish(&mut rows, |row| row.id);
         let ids: Vec<Uuid> = rows.iter().map(|row| row.id).collect();
-        let mut shares = self.shares_of(&ids).await?;
+        let mut shares = shares_of(&core.db, &ids).await?;
         Ok((rows.iter().map(|row| row.to_proto(&shares.remove(&row.id).unwrap_or_default())).collect(), info))
-    }
-
-    /// The shares of several expenses, each in ascending order of user ID.
-    async fn shares_of(&self, expense_ids: &[Uuid]) -> AppResult<HashMap<Uuid, Vec<ShareRow>>> {
-        let rows: Vec<ShareRow> = sqlx::query_as("SELECT expense_id, user_id, amount, weight FROM plan_expense_shares WHERE expense_id = ANY($1) ORDER BY expense_id, user_id")
-            .bind(expense_ids)
-            .fetch_all(&self.core.db)
-            .await?;
-        let mut by_expense: HashMap<Uuid, Vec<ShareRow>> = HashMap::new();
-        for row in rows {
-            by_expense.entry(row.expense_id).or_default().push(row);
-        }
-        Ok(by_expense)
     }
 
     /// Where the split stands: balances and the transfers that settle them,
     /// per currency, plus the transfers already marked as done.
     pub(crate) async fn get_split(&self, user_id: Uuid, plan_id: Uuid) -> AppResult<GetSplitResponse> {
-        let core = &self.core;
         self.plan_access(plan_id, user_id).await?;
-        let expenses: Vec<ExpenseRow> =
-            sqlx::query_as(concat!("SELECT ", expense_columns!(), " FROM plan_expenses WHERE plan_id = $1"))
-                .bind(plan_id)
-                .fetch_all(&core.db)
-                .await?;
-        let ids: Vec<Uuid> = expenses.iter().map(|row| row.id).collect();
-        let mut shares = self.shares_of(&ids).await?;
-        let settlements: Vec<SettlementRow> = sqlx::query_as(concat!(
-            "SELECT ",
-            settlement_columns!(),
-            " FROM plan_settlements WHERE plan_id = $1 ORDER BY id DESC"
-        ))
-        .bind(plan_id)
-        .fetch_all(&core.db)
-        .await?;
-
-        // Currencies do not mix: each one is a split of its own.
-        let mut paid: BTreeMap<String, Vec<Paid>> = BTreeMap::new();
-        for row in &expenses {
-            let owed = shares
-                .remove(&row.id)
-                .unwrap_or_default()
-                .into_iter()
-                .map(|share| (share.user_id, share.amount))
-                .collect();
-            paid.entry(row.currency.clone()).or_default().push(Paid {
-                payer: row.paid_by,
-                amount: row.amount,
-                shares: owed,
-            });
-        }
-        let mut made: BTreeMap<String, Vec<split::Transfer>> = BTreeMap::new();
-        for row in &settlements {
-            made.entry(row.currency.clone()).or_default().push(split::Transfer {
-                from: row.from_user_id,
-                to: row.to_user_id,
-                amount: row.amount,
-            });
-            paid.entry(row.currency.clone()).or_default();
-        }
-
-        let splits = paid
-            .into_iter()
+        let ledger = {
+            let mut conn = self.core.db.acquire().await?;
+            Ledger::load(&mut conn, plan_id).await?
+        };
+        let splits = ledger
+            .paid
+            .iter()
             .map(|(currency, expenses)| {
-                let positions = split::positions(&expenses, made.get(&currency).map(Vec::as_slice).unwrap_or_default());
+                let positions = ledger.positions(currency);
                 let nets: Vec<(Uuid, i64)> =
                     positions.iter().map(|(person, position)| (*person, position.net())).collect();
                 CurrencySplit {
+                    currency: currency.clone(),
                     total: expenses.iter().map(|expense| expense.amount).sum(),
                     balances: positions
                         .iter()
@@ -497,45 +570,61 @@ impl Plans {
                             ..Default::default()
                         })
                         .collect(),
-                    currency,
                     ..Default::default()
                 }
             })
             .collect();
         Ok(GetSplitResponse {
             splits,
-            settlements: settlements.iter().map(SettlementRow::to_proto).collect(),
+            settlements: ledger.settlements.iter().map(SettlementRow::to_proto).collect(),
+            removed_settlements: ledger.removed.iter().map(SettlementRow::to_proto).collect(),
             ..Default::default()
         })
     }
 
-    /// Marks a transfer as done: `from` handed `to` this amount outside the
-    /// app. Either of the two may record it; the other one is told.
+    /// Marks a transfer as received: `from` handed `to` this amount outside
+    /// the app. Only `to` records it. Someone who says "I paid" proves
+    /// nothing; the person who got the money giving up their claim does. So
+    /// nobody can declare their own debt paid, and nobody can invent a
+    /// payment that leaves someone else owing.
     pub(crate) async fn settle_transfer(&self, user_id: Uuid, req: &SettleTransferRequest) -> AppResult<Settlement> {
         let core = &self.core;
         let plan_id = parse_id(&req.plan_id)?;
         let from = parse_id(&req.from_user_id)?;
         let to = parse_id(&req.to_user_id)?;
         let total = amount(req.amount)?;
+        ensure!(from != to, invalid, "SAME_USER", "a transfer goes from one person to another");
         // Each record notifies the other person.
-        core.cache.rate_limit(&format!("plans:settle:{user_id}"), 60, Duration::from_secs(3600)).await?;
+        core.cache
+            .rate_limit(&format!("plans:settle:{user_id}"), SETTLEMENTS_PER_HOUR, Duration::from_secs(3600))
+            .await?;
+        // Asked before the plan is locked: the payer is told — unless the
+        // two are in a block with each other.
+        let silent = graph::is_blocked_either(core, user_id, from).await?;
 
         let mut tx = core.db.begin().await?;
         let access = load_access(&mut tx, plan_id, user_id, true).await?;
         let currency = input::currency(&req.currency, &access.plan.currency)?;
-        ensure!(from != to, invalid, "SAME_USER", "a transfer goes from one person to another");
-        ensure!(
-            user_id == from || user_id == to,
-            denied,
-            "NOT_ALLOWED",
-            "only the two people of a transfer can record it"
-        );
+        ensure!(user_id == to, denied, "NOT_ALLOWED", "only the person who received the money records a transfer");
         let everyone = participant_ids(&mut tx, plan_id).await?;
         ensure!(
             everyone.contains(&from) && everyone.contains(&to),
             invalid,
             "USER_NOT_IN_PLAN",
             "both people of a transfer must be in the plan"
+        );
+        // Only what is owed can be settled, which also means that both are
+        // part of the split. Checked under the plan's lock, so a transfer
+        // recorded twice at once (a double tap) is recorded once: the second
+        // one finds nothing left to settle.
+        let positions = Ledger::load(&mut tx, plan_id).await?.positions(&currency);
+        let owes = positions.get(&from).map(|position| -position.net()).unwrap_or(0);
+        let is_owed = positions.get(&to).map(|position| position.net()).unwrap_or(0);
+        ensure!(
+            total <= owes && total <= is_owed,
+            precondition,
+            "AMOUNT_EXCEEDS_BALANCE",
+            "the transfer is more than what is still owed between the two"
         );
 
         let row: SettlementRow = sqlx::query_as(concat!(
@@ -550,17 +639,10 @@ impl Plans {
         .bind(user_id)
         .fetch_one(&mut *tx)
         .await?;
-        let other = if user_id == from { to } else { from };
-        // The other one is told — unless the two are hidden from each other by a block.
-        if !graph::is_blocked_either(core, user_id, other).await? {
-            let by = tokuly_identity::summary(core, user_id).await?;
-            let text = copy::settled(
-                &name_of(&by),
-                &split::format_money(total, &currency),
-                &access.plan.name(),
-                user_id == from,
-            );
-            let request = NotificationRequest::new(other, "plans.settled", text.title, text.body, plan_path(plan_id))
+        if !silent {
+            let by = people::name_on(&mut tx, user_id).await?;
+            let text = copy::settled(&by, &split::format_money(total, &currency), &access.plan.name());
+            let request = NotificationRequest::new(from, "plans.settled", text.title, text.body, plan_path(plan_id))
                 .actor(user_id)
                 .subject(SubjectType::SUBJECT_TYPE_PLAN, plan_id)
                 .data(serde_json::json!({ "settlement_id": row.id, "amount": total, "currency": currency }));
@@ -573,32 +655,85 @@ impl Plans {
         Ok(row.to_proto())
     }
 
-    /// Takes back a recorded transfer (either of its two people).
+    /// Takes back a transfer the caller marked as received. The row stays,
+    /// with who took it back and when, and the payer — whose debt is open
+    /// again — is told.
     pub(crate) async fn remove_settlement(&self, user_id: Uuid, settlement_id: Uuid) -> AppResult<()> {
+        let core = &self.core;
         let not_found = || AppError::not_found("SETTLEMENT_NOT_FOUND", "settlement not found");
-        let mut tx = self.core.db.begin().await?;
-        let row: SettlementRow =
-            sqlx::query_as(concat!("SELECT ", settlement_columns!(), " FROM plan_settlements WHERE id = $1"))
-                .bind(settlement_id)
-                .fetch_optional(&mut *tx)
-                .await?
-                .ok_or_else(not_found)?;
-        load_access(&mut tx, row.plan_id, user_id, true)
+        core.cache
+            .rate_limit(&format!("plans:settle:{user_id}"), SETTLEMENTS_PER_HOUR, Duration::from_secs(3600))
+            .await?;
+        // A first look without a lock, for what is asked of the social domain.
+        let payer: Option<Uuid> = sqlx::query_scalar("SELECT from_user_id FROM plan_settlements WHERE id = $1")
+            .bind(settlement_id)
+            .fetch_optional(&core.db)
+            .await?;
+        let payer = payer.ok_or_else(not_found)?;
+        let silent = graph::is_blocked_either(core, user_id, payer).await?;
+
+        let mut tx = core.db.begin().await?;
+        let plan_id: Uuid = sqlx::query_scalar("SELECT plan_id FROM plan_settlements WHERE id = $1")
+            .bind(settlement_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(not_found)?;
+        let access = load_access(&mut tx, plan_id, user_id, true)
             .await
             .map_err(|e| if e.is_not_found() { not_found() } else { e })?;
+        let row: SettlementRow = sqlx::query_as(concat!(
+            "SELECT ",
+            settlement_columns!(),
+            " FROM plan_settlements WHERE id = $1 AND removed_at IS NULL"
+        ))
+        .bind(settlement_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(not_found)?;
         ensure!(
-            user_id == row.from_user_id || user_id == row.to_user_id,
+            user_id == row.to_user_id,
             denied,
             "NOT_ALLOWED",
-            "only the two people of a transfer can take it back"
+            "only the person who marked a transfer as received can take it back"
         );
-        sqlx::query("DELETE FROM plan_settlements WHERE id = $1").bind(settlement_id).execute(&mut *tx).await?;
-        let everyone = participant_ids(&mut tx, row.plan_id).await?;
+        sqlx::query("UPDATE plan_settlements SET removed_at = now(), removed_by = $2 WHERE id = $1")
+            .bind(settlement_id)
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        if !silent {
+            let by = people::name_on(&mut tx, user_id).await?;
+            let text =
+                copy::settlement_removed(&by, &split::format_money(row.amount, &row.currency), &access.plan.name());
+            let request = NotificationRequest::new(
+                row.from_user_id,
+                "plans.settlement_removed",
+                text.title,
+                text.body,
+                plan_path(plan_id),
+            )
+            .actor(user_id)
+            .subject(SubjectType::SUBJECT_TYPE_PLAN, plan_id)
+            .data(serde_json::json!({ "settlement_id": row.id, "amount": row.amount, "currency": row.currency }));
+            outbound::notify(&mut *tx, &request).await?;
+        }
+        let everyone = participant_ids(&mut tx, plan_id).await?;
         tx.commit().await?;
-        self.push_expenses(row.plan_id, everyone, ExpensesChanged { settlements_changed: true, ..Default::default() })
+        self.push_expenses(plan_id, everyone, ExpensesChanged { settlements_changed: true, ..Default::default() })
             .await;
         Ok(())
     }
+}
+
+/// The people going to a plan: the ones an expense can be split between.
+async fn going_ids(conn: &mut PgConnection, plan_id: Uuid) -> AppResult<HashSet<Uuid>> {
+    Ok(sqlx::query_scalar("SELECT user_id FROM plan_participants WHERE plan_id = $1 AND rsvp = $2")
+        .bind(plan_id)
+        .bind(Rsvp::RSVP_GOING as i32 as i16)
+        .fetch_all(conn)
+        .await?
+        .into_iter()
+        .collect())
 }
 
 /// Whoever recorded an expense, its payer and the hosts may change it.
@@ -623,8 +758,10 @@ mod tests {
     }
 
     fn check(input: &ExpenseInput) -> AppResult<CheckedExpense> {
-        let members: HashSet<Uuid> = [person(1), person(2), person(3)].into();
-        check_expense(input, person(1), "JPY", &members)
+        // Person 4 is in the plan and has not said they are going.
+        let members: HashSet<Uuid> = [person(1), person(2), person(3), person(4)].into();
+        let going: HashSet<Uuid> = [person(1), person(2), person(3)].into();
+        check_expense(input, person(1), "JPY", &members, &going)
     }
 
     #[test]
@@ -708,6 +845,16 @@ mod tests {
             ..input(1000, SplitMethod::SPLIT_METHOD_EQUAL, all())
         };
         assert_eq!(reason(stranger_paid).as_deref(), Some("PAYER_NOT_IN_PLAN"));
+        let absent_paid = ExpenseInput {
+            paid_by_user_id: person(4).to_string(),
+            ..input(1000, SplitMethod::SPLIT_METHOD_EQUAL, all())
+        };
+        assert_eq!(reason(absent_paid).as_deref(), Some("PAYER_NOT_GOING"));
+        assert_eq!(
+            reason(input(1000, SplitMethod::SPLIT_METHOD_EQUAL, vec![share(person(1), 0, 0), share(person(4), 0, 0)]))
+                .as_deref(),
+            Some("SHARE_NOT_GOING")
+        );
         let untitled = ExpenseInput { title: " ".into(), ..input(1000, SplitMethod::SPLIT_METHOD_EQUAL, all()) };
         assert_eq!(reason(untitled).as_deref(), Some("TITLE_REQUIRED"));
         let dollars = ExpenseInput { currency: "usd".into(), ..input(1000, SplitMethod::SPLIT_METHOD_EQUAL, all()) };

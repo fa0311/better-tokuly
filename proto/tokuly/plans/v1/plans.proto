@@ -12,9 +12,9 @@ syntax = "proto3";
 // - A day without a time is a `*_date` string, YYYY-MM-DD, and means that day
 //   in the time zone it was written in.
 // - Inside a plan or a poll people are referred to by user ID. Their names and
-//   avatars are in the `participants` list of the plan or poll, as the caller
-//   may see them: someone hidden from the caller by a block appears there with
-//   `hidden = true` and no details.
+//   avatars are in the `participants` list of the plan or poll. A block
+//   between two participants is not visible there, to either of them: both
+//   stay listed like everyone else. (No notification goes between the two.)
 // - Money is an integer in the currency's minor unit (yen for JPY, cents for
 //   USD) with an ISO 4217 code. No real money moves and coins are not involved.
 package tokuly.plans.v1;
@@ -52,7 +52,7 @@ service FreeService {
   rpc ListFreeAnswers(ListFreeAnswersRequest) returns (ListFreeAnswersResponse);
   // "Tell me when they are free": opts in to (or out of) a notification
   // whenever this friend sets a status the caller may see, at most once per
-  // window. Errors: NOT_FRIENDS, TOO_MANY_ALERTS.
+  // window and once an hour. Errors: NOT_FRIENDS, TOO_MANY_ALERTS, RATE_LIMITED.
   rpc SetFreeAlert(SetFreeAlertRequest) returns (SetFreeAlertResponse);
   // The friends the caller asked to be told about.
   rpc ListFreeAlerts(ListFreeAlertsRequest) returns (ListFreeAlertsResponse);
@@ -221,32 +221,40 @@ service PlanService {
   // A plan with its participants and checklist. Errors: PLAN_NOT_FOUND.
   rpc GetPlan(GetPlanRequest) returns (GetPlanResponse);
   // Changes a plan (host and co-hosts). Participants who have not declined
-  // are notified when the time or the place changes.
-  // Errors: PLAN_NOT_FOUND, NOT_A_HOST, PLAN_CANCELLED, and the validation
-  // errors of CreatePlan.
+  // are notified when the time or the place changes; that can be done 6
+  // times an hour per plan. Reminders are sent again only for a new start
+  // time, and attendance is counted once per plan.
+  // Errors: PLAN_NOT_FOUND, NOT_A_HOST, PLAN_CANCELLED, RATE_LIMITED, and the
+  // validation errors of CreatePlan.
   rpc UpdatePlan(UpdatePlanRequest) returns (UpdatePlanResponse);
   // Calls a plan off (host only). Everyone who had not declined is notified;
   // the plan stays readable. Errors: PLAN_NOT_FOUND, NOT_THE_HOST,
-  // PLAN_CANCELLED, REASON_TOO_LONG.
+  // PLAN_CANCELLED, REASON_TOO_LONG, RATE_LIMITED.
   rpc CancelPlan(CancelPlanRequest) returns (CancelPlanResponse);
   // The caller's plans: upcoming, waiting for an answer, or past.
   rpc ListPlans(ListPlansRequest) returns (ListPlansResponse);
   // Invites more friends of the caller. Hosts and co-hosts always may; guests
-  // only when the plan allows it. People already in the plan are skipped.
+  // only when the plan allows it. People already in the plan are skipped,
+  // and so is anyone who left it by their own choice (LeavePlan).
   // Errors: PLAN_NOT_FOUND, CANNOT_INVITE, PLAN_CANCELLED, NOT_FRIENDS,
-  // TOO_MANY_PARTICIPANTS, RATE_LIMITED.
+  // TOO_MANY_PARTICIPANTS, RATE_LIMITED (300 invitations an hour per caller,
+  // CreatePlan and polls included, and per friend: the same friend can be
+  // invited to plans and polls 10 times a day),
+  // PLAN_CHANGED (aborted: the plan was handed over at the same moment; retry).
   rpc InviteToPlan(InviteToPlanRequest) returns (InviteToPlanResponse);
   // Takes someone out of the plan (host and co-hosts; only the host removes
   // a co-host). Errors: PLAN_NOT_FOUND, NOT_A_HOST, PARTICIPANT_NOT_FOUND,
   // CANNOT_REMOVE_HOST, NOT_THE_HOST (a co-host removing a co-host),
-  // HAS_EXPENSES (they paid or owe something in the cost split).
+  // HAS_EXPENSES (they paid or owe something in the cost split), RATE_LIMITED.
   rpc RemovePlanParticipant(RemovePlanParticipantRequest) returns (RemovePlanParticipantResponse);
-  // Leaves a plan for good. Errors: PLAN_NOT_FOUND, HOST_CANNOT_LEAVE (hand
-  // the plan over or cancel it), HAS_EXPENSES (decline instead).
+  // Leaves a plan for good: the caller cannot be invited to it again.
+  // Errors: PLAN_NOT_FOUND, HOST_CANNOT_LEAVE (hand the plan over or cancel
+  // it), HAS_EXPENSES (decline instead), RATE_LIMITED.
   rpc LeavePlan(LeavePlanRequest) returns (LeavePlanResponse);
   // Makes a participant a co-host or a guest again, or hands the plan over
   // (role HOST: the previous host becomes a co-host). Host only.
-  // Errors: PLAN_NOT_FOUND, NOT_THE_HOST, PARTICIPANT_NOT_FOUND, ROLE_INVALID.
+  // Errors: PLAN_NOT_FOUND, NOT_THE_HOST, PARTICIPANT_NOT_FOUND, ROLE_INVALID,
+  // RATE_LIMITED.
   rpc SetPlanRole(SetPlanRoleRequest) returns (SetPlanRoleResponse);
   // RSVP: going, maybe or declined, with a short comment. When the plan is
   // full, GOING puts the caller on the waitlist; a place that frees up goes
@@ -264,15 +272,19 @@ service PlanService {
   // claim and tick; only the author or a host rewrites, and only the claimer
   // or a host releases someone's claim.
   // Errors: ITEM_NOT_FOUND, NOT_GOING, NOT_ALLOWED, ALREADY_CLAIMED,
-  // TEXT_REQUIRED, TEXT_TOO_LONG.
+  // TEXT_REQUIRED, TEXT_TOO_LONG, RATE_LIMITED.
   rpc UpdateChecklistItem(UpdateChecklistItemRequest) returns (UpdateChecklistItemResponse);
-  // Deletes an item (its author or a host). Errors: ITEM_NOT_FOUND, NOT_ALLOWED.
+  // Deletes an item (its author or a host).
+  // Errors: ITEM_NOT_FOUND, NOT_ALLOWED, RATE_LIMITED.
   rpc RemoveChecklistItem(RemoveChecklistItemRequest) returns (RemoveChecklistItemResponse);
 
-  // Records who paid what and how it is split. Anyone going.
+  // Records who paid what and how it is split. Anyone going; the payer and
+  // everyone with a share must be going too (nobody is charged for a plan
+  // they declined or never answered).
   // Errors: PLAN_NOT_FOUND, NOT_GOING, TITLE_REQUIRED, TITLE_TOO_LONG,
-  // AMOUNT_INVALID, CURRENCY_INVALID, PAYER_NOT_IN_PLAN, SHARES_REQUIRED,
-  // SHARE_NOT_IN_PLAN, SHARE_DUPLICATE, SHARES_INVALID (exact amounts do not
+  // AMOUNT_INVALID, CURRENCY_INVALID, PAYER_NOT_IN_PLAN, PAYER_NOT_GOING,
+  // SHARES_REQUIRED, SHARE_NOT_IN_PLAN, SHARE_NOT_GOING, SHARE_DUPLICATE,
+  // SHARES_INVALID (exact amounts do not
   // add up, or a weight is not positive), SPLIT_METHOD_REQUIRED,
   // TOO_MANY_EXPENSES, RATE_LIMITED.
   rpc AddExpense(AddExpenseRequest) returns (AddExpenseResponse);
@@ -280,21 +292,27 @@ service PlanService {
   // Errors: EXPENSE_NOT_FOUND, NOT_ALLOWED, and the errors of AddExpense.
   rpc UpdateExpense(UpdateExpenseRequest) returns (UpdateExpenseResponse);
   // Deletes an expense (same people as UpdateExpense).
-  // Errors: EXPENSE_NOT_FOUND, NOT_ALLOWED.
+  // Errors: EXPENSE_NOT_FOUND, NOT_ALLOWED, RATE_LIMITED.
   rpc RemoveExpense(RemoveExpenseRequest) returns (RemoveExpenseResponse);
   // The expenses of a plan, newest first. Errors: PLAN_NOT_FOUND.
   rpc ListExpenses(ListExpensesRequest) returns (ListExpensesResponse);
   // Where the split stands: per currency, everyone's balance and the fewest
   // transfers that settle everyone ("AがBに1,200円"), plus the transfers
-  // already marked as done. Errors: PLAN_NOT_FOUND.
+  // marked as received and the ones taken back. Errors: PLAN_NOT_FOUND.
   rpc GetSplit(GetSplitRequest) returns (GetSplitResponse);
-  // Marks a transfer as done: `from` handed `to` this amount outside the app.
-  // Either of the two may record it; the other one is told.
-  // Errors: PLAN_NOT_FOUND, NOT_ALLOWED, AMOUNT_INVALID, CURRENCY_INVALID,
-  // USER_NOT_IN_PLAN, SAME_USER, RATE_LIMITED.
+  // Marks a transfer as received: `from` handed `to` this amount outside
+  // the app. Only the person who received the money (`to`, the caller)
+  // records it — nobody can declare their own debt paid — and `from` is
+  // told. Only what is owed can be settled: `from` must owe at least the
+  // amount and `to` must be owed at least the amount, so the same transfer
+  // cannot be recorded twice and nobody outside the split can be part of one.
+  // Errors: PLAN_NOT_FOUND, NOT_ALLOWED (the caller is not `to`),
+  // AMOUNT_INVALID, CURRENCY_INVALID, USER_NOT_IN_PLAN, SAME_USER,
+  // AMOUNT_EXCEEDS_BALANCE, RATE_LIMITED.
   rpc SettleTransfer(SettleTransferRequest) returns (SettleTransferResponse);
-  // Takes back a recorded transfer (either of the two).
-  // Errors: SETTLEMENT_NOT_FOUND, NOT_ALLOWED.
+  // Takes back a transfer the caller marked as received. The record is kept
+  // (who took it back and when, see GetSplit) and `from` is told.
+  // Errors: SETTLEMENT_NOT_FOUND, NOT_ALLOWED, RATE_LIMITED.
   rpc RemoveSettlement(RemoveSettlementRequest) returns (RemoveSettlementResponse);
 }
 
@@ -360,7 +378,8 @@ message PlanCounts {
 }
 
 message PlanParticipant {
-  // Placeholder (ID only) when `hidden`.
+  reserved 8;
+  reserved "hidden";
   tokuly.common.v1.UserSummary user = 1;
   PlanRole role = 2;
   Rsvp rsvp = 3;
@@ -370,9 +389,6 @@ message PlanParticipant {
   string invited_by_user_id = 6;
   // 1 = next in line; 0 when not waitlisted.
   int32 waitlist_position = 7;
-  // This person and the caller are hidden from each other by a block: no
-  // name, avatar or comment is given.
-  bool hidden = 8;
 }
 
 message Plan {
@@ -727,8 +743,12 @@ message Settlement {
   string to_user_id = 4;
   int64 amount = 5;
   string currency = 6;
+  // Always `to_user_id`: the receiver confirms.
   string recorded_by_user_id = 7;
   google.protobuf.Timestamp created_at = 8;
+  // Set when the transfer was taken back; it no longer counts then.
+  google.protobuf.Timestamp removed_at = 9;
+  string removed_by_user_id = 10;
 }
 
 message CurrencySplit {
@@ -747,8 +767,10 @@ message GetSplitRequest {
 
 message GetSplitResponse {
   repeated CurrencySplit splits = 1;
-  // Transfers marked as done, newest first.
+  // Transfers marked as received, newest first.
   repeated Settlement settlements = 2;
+  // Transfers that were taken back, most recently removed first.
+  repeated Settlement removed_settlements = 3;
 }
 
 message SettleTransferRequest {
@@ -787,27 +809,31 @@ service PollService {
   // not join it; answering does. Errors: POLL_NOT_FOUND.
   rpc GetPoll(GetPollRequest) returns (GetPollResponse);
   // Changes the texts, the deadline, the link setting, or the slots (creator
-  // only, while the poll is open). Answers to removed slots are dropped.
+  // only, while the poll is open; the link can be switched off at any time).
+  // Answers to removed slots are dropped.
   // Errors: POLL_NOT_FOUND, NOT_THE_CREATOR, POLL_NOT_OPEN, SLOT_NOT_FOUND,
-  // and the validation errors of CreatePoll.
+  // RATE_LIMITED, and the validation errors of CreatePoll.
   rpc UpdatePoll(UpdatePollRequest) returns (UpdatePollResponse);
   // Polls the caller created or takes part in, open ones first.
   rpc ListPolls(ListPollsRequest) returns (ListPollsResponse);
-  // Invites more friends (creator only).
+  // Invites more friends (creator only). People already invited are skipped,
+  // and so is anyone who left the poll by their own choice.
   // Errors: POLL_NOT_FOUND, NOT_THE_CREATOR, POLL_NOT_OPEN, NOT_FRIENDS,
   // TOO_MANY_PARTICIPANTS, RATE_LIMITED.
   rpc InviteToPoll(InviteToPollRequest) returns (InviteToPollResponse);
   // Answers ○ △ × per slot, with a comment. Replaces the caller's previous
-  // answers; allowed until the poll is closed.
+  // answers; allowed until the poll is closed or its deadline has passed.
+  // The creator is told the first time someone answers.
   // Errors: POLL_NOT_FOUND, POLL_NOT_OPEN, SLOT_NOT_FOUND, ANSWER_INVALID,
   // SLOT_DUPLICATE, COMMENT_TOO_LONG, TOO_MANY_PARTICIPANTS, RATE_LIMITED.
   rpc AnswerPoll(AnswerPollRequest) returns (AnswerPollResponse);
   // Stops taking answers (creator only). Polls also close by themselves at
-  // their deadline. Errors: POLL_NOT_FOUND, NOT_THE_CREATOR, POLL_NOT_OPEN.
+  // their deadline.
+  // Errors: POLL_NOT_FOUND, NOT_THE_CREATOR, POLL_NOT_OPEN, RATE_LIMITED.
   rpc ClosePoll(ClosePollRequest) returns (ClosePollResponse);
   // Takes answers again (creator only); a deadline in the past is dropped.
   // Errors: POLL_NOT_FOUND, NOT_THE_CREATOR, POLL_NOT_CLOSED (open already,
-  // or finalized).
+  // or finalized), RATE_LIMITED.
   rpc ReopenPoll(ReopenPollRequest) returns (ReopenPollResponse);
   // Picks a slot (creator only) and turns the poll into a plan: the creator
   // hosts it and everyone who answered ○ or △ for the slot is invited.
@@ -818,6 +844,15 @@ service PollService {
   // Deletes a poll (creator only). A plan made from it stays.
   // Errors: POLL_NOT_FOUND, NOT_THE_CREATOR.
   rpc DeletePoll(DeletePollRequest) returns (DeletePollResponse);
+  // Leaves a poll: the caller's answers go with them and the creator cannot
+  // invite them again. (Through the link of an open poll they can still come
+  // back by themselves.) Errors: POLL_NOT_FOUND, CREATOR_CANNOT_LEAVE.
+  rpc LeavePoll(LeavePollRequest) returns (LeavePollResponse);
+  // Takes someone out of a poll, with their answers (creator only). They no
+  // longer see it, not even through its link, unless invited again.
+  // Errors: POLL_NOT_FOUND, NOT_THE_CREATOR, PARTICIPANT_NOT_FOUND,
+  // CANNOT_REMOVE_CREATOR, RATE_LIMITED.
+  rpc RemovePollParticipant(RemovePollParticipantRequest) returns (RemovePollParticipantResponse);
   // Nudges the invited people who have not answered (creator only, at most
   // once every 12 hours per poll; the server also does it once by itself).
   // Errors: POLL_NOT_FOUND, NOT_THE_CREATOR, POLL_NOT_OPEN, RATE_LIMITED.
@@ -875,7 +910,8 @@ message SlotAnswer {
 }
 
 message PollParticipant {
-  // Placeholder (ID only) when `hidden`.
+  reserved 6;
+  reserved "hidden";
   tokuly.common.v1.UserSummary user = 1;
   // Invited by the creator (as opposed to having joined through the link).
   bool invited = 2;
@@ -883,8 +919,6 @@ message PollParticipant {
   repeated SlotAnswer answers = 3;
   string comment = 4;
   google.protobuf.Timestamp answered_at = 5;
-  // Hidden from the caller by a block: no name, avatar or comment.
-  bool hidden = 6;
 }
 
 message Poll {
@@ -1037,6 +1071,21 @@ message DeletePollRequest {
 
 message DeletePollResponse {}
 
+message LeavePollRequest {
+  string poll_id = 1;
+}
+
+message LeavePollResponse {}
+
+message RemovePollParticipantRequest {
+  string poll_id = 1;
+  string user_id = 2;
+}
+
+message RemovePollParticipantResponse {
+  Poll poll = 1;
+}
+
 message RemindPollParticipantsRequest {
   string poll_id = 1;
 }
@@ -1055,7 +1104,7 @@ service AnniversaryService {
   // Errors: TITLE_REQUIRED, TITLE_TOO_LONG, EMOJI_INVALID, DATE_INVALID (not
   // a date, or a one-off day that has passed), SHARED_WITH_REQUIRED,
   // TOO_MANY_SHARED, NOT_FRIENDS, TOO_MANY_COUNTDOWNS, TOO_MANY_PINNED (more
-  // than 3 on the profile).
+  // than 3 on the profile), RATE_LIMITED.
   rpc CreateCountdown(CreateCountdownRequest) returns (CreateCountdownResponse);
   // Errors: COUNTDOWN_NOT_FOUND (also for someone else's), and the errors of
   // CreateCountdown.
@@ -1080,15 +1129,17 @@ service AnniversaryService {
   // RATE_LIMITED.
   rpc InviteCouple(InviteCoupleRequest) returns (InviteCoupleResponse);
   // Accepts or declines a couple invitation addressed to the caller.
-  // Declining removes it without telling the sender.
-  // Errors: ANNIVERSARY_NOT_FOUND, ALREADY_IN_COUPLE (either of the two is).
+  // Declining removes it without telling the sender. Accepting withdraws the
+  // invitations either of the two still had out to other people.
+  // Errors: ANNIVERSARY_NOT_FOUND (also when the sender is no longer free:
+  // the invitation is gone, as if withdrawn), ALREADY_IN_COUPLE (the caller is).
   rpc RespondCoupleInvite(RespondCoupleInviteRequest) returns (RespondCoupleInviteResponse);
   // Changes a counter; either of the two may. `show_on_profile` is the
   // caller's own choice: a couple counter appears on both profiles only when
   // both chose to show it. Errors: ANNIVERSARY_NOT_FOUND (also for an
   // invitation: those are answered or withdrawn, not edited), DATE_INVALID,
   // TITLE_TOO_LONG, EMOJI_INVALID, NOT_A_COUPLE (`show_on_profile` on a
-  // friendship counter).
+  // friendship counter), RATE_LIMITED.
   rpc UpdateAnniversary(UpdateAnniversaryRequest) returns (UpdateAnniversaryResponse);
   // Ends a counter or withdraws an invitation; either of the two may.
   // Errors: ANNIVERSARY_NOT_FOUND.

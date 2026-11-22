@@ -3,8 +3,12 @@
 //!
 //! Everything that changes who is in a plan, or who is going, runs under the
 //! plan's row lock (see [`load_access`]), so two people answering at the same
-//! moment cannot both take the last place.
+//! moment cannot both take the last place. While that lock is held nothing
+//! is asked through the connection pool: what the social domain has to say
+//! (friends, blocks) is asked before the transaction starts.
 use std::{collections::HashSet, time::Duration};
+
+use connectrpc::ErrorCode;
 
 use sqlx::PgConnection;
 use tokuly_core::{
@@ -21,14 +25,36 @@ use tokuly_social::graph;
 use crate::{
     Plans, copy,
     events::{PLAN_RSVP_CHANGED, PlanRsvpChanged as RsvpChangedEvent},
-    input,
-    people::{self, name_of},
+    input, people,
     plan::{
-        ParticipantRow, PlanRow, counts_of, load_access, participant_columns, participant_ids, plan_changed, plan_path,
+        Access, ParticipantRow, PlanRow, counts_of, load_access, participant_columns, participant_ids, plan_changed,
+        plan_path,
     },
 };
 
 const MAX_COMMENT: usize = 140;
+/// Calls to `InviteToPlan` one account may make in an hour (each friend is
+/// also limited on their own, see [`people::limit_invitations`]).
+const INVITE_CALLS_PER_HOUR: u32 = 60;
+/// Answers (RSVP) one account may give: every one of them reaches the host.
+const ANSWERS_PER_MINUTE: u32 = 12;
+const ANSWERS_PER_HOUR: u32 = 60;
+
+/// Hosts always may invite; a guest only when the host allows it, and not
+/// after declining. The plan must not be cancelled.
+fn ensure_may_invite(access: &Access) -> AppResult<()> {
+    access.ensure_active()?;
+    let may_invite =
+        access.is_organizer() || (access.plan.guests_can_invite && access.me.rsvp() != Rsvp::RSVP_DECLINED);
+    ensure!(may_invite, denied, "CANNOT_INVITE", "you cannot invite people to this plan");
+    Ok(())
+}
+
+/// The plan changed hands between the first look and the lock; the caller
+/// simply tries again.
+fn changed() -> AppError {
+    AppError::new(ErrorCode::Aborted, "PLAN_CHANGED", "the plan changed while it was being processed; try again")
+}
 
 fn code(rsvp: Rsvp) -> i16 {
     rsvp as i32 as i16
@@ -58,8 +84,8 @@ impl Plans {
         .bind(inviter)
         .execute(&mut *conn)
         .await?;
-        let by = tokuly_identity::summary(&self.core, inviter).await?;
-        let text = copy::invited(&name_of(&by), &plan.name(), &plan.schedule().text());
+        let by = people::name_on(conn, inviter).await?;
+        let text = copy::invited(&by, &plan.name(), &plan.schedule().text());
         for invitee in invitees {
             let request = NotificationRequest::new(
                 *invitee,
@@ -85,26 +111,49 @@ impl Plans {
         user_ids: &[String],
     ) -> AppResult<(Plan, i32)> {
         let core = &self.core;
-        core.cache.rate_limit(&format!("plans:invite:{user_id}"), 300, Duration::from_secs(3600)).await?;
+        core.cache
+            .rate_limit(&format!("plans:invite:{user_id}"), INVITE_CALLS_PER_HOUR, Duration::from_secs(3600))
+            .await?;
         let wanted = input::people(user_ids, user_id)?;
         people::require_friends(core, user_id, &wanted).await?;
 
+        // A first look without a lock: who hosts, who is in the plan already.
+        // What the social domain is asked on that basis (and the per-friend
+        // invitation limit) comes before the plan is locked.
+        let (host, in_plan) = {
+            let mut conn = core.db.acquire().await?;
+            let access = load_access(&mut conn, plan_id, user_id, false).await?;
+            ensure_may_invite(&access)?;
+            (access.plan.host_id, participant_ids(&mut conn, plan_id).await?)
+        };
+        // Nobody is brought into a plan whose host they are in a block with
+        // (in either direction); they are left out without a word.
+        let hidden_from_host: HashSet<Uuid> = graph::blocked_ids_either(core, host).await?.into_iter().collect();
+        let candidates: Vec<Uuid> =
+            wanted.into_iter().filter(|id| !in_plan.contains(id) && !hidden_from_host.contains(id)).collect();
+        people::limit_invitations(core, user_id, &candidates).await?;
+
         let mut tx = core.db.begin().await?;
         let access = load_access(&mut tx, plan_id, user_id, true).await?;
-        access.ensure_active()?;
-        // Hosts always may; a guest only when the host allows it, and not
-        // after declining.
-        let may_invite =
-            access.is_organizer() || (access.plan.guests_can_invite && access.me.rsvp() != Rsvp::RSVP_DECLINED);
-        ensure!(may_invite, denied, "CANNOT_INVITE", "you cannot invite people to this plan");
-
+        ensure_may_invite(&access)?;
+        // The blocks were looked up for the host seen above.
+        if access.plan.host_id != host {
+            return Err(changed());
+        }
         let already_in: HashSet<Uuid> = participant_ids(&mut tx, plan_id).await?.into_iter().collect();
-        // Nobody is brought into a plan whose host they are hidden from by a
-        // block. Leaving them out silently keeps the block itself silent.
-        let hidden_from_host: HashSet<Uuid> =
-            graph::blocked_ids_either(core, access.plan.host_id).await?.into_iter().collect();
+        // Leaving is for good: whoever left by themselves is not brought
+        // back (and not notified again), without a word to the inviter.
+        let left: HashSet<Uuid> = sqlx::query_scalar(
+            "SELECT user_id FROM plan_past_participants WHERE plan_id = $1 AND left_by_choice AND user_id = ANY($2)",
+        )
+        .bind(plan_id)
+        .bind(&candidates)
+        .fetch_all(&mut *tx)
+        .await?
+        .into_iter()
+        .collect();
         let invitees: Vec<Uuid> =
-            wanted.into_iter().filter(|id| !already_in.contains(id) && !hidden_from_host.contains(id)).collect();
+            candidates.into_iter().filter(|id| !already_in.contains(id) && !left.contains(id)).collect();
         ensure!(
             (already_in.len() + invitees.len()) as i64 <= self.cfg.max_participants,
             invalid,
@@ -139,10 +188,18 @@ impl Plans {
             "answer going, maybe or declined"
         );
         let comment = input::line(comment, MAX_COMMENT, "COMMENT_TOO_LONG")?;
+        let core = &self.core;
         // Every change of mind reaches the host and everyone's screen.
-        self.core.cache.rate_limit(&format!("plans:rsvp:{user_id}"), 30, Duration::from_secs(60)).await?;
+        core.cache.rate_limit(&format!("plans:rsvp:{user_id}"), ANSWERS_PER_MINUTE, Duration::from_secs(60)).await?;
+        core.cache
+            .rate_limit(&format!("plans:rsvp:hour:{user_id}"), ANSWERS_PER_HOUR, Duration::from_secs(3600))
+            .await?;
+        // Asked before the plan is locked: does the host hear about the
+        // answer? Not when the two are in a block with each other.
+        let host = self.plan_access(plan_id, user_id).await?.plan.host_id;
+        let host_hears = host != user_id && !graph::is_blocked_either(core, host, user_id).await?;
 
-        let mut tx = self.core.db.begin().await?;
+        let mut tx = core.db.begin().await?;
         let access = load_access(&mut tx, plan_id, user_id, true).await?;
         access.ensure_active()?;
         ensure!(!access.plan.is_over(now()), precondition, "PLAN_OVER", "the plan is over");
@@ -179,10 +236,10 @@ impl Plans {
             bus::emit(&mut *tx, PLAN_RSVP_CHANGED, Some(user_id), &changed).await?;
         }
         let news = outcome != previous || comment != access.me.comment;
-        // The host hears about it — unless the two are hidden from each other by a block.
-        if news && !access.is_host() && !graph::is_blocked_either(&self.core, access.plan.host_id, user_id).await? {
-            let from = tokuly_identity::summary(&self.core, user_id).await?;
-            let text = copy::rsvp(&name_of(&from), outcome, &access.plan.name(), &comment);
+        // (If the plan was handed over in the meantime, the new host simply sees the answer in the plan.)
+        if news && host_hears && access.plan.host_id == host {
+            let from = people::name_on(&mut tx, user_id).await?;
+            let text = copy::rsvp(&from, outcome, &access.plan.name(), &comment);
             let request =
                 NotificationRequest::new(access.plan.host_id, "plans.rsvp", text.title, text.body, plan_path(plan_id))
                     .actor(user_id)
@@ -202,6 +259,12 @@ impl Plans {
         changed.extend(promoted);
         self.push_rsvps(plan_id, &changed).await?;
         Ok((self.plan_for(access.plan, user_id).await?, outcome))
+    }
+
+    /// Removing people, leaving and changing roles redraw the plan on every
+    /// participant's screen; one account may do so this often.
+    async fn limit_management(&self, user_id: Uuid) -> AppResult<()> {
+        self.core.cache.rate_limit(&format!("plans:manage:{user_id}"), 300, Duration::from_secs(3600)).await
     }
 
     /// Whether one more person can be going.
@@ -296,6 +359,7 @@ impl Plans {
         conn: &mut PgConnection,
         plan: &PlanRow,
         target: &ParticipantRow,
+        by_choice: bool,
     ) -> AppResult<Vec<Uuid>> {
         let in_split: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM plan_expenses WHERE plan_id = $1 AND paid_by = $2)
@@ -312,6 +376,19 @@ impl Plans {
             .bind(target.user_id)
             .execute(&mut *conn)
             .await?;
+        // They keep the right to report what they were shown (see `subject`).
+        sqlx::query(
+            "INSERT INTO plan_past_participants (plan_id, user_id, invited_by, title, left_by_choice) VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (plan_id, user_id) DO UPDATE
+             SET invited_by = EXCLUDED.invited_by, title = EXCLUDED.title, left_by_choice = EXCLUDED.left_by_choice, left_at = now()",
+        )
+        .bind(plan.id)
+        .bind(target.user_id)
+        .bind(target.invited_by)
+        .bind(plan.name())
+        .bind(by_choice)
+        .execute(&mut *conn)
+        .await?;
         sqlx::query(
             "UPDATE plan_checklist_items SET claimed_by = NULL WHERE plan_id = $1 AND claimed_by = $2 AND NOT done",
         )
@@ -328,6 +405,7 @@ impl Plans {
 
     /// The host or a co-host takes `target` out of the plan.
     pub(crate) async fn remove_plan_participant(&self, user_id: Uuid, plan_id: Uuid, target: Uuid) -> AppResult<Plan> {
+        self.limit_management(user_id).await?;
         let mut tx = self.core.db.begin().await?;
         let access = load_access(&mut tx, plan_id, user_id, true).await?;
         access.ensure_organizer()?;
@@ -345,7 +423,7 @@ impl Plans {
             "NOT_THE_HOST",
             "only the host can remove a co-host"
         );
-        let promoted = self.drop_participant(&mut tx, &access.plan, &participant).await?;
+        let promoted = self.drop_participant(&mut tx, &access.plan, &participant, false).await?;
         let remaining = participant_ids(&mut tx, plan_id).await?;
         tx.commit().await?;
 
@@ -355,12 +433,13 @@ impl Plans {
         self.plan_for(access.plan, user_id).await
     }
 
-    /// `user_id` leaves a plan for good.
+    /// `user_id` leaves a plan for good: they cannot be invited to it again.
     pub(crate) async fn leave_plan(&self, user_id: Uuid, plan_id: Uuid) -> AppResult<()> {
+        self.limit_management(user_id).await?;
         let mut tx = self.core.db.begin().await?;
         let access = load_access(&mut tx, plan_id, user_id, true).await?;
         ensure!(!access.is_host(), precondition, "HOST_CANNOT_LEAVE", "hand the plan over or cancel it");
-        let promoted = self.drop_participant(&mut tx, &access.plan, &access.me).await?;
+        let promoted = self.drop_participant(&mut tx, &access.plan, &access.me, true).await?;
         let remaining = participant_ids(&mut tx, plan_id).await?;
         tx.commit().await?;
 
@@ -379,6 +458,7 @@ impl Plans {
         role: PlanRole,
     ) -> AppResult<Plan> {
         ensure!(role != PlanRole::PLAN_ROLE_UNSPECIFIED, invalid, "ROLE_INVALID", "choose a role");
+        self.limit_management(user_id).await?;
         let mut tx = self.core.db.begin().await?;
         let mut access = load_access(&mut tx, plan_id, user_id, true).await?;
         access.ensure_host()?;

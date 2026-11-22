@@ -1,21 +1,71 @@
-//! Other people as this domain needs them: who is a friend, who is hidden by
-//! a block, how someone is named in a notification, and the two facts about
-//! a friendship that only the social domain knows.
+//! Other people as this domain needs them: who is a friend, how someone is
+//! named in a notification, how often one person may
+//! invite another, and the two facts about a friendship that only the social
+//! domain knows.
+//!
+//! Everything here that asks the social or identity domain goes through the
+//! connection pool, so it is called before a transaction is opened, never
+//! inside one: a handler that holds a connection (and a lock) while waiting
+//! for a second connection can starve the pool. [`locals`] is the exception
+//! made for that case: it reads on the connection the caller already holds.
 use std::{
     collections::{HashMap, HashSet},
     time::Duration,
 };
 
+use chrono_tz::Tz;
+use sqlx::PgConnection;
 use tokuly_core::prelude::*;
-use tokuly_identity::{ProfileExtension, users};
+use tokuly_identity::ProfileExtension;
 use tokuly_proto::{common::UserSummary, identity::Profile};
 use tokuly_social::graph;
 
-use crate::Plans;
+use crate::{Plans, dates};
 
 /// The name to use for a user in notifications and activity entries.
 pub(crate) fn name_of(user: &UserSummary) -> String {
     if user.display_name.is_empty() { format!("@{}", user.handle) } else { user.display_name.clone() }
+}
+
+/// What a transaction needs to know about a user to write to or about them.
+#[derive(Debug, Clone)]
+pub(crate) struct Local {
+    /// As [`name_of`] would give it.
+    pub name: String,
+    pub zone: Tz,
+}
+
+/// Name and time zone of users, read on a connection that is already in use
+/// (inside a transaction, where asking the pool for a second connection is
+/// not an option). Unknown users are absent.
+pub(crate) async fn locals(conn: &mut PgConnection, user_ids: &[Uuid]) -> AppResult<HashMap<Uuid, Local>> {
+    let rows: Vec<(Uuid, String, String, String, bool)> = sqlx::query_as(
+        "SELECT id, display_name, handle::text, time_zone, deleted_at IS NOT NULL FROM users WHERE id = ANY($1)",
+    )
+    .bind(user_ids)
+    .fetch_all(conn)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, display_name, handle, time_zone, deleted)| {
+            // An erased account is named the way identity's placeholder summary names it.
+            let name = match (deleted, display_name.is_empty()) {
+                (true, _) => "@deleted".to_owned(),
+                (false, true) => format!("@{handle}"),
+                (false, false) => display_name,
+            };
+            (id, Local { name, zone: dates::zone(&time_zone) })
+        })
+        .collect())
+}
+
+/// [`locals`] for one user's name.
+pub(crate) async fn name_on(conn: &mut PgConnection, user_id: Uuid) -> AppResult<String> {
+    Ok(locals(conn, &[user_id])
+        .await?
+        .remove(&user_id)
+        .map(|local| local.name)
+        .unwrap_or_else(|| "@deleted".to_owned()))
 }
 
 /// The error for anything aimed at "a friend" who is not one. It also covers
@@ -42,36 +92,31 @@ pub(crate) async fn require_friends(core: &Core, user_id: Uuid, others: &[Uuid])
     }
 }
 
-/// The people in a plan or a poll as one viewer may see them. Someone hidden
-/// from the viewer by a block (in either direction) is still there — the
-/// plan and its cost split are shared — but only as an ID.
-pub(crate) struct People {
-    summaries: HashMap<Uuid, UserSummary>,
-    hidden: HashSet<Uuid>,
-}
+/// Invitations one person may send the same friend in a day, plans and date
+/// polls together. Every invitation notifies, and inviting, removing and
+/// inviting again would otherwise be a way to pester someone.
+const INVITATIONS_PER_FRIEND: u32 = 10;
+/// Invitations one person may send in an hour, to anyone: every invitee of
+/// `CreatePlan`, `InviteToPlan`, `CreatePoll` and `InviteToPoll` counts.
+const INVITATIONS_PER_HOUR: u32 = 300;
 
-impl People {
-    pub(crate) async fn load(core: &Core, viewer: Uuid, ids: impl IntoIterator<Item = Uuid>) -> AppResult<Self> {
-        let hidden: HashSet<Uuid> = graph::blocked_ids_either(core, viewer).await?.into_iter().collect();
-        let visible: Vec<Uuid> =
-            ids.into_iter().filter(|id| !hidden.contains(id)).collect::<HashSet<_>>().into_iter().collect();
-        let summaries = tokuly_identity::summaries(core, &visible).await?;
-        Ok(Self { summaries, hidden })
+/// Counts one invitation from `from` to each of `to` against the sender's
+/// hourly limit and the daily limit per pair (`RATE_LIMITED` when either is
+/// used up).
+pub(crate) async fn limit_invitations(core: &Core, from: Uuid, to: &[Uuid]) -> AppResult<()> {
+    for friend in to {
+        core.cache
+            .rate_limit(&format!("plans:invitations:{from}"), INVITATIONS_PER_HOUR, Duration::from_secs(3600))
+            .await?;
+        core.cache
+            .rate_limit(
+                &format!("plans:invite:{from}:{friend}"),
+                INVITATIONS_PER_FRIEND,
+                Duration::from_secs(24 * 3600),
+            )
+            .await?;
     }
-
-    pub(crate) fn is_hidden(&self, id: Uuid) -> bool {
-        self.hidden.contains(&id)
-    }
-
-    /// The person's summary, or a placeholder carrying nothing but the ID
-    /// when they are hidden from the viewer.
-    pub(crate) fn summary(&self, id: Uuid) -> UserSummary {
-        if self.is_hidden(id) {
-            UserSummary { id: id.to_string(), ..Default::default() }
-        } else {
-            users::pick(&self.summaries, id)
-        }
-    }
+    Ok(())
 }
 
 /// What the social domain knows about a friendship, as one side sees it.

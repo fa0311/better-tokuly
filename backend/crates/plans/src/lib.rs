@@ -16,7 +16,7 @@
 //! - `profile` adds cards to identity's profiles, `subject` lets comments
 //!   and reports attach to a plan, `maintenance` reacts to other domains'
 //!   events, runs the reminders and exports personal data.
-//! - `people` answers who is a friend and who is hidden by a block; `dates`,
+//! - `people` answers who is a friend and how someone is named; `dates`,
 //!   `input` and `copy` hold time-zone helpers, validation and every text
 //!   the server writes.
 //!

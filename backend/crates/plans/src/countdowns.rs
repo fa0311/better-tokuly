@@ -4,11 +4,15 @@
 //! friends, or pinned to the owner's profile (where their friends see it).
 //! Days are counted in the owner's time zone, so "あと12日" reads the same
 //! for everyone looking at it.
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    time::Duration as StdDuration,
+};
 
 use buffa::Enumeration as _;
 use chrono::{Datelike as _, NaiveDate};
 use chrono_tz::Tz;
+use sqlx::PgConnection;
 use tokuly_core::{
     outbound::{self, NotificationRequest},
     page::encode_cursor,
@@ -114,6 +118,36 @@ fn not_found() -> AppError {
     AppError::not_found("COUNTDOWN_NOT_FOUND", "countdown not found")
 }
 
+/// Serializes one owner's writes for the rest of the transaction: the limits
+/// below are counted and then written, and two calls at once must not both
+/// fit under them.
+async fn lock_countdowns(conn: &mut PgConnection, user_id: Uuid) -> AppResult<()> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(format!("plans:countdowns:{}", user_id.simple()))
+        .execute(conn)
+        .await?;
+    Ok(())
+}
+
+/// A countdown can be pinned while fewer than [`MAX_PINNED`] others are.
+/// Call it under [`lock_countdowns`].
+async fn ensure_can_pin(conn: &mut PgConnection, user_id: Uuid, except: Option<Uuid>) -> AppResult<()> {
+    let pinned: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM plan_countdowns WHERE user_id = $1 AND sharing = 3 AND id IS DISTINCT FROM $2",
+    )
+    .bind(user_id)
+    .bind(except)
+    .fetch_one(conn)
+    .await?;
+    ensure!(
+        (pinned as usize) < MAX_PINNED,
+        precondition,
+        "TOO_MANY_PINNED",
+        "at most {MAX_PINNED} countdowns can be pinned to the profile"
+    );
+    Ok(())
+}
+
 impl Plans {
     /// Reads who a countdown is shared with: nobody unless said otherwise.
     async fn countdown_sharing(
@@ -145,22 +179,9 @@ impl Plans {
         }
     }
 
-    /// A countdown can be pinned while fewer than [`MAX_PINNED`] others are.
-    async fn ensure_can_pin(&self, user_id: Uuid, except: Option<Uuid>) -> AppResult<()> {
-        let pinned: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM plan_countdowns WHERE user_id = $1 AND sharing = 3 AND id IS DISTINCT FROM $2",
-        )
-        .bind(user_id)
-        .bind(except)
-        .fetch_one(&self.core.db)
-        .await?;
-        ensure!(
-            (pinned as usize) < MAX_PINNED,
-            precondition,
-            "TOO_MANY_PINNED",
-            "at most {MAX_PINNED} countdowns can be pinned to the profile"
-        );
-        Ok(())
+    /// One account may write this many countdowns (new or changed) in an hour.
+    async fn limit_countdown_writes(&self, user_id: Uuid) -> AppResult<()> {
+        self.core.cache.rate_limit(&format!("plans:countdown:{user_id}"), 120, StdDuration::from_secs(3600)).await
     }
 
     /// The countdown as its owner sees it, with who it is shared with.
@@ -175,6 +196,7 @@ impl Plans {
 
     pub(crate) async fn create_countdown(&self, user_id: Uuid, req: &CreateCountdownRequest) -> AppResult<Countdown> {
         let core = &self.core;
+        self.limit_countdown_writes(user_id).await?;
         let zone = dates::zone_of(core, user_id).await?;
         let now = now();
         let title = countdown_title(&req.title)?;
@@ -194,15 +216,6 @@ impl Plans {
                 &req.shared_with_ids,
             )
             .await?;
-        let total: i64 = sqlx::query_scalar("SELECT count(*) FROM plan_countdowns WHERE user_id = $1")
-            .bind(user_id)
-            .fetch_one(&core.db)
-            .await?;
-        ensure!(total < MAX_COUNTDOWNS, precondition, "TOO_MANY_COUNTDOWNS", "at most {MAX_COUNTDOWNS} countdowns");
-        if sharing == CountdownSharing::COUNTDOWN_SHARING_PROFILE {
-            self.ensure_can_pin(user_id, None).await?;
-        }
-
         let draft = CountdownRow {
             id: new_id(),
             user_id,
@@ -214,6 +227,16 @@ impl Plans {
             shared_ids: shared,
             created_at: now,
         };
+        let mut tx = core.db.begin().await?;
+        lock_countdowns(&mut tx, user_id).await?;
+        let total: i64 = sqlx::query_scalar("SELECT count(*) FROM plan_countdowns WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_one(&mut *tx)
+            .await?;
+        ensure!(total < MAX_COUNTDOWNS, precondition, "TOO_MANY_COUNTDOWNS", "at most {MAX_COUNTDOWNS} countdowns");
+        if sharing == CountdownSharing::COUNTDOWN_SHARING_PROFILE {
+            ensure_can_pin(&mut tx, user_id, None).await?;
+        }
         let row: CountdownRow = sqlx::query_as(concat!(
             "INSERT INTO plan_countdowns AS c (id, user_id, title, emoji, target_date, repeats_yearly, sharing, shared_ids, notify_due_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING ",
@@ -228,14 +251,16 @@ impl Plans {
         .bind(draft.sharing)
         .bind(&draft.shared_ids)
         .bind(draft.notify_due(zone, now, self.cfg.morning_hour))
-        .fetch_one(&core.db)
+        .fetch_one(&mut *tx)
         .await?;
+        tx.commit().await?;
         self.countdown_for_owner(&row, zone).await
     }
 
     pub(crate) async fn update_countdown(&self, user_id: Uuid, req: &UpdateCountdownRequest) -> AppResult<Countdown> {
         let core = &self.core;
         let countdown_id = parse_id(&req.countdown_id)?;
+        self.limit_countdown_writes(user_id).await?;
         let zone = dates::zone_of(core, user_id).await?;
         let now = now();
         let mut row: CountdownRow = sqlx::query_as(concat!(
@@ -273,14 +298,16 @@ impl Plans {
         let wanted = req.sharing.as_known().unwrap_or(CountdownSharing::COUNTDOWN_SHARING_UNSPECIFIED);
         if wanted != CountdownSharing::COUNTDOWN_SHARING_UNSPECIFIED {
             let (sharing, shared) = self.countdown_sharing(user_id, wanted, &req.shared_with_ids).await?;
-            if sharing == CountdownSharing::COUNTDOWN_SHARING_PROFILE {
-                self.ensure_can_pin(user_id, Some(row.id)).await?;
-            }
             row.sharing = sharing as i32 as i16;
             row.shared_ids = shared;
         }
 
-        sqlx::query("UPDATE plan_countdowns SET title = $2, emoji = $3, target_date = $4, repeats_yearly = $5, sharing = $6, shared_ids = $7, notify_due_at = $8 WHERE id = $1")
+        let mut tx = core.db.begin().await?;
+        lock_countdowns(&mut tx, user_id).await?;
+        if row.sharing() == CountdownSharing::COUNTDOWN_SHARING_PROFILE {
+            ensure_can_pin(&mut tx, user_id, Some(row.id)).await?;
+        }
+        let updated = sqlx::query("UPDATE plan_countdowns SET title = $2, emoji = $3, target_date = $4, repeats_yearly = $5, sharing = $6, shared_ids = $7, notify_due_at = $8 WHERE id = $1")
             .bind(row.id)
             .bind(&row.title)
             .bind(&row.emoji)
@@ -289,8 +316,11 @@ impl Plans {
             .bind(row.sharing)
             .bind(&row.shared_ids)
             .bind(row.notify_due(zone, now, self.cfg.morning_hour))
-            .execute(&core.db)
+            .execute(&mut *tx)
             .await?;
+        // Deleted between the first look and the lock.
+        ensure!(updated.rows_affected() > 0, not_found, "COUNTDOWN_NOT_FOUND", "countdown not found");
+        tx.commit().await?;
         self.countdown_for_owner(&row, zone).await
     }
 
@@ -435,8 +465,7 @@ impl Plans {
     /// and schedules the next occurrence of the ones that repeat. Returns how
     /// many countdowns were handled.
     pub(crate) async fn notify_due_countdowns(&self) -> AppResult<u64> {
-        let core = &self.core;
-        let mut tx = core.db.begin().await?;
+        let mut tx = self.core.db.begin().await?;
         let due: Vec<CountdownRow> = sqlx::query_as(concat!(
             "SELECT ",
             countdown_columns!(),
@@ -445,10 +474,10 @@ impl Plans {
         .fetch_all(&mut *tx)
         .await?;
         let owners: Vec<Uuid> = due.iter().map(|row| row.user_id).collect();
-        let zones = dates::zones_of(core, &owners).await?;
+        let locals = people::locals(&mut tx, &owners).await?;
         let now = now();
         for row in &due {
-            let zone = zones.get(&row.user_id).copied().unwrap_or(dates::FALLBACK_ZONE);
+            let zone = locals.get(&row.user_id).map(|local| local.zone).unwrap_or(dates::FALLBACK_ZONE);
             let today = dates::day_in(zone, now);
             // After a long pause of the worker the day may be over: say nothing then.
             if row.next_date(today) == today {

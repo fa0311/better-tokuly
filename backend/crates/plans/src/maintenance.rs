@@ -15,7 +15,10 @@ use tokuly_proto::{
     common::SubjectType,
     plans::{PlanChange, PlanRole, Rsvp},
 };
-use tokuly_social::events::{BlockChanged, FRIEND_REMOVED, FriendRemoved, USER_BLOCKED};
+use tokuly_social::{
+    events::{BlockChanged, FRIEND_REMOVED, FriendRemoved, USER_BLOCKED},
+    graph,
+};
 
 use crate::{
     Plans,
@@ -82,11 +85,11 @@ impl Plans {
             USER_DELETED => self.forget_user(event.data::<UserRef>()?.user_id).await,
             FRIEND_REMOVED => {
                 let removed: FriendRemoved = event.data()?;
-                self.separate(removed.user_id, removed.friend_id, removed.blocked).await
+                self.separate(removed.user_id, removed.friend_id).await
             }
             USER_BLOCKED => {
                 let blocked: BlockChanged = event.data()?;
-                self.separate(blocked.user_id, blocked.blocked_id, true).await
+                self.separate(blocked.user_id, blocked.blocked_id).await
             }
             CONTENT_REMOVED => {
                 let removed: ContentRemoved = event.data()?;
@@ -123,25 +126,54 @@ impl Plans {
     /// Reminds the people going (or maybe going) to the plans whose reminder
     /// of this kind is due. Returns how many plans were handled.
     async fn send_plan_reminders(&self, reminder: Reminder) -> AppResult<u64> {
-        let mut tx = self.core.db.begin().await?;
+        let core = &self.core;
+        // A reminder that came due again for a start time it was already
+        // sent for (the lead time was changed back and forth) is dropped.
+        let resent = match reminder {
+            Reminder::DayBefore => {
+                "UPDATE plans SET day_before_due_at = NULL WHERE day_before_due_at <= now() AND day_before_sent_for = sort_at"
+            }
+            Reminder::Soon => {
+                "UPDATE plans SET before_due_at = NULL WHERE before_due_at <= now() AND before_sent_for = sort_at"
+            }
+        };
+        sqlx::query(resent).execute(&core.db).await?;
+
+        // A reminder speaks for the host. Who is in a block with each host is
+        // asked first: the transaction below uses its own connection only,
+        // and claims only the plans of the hosts asked about.
+        let hosts: Vec<Uuid> = sqlx::query_scalar(match reminder {
+            Reminder::DayBefore => "SELECT DISTINCT host_id FROM plans WHERE day_before_due_at <= now()",
+            Reminder::Soon => "SELECT DISTINCT host_id FROM plans WHERE before_due_at <= now()",
+        })
+        .fetch_all(&core.db)
+        .await?;
+        let mut hidden: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
+        for host in &hosts {
+            hidden.insert(*host, graph::blocked_ids_either(core, *host).await?);
+        }
+
+        let mut tx = core.db.begin().await?;
         let due: Vec<PlanRow> = match reminder {
             Reminder::DayBefore => {
                 sqlx::query_as(concat!(
-                    "UPDATE plans p SET day_before_due_at = NULL
-                     WHERE p.id IN (SELECT id FROM plans WHERE day_before_due_at <= now() ORDER BY day_before_due_at LIMIT 100 FOR UPDATE SKIP LOCKED)
+                    "UPDATE plans p SET day_before_due_at = NULL, day_before_sent_for = sort_at
+                     WHERE p.id IN (SELECT id FROM plans WHERE day_before_due_at <= now() AND host_id = ANY($1) ORDER BY day_before_due_at LIMIT 100 FOR UPDATE SKIP LOCKED)
                      RETURNING ",
                     plan_columns!()
                 ))
+                .bind(&hosts)
                 .fetch_all(&mut *tx)
                 .await?
             }
             Reminder::Soon => {
                 sqlx::query_as(concat!(
-                    "UPDATE plans p SET before_due_at = NULL
-                     WHERE p.id IN (SELECT id FROM plans WHERE before_due_at <= now() ORDER BY before_due_at LIMIT 100 FOR UPDATE SKIP LOCKED)
+                    "UPDATE plans p SET before_due_at = NULL, before_sent_for = sort_at
+                     WHERE p.id IN (SELECT id FROM plans WHERE before_due_at <= now() AND host_id = ANY($1) ORDER BY before_due_at LIMIT 100 FOR UPDATE SKIP LOCKED)
                      RETURNING ",
                     plan_columns!()
                 ))
+                .bind(&hosts)
                 .fetch_all(&mut *tx)
                 .await?
             }
@@ -166,15 +198,19 @@ impl Plans {
                     copy::reminder_soon(&plan.name(), minutes, &plan.place_name)
                 }
             };
-            let going: Vec<Uuid> =
-                sqlx::query_scalar("SELECT user_id FROM plan_participants WHERE plan_id = $1 AND rsvp IN ($2, $3)")
-                    .bind(plan.id)
-                    .bind(Rsvp::RSVP_GOING as i32 as i16)
-                    .bind(Rsvp::RSVP_MAYBE as i32 as i16)
-                    .fetch_all(&mut *tx)
-                    .await?;
+            // Not to someone in a block with the host: blocking the host
+            // stops what the host's plan sends.
+            let going: Vec<Uuid> = sqlx::query_scalar(
+                "SELECT user_id FROM plan_participants WHERE plan_id = $1 AND rsvp IN ($2, $3) AND NOT (user_id = ANY($4))",
+            )
+            .bind(plan.id)
+            .bind(Rsvp::RSVP_GOING as i32 as i16)
+            .bind(Rsvp::RSVP_MAYBE as i32 as i16)
+            .bind(hidden.get(&plan.host_id).map(Vec::as_slice).unwrap_or_default())
+            .fetch_all(&mut *tx)
+            .await?;
             for user_id in going {
-                let request = NotificationRequest::new(
+                let mut request = NotificationRequest::new(
                     user_id,
                     "plans.reminder",
                     text.title.clone(),
@@ -183,6 +219,11 @@ impl Plans {
                 )
                 .subject(SubjectType::SUBJECT_TYPE_PLAN, plan.id)
                 .collapse(format!("plans.reminder:{}", plan.id));
+                // The host is the one behind a reminder, for whatever the
+                // notify domain decides by actor (mutes, blocks).
+                if user_id != plan.host_id {
+                    request = request.actor(plan.host_id);
+                }
                 outbound::notify(&mut *tx, &request).await?;
             }
         }
@@ -191,13 +232,14 @@ impl Plans {
     }
 
     /// For plans whose time has passed: emits `plans.plan.attended` and
-    /// records an activity entry for everyone who was going. Returns how many
-    /// plans were handled.
+    /// records an activity entry for everyone who was going. Once per plan:
+    /// a plan that is moved to another day afterwards is not counted again.
+    /// Returns how many plans were handled.
     async fn announce_attendance(&self) -> AppResult<u64> {
         let mut tx = self.core.db.begin().await?;
         let over: Vec<PlanRow> = sqlx::query_as(concat!(
-            "UPDATE plans p SET attended_due_at = NULL
-             WHERE p.id IN (SELECT id FROM plans WHERE attended_due_at <= now() ORDER BY attended_due_at LIMIT 100 FOR UPDATE SKIP LOCKED)
+            "UPDATE plans p SET attended_due_at = NULL, attended_at = now()
+             WHERE p.id IN (SELECT id FROM plans WHERE attended_due_at <= now() AND attended_at IS NULL ORDER BY attended_due_at LIMIT 100 FOR UPDATE SKIP LOCKED)
              RETURNING ",
             plan_columns!()
         ))
@@ -258,6 +300,7 @@ impl Plans {
             "DELETE FROM plan_countdowns WHERE user_id = $1",
             "UPDATE plan_countdowns SET shared_ids = array_remove(shared_ids, $1) WHERE shared_ids @> ARRAY[$1]::uuid[]",
             "DELETE FROM plan_settings WHERE user_id = $1",
+            "DELETE FROM plan_past_participants WHERE user_id = $1",
         ];
         for statement in SIMPLE {
             sqlx::query(*statement).bind(user_id).execute(&mut *tx).await?;
@@ -380,12 +423,21 @@ impl Plans {
 
     /// Two people stopped being friends, or one blocked the other: they
     /// leave each other's audiences, unanswered invitations between them are
-    /// withdrawn, and their counters end. Plans they share (and answered)
-    /// keep both; a block hides each one's details from the other when the
-    /// plan is read. A block also takes each out of the other's polls.
-    async fn separate(&self, a: Uuid, b: Uuid, blocked: bool) -> AppResult<()> {
+    /// withdrawn, each leaves the other's polls, and their counters end.
+    /// Plans they share (and answered) keep both, listed as before. The
+    /// end of a friendship and a block do exactly the same here, so nothing
+    /// in this domain tells someone which of the two happened.
+    ///
+    /// Events can arrive late. If the two are friends by now (they made up
+    /// before the event got here) nothing is separated: what they share today
+    /// was set up after the state the event describes.
+    async fn separate(&self, a: Uuid, b: Uuid) -> AppResult<()> {
+        let core = &self.core;
+        if graph::are_friends(core, a, b).await? {
+            return Ok(());
+        }
         let (lo, hi) = if a < b { (a, b) } else { (b, a) };
-        let mut tx = self.core.db.begin().await?;
+        let mut tx = core.db.begin().await?;
 
         // Audiences: chosen friends of a status or a countdown, "tell me when
         // they are free", and the "あそぼ!" one sent the other.
@@ -403,11 +455,21 @@ impl Plans {
 
         // Invitations to a plan that one extended to the other (or to a plan
         // the other hosts) and that were never answered.
+        // Whoever loses an invitation this way can still report the plan they
+        // were shown (see `subject`): blocking someone must not be what makes
+        // their invitation unreportable.
         let uninvited: Vec<(Uuid, Uuid)> = sqlx::query_as(
-            "DELETE FROM plan_participants m USING plans p
-             WHERE m.plan_id = p.id AND m.rsvp = $3
-               AND ((m.user_id = $1 AND (m.invited_by = $2 OR p.host_id = $2)) OR (m.user_id = $2 AND (m.invited_by = $1 OR p.host_id = $1)))
-             RETURNING m.plan_id, m.user_id",
+            "WITH gone AS (
+                 DELETE FROM plan_participants m USING plans p
+                 WHERE m.plan_id = p.id AND m.rsvp = $3
+                   AND ((m.user_id = $1 AND (m.invited_by = $2 OR p.host_id = $2)) OR (m.user_id = $2 AND (m.invited_by = $1 OR p.host_id = $1)))
+                 RETURNING m.plan_id, m.user_id, m.invited_by
+             )
+             INSERT INTO plan_past_participants (plan_id, user_id, invited_by, title)
+             SELECT gone.plan_id, gone.user_id, gone.invited_by, concat_ws(' ', NULLIF(p.emoji, ''), p.title)
+             FROM gone JOIN plans p ON p.id = gone.plan_id
+             ON CONFLICT (plan_id, user_id) DO UPDATE SET invited_by = EXCLUDED.invited_by, title = EXCLUDED.title, left_at = now()
+             RETURNING plan_id, user_id",
         )
         .bind(a)
         .bind(b)
@@ -415,27 +477,24 @@ impl Plans {
         .fetch_all(&mut *tx)
         .await?;
 
-        // Polls of the other: an unanswered invitation is withdrawn; after a
-        // block the answers go too.
-        if blocked {
-            sqlx::query(
-                "DELETE FROM date_poll_answers g USING date_polls q
-                 WHERE g.poll_id = q.id AND ((q.creator_id = $1 AND g.user_id = $2) OR (q.creator_id = $2 AND g.user_id = $1))",
-            )
-            .bind(a)
-            .bind(b)
-            .execute(&mut *tx)
-            .await?;
-        }
+        // Polls of the other: each leaves them, answers included. A poll is
+        // among the creator's friends; someone who no longer is one does not
+        // keep reading it.
+        sqlx::query(
+            "DELETE FROM date_poll_answers g USING date_polls q
+             WHERE g.poll_id = q.id AND ((q.creator_id = $1 AND g.user_id = $2) OR (q.creator_id = $2 AND g.user_id = $1))",
+        )
+        .bind(a)
+        .bind(b)
+        .execute(&mut *tx)
+        .await?;
         let left_polls: Vec<(Uuid, Uuid)> = sqlx::query_as(
             "DELETE FROM date_poll_participants m USING date_polls q
              WHERE m.poll_id = q.id AND ((q.creator_id = $1 AND m.user_id = $2) OR (q.creator_id = $2 AND m.user_id = $1))
-               AND ($3 OR m.answered_at IS NULL)
              RETURNING m.poll_id, m.user_id",
         )
         .bind(a)
         .bind(b)
-        .bind(blocked)
         .fetch_all(&mut *tx)
         .await?;
 
@@ -553,7 +612,7 @@ impl DataExporter for PlansExporter {
             "settlements": self.json(
                 "SELECT COALESCE(jsonb_agg(jsonb_build_object(
                      'plan_id', plan_id, 'from_user_id', from_user_id, 'to_user_id', to_user_id, 'amount', amount, 'currency', currency,
-                     'recorded_by_me', recorded_by = $1, 'at', created_at) ORDER BY id), '[]'::jsonb)
+                     'recorded_by_me', recorded_by = $1, 'at', created_at, 'taken_back_at', removed_at) ORDER BY id), '[]'::jsonb)
                  FROM plan_settlements WHERE from_user_id = $1 OR to_user_id = $1", user_id).await?,
             "polls": self.json(
                 "SELECT COALESCE(jsonb_agg(jsonb_build_object(
@@ -574,6 +633,10 @@ impl DataExporter for PlansExporter {
                      'title', title, 'emoji', emoji, 'status', status, 'started_by_me', created_by = $1,
                      'shown_on_my_profile', CASE WHEN user_lo = $1 THEN show_lo ELSE show_hi END, 'created_at', created_at) ORDER BY id), '[]'::jsonb)
                  FROM plan_anniversaries WHERE user_lo = $1 OR user_hi = $1", user_id).await?,
+            "former_plans": self.json(
+                "SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                     'plan_id', plan_id, 'title', title, 'invited_by', invited_by, 'left_at', left_at) ORDER BY left_at), '[]'::jsonb)
+                 FROM plan_past_participants WHERE user_id = $1", user_id).await?,
             "settings": self.json(
                 "SELECT COALESCE((SELECT jsonb_build_object('share_birthday', share_birthday) FROM plan_settings WHERE user_id = $1),
                                  jsonb_build_object('share_birthday', false))", user_id).await?,

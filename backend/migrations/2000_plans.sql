@@ -46,12 +46,14 @@ CREATE INDEX free_answers_newest ON free_answers (status_id, created_at DESC, us
 CREATE INDEX free_answers_user ON free_answers (user_id);
 
 -- "Tell me when they are free": `user_id` wants to hear about `friend_id`.
--- The last window they were told about keeps it to once per window.
+-- The last window they were told about keeps it to once per window, and the
+-- time they were told to once in a while whatever the windows.
 CREATE TABLE free_alerts (
     user_id            uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     friend_id          uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     notified_starts_at timestamptz,
     notified_ends_at   timestamptz,
+    notified_at        timestamptz,
     created_at         timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (user_id, friend_id),
     CHECK (user_id <> friend_id)
@@ -93,6 +95,14 @@ CREATE TABLE plans (
     day_before_due_at     timestamptz,
     before_due_at         timestamptz,
     attended_due_at       timestamptz,
+    -- The start time each reminder was last sent for. A reminder that comes
+    -- due again for the same start (the host changed the lead time back and
+    -- forth) is not sent a second time; one for a new start is.
+    day_before_sent_for   timestamptz,
+    before_sent_for       timestamptz,
+    -- When attendance was announced. Set once: a plan moved to another day
+    -- afterwards does not count anyone as having attended a second time.
+    attended_at           timestamptz,
     currency              text        NOT NULL DEFAULT 'JPY',
     -- PlanStatus
     status                smallint    NOT NULL DEFAULT 1,
@@ -138,6 +148,23 @@ CREATE TABLE plan_participants (
 );
 
 CREATE INDEX plan_participants_user ON plan_participants (user_id, plan_id);
+
+-- People who were in a plan (invited or more) and no longer are: removed,
+-- gone by their own choice, or uninvited when a friendship ended or a block
+-- was set. Kept so that they can still report the plan, with the title they
+-- last saw (see the subject resolver).
+CREATE TABLE plan_past_participants (
+    plan_id    uuid        NOT NULL REFERENCES plans (id) ON DELETE CASCADE,
+    user_id    uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    invited_by uuid,
+    title      text        NOT NULL,
+    -- They left by themselves (LeavePlan): they are not invited again.
+    left_by_choice boolean NOT NULL DEFAULT false,
+    left_at    timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (plan_id, user_id)
+);
+
+CREATE INDEX plan_past_participants_user ON plan_past_participants (user_id);
 
 -- 持ち物 / やること.
 CREATE TABLE plan_checklist_items (
@@ -199,7 +226,9 @@ CREATE TABLE plan_expense_shares (
 
 CREATE INDEX plan_expense_shares_user ON plan_expense_shares (user_id);
 
--- Transfers marked as done ("I gave B the 1,200 yen").
+-- Transfers marked as received ("B gave me the 1,200 yen"), recorded by the
+-- receiver. One that is taken back stays, with who did it and when, and no
+-- longer counts.
 CREATE TABLE plan_settlements (
     id           uuid PRIMARY KEY DEFAULT uuidv7(),
     plan_id      uuid        NOT NULL REFERENCES plans (id) ON DELETE CASCADE,
@@ -209,6 +238,8 @@ CREATE TABLE plan_settlements (
     currency     text        NOT NULL,
     recorded_by  uuid        NOT NULL,
     created_at   timestamptz NOT NULL DEFAULT now(),
+    removed_at   timestamptz,
+    removed_by   uuid,
     CHECK (amount > 0),
     CHECK (from_user_id <> to_user_id)
 );
@@ -232,6 +263,9 @@ CREATE TABLE date_polls (
     deadline        timestamptz,
     -- When the people who have not answered get their automatic reminder.
     remind_due_at   timestamptz,
+    -- When that reminder was sent. Once per poll, whatever the deadline is
+    -- changed to afterwards.
+    reminded_at     timestamptz,
     final_slot_id   uuid,
     plan_id         uuid,
     attrs           jsonb       NOT NULL DEFAULT '{}',
@@ -272,11 +306,26 @@ CREATE TABLE date_poll_participants (
     invited     boolean     NOT NULL DEFAULT false,
     comment     text        NOT NULL DEFAULT '',
     answered_at timestamptz,
+    -- The creator was told that this person answered (once, however often
+    -- they take their answers back and answer again).
+    announced   boolean     NOT NULL DEFAULT false,
     created_at  timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (poll_id, user_id)
 );
 
 CREATE INDEX date_poll_participants_user ON date_poll_participants (user_id, poll_id);
+
+-- People who were in a poll and no longer are. Someone who left by
+-- themselves is not invited again (through the link of an open poll they
+-- can come back on their own); someone the creator removed no longer gets
+-- in through the link, until invited again.
+CREATE TABLE date_poll_past_participants (
+    poll_id uuid        NOT NULL REFERENCES date_polls (id) ON DELETE CASCADE,
+    user_id uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    removed boolean     NOT NULL,
+    left_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (poll_id, user_id)
+);
 
 -- ○ △ × per slot and person.
 CREATE TABLE date_poll_answers (

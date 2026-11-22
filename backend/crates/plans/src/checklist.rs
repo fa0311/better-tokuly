@@ -113,6 +113,12 @@ impl Plans {
         Ok((item, access))
     }
 
+    /// Every change to a checklist is pushed to everyone in the plan; one
+    /// account may make this many in an hour.
+    async fn limit_checklist_changes(&self, user_id: Uuid) -> AppResult<()> {
+        self.core.cache.rate_limit(&format!("plans:checklist:{user_id}"), 300, Duration::from_secs(3600)).await
+    }
+
     async fn push_checklist(
         &self,
         plan_id: Uuid,
@@ -138,7 +144,7 @@ impl Plans {
         text: &str,
     ) -> AppResult<ChecklistItem> {
         let text = item_text(text)?;
-        self.core.cache.rate_limit(&format!("plans:checklist:{user_id}"), 300, Duration::from_secs(3600)).await?;
+        self.limit_checklist_changes(user_id).await?;
         let mut tx = self.core.db.begin().await?;
         let access = load_access(&mut tx, plan_id, user_id, true).await?;
         access.ensure_going()?;
@@ -171,6 +177,7 @@ impl Plans {
         item_id: Uuid,
         change: ItemChange<'_>,
     ) -> AppResult<ChecklistItem> {
+        self.limit_checklist_changes(user_id).await?;
         let mut tx = self.core.db.begin().await?;
         let (mut item, access) = self.checklist_item(&mut tx, item_id, user_id).await?;
         access.ensure_going()?;
@@ -238,6 +245,7 @@ impl Plans {
 
     /// Deletes an item (its author or a host).
     pub(crate) async fn remove_checklist_item(&self, user_id: Uuid, item_id: Uuid) -> AppResult<()> {
+        self.limit_checklist_changes(user_id).await?;
         let mut tx = self.core.db.begin().await?;
         let (item, access) = self.checklist_item(&mut tx, item_id, user_id).await?;
         ensure!(

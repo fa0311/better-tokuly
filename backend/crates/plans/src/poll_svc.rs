@@ -132,6 +132,32 @@ impl PollService for Plans {
         .await
     }
 
+    async fn leave_poll(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, LeavePollRequest>,
+    ) -> ServiceResult<LeavePollResponse> {
+        handle(async {
+            Plans::leave_poll(self, ctx.user_id()?, request.poll_id).await?;
+            ok(LeavePollResponse::default())
+        })
+        .await
+    }
+
+    async fn remove_poll_participant(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, RemovePollParticipantRequest>,
+    ) -> ServiceResult<RemovePollParticipantResponse> {
+        handle(async {
+            let user_id = ctx.user_id()?;
+            let poll =
+                Plans::remove_poll_participant(self, user_id, request.poll_id, parse_id(request.user_id)?).await?;
+            ok(RemovePollParticipantResponse { poll: poll.into(), ..Default::default() })
+        })
+        .await
+    }
+
     async fn remind_poll_participants(
         &self,
         ctx: RequestContext,

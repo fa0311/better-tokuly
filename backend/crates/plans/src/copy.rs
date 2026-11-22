@@ -157,19 +157,25 @@ pub(crate) fn promoted(plan: &str) -> Notice {
     )
 }
 
-pub(crate) fn settled(by: &str, money: &str, plan: &str, by_is_payer: bool) -> Notice {
-    let body = if by_is_payer {
-        (
-            format!("{by}さんが{money}を渡したと記録したよ(「{plan}」)"),
-            format!("{by} recorded paying you {money} (“{plan}”)"),
-        )
-    } else {
+pub(crate) fn settled(by: &str, money: &str, plan: &str) -> Notice {
+    notice(
+        both("割り勘の精算", "Split settled"),
         (
             format!("{by}さんが{money}を受け取ったと記録したよ(「{plan}」)"),
             format!("{by} recorded receiving {money} from you (“{plan}”)"),
-        )
-    };
-    notice(both("割り勘の精算", "Split settled"), body)
+        ),
+    )
+}
+
+/// To the payer of a transfer that the receiver took back.
+pub(crate) fn settlement_removed(by: &str, money: &str, plan: &str) -> Notice {
+    notice(
+        both("精算が取り消されたよ", "A settlement was taken back"),
+        (
+            format!("{by}さんが{money}の受け取りを取り消したよ(「{plan}」)"),
+            format!("{by} took back the record of receiving {money} from you (“{plan}”)"),
+        ),
+    )
 }
 
 pub(crate) fn plan_created_summary(plan: &str) -> Localized {

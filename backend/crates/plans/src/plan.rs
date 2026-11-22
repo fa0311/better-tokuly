@@ -20,6 +20,7 @@ use tokuly_core::{
     outbound::{self, ActivityAudience, ActivityEntry, NotificationRequest},
     prelude::*,
 };
+use tokuly_identity::users;
 use tokuly_proto::{
     common::{LatLng, PageInfo, SubjectType},
     plans::{plan_time, plans_event::Event as Push, *},
@@ -31,8 +32,7 @@ use crate::{
     checklist::ChecklistRow,
     copy, dates,
     events::{PLAN_CANCELLED, PLAN_CREATED, PlanCancelled, PlanCreated},
-    input,
-    people::{self, People},
+    input, people,
 };
 
 const MAX_TITLE: usize = 80;
@@ -53,6 +53,11 @@ const DEFAULT_LENGTH_HOURS: i64 = 3;
 const MAX_PAST_DAYS: i64 = 31;
 const MAX_AHEAD_DAYS: i64 = 3 * 366;
 const MAX_LENGTH_DAYS: i64 = 31;
+/// Changes to their plans (and cancellations) one organizer may make in an hour.
+const CHANGES_PER_HOUR: u32 = 60;
+/// Changes of time or place one plan may see in an hour: each of them
+/// notifies everyone in it.
+const ANNOUNCED_CHANGES_PER_HOUR: u32 = 6;
 /// People shown on a plan in a list, besides the host.
 const PREVIEW_PARTICIPANTS: usize = 5;
 
@@ -297,7 +302,9 @@ impl Schedule {
     /// schedule are due, seen from `now`. Anything whose moment has already
     /// passed is not due at all: a plan made an hour before it starts gets
     /// no "tomorrow" reminder, and one written down after the fact counts
-    /// nobody as having attended.
+    /// nobody as having attended. (A plan whose attendance was announced is
+    /// never announced again, whatever its time is changed to: see
+    /// `plans.attended_at`.)
     fn due(&self, remind_day_before: bool, remind_minutes_before: i32, day_before_hour: u32, now: Time) -> Due {
         let ahead = |time: Option<Time>| time.filter(|time| *time > now);
         let day_before = match &self.when {
@@ -533,6 +540,25 @@ pub(crate) async fn load_access(
     }
 }
 
+/// Who is told when `actor` changes or cancels a plan: everyone who has not
+/// declined, except the actor and the people in `hidden` — those in a block
+/// with the actor, in either direction: nothing one of the two does reaches
+/// the other. (`hidden` is looked up before the transaction starts.)
+async fn participants_to_tell(
+    conn: &mut PgConnection,
+    plan_id: Uuid,
+    actor: Uuid,
+    hidden: &[Uuid],
+) -> AppResult<Vec<Uuid>> {
+    Ok(sqlx::query_scalar("SELECT user_id FROM plan_participants WHERE plan_id = $1 AND rsvp <> $2 AND user_id <> $3 AND NOT (user_id = ANY($4))")
+        .bind(plan_id)
+        .bind(Rsvp::RSVP_DECLINED as i32 as i16)
+        .bind(actor)
+        .bind(hidden)
+        .fetch_all(conn)
+        .await?)
+}
+
 /// Everyone in a plan.
 pub(crate) async fn participant_ids(conn: &mut PgConnection, plan_id: Uuid) -> AppResult<Vec<Uuid>> {
     Ok(sqlx::query_scalar("SELECT user_id FROM plan_participants WHERE plan_id = $1")
@@ -558,20 +584,6 @@ impl Plans {
         load_access(&mut conn, plan_id, user_id, false).await
     }
 
-    /// Who is told when `actor` changes or cancels a plan: everyone who has
-    /// not declined, except the actor and anyone hidden from the actor by a
-    /// block — nothing one of the two does reaches the other.
-    async fn participants_to_tell(&self, conn: &mut PgConnection, plan_id: Uuid, actor: Uuid) -> AppResult<Vec<Uuid>> {
-        let hidden = graph::blocked_ids_either(&self.core, actor).await?;
-        Ok(sqlx::query_scalar("SELECT user_id FROM plan_participants WHERE plan_id = $1 AND rsvp <> $2 AND user_id <> $3 AND NOT (user_id = ANY($4))")
-            .bind(plan_id)
-            .bind(Rsvp::RSVP_DECLINED as i32 as i16)
-            .bind(actor)
-            .bind(&hidden)
-            .fetch_all(conn)
-            .await?)
-    }
-
     /// One plan, in full, as `viewer` (who is in it) sees it.
     pub(crate) async fn plan_for(&self, row: PlanRow, viewer: Uuid) -> AppResult<Plan> {
         Ok(self.plans_to_proto(vec![row], viewer, Detail::Full).await?.remove(0))
@@ -583,8 +595,7 @@ impl Plans {
         self.plan_for(access.plan, viewer).await
     }
 
-    /// Builds the API form of plans `viewer` is in. People hidden from the
-    /// viewer by a block are listed without their details.
+    /// Builds the API form of plans `viewer` is in.
     pub(crate) async fn plans_to_proto(
         &self,
         rows: Vec<PlanRow>,
@@ -648,7 +659,10 @@ impl Plans {
             }
         };
         let needed: HashSet<Uuid> = participants.values().flat_map(|all| shown(all)).map(|p| p.user_id).collect();
-        let people = People::load(core, viewer, needed).await?;
+        // A block between two participants does not show here: both are
+        // listed like everyone else (blocking is silent).
+        let needed: Vec<Uuid> = needed.into_iter().collect();
+        let people = tokuly_identity::summaries(core, &needed).await?;
 
         let now = now();
         Ok(rows
@@ -660,20 +674,18 @@ impl Plans {
                 let listed = shown(&all)
                     .into_iter()
                     .map(|p| {
-                        let hidden = people.is_hidden(p.user_id);
                         let rsvp = p.rsvp();
                         if rsvp == Rsvp::RSVP_WAITLISTED {
                             waiting += 1;
                         }
                         PlanParticipant {
-                            user: people.summary(p.user_id).into(),
+                            user: users::pick(&people, p.user_id).into(),
                             role: p.role().into(),
                             rsvp: rsvp.into(),
-                            comment: if hidden { String::new() } else { p.comment },
+                            comment: p.comment,
                             responded_at: opt_ts(p.responded_at),
                             invited_by_user_id: p.invited_by.map(|id| id.to_string()).unwrap_or_default(),
                             waitlist_position: if rsvp == Rsvp::RSVP_WAITLISTED { waiting } else { 0 },
-                            hidden,
                             ..Default::default()
                         }
                     })
@@ -749,6 +761,7 @@ impl Plans {
             self.cfg.max_participants
         );
         people::require_friends(core, user_id, &invitees).await?;
+        people::limit_invitations(core, user_id, &invitees).await?;
 
         let mut tx = core.db.begin().await?;
         let row = self.insert_plan(&mut tx, user_id, &new, &invitees).await?;
@@ -859,6 +872,12 @@ impl Plans {
         let core = &self.core;
         let plan_id = parse_id(&req.plan_id)?;
         let now = now();
+        // A change of time or place notifies everyone in the plan.
+        core.cache
+            .rate_limit(&format!("plans:update:{user_id}"), CHANGES_PER_HOUR, StdDuration::from_secs(3600))
+            .await?;
+        // Asked before the plan is locked: inside the transaction nothing goes through the pool.
+        let hidden = graph::blocked_ids_either(core, user_id).await?;
 
         let mut tx = core.db.begin().await?;
         let access = load_access(&mut tx, plan_id, user_id, true).await?;
@@ -900,6 +919,16 @@ impl Plans {
 
         let time_changed = schedule != old_schedule;
         let place_changed = place != old_place;
+        if time_changed || place_changed {
+            // (Valkey, not the pool: nothing here waits for a database connection.)
+            core.cache
+                .rate_limit(
+                    &format!("plans:update:announced:{plan_id}"),
+                    ANNOUNCED_CHANGES_PER_HOUR,
+                    StdDuration::from_secs(3600),
+                )
+                .await?;
+        }
         let reminders_changed = time_changed
             || remind_day_before != old.remind_day_before
             || remind_minutes_before != old.remind_minutes_before;
@@ -922,7 +951,7 @@ impl Plans {
                  currency = $22,
                  day_before_due_at = CASE WHEN $23 THEN $24 ELSE day_before_due_at END,
                  before_due_at = CASE WHEN $23 THEN $25 ELSE before_due_at END,
-                 attended_due_at = CASE WHEN $26 THEN $27 ELSE attended_due_at END
+                 attended_due_at = CASE WHEN $26 AND attended_at IS NULL THEN $27 ELSE attended_due_at END
              WHERE p.id = $1 RETURNING ",
             plan_columns!()
         ))
@@ -967,7 +996,7 @@ impl Plans {
                 &schedule.text(),
                 place.as_ref().filter(|_| place_changed).map(|place| place.name.as_str()),
             );
-            for participant in self.participants_to_tell(&mut tx, plan_id, user_id).await? {
+            for participant in participants_to_tell(&mut tx, plan_id, user_id, &hidden).await? {
                 let request = NotificationRequest::new(
                     participant,
                     "plans.updated",
@@ -991,8 +1020,14 @@ impl Plans {
 
     /// Calls a plan off (host only). It stays readable for everyone in it.
     pub(crate) async fn cancel_plan(&self, user_id: Uuid, plan_id: Uuid, reason: &str) -> AppResult<Plan> {
+        let core = &self.core;
         let reason = input::line(reason, MAX_CANCEL_REASON, "REASON_TOO_LONG")?;
-        let mut tx = self.core.db.begin().await?;
+        core.cache
+            .rate_limit(&format!("plans:update:{user_id}"), CHANGES_PER_HOUR, StdDuration::from_secs(3600))
+            .await?;
+        let hidden = graph::blocked_ids_either(core, user_id).await?;
+
+        let mut tx = core.db.begin().await?;
         let access = load_access(&mut tx, plan_id, user_id, true).await?;
         access.ensure_host()?;
         access.ensure_active()?;
@@ -1010,7 +1045,7 @@ impl Plans {
         bus::emit(&mut *tx, PLAN_CANCELLED, Some(user_id), &PlanCancelled { plan_id, host_id: user_id }).await?;
 
         let text = copy::plan_cancelled(&row.name(), &reason);
-        for participant in self.participants_to_tell(&mut tx, plan_id, user_id).await? {
+        for participant in participants_to_tell(&mut tx, plan_id, user_id, &hidden).await? {
             let request = NotificationRequest::new(
                 participant,
                 "plans.cancelled",
