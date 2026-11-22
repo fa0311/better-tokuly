@@ -36,6 +36,7 @@ import { previewMessage, send, useOutgoing } from "./outbox";
 import { MediaPanel, PinnedPanel, SearchPanel, SidePanel } from "./panels";
 import { displayName } from "./people";
 import { PovRequestDialog } from "./pov";
+import { PovCamera } from "./pov-camera";
 import { buildRows } from "./timeline";
 
 /** A member who keeps a conversation open repeats that this often; the server forgets after 75 s. */
@@ -115,6 +116,7 @@ function OpenConversation({ conversation, me, openAtMessageId }: { conversation:
   const [reactionsOf, setReactionsOf] = useState<chat.Message | null>(null);
   const [receiptsOf, setReceiptsOf] = useState<chat.Message | null>(null);
   const [askingPov, setAskingPov] = useState(false);
+  const [answeringPov, setAnsweringPov] = useState<string>();
   const [dropped, setDropped] = useState<File[]>([]);
   const [dragging, setDragging] = useState(false);
   /** Where "unread from here" goes: the viewer's read position when the conversation was opened (`null`: nothing was unread). */
@@ -276,6 +278,7 @@ function OpenConversation({ conversation, me, openAtMessageId }: { conversation:
     showReactions: setReactionsOf,
     showReceipts: setReceiptsOf,
     pickReaction: setReacting,
+    answerPov: setAnsweringPov,
   };
 
   const rows = buildRows(messages, {
@@ -411,6 +414,7 @@ function OpenConversation({ conversation, me, openAtMessageId }: { conversation:
           onConfirm={() => void confirmRemove()}
         />
         {canAskPov && <PovRequestDialog open={askingPov} onOpenChange={setAskingPov} />}
+        <PovCamera open={answeringPov !== undefined} onClose={() => setAnsweringPov(undefined)} requestId={answeringPov ?? ""} onSent={afterSend} />
         <ConversationDialogs dialog={dialog} myId={me.id} onClose={() => setDialog(null)} onGone={() => void navigate({ to: "/chat", search: {} })} />
         <AssistConsent />
       </ScreenFrame>

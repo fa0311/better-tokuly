@@ -23,11 +23,19 @@ const MAX_VIDEO_SECONDS = 15;
  * the spot. Where the camera cannot be used (no permission, no camera) the
  * device's own camera or file picker stands in.
  */
-export function PovCamera({ open, onClose, requestId }: { open: boolean; onClose(): void; requestId: string }) {
+export function PovCamera({ open, onClose, requestId, onSent }: { open: boolean; onClose(): void; requestId: string; onSent(): void }) {
   const { t } = useTranslation("chat");
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()} title={t("pov.cameraTitle")} description={t("pov.cameraLead")}>
-      {open && <Camera requestId={requestId} onDone={onClose} />}
+      {open && (
+        <Camera
+          requestId={requestId}
+          onDone={() => {
+            onClose();
+            onSent();
+          }}
+        />
+      )}
     </Dialog>
   );
 }
@@ -41,6 +49,8 @@ function Camera({ requestId, onDone }: { requestId: string; onDone(): void }) {
   const recorder = useRef<MediaRecorder | null>(null);
   const kept = useRef(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
+  /** The preview shows a picture: before that there is nothing to take. */
+  const [live, setLive] = useState(false);
   const [unavailable, setUnavailable] = useState(!navigator.mediaDevices?.getUserMedia);
   const [facing, setFacing] = useState<"environment" | "user">("environment");
   const [mode, setMode] = useState<"photo" | "video">("photo");
@@ -74,6 +84,7 @@ function Camera({ requestId, onDone }: { requestId: string; onDone(): void }) {
       cancelled = true;
       for (const track of current?.getTracks() ?? []) track.stop();
       setStream(null);
+      setLive(false);
     };
   }, [facing, unavailable]);
 
@@ -164,7 +175,7 @@ function Camera({ requestId, onDone }: { requestId: string; onDone(): void }) {
       ) : (
         <>
           <div className="relative overflow-hidden rounded-card bg-black">
-            <video ref={preview} autoPlay muted playsInline className={cn("aspect-[3/4] w-full object-cover sm:aspect-[4/3]", facing === "user" && "-scale-x-100")} data-testid="pov-preview" />
+            <video ref={preview} autoPlay muted playsInline onPlaying={() => setLive(true)} className={cn("aspect-square w-full object-cover sm:aspect-[4/3]", facing === "user" && "-scale-x-100")} data-testid="pov-preview" />
             {recording && (
               <span className="absolute top-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-live px-3 py-1 text-xs font-black text-white tabular-nums">
                 <span className="size-2 animate-pulse rounded-full bg-white" />
@@ -192,7 +203,7 @@ function Camera({ requestId, onDone }: { requestId: string; onDone(): void }) {
             />
             <button
               type="button"
-              disabled={!stream || (full && !recording)}
+              disabled={!stream || !live || (full && !recording)}
               aria-label={mode === "photo" ? t("pov.shoot") : recording ? t("pov.stop") : t("pov.record")}
               onClick={() => (mode === "photo" ? takePhoto() : recording ? recorder.current?.stop() : startVideo())}
               className={cn("pressable sticker grid size-16 shrink-0 place-items-center rounded-full disabled:opacity-40", mode === "video" ? "bg-live text-white" : "bg-surface text-ink")}

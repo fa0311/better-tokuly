@@ -466,6 +466,28 @@ test("a POV request arrives, counts down, and can be declined", async ({ page, r
   expect(asked.povRequest?.state).toBe("POV_STATE_DECLINED");
 });
 
+test("a POV request is answered with the camera, and the answer is kept once it is saved", async ({ page, request, me }) => {
+  test.setTimeout(150_000);
+  const { friend, conversationId } = await withFriend(request, me);
+  const { request: asked } = await rpc<{ request: { id: string } }>(request, `${POV}/RequestPov`, { conversationId, note: "見せて〜！" }, friend);
+  await openConversation(page, conversationId);
+
+  await page.getByTestId("pov-request").getByRole("button", { name: "撮って送る" }).click();
+  const camera = page.getByRole("dialog");
+  await expect(camera.getByTestId("pov-preview")).toBeVisible();
+  await camera.getByRole("button", { name: "写真を撮る" }).click();
+  await expect(camera.getByRole("list", { name: "撮ったもの" }).getByRole("listitem")).toHaveCount(1);
+  await camera.getByRole("button", { name: "POVを送る" }).click();
+
+  // The answer is a photo that disappears after a day unless the person who asked saves it.
+  const answer = page.getByTestId("message").filter({ hasText: "で消えるよ" });
+  await expect(answer).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId("pov-request")).toContainText("POVが届いたよ！");
+  await expectMessage(request, friend, conversationId, (message) => message.kind === "MESSAGE_KIND_MEDIA");
+  await rpc(request, `${POV}/SavePov`, { requestId: asked.id }, friend);
+  await expect(page.getByTestId("message").filter({ hasText: "保存済み" })).toBeVisible();
+});
+
 test("a POV is asked for from the composer and withdrawn again", async ({ page, request, me }) => {
   const { friend, conversationId } = await withFriend(request, me);
   await openConversation(page, conversationId);

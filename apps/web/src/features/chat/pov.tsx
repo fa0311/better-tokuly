@@ -14,7 +14,6 @@ import { useLive } from "./live";
 import { readTimeline, storeCreated, storeUpdated } from "./messages";
 import { peerOf } from "./model";
 import { displayName } from "./people";
-import { PovCamera } from "./pov-camera";
 import { playTime } from "./text";
 
 /** Milliseconds until `targetMs`, counting down once a second (0 when it has passed or is unset). */
@@ -92,11 +91,10 @@ function storeRequest(queryClient: QueryClient, request: chat.PovRequest): void 
   if (answer?.povReply && request.saved) storeUpdated(queryClient, { ...answer, povReply: { ...answer.povReply, saved: true, expiresAt: undefined } }, false);
 }
 
-/** The actions on a POV request: answer with the camera or decline (the person asked), cancel or save the answer (the requester). */
+/** The actions on a POV request: decline (the person asked), cancel or save the answer (the requester). */
 export function usePovActions(requestId: string | undefined) {
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
-  const [camera, setCamera] = useState(false);
 
   const run = async (work: (requestId: string) => Promise<{ request?: chat.PovRequest }>) => {
     if (!requestId) return;
@@ -113,9 +111,6 @@ export function usePovActions(requestId: string | undefined) {
 
   return {
     busy,
-    camera,
-    openCamera: () => setCamera(true),
-    closeCamera: () => setCamera(false),
     decline: () => run((id) => povClient().declinePov({ requestId: id })),
     cancel: () => run((id) => povClient().cancelPov({ requestId: id })),
     save: () => run((id) => povClient().savePov({ requestId: id })),
@@ -125,7 +120,7 @@ export function usePovActions(requestId: string | undefined) {
 /** A POV request in the conversation, with what the viewer can do about it. */
 export function PovRequestCard({ message }: { message: chat.Message }) {
   const { t } = useTranslation("chat");
-  const { conversation, me, writable, jumpTo } = useConversationContext();
+  const { conversation, me, writable, jumpTo, answerPov } = useConversationContext();
   const request = message.povRequest;
   const actions = usePovActions(request?.id);
   const left = useCountdown(request?.state === chat.PovState.OPEN ? toMillis(request.expiresAt) : 0);
@@ -162,7 +157,7 @@ export function PovRequestCard({ message }: { message: chat.Message }) {
       </p>
       {open && writable && !mine && (
         <div className="mt-1 flex flex-wrap justify-center gap-2">
-          <Button size="sm" variant="lime" icon={<Camera className="size-4" />} onClick={actions.openCamera}>
+          <Button size="sm" variant="lime" icon={<Camera className="size-4" />} onClick={() => answerPov(request.id)}>
             {t("pov.answer")}
           </Button>
           <Button size="sm" variant="ghost" loading={actions.busy} onClick={actions.decline}>
@@ -180,7 +175,6 @@ export function PovRequestCard({ message }: { message: chat.Message }) {
           {t("pov.view")}
         </Button>
       )}
-      <PovCamera open={actions.camera} onClose={actions.closeCamera} requestId={request.id} />
     </div>
   );
 }

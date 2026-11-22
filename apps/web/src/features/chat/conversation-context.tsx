@@ -31,6 +31,8 @@ export interface ConversationContextValue {
   openStamp(stampId: string): void;
   showReactions(message: chat.Message): void;
   showReceipts(message: chat.Message): void;
+  /** Opens the camera to answer a POV request. */
+  answerPov(requestId: string): void;
   /** Opens the full emoji picker to react to a message. */
   pickReaction(message: chat.Message): void;
 }

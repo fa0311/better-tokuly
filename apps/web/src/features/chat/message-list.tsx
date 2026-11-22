@@ -79,6 +79,9 @@ export function MessageList({
   const content = useRef<HTMLDivElement>(null);
   /** The reader is following the newest messages (see the effect below). */
   const pinned = useRef(false);
+  /** The list is still taking its opening position (see where it opens). */
+  const opening = useRef(false);
+  const openingTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   /** Until when the list is still settling at its end after being sent there. */
   const settlingUntil = useRef(0);
   const virtualizer = useVirtualizer({
@@ -108,14 +111,35 @@ export function MessageList({
   useLayoutEffect(() => {
     if (opened.current || rows.length === 0) return;
     opened.current = true;
-    // Two frames later the rows are measured and the list is where it opens.
-    requestAnimationFrame(() => requestAnimationFrame(() => setReady(true)));
     const focus = focusId ? rows.findIndex((row) => row.type === "message" && row.message.id === focusId) : -1;
     const unread = rows.findIndex((row) => row.type === "unread");
-    if (focus >= 0) virtualizer.scrollToIndex(focus, { align: "center" });
-    else if (unread >= 0) virtualizer.scrollToIndex(unread, { align: "start" });
-    else toEnd();
+    const place = () => {
+      if (focus >= 0) virtualizer.scrollToIndex(focus, { align: "center" });
+      else if (unread >= 0) virtualizer.scrollToIndex(unread, { align: "start" });
+      else toEnd();
+    };
+    place();
+    // Rows are measured over the next frames, which moves everything: the opening position is taken
+    // again as they settle, unless the reader has started scrolling meanwhile.
+    opening.current = true;
+    openingTimers.current = [
+      ...[60, 180, 400, 800].map((delay) => setTimeout(() => opening.current && place(), delay)),
+      setTimeout(() => setReady(true), 220),
+      setTimeout(() => {
+        opening.current = false;
+      }, 900),
+    ];
   });
+
+  // Leaving ends the opening. (Development mounts everything twice: the second mount opens afresh.)
+  useEffect(
+    () => () => {
+      openingTimers.current.forEach(clearTimeout);
+      opening.current = false;
+      opened.current = false;
+    },
+    [],
+  );
 
   // A later request to show a message (a reply's original, a search hit, a pin).
   const shownNonce = useRef(focusNonce);
@@ -153,6 +177,7 @@ export function MessageList({
     const touched = () => {
       handUntil = performance.now() + 2500;
       settlingUntil.current = 0;
+      opening.current = false;
     };
     const onScroll = () => {
       const atEnd = virtualizer.isAtEnd(END_THRESHOLD);
