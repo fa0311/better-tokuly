@@ -1,6 +1,6 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { chat } from "@tokuly/api";
-import { type Ref, useEffect, useImperativeHandle, useLayoutEffect, useRef } from "react";
+import { type Ref, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Spinner } from "#/components/ui/spinner";
 import { MessageItem } from "./message-item";
@@ -79,6 +79,8 @@ export function MessageList({
   const content = useRef<HTMLDivElement>(null);
   /** The reader is following the newest messages (see the effect below). */
   const pinned = useRef(false);
+  /** Until when the list is still settling at its end after being sent there. */
+  const settlingUntil = useRef(0);
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scroller.current,
@@ -95,15 +97,19 @@ export function MessageList({
 
   const toEnd = (smooth?: boolean) => {
     pinned.current = true;
+    settlingUntil.current = smooth ? 0 : performance.now() + 1500;
     virtualizer.scrollToEnd({ behavior: smooth ? "smooth" : "auto" });
   };
   useImperativeHandle(ref, () => ({ scrollToEnd: toEnd }));
 
   // Where the list opens: at the message asked for, else at "unread from here", else at the newest message.
   const opened = useRef(false);
+  const [ready, setReady] = useState(false);
   useLayoutEffect(() => {
     if (opened.current || rows.length === 0) return;
     opened.current = true;
+    // Two frames later the rows are measured and the list is where it opens.
+    requestAnimationFrame(() => requestAnimationFrame(() => setReady(true)));
     const focus = focusId ? rows.findIndex((row) => row.type === "message" && row.message.id === focusId) : -1;
     const unread = rows.findIndex((row) => row.type === "unread");
     if (focus >= 0) virtualizer.scrollToIndex(focus, { align: "center" });
@@ -119,6 +125,7 @@ export function MessageList({
     if (index < 0) return;
     shownNonce.current = focusNonce;
     pinned.current = false;
+    settlingUntil.current = 0;
     virtualizer.scrollToIndex(index, { align: "center" });
   });
 
@@ -136,17 +143,25 @@ export function MessageList({
 
   // Pinned to the end: the reader is following the conversation, so whatever changes the layout
   // (rows being measured, a picture arriving, the composer growing, the keyboard opening) must leave
-  // the newest message in view. Only the reader's own scrolling takes the pin off or puts it back.
+  // the newest message in view. Where the list is scrolled to decides whether it is pinned; while it
+  // is still finding its end after opening, only the reader's own hand can take it away from there.
   useEffect(() => {
     const element = scroller.current;
     const sizer = content.current;
     if (!element || !sizer) return;
-    let scrollingUntil = 0;
+    let handUntil = 0;
     const touched = () => {
-      scrollingUntil = performance.now() + 2500;
+      handUntil = performance.now() + 2500;
+      settlingUntil.current = 0;
     };
     const onScroll = () => {
-      if (performance.now() < scrollingUntil) pinned.current = virtualizer.isAtEnd(END_THRESHOLD);
+      const atEnd = virtualizer.isAtEnd(END_THRESHOLD);
+      const now = performance.now();
+      if (!atEnd && pinned.current && now < settlingUntil.current && now >= handUntil) {
+        requestAnimationFrame(() => pinned.current && virtualizer.scrollToEnd());
+        return;
+      }
+      pinned.current = atEnd;
     };
     const observer = new ResizeObserver(() => {
       if (pinned.current) virtualizer.scrollToEnd();
@@ -172,7 +187,7 @@ export function MessageList({
   });
 
   return (
-    <div ref={scroller} className="h-full overflow-y-auto overscroll-contain" data-testid="message-list" data-at-end={atEnd}>
+    <div ref={scroller} className="h-full overflow-y-auto overscroll-contain" data-testid="message-list" data-at-end={atEnd} data-ready={ready || undefined}>
       {hasOlder && firstIndex === 0 && (
         <div className="absolute inset-x-0 top-2 z-10 grid place-items-center">
           <Spinner className="size-5 text-ink-faint" />

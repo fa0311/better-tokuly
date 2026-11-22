@@ -164,7 +164,8 @@ function BubbleRow({ row, highlighted, onOpenLocation }: { row: MessageRowData; 
           {hover && (quick || menu.length > 0) && (
             <div
               className={cn(
-                "sticker-sm absolute -top-5 z-10 hidden items-center rounded-full bg-surface p-0.5 group-focus-within/bubble:flex group-hover/bubble:flex",
+                // Just above the bubble (touching it, so the pointer can travel there), never over its text.
+                "sticker-sm absolute bottom-[calc(100%-0.25rem)] z-10 hidden items-center rounded-full bg-surface p-0.5 group-focus-within/bubble:flex group-hover/bubble:flex",
                 own ? "right-2" : "left-2",
               )}
             >

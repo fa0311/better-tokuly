@@ -320,7 +320,7 @@ function OpenConversation({ conversation, me, openAtMessageId }: { conversation:
                 <EmptyState emoji="😵‍💫" title={errorMessage(timeline.error)} action={<Button onClick={() => void timeline.refetch()}>{t("actions.retry")}</Button>} />
               </div>
             ) : empty ? (
-              <div className="grid h-full place-items-center">
+              <div className="grid h-full place-items-center" data-testid="empty-conversation">
                 {group ? (
                   <EmptyState emoji="🎉" title={t("empty.group.title")} body={t("empty.group.body")} />
                 ) : (

@@ -111,7 +111,8 @@ function TileView({ tile, small, className }: { tile: Tile; small?: boolean; cla
   const { t } = useTranslation("chat");
   return (
     <div
-      className={cn("relative grid place-items-center overflow-hidden rounded-3xl bg-white/10 transition-shadow", tile.speaking && "ring-4 ring-lime", tile.waiting && "opacity-60", className)}
+      // The "speaking" mark is an inset outline: the strip of small tiles clips anything drawn outside them.
+      className={cn("relative grid place-items-center overflow-hidden rounded-3xl bg-white/10", tile.speaking && "outline-4 -outline-offset-4 outline-lime", tile.waiting && "opacity-60", className)}
       data-testid="call-tile"
       data-waiting={tile.waiting || undefined}
     >

@@ -1,5 +1,7 @@
 import zlib from "node:zlib";
+import { create, toBinary } from "@bufbuild/protobuf";
 import type { APIRequestContext, Browser, Locator, Page, TestInfo } from "@playwright/test";
+import { chat } from "@tokuly/api";
 import { type Account, expect as baseExpect, befriend, createAccount, rpc, signInAs, test } from "./support";
 
 // These tests share a machine with many other builds and browsers: a cold page
@@ -120,10 +122,11 @@ async function personalStamp(request: APIRequestContext, as: Account, name: stri
 
 // ───────────────────────────── Driving the UI ─────────────────────────────
 
-/** Opens the conversation with `conversationId` and waits until it can be written in. */
+/** Opens the conversation with `conversationId` and waits until its messages are laid out and it can be written in. */
 async function openConversation(page: Page, conversationId: string): Promise<void> {
   await page.goto(`/chat/${conversationId}`);
   await expect(page.getByTestId("composer")).toBeVisible();
+  await expect(page.locator('[data-testid="message-list"][data-ready], [data-testid="empty-conversation"]')).toBeVisible();
 }
 
 const composer = (page: Page) => page.getByRole("textbox", { name: "メッセージを入力" });
@@ -483,6 +486,180 @@ test("a POV is asked for from the composer and withdrawn again", async ({ page, 
   await expect(card).toContainText("リクエストは取り消されました");
 });
 
+test("the first hello: a wave opens a conversation that is still empty", async ({ page, request, me }) => {
+  const { friend, conversationId } = await withFriend(request, me);
+  await openConversation(page, conversationId);
+
+  await expect(page.getByTestId("empty-conversation")).toContainText("aoiと話してみよう！");
+  await page.getByRole("button", { name: "👋 手を振る" }).click();
+  await expect(page.getByTestId("hello-message")).toContainText("手を振りました！");
+  await expectMessage(request, friend, conversationId, (message) => message.kind === "MESSAGE_KIND_HELLO");
+
+  // The friend waves back with an ordinary 👋.
+  await sendText(request, friend, conversationId, "👋");
+  await expect(bubble(page, "👋").last()).toBeVisible();
+});
+
+test("a place is picked on the map and shared", async ({ page, request, me }) => {
+  const { friend, conversationId } = await withFriend(request, me);
+  await sendText(request, friend, conversationId, "どこで会う？");
+  await openConversation(page, conversationId);
+
+  await page.getByRole("button", { name: "追加する" }).click();
+  await page.getByRole("menuitem", { name: "位置情報" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByTestId("location-map")).toBeVisible();
+  await dialog.getByLabel("場所のなまえ").fill("ハチ公前");
+  await dialog.getByRole("button", { name: "この場所を送る" }).click();
+
+  await expect(page.getByTestId("location-card")).toContainText("ハチ公前");
+  const sent = await expectMessage(request, friend, conversationId, (message) => message.kind === "MESSAGE_KIND_LOCATION");
+  // The browser of the tests is at Shibuya crossing.
+  expect((sent as { location?: { position?: { lat: number } } }).location?.position?.lat).toBeCloseTo(35.6595, 2);
+
+  // Tapping the card shows the place on a map.
+  await page.getByTestId("location-card").click();
+  await expect(page.getByRole("dialog").getByRole("heading", { name: "ハチ公前" })).toBeVisible();
+});
+
+test("a message is forwarded to another conversation and to a friend without one", async ({ page, request, me }) => {
+  const { friend, conversationId } = await withFriend(request, me);
+  const { friend: ren, conversationId: renId } = await withFriend(request, me, "ren");
+  const mio = await createAccount(request, "mio");
+  await befriend(request, me, mio);
+  await sendText(request, ren, renId, "やっほ");
+  await sendText(request, friend, conversationId, "土曜14時、駅前集合！");
+  await openConversation(page, conversationId);
+
+  await openActions(page, "土曜14時、駅前集合！");
+  await page.getByRole("menuitem", { name: "転送" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: "ren" }).click();
+  // A friend there is no conversation with yet can be picked too.
+  await dialog.getByRole("button", { name: "mio" }).click();
+  await dialog.getByRole("button", { name: /転送する/ }).click();
+  await expect(page.getByText("2件のトークに転送しました！")).toBeVisible();
+
+  const forwarded = await expectMessage(request, ren, renId, (message) => message.text === "土曜14時、駅前集合！");
+  expect((forwarded as { forwarded?: boolean }).forwarded).toBe(true);
+  const mioConversation = await directWith(request, mio, me);
+  await expectMessage(request, mio, mioConversation, (message) => message.text === "土曜14時、駅前集合！");
+});
+
+test("a group's members are mentioned, see who read, and are managed by its owner", async ({ page, request, me }) => {
+  const aoi = await createAccount(request, "aoi");
+  const ren = await createAccount(request, "ren");
+  const mio = await createAccount(request, "mio");
+  for (const friend of [aoi, ren, mio]) await befriend(request, me, friend);
+  const { conversation } = await rpc<{ conversation: { id: string } }>(request, `${CONVERSATIONS}/CreateGroup`, { name: "テスト勉強会", memberIds: [aoi.userId, ren.userId] }, me);
+  await openConversation(page, conversation.id);
+
+  // Typing "@" offers the members; the mention reaches the person.
+  await composer(page).pressSequentially("@a");
+  await page.getByRole("option", { name: /aoi/ }).click();
+  await composer(page).pressSequentially("ノート見せて！");
+  await page.getByRole("button", { name: "送信", exact: true }).click();
+  const mention = await expectMessage(request, aoi, conversation.id, (message) => Boolean(message.text?.includes("ノート見せて！")));
+  expect((mention as { mentions?: { handle: string }[] }).mentions?.[0]?.handle).toBe(aoi.handle);
+
+  // Read marks count the members who have read it, and name them.
+  await rpc(request, `${CONVERSATIONS}/MarkRead`, { conversationId: conversation.id }, aoi);
+  const read = bubble(page, "ノート見せて！").getByTestId("read-mark");
+  await expect(read).toHaveText("既読 1");
+  await read.click();
+  await expect(page.getByTestId("receipt-list")).toContainText("aoi");
+  await page.getByRole("dialog").getByRole("button", { name: "close" }).click();
+
+  // The owner adds a friend, makes someone an admin and removes someone.
+  await page.getByRole("button", { name: "テスト勉強会のトーク情報" }).click();
+  await expect(page.getByTestId("member-row")).toHaveCount(3);
+  await page.getByRole("button", { name: "追加", exact: true }).click();
+  const adding = page.getByRole("dialog").filter({ hasText: "メンバーを追加" });
+  await adding.getByRole("button", { name: "mio" }).click();
+  await adding.getByRole("button", { name: "1人を追加する" }).click();
+  await expect(page.getByTestId("member-row")).toHaveCount(4);
+
+  await page.getByRole("button", { name: "aoiのメニュー" }).click();
+  await page.getByRole("menuitem", { name: "管理者にする" }).click();
+  await expect(page.getByTestId("member-row").filter({ hasText: "aoi" })).toContainText("管理者");
+
+  await page.getByRole("button", { name: "renのメニュー" }).click();
+  await page.getByRole("menuitem", { name: "グループから外す" }).click();
+  await page.getByRole("dialog").filter({ hasText: "renをグループから外す？" }).getByRole("button", { name: "グループから外す" }).click();
+  await expect(page.getByTestId("member-row")).toHaveCount(3);
+  const groups = await rpc<{ conversations?: { id: string }[] }>(request, `${CONVERSATIONS}/ListConversations`, {}, ren);
+  expect(groups.conversations ?? []).toHaveLength(0);
+});
+
+test("the photos shared in a conversation are collected in its gallery", async ({ page, request, me }) => {
+  test.setTimeout(150_000);
+  const { conversationId } = await withFriend(request, me);
+  await openConversation(page, conversationId);
+  await page.getByTestId("photo-input").setInputFiles([picture("one.png"), picture("two.png", [60, 160, 90])]);
+  await expect(page.getByTestId("attachment-chip")).toHaveCount(2);
+  await page.getByRole("button", { name: "送信", exact: true }).click();
+  await expect(page.getByTestId("message").filter({ has: page.getByRole("button", { name: "写真をひらく" }) })).not.toHaveAttribute("data-pending", /.+/, { timeout: 60_000 });
+
+  await page.getByRole("button", { name: "トークのメニュー" }).click();
+  await page.getByRole("menuitem", { name: "メディア" }).click();
+  // The gallery is a sheet on phones and a column beside the conversation on wide screens.
+  const gallery = page.getByTestId("side-panel").or(page.getByRole("dialog")).getByRole("button", { name: "写真をひらく" });
+  await expect(gallery).toHaveCount(2);
+  await gallery.first().click();
+  await expect(page.getByTestId("lightbox")).toContainText("1 / 2");
+});
+
+test("the AI assistant rewrites a draft, suggests replies and translates, once the person agreed", async ({ page, request, me }) => {
+  const { friend, conversationId } = await withFriend(request, me);
+  await sendText(request, friend, conversationId, "See you at the station at five!");
+
+  // The assistant is not configured here: its controls are absent.
+  await openConversation(page, conversationId);
+  await expect(page.getByRole("button", { name: "AIアシスト" })).toHaveCount(0);
+
+  // With a server that offers it (its answers stand in for the real ones here).
+  const answer = (bytes: Uint8Array) => ({ status: 200, contentType: "application/proto", body: Buffer.from(bytes) });
+  const capabilities = create(chat.GetCapabilitiesResponseSchema, { capabilities: { maxTextLength: 4000, maxAttachments: 10, editWindowSeconds: 900, assistEnabled: true } });
+  await page.route("**/api/tokuly.chat.v1.ConversationService/GetCapabilities", (route) => route.fulfill(answer(toBinary(chat.GetCapabilitiesResponseSchema, capabilities))));
+  await page.route("**/api/tokuly.chat.v1.AssistService/SuggestReplies", (route) =>
+    route.fulfill(answer(toBinary(chat.SuggestRepliesResponseSchema, create(chat.SuggestRepliesResponseSchema, { replies: ["OK, see you!", "Running late…"] })))),
+  );
+  await page.route("**/api/tokuly.chat.v1.AssistService/RewriteDraft", (route) =>
+    route.fulfill(answer(toBinary(chat.RewriteDraftResponseSchema, create(chat.RewriteDraftResponseSchema, { text: "ほな5時に駅でな！" })))),
+  );
+  await page.route("**/api/tokuly.chat.v1.AssistService/TranslateMessage", (route) =>
+    route.fulfill(answer(toBinary(chat.TranslateMessageResponseSchema, create(chat.TranslateMessageResponseSchema, { text: "5時に駅で会おうね！", sourceLanguage: "en", targetLanguage: "ja" })))),
+  );
+  await page.reload();
+  await expect(page.locator('[data-testid="message-list"][data-ready]')).toBeVisible();
+
+  // Nothing is sent before the person has been told what is sent, and agreed.
+  await page.getByRole("button", { name: "AIアシスト" }).click();
+  await page.getByRole("menuitem", { name: "返信のヒントをもらう" }).click();
+  const consent = page.getByRole("dialog").filter({ hasText: "AIアシストを使う前に" });
+  await expect(consent).toContainText("Anthropic");
+  await expect(page.getByTestId("suggested-replies")).toHaveCount(0);
+  await consent.getByRole("button", { name: "わかった、使う" }).click();
+
+  // A suggested reply becomes the draft.
+  await page.getByTestId("suggested-replies").getByRole("button", { name: "OK, see you!" }).click();
+  await expect(composer(page)).toHaveValue("OK, see you!");
+
+  // The draft is rewritten in a tone, and the original comes back with "undo".
+  await composer(page).fill("5時に駅で");
+  await page.getByRole("button", { name: "AIで書きかえる" }).click();
+  await page.getByRole("menuitem", { name: "関西弁で" }).click();
+  await expect(composer(page)).toHaveValue("ほな5時に駅でな！");
+  await page.getByRole("button", { name: "元に戻す" }).click();
+  await expect(composer(page)).toHaveValue("5時に駅で");
+
+  // A message is translated under its bubble.
+  await openActions(page, "See you at the station at five!");
+  await page.getByRole("menuitem", { name: "翻訳する" }).click();
+  await expect(page.getByTestId("translation")).toContainText("5時に駅で会おうね！");
+  await expect(page.getByTestId("translation")).toContainText("英語から翻訳");
+});
+
 // ───────────────────────────── Calls and the microphone ─────────────────────────────
 
 test("a call rings on the other person's screen wherever they are, and declining ends it", async ({ page, request, me, browser }, testInfo) => {
@@ -559,4 +736,43 @@ test("a voice message is recorded and sent", async ({ page, request, me }) => {
   await expect(page.getByTestId("voice-message")).toBeVisible();
   const sent = await expectMessage(request, friend, conversationId, (message) => message.kind === "MESSAGE_KIND_MEDIA");
   expect(sent.attachments?.[0]?.kind).toBe("ASSET_KIND_AUDIO");
+});
+
+test("a call in a group can be joined while it is running", async ({ page, request, me, browser }, testInfo) => {
+  const aoi = await createAccount(request, "aoi");
+  const ren = await createAccount(request, "ren");
+  await befriend(request, me, aoi);
+  await befriend(request, me, ren);
+  const { conversation } = await rpc<{ conversation: { id: string } }>(request, `${CONVERSATIONS}/CreateGroup`, { name: "通話テスト", memberIds: [aoi.userId, ren.userId] }, me);
+  const theirs = await browserOf(browser, testInfo, aoi);
+  await openConversation(theirs, conversation.id);
+  await openConversation(page, conversation.id);
+
+  await page.getByRole("button", { name: "音声通話" }).click();
+  await expect(page.getByTestId("call-screen")).toBeVisible();
+
+  // It rings for the members; the conversation also shows the call with a way in.
+  await expect(theirs.getByTestId("incoming-call")).toContainText("「通話テスト」で音声通話がはじまったよ！");
+  await theirs.getByTestId("call-banner").getByRole("button", { name: "参加する" }).click();
+  await expect(theirs.getByTestId("incoming-call")).toHaveCount(0);
+  await expect(page.getByTestId("call-status")).toHaveText(/^\d+:\d\d$/, { timeout: 40_000 });
+  await expect(theirs.getByTestId("call-status")).toHaveText(/^\d+:\d\d$/, { timeout: 40_000 });
+
+  // The one who started it leaves: the call goes on for the others until they leave too.
+  await page.getByRole("button", { name: "通話を終了" }).click();
+  await expect(page.getByTestId("call-screen")).toHaveCount(0);
+  await expect(theirs.getByTestId("call-screen")).toBeVisible();
+  await expect(page.getByTestId("call-banner")).toBeVisible();
+  await theirs.getByRole("button", { name: "通話を終了" }).click();
+  await expect(page.getByTestId("call-banner")).toHaveCount(0);
+  await expectMessage(request, me, conversation.id, (message) => message.kind === "MESSAGE_KIND_CALL" && message.call?.state === "CALL_STATE_ENDED");
+  await theirs.context().close();
+});
+
+test("the message button on a friend's profile leads to their chat", async ({ page, request, me }) => {
+  const { friend, conversationId } = await withFriend(request, me);
+  await page.goto(`/u/${friend.handle}`);
+  await page.getByRole("link", { name: "メッセージ" }).click();
+  await expect(page).toHaveURL(new RegExp(`/chat/${conversationId}$`));
+  await expect(page.getByTestId("conversation-title")).toHaveText("aoi");
 });
