@@ -5,7 +5,7 @@ import {
   daysBetween,
   formatDay,
   formatTime,
-  localTimeZone,
+  planTimeZone,
   timeOf,
   todayYmd,
   ymd,
@@ -158,7 +158,7 @@ export function formProblem(
 
 /** The form's time as the API takes it; an empty message means "to be decided". */
 export function toPlanTime(value: PlanFormValue): MessageInitShape<typeof plans.PlanTimeSchema> {
-  const timeZone = localTimeZone();
+  const timeZone = planTimeZone();
   if (value.when === "date") {
     return {
       start: { case: "startDate", value: value.date },

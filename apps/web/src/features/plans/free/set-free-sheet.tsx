@@ -12,14 +12,15 @@ import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { useMe } from "#/stores/session";
 import { freeClient, keys, setMyFreeStatus, useFriends } from "../api";
+import { fromDateTimeInput, toDateTimeInput } from "../dates";
 import { FriendChips } from "../friend-picker";
 import { ChoiceChips } from "../parts";
 import { clock, rememberAudience, rememberedAudience } from "./model";
 
-/** A `datetime-local` value for a moment, in the device's time zone. */
-function localInput(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+/** A `datetime-local` value as the API's timestamp, read on the account's clock. */
+function fromInput(value: string) {
+  const date = fromDateTimeInput(value);
+  return date ? fromDate(date) : undefined;
 }
 
 /** The device's position, or nothing when it is not available or not allowed. */
@@ -79,8 +80,8 @@ export function SetFreeSheet({
       setMore(Boolean(current?.areaName || current?.area));
       setCustom(false);
       const start = new Date(Math.ceil(Date.now() / 900_000) * 900_000);
-      setFrom(localInput(start));
-      setUntil(localInput(new Date(start.getTime() + 3 * 3_600_000)));
+      setFrom(toDateTimeInput(start));
+      setUntil(toDateTimeInput(new Date(start.getTime() + 3 * 3_600_000)));
     }
   }
 
@@ -96,8 +97,8 @@ export function SetFreeSheet({
       const area = withArea ? await roughPosition() : undefined;
       const response = await freeClient().setFreeStatus({
         window,
-        startsAt: window === plans.FreeWindow.CUSTOM && from ? fromDate(new Date(from)) : undefined,
-        endsAt: window === plans.FreeWindow.CUSTOM && until ? fromDate(new Date(until)) : undefined,
+        startsAt: window === plans.FreeWindow.CUSTOM && from ? fromInput(from) : undefined,
+        endsAt: window === plans.FreeWindow.CUSTOM && until ? fromInput(until) : undefined,
         note: note.trim(),
         area,
         areaName: areaName.trim(),

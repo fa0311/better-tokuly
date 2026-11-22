@@ -15,7 +15,7 @@ import { errorMessage } from "#/lib/errors";
 import { keys, planClient, useCalendar } from "../api";
 import { CountdownDialog } from "../countdown/countdown-dialog";
 import { localized } from "../countdown/model";
-import { formatDay, formatMonth, formatTime, localTimeZone, monthOf, todayYmd } from "../dates";
+import { formatDay, formatMonth, formatTime, monthOf, planTimeZone, todayYmd } from "../dates";
 import { setPlanDraft } from "../draft";
 import { buildIcs, downloadIcs } from "../ics";
 import { RsvpChip } from "../plan/plan-card";
@@ -97,7 +97,7 @@ export function CalendarScreen({
       time: {
         start: { case: "startDate", value: day },
         end: { case: undefined },
-        timeZone: localTimeZone(),
+        timeZone: planTimeZone(),
       } as plans.PlanTime,
     });
     void navigate({ to: "/plans/new" });

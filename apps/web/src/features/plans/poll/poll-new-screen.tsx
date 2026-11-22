@@ -11,7 +11,7 @@ import { Page } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
 import { errorMessage } from "#/lib/errors";
 import { pollClient, rememberPoll } from "../api";
-import { formatDay, localTimeZone } from "../dates";
+import { formatDay, fromDateTimeInput, planTimeZone } from "../dates";
 import { FriendChips } from "../friend-picker";
 import { ChoiceChips } from "../parts";
 import { DatePicker } from "./date-picker";
@@ -41,6 +41,8 @@ export function PollNewScreen() {
         ? t("poll.form.errors.tooMany", { max: MAX_SLOTS })
         : null;
 
+  // The deadline field is read on the account's clock.
+  const deadlineAt = deadline ? fromDateTimeInput(deadline) : null;
   const create = useMutation({
     mutationFn: () =>
       pollClient().createPoll({
@@ -49,8 +51,8 @@ export function PollNewScreen() {
         slots,
         inviteeIds: invitees.map((user) => user.id),
         openToFriends,
-        deadline: deadline ? fromDate(new Date(deadline)) : undefined,
-        timeZone: localTimeZone(),
+        deadline: deadlineAt ? fromDate(deadlineAt) : undefined,
+        timeZone: planTimeZone(),
       }),
     onSuccess: ({ poll }) => {
       rememberPoll(queryClient, poll);

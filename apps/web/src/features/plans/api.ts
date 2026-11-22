@@ -6,7 +6,7 @@ import {
 } from "@tanstack/react-query";
 import { type common, plans, social } from "@tokuly/api";
 import { api } from "#/lib/api";
-import { localTimeZone } from "./dates";
+import { planTimeZone } from "./dates";
 
 export const freeClient = () => api().service(plans.FreeService);
 export const planClient = () => api().service(plans.PlanService);
@@ -227,7 +227,7 @@ export function useCalendar(month: string) {
   return useQuery({
     queryKey: keys.calendar(month),
     queryFn: async () =>
-      (await calendarClient().getCalendar({ month, timeZone: localTimeZone() })).entries,
+      (await calendarClient().getCalendar({ month, timeZone: planTimeZone() })).entries,
   });
 }
 

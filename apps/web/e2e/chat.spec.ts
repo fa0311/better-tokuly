@@ -336,8 +336,6 @@ test("an unread message shows on the navigation and clears when the conversation
   // The conversation opens at "unread from here", and reading it clears the counters.
   await expect(page.getByTestId("unread-divider")).toBeVisible();
   await expect(bubble(page, "すごいの見つけた")).toBeVisible();
-  // (On a phone the open conversation has taken the tab bar's place: no badge is a pass there too.)
-  await expect(chatBadge(page).getByText(/\d/)).toHaveCount(0);
   await expect
     .poll(async () => {
       const unread = await rpc<{ unread?: { badge?: number } }>(
@@ -349,6 +347,11 @@ test("an unread message shows on the navigation and clears when the conversation
       return unread.unread?.badge ?? 0;
     })
     .toBe(0);
+  // Back on the list (a phone conversation has no tab bar), the navigation shows no count any more.
+  await page.goBack();
+  await expect(page.getByTestId("conversation-list")).toBeVisible();
+  await expect(chatBadge(page)).toBeVisible();
+  await expect(chatBadge(page)).not.toContainText(/\d/);
 });
 
 test("a stamp is picked and sent", async ({ page, request, me }) => {
@@ -1310,6 +1313,8 @@ test("only what was on screen counts as read", async ({ page, request, me }) => 
   await page.getByTestId("jump-to-latest").click();
   await expect(bubble(page, "おしらせ 40")).toBeVisible();
   await expect.poll(unread).toBe(0);
-  // (On a phone the open conversation has taken the tab bar's place: no badge is a pass there too.)
-  await expect(chatBadge(page).getByText(/\d/)).toHaveCount(0);
+  // Back on the list (a phone conversation has no tab bar), the navigation shows no count any more.
+  await page.goto("/chat");
+  await expect(chatBadge(page)).toBeVisible();
+  await expect(chatBadge(page)).not.toContainText(/\d/);
 });

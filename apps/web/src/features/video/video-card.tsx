@@ -12,7 +12,7 @@ import { Skeleton } from "#/components/ui/page";
 import { useSubjectMenu } from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
-import { playlistClient, videoKeys } from "./api";
+import { playlistClient, useMyChannels, videoKeys } from "./api";
 import { formatAge, formatClock, formatCount } from "./format";
 import { announceTrafficSource } from "./playback-session";
 import { openSaveDialog } from "./save-dialog";
@@ -247,9 +247,12 @@ export function VideoCard({
     },
     onError: (error) => toast.error(errorMessage(error)),
   });
+  // One's own video cannot be reported (the server refuses with CANNOT_REPORT_OWN).
+  const myChannels = useMyChannels().data?.channels ?? [];
+  const mine = myChannels.some((own) => own.summary?.id === channel?.id);
   const more = useSubjectMenu(
     { type: common.SubjectType.VIDEO, id: summary.id },
-    { title: summary.title, label: summary.title },
+    { title: summary.title, label: summary.title, report: !mine },
   );
   const menu: MenuAction[] = [
     { label: t("save.watchLater"), icon: <Clock3 />, onSelect: () => watchLater.mutate() },

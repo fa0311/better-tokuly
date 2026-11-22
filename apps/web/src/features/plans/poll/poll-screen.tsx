@@ -35,7 +35,7 @@ import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { useMe } from "#/stores/session";
 import { keys, nameOf, pollClient, rememberPlan, rememberPoll, usePoll } from "../api";
-import { formatDay, formatTime, ymd } from "../dates";
+import { formatDay, formatTime, fromDateTimeInput, toDateTimeInput, ymd } from "../dates";
 import { FriendPicker } from "../friend-picker";
 import { SectionTitle, useNow } from "../parts";
 import { DatePicker } from "./date-picker";
@@ -861,9 +861,7 @@ function EditPollDialog({
   const queryClient = useQueryClient();
   const deadlineInput = () => {
     const date = toDate(poll.deadline);
-    return date
-      ? `${ymd(date)}T${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`
-      : "";
+    return date ? toDateTimeInput(date) : "";
   };
   const [title, setTitle] = useState(poll.title);
   const [description, setDescription] = useState(poll.description);
@@ -886,6 +884,8 @@ function EditPollDialog({
   // New whole days can be added here; candidates with a time keep the times they were created with.
   const dayPoll = poll.slots.every((slot) => slot.start.case === "date");
 
+  // The deadline field is read on the account's clock.
+  const deadlineAt = deadline ? fromDateTimeInput(deadline) : null;
   const save = useMutation({
     mutationFn: () =>
       pollClient().updatePoll({
@@ -893,7 +893,7 @@ function EditPollDialog({
         title: title.trim(),
         description: description.trim(),
         openToFriends,
-        deadline: deadline ? fromDate(new Date(deadline)) : undefined,
+        deadline: deadlineAt ? fromDate(deadlineAt) : undefined,
         clearDeadline: !deadline,
         addSlots: buildSlots(addDays, null),
         removeSlotIds: removeIds,

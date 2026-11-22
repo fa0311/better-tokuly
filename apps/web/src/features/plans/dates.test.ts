@@ -4,16 +4,22 @@ import {
   addMonths,
   combine,
   daysBetween,
+  formatTime,
+  fromDateTimeInput,
   monthGrid,
   monthOf,
   parseYmd,
+  planTimeZone,
   timeOf,
+  toDateTimeInput,
+  todayYmd,
   ymd,
 } from "./dates";
 
 describe("days", () => {
   it("round-trips a day and refuses days that do not exist", () => {
-    expect(ymd(parseYmd("2026-02-28")!)).toBe("2026-02-28");
+    expect(parseYmd("2026-02-28")?.getDate()).toBe(28);
+    expect(addDays("2026-02-28", 0)).toBe("2026-02-28");
     expect(parseYmd("2026-02-30")).toBeNull();
     expect(parseYmd("tomorrow")).toBeNull();
   });
@@ -32,11 +38,12 @@ describe("days", () => {
     expect(daysBetween("2026-11-22", "2026-11-22")).toBe(0);
   });
 
-  it("joins a day and a time", () => {
+  it("joins a day and a time on the account's clock", () => {
     const at = combine("2026-11-22", "18:05")!;
     expect(ymd(at)).toBe("2026-11-22");
     expect(timeOf(at)).toBe("18:05");
     expect(combine("2026-11-22", "6pm")).toBeNull();
+    expect(combine("2026-11-31", "18:05")).toBeNull();
   });
 });
 
@@ -58,5 +65,51 @@ describe("monthGrid", () => {
 
   it("gives a month that spans six weeks all of them", () => {
     expect(monthGrid("2026-08")).toHaveLength(6);
+  });
+});
+
+/**
+ * Plans live on the account's clock. These hold whatever zone the machine
+ * running them is in: CI runs them in UTC, and `pnpm test` is also run with
+ * `TZ=America/Los_Angeles` (see the web README).
+ */
+describe("the account's time zone, not the device's", () => {
+  // Without a session the account's zone is Asia/Tokyo (UTC+9).
+  it("reads the day and the time of an instant on the account's clock", () => {
+    // 15:30 UTC on the 21st is 00:30 on the 22nd in Tokyo — and still the 21st in Los Angeles.
+    const instant = new Date("2026-11-21T15:30:00Z");
+    expect(ymd(instant)).toBe("2026-11-22");
+    expect(timeOf(instant)).toBe("00:30");
+    expect(toDateTimeInput(instant)).toBe("2026-11-22T00:30");
+    expect(todayYmd(instant)).toBe("2026-11-22");
+    expect(formatTime(instant, "ja")).toBe("0:30");
+  });
+
+  it("turns a day and a time into the instant the account means", () => {
+    expect(combine("2026-11-22", "18:00")?.toISOString()).toBe("2026-11-22T09:00:00.000Z");
+    expect(fromDateTimeInput("2026-11-22T00:30")?.toISOString()).toBe("2026-11-21T15:30:00.000Z");
+    expect(fromDateTimeInput("soon")).toBeNull();
+  });
+
+  it("round-trips through another zone when one is named", () => {
+    const zone = "America/Los_Angeles";
+    const at = combine("2026-11-22", "18:00", zone)!;
+    expect(at.toISOString()).toBe("2026-11-23T02:00:00.000Z");
+    expect(ymd(at, zone)).toBe("2026-11-22");
+    expect(timeOf(at, zone)).toBe("18:00");
+    // The same instant is the next morning in Tokyo.
+    expect(ymd(at)).toBe("2026-11-23");
+    expect(timeOf(at)).toBe("11:00");
+  });
+
+  it("names the account's zone in requests", () => {
+    expect(planTimeZone()).toBe("Asia/Tokyo");
+  });
+
+  it("keeps calendar arithmetic free of any zone", () => {
+    expect(addDays("2026-03-08", 1)).toBe("2026-03-09");
+    expect(daysBetween("2026-03-07", "2026-03-09")).toBe(2);
+    expect(monthGrid("2026-11")[0]?.[0]).toBe("2026-11-01");
+    expect(monthGrid("2026-11").flat()).toContain("2026-11-30");
   });
 });
