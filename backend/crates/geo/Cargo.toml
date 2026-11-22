@@ -11,7 +11,7 @@ workspace = true
 
 [dependencies]
 tokuly-core.workspace = true
-tokuly-proto = { workspace = true, features = ["common", "geo", "identity", "media", "realtime"] }
+tokuly-proto.workspace = true
 tokuly-identity.workspace = true
 tokuly-social.workspace = true
 # Place photos and day-memo photos are media assets (already a dependency of identity).
@@ -46,8 +46,6 @@ tzf-rs.workspace = true
 flate2 = "1.1"
 
 [dev-dependencies]
-# API packages only the tests name.
-tokuly-proto = { workspace = true, features = ["social"] }
 tokuly-testkit.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 rand.workspace = true

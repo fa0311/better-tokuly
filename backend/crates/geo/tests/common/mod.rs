@@ -12,6 +12,7 @@ use tokuly_proto::{
     common::LatLng,
     geo::{geo_event::Event as Push, *},
     identity::{PrivacySettings, UpdateSettingsRequest, UpdateSettingsResponse},
+    realtime::server_frame::Body,
     social::{FriendSource, RemoveFriendRequest, RemoveFriendResponse, RespondFriendRequestRequest, RespondFriendRequestResponse, SendFriendRequestRequest, SendFriendRequestResponse, send_friend_request_request},
 };
 use tokuly_social::{Social, SocialConfig};
@@ -234,12 +235,27 @@ pub fn seconds_ago(seconds: i64) -> DateTime<Utc> {
 
 /// The next geo event pushed to a listener (other frames are skipped).
 pub async fn next_push(listener: &mut FrameListener) -> Option<Push> {
-    listener.next_event::<GeoEvent>(SOON).await?.event
+    let deadline = tokio::time::Instant::now() + SOON;
+    loop {
+        let left = deadline.checked_duration_since(tokio::time::Instant::now())?;
+        match listener.next(left).await?.body {
+            Some(Body::Geo(event)) => return event.event,
+            _ => continue,
+        }
+    }
 }
 
 /// Every geo event pushed to a listener within `window`.
 pub async fn pushes(listener: &mut FrameListener, window: Duration) -> Vec<Push> {
-    listener.events::<GeoEvent>(window).await.into_iter().filter_map(|event| event.event).collect()
+    listener
+        .drain(window)
+        .await
+        .into_iter()
+        .filter_map(|frame| match frame.body {
+            Some(Body::Geo(event)) => event.event,
+            _ => None,
+        })
+        .collect()
 }
 
 /// The next pin pushed to a listener (other geo events are skipped).
@@ -247,8 +263,13 @@ pub async fn next_pin(listener: &mut FrameListener) -> Option<FriendLocation> {
     let deadline = tokio::time::Instant::now() + SOON;
     loop {
         let left = deadline.checked_duration_since(tokio::time::Instant::now())?;
-        if let Some(Push::Location(location)) = listener.next_event::<GeoEvent>(left).await?.event {
-            return Some(*location);
+        match listener.next(left).await?.body {
+            Some(Body::Geo(event)) => {
+                if let Some(Push::Location(location)) = event.event {
+                    return Some(*location);
+                }
+            }
+            _ => continue,
         }
     }
 }
