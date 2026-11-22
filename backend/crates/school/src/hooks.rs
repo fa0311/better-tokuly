@@ -28,13 +28,16 @@ struct RoomSubjects {
 
 #[async_trait]
 impl SubjectResolver for RoomSubjects {
-    /// A room is a subject for the people who may enter it — which is what
-    /// reporting a room needs. Rooms take no comments or reactions.
+    /// A room is a subject for the people who may enter it, and for those it
+    /// was put in front of (invited, inside, removed) even after it closed
+    /// or the invitation was withdrawn — which is what reporting a room
+    /// needs: taking it back must not take the report button with it. Rooms
+    /// take no comments or reactions.
     async fn resolve(&self, id: &str, viewer: Option<Uuid>) -> AppResult<Option<SubjectInfo>> {
         // A malformed ID names no room; that is "not found", not a client error.
         let (Ok(room_id), Some(viewer)) = (Uuid::parse_str(id), viewer) else { return Ok(None) };
         let Some(room) = rooms::find(&self.school.core, room_id).await? else { return Ok(None) };
-        if !self.school.can_enter(&room, viewer).await? {
+        if !self.school.can_enter(&room, viewer).await? && !self.school.was_shown(&room, viewer).await? {
             return Ok(None);
         }
         Ok(Some(SubjectInfo {
@@ -138,11 +141,13 @@ impl DataExporter for SchoolExporter {
                 "SELECT COALESCE(jsonb_agg(jsonb_build_object(
                      'id', r.id, 'title', r.title, 'audience', r.audience, 'member_cap', r.member_cap, 'created_at', r.created_at,
                      'closed_at', r.closed_at,
-                     'invited', (SELECT COALESCE(jsonb_agg(i.user_id ORDER BY i.created_at), '[]'::jsonb) FROM school_room_invites i WHERE i.room_id = r.id)
+                     'invited', (SELECT COALESCE(jsonb_agg(jsonb_build_object('user_id', i.user_id, 'at', i.created_at, 'withdrawn_at', i.withdrawn_at)
+                          ORDER BY i.created_at), '[]'::jsonb) FROM school_room_invites i WHERE i.room_id = r.id)
                  ) ORDER BY r.id), '[]'::jsonb)
                  FROM school_rooms r WHERE r.host_id = $1", user_id).await?,
             "study_room_invitations": self.json(
-                "SELECT COALESCE(jsonb_agg(jsonb_build_object('room_id', room_id, 'at', created_at) ORDER BY created_at), '[]'::jsonb)
+                "SELECT COALESCE(jsonb_agg(jsonb_build_object('room_id', room_id, 'at', created_at, 'withdrawn_at', withdrawn_at)
+                     ORDER BY created_at), '[]'::jsonb)
                  FROM school_room_invites WHERE user_id = $1", user_id).await?,
             "exams": self.json(
                 "SELECT COALESCE(jsonb_agg(jsonb_build_object(

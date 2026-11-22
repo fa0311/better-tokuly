@@ -23,6 +23,11 @@ impl School {
         self.core.cache.rate_limit(&format!("school:write:{user_id}"), 240, Duration::from_secs(60)).await
     }
 
+    /// Bounds how fast one account can read its own school data.
+    pub(crate) async fn limit_reads(&self, user_id: Uuid) -> AppResult<()> {
+        self.core.cache.rate_limit(&format!("school:read:{user_id}"), 600, Duration::from_secs(60)).await
+    }
+
     /// Bounds the reads that load other people's timetables.
     async fn limit_friend_reads(&self, user_id: Uuid) -> AppResult<()> {
         self.core.cache.rate_limit(&format!("school:friends:{user_id}"), 120, Duration::from_secs(60)).await
@@ -38,6 +43,7 @@ impl School {
         at: Time,
     ) -> AppResult<Calendar> {
         let owner = parse_opt_id(owner)?.unwrap_or(viewer);
+        self.limit_reads(viewer).await?;
         if owner != viewer {
             self.limit_friend_reads(viewer).await?;
         }
@@ -68,7 +74,9 @@ impl TimetableService for School {
         request: ServiceRequest<'_, ListSubjectsRequest>,
     ) -> ServiceResult<ListSubjectsResponse> {
         handle(async {
-            let subjects = self.list_subjects(ctx.user_id()?, request.include_archived).await?;
+            let user_id = ctx.user_id()?;
+            self.limit_reads(user_id).await?;
+            let subjects = self.list_subjects(user_id, request.include_archived).await?;
             ok(ListSubjectsResponse { subjects, ..Default::default() })
         })
         .await
@@ -109,6 +117,7 @@ impl TimetableService for School {
     ) -> ServiceResult<DeleteSubjectResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
+            self.limit_writes(user_id).await?;
             let (archived, removed_entry_count) = self.delete_subject(user_id, parse_id(request.subject_id)?).await?;
             self.reschedule_class_soon(user_id, self.now()).await?;
             ok(DeleteSubjectResponse { archived, removed_entry_count, ..Default::default() })
@@ -122,7 +131,9 @@ impl TimetableService for School {
         _request: ServiceRequest<'_, ListTermsRequest>,
     ) -> ServiceResult<ListTermsResponse> {
         handle(async {
-            let rows = terms::of_user(&self.core, ctx.user_id()?).await?;
+            let user_id = ctx.user_id()?;
+            self.limit_reads(user_id).await?;
+            let rows = terms::of_user(&self.core, user_id).await?;
             let mut terms = Vec::with_capacity(rows.len());
             for row in &rows {
                 terms.push(self.term_for_owner(row).await?);
@@ -139,6 +150,7 @@ impl TimetableService for School {
     ) -> ServiceResult<GetTermResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
+            self.limit_reads(user_id).await?;
             let term_id = parse_id(request.term_id)?;
             let mut conn = self.core.db.acquire().await?;
             let term = terms::own(&mut conn, user_id, term_id, false).await?;
@@ -201,6 +213,7 @@ impl TimetableService for School {
     ) -> ServiceResult<DeleteTermResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
+            self.limit_writes(user_id).await?;
             self.delete_term(user_id, parse_id(request.term_id)?).await?;
             self.reschedule_class_soon(user_id, self.now()).await?;
             ok(DeleteTermResponse::default())
@@ -232,6 +245,7 @@ impl TimetableService for School {
     ) -> ServiceResult<DeleteTimetableEntriesResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
+            self.limit_writes(user_id).await?;
             let entry_ids: Vec<Uuid> = request.entry_ids.iter().map(|id| parse_id(id)).collect::<AppResult<_>>()?;
             let deleted_count = self.delete_entries(user_id, parse_id(request.term_id)?, &entry_ids).await?;
             self.reschedule_class_soon(user_id, self.now()).await?;
@@ -262,6 +276,7 @@ impl TimetableService for School {
     ) -> ServiceResult<DeleteTimetableChangeResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
+            self.limit_writes(user_id).await?;
             self.delete_change(user_id, parse_id(request.change_id)?).await?;
             self.reschedule_class_soon(user_id, self.now()).await?;
             ok(DeleteTimetableChangeResponse::default())
@@ -291,6 +306,7 @@ impl TimetableService for School {
     ) -> ServiceResult<DeleteDayOverrideResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
+            self.limit_writes(user_id).await?;
             self.delete_day_override(user_id, parse_id(request.day_override_id)?).await?;
             self.reschedule_class_soon(user_id, self.now()).await?;
             ok(DeleteDayOverrideResponse::default())

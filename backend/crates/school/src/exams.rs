@@ -421,7 +421,9 @@ impl ExamService for School {
         _request: ServiceRequest<'_, ListExamsRequest>,
     ) -> ServiceResult<ListExamsResponse> {
         handle(async {
-            let exams = self.list_exams(ctx.user_id()?).await?;
+            let user_id = ctx.user_id()?;
+            self.limit_reads(user_id).await?;
+            let exams = self.list_exams(user_id).await?;
             ok(ListExamsResponse { exams, ..Default::default() })
         })
         .await
@@ -434,6 +436,7 @@ impl ExamService for School {
     ) -> ServiceResult<GetExamResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
+            self.limit_reads(user_id).await?;
             let exam: Option<ExamRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
                 "SELECT {EXAM_COLUMNS} FROM school_exams WHERE id = $1 AND user_id = $2"
             )))
@@ -482,6 +485,7 @@ impl ExamService for School {
     ) -> ServiceResult<DeleteExamResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
+            self.limit_writes(user_id).await?;
             let deleted = sqlx::query("DELETE FROM school_exams WHERE id = $1 AND user_id = $2")
                 .bind(parse_id(request.exam_id)?)
                 .bind(user_id)
@@ -517,6 +521,7 @@ impl ExamService for School {
     ) -> ServiceResult<DeleteExamSubjectResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
+            self.limit_writes(user_id).await?;
             let deleted = sqlx::query("DELETE FROM school_exam_subjects WHERE id = $1 AND user_id = $2")
                 .bind(parse_id(request.exam_subject_id)?)
                 .bind(user_id)

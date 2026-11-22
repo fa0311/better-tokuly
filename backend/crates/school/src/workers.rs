@@ -9,7 +9,7 @@ use tokuly_core::{
 
 use crate::{
     School,
-    events::{CONTENT_REMOVED, FRIEND_REMOVED, USER_BLOCKED, USER_DELETED},
+    events::{CONTENT_REMOVED, FRIEND_REMOVED, USER_BANNED, USER_BLOCKED, USER_DELETED},
 };
 
 /// What one pass of the sweep did.
@@ -27,8 +27,9 @@ pub struct SweepReport {
 
 impl School {
     /// Starts the school workers (worker processes only):
-    /// - the consumer of `identity.user.deleted`, `social.friend.removed`,
-    ///   `social.user.blocked` and `admin.content.removed`;
+    /// - the consumer of `identity.user.deleted`, `identity.user.banned`,
+    ///   `social.friend.removed`, `social.user.blocked` and
+    ///   `admin.content.removed`;
     /// - the sweep, every `sweep_interval_seconds`.
     pub fn spawn_workers(&self) {
         let school = self.clone();
@@ -37,7 +38,7 @@ impl School {
             events::consume(
                 school.core.bus.clone(),
                 "school",
-                &[USER_DELETED, FRIEND_REMOVED, USER_BLOCKED, CONTENT_REMOVED],
+                &[USER_DELETED, USER_BANNED, FRIEND_REMOVED, USER_BLOCKED, CONTENT_REMOVED],
                 ConsumeOptions::default(),
                 school.core.shutdown.clone(),
                 move |event| {

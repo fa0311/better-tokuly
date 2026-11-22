@@ -25,14 +25,17 @@ const CHEER_COOLDOWN_SECONDS: u64 = 300;
 
 impl School {
     /// The live sessions of `user_ids` whose owners show their studying:
-    /// heard from recently, or paused not too long ago.
+    /// heard from recently, or paused not too long ago. A suspended account
+    /// shows nothing, exactly like one that hides its studying.
     async fn visible_sessions(&self, user_ids: &[Uuid], at: Time) -> AppResult<Vec<SessionRow>> {
         Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "SELECT {} FROM school_study_sessions s
              WHERE s.user_id = ANY($1) AND s.state <> {ENDED}
                AND ((s.state = {PAUSED} AND s.paused_at >= $3) OR (s.state <> {PAUSED} AND s.heartbeat_at >= $2))
-               AND NOT EXISTS (SELECT 1 FROM school_settings st WHERE st.user_id = s.user_id AND st.study_visibility <> 1)",
-            sessions::COLUMNS
+               AND NOT EXISTS (SELECT 1 FROM school_settings st WHERE st.user_id = s.user_id AND st.study_visibility <> 1)
+               AND {}",
+            sessions::COLUMNS,
+            crate::account_is_active("s.user_id")
         )))
         .bind(user_ids)
         .bind(at - self.idle_limit())

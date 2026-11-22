@@ -37,6 +37,8 @@ use crate::{
 pub(crate) const KIND_ROOM_INVITE: &str = "school.room_invite";
 const MAX_INVITES_PER_CALL: usize = 50;
 const MAX_INVITES: i64 = 200;
+/// Invitation notifications one host may cause one person per hour.
+const INVITE_NOTIFICATIONS_PER_HOUR: u32 = 3;
 
 fn check_audience(audience: RoomAudience) -> AppResult<i16> {
     match audience {
@@ -111,13 +113,15 @@ impl School {
     }
 
     /// Ends whatever session the user has going — it is logged — in a
-    /// transaction of its own, before they enter a room. (Entering never
-    /// holds the locks of two rooms.)
-    async fn end_current_session(&self, user_id: Uuid, at: Time) -> AppResult<()> {
+    /// transaction of its own, before they enter `entering`. (Entering never
+    /// holds the locks of two rooms.) A stay in that very room is left alone
+    /// and returned: the user is inside already.
+    async fn end_current_session(&self, user_id: Uuid, entering: Uuid, at: Time) -> AppResult<Option<SessionRow>> {
         let mut tx = self.core.db.begin().await?;
         let gone = match self.active_session(&mut tx, user_id, at).await? {
             Active::None => None,
             Active::Expired(gone) => Some(gone),
+            Active::Live(session, _) if session.room_id == Some(entering) => return Ok(Some(session)),
             Active::Live(session, room) => {
                 Some(self.end_locked(&mut tx, session, room, End::Client(at), Leave::Left, at).await?)
             }
@@ -126,7 +130,7 @@ impl School {
         if let Some(gone) = &gone {
             self.announce_gone(gone, at).await;
         }
-        Ok(())
+        Ok(None)
     }
 
     /// Closes a room: everyone inside is out, their sessions end and are
@@ -248,7 +252,8 @@ impl School {
     }
 
     /// Stores invitations and requests their notifications; returns the
-    /// people who were not invited before.
+    /// people who were not invited before (or whose invitation had been
+    /// withdrawn). The caller holds the room's lock.
     async fn add_invites(
         &self,
         tx: &mut Transaction<'_, Postgres>,
@@ -260,18 +265,34 @@ impl School {
             return Ok(Vec::new());
         }
         let new: Vec<Uuid> = sqlx::query_scalar(
-            "INSERT INTO school_room_invites (room_id, user_id) SELECT $1, unnest($2::uuid[]) ON CONFLICT DO NOTHING RETURNING user_id",
+            "INSERT INTO school_room_invites (room_id, user_id) SELECT $1, unnest($2::uuid[])
+             ON CONFLICT (room_id, user_id) DO UPDATE SET withdrawn_at = NULL, created_at = now()
+                 WHERE school_room_invites.withdrawn_at IS NOT NULL
+             RETURNING user_id",
         )
         .bind(room.id)
         .bind(ids)
         .fetch_all(&mut **tx)
         .await?;
-        let total: i64 = sqlx::query_scalar("SELECT count(*) FROM school_room_invites WHERE room_id = $1")
-            .bind(room.id)
-            .fetch_one(&mut **tx)
-            .await?;
+        let total: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM school_room_invites WHERE room_id = $1 AND withdrawn_at IS NULL")
+                .bind(room.id)
+                .fetch_one(&mut **tx)
+                .await?;
         ensure!(total <= MAX_INVITES, invalid, "TOO_MANY_USERS", "a room has at most {MAX_INVITES} invitations");
         for invitee in &new {
+            // Inviting, withdrawing and inviting again must not become a way
+            // to ring someone's phone: a few notifications per friend an hour.
+            let key = format!("school:room-invite:{}:{invitee}", room.host_id);
+            if self
+                .core
+                .cache
+                .rate_limit(&key, INVITE_NOTIFICATIONS_PER_HOUR, StdDuration::from_secs(3600))
+                .await
+                .is_err()
+            {
+                continue;
+            }
             let request = NotificationRequest::new(
                 *invitee,
                 KIND_ROOM_INVITE,
@@ -330,22 +351,36 @@ impl School {
         let invitees = self.check_invitees(user_id, &request.invite_user_ids).await?;
         core.cache.rate_limit(&format!("school:room-create:{user_id}"), 10, StdDuration::from_secs(3600)).await?;
 
-        // One open room per host. A room they walked out of and nobody is in
-        // makes way; one with people inside does not.
-        let hosting: Option<(Uuid, i32)> =
-            sqlx::query_as("SELECT id, member_count FROM school_rooms WHERE host_id = $1 AND closed_at IS NULL")
-                .bind(user_id)
-                .fetch_optional(&core.db)
-                .await?;
-        if let Some((room_id, members)) = hosting {
-            ensure!(members == 0, precondition, "ALREADY_HOSTING", "you already host a study room");
-            self.close_room(room_id, RoomCloseReason::ROOM_CLOSE_REASON_EMPTY, None, at).await?;
-        }
-        self.end_current_session(user_id, at).await?;
         let host = tokuly_identity::summary(core, user_id).await?;
 
         let mut tx = core.db.begin().await?;
         crate::lock_user(&mut tx, "session", user_id).await?;
+        // One open room per host. A room they walked out of and nobody is in
+        // makes way; one with people inside does not. (Decided under the
+        // user's lock: two requests at once open one room, not two.)
+        let hosting: Option<RoomRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT {COLUMNS} FROM school_rooms r WHERE r.host_id = $1 AND r.closed_at IS NULL FOR UPDATE"
+        )))
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let mut made_way = None;
+        if let Some(old) = hosting {
+            let inside = member_sessions(&mut tx, old.id, false).await?;
+            ensure!(inside.is_empty(), precondition, "ALREADY_HOSTING", "you already host a study room");
+            let ended = self.close_locked(&mut tx, &old, RoomCloseReason::ROOM_CLOSE_REASON_EMPTY, None, at).await?;
+            made_way = Some((old, ended));
+        }
+        // Whatever the host had going ends (and is logged) with the same
+        // transaction; their own room above was empty, so this is another
+        // room at most, and the new room does not exist for anyone yet.
+        let gone = match self.active_session(&mut tx, user_id, at).await? {
+            Active::None => None,
+            Active::Expired(gone) => Some(gone),
+            Active::Live(session, room) => {
+                Some(self.end_locked(&mut tx, session, room, End::Client(at), Leave::Left, at).await?)
+            }
+        };
         let (work, short_break, long_break, rounds) = plan.columns();
         let room: RoomRow = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "INSERT INTO school_rooms AS r (host_id, title, audience, member_cap, mode, work_seconds, break_seconds, long_break_seconds, rounds, member_count)
@@ -386,6 +421,12 @@ impl School {
         events::emit(&mut *tx, ROOM_OPENED, Some(user_id), &opened).await?;
         tx.commit().await?;
 
+        if let Some((old, ended)) = &made_way {
+            self.announce_closed(old, RoomCloseReason::ROOM_CLOSE_REASON_EMPTY, ended, at).await;
+        }
+        if let Some(gone) = &gone {
+            self.announce_gone(gone, at).await;
+        }
         self.announce_invites(&room, &invited, at).await;
         self.announce_entered(&room, &session, at).await;
         Ok((room, session))
@@ -534,10 +575,28 @@ impl School {
             "ROOM_FULL",
             "the room is full"
         );
-        self.end_current_session(user_id, at).await?;
+        if let Some(session) = self.end_current_session(user_id, room_id, at).await? {
+            return Ok((room, session));
+        }
 
         let mut tx = core.db.begin().await?;
         crate::lock_user(&mut tx, "session", user_id).await?;
+        // Another request of the caller's may have got here first: entering
+        // twice at once is entering once. (A session started elsewhere in
+        // that instant is not ended from here — that would take two rooms'
+        // locks — so the caller is told and tries again.)
+        let going: Option<SessionRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT {} FROM school_study_sessions WHERE user_id = $1 AND state <> {ENDED}",
+            sessions::COLUMNS
+        )))
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        match going {
+            Some(session) if session.room_id == Some(room_id) => return Ok((room, session)),
+            Some(_) => return Err(sessions::already_active()),
+            None => {}
+        }
         let mut room = lock(&mut tx, room_id).await?.ok_or_else(not_found)?;
         ensure_open(&room)?;
         let members = member_sessions(&mut tx, room.id, false).await?;
@@ -666,12 +725,14 @@ impl School {
         let host = tokuly_identity::summary(core, user_id).await?;
 
         let mut tx = core.db.begin().await?;
+        let room = lock(&mut tx, room_id).await?.ok_or_else(not_found)?;
+        ensure_open(&room)?;
         let new = self.add_invites(&mut tx, &room, &host, &invitees).await?;
         tx.commit().await?;
         self.announce_invites(&room, &new, at).await;
 
         let invited: Vec<Uuid> = sqlx::query_scalar(
-            "SELECT user_id FROM school_room_invites WHERE room_id = $1 ORDER BY created_at, user_id",
+            "SELECT user_id FROM school_room_invites WHERE room_id = $1 AND withdrawn_at IS NULL ORDER BY created_at, user_id",
         )
         .bind(room_id)
         .fetch_all(&core.db)
@@ -680,14 +741,11 @@ impl School {
         Ok(invited.iter().filter_map(|id| users.get(id).filter(|user| !user.deleted).cloned()).collect())
     }
 
+    /// Withdraws an invitation. The row stays, marked: the invitee was shown
+    /// the room, and can still report it.
     pub(crate) async fn uninvite_from_room(&self, user_id: Uuid, room_id: Uuid, target: Uuid) -> AppResult<()> {
         let room = self.hosted_room(room_id, user_id).await?;
-        sqlx::query("DELETE FROM school_room_invites WHERE room_id = $1 AND user_id = $2")
-            .bind(room.id)
-            .bind(target)
-            .execute(&self.core.db)
-            .await?;
-        Ok(())
+        withdraw_invite(&self.core.db, room.id, target, self.now()).await
     }
 
     /// Host: removes a member for good.
@@ -705,11 +763,7 @@ impl School {
     pub(crate) async fn remove_from_room(&self, room_id: Uuid, target: Uuid, ban: bool, at: Time) -> AppResult<bool> {
         let mut tx = self.core.db.begin().await?;
         let Some(mut room) = lock(&mut tx, room_id).await? else { return Ok(false) };
-        sqlx::query("DELETE FROM school_room_invites WHERE room_id = $1 AND user_id = $2")
-            .bind(room_id)
-            .bind(target)
-            .execute(&mut *tx)
-            .await?;
+        withdraw_invite(&mut *tx, room_id, target, at).await?;
         let session: Option<SessionRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "SELECT {} FROM school_study_sessions WHERE room_id = $1 AND user_id = $2 AND state <> {ENDED} FOR UPDATE",
             sessions::COLUMNS
@@ -792,7 +846,8 @@ impl School {
                     "SELECT {COLUMNS} FROM school_rooms r
                      WHERE {listed} AND r.member_count > 0 AND r.host_id <> $1
                        AND ((r.host_id = ANY($6) AND r.audience IN ({AUDIENCE_PUBLIC}, {AUDIENCE_FRIENDS}))
-                            OR EXISTS (SELECT 1 FROM school_room_invites i WHERE i.room_id = r.id AND i.user_id = $1))
+                            OR EXISTS (SELECT 1 FROM school_room_invites i
+                                       WHERE i.room_id = r.id AND i.user_id = $1 AND i.withdrawn_at IS NULL))
                        AND ($3::int IS NULL OR (r.member_count, r.id) < ($3, $4))
                      ORDER BY r.member_count DESC, r.id DESC LIMIT $5"
                 )))
@@ -813,6 +868,24 @@ impl School {
         let info = page.finish(&mut rooms, |room| (room.member_count, room.id));
         Ok((self.room_protos(&rooms, viewer, at, Some(MEMBER_PREVIEW)).await?, info))
     }
+}
+
+/// Marks an invitation as withdrawn (if there is one in force).
+async fn withdraw_invite<'e>(
+    executor: impl sqlx::PgExecutor<'e>,
+    room_id: Uuid,
+    user_id: Uuid,
+    at: Time,
+) -> AppResult<()> {
+    sqlx::query(
+        "UPDATE school_room_invites SET withdrawn_at = $3 WHERE room_id = $1 AND user_id = $2 AND withdrawn_at IS NULL",
+    )
+    .bind(room_id)
+    .bind(user_id)
+    .bind(at)
+    .execute(executor)
+    .await?;
+    Ok(())
 }
 
 fn not_in_room() -> AppError {

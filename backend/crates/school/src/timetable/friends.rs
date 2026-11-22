@@ -44,8 +44,10 @@ impl School {
                AND (t.audience = {AUDIENCE_FRIENDS}
                     OR (t.audience = {AUDIENCE_CHOSEN} AND EXISTS (SELECT 1 FROM school_term_shares s WHERE s.term_id = t.id AND s.user_id = $2)))
                AND ($3::uuid IS NULL OR t.user_id > $3)
+               AND {}
              ORDER BY t.user_id LIMIT $4",
-            terms::COLUMNS
+            terms::COLUMNS,
+            crate::account_is_active("t.user_id")
         )))
         .bind(friends)
         .bind(viewer)

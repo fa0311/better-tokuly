@@ -247,8 +247,10 @@ impl School {
     ) -> AppResult<GetStudyHeatmapResponse> {
         let core = &self.core;
         if owner != viewer {
-            let shared =
-                graph::are_friends(core, owner, viewer).await? && settings::of(core, owner).await?.shows_studying();
+            // Not a friend, hidden by its owner, or a suspended account: one answer for all.
+            let shared = graph::are_friends(core, owner, viewer).await?
+                && settings::of(core, owner).await?.shows_studying()
+                && !tokuly_identity::users::filter_active(core, &[owner]).await?.is_empty();
             ensure!(shared, not_found, "STUDY_NOT_SHARED", "this study log is not shared with you");
         }
         let days = if days == 0 { 365 } else { days };
@@ -291,7 +293,9 @@ impl School {
         }
         response.joined = true;
 
-        let friends = graph::friend_ids(core, viewer).await?;
+        // Friends who joined — and whose account is around: a suspended one
+        // drops out the way one that left the ranking does.
+        let friends = tokuly_identity::users::filter_active(core, &graph::friend_ids(core, viewer).await?).await?;
         let joined = settings::of_many(core, &friends).await?;
         let mut participants: Vec<Uuid> =
             friends.into_iter().filter(|friend| joined.get(friend).is_some_and(|s| s.join_ranking)).collect();

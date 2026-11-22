@@ -451,7 +451,9 @@ impl AssignmentService for School {
         handle(async {
             let request = request.to_owned_message();
             let page = Page::from_request(request.page.as_option(), 100);
-            ok(self.list_assignments(ctx.user_id()?, &request, &page).await?)
+            let user_id = ctx.user_id()?;
+            self.limit_reads(user_id).await?;
+            ok(self.list_assignments(user_id, &request, &page).await?)
         })
         .await
     }
@@ -497,6 +499,7 @@ impl AssignmentService for School {
     ) -> ServiceResult<DeleteAssignmentResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
+            self.limit_writes(user_id).await?;
             let deleted = sqlx::query("DELETE FROM school_assignments WHERE id = $1 AND user_id = $2")
                 .bind(parse_id(request.assignment_id)?)
                 .bind(user_id)

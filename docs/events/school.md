@@ -42,13 +42,17 @@ and `goal_reached`; feed gets its entries directly (below).
 
 ## Events consumed
 
-Durable consumer `school`. Every handler is idempotent
-(`School::handle_event`).
+Durable consumer `school` (`School::handle_event`). Events are delivered at
+least once and not always in order: every handler gives the same result when
+it runs twice, and the ones about a state that can change back (a friendship,
+a block, a suspension) look at that state as it is now — an old "friendship
+ended" arriving after the two became friends again does nothing.
 
 | Topic | Reaction |
 |---|---|
 | `identity.user.deleted` `{ user_id }` | The user's open rooms close (reason 3; members' sessions end and are logged), their own session ends, and every row about them is deleted: settings, subjects, terms with grid / changes / overrides / shares, sessions with segments, cheers sent and received, rooms, invitations, bans, exams, assignments. Other people's terms copied from theirs keep their content and lose the reference. |
-| `social.friend.removed` `{ user_id, friend_id }` | Each leaves the other's chosen timetable audiences, invitations between them are withdrawn, and neither stays inside a non-public room the other hosts. |
+| `identity.user.banned` `{ user_id }` | A suspended account stops being present: the rooms it hosts close (reason 3) and its session ends. Nothing is deleted; while the suspension lasts every read treats the account as one that shares nothing (see "Suspended accounts"). Ignored when the account is not suspended (anymore). |
+| `social.friend.removed` `{ user_id, friend_id }` | Each leaves the other's chosen timetable audiences, invitations between them are withdrawn, and neither stays inside a non-public room the other hosts. Ignored when the two are friends (again). |
 | `social.user.blocked` `{ user_id, blocked_id }` | Everything `social.friend.removed` does, plus: neither stays inside any room the other hosts, and the blocked user leaves rooms the two are in together. |
 | `admin.content.removed` `{ subject_type, subject_id }` | `SUBJECT_TYPE_STUDY_ROOM`: the room closes (reason 3). Other types and unknown IDs are ignored. |
 
@@ -56,6 +60,30 @@ Friendship and blocks are also checked at read time (`tokuly_social::graph`),
 so a timetable, a "studying" card or a room disappears for the other person
 immediately; the events only clean up stored rows and people already inside
 rooms.
+
+### Suspended accounts
+
+A suspended (or deleted, not yet purged) account is shown nowhere: its
+timetables read as not shared (`TIMETABLE_NOT_SHARED`), its heatmap as not
+shared (`STUDY_NOT_SHARED`), it is not in friends' "studying" lists, rankings
+or shared-timetable lists, and cannot be cheered (`NOT_STUDYING`). Every one
+of these answers is the one the same request gets when the owner simply
+stopped sharing, so nothing tells a suspension from a changed setting. The
+data stays; lifting the suspension brings it all back.
+
+### What other people can and cannot tell
+
+- Errors about someone else's data do not say why: not a friend, blocked,
+  hidden by a setting, suspended and nonexistent all give the same reason
+  (`TIMETABLE_NOT_SHARED`, `STUDY_NOT_SHARED`, `NOT_STUDYING`, `NOT_FRIENDS`,
+  `ROOM_NOT_FOUND`).
+- A user who hides their studying (`study_visibility` nobody) is absent from
+  friends' lists, their profile card, the heatmap — and from friends' feeds:
+  no `school.studied` entry is recorded either.
+- In a room, people in a block with the viewer are neither listed nor counted
+  in `member_count`.
+- There are no anonymous aggregates in this domain: the ranking, cheers and
+  room presence all name people who chose to take part.
 
 ## Realtime pushes
 
@@ -91,7 +119,7 @@ Requested through `tokuly_core::outbound::notify`.
 | `school.class_soon` | the user | inbox + push | Opt-in (`SchoolSettings.class_soon_minutes`, 0 = off, the default). Sent that many minutes before the first class of the day that takes place (cancelled classes do not count), at most once per day. Collapsed (`school.class_soon`). `data = { date, period, subject, room, start_minute }`. No actor. |
 | `school.assignment_due` | the user | inbox + push | Opt-out (`SchoolSettings.assignment_reminders`, per assignment `remind`). Two per open assignment: at `TOKULY_SCHOOL_ASSIGNMENT_EVENING_HOUR` o'clock on the day before the due date (user's time zone), and one hour before it is due. A moment that had passed when the assignment was saved is skipped; a reminder more than 6 hours late or past the due time is dropped. Collapsed per assignment. `data = { assignment_id, due_at, reminder: "evening" \| "hour" }`. No actor. |
 | `school.cheer` | the user cheered on | inbox + push | Opt-in (`SchoolSettings.cheer_notifications`, off by default: a cheer is otherwise only the realtime event). Actor: the friend. Collapsed per session and sender. |
-| `school.room_invite` | each new invitee | inbox + push | Actor: the host; subject: the room (`SUBJECT_TYPE_STUDY_ROOM`); collapsed per room. |
+| `school.room_invite` | each new invitee | inbox + push | Actor: the host; subject: the room (`SUBJECT_TYPE_STUDY_ROOM`); collapsed per room. At most 3 per host and invitee per hour, however often the invitation is withdrawn and made again. |
 
 The notify domain has no `school` category yet, so these kinds currently fall
 into its `system` category (see "Requests" below).
@@ -102,7 +130,7 @@ Through `tokuly_core::outbound::activity`:
 
 | Kind | Who | Audience | Notes |
 |---|---|---|---|
-| `school.studied` | the user | friends | A timed session (own timer or study room) of at least 10 minutes entered the log. Only when the user shares study activity (`SchoolSettings.share_study_activity`, default on) and activity at all (identity's `share_activity`). Not for time logged by hand. `data = { session_id, minutes, subject, room_id }`, path `/school/study`. |
+| `school.studied` | the user | friends | A timed session (own timer or study room) of at least 10 minutes entered the log. Only when the user shares study activity (`SchoolSettings.share_study_activity`, default on), shows their studying to friends (`study_visibility`) and shares activity at all (identity's `share_activity`). Not for time logged by hand. `data = { session_id, minutes, subject, in_room }` (not which room), path `/school/study`. |
 
 ## Profile cards
 
@@ -122,9 +150,13 @@ there is no separate call.
 ## Other hooks
 
 - `SubjectResolver` for `SUBJECT_TYPE_STUDY_ROOM`: a room resolves for
-  signed-in people who may enter it (owner = host, path
+  signed-in people who may enter it, and for everyone it was put in front of
+  — invited, inside, removed by the host — also after the invitation was
+  withdrawn, the friendship ended or the room closed (owner = host, path
   `/school/rooms/{id}`, `interactions_enabled = false`: rooms can be
-  reported, not commented on).
+  reported, not commented on). Withdrawn invitations are kept as rows
+  (`school_room_invites.withdrawn_at`) for exactly this: taking something
+  back does not take away the means to report it.
 - `DataExporter` named `school`: settings, subjects, terms with grid,
   changes, overrides and shares, timetables shared with the user, study
   sessions and segments, cheers sent and received, rooms hosted,
@@ -173,12 +205,19 @@ least a minute. No ClickHouse table of its own.
 
 ## Rate limits (`rl:` keys)
 
-Writes to school data 240/min per user; reads of other people's timetables
-120/min; free-period search 30/min; timetable copies 20/h; statistics and
-presence reads 240/min; session starts 30/min; manual log entries 60/h;
-cheers 60/min per sender and 1 per 5 minutes per sender→recipient; room
-creation 10/h; room joins 30/min; timer control 60/min; reactions 30/min;
-invitations 60/h.
+Per user: writes to school data 240/min; reads of one's own data 600/min;
+reads of other people's timetables 120/min; free-period search 30/min;
+timetable copies 20/h; statistics and presence reads 240/min; settings
+changes 30/min; session starts 30/min; pause / resume / skip 30/min;
+heartbeats 120/min; session edits 60/min; manual log entries 60/h; cheers
+60/min per sender and 1 per 5 minutes per sender→recipient; room creation
+10/h; room joins 30/min; room reads 240/min; room changes (title, audience,
+lengths, what a member studies) 30/min; timer control 60/min; reactions
+30/min; invitation calls 60/h, and 3 invitation notifications per host and
+invitee per hour.
+
+Everything that is announced to other people (friends' presence, a room's
+topic, a notification) sits behind one of these.
 
 ## Configuration
 
@@ -201,7 +240,14 @@ No new infrastructure.
   (`school_study_sessions.room_id`, one active session per user), so presence
   and counted time are one fact. `school_rooms.member_count` is kept in step
   under the room's row lock. Every room operation locks the room first and
-  member sessions after it, and never two rooms.
+  member sessions after it. Only opening a room can hold two room locks —
+  the host's own empty room that makes way, then the room they were in — in
+  that order, which cannot form a cycle (a room with anyone inside does not
+  make way).
+- No handler holds a transaction or advisory lock while asking the pool for
+  another connection: what a transaction needs is read on it, or read before
+  it begins (`tests/concurrency.rs` fires bursts larger than the pool from
+  one account at every RPC that locks).
 - A grid slot (weekday, period) holds one class for every week, or one for
   week A and / or one for week B; writes replace whatever they collide with.
 - A deleted subject leaves the timetables; if sessions, exams or assignments

@@ -164,6 +164,15 @@ fn frame(event: Push) -> Body {
     Body::School(Box::new(SchoolEvent { event: Some(event), ..Default::default() }))
 }
 
+/// SQL condition: the account in `column` is neither deleted nor suspended.
+/// What a suspended account shared stays stored but is shown to nobody, the
+/// same as if its owner had stopped sharing it.
+pub(crate) fn account_is_active(column: &str) -> String {
+    format!(
+        "EXISTS (SELECT 1 FROM users account WHERE account.id = {column} AND account.deleted_at IS NULL AND account.banned_at IS NULL)"
+    )
+}
+
 /// Serializes changes to one user's set of something (their terms, their
 /// active session) for the rest of the transaction.
 pub(crate) async fn lock_user(

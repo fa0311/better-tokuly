@@ -113,7 +113,9 @@ impl StudyService for School {
         _request: ServiceRequest<'_, GetCurrentStudySessionRequest>,
     ) -> ServiceResult<GetCurrentStudySessionResponse> {
         handle(async {
-            let session = self.current_session(ctx.user_id()?).await?;
+            let user_id = ctx.user_id()?;
+            self.limit_reads(user_id).await?;
+            let session = self.current_session(user_id).await?;
             ok(GetCurrentStudySessionResponse {
                 session: session.into(),
                 heartbeat_interval_seconds: self.heartbeat_interval(),
@@ -145,7 +147,8 @@ impl StudyService for School {
     ) -> ServiceResult<UpdateStudySessionResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
-            self.limit_writes(user_id).await?;
+            // Re-labelling a session that is going is announced to friends.
+            self.core.cache.rate_limit(&format!("school:session-edit:{user_id}"), 60, Duration::from_secs(60)).await?;
             let session = self.update_session(user_id, &request.to_owned_message()).await?;
             ok(UpdateStudySessionResponse { session: session.into(), ..Default::default() })
         })
@@ -158,7 +161,9 @@ impl StudyService for School {
         request: ServiceRequest<'_, DeleteStudySessionRequest>,
     ) -> ServiceResult<DeleteStudySessionResponse> {
         handle(async {
-            self.delete_session(ctx.user_id()?, parse_id(request.session_id)?).await?;
+            let user_id = ctx.user_id()?;
+            self.limit_writes(user_id).await?;
+            self.delete_session(user_id, parse_id(request.session_id)?).await?;
             ok(DeleteStudySessionResponse::default())
         })
         .await
@@ -172,7 +177,9 @@ impl StudyService for School {
         handle(async {
             let request = request.to_owned_message();
             let page = Page::from_request(request.page.as_option(), 100);
-            let (sessions, page) = self.list_sessions(ctx.user_id()?, &request, &page).await?;
+            let user_id = ctx.user_id()?;
+            self.limit_study_reads(user_id).await?;
+            let (sessions, page) = self.list_sessions(user_id, &request, &page).await?;
             ok(ListStudySessionsResponse { sessions, page: page.into(), ..Default::default() })
         })
         .await
@@ -266,7 +273,9 @@ impl StudyService for School {
     ) -> ServiceResult<ListStudyCheersResponse> {
         handle(async {
             let page = Page::from_view(request.page.as_option(), 100);
-            let (cheers, page) = self.list_cheers(ctx.user_id()?, parse_id(request.session_id)?, &page).await?;
+            let user_id = ctx.user_id()?;
+            self.limit_study_reads(user_id).await?;
+            let (cheers, page) = self.list_cheers(user_id, parse_id(request.session_id)?, &page).await?;
             ok(ListStudyCheersResponse { cheers, page: page.into(), ..Default::default() })
         })
         .await

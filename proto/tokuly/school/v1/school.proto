@@ -48,7 +48,8 @@ message SchoolSettings {
   // in the heatmap of `GetStudyHeatmap`. Default: friends.
   StudyVisibility study_visibility = 2;
   // Finished sessions appear in friends' activity feeds (default true; also
-  // needs the account-wide activity sharing of the identity settings).
+  // needs `study_visibility` to be friends and the account-wide activity
+  // sharing of the identity settings).
   bool share_study_activity = 3;
   // Takes part in the weekly ranking among friends (default false). Only
   // participants see the ranking.
@@ -1294,11 +1295,17 @@ message ListStudyCheersResponse {
 // A room that the caller may not enter does not exist for them
 // (ROOM_NOT_FOUND). Live updates arrive as `SchoolEvent` on the realtime
 // topic `study:{room_id}`, which the same people may subscribe to.
+//
+// Rooms can be reported (`SUBJECT_TYPE_STUDY_ROOM`) by anyone who may enter
+// them, and by anyone they were put in front of — invited, inside, removed
+// — also after the invitation was withdrawn or the room closed.
 service StudyRoomService {
   // Opens a room and puts the caller in it as its host. The timer waits for
-  // the host to start it. Errors: ROOM_TITLE_INVALID, AUDIENCE_INVALID,
-  // MEMBER_CAP_INVALID, POMODORO_INVALID, STUDY_MODE_REQUIRED,
-  // SUBJECT_NOT_FOUND, ALREADY_HOSTING (one open room per host), RATE_LIMITED.
+  // the host to start it. An active session of the caller's ends first (it
+  // is logged), and a room of theirs that stands empty closes.
+  // Errors: ROOM_TITLE_INVALID, AUDIENCE_INVALID, MEMBER_CAP_INVALID,
+  // POMODORO_INVALID, STUDY_MODE_REQUIRED, SUBJECT_NOT_FOUND, NOT_FRIENDS
+  // (an invitee), ALREADY_HOSTING (one open room per host), RATE_LIMITED.
   rpc CreateStudyRoom(CreateStudyRoomRequest) returns (CreateStudyRoomResponse);
   // A room with its members. Errors: ROOM_NOT_FOUND.
   rpc GetStudyRoom(GetStudyRoomRequest) returns (GetStudyRoomResponse);
@@ -1316,8 +1323,11 @@ service StudyRoomService {
   rpc ListStudyRooms(ListStudyRoomsRequest) returns (ListStudyRoomsResponse);
 
   // Enters a room. An active session of the caller's ends first (it is
-  // logged), as does their stay in another room.
-  // Errors: ROOM_NOT_FOUND, ROOM_CLOSED, ROOM_FULL, SUBJECT_NOT_FOUND.
+  // logged), as does their stay in another room. Entering the room one is
+  // in already changes nothing.
+  // Errors: ROOM_NOT_FOUND, ROOM_CLOSED, ROOM_FULL, SUBJECT_NOT_FOUND,
+  // SESSION_ALREADY_ACTIVE (another request of the caller's started a session
+  // at the same moment; try again).
   rpc JoinStudyRoom(JoinStudyRoomRequest) returns (JoinStudyRoomResponse);
   // Leaves the room; the session ends and is logged. The room stays open
   // for the others, and closes by itself after being empty for a while.
@@ -1340,7 +1350,8 @@ service StudyRoomService {
   // audience is. Errors: ROOM_NOT_FOUND, NOT_HOST, ROOM_CLOSED, NO_USERS,
   // TOO_MANY_USERS, NOT_FRIENDS, RATE_LIMITED.
   rpc InviteToStudyRoom(InviteToStudyRoomRequest) returns (InviteToStudyRoomResponse);
-  // Host: withdraws an invitation. Someone already inside stays.
+  // Host: withdraws an invitation. Someone already inside stays. (The
+  // invitee can still report the room they were invited to.)
   // Errors: ROOM_NOT_FOUND, NOT_HOST.
   rpc UninviteFromStudyRoom(UninviteFromStudyRoomRequest) returns (UninviteFromStudyRoomResponse);
   // Host: removes a member, who cannot come back to this room.
@@ -1393,6 +1404,7 @@ message StudyRoom {
   RoomAudience audience = 4;
   // The shared timer every member's client follows.
   TimerSnapshot timer = 5;
+  // People inside, as far as the caller may know of them (see `members`).
   int32 member_count = 6;
   // 2-50.
   int32 member_cap = 7;

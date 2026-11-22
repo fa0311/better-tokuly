@@ -105,7 +105,8 @@ pub(crate) async fn of_user(core: &Core, user_id: Uuid) -> AppResult<Vec<TermRow
 
 /// The terms of `owner` that `viewer` may see: all of their own; of someone
 /// else's, the ones shared with them — which takes a friendship, so a block
-/// or an unfriending hides everything at once.
+/// or an unfriending hides everything at once. A suspended account shares
+/// nothing while the suspension lasts.
 pub(crate) async fn visible_to(core: &Core, owner: Uuid, viewer: Uuid) -> AppResult<Vec<TermRow>> {
     if owner == viewer {
         return of_user(core, owner).await;
@@ -118,7 +119,9 @@ pub(crate) async fn visible_to(core: &Core, owner: Uuid, viewer: Uuid) -> AppRes
          WHERE t.user_id = $1
            AND (t.audience = {AUDIENCE_FRIENDS}
                 OR (t.audience = {AUDIENCE_CHOSEN} AND EXISTS (SELECT 1 FROM school_term_shares s WHERE s.term_id = t.id AND s.user_id = $2)))
-         ORDER BY t.start_date DESC, t.id DESC"
+           AND {}
+         ORDER BY t.start_date DESC, t.id DESC",
+        crate::account_is_active("t.user_id")
     )))
     .bind(owner)
     .bind(viewer)

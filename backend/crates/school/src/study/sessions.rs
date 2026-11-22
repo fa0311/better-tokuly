@@ -403,9 +403,12 @@ impl School {
         .await?;
 
         let settings = settings::of_on(tx, user_id).await?;
+        // Someone who hides their studying does not have it announced in
+        // feeds either, whatever the feed switch says.
         if !manual
             && session.counted_seconds >= ACTIVITY_MIN_SECONDS
             && settings.share_study_activity
+            && settings.shows_studying()
             && shares_activity(tx, user_id).await?
         {
             let summary = match subject {
@@ -421,7 +424,9 @@ impl School {
                     "session_id": session.id,
                     "minutes": minutes,
                     "subject": subject.map(|s| s.name.as_str()),
-                    "room_id": session.room_id,
+                    // Which room is nobody's business in a feed: friends
+                    // who may enter it see it in the list of who is studying.
+                    "in_room": session.room_id.is_some(),
                 }));
             outbound::activity(&mut **tx, &entry).await?;
         }

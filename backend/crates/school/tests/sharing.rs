@@ -201,6 +201,23 @@ async fn sharing_ends_with_the_friendship() {
     // Becoming friends again does not bring the old choice back.
     ctx.befriend(&owner, &friend).await;
     assert_eq!(ctx.day_of(&friend, &owner, "2026-04-13").await.unwrap_err().reason, "TIMETABLE_NOT_SHARED");
+
+    // Events can arrive late and more than once. The owner chooses the
+    // friend again; the old "friendship ended" turning up after that must
+    // not take the new choice away.
+    set_audience(&ctx, &owner, &term, TimetableAudience::TIMETABLE_AUDIENCE_CHOSEN, &[&friend]).await;
+    ctx.deliver("social.friend.removed", friend.id).await;
+    assert!(ctx.day_of(&friend, &owner, "2026-04-13").await.is_ok());
+    // The same for a block that was lifted, followed by a new friendship.
+    let unblock = tokuly_proto::social::UnblockUserRequest { user_id: blocked.id.to_string(), ..Default::default() };
+    let _: tokuly_proto::social::UnblockUserResponse =
+        ctx.app.call("tokuly.social.v1.FriendService/UnblockUser", Some(&owner), &unblock).await.unwrap();
+    ctx.befriend(&owner, &blocked).await;
+    set_audience(&ctx, &owner, &term, TimetableAudience::TIMETABLE_AUDIENCE_CHOSEN, &[&friend, &blocked]).await;
+    ctx.deliver("social.user.blocked", owner.id).await;
+    ctx.deliver("social.friend.removed", owner.id).await;
+    assert!(ctx.day_of(&blocked, &owner, "2026-04-13").await.is_ok());
+    assert!(ctx.day_of(&friend, &owner, "2026-04-13").await.is_ok());
 }
 
 #[tokio::test]

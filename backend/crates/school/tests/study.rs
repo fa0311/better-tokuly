@@ -974,3 +974,38 @@ async fn a_cheer_is_a_quiet_nudge_between_friends() {
     ctx.befriend(&hidden, &friend).await;
     assert_eq!(ctx.reason(STUDY, "CheerStudy", &hidden, &cheer(&friend)).await, "NOT_STUDYING");
 }
+
+#[tokio::test]
+async fn hidden_studying_stays_out_of_friends_feeds() {
+    let ctx = start().await;
+    let (open, hidden, quiet) = (ctx.app.user("open").await, ctx.app.user("hidden").await, ctx.app.user("quiet").await);
+    ctx.at(2026, 4, 13, 18, 0);
+    ctx.update_settings(
+        &hidden,
+        UpdateSchoolSettingsRequest {
+            study_visibility: Some(StudyVisibility::STUDY_VISIBILITY_NOBODY.into()),
+            ..Default::default()
+        },
+    )
+    .await;
+    ctx.update_settings(
+        &quiet,
+        UpdateSchoolSettingsRequest { share_study_activity: Some(false), ..Default::default() },
+    )
+    .await;
+    for user in [&open, &hidden, &quiet] {
+        ctx.study_for(user, 15).await;
+    }
+    assert_eq!(ctx.activities_of(open.id, "school.studied").await.len(), 1);
+    assert!(
+        ctx.activities_of(hidden.id, "school.studied").await.is_empty(),
+        "nobody sees them studying, so no feed entry says they did"
+    );
+    assert!(ctx.activities_of(quiet.id, "school.studied").await.is_empty());
+    // A short session is not news either.
+    ctx.study_for(&open, 5).await;
+    assert_eq!(ctx.activities_of(open.id, "school.studied").await.len(), 1);
+    // The log and the event for other domains do not depend on any of it.
+    assert_eq!(ctx.sessions(&hidden).await.len(), 1);
+    assert_eq!(ctx.app.events_by("school.study.session_ended", hidden.id).await.len(), 1);
+}

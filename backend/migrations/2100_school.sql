@@ -230,10 +230,14 @@ CREATE TRIGGER school_rooms_updated_at
     FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
 
+-- An invitation that is withdrawn (by the host, or because the friendship
+-- ended) stays as a row: the invitee was shown the room and its title, and
+-- must still be able to report it.
 CREATE TABLE school_room_invites (
-    room_id    uuid        NOT NULL REFERENCES school_rooms (id) ON DELETE CASCADE,
-    user_id    uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    created_at timestamptz NOT NULL DEFAULT now(),
+    room_id      uuid        NOT NULL REFERENCES school_rooms (id) ON DELETE CASCADE,
+    user_id      uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    withdrawn_at timestamptz,
     PRIMARY KEY (room_id, user_id)
 );
 

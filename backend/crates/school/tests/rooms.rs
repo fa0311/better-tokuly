@@ -455,9 +455,37 @@ async fn a_full_room_and_a_block_keep_people_out() {
     assert!(!list(&ctx, &blocked, RoomScope::ROOM_SCOPE_PUBLIC).await.contains(&room.id));
 
     // Blocked by someone inside: the same, as long as they are in there.
+    let bigger = UpdateStudyRoomRequest { room_id: room.id.clone(), member_cap: Some(5), ..Default::default() };
+    let _: UpdateStudyRoomResponse = ctx.ok(ROOMS, "UpdateStudyRoom", &host, &bigger).await;
     ctx.join(&second, &room.id).await.unwrap();
     let other = ctx.app.user("other").await;
+    // (Until the block has been acted on, the two may still be in a room
+    // together: each is then neither listed nor counted for the other.)
+    ctx.join(&other, &room.id).await.unwrap();
+    let block = tokuly_proto::social::BlockUserRequest { user_id: other.id.to_string(), ..Default::default() };
+    let _: tokuly_proto::social::BlockUserResponse =
+        ctx.app.call("tokuly.social.v1.FriendService/BlockUser", Some(&second), &block).await.unwrap();
+    let seen = ctx.room(&host, &room.id).await.unwrap();
+    assert_eq!((seen.member_count, seen.members.len()), (3, 3), "the host sees everyone");
+    let response: ListStudyRoomsResponse = ctx
+        .ok(
+            ROOMS,
+            "ListStudyRooms",
+            &second,
+            &ListStudyRoomsRequest { scope: RoomScope::ROOM_SCOPE_MINE.into(), ..Default::default() },
+        )
+        .await;
+    assert_eq!(
+        (response.rooms[0].member_count, member_names(&response.rooms[0])),
+        (2, vec!["host".to_owned(), "second".to_owned()])
+    );
+    assert_eq!(
+        ctx.room(&second, &room.id).await.unwrap().member_count,
+        2,
+        "and the room they are in stays theirs to see"
+    );
     ctx.block(&second, &other).await;
+    assert_eq!(ctx.room(&host, &room.id).await.unwrap().member_count, 2, "the blocked one is out");
     assert_eq!(ctx.join(&other, &room.id).await.unwrap_err().reason, "ROOM_NOT_FOUND");
     assert!(!list(&ctx, &other, RoomScope::ROOM_SCOPE_PUBLIC).await.contains(&room.id));
     leave(&ctx, &second).await;

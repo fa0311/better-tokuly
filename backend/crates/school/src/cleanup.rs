@@ -1,15 +1,23 @@
-//! Reactions to what happens in other domains: deleted accounts, ended
-//! friendships, blocks and moderation takedowns.
+//! Reactions to what happens in other domains: deleted and suspended
+//! accounts, ended friendships, blocks and moderation takedowns.
 //!
-//! Every reaction is idempotent — events are delivered at least once.
+//! Events are delivered at least once and not always in order, so every
+//! reaction gives the same result when it runs twice, and the ones that
+//! depend on a state that can change back (a friendship, a block, a
+//! suspension) look at that state as it is now rather than trusting the
+//! event: an old "friendship ended" arriving after the two made up must not
+//! take away what they share today.
 use tokuly_core::{events::Event, prelude::*};
 use tokuly_identity::maintenance::UserRef;
 use tokuly_proto::{common::SubjectType, school::RoomCloseReason};
-use tokuly_social::events::{BlockChanged, FriendRemoved};
+use tokuly_social::{
+    events::{BlockChanged, FriendRemoved},
+    graph,
+};
 
 use crate::{
     School,
-    events::{CONTENT_REMOVED, ContentRemoved, FRIEND_REMOVED, USER_BLOCKED, USER_DELETED},
+    events::{CONTENT_REMOVED, ContentRemoved, FRIEND_REMOVED, USER_BANNED, USER_BLOCKED, USER_DELETED},
     rooms::{self, Leave},
     study::sessions::{ENDED, End},
 };
@@ -20,6 +28,7 @@ impl School {
     pub async fn handle_event(&self, event: &Event) -> AppResult<()> {
         match event.topic.as_str() {
             USER_DELETED => self.forget_user(event.data::<UserRef>()?.user_id).await,
+            USER_BANNED => self.suspend_user(event.data::<UserRef>()?.user_id).await,
             FRIEND_REMOVED => {
                 let removed: FriendRemoved = event.data()?;
                 self.separate(removed.user_id, removed.friend_id, None).await
@@ -49,6 +58,18 @@ impl School {
     async fn separate(&self, a: Uuid, b: Uuid, blocked: Option<Uuid>) -> AppResult<()> {
         let core = &self.core;
         let at = self.now();
+        // A late event: the two are friends (again). What they share now was
+        // set up after the friendship this event is about ended.
+        if graph::are_friends(core, a, b).await? {
+            return Ok(());
+        }
+        // Likewise a block that was lifted since has nothing left to enforce
+        // beyond the ended friendship.
+        let blocked = match blocked {
+            Some(blocked) if graph::is_blocked_either(core, a, b).await? => Some(blocked),
+            _ => None,
+        };
+
         sqlx::query(
             "DELETE FROM school_term_shares s USING school_terms t
              WHERE s.term_id = t.id AND ((t.user_id = $1 AND s.user_id = $2) OR (t.user_id = $2 AND s.user_id = $1))",
@@ -57,12 +78,15 @@ impl School {
         .bind(b)
         .execute(&core.db)
         .await?;
+        // Withdrawn, not erased: the invitee can still report what they were sent.
         sqlx::query(
-            "DELETE FROM school_room_invites i USING school_rooms r
-             WHERE i.room_id = r.id AND ((r.host_id = $1 AND i.user_id = $2) OR (r.host_id = $2 AND i.user_id = $1))",
+            "UPDATE school_room_invites i SET withdrawn_at = $3 FROM school_rooms r
+             WHERE i.room_id = r.id AND i.withdrawn_at IS NULL
+               AND ((r.host_id = $1 AND i.user_id = $2) OR (r.host_id = $2 AND i.user_id = $1))",
         )
         .bind(a)
         .bind(b)
+        .bind(at)
         .execute(&core.db)
         .await?;
 
@@ -101,12 +125,11 @@ impl School {
         Ok(())
     }
 
-    /// Removes everything this domain holds about a deleted account: their
-    /// rooms close, their session ends, and their timetables, study log,
-    /// exams, assignments and settings are erased.
-    async fn forget_user(&self, user_id: Uuid) -> AppResult<()> {
+    /// Takes an account out of everything live: the rooms it hosts close
+    /// (everyone inside is out, their time logged), and its own session ends
+    /// the way a vanished client's does, so a room it was in is told.
+    async fn leave_everything(&self, user_id: Uuid, at: Time) -> AppResult<()> {
         let core = &self.core;
-        let at = self.now();
         let hosted: Vec<Uuid> =
             sqlx::query_scalar("SELECT id FROM school_rooms WHERE host_id = $1 AND closed_at IS NULL")
                 .bind(user_id)
@@ -115,8 +138,6 @@ impl School {
         for room_id in hosted {
             self.close_room(room_id, RoomCloseReason::ROOM_CLOSE_REASON_REMOVED, None, at).await?;
         }
-        // Whatever they had going ends the way a vanished client's does, so
-        // a room they were in is told that they left.
         let mut tx = core.db.begin().await?;
         let gone = match self.lock_active(&mut tx, user_id).await? {
             Some((session, room)) => {
@@ -125,13 +146,33 @@ impl School {
             None => None,
         };
         tx.commit().await?;
-        if let Some(gone) = &gone
-            && let Some(exit) = &gone.exit
-        {
-            let session = &gone.ended.session;
-            let proto = session.to_proto(None, &session.own_timer(), at, self.idle_limit());
-            self.announce_exit(user_id, exit, &proto, at).await;
+        if let Some(gone) = &gone {
+            self.announce_gone(gone, at).await;
         }
+        Ok(())
+    }
+
+    /// A suspended account stops being present: its rooms close and its
+    /// session ends. Nothing is deleted — what it shared is simply shown to
+    /// nobody while the suspension lasts (every read checks the account).
+    async fn suspend_user(&self, user_id: Uuid) -> AppResult<()> {
+        // A late event: the suspension may have been lifted since.
+        let suspended: Option<bool> =
+            sqlx::query_scalar("SELECT banned_at IS NOT NULL OR deleted_at IS NOT NULL FROM users WHERE id = $1")
+                .bind(user_id)
+                .fetch_optional(&self.core.db)
+                .await?;
+        if suspended != Some(true) {
+            return Ok(());
+        }
+        self.leave_everything(user_id, self.now()).await
+    }
+
+    /// Removes everything this domain holds about a deleted account: their
+    /// rooms close, their session ends, and their timetables, study log,
+    /// exams, assignments and settings are erased.
+    async fn forget_user(&self, user_id: Uuid) -> AppResult<()> {
+        self.leave_everything(user_id, self.now()).await?;
 
         // Each statement removes the rows in which the user is a party; rows
         // hanging off them (segments, grid classes, invitations...) go along.
@@ -151,7 +192,7 @@ impl School {
             "DELETE FROM school_subjects WHERE user_id = $1",
             "DELETE FROM school_settings WHERE user_id = $1",
         ];
-        let mut tx = core.db.begin().await?;
+        let mut tx = self.core.db.begin().await?;
         for delete in DELETES {
             sqlx::query(*delete).bind(user_id).execute(&mut *tx).await?;
         }

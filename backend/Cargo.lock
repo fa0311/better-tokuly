@@ -6295,6 +6295,7 @@ dependencies = [
  "chrono-tz",
  "clap",
  "connectrpc",
+ "futures",
  "serde",
  "serde_json",
  "sqlx",

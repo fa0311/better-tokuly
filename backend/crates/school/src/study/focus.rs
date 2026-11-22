@@ -204,6 +204,8 @@ impl School {
         at: Time,
         change: impl FnOnce(&SessionRow, &mut Timer) -> AppResult<()>,
     ) -> AppResult<StudySession> {
+        // Every change is announced to the user's friends: not a button to hammer.
+        self.core.cache.rate_limit(&format!("school:timer:{user_id}"), 30, StdDuration::from_secs(60)).await?;
         let mut tx = self.core.db.begin().await?;
         let mut session = match self.active_session(&mut tx, user_id, at).await? {
             Active::None => return Err(sessions::no_active_session()),
@@ -258,6 +260,8 @@ impl School {
     /// when the server had to give up on it in the meantime.
     pub(crate) async fn heartbeat(&self, user_id: Uuid) -> AppResult<StudySession> {
         let at = self.now();
+        // Clients send one a minute; each is a handful of writes.
+        self.core.cache.rate_limit(&format!("school:heartbeat:{user_id}"), 120, StdDuration::from_secs(60)).await?;
         let mut tx = self.core.db.begin().await?;
         match self.active_session(&mut tx, user_id, at).await? {
             Active::None => Err(sessions::no_active_session()),

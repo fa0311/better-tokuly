@@ -120,6 +120,13 @@ impl School {
     /// and schedules the next one either way.
     async fn class_reminder(&self, user_id: Uuid, at: Time) -> AppResult<bool> {
         let core = &self.core;
+        // Everything that is read comes first: the transaction below only
+        // claims the row and writes, so it never needs a second connection.
+        let calendar =
+            Calendar::load_around(core, user_id, user_id, at).await?.expect("one's own timetable is always visible");
+        let today = calendar.today(at);
+        let first_class = calendar.first_class(today);
+
         let mut tx = core.db.begin().await?;
         let row: Option<(i32, Option<NaiveDate>)> = sqlx::query_as(
             "SELECT class_soon_minutes, class_soon_sent_on FROM school_settings
@@ -140,16 +147,13 @@ impl School {
             return Ok(false);
         }
         let lead = Duration::minutes(minutes as i64);
-        let calendar =
-            Calendar::load_around(core, user_id, user_id, at).await?.expect("one's own timetable is always visible");
-        let today = calendar.today(at);
         let mut sent = false;
         if sent_on != Some(today)
-            && let Some((class, starts_at)) = calendar.first_class(today)
-            && starts_at - lead <= at
-            && at < starts_at
+            && let Some((class, starts_at)) = &first_class
+            && *starts_at - lead <= at
+            && at < *starts_at
         {
-            outbound::notify(&mut *tx, &notification(user_id, &calendar, &class)).await?;
+            outbound::notify(&mut *tx, &notification(user_id, &calendar, class)).await?;
             sent_on = Some(today);
             sent = true;
         }

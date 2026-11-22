@@ -70,6 +70,7 @@ pub struct RoomClosed {
 // ── Events of other domains this one reacts to ──
 
 pub(crate) const USER_DELETED: &str = "identity.user.deleted";
+pub(crate) const USER_BANNED: &str = "identity.user.banned";
 pub(crate) const FRIEND_REMOVED: &str = tokuly_social::events::FRIEND_REMOVED;
 pub(crate) const USER_BLOCKED: &str = tokuly_social::events::USER_BLOCKED;
 pub(crate) const CONTENT_REMOVED: &str = "admin.content.removed";

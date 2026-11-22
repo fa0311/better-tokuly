@@ -1,9 +1,24 @@
 //! `StudyRoomService`: thin RPC handlers.
+use std::time::Duration;
+
 use connectrpc::{RequestContext, ServiceRequest, ServiceResult};
 use tokuly_core::prelude::*;
 use tokuly_proto::school::*;
 
 use crate::School;
+
+impl School {
+    /// Bounds how fast one account can look at rooms.
+    async fn limit_room_reads(&self, user_id: Uuid) -> AppResult<()> {
+        self.core.cache.rate_limit(&format!("school:rooms:{user_id}"), 240, Duration::from_secs(60)).await
+    }
+
+    /// Bounds the host's and members' changes that are pushed to everyone
+    /// following the room (and, for what a member studies, to their friends).
+    async fn limit_room_changes(&self, user_id: Uuid) -> AppResult<()> {
+        self.core.cache.rate_limit(&format!("school:room-change:{user_id}"), 30, Duration::from_secs(60)).await
+    }
+}
 
 impl StudyRoomService for School {
     async fn create_study_room(
@@ -32,6 +47,7 @@ impl StudyRoomService for School {
     ) -> ServiceResult<GetStudyRoomResponse> {
         handle(async {
             let viewer = ctx.user_id()?;
+            self.limit_room_reads(viewer).await?;
             let room = self.visible_room(parse_id(request.room_id)?, viewer).await?;
             ok(GetStudyRoomResponse {
                 room: self.room_proto(&room, viewer, self.now()).await?.into(),
@@ -48,7 +64,7 @@ impl StudyRoomService for School {
     ) -> ServiceResult<UpdateStudyRoomResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
-            self.limit_writes(user_id).await?;
+            self.limit_room_changes(user_id).await?;
             let room = self.update_room(user_id, &request.to_owned_message()).await?;
             ok(UpdateStudyRoomResponse {
                 room: self.room_proto(&room, user_id, self.now()).await?.into(),
@@ -65,6 +81,7 @@ impl StudyRoomService for School {
     ) -> ServiceResult<CloseStudyRoomResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
+            self.limit_writes(user_id).await?;
             let room = self.visible_room(parse_id(request.room_id)?, user_id).await?;
             ensure!(room.host_id == user_id, denied, "NOT_HOST", "only the host can close the room");
             // Closing a closed room changes nothing.
@@ -82,7 +99,9 @@ impl StudyRoomService for School {
         handle(async {
             let scope = request.scope.as_known().unwrap_or(RoomScope::ROOM_SCOPE_UNSPECIFIED);
             let page = Page::from_view(request.page.as_option(), 50);
-            let (rooms, page) = self.list_rooms(ctx.user_id()?, scope, &page).await?;
+            let viewer = ctx.user_id()?;
+            self.limit_room_reads(viewer).await?;
+            let (rooms, page) = self.list_rooms(viewer, scope, &page).await?;
             ok(ListStudyRoomsResponse { rooms, page: page.into(), ..Default::default() })
         })
         .await
@@ -126,7 +145,7 @@ impl StudyRoomService for School {
     ) -> ServiceResult<SetStudyRoomSubjectResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
-            self.limit_writes(user_id).await?;
+            self.limit_room_changes(user_id).await?;
             let session = self.set_room_subject(user_id, request.subject_id).await?;
             ok(SetStudyRoomSubjectResponse { session: session.into(), ..Default::default() })
         })
@@ -178,7 +197,9 @@ impl StudyRoomService for School {
         request: ServiceRequest<'_, UninviteFromStudyRoomRequest>,
     ) -> ServiceResult<UninviteFromStudyRoomResponse> {
         handle(async {
-            self.uninvite_from_room(ctx.user_id()?, parse_id(request.room_id)?, parse_id(request.user_id)?).await?;
+            let user_id = ctx.user_id()?;
+            self.limit_writes(user_id).await?;
+            self.uninvite_from_room(user_id, parse_id(request.room_id)?, parse_id(request.user_id)?).await?;
             ok(UninviteFromStudyRoomResponse::default())
         })
         .await
@@ -190,7 +211,9 @@ impl StudyRoomService for School {
         request: ServiceRequest<'_, RemoveStudyRoomMemberRequest>,
     ) -> ServiceResult<RemoveStudyRoomMemberResponse> {
         handle(async {
-            self.remove_member(ctx.user_id()?, parse_id(request.room_id)?, parse_id(request.user_id)?).await?;
+            let user_id = ctx.user_id()?;
+            self.limit_writes(user_id).await?;
+            self.remove_member(user_id, parse_id(request.room_id)?, parse_id(request.user_id)?).await?;
             ok(RemoveStudyRoomMemberResponse::default())
         })
         .await

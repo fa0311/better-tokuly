@@ -371,3 +371,45 @@ async fn assignment_reminders_come_the_evening_before_and_an_hour_before() {
     ctx.at(2026, 6, 14, 9, 30);
     assert_eq!(reminders(&ctx, me.id).await.len(), 3);
 }
+
+#[tokio::test]
+async fn several_workers_sweeping_at_once_do_each_thing_once() {
+    let _one_at_a_time = SWEEPS.lock().await;
+    let ctx = start().await;
+    let me = ctx.app.user("me").await;
+    ctx.at(2026, 4, 13, 7, 0); // a Monday morning
+
+    // A class reminder and an assignment reminder that come due at 8:40,
+    // and a session that will have been silent for too long by then.
+    let math = ctx.subject(&me, "数学").await;
+    let term = ctx.term(&me, |_| {}).await;
+    ctx.put(&me, &term, vec![class(Weekday::WEEKDAY_MONDAY, 1, &math)]).await;
+    ctx.update_settings(&me, UpdateSchoolSettingsRequest { class_soon_minutes: Some(10), ..Default::default() }).await;
+    let homework = CreateAssignmentRequest {
+        title: "宿題".into(),
+        due_at: stamp(tokyo(2026, 4, 13, 9, 40)),
+        ..Default::default()
+    };
+    let _: CreateAssignmentResponse = ctx.ok(ASSIGNMENTS, "CreateAssignment", &me, &homework).await;
+    ctx.start_stopwatch(&me).await;
+    ctx.pass(5);
+    ctx.heartbeat(&me).await;
+
+    // Six sweeps at the same moment — more than the pool has connections,
+    // as when several worker processes tick together.
+    ctx.at(2026, 4, 13, 8, 40);
+    let at = ctx.school.now();
+    let reports = futures::future::join_all((0..6).map(|_| ctx.school.sweep(at))).await;
+    assert_eq!(ctx.notifications_for(me.id, "school.class_soon").await.len(), 1);
+    assert_eq!(ctx.notifications_for(me.id, "school.assignment_due").await.len(), 1);
+    assert_eq!(ctx.app.events_by("school.study.session_ended", me.id).await.len(), 1);
+    assert_eq!(
+        ctx.sessions(&me).await.iter().map(|s| (s.studied_seconds, s.auto_stopped)).collect::<Vec<_>>(),
+        vec![(300, true)]
+    );
+    // Between them the sweeps did each of the three things at least once
+    // (other tests' leftovers may add to the counts, never to this user's).
+    assert!(reports.iter().map(|r| r.class_reminders).sum::<usize>() >= 1);
+    assert!(reports.iter().map(|r| r.assignment_reminders).sum::<usize>() >= 1);
+    assert!(reports.iter().map(|r| r.sessions_ended).sum::<usize>() >= 1);
+}

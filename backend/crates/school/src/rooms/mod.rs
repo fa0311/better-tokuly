@@ -224,7 +224,7 @@ impl School {
         }
         let (banned, invited, inside): (bool, bool, bool) = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "SELECT EXISTS(SELECT 1 FROM school_room_bans WHERE room_id = $1 AND user_id = $2),
-                    EXISTS(SELECT 1 FROM school_room_invites WHERE room_id = $1 AND user_id = $2),
+                    EXISTS(SELECT 1 FROM school_room_invites WHERE room_id = $1 AND user_id = $2 AND withdrawn_at IS NULL),
                     EXISTS(SELECT 1 FROM school_study_sessions WHERE room_id = $1 AND user_id = $2 AND state <> {ENDED})"
         )))
         .bind(room.id)
@@ -234,9 +234,12 @@ impl School {
         if banned || graph::is_blocked_either(core, room.host_id, viewer).await? {
             return Ok(false);
         }
+        // Someone inside keeps seeing the room they are in.
+        if inside {
+            return Ok(true);
+        }
         let allowed = room.is_public()
             || invited
-            || inside
             || (room.audience == AUDIENCE_FRIENDS && graph::are_friends(core, room.host_id, viewer).await?);
         if !allowed {
             return Ok(false);
@@ -254,6 +257,22 @@ impl School {
         .fetch_one(&core.db)
         .await?;
         Ok(!blocked_inside)
+    }
+
+    /// Whether the room was put in front of `viewer` at some point, whatever
+    /// became of it: they were invited (even if the invitation was withdrawn
+    /// since), they were inside, or the host removed them. Someone who was
+    /// shown a room can report it, also after it is closed to them.
+    pub(crate) async fn was_shown(&self, room: &RoomRow, viewer: Uuid) -> AppResult<bool> {
+        Ok(sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM school_room_invites WHERE room_id = $1 AND user_id = $2)
+                 OR EXISTS(SELECT 1 FROM school_room_bans WHERE room_id = $1 AND user_id = $2)
+                 OR EXISTS(SELECT 1 FROM school_study_sessions WHERE room_id = $1 AND user_id = $2)",
+        )
+        .bind(room.id)
+        .bind(viewer)
+        .fetch_one(&self.core.db)
+        .await?)
     }
 
     /// The room `viewer` asked for, if it exists for them (closed or not).
@@ -293,7 +312,8 @@ impl School {
         .fetch_all(&core.db)
         .await?;
         let invites: Vec<(Uuid, Uuid)> = sqlx::query_as(
-            "SELECT room_id, user_id FROM school_room_invites WHERE room_id = ANY($1) ORDER BY created_at, user_id",
+            "SELECT room_id, user_id FROM school_room_invites
+             WHERE room_id = ANY($1) AND withdrawn_at IS NULL ORDER BY created_at, user_id",
         )
         .bind(&room_ids)
         .fetch_all(&core.db)
@@ -323,7 +343,11 @@ impl School {
                     host: tokuly_identity::users::pick(&users, room.host_id).into(),
                     audience: (room.audience as i32).into(),
                     timer: timer.snapshot(at).into(),
-                    member_count: room.member_count,
+                    // People in a block with the viewer are not listed, and
+                    // not counted either: a count one higher than the list
+                    // would say that someone hidden is there.
+                    member_count: room.member_count
+                        - inside.iter().filter(|member| hidden.contains(&member.user_id)).count() as i32,
                     member_cap: room.member_cap,
                     members: inside
                         .iter()

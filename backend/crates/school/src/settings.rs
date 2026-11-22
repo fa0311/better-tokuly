@@ -196,7 +196,9 @@ impl SchoolService for School {
         _request: ServiceRequest<'_, GetSchoolSettingsRequest>,
     ) -> ServiceResult<GetSchoolSettingsResponse> {
         handle(async {
-            let settings = of(&self.core, ctx.user_id()?).await?;
+            let user_id = ctx.user_id()?;
+            self.limit_reads(user_id).await?;
+            let settings = of(&self.core, user_id).await?;
             ok(GetSchoolSettingsResponse { settings: settings.to_proto().into(), ..Default::default() })
         })
         .await
@@ -209,6 +211,11 @@ impl SchoolService for School {
     ) -> ServiceResult<UpdateSchoolSettingsResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
+            // Switching study visibility is announced to every friend.
+            self.core
+                .cache
+                .rate_limit(&format!("school:settings:{user_id}"), 30, std::time::Duration::from_secs(60))
+                .await?;
             let request = request.to_owned_message();
             let before = of(&self.core, user_id).await?;
             let settings = self.update_settings(user_id, request).await?;

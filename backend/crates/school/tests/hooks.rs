@@ -522,3 +522,165 @@ async fn the_data_export_has_a_school_section() {
         assert_eq!(theirs[section], serde_json::json!([]), "{section}");
     }
 }
+
+#[tokio::test]
+async fn a_room_can_be_reported_by_whoever_it_was_put_in_front_of() {
+    let ctx = start().await;
+    let (host, invitee, member, stranger) = (
+        ctx.app.user("host").await,
+        ctx.app.user("invitee").await,
+        ctx.app.user("member").await,
+        ctx.app.user("stranger").await,
+    );
+    ctx.befriend(&host, &invitee).await;
+    ctx.befriend(&host, &member).await;
+    let core = &ctx.app.core;
+    let study_room = SubjectType::SUBJECT_TYPE_STUDY_ROOM;
+    let reportable = |room: &StudyRoom, viewer: &TestUser| {
+        let (room_id, viewer) = (room.id.clone(), viewer.id);
+        async move { core.subjects.resolve(study_room, &room_id, Some(viewer)).await.is_ok() }
+    };
+
+    // An invitation-only room with a title someone may want to report; one
+    // friend is invited, the other comes in and is thrown out.
+    let room = ctx
+        .create_room(&host, |room| {
+            room.title = "ひどいタイトル".into();
+            room.audience = RoomAudience::ROOM_AUDIENCE_INVITED.into();
+            room.invite_user_ids = vec![invitee.id.to_string(), member.id.to_string()];
+        })
+        .await
+        .room
+        .as_option()
+        .cloned()
+        .unwrap();
+    assert_eq!(ctx.notifications_for(invitee.id, "school.room_invite").await.len(), 1, "the title was delivered");
+    ctx.join(&member, &room.id).await.unwrap();
+    assert!(reportable(&room, &invitee).await && reportable(&room, &member).await);
+
+    // Taking the invitation back, or throwing the member out, hides the room
+    // from them — and leaves the report button where it was.
+    let uninvite = UninviteFromStudyRoomRequest {
+        room_id: room.id.clone(),
+        user_id: invitee.id.to_string(),
+        ..Default::default()
+    };
+    let _: UninviteFromStudyRoomResponse = ctx.ok(ROOMS, "UninviteFromStudyRoom", &host, &uninvite).await;
+    let remove =
+        RemoveStudyRoomMemberRequest { room_id: room.id.clone(), user_id: member.id.to_string(), ..Default::default() };
+    let _: RemoveStudyRoomMemberResponse = ctx.ok(ROOMS, "RemoveStudyRoomMember", &host, &remove).await;
+    for user in [&invitee, &member] {
+        assert_eq!(ctx.room(user, &room.id).await.unwrap_err().reason, "ROOM_NOT_FOUND");
+        assert!(reportable(&room, user).await, "{} can still report the room", user.handle);
+    }
+    // So does ending the friendship, and closing the room.
+    ctx.unfriend(&host, &invitee).await;
+    let _: CloseStudyRoomResponse = ctx
+        .ok(ROOMS, "CloseStudyRoom", &host, &CloseStudyRoomRequest { room_id: room.id.clone(), ..Default::default() })
+        .await;
+    assert!(reportable(&room, &invitee).await && reportable(&room, &member).await);
+    let info = core.subjects.resolve(study_room, &room.id, Some(invitee.id)).await.unwrap();
+    assert_eq!((info.owner_id, info.title.as_str()), (host.id, "ひどいタイトル"));
+    // Someone the room was never shown to still has nothing to report.
+    assert!(!reportable(&room, &stranger).await);
+    // A withdrawn invitation does not come back by itself: not visible, not joinable.
+    assert_eq!(ctx.join(&invitee, &room.id).await.unwrap_err().reason, "ROOM_NOT_FOUND");
+}
+
+/// The names in the weekly ranking as `viewer` sees it, in order.
+async fn ranking(ctx: &Ctx, viewer: &TestUser) -> Vec<String> {
+    let response: GetStudyRankingResponse =
+        ctx.ok(STUDY, "GetStudyRanking", viewer, &GetStudyRankingRequest::default()).await;
+    response.entries.iter().map(|e| e.user.as_option().unwrap().display_name.clone()).collect()
+}
+
+/// How many friends `viewer` sees studying.
+async fn studying(ctx: &Ctx, viewer: &TestUser) -> usize {
+    let response: ListStudyingFriendsResponse =
+        ctx.ok(STUDY, "ListStudyingFriends", viewer, &ListStudyingFriendsRequest::default()).await;
+    response.friends.len()
+}
+
+#[tokio::test]
+async fn a_suspended_account_is_present_nowhere_and_shares_nothing() {
+    let ctx = start().await;
+    let (suspended, friend, guest) =
+        (ctx.app.user("suspended").await, ctx.app.user("friend").await, ctx.app.user("guest").await);
+    ctx.befriend(&suspended, &friend).await;
+    ctx.at(2026, 4, 13, 9, 0); // Monday, first period
+
+    // A shared timetable, study time, a place in the ranking, and a room
+    // with a guest in it.
+    let math = ctx.subject(&suspended, "数学").await;
+    let term = ctx.term(&suspended, |t| t.audience = TimetableAudience::TIMETABLE_AUDIENCE_FRIENDS.into()).await;
+    ctx.put(&suspended, &term, vec![class(Weekday::WEEKDAY_MONDAY, 1, &math)]).await;
+    ctx.log(&suspended, tokyo(2026, 4, 13, 7, 0), tokyo(2026, 4, 13, 8, 0), None).await.unwrap();
+    for user in [&suspended, &friend] {
+        ctx.update_settings(user, UpdateSchoolSettingsRequest { join_ranking: Some(true), ..Default::default() }).await;
+    }
+    let room = ctx
+        .create_room(&suspended, |room| room.audience = RoomAudience::ROOM_AUDIENCE_PUBLIC.into())
+        .await
+        .room
+        .as_option()
+        .cloned()
+        .unwrap();
+    ctx.join(&guest, &room.id).await.unwrap();
+    ctx.control(&suspended, &room.id, TimerAction::TIMER_ACTION_START).await.unwrap();
+    ctx.pass(10);
+    ctx.beat(&[&suspended, &guest]).await;
+
+    let of_them = suspended.id.to_string();
+    let heatmap = GetStudyHeatmapRequest { user_id: of_them.clone(), ..Default::default() };
+    // Before: the friend sees all of it.
+    assert!(ctx.day_of(&friend, &suspended, "2026-04-13").await.is_ok());
+    assert!(ctx.call::<_, GetStudyHeatmapResponse>(STUDY, "GetStudyHeatmap", &friend, &heatmap).await.is_ok());
+    assert_eq!(ranking(&ctx, &friend).await, vec!["suspended", "friend"]);
+    assert_eq!(studying(&ctx, &friend).await, 1);
+
+    // A late "suspended" event for an account that is not suspended changes nothing.
+    ctx.deliver_event("identity.user.banned", serde_json::json!({ "user_id": suspended.id })).await;
+    assert_eq!(ctx.room(&guest, &room.id).await.unwrap().member_count, 2);
+
+    ctx.app.identity.set_banned(suspended.id, Some("spam")).await.unwrap();
+    ctx.deliver_event("identity.user.banned", serde_json::json!({ "user_id": suspended.id })).await;
+
+    // Their room closed; the guest's time in it is logged.
+    assert_eq!(ctx.room(&guest, &room.id).await.unwrap_err().reason, "ROOM_NOT_FOUND");
+    assert_eq!(ctx.sessions(&guest).await.iter().map(|s| s.studied_seconds).collect::<Vec<_>>(), vec![600]);
+    // What they shared reads exactly as if they had stopped sharing it.
+    assert_eq!(ctx.day_of(&friend, &suspended, "2026-04-13").await.unwrap_err().reason, "TIMETABLE_NOT_SHARED");
+    assert_eq!(
+        ctx.reason(
+            TIMETABLE,
+            "GetFriendTimetable",
+            &friend,
+            &GetFriendTimetableRequest { user_id: of_them.clone(), ..Default::default() }
+        )
+        .await,
+        "TIMETABLE_NOT_SHARED"
+    );
+    let listed: ListFriendTimetablesResponse =
+        ctx.ok(TIMETABLE, "ListFriendTimetables", &friend, &ListFriendTimetablesRequest::default()).await;
+    assert!(listed.timetables.is_empty());
+    assert_eq!(ctx.reason(STUDY, "GetStudyHeatmap", &friend, &heatmap).await, "STUDY_NOT_SHARED");
+    assert_eq!(ranking(&ctx, &friend).await, vec!["friend"]);
+    assert_eq!(studying(&ctx, &friend).await, 0);
+    assert_eq!(
+        ctx.reason(STUDY, "CheerStudy", &friend, &CheerStudyRequest { user_id: of_them.clone(), ..Default::default() })
+            .await,
+        "NOT_STUDYING"
+    );
+    let free = FindCommonFreePeriodsRequest {
+        start_date: "2026-04-13".into(),
+        user_ids: vec![of_them.clone()],
+        ..Default::default()
+    };
+    let response: FindCommonFreePeriodsResponse = ctx.ok(TIMETABLE, "FindCommonFreePeriods", &friend, &free).await;
+    assert_eq!(response.not_shared_user_ids, vec![of_them.clone()]);
+
+    // Nothing was deleted: when the suspension is lifted it is all back.
+    ctx.app.identity.set_banned(suspended.id, None).await.unwrap();
+    assert!(ctx.day_of(&friend, &suspended, "2026-04-13").await.is_ok());
+    assert_eq!(ranking(&ctx, &friend).await, vec!["suspended", "friend"]);
+}
