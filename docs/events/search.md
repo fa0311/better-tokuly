@@ -54,12 +54,13 @@ admin      ── admin.content.removed             ─────────�
   morphemes, and 「おさんぽ」 would otherwise match every text containing 「お」.
 - **`rank`** orders equally relevant documents:
   `log10(1 + score) + age position on the kind's time scale`. Timely kinds
-  (`note`, `video`, `short`, `live`, `clip`, `news`) lose a factor of ten per
-  90 days of age; evergreen kinds (`user`, `channel`, `playlist`,
-  `stamp_pack`, `place`, `hashtag`) per ten years. Kinds on the same scale
+  (`note`, `video`, `short`, `live`, `clip`, `news`, `answer`, `thread`,
+  `space`) lose a factor of ten per 90 days of age; evergreen kinds (`user`,
+  `channel`, `playlist`, `stamp_pack`, `place`, `hashtag`, `emoji`,
+  `community`) per ten years. Kinds on the same scale
   are comparable when merged; between the two groups a tie goes to the timely
-  document. In the "all" tab `user` and `channel` (and slightly `place`,
-  `hashtag`) win near-ties through federation weights.
+  document. In the "all" tab `user` and `channel` (and slightly `community`,
+  `place`, `hashtag`) win near-ties through federation weights.
 - **Never returned**, whatever the index holds: documents owned by users the
   caller blocked or was blocked by (`tokuly_social::graph::blocked_ids_either`,
   applied as an engine filter so counts and pages are right, and again on the
@@ -80,7 +81,8 @@ outbound::unindex(&mut *tx, "video", id).await?;
 ```
 
 - `kind` is one of `user`, `channel`, `note`, `video`, `short`, `live`,
-  `clip`, `playlist`, `stamp_pack`, `place`, `hashtag`, `news`. A change for
+  `clip`, `playlist`, `stamp_pack`, `place`, `hashtag`, `news`, `answer`
+  (ask), `emoji`, `community`, `thread` (community) and `space` (spaces). A change for
   any other kind is logged and dropped. (`user` documents are built by the
   search domain itself, see below; do not publish them.)
 - Publish only what everyone may find. `public = false` removes the document.

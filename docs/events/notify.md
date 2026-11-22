@@ -74,12 +74,18 @@ selects the preference category:
 | `notes` | `notes.`, `note.`, `story.`, `stories.` | normal |
 | `video` | `video.`, `channel.`, `playlist.` | normal |
 | `live` | `live.` | high |
+| `spaces` | `spaces.`, `space.`, `hangout.` | high |
 | `shorts` | `shorts.`, `short.` | normal |
 | `engagement` | `engagement.`, `comment.`, `reaction.` | normal |
-| `stamp` | `stamp.`, `stamps.` | normal |
+| `stamp` | `stamp.`, `stamps.`, `emoji.` | normal |
 | `wallet` | `wallet.` | normal |
+| `ask` | `ask.` | normal |
+| `plans` | `plans.`, `plan.` | high |
+| `school` | `school.`, `study.` | normal |
+| `community` | `community.` | normal |
+| `quest` | `quest.` | normal |
 | `feed` | `feed.`, `news.`, `announcement.` | normal |
-| `system` | `system.`, `identity.`, `account.`, `security.`, `admin.`, `media.`, `search.` and every unknown prefix | high |
+| `system` | `system.`, `identity.`, `account.`, `security.`, `admin.`, `media.`, `search.`, `dev.` and every unknown prefix | high |
 
 How the three delivery priorities map to each channel:
 

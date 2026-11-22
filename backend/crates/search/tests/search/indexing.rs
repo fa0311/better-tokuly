@@ -196,8 +196,9 @@ async fn the_indexer_writes_many_kinds_in_one_pass() {
     let found = ctx
         .search(None, &SearchRequest { query: word.clone(), page: Some(page(50)).into(), ..Default::default() })
         .await;
-    assert_eq!(found.hits.len(), 33);
-    assert_eq!(found.total, 33);
+    // Three of every kind but `user`; they fit on one page.
+    assert_eq!(found.hits.len(), docs.len());
+    assert_eq!(found.total, docs.len() as i64);
     for kind in KINDS.iter().filter(|kind| kind.name != "user") {
         assert_eq!(count_of(&found, kind.proto), 3, "{}", kind.name);
     }

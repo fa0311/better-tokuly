@@ -1,5 +1,5 @@
 import { search } from "@tokuly/api";
-import { BadgeCheck, EyeOff, ListVideo, Reply } from "lucide-react";
+import { BadgeCheck, EyeOff, ListVideo, MessageCircle, Reply, UsersRound } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
@@ -52,6 +52,16 @@ function Face({ hit, extra }: { hit: search.SearchHit; extra: HitExtra }) {
       return <HashtagFace hit={hit} extra={extra} />;
     case K.PLACE:
       return <PlaceFace hit={hit} extra={extra} />;
+    case K.ANSWER:
+      return <AnswerFace hit={hit} extra={extra} />;
+    case K.EMOJI:
+      return <EmojiFace hit={hit} extra={extra} />;
+    case K.COMMUNITY:
+      return <CommunityFace hit={hit} extra={extra} />;
+    case K.THREAD:
+      return <ThreadFace hit={hit} extra={extra} />;
+    case K.SPACE:
+      return <SpaceFace hit={hit} extra={extra} />;
     default:
       return <ArticleFace hit={hit} extra={extra} />;
   }
@@ -365,6 +375,181 @@ function PlaceFace({ hit, extra }: FaceProps) {
       <span className="flex min-w-0 flex-1 flex-col justify-center">
         <Title hit={hit} className="truncate" />
         <Snippet hit={hit} lines={1} />
+      </span>
+    </>
+  );
+}
+
+/** A public answer in someone's question box: the question, then what they said. */
+function AnswerFace({ hit, extra }: FaceProps) {
+  const { t } = useTranslation("search");
+  const answerer = hit.owner;
+  const comments = extraNumber(extra, "comment_count");
+  return (
+    <>
+      {answerer ? <Avatar user={answerer} size="sm" /> : <KindTile kind={hit.kind} className="size-8 rounded-[0.6rem]" iconClassName="size-4" />}
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="flex min-w-0 items-start gap-1.5">
+          <span aria-hidden className="mt-0.5 shrink-0 rounded-md bg-coral px-1.5 text-xs leading-5 font-black text-[#17122b]">
+            Q
+          </span>
+          <Title hit={hit} className="line-clamp-2 leading-snug" />
+        </span>
+        <Snippet hit={hit} lines={3} />
+        <Meta>
+          {answerer && <span className="truncate font-bold text-ink">{t("hit.answeredBy", { name: answerer.displayName || answerer.handle })}</span>}
+          {answerer && <Dot />}
+          <span>{ageLabel(hit.createdAt)}</span>
+          {extraFlag(extra, "anonymous") && (
+            <>
+              <Dot />
+              <span>{t("hit.anonymousQuestion")}</span>
+            </>
+          )}
+          {comments !== undefined && comments > 0 && (
+            <span className="inline-flex items-center gap-0.5">
+              <MessageCircle className="size-3.5" />
+              {formatCount(comments)}
+            </span>
+          )}
+        </Meta>
+      </span>
+      {hit.imageUrl && <img src={hit.imageUrl} alt="" className="size-16 shrink-0 rounded-xl bg-surface-3 object-cover" loading="lazy" decoding="async" draggable={false} />}
+    </>
+  );
+}
+
+/** A custom emoji: the picture, then the name as it is typed. */
+function EmojiFace({ hit, extra }: FaceProps) {
+  const { t } = useTranslation("search");
+  const name = extraText(extra, "name") || hit.title;
+  const category = extraText(extra, "category");
+  // A sensitive emoji is named, not shown, until its own page is opened.
+  const sensitive = extraFlag(extra, "sensitive");
+  return (
+    <>
+      {hit.imageUrl && !sensitive ? (
+        <img src={hit.imageUrl} alt="" className="size-11 shrink-0 rounded-[0.85rem] bg-surface-2 object-contain p-1" loading="lazy" decoding="async" draggable={false} />
+      ) : (
+        <KindTile kind={hit.kind} />
+      )}
+      <span className="flex min-w-0 flex-1 flex-col justify-center">
+        <span className="flex min-w-0 items-baseline gap-0.5 font-mono">
+          <span aria-hidden className="text-ink-faint">
+            :
+          </span>
+          <Segments segments={hit.titleSegments} fallback={name} className="truncate font-black" />
+          <span aria-hidden className="text-ink-faint">
+            :
+          </span>
+        </span>
+        <Meta>
+          {category && <span className="truncate">{category}</span>}
+          {category && (extraFlag(extra, "animated") || sensitive) && <Dot />}
+          {extraFlag(extra, "animated") && <span>{t("hit.animated")}</span>}
+          {sensitive && (
+            <span className="inline-flex items-center gap-0.5 font-bold">
+              <EyeOff className="size-3.5" />
+              {t("hit.contentWarning")}
+            </span>
+          )}
+        </Meta>
+      </span>
+    </>
+  );
+}
+
+function CommunityFace({ hit, extra }: FaceProps) {
+  const { t } = useTranslation("search");
+  const handle = extraText(extra, "handle");
+  const members = extraNumber(extra, "member_count");
+  const school = extraText(extra, "school_name");
+  return (
+    <>
+      {hit.imageUrl ? <img src={hit.imageUrl} alt="" className="size-11 shrink-0 rounded-[0.85rem] border-2 border-ink bg-surface-3 object-cover" loading="lazy" decoding="async" draggable={false} /> : <KindTile kind={hit.kind} />}
+      <span className="flex min-w-0 flex-1 flex-col">
+        <Title hit={hit} className="truncate" />
+        <Meta>
+          {handle && <span className="truncate">@{handle}</span>}
+          {handle && members !== undefined && <Dot />}
+          {members !== undefined && (
+            <span className="inline-flex items-center gap-0.5">
+              <UsersRound className="size-3.5" />
+              {t("hit.members", { count: members, formatted: formatCount(members) })}
+            </span>
+          )}
+          {school && <Dot />}
+          {school && <span className="truncate">{school}</span>}
+        </Meta>
+        <Snippet hit={hit} />
+      </span>
+    </>
+  );
+}
+
+/** A thread of a public community. An anonymous one has no author to show, here or anywhere. */
+function ThreadFace({ hit, extra }: FaceProps) {
+  const { t } = useTranslation("search");
+  const community = extraText(extra, "community_name") || extraText(extra, "community_handle");
+  const author = extraFlag(extra, "anonymous") ? t("hit.anonymousAuthor") : hit.owner?.displayName || hit.owner?.handle;
+  const replies = extraNumber(extra, "reply_count");
+  return (
+    <>
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        {community && <span className="truncate text-xs font-bold text-brand">{community}</span>}
+        <Title hit={hit} className="line-clamp-2 leading-snug" />
+        <Snippet hit={hit} />
+        <Meta>
+          {author && <span className="truncate">{author}</span>}
+          {author && <Dot />}
+          <span>{ageLabel(hit.createdAt)}</span>
+          {replies !== undefined && replies > 0 && (
+            <span className="inline-flex items-center gap-0.5">
+              <MessageCircle className="size-3.5" />
+              {formatCount(replies)}
+            </span>
+          )}
+        </Meta>
+      </span>
+      {hit.imageUrl ? <img src={hit.imageUrl} alt="" className="size-16 shrink-0 rounded-xl bg-surface-3 object-cover" loading="lazy" decoding="async" draggable={false} /> : <KindTile kind={hit.kind} />}
+    </>
+  );
+}
+
+/** `SPACE_STATE_LIVE`, as the spaces domain publishes a room's state. */
+const SPACE_LIVE = 2;
+
+/** An audio room that is on now or announced. */
+function SpaceFace({ hit, extra }: FaceProps) {
+  const { t } = useTranslation("search");
+  const live = extraNumber(extra, "state") === SPACE_LIVE;
+  const host = hit.owner;
+  return (
+    <>
+      {host ? <Avatar user={host} outlined /> : <KindTile kind={hit.kind} />}
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="flex min-w-0 items-center gap-1.5">
+          {live ? (
+            <span className="shrink-0 rounded-md bg-live px-1.5 py-0.5 text-[10px] font-black tracking-wide text-white">LIVE</span>
+          ) : (
+            <span className="shrink-0 rounded-md bg-surface-2 px-1.5 py-0.5 text-[10px] font-black text-ink-soft">{t("hit.upcoming")}</span>
+          )}
+          <Title hit={hit} className="truncate" />
+        </span>
+        <Meta>
+          {host && <span className="truncate">{host.displayName || host.handle}</span>}
+          {host && hit.createdAt && <Dot />}
+          <span>{ageLabel(hit.createdAt)}</span>
+        </Meta>
+        {hit.tags.length > 0 && (
+          <span className="flex min-w-0 flex-wrap gap-1 text-xs text-ink-soft">
+            {hit.tags.slice(0, 3).map((tag) => (
+              <span key={tag} className="truncate rounded-full bg-surface-2 px-2 py-0.5">
+                #{tag}
+              </span>
+            ))}
+          </span>
+        )}
       </span>
     </>
   );

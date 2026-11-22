@@ -51,6 +51,12 @@ export function ActionList({
                 <UserCell user={action.targetUser} />
               </span>
             )}
+            {showTarget && action.targetWithheld && (
+              <span className="inline-flex items-center gap-1.5">
+                {t("moderation.log.against")}
+                <span>{t("moderation.targetWithheld")}</span>
+              </span>
+            )}
           </div>
           {action.reason && <p className="whitespace-pre-wrap break-words">{action.reason}</p>}
           {action.note && (

@@ -14,14 +14,14 @@ use tokuly_proto::{
     common::{SubjectRef, UserSummary},
 };
 
-use crate::Admin;
+use crate::{Admin, audit::Audit, staff::Staff};
 
 pub(crate) const STATUS_OPEN: &str = "open";
 pub(crate) const STATUS_RESOLVED: &str = "resolved";
 
 macro_rules! case_columns {
     () => {
-        "id, subject_type, subject_id, subject_owner_id, subject_title, subject_path, status, report_count, categories, \
+        "id, subject_type, subject_id, subject_owner_id, owner_hidden, subject_title, subject_path, status, report_count, categories, \
          assignee_id, assigned_at, last_reported_at, resolution, content_removed, resolution_reason, resolved_by, \
          resolved_at, created_at"
     };
@@ -34,6 +34,9 @@ pub(crate) struct CaseRow {
     pub subject_type: i32,
     pub subject_id: Uuid,
     pub subject_owner_id: Option<Uuid>,
+    /// The content hides its author; see `owners.rs` for who may see
+    /// `subject_owner_id` then.
+    pub owner_hidden: bool,
     pub subject_title: String,
     pub subject_path: String,
     pub status: String,
@@ -55,18 +58,25 @@ impl CaseRow {
         self.status == STATUS_OPEN
     }
 
-    fn people(&self) -> impl Iterator<Item = Uuid> {
-        [self.subject_owner_id, self.assignee_id, self.resolved_by].into_iter().flatten()
+    /// The owner as far as a view may name them: a hidden owner only when
+    /// the view was asked to (`reveal_hidden`).
+    fn shown_owner(&self, reveal_hidden: bool) -> Option<Uuid> {
+        self.subject_owner_id.filter(|_| reveal_hidden || !self.owner_hidden)
     }
 
-    pub fn to_proto(&self, people: &HashMap<Uuid, UserSummary>) -> ModerationCase {
+    fn people(&self, reveal_hidden: bool) -> impl Iterator<Item = Uuid> {
+        [self.shown_owner(reveal_hidden), self.assignee_id, self.resolved_by].into_iter().flatten()
+    }
+
+    pub fn to_proto(&self, people: &HashMap<Uuid, UserSummary>, reveal_hidden: bool) -> ModerationCase {
         let person = |id: Option<Uuid>| id.and_then(|id| people.get(&id).cloned());
         ModerationCase {
             id: self.id.to_string(),
             subject: SubjectRef { r#type: self.subject_type.into(), id: self.subject_id.to_string(), ..Default::default() }.into(),
             subject_title: self.subject_title.clone(),
             subject_path: self.subject_path.clone(),
-            subject_owner: person(self.subject_owner_id).into(),
+            subject_owner: person(self.shown_owner(reveal_hidden)).into(),
+            owner_withheld: self.owner_hidden && !reveal_hidden,
             status: if self.is_open() { CaseStatus::CASE_STATUS_OPEN } else { CaseStatus::CASE_STATUS_RESOLVED }.into(),
             report_count: self.report_count,
             categories: self.categories.iter().map(|c| category_from_str(c).into()).collect(),
@@ -189,7 +199,8 @@ impl Admin {
             query.push(" AND ").push_bind(category).push(" = ANY(categories)");
         }
         if let Some(owner_id) = filter.owner_id {
-            query.push(" AND subject_owner_id = ").push_bind(owner_id);
+            // Never the cases whose owner is hidden: a list by owner would name them.
+            query.push(" AND NOT owner_hidden AND subject_owner_id = ").push_bind(owner_id);
         }
         match filter.sort {
             CaseSort::CASE_SORT_UNSPECIFIED => {
@@ -222,14 +233,33 @@ impl Admin {
     }
 
     /// Cases as API messages, with owner, assignee and resolver resolved.
+    /// A hidden owner is withheld: lists and the answers to changes never
+    /// name the author of an anonymous post.
     pub(crate) async fn cases_to_proto(&self, rows: &[CaseRow]) -> AppResult<Vec<ModerationCase>> {
-        let ids: Vec<Uuid> = rows.iter().flat_map(CaseRow::people).collect();
+        let ids: Vec<Uuid> = rows.iter().flat_map(|row| row.people(false)).collect();
         let people = tokuly_identity::summaries(&self.core, &ids).await?;
-        Ok(rows.iter().map(|row| row.to_proto(&people)).collect())
+        Ok(rows.iter().map(|row| row.to_proto(&people, false)).collect())
     }
 
     pub(crate) async fn case_to_proto(&self, row: &CaseRow) -> AppResult<ModerationCase> {
         Ok(self.cases_to_proto(std::slice::from_ref(row)).await?.remove(0))
+    }
+
+    /// A case as the moderator who opened it sees it, and whether that view
+    /// names its owner. A hidden owner is named to a moderator who is not
+    /// involved in the post, which the audit log records; a moderator who is
+    /// involved is told that another one has to handle the case.
+    pub(crate) async fn opened_case(&self, staff: &Staff, row: &CaseRow) -> AppResult<(ModerationCase, bool)> {
+        let involved = row.owner_hidden && self.is_party_to_hidden(staff.id, row.subject_type, row.subject_id).await?;
+        let reveal = !involved;
+        if row.owner_hidden && reveal && row.subject_owner_id.is_some() {
+            Audit::by(staff, "case.author_revealed").case(row.id, row.subject_owner_id).record(&self.core.db).await?;
+        }
+        let ids: Vec<Uuid> = row.people(reveal).collect();
+        let people = tokuly_identity::summaries(&self.core, &ids).await?;
+        let mut case = row.to_proto(&people, reveal);
+        case.conflict_of_interest = involved;
+        Ok((case, reveal && row.subject_owner_id.is_some()))
     }
 
     /// One page of a case's reports, newest first.
@@ -345,6 +375,7 @@ mod tests {
             subject_type: 3,
             subject_id: Uuid::now_v7(),
             subject_owner_id: Some(owner),
+            owner_hidden: false,
             subject_title: "こんにちは".into(),
             subject_path: "/notes/x".into(),
             status: STATUS_RESOLVED.into(),
@@ -361,12 +392,23 @@ mod tests {
             created_at: Utc::now(),
         };
         let people = HashMap::from([(moderator, UserSummary { id: moderator.to_string(), ..Default::default() })]);
-        let case = row.to_proto(&people);
+        let case = row.to_proto(&people, false);
         assert_eq!(case.status, CaseStatus::CASE_STATUS_RESOLVED);
         assert_eq!(case.resolution, ModerationActionKind::MODERATION_ACTION_KIND_WARN);
         assert_eq!(case.categories.len(), 2);
         assert!(case.subject_owner.is_unset(), "an owner missing from the lookup stays unset");
         assert_eq!(case.resolved_by.as_option().unwrap().id, moderator.to_string());
         assert!(case.assignee.is_unset() && case.resolved_at.is_set());
+
+        // A hidden owner is named only by a view that was asked to.
+        let people = HashMap::from([(owner, UserSummary { id: owner.to_string(), ..Default::default() })]);
+        let hidden = CaseRow { owner_hidden: true, ..row.clone() };
+        let withheld = hidden.to_proto(&people, false);
+        assert!(withheld.owner_withheld && withheld.subject_owner.is_unset());
+        assert!(!hidden.people(false).any(|id| id == owner), "a withheld owner is not even looked up");
+        let named = hidden.to_proto(&people, true);
+        assert!(!named.owner_withheld);
+        assert_eq!(named.subject_owner.as_option().unwrap().id, owner.to_string());
+        assert!(!row.to_proto(&people, false).owner_withheld, "an ordinary owner is always named");
     }
 }

@@ -10,11 +10,11 @@ use tokuly_proto::{
     common::{SubjectRef, UserSummary},
 };
 
-use crate::Admin;
+use crate::{Admin, staff::Staff};
 
 macro_rules! action_columns {
     () => {
-        "id, kind, moderator_id, target_user_id, subject_type, subject_id, subject_title, case_id, reason, note, expires_at, created_at"
+        "id, kind, moderator_id, target_user_id, target_hidden, subject_type, subject_id, subject_title, case_id, reason, note, expires_at, created_at"
     };
 }
 
@@ -24,6 +24,8 @@ pub(crate) struct ActionRow {
     pub kind: i32,
     pub moderator_id: Option<Uuid>,
     pub target_user_id: Option<Uuid>,
+    /// The target is the hidden author of anonymous content (`owners.rs`).
+    pub target_hidden: bool,
     pub subject_type: Option<i32>,
     pub subject_id: Option<Uuid>,
     pub subject_title: String,
@@ -34,12 +36,21 @@ pub(crate) struct ActionRow {
     pub created_at: DateTime<Utc>,
 }
 
+/// How much of a log entry about anonymous content a view may show.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Shown {
+    /// Everything, the sanctioned account included.
+    All,
+    /// The entry without the account it was taken against.
+    WithoutTarget,
+}
+
 impl ActionRow {
-    fn people(&self) -> impl Iterator<Item = Uuid> {
-        [self.moderator_id, self.target_user_id].into_iter().flatten()
+    fn people(&self, shown: Shown) -> impl Iterator<Item = Uuid> {
+        [self.moderator_id, self.target_user_id.filter(|_| shown == Shown::All)].into_iter().flatten()
     }
 
-    pub fn to_proto(&self, people: &HashMap<Uuid, UserSummary>) -> ModerationAction {
+    pub fn to_proto(&self, people: &HashMap<Uuid, UserSummary>, shown: Shown) -> ModerationAction {
         let person = |id: Option<Uuid>| id.and_then(|id| people.get(&id).cloned());
         let subject = match (self.subject_type, self.subject_id) {
             (Some(subject_type), Some(id)) => Some(SubjectRef { r#type: subject_type.into(), id: id.to_string(), ..Default::default() }),
@@ -49,7 +60,8 @@ impl ActionRow {
             id: self.id.to_string(),
             kind: self.kind.into(),
             moderator: person(self.moderator_id).into(),
-            target_user: person(self.target_user_id).into(),
+            target_user: person(self.target_user_id.filter(|_| shown == Shown::All)).into(),
+            target_withheld: shown == Shown::WithoutTarget,
             subject: subject.into(),
             subject_title: self.subject_title.clone(),
             case_id: self.case_id.map(|id| id.to_string()).unwrap_or_default(),
@@ -69,6 +81,8 @@ pub(crate) struct NewAction<'a> {
     /// `None` for automatic actions.
     pub moderator_id: Option<Uuid>,
     pub target_user_id: Option<Uuid>,
+    /// The target is the hidden author of anonymous content.
+    pub target_hidden: bool,
     /// `(SubjectType as i32, id)` of the content concerned.
     pub subject: Option<(i32, Uuid)>,
     pub subject_title: &'a str,
@@ -80,7 +94,24 @@ pub(crate) struct NewAction<'a> {
 
 impl<'a> NewAction<'a> {
     pub fn new(kind: ModerationActionKind, moderator_id: Option<Uuid>) -> Self {
-        Self { kind, moderator_id, target_user_id: None, subject: None, subject_title: "", case_id: None, reason: "", note: "", expires_at: None }
+        Self {
+            kind,
+            moderator_id,
+            target_user_id: None,
+            target_hidden: false,
+            subject: None,
+            subject_title: "",
+            case_id: None,
+            reason: "",
+            note: "",
+            expires_at: None,
+        }
+    }
+
+    /// The target is the author of content that hides its author.
+    pub fn hidden_target(mut self, hidden: bool) -> Self {
+        self.target_hidden = hidden;
+        self
     }
 
     pub fn target(mut self, user_id: Option<Uuid>) -> Self {
@@ -113,8 +144,8 @@ impl<'a> NewAction<'a> {
     /// Appends the entry to the moderation log.
     pub async fn insert(self, conn: &mut PgConnection) -> AppResult<ActionRow> {
         Ok(sqlx::query_as(concat!(
-            "INSERT INTO moderation_actions (kind, moderator_id, target_user_id, subject_type, subject_id, subject_title, case_id, reason, note, expires_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING ",
+            "INSERT INTO moderation_actions (kind, moderator_id, target_user_id, subject_type, subject_id, subject_title, case_id, reason, note, expires_at, target_hidden)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING ",
             action_columns!()
         ))
         .bind(self.kind as i32)
@@ -127,6 +158,7 @@ impl<'a> NewAction<'a> {
         .bind(self.reason)
         .bind(self.note)
         .bind(self.expires_at)
+        .bind(self.target_hidden)
         .fetch_one(conn)
         .await?)
     }
@@ -167,15 +199,57 @@ impl Admin {
         Ok((rows, info))
     }
 
-    /// Log entries as API messages, with moderator and target resolved.
+    /// Log entries as the answer to the change that wrote them, with
+    /// moderator and target resolved. The author of anonymous content is
+    /// not named (`owners.rs`): the moderator acted on the post, not on a
+    /// person they were shown.
     pub(crate) async fn actions_to_proto(&self, rows: &[ActionRow]) -> AppResult<Vec<ModerationAction>> {
-        let ids: Vec<Uuid> = rows.iter().flat_map(ActionRow::people).collect();
-        let people = tokuly_identity::summaries(&self.core, &ids).await?;
-        Ok(rows.iter().map(|row| row.to_proto(&people)).collect())
+        let shown: Vec<Shown> = rows.iter().map(|row| if row.target_hidden { Shown::WithoutTarget } else { Shown::All }).collect();
+        self.actions_shown(rows, &shown).await
     }
 
     pub(crate) async fn action_to_proto(&self, row: &ActionRow) -> AppResult<ModerationAction> {
         Ok(self.actions_to_proto(std::slice::from_ref(row)).await?.remove(0))
+    }
+
+    /// Log entries as `staff` may read them. An entry about anonymous
+    /// content names the sanctioned author only to a moderator who is not
+    /// involved in that content. To one who is, it comes without the target
+    /// — and in the history of one account (`about` is that account), where
+    /// the target is known anyway, it does not come at all: there the entry
+    /// itself would say whose post it was.
+    pub(crate) async fn actions_for(&self, staff: &Staff, rows: &[ActionRow], about: Option<Uuid>) -> AppResult<Vec<ModerationAction>> {
+        // One question per piece of content, however many entries are about it.
+        let mut involved: HashMap<(i32, Uuid), bool> = HashMap::new();
+        let mut kept = Vec::with_capacity(rows.len());
+        let mut shown = Vec::with_capacity(rows.len());
+        for row in rows {
+            let withheld = match (row.target_hidden, row.subject_type, row.subject_id) {
+                (false, _, _) => false,
+                (true, Some(subject_type), Some(subject_id)) => match involved.get(&(subject_type, subject_id)) {
+                    Some(involved) => *involved,
+                    None => {
+                        let answer = self.is_party_to_hidden(staff.id, subject_type, subject_id).await?;
+                        involved.insert((subject_type, subject_id), answer);
+                        answer
+                    }
+                },
+                // Nothing says what it was about: nobody can be cleared.
+                (true, _, _) => true,
+            };
+            if withheld && about.is_some() {
+                continue;
+            }
+            kept.push(row.clone());
+            shown.push(if withheld { Shown::WithoutTarget } else { Shown::All });
+        }
+        self.actions_shown(&kept, &shown).await
+    }
+
+    async fn actions_shown(&self, rows: &[ActionRow], shown: &[Shown]) -> AppResult<Vec<ModerationAction>> {
+        let ids: Vec<Uuid> = rows.iter().zip(shown).flat_map(|(row, shown)| row.people(*shown)).collect();
+        let people = tokuly_identity::summaries(&self.core, &ids).await?;
+        Ok(rows.iter().zip(shown).map(|(row, shown)| row.to_proto(&people, *shown)).collect())
     }
 }
 
@@ -191,6 +265,7 @@ mod tests {
             kind: ModerationActionKind::MODERATION_ACTION_KIND_SUSPEND as i32,
             moderator_id: Some(moderator),
             target_user_id: Some(user),
+            target_hidden: false,
             subject_type: None,
             subject_id: None,
             subject_title: String::new(),
@@ -201,11 +276,17 @@ mod tests {
             created_at: Utc::now(),
         };
         let people = HashMap::from([(user, UserSummary { id: user.to_string(), ..Default::default() })]);
-        let action = row.to_proto(&people);
+        let action = row.to_proto(&people, Shown::All);
         assert_eq!(action.kind, ModerationActionKind::MODERATION_ACTION_KIND_SUSPEND);
         assert!(action.subject.is_unset() && action.case_id.is_empty());
         assert!(action.moderator.is_unset(), "unknown moderators stay unset");
         assert_eq!(action.target_user.as_option().unwrap().id, user.to_string());
         assert!(action.expires_at.is_set());
+        assert!(!action.target_withheld);
+
+        // The same entry without the account it hit.
+        let withheld = row.to_proto(&people, Shown::WithoutTarget);
+        assert!(withheld.target_withheld && withheld.target_user.is_unset());
+        assert!(!row.people(Shown::WithoutTarget).any(|id| id == user), "a withheld target is not even looked up");
     }
 }

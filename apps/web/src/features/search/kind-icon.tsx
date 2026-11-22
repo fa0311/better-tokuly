@@ -1,18 +1,5 @@
 import { search } from "@tokuly/api";
-import {
-  Clapperboard,
-  Hash,
-  ListVideo,
-  MapPin,
-  Newspaper,
-  Radio,
-  Scissors,
-  Smartphone,
-  Smile,
-  StickyNote,
-  Tv,
-  UserRound,
-} from "lucide-react";
+import { Clapperboard, Hash, ListVideo, MapPin, MessageCircleQuestion, MessagesSquare, Mic, Newspaper, Radio, Scissors, Smartphone, Smile, SmilePlus, StickyNote, Tv, UserRound, UsersRound } from "lucide-react";
 import type { ComponentType } from "react";
 import { cn } from "#/lib/cn";
 
@@ -32,6 +19,11 @@ const KIND_STYLE: Record<number, { icon: ComponentType<{ className?: string }>; 
   [K.PLACE]: { icon: MapPin, tint: "bg-mint text-[#17122b]" },
   [K.HASHTAG]: { icon: Hash, tint: "bg-lime text-[#17122b]" },
   [K.NEWS]: { icon: Newspaper, tint: "bg-sky text-[#17122b]" },
+  [K.ANSWER]: { icon: MessageCircleQuestion, tint: "bg-coral text-[#17122b]" },
+  [K.EMOJI]: { icon: SmilePlus, tint: "bg-sun text-[#17122b]" },
+  [K.COMMUNITY]: { icon: UsersRound, tint: "bg-brand text-on-brand" },
+  [K.THREAD]: { icon: MessagesSquare, tint: "bg-lime text-[#17122b]" },
+  [K.SPACE]: { icon: Mic, tint: "bg-live text-white" },
 };
 
 const FALLBACK = KIND_STYLE[K.NOTE] as (typeof KIND_STYLE)[number];
@@ -41,21 +33,10 @@ export function kindIcon(kind: search.SearchKind): ComponentType<{ className?: s
 }
 
 /** A kind's icon in a small rounded tile (suggestion rows, results without an image). */
-export function KindTile({
-  kind,
-  className,
-  iconClassName,
-}: {
-  kind: search.SearchKind;
-  className?: string;
-  iconClassName?: string;
-}) {
+export function KindTile({ kind, className, iconClassName }: { kind: search.SearchKind; className?: string; iconClassName?: string }) {
   const { icon: Icon, tint } = KIND_STYLE[kind] ?? FALLBACK;
   return (
-    <span
-      aria-hidden
-      className={cn("grid size-11 shrink-0 place-items-center rounded-[0.85rem]", tint, className)}
-    >
+    <span aria-hidden className={cn("grid size-11 shrink-0 place-items-center rounded-[0.85rem]", tint, className)}>
       <Icon className={cn("size-5", iconClassName)} />
     </span>
   );

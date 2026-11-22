@@ -237,9 +237,8 @@ suspended, deleted or blocked by the searcher, and an emoji in the catalogue
 must not come and go with its author. Rewritten on every change to an
 approved emoji (including a rename of its category), removed when it is
 disabled or deleted.
-The search domain does not know the kind yet (it needs a `SEARCH_KIND_EMOJI`
-and a kind spec); until then these changes are ignored there. `SearchEmoji`
-does not depend on it: it searches the cached catalogue.
+In the search domain this is the kind `emoji` (`SEARCH_KIND_EMOJI`).
+`SearchEmoji` does not depend on it: it searches the cached catalogue.
 
 ## Subjects
 

@@ -144,7 +144,7 @@ Domain events (`EVENTS`):
 | `reactions.share` | `engagement.share.recorded` `{ user_id, subject_id }` | `user_id` | 2 | reactions | `shares` | |
 | `together.answer` | `ask.answer.published` `{ question_id, owner_id, audience, first }`, only with `first: true` and not private (`audience = 3`) | `owner_id` | 5 | together | `questions_answered` | |
 | `together.vote` | `ask.round.completed` `{ user_id, round_id, votes }`, at least one vote | `user_id` | 5 | together | `compliment_votes` (+votes, at most 50) | |
-| `map.checkin` | `activity.recorded`, kind `geo.checkin`, not private | `user_id` | 10 | map | `check_ins` | towards the tagged `with_user_ids` (up to 8) |
+| `map.checkin` | `activity.recorded`, kind `geo.visit` with `data.check_in`, not private | `user_id` | 10 | map | `check_ins` | towards the tagged `with_user_ids` (up to 8) |
 | `map.new_region` | `activity.recorded`, kind `geo.new_region` (`data.region_id`), not private | `user_id` | 30 | map | `regions_explored` | |
 | `study.session` | `activity.recorded`, kind `school.studied` (`data = { session_id, minutes }`), at most 12 h | `user_id` | 1 per minute | study | `study_minutes` (+minutes), `study_sessions` | |
 | `together.plan` | `plans.plan.created` `{ host_id }` | `host_id` | 10 | together | `plans_created` | |
@@ -282,7 +282,7 @@ No domain events of its own. Through `tokuly_core::outbound`:
 
 | Kind | Recipient | Channels | Notes |
 |---|---|---|---|
-| `quest.badge` | the player | inbox + push | A badge was earned. `data = { badge_key, family, tier }`, path `/quest/badges/<key>`. |
+| `quest.badge` | the player | inbox + push | A badge was earned. `data = { badge_key, family, tier }`, path `/quest/badges/<key>`. Not for badges that come with signing up (see below). |
 | `quest.streak_expiring` | a friend whose own part is missing less than 4 h before their own midnight | inbox + push, **not urgent** (quiet hours hold it back) | Once per player and streak day; only for streaks of at least `TOKULY_QUEST_STREAK_REMINDER_MIN_DAYS`; not when the player switched `streak_reminders` off. Actor: the friend (so a muted friend stays silent). Collapse key `quest.streak:<lo>:<hi>`, `data = { friend_id, days, expires_at }`. |
 | `quest.streak_restored` | the other friend | inbox + push | Actor: who restored. `data = { friend_id, days }`. |
 | `quest.season` | every participant of a finished season who had rivals | winners: inbox + push; others: inbox only | Collapse key `quest.season:<YYYY-MM>`, `data = { season, rank, group_size, badge_won }`. |
@@ -290,8 +290,17 @@ No domain events of its own. Through `tokuly_core::outbound`:
 Losing a streak sends no notification on purpose: the only thing to do about
 it costs coins.
 
-The notify domain files kinds by prefix; `quest.` is not in its list and
-falls into `system` (see "Requests").
+**Signing up is quiet.** What an account gets for existing is not a
+notification: the `welcome` badge (`BadgeDef::quiet`) is stored and pushed to
+open clients (`QuestEvent.badge_unlocked`, for the quest screens to
+celebrate) but sends no `quest.badge`, in the inbox or by push, and the 10 XP
+of `daily.joined` and the first level never did. A brand-new account's inbox
+stays empty, and no toast lands on whatever it is doing, until something
+happens that it or someone else did. A catalogue test keeps it that way:
+every badge the sign-up alone earns is quiet, and no other is.
+
+The notify domain files these under its `quest` category ("クエスト・連続記録"),
+which players can switch off in the notification settings.
 
 ### Activity entries
 
@@ -531,17 +540,9 @@ quest.spawn_workers();                                                 // worker
 
 ## Requests
 
-- **notify**: a `quest` preference category (kind prefix `quest.`), so
-  players can switch streak reminders and badge pushes off in the
-  notification settings; today they fall into `system`, whose inbox toggle
-  is locked on.
-- **chat**: a lookup of a direct conversation's two members (for example
-  `tokuly_chat::…::direct_members(core, conversation_id)`), wired to
-  `Quest::set_direct_chats` in `bridges.rs`. Without it, messages count
-  towards a streak only in conversations opened while this domain was
-  listening (it learns them from `chat.conversation.created`; a new consumer
-  starts with the 7 days the stream keeps). Naming the recipient in the
-  props of `chat.message.send` would do as well.
+- Done: notify has a `quest` category, and the server bridges
+  `DirectChats` to `tokuly_chat::direct_members` (`bridges.rs`), so messages
+  in conversations older than this domain's consumer count towards streaks.
 - **geo**: an event (or activity entry) for scratch-map cells uncovered and
   for first visits to a place, saying whether the player shows their
   footprints, would bring back the `area` and `places` badges.

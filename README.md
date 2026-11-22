@@ -60,6 +60,12 @@ docker compose up -d     # http://localhost
 アプリのイメージは GitHub Container Registry のビルド済みのもの（`edge` = 通し検証を通った最新ビルド、
 またはリリース版）を取得します。amd64 と arm64（Apple Silicon、ARM サーバー）の両方を配布しています。
 手元のソースからビルドする場合は `docker compose up -d --build`。
+
+アップデートで秘密鍵が増えたとき（たとえばライブ配信のメディアサーバー用の
+`TOKULY_LIVE_HOOK_SECRET` と `TOKULY_MEDIAMTX_API_SECRET`）は、もう一度 `tools/init-env.sh` を実行してください。
+すでにある `.env` には足りない秘密鍵だけを末尾に追記し、ほかの行には一切さわりません
+（最初から作り直すのは `tools/init-env.sh --force`）。足りないまま `docker compose up` すると、
+どの変数が必要かを表示して止まります。
 スタック全体の起動確認は GitHub Actions の [Stack](.github/workflows/stack.yml) ワークフローが
 `tools/ci/smoke.sh`（サインアップ、メール、アップロード、地図、リアルタイム接続）で行い、
 画面の操作は [Browser tests](.github/workflows/e2e.yml) が同じスタックの上で Playwright を走らせて確かめています。

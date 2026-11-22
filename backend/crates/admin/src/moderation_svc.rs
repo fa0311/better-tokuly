@@ -56,20 +56,23 @@ impl ModerationService for Admin {
 
     async fn get_case(&self, ctx: RequestContext, request: ServiceRequest<'_, GetCaseRequest>) -> ServiceResult<GetCaseResponse> {
         handle(async {
-            Staff::moderator(&ctx)?;
+            let staff = Staff::moderator(&ctx)?;
             let case = self.case(parse_id(request.case_id)?).await?;
             let (reports, _) = self.case_reports(case.id, &first_page(CASE_PREVIEW_REPORTS)).await?;
             let action_filter = ActionFilter { case_id: Some(case.id), ..Default::default() };
             let (actions, _) = self.list_actions(&action_filter, &first_page(CASE_ACTIONS_LIMIT)).await?;
-            let owner_record = match case.subject_owner_id {
+            // A hidden author is named here, to a moderator who is not involved, and nowhere else.
+            let (moderation_case, owner_named) = self.opened_case(&staff, &case).await?;
+            let owner_record = match case.subject_owner_id.filter(|_| owner_named) {
                 Some(owner_id) => Some(self.moderation_summary(owner_id).await?),
                 None => None,
             };
+            let actions = self.actions_for(&staff, &actions, None).await?;
             ok(GetCaseResponse {
-                moderation_case: self.case_to_proto(&case).await?.into(),
+                moderation_case: moderation_case.into(),
                 reports,
                 notes: self.case_notes(case.id).await?,
-                actions: self.actions_to_proto(&actions).await?,
+                actions,
                 owner_record: owner_record.into(),
                 ..Default::default()
             })
@@ -244,7 +247,7 @@ impl ModerationService for Admin {
         request: ServiceRequest<'_, ListModerationActionsRequest>,
     ) -> ServiceResult<ListModerationActionsResponse> {
         handle(async {
-            Staff::moderator(&ctx)?;
+            let staff = Staff::moderator(&ctx)?;
             let filter = ActionFilter {
                 target_user_id: parse_opt_id(request.user_id)?,
                 moderator_id: parse_opt_id(request.moderator_id)?,
@@ -253,7 +256,7 @@ impl ModerationService for Admin {
             };
             let page = Page::from_view(request.page.as_option(), 100);
             let (rows, info) = self.list_actions(&filter, &page).await?;
-            ok(ListModerationActionsResponse { actions: self.actions_to_proto(&rows).await?, page: info.into(), ..Default::default() })
+            ok(ListModerationActionsResponse { actions: self.actions_for(&staff, &rows, filter.target_user_id).await?, page: info.into(), ..Default::default() })
         })
         .await
     }

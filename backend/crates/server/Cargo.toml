@@ -4,6 +4,7 @@ description = "The `tokuly` binary: API, realtime gateway, workers and tooling."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 publish.workspace = true
 
 [lints]
@@ -34,6 +35,12 @@ tokuly-emoji.workspace = true
 tokuly-ask.workspace = true
 tokuly-plans.workspace = true
 tokuly-school.workspace = true
+tokuly-quest.workspace = true
+tokuly-live.workspace = true
+tokuly-shorts.workspace = true
+tokuly-spaces.workspace = true
+tokuly-community.workspace = true
+tokuly-dev.workspace = true
 tokuly-realtime.workspace = true
 tokio.workspace = true
 async-trait.workspace = true

@@ -103,6 +103,17 @@ pub const CATEGORIES: &[Category] = &[
         high_priority: true,
     },
     Category {
+        id: "spaces",
+        label: ("ルーム", "Rooms"),
+        description: (
+            "友達が始めたルーム、リマインダー、おさそい",
+            "Rooms your friends start, reminders and invitations",
+        ),
+        prefixes: &["spaces", "space", "hangout"],
+        inbox_locked: false,
+        high_priority: true,
+    },
+    Category {
         id: "shorts",
         label: ("ショート", "Shorts"),
         description: (
@@ -180,6 +191,28 @@ pub const CATEGORIES: &[Category] = &[
         high_priority: false,
     },
     Category {
+        id: "community",
+        label: ("コミュニティ", "Communities"),
+        description: (
+            "お知らせ、メンション、返信、イベント、参加リクエスト",
+            "Announcements, mentions, replies, events and join requests",
+        ),
+        prefixes: &["community"],
+        inbox_locked: false,
+        high_priority: false,
+    },
+    Category {
+        id: "quest",
+        label: ("クエスト・連続記録", "Quests & streaks"),
+        description: (
+            "バッジ、とぎれそうな連続記録、シーズンの結果",
+            "Badges, streaks about to end and season results",
+        ),
+        prefixes: &["quest"],
+        inbox_locked: false,
+        high_priority: false,
+    },
+    Category {
         id: "feed",
         label: ("ニュース・お知らせ", "News & updates"),
         description: (
@@ -194,11 +227,11 @@ pub const CATEGORIES: &[Category] = &[
         id: SYSTEM,
         label: ("アカウント・セキュリティ", "Account & security"),
         description: (
-            "ログイン通知や大事なお知らせ",
-            "Sign-in alerts and important notices",
+            "ログイン通知、アプリ連携やAPIトークン、大事なお知らせ",
+            "Sign-in alerts, connected apps and API tokens, important notices",
         ),
         prefixes: &[
-            "system", "identity", "account", "security", "admin", "media", "search",
+            "system", "identity", "account", "security", "admin", "media", "search", "dev",
         ],
         inbox_locked: true,
         high_priority: true,
@@ -233,6 +266,21 @@ mod tests {
         assert_eq!(of_kind("live.started").id, "live");
         assert_eq!(of_kind("wallet.gift_received").id, "wallet");
         assert_eq!(of_kind("identity.new_sign_in").id, "system");
+    }
+
+    #[test]
+    fn every_wired_domain_has_a_home_for_its_kinds() {
+        assert_eq!(of_kind("quest.streak_expiring").id, "quest");
+        assert_eq!(of_kind("spaces.started").id, "spaces");
+        assert_eq!(of_kind("spaces.hangout_joined").id, "spaces");
+        assert_eq!(of_kind("community.mention").id, "community");
+        assert_eq!(of_kind("shorts.published").id, "shorts");
+        for kind in ["live.started", "live.reminder", "live.gift", "live.moderator"] {
+            assert_eq!(of_kind(kind).id, "live", "{kind}");
+        }
+        // Tokens and connected applications are about the account's security.
+        assert_eq!(of_kind("dev.token_created").id, "system");
+        assert_eq!(of_kind("dev.app_authorized").id, "system");
     }
 
     #[test]
@@ -280,7 +328,10 @@ mod tests {
             .filter(|c| c.high_priority)
             .map(|c| c.id)
             .collect();
-        assert_eq!(high, ["social", "chat", "geo", "live", "plans", "system"]);
+        assert_eq!(
+            high,
+            ["social", "chat", "geo", "live", "spaces", "plans", "system"]
+        );
     }
 
     #[test]

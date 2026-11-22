@@ -10,9 +10,14 @@ export const KINDS = [
   K.VIDEO,
   K.SHORT,
   K.LIVE,
+  K.SPACE,
   K.CLIP,
   K.PLAYLIST,
+  K.COMMUNITY,
+  K.THREAD,
+  K.ANSWER,
   K.STAMP_PACK,
+  K.EMOJI,
   K.PLACE,
   K.HASHTAG,
   K.NEWS,
@@ -33,6 +38,11 @@ const SLUGS: Record<Kind, string> = {
   [K.PLACE]: "places",
   [K.HASHTAG]: "tags",
   [K.NEWS]: "news",
+  [K.ANSWER]: "answers",
+  [K.EMOJI]: "emoji",
+  [K.COMMUNITY]: "communities",
+  [K.THREAD]: "threads",
+  [K.SPACE]: "rooms",
 };
 
 export function isKind(value: search.SearchKind): value is Kind {
@@ -53,18 +63,12 @@ export type HitExtra = Record<string, unknown>;
 export function hitExtra(hit: Pick<search.SearchHit, "extraJson">): HitExtra {
   try {
     const parsed: unknown = JSON.parse(hit.extraJson || "{}");
-    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as HitExtra)
-      : {};
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as HitExtra) : {};
   } catch {
     return {};
   }
 }
 
-export const extraText = (extra: HitExtra, key: string): string =>
-  typeof extra[key] === "string" ? (extra[key] as string) : "";
-export const extraNumber = (extra: HitExtra, key: string): number | undefined =>
-  typeof extra[key] === "number" && Number.isFinite(extra[key])
-    ? (extra[key] as number)
-    : undefined;
+export const extraText = (extra: HitExtra, key: string): string => (typeof extra[key] === "string" ? (extra[key] as string) : "");
+export const extraNumber = (extra: HitExtra, key: string): number | undefined => (typeof extra[key] === "number" && Number.isFinite(extra[key]) ? (extra[key] as number) : undefined);
 export const extraFlag = (extra: HitExtra, key: string): boolean => extra[key] === true;

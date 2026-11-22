@@ -91,6 +91,8 @@ struct Removal<'a> {
     subject_type: i32,
     subject_id: Uuid,
     owner_id: Option<Uuid>,
+    /// `owner_id` is the hidden author of anonymous content.
+    owner_hidden: bool,
     title: &'a str,
     reason: &'a str,
     note: &'a str,
@@ -101,6 +103,8 @@ struct Removal<'a> {
 struct LocatedSubject {
     id: Uuid,
     owner_id: Option<Uuid>,
+    /// `owner_id` is the hidden author of anonymous content (`owners.rs`).
+    owner_hidden: bool,
     title: String,
 }
 
@@ -133,6 +137,7 @@ impl Admin {
             (DISMISS, _) => {
                 let dismissal = NewAction::new(DISMISS, Some(staff.id))
                     .target(case.subject_owner_id)
+                    .hidden_target(case.owner_hidden)
                     .case(Some(case.id))
                     .subject(case.subject_type, case.subject_id, &case.subject_title)
                     .texts("", &resolution.note);
@@ -145,6 +150,7 @@ impl Admin {
                 subject_type: case.subject_type,
                 subject_id: case.subject_id,
                 owner_id: case.subject_owner_id,
+                owner_hidden: case.owner_hidden,
                 title: &case.subject_title,
                 reason: &resolution.reason,
                 note: &resolution.note,
@@ -221,12 +227,21 @@ impl Admin {
             }
         }
 
+        // Taking the post down tells its author, and the moderation log names
+        // them: not something for a moderator who is involved in it.
+        ensure!(
+            !(subject.owner_hidden && self.is_party_to_hidden(staff.id, subject_type as i32, subject.id).await?),
+            denied,
+            "CONFLICT_OF_INTEREST",
+            "you are involved in this post; another moderator has to handle it"
+        );
         self.limit_sanctions(staff).await?;
         let mut tx = self.core.db.begin().await?;
         let removal = Removal {
             subject_type: subject_type as i32,
             subject_id: subject.id,
             owner_id: subject.owner_id,
+            owner_hidden: subject.owner_hidden,
             title: &subject.title,
             reason: &resolution.reason,
             note: &resolution.note,
@@ -242,6 +257,14 @@ impl Admin {
     async fn check_resolution(&self, staff: &Staff, case: &CaseRow, resolution: &Resolution) -> AppResult<Option<Target>> {
         ensure!(case.is_open(), precondition, "CASE_ALREADY_RESOLVED", "this case has already been resolved");
         ensure!(case.subject_owner_id != Some(staff.id), denied, "CONFLICT_OF_INTEREST", "you cannot resolve a case about your own content");
+        // An anonymous post: whoever is involved in it leaves the case to
+        // another moderator, as they would inside the community.
+        ensure!(
+            !(case.owner_hidden && self.is_party_to_hidden(staff.id, case.subject_type, case.subject_id).await?),
+            denied,
+            "CONFLICT_OF_INTEREST",
+            "you are involved in this post; another moderator has to handle the case"
+        );
         ensure!(
             !(resolution.remove_content && case.subject_type == SubjectType::SUBJECT_TYPE_USER as i32),
             invalid,
@@ -269,6 +292,7 @@ impl Admin {
         }
         let action = NewAction::new(REMOVE_CONTENT, Some(staff.id))
             .target(removal.owner_id)
+            .hidden_target(removal.owner_hidden)
             .subject(removal.subject_type, removal.subject_id, removal.title)
             .case(removal.case_id)
             .texts(removal.reason, removal.note)
@@ -313,8 +337,11 @@ impl Admin {
         if self.core.subjects.is_registered(subject_type) {
             match self.core.subjects.resolve(subject_type, reference, Some(staff.id)).await {
                 Ok(info) => {
-                    let owner_id = self.existing_user(info.owner_id).await?;
-                    return Ok(LocatedSubject { id: info.id, owner_id, title: info.title });
+                    let (owner_id, owner_hidden) = match self.existing_user(info.owner_id).await? {
+                        Some(owner_id) => (Some(owner_id), false),
+                        None => self.existing_hidden_owner(subject_type, info.id).await?,
+                    };
+                    return Ok(LocatedSubject { id: info.id, owner_id, owner_hidden, title: info.title });
                 }
                 // Private content is hidden from the resolver's viewer check;
                 // it can still be taken down by UUID below.
@@ -326,14 +353,27 @@ impl Admin {
         let id = Uuid::parse_str(reference)
             .map_err(|_| AppError::not_found("SUBJECT_NOT_FOUND", "the item was not found; private content must be referenced by its UUID"))?;
         // Earlier reports are the only other place its owner and title are known.
-        let known: Option<(Option<Uuid>, String)> =
-            sqlx::query_as("SELECT subject_owner_id, subject_title FROM moderation_cases WHERE subject_type = $1 AND subject_id = $2 ORDER BY id DESC LIMIT 1")
+        let known: Option<(Option<Uuid>, bool, String)> =
+            sqlx::query_as("SELECT subject_owner_id, owner_hidden, subject_title FROM moderation_cases WHERE subject_type = $1 AND subject_id = $2 ORDER BY id DESC LIMIT 1")
                 .bind(subject_type as i32)
                 .bind(id)
                 .fetch_optional(&self.core.db)
                 .await?;
-        let (owner_id, title) = known.unwrap_or_default();
-        Ok(LocatedSubject { id, owner_id, title })
+        let (owner_id, owner_hidden, title) = known.unwrap_or_default();
+        let (owner_id, owner_hidden) = match owner_id {
+            Some(owner_id) => (Some(owner_id), owner_hidden),
+            None => self.existing_hidden_owner(subject_type, id).await?,
+        };
+        Ok(LocatedSubject { id, owner_id, owner_hidden, title })
+    }
+
+    /// The owner of content that names none (see `owners.rs`), if that
+    /// account still exists, and whether there is such a hidden owner.
+    async fn existing_hidden_owner(&self, subject_type: SubjectType, subject_id: Uuid) -> AppResult<(Option<Uuid>, bool)> {
+        match self.hidden_owner(subject_type as i32, subject_id).await? {
+            Some(owner_id) => Ok((self.existing_user(owner_id).await?, true)),
+            None => Ok((None, false)),
+        }
     }
 
     /// `user_id` if that account exists and is not deleted.

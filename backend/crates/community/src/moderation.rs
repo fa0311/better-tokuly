@@ -754,6 +754,27 @@ impl Community {
         Ok(())
     }
 
+    /// [`Self::is_party`] for site moderation, which knows a post by its
+    /// subject: whether `user_id` is involved in the thread or reply and so
+    /// must not be told who wrote it. `false` for anything that is not a
+    /// post of this domain (any more).
+    pub async fn is_party_for_moderation(
+        &self,
+        subject_type: SubjectType,
+        subject_id: Uuid,
+        user_id: Uuid,
+    ) -> AppResult<bool> {
+        let post = match subject_type {
+            SubjectType::SUBJECT_TYPE_COMMUNITY_THREAD => self.thread_by_id(subject_id).await?.map(Post::Thread),
+            SubjectType::SUBJECT_TYPE_COMMUNITY_REPLY => self.reply_by_id(subject_id).await?.map(Post::Reply),
+            _ => None,
+        };
+        match post {
+            Some(post) => self.is_party(user_id, &post).await,
+            None => Ok(false),
+        }
+    }
+
     /// Whether `user_id` is involved in a post: wrote it, is mentioned in
     /// it, is answered by it (the reply it quotes, the thread it replies
     /// in), or reported it.

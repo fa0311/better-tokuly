@@ -527,7 +527,7 @@ test.describe("staff", () => {
       page.getByRole("navigation", { name: "管理コンソール" }).getByRole("link", { name: "検索" }),
     ).toHaveAttribute("aria-current", "page");
     await expect(page.getByText("稼働中")).toBeVisible();
-    await expect(page.getByTestId("index-row")).toHaveCount(12);
+    await expect(page.getByTestId("index-row")).toHaveCount(17);
     const people = page.getByTestId("index-row").filter({ has: page.getByText(/^[a-z]+_user$/) });
     await expect(people).toContainText("ひと");
     await expect(people.getByRole("progressbar")).toBeVisible();

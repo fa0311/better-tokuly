@@ -20,7 +20,7 @@ tokuly_shorts::Shorts::set_clip_directory(Arc<dyn ClipDirectory>)              /
   `Engagement` (it registers the `SUBJECT_TYPE_SHORT` resolver and the
   `shorts` exporter), `register` it, `spawn_workers` in worker processes, add
   `ShortsConfig` to `DomainConfigs`;
-- once the live domain exists, bridge clips:
+- bridge clips to the live domain (done: `ClipsForShorts` in `bridges.rs`):
 
   ```rust
   #[async_trait]
@@ -31,9 +31,13 @@ tokuly_shorts::Shorts::set_clip_directory(Arc<dyn ClipDirectory>)              /
   shorts.set_clip_directory(Arc::new(ClipsForShorts { .. }));
   ```
 
-  Until it is wired, "create a short from a clip" only accepts media the
-  caller owns (and a clip of theirs that the `SUBJECT_TYPE_CLIP` resolver
-  confirms); someone else's asset is always refused.
+  The bridge answers with a clip when the caller cut it and it is READY. A
+  clip cut from someone else's stream or video is only offered while
+  everyone may watch that source (`tokuly_live::clips::source_of(..).public`),
+  so a clip of a friends-only stream cannot leave its audience as a short;
+  the owner of the channel it was cut from is not held to that. Without a
+  directory (tests, tools) "create a short from a clip" only accepts media
+  the caller owns.
 
 ## Events emitted
 

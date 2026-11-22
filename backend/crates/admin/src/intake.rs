@@ -20,6 +20,17 @@ impl Admin {
         let title = truncate_chars(report.subject_title.trim(), SUBJECT_TITLE_MAX_CHARS);
         let path = truncate_chars(report.subject_path.trim(), SUBJECT_PATH_MAX_CHARS);
 
+        // Content that hides its author is reported without an owner; whoever
+        // keeps it says who answers for it. Asked before the transaction, so
+        // this handler never waits for a second connection while holding one.
+        let (owner_id, owner_hidden) = match report.subject_owner_id.filter(|owner_id| !owner_id.is_nil()) {
+            Some(owner_id) => (Some(owner_id), false),
+            None => {
+                let hidden = self.hidden_owner(report.subject_type, report.subject_id).await?;
+                (hidden, hidden.is_some())
+            }
+        };
+
         let mut tx = self.core.db.begin().await?;
         let known: bool =
             sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM moderation_reports WHERE id = $1)").bind(report.report_id).fetch_one(&mut *tx).await?;
@@ -29,25 +40,27 @@ impl Admin {
         // Owner and reporter are looked up rather than trusted, so an event
         // about an account that has since been erased still files cleanly.
         let case_id: Uuid = sqlx::query_scalar(
-            "INSERT INTO moderation_cases (subject_type, subject_id, subject_owner_id, subject_title, subject_path, report_count, categories, last_reported_at)
-             VALUES ($1, $2, (SELECT id FROM users WHERE id = $3 AND deleted_at IS NULL), $4, $5, 1, ARRAY[$6], $7)
+            "INSERT INTO moderation_cases (subject_type, subject_id, subject_owner_id, subject_title, subject_path, report_count, categories, last_reported_at, owner_hidden)
+             VALUES ($1, $2, (SELECT id FROM users WHERE id = $3 AND deleted_at IS NULL), $4, $5, 1, ARRAY[$6], $7, $8)
              ON CONFLICT (subject_type, subject_id) WHERE status = 'open' DO UPDATE SET
                  report_count     = moderation_cases.report_count + 1,
                  categories       = CASE WHEN $6 = ANY(moderation_cases.categories) THEN moderation_cases.categories
                                          ELSE array_append(moderation_cases.categories, $6) END,
                  last_reported_at = greatest(moderation_cases.last_reported_at, EXCLUDED.last_reported_at),
                  subject_owner_id = COALESCE(EXCLUDED.subject_owner_id, moderation_cases.subject_owner_id),
+                 owner_hidden     = moderation_cases.owner_hidden OR EXCLUDED.owner_hidden,
                  subject_title    = CASE WHEN EXCLUDED.subject_title <> '' THEN EXCLUDED.subject_title ELSE moderation_cases.subject_title END,
                  subject_path     = CASE WHEN EXCLUDED.subject_path <> '' THEN EXCLUDED.subject_path ELSE moderation_cases.subject_path END
              RETURNING id",
         )
         .bind(report.subject_type)
         .bind(report.subject_id)
-        .bind(report.subject_owner_id)
+        .bind(owner_id)
         .bind(&title)
         .bind(&path)
         .bind(category)
         .bind(event.occurred_at)
+        .bind(owner_hidden)
         .fetch_one(&mut *tx)
         .await?;
         let filed = sqlx::query(

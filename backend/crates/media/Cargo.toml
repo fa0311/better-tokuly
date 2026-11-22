@@ -4,6 +4,7 @@ description = "Uploads, assets, image processing and the video transcoding pipel
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 publish.workspace = true
 
 [lints]
