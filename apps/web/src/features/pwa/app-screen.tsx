@@ -195,7 +195,7 @@ function OfflineRow() {
 function VersionRow() {
   const { t } = useTranslation("pwa");
   const status = useWorker((state) => state.status);
-  const updateReady = useWorker((state) => state.updateReady);
+  const updateReady = useWorker((state) => state.updateReady || state.replaced);
   const [checking, setChecking] = useState(false);
 
   const check = async () => {

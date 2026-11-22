@@ -131,7 +131,12 @@ self.addEventListener("fetch", (event) => {
   if (request.method !== "GET") return;
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
-  if (UNTOUCHED.some((prefix) => url.pathname.startsWith(prefix))) return;
+  if (UNTOUCHED.some((prefix) => url.pathname.startsWith(prefix))) {
+    // A page load that is not the app's (a file opened by its address): the browser has already
+    // asked for it (navigation preload), so that answer is used instead of asking a second time.
+    if (request.mode === "navigate") event.respondWith(passThrough(event));
+    return;
+  }
 
   if (request.mode === "navigate") {
     event.respondWith(navigate(event));
@@ -142,6 +147,11 @@ self.addEventListener("fetch", (event) => {
   const rule = RUNTIME_CACHES.find((candidate) => candidate.matches(url));
   if (rule) event.respondWith(rule.strategy(event, rule));
 });
+
+/** The network's answer, untouched and never stored. */
+async function passThrough(event) {
+  return (await event.preloadResponse) || fetch(event.request);
+}
 
 /** A page load: always from the network, so nobody is served an old app; the offline page when there is none. */
 async function navigate(event) {

@@ -13,7 +13,8 @@ const TOAST_ID = "pwa:update";
  * running one alone (the settings page keeps offering the update).
  */
 export function useUpdateToast(): void {
-  const updateReady = useWorker((state) => state.updateReady);
+  // Waiting for the go-ahead, or already switched to from another tab: either way this page is behind.
+  const updateReady = useWorker((state) => state.updateReady || state.replaced);
   useEffect(() => {
     if (!updateReady) {
       toast.dismiss(TOAST_ID);

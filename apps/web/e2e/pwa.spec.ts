@@ -291,6 +291,28 @@ test("a new version announces itself and takes over only when asked", async ({ p
   expect(await running()).toMatch(/\/sw\.js\?version=next$/);
 });
 
+test("an update accepted in another tab is offered here too, as a reload", async ({ page, context, me: _me }) => {
+  await openApp(page, "/me");
+  await controlled(page);
+  const other = await context.newPage();
+  await openApp(other, "/me");
+  await controlled(other);
+
+  await other.evaluate(() => navigator.serviceWorker.register("/sw.js?version=next"));
+  await expect(toast(page, "新しいバージョンがあるよ！")).toBeVisible();
+  const otherReloaded = other.waitForEvent("load");
+  await toast(other, "新しいバージョンがあるよ！").getByRole("button", { name: "更新する" }).click();
+  await otherReloaded;
+
+  // The new worker now runs this page as well, but the page itself is still the old one: the offer stays.
+  await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller?.scriptURL ?? "")).toMatch(/\/sw\.js\?version=next$/);
+  await expect(toast(page, "新しいバージョンがあるよ！")).toBeVisible();
+  const reloaded = page.waitForEvent("load");
+  await toast(page, "新しいバージョンがあるよ！").getByRole("button", { name: "更新する" }).click();
+  await reloaded;
+  await expect(mainNav(page)).toBeVisible();
+});
+
 test("'later' leaves the running version alone, and the app page keeps offering the update", async ({ page, me: _me }) => {
   await openApp(page, "/me");
   await controlled(page);

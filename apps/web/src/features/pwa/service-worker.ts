@@ -27,9 +27,11 @@ interface WorkerState {
   status: WorkerStatus;
   /** A newer version is installed and waits for the go-ahead. */
   updateReady: boolean;
+  /** Another tab accepted an update: the new worker runs, but this page is still the old app. */
+  replaced: boolean;
 }
 
-export const useWorker = create<WorkerState>(() => ({ status: "starting", updateReady: false }));
+export const useWorker = create<WorkerState>(() => ({ status: "starting", updateReady: false, replaced: false }));
 
 let registration: ServiceWorkerRegistration | null = null;
 let started = false;
@@ -59,10 +61,18 @@ export function startServiceWorker(): void {
     return;
   }
 
+  // A page that already had a worker and gets another one was updated from elsewhere.
+  let controlled = Boolean(navigator.serviceWorker.controller);
   navigator.serviceWorker.addEventListener("controllerchange", () => {
-    if (reloadOnTakeover) window.location.reload();
-    // Otherwise it is the first worker taking this page, or an update accepted in another tab.
-    else refresh();
+    if (reloadOnTakeover) {
+      window.location.reload();
+      return;
+    }
+    // The first worker taking this page changes nothing for it. An update accepted in
+    // another tab does: this page still runs the old app, so it offers a reload too.
+    if (controlled) useWorker.setState({ replaced: true });
+    controlled = true;
+    refresh();
   });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && Date.now() - lastUpdateCheck > UPDATE_CHECK_EVERY_MS) void checkForUpdate();

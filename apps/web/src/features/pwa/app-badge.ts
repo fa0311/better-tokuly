@@ -11,11 +11,13 @@ function showOnIcon(count: number): void {
 }
 
 /**
- * The installed app's icon carries everything that is unread: the sum of the
- * counters the navigation shows (`#/stores/badges`).
+ * The installed app's icon carries the number of unread notifications: the
+ * same number the server sends with a push, which the service worker shows
+ * while the app is closed. Chat messages and friend requests arrive as
+ * notifications, so they are in it. This is the only place a page sets it.
  */
 export function useAppBadge(): void {
-  const total = useBadges((badges) => Object.values(badges).reduce((sum, count) => sum + count, 0));
+  const total = useBadges((badges) => badges.notifications);
 
   useEffect(() => {
     showOnIcon(total);
