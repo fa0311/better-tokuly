@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { common, emoji as emojiApi, errorReason, toDate } from "@tokuly/api";
-import { Check, Copy, Pencil, Pin, PinOff, ShieldCheck, Smile, Trash2 } from "lucide-react";
+import { Check, Copy, Eye, EyeOff, Pencil, Pin, PinOff, ShieldCheck, Smile, Trash2 } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -21,6 +21,7 @@ import { EmojiImage } from "./emoji";
 import { EmojiText } from "./emoji-text";
 import { StateChip, ThemePreview, ThemeSwatch } from "./parts";
 import { EmojiPicker } from "./picker";
+import { useShowSensitive } from "./prefs";
 import { useEmojiSuggest } from "./suggest";
 import { shortcodePrefixAt } from "./text";
 import { recordEmojiUse } from "./use";
@@ -30,6 +31,9 @@ export function DetailScreen({ name }: { name: string }) {
   const { t, i18n } = useTranslation("emoji");
   const detail = useEmojiDetail(name);
   const access = useStaffAccess();
+  const showSensitive = useShowSensitive();
+  // A sensitive emoji is blurred here too, until this visitor asks to see it.
+  const [shown, setShown] = useState(false);
 
   if (detail.isPending) {
     return (
@@ -70,10 +74,15 @@ export function DetailScreen({ name }: { name: string }) {
         <div className="grid w-full grid-cols-2 gap-2">
           {(["light", "dark"] as const).map((theme) => (
             <ThemeSwatch key={theme} theme={theme} className="grid place-items-center py-5">
-              <EmojiImage emoji={entry} size={128} reveal className="size-28" />
+              <EmojiImage emoji={entry} size={128} reveal={shown} className="size-28" />
             </ThemeSwatch>
           ))}
         </div>
+        {entry.sensitive && !showSensitive && (
+          <Button variant="secondary" size="sm" aria-pressed={shown} icon={shown ? <EyeOff className="size-4" /> : <Eye className="size-4" />} onClick={() => setShown(!shown)}>
+            {t(shown ? "detail.hideSensitive" : "detail.showSensitive")}
+          </Button>
+        )}
         <div className="flex flex-wrap items-center justify-center gap-1.5 empty:hidden">
           {!approved && <StateChip state={data.state} />}
           {entry.animated && <Chip>{t("flags.animated")}</Chip>}

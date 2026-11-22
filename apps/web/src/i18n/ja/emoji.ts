@@ -45,6 +45,8 @@ export default {
   detail: {
     notFound: "その絵文字は見つからないよ",
     notFoundBody: "{{code}} はなくなったか、まだ公開されていないみたい。",
+    showSensitive: "タップして表示する",
+    hideSensitive: "またぼかす",
     toCatalog: "絵文字をさがす",
     copy: "{{code}} をコピー",
     copied: "{{code}} をコピーしたよ！",
@@ -267,6 +269,7 @@ export default {
       INTERNAL: "インポートに失敗しました",
     },
     reportTitle: "インポートの結果",
+    reportMore: "のこり{{count}}件は、おわってから表示します",
     reportProgress: "インポートの進みぐあい",
     reportSummary: "{{total}}個中：とりこみ {{imported}}・スキップ {{skipped}}・失敗 {{failed}}",
     entryStatus: { processing: "処理中", imported: "とりこみ", renamed: "名前を変更", skipped: "スキップ", failed: "失敗" },

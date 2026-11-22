@@ -23,7 +23,8 @@ export const DEFAULT_MAX_ALIASES = 16;
 const DEFAULT_MAX_BYTES = 1024 * 1024;
 const NAME_PATTERN = /^[a-z0-9_]{2,32}$/;
 /** What the server accepts as an emoji picture: stills and animations. */
-const ACCEPT = "image/png,image/webp,image/jpeg,image/gif,image/apng";
+const ACCEPTED_TYPES = ["image/png", "image/webp", "image/jpeg", "image/gif", "image/apng"];
+const ACCEPT = ACCEPTED_TYPES.join(",");
 
 /** What an emoji form edits. */
 export interface EmojiDraft {
@@ -78,6 +79,8 @@ export function EmojiForm({ draft, onChange, onUploading, currentName, maxImageB
   // ── Picture ──
   const choose = async (file: File | undefined) => {
     if (!file) return;
+    // The file chooser's filter is a suggestion ("all files", drag and drop): check before spending an upload.
+    if (!ACCEPTED_TYPES.includes(file.type)) return setPictureError(t("errors.ASSET_NOT_IMAGE"));
     if (file.size > maxImageBytes) return setPictureError(t("form.pictureTooLarge", { size: Math.round(maxImageBytes / 1024) }));
     setPictureError("");
     const local = URL.createObjectURL(file);

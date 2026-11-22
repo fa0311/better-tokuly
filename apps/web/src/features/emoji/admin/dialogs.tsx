@@ -20,6 +20,12 @@ export function ReasonDialog({ open, onOpenChange, title, confirmLabel, loading,
   const { t } = useTranslation("emoji");
   const { t: tCommon } = useTranslation("common");
   const [reason, setReason] = useState("");
+  // Each opening is a new decision: the reason of the last one is not carried over.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setReason("");
+  }
   return (
     <Dialog
       open={open}

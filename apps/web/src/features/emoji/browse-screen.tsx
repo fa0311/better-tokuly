@@ -11,7 +11,7 @@ import { Tabs } from "#/components/ui/tabs";
 import { profileClient } from "#/lib/api";
 import { emojiClient, emojiKeys } from "./api";
 import { type CatalogEmoji, toCatalogEmoji, useCatalog } from "./catalog";
-import { EmojiTile, FilterPill, SearchBox, TileGrid, TileSkeletons } from "./parts";
+import { EmojiTile, FilterPill, SearchBox, TileGrid, TileSkeletons, useGrowingCount } from "./parts";
 import { setShowSensitive, useShowSensitive } from "./prefs";
 
 const SORTS = ["all", "popular", "new"] as const;
@@ -172,8 +172,32 @@ function CatalogResults({ emojis, grouped, categories }: { emojis: CatalogEmoji[
       />
     );
   }
-  const sections = grouped ? [...categories, ""].map((name) => ({ name, emojis: emojis.filter((entry) => entry.category === name) })).filter((section) => section.emojis.length > 0) : [];
-  if (sections.length <= 1) return <Tiles emojis={emojis} />;
+  return <BoundedResults emojis={emojis} grouped={grouped} categories={categories} />;
+}
+
+/** Tiles drawn at first; a catalogue can hold thousands, and the rest follows as the page is scrolled. */
+const TILE_CHUNK = 200;
+
+function BoundedResults({ emojis, grouped, categories }: { emojis: CatalogEmoji[]; grouped: boolean; categories: string[] }) {
+  const { t } = useTranslation("emoji");
+  const all = grouped ? [...categories, ""].map((name) => ({ name, emojis: emojis.filter((entry) => entry.category === name) })).filter((section) => section.emojis.length > 0) : [];
+  // The filter in force names the list: another one starts from the top again.
+  const { shown, sentinel } = useGrowingCount(emojis.length, TILE_CHUNK, `${grouped}/${emojis[0]?.category ?? ""}`);
+  if (all.length <= 1) {
+    return (
+      <>
+        <Tiles emojis={emojis.slice(0, shown)} />
+        {sentinel}
+      </>
+    );
+  }
+  // Sections fill up in order until the budget is spent; a section that got nothing is not started yet.
+  let budget = shown;
+  const sections = all.flatMap((section) => {
+    const part = section.emojis.slice(0, budget);
+    budget -= part.length;
+    return part.length > 0 ? [{ ...section, part }] : [];
+  });
   return (
     <div className="flex flex-col gap-5">
       {sections.map((section) => (
@@ -182,9 +206,10 @@ function CatalogResults({ emojis, grouped, categories }: { emojis: CatalogEmoji[
             {section.name || t("browse.uncategorized")}
             <span className="text-xs font-bold text-ink-faint">{section.emojis.length}</span>
           </h2>
-          <Tiles emojis={section.emojis} />
+          <Tiles emojis={section.part} />
         </section>
       ))}
+      {sentinel}
     </div>
   );
 }

@@ -335,6 +335,23 @@ test("an animated emoji moves only while it is on screen, and stands still for p
   await expect(picture).not.toHaveAttribute("src", moving);
 });
 
+test("a sensitive emoji is blurred on its own page too, until the visitor taps to see it", async ({ page, request, me: _me }) => {
+  const admin = await adminAccount(request);
+  const name = unique("spicy");
+  leftovers.emoji.add(name);
+  const assetId = await uploadPicture(request, admin, discPicture(`${name}.png`));
+  await rpc(request, `${ADMIN}/AddEmoji`, { name, assetId, sensitive: true }, admin);
+
+  await page.goto(`/emoji/${name}`);
+  const picture = page.getByTestId("preview-light").first().locator(`img[data-emoji="${name}"]`);
+  await expect(picture).toBeVisible();
+  await expect(picture).toHaveClass(/blur/);
+  await page.getByRole("button", { name: "タップして表示する" }).click();
+  await expect(picture).not.toHaveClass(/blur/);
+  await page.getByRole("button", { name: "またぼかす" }).click();
+  await expect(picture).toHaveClass(/blur/);
+});
+
 // ───────────────────────────── Submitting and reviewing ─────────────────────────────
 
 test("a submitted emoji is approved by a moderator and reaches another account's catalogue without a reload", async ({ page, request, browser, me: _me }, testInfo) => {
@@ -359,6 +376,12 @@ test("a submitted emoji is approved by a moderator and reaches another account's
 
   // The author submits through the form.
   await page.goto("/emoji/new-emoji");
+  // Something that is no picture is turned away before anything is uploaded.
+  const uploads: string[] = [];
+  page.on("request", (sent) => sent.url().endsWith("MediaService/CreateUpload") && uploads.push(sent.url()));
+  await page.getByTestId("emoji-file").setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("not a picture") });
+  await expect(page.getByRole("alert").filter({ hasText: "画像ファイルをえらんでね" })).toBeVisible();
+  expect(uploads).toHaveLength(0);
   await page.getByTestId("emoji-file").setInputFiles(discPicture("made.png", [255, 170, 0]));
   // The picture is previewed at text size on a light and on a dark tile.
   await expect(page.getByTestId("preview-light").getByTestId("emoji-preview-line").locator("img")).toBeVisible();

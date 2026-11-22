@@ -27,6 +27,7 @@ export const emojiKeys = {
   adminTrusted: ["emoji", "admin", "trusted"] as const,
   adminImports: ["emoji", "admin", "imports"] as const,
   adminImport: (id: string) => ["emoji", "admin", "import", id] as const,
+  adminImportRest: (id: string, cursor: string) => ["emoji", "admin", "import-rest", id, cursor] as const,
   adminExports: ["emoji", "admin", "exports"] as const,
 };
 

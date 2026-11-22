@@ -1,6 +1,7 @@
 import { type emoji, toMillis } from "@tokuly/api";
 import { useSyncExternalStore } from "react";
 import { emojiClient } from "./api";
+import { createCatalogStore } from "./catalog-store";
 
 /**
  * This browser's copy of the emoji catalogue.
@@ -85,54 +86,7 @@ export function applyChanges(
 
 // ───────────────────────────── The copy in IndexedDB ─────────────────────────────
 
-const DB_NAME = "tokuly.emoji";
-const STORE = "catalog";
-const RECORD = "approved";
-
-interface StoredCatalog {
-  /** The version as a decimal string: IndexedDB in older browsers cannot store BigInt. */
-  version: string;
-  emojis: CatalogEmoji[];
-  categories: CatalogCategory[];
-}
-
-function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 1);
-    request.onupgradeneeded = () => request.result.createObjectStore(STORE);
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-async function readStored(): Promise<StoredCatalog | undefined> {
-  try {
-    const db = await openDb();
-    return await new Promise((resolve, reject) => {
-      const request = db.transaction(STORE, "readonly").objectStore(STORE).get(RECORD);
-      request.onsuccess = () => resolve(request.result as StoredCatalog | undefined);
-      request.onerror = () => reject(request.error);
-    });
-  } catch {
-    // Private mode, a blocked or broken database: the catalogue is simply fetched again.
-    return undefined;
-  }
-}
-
-async function writeStored(catalog: Catalog): Promise<void> {
-  try {
-    const db = await openDb();
-    const record: StoredCatalog = { version: catalog.version.toString(), emojis: catalog.emojis, categories: catalog.categories };
-    await new Promise<void>((resolve, reject) => {
-      const transaction = db.transaction(STORE, "readwrite");
-      transaction.objectStore(STORE).put(record, RECORD);
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error);
-    });
-  } catch {
-    // Nothing to keep it in: this visit works from memory.
-  }
-}
+const store = createCatalogStore<CatalogEmoji, CatalogCategory>();
 
 // ───────────────────────────── The copy in memory ─────────────────────────────
 
@@ -150,7 +104,8 @@ function publish(next: Catalog): void {
 async function sync(): Promise<void> {
   if (catalog.status === "idle" || catalog.status === "error") {
     publish({ ...catalog, status: "loading" });
-    const stored = await readStored();
+    // Gives up after a moment (see `catalog-store.ts`): a database that does not answer must not hold up the fetch.
+    const stored = await store.read();
     if (stored) publish(build(BigInt(stored.version), stored.emojis, stored.categories, "ready"));
   }
   try {
@@ -173,7 +128,7 @@ async function sync(): Promise<void> {
       });
     }
     publish(next);
-    void writeStored(next);
+    void store.write({ version: next.version.toString(), emojis: next.emojis, categories: next.categories });
   } catch (error) {
     // A stored copy keeps working offline; without one the pickers show Unicode emoji only.
     publish({ ...catalog, status: catalog.version > 0n || catalog.emojis.length > 0 ? "ready" : "error" });

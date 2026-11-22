@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { emoji as emojiApi, media, toDate } from "@tokuly/api";
 import { Download, FileArchive, Upload } from "lucide-react";
 import { useRef, useState } from "react";
@@ -146,25 +146,37 @@ const ENTRY_STATUS: Record<emojiApi.ImportEntryStatus, { key: string; tone: stri
   [emojiApi.ImportEntryStatus.FAILED]: { key: "failed", tone: "bg-danger text-white" },
 };
 
+/** Entries of a pack read per request. */
+const ENTRY_PAGE = 100;
+
 const importRunning = (status: emojiApi.ImportStatus | undefined) => status === emojiApi.ImportStatus.QUEUED || status === emojiApi.ImportStatus.RUNNING;
 
 /** One import: how far it is, and what became of every entry of the pack. */
 function ImportReport({ importId }: { importId: string }) {
   const { t } = useTranslation("emoji");
-  const report = useInfiniteQuery({
+  // The first page carries the counters: it alone is read again on every progress event and poll.
+  const head = useQuery({
     queryKey: emojiKeys.adminImport(importId),
-    queryFn: ({ pageParam }) => emojiAdminClient().getImport({ importId, page: { limit: 100, cursor: pageParam } }),
-    initialPageParam: "",
-    getNextPageParam: (last) => last.page?.nextCursor || undefined,
+    queryFn: () => emojiAdminClient().getImport({ importId, page: { limit: ENTRY_PAGE } }),
     // Progress arrives over the realtime connection (see `background.tsx`); this only covers a connection that dropped meanwhile.
-    refetchInterval: (query) => (importRunning(query.state.data?.pages[0]?.import?.status) ? 4000 : false),
+    refetchInterval: (query) => (importRunning(query.state.data?.import?.status) ? 4000 : false),
   });
-  if (!report.data) return report.isPending ? <Skeleton className="h-40" /> : null;
-  const pack = report.data.pages[0]?.import;
+  const firstCursor = head.data?.page?.nextCursor ?? "";
+  const running = importRunning(head.data?.import?.status);
+  // The rest of a long pack is paged in once every entry has its outcome, and is not read again after that.
+  const rest = useInfiniteQuery({
+    queryKey: emojiKeys.adminImportRest(importId, firstCursor),
+    queryFn: ({ pageParam }) => emojiAdminClient().getImport({ importId, page: { limit: ENTRY_PAGE, cursor: pageParam } }),
+    initialPageParam: firstCursor,
+    getNextPageParam: (last) => last.page?.nextCursor || undefined,
+    enabled: Boolean(firstCursor) && !running,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+  if (!head.data) return head.isPending ? <Skeleton className="h-40" /> : null;
+  const pack = head.data.import;
   if (!pack) return null;
-  const entries = report.data.pages.flatMap((page) => page.entries);
+  const entries = [...head.data.entries, ...(rest.data?.pages.flatMap((page) => page.entries) ?? [])];
   const settled = pack.importedCount + pack.skippedCount + pack.failedCount;
-  const running = importRunning(pack.status);
   const statusKey = IMPORT_STATUS[pack.status];
 
   return (
@@ -204,7 +216,7 @@ function ImportReport({ importId }: { importId: string }) {
               </li>
             );
           })}
-          <LoadMore query={report} />
+          {firstCursor && running ? <li className="px-3 py-2 text-xs text-ink-faint">{t("admin.reportMore", { count: pack.totalCount - entries.length })}</li> : <LoadMore query={rest} />}
         </ul>
       )}
     </section>

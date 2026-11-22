@@ -45,6 +45,8 @@ export default {
   detail: {
     notFound: "That emoji isn't here",
     notFoundBody: "{{code}} is gone, or not public yet.",
+    showSensitive: "Tap to show it",
+    hideSensitive: "Blur it again",
     toCatalog: "Browse emoji",
     copy: "Copy {{code}}",
     copied: "Copied {{code}}!",
@@ -267,6 +269,7 @@ export default {
       INTERNAL: "The import failed",
     },
     reportTitle: "Import result",
+    reportMore: "The other {{count}} entries show once the import is done",
     reportProgress: "Import progress",
     reportSummary: "Of {{total}}: {{imported}} imported, {{skipped}} skipped, {{failed}} failed",
     entryStatus: { processing: "Processing", imported: "Imported", renamed: "Renamed", skipped: "Skipped", failed: "Failed" },

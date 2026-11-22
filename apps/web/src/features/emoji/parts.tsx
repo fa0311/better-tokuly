@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { emoji as emojiApi } from "@tokuly/api";
 import { Search, X } from "lucide-react";
-import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
+import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Chip } from "#/components/ui/card";
 import { cn } from "#/lib/cn";
@@ -152,4 +152,32 @@ export function useDebounced<T>(value: T, delay = 250): T {
     return () => clearTimeout(timer);
   }, [value, delay]);
   return settled;
+}
+
+/**
+ * For long lists drawn a part at a time: how many items to draw now, and a
+ * sentinel to put after them. When the sentinel comes near the screen the
+ * count grows by `step`; it starts over whenever `resetKey` changes (another
+ * filter, another list).
+ */
+export function useGrowingCount(total: number, step: number, resetKey: string): { shown: number; sentinel: ReactNode } {
+  const [state, setState] = useState({ key: resetKey, shown: step });
+  if (state.key !== resetKey) setState({ key: resetKey, shown: step });
+  const shown = state.key === resetKey ? state.shown : step;
+  const marker = useRef<HTMLDivElement>(null);
+  const more = shown < total;
+  useEffect(() => {
+    const element = marker.current;
+    if (!element || !more) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) setState((current) => ({ key: current.key, shown: current.shown + step }));
+      },
+      { rootMargin: "600px 0px" },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+    // `shown` is a dependency so that a sentinel still in view after growing is seen again.
+  }, [more, step, shown]);
+  return { shown: Math.min(shown, total), sentinel: more ? <div ref={marker} data-testid="more-emoji" className="h-10" /> : null };
 }
