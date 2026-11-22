@@ -6,6 +6,7 @@ import { Avatar } from "#/components/ui/avatar";
 import { CountBadge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Page } from "#/components/ui/page";
+import { SchoolHubTile } from "#/features/school";
 import { api } from "#/lib/api";
 import { cn } from "#/lib/cn";
 import { type BadgeKey, useBadges } from "#/stores/badges";
@@ -80,6 +81,11 @@ export function MeScreen() {
         </span>
         <ChevronRight className="size-6 shrink-0 text-ink-faint" />
       </Link>
+
+      {/* School: the class that is on, or the next one. */}
+      <div className="mt-3">
+        <SchoolHubTile />
+      </div>
 
       <ul className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
         {tiles.map((tile) => (
