@@ -1,15 +1,1114 @@
 syntax = "proto3";
 
-// Anonymous question boxes, prompts and compliment polls.
+// Anonymous question boxes (質問箱), prompts (お題) and compliment polls
+// (ほめ投票).
 //
-// SKELETON: the owning domain implements this file. Keep the package name
-// and the realtime event message name stable; everything else is yours.
+// Anonymity, the same for all three features:
+// - Whoever sends a question, a prompt response or a compliment vote is
+//   always stored, so that moderators can act on abuse
+//   (AskModerationService), and is never returned to the person who receives
+//   it: no field of any message below carries the sender or anything derived
+//   from them, unless the sender chose to sign.
+// - The receiver can block "whoever sent this" without learning who it is.
+//   From then on that sender's questions, responses and votes are accepted
+//   as usual and silently dropped: the sender cannot tell.
+// - What the sender sees of something they sent is only "waiting" or
+//   "answered". Whether the receiver read, archived, filtered or deleted it,
+//   or blocked them, is never visible.
+// - Nothing about an anonymous item changes for its receiver when the
+//   sender's account does (suspended, deleted, settings changed): only
+//   signed items follow their sender's account, and what a vote sells as
+//   hints is decided when the vote is cast.
+// - An anonymous item needs a crowd to hide in. Where only friends can send
+//   (a friends-only box, a prompt, a compliment poll), the receiver must
+//   have at least three friends; otherwise only signed items are accepted
+//   and the receiver is not offered in polls.
+// - Reports go through tokuly.engagement.v1.ReportService against
+//   SUBJECT_TYPE_QUESTION with the ID of a question, a prompt or a prompt
+//   response.
 package tokuly.ask.v1;
 
+import "google/protobuf/timestamp.proto";
 import "tokuly/common/v1/common.proto";
 
-// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.ask).
+// ───────────────────────────── Question box ─────────────────────────────
+
+// A user's question box: settings, asking, the owner's inbox, answers and
+// the public Q&A page.
+service QuestionBoxService {
+  // The caller's settings for the box, the word filter and compliment polls.
+  rpc GetSettings(GetSettingsRequest) returns (GetSettingsResponse);
+  // Changes the caller's settings; unset fields keep their value.
+  // Errors: BOX_PROMPT_INVALID (over 80 characters), AUDIENCE_INVALID,
+  // MUTED_WORDS_INVALID (over 100 words, or a word that is empty or over 30
+  // characters).
+  rpc UpdateSettings(UpdateSettingsRequest) returns (UpdateSettingsResponse);
+
+  // A user's box as the caller sees it. Public: guests see it too, but only
+  // signed-in users can ask.
+  // Errors: BOX_NOT_FOUND (no such user, or a block between the two).
+  rpc GetBox(GetBoxRequest) returns (GetBoxResponse);
+  // Sends a question to a box. Anonymous unless `signed` is set. The
+  // response is the same whether the question reached the inbox, was held by
+  // the owner's word filter or was dropped because the owner blocked the
+  // sender.
+  //
+  // An image has to be a fresh upload, signed or not: the same upload on
+  // two questions would show that one person sent both.
+  // Errors: BOX_NOT_FOUND, BOX_CLOSED, CANNOT_ASK_SELF, FRIENDS_ONLY,
+  // SIGNED_NOT_ALLOWED, AUDIENCE_TOO_SMALL (an anonymous question to a
+  // friends-only box whose owner has fewer than three friends; a signed one
+  // is accepted), IMAGES_NOT_ALLOWED, IMAGE_ALREADY_USED, QUESTION_TEXT_INVALID
+  // (empty or over 300 characters), ASSET_NOT_FOUND, ASSET_WRONG_PURPOSE,
+  // ASSET_NOT_IMAGE, ASSET_NOT_READY, RATE_LIMITED (the sender asks too
+  // much), BOX_BUSY (the box is receiving too many questions).
+  rpc AskQuestion(AskQuestionRequest) returns (AskQuestionResponse);
+  // Questions the caller sent, newest first, each WAITING or ANSWERED.
+  // Errors: INVALID_CURSOR.
+  rpc ListAskedQuestions(ListAskedQuestionsRequest) returns (ListAskedQuestionsResponse);
+  // Takes back a question the caller sent that has not been answered. It
+  // leaves the box; its recipient can still block whoever sent it and report
+  // it.
+  // Errors: QUESTION_NOT_FOUND, QUESTION_ALREADY_ANSWERED.
+  rpc WithdrawQuestion(WithdrawQuestionRequest) returns (WithdrawQuestionResponse);
+
+  // The caller's inbox, one folder at a time, newest first.
+  // Errors: FOLDER_INVALID, INVALID_CURSOR.
+  rpc ListInbox(ListInboxRequest) returns (ListInboxResponse);
+  // How many questions wait in each folder of the caller's inbox.
+  rpc GetInboxCounts(GetInboxCountsRequest) returns (GetInboxCountsResponse);
+  // Marks questions of the caller's inbox as read: the listed ones, or every
+  // unread question when `all` is set.
+  // Errors: TOO_MANY_IDS (over 100).
+  rpc MarkQuestionsRead(MarkQuestionsReadRequest) returns (MarkQuestionsReadResponse);
+  // Moves an unanswered question between the inbox and the archive, or
+  // releases a filtered one into the inbox.
+  // Errors: QUESTION_NOT_FOUND, FOLDER_INVALID (only INBOX and ARCHIVED can
+  // be chosen), QUESTION_ALREADY_ANSWERED.
+  rpc MoveQuestion(MoveQuestionRequest) returns (MoveQuestionResponse);
+  // Deletes a question from the caller's box, with its answer. The sender
+  // keeps seeing it as waiting.
+  // Errors: QUESTION_NOT_FOUND.
+  rpc DeleteQuestion(DeleteQuestionRequest) returns (DeleteQuestionResponse);
+
+  // Answers a question of the caller's box. Needs text, an image or a stamp
+  // (an image and a stamp cannot be combined). PUBLIC and FRIENDS answers
+  // appear on the Q&A page; a PRIVATE one is only shown to the asker.
+  // Errors: QUESTION_NOT_FOUND, QUESTION_ALREADY_ANSWERED, ANSWER_EMPTY,
+  // ANSWER_TEXT_INVALID (over 1000 characters), ANSWER_ATTACHMENT_CONFLICT,
+  // AUDIENCE_INVALID, ASSET_NOT_FOUND, ASSET_WRONG_PURPOSE, ASSET_NOT_IMAGE,
+  // ASSET_NOT_READY, STAMP_NOT_USABLE, RATE_LIMITED.
+  rpc AnswerQuestion(AnswerQuestionRequest) returns (AnswerQuestionResponse);
+  // Edits the answer; unset fields keep their value.
+  // Errors: QUESTION_NOT_FOUND, QUESTION_NOT_ANSWERED, and those of
+  // AnswerQuestion.
+  rpc UpdateAnswer(UpdateAnswerRequest) returns (UpdateAnswerResponse);
+  // Removes the answer; the question returns to the inbox.
+  // Errors: QUESTION_NOT_FOUND, QUESTION_NOT_ANSWERED.
+  rpc DeleteAnswer(DeleteAnswerRequest) returns (DeleteAnswerResponse);
+
+  // A user's Q&A page: their answered questions the caller may see, newest
+  // answer first. Public.
+  // Errors: BOX_NOT_FOUND, INVALID_CURSOR.
+  rpc ListAnswers(ListAnswersRequest) returns (ListAnswersResponse);
+  // One question with its answer: for the box owner, for the asker, and for
+  // anyone the answer's audience includes. Public.
+  // Errors: QUESTION_NOT_FOUND.
+  rpc GetQuestion(GetQuestionRequest) returns (GetQuestionResponse);
+
+  // Blocks whoever sent a question, a prompt response or a flame to the
+  // caller, without revealing who it is. Blocking the same item twice does
+  // nothing; blocking two items is two blocks, even when one person sent
+  // both (the list must not tell).
+  // Errors: BLOCK_TARGET_REQUIRED, BLOCK_TARGET_NOT_FOUND.
+  rpc BlockSender(BlockSenderRequest) returns (BlockSenderResponse);
+  // The caller's sender blocks, newest first.
+  // Errors: INVALID_CURSOR.
+  rpc ListSenderBlocks(ListSenderBlocksRequest) returns (ListSenderBlocksResponse);
+  // Lifts one sender block.
+  // Errors: BLOCK_NOT_FOUND.
+  rpc UnblockSender(UnblockSenderRequest) returns (UnblockSenderResponse);
+}
+
+// Who may put questions into a box.
+enum AskerAudience {
+  ASKER_AUDIENCE_UNSPECIFIED = 0;
+  // Any signed-in user.
+  ASKER_AUDIENCE_SIGNED_IN = 1;
+  // Friends of the owner only (the default).
+  ASKER_AUDIENCE_FRIENDS = 2;
+}
+
+// The caller's settings for everything in this package.
+message Settings {
+  // Whether the box accepts questions. A box is closed until its owner opens it.
+  bool box_open = 1;
+  AskerAudience audience = 2;
+  // The line shown above the box, e.g. 「なんでも質問してね!」 (≤ 80 chars).
+  string box_prompt = 3;
+  // Whether askers may sign their questions.
+  bool allow_signed = 4;
+  // Whether questions and prompt responses may carry an image.
+  bool allow_images = 5;
+  // Questions and prompt responses containing one of these words are held in
+  // the FILTERED folder instead of the inbox (on top of the server's list).
+  repeated string muted_words = 6;
+  // Whether the caller appears as a choice in their friends' compliment polls.
+  bool in_polls = 7;
+  // Whether receivers of the caller's compliment votes may buy hints. It
+  // applies to votes cast from then on: what a vote sells is fixed when it
+  // is cast.
+  bool allow_hints = 8;
+}
+
+message GetSettingsRequest {}
+
+message GetSettingsResponse {
+  Settings settings = 1;
+}
+
+// A replacement for the whole list of muted words.
+message MutedWords {
+  repeated string words = 1;
+}
+
+message UpdateSettingsRequest {
+  optional bool box_open = 1;
+  optional AskerAudience audience = 2;
+  optional string box_prompt = 3;
+  optional bool allow_signed = 4;
+  optional bool allow_images = 5;
+  MutedWords muted_words = 6;
+  optional bool in_polls = 7;
+  optional bool allow_hints = 8;
+}
+
+message UpdateSettingsResponse {
+  Settings settings = 1;
+}
+
+// A question box as someone other than its owner sees it.
+message QuestionBox {
+  tokuly.common.v1.UserSummary owner = 1;
+  bool open = 2;
+  string prompt = 3;
+  AskerAudience audience = 4;
+  bool allow_signed = 5;
+  bool allow_images = 6;
+  // Whether the caller could ask right now (signed in, not the owner, box
+  // open, inside the audience).
+  bool can_ask = 7;
+  // Link to share: the box page in the web app.
+  string share_url = 8;
+  // Answers the caller can see on the Q&A page.
+  int32 answer_count = 9;
+  // Whether an anonymous question would be accepted from the caller: false
+  // when they cannot ask at all, and when the box is for friends only and
+  // its owner has fewer than three of them (a signed question is still
+  // possible then, if the box allows signatures).
+  bool anonymous_available = 10;
+}
+
+message GetBoxRequest {
+  // The owner: a user ID or a handle (with or without '@').
+  string user = 1;
+}
+
+message GetBoxResponse {
+  QuestionBox box = 1;
+}
+
+// Where a question sits in its owner's inbox.
+enum QuestionFolder {
+  QUESTION_FOLDER_UNSPECIFIED = 0;
+  // New questions waiting for an answer.
+  QUESTION_FOLDER_INBOX = 1;
+  QUESTION_FOLDER_ANSWERED = 2;
+  // Set aside without answering.
+  QUESTION_FOLDER_ARCHIVED = 3;
+  // Held by the word filter; the owner can release, answer or delete it.
+  QUESTION_FOLDER_FILTERED = 4;
+}
+
+// Who may read an answer.
+enum AnswerAudience {
+  ANSWER_AUDIENCE_UNSPECIFIED = 0;
+  // Everyone; on the Q&A page, in search and in feeds.
+  ANSWER_AUDIENCE_PUBLIC = 1;
+  // Friends of the box owner; on the Q&A page for them.
+  ANSWER_AUDIENCE_FRIENDS = 2;
+  // Only the asker and the box owner.
+  ANSWER_AUDIENCE_PRIVATE = 3;
+}
+
+// What the sender sees of something they sent.
+enum SentState {
+  SENT_STATE_UNSPECIFIED = 0;
+  // Not answered (yet). Also what a deleted, archived, filtered or dropped
+  // question looks like.
+  SENT_STATE_WAITING = 1;
+  SENT_STATE_ANSWERED = 2;
+}
+
+message Answer {
+  string text = 1;
+  tokuly.common.v1.Image image = 2;
+  tokuly.common.v1.StampRef stamp = 3;
+  AnswerAudience audience = 4;
+  google.protobuf.Timestamp answered_at = 5;
+  // Set once the answer was edited.
+  google.protobuf.Timestamp edited_at = 6;
+}
+
+// A question, as the caller may see it.
+message Question {
+  string id = 1;
+  // Whose box it is in.
+  tokuly.common.v1.UserSummary owner = 2;
+  string text = 3;
+  // Set when the asker attached one.
+  tokuly.common.v1.Image image = 4;
+  // False when the asker signed.
+  bool anonymous = 5;
+  // The asker, on signed questions only. Also unset when there is a block
+  // between the caller and the asker.
+  tokuly.common.v1.UserSummary asker = 6;
+  google.protobuf.Timestamp created_at = 7;
+  // Unset while unanswered, and for callers outside the answer's audience.
+  Answer answer = 8;
+  // For the box owner only.
+  QuestionFolder folder = 9;
+  // For the box owner only: whether they opened it.
+  bool read = 10;
+  // True when the caller sent this question. Only ever set for the sender.
+  bool sent_by_me = 11;
+  // For the sender only.
+  SentState sent_state = 12;
+  // Likes and comments on the answer (tokuly.engagement.v1).
+  int32 like_count = 13;
+  int32 comment_count = 14;
+  // Path of the question in the web app.
+  string path = 15;
+}
+
+message AskQuestionRequest {
+  // The box owner: a user ID or a handle.
+  string user = 1;
+  string text = 2;
+  // Show the asker's name to the owner (and to readers of the answer).
+  bool signed = 3;
+  // An uploaded image (ASSET_PURPOSE_NOTE_IMAGE or ASSET_PURPOSE_CHAT_IMAGE),
+  // when the box takes images. It must not be in use anywhere else, and
+  // should not be used again elsewhere (upload the file once per question).
+  string image_asset_id = 4;
+}
+
+message AskQuestionResponse {
+  Question question = 1;
+}
+
+message ListAskedQuestionsRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListAskedQuestionsResponse {
+  repeated Question questions = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message WithdrawQuestionRequest {
+  string question_id = 1;
+}
+
+message WithdrawQuestionResponse {}
+
+message ListInboxRequest {
+  // INBOX when unspecified.
+  QuestionFolder folder = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListInboxResponse {
+  repeated Question questions = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message InboxCounts {
+  // Unread questions in the inbox: the badge.
+  int32 unread = 1;
+  int32 inbox = 2;
+  int32 answered = 3;
+  int32 archived = 4;
+  int32 filtered = 5;
+}
+
+message GetInboxCountsRequest {}
+
+message GetInboxCountsResponse {
+  InboxCounts counts = 1;
+}
+
+message MarkQuestionsReadRequest {
+  repeated string question_ids = 1;
+  bool all = 2;
+}
+
+message MarkQuestionsReadResponse {
+  InboxCounts counts = 1;
+}
+
+message MoveQuestionRequest {
+  string question_id = 1;
+  QuestionFolder folder = 2;
+}
+
+message MoveQuestionResponse {
+  Question question = 1;
+}
+
+message DeleteQuestionRequest {
+  string question_id = 1;
+}
+
+message DeleteQuestionResponse {}
+
+message AnswerQuestionRequest {
+  string question_id = 1;
+  string text = 2;
+  // An uploaded image (ASSET_PURPOSE_NOTE_IMAGE or ASSET_PURPOSE_CHAT_IMAGE).
+  string image_asset_id = 3;
+  string stamp_id = 4;
+  // PUBLIC when unspecified.
+  AnswerAudience audience = 5;
+}
+
+message AnswerQuestionResponse {
+  Question question = 1;
+}
+
+message UpdateAnswerRequest {
+  string question_id = 1;
+  optional string text = 2;
+  // Empty removes the image.
+  optional string image_asset_id = 3;
+  // Empty removes the stamp.
+  optional string stamp_id = 4;
+  optional AnswerAudience audience = 5;
+}
+
+message UpdateAnswerResponse {
+  Question question = 1;
+}
+
+message DeleteAnswerRequest {
+  string question_id = 1;
+}
+
+message DeleteAnswerResponse {
+  Question question = 1;
+}
+
+message ListAnswersRequest {
+  // The box owner: a user ID or a handle.
+  string user = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListAnswersResponse {
+  repeated Question questions = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message GetQuestionRequest {
+  string question_id = 1;
+}
+
+message GetQuestionResponse {
+  Question question = 1;
+}
+
+// What a sender block was made from.
+enum BlockSource {
+  BLOCK_SOURCE_UNSPECIFIED = 0;
+  BLOCK_SOURCE_QUESTION = 1;
+  BLOCK_SOURCE_PROMPT_RESPONSE = 2;
+  BLOCK_SOURCE_FLAME = 3;
+}
+
+// One block of an unnamed sender. It says what was blocked, never who.
+message SenderBlock {
+  // Identifies the block itself; unrelated to the blocked sender.
+  string id = 1;
+  BlockSource source = 2;
+  // The text the block was made from, as a reminder: the question, the
+  // response, or the poll question of the flame.
+  string preview = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+message BlockSenderRequest {
+  // The item whose sender to block; it must have been sent to the caller.
+  oneof target {
+    string question_id = 1;
+    string prompt_response_id = 2;
+    string flame_id = 3;
+  }
+}
+
+message BlockSenderResponse {
+  SenderBlock block = 1;
+}
+
+message ListSenderBlocksRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListSenderBlocksResponse {
+  repeated SenderBlock blocks = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message UnblockSenderRequest {
+  string block_id = 1;
+}
+
+message UnblockSenderResponse {}
+
+// ───────────────────────────── Prompts (お題) ─────────────────────────────
+
+// Prompts: the owner asks their friends something and collects anonymous or
+// signed responses, publishing the ones they like on the prompt's page.
+service PromptService {
+  // Posts a prompt to the caller's friends. It closes by itself after
+  // `duration_seconds`.
+  // Errors: PROMPT_TEXT_INVALID (empty, over 100 characters, or an `emoji`
+  // that is not one),
+  // PROMPT_DURATION_INVALID (under 10 minutes or over 7 days),
+  // TOO_MANY_OPEN_PROMPTS, RATE_LIMITED.
+  rpc CreatePrompt(CreatePromptRequest) returns (CreatePromptResponse);
+  // Closes a prompt of the caller's early. Responses stay.
+  // Errors: PROMPT_NOT_FOUND.
+  rpc ClosePrompt(ClosePromptRequest) returns (ClosePromptResponse);
+  // Deletes a prompt of the caller's with every response.
+  // Errors: PROMPT_NOT_FOUND.
+  rpc DeletePrompt(DeletePromptRequest) returns (DeletePromptResponse);
+  // A prompt's page: the prompt and its published responses. For the owner
+  // and their friends.
+  // Errors: PROMPT_NOT_FOUND.
+  rpc GetPrompt(GetPromptRequest) returns (GetPromptResponse);
+  // A user's prompts, newest first: the caller's own, or a friend's. For
+  // someone who is not a friend the list is empty.
+  // Errors: USER_NOT_FOUND, INVALID_CURSOR.
+  rpc ListPrompts(ListPromptsRequest) returns (ListPromptsResponse);
+  // Open prompts of the caller's friends, newest first.
+  // Errors: INVALID_CURSOR.
+  rpc ListFriendPrompts(ListFriendPromptsRequest) returns (ListFriendPromptsResponse);
+
+  // Responds to a friend's open prompt, once. Anonymous unless `signed`.
+  // The response is the same whether it was delivered, held by the owner's
+  // word filter or dropped because the owner blocked the sender. An image
+  // follows the rules of AskQuestion.
+  // Errors: PROMPT_NOT_FOUND, PROMPT_CLOSED, CANNOT_RESPOND_TO_OWN,
+  // ALREADY_RESPONDED, AUDIENCE_TOO_SMALL (an anonymous response to someone
+  // with fewer than three friends; a signed one is accepted),
+  // RESPONSE_TEXT_INVALID (empty or over 300 characters), IMAGES_NOT_ALLOWED,
+  // IMAGE_ALREADY_USED, ASSET_NOT_FOUND, ASSET_WRONG_PURPOSE, ASSET_NOT_IMAGE,
+  // ASSET_NOT_READY, RATE_LIMITED, BOX_BUSY.
+  rpc RespondToPrompt(RespondToPromptRequest) returns (RespondToPromptResponse);
+  // Responses to a prompt of the caller's, newest first. Listing RECEIVED
+  // responses marks the listed ones as seen.
+  // Errors: PROMPT_NOT_FOUND, RESPONSE_FILTER_INVALID, INVALID_CURSOR.
+  rpc ListPromptResponses(ListPromptResponsesRequest) returns (ListPromptResponsesResponse);
+  // Published responses of a prompt, as on its page, oldest publication
+  // last. For the owner and their friends.
+  // Errors: PROMPT_NOT_FOUND, INVALID_CURSOR.
+  rpc ListPublishedResponses(ListPublishedResponsesRequest) returns (ListPublishedResponsesResponse);
+  // Publishes a response on the prompt's page, or takes it back. A response
+  // the word filter held has to be released first.
+  // Errors: RESPONSE_NOT_FOUND.
+  rpc SetResponsePublished(SetResponsePublishedRequest) returns (SetResponsePublishedResponse);
+  // Releases a response the word filter held.
+  // Errors: RESPONSE_NOT_FOUND.
+  rpc ReleaseResponse(ReleaseResponseRequest) returns (ReleaseResponseResponse);
+  // Deletes a response to a prompt of the caller's. The responder keeps
+  // seeing it as sent.
+  // Errors: RESPONSE_NOT_FOUND.
+  rpc DeleteResponse(DeleteResponseRequest) returns (DeleteResponseResponse);
+}
+
+message Prompt {
+  string id = 1;
+  tokuly.common.v1.UserSummary owner = 2;
+  // The question to friends, e.g. 「私の第一印象は?」.
+  string text = 3;
+  // A single emoji shown with the prompt; may be empty.
+  string emoji = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp closes_at = 6;
+  // False once the time ran out or the owner closed it.
+  bool open = 7;
+  // Responses published on the page.
+  int32 published_count = 8;
+  // For the owner only: responses received (without held ones) and how many
+  // of them the owner has not seen.
+  int32 response_count = 9;
+  int32 unseen_count = 10;
+  // For the owner only: responses held by the word filter.
+  int32 held_count = 11;
+  // Whether the caller responded already. Only ever set for the responder.
+  bool responded = 12;
+  // Whether the caller could respond right now.
+  bool can_respond = 13;
+  // Path of the prompt's page in the web app.
+  string path = 14;
+  // Whether an anonymous response would be accepted from the caller: false
+  // when they cannot respond at all, and when the owner has fewer than
+  // three friends (a signed response is still possible then).
+  bool anonymous_available = 15;
+}
+
+message PromptResponse {
+  string id = 1;
+  string prompt_id = 2;
+  string text = 3;
+  // False when the responder signed.
+  bool anonymous = 4;
+  // The responder, on signed responses only. Also unset when there is a
+  // block between the caller and the responder.
+  tokuly.common.v1.UserSummary responder = 5;
+  google.protobuf.Timestamp created_at = 6;
+  // Shown on the prompt's page.
+  bool published = 7;
+  google.protobuf.Timestamp published_at = 8;
+  // For the owner only: held by the word filter.
+  bool held = 9;
+  // For the owner only: whether they have seen it.
+  bool seen = 10;
+  // True when the caller wrote this response. Only ever set for the responder.
+  bool sent_by_me = 11;
+  // Set when the responder attached one.
+  tokuly.common.v1.Image image = 12;
+}
+
+message CreatePromptRequest {
+  string text = 1;
+  string emoji = 2;
+  // How long the prompt stays open; 0 means 24 hours.
+  int32 duration_seconds = 3;
+}
+
+message CreatePromptResponse {
+  Prompt prompt = 1;
+}
+
+message ClosePromptRequest {
+  string prompt_id = 1;
+}
+
+message ClosePromptResponse {
+  Prompt prompt = 1;
+}
+
+message DeletePromptRequest {
+  string prompt_id = 1;
+}
+
+message DeletePromptResponse {}
+
+message GetPromptRequest {
+  string prompt_id = 1;
+}
+
+message GetPromptResponse {
+  Prompt prompt = 1;
+  // The first published responses, newest publication first.
+  repeated PromptResponse responses = 2;
+  // Continue with ListPublishedResponses.
+  tokuly.common.v1.PageInfo page = 3;
+  // The caller's own response, if they sent one.
+  PromptResponse my_response = 4;
+}
+
+message ListPromptsRequest {
+  // A user ID or handle; empty means the caller.
+  string user = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListPromptsResponse {
+  repeated Prompt prompts = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListFriendPromptsRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListFriendPromptsResponse {
+  repeated Prompt prompts = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message RespondToPromptRequest {
+  string prompt_id = 1;
+  string text = 2;
+  // Show the responder's name to the owner (and on the page when published).
+  bool signed = 3;
+  // An uploaded image (ASSET_PURPOSE_NOTE_IMAGE or ASSET_PURPOSE_CHAT_IMAGE),
+  // when the prompt's owner takes images: a fresh upload, as for questions.
+  string image_asset_id = 4;
+}
+
+message RespondToPromptResponse {
+  PromptResponse response = 1;
+}
+
+// Which responses of a prompt its owner wants to list.
+enum ResponseFilter {
+  RESPONSE_FILTER_UNSPECIFIED = 0;
+  // Everything delivered (not held).
+  RESPONSE_FILTER_RECEIVED = 1;
+  RESPONSE_FILTER_PUBLISHED = 2;
+  // Held by the word filter.
+  RESPONSE_FILTER_HELD = 3;
+}
+
+message ListPromptResponsesRequest {
+  string prompt_id = 1;
+  // RECEIVED when unspecified.
+  ResponseFilter filter = 2;
+  tokuly.common.v1.PageRequest page = 3;
+}
+
+message ListPromptResponsesResponse {
+  repeated PromptResponse responses = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListPublishedResponsesRequest {
+  string prompt_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListPublishedResponsesResponse {
+  repeated PromptResponse responses = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message SetResponsePublishedRequest {
+  string response_id = 1;
+  bool published = 2;
+}
+
+message SetResponsePublishedResponse {
+  PromptResponse response = 1;
+}
+
+message ReleaseResponseRequest {
+  string response_id = 1;
+}
+
+message ReleaseResponseResponse {
+  PromptResponse response = 1;
+}
+
+message DeleteResponseRequest {
+  string response_id = 1;
+}
+
+message DeleteResponseResponse {}
+
+// ───────────────────────────── Compliment polls (ほめ投票) ─────────────────────────────
+
+// Compliment polls: rounds of kind questions, each answered by picking one
+// of four friends. The picked friend receives an anonymous "flame".
+service ComplimentService {
+  // The caller's current round: the poll to answer next, or when the next
+  // round opens. Starts a round when one is due.
+  // Errors: NOT_ENOUGH_FRIENDS (a poll needs four friends who take part and
+  // have at least three friends of their own, so that a flame does not point
+  // at its sender), POLLS_UNAVAILABLE (every question of the bank is
+  // switched off), RATE_LIMITED.
+  rpc GetRound(GetRoundRequest) returns (GetRoundResponse);
+  // Picks one of the four friends shown: sends them a flame and moves on.
+  // Finishing the last poll completes the round and pays its reward.
+  // Errors: POLL_NOT_CURRENT (not the poll the round is on), CHOICE_INVALID
+  // (not one of the four shown, or no longer someone who can be picked),
+  // ROUND_NOT_ACTIVE, RATE_LIMITED.
+  rpc Vote(VoteRequest) returns (VoteResponse);
+  // Skips the current poll without picking anyone.
+  // Errors: POLL_NOT_CURRENT, ROUND_NOT_ACTIVE, RATE_LIMITED.
+  rpc SkipPoll(SkipPollRequest) returns (SkipPollResponse);
+  // Shows other friends in the current poll: four others when there are
+  // that many, otherwise as many as there are next to some of the four
+  // shown now.
+  // Errors: POLL_NOT_CURRENT, ROUND_NOT_ACTIVE, NO_SHUFFLES_LEFT,
+  // NOT_ENOUGH_FRIENDS (there is nobody else to show), RATE_LIMITED.
+  rpc ShufflePoll(ShufflePollRequest) returns (ShufflePollResponse);
+
+  // Flames the caller received, newest first.
+  // Errors: INVALID_CURSOR.
+  rpc ListFlames(ListFlamesRequest) returns (ListFlamesResponse);
+  // The caller's flames in numbers: total, unseen, and the questions they
+  // were picked for most.
+  rpc GetFlameSummary(GetFlameSummaryRequest) returns (GetFlameSummaryResponse);
+  // Marks flames as seen: the listed ones, or all when `all` is set.
+  // Errors: TOO_MANY_IDS (over 100).
+  rpc MarkFlamesSeen(MarkFlamesSeenRequest) returns (MarkFlamesSeenResponse);
+  // Buys the next hint about who sent a flame. The first hint is the first
+  // letter of their name, the second their school or how long the two have
+  // been friends; there is no third, and never a name (someone whose name
+  // is a single character gives the first letter of their handle instead).
+  // What a flame sells was fixed when the vote was cast and does not follow
+  // the sender's account afterwards. Repeating the call with the same
+  // `idempotency_key` charges once.
+  // Errors: FLAME_NOT_FOUND, HINTS_UNAVAILABLE (this flame sells no hints:
+  // its sender had them switched off when they voted), NO_MORE_HINTS,
+  // INSUFFICIENT_COINS, IDEMPOTENCY_KEY_INVALID, RATE_LIMITED.
+  rpc BuyHint(BuyHintRequest) returns (BuyHintResponse);
+  // This week's flame counts among the caller and their friends, most first.
+  rpc GetTopFlames(GetTopFlamesRequest) returns (GetTopFlamesResponse);
+}
+
+// A question from the curated bank, in both languages.
+message PollQuestion {
+  string id = 1;
+  tokuly.common.v1.LocalizedText text = 2;
+  // A single emoji shown with the question.
+  string emoji = 3;
+}
+
+// One poll of a round: a question and four friends to pick from.
+message Poll {
+  string id = 1;
+  // 1-based position in the round.
+  int32 position = 2;
+  PollQuestion question = 3;
+  // Exactly four friends.
+  repeated tokuly.common.v1.UserSummary choices = 4;
+  // Shuffles still available for this poll.
+  int32 shuffles_left = 5;
+}
+
+enum RoundState {
+  ROUND_STATE_UNSPECIFIED = 0;
+  // Polls are waiting; `poll` is the next one.
+  ROUND_STATE_ACTIVE = 1;
+  // The last round is finished and the next opens at `next_round_at`.
+  ROUND_STATE_COOLDOWN = 2;
+}
+
+message Round {
+  string id = 1;
+  RoundState state = 2;
+  // Polls in the round.
+  int32 poll_count = 3;
+  // Polls voted on or skipped so far.
+  int32 answered_count = 4;
+  // The poll to answer; unset during the cooldown.
+  Poll poll = 5;
+  // When the next round can start; set during the cooldown.
+  google.protobuf.Timestamp next_round_at = 6;
+  // Coins paid for completing the round (0 until it is complete, and when
+  // every poll was skipped).
+  int64 reward_coins = 7;
+}
+
+message GetRoundRequest {}
+
+message GetRoundResponse {
+  Round round = 1;
+}
+
+message VoteRequest {
+  string poll_id = 1;
+  // The picked friend: one of the poll's four choices.
+  string user_id = 2;
+}
+
+message VoteResponse {
+  Round round = 1;
+}
+
+message SkipPollRequest {
+  string poll_id = 1;
+}
+
+message SkipPollResponse {
+  Round round = 1;
+}
+
+message ShufflePollRequest {
+  string poll_id = 1;
+}
+
+message ShufflePollResponse {
+  Round round = 1;
+}
+
+// What a hint tells about the sender of a flame.
+enum HintKind {
+  HINT_KIND_UNSPECIFIED = 0;
+  // The first letter of their display name (of their handle when the
+  // display name is a single character).
+  HINT_KIND_INITIAL = 1;
+  // The school they set on their profile.
+  HINT_KIND_SCHOOL = 2;
+  // How many months the two have been friends.
+  HINT_KIND_FRIEND_MONTHS = 3;
+}
+
+message Hint {
+  HintKind kind = 1;
+  // The hint as a sentence, ready to show.
+  tokuly.common.v1.LocalizedText text = 2;
+  // The bare value: the letter, the school name, or the number of months.
+  string value = 3;
+}
+
+// A compliment the caller received: the question and when, never who.
+message Flame {
+  string id = 1;
+  PollQuestion question = 2;
+  google.protobuf.Timestamp created_at = 3;
+  bool seen = 4;
+  // Hints bought so far, in order.
+  repeated Hint hints = 5;
+  // Price of the next hint in coins; 0 when none can be bought: all were,
+  // or this flame sells none.
+  int64 next_hint_price = 6;
+}
+
+message ListFlamesRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListFlamesResponse {
+  repeated Flame flames = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// How often the caller was picked for one question.
+message QuestionCount {
+  PollQuestion question = 1;
+  int32 count = 2;
+}
+
+message FlameSummary {
+  int32 total = 1;
+  int32 unseen = 2;
+  // Flames received since Monday 00:00 (Asia/Tokyo).
+  int32 this_week = 3;
+  // "Most picked for…": the questions with the most flames, most first.
+  repeated QuestionCount top_questions = 4;
+}
+
+message GetFlameSummaryRequest {}
+
+message GetFlameSummaryResponse {
+  FlameSummary summary = 1;
+}
+
+message MarkFlamesSeenRequest {
+  repeated string flame_ids = 1;
+  bool all = 2;
+}
+
+message MarkFlamesSeenResponse {
+  // Flames still unseen.
+  int32 unseen = 1;
+}
+
+message BuyHintRequest {
+  string flame_id = 1;
+  // Chosen by the client; makes a retried purchase charge once (8-128 chars).
+  string idempotency_key = 2;
+}
+
+message BuyHintResponse {
+  Flame flame = 1;
+  // The hint this call bought (or bought earlier under the same key).
+  Hint hint = 2;
+  // Coins charged by this call; 0 when it repeated an earlier one.
+  int64 coins_spent = 3;
+}
+
+// One line of the weekly ranking.
+message TopFlameEntry {
+  tokuly.common.v1.UserSummary user = 1;
+  // Flames received this week.
+  int32 count = 2;
+  int32 rank = 3;
+}
+
+message GetTopFlamesRequest {}
+
+message GetTopFlamesResponse {
+  // The caller and their friends who received flames this week, most first
+  // (at most 20).
+  repeated TopFlameEntry entries = 1;
+  // Start of the week being counted: Monday 00:00 (Asia/Tokyo).
+  google.protobuf.Timestamp week_start = 2;
+  // The caller's own count, also when they are not among `entries`.
+  int32 my_count = 3;
+}
+
+// ───────────────────────────── Moderation ─────────────────────────────
+
+// Staff tools: who sent what, and the poll question bank.
+service AskModerationService {
+  // A question with the account that sent it, for acting on a report.
+  // Role: moderator. Staff cannot look up what was sent to or by themselves.
+  // Errors: QUESTION_NOT_FOUND, CONFLICT_OF_INTEREST.
+  rpc InspectQuestion(InspectQuestionRequest) returns (InspectQuestionResponse);
+  // A prompt response with the account that sent it. Role: moderator.
+  // Errors: RESPONSE_NOT_FOUND, CONFLICT_OF_INTEREST.
+  rpc InspectPromptResponse(InspectPromptResponseRequest) returns (InspectPromptResponseResponse);
+  // A flame with the account that sent it. Role: moderator.
+  // Errors: FLAME_NOT_FOUND, CONFLICT_OF_INTEREST.
+  rpc InspectFlame(InspectFlameRequest) returns (InspectFlameResponse);
+
+  // The whole question bank, disabled questions included. Role: moderator.
+  // Errors: INVALID_CURSOR.
+  rpc ListPollQuestions(ListPollQuestionsRequest) returns (ListPollQuestionsResponse);
+  // Adds a question to the bank. Role: admin.
+  // Errors: POLL_QUESTION_INVALID (a text is empty or over 80 characters).
+  rpc AddPollQuestion(AddPollQuestionRequest) returns (AddPollQuestionResponse);
+  // Enables or disables a question; disabled ones are no longer drawn.
+  // Role: admin.
+  // Errors: POLL_QUESTION_NOT_FOUND.
+  rpc SetPollQuestionEnabled(SetPollQuestionEnabledRequest) returns (SetPollQuestionEnabledResponse);
+}
+
+// What moderators see of something sent anonymously.
+message SenderRecord {
+  // The account that sent it; unset once that account was deleted.
+  tokuly.common.v1.UserSummary sender = 1;
+  // The account it was sent to.
+  tokuly.common.v1.UserSummary recipient = 2;
+  // Whether the sender signed it.
+  bool signed = 3;
+  // Whether it was dropped because the recipient had blocked the sender.
+  bool dropped = 4;
+  // Whether the sender's account is banned (what they sent is hidden then).
+  bool sender_banned = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+message InspectQuestionRequest {
+  string question_id = 1;
+}
+
+message InspectQuestionResponse {
+  SenderRecord record = 1;
+  string text = 2;
+  tokuly.common.v1.Image image = 3;
+  QuestionFolder folder = 4;
+  Answer answer = 5;
+  // Set when the question was deleted, withdrawn or taken down.
+  google.protobuf.Timestamp removed_at = 6;
+}
+
+message InspectPromptResponseRequest {
+  string response_id = 1;
+}
+
+message InspectPromptResponseResponse {
+  SenderRecord record = 1;
+  string text = 2;
+  // The prompt it answers.
+  string prompt_id = 3;
+  string prompt_text = 4;
+  bool published = 5;
+  bool held = 6;
+  google.protobuf.Timestamp removed_at = 7;
+  tokuly.common.v1.Image image = 8;
+}
+
+message InspectFlameRequest {
+  string flame_id = 1;
+}
+
+message InspectFlameResponse {
+  SenderRecord record = 1;
+  PollQuestion question = 2;
+  // Hints the recipient bought.
+  int32 hints_bought = 3;
+}
+
+// A bank question as staff see it.
+message PollQuestionEntry {
+  PollQuestion question = 1;
+  bool enabled = 2;
+  // Shipped with the server (true) or added by staff (false).
+  bool built_in = 3;
+  // Flames sent with this question.
+  int64 use_count = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message ListPollQuestionsRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListPollQuestionsResponse {
+  repeated PollQuestionEntry questions = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message AddPollQuestionRequest {
+  // Both languages are required.
+  tokuly.common.v1.LocalizedText text = 1;
+  string emoji = 2;
+}
+
+message AddPollQuestionResponse {
+  PollQuestionEntry question = 1;
+}
+
+message SetPollQuestionEnabledRequest {
+  string question_id = 1;
+  bool enabled = 2;
+}
+
+message SetPollQuestionEnabledResponse {
+  PollQuestionEntry question = 1;
+}
+
+// ───────────────────────────── Realtime ─────────────────────────────
+
+// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.ask),
+// always to one user. Nothing here names an anonymous sender.
 message AskEvent {
-  // Placeholder so the realtime envelope compiles; replace with a oneof of real events.
-  tokuly.common.v1.SubjectRef subject = 1;
+  oneof event {
+    // A question arrived in the user's inbox.
+    QuestionReceived question_received = 1;
+    // A question the user sent was answered.
+    QuestionAnswered question_answered = 2;
+    // A friend picked the user in a compliment poll.
+    FlameReceived flame_received = 3;
+    // Someone responded to one of the user's prompts.
+    PromptResponseReceived prompt_response_received = 4;
+  }
+}
+
+message QuestionReceived {
+  Question question = 1;
+  InboxCounts counts = 2;
+}
+
+message QuestionAnswered {
+  Question question = 1;
+}
+
+message FlameReceived {
+  Flame flame = 1;
+  // Flames still unseen, this one included.
+  int32 unseen = 2;
+}
+
+message PromptResponseReceived {
+  PromptResponse response = 1;
+  // The prompt with its updated counters.
+  Prompt prompt = 2;
 }

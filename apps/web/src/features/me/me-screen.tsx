@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Bell, ChevronRight, Clapperboard, History, ListVideo, LogOut, Megaphone, Settings, ShieldCheck, Smile, UserRound, Users, Wallet } from "lucide-react";
+import { Bell, ChevronRight, Clapperboard, History, ListVideo, LogOut, Megaphone, Newspaper, Settings, ShieldCheck, Smile, UserRound, Users, Wallet } from "lucide-react";
 import type { ComponentType } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
@@ -12,7 +12,7 @@ import { type BadgeKey, useBadges } from "#/stores/badges";
 import { useMe } from "#/stores/session";
 
 interface Tile {
-  to: "/friends" | "/stamps" | "/wallet" | "/notifications" | "/settings" | "/announcements" | "/admin" | "/studio" | "/watch/history" | "/watch/playlists";
+  to: "/friends" | "/stamps" | "/wallet" | "/notifications" | "/settings" | "/announcements" | "/news" | "/admin" | "/studio" | "/watch/history" | "/watch/playlists";
   /** A key of the `me` strings, or `<namespace>:<key>` for a tile whose feature names it. */
   labelKey: string;
   icon: ComponentType<{ className?: string }>;
@@ -26,7 +26,9 @@ const TILES: Tile[] = [
   { to: "/notifications", labelKey: "tiles.notifications", icon: Bell, tint: "bg-pink", badge: "notifications" },
   { to: "/stamps", labelKey: "tiles.stamps", icon: Smile, tint: "bg-sun" },
   { to: "/wallet", labelKey: "tiles.wallet", icon: Wallet, tint: "bg-lime" },
-  { to: "/studio", labelKey: "video:meTiles.studio", icon: Clapperboard, tint: "bg-coral" },
+  // The news tile takes its name from the shared navigation strings.
+  { to: "/news", labelKey: "common:nav.news", icon: Newspaper, tint: "bg-coral" },
+  { to: "/studio", labelKey: "video:meTiles.studio", icon: Clapperboard, tint: "bg-sun" },
   { to: "/watch/history", labelKey: "video:meTiles.history", icon: History, tint: "bg-sky" },
   { to: "/watch/playlists", labelKey: "video:meTiles.playlists", icon: ListVideo, tint: "bg-pink" },
   { to: "/settings", labelKey: "tiles.settings", icon: Settings, tint: "bg-mint" },

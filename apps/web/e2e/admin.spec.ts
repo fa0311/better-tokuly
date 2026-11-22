@@ -508,7 +508,8 @@ test.describe("moderation", () => {
     }).toPass({ timeout: 20_000 });
 
     await page.goto(`/admin/moderation?owner=${owner.userId}`);
-    await page.getByRole("link", { name: new RegExp(owner.handle) }).first().click();
+    // The row also links to the reported account; the case is the link that leads to it.
+    await page.locator(`a[href*="/admin/moderation/${caseId}"]`).first().click();
     await expect(page).toHaveURL(new RegExp(`/admin/moderation/${caseId}`));
     await expect(page.getByRole("region", { name: /^通報/ }).getByText(text)).toBeVisible();
 
