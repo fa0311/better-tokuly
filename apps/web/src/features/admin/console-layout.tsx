@@ -1,5 +1,5 @@
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { Flag, Gavel, LayoutDashboard, Megaphone, Newspaper, ScrollText, Search, ShieldCheck, Sticker, Users, Wallet } from "lucide-react";
+import { Flag, Gavel, LayoutDashboard, Megaphone, Newspaper, ScrollText, Search, ShieldCheck, SmilePlus, Sticker, Users, Wallet } from "lucide-react";
 import { type ComponentType, type ReactNode, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { EmptyState } from "#/components/ui/page";
@@ -8,7 +8,7 @@ import { type StaffAccess, type StaffLevel, useStaffAccess } from "./roles";
 import { ConsolePage } from "./ui/console-page";
 
 interface ConsoleNavItem {
-  to: "/admin" | "/admin/moderation" | "/admin/users" | "/admin/flags" | "/admin/announcements" | "/admin/audit" | "/admin/stamps" | "/admin/wallet" | "/admin/search" | "/admin/news";
+  to: "/admin" | "/admin/moderation" | "/admin/users" | "/admin/flags" | "/admin/announcements" | "/admin/audit" | "/admin/stamps" | "/admin/wallet" | "/admin/search" | "/admin/news" | "/admin/emoji";
   /** Key under `nav.` in the `admin` namespace. */
   key: string;
   icon: ComponentType<{ className?: string }>;
@@ -28,6 +28,7 @@ export const CONSOLE_NAV: ConsoleNavItem[] = [
   { to: "/admin/wallet", key: "wallet", icon: Wallet, needs: "staff" },
   { to: "/admin/search", key: "search", icon: Search, needs: "admin" },
   { to: "/admin/news", key: "news", icon: Newspaper, needs: "moderator" },
+  { to: "/admin/emoji", key: "emoji", icon: SmilePlus, needs: "moderator" },
 ];
 
 /**

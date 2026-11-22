@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Bell, Bookmark, CalendarHeart, ChevronRight, Clapperboard, History, ListVideo, LogOut, Megaphone, Newspaper, Settings, ShieldCheck, Smile, UserRound, Users, Wallet } from "lucide-react";
+import { Bell, Bookmark, CalendarHeart, ChevronRight, Clapperboard, History, ListVideo, LogOut, Megaphone, Newspaper, Settings, ShieldCheck, Smile, SmilePlus, UserRound, Users, Wallet } from "lucide-react";
 import type { ComponentType } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
@@ -16,6 +16,7 @@ interface Tile {
     | "/friends"
     | "/plans"
     | "/stamps"
+    | "/emoji"
     | "/wallet"
     | "/notifications"
     | "/settings"
@@ -42,6 +43,7 @@ const TILES: Tile[] = [
   { to: "/bookmarks", labelKey: "engagement:tile", icon: Bookmark, tint: "bg-sky" },
   { to: "/activity", labelKey: "notes:activityTile", icon: History, tint: "bg-brand" },
   { to: "/stamps", labelKey: "tiles.stamps", icon: Smile, tint: "bg-sun" },
+  { to: "/emoji", labelKey: "emoji:tile", icon: SmilePlus, tint: "bg-mint" },
   { to: "/wallet", labelKey: "tiles.wallet", icon: Wallet, tint: "bg-lime" },
   // The news tile takes its name from the shared navigation strings.
   { to: "/news", labelKey: "common:nav.news", icon: Newspaper, tint: "bg-coral" },
