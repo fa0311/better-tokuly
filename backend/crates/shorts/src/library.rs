@@ -40,6 +40,9 @@ impl Shorts {
     /// save count. Saving a saved short changes nothing.
     pub async fn save(&self, user_id: Uuid, short: &ShortRow) -> AppResult<i64> {
         let core = &self.core;
+        // Read before the transaction: nothing below may wait for a second
+        // connection while it holds the lock on the saved list.
+        let weighs = user_id != short.owner_id && self.carries_weight(user_id).await?;
         let mut tx = core.db.begin().await?;
         // One change to a user's saved list at a time, so the limit holds
         // when several saves arrive together. Everything up to the commit
@@ -75,10 +78,23 @@ impl Shorts {
                 .bind(short.id)
                 .fetch_one(&mut *tx)
                 .await?;
-        if self.count_signal(short, Engagement::Save, &user_id.to_string()).await? {
-            signals::bump_hourly(&mut *tx, short.id, Engagement::Save, 1).await?;
+        // The signal is claimed before the write it stands for; if that
+        // write does not happen, the claim is given back.
+        let counted = weighs && self.claim_signal(short, Engagement::Save, user_id).await?;
+        let written = async {
+            if counted {
+                signals::bump_hourly(&mut *tx, short.id, Engagement::Save, 1).await?;
+            }
+            tx.commit().await?;
+            AppResult::Ok(())
         }
-        tx.commit().await?;
+        .await;
+        if let Err(error) = written {
+            if counted {
+                self.release_signal(short, Engagement::Save, user_id).await;
+            }
+            return Err(error);
+        }
         signals::track(core, "short.save", short, Some(user_id), 1.0, serde_json::json!({})).await;
         Ok(save_count)
     }
@@ -222,23 +238,38 @@ impl Shorts {
         Ok(())
     }
 
-    /// Records that `sharer` (an account ID, or the key of an anonymous
-    /// viewer) shared `short` towards `target` (a `ShareTarget` number) and
-    /// returns the share count. One sharer counts once a week per short.
-    pub async fn share(&self, user_id: Option<Uuid>, sharer: &str, short: &ShortRow, target: i32) -> AppResult<i64> {
+    /// Records that `user_id` shared `short` towards `target` (a
+    /// `ShareTarget` number) and returns the share count. An account counts
+    /// once a week per short. A visitor's share (`None`) counts for
+    /// nothing, neither in the number shown nor in the ranking: without an
+    /// account there is no telling one sharer from a thousand.
+    pub async fn share(&self, user_id: Option<Uuid>, short: &ShortRow, target: i32) -> AppResult<i64> {
         let core = &self.core;
+        let Some(sharer) = user_id else { return Ok(short.share_count) };
         if !self.count_signal(short, Engagement::Share, sharer).await? {
             return Ok(short.share_count);
         }
-        let mut tx = core.db.begin().await?;
-        let share_count: i64 =
-            sqlx::query_scalar("UPDATE shorts SET share_count = share_count + 1 WHERE id = $1 RETURNING share_count")
-                .bind(short.id)
-                .fetch_optional(&mut *tx)
-                .await?
-                .ok_or_else(crate::shorts::not_found)?;
-        signals::bump_hourly(&mut *tx, short.id, Engagement::Share, 1).await?;
-        tx.commit().await?;
+        let written = async {
+            let mut tx = core.db.begin().await?;
+            let share_count: Option<i64> = sqlx::query_scalar(
+                "UPDATE shorts SET share_count = share_count + 1 WHERE id = $1 RETURNING share_count",
+            )
+            .bind(short.id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            let share_count = share_count.ok_or_else(crate::shorts::not_found)?;
+            signals::bump_hourly(&mut *tx, short.id, Engagement::Share, 1).await?;
+            tx.commit().await?;
+            AppResult::Ok(share_count)
+        }
+        .await;
+        let share_count = match written {
+            Ok(share_count) => share_count,
+            Err(error) => {
+                self.release_signal(short, Engagement::Share, sharer).await;
+                return Err(error);
+            }
+        };
         signals::track(core, "short.share", short, user_id, 1.0, serde_json::json!({ "target": target })).await;
         Ok(share_count)
     }

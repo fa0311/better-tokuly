@@ -77,7 +77,10 @@ saves and statistics, and the upload (unless something else holds it; clip
 media is never deleted). A short that has been reported is *withdrawn*
 instead (`SHORT_STATUS_WITHDRAWN`): gone for everyone including its owner,
 `shorts.short.deleted` emitted, but row and media kept. Moderators (role
-`moderator`, never for their own shorts) still open it with `GetShort`. It is
+`moderator`, never for their own shorts, and only shorts that were reported
+or withdrawn) still open it with `GetShort`. A short that notified someone
+of a mention is withdrawn in the same way, and the accounts that were
+notified keep resolving it as a subject, so they can report it. It is
 deleted for good `TOKULY_SHORTS_REPORTED_RETENTION_DAYS` after the
 withdrawal (not after its creation), or at once by a takedown.
 
@@ -101,7 +104,14 @@ the engagement sum alone.
 view (a stay of at least a second) and one sample (the first stay: its
 watch ratio and up to ten loops). Per account, short and week: one like,
 one comment, one save, one share. The owner's own actions never count.
-Reporting more, or toggling, moves nothing.
+Reporting more, or toggling, moves nothing. A claimed signal is given back
+if the write it stands for fails.
+
+**Only accounts that have been around carry weight.** Visitors (counted
+per IPv4 address or IPv6 /64) and accounts younger than
+`TOKULY_SHORTS_SIGNAL_MIN_ACCOUNT_AGE_HOURS` add to the view count that is
+shown, and to nothing else: no hourly statistics, no watch sample, no
+share count.
 
 **Candidates** for a viewer: the newest public shorts, the best scored, the
 newest from followed channels, the newest from friends' channels
@@ -121,9 +131,16 @@ rank = score · 1.6 (friend's channel) · 1.4 (followed channel)
 ```
 
 then spread so no channel appears twice within three places. Deterministic.
-A ranked batch is stored in Valkey for 30 minutes; the cursor is its token
-and an offset, so pages do not shift while shorts arrive. Anonymous and new
-viewers get the same feed without the personal factors.
+A ranked batch is stored in Valkey for 30 minutes, one per viewer under a
+fixed key; the cursor is its token and an offset, so pages do not shift
+while shorts arrive. Every short a page returned is remembered as served
+for six hours and left out of the next batch together with the seen list,
+so a new batch does not start with what the client prefetched. Visitors
+share one batch and get the same feed without the personal factors.
+
+Lists ordered by a moving value (hashtag TOP by score, channel grid by
+views) are paged on a snapshot of the order kept for five minutes
+(`tokuly_shorts::snapshot`), one per hashtag or channel.
 
 Trending hashtags: the summed `trending` of a hashtag's public shorts; the
 top 50 carried by at least two channels.
@@ -174,16 +191,20 @@ Subject `("short", id)`, `owner_id` = channel owner, `props.channel_id`.
 
 | Name | Value / props |
 |---|---|
-| `short.watch` | seconds played; `viewer`, `source`, `ratio`, `loops`, `completed` (first stay per viewer and window) |
-| `short.view` | 1; `viewer`, `source` |
+| `short.watch` | seconds played; `viewer`, `source`, `ratio`, `loops`, `completed` (first stay per account and window; accounts that carry weight only) |
+| `short.view` | 1; `viewer`, `source`, `counted` (false for visitors and new accounts) |
 | `short.like`, `short.comment` | ± count delta |
 | `short.save` | ±1 |
 | `short.share` | 1; `target` |
 | `short.follow` | 1 |
 | `short.not_interested` | 1 (not shown to creators) |
 
-Creator analytics report watch behaviour (ratio, loops, watch time, plays)
-only where at least five distinct viewers stand behind the number.
+Creator analytics cut days in the time zone of the channel owner's account.
+Counts are live. Watch behaviour (ratio, loops, watch time, plays) is
+reported only as a sum of blocks: one short on one finished day watched by
+at least five accounts. Any report is a sum of such blocks, so two reports
+never differ by one person's viewing; values are rounded; there are no
+live figures of this kind (none in `ShortStudioInfo` either).
 
 ## Background work
 
@@ -205,7 +226,9 @@ only where at least five distinct viewers stand behind the number.
 | `shorts:once:<signal>:<short>:<account>` | like / comment / save / share counted (7 days) |
 | `shorts:seen:<user>` | sorted set of seen shorts, capped at `seen_cap` |
 | `shorts:lastwatch:<user>:<channel>` | short to credit with a follow (1 h) |
-| `shorts:foryou:<user or anon>:<token>` | a ranked for-you batch |
+| `shorts:foryou:<user>`, `shorts:foryou:anon` | the viewer's (the visitors') current for-you batch |
+| `shorts:served:<user>` | shorts the for-you feed returned (6 h, capped) |
+| `shorts:top:hashtag:<id>`, `shorts:top:channel:<id>` | snapshot of a TOP / most-viewed order (5 min) |
 | `shorts:ranking:lease` | one ranking run per interval |
 
 ## Configuration (`ShortsConfig`)
@@ -224,6 +247,7 @@ only where at least five distinct viewers stand behind the number.
 | `TOKULY_SHORTS_ANNOUNCE_BATCH_SIZE` | `500` | Subscribers per notification batch. |
 | `TOKULY_SHORTS_ANNOUNCEMENTS_PER_DAY` | `3` | Announced shorts per channel and 24 h. |
 | `TOKULY_SHORTS_REPORTED_RETENTION_DAYS` | `30` | How long a withdrawn short is kept. |
+| `TOKULY_SHORTS_SIGNAL_MIN_ACCOUNT_AGE_HOURS` | `24` | Age from which an account's activity moves rankings. |
 | `TOKULY_SHORTS_MAX_SAVES` | `5000` | Saved shorts per account. |
 | `TOKULY_SHORTS_FFMPEG_PATH` | `ffmpeg` | Binary for cover frames (worker hosts). |
 

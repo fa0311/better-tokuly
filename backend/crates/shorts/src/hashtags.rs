@@ -17,6 +17,7 @@ use tokuly_proto::{
 use crate::{
     access::{self, Viewer},
     shorts::{ShortRow, short_columns},
+    snapshot,
     sounds::like_literal,
     text,
 };
@@ -162,25 +163,24 @@ pub async fn shorts_page(
         let info = page.finish(&mut rows, |row| (row.published_at.unwrap_or(row.created_at), row.id));
         return Ok((rows, info));
     }
-    let before: Option<(f64, Uuid)> = page.decode()?;
-    let mut rows: Vec<ShortRow> = sqlx::query_as(concat!(
-        "SELECT ",
-        short_columns!(),
-        " FROM short_hashtag_uses u JOIN shorts s ON s.id = u.short_id
-          WHERE u.hashtag_id = $1 AND ",
-        access::public!(2),
-        " AND ($3::float8 IS NULL OR (s.score, s.id) < ($3, $4))
-          ORDER BY s.score DESC, s.id DESC LIMIT $5"
-    ))
-    .bind(hashtag_id)
-    .bind(&viewer.blocked)
-    .bind(before.map(|(score, _)| score))
-    .bind(before.map(|(_, id)| id))
-    .bind(page.fetch())
-    .fetch_all(&core.db)
-    .await?;
-    let info = page.finish(&mut rows, |row| (row.score, row.id));
-    Ok((rows, info))
+    // The score moves with every ranking run: page on a snapshot of the order.
+    let build = || async move {
+        let ids: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT s.id FROM short_hashtag_uses u JOIN shorts s ON s.id = u.short_id
+             WHERE u.hashtag_id = $1 AND s.listed ORDER BY s.score DESC, s.id DESC LIMIT $2",
+        )
+        .bind(hashtag_id)
+        .bind(snapshot::SNAPSHOT_SIZE)
+        .fetch_all(&core.db)
+        .await?;
+        Ok(ids)
+    };
+    snapshot::read(core, &top_key(hashtag_id), page, build, |row| access::sees_public(viewer, &row.facts())).await
+}
+
+/// Where the snapshot of a hashtag's TOP order is kept.
+pub fn top_key(hashtag_id: Uuid) -> String {
+    format!("shorts:top:hashtag:{}", hashtag_id.simple())
 }
 
 /// Recomputes which hashtags trend. A hashtag's trend is the summed

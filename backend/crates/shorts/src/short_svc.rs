@@ -192,7 +192,7 @@ impl ShortService for Shorts {
             let reviewing = !access::can_watch(&viewer, &facts)
                 && ctx
                     .maybe_auth()?
-                    .is_some_and(|auth| auth.has_role("moderator") && access::moderator_sees(auth.user_id, &facts));
+                    .is_some_and(|auth| auth.has_role("moderator") && access::moderator_sees(auth.user_id, &row));
             ensure!(access::can_watch(&viewer, &facts) || reviewing, not_found, "SHORT_NOT_FOUND", "short not found");
             let mut short = hydrate::short(core, &viewer, &row).await?;
             if reviewing {
@@ -399,8 +399,7 @@ impl ShortService for Shorts {
                 }
                 None => core.cache.rate_limit(&format!("shorts-share:ip:{ip}"), 30, Duration::from_secs(60)).await?,
             }
-            let sharer = crate::signals::viewer_key(core, viewer.user_id, &ip);
-            let share_count = self.share(viewer.user_id, &sharer, &short, target as i32).await?;
+            let share_count = self.share(viewer.user_id, &short, target as i32).await?;
             ok(ShareShortResponse { url: core.web_url(&short.path()), share_count, ..Default::default() })
         })
         .await

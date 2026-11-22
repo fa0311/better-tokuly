@@ -42,7 +42,12 @@ impl SubjectResolver for ShortSubjects {
     async fn resolve(&self, id: &str, viewer: Option<Uuid>) -> AppResult<Option<SubjectInfo>> {
         let Some(short) = shorts::find_ref(&self.core, id).await? else { return Ok(None) };
         let viewer = Viewer::load(&self.core, viewer).await?;
-        if !access::can_watch(&viewer, &short.facts()) {
+        let watchable = access::can_watch(&viewer, &short.facts());
+        // Someone who was notified of a mention in this short can always
+        // point at it (to report it), whatever its owner did with it
+        // since: made it private, took the mention out, deleted it.
+        let was_told = viewer.user_id.is_some_and(|user_id| short.mentions_told.contains(&user_id));
+        if !watchable && !was_told {
             return Ok(None);
         }
         Ok(Some(SubjectInfo {
@@ -54,7 +59,7 @@ impl SubjectResolver for ShortSubjects {
             // Drafts have no audience to hear from. The engagement contract
             // has one switch for comments and reactions alike, so a short
             // with comments off takes no likes either.
-            interactions_enabled: short.comments_enabled && short.is_published(),
+            interactions_enabled: watchable && short.comments_enabled && short.is_published(),
         }))
     }
 

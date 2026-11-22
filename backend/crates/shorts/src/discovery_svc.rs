@@ -11,7 +11,7 @@ use crate::{
     access::{self, Viewer},
     hashtags, hydrate,
     shorts::{ShortRow, short_columns},
-    sounds, text,
+    snapshot, sounds, text,
 };
 
 /// Largest page of the lists in this service.
@@ -64,26 +64,21 @@ impl ShortDiscoveryService for Shorts {
             let page = Page::from_view(request.page.as_option(), MAX_PAGE);
             let popular = request.sort == ChannelShortSort::CHANNEL_SHORT_SORT_POPULAR;
             let (rows, info) = if popular {
-                let before: Option<(i64, Uuid)> = page.decode()?;
-                let mut rows: Vec<ShortRow> = sqlx::query_as(concat!(
-                    "SELECT ",
-                    short_columns!(),
-                    " FROM shorts s WHERE s.channel_id = $4 AND ",
-                    access::listed!(1, 2, 3),
-                    " AND ($5::bigint IS NULL OR (s.view_count, s.id) < ($5, $6))
-                      ORDER BY s.view_count DESC, s.id DESC LIMIT $7"
-                ))
-                .bind(viewer.user_id)
-                .bind(&viewer.friends)
-                .bind(&viewer.blocked)
-                .bind(channel.id)
-                .bind(before.map(|(views, _)| views))
-                .bind(before.map(|(_, id)| id))
-                .bind(page.fetch())
-                .fetch_all(&core.db)
-                .await?;
-                let info = page.finish(&mut rows, |row| (row.view_count, row.id));
-                (rows, info)
+                // View counts move all the time: page on a snapshot of the order.
+                let channel_id = channel.id;
+                let build = || async move {
+                    let ids: Vec<Uuid> = sqlx::query_scalar(
+                        "SELECT id FROM shorts WHERE channel_id = $1 AND status = 2
+                         ORDER BY view_count DESC, id DESC LIMIT $2",
+                    )
+                    .bind(channel_id)
+                    .bind(snapshot::SNAPSHOT_SIZE)
+                    .fetch_all(&core.db)
+                    .await?;
+                    Ok(ids)
+                };
+                let key = format!("shorts:top:channel:{}", channel_id.simple());
+                snapshot::read(core, &key, &page, build, |row| access::sees_listed(&viewer, &row.facts())).await?
             } else {
                 // The first page opens with the pins; the cursor then runs
                 // through the unpinned shorts only.

@@ -19,17 +19,26 @@
 //! anonymous viewers; `source` is `PlaybackSource` as its number. Stays of
 //! the owner on their own shorts are not tracked.
 //!
-//! # Small audiences
+//! # How people watched, and why it is reported in blocks
 //!
 //! Counts are reported as they are. *How* people watched (the
 //! watch-through ratio, loops, watch time, plays) is an average over
 //! viewers, and an average over one viewer is that viewer: the creator of
 //! a friends-only short with a single view would learn how long that
-//! friend lasted. Such numbers are reported only where at least
-//! [`MIN_AUDIENCE`] distinct viewers stand behind them (in the range, on
-//! the day, from the source, for the short) and are zero below that.
-use chrono::NaiveDate;
-use serde::Deserialize;
+//! friend lasted. A minimum audience per report is not enough, because
+//! two reports can be subtracted: a range with and without one day, a
+//! channel with and without one short, a number read before and after a
+//! friend watched.
+//!
+//! So these numbers are only ever sums of fixed **blocks**: one short on
+//! one calendar day in the time zone of the channel owner's account (the
+//! caller cannot move the day boundary), counted once the day is over, and
+//! only if at least [`MIN_AUDIENCE`] accounts watched that short that day.
+//! Every report (a short, a channel, any range) adds up the qualifying
+//! blocks inside it, so the difference of two reports is again a sum of
+//! qualifying blocks, never one person. The results are rounded. There are
+//! no live figures of this kind anywhere in the API.
+use chrono::{NaiveDate, TimeZone as _};
 use tokuly_core::prelude::*;
 use tokuly_proto::shorts::{DailyShortAnalytics, DateRange, PlaybackSourceStats, ShortAnalyticsTotals};
 pub use tokuly_video::analytics::Range;
@@ -37,29 +46,45 @@ use tokuly_video::channels::ChannelRow;
 
 use crate::shorts::ShortRow;
 
-/// Distinct viewers that must stand behind a number describing how people
-/// watched before it is shown to the creator.
+/// Accounts that must have watched a short on a day for that day's
+/// watching of the short to be reported at all.
 pub const MIN_AUDIENCE: i64 = 5;
-
-/// `value` if at least [`MIN_AUDIENCE`] viewers stand behind it.
-fn for_an_audience<T: Default>(viewers: u64, value: T) -> T {
-    if viewers as i64 >= MIN_AUDIENCE { value } else { T::default() }
-}
 
 fn unavailable(error: clickhouse::error::Error) -> AppError {
     AppError::unavailable("ANALYTICS_UNAVAILABLE", format!("analytics query failed: {error}"))
 }
 
-/// Validates a date range (`DATE_RANGE_INVALID`, `TIME_ZONE_INVALID`): the
-/// same rules as the video domain's analytics.
-pub fn parse_range(range: Option<&DateRange>) -> AppResult<Range> {
+/// Validates a date range (`DATE_RANGE_INVALID`) and cuts its days in the
+/// time zone of the channel owner's account.
+pub async fn owner_range(core: &Core, owner_id: Uuid, range: Option<&DateRange>) -> AppResult<Range> {
+    let time_zone: Option<String> =
+        sqlx::query_scalar("SELECT time_zone FROM users WHERE id = $1").bind(owner_id).fetch_optional(&core.db).await?;
+    parse_range(range, &time_zone.unwrap_or_default())
+}
+
+fn parse_range(range: Option<&DateRange>, time_zone: &str) -> AppResult<Range> {
+    // An account whose stored zone is unknown to this build counts its days in UTC.
+    let time_zone = if time_zone.parse::<chrono_tz::Tz>().is_ok() { time_zone } else { "" };
     let range = range.map(|range| tokuly_proto::video::DateRange {
         start_date: range.start_date.clone(),
         end_date: range.end_date.clone(),
-        time_zone: range.time_zone.clone(),
+        time_zone: time_zone.to_owned(),
         ..Default::default()
     });
     Range::parse(range.as_ref())
+}
+
+/// The first instant of the running day in the range's time zone (Unix
+/// milliseconds): watching is reported up to here.
+fn start_of_today_ms(range: &Range) -> i64 {
+    let today = now().with_timezone(&range.time_zone).date_naive();
+    let local = today.and_hms_opt(0, 0, 0).unwrap_or_default();
+    range
+        .time_zone
+        .from_local_datetime(&local)
+        .earliest()
+        .map(|instant| instant.timestamp_millis())
+        .unwrap_or_else(|| now().timestamp_millis())
 }
 
 /// What a report is about.
@@ -100,67 +125,124 @@ impl Scope {
     }
 }
 
-const NAMES: &str =
-    "('short.view', 'short.watch', 'short.like', 'short.comment', 'short.save', 'short.share', 'short.follow')";
+const NAMES: &str = "('short.view', 'short.like', 'short.comment', 'short.save', 'short.share', 'short.follow')";
 
-/// The aggregates of [`Counts`], by column name.
-const AGGREGATES: &str = "toUInt64(countIf(name = 'short.view')) AS views, \
+const COUNTS: &str = "toUInt64(countIf(name = 'short.view')) AS views, \
      toUInt64(uniqExactIf(JSONExtractString(props, 'viewer'), name = 'short.view')) AS viewers, \
-     toFloat64(ifNotFinite(avgIf(JSONExtractFloat(props, 'ratio'), name = 'short.watch'), 0)) AS ratio, \
-     toInt64(sumIf(JSONExtractInt(props, 'loops'), name = 'short.watch')) AS loops, \
      toInt64(sumIf(toInt64(value), name = 'short.like')) AS likes, \
      toInt64(sumIf(toInt64(value), name = 'short.comment')) AS comments, \
      toUInt64(countIf(name = 'short.share')) AS shares, \
      toInt64(sumIf(toInt64(value), name = 'short.save')) AS saves, \
-     toUInt64(countIf(name = 'short.follow')) AS follows, \
-     toFloat64(sumIf(value, name = 'short.watch')) AS watch_seconds, \
-     toUInt64(countIf(name = 'short.watch')) AS plays, \
-     toUInt64(uniqExactIf(JSONExtractString(props, 'viewer'), name = 'short.watch')) AS audience";
+     toUInt64(countIf(name = 'short.follow')) AS follows";
 
-#[derive(Debug, Clone, Default, clickhouse::Row, Deserialize)]
-struct Counts {
-    views: u64,
-    viewers: u64,
-    ratio: f64,
-    loops: i64,
-    likes: i64,
-    comments: i64,
-    shares: u64,
-    saves: i64,
-    follows: u64,
-    watch_seconds: f64,
+/// `(day, views, viewers, likes, comments, shares, saves, follows)`.
+type DayCounts = (String, u64, u64, i64, i64, u64, i64, u64);
+
+/// How one day's qualifying blocks were watched.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+struct Watching {
+    ratio_sum: f64,
     plays: u64,
-    /// Distinct viewers whose way of watching was recorded.
-    audience: u64,
+    loops: i64,
+    seconds: f64,
 }
 
-#[derive(Debug, Clone, clickhouse::Row, Deserialize)]
-struct DayCounts {
-    day: String,
-    views: u64,
-    viewers: u64,
-    ratio: f64,
-    loops: i64,
-    likes: i64,
-    comments: i64,
-    shares: u64,
-    saves: i64,
-    follows: u64,
-    watch_seconds: f64,
-    plays: u64,
-    /// Distinct viewers whose way of watching was recorded.
-    audience: u64,
+impl Watching {
+    fn add(&mut self, other: &Watching) {
+        self.ratio_sum += other.ratio_sum;
+        self.plays += other.plays;
+        self.loops += other.loops;
+        self.seconds += other.seconds;
+    }
+
+    /// The average watch-through ratio, to two decimals.
+    fn ratio(&self) -> f64 {
+        if self.plays == 0 { 0.0 } else { (self.ratio_sum / self.plays as f64 * 100.0).round() / 100.0 }
+    }
 }
 
-/// Totals over the range.
-pub async fn totals(core: &Core, scope: Scope, range: &Range) -> AppResult<ShortAnalyticsTotals> {
+/// The counts per day of the range, up to now.
+async fn counts(core: &Core, scope: Scope, range: &Range) -> AppResult<Vec<DayCounts>> {
     let sql = format!(
-        "SELECT {AGGREGATES} FROM events
+        "SELECT toString(toDate(at, ?)) AS day, {COUNTS} FROM events
          WHERE owner_id = toUUID(?) AND subject_type = 'short' AND name IN {NAMES}
+           AND at >= fromUnixTimestamp64Milli(?) AND at < fromUnixTimestamp64Milli(?) AND {}
+         GROUP BY day",
+        scope.predicate()
+    );
+    core.analytics
+        .ch
+        .query(&sql)
+        .bind(range.time_zone.name())
+        .bind(scope.owner_id().to_string())
+        .bind(range.from_ms)
+        .bind(range.until_ms)
+        .bind(scope.target().to_string())
+        .fetch_all()
+        .await
+        .map_err(unavailable)
+}
+
+/// How the scope's shorts were watched, per finished day of the range:
+/// the sum of the blocks (one short, one day) that at least
+/// [`MIN_AUDIENCE`] accounts watched.
+async fn watching(core: &Core, scope: Scope, range: &Range) -> AppResult<Vec<(String, Watching)>> {
+    let until_ms = range.until_ms.min(start_of_today_ms(range));
+    if until_ms <= range.from_ms {
+        return Ok(Vec::new());
+    }
+    let sql = format!(
+        "SELECT day, toFloat64(sum(ratio_sum)), toUInt64(sum(plays)), toInt64(sum(loops)), toFloat64(sum(seconds))
+         FROM (
+             SELECT toString(toDate(at, ?)) AS day, subject_id,
+                    sum(JSONExtractFloat(props, 'ratio')) AS ratio_sum, count() AS plays,
+                    sum(JSONExtractInt(props, 'loops')) AS loops, sum(value) AS seconds
+             FROM events
+             WHERE owner_id = toUUID(?) AND subject_type = 'short' AND name = 'short.watch'
+               AND user_id != toUUID('00000000-0000-0000-0000-000000000000')
+               AND at >= fromUnixTimestamp64Milli(?) AND at < fromUnixTimestamp64Milli(?) AND {}
+             GROUP BY day, subject_id
+             HAVING uniqExact(user_id) >= ?
+         )
+         GROUP BY day",
+        scope.predicate()
+    );
+    let rows: Vec<(String, f64, u64, i64, f64)> = core
+        .analytics
+        .ch
+        .query(&sql)
+        .bind(range.time_zone.name())
+        .bind(scope.owner_id().to_string())
+        .bind(range.from_ms)
+        .bind(until_ms)
+        .bind(scope.target().to_string())
+        .bind(MIN_AUDIENCE)
+        .fetch_all()
+        .await
+        .map_err(unavailable)?;
+    Ok(rows
+        .into_iter()
+        .map(|(day, ratio_sum, plays, loops, seconds)| (day, Watching { ratio_sum, plays, loops, seconds }))
+        .collect())
+}
+
+/// Totals over the range and one entry per day (days without activity
+/// included).
+pub async fn report(
+    core: &Core,
+    scope: Scope,
+    range: &Range,
+) -> AppResult<(ShortAnalyticsTotals, Vec<DailyShortAnalytics>)> {
+    let counted = counts(core, scope, range).await?;
+    let watched = watching(core, scope, range).await?;
+    // Distinct viewers do not add up over days: ask for the range as a whole.
+    let sql = format!(
+        "SELECT toUInt64(uniqExact(JSONExtractString(props, 'viewer'))) FROM events
+         WHERE owner_id = toUUID(?) AND subject_type = 'short' AND name = 'short.view'
            AND at >= fromUnixTimestamp64Milli(?) AND at < fromUnixTimestamp64Milli(?) AND {}",
         scope.predicate()
     );
-    let counts: Counts = core
+    let unique_viewers: u64 = core
         .analytics
         .ch
         .query(&sql)
@@ -171,90 +253,69 @@ pub async fn totals(core: &Core, scope: Scope, range: &Range) -> AppResult<Short
         .fetch_one()
         .await
         .map_err(unavailable)?;
-    Ok(ShortAnalyticsTotals {
-        views: counts.views as i64,
-        unique_viewers: counts.viewers as i64,
-        average_watch_ratio: for_an_audience(counts.audience, counts.ratio),
-        loops: for_an_audience(counts.audience, counts.loops),
-        likes: counts.likes,
-        comments: counts.comments,
-        shares: counts.shares as i64,
-        saves: counts.saves,
-        followers_gained: counts.follows as i64,
-        watch_time_seconds: for_an_audience(counts.audience, counts.watch_seconds),
-        plays: for_an_audience(counts.audience, counts.plays as i64),
-        ..Default::default()
-    })
+    Ok(assemble(range.days(), &counted, &watched, unique_viewers as i64))
 }
 
-/// One entry per day of the range (days without activity included), cut in
-/// the range's time zone.
-pub async fn daily(core: &Core, scope: Scope, range: &Range) -> AppResult<Vec<DailyShortAnalytics>> {
-    let sql = format!(
-        "SELECT toString(toDate(at, ?)) AS day, {AGGREGATES} FROM events
-         WHERE owner_id = toUUID(?) AND subject_type = 'short' AND name IN {NAMES}
-           AND at >= fromUnixTimestamp64Milli(?) AND at < fromUnixTimestamp64Milli(?) AND {}
-         GROUP BY day",
-        scope.predicate()
-    );
-    let rows: Vec<DayCounts> = core
-        .analytics
-        .ch
-        .query(&sql)
-        .bind(range.time_zone.name())
-        .bind(scope.owner_id().to_string())
-        .bind(range.from_ms)
-        .bind(range.until_ms)
-        .bind(scope.target().to_string())
-        .fetch_all()
-        .await
-        .map_err(unavailable)?;
-    Ok(fill_days(range.days(), &rows))
+/// Puts the per-day rows together into the totals and the daily series.
+fn assemble(
+    days: impl Iterator<Item = NaiveDate>,
+    counted: &[DayCounts],
+    watched: &[(String, Watching)],
+    unique_viewers: i64,
+) -> (ShortAnalyticsTotals, Vec<DailyShortAnalytics>) {
+    let mut totals = ShortAnalyticsTotals { unique_viewers, ..Default::default() };
+    let mut all = Watching::default();
+    let daily: Vec<DailyShortAnalytics> = days
+        .map(|day| {
+            let date = day.to_string();
+            let mut entry = DailyShortAnalytics { date: date.clone(), ..Default::default() };
+            if let Some((_, views, viewers, likes, comments, shares, saves, follows)) =
+                counted.iter().find(|row| row.0 == date)
+            {
+                entry.views = *views as i64;
+                entry.unique_viewers = *viewers as i64;
+                entry.likes = *likes;
+                entry.comments = *comments;
+                entry.shares = *shares as i64;
+                entry.saves = *saves;
+                entry.followers_gained = *follows as i64;
+                totals.views += entry.views;
+                totals.likes += entry.likes;
+                totals.comments += entry.comments;
+                totals.shares += entry.shares;
+                totals.saves += entry.saves;
+                totals.followers_gained += entry.followers_gained;
+            }
+            if let Some((_, watching)) = watched.iter().find(|row| row.0 == date) {
+                entry.average_watch_ratio = watching.ratio();
+                entry.loops = watching.loops;
+                entry.watch_time_seconds = watching.seconds.round();
+                entry.plays = watching.plays as i64;
+                all.add(watching);
+            }
+            entry
+        })
+        .collect();
+    totals.average_watch_ratio = all.ratio();
+    totals.loops = all.loops;
+    totals.watch_time_seconds = all.seconds.round();
+    totals.plays = all.plays as i64;
+    (totals, daily)
 }
 
-/// The daily series of a range: one entry per day, zeros where nothing happened.
-fn fill_days(days: impl Iterator<Item = NaiveDate>, rows: &[DayCounts]) -> Vec<DailyShortAnalytics> {
-    days.map(|day| {
-        let date = day.to_string();
-        match rows.iter().find(|row| row.day == date) {
-            Some(row) => DailyShortAnalytics {
-                date,
-                views: row.views as i64,
-                unique_viewers: row.viewers as i64,
-                average_watch_ratio: for_an_audience(row.audience, row.ratio),
-                loops: for_an_audience(row.audience, row.loops),
-                likes: row.likes,
-                comments: row.comments,
-                shares: row.shares as i64,
-                saves: row.saves,
-                followers_gained: row.follows as i64,
-                watch_time_seconds: for_an_audience(row.audience, row.watch_seconds),
-                plays: for_an_audience(row.audience, row.plays as i64),
-                ..Default::default()
-            },
-            None => DailyShortAnalytics { date, ..Default::default() },
-        }
-    })
-    .collect()
-}
-
-/// Views and watch-through by where viewers were, most views first. Only
-/// sources with at least one view are listed.
+/// Views by where viewers were, most views first. Only sources with at
+/// least one view are listed.
 pub async fn traffic_sources(core: &Core, scope: Scope, range: &Range) -> AppResult<Vec<PlaybackSourceStats>> {
     let sql = format!(
-        "SELECT toInt32(JSONExtractInt(props, 'source')) AS source,
-                toUInt64(countIf(name = 'short.view')) AS views,
-                toFloat64(ifNotFinite(avgIf(JSONExtractFloat(props, 'ratio'), name = 'short.watch'), 0)) AS ratio,
-                toUInt64(uniqExactIf(JSONExtractString(props, 'viewer'), name = 'short.watch')) AS viewers
+        "SELECT toInt32(JSONExtractInt(props, 'source')) AS source, toUInt64(count()) AS views
          FROM events
-         WHERE owner_id = toUUID(?) AND subject_type = 'short' AND name IN ('short.view', 'short.watch')
+         WHERE owner_id = toUUID(?) AND subject_type = 'short' AND name = 'short.view'
            AND at >= fromUnixTimestamp64Milli(?) AND at < fromUnixTimestamp64Milli(?) AND {}
          GROUP BY source
-         HAVING views > 0
          ORDER BY views DESC, source",
         scope.predicate()
     );
-    let rows: Vec<(i32, u64, f64, u64)> = core
+    let rows: Vec<(i32, u64)> = core
         .analytics
         .ch
         .query(&sql)
@@ -267,38 +328,23 @@ pub async fn traffic_sources(core: &Core, scope: Scope, range: &Range) -> AppRes
         .map_err(unavailable)?;
     Ok(rows
         .into_iter()
-        .map(|(source, views, ratio, viewers)| PlaybackSourceStats {
-            source: source.into(),
-            views: views as i64,
-            average_watch_ratio: for_an_audience(viewers, ratio),
-            ..Default::default()
-        })
+        .map(|(source, views)| PlaybackSourceStats { source: source.into(), views: views as i64, ..Default::default() })
         .collect())
 }
 
-/// The most viewed shorts of a channel over the range:
-/// `(short, views, average watch ratio)`.
-pub async fn top_shorts(
-    core: &Core,
-    channel: &ChannelRow,
-    range: &Range,
-    limit: u32,
-) -> AppResult<Vec<(Uuid, i64, f64)>> {
-    let rows: Vec<(String, u64, f64, u64)> = core
+/// The most viewed shorts of a channel over the range: `(short, views)`.
+pub async fn top_shorts(core: &Core, channel: &ChannelRow, range: &Range, limit: u32) -> AppResult<Vec<(Uuid, i64)>> {
+    let rows: Vec<(String, u64)> = core
         .analytics
         .ch
         .query(
-            "SELECT toString(subject_id) AS short,
-                    toUInt64(countIf(name = 'short.view')) AS views,
-                    toFloat64(ifNotFinite(avgIf(JSONExtractFloat(props, 'ratio'), name = 'short.watch'), 0)) AS ratio,
-                    toUInt64(uniqExactIf(JSONExtractString(props, 'viewer'), name = 'short.watch')) AS viewers
+            "SELECT toString(subject_id) AS short, toUInt64(count()) AS views
              FROM events
-             WHERE owner_id = toUUID(?) AND subject_type = 'short' AND name IN ('short.view', 'short.watch')
+             WHERE owner_id = toUUID(?) AND subject_type = 'short' AND name = 'short.view'
                AND at >= fromUnixTimestamp64Milli(?) AND at < fromUnixTimestamp64Milli(?)
                AND JSONExtractString(props, 'channel_id') = ?
              GROUP BY subject_id
-             HAVING views > 0
-             ORDER BY views DESC, ratio DESC, short
+             ORDER BY views DESC, short
              LIMIT ?",
         )
         .bind(channel.owner_id.to_string())
@@ -309,65 +355,57 @@ pub async fn top_shorts(
         .fetch_all()
         .await
         .map_err(unavailable)?;
-    Ok(rows
-        .into_iter()
-        .filter_map(|(short, views, ratio, viewers)| {
-            Some((Uuid::parse_str(&short).ok()?, views as i64, for_an_audience(viewers, ratio)))
-        })
-        .collect())
+    Ok(rows.into_iter().filter_map(|(short, views)| Some((Uuid::parse_str(&short).ok()?, views as i64))).collect())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn range(start: &str, end: &str, zone: &str) -> Option<DateRange> {
-        Some(DateRange { start_date: start.into(), end_date: end.into(), time_zone: zone.into(), ..Default::default() })
+    fn range(start: &str, end: &str) -> Option<DateRange> {
+        Some(DateRange { start_date: start.into(), end_date: end.into(), ..Default::default() })
     }
 
     #[test]
-    fn ranges_are_validated_like_the_video_domain_does() {
-        let parsed = parse_range(range("2026-11-01", "2026-11-03", "Asia/Tokyo").as_ref()).unwrap();
+    fn days_are_cut_in_the_owners_time_zone() {
+        let parsed = parse_range(range("2026-11-01", "2026-11-03").as_ref(), "Asia/Tokyo").unwrap();
         assert_eq!(parsed.days().count(), 3);
         // Midnight in Tokyo is 15:00 UTC the day before.
         assert_eq!(parsed.from_ms, 1_793_458_800_000);
-        assert_eq!(parse_range(None).unwrap_err().reason, "DATE_RANGE_INVALID");
         assert_eq!(
-            parse_range(range("2026-11-03", "2026-11-01", "").as_ref()).unwrap_err().reason,
-            "DATE_RANGE_INVALID"
+            parse_range(range("2026-11-01", "2026-11-03").as_ref(), "Mars/Base").unwrap().from_ms,
+            1_793_491_200_000
         );
+        assert_eq!(parse_range(None, "Asia/Tokyo").unwrap_err().reason, "DATE_RANGE_INVALID");
         assert_eq!(
-            parse_range(range("2026-11-01", "2026-11-02", "Mars/Base").as_ref()).unwrap_err().reason,
-            "TIME_ZONE_INVALID"
+            parse_range(range("2026-11-03", "2026-11-01").as_ref(), "").unwrap_err().reason,
+            "DATE_RANGE_INVALID"
         );
     }
 
     #[test]
-    fn days_without_activity_are_zeros() {
-        let parsed = parse_range(range("2026-11-01", "2026-11-03", "").as_ref()).unwrap();
-        let rows = vec![DayCounts {
-            day: "2026-11-02".into(),
-            views: 4,
-            viewers: 3,
-            ratio: 0.5,
-            loops: 2,
-            likes: 1,
-            comments: 0,
-            shares: 1,
-            saves: -1,
-            follows: 1,
-            watch_seconds: 30.0,
-            plays: 5,
-            audience: 3,
-        }];
-        let series = fill_days(parsed.days(), &rows);
+    fn reports_are_sums_of_days() {
+        let parsed = parse_range(range("2026-11-01", "2026-11-03").as_ref(), "").unwrap();
+        let counted: Vec<DayCounts> =
+            vec![("2026-11-02".into(), 4, 3, 1, 0, 1, -1, 1), ("2026-11-03".into(), 2, 2, 0, 1, 0, 0, 0)];
+        let watched = vec![
+            ("2026-11-01".to_owned(), Watching { ratio_sum: 3.0, plays: 6, loops: 2, seconds: 40.4 }),
+            ("2026-11-02".to_owned(), Watching { ratio_sum: 4.0, plays: 5, loops: 1, seconds: 30.3 }),
+        ];
+        let (totals, daily) = assemble(parsed.days(), &counted, &watched, 4);
         assert_eq!(
-            series.iter().map(|day| day.date.as_str()).collect::<Vec<_>>(),
+            daily.iter().map(|day| day.date.as_str()).collect::<Vec<_>>(),
             ["2026-11-01", "2026-11-02", "2026-11-03"]
         );
-        assert_eq!((series[0].views, series[1].views, series[1].saves, series[2].views), (0, 4, -1, 0));
-        // Three viewers are too few to say how they watched.
-        assert_eq!((series[1].average_watch_ratio, series[1].loops, series[1].plays), (0.0, 0, 0));
-        assert_eq!((for_an_audience(4, 0.7), for_an_audience(5, 0.7), for_an_audience(5, 9i64)), (0.0, 0.7, 9));
+        assert_eq!((totals.views, totals.unique_viewers, totals.saves, totals.comments), (6, 4, -1, 1));
+        assert_eq!((daily[0].views, daily[1].views, daily[2].views), (0, 4, 2));
+        // Watching: rounded, and the total is the sum of the days it is made of.
+        assert_eq!(
+            (daily[0].average_watch_ratio, daily[1].average_watch_ratio, daily[2].average_watch_ratio),
+            (0.5, 0.8, 0.0)
+        );
+        assert_eq!((totals.plays, totals.loops, totals.watch_time_seconds), (11, 3, 71.0));
+        assert_eq!(totals.average_watch_ratio, 0.64);
+        assert_eq!((daily[0].watch_time_seconds, daily[2].plays), (40.0, 0));
     }
 }

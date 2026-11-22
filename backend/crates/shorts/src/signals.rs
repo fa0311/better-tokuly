@@ -61,7 +61,14 @@ const FOLLOW_CREDIT_SECONDS: u64 = 3600;
 /// View counts the owner is congratulated on.
 pub const MILESTONES: [i64; 3] = [1_000, 10_000, 100_000];
 
+/// How long the for-you feed remembers having served a short to a viewer.
+const SERVED_MEMORY_SECONDS: i64 = 6 * 3600;
+
 const PENDING_SET: &str = "shorts:pending";
+
+fn signal_key(short_id: Uuid, signal: Engagement, account: Uuid) -> String {
+    format!("shorts:once:{}:{}:{}", signal.name(), short_id.simple(), account.simple())
+}
 
 fn pending_key(short_id: Uuid) -> String {
     format!("shorts:pending:{}", short_id.simple())
@@ -76,11 +83,28 @@ fn last_watch_key(user_id: Uuid, channel_id: Uuid) -> String {
 }
 
 /// Who a view is counted for: the account, or a keyed hash of the network
-/// address for anonymous viewers.
+/// a visitor comes from.
 pub fn viewer_key(core: &Core, user_id: Option<Uuid>, ip: &str) -> String {
     match user_id {
         Some(user_id) => user_id.to_string(),
-        None => format!("ip:{}", &hex::encode(core.keys.mac("shorts/viewer-ip", ip.as_bytes()))[..24]),
+        None => format!("ip:{}", &hex::encode(core.keys.mac("shorts/viewer-ip", network_of(ip).as_bytes()))[..24]),
+    }
+}
+
+/// The network an address stands for when visitors are told apart: an IPv4
+/// address itself, the /64 of an IPv6 address (one subscriber holds all
+/// 2^64 addresses of theirs, so each of them is the same visitor).
+pub fn network_of(ip: &str) -> String {
+    match ip.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V6(address)) => match address.to_ipv4_mapped() {
+            Some(mapped) => mapped.to_string(),
+            None => {
+                let segments = address.segments();
+                format!("{:x}:{:x}:{:x}:{:x}::/64", segments[0], segments[1], segments[2], segments[3])
+            }
+        },
+        Ok(std::net::IpAddr::V4(address)) => address.to_string(),
+        Err(_) => ip.to_owned(),
     }
 }
 
@@ -245,9 +269,53 @@ pub async fn seen_ids(core: &Core, user_id: Uuid) -> AppResult<HashSet<Uuid>> {
     Ok(members.iter().filter_map(|member| Uuid::parse_str(member).ok()).collect())
 }
 
+fn served_key(user_id: Uuid) -> String {
+    format!("shorts:served:{}", user_id.simple())
+}
+
+/// The shorts the for-you feed returned to `user_id` during the last
+/// [`SERVED_MEMORY_SECONDS`], watched or not.
+pub async fn served_ids(core: &Core, user_id: Uuid) -> AppResult<HashSet<Uuid>> {
+    let since = now().timestamp_millis() - SERVED_MEMORY_SECONDS * 1000;
+    let members: Vec<String> = redis::cmd("ZRANGEBYSCORE")
+        .arg(served_key(user_id))
+        .arg(since)
+        .arg("+inf")
+        .query_async(&mut core.cache.conn())
+        .await?;
+    Ok(members.iter().filter_map(|member| Uuid::parse_str(member).ok()).collect())
+}
+
+/// Records that the for-you feed returned `ids` to `user_id`. The list is
+/// capped like the seen list and forgets entries after a few hours, so a
+/// short that was prefetched and never watched gets another chance.
+pub(crate) async fn mark_served(core: &Core, user_id: Uuid, ids: &[Uuid], cap: i64) -> AppResult<()> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let key = served_key(user_id);
+    let now_ms = now().timestamp_millis();
+    let mut writes = redis::pipe();
+    for id in ids {
+        writes.cmd("ZADD").arg(&key).arg(now_ms).arg(id.simple().to_string()).ignore();
+    }
+    writes.cmd("ZREMRANGEBYSCORE").arg(&key).arg("-inf").arg(now_ms - SERVED_MEMORY_SECONDS * 1000).ignore();
+    writes.cmd("ZREMRANGEBYRANK").arg(&key).arg(0).arg(-(cap + 1)).ignore();
+    writes.cmd("EXPIRE").arg(&key).arg(SERVED_MEMORY_SECONDS).ignore();
+    writes.query_async::<()>(&mut core.cache.conn()).await?;
+    Ok(())
+}
+
+/// Forgets what the for-you feed served to a viewer.
+pub async fn forget_served(core: &Core, user_id: Uuid) -> AppResult<()> {
+    core.cache.del(&served_key(user_id)).await
+}
+
 /// Drops everything Valkey remembers about a viewer (account deletion).
 pub(crate) async fn forget_viewer(core: &Core, user_id: Uuid) -> AppResult<()> {
-    core.cache.del(&seen_key(user_id)).await
+    core.cache.del(&seen_key(user_id)).await?;
+    forget_served(core, user_id).await?;
+    crate::feeds::drop_batch(core, Some(user_id)).await
 }
 
 // ───────────────────────────── recording ─────────────────────────────
@@ -258,22 +326,59 @@ impl Shorts {
     /// The owner's own actions never count. A signal is claimed with a
     /// marker in Valkey, so the same event delivered twice, or a like taken
     /// back and given again, counts once.
-    pub(crate) async fn count_signal(&self, short: &ShortRow, signal: Engagement, account: &str) -> AppResult<bool> {
-        if account == short.owner_id.to_string() {
+    pub(crate) async fn count_signal(&self, short: &ShortRow, signal: Engagement, account: Uuid) -> AppResult<bool> {
+        if account == short.owner_id || !self.carries_weight(account).await? {
             return Ok(false);
         }
-        let key = format!("shorts:once:{}:{}:{account}", signal.name(), short.id.simple());
+        self.claim_signal(short, signal, account).await
+    }
+
+    /// The claim alone, for an account already known to carry weight
+    /// ([`Self::carries_weight`]). It talks to Valkey only, so it may be
+    /// made while a transaction is open.
+    pub(crate) async fn claim_signal(&self, short: &ShortRow, signal: Engagement, account: Uuid) -> AppResult<bool> {
+        let key = signal_key(short.id, signal, account);
         self.core.cache.set_nx(&key, "1", Duration::from_secs(SIGNAL_PERIOD_SECONDS)).await
+    }
+
+    /// Gives a claimed signal back: the write it stood for did not happen,
+    /// and the account's next attempt must be able to count.
+    pub(crate) async fn release_signal(&self, short: &ShortRow, signal: Engagement, account: Uuid) {
+        if let Err(error) = self.core.cache.del(&signal_key(short.id, signal, account)).await {
+            tracing::warn!(%error, short_id = %short.id, "a ranking signal could not be released");
+        }
+    }
+
+    /// Whether what `user_id` does moves a short's ranking at all: only an
+    /// account that has existed for a while does. Visitors without an
+    /// account never do, and an account made a minute ago to like, share
+    /// and watch one short weighs as much as a visitor.
+    pub async fn carries_weight(&self, user_id: Uuid) -> AppResult<bool> {
+        let old_enough: Option<bool> = sqlx::query_scalar(
+            "SELECT created_at <= now() - make_interval(hours => $2) AND deleted_at IS NULL AND banned_at IS NULL
+             FROM users WHERE id = $1",
+        )
+        .bind(user_id)
+        .bind(self.cfg.signal_min_account_age_hours)
+        .fetch_optional(&self.core.db)
+        .await?;
+        Ok(old_enough.unwrap_or(false))
     }
 
     /// Takes in a batch of stays reported by `viewer`. Stays on shorts the
     /// viewer may not see, on drafts and on the viewer's own shorts are
     /// ignored. Every other stay marks its short as seen; what else it
     /// counts for is decided by two markers per viewer and short (see the
-    /// module documentation).
+    /// module documentation), and by who the viewer is: a visitor, or an
+    /// account too new to carry weight, adds to the view count that is
+    /// shown and to nothing the ranking reads.
     pub async fn record_playback(&self, viewer: &Viewer, ip: &str, reports: Vec<Report>) -> AppResult<Recorded> {
         let core = &self.core;
         let who = viewer_key(core, viewer.user_id, ip);
+        let weighs = match viewer.user_id {
+            Some(user_id) => self.carries_weight(user_id).await?,
+            None => false,
+        };
         let stays: Vec<(Report, Stay)> = reports
             .into_iter()
             .filter(|report| {
@@ -314,8 +419,9 @@ impl Shorts {
         for ((report, stay), (sample, view)) in stays.iter().zip(&counted) {
             let key = pending_key(report.short.id);
             if *view {
-                writes.cmd("HINCRBY").arg(&key).arg("views").arg(1).ignore();
+                writes.cmd("HINCRBY").arg(&key).arg(if weighs { "views" } else { "guest_views" }).arg(1).ignore();
             }
+            let sample = &(*sample && weighs);
             if *sample {
                 if stay.loops > 0 {
                     writes.cmd("HINCRBY").arg(&key).arg("loops").arg(stay.loops).ignore();
@@ -355,7 +461,7 @@ impl Shorts {
         }
 
         for ((report, stay), (sample, view)) in stays.iter().zip(&counted) {
-            if *sample {
+            if *sample && weighs {
                 let props = serde_json::json!({
                     "viewer": who,
                     "source": report.source,
@@ -366,7 +472,7 @@ impl Shorts {
                 track(core, "short.watch", &report.short, viewer.user_id, stay.watched_ms as f64 / 1000.0, props).await;
             }
             if *view {
-                let props = serde_json::json!({ "viewer": who, "source": report.source });
+                let props = serde_json::json!({ "viewer": who, "source": report.source, "counted": weighs });
                 track(core, "short.view", &report.short, viewer.user_id, 1.0, props).await;
             }
         }
@@ -404,6 +510,9 @@ return out";
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 struct Pending {
     views: i64,
+    /// Views of visitors and of accounts too new to carry weight: shown in
+    /// the view count, never part of the hourly statistics.
+    guest_views: i64,
     loops: i64,
     samples: i64,
     ratio_milli: i64,
@@ -416,6 +525,7 @@ impl Pending {
             let value: i64 = pair[1].parse().unwrap_or(0);
             match pair[0].as_str() {
                 "views" => pending.views = value,
+                "guest_views" => pending.guest_views = value,
                 "loops" => pending.loops = value,
                 "samples" => pending.samples = value,
                 "ratio_milli" => pending.ratio_milli = value,
@@ -468,6 +578,7 @@ impl Shorts {
                     let key = pending_key(*id);
                     for (field, value) in [
                         ("views", pending.views),
+                        ("guest_views", pending.guest_views),
                         ("loops", pending.loops),
                         ("samples", pending.samples),
                         ("ratio_milli", pending.ratio_milli),
@@ -489,6 +600,7 @@ impl Shorts {
     async fn write_pending(&self, batch: &[(Uuid, Pending)]) -> AppResult<u64> {
         let ids: Vec<Uuid> = batch.iter().map(|(id, _)| *id).collect();
         let views: Vec<i64> = batch.iter().map(|(_, pending)| pending.views).collect();
+        let guest_views: Vec<i64> = batch.iter().map(|(_, pending)| pending.guest_views).collect();
         let loops: Vec<i64> = batch.iter().map(|(_, pending)| pending.loops).collect();
         let samples: Vec<i64> = batch.iter().map(|(_, pending)| pending.samples).collect();
         let ratios: Vec<f64> = batch.iter().map(|(_, pending)| pending.ratio_milli as f64 / 1000.0).collect();
@@ -496,11 +608,11 @@ impl Shorts {
         // Shorts deleted since the stays were recorded simply drop out.
         let written: Vec<(Uuid, i64, i64)> = sqlx::query_as(
             "WITH data AS (
-                 SELECT * FROM unnest($1::uuid[], $2::bigint[], $3::bigint[], $4::bigint[], $5::float8[])
-                      AS d(short_id, views, loops, samples, ratio_sum)
+                 SELECT * FROM unnest($1::uuid[], $2::bigint[], $3::bigint[], $4::bigint[], $5::float8[], $6::bigint[])
+                      AS d(short_id, views, loops, samples, ratio_sum, guest_views)
              ), updated AS (
                  UPDATE shorts s
-                 SET view_count = s.view_count + d.views, loop_count = s.loop_count + d.loops,
+                 SET view_count = s.view_count + d.views + d.guest_views, loop_count = s.loop_count + d.loops,
                      watch_samples = s.watch_samples + d.samples, watch_ratio_sum = s.watch_ratio_sum + d.ratio_sum
                  FROM data d WHERE s.id = d.short_id
                  RETURNING s.id, s.view_count, s.milestone
@@ -520,6 +632,7 @@ impl Shorts {
         .bind(&loops)
         .bind(&samples)
         .bind(&ratios)
+        .bind(&guest_views)
         .fetch_all(&mut *tx)
         .await?;
         for (short_id, view_count, told) in &written {
@@ -670,7 +783,11 @@ mod tests {
             .map(|s| s.to_string())
             .collect();
         let pending = Pending::from_fields(&fields);
-        assert_eq!(pending, Pending { views: 3, loops: 0, samples: 5, ratio_milli: 4200 });
+        assert_eq!(pending, Pending { views: 3, guest_views: 0, loops: 0, samples: 5, ratio_milli: 4200 });
+        assert_eq!(network_of("2001:db8:1:2:aaaa:bbbb:cccc:dddd"), network_of("2001:db8:1:2::1"));
+        assert_ne!(network_of("2001:db8:1:2::1"), network_of("2001:db8:1:3::1"));
+        assert_eq!(network_of("::ffff:203.0.113.7"), "203.0.113.7");
+        assert_eq!(network_of("203.0.113.7"), "203.0.113.7");
         assert!(Pending::from_fields(&[]).is_empty());
     }
 

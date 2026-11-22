@@ -238,6 +238,7 @@ async fn the_for_you_feed_ranks_a_known_set_of_shorts() {
     assert_eq!(names(&feed(&ctx, Some(&vera)).await), names(&personal));
 
     // ── 4. Paging is stable while shorts arrive ──
+    ctx.forget_served(&vera).await;
     let first = ctx.for_you(Some(&vera), 3, "").await;
     assert_eq!(names(&first.items), ["viral", "good", "prank2"]);
     let cursor = first.page.as_option().unwrap().next_cursor.clone();
@@ -248,7 +249,22 @@ async fn the_for_you_feed_ranks_a_known_set_of_shorts() {
     let second = ctx.for_you(Some(&vera), 3, &cursor).await;
     assert_eq!(names(&second.items), ["boring", "good2", "liked"], "the batch being read does not move");
     assert_eq!(names(&ctx.for_you(Some(&vera), 3, &cursor).await.items), ["boring", "good2", "liked"]);
-    assert_eq!(names(&ctx.for_you(Some(&vera), 2, "").await.items), ["late", "viral"], "a new batch has it");
+    // A new batch has the new short, and none of the six the feed already
+    // put in front of her, though she has not reported watching any of them
+    // (clients prefetch, and report late).
+    let fresh_batch = ctx.for_you(Some(&vera), 2, "").await;
+    assert_eq!(names(&fresh_batch.items), ["late", "friend"]);
+    // The cursor of the batch that was replaced reads on in the new one,
+    // after what was served: nothing twice, nothing skipped.
+    let carried_on = ctx.for_you(Some(&vera), 3, &cursor).await;
+    assert_eq!(names(&carried_on.items), ["followed", "old", "tag"]);
+    // One batch per viewer in Valkey, however often she asks for a new one.
+    let stored: Vec<String> = redis::cmd("KEYS")
+        .arg(format!("shorts:foryou:{}*", vera.id.simple()))
+        .query_async(&mut ctx.app.core.cache.conn())
+        .await
+        .unwrap();
+    assert_eq!(stored.len(), 1, "{stored:?}");
     let bad = GetForYouFeedRequest { page: page(3, "garbage"), ..Default::default() };
     assert_eq!(ctx.reason(FEEDS, "GetForYouFeed", Some(&vera), &bad).await, "INVALID_CURSOR");
 

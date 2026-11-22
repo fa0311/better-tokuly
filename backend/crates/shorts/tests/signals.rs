@@ -92,7 +92,7 @@ async fn one_viewer_counts_one_view_and_one_sample_however_much_they_report() {
     assert_eq!(one(Some(&dave), 6_000, 0).await, (1, 1));
     // The owner's own plays count for nothing.
     assert_eq!(one(Some(&alice), 12_000, 1).await, (0, 0));
-    // Guests count per network address.
+    // Visitors count per network, towards the number shown and nothing else.
     assert_eq!(one(None, 2_000, 0).await, (1, 1));
     assert_eq!(one(None, 12_000, 1).await, (1, 0));
 
@@ -101,10 +101,11 @@ async fn one_viewer_counts_one_view_and_one_sample_however_much_they_report() {
     assert_eq!((buffered.view_count, buffered.watch_samples), (0, 0));
     ctx.flush().await;
     let row = ctx.row(&short.id).await;
-    assert_eq!((row.view_count, row.loop_count, row.watch_samples), (4, 2, 4));
-    let expected_ratio = (5.0 / 12.0 + 1.0 + 0.025 + 2.0 / 12.0) / 4.0;
+    assert_eq!((row.view_count, row.loop_count, row.watch_samples), (4, 2, 3));
+    let expected_ratio = (5.0 / 12.0 + 1.0 + 0.025) / 3.0;
     assert!((row.average_watch_ratio() - expected_ratio).abs() < 0.002, "{}", row.average_watch_ratio());
-    assert_eq!(hourly(&ctx, &short.id).await, (4, 2, 0, 0, 0, 0));
+    // The visitor's view is in the count people see, not in what the ranking reads.
+    assert_eq!(hourly(&ctx, &short.id).await, (3, 2, 0, 0, 0, 0));
 
     // Reporting more moves nothing: not the views, not the loops, not the ratio.
     for _ in 0..20 {
@@ -112,9 +113,9 @@ async fn one_viewer_counts_one_view_and_one_sample_however_much_they_report() {
     }
     ctx.flush().await;
     let after = ctx.row(&short.id).await;
-    assert_eq!((after.view_count, after.loop_count, after.watch_samples), (4, 2, 4));
+    assert_eq!((after.view_count, after.loop_count, after.watch_samples), (4, 2, 3));
     assert_eq!(after.watch_ratio_sum, row.watch_ratio_sum);
-    assert_eq!(hourly(&ctx, &short.id).await, (4, 2, 0, 0, 0, 0));
+    assert_eq!(hourly(&ctx, &short.id).await, (3, 2, 0, 0, 0, 0));
     assert_eq!(ctx.get(Some(&bob), &short.id).await.unwrap().view_count, 4);
     // Every stay marked the short as seen, though.
     assert!(viewer_state(&ctx.get(Some(&dave), &short.id).await.unwrap()).seen);
@@ -122,7 +123,7 @@ async fn one_viewer_counts_one_view_and_one_sample_however_much_they_report() {
 
 #[tokio::test]
 async fn a_view_counts_again_once_the_window_has_passed() {
-    let ctx = start_with(ShortsConfig { view_dedupe_seconds: 1, ..Default::default() }).await;
+    let ctx = start_with(ShortsConfig { view_dedupe_seconds: 1, ..test_config() }).await;
     let alice = ctx.app.user("alice").await;
     let bob = ctx.app.user("bob").await;
     let channel = ctx.channel(&alice, "ch").await;
@@ -187,7 +188,7 @@ async fn view_milestones_tell_the_owner_once_each() {
 
 #[tokio::test]
 async fn saves_are_private_counted_and_limited() {
-    let ctx = start_with(ShortsConfig { max_saves: 2, ..Default::default() }).await;
+    let ctx = start_with(ShortsConfig { max_saves: 2, ..test_config() }).await;
     let alice = ctx.app.user("alice").await;
     let bob = ctx.app.user("bob").await;
     let carol = ctx.app.user("carol").await;
@@ -373,15 +374,16 @@ async fn a_share_counts_once_per_sharer_and_always_returns_the_link() {
         assert_eq!((again.url.as_str(), again.share_count), (short.share_url.as_str(), 1));
     }
     assert_eq!(share(&ctx, Some(&carol), &short.id).await.unwrap().share_count, 2);
-    assert_eq!(share(&ctx, None, &short.id).await.unwrap().share_count, 3, "guests may share");
-    assert_eq!(share(&ctx, None, &short.id).await.unwrap().share_count, 3);
+    // A visitor gets the link; without an account their share counts for nothing.
+    let visitor = share(&ctx, None, &short.id).await.unwrap();
+    assert_eq!((visitor.url.as_str(), visitor.share_count), (short.share_url.as_str(), 2));
     assert_eq!(
         share(&ctx, Some(&alice), &short.id).await.unwrap().share_count,
-        3,
+        2,
         "the owner's shares are not a signal"
     );
-    assert_eq!(hourly(&ctx, &short.id).await.4, 3);
-    assert_eq!(ctx.get(None, &short.id).await.unwrap().share_count, 3);
+    assert_eq!(hourly(&ctx, &short.id).await.4, 2);
+    assert_eq!(ctx.get(None, &short.id).await.unwrap().share_count, 2);
 
     let bad =
         ShareShortRequest { short_id: short.id.clone(), target: buffa::EnumValue::from(99), ..Default::default() };
@@ -389,6 +391,37 @@ async fn a_share_counts_once_per_sharer_and_always_returns_the_link() {
     ctx.set_visibility(&alice, &short.id, Visibility::VISIBILITY_PRIVATE).await;
     assert_eq!(share(&ctx, Some(&bob), &short.id).await.unwrap_err().reason, "SHORT_NOT_FOUND");
     assert_eq!(share(&ctx, None, "nonsense!").await.unwrap_err().reason, "SHORT_NOT_FOUND");
+}
+
+/// The range from `from` to `to` days ago, as `day` names them.
+fn days<P: buffa::ProtoBox<DateRange>>(
+    day: &impl Fn(u64) -> String,
+    from: u64,
+    to: u64,
+) -> buffa::MessageField<DateRange, P> {
+    buffa::MessageField::some(DateRange { start_date: day(from), end_date: day(to), ..Default::default() })
+}
+
+/// Writes what a stay leaves in the analytics, dated `days_ago` days back.
+async fn watched_on(
+    ctx: &Ctx,
+    short: &Short,
+    owner: &TestUser,
+    viewer: &TestUser,
+    days_ago: i64,
+    ratio: f64,
+    loops: i64,
+) {
+    let at = chrono::Utc::now() - chrono::Duration::days(days_ago);
+    let channel_id = short.channel.as_option().unwrap().id.clone();
+    let mut event = tokuly_core::analytics::AnalyticsEvent::new("short.watch")
+        .user(Some(viewer.id))
+        .subject("short", id(&short.id))
+        .owner(owner.id)
+        .value(ratio * 12.0)
+        .props(serde_json::json!({ "channel_id": channel_id, "viewer": viewer.id, "source": 1, "ratio": ratio, "loops": loops }));
+    event.at = at;
+    ctx.app.core.analytics.write(vec![event]).await.expect("analytics write");
 }
 
 #[tokio::test]
@@ -406,7 +439,7 @@ async fn creators_see_their_numbers() {
     use PlaybackSource::*;
     {
         let _lock = playback_lock().await;
-        // Five accounts and a guest; one of the accounts swipes on at once.
+        // Five accounts and a visitor; one of the accounts swipes on at once.
         let stays = [
             (Some(&viewers[0]), PLAYBACK_SOURCE_FOR_YOU, 24_000, 2),
             (Some(&viewers[1]), PLAYBACK_SOURCE_FOR_YOU, 6_000, 0),
@@ -437,104 +470,176 @@ async fn creators_see_their_numbers() {
     ctx.subscribe(&stranger, &channel, NotificationLevel::NOTIFICATION_LEVEL_PERSONALIZED).await;
     assert!(ctx.app.flush_analytics().await > 0);
 
-    let today = chrono::Utc::now().date_naive();
-    let range = DateRange {
-        start_date: (today - chrono::Days::new(1)).to_string(),
-        end_date: (today + chrono::Days::new(1)).to_string(),
-        ..Default::default()
+    // Days are the owner's days: accounts are in Asia/Tokyo unless they say otherwise.
+    let today = chrono::Utc::now().with_timezone(&chrono_tz::Asia::Tokyo).date_naive();
+    let day = |ago: u64| (today - chrono::Days::new(ago)).to_string();
+
+    let of_short = |short_id: &str, from: u64, to: u64| {
+        let ctx = &ctx;
+        let alice = &alice;
+        let request = GetShortAnalyticsRequest {
+            short_id: short_id.to_owned(),
+            range: days(&day, from, to),
+            ..Default::default()
+        };
+        async move {
+            ctx.call::<_, GetShortAnalyticsResponse>(ANALYTICS, "GetShortAnalytics", Some(alice), &request)
+                .await
+                .unwrap()
+        }
     };
-    let request = GetShortAnalyticsRequest {
-        short_id: short.short_id.clone(),
-        range: Some(range.clone()).into(),
-        ..Default::default()
-    };
-    let report: GetShortAnalyticsResponse =
-        ctx.call(ANALYTICS, "GetShortAnalytics", Some(&alice), &request).await.unwrap();
-    let totals = report.totals.as_option().unwrap();
-    assert_eq!((totals.views, totals.unique_viewers, totals.plays, totals.loops), (5, 5, 6, 1));
+
+    // ── Counts are live ──
+    let report = of_short(&short.short_id, 2, 0).await;
+    let totals = report.totals.as_option().unwrap().clone();
+    assert_eq!((totals.views, totals.unique_viewers), (5, 5));
     assert_eq!((totals.likes, totals.comments, totals.shares, totals.saves, totals.followers_gained), (1, 1, 1, 1, 1));
-    let expected_ratio = (1.0 + 0.5 + 0.25 + 1.0 + 500.0 / 12_000.0 + 1.0) / 6.0;
-    assert!((totals.average_watch_ratio - expected_ratio).abs() < 1e-6, "{}", totals.average_watch_ratio);
-    assert!((totals.watch_time_seconds - 57.5).abs() < 1e-6);
-    // One entry per day; everything happened today.
     assert_eq!(report.daily.len(), 3);
-    assert_eq!(report.daily.iter().map(|day| day.views).collect::<Vec<_>>(), [0, 5, 0]);
+    assert_eq!(report.daily.iter().map(|day| day.views).collect::<Vec<_>>(), [0, 0, 5]);
     assert_eq!(
-        (report.daily[1].date.as_str(), report.daily[1].likes, report.daily[1].followers_gained),
-        (today.to_string().as_str(), 1, 1)
+        (report.daily[2].date.as_str(), report.daily[2].likes, report.daily[2].followers_gained),
+        (day(0).as_str(), 1, 1)
     );
-    // Where the views came from; with one or two viewers per source, not how they watched.
-    let sources: Vec<(PlaybackSource, i64, f64)> =
-        report.traffic_sources.iter().map(|s| (s.source.as_known().unwrap(), s.views, s.average_watch_ratio)).collect();
+    let sources: Vec<(PlaybackSource, i64)> =
+        report.traffic_sources.iter().map(|s| (s.source.as_known().unwrap(), s.views)).collect();
     assert_eq!(
         sources,
         [
-            (PLAYBACK_SOURCE_FOR_YOU, 2, 0.0),
-            (PLAYBACK_SOURCE_PROFILE, 1, 0.0),
-            (PLAYBACK_SOURCE_HASHTAG, 1, 0.0),
-            (PLAYBACK_SOURCE_SHARE_LINK, 1, 0.0),
+            (PLAYBACK_SOURCE_FOR_YOU, 2),
+            (PLAYBACK_SOURCE_PROFILE, 1),
+            (PLAYBACK_SOURCE_HASHTAG, 1),
+            (PLAYBACK_SOURCE_SHARE_LINK, 1)
         ]
     );
+    // ── How people watched is not: today is not over, so nothing of it shows,
+    //    although five accounts watched ──
+    assert_eq!((totals.average_watch_ratio, totals.loops, totals.plays, totals.watch_time_seconds), (0.0, 0, 0, 0.0));
 
-    // The whole channel: both shorts, the best one named.
+    // ── Finished days, in blocks of one short and one day ──
+    // Yesterday five accounts watched `short`; the day before, four did;
+    // yesterday one account (the fifth viewer) watched `quiet`.
+    for (viewer, ratio, loops) in [(0, 1.0, 1), (1, 0.5, 0), (2, 0.25, 0), (3, 1.0, 0), (4, 0.26, 0)] {
+        watched_on(&ctx, &short, &alice, &viewers[viewer], 1, ratio, loops).await;
+    }
+    for viewer in 0..4 {
+        watched_on(&ctx, &short, &alice, &viewers[viewer], 2, 0.1, 3).await;
+    }
+    watched_on(&ctx, &quiet, &alice, &viewers[4], 1, 0.03, 0).await;
+
+    let report = of_short(&short.id, 3, 0).await;
+    let totals = report.totals.as_option().unwrap();
+    // (1 + 0.5 + 0.25 + 1 + 0.26) / 5 = 0.602, reported to two decimals.
+    assert_eq!((totals.average_watch_ratio, totals.plays, totals.loops), (0.6, 5, 1));
+    assert_eq!(totals.watch_time_seconds, 36.0, "whole seconds");
+    let watching: Vec<(f64, i64)> = report.daily.iter().map(|day| (day.average_watch_ratio, day.plays)).collect();
+    assert_eq!(watching, [(0.0, 0), (0.0, 0), (0.6, 5), (0.0, 0)], "the day four accounts watched says nothing");
+
+    // Cutting the range differently cannot isolate anyone: with or without
+    // the four-account day, with or without today, the answer is the same.
+    for (from, to) in [(1, 1), (2, 1), (1, 0), (30, 0)] {
+        let cut = of_short(&short.id, from, to).await;
+        let cut = cut.totals.as_option().unwrap();
+        assert_eq!(
+            (cut.average_watch_ratio, cut.plays, cut.loops, cut.watch_time_seconds),
+            (0.6, 5, 1, 36.0),
+            "{from}..{to}"
+        );
+    }
+    let only_small_day = of_short(&short.id, 2, 2).await;
+    assert_eq!(only_small_day.totals.as_option().unwrap().plays, 0);
+    // One viewer's short: views, and not a word about how they watched.
+    let lone = of_short(&quiet.id, 3, 0).await;
+    let lone = lone.totals.as_option().unwrap();
+    assert_eq!((lone.views, lone.plays, lone.average_watch_ratio, lone.watch_time_seconds), (2, 0, 0.0, 0.0));
+
+    // The channel is the sum of its shorts' blocks: subtracting one short's
+    // report from the channel's leaves nothing of the lone viewer either.
     let request = GetChannelShortsAnalyticsRequest {
         channel_id: channel.summary.handle.clone(),
-        range: Some(range.clone()).into(),
+        range: days(&day, 3, 0),
         ..Default::default()
     };
     let report: GetChannelShortsAnalyticsResponse =
         ctx.call(ANALYTICS, "GetChannelShortsAnalytics", Some(&alice), &request).await.unwrap();
     let totals = report.totals.as_option().unwrap();
-    assert_eq!((totals.views, totals.unique_viewers, totals.plays, report.short_count), (7, 5, 8, 2));
+    assert_eq!((totals.views, totals.unique_viewers, report.short_count), (7, 5, 2));
+    assert_eq!((totals.average_watch_ratio, totals.plays, totals.loops, totals.watch_time_seconds), (0.6, 5, 1, 36.0));
     assert_eq!(report.top_shorts.len(), 2);
     assert_eq!(
         (report.top_shorts[0].short.as_option().unwrap().id.as_str(), report.top_shorts[0].views),
         (short.id.as_str(), 5)
     );
-    assert!(report.top_shorts[0].average_watch_ratio > 0.6);
-    assert_eq!((report.top_shorts[1].views, report.top_shorts[1].average_watch_ratio), (2, 0.0));
-
-    // Two viewers: the counts are there, how the two of them watched is not.
-    let request = GetShortAnalyticsRequest {
-        short_id: quiet.id.clone(),
-        range: Some(range.clone()).into(),
-        ..Default::default()
-    };
-    let report: GetShortAnalyticsResponse =
-        ctx.call(ANALYTICS, "GetShortAnalytics", Some(&alice), &request).await.unwrap();
-    let totals = report.totals.as_option().unwrap();
-    assert_eq!((totals.views, totals.unique_viewers), (2, 2));
-    assert_eq!((totals.average_watch_ratio, totals.loops, totals.plays, totals.watch_time_seconds), (0.0, 0, 0, 0.0));
-    // The same in the studio numbers of the shorts themselves.
-    let studio = |short: Short| short.studio.as_option().cloned().unwrap();
-    let busy = studio(ctx.get(Some(&alice), &short.id).await.unwrap());
-    assert!((busy.average_watch_ratio - expected_ratio).abs() < 0.002 && busy.loop_count == 1);
-    let rare = studio(ctx.get(Some(&alice), &quiet.id).await.unwrap());
-    assert_eq!((rare.average_watch_ratio, rare.loop_count), (0.0, 0));
+    assert_eq!(report.top_shorts[1].views, 2);
+    // The studio view of a short carries no watching figures at all.
+    let studio =
+        serde_json::to_value(ctx.get(Some(&alice), &short.id).await.unwrap().studio.as_option().unwrap()).unwrap();
+    assert!(studio.get("averageWatchRatio").is_none() && studio.get("loopCount").is_none(), "{studio}");
 
     // Only the owner asks, and only for sensible ranges.
-    let request = GetShortAnalyticsRequest {
-        short_id: short.id.clone(),
-        range: Some(range.clone()).into(),
-        ..Default::default()
-    };
+    let request =
+        GetShortAnalyticsRequest { short_id: short.id.clone(), range: days(&day, 1, 0), ..Default::default() };
     assert_eq!(ctx.reason(ANALYTICS, "GetShortAnalytics", Some(&stranger), &request).await, "SHORT_NOT_FOUND");
     assert_eq!(ctx.reason(ANALYTICS, "GetShortAnalytics", None, &request).await, "SIGN_IN_REQUIRED");
     let theirs = GetChannelShortsAnalyticsRequest {
         channel_id: channel.summary.id.clone(),
-        range: Some(range.clone()).into(),
+        range: days(&day, 1, 0),
         ..Default::default()
     };
     assert_eq!(ctx.reason(ANALYTICS, "GetChannelShortsAnalytics", Some(&stranger), &theirs).await, "CHANNEL_NOT_FOUND");
     let no_range = GetShortAnalyticsRequest { short_id: short.id.clone(), ..Default::default() };
     assert_eq!(ctx.reason(ANALYTICS, "GetShortAnalytics", Some(&alice), &no_range).await, "DATE_RANGE_INVALID");
-    let backwards =
-        DateRange { start_date: range.end_date.clone(), end_date: range.start_date.clone(), ..Default::default() };
     let request =
-        GetShortAnalyticsRequest { short_id: short.id.clone(), range: Some(backwards).into(), ..Default::default() };
+        GetShortAnalyticsRequest { short_id: short.id.clone(), range: days(&day, 0, 1), ..Default::default() };
     assert_eq!(ctx.reason(ANALYTICS, "GetShortAnalytics", Some(&alice), &request).await, "DATE_RANGE_INVALID");
-    let nowhere = DateRange { time_zone: "Mars/Base".into(), ..range };
-    let request =
-        GetShortAnalyticsRequest { short_id: short.id.clone(), range: Some(nowhere).into(), ..Default::default() };
-    assert_eq!(ctx.reason(ANALYTICS, "GetShortAnalytics", Some(&alice), &request).await, "TIME_ZONE_INVALID");
+}
+
+#[tokio::test]
+async fn visitors_and_brand_new_accounts_do_not_move_a_ranking() {
+    let ctx = start_with(ShortsConfig { signal_min_account_age_hours: 24, ..test_config() }).await;
+    let alice = ctx.app.user("alice").await;
+    let newcomer = ctx.app.user("newcomer").await;
+    let regular = ctx.app.user("regular").await;
+    sqlx::query("UPDATE users SET created_at = now() - interval '3 days' WHERE id = ANY($1)")
+        .bind(vec![alice.id, regular.id])
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    let channel = ctx.channel(&alice, "ch").await;
+    let short = ctx.short(&alice, &channel, "育てたい動画").await;
+    let comment = |author: &TestUser| {
+        serde_json::json!({
+            "comment_id": uuid::Uuid::now_v7(), "subject_type": SubjectType::SUBJECT_TYPE_SHORT as i32,
+            "subject_id": short.id, "author_id": author.id,
+        })
+    };
+    let _lock = playback_lock().await;
+
+    // Everything a creator could do to their own short logged out, or with
+    // an account made for the purpose.
+    assert_eq!(ctx.report(None, vec![stay(&short.id, FOR_YOU, 36_000, 3)]).await.views_counted, 1);
+    assert_eq!(ctx.watch(&newcomer, &short.id).await.views_counted, 1);
+    assert_eq!(share(&ctx, None, &short.id).await.unwrap().share_count, 0);
+    assert_eq!(share(&ctx, Some(&newcomer), &short.id).await.unwrap().share_count, 0);
+    assert_eq!(save(&ctx, &newcomer, &short.id).await.unwrap(), 1, "it is saved for them all the same");
+    ctx.like(&newcomer, &short.id).await;
+    ctx.deliver_event("engagement.comment.published", Some(newcomer.id), comment(&newcomer)).await;
+    ctx.flush().await;
+    let row = ctx.row(&short.id).await;
+    assert_eq!((row.view_count, row.watch_samples, row.loop_count, row.share_count), (2, 0, 0, 0), "views are shown");
+    assert_eq!(hourly(&ctx, &short.id).await, (0, 0, 0, 0, 0, 0), "and nothing reaches the ranking");
+    ctx.shorts.run_ranking().await.unwrap();
+    assert!((ctx.row(&short.id).await.score - 1.0).abs() < 0.01, "the short ranks as if nobody had come");
+
+    // An account that has been around counts in full.
+    assert_eq!(ctx.report(Some(&regular), vec![stay(&short.id, FOR_YOU, 36_000, 3)]).await.views_counted, 1);
+    assert_eq!(share(&ctx, Some(&regular), &short.id).await.unwrap().share_count, 1);
+    save(&ctx, &regular, &short.id).await.unwrap();
+    ctx.like(&regular, &short.id).await;
+    ctx.deliver_event("engagement.comment.published", Some(regular.id), comment(&regular)).await;
+    ctx.flush().await;
+    assert_eq!(hourly(&ctx, &short.id).await, (1, 2, 1, 1, 1, 1));
+    let row = ctx.row(&short.id).await;
+    assert_eq!((row.view_count, row.watch_samples, row.loop_count), (3, 1, 2));
+    // The newcomer still gets a feed, and what they watched is remembered for them.
+    assert!(viewer_state(&ctx.get(Some(&newcomer), &short.id).await.unwrap()).seen);
 }

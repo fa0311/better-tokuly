@@ -36,6 +36,14 @@ async fn trending(ctx: &Ctx) -> Vec<Hashtag> {
     response.hashtags
 }
 
+async fn ctx_hashtag_id(ctx: &Ctx, tag: &str) -> uuid::Uuid {
+    sqlx::query_scalar("SELECT id FROM short_hashtags WHERE tag = $1")
+        .bind(tag)
+        .fetch_one(&ctx.app.core.db)
+        .await
+        .unwrap()
+}
+
 /// Gives a short engagement in the current hour, as the flush would.
 async fn engagement(ctx: &Ctx, short_id: &str, views: i64) {
     sqlx::query(
@@ -104,6 +112,23 @@ async fn hashtag_pages_list_public_shorts_by_rank_or_by_age() {
     all.dedup();
     assert_eq!(all.len(), 4);
     assert_eq!(hashtag(&ctx, None, &tag).await.unwrap().view_count, 500);
+    // The order a reader pages through does not move under them: scores
+    // change between two pages (another short overtakes), and the pages
+    // still hold every short exactly once.
+    tokuly_shorts::snapshot::forget(&ctx.app.core, &tokuly_shorts::hashtags::top_key(ctx_hashtag_id(&ctx, &tag).await))
+        .await
+        .unwrap();
+    let page_one = tagged(&ctx, None, &tag, HashtagSort::HASHTAG_SORT_TOP, 2, "").await;
+    engagement(&ctx, &first.id, 90_000).await;
+    ctx.shorts.run_ranking().await.unwrap();
+    let page_two =
+        tagged(&ctx, None, &tag, HashtagSort::HASHTAG_SORT_TOP, 2, &page_one.page.as_option().unwrap().next_cursor)
+            .await;
+    let mut paged: Vec<String> = page_one.shorts.iter().chain(&page_two.shorts).map(|short| short.id.clone()).collect();
+    assert_eq!(paged.len(), 4);
+    paged.sort();
+    paged.dedup();
+    assert_eq!(paged.len(), 4, "nothing twice, nothing skipped");
 
     // Completion while typing a caption.
     let typed = SuggestHashtagsRequest { prefix: format!("#{}", &tag[..tag.len() - 4]), ..Default::default() };

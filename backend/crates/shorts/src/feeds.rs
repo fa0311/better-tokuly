@@ -2,15 +2,26 @@
 //!
 //! **For you** is ranked ([`crate::ranking`]). Ranking a viewer's whole
 //! candidate pool for every page would be slow and, worse, unstable: scores
-//! move and shorts arrive between two pages. So the first call ranks a
-//! *batch* and stores the ordered IDs in Valkey for half an hour; the cursor
-//! is the batch's token and an offset into it, and pages are read off the
-//! stored list. Whatever is published or deleted meanwhile, a batch never
-//! repeats or skips a short. When a batch is used up (or expired) the next
-//! call ranks a new one, without the shorts the viewer has seen by then.
-//! When every candidate has been seen, the pool is ranked again with the
-//! seen shorts allowed and the items are flagged `repeat`: the feed never
-//! runs dry while there is anything to show.
+//! move and shorts arrive between two pages. So a call without a cursor
+//! ranks a *batch* and stores the ordered IDs in Valkey for half an hour;
+//! the cursor is the batch's token and an offset into it, and pages are
+//! read off the stored list. Whatever is published or deleted meanwhile, a
+//! batch never repeats or skips a short.
+//!
+//! - **One batch per viewer**, under a fixed key that a new batch
+//!   overwrites, so what a viewer costs in Valkey is bounded. A cursor from
+//!   a batch that was replaced (another device opened the feed) carries on
+//!   in the current batch, after what has been served.
+//! - **Served is remembered.** Every short a page returned is recorded for
+//!   six hours, and a new batch leaves those out together with the shorts
+//!   the viewer has reported as watched. Clients prefetch and report late;
+//!   without this the first shorts of a new batch would be the last ones of
+//!   the previous one.
+//! - When every candidate has been seen or served, the pool is ranked again
+//!   with them allowed and the items are flagged `repeat`: the feed never
+//!   runs dry while there is anything to show.
+//! - **Visitors share one batch** (their feed is the same for all of them),
+//!   rebuilt when it expires; for them the feed ends with the batch.
 //!
 //! **Following** and **friends** are chronological with a keyset cursor on
 //! `(published_at, id)`, which new shorts cannot disturb.
@@ -25,7 +36,8 @@
 //!
 //! | Valkey key | Type | Purpose |
 //! |---|---|---|
-//! | `shorts:foryou:<user or "anon">:<token>` | JSON, TTL `feed_batch_ttl_seconds` | a ranked for-you batch being paged through |
+//! | `shorts:foryou:<user>` / `shorts:foryou:anon` | JSON, TTL `feed_batch_ttl_seconds` | the viewer's (the visitors') current ranked batch |
+//! | `shorts:served:<user>` | sorted set by time, 6 h, capped | shorts a page returned to the user |
 use std::{collections::HashMap, time::Duration};
 
 use serde::{Deserialize, Serialize};
@@ -71,16 +83,23 @@ struct BatchCursor {
     offset: usize,
 }
 
-fn batch_key(viewer: &Viewer, token: &str) -> String {
-    match viewer.user_id {
-        Some(user_id) => format!("shorts:foryou:{}:{token}", user_id.simple()),
-        None => format!("shorts:foryou:anon:{token}"),
+/// A ranked batch as stored: one per viewer, replaced by the next.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct StoredBatch {
+    token: String,
+    items: Vec<BatchItem>,
+}
+
+fn batch_key(user_id: Option<Uuid>) -> String {
+    match user_id {
+        Some(user_id) => format!("shorts:foryou:{}", user_id.simple()),
+        None => "shorts:foryou:anon".to_owned(),
     }
 }
 
-/// A token as this module issues them (it becomes part of a Valkey key).
-fn is_token(token: &str) -> bool {
-    token.len() == 16 && token.bytes().all(|b| b.is_ascii_alphanumeric())
+/// Drops a viewer's stored batch (`None`: the one visitors share).
+pub async fn drop_batch(core: &Core, user_id: Option<Uuid>) -> AppResult<()> {
+    core.cache.del(&batch_key(user_id)).await
 }
 
 /// What a feed attaches to a short besides the short itself.
@@ -99,26 +118,46 @@ impl Shorts {
     pub async fn for_you(&self, viewer: &Viewer, who: &str, page: &Page) -> AppResult<(Vec<FeedItem>, PageInfo)> {
         let core = &self.core;
         let cursor: BatchCursor = page.decode()?.unwrap_or_default();
-        let mut batch: Option<(String, Vec<BatchItem>)> = None;
-        if is_token(&cursor.token) {
-            let stored: Option<Vec<BatchItem>> = core.cache.get_json(&batch_key(viewer, &cursor.token)).await?;
-            // A batch that expired, or that has nothing left, is simply replaced.
-            batch = stored.filter(|items| cursor.offset < items.len()).map(|items| (cursor.token.clone(), items));
-        }
-        let (token, items, mut offset) = match batch {
-            Some((token, items)) => (token, items, cursor.offset),
+        let key = batch_key(viewer.user_id);
+        let stored: Option<StoredBatch> = core.cache.get_json(&key).await?;
+        // Where to read on in the stored batch, if anywhere.
+        let resume: Option<(StoredBatch, usize)> = match (stored, viewer.user_id) {
+            (Some(batch), _) if !cursor.token.is_empty() && batch.token == cursor.token => {
+                if cursor.offset < batch.items.len() {
+                    Some((batch, cursor.offset))
+                } else if viewer.user_id.is_none() {
+                    // Visitors have read their batch to the end.
+                    return Ok((Vec::new(), PageInfo::default()));
+                } else {
+                    None
+                }
+            }
+            // The batch this cursor came from was replaced (another device):
+            // carry on in the current one, after what has been served.
+            (Some(batch), Some(user_id)) if !cursor.token.is_empty() => {
+                let served = signals::served_ids(core, user_id).await?;
+                let position = batch.items.iter().position(|item| !served.contains(&item.id));
+                position.map(|position| (batch, position))
+            }
+            // Visitors all read the same batch, from its start.
+            (Some(batch), None) => Some((batch, 0)),
+            _ => None,
+        };
+        let (batch, mut offset) = match resume {
+            Some(resume) => resume,
             None => {
                 core.cache.rate_limit(&format!("shorts-foryou-batch:{who}"), 30, Duration::from_secs(60)).await?;
                 let items = self.rank_batch(viewer).await?;
                 if items.is_empty() {
                     return Ok((Vec::new(), PageInfo::default()));
                 }
-                let token = tokuly_core::ids::random_base62(16);
+                let batch = StoredBatch { token: tokuly_core::ids::random_base62(16), items };
                 let ttl = Duration::from_secs(self.cfg.feed_batch_ttl_seconds);
-                core.cache.set_json(&batch_key(viewer, &token), &items, Some(ttl)).await?;
-                (token, items, 0)
+                core.cache.set_json(&key, &batch, Some(ttl)).await?;
+                (batch, 0)
             }
         };
+        let StoredBatch { token, items } = batch;
 
         let limit = page.limit as usize;
         let mut out: Vec<FeedItem> = Vec::with_capacity(limit);
@@ -151,6 +190,13 @@ impl Shorts {
             let rows = self.without_hidden(viewer, rows).await?;
             out.extend(self.feed_items(viewer, &rows, &placements).await?);
         }
+        let Some(user_id) = viewer.user_id else {
+            let has_more = offset < items.len();
+            let next = BatchCursor { token, offset };
+            return Ok((out, PageInfo { next_cursor: encode_cursor(&next), has_more, ..Default::default() }));
+        };
+        let served: Vec<Uuid> = out.iter().filter_map(|item| Uuid::parse_str(&item.short.id).ok()).collect();
+        signals::mark_served(core, user_id, &served, self.cfg.seen_cap).await?;
         let next = if offset < items.len() { BatchCursor { token, offset } } else { BatchCursor::default() };
         Ok((out, PageInfo { next_cursor: encode_cursor(&next), has_more: true, ..Default::default() }))
     }
@@ -160,8 +206,13 @@ impl Shorts {
     async fn rank_batch(&self, viewer: &Viewer) -> AppResult<Vec<BatchItem>> {
         let core = &self.core;
         let taste = Taste::load(core, viewer).await?;
+        // What the viewer watched, and what was put in front of them lately.
         let seen: Vec<Uuid> = match viewer.user_id {
-            Some(user_id) => signals::seen_ids(core, user_id).await?.into_iter().collect(),
+            Some(user_id) => {
+                let mut seen = signals::seen_ids(core, user_id).await?;
+                seen.extend(signals::served_ids(core, user_id).await?);
+                seen.into_iter().collect()
+            }
             None => Vec::new(),
         };
         let per_source = self.cfg.feed_batch_size as i64;
@@ -333,15 +384,6 @@ mod tests {
         let fresh: BatchCursor = tokuly_core::page::decode_cursor(&encode_cursor(&BatchCursor::default())).unwrap();
         assert!(fresh.token.is_empty() && fresh.offset == 0);
         assert!(tokuly_core::page::decode_cursor::<BatchCursor>("not a cursor").is_err());
-    }
-
-    #[test]
-    fn only_issued_tokens_reach_valkey() {
-        assert!(is_token("abcDEF0123456789"));
-        assert!(!is_token(""));
-        assert!(!is_token("short"));
-        assert!(!is_token("abcDEF012345678*"));
-        assert!(!is_token("abcDEF0123456789:x"));
     }
 
     #[test]

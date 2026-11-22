@@ -1126,11 +1126,13 @@ pub async fn delete(core: &Core, short: &ShortRow, actor: Option<Uuid>, removal:
     Ok(removed)
 }
 
-/// Deletes a short on behalf of its owner. A short that has been reported
-/// is withdrawn instead ([`withdraw`]): the owner cannot make the evidence
-/// of a report disappear.
+/// Deletes a short on behalf of its owner. A short that has been
+/// reported, or that notified someone of a mention, is withdrawn instead
+/// ([`withdraw`]): the owner cannot make the evidence of a report
+/// disappear, nor ping someone and delete the short before they can
+/// report it.
 pub async fn delete_by_owner(core: &Core, short: &ShortRow) -> AppResult<()> {
-    let removed = if short.reported_at.is_some() {
+    let removed = if short.reported_at.is_some() || !short.mentions_told.is_empty() {
         withdraw(core, short).await?
     } else {
         delete(core, short, Some(short.owner_id), Removal::Owner).await?

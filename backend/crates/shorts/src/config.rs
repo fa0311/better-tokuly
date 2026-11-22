@@ -136,6 +136,17 @@ pub struct ShortsConfig {
     )]
     pub reported_retention_days: i32,
 
+    /// Hours an account must have existed before what it does (views,
+    /// watch-through, likes, comments, saves, shares) moves a short's
+    /// ranking. Younger accounts, like visitors, only add to the view count.
+    #[arg(
+        id = "shorts_signal_min_account_age_hours",
+        long = "shorts-signal-min-account-age-hours",
+        env = "TOKULY_SHORTS_SIGNAL_MIN_ACCOUNT_AGE_HOURS",
+        default_value_t = 24
+    )]
+    pub signal_min_account_age_hours: i32,
+
     /// Shorts one account may keep saved.
     #[arg(id = "shorts_max_saves", long = "shorts-max-saves", env = "TOKULY_SHORTS_MAX_SAVES", default_value_t = 5000)]
     pub max_saves: i64,
@@ -167,6 +178,7 @@ impl Default for ShortsConfig {
             announce_batch_size: 500,
             announcements_per_day: 3,
             reported_retention_days: 30,
+            signal_min_account_age_hours: 24,
             max_saves: 5000,
             ffmpeg_path: "ffmpeg".to_owned(),
         }

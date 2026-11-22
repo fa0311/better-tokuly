@@ -165,11 +165,13 @@ pub fn sees_public(viewer: &Viewer, short: &ShortFacts) -> bool {
     short.is_public() && !viewer.hides(short.owner_id)
 }
 
-/// Whether a moderator may look at the short regardless of who may watch
-/// it: every short but their own (staff powers are not for one's own
-/// content). This is what keeps a withdrawn short reviewable.
-pub fn moderator_sees(moderator_id: Uuid, short: &ShortFacts) -> bool {
-    short.owner_id != moderator_id
+/// Whether a moderator may look at a short that they could not watch as
+/// an ordinary viewer: only one that has been reported or that its owner
+/// withdrew (there is something to review), and never their own (staff
+/// powers are not for one's own content). A moderator cannot open
+/// somebody's private or friends-only short just by knowing its ID.
+pub fn moderator_sees(moderator_id: Uuid, short: &crate::shorts::ShortRow) -> bool {
+    short.owner_id != moderator_id && (short.reported_at.is_some() || short.is_withdrawn())
 }
 
 /// Whether an account other than the owner can see the short at all, given
@@ -209,10 +211,9 @@ mod tests {
     }
 
     #[test]
-    fn moderators_review_everything_but_their_own() {
-        let (owner, moderator) = (Uuid::now_v7(), Uuid::now_v7());
+    fn a_withdrawn_short_is_nowhere() {
+        let owner = Uuid::now_v7();
         let withdrawn = facts(owner, WITHDRAWN, PRIVATE);
-        assert!(moderator_sees(moderator, &withdrawn) && !moderator_sees(owner, &withdrawn));
         assert!(!sees_listed(&Viewer { user_id: Some(owner), ..Default::default() }, &withdrawn));
         assert!(!feeds_carry(&Viewer::anonymous(), &withdrawn) && !withdrawn.is_public() && !reaches(&withdrawn, true));
     }

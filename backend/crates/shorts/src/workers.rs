@@ -543,8 +543,13 @@ impl Shorts {
     /// short, if it is the first of that account this week.
     async fn count_engagement(&self, short_id: Uuid, engagement: Engagement, user_id: Uuid) -> AppResult<()> {
         let Some(short) = shorts::find_by_id(&self.core, short_id).await? else { return Ok(()) };
-        if self.count_signal(&short, engagement, &user_id.to_string()).await? {
-            signals::bump_hourly(&self.core.db, short_id, engagement, 1).await?;
+        if self.count_signal(&short, engagement, user_id).await? {
+            // The claim is given back if the write fails, so that the
+            // event's redelivery (or the account's next like) counts.
+            if let Err(error) = signals::bump_hourly(&self.core.db, short_id, engagement, 1).await {
+                self.release_signal(&short, engagement, user_id).await;
+                return Err(error);
+            }
         }
         Ok(())
     }

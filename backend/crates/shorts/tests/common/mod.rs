@@ -53,8 +53,14 @@ pub struct Ctx {
     pub video: VideoDomain,
 }
 
+/// The defaults, except that the accounts a test has just made carry
+/// weight in the ranking at once (in production they do after a day).
+pub fn test_config() -> ShortsConfig {
+    ShortsConfig { signal_min_account_age_hours: 0, ..Default::default() }
+}
+
 pub async fn start() -> Ctx {
-    start_with(ShortsConfig::default()).await
+    start_with(test_config()).await
 }
 
 pub async fn start_with(cfg: ShortsConfig) -> Ctx {
@@ -382,6 +388,12 @@ impl Ctx {
     /// Pages through one batch of the for-you feed, at most `pages` pages
     /// of 30, and returns its items in order.
     pub async fn for_you_all(&self, viewer: Option<&TestUser>, pages: usize) -> Vec<FeedItem> {
+        // As if for the first time: nothing served to this viewer yet, and
+        // for visitors no batch left over by another test.
+        match viewer {
+            Some(viewer) => self.forget_served(viewer).await,
+            None => tokuly_shorts::feeds::drop_batch(&self.app.core, None).await.expect("drop the visitors' batch"),
+        }
         let mut items = Vec::new();
         let mut cursor = String::new();
         for _ in 0..pages {
@@ -395,6 +407,12 @@ impl Ctx {
             }
         }
         items
+    }
+
+    /// Forgets what the for-you feed has served to `viewer`, so that a
+    /// test can look at their feed again as a whole.
+    pub async fn forget_served(&self, viewer: &TestUser) {
+        tokuly_shorts::signals::forget_served(&self.app.core, viewer.id).await.expect("forget served");
     }
 
     pub async fn mark_not_interested(&self, viewer: &TestUser, short_id: &str) {

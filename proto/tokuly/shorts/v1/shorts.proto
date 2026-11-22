@@ -68,13 +68,15 @@ service ShortService {
   // of CreateShort, RATE_LIMITED.
   rpc UpdateShort(UpdateShortRequest) returns (UpdateShortResponse);
   // Deletes a short of the caller, with its upload: it is gone for everyone
-  // at once. A short that has been reported is kept out of sight for a
-  // retention period first, so that moderators can still look at what was
-  // reported (WITHDRAWN), and deleted for good after it.
+  // at once. A short that has been reported, or that notified someone of
+  // a mention, is kept out of sight for a retention period first
+  // (WITHDRAWN), so that it can still be reported and reviewed, and is
+  // deleted for good after it.
   // Errors: SHORT_NOT_FOUND.
   rpc DeleteShort(DeleteShortRequest) returns (DeleteShortResponse);
   // One short as the caller may see it. Callable without signing in.
-  // Moderators also see withdrawn shorts, except their own.
+  // Moderators also see shorts that were reported or withdrawn, whoever
+  // may watch them, except their own.
   // Errors: SHORT_NOT_FOUND.
   rpc GetShort(GetShortRequest) returns (GetShortResponse);
   // Up to 50 shorts, in request order; unknown or invisible ones are
@@ -108,8 +110,8 @@ service ShortService {
   rpc ListLikedShorts(ListLikedShortsRequest) returns (ListLikedShortsResponse);
 
   // Records a share and returns the link to pass on. Callable without
-  // signing in. A viewer's shares of one short count once a week; the link
-  // is returned every time.
+  // signing in. An account's shares of one short count once a week; a
+  // visitor's do not count. The link is returned every time.
   // Errors: SHORT_NOT_FOUND, SHARE_TARGET_INVALID, RATE_LIMITED.
   rpc ShareShort(ShareShortRequest) returns (ShareShortResponse);
   // Public remixes and duets of a short, newest first. Callable without
@@ -226,12 +228,10 @@ message ShortStudioInfo {
   bool cover_pending = 4;
   // Subscribers are told when the short first goes public.
   bool notify_subscribers = 5;
-  // Times the short was replayed past its end. 0 until five plays have
-  // been reported: how one particular viewer watched is theirs to know.
-  int64 loop_count = 6;
-  // Average share of the short that viewers watched (0-1). 0 until five
-  // plays have been reported.
-  double average_watch_ratio = 7;
+
+  // How the short is watched is not here: live numbers would give away how
+  // the latest viewer watched. See ShortAnalyticsService.
+  reserved 6, 7;
 }
 
 // A short with everything the player and the cards around it show.
@@ -521,9 +521,11 @@ service ShortFeedService {
   // shorts marked "not interested" and friends-only shorts of people who
   // are not friends never appear.
   //
-  // The first call (empty cursor) ranks a batch of candidates and keeps it
-  // for half an hour; pages are read off that batch, and a new batch starts
-  // when it is used up or expired.
+  // A call with an empty cursor ranks a batch of candidates and keeps it
+  // for half an hour (one batch per viewer); pages are read off that batch,
+  // and a new batch starts when it is used up or expired. A new batch
+  // leaves out what the viewer watched and what earlier pages already
+  // returned to them. Visitors share one batch, and their feed ends with it.
   // Errors: INVALID_CURSOR, RATE_LIMITED.
   rpc GetForYouFeed(GetForYouFeedRequest) returns (GetForYouFeedResponse);
   // Shorts of the channels the caller subscribes to, newest first: public
@@ -544,8 +546,10 @@ service ShortFeedService {
   // more: per viewer, short and six hours, one view is counted (for a stay
   // of at least one second, or of the whole short if it is shorter), and
   // the watch-through ratio and replays of the first stay are taken as
-  // ranking signals. Reports about shorts the caller may not see, and about
-  // the caller's own shorts, are ignored.
+  // ranking signals. Visitors, and accounts younger than a day, add to the
+  // view count that is shown and to nothing the ranking reads. Reports
+  // about shorts the caller may not see, and about the caller's own shorts,
+  // are ignored.
   // Errors: TOO_MANY_REPORTS, RATE_LIMITED.
   rpc ReportPlayback(ReportPlaybackRequest) returns (ReportPlaybackResponse);
 
@@ -822,40 +826,48 @@ message SuggestSoundsResponse {
 // Numbers for creators, over a range of days. Only the owner of the short
 // or channel may ask.
 //
-// Counts (views, likes, comments, shares, saves, followers) are always
-// reported. How people watched (the watch-through ratio, replays, watch
-// time and plays) is reported only where at least five distinct viewers
-// stand behind the number (in the range, on the day, from the source, for
-// the short) and is zero below that: with one or two viewers these numbers
-// would describe a particular person.
+// Days are calendar days in the time zone of the channel owner's account.
+//
+// Counts (views, likes, comments, shares, saves, followers) are reported
+// as they are, up to now.
+//
+// How people watched (the watch-through ratio, replays, watch time, plays)
+// is never reported for a single viewer or a handful. These numbers are
+// put together from whole building blocks only: one short on one finished
+// day, watched by at least five accounts that day. A block with fewer
+// accounts, and the day that is still running, are left out of every
+// total, so no two reports differ by one person's viewing; and the results
+// are rounded.
 service ShortAnalyticsService {
   // Totals, a daily series and traffic sources of one short.
-  // Errors: SHORT_NOT_FOUND, DATE_RANGE_INVALID, TIME_ZONE_INVALID,
-  // ANALYTICS_UNAVAILABLE, RATE_LIMITED.
+  // Errors: SHORT_NOT_FOUND, DATE_RANGE_INVALID, ANALYTICS_UNAVAILABLE,
+  // RATE_LIMITED.
   rpc GetShortAnalytics(GetShortAnalyticsRequest) returns (GetShortAnalyticsResponse);
   // The same over all shorts of a channel, plus its most viewed shorts.
-  // Errors: CHANNEL_NOT_FOUND, DATE_RANGE_INVALID, TIME_ZONE_INVALID,
-  // ANALYTICS_UNAVAILABLE, RATE_LIMITED.
+  // Errors: CHANNEL_NOT_FOUND, DATE_RANGE_INVALID, ANALYTICS_UNAVAILABLE,
+  // RATE_LIMITED.
   rpc GetChannelShortsAnalytics(GetChannelShortsAnalyticsRequest) returns (GetChannelShortsAnalyticsResponse);
 }
 
-// An inclusive range of calendar days.
+// An inclusive range of calendar days in the channel owner's time zone.
 message DateRange {
   // `YYYY-MM-DD`.
   string start_date = 1;
   // `YYYY-MM-DD`; at most 366 days after `start_date`.
   string end_date = 2;
-  // IANA zone the days are cut in, e.g. `Asia/Tokyo`. Empty = UTC.
-  string time_zone = 3;
+
+  // The caller does not choose where a day begins: see the service.
+  reserved 3;
 }
 
 message ShortAnalyticsTotals {
   // Counted views.
   int64 views = 1;
-  // Distinct viewers among them (accounts, and network addresses of
-  // anonymous viewers).
+  // Distinct viewers among them (accounts, and networks of visitors).
   int64 unique_viewers = 2;
-  // Average share of a short that was watched per play (0-1).
+  // Average share of a short that was watched per play (0-1), to two
+  // decimals. This and `loops`, `watch_time_seconds` and `plays` cover
+  // finished days and audiences of five accounts or more only.
   double average_watch_ratio = 3;
   // Replays past the end.
   int64 loops = 4;
@@ -869,13 +881,14 @@ message ShortAnalyticsTotals {
   // Subscriptions to the channel made within an hour of watching one of
   // its shorts.
   int64 followers_gained = 9;
+  // Whole seconds.
   double watch_time_seconds = 10;
-  // Reported plays, counted views or not.
+  // First plays of accounts, counted views or not.
   int64 plays = 11;
 }
 
 message DailyShortAnalytics {
-  // `YYYY-MM-DD` in the requested time zone.
+  // `YYYY-MM-DD` in the channel owner's time zone.
   string date = 1;
   int64 views = 2;
   int64 unique_viewers = 3;
@@ -894,13 +907,15 @@ message DailyShortAnalytics {
 message PlaybackSourceStats {
   PlaybackSource source = 1;
   int64 views = 2;
-  double average_watch_ratio = 3;
+
+  reserved 3;
 }
 
 message ShortStats {
   Short short = 1;
   int64 views = 2;
-  double average_watch_ratio = 3;
+
+  reserved 3;
 }
 
 message GetShortAnalyticsRequest {

@@ -27,6 +27,7 @@
 //! | [`signals`] | playback reports: views, the Valkey buffer and its flush, the seen list |
 //! | [`ranking`] | the for-you score: formula, candidates, personal ranking, the ranking worker |
 //! | [`feeds`] | the three feeds |
+//! | [`snapshot`] | paging through lists ordered by a value that moves (top, most viewed) |
 //! | [`analytics`] | creator analytics from ClickHouse |
 //! | `*_svc` | the four Connect services: handlers over the modules above |
 //! | [`workers`] | event consumers, jobs and timers |
@@ -52,6 +53,7 @@ pub mod listing;
 pub mod ranking;
 pub mod shorts;
 pub mod signals;
+pub mod snapshot;
 pub mod sounds;
 pub mod subjects;
 pub mod text;

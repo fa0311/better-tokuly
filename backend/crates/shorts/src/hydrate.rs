@@ -21,7 +21,6 @@ use tokuly_video::channels;
 
 use crate::{
     access::{self, Viewer},
-    analytics::MIN_AUDIENCE,
     shorts::{self, COVER_FRAME, ShortRow},
     signals, sounds,
 };
@@ -116,16 +115,12 @@ pub async fn shorts(core: &Core, viewer: &Viewer, rows: &[ShortRow]) -> AppResul
                 not_interested: marks.hidden.contains(&row.id),
                 ..Default::default()
             });
-            // How a handful of viewers watched is theirs to know, not the creator's.
-            let enough_plays = row.watch_samples >= MIN_AUDIENCE;
             let studio = is_owner.then(|| ShortStudioInfo {
                 asset_id: row.asset_id.to_string(),
                 processing_error: row.processing_error.clone(),
                 cover_offset_ms: row.cover_offset_ms.unwrap_or(0),
                 cover_pending: row.cover_kind == COVER_FRAME && row.cover_asset_id.is_none(),
                 notify_subscribers: row.notify_subscribers,
-                loop_count: if enough_plays { row.loop_count } else { 0 },
-                average_watch_ratio: if enough_plays { row.average_watch_ratio() } else { 0.0 },
                 ..Default::default()
             });
             let remix_of = (row.remix_kind != 0).then(|| {

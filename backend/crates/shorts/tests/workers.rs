@@ -341,7 +341,7 @@ async fn subscribers_are_told_per_their_level_and_only_once() {
 
 #[tokio::test]
 async fn a_channel_announces_a_few_shorts_a_day_in_small_batches() {
-    let cfg = ShortsConfig { announcements_per_day: 2, announce_batch_size: 1, ..Default::default() };
+    let cfg = ShortsConfig { announcements_per_day: 2, announce_batch_size: 1, ..test_config() };
     let ctx = start_with(cfg).await;
     let alice = ctx.app.user("alice").await;
     let channel = ctx.channel(&alice, "ch").await;
@@ -416,6 +416,20 @@ async fn a_mention_tells_a_person_once_however_the_caption_is_edited() {
         assert_eq!(edited.mentions.len(), 1);
     }
     assert_eq!(ctx.notified(bob.id).await, ["shorts.mention"], "bob heard of this short once");
+
+    // Pinging someone and deleting the short does not put it out of reach:
+    // whoever was notified can still point at it, to report it.
+    let subjects = &ctx.app.core.subjects;
+    ctx.update(&alice, &caption("もう名前は出さない".into())).await.unwrap();
+    ctx.delete(&alice, &short.id).await;
+    assert_eq!(ctx.get(Some(&bob), &short.id).await.unwrap_err().reason, "SHORT_NOT_FOUND");
+    let reportable =
+        subjects.resolve(SubjectType::SUBJECT_TYPE_SHORT, &short.id, Some(bob.id)).await.expect("bob can report it");
+    assert_eq!((reportable.owner_id, reportable.interactions_enabled), (alice.id, false));
+    let outsider = ctx.app.user("outsider").await;
+    assert!(subjects.resolve(SubjectType::SUBJECT_TYPE_SHORT, &short.id, Some(outsider.id)).await.is_err());
+    assert!(subjects.resolve(SubjectType::SUBJECT_TYPE_SHORT, &short.id, None).await.is_err());
+    assert_eq!(ctx.row(&short.id).await.status, tokuly_shorts::access::WITHDRAWN, "kept for the retention period");
     // A block made after the caption was written holds too.
     let carol = ctx.app.user("carol").await;
     let hidden = ctx
@@ -430,7 +444,7 @@ async fn a_mention_tells_a_person_once_however_the_caption_is_edited() {
 
 #[tokio::test]
 async fn a_reported_short_is_withdrawn_not_destroyed() {
-    let ctx = start_with(ShortsConfig { reported_retention_days: 30, ..Default::default() }).await;
+    let ctx = start_with(ShortsConfig { reported_retention_days: 30, ..test_config() }).await;
     let alice = ctx.app.user("alice").await;
     let bob = ctx.app.user("bob").await;
     let moderator = ctx.app.user_with_roles("moderator", &["moderator"]).await;
@@ -485,6 +499,18 @@ async fn a_reported_short_is_withdrawn_not_destroyed() {
     assert!(reviewed.playback.as_option().is_some() && reviewed.caption.starts_with("ひどい動画"));
     assert!(assets::find(&ctx.app.core, upload).await.unwrap().is_some());
     assert_eq!(ctx.get(Some(&moderator), &unreported.id).await.unwrap_err().reason, "SHORT_NOT_FOUND");
+    // A moderator's role opens what there is something to review about,
+    // not any short whose ID they know.
+    let private = ctx
+        .short_with(&alice, &channel, "非公開の動画", |request| {
+            request.visibility = Visibility::VISIBILITY_PRIVATE.into()
+        })
+        .await;
+    assert_eq!(ctx.get(Some(&moderator), &private.id).await.unwrap_err().reason, "SHORT_NOT_FOUND");
+    let reported =
+        serde_json::json!({ "subject_type": SubjectType::SUBJECT_TYPE_SHORT as i32, "subject_id": private.id });
+    ctx.deliver_event("engagement.report.created", Some(bob.id), reported).await;
+    assert_eq!(ctx.get(Some(&moderator), &private.id).await.unwrap().caption, "非公開の動画");
     // Staff powers are not for one's own content.
     let own_channel = ctx.channel(&moderator, "mod").await;
     let own = ctx.short(&moderator, &own_channel, "モデレーター自身の").await;

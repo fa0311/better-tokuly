@@ -107,6 +107,10 @@ impl Shorts {
         let mut command = tokio::process::Command::new(&self.cfg.ffmpeg_path);
         command
             .args(["-hide_banner", "-loglevel", "error", "-nostdin", "-y"])
+            // The input is an upload: it must not be able to make ffmpeg
+            // open anything but itself (playlists and the like can name
+            // other files and network addresses).
+            .args(["-protocol_whitelist", "file"])
             .arg(if from_end { "-sseof" } else { "-ss" })
             .arg(position)
             .arg("-i")

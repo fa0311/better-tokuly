@@ -213,7 +213,7 @@ async fn three_pins_are_three_pins_under_a_race() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn saves_count_once_and_keep_their_limit_under_a_race() {
-    let ctx = start_with(ShortsConfig { max_saves: 3, ..Default::default() }).await;
+    let ctx = start_with(ShortsConfig { max_saves: 3, ..test_config() }).await;
     let alice = ctx.app.user("alice").await;
     let bob = ctx.app.user("bob").await;
     let channel = ctx.channel(&alice, "ch").await;
@@ -275,7 +275,7 @@ async fn a_stay_reported_many_times_at_once_is_one_view() {
     let reports = || vec![stay(&short.id, PlaybackSource::PLAYBACK_SOURCE_FOR_YOU, 36_000, 3)];
     let results = together("ReportPlayback", (0..CROWD).map(|_| ctx.report(Some(&bob), reports())).collect()).await;
     assert_eq!(results.iter().map(|recorded| recorded.views_counted).sum::<i32>(), 1);
-    // Guests race for their marker the same way.
+    // Visitors race for their marker the same way (their view is shown, not ranked).
     let results = together("ReportPlayback", (0..CROWD).map(|_| ctx.report(None, reports())).collect()).await;
     assert_eq!(results.iter().map(|recorded| recorded.views_counted).sum::<i32>(), 1);
     // Flushing from several workers at once writes each counter once.
@@ -283,8 +283,8 @@ async fn a_stay_reported_many_times_at_once_is_one_view() {
         flushed.expect("flush");
     });
     let row = ctx.row(&short.id).await;
-    assert_eq!((row.view_count, row.watch_samples, row.loop_count), (2, 2, 4));
-    assert_eq!(hourly(&ctx, &short.id).await, (2, 4, 0, 0, 0, 0));
+    assert_eq!((row.view_count, row.watch_samples, row.loop_count), (2, 1, 2));
+    assert_eq!(hourly(&ctx, &short.id).await, (1, 2, 0, 0, 0, 0));
 
     // A share from many requests at once is one share.
     let request = ShareShortRequest { short_id: short.id.clone(), ..Default::default() };
@@ -354,14 +354,16 @@ async fn parallel_feed_requests_and_reports_keep_the_seen_list_whole() {
     }
     // Two devices open the feed at the same moment (several times over).
     let batches = together("GetForYouFeed", (0..8).map(|_| ctx.for_you(Some(&vera), 30, "")).collect()).await;
+    let mut shown: Vec<&str> = Vec::new();
     for batch in &batches {
         let mut ids: Vec<&str> = batch.items.iter().map(|item| item_short(item).id.as_str()).collect();
         let total = ids.len();
+        shown.extend(&ids);
         ids.sort_unstable();
         ids.dedup();
         assert_eq!(ids.len(), total, "no short twice in a page");
-        assert!(mine.iter().all(|id| ids.contains(&id.as_str())), "followed shorts are in every batch");
     }
+    assert!(mine.iter().all(|id| shown.contains(&id.as_str())), "every followed short was shown");
 
     // Both devices report what they played, in overlapping halves, at once.
     let _lock = playback_lock().await;
@@ -387,7 +389,7 @@ async fn parallel_feed_requests_and_reports_keep_the_seen_list_whole() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn announcing_from_several_workers_tells_each_subscriber_once() {
-    let ctx = start_with(ShortsConfig { announce_batch_size: 2, announcements_per_day: 1, ..Default::default() }).await;
+    let ctx = start_with(ShortsConfig { announce_batch_size: 2, announcements_per_day: 1, ..test_config() }).await;
     let alice = ctx.app.user("alice").await;
     let channel = ctx.channel(&alice, "ch").await;
     for n in 0..7 {
