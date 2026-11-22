@@ -282,13 +282,22 @@ No domain events of its own. Through `tokuly_core::outbound`:
 
 | Kind | Recipient | Channels | Notes |
 |---|---|---|---|
-| `quest.badge` | the player | inbox + push | A badge was earned. `data = { badge_key, family, tier }`, path `/quest/badges/<key>`. |
+| `quest.badge` | the player | inbox + push | A badge was earned. `data = { badge_key, family, tier }`, path `/quest/badges/<key>`. Not for badges that come with signing up (see below). |
 | `quest.streak_expiring` | a friend whose own part is missing less than 4 h before their own midnight | inbox + push, **not urgent** (quiet hours hold it back) | Once per player and streak day; only for streaks of at least `TOKULY_QUEST_STREAK_REMINDER_MIN_DAYS`; not when the player switched `streak_reminders` off. Actor: the friend (so a muted friend stays silent). Collapse key `quest.streak:<lo>:<hi>`, `data = { friend_id, days, expires_at }`. |
 | `quest.streak_restored` | the other friend | inbox + push | Actor: who restored. `data = { friend_id, days }`. |
 | `quest.season` | every participant of a finished season who had rivals | winners: inbox + push; others: inbox only | Collapse key `quest.season:<YYYY-MM>`, `data = { season, rank, group_size, badge_won }`. |
 
 Losing a streak sends no notification on purpose: the only thing to do about
 it costs coins.
+
+**Signing up is quiet.** What an account gets for existing is not a
+notification: the `welcome` badge (`BadgeDef::quiet`) is stored and pushed to
+open clients (`QuestEvent.badge_unlocked`, for the quest screens to
+celebrate) but sends no `quest.badge`, in the inbox or by push, and the 10 XP
+of `daily.joined` and the first level never did. A brand-new account's inbox
+stays empty, and no toast lands on whatever it is doing, until something
+happens that it or someone else did. A catalogue test keeps it that way:
+every badge the sign-up alone earns is quiet, and no other is.
 
 The notify domain files these under its `quest` category ("クエスト・連続記録"),
 which players can switch off in the notification settings.

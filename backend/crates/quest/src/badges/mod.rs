@@ -132,7 +132,9 @@ pub(crate) async fn owned(db: &PgPool, user_id: Uuid) -> AppResult<HashMap<Strin
 
 /// Gives `user_id` the badge `badge_key` of the catalogue. Returns whether
 /// the player got it now (`false`: they had it already). The player is told
-/// (notification `quest.badge`, realtime `QuestEvent.badge_unlocked`).
+/// (notification `quest.badge`, realtime `QuestEvent.badge_unlocked`); a
+/// badge that comes with signing up (`BadgeDef::quiet`) is pushed to open
+/// clients only.
 ///
 /// This is the quest domain's API for other domains: a domain that decides
 /// about a badge itself (an event prize, a moderation thank-you) adds the
@@ -218,8 +220,13 @@ pub(crate) fn activity_audience(show_on_profile: bool) -> ActivityAudience {
 
 /// The `quest.badge` notification, and — for a badge that comes with a
 /// title — an entry in the player's activity log for their friends' feed.
-/// Secret badges stay out of feeds: finding them is the point.
+/// Secret badges stay out of feeds: finding them is the point. A quiet badge
+/// (what signing up brings) has neither: nobody is notified, in the inbox or
+/// by push, about something they did not do.
 async fn notify_unlocked(tx: &mut PgConnection, user_id: Uuid, badge: &BadgeDef) -> AppResult<()> {
+    if badge.quiet {
+        return Ok(());
+    }
     if !badge.title.is_empty() && !badge.secret {
         let shown: bool = sqlx::query_scalar(
             "SELECT COALESCE((SELECT show_on_profile FROM quest_profiles WHERE user_id = $1), true)",

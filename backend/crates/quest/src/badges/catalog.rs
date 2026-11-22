@@ -109,6 +109,12 @@ pub struct BadgeDef {
     /// The title (称号) it unlocks; empty = none.
     pub title: Text,
     pub criterion: Criterion,
+    /// Given without a notification: the badge comes with signing up, which
+    /// is nothing the player did. A brand-new account must not find an
+    /// unread notification (and a toast over whatever it is doing) seconds
+    /// after it was created. The badge is still pushed to open clients
+    /// (`QuestEvent.badge_unlocked`), which the quest screens celebrate.
+    pub quiet: bool,
 }
 
 /// What a line of three tiers counts.
@@ -503,10 +509,17 @@ const fn single(
         secret: false,
         title: NO_TITLE,
         criterion,
+        quiet: false,
     }
 }
 
 impl BadgeDef {
+    /// Comes with signing up: no notification (see [`BadgeDef::quiet`]).
+    const fn quiet(mut self) -> BadgeDef {
+        self.quiet = true;
+        self
+    }
+
     const fn secret(mut self) -> BadgeDef {
         self.secret = true;
         self
@@ -633,7 +646,8 @@ const SINGLES: &[BadgeDef] = &[
         t("ようこそ!", "Welcome!"),
         t("Tokulyをはじめる", "Join Tokuly"),
         Criterion::Count(M::Joined, 1),
-    ),
+    )
+    .quiet(),
     single(
         "level_50",
         Family::Journey,
@@ -841,6 +855,7 @@ pub static CATALOG: LazyLock<Vec<BadgeDef>> = LazyLock::new(|| {
                     secret: false,
                     title: if index == 2 { line.title } else { NO_TITLE },
                     criterion: line.counted.criterion(line.steps[index]),
+                    quiet: false,
                 });
             }
         }
@@ -927,6 +942,23 @@ mod tests {
         assert!(find_masked("secret_000000000000").is_none());
         // Only secrets have one.
         assert!(find_masked(&masked_key(find("welcome").unwrap())).is_none());
+    }
+
+    /// What an account gets for existing is not announced: every badge the
+    /// sign-up alone earns is quiet, and nothing a player has to do is.
+    #[test]
+    fn only_what_comes_with_signing_up_is_quiet() {
+        for badge in CATALOG.iter() {
+            let comes_with_signing_up = match badge.criterion {
+                Criterion::Count(M::Joined, _) => true,
+                // Every account starts at level 1.
+                Criterion::Level(level) => level <= 1,
+                _ => false,
+            };
+            assert_eq!(badge.quiet, comes_with_signing_up, "{}", badge.key);
+        }
+        assert!(find("welcome").unwrap().quiet);
+        assert!(!find("first_friend").unwrap().quiet);
     }
 
     #[test]

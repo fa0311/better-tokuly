@@ -93,6 +93,10 @@ async fn a_counted_badge_unlocks_when_its_threshold_is_crossed() {
     assert!(notices.iter().any(|notice| notice["data"]["badge_key"] == "first_friend"
         && notice["title"]["ja"] == "バッジをゲット!"
         && notice["path"] == "/quest/badges/first_friend"));
+    // What signing up brings is pushed to open clients but is no notification:
+    // a new account's inbox stays empty until something happens.
+    assert!(unlocked.iter().any(|badge| badge.key == "welcome"), "the welcome badge is pushed");
+    assert!(notices.iter().all(|notice| notice["data"]["badge_key"] != "welcome"), "{notices:?}");
 
     // Four more friends: the bronze tier of the line, once.
     for _ in 0..4 {
