@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use crate::{
     analytics::Analytics,
+    api_tokens::ApiTokens,
     auth::{AuthLayer, Tokens},
     bus::Bus, cache::Cache, config::Config, db,
     error::AppResult, events, export::Exporters, flags::Flags, jobs::Jobs, keys::Keys,
@@ -31,6 +32,8 @@ pub struct CoreInner {
     pub jobs: Jobs,
     pub storage: Storage,
     pub tokens: Tokens,
+    /// Where the domain that issues API tokens registers their verifier.
+    pub api_tokens: ApiTokens,
     /// State for [`crate::auth::auth_middleware`] on every HTTP router serving RPCs.
     pub auth_layer: AuthLayer,
     pub mail: Mailer,
@@ -74,7 +77,9 @@ impl Core {
         let bus = Bus::connect(&cfg.nats_url, &cfg.nats_prefix).await?;
         bus.ensure_streams().await?;
         let tokens = Tokens::new(&keys)?;
-        let auth_layer = AuthLayer::new(tokens.clone(), cfg.trusted_proxies()?);
+        let api_tokens = ApiTokens::default();
+        let auth_layer =
+            AuthLayer::new(tokens.clone(), cfg.trusted_proxies()?).with_api_tokens(api_tokens.clone(), cfg.rate_limits.then(|| cache.clone()));
         let storage = Storage::new(&cfg);
         let mail = Mailer::new(&cfg.smtp_url, &cfg.mail_from)?;
         let analytics = Analytics::new(bus.clone(), &cfg);
@@ -99,6 +104,7 @@ impl Core {
             bus,
             storage,
             tokens,
+            api_tokens,
             auth_layer,
             mail,
             analytics,

@@ -1,6 +1,6 @@
 [package]
 name = "tokuly-dev"
-description = "Developer platform: access tokens, OAuth apps, bots and webhooks."
+description = "Developer platform: access tokens, OAuth apps, bots, webhooks and the API reference."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,3 +12,66 @@ workspace = true
 [dependencies]
 tokuly-core.workspace = true
 tokuly-proto = { workspace = true, features = ["common", "dev"] }
+tokuly-identity.workspace = true
+tokio.workspace = true
+futures.workspace = true
+async-trait.workspace = true
+axum.workspace = true
+http.workspace = true
+connectrpc.workspace = true
+buffa.workspace = true
+# The descriptor.proto types, to read the API's own descriptor set (same
+# version as buffa; already in the tree through the code generator).
+buffa-descriptor = "0.9.2"
+sqlx.workspace = true
+redis.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+url.workspace = true
+clap.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+parking_lot.workspace = true
+rand.workspace = true
+base64.workspace = true
+hex.workspace = true
+hmac.workspace = true
+sha2.workspace = true
+clickhouse.workspace = true
+
+[dev-dependencies]
+# The API reference describes every package, and the tests check the access
+# table against all of them.
+tokuly-proto = { workspace = true, features = [
+    "admin",
+    "ask",
+    "chat",
+    "community",
+    "emoji",
+    "engagement",
+    "feed",
+    "geo",
+    "identity",
+    "live",
+    "media",
+    "notes",
+    "notify",
+    "plans",
+    "quest",
+    "realtime",
+    "school",
+    "search",
+    "shorts",
+    "social",
+    "spaces",
+    "stamp",
+    "video",
+    "wallet",
+] }
+tokuly-testkit.workspace = true
+tower.workspace = true
+bytes.workspace = true
+http-body-util.workspace = true
