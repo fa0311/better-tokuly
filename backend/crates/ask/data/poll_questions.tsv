@@ -1,0 +1,174 @@
+# The built-in question bank of the compliment polls (ほめ投票).
+#
+# One question per line: key <TAB> emoji <TAB> Japanese <TAB> English.
+# Keys are permanent: they are how a question keeps its statistics and its
+# "disabled by staff" state across releases. Never reuse a key; to retire a
+# question, delete its line (it stays in the database, switched off).
+#
+# Rules for every line, checked by the tests in `polls/bank.rs`:
+# - strictly kind: the answer must be a compliment for whoever is picked;
+# - nothing that ranks looks, nothing romantic, nothing that singles anyone
+#   out for something they did not choose;
+# - school-life flavoured, for teenagers, in casual Japanese.
+smile_bright	😊	いつも笑顔でまわりを明るくしてくれる人は?	Who lights up the room with their smile?
+reliable	🤝	困ったとき一番たよりになる人は?	Who can you count on most when things go wrong?
+good_listener	👂	話を聞くのが上手な人は?	Who is a really good listener?
+hard_worker	💪	努力家だなと思う人は?	Who works harder than anyone?
+makes_laugh	😂	一緒にいると一番笑える人は?	Who makes you laugh the most?
+quietly_kind	🫶	さりげなく優しい人は?	Who is kind without making a fuss about it?
+future_star	🌟	将来すごいことをやりそうな人は?	Who is going to do something amazing someday?
+unique_ideas	💡	発想がユニークな人は?	Who comes up with the most original ideas?
+karaoke_hype	🎤	カラオケを盛り上げてくれる人は?	Who gets the whole karaoke room going?
+neat_notes	📓	ノートがきれいで見せてほしくなる人は?	Whose notes are so neat you want to borrow them?
+calm_presence	🍃	一緒にいると落ち着く人は?	Who makes you feel calm just by being there?
+cheers_up	🌈	落ち込んだとき元気をくれる人は?	Who cheers you up when you are down?
+honest	🪞	思ったことを正直に言ってくれる人は?	Who always tells you what they honestly think?
+good_teacher	🧑‍🏫	勉強を教えるのが上手な人は?	Who explains schoolwork so that it finally makes sense?
+festival_leader	🎪	文化祭でクラスを引っぱってくれそうな人は?	Who would lead the class at the school festival?
+sports_day_ace	🏃	体育祭で大活躍しそうな人は?	Who would shine on sports day?
+remembers_birthdays	🎂	誕生日をちゃんと覚えていてくれる人は?	Who never forgets a birthday?
+great_taste_music	🎧	音楽のセンスがいい人は?	Who has great taste in music?
+fashion_sense	👟	服のセンスがいいなと思う人は?	Whose sense of style do you admire?
+photo_skills	📸	写真を撮るのが上手な人は?	Who takes the best photos?
+best_reactions	🙌	リアクションが最高な人は?	Who has the best reactions?
+keeps_promises	🤞	約束をちゃんと守る人は?	Who always keeps a promise?
+early_bird	⏰	朝から元気いっぱいな人は?	Who is full of energy first thing in the morning?
+always_on_time	🕘	いつも時間どおりに来る人は?	Who is always on time?
+good_at_presenting	🗣️	発表が上手な人は?	Who gives the best presentations?
+neat_handwriting	✍️	字がきれいな人は?	Who has the neatest handwriting?
+artist	🎨	絵が上手な人は?	Who draws really well?
+plays_instrument	🎸	楽器の演奏がかっこいい人は?	Whose playing an instrument is cool to watch?
+great_singer	🎶	歌声がすてきな人は?	Who has a lovely singing voice?
+dance_moves	🕺	ダンスがキレキレな人は?	Who has the sharpest dance moves?
+team_player	⚽	チームプレーが上手な人は?	Who is a great team player?
+never_gives_up	🔥	最後まであきらめない人は?	Who never gives up?
+gentle_words	💬	言葉づかいがやさしい人は?	Who always chooses gentle words?
+notices_changes	🔍	小さな変化に気づいてくれる人は?	Who notices the little things?
+shares_snacks	🍬	お菓子をよく分けてくれる人は?	Who always shares their snacks?
+great_cook	🍳	料理が上手そうな人は?	Who seems like a great cook?
+animal_friend	🐶	動物に好かれそうな人は?	Who do animals probably adore?
+plant_parent	🌱	植物を上手に育てられそうな人は?	Who could keep any plant alive?
+tidy_desk	🧹	机のまわりがいつもきれいな人は?	Whose desk is always tidy?
+tech_wizard	💻	パソコンやスマホにくわしい人は?	Who is the one to ask about computers and phones?
+game_pro	🎮	ゲームが上手な人は?	Who is really good at games?
+quiz_champion	🧩	クイズに強そうな人は?	Who would win a quiz show?
+bookworm	📚	おすすめの本を聞きたい人は?	Who would you ask for a book recommendation?
+movie_buff	🎬	映画のおすすめを聞きたい人は?	Who would you ask what film to watch?
+manga_guide	📖	マンガのおすすめを聞きたい人は?	Who gives the best manga recommendations?
+anime_talk	📺	アニメの話をすると止まらない人は?	Who could talk about anime for hours, in the best way?
+trend_setter	✨	流行をいち早く教えてくれる人は?	Who tells you about trends before anyone else?
+study_buddy	📝	テスト前に一緒に勉強したい人は?	Who do you want to study with before exams?
+library_focus	🤫	集中力がすごい人は?	Who has amazing concentration?
+math_brain	➗	数学の問題をすらすら解けそうな人は?	Who breezes through maths problems?
+english_ace	🔤	英語がペラペラになりそうな人は?	Who is going to be fluent in English?
+history_buff	🏯	歴史の話がおもしろい人は?	Who makes history sound interesting?
+science_mind	🔬	実験が上手そうな人は?	Who would be great in a science lab?
+good_questions	🙋	授業でいい質問をする人は?	Who asks the best questions in class?
+class_rep	📣	学級委員にぴったりな人は?	Who would make a perfect class representative?
+club_captain	🏅	部活のキャプテンに向いている人は?	Who would make a great club captain?
+kind_senpai	🎓	いい先輩になりそうな人は?	Who is going to be a great senpai?
+kind_to_newcomers	👋	転校生にまっさきに声をかけてくれそうな人は?	Who would be first to say hello to a new student?
+includes_everyone	⭕	みんなを輪に入れてくれる人は?	Who makes sure nobody is left out?
+peace_maker	🕊️	けんかを上手におさめてくれそうな人は?	Who could calm any argument down?
+secret_keeper	🔐	ひみつを守ってくれる人は?	Who can you trust with a secret?
+advice_giver	🧭	相談に乗ってほしい人は?	Who would you go to for advice?
+positive_thinker	☀️	いつも前向きな人は?	Who always looks on the bright side?
+cool_under_pressure	🧊	ピンチのときも落ち着いている人は?	Who stays calm under pressure?
+brave	🦁	勇気があるなと思う人は?	Who is brave?
+polite	🙇	あいさつが気持ちいい人は?	Whose greetings make your day better?
+says_thanks	🙏	「ありがとう」をちゃんと言える人は?	Who always remembers to say thank you?
+apologizes_well	🤗	素直に「ごめん」が言える人は?	Who can honestly say sorry?
+big_dreams	🚀	大きな夢を持っていそうな人は?	Who has big dreams?
+curious	🧐	好奇心いっぱいな人は?	Who is curious about everything?
+fast_learner	⚡	飲みこみが早い人は?	Who picks new things up fastest?
+patient	🐢	根気強い人は?	Who is really patient?
+detail_oriented	📏	ていねいな作業が得意な人は?	Who does careful, precise work?
+creative_hands	✂️	手先が器用な人は?	Who is good with their hands?
+diy_decor	🎀	教室の飾りつけを任せたい人は?	Who should be in charge of decorating the classroom?
+poster_designer	🖍️	ポスター作りが上手な人は?	Who makes the best posters?
+video_editor	🎞️	動画の編集が上手そうな人は?	Who would be great at editing videos?
+mc_talent	🎙️	司会が上手そうな人は?	Who would make a great host?
+storyteller	📜	話がおもしろくて聞き入ってしまう人は?	Whose stories do you always want to hear to the end?
+nicknames	🏷️	あだ名をつけるのが上手な人は?	Who comes up with the best nicknames?
+pun_master	🥁	ダジャレのセンスが光る人は?	Whose puns are actually good?
+impression_master	🎭	モノマネが上手な人は?	Who does the best impressions?
+mood_maker	🎉	クラスのムードメーカーは?	Who sets the mood for the whole class?
+energy_boost	🔋	会うと元気をもらえる人は?	Who gives you energy just by showing up?
+warm_voice	📻	声を聞くと安心する人は?	Whose voice puts you at ease?
+laugh_contagious	🤣	笑い声につられて笑ってしまう人は?	Whose laugh is contagious?
+walk_home	🚶	帰り道を一緒に歩きたい人は?	Who do you like walking home with?
+lunch_buddy	🍙	お昼を一緒に食べたい人は?	Who do you want to eat lunch with?
+trip_planner	🗺️	旅行の計画を立てるのが上手そうな人は?	Who would plan the perfect trip?
+school_trip_roommate	🧳	修学旅行で同じ班になりたい人は?	Who do you want in your group on the school trip?
+theme_park_partner	🎢	遊園地に一緒に行ったら楽しそうな人は?	Who would be the most fun at a theme park?
+cafe_finder	☕	おしゃれなカフェを知っていそうな人は?	Who knows all the nice cafés?
+ramen_guide	🍜	おいしいお店を知っていそうな人は?	Who knows where the good food is?
+sweet_tooth_guide	🍰	スイーツにくわしい人は?	Who is the expert on sweets?
+convenience_store_pro	🏪	コンビニの新商品にくわしい人は?	Who always knows the new convenience store snacks?
+rainy_day_umbrella	☂️	かさを貸してくれそうな人は?	Who would lend you their umbrella?
+lends_pen	🖊️	ペンを忘れたときすぐ貸してくれる人は?	Who lends you a pen the moment you need one?
+shares_notes	🗒️	休んだ日のノートを見せてくれる人は?	Who shares their notes when you were absent?
+waits_for_you	🧍	いつも待っていてくれる人は?	Who always waits for you?
+saves_seat	💺	席をとっておいてくれる人は?	Who saves you a seat?
+checks_in	📱	「大丈夫?」と声をかけてくれる人は?	Who checks in to ask if you are okay?
+celebrates_you	🥳	自分のことのように喜んでくれる人は?	Who is happy for you as if it were their own good news?
+believes_in_you	🫡	いつも応援してくれる人は?	Who always believes in you?
+gives_compliments	💐	人をほめるのが上手な人は?	Who is good at giving compliments?
+good_vibes_chat	💭	メッセージのやりとりが楽しい人は?	Who is the most fun to message?
+stamp_sense	🐣	スタンプのセンスがいい人は?	Who has the best taste in stickers?
+emoji_artist	😜	絵文字の使い方がうまい人は?	Who uses emoji best?
+fast_replier	💨	返信が早くて助かる人は?	Whose quick replies are a lifesaver?
+group_chat_glue	🧲	グループトークをまとめてくれる人は?	Who keeps the group chat together?
+plan_maker	📅	遊びの予定を立ててくれる人は?	Who gets everyone's plans organised?
+photo_sharer	🖼️	思い出の写真をよく送ってくれる人は?	Who always sends the photos afterwards?
+playlist_maker	📀	プレイリストを作ってほしい人は?	Who should make you a playlist?
+morning_greeting	🌅	「おはよう」の声が一番元気な人は?	Who has the most cheerful "good morning"?
+after_school_talk	🌇	放課後ずっとしゃべっていられる人は?	Who could you talk with all afternoon after school?
+fireworks_friend	🎆	花火大会で一番はしゃぎそうな人は?	Who gets the most excited at a fireworks festival?
+festival_yukata	🏮	お祭りを一番楽しみそうな人は?	Who enjoys a summer festival the most?
+snowball_fun	☃️	雪が降ったら一番はしゃぎそうな人は?	Who gets the most excited when it snows?
+beach_day	🏖️	海に行ったら楽しそうな人は?	Who would be the most fun at the beach?
+camp_skills	🏕️	キャンプで頼りになりそうな人は?	Who would be the most useful on a camping trip?
+map_reader	🧭	道に迷わなさそうな人は?	Who never gets lost?
+strong_spirit	🥋	芯が強い人は?	Who has real inner strength?
+fair_player	⚖️	フェアな人は?	Who is always fair?
+humble	🌾	すごいのに自慢しない人は?	Who is great at things and never brags?
+grateful	🎁	もらったものを大切にしてくれそうな人は?	Who treasures the things they are given?
+generous	🤲	気前がいい人は?	Who is generous?
+thoughtful_gifts	🛍️	プレゼント選びが上手な人は?	Who chooses the best presents?
+letter_writer	💌	手紙を書くのが上手そうな人は?	Who would write a wonderful letter?
+memory_keeper	🗃️	みんなの思い出をよく覚えている人は?	Who remembers all the good times?
+problem_solver	🛠️	トラブルをさっと解決してくれる人は?	Who fixes a problem before you finish explaining it?
+idea_starter	🎬	「やろうよ!」と最初に言ってくれる人は?	Who is the first to say "let's do it"?
+finisher	🏁	最後までやりとげる人は?	Who always finishes what they start?
+organised	🗂️	整理整頓が上手な人は?	Who is the most organised?
+careful_listener_class	🪑	先生の話をちゃんと聞いている人は?	Who really pays attention in class?
+volunteer_spirit	🧤	進んで手伝ってくれる人は?	Who volunteers to help before being asked?
+cleaning_time_star	🧽	そうじの時間にまじめな人は?	Who takes cleaning time seriously?
+eco_friendly	♻️	環境にやさしい行動をしていそうな人は?	Who cares about the environment?
+kind_to_juniors	🧸	年下にやさしい人は?	Who is kind to younger students?
+respectful	🎩	だれにでも礼儀正しい人は?	Who is respectful to everyone?
+open_minded	🌍	いろんな考えを受け入れてくれる人は?	Who is open to different ways of thinking?
+good_debater	🧑‍⚖️	話し合いをうまくまとめる人は?	Who brings a discussion to a good conclusion?
+motivator	📈	一緒にいるとやる気が出る人は?	Who makes you want to try harder?
+goal_getter	🎯	目標に向かってまっすぐな人は?	Who goes straight for their goals?
+growth_this_year	🌻	この一年ですごく成長したと思う人は?	Who has grown the most this year?
+hidden_talent	🎩	意外な特技を持っていそうな人は?	Who probably has a surprising hidden talent?
+future_teacher	🍎	先生になったら人気が出そうな人は?	Who would be a popular teacher?
+future_doctor	🩺	お医者さんになったら安心できそうな人は?	Who would make a reassuring doctor?
+future_chef	👨‍🍳	お店を開いたら通いたい人は?	Whose restaurant would you become a regular at?
+future_artist	🖌️	作品展を開いたら見に行きたい人は?	Whose exhibition would you go to see?
+future_athlete	🥇	試合があったら応援に行きたい人は?	Whose match would you go and cheer at?
+future_inventor	🔧	すごい発明をしそうな人は?	Who is going to invent something great?
+future_author	🖋️	本を出したら読みたい人は?	Whose book would you read?
+future_streamer	📡	配信を始めたら見に行きたい人は?	Whose stream would you tune in to?
+future_boss	🏢	上司にしたい人は?	Who would make a good boss?
+world_traveler	✈️	世界中を旅していそうな人は?	Who is going to travel the world?
+keeps_in_touch	📮	卒業しても連絡をくれそうな人は?	Who will keep in touch after graduation?
+reunion_organizer	🥂	同窓会を開いてくれそうな人は?	Who will organise the class reunion?
+lifelong_friend	♾️	ずっと友達でいたい人は?	Who do you want to stay friends with forever?
+best_high_five	🖐️	ハイタッチしたくなる人は?	Who do you want to high-five?
+lucky_charm	🍀	一緒にいると運がよくなりそうな人は?	Who feels like a lucky charm?
+sunshine_day	🌤️	晴れの日が似合う人は?	Who is like a sunny day?
+comfy_silence	🛋️	だまっていても気まずくならない人は?	Who can you sit in comfortable silence with?
+thank_you_today	🌷	今日「ありがとう」を伝えたい人は?	Who do you want to thank today?
