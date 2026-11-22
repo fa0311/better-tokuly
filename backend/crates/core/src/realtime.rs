@@ -19,10 +19,13 @@
 use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
-use buffa::{Message, MessageName};
+use buffa::Message as _;
 use bytes::Bytes;
 use parking_lot::RwLock;
-use tokuly_proto::realtime::{Event, PresenceEvent, ServerFrame, server_frame::Body};
+use tokuly_proto::{
+    RealtimeEvent,
+    realtime::{Event, PresenceEvent, ServerFrame, server_frame::Body},
+};
 use uuid::Uuid;
 
 use crate::{bus::Bus, error::AppResult};
@@ -96,7 +99,7 @@ fn encode(topic: &str, body: Body) -> Bytes {
 }
 
 /// The encoded frame that carries a domain's event.
-fn encode_event<E: Message + MessageName>(topic: &str, event: &E) -> Bytes {
+fn encode_event<E: RealtimeEvent>(topic: &str, event: &E) -> Bytes {
     encode(topic, Body::Event(Box::new(Event::pack(event))))
 }
 
@@ -113,12 +116,12 @@ impl Realtime {
     }
 
     /// Sends an event to every connection of one user.
-    pub async fn to_user<E: Message + MessageName>(&self, user_id: Uuid, event: &E) -> AppResult<()> {
+    pub async fn to_user<E: RealtimeEvent>(&self, user_id: Uuid, event: &E) -> AppResult<()> {
         self.bus.publish(user_subject(user_id), encode_event("", event)).await
     }
 
     /// Sends the same event to several users.
-    pub async fn to_users<E: Message + MessageName>(
+    pub async fn to_users<E: RealtimeEvent>(
         &self,
         user_ids: impl IntoIterator<Item = Uuid>,
         event: &E,
@@ -127,27 +130,27 @@ impl Realtime {
     }
 
     /// Sends an event to every connection subscribed to `topic`.
-    pub async fn to_topic<E: Message + MessageName>(&self, topic: &str, event: &E) -> AppResult<()> {
+    pub async fn to_topic<E: RealtimeEvent>(&self, topic: &str, event: &E) -> AppResult<()> {
         self.bus.publish(topic_subject(topic), encode_event(topic, event)).await
     }
 
     /// Like [`Self::to_user`] but never fails the caller: realtime delivery is
     /// an optimization on top of state that is already committed.
-    pub async fn notify_user<E: Message + MessageName>(&self, user_id: Uuid, event: &E) {
+    pub async fn notify_user<E: RealtimeEvent>(&self, user_id: Uuid, event: &E) {
         if let Err(e) = self.to_user(user_id, event).await {
             tracing::warn!(%user_id, error = %e, "realtime publish failed");
         }
     }
 
     /// Like [`Self::to_users`] but never fails the caller.
-    pub async fn notify_users<E: Message + MessageName>(&self, user_ids: impl IntoIterator<Item = Uuid>, event: &E) {
+    pub async fn notify_users<E: RealtimeEvent>(&self, user_ids: impl IntoIterator<Item = Uuid>, event: &E) {
         if let Err(e) = self.to_users(user_ids, event).await {
             tracing::warn!(error = %e, "realtime publish failed");
         }
     }
 
     /// Like [`Self::to_topic`] but never fails the caller.
-    pub async fn notify_topic<E: Message + MessageName>(&self, topic: &str, event: &E) {
+    pub async fn notify_topic<E: RealtimeEvent>(&self, topic: &str, event: &E) {
         if let Err(e) = self.to_topic(topic, event).await {
             tracing::warn!(topic, error = %e, "realtime publish failed");
         }
@@ -171,16 +174,21 @@ mod tests {
 
     #[test]
     fn events_travel_by_name_and_decode_as_their_type() {
-        let pong = tokuly_proto::realtime::Pong { nonce: 7, ..Default::default() };
-        let frame = ServerFrame::decode_from_slice(&encode_event("live:1", &pong)).unwrap();
+        use tokuly_proto::{
+            notify::{NotificationsRead, NotifyEvent},
+            wallet::WalletEvent,
+        };
+        let read = NotificationsRead { bulk: true, ..Default::default() };
+        let sent = NotifyEvent { event: Some(read.into()), ..Default::default() };
+        let frame = ServerFrame::decode_from_slice(&encode_event("live:1", &sent)).unwrap();
         assert_eq!(frame.topic, "live:1");
         let Some(Body::Event(event)) = &frame.body else { panic!("expected an event body") };
-        assert_eq!(event.r#type, "tokuly.realtime.v1.Pong");
-        assert_eq!(frame.event::<tokuly_proto::realtime::Pong>().map(|pong| pong.nonce), Some(7));
+        assert_eq!(event.r#type, "tokuly.notify.v1.NotifyEvent");
+        assert_eq!(frame.event::<NotifyEvent>(), Some(sent));
         // Asking for another type finds nothing, and neither does a frame of the gateway itself.
-        assert!(frame.event::<PresenceEvent>().is_none());
+        assert!(frame.event::<WalletEvent>().is_none());
         let presence = encode("", Body::Presence(Box::new(PresenceEvent::default())));
-        assert!(ServerFrame::decode_from_slice(&presence).unwrap().event::<PresenceEvent>().is_none());
+        assert!(ServerFrame::decode_from_slice(&presence).unwrap().event::<NotifyEvent>().is_none());
     }
 
     #[test]

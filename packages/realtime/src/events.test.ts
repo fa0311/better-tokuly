@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from "node:fs";
 import { create, toBinary } from "@bufbuild/protobuf";
 import { chat, geo, realtime, wallet } from "@tokuly/api";
 import { describe, expect, it } from "vitest";
@@ -43,27 +44,19 @@ describe("server frames", () => {
     expect(frame?.body.case === "chat" && frame.body.value.event.case).toBe("typing");
   });
 
-  it("knows every event the gateway carries", () => {
-    // The list in `realtime.proto`; a new domain is added in both places.
-    expect([...KNOWN_EVENT_TYPES].sort()).toEqual([
-      "tokuly.ask.v1.AskEvent",
-      "tokuly.chat.v1.ChatEvent",
-      "tokuly.community.v1.CommunityEvent",
-      "tokuly.emoji.v1.EmojiEvent",
-      "tokuly.engagement.v1.EngagementEvent",
-      "tokuly.geo.v1.GeoEvent",
-      "tokuly.live.v1.LiveEvent",
-      "tokuly.media.v1.MediaEvent",
-      "tokuly.notes.v1.NotesEvent",
-      "tokuly.notify.v1.NotifyEvent",
-      "tokuly.plans.v1.PlansEvent",
-      "tokuly.quest.v1.QuestEvent",
-      "tokuly.school.v1.SchoolEvent",
-      "tokuly.social.v1.SocialEvent",
-      "tokuly.spaces.v1.SpacesEvent",
-      "tokuly.video.v1.VideoEvent",
-      "tokuly.wallet.v1.WalletEvent",
-    ]);
+  it("knows exactly the events the protocol lists", () => {
+    // The source is the list at `Event` in `realtime.proto`: lines of the
+    // form `//   tokuly.<package>.v1.<Name>   what it is about`.
+    const protoRoot = new URL("../../../proto/tokuly/", import.meta.url);
+    const protocol = readFileSync(new URL("realtime/v1/realtime.proto", protoRoot), "utf8");
+    const listed = [...protocol.matchAll(/^\/\/ {3}(tokuly\.[a-z]+\.v1\.[A-Za-z]+)/gm)].map((match) => match[1] ?? "");
+    expect(listed.length).toBeGreaterThan(0);
+    for (const type of listed) {
+      const [, domain, , name] = type.split(".");
+      const file = new URL(`${domain}/v1/${domain}.proto`, protoRoot);
+      expect(existsSync(file) && readFileSync(file, "utf8").includes(`\nmessage ${name} {`), type).toBe(true);
+    }
+    expect([...KNOWN_EVENT_TYPES].sort()).toEqual([...listed].sort());
     for (const type of KNOWN_EVENT_TYPES) {
       const domain = type.split(".")[1];
       expect(decodeServerFrame(eventFrame(type, new Uint8Array()))?.body.case, type).toBe(domain);

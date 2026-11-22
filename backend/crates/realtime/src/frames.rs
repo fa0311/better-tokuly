@@ -194,7 +194,7 @@ mod tests {
     }
 
     /// A frame that carries a domain's event, as `tokuly_core::realtime` publishes it.
-    fn event_frame(reply_to: u64, topic: &str, event: &(impl buffa::Message + buffa::MessageName)) -> Vec<u8> {
+    fn event_frame(reply_to: u64, topic: &str, event: &impl tokuly_proto::RealtimeEvent) -> Vec<u8> {
         frame(reply_to, topic, Body::Event(Box::new(Envelope::pack(event))))
     }
 

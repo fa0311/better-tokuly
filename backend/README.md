@@ -243,8 +243,12 @@ core.rt.notify_topic("live:<id>", &event).await;      // whoever subscribed to t
 core.rt.to_user(user_id, &event).await?;              // the same, but a failure is yours to handle
 ```
 
-Any generated message works (`buffa::Message + buffa::MessageName`); clients
-only understand the types listed in `realtime.proto`. The `notify_*` methods
+Only a domain's event message is accepted (`tokuly_proto::RealtimeEvent`):
+passing a `ChatMessage`, or a value of the event's `oneof`, does not compile,
+because no client would understand it. A domain that gets its first event
+message adds it in three places, which tests keep in step: the list at
+`Event` in `realtime.proto`, `backend/crates/proto/src/events.rs` and the
+table in `packages/realtime/src/events.ts`. The `notify_*` methods
 log a failed publish instead of returning it: a push is an optimization on
 top of state that is already committed. Code that follows the bus itself (a
 streaming RPC) reads a frame with `frame.event::<ChatEvent>()`.

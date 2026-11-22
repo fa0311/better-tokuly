@@ -22,6 +22,9 @@ include!(concat!(env!("OUT_DIR"), "/_tokuly.rs"));
 
 #[cfg(feature = "realtime")]
 mod envelope;
+mod events;
+
+pub use events::RealtimeEvent;
 
 /// Serialized `FileDescriptorSet` of the enabled packages and what they
 /// import (for gRPC reflection).

@@ -32,7 +32,7 @@ use std::{
 };
 
 use axum::body::Body;
-use buffa::{Message, MessageName};
+use buffa::Message as _;
 use bytes::{Buf as _, BufMut as _, Bytes, BytesMut};
 use clap::Parser;
 use futures::StreamExt as _;
@@ -42,6 +42,7 @@ use sqlx::{Connection as _, PgConnection};
 use tokuly_core::{Core, auth::ClientMeta, config::Config, events::Event};
 use tokuly_identity::{Identity, IdentityConfig, UserRow};
 pub use tokuly_proto::realtime::ServerFrame;
+use tokuly_proto::RealtimeEvent;
 use tower::ServiceExt as _;
 use uuid::Uuid;
 
@@ -250,7 +251,7 @@ impl FrameListener {
 
     /// The next event of type `E`, skipping frames that carry something
     /// else; `None` if none arrives within `timeout`.
-    pub async fn next_event<E: Message + MessageName>(&mut self, timeout: Duration) -> Option<E> {
+    pub async fn next_event<E: RealtimeEvent>(&mut self, timeout: Duration) -> Option<E> {
         let deadline = tokio::time::Instant::now() + timeout;
         loop {
             let message = tokio::time::timeout_at(deadline, self.subscriber.next()).await.ok()??;
@@ -261,7 +262,7 @@ impl FrameListener {
     }
 
     /// Every event of type `E` that arrives within `window`.
-    pub async fn events<E: Message + MessageName>(&mut self, window: Duration) -> Vec<E> {
+    pub async fn events<E: RealtimeEvent>(&mut self, window: Duration) -> Vec<E> {
         self.drain(window).await.iter().filter_map(ServerFrame::event).collect()
     }
 }
