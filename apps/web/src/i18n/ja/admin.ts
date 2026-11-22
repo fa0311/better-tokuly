@@ -11,6 +11,7 @@ export default {
     wallet: "出金・コイン",
     search: "検索",
     news: "ニュース管理",
+    emoji: "絵文字",
   },
   gate: {
     title: "ここはスタッフ専用だよ",
