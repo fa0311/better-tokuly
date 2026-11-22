@@ -9,7 +9,7 @@
  * tray (`useUploads`, `UploadTile`), the full-screen `ImageViewer`, and the
  * HLS-aware `useVideoSource`.
  */
-export { useNote } from "./api";
+export { forgetUserNotes, useNote } from "./api";
 export { type ComposeContext, openCompose } from "./compose-store";
 export { attachmentImage, ImageViewer, imageUrl, isVideo, useOnScreen, useVideoSource } from "./media";
 export { NoteCard, type NoteCardProps } from "./note-card";

@@ -256,6 +256,39 @@ export function useIsDeleted(noteId: string | undefined): boolean {
   return useDeletedNotes((state) => (noteId ? state.ids.has(noteId) : false));
 }
 
+/** Nothing known to be deleted anymore: the next account starts clean. */
+export function resetDeletedNotes(): void {
+  useDeletedNotes.setState({ ids: new Set() });
+}
+
+// ───────────────────────────── People who left ─────────────────────────────
+
+/**
+ * A friendship ended or a block went up: that person's notes (and the rows
+ * their renotes put there) leave every timeline already loaded. Timelines
+ * never refetch by themselves, so nothing else would take them out. Their
+ * own timeline, threads and single notes are read again when next shown.
+ */
+export function forgetUserNotes(queryClient: QueryClient, userId: string): void {
+  if (!userId) return;
+  const theirs = (entry: notes.TimelineEntry) => entry.note?.author?.id === userId || entry.renote?.user?.id === userId || entry.note?.quote?.note?.author?.id === userId;
+  queryClient.removeQueries({ queryKey: notesKeys.userTimelines(userId) });
+  for (const query of queryClient.getQueryCache().findAll({ queryKey: notesKeys.timelines })) {
+    const data = query.state.data as TimelineData | undefined;
+    if (!data?.pages.some((page) => page.entries.some(theirs) || page.pinnedNote?.author?.id === userId)) continue;
+    queryClient.setQueryData<TimelineData>(
+      query.queryKey,
+      { ...data, pages: data.pages.map((page) => ({ ...page, entries: page.entries.filter((entry) => !theirs(entry)), pinnedNote: page.pinnedNote?.author?.id === userId ? undefined : page.pinnedNote })) },
+      { updatedAt: query.state.dataUpdatedAt },
+    );
+  }
+  void queryClient.invalidateQueries({ queryKey: notesKeys.threads });
+  void queryClient.invalidateQueries({ queryKey: ["notes", "note"] });
+  void queryClient.invalidateQueries({ queryKey: ["notes", "quotes"] });
+  // The mixed home feed and the friends' log are read again as well.
+  void queryClient.invalidateQueries({ queryKey: ["feed"] });
+}
+
 // ───────────────────────────── Timeline entries ─────────────────────────────
 
 /** Identity of a timeline row: the note, plus the renote that put it there. */

@@ -63,10 +63,11 @@ async function uploadPicture(request: APIRequestContext, account: Account, color
   return completed.asset.id;
 }
 
-/** Posts a story with one picture through the API. */
-async function postStory(request: APIRequestContext, account: Account, title: string): Promise<{ id: string }> {
-  const assetId = await uploadPicture(request, account, [255, 92, 157]);
-  return (await rpc<{ story: { id: string } }>(request, `${STORIES}/CreateStory`, { title, items: [{ assetId, caption: "e2e ひとこと" }] }, account)).story;
+/** Posts a story through the API: one picture per caption. */
+async function postStory(request: APIRequestContext, account: Account, title: string, captions = ["e2e ひとこと"]): Promise<{ id: string }> {
+  const items = [];
+  for (const caption of captions) items.push({ assetId: await uploadPicture(request, account, [255, 92, 157]), caption });
+  return (await rpc<{ story: { id: string } }>(request, `${STORIES}/CreateStory`, { title, items }, account)).story;
 }
 
 /** A second browser, signed in as `account`, the same size as the test's own page. */
@@ -227,4 +228,90 @@ test("the archive keeps stories by day, and a story is deleted from the viewer",
   await expect(viewer).toHaveCount(0);
   await expect(tile).toHaveCount(0);
   await expect(page.getByText("記憶はまだないよ")).toBeVisible();
+});
+
+test("the keyboard moves through a story, wherever the focus is in the viewer", async ({ page, me, request }) => {
+  const friend = await createAccount(request, "friend");
+  await befriend(request, me, friend);
+  const story = await postStory(request, friend, `e2e キーボードの記憶 ${tag()}`, ["いちまいめ", "にまいめ"]);
+
+  await page.goto(`/stories/${story.id}`);
+  const viewer = page.getByTestId("story-viewer");
+  await expect(viewer.getByText("いちまいめ")).toBeVisible({ timeout: 30_000 });
+
+  // Space holds the story, so the keys below are not racing its clock.
+  await page.keyboard.press("Space");
+  await expect(viewer).toHaveAttribute("data-paused", "true");
+  await page.keyboard.press("ArrowRight");
+  await expect(viewer.getByText("にまいめ")).toBeVisible();
+  await page.keyboard.press("ArrowLeft");
+  await expect(viewer.getByText("いちまいめ")).toBeVisible();
+
+  // With the focus on a control inside the viewer the arrows still work.
+  await viewer.getByRole("button", { name: "🔥" }).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(viewer.getByText("にまいめ")).toBeVisible();
+
+  // A menu opened from the viewer keeps its own arrow keys.
+  await viewer.getByRole("button", { name: "メニュー" }).click();
+  await expect(page.getByRole("menuitem", { name: "通報する" })).toBeVisible();
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menuitem", { name: "通報する" })).toHaveCount(0);
+  await expect(viewer.getByText("にまいめ")).toBeVisible();
+
+  // Past the last piece the viewer closes.
+  await viewer.getByRole("button", { name: "🔥" }).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(viewer).toHaveCount(0);
+});
+
+test("blocking someone takes their notes and stories off what is already loaded", async ({ page, me, request }) => {
+  const friend = await createAccount(request, "friend");
+  await befriend(request, me, friend);
+  const rules = await rpc<{ version: number }>(request, "tokuly.notes.v1.NoteService/GetNoteRules", {}, friend);
+  await rpc(request, "tokuly.notes.v1.NoteService/AgreeToNoteRules", { version: rules.version }, friend);
+  const text = `e2e ブロックされる人のノート ${tag()}`;
+  await rpc(request, "tokuly.notes.v1.NoteService/CreateNote", { text, visibility: "VISIBILITY_FRIENDS" }, friend);
+  await postStory(request, friend, `e2e ブロックされる人の記憶 ${tag()}`);
+
+  await page.goto("/notes?tab=home");
+  const note = page.locator('[data-testid="note"]', { hasText: text });
+  await expect(note).toBeVisible();
+  await expect(page.getByTestId("story-reel")).toHaveCount(1);
+
+  // To their profile and back without reloading: what was loaded stays loaded.
+  await note.getByRole("link", { name: friend.displayName, exact: true }).first().click();
+  await expect(page).toHaveURL(new RegExp(`/u/${friend.handle}$`));
+  page.once("dialog", (dialog) => void dialog.accept());
+  await page.getByRole("button", { name: "ブロック" }).click();
+  await expect(page).toHaveURL(/\/map$/);
+
+  await page.getByRole("navigation", { name: "main" }).getByRole("link", { name: "ノート" }).first().click();
+  await page.getByRole("tab", { name: "ともだち" }).click();
+  await expect(page.getByTestId("timeline")).toBeVisible();
+  await expect(note).toHaveCount(0);
+  await expect(page.getByTestId("story-reel")).toHaveCount(0);
+});
+
+test("when a friend ends the friendship, their notes and their story leave the open timeline", async ({ page, me, request }) => {
+  const friend = await createAccount(request, "friend");
+  await befriend(request, me, friend);
+  const rules = await rpc<{ version: number }>(request, "tokuly.notes.v1.NoteService/GetNoteRules", {}, friend);
+  await rpc(request, "tokuly.notes.v1.NoteService/AgreeToNoteRules", { version: rules.version }, friend);
+  const text = `e2e もと友達のノート ${tag()}`;
+  await rpc(request, "tokuly.notes.v1.NoteService/CreateNote", { text, visibility: "VISIBILITY_FRIENDS" }, friend);
+  await postStory(request, friend, `e2e もと友達の記憶 ${tag()}`);
+
+  await page.goto("/notes?tab=home");
+  const note = page.locator('[data-testid="note"]', { hasText: text });
+  await expect(note).toBeVisible();
+  await page.getByTestId("story-reel").click();
+  await expect(page.getByTestId("story-viewer")).toBeVisible();
+
+  // The friend removes the reader: the realtime connection says so.
+  await rpc(request, "tokuly.social.v1.FriendService/RemoveFriend", { userId: me.userId }, friend);
+  await expect(page.getByTestId("story-viewer")).toHaveCount(0, { timeout: 30_000 });
+  await expect(page.getByTestId("story-reel")).toHaveCount(0);
+  await expect(note).toHaveCount(0);
 });

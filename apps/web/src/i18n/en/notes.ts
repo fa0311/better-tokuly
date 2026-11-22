@@ -106,7 +106,7 @@ export default {
     removeStamp: "Remove the stamp",
     addPlace: "Tag a place",
     removePlace: "Remove the place",
-    placePlaceholder: "Name of the place (e.g. Shibuya Crossing)",
+    placePlaceholder: "Place name (e.g. Shibuya)",
     placeHint: "Give the spot you're at a name of your choosing and tag it.",
     placeSave: "Tag",
     placeNoLocation: "Couldn't get your location… check your settings",

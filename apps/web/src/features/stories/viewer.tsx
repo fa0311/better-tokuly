@@ -90,6 +90,9 @@ function StoryViewer({ reels, startReel, startStoryId }: { reels: ViewerReel[]; 
   const deleteHighlight = useDeleteHighlight();
   const { fire, burst } = useBurst(["💜"]);
 
+  const removedUsers = useStoryViewer((state) => state.removedUserIds);
+  const popup = useRef<HTMLDivElement>(null);
+  const gone = (index: number) => removedUsers.has(reels[index]?.user?.id ?? "");
   const reel = reels[position.reel]!;
   const segments = segmentsOf(reel).filter((segment) => !removed.has(segment.story.id));
   const segment = segments[Math.min(position.segment, segments.length - 1)];
@@ -98,7 +101,9 @@ function StoryViewer({ reels, startReel, startStoryId }: { reels: ViewerReel[]; 
 
   const close = () => closeStoryViewer();
   const goReel = (delta: number) => {
-    const next = position.reel + delta;
+    let next = position.reel + delta;
+    // Reels of people who are no longer friends are passed over.
+    while (next >= 0 && next < reels.length && gone(next)) next += delta;
     if (next < 0) return;
     if (next >= reels.length) {
       close();
@@ -127,6 +132,32 @@ function StoryViewer({ reels, startReel, startStoryId }: { reels: ViewerReel[]; 
     live.current = { paused, next, previous, goReel };
   });
 
+  // The keyboard: arrows move, Space holds. It works wherever the focus is inside the viewer (or
+  // nowhere at all), and stays out of the way of a sheet, a menu, the emoji picker and text fields.
+  const keys = useRef({ blocked: false, holding });
+  useEffect(() => {
+    keys.current = { blocked: sheet !== undefined || pickerOpen, holding };
+  });
+  useEffect(() => {
+    popup.current?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target instanceof HTMLElement ? event.target : document.body;
+      const inside = target === document.body || Boolean(popup.current?.contains(target));
+      // A menu that is open owns the arrows, also in the moment before the focus has moved into it.
+      if (keys.current.blocked || !inside || document.querySelector('[role="menu"]') || target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+      if (event.key === "ArrowRight") live.current.next();
+      else if (event.key === "ArrowLeft") live.current.previous();
+      // On a button or a link, Space presses it.
+      else if (event.key === " " && !target.closest("button, a")) {
+        event.preventDefault();
+        setHolding(!keys.current.holding);
+      }
+    };
+    // Heard on the way down: the dialog keeps some keys from travelling back up.
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
+
   useEffect(() => {
     const onVisibility = () => setHidden(document.visibilityState !== "visible");
     document.addEventListener("visibilitychange", onVisibility);
@@ -139,17 +170,24 @@ function StoryViewer({ reels, startReel, startStoryId }: { reels: ViewerReel[]; 
     if (empty) live.current.goReel(1);
   }, [empty]);
 
-  // Watching a friend's story counts once, the first time it is shown.
+  // The person on screen stopped being a friend (or blocked the viewer, or was blocked): the viewer closes.
+  const reelGone = gone(position.reel);
+  useEffect(() => {
+    if (reelGone) closeStoryViewer();
+  }, [reelGone]);
+
+  // Watching a friend's story counts once, when it is really shown: its picture is up and the tab is in front.
   const storyId = segment?.story.id;
   const unseen = Boolean(segment && !segment.story.viewed && !mine);
+  const shown = ready && !hidden;
   useEffect(() => {
-    if (!storyId || !unseen || marked.current.has(storyId)) return;
+    if (!storyId || !unseen || !shown || marked.current.has(storyId)) return;
     marked.current.add(storyId);
     void storyClient()
       .markStoryViewed({ storyId })
       .then(() => patchStory(queryClient, storyId, (story) => ({ ...story, viewed: true })))
       .catch(() => {});
-  }, [storyId, unseen, queryClient]);
+  }, [storyId, unseen, shown, queryClient]);
 
   // The progress of the piece on screen: a photo runs on a clock, a video on its own time.
   const segmentKey = segment?.key;
@@ -281,16 +319,10 @@ function StoryViewer({ reels, startReel, startStoryId }: { reels: ViewerReel[]; 
         <BaseDialog.Popup
           aria-label={t("viewer.label", { name: reel.user?.displayName ?? "" })}
           data-testid="story-viewer"
+          data-paused={holding}
           className="fixed inset-0 z-50 flex items-center justify-center bg-black text-white outline-none transition-opacity duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 sm:bg-black/90"
-          onKeyDown={(event) => {
-            if (sheet || pickerOpen || event.target !== event.currentTarget) return;
-            if (event.key === "ArrowRight") next();
-            else if (event.key === "ArrowLeft") previous();
-            else if (event.key === " ") {
-              event.preventDefault();
-              setHolding(!holding);
-            }
-          }}
+          ref={popup}
+          initialFocus={popup}
         >
           <BaseDialog.Title className="sr-only">{t("viewer.label", { name: reel.user?.displayName ?? "" })}</BaseDialog.Title>
           <button type="button" aria-label={t("viewer.previous")} onClick={previous} className="mr-3 hidden size-11 shrink-0 place-items-center rounded-full bg-white/15 hover:bg-white/25 sm:grid">

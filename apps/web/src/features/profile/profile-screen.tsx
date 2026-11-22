@@ -11,7 +11,7 @@ import { Card } from "#/components/ui/card";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { ReportButton } from "#/features/engagement";
 import { ProfileNotes } from "#/features/notes";
-import { ProfileHighlights, StoryRing } from "#/features/stories";
+import { forgetUser, ProfileHighlights, StoryRing } from "#/features/stories";
 import { api, profileClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { formatDistance } from "#/lib/format";
@@ -47,10 +47,21 @@ export function ProfileScreen({ handle }: { handle: string }) {
     onSuccess: refresh,
     onError,
   });
-  const removeFriend = useMutation({ mutationFn: () => friendClient().removeFriend({ userId: user!.id }), onSuccess: refresh, onError });
+  const removeFriend = useMutation({
+    mutationFn: () => friendClient().removeFriend({ userId: user!.id }),
+    onSuccess: () => {
+      // Their notes and stories leave what is already loaded.
+      forgetUser(queryClient, user!.id);
+      return refresh();
+    },
+    onError,
+  });
   const block = useMutation({
     mutationFn: () => friendClient().blockUser({ userId: user!.id }),
-    onSuccess: () => navigate({ to: "/map" }),
+    onSuccess: () => {
+      forgetUser(queryClient, user!.id);
+      return navigate({ to: "/map" });
+    },
     onError,
   });
   const signOut = async () => {

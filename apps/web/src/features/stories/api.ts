@@ -129,6 +129,23 @@ export function removeStory(queryClient: QueryClient, storyId: string): void {
   void queryClient.invalidateQueries({ queryKey: ["stories", "highlight"] });
 }
 
+/**
+ * A friendship ended or a block went up: that person's reel leaves the tray
+ * and what was cached of their stories and highlights is thrown away.
+ */
+export function forgetUserStories(queryClient: QueryClient, userId: string): void {
+  if (!userId) return;
+  queryClient.setQueryData<Reels>(storyKeys.tray, (reels) => (reels?.some((reel) => reel.user?.id === userId) ? reels.filter((reel) => reel.user?.id !== userId) : reels));
+  queryClient.removeQueries({ queryKey: storyKeys.user(userId) });
+  queryClient.removeQueries({ queryKey: storyKeys.highlights(userId) });
+  for (const query of queryClient.getQueryCache().findAll({ queryKey: ["stories", "story"] })) {
+    if ((query.state.data as notes.Story | undefined)?.owner?.id === userId) queryClient.removeQueries({ queryKey: query.queryKey, exact: true });
+  }
+  for (const query of queryClient.getQueryCache().findAll({ queryKey: ["stories", "highlight"] })) {
+    if ((query.state.data as notes.GetHighlightResponse | undefined)?.highlight?.ownerId === userId) queryClient.removeQueries({ queryKey: query.queryKey, exact: true });
+  }
+}
+
 /** The picture that stands for a story: its first photo, or its first video's poster. */
 export function storyCover(story: notes.Story): common.Image | undefined {
   const first = story.items[0]?.media;

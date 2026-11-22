@@ -39,6 +39,16 @@ function writeAll(userId: string, drafts: Record<string, Draft>): void {
   }
 }
 
+/** Throws away every draft kept in this browser: the next person to sign in must not find them. */
+export function discardAllDrafts(): void {
+  try {
+    const prefix = storageKey("");
+    for (const key of Object.keys(window.localStorage)) if (key.startsWith(prefix)) window.localStorage.removeItem(key);
+  } catch {
+    // Storage that cannot be read holds nothing to clear.
+  }
+}
+
 export function loadDraft(userId: string, key: string): Draft | undefined {
   const draft = readAll(userId)[key];
   return draft && typeof draft.text === "string" ? draft : undefined;

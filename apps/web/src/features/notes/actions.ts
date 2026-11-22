@@ -16,13 +16,15 @@ export function useLike(): (note: notes.Note) => Promise<void> {
   const queryClient = useQueryClient();
   return async (note) => {
     const liked = !note.viewer?.liked;
-    patchNote(queryClient, note.id, (current) => (current.viewer?.liked === liked ? current : withViewer({ ...current, counters: bumpCounter(current, "likeCount", liked ? 1 : -1) }, { liked })));
+    const delta = liked ? 1 : -1;
+    patchNote(queryClient, note.id, (current) => (current.viewer?.liked === liked ? current : withViewer({ ...current, counters: bumpCounter(current, "likeCount", delta) }, { liked })));
     try {
       const response = liked ? await noteClient().likeNote({ noteId: note.id }) : await noteClient().unlikeNote({ noteId: note.id });
       if (response.counters) patchNote(queryClient, note.id, (current) => withCounters(current, response.counters!));
       void queryClient.invalidateQueries({ queryKey: notesKeys.likers(note.id) });
     } catch (error) {
-      patchNote(queryClient, note.id, (current) => withViewer({ ...current, counters: note.counters }, { liked: !liked }));
+      // Take back only this tap: counts that moved meanwhile (other people, realtime) stay.
+      patchNote(queryClient, note.id, (current) => (current.viewer?.liked === liked ? withViewer({ ...current, counters: bumpCounter(current, "likeCount", -delta) }, { liked: !liked }) : current));
       toast.error(errorMessage(error));
     }
   };
@@ -33,16 +35,15 @@ export function useRenote(): (note: notes.Note) => Promise<void> {
   const queryClient = useQueryClient();
   return async (note) => {
     const renoted = !note.viewer?.renoted;
-    patchNote(queryClient, note.id, (current) =>
-      current.viewer?.renoted === renoted ? current : withViewer({ ...current, counters: bumpCounter(current, "renoteCount", renoted ? 1 : -1) }, { renoted }),
-    );
+    const delta = renoted ? 1 : -1;
+    patchNote(queryClient, note.id, (current) => (current.viewer?.renoted === renoted ? current : withViewer({ ...current, counters: bumpCounter(current, "renoteCount", delta) }, { renoted })));
     try {
       const response = renoted ? await noteClient().renoteNote({ noteId: note.id }) : await noteClient().undoRenote({ noteId: note.id });
       if (response.counters) patchNote(queryClient, note.id, (current) => withCounters(current, response.counters!));
       void queryClient.invalidateQueries({ queryKey: notesKeys.renoters(note.id) });
       toast.success(say(renoted ? "toast.renoted" : "toast.renoteUndone"));
     } catch (error) {
-      patchNote(queryClient, note.id, (current) => withViewer({ ...current, counters: note.counters }, { renoted: !renoted }));
+      patchNote(queryClient, note.id, (current) => (current.viewer?.renoted === renoted ? withViewer({ ...current, counters: bumpCounter(current, "renoteCount", -delta) }, { renoted: !renoted }) : current));
       toast.error(errorMessage(error));
     }
   };

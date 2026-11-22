@@ -30,6 +30,12 @@ function report(noteId: string): void {
   if (flushTimer === undefined) flushTimer = setTimeout(flush, FLUSH_MS);
 }
 
+/** Forgets what was reported: views belong to the account that was signed in. */
+export function resetViews(): void {
+  reported.clear();
+  queue = [];
+}
+
 interface Watched {
   noteId: string;
   timer: ReturnType<typeof setTimeout> | undefined;

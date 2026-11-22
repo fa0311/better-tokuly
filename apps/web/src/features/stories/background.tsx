@@ -2,8 +2,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { realtime } from "#/lib/realtime";
 import { useSessionStore } from "#/stores/session";
-import { addStory, patchStory, removeStory, storyKeys } from "./api";
+import { addStory, forgetUserStories, patchStory, removeStory, storyKeys } from "./api";
 import { StoryViewerHost } from "./viewer";
+import { closeStoryViewer, dropFromStoryViewer, useStoryViewer } from "./viewer-store";
 
 /**
  * Runs while someone is signed in: keeps the story tray current from the
@@ -22,6 +23,12 @@ export default function StoriesBackground() {
         // Stories posted while the connection was down were not announced.
         if (connectedBefore) void queryClient.invalidateQueries({ queryKey: storyKeys.tray });
         connectedBefore = true;
+        return;
+      }
+      // A friendship ended, or the other side put up a block: their stories are no longer for this viewer.
+      if (frame.body.case === "social" && frame.body.value.event.case === "friendRemovedUserId") {
+        forgetUserStories(queryClient, frame.body.value.event.value);
+        dropFromStoryViewer(frame.body.value.event.value);
         return;
       }
       if (frame.body.case !== "notes") return;
@@ -55,6 +62,15 @@ export default function StoriesBackground() {
     client.start();
     return off;
   }, [queryClient]);
+
+  // Nothing of the account keeps playing once its session is over.
+  useEffect(
+    () =>
+      useSessionStore.subscribe((session) => {
+        if (session.state.status === "signedOut" && useStoryViewer.getState().reels) closeStoryViewer();
+      }),
+    [],
+  );
 
   return <StoryViewerHost />;
 }

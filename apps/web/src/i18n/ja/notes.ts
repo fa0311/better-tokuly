@@ -106,7 +106,7 @@ export default {
     removeStamp: "スタンプをはずす",
     addPlace: "場所をつける",
     removePlace: "場所をはずす",
-    placePlaceholder: "場所のなまえ (例: 渋谷スクランブル)",
+    placePlaceholder: "場所のなまえ (例: 渋谷駅)",
     placeHint: "いまいる場所に、すきな名前をつけてタグづけできるよ。",
     placeSave: "タグづけ",
     placeNoLocation: "位置情報が取れなかった…設定を確認してね",
