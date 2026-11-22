@@ -393,9 +393,10 @@ async fn files_stay_private() {
     let bare = asset.url.split('?').next().unwrap();
     assert_eq!(h.http.get(bare).send().await.unwrap().status(), 403);
 
-    // Someone else sees that the asset exists, but neither name nor URL.
+    // Someone else sees that the asset exists, but not whose it is, its name or its URL.
     let seen_by_bob = h.get_asset(&bob, &asset.id).await.unwrap();
-    assert_eq!((seen_by_bob.url.as_str(), seen_by_bob.file_name.as_str()), ("", ""));
+    assert_eq!((seen_by_bob.owner_id.as_str(), seen_by_bob.url.as_str(), seen_by_bob.file_name.as_str()), ("", "", ""));
+    assert_eq!(h.get_asset(&alice, &asset.id).await.unwrap().owner_id, alice.id.to_string());
     assert_eq!(seen_by_bob.size_bytes, html.len() as i64);
 
     // Unfinished assets are invisible to others.
