@@ -122,7 +122,7 @@ async fn an_authorization_code_presented_twice_at_once_buys_one_pair_and_loses_i
 async fn an_approved_device_code_is_collected_by_exactly_one_poll() {
     let ctx = start_with(DevConfig { device_poll_seconds: 0, ..config() }).await;
     let (dana, user) = (ctx.app.user("dana").await, ctx.app.user("user").await);
-    let cli = create_app(&ctx, &dana, &["identity:read"], AppClientType::APP_CLIENT_TYPE_PUBLIC).await;
+    let cli = create_cli(&ctx, &dana, &["identity:read"]).await;
     let device = ctx.form("/oauth/device_authorization", None, &[("client_id", &cli.id)]).await.json();
     let (device_code, user_code) =
         (device["device_code"].as_str().unwrap().to_owned(), device["user_code"].as_str().unwrap().to_owned());

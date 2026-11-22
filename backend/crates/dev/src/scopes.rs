@@ -1,13 +1,13 @@
 //! The scope catalogue: every scope a token can hold, in words a person
 //! reads before agreeing to it.
 //!
-//! What a scope *does* is decided in core from the RPC path
-//! (`tokuly_core::api_tokens::access_for`): `<domain>:read` covers the
-//! reading RPCs of the domain's package, `<domain>:write` all of them. This
-//! file only names the domains tokens may be given and says, per scope,
-//! what that means for the person. The wording is part of the security of
-//! the consent screen: it has to say what is shared, not what the API is
-//! called.
+//! What a scope *does* is decided in core, RPC by RPC
+//! (`tokuly_core::api_access`). This file names the scopes tokens may be
+//! given and says, per scope, what that means for the person. A scope is
+//! offered only if some classified RPC needs it (a test holds the two
+//! together). The wording is part of the security of the consent screen:
+//! it has to say what is shared and what stays out of reach, not what the
+//! API is called.
 use tokuly_core::{api_tokens::Scopes, prelude::*};
 use tokuly_proto::{common::LocalizedText, dev::ScopeInfo};
 
@@ -17,8 +17,9 @@ struct Domain {
     sensitive: bool,
     /// (ja, en) for `:read`.
     read: (&'static str, &'static str),
-    /// (ja, en) for `:write`, which includes reading.
-    write: (&'static str, &'static str),
+    /// (ja, en) for `:write`, which includes reading. `None` where no RPC
+    /// of the domain can be called with a write scope.
+    write: Option<(&'static str, &'static str)>,
 }
 
 /// Domains a token can be scoped to, most sensitive first. `admin` is
@@ -31,10 +32,10 @@ const DOMAINS: &[Domain] = &[
             "あなたの現在地と、友達があなたに共有している現在地をリアルタイムで見る。位置履歴・よく行く場所・移動ルートも含まれます",
             "See your live location and the live locations your friends share with you, in real time, plus your location history, places and routes",
         ),
-        write: (
-            "あなたの現在地を更新・共有する、ゴーストモードや場所・見守りアラートを変更する、位置履歴を削除する（位置情報の閲覧を含む）",
-            "Update and share your location, change ghost mode, places and place alerts, delete location history (includes seeing all location data)",
-        ),
+        write: Some((
+            "あなたの現在地を更新・共有する、ゴーストモードや場所・見守りアラートを変更する、位置履歴を削除する（位置情報の閲覧を含む）。SOSの発信・解除はできません",
+            "Update and share your location, change ghost mode, places and place alerts, delete location history (includes seeing all location data). Never sends or ends an SOS",
+        )),
     },
     Domain {
         name: "chat",
@@ -43,31 +44,31 @@ const DOMAINS: &[Domain] = &[
             "DMとグループのメッセージ・メンバー・通話履歴を読む",
             "Read your direct and group messages, their members and your call history",
         ),
-        write: (
+        write: Some((
             "あなたとしてメッセージを送信・編集・削除する、グループを作成・管理する、通話を開始する",
             "Send, edit and delete messages as you, create and manage groups, start calls",
-        ),
+        )),
     },
     Domain {
         name: "identity",
         sensitive: true,
         read: (
-            "プロフィール・メールアドレス・設定を見る、ユーザーを検索する",
-            "See your profile, email address and settings; look up and search users",
+            "プロフィール・メールアドレス・設定を見る、ユーザーを検索する。友達との距離を含むプロフィール詳細には位置情報の許可も必要です",
+            "See your profile, email address and settings; look up and search users. Full profiles, which show how far away a friend is, also take the location permission",
         ),
-        write: (
-            "プロフィール・ステータス・プライバシー設定を変更する（パスワードやメールアドレスは変更できません）",
-            "Change your profile, status and privacy settings (never your password or email address)",
-        ),
+        write: Some((
+            "プロフィール・ステータス・プライバシー設定を変更する（パスワード・メールアドレス・外部サービス連携は変更できません）",
+            "Change your profile, status and privacy settings (never your password, email address or linked services)",
+        )),
     },
     Domain {
         name: "wallet",
         sensitive: true,
         read: ("コイン残高・取引履歴・収益を見る", "See your coin balance, transaction history and earnings"),
-        write: (
-            "コインを使う・購入を開始する・デイリーボーナスを受け取る",
-            "Spend coins, start purchases and claim the daily bonus",
-        ),
+        write: Some((
+            "コインを使う・デイリーボーナスを受け取る（コインの購入や出金はできません）",
+            "Spend coins and claim the daily bonus (never buys coins or cashes out)",
+        )),
     },
     Domain {
         name: "social",
@@ -76,19 +77,23 @@ const DOMAINS: &[Domain] = &[
             "友達・友達リクエスト・ブロックリスト・招待リンクを見る",
             "See your friends, friend requests, block list and invite link",
         ),
-        write: (
+        write: Some((
             "友達リクエストの送信・承認、友達の削除、ブロック、バンプやノックの送信",
             "Send and answer friend requests, remove friends, block people, send bumps and knocks",
-        ),
+        )),
     },
     Domain {
         name: "notify",
-        sensitive: false,
-        read: ("通知と通知設定を見る", "Read your notifications and notification settings"),
-        write: (
+        // The inbox repeats what other domains sent: who wrote, where a friend arrived.
+        sensitive: true,
+        read: (
+            "通知設定と未読数を見る。通知の内容（メッセージの冒頭や見守りアラートを含む）を読むには、チャットと位置情報の許可も必要です",
+            "See your notification settings and unread count. Reading the notifications themselves, which quote messages and place alerts, also takes the chat and location permissions",
+        ),
+        write: Some((
             "通知を既読・削除する、通知設定やミュートを変更する",
             "Mark notifications read, delete them, change notification settings and mutes",
-        ),
+        )),
     },
     Domain {
         name: "notes",
@@ -97,22 +102,22 @@ const DOMAINS: &[Domain] = &[
             "あなたが見られるノート・ストーリー・タイムラインを読む",
             "Read the notes, stories and timelines you can see",
         ),
-        write: (
+        write: Some((
             "あなたとしてノートやストーリーを投稿・削除する、いいね・リノートする",
             "Post and delete notes and stories as you, like and renote",
-        ),
+        )),
     },
     Domain {
         name: "feed",
         sensitive: false,
         read: (
-            "アクティビティログ・友達のフィード・ニュースを見る",
-            "See your activity log, your friends' feed and news",
+            "ニュースとフィードの設定を見る。アクティビティログ・友達のフィード・マップストーリー（友達がいた場所を含む）には位置情報の許可も必要です",
+            "See news and feed settings. The activity log, your friends' feed and map stories, which show where friends were, also take the location permission",
         ),
-        write: (
+        write: Some((
             "アクティビティの削除や公開範囲の変更、ニュースの好みを変更する",
             "Delete activity entries, change who sees them, tune news preferences",
-        ),
+        )),
     },
     Domain {
         name: "video",
@@ -121,133 +126,94 @@ const DOMAINS: &[Domain] = &[
             "チャンネル・動画・再生リスト・視聴履歴・アナリティクスを見る",
             "See channels, videos, playlists, your watch history and analytics",
         ),
-        write: (
+        write: Some((
             "動画やチャンネルの作成・編集・削除、チャンネル登録、ウォッチパーティーの操作",
             "Create, edit and delete videos and channels, subscribe, run watch parties",
-        ),
-    },
-    Domain {
-        name: "live",
-        sensitive: false,
-        read: ("ライブ配信とそのチャットを見る", "See live streams and their chat"),
-        write: (
-            "ライブ配信を開始・管理する、ライブチャットに書き込む、ギフトを送る",
-            "Start and manage live streams, write in live chat, send gifts",
-        ),
-    },
-    Domain {
-        name: "shorts",
-        sensitive: false,
-        read: ("ショート動画とフィードを見る", "See shorts and the shorts feed"),
-        write: ("ショート動画を投稿・編集・削除する", "Post, edit and delete shorts"),
+        )),
     },
     Domain {
         name: "engagement",
         sensitive: false,
         read: ("コメント・リアクション・ブックマークを見る", "See comments, reactions and your bookmarks"),
-        write: (
+        write: Some((
             "あなたとしてコメント・リアクション・ブックマーク・通報をする",
             "Comment, react, bookmark and report as you",
-        ),
+        )),
     },
     Domain {
         name: "media",
         sensitive: false,
         read: ("アップロードしたファイルの情報を見る", "See the files you uploaded"),
-        write: ("ファイルをアップロード・削除する", "Upload and delete files"),
+        write: Some(("ファイルをアップロード・削除する", "Upload and delete files")),
     },
     Domain {
         name: "stamp",
         sensitive: false,
         read: ("スタンプショップとあなたのスタンプを見る", "See the stamp store and your stamps"),
-        write: (
+        write: Some((
             "スタンプの入手・購入・並べ替え、スタンプパックの作成",
             "Get, buy and arrange stamps, create stamp packs",
-        ),
+        )),
     },
     Domain {
         name: "emoji",
         sensitive: false,
         read: ("カスタム絵文字を見る", "See custom emoji"),
-        write: ("カスタム絵文字を申請・管理する", "Submit and manage custom emoji"),
+        write: Some(("カスタム絵文字を申請・管理する", "Submit and manage custom emoji")),
     },
     Domain {
         name: "search",
         sensitive: false,
         read: ("検索する、検索履歴を見る", "Search, and see your search history"),
-        write: ("検索履歴を削除・一時停止する", "Delete or pause your search history"),
+        write: Some(("検索履歴を削除・一時停止する", "Delete or pause your search history")),
     },
     Domain {
         name: "ask",
         sensitive: false,
         read: ("質問箱に届いた質問と回答を見る", "See the questions in your question box and your answers"),
-        write: ("質問を送る・回答する、ほめ投票に参加する", "Ask and answer questions, take part in compliment polls"),
-    },
-    Domain {
-        name: "quest",
-        sensitive: false,
-        read: ("ミッション・バッジ・レベル・ストリークを見る", "See your missions, badges, level and streaks"),
-        write: ("ミッションの報酬を受け取る", "Claim mission rewards"),
-    },
-    Domain {
-        name: "plans",
-        sensitive: false,
-        read: ("ひま状況・あそぶ予定・日程調整を見る", "See free-time status, plans and date polls"),
-        write: (
-            "予定の作成・参加・回答、ひま状況の変更",
-            "Create, join and answer plans, change your free-time status",
-        ),
+        write: Some((
+            "質問を送る・回答する、ほめ投票に参加する",
+            "Ask and answer questions, take part in compliment polls",
+        )),
     },
     Domain {
         name: "school",
         sensitive: false,
         read: ("時間割・勉強記録・テスト予定を見る", "See your timetable, study logs and exams"),
-        write: ("時間割・勉強記録・テスト予定を編集する", "Edit your timetable, study logs and exams"),
-    },
-    Domain {
-        name: "spaces",
-        sensitive: false,
-        read: ("たまり場（音声ルーム）を見る", "See audio rooms"),
-        write: ("たまり場を作成・参加・管理する", "Create, join and manage audio rooms"),
-    },
-    Domain {
-        name: "community",
-        sensitive: false,
-        read: ("参加しているコミュニティとその投稿を見る", "See your communities and their posts"),
-        write: ("コミュニティへの参加・投稿・管理", "Join, post in and manage communities"),
+        write: Some(("時間割・勉強記録・テスト予定を編集する", "Edit your timetable, study logs and exams")),
     },
     Domain {
         name: "realtime",
         sensitive: false,
         read: ("リアルタイム接続先の情報を取得する", "Look up the realtime endpoints"),
-        write: ("リアルタイム接続を利用する", "Use the realtime connection"),
+        write: None,
     },
     Domain {
         name: "dev",
         sensitive: false,
-        read: ("Webhook・配信ログ・API利用状況を見る", "See your webhooks, their delivery log and API usage"),
-        write: (
-            "Webhookを作成・変更・削除する（トークンやアプリは作成できません）",
-            "Create, change and delete webhooks (never tokens or applications)",
+        read: (
+            "Webhookの一覧とAPI利用状況を見る。配信ログの内容は、そのイベントを読める許可がある場合のみ見られます",
+            "See your webhooks and API usage. A delivery in the log can be read only with the permissions its event needs",
         ),
+        write: None,
     },
 ];
 
-fn info(domain: &Domain, write: bool) -> ScopeInfo {
-    let (ja, en) = if write { domain.write } else { domain.read };
-    ScopeInfo {
+fn info(domain: &Domain, write: bool) -> Option<ScopeInfo> {
+    let (ja, en) = if write { domain.write? } else { domain.read };
+    Some(ScopeInfo {
         scope: format!("{}:{}", domain.name, if write { "write" } else { "read" }),
         domain: domain.name.to_owned(),
         write,
         description: LocalizedText { ja: ja.to_owned(), en: en.to_owned(), ..Default::default() }.into(),
         sensitive: domain.sensitive,
         ..Default::default()
-    }
+    })
 }
 
 /// Every scope, in catalogue order (sensitive domains first, read before write).
 pub fn catalogue() -> Vec<ScopeInfo> {
-    DOMAINS.iter().flat_map(|domain| [info(domain, false), info(domain, true)]).collect()
+    DOMAINS.iter().flat_map(|domain| [info(domain, false), info(domain, true)]).flatten().collect()
 }
 
 /// The catalogue entry of one scope.
@@ -255,9 +221,29 @@ pub fn find(scope: &str) -> Option<ScopeInfo> {
     let (domain, level) = scope.split_once(':')?;
     let domain = DOMAINS.iter().find(|d| d.name == domain)?;
     match level {
-        "read" => Some(info(domain, false)),
-        "write" => Some(info(domain, true)),
+        "read" => info(domain, false),
+        "write" => info(domain, true),
         _ => None,
+    }
+}
+
+/// Domains a bot may write to: its own profile, uploads, inbox and
+/// preferences. Everything that addresses another person — friend requests,
+/// messages, notes, comments, reactions — is held back until blocks reach
+/// bots: someone who blocked a bot's owner must not be reachable through
+/// the bot, and that check belongs to the social domain, which does not
+/// know about bots yet.
+const BOT_WRITE_DOMAINS: &[&str] = &["identity", "media", "notify", "search", "feed"];
+
+/// Whether a bot token may hold `scope`. Never a wallet scope: a bot is an
+/// account anyone can make more of, so it must neither collect coins nor
+/// spend them.
+pub fn allowed_for_bots(scope: &str) -> bool {
+    match scope.split_once(':') {
+        Some(("wallet", _)) => false,
+        Some((domain, "write")) => BOT_WRITE_DOMAINS.contains(&domain),
+        Some((_, "read")) => true,
+        _ => false,
     }
 }
 
@@ -302,7 +288,7 @@ mod tests {
     #[test]
     fn the_catalogue_is_well_formed_and_worded_in_both_languages() {
         let all = catalogue();
-        assert_eq!(all.len(), DOMAINS.len() * 2);
+        assert_eq!(all.len(), DOMAINS.len() * 2 - DOMAINS.iter().filter(|d| d.write.is_none()).count());
         let mut names: Vec<&str> = all.iter().map(|s| s.scope.as_str()).collect();
         names.sort();
         names.dedup();
@@ -325,7 +311,7 @@ mod tests {
         // And it is the scope the location RPCs actually need.
         assert_eq!(
             access_for("/tokuly.geo.v1.LocationService/WatchFriendLocations"),
-            Some(Access::Scope("geo:read".into()))
+            Some(Access::Scopes(vec!["geo:read".into()]))
         );
         assert_eq!(catalogue()[0].scope, "geo:read", "location leads the consent screen");
     }
@@ -347,5 +333,56 @@ mod tests {
         assert_eq!(parse_oauth("notes:read admin:read"), Err("admin:read".to_owned()));
         let described = describe(&["notes:write".into(), "geo:read".into()]);
         assert_eq!(described.iter().map(|s| s.scope.as_str()).collect::<Vec<_>>(), ["geo:read", "notes:write"]);
+    }
+
+    /// A scope is offered only where the API has been gone through: every
+    /// scope of the catalogue is what some classified RPC needs, and every
+    /// scope an RPC needs can be granted.
+    #[test]
+    fn the_catalogue_and_the_access_table_agree() {
+        let needed: std::collections::BTreeSet<String> = tokuly_core::api_access::classified()
+            .filter_map(|(_, access)| match access {
+                Access::Scopes(scopes) => Some(scopes),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+        let offered: std::collections::BTreeSet<String> = catalogue().into_iter().map(|scope| scope.scope).collect();
+        assert_eq!(offered, needed);
+        for gone in ["live:read", "shorts:read", "quest:write", "dev:write", "admin:read"] {
+            assert!(find(gone).is_none(), "{gone}");
+        }
+    }
+
+    #[test]
+    fn the_wording_says_what_a_scope_reveals_and_what_it_cannot_do() {
+        let en = |scope: &str| find(scope).unwrap().description.as_option().unwrap().en.clone();
+        assert!(find("notify:read").unwrap().sensitive);
+        assert!(en("notify:read").contains("chat and location"));
+        assert!(en("feed:read").contains("where friends were"));
+        assert!(en("identity:read").contains("how far away"));
+        assert!(en("geo:write").contains("Never sends or ends an SOS"));
+        assert!(en("identity:write").contains("linked services"));
+        assert!(en("wallet:write").contains("never buys coins or cashes out"));
+    }
+
+    #[test]
+    fn bots_get_no_money_and_no_way_to_address_people() {
+        for scope in [
+            "wallet:read",
+            "wallet:write",
+            "chat:write",
+            "social:write",
+            "notes:write",
+            "engagement:write",
+            "ask:write",
+            "geo:write",
+            "video:write",
+        ] {
+            assert!(!allowed_for_bots(scope), "{scope}");
+        }
+        for scope in ["chat:read", "notes:read", "geo:read", "identity:write", "media:write", "notify:write"] {
+            assert!(allowed_for_bots(scope), "{scope}");
+        }
     }
 }

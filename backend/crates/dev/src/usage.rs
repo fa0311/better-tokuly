@@ -11,7 +11,9 @@ use tokuly_proto::dev::{get_usage_request::Subject, *};
 use crate::{Dev, verify::USAGE_EVENT};
 
 fn unavailable(error: clickhouse::error::Error) -> AppError {
-    AppError::unavailable("ANALYTICS_UNAVAILABLE", format!("usage query failed: {error}"))
+    // What the store said stays in the log: it names tables and hosts.
+    tracing::warn!(error = %error, "usage query failed");
+    AppError::unavailable("ANALYTICS_UNAVAILABLE", "usage statistics are not available right now")
 }
 
 /// Usage events have no owner (the zero UUID leads the table's sort key).
@@ -99,5 +101,20 @@ impl UsageService for Dev {
             ok(self.usage(subject_type, subject_id, days).await?)
         })
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn what_the_analytics_store_says_is_not_passed_on() {
+        let failure = clickhouse::error::Error::Custom(
+            "Code: 60. Table tokuly.events on ch-internal-7:9000 does not exist".to_owned(),
+        );
+        let error = unavailable(failure);
+        assert_eq!((error.code, error.reason.as_ref()), (connectrpc::ErrorCode::Unavailable, "ANALYTICS_UNAVAILABLE"));
+        assert_eq!(error.message, "usage statistics are not available right now");
     }
 }

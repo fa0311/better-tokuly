@@ -30,6 +30,7 @@ pub(crate) struct AppRow {
     pub redirect_uris: Vec<String>,
     pub scopes: Vec<String>,
     pub confidential: bool,
+    pub device_flow: bool,
     pub secret_hash: Option<String>,
     pub secret_hint: String,
     pub previous_secret_hash: Option<String>,
@@ -46,7 +47,7 @@ pub(crate) struct AppRow {
 
 macro_rules! app_columns {
     () => {
-        "p.id, p.owner_id, p.name, p.description, p.icon, p.homepage_url, p.privacy_policy_url, p.redirect_uris, p.scopes, p.confidential, \
+        "p.id, p.owner_id, p.name, p.description, p.icon, p.homepage_url, p.privacy_policy_url, p.redirect_uris, p.scopes, p.confidential, p.device_flow, \
          p.secret_hash, p.secret_hint, p.previous_secret_hash, p.previous_secret_expires_at, p.status, p.disabled_reason, p.created_at, p.updated_at, \
          (SELECT count(*) FROM dev_authorizations a WHERE a.app_id = p.id) AS user_count, \
          COALESCE((SELECT u.banned_at IS NULL AND u.deleted_at IS NULL FROM users u WHERE u.id = p.owner_id), false) AS owner_active"
@@ -113,6 +114,7 @@ impl AppRow {
             created_at: ts(self.created_at),
             updated_at: ts(self.updated_at),
             previous_secret_expires_at: opt_ts(self.previous_secret_expires_at.filter(|at| *at > Utc::now())),
+            device_flow: self.device_flow,
             ..Default::default()
         }
     }
@@ -323,8 +325,8 @@ impl AppService for Dev {
             let count: i64 = sqlx::query_scalar("SELECT count(*) FROM dev_apps WHERE owner_id = $1").bind(owner).fetch_one(&mut *tx).await?;
             ensure!(count < self.cfg.max_apps, precondition, "TOO_MANY_APPS", "at most {} applications", self.cfg.max_apps);
             let app_id: Uuid = sqlx::query_scalar(
-                "INSERT INTO dev_apps (owner_id, name, description, homepage_url, privacy_policy_url, redirect_uris, scopes, confidential, secret_hash, secret_hint)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id",
+                "INSERT INTO dev_apps (owner_id, name, description, homepage_url, privacy_policy_url, redirect_uris, scopes, confidential, secret_hash, secret_hint, device_flow)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id",
             )
             .bind(owner)
             .bind(&fields.name)
@@ -336,6 +338,7 @@ impl AppService for Dev {
             .bind(confidential)
             .bind(secret.as_deref().map(|secret| self.core.keys.token_hash(secret)))
             .bind(secret.as_deref().map(secrets::hint).unwrap_or_default())
+            .bind(req.device_flow)
             .fetch_one(&mut *tx)
             .await?;
             if let Some(icon) = icon.apply(self, &mut tx, &app_icon_holder(app_id)).await? {
@@ -362,7 +365,7 @@ impl AppService for Dev {
             self.core.cache.rate_limit(&format!("dev-app-update:{owner}"), 60, Duration::from_secs(3600)).await?;
             let icon = ImageChange::resolve(self, owner, req.icon_asset_id.as_deref()).await?;
             let mut tx = self.core.db.begin().await?;
-            sqlx::query("UPDATE dev_apps SET name = $2, description = $3, homepage_url = $4, privacy_policy_url = $5, redirect_uris = $6, scopes = $7 WHERE id = $1")
+            sqlx::query("UPDATE dev_apps SET name = $2, description = $3, homepage_url = $4, privacy_policy_url = $5, redirect_uris = $6, scopes = $7, device_flow = $8 WHERE id = $1")
                 .bind(app.id)
                 .bind(&fields.name)
                 .bind(&fields.description)
@@ -370,6 +373,7 @@ impl AppService for Dev {
                 .bind(&fields.privacy_policy_url)
                 .bind(&fields.redirect_uris)
                 .bind(fields.scopes.as_slice())
+                .bind(req.device_flow)
                 .execute(&mut *tx)
                 .await?;
             if let Some(icon) = icon.apply(self, &mut tx, &app_icon_holder(app.id)).await? {

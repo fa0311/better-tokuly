@@ -48,6 +48,8 @@ CREATE TABLE dev_apps (
     redirect_uris              text[]      NOT NULL,
     scopes                     text[]      NOT NULL,
     confidential               boolean     NOT NULL,
+    -- Whether the device flow (RFC 8628) may be used; off unless asked for.
+    device_flow                boolean     NOT NULL DEFAULT false,
     secret_hash                text,
     secret_hint                text        NOT NULL DEFAULT '',
     -- The secret replaced by the last rotation, honoured until it expires.
@@ -164,6 +166,9 @@ CREATE TABLE dev_webhook_deliveries (
     -- The event's id in the envelope; shared by retries and replays.
     event_id        uuid        NOT NULL,
     event_type      text        NOT NULL,
+    -- Where it goes: the webhook's URL when the event happened. A delivery
+    -- is never sent anywhere else, whatever the webhook is changed to.
+    url             text        NOT NULL,
     -- The envelope { id, type, time, data } as sent.
     payload         jsonb       NOT NULL,
     -- 'pending' | 'retrying' | 'succeeded' | 'failed'

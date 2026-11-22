@@ -349,7 +349,7 @@ impl Reference {
     fn method_proto(&self, service: &ServiceDoc, method: &MethodDoc, with_schemas: bool) -> ApiMethod {
         let path = format!("/{}/{}", service.name, method.name);
         let (access, scope) = match access_for(&path) {
-            Some(Access::Scope(scope)) => (ApiAccess::API_ACCESS_SCOPE, scope),
+            Some(Access::Scopes(scopes)) => (ApiAccess::API_ACCESS_SCOPE, scopes.join(" ")),
             Some(Access::AnyToken) => (ApiAccess::API_ACCESS_ANY_TOKEN, String::new()),
             Some(Access::SessionOnly) | None => (ApiAccess::API_ACCESS_SESSION_ONLY, String::new()),
         };
@@ -489,44 +489,53 @@ mod tests {
         assert_eq!(current.access.as_known(), Some(ApiAccess::API_ACCESS_ANY_TOKEN));
         let webhooks = dev.iter().find(|s| s.name.ends_with("WebhookService")).unwrap();
         let scopes: Vec<(&str, &str)> = webhooks.methods.iter().map(|m| (m.name.as_str(), m.scope.as_str())).collect();
-        assert!(scopes.contains(&("CreateWebhook", "dev:write")) && scopes.contains(&("ListWebhooks", "dev:read")));
+        assert!(scopes.contains(&("CreateWebhook", "")) && scopes.contains(&("ListWebhooks", "dev:read")));
+        // An RPC of one domain that carries another's data names both scopes.
+        assert_eq!(
+            reference.method("/tokuly.feed.v1.MapStoryService/ListMapStories").unwrap().scope,
+            "feed:read geo:read"
+        );
         // Location RPCs name the location scope; streams are marked.
         let geo = reference.method("tokuly.geo.v1.LocationService/WatchFriendLocations").unwrap();
         assert_eq!((geo.scope.as_str(), geo.server_streaming, geo.client_streaming), ("geo:read", true, false));
     }
 
-    /// The scope of an RPC follows from its name, and a name that starts
-    /// with Check, Resolve, Evaluate, Count or Batch reads as "read" although
-    /// such verbs are often actions (`CheckIn`, `ResolveSos`). Every RPC
-    /// that is granted to a read scope on the strength of one of them is
-    /// listed here after a look at what it does. A new one fails this test:
-    /// if it only reads, add it below; if it changes anything, give it a
-    /// `Rule::Write` in `tokuly_core::api_tokens`.
+    /// The access table in `tokuly_core::api_access` lists every RPC by
+    /// hand and refuses tokens anything it does not list. This walks the
+    /// API's own descriptor set, so an RPC added to a proto file without a
+    /// line in the table — and a line left behind by an RPC that is gone —
+    /// fails here, with the name of what to look at.
     #[test]
-    fn rpcs_that_read_by_an_ambiguous_verb_were_looked_at() {
-        const REVIEWED: &[&str] =
-            &["/tokuly.social.v1.FriendService/ResolveInvite", "/tokuly.video.v1.ChannelService/CheckChannelHandle"];
-        let ambiguous = |name: &str| {
-            ["Check", "Resolve", "Evaluate", "Count"].iter().any(|verb| name.starts_with(verb))
-                || (name.starts_with("Batch") && !name.starts_with("BatchGet"))
-        };
-        let unreviewed: Vec<String> = reference()
+    fn every_rpc_of_the_api_is_classified_and_nothing_else() {
+        let described: Vec<String> = reference()
             .services("")
             .into_iter()
             .flat_map(|service| service.methods)
-            .filter(|method| method.scope.ends_with(":read") && ambiguous(&method.name))
             .map(|method| method.path)
-            .filter(|path| !REVIEWED.contains(&path.as_str()))
             .collect();
-        assert!(unreviewed.is_empty(), "decide whether these only read (see the comment on this test): {unreviewed:?}");
-        // The known actions with a reading name need the write scope.
+        assert!(described.len() > 600, "the descriptor set holds the whole API");
+        let unclassified: Vec<&String> = described.iter().filter(|path| access_for(path).is_none()).collect();
+        assert!(
+            unclassified.is_empty(),
+            "add these RPCs to tokuly_core::api_access after looking at what they read and write: {unclassified:?}"
+        );
+        let stale: Vec<String> = tokuly_core::api_access::classified()
+            .map(|(path, _)| path)
+            .filter(|path| !described.contains(path))
+            .collect();
+        assert!(stale.is_empty(), "these lines of tokuly_core::api_access name RPCs that do not exist: {stale:?}");
+    }
+
+    #[test]
+    fn actions_with_a_reading_name_need_the_write_scope_or_a_session() {
         for (path, scope) in [
             ("/tokuly.geo.v1.PlaceService/CheckIn", "geo:write"),
-            ("/tokuly.geo.v1.SafetyService/ResolveSos", "geo:write"),
             ("/tokuly.media.v1.MediaService/GetUploadParts", "media:write"),
         ] {
             assert_eq!(reference().method(path).unwrap().scope, scope, "{path}");
         }
+        let sos = reference().method("/tokuly.geo.v1.SafetyService/ResolveSos").unwrap();
+        assert_eq!(sos.access.as_known(), Some(ApiAccess::API_ACCESS_SESSION_ONLY));
     }
 
     #[test]

@@ -37,8 +37,9 @@ pub enum Source {
 #[derive(Debug, Clone, Copy)]
 pub struct EventType {
     pub name: &'static str,
-    /// What a token needs to subscribe: reading the domain the event is about.
-    pub scope: &'static str,
+    /// What a token needs in order to read deliveries of the type: the
+    /// scopes that reading the same thing through the API would take.
+    pub scopes: &'static [&'static str],
     pub ja: &'static str,
     pub en: &'static str,
     pub source: Source,
@@ -52,126 +53,120 @@ pub const PING: &str = "ping";
 pub const EVENT_TYPES: &[EventType] = &[
     EventType {
         name: "notification.created",
-        scope: "notify:read",
+        // Any notification: message previews and place alerts among them.
+        scopes: &["notify:read", "chat:read", "geo:read"],
         ja: "通知が届いた（すべての種類）",
         en: "A notification arrived (every kind)",
         source: Source::Notification { kind: "" },
     },
     EventType {
         name: "friend.request_received",
-        scope: "social:read",
+        scopes: &["social:read"],
         ja: "友達リクエストが届いた",
         en: "Someone sent you a friend request",
         source: Source::Topic { topic: "social.friend.requested", accounts: &["to_user_id"] },
     },
     EventType {
         name: "friend.added",
-        scope: "social:read",
+        scopes: &["social:read"],
         ja: "友達になった",
         en: "You became friends with someone",
         source: Source::Topic { topic: "social.friend.accepted", accounts: &["user_id", "friend_id"] },
     },
     EventType {
         name: "friend.removed",
-        scope: "social:read",
+        scopes: &["social:read"],
         ja: "友達を削除した",
         en: "You removed a friend",
         source: Source::Topic { topic: "social.friend.removed", accounts: &["user_id"] },
     },
     EventType {
         name: "chat.message_received",
-        scope: "chat:read",
+        scopes: &["chat:read"],
         ja: "メッセージが届いた",
         en: "You received a message",
         source: Source::Notification { kind: "chat.message" },
     },
     EventType {
         name: "chat.mentioned",
-        scope: "chat:read",
+        scopes: &["chat:read"],
         ja: "チャットでメンションされた",
         en: "You were mentioned in a chat",
         source: Source::Notification { kind: "chat.mention" },
     },
     EventType {
         name: "chat.call_incoming",
-        scope: "chat:read",
+        scopes: &["chat:read"],
         ja: "着信があった",
         en: "Someone is calling you",
         source: Source::Notification { kind: "chat.call" },
     },
     EventType {
         name: "place.alert",
-        scope: "geo:read",
+        scopes: &["geo:read"],
         ja: "見守りアラート：友達が場所に到着・出発した",
         en: "A place alert fired: a friend arrived at or left a place",
         source: Source::Notification { kind: "geo.place_alert" },
     },
     EventType {
-        name: "live.started",
-        scope: "live:read",
-        ja: "フォロー中のチャンネルがライブ配信を開始した",
-        en: "A channel you follow went live",
-        source: Source::Notification { kind: "live.started" },
-    },
-    EventType {
         name: "channel.video_published",
-        scope: "video:read",
+        scopes: &["video:read"],
         ja: "登録チャンネルが動画を公開した",
         en: "A channel you subscribe to published a video",
         source: Source::Notification { kind: "video.published" },
     },
     EventType {
         name: "channel.subscriber_added",
-        scope: "video:read",
+        scopes: &["video:read"],
         ja: "あなたのチャンネルが登録された",
         en: "Someone subscribed to your channel",
         source: Source::Topic { topic: "video.channel.subscribed", accounts: &["owner_id"] },
     },
     EventType {
         name: "note.created",
-        scope: "notes:read",
+        scopes: &["notes:read"],
         ja: "ノートを投稿した",
         en: "You posted a note",
         source: Source::Topic { topic: "notes.note.created", accounts: &["author_id"] },
     },
     EventType {
         name: "note.mentioned",
-        scope: "notes:read",
+        scopes: &["notes:read"],
         ja: "ノートでメンションされた",
         en: "You were mentioned in a note",
         source: Source::Notification { kind: "notes.mention" },
     },
     EventType {
         name: "note.replied",
-        scope: "notes:read",
+        scopes: &["notes:read"],
         ja: "ノートに返信が届いた",
         en: "Someone replied to your note",
         source: Source::Notification { kind: "notes.reply" },
     },
     EventType {
         name: "comment.received",
-        scope: "engagement:read",
+        scopes: &["engagement:read"],
         ja: "あなたの投稿にコメントが付いた",
         en: "Someone commented on something of yours",
         source: Source::Topic { topic: "engagement.comment.published", accounts: &["subject_owner_id"] },
     },
     EventType {
         name: "reaction.received",
-        scope: "engagement:read",
+        scopes: &["engagement:read"],
         ja: "あなたの投稿にリアクションが付いた",
         en: "Someone reacted to something of yours",
         source: Source::Topic { topic: "engagement.reaction.changed", accounts: &["subject_owner_id"] },
     },
     EventType {
         name: "wallet.balance_changed",
-        scope: "wallet:read",
+        scopes: &["wallet:read"],
         ja: "コイン残高が変わった",
         en: "Your coin balance changed",
         source: Source::Topic { topic: "wallet.balance.changed", accounts: &["user_id"] },
     },
     EventType {
         name: "account.updated",
-        scope: "identity:read",
+        scopes: &["identity:read"],
         ja: "プロフィールが更新された",
         en: "Your profile changed",
         source: Source::Topic { topic: "identity.user.updated", accounts: &["user_id"] },
@@ -182,12 +177,37 @@ pub fn event_type(name: &str) -> Option<&'static EventType> {
     EVENT_TYPES.iter().find(|event_type| event_type.name == name)
 }
 
+/// Whether the caller may see deliveries of an event type: a session may;
+/// a token only with every scope the type needs. A `ping` carries nothing.
+pub(crate) fn may_read(auth: &AuthContext, event_type_name: &str) -> bool {
+    match event_type(event_type_name) {
+        Some(event_type) => event_type.scopes.iter().all(|scope| auth.allows(scope)),
+        None => auth.is_session() || event_type_name == PING,
+    }
+}
+
+/// The event types whose deliveries a token may read; `None` for a session (all).
+fn readable_event_types(auth: &AuthContext) -> Option<Vec<String>> {
+    if auth.is_session() {
+        return None;
+    }
+    Some(
+        EVENT_TYPES
+            .iter()
+            .map(|t| t.name)
+            .chain([PING])
+            .filter(|name| may_read(auth, name))
+            .map(str::to_owned)
+            .collect(),
+    )
+}
+
 impl EventType {
     fn to_proto(self) -> WebhookEventType {
         WebhookEventType {
             r#type: self.name.to_owned(),
             description: LocalizedText { ja: self.ja.to_owned(), en: self.en.to_owned(), ..Default::default() }.into(),
-            scope: self.scope.to_owned(),
+            scope: self.scopes.join(" "),
             payload: match self.source {
                 Source::Topic { topic, .. } => topic.to_owned(),
                 Source::Notification { .. } => "notification".to_owned(),
@@ -276,13 +296,7 @@ struct WebhookFields {
 }
 
 impl Dev {
-    fn check_webhook(
-        &self,
-        auth: &AuthContext,
-        url: &str,
-        description: &str,
-        event_types: &[String],
-    ) -> AppResult<WebhookFields> {
+    fn check_webhook(&self, url: &str, description: &str, event_types: &[String]) -> AppResult<WebhookFields> {
         let url = url.trim();
         ensure!(url.len() <= MAX_URL_LEN, invalid, "WEBHOOK_URL_INVALID", "the URL is too long");
         delivery::check_url(url, self.cfg.webhook_allow_private)
@@ -291,17 +305,7 @@ impl Dev {
         ensure!(!event_types.is_empty(), invalid, "EVENT_TYPES_REQUIRED", "choose at least one event type");
         let mut names = Vec::new();
         for name in event_types {
-            let Some(event_type) = event_type(name) else {
-                bail!(invalid, "EVENT_TYPE_UNKNOWN", "unknown event type {name:?}")
-            };
-            // A token subscribes only to what it could read anyway.
-            ensure!(
-                auth.allows(event_type.scope),
-                denied,
-                "INSUFFICIENT_SCOPE",
-                "this token lacks the scope {} needed for {name}",
-                event_type.scope
-            );
+            ensure!(event_type(name).is_some(), invalid, "EVENT_TYPE_UNKNOWN", "unknown event type {name:?}");
             if !names.contains(name) {
                 names.push(name.clone());
             }
@@ -367,10 +371,11 @@ impl WebhookService for Dev {
         request: ServiceRequest<'_, CreateWebhookRequest>,
     ) -> ServiceResult<CreateWebhookResponse> {
         handle(async {
-            let auth = ctx.auth()?;
+            // Where a person's events go is decided by the person, at a screen.
+            let auth = ctx.require_session()?;
             let req = request.to_owned_message();
             let account_id = self.webhook_account(&ctx, &req.bot_id).await?;
-            let fields = self.check_webhook(auth, &req.url, &req.description, &req.event_types)?;
+            let fields = self.check_webhook(&req.url, &req.description, &req.event_types)?;
             self.core.cache.rate_limit(&format!("dev-webhook-create:{}", auth.user_id), 30, Duration::from_secs(3600)).await?;
             let secret = secrets::generate(SecretKind::Webhook);
             let mut tx = self.core.db.begin().await?;
@@ -402,10 +407,10 @@ impl WebhookService for Dev {
         request: ServiceRequest<'_, UpdateWebhookRequest>,
     ) -> ServiceResult<UpdateWebhookResponse> {
         handle(async {
-            let auth = ctx.auth()?;
+            let auth = ctx.require_session()?;
             let req = request.to_owned_message();
             let webhook = self.owned_webhook(&ctx, &req.webhook_id).await?;
-            let fields = self.check_webhook(auth, &req.url, &req.description, &req.event_types)?;
+            let fields = self.check_webhook(&req.url, &req.description, &req.event_types)?;
             self.core.cache.rate_limit(&format!("dev-webhook-update:{}", auth.user_id), 120, Duration::from_secs(3600)).await?;
             // Resuming — from a pause or from being disabled — starts with a clean record.
             let resumed = !req.paused && !webhook.is_active();
@@ -468,6 +473,7 @@ impl WebhookService for Dev {
         request: ServiceRequest<'_, DeleteWebhookRequest>,
     ) -> ServiceResult<DeleteWebhookResponse> {
         handle(async {
+            ctx.require_session()?;
             let webhook = self.owned_webhook(&ctx, request.webhook_id).await?;
             // The delivery log goes with it.
             sqlx::query("DELETE FROM dev_webhooks WHERE id = $1").bind(webhook.id).execute(&self.core.db).await?;
@@ -483,6 +489,7 @@ impl WebhookService for Dev {
         request: ServiceRequest<'_, RotateWebhookSecretRequest>,
     ) -> ServiceResult<RotateWebhookSecretResponse> {
         handle(async {
+            ctx.require_session()?;
             let webhook = self.owned_webhook(&ctx, request.webhook_id).await?;
             self.core.cache.rate_limit(&format!("dev-webhook-rotate:{}", webhook.id), 10, Duration::from_secs(3600)).await?;
             let secret = secrets::generate(SecretKind::Webhook);
@@ -507,6 +514,7 @@ impl WebhookService for Dev {
         request: ServiceRequest<'_, PingWebhookRequest>,
     ) -> ServiceResult<PingWebhookResponse> {
         handle(async {
+            ctx.require_session()?;
             let webhook = self.owned_webhook(&ctx, request.webhook_id).await?;
             // Per caller, not per webhook: each ping is a request to somebody's server.
             self.core
@@ -537,17 +545,24 @@ impl WebhookService for Dev {
             let after: Option<Uuid> = page.decode()?;
             let mut rows: Vec<DeliveryRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
                 "SELECT {} FROM dev_webhook_deliveries
-                 WHERE webhook_id = $1 AND ($2::text IS NULL OR status = $2) AND ($3::uuid IS NULL OR id < $3) ORDER BY id DESC LIMIT $4",
+                 WHERE webhook_id = $1 AND ($2::text IS NULL OR status = $2) AND ($3::uuid IS NULL OR id < $3)
+                   AND ($5::text[] IS NULL OR event_type = ANY($5))
+                 ORDER BY id DESC LIMIT $4",
                 delivery::DELIVERY_COLUMNS
             )))
             .bind(webhook.id)
             .bind(status)
             .bind(after)
             .bind(page.fetch())
+            .bind(readable_event_types(ctx.auth()?))
             .fetch_all(&self.core.db)
             .await?;
             let info = page.finish(&mut rows, |row| row.id);
-            ok(ListDeliveriesResponse { deliveries: rows.iter().map(|row| row.to_proto(false)).collect(), page: info.into(), ..Default::default() })
+            ok(ListDeliveriesResponse {
+                deliveries: rows.iter().map(|row| row.to_proto(false)).collect(),
+                page: info.into(),
+                ..Default::default()
+            })
         })
         .await
     }
@@ -559,6 +574,14 @@ impl WebhookService for Dev {
     ) -> ServiceResult<GetDeliveryResponse> {
         handle(async {
             let delivery = self.owned_delivery(&ctx, request.delivery_id).await?;
+            // The payload is what the event type's scopes protect elsewhere.
+            ensure!(
+                may_read(ctx.auth()?, &delivery.event_type),
+                denied,
+                "INSUFFICIENT_SCOPE",
+                "this token lacks the scopes of {} events",
+                delivery.event_type
+            );
             ok(GetDeliveryResponse { delivery: delivery.to_proto(true).into(), ..Default::default() })
         })
         .await
@@ -570,6 +593,7 @@ impl WebhookService for Dev {
         request: ServiceRequest<'_, ReplayDeliveryRequest>,
     ) -> ServiceResult<ReplayDeliveryResponse> {
         handle(async {
+            ctx.require_session()?;
             let original = self.owned_delivery(&ctx, request.delivery_id).await?;
             let webhook = self.webhook(original.webhook_id).await?;
             ensure!(
@@ -577,6 +601,13 @@ impl WebhookService for Dev {
                 precondition,
                 "WEBHOOK_NOT_ACTIVE",
                 "resume the webhook before replaying deliveries"
+            );
+            // What happened while the webhook pointed elsewhere is not sent to where it points now.
+            ensure!(
+                original.url == webhook.url,
+                precondition,
+                "WEBHOOK_URL_CHANGED",
+                "the webhook's URL changed since this event"
             );
             self.core
                 .cache
@@ -621,8 +652,17 @@ mod tests {
         names.dedup();
         assert_eq!(names.len(), EVENT_TYPES.len(), "no type is listed twice");
         for event_type in EVENT_TYPES {
-            assert!(is_scope(event_type.scope) && event_type.scope.ends_with(":read"), "{}", event_type.name);
-            assert!(scopes::find(event_type.scope).is_some(), "{} needs a scope tokens can hold", event_type.name);
+            assert!(
+                !event_type.scopes.is_empty()
+                    && event_type.scopes.iter().all(|scope| is_scope(scope) && scope.ends_with(":read")),
+                "{}",
+                event_type.name
+            );
+            assert!(
+                event_type.scopes.iter().all(|scope| scopes::find(scope).is_some()),
+                "{} needs scopes tokens can hold",
+                event_type.name
+            );
             assert!(!event_type.ja.is_empty() && !event_type.en.is_empty());
             if let Source::Topic { topic, accounts } = event_type.source {
                 assert!(topic.split('.').count() == 3 && !accounts.is_empty(), "{}", event_type.name);
@@ -630,11 +670,20 @@ mod tests {
         }
         assert!(event_type(PING).is_none(), "ping cannot be subscribed to");
         // The events the product promises.
-        for wanted in
-            ["friend.request_received", "chat.message_received", "notification.created", "place.alert", "live.started"]
-        {
+        for wanted in [
+            "friend.request_received",
+            "chat.message_received",
+            "notification.created",
+            "place.alert",
+            "channel.video_published",
+        ] {
             assert!(event_type(wanted).is_some(), "{wanted}");
         }
-        assert_eq!(event_type("place.alert").unwrap().scope, "geo:read", "location events need the location scope");
+        assert_eq!(event_type("place.alert").unwrap().scopes, ["geo:read"], "location events need the location scope");
+        assert_eq!(
+            event_type("notification.created").unwrap().scopes,
+            ["notify:read", "chat:read", "geo:read"],
+            "the inbox holds messages and place alerts"
+        );
     }
 }

@@ -759,6 +759,11 @@ impl Dev {
         form: &HashMap<String, String>,
     ) -> OAuthResult<DeviceAuthorization> {
         let app = self.authenticate_client(credentials).await?;
+        // The flow where approval happens away from the client is what
+        // phishing uses; an application gets it only by asking at registration.
+        if !app.device_flow {
+            return Err(OAuthError::new("unauthorized_client", "this client is not registered for the device flow"));
+        }
         let scopes = Self::requested_scopes(&app, form.get("scope").map(String::as_str).unwrap_or_default())?;
         let ttl = Duration::from_secs(self.cfg.device_code_seconds);
         let device_code = secrets::generate(SecretKind::Device);

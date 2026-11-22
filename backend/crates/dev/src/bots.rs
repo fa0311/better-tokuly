@@ -1,22 +1,28 @@
 //! Bots: accounts of their own, owned by a person, acting through the API.
 //!
 //! A bot is a real row in identity's `users` table, so everything that
-//! takes a user — friendships, chats, notes — takes a bot. Identity has no
-//! notion of bots yet: there is no API to create an account that nobody
-//! signs in to, no bot flag and no owner link. Until it has, this module
-//! keeps the link in `dev_bots` and is the one place outside identity that
-//! writes to `users`, doing exactly what identity's sign-up and profile
-//! update do (same validation, same events) for an account without email or
-//! password. Deleting a bot goes through identity's own account purge.
+//! takes a user takes a bot. Identity has no notion of bots yet: no API to
+//! create an account that nobody signs in to, no bot flag, no owner link.
+//! Until it has, this module is the interim, kept as small as is safe:
+//!
+//! - It writes the bot's `users` row itself — three statements: the insert
+//!   (no email, no password), the profile update, and marking the account
+//!   for deletion. Identity's own hourly purge then erases the account and
+//!   announces it; nothing here runs that purge.
+//! - It emits no event in identity's name. `identity.user.created` promises
+//!   consumers a person who signed up (invites, welcome rewards), which a
+//!   bot is not; what happens to a bot is announced as `dev.bot.*`.
+//! - The owner link lives in `dev_bots`, and outlives the bot for a while.
+//! - A bot can address nobody: its tokens get no write scope beyond its own
+//!   profile, uploads and inbox (`scopes::allowed_for_bots`), and no wallet
+//!   scope. Someone who blocked the owner must not be reachable through the
+//!   owner's bots, and only the social domain can check that.
 use std::time::Duration;
 
 use connectrpc::{RequestContext, ServiceRequest, ServiceResult};
 use sqlx::PgConnection;
 use tokuly_core::{events, prelude::*};
-use tokuly_identity::{
-    maintenance::{UserCreated, UserRef},
-    users,
-};
+use tokuly_identity::users;
 use tokuly_proto::dev::*;
 
 use crate::{
@@ -104,8 +110,7 @@ impl Dev {
     }
 
     /// Creates the account of a bot: the insert identity's sign-up makes,
-    /// without credentials, in the owner's language and time zone, followed
-    /// by the event every domain builds a new user's state from.
+    /// without credentials, in the owner's language and time zone.
     async fn create_bot_account(
         tx: &mut PgConnection,
         owner: Uuid,
@@ -133,13 +138,12 @@ impl Dev {
             let e = AppError::from(e);
             if e.is_already_exists() { AppError::already_exists("HANDLE_TAKEN", "this handle is already in use") } else { e }
         })?;
-        let created = UserCreated { user_id: bot_id, handle: handle.to_owned(), invite_code: String::new() };
-        events::emit(&mut *tx, "identity.user.created", Some(bot_id), &created).await?;
         Ok(bot_id)
     }
 
-    /// Deletes a bot: its tokens and webhooks now, its account through
-    /// identity's purge (which tells every domain to drop the rest).
+    /// Deletes a bot: its tokens and webhooks now; its account is marked
+    /// for deletion and erased by identity's next purge (within the hour),
+    /// which tells every domain to drop the rest.
     ///
     /// The row that says who owned it is kept, marked deleted, for
     /// `TOKULY_DEV_BOT_RECORD_DAYS` counted from now: what the bot sent
@@ -157,7 +161,7 @@ impl Dev {
             .bind(bot_id)
             .execute(&mut *tx)
             .await?;
-        // Due at once: identity's purge anonymizes the row and announces the deletion.
+        // Due at once: identity's next purge anonymizes the row and announces the deletion.
         sqlx::query("UPDATE users SET deletion_scheduled_at = now() WHERE id = $1 AND deleted_at IS NULL")
             .bind(bot_id)
             .execute(&mut *tx)
@@ -165,7 +169,6 @@ impl Dev {
         events::emit(&mut *tx, "dev.bot.deleted", actor, &BotEvent { bot_id, owner_id }).await?;
         tx.commit().await?;
         self.subscribed.invalidate();
-        self.identity.purge_deleted_accounts().await?;
         Ok(())
     }
 
@@ -289,7 +292,7 @@ impl BotService for Dev {
                 let e = AppError::from(e);
                 if e.is_already_exists() { AppError::already_exists("HANDLE_TAKEN", "this handle is already in use") } else { e }
             })?;
-            events::emit(&mut *tx, "identity.user.updated", Some(bot.user_id), &UserRef { user_id: bot.user_id }).await?;
+            events::emit(&mut *tx, "dev.bot.updated", Some(owner), &BotEvent { bot_id: bot.user_id, owner_id: owner }).await?;
             tx.commit().await?;
             ok(UpdateBotResponse { bot: self.bot_proto(bot.user_id, owner).await?.into(), ..Default::default() })
         })

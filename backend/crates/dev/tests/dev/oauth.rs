@@ -731,7 +731,7 @@ async fn the_device_flow_lets_a_cli_in_once_its_user_agrees() {
     // No pause between polls, so the test need not wait.
     let ctx = start_with(DevConfig { device_poll_seconds: 0, ..config() }).await;
     let (dana, user) = (ctx.app.user("dana").await, ctx.app.user("user").await);
-    let cli = create_app(&ctx, &dana, &["identity:read", "notes:read"], PUBLIC).await;
+    let cli = create_cli(&ctx, &dana, &["identity:read", "notes:read"]).await;
     let started =
         ctx.form("/oauth/device_authorization", None, &[("client_id", &cli.id), ("scope", "identity:read")]).await;
     assert_eq!(started.status, 200, "{}", String::from_utf8_lossy(&started.body));
@@ -842,8 +842,13 @@ async fn the_device_flow_lets_a_cli_in_once_its_user_agrees() {
 async fn the_device_flow_reports_denial_impatience_and_bad_requests() {
     let ctx = start().await;
     let (dana, user) = (ctx.app.user("dana").await, ctx.app.user("user").await);
-    let cli = create_app(&ctx, &dana, &["identity:read"], PUBLIC).await;
-    let other = create_app(&ctx, &dana, &["identity:read"], PUBLIC).await;
+    let cli = create_cli(&ctx, &dana, &["identity:read"]).await;
+    let other = create_cli(&ctx, &dana, &["identity:read"]).await;
+    // An application that did not ask for the device flow at registration does not get it.
+    let plain = create_app(&ctx, &dana, &["identity:read"], PUBLIC).await;
+    assert!(!plain.app.device_flow && cli.app.device_flow);
+    let refused = ctx.form("/oauth/device_authorization", None, &[("client_id", &plain.id)]).await;
+    assert_eq!((refused.status, refused.error().as_str()), (400, "unauthorized_client"));
     let start_device = |scope: &'static str| {
         let (ctx, cli) = (&ctx, &cli);
         async move { ctx.form("/oauth/device_authorization", None, &[("client_id", &cli.id), ("scope", scope)]).await }

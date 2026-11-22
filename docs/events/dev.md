@@ -21,11 +21,21 @@ Authorization: Bearer tkl_…  ──▶ core auth middleware (tokuly_core::api_
   token, `bot` bot token, `oat` / `ort` OAuth access and refresh token, `oac`
   authorization code, `odc` device code, `cs` client secret, `whs` webhook
   signing secret. Only a keyed hash is stored (webhook secrets: encrypted).
-- Scopes are `<domain>:read` / `<domain>:write`; which one an RPC needs is
-  decided in core (`api_tokens::access_for`). The catalogue with the wording
-  shown to people is `tokuly_dev::scopes`. `TokenService`, `AppService`,
-  `AuthorizationService`, `BotService`, identity's credential RPCs and the
-  admin domain can never be called with a token.
+- Scopes are `<domain>:read` / `<domain>:write`. What each RPC needs is
+  listed RPC by RPC in `tokuly_core::api_access`; an RPC that is not listed
+  cannot be called with a token (`TOKEN_NOT_ALLOWED`), and a test in this
+  crate walks the descriptor set and fails for any RPC without a line. Some
+  RPCs need a second scope: what carries location (`MapStoryService`, the
+  activity feed, `GetProfile`, nearby discovery) also needs `geo:read`, the
+  notification inbox also `chat:read` and `geo:read`. Session only: signing
+  in, credentials, linked services, account deletion and export, purchases
+  and payouts, SOS, everything staff, and in this domain everything except
+  reading webhooks, deliveries, usage and the reference.
+- The catalogue with the wording shown to people is `tokuly_dev::scopes`; it
+  offers exactly the scopes some listed RPC needs (no scopes yet for live,
+  shorts, quest, plans, spaces, community).
+- A response that keeps streaming is cut off when its token is revoked or
+  expires (re-verified every 30 s).
 - A verified token is cached for up to 60 s (`dev:tok:<hash>`). Revocation,
   bans noticed through events, bot switches and application takedowns remove
   the entry, so they apply to the next request. A password change is noticed
@@ -50,10 +60,10 @@ Payload structs: `tokuly_dev::events`.
 | `dev.app.disabled` | `AppEvent` | Moderation took an application down. |
 | `dev.authorization.granted` | `AuthorizationEvent { app_id, user_id, scopes, reason }` | A user approved an application (consent screen or device page). `scopes` are the ones just approved. Actor: the user. |
 | `dev.authorization.revoked` | `AuthorizationEvent` | A user's authorization of an application was withdrawn. `reason`: `user`, `banned`. Not emitted for a token family revoked on its own (replayed code or refresh token), nor per user when an application is deleted. |
-| `dev.bot.created` / `.deleted` | `BotEvent { bot_id, owner_id }` | A bot account was created or deleted. |
+| `dev.bot.created` / `.updated` / `.deleted` | `BotEvent { bot_id, owner_id }` | A bot account was created, its profile edited, or it was deleted. |
 | `dev.webhook.disabled` | `WebhookDisabled { webhook_id, account_id }` | A webhook was disabled because its deliveries kept failing. |
-| `identity.user.created` | identity's `UserCreated` | Emitted on identity's behalf when a bot account is created (identity has no API for that yet, see "Bots"). Actor: the bot. |
-| `identity.user.updated` | identity's `UserRef` | Likewise when a bot's name, handle, bio or avatar changes. |
+
+No event is emitted in identity's name: a bot is not announced as `identity.user.created`, and a bot's profile change not as `identity.user.updated`.
 
 ## Events consumed
 
@@ -69,12 +79,16 @@ Payload structs: `tokuly_dev::events`.
 ## Webhooks
 
 A webhook belongs to an account (a person or a bot) and receives that
-account's events. The catalogue is `tokuly_dev::webhooks::EVENT_TYPES`; each
-type names the scope a token needs to subscribe to it.
+account's events. The catalogue is `tokuly_dev::webhooks::EVENT_TYPES`.
+Creating, changing, deleting, pinging and replaying take a session; a token
+with `dev:read` lists webhooks and reads only deliveries of event types
+whose scopes it holds. A delivery is bound to the URL the webhook had when
+the event happened: after the URL is changed it is neither retried nor
+replayed (`WEBHOOK_URL_CHANGED`).
 
-| Event type | Source | Delivered to | Scope |
+| Event type | Source | Delivered to | Scopes to read its deliveries |
 |---|---|---|---|
-| `notification.created` | every `notify.requested` | the recipient | `notify:read` |
+| `notification.created` | every `notify.requested` | the recipient | `notify:read`, `chat:read`, `geo:read` |
 | `friend.request_received` | `social.friend.requested` | `to_user_id` | `social:read` |
 | `friend.added` | `social.friend.accepted` | `user_id`, `friend_id` | `social:read` |
 | `friend.removed` | `social.friend.removed` | `user_id` | `social:read` |
@@ -82,7 +96,6 @@ type names the scope a token needs to subscribe to it.
 | `chat.mentioned` | notification kind `chat.mention` | the recipient | `chat:read` |
 | `chat.call_incoming` | notification kind `chat.call` | the recipient | `chat:read` |
 | `place.alert` | notification kind `geo.place_alert` | the recipient | `geo:read` |
-| `live.started` | notification kind `live.started` | the recipient | `live:read` |
 | `channel.video_published` | notification kind `video.published` | the recipient | `video:read` |
 | `channel.subscriber_added` | `video.channel.subscribed` | `owner_id` | `video:read` |
 | `note.created` | `notes.note.created` | `author_id` | `notes:read` |
@@ -138,11 +151,16 @@ Delivery rules:
 ## Bots
 
 A bot is a row in identity's `users` table (no email, no password) plus a
-row in `dev_bots` naming its owner. Identity has neither an API to create
-such an account nor a bot flag or owner link, so `tokuly_dev::bots` inserts
-and updates the `users` row itself — the same statements as identity's
-sign-up and profile update, followed by the same events — and deletes a bot
-through identity's own account purge (`identity.user.deleted` follows).
+row in `dev_bots` naming its owner. Identity has neither an API for such an
+account nor a bot flag or owner link, so as an interim `tokuly_dev::bots`
+writes the bot's `users` row itself: the insert, the profile update, and
+`deletion_scheduled_at = now()`. Identity's own hourly purge then erases the
+account and emits `identity.user.deleted`; this crate does not run the purge.
+
+A bot token cannot hold wallet scopes, and write scopes only for `identity`,
+`media`, `notify`, `search` and `feed` (`SCOPE_NOT_FOR_BOTS`; also applied at
+verification). A bot therefore earns and spends nothing and can address
+nobody, until blocks reach bots through the social domain.
 
 What a bot sent stays with the people it was sent to, who can still report
 it. So that such a report leads to a person, the `dev_bots` row of a deleted
@@ -214,7 +232,7 @@ middleware:
 |---|---|
 | `POST /oauth/token` | RFC 6749 token endpoint: `authorization_code` (PKCE `S256` required), `refresh_token` (rotation, reuse revokes the family), `urn:ietf:params:oauth:grant-type:device_code`. Client authentication: `client_secret_basic`, `client_secret_post`, or none for public clients. |
 | `POST /oauth/revoke` | RFC 7009. |
-| `POST /oauth/device_authorization` | RFC 8628. The user approves at `<public url>/device`. |
+| `POST /oauth/device_authorization` | RFC 8628, only for applications registered with `device_flow` (`unauthorized_client` otherwise). The user approves at `<public url>/device`. |
 | `GET /.well-known/oauth-authorization-server` | RFC 8414 metadata. The issuer is `<public url><api path prefix>`. |
 | `GET /reference/descriptor.binpb` | The `FileDescriptorSet` of the whole API. |
 

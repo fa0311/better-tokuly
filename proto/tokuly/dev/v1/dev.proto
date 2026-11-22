@@ -13,9 +13,12 @@ syntax = "proto3";
 // Every token is sent as `Authorization: Bearer <token>` and limited to its
 // scopes. A scope is `<domain>:read` or `<domain>:write` (writing includes
 // reading), where the domain is the package of the RPC (`tokuly.geo.v1` →
-// `geo`). An RPC is "read" when its name starts with Get, List, Search,
-// Watch, Batch, Check, Resolve, Count or Evaluate; `ReferenceService` lists
-// what each RPC needs. A token without the scope gets `permission_denied`
+// `geo`). What each RPC needs is written down per RPC and listed by
+// `ReferenceService`: usually reading or writing its own domain, sometimes
+// a second scope as well (what carries location also needs `geo:read`, the
+// notification inbox also `chat:read` and `geo:read`). An RPC that has not
+// been given scopes cannot be called with a token at all
+// (`TOKEN_NOT_ALLOWED`). A token without a scope gets `permission_denied`
 // with reason `INSUFFICIENT_SCOPE` (and the scope in `x-tokuly-scope`).
 // Some RPCs can never be called with a token (signing in, changing
 // credentials, deleting the account, everything that mints tokens): reason
@@ -237,6 +240,8 @@ message App {
   google.protobuf.Timestamp updated_at = 15;
   // Until when the secret replaced by the last rotation still works.
   google.protobuf.Timestamp previous_secret_expires_at = 16;
+  // Whether the application may use the device flow (RFC 8628).
+  bool device_flow = 17;
 }
 
 // An application as everyone else sees it (consent screen, authorized apps).
@@ -268,6 +273,10 @@ message CreateAppRequest {
   AppClientType client_type = 7;
   // An image the caller uploaded (media domain); empty for no icon.
   string icon_asset_id = 8;
+  // Let the application use the device flow, where a person approves on
+  // another device by typing a code. Off unless asked for: it is the flow
+  // phishing uses, so only CLIs and devices without a browser should have it.
+  bool device_flow = 9;
 }
 
 message CreateAppResponse {
@@ -286,6 +295,7 @@ message UpdateAppRequest {
   repeated string scopes = 7;
   // Unset keeps the icon, empty removes it.
   optional string icon_asset_id = 8;
+  bool device_flow = 9;
 }
 
 message UpdateAppResponse {
@@ -523,8 +533,10 @@ service BotService {
   // owned it stays on record for moderation for a while. Reason:
   // `BOT_SUSPENDED` (a bot suspended by moderation cannot be deleted).
   rpc DeleteBot(DeleteBotRequest) returns (DeleteBotResponse);
-  // Creates a token that acts as the bot (`tkl_bot_…`, shown once).
-  // Reasons: as `TokenService.CreateToken`.
+  // Creates a token that acts as the bot (`tkl_bot_…`, shown once). A bot
+  // token cannot hold wallet scopes, and write scopes only for the bot's
+  // own things (`identity`, `media`, `notify`, `search`, `feed`).
+  // Reasons: as `TokenService.CreateToken`, `SCOPE_NOT_FOR_BOTS`.
   rpc CreateBotToken(CreateBotTokenRequest) returns (CreateBotTokenResponse);
   rpc ListBotTokens(ListBotTokensRequest) returns (ListBotTokensResponse);
   // Reason: `TOKEN_NOT_FOUND`.
@@ -643,9 +655,13 @@ message RevokeBotTokenResponse {}
 // webhooks (their bots' included) send a limited number of events per
 // minute to the same host; events beyond that are dropped, not queued.
 //
-// The account is the caller, or a bot the caller owns (`bot_id`). Called
-// with a token, an event type may only be subscribed if the token holds
-// the scope the type needs. Every RPC naming a webhook or delivery fails
+// Creating, changing, deleting, pinging and replaying take a signed-in
+// session: a token cannot point a person's events somewhere new. A token
+// with `dev:read` may list webhooks and read the delivery log, but sees
+// only deliveries of event types whose scopes it holds itself.
+//
+// The account is the caller, or a bot the caller owns (`bot_id`). Every RPC
+// naming a webhook or delivery fails
 // with `WEBHOOK_NOT_FOUND` / `DELIVERY_NOT_FOUND` for other people's.
 service WebhookService {
   // The catalogue of event types.
@@ -653,8 +669,7 @@ service WebhookService {
   // Subscribes a URL. The signing secret is in the response, once.
   // Reasons: `WEBHOOK_URL_INVALID` (not https, credentials in it, or a
   // host that is not public), `EVENT_TYPES_REQUIRED`, `EVENT_TYPE_UNKNOWN`,
-  // `DESCRIPTION_TOO_LONG`, `TOO_MANY_WEBHOOKS`, `INSUFFICIENT_SCOPE`,
-  // `BOT_NOT_FOUND`.
+  // `DESCRIPTION_TOO_LONG`, `TOO_MANY_WEBHOOKS`, `BOT_NOT_FOUND`.
   rpc CreateWebhook(CreateWebhookRequest) returns (CreateWebhookResponse);
   // Replaces URL, description and event types, and pauses or resumes.
   // Resuming a disabled webhook gives it a fresh start.
@@ -670,10 +685,13 @@ service WebhookService {
   rpc PingWebhook(PingWebhookRequest) returns (PingWebhookResponse);
   // The delivery log of a webhook, newest first.
   rpc ListDeliveries(ListDeliveriesRequest) returns (ListDeliveriesResponse);
-  // One delivery with its payload and every attempt.
+  // One delivery with its payload and every attempt. Reason for a token
+  // without the event type's scopes: `INSUFFICIENT_SCOPE`.
   rpc GetDelivery(GetDeliveryRequest) returns (GetDeliveryResponse);
   // Sends the same event again as a new delivery. Reasons:
-  // `DELIVERY_NOT_FOUND`, `WEBHOOK_NOT_ACTIVE`, `RATE_LIMITED`.
+  // `DELIVERY_NOT_FOUND`, `WEBHOOK_NOT_ACTIVE`, `WEBHOOK_URL_CHANGED` (the
+  // webhook points somewhere else than when the event happened),
+  // `RATE_LIMITED`.
   rpc ReplayDelivery(ReplayDeliveryRequest) returns (ReplayDeliveryResponse);
 }
 
@@ -682,7 +700,7 @@ message WebhookEventType {
   // E.g. `friend.request_received`.
   string type = 1;
   tokuly.common.v1.LocalizedText description = 2;
-  // The scope a token needs to subscribe to it.
+  // The scopes (space separated) a token needs to read deliveries of it.
   string scope = 3;
   // What `data` holds: the name of the domain event whose payload it is
   // (documented in `docs/events`), or `notification` for a notification.
@@ -907,7 +925,9 @@ message ApiMethod {
   bool client_streaming = 7;
   bool server_streaming = 8;
   ApiAccess access = 9;
-  // `<domain>:read` or `<domain>:write` when `access` is SCOPE.
+  // The scopes needed when `access` is SCOPE, space separated: usually one
+  // (`<domain>:read` or `<domain>:write`), more where an RPC of one domain
+  // carries another's data (`feed:read geo:read`).
   string scope = 10;
   // JSON Schema (2020-12) of the request and response in their JSON form,
   // with the comments of the proto file as descriptions. Only `GetMethod`

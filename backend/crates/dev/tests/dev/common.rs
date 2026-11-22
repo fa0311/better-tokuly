@@ -253,6 +253,18 @@ pub async fn create_app(ctx: &Ctx, owner: &TestUser, scopes: &[&str], client_typ
     OAuthApp { id: app.id.clone(), secret: created.client_secret, app }
 }
 
+/// A public client that asked for the device flow at registration: a CLI.
+pub async fn create_cli(ctx: &Ctx, owner: &TestUser, scopes: &[&str]) -> OAuthApp {
+    let request = CreateAppRequest {
+        device_flow: true,
+        ..app_request("Test CLI", scopes, AppClientType::APP_CLIENT_TYPE_PUBLIC)
+    };
+    let created: CreateAppResponse =
+        ctx.app.call(&format!("{APP_SERVICE}/CreateApp"), Some(owner), &request).await.expect("app is created");
+    let app = created.app.into_option().expect("app");
+    OAuthApp { id: app.id.clone(), secret: created.client_secret, app }
+}
+
 /// A PKCE pair: the verifier and its `S256` challenge.
 pub fn pkce() -> (String, String) {
     let verifier = tokuly_core::ids::random_base62(64);

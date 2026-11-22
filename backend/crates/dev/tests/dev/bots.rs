@@ -67,9 +67,8 @@ async fn a_bot_is_a_real_account_owned_by_its_creator() {
         .await
         .unwrap();
     assert_eq!(profile.profile.as_option().unwrap().user.as_option().unwrap().handle, account.handle);
-    // Other domains set up the new account from the same event as for a person.
-    let created = ctx.app.events_by("identity.user.created", Uuid::parse_str(&id).unwrap()).await;
-    assert_eq!((created.len(), created[0].data["handle"].as_str()), (1, Some(account.handle.as_str())));
+    // It is announced as a bot, not as a person who signed up.
+    assert!(ctx.app.events("identity.user.created").await.iter().all(|e| e.data["user_id"] != id));
     assert_eq!(ctx.app.events_by("dev.bot.created", owen.id).await.len(), 1);
 
     // Its owner finds it; nobody else does.
@@ -270,7 +269,8 @@ async fn the_owner_renames_a_bot_and_changes_its_avatar() {
     assert_eq!(account.avatar.as_option().unwrap().url, format!("https://media.test/{avatar}.webp"));
     assert_eq!(ctx.images.held_by(&format!("dev:bot-avatar:{id}")), Some(avatar));
     // The rest of the app hears of it the way it hears of any profile change.
-    assert_eq!(ctx.app.events_by("identity.user.updated", Uuid::parse_str(&id).unwrap()).await.len(), 1);
+    let updates = ctx.app.events_by("dev.bot.updated", owen.id).await;
+    assert_eq!((updates.len(), updates[0].data["bot_id"].as_str()), (1, Some(id.as_str())));
 
     // Unset fields stay; an empty avatar is removed.
     let partial = UpdateBotRequest { bot_id: id.clone(), avatar_asset_id: Some(String::new()), ..Default::default() };
@@ -338,11 +338,18 @@ async fn deleting_a_bot_deletes_its_account() {
     let bot = create_bot(&ctx, &owen, "Helper").await;
     let id = bot_id(&bot);
     let account_id = Uuid::parse_str(&id).unwrap();
-    let (_, secret) = bot_token(&ctx, &owen, &bot, &["identity:read", "dev:write"]).await;
+    let (_, secret) = bot_token(&ctx, &owen, &bot, &["identity:read"]).await;
     let caller = as_bot(&owen, &secret);
-    // The bot subscribed a webhook for itself.
-    let (webhook, _) = create_webhook(&ctx, &caller, "http://127.0.0.1:9/hook", &["account.updated"]).await;
-    assert_eq!(webhook.account_id, id);
+    // Its owner subscribed a webhook for it.
+    let for_bot = CreateWebhookRequest {
+        url: "http://127.0.0.1:9/hook".into(),
+        event_types: vec!["account.updated".into()],
+        bot_id: id.clone(),
+        ..Default::default()
+    };
+    let created: CreateWebhookResponse =
+        ctx.app.call(&format!("{WEBHOOK_SERVICE}/CreateWebhook"), Some(&owen), &for_bot).await.unwrap();
+    assert_eq!(created.webhook.as_option().unwrap().account_id, id);
 
     let delete = DeleteBotRequest { bot_id: id.clone(), ..Default::default() };
     assert_eq!(
@@ -368,7 +375,11 @@ async fn deleting_a_bot_deletes_its_account() {
     .await
     .unwrap();
     assert_eq!(left, (0, 0, 0));
-    // ...and as an account: identity erased it and told every domain.
+    // ...and as an account: it is due for deletion, and identity's own purge
+    // (hourly; run here by the test) erases it and tells every domain.
+    let user = tokuly_identity::users::get(&ctx.app.core, account_id).await.unwrap();
+    assert!(user.deleted_at.is_none() && user.deletion_scheduled_at.is_some());
+    ctx.app.identity.purge_deleted_accounts().await.unwrap();
     let user = tokuly_identity::users::get(&ctx.app.core, account_id).await.unwrap();
     assert!(user.deleted_at.is_some() && user.display_name.is_empty());
     assert_eq!(ctx.app.events_by("identity.user.deleted", account_id).await.len(), 1);

@@ -37,7 +37,7 @@ pub struct AuthorizationEvent {
     pub reason: String,
 }
 
-/// `dev.bot.created` / `.deleted`.
+/// `dev.bot.created` / `.updated` / `.deleted`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BotEvent {
     pub bot_id: Uuid,

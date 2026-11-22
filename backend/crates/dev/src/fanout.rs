@@ -206,7 +206,7 @@ impl Dev {
                     tracing::debug!(%webhook_id, "webhook delivery dropped: too many events for this host in a minute");
                     continue;
                 }
-                if self.queue_delivery(webhook_id, event.id, event_type.name, &payload, None).await?.is_some() {
+                if self.queue_delivery(webhook_id, &url, event.id, event_type.name, &payload, None).await?.is_some() {
                     stored += 1;
                 }
             }
@@ -228,7 +228,7 @@ mod tests {
         // A notification is always `notification.created`, and whatever its kind adds.
         assert_eq!(names(NOTIFY_TOPIC, Some("chat.message")), ["notification.created", "chat.message_received"]);
         assert_eq!(names(NOTIFY_TOPIC, Some("geo.place_alert")), ["notification.created", "place.alert"]);
-        assert_eq!(names(NOTIFY_TOPIC, Some("live.started")), ["notification.created", "live.started"]);
+        assert_eq!(names(NOTIFY_TOPIC, Some("video.published")), ["notification.created", "channel.video_published"]);
         assert_eq!(names(NOTIFY_TOPIC, Some("social.buzz")), ["notification.created"]);
         assert!(names(NOTIFY_TOPIC, None).is_empty());
         assert!(names("chat.message.deleted", None).is_empty() && names("identity.user.deleted", None).is_empty());

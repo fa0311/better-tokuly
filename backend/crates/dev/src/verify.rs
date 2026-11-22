@@ -162,12 +162,15 @@ impl Dev {
             self.revoke_tokens_with_stale_password(row.created_by, current_mark).await?;
             return Ok(Verdict::Revoked);
         }
+        let is_bot = row.kind == "bot";
+        // The rule for bots holds whatever a token row says (it may predate the rule).
+        let scopes = row.scopes.into_iter().filter(|scope| !is_bot || crate::scopes::allowed_for_bots(scope));
         Ok(Verdict::Valid(ApiToken {
-            kind: if row.kind == "bot" { ApiTokenKind::Bot } else { ApiTokenKind::Personal },
+            kind: if is_bot { ApiTokenKind::Bot } else { ApiTokenKind::Personal },
             id: row.id,
             user_id: row.user_id,
             app_id: None,
-            scopes: Scopes::new(row.scopes),
+            scopes: Scopes::new(scopes),
             expires_at: row.expires_at,
             rate: self.cfg.rate_tier(&row.rate_tier),
         }))

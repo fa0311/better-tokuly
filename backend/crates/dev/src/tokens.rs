@@ -95,6 +95,11 @@ impl Dev {
     pub(crate) async fn create_token(&self, tx: &mut PgConnection, new: NewToken<'_>) -> AppResult<(TokenRow, String)> {
         let name = clean_name(new.name, 60, "TOKEN_NAME_INVALID", "the token name")?;
         let scopes = scopes::validate(new.scopes)?;
+        if new.kind == SecretKind::Bot {
+            if let Some(scope) = scopes.as_slice().iter().find(|scope| !scopes::allowed_for_bots(scope)) {
+                bail!(invalid, "SCOPE_NOT_FOR_BOTS", "a bot token cannot hold {scope}");
+            }
+        }
         let expires_at = expiry_time(new.expiry)?;
         let kind = if new.kind == SecretKind::Bot { "bot" } else { "pat" };
         lock_limit(&mut *tx, "dev-tokens", new.user_id).await?;

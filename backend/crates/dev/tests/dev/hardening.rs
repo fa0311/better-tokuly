@@ -218,11 +218,7 @@ async fn a_read_scope_does_not_reach_actions_with_a_reading_name() {
     let (_, reader) = personal_token(&ctx, &alice, &["geo:read", "media:read"]).await;
     let (_, writer) = personal_token(&ctx, &alice, &["geo:write", "media:write"]).await;
     // These domains are not part of this test app: the middleware decides before any routing.
-    for procedure in [
-        "tokuly.geo.v1.PlaceService/CheckIn",
-        "tokuly.geo.v1.SafetyService/ResolveSos",
-        "tokuly.media.v1.MediaService/GetUploadParts",
-    ] {
+    for procedure in ["tokuly.geo.v1.PlaceService/CheckIn", "tokuly.media.v1.MediaService/GetUploadParts"] {
         let refused = ctx
             .app
             .call::<_, serde_json::Value>(procedure, Some(&with_token(&alice, &reader)), &serde_json::json!({}))
@@ -338,7 +334,7 @@ async fn consent_and_device_requests_have_a_budget() {
     let ctx = start().await;
     let (dana, user) = (ctx.app.user("dana").await, ctx.app.user("user").await);
     let app = create_app(&ctx, &dana, &["identity:read"], CONFIDENTIAL).await;
-    let cli = create_app(&ctx, &dana, &["identity:read"], PUBLIC).await;
+    let cli = create_cli(&ctx, &dana, &["identity:read"]).await;
     let (_, challenge) = pkce();
     let approve = ApproveAuthorizationRequest {
         request: authorization_request(&app, "identity:read", &challenge).into(),
@@ -428,6 +424,181 @@ async fn pings_usage_and_the_reference_have_a_budget() {
         assert_eq!(ctx.get("/reference/descriptor.binpb").await.status, 200);
     }
     assert_eq!(ctx.get("/reference/descriptor.binpb").await.status, 429);
+}
+
+#[tokio::test]
+async fn an_rpc_without_a_line_in_the_table_is_closed_to_tokens() {
+    let ctx = start().await;
+    let alice = ctx.app.user("alice").await;
+    let (_, secret) = personal_token(&ctx, &alice, &["notes:write", "wallet:write", "identity:write"]).await;
+    let caller = with_token(&alice, &secret);
+    // Names that sound like reading, a domain that has no RPCs yet, an RPC that does not exist.
+    for procedure in [
+        "tokuly.notes.v1.NoteService/BatchDeleteNotes",
+        "tokuly.wallet.v1.WalletService/CheckoutCart",
+        "tokuly.live.v1.LiveService/GetStreamKey",
+        "tokuly.identity.v1.AccountService/GetEverything",
+    ] {
+        let refused =
+            ctx.app.call::<_, serde_json::Value>(procedure, Some(&caller), &serde_json::json!({})).await.unwrap_err();
+        assert_eq!((refused.status, refused.reason.as_str()), (403, "TOKEN_NOT_ALLOWED"), "{procedure}");
+    }
+    // Scopes for domains that are not classified cannot even be asked for.
+    for scope in ["live:read", "shorts:write", "quest:write", "dev:write"] {
+        let request = CreateTokenRequest { name: "x".into(), scopes: vec![scope.into()], ..Default::default() };
+        let refused = ctx
+            .app
+            .call::<_, CreateTokenResponse>(&format!("{TOKEN_SERVICE}/CreateToken"), Some(&alice), &request)
+            .await
+            .unwrap_err();
+        assert_eq!(refused.reason, "SCOPE_UNKNOWN", "{scope}");
+    }
+}
+
+#[tokio::test]
+async fn location_and_messages_take_their_own_scope_wherever_they_appear() {
+    let ctx = start().await;
+    let (alice, bob) = (ctx.app.user("alice").await, ctx.app.user("bob").await);
+    let (_, plain) = personal_token(&ctx, &alice, &["feed:read", "notify:read", "identity:read", "social:write"]).await;
+    let plain = with_token(&alice, &plain);
+    let missing = |procedure: &'static str| {
+        let (ctx, plain) = (&ctx, &plain);
+        async move {
+            let refused =
+                ctx.app.call::<_, serde_json::Value>(procedure, Some(plain), &serde_json::json!({})).await.unwrap_err();
+            (refused.reason, refused.message)
+        }
+    };
+    let lacks = |scope: &str| ("INSUFFICIENT_SCOPE".to_owned(), format!("this token lacks the scope {scope}"));
+    // Friends' coordinates in the feed, distance on a profile, people nearby.
+    assert_eq!(missing("tokuly.feed.v1.MapStoryService/ListMapStories").await, lacks("geo:read"));
+    assert_eq!(missing("tokuly.feed.v1.ActivityService/ListFriendsActivity").await, lacks("geo:read"));
+    assert_eq!(missing("tokuly.identity.v1.ProfileService/GetProfile").await, lacks("geo:read"));
+    assert_eq!(missing("tokuly.social.v1.FriendService/DiscoverNearby").await, lacks("geo:read"));
+    // The inbox quotes messages and place alerts.
+    assert_eq!(missing("tokuly.notify.v1.InboxService/ListNotifications").await, lacks("chat:read"));
+    // What is neither stays open: news, the unread count, looking people up.
+    for procedure in ["tokuly.feed.v1.NewsService/ListNews", "tokuly.notify.v1.InboxService/GetUnreadCount"] {
+        assert_ne!(missing(procedure).await.0, "INSUFFICIENT_SCOPE", "{procedure}");
+    }
+    let lookup =
+        tokuly_proto::identity::BatchGetUsersRequest { user_ids: vec![bob.id.to_string()], ..Default::default() };
+    assert!(
+        ctx.app
+            .call::<_, tokuly_proto::identity::BatchGetUsersResponse>(
+                "tokuly.identity.v1.ProfileService/BatchGetUsers",
+                Some(&plain),
+                &lookup
+            )
+            .await
+            .is_ok()
+    );
+    // With the location scope the profile is readable.
+    let (_, located) = personal_token(&ctx, &alice, &["identity:read", "geo:read"]).await;
+    let profile = tokuly_proto::identity::GetProfileRequest {
+        by: Some(tokuly_proto::identity::get_profile_request::By::UserId(bob.id.to_string())),
+        ..Default::default()
+    };
+    assert!(
+        ctx.app
+            .call::<_, tokuly_proto::identity::GetProfileResponse>(
+                "tokuly.identity.v1.ProfileService/GetProfile",
+                Some(&with_token(&alice, &located)),
+                &profile
+            )
+            .await
+            .is_ok()
+    );
+}
+
+#[tokio::test]
+async fn linked_services_and_sos_take_a_session() {
+    let ctx = start().await;
+    let alice = ctx.app.user("alice").await;
+    let (_, secret) = personal_token(&ctx, &alice, &["identity:write", "geo:write", "wallet:write"]).await;
+    for procedure in [
+        "tokuly.identity.v1.AccountService/BeginConnection",
+        "tokuly.identity.v1.AccountService/FinishConnection",
+        "tokuly.identity.v1.AccountService/DeleteConnection",
+        "tokuly.geo.v1.SafetyService/TriggerSos",
+        "tokuly.geo.v1.SafetyService/ResolveSos",
+        "tokuly.wallet.v1.WalletService/StartPurchase",
+        "tokuly.wallet.v1.EarningsService/RequestPayout",
+    ] {
+        let refused = ctx
+            .app
+            .call::<_, serde_json::Value>(procedure, Some(&with_token(&alice, &secret)), &serde_json::json!({}))
+            .await
+            .unwrap_err();
+        assert_eq!((refused.status, refused.reason.as_str()), (403, "SESSION_REQUIRED"), "{procedure}");
+    }
+}
+
+#[tokio::test]
+async fn a_bot_token_holds_no_money_and_addresses_nobody() {
+    let ctx = start().await;
+    let owen = ctx.app.user("owen").await;
+    let bot_id = create_bot(&ctx, &owen, "Miner").await.unwrap();
+    let token = |scopes: &[&str]| {
+        let request = CreateBotTokenRequest {
+            bot_id: bot_id.clone(),
+            name: "t".into(),
+            scopes: scopes.iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
+        };
+        let (ctx, owen) = (&ctx, &owen);
+        async move {
+            ctx.app
+                .call::<_, CreateBotTokenResponse>(&format!("{BOT_SERVICE}/CreateBotToken"), Some(owen), &request)
+                .await
+        }
+    };
+    for scopes in [
+        &["wallet:write"][..],
+        &["wallet:read"],
+        &["identity:read", "chat:write"],
+        &["social:write"],
+        &["notes:write"],
+        &["engagement:write"],
+    ] {
+        let refused = token(scopes).await.unwrap_err();
+        assert_eq!(
+            (refused.code.as_str(), refused.reason.as_str()),
+            ("invalid_argument", "SCOPE_NOT_FOR_BOTS"),
+            "{scopes:?}"
+        );
+    }
+    let created = token(&["identity:write", "chat:read", "media:write"]).await.unwrap();
+    let caller = with_token(&owen, &created.secret);
+    // The daily bonus, spending, and messages are out of its reach.
+    for procedure in [
+        "tokuly.wallet.v1.WalletService/ClaimDailyBonus",
+        "tokuly.wallet.v1.WalletService/GetBalance",
+        "tokuly.chat.v1.MessageService/SendMessage",
+        "tokuly.social.v1.FriendService/SendFriendRequest",
+    ] {
+        let refused =
+            ctx.app.call::<_, serde_json::Value>(procedure, Some(&caller), &serde_json::json!({})).await.unwrap_err();
+        assert_eq!(refused.reason, "INSUFFICIENT_SCOPE", "{procedure}");
+    }
+    // A token row that says otherwise (made before the rule) is cut down when it is verified.
+    sqlx::query("UPDATE dev_tokens SET scopes = '{wallet:write,chat:write,identity:read}' WHERE id = $1")
+        .bind(Uuid::parse_str(&created.token.as_option().unwrap().id).unwrap())
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    let (_, fresh) = (created.token, created.secret);
+    // Disabling and enabling makes the token be judged afresh.
+    for disabled in [true, false] {
+        let request = SetBotDisabledRequest { bot_id: bot_id.clone(), disabled, ..Default::default() };
+        ctx.app
+            .call::<_, SetBotDisabledResponse>(&format!("{BOT_SERVICE}/SetBotDisabled"), Some(&owen), &request)
+            .await
+            .unwrap();
+    }
+    assert_eq!(whoami(&ctx, &with_token(&owen, &fresh)).await.unwrap().scopes, ["identity:read"]);
+    // Nothing announced the bot as a person who signed up.
+    assert!(ctx.app.events_by("identity.user.created", Uuid::parse_str(&bot_id).unwrap()).await.is_empty());
 }
 
 #[tokio::test]

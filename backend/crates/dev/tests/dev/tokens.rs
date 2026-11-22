@@ -116,7 +116,7 @@ async fn a_token_acts_as_its_owner_within_its_scopes() {
     );
     assert!(denied.message.contains("identity:write"), "{}", denied.message);
     // ...and what takes a person at a screen is closed whatever the scopes.
-    let (_, all) = personal_token(&ctx, &alice, &["identity:write", "dev:write"]).await;
+    let (_, all) = personal_token(&ctx, &alice, &["identity:write", "dev:read"]).await;
     let powerful = with_token(&alice, &all);
     let password = identity::ChangePasswordRequest {
         current_password: "x".into(),

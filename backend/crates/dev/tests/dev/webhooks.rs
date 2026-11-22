@@ -66,7 +66,8 @@ async fn the_event_catalogue_says_what_each_type_needs() {
         ("chat:read", "notification")
     );
     assert_eq!(find("place.alert").scope, "geo:read");
-    assert!(!find("live.started").description.as_option().unwrap().ja.is_empty());
+    assert!(!find("channel.video_published").description.as_option().unwrap().ja.is_empty());
+    assert_eq!(find("notification.created").scope, "notify:read chat:read geo:read");
 }
 
 #[tokio::test]
@@ -738,56 +739,185 @@ async fn a_rotated_secret_overlaps_with_the_one_it_replaces() {
 }
 
 #[tokio::test]
-async fn a_token_subscribes_only_to_what_it_may_read() {
+async fn a_token_changes_no_webhook_and_reads_only_what_its_scopes_cover() {
     let ctx = start().await;
-    let alice = ctx.app.user("alice").await;
-    let (_, limited) = personal_token(&ctx, &alice, &["dev:write", "social:read"]).await;
-    let limited = with_token(&alice, &limited);
-    let create = |caller: &User, types: &[&str]| {
-        let request = CreateWebhookRequest {
-            url: "http://127.0.0.1:9/hook".into(),
-            event_types: types.iter().map(|t| t.to_string()).collect(),
-            ..Default::default()
-        };
-        let (ctx, caller) = (&ctx, caller.clone());
+    let (alice, bob) = (ctx.app.user("alice").await, ctx.app.user("bob").await);
+    let receiver = Receiver::start().await;
+    let (webhook, _) =
+        create_webhook(&ctx, &alice, &receiver.url, &["friend.request_received", "notification.created"]).await;
+    ctx.dev.fan_out(&friend_request(&alice, &bob)).await.unwrap();
+    let message = NotificationRequest::new(
+        alice.id,
+        "chat.message",
+        Localized::new("ボブ", "Bob"),
+        Localized::new("ひみつ", "a secret"),
+        "/chat/1",
+    )
+    .actor(bob.id);
+    ctx.dev.fan_out(&event("notify.requested", &message)).await.unwrap();
+    let ids = delivery_ids(&ctx, &webhook.id).await;
+    assert_eq!(ids.len(), 2);
+    let type_of = |id: Uuid| {
+        let ctx = &ctx;
         async move {
-            ctx.app
-                .call::<_, CreateWebhookResponse>(&format!("{WEBHOOK_SERVICE}/CreateWebhook"), Some(&caller), &request)
+            sqlx::query_scalar::<_, String>("SELECT event_type FROM dev_webhook_deliveries WHERE id = $1")
+                .bind(id)
+                .fetch_one(&ctx.app.core.db)
                 .await
+                .unwrap()
         }
     };
-    // Friend events are within its scopes; private messages are not.
-    let created = create(&limited, &["friend.request_received"]).await.unwrap().webhook.into_option().unwrap();
-    let escalation = create(&limited, &["friend.request_received", "chat.message_received"]).await.unwrap_err();
-    assert_eq!((escalation.code.as_str(), escalation.reason.as_str()), ("permission_denied", "INSUFFICIENT_SCOPE"));
-    assert!(escalation.message.contains("chat:read"));
-    // Nor by editing an existing webhook.
-    let widen = UpdateWebhookRequest {
-        webhook_id: created.id.clone(),
-        url: created.url.clone(),
-        event_types: vec!["place.alert".into()],
+    let (friend_delivery, inbox_delivery) =
+        if type_of(ids[0]).await == "friend.request_received" { (ids[0], ids[1]) } else { (ids[1], ids[0]) };
+
+    // Where a person's events go is not for a token to decide, whatever it holds.
+    let (_, everything) =
+        personal_token(&ctx, &alice, &["dev:read", "social:write", "chat:write", "notify:write", "geo:write"]).await;
+    let everything = with_token(&alice, &everything);
+    let create = CreateWebhookRequest {
+        url: receiver.url.clone(),
+        event_types: vec!["friend.added".into()],
         ..Default::default()
     };
-    assert_eq!(
-        ctx.app
-            .call::<_, UpdateWebhookResponse>(&format!("{WEBHOOK_SERVICE}/UpdateWebhook"), Some(&limited), &widen)
+    let update = UpdateWebhookRequest {
+        webhook_id: webhook.id.clone(),
+        url: "http://127.0.0.1:9/elsewhere".into(),
+        event_types: vec!["friend.added".into()],
+        ..Default::default()
+    };
+    let by_webhook = serde_json::json!({ "webhookId": webhook.id });
+    let by_delivery = serde_json::json!({ "deliveryId": friend_delivery });
+    for (procedure, request) in [
+        ("CreateWebhook", serde_json::to_value(&create).unwrap()),
+        ("UpdateWebhook", serde_json::to_value(&update).unwrap()),
+        ("DeleteWebhook", by_webhook.clone()),
+        ("RotateWebhookSecret", by_webhook.clone()),
+        ("PingWebhook", by_webhook.clone()),
+        ("ReplayDelivery", by_delivery.clone()),
+    ] {
+        let refused = ctx
+            .app
+            .call::<_, serde_json::Value>(&format!("{WEBHOOK_SERVICE}/{procedure}"), Some(&everything), &request)
             .await
-            .unwrap_err()
-            .reason,
-        "INSUFFICIENT_SCOPE"
-    );
-    // Without dev:write a token manages no webhooks at all; with dev:read it may look.
-    let (_, reader) = personal_token(&ctx, &alice, &["dev:read", "chat:read"]).await;
+            .unwrap_err();
+        assert_eq!((refused.status, refused.reason.as_str()), (403, "SESSION_REQUIRED"), "{procedure}");
+    }
+    assert_eq!(get(&ctx, &alice, &webhook.id).await.unwrap().url, receiver.url, "nothing changed");
+
+    // `dev:read` alone lists webhooks, but opens no payload.
+    let (_, reader) = personal_token(&ctx, &alice, &["dev:read"]).await;
     let reader = with_token(&alice, &reader);
-    assert_eq!(create(&reader, &["chat.message_received"]).await.unwrap_err().reason, "INSUFFICIENT_SCOPE");
-    let listed: ListWebhooksResponse = ctx
+    assert!(get(&ctx, &reader, &webhook.id).await.is_ok());
+    assert!(deliveries(&ctx, &reader, &webhook.id).await.is_empty());
+    for id in [friend_delivery, inbox_delivery] {
+        let refused = ctx
+            .app
+            .call::<_, GetDeliveryResponse>(
+                &format!("{WEBHOOK_SERVICE}/GetDelivery"),
+                Some(&reader),
+                &GetDeliveryRequest { delivery_id: id.to_string(), ..Default::default() },
+            )
+            .await
+            .unwrap_err();
+        assert_eq!((refused.code.as_str(), refused.reason.as_str()), ("permission_denied", "INSUFFICIENT_SCOPE"));
+    }
+    // With the scope of friend events it reads those, and still not the notification that quotes a message.
+    let (_, social) = personal_token(&ctx, &alice, &["dev:read", "social:read", "notify:read"]).await;
+    let social = with_token(&alice, &social);
+    let listed = deliveries(&ctx, &social, &webhook.id).await;
+    assert_eq!(listed.iter().map(|d| d.id.clone()).collect::<Vec<_>>(), [friend_delivery.to_string()]);
+    let friend: GetDeliveryResponse = ctx
         .app
-        .call(&format!("{WEBHOOK_SERVICE}/ListWebhooks"), Some(&reader), &ListWebhooksRequest::default())
+        .call(
+            &format!("{WEBHOOK_SERVICE}/GetDelivery"),
+            Some(&social),
+            &GetDeliveryRequest { delivery_id: friend_delivery.to_string(), ..Default::default() },
+        )
         .await
         .unwrap();
-    assert_eq!(listed.webhooks.len(), 1);
-    // The session of the same person is not limited.
-    assert!(create(&alice, &["chat.message_received", "place.alert"]).await.is_ok());
+    assert!(friend.delivery.as_option().unwrap().payload.contains(&bob.id.to_string()));
+    let refused = ctx
+        .app
+        .call::<_, GetDeliveryResponse>(
+            &format!("{WEBHOOK_SERVICE}/GetDelivery"),
+            Some(&social),
+            &GetDeliveryRequest { delivery_id: inbox_delivery.to_string(), ..Default::default() },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(refused.reason, "INSUFFICIENT_SCOPE");
+    // The inbox takes the chat and location scopes as well.
+    let (_, inbox) = personal_token(&ctx, &alice, &["dev:read", "notify:read", "chat:read", "geo:read"]).await;
+    let inbox = with_token(&alice, &inbox);
+    let read: GetDeliveryResponse = ctx
+        .app
+        .call(
+            &format!("{WEBHOOK_SERVICE}/GetDelivery"),
+            Some(&inbox),
+            &GetDeliveryRequest { delivery_id: inbox_delivery.to_string(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    assert!(read.delivery.as_option().unwrap().payload.contains("a secret"));
+    // The session of the same person reads everything.
+    assert_eq!(deliveries(&ctx, &alice, &webhook.id).await.len(), 2);
+}
+
+#[tokio::test]
+async fn an_event_is_never_sent_to_a_url_the_webhook_did_not_have_when_it_happened() {
+    let ctx = start().await;
+    let (alice, bob) = (ctx.app.user("alice").await, ctx.app.user("bob").await);
+    let (old, new) = (Receiver::start().await, Receiver::start().await);
+    let (webhook, _) = create_webhook(&ctx, &alice, &old.url, &["friend.request_received"]).await;
+    // One event delivered, one still waiting, when the webhook is pointed elsewhere.
+    ctx.dev.fan_out(&friend_request(&alice, &bob)).await.unwrap();
+    ctx.dev.fan_out(&friend_request(&alice, &bob)).await.unwrap();
+    let ids = delivery_ids(&ctx, &webhook.id).await;
+    ctx.dev.deliver(ids[0]).await.unwrap();
+    let moved = UpdateWebhookRequest {
+        webhook_id: webhook.id.clone(),
+        url: new.url.clone(),
+        event_types: vec!["friend.request_received".into()],
+        ..Default::default()
+    };
+    ctx.app
+        .call::<_, UpdateWebhookResponse>(&format!("{WEBHOOK_SERVICE}/UpdateWebhook"), Some(&alice), &moved)
+        .await
+        .unwrap();
+
+    // The delivered one cannot be replayed to the new address...
+    let replay = ctx
+        .app
+        .call::<_, ReplayDeliveryResponse>(
+            &format!("{WEBHOOK_SERVICE}/ReplayDelivery"),
+            Some(&alice),
+            &ReplayDeliveryRequest { delivery_id: ids[0].to_string(), ..Default::default() },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!((replay.code.as_str(), replay.reason.as_str()), ("failed_precondition", "WEBHOOK_URL_CHANGED"));
+    // ...and the waiting one is not sent there either.
+    let waiting = ctx.dev.deliver(ids[1]).await.unwrap().unwrap();
+    assert_eq!(
+        (waiting.status.as_known(), waiting.attempts[0].error.as_str()),
+        (Some(DeliveryStatus::DELIVERY_STATUS_FAILED), "not sent: the webhook's URL changed")
+    );
+    assert_eq!((old.hits().len(), new.hits().len()), (1, 0));
+    // What happens from now on goes to the new address, and can be replayed there.
+    ctx.dev.fan_out(&friend_request(&alice, &bob)).await.unwrap();
+    let latest = *delivery_ids(&ctx, &webhook.id).await.last().unwrap();
+    ctx.dev.deliver(latest).await.unwrap();
+    assert_eq!(new.hits().len(), 1);
+    assert!(
+        ctx.app
+            .call::<_, ReplayDeliveryResponse>(
+                &format!("{WEBHOOK_SERVICE}/ReplayDelivery"),
+                Some(&alice),
+                &ReplayDeliveryRequest { delivery_id: latest.to_string(), ..Default::default() }
+            )
+            .await
+            .is_ok()
+    );
 }
 
 #[tokio::test]
@@ -824,7 +954,7 @@ async fn a_bot_has_webhooks_of_its_own() {
             .reason,
         "BOT_NOT_FOUND"
     );
-    let (_, token) = personal_token(&ctx, &owen, &["dev:write", "social:read"]).await;
+    let (_, token) = personal_token(&ctx, &owen, &["dev:read", "social:read"]).await;
     assert_eq!(
         ctx.app
             .call::<_, CreateWebhookResponse>(

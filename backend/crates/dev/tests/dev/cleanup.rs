@@ -53,8 +53,8 @@ async fn a_deleted_account_leaves_nothing_behind() {
     for secret in [&pat, &others_access, &alices_access] {
         assert!(whoami(&ctx, &with_token(&alice, secret)).await.is_err());
     }
-    // Her bot went with her, as an account too.
-    assert!(tokuly_identity::users::get(&ctx.app.core, bot_id).await.unwrap().deleted_at.is_some());
+    // Her bot went with her; its account is left to identity's purge.
+    assert!(tokuly_identity::users::get(&ctx.app.core, bot_id).await.unwrap().deletion_scheduled_at.is_some());
     // Dana's application itself is untouched.
     assert!(
         ctx.app
