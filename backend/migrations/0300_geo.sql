@@ -38,6 +38,13 @@ CREATE TABLE geo_ghost_rules (
     -- FROZEN: the pin as the viewer saw it when the rule was set (FrozenPin
     -- JSON). NULL when frozen without a known position: the viewer sees nothing.
     frozen    jsonb,
+    -- Since when the viewers of this rule have not seen the owner precisely.
+    -- It stays put while one non-precise rule replaces another: nothing the
+    -- owner did after this moment is shown to them.
+    hidden_since timestamptz NOT NULL DEFAULT now(),
+    -- The owner's footprint totals at `hidden_since` (FootprintSnapshot JSON):
+    -- what these viewers keep seeing instead of the live numbers.
+    footprint jsonb,
     PRIMARY KEY (owner_id, viewer_id)
 );
 
@@ -66,8 +73,6 @@ CREATE TABLE geo_places (
     -- common Image as proto JSON, and the asset it came from.
     photo          jsonb,
     photo_asset_id uuid,
-    -- Visits by anyone, for the place card.
-    visit_count    integer          NOT NULL DEFAULT 0,
     attrs          jsonb            NOT NULL DEFAULT '{}',
     created_at     timestamptz      NOT NULL DEFAULT now(),
     updated_at     timestamptz      NOT NULL DEFAULT now(),
@@ -120,10 +125,17 @@ CREATE TABLE geo_visits (
     locality      text             NOT NULL DEFAULT '',
     locality_ja   text             NOT NULL DEFAULT '',
     country_code  text             NOT NULL DEFAULT '',
+    -- The friends who saw the visitor's precise location when the visit began
+    -- (visibility::Audience): 0 all friends, 1 all but `audience_ids`, 2 only
+    -- `audience_ids`. Nobody else is ever shown that this visit took place.
+    audience      smallint         NOT NULL DEFAULT 0 CHECK (audience BETWEEN 0 AND 2),
+    audience_ids  uuid[]           NOT NULL DEFAULT '{}',
     created_at    timestamptz      NOT NULL DEFAULT now()
 );
 
-CREATE INDEX geo_visits_user_time ON geo_visits (user_id, arrived_at DESC, id DESC);
+-- A stay is identified by when it began: processing the same samples again
+-- (a redelivered batch) finds the visit instead of opening a second one.
+CREATE UNIQUE INDEX geo_visits_user_time ON geo_visits (user_id, arrived_at);
 CREATE INDEX geo_visits_place ON geo_visits (place_id, user_id) WHERE place_id IS NOT NULL;
 -- At most one ongoing automatic stay per user.
 CREATE UNIQUE INDEX geo_visits_ongoing ON geo_visits (user_id) WHERE departed_at IS NULL;
@@ -164,6 +176,9 @@ CREATE TABLE geo_activity_hours (
     locality_ja   text             NOT NULL DEFAULT '',
     country_code  text             NOT NULL DEFAULT '',
     admin1_id     text             NOT NULL DEFAULT '',
+    -- Sample time up to which the totals are counted: movement that arrives
+    -- a second time (a redelivered batch) is not added again.
+    counted_until timestamptz      NOT NULL DEFAULT '-infinity',
     PRIMARY KEY (user_id, hour, activity)
 );
 
@@ -343,8 +358,12 @@ CREATE INDEX geo_sos_user ON geo_sos (user_id, started_at DESC);
 CREATE TABLE geo_live_shares (
     id         uuid PRIMARY KEY     DEFAULT uuidv7(),
     user_id    uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    -- The capability: whoever knows it sees the location.
-    token      text        NOT NULL UNIQUE,
+    -- The capability: whoever knows the token sees the location. Stored as
+    -- a keyed hash (lookups) and sealed with the server secret (so that the
+    -- owner can be shown their links again and the pipeline can publish on
+    -- the share's topic): the table alone opens no link.
+    token_hash   text      NOT NULL UNIQUE,
+    token_sealed bytea     NOT NULL,
     label      text        NOT NULL DEFAULT '',
     created_at timestamptz NOT NULL DEFAULT now(),
     expires_at timestamptz NOT NULL,
@@ -385,6 +404,9 @@ CREATE TABLE geo_gathering_members (
     left_at      timestamptz,
     -- Last time a sample confirmed the member was still there.
     last_seen_at timestamptz NOT NULL DEFAULT now(),
+    -- The other members this one was together with, by their own proximity
+    -- check (each sees the other's precise location): who they "met".
+    with_user_ids uuid[]     NOT NULL DEFAULT '{}',
     PRIMARY KEY (gathering_id, user_id)
 );
 

@@ -1,26 +1,34 @@
-//! The one place that decides what a viewer sees of someone's location.
+//! The one place that decides what a viewer may learn about where someone is.
 //!
-//! `ListFriendLocations`, `WatchFriendLocations`, every realtime push, trip
-//! destinations that follow a friend, profile distances, gatherings and place
-//! alerts all go through the functions here. They are pure: everything they
-//! need is passed in, including the clock, so the whole ghost-mode matrix is
-//! unit-tested below.
+//! **The rule.** Anything derived from a person's true position — the pin,
+//! who is near them, the gatherings and trips they are part of, the places
+//! they visit and how often, the cells they uncover, map stories,
+//! notifications, activity entries — may reach a viewer only if that viewer
+//! sees that person's precise, live position at that moment. [`Audience`]
+//! is that set of viewers; [`sees_precisely`] asks about one of them. Every
+//! path in the crate that tells someone about someone else goes through one
+//! of the two (or through [`friend_view`] / [`seen_pin`], which show a viewer
+//! the pin they are entitled to and nothing else).
 //!
-//! The rules:
-//! - **PRECISE** — the true position, minus what the owner's privacy settings
-//!   withhold (battery, speed/activity, online halo, place badges).
-//! - **BLURRED** — a point 300 m–1.2 km from the true position. The offset
-//!   depends only on (owner, viewer, the surrounding ~5 km² cell), so the pin
-//!   holds still during a stay, comes back to the same spot on every visit
-//!   (averaging many sightings reveals nothing), and differs per viewer.
-//!   Speed, heading, activity, time on the spot, place details and trips are
-//!   withheld; the area name and time zone are those of the blurred point.
+//! What a viewer who does not see precisely gets instead:
+//! - **BLURRED** — a stand-in point for the ~5 km² cell the person is in. It
+//!   depends only on (owner, viewer, that cell): it does not move while they
+//!   stay inside the cell, comes back to the same spot on every visit, and
+//!   cannot be turned back into a position, not even by someone who knew
+//!   where the person was when blurring began. Nothing else that comes from
+//!   their movement is shown (speed, heading, activity, sleep, time on the
+//!   spot, places, trips, weather).
 //! - **FROZEN** — the pin as the viewer saw it when freezing began, original
 //!   `recorded_at` included. Only what does not come from location samples
 //!   stays live (online halo, status), exactly like a phone that stopped
-//!   reporting, so nothing tells a frozen pin from a stale one.
+//!   reporting. Everything asked on the viewer's behalf afterwards (distance
+//!   on a profile, directions, a trip towards the person) is answered from
+//!   that copy, as it would be for a stale pin.
 //! - An active **SOS** shows the people it alerted the precise, live pin with
 //!   nothing withheld, whatever the ghost rules say.
+//!
+//! The functions are pure: everything they need is passed in, including the
+//! clock, so the whole matrix is unit-tested below.
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 use h3o::Resolution;
@@ -41,14 +49,17 @@ const PRECISE: i32 = GhostMode::GHOST_MODE_PRECISE as i32;
 const BLURRED: i32 = GhostMode::GHOST_MODE_BLURRED as i32;
 const FROZEN: i32 = GhostMode::GHOST_MODE_FROZEN as i32;
 
-/// Distance of a blurred point from the center of the true position's
-/// resolution-9 cell: 660–840 m. With the cell's own extent (about 200 m at
-/// most) and the spread of a stay (up to 110 m) the offset from the true
-/// position stays well within 300 m–1.2 km.
-const BLUR_MIN_M: f64 = 660.0;
-const BLUR_SPAN_M: f64 = 180.0;
-/// Accuracy radius reported for a blurred pin.
-pub const BLUR_ACCURACY_M: f64 = 1200.0;
+/// The cell a blurred pin stands for: H3 resolution 7, about 5 km², with
+/// corners up to about 1.5 km from its center.
+pub const BLUR_RESOLUTION: Resolution = Resolution::Seven;
+/// The stand-in lies within this distance of the cell's center.
+const BLUR_SPREAD_M: f64 = 400.0;
+/// Accuracy radius reported for a blurred pin: the true position is within
+/// this distance of the stand-in wherever in the cell it is.
+pub const BLUR_ACCURACY_M: f64 = 2000.0;
+/// A blurred pin's `recorded_at` is rounded down to this: how often the
+/// device reports says whether its owner is on the move.
+pub const BLUR_TIME_STEP_MS: i64 = 10 * 60 * 1000;
 
 /// Keyed hash used to derive blur offsets (HMAC with a server secret, so
 /// offsets cannot be computed, and thus undone, by clients).
@@ -94,7 +105,9 @@ pub struct Viewer {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Sight<'a> {
     /// Live and exact. `sos` = because of an SOS, with nothing withheld.
-    Precise { sos: bool },
+    Precise {
+        sos: bool,
+    },
     Blurred,
     /// The copy made when freezing began (`None`: nothing was known then).
     Frozen(Option<&'a FrozenPin>),
@@ -118,21 +131,25 @@ pub fn mode_for(ctx: &OwnerCtx, viewer: Uuid, now: DateTime<Utc>) -> i32 {
     ctx.ghost.rule_for(viewer, now.timestamp_millis()).map_or(PRECISE, |rule| rule.mode)
 }
 
-/// The blurred stand-in for `base`, as `viewer` sees `owner`.
+/// The blurred stand-in for `base`, as `viewer` sees `owner`: a point near
+/// the center of the coarse cell around `base`, chosen by the keyed hash of
+/// (owner, viewer, cell). Where in the cell `base` lies has no influence on
+/// it, so the difference between a true position and its stand-in, observed
+/// once, says nothing about later positions.
 pub fn blur(mac: Mac<'_>, owner: Uuid, viewer: Uuid, base: Point) -> Point {
-    let Some(cell) = math::cell_at(base.0, base.1, math::CELL_RESOLUTION) else { return base };
+    let Some(cell) = math::cell_at(base.0, base.1, BLUR_RESOLUTION) else { return base };
     let center = math::cell_center(cell);
-    // The offset is constant across a neighbourhood so the pin moves smoothly with its owner.
-    let neighbourhood = cell.parent(Resolution::Seven).map_or(0, u64::from);
     let mut seed = Vec::with_capacity(4 + 16 + 16 + 8);
     seed.extend_from_slice(b"blur");
     seed.extend_from_slice(owner.as_bytes());
     seed.extend_from_slice(viewer.as_bytes());
-    seed.extend_from_slice(&neighbourhood.to_be_bytes());
+    seed.extend_from_slice(&u64::from(cell).to_be_bytes());
     let hash = mac(&seed);
-    let unit = |bytes: &[u8]| u64::from_be_bytes(bytes.try_into().expect("eight bytes")) as f64 / (u64::MAX as f64 + 1.0);
+    let unit =
+        |bytes: &[u8]| u64::from_be_bytes(bytes.try_into().expect("eight bytes")) as f64 / (u64::MAX as f64 + 1.0);
     let bearing = unit(&hash[0..8]) * 360.0;
-    let distance = BLUR_MIN_M + unit(&hash[8..16]) * BLUR_SPAN_M;
+    // (The square root spreads the points evenly over the disc.)
+    let distance = BLUR_SPREAD_M * unit(&hash[8..16]).sqrt();
     math::destination(center.0, center.1, bearing, distance)
 }
 
@@ -173,7 +190,13 @@ pub struct ShownPlace {
 ///   a public place, the owner's own place shared with friends, or a place
 ///   the viewer owns. `friend` is false for viewers who are not friends
 ///   (public share links): they only get public places.
-pub fn shown_place(owner: Uuid, place: &StayPlace, share_labels: bool, viewer: Option<Uuid>, friend: bool) -> Option<ShownPlace> {
+pub fn shown_place(
+    owner: Uuid,
+    place: &StayPlace,
+    share_labels: bool,
+    viewer: Option<Uuid>,
+    friend: bool,
+) -> Option<ShownPlace> {
     let own = place.owner_id == owner;
     if own && matches!(place.label, 1..=3) {
         let label = buffa::EnumValue::<PlaceLabel>::from(place.label).as_known()?;
@@ -181,8 +204,14 @@ pub fn shown_place(owner: Uuid, place: &StayPlace, share_labels: bool, viewer: O
     }
     let named = viewer == Some(owner)
         || place.visibility == Visibility::VISIBILITY_PUBLIC as i32
-        || (friend && place.visibility == Visibility::VISIBILITY_FRIENDS as i32 && (own || viewer == Some(place.owner_id)));
-    named.then(|| ShownPlace { label: PlaceLabel::PLACE_LABEL_CUSTOM, name: place.name.clone(), emoji: place.emoji.clone() })
+        || (friend
+            && place.visibility == Visibility::VISIBILITY_FRIENDS as i32
+            && (own || viewer == Some(place.owner_id)));
+    named.then(|| ShownPlace {
+        label: PlaceLabel::PLACE_LABEL_CUSTOM,
+        name: place.name.clone(),
+        emoji: place.emoji.clone(),
+    })
 }
 
 /// How much of a pin a view includes.
@@ -233,7 +262,9 @@ fn precise_view(env: &ViewEnv<'_>, subject: &Subject<'_>, pin: &Pin, detail: Det
     }
     if let Some(place) = &pin.place {
         let share_labels = detail.everything || privacy.share_place_labels;
-        if let Some(shown) = shown_place(subject.id, place, share_labels, detail.viewer.map(|viewer| viewer.id), detail.social) {
+        if let Some(shown) =
+            shown_place(subject.id, place, share_labels, detail.viewer.map(|viewer| viewer.id), detail.social)
+        {
             view.place_label = shown.label.into();
             view.place_name = shown.name;
             view.place_emoji = shown.emoji;
@@ -242,7 +273,11 @@ fn precise_view(env: &ViewEnv<'_>, subject: &Subject<'_>, pin: &Pin, detail: Det
     if detail.social {
         view.status = ctx.status.as_ref().and_then(|status| status.current(env.now)).into();
         if let (Some(trip), Some(viewer)) = (&ctx.trip, detail.viewer) {
-            if viewer.id == subject.id || trip.shared_with(viewer.id) {
+            // A trip towards a friend says where that friend is: on the pin
+            // it shows to the two of them only (who else may see it is
+            // decided where both people's rules are at hand).
+            let about_someone = trip.dest_user_id.is_some_and(|friend| friend != viewer.id);
+            if viewer.id == subject.id || (trip.shared_with(viewer.id) && !about_someone) {
                 view.trip_id = trip.id.to_string();
             }
         }
@@ -263,7 +298,7 @@ fn blurred_view(env: &ViewEnv<'_>, subject: &Subject<'_>, pin: &Pin, viewer: Vie
         user_id: subject.id.to_string(),
         position: math::lat_lng(lat, lng).into(),
         accuracy_meters: BLUR_ACCURACY_M,
-        recorded_at: ts(from_millis(pin.recorded_ms)),
+        recorded_at: ts(from_millis(pin.recorded_ms.div_euclid(BLUR_TIME_STEP_MS) * BLUR_TIME_STEP_MS)),
         precision: GhostMode::GHOST_MODE_BLURRED.into(),
         activity: Activity::ACTIVITY_UNSPECIFIED.into(),
         locality: area.label(viewer.ja),
@@ -277,15 +312,6 @@ fn blurred_view(env: &ViewEnv<'_>, subject: &Subject<'_>, pin: &Pin, viewer: Vie
     if privacy.share_battery {
         view.battery_percent = pin.battery;
         view.charging = pin.charging;
-    }
-    if privacy.share_activity {
-        let asleep = asleep_since(pin, ctx, subject.online, env.now);
-        view.sleeping = asleep.is_some();
-        view.sleeping_since = opt_ts(asleep);
-    }
-    if let Some(weather) = subject.weather {
-        view.temperature_celsius = Some(weather.temperature_c);
-        view.weather_icon = weather.icon.clone();
     }
     view
 }
@@ -305,8 +331,18 @@ pub fn friend_view(env: &ViewEnv<'_>, subject: &Subject<'_>, viewer: Viewer) -> 
             let frozen = frozen?;
             // Rendered exactly as it was shown before freezing. No weather and
             // no trip: both would be news about the present.
-            let stale = Subject { id: subject.id, pin: Some(&frozen.pin), ctx: subject.ctx, online: subject.online, weather: None };
-            let mut view = if frozen.base == BLURRED { blurred_view(env, &stale, &frozen.pin, viewer) } else { precise_view(env, &stale, &frozen.pin, friend) };
+            let stale = Subject {
+                id: subject.id,
+                pin: Some(&frozen.pin),
+                ctx: subject.ctx,
+                online: subject.online,
+                weather: None,
+            };
+            let mut view = if frozen.base == BLURRED {
+                blurred_view(env, &stale, &frozen.pin, viewer)
+            } else {
+                precise_view(env, &stale, &frozen.pin, friend)
+            };
             view.trip_id.clear();
             Some(view)
         }
@@ -319,38 +355,134 @@ pub fn own_view(env: &ViewEnv<'_>, subject: &Subject<'_>) -> Option<FriendLocati
     Some(precise_view(env, subject, subject.pin?, Detail { everything: true, viewer: Some(viewer), social: true }))
 }
 
-/// The pin behind a public live share: the exact position and movement, but
-/// no badges, halo, status or anything else meant for friends.
+/// The pin behind a public live share: the exact position, and the battery
+/// and movement the owner's privacy switches allow, but no badges, halo,
+/// status or anything else meant for friends. A share link is an explicit
+/// grant: ghost mode does not apply to it.
 pub fn share_view(env: &ViewEnv<'_>, subject: &Subject<'_>, ja: bool) -> Option<FriendLocation> {
     if !subject.ctx.active {
         return None;
     }
-    let mut view = precise_view(env, subject, subject.pin?, Detail { everything: true, viewer: None, social: false });
+    let mut view = precise_view(env, subject, subject.pin?, Detail { everything: false, viewer: None, social: false });
     view.locality = subject.pin?.area.label(ja);
     view.stationary_since = Default::default();
     Some(view)
 }
 
-/// Where `viewer` believes `subject` is, for anything computed from a
-/// friend's position on the viewer's behalf (distance on a profile, a trip
-/// towards a friend): the true position if they see it precisely, the blurred
-/// point if blurred, nothing if frozen or unknown — a frozen pin must not be
-/// refreshed through a side channel, and its stale position proves nothing.
-pub fn seen_position(env: &ViewEnv<'_>, subject: &Subject<'_>, viewer: Uuid) -> Option<(Point, bool)> {
+/// Where `viewer` has `subject` on their map, for anything computed from a
+/// friend's position on the viewer's behalf (distance on a profile,
+/// directions, a trip towards a friend).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SeenPin {
+    /// The true position, the blurred stand-in, or the frozen copy of either.
+    pub position: Point,
+    /// The pin the viewer has says that sharing is on.
+    pub sharing: bool,
+}
+
+/// The position `viewer` has for `subject`: the true one if they see it
+/// precisely, the stand-in if blurred, and under FROZEN the copy they were
+/// left with — answering from it is what keeps a frozen pin
+/// indistinguishable from a stale one. `None` when the viewer has no pin of
+/// the subject at all.
+pub fn seen_pin(env: &ViewEnv<'_>, subject: &Subject<'_>, viewer: Uuid) -> Option<SeenPin> {
     if !subject.ctx.active {
         return None;
     }
-    let pin = subject.pin?;
+    let stand_in = |pin: &Pin| blur(env.mac, subject.id, viewer, pin.stay_center.unwrap_or(pin.position()));
     match sight(subject.ctx, viewer, env.now) {
-        Sight::Precise { .. } => Some((pin.position(), true)),
-        Sight::Blurred => Some((blur(env.mac, subject.id, viewer, pin.stay_center.unwrap_or(pin.position())), false)),
-        Sight::Frozen(_) => None,
+        Sight::Precise { .. } => subject.pin.map(|pin| SeenPin { position: pin.position(), sharing: pin.sharing }),
+        Sight::Blurred => subject.pin.map(|pin| SeenPin { position: stand_in(pin), sharing: pin.sharing }),
+        Sight::Frozen(copy) => copy.map(|copy| SeenPin {
+            position: if copy.base == BLURRED { stand_in(&copy.pin) } else { copy.pin.position() },
+            sharing: copy.pin.sharing,
+        }),
     }
 }
 
-/// Whether `viewer` sees the subject's true, live position.
+/// Whether `viewer` sees the subject's true, live position: the condition
+/// for learning anything derived from it (see the module documentation).
+/// Callers make sure the two are friends.
 pub fn sees_precisely(ctx: &OwnerCtx, viewer: Uuid, now: DateTime<Utc>) -> bool {
     ctx.active && matches!(sight(ctx, viewer, now), Sight::Precise { .. })
+}
+
+/// The friends who see someone's true, live position at one moment: the
+/// only people who may be told anything derived from it.
+///
+/// It is the same answer as [`sees_precisely`] for every friend at once, in
+/// a form that can be stored with a record of that moment (a visit) and
+/// asked again later.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Audience {
+    /// Every friend.
+    Friends,
+    /// Every friend but these.
+    FriendsExcept(Vec<Uuid>),
+    /// Only these friends.
+    Only(Vec<Uuid>),
+}
+
+impl Audience {
+    /// Who sees the owner of `ctx` precisely at `now`.
+    pub fn of(ctx: &OwnerCtx, now: DateTime<Utc>) -> Self {
+        if !ctx.active {
+            return Self::Only(Vec::new());
+        }
+        let now_ms = now.timestamp_millis();
+        let alerted: &[Uuid] = ctx.sos.as_ref().map_or(&[], |sos| sos.notify.as_slice());
+        let overrides = ctx.ghost.overrides.iter().filter(|(_, rule)| rule.active(now_ms));
+        let mut ids: Vec<Uuid> = match ctx.ghost.default_rule(now_ms) {
+            Some(rule) if rule.mode != PRECISE => overrides
+                .filter(|(_, rule)| rule.mode == PRECISE)
+                .map(|(viewer, _)| *viewer)
+                .chain(alerted.iter().copied())
+                .collect(),
+            _ => overrides
+                .filter(|(viewer, rule)| rule.mode != PRECISE && !alerted.contains(viewer))
+                .map(|(viewer, _)| *viewer)
+                .collect(),
+        };
+        ids.sort();
+        ids.dedup();
+        match ctx.ghost.default_rule(now_ms) {
+            Some(rule) if rule.mode != PRECISE => Self::Only(ids),
+            _ if ids.is_empty() => Self::Friends,
+            _ => Self::FriendsExcept(ids),
+        }
+    }
+
+    /// Whether `friend` is in it. (Callers make sure they are a friend.)
+    pub fn includes(&self, friend: Uuid) -> bool {
+        match self {
+            Self::Friends => true,
+            Self::FriendsExcept(hidden) => !hidden.contains(&friend),
+            Self::Only(shown) => shown.contains(&friend),
+        }
+    }
+
+    /// Every friend sees the person precisely: the only case in which
+    /// something may be published to "friends" as a whole (an activity entry).
+    pub fn is_all_friends(&self) -> bool {
+        matches!(self, Self::Friends)
+    }
+
+    /// The stored form: a kind number and the IDs that go with it.
+    pub fn to_stored(&self) -> (i16, &[Uuid]) {
+        match self {
+            Self::Friends => (0, &[]),
+            Self::FriendsExcept(hidden) => (1, hidden),
+            Self::Only(shown) => (2, shown),
+        }
+    }
+
+    /// SQL condition for "the viewer bound as `$viewer` is in the audience
+    /// stored in the columns `kind` and `ids`".
+    pub fn sql_includes(kind: &str, ids: &str, viewer: &str) -> String {
+        format!(
+            "({kind} = 0 OR ({kind} = 1 AND NOT ({viewer} = ANY({ids}))) OR ({kind} = 2 AND {viewer} = ANY({ids})))"
+        )
+    }
 }
 
 #[cfg(test)]
@@ -421,11 +553,17 @@ pub(crate) mod tests {
     }
 
     fn active_ctx() -> OwnerCtx {
-        OwnerCtx { active: true, privacy: Privacy::default(), ja: true, time_zone: "Asia/Tokyo".into(), ..Default::default() }
+        OwnerCtx {
+            active: true,
+            privacy: Privacy::default(),
+            ja: true,
+            time_zone: "Asia/Tokyo".into(),
+            ..Default::default()
+        }
     }
 
     fn rule(mode: GhostMode, frozen: Option<FrozenPin>) -> GhostRule {
-        GhostRule { mode: mode as i32, since_ms: 0, until_ms: None, frozen }
+        GhostRule { mode: mode as i32, since_ms: 0, until_ms: None, frozen, hidden_since_ms: 0 }
     }
 
     fn position_of(view: &FriendLocation) -> Point {
@@ -443,7 +581,13 @@ pub(crate) mod tests {
 
     impl World {
         fn new() -> Self {
-            Self { owner: Uuid::now_v7(), viewer: Viewer { id: Uuid::now_v7(), ja: true }, pin: pin_at(HOME, noon()), ctx: active_ctx(), online: true }
+            Self {
+                owner: Uuid::now_v7(),
+                viewer: Viewer { id: Uuid::now_v7(), ja: true },
+                pin: pin_at(HOME, noon()),
+                ctx: active_ctx(),
+                online: true,
+            }
         }
 
         fn subject(&self) -> Subject<'_> {
@@ -459,7 +603,8 @@ pub(crate) mod tests {
         }
 
         fn ghost_everyone(&mut self, mode: GhostMode) {
-            let frozen = (mode == GhostMode::GHOST_MODE_FROZEN).then(|| FrozenPin { pin: self.pin.clone(), base: PRECISE });
+            let frozen =
+                (mode == GhostMode::GHOST_MODE_FROZEN).then(|| FrozenPin { pin: self.pin.clone(), base: PRECISE });
             self.ctx.ghost.everyone = Some(rule(mode, frozen));
         }
     }
@@ -476,7 +621,10 @@ pub(crate) mod tests {
         assert_eq!((view.battery_percent, view.charging), (Some(64), true));
         assert_eq!(from_ts(view.recorded_at.as_option().unwrap()), noon());
         assert_eq!(from_ts(view.stationary_since.as_option().unwrap()), noon() - Duration::minutes(40));
-        assert_eq!((view.locality.as_str(), view.country_code.as_str(), view.time_zone.as_str()), ("渋谷区", "JP", "Asia/Tokyo"));
+        assert_eq!(
+            (view.locality.as_str(), view.country_code.as_str(), view.time_zone.as_str()),
+            ("渋谷区", "JP", "Asia/Tokyo")
+        );
         assert!(view.online && !view.sleeping && !view.sharing_paused);
         assert!(view.trip_id.is_empty() && view.place_name.is_empty());
     }
@@ -491,10 +639,23 @@ pub(crate) mod tests {
     #[test]
     fn privacy_switches_withhold_their_fields() {
         let mut world = World::new();
-        world.pin.place = Some(StayPlace { id: Uuid::now_v7(), owner_id: world.owner, label: 1, name: "うち".into(), emoji: "🏠".into(), visibility: 5 });
+        world.pin.place = Some(StayPlace {
+            id: Uuid::now_v7(),
+            owner_id: world.owner,
+            label: 1,
+            name: "うち".into(),
+            emoji: "🏠".into(),
+            visibility: 5,
+        });
         assert_eq!(world.seen().unwrap().place_label, PlaceLabel::PLACE_LABEL_HOME);
 
-        world.ctx.privacy = Privacy { share_battery: false, share_activity: false, share_online_status: false, share_place_labels: false, ..Privacy::default() };
+        world.ctx.privacy = Privacy {
+            share_battery: false,
+            share_activity: false,
+            share_online_status: false,
+            share_place_labels: false,
+            ..Privacy::default()
+        };
         let view = world.seen().unwrap();
         assert_eq!((view.battery_percent, view.charging), (None, false));
         assert_eq!((view.speed_mps, view.heading_degrees), (0.0, 0.0));
@@ -508,7 +669,14 @@ pub(crate) mod tests {
     #[test]
     fn home_is_a_badge_and_never_a_name() {
         let mut world = World::new();
-        world.pin.place = Some(StayPlace { id: Uuid::now_v7(), owner_id: world.owner, label: 1, name: "世田谷の実家".into(), emoji: "🏠".into(), visibility: 5 });
+        world.pin.place = Some(StayPlace {
+            id: Uuid::now_v7(),
+            owner_id: world.owner,
+            label: 1,
+            name: "世田谷の実家".into(),
+            emoji: "🏠".into(),
+            visibility: 5,
+        });
         let view = world.seen().unwrap();
         assert_eq!(view.place_label, PlaceLabel::PLACE_LABEL_HOME);
         assert!(view.place_name.is_empty() && view.place_emoji.is_empty());
@@ -519,7 +687,14 @@ pub(crate) mod tests {
         let mut world = World::new();
         let stranger = Uuid::now_v7();
         let place = |owner: Uuid, visibility: Visibility| {
-            Some(StayPlace { id: Uuid::now_v7(), owner_id: owner, label: 4, name: "カフェ モカ".into(), emoji: "☕".into(), visibility: visibility as i32 })
+            Some(StayPlace {
+                id: Uuid::now_v7(),
+                owner_id: owner,
+                label: 4,
+                name: "カフェ モカ".into(),
+                emoji: "☕".into(),
+                visibility: visibility as i32,
+            })
         };
         // The owner's own custom place: shown when shared with friends, hidden when private.
         world.pin.place = place(world.owner, Visibility::VISIBILITY_FRIENDS);
@@ -541,7 +716,14 @@ pub(crate) mod tests {
     #[test]
     fn blurred_moves_the_pin_and_withholds_details() {
         let mut world = World::new();
-        world.pin.place = Some(StayPlace { id: Uuid::now_v7(), owner_id: world.owner, label: 1, name: "うち".into(), emoji: "🏠".into(), visibility: 5 });
+        world.pin.place = Some(StayPlace {
+            id: Uuid::now_v7(),
+            owner_id: world.owner,
+            label: 1,
+            name: "うち".into(),
+            emoji: "🏠".into(),
+            visibility: 5,
+        });
         world.ctx.trip = Some(TripCtx {
             id: Uuid::now_v7(),
             dest_user_id: None,
@@ -559,7 +741,8 @@ pub(crate) mod tests {
         let view = world.seen().unwrap();
         assert_eq!(view.precision, GhostMode::GHOST_MODE_BLURRED);
         let offset = math::distance(position_of(&view), HOME);
-        assert!((300.0..=1200.0).contains(&offset), "offset {offset}");
+        assert!(offset <= BLUR_ACCURACY_M, "offset {offset}");
+        assert_ne!(position_of(&view), HOME);
         assert_eq!(view.accuracy_meters, BLUR_ACCURACY_M);
         assert_eq!((view.speed_mps, view.heading_degrees), (0.0, 0.0));
         assert_eq!(view.activity, Activity::ACTIVITY_UNSPECIFIED);
@@ -582,17 +765,55 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn the_blur_offset_is_always_within_bounds() {
-        // Many owners, viewers and positions (including ones off the cell
-        // center and off the stay center by a full stay radius).
-        for i in 0..400u32 {
+    fn the_true_position_is_always_within_the_reported_accuracy_of_the_stand_in() {
+        for i in 0..2000u32 {
             let (owner, viewer) = (Uuid::now_v7(), Uuid::now_v7());
-            let center = (-60.0 + (i % 40) as f64 * 3.1, -170.0 + (i * 7 % 340) as f64);
-            let truth = math::destination(center.0, center.1, (i * 37 % 360) as f64, (i % 11) as f64 * 11.0);
-            let blurred = blur(&test_mac, owner, viewer, center);
-            let offset = math::distance(blurred, truth);
-            assert!((300.0..=1200.0).contains(&offset), "offset {offset} at {center:?}");
+            let truth =
+                (-70.0 + (i % 47) as f64 * 3.01 + i as f64 * 1e-4, -179.0 + (i * 7 % 358) as f64 + i as f64 * 3e-4);
+            let offset = math::distance(blur(&test_mac, owner, viewer, truth), truth);
+            assert!(offset <= BLUR_ACCURACY_M, "offset {offset} at {truth:?}");
         }
+    }
+
+    #[test]
+    fn the_stand_in_depends_on_the_coarse_cell_and_nothing_else() {
+        let (owner, viewer) = (Uuid::now_v7(), Uuid::now_v7());
+        let cell = math::cell_at(HOME.0, HOME.1, BLUR_RESOLUTION).unwrap();
+        let center = math::cell_center(cell);
+        let stand_in = blur(&test_mac, owner, viewer, HOME);
+        // Anywhere in the cell: the same point, to the last bit.
+        for i in 0..200 {
+            let inside = math::destination(center.0, center.1, (i * 37 % 360) as f64, (i % 20) as f64 * 45.0);
+            if math::cell_at(inside.0, inside.1, BLUR_RESOLUTION) == Some(cell) {
+                assert_eq!(blur(&test_mac, owner, viewer, inside), stand_in);
+            }
+        }
+    }
+
+    #[test]
+    fn knowing_the_position_when_blurring_began_does_not_unblur_later_positions() {
+        // The attack on a fixed shift: a viewer who saw the true pin just
+        // before blurring began subtracts (stand-in − truth) from every later
+        // stand-in. With a stand-in per coarse cell that guess is no better
+        // than the cell itself.
+        let mut close = 0;
+        let trials = 500u32;
+        for i in 0..trials {
+            let (owner, viewer) = (Uuid::now_v7(), Uuid::now_v7());
+            let before = (35.0 + (i % 23) as f64 * 0.37, 135.0 + (i % 17) as f64 * 0.41);
+            let shift = {
+                let stand_in = blur(&test_mac, owner, viewer, before);
+                (stand_in.0 - before.0, stand_in.1 - before.1)
+            };
+            // Later, somewhere a few hundred meters to a few kilometers away.
+            let later = math::destination(before.0, before.1, (i * 53 % 360) as f64, 300.0 + (i % 40) as f64 * 100.0);
+            let stand_in = blur(&test_mac, owner, viewer, later);
+            let guess = (stand_in.0 - shift.0, stand_in.1 - shift.1);
+            if math::distance(guess, later) < 200.0 {
+                close += 1;
+            }
+        }
+        assert!(close < trials / 20, "{close} of {trials} guesses landed within 200 m");
     }
 
     #[test]
@@ -638,9 +859,8 @@ pub(crate) mod tests {
         world.pin.lat = far.0;
         world.pin.lng = far.1;
         let moved = position_of(&world.seen().unwrap());
-        assert!(math::distance(start, moved) > 5000.0);
-        let offset = math::distance(moved, far);
-        assert!((300.0..=1200.0).contains(&offset), "offset {offset}");
+        assert!(math::distance(start, moved) > 4000.0);
+        assert!(math::distance(moved, far) <= BLUR_ACCURACY_M);
     }
 
     #[test]
@@ -655,7 +875,11 @@ pub(crate) mod tests {
         world.pin.stationary_since_ms = None;
         let view = world.seen_at(later).unwrap();
         assert_eq!(position_of(&view), HOME);
-        assert_eq!(from_ts(view.recorded_at.as_option().unwrap()), noon(), "the original recorded_at: the pin just looks stale");
+        assert_eq!(
+            from_ts(view.recorded_at.as_option().unwrap()),
+            noon(),
+            "the original recorded_at: the pin just looks stale"
+        );
         assert_eq!(view.battery_percent, Some(64));
         assert_eq!(view.stationary_since, at_freeze.stationary_since);
         assert_eq!(view.locality, at_freeze.locality);
@@ -687,7 +911,8 @@ pub(crate) mod tests {
     fn frozen_keeps_live_what_does_not_come_from_the_location() {
         let mut world = World::new();
         world.ghost_everyone(GhostMode::GHOST_MODE_FROZEN);
-        world.ctx.status = Some(StatusLite { emoji: "🍜".into(), text: String::new(), set_ms: None, expires_ms: None });
+        world.ctx.status =
+            Some(StatusLite { emoji: "🍜".into(), text: String::new(), set_ms: None, expires_ms: None });
         world.online = false;
         let view = world.seen().unwrap();
         assert!(!view.online);
@@ -725,7 +950,8 @@ pub(crate) mod tests {
         let mut world = World::new();
         world.ghost_everyone(GhostMode::GHOST_MODE_BLURRED);
         let before = world.seen().unwrap();
-        world.ctx.ghost.everyone = Some(rule(GhostMode::GHOST_MODE_FROZEN, Some(FrozenPin { pin: world.pin.clone(), base: BLURRED })));
+        world.ctx.ghost.everyone =
+            Some(rule(GhostMode::GHOST_MODE_FROZEN, Some(FrozenPin { pin: world.pin.clone(), base: BLURRED })));
         let later = noon() + Duration::hours(1);
         world.pin = pin_at(math::destination(HOME.0, HOME.1, 200.0, 15_000.0), later);
         let view = world.seen_at(later).unwrap();
@@ -766,8 +992,13 @@ pub(crate) mod tests {
     fn timed_rules_stop_applying_when_they_end() {
         let mut world = World::new();
         let until = noon() + Duration::hours(1);
-        world.ctx.ghost.everyone =
-            Some(GhostRule { mode: FROZEN, since_ms: 0, until_ms: Some(until.timestamp_millis()), frozen: Some(FrozenPin { pin: world.pin.clone(), base: PRECISE }) });
+        world.ctx.ghost.everyone = Some(GhostRule {
+            mode: FROZEN,
+            since_ms: 0,
+            until_ms: Some(until.timestamp_millis()),
+            frozen: Some(FrozenPin { pin: world.pin.clone(), base: PRECISE }),
+            hidden_since_ms: 0,
+        });
         let moved = math::destination(HOME.0, HOME.1, 0.0, 3000.0);
         world.pin = pin_at(moved, noon() + Duration::minutes(59));
         assert_eq!(position_of(&world.seen_at(until - Duration::seconds(1)).unwrap()), HOME);
@@ -784,7 +1015,12 @@ pub(crate) mod tests {
             let later = noon() + Duration::minutes(30);
             let here = math::destination(HOME.0, HOME.1, 135.0, 4000.0);
             world.pin = pin_at(here, later);
-            world.ctx.sos = Some(SosCtx { id: Uuid::now_v7(), message: "助けて".into(), notify: vec![world.viewer.id], started_ms: 0 });
+            world.ctx.sos = Some(SosCtx {
+                id: Uuid::now_v7(),
+                message: "助けて".into(),
+                notify: vec![world.viewer.id],
+                started_ms: 0,
+            });
 
             let view = world.seen_at(later).unwrap();
             assert_eq!(position_of(&view), here, "{mode:?}");
@@ -806,7 +1042,7 @@ pub(crate) mod tests {
         let mut world = World::new();
         world.ctx.active = false;
         assert!(world.seen().is_none());
-        assert!(seen_position(&env(noon()), &world.subject(), world.viewer.id).is_none());
+        assert!(seen_pin(&env(noon()), &world.subject(), world.viewer.id).is_none());
         world.ctx.active = true;
         let nowhere = Subject { pin: None, ..world.subject() };
         assert!(friend_view(&env(noon()), &nowhere, world.viewer).is_none());
@@ -872,7 +1108,12 @@ pub(crate) mod tests {
     #[test]
     fn expired_statuses_disappear_from_the_pin() {
         let mut world = World::new();
-        world.ctx.status = Some(StatusLite { emoji: "🎮".into(), text: "ゲーム中".into(), set_ms: None, expires_ms: Some((noon() + Duration::hours(1)).timestamp_millis()) });
+        world.ctx.status = Some(StatusLite {
+            emoji: "🎮".into(),
+            text: "ゲーム中".into(),
+            set_ms: None,
+            expires_ms: Some((noon() + Duration::hours(1)).timestamp_millis()),
+        });
         assert_eq!(world.seen().unwrap().status.as_option().unwrap().text, "ゲーム中");
         assert!(world.seen_at(noon() + Duration::hours(2)).unwrap().status.as_option().is_none());
     }
@@ -880,10 +1121,23 @@ pub(crate) mod tests {
     #[test]
     fn the_owner_sees_everything_about_themselves() {
         let mut world = World::new();
-        world.ctx.privacy = Privacy { share_battery: false, share_activity: false, share_online_status: false, share_place_labels: false, ..Privacy::default() };
+        world.ctx.privacy = Privacy {
+            share_battery: false,
+            share_activity: false,
+            share_online_status: false,
+            share_place_labels: false,
+            ..Privacy::default()
+        };
         world.ghost_everyone(GhostMode::GHOST_MODE_FROZEN);
         world.pin = pin_at(math::destination(HOME.0, HOME.1, 0.0, 500.0), noon());
-        world.pin.place = Some(StayPlace { id: Uuid::now_v7(), owner_id: world.owner, label: 4, name: "ひみつ基地".into(), emoji: "🏕".into(), visibility: 5 });
+        world.pin.place = Some(StayPlace {
+            id: Uuid::now_v7(),
+            owner_id: world.owner,
+            label: 4,
+            name: "ひみつ基地".into(),
+            emoji: "🏕".into(),
+            visibility: 5,
+        });
         let view = own_view(&env(noon()), &world.subject()).unwrap();
         assert_eq!(position_of(&view), world.pin.position());
         assert_eq!(view.battery_percent, Some(64));
@@ -896,32 +1150,154 @@ pub(crate) mod tests {
     fn share_links_show_the_position_and_nothing_personal() {
         let mut world = World::new();
         world.ghost_everyone(GhostMode::GHOST_MODE_FROZEN);
-        world.ctx.status = Some(StatusLite { emoji: "🍜".into(), text: String::new(), set_ms: None, expires_ms: None });
-        world.pin.place = Some(StayPlace { id: Uuid::now_v7(), owner_id: world.owner, label: 1, name: "うち".into(), emoji: "🏠".into(), visibility: 5 });
+        world.ctx.status =
+            Some(StatusLite { emoji: "🍜".into(), text: String::new(), set_ms: None, expires_ms: None });
+        world.pin.place = Some(StayPlace {
+            id: Uuid::now_v7(),
+            owner_id: world.owner,
+            label: 1,
+            name: "うち".into(),
+            emoji: "🏠".into(),
+            visibility: 5,
+        });
         let view = share_view(&env(noon()), &world.subject(), false).unwrap();
         // A share link is an explicit grant: ghost mode does not apply to it.
         assert_eq!(position_of(&view), HOME);
         assert_eq!((view.speed_mps, view.battery_percent), (1.3, Some(64)));
+        // The owner's switches hold for strangers with a link as much as for friends.
+        world.ctx.privacy.share_battery = false;
+        world.ctx.privacy.share_activity = false;
+        let quiet = share_view(&env(noon()), &world.subject(), false).unwrap();
+        assert_eq!((quiet.speed_mps, quiet.battery_percent), (0.0, None));
+        assert_eq!(quiet.activity, Activity::ACTIVITY_UNSPECIFIED);
+        assert_eq!(position_of(&quiet), HOME);
         assert_eq!(view.locality, "Shibuya, Tokyo");
         assert_eq!(view.place_label, PlaceLabel::PLACE_LABEL_UNSPECIFIED);
-        assert!(view.place_name.is_empty() && view.status.as_option().is_none() && view.stationary_since.as_option().is_none());
+        assert!(
+            view.place_name.is_empty()
+                && view.status.as_option().is_none()
+                && view.stationary_since.as_option().is_none()
+        );
         assert!(!view.online && !view.sleeping);
     }
 
     #[test]
-    fn seen_positions_respect_ghost_mode() {
+    fn the_pin_a_viewer_has_follows_ghost_mode() {
         let mut world = World::new();
         let e = env(noon());
-        assert_eq!(seen_position(&e, &world.subject(), world.viewer.id), Some((HOME, true)));
+        assert_eq!(seen_pin(&e, &world.subject(), world.viewer.id).unwrap().position, HOME);
         world.ghost_everyone(GhostMode::GHOST_MODE_BLURRED);
-        let (blurred, precise) = seen_position(&e, &world.subject(), world.viewer.id).unwrap();
-        assert!(!precise);
+        let blurred = seen_pin(&e, &world.subject(), world.viewer.id).unwrap().position;
         assert_eq!(blurred, position_of(&world.seen().unwrap()), "the same point the map shows");
-        world.ghost_everyone(GhostMode::GHOST_MODE_FROZEN);
-        assert_eq!(seen_position(&e, &world.subject(), world.viewer.id), None);
         assert!(!sees_precisely(&world.ctx, world.viewer.id, noon()));
-        world.ctx.sos = Some(SosCtx { id: Uuid::now_v7(), message: String::new(), notify: vec![world.viewer.id], started_ms: 0 });
+        world.ctx.sos =
+            Some(SosCtx { id: Uuid::now_v7(), message: String::new(), notify: vec![world.viewer.id], started_ms: 0 });
         assert!(sees_precisely(&world.ctx, world.viewer.id, noon()));
-        assert_eq!(mode_for(&world.ctx, world.viewer.id, noon()), FROZEN, "the rule itself is unchanged by an SOS");
+        assert_eq!(mode_for(&world.ctx, world.viewer.id, noon()), BLURRED, "the rule itself is unchanged by an SOS");
+    }
+
+    #[test]
+    fn a_frozen_pin_answers_like_a_stale_one() {
+        // Whatever is computed for a viewer from a frozen pin must be what a
+        // phone that stopped reporting at that moment would give.
+        let mut frozen = World::new();
+        frozen.ghost_everyone(GhostMode::GHOST_MODE_FROZEN);
+        let mut dead_phone = World::new();
+        dead_phone.pin = frozen.pin.clone();
+        let later = noon() + Duration::hours(2);
+        // The frozen one moves on, pauses sharing, comes back: none of it shows.
+        frozen.pin = pin_at(math::destination(HOME.0, HOME.1, 60.0, 12_000.0), later);
+        for sharing in [true, false] {
+            frozen.pin.sharing = sharing;
+            let seen = seen_pin(&env(later), &frozen.subject(), frozen.viewer.id).unwrap();
+            let stale = seen_pin(&env(later), &dead_phone.subject(), dead_phone.viewer.id).unwrap();
+            assert_eq!(seen, stale);
+            assert_eq!(seen.position, HOME);
+            assert!(!sees_precisely(&frozen.ctx, frozen.viewer.id, later));
+        }
+        // Frozen while blurred: the stand-in of the copy.
+        let mut world = World::new();
+        world.ctx.ghost.everyone =
+            Some(rule(GhostMode::GHOST_MODE_FROZEN, Some(FrozenPin { pin: world.pin.clone(), base: BLURRED })));
+        let expected = blur(&test_mac, world.owner, world.viewer.id, HOME);
+        world.pin = pin_at(math::destination(HOME.0, HOME.1, 60.0, 12_000.0), later);
+        assert_eq!(seen_pin(&env(later), &world.subject(), world.viewer.id).unwrap().position, expected);
+        // Frozen before any position was known: no pin at all, then and later.
+        world.ctx.ghost.everyone = Some(rule(GhostMode::GHOST_MODE_FROZEN, None));
+        assert_eq!(seen_pin(&env(later), &world.subject(), world.viewer.id), None);
+    }
+
+    #[test]
+    fn the_audience_is_exactly_the_friends_who_see_precisely() {
+        // Every combination of default rule, override, expiry and SOS: the
+        // stored form of "who sees precisely" agrees with the question asked
+        // about each friend.
+        let modes = [None, Some(PRECISE), Some(BLURRED), Some(FROZEN)];
+        let friends: Vec<Uuid> = (0..4).map(|_| Uuid::now_v7()).collect();
+        let now = noon();
+        let mut cases = 0;
+        for default in modes {
+            for default_expired in [false, true] {
+                for first in modes {
+                    for second in modes {
+                        for second_expired in [false, true] {
+                            for sos in [None, Some(0usize), Some(3)] {
+                                let mut ctx = active_ctx();
+                                let timed = |mode: i32, expired: bool| GhostRule {
+                                    mode,
+                                    since_ms: 0,
+                                    until_ms: expired.then(|| now.timestamp_millis() - 1),
+                                    frozen: None,
+                                    hidden_since_ms: 0,
+                                };
+                                ctx.ghost.everyone = default.map(|mode| timed(mode, default_expired));
+                                if let Some(mode) = first {
+                                    ctx.ghost.overrides.insert(friends[0], timed(mode, false));
+                                }
+                                if let Some(mode) = second {
+                                    ctx.ghost.overrides.insert(friends[1], timed(mode, second_expired));
+                                }
+                                ctx.sos = sos.map(|index| SosCtx {
+                                    id: Uuid::now_v7(),
+                                    message: String::new(),
+                                    notify: vec![friends[index]],
+                                    started_ms: 0,
+                                });
+                                let audience = Audience::of(&ctx, now);
+                                for friend in &friends {
+                                    assert_eq!(
+                                        audience.includes(*friend),
+                                        sees_precisely(&ctx, *friend, now),
+                                        "{audience:?} / {:?}",
+                                        ctx.ghost
+                                    );
+                                }
+                                assert_eq!(
+                                    audience.is_all_friends(),
+                                    friends.iter().all(|friend| sees_precisely(&ctx, *friend, now))
+                                        && ctx
+                                            .ghost
+                                            .default_rule(now.timestamp_millis())
+                                            .is_none_or(|rule| rule.mode == PRECISE)
+                                );
+                                // The stored form reads back as the same audience.
+                                let (kind, ids) = audience.to_stored();
+                                let restored = match kind {
+                                    0 => Audience::Friends,
+                                    1 => Audience::FriendsExcept(ids.to_vec()),
+                                    _ => Audience::Only(ids.to_vec()),
+                                };
+                                assert_eq!(restored, audience);
+                                cases += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(cases > 300);
+        let mut gone = active_ctx();
+        gone.active = false;
+        assert_eq!(Audience::of(&gone, now), Audience::Only(Vec::new()));
     }
 }

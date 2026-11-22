@@ -137,7 +137,9 @@ fn find_ignore_case(haystack: &str, needle: &str) -> Option<usize> {
     if needle.is_empty() || needle.len() > haystack.len() {
         return None;
     }
-    (0..=haystack.len() - needle.len()).find(|&start| haystack[start..start + needle.len()].iter().zip(needle).all(|(h, n)| h.to_ascii_lowercase() == *n))
+    (0..=haystack.len() - needle.len()).find(|&start| {
+        haystack[start..start + needle.len()].iter().zip(needle).all(|(h, n)| h.to_ascii_lowercase() == *n)
+    })
 }
 
 /// Latin letters without their accents, lowercased ("Kyōto" → "kyoto"), so
@@ -163,11 +165,24 @@ fn fold(text: &str) -> String {
         .collect()
 }
 
+static SHARED: OnceLock<Gazetteer> = OnceLock::new();
+
 impl Gazetteer {
     /// The process-wide gazetteer, loaded on first use (a few hundred milliseconds).
     pub fn shared() -> &'static Gazetteer {
-        static SHARED: OnceLock<Gazetteer> = OnceLock::new();
         SHARED.get_or_init(Gazetteer::load)
+    }
+
+    /// Makes sure the gazetteer is loaded without holding up the async
+    /// runtime: loading takes long enough (debug builds: seconds) for other
+    /// tasks' I/O to time out if it happened on their thread.
+    pub async fn ready() {
+        if SHARED.get().is_none() {
+            let _ = tokio::task::spawn_blocking(|| {
+                Gazetteer::shared();
+            })
+            .await;
+        }
     }
 
     fn load() -> Self {
@@ -208,7 +223,9 @@ impl Gazetteer {
         for line in gunzip(GAZETTEER_GZ).lines() {
             let columns: Vec<&str> = line.split('\t').collect();
             let [lat, lng, country, admin1, name, name_ja, population, area, area_ja] = columns[..] else { continue };
-            let (Ok(lat), Ok(lng), [a, b]) = (lat.parse::<f32>(), lng.parse::<f32>(), country.as_bytes()) else { continue };
+            let (Ok(lat), Ok(lng), [a, b]) = (lat.parse::<f32>(), lng.parse::<f32>(), country.as_bytes()) else {
+                continue;
+            };
             places.push(Place {
                 lat,
                 lng,
@@ -246,10 +263,13 @@ impl Gazetteer {
 
     fn found(&self, place: &Place, distance_m: f64) -> Found {
         let (region, region_ja, admin1_key) = match self.admin1_names.get(place.admin1 as usize) {
-            Some((name, name_ja)) => (name.to_string(), name_ja.to_string(), self.admin1_keys[place.admin1 as usize].to_string()),
+            Some((name, name_ja)) => {
+                (name.to_string(), name_ja.to_string(), self.admin1_keys[place.admin1 as usize].to_string())
+            }
             None => Default::default(),
         };
-        let (country, country_ja) = self.countries.get(&place.country).map(|(en, ja)| (en.to_string(), ja.to_string())).unwrap_or_default();
+        let (country, country_ja) =
+            self.countries.get(&place.country).map(|(en, ja)| (en.to_string(), ja.to_string())).unwrap_or_default();
         Found {
             position: (place.lat as f64, place.lng as f64),
             name: self.text(place.name).to_owned(),
@@ -308,7 +328,9 @@ impl Gazetteer {
             let best = if dense {
                 closest
             } else {
-                let score = |(place, distance): &(&Place, f64)| (distance / 1000.0 + 0.3) / (place.population.max(500) as f64).powf(0.25);
+                let score = |(place, distance): &(&Place, f64)| {
+                    (distance / 1000.0 + 0.3) / (place.population.max(500) as f64).powf(0.25)
+                };
                 hits.iter().min_by(|a, b| score(a).total_cmp(&score(b))).unwrap_or(closest)
             };
             return Some(self.found(best.0, best.1));
@@ -359,7 +381,8 @@ impl Gazetteer {
     }
 
     pub fn country_name(&self, code: &str, ja: bool) -> String {
-        let Some((en, name_ja)) = code.as_bytes().try_into().ok().and_then(|key: [u8; 2]| self.countries.get(&key)) else {
+        let Some((en, name_ja)) = code.as_bytes().try_into().ok().and_then(|key: [u8; 2]| self.countries.get(&key))
+        else {
             return String::new();
         };
         if ja && !name_ja.is_empty() { name_ja.to_string() } else { en.to_string() }
@@ -414,10 +437,13 @@ impl Gazetteer {
         scored.sort_by(|a, b| a.0.total_cmp(&b.0));
         let mut out: Vec<Found> = Vec::new();
         for (_, place) in scored {
-            let distance = near.map_or(0.0, |(lat, lng)| math::distance_meters(lat, lng, place.lat as f64, place.lng as f64));
+            let distance =
+                near.map_or(0.0, |(lat, lng)| math::distance_meters(lat, lng, place.lat as f64, place.lng as f64));
             let found = self.found(place, distance);
             // The same town often appears as several nearby entries.
-            let duplicate = out.iter().any(|seen| seen.name == found.name && seen.admin1_key == found.admin1_key && seen.area == found.area);
+            let duplicate = out
+                .iter()
+                .any(|seen| seen.name == found.name && seen.admin1_key == found.admin1_key && seen.area == found.area);
             if !duplicate {
                 out.push(found);
                 if out.len() >= limit {
@@ -462,7 +488,10 @@ mod tests {
         // Umeda, Kita ward.
         let ja = gazetteer.reverse(34.7025, 135.4959, true);
         assert_eq!(ja.name, "大阪市北区");
-        assert_eq!((ja.region.as_str(), ja.country_code.as_str(), ja.time_zone.as_str()), ("大阪府", "JP", "Asia/Tokyo"));
+        assert_eq!(
+            (ja.region.as_str(), ja.country_code.as_str(), ja.time_zone.as_str()),
+            ("大阪府", "JP", "Asia/Tokyo")
+        );
         let en = gazetteer.reverse(34.7025, 135.4959, false);
         assert_eq!((en.name.as_str(), en.region.as_str()), ("Kita, Osaka", "Osaka"));
         assert_eq!(gazetteer.area(34.7025, 135.4959).label(false), "Kita, Osaka");
@@ -480,7 +509,10 @@ mod tests {
         let gazetteer = Gazetteer::shared();
         let city_hall = gazetteer.reverse(40.7128, -74.0060, false);
         assert_eq!(city_hall.name, "New York City");
-        assert_eq!((city_hall.region.as_str(), city_hall.country.as_str(), city_hall.country_code.as_str()), ("New York", "United States", "US"));
+        assert_eq!(
+            (city_hall.region.as_str(), city_hall.country.as_str(), city_hall.country_code.as_str()),
+            ("New York", "United States", "US")
+        );
         assert_eq!(city_hall.time_zone, "America/New_York");
         assert_eq!(gazetteer.reverse(40.7128, -74.0060, true).name, "ニューヨーク");
         // Times Square: Manhattan or New York City, never New Jersey.

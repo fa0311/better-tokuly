@@ -35,6 +35,10 @@ pub struct ActivityTotals {
 pub struct HourBucket {
     /// Start of the hour, Unix milliseconds.
     pub hour_ms: i64,
+    /// Time of the last sample counted in here. Storing a bucket twice (the
+    /// same samples processed again) must not add it twice: the store keeps
+    /// this mark per row and skips what it already has.
+    pub until_ms: i64,
     pub totals: Vec<ActivityTotals>,
 }
 
@@ -56,7 +60,13 @@ impl Odometer {
         let index = match self.pending.iter().position(|totals| totals.activity == activity) {
             Some(index) => index,
             None => {
-                self.pending.push(ActivityTotals { activity, distance_m: 0.0, duration_s: 0.0, max_speed_mps: 0.0, points: 0 });
+                self.pending.push(ActivityTotals {
+                    activity,
+                    distance_m: 0.0,
+                    duration_s: 0.0,
+                    max_speed_mps: 0.0,
+                    points: 0,
+                });
                 self.pending.len() - 1
             }
         };
@@ -65,7 +75,14 @@ impl Odometer {
 
     /// Counts one sample. Returns the previous hour's bucket when the sample
     /// starts a new hour.
-    pub fn add(&mut self, point: Point, at_ms: i64, accuracy_m: f64, activity: i32, speed_mps: f64) -> Option<HourBucket> {
+    pub fn add(
+        &mut self,
+        point: Point,
+        at_ms: i64,
+        accuracy_m: f64,
+        activity: i32,
+        speed_mps: f64,
+    ) -> Option<HourBucket> {
         let hour_ms = at_ms.div_euclid(HOUR_MS) * HOUR_MS;
         let finished = if hour_ms != self.hour_ms { self.take() } else { None };
         self.hour_ms = hour_ms;
@@ -106,7 +123,7 @@ impl Odometer {
         if self.pending.is_empty() {
             return None;
         }
-        Some(HourBucket { hour_ms: self.hour_ms, totals: std::mem::take(&mut self.pending) })
+        Some(HourBucket { hour_ms: self.hour_ms, until_ms: self.last_ms, totals: std::mem::take(&mut self.pending) })
     }
 
     /// Whether pending totals have waited long enough (in sample time) to be stored.

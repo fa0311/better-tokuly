@@ -25,6 +25,9 @@ pub(crate) const USER_BLOCKED: &str = tokuly_social::events::USER_BLOCKED;
 pub(crate) const BUMP_CREATED: &str = tokuly_social::events::BUMP_CREATED;
 pub(crate) const CONTENT_REMOVED: &str = "admin.content.removed";
 pub(crate) const ASSET_DELETED: &str = "media.asset.deleted";
+pub(crate) const REINDEX_REQUESTED: &str = "search.reindex.requested";
+/// The kind of our search documents (`SearchDoc::kind`).
+const SEARCH_KIND: &str = "place";
 
 /// Every topic the geo domain consumes.
 pub(crate) const TOPICS: &[&str] = &[
@@ -40,6 +43,7 @@ pub(crate) const TOPICS: &[&str] = &[
     BUMP_CREATED,
     CONTENT_REMOVED,
     ASSET_DELETED,
+    REINDEX_REQUESTED,
 ];
 
 /// `admin.content.removed` (the moderation contract).
@@ -47,6 +51,13 @@ pub(crate) const TOPICS: &[&str] = &[
 struct ContentRemoved {
     subject_type: i32,
     subject_id: Uuid,
+}
+
+/// `search.reindex.requested`: an administrator wants one kind of search
+/// document rebuilt.
+#[derive(serde::Deserialize)]
+struct ReindexRequested {
+    kind: String,
 }
 
 /// `media.asset.deleted`.
@@ -80,9 +91,20 @@ impl Geo {
             BUMP_CREATED => self.bump_happened(event.data()?, event.occurred_at).await,
             CONTENT_REMOVED => {
                 let removed: ContentRemoved = event.data()?;
-                if removed.subject_type == SubjectType::SUBJECT_TYPE_PLACE as i32 { self.take_down_place(removed.subject_id).await } else { Ok(()) }
+                if removed.subject_type == SubjectType::SUBJECT_TYPE_PLACE as i32 {
+                    self.take_down_place(removed.subject_id).await
+                } else {
+                    Ok(())
+                }
             }
             ASSET_DELETED => self.asset_deleted(event.data()?).await,
+            REINDEX_REQUESTED => {
+                if event.data::<ReindexRequested>()?.kind == SEARCH_KIND {
+                    let published = self.reindex_places().await?;
+                    tracing::info!(published, "public places republished to the search index");
+                }
+                Ok(())
+            }
             _ => Ok(()),
         }
     }
@@ -168,7 +190,10 @@ impl Geo {
         // A place both may know by name; otherwise the area (Japanese first).
         let place_name = match self.shared_place_name(a, b, at_point).await? {
             Some(name) => name,
-            None => Gazetteer::shared().nearest(bump.lat, bump.lng).map(|found| found.locality(true).to_owned()).unwrap_or_default(),
+            None => Gazetteer::shared()
+                .nearest(bump.lat, bump.lng)
+                .map(|found| found.locality(true).to_owned())
+                .unwrap_or_default(),
         };
         sqlx::query(
             "INSERT INTO geo_bumps (bump_id, user_a, user_b, lat, lng, place_name, created_at)
@@ -204,7 +229,10 @@ impl Geo {
     /// media domain cleaning up): drop the references to it.
     async fn asset_deleted(&self, asset: AssetDeleted) -> AppResult<()> {
         if asset.purpose == AssetPurpose::ASSET_PURPOSE_PLACE_PHOTO as i32 {
-            sqlx::query("UPDATE geo_places SET photo = NULL, photo_asset_id = NULL WHERE photo_asset_id = $1").bind(asset.asset_id).execute(&self.core.db).await?;
+            sqlx::query("UPDATE geo_places SET photo = NULL, photo_asset_id = NULL WHERE photo_asset_id = $1")
+                .bind(asset.asset_id)
+                .execute(&self.core.db)
+                .await?;
         } else if asset.purpose == AssetPurpose::ASSET_PURPOSE_DAY_MEMO as i32 {
             let memos: Vec<(Uuid, chrono::NaiveDate, String, serde_json::Value, Vec<Uuid>)> =
                 sqlx::query_as("SELECT user_id, day, text, photos, photo_asset_ids FROM geo_day_memos WHERE photo_asset_ids @> ARRAY[$1]::uuid[]")
@@ -212,19 +240,31 @@ impl Geo {
                     .fetch_all(&self.core.db)
                     .await?;
             for (user_id, day, text, photos, asset_ids) in memos {
-                let keep: Vec<usize> = asset_ids.iter().enumerate().filter(|(_, id)| **id != asset.asset_id).map(|(index, _)| index).collect();
-                let photos: Vec<serde_json::Value> = keep.iter().filter_map(|index| photos.get(*index).cloned()).collect();
+                let keep: Vec<usize> = asset_ids
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, id)| **id != asset.asset_id)
+                    .map(|(index, _)| index)
+                    .collect();
+                let photos: Vec<serde_json::Value> =
+                    keep.iter().filter_map(|index| photos.get(*index).cloned()).collect();
                 let asset_ids: Vec<Uuid> = keep.iter().map(|index| asset_ids[*index]).collect();
                 if text.is_empty() && asset_ids.is_empty() {
-                    sqlx::query("DELETE FROM geo_day_memos WHERE user_id = $1 AND day = $2").bind(user_id).bind(day).execute(&self.core.db).await?;
-                } else {
-                    sqlx::query("UPDATE geo_day_memos SET photos = $3, photo_asset_ids = $4 WHERE user_id = $1 AND day = $2")
+                    sqlx::query("DELETE FROM geo_day_memos WHERE user_id = $1 AND day = $2")
                         .bind(user_id)
                         .bind(day)
-                        .bind(serde_json::Value::Array(photos))
-                        .bind(asset_ids)
                         .execute(&self.core.db)
                         .await?;
+                } else {
+                    sqlx::query(
+                        "UPDATE geo_day_memos SET photos = $3, photo_asset_ids = $4 WHERE user_id = $1 AND day = $2",
+                    )
+                    .bind(user_id)
+                    .bind(day)
+                    .bind(serde_json::Value::Array(photos))
+                    .bind(asset_ids)
+                    .execute(&self.core.db)
+                    .await?;
                 }
             }
         }
@@ -233,15 +273,40 @@ impl Geo {
 
     /// Removes everything this domain holds about a deleted account.
     async fn forget_user(&self, user_id: Uuid) -> AppResult<()> {
+        // First the cached context: from here on the pipeline finds the
+        // account gone and accepts nothing more for it. Then the rest under
+        // the account's pipeline lock, so a sample that was already being
+        // processed has finished and cannot write anything back afterwards.
+        self.invalidate_ctx(&[user_id]).await;
+        let lock = self.lock_user(user_id).await?;
+        let forgotten = self.forget_user_locked(user_id).await;
+        self.unlock_user(lock).await;
+        forgotten
+    }
+
+    async fn forget_user_locked(&self, user_id: Uuid) -> AppResult<()> {
         let db = &self.core.db;
         // Out of the live picture first.
         self.leave_gathering(user_id).await?;
-        let shares: Vec<String> = sqlx::query_scalar("SELECT token FROM geo_live_shares WHERE user_id = $1 AND ended_at IS NULL").bind(user_id).fetch_all(db).await?;
-        for token in &shares {
-            self.core.rt.notify_topic(&crate::shares::topic(token), crate::fanout::frame(Push::LocationRemovedUserId(user_id.to_string()))).await;
+        let shares: Vec<Vec<u8>> =
+            sqlx::query_scalar("SELECT token_sealed FROM geo_live_shares WHERE user_id = $1 AND ended_at IS NULL")
+                .bind(user_id)
+                .fetch_all(db)
+                .await?;
+        for token in shares.iter().filter_map(|sealed| self.open_share_token(sealed)) {
+            self.core
+                .rt
+                .notify_topic(
+                    &crate::shares::topic(&token),
+                    &crate::fanout::frame(Push::LocationRemovedUserId(user_id.to_string())),
+                )
+                .await;
         }
         // People whose cached context mentions this user: alert subjects, SOS senders.
-        let mut affected: Vec<Uuid> = sqlx::query_scalar("SELECT subject_id FROM geo_place_alerts WHERE owner_id = $1").bind(user_id).fetch_all(db).await?;
+        let mut affected: Vec<Uuid> = sqlx::query_scalar("SELECT subject_id FROM geo_place_alerts WHERE owner_id = $1")
+            .bind(user_id)
+            .fetch_all(db)
+            .await?;
         affected.extend(
             sqlx::query_scalar::<_, Uuid>(
                 "UPDATE geo_sos SET notify_user_ids = array_remove(notify_user_ids, $1) WHERE resolved_at IS NULL AND notify_user_ids @> ARRAY[$1]::uuid[] RETURNING user_id",
@@ -250,10 +315,20 @@ impl Geo {
             .fetch_all(db)
             .await?,
         );
-        affected.extend(sqlx::query_scalar::<_, Uuid>("SELECT owner_id FROM geo_ghost_rules WHERE viewer_id = $1").bind(user_id).fetch_all(db).await?);
+        affected.extend(
+            sqlx::query_scalar::<_, Uuid>("SELECT owner_id FROM geo_ghost_rules WHERE viewer_id = $1")
+                .bind(user_id)
+                .fetch_all(db)
+                .await?,
+        );
 
-        let places: Vec<PlaceRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {PLACE_COLUMNS} FROM geo_places WHERE owner_id = $1"))).bind(user_id).fetch_all(db).await?;
-        let memo_days: Vec<chrono::NaiveDate> = sqlx::query_scalar("SELECT day FROM geo_day_memos WHERE user_id = $1").bind(user_id).fetch_all(db).await?;
+        let places: Vec<PlaceRow> =
+            sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {PLACE_COLUMNS} FROM geo_places WHERE owner_id = $1")))
+                .bind(user_id)
+                .fetch_all(db)
+                .await?;
+        let memo_days: Vec<chrono::NaiveDate> =
+            sqlx::query_scalar("SELECT day FROM geo_day_memos WHERE user_id = $1").bind(user_id).fetch_all(db).await?;
         let mut tx = db.begin().await?;
         for place in &places {
             self.remove_place(&mut tx, place).await?;

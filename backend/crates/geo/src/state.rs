@@ -51,7 +51,10 @@ impl Area {
             return self.region.clone();
         }
         // "Kita, Osaka" already names its region.
-        if self.region.is_empty() || self.locality == self.region || self.locality.ends_with(&format!(", {}", self.region)) {
+        if self.region.is_empty()
+            || self.locality == self.region
+            || self.locality.ends_with(&format!(", {}", self.region))
+        {
             return self.locality.clone();
         }
         format!("{}, {}", self.locality, self.region)
@@ -146,6 +149,10 @@ pub struct LiveState {
     /// The latest footprint cells (H3 indexes), newest last: cells in here need no database round trip.
     #[serde(default)]
     pub recent_cells: Vec<i64>,
+    /// Device time of the latest sample that left a footprint (or confirmed
+    /// the current cell): only a sample right after it may bridge cells.
+    #[serde(default)]
+    pub footprint_ms: i64,
     #[serde(default)]
     pub odometer: Odometer,
     #[serde(default)]
@@ -208,7 +215,21 @@ pub(crate) struct UserLock {
     token: String,
 }
 
-const RELEASE: &str = "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end";
+const RELEASE: &str =
+    "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end";
+/// Extends a lock, if it is still ours.
+const RENEW: &str =
+    "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('PEXPIRE', KEYS[1], ARGV[2]) else return 0 end";
+/// Stores the state, if the lock is still ours (and extends the lock).
+const SAVE_IF_HELD: &str = "if redis.call('GET', KEYS[1]) == ARGV[1] then
+        redis.call('SET', KEYS[2], ARGV[2], 'EX', ARGV[3])
+        redis.call('PEXPIRE', KEYS[1], ARGV[4])
+        return 1
+    else return 0 end";
+
+fn lock_lost() -> AppError {
+    AppError::unavailable("LOCATION_BUSY", "location updates for this account are busy; try again")
+}
 
 impl Geo {
     /// The live state of a user (`None` if they never reported a location, or not for a long time).
@@ -224,10 +245,6 @@ impl Geo {
         let keys: Vec<String> = user_ids.iter().map(|id| state_key(*id)).collect();
         let raw: Vec<Option<Vec<u8>>> = redis::cmd("MGET").arg(&keys).query_async(&mut self.core.cache.conn()).await?;
         Ok(raw.into_iter().map(|bytes| bytes.and_then(|bytes| serde_json::from_slice(&bytes).ok())).collect())
-    }
-
-    pub(crate) async fn save_state(&self, user_id: Uuid, state: &LiveState) -> AppResult<()> {
-        self.core.cache.set_json(&state_key(user_id), state, Some(STATE_TTL)).await
     }
 
     pub(crate) async fn drop_state(&self, user_id: Uuid) -> AppResult<()> {
@@ -247,7 +264,10 @@ impl Geo {
                 return Ok(UserLock { key, token });
             }
             if tokio::time::Instant::now() >= deadline {
-                return Err(AppError::unavailable("LOCATION_BUSY", "location updates for this account are busy; try again"));
+                return Err(AppError::unavailable(
+                    "LOCATION_BUSY",
+                    "location updates for this account are busy; try again",
+                ));
             }
             tokio::time::sleep(pause).await;
             pause = (pause * 2).min(Duration::from_millis(80));
@@ -257,11 +277,53 @@ impl Geo {
     /// Releases a lock taken with [`Self::lock_user`]. A lock that already
     /// timed out and was taken by someone else is left alone.
     pub(crate) async fn unlock_user(&self, lock: UserLock) {
-        let released: Result<i64, _> =
-            redis::cmd("EVAL").arg(RELEASE).arg(1).arg(&lock.key).arg(&lock.token).query_async(&mut self.core.cache.conn()).await;
+        let released: Result<i64, _> = redis::cmd("EVAL")
+            .arg(RELEASE)
+            .arg(1)
+            .arg(&lock.key)
+            .arg(&lock.token)
+            .query_async(&mut self.core.cache.conn())
+            .await;
         if let Err(e) = released {
             tracing::warn!(error = %e, "could not release a location lock; it expires by itself");
         }
+    }
+
+    /// Keeps a lock alive while its holder is still working (a long batch).
+    /// Fails with `LOCATION_BUSY` if the lock timed out and went to someone
+    /// else: the holder must stop, its view of the state is no longer the
+    /// latest.
+    pub(crate) async fn renew_lock(&self, lock: &UserLock) -> AppResult<()> {
+        let renewed: i64 = redis::cmd("EVAL")
+            .arg(RENEW)
+            .arg(1)
+            .arg(&lock.key)
+            .arg(&lock.token)
+            .arg(LOCK_TTL.as_millis() as i64)
+            .query_async(&mut self.core.cache.conn())
+            .await?;
+        if renewed == 1 { Ok(()) } else { Err(lock_lost()) }
+    }
+
+    /// Stores a user's state on behalf of the holder of their lock — only if
+    /// the lock is still held. A holder that was slow enough to lose it (the
+    /// lock frees itself after 30 s without renewal) must not overwrite what
+    /// the next holder did: its batch fails and is processed again, which
+    /// the pipeline's writes are built for.
+    pub(crate) async fn save_state_locked(&self, user_id: Uuid, state: &LiveState, lock: &UserLock) -> AppResult<()> {
+        let bytes = serde_json::to_vec(state).map_err(|e| AppError::internal(anyhow::anyhow!("state encode: {e}")))?;
+        let saved: i64 = redis::cmd("EVAL")
+            .arg(SAVE_IF_HELD)
+            .arg(2)
+            .arg(&lock.key)
+            .arg(state_key(user_id))
+            .arg(&lock.token)
+            .arg(bytes)
+            .arg(STATE_TTL.as_secs())
+            .arg(LOCK_TTL.as_millis() as i64)
+            .query_async(&mut self.core.cache.conn())
+            .await?;
+        if saved == 1 { Ok(()) } else { Err(lock_lost()) }
     }
 
     /// Runs `work` on a user's live state under their lock and stores the
@@ -277,7 +339,7 @@ impl Geo {
             let before = state.clone();
             let out = work(&mut state).await?;
             if state != before {
-                self.save_state(user_id, &state).await?;
+                self.save_state_locked(user_id, &state, &lock).await?;
             }
             Ok(out)
         }

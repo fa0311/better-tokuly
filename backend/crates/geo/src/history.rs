@@ -6,7 +6,10 @@
 //! processes, at the end of every `ReportLocations` call, and inline whenever
 //! the buffer has grown or aged enough. ClickHouse being down never fails
 //! location sharing: rows stay buffered (up to a limit) and are retried.
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
 
 use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
@@ -57,11 +60,9 @@ pub struct PointRow {
 
 impl PointRow {
     pub fn flags(mocked: bool, foreground: bool, charging: bool) -> u8 {
-        (if mocked { FLAG_MOCKED } else { 0 }) | (if foreground { FLAG_FOREGROUND } else { 0 }) | (if charging { FLAG_CHARGING } else { 0 })
-    }
-
-    pub fn mocked(&self) -> bool {
-        self.flags & FLAG_MOCKED != 0
+        (if mocked { FLAG_MOCKED } else { 0 })
+            | (if foreground { FLAG_FOREGROUND } else { 0 })
+            | (if charging { FLAG_CHARGING } else { 0 })
     }
 }
 
@@ -105,6 +106,14 @@ impl Buffer {
     }
 }
 
+/// How long a deletion is remembered for other processes' buffers: far longer
+/// than a point waits in one, also through a ClickHouse outage.
+const DELETED_MARK_TTL: std::time::Duration = std::time::Duration::from_secs(6 * 3600);
+
+fn deleted_key(user_id: Uuid) -> String {
+    format!("geo:history:deleted:{}", user_id.simple())
+}
+
 fn unavailable(context: &str, error: impl std::fmt::Display) -> AppError {
     AppError::unavailable("HISTORY_UNAVAILABLE", format!("{context}: {error}"))
 }
@@ -122,7 +131,22 @@ impl Geo {
     /// Writes every buffered point to ClickHouse. Called by the flusher, at
     /// the end of `ReportLocations`, and by tests before reading history.
     pub async fn flush_history(&self) -> AppResult<()> {
-        let rows = self.history.take();
+        let mut rows = self.history.take();
+        if rows.is_empty() {
+            return Ok(());
+        }
+        // Points their owner deleted while they were waiting here stay deleted.
+        match self.deleted_ranges(&rows).await {
+            Ok(deleted) if !deleted.is_empty() => rows.retain(|row| {
+                let at = row.recorded_at.timestamp_millis();
+                !deleted.get(&row.user_id).is_some_and(|ranges| ranges.iter().any(|(from, to)| at >= *from && at < *to))
+            }),
+            Ok(_) => {}
+            Err(e) => {
+                self.history.restore(rows);
+                return Err(e);
+            }
+        }
         if rows.is_empty() {
             return Ok(());
         }
@@ -140,9 +164,30 @@ impl Geo {
         })
     }
 
+    /// The ranges recently deleted by the owners of `rows`.
+    async fn deleted_ranges(&self, rows: &[PointRow]) -> AppResult<HashMap<Uuid, Vec<(i64, i64)>>> {
+        let mut users: Vec<Uuid> = rows.iter().map(|row| row.user_id).collect();
+        users.sort();
+        users.dedup();
+        let keys: Vec<String> = users.iter().map(|user| deleted_key(*user)).collect();
+        let marks: Vec<Option<Vec<u8>>> =
+            redis::cmd("MGET").arg(&keys).query_async(&mut self.core.cache.conn()).await?;
+        Ok(users
+            .into_iter()
+            .zip(marks)
+            .filter_map(|(user, mark)| Some((user, serde_json::from_slice(&mark?).ok()?)))
+            .collect())
+    }
+
     /// A user's points in `[from, to)`, oldest first, thinned out evenly to at
     /// most `max_points`.
-    pub(crate) async fn points(&self, user_id: Uuid, from: DateTime<Utc>, to: DateTime<Utc>, max_points: usize) -> AppResult<Vec<PointRow>> {
+    pub(crate) async fn points(
+        &self,
+        user_id: Uuid,
+        from: DateTime<Utc>,
+        to: DateTime<Utc>,
+        max_points: usize,
+    ) -> AppResult<Vec<PointRow>> {
         let ch = &self.core.analytics.ch;
         let (user, from, to) = (user_id.to_string(), from.timestamp_millis(), to.timestamp_millis());
         const RANGE: &str = "user_id = toUUID(?) AND recorded_at >= fromUnixTimestamp64Milli(?) AND recorded_at < fromUnixTimestamp64Milli(?)";
@@ -192,13 +237,20 @@ impl Geo {
             .map_err(|e| unavailable("history count", e))
     }
 
-    /// Deletes a user's points in `[from, to)` (also those still buffered here).
+    /// Deletes a user's points in `[from, to)` — also those still buffered
+    /// here, and, through a marker every process checks before it writes,
+    /// those still buffered anywhere else.
     pub(crate) async fn delete_points(&self, user_id: Uuid, from: DateTime<Utc>, to: DateTime<Utc>) -> AppResult<()> {
+        let key = deleted_key(user_id);
+        let mut ranges: Vec<(i64, i64)> = self.core.cache.get_json(&key).await?.unwrap_or_default();
+        ranges.push((from.timestamp_millis(), to.timestamp_millis()));
+        self.core.cache.set_json(&key, &ranges, Some(DELETED_MARK_TTL)).await?;
         {
             let mut pending = self.history.inner.lock();
             pending.rows.retain(|row| !(row.user_id == user_id && row.recorded_at >= from && row.recorded_at < to));
         }
-        self.core
+        let deleted = self
+            .core
             .analytics
             .ch
             .query(
@@ -209,8 +261,14 @@ impl Geo {
             .bind(from.timestamp_millis())
             .bind(to.timestamp_millis())
             .execute()
-            .await
-            .map_err(|e| unavailable("history delete", e))
+            .await;
+        if let Err(e) = deleted {
+            // Nothing was deleted from the store: take the marker back, so the request fails as a whole.
+            ranges.pop();
+            let _ = self.core.cache.set_json(&key, &ranges, Some(DELETED_MARK_TTL)).await;
+            return Err(unavailable("history delete", e));
+        }
+        Ok(())
     }
 
     /// Deletes the points of several users recorded before `before` (retention).
@@ -230,9 +288,21 @@ impl Geo {
             .map_err(|e| unavailable("history retention", e))
     }
 
-    /// Adds one hour's movement totals to `geo_activity_hours`.
-    pub(crate) async fn store_hours(&self, user_id: Uuid, bucket: &HourBucket, area: &Area, region: &RegionRef) -> AppResult<()> {
-        let Some(hour) = DateTime::from_timestamp_millis(bucket.hour_ms) else { return Ok(()) };
+    /// Adds one hour's movement totals to `geo_activity_hours`. Idempotent:
+    /// a bucket that was already added (its samples were processed a second
+    /// time after a failure) changes nothing.
+    pub(crate) async fn store_hours(
+        &self,
+        user_id: Uuid,
+        bucket: &HourBucket,
+        area: &Area,
+        region: &RegionRef,
+    ) -> AppResult<()> {
+        let (Some(hour), Some(until)) =
+            (DateTime::from_timestamp_millis(bucket.hour_ms), DateTime::from_timestamp_millis(bucket.until_ms))
+        else {
+            return Ok(());
+        };
         let activities: Vec<i16> = bucket.totals.iter().map(|t| t.activity as i16).collect();
         let distances: Vec<f64> = bucket.totals.iter().map(|t| t.distance_m).collect();
         let durations: Vec<i32> = bucket.totals.iter().map(|t| t.duration_s.round() as i32).collect();
@@ -240,8 +310,8 @@ impl Geo {
         let points: Vec<i32> = bucket.totals.iter().map(|t| t.points as i32).collect();
         sqlx::query(
             "INSERT INTO geo_activity_hours
-                 (user_id, hour, activity, distance_m, duration_s, max_speed_mps, point_count, locality, locality_ja, country_code, admin1_id)
-             SELECT $1, $2, t.activity, t.distance_m, t.duration_s, t.max_speed, t.points, $8, $9, $10, $11
+                 (user_id, hour, activity, distance_m, duration_s, max_speed_mps, point_count, locality, locality_ja, country_code, admin1_id, counted_until)
+             SELECT $1, $2, t.activity, t.distance_m, t.duration_s, t.max_speed, t.points, $8, $9, $10, $11, $12
              FROM UNNEST($3::smallint[], $4::float8[], $5::int[], $6::real[], $7::int[]) AS t(activity, distance_m, duration_s, max_speed, points)
              ON CONFLICT (user_id, hour, activity) DO UPDATE SET
                  distance_m = geo_activity_hours.distance_m + EXCLUDED.distance_m,
@@ -249,7 +319,9 @@ impl Geo {
                  max_speed_mps = GREATEST(geo_activity_hours.max_speed_mps, EXCLUDED.max_speed_mps),
                  point_count = geo_activity_hours.point_count + EXCLUDED.point_count,
                  locality = EXCLUDED.locality, locality_ja = EXCLUDED.locality_ja,
-                 country_code = EXCLUDED.country_code, admin1_id = EXCLUDED.admin1_id",
+                 country_code = EXCLUDED.country_code, admin1_id = EXCLUDED.admin1_id,
+                 counted_until = EXCLUDED.counted_until
+             WHERE geo_activity_hours.counted_until < EXCLUDED.counted_until",
         )
         .bind(user_id)
         .bind(hour)
@@ -262,6 +334,7 @@ impl Geo {
         .bind(&area.locality_ja)
         .bind(&area.country_code)
         .bind(&region.admin1_id)
+        .bind(until)
         .execute(&self.core.db)
         .await?;
         Ok(())
@@ -309,9 +382,8 @@ mod tests {
     fn flags_pack_into_one_byte() {
         assert_eq!(PointRow::flags(false, false, false), 0);
         assert_eq!(PointRow::flags(true, true, true), 7);
-        let mocked = PointRow { flags: PointRow::flags(true, false, true), ..row(0) };
-        assert!(mocked.mocked());
-        assert!(!row(0).mocked());
+        assert_eq!(PointRow::flags(true, false, true), FLAG_MOCKED | FLAG_CHARGING);
+        assert_eq!(PointRow::flags(false, true, false), FLAG_FOREGROUND);
     }
 
     #[test]

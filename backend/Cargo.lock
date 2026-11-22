@@ -6577,6 +6577,7 @@ dependencies = [
  "tokuly-emoji",
  "tokuly-engagement",
  "tokuly-feed",
+ "tokuly-geo",
  "tokuly-identity",
  "tokuly-media",
  "tokuly-notes",
