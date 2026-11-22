@@ -8,7 +8,7 @@ export default {
     ranking: "ランキング",
   },
   tile: {
-    line: "あと {{xp}} XPでレベルアップ・ミッション {{done}}/{{total}}",
+    line: "あと{{xp}}XP・ミッション {{done}}/{{total}}",
     empty: "ミッションをクリアしてレベルを上げよう!",
     claim: "ごほうび {{count}}こ",
   },

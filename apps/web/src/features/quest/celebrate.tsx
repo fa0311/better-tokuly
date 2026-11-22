@@ -79,8 +79,8 @@ const SHOW_MS = { card: 4200, full: 5200 } as const;
 
 /**
  * Where reveals are drawn. The layer never takes input away from the page
- * under it: only the card itself can be tapped (to open what it is about)
- * and it leaves on its own.
+ * under it: only the card's two buttons can be tapped (open what it is
+ * about, close) and it leaves on its own.
  */
 export function RevealLayer() {
   const current = useReveals((state) => state.queue[0]);
@@ -200,7 +200,8 @@ function RevealCard({ shown, waiting }: { shown: Shown; waiting: number }) {
       role="status"
       data-testid="quest-reveal"
       className={cn(
-        "sticker-lg pointer-events-auto relative flex animate-pop-in flex-col items-center rounded-[2rem] bg-surface text-center",
+        // Only its buttons take taps: what lies under the card stays reachable.
+        "sticker-lg relative flex animate-pop-in flex-col items-center rounded-[2rem] bg-surface text-center",
         full
           ? "w-[min(24rem,100%)] gap-3 px-6 pt-9 pb-7"
           : "w-[min(20rem,100%)] gap-2 px-5 pt-6 pb-5",
@@ -210,7 +211,7 @@ function RevealCard({ shown, waiting }: { shown: Shown; waiting: number }) {
         type="button"
         aria-label={t("celebrate.close")}
         onClick={() => dismiss(shown.id)}
-        className="absolute top-2.5 right-2.5 grid size-9 place-items-center rounded-full text-ink-soft hover:bg-surface-2"
+        className="pointer-events-auto absolute top-2.5 right-2.5 grid size-9 place-items-center rounded-full text-ink-soft hover:bg-surface-2"
       >
         <X className="size-5" />
       </button>
@@ -232,7 +233,7 @@ function RevealCard({ shown, waiting }: { shown: Shown; waiting: number }) {
             dismiss(shown.id);
             open();
           }}
-          className="pressable sticker-sm mt-2 inline-flex h-9 items-center rounded-full bg-lime px-4 text-sm font-black text-[#17122b]"
+          className="pressable sticker-sm pointer-events-auto mt-2 inline-flex h-9 items-center rounded-full bg-lime px-4 text-sm font-black text-[#17122b]"
         >
           {t("celebrate.open")}
         </button>

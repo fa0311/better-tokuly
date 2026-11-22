@@ -68,7 +68,8 @@ export function BadgesScreen() {
             </Link>
           </section>
 
-          <div className="mt-6 grid gap-5 lg:grid-cols-2 lg:items-start">
+          {/* Families differ a lot in height: columns pack them without holes. */}
+          <div className="mt-6 gap-5 lg:columns-2">
             {data.families.map((family) => (
               <Family key={family.key} family={family} />
             ))}
@@ -84,7 +85,10 @@ function Family({ family }: { family: quest.BadgeFamily }) {
   const text = useLocalized();
   const name = text(family.name);
   return (
-    <section aria-label={name} className="sticker rounded-card bg-surface p-4">
+    <section
+      aria-label={name}
+      className="sticker mb-5 break-inside-avoid rounded-card bg-surface p-4"
+    >
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-lg font-black">
           <span aria-hidden>{family.emoji}</span> {name}

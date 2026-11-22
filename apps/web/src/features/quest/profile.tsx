@@ -110,7 +110,7 @@ function QuestShowcase({ profile, user, isSelf }: ProfileSectionProps) {
       ) : (
         <ul className="mt-3 flex flex-wrap gap-x-3 gap-y-4">
           {badges.map((badge) => (
-            <li key={badge.key} className="w-16">
+            <li key={badge.key} className="w-20">
               <Link
                 to="/quest/badges/$key"
                 params={{ key: badge.key }}

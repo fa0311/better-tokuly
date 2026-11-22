@@ -8,7 +8,7 @@ export default {
     ranking: "Ranking",
   },
   tile: {
-    line: "{{xp}} XP to level up · missions {{done}}/{{total}}",
+    line: "{{xp}} XP to go · missions {{done}}/{{total}}",
     empty: "Clear missions and level up!",
     claim: "Rewards: {{count}}",
   },
