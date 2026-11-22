@@ -144,11 +144,11 @@ test.describe("reading the news", () => {
     try {
       // Staff: add the feed and watch its first fetch come in.
       await staff.goto("/admin/news");
-      await staff.getByRole("button", { name: "ソースを追加" }).click();
+      await staff.getByRole("button", { name: "ソースを追加" }).first().click();
       const dialog = staff.getByRole("dialog");
       await dialog.getByLabel("フィードURL").fill(feed.url);
       await dialog.getByLabel("デフォルトタグ").fill("E2E部");
-      await dialog.getByRole("button", { name: "ソースを追加" }).click();
+      await dialog.getByRole("button", { name: "ソースを追加" }).first().click();
       const row = sourceRows(staff).filter({ hasText: feed.url });
       await expect(row).toContainText(feed.title, { timeout: 30_000 });
       await expect(row).toContainText("正常");
@@ -353,10 +353,10 @@ test.describe("staff", () => {
   test("a feed the server will not fetch is refused with a reason, in the form", async ({ page, request }) => {
     await signInAs(page, await adminAccount(request));
     await page.goto("/admin/news");
-    await page.getByRole("button", { name: "ソースを追加" }).click();
+    await page.getByRole("button", { name: "ソースを追加" }).first().click();
     const dialog = page.getByRole("dialog");
     await dialog.getByLabel("フィードURL").fill("ftp://example.com/feed.xml");
-    await dialog.getByRole("button", { name: "ソースを追加" }).click();
+    await dialog.getByRole("button", { name: "ソースを追加" }).first().click();
     await expect(dialog.getByRole("alert")).toBeVisible();
     await expect(dialog.getByLabel("フィードURL")).toHaveAttribute("aria-invalid", "true");
   });

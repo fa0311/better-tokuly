@@ -54,16 +54,12 @@ export function SearchBox({
     onSearch(next);
   };
   const openSuggestion = useOpenSuggestion(submit);
-  const keys = useSuggestionKeys({
-    suggestions: open ? suggestions : [],
-    onChoose: (suggestion) => {
-      setOpen(false);
-      input.current?.blur();
-      openSuggestion(suggestion);
-    },
-    onSubmit: () => submit(text),
-    onEscape: () => setOpen(false),
-  });
+  const choose: typeof openSuggestion = (suggestion) => {
+    setOpen(false);
+    input.current?.blur();
+    openSuggestion(suggestion);
+  };
+  const keys = useSuggestionKeys({ suggestions: open ? suggestions : [], onChoose: choose, onSubmit: () => submit(text), onEscape: () => setOpen(false) });
   const expanded = open && suggestions.length > 0;
 
   return (
@@ -124,11 +120,7 @@ export function SearchBox({
       </form>
       {expanded && (
         <div className="sticker absolute inset-x-0 top-full z-30 mt-2 max-h-[min(26rem,60dvh)] overflow-y-auto rounded-3xl bg-surface p-1.5">
-          <SuggestionList listId={listId} label={t("suggest.label")} suggestions={suggestions} active={keys.active} onActive={keys.setActive} onChoose={(suggestion) => {
-            setOpen(false);
-            input.current?.blur();
-            openSuggestion(suggestion);
-          }} />
+          <SuggestionList listId={listId} label={t("suggest.label")} suggestions={suggestions} active={keys.active} onActive={keys.setActive} onChoose={choose} />
         </div>
       )}
     </search>
