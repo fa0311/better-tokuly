@@ -56,7 +56,7 @@ export function NewsScreen({ params }: { params: NewsParams }) {
     >
       <Filters params={params} recommended={recommended} filtered={filtered} />
       {list.isPending ? (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3" aria-busy>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" aria-busy>
           {Array.from({ length: 6 }, (_, index) => (
             <ArticleSkeleton key={index} />
           ))}
@@ -98,7 +98,7 @@ export function NewsScreen({ params }: { params: NewsParams }) {
         )
       ) : (
         <>
-          <ul className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <ul className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {articles.map((article) => (
               <li key={article.id} className="min-w-0">
                 <ArticleCard article={article} />

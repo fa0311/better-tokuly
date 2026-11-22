@@ -30,7 +30,19 @@ export function PublishedAt({ at, className }: { at: Timestamp | undefined; clas
 export function SourceIcon({ source, className }: { source: Pick<feed.NewsSource, "faviconUrl"> | undefined; className?: string }) {
   const [broken, setBroken] = useState(false);
   if (!source?.faviconUrl || broken) return <Globe className={cn("size-4 shrink-0 text-ink-faint", className)} aria-hidden />;
-  return <img src={source.faviconUrl} alt="" className={cn("size-4 shrink-0 rounded-[4px]", className)} loading="lazy" decoding="async" onError={() => setBroken(true)} draggable={false} />;
+  return (
+    <img
+      src={source.faviconUrl}
+      alt=""
+      className={cn("size-4 shrink-0 rounded-[4px]", className)}
+      loading="lazy"
+      decoding="async"
+      onError={() => setBroken(true)}
+      // Some sites answer the icon's address with an empty picture.
+      onLoad={(event) => event.currentTarget.naturalWidth === 0 && setBroken(true)}
+      draggable={false}
+    />
+  );
 }
 
 /** The marker of an article that was picked at random rather than for the reader's interests. */

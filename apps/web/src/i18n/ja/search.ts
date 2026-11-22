@@ -88,6 +88,8 @@ export default {
     cleared: "検索履歴を消したよ",
     empty: "検索すると、ここに履歴がのこるよ。もう一度さがすときに便利！",
     emptyPaused: "履歴は一時停止中。いまは検索しても何ものこらないよ。",
+    showAll: "ぜんぶ見る（{{count}}件）",
+    showLess: "少しだけ表示",
   },
   trending: {
     title: "トレンド",

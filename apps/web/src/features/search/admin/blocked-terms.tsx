@@ -57,7 +57,7 @@ export function BlockedTerms() {
   };
 
   return (
-    <div className="grid items-start gap-4 xl:grid-cols-[22rem_minmax(0,1fr)]">
+    <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[22rem_minmax(0,1fr)]">
       <Pane title={t("staff.blocked.addTitle")}>
         <form onSubmit={submit} className="flex flex-col gap-3 p-4">
           <p className="text-sm leading-relaxed text-ink-soft">{t("staff.blocked.lead")}</p>

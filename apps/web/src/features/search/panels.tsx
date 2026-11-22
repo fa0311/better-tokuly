@@ -15,6 +15,9 @@ import { isKind, kindSlug } from "./kinds";
 
 const heading = "flex min-w-0 flex-1 items-center gap-2 text-lg font-black";
 
+/** Recent searches shown before "show all" is pressed. */
+const RECENT_PREVIEW = 6;
+
 /**
  * The person's recent searches: run one again, forget one, forget all, and
  * pause the history (while paused nothing new is remembered and their
@@ -26,7 +29,9 @@ export function RecentPanel({ className }: { className?: string }) {
   const recent = useRecentSearches();
   const { forget, clear, setPaused } = useHistoryActions();
   const [confirming, setConfirming] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const searches = recent.data?.searches ?? [];
+  const shown = expanded ? searches : searches.slice(0, RECENT_PREVIEW);
   const paused = recent.data?.historyPaused ?? false;
   if (recent.isPending || recent.isError) return null;
 
@@ -56,7 +61,7 @@ export function RecentPanel({ className }: { className?: string }) {
         <p className="px-1 py-2 text-sm leading-relaxed text-ink-soft">{t(paused ? "recent.emptyPaused" : "recent.empty")}</p>
       ) : (
         <ul className="flex flex-col">
-          {searches.map((item) => (
+          {shown.map((item) => (
             <li key={item.id} className="flex items-center rounded-2xl hover:bg-surface-2">
               <Link
                 to="/search"
@@ -80,6 +85,11 @@ export function RecentPanel({ className }: { className?: string }) {
           ))}
         </ul>
       )}
+      {searches.length > RECENT_PREVIEW && (
+        <button type="button" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)} className="mt-1 ml-3 inline-flex h-9 items-center text-sm font-bold text-brand hover:underline">
+          {expanded ? t("recent.showLess") : t("recent.showAll", { count: searches.length })}
+        </button>
+      )}
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}
@@ -100,7 +110,7 @@ export function RecentPanel({ className }: { className?: string }) {
 }
 
 /** What many people are searching for right now, as a ranked list. */
-export function TrendingPanel({ limit = 10, columns, className }: { limit?: number; /** Lay the ranks out in two columns where there is room. */ columns?: boolean; className?: string }) {
+export function TrendingPanel({ limit = 10, className }: { limit?: number; className?: string }) {
   const { t } = useTranslation("search");
   const queryClient = useQueryClient();
   const trending = useTrending(limit);
@@ -123,7 +133,7 @@ export function TrendingPanel({ limit = 10, columns, className }: { limit?: numb
       ) : queries.length === 0 ? (
         <p className="px-1 py-2 text-sm leading-relaxed text-ink-soft">{t("trending.empty")}</p>
       ) : (
-        <ol className={cn("grid gap-x-4", columns && "sm:grid-flow-col sm:grid-cols-2")} style={columns ? { gridTemplateRows: `repeat(${Math.ceil(queries.length / 2)}, minmax(0, auto))` } : undefined}>
+        <ol className="flex flex-col">
           {queries.map((item) => (
             <li key={item.query} className="min-w-0">
               <Link to="/search" search={{ q: item.query }} onClick={() => submitSearch(queryClient, item.query)} className="flex min-h-11 items-center gap-3 rounded-2xl px-2 py-1.5 hover:bg-surface-2">

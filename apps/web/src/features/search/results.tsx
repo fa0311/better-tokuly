@@ -66,7 +66,7 @@ export function Results({ params, onChange }: { params: ResultParams; /** Moves 
       <KindTabs params={params} kind={kind} counts={counts} />
       <Filters params={params} onChange={onChange} total={list.isSuccess && hits.length > 0 ? total : undefined} ownerHint={hits.find((hit) => hit.owner?.id === params.owner)?.owner} />
       {list.isPending ? (
-        <div className="grid gap-2 lg:grid-cols-2" aria-busy>
+        <div className="grid grid-cols-1 gap-2 lg:grid-cols-2" aria-busy>
           {Array.from({ length: 6 }, (_, index) => (
             <HitSkeleton key={index} />
           ))}
@@ -89,7 +89,7 @@ export function Results({ params, onChange }: { params: ResultParams; /** Moves 
 
 function HitGrid({ hits }: { hits: search.SearchHit[] }) {
   return (
-    <ul className="grid gap-2 lg:grid-cols-2">
+    <ul className="grid grid-cols-1 gap-2 lg:grid-cols-2">
       {hits.map((hit) => (
         <li key={`${hit.kind}:${hit.id}`} className="min-w-0">
           <HitCard hit={hit} className="h-full" />
@@ -228,7 +228,7 @@ function Sections({ params, hits, counts }: { params: ResultParams; hits: search
                 </Link>
               )}
             </header>
-            <ul className="grid gap-2 lg:grid-cols-2">
+            <ul className="grid grid-cols-1 gap-2 lg:grid-cols-2">
               {shown.map((hit) => (
                 <li key={hit.id} className="min-w-0">
                   <HitCard hit={hit} className="h-full" />

@@ -27,7 +27,7 @@ const stampStoreClient = () => api().service(stamp.StampStoreService);
  */
 export function Explore() {
   return (
-    <div className="grid gap-x-8 gap-y-7 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-x-8 gap-y-7 lg:grid-cols-2">
       <div className="flex min-w-0 flex-col gap-7">
         <RecentPanel />
         <TrendingPanel limit={10} />
@@ -106,7 +106,8 @@ function PeopleYouMayKnow() {
         </Link>
       }
     >
-      <ul className="scrollbar-none -mx-4 flex gap-3 overflow-x-auto px-4 pt-1 pb-2 md:mx-0 md:px-1">
+      {/* A row to swipe through on phones; a grid of the first six where a mouse cannot swipe. */}
+      <ul className="scrollbar-none -mx-4 flex gap-3 overflow-x-auto px-4 pt-1 pb-2 md:mx-0 md:px-1 lg:grid lg:grid-cols-3 lg:overflow-visible lg:[&>li:nth-child(n+7)]:hidden">
         {people.map((suggestion) => suggestion.user && <PersonCard key={suggestion.user.id} suggestion={suggestion} />)}
       </ul>
     </Block>
@@ -127,7 +128,7 @@ function PersonCard({ suggestion }: { suggestion: social.Suggestion }) {
   });
   if (!user) return null;
   return (
-    <li className="sticker flex w-36 shrink-0 flex-col items-center gap-2 rounded-card bg-surface p-3 text-center">
+    <li className="sticker flex w-36 shrink-0 flex-col items-center gap-2 rounded-card bg-surface p-3 text-center lg:w-auto">
       <Link to="/u/$handle" params={{ handle: user.handle }} className="flex w-full min-w-0 flex-col items-center gap-1.5">
         <Avatar user={user} size="lg" outlined />
         <span className="w-full truncate text-sm font-black">{user.displayName || user.handle}</span>
@@ -169,11 +170,11 @@ function PopularPacks() {
         </Link>
       }
     >
-      <ul className="scrollbar-none -mx-4 flex gap-3 overflow-x-auto px-4 pt-1 pb-2 md:mx-0 md:px-1">
+      <ul className="scrollbar-none -mx-4 flex gap-3 overflow-x-auto px-4 pt-1 pb-2 md:mx-0 md:px-1 lg:grid lg:grid-cols-4 lg:overflow-visible lg:[&>li:nth-child(n+9)]:hidden">
         {list.map((pack) => {
           const cover = pack.cover?.variants.toSorted((a, b) => a.size - b.size).find((variant) => variant.size >= 240)?.url ?? pack.cover?.url;
           return (
-            <li key={pack.id} className="w-32 shrink-0">
+            <li key={pack.id} className="w-32 shrink-0 lg:w-auto">
               <Link to="/stamps/$packId" params={{ packId: pack.shortId || pack.id }} className="pressable sticker flex h-full flex-col gap-2 rounded-card bg-surface p-2.5">
                 <span className="grid aspect-square place-items-center overflow-hidden rounded-xl bg-surface-2">
                   {cover ? <img src={cover} alt="" className="size-full object-contain p-1.5" loading="lazy" decoding="async" draggable={false} /> : <Smile className="size-8 text-ink-faint" />}

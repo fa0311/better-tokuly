@@ -120,6 +120,23 @@ test.describe("searching", () => {
     await expect(hits(page).last()).toHaveAttribute("href", `/notes/${first}`);
   });
 
+  test("a long list of results keeps loading as it is scrolled", async ({ page, request, me }) => {
+    const author = await createAccount(request, "prolific");
+    const word = unique("takusan");
+    const rules = await rpc<{ version: number }>(request, `${NOTES}/GetNoteRules`, {}, author);
+    await rpc(request, `${NOTES}/AgreeToNoteRules`, { version: rules.version }, author);
+    for (let index = 1; index <= 24; index++) await rpc(request, `${NOTES}/CreateNote`, { text: `${word} その${index}`, visibility: "VISIBILITY_PUBLIC" }, author);
+    const total = async () => Number((await rpc<{ total?: string }>(request, `${SEARCH}/Search`, { query: word, kind: "SEARCH_KIND_NOTE", skipHistory: true }, me)).total ?? 0);
+    await expect.poll(total, { timeout: 30_000 }).toBe(24);
+
+    await page.goto(`/search?q=${word}&kind=notes`);
+    // A page is 20 results; the rest arrives when the end of the list comes near.
+    await expect(hits(page).first()).toBeVisible();
+    await hits(page).last().scrollIntoViewIfNeeded();
+    await expect(hits(page)).toHaveCount(24);
+    await expect(page.getByText("約 24 件")).toBeVisible();
+  });
+
   test("a stamp pack from the store is found and opens its page", async ({ page, request, me }) => {
     const store = await rpc<{ packs?: { name: string; shortId: string }[] }>(request, "tokuly.stamp.v1.StampStoreService/ListStorePacks", { page: { limit: 1 } }, me);
     const pack = store.packs?.[0];

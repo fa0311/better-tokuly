@@ -52,7 +52,7 @@ export function Documents() {
   const hits = results.data?.hits ?? [];
 
   return (
-    <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
+    <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
       <Pane title={t("staff.documents.findTitle")}>
         <div className="p-4">
           <label className="flex h-11 items-center gap-2 rounded-control border-2 border-line bg-surface px-3 focus-within:border-brand">

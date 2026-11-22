@@ -70,7 +70,8 @@ export function useTrending(limit = 10) {
 
 // ───────────────────────────── Recent searches ─────────────────────────────
 
-const RECENT_LIMIT = 20;
+/** The API keeps at most this many recent searches per person. */
+const RECENT_LIMIT = 50;
 
 /** The person's own recent searches (newest first) and whether their history is paused. */
 export function useRecentSearches(enabled = true) {

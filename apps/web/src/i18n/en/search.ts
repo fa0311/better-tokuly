@@ -88,6 +88,8 @@ export default {
     cleared: "Search history cleared",
     empty: "Your searches show up here, ready to run again.",
     emptyPaused: "History is paused: nothing you search for is remembered right now.",
+    showAll: "Show all ({{count}})",
+    showLess: "Show fewer",
   },
   trending: {
     title: "Trending",

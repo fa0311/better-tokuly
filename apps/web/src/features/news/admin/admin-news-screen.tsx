@@ -65,7 +65,7 @@ export function AdminNewsScreen() {
         )
       }
     >
-      <div className="grid items-start gap-4 2xl:grid-cols-[minmax(0,1fr)_24rem]">
+      <div className="grid grid-cols-1 items-start gap-4 2xl:grid-cols-[minmax(0,1fr)_24rem]">
         {access.admin && <Sources watchUntil={watchUntil} onWatch={() => setWatchUntil(Date.now() + WATCH_MS)} onAdd={() => setAdding(true)} />}
         <RemoveArticle />
       </div>
