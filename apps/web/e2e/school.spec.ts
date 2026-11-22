@@ -60,7 +60,7 @@ async function browserOf(browser: Browser, testInfo: TestInfo, account: Account)
 
 /** The seconds a timer face shows ("24:57" → 1497). */
 async function timerSeconds(page: Page): Promise<number> {
-  const text = (await page.getByRole("timer").innerText()).trim();
+  const text = ((await page.getByRole("timer").textContent()) ?? "").trim();
   return text.split(":").reduce((total, part) => total * 60 + Number(part), 0);
 }
 
