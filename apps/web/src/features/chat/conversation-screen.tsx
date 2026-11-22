@@ -211,7 +211,7 @@ function OpenConversation({ conversation, me, openAtMessageId }: { conversation:
 
   const toLatest = async () => {
     if (hasNewer) await showNewest(queryClient, conversationId).catch((error) => toast.error(errorMessage(error)));
-    requestAnimationFrame(() => list.current?.scrollToEnd(!hasNewer));
+    requestAnimationFrame(() => list.current?.scrollToEnd());
   };
   const afterSend = () => {
     if (hasNewer) void toLatest();

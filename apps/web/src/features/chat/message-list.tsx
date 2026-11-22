@@ -10,7 +10,7 @@ import { dayLabel } from "./text";
 /** What the screen can ask of the list. */
 export interface MessageListHandle {
   /** Goes to the newest message (after sending, or "jump to latest"). */
-  scrollToEnd(smooth?: boolean): void;
+  scrollToEnd(): void;
 }
 
 /** How close to the end (px) still counts as "at the bottom". */
@@ -87,6 +87,8 @@ export function MessageList({
   const openingTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   /** Until when the list is still settling at its end after being sent there. */
   const settlingUntil = useRef(0);
+  /** Until when scrolling is the reader's own doing (a wheel, a finger, a key just now). */
+  const handUntil = useRef(0);
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scroller.current,
@@ -101,10 +103,14 @@ export function MessageList({
   });
   const items = virtualizer.getVirtualItems();
 
-  const toEnd = (smooth?: boolean) => {
+  // Always at once: an animated scroll aims at where the end was when it set off, and stops short
+  // once the rows it passes turn out taller than estimated.
+  const toEnd = () => {
     pinned.current = true;
-    settlingUntil.current = smooth ? 0 : performance.now() + 1500;
-    virtualizer.scrollToEnd({ behavior: smooth ? "smooth" : "auto" });
+    settlingUntil.current = performance.now() + 1500;
+    // Asked for by the reader: whatever scrolling they did just before no longer counts against it.
+    handUntil.current = 0;
+    virtualizer.scrollToEnd();
   };
   useImperativeHandle(ref, () => ({ scrollToEnd: toEnd }));
 
@@ -176,16 +182,15 @@ export function MessageList({
     const element = scroller.current;
     const sizer = content.current;
     if (!element || !sizer) return;
-    let handUntil = 0;
     const touched = () => {
-      handUntil = performance.now() + 2500;
+      handUntil.current = performance.now() + 2500;
       settlingUntil.current = 0;
       opening.current = false;
     };
     const onScroll = () => {
       const atEnd = virtualizer.isAtEnd(END_THRESHOLD);
       const now = performance.now();
-      if (!atEnd && pinned.current && now < settlingUntil.current && now >= handUntil) {
+      if (!atEnd && pinned.current && now < settlingUntil.current && now >= handUntil.current) {
         requestAnimationFrame(() => pinned.current && virtualizer.scrollToEnd());
         return;
       }

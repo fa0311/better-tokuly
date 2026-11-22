@@ -71,6 +71,8 @@ export function Composer({
   const picker = useRef<HTMLInputElement>(null);
   const filePicker = useRef<HTMLInputElement>(null);
   const typedAt = useRef(0);
+  /** Where the caret belongs once an inserted mention or emoji is in the field. */
+  const caretAfterInsert = useRef<number | null>(null);
   const [text, setText] = useState(() => loadDraft(me.id, conversation.id));
   const [caret, setCaret] = useState(0);
   const [files, setFiles] = useState<OutgoingFile[]>([]);
@@ -95,6 +97,11 @@ export function Composer({
   useLayoutEffect(() => {
     const element = input.current;
     if (!element) return;
+    if (caretAfterInsert.current !== null) {
+      element.focus();
+      element.setSelectionRange(caretAfterInsert.current, caretAfterInsert.current);
+      caretAfterInsert.current = null;
+    }
     element.style.height = "auto";
     element.style.height = `${Math.min(element.scrollHeight, 148)}px`;
   }, [text]);
@@ -154,11 +161,10 @@ export function Composer({
   const insertAt = (start: number, end: number, inserted: string) => {
     const next = text.slice(0, start) + inserted + text.slice(end);
     const position = start + inserted.length;
+    // The caret goes behind what was inserted as soon as the new text is in the field (see the layout
+    // effect): any later, and a key typed in between would land in the wrong place.
+    caretAfterInsert.current = position;
     change(next, position);
-    requestAnimationFrame(() => {
-      input.current?.focus();
-      input.current?.setSelectionRange(position, position);
-    });
   };
   const pickMention = (choice: MentionChoice) => {
     if (!mention) return;
