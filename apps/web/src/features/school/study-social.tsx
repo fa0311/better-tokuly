@@ -9,6 +9,7 @@ import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { Skeleton } from "#/components/ui/page";
+import { EmojiText } from "#/features/emoji";
 import { useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
 import { keys, refresh, settingsClient, studyClient, toastError } from "./api";
@@ -225,7 +226,7 @@ export function Ranking() {
                   className="min-w-0 flex-1 truncate text-left font-bold hover:underline"
                   aria-label={t("heatmap.of", { name: entry.user?.displayName ?? "" })}
                 >
-                  {entry.user?.displayName}
+                  <EmojiText text={entry.user?.displayName ?? ""} />
                 </button>
               )}
               <span className="shrink-0 text-sm font-black">

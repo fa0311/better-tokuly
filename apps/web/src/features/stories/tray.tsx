@@ -4,6 +4,7 @@ import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { Skeleton } from "#/components/ui/page";
+import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { useMe } from "#/stores/session";
 import { useStoryTray, useUserStories } from "./api";
@@ -119,7 +120,7 @@ export function StoryTray() {
                   reel.hasUnseen ? "font-black text-ink" : "font-bold text-ink-faint",
                 )}
               >
-                {reel.user?.displayName}
+                <EmojiText text={reel.user?.displayName ?? ""} />
               </span>
             </button>
           </li>

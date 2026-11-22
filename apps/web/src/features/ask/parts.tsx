@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Spinner } from "#/components/ui/spinner";
+import { EmojiText } from "#/features/emoji";
 import { ImageViewer, imageUrl } from "#/features/notes";
 import { StampImage } from "#/features/stamps";
 import { cn } from "#/lib/cn";
@@ -139,7 +140,9 @@ export function Sender({
         data-testid="sender"
       >
         <Avatar user={user} size="xs" />
-        <span className="truncate">{user.displayName}</span>
+        <span className="truncate">
+          <EmojiText text={user.displayName} />
+        </span>
       </Link>
     );
   }

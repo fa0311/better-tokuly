@@ -4,6 +4,7 @@ import { Phone, PhoneOff, Video } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
+import { EmojiText } from "#/features/emoji";
 import { useMe } from "#/stores/session";
 import { useConversation } from "../conversations";
 import { useLive } from "../live";
@@ -68,7 +69,9 @@ function IncomingCall({ call, myId }: { call: chat.Call; myId: string }) {
           <Avatar user={caller} outlined className="relative" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate font-black">{displayName(caller)}</p>
+          <p className="truncate font-black">
+            <EmojiText text={displayName(caller)} />
+          </p>
           <p className="truncate text-sm font-bold text-ink-soft">
             {group
               ? t(call.video ? "call.incoming.groupVideo" : "call.incoming.groupVoice", {

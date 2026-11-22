@@ -18,6 +18,7 @@ import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { Coins } from "#/components/ui/coins";
 import { Dialog } from "#/components/ui/dialog";
+import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { compactAge } from "#/lib/format";
 import { daysAgo, groupByDay, parseMemo } from "./format";
@@ -116,7 +117,9 @@ export function LedgerRow({
           {entry.counterpart ? (
             <>
               <Avatar user={entry.counterpart} size="xs" />
-              <span className="truncate">{entry.counterpart.displayName}</span>
+              <span className="truncate">
+                <EmojiText text={entry.counterpart.displayName} />
+              </span>
             </>
           ) : (
             <span className="truncate">{t(kindKey(entry))}</span>
@@ -199,7 +202,9 @@ function EntryDialog({
               className="inline-flex max-w-full items-center gap-2 underline decoration-2 underline-offset-2"
             >
               <Avatar user={entry.counterpart} size="xs" />
-              <span className="truncate">{entry.counterpart.displayName}</span>
+              <span className="truncate">
+                <EmojiText text={entry.counterpart.displayName} />
+              </span>
             </Link>
           </Fact>
         )}

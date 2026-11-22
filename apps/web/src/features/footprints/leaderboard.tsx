@@ -6,6 +6,7 @@ import { Avatar } from "#/components/ui/avatar";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { SelectField } from "#/components/ui/select";
 import { Tabs } from "#/components/ui/tabs";
+import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { useMe } from "#/stores/session";
 import { footprintClient, footprintKeys, regionName } from "./api";
@@ -133,7 +134,7 @@ function Row({ entry, self }: { entry: geo.LeaderboardEntry; self: boolean }) {
       <Avatar user={user} size="md" />
       <span className="min-w-0 flex-1 text-left">
         <span className="block truncate font-bold">
-          {user.displayName}
+          <EmojiText text={user.displayName} />
           {self && (
             <span className="ml-1.5 rounded-full bg-brand px-1.5 py-0.5 text-[10px] font-black text-on-brand">
               {t("leaderboard.you")}

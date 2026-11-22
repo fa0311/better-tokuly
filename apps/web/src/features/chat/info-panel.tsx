@@ -29,6 +29,7 @@ import { LoadMore } from "#/components/ui/load-more";
 import { Menu, type MenuAction } from "#/components/ui/menu";
 import { Skeleton } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
+import { EmojiText } from "#/features/emoji";
 import { useConversationActions } from "./actions";
 import { chatKeys, conversationClient } from "./api";
 import { ConversationAvatar } from "./conversation-avatar";
@@ -383,7 +384,7 @@ function Members() {
                   <Avatar user={member.user} size="sm" />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-bold">
-                      {displayName(member.user)}
+                      <EmojiText text={displayName(member.user)} />
                       {member.user.id === me.id && (
                         <span className="text-ink-faint"> ({t("people.you")})</span>
                       )}

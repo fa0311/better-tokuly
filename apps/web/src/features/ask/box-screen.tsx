@@ -8,6 +8,7 @@ import { Button } from "#/components/ui/button";
 import { Card } from "#/components/ui/card";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
+import { EmojiText } from "#/features/emoji";
 import { useMe } from "#/stores/session";
 import { useAnswers, useBox, usePromptsOf } from "./api";
 import { takeDraft } from "./guest-return";
@@ -24,7 +25,9 @@ export function BoxHeader({ box, guest }: { box: ask.QuestionBox; guest?: boolea
     <>
       <Avatar user={owner} size="lg" outlined />
       <span className="min-w-0">
-        <span className="block truncate text-xl font-black">{owner.displayName}</span>
+        <span className="block truncate text-xl font-black">
+          <EmojiText text={owner.displayName} />
+        </span>
         <span className="block truncate font-bold text-ink-soft">@{owner.handle}</span>
       </span>
     </>

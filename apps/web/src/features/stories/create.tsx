@@ -10,6 +10,7 @@ import { Dialog } from "#/components/ui/dialog";
 import { Skeleton } from "#/components/ui/page";
 import { Sortable } from "#/components/ui/sortable";
 import { Tabs } from "#/components/ui/tabs";
+import { EmojiText } from "#/features/emoji";
 import { charCount, type Upload, UploadTile, useUploads } from "#/features/notes";
 import { api } from "#/lib/api";
 import { cn } from "#/lib/cn";
@@ -275,7 +276,7 @@ function FriendPicker({
                 >
                   <Avatar user={friend.user} size="sm" />
                   <span className="min-w-0 flex-1 truncate font-bold">
-                    {friend.user.displayName}
+                    <EmojiText text={friend.user.displayName} />
                   </span>
                   <span
                     className={cn(

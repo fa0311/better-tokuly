@@ -8,6 +8,7 @@ export default {
   suggest: {
     label: "検索の候補",
     jumpTo: "これかも？",
+    destinations: "Tokulyのなか",
     searchFor: "「{{query}}」で検索",
     source: { recent: "最近の検索", popular: "人気の検索", trending: "トレンド" },
   },
@@ -108,7 +109,7 @@ export default {
   palette: {
     title: "クイック検索",
     placeholder: "ひと、タグ、なんでも検索…",
-    hint: "名前や @ハンドル、#タグを打ってみてね。ひとやタグにそのまま飛べるよ！",
+    hint: "名前や @ハンドル、#タグ、「ウォレット」みたいな機能の名前を打ってみてね。そのまま飛べるよ！",
     close: "閉じる",
     openPage: "さがすページを開く",
     keys: { move: "えらぶ", open: "ひらく" },

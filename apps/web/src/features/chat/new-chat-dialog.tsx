@@ -9,6 +9,7 @@ import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { TextField } from "#/components/ui/field";
 import { EmptyState, Skeleton } from "#/components/ui/page";
+import { EmojiText } from "#/features/emoji";
 import { profileClient } from "#/lib/api";
 import { useMe } from "#/stores/session";
 import { conversationClient, useCapabilities } from "./api";
@@ -96,7 +97,9 @@ function PersonRow({
     >
       <Avatar user={user} outlined />
       <span className="min-w-0 flex-1">
-        <span className="block truncate font-bold">{displayName(user)}</span>
+        <span className="block truncate font-bold">
+          <EmojiText text={displayName(user)} />
+        </span>
         <span className="block truncate text-sm text-ink-soft">
           {subtitle ?? `@${user.handle}`}
         </span>

@@ -10,6 +10,7 @@ import { Button } from "#/components/ui/button";
 import { Chip } from "#/components/ui/card";
 import { ConfirmDialog } from "#/components/ui/confirm";
 import { Menu, type MenuAction } from "#/components/ui/menu";
+import { EmojiText } from "#/features/emoji";
 import { errorMessage } from "#/lib/errors";
 import { useMe } from "#/stores/session";
 import { nameOf, planClient, rememberPlan } from "../api";
@@ -160,7 +161,9 @@ export function Participants({ plan }: { plan: plans.Plan }) {
                     </Link>
                     <div className="min-w-0 flex-1">
                       <p className="flex items-center gap-1.5">
-                        <span className="truncate font-bold">{nameOf(participant.user)}</span>
+                        <span className="truncate font-bold">
+                          <EmojiText text={nameOf(participant.user)} />
+                        </span>
                         {participant.role === plans.PlanRole.HOST && (
                           <Chip className="h-5 shrink-0 bg-sun px-2 text-[11px] text-[#17122b]">
                             {t("people.host")}

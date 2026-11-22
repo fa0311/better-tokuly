@@ -11,6 +11,7 @@ import { Button } from "#/components/ui/button";
 import { Card } from "#/components/ui/card";
 import { EmptyState, ListRow, Page, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
+import { EmojiText } from "#/features/emoji";
 import { api, profileClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { useLocations } from "#/stores/locations";
@@ -68,7 +69,7 @@ function UserRow({
       }
       title={
         <Link to="/u/$handle" params={{ handle: user.handle }}>
-          {user.displayName}
+          <EmojiText text={user.displayName} />
         </Link>
       }
       subtitle={subtitle ?? `@${user.handle}`}

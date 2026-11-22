@@ -9,6 +9,7 @@ import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
+import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { useMe } from "#/stores/session";
@@ -204,7 +205,7 @@ export function CountdownScreen({ countdownId }: { countdownId: string }) {
                         className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 py-1 pr-3 pl-1"
                       >
                         <Avatar user={user} size="xs" />
-                        {nameOf(user)}
+                        <EmojiText text={nameOf(user)} />
                       </li>
                     ))}
                   </ul>

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { EmptyState, Skeleton } from "#/components/ui/page";
+import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { SearchField } from "./parts";
 import { displayName, useFriends } from "./people";
@@ -51,7 +52,9 @@ export function FriendPicker({
                 aria-label={t("picker.remove", { name: displayName(user) })}
               >
                 <Avatar user={user} size="xs" />
-                <span className="max-w-28 truncate">{displayName(user)}</span>
+                <span className="max-w-28 truncate">
+                  <EmojiText text={displayName(user)} />
+                </span>
                 <X className="size-3.5 text-ink-soft" />
               </button>
             </li>
@@ -86,7 +89,9 @@ export function FriendPicker({
                 >
                   <Avatar user={user} outlined />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate font-bold">{displayName(user)}</span>
+                    <span className="block truncate font-bold">
+                      <EmojiText text={displayName(user)} />
+                    </span>
                     <span className="block truncate text-sm text-ink-soft">@{user.handle}</span>
                   </span>
                   <span

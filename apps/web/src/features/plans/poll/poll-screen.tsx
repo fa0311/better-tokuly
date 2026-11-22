@@ -29,6 +29,7 @@ import { Menu, type MenuAction } from "#/components/ui/menu";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
 import { ShareToChat } from "#/features/chat";
+import { EmojiText } from "#/features/emoji";
 import { copyText, EmojiPicker } from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
@@ -362,7 +363,9 @@ function LoadedPoll({ poll }: { poll: plans.Poll }) {
                 >
                   <Avatar user={participant.user} size="sm" />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-bold">{nameOf(participant.user)}</p>
+                    <p className="truncate font-bold">
+                      <EmojiText text={nameOf(participant.user)} />
+                    </p>
                     <p className="text-sm break-words text-ink-soft">
                       {participant.comment
                         ? `「${participant.comment}」`
@@ -644,7 +647,7 @@ function ResultsGrid({ poll }: { poll: plans.Poll }) {
                     <span className="flex flex-col items-center gap-0.5">
                       <Avatar user={participant.user} size="xs" />
                       <span className="max-w-14 truncate text-[11px] font-bold">
-                        {nameOf(participant.user)}
+                        <EmojiText text={nameOf(participant.user)} />
                       </span>
                     </span>
                   </th>

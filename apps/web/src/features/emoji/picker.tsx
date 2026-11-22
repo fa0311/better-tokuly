@@ -34,6 +34,35 @@ export interface EmojiPickerProps {
   keepOpen?: boolean;
   /** Told when the picker opens and closes. */
   onOpenChange?(open: boolean): void;
+  /**
+   * Offer Unicode emoji only: for a field or an RPC that does not take
+   * `:shortcode:`s (reactions do not yet).
+   */
+  unicodeOnly?: boolean;
+}
+
+/**
+ * The inside of the picker (search, tabs, grids) for a surface that brings
+ * its own frame, such as a dialog opened from a menu. It fills its parent,
+ * which must be a column with a height:
+ *
+ *   <div className="flex h-96 flex-col"><EmojiPickerPanel onPick={(emoji) => react(emoji)} unicodeOnly /></div>
+ */
+export function EmojiPickerPanel({
+  onPick,
+  unicodeOnly,
+  autoFocusSearch = false,
+}: Pick<EmojiPickerProps, "onPick" | "unicodeOnly"> & { autoFocusSearch?: boolean }) {
+  return (
+    <PickerPanel
+      autoFocusSearch={autoFocusSearch}
+      unicodeOnly={unicodeOnly}
+      onPick={(choice) => {
+        recordEmojiUse([choice.emoji]);
+        onPick(choice.emoji, choice);
+      }}
+    />
+  );
 }
 
 /**
@@ -52,6 +81,7 @@ export function EmojiPicker({
   side = "top",
   keepOpen,
   onOpenChange,
+  unicodeOnly,
 }: EmojiPickerProps) {
   const { t } = useTranslation("emoji");
   const [open, setOpenState] = useState(false);
@@ -64,6 +94,7 @@ export function EmojiPicker({
   const panel = open && (
     <PickerPanel
       autoFocusSearch={wide}
+      unicodeOnly={unicodeOnly}
       onPick={(choice) => {
         recordEmojiUse([choice.emoji]);
         if (!keepOpen) setOpen(false);
@@ -166,9 +197,11 @@ const CHUNK = 240;
 function PickerPanel({
   onPick,
   autoFocusSearch,
+  unicodeOnly = false,
 }: {
   onPick(choice: EmojiChoice): void;
   autoFocusSearch: boolean;
+  unicodeOnly?: boolean;
 }) {
   const { t } = useTranslation("emoji");
   const catalog = useCatalog();
@@ -182,16 +215,19 @@ function PickerPanel({
   const search = useRef<HTMLInputElement>(null);
 
   const query = text.trim();
-  const results = query ? searchEmoji(query, catalog.emojis, unicode?.all ?? [], 96) : [];
+  const custom = unicodeOnly ? [] : catalog.emojis;
+  const allowed = (choices: EmojiChoice[]) =>
+    unicodeOnly ? choices.filter((choice) => choice.kind === "unicode") : choices;
+  const results = query ? searchEmoji(query, custom, unicode?.all ?? [], 96) : [];
 
-  const uncategorized = catalog.emojis.filter((entry) => !entry.category);
+  const uncategorized = custom.filter((entry) => !entry.category);
   const customTabs = [
     ...catalog.categories
       .filter((category) => category.emojiCount > 0)
       .map((category) => ({
         id: `custom:${category.name}`,
         label: category.name,
-        emojis: catalog.emojis.filter((entry) => entry.category === category.name),
+        emojis: custom.filter((entry) => entry.category === category.name),
       })),
     ...(uncategorized.length > 0
       ? [
@@ -258,8 +294,8 @@ function PickerPanel({
   };
 
   const cellProps = { onPick, onHover: setHovered };
-  const deckChoices = toChoices(deck.data?.items ?? [], catalog);
-  const recentChoices = toChoices(recent.data ?? [], catalog).slice(0, 24);
+  const deckChoices = allowed(toChoices(deck.data?.items ?? [], catalog));
+  const recentChoices = allowed(toChoices(recent.data ?? [], catalog)).slice(0, 24);
   const customTab = customTabs.find((entry) => entry.id === tab);
   const unicodeGroup = unicode?.groups.find((group) => `unicode:${group.id}` === tab);
 

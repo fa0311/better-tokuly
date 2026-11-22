@@ -19,6 +19,7 @@ import { StampSheet } from "#/features/stamps";
 import { cn } from "#/lib/cn";
 import { realtime } from "#/lib/realtime";
 import { useMe } from "#/stores/session";
+import { useHideTabBar } from "#/stores/shell";
 import { messageClient, useCapabilities } from "./api";
 import { AssistConsent } from "./assist";
 import { Composer } from "./composer";
@@ -36,7 +37,6 @@ import {
 } from "./conversation-context";
 import { type ConversationDialog, ConversationDialogs } from "./conversation-dialogs";
 import { fetchConversation, useConversation } from "./conversations";
-import { rememberEmoji } from "./emoji";
 import { EmojiDialog } from "./emoji-picker";
 import { errorMessage } from "./errors";
 import { ForwardDialog } from "./forward-dialog";
@@ -127,8 +127,10 @@ function ScreenFrame({
   children,
   ...props
 }: { children: ReactNode } & HTMLAttributes<HTMLDivElement>) {
+  // A conversation takes the phone's whole height: its composer sits where the tab bar would be.
+  useHideTabBar();
   return (
-    <div className="fixed inset-0 z-40 flex bg-bg md:static md:z-auto md:h-full" {...props}>
+    <div className="flex h-full bg-bg" {...props}>
       {children}
     </div>
   );
@@ -514,7 +516,6 @@ function OpenConversation({
           title={t("message.react")}
           onPick={(emoji) => {
             if (!reacting) return;
-            rememberEmoji(emoji);
             actions.react(reacting, emoji).catch((error) => toast.error(errorMessage(error)));
           }}
         />

@@ -10,6 +10,7 @@ import { Dialog } from "#/components/ui/dialog";
 import { TextField } from "#/components/ui/field";
 import { SelectField } from "#/components/ui/select";
 import { Tabs } from "#/components/ui/tabs";
+import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { useMe } from "#/stores/session";
@@ -292,7 +293,9 @@ export function ExpenseDialog({
                       {on && <Check className="size-4" strokeWidth={3} />}
                     </span>
                     <Avatar user={user} size="xs" />
-                    <span className="truncate font-bold">{nameOf(user)}</span>
+                    <span className="truncate font-bold">
+                      <EmojiText text={nameOf(user)} />
+                    </span>
                   </button>
                   {on && draft.method === "exact" && (
                     <input

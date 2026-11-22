@@ -7,6 +7,7 @@ import { Avatar } from "#/components/ui/avatar";
 import { Dialog } from "#/components/ui/dialog";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Skeleton } from "#/components/ui/page";
+import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { compactAge } from "#/lib/format";
 import { useEngagement, useReact, useReactors } from "./api";
@@ -258,7 +259,9 @@ export function ReactorsDialog({ subject, onClose }: { subject: Subject; onClose
                   >
                     <Avatar user={reactor.user} />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate font-bold">{reactor.user.displayName}</span>
+                      <span className="block truncate font-bold">
+                        <EmojiText text={reactor.user.displayName} />
+                      </span>
                       <span className="block truncate text-sm text-ink-soft">
                         @{reactor.user.handle} · {compactAge(toMillis(reactor.reactedAt))}
                       </span>

@@ -8,6 +8,7 @@ import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Menu } from "#/components/ui/menu";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
+import { EmojiText } from "#/features/emoji";
 import { deviceTimeZone, GazetteerCredit, toLatLng } from "#/features/places";
 import { cn } from "#/lib/cn";
 import { compactDuration, formatDistance, kmh } from "#/lib/format";
@@ -228,7 +229,7 @@ export function DayScreen({ date }: { date: string }) {
                           >
                             <Avatar user={friend} size="md" outlined />
                             <span className="w-full truncate text-center text-[11px] font-black">
-                              {friend.displayName}
+                              <EmojiText text={friend.displayName} />
                             </span>
                           </Link>
                         </li>

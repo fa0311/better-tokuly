@@ -16,6 +16,7 @@ import { ConfirmDialog } from "#/components/ui/confirm";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { Sortable } from "#/components/ui/sortable";
+import { EmojiText } from "#/features/emoji";
 import { errorMessage } from "#/lib/errors";
 import { nextCursor, playlistClient, videoKeys } from "../api";
 import { formatAge } from "../format";
@@ -191,7 +192,7 @@ export function PlaylistScreen({ playlistId }: { playlistId: string }) {
                   params={{ handle: playlist.owner.handle }}
                   className="hover:text-ink"
                 >
-                  {playlist.owner.displayName}
+                  <EmojiText text={playlist.owner.displayName} />
                 </Link>
               )
             )}

@@ -11,6 +11,7 @@ import { Dialog } from "#/components/ui/dialog";
 import { TextField } from "#/components/ui/field";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
+import { EmojiText } from "#/features/emoji";
 import { errorMessage } from "#/lib/errors";
 import {
   anniversaryClient,
@@ -150,7 +151,9 @@ function Birthdays() {
                 >
                   <Avatar user={birthday.user} size="sm" />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate font-bold">{nameOf(birthday.user)}</span>
+                    <span className="block truncate font-bold">
+                      <EmojiText text={nameOf(birthday.user)} />
+                    </span>
                     <span className="block text-sm text-ink-soft">
                       🎂 {dayText(birthday.month, birthday.day)}
                     </span>

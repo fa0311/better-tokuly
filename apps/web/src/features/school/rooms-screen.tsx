@@ -10,6 +10,7 @@ import { Dialog } from "#/components/ui/dialog";
 import { TextField } from "#/components/ui/field";
 import { EmptyState } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
+import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { keys, refresh, roomClient, toastError } from "./api";
 import { timerText } from "./dates";
@@ -131,7 +132,9 @@ function RoomCard({ room }: { room: school.StudyRoom }) {
             <span className="block truncate text-lg font-black">{room.title}</span>
             <span className="flex items-center gap-1.5 text-sm font-bold text-ink-soft">
               <Avatar user={room.host} size="xs" />
-              <span className="truncate">{room.host?.displayName}</span>
+              <span className="truncate">
+                <EmojiText text={room.host?.displayName ?? ""} />
+              </span>
               <AudienceIcon
                 className="size-3.5 shrink-0"
                 aria-label={t(`rooms.audience.${audience}`)}

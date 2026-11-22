@@ -29,6 +29,7 @@ import { ConfirmDialog } from "#/components/ui/confirm";
 import { Dialog } from "#/components/ui/dialog";
 import { Menu, type MenuAction } from "#/components/ui/menu";
 import { Spinner } from "#/components/ui/spinner";
+import { EmojiText } from "#/features/emoji";
 import { StampImage, StampSheet } from "#/features/stamps";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
@@ -632,7 +633,7 @@ function CommentText({ comment }: { comment: Comment }) {
               </button>
             );
           }
-          return token.text;
+          return <EmojiText key={index} text={token.text} />;
         })}
       </p>
       {long && (

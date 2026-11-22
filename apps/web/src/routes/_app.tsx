@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { AppShell } from "#/components/app-shell";
 import { BackgroundFeatures } from "#/components/background-features";
 import { LogoMark } from "#/components/ui/logo";
+import { BadgeSourceRunner } from "#/seams/badges";
 import { useSessionStatus } from "#/stores/session";
 
 /**
@@ -37,6 +38,7 @@ function AppLayout() {
     <AppShell>
       <Outlet />
       <BackgroundFeatures />
+      <BadgeSourceRunner />
     </AppShell>
   );
 }

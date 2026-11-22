@@ -18,6 +18,7 @@ import { Avatar } from "#/components/ui/avatar";
 import { CountBadge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Menu, type MenuAction } from "#/components/ui/menu";
+import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { useConversationActions } from "./actions";
 import { chatKeys, messageClient } from "./api";
@@ -251,7 +252,9 @@ function PinnedBar({ onOpen }: { onOpen(): void }) {
     >
       <Pin className="size-4 shrink-0 text-brand" />
       <span className="min-w-0 flex-1 truncate text-sm">
-        <span className="font-black">{displayName(latest.sender)}</span>{" "}
+        <span className="font-black">
+          <EmojiText text={displayName(latest.sender)} />
+        </span>{" "}
         <span className="text-ink-soft">{contentText(latest, me.id)}</span>
       </span>
       {messages.length > 1 && (

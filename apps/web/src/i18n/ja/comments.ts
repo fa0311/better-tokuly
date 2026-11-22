@@ -1,5 +1,10 @@
 export default {
   title: "コメント",
+  settingsRow: {
+    title: "コメントの管理",
+    hint: "確認待ち・ルール・ブロック",
+    held: "確認待ちが{{count}}件あるよ",
+  },
   count: "{{formatted}}件",
   manage: "コメントを管理",
   sort: { top: "人気順", new: "新しい順" },

@@ -25,6 +25,7 @@ import { Dialog } from "#/components/ui/dialog";
 import { LoadMore } from "#/components/ui/load-more";
 import { Menu, type MenuAction } from "#/components/ui/menu";
 import { EmptyState, Skeleton } from "#/components/ui/page";
+import { EmojiText } from "#/features/emoji";
 import {
   AddReactionButton,
   BookmarkButton,
@@ -324,7 +325,9 @@ export function PeopleDialog({
               >
                 <Avatar user={user} />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate font-bold">{user.displayName}</span>
+                  <span className="block truncate font-bold">
+                    <EmojiText text={user.displayName} />
+                  </span>
                   <span className="block truncate text-sm text-ink-soft">@{user.handle}</span>
                 </span>
               </Link>

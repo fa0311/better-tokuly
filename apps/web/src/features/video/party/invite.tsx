@@ -9,6 +9,7 @@ import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { Skeleton } from "#/components/ui/page";
+import { EmojiText } from "#/features/emoji";
 import { api } from "#/lib/api";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
@@ -162,7 +163,9 @@ export function InviteDialog({
                         >
                           <Avatar user={user} size="sm" />
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate font-bold">{user.displayName}</span>
+                            <span className="block truncate font-bold">
+                              <EmojiText text={user.displayName} />
+                            </span>
                             <span className="block truncate text-xs text-ink-soft">
                               @{user.handle}
                             </span>

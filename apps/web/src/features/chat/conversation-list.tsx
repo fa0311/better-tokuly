@@ -10,6 +10,7 @@ import { LoadMore } from "#/components/ui/load-more";
 import { Menu } from "#/components/ui/menu";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
+import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { useMe } from "#/stores/session";
 import { useConversationActions } from "./actions";
@@ -336,7 +337,9 @@ function FriendMatches({
                 >
                   <Avatar user={friend.user} outlined />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate font-black">{displayName(friend.user)}</span>
+                    <span className="block truncate font-black">
+                      <EmojiText text={displayName(friend.user)} />
+                    </span>
                     <span className="block truncate text-sm text-ink-soft">
                       @{friend.user.handle}
                     </span>

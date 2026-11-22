@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { LoadMore } from "#/components/ui/load-more";
 import { Skeleton } from "#/components/ui/page";
+import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { useMe } from "#/stores/session";
 import { nameOf, useFreeBoard } from "../api";
@@ -171,7 +172,9 @@ function FriendTile({
         aria-label={t("free.friend.title", { name: nameOf(status.user) })}
       >
         <PulseFace user={status.user} live={live} />
-        <span className="mt-1 w-full truncate text-sm font-black">{nameOf(status.user)}</span>
+        <span className="mt-1 w-full truncate text-sm font-black">
+          <EmojiText text={nameOf(status.user)} />
+        </span>
         <span
           className={cn(
             "max-w-full truncate rounded-full px-2 text-[11px] font-black",

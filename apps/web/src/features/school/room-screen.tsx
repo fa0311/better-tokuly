@@ -28,6 +28,7 @@ import { Dialog } from "#/components/ui/dialog";
 import { Menu } from "#/components/ui/menu";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { ShareToChat } from "#/features/chat";
+import { EmojiText } from "#/features/emoji";
 import { ReportDialog } from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { realtime } from "#/lib/realtime";
@@ -447,7 +448,9 @@ export function RoomScreen({ roomId }: { roomId: string }) {
                     <Avatar user={item.user} outlined />
                     <span className="min-w-0 flex-1 text-left">
                       <span className="flex items-center gap-1.5">
-                        <span className="truncate font-bold">{item.user?.displayName}</span>
+                        <span className="truncate font-bold">
+                          <EmojiText text={item.user?.displayName ?? ""} />
+                        </span>
                         {item.host && (
                           <span className="shrink-0 rounded-full bg-ink px-1.5 text-[10px] font-black text-surface">
                             {t("rooms.hostBadge")}
@@ -671,7 +674,9 @@ function InviteDialog({ room, onClose }: { room: school.StudyRoom; onClose(): vo
                     className="flex h-8 items-center gap-1.5 rounded-full bg-brand-soft pr-2 pl-1 text-sm font-bold"
                   >
                     <Avatar user={user} size="xs" />
-                    <span className="max-w-28 truncate">{user.displayName}</span>
+                    <span className="max-w-28 truncate">
+                      <EmojiText text={user.displayName} />
+                    </span>
                     <X className="size-3.5 text-ink-soft" />
                   </button>
                 </li>

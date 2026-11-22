@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import type { notes } from "@tokuly/api";
+import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { parseNoteText } from "./text";
 
@@ -64,7 +65,8 @@ export function NoteText({
               </a>
             );
           default:
-            return segment.text;
+            // Plain text: its `:shortcode:`s are drawn as custom emoji.
+            return <EmojiText key={index} text={segment.text} />;
         }
       })}
     </p>

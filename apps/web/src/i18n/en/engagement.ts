@@ -13,19 +13,6 @@ export default {
     yours: "Your reaction",
     takeBack: "Take back",
   },
-  emoji: {
-    title: "Pick an emoji",
-    quick: "Your usual emoji",
-    groups: {
-      smileys: "Faces",
-      hearts: "Hearts",
-      hands: "Hands & body",
-      animals: "Animals & nature",
-      food: "Food",
-      fun: "Fun & places",
-      symbols: "Symbols",
-    },
-  },
   bookmarks: {
     title: "Bookmarks",
     tabs: { saved: "Saved", reactions: "Reacted to" },

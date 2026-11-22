@@ -13,19 +13,6 @@ export default {
     yours: "あなたのリアクション",
     takeBack: "取り消す",
   },
-  emoji: {
-    title: "絵文字をえらぶ",
-    quick: "よく使う絵文字",
-    groups: {
-      smileys: "かお",
-      hearts: "ハート",
-      hands: "て・からだ",
-      animals: "いきもの・自然",
-      food: "たべもの",
-      fun: "あそび・おでかけ",
-      symbols: "きごう",
-    },
-  },
   bookmarks: {
     title: "ブックマーク",
     tabs: { saved: "保存したもの", reactions: "リアクションしたもの" },

@@ -11,6 +11,7 @@ import { EmptyState, Skeleton } from "#/components/ui/page";
 import { SelectField } from "#/components/ui/select";
 import { Tabs } from "#/components/ui/tabs";
 import { openDirectChat } from "#/features/chat";
+import { EmojiText } from "#/features/emoji";
 import { useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
 import { keys, timetableClient, useTerms } from "./api";
@@ -81,7 +82,9 @@ function FriendTimetables() {
             >
               <Avatar user={item.user} outlined />
               <span className="min-w-0 flex-1">
-                <span className="block truncate font-black">{item.user?.displayName}</span>
+                <span className="block truncate font-black">
+                  <EmojiText text={item.user?.displayName ?? ""} />
+                </span>
                 <span className="flex flex-wrap items-center gap-1.5 text-xs font-bold text-ink-soft">
                   {current ? (
                     <>
@@ -166,7 +169,7 @@ function FreePeriods() {
                 )}
               >
                 <Avatar user={user} size="xs" />
-                {user.displayName}
+                <EmojiText text={user.displayName} />
               </button>
             );
           })}
@@ -219,7 +222,9 @@ function FreePeriods() {
                               className="flex h-8 items-center gap-1.5 rounded-full bg-brand-soft pr-2.5 pl-1 text-sm font-bold"
                             >
                               <Avatar user={user} size="xs" />
-                              <span className="max-w-24 truncate">{user.displayName}</span>
+                              <span className="max-w-24 truncate">
+                                <EmojiText text={user.displayName} />
+                              </span>
                               <MessageCircle className="size-3.5 text-ink-soft" />
                             </button>
                           ))}

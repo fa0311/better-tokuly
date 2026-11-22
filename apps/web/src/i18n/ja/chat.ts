@@ -247,17 +247,6 @@ export default {
   },
   emoji: {
     title: "絵文字",
-    groups: "絵文字のカテゴリ",
-    group: {
-      recent: "よく使う",
-      smileys: "かお",
-      hearts: "ハート",
-      hands: "ハンド",
-      animals: "いきもの・自然",
-      food: "たべもの",
-      activities: "あそび・おでかけ",
-      objects: "もの・記号",
-    },
   },
   media: {
     viewer: "写真・動画ビューア",

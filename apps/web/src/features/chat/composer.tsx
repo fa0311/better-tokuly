@@ -27,6 +27,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Menu, type MenuAction } from "#/components/ui/menu";
+import { EmojiPicker, EmojiSuggestBar } from "#/features/emoji";
 import { StampPicker } from "#/features/stamps";
 import { cn } from "#/lib/cn";
 import { realtime } from "#/lib/realtime";
@@ -34,7 +35,6 @@ import { AssistButton, SuggestedReplies } from "./assist";
 import { describeFile, type OutgoingFile, releaseFiles } from "./attachments";
 import { useConversationContext } from "./conversation-context";
 import { loadDraft, saveDraft } from "./drafts";
-import { EmojiPopover } from "./emoji-picker";
 import { errorMessage } from "./errors";
 import { LocationShareDialog } from "./location-dialog";
 import { useMembers } from "./members";
@@ -370,6 +370,16 @@ export function Composer({
       onPaste={onPaste}
       data-testid="composer"
     >
+      {/* `:` autocomplete: custom and Unicode emoji by name. */}
+      <EmojiSuggestBar
+        text={text}
+        caret={caret}
+        onComplete={(next) => {
+          caretAfterInsert.current = next.caret;
+          change(next.text, next.caret);
+        }}
+        className="absolute inset-x-3 bottom-full z-20 mb-2"
+      />
       {choices.length > 0 && (
         <div
           role="listbox"
@@ -521,7 +531,8 @@ export function Composer({
               className="max-h-[148px] min-h-[2.5rem] min-w-0 flex-1 resize-none bg-transparent py-2 pr-1 pl-4 text-[15px] leading-6 outline-none placeholder:text-ink-faint"
             />
             {hover && (
-              <EmojiPopover
+              <EmojiPicker
+                keepOpen
                 onPick={insertEmoji}
                 trigger={
                   <button

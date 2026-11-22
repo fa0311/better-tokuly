@@ -8,6 +8,7 @@ import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Menu } from "#/components/ui/menu";
 import { Spinner } from "#/components/ui/spinner";
+import { EmojiSuggestBar, EmojiText } from "#/features/emoji";
 import { StampImage, StampPicker } from "#/features/stamps";
 import { profileClient } from "#/lib/api";
 import { cn } from "#/lib/cn";
@@ -400,6 +401,21 @@ export function Composer({ replyTo, autoFocus, onCancel, onPosted }: ComposerPro
           )}
         </div>
 
+        {/* `:` autocomplete: custom and Unicode emoji by name. */}
+        <EmojiSuggestBar
+          text={text}
+          caret={caret}
+          className="mt-1.5"
+          onComplete={(next) => {
+            setText(next.text);
+            setCaret(next.caret);
+            requestAnimationFrame(() => {
+              field.current?.focus();
+              field.current?.setSelectionRange(next.caret, next.caret);
+            });
+          }}
+        />
+
         {suggested.length > 0 && (
           <div
             role="listbox"
@@ -423,7 +439,9 @@ export function Composer({ replyTo, autoFocus, onCancel, onPosted }: ComposerPro
               >
                 <Avatar user={user} size="sm" />
                 <span className="min-w-0">
-                  <span className="block truncate text-sm font-black">{user.displayName}</span>
+                  <span className="block truncate text-sm font-black">
+                    <EmojiText text={user.displayName} />
+                  </span>
                   <span className="block truncate text-xs text-ink-soft">@{user.handle}</span>
                 </span>
               </div>

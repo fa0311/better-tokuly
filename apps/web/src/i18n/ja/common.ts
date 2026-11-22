@@ -17,6 +17,15 @@ export default {
     news: "ニュース",
     studio: "スタジオ",
     friends: "ともだち",
+    more: "もっと",
+    wallet: "ウォレット",
+    announcements: "アップデート情報",
+    admin: "管理",
+  },
+  hub: {
+    launcher: "メニュー",
+    search: "ひと、タグ、機能をさがす",
+    sections: { play: "あそぶ", out: "おでかけ", make: "つくる・みる", me: "アカウント" },
   },
   actions: {
     ok: "OK",

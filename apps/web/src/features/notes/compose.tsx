@@ -17,6 +17,7 @@ import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { Menu } from "#/components/ui/menu";
+import { EmojiSuggestBar, EmojiText } from "#/features/emoji";
 import { useSettings } from "#/features/settings";
 import { StampImage, StampPicker } from "#/features/stamps";
 import { api, profileClient } from "#/lib/api";
@@ -384,6 +385,22 @@ function Composer({ context, user }: { context: ComposeContext; user: common.Use
             />
           </div>
 
+          {/* `:` autocomplete: custom and Unicode emoji by name. */}
+          <EmojiSuggestBar
+            text={text}
+            caret={caret}
+            className="mt-1"
+            onComplete={(next) => {
+              setText(next.text);
+              setTouched(true);
+              setCaret(next.caret);
+              requestAnimationFrame(() => {
+                field.current?.focus();
+                field.current?.setSelectionRange(next.caret, next.caret);
+              });
+            }}
+          />
+
           {suggesting && (
             <div
               role="listbox"
@@ -599,7 +616,9 @@ function ContextNote({
       {label && <p className="mb-1.5 text-xs font-black text-brand">{label}</p>}
       <div className="mb-1 flex items-center gap-1.5">
         <Avatar user={note.author} size="xs" />
-        <span className="truncate text-sm font-black">{note.author?.displayName}</span>
+        <span className="truncate text-sm font-black">
+          <EmojiText text={note.author?.displayName ?? ""} />
+        </span>
         <span className="truncate text-xs text-ink-faint">@{note.author?.handle}</span>
       </div>
       <NoteBody note={note} embedded />

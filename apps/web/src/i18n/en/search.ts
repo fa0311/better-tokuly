@@ -7,6 +7,7 @@ export default {
   },
   suggest: {
     label: "Suggestions",
+    destinations: "In Tokuly",
     jumpTo: "Is this it?",
     searchFor: "Search for “{{query}}”",
     source: { recent: "Recent search", popular: "Popular search", trending: "Trending" },

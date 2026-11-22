@@ -1,5 +1,10 @@
 export default {
   title: "Comments",
+  settingsRow: {
+    title: "Comment moderation",
+    hint: "Review queue, rules, blocked people",
+    held: "{{count}} waiting for your review",
+  },
   count: "{{formatted}}",
   manage: "Manage comments",
   sort: { top: "Top", new: "Newest" },

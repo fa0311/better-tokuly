@@ -67,6 +67,7 @@ export function useOpenSuggestion(
   const router = useRouter();
   return (suggestion) => {
     if (suggestion.type === "hit") void router.navigate({ href: hitHref(suggestion.hit) });
+    else if (suggestion.type === "destination") void router.navigate({ to: suggestion.tile.to });
     else onSearch(suggestion.query);
   };
 }
@@ -107,6 +108,7 @@ export function SuggestionList({
     recent: t("recent.title"),
     trending: t("trending.title"),
     hits: t("suggest.jumpTo"),
+    destinations: t("suggest.destinations"),
   };
   return (
     // Clicking the list must not take the focus away from the field (which would close it before the click lands).
@@ -176,6 +178,22 @@ function SuggestionFace({ suggestion, selected }: { suggestion: Suggestion; sele
         {keyboard && selected && (
           <CornerDownLeft className="size-4 shrink-0 text-ink-faint" aria-hidden />
         )}
+      </>
+    );
+  }
+  if (suggestion.type === "destination") {
+    const Icon = suggestion.tile.icon;
+    return (
+      <>
+        <span
+          className={cn(
+            "grid size-9 shrink-0 place-items-center rounded-xl border-2 border-ink text-[#17122b]",
+            suggestion.tile.tint,
+          )}
+        >
+          <Icon className="size-[18px]" />
+        </span>
+        <span className="min-w-0 flex-1 truncate font-bold">{suggestion.tile.label()}</span>
       </>
     );
   }

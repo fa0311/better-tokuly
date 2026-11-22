@@ -7,6 +7,7 @@ import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { TextField } from "#/components/ui/field";
 import { EmptyState, Skeleton } from "#/components/ui/page";
+import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { nameOf, useFriends } from "./api";
 
@@ -130,7 +131,9 @@ export function FriendPicker({
                   >
                     <Avatar user={user} outlined />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate font-bold">{nameOf(user)}</span>
+                      <span className="block truncate font-bold">
+                        <EmojiText text={nameOf(user)} />
+                      </span>
                       <span className="block truncate text-sm text-ink-soft">@{user.handle}</span>
                     </span>
                     {!single && (
@@ -190,7 +193,9 @@ export function FriendChips({
             className="inline-flex h-10 max-w-full items-center gap-2 rounded-full border-2 border-line bg-surface pr-1 pl-1.5"
           >
             <Avatar user={user} size="xs" />
-            <span className="truncate text-sm font-bold">{nameOf(user)}</span>
+            <span className="truncate text-sm font-bold">
+              <EmojiText text={nameOf(user)} />
+            </span>
             <button
               type="button"
               aria-label={t("picker.remove", { name: nameOf(user) })}

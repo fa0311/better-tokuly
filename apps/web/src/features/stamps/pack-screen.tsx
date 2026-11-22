@@ -10,6 +10,7 @@ import { Button } from "#/components/ui/button";
 import { Chip } from "#/components/ui/card";
 import { CoinIcon } from "#/components/ui/coins";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
+import { EmojiText } from "#/features/emoji";
 import {
   formatCount,
   stampKeys,
@@ -204,7 +205,9 @@ function Maker({ summary }: { summary: stamp.PackSummary }) {
       className="mt-1 flex min-w-0 items-center gap-1.5 text-sm font-bold text-ink-soft hover:text-ink"
     >
       <Avatar user={creator} size="xs" />
-      <span className="truncate">{creator.displayName}</span>
+      <span className="truncate">
+        <EmojiText text={creator.displayName} />
+      </span>
     </Link>
   );
 }

@@ -1,59 +1,12 @@
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
-import {
-  Flag,
-  Gavel,
-  LayoutDashboard,
-  Megaphone,
-  Newspaper,
-  ScrollText,
-  Search,
-  ShieldCheck,
-  SmilePlus,
-  Sticker,
-  Users,
-  Wallet,
-} from "lucide-react";
-import { type ComponentType, type ReactNode, useEffect, useRef } from "react";
+import { ShieldCheck } from "lucide-react";
+import { type ReactNode, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { EmptyState } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
+import { ADMIN_SECTIONS } from "#/seams/admin";
 import { type StaffAccess, type StaffLevel, useStaffAccess } from "./roles";
 import { ConsolePage } from "./ui/console-page";
-
-interface ConsoleNavItem {
-  to:
-    | "/admin"
-    | "/admin/moderation"
-    | "/admin/users"
-    | "/admin/flags"
-    | "/admin/announcements"
-    | "/admin/audit"
-    | "/admin/stamps"
-    | "/admin/wallet"
-    | "/admin/search"
-    | "/admin/news"
-    | "/admin/emoji";
-  /** Key under `nav.` in the `admin` namespace. */
-  key: string;
-  icon: ComponentType<{ className?: string }>;
-  /** The access the section's API asks for. */
-  needs: StaffLevel;
-}
-
-/** The console's own sections, then the review pages owned by other domains. */
-export const CONSOLE_NAV: ConsoleNavItem[] = [
-  { to: "/admin", key: "dashboard", icon: LayoutDashboard, needs: "staff" },
-  { to: "/admin/moderation", key: "moderation", icon: Gavel, needs: "moderator" },
-  { to: "/admin/users", key: "users", icon: Users, needs: "moderator" },
-  { to: "/admin/flags", key: "flags", icon: Flag, needs: "admin" },
-  { to: "/admin/announcements", key: "announcements", icon: Megaphone, needs: "admin" },
-  { to: "/admin/audit", key: "audit", icon: ScrollText, needs: "admin" },
-  { to: "/admin/stamps", key: "stamps", icon: Sticker, needs: "staff" },
-  { to: "/admin/wallet", key: "wallet", icon: Wallet, needs: "staff" },
-  { to: "/admin/search", key: "search", icon: Search, needs: "admin" },
-  { to: "/admin/news", key: "news", icon: Newspaper, needs: "moderator" },
-  { to: "/admin/emoji", key: "emoji", icon: SmilePlus, needs: "moderator" },
-];
 
 /**
  * The frame of the staff console: a side navigation on wide screens (a
@@ -110,7 +63,7 @@ function ConsoleNav({ access }: { access: StaffAccess }) {
         </span>
       </div>
       <ul className="scrollbar-none flex gap-1 overflow-x-auto px-3 py-2 xl:flex-col xl:overflow-visible xl:px-2 xl:py-1">
-        {CONSOLE_NAV.filter((item) => access[item.needs]).map((item) => {
+        {ADMIN_SECTIONS.filter((item) => access[item.needs]).map((item) => {
           const active = isActive(item.to);
           const Icon = item.icon;
           return (
@@ -127,7 +80,7 @@ function ConsoleNav({ access }: { access: StaffAccess }) {
                 )}
               >
                 <Icon className="size-[18px] shrink-0" />
-                {t(`nav.${item.key}`)}
+                {item.label()}
               </Link>
             </li>
           );

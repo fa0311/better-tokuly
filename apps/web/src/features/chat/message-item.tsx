@@ -22,11 +22,12 @@ import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Menu, type MenuAction } from "#/components/ui/menu";
 import { Spinner } from "#/components/ui/spinner";
+import { EmojiText } from "#/features/emoji";
 import { StampImage } from "#/features/stamps";
 import { cn } from "#/lib/cn";
 import { TranslationBlock, toggleTranslation, useIsTranslated } from "./assist";
 import { useConversationContext } from "./conversation-context";
-import { QUICK_REACTIONS, rememberEmoji } from "./emoji";
+import { QUICK_REACTIONS } from "./emoji";
 import { errorMessage } from "./errors";
 import { useLive } from "./live";
 import { isVisual } from "./media-parts";
@@ -210,7 +211,6 @@ function BubbleRow({
   const canReact = !pending && can.react;
 
   const react = (emoji: string) => {
-    rememberEmoji(emoji);
     actions.react(message, emoji).catch((error) => toast.error(errorMessage(error)));
   };
   const quick = canReact
@@ -267,7 +267,7 @@ function BubbleRow({
       >
         {group && !own && row.first && (
           <span className="max-w-full truncate px-1 pb-0.5 text-xs font-bold text-ink-soft">
-            {displayName(message.sender)}
+            <EmojiText text={displayName(message.sender)} />
           </span>
         )}
         <div

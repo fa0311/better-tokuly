@@ -6,11 +6,14 @@ import { type ReactNode, type RefObject, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { create } from "zustand";
 import { Spinner } from "#/components/ui/spinner";
+import { useStaffAccess } from "#/features/admin";
 import { cn } from "#/lib/cn";
+import { HUB_TILES } from "#/seams/hub";
 import { submitSearch } from "./api";
 import { useHasKeyboard } from "./hooks";
 import { MAX_QUERY_LENGTH } from "./params";
 import { optionId, SuggestionList, useOpenSuggestion, useSuggestionKeys } from "./suggestion-list";
+import { destinationSuggestions } from "./suggestions";
 import { useSuggestions } from "./typeahead";
 
 const usePalette = create<{ open: boolean; query: string }>(() => ({ open: false, query: "" }));
@@ -66,7 +69,17 @@ function Palette({ field }: { field: RefObject<HTMLInputElement | null> }) {
   const keyboard = useHasKeyboard();
   const listId = useId();
   const [text, setText] = useState(() => usePalette.getState().query);
-  const { suggestions, loading } = useSuggestions(text);
+  const typeahead = useSuggestions(text);
+  const isStaff = useStaffAccess().staff;
+  // Parts of the app come first: the palette is also the launcher.
+  const suggestions = [
+    ...destinationSuggestions(
+      text,
+      HUB_TILES.filter((tile) => isStaff || !tile.staffOnly),
+    ),
+    ...typeahead.suggestions,
+  ];
+  const loading = typeahead.loading;
 
   const runSearch = (query: string) => {
     const next = query.trim();

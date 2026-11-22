@@ -7,8 +7,8 @@ import { Button } from "#/components/ui/button";
 import { Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
 import { compactDuration } from "#/lib/format";
+import { ADMIN_SECTIONS } from "#/seams/admin";
 import { systemClient } from "../api";
-import { CONSOLE_NAV } from "../console-layout";
 import { formatBytes, formatCompact, formatCount, formatDateTime } from "../format";
 import { useStaffAccess } from "../roles";
 import { ConsolePage, Section } from "../ui/console-page";
@@ -362,7 +362,7 @@ function StreamTable({ stream }: { stream: admin.StreamStats }) {
 function StaffHome() {
   const { t } = useTranslation("admin");
   const access = useStaffAccess();
-  const sections = CONSOLE_NAV.filter((item) => item.to !== "/admin" && access[item.needs]);
+  const sections = ADMIN_SECTIONS.filter((item) => item.to !== "/admin" && access[item.needs]);
   return (
     <ConsolePage title={t("title")}>
       <div className="mx-auto max-w-2xl">
@@ -382,7 +382,7 @@ function StaffHome() {
                   <span className="grid size-9 place-items-center rounded-xl border-2 border-ink bg-coral text-[#17122b]">
                     <Icon className="size-5" />
                   </span>
-                  <span className="font-black">{t(`nav.${item.key}`)}</span>
+                  <span className="font-black">{item.label()}</span>
                 </Link>
               </li>
             );

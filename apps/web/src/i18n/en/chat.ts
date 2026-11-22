@@ -251,17 +251,6 @@ export default {
   },
   emoji: {
     title: "Emoji",
-    groups: "Emoji categories",
-    group: {
-      recent: "Recent",
-      smileys: "Smileys",
-      hearts: "Hearts",
-      hands: "Hands",
-      animals: "Animals & nature",
-      food: "Food",
-      activities: "Play & travel",
-      objects: "Objects & symbols",
-    },
   },
   media: {
     viewer: "Photo and video viewer",

@@ -1,6 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { createRootRouteWithContext, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
-import { type ReactNode, useEffect } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { I18nextProvider } from "react-i18next";
 import { Toaster } from "sonner";
 import { PWA_LINKS, PWA_META } from "#/features/pwa/head";
@@ -110,15 +110,39 @@ function RootDocument({ children }: { children: ReactNode }) {
   );
 }
 
+/** Clear of the floating tab bar (and of a composer in its place), plus the home indicator. */
+const ABOVE_TAB_BAR = "calc(5.25rem + env(safe-area-inset-bottom))";
+
+/** Whether the phone layout (tab bar, no rail) is showing; `false` until the browser says so. */
+function useIsPhone(): boolean {
+  const [phone, setPhone] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 767px)");
+    const update = () => setPhone(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  return phone;
+}
+
 function RootComponent() {
+  const phone = useIsPhone();
   useEffect(() => {
     startSession();
   }, []);
   return (
     <>
       <Outlet />
+      {/*
+        On phones a toast at the top would lie on the page header (back, title, menu) for
+        seconds, so it rises from the bottom instead and stops above the tab bar. Wide screens
+        have room next to the header's controls: there it stays at the top.
+      */}
       <Toaster
-        position="top-center"
+        position={phone ? "bottom-center" : "top-center"}
+        offset={phone ? { bottom: ABOVE_TAB_BAR } : undefined}
+        mobileOffset={{ bottom: ABOVE_TAB_BAR, left: 12, right: 12 }}
         toastOptions={{
           classNames: {
             toast: "!sticker !rounded-2xl !bg-surface !text-ink !font-sans !font-bold",

@@ -9,6 +9,7 @@ import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
+import { EmojiText } from "#/features/emoji";
 import { copyText } from "#/features/engagement";
 import { dopamineFactor } from "#/lib/appearance";
 import { cn } from "#/lib/cn";
@@ -285,7 +286,7 @@ function buildSlides(recap: feed.Recap, t: TFunction<"notes">): Slide[] {
               <div className="min-w-0">
                 <p className="text-xs font-black">{t("recap.mostBumped")}</p>
                 <p className="truncate text-lg font-black">
-                  {recap.mostBumpedFriend.user.displayName}
+                  <EmojiText text={recap.mostBumpedFriend.user.displayName} />
                 </p>
                 <p className="text-sm font-bold">
                   {t("recap.bumpTimes", { count: recap.mostBumpedFriend.count })}

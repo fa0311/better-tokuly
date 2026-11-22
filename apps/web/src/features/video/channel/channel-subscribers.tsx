@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, ListRow, Skeleton } from "#/components/ui/page";
+import { EmojiText } from "#/features/emoji";
 import { errorMessage } from "#/lib/errors";
 import { channelClient, nextCursor, videoKeys } from "../api";
 
@@ -47,7 +48,7 @@ export function ChannelSubscribers({ channel }: { channel: video.Channel }) {
                 }
                 title={
                   <Link to="/u/$handle" params={{ handle: subscriber.user.handle }}>
-                    {subscriber.user.displayName}
+                    <EmojiText text={subscriber.user.displayName} />
                   </Link>
                 }
                 subtitle={`@${subscriber.user.handle}`}

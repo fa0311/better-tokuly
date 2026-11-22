@@ -9,16 +9,13 @@ import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Card } from "#/components/ui/card";
 import { EmptyState, Skeleton } from "#/components/ui/page";
-import { ProfileAnswers, ProfileAskButton } from "#/features/ask";
+import { EmojiText } from "#/features/emoji";
 import { ReportButton } from "#/features/engagement";
-import { formatPercent } from "#/features/footprints";
-import { ProfileNotes } from "#/features/notes";
-import { ProfilePlans } from "#/features/plans";
-import { SchoolProfileCards } from "#/features/school";
-import { forgetUser, ProfileHighlights, StoryRing } from "#/features/stories";
+import { forgetUser, StoryRing } from "#/features/stories";
 import { api, profileClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { formatDistance } from "#/lib/format";
+import { type ProfileSectionProps, ProfileSlotView, ProfileStat } from "#/seams/profile";
 import { signOut as signOutOfApp } from "#/stores/session";
 
 const friendClient = () => api().service(social.FriendService);
@@ -99,6 +96,8 @@ export function ProfileScreen({ handle }: { handle: string }) {
   const friendsSince = toDate(profile.friendsSince);
   const banner = profile.banner?.url;
   const tint = user.avatar?.dominantColor ?? "var(--brand)";
+  // What every feature's profile section is handed (`src/features/<area>/profile.tsx`).
+  const section: ProfileSectionProps = { profile, user, isSelf, isFriend };
 
   return (
     <div className="h-full overflow-y-auto pb-32 md:pb-10">
@@ -118,20 +117,26 @@ export function ProfileScreen({ handle }: { handle: string }) {
           />
         </StoryRing>
         <h1 className="mt-3 truncate text-2xl font-black">
-          {user.displayName} {user.verified && <span title="verified">✅</span>}
+          <EmojiText text={user.displayName} /> {user.verified && <span title="verified">✅</span>}
         </h1>
         <p className="truncate font-bold text-ink-soft">@{user.handle}</p>
 
         {(profile.status?.emoji || profile.status?.text) && (
           <p className="sticker-sm mt-4 inline-flex max-w-full items-center gap-2 rounded-full bg-surface px-4 py-1.5 text-sm font-bold">
             <span>{profile.status.emoji}</span>
-            <span className="truncate">{profile.status.text}</span>
+            <span className="truncate">
+              <EmojiText text={profile.status.text} />
+            </span>
           </p>
         )}
-        {profile.bio && <p className="mt-4 leading-relaxed whitespace-pre-wrap">{profile.bio}</p>}
+        {profile.bio && (
+          <p className="mt-4 leading-relaxed whitespace-pre-wrap">
+            <EmojiText text={profile.bio} />
+          </p>
+        )}
 
-        {/* 勉強中, the class that is on, テスト期間: what the school domain says about the person right now. */}
-        <SchoolProfileCards cards={profile.cards} user={user} isSelf={isSelf} />
+        {/* What features say about the person right now (勉強中, the class that is on). */}
+        <ProfileSlotView slot="status" {...section} />
 
         <div className="mt-5 flex flex-wrap gap-2">
           {isSelf ? (
@@ -143,7 +148,7 @@ export function ProfileScreen({ handle }: { handle: string }) {
                 <Settings className="size-4" />
                 {t("actions.settings")}
               </Link>
-              <ProfileAskButton user={user} isSelf />
+              <ProfileSlotView slot="action" {...section} />
               <Button variant="secondary" icon={<LogOut className="size-4" />} onClick={signOut}>
                 {t("actions.signOut")}
               </Button>
@@ -174,7 +179,7 @@ export function ProfileScreen({ handle }: { handle: string }) {
                     : t("actions.add")}
                 </Button>
               )}
-              <ProfileAskButton user={user} isSelf={false} />
+              <ProfileSlotView slot="action" {...section} />
               {isFriend && (
                 <Button
                   variant="ghost"
@@ -204,10 +209,8 @@ export function ProfileScreen({ handle }: { handle: string }) {
           )}
         </div>
 
-        {/* ひま right now, pinned countdowns, a couple counter. */}
-        <ProfilePlans cards={profile.cards} user={user} isSelf={isSelf} className="mt-5" />
-
-        <ProfileHighlights user={user} isSelf={isSelf} />
+        {/* Cards of features: ひま right now, countdowns, highlights. */}
+        <ProfileSlotView slot="card" {...section} />
 
         {profile.distanceMeters !== undefined && (
           <p className="mt-5 rounded-2xl bg-lime px-4 py-3 font-black text-[#17122b] sticker-sm">
@@ -217,29 +220,11 @@ export function ProfileScreen({ handle }: { handle: string }) {
 
         {stats && (
           <Card className="mt-5 grid grid-cols-3 gap-y-4 text-center sm:grid-cols-6">
-            <Stat value={stats.friendCount} label={t("stats.friends")} />
-            <Stat value={stats.introCount} label={t("stats.intros")} />
-            <Stat value={Number(stats.profileViewCount)} label={t("stats.views")} />
-            <Stat value={stats.bumpCount} label={t("stats.bumps")} />
-            {/* The footprint numbers lead to the scratch map they come from: my own, or as much of theirs as they show. */}
-            <Link
-              to="/footprints"
-              search={isSelf ? {} : { user: user.id }}
-              className="rounded-2xl transition-colors hover:bg-surface-2"
-              aria-label={t("footprints:profile.explored", {
-                percent: formatPercent(stats.exploredPercent),
-              })}
-            >
-              <Stat value={formatPercent(stats.exploredPercent)} label={t("stats.explored")} />
-            </Link>
-            <Link
-              to="/footprints"
-              search={isSelf ? {} : { user: user.id }}
-              className="rounded-2xl transition-colors hover:bg-surface-2"
-              aria-label={t("footprints:profile.countries", { count: stats.visitedCountryCount })}
-            >
-              <Stat value={stats.visitedCountryCount} label={t("stats.countries")} />
-            </Link>
+            <ProfileStat value={stats.friendCount} label={t("stats.friends")} />
+            <ProfileStat value={stats.introCount} label={t("stats.intros")} />
+            <ProfileStat value={Number(stats.profileViewCount)} label={t("stats.views")} />
+            <ProfileStat value={stats.bumpCount} label={t("stats.bumps")} />
+            <ProfileSlotView slot="stat" {...section} />
           </Card>
         )}
 
@@ -290,22 +275,10 @@ export function ProfileScreen({ handle }: { handle: string }) {
         </div>
 
         {/* Nothing of a blocked person is shown, and the server would not hand it out. */}
-        {profile.relationship !== identity.Relationship.BLOCKED && <ProfileAnswers user={user} />}
         {profile.relationship !== identity.Relationship.BLOCKED && (
-          <ProfileNotes userId={user.id} isSelf={isSelf} />
+          <ProfileSlotView slot="content" {...section} />
         )}
       </div>
-    </div>
-  );
-}
-
-function Stat({ value, label }: { value: number | string; label: string }) {
-  return (
-    <div>
-      <div className="text-xl font-black">
-        {typeof value === "number" ? value.toLocaleString() : value}
-      </div>
-      <div className="text-xs font-bold text-ink-faint">{label}</div>
     </div>
   );
 }

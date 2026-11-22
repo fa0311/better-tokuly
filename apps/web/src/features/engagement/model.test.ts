@@ -1,6 +1,5 @@
 import { create, engagement } from "@tokuly/api";
 import { describe, expect, it } from "vitest";
-import { EMOJI_GROUPS, QUICK_EMOJI } from "./emoji-data";
 import {
   compactCount,
   type Engagement,
@@ -114,20 +113,5 @@ describe("compactCount", () => {
     expect(compactCount(1234, "en")).toBe("1,234");
     expect(compactCount(12_345, "en")).toBe("12.3K");
     expect(compactCount(12_345, "ja")).toBe("1.2万");
-  });
-});
-
-describe("emoji offered for reactions", () => {
-  const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-  const graphemes = (text: string) => [...segmenter.segment(text)].length;
-
-  it("are single emoji, which is all the server takes", () => {
-    for (const emoji of [...QUICK_EMOJI, ...EMOJI_GROUPS.flatMap((group) => group.emoji)])
-      expect(graphemes(emoji), emoji).toBe(1);
-  });
-
-  it("appear once per group", () => {
-    for (const group of EMOJI_GROUPS)
-      expect(new Set(group.emoji).size, group.id).toBe(group.emoji.length);
   });
 });

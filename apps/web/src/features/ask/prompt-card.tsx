@@ -3,6 +3,7 @@ import { type ask, toMillis } from "@tokuly/api";
 import { ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
+import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { compactDuration } from "#/lib/format";
 
@@ -59,7 +60,9 @@ export function PromptCard({
           {!mine && prompt.owner && (
             <span className="inline-flex min-w-0 items-center gap-1">
               <Avatar user={prompt.owner} size="xs" />
-              <span className="truncate">{prompt.owner.displayName}</span>
+              <span className="truncate">
+                <EmojiText text={prompt.owner.displayName} />
+              </span>
             </span>
           )}
           <PromptState prompt={prompt} />

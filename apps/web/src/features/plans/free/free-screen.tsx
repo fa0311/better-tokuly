@@ -11,6 +11,7 @@ import { Card, Chip } from "#/components/ui/card";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, ListRow, Page, Skeleton } from "#/components/ui/page";
 import { openDirectChat } from "#/features/chat";
+import { EmojiText } from "#/features/emoji";
 import { errorMessage } from "#/lib/errors";
 import { compactAge } from "#/lib/format";
 import { useMe } from "#/stores/session";
@@ -240,7 +241,9 @@ function FriendList({ statuses, now }: { statuses: plans.FreeStatus[]; now: numb
               >
                 <PulseFace user={status.user} live={isRunning(status, now)} />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate font-black">{nameOf(status.user)}</span>
+                  <span className="block truncate font-black">
+                    <EmojiText text={nameOf(status.user)} />
+                  </span>
                   <span className="mt-0.5 flex flex-wrap items-center gap-1.5">
                     <Chip className={isRunning(status, now) ? "bg-lime text-[#17122b]" : undefined}>
                       {badgeText(status, now, i18n.language, t)}

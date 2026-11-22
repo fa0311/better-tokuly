@@ -3,6 +3,7 @@ import { type chat, media } from "@tokuly/api";
 import { CornerUpRight, MapPin, Play } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { EmojiText } from "#/features/emoji";
 import { resolveTargetPath, useOpenTargetPath } from "#/features/notifications";
 import { cn } from "#/lib/cn";
 import { useConversationContext } from "./conversation-context";
@@ -62,7 +63,11 @@ export function MessageText({ message, tone }: { message: chat.Message; tone: To
               </span>
             );
           default:
-            return <span key={index}>{token.text}</span>;
+            return (
+              <span key={index}>
+                <EmojiText text={token.text} />
+              </span>
+            );
         }
       })}
     </p>

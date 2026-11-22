@@ -4,6 +4,7 @@ import { EyeOff, MapPin, Pin, Play, Repeat2 } from "lucide-react";
 import { type MouseEvent, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
+import { EmojiText } from "#/features/emoji";
 import { ReactionChips, useOpenPath, useSubjectTopic } from "#/features/engagement";
 import { StampImage, StampSheet } from "#/features/stamps";
 import { cn } from "#/lib/cn";
@@ -94,7 +95,7 @@ export function NoteCard({
         params={{ handle: author.handle }}
         className={cn("truncate font-black hover:underline", !focus && "max-w-[62%] shrink-0")}
       >
-        {author.displayName}
+        <EmojiText text={author.displayName} />
         {author.verified && (
           <span className="ml-1" role="img" aria-label={t("card.verified")}>
             ✅
@@ -378,7 +379,9 @@ export function QuoteEmbed({ quote, className }: { quote: notes.QuotedNote; clas
     >
       <div className="mb-1 flex items-center gap-1.5">
         <Avatar user={note.author} size="xs" />
-        <span className="truncate text-sm font-black">{note.author?.displayName}</span>
+        <span className="truncate text-sm font-black">
+          <EmojiText text={note.author?.displayName ?? ""} />
+        </span>
         <span className="truncate text-xs text-ink-faint">@{note.author?.handle}</span>
         <span className="shrink-0 text-xs text-ink-faint">
           · {noteAge(toMillis(note.createdAt), i18n.language)}

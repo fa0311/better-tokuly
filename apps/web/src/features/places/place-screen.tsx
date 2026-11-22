@@ -20,6 +20,7 @@ import { ConfirmDialog } from "#/components/ui/confirm";
 import { Menu } from "#/components/ui/menu";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { CommentThread } from "#/features/comments";
+import { EmojiText } from "#/features/emoji";
 import {
   BookmarkButton,
   ReactionBar,
@@ -347,7 +348,7 @@ export function PlaceScreen({ placeId }: { placeId: string }) {
                         </span>
                         <Avatar user={regular.user} size="sm" />
                         <span className="min-w-0 flex-1 truncate font-bold">
-                          {regular.user.displayName}
+                          <EmojiText text={regular.user.displayName} />
                         </span>
                         <span className="shrink-0 text-sm text-ink-soft">
                           {t("row.visits", { count: regular.visitCount })}
@@ -471,7 +472,7 @@ function FriendsHere({ place }: { place: geo.Place }) {
             >
               <Avatar user={user} size="lg" outlined />
               <span className="w-full truncate text-center text-[11px] font-black">
-                {user.displayName}
+                <EmojiText text={user.displayName} />
               </span>
             </Link>
           </li>

@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
+import { EmojiText } from "#/features/emoji";
 import { stampKeys, storeClient } from "./api";
 import { PackCard, PackGridSkeleton } from "./parts";
 
@@ -39,7 +40,9 @@ export function CreatorScreen({ userId }: { userId: string }) {
           >
             <Avatar user={creator} size="lg" outlined />
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-xl font-black">{creator.displayName}</span>
+              <span className="block truncate text-xl font-black">
+                <EmojiText text={creator.displayName} />
+              </span>
               <span className="block truncate font-bold text-ink-soft">@{creator.handle}</span>
               <span className="mt-0.5 block text-sm font-bold text-brand">
                 {t("creator.profile")}

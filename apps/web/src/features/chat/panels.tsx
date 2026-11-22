@@ -9,6 +9,7 @@ import { Dialog } from "#/components/ui/dialog";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
+import { EmojiText } from "#/features/emoji";
 import { chatKeys, messageClient } from "./api";
 import { useConversationContext } from "./conversation-context";
 import { errorMessage } from "./errors";
@@ -103,7 +104,9 @@ function MessageResult({
         <Avatar user={message.sender} size="sm" />
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline gap-2">
-            <span className="truncate text-sm font-black">{displayName(message.sender)}</span>
+            <span className="truncate text-sm font-black">
+              <EmojiText text={displayName(message.sender)} />
+            </span>
             <span className="shrink-0 text-[11px] font-bold text-ink-faint">
               {dateTime(toMillis(message.createdAt))}
             </span>

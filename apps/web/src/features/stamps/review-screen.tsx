@@ -25,6 +25,7 @@ import { Menu } from "#/components/ui/menu";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
 import { Tabs } from "#/components/ui/tabs";
+import { EmojiText } from "#/features/emoji";
 import { errorMessage } from "#/lib/errors";
 import { useMe } from "#/stores/session";
 import { patchPack, reviewClient, stampKeys, storeClient } from "./api";
@@ -205,7 +206,9 @@ function ReviewCard({ item }: { item: stamp.ReviewItem }) {
                 className="inline-flex min-w-0 items-center gap-1.5 font-bold hover:underline"
               >
                 <Avatar user={creator} size="xs" />
-                <span className="truncate">{creator.displayName}</span>
+                <span className="truncate">
+                  <EmojiText text={creator.displayName} />
+                </span>
                 <span className="truncate text-ink-faint">@{creator.handle}</span>
               </Link>
             ) : (

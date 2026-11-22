@@ -33,8 +33,7 @@ import { EmojiText } from "./emoji-text";
 import { StateChip, ThemePreview, ThemeSwatch } from "./parts";
 import { EmojiPicker } from "./picker";
 import { useShowSensitive } from "./prefs";
-import { useEmojiSuggest } from "./suggest";
-import { shortcodePrefixAt } from "./text";
+import { completeShortcode, EmojiSuggestBar } from "./suggest-bar";
 import { recordEmojiUse } from "./use";
 
 /** An emoji's page: the picture large, how it is written, who made it, and a place to try it in a sentence. */
@@ -344,21 +343,19 @@ function Playground({ code }: { code: string }) {
   const [text, setText] = useState(() => t("detail.trySample", { code }));
   const [caret, setCaret] = useState(text.length);
   const fieldId = useId();
-  const typing = shortcodePrefixAt(text, caret);
-  const suggestions = useEmojiSuggest(typing?.prefix ?? "");
 
-  const insert = (emoji: string, from: number, to: number) => {
-    const before = text.slice(0, from);
-    const after = text.slice(to);
-    const inserted = `${emoji}${after.startsWith(" ") ? "" : " "}`;
-    setText(before + inserted + after);
-    const position = before.length + inserted.length;
+  const moveCaret = (position: number) => {
     setCaret(position);
     requestAnimationFrame(() => {
       const field = document.getElementById(fieldId) as HTMLTextAreaElement | null;
       field?.focus();
       field?.setSelectionRange(position, position);
     });
+  };
+  const insert = (emoji: string, at: number) => {
+    const next = completeShortcode(text, at, at, emoji);
+    setText(next.text);
+    moveCaret(next.caret);
   };
 
   return (
@@ -383,7 +380,7 @@ function Playground({ code }: { code: string }) {
         <div className="absolute right-1.5 bottom-1.5">
           <EmojiPicker
             keepOpen
-            onPick={(emoji) => insert(emoji, caret, caret)}
+            onPick={(emoji) => insert(emoji, caret)}
             trigger={
               <Button variant="ghost" size="icon-sm" aria-label={t("picker.open")}>
                 <Smile className="size-5" />
@@ -392,32 +389,15 @@ function Playground({ code }: { code: string }) {
           />
         </div>
       </div>
-      {typing && suggestions.length > 0 && (
-        <ul
-          aria-label={t("detail.suggestions")}
-          className="scrollbar-none mt-2 flex gap-1.5 overflow-x-auto pb-1"
-        >
-          {suggestions.map((suggestion) => (
-            <li key={suggestion.emoji} className="shrink-0">
-              <button
-                type="button"
-                onClick={() => {
-                  recordEmojiUse([suggestion.emoji]);
-                  insert(suggestion.emoji, typing.start, caret);
-                }}
-                className="flex h-9 items-center gap-1.5 rounded-full border-2 border-line bg-surface px-3 text-sm font-bold hover:border-ink-faint"
-              >
-                {suggestion.kind === "custom" ? (
-                  <EmojiImage emoji={suggestion.custom} size={20} className="size-5" />
-                ) : (
-                  <span aria-hidden>{suggestion.emoji}</span>
-                )}
-                <span>{suggestion.kind === "custom" ? suggestion.emoji : suggestion.name}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      <EmojiSuggestBar
+        text={text}
+        caret={caret}
+        className="mt-2"
+        onComplete={(next) => {
+          setText(next.text);
+          moveCaret(next.caret);
+        }}
+      />
       <ThemePreview className="mt-3">
         <p className="whitespace-pre-wrap break-words" data-testid="emoji-text-preview">
           <EmojiText text={text} />

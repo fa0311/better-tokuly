@@ -20,7 +20,7 @@ function showOnIcon(count: number): void {
  * notifications, so they are in it. This is the only place a page sets it.
  */
 export function useAppBadge(): void {
-  const total = useBadges((badges) => badges.notifications);
+  const total = useBadges((badges) => badges.notifications ?? 0);
 
   useEffect(() => {
     showOnIcon(total);

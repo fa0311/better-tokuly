@@ -4,6 +4,7 @@ import { Heart, ImageDown, MessageCircle } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
+import { EmojiText } from "#/features/emoji";
 import { compactCount, LikeButton, type Subject } from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { compactAge } from "#/lib/format";
@@ -153,7 +154,9 @@ function GuestSender({ question }: { question: ask.Question }) {
       {!question.anonymous && question.asker ? (
         <>
           <Avatar user={question.asker} size="xs" />
-          <span className="truncate text-ink">{question.asker.displayName}</span>
+          <span className="truncate text-ink">
+            <EmojiText text={question.asker.displayName} />
+          </span>
         </>
       ) : (
         <>

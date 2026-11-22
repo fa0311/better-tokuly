@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { Skeleton } from "#/components/ui/page";
+import { EmojiText } from "#/features/emoji";
 import type { Subject } from "#/features/engagement";
 import {
   BookmarkButton,
@@ -77,7 +78,7 @@ function CardHeader({ activity, trailing }: { activity: feed.Activity; trailing?
               params={{ handle: actor.handle }}
               className="truncate text-sm font-black hover:underline"
             >
-              {actor.displayName}
+              <EmojiText text={actor.displayName} />
             </Link>
           )}
           <span className="shrink-0 text-xs text-ink-faint">

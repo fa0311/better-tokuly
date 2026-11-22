@@ -1,6 +1,6 @@
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { SECTIONS } from "./sections";
+import { SETTINGS_SECTIONS } from "#/seams/settings";
 import { IdentityCard, SettingsNav, SignOutButton } from "./settings-nav";
 
 /**
@@ -12,7 +12,8 @@ export function SettingsLayout() {
   const { t } = useTranslation("settings");
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   // `/settings` itself shows the first section on wide screens.
-  const activeId = SECTIONS.find((section) => pathname.startsWith(section.to))?.id ?? "profile";
+  const activeId =
+    SETTINGS_SECTIONS.find((section) => pathname.startsWith(section.to))?.id ?? "profile";
 
   return (
     <div className="flex h-full">

@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
+import { EmojiText } from "#/features/emoji";
 import { accountClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { uploadAndProcess } from "#/lib/upload";
@@ -130,7 +131,9 @@ export function ProfileImages({ me }: { me: identity.Me }) {
             </button>
           </div>
           <div className="min-w-0 flex-1 pb-0.5">
-            <p className="truncate text-lg font-black">{user?.displayName}</p>
+            <p className="truncate text-lg font-black">
+              <EmojiText text={user?.displayName ?? ""} />
+            </p>
             <p className="truncate text-sm font-bold text-ink-soft">@{user?.handle}</p>
           </div>
         </div>

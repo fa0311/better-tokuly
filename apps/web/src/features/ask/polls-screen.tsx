@@ -9,6 +9,7 @@ import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Coins } from "#/components/ui/coins";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
+import { EmojiText } from "#/features/emoji";
 import { useBurst } from "#/features/engagement";
 import { dopamineFactor } from "#/lib/appearance";
 import { cn } from "#/lib/cn";
@@ -312,7 +313,9 @@ function ChoiceTile({
         )}
       >
         <Avatar user={user} size="lg" outlined />
-        <span className="max-w-full truncate px-1 font-black">{user.displayName}</span>
+        <span className="max-w-full truncate px-1 font-black">
+          <EmojiText text={user.displayName} />
+        </span>
         {state === "picked" && (
           <span aria-hidden className="absolute -top-3 -right-2 animate-pop-in text-4xl">
             🔥
