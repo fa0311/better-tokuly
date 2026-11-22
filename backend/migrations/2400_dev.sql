@@ -166,9 +166,6 @@ CREATE TABLE dev_webhook_deliveries (
     -- The event's id in the envelope; shared by retries and replays.
     event_id        uuid        NOT NULL,
     event_type      text        NOT NULL,
-    -- Where it goes: the webhook's URL when the event happened. A delivery
-    -- is never sent anywhere else, whatever the webhook is changed to.
-    url             text        NOT NULL,
     -- The envelope { id, type, time, data } as sent.
     payload         jsonb       NOT NULL,
     -- 'pending' | 'retrying' | 'succeeded' | 'failed'

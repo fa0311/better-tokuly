@@ -97,10 +97,11 @@ const DOMAINS: &[Domain] = &[
     },
     Domain {
         name: "notes",
-        sensitive: false,
+        // Notes and stories can be tagged with the place they were posted from.
+        sensitive: true,
         read: (
-            "あなたが見られるノート・ストーリー・タイムラインを読む",
-            "Read the notes, stories and timelines you can see",
+            "あなたが見られるノート・ストーリー・タイムラインを読む。投稿に付けられた場所（位置情報）も含まれます",
+            "Read the notes, stories and timelines you can see, including the places posts are tagged with",
         ),
         write: Some((
             "あなたとしてノートやストーリーを投稿・削除する、いいね・リノートする",
@@ -181,6 +182,30 @@ const DOMAINS: &[Domain] = &[
         sensitive: false,
         read: ("時間割・勉強記録・テスト予定を見る", "See your timetable, study logs and exams"),
         write: Some(("時間割・勉強記録・テスト予定を編集する", "Edit your timetable, study logs and exams")),
+    },
+    Domain {
+        name: "plans",
+        sensitive: false,
+        read: (
+            "ひま状況・あそぶ予定・日程調整・記念日・割り勘の記録を見る",
+            "See free-time status, plans, date polls, anniversaries and cost splits",
+        ),
+        write: Some((
+            "予定や日程調整の作成・参加・回答、ひま状況の変更、割り勘の記録（コインは動きません）",
+            "Create, join and answer plans and date polls, change your free-time status, record cost splits (no coins move)",
+        )),
+    },
+    Domain {
+        name: "community",
+        sensitive: false,
+        read: (
+            "参加しているコミュニティとその投稿・イベント・メンバーを見る",
+            "See your communities, their posts, events and members",
+        ),
+        write: Some((
+            "コミュニティへの参加・投稿・イベント参加・管理（匿名投稿の投稿者を明かすことはできません）",
+            "Join communities, post, attend events and moderate (never reveals who wrote an anonymous post)",
+        )),
     },
     Domain {
         name: "realtime",
@@ -349,7 +374,7 @@ mod tests {
             .collect();
         let offered: std::collections::BTreeSet<String> = catalogue().into_iter().map(|scope| scope.scope).collect();
         assert_eq!(offered, needed);
-        for gone in ["live:read", "shorts:read", "quest:write", "dev:write", "admin:read"] {
+        for gone in ["live:read", "shorts:read", "quest:write", "spaces:read", "dev:write", "admin:read"] {
             assert!(find(gone).is_none(), "{gone}");
         }
     }
@@ -364,6 +389,7 @@ mod tests {
         assert!(en("geo:write").contains("Never sends or ends an SOS"));
         assert!(en("identity:write").contains("linked services"));
         assert!(en("wallet:write").contains("never buys coins or cashes out"));
+        assert!(find("notes:read").unwrap().sensitive && en("notes:read").contains("places"));
     }
 
     #[test]

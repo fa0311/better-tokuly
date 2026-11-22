@@ -817,7 +817,12 @@ impl Dev {
         if grant.user_code != code || self.core.cache.exists(&device_answer_key(&hash)).await? {
             return Err(not_found());
         }
-        let app = self.find_app(grant.app_id).await?.filter(AppRow::is_usable).ok_or_else(not_found)?;
+        // An application that gave the device flow up takes its waiting codes with it.
+        let app = self
+            .find_app(grant.app_id)
+            .await?
+            .filter(|app| app.is_usable() && app.device_flow)
+            .ok_or_else(not_found)?;
         Ok((hash, grant, app))
     }
 
@@ -868,6 +873,10 @@ impl Dev {
     async fn poll_device(&self, app: &AppRow, device_code: &str) -> OAuthResult<TokenResponse> {
         let gone = || OAuthError::new("expired_token", "the device code is invalid or has expired");
         if !secrets::is(device_code, SecretKind::Device) {
+            return Err(gone());
+        }
+        // A code issued while the application had the device flow is worth nothing once it has not.
+        if !app.device_flow {
             return Err(gone());
         }
         let hash = self.core.keys.token_hash(device_code);

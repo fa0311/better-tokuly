@@ -27,13 +27,15 @@ Authorization: Bearer tkl_…  ──▶ core auth middleware (tokuly_core::api_
   crate walks the descriptor set and fails for any RPC without a line. Some
   RPCs need a second scope: what carries location (`MapStoryService`, the
   activity feed, `GetProfile`, nearby discovery) also needs `geo:read`, the
-  notification inbox also `chat:read` and `geo:read`. Session only: signing
+  notification inbox also `chat:read` and `geo:read`, the caller's reports
+  also `chat:read`, and whatever spends coins (`PurchasePack`, `BuyHint`)
+  also `wallet:write`. Session only: signing
   in, credentials, linked services, account deletion and export, purchases
-  and payouts, SOS, everything staff, and in this domain everything except
+  and payouts, SOS, revealing an anonymous author, everything staff, and in this domain everything except
   reading webhooks, deliveries, usage and the reference.
 - The catalogue with the wording shown to people is `tokuly_dev::scopes`; it
   offers exactly the scopes some listed RPC needs (no scopes yet for live,
-  shorts, quest, plans, spaces, community).
+  shorts, quest, spaces).
 - A response that keeps streaming is cut off when its token is revoked or
   expires (re-verified every 30 s).
 - A verified token is cached for up to 60 s (`dev:tok:<hash>`). Revocation,
@@ -82,9 +84,8 @@ A webhook belongs to an account (a person or a bot) and receives that
 account's events. The catalogue is `tokuly_dev::webhooks::EVENT_TYPES`.
 Creating, changing, deleting, pinging and replaying take a session; a token
 with `dev:read` lists webhooks and reads only deliveries of event types
-whose scopes it holds. A delivery is bound to the URL the webhook had when
-the event happened: after the URL is changed it is neither retried nor
-replayed (`WEBHOOK_URL_CHANGED`).
+whose scopes it holds. A delivery goes to the webhook's
+current URL, so a corrected address receives what was waiting.
 
 | Event type | Source | Delivered to | Scopes to read its deliveries |
 |---|---|---|---|
@@ -232,7 +233,7 @@ middleware:
 |---|---|
 | `POST /oauth/token` | RFC 6749 token endpoint: `authorization_code` (PKCE `S256` required), `refresh_token` (rotation, reuse revokes the family), `urn:ietf:params:oauth:grant-type:device_code`. Client authentication: `client_secret_basic`, `client_secret_post`, or none for public clients. |
 | `POST /oauth/revoke` | RFC 7009. |
-| `POST /oauth/device_authorization` | RFC 8628, only for applications registered with `device_flow` (`unauthorized_client` otherwise). The user approves at `<public url>/device`. |
+| `POST /oauth/device_authorization` | RFC 8628, only for applications registered with `device_flow` (`unauthorized_client` otherwise; codes issued earlier die when the flag is switched off). The user approves at `<public url>/device`. |
 | `GET /.well-known/oauth-authorization-server` | RFC 8414 metadata. The issuer is `<public url><api path prefix>`. |
 | `GET /reference/descriptor.binpb` | The `FileDescriptorSet` of the whole API. |
 

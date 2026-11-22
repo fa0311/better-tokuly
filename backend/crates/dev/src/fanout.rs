@@ -206,7 +206,7 @@ impl Dev {
                     tracing::debug!(%webhook_id, "webhook delivery dropped: too many events for this host in a minute");
                     continue;
                 }
-                if self.queue_delivery(webhook_id, &url, event.id, event_type.name, &payload, None).await?.is_some() {
+                if self.queue_delivery(webhook_id, event.id, event_type.name, &payload, None).await?.is_some() {
                     stored += 1;
                 }
             }

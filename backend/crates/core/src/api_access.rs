@@ -148,13 +148,15 @@ const TABLE: &[(&str, &[(&str, Rule)])] = &[
     ]),
     ("tokuly.ask.v1.ComplimentService", &[
         ("GetRound", Read),
+        // Deliberately without the wallet scope: finishing a round pays its small
+        // reward into the caller's own account, and nothing can be spent here.
         ("Vote", Write),
         ("SkipPoll", Write),
         ("ShufflePoll", Write),
         ("ListFlames", Read),
         ("GetFlameSummary", Read),
         ("MarkFlamesSeen", Write),
-        ("BuyHint", Write),
+        ("BuyHint", With(&["ask:write", "wallet:write"])),
         ("GetTopFlames", Read),
     ]),
     ("tokuly.ask.v1.AskModerationService", &[
@@ -373,7 +375,8 @@ const TABLE: &[(&str, &[(&str, Rule)])] = &[
     ]),
     ("tokuly.engagement.v1.ReportService", &[
         ("CreateReport", Write),
-        ("ListMyReports", Read),
+        // A report about a chat message quotes it.
+        ("ListMyReports", With(&["engagement:read", "chat:read"])),
     ]),
     ("tokuly.feed.v1.ActivityService", &[
         ("ListMyActivity", With(&["feed:read", "geo:read"])),
@@ -511,7 +514,7 @@ const TABLE: &[(&str, &[(&str, Rule)])] = &[
         ("RequestAccountDeletion", Session),
         ("CancelAccountDeletion", Session),
         ("RequestDataExport", Session),
-        ("ListConnections", Read),
+        ("ListConnections", Session),
         ("BeginConnection", Session),
         ("FinishConnection", Session),
         ("DeleteConnection", Session),
@@ -754,7 +757,8 @@ const TABLE: &[(&str, &[(&str, Rule)])] = &[
         ("InstallPack", Write),
         ("UninstallPack", Write),
         ("ReorderInstalledPacks", Write),
-        ("PurchasePack", Write),
+        // Coins leave the account: spending takes the wallet scope, whatever is bought.
+        ("PurchasePack", With(&["stamp:write", "wallet:write"])),
         ("ListPurchasedPacks", Read),
         ("ListFavoriteStamps", Read),
         ("FavoriteStamp", Write),
@@ -904,6 +908,158 @@ const TABLE: &[(&str, &[(&str, Rule)])] = &[
         ("ListAllCoinPackages", Session),
         ("SaveCoinPackage", Session),
     ]),
+    ("tokuly.community.v1.CommunityService", &[
+        ("CreateCommunity", Write),
+        ("GetCommunity", Read),
+        ("UpdateCommunity", Write),
+        ("DeleteCommunity", Write),
+        ("CheckHandle", Read),
+        ("TransferOwnership", Write),
+        ("ListMyCommunities", Read),
+        ("ListUserCommunities", Read),
+        ("JoinCommunity", Write),
+        ("PreviewInvite", Read),
+        ("LeaveCommunity", Write),
+        ("CancelJoinRequest", Write),
+        ("ListJoinRequests", Read),
+        ("RespondJoinRequest", Write),
+        ("ListMembers", Read),
+        ("GetMember", Read),
+        ("SetMemberRole", Write),
+        ("UpdateMembership", Write),
+        ("CreateInvite", Write),
+        ("ListInvites", Read),
+        ("RevokeInvite", Write),
+    ]),
+    ("tokuly.community.v1.CommunityBoardService", &[
+        ("CreateChannel", Write),
+        ("UpdateChannel", Write),
+        ("DeleteChannel", Write),
+        ("ReorderChannels", Write),
+        ("ListChannels", Read),
+        ("CreateThread", Write),
+        ("GetThread", Read),
+        ("UpdateThread", Write),
+        ("DeleteThread", Write),
+        ("ListThreads", Read),
+        ("ListAnnouncements", Read),
+        ("ListFollowedThreads", Read),
+        ("PinThread", Write),
+        ("LockThread", Write),
+        ("SetAnnouncement", Write),
+        ("SetThreadFollow", Write),
+        ("MarkRead", Write),
+        ("VotePoll", Write),
+        ("ClosePoll", Write),
+        ("CreateReply", Write),
+        ("GetReply", Read),
+        ("UpdateReply", Write),
+        ("DeleteReply", Write),
+        ("ListReplies", Read),
+    ]),
+    ("tokuly.community.v1.CommunityModerationService", &[
+        ("RemoveMember", Write),
+        ("BanMember", Write),
+        ("UnbanMember", Write),
+        ("ListBans", Read),
+        ("TimeoutMember", Write),
+        ("ClearTimeout", Write),
+        ("GetSafetySettings", Read),
+        ("UpdateSafetySettings", Write),
+        ("SetSlowMode", Write),
+        ("ListReviewQueue", Read),
+        ("ReviewPost", Write),
+        ("RevealAuthor", Session),
+        ("GetContentHistory", Read),
+        ("ListModerationLog", Read),
+    ]),
+    ("tokuly.community.v1.CommunityEventService", &[
+        ("CreateEvent", Write),
+        ("UpdateEvent", Write),
+        ("CancelEvent", Write),
+        ("DeleteEvent", Write),
+        ("GetEvent", Read),
+        ("ListEvents", Read),
+        ("ListMyEvents", Read),
+        ("Rsvp", Write),
+        ("ListAttendees", Read),
+        ("GetCheckInCode", Write),
+        ("CheckIn", Write),
+        ("CheckInAttendee", Write),
+    ]),
+    ("tokuly.community.v1.CommunityDiscoveryService", &[
+        ("ListDirectory", Read),
+        ("ListTrending", Read),
+        ("ListFriendsCommunities", Read),
+        ("ListSchoolCommunities", Read),
+        ("ListPopularTags", Read),
+    ]),
+    ("tokuly.plans.v1.FreeService", &[
+        ("SetFreeStatus", Write),
+        ("ClearFreeStatus", Write),
+        ("GetFreeStatus", Read),
+        ("ListFreeFriends", Read),
+        ("AnswerFreeStatus", Write),
+        ("ListFreeAnswers", Read),
+        ("SetFreeAlert", Write),
+        ("ListFreeAlerts", Read),
+    ]),
+    ("tokuly.plans.v1.PlanService", &[
+        ("CreatePlan", Write),
+        ("GetPlan", Read),
+        ("UpdatePlan", Write),
+        ("CancelPlan", Write),
+        ("ListPlans", Read),
+        ("InviteToPlan", Write),
+        ("RemovePlanParticipant", Write),
+        ("LeavePlan", Write),
+        ("SetPlanRole", Write),
+        ("RespondToPlan", Write),
+        ("AddChecklistItem", Write),
+        ("UpdateChecklistItem", Write),
+        ("RemoveChecklistItem", Write),
+        ("AddExpense", Write),
+        ("UpdateExpense", Write),
+        ("RemoveExpense", Write),
+        ("ListExpenses", Read),
+        ("GetSplit", Read),
+        ("SettleTransfer", Write),
+        ("RemoveSettlement", Write),
+    ]),
+    ("tokuly.plans.v1.PollService", &[
+        ("CreatePoll", Write),
+        ("GetPoll", Read),
+        ("UpdatePoll", Write),
+        ("ListPolls", Read),
+        ("InviteToPoll", Write),
+        ("AnswerPoll", Write),
+        ("ClosePoll", Write),
+        ("ReopenPoll", Write),
+        ("FinalizePoll", Write),
+        ("DeletePoll", Write),
+        ("LeavePoll", Write),
+        ("RemovePollParticipant", Write),
+        ("RemindPollParticipants", Write),
+    ]),
+    ("tokuly.plans.v1.AnniversaryService", &[
+        ("CreateCountdown", Write),
+        ("UpdateCountdown", Write),
+        ("DeleteCountdown", Write),
+        ("GetCountdown", Read),
+        ("ListCountdowns", Read),
+        ("StartFriendshipCounter", Write),
+        ("InviteCouple", Write),
+        ("RespondCoupleInvite", Write),
+        ("UpdateAnniversary", Write),
+        ("EndAnniversary", Write),
+        ("ListAnniversaries", Read),
+        ("ListBirthdays", Read),
+        ("GetPlansSettings", Read),
+        ("UpdatePlansSettings", Write),
+    ]),
+    ("tokuly.plans.v1.CalendarService", &[
+        ("GetCalendar", Read),
+    ]),
 ];
 
 #[cfg(test)]
@@ -942,6 +1098,8 @@ mod tests {
             scopes("/tokuly.notify.v1.InboxService/ListNotifications"),
             ["notify:read", "chat:read", "geo:read"]
         );
+        // A report about a chat message quotes the message.
+        assert_eq!(scopes("/tokuly.engagement.v1.ReportService/ListMyReports"), ["engagement:read", "chat:read"]);
         // News is neither.
         assert_eq!(scopes("/tokuly.feed.v1.NewsService/ListNews"), ["feed:read"]);
     }
@@ -970,12 +1128,25 @@ mod tests {
             "/tokuly.dev.v1.WebhookService/CreateWebhook",
             "/tokuly.dev.v1.WebhookService/RotateWebhookSecret",
             "/tokuly.dev.v1.WebhookService/ReplayDelivery",
+            "/tokuly.identity.v1.AccountService/ListConnections",
+            "/tokuly.community.v1.CommunityModerationService/RevealAuthor",
         ] {
             assert_eq!(access_for(path), Some(Access::SessionOnly), "{path}");
         }
         assert_eq!(access_for("/tokuly.dev.v1.TokenService/GetCurrentToken"), Some(Access::AnyToken));
         assert_eq!(access_for("/tokuly.dev.v1.ReferenceService/ListServices"), Some(Access::AnyToken));
         assert_eq!(scopes("/tokuly.dev.v1.WebhookService/GetDelivery"), ["dev:read"]);
+    }
+
+    #[test]
+    fn spending_coins_takes_the_wallet_scope_wherever_it_happens() {
+        assert_eq!(scopes("/tokuly.stamp.v1.StampLibraryService/PurchasePack"), ["stamp:write", "wallet:write"]);
+        assert_eq!(scopes("/tokuly.ask.v1.ComplimentService/BuyHint"), ["ask:write", "wallet:write"]);
+        assert_eq!(scopes("/tokuly.wallet.v1.WalletService/ClaimDailyBonus"), ["wallet:write"]);
+        // A round's own reward is not spending.
+        assert_eq!(scopes("/tokuly.ask.v1.ComplimentService/Vote"), ["ask:write"]);
+        // Splitting costs among friends moves no coins.
+        assert_eq!(scopes("/tokuly.plans.v1.PlanService/SettleTransfer"), ["plans:write"]);
     }
 
     #[test]

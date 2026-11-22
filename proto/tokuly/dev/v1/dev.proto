@@ -689,9 +689,7 @@ service WebhookService {
   // without the event type's scopes: `INSUFFICIENT_SCOPE`.
   rpc GetDelivery(GetDeliveryRequest) returns (GetDeliveryResponse);
   // Sends the same event again as a new delivery. Reasons:
-  // `DELIVERY_NOT_FOUND`, `WEBHOOK_NOT_ACTIVE`, `WEBHOOK_URL_CHANGED` (the
-  // webhook points somewhere else than when the event happened),
-  // `RATE_LIMITED`.
+  // `DELIVERY_NOT_FOUND`, `WEBHOOK_NOT_ACTIVE`, `RATE_LIMITED`.
   rpc ReplayDelivery(ReplayDeliveryRequest) returns (ReplayDeliveryResponse);
 }
 

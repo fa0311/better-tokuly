@@ -512,6 +512,101 @@ async fn location_and_messages_take_their_own_scope_wherever_they_appear() {
 }
 
 #[tokio::test]
+async fn spending_coins_takes_the_wallet_scope_and_reports_take_the_chat_scope() {
+    let ctx = start().await;
+    let alice = ctx.app.user("alice").await;
+    let (_, plain) = personal_token(&ctx, &alice, &["stamp:write", "ask:write", "engagement:read"]).await;
+    let (_, paying) =
+        personal_token(&ctx, &alice, &["stamp:write", "ask:write", "wallet:write", "engagement:read", "chat:read"])
+            .await;
+    for (procedure, scope) in [
+        ("tokuly.stamp.v1.StampLibraryService/PurchasePack", "wallet:write"),
+        ("tokuly.ask.v1.ComplimentService/BuyHint", "wallet:write"),
+        ("tokuly.engagement.v1.ReportService/ListMyReports", "chat:read"),
+    ] {
+        let refused = ctx
+            .app
+            .call::<_, serde_json::Value>(procedure, Some(&with_token(&alice, &plain)), &serde_json::json!({}))
+            .await
+            .unwrap_err();
+        assert_eq!(
+            (refused.reason.as_str(), refused.message.as_str()),
+            ("INSUFFICIENT_SCOPE", format!("this token lacks the scope {scope}").as_str()),
+            "{procedure}"
+        );
+        let passed = ctx
+            .app
+            .call::<_, serde_json::Value>(procedure, Some(&with_token(&alice, &paying)), &serde_json::json!({}))
+            .await
+            .unwrap_err();
+        assert_ne!(passed.reason, "INSUFFICIENT_SCOPE", "{procedure}");
+    }
+    // Free stamp actions and a round's own reward stay with their domain's scope.
+    for procedure in ["tokuly.stamp.v1.StampLibraryService/InstallPack", "tokuly.ask.v1.ComplimentService/Vote"] {
+        let passed = ctx
+            .app
+            .call::<_, serde_json::Value>(procedure, Some(&with_token(&alice, &plain)), &serde_json::json!({}))
+            .await
+            .unwrap_err();
+        assert_ne!(passed.reason, "INSUFFICIENT_SCOPE", "{procedure}");
+    }
+}
+
+#[tokio::test]
+async fn a_device_code_dies_when_its_application_gives_the_device_flow_up() {
+    let ctx = start_with(DevConfig { device_poll_seconds: 0, ..config() }).await;
+    let (dana, user) = (ctx.app.user("dana").await, ctx.app.user("user").await);
+    let cli = create_cli(&ctx, &dana, &["identity:read"]).await;
+    let start_flow = || async { ctx.form("/oauth/device_authorization", None, &[("client_id", &cli.id)]).await.json() };
+    let (approved, waiting) = (start_flow().await, start_flow().await);
+    let approve =
+        ApproveDeviceRequest { user_code: approved["user_code"].as_str().unwrap().to_owned(), ..Default::default() };
+    ctx.app
+        .call::<_, ApproveDeviceResponse>(&format!("{AUTHORIZATION_SERVICE}/ApproveDevice"), Some(&user), &approve)
+        .await
+        .unwrap();
+
+    // The developer switches the device flow off.
+    let update = UpdateAppRequest {
+        app_id: cli.id.clone(),
+        name: "Test CLI".into(),
+        redirect_uris: vec![REDIRECT_URI.into()],
+        scopes: vec!["identity:read".into()],
+        device_flow: false,
+        ..Default::default()
+    };
+    ctx.app.call::<_, UpdateAppResponse>(&format!("{APP_SERVICE}/UpdateApp"), Some(&dana), &update).await.unwrap();
+
+    // Neither the code that was already approved nor the one still waiting is worth anything.
+    for device in [&approved, &waiting] {
+        let poll = ctx
+            .form(
+                "/oauth/token",
+                None,
+                &[
+                    ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+                    ("device_code", device["device_code"].as_str().unwrap()),
+                    ("client_id", &cli.id),
+                ],
+            )
+            .await;
+        assert_eq!((poll.status, poll.error().as_str()), (400, "expired_token"));
+    }
+    let late =
+        ApproveDeviceRequest { user_code: waiting["user_code"].as_str().unwrap().to_owned(), ..Default::default() };
+    assert_eq!(
+        ctx.app
+            .call::<_, ApproveDeviceResponse>(&format!("{AUTHORIZATION_SERVICE}/ApproveDevice"), Some(&user), &late)
+            .await
+            .unwrap_err()
+            .reason,
+        "DEVICE_CODE_INVALID"
+    );
+    let none: i64 = sqlx::query_scalar("SELECT count(*) FROM dev_oauth_tokens o JOIN dev_authorizations a ON a.id = o.authorization_id WHERE a.user_id = $1").bind(user.id).fetch_one(&ctx.app.core.db).await.unwrap();
+    assert_eq!(none, 0);
+}
+
+#[tokio::test]
 async fn linked_services_and_sos_take_a_session() {
     let ctx = start().await;
     let alice = ctx.app.user("alice").await;
@@ -520,6 +615,7 @@ async fn linked_services_and_sos_take_a_session() {
         "tokuly.identity.v1.AccountService/BeginConnection",
         "tokuly.identity.v1.AccountService/FinishConnection",
         "tokuly.identity.v1.AccountService/DeleteConnection",
+        "tokuly.identity.v1.AccountService/ListConnections",
         "tokuly.geo.v1.SafetyService/TriggerSos",
         "tokuly.geo.v1.SafetyService/ResolveSos",
         "tokuly.wallet.v1.WalletService/StartPurchase",

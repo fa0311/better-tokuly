@@ -273,8 +273,6 @@ pub(crate) struct DeliveryRow {
     pub webhook_id: Uuid,
     pub event_id: Uuid,
     pub event_type: String,
-    /// Where it goes: the webhook's URL when the event happened.
-    pub url: String,
     pub payload: serde_json::Value,
     pub status: String,
     pub attempts: serde_json::Value,
@@ -285,7 +283,7 @@ pub(crate) struct DeliveryRow {
     pub completed_at: Option<Time>,
 }
 
-pub(crate) const DELIVERY_COLUMNS: &str = "id, webhook_id, event_id, event_type, url, payload, status, attempts, attempt_count, next_attempt_at, replay_of, created_at, completed_at";
+pub(crate) const DELIVERY_COLUMNS: &str = "id, webhook_id, event_id, event_type, payload, status, attempts, attempt_count, next_attempt_at, replay_of, created_at, completed_at";
 
 impl DeliveryRow {
     fn attempts(&self) -> Vec<Attempt> {
@@ -429,7 +427,6 @@ impl Dev {
     pub(crate) async fn queue_delivery(
         &self,
         webhook_id: Uuid,
-        url: &str,
         event_id: Uuid,
         event_type: &str,
         payload: &serde_json::Value,
@@ -437,12 +434,11 @@ impl Dev {
     ) -> AppResult<Option<Uuid>> {
         // `next_attempt_at` is the safety net: if the job below is lost, the sweep queues another.
         let id: Option<Uuid> = sqlx::query_scalar(
-            "INSERT INTO dev_webhook_deliveries (webhook_id, url, event_id, event_type, payload, replay_of, next_attempt_at)
-             VALUES ($1, $2, $3, $4, $5, $6, now() + interval '2 minutes')
+            "INSERT INTO dev_webhook_deliveries (webhook_id, event_id, event_type, payload, replay_of, next_attempt_at)
+             VALUES ($1, $2, $3, $4, $5, now() + interval '2 minutes')
              ON CONFLICT (webhook_id, event_id, event_type) WHERE replay_of IS NULL DO NOTHING RETURNING id",
         )
         .bind(webhook_id)
-        .bind(url)
         .bind(event_id)
         .bind(event_type)
         .bind(payload)
@@ -476,17 +472,6 @@ impl Dev {
                 .bind(delivery.webhook_id)
                 .fetch_one(&self.core.db)
                 .await?;
-        if webhook.url != delivery.url {
-            // The webhook points somewhere else than when this happened: it stays undelivered.
-            let note = Attempt {
-                at: Utc::now(),
-                status_code: 0,
-                latency_ms: 0,
-                response_snippet: String::new(),
-                error: "not sent: the webhook's URL changed".to_owned(),
-            };
-            return Ok(Some(self.settle(&delivery, &webhook, note, true).await?.to_proto(true)));
-        }
         if !webhook.is_active() {
             // Paused or disabled since the delivery was queued: it is not sent.
             let note = Attempt {
@@ -644,13 +629,12 @@ impl Dev {
         let event_id = new_id();
         let payload = envelope(event_id, PING, Utc::now(), serde_json::json!({ "webhook_id": webhook.id }));
         let delivery: DeliveryRow = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "INSERT INTO dev_webhook_deliveries (webhook_id, url, event_id, event_type, payload, claimed_at) VALUES ($1, $5, $2, $3, $4, now()) RETURNING {DELIVERY_COLUMNS}"
+            "INSERT INTO dev_webhook_deliveries (webhook_id, event_id, event_type, payload, claimed_at) VALUES ($1, $2, $3, $4, now()) RETURNING {DELIVERY_COLUMNS}"
         )))
         .bind(webhook.id)
         .bind(event_id)
         .bind(PING)
         .bind(&payload)
-        .bind(&webhook.url)
         .fetch_one(&self.core.db)
         .await?;
         let attempt = self.send(webhook, delivery.id, PING, &payload).await;
@@ -662,7 +646,6 @@ impl Dev {
         let id = self
             .queue_delivery(
                 original.webhook_id,
-                &original.url,
                 original.event_id,
                 &original.event_type,
                 &original.payload,

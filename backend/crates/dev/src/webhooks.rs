@@ -602,13 +602,6 @@ impl WebhookService for Dev {
                 "WEBHOOK_NOT_ACTIVE",
                 "resume the webhook before replaying deliveries"
             );
-            // What happened while the webhook pointed elsewhere is not sent to where it points now.
-            ensure!(
-                original.url == webhook.url,
-                precondition,
-                "WEBHOOK_URL_CHANGED",
-                "the webhook's URL changed since this event"
-            );
             self.core
                 .cache
                 .rate_limit(&format!("dev-webhook-replay:{}", ctx.user_id()?), 60, Duration::from_secs(3600))

@@ -864,16 +864,13 @@ async fn a_token_changes_no_webhook_and_reads_only_what_its_scopes_cover() {
 }
 
 #[tokio::test]
-async fn an_event_is_never_sent_to_a_url_the_webhook_did_not_have_when_it_happened() {
+async fn a_corrected_url_receives_what_was_waiting() {
     let ctx = start().await;
     let (alice, bob) = (ctx.app.user("alice").await, ctx.app.user("bob").await);
     let (old, new) = (Receiver::start().await, Receiver::start().await);
     let (webhook, _) = create_webhook(&ctx, &alice, &old.url, &["friend.request_received"]).await;
-    // One event delivered, one still waiting, when the webhook is pointed elsewhere.
     ctx.dev.fan_out(&friend_request(&alice, &bob)).await.unwrap();
-    ctx.dev.fan_out(&friend_request(&alice, &bob)).await.unwrap();
-    let ids = delivery_ids(&ctx, &webhook.id).await;
-    ctx.dev.deliver(ids[0]).await.unwrap();
+    // Its owner (only a session can) fixes the address while a delivery waits.
     let moved = UpdateWebhookRequest {
         webhook_id: webhook.id.clone(),
         url: new.url.clone(),
@@ -884,36 +881,17 @@ async fn an_event_is_never_sent_to_a_url_the_webhook_did_not_have_when_it_happen
         .call::<_, UpdateWebhookResponse>(&format!("{WEBHOOK_SERVICE}/UpdateWebhook"), Some(&alice), &moved)
         .await
         .unwrap();
-
-    // The delivered one cannot be replayed to the new address...
-    let replay = ctx
-        .app
-        .call::<_, ReplayDeliveryResponse>(
-            &format!("{WEBHOOK_SERVICE}/ReplayDelivery"),
-            Some(&alice),
-            &ReplayDeliveryRequest { delivery_id: ids[0].to_string(), ..Default::default() },
-        )
-        .await
-        .unwrap_err();
-    assert_eq!((replay.code.as_str(), replay.reason.as_str()), ("failed_precondition", "WEBHOOK_URL_CHANGED"));
-    // ...and the waiting one is not sent there either.
-    let waiting = ctx.dev.deliver(ids[1]).await.unwrap().unwrap();
-    assert_eq!(
-        (waiting.status.as_known(), waiting.attempts[0].error.as_str()),
-        (Some(DeliveryStatus::DELIVERY_STATUS_FAILED), "not sent: the webhook's URL changed")
-    );
-    assert_eq!((old.hits().len(), new.hits().len()), (1, 0));
-    // What happens from now on goes to the new address, and can be replayed there.
-    ctx.dev.fan_out(&friend_request(&alice, &bob)).await.unwrap();
-    let latest = *delivery_ids(&ctx, &webhook.id).await.last().unwrap();
-    ctx.dev.deliver(latest).await.unwrap();
-    assert_eq!(new.hits().len(), 1);
+    let id = delivery_ids(&ctx, &webhook.id).await[0];
+    let delivered = ctx.dev.deliver(id).await.unwrap().unwrap();
+    assert_eq!(delivered.status.as_known(), Some(DeliveryStatus::DELIVERY_STATUS_SUCCEEDED));
+    assert_eq!((old.hits().len(), new.hits().len()), (0, 1));
+    // And it can be replayed there.
     assert!(
         ctx.app
             .call::<_, ReplayDeliveryResponse>(
                 &format!("{WEBHOOK_SERVICE}/ReplayDelivery"),
                 Some(&alice),
-                &ReplayDeliveryRequest { delivery_id: latest.to_string(), ..Default::default() }
+                &ReplayDeliveryRequest { delivery_id: id.to_string(), ..Default::default() }
             )
             .await
             .is_ok()
