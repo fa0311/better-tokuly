@@ -3,7 +3,25 @@ import { search } from "@tokuly/api";
 const K = search.SearchKind;
 
 /** Every kind of thing search can find, in the order their tabs are shown. */
-export const KINDS = [K.USER, K.CHANNEL, K.NOTE, K.VIDEO, K.SHORT, K.LIVE, K.CLIP, K.PLAYLIST, K.STAMP_PACK, K.PLACE, K.HASHTAG, K.NEWS] as const;
+export const KINDS = [
+  K.USER,
+  K.CHANNEL,
+  K.NOTE,
+  K.VIDEO,
+  K.SHORT,
+  K.LIVE,
+  K.SPACE,
+  K.CLIP,
+  K.PLAYLIST,
+  K.COMMUNITY,
+  K.THREAD,
+  K.ANSWER,
+  K.STAMP_PACK,
+  K.EMOJI,
+  K.PLACE,
+  K.HASHTAG,
+  K.NEWS,
+] as const;
 export type Kind = (typeof KINDS)[number];
 
 /** A kind's name in the address (`/search?kind=people`) and in the `kinds.*` strings. */
@@ -20,6 +38,11 @@ const SLUGS: Record<Kind, string> = {
   [K.PLACE]: "places",
   [K.HASHTAG]: "tags",
   [K.NEWS]: "news",
+  [K.ANSWER]: "answers",
+  [K.EMOJI]: "emoji",
+  [K.COMMUNITY]: "communities",
+  [K.THREAD]: "threads",
+  [K.SPACE]: "rooms",
 };
 
 export function isKind(value: search.SearchKind): value is Kind {

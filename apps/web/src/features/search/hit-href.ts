@@ -14,10 +14,16 @@ export function isAppPath(path: string): boolean {
   return /^\/(?![/\\])[^\u0000-\u001f]*$/.test(path);
 }
 
+/** A community's page. `/c/<handle>`, where its domain publishes it, is a video channel in this app. */
+function communityHref(handle: string): string {
+  return `/g/${encodeURIComponent(handle)}`;
+}
+
 /**
- * Where a result leads in this app. People, channels, notes, hashtags and
- * news have pages whose address the web app decides; everything else opens at
- * the path its domain published.
+ * Where a result leads in this app. People, channels, notes, hashtags, news,
+ * emoji, communities and their threads have pages whose address the web app
+ * decides; everything else (answers and audio rooms among them) opens at the
+ * path its domain published.
  */
 export function hitHref(hit: Pick<search.SearchHit, "kind" | "id" | "path" | "title" | "extraJson" | "owner">): string {
   const extra = hitExtra(hit);
@@ -41,6 +47,20 @@ export function hitHref(hit: Pick<search.SearchHit, "kind" | "id" | "path" | "ti
     }
     case K.NEWS:
       return `/news/${segment(hit.id)}`;
+    case K.EMOJI: {
+      const name = extraText(extra, "name") || hit.title.replace(/^:|:$/g, "");
+      return name ? `/emoji/${segment(name)}` : published;
+    }
+    case K.COMMUNITY: {
+      const handle = extraText(extra, "handle");
+      return handle ? communityHref(handle) : published;
+    }
+    case K.THREAD: {
+      // Published as `/c/<community>/t/<thread>`: the same thread under this app's address for communities.
+      const handle = extraText(extra, "community_handle");
+      const thread = /^\/c\/[^/?#]+\/t\/([^/?#]+)$/.exec(hit.path)?.[1];
+      return handle && thread ? `${communityHref(handle)}/t/${thread}` : published;
+    }
     default:
       return published;
   }
