@@ -6485,8 +6485,32 @@ dependencies = [
 name = "tokuly-spaces"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "buffa",
+ "bytes",
+ "chrono",
+ "clap",
+ "connectrpc",
+ "futures",
+ "http 1.5.0",
+ "http-body-util",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tokio-tungstenite",
  "tokuly-core",
+ "tokuly-identity",
  "tokuly-proto",
+ "tokuly-social",
+ "tokuly-testkit",
+ "tower",
+ "tracing",
+ "unicode-segmentation",
+ "url",
+ "uuid",
 ]
 
 [[package]]
