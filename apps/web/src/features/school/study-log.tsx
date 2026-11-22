@@ -9,6 +9,7 @@ import { ConfirmDialog } from "#/components/ui/confirm";
 import { Dialog } from "#/components/ui/dialog";
 import { TextField } from "#/components/ui/field";
 import { LoadMore } from "#/components/ui/load-more";
+import { useAccountTimeZone } from "#/lib/account-time";
 import { EmptyState } from "#/components/ui/page";
 import { keys, refresh, studyClient, toastError } from "./api";
 import { fromLocalInput, momentLabel, studyTime, toLocalInput } from "./dates";
@@ -26,6 +27,7 @@ export function sourceKey(source: school.SessionSource): "timer" | "room" | "man
 export function StudyLog() {
   const { t, i18n } = useTranslation("school");
   const [logging, setLogging] = useState(false);
+  const zone = useAccountTimeZone();
   const [editing, setEditing] = useState<school.StudySession | undefined>(undefined);
   const query = useInfiniteQuery({
     queryKey: keys.sessions,
@@ -65,7 +67,7 @@ export function StudyLog() {
                       {session.cheerCount > 0 && <span className="text-xs font-bold">📣 {session.cheerCount}</span>}
                     </span>
                     <span className="mt-0.5 block truncate text-xs font-bold text-ink-soft">
-                      {started && momentLabel(started, i18n.language)}
+                      {started && momentLabel(started, i18n.language, zone)}
                       {session.memo && ` · ${session.memo}`}
                     </span>
                   </span>
@@ -87,12 +89,14 @@ export function StudyLog() {
 function LogDialog({ onClose }: { onClose(): void }) {
   const { t } = useTranslation("school");
   const queryClient = useQueryClient();
-  const [start, setStart] = useState(() => toLocalInput(new Date(Date.now() - 60 * 60_000)));
-  const [end, setEnd] = useState(() => toLocalInput(new Date()));
+  // Times are entered on the account's clock, like every time of the school area.
+  const zone = useAccountTimeZone();
+  const [start, setStart] = useState(() => toLocalInput(new Date(Date.now() - 60 * 60_000), zone));
+  const [end, setEnd] = useState(() => toLocalInput(new Date(), zone));
   const [subjectId, setSubjectId] = useState("");
   const [memo, setMemo] = useState("");
-  const startedAt = fromLocalInput(start);
-  const endedAt = fromLocalInput(end);
+  const startedAt = fromLocalInput(start, zone);
+  const endedAt = fromLocalInput(end, zone);
   const valid = startedAt && endedAt && endedAt.getTime() - startedAt.getTime() >= 60_000;
   const log = useMutation({
     mutationFn: () => studyClient().logStudySession({ startedAt: startedAt && fromDate(startedAt), endedAt: endedAt && fromDate(endedAt), subjectId, memo }),
@@ -141,7 +145,8 @@ function LogDialog({ onClose }: { onClose(): void }) {
 function SessionDialog({ session, onClose }: { session: school.StudySession; onClose(): void }) {
   const { t, i18n } = useTranslation("school");
   const queryClient = useQueryClient();
-  const original = { start: toLocalInput(toDate(session.startedAt) ?? new Date()), end: toLocalInput(toDate(session.endedAt) ?? new Date()) };
+  const zone = useAccountTimeZone();
+  const original = { start: toLocalInput(toDate(session.startedAt) ?? new Date(), zone), end: toLocalInput(toDate(session.endedAt) ?? new Date(), zone) };
   const [start, setStart] = useState(original.start);
   const [end, setEnd] = useState(original.end);
   const [subjectId, setSubjectId] = useState(session.subject?.id ?? "");
@@ -150,8 +155,8 @@ function SessionDialog({ session, onClose }: { session: school.StudySession; onC
   const [cheersOpen, setCheersOpen] = useState(false);
   const timed = session.source !== school.SessionSource.MANUAL;
   const timesChanged = start !== original.start || end !== original.end;
-  const startedAt = fromLocalInput(start);
-  const endedAt = fromLocalInput(end);
+  const startedAt = fromLocalInput(start, zone);
+  const endedAt = fromLocalInput(end, zone);
   const outside = timed && timesChanged && (start < original.start || end > original.end);
   const valid = startedAt && endedAt && endedAt.getTime() > startedAt.getTime() && !outside;
 

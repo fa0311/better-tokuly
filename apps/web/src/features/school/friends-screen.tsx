@@ -11,9 +11,10 @@ import { EmptyState, Skeleton } from "#/components/ui/page";
 import { SelectField } from "#/components/ui/select";
 import { Tabs } from "#/components/ui/tabs";
 import { openDirectChat } from "#/features/chat";
+import { useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
 import { keys, timetableClient, useTerms } from "./api";
-import { clock, dayLabel, ymd } from "./dates";
+import { clock, dayLabel } from "./dates";
 import { DayView } from "./day-view";
 import { TimetableGrid } from "./grid";
 import { Block, RowsSkeleton, SchoolPage, SubjectPill, useNow } from "./parts";
@@ -48,6 +49,7 @@ function FriendTimetables() {
   const { t } = useTranslation("school");
   const timetables = useFriendTimetables();
   const now = useNow(30_000);
+  const today = useAccountToday();
   if (timetables.isPending) return <RowsSkeleton />;
   const list = timetables.data ?? [];
   if (list.length === 0) return <EmptyState emoji="🤝" title={t("friends.empty")} body={t("friends.emptyBody")} />;
@@ -69,7 +71,7 @@ function FriendTimetables() {
                       <SubjectPill subject={current.subject} className="h-5 border px-1.5 text-[11px]" />
                       <span>〜{clock(current.endMinute)}</span>
                     </>
-                  ) : next && next.date === ymd() ? (
+                  ) : next && next.date === today ? (
                     <>
                       <span>{t("now.next")}</span>
                       <SubjectPill subject={next.subject} className="h-5 border px-1.5 text-[11px]" />
@@ -94,7 +96,7 @@ function FreePeriods() {
   const { t, i18n } = useTranslation("school");
   const sharing = useFriendTimetables();
   const [only, setOnly] = useState<string[]>([]);
-  const start = ymd();
+  const start = useAccountToday();
   const free = useQuery({ queryKey: keys.free(start, only), queryFn: () => timetableClient().findCommonFreePeriods({ startDate: start, days: 7, userIds: only }) });
   const people = (sharing.data ?? []).flatMap((item) => (item.user ? [item.user] : []));
   const periods = free.data?.periods ?? [];
@@ -182,10 +184,11 @@ export function FriendTimetableScreen({ userId }: { userId: string }) {
   const [termId, setTermId] = useState("");
   const [copying, setCopying] = useState(false);
   const now = useNow(30_000);
+  const date = useAccountToday();
   const timetable = useQuery({ queryKey: keys.friendTimetable(userId, termId), queryFn: () => timetableClient().getFriendTimetable({ userId, termId }), retry: false });
   const friend = useQuery({ queryKey: keys.friendTimetables, queryFn: async () => (await timetableClient().listFriendTimetables({ page: { limit: 100 } })).timetables, select: (list) => list.find((item) => item.user?.id === userId)?.user });
   const classNow = useQuery({ queryKey: keys.now(userId), queryFn: async () => (await timetableClient().getNow({ userId })).now, refetchInterval: 60_000, retry: false });
-  const today = useQuery({ queryKey: keys.day(ymd(), userId), queryFn: async () => (await timetableClient().getDay({ userId })).day, retry: false });
+  const today = useQuery({ queryKey: keys.day(date, userId), queryFn: async () => (await timetableClient().getDay({ userId, date })).day, retry: false });
   const ownTerms = useTerms();
   const name = friend.data?.displayName ?? t("friends.someone");
 
@@ -238,7 +241,7 @@ export function FriendTimetableScreen({ userId }: { userId: string }) {
           <TimetableGrid layout={term.layout} entries={timetable.data.entries} />
         </div>
         <aside className="mt-6 lg:mt-0">
-          <Block title={t("friends.todayOf", { date: dayLabel(ymd(), i18n.language) })}>{today.isPending ? <Skeleton className="h-40" /> : today.data ? <DayView day={today.data} nowMs={now} /> : <p className="text-sm text-ink-soft">{t("day.noClasses")}</p>}</Block>
+          <Block title={t("friends.todayOf", { date: dayLabel(date, i18n.language) })}>{today.isPending ? <Skeleton className="h-40" /> : today.data ? <DayView day={today.data} nowMs={now} /> : <p className="text-sm text-ink-soft">{t("day.noClasses")}</p>}</Block>
         </aside>
       </div>
       {copying && <CopyDialog open onOpenChange={() => setCopying(false)} friend={{ id: userId, displayName: name }} term={term} ownTerms={ownTerms.data ?? []} />}

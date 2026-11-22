@@ -6,9 +6,10 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { Skeleton } from "#/components/ui/page";
+import { useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
 import { keys, timetableClient, useProgress } from "./api";
-import { addDays, dayLabel, mondayOf, parseYmd, studyTime, timerText, weekdayOf, ymd } from "./dates";
+import { addDays, dayLabel, mondayOf, parseYmd, studyTime, timerText, weekdayOf } from "./dates";
 import { DayView, takesPlace } from "./day-view";
 import { DueList } from "./due";
 import { ClassNowCard } from "./now-card";
@@ -24,8 +25,11 @@ import { studiedSecondsAt } from "./timer";
  */
 export function TodayScreen() {
   const { t, i18n } = useTranslation("school");
-  const today = ymd();
-  const [date, setDate] = useState(today);
+  const today = useAccountToday();
+  // No day picked means "today", so a page left open overnight moves on with the date.
+  const [picked, setPicked] = useState<string | undefined>(undefined);
+  const date = picked ?? today;
+  const setDate = (next: string) => setPicked(next === today ? undefined : next);
   const monday = mondayOf(date);
   const now = useNow(30_000);
   const week = useQuery({ queryKey: keys.days(monday, addDays(monday, 6)), queryFn: async () => (await timetableClient().listDays({ startDate: monday, endDate: addDays(monday, 6) })).days });

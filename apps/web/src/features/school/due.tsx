@@ -11,9 +11,10 @@ import { Dialog } from "#/components/ui/dialog";
 import { TextArea, TextField } from "#/components/ui/field";
 import { EmptyState } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
+import { useAccountTimeZone, useAccountToday, zonedMoment } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
 import { assignmentClient, refresh, toastError, useAssignments, useExams } from "./api";
-import { addDays, fromLocalInput, momentLabel, toLocalInput, ymd } from "./dates";
+import { addDays, fromLocalInput, momentLabel, toLocalInput } from "./dates";
 import { RowsSkeleton, SubjectPill } from "./parts";
 import { SubjectSelect } from "./subject-select";
 
@@ -54,6 +55,7 @@ export function AssignmentRow({ assignment, onOpen }: { assignment: school.Assig
     onError: toastError,
   });
   const due = toDate(assignment.dueAt);
+  const zone = useAccountTimeZone();
   const urgency = URGENCY_KEY[assignment.urgency];
   const done = toggle.isPending ? toggle.variables : assignment.done;
   const text = (
@@ -62,7 +64,7 @@ export function AssignmentRow({ assignment, onOpen }: { assignment: school.Assig
       <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs font-bold text-ink-soft">
         {assignment.subject && <SubjectPill subject={assignment.subject} className="h-5 border px-1.5 text-[11px]" />}
         {!done && urgency && <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-black", URGENCY_STYLE[assignment.urgency])}>{t(`assignments.urgency.${urgency}`)}</span>}
-        {due && <span>{t("assignments.dueAt", { when: momentLabel(due, i18n.language) })}</span>}
+        {due && <span>{t("assignments.dueAt", { when: momentLabel(due, i18n.language, zone) })}</span>}
         {!assignment.remind && !done && <BellOff className="size-3.5" aria-label={t("assignments.remindOff")} />}
       </span>
     </>
@@ -100,10 +102,11 @@ export function DueList({ limit }: { limit?: number }) {
   const exams = useExams();
   const assignments = useAssignments(school.AssignmentFilter.OPEN);
   const countdown = useExamCountdown();
+  const zone = useAccountTimeZone();
   if (exams.isPending || assignments.isPending) return <RowsSkeleton rows={2} />;
 
   const items = [
-    ...(exams.data ?? []).filter((exam) => exam.status !== school.ExamStatus.FINISHED).map((exam) => ({ at: new Date(`${exam.startDate}T00:00:00`).getTime(), exam, assignment: undefined })),
+    ...(exams.data ?? []).filter((exam) => exam.status !== school.ExamStatus.FINISHED).map((exam) => ({ at: zonedMoment(exam.startDate, 0, zone), exam, assignment: undefined })),
     ...(assignments.data?.assignments ?? []).map((assignment) => ({ at: toMillis(assignment.dueAt), exam: undefined, assignment })),
   ].sort((a, b) => a.at - b.at);
   if (items.length === 0) return <p className="rounded-card bg-surface-2 px-4 py-5 text-center text-sm font-bold text-ink-soft">{t("due.empty")}</p>;
@@ -142,11 +145,14 @@ export function AssignmentDialog({ assignment, onClose }: { /** The assignment t
   const queryClient = useQueryClient();
   const [title, setTitle] = useState(assignment?.title ?? "");
   const [subjectId, setSubjectId] = useState(assignment?.subject?.id ?? "");
-  const [due, setDue] = useState(() => toLocalInput(toDate(assignment?.dueAt) ?? new Date(`${addDays(ymd(), 1)}T23:59:00`)));
+  // A new assignment is due at the end of the account's tomorrow.
+  const zone = useAccountTimeZone();
+  const today = useAccountToday();
+  const [due, setDue] = useState(() => toLocalInput(toDate(assignment?.dueAt) ?? new Date(zonedMoment(addDays(today, 1), 23 * 60 + 59, zone)), zone));
   const [memo, setMemo] = useState(assignment?.memo ?? "");
   const [remind, setRemind] = useState(assignment?.remind ?? true);
   const [deleting, setDeleting] = useState(false);
-  const dueDate = fromLocalInput(due);
+  const dueDate = fromLocalInput(due, zone);
 
   const done = () => {
     refresh(queryClient, "assignments");

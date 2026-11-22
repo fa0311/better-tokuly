@@ -1,4 +1,5 @@
 import { school } from "@tokuly/api";
+import { zonedMoment, zonedTime } from "#/lib/account-time";
 
 /**
  * Calendar dates of the school API are `YYYY-MM-DD` strings and times of day
@@ -8,8 +9,8 @@ import { school } from "@tokuly/api";
 
 const pad = (value: number) => String(value).padStart(2, "0");
 
-/** The local calendar date of a moment. */
-export function ymd(date: Date = new Date()): string {
+/** The calendar date of a moment on this device. "Today" for the API is the account's: see `#/lib/account-time`. */
+export function ymd(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
@@ -90,20 +91,23 @@ export function dayLabel(value: string, language: string): string {
   return date.toLocaleDateString("en", { weekday: "short", month: "short", day: "numeric" });
 }
 
-/** A moment as "5/12(火) 17:00" / "Tue, May 12, 5:00 PM". */
-export function momentLabel(date: Date, language: string): string {
-  const time = language.startsWith("ja") ? `${date.getHours()}:${pad(date.getMinutes())}` : date.toLocaleTimeString("en", { hour: "numeric", minute: "2-digit" });
-  return `${dayLabel(ymd(date), language)} ${time}`;
+/** A moment as "5/12(火) 17:00" / "Tue, May 12, 5:00 PM", on the clock of `zone` (the account's). */
+export function momentLabel(date: Date, language: string, zone: string): string {
+  const shown = zonedTime(date.getTime(), zone);
+  const time = language.startsWith("ja") ? clock(shown.minute) : new Date(2000, 0, 1, 0, shown.minute).toLocaleTimeString("en", { hour: "numeric", minute: "2-digit" });
+  return `${dayLabel(shown.date, language)} ${time}`;
 }
 
-/** A `Date` as the value of a `datetime-local` input, and back. */
-export function toLocalInput(date: Date): string {
-  return `${ymd(date)}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+/** A moment as the value of a `datetime-local` input, read on the clock of `zone` (the account's), and back. */
+export function toLocalInput(date: Date, zone: string): string {
+  const shown = zonedTime(date.getTime(), zone);
+  return `${shown.date}T${clockInput(shown.minute)}`;
 }
 
-export function fromLocalInput(value: string): Date | undefined {
-  const date = new Date(value);
-  return value && !Number.isNaN(date.getTime()) ? date : undefined;
+export function fromLocalInput(value: string, zone: string): Date | undefined {
+  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/.exec(value);
+  if (!match?.[1] || !isYmd(match[1])) return undefined;
+  return new Date(zonedMoment(match[1], Number(match[2]) * 60 + Number(match[3]), zone));
 }
 
 /** Monday first, the order the grid draws its columns in. */

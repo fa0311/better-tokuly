@@ -1,7 +1,8 @@
 import type { school } from "@tokuly/api";
 import { useTranslation } from "react-i18next";
+import { useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
-import { clock, layoutWeekdays, weekdayOf, ymd } from "./dates";
+import { clock, layoutWeekdays, weekdayOf } from "./dates";
 import { cellName, entryColor, type GridEntry, type Slot, slotKey, slots } from "./grid-model";
 import { inkOn } from "./parts";
 
@@ -28,7 +29,7 @@ export function TimetableGrid({
   const weekdays = layoutWeekdays(layout);
   const periods = layout?.periods ?? [];
   const bySlot = slots(entries);
-  const today = weekdayOf(ymd());
+  const today = weekdayOf(useAccountToday());
 
   return (
     <table aria-label={t("timetable.grid")} className="w-full table-fixed border-separate border-spacing-1">
@@ -36,7 +37,7 @@ export function TimetableGrid({
         <tr>
           <td className="w-9" />
           {weekdays.map((weekday) => (
-            <th key={weekday} scope="col" className="p-0">
+            <th key={weekday} scope="col" className="p-0" aria-current={highlightToday && weekday === today ? "date" : undefined}>
               <span className={cn("grid h-7 place-items-center rounded-full text-xs font-black", highlightToday && weekday === today ? "bg-ink text-surface" : "text-ink-soft")}>
                 {t(`weekdays.short.${weekday}`)}
               </span>

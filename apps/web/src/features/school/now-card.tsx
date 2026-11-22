@@ -4,10 +4,11 @@ import type { TFunction } from "i18next";
 import { CalendarDays, ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Skeleton } from "#/components/ui/page";
+import { useAccountNow } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
 import { useClassNow } from "./api";
-import { clock, dayLabel, ymd } from "./dates";
-import { inkOn, useNow } from "./parts";
+import { clock, dayLabel } from "./dates";
+import { inkOn } from "./parts";
 
 /** "あと12分" until a moment; hours when it is further away. */
 function useUntil() {
@@ -18,9 +19,9 @@ function useUntil() {
   };
 }
 
-function when(item: school.ScheduledClass, language: string, t: TFunction<"school">): string {
+function when(item: school.ScheduledClass, today: string, language: string, t: TFunction<"school">): string {
   const period = t("day.period", { period: item.period });
-  return item.date === ymd() ? `${period} ${clock(item.startMinute)}〜` : `${dayLabel(item.date, language)} ${period} ${clock(item.startMinute)}〜`;
+  return item.date === today ? `${period} ${clock(item.startMinute)}〜` : `${dayLabel(item.date, language)} ${period} ${clock(item.startMinute)}〜`;
 }
 
 /**
@@ -30,7 +31,8 @@ function when(item: school.ScheduledClass, language: string, t: TFunction<"schoo
 export function ClassNowCard({ className }: { className?: string }) {
   const { t, i18n } = useTranslation("school");
   const { data, isPending } = useClassNow();
-  const now = useNow(15_000);
+  // The account's clock: "today" is theirs, wherever the device is.
+  const { ms: now, date: today } = useAccountNow(15_000);
   const until = useUntil();
 
   if (isPending) return <Skeleton className={cn("h-36", className)} />;
@@ -60,7 +62,7 @@ export function ClassNowCard({ className }: { className?: string }) {
       ) : (
         <div className="p-4">
           <p className="text-xs font-black text-ink-soft">{t("now.title")}</p>
-          <p className="mt-1 text-2xl font-black">{next ? (next.date === ymd() ? t("now.break") : t("now.doneToday")) : t("now.nothing")}</p>
+          <p className="mt-1 text-2xl font-black">{next ? (next.date === today ? t("now.break") : t("now.doneToday")) : t("now.nothing")}</p>
         </div>
       )}
       {next ? (
@@ -74,8 +76,8 @@ export function ClassNowCard({ className }: { className?: string }) {
             </span>
           </span>
           <span className="shrink-0 text-right text-sm font-bold">
-            <span className="block">{when(next, i18n.language, t)}</span>
-            {next.date === ymd() && <span className="block text-xs text-ink-soft">{until(toMillis(next.startsAt) - now)}</span>}
+            <span className="block">{when(next, today, i18n.language, t)}</span>
+            {next.date === today && <span className="block text-xs text-ink-soft">{until(toMillis(next.startsAt) - now)}</span>}
           </span>
         </div>
       ) : (
@@ -106,13 +108,13 @@ function Progress({ from, to, now }: { from: number; to: number; now: number }) 
 export function SchoolHubTile() {
   const { t, i18n } = useTranslation("school");
   const { data } = useClassNow();
-  const now = useNow(30_000);
+  const { ms: now, date: today } = useAccountNow(30_000);
   const current = data?.current && toMillis(data.current.endsAt) > now ? data.current : undefined;
   const next = data?.next;
   const line = current
     ? t("now.tileCurrent", { subject: current.subject?.name ?? "", end: clock(current.endMinute) })
     : next
-      ? t("now.tileNext", { subject: next.subject?.name ?? "", when: when(next, i18n.language, t) })
+      ? t("now.tileNext", { subject: next.subject?.name ?? "", when: when(next, today, i18n.language, t) })
       : t("now.tileEmpty");
   return (
     <Link to="/school" className="pressable sticker flex items-center gap-4 rounded-card bg-surface p-4">

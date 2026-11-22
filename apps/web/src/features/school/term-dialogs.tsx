@@ -12,9 +12,10 @@ import { Dialog } from "#/components/ui/dialog";
 import { TextField } from "#/components/ui/field";
 import { SelectField } from "#/components/ui/select";
 import { SwitchRow } from "#/components/ui/switch";
+import { useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
 import { keys, refresh, timetableClient, toastError } from "./api";
-import { addDays, clockInput, dayLabel, isYmd, layoutWeekdays, parseClock, WEEKDAYS, ymd } from "./dates";
+import { clockInput, dayLabel, isYmd, layoutWeekdays, parseClock, WEEKDAYS } from "./dates";
 import { FriendPicker, Segmented } from "./parts";
 
 interface PeriodDraft {
@@ -38,13 +39,12 @@ interface TermDraft {
 const toDrafts = (periods: school.Period[]): PeriodDraft[] => periods.map((period) => ({ start: clockInput(period.startMinute), end: clockInput(period.endMinute) }));
 
 /** A term's name for today: 前期 from April, 後期 from October. */
-function defaultTerm(t: TFunction<"school">): Pick<TermDraft, "name" | "startDate" | "endDate"> {
-  const now = new Date();
-  const month = now.getMonth() + 1;
+function defaultTerm(t: TFunction<"school">, today: string): Pick<TermDraft, "name" | "startDate" | "endDate"> {
+  const [year = 1970, month = 1] = today.split("-").map(Number);
   const first = month >= 4 && month <= 9;
-  const schoolYear = month >= 4 ? now.getFullYear() : now.getFullYear() - 1;
+  const schoolYear = month >= 4 ? year : year - 1;
   const end = first ? `${schoolYear}-09-30` : `${schoolYear + 1}-03-31`;
-  return { name: t(first ? "terms.defaultFirst" : "terms.defaultSecond", { year: schoolYear }), startDate: ymd(now), endDate: end };
+  return { name: t(first ? "terms.defaultFirst" : "terms.defaultSecond", { year: schoolYear }), startDate: today, endDate: end };
 }
 
 /**
@@ -57,6 +57,7 @@ export function TermDialog({ open, onOpenChange, term, onSaved }: { open: boolea
   const queryClient = useQueryClient();
   const presets = useQuery({ queryKey: keys.presets, queryFn: async () => (await timetableClient().listLayoutPresets({})).presets, enabled: open });
   const [draft, setDraft] = useState<TermDraft | undefined>(undefined);
+  const today = useAccountToday();
   const [deleting, setDeleting] = useState(false);
 
   // The form starts from the term (or the defaults) each time the dialog opens.
@@ -75,7 +76,7 @@ export function TermDialog({ open, onOpenChange, term, onSaved }: { open: boolea
             holidays: term.observePublicHolidays,
             current: term.current,
           }
-        : { ...defaultTerm(t), preset: school.LayoutPreset.HIGH_SCHOOL_6, periods: [], weekdays: WEEKDAYS.slice(0, 5), alternating: false, weekADate: ymd(), holidays: true, current: true },
+        : { ...defaultTerm(t, today), preset: school.LayoutPreset.HIGH_SCHOOL_6, periods: [], weekdays: WEEKDAYS.slice(0, 5), alternating: false, weekADate: today, holidays: true, current: true },
     );
   }
   if (!open && draft) setDraft(undefined);
@@ -315,7 +316,8 @@ export function DayOverridesDialog({ open, onOpenChange, term, overrides }: { op
   const { t, i18n } = useTranslation("school");
   const queryClient = useQueryClient();
   const [kind, setKind] = useState<school.DayOverrideKind>(school.DayOverrideKind.HOLIDAY);
-  const [startDate, setStartDate] = useState(() => ymd());
+  const today = useAccountToday();
+  const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState("");
   const [name, setName] = useState("");
   const [follows, setFollows] = useState<school.Weekday>(school.Weekday.UNSPECIFIED);
@@ -473,12 +475,4 @@ export function CopyDialog({ open, onOpenChange, friend, term, ownTerms }: { ope
       </div>
     </Dialog>
   );
-}
-
-/** A date inside a term nearest to today (for forms that need one). */
-export function dateInTerm(term: Pick<school.Term, "startDate" | "endDate">): string {
-  const today = ymd();
-  if (today < term.startDate) return term.startDate;
-  if (today > term.endDate) return term.endDate;
-  return addDays(today, 0);
 }

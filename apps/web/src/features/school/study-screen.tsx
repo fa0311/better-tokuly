@@ -6,9 +6,10 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
+import { useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
 import { keys, studyClient, useProgress } from "./api";
-import { dayLabel, studyTime, weekdayOf, ymd } from "./dates";
+import { dayLabel, studyTime, weekdayOf } from "./dates";
 import { Heatmap } from "./heatmap";
 import { Block, Figure, SchoolPage, SubjectPill } from "./parts";
 import { StudyLog } from "./study-log";
@@ -101,7 +102,7 @@ function Summary() {
   const { data, isPending } = useQuery({ queryKey: keys.summary(PERIODS[tab]), queryFn: () => studyClient().getStudySummary({ period: PERIODS[tab] }) });
   const max = Math.max(1, ...(data?.days ?? []).map((day) => day.seconds));
   const difference = data ? data.totalSeconds - data.previousTotalSeconds : 0;
-  const today = ymd();
+  const today = useAccountToday();
 
   return (
     <div className="rounded-card bg-surface p-4">

@@ -9,9 +9,10 @@ import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { Skeleton } from "#/components/ui/page";
+import { useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
 import { keys, refresh, settingsClient, studyClient, toastError } from "./api";
-import { addDays, dayLabel, studyTime, ymd } from "./dates";
+import { addDays, dayLabel, studyTime } from "./dates";
 import { Heatmap } from "./heatmap";
 import { RowsSkeleton, SubjectPill, useNow } from "./parts";
 import { isBreak, serverNow } from "./timer";
@@ -91,6 +92,7 @@ export function Ranking() {
   const { t, i18n } = useTranslation("school");
   const queryClient = useQueryClient();
   const [anchor, setAnchor] = useState("");
+  const today = useAccountToday();
   const [viewing, setViewing] = useState<common.UserSummary | undefined>(undefined);
   const { data, isPending } = useQuery({ queryKey: keys.ranking(anchor), queryFn: () => studyClient().getStudyRanking({ anchorDate: anchor }) });
   const join = useMutation({
@@ -116,7 +118,7 @@ export function Ranking() {
     );
   }
 
-  const thisWeek = data.endDate >= ymd();
+  const thisWeek = data.endDate >= today;
   return (
     <div className="rounded-card bg-surface p-4">
       <div className="mb-2 flex items-center gap-1">
@@ -126,7 +128,7 @@ export function Ranking() {
         <p className="min-w-0 flex-1 text-center text-sm font-black">
           {thisWeek ? t("ranking.thisWeek") : `${dayLabel(data.startDate, i18n.language)} 〜 ${dayLabel(data.endDate, i18n.language)}`}
         </p>
-        <Button size="icon-sm" variant="ghost" aria-label={t("ranking.nextWeek")} disabled={thisWeek} onClick={() => setAnchor(addDays(data.startDate, 7) >= ymd() ? "" : addDays(data.startDate, 7))}>
+        <Button size="icon-sm" variant="ghost" aria-label={t("ranking.nextWeek")} disabled={thisWeek} onClick={() => setAnchor(addDays(data.startDate, 7) >= today ? "" : addDays(data.startDate, 7))}>
           <ChevronRight className="size-5" />
         </Button>
       </div>
