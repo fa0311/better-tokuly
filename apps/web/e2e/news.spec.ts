@@ -13,6 +13,8 @@ const unique = (prefix: string) => `${prefix}${Date.now().toString(36).slice(-5)
 interface Feed {
   /** Address of the feed document. */
   url: string;
+  /** Address of a second, empty feed on the same server (to find out whether the API can fetch from here). */
+  probeUrl: string;
   /** The feed's own title: the source takes it as its name on the first fetch. */
   title: string;
   /** A category every article carries (and nothing else in the database does). */
@@ -38,6 +40,11 @@ const test = signedIn.extend<{ feed: Feed }>({
     const titles: Feed["titles"] = [`${id} 文化祭の準備がはじまった`, `${id} 放課後カフェの新メニュー`, `${id} テスト勉強のコツ`];
     const server = createServer((incoming, response) => {
       const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+      if (incoming.url?.startsWith("/probe")) {
+        response.writeHead(200, { "content-type": "application/rss+xml; charset=utf-8" });
+        response.end(`<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>probe</title><link>${origin}/</link><description>probe</description></channel></rss>`);
+        return;
+      }
       if (incoming.url?.startsWith("/feed")) {
         const items = titles
           .map((item, index) => {
@@ -54,7 +61,7 @@ const test = signedIn.extend<{ feed: Feed }>({
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    await use({ url: `${origin}/feed-${id}.xml`, title, tag, titles, links: [`${origin}/articles/1`, `${origin}/articles/2`, `${origin}/articles/3`] });
+    await use({ url: `${origin}/feed-${id}.xml`, probeUrl: `${origin}/probe-${id}.xml`, title, tag, titles, links: [`${origin}/articles/1`, `${origin}/articles/2`, `${origin}/articles/3`] });
     await new Promise((resolve) => server.close(resolve));
   },
 });
@@ -66,15 +73,36 @@ interface Article {
   feedback?: string;
 }
 
-/** Skips the test where the API refuses to fetch a feed from this machine. */
+interface ManagedSource {
+  id: string;
+  feedUrl: string;
+  lastFetchedAt?: string;
+  lastError?: string;
+}
+
+const managedSources = async (request: APIRequestContext, admin: Account) => (await rpc<{ sources?: ManagedSource[] }>(request, `${NEWS_ADMIN}/ListManagedNewsSources`, {}, admin)).sources ?? [];
+
+/**
+ * Skips the test where the API cannot fetch a feed from this machine: it
+ * refuses loopback addresses outside development, and in a container its own
+ * loopback is not this one. An empty feed is fetched once to find out.
+ */
 async function requireLoopbackFeeds(request: APIRequestContext, admin: Account, feed: Feed): Promise<void> {
+  // Feeds are fetched in the background, twice per test (the probe, then the real one): allow for it.
+  test.slow();
+  let probeId: string;
   try {
-    const probe = await rpc<{ source: { id: string } }>(request, `${NEWS_ADMIN}/CreateNewsSource`, { feedUrl: `${feed.url}?probe`, disabled: true }, admin);
-    await rpc(request, `${NEWS_ADMIN}/DeleteNewsSource`, { sourceId: probe.source.id }, admin);
+    probeId = (await rpc<{ source: { id: string } }>(request, `${NEWS_ADMIN}/CreateNewsSource`, { feedUrl: feed.probeUrl }, admin)).source.id;
   } catch (error) {
     if (!(error instanceof RpcError) || error.reason !== "FEED_URL_NOT_ALLOWED") throw error;
     test.skip(true, "the API does not fetch loopback feeds; run it with TOKULY_NEWS_ALLOW_LOOPBACK=true");
+    return;
   }
+  const probe = async () => (await managedSources(request, admin)).find((source) => source.id === probeId);
+  await expect.poll(async () => Boolean((await probe())?.lastFetchedAt), { timeout: 30_000, message: "the probe feed is fetched" }).toBe(true);
+  const failure = (await probe())?.lastError;
+  await rpc(request, `${NEWS_ADMIN}/DeleteNewsSource`, { sourceId: probeId }, admin);
+  test.skip(Boolean(failure), `the API cannot reach a feed on this machine: ${failure}`);
 }
 
 /** The articles of one source, newest first, as `as` sees them. */
@@ -109,8 +137,6 @@ const sourceRows = (page: Page) => page.getByTestId("news-source");
 
 test.describe("reading the news", () => {
   test("staff add a feed; its articles arrive; a reader opens one and says what they think", async ({ page, request, me, browser, feed }) => {
-    // Two people, a feed fetch and a dozen steps: more than the usual time on a busy machine.
-    test.slow();
     const admin = await adminAccount(request);
     await requireLoopbackFeeds(request, admin, feed);
     const { staff, close } = await adminSession(browser, admin);
@@ -127,7 +153,7 @@ test.describe("reading the news", () => {
       await expect(row).toContainText(feed.title, { timeout: 30_000 });
       await expect(row).toContainText("正常");
       await expect(row).toContainText("#e2e部");
-      sourceId = (await rpc<{ sources: { id: string; feedUrl: string }[] }>(request, `${NEWS_ADMIN}/ListManagedNewsSources`, {}, admin)).sources.find((source) => source.feedUrl === feed.url)?.id;
+      sourceId = (await managedSources(request, admin)).find((source) => source.feedUrl === feed.url)?.id;
       expect(sourceId).toBeTruthy();
 
       await row.getByRole("button", { name: `${feed.title} の操作` }).click();
@@ -264,7 +290,6 @@ test.describe("reading the news", () => {
 
 test.describe("staff", () => {
   test("a source can be renamed, switched off and deleted, and single articles taken down", async ({ page, request, feed }) => {
-    test.slow();
     const admin = await adminAccount(request);
     await requireLoopbackFeeds(request, admin, feed);
     const reader = await createAccount(request, "reader");
@@ -319,8 +344,7 @@ test.describe("staff", () => {
       await page.getByRole("menuitem", { name: "削除する" }).click();
       await page.getByRole("dialog").getByRole("button", { name: "削除する" }).click();
       await expect(row).toHaveCount(0);
-      const left = await rpc<{ sources?: { id: string }[] }>(request, `${NEWS_ADMIN}/ListManagedNewsSources`, {}, admin);
-      expect((left.sources ?? []).map((source) => source.id)).not.toContain(sourceId);
+      expect((await managedSources(request, admin)).map((source) => source.id)).not.toContain(sourceId);
     } finally {
       await dropSource(request, admin, sourceId);
     }
