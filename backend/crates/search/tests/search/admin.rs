@@ -66,7 +66,7 @@ async fn index_stats_show_the_engine_next_to_the_registry() {
     assert!(!stats.engine_version.is_empty());
     assert!(stats.database_size_bytes > 0);
     let kinds: Vec<i32> = stats.indexes.iter().map(|i| i.kind.to_i32()).collect();
-    assert_eq!(kinds, (1..=12).collect::<Vec<_>>(), "one entry per kind, in SearchKind order");
+    assert_eq!(kinds, (1..=17).collect::<Vec<_>>(), "one entry per kind, in SearchKind order");
     for (index, kind) in stats.indexes.iter().zip(KINDS) {
         assert_eq!(index.index_uid, format!("{}_{}", *PREFIX, kind.name));
         assert!(index.exists, "{} exists", index.index_uid);

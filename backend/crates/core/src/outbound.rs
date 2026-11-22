@@ -239,7 +239,7 @@ pub async fn activity<'e, E: PgExecutor<'e>>(executor: E, entry: &ActivityEntry)
 
 /// A searchable document. `kind` selects the index: `user`, `channel`, `note`,
 /// `video`, `short`, `live`, `clip`, `playlist`, `stamp_pack`, `place`,
-/// `hashtag`, `news`.
+/// `hashtag`, `news`, `answer`, `emoji`, `community`, `thread`, `space`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchDoc {
     pub kind: String,

@@ -23,7 +23,7 @@ pub struct Kind {
 }
 
 /// Time scale of content that is about a moment: posts, videos, streams,
-/// news. Each quarter of age costs as much as a tenfold drop in popularity.
+/// news, answers, threads, audio rooms. Each quarter of age costs as much as a tenfold drop in popularity.
 ///
 /// There are only two scales, and kinds on the same scale age at the same
 /// rate, on purpose: `rank` is also what orders equally relevant documents of
@@ -32,7 +32,7 @@ pub struct Kind {
 /// the timely document.)
 pub const TIMELY: f64 = 90.0;
 /// Time scale of things that simply exist: accounts, channels, places,
-/// hashtags, playlists, stamp packs. Age hardly matters, popularity decides.
+/// hashtags, playlists, stamp packs, emoji, communities. Age hardly matters, popularity decides.
 pub const EVERGREEN: f64 = 3650.0;
 
 /// Every kind, in `SearchKind` order.
@@ -97,6 +97,41 @@ pub const KINDS: &[Kind] = &[
         typeahead_weight: 1.05,
     },
     Kind { name: "news", proto: SearchKind::SEARCH_KIND_NEWS, decade_days: TIMELY, weight: 1.0, typeahead_weight: 1.0 },
+    Kind {
+        name: "answer",
+        proto: SearchKind::SEARCH_KIND_ANSWER,
+        decade_days: TIMELY,
+        weight: 1.0,
+        typeahead_weight: 1.0,
+    },
+    Kind {
+        name: "emoji",
+        proto: SearchKind::SEARCH_KIND_EMOJI,
+        decade_days: EVERGREEN,
+        weight: 1.0,
+        typeahead_weight: 1.0,
+    },
+    Kind {
+        name: "community",
+        proto: SearchKind::SEARCH_KIND_COMMUNITY,
+        decade_days: EVERGREEN,
+        weight: 1.03,
+        typeahead_weight: 1.08,
+    },
+    Kind {
+        name: "thread",
+        proto: SearchKind::SEARCH_KIND_THREAD,
+        decade_days: TIMELY,
+        weight: 1.0,
+        typeahead_weight: 1.0,
+    },
+    Kind {
+        name: "space",
+        proto: SearchKind::SEARCH_KIND_SPACE,
+        decade_days: TIMELY,
+        weight: 1.0,
+        typeahead_weight: 1.0,
+    },
 ];
 
 /// The kind users are indexed under (by this crate, see [`crate::users`]).
@@ -125,6 +160,13 @@ pub fn by_subject_type(subject_type: i32) -> Option<&'static Kind> {
         S::SUBJECT_TYPE_STAMP_PACK => "stamp_pack",
         S::SUBJECT_TYPE_PLACE => "place",
         S::SUBJECT_TYPE_NEWS_ARTICLE => "news",
+        // An answer is indexed under the ID of its question.
+        S::SUBJECT_TYPE_QUESTION => "answer",
+        S::SUBJECT_TYPE_CUSTOM_EMOJI => "emoji",
+        S::SUBJECT_TYPE_COMMUNITY => "community",
+        S::SUBJECT_TYPE_COMMUNITY_THREAD => "thread",
+        // Rooms; a hangout is the same subject type and has no document.
+        S::SUBJECT_TYPE_SPACE => "space",
         _ => return None,
     };
     by_name(name)
@@ -136,7 +178,7 @@ mod tests {
 
     #[test]
     fn every_api_kind_has_exactly_one_spec() {
-        assert_eq!(KINDS.len(), 12);
+        assert_eq!(KINDS.len(), 17);
         for (position, kind) in KINDS.iter().enumerate() {
             assert_eq!(kind.proto as i32, position as i32 + 1, "{} is out of SearchKind order", kind.name);
             assert_eq!(by_name(kind.name), Some(kind));
@@ -158,9 +200,15 @@ mod tests {
         assert_eq!(by_subject_type(S::SUBJECT_TYPE_LIVE_STREAM as i32).unwrap().name, "live");
         assert_eq!(by_subject_type(S::SUBJECT_TYPE_NEWS_ARTICLE as i32).unwrap().name, "news");
         assert_eq!(by_subject_type(S::SUBJECT_TYPE_STAMP_PACK as i32).unwrap().name, "stamp_pack");
+        assert_eq!(by_subject_type(S::SUBJECT_TYPE_QUESTION as i32).unwrap().name, "answer");
+        assert_eq!(by_subject_type(S::SUBJECT_TYPE_CUSTOM_EMOJI as i32).unwrap().name, "emoji");
+        assert_eq!(by_subject_type(S::SUBJECT_TYPE_COMMUNITY as i32).unwrap().name, "community");
+        assert_eq!(by_subject_type(S::SUBJECT_TYPE_COMMUNITY_THREAD as i32).unwrap().name, "thread");
+        assert_eq!(by_subject_type(S::SUBJECT_TYPE_SPACE as i32).unwrap().name, "space");
         // Not indexed.
         assert!(by_subject_type(S::SUBJECT_TYPE_COMMENT as i32).is_none());
         assert!(by_subject_type(S::SUBJECT_TYPE_STORY as i32).is_none());
+        assert!(by_subject_type(S::SUBJECT_TYPE_COMMUNITY_REPLY as i32).is_none());
         assert!(by_subject_type(9999).is_none());
     }
 }
