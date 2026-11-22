@@ -28,9 +28,11 @@ on:
       - pnpm-lock.yaml
       - .github/workflows/e2e.yml
 
+# A newer push to a pull request replaces its run. On main a run that has started
+# finishes, so every result is seen; only runs still waiting are replaced.
 concurrency:
   group: e2e-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
