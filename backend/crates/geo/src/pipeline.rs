@@ -32,7 +32,7 @@ use crate::{
     history::PointRow,
     math::{self, Point},
     odometer::MAX_SPEED_MPS,
-    state::{LiveState, Pushed},
+    state::{LiveState, Pushed, UserLock},
     visibility,
 };
 
@@ -42,6 +42,8 @@ const MAX_CLOCK_SKEW: Duration = Duration::minutes(2);
 /// moves fast enough to need them, and it bounds what one account can make
 /// the pipeline do — a week of history is 600,000 samples at most.
 const MIN_SPACING_MS: i64 = 1000;
+/// The user's lock is renewed after this many samples of a batch.
+const RENEW_EVERY: usize = 50;
 /// Positions less certain than this are not positions.
 const MAX_ACCURACY_M: f64 = 10_000.0;
 /// Only fixes at least this good feed stays, distance and footprints.
@@ -204,12 +206,12 @@ impl Geo {
         valid.sort_by_key(|sample| sample.recorded_ms);
         Gazetteer::ready().await;
         let lock = self.lock_user(user_id).await?;
-        let result = self.process(user_id, valid).await;
+        let result = self.process(user_id, valid, &lock).await;
         self.unlock_user(lock).await;
         result
     }
 
-    async fn process(&self, user_id: Uuid, samples: Vec<Sample>) -> AppResult<usize> {
+    async fn process(&self, user_id: Uuid, samples: Vec<Sample>, lock: &UserLock) -> AppResult<usize> {
         let ctx = self.ctx_of(user_id).await?;
         if !ctx.active {
             return Ok(0);
@@ -224,12 +226,19 @@ impl Geo {
             }
             self.apply(user_id, &ctx, &mut state, sample, &mut effects).await?;
             accepted += 1;
+            // A long batch outlives the lock's own lifetime unless it says it is still at it.
+            if accepted % RENEW_EVERY == 0 {
+                self.renew_lock(lock).await?;
+            }
         }
         if accepted == 0 {
             return Ok(0);
         }
 
         let pin_at = from_millis(state.pin.recorded_ms);
+        // The true position goes into the shared index together with who
+        // may be told anything about it: other domains ask the index.
+        geoindex::set_sight(&self.core.cache, user_id, &ctx.sight()).await?;
         geoindex::set(&self.core.cache, user_id, state.pin.lat, state.pin.lng, pin_at).await?;
         let live = Utc::now().timestamp_millis() - state.pin.recorded_ms <= LIVE_WINDOW_MS;
         if live && state.last_fine_ms == state.pin.recorded_ms {
@@ -246,7 +255,7 @@ impl Geo {
                 fingerprint: fingerprint(&state),
             });
         }
-        self.save_state(user_id, &state).await?;
+        self.save_state_locked(user_id, &state, lock).await?;
 
         // The state is stored: what follows only tells people about it.
         for uncovered in &effects.footprints {

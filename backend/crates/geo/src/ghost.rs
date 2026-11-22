@@ -49,6 +49,9 @@ struct NewRule {
     viewer: Option<Uuid>,
     mode: i32,
     until: Option<DateTime<Utc>>,
+    /// The viewer saw everything up to now (an SOS just ended): the rule
+    /// starts from the present instead of continuing what applied before.
+    fresh: bool,
 }
 
 impl Geo {
@@ -96,8 +99,12 @@ impl Geo {
             Some(viewer) => ctx.ghost.applied(viewer, now_ms),
             None => ctx.ghost.default_rule(now_ms).map(|rule| (rule, Uuid::nil())),
         }
-        .filter(|(before, _)| before.mode != PRECISE);
-        let frozen = if rule.mode == FROZEN { frozen_copy(ctx, rule.viewer, pin, now) } else { None };
+        .filter(|(before, _)| before.mode != PRECISE && !rule.fresh);
+        let frozen = match (rule.mode == FROZEN, rule.fresh) {
+            (false, _) => None,
+            (true, true) => pin.map(|pin| FrozenPin { pin: pin.clone(), base: PRECISE }),
+            (true, false) => frozen_copy(ctx, rule.viewer, pin, now),
+        };
         let frozen = frozen.and_then(|frozen| serde_json::to_value(frozen).ok());
         match before {
             Some((before, inherited_row)) => {
@@ -200,13 +207,13 @@ impl Geo {
                         .execute(&mut *tx)
                         .await?;
                 } else {
-                    self.store_hidden_rule(&mut tx, owner, &ctx, pin, &NewRule { viewer: None, mode, until }, now).await?;
+                    self.store_hidden_rule(&mut tx, owner, &ctx, pin, &NewRule { viewer: None, mode, until, fresh: false }, now).await?;
                 }
             } else {
                 let strict_default = ctx.ghost.default_rule(now.timestamp_millis()).is_some_and(|rule| rule.mode != PRECISE);
                 for viewer in &viewers {
                     if mode != PRECISE {
-                        self.store_hidden_rule(&mut tx, owner, &ctx, pin, &NewRule { viewer: Some(*viewer), mode, until }, now).await?;
+                        self.store_hidden_rule(&mut tx, owner, &ctx, pin, &NewRule { viewer: Some(*viewer), mode, until, fresh: false }, now).await?;
                     } else if strict_default {
                         // An exception to a stricter default.
                         sqlx::query(
@@ -247,6 +254,38 @@ impl Geo {
             }
         }
         Ok(())
+    }
+
+    /// An SOS ended. The people it alerted saw the owner's live pin until
+    /// now; those who are under a ghost rule go back under it from here:
+    /// a frozen pin stays where they last saw it (not where it was before
+    /// the SOS, which would send it back in time), and what they were shown
+    /// meanwhile stays shown.
+    pub(crate) async fn settle_after_sos(&self, owner: Uuid, alerted: &[Uuid]) -> AppResult<()> {
+        let lock = self.lock_user(owner).await?;
+        let stored: AppResult<()> = async {
+            let now = Utc::now();
+            let ctx = self.ctx_of(owner).await?;
+            let state = self.load_state(owner).await?;
+            let pin = state.as_ref().filter(|state| state.located()).map(|state| &state.pin);
+            let mut tx = self.core.db.begin().await?;
+            for viewer in alerted {
+                let Some((rule, _)) =
+                    ctx.ghost.applied(*viewer, now.timestamp_millis()).filter(|(rule, _)| rule.mode != PRECISE)
+                else {
+                    continue;
+                };
+                let until = rule.until_ms.and_then(DateTime::from_timestamp_millis);
+                let new = NewRule { viewer: Some(*viewer), mode: rule.mode, until, fresh: true };
+                self.store_hidden_rule(&mut tx, owner, &ctx, pin, &new, now).await?;
+            }
+            tx.commit().await?;
+            Ok(())
+        }
+        .await;
+        self.invalidate_ctx(&[owner]).await;
+        self.unlock_user(lock).await;
+        stored
     }
 
     /// Removes ghost rules whose time is up and shows the viewers concerned

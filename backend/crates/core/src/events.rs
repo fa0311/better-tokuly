@@ -40,36 +40,24 @@ pub struct Event {
 impl Event {
     /// Deserializes the payload into the consumer's view of it.
     pub fn data<T: DeserializeOwned>(&self) -> AppResult<T> {
-        serde_json::from_value(self.data.clone()).map_err(|e| {
-            AppError::internal(anyhow::anyhow!(
-                "event {} payload mismatch: {e}",
-                self.topic
-            ))
-        })
+        serde_json::from_value(self.data.clone())
+            .map_err(|e| AppError::internal(anyhow::anyhow!("event {} payload mismatch: {e}", self.topic)))
     }
 }
 
 /// Records an event in the outbox. Pass the open transaction so the event is
 /// published if and only if the surrounding change commits.
-pub async fn emit<'e, E, T>(
-    executor: E,
-    topic: &str,
-    actor_id: Option<Uuid>,
-    data: &T,
-) -> AppResult<()>
+pub async fn emit<'e, E, T>(executor: E, topic: &str, actor_id: Option<Uuid>, data: &T) -> AppResult<()>
 where
     E: PgExecutor<'e>,
     T: Serialize + ?Sized,
 {
     debug_assert!(
         topic.split('.').count() >= 2
-            && topic
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'_'),
+            && topic.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'_'),
         "event topics look like `domain.entity.verb`: {topic}"
     );
-    let data = serde_json::to_value(data)
-        .map_err(|e| AppError::internal(anyhow::anyhow!("event serialize: {e}")))?;
+    let data = serde_json::to_value(data).map_err(|e| AppError::internal(anyhow::anyhow!("event serialize: {e}")))?;
     sqlx::query("INSERT INTO outbox (topic, actor_id, data) VALUES ($1, $2, $3)")
         .bind(topic)
         .bind(actor_id)
@@ -157,15 +145,10 @@ async fn relay_batch(db: &PgPool, bus: &Bus) -> AppResult<usize> {
             occurred_at: row.occurred_at,
             data: row.data,
         };
-        let payload = serde_json::to_vec(&event)
-            .map_err(|e| AppError::internal(anyhow::anyhow!("event encode: {e}")))?;
+        let payload =
+            serde_json::to_vec(&event).map_err(|e| AppError::internal(anyhow::anyhow!("event encode: {e}")))?;
         // If publishing fails the transaction rolls back and the rows are retried.
-        bus.publish_durable(
-            format!("evt.{}", event.topic),
-            payload,
-            Some(&event.id.to_string()),
-        )
-        .await?;
+        bus.publish_durable(format!("evt.{}", event.topic), payload, Some(&event.id.to_string())).await?;
     }
     tx.commit().await?;
     Ok(count)
@@ -184,11 +167,7 @@ pub struct ConsumeOptions {
 
 impl Default for ConsumeOptions {
     fn default() -> Self {
-        Self {
-            ack_wait: Duration::from_secs(30),
-            max_deliver: 8,
-            concurrency: 8,
-        }
+        Self { ack_wait: Duration::from_secs(30), max_deliver: 8, concurrency: 8 }
     }
 }
 
@@ -212,13 +191,7 @@ pub async fn consume<F, Fut>(
             return;
         }
         let consumer = match bus
-            .durable_consumer(
-                STREAM_EVENTS,
-                durable,
-                filters.clone(),
-                options.ack_wait,
-                options.max_deliver,
-            )
+            .durable_consumer(STREAM_EVENTS, durable, filters.clone(), options.ack_wait, options.max_deliver)
             .await
         {
             Ok(c) => c,
@@ -251,11 +224,7 @@ pub async fn consume<F, Fut>(
                 }
                 None => break,
             };
-            let permit = limiter
-                .clone()
-                .acquire_owned()
-                .await
-                .expect("semaphore is never closed");
+            let permit = limiter.clone().acquire_owned().await.expect("semaphore is never closed");
             let handler = handler.clone();
             let durable = durable.to_owned();
             let max_deliver = options.max_deliver;
@@ -268,12 +237,8 @@ pub async fn consume<F, Fut>(
     }
 }
 
-async fn handle_message<F, Fut>(
-    message: jetstream::Message,
-    durable: &str,
-    max_deliver: i64,
-    handler: F,
-) where
+async fn handle_message<F, Fut>(message: jetstream::Message, durable: &str, max_deliver: i64, handler: F)
+where
     F: Fn(Event) -> Fut,
     Fut: Future<Output = AppResult<()>>,
 {

@@ -104,13 +104,19 @@ impl Social {
         let every = Duration::from_secs(self.cfg.ranking_interval_seconds);
         tokio::spawn(async move {
             social
-                .run_periodically("best-friend ranking", every, |social| async move { social.rescore_pending().await.map(|_| ()) })
+                .run_periodically("best-friend ranking", every, |social| async move {
+                    social.rescore_pending().await.map(|_| ())
+                })
                 .await
         });
 
         let social = self.clone();
         tokio::spawn(async move {
-            social.run_periodically("social maintenance", maintenance::PRUNE_INTERVAL, |social| async move { social.prune().await }).await
+            social
+                .run_periodically("social maintenance", maintenance::PRUNE_INTERVAL, |social| async move {
+                    social.prune().await
+                })
+                .await
         });
     }
 

@@ -93,17 +93,56 @@ What follows from the rule, path by path:
   alerts on the subject's home, work or school only while the subject shares
   place labels.
 
+- **Other domains.** The true positions in `tokuly_core::geoindex` come with
+  who sees whom precisely (`geoindex::Sight`, written with every position
+  and on every rule change). What the index says about a pair of users
+  (`distance_between`, which the social domain's Buzz asks) it says only if
+  each sees the other precisely; `geoindex::nearby` returns true positions
+  and its callers must check `geoindex::mutually_precise` before telling one
+  user anything about another.
+- **Pushes to viewers who do not see precisely.** A blurred viewer is sent
+  the stand-in when what they see changes (another cell, the battery, the
+  paused flag, a new ten-minute step of `recorded_at`, which is rounded down
+  for them), not whenever the person moves. A frozen viewer is sent nothing.
+- **Gathering shape.** A viewer's gathering is a group of members they see
+  that holds together by itself (each within reach of another of the
+  group). Two visible people connected only through someone the viewer does
+  not see are not a gathering for that viewer. The place is matched per
+  view, by the view's own centre.
+- **Rule changes over time.** A timed override that ends while the default
+  hides the owner too keeps its own copy of the pin and its own watermark
+  from the moment it ends (resolved when rules are read; the sweeper then
+  stores the same). When an SOS ends, the people it alerted go back under
+  their rule from what they last saw: a frozen pin stays where the SOS
+  showed it.
+- **Public footprints.** With `footprints_visible_to = EVERYONE`, whoever
+  looks without being a friend (strangers, signed-out visitors) gets the
+  footprints as of the last moment every friend saw the owner precisely, and
+  the owner is left out of the global ranking, for as long as the owner
+  hides from anyone. A friend cannot get around a ghost rule by signing out.
+
 When who sees whom changes (a rule is set or ends, an SOS ends), links that
 are no longer allowed end at once and without looking at anyone's position:
 the two leave each other's proximity tracker and the gathering views are
 recomputed.
 
-Known limit: a rule that starts while the viewer is in the same gathering as
-the person, or is following their trip, takes the person out of that
-gathering as the viewer sees it and stops the trip's updates at that moment.
-That can tell the viewer that something was switched off — not where the
-person is or goes. Making it indistinguishable from a phone that went silent
-would need a per-viewer simulation of what silence would have looked like.
+Known limits (accepted for now):
+
+- Freezing mid-trip or mid-gathering is detectable. A rule that starts while
+  the viewer is in the same gathering as the person, or is following their
+  trip, takes the person out of that gathering as the viewer sees it
+  (`gathering_ended_id` or an update is sent at that instant), and the trip
+  is gone from the pin (`trip_id`), `ListActiveTrips` and `GetTrip` while
+  the pin and its timestamp stay as they were. That tells the viewer that
+  something was switched off — not where the person is or goes. Making it
+  indistinguishable from a phone that went silent would need a per-viewer
+  simulation of what silence would have looked like.
+- A blurred viewer's pushes arrive when the person's device reports; within
+  a ten-minute step that is at most once, but how soon after the step began
+  still depends on how often the device reports.
+- Buzz towards someone who is frozen for the caller answers `NOT_NEARBY`
+  also at the frozen pin, where a phone that merely stopped reporting would
+  still be buzzable for ten minutes.
 
 ## Events emitted
 
@@ -217,10 +256,12 @@ No job-queue jobs. `Geo::spawn_workers` starts:
 | `geo:state:<user>` | JSON, 60 days | Live state: latest pin, stay tracker, pending distance, proximity tracker, recent cells. |
 | `geo:ctx:<user>` | JSON, 5 min | Cached projection of the user's privacy flags, status, ghost rules, own places, active SOS/trip/shares and the alerts watching them. Dropped on every change. |
 | `geo:ctx:dirty:<user>` | marker, 5 s | Keeps a reader that raced a writer from re-caching stale context. |
-| `geo:lock:<user>` | token, 30 s | Serializes the pipeline and state-editing RPCs per user. |
+| `geo:lock:<user>` | token, 30 s | Serializes the pipeline and state-editing RPCs per user. Renewed every 50 samples of a batch; the live state is written only while the lock is still held (a holder that lost it fails with `LOCATION_BUSY` and its batch is processed again). |
 | `geo:pos`, `geo:pos:ts` | `tokuly_core::geoindex` | True latest positions for other domains (written here on every accepted sample, removed on StopSharing / ban / deletion). |
 | `geo:wx:<lat>:<lng>`, `geo:wx:fetch:…` | JSON 30 min / marker 5 min | Weather per 0.1° cell and the "already fetching" marker. |
 | `geo:gathering:announced:<lo>:<hi>` | marker, 3 h | Throttles "A and B are together". |
+| `geo:pos:sight:<user>` | JSON (`tokuly_core::geoindex`) | Who sees the user precisely, for questions other domains ask the position index about pairs. |
+| `geo:pin:shown:<user>` | hash viewer → view, 7 days | What each blurred viewer was last sent of the user's pin. |
 | `geo:gathering:shown:<gathering>` | hash viewer → view, 7 days | What each viewer was last shown of a gathering: updates are pushed only when it changes, the end only to viewers in here. |
 | `geo:history:deleted:<user>` | JSON, 6 h | Ranges of raw history the user deleted: every process drops matching points still waiting in its buffer. |
 | `geo:share:seen:<share>:<ip>` | marker, 1 h | Counts each visitor of a share link once. |

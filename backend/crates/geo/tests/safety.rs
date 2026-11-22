@@ -409,7 +409,8 @@ async fn an_sos_shows_the_people_alerted_the_precise_pin_until_it_is_resolved() 
     assert_eq!(again.sos.as_option().unwrap().id, sos.id);
     assert_eq!(ctx.notifications_for(ren.id, "geo.sos").await.len(), 1);
 
-    // Only the sender resolves it; afterwards ghost mode applies again.
+    // Only the sender resolves it; afterwards ghost mode applies again, from
+    // what the people alerted last saw (not from where the pin was frozen before).
     let resolve = |user: &TestUser, sos_id: &str| {
         let (user, request) = (user.clone(), ResolveSosRequest { sos_id: sos_id.to_owned(), ..Default::default() });
         let ctx = &ctx;
@@ -423,10 +424,13 @@ async fn an_sos_shows_the_people_alerted_the_precise_pin_until_it_is_resolved() 
         |push| matches!(push, Push::SosUpdated(done) if done.id == sos.id && done.resolved_at.as_option().is_some())
     ));
     assert!(
-        events.iter().any(|push| matches!(push, Push::Location(pin) if at(pin_point(pin), home))),
-        "back to the frozen pin"
+        events.iter().all(|push| !matches!(push, Push::Location(pin) if !at(pin_point(pin), moved))),
+        "the pin does not go back in time"
     );
-    assert_at!(pin_point(&ctx.seen_by(&ren, &aoi).await.unwrap()), home);
+    assert_at!(pin_point(&ctx.seen_by(&ren, &aoi).await.unwrap()), moved);
+    ctx.at(&aoi, offset(moved, 30.0, 2000.0)).await;
+    assert_at!(pin_point(&ctx.seen_by(&ren, &aoi).await.unwrap()), moved, "frozen again, where Ren last saw her");
+    assert_at!(pin_point(&ctx.seen_by(&mio, &aoi).await.unwrap()), home, "Mio was never shown anything else");
     assert_eq!(ctx.notifications_for(ren.id, "geo.sos_resolved").await.len(), 1);
     assert!(active_sos(&ctx, &aoi).await.mine.as_option().is_none() && active_sos(&ctx, &ren).await.friends.is_empty());
     resolve(&aoi, &sos.id).await.unwrap(); // resolving twice is fine

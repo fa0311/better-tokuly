@@ -31,7 +31,7 @@ use crate::{
     Geo,
     ctx::OwnerCtx,
     math::{self, Point},
-    places::{FRIENDS, LABEL_CUSTOM, PUBLIC, PlaceRow},
+    places::{FRIENDS, LABEL_CUSTOM, PLACE_COLUMNS, PUBLIC, PlaceRow},
     visibility,
 };
 
@@ -46,6 +46,9 @@ const STALE_MINUTES: i32 = 45;
 const ANNOUNCE_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(3 * 3600);
 /// Friends told about a new gathering at most.
 const MAX_ANNOUNCED: usize = 100;
+/// Two members count as within reach of each other up to the gathering
+/// radius plus this (GPS error, as in the proximity check).
+const LINK_ALLOWANCE_M: f64 = 20.0;
 /// A place is named on a gathering when the gathering is this close to its edge.
 const PLACE_ALLOWANCE_M: f64 = 20.0;
 /// Membership changes are serialized per neighbourhood, not globally: cells
@@ -122,8 +125,9 @@ pub(crate) struct SceneMember {
 pub(crate) struct Scene {
     pub id: Uuid,
     pub members: Vec<SceneMember>,
-    /// The named place the gathering was matched to, if any.
-    pub place: Option<ScenePlace>,
+    /// Named places around the spot (public ones, and members' own shared
+    /// with friends): each view picks from them by its own centre.
+    pub places: Vec<ScenePlace>,
     pub radius_m: f64,
 }
 
@@ -155,30 +159,65 @@ impl Scene {
     /// fewer than two of its members. `blocked` are the people in a block
     /// with the viewer (their public places are not named).
     pub fn view(&self, viewer: Uuid, blocked: &[Uuid], now: DateTime<Utc>) -> Option<SceneView> {
-        let shown: Vec<&SceneMember> = self
+        // The members the viewer sees, with where they are.
+        let visible: Vec<(&SceneMember, Point)> = self
             .members
             .iter()
             .filter(|member| {
                 member.id == viewer
                     || (member.friends.contains(&viewer) && visibility::sees_precisely(&member.ctx, viewer, now))
             })
+            .filter_map(|member| member.position.map(|position| (member, position)))
             .collect();
-        let positions: Vec<Point> = shown.iter().filter_map(|member| member.position).collect();
-        if shown.len() < 2 || positions.is_empty() {
-            return None;
+        // Of those, a group that holds together by itself: each within reach
+        // of another one of the group. Two people the viewer sees who are
+        // only connected through someone the viewer does not see are not
+        // together as far as the viewer can tell — showing them as a
+        // gathering would point at the one in between.
+        let reach = self.radius_m + LINK_ALLOWANCE_M;
+        let mut group_of: Vec<usize> = (0..visible.len()).collect();
+        for i in 0..visible.len() {
+            for j in i + 1..visible.len() {
+                if math::distance(visible[i].1, visible[j].1) <= reach {
+                    let (from, to) = (group_of[j], group_of[i]);
+                    for group in &mut group_of {
+                        if *group == from {
+                            *group = to;
+                        }
+                    }
+                }
+            }
         }
+        let mut groups: Vec<Vec<usize>> = Vec::new();
+        for group in group_of.iter().copied().collect::<std::collections::BTreeSet<_>>() {
+            let members: Vec<usize> = (0..visible.len()).filter(|index| group_of[*index] == group).collect();
+            if members.len() >= 2 {
+                groups.push(members);
+            }
+        }
+        // The viewer's own group if they are in one, else the largest (the earliest among equals).
+        let second_arrival = |group: &Vec<usize>| {
+            let mut arrivals: Vec<DateTime<Utc>> = group.iter().map(|index| visible[*index].0.arrived_at).collect();
+            arrivals.sort();
+            arrivals[1]
+        };
+        groups.sort_by_key(|group| {
+            let own = group.iter().any(|index| visible[*index].0.id == viewer);
+            (!own, std::cmp::Reverse(group.len()), second_arrival(group))
+        });
+        let group = groups.first()?;
+        let shown: Vec<&SceneMember> = group.iter().map(|index| visible[*index].0).collect();
+        let positions: Vec<Point> = group.iter().map(|index| visible[*index].1).collect();
         // The middle of the members shown: a hidden member has no pull on it.
         let center = (
             positions.iter().map(|p| p.0).sum::<f64>() / positions.len() as f64,
             positions.iter().map(|p| p.1).sum::<f64>() / positions.len() as f64,
         );
-        let mut arrivals: Vec<DateTime<Utc>> = shown.iter().map(|member| member.arrived_at).collect();
-        arrivals.sort();
         // A place is named when the viewer could look it up and the members
-        // they see are there.
+        // they see are there: the closest such place to THEIR centre.
         let place_name = self
-            .place
-            .as_ref()
+            .places
+            .iter()
             .filter(|place| math::distance(center, place.center) <= place.radius_m + PLACE_ALLOWANCE_M)
             .filter(|place| {
                 place.owner_id == viewer
@@ -187,6 +226,10 @@ impl Scene {
                     } else {
                         shown.iter().any(|member| member.id == place.owner_id && member.friends.contains(&viewer))
                     }
+            })
+            .min_by(|a, b| {
+                let ratio = |place: &ScenePlace| math::distance(center, place.center) / place.radius_m.max(1.0);
+                ratio(a).total_cmp(&ratio(b))
             })
             .map(|place| place.name.clone())
             .unwrap_or_default();
@@ -202,7 +245,7 @@ impl Scene {
         // For this viewer it began when two of the members they see were
         // first both there; nobody they see "arrived" before that (it would
         // say that someone else was there already).
-        let started_at = arrivals[1];
+        let started_at = second_arrival(group);
         Some(SceneView {
             members: shown.iter().map(|member| (member.id, member.arrived_at.max(started_at))).collect(),
             center,
@@ -542,17 +585,29 @@ impl Geo {
                 friends: graph::friend_ids(&self.core, *id).await?.into_iter().collect(),
             });
         }
-        let place = match row.place_id {
-            Some(place_id) => self.place_row(place_id).await?.map(|place: PlaceRow| ScenePlace {
+        // Every named place around: a view picks its own by where its members are.
+        let around: Vec<PlaceRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT {PLACE_COLUMNS} FROM geo_places p
+             WHERE ST_DWithin(p.geog, ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography, 1500)
+               AND p.label = {LABEL_CUSTOM} AND (p.visibility = {PUBLIC} OR (p.visibility = {FRIENDS} AND p.owner_id = ANY($3)))
+             ORDER BY p.id LIMIT 50"
+        )))
+        .bind(row.lat)
+        .bind(row.lng)
+        .bind(&ids)
+        .fetch_all(&self.core.db)
+        .await?;
+        let places = around
+            .into_iter()
+            .map(|place| ScenePlace {
                 name: place.name.clone(),
                 center: place.center(),
                 radius_m: place.radius_m,
                 owner_id: place.owner_id,
                 public: place.visibility == PUBLIC,
-            }),
-            None => None,
-        };
-        Ok(Scene { id: row.id, members: scene_members, place, radius_m: self.cfg.gathering_radius_meters })
+            })
+            .collect();
+        Ok(Scene { id: row.id, members: scene_members, places, radius_m: self.cfg.gathering_radius_meters })
     }
 
     /// A viewer's view as the API message.
@@ -624,7 +679,7 @@ impl Geo {
         viewers.extend(shown.iter().filter_map(|member| Uuid::parse_str(member).ok()));
         for viewer in viewers {
             // (A viewer who sees nobody here cannot be named a blocked place either: skip the lookup.)
-            let blocked = if scene.place.as_ref().is_some_and(|place| place.public) {
+            let blocked = if scene.places.iter().any(|place| place.public) {
                 graph::blocked_ids_either(&self.core, viewer).await?
             } else {
                 Vec::new()
@@ -687,7 +742,7 @@ impl Geo {
             if notifications.len() >= MAX_ANNOUNCED {
                 break;
             }
-            let blocked = if scene.place.as_ref().is_some_and(|place| place.public) {
+            let blocked = if scene.places.iter().any(|place| place.public) {
                 graph::blocked_ids_either(&self.core, recipient).await?
             } else {
                 Vec::new()
@@ -998,13 +1053,13 @@ mod tests {
         let scene = Scene {
             id: Uuid::now_v7(),
             members: vec![hidden, member(aoi, 20, aois, &[ren, kai, mio]), member(ren, 5, rens, &[aoi, kai, mio])],
-            place: Some(ScenePlace {
+            places: vec![ScenePlace {
                 name: "カイの店".into(),
                 center: spot,
                 radius_m: 60.0,
                 owner_id: kai,
                 public: false,
-            }),
+            }],
             radius_m: 30.0,
         };
         let now = Utc::now();
@@ -1043,10 +1098,29 @@ mod tests {
         shy.members[0].ctx.privacy.share_place_labels = false;
         assert!(!shy.view(aoi, &[], now).unwrap().at_private_place);
         assert!(shy.view(kai, &[], now).unwrap().at_private_place, "one's own home is no secret to oneself");
+        // Two people the viewer sees who are only connected through someone
+        // the viewer does not see are not a gathering for that viewer.
+        let (west, east) =
+            (math::destination(spot.0, spot.1, 270.0, 40.0), math::destination(spot.0, spot.1, 90.0, 40.0));
+        let mut bridge = member(kai, 30, spot, &[aoi, ren, mio]);
+        bridge
+            .ctx
+            .ghost
+            .overrides
+            .insert(mio, GhostRule { mode: 3, since_ms: 0, until_ms: None, frozen: None, hidden_since_ms: 0 });
+        let bridged = Scene {
+            id: Uuid::now_v7(),
+            members: vec![bridge, member(aoi, 20, west, &[ren, kai, mio]), member(ren, 5, east, &[aoi, kai, mio])],
+            places: Vec::new(),
+            radius_m: 30.0,
+        };
+        assert_eq!(bridged.view(aoi, &[], now).unwrap().members.len(), 3, "the members see all of it");
+        assert_eq!(bridged.view(mio, &[], now), None, "80 m apart, with nobody she sees in between");
+
         // A public place is named unless its owner and the viewer are in a block.
         let mut public = scene.clone();
-        public.place =
-            Some(ScenePlace { name: "駅前".into(), center: spot, radius_m: 60.0, owner_id: stranger, public: true });
+        public.places =
+            vec![ScenePlace { name: "駅前".into(), center: spot, radius_m: 60.0, owner_id: stranger, public: true }];
         assert_eq!(public.view(mio, &[], now).unwrap().place_name, "駅前");
         assert_eq!(public.view(mio, &[stranger], now).unwrap().place_name, "");
     }

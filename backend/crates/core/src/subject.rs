@@ -54,34 +54,17 @@ impl Subjects {
     }
 
     fn resolver(&self, subject_type: SubjectType) -> AppResult<Arc<dyn SubjectResolver>> {
-        self.resolvers
-            .read()
-            .get(&(subject_type as i32))
-            .cloned()
-            .ok_or_else(|| {
-                AppError::invalid(
-                    "UNSUPPORTED_SUBJECT",
-                    format!("unsupported subject type {subject_type:?}"),
-                )
-            })
+        self.resolvers.read().get(&(subject_type as i32)).cloned().ok_or_else(|| {
+            AppError::invalid("UNSUPPORTED_SUBJECT", format!("unsupported subject type {subject_type:?}"))
+        })
     }
 
     /// Resolves a subject or fails with `not_found`.
-    pub async fn resolve(
-        &self,
-        subject_type: SubjectType,
-        id: &str,
-        viewer: Option<Uuid>,
-    ) -> AppResult<SubjectInfo> {
+    pub async fn resolve(&self, subject_type: SubjectType, id: &str, viewer: Option<Uuid>) -> AppResult<SubjectInfo> {
         self.resolver(subject_type)?
             .resolve(id, viewer)
             .await?
-            .ok_or_else(|| {
-                AppError::not_found(
-                    "SUBJECT_NOT_FOUND",
-                    "the item does not exist or is not visible to you",
-                )
-            })
+            .ok_or_else(|| AppError::not_found("SUBJECT_NOT_FOUND", "the item does not exist or is not visible to you"))
     }
 
     pub async fn counter_changed(

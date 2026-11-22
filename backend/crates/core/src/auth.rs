@@ -40,9 +40,7 @@ impl AuthContext {
     }
 
     pub fn is_staff(&self) -> bool {
-        self.roles
-            .iter()
-            .any(|r| r == "admin" || r == "moderator" || r == "staff")
+        self.roles.iter().any(|r| r == "admin" || r == "moderator" || r == "staff")
     }
 }
 
@@ -84,9 +82,7 @@ struct TokensInner {
 impl Tokens {
     pub fn new(keys: &Keys) -> anyhow::Result<Self> {
         let signing = SigningKey::from_bytes(&keys.derive("jwt/ed25519"));
-        let pkcs8 = signing
-            .to_pkcs8_der()
-            .map_err(|e| anyhow::anyhow!("failed to encode signing key: {e}"))?;
+        let pkcs8 = signing.to_pkcs8_der().map_err(|e| anyhow::anyhow!("failed to encode signing key: {e}"))?;
         let public_key = signing.verifying_key().to_bytes();
         let mut validation = Validation::new(Algorithm::EdDSA);
         validation.set_issuer(&[ISSUER]);
@@ -109,12 +105,7 @@ impl Tokens {
     }
 
     /// Issues an access token; returns it with its expiry.
-    pub fn issue(
-        &self,
-        user_id: Uuid,
-        session_id: Uuid,
-        roles: &[String],
-    ) -> AppResult<(String, Time)> {
+    pub fn issue(&self, user_id: Uuid, session_id: Uuid, roles: &[String]) -> AppResult<(String, Time)> {
         let now = Utc::now();
         let expires = now + ACCESS_TOKEN_TTL;
         let claims = Claims {
@@ -125,23 +116,20 @@ impl Tokens {
             exp: expires.timestamp(),
             iss: ISSUER.to_owned(),
         };
-        let token = jsonwebtoken::encode(
-            &Header::new(Algorithm::EdDSA),
-            &claims,
-            &self.inner.encoding,
-        )
-        .map_err(|e| AppError::internal(anyhow::anyhow!("jwt encode: {e}")))?;
+        let token = jsonwebtoken::encode(&Header::new(Algorithm::EdDSA), &claims, &self.inner.encoding)
+            .map_err(|e| AppError::internal(anyhow::anyhow!("jwt encode: {e}")))?;
         Ok((token, expires))
     }
 
     /// Verifies a token and returns who it belongs to.
     pub fn verify(&self, token: &str) -> Result<AuthContext, &'static str> {
         let data =
-            jsonwebtoken::decode::<Claims>(token, &self.inner.decoding, &self.inner.validation)
-                .map_err(|e| match e.kind() {
-                    jsonwebtoken::errors::ErrorKind::ExpiredSignature => "TOKEN_EXPIRED",
-                    _ => "TOKEN_INVALID",
-                })?;
+            jsonwebtoken::decode::<Claims>(token, &self.inner.decoding, &self.inner.validation).map_err(|e| match e
+                .kind()
+            {
+                jsonwebtoken::errors::ErrorKind::ExpiredSignature => "TOKEN_EXPIRED",
+                _ => "TOKEN_INVALID",
+            })?;
         if self.is_revoked(data.claims.sid) {
             return Err("SESSION_REVOKED");
         }
@@ -155,10 +143,7 @@ impl Tokens {
 
     /// Marks a session as revoked for the remaining lifetime of its tokens.
     pub fn revoke_session(&self, session_id: Uuid) {
-        self.inner.revoked.insert(
-            session_id,
-            Utc::now() + ACCESS_TOKEN_TTL + Duration::from_secs(30),
-        );
+        self.inner.revoked.insert(session_id, Utc::now() + ACCESS_TOKEN_TTL + Duration::from_secs(30));
         if self.inner.revoked.len() > 10_000 {
             let now = Utc::now();
             self.inner.revoked.retain(|_, until| *until > now);
@@ -177,10 +162,7 @@ impl Tokens {
         let Some(value) = header.and_then(|v| v.to_str().ok()) else {
             return AuthState::Anonymous;
         };
-        let Some(token) = value
-            .strip_prefix("Bearer ")
-            .or_else(|| value.strip_prefix("bearer "))
-        else {
+        let Some(token) = value.strip_prefix("Bearer ").or_else(|| value.strip_prefix("bearer ")) else {
             return AuthState::Invalid("TOKEN_INVALID");
         };
         match self.verify(token.trim()) {
@@ -299,10 +281,7 @@ mod tests {
         let t = tokens();
         assert!(matches!(t.authenticate_header(None), AuthState::Anonymous));
         let bad = http::HeaderValue::from_static("Bearer nope");
-        assert!(matches!(
-            t.authenticate_header(Some(&bad)),
-            AuthState::Invalid("TOKEN_INVALID")
-        ));
+        assert!(matches!(t.authenticate_header(Some(&bad)), AuthState::Invalid("TOKEN_INVALID")));
     }
 
     /// The client address a handler sees for a request from `peer` carrying
@@ -319,7 +298,8 @@ mod tests {
             request = request.header("x-forwarded-for", forwarded_for);
         }
         if let Some(peer) = peer {
-            request = request.extension(axum::extract::ConnectInfo(std::net::SocketAddr::new(peer.parse().unwrap(), 40_000)));
+            request =
+                request.extension(axum::extract::ConnectInfo(std::net::SocketAddr::new(peer.parse().unwrap(), 40_000)));
         }
         let response = app.oneshot(request.body(axum::body::Body::empty()).unwrap()).await.unwrap();
         String::from_utf8(axum::body::to_bytes(response.into_body(), 256).await.unwrap().to_vec()).unwrap()

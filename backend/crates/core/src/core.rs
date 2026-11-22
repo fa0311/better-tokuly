@@ -10,8 +10,16 @@ use uuid::Uuid;
 use crate::{
     analytics::Analytics,
     auth::{AuthLayer, Tokens},
-    bus::Bus, cache::Cache, config::Config, db,
-    error::AppResult, events, export::Exporters, flags::Flags, jobs::Jobs, keys::Keys,
+    bus::Bus,
+    cache::Cache,
+    config::Config,
+    db,
+    error::AppResult,
+    events,
+    export::Exporters,
+    flags::Flags,
+    jobs::Jobs,
+    keys::Keys,
     livekit::LiveKit,
     mail::Mailer,
     realtime::{Realtime, TopicGuards},
@@ -69,7 +77,9 @@ impl Core {
         let db = db::connect(&cfg.database_url, cfg.database_max_connections).await?;
         let cache = Cache::connect(&cfg.valkey_url).await?.with_rate_limits(cfg.rate_limits);
         if !cfg.rate_limits {
-            tracing::warn!("request rate limits are OFF (TOKULY_RATE_LIMITS=false): never expose this deployment to the internet");
+            tracing::warn!(
+                "request rate limits are OFF (TOKULY_RATE_LIMITS=false): never expose this deployment to the internet"
+            );
         }
         let bus = Bus::connect(&cfg.nats_url, &cfg.nats_prefix).await?;
         bus.ensure_streams().await?;
@@ -139,23 +149,14 @@ impl Core {
     /// Invalidates a session's access tokens on every service instance.
     pub async fn revoke_session(&self, session_id: Uuid) {
         self.tokens.revoke_session(session_id);
-        if let Err(e) = self
-            .bus
-            .publish(SESSION_REVOKED_SUBJECT, session_id.to_string())
-            .await
-        {
+        if let Err(e) = self.bus.publish(SESSION_REVOKED_SUBJECT, session_id.to_string()).await {
             tracing::warn!(error = %e, "session revocation broadcast failed");
         }
     }
 
     /// Emits a domain event outside of a transaction. Prefer
     /// [`events::emit`] with the open transaction when one exists.
-    pub async fn emit<T: Serialize + ?Sized>(
-        &self,
-        topic: &str,
-        actor_id: Option<Uuid>,
-        data: &T,
-    ) -> AppResult<()> {
+    pub async fn emit<T: Serialize + ?Sized>(&self, topic: &str, actor_id: Option<Uuid>, data: &T) -> AppResult<()> {
         events::emit(&self.db, topic, actor_id, data).await
     }
 

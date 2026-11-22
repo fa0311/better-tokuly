@@ -127,14 +127,24 @@ impl Social {
     pub(crate) async fn friends_to_proto(&self, rows: Vec<FriendRow>, detail: Detail) -> AppResult<Vec<Friend>> {
         let ids: Vec<Uuid> = rows.iter().map(|r| r.friend_id).collect();
         let summaries = tokuly_identity::summaries(&self.core, &ids).await?;
-        let presence = if detail == Detail::Own { people::presence_of(&self.core, &ids).await } else { people::Presence::default() };
+        let presence = if detail == Detail::Own {
+            people::presence_of(&self.core, &ids).await
+        } else {
+            people::Presence::default()
+        };
         Ok(rows
             .into_iter()
             .map(|row| {
                 let mut friend = Friend {
                     user: users::pick(&summaries, row.friend_id).into(),
                     friends_since: ts(row.created_at),
-                    status: users::status_of(&row.status_emoji, &row.status_text, row.status_set_at, row.status_expires_at).into(),
+                    status: users::status_of(
+                        &row.status_emoji,
+                        &row.status_text,
+                        row.status_set_at,
+                        row.status_expires_at,
+                    )
+                    .into(),
                     ..Default::default()
                 };
                 if detail != Detail::Public {
@@ -177,14 +187,21 @@ impl Social {
         }
         people::ensure_visible(&self.core, viewer, owner).await?;
         let privacy = settings::privacy_of(&self.core, owner).await?;
-        let allowed = graph::allows(&self.core, owner, Some(viewer), people::audience(&privacy.friend_list_visible_to)).await?;
+        let allowed =
+            graph::allows(&self.core, owner, Some(viewer), people::audience(&privacy.friend_list_visible_to)).await?;
         ensure!(allowed, denied, "FRIEND_LIST_PRIVATE", "this user's friend list is private");
         Ok(())
     }
 
     /// One page of `owner`'s friends (newest friendships first) as `viewer`
     /// sees them, plus the total matching `query`.
-    pub(crate) async fn list_friends(&self, viewer: Uuid, owner: Uuid, query: &str, page: &Page) -> AppResult<(Vec<Friend>, PageInfo, i32)> {
+    pub(crate) async fn list_friends(
+        &self,
+        viewer: Uuid,
+        owner: Uuid,
+        query: &str,
+        page: &Page,
+    ) -> AppResult<(Vec<Friend>, PageInfo, i32)> {
         self.ensure_can_see_friends_of(viewer, owner).await?;
         let own = viewer == owner;
         let query = query.trim().trim_start_matches('@');
@@ -246,7 +263,8 @@ impl Social {
         if !end_friendship(&mut tx, user_id, friend_id).await? {
             return Err(not_friends());
         }
-        events::emit(&mut *tx, FRIEND_REMOVED, Some(user_id), &FriendRemoved { user_id, friend_id, blocked: false }).await?;
+        events::emit(&mut *tx, FRIEND_REMOVED, Some(user_id), &FriendRemoved { user_id, friend_id, blocked: false })
+            .await?;
         tx.commit().await?;
         self.after_friendship_ended(user_id, friend_id).await;
         Ok(())
@@ -307,18 +325,32 @@ impl Social {
     }
 
     /// Changes what `user_id` keeps about their friend `friend_id`.
-    pub(crate) async fn update_friend_prefs(&self, user_id: Uuid, friend_id: Uuid, change: PrefsChange<'_>) -> AppResult<Friend> {
+    pub(crate) async fn update_friend_prefs(
+        &self,
+        user_id: Uuid,
+        friend_id: Uuid,
+        change: PrefsChange<'_>,
+    ) -> AppResult<Friend> {
         let nickname = change.nickname.map(normalize_nickname).transpose()?;
         let mut tx = self.core.db.begin().await?;
-        let current: Option<(bool, bool)> = sqlx::query_as("SELECT favorite, muted FROM friendships WHERE user_id = $1 AND friend_id = $2 FOR UPDATE")
-            .bind(user_id)
-            .bind(friend_id)
-            .fetch_optional(&mut *tx)
-            .await?;
+        let current: Option<(bool, bool)> =
+            sqlx::query_as("SELECT favorite, muted FROM friendships WHERE user_id = $1 AND friend_id = $2 FOR UPDATE")
+                .bind(user_id)
+                .bind(friend_id)
+                .fetch_optional(&mut *tx)
+                .await?;
         let (was_favorite, was_muted) = current.ok_or_else(not_friends)?;
         if change.favorite == Some(true) && !was_favorite {
-            let favorites: i64 = sqlx::query_scalar("SELECT count(*) FROM friendships WHERE user_id = $1 AND favorite").bind(user_id).fetch_one(&mut *tx).await?;
-            ensure!(favorites < MAX_FAVORITES, precondition, "TOO_MANY_FAVORITES", "you can star at most {MAX_FAVORITES} friends");
+            let favorites: i64 = sqlx::query_scalar("SELECT count(*) FROM friendships WHERE user_id = $1 AND favorite")
+                .bind(user_id)
+                .fetch_one(&mut *tx)
+                .await?;
+            ensure!(
+                favorites < MAX_FAVORITES,
+                precondition,
+                "TOO_MANY_FAVORITES",
+                "you can star at most {MAX_FAVORITES} friends"
+            );
         }
         sqlx::query(
             "UPDATE friendships SET nickname = COALESCE($3, nickname), favorite = COALESCE($4, favorite), muted = COALESCE($5, muted)
@@ -333,7 +365,13 @@ impl Social {
         .await?;
         if let Some(muted) = change.muted.filter(|muted| *muted != was_muted) {
             // The notify domain mirrors mutes from this event.
-            events::emit(&mut *tx, FRIEND_PREFS_CHANGED, Some(user_id), &FriendPrefsChanged { user_id, friend_id, muted }).await?;
+            events::emit(
+                &mut *tx,
+                FRIEND_PREFS_CHANGED,
+                Some(user_id),
+                &FriendPrefsChanged { user_id, friend_id, muted },
+            )
+            .await?;
         }
         tx.commit().await?;
         self.friend_as_seen_by(user_id, friend_id).await

@@ -6,9 +6,7 @@
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry_otlp::WithExportConfig as _;
 use opentelemetry_sdk::{Resource, trace::SdkTracerProvider};
-use tracing_subscriber::{
-    EnvFilter, Layer as _, layer::SubscriberExt as _, util::SubscriberInitExt as _,
-};
+use tracing_subscriber::{EnvFilter, Layer as _, layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
 use crate::config::Config;
 
@@ -33,34 +31,21 @@ pub fn init(cfg: &Config, service: &str) -> TelemetryGuard {
     });
 
     let fmt_layer = if cfg.log_format == "json" {
-        tracing_subscriber::fmt::layer()
-            .json()
-            .with_current_span(true)
-            .boxed()
+        tracing_subscriber::fmt::layer().json().with_current_span(true).boxed()
     } else {
-        tracing_subscriber::fmt::layer()
-            .compact()
-            .with_target(true)
-            .boxed()
+        tracing_subscriber::fmt::layer().compact().with_target(true).boxed()
     };
 
     let mut provider = None;
     let otel_layer = if cfg.otlp_endpoint.is_empty() {
         None
     } else {
-        match opentelemetry_otlp::SpanExporter::builder()
-            .with_tonic()
-            .with_endpoint(cfg.otlp_endpoint.clone())
-            .build()
+        match opentelemetry_otlp::SpanExporter::builder().with_tonic().with_endpoint(cfg.otlp_endpoint.clone()).build()
         {
             Ok(exporter) => {
                 let tracer_provider = SdkTracerProvider::builder()
                     .with_batch_exporter(exporter)
-                    .with_resource(
-                        Resource::builder()
-                            .with_service_name(service.to_owned())
-                            .build(),
-                    )
+                    .with_resource(Resource::builder().with_service_name(service.to_owned()).build())
                     .build();
                 let tracer = tracer_provider.tracer("tokuly");
                 provider = Some(tracer_provider);
@@ -73,10 +58,6 @@ pub fn init(cfg: &Config, service: &str) -> TelemetryGuard {
         }
     };
 
-    tracing_subscriber::registry()
-        .with(filter)
-        .with(fmt_layer)
-        .with(otel_layer)
-        .init();
+    tracing_subscriber::registry().with(filter).with(fmt_layer).with(otel_layer).init();
     TelemetryGuard { provider }
 }

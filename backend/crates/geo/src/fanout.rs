@@ -21,6 +21,13 @@ use crate::{
 /// Label under which the blur key is derived from the server secret.
 const BLUR_KEY: &str = "geo.blur";
 
+/// What each blurred viewer was last sent of an owner's pin is kept this long.
+const SHOWN_TTL_SECONDS: i64 = 7 * 24 * 3600;
+
+fn shown_key(owner: Uuid) -> String {
+    format!("geo:pin:shown:{}", owner.simple())
+}
+
 fn area_lookup(lat: f64, lng: f64) -> Area {
     Gazetteer::shared().area(lat, lng)
 }
@@ -129,14 +136,40 @@ impl Geo {
         let now = Utc::now();
         let env = self.view_env(now);
         let subject = Subject { id: owner, pin, ctx, online, weather: weather.as_ref() };
+        // What viewers who do not see the precise pin were last sent: they
+        // get a push when what THEY see changes, not whenever the owner
+        // moves — how often an unchanged stand-in arrives would say whether
+        // its owner is walking or sitting still.
+        let key = shown_key(owner);
+        let any_blurred = friends.iter().any(|viewer| matches!(visibility::sight(ctx, *viewer, now), Sight::Blurred));
+        let mut shown: HashMap<String, String> = if any_blurred {
+            redis::cmd("HGETALL").arg(&key).query_async(&mut self.core.cache.conn()).await?
+        } else {
+            HashMap::new()
+        };
+        let mut changed = Vec::new();
         for viewer in friends {
-            if !refresh && matches!(visibility::sight(ctx, viewer, now), Sight::Frozen(_)) {
+            let sight = visibility::sight(ctx, viewer, now);
+            if !refresh && matches!(sight, Sight::Frozen(_)) {
                 continue;
             }
             let viewer = Viewer { id: viewer, ja: languages.get(&viewer).copied().unwrap_or(true) };
-            if let Some(view) = visibility::friend_view(&env, &subject, viewer) {
-                self.push(viewer.id, Event::Location(Box::new(view))).await;
+            let Some(view) = visibility::friend_view(&env, &subject, viewer) else { continue };
+            if matches!(sight, Sight::Blurred) {
+                let field = viewer.id.simple().to_string();
+                let now_shown = serde_json::to_string(&view).unwrap_or_default();
+                if shown.get(&field) == Some(&now_shown) && !refresh {
+                    continue;
+                }
+                shown.insert(field.clone(), now_shown.clone());
+                changed.push((field, now_shown));
             }
+            self.push(viewer.id, Event::Location(Box::new(view))).await;
+        }
+        if !changed.is_empty() {
+            let mut conn = self.core.cache.conn();
+            redis::cmd("HSET").arg(&key).arg(&changed).query_async::<()>(&mut conn).await?;
+            redis::cmd("EXPIRE").arg(&key).arg(SHOWN_TTL_SECONDS).query_async::<()>(&mut conn).await?;
         }
         Ok(())
     }

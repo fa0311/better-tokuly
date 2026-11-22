@@ -40,8 +40,17 @@ impl LiveGeoSet {
     pub(crate) async fn check_in(&self, cache: &Cache, user_id: Uuid, lat: f64, lng: f64) -> AppResult<()> {
         let member = member(user_id);
         redis::pipe()
-            .cmd("GEOADD").arg(self.geo_key).arg(lng).arg(lat).arg(&member).ignore()
-            .cmd("ZADD").arg(self.seen_key).arg(Utc::now().timestamp_millis()).arg(&member).ignore()
+            .cmd("GEOADD")
+            .arg(self.geo_key)
+            .arg(lng)
+            .arg(lat)
+            .arg(&member)
+            .ignore()
+            .cmd("ZADD")
+            .arg(self.seen_key)
+            .arg(Utc::now().timestamp_millis())
+            .arg(&member)
+            .ignore()
             .query_async::<()>(&mut cache.conn())
             .await?;
         Ok(())
@@ -57,8 +66,14 @@ impl LiveGeoSet {
             return Ok(());
         }
         redis::pipe()
-            .cmd("ZREM").arg(self.geo_key).arg(members).ignore()
-            .cmd("ZREM").arg(self.seen_key).arg(members).ignore()
+            .cmd("ZREM")
+            .arg(self.geo_key)
+            .arg(members)
+            .ignore()
+            .cmd("ZREM")
+            .arg(self.seen_key)
+            .arg(members)
+            .ignore()
             .query_async::<()>(&mut cache.conn())
             .await?;
         Ok(())
@@ -66,14 +81,26 @@ impl LiveGeoSet {
 
     /// Live members within `radius_meters` of a point, nearest first, as
     /// `(user, distance in meters)`.
-    pub(crate) async fn within(&self, cache: &Cache, lat: f64, lng: f64, radius_meters: f64, limit: usize) -> AppResult<Vec<(Uuid, f64)>> {
+    pub(crate) async fn within(
+        &self,
+        cache: &Cache,
+        lat: f64,
+        lng: f64,
+        radius_meters: f64,
+        limit: usize,
+    ) -> AppResult<Vec<(Uuid, f64)>> {
         let mut conn = cache.conn();
         let hits: Vec<(String, f64)> = redis::cmd("GEOSEARCH")
             .arg(self.geo_key)
-            .arg("FROMLONLAT").arg(lng).arg(lat)
-            .arg("BYRADIUS").arg(radius_meters).arg("m")
+            .arg("FROMLONLAT")
+            .arg(lng)
+            .arg(lat)
+            .arg("BYRADIUS")
+            .arg(radius_meters)
+            .arg("m")
             .arg("ASC")
-            .arg("COUNT").arg(limit.max(1))
+            .arg("COUNT")
+            .arg(limit.max(1))
             .arg("WITHDIST")
             .query_async(&mut conn)
             .await?;
@@ -81,7 +108,8 @@ impl LiveGeoSet {
             return Ok(Vec::new());
         }
         let members: Vec<&String> = hits.iter().map(|(member, _)| member).collect();
-        let seen: Vec<Option<f64>> = redis::cmd("ZMSCORE").arg(self.seen_key).arg(&members).query_async(&mut conn).await?;
+        let seen: Vec<Option<f64>> =
+            redis::cmd("ZMSCORE").arg(self.seen_key).arg(&members).query_async(&mut conn).await?;
         let oldest_live = self.oldest_live_millis() as f64;
         Ok(hits
             .iter()
@@ -97,7 +125,9 @@ impl LiveGeoSet {
             .arg(self.seen_key)
             .arg("-inf")
             .arg(self.oldest_live_millis())
-            .arg("LIMIT").arg(0).arg(PRUNE_BATCH)
+            .arg("LIMIT")
+            .arg(0)
+            .arg(PRUNE_BATCH)
             .query_async(&mut cache.conn())
             .await?;
         self.remove(cache, &stale).await

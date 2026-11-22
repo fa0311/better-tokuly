@@ -22,88 +22,52 @@ pub struct AppError {
 pub const REASON_HEADER: &str = "x-tokuly-error";
 
 impl AppError {
-    pub fn new(
-        code: ErrorCode,
-        reason: impl Into<Cow<'static, str>>,
-        message: impl Into<Cow<'static, str>>,
-    ) -> Self {
-        Self {
-            code,
-            reason: reason.into(),
-            message: message.into(),
-            source: None,
-        }
+    pub fn new(code: ErrorCode, reason: impl Into<Cow<'static, str>>, message: impl Into<Cow<'static, str>>) -> Self {
+        Self { code, reason: reason.into(), message: message.into(), source: None }
     }
 
     /// 400: the request is malformed or fails validation.
-    pub fn invalid(
-        reason: impl Into<Cow<'static, str>>,
-        message: impl Into<Cow<'static, str>>,
-    ) -> Self {
+    pub fn invalid(reason: impl Into<Cow<'static, str>>, message: impl Into<Cow<'static, str>>) -> Self {
         Self::new(ErrorCode::InvalidArgument, reason, message)
     }
 
     /// 404: the entity does not exist or the caller may not know it exists.
-    pub fn not_found(
-        reason: impl Into<Cow<'static, str>>,
-        message: impl Into<Cow<'static, str>>,
-    ) -> Self {
+    pub fn not_found(reason: impl Into<Cow<'static, str>>, message: impl Into<Cow<'static, str>>) -> Self {
         Self::new(ErrorCode::NotFound, reason, message)
     }
 
     /// 409: something with the same identity already exists.
-    pub fn already_exists(
-        reason: impl Into<Cow<'static, str>>,
-        message: impl Into<Cow<'static, str>>,
-    ) -> Self {
+    pub fn already_exists(reason: impl Into<Cow<'static, str>>, message: impl Into<Cow<'static, str>>) -> Self {
         Self::new(ErrorCode::AlreadyExists, reason, message)
     }
 
     /// 403: authenticated but not allowed.
-    pub fn denied(
-        reason: impl Into<Cow<'static, str>>,
-        message: impl Into<Cow<'static, str>>,
-    ) -> Self {
+    pub fn denied(reason: impl Into<Cow<'static, str>>, message: impl Into<Cow<'static, str>>) -> Self {
         Self::new(ErrorCode::PermissionDenied, reason, message)
     }
 
     /// 401: no (valid) credentials.
-    pub fn unauthenticated(
-        reason: impl Into<Cow<'static, str>>,
-        message: impl Into<Cow<'static, str>>,
-    ) -> Self {
+    pub fn unauthenticated(reason: impl Into<Cow<'static, str>>, message: impl Into<Cow<'static, str>>) -> Self {
         Self::new(ErrorCode::Unauthenticated, reason, message)
     }
 
     /// 400/412: the request is valid but the system is not in a state to accept it.
-    pub fn precondition(
-        reason: impl Into<Cow<'static, str>>,
-        message: impl Into<Cow<'static, str>>,
-    ) -> Self {
+    pub fn precondition(reason: impl Into<Cow<'static, str>>, message: impl Into<Cow<'static, str>>) -> Self {
         Self::new(ErrorCode::FailedPrecondition, reason, message)
     }
 
     /// 429: rate limit or quota exceeded.
-    pub fn rate_limited(
-        reason: impl Into<Cow<'static, str>>,
-        message: impl Into<Cow<'static, str>>,
-    ) -> Self {
+    pub fn rate_limited(reason: impl Into<Cow<'static, str>>, message: impl Into<Cow<'static, str>>) -> Self {
         Self::new(ErrorCode::ResourceExhausted, reason, message)
     }
 
     /// 503: a dependency is down; the client may retry.
-    pub fn unavailable(
-        reason: impl Into<Cow<'static, str>>,
-        message: impl Into<Cow<'static, str>>,
-    ) -> Self {
+    pub fn unavailable(reason: impl Into<Cow<'static, str>>, message: impl Into<Cow<'static, str>>) -> Self {
         Self::new(ErrorCode::Unavailable, reason, message)
     }
 
     /// 501: the feature is not configured on this server.
-    pub fn unimplemented(
-        reason: impl Into<Cow<'static, str>>,
-        message: impl Into<Cow<'static, str>>,
-    ) -> Self {
+    pub fn unimplemented(reason: impl Into<Cow<'static, str>>, message: impl Into<Cow<'static, str>>) -> Self {
         Self::new(ErrorCode::Unimplemented, reason, message)
     }
 
@@ -128,11 +92,7 @@ impl AppError {
 
 impl fmt::Debug for AppError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "AppError({:?}, {}, {:?}",
-            self.code, self.reason, self.message
-        )?;
+        write!(f, "AppError({:?}, {}, {:?}", self.code, self.reason, self.message)?;
         if let Some(source) = &self.source {
             write!(f, ", source: {source:#}")?;
         }
@@ -190,8 +150,7 @@ impl From<AppError> for ConnectError {
         }
         let mut out = ConnectError::new(err.code, err.message.into_owned());
         if let Ok(value) = http::HeaderValue::from_str(&err.reason) {
-            out.response_headers_mut()
-                .insert(REASON_HEADER, value.clone());
+            out.response_headers_mut().insert(REASON_HEADER, value.clone());
             out.trailers_mut().insert(REASON_HEADER, value);
         }
         out

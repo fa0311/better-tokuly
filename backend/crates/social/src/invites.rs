@@ -47,12 +47,20 @@ fn plausible_code(code: &str) -> bool {
 
 /// How many people joined through `user_id`'s invites.
 pub(crate) async fn intro_count(core: &Core, user_id: Uuid) -> AppResult<i64> {
-    Ok(sqlx::query_scalar("SELECT count(*) FROM friend_intros WHERE inviter_id = $1").bind(user_id).fetch_one(&core.db).await?)
+    Ok(sqlx::query_scalar("SELECT count(*) FROM friend_intros WHERE inviter_id = $1")
+        .bind(user_id)
+        .fetch_one(&core.db)
+        .await?)
 }
 
 impl Social {
     fn invite(&self, code: String, intro_count: i64) -> Invite {
-        Invite { url: self.core.web_url(&format!("invite/{code}")), code, intro_count: intro_count as i32, ..Default::default() }
+        Invite {
+            url: self.core.web_url(&format!("invite/{code}")),
+            code,
+            intro_count: intro_count as i32,
+            ..Default::default()
+        }
     }
 
     /// The user's invite, created on first use.
@@ -74,8 +82,11 @@ impl Social {
     async fn store_invite_code(&self, user_id: Uuid, upsert: &'static str) -> AppResult<String> {
         let mut attempts = 0;
         loop {
-            let stored: Result<String, sqlx::Error> =
-                sqlx::query_scalar(upsert).bind(user_id).bind(ids::random_base62(CODE_LENGTH)).fetch_one(&self.core.db).await;
+            let stored: Result<String, sqlx::Error> = sqlx::query_scalar(upsert)
+                .bind(user_id)
+                .bind(ids::random_base62(CODE_LENGTH))
+                .fetch_one(&self.core.db)
+                .await;
             match stored.map_err(AppError::from) {
                 Ok(code) => return Ok(code),
                 Err(e) if e.is_already_exists() && attempts < 3 => attempts += 1,
@@ -90,11 +101,19 @@ impl Social {
         if !plausible_code(code) {
             return Ok(None);
         }
-        Ok(sqlx::query_scalar("SELECT user_id FROM friend_invites WHERE code = $1").bind(code).fetch_optional(&self.core.db).await?)
+        Ok(sqlx::query_scalar("SELECT user_id FROM friend_invites WHERE code = $1")
+            .bind(code)
+            .fetch_optional(&self.core.db)
+            .await?)
     }
 
     /// Who an invite code belongs to, and what `viewer` (if signed in) is to them.
-    pub(crate) async fn resolve_invite(&self, viewer: Option<Uuid>, code: &str, client_ip: &str) -> AppResult<(UserSummary, Relationship)> {
+    pub(crate) async fn resolve_invite(
+        &self,
+        viewer: Option<Uuid>,
+        code: &str,
+        client_ip: &str,
+    ) -> AppResult<(UserSummary, Relationship)> {
         let core = &self.core;
         // Codes are short; make guessing them slow.
         let limiter = viewer.map(|id| id.to_string()).unwrap_or_else(|| client_ip.to_owned());
@@ -107,7 +126,12 @@ impl Social {
         ensure!(!users::filter_active(core, &[inviter]).await?.is_empty(), not_found, "INVITE_NOT_FOUND", "{GONE}");
         let relationship = match viewer {
             Some(viewer) => {
-                ensure!(!graph::is_blocked_either(core, viewer, inviter).await?, not_found, "INVITE_NOT_FOUND", "{GONE}");
+                ensure!(
+                    !graph::is_blocked_either(core, viewer, inviter).await?,
+                    not_found,
+                    "INVITE_NOT_FOUND",
+                    "{GONE}"
+                );
                 graph::relationship(core, viewer, inviter).await?
             }
             None => Relationship::RELATIONSHIP_UNSPECIFIED,
@@ -117,7 +141,12 @@ impl Social {
 
     /// One page of the people who joined through `owner`'s invites, newest
     /// first, with the total. Follows the owner's friend list privacy.
-    pub(crate) async fn list_intros(&self, viewer: Uuid, owner: Uuid, page: &Page) -> AppResult<(Vec<UserSummary>, PageInfo, i32)> {
+    pub(crate) async fn list_intros(
+        &self,
+        viewer: Uuid,
+        owner: Uuid,
+        page: &Page,
+    ) -> AppResult<(Vec<UserSummary>, PageInfo, i32)> {
         self.ensure_can_see_friends_of(viewer, owner).await?;
         let core = &self.core;
         let hidden = if viewer == owner { Vec::new() } else { graph::blocked_ids_either(core, viewer).await? };
@@ -156,8 +185,10 @@ impl Social {
         if inviter == user_id {
             return Ok(());
         }
-        let already: bool =
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM friend_intros WHERE invitee_id = $1)").bind(user_id).fetch_one(&core.db).await?;
+        let already: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM friend_intros WHERE invitee_id = $1)")
+            .bind(user_id)
+            .fetch_one(&core.db)
+            .await?;
         if already {
             return Ok(());
         }
@@ -167,7 +198,10 @@ impl Social {
         // out the link, so their "who may send me requests" audience does
         // not apply; reasons such as a full friend list are not this event's
         // problem and must not make it retry forever.
-        if let Err(e) = self.request_friendship(user_id, inviter, FriendSource::FRIEND_SOURCE_INVITE_LINK, "", RequestVia::Encounter).await {
+        if let Err(e) = self
+            .request_friendship(user_id, inviter, FriendSource::FRIEND_SOURCE_INVITE_LINK, "", RequestVia::Encounter)
+            .await
+        {
             if e.code == connectrpc::ErrorCode::Internal || e.code == connectrpc::ErrorCode::Unavailable {
                 return Err(e);
             }
@@ -175,11 +209,12 @@ impl Social {
         }
 
         let mut tx = core.db.begin().await?;
-        let recorded = sqlx::query("INSERT INTO friend_intros (invitee_id, inviter_id) VALUES ($1, $2) ON CONFLICT DO NOTHING")
-            .bind(user_id)
-            .bind(inviter)
-            .execute(&mut *tx)
-            .await?;
+        let recorded =
+            sqlx::query("INSERT INTO friend_intros (invitee_id, inviter_id) VALUES ($1, $2) ON CONFLICT DO NOTHING")
+                .bind(user_id)
+                .bind(inviter)
+                .execute(&mut *tx)
+                .await?;
         if recorded.rows_affected() > 0 {
             sqlx::query("INSERT INTO friend_suggestions (user_id, suggested_id, reason) VALUES ($1, $2, $3), ($2, $1, $4) ON CONFLICT DO NOTHING")
                 .bind(user_id)
@@ -188,7 +223,8 @@ impl Social {
                 .bind(SuggestionReason::Invited.as_str())
                 .execute(&mut *tx)
                 .await?;
-            events::emit(&mut *tx, INTRO_CREATED, Some(user_id), &IntroCreated { inviter_id: inviter, user_id }).await?;
+            events::emit(&mut *tx, INTRO_CREATED, Some(user_id), &IntroCreated { inviter_id: inviter, user_id })
+                .await?;
         }
         tx.commit().await?;
         Ok(())

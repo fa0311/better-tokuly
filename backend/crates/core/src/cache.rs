@@ -19,8 +19,7 @@ pub struct Cache {
 
 impl Cache {
     pub async fn connect(url: &str) -> anyhow::Result<Self> {
-        let client =
-            redis::Client::open(url).map_err(|e| anyhow::anyhow!("invalid Valkey URL: {e}"))?;
+        let client = redis::Client::open(url).map_err(|e| anyhow::anyhow!("invalid Valkey URL: {e}"))?;
         let conn = ConnectionManager::new(client)
             .await
             .map_err(|e| anyhow::anyhow!("cannot connect to Valkey at {url}: {e}"))?;
@@ -47,20 +46,11 @@ impl Cache {
     }
 
     /// Stores a JSON value; `ttl` of `None` keeps it until deleted.
-    pub async fn set_json<T: Serialize + ?Sized>(
-        &self,
-        key: &str,
-        value: &T,
-        ttl: Option<Duration>,
-    ) -> AppResult<()> {
-        let bytes = serde_json::to_vec(value)
-            .map_err(|e| AppError::internal(anyhow::anyhow!("cache encode: {e}")))?;
+    pub async fn set_json<T: Serialize + ?Sized>(&self, key: &str, value: &T, ttl: Option<Duration>) -> AppResult<()> {
+        let bytes = serde_json::to_vec(value).map_err(|e| AppError::internal(anyhow::anyhow!("cache encode: {e}")))?;
         let mut conn = self.conn();
         match ttl {
-            Some(ttl) => {
-                conn.set_ex::<_, _, ()>(key, bytes, ttl.as_secs().max(1))
-                    .await?
-            }
+            Some(ttl) => conn.set_ex::<_, _, ()>(key, bytes, ttl.as_secs().max(1)).await?,
             None => conn.set::<_, _, ()>(key, bytes).await?,
         }
         Ok(())
@@ -73,10 +63,7 @@ impl Cache {
     pub async fn set_string(&self, key: &str, value: &str, ttl: Option<Duration>) -> AppResult<()> {
         let mut conn = self.conn();
         match ttl {
-            Some(ttl) => {
-                conn.set_ex::<_, _, ()>(key, value, ttl.as_secs().max(1))
-                    .await?
-            }
+            Some(ttl) => conn.set_ex::<_, _, ()>(key, value, ttl.as_secs().max(1)).await?,
             None => conn.set::<_, _, ()>(key, value).await?,
         }
         Ok(())
@@ -84,10 +71,7 @@ impl Cache {
 
     /// Reads and deletes a value atomically (one-time tokens, challenges).
     pub async fn take_json<T: DeserializeOwned>(&self, key: &str) -> AppResult<Option<T>> {
-        let raw: Option<Vec<u8>> = redis::cmd("GETDEL")
-            .arg(key)
-            .query_async(&mut self.conn())
-            .await?;
+        let raw: Option<Vec<u8>> = redis::cmd("GETDEL").arg(key).query_async(&mut self.conn()).await?;
         match raw {
             None => Ok(None),
             Some(bytes) => Ok(serde_json::from_slice(&bytes).ok()),
@@ -128,22 +112,16 @@ impl Cache {
         let mut conn = self.conn();
         let count: i64 = conn.incr(&key, 1).await?;
         if count == 1 {
-            conn.expire::<_, ()>(&key, window.as_secs().max(1) as i64)
-                .await?;
+            conn.expire::<_, ()>(&key, window.as_secs().max(1) as i64).await?;
         }
         if count > max as i64 {
-            return Err(AppError::rate_limited(
-                "RATE_LIMITED",
-                "too many requests, slow down",
-            ));
+            return Err(AppError::rate_limited("RATE_LIMITED", "too many requests, slow down"));
         }
         Ok(())
     }
 
     pub async fn ping(&self) -> AppResult<()> {
-        redis::cmd("PING")
-            .query_async::<String>(&mut self.conn())
-            .await?;
+        redis::cmd("PING").query_async::<String>(&mut self.conn()).await?;
         Ok(())
     }
 }

@@ -90,14 +90,20 @@ pub(crate) async fn lock_pair(tx: &mut Transaction<'_, Postgres>, a: Uuid, b: Uu
 pub async fn friend_ids(core: &Core, user_id: Uuid) -> AppResult<Vec<Uuid>> {
     idcache::FRIENDS
         .get_or_load(core, user_id, || async {
-            Ok(sqlx::query_scalar("SELECT friend_id FROM friendships WHERE user_id = $1").bind(user_id).fetch_all(&core.db).await?)
+            Ok(sqlx::query_scalar("SELECT friend_id FROM friendships WHERE user_id = $1")
+                .bind(user_id)
+                .fetch_all(&core.db)
+                .await?)
         })
         .await
 }
 
 /// How many friends a user has.
 pub(crate) async fn friend_count(core: &Core, user_id: Uuid) -> AppResult<i64> {
-    Ok(sqlx::query_scalar("SELECT count(*) FROM friendships WHERE user_id = $1").bind(user_id).fetch_one(&core.db).await?)
+    Ok(sqlx::query_scalar("SELECT count(*) FROM friendships WHERE user_id = $1")
+        .bind(user_id)
+        .fetch_one(&core.db)
+        .await?)
 }
 
 pub async fn are_friends(core: &Core, a: Uuid, b: Uuid) -> AppResult<bool> {
@@ -144,7 +150,11 @@ pub async fn relationship(core: &Core, viewer: Uuid, other: Uuid) -> AppResult<R
 }
 
 /// [`relationship`] for many users at once. Every requested user is in the map.
-pub(crate) async fn relationships(core: &Core, viewer: Uuid, others: &[Uuid]) -> AppResult<HashMap<Uuid, Relationship>> {
+pub(crate) async fn relationships(
+    core: &Core,
+    viewer: Uuid,
+    others: &[Uuid],
+) -> AppResult<HashMap<Uuid, Relationship>> {
     // One row per fact; several facts about the same user are resolved below
     // by precedence (a declined incoming request is not a fact).
     const BLOCKED: i32 = 1;
@@ -207,7 +217,9 @@ pub async fn allows(core: &Core, owner: Uuid, viewer: Option<Uuid>, audience: Au
         Audience::AUDIENCE_EVERYONE => Ok(true),
         Audience::AUDIENCE_NOBODY => Ok(false),
         Audience::AUDIENCE_FRIENDS | Audience::AUDIENCE_UNSPECIFIED => are_friends(core, owner, viewer).await,
-        Audience::AUDIENCE_FRIENDS_OF_FRIENDS => Ok(are_friends(core, owner, viewer).await? || have_mutual_friend(core, owner, viewer).await?),
+        Audience::AUDIENCE_FRIENDS_OF_FRIENDS => {
+            Ok(are_friends(core, owner, viewer).await? || have_mutual_friend(core, owner, viewer).await?)
+        }
     }
 }
 
@@ -272,7 +284,13 @@ const MAX_WEIGHT: i32 = 1440;
 /// map views and map reactions (usually 1), minutes for calls and time
 /// together. Interactions between users who are not friends are ignored, so
 /// callers need not check first.
-pub async fn record_interaction(core: &Core, from: Uuid, to: Uuid, kind: InteractionKind, weight: i32) -> AppResult<()> {
+pub async fn record_interaction(
+    core: &Core,
+    from: Uuid,
+    to: Uuid,
+    kind: InteractionKind,
+    weight: i32,
+) -> AppResult<()> {
     if from == to || weight <= 0 {
         return Ok(());
     }
@@ -329,20 +347,28 @@ pub async fn record_interaction(core: &Core, from: Uuid, to: Uuid, kind: Interac
 
 /// Counts time together during the small hours towards a night spent
 /// together. "Night" is judged in the reporting user's time zone.
-async fn record_night_minutes(core: &Core, pair: Pair, reporter: Uuid, minutes: i32, at: DateTime<Utc>) -> AppResult<()> {
-    let time_zone: Option<String> = sqlx::query_scalar("SELECT time_zone FROM users WHERE id = $1").bind(reporter).fetch_optional(&core.db).await?;
+async fn record_night_minutes(
+    core: &Core,
+    pair: Pair,
+    reporter: Uuid,
+    minutes: i32,
+    at: DateTime<Utc>,
+) -> AppResult<()> {
+    let time_zone: Option<String> =
+        sqlx::query_scalar("SELECT time_zone FROM users WHERE id = $1").bind(reporter).fetch_optional(&core.db).await?;
     let time_zone: chrono_tz::Tz = time_zone.and_then(|tz| tz.parse().ok()).unwrap_or(chrono_tz::Asia::Tokyo);
     let local = at.with_timezone(&time_zone);
     if !ranking::is_night(local.time()) {
         return Ok(());
     }
     let mut tx = core.db.begin().await?;
-    let previous: (i32, Option<chrono::NaiveDate>) =
-        sqlx::query_as("SELECT night_minutes, night_date FROM friend_pairs WHERE user_lo = $1 AND user_hi = $2 FOR UPDATE")
-            .bind(pair.lo)
-            .bind(pair.hi)
-            .fetch_one(&mut *tx)
-            .await?;
+    let previous: (i32, Option<chrono::NaiveDate>) = sqlx::query_as(
+        "SELECT night_minutes, night_date FROM friend_pairs WHERE user_lo = $1 AND user_hi = $2 FOR UPDATE",
+    )
+    .bind(pair.lo)
+    .bind(pair.hi)
+    .fetch_one(&mut *tx)
+    .await?;
     let progress = ranking::night_progress(previous, local.date_naive(), minutes);
     sqlx::query(
         "UPDATE friend_pairs SET night_minutes = $3, night_date = $4, nights_together = nights_together + $5

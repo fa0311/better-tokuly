@@ -57,6 +57,9 @@ const BLUR_SPREAD_M: f64 = 400.0;
 /// Accuracy radius reported for a blurred pin: the true position is within
 /// this distance of the stand-in wherever in the cell it is.
 pub const BLUR_ACCURACY_M: f64 = 2000.0;
+/// A blurred pin's `recorded_at` is rounded down to this: how often the
+/// device reports says whether its owner is on the move.
+pub const BLUR_TIME_STEP_MS: i64 = 10 * 60 * 1000;
 
 /// Keyed hash used to derive blur offsets (HMAC with a server secret, so
 /// offsets cannot be computed, and thus undone, by clients).
@@ -295,7 +298,7 @@ fn blurred_view(env: &ViewEnv<'_>, subject: &Subject<'_>, pin: &Pin, viewer: Vie
         user_id: subject.id.to_string(),
         position: math::lat_lng(lat, lng).into(),
         accuracy_meters: BLUR_ACCURACY_M,
-        recorded_at: ts(from_millis(pin.recorded_ms)),
+        recorded_at: ts(from_millis(pin.recorded_ms.div_euclid(BLUR_TIME_STEP_MS) * BLUR_TIME_STEP_MS)),
         precision: GhostMode::GHOST_MODE_BLURRED.into(),
         activity: Activity::ACTIVITY_UNSPECIFIED.into(),
         locality: area.label(viewer.ja),

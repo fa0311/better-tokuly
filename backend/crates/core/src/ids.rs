@@ -11,17 +11,12 @@ pub fn new_id() -> Uuid {
 
 /// Parses an ID received from a client.
 pub fn parse_id(value: &str) -> AppResult<Uuid> {
-    Uuid::parse_str(value)
-        .map_err(|_| AppError::invalid("INVALID_ID", format!("invalid id: {value:?}")))
+    Uuid::parse_str(value).map_err(|_| AppError::invalid("INVALID_ID", format!("invalid id: {value:?}")))
 }
 
 /// Parses an optional ID; empty string means "not set".
 pub fn parse_opt_id(value: &str) -> AppResult<Option<Uuid>> {
-    if value.is_empty() {
-        Ok(None)
-    } else {
-        parse_id(value).map(Some)
-    }
+    if value.is_empty() { Ok(None) } else { parse_id(value).map(Some) }
 }
 
 pub fn parse_ids<S: AsRef<str>>(values: &[S]) -> AppResult<Vec<Uuid>> {
@@ -33,9 +28,7 @@ const BASE62: &[u8; 62] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnop
 /// Random base62 string, e.g. for tokens and codes.
 pub fn random_base62(len: usize) -> String {
     let mut rng = rand::rng();
-    (0..len)
-        .map(|_| BASE62[rng.random_range(0..BASE62.len())] as char)
-        .collect()
+    (0..len).map(|_| BASE62[rng.random_range(0..BASE62.len())] as char).collect()
 }
 
 /// An 11-character public ID for shareable content (~65 bits of entropy).
@@ -56,16 +49,11 @@ impl Ref {
             return Ok(Self::Id(id));
         }
         let ok = (6..=32).contains(&value.len())
-            && value
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+            && value.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
         if ok {
             Ok(Self::Short(value.to_owned()))
         } else {
-            Err(AppError::invalid(
-                "INVALID_ID",
-                format!("invalid id: {value:?}"),
-            ))
+            Err(AppError::invalid("INVALID_ID", format!("invalid id: {value:?}")))
         }
     }
 }
@@ -85,10 +73,7 @@ mod tests {
     fn refs_parse_both_forms() {
         let id = new_id();
         assert_eq!(Ref::parse(&id.to_string()).unwrap(), Ref::Id(id));
-        assert_eq!(
-            Ref::parse("dQw4w9WgXcQ").unwrap(),
-            Ref::Short("dQw4w9WgXcQ".into())
-        );
+        assert_eq!(Ref::parse("dQw4w9WgXcQ").unwrap(), Ref::Short("dQw4w9WgXcQ".into()));
         assert!(Ref::parse("no spaces!").is_err());
     }
 }

@@ -346,19 +346,39 @@ async fn footprints_stop_for_a_viewer_where_their_view_of_the_person_stopped() {
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].data["audience"], "private");
 
-    // Strangers are under the default rule: once that is not precise, they
-    // get the frozen view as well, and she leaves the public ranking.
-    assert_eq!(stats_of(&ctx, &stranger, &aoi).await.country_count, 2);
-    ctx.ghost(&aoi, &[], GhostMode::GHOST_MODE_BLURRED, 0).await.unwrap();
-    let frozen_public = stats_of(&ctx, &stranger, &aoi).await;
-    ride(&ctx, &aoi, offset(second, 0.0, 3000.0), 1000.0, minutes_ago(2)).await;
-    assert_eq!(stats_of(&ctx, &stranger, &aoi).await, frozen_public);
+    // Whoever looks without being a friend (a stranger, someone signed out —
+    // Ren on a second account) gets the public footprints as of the last
+    // moment every friend saw her precisely: the public view is no way
+    // around a ghost rule. And she is not in the public ranking meanwhile.
+    assert_eq!(stats_of(&ctx, &stranger, &aoi).await, before_stats);
+    assert_eq!(cells_of(&ctx, &stranger, &aoi, first).await.unwrap(), before_cells);
+    assert!(cells_of(&ctx, &stranger, &aoi, second).await.unwrap().is_empty());
+    let signed_out: tokuly_proto::identity::GetProfileResponse = ctx
+        .app
+        .call(
+            "tokuly.identity.v1.ProfileService/GetProfile",
+            None,
+            &tokuly_proto::identity::GetProfileRequest {
+                by: Some(tokuly_proto::identity::get_profile_request::By::UserId(aoi.id.to_string())),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(signed_out.profile.as_option().unwrap().stats.as_option().unwrap().visited_country_count, 1);
     assert!(
         !leaderboard(&ctx, &stranger, LeaderboardScope::LEADERBOARD_SCOPE_GLOBAL)
             .await
             .iter()
             .any(|(id, _)| *id == aoi.id.to_string())
     );
+    // Kai, a friend who sees her, finds her there with her live numbers.
+    let kais_board = leaderboard(&ctx, &kai, LeaderboardScope::LEADERBOARD_SCOPE_GLOBAL).await;
+    let live = stats_of(&ctx, &kai, &aoi).await.total_cell_count;
+    assert!(kais_board.contains(&(aoi.id.to_string(), live)), "{kais_board:?}");
+    ctx.ghost(&aoi, &[], GhostMode::GHOST_MODE_BLURRED, 0).await.unwrap();
+    ride(&ctx, &aoi, offset(second, 0.0, 3000.0), 1000.0, minutes_ago(2)).await;
+    assert_eq!(stats_of(&ctx, &stranger, &aoi).await, before_stats);
     // Ren's view has not moved through any of this.
     assert_eq!(stats_of(&ctx, &ren, &aoi).await, before_stats);
     assert_eq!(leaderboard(&ctx, &ren, LeaderboardScope::LEADERBOARD_SCOPE_GLOBAL).await, before_global);
@@ -631,4 +651,203 @@ async fn smaller_leaks_and_loose_ends_are_closed() {
     let state: Option<serde_json::Value> =
         ctx.app.core.cache.get_json(&format!("geo:state:{}", ren.id.simple())).await.unwrap();
     assert!(state.is_none(), "no live state comes back for a deleted account");
+}
+
+async fn json_call(ctx: &Ctx, user: &TestUser, path: &str, request: serde_json::Value) -> serde_json::Value {
+    match ctx.app.call::<serde_json::Value, serde_json::Value>(&format!("tokuly.{path}"), Some(user), &request).await {
+        Ok(response) => response,
+        Err(error) => serde_json::json!({ "error": error.reason }),
+    }
+}
+
+/// Re-check 1: Buzz (the social domain) asks the shared position index
+/// whether two friends are near each other. The index answers for a pair
+/// only if each sees the other precisely — and the limit on asking comes
+/// before the answer.
+#[tokio::test]
+async fn buzz_cannot_find_a_frozen_friend() {
+    let ctx = start().await;
+    let (aoi, ren, kai) = (ctx.app.user("aoi").await, ctx.app.user("ren").await, ctx.app.user("kai").await);
+    ctx.befriend(&aoi, &ren).await;
+    ctx.befriend(&aoi, &kai).await;
+    let home = somewhere();
+    ctx.at(&aoi, home).await;
+    ctx.at(&ren, offset(home, 90.0, 3000.0)).await;
+    ctx.ghost(&aoi, &[&ren], GhostMode::GHOST_MODE_FROZEN, 0).await.unwrap();
+    let hideout = offset(home, 0.0, 5000.0);
+    ctx.at(&aoi, hideout).await;
+    let buzz = |target: &TestUser| serde_json::json!({ "userId": target.id });
+
+    // Ren reports himself at wrong guesses, at her frozen pin, and 150 m from
+    // where she really is: the same answer everywhere.
+    for spot in [offset(home, 90.0, 5000.0), offset(home, 0.0, 20.0), offset(hideout, 90.0, 150.0)] {
+        ctx.at(&ren, spot).await;
+        let answer = json_call(&ctx, &ren, "social.v1.InteractionService/Buzz", buzz(&aoi)).await;
+        assert_eq!(answer["error"], "NOT_NEARBY", "at {spot:?}");
+    }
+    // Neither can she buzz him: "near" would be something both learn.
+    assert_eq!(json_call(&ctx, &aoi, "social.v1.InteractionService/Buzz", buzz(&ren)).await["error"], "NOT_NEARBY");
+    // Kai sees her and stands next to her: that works as ever.
+    ctx.at(&kai, offset(hideout, 180.0, 100.0)).await;
+    assert!(json_call(&ctx, &kai, "social.v1.InteractionService/Buzz", buzz(&aoi)).await["error"].is_null());
+    // The same under a timed rule and a rule for everyone; and once the rule is gone it works again.
+    ctx.ghost(&aoi, &[&ren], GhostMode::GHOST_MODE_PRECISE, 0).await.unwrap();
+    ctx.at(&ren, offset(hideout, 90.0, 150.0)).await;
+    assert!(json_call(&ctx, &ren, "social.v1.InteractionService/Buzz", buzz(&aoi)).await["error"].is_null());
+    ctx.ghost(&aoi, &[], GhostMode::GHOST_MODE_BLURRED, 600).await.unwrap();
+    assert_eq!(json_call(&ctx, &ren, "social.v1.InteractionService/Buzz", buzz(&aoi)).await["error"], "NOT_NEARBY");
+    // Asking is limited before it is answered: after ten tries in a minute
+    // there is no answer about distance at all.
+    let mut answers = Vec::new();
+    for _ in 0..12 {
+        answers.push(json_call(&ctx, &ren, "social.v1.InteractionService/Buzz", buzz(&aoi)).await["error"].clone());
+    }
+    assert_eq!(answers.last().unwrap(), "RATE_LIMITED", "{answers:?}");
+}
+
+/// Re-check 2: two friends the viewer sees, 80 m apart, are not a gathering
+/// for that viewer just because someone they do not see stands in between.
+#[tokio::test]
+async fn a_hidden_member_does_not_bridge_a_gathering() {
+    let ctx = start().await;
+    let (aoi, ren, kai, mio) =
+        (ctx.app.user("aoi").await, ctx.app.user("ren").await, ctx.app.user("kai").await, ctx.app.user("mio").await);
+    for (a, b) in [(&aoi, &ren), (&aoi, &kai), (&aoi, &mio), (&ren, &kai), (&ren, &mio), (&kai, &mio)] {
+        ctx.befriend(a, b).await;
+    }
+    let spot = somewhere();
+    let (west, east) = (offset(spot, 270.0, 40.0), offset(spot, 90.0, 40.0));
+    let t = Utc::now();
+    // Aoi is frozen for Ren somewhere else, then stands between Kai and Mio.
+    seen_at(&ctx, &aoi, offset(spot, 0.0, 6000.0), t, &[400]).await;
+    ctx.ghost(&aoi, &[&ren], GhostMode::GHOST_MODE_FROZEN, 0).await.unwrap();
+    let mut rens = ctx.app.listen_user(ren.id).await;
+    for (user, at, seconds) in
+        [(&aoi, spot, vec![300, 270, 240]), (&kai, west, vec![300, 270, 240]), (&mio, east, vec![300, 270, 240])]
+    {
+        seen_at(&ctx, user, at, t, &seconds).await;
+    }
+    for (user, at, seconds) in
+        [(&aoi, spot, 200), (&kai, west, 110), (&mio, east, 110), (&aoi, spot, 60), (&kai, west, 40), (&mio, east, 40)]
+    {
+        seen_at(&ctx, user, at, t, &[seconds]).await;
+    }
+    // The three are a gathering — for those who see all three.
+    assert_eq!(gatherings(&ctx, &kai).await.pop().expect("the gathering").members.len(), 3);
+    // Ren sees Kai and Mio, who are not within reach of each other: nothing, by list or by push.
+    assert!(gatherings(&ctx, &ren).await.is_empty());
+    assert_eq!(gathering_pushes(&pushes(&mut rens, QUIET).await), 0);
+    assert!(ctx.notifications_for(ren.id, "geo.gathering").await.is_empty());
+    // Mio steps over to Kai: now the two of them are together by themselves, centred between them.
+    let beside = offset(west, 90.0, 10.0);
+    seen_at(&ctx, &mio, beside, t, &[20, -5]).await;
+    let seen = gatherings(&ctx, &ren).await.pop().expect("Kai and Mio together");
+    assert_eq!(seen.members.len(), 2);
+    let middle = ((west.0 + beside.0) / 2.0, (west.1 + beside.1) / 2.0);
+    assert!(distance(point(seen.center.as_option()), middle) < 0.01);
+}
+
+/// Re-check 3: a timed override that ends under a default set later keeps
+/// its own copy of the pin and its own watermark, from the first moment —
+/// not only once the sweeper has been by.
+#[tokio::test]
+async fn an_override_that_ends_under_a_stricter_default_shows_nothing_newer() {
+    let ctx = start().await;
+    let (aoi, ren) = (ctx.app.user("aoi").await, ctx.app.user("ren").await);
+    ctx.befriend(&aoi, &ren).await;
+    let home = somewhere();
+    ride(&ctx, &aoi, home, 300.0, minutes_ago(20)).await;
+    ctx.at(&aoi, home).await;
+    ctx.ghost(&aoi, &[&ren], GhostMode::GHOST_MODE_FROZEN, 2).await.unwrap();
+    let before = ctx.seen_by(&ren, &aoi).await.unwrap();
+    let cells_before = cells_of(&ctx, &ren, &aoi, home).await.unwrap();
+    let cafe = offset(home, 45.0, 4000.0);
+    ride(&ctx, &aoi, cafe, 300.0, Utc::now() + Duration::seconds(5)).await;
+    ctx.ghost(&aoi, &[], GhostMode::GHOST_MODE_FROZEN, 0).await.unwrap();
+    assert_eq!(ctx.seen_by(&ren, &aoi).await.unwrap(), before);
+
+    // The override's time is up; the sweeper has not run.
+    tokio::time::sleep(std::time::Duration::from_millis(2300)).await;
+    assert_eq!(
+        ctx.seen_by(&ren, &aoi).await.unwrap(),
+        before,
+        "the pin Ren was left with, not the default's newer copy"
+    );
+    assert_eq!(cells_of(&ctx, &ren, &aoi, home).await.unwrap(), cells_before);
+    // (Nor footprints from in between: the box around the café holds what the box around home held.)
+    assert_eq!(cells_of(&ctx, &ren, &aoi, cafe).await.unwrap(), cells_before);
+    // After the sweeper: the same.
+    ctx.geo.sweep().await;
+    assert_eq!(ctx.seen_by(&ren, &aoi).await.unwrap(), before);
+    assert_eq!(cells_of(&ctx, &ren, &aoi, cafe).await.unwrap(), cells_before);
+    assert!(
+        cells_of(&ctx, &aoi, &aoi, cafe).await.unwrap().len() > cells_before.len(),
+        "she did leave footprints there"
+    );
+}
+
+/// Re-check 4: a blurred viewer is sent the stand-in when what they see
+/// changes, not whenever the person moves, and its time is coarse.
+#[tokio::test]
+async fn pushes_to_a_blurred_viewer_do_not_follow_movement() {
+    let ctx = start().await;
+    let mut counts = Vec::new();
+    for moving in [false, true] {
+        let (aoi, ren) = (ctx.app.user("aoi").await, ctx.app.user("ren").await);
+        ctx.befriend(&aoi, &ren).await;
+        let anywhere = somewhere();
+        let cell = tokuly_geo::math::cell_at(anywhere.0, anywhere.1, tokuly_geo::visibility::BLUR_RESOLUTION).unwrap();
+        let base = tokuly_geo::math::cell_center(cell);
+        // Twelve fixes in a minute that lies inside one ten-minute step of the clock.
+        let step_ms = tokuly_geo::visibility::BLUR_TIME_STEP_MS;
+        let now_ms = Utc::now().timestamp_millis();
+        let t = DateTime::from_timestamp_millis((now_ms - 200_000).div_euclid(step_ms) * step_ms + 60_000).unwrap();
+        ctx.report(&aoi, vec![sample(base, t - Duration::seconds(30))]).await;
+        ctx.ghost(&aoi, &[&ren], GhostMode::GHOST_MODE_BLURRED, 0).await.unwrap();
+        let mut rens = ctx.app.listen_user(ren.id).await;
+        pushes(&mut rens, QUIET).await;
+        let mut seen = Vec::new();
+        for step in 0..12i64 {
+            let here = if moving { offset(base, 90.0, 10.0 * step as f64) } else { base };
+            let fix = LocationSample { battery_percent: Some(50), ..sample(here, t + Duration::seconds(5 * step)) };
+            ctx.report(&aoi, vec![fix]).await;
+            seen.extend(pins(&mut rens, std::time::Duration::from_millis(120)).await);
+        }
+        counts.push(seen.len());
+        // What is listed is coarse in time as well.
+        let listed = ctx.seen_by(&ren, &aoi).await.unwrap();
+        assert_eq!(listed.recorded_at.as_option().unwrap().seconds * 1000 % step_ms, 0);
+        assert_eq!(listed.precision, GhostMode::GHOST_MODE_BLURRED);
+    }
+    assert_eq!(counts[0], counts[1], "as many pushes walking as standing still: {counts:?}");
+    assert!(counts[0] <= 1, "{counts:?}");
+}
+
+/// Re-check 6: when an SOS ends, the people it alerted keep the pin they
+/// last saw; it does not jump back to where it was frozen before.
+#[tokio::test]
+async fn after_an_sos_the_frozen_pin_is_where_it_was_last_seen() {
+    let ctx = start().await;
+    let (aoi, ren) = (ctx.app.user("aoi").await, ctx.app.user("ren").await);
+    ctx.befriend(&aoi, &ren).await;
+    let home = somewhere();
+    ctx.at(&aoi, home).await;
+    ctx.ghost(&aoi, &[&ren], GhostMode::GHOST_MODE_FROZEN, 0).await.unwrap();
+    let away = offset(home, 200.0, 7000.0);
+    ctx.at(&aoi, away).await;
+    let sos =
+        json_call(&ctx, &aoi, "geo.v1.SafetyService/TriggerSos", serde_json::json!({ "notifyUserIds": [ren.id] }))
+            .await;
+    let during = ctx.seen_by(&ren, &aoi).await.unwrap();
+    assert_at!(pin_point(&during), away);
+    let resolved =
+        json_call(&ctx, &aoi, "geo.v1.SafetyService/ResolveSos", serde_json::json!({ "sosId": sos["sos"]["id"] }))
+            .await;
+    assert!(resolved["error"].is_null(), "{resolved}");
+    let after = ctx.seen_by(&ren, &aoi).await.unwrap();
+    assert_at!(pin_point(&after), away);
+    assert_eq!(after.recorded_at, during.recorded_at, "time does not run backwards on Ren's map");
+    // And from here on it is frozen again.
+    ctx.at(&aoi, offset(away, 0.0, 3000.0)).await;
+    assert_eq!(ctx.seen_by(&ren, &aoi).await.unwrap().position, after.position);
 }

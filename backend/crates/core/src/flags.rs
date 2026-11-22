@@ -58,23 +58,18 @@ pub struct Flags {
 
 impl Flags {
     pub fn new(db: PgPool) -> Self {
-        Self {
-            db,
-            cache: moka::future::Cache::builder()
-                .time_to_live(Duration::from_secs(10))
-                .max_capacity(1)
-                .build(),
-        }
+        Self { db, cache: moka::future::Cache::builder().time_to_live(Duration::from_secs(10)).max_capacity(1).build() }
     }
 
     async fn all(&self) -> AppResult<Arc<Vec<Flag>>> {
         if let Some(flags) = self.cache.get(&()).await {
             return Ok(flags);
         }
-        let flags: Vec<Flag> =
-            sqlx::query_as("SELECT name, description, enabled, rollout_percent, allow_user_ids FROM feature_flags ORDER BY name")
-                .fetch_all(&self.db)
-                .await?;
+        let flags: Vec<Flag> = sqlx::query_as(
+            "SELECT name, description, enabled, rollout_percent, allow_user_ids FROM feature_flags ORDER BY name",
+        )
+        .fetch_all(&self.db)
+        .await?;
         let flags = Arc::new(flags);
         self.cache.insert((), flags.clone()).await;
         Ok(flags)
@@ -83,10 +78,7 @@ impl Flags {
     /// Whether `name` is on for the user. Unknown flags are off.
     pub async fn enabled(&self, name: &str, user_id: Option<Uuid>) -> bool {
         match self.all().await {
-            Ok(flags) => flags
-                .iter()
-                .find(|f| f.name == name)
-                .is_some_and(|f| f.is_on(user_id)),
+            Ok(flags) => flags.iter().find(|f| f.name == name).is_some_and(|f| f.is_on(user_id)),
             Err(e) => {
                 tracing::warn!(error = %e, "feature flag lookup failed");
                 false
@@ -97,10 +89,7 @@ impl Flags {
     /// Every flag evaluated for one user (sent to clients with their account).
     pub async fn for_user(&self, user_id: Uuid) -> HashMap<String, bool> {
         match self.all().await {
-            Ok(flags) => flags
-                .iter()
-                .map(|f| (f.name.clone(), f.is_on(Some(user_id))))
-                .collect(),
+            Ok(flags) => flags.iter().map(|f| (f.name.clone(), f.is_on(Some(user_id)))).collect(),
             Err(_) => HashMap::new(),
         }
     }
@@ -116,13 +105,7 @@ mod tests {
     use super::*;
 
     fn flag(enabled: bool, percent: i32, allow: Vec<Uuid>) -> Flag {
-        Flag {
-            name: "x".into(),
-            description: String::new(),
-            enabled,
-            rollout_percent: percent,
-            allow_user_ids: allow,
-        }
+        Flag { name: "x".into(), description: String::new(), enabled, rollout_percent: percent, allow_user_ids: allow }
     }
 
     #[test]

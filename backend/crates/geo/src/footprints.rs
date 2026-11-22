@@ -479,12 +479,20 @@ impl Geo {
     async fn footprint_sight(&self, viewer: Option<Uuid>, owner: Uuid, ctx: &OwnerCtx) -> AppResult<FootprintSight> {
         let allowed = graph::allows(&self.core, owner, viewer, audience_of(ctx.privacy.footprints_audience)).await?;
         let now = Utc::now();
-        // Anyone but a friend with a precise rule (or alerted by an SOS) is
-        // under the default rule, strangers and signed-out visitors included.
+        let friend = match viewer {
+            Some(viewer) => graph::are_friends(&self.core, owner, viewer).await?,
+            None => false,
+        };
+        // A friend is under the rule that applies to them. Anyone else
+        // (strangers, signed-out visitors: whoever "everyone" lets in) gets
+        // footprints as of the last moment every friend saw the owner
+        // precisely: while the owner hides from anyone, the public view must
+        // not be a way around it for a friend who signs out or uses a second
+        // account.
         let as_of = match viewer {
-            Some(viewer) if ctx.sos_for(viewer) => None,
-            Some(viewer) => ctx.ghost.applied(viewer, now.timestamp_millis()),
-            None => ctx.ghost.default_rule(now.timestamp_millis()).map(|rule| (rule, Uuid::nil())),
+            Some(viewer) if friend && ctx.sos_for(viewer) => None,
+            Some(viewer) if friend => ctx.ghost.applied(viewer, now.timestamp_millis()),
+            _ => ctx.ghost.longest_hidden(now.timestamp_millis()),
         }
         .filter(|(rule, _)| rule.mode != GhostMode::GHOST_MODE_PRECISE as i32)
         .map(|(rule, row)| (DateTime::from_timestamp_millis(rule.hidden_since_ms).unwrap_or(now), row));
@@ -511,15 +519,19 @@ impl Geo {
         Ok(sight)
     }
 
-    /// The friends of `viewer` whom they do not see precisely, with the
-    /// footprint totals each of them left the viewer with.
+    /// The friends of `viewer` who hide from someone right now, with the
+    /// footprint totals `viewer` gets for each: live if `viewer` sees them
+    /// precisely, else the totals they left `viewer` with. (They are ranked
+    /// from here; the ranking queries leave out everyone who hides from
+    /// anyone, because one number cannot be right for all who ask.)
     async fn held_back(&self, viewer: Uuid, friends: &[Uuid]) -> AppResult<HashMap<Uuid, FootprintSnapshot>> {
         let contexts = self.ctx_many(friends).await?;
+        let now_ms = Utc::now().timestamp_millis();
         let mut out = HashMap::new();
         for friend in friends {
             let Some(ctx) = contexts.get(friend) else { continue };
-            let sight = self.footprint_sight(Some(viewer), *friend, ctx).await?;
-            if sight.as_of.is_some() {
+            if ctx.ghost.longest_hidden(now_ms).is_some() {
+                let sight = self.footprint_sight(Some(viewer), *friend, ctx).await?;
                 out.insert(*friend, self.footprint_totals(&sight).await?);
             }
         }
@@ -605,11 +617,10 @@ enum Rivals {
 /// ranked by the totals in `geo_users`). Callers append ordering or more
 /// conditions.
 ///
-/// `held_back` are people the caller does not see precisely: they are left
-/// out here and ranked by the totals they left the caller with instead. In
-/// the global ranking the same goes for everyone whose default ghost mode is
-/// not precise: strangers are under that rule, and live totals would follow
-/// the person around.
+/// `held_back` are friends of the caller who hide from someone: they are
+/// left out here and ranked by what the caller gets for each of them. The
+/// global ranking leaves out everyone who hides from anyone: live totals
+/// would follow the person around, for whoever looks without being a friend.
 fn ranking_query(
     select: &str,
     region_id: Option<&str>,
@@ -637,8 +648,7 @@ fn ranking_query(
             query.push(" OR (g.footprints_audience = ").push_bind(EVERYONE as i16);
             query.push(" AND NOT (s.user_id = ANY(").push_bind(hidden).push("))");
             query.push(
-                " AND NOT EXISTS (SELECT 1 FROM geo_ghost_rules r WHERE r.owner_id = s.user_id
-                                  AND r.viewer_id = '00000000-0000-0000-0000-000000000000'::uuid AND r.mode <> 1
+                " AND NOT EXISTS (SELECT 1 FROM geo_ghost_rules r WHERE r.owner_id = s.user_id AND r.mode <> 1
                                   AND (r.until IS NULL OR r.until > now()))))",
             );
         }

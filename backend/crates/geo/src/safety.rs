@@ -373,8 +373,9 @@ impl Geo {
             outbound::notify(&mut *tx, &notification).await?;
         }
         tx.commit().await?;
+        // The people alerted go back under the sender's ghost rules, from what they last saw.
+        self.settle_after_sos(row.user_id, &row.notify_user_ids).await?;
         self.broadcast_sos(&row).await?;
-        // The people alerted are back under the sender's ghost rules.
         self.sight_changed(row.user_id).await
     }
 

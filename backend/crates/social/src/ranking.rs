@@ -167,7 +167,13 @@ pub(crate) fn window_titles(window: &PairWindow, mutual_top_together: bool) -> V
 
 /// The full title list shown to a friend: the stored window titles plus the
 /// ones that follow from facts known at read time.
-pub(crate) fn all_titles(stored: &[String], mutual_closest: bool, streak_weeks: i32, friends_since: DateTime<Utc>, now: DateTime<Utc>) -> Vec<String> {
+pub(crate) fn all_titles(
+    stored: &[String],
+    mutual_closest: bool,
+    streak_weeks: i32,
+    friends_since: DateTime<Utc>,
+    now: DateTime<Utc>,
+) -> Vec<String> {
     let mut titles = Vec::with_capacity(stored.len() + 3);
     if mutual_closest {
         titles.push(TITLE_BFF.to_owned());
@@ -217,7 +223,11 @@ pub(crate) struct NightProgress {
 pub(crate) fn night_progress(previous: (i32, Option<NaiveDate>), night: NaiveDate, added: i32) -> NightProgress {
     let before = if previous.1 == Some(night) { previous.0 } else { 0 };
     let minutes = before.saturating_add(added.max(0));
-    NightProgress { minutes, date: night, completed: before < NIGHT_MINUTES_REQUIRED && minutes >= NIGHT_MINUTES_REQUIRED }
+    NightProgress {
+        minutes,
+        date: night,
+        completed: before < NIGHT_MINUTES_REQUIRED && minutes >= NIGHT_MINUTES_REQUIRED,
+    }
 }
 
 /// Whole days from `day` to `today` (negative if `day` is in the future).
@@ -282,8 +292,14 @@ mod tests {
             day(3, Bucket::Night, 3, 0),
             day(4, Bucket::TimeTogether, 100, 100),
         ]);
-        assert_eq!((window.messages_and_stamps, window.bumps, window.nights, window.minutes_together), (205, 5, 3, 200));
-        assert_eq!(window_titles(&window, true), vec![TITLE_MUTUAL_LOVE, TITLE_PARTY_PEOPLE, TITLE_BUMP_BUDDIES, TITLE_CHATTERBOX]);
+        assert_eq!(
+            (window.messages_and_stamps, window.bumps, window.nights, window.minutes_together),
+            (205, 5, 3, 200)
+        );
+        assert_eq!(
+            window_titles(&window, true),
+            vec![TITLE_MUTUAL_LOVE, TITLE_PARTY_PEOPLE, TITLE_BUMP_BUDDIES, TITLE_CHATTERBOX]
+        );
         assert_eq!(window_titles(&window, false), vec![TITLE_PARTY_PEOPLE, TITLE_BUMP_BUDDIES, TITLE_CHATTERBOX]);
         let quiet = summarize(&[day(0, Bucket::TimeTogether, 30, 0)]);
         assert!(window_titles(&quiet, true).is_empty(), "half an hour together is not mutual love");
@@ -310,7 +326,11 @@ mod tests {
     fn streaks_survive_the_running_week_and_break_after_a_missed_one() {
         let today = date(2026, 11, 20);
         assert_eq!(effective_streak(5, Some(date(2026, 11, 16)), today), 5, "counted this week");
-        assert_eq!(effective_streak(5, Some(date(2026, 11, 9)), today), 5, "last week counted; this week is still open");
+        assert_eq!(
+            effective_streak(5, Some(date(2026, 11, 9)), today),
+            5,
+            "last week counted; this week is still open"
+        );
         assert_eq!(effective_streak(5, Some(date(2026, 11, 2)), today), 0, "a whole week was missed");
         assert_eq!(effective_streak(5, None, today), 0);
     }
@@ -338,7 +358,16 @@ mod tests {
 
     #[test]
     fn bucket_codes_roundtrip() {
-        for bucket in [Bucket::Message, Bucket::Stamp, Bucket::Bump, Bucket::MapView, Bucket::MapReaction, Bucket::Call, Bucket::TimeTogether, Bucket::Night] {
+        for bucket in [
+            Bucket::Message,
+            Bucket::Stamp,
+            Bucket::Bump,
+            Bucket::MapView,
+            Bucket::MapReaction,
+            Bucket::Call,
+            Bucket::TimeTogether,
+            Bucket::Night,
+        ] {
             assert_eq!(Bucket::from_code(bucket.code()), Some(bucket));
         }
         assert_eq!(Bucket::from_code(0), None);

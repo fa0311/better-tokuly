@@ -170,16 +170,22 @@ impl BumpRow {
 /// react to `social.bump.created`.
 pub async fn set_bump_place(core: &Core, bump_id: Uuid, place_name: &str) -> AppResult<()> {
     let place_name: String = place_name.trim().chars().take(MAX_PLACE_NAME_CHARS).collect();
-    sqlx::query("UPDATE bumps SET place_name = $2 WHERE id = $1").bind(bump_id).bind(place_name).execute(&core.db).await?;
+    sqlx::query("UPDATE bumps SET place_name = $2 WHERE id = $1")
+        .bind(bump_id)
+        .bind(place_name)
+        .execute(&core.db)
+        .await?;
     Ok(())
 }
 
 /// How many bumps a user has taken part in.
 pub(crate) async fn bump_count(core: &Core, user_id: Uuid) -> AppResult<i64> {
-    Ok(sqlx::query_scalar("SELECT COALESCE(sum(bump_count), 0)::bigint FROM friend_pairs WHERE user_lo = $1 OR user_hi = $1")
-        .bind(user_id)
-        .fetch_one(&core.db)
-        .await?)
+    Ok(sqlx::query_scalar(
+        "SELECT COALESCE(sum(bump_count), 0)::bigint FROM friend_pairs WHERE user_lo = $1 OR user_hi = $1",
+    )
+    .bind(user_id)
+    .fetch_one(&core.db)
+    .await?)
 }
 
 impl Social {
@@ -194,7 +200,15 @@ impl Social {
 
     /// Registers a shake by `user_id` and returns the bumps it completes
     /// (empty when nobody else shook nearby just now).
-    pub(crate) async fn bump(&self, user_id: Uuid, lat: f64, lng: f64, accuracy_meters: f64, shaken_at: Option<DateTime<Utc>>, intensity: f64) -> AppResult<Vec<Bump>> {
+    pub(crate) async fn bump(
+        &self,
+        user_id: Uuid,
+        lat: f64,
+        lng: f64,
+        accuracy_meters: f64,
+        shaken_at: Option<DateTime<Utc>>,
+        intensity: f64,
+    ) -> AppResult<Vec<Bump>> {
         let core = &self.core;
         ensure!(geoindex::valid_coordinates(lat, lng), invalid, "INVALID_LOCATION", "a valid location is required");
         core.cache.rate_limit(&format!("bump:{user_id}"), 30, Duration::from_secs(60)).await?;
@@ -303,7 +317,14 @@ impl Social {
 
     /// Records the bump between `caller` and `other` and tells everyone
     /// concerned: both participants, and for two friends their mutual friends.
-    async fn create_bump(&self, bump_id: Uuid, caller: Uuid, mine: Attempt, other: Uuid, theirs: Attempt) -> AppResult<Bump> {
+    async fn create_bump(
+        &self,
+        bump_id: Uuid,
+        caller: Uuid,
+        mine: Attempt,
+        other: Uuid,
+        theirs: Attempt,
+    ) -> AppResult<Bump> {
         let core = &self.core;
         // Who shook first. On a tie (same millisecond) it is the one whose
         // attempt was already waiting when the caller's request arrived.
@@ -325,7 +346,10 @@ impl Social {
         if friends && let Err(e) = graph::record_interaction(core, first, second, InteractionKind::Bump, 1).await {
             tracing::warn!(error = %e, "bump not counted towards the best-friend ranking");
         }
-        let bump = self.find_bump(bump_id).await?.ok_or_else(|| AppError::internal(anyhow::anyhow!("bump {bump_id} vanished after commit")))?;
+        let bump = self
+            .find_bump(bump_id)
+            .await?
+            .ok_or_else(|| AppError::internal(anyhow::anyhow!("bump {bump_id} vanished after commit")))?;
         self.push_many([first, second], Push::Bump(Box::new(bump.clone()))).await;
         self.push_many(audience, Push::FriendsBumped(Box::new(bump.clone()))).await;
         Ok(bump)
@@ -342,10 +366,13 @@ impl Social {
         // Both shook on purpose, so the "who may send me requests" audience
         // is moot. Other obstacles (a full friend list...) just mean no
         // request; the bump itself still counts.
-        match self.request_friendship(first, second, FriendSource::FRIEND_SOURCE_BUMP, "", RequestVia::Encounter).await {
+        match self.request_friendship(first, second, FriendSource::FRIEND_SOURCE_BUMP, "", RequestVia::Encounter).await
+        {
             Ok(RequestOutcome::Friends) => Ok((true, false)),
             Ok(RequestOutcome::Pending { created, .. }) => Ok((false, created)),
-            Err(e) if e.code == connectrpc::ErrorCode::Internal || e.code == connectrpc::ErrorCode::Unavailable => Err(e),
+            Err(e) if e.code == connectrpc::ErrorCode::Internal || e.code == connectrpc::ErrorCode::Unavailable => {
+                Err(e)
+            }
             Err(e) => {
                 tracing::debug!(reason = %e.reason, "bump between strangers did not produce a friend request");
                 Ok((false, false))
@@ -380,30 +407,49 @@ impl Social {
         .bind(pair.hi)
         .execute(&mut *tx)
         .await?;
-        let created = BumpCreated { bump_id: bump.id, user_ids: [bump.first, bump.second], friends: bump.friends, lat: bump.lat, lng: bump.lng };
+        let created = BumpCreated {
+            bump_id: bump.id,
+            user_ids: [bump.first, bump.second],
+            friends: bump.friends,
+            lat: bump.lat,
+            lng: bump.lng,
+        };
         events::emit(&mut *tx, BUMP_CREATED, Some(bump.first), &created).await?;
 
         if bump.friends {
-            for (user_id, partner_id, partner) in [(bump.first, bump.second, &second_user), (bump.second, bump.first, &first_user)] {
+            for (user_id, partner_id, partner) in
+                [(bump.first, bump.second, &second_user), (bump.second, bump.first, &first_user)]
+            {
                 let partner_name = people::name_of(partner);
                 outbound::activity(
                     &mut *tx,
-                    &ActivityEntry::new(user_id, "social.bumped", ActivityAudience::Friends, copy::bumped_activity(&partner_name))
-                        .subject(SubjectType::SUBJECT_TYPE_USER, partner_id)
-                        .with([partner_id])
-                        .path(format!("/u/{}", partner.handle))
-                        .at(bump.lat, bump.lng)
-                        .data(serde_json::json!({ "bump_id": bump.id })),
+                    &ActivityEntry::new(
+                        user_id,
+                        "social.bumped",
+                        ActivityAudience::Friends,
+                        copy::bumped_activity(&partner_name),
+                    )
+                    .subject(SubjectType::SUBJECT_TYPE_USER, partner_id)
+                    .with([partner_id])
+                    .path(format!("/u/{}", partner.handle))
+                    .at(bump.lat, bump.lng)
+                    .data(serde_json::json!({ "bump_id": bump.id })),
                 )
                 .await?;
                 // Both are looking at their phones; the inbox keeps the memory.
                 let text = copy::bumped(&partner_name);
                 outbound::notify(
                     &mut *tx,
-                    &NotificationRequest::new(user_id, "social.bump", text.title, text.body, format!("/u/{}", partner.handle))
-                        .actor(partner_id)
-                        .subject(SubjectType::SUBJECT_TYPE_USER, partner_id)
-                        .inbox_only(),
+                    &NotificationRequest::new(
+                        user_id,
+                        "social.bump",
+                        text.title,
+                        text.body,
+                        format!("/u/{}", partner.handle),
+                    )
+                    .actor(partner_id)
+                    .subject(SubjectType::SUBJECT_TYPE_USER, partner_id)
+                    .inbox_only(),
                 )
                 .await?;
             }
@@ -411,10 +457,16 @@ impl Social {
             for friend in audience {
                 outbound::notify(
                     &mut *tx,
-                    &NotificationRequest::new(*friend, "social.friends_bumped", text.title.clone(), text.body.clone(), "/map")
-                        .actor(bump.first)
-                        .collapse(format!("social.friends_bumped:{}:{}", pair.lo, pair.hi))
-                        .data(serde_json::json!({ "bump_id": bump.id, "user_ids": [bump.first, bump.second] })),
+                    &NotificationRequest::new(
+                        *friend,
+                        "social.friends_bumped",
+                        text.title.clone(),
+                        text.body.clone(),
+                        "/map",
+                    )
+                    .actor(bump.first)
+                    .collapse(format!("social.friends_bumped:{}:{}", pair.lo, pair.hi))
+                    .data(serde_json::json!({ "bump_id": bump.id, "user_ids": [bump.first, bump.second] })),
                 )
                 .await?;
             }
@@ -435,7 +487,12 @@ impl Social {
 
     /// One page of `user_id`'s bumps, newest first, optionally only those
     /// with one other user. Bumps with people now hidden by a block are left out.
-    pub(crate) async fn list_bumps(&self, user_id: Uuid, with: Option<Uuid>, page: &Page) -> AppResult<(Vec<Bump>, PageInfo)> {
+    pub(crate) async fn list_bumps(
+        &self,
+        user_id: Uuid,
+        with: Option<Uuid>,
+        page: &Page,
+    ) -> AppResult<(Vec<Bump>, PageInfo)> {
         let core = &self.core;
         let before: Option<Uuid> = page.decode()?;
         let hidden = graph::blocked_ids_either(core, user_id).await?;
