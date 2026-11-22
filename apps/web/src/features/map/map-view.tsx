@@ -131,6 +131,8 @@ export function MapView({
       // Rotation with two fingers / right-drag stays on; the keyboard handler too.
       dragRotate: interactive,
     });
+    // The map itself, for browser tests and the console: what is really drawn can be asked of it.
+    (container.current as HTMLDivElement & { tokulyMap?: MapLibreMap }).tokulyMap = instance;
     instance.once("load", () => setMap(instance));
     return () => {
       setMap(null);

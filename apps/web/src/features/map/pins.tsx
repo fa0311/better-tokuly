@@ -175,6 +175,8 @@ export function FriendMarker({
       zIndex={focused ? 30 : sos ? 25 : location.online ? 12 : 10}
       offset={offset}
       glide={moving ? "steady" : "settle"}
+      // A stand-in for an area has no exact spot to point at: no tail, centred on the area.
+      anchor={blurred ? "center" : "bottom"}
     >
       <button
         type="button"
@@ -253,7 +255,11 @@ export function FriendMarker({
             />
           )}
         </span>
-        <span className="h-2.5 w-[3px] bg-ink" aria-hidden />
+        {blurred ? (
+          <span className="h-1.5" aria-hidden />
+        ) : (
+          <span className="h-2.5 w-[3px] bg-ink" data-testid="pin-stem" aria-hidden />
+        )}
         <span
           data-testid="pin-caption"
           className={cn(

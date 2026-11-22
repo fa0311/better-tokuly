@@ -161,6 +161,13 @@ export default {
     offShort: "オフ",
   },
   sharing: {
+    turnedOnThisVisit:
+      "共有をはじめたよ！このブラウザには設定を保存できないから、次に開いたときにもう一度きくね",
+    reload: "読み込みなおす",
+    sessionEnded: {
+      title: "ログアウトしたよ",
+      body: "ほかのタブでログアウトしたから、ここからの共有も止まってるよ。",
+    },
     turnedOn: "いまの場所の共有をはじめたよ！ともだちのマップに出るよ",
     stoppedToast: "共有を止めたよ。ともだちにも伝えたよ",
     tellAgain: "もう一度伝える",

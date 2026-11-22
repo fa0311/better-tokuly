@@ -472,6 +472,10 @@ function useResolveSos() {
   return useMutation({
     mutationFn: (sosId: string) => safetyClient().resolveSos({ sosId }),
     onSuccess: () => {
+      // The server said it is over: the banner comes down now, not after a second request.
+      queryClient.setQueryData<geo.GetActiveSosResponse>(mapKeys.sos, (current) =>
+        create(geo.GetActiveSosResponseSchema, { friends: current?.friends ?? [] }),
+      );
       void queryClient.invalidateQueries({ queryKey: mapKeys.sos });
       toast.success(t("sos.resolved"));
     },

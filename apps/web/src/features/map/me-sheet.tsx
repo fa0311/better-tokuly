@@ -53,7 +53,7 @@ export function SharingStatus() {
           {t("sharing.stop")}
         </Button>
       )}
-      {state === "stopped" && stopFailed && (
+      {stopFailed && state !== "sharing" && state !== "starting" && state !== "sessionEnded" && (
         <div className="mt-2 rounded-xl bg-danger/15 p-2.5" role="alert" data-testid="stop-failed">
           <p className="text-xs leading-relaxed font-bold text-danger">
             {t("sharing.stopFailed.title")} {t("sharing.stopFailed.body")}

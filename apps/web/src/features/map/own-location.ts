@@ -15,6 +15,11 @@ import { MOVING_SPEED_MPS } from "./model";
 const MOVED_METERS = 15;
 /** Other tabs hear about a stop through a storage event; give them this long before the server is told. */
 const OTHER_TABS_MS = 300;
+/** The app's "someone is signed in here" marker (`stores/session.ts`): it goes when any tab signs out. */
+const SIGNED_IN_KEY = "tokuly.signedIn";
+/** Written by the tab that is signing out, a moment before the session goes: other tabs stop sending at once. */
+const SESSION_ENDING_KEY = "tokuly.map.sessionEnding";
+const SESSION_ENDING_MS = 15_000;
 
 /**
  * What an account decided about sharing its position from this browser.
@@ -25,22 +30,48 @@ const OTHER_TABS_MS = 300;
 export type SharingChoice = "on" | "off" | null;
 
 const choiceKey = (userId: string) => `tokuly.map.sharing.${userId}`;
+const stopOwedKey = (userId: string) => `tokuly.map.stopOwed.${userId}`;
 
-function readChoice(userId: string | null): SharingChoice {
-  if (!userId) return null;
+/** What could not be written to storage (private windows, full or blocked storage): kept for this page. */
+const memory = new Map<string, string>();
+
+function readStored(key: string): string | null {
   try {
-    const value = window.localStorage.getItem(choiceKey(userId));
-    return value === "on" || value === "off" ? value : null;
+    return window.localStorage.getItem(key) ?? memory.get(key) ?? null;
   } catch {
-    return null;
+    return memory.get(key) ?? null;
   }
 }
 
-function writeChoice(userId: string, choice: "on" | "off"): void {
+/** Returns whether the value will still be there on the next visit. */
+function writeStored(key: string, value: string | null): boolean {
   try {
-    window.localStorage.setItem(choiceKey(userId), choice);
+    if (value === null) window.localStorage.removeItem(key);
+    else window.localStorage.setItem(key, value);
+    memory.delete(key);
+    return true;
   } catch {
-    // Private windows without storage: the choice lasts for this page.
+    if (value === null) memory.delete(key);
+    else memory.set(key, value);
+    return false;
+  }
+}
+
+function readChoice(userId: string | null): SharingChoice {
+  if (!userId) return null;
+  const value = readStored(choiceKey(userId));
+  return value === "on" || value === "off" ? value : null;
+}
+
+/** Whether a session exists in this browser: false from the moment any tab starts signing out. */
+function sessionAlive(): boolean {
+  try {
+    if (window.localStorage.getItem(SIGNED_IN_KEY) !== "1") return false;
+    const ending = Number(window.localStorage.getItem(SESSION_ENDING_KEY) ?? 0);
+    return !(ending > 0 && Date.now() - ending < SESSION_ENDING_MS);
+  } catch {
+    // Without storage there are no other tabs to hear from.
+    return true;
   }
 }
 
@@ -54,8 +85,13 @@ interface SharingStore {
   asked: boolean;
   /** Goes up with every "turn on" / "try again", so a stuck attempt starts over. */
   attempt: number;
-  /** Sharing stopped here, but the server could not be told: friends may still see a live pin. */
+  /**
+   * Sharing stopped here, but the server has not been told yet: friends may
+   * still see a live pin. Remembered per account and retried until it works.
+   */
   stopFailed: boolean;
+  /** The account signed out in another tab: this tab sends nothing more. */
+  sessionEnded: boolean;
   setUser(userId: string | null): void;
   setPermission(permission: SharingStore["permission"]): void;
   /** The account says yes (or tries again): sharing starts, and the browser may ask. */
@@ -68,17 +104,41 @@ interface SharingStore {
 
 const t = (key: string) => i18n.t(key, { ns: "map" });
 
-async function tellServerStopped(): Promise<boolean> {
+function setStopOwed(userId: string | null, owed: boolean): void {
+  if (userId) writeStored(stopOwedKey(userId), owed ? "1" : null);
+  if (useSharing.getState().userId === userId) useSharing.setState({ stopFailed: owed });
+}
+
+/**
+ * Tells the server that this account stopped sharing from here. A failure is
+ * never dropped: it is remembered for the account, shown for as long as it
+ * stands, and tried again (back online, next visit, the retry button).
+ */
+async function tellServerStopped(quiet = false): Promise<boolean> {
+  const userId = useSharing.getState().userId;
   try {
     await locationClient().stopSharing({});
-    useSharing.setState({ stopFailed: false });
+    setStopOwed(userId, false);
     return true;
   } catch (error) {
-    // Never let someone believe they stopped when friends may still see them live.
-    useSharing.setState({ stopFailed: true });
-    toast.error(`${t("sharing.stopFailed.title")} ${errorMessage(error, { namespace: "map" })}`);
+    setStopOwed(userId, true);
+    if (!quiet)
+      toast.error(`${t("sharing.stopFailed.title")} ${errorMessage(error, { namespace: "map" })}`);
     return false;
   }
+}
+
+/** Tries a stop the server still has not heard of — unless the account is sharing again by now. */
+function retryOwedStop(): void {
+  const { userId, stopFailed, choice, permission, sessionEnded } = useSharing.getState();
+  // Until the browser has said what the permission is, it is not known whether this device shares.
+  if (!userId || !stopFailed || sessionEnded || permission === "unknown") return;
+  if (choice === "on" && permission === "granted") {
+    // Sharing again: the server hears from this device, and a stop now would hide a live pin.
+    setStopOwed(userId, false);
+    return;
+  }
+  void tellServerStopped(true);
 }
 
 export const useSharing = createStore<SharingStore>((set, get) => ({
@@ -88,27 +148,40 @@ export const useSharing = createStore<SharingStore>((set, get) => ({
   asked: false,
   attempt: 0,
   stopFailed: false,
+  sessionEnded: false,
   setUser: (userId) => {
     if (userId === get().userId) return;
-    set({ userId, choice: readChoice(userId), asked: false, stopFailed: false });
+    set({
+      userId,
+      choice: readChoice(userId),
+      asked: false,
+      stopFailed: userId !== null && readStored(stopOwedKey(userId)) === "1",
+      sessionEnded: false,
+    });
   },
   setPermission: (permission) => set({ permission }),
   start: () => {
     const { userId, choice } = get();
     if (!userId) return;
-    writeChoice(userId, "on");
+    const kept = writeStored(choiceKey(userId), "on");
+    writeStored(stopOwedKey(userId), null);
     useLocations.getState().setOwn(null);
     set((state) => ({ choice: "on", asked: true, attempt: state.attempt + 1, stopFailed: false }));
-    if (choice !== "on") toast.success(t("sharing.turnedOn"));
+    if (choice === "on") return;
+    // Honest about what this browser can remember: without storage the question comes back.
+    if (kept) toast.success(t("sharing.turnedOn"));
+    else toast.success(t("sharing.turnedOnThisVisit"), { duration: 8000 });
   },
   stop: async () => {
     const { userId } = get();
     if (!userId) return;
-    writeChoice(userId, "off");
+    writeStored(choiceKey(userId), "off");
     set({ choice: "off" });
     useLocations.getState().setOwn(null);
     // A sample another tab sends after the server heard "stopped" would start sharing again.
     await new Promise((resolve) => setTimeout(resolve, OTHER_TABS_MS));
+    // Resumed (here or in another tab) while waiting: a stop sent now would land on top of the new samples.
+    if (get().userId !== userId || readChoice(userId) !== "off") return;
     if (await tellServerStopped()) toast.success(t("sharing.stoppedToast"));
   },
   confirmStop: async () => {
@@ -124,13 +197,15 @@ export type SharingState =
   | "needsPermission"
   | "blocked"
   | "stopped"
+  | "sessionEnded"
   | "unsupported"
   | "unavailable";
 
 export function useSharingState(): SharingState {
-  const { permission, asked, choice } = useSharing();
+  const { permission, asked, choice, sessionEnded } = useSharing();
   const own = useLocations((state) => state.own);
   const error = useLocations((state) => state.ownError);
+  if (sessionEnded) return "sessionEnded";
   if (permission === "unsupported") return "unsupported";
   if (choice === null) return "needsConsent";
   if (choice === "off") return "stopped";
@@ -225,6 +300,7 @@ function usePermissionWatch(): void {
       setPermission(status.state);
       if (before.permission === "granted" && status.state !== "granted" && before.choice === "on") {
         useLocations.getState().setOwn(null, status.state === "denied" ? "denied" : null);
+        // If this fails it stays on screen (the banner) and is retried: see `tellServerStopped`.
         void tellServerStopped();
       }
     };
@@ -254,21 +330,50 @@ function useAccountChoice(): void {
   useEffect(() => {
     useSharing.getState().setUser(myId);
     if (!myId) return;
+    const endHere = () => {
+      useSharing.setState({ sessionEnded: true });
+      useLocations.getState().setOwn(null);
+    };
     const onStorage = (event: StorageEvent) => {
-      if (event.key !== choiceKey(myId)) return;
-      const choice = readChoice(myId);
-      useSharing.setState({ choice });
-      if (choice !== "on") useLocations.getState().setOwn(null);
+      if (event.key === choiceKey(myId)) {
+        const choice = readChoice(myId);
+        useSharing.setState({ choice });
+        if (choice !== "on") useLocations.getState().setOwn(null);
+      } else if (event.key === stopOwedKey(myId)) {
+        useSharing.setState({ stopFailed: event.newValue === "1" });
+      } else if (
+        event.key === SIGNED_IN_KEY ||
+        event.key === SESSION_ENDING_KEY ||
+        event.key === null
+      ) {
+        // Another tab signed out (or storage was cleared): this account's session is over here too.
+        if (!sessionAlive()) endHere();
+      }
     };
     window.addEventListener("storage", onStorage);
+    // A new sign-in: whatever an earlier sign-out announced is over.
+    if (sessionAlive() === false && readStored(SIGNED_IN_KEY) === "1")
+      writeStored(SESSION_ENDING_KEY, null);
+    // A stop the server never heard of: try again now (once the permission is known), and
+    // whenever the connection is back.
+    retryOwedStop();
+    const offPermission = useSharing.subscribe((state, before) => {
+      if (before.permission === "unknown" && state.permission !== "unknown") retryOwedStop();
+    });
+    window.addEventListener("online", retryOwedStop);
     const offSignOut = onBeforeSignOut(async () => {
-      if (useSharing.getState().choice !== "on" || !useLocations.getState().own) return;
-      await locationClient()
-        .stopSharing({})
-        .catch(() => undefined);
+      if (useSharing.getState().choice !== "on") return;
+      // First every tab stops sending (this one too), then the server is told: in that
+      // order, or a late sample from another tab would start sharing again.
+      writeStored(SESSION_ENDING_KEY, String(Date.now()));
+      endHere();
+      await new Promise((resolve) => setTimeout(resolve, OTHER_TABS_MS));
+      await tellServerStopped(true);
     });
     return () => {
       window.removeEventListener("storage", onStorage);
+      window.removeEventListener("online", retryOwedStop);
+      offPermission();
       offSignOut();
       useSharing.getState().setUser(null);
     };
@@ -296,8 +401,10 @@ export function useOwnLocationReporting(): void {
   const permission = useSharing((state) => state.permission);
   const asked = useSharing((state) => state.asked);
   const attempt = useSharing((state) => state.attempt);
+  const sessionEnded = useSharing((state) => state.sessionEnded);
   const active =
     userId !== null &&
+    !sessionEnded &&
     choice === "on" &&
     (permission === "granted" ||
       (asked && permission !== "unsupported" && permission !== "denied"));
@@ -306,8 +413,8 @@ export function useOwnLocationReporting(): void {
   useEffect(() => {
     if (!active || !userId) return;
     let live = true;
-    // The other tab's stop is in storage before its event reaches this tab.
-    const stillSharing = () => live && readChoice(userId) === "on";
+    // Another tab's stop or sign-out is in storage before its event reaches this tab.
+    const stillSharing = () => live && sessionAlive() && readChoice(userId) === "on";
     let lastReport: { at: number; position: OwnPosition } | null = null;
     /** The newest fix, until it has been sent. */
     let unsent: OwnPosition | null = null;

@@ -63,6 +63,40 @@ async function shareHere(page: Page) {
   await expect(pin).toBeVisible({ timeout: 30_000 });
 }
 
+/**
+ * Asks the map itself what it painted for a friend's "somewhere around here"
+ * area: the height in degrees of latitude of the shape on screen (0 when
+ * nothing is drawn). A 2 km radius is about 0.036°.
+ */
+async function drawnAreaHeight(page: Page, account: Account): Promise<number> {
+  return page.evaluate((userId) => {
+    type Feature = { properties: { id?: string }; geometry: { coordinates: unknown } };
+    const holder = document.querySelector("[data-map-frame] .maplibregl-map") as
+      | (Element & {
+          tokulyMap?: { queryRenderedFeatures(options: { layers: string[] }): Feature[] };
+        })
+      | null;
+    const drawn = (
+      holder?.tokulyMap?.queryRenderedFeatures({ layers: ["tokuly-areas-fill"] }) ?? []
+    ).filter((feature) => feature.properties.id === userId);
+    const latitudes: number[] = [];
+    const collect = (value: unknown) => {
+      if (!Array.isArray(value)) return;
+      if (typeof value[0] === "number") latitudes.push(value[1] as number);
+      else for (const entry of value) collect(entry);
+    };
+    for (const feature of drawn) collect(feature.geometry.coordinates);
+    return latitudes.length ? Math.max(...latitudes) - Math.min(...latitudes) : 0;
+  }, account.userId);
+}
+
+/** The friend's area is really on the map, and about as wide as the blur (not a dot). */
+async function expectDrawnArea(page: Page, account: Account) {
+  await expect
+    .poll(() => drawnAreaHeight(page, account), { timeout: 20_000 })
+    .toBeGreaterThan(0.025);
+}
+
 const pinOf = (page: Page, account: Account) =>
   page.locator(`[data-testid="friend-pin"][data-user-id="${account.userId}"]`);
 
@@ -184,7 +218,8 @@ test("a blurred friend is drawn as an area, without distance, route or trip", as
   await openMap(page, `/map?friend=${mio.userId}`);
   const pin = pinOf(page, mio);
   await expect(pin).toHaveAttribute("data-precision", "blurred");
-  await expect(page.getByTestId("approximate-areas")).toHaveAttribute("data-count", "1");
+  await expectDrawnArea(page, mio);
+  await expect(pin.getByTestId("pin-stem")).toHaveCount(0);
   await expect(pin.getByTestId("pin-caption")).toHaveText("このへん");
 
   const sheet = page.getByTestId("friend-sheet");
@@ -1016,7 +1051,8 @@ test("an old blurred pin is still drawn as an area, never as a point", async ({
   const pin = pinOf(page, mio);
   await expect(pin).toHaveAttribute("data-state", "stale");
   await expect(pin).toHaveAttribute("data-precision", "blurred");
-  await expect(page.getByTestId("approximate-areas")).toHaveAttribute("data-count", "1");
+  await expectDrawnArea(page, mio);
+  await expect(pin.getByTestId("pin-stem")).toHaveCount(0);
   const where = page.getByTestId("friend-sheet").getByTestId("friend-where");
   await expect(where).toContainText("おおよその場所だけ見えてるよ");
   await expect(where).not.toContainText("m先");
@@ -1053,4 +1089,141 @@ test("a failed SOS stays on screen with a retry", async ({ page, me, request }) 
   await dialog.getByRole("button", { name: "もう一度送る" }).click();
   await expect(page.getByTestId("sos-mine")).toContainText("SOS発信中");
   await expect.poll(active).toBe(1);
+});
+
+test("signing out completes even when telling the server hangs", async ({ page, me: _me }) => {
+  await openMap(page);
+  // The sign-out hook tells the server that sharing stopped; here that request never answers.
+  await page.route("**/tokuly.geo.v1.LocationService/StopSharing", () => undefined);
+  await page.getByRole("link", { name: "じぶん" }).first().click();
+  await page.getByRole("button", { name: "ログアウト" }).click();
+  await expect(page).toHaveURL(/\/$/, { timeout: 8000 });
+  await page.goto("/map");
+  await expect(page).toHaveURL(/\/login/);
+});
+
+test("signing out in one tab stops sharing from the other", async ({
+  page,
+  context,
+  me,
+  request,
+}) => {
+  const aoi = await friendAt(request, me, "Aoi", 0.001, 0.001);
+  await openMap(page);
+  const second = await context.newPage();
+  await second.goto("/map");
+  await expect(second.getByTestId("own-pin")).toBeVisible({ timeout: 30_000 });
+  await expect
+    .poll(async () => Boolean((await seenLocation(request, aoi, me))?.position), {
+      timeout: 20_000,
+    })
+    .toBe(true);
+
+  await page.getByRole("link", { name: "じぶん" }).first().click();
+  await page.getByRole("button", { name: "ログアウト" }).click();
+  await expect(page).toHaveURL(/\/$/);
+
+  // The other tab was never touched: it says so and its own pin is gone.
+  await second.bringToFront();
+  await expect(second.getByTestId("sharing-notice")).toContainText("ログアウトしたよ");
+  await expect(second.getByTestId("own-pin")).toHaveCount(0);
+  await expect.poll(async () => (await seenLocation(request, aoi, me))?.sharingPaused).toBe(true);
+
+  // Moving afterwards reaches nobody.
+  await context.setGeolocation({
+    latitude: HERE.lat + 0.01,
+    longitude: HERE.lng + 0.01,
+    accuracy: 12,
+  });
+  await second.waitForTimeout(7000);
+  const seen = await seenLocation(request, aoi, me);
+  expect(seen?.sharingPaused).toBe(true);
+  expect(Math.abs((seen?.position?.lat ?? 0) - HERE.lat)).toBeLessThan(0.0005);
+  await second.close();
+});
+
+test("stopping and resuming at once does not leave the friend with a stopped pin", async ({
+  page,
+  context,
+  me,
+  request,
+}) => {
+  const aoi = await friendAt(request, me, "Aoi", 0.001, 0.001);
+  await openMap(page);
+  await expect
+    .poll(async () => Boolean((await seenLocation(request, aoi, me))?.position), {
+      timeout: 20_000,
+    })
+    .toBe(true);
+  let stops = 0;
+  page.on("request", (sent) => {
+    if (sent.url().endsWith("LocationService/StopSharing")) stops += 1;
+  });
+
+  await page.getByTestId("own-pin").click();
+  await expect(
+    page.getByTestId("me-sheet").getByRole("button", { name: "共有をやめる" }),
+  ).toBeVisible();
+  // Stop, and resume as soon as the button exists: well inside the moment the stop waits for other tabs.
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        const byName = (name: string) =>
+          [...document.querySelectorAll<HTMLButtonElement>('[data-testid="me-sheet"] button')].find(
+            (button) => button.textContent?.includes(name),
+          );
+        byName("共有をやめる")?.click();
+        const resume = () => {
+          const button = byName("再開する");
+          if (!button) return void requestAnimationFrame(resume);
+          button.click();
+          resolve();
+        };
+        resume();
+      }),
+  );
+  await expect(page.getByTestId("own-pin")).toBeVisible({ timeout: 20_000 });
+  await context.setGeolocation({ latitude: HERE.lat + 0.0005, longitude: HERE.lng, accuracy: 12 });
+  await page.waitForTimeout(2000);
+  // No "stopped" went out behind the resume, and the friend sees a live pin.
+  expect(stops).toBe(0);
+  await expect
+    .poll(async () => (await seenLocation(request, aoi, me))?.sharingPaused ?? false, {
+      timeout: 20_000,
+    })
+    .toBe(false);
+  await expect
+    .poll(
+      async () =>
+        Math.abs(
+          ((await seenLocation(request, aoi, me))?.position?.lat ?? 0) - (HERE.lat + 0.0005),
+        ),
+      { timeout: 20_000 },
+    )
+    .toBeLessThan(0.0002);
+});
+
+test("when the browser cannot save the choice, sharing still starts and says it will ask again", async ({
+  page,
+  me: _me,
+}) => {
+  // Storage that refuses the map's keys (a full or blocked store).
+  await page.addInitScript(() => {
+    const setItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key: string, value: string) {
+      if (key.startsWith("tokuly.map.sharing."))
+        throw new DOMException("quota", "QuotaExceededError");
+      return setItem.call(this, key, value);
+    };
+  });
+  await page.goto("/map");
+  const notice = page.getByTestId("sharing-notice");
+  await notice.getByRole("button", { name: "オンにする" }).click({ timeout: 30_000 });
+  await expect(page.getByText("次に開いたときにもう一度きくね")).toBeVisible();
+  await expect(page.getByTestId("own-pin")).toBeVisible({ timeout: 20_000 });
+
+  // Nothing was saved, so the next visit asks again instead of sharing silently.
+  await page.reload();
+  await expect(notice).toContainText("いまどこ？をシェアしよう！", { timeout: 30_000 });
+  await expect(page.getByTestId("own-pin")).toHaveCount(0);
 });

@@ -1,5 +1,6 @@
 import { useLocations } from "#/stores/locations";
 import { useMap } from "./map-view";
+import { isBlurred } from "./model";
 
 function reducedMotion(): boolean {
   return (
@@ -40,8 +41,8 @@ export function useFlyToUser(): (userId: string) => void {
   return (userId) => {
     const location = useLocations.getState().friends[userId];
     if (!location?.position) return;
-    if (location.accuracyMeters >= 1000)
-      flyTo(location.position.lng, location.position.lat, 11, 12.5);
+    // A blurred pin stands for an area: show the whole of it, whatever accuracy the server names.
+    if (isBlurred(location)) flyTo(location.position.lng, location.position.lat, 11, 12.5);
     else flyTo(location.position.lng, location.position.lat, 15);
   };
 }

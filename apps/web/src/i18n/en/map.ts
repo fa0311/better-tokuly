@@ -168,6 +168,13 @@ export default {
     offShort: "Off",
   },
   sharing: {
+    turnedOnThisVisit:
+      "Sharing started! This browser cannot save the setting, so you will be asked again next time",
+    reload: "Reload",
+    sessionEnded: {
+      title: "You signed out",
+      body: "You signed out in another tab, so sharing from here has stopped too.",
+    },
     turnedOn: "Sharing your location now. You are on your friends' maps",
     stoppedToast: "Sharing stopped. Your friends have been told",
     tellAgain: "Tell them again",

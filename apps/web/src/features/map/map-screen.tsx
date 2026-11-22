@@ -376,8 +376,6 @@ function FriendLayer() {
   return (
     <>
       <ApproximateAreas areas={areas} />
-      {/* The areas are drawn by the map itself; this says how many, for assistive tools and tests. */}
-      <span hidden data-testid="approximate-areas" data-count={areas.length} />
       {/* Only pins on (or just off) the screen exist as elements: hundreds of friends stay cheap. */}
       {visible
         .filter((location) => onScreen.has(location.userId) && !clusterOf.has(location.userId))
@@ -585,8 +583,9 @@ function SharingNotice() {
   const state = useSharingState();
   const { start, confirmStop, stopFailed } = useSharing();
   if (state === "sharing" || state === "starting") return null;
-  // Sharing stopped here but the server never heard: that outranks everything else.
-  const failed = state === "stopped" && stopFailed;
+  // This device stopped sending (a stop, a revoked permission) but the server never heard:
+  // that outranks everything else, and stays until the server has been told.
+  const failed = stopFailed && state !== "sessionEnded";
   const copy = failed ? "stopFailed" : state;
   const action = failed
     ? t("sharing.tellAgain")
@@ -596,7 +595,14 @@ function SharingNotice() {
         ? t("sharing.resume")
         : state === "unavailable"
           ? t("sharing.retry")
-          : null;
+          : state === "sessionEnded"
+            ? t("sharing.reload")
+            : null;
+  const act = failed
+    ? () => void confirmStop()
+    : state === "sessionEnded"
+      ? () => window.location.reload()
+      : start;
   return (
     <div
       className={cn(
@@ -624,7 +630,7 @@ function SharingNotice() {
       {action && (
         <button
           type="button"
-          onClick={failed ? () => void confirmStop() : start}
+          onClick={act}
           className="pressable sticker-sm ml-auto h-9 shrink-0 rounded-full bg-lime px-3.5 text-xs font-black text-[#17122b]"
         >
           {action}
