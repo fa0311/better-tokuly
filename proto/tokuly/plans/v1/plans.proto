@@ -1,15 +1,1551 @@
 syntax = "proto3";
 
-// Free-time status, plans with RSVP and cost split, date polls, countdowns and anniversaries.
+// How a group of friends gets from "ひま〜" to actually meeting:
+// free-time status, plans with RSVP, checklist and cost split (割り勘), date
+// polls (日程調整), countdowns, anniversaries and a calendar of all of it.
 //
-// SKELETON: the owning domain implements this file. Keep the package name
-// and the realtime event message name stable; everything else is yours.
+// Everything here is among friends; nothing is public. Every RPC needs a
+// signed-in caller. Things the caller may not see are reported as not found
+// (PLAN_NOT_FOUND, POLL_NOT_FOUND...), never as forbidden.
+//
+// Conventions of this package:
+// - A day without a time is a `*_date` string, YYYY-MM-DD, and means that day
+//   in the time zone it was written in.
+// - Inside a plan or a poll people are referred to by user ID. Their names and
+//   avatars are in the `participants` list of the plan or poll. A block
+//   between two participants is not visible there, to either of them: both
+//   stay listed like everyone else. (No notification goes between the two.)
+// - Money is an integer in the currency's minor unit (yen for JPY, cents for
+//   USD) with an ISO 4217 code. No real money moves and coins are not involved.
 package tokuly.plans.v1;
 
+import "google/protobuf/timestamp.proto";
 import "tokuly/common/v1/common.proto";
 
-// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.plans).
+// ───────────────────────────── ひま ─────────────────────────────
+
+// "ひま" — telling friends you are free, and answering "あそぼ!".
+service FreeService {
+  // Says "ひま" for a while, replacing the caller's current status. It expires
+  // by itself at the end of the window. Nobody is notified, except friends
+  // who asked to be told about the caller (SetFreeAlert).
+  // Errors: WINDOW_REQUIRED, WINDOW_INVALID (custom window in the past, longer
+  // than 14 days or starting more than 30 days ahead), NOTE_TOO_LONG,
+  // AREA_INVALID, AREA_NAME_TOO_LONG, AUDIENCE_REQUIRED, CHOSEN_REQUIRED,
+  // TOO_MANY_CHOSEN, NOT_FRIENDS (a chosen user is not a friend), RATE_LIMITED.
+  rpc SetFreeStatus(SetFreeStatusRequest) returns (SetFreeStatusResponse);
+  // Ends the caller's status early. Harmless when there is none.
+  rpc ClearFreeStatus(ClearFreeStatusRequest) returns (ClearFreeStatusResponse);
+  // The caller's status, or a friend's when the caller is in its audience.
+  // `status` is unset when there is none to see.
+  rpc GetFreeStatus(GetFreeStatusRequest) returns (GetFreeStatusResponse);
+  // Friends who are free and let the caller know: statuses already running
+  // first, then upcoming ones by start time.
+  rpc ListFreeFriends(ListFreeFriendsRequest) returns (ListFreeFriendsResponse);
+  // "あそぼ!" — answers a friend's status in one tap. The friend is notified
+  // (once per sender) and the response carries what is needed to open a chat
+  // with them or start a plan. Answering again replaces the message.
+  // Errors: FREE_STATUS_NOT_FOUND (none, expired, or the caller is not in its
+  // audience), CANNOT_ANSWER_SELF, MESSAGE_TOO_LONG, RATE_LIMITED.
+  rpc AnswerFreeStatus(AnswerFreeStatusRequest) returns (AnswerFreeStatusResponse);
+  // Who answered the caller's current status, newest first.
+  rpc ListFreeAnswers(ListFreeAnswersRequest) returns (ListFreeAnswersResponse);
+  // "Tell me when they are free": opts in to (or out of) a notification
+  // whenever this friend sets a status the caller may see, at most once per
+  // window and once an hour. Errors: NOT_FRIENDS, TOO_MANY_ALERTS, RATE_LIMITED.
+  rpc SetFreeAlert(SetFreeAlertRequest) returns (SetFreeAlertResponse);
+  // The friends the caller asked to be told about.
+  rpc ListFreeAlerts(ListFreeAlertsRequest) returns (ListFreeAlertsResponse);
+}
+
+// How long someone is free. Presets are resolved in the owner's time zone.
+enum FreeWindow {
+  FREE_WINDOW_UNSPECIFIED = 0;
+  // From now for a few hours (server setting, 3 by default).
+  FREE_WINDOW_NOW = 1;
+  // From now until midnight.
+  FREE_WINDOW_TODAY = 2;
+  // 18:00 (or now, if later) until midnight.
+  FREE_WINDOW_TONIGHT = 3;
+  // The coming Saturday and Sunday (from now, when it already is the weekend).
+  FREE_WINDOW_WEEKEND = 4;
+  // `starts_at` .. `ends_at` as given.
+  FREE_WINDOW_CUSTOM = 5;
+}
+
+// Which friends see a status.
+enum FreeAudience {
+  FREE_AUDIENCE_UNSPECIFIED = 0;
+  // Every friend.
+  FREE_AUDIENCE_FRIENDS = 1;
+  // The owner's best friends (ranked automatically or starred).
+  FREE_AUDIENCE_BEST_FRIENDS = 2;
+  // Only the friends listed in `chosen`.
+  FREE_AUDIENCE_CHOSEN = 3;
+}
+
+message FreeStatus {
+  string id = 1;
+  tokuly.common.v1.UserSummary user = 2;
+  FreeWindow window = 3;
+  google.protobuf.Timestamp starts_at = 4;
+  // The status disappears at this time.
+  google.protobuf.Timestamp ends_at = 5;
+  // Optional short note, e.g. "カラオケ行きたい".
+  string note = 6;
+  // Rough area, rounded by the server to about 1 km; never a precise position.
+  tokuly.common.v1.LatLng area = 7;
+  // Optional name for the area, e.g. "渋谷あたり".
+  string area_name = 8;
+  // True when the window has started.
+  bool free_now = 9;
+  google.protobuf.Timestamp created_at = 10;
+  // Whether the caller already answered "あそぼ!".
+  bool answered_by_me = 11;
+
+  // The fields below are only filled for the owner.
+  FreeAudience audience = 12;
+  repeated tokuly.common.v1.UserSummary chosen = 13;
+  // How many friends answered "あそぼ!".
+  int32 answer_count = 14;
+}
+
+message SetFreeStatusRequest {
+  FreeWindow window = 1;
+  // Only for FREE_WINDOW_CUSTOM. `starts_at` defaults to now.
+  google.protobuf.Timestamp starts_at = 2;
+  google.protobuf.Timestamp ends_at = 3;
+  // At most 60 characters.
+  string note = 4;
+  // Optional; stored rounded to about 1 km.
+  tokuly.common.v1.LatLng area = 5;
+  // At most 40 characters.
+  string area_name = 6;
+  FreeAudience audience = 7;
+  // Friends who see the status when the audience is FREE_AUDIENCE_CHOSEN (1 to 50).
+  repeated string chosen_user_ids = 8;
+}
+
+message SetFreeStatusResponse {
+  FreeStatus status = 1;
+}
+
+message ClearFreeStatusRequest {}
+
+message ClearFreeStatusResponse {}
+
+message GetFreeStatusRequest {
+  // Empty: the caller's own status.
+  string user_id = 1;
+}
+
+message GetFreeStatusResponse {
+  FreeStatus status = 1;
+}
+
+message ListFreeFriendsRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListFreeFriendsResponse {
+  repeated FreeStatus statuses = 1;
+  tokuly.common.v1.PageInfo page = 2;
+  // The caller's own status, when they have one (first page only).
+  FreeStatus mine = 3;
+}
+
+// One "あそぼ!".
+message FreeAnswer {
+  tokuly.common.v1.UserSummary user = 1;
+  string message = 2;
+  google.protobuf.Timestamp created_at = 3;
+}
+
+message AnswerFreeStatusRequest {
+  // The friend whose status is answered.
+  string user_id = 1;
+  // Optional, at most 100 characters.
+  string message = 2;
+}
+
+message AnswerFreeStatusResponse {
+  FreeAnswer answer = 1;
+  // The status that was answered; `status.user` is the friend to open a chat with.
+  FreeStatus status = 2;
+  // A plan for the two, prefilled from the status (its window and area),
+  // ready to be edited and sent to PlanService.CreatePlan.
+  CreatePlanRequest plan_draft = 3;
+}
+
+message ListFreeAnswersRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListFreeAnswersResponse {
+  repeated FreeAnswer answers = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message SetFreeAlertRequest {
+  string user_id = 1;
+  bool enabled = 2;
+}
+
+message SetFreeAlertResponse {}
+
+message ListFreeAlertsRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListFreeAlertsResponse {
+  repeated tokuly.common.v1.UserSummary users = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// ───────────────────────────── Plans ─────────────────────────────
+
+// Plans (あそぶ予定): invitations, RSVP, reminders, a checklist and the cost
+// split. A plan is visible to its participants only.
+//
+// Roles: the host and co-hosts edit the plan, invite and remove people.
+// Guests invite their own friends only when the host allows it. "Anyone
+// going" (the host, co-hosts and guests who answered GOING) works on the
+// checklist and the expenses.
+service PlanService {
+  // Creates a plan hosted by the caller and invites friends to it.
+  // Errors: TITLE_REQUIRED, TITLE_TOO_LONG, EMOJI_INVALID,
+  // DESCRIPTION_TOO_LONG, TIME_INVALID, TIME_ZONE_INVALID, PLACE_INVALID,
+  // CAPACITY_INVALID, REMINDER_INVALID, CURRENCY_INVALID, NOT_FRIENDS (an
+  // invitee is not a friend of the caller), TOO_MANY_PARTICIPANTS, RATE_LIMITED.
+  rpc CreatePlan(CreatePlanRequest) returns (CreatePlanResponse);
+  // A plan with its participants and checklist. Errors: PLAN_NOT_FOUND.
+  rpc GetPlan(GetPlanRequest) returns (GetPlanResponse);
+  // Changes a plan (host and co-hosts). Participants who have not declined
+  // are notified when the time or the place changes; that can be done 6
+  // times an hour per plan. Reminders are sent again only for a new start
+  // time, and attendance is counted once per plan.
+  // Errors: PLAN_NOT_FOUND, NOT_A_HOST, PLAN_CANCELLED, RATE_LIMITED, and the
+  // validation errors of CreatePlan.
+  rpc UpdatePlan(UpdatePlanRequest) returns (UpdatePlanResponse);
+  // Calls a plan off (host only). Everyone who had not declined is notified;
+  // the plan stays readable. Errors: PLAN_NOT_FOUND, NOT_THE_HOST,
+  // PLAN_CANCELLED, REASON_TOO_LONG, RATE_LIMITED.
+  rpc CancelPlan(CancelPlanRequest) returns (CancelPlanResponse);
+  // The caller's plans: upcoming, waiting for an answer, or past.
+  rpc ListPlans(ListPlansRequest) returns (ListPlansResponse);
+  // Invites more friends of the caller. Hosts and co-hosts always may; guests
+  // only when the plan allows it. People already in the plan are skipped,
+  // and so is anyone who left it by their own choice (LeavePlan).
+  // Errors: PLAN_NOT_FOUND, CANNOT_INVITE, PLAN_CANCELLED, NOT_FRIENDS,
+  // TOO_MANY_PARTICIPANTS, RATE_LIMITED (300 invitations an hour per caller,
+  // CreatePlan and polls included, and per friend: the same friend can be
+  // invited to plans and polls 10 times a day),
+  // PLAN_CHANGED (aborted: the plan was handed over at the same moment; retry).
+  rpc InviteToPlan(InviteToPlanRequest) returns (InviteToPlanResponse);
+  // Takes someone out of the plan (host and co-hosts; only the host removes
+  // a co-host). Errors: PLAN_NOT_FOUND, NOT_A_HOST, PARTICIPANT_NOT_FOUND,
+  // CANNOT_REMOVE_HOST, NOT_THE_HOST (a co-host removing a co-host),
+  // HAS_EXPENSES (they paid or owe something in the cost split), RATE_LIMITED.
+  rpc RemovePlanParticipant(RemovePlanParticipantRequest) returns (RemovePlanParticipantResponse);
+  // Leaves a plan for good: the caller cannot be invited to it again.
+  // Errors: PLAN_NOT_FOUND, HOST_CANNOT_LEAVE (hand the plan over or cancel
+  // it), HAS_EXPENSES (decline instead), RATE_LIMITED.
+  rpc LeavePlan(LeavePlanRequest) returns (LeavePlanResponse);
+  // Makes a participant a co-host or a guest again, or hands the plan over
+  // (role HOST: the previous host becomes a co-host). Host only.
+  // Errors: PLAN_NOT_FOUND, NOT_THE_HOST, PARTICIPANT_NOT_FOUND, ROLE_INVALID,
+  // RATE_LIMITED.
+  rpc SetPlanRole(SetPlanRoleRequest) returns (SetPlanRoleResponse);
+  // RSVP: going, maybe or declined, with a short comment. When the plan is
+  // full, GOING puts the caller on the waitlist; a place that frees up goes
+  // to whoever has waited longest. The host is told (collapsed per plan).
+  // Errors: PLAN_NOT_FOUND, PLAN_CANCELLED, PLAN_OVER, RSVP_INVALID,
+  // HOST_IS_GOING (the host cannot decline their own plan), COMMENT_TOO_LONG,
+  // RATE_LIMITED.
+  rpc RespondToPlan(RespondToPlanRequest) returns (RespondToPlanResponse);
+
+  // Adds something to bring (持ち物) or to do (やること). Anyone going.
+  // Errors: PLAN_NOT_FOUND, NOT_GOING, PLAN_CANCELLED, TEXT_REQUIRED,
+  // TEXT_TOO_LONG, TOO_MANY_ITEMS, RATE_LIMITED.
+  rpc AddChecklistItem(AddChecklistItemRequest) returns (AddChecklistItemResponse);
+  // Rewrites, claims ("I'll bring it") or ticks off an item. Anyone going may
+  // claim and tick; only the author or a host rewrites, and only the claimer
+  // or a host releases someone's claim.
+  // Errors: ITEM_NOT_FOUND, NOT_GOING, NOT_ALLOWED, ALREADY_CLAIMED,
+  // TEXT_REQUIRED, TEXT_TOO_LONG, RATE_LIMITED.
+  rpc UpdateChecklistItem(UpdateChecklistItemRequest) returns (UpdateChecklistItemResponse);
+  // Deletes an item (its author or a host).
+  // Errors: ITEM_NOT_FOUND, NOT_ALLOWED, RATE_LIMITED.
+  rpc RemoveChecklistItem(RemoveChecklistItemRequest) returns (RemoveChecklistItemResponse);
+
+  // Records who paid what and how it is split. Anyone going; the payer and
+  // everyone with a share must be going too (nobody is charged for a plan
+  // they declined or never answered).
+  // Errors: PLAN_NOT_FOUND, NOT_GOING, TITLE_REQUIRED, TITLE_TOO_LONG,
+  // AMOUNT_INVALID, CURRENCY_INVALID, PAYER_NOT_IN_PLAN, PAYER_NOT_GOING,
+  // SHARES_REQUIRED, SHARE_NOT_IN_PLAN, SHARE_NOT_GOING, SHARE_DUPLICATE,
+  // SHARES_INVALID (exact amounts do not
+  // add up, or a weight is not positive), SPLIT_METHOD_REQUIRED,
+  // TOO_MANY_EXPENSES, RATE_LIMITED.
+  rpc AddExpense(AddExpenseRequest) returns (AddExpenseResponse);
+  // Replaces an expense (the person who recorded it, the payer or a host).
+  // Errors: EXPENSE_NOT_FOUND, NOT_ALLOWED, and the errors of AddExpense.
+  rpc UpdateExpense(UpdateExpenseRequest) returns (UpdateExpenseResponse);
+  // Deletes an expense (same people as UpdateExpense).
+  // Errors: EXPENSE_NOT_FOUND, NOT_ALLOWED, RATE_LIMITED.
+  rpc RemoveExpense(RemoveExpenseRequest) returns (RemoveExpenseResponse);
+  // The expenses of a plan, newest first. Errors: PLAN_NOT_FOUND.
+  rpc ListExpenses(ListExpensesRequest) returns (ListExpensesResponse);
+  // Where the split stands: per currency, everyone's balance and the fewest
+  // transfers that settle everyone ("AがBに1,200円"), plus the transfers
+  // marked as received and the ones taken back. Errors: PLAN_NOT_FOUND.
+  rpc GetSplit(GetSplitRequest) returns (GetSplitResponse);
+  // Marks a transfer as received: `from` handed `to` this amount outside
+  // the app. Only the person who received the money (`to`, the caller)
+  // records it — nobody can declare their own debt paid — and `from` is
+  // told. Only what is owed can be settled: `from` must owe at least the
+  // amount and `to` must be owed at least the amount, so the same transfer
+  // cannot be recorded twice and nobody outside the split can be part of one.
+  // Errors: PLAN_NOT_FOUND, NOT_ALLOWED (the caller is not `to`),
+  // AMOUNT_INVALID, CURRENCY_INVALID, USER_NOT_IN_PLAN, SAME_USER,
+  // AMOUNT_EXCEEDS_BALANCE, RATE_LIMITED.
+  rpc SettleTransfer(SettleTransferRequest) returns (SettleTransferResponse);
+  // Takes back a transfer the caller marked as received. The record is kept
+  // (who took it back and when, see GetSplit) and `from` is told.
+  // Errors: SETTLEMENT_NOT_FOUND, NOT_ALLOWED, RATE_LIMITED.
+  rpc RemoveSettlement(RemoveSettlementRequest) returns (RemoveSettlementResponse);
+}
+
+enum PlanStatus {
+  PLAN_STATUS_UNSPECIFIED = 0;
+  PLAN_STATUS_ACTIVE = 1;
+  PLAN_STATUS_CANCELLED = 2;
+}
+
+enum PlanRole {
+  PLAN_ROLE_UNSPECIFIED = 0;
+  PLAN_ROLE_HOST = 1;
+  PLAN_ROLE_CO_HOST = 2;
+  PLAN_ROLE_GUEST = 3;
+}
+
+enum Rsvp {
+  RSVP_UNSPECIFIED = 0;
+  // Invited, no answer yet.
+  RSVP_INVITED = 1;
+  RSVP_GOING = 2;
+  RSVP_MAYBE = 3;
+  RSVP_DECLINED = 4;
+  // Wants to go, but the plan is full.
+  RSVP_WAITLISTED = 5;
+}
+
+// When a plan happens. No start at all means "to be decided" (未定).
+message PlanTime {
+  oneof start {
+    google.protobuf.Timestamp start_at = 1;
+    // A day without a time.
+    string start_date = 2;
+  }
+  // Optional; must be of the same kind as the start and not before it.
+  oneof end {
+    google.protobuf.Timestamp end_at = 3;
+    string end_date = 4;
+  }
+  // IANA time zone the plan is written in: it decides which day a date means
+  // and when "the day before" is. Defaults to the creator's.
+  string time_zone = 5;
+}
+
+// Where a plan happens. Only the name is required.
+message PlanPlace {
+  // At most 80 characters.
+  string name = 1;
+  tokuly.common.v1.LatLng location = 2;
+  // A place ID of the geo domain, when the place was picked from the map.
+  string place_id = 3;
+  // At most 200 characters.
+  string address = 4;
+}
+
+message PlanCounts {
+  int32 going = 1;
+  int32 maybe = 2;
+  int32 declined = 3;
+  // Invited and not answered.
+  int32 invited = 4;
+  int32 waitlisted = 5;
+}
+
+message PlanParticipant {
+  reserved 8;
+  reserved "hidden";
+  tokuly.common.v1.UserSummary user = 1;
+  PlanRole role = 2;
+  Rsvp rsvp = 3;
+  string comment = 4;
+  google.protobuf.Timestamp responded_at = 5;
+  // Who brought them into the plan.
+  string invited_by_user_id = 6;
+  // 1 = next in line; 0 when not waitlisted.
+  int32 waitlist_position = 7;
+}
+
+message Plan {
+  string id = 1;
+  string title = 2;
+  // One emoji standing for the plan; may be empty.
+  string emoji = 3;
+  string description = 4;
+  PlanTime time = 5;
+  // Unset when no place was given.
+  PlanPlace place = 6;
+  PlanStatus status = 7;
+  string host_user_id = 8;
+  // Guests may invite their own friends.
+  bool guests_can_invite = 9;
+  // Most people who can be GOING; 0 = no limit.
+  int32 capacity = 10;
+  // Remind people going or maybe the day before / this many minutes before
+  // the start (0 = no such reminder).
+  bool remind_day_before = 11;
+  int32 remind_minutes_before = 12;
+  // Currency offered for new expenses.
+  string currency = 13;
+  PlanCounts counts = 14;
+  // Everyone in the plan (GetPlan and every RPC returning one plan). Lists
+  // carry a preview: the host and the first few people going.
+  repeated PlanParticipant participants = 15;
+  PlanRole my_role = 16;
+  Rsvp my_rsvp = 17;
+  // Filled by GetPlan and the RPCs returning one plan; empty in lists.
+  repeated ChecklistItem checklist = 18;
+  int32 checklist_count = 19;
+  int32 checklist_done_count = 20;
+  int32 expense_count = 21;
+  int32 comment_count = 22;
+  // The date poll this plan came out of, if any.
+  string poll_id = 23;
+  string cancel_reason = 24;
+  google.protobuf.Timestamp cancelled_at = 25;
+  // The plan's time has passed.
+  bool over = 26;
+  google.protobuf.Timestamp created_at = 27;
+  google.protobuf.Timestamp updated_at = 28;
+}
+
+message CreatePlanRequest {
+  // 1 to 80 characters.
+  string title = 1;
+  string emoji = 2;
+  // At most 2000 characters.
+  string description = 3;
+  // Unset or empty: to be decided.
+  PlanTime time = 4;
+  PlanPlace place = 5;
+  // Friends of the caller.
+  repeated string invitee_ids = 6;
+  bool guests_can_invite = 7;
+  // 0 = no limit; otherwise 1 or more (the host takes one place).
+  int32 capacity = 8;
+  // Defaults: the day before, and 60 minutes before.
+  optional bool remind_day_before = 9;
+  // 0 (off) to 10080 (a week).
+  optional int32 remind_minutes_before = 10;
+  // Empty: JPY.
+  string currency = 11;
+}
+
+message CreatePlanResponse {
+  Plan plan = 1;
+}
+
+message GetPlanRequest {
+  string plan_id = 1;
+}
+
+message GetPlanResponse {
+  Plan plan = 1;
+}
+
+message UpdatePlanRequest {
+  string plan_id = 1;
+  optional string title = 2;
+  optional string emoji = 3;
+  optional string description = 4;
+  // When set, replaces the time; an empty message makes it "to be decided".
+  PlanTime time = 5;
+  // When set, replaces the place; an empty name removes it.
+  PlanPlace place = 6;
+  optional bool guests_can_invite = 7;
+  optional int32 capacity = 8;
+  optional bool remind_day_before = 9;
+  optional int32 remind_minutes_before = 10;
+  optional string currency = 11;
+}
+
+message UpdatePlanResponse {
+  Plan plan = 1;
+}
+
+message CancelPlanRequest {
+  string plan_id = 1;
+  // Optional, at most 200 characters; shown to the participants.
+  string reason = 2;
+}
+
+message CancelPlanResponse {
+  Plan plan = 1;
+}
+
+enum PlanListFilter {
+  // Same as UPCOMING.
+  PLAN_LIST_FILTER_UNSPECIFIED = 0;
+  // Not over and not cancelled, soonest first; undated plans last. Plans the
+  // caller declined are left out unless `include_declined`.
+  PLAN_LIST_FILTER_UPCOMING = 1;
+  // Upcoming plans the caller has not answered yet.
+  PLAN_LIST_FILTER_INVITED = 2;
+  // Over or cancelled, most recent first.
+  PLAN_LIST_FILTER_PAST = 3;
+}
+
+message ListPlansRequest {
+  PlanListFilter filter = 1;
+  bool include_declined = 2;
+  tokuly.common.v1.PageRequest page = 3;
+}
+
+message ListPlansResponse {
+  repeated Plan plans = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message InviteToPlanRequest {
+  string plan_id = 1;
+  repeated string user_ids = 2;
+}
+
+message InviteToPlanResponse {
+  Plan plan = 1;
+  // How many people were newly invited.
+  int32 invited_count = 2;
+}
+
+message RemovePlanParticipantRequest {
+  string plan_id = 1;
+  string user_id = 2;
+}
+
+message RemovePlanParticipantResponse {
+  Plan plan = 1;
+}
+
+message LeavePlanRequest {
+  string plan_id = 1;
+}
+
+message LeavePlanResponse {}
+
+message SetPlanRoleRequest {
+  string plan_id = 1;
+  string user_id = 2;
+  PlanRole role = 3;
+}
+
+message SetPlanRoleResponse {
+  Plan plan = 1;
+}
+
+message RespondToPlanRequest {
+  string plan_id = 1;
+  // GOING, MAYBE or DECLINED.
+  Rsvp rsvp = 2;
+  // At most 140 characters.
+  string comment = 3;
+}
+
+message RespondToPlanResponse {
+  Plan plan = 1;
+  // What the caller ended up as: WAITLISTED when they asked for GOING and the
+  // plan is full.
+  Rsvp rsvp = 2;
+}
+
+enum ChecklistKind {
+  CHECKLIST_KIND_UNSPECIFIED = 0;
+  // 持ち物: something to bring.
+  CHECKLIST_KIND_BRING = 1;
+  // やること: something to do.
+  CHECKLIST_KIND_TODO = 2;
+}
+
+message ChecklistItem {
+  string id = 1;
+  string plan_id = 2;
+  ChecklistKind kind = 3;
+  string text = 4;
+  string created_by_user_id = 5;
+  // Who said "I'll take care of it"; empty when open.
+  string claimed_by_user_id = 6;
+  bool done = 7;
+  string done_by_user_id = 8;
+  google.protobuf.Timestamp done_at = 9;
+  google.protobuf.Timestamp created_at = 10;
+}
+
+message AddChecklistItemRequest {
+  string plan_id = 1;
+  // Defaults to BRING.
+  ChecklistKind kind = 2;
+  // 1 to 100 characters.
+  string text = 3;
+}
+
+message AddChecklistItemResponse {
+  ChecklistItem item = 1;
+}
+
+message UpdateChecklistItemRequest {
+  string item_id = 1;
+  optional string text = 2;
+  optional ChecklistKind kind = 3;
+  // true: the caller takes it; false: the claim is released.
+  optional bool claimed = 4;
+  optional bool done = 5;
+}
+
+message UpdateChecklistItemResponse {
+  ChecklistItem item = 1;
+}
+
+message RemoveChecklistItemRequest {
+  string item_id = 1;
+}
+
+message RemoveChecklistItemResponse {}
+
+// How an expense is divided among the people it was for.
+enum SplitMethod {
+  SPLIT_METHOD_UNSPECIFIED = 0;
+  // Equal parts. A remainder that cannot be divided is handed out one minor
+  // unit at a time, in ascending order of user ID.
+  SPLIT_METHOD_EQUAL = 1;
+  // Each share's `amount` as given; they must add up to the expense.
+  SPLIT_METHOD_EXACT = 2;
+  // In proportion to each share's `weight` (2 : 1 : 1...). Remainders go to
+  // the largest fractions first, then in ascending order of user ID.
+  SPLIT_METHOD_SHARES = 3;
+}
+
+message ExpenseShare {
+  string user_id = 1;
+  // What this person owes for the expense. Given by the client for EXACT;
+  // computed by the server otherwise.
+  int64 amount = 2;
+  // Only for SPLIT_METHOD_SHARES: 1 to 1000.
+  int32 weight = 3;
+}
+
+message Expense {
+  string id = 1;
+  string plan_id = 2;
+  // What it was for, e.g. "カラオケ代".
+  string title = 3;
+  // In the currency's minor unit.
+  int64 amount = 4;
+  // ISO 4217 code.
+  string currency = 5;
+  string paid_by_user_id = 6;
+  SplitMethod method = 7;
+  repeated ExpenseShare shares = 8;
+  string created_by_user_id = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+}
+
+// An expense as written by a client.
+message ExpenseInput {
+  // 1 to 80 characters.
+  string title = 1;
+  // 1 to 1,000,000,000,000 minor units.
+  int64 amount = 2;
+  // Empty: the plan's currency.
+  string currency = 3;
+  // Empty: the caller.
+  string paid_by_user_id = 4;
+  SplitMethod method = 5;
+  // The participants the expense was for (1 to 100, each once).
+  repeated ExpenseShare shares = 6;
+}
+
+message AddExpenseRequest {
+  string plan_id = 1;
+  ExpenseInput expense = 2;
+}
+
+message AddExpenseResponse {
+  Expense expense = 1;
+}
+
+message UpdateExpenseRequest {
+  string expense_id = 1;
+  ExpenseInput expense = 2;
+}
+
+message UpdateExpenseResponse {
+  Expense expense = 1;
+}
+
+message RemoveExpenseRequest {
+  string expense_id = 1;
+}
+
+message RemoveExpenseResponse {}
+
+message ListExpensesRequest {
+  string plan_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListExpensesResponse {
+  repeated Expense expenses = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// One person's position in one currency. `net` = paid − owed + sent − received:
+// positive means the others still owe them, negative means they owe.
+// The `net` of everyone always adds up to zero.
+message Balance {
+  string user_id = 1;
+  // Total of the expenses they paid.
+  int64 paid = 2;
+  // Total of their shares.
+  int64 owed = 3;
+  // Transfers already marked as done, from them / to them.
+  int64 sent = 4;
+  int64 received = 5;
+  int64 net = 6;
+}
+
+// "`from` gives `to` this much."
+message Transfer {
+  string from_user_id = 1;
+  string to_user_id = 2;
+  int64 amount = 3;
+}
+
+// A transfer marked as done.
+message Settlement {
+  string id = 1;
+  string plan_id = 2;
+  string from_user_id = 3;
+  string to_user_id = 4;
+  int64 amount = 5;
+  string currency = 6;
+  // Always `to_user_id`: the receiver confirms.
+  string recorded_by_user_id = 7;
+  google.protobuf.Timestamp created_at = 8;
+  // Set when the transfer was taken back; it no longer counts then.
+  google.protobuf.Timestamp removed_at = 9;
+  string removed_by_user_id = 10;
+}
+
+message CurrencySplit {
+  string currency = 1;
+  // Sum of all expenses in this currency.
+  int64 total = 2;
+  // Everyone who paid, owes, sent or received something; ascending user ID.
+  repeated Balance balances = 3;
+  // The fewest transfers that bring every balance to zero.
+  repeated Transfer transfers = 4;
+}
+
+message GetSplitRequest {
+  string plan_id = 1;
+}
+
+message GetSplitResponse {
+  repeated CurrencySplit splits = 1;
+  // Transfers marked as received, newest first.
+  repeated Settlement settlements = 2;
+  // Transfers that were taken back, most recently removed first.
+  repeated Settlement removed_settlements = 3;
+}
+
+message SettleTransferRequest {
+  string plan_id = 1;
+  string from_user_id = 2;
+  string to_user_id = 3;
+  int64 amount = 4;
+  // Empty: the plan's currency.
+  string currency = 5;
+}
+
+message SettleTransferResponse {
+  Settlement settlement = 1;
+}
+
+message RemoveSettlementRequest {
+  string settlement_id = 1;
+}
+
+message RemoveSettlementResponse {}
+
+// ───────────────────────────── Date polls ─────────────────────────────
+
+// 日程調整: candidate dates, ○ △ × from everyone, and a plan at the end.
+//
+// A poll is visible to its creator and its participants: the friends who were
+// invited and, when the poll is open to friends, any friend of the creator
+// who has its link (`short_id`).
+service PollService {
+  // Errors: TITLE_REQUIRED, TITLE_TOO_LONG, DESCRIPTION_TOO_LONG,
+  // SLOTS_REQUIRED, TOO_MANY_SLOTS (more than 30), SLOT_INVALID,
+  // SLOT_DUPLICATE, DEADLINE_INVALID, TIME_ZONE_INVALID, NOT_FRIENDS,
+  // TOO_MANY_PARTICIPANTS, RATE_LIMITED.
+  rpc CreatePoll(CreatePollRequest) returns (CreatePollResponse);
+  // A poll by ID or by its link. Opening an open poll through its link does
+  // not join it; answering does. Errors: POLL_NOT_FOUND.
+  rpc GetPoll(GetPollRequest) returns (GetPollResponse);
+  // Changes the texts, the deadline, the link setting, or the slots (creator
+  // only, while the poll is open; the link can be switched off at any time).
+  // Answers to removed slots are dropped.
+  // Errors: POLL_NOT_FOUND, NOT_THE_CREATOR, POLL_NOT_OPEN, SLOT_NOT_FOUND,
+  // RATE_LIMITED, and the validation errors of CreatePoll.
+  rpc UpdatePoll(UpdatePollRequest) returns (UpdatePollResponse);
+  // Polls the caller created or takes part in, open ones first.
+  rpc ListPolls(ListPollsRequest) returns (ListPollsResponse);
+  // Invites more friends (creator only). People already invited are skipped,
+  // and so is anyone who left the poll by their own choice.
+  // Errors: POLL_NOT_FOUND, NOT_THE_CREATOR, POLL_NOT_OPEN, NOT_FRIENDS,
+  // TOO_MANY_PARTICIPANTS, RATE_LIMITED.
+  rpc InviteToPoll(InviteToPollRequest) returns (InviteToPollResponse);
+  // Answers ○ △ × per slot, with a comment. Replaces the caller's previous
+  // answers; allowed until the poll is closed or its deadline has passed.
+  // The creator is told the first time someone answers.
+  // Errors: POLL_NOT_FOUND, POLL_NOT_OPEN, SLOT_NOT_FOUND, ANSWER_INVALID,
+  // SLOT_DUPLICATE, COMMENT_TOO_LONG, TOO_MANY_PARTICIPANTS, RATE_LIMITED.
+  rpc AnswerPoll(AnswerPollRequest) returns (AnswerPollResponse);
+  // Stops taking answers (creator only). Polls also close by themselves at
+  // their deadline.
+  // Errors: POLL_NOT_FOUND, NOT_THE_CREATOR, POLL_NOT_OPEN, RATE_LIMITED.
+  rpc ClosePoll(ClosePollRequest) returns (ClosePollResponse);
+  // Takes answers again (creator only); a deadline in the past is dropped.
+  // Errors: POLL_NOT_FOUND, NOT_THE_CREATOR, POLL_NOT_CLOSED (open already,
+  // or finalized), RATE_LIMITED.
+  rpc ReopenPoll(ReopenPollRequest) returns (ReopenPollResponse);
+  // Picks a slot (creator only) and turns the poll into a plan: the creator
+  // hosts it and everyone who answered ○ or △ for the slot is invited.
+  // Errors: POLL_NOT_FOUND, NOT_THE_CREATOR, POLL_FINALIZED, SLOT_NOT_FOUND,
+  // SLOT_REQUIRED (no slot given and nobody answered yet), PLACE_INVALID,
+  // EMOJI_INVALID, DESCRIPTION_TOO_LONG.
+  rpc FinalizePoll(FinalizePollRequest) returns (FinalizePollResponse);
+  // Deletes a poll (creator only). A plan made from it stays.
+  // Errors: POLL_NOT_FOUND, NOT_THE_CREATOR.
+  rpc DeletePoll(DeletePollRequest) returns (DeletePollResponse);
+  // Leaves a poll: the caller's answers go with them and the creator cannot
+  // invite them again. (Through the link of an open poll they can still come
+  // back by themselves.) Errors: POLL_NOT_FOUND, CREATOR_CANNOT_LEAVE.
+  rpc LeavePoll(LeavePollRequest) returns (LeavePollResponse);
+  // Takes someone out of a poll, with their answers (creator only). They no
+  // longer see it, not even through its link, unless invited again.
+  // Errors: POLL_NOT_FOUND, NOT_THE_CREATOR, PARTICIPANT_NOT_FOUND,
+  // CANNOT_REMOVE_CREATOR, RATE_LIMITED.
+  rpc RemovePollParticipant(RemovePollParticipantRequest) returns (RemovePollParticipantResponse);
+  // Nudges the invited people who have not answered (creator only, at most
+  // once every 12 hours per poll; the server also does it once by itself).
+  // Errors: POLL_NOT_FOUND, NOT_THE_CREATOR, POLL_NOT_OPEN, RATE_LIMITED.
+  rpc RemindPollParticipants(RemindPollParticipantsRequest) returns (RemindPollParticipantsResponse);
+}
+
+enum PollStatus {
+  POLL_STATUS_UNSPECIFIED = 0;
+  // Taking answers.
+  POLL_STATUS_OPEN = 1;
+  // No more answers; not decided yet.
+  POLL_STATUS_CLOSED = 2;
+  // A slot was picked and a plan created.
+  POLL_STATUS_FINALIZED = 3;
+}
+
+enum PollAnswer {
+  POLL_ANSWER_UNSPECIFIED = 0;
+  // ○
+  POLL_ANSWER_YES = 1;
+  // △
+  POLL_ANSWER_MAYBE = 2;
+  // ×
+  POLL_ANSWER_NO = 3;
+}
+
+// A candidate: a whole day or a time (with an optional end).
+message PollSlotInput {
+  oneof start {
+    google.protobuf.Timestamp start_at = 1;
+    string date = 2;
+  }
+  // Only together with `start_at`.
+  google.protobuf.Timestamp end_at = 3;
+}
+
+message PollSlot {
+  string id = 1;
+  oneof start {
+    google.protobuf.Timestamp start_at = 2;
+    string date = 3;
+  }
+  google.protobuf.Timestamp end_at = 4;
+  // Live tallies.
+  int32 yes_count = 5;
+  int32 maybe_count = 6;
+  int32 no_count = 7;
+  // The caller's own answer; UNSPECIFIED when they gave none.
+  PollAnswer my_answer = 8;
+}
+
+message SlotAnswer {
+  string slot_id = 1;
+  PollAnswer answer = 2;
+}
+
+message PollParticipant {
+  reserved 6;
+  reserved "hidden";
+  tokuly.common.v1.UserSummary user = 1;
+  // Invited by the creator (as opposed to having joined through the link).
+  bool invited = 2;
+  // Empty until they answer.
+  repeated SlotAnswer answers = 3;
+  string comment = 4;
+  google.protobuf.Timestamp answered_at = 5;
+}
+
+message Poll {
+  string id = 1;
+  // The link: /plans/polls/<short_id>.
+  string short_id = 2;
+  string title = 3;
+  string description = 4;
+  tokuly.common.v1.UserSummary creator = 5;
+  // Time zone the dates were written in.
+  string time_zone = 6;
+  // In chronological order.
+  repeated PollSlot slots = 7;
+  PollStatus status = 8;
+  // Any friend of the creator with the link may answer.
+  bool open_to_friends = 9;
+  // The poll closes by itself at this time; unset = no deadline.
+  google.protobuf.Timestamp deadline = 10;
+  // Everyone invited or who answered, creator included (GetPoll and RPCs
+  // returning one poll; empty in lists).
+  repeated PollParticipant participants = 11;
+  int32 participant_count = 12;
+  int32 answered_count = 13;
+  // The suggestion: most ○, then fewest ×, then the earliest. Empty while
+  // nobody has answered.
+  string best_slot_id = 14;
+  // Set once finalized.
+  string final_slot_id = 15;
+  string plan_id = 16;
+  // The caller created it.
+  bool mine = 17;
+  bool answered_by_me = 18;
+  google.protobuf.Timestamp created_at = 19;
+  google.protobuf.Timestamp updated_at = 20;
+}
+
+message CreatePollRequest {
+  // 1 to 80 characters.
+  string title = 1;
+  // At most 1000 characters.
+  string description = 2;
+  // 1 to 30 candidates, each once.
+  repeated PollSlotInput slots = 3;
+  // Friends of the caller.
+  repeated string invitee_ids = 4;
+  bool open_to_friends = 5;
+  // Optional; must be in the future.
+  google.protobuf.Timestamp deadline = 6;
+  // Defaults to the caller's.
+  string time_zone = 7;
+}
+
+message CreatePollResponse {
+  Poll poll = 1;
+}
+
+message GetPollRequest {
+  // ID or short ID.
+  string poll_id = 1;
+}
+
+message GetPollResponse {
+  Poll poll = 1;
+}
+
+message UpdatePollRequest {
+  string poll_id = 1;
+  optional string title = 2;
+  optional string description = 3;
+  optional bool open_to_friends = 4;
+  // When set, replaces the deadline.
+  google.protobuf.Timestamp deadline = 5;
+  // Removes the deadline (wins over `deadline`).
+  bool clear_deadline = 6;
+  repeated PollSlotInput add_slots = 7;
+  repeated string remove_slot_ids = 8;
+}
+
+message UpdatePollResponse {
+  Poll poll = 1;
+}
+
+message ListPollsRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListPollsResponse {
+  repeated Poll polls = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message InviteToPollRequest {
+  string poll_id = 1;
+  repeated string user_ids = 2;
+}
+
+message InviteToPollResponse {
+  Poll poll = 1;
+  int32 invited_count = 2;
+}
+
+message AnswerPollRequest {
+  // ID or short ID.
+  string poll_id = 1;
+  // Slots left out count as not answered.
+  repeated SlotAnswer answers = 2;
+  // At most 140 characters.
+  string comment = 3;
+}
+
+message AnswerPollResponse {
+  Poll poll = 1;
+}
+
+message ClosePollRequest {
+  string poll_id = 1;
+}
+
+message ClosePollResponse {
+  Poll poll = 1;
+}
+
+message ReopenPollRequest {
+  string poll_id = 1;
+}
+
+message ReopenPollResponse {
+  Poll poll = 1;
+}
+
+message FinalizePollRequest {
+  string poll_id = 1;
+  // Empty: the suggested slot.
+  string slot_id = 2;
+  // Optional details for the plan; its title is the poll's.
+  string emoji = 3;
+  PlanPlace place = 4;
+  // Empty: the poll's description.
+  string description = 5;
+}
+
+message FinalizePollResponse {
+  Poll poll = 1;
+  Plan plan = 2;
+}
+
+message DeletePollRequest {
+  string poll_id = 1;
+}
+
+message DeletePollResponse {}
+
+message LeavePollRequest {
+  string poll_id = 1;
+}
+
+message LeavePollResponse {}
+
+message RemovePollParticipantRequest {
+  string poll_id = 1;
+  string user_id = 2;
+}
+
+message RemovePollParticipantResponse {
+  Poll poll = 1;
+}
+
+message RemindPollParticipantsRequest {
+  string poll_id = 1;
+}
+
+message RemindPollParticipantsResponse {
+  // How many people were reminded.
+  int32 reminded_count = 1;
+}
+
+// ─────────────────────── Countdowns and anniversaries ───────────────────────
+
+// Countdowns to a day, "days since" counters for a friendship or a couple,
+// and friends' birthdays.
+service AnniversaryService {
+  // A countdown to a day: an exam, a festival, a concert, a trip.
+  // Errors: TITLE_REQUIRED, TITLE_TOO_LONG, EMOJI_INVALID, DATE_INVALID (not
+  // a date, or a one-off day that has passed), SHARED_WITH_REQUIRED,
+  // TOO_MANY_SHARED, NOT_FRIENDS, TOO_MANY_COUNTDOWNS, TOO_MANY_PINNED (more
+  // than 3 on the profile), RATE_LIMITED.
+  rpc CreateCountdown(CreateCountdownRequest) returns (CreateCountdownResponse);
+  // Errors: COUNTDOWN_NOT_FOUND (also for someone else's), and the errors of
+  // CreateCountdown.
+  rpc UpdateCountdown(UpdateCountdownRequest) returns (UpdateCountdownResponse);
+  // Errors: COUNTDOWN_NOT_FOUND.
+  rpc DeleteCountdown(DeleteCountdownRequest) returns (DeleteCountdownResponse);
+  // One countdown: the caller's own, one shared with them, or one a friend
+  // pinned to their profile. Errors: COUNTDOWN_NOT_FOUND.
+  rpc GetCountdown(GetCountdownRequest) returns (GetCountdownResponse);
+  // The caller's countdowns and the ones friends shared with them, nearest
+  // day first; days that have passed come last.
+  rpc ListCountdowns(ListCountdownsRequest) returns (ListCountdownsResponse);
+
+  // Starts a "days since we became friends" counter with a friend. It belongs
+  // to both, and both see it. The start defaults to the day the friendship
+  // began. Errors: NOT_FRIENDS, ANNIVERSARY_EXISTS, DATE_INVALID, RATE_LIMITED.
+  rpc StartFriendshipCounter(StartFriendshipCounterRequest) returns (StartFriendshipCounterResponse);
+  // Invites a friend to a couple counter. It only exists once they accept.
+  // Errors: NOT_FRIENDS, ANNIVERSARY_EXISTS (the two already have one, or an
+  // invitation between them is waiting), ALREADY_IN_COUPLE (the caller is),
+  // INVITE_PENDING (the caller already invited someone else), DATE_INVALID,
+  // RATE_LIMITED.
+  rpc InviteCouple(InviteCoupleRequest) returns (InviteCoupleResponse);
+  // Accepts or declines a couple invitation addressed to the caller.
+  // Declining removes it without telling the sender. Accepting withdraws the
+  // invitations either of the two still had out to other people.
+  // Errors: ANNIVERSARY_NOT_FOUND (also when the sender is no longer free:
+  // the invitation is gone, as if withdrawn), ALREADY_IN_COUPLE (the caller is).
+  rpc RespondCoupleInvite(RespondCoupleInviteRequest) returns (RespondCoupleInviteResponse);
+  // Changes a counter; either of the two may. `show_on_profile` is the
+  // caller's own choice: a couple counter appears on both profiles only when
+  // both chose to show it. Errors: ANNIVERSARY_NOT_FOUND (also for an
+  // invitation: those are answered or withdrawn, not edited), DATE_INVALID,
+  // TITLE_TOO_LONG, EMOJI_INVALID, NOT_A_COUPLE (`show_on_profile` on a
+  // friendship counter), RATE_LIMITED.
+  rpc UpdateAnniversary(UpdateAnniversaryRequest) returns (UpdateAnniversaryResponse);
+  // Ends a counter or withdraws an invitation; either of the two may.
+  // Errors: ANNIVERSARY_NOT_FOUND.
+  rpc EndAnniversary(EndAnniversaryRequest) returns (EndAnniversaryResponse);
+  // The caller's counters, and the couple invitations waiting for them.
+  rpc ListAnniversaries(ListAnniversariesRequest) returns (ListAnniversariesResponse);
+
+  // Birthdays of the friends who share theirs, next one first. Read-only:
+  // birthdays come from the account. Only the month and the day are shared.
+  rpc ListBirthdays(ListBirthdaysRequest) returns (ListBirthdaysResponse);
+  rpc GetPlansSettings(GetPlansSettingsRequest) returns (GetPlansSettingsResponse);
+  rpc UpdatePlansSettings(UpdatePlansSettingsRequest) returns (UpdatePlansSettingsResponse);
+}
+
+// Who sees a countdown besides its owner.
+enum CountdownSharing {
+  COUNTDOWN_SHARING_UNSPECIFIED = 0;
+  // Nobody.
+  COUNTDOWN_SHARING_PRIVATE = 1;
+  // The friends in `shared_with`.
+  COUNTDOWN_SHARING_CHOSEN = 2;
+  // Pinned to the profile, where the owner's friends see it.
+  COUNTDOWN_SHARING_PROFILE = 3;
+}
+
+message Countdown {
+  string id = 1;
+  tokuly.common.v1.UserSummary owner = 2;
+  string title = 3;
+  string emoji = 4;
+  // The day counted down to, as written.
+  string date = 5;
+  // Comes back every year (the next occurrence is `next_date`).
+  bool repeats_yearly = 6;
+  // The occurrence being counted down to: `date`, or its next anniversary.
+  string next_date = 7;
+  // Days until `next_date` in the owner's time zone: 0 on the day, negative
+  // once a one-off day has passed.
+  int32 days_left = 8;
+  google.protobuf.Timestamp created_at = 9;
+
+  // Only filled for the owner.
+  CountdownSharing sharing = 10;
+  repeated tokuly.common.v1.UserSummary shared_with = 11;
+}
+
+message CreateCountdownRequest {
+  // 1 to 60 characters.
+  string title = 1;
+  string emoji = 2;
+  // YYYY-MM-DD.
+  string date = 3;
+  bool repeats_yearly = 4;
+  // Unset: private.
+  CountdownSharing sharing = 5;
+  // 1 to 50 friends, for COUNTDOWN_SHARING_CHOSEN.
+  repeated string shared_with_ids = 6;
+}
+
+message CreateCountdownResponse {
+  Countdown countdown = 1;
+}
+
+message UpdateCountdownRequest {
+  string countdown_id = 1;
+  optional string title = 2;
+  optional string emoji = 3;
+  optional string date = 4;
+  optional bool repeats_yearly = 5;
+  // When set (not UNSPECIFIED), replaces the sharing together with `shared_with_ids`.
+  CountdownSharing sharing = 6;
+  repeated string shared_with_ids = 7;
+}
+
+message UpdateCountdownResponse {
+  Countdown countdown = 1;
+}
+
+message DeleteCountdownRequest {
+  string countdown_id = 1;
+}
+
+message DeleteCountdownResponse {}
+
+message GetCountdownRequest {
+  string countdown_id = 1;
+}
+
+message GetCountdownResponse {
+  Countdown countdown = 1;
+}
+
+message ListCountdownsRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListCountdownsResponse {
+  repeated Countdown countdowns = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+enum AnniversaryKind {
+  ANNIVERSARY_KIND_UNSPECIFIED = 0;
+  ANNIVERSARY_KIND_FRIENDSHIP = 1;
+  ANNIVERSARY_KIND_COUPLE = 2;
+}
+
+enum AnniversaryStatus {
+  ANNIVERSARY_STATUS_UNSPECIFIED = 0;
+  // A couple invitation the other person has not answered.
+  ANNIVERSARY_STATUS_PENDING = 1;
+  ANNIVERSARY_STATUS_ACTIVE = 2;
+}
+
+enum MilestoneKind {
+  MILESTONE_KIND_UNSPECIFIED = 0;
+  // `number` days (100, 200, 300, 500, 1000, 2000...).
+  MILESTONE_KIND_DAYS = 1;
+  // 半年: six months.
+  MILESTONE_KIND_HALF_YEAR = 2;
+  // `number` years: every anniversary.
+  MILESTONE_KIND_YEARS = 3;
+}
+
+message Milestone {
+  MilestoneKind kind = 1;
+  int32 number = 2;
+  // The day it falls on.
+  string date = 3;
+  // Days until then, in the caller's time zone.
+  int32 days_left = 4;
+  // "100日記念日", "半年記念日", "2周年".
+  tokuly.common.v1.LocalizedText label = 5;
+}
+
+// A "days since" counter shared by two people.
+message Anniversary {
+  string id = 1;
+  AnniversaryKind kind = 2;
+  AnniversaryStatus status = 3;
+  // The other person.
+  tokuly.common.v1.UserSummary partner = 4;
+  // The day it all began.
+  string start_date = 5;
+  // Counting style: true makes the first day "day 1" (1日目), false counts
+  // the days that have passed since.
+  bool count_start_day = 6;
+  // The count today, in the caller's time zone.
+  int32 days = 7;
+  // Optional name and emoji the two gave it.
+  string title = 8;
+  string emoji = 9;
+  // For a pending invitation: the caller sent it.
+  bool invited_by_me = 10;
+  // The caller's / the partner's choice to show it on their profile. It is
+  // shown on both profiles when both are true (friendship counters are never
+  // shown on profiles).
+  bool show_on_profile = 11;
+  bool partner_shows_on_profile = 12;
+  // The next few milestones.
+  repeated Milestone upcoming = 13;
+  google.protobuf.Timestamp created_at = 14;
+}
+
+message StartFriendshipCounterRequest {
+  string user_id = 1;
+  // Empty: the day the two became friends.
+  string start_date = 2;
+}
+
+message StartFriendshipCounterResponse {
+  Anniversary anniversary = 1;
+}
+
+message InviteCoupleRequest {
+  string user_id = 1;
+  // The day the two got together; today when empty. Not in the future.
+  string start_date = 2;
+}
+
+message InviteCoupleResponse {
+  Anniversary anniversary = 1;
+}
+
+message RespondCoupleInviteRequest {
+  string anniversary_id = 1;
+  bool accept = 2;
+}
+
+message RespondCoupleInviteResponse {
+  // Unset when declined.
+  Anniversary anniversary = 1;
+}
+
+message UpdateAnniversaryRequest {
+  string anniversary_id = 1;
+  optional string start_date = 2;
+  optional bool count_start_day = 3;
+  // At most 40 characters.
+  optional string title = 4;
+  optional string emoji = 5;
+  optional bool show_on_profile = 6;
+}
+
+message UpdateAnniversaryResponse {
+  Anniversary anniversary = 1;
+}
+
+message EndAnniversaryRequest {
+  string anniversary_id = 1;
+}
+
+message EndAnniversaryResponse {}
+
+message ListAnniversariesRequest {}
+
+message ListAnniversariesResponse {
+  // Active counters and invitations (sent and received), oldest start first.
+  repeated Anniversary anniversaries = 1;
+}
+
+// A friend's birthday. The year of birth is never shared.
+message Birthday {
+  tokuly.common.v1.UserSummary user = 1;
+  int32 month = 2;
+  int32 day = 3;
+  // The next time it comes around, and how many days until then (0 = today),
+  // in the caller's time zone.
+  string next_date = 4;
+  int32 days_left = 5;
+}
+
+message ListBirthdaysRequest {}
+
+message ListBirthdaysResponse {
+  repeated Birthday birthdays = 1;
+}
+
+// The caller's preferences in this domain.
+message PlansSettings {
+  // Let friends see my birthday (month and day) in their calendar. Off by default.
+  bool share_birthday = 1;
+}
+
+message GetPlansSettingsRequest {}
+
+message GetPlansSettingsResponse {
+  PlansSettings settings = 1;
+}
+
+message UpdatePlansSettingsRequest {
+  optional bool share_birthday = 1;
+}
+
+message UpdatePlansSettingsResponse {
+  PlansSettings settings = 1;
+}
+
+// ───────────────────────────── Calendar ─────────────────────────────
+
+// One month of everything dated.
+service CalendarService {
+  // Everything dated for the caller in a month, in one list sorted by day and
+  // time: plans, poll deadlines, countdowns, anniversary milestones and
+  // birthdays. Errors: MONTH_INVALID, TIME_ZONE_INVALID.
+  rpc GetCalendar(GetCalendarRequest) returns (GetCalendarResponse);
+}
+
+enum CalendarEntryKind {
+  CALENDAR_ENTRY_KIND_UNSPECIFIED = 0;
+  CALENDAR_ENTRY_KIND_PLAN = 1;
+  CALENDAR_ENTRY_KIND_POLL_DEADLINE = 2;
+  CALENDAR_ENTRY_KIND_COUNTDOWN = 3;
+  CALENDAR_ENTRY_KIND_ANNIVERSARY = 4;
+  CALENDAR_ENTRY_KIND_BIRTHDAY = 5;
+}
+
+message CalendarEntry {
+  CalendarEntryKind kind = 1;
+  // The day it is on, in the requested time zone.
+  string date = 2;
+  // Set for entries with a time (plans with a start time, poll deadlines);
+  // unset entries are all-day and sort first within their day.
+  google.protobuf.Timestamp start_at = 3;
+  // User-written title: the plan, poll or countdown title, or the name of an
+  // anniversary. Empty for birthdays.
+  string title = 4;
+  // Server-written description: "100日記念日", "〇〇の誕生日", "回答しめきり".
+  tokuly.common.v1.LocalizedText label = 5;
+  string emoji = 6;
+  // ID of the plan, poll, countdown or anniversary; empty for birthdays.
+  string ref_id = 7;
+  // Whose birthday, the partner of an anniversary, or the owner of a
+  // countdown shared with the caller.
+  tokuly.common.v1.UserSummary user = 8;
+  // Where the entry leads inside the app.
+  string path = 9;
+  // Plans only: the caller's answer.
+  Rsvp rsvp = 10;
+}
+
+message GetCalendarRequest {
+  // YYYY-MM.
+  string month = 1;
+  // IANA time zone deciding which day a time falls on; defaults to the caller's.
+  string time_zone = 2;
+}
+
+message GetCalendarResponse {
+  repeated CalendarEntry entries = 1;
+}
+
+// ───────────────────────────── Realtime ─────────────────────────────
+
+// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.plans),
+// always to individual users. Plan and poll events carry IDs and counters,
+// never names or comments, so the same event is right for every participant.
 message PlansEvent {
-  // Placeholder so the realtime envelope compiles; replace with a oneof of real events.
-  tokuly.common.v1.SubjectRef subject = 1;
+  oneof event {
+    // A friend's status the recipient may see was set, changed or ended.
+    FreeStatusChanged free_status_changed = 1;
+    // To the owner of a status: someone answered "あそぼ!".
+    FreeAnswer free_answer = 2;
+    // A plan the recipient is in changed (or they were invited / removed).
+    PlanChanged plan_changed = 3;
+    PlanRsvpChanged plan_rsvp_changed = 4;
+    ChecklistChanged checklist_changed = 5;
+    ExpensesChanged expenses_changed = 6;
+    // A poll the recipient takes part in changed: live tallies.
+    PollChanged poll_changed = 7;
+    // A counter of the recipient was started, invited to, changed or ended.
+    AnniversaryChanged anniversary_changed = 8;
+  }
+}
+
+message FreeStatusChanged {
+  string user_id = 1;
+  // Unset when the status ended.
+  FreeStatus status = 2;
+}
+
+enum PlanChange {
+  PLAN_CHANGE_UNSPECIFIED = 0;
+  // The recipient was invited.
+  PLAN_CHANGE_INVITED = 1;
+  // Details changed (title, time, place, settings).
+  PLAN_CHANGE_UPDATED = 2;
+  PLAN_CHANGE_CANCELLED = 3;
+  // People were invited, removed or left, or roles changed.
+  PLAN_CHANGE_PARTICIPANTS = 4;
+  // The recipient is no longer in the plan, or the plan is gone.
+  PLAN_CHANGE_REMOVED = 5;
+}
+
+message PlanChanged {
+  string plan_id = 1;
+  PlanChange change = 2;
+}
+
+message PlanRsvpChanged {
+  string plan_id = 1;
+  string user_id = 2;
+  Rsvp rsvp = 3;
+  PlanCounts counts = 4;
+}
+
+message ChecklistChanged {
+  string plan_id = 1;
+  // The item as it is now; unset when it was removed.
+  ChecklistItem item = 2;
+  string removed_item_id = 3;
+}
+
+message ExpensesChanged {
+  string plan_id = 1;
+  // The expense as it is now; unset when one was removed or a transfer was
+  // marked as done / taken back.
+  Expense expense = 2;
+  string removed_expense_id = 3;
+  // A settlement was recorded or removed: fetch the split again.
+  bool settlements_changed = 4;
+}
+
+message PollSlotTally {
+  string slot_id = 1;
+  int32 yes_count = 2;
+  int32 maybe_count = 3;
+  int32 no_count = 4;
+}
+
+message PollChanged {
+  string poll_id = 1;
+  PollStatus status = 2;
+  repeated PollSlotTally tallies = 3;
+  int32 answered_count = 4;
+  string best_slot_id = 5;
+  // Set once finalized.
+  string plan_id = 6;
+  // The poll was deleted.
+  bool deleted = 7;
+  // Texts, slots, deadline or participants changed: fetch the poll again.
+  bool details_changed = 8;
+}
+
+message AnniversaryChanged {
+  // The counter as the recipient sees it; unset when it ended.
+  Anniversary anniversary = 1;
+  string ended_anniversary_id = 2;
 }
