@@ -161,7 +161,7 @@ function InstalledPacks() {
         (data) => data && { ...data, pages: data.pages.map((page, index) => ({ ...page, packs: index === 0 ? ordered : [] })) },
       ),
     onError: (error) => {
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "stamps" }));
       return queryClient.invalidateQueries({ queryKey: stampKeys.installed });
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: stampKeys.libraryHome }),
@@ -242,7 +242,7 @@ function PersonalStamps({ onOpen }: { onOpen: OpenStamp }) {
     mutationFn: (ordered: stamp.Stamp[]) => libraryClient().reorderPersonalStamps({ stampIds: ordered.map((item) => item.stampRef!.id) }),
     onMutate: (ordered) => queryClient.setQueryData(stampKeys.personal, ordered),
     onError: (error) => {
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "stamps" }));
       return queryClient.invalidateQueries({ queryKey: stampKeys.personal });
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: stampKeys.libraryHome }),
@@ -338,7 +338,7 @@ function Recents({ onOpen }: { onOpen: OpenStamp }) {
         { queryKey: ["stamp", "library", "recents"] },
         (data) => data && { ...data, stamps: data.stamps.filter((item) => item.stampRef?.id !== stampId) },
       ),
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "stamps" })),
     onSettled: refresh,
   });
   const clear = useMutation({
@@ -348,7 +348,7 @@ function Recents({ onOpen }: { onOpen: OpenStamp }) {
       setTidying(false);
       toast.success(t("toast.recentsCleared"));
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "stamps" })),
     onSettled: refresh,
   });
 
