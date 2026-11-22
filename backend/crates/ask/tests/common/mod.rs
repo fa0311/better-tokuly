@@ -315,8 +315,23 @@ impl Ctx {
         self.app.user(name).await
     }
 
-    /// `count` friends of `user`, each befriended through the social API.
+    /// `count` friends of `user` who can be picked in a compliment poll:
+    /// each is befriended through the social API and has two more friends
+    /// of their own (the same two bystanders), which makes the three
+    /// someone needs before a flame can stay anonymous.
     pub async fn friends_of(&self, user: &TestUser, count: usize) -> Vec<TestUser> {
+        let bystanders = [self.app.user("Bystander0").await, self.app.user("Bystander1").await];
+        let friends = self.lone_friends_of(user, count).await;
+        for friend in &friends {
+            for bystander in &bystanders {
+                self.befriend(friend, bystander).await;
+            }
+        }
+        friends
+    }
+
+    /// `count` friends of `user` who have no other friends.
+    pub async fn lone_friends_of(&self, user: &TestUser, count: usize) -> Vec<TestUser> {
         let mut friends = Vec::with_capacity(count);
         for n in 0..count {
             let friend = self.app.user(&format!("Friend{n}")).await;
@@ -324,6 +339,24 @@ impl Ctx {
             friends.push(friend);
         }
         friends
+    }
+
+    /// Gives `user` three friends: enough for their friends to send them
+    /// something anonymously.
+    pub async fn crowd(&self, user: &TestUser) -> Vec<TestUser> {
+        self.lone_friends_of(user, 3).await
+    }
+
+    /// Suspends `user`'s account and lets this domain hear about it.
+    pub async fn suspend(&self, user: &TestUser) -> Vec<Event> {
+        self.app.identity.set_banned(user.id, Some("harassment")).await.expect("suspend");
+        self.deliver().await
+    }
+
+    /// Ends the suspension of `user`'s account.
+    pub async fn reinstate(&self, user: &TestUser) -> Vec<Event> {
+        self.app.identity.set_banned(user.id, None).await.expect("reinstate");
+        self.deliver().await
     }
 
     /// Gives `user` coins to spend.

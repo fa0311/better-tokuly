@@ -51,6 +51,7 @@ async fn a_deleted_account_takes_its_box_along_and_leaves_what_it_sent_anonymous
     let ctx = start().await;
     let (leaver, stayer) = (ctx.user(SENDER).await, ctx.user("Stayer").await);
     ctx.befriend(&leaver, &stayer).await;
+    ctx.crowd(&leaver).await;
     ctx.open_box(&leaver, true).await;
     ctx.open_box(&stayer, true).await;
 
@@ -68,7 +69,7 @@ async fn a_deleted_account_takes_its_box_along_and_leaves_what_it_sent_anonymous
     // Flames in both directions (the bank is loaded by the first poll).
     let _ = ctx.call::<_, GetRoundResponse>(POLLS, "GetRound", &leaver, &GetRoundRequest::default()).await;
     for (receiver, sender) in [(leaver.id, stayer.id), (stayer.id, leaver.id)] {
-        sqlx::query("INSERT INTO ask_flames (receiver_id, sender_id, question_id) SELECT $1, $2, id FROM ask_poll_questions ORDER BY id LIMIT 1")
+        sqlx::query("INSERT INTO ask_flames (receiver_id, sender_id, question_id, delivered_at) SELECT $1, $2, id, now() FROM ask_poll_questions ORDER BY id LIMIT 1")
             .bind(receiver)
             .bind(sender)
             .execute(&ctx.app.core.db)
@@ -106,7 +107,7 @@ async fn a_deleted_account_takes_its_box_along_and_leaves_what_it_sent_anonymous
         && e.data["id"] == serde_json::json!(received.id)
         && e.data["doc"].is_null()));
 
-    // What they sent stays with its recipient, anonymous now.
+    // What they sent stays with its recipient, without the name.
     let inbox = ctx.inbox(&stayer, QuestionFolder::QUESTION_FOLDER_INBOX).await;
     assert_eq!(inbox.len(), 2);
     assert!(inbox.iter().all(|q| q.anonymous && q.asker.is_unset()), "the signature went with the account");
@@ -279,6 +280,123 @@ async fn a_deleted_upload_leaves_the_text_and_takes_an_image_only_answer_away() 
     let question = inbox.iter().find(|q| q.id == pictured.question.as_option().unwrap().id).unwrap();
     assert!(question.image.is_unset());
     assert_eq!(question.text, "この写真どう?");
+}
+
+#[tokio::test]
+async fn the_purge_counts_from_the_day_something_was_removed() {
+    let ctx = start().await;
+    let (owner, asker) = (ctx.user("Owner").await, ctx.user("Asker").await);
+    ctx.befriend(&owner, &asker).await;
+    ctx.crowd(&owner).await;
+    ctx.open_box(&owner, true).await;
+    ctx.update_settings(&owner, UpdateSettingsRequest { allow_images: Some(true), ..Default::default() }).await;
+    let db = &ctx.app.core.db;
+    let exists = |table: &'static str, id: &str| {
+        let (db, id) = (db.clone(), Uuid::parse_str(id).unwrap());
+        async move {
+            let found: bool =
+                sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT EXISTS(SELECT 1 FROM {table} WHERE id = $1)")))
+                    .bind(id)
+                    .fetch_one(&db)
+                    .await
+                    .unwrap();
+            found
+        }
+    };
+
+    // A question that sat in the box for most of a year and was deleted
+    // today, and a response (with a picture) deleted today too.
+    let question = ctx.ask(&asker, &owner, "ずっと前の質問").await;
+    let prompt = post_prompt(&ctx, &owner, "写真で答えてね").await;
+    let picture = ready_image(&ctx.app.core, asker.id, AssetPurpose::ASSET_PURPOSE_NOTE_IMAGE).await.unwrap();
+    let request = RespondToPromptRequest {
+        prompt_id: prompt.id.clone(),
+        text: "これ!".into(),
+        image_asset_id: picture.id.to_string(),
+        ..Default::default()
+    };
+    let response: RespondToPromptResponse = ctx.call(PROMPTS, "RespondToPrompt", &asker, &request).await.unwrap();
+    let response = response.response.as_option().unwrap().clone();
+    ctx.deliver().await;
+    for table in ["ask_questions", "ask_prompt_responses"] {
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "UPDATE {table} SET created_at = created_at - interval '300 days' WHERE owner_id = $1"
+        )))
+        .bind(owner.id)
+        .execute(db)
+        .await
+        .unwrap();
+    }
+    let _: DeleteQuestionResponse = ctx
+        .call(
+            BOX,
+            "DeleteQuestion",
+            &owner,
+            &DeleteQuestionRequest { question_id: question.id.clone(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    let _: DeleteResponseResponse = ctx
+        .call(
+            PROMPTS,
+            "DeleteResponse",
+            &owner,
+            &DeleteResponseRequest { response_id: response.id.clone(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+
+    // Moderators may still need them: a report filed today is about them.
+    ctx.ask.purge().await.unwrap();
+    assert!(exists("ask_questions", &question.id).await, "kept for the retention after its removal, however old it is");
+    assert!(exists("ask_prompt_responses", &response.id).await);
+    assert!(tokuly_media::assets::is_attached(&ctx.app.core, picture.id).await.unwrap());
+
+    // Half a year after the removal they go, and the picture is let go of.
+    for table in ["ask_questions", "ask_prompt_responses"] {
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "UPDATE {table} SET removed_at = removed_at - interval '181 days' WHERE owner_id = $1"
+        )))
+        .bind(owner.id)
+        .execute(db)
+        .await
+        .unwrap();
+    }
+    ctx.ask.purge().await.unwrap();
+    assert!(!exists("ask_questions", &question.id).await);
+    assert!(!exists("ask_prompt_responses", &response.id).await);
+    assert!(!tokuly_media::assets::is_attached(&ctx.app.core, picture.id).await.unwrap());
+
+    // A deleted prompt takes its responses along once it is purged.
+    let kept = RespondToPromptRequest {
+        prompt_id: prompt.id.clone(),
+        text: "のこってた回答".into(),
+        signed: true,
+        ..Default::default()
+    };
+    let other = ctx.user("Other").await;
+    ctx.befriend(&owner, &other).await;
+    let kept: RespondToPromptResponse = ctx.call(PROMPTS, "RespondToPrompt", &other, &kept).await.unwrap();
+    let kept = kept.response.as_option().unwrap().clone();
+    ctx.deliver().await;
+    let _: DeletePromptResponse = ctx
+        .call(
+            PROMPTS,
+            "DeletePrompt",
+            &owner,
+            &DeletePromptRequest { prompt_id: prompt.id.clone(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    ctx.ask.purge().await.unwrap();
+    assert!(exists("ask_prompts", &prompt.id).await && exists("ask_prompt_responses", &kept.id).await);
+    sqlx::query("UPDATE ask_prompts SET removed_at = removed_at - interval '181 days' WHERE id = $1")
+        .bind(Uuid::parse_str(&prompt.id).unwrap())
+        .execute(db)
+        .await
+        .unwrap();
+    ctx.ask.purge().await.unwrap();
+    assert!(!exists("ask_prompts", &prompt.id).await && !exists("ask_prompt_responses", &kept.id).await);
 }
 
 #[tokio::test]

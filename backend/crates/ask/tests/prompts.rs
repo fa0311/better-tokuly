@@ -160,6 +160,7 @@ async fn friends_respond_once_and_an_anonymous_response_names_nobody() {
         (ctx.user("Owner").await, ctx.user(RESPONDER).await, ctx.user("Signer").await, ctx.user("Stranger").await);
     ctx.befriend(&owner, &anonymous).await;
     ctx.befriend(&owner, &signer).await;
+    ctx.crowd(&owner).await;
     let prompt = post(&ctx, &owner, "私の第一印象は?").await;
 
     // A prompt is for friends.
@@ -422,6 +423,7 @@ async fn a_blocked_responder_is_told_exactly_what_anyone_is_told() {
     let (owner, blocked, other) = (ctx.user("Owner").await, ctx.user(RESPONDER).await, ctx.user("Other").await);
     ctx.befriend(&owner, &blocked).await;
     ctx.befriend(&owner, &other).await;
+    ctx.crowd(&owner).await;
     let first = post(&ctx, &owner, "一つ目のお題").await;
     let unkind = respond(&ctx, &blocked, &first.id, "いやな回答", false).await.unwrap();
     let request = BlockSenderRequest {
@@ -566,6 +568,7 @@ async fn moderators_see_who_wrote_a_response_and_reports_reach_them() {
     let moderator = ctx.app.user_with_roles("Moderator", &["moderator"]).await;
     ctx.befriend(&owner, &responder).await;
     ctx.befriend(&owner, &friend).await;
+    ctx.crowd(&owner).await;
     let prompt = post(&ctx, &owner, "私の第一印象は?").await;
     let response = respond(&ctx, &responder, &prompt.id, "ひどいことを書いた回答", false).await.unwrap();
 
@@ -582,6 +585,24 @@ async fn moderators_see_who_wrote_a_response_and_reports_reach_them() {
         .await
         .unwrap_err();
     assert_eq!(refused.reason, "FORBIDDEN");
+    // Staff who are a party to it are refused: here, a moderator who wrote
+    // the response themselves.
+    let writing_moderator = ctx.app.user_with_roles("Writer", &["moderator"]).await;
+    ctx.befriend(&owner, &writing_moderator).await;
+    let own = respond(&ctx, &writing_moderator, &prompt.id, "モデレーターの回答", false).await.unwrap();
+    let own_request = InspectPromptResponseRequest { response_id: own.id.clone(), ..Default::default() };
+    assert_eq!(
+        ctx.call::<_, InspectPromptResponseResponse>(
+            MODERATION,
+            "InspectPromptResponse",
+            &writing_moderator,
+            &own_request
+        )
+        .await
+        .unwrap_err()
+        .reason,
+        "CONFLICT_OF_INTEREST"
+    );
     let missing = InspectPromptResponseRequest { response_id: Uuid::now_v7().to_string(), ..Default::default() };
     assert_eq!(
         ctx.call::<_, InspectPromptResponseResponse>(MODERATION, "InspectPromptResponse", &moderator, &missing)
@@ -608,9 +629,39 @@ async fn moderators_see_who_wrote_a_response_and_reports_reach_them() {
     // A takedown removes the response for everyone, its writer included.
     ctx.announce("admin.content.removed", serde_json::json!({ "subject_type": kind as i32, "subject_id": response.id, "reason": "harassment", "moderator_id": moderator.id }))
         .await;
-    assert!(responses(&ctx, &owner, &prompt.id, ResponseFilter::RESPONSE_FILTER_RECEIVED).await.is_empty());
+    let left = responses(&ctx, &owner, &prompt.id, ResponseFilter::RESPONSE_FILTER_RECEIVED).await;
+    assert!(left.iter().all(|r| r.id != response.id), "the response that was taken down is gone");
     assert!(page_of(&ctx, &responder, &prompt.id).await.unwrap().my_response.is_unset());
     // And a prompt goes with everything on it.
     ctx.announce("admin.content.removed", serde_json::json!({ "subject_type": kind as i32, "subject_id": prompt.id, "reason": "bullying", "moderator_id": moderator.id })).await;
     assert_eq!(page_of(&ctx, &owner, &prompt.id).await.unwrap_err().reason, "PROMPT_NOT_FOUND");
+}
+
+#[tokio::test]
+async fn an_anonymous_response_needs_an_owner_with_three_friends() {
+    let ctx = start().await;
+    let (owner, first, second) = (ctx.user("Owner").await, ctx.user(RESPONDER).await, ctx.user("Second").await);
+    ctx.befriend(&owner, &first).await;
+    ctx.befriend(&owner, &second).await;
+    let prompt = post(&ctx, &owner, "私の第一印象は?").await;
+
+    // With two friends, "one of your friends wrote this" is nearly a name.
+    let page = page_of(&ctx, &first, &prompt.id).await.unwrap();
+    let shown = page.prompt.as_option().unwrap();
+    assert!(shown.can_respond && !shown.anonymous_available, "a friend can respond, but not anonymously");
+    let refused = respond(&ctx, &first, &prompt.id, "だれでしょう", false).await.unwrap_err();
+    assert_eq!((refused.code.as_str(), refused.reason.as_str()), ("failed_precondition", "AUDIENCE_TOO_SMALL"));
+    assert!(responses(&ctx, &owner, &prompt.id, ResponseFilter::RESPONSE_FILTER_RECEIVED).await.is_empty());
+    // Under their name it goes through.
+    let signed = respond(&ctx, &first, &prompt.id, "名前つきで", true).await.unwrap();
+    assert!(!signed.anonymous);
+
+    // A third friend makes the crowd.
+    ctx.lone_friends_of(&owner, 1).await;
+    let page = page_of(&ctx, &second, &prompt.id).await.unwrap();
+    assert!(page.prompt.as_option().unwrap().anonymous_available);
+    let anonymous = respond(&ctx, &second, &prompt.id, "やさしそう!", false).await.unwrap();
+    assert!(anonymous.anonymous);
+    // The owner is not asked about their own prompt.
+    assert!(!page_of(&ctx, &owner, &prompt.id).await.unwrap().prompt.as_option().unwrap().anonymous_available);
 }

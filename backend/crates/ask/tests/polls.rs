@@ -558,6 +558,7 @@ async fn the_second_hint_is_the_school_or_the_months_of_friendship() {
     let ctx = start_with(AskConfig { round_cooldown_seconds: 0, ..Default::default() }).await;
     let (schooled, old_friend) = (ctx.user("Schooled").await, ctx.user("Oldfriend").await);
     let receiver = ctx.user("Receiver").await;
+    ctx.lone_friends_of(&receiver, 1).await;
     for voter in [&schooled, &old_friend] {
         ctx.befriend(voter, &receiver).await;
         ctx.friends_of(voter, 3).await;
@@ -593,22 +594,89 @@ async fn the_second_hint_is_the_school_or_the_months_of_friendship() {
 }
 
 #[tokio::test]
-async fn a_sender_can_refuse_hints_and_an_interrupted_purchase_is_completed() {
+async fn what_a_flame_sells_is_fixed_when_the_vote_is_cast() {
     let ctx = start_with(AskConfig { round_cooldown_seconds: 0, ..Default::default() }).await;
+    let voter = ctx.user(VOTER).await;
+    let friends = ctx.friends_of(&voter, 4).await;
+    let receiver = &friends[0];
+    let vote = async || {
+        let round = ctx.round(&voter).await;
+        ctx.vote(&voter, &poll_id(&round), &receiver.id.to_string()).await;
+    };
+
+    // One vote with hints on, one after the voter switched them off.
+    vote().await;
+    ctx.update_settings(&voter, UpdateSettingsRequest { allow_hints: Some(false), ..Default::default() }).await;
+    vote().await;
+    let flames = ctx.flames(receiver).await;
+    let (silent, selling) = (flames[0].clone(), flames[1].clone());
+    assert_eq!((selling.next_hint_price, silent.next_hint_price), (30, 0));
+
+    // What the receiver can find out without paying, now and after every
+    // change to the voter's account: always the same.
+    let listed = async || ctx.json(POLLS, "ListFlames", receiver, &ListFlamesRequest::default()).await;
+    let probe = async || {
+        (
+            buy_hint(&ctx, receiver, &selling.id, "probe-selling").await.unwrap_err().reason,
+            buy_hint(&ctx, receiver, &silent.id, "probe-silent").await.unwrap_err().reason,
+        )
+    };
+    let flames_before = listed().await;
+    let probed_before = probe().await;
+    assert_eq!(probed_before, ("INSUFFICIENT_COINS".to_owned(), "HINTS_UNAVAILABLE".to_owned()));
+
+    // The voter switches hints back on: the flame cast without them stays
+    // without them.
+    ctx.update_settings(&voter, UpdateSettingsRequest { allow_hints: Some(true), ..Default::default() }).await;
+    assert_eq!((listed().await, probe().await), (flames_before.clone(), probed_before.clone()));
+    // ... changes their name and school: the hints do not follow.
+    sqlx::query("UPDATE users SET display_name = 'Someone Else', school_name = '別の高校' WHERE id = $1")
+        .bind(voter.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    assert_eq!((listed().await, probe().await), (flames_before.clone(), probed_before.clone()));
+    // ... is suspended.
+    ctx.suspend(&voter).await;
+    assert_eq!(
+        (listed().await, probe().await),
+        (flames_before.clone(), probed_before.clone()),
+        "a suspension shows on a flame's price list or on a purchase"
+    );
+
+    // The hints are sold as they were on the day of the vote.
+    ctx.give_coins(receiver, 100).await;
+    let first = buy_hint(&ctx, receiver, &selling.id, "purchase-0001").await.unwrap();
+    assert_eq!((first.coins_spent, first.hint.as_option().unwrap().value.as_str()), (30, "Z"));
+    // ... and still after the account is gone.
+    ctx.announce("identity.user.deleted", serde_json::json!({ "user_id": voter.id })).await;
+    let after_deletion = ctx.flames(receiver).await;
+    assert_eq!((after_deletion[1].hints.len(), after_deletion[1].next_hint_price), (1, 60));
+    assert_eq!(after_deletion[0].next_hint_price, 0);
+    let second = buy_hint(&ctx, receiver, &selling.id, "purchase-0002").await.unwrap();
+    assert_eq!(
+        (second.coins_spent, second.hint.as_option().unwrap().kind.as_known()),
+        (60, Some(HintKind::HINT_KIND_FRIEND_MONTHS))
+    );
+    let unavailable = buy_hint(&ctx, receiver, &silent.id, "purchase-0003").await.unwrap_err();
+    assert_eq!((unavailable.code.as_str(), unavailable.reason.as_str()), ("failed_precondition", "HINTS_UNAVAILABLE"));
+    assert_eq!(ctx.coins(receiver).await, 10, "nothing is charged for a hint that is not given");
+}
+
+#[tokio::test]
+async fn a_purchase_interrupted_after_the_charge_is_completed_without_paying_again() {
+    let ctx = start().await;
     let voter = ctx.user(VOTER).await;
     let friends = ctx.friends_of(&voter, 4).await;
     let receiver = &friends[0];
     ctx.give_coins(receiver, 100).await;
     let round = ctx.round(&voter).await;
     ctx.vote(&voter, &poll_id(&round), &receiver.id.to_string()).await;
-    let round = ctx.round(&voter).await;
-    ctx.vote(&voter, &poll_id(&round), &receiver.id.to_string()).await;
-    let flames = ctx.flames(receiver).await;
-    let (interrupted, refused) = (&flames[0], &flames[1]);
+    let flame = ctx.flames(receiver).await.remove(0);
 
-    // A purchase that was charged but stopped before the hint was marked
-    // paid: the charge is in the wallet, the hint waits unpaid.
-    let flame_id = Uuid::parse_str(&interrupted.id).unwrap();
+    // The wallet was charged, and the request stopped before the hint was
+    // stored.
+    let flame_id = Uuid::parse_str(&flame.id).unwrap();
     tokuly_wallet::ledger::spend(
         &ctx.app.core,
         receiver.id,
@@ -619,26 +687,79 @@ async fn a_sender_can_refuse_hints_and_an_interrupted_purchase_is_completed() {
     )
     .await
     .unwrap();
-    sqlx::query("INSERT INTO ask_flame_hints (flame_id, position, kind, value, price, idempotency_key) VALUES ($1, 0, 1, 'Z', 30, 'interrupted-key')")
-        .bind(flame_id)
-        .execute(&ctx.app.core.db)
-        .await
-        .unwrap();
     assert_eq!(ctx.coins(receiver).await, 70);
-    assert!(ctx.flames(receiver).await[0].hints.is_empty(), "an unpaid hint is shown to nobody");
+    assert!(ctx.flames(receiver).await[0].hints.is_empty());
 
-    // Now the sender switches hints off.
-    ctx.update_settings(&voter, UpdateSettingsRequest { allow_hints: Some(false), ..Default::default() }).await;
-    let unavailable = buy_hint(&ctx, receiver, &refused.id, "refused-key-1").await.unwrap_err();
-    assert_eq!((unavailable.code.as_str(), unavailable.reason.as_str()), ("failed_precondition", "HINTS_UNAVAILABLE"));
-    assert_eq!(ctx.coins(receiver).await, 70, "nothing is charged for a hint that is not given");
-    assert_eq!(ctx.flames(receiver).await[1].next_hint_price, 30, "the price shown does not depend on the sender");
-
-    // The interrupted purchase is still completed: paid once, hint delivered.
-    let completed = buy_hint(&ctx, receiver, &interrupted.id, "retry-after-crash").await.unwrap();
+    // The next attempt gets the hint that was paid for.
+    let completed = buy_hint(&ctx, receiver, &flame.id, "retry-after-crash").await.unwrap();
     assert_eq!((completed.coins_spent, completed.hint.as_option().unwrap().value.as_str()), (0, "Z"));
     assert_eq!(ctx.coins(receiver).await, 70, "the buyer paid once");
     assert_eq!(ctx.flames(receiver).await[0].hints.len(), 1);
+    // And the one after that buys the second.
+    let second = buy_hint(&ctx, receiver, &flame.id, "second-purchase").await.unwrap();
+    assert_eq!(second.coins_spent, 60);
+    assert_eq!(ctx.coins(receiver).await, 10);
+}
+
+#[tokio::test]
+async fn only_friends_with_three_friends_of_their_own_are_picked() {
+    let ctx = start().await;
+    let voter = ctx.user("Voter").await;
+    // Four friends who have nobody but the voter: a flame for one of them
+    // could only have come from the voter.
+    let lonely = ctx.lone_friends_of(&voter, 4).await;
+    let too_few =
+        ctx.call::<_, GetRoundResponse>(POLLS, "GetRound", &voter, &GetRoundRequest::default()).await.unwrap_err();
+    assert_eq!((too_few.code.as_str(), too_few.reason.as_str()), ("failed_precondition", "NOT_ENOUGH_FRIENDS"));
+
+    // With four friends who have a crowd of their own, a round starts, and
+    // the lonely ones never appear in it.
+    let friends = ctx.friends_of(&voter, 4).await;
+    let mut round = ctx.round(&voter).await;
+    for _ in 0..3 {
+        assert_eq!(choices(&round).into_iter().collect::<HashSet<_>>(), ids(&friends));
+        round = skip(&ctx, &voter, &poll_id(&round)).await.unwrap();
+    }
+    assert_eq!(shuffle(&ctx, &voter, &poll_id(&round)).await.unwrap_err().reason, "NOT_ENOUGH_FRIENDS");
+
+    // A lonely friend who gets two more friends joins in.
+    ctx.lone_friends_of(&lonely[0], 2).await;
+    let shuffled = choices(&shuffle(&ctx, &voter, &poll_id(&round)).await.unwrap());
+    assert!(shuffled.contains(&lonely[0].id.to_string()));
+
+    // Someone who lost their crowd while the poll was waiting cannot be
+    // voted for; the poll is repaired the next time it is looked at.
+    let picked = &friends[0];
+    let round = ctx.round(&voter).await;
+    let shown = choices(&round);
+    let target = if shown.contains(&picked.id.to_string()) { picked } else { &friends[1] };
+    let bystanders: Vec<Uuid> =
+        sqlx::query_scalar("SELECT friend_id FROM ask_friend_links WHERE user_id = $1 AND friend_id <> $2")
+            .bind(target.id)
+            .bind(voter.id)
+            .fetch_all(&ctx.app.core.db)
+            .await
+            .unwrap();
+    for bystander in bystanders {
+        let _: tokuly_proto::social::RemoveFriendResponse = ctx
+            .call(
+                "tokuly.social.v1.FriendService",
+                "RemoveFriend",
+                target,
+                &tokuly_proto::social::RemoveFriendRequest { user_id: bystander.to_string(), ..Default::default() },
+            )
+            .await
+            .unwrap();
+    }
+    ctx.deliver().await;
+    let request = VoteRequest { poll_id: poll_id(&round), user_id: target.id.to_string(), ..Default::default() };
+    let refused = ctx.call::<_, VoteResponse>(POLLS, "Vote", &voter, &request).await.unwrap_err();
+    assert_eq!((refused.code.as_str(), refused.reason.as_str()), ("invalid_argument", "CHOICE_INVALID"));
+    assert!(ctx.flames(target).await.is_empty());
+    let repaired = ctx.round(&voter).await;
+    assert_eq!(poll_id(&repaired), poll_id(&round), "the same poll");
+    assert!(!choices(&repaired).contains(&target.id.to_string()), "with someone else in their seat");
+    assert_eq!(repaired.poll.as_option().unwrap().shuffles_left, round.poll.as_option().unwrap().shuffles_left);
 }
 
 #[tokio::test]

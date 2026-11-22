@@ -4,17 +4,19 @@
 //!   anything derived from them.
 //! - A sender the recipient blocked cannot tell: every answer they get is
 //!   the one anyone would get.
-//! - Blocking tells the recipient nothing either.
-//! - Moderators, and only they, can see who sent something.
+//! - Blocking tells the recipient nothing either, and works on anything
+//!   that reached them, whatever became of it since.
+//! - Moderators, and only they, can see who sent something; not when it
+//!   was sent to them or by them.
+//!
+//! What a sender's account does to what they sent is in `account_state.rs`.
 mod common;
 
 use common::*;
 use tokuly_core::events::Event;
-use tokuly_media::testing::ready_image;
 use tokuly_proto::{
     ask::{ask_event::Event as Push, *},
     common::SubjectType,
-    media::AssetPurpose,
 };
 use tokuly_testkit::TestUser;
 use uuid::Uuid;
@@ -575,101 +577,114 @@ async fn a_moderator_is_an_ordinary_owner_of_their_own_box() {
         &ctx.json(BOX, "ListInbox", &moderator, &ListInboxRequest::default()).await,
         "a moderator's own inbox",
     );
+    // Nor do the staff tools open it for them: a moderator does not look up
+    // who wrote to them, or what they wrote themselves.
+    let other_box = ctx.user("Owner").await;
+    ctx.open_box(&other_box, true).await;
+    let own_words = ctx.ask(&moderator, &other_box, "モデレーターが書いた質問").await;
+    for id in [&question.id, &own_words.id] {
+        let request = InspectQuestionRequest { question_id: id.clone(), ..Default::default() };
+        let refused = ctx
+            .call::<_, InspectQuestionResponse>(MODERATION, "InspectQuestion", &moderator, &request)
+            .await
+            .unwrap_err();
+        assert_eq!((refused.code.as_str(), refused.reason.as_str()), ("permission_denied", "CONFLICT_OF_INTEREST"));
+    }
+    let traces: i64 = sqlx::query_scalar("SELECT count(*) FROM ask_inspections WHERE target_id = ANY($1)")
+        .bind(vec![Uuid::parse_str(&question.id).unwrap(), Uuid::parse_str(&own_words.id).unwrap()])
+        .fetch_one(&ctx.app.core.db)
+        .await
+        .unwrap();
+    assert_eq!(traces, 0, "a refused lookup revealed nothing and records nothing");
+    // A colleague can.
+    let colleague = ctx.app.user_with_roles("Colleague", &["moderator"]).await;
+    let request = InspectQuestionRequest { question_id: question.id.clone(), ..Default::default() };
+    let seen: InspectQuestionResponse = ctx.call(MODERATION, "InspectQuestion", &colleague, &request).await.unwrap();
+    assert_eq!(seen.record.as_option().unwrap().sender.as_option().unwrap().id, sender.id.to_string());
 }
 
 #[tokio::test]
-async fn an_image_needs_a_signature() {
+async fn a_withdrawn_question_can_still_be_blocked_and_reported() {
+    let ctx = start().await;
+    let (owner, sender) = (ctx.user("Owner").await, ctx.user(SENDER).await);
+    let moderator = ctx.app.user_with_roles("Moderator", &["moderator"]).await;
+    ctx.open_box(&owner, true).await;
+    let abuse = ctx.ask(&sender, &owner, "ひどいことを書いて、すぐ消す").await;
+    // The owner has it on screen when its sender takes it back.
+    let withdraw = WithdrawQuestionRequest { question_id: abuse.id.clone(), ..Default::default() };
+    let _: WithdrawQuestionResponse = ctx.call(BOX, "WithdrawQuestion", &sender, &withdraw).await.unwrap();
+    assert!(ctx.inbox(&owner, QuestionFolder::QUESTION_FOLDER_INBOX).await.is_empty());
+
+    // Reporting still works: for its recipient it resolves, owned by nobody.
+    let subjects = &ctx.app.core.subjects;
+    let question_type = SubjectType::SUBJECT_TYPE_QUESTION;
+    let for_owner = subjects.resolve(question_type, &abuse.id, Some(owner.id)).await.unwrap();
+    assert!(for_owner.owner_id.is_nil() && !for_owner.interactions_enabled);
+    assert_eq!(for_owner.title, "ひどいことを書いて、すぐ消す");
+    // And the report reaches the account that wrote it.
+    assert_eq!(subjects.resolve(question_type, &abuse.id, Some(moderator.id)).await.unwrap().owner_id, sender.id);
+    assert_eq!(
+        subjects.resolve(question_type, &abuse.id, Some(sender.id)).await.unwrap_err().reason,
+        "SUBJECT_NOT_FOUND",
+        "its sender has nothing to look at"
+    );
+
+    // So does blocking: the next question from that sender is dropped.
+    let block = ctx.block_sender_of_question(&owner, &abuse.id).await;
+    assert_eq!(block.preview, "ひどいことを書いて、すぐ消す");
+    assert_no_trace_of(&sender, SENDER, &block, "the block");
+    ctx.ask(&sender, &owner, "もう一回").await;
+    assert_eq!(ctx.counts(&owner).await.inbox, 0, "withdrawing did not keep the sender unblockable");
+
+    // The same after the owner deleted a question themselves.
+    let other = ctx.user("Other").await;
+    let deleted = ctx.ask(&other, &owner, "消したあとで通報したくなった質問").await;
+    let delete = DeleteQuestionRequest { question_id: deleted.id.clone(), ..Default::default() };
+    let _: DeleteQuestionResponse = ctx.call(BOX, "DeleteQuestion", &owner, &delete).await.unwrap();
+    assert!(subjects.resolve(question_type, &deleted.id, Some(owner.id)).await.unwrap().owner_id.is_nil());
+    ctx.block_sender_of_question(&owner, &deleted.id).await;
+
+    // What never reached the owner cannot be blocked or reported: a guessed
+    // ID must not confirm that a dropped question exists.
+    let dropped = ctx.ask(&sender, &owner, "届かない").await;
+    let request = BlockSenderRequest {
+        target: Some(block_sender_request::Target::QuestionId(dropped.id.clone())),
+        ..Default::default()
+    };
+    assert_eq!(
+        ctx.call::<_, BlockSenderResponse>(BOX, "BlockSender", &owner, &request).await.unwrap_err().reason,
+        "BLOCK_TARGET_NOT_FOUND"
+    );
+    assert_eq!(
+        subjects.resolve(question_type, &dropped.id, Some(owner.id)).await.unwrap_err().reason,
+        "SUBJECT_NOT_FOUND"
+    );
+}
+
+#[tokio::test]
+async fn a_question_is_not_in_the_box_before_it_is_delivered() {
     let ctx = start().await;
     let (owner, sender) = (ctx.user("Owner").await, ctx.user(SENDER).await);
     ctx.open_box(&owner, true).await;
-    let image = ready_image(&ctx.app.core, sender.id, AssetPurpose::ASSET_PURPOSE_NOTE_IMAGE).await.unwrap();
-    let with_image = |signed: bool| AskQuestionRequest {
-        user: owner.id.to_string(),
-        text: "これ見て".into(),
-        signed,
-        image_asset_id: image.id.to_string(),
-        ..Default::default()
-    };
-    let ask = |signed: bool| {
-        let request = with_image(signed);
-        let (ctx, sender) = (&ctx, &sender);
-        async move { ctx.call::<_, AskQuestionResponse>(BOX, "AskQuestion", sender, &request).await }
-    };
-
-    // An upload can be traced to its uploader, so it would give an
-    // anonymous sender away: refused, whatever the box allows.
-    assert_eq!(ask(false).await.unwrap_err().reason, "IMAGE_REQUIRES_SIGNATURE");
+    let sent = ctx.try_ask(&sender, &owner, "まだ途中", false).await.unwrap();
+    assert!(ctx.inbox(&owner, QuestionFolder::QUESTION_FOLDER_INBOX).await.is_empty());
+    assert_eq!(ctx.counts(&owner).await.inbox, 0);
     assert_eq!(
-        ask(true).await.unwrap_err().reason,
-        "IMAGES_NOT_ALLOWED",
-        "images are off until the owner turns them on"
+        ctx.call::<_, GetQuestionResponse>(BOX, "GetQuestion", &owner, &question_id(&sent.id))
+            .await
+            .unwrap_err()
+            .reason,
+        "QUESTION_NOT_FOUND"
     );
-    ctx.update_settings(&owner, UpdateSettingsRequest { allow_images: Some(true), ..Default::default() }).await;
-    assert_eq!(ask(false).await.unwrap_err().reason, "IMAGE_REQUIRES_SIGNATURE");
+    // The sender has it in their list from the start.
+    assert_eq!(ctx.asked(&sender).await.len(), 1);
 
-    let sent = ask(true).await.unwrap();
-    assert_eq!(sent.question.as_option().unwrap().image.as_option().expect("the image").asset_id, image.id.to_string());
-    ctx.deliver().await;
-    let inbox = ctx.inbox(&owner, QuestionFolder::QUESTION_FOLDER_INBOX).await;
-    assert_eq!(inbox[0].image.as_option().expect("the owner sees the image").asset_id, image.id.to_string());
-    assert!(
-        tokuly_media::assets::is_attached(&ctx.app.core, image.id).await.unwrap(),
-        "the image is held by the question"
-    );
-
-    // Someone else's upload cannot be attached.
-    let other = ctx.user("Other").await;
-    let request = with_image(true);
-    assert_eq!(
-        ctx.call::<_, AskQuestionResponse>(BOX, "AskQuestion", &other, &request).await.unwrap_err().reason,
-        "ASSET_NOT_FOUND"
-    );
-}
-
-#[tokio::test]
-async fn a_banned_senders_questions_disappear_while_the_ban_lasts() {
-    let ctx = start().await;
-    let (owner, sender, other) = (ctx.user("Owner").await, ctx.user(SENDER).await, ctx.user("Other").await);
-    ctx.open_box(&owner, true).await;
-    let from_banned = ctx.ask(&sender, &owner, "あとで消える").await;
-    ctx.ask(&other, &owner, "のこる").await;
-    let answered = ctx.ask(&sender, &owner, "答えたやつ").await;
-    ctx.answer(&owner, &answered.id, "こたえ", AnswerAudience::ANSWER_AUDIENCE_PUBLIC).await;
-    assert_eq!((ctx.counts(&owner).await.inbox, ctx.counts(&owner).await.answered), (2, 1));
-
-    ctx.app.identity.set_banned(sender.id, Some("harassment")).await.unwrap();
     let events = ctx.deliver().await;
-    let texts = |questions: Vec<Question>| questions.into_iter().map(|q| q.text).collect::<Vec<_>>();
-    assert_eq!(texts(ctx.inbox(&owner, QuestionFolder::QUESTION_FOLDER_INBOX).await), vec!["のこる"]);
-    assert_eq!(
-        (ctx.counts(&owner).await.inbox, ctx.counts(&owner).await.unread, ctx.counts(&owner).await.answered),
-        (1, 1, 0)
-    );
-    let hidden = ctx
-        .call::<_, GetQuestionResponse>(BOX, "GetQuestion", &owner, &question_id(&from_banned.id))
-        .await
-        .unwrap_err();
-    assert_eq!(hidden.reason, "QUESTION_NOT_FOUND");
-    let page: ListAnswersResponse = ctx
-        .call(BOX, "ListAnswers", &other, &ListAnswersRequest { user: owner.id.to_string(), ..Default::default() })
-        .await
-        .unwrap();
-    assert!(page.questions.is_empty(), "an answer to a banned account's question leaves the page");
-    assert!(
-        events.iter().any(|e| e.topic == "search.changed"
-            && e.data["id"] == serde_json::json!(answered.id)
-            && e.data["doc"].is_null()),
-        "and the search index"
-    );
-
-    // Lifting the ban brings them back.
-    ctx.app.identity.set_banned(sender.id, None).await.unwrap();
-    let events = ctx.deliver().await;
-    assert_eq!(ctx.counts(&owner).await.inbox, 2);
-    assert_eq!(ctx.counts(&owner).await.answered, 1);
-    assert!(events.iter().any(|e| e.topic == "search.changed"
-        && e.data["id"] == serde_json::json!(answered.id)
-        && !e.data["doc"].is_null()));
+    assert_eq!(ctx.counts(&owner).await.inbox, 1);
+    // Handling the same event again changes nothing and tells nobody twice.
+    ctx.handle(&events).await;
+    assert_eq!(ctx.counts(&owner).await.inbox, 1);
+    assert_eq!(ctx.notifications_for(owner.id, "ask.question").await.len(), 1);
 }
 
 #[tokio::test]

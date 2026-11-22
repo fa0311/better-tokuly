@@ -154,9 +154,11 @@ async fn a_box_is_public_and_says_whether_the_caller_can_ask() {
     assert!(!get_box(&ctx, Some(&owner), &owner.handle).await.unwrap().can_ask, "nobody asks themselves");
     assert!(!get_box(&ctx, None, &owner.handle).await.unwrap().can_ask, "guests have to sign in");
 
-    // Open for everyone who is signed in.
+    // Open for everyone who is signed in: anyone could have asked, so an
+    // anonymous question needs no minimum of friends.
     ctx.open_box(&owner, true).await;
-    assert!(get_box(&ctx, Some(&stranger), &owner.handle).await.unwrap().can_ask);
+    let for_stranger = get_box(&ctx, Some(&stranger), &owner.handle).await.unwrap();
+    assert!(for_stranger.can_ask && for_stranger.anonymous_available);
 
     // Unknown users and blocks: there is no box.
     for unknown in ["nobody_here_at_all", &Uuid::now_v7().to_string(), ""] {
@@ -181,6 +183,27 @@ async fn asking_is_refused_with_a_reason() {
     let not_friend = ctx.try_ask(&stranger, &owner, "だれ?", false).await.unwrap_err();
     assert_eq!((not_friend.code.as_str(), not_friend.reason.as_str()), ("permission_denied", "FRIENDS_ONLY"));
     assert_eq!(ctx.try_ask(&owner, &owner, "自分に", false).await.unwrap_err().reason, "CANNOT_ASK_SELF");
+
+    // A friends-only box whose owner has one friend: an anonymous question
+    // could only be from that friend. Refused with a reason of its own,
+    // which the box already announced; a signed one is fine.
+    let for_friend = get_box(&ctx, Some(&friend), &owner.handle).await.unwrap();
+    assert!(for_friend.can_ask && !for_friend.anonymous_available);
+    let alone = ctx.try_ask(&friend, &owner, "だれでしょう", false).await.unwrap_err();
+    assert_eq!((alone.code.as_str(), alone.reason.as_str()), ("failed_precondition", "AUDIENCE_TOO_SMALL"));
+    assert!(!ctx.try_ask(&friend, &owner, "名前つきなら", true).await.unwrap().anonymous);
+    ctx.lone_friends_of(&owner, 1).await;
+    assert_eq!(ctx.try_ask(&friend, &owner, "まだふたり", false).await.unwrap_err().reason, "AUDIENCE_TOO_SMALL");
+    ctx.lone_friends_of(&owner, 1).await;
+    assert!(
+        get_box(&ctx, Some(&friend), &owner.handle).await.unwrap().anonymous_available,
+        "three friends are a crowd"
+    );
+    assert!(
+        !get_box(&ctx, Some(&stranger), &owner.handle).await.unwrap().anonymous_available,
+        "not for those who cannot ask"
+    );
+
     for bad in ["", "   \n ", &"あ".repeat(301)] {
         assert_eq!(ctx.try_ask(&friend, &owner, bad, false).await.unwrap_err().reason, "QUESTION_TEXT_INVALID");
     }
