@@ -54,7 +54,7 @@ export function ModerationLogScreen({ search }: { search: LogSearch }) {
     { key: "time", header: t("moderation.log.columns.time"), className: "whitespace-nowrap", cell: (row) => <span className="text-ink-soft">{formatDateTime(row.createdAt)}</span> },
     { key: "kind", header: t("moderation.log.columns.action"), card: "bare", cell: (row) => <ActionChip kind={row.kind} /> },
     { key: "moderator", header: t("moderation.log.columns.moderator"), cell: (row) => <UserCell user={row.moderator} fallback={t("common.system")} /> },
-    { key: "target", header: t("moderation.log.columns.target"), card: "title", cell: (row) => <UserCell user={row.targetUser} /> },
+    { key: "target", header: t("moderation.log.columns.target"), card: "title", cell: (row) => <UserCell user={row.targetUser} fallback={row.targetWithheld ? t("moderation.targetWithheld") : undefined} /> },
     {
       key: "subject",
       header: t("moderation.log.columns.subject"),

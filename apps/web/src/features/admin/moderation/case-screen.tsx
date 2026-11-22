@@ -1,7 +1,7 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { admin, toMillis } from "@tokuly/api";
-import { ExternalLink, Hand, RotateCcw, UserMinus, UserPlus } from "lucide-react";
+import { ExternalLink, Hand, RotateCcw, ShieldAlert, UserMinus, UserPlus } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -136,13 +136,25 @@ function CaseDetail({ caseId, search }: { caseId: string; search: QueueSearch })
       <div className="@container">
         <div className="grid items-start gap-4 @4xl:grid-cols-[minmax(0,1fr)_22rem]">
           <div className="flex min-w-0 flex-col gap-4">
+            {moderationCase.conflictOfInterest && <ConflictNotice />}
             <SubjectCard moderationCase={moderationCase} ownerRecord={detail.data.ownerRecord} />
             <Reports caseId={caseId} total={moderationCase.reportCount} latest={detail.data.reports} />
             <Notes caseId={caseId} notes={detail.data.notes} onAdded={() => queryClient.invalidateQueries({ queryKey: key })} />
           </div>
           <div className="flex min-w-0 flex-col gap-4">
             <Assignment moderationCase={moderationCase} onChanged={applied} />
-            {isOpen ? <ResolvePanel moderationCase={moderationCase} loading={resolve.isPending} onResolve={(resolution) => resolve.mutate(resolution)} /> : <ResolutionCard moderationCase={moderationCase} onChanged={applied} />}
+            {isOpen && moderationCase.conflictOfInterest ? (
+              // Involved in the post: the server refuses every resolution, so none is offered.
+              <Section title={t("moderation.resolve.title")}>
+                <p className="p-4 text-sm text-ink-soft" data-testid="resolve-conflict">
+                  {t("moderation.conflict.cannotResolve")}
+                </p>
+              </Section>
+            ) : isOpen ? (
+              <ResolvePanel moderationCase={moderationCase} loading={resolve.isPending} onResolve={(resolution) => resolve.mutate(resolution)} />
+            ) : (
+              <ResolutionCard moderationCase={moderationCase} onChanged={applied} />
+            )}
             <Section title={t("moderation.history.title")}>
               <ActionList actions={detail.data.actions} showTarget empty={t("moderation.history.empty")} />
             </Section>
@@ -150,6 +162,20 @@ function CaseDetail({ caseId, search }: { caseId: string; search: QueueSearch })
         </div>
       </div>
     </ConsolePage>
+  );
+}
+
+/** Shown to a moderator who is involved in an anonymous post: its author stays hidden from them, and the case is someone else's to handle. */
+function ConflictNotice() {
+  const { t } = useTranslation("admin");
+  return (
+    <div role="note" data-testid="case-conflict" className="flex gap-3 rounded-2xl border-2 border-ink bg-sun p-4 text-[#17122b]">
+      <ShieldAlert className="mt-0.5 size-5 shrink-0" />
+      <div className="flex min-w-0 flex-col gap-1">
+        <p className="font-black">{t("moderation.conflict.title")}</p>
+        <p className="text-sm">{t("moderation.conflict.body")}</p>
+      </div>
+    </div>
   );
 }
 
@@ -176,7 +202,13 @@ function SubjectCard({ moderationCase, ownerRecord }: { moderationCase: admin.Mo
       <dl className="divide-y divide-line border-t-2 border-line">
         <Fact label={t("moderation.case.subjectId")}>{moderationCase.subject?.id ? <CopyableId value={moderationCase.subject.id} /> : "—"}</Fact>
         <Fact label={t("moderation.columns.owner")}>
-          <UserCell user={moderationCase.subjectOwner} fallback={t("moderation.ownerGone")} />
+          {moderationCase.ownerWithheld ? (
+            <span data-testid="owner-withheld" className="text-ink-soft">
+              {t(moderationCase.conflictOfInterest ? "moderation.conflict.ownerHidden" : "moderation.ownerWithheld")}
+            </span>
+          ) : (
+            <UserCell user={moderationCase.subjectOwner} fallback={t("moderation.ownerGone")} />
+          )}
         </Fact>
         {ownerRecord && (
           <Fact label={t("moderation.case.ownerRecord")}>

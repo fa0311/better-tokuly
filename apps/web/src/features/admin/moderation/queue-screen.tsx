@@ -50,7 +50,8 @@ export function ModerationQueueScreen({ search }: { search: QueueSearch }) {
     },
     { key: "categories", header: t("moderation.columns.categories"), card: "bare", cell: (row) => <CategoryChips categories={row.categories} /> },
     { key: "reports", header: t("moderation.columns.reports"), className: "text-right", cell: (row) => <span className="font-black tabular-nums">{row.reportCount}</span> },
-    { key: "owner", header: t("moderation.columns.owner"), cell: (row) => <UserCell user={row.subjectOwner} fallback={t("moderation.ownerGone")} /> },
+    // The queue never names the author of an anonymous post; the case does, to a moderator who is not involved.
+    { key: "owner", header: t("moderation.columns.owner"), cell: (row) => <UserCell user={row.subjectOwner} fallback={t(row.ownerWithheld ? "moderation.ownerWithheld" : "moderation.ownerGone")} /> },
     { key: "assignee", header: t("moderation.columns.assignee"), cell: (row) => <UserCell user={row.assignee} fallback={t("moderation.unassigned")} /> },
     resolved
       ? {
