@@ -1,11 +1,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useBlocker, useNavigate } from "@tanstack/react-router";
 import { media } from "@tokuly/api";
 import { CircleCheck, FileVideo, Plus, UploadCloud, X } from "lucide-react";
 import { type DragEvent, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
+import { ConfirmDialog } from "#/components/ui/confirm";
 import { TextArea, TextField } from "#/components/ui/field";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
@@ -54,8 +55,13 @@ export function UploadScreen() {
   const [description, setDescription] = useState("");
   const [dragging, setDragging] = useState(false);
 
-  // Leaving the page gives the upload up.
+  // Leaving the page gives the upload up — so while one is under way (or up but not yet a draft),
+  // leaving asks first: inside the app with a dialog, for a reload or a closed tab with the browser's own.
   useEffect(() => () => abort.current?.abort(), []);
+  // Set the moment the upload became a draft: going on to the editor is not "leaving".
+  const handedOver = useRef(false);
+  const atRisk = () => upload !== null && !upload.failed && !handedOver.current;
+  const blocker = useBlocker({ shouldBlockFn: atRisk, enableBeforeUnload: atRisk, withResolver: true });
 
   const start = async (file: File) => {
     if (!file.type.startsWith("video/") && !/\.(mp4|mov|m4v|webm|mkv|avi)$/i.test(file.name)) {
@@ -90,6 +96,7 @@ export function UploadScreen() {
       const summary = created?.summary;
       if (!created || !summary) return;
       // The editor opens with what was just created; the lists pick the new video up.
+      handedOver.current = true;
       queryClient.setQueryData(videoKeys.video(summary.shortId), created);
       void queryClient.invalidateQueries({ queryKey: videoKeys.studio });
       void navigate({ to: "/studio/videos/$videoId", params: { videoId: summary.shortId } });
@@ -218,6 +225,15 @@ export function UploadScreen() {
           </>
         )}
       </div>
+      <ConfirmDialog
+        open={blocker.status === "blocked"}
+        onOpenChange={(open) => !open && blocker.reset?.()}
+        title={t("studio.upload.leaveTitle")}
+        description={t("studio.upload.leaveBody")}
+        confirmLabel={t("studio.upload.leave")}
+        danger
+        onConfirm={() => blocker.proceed?.()}
+      />
     </Page>
   );
 }

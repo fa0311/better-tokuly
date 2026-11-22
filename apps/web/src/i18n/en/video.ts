@@ -415,6 +415,9 @@ export default {
       waiting: "Uploading… {{percent}}%",
       next: "Next",
       needChannel: "Create a channel first",
+      leaveTitle: "Leave and give up the upload?",
+      leaveBody: "The video being uploaded is not saved. You would have to choose it again.",
+      leave: "Leave",
       needChannelBody: "Videos are posted on a channel.",
     },
     processing: {

@@ -415,6 +415,9 @@ export default {
       waiting: "アップロード中… {{percent}}%",
       next: "つぎへ",
       needChannel: "まずチャンネルを作ろう",
+      leaveTitle: "アップロードをやめてページを離れる？",
+      leaveBody: "アップロード中の動画は保存されません。もう一度えらびなおすことになるよ。",
+      leave: "やめて離れる",
       needChannelBody: "動画はチャンネルに投稿します。",
     },
     processing: {
