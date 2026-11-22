@@ -20,6 +20,8 @@
 #   browser ══▶ realtime :4433/udp   WebTransport (QUIC), straight to the gateway
 #   browser ──▶ storage  :9000       uploads with presigned URLs
 #   browser ══▶ livekit  :7880-7882  voice and video calls, audio rooms (WebRTC)
+#   encoder ══▶ mediamtx :1935 RTMP, :8890/udp SRT, :8889 WebRTC      live streams in
+#   browser ══▶ mediamtx :8888 HLS, :8889 WebRTC, :9996 rewinding     live streams out
 #
 # Outgoing mail is caught by Mailpit (http://localhost:8025) until TOKULY_SMTP_URL
 # points at a real mail server.
@@ -71,6 +73,19 @@ x-backend: &backend
     TOKULY_LIVEKIT_PUBLIC_URL: ${TOKULY_LIVEKIT_PUBLIC_URL:-ws://localhost:7880}
     TOKULY_LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-tokuly}
     TOKULY_LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?run tools/init-env.sh first}
+    # Live streams: the media server's control API (inside the stack only),
+    # the secret it presents to the API's hook, the secret the worker presents
+    # to it, and the addresses encoders and players are told to use.
+    TOKULY_MEDIAMTX_API_URL: http://mediamtx:9997
+    TOKULY_LIVE_HOOK_SECRET: ${TOKULY_LIVE_HOOK_SECRET:?run tools/init-env.sh first}
+    TOKULY_MEDIAMTX_API_SECRET: ${TOKULY_MEDIAMTX_API_SECRET:?run tools/init-env.sh first}
+    TOKULY_LIVE_RTMP_URL: ${TOKULY_LIVE_RTMP_URL:-rtmp://localhost:1935}
+    TOKULY_LIVE_SRT_URL: ${TOKULY_LIVE_SRT_URL:-srt://localhost:8890}
+    TOKULY_LIVE_WHIP_URL: ${TOKULY_LIVE_WHIP_URL:-http://localhost:8889}
+    TOKULY_LIVE_WHEP_URL: ${TOKULY_LIVE_WHEP_URL:-http://localhost:8889}
+    TOKULY_LIVE_HLS_URL: ${TOKULY_LIVE_HLS_URL:-http://localhost:8888}
+    TOKULY_LIVE_PLAYBACK_URL: ${TOKULY_LIVE_PLAYBACK_URL:-http://localhost:9996}
+    TOKULY_LIVE_RECORDINGS_DIR: /recordings
     TOKULY_OTLP_ENDPOINT: ${TOKULY_OTLP_ENDPOINT:-}
   depends_on:
     migrate:
@@ -151,6 +166,10 @@ services:
   worker:
     <<: *backend
     command: ["worker"]
+    # What the media server records: the worker cuts clips and archives from
+    # it and deletes it afterwards.
+    volumes:
+      - recordings:/recordings
 
   # ── Data ───────────────────────────────────────────────────────────────────
   postgres:
@@ -284,6 +303,39 @@ services:
     volumes:
       - ./infra/livekit/livekit.yaml:/etc/livekit.yaml:ro
 
+  # ── Live streams ───────────────────────────────────────────────────────────
+  # Takes what encoders send and serves it to viewers. Who may publish and
+  # watch is decided by the API: MediaMTX asks its hook every time, with the
+  # hook secret as the password of the address below.
+  mediamtx:
+    image: bluenviron/mediamtx:1.21.4
+    restart: unless-stopped
+    # The backend's user, so the worker can delete what this writes.
+    user: "10001:10001"
+    environment:
+      MTX_AUTHHTTPADDRESS: http://mediamtx:${TOKULY_LIVE_HOOK_SECRET:?run tools/init-env.sh first}@api:8081/hooks/live/auth
+      # The name or address viewers reach this machine under (WebRTC).
+      MTX_WEBRTCADDITIONALHOSTS: ${TOKULY_LIVE_PUBLIC_HOST:-localhost}
+    ports:
+      - "1935:1935" # RTMP in
+      - "8890:8890/udp" # SRT in
+      - "8888:8888" # HLS out
+      - "8889:8889" # WebRTC in and out (signalling)
+      - "8189:8189/udp" # WebRTC media
+      - "9996:9996" # rewinding (DVR)
+      # 9997, the control API, stays inside the stack: only the worker uses it.
+    volumes:
+      - ./infra/mediamtx/mediamtx.yml:/mediamtx.yml:ro
+      - recordings:/recordings
+    depends_on:
+      # The hook must answer before anyone can publish or watch.
+      api:
+        condition: service_healthy
+      # The worker's image owns /recordings; started first, it gives the new
+      # volume that owner, and this container (same user) can write to it.
+      worker:
+        condition: service_started
+
   # ── Mail ───────────────────────────────────────────────────────────────────
   # Catches everything the backend sends (verification, password reset) and
   # shows it at http://localhost:8025. Unused once TOKULY_SMTP_URL is set.
@@ -314,6 +366,7 @@ volumes:
   clickhouse-data:
   search-data:
   tiles-data:
+  recordings:
   map-assets:
   edge-data:
   edge-config:

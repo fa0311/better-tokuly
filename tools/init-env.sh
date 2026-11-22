@@ -27,7 +27,7 @@ umask 077
   # Skip the template's own header (up to its first blank line), then fill in every empty secret.
   sed '1,/^$/d' .env.example | while IFS= read -r line; do
     case "$line" in
-      TOKULY_SECRET= | POSTGRES_PASSWORD= | STORAGE_SECRET_KEY= | CLICKHOUSE_PASSWORD= | MEILI_MASTER_KEY= | LIVEKIT_API_SECRET=)
+      TOKULY_SECRET= | POSTGRES_PASSWORD= | STORAGE_SECRET_KEY= | CLICKHOUSE_PASSWORD= | MEILI_MASTER_KEY= | LIVEKIT_API_SECRET= | TOKULY_LIVE_HOOK_SECRET= | TOKULY_MEDIAMTX_API_SECRET=)
         line="$line$(secret)"
         ;;
     esac
