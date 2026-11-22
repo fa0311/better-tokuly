@@ -8,6 +8,7 @@
 //! - [`events`] / [`jobs`] / [`realtime`] are the three ways domains talk to
 //!   each other and to clients asynchronously.
 pub mod analytics;
+pub mod api_access;
 pub mod api_tokens;
 pub mod auth;
 pub mod bus;

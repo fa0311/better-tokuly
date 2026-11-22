@@ -17,12 +17,14 @@
 //! 2. **How often**: requests are counted per token and minute in Valkey;
 //!    past the tier's limit the request is refused with `RATE_LIMITED`.
 //!    Every response to a token carries `x-ratelimit-*` headers.
-//! 3. **What**: the scope an RPC needs follows from its path
-//!    ([`access_for`]). A token without it is refused with
+//! 3. **What**: the scopes an RPC needs are written down per RPC
+//!    ([`crate::api_access`]). A token without them is refused with
 //!    `permission_denied` / `INSUFFICIENT_SCOPE`; RPCs that need a person at
 //!    a screen (signing in, changing a password, minting tokens) are refused
-//!    with `SESSION_REQUIRED`; anything that is not an RPC with
+//!    with `SESSION_REQUIRED`; anything that is not a listed RPC with
 //!    `TOKEN_NOT_ALLOWED`.
+//! 4. **For how long**: a response that keeps streaming is cut off when its
+//!    token is revoked or expires (it is checked again every half minute).
 //!
 //! Refusals are rendered by [`connectrpc::ConnectError::into_http_response`]
 //! in the wire format of the request, so Connect, gRPC and gRPC-Web clients
@@ -116,142 +118,7 @@ impl std::fmt::Display for Scopes {
     }
 }
 
-/// How an RPC may be reached with an API token.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Access {
-    /// The token needs this scope, e.g. `geo:read`.
-    Scope(String),
-    /// Any valid token may call it, whatever its scopes.
-    AnyToken,
-    /// No token may call it: it takes an interactive session.
-    SessionOnly,
-}
-
-#[derive(Clone, Copy)]
-enum Rule {
-    SessionOnly,
-    AnyToken,
-    Read,
-    Write,
-}
-
-/// The exceptions to "the scope is `<domain>:read` or `<domain>:write` by
-/// method name". A pattern is one method (`pkg.Service/Method`), a service
-/// (`pkg.Service/*`) or a package (`pkg.*`); the most specific match wins.
-///
-/// `SessionOnly` is for what a leaked token must never be able to do:
-/// obtain or mint credentials, take over or delete the account, moderate.
-const RULES: &[(&str, Rule)] = &[
-    // Signing in, refreshing, passkeys, approving another device's sign-in.
-    ("tokuly.identity.v1.AuthService/*", Rule::SessionOnly),
-    // Credentials, account takeover and deletion; the export holds everything.
-    ("tokuly.identity.v1.AccountService/ChangePassword", Rule::SessionOnly),
-    ("tokuly.identity.v1.AccountService/ChangeEmail", Rule::SessionOnly),
-    ("tokuly.identity.v1.AccountService/ListSessions", Rule::SessionOnly),
-    ("tokuly.identity.v1.AccountService/RevokeSession", Rule::SessionOnly),
-    ("tokuly.identity.v1.AccountService/ListPasskeys", Rule::SessionOnly),
-    ("tokuly.identity.v1.AccountService/DeletePasskey", Rule::SessionOnly),
-    ("tokuly.identity.v1.AccountService/BeginTotpSetup", Rule::SessionOnly),
-    ("tokuly.identity.v1.AccountService/EnableTotp", Rule::SessionOnly),
-    ("tokuly.identity.v1.AccountService/DisableTotp", Rule::SessionOnly),
-    ("tokuly.identity.v1.AccountService/ListSecurityEvents", Rule::SessionOnly),
-    ("tokuly.identity.v1.AccountService/RequestAccountDeletion", Rule::SessionOnly),
-    ("tokuly.identity.v1.AccountService/CancelAccountDeletion", Rule::SessionOnly),
-    ("tokuly.identity.v1.AccountService/RequestDataExport", Rule::SessionOnly),
-    // Moderation and administration.
-    ("tokuly.admin.v1.*", Rule::SessionOnly),
-    // A token must not mint tokens, approve apps or create accounts.
-    ("tokuly.dev.v1.TokenService/*", Rule::SessionOnly),
-    ("tokuly.dev.v1.TokenService/GetCurrentToken", Rule::AnyToken),
-    ("tokuly.dev.v1.TokenService/ListScopes", Rule::AnyToken),
-    ("tokuly.dev.v1.AppService/*", Rule::SessionOnly),
-    ("tokuly.dev.v1.AuthorizationService/*", Rule::SessionOnly),
-    ("tokuly.dev.v1.BotService/*", Rule::SessionOnly),
-    // The API reference is public documentation.
-    ("tokuly.dev.v1.ReferenceService/*", Rule::AnyToken),
-    // Push registrations belong to a session's device.
-    ("tokuly.notify.v1.PushService/RegisterDevice", Rule::SessionOnly),
-    ("tokuly.notify.v1.PushService/UnregisterDevice", Rule::SessionOnly),
-    // Cashing out.
-    ("tokuly.wallet.v1.EarningsService/RequestPayout", Rule::SessionOnly),
-    // Reads whose names do not start with a reading verb.
-    ("tokuly.search.v1.SearchService/Suggest", Rule::Read),
-    ("tokuly.geo.v1.PlaceService/ReverseGeocode", Rule::Read),
-    ("tokuly.video.v1.VideoService/SuggestGames", Rule::Read),
-    ("tokuly.video.v1.WatchPartyService/PreviewParty", Rule::Read),
-    // Writes whose names start with a reading verb. The naming rule errs
-    // towards "read" for such a name, so every RPC that begins with one of
-    // `READ_VERBS` and changes something, notifies someone or hands out a
-    // capability belongs here.
-    ("tokuly.geo.v1.PlaceService/CheckIn", Rule::Write),
-    ("tokuly.geo.v1.SafetyService/ResolveSos", Rule::Write),
-    ("tokuly.media.v1.MediaService/GetUploadParts", Rule::Write),
-];
-
-/// Method name prefixes that mean "this only reads".
-const READ_VERBS: &[&str] = &["Get", "List", "Search", "Watch", "Batch", "Check", "Resolve", "Count", "Evaluate"];
-
-/// The parts of an RPC path `/tokuly.<domain>.v<N>.<Service>/<Method>`.
-struct Procedure<'a> {
-    domain: &'a str,
-    /// `tokuly.<domain>.v<N>`.
-    package: &'a str,
-    /// `tokuly.<domain>.v<N>.<Service>`.
-    service: &'a str,
-    method: &'a str,
-}
-
-impl<'a> Procedure<'a> {
-    fn parse(path: &'a str) -> Option<Self> {
-        let (service, method) = path.strip_prefix('/').unwrap_or(path).split_once('/')?;
-        let (package, service_name) = service.rsplit_once('.')?;
-        let mut parts = package.split('.');
-        let (root, domain, version) = (parts.next()?, parts.next()?, parts.next()?);
-        let is_version =
-            version.strip_prefix('v').is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
-        let is_name = |name: &str| !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
-        let valid = root == "tokuly"
-            && parts.next().is_none()
-            && is_domain(domain)
-            && is_version
-            && is_name(service_name)
-            && is_name(method);
-        valid.then_some(Self { domain, package, service, method })
-    }
-
-    /// The most specific rule naming this procedure, if any.
-    fn rule(&self) -> Option<Rule> {
-        let specificity = |pattern: &str| match pattern.split_once('/') {
-            Some((service, "*")) => (service == self.service).then_some(1),
-            Some((service, method)) => (service == self.service && method == self.method).then_some(2),
-            None => (pattern.strip_suffix(".*") == Some(self.package)).then_some(0),
-        };
-        RULES
-            .iter()
-            .filter_map(|(pattern, rule)| Some((specificity(pattern)?, *rule)))
-            .max_by_key(|(specificity, _)| *specificity)
-            .map(|(_, rule)| rule)
-    }
-}
-
-/// What a token needs in order to call the RPC at `path`
-/// (`/tokuly.<domain>.v1.<Service>/<Method>`, with or without the leading
-/// slash), or `None` when the path is not an RPC of this API.
-///
-/// The scope is `<domain>:read` when the method name starts with Get, List,
-/// Search, Watch, Batch, Check, Resolve, Count or Evaluate and
-/// `<domain>:write` otherwise, except where the table above says differently.
-pub fn access_for(path: &str) -> Option<Access> {
-    let procedure = Procedure::parse(path)?;
-    let reads = match procedure.rule() {
-        Some(Rule::SessionOnly) => return Some(Access::SessionOnly),
-        Some(Rule::AnyToken) => return Some(Access::AnyToken),
-        Some(Rule::Read) => true,
-        Some(Rule::Write) => false,
-        None => READ_VERBS.iter().any(|verb| procedure.method.starts_with(verb)),
-    };
-    Some(Access::Scope(format!("{}:{}", procedure.domain, if reads { "read" } else { "write" })))
-}
+pub use crate::api_access::{Access, access_for};
 
 // ───────────────────────────── tokens ─────────────────────────────
 
@@ -411,12 +278,23 @@ async fn count_request(cache: &Cache, token: &ApiToken) -> AppResult<RateStatus>
     })
 }
 
+/// How often a token is verified again while its response is still streaming.
+const STREAM_RECHECK: Duration = Duration::from_secs(30);
+
 /// The API-token half of the auth middleware.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub(crate) struct ApiGate {
     pub(crate) tokens: ApiTokens,
     /// Where requests are counted; `None` switches rate limits off.
     pub(crate) limiter: Option<Cache>,
+    /// See [`STREAM_RECHECK`].
+    pub(crate) recheck: Duration,
+}
+
+impl Default for ApiGate {
+    fn default() -> Self {
+        Self { tokens: ApiTokens::default(), limiter: None, recheck: STREAM_RECHECK }
+    }
 }
 
 /// Why the gate did not admit a request.
@@ -437,6 +315,9 @@ pub(crate) struct Admitted {
     user_agent: String,
     started: Instant,
     rate: Option<RateStatus>,
+    /// The token as presented, to verify it again while a stream is open.
+    secret: String,
+    recheck: Duration,
 }
 
 impl ApiGate {
@@ -451,6 +332,7 @@ impl ApiGate {
         let Some(verifier) = self.tokens.verifier() else {
             return Err(Refusal::Unauthenticated(TokenRejection::Invalid.reason()));
         };
+        let secret = token.to_owned();
         let token = match verifier.verify(token).await {
             Ok(token) => token,
             Err(TokenRejection::Unavailable) => {
@@ -470,6 +352,8 @@ impl ApiGate {
             user_agent: client.user_agent.clone(),
             started: Instant::now(),
             rate: None,
+            secret,
+            recheck: self.recheck,
         };
         if let (Some(cache), true) = (&self.limiter, admitted.token.rate.per_minute > 0) {
             match count_request(cache, &admitted.token).await {
@@ -486,18 +370,22 @@ impl ApiGate {
             return Err(admitted.refuse(error, None, request_headers));
         }
         match access_for(path) {
-            Some(Access::Scope(scope)) if !admitted.token.scopes.allows(&scope) => {
-                let error = AppError::denied("INSUFFICIENT_SCOPE", format!("this token lacks the scope {scope}"));
-                Err(admitted.refuse(error, Some(&scope), request_headers))
-            }
-            Some(Access::Scope(_) | Access::AnyToken) => Ok(admitted),
+            Some(Access::Scopes(needed)) => match needed.iter().find(|scope| !admitted.token.scopes.allows(scope)) {
+                Some(missing) => {
+                    let error = AppError::denied("INSUFFICIENT_SCOPE", format!("this token lacks the scope {missing}"));
+                    Err(admitted.refuse(error, Some(missing), request_headers))
+                }
+                None => Ok(admitted),
+            },
+            Some(Access::AnyToken) => Ok(admitted),
             Some(Access::SessionOnly) => {
                 let error =
                     AppError::denied("SESSION_REQUIRED", "API tokens cannot call this; it takes a signed-in session");
                 Err(admitted.refuse(error, None, request_headers))
             }
             None => {
-                let error = AppError::denied("TOKEN_NOT_ALLOWED", "API tokens can only call RPCs");
+                // Not an RPC, or one nobody has classified: closed to tokens.
+                let error = AppError::denied("TOKEN_NOT_ALLOWED", "API tokens cannot call this");
                 Err(admitted.refuse(error, None, request_headers))
             }
         }
@@ -539,8 +427,63 @@ impl Admitted {
             error,
             duration: self.started.elapsed(),
         };
+        // A stream opened with the token must not outlive it.
+        let watch = outlived(self.verifier.clone(), self.secret, self.token.expires_at, self.recheck);
+        let body = std::mem::take(response.body_mut());
+        *response.body_mut() = axum::body::Body::new(Guarded { inner: body, watch: Some(Box::pin(watch)) });
         let (verifier, token) = (self.verifier, self.token);
         tokio::spawn(async move { verifier.record(&token, call).await });
+    }
+}
+
+/// Resolves when the token stops being valid: revoked, or expired.
+async fn outlived(verifier: Arc<dyn ApiTokenVerifier>, secret: String, expires_at: Option<Time>, recheck: Duration) {
+    loop {
+        let until_expiry = expires_at.map(|at| (at - Utc::now()).to_std().unwrap_or_default());
+        tokio::time::sleep(until_expiry.map_or(recheck, |left| left.min(recheck))).await;
+        if expires_at.is_some_and(|at| at <= Utc::now()) {
+            return;
+        }
+        // A verifier that cannot answer right now is not a revocation.
+        if matches!(verifier.verify(&secret).await, Err(rejection) if rejection != TokenRejection::Unavailable) {
+            return;
+        }
+    }
+}
+
+/// A response body that ends when its token does. The watch costs a timer
+/// per response; a verification only when a response is still open after
+/// the re-check interval.
+struct Guarded {
+    inner: axum::body::Body,
+    watch: Option<std::pin::Pin<Box<dyn Future<Output = ()> + Send>>>,
+}
+
+impl connectrpc::http_body::Body for Guarded {
+    type Data = bytes::Bytes;
+    type Error = axum::Error;
+
+    fn poll_frame(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Result<connectrpc::http_body::Frame<Self::Data>, Self::Error>>> {
+        use std::task::Poll;
+        let Some(watch) = self.watch.as_mut() else { return Poll::Ready(None) };
+        if watch.as_mut().poll(cx).is_ready() {
+            // The token is gone: the stream ends here, without the trailers a
+            // complete response would carry, so clients see it as cut off.
+            self.watch = None;
+            return Poll::Ready(None);
+        }
+        std::pin::Pin::new(&mut self.inner).poll_frame(cx)
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.watch.is_none() || self.inner.is_end_stream()
+    }
+
+    fn size_hint(&self) -> connectrpc::http_body::SizeHint {
+        self.inner.size_hint()
     }
 }
 
@@ -590,97 +533,5 @@ mod tests {
         assert!(scopes.covers(&Scopes::new(["notes:read", "geo:read"])));
         assert!(!scopes.covers(&Scopes::new(["notes:read", "geo:write"])));
         assert!(Scopes::default().covers(&Scopes::default()) && !Scopes::default().allows("geo:read"));
-    }
-
-    fn scope(path: &str) -> Access {
-        access_for(path).unwrap_or_else(|| panic!("{path} is an RPC"))
-    }
-
-    #[test]
-    fn the_scope_follows_from_the_domain_and_the_method_name() {
-        let read = |domain: &str| Access::Scope(format!("{domain}:read"));
-        let write = |domain: &str| Access::Scope(format!("{domain}:write"));
-        assert_eq!(scope("/tokuly.geo.v1.LocationService/ListFriendLocations"), read("geo"));
-        assert_eq!(scope("/tokuly.geo.v1.LocationService/WatchFriendLocations"), read("geo"));
-        assert_eq!(scope("/tokuly.geo.v1.LocationService/ReportLocations"), write("geo"));
-        assert_eq!(scope("/tokuly.notes.v1.NoteService/CreateNote"), write("notes"));
-        assert_eq!(scope("/tokuly.notes.v1.NoteService/BatchGetNotes"), read("notes"));
-        assert_eq!(scope("/tokuly.identity.v1.ProfileService/SearchUsers"), read("identity"));
-        assert_eq!(scope("/tokuly.video.v1.ChannelService/CheckChannelHandle"), read("video"));
-        assert_eq!(scope("/tokuly.social.v1.FriendService/ResolveInvite"), read("social"));
-        // A name that merely contains a reading verb writes.
-        assert_eq!(scope("/tokuly.chat.v1.ConversationService/MarkRead"), write("chat"));
-        assert_eq!(scope("/tokuly.social.v1.FriendService/ResetMyInvite"), write("social"));
-        // Without the leading slash, and for versions and domains to come.
-        assert_eq!(scope("tokuly.quest.v2.QuestService/CountBadges"), read("quest"));
-    }
-
-    #[test]
-    fn the_table_overrides_the_naming_rule() {
-        assert_eq!(scope("/tokuly.search.v1.SearchService/Suggest"), Access::Scope("search:read".into()));
-        assert_eq!(scope("/tokuly.geo.v1.PlaceService/ReverseGeocode"), Access::Scope("geo:read".into()));
-        // A reading verb at the start of a name that writes: checking in tells
-        // friends where you are, resolving an SOS ends it, upload parts are
-        // permission to write to storage.
-        assert_eq!(scope("/tokuly.geo.v1.PlaceService/CheckIn"), Access::Scope("geo:write".into()));
-        assert_eq!(scope("/tokuly.geo.v1.SafetyService/ResolveSos"), Access::Scope("geo:write".into()));
-        assert_eq!(scope("/tokuly.media.v1.MediaService/GetUploadParts"), Access::Scope("media:write".into()));
-        assert_eq!(scope("/tokuly.social.v1.FriendService/ResolveInvite"), Access::Scope("social:read".into()));
-        // Whole services and packages, with single methods carved out.
-        assert_eq!(scope("/tokuly.identity.v1.AuthService/SignIn"), Access::SessionOnly);
-        assert_eq!(scope("/tokuly.identity.v1.AuthService/CheckHandle"), Access::SessionOnly);
-        assert_eq!(scope("/tokuly.admin.v1.AnnouncementService/ListAnnouncements"), Access::SessionOnly);
-        assert_eq!(scope("/tokuly.dev.v1.TokenService/CreateToken"), Access::SessionOnly);
-        assert_eq!(scope("/tokuly.dev.v1.TokenService/GetCurrentToken"), Access::AnyToken);
-        assert_eq!(scope("/tokuly.dev.v1.ReferenceService/ListServices"), Access::AnyToken);
-        assert_eq!(scope("/tokuly.dev.v1.WebhookService/CreateWebhook"), Access::Scope("dev:write".into()));
-        // Credentials and account deletion.
-        for method in [
-            "ChangePassword",
-            "ChangeEmail",
-            "DeletePasskey",
-            "EnableTotp",
-            "DisableTotp",
-            "RequestAccountDeletion",
-            "RequestDataExport",
-        ] {
-            assert_eq!(scope(&format!("/tokuly.identity.v1.AccountService/{method}")), Access::SessionOnly, "{method}");
-        }
-        assert_eq!(scope("/tokuly.identity.v1.AccountService/UpdateProfile"), Access::Scope("identity:write".into()));
-        assert_eq!(scope("/tokuly.identity.v1.AccountService/GetMe"), Access::Scope("identity:read".into()));
-    }
-
-    #[test]
-    fn paths_that_are_not_rpcs_have_no_access_rule() {
-        for path in [
-            "/",
-            "",
-            "/healthz",
-            "/oauth/token",
-            "/tokuly.geo.v1.LocationService",
-            "/tokuly.geo.v1.LocationService/",
-            "/tokuly.geo.LocationService/Get",
-            "/other.geo.v1.LocationService/Get",
-            "/tokuly.geo.v1.LocationService/Get/more",
-            "/tokuly.Geo.v1.LocationService/Get",
-            "/tokuly.geo.vx.LocationService/Get",
-            "/tokuly.geo.v1.extra.LocationService/Get",
-        ] {
-            assert_eq!(access_for(path), None, "{path:?}");
-        }
-    }
-
-    #[test]
-    fn every_rule_names_a_well_formed_pattern() {
-        for (pattern, _) in RULES {
-            let probe = match pattern.split_once('/') {
-                Some((service, "*")) => format!("/{service}/Probe"),
-                Some(_) => format!("/{pattern}"),
-                None => {
-                    format!("/{}.ProbeService/Probe", pattern.strip_suffix(".*").expect("package patterns end in .*"))
-                }
-            };
-            assert!(Procedure::parse(&probe).and_then(|p| p.rule()).is_some(), "{pattern} matches nothing");
-        }
     }
 }

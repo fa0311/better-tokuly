@@ -289,7 +289,15 @@ impl AuthLayer {
     /// Their requests are counted in `limiter`; `None` switches the
     /// per-token rate limits off.
     pub fn with_api_tokens(mut self, api_tokens: ApiTokens, limiter: Option<Cache>) -> Self {
-        self.api = ApiGate { tokens: api_tokens, limiter };
+        self.api = ApiGate { tokens: api_tokens, limiter, ..self.api };
+        self
+    }
+
+    /// How often a token is verified again while a response made with it is
+    /// still streaming (half a minute unless set). A stream is cut off at
+    /// the first check that finds its token revoked or expired.
+    pub fn with_stream_recheck(mut self, every: std::time::Duration) -> Self {
+        self.api.recheck = every;
         self
     }
 }
@@ -437,6 +445,7 @@ mod tests {
     };
 
     use axum::response::IntoResponse as _;
+    use futures::StreamExt as _;
 
     use crate::api_tokens::{ApiCall, ApiTokenKind, ApiTokenVerifier, RateTier, TokenRejection};
 
@@ -446,11 +455,16 @@ mod tests {
     struct FakeVerifier {
         known: HashMap<&'static str, Result<ApiToken, TokenRejection>>,
         calls: parking_lot::Mutex<Vec<(Uuid, ApiCall)>>,
+        /// Tokens revoked while the test runs.
+        revoked: parking_lot::Mutex<Vec<String>>,
     }
 
     #[async_trait::async_trait]
     impl ApiTokenVerifier for FakeVerifier {
         async fn verify(&self, token: &str) -> Result<ApiToken, TokenRejection> {
+            if self.revoked.lock().iter().any(|revoked| revoked == token) {
+                return Err(TokenRejection::Revoked);
+            }
             self.known.get(token).cloned().unwrap_or(Err(TokenRejection::Invalid))
         }
 
@@ -506,7 +520,12 @@ mod tests {
             let counter = handled.clone();
             let describe = move |axum::Extension(state): axum::Extension<AuthState>, uri: http::Uri| async move {
                 counter.fetch_add(1, Ordering::SeqCst);
-                if uri.path().ends_with("/GetMissing") {
+                if uri.path().ends_with("/WatchAsset") {
+                    // A server stream: one message, then silence for as long as the client listens.
+                    let messages = futures::stream::once(async { Ok::<_, std::convert::Infallible>(bytes::Bytes::from_static(b"first")) }).chain(futures::stream::pending());
+                    return axum::body::Body::from_stream(messages).into_response();
+                }
+                if uri.path().ends_with("/GetNoteThread") {
                     // What a handler's `AppError::not_found` looks like on the way out.
                     return (http::StatusCode::NOT_FOUND, [(crate::error::REASON_HEADER, "THING_NOT_FOUND")]).into_response();
                 }
@@ -547,7 +566,7 @@ mod tests {
         }
     }
 
-    const LIST_NOTES: &str = "/tokuly.notes.v1.NoteService/ListNotes";
+    const LIST_NOTES: &str = "/tokuly.notes.v1.NoteService/GetNote";
     const CREATE_NOTE: &str = "/tokuly.notes.v1.NoteService/CreateNote";
 
     #[tokio::test]
@@ -677,7 +696,7 @@ mod tests {
         let token = api_token(&["notes:read"]);
         let app = TokenApp::new([("tkl_pat_reader", Ok(token.clone()))]);
         app.unary(LIST_NOTES, Some("tkl_pat_reader")).await;
-        app.unary("/tokuly.notes.v1.NoteService/GetMissing", Some("tkl_pat_reader")).await;
+        app.unary("/tokuly.notes.v1.NoteService/GetNoteThread", Some("tkl_pat_reader")).await;
         app.unary(CREATE_NOTE, Some("tkl_pat_reader")).await;
         let calls = app.verifier.calls(3).await;
         let mut seen: Vec<(String, Option<String>)> = calls.iter().map(|(_, call)| (call.procedure.clone(), call.error.clone())).collect();
@@ -686,10 +705,81 @@ mod tests {
             seen,
             [
                 ("tokuly.notes.v1.NoteService/CreateNote".to_owned(), Some("INSUFFICIENT_SCOPE".to_owned())),
-                ("tokuly.notes.v1.NoteService/GetMissing".to_owned(), Some("THING_NOT_FOUND".to_owned())),
-                ("tokuly.notes.v1.NoteService/ListNotes".to_owned(), None),
+                ("tokuly.notes.v1.NoteService/GetNote".to_owned(), None),
+                ("tokuly.notes.v1.NoteService/GetNoteThread".to_owned(), Some("THING_NOT_FOUND".to_owned())),
             ]
         );
         assert!(calls.iter().all(|(id, call)| *id == token.id && call.user_agent == "curl/8"));
+    }
+
+    #[tokio::test]
+    async fn an_rpc_nobody_classified_is_closed_to_tokens() {
+        let app = TokenApp::new([("tkl_pat_all", Ok(api_token(&["notes:write", "live:write", "wallet:write"])))]);
+        // Names a prefix rule would have waved through as reads, and a domain without a table.
+        for path in ["/tokuly.notes.v1.NoteService/BatchDeleteNotes", "/tokuly.wallet.v1.WalletService/CheckoutCart", "/tokuly.live.v1.LiveService/GetStreamKey"] {
+            let (status, reason, _) = app.unary(path, Some("tkl_pat_all")).await;
+            assert_eq!((status, reason.as_str()), (403, "TOKEN_NOT_ALLOWED"), "{path}");
+        }
+        assert_eq!(app.handled.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn an_rpc_that_needs_several_scopes_names_the_one_that_is_missing() {
+        let app = TokenApp::new([("tkl_pat_feed", Ok(api_token(&["feed:read"]))), ("tkl_pat_both", Ok(api_token(&["feed:read", "geo:read"])))]);
+        let (parts, _) = app.call("/tokuly.feed.v1.MapStoryService/ListMapStories", Some("tkl_pat_feed"), "application/json").await;
+        assert_eq!((parts.status.as_u16(), parts.headers[crate::error::REASON_HEADER].to_str().unwrap()), (403, "INSUFFICIENT_SCOPE"));
+        assert_eq!(parts.headers["x-tokuly-scope"], "geo:read");
+        assert_eq!(app.unary("/tokuly.feed.v1.MapStoryService/ListMapStories", Some("tkl_pat_both")).await.0, 200);
+        assert_eq!(app.unary("/tokuly.feed.v1.NewsService/ListNews", Some("tkl_pat_feed")).await.0, 200);
+    }
+
+    /// Reads a streaming response until it ends; `None` if it is still open after `patience`.
+    async fn stream_ends_within(mut body: axum::body::BodyDataStream, patience: Duration) -> Option<Vec<bytes::Bytes>> {
+        let mut received = Vec::new();
+        let read = async {
+            while let Some(Ok(chunk)) = body.next().await {
+                received.push(chunk);
+            }
+        };
+        tokio::time::timeout(patience, read).await.ok().map(|()| received)
+    }
+
+    #[tokio::test]
+    async fn a_stream_ends_when_its_token_is_revoked_or_expires() {
+        use tower::ServiceExt as _;
+
+        let expiring = ApiToken { expires_at: Some(Utc::now() + chrono::Duration::milliseconds(300)), ..api_token(&["media:read"]) };
+        let verifier = Arc::new(FakeVerifier {
+            known: [("tkl_pat_stream", Ok(api_token(&["media:read"]))), ("tkl_pat_expiring", Ok(expiring))].into_iter().collect(),
+            ..Default::default()
+        });
+        let registry = ApiTokens::default();
+        registry.register(verifier.clone());
+        let layer = AuthLayer::new(tokens(), crate::proxies::TrustedProxies::parse(&[]).unwrap())
+            .with_api_tokens(registry, None)
+            .with_stream_recheck(Duration::from_millis(50));
+        let app = TokenApp::with_layer(layer, verifier.clone());
+        let open = |bearer: String| {
+            let router = app.router.clone();
+            async move {
+                let request = http::Request::builder().method("POST").uri("/tokuly.media.v1.MediaService/WatchAsset").header("content-type", "application/connect+json");
+                let request = request.header("authorization", format!("Bearer {bearer}")).body(axum::body::Body::empty()).unwrap();
+                router.oneshot(request).await.unwrap().into_body().into_data_stream()
+            }
+        };
+
+        // While the token is good the stream stays open through many re-checks.
+        let stream = open("tkl_pat_stream".to_owned()).await;
+        assert!(stream_ends_within(stream, Duration::from_millis(400)).await.is_none());
+        // Revoked while a stream is open: the stream ends at the next check.
+        let stream = open("tkl_pat_stream".to_owned()).await;
+        verifier.revoked.lock().push("tkl_pat_stream".to_owned());
+        assert_eq!(stream_ends_within(stream, Duration::from_secs(5)).await.expect("the stream was cut off"), ["first"]);
+        // A token that runs out mid-stream ends it too, without the verifier having to say so.
+        let stream = open("tkl_pat_expiring".to_owned()).await;
+        assert!(stream_ends_within(stream, Duration::from_secs(5)).await.is_some());
+        // A session's stream is not watched.
+        let (jwt, _) = tokens().issue(Uuid::now_v7(), Uuid::now_v7(), &[]).unwrap();
+        assert!(stream_ends_within(open(jwt).await, Duration::from_millis(300)).await.is_none());
     }
 }

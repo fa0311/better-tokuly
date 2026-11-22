@@ -72,7 +72,7 @@ async fn call(app: &axum::Router, path: &str) -> (u16, String, Vec<Option<u32>>)
     (response.status().as_u16(), header("x-tokuly-error").unwrap_or_default(), limits)
 }
 
-const LIST_NOTES: &str = "/tokuly.notes.v1.NoteService/ListNotes";
+const LIST_NOTES: &str = "/tokuly.notes.v1.NoteService/GetNote";
 
 #[tokio::test]
 async fn a_token_is_held_to_its_requests_per_minute() {
