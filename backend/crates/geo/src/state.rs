@@ -149,6 +149,10 @@ pub struct LiveState {
     /// The latest footprint cells (H3 indexes), newest last: cells in here need no database round trip.
     #[serde(default)]
     pub recent_cells: Vec<i64>,
+    /// Device time of the latest sample that left a footprint (or confirmed
+    /// the current cell): only a sample right after it may bridge cells.
+    #[serde(default)]
+    pub footprint_ms: i64,
     #[serde(default)]
     pub odometer: Odometer,
     #[serde(default)]

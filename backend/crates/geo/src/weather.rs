@@ -124,8 +124,10 @@ impl Geo {
             .http
             .get(url)
             .query(&[
-                ("latitude", format!("{:.2}", point.0)),
-                ("longitude", format!("{:.2}", point.1)),
+                // The middle of the cell, not the position: the provider learns
+                // which ~10 km square someone is in, never where in it.
+                ("latitude", format!("{:.2}", cell(point).0 as f64 / 10.0 + 0.05)),
+                ("longitude", format!("{:.2}", cell(point).1 as f64 / 10.0 + 0.05)),
                 ("current", "temperature_2m,weather_code,is_day".to_owned()),
             ])
             .timeout(Duration::from_secs(5))

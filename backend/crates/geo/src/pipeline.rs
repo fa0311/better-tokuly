@@ -25,7 +25,7 @@ use crate::{
     Geo,
     ctx::OwnerCtx,
     detect::{ProximityRules, StayEvent, StayRules, resolve_activity, speed_between},
-    fanout::{Audience, VisitNews},
+    fanout::{Recipients, VisitNews},
     footprints::Uncovered,
     gatherings::Changes,
     geocode::Gazetteer,
@@ -33,10 +33,15 @@ use crate::{
     math::{self, Point},
     odometer::MAX_SPEED_MPS,
     state::{LiveState, Pushed},
+    visibility,
 };
 
 /// Device clocks run ahead a little; more than this is a broken clock.
 const MAX_CLOCK_SKEW: Duration = Duration::minutes(2);
+/// Samples closer together than this (device time) are dropped: nothing
+/// moves fast enough to need them, and it bounds what one account can make
+/// the pipeline do — a week of history is 600,000 samples at most.
+const MIN_SPACING_MS: i64 = 1000;
 /// Positions less certain than this are not positions.
 const MAX_ACCURACY_M: f64 = 10_000.0;
 /// Only fixes at least this good feed stays, distance and footprints.
@@ -197,6 +202,7 @@ impl Geo {
             return Ok(0);
         }
         valid.sort_by_key(|sample| sample.recorded_ms);
+        Gazetteer::ready().await;
         let lock = self.lock_user(user_id).await?;
         let result = self.process(user_id, valid).await;
         self.unlock_user(lock).await;
@@ -212,8 +218,8 @@ impl Geo {
         let mut effects = Effects::default();
         let mut accepted = 0;
         for sample in &samples {
-            // Duplicates and stragglers: the state only moves forward.
-            if state.located() && sample.recorded_ms <= state.pin.recorded_ms {
+            // Duplicates, stragglers and floods: the state only moves forward, a second at a time.
+            if state.located() && sample.recorded_ms < state.pin.recorded_ms + MIN_SPACING_MS {
                 continue;
             }
             self.apply(user_id, &ctx, &mut state, sample, &mut effects).await?;
@@ -229,7 +235,7 @@ impl Geo {
         if live && state.last_fine_ms == state.pin.recorded_ms {
             self.evaluate_alerts(user_id, &ctx, &state.pin).await?;
             self.advance_trip(user_id, &ctx, &mut state).await?;
-            effects.gatherings = self.check_proximity(user_id, &mut state).await?;
+            effects.gatherings = self.check_proximity(user_id, &ctx, &mut state).await?;
         }
         let push = worth_pushing(&state);
         if push {
@@ -246,9 +252,12 @@ impl Geo {
         for uncovered in &effects.footprints {
             self.push_footprint_progress(user_id, uncovered, ctx.ja).await;
         }
-        self.push_visit_news(user_id, &ctx, &effects.visits).await?;
+        // (Arrivals and departures of a backlog are history, not news.)
+        if live {
+            self.push_visit_news(user_id, &ctx, &effects.visits).await?;
+        }
         if push {
-            self.fan_out(user_id, Some(&state.pin), &ctx, Audience::Friends, false).await?;
+            self.fan_out(user_id, Some(&state.pin), &ctx, Recipients::Friends, false).await?;
             self.publish_shares(user_id, &state.pin, &ctx).await;
         }
         if let Some(changes) = effects.gatherings {
@@ -284,7 +293,8 @@ impl Geo {
                 for event in state.stay.update(rules, sample.lat, sample.lng, sample.accuracy, at_ms) {
                     let news = match event {
                         StayEvent::Started { lat, lng, since_ms } => {
-                            self.begin_stay(user_id, ctx, state, (lat, lng), since_ms).await?
+                            let live = Utc::now().timestamp_millis() - at_ms <= LIVE_WINDOW_MS;
+                            self.begin_stay(user_id, ctx, state, (lat, lng), since_ms, live).await?
                         }
                         StayEvent::Ended { until_ms, .. } => self.finish_stay(user_id, ctx, state, until_ms).await?,
                     };
@@ -367,18 +377,24 @@ impl Geo {
         effects: &mut Effects,
     ) -> AppResult<()> {
         let Some(cell) = math::cell_at(position.0, position.1, math::CELL_RESOLUTION) else { return Ok(()) };
+        // The fix this one continues from: the previous good one, if it is
+        // recent and itself left a footprint. After a rejected jump it did
+        // not, so the next fix starts over instead of drawing a line of
+        // cells from wherever the last footprint was.
+        let connected = previous.filter(|(_, from_ms)| at_ms - from_ms <= BRIDGE_MS && *from_ms == state.footprint_ms);
         let last = state.recent_cells.last().copied();
         if last == Some(math::cell_to_db(cell)) {
+            state.footprint_ms = at_ms;
             return Ok(());
         }
         // A position jump (GPS glitch, spoofing) leaves no footprint.
-        let connected = previous.filter(|(_, from_ms)| at_ms - from_ms <= BRIDGE_MS);
-        if let Some((from, from_ms)) = connected {
+        if let Some((from, from_ms)) = previous.filter(|(_, from_ms)| at_ms - from_ms <= BRIDGE_MS) {
             let seconds = ((at_ms - from_ms) as f64 / 1000.0).max(1.0);
             if math::distance(from, position) / seconds > MAX_SPEED_MPS {
                 return Ok(());
             }
         }
+        state.footprint_ms = at_ms;
         state.region = self.regions_at(position.0, position.1).await?;
         let mut path = match (last.and_then(math::cell_from_db), connected) {
             (Some(from_cell), Some((from, _))) if math::distance(from, position) <= BRIDGE_M => {
@@ -422,7 +438,12 @@ impl Geo {
     /// Finds the friends within the gathering radius right now, feeds the
     /// proximity tracker, and syncs gatherings when who the user is together
     /// with changed.
-    async fn check_proximity(&self, user_id: Uuid, state: &mut LiveState) -> AppResult<Option<Changes>> {
+    async fn check_proximity(
+        &self,
+        user_id: Uuid,
+        ctx: &OwnerCtx,
+        state: &mut LiveState,
+    ) -> AppResult<Option<Changes>> {
         let at_ms = state.pin.recorded_ms;
         if at_ms - state.proximity_checked_ms < PROXIMITY_EVERY_MS {
             return Ok(None);
@@ -435,8 +456,12 @@ impl Geo {
             let radius = self.cfg.gathering_radius_meters;
             let hits =
                 geoindex::nearby(&self.core.cache, position.0, position.1, radius + NEAR_ALLOWANCE_M, 64).await?;
-            let candidates: Vec<Uuid> =
+            let nearby: Vec<Uuid> =
                 hits.into_iter().map(|(id, _)| id).filter(|id| *id != user_id && friends.contains(id)).collect();
+            // "Near" is a fact about two true positions. It may exist only
+            // between two people each of whom sees the other's precise pin:
+            // anything else would tell one of them where the other is.
+            let candidates = self.mutually_precise(user_id, ctx, &nearby).await?;
             for (friend, theirs) in candidates.iter().zip(self.load_states(&candidates).await?) {
                 let Some(theirs) = theirs.filter(|theirs| theirs.located() && theirs.pin.sharing) else { continue };
                 let age = (at_ms - theirs.pin.recorded_ms).abs();
@@ -460,10 +485,81 @@ impl Geo {
             return Ok((!changes.is_empty()).then_some(changes));
         }
         if !together.is_empty() && at_ms - state.gathering_seen_ms >= GATHERING_HEARTBEAT_MS {
-            self.gathering_heartbeat(user_id, from_millis(at_ms)).await?;
+            self.gathering_heartbeat(user_id, position, from_millis(at_ms)).await?;
             state.gathering_seen_ms = at_ms;
         }
         Ok(None)
+    }
+
+    /// The friends among `others` who see `user_id` precisely and whom
+    /// `user_id` sees precisely, right now.
+    pub(crate) async fn mutually_precise(
+        &self,
+        user_id: Uuid,
+        ctx: &OwnerCtx,
+        others: &[Uuid],
+    ) -> AppResult<Vec<Uuid>> {
+        if others.is_empty() {
+            return Ok(Vec::new());
+        }
+        let now = Utc::now();
+        let contexts = self.ctx_many(others).await?;
+        Ok(others
+            .iter()
+            .copied()
+            .filter(|other| {
+                visibility::sees_precisely(ctx, *other, now)
+                    && contexts.get(other).is_some_and(|theirs| visibility::sees_precisely(theirs, user_id, now))
+            })
+            .collect())
+    }
+
+    /// Who sees `owner` precisely has changed (a ghost rule or an SOS began
+    /// or ended). Whatever `owner` shares with someone by being near them
+    /// ends at once if the two no longer see each other precisely: each
+    /// drops out of the other's proximity tracker and the gatherings follow.
+    /// Nothing here looks at where anyone is.
+    pub(crate) async fn sight_changed(&self, owner: Uuid) -> AppResult<()> {
+        // Without the lock first: most people are not near anyone.
+        let Some(state) = self.load_state(owner).await? else { return Ok(()) };
+        let mut linked: Vec<Uuid> = state.near.near.iter().map(|near| near.user_id).collect();
+        for friend in &state.gathering_with {
+            if !linked.contains(friend) {
+                linked.push(*friend);
+            }
+        }
+        if linked.is_empty() {
+            return Ok(());
+        }
+        let ctx = self.ctx_of(owner).await?;
+        let kept = self.mutually_precise(owner, &ctx, &linked).await?;
+        let cut: Vec<Uuid> = linked.into_iter().filter(|id| !kept.contains(id)).collect();
+        if cut.is_empty() {
+            // Nobody leaves; people watching may still see fewer members now.
+            return self.refresh_gathering_of(owner).await;
+        }
+        let mut all = vec![self.with_state(owner, async |state| self.cut_links(owner, state, &cut).await).await?];
+        for other in &cut {
+            all.push(self.with_state(*other, async |state| self.cut_links(*other, state, &[owner]).await).await?);
+        }
+        for changes in all.into_iter().flatten() {
+            self.publish_gathering_changes(changes).await?;
+        }
+        self.refresh_gathering_of(owner).await
+    }
+
+    /// Takes `others` out of the proximity tracker of `user_id` and brings
+    /// their gathering in line.
+    async fn cut_links(&self, user_id: Uuid, state: &mut LiveState, others: &[Uuid]) -> AppResult<Option<Changes>> {
+        for other in others {
+            state.near.forget(*other);
+        }
+        if !state.gathering_with.iter().any(|id| others.contains(id)) {
+            return Ok(None);
+        }
+        state.gathering_with.retain(|id| !others.contains(id));
+        let changes = self.sync_gathering(user_id, &state.gathering_with, state.pin.position(), Utc::now()).await?;
+        Ok((!changes.is_empty()).then_some(changes))
     }
 
     /// The device stopped sharing: the pin stays where it is and is marked
@@ -500,7 +596,7 @@ impl Geo {
             self.push_visit_news(user_id, &ctx, &[news]).await?;
         }
         if let Some(pin) = pin {
-            self.fan_out(user_id, Some(&pin), &ctx, Audience::Friends, false).await?;
+            self.fan_out(user_id, Some(&pin), &ctx, Recipients::Friends, false).await?;
             self.publish_shares(user_id, &pin, &ctx).await;
         }
         Ok(())

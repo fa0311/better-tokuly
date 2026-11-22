@@ -197,7 +197,11 @@ impl Geo {
             let target = alert
                 .target
                 .or_else(|| ctx.labelled_place(alert.label).map(|place| (place.lat, place.lng, place.radius_m)));
-            let precise = visibility::sees_precisely(ctx, alert.owner_id, now);
+            // The owner must see the subject precisely — and an alert on the
+            // subject's home, work or school also needs the subject to share
+            // those right now: approval once does not outlive that switch.
+            let labels_shared = alert.target.is_some() || ctx.privacy.share_place_labels || ctx.sos_for(alert.owner_id);
+            let precise = labels_shared && visibility::sees_precisely(ctx, alert.owner_id, now);
             match judge(alert, target, pin, precise, now.timestamp_millis()) {
                 Verdict::Unchanged => {}
                 Verdict::Forget => {
@@ -210,7 +214,7 @@ impl Geo {
                 Verdict::Moved { inside, fire } => {
                     changed = true;
                     if fire {
-                        self.fire_alert(alert.id, inside, now).await?;
+                        self.fire_alert(subject, alert.id, inside, now).await?;
                     } else {
                         sqlx::query("UPDATE geo_place_alerts SET inside = $2 WHERE id = $1 AND status = $3")
                             .bind(alert.id)
@@ -229,13 +233,15 @@ impl Geo {
     }
 
     /// An alert goes off: the owner is notified, a one-time alert is done.
-    async fn fire_alert(&self, alert_id: Uuid, inside: bool, now: DateTime<Utc>) -> AppResult<()> {
+    async fn fire_alert(&self, subject: Uuid, alert_id: Uuid, inside: bool, now: DateTime<Utc>) -> AppResult<()> {
+        let name = self.display_name(subject).await?;
         let mut tx = self.core.db.begin().await?;
+        // (Only a change of side fires: evaluating the same samples again does nothing.)
         let fired: Option<AlertRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "UPDATE geo_place_alerts SET inside = $2, last_fired_at = $3,
                     status = CASE WHEN recurring THEN status ELSE {FIRED} END,
                     expires_at = CASE WHEN recurring THEN expires_at ELSE NULL END
-             WHERE id = $1 AND status = {ACTIVE}
+             WHERE id = $1 AND status = {ACTIVE} AND inside IS DISTINCT FROM $2
              RETURNING {ALERT_COLUMNS}"
         )))
         .bind(alert_id)
@@ -244,7 +250,6 @@ impl Geo {
         .fetch_optional(&mut *tx)
         .await?;
         let Some(row) = fired else { return Ok(()) };
-        let name = self.display_name(row.subject_id).await?;
         let (place_ja, place_en) = place_words(row.subject_place_label as i32, &row.place_name);
         let title = if inside {
             Localized::new(format!("{name}さんが{place_ja}に到着しました!"), format!("{name} arrived at {place_en}"))
@@ -368,7 +373,9 @@ impl Geo {
             outbound::notify(&mut *tx, &notification).await?;
         }
         tx.commit().await?;
-        self.broadcast_sos(&row).await
+        self.broadcast_sos(&row).await?;
+        // The people alerted are back under the sender's ghost rules.
+        self.sight_changed(row.user_id).await
     }
 
     /// Resolves SOS alerts nobody resolved within the configured time, so
@@ -462,18 +469,24 @@ impl SafetyService for Geo {
                 None => bail!(invalid, "MISSING_TARGET", "say where the alert is"),
             };
             self.core.cache.rate_limit(&format!("geo-alert:{owner}"), 30, Duration::from_secs(3600)).await?;
-            let open: i64 = sqlx::query_scalar("SELECT count(*) FROM geo_place_alerts WHERE owner_id = $1 AND status IN ($2, $3)")
-                .bind(owner)
-                .bind(PENDING)
-                .bind(ACTIVE)
-                .fetch_one(&self.core.db)
-                .await?;
-            ensure!(open < MAX_ALERTS, precondition, "TOO_MANY_ALERTS", "at most {MAX_ALERTS} alerts at a time");
+            let name = self.display_name(owner).await?;
 
             // Recurring alerts wait for the subject's approval; one-time
             // alerts work at once and lapse if they never fire.
             let (status, lifetime_hours) = if req.recurring { (PENDING, self.cfg.pending_alert_days * 24) } else { (ACTIVE, self.cfg.one_time_alert_hours) };
             let mut tx = self.core.db.begin().await?;
+            // One at a time per account, so that the limit holds for requests made together.
+            sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('geo:alerts:' || $1::text, 0))")
+                .bind(owner)
+                .execute(&mut *tx)
+                .await?;
+            let open: i64 = sqlx::query_scalar("SELECT count(*) FROM geo_place_alerts WHERE owner_id = $1 AND status IN ($2, $3)")
+                .bind(owner)
+                .bind(PENDING)
+                .bind(ACTIVE)
+                .fetch_one(&mut *tx)
+                .await?;
+            ensure!(open < MAX_ALERTS, precondition, "TOO_MANY_ALERTS", "at most {MAX_ALERTS} alerts at a time");
             let row: AlertRow = sqlx::query_as(sqlx::AssertSqlSafe(format!(
                 "INSERT INTO geo_place_alerts
                      (owner_id, subject_id, place_name, lat, lng, radius_m, subject_place_label, trigger, recurring, status, expires_at)
@@ -493,7 +506,6 @@ impl SafetyService for Geo {
             .bind(lifetime_hours as i32)
             .fetch_one(&mut *tx)
             .await?;
-            let name = self.display_name(owner).await?;
             let (place_ja, place_en) = place_words(label as i32, &place_name);
             let (verb_ja, verb_en) = if trigger == ARRIVE { ("に着いたら", "arrive at") } else { ("を出たら", "leave") };
             let notification = if req.recurring {
@@ -545,6 +557,7 @@ impl SafetyService for Geo {
                 "ALERT_NOT_PENDING",
                 "this alert is not waiting for an answer"
             );
+            let name = self.display_name(subject).await?;
             let mut tx = self.core.db.begin().await?;
             let row: Option<AlertRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
                 "UPDATE geo_place_alerts SET status = $2, responded_at = now(), expires_at = NULL
@@ -557,7 +570,6 @@ impl SafetyService for Geo {
             let Some(row) = row else {
                 bail!(precondition, "ALERT_NOT_PENDING", "this alert is not waiting for an answer")
             };
-            let name = self.display_name(subject).await?;
             let title = if approve {
                 Localized::new(format!("{name}さんが通知を承認しました"), format!("{name} approved your alert"))
             } else {

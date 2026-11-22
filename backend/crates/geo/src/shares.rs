@@ -5,6 +5,11 @@
 //! Positions are published on the realtime topic `share:<token>` (public, no
 //! guard — knowing the token is the permission) and served by the
 //! `GetLiveShare` / `WatchLiveShare` RPCs.
+//!
+//! The database does not hold the tokens themselves: a keyed hash for
+//! looking a link up, and the token sealed with the server secret so that
+//! the owner can be shown their links again and the pipeline can publish on
+//! the share's topic. A copy of the table opens no link.
 use std::time::Duration;
 
 use buffa::Message as _;
@@ -31,6 +36,8 @@ const MAX_LABEL_CHARS: usize = 60;
 const MAX_ACTIVE: i64 = 10;
 /// 32 base62 characters: about 190 bits.
 const TOKEN_CHARS: usize = 32;
+/// Key space under which share tokens are sealed.
+const SEAL_LABEL: &str = "geo/share-token";
 
 /// Realtime topic of a share.
 pub(crate) fn topic(token: &str) -> String {
@@ -41,14 +48,14 @@ pub(crate) fn topic(token: &str) -> String {
 pub(crate) struct ShareRow {
     pub id: Uuid,
     pub user_id: Uuid,
-    pub token: String,
+    pub token_sealed: Vec<u8>,
     pub label: String,
     pub created_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
     pub view_count: i32,
 }
 
-const SHARE_COLUMNS: &str = "id, user_id, token, label, created_at, expires_at, view_count";
+const SHARE_COLUMNS: &str = "id, user_id, token_sealed, label, created_at, expires_at, view_count";
 
 fn share_not_found() -> AppError {
     AppError::not_found("SHARE_NOT_FOUND", "this share link does not exist or has ended")
@@ -60,11 +67,18 @@ fn looks_like_token(token: &str) -> bool {
 }
 
 impl Geo {
+    /// The token of a share from its sealed form (`None` if it was sealed
+    /// under another server secret: such a share can no longer be opened).
+    pub(crate) fn open_share_token(&self, sealed: &[u8]) -> Option<String> {
+        self.core.keys.open(SEAL_LABEL, sealed).and_then(|token| String::from_utf8(token).ok())
+    }
+
     fn share_message(&self, row: &ShareRow) -> LiveShare {
+        let token = self.open_share_token(&row.token_sealed).unwrap_or_default();
         LiveShare {
             id: row.id.to_string(),
             label: row.label.clone(),
-            url: self.core.web_url(&format!("/share/{}", row.token)),
+            url: self.core.web_url(&format!("/share/{token}")),
             created_at: ts(row.created_at),
             expires_at: ts(row.expires_at),
             view_count: row.view_count,
@@ -92,23 +106,33 @@ impl Geo {
             "a label has at most {MAX_LABEL_CHARS} characters"
         );
         self.core.cache.rate_limit(&format!("geo-share:{owner}"), 20, Duration::from_secs(3600)).await?;
+        let token = ids::random_base62(TOKEN_CHARS);
+        let mut tx = self.core.db.begin().await?;
+        // One at a time per account: two requests must not both find room for the last link.
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('geo:shares:' || $1::text, 0))")
+            .bind(owner)
+            .execute(&mut *tx)
+            .await?;
         let active: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM geo_live_shares WHERE user_id = $1 AND ended_at IS NULL AND expires_at > now()",
         )
         .bind(owner)
-        .fetch_one(&self.core.db)
+        .fetch_one(&mut *tx)
         .await?;
         ensure!(active < MAX_ACTIVE, precondition, "TOO_MANY_SHARES", "at most {MAX_ACTIVE} live shares at a time");
         let row: ShareRow = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "INSERT INTO geo_live_shares (user_id, token, label, expires_at) VALUES ($1, $2, $3, now() + make_interval(secs => $4))
+            "INSERT INTO geo_live_shares (user_id, token_hash, token_sealed, label, expires_at)
+             VALUES ($1, $2, $3, $4, now() + make_interval(secs => $5))
              RETURNING {SHARE_COLUMNS}"
         )))
         .bind(owner)
-        .bind(ids::random_base62(TOKEN_CHARS))
+        .bind(self.core.keys.token_hash(&token))
+        .bind(self.core.keys.seal(SEAL_LABEL, token.as_bytes()))
         .bind(label)
         .bind(duration_seconds as f64)
-        .fetch_one(&self.core.db)
+        .fetch_one(&mut *tx)
         .await?;
+        tx.commit().await?;
         self.invalidate_ctx(&[owner]).await;
         Ok(self.share_message(&row))
     }
@@ -125,15 +149,15 @@ impl Geo {
 
     pub(crate) async fn revoke_live_share(&self, owner: Uuid, share_id: &str) -> AppResult<()> {
         let share_id = parse_id(share_id)?;
-        let token: Option<String> = sqlx::query_scalar("UPDATE geo_live_shares SET ended_at = now() WHERE id = $1 AND user_id = $2 AND ended_at IS NULL RETURNING token")
+        let sealed: Option<Vec<u8>> = sqlx::query_scalar("UPDATE geo_live_shares SET ended_at = now() WHERE id = $1 AND user_id = $2 AND ended_at IS NULL RETURNING token_sealed")
             .bind(share_id)
             .bind(owner)
             .fetch_optional(&self.core.db)
             .await?;
-        match token {
-            Some(token) => {
+        match sealed {
+            Some(sealed) => {
                 self.invalidate_ctx(&[owner]).await;
-                self.announce_share_end(owner, &token).await;
+                self.announce_share_end(owner, &sealed).await;
                 Ok(())
             }
             None => {
@@ -150,19 +174,20 @@ impl Geo {
     }
 
     /// Tells whoever follows a share that it is over.
-    async fn announce_share_end(&self, owner: Uuid, token: &str) {
-        self.core.rt.notify_topic(&topic(token), frame(Event::LocationRemovedUserId(owner.to_string()))).await;
+    async fn announce_share_end(&self, owner: Uuid, sealed: &[u8]) {
+        let Some(token) = self.open_share_token(sealed) else { return };
+        self.core.rt.notify_topic(&topic(&token), frame(Event::LocationRemovedUserId(owner.to_string()))).await;
     }
 
     /// Ends shares whose time is up. Returns how many ended.
     pub async fn expire_live_shares(&self) -> AppResult<u64> {
-        let ended: Vec<(Uuid, String)> =
-            sqlx::query_as("UPDATE geo_live_shares SET ended_at = now() WHERE ended_at IS NULL AND expires_at <= now() RETURNING user_id, token")
+        let ended: Vec<(Uuid, Vec<u8>)> =
+            sqlx::query_as("UPDATE geo_live_shares SET ended_at = now() WHERE ended_at IS NULL AND expires_at <= now() RETURNING user_id, token_sealed")
                 .fetch_all(&self.core.db)
                 .await?;
-        for (owner, token) in &ended {
+        for (owner, sealed) in &ended {
             self.invalidate_ctx(&[*owner]).await;
-            self.announce_share_end(*owner, token).await;
+            self.announce_share_end(*owner, sealed).await;
         }
         Ok(ended.len() as u64)
     }
@@ -173,9 +198,9 @@ impl Geo {
             return Err(share_not_found());
         }
         sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "SELECT {SHARE_COLUMNS} FROM geo_live_shares WHERE token = $1 AND ended_at IS NULL AND expires_at > now()"
+            "SELECT {SHARE_COLUMNS} FROM geo_live_shares WHERE token_hash = $1 AND ended_at IS NULL AND expires_at > now()"
         )))
-        .bind(token)
+        .bind(self.core.keys.token_hash(token))
         .fetch_optional(&self.core.db)
         .await?
         .ok_or_else(share_not_found)
@@ -232,7 +257,8 @@ impl Geo {
         self.core.cache.rate_limit(&format!("geo-share-watch:{client_ip}"), 30, Duration::from_secs(60)).await?;
         let share = self.live_share(token).await?;
         // Listen before reading the current position, so no update falls in between.
-        let mut updates = self.core.bus.subscribe(realtime::topic_subject(&topic(&share.token))).await?;
+        // (The token was just looked up by its hash: it is a well-formed one.)
+        let mut updates = self.core.bus.subscribe(realtime::topic_subject(&topic(token))).await?;
         let current = self.shared_location(share.user_id, ja).await?;
         let (sender, receiver) = mpsc::channel(16);
         let shutdown = self.core.shutdown.clone();

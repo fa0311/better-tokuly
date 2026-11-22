@@ -24,7 +24,8 @@ use crate::{
     geocode::Gazetteer,
     math::{self, Point},
     places::{self, FRIENDS, LABEL_CUSTOM, MAX_PLACES, PLACE_COLUMNS, PRIVATE, PUBLIC, PlaceRow, photo_holder},
-    suggest, visibility,
+    suggest,
+    visibility::Audience,
     visits::{VISIT_COLUMNS, VisitRow},
 };
 
@@ -176,7 +177,7 @@ impl Geo {
         Ok(suggest::suggestions(&stays, rules, Geo::zone_at, 10))
     }
 
-    /// Friends of the viewer (whose precise location the viewer may see) who have been to each place.
+    /// Friends of the viewer who have been to each place, as far as the viewer saw them there.
     async fn friends_visited(
         &self,
         viewer: Uuid,
@@ -186,12 +187,17 @@ impl Geo {
         if place_ids.is_empty() {
             return Ok(out);
         }
-        let friends = self.precise_friends(viewer).await?;
-        let rows: Vec<(Uuid, Uuid)> = sqlx::query_as(
-            "SELECT place_id, user_id FROM geo_visits WHERE place_id = ANY($1) AND user_id = ANY($2) GROUP BY place_id, user_id ORDER BY count(*) DESC",
-        )
+        let friends = graph::friend_ids(&self.core, viewer).await?;
+        // Visits the viewer was in the audience of when they began (see
+        // `visibility::Audience`): those are the only ones they ever hear of.
+        let rows: Vec<(Uuid, Uuid)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT place_id, user_id FROM geo_visits WHERE place_id = ANY($1) AND user_id = ANY($2) AND {}
+             GROUP BY place_id, user_id ORDER BY count(*) DESC",
+            Audience::sql_includes("audience", "audience_ids", "$3")
+        )))
         .bind(place_ids)
         .bind(&friends)
+        .bind(viewer)
         .fetch_all(&self.core.db)
         .await?;
         let users = tokuly_identity::summaries(&self.core, &rows.iter().map(|row| row.1).collect::<Vec<_>>()).await?;
@@ -406,14 +412,21 @@ impl PlaceService for Geo {
         handle(async {
             let viewer = ctx.user_id()?;
             let place = self.visible_place(viewer, request.place_id).await?;
-            // Only people whose whereabouts the caller may know appear by name.
-            let friends = self.precise_friends(viewer).await?;
-            let known: Vec<Uuid> = friends.iter().copied().chain([viewer]).collect();
-            let visitors: Vec<(Uuid, i64)> = sqlx::query_as(
-                "SELECT user_id, count(*) FROM geo_visits WHERE place_id = $1 AND user_id = ANY($2) GROUP BY user_id ORDER BY count(*) DESC, user_id LIMIT 50",
-            )
+            // The card is made of the caller's own visits and the visits of
+            // friends who let the caller see where they were at the time
+            // (the audience recorded on each visit). Nobody else's stay ever
+            // shows here — not by name and not in a number — whoever owns the
+            // place: a place must not work as a tripwire.
+            let friends = graph::friend_ids(&self.core, viewer).await?;
+            let visitors: Vec<(Uuid, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+                "SELECT user_id, count(*) FROM geo_visits
+                 WHERE place_id = $1 AND (user_id = $3 OR (user_id = ANY($2) AND {}))
+                 GROUP BY user_id ORDER BY count(*) DESC, user_id LIMIT 50",
+                Audience::sql_includes("audience", "audience_ids", "$3")
+            )))
             .bind(place.id)
-            .bind(&known)
+            .bind(&friends)
+            .bind(viewer)
             .fetch_all(&self.core.db)
             .await?;
             let users = tokuly_identity::summaries(&self.core, &visitors.iter().map(|v| v.0).collect::<Vec<_>>()).await?;
@@ -427,7 +440,12 @@ impl PlaceService for Geo {
             let friends_visited: Vec<_> = visitors.iter().filter(|(id, _)| *id != viewer).take(20).filter_map(|(id, _)| users.get(id).cloned()).collect();
 
             let mut badges = Vec::new();
-            let groups: i64 = sqlx::query_scalar("SELECT count(*) FROM geo_gatherings WHERE place_id = $1 AND peak_size >= 3").bind(place.id).fetch_one(&self.core.db).await?;
+            // The caller's own visits here in company of two or more friends.
+            let groups: i64 = sqlx::query_scalar("SELECT count(*) FROM geo_visits WHERE place_id = $1 AND user_id = $2 AND cardinality(with_user_ids) >= 2")
+                .bind(place.id)
+                .bind(viewer)
+                .fetch_one(&self.core.db)
+                .await?;
             if groups >= 2 {
                 badges.push("GOOD_FOR_GROUPS".to_owned());
             }
@@ -441,7 +459,7 @@ impl PlaceService for Geo {
                 place: self.place_for(viewer, &place).await?.into(),
                 regulars,
                 friends_visited,
-                total_visit_count: place.visit_count,
+                total_visit_count: visitors.iter().map(|(_, count)| *count as i32).sum(),
                 badges,
                 ..Default::default()
             })
@@ -481,7 +499,7 @@ impl PlaceService for Geo {
                    AND ($4 <> '' OR ST_DWithin(p.geog, ST_SetSRID(ST_MakePoint($7, $6), 4326)::geography, $8))
                  ORDER BY (p.owner_id = $1) DESC,
                           CASE WHEN $6::float8 IS NULL THEN 0 ELSE ST_Distance(p.geog, ST_SetSRID(ST_MakePoint($7, $6), 4326)::geography) END,
-                          p.visit_count DESC, p.id
+                          p.created_at, p.id
                  LIMIT $9"
             )))
             .bind(viewer)
@@ -719,6 +737,10 @@ impl PlaceService for Geo {
             self.core.cache.rate_limit(&format!("geo-checkin:{user_id}"), 30, Duration::from_secs(3600)).await?;
             let area = Gazetteer::shared().area(center.0, center.1);
             let ja = owner_ctx.ja;
+            // Who sees the user's precise pin right now: the only friends this
+            // check-in is for, now and whenever the place card is opened.
+            let precise = Audience::of(&owner_ctx, Utc::now());
+            let (audience_kind, audience_ids) = precise.to_stored();
 
             // At the spot of the ongoing stay the check-in belongs to that
             // visit; anywhere else it is a visit of its own.
@@ -745,8 +767,8 @@ impl PlaceService for Geo {
                     }
                     let mut tx = self.core.db.begin().await?;
                     let row: VisitRow = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-                        "INSERT INTO geo_visits (user_id, place_id, place_name, lat, lng, arrived_at, departed_at, with_user_ids, check_in, message, locality, locality_ja, country_code)
-                         VALUES ($1, $2, $3, $4, $5, now(), now(), $6, true, $7, $8, $9, $10) RETURNING {VISIT_COLUMNS}"
+                        "INSERT INTO geo_visits (user_id, place_id, place_name, lat, lng, arrived_at, departed_at, with_user_ids, check_in, message, locality, locality_ja, country_code, audience, audience_ids)
+                         VALUES ($1, $2, $3, $4, $5, now(), now(), $6, true, $7, $8, $9, $10, $11, $12) RETURNING {VISIT_COLUMNS}"
                     )))
                     .bind(user_id)
                     .bind(place.as_ref().map(|p| p.id))
@@ -758,11 +780,10 @@ impl PlaceService for Geo {
                     .bind(&area.locality)
                     .bind(&area.locality_ja)
                     .bind(&area.country_code)
+                    .bind(audience_kind)
+                    .bind(audience_ids)
                     .fetch_one(&mut *tx)
                     .await?;
-                    if let Some(place) = &place {
-                        sqlx::query("UPDATE geo_places SET visit_count = visit_count + 1 WHERE id = $1").bind(place.id).execute(&mut *tx).await?;
-                    }
                     tx.commit().await?;
                     Ok(row)
                 })
@@ -776,12 +797,14 @@ impl PlaceService for Geo {
                 None => (area.label(true), area.label(false)),
             };
             let name = tokuly_identity::summary(&self.core, user_id).await?.display_name;
-            let now = Utc::now();
-            // Friends who see the precise pin anyway; under ghost mode a check-in stays between the user and the people tagged.
-            let audience: HashSet<Uuid> = friends.iter().copied().filter(|friend| visibility::sees_precisely(&owner_ctx, *friend, now)).collect();
-            let open = owner_ctx.ghost.default_rule(now.timestamp_millis()).is_none();
+            // A check-in says where the user is: it is for the friends who see
+            // the precise pin anyway, tagged or not. It becomes a story in
+            // friends' feeds (with the spot on the map) only if that is every
+            // friend — an activity entry cannot be kept from some of them.
+            let audience: HashSet<Uuid> = friends.iter().copied().filter(|friend| precise.includes(*friend)).collect();
+            let open = precise.is_all_friends();
             let mut tx = self.core.db.begin().await?;
-            for friend in &tagged {
+            for friend in tagged.iter().filter(|friend| audience.contains(friend)) {
                 let notification = NotificationRequest::new(
                     *friend,
                     "geo.checkin_tagged",
@@ -823,7 +846,7 @@ impl PlaceService for Geo {
             }
             outbound::activity(&mut *tx, &entry).await?;
             tx.commit().await?;
-            self.push_visit_news(user_id, &owner_ctx, &[VisitNews { arrived: true, at: now, place }]).await?;
+            self.push_visit_news(user_id, &owner_ctx, &[VisitNews { arrived: true, at: Utc::now(), place }]).await?;
             let visit = self.visits_for(user_id, std::slice::from_ref(&row), ja).await?.pop();
             ok(CheckInResponse { visit: visit.into(), ..Default::default() })
         })

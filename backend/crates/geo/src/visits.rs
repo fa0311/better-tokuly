@@ -17,6 +17,7 @@ use crate::{
     math,
     places::{LABEL_HOME, PLACE_COLUMNS, PlaceRow},
     state::LiveState,
+    visibility::Audience,
 };
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -48,7 +49,8 @@ fn zone_of(state: &LiveState, ctx: &OwnerCtx) -> Tz {
 
 impl Geo {
     /// A stay was confirmed: match it to a place and, when the user records
-    /// history, open a visit.
+    /// history, open a visit. `live` says whether this is happening now (as
+    /// opposed to a backlog being uploaded).
     pub(crate) async fn begin_stay(
         &self,
         user_id: Uuid,
@@ -56,9 +58,15 @@ impl Geo {
         state: &mut LiveState,
         center: (f64, f64),
         since_ms: i64,
+        live: bool,
     ) -> AppResult<VisitNews> {
         let place = self.match_place(user_id, ctx, center).await?;
         let since = from_millis(since_ms);
+        // Who may ever be shown that this visit took place: the friends who
+        // see the precise pin right now. For a backlog nobody knows who saw
+        // what back then, so it stays between the user and the server.
+        let audience = if live { Audience::of(ctx, Utc::now()) } else { Audience::Only(Vec::new()) };
+        let (audience_kind, audience_ids) = audience.to_stored();
         state.pin.stationary_since_ms = Some(since_ms);
         state.pin.stay_center = Some(center);
         state.pin.place = place.clone();
@@ -67,15 +75,22 @@ impl Geo {
         state.night = None;
         if ctx.privacy.record_history {
             let mut tx = self.core.db.begin().await?;
-            // A visit still open can only be a leftover of a lost live state: close it.
-            sqlx::query("UPDATE geo_visits SET departed_at = GREATEST(arrived_at, LEAST($2, now())) WHERE user_id = $1 AND departed_at IS NULL")
-                .bind(user_id)
-                .bind(since)
-                .execute(&mut *tx)
-                .await?;
+            // Another visit still open can only be a leftover of a lost live state: close it.
+            sqlx::query(
+                "UPDATE geo_visits SET departed_at = GREATEST(arrived_at, LEAST($2, now()))
+                 WHERE user_id = $1 AND departed_at IS NULL AND arrived_at <> $2",
+            )
+            .bind(user_id)
+            .bind(since)
+            .execute(&mut *tx)
+            .await?;
+            // A stay is identified by when it began: if these samples are
+            // processed a second time, the visit is found, not doubled.
             let visit_id: Uuid = sqlx::query_scalar(
-                "INSERT INTO geo_visits (user_id, place_id, place_name, lat, lng, arrived_at, locality, locality_ja, country_code)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id",
+                "INSERT INTO geo_visits (user_id, place_id, place_name, lat, lng, arrived_at, locality, locality_ja, country_code, audience, audience_ids)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                 ON CONFLICT (user_id, arrived_at) DO UPDATE SET departed_at = NULL
+                 RETURNING id",
             )
             .bind(user_id)
             .bind(place.as_ref().map(|place| place.id))
@@ -86,14 +101,10 @@ impl Geo {
             .bind(&state.pin.area.locality)
             .bind(&state.pin.area.locality_ja)
             .bind(&state.pin.area.country_code)
+            .bind(audience_kind)
+            .bind(audience_ids)
             .fetch_one(&mut *tx)
             .await?;
-            if let Some(place) = &place {
-                sqlx::query("UPDATE geo_places SET visit_count = visit_count + 1 WHERE id = $1")
-                    .bind(place.id)
-                    .execute(&mut *tx)
-                    .await?;
-            }
             tx.commit().await?;
             state.visit_id = Some(visit_id);
         }

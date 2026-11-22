@@ -43,7 +43,9 @@ impl LocationService for Geo {
                 "TOO_MANY_SAMPLES",
                 "at most {MAX_SAMPLES} samples per upload"
             );
-            self.core.cache.rate_limit(&format!("geo-report:{user_id}"), 240, Duration::from_secs(60)).await?;
+            // One upload a second is plenty; what an upload may contain is
+            // bounded by the pipeline (samples at least a second apart).
+            self.core.cache.rate_limit(&format!("geo-report:{user_id}"), 60, Duration::from_secs(60)).await?;
             let accepted = self.ingest_batch(user_id, Utc::now(), &req.samples).await?;
             // The upload is durable once this returns; a ClickHouse outage must not fail it (rows stay buffered).
             if let Err(e) = self.flush_history().await {

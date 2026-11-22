@@ -1,19 +1,25 @@
 //! Gatherings: friends in the same spot ("N人が集合中!").
 //!
 //! Each user's [`crate::detect::ProximityTracker`] decides which friends they
-//! are together with. This module turns those pairwise facts into gatherings
-//! with stable IDs: the first two people found together found one, others
-//! join it, two gatherings whose members meet merge into the older one, and
-//! the last-but-one leaving ends it.
+//! are together with — only friends who see each other's precise location
+//! count (see [`Geo::mutually_precise`]). This module turns those pairwise
+//! facts into gatherings with stable IDs: the first two people found together
+//! found one, others join it, two gatherings whose members meet merge into
+//! the older one, and the last-but-one leaving ends it.
 //!
-//! A gathering is a server-side fact about true positions. What a viewer
-//! gets to see of it goes through the same rule as everything else: only
-//! members who are their friends *and* whose precise location they may see
-//! ([`Geo::precise_friends`]); with fewer than two such members (counting the
-//! viewer), there is no gathering as far as that viewer is concerned.
-use std::collections::{HashMap, HashSet};
+//! The rows are the server's bookkeeping. What a viewer gets is a view of
+//! their own ([`Scene::view`]): the members they are a friend of and see
+//! precisely (and themselves), the middle of *those* members, when *those*
+//! came together, and a place name only if it follows from all that. With
+//! fewer than two such members there is no gathering as far as the viewer is
+//! concerned, and a viewer is told that a gathering ended only if they were
+//! shown it. Nothing about a member a viewer does not see precisely — not
+//! their name, not their existence, not their pull on the centre — reaches
+//! that viewer.
+use std::collections::HashSet;
 
 use chrono::{DateTime, Utc};
+use h3o::Resolution;
 use tokuly_core::{
     outbound::{self, Localized, NotificationRequest},
     prelude::*,
@@ -23,6 +29,7 @@ use tokuly_social::{InteractionKind, graph};
 
 use crate::{
     Geo,
+    ctx::OwnerCtx,
     math::{self, Point},
     places::{FRIENDS, LABEL_CUSTOM, PUBLIC, PlaceRow},
     visibility,
@@ -39,6 +46,13 @@ const STALE_MINUTES: i32 = 45;
 const ANNOUNCE_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(3 * 3600);
 /// Friends told about a new gathering at most.
 const MAX_ANNOUNCED: usize = 100;
+/// A place is named on a gathering when the gathering is this close to its edge.
+const PLACE_ALLOWANCE_M: f64 = 20.0;
+/// Membership changes are serialized per neighbourhood, not globally: cells
+/// of this size (edges of about 8 km) around the spot.
+const LOCK_RESOLUTION: Resolution = Resolution::Five;
+/// How long the record of who was shown a gathering is kept without news.
+const SHOWN_TTL_SECONDS: i64 = 7 * 24 * 3600;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub(crate) struct GatheringRow {
@@ -48,11 +62,10 @@ pub(crate) struct GatheringRow {
     pub place_id: Option<Uuid>,
     pub place_name: String,
     pub at_private_place: bool,
-    pub started_at: DateTime<Utc>,
     pub credited_until: DateTime<Utc>,
 }
 
-const GATHERING_COLUMNS: &str = "id, lat, lng, place_id, place_name, at_private_place, started_at, credited_until";
+const GATHERING_COLUMNS: &str = "id, lat, lng, place_id, place_name, at_private_place, credited_until";
 
 /// What a membership sync changed.
 #[derive(Debug, Default)]
@@ -92,7 +105,142 @@ pub(crate) fn credit(credited_until: DateTime<Utc>, now: DateTime<Utc>, closing:
     Some((minutes as i32, credited_until + chrono::Duration::minutes(minutes)))
 }
 
+/// One member of a gathering as the server knows them.
+#[derive(Debug, Clone)]
+pub(crate) struct SceneMember {
+    pub id: Uuid,
+    pub arrived_at: DateTime<Utc>,
+    /// Their live position, if they have one.
+    pub position: Option<Point>,
+    pub ctx: OwnerCtx,
+    pub friends: HashSet<Uuid>,
+}
+
+/// A gathering with everything needed to work out what any one viewer sees
+/// of it. Pure: [`Scene::view`] is the per-viewer rule, tested below.
+#[derive(Debug, Clone)]
+pub(crate) struct Scene {
+    pub id: Uuid,
+    pub members: Vec<SceneMember>,
+    /// The named place the gathering was matched to, if any.
+    pub place: Option<ScenePlace>,
+    pub radius_m: f64,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ScenePlace {
+    pub name: String,
+    pub center: Point,
+    pub radius_m: f64,
+    pub owner_id: Uuid,
+    /// The place is public (anyone not blocked may see it); otherwise it is
+    /// shared with its owner's friends.
+    pub public: bool,
+}
+
+/// What one viewer sees of a gathering.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub(crate) struct SceneView {
+    /// The members shown, in order of arrival.
+    pub members: Vec<(Uuid, DateTime<Utc>)>,
+    pub center: Point,
+    /// When two of the members shown were first both there.
+    pub started_at: DateTime<Utc>,
+    pub place_name: String,
+    pub at_private_place: bool,
+}
+
+impl Scene {
+    /// The gathering as `viewer` sees it at `now`, or `None` if they see
+    /// fewer than two of its members. `blocked` are the people in a block
+    /// with the viewer (their public places are not named).
+    pub fn view(&self, viewer: Uuid, blocked: &[Uuid], now: DateTime<Utc>) -> Option<SceneView> {
+        let shown: Vec<&SceneMember> = self
+            .members
+            .iter()
+            .filter(|member| {
+                member.id == viewer
+                    || (member.friends.contains(&viewer) && visibility::sees_precisely(&member.ctx, viewer, now))
+            })
+            .collect();
+        let positions: Vec<Point> = shown.iter().filter_map(|member| member.position).collect();
+        if shown.len() < 2 || positions.is_empty() {
+            return None;
+        }
+        // The middle of the members shown: a hidden member has no pull on it.
+        let center = (
+            positions.iter().map(|p| p.0).sum::<f64>() / positions.len() as f64,
+            positions.iter().map(|p| p.1).sum::<f64>() / positions.len() as f64,
+        );
+        let mut arrivals: Vec<DateTime<Utc>> = shown.iter().map(|member| member.arrived_at).collect();
+        arrivals.sort();
+        // A place is named when the viewer could look it up and the members
+        // they see are there.
+        let place_name = self
+            .place
+            .as_ref()
+            .filter(|place| math::distance(center, place.center) <= place.radius_m + PLACE_ALLOWANCE_M)
+            .filter(|place| {
+                place.owner_id == viewer
+                    || if place.public {
+                        !blocked.contains(&place.owner_id)
+                    } else {
+                        shown.iter().any(|member| member.id == place.owner_id && member.friends.contains(&viewer))
+                    }
+            })
+            .map(|place| place.name.clone())
+            .unwrap_or_default();
+        // At the home, work or school of a member shown — as far as that
+        // member lets friends know where those are.
+        let at_private_place = shown.iter().any(|member| {
+            (member.id == viewer || member.ctx.privacy.share_place_labels)
+                && member.ctx.places.iter().any(|place| {
+                    place.label != LABEL_CUSTOM
+                        && math::distance(center, (place.lat, place.lng)) <= place.radius_m + self.radius_m
+                })
+        });
+        // For this viewer it began when two of the members they see were
+        // first both there; nobody they see "arrived" before that (it would
+        // say that someone else was there already).
+        let started_at = arrivals[1];
+        Some(SceneView {
+            members: shown.iter().map(|member| (member.id, member.arrived_at.max(started_at))).collect(),
+            center,
+            started_at,
+            place_name,
+            at_private_place,
+        })
+    }
+
+    /// Everyone who might see the gathering: its members and their friends.
+    fn candidates(&self) -> Vec<Uuid> {
+        let mut out: HashSet<Uuid> = self.members.iter().map(|member| member.id).collect();
+        for member in &self.members {
+            out.extend(member.friends.iter().copied());
+        }
+        out.into_iter().collect()
+    }
+}
+
 type Tx<'a> = sqlx::Transaction<'a, sqlx::Postgres>;
+
+/// Serializes membership changes around `center`: the cell it is in and the
+/// cells around that one, always in the same order. Two changes within a few
+/// kilometers of each other wait for one another; the rest of the world does
+/// not.
+async fn lock_area(tx: &mut Tx<'_>, center: Point) -> AppResult<()> {
+    let Some(cell) = math::cell_at(center.0, center.1, LOCK_RESOLUTION) else { return Ok(()) };
+    let mut keys: Vec<String> =
+        cell.grid_disk::<Vec<_>>(1).into_iter().map(|cell| format!("geo:gatherings:{cell}")).collect();
+    keys.sort();
+    sqlx::query(
+        "SELECT pg_advisory_xact_lock(hashtextextended(k, 0)) FROM (SELECT k FROM unnest($1::text[]) AS k ORDER BY k OFFSET 0) keys",
+    )
+    .bind(keys)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
 
 async fn active_members(tx: &mut Tx<'_>, gathering_id: Uuid) -> AppResult<Vec<Uuid>> {
     Ok(sqlx::query_scalar("SELECT user_id FROM geo_gathering_members WHERE gathering_id = $1 AND left_at IS NULL ORDER BY arrived_at, user_id")
@@ -171,10 +319,15 @@ async fn leave(
     Ok(())
 }
 
+fn shown_key(gathering_id: Uuid) -> String {
+    format!("geo:gathering:shown:{}", gathering_id.simple())
+}
+
 impl Geo {
     /// Brings the gatherings in line with who `user_id` is together with
     /// right now (`together`: friends near for long enough, from their
-    /// proximity tracker). `position` is where the user is.
+    /// proximity tracker — each of them sees the user's precise location and
+    /// the user theirs). `position` is where the user is.
     pub(crate) async fn sync_gathering(
         &self,
         user_id: Uuid,
@@ -183,10 +336,24 @@ impl Geo {
         at: DateTime<Utc>,
     ) -> AppResult<Changes> {
         let mut changes = Changes::default();
+        // Where the change happens: here, or (when the user only leaves)
+        // where their gathering is.
+        let area = if together.is_empty() {
+            let center: Option<(f64, f64)> = sqlx::query_as(
+                "SELECT g.lat, g.lng FROM geo_gathering_members m JOIN geo_gatherings g ON g.id = m.gathering_id
+                 WHERE m.user_id = $1 AND m.left_at IS NULL",
+            )
+            .bind(user_id)
+            .fetch_optional(&self.core.db)
+            .await?;
+            let Some(center) = center else { return Ok(changes) };
+            center
+        } else {
+            position
+        };
         let mut tx = self.core.db.begin().await?;
-        // One membership change at a time: founding, joining and merging must
-        // not interleave (changes are rare and quick).
-        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('geo:gatherings', 0))").execute(&mut *tx).await?;
+        // Founding, joining and merging in one neighbourhood must not interleave.
+        lock_area(&mut tx, area).await?;
         let mine: Option<Uuid> =
             sqlx::query_scalar("SELECT gathering_id FROM geo_gathering_members WHERE user_id = $1 AND left_at IS NULL")
                 .bind(user_id)
@@ -248,34 +415,42 @@ impl Geo {
             join(&mut tx, target, *joiner, at).await?;
             changes.touch(target);
         }
-        sqlx::query("UPDATE geo_gathering_members SET last_seen_at = $3 WHERE gathering_id = $1 AND user_id = $2")
-            .bind(target)
-            .bind(user_id)
-            .bind(at)
-            .execute(&mut *tx)
-            .await?;
+        // Who this member was with, by their own check: what "met" means later.
+        sqlx::query(
+            "UPDATE geo_gathering_members SET last_seen_at = $3, with_user_ids = ARRAY(SELECT DISTINCT unnest(with_user_ids || $4))
+             WHERE gathering_id = $1 AND user_id = $2",
+        )
+        .bind(target)
+        .bind(user_id)
+        .bind(at)
+        .bind(together)
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await?;
         Ok(changes)
     }
 
     /// After a membership change: describes the spot, announces a new
-    /// gathering, reports time together, and tells everyone who can see it.
+    /// gathering, reports time together, and tells everyone what they now
+    /// see of it.
     pub(crate) async fn publish_gathering_changes(&self, changes: Changes) -> AppResult<()> {
         let now = Utc::now();
         for (row, members) in &changes.ended {
             self.credit_gathering(row, members, now, true).await?;
-            let audience = self.gathering_audience(members).await?;
-            self.push_many(audience, Event::GatheringEndedId(row.id.to_string())).await;
+            // Only the people who were shown it are told that it is over.
+            let shown = self.take_shown(row.id).await?;
+            self.push_many(shown, Event::GatheringEndedId(row.id.to_string())).await;
         }
         let mut current = changes.updated.clone();
         current.extend(changes.formed.filter(|formed| !changes.updated.contains(formed)));
         for gathering_id in current {
             let Some((row, members)) = self.gathering(gathering_id).await? else { continue };
             let row = self.describe_gathering(row, &members).await?;
-            if changes.formed == Some(row.id) {
-                self.announce_gathering(&row, &members).await?;
+            let scene = self.scene(&row, &members).await?;
+            if changes.formed == Some(row.id) && !row.at_private_place {
+                self.announce_gathering(&scene, now).await?;
             }
-            self.push_gathering(&row, &members).await?;
+            self.push_scene(&scene, now).await?;
         }
         Ok(())
     }
@@ -297,7 +472,9 @@ impl Geo {
         Ok(Some((row, members)))
     }
 
-    /// Recomputes where a gathering is and what kind of spot that is.
+    /// Recomputes where a gathering is and what kind of spot that is, for
+    /// the server's own use (matching a place, deciding whether to announce
+    /// it). Viewers get their own centre and place, see [`Scene::view`].
     async fn describe_gathering(
         &self,
         mut row: GatheringRow,
@@ -325,7 +502,7 @@ impl Geo {
         let place: Option<(Uuid, String)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "SELECT p.id, p.name FROM geo_places p
              WHERE ST_DWithin(p.geog, ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography, 1030)
-               AND ST_Distance(p.geog, ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography) <= p.radius_m + 20
+               AND ST_Distance(p.geog, ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography) <= p.radius_m + {PLACE_ALLOWANCE_M}
                AND p.label = {LABEL_CUSTOM} AND (p.visibility = {PUBLIC} OR (p.visibility = {FRIENDS} AND p.owner_id = ANY($3)))
              ORDER BY ST_Distance(p.geog, ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography) / p.radius_m LIMIT 1"
         )))
@@ -350,41 +527,43 @@ impl Geo {
         Ok(row)
     }
 
-    /// Members and all their friends: everyone who might see a gathering.
-    async fn gathering_audience(&self, members: &[Uuid]) -> AppResult<Vec<Uuid>> {
-        let mut audience: HashSet<Uuid> = members.iter().copied().collect();
-        for member in members {
-            audience.extend(graph::friend_ids(&self.core, *member).await?);
+    /// Loads what the per-viewer rule needs to know about a gathering.
+    async fn scene(&self, row: &GatheringRow, members: &[(Uuid, DateTime<Utc>)]) -> AppResult<Scene> {
+        let ids: Vec<Uuid> = members.iter().map(|(id, _)| *id).collect();
+        let states = self.load_states(&ids).await?;
+        let mut contexts = self.ctx_many(&ids).await?;
+        let mut scene_members = Vec::with_capacity(members.len());
+        for ((id, arrived_at), state) in members.iter().zip(states) {
+            scene_members.push(SceneMember {
+                id: *id,
+                arrived_at: *arrived_at,
+                position: state.filter(|state| state.located() && state.pin.sharing).map(|state| state.pin.position()),
+                ctx: contexts.remove(id).unwrap_or_default(),
+                friends: graph::friend_ids(&self.core, *id).await?.into_iter().collect(),
+            });
         }
-        Ok(audience.into_iter().collect())
+        let place = match row.place_id {
+            Some(place_id) => self.place_row(place_id).await?.map(|place: PlaceRow| ScenePlace {
+                name: place.name.clone(),
+                center: place.center(),
+                radius_m: place.radius_m,
+                owner_id: place.owner_id,
+                public: place.visibility == PUBLIC,
+            }),
+            None => None,
+        };
+        Ok(Scene { id: row.id, members: scene_members, place, radius_m: self.cfg.gathering_radius_meters })
     }
 
-    /// A gathering as `viewer` sees it: members who are the viewer or friends
-    /// whose precise location the viewer may see. `None` with fewer than two.
-    async fn gathering_for(
-        &self,
-        viewer: Uuid,
-        visible_friends: &HashSet<Uuid>,
-        row: &GatheringRow,
-        members: &[(Uuid, DateTime<Utc>)],
-        place: Option<&PlaceRow>,
-    ) -> AppResult<Option<Gathering>> {
-        let shown: Vec<&(Uuid, DateTime<Utc>)> =
-            members.iter().filter(|(id, _)| *id == viewer || visible_friends.contains(id)).collect();
-        if shown.len() < 2 {
-            return Ok(None);
-        }
-        let users =
-            tokuly_identity::summaries(&self.core, &shown.iter().map(|(id, _)| *id).collect::<Vec<_>>()).await?;
-        // The place is named only to viewers who could see it themselves.
-        let place_name = match place {
-            Some(place) if self.can_see_place(viewer, place).await? => place.name.clone(),
-            _ => String::new(),
-        };
-        Ok(Some(Gathering {
-            id: row.id.to_string(),
-            center: math::lat_lng(row.lat, row.lng).into(),
-            members: shown
+    /// A viewer's view as the API message.
+    async fn gathering_message(&self, gathering_id: Uuid, view: &SceneView) -> AppResult<Gathering> {
+        let ids: Vec<Uuid> = view.members.iter().map(|(id, _)| *id).collect();
+        let users = tokuly_identity::summaries(&self.core, &ids).await?;
+        Ok(Gathering {
+            id: gathering_id.to_string(),
+            center: math::lat_lng(view.center.0, view.center.1).into(),
+            members: view
+                .members
                 .iter()
                 .map(|(id, arrived_at)| GatheringMember {
                     user: tokuly_identity::users::pick(&users, *id).into(),
@@ -392,39 +571,106 @@ impl Geo {
                     ..Default::default()
                 })
                 .collect(),
-            place_name,
-            started_at: ts(row.started_at),
-            at_private_place: row.at_private_place,
+            place_name: view.place_name.clone(),
+            started_at: ts(view.started_at),
+            at_private_place: view.at_private_place,
             ..Default::default()
-        }))
+        })
     }
 
-    /// Pushes a gathering to everyone who can see it — and its end to those who cannot (any more).
-    async fn push_gathering(&self, row: &GatheringRow, members: &[(Uuid, DateTime<Utc>)]) -> AppResult<()> {
-        let ids: Vec<Uuid> = members.iter().map(|(id, _)| *id).collect();
-        let place = match row.place_id {
-            Some(place_id) => self.place_row(place_id).await?,
-            None => None,
-        };
-        for viewer in self.gathering_audience(&ids).await? {
-            let visible: HashSet<Uuid> = self.precise_friends(viewer).await?.into_iter().collect();
-            match self.gathering_for(viewer, &visible, row, members, place.as_ref()).await? {
-                Some(gathering) => self.push(viewer, Event::GatheringUpdated(Box::new(gathering))).await,
-                None => self.push(viewer, Event::GatheringEndedId(row.id.to_string())).await,
+    /// Remembers what `viewer` was shown of a gathering. Returns whether
+    /// that is news to them (they had not been shown it, or not like this).
+    async fn mark_shown(&self, gathering_id: Uuid, viewer: Uuid, view: &SceneView) -> AppResult<bool> {
+        let key = shown_key(gathering_id);
+        let shown = serde_json::to_string(view).unwrap_or_default();
+        let mut conn = self.core.cache.conn();
+        let before: Option<String> =
+            redis::cmd("HGET").arg(&key).arg(viewer.simple().to_string()).query_async(&mut conn).await?;
+        if before.as_deref() == Some(shown.as_str()) {
+            return Ok(false);
+        }
+        redis::cmd("HSET").arg(&key).arg(viewer.simple().to_string()).arg(shown).query_async::<()>(&mut conn).await?;
+        redis::cmd("EXPIRE").arg(&key).arg(SHOWN_TTL_SECONDS).query_async::<()>(&mut conn).await?;
+        Ok(true)
+    }
+
+    /// Forgets that `viewer` was shown a gathering. Returns whether they had been.
+    async fn unmark_shown(&self, gathering_id: Uuid, viewer: Uuid) -> AppResult<bool> {
+        let removed: i64 = redis::cmd("HDEL")
+            .arg(shown_key(gathering_id))
+            .arg(viewer.simple().to_string())
+            .query_async(&mut self.core.cache.conn())
+            .await?;
+        Ok(removed > 0)
+    }
+
+    /// Everyone who was shown a gathering; the record is dropped.
+    async fn take_shown(&self, gathering_id: Uuid) -> AppResult<Vec<Uuid>> {
+        let key = shown_key(gathering_id);
+        let mut conn = self.core.cache.conn();
+        let members: Vec<String> = redis::cmd("HKEYS").arg(&key).query_async(&mut conn).await?;
+        redis::cmd("DEL").arg(&key).query_async::<()>(&mut conn).await?;
+        Ok(members.iter().filter_map(|member| Uuid::parse_str(member).ok()).collect())
+    }
+
+    /// Shows a gathering to everyone who can see it, each in their own view,
+    /// and tells those who were shown it and no longer see it that it ended
+    /// (for them).
+    async fn push_scene(&self, scene: &Scene, now: DateTime<Utc>) -> AppResult<()> {
+        let mut viewers: HashSet<Uuid> = scene.candidates().into_iter().collect();
+        // People who were shown it and are no longer anyone's friend here.
+        let shown: Vec<String> =
+            redis::cmd("HKEYS").arg(shown_key(scene.id)).query_async(&mut self.core.cache.conn()).await?;
+        viewers.extend(shown.iter().filter_map(|member| Uuid::parse_str(member).ok()));
+        for viewer in viewers {
+            // (A viewer who sees nobody here cannot be named a blocked place either: skip the lookup.)
+            let blocked = if scene.place.as_ref().is_some_and(|place| place.public) {
+                graph::blocked_ids_either(&self.core, viewer).await?
+            } else {
+                Vec::new()
+            };
+            match scene.view(viewer, &blocked, now) {
+                Some(view) => {
+                    // Only if what they see changed: a member they do not see
+                    // coming or going must not even cause a repeat.
+                    if self.mark_shown(scene.id, viewer, &view).await? {
+                        let message = self.gathering_message(scene.id, &view).await?;
+                        self.push(viewer, Event::GatheringUpdated(Box::new(message))).await;
+                    }
+                }
+                None => {
+                    if self.unmark_shown(scene.id, viewer).await? {
+                        self.push(viewer, Event::GatheringEndedId(scene.id.to_string())).await;
+                    }
+                }
             }
         }
         Ok(())
     }
 
-    /// Notifies mutual friends that two (or more) of their friends are
-    /// together — unless they are at someone's home, work or school, or were
-    /// announced together a short while ago.
-    async fn announce_gathering(&self, row: &GatheringRow, members: &[(Uuid, DateTime<Utc>)]) -> AppResult<()> {
-        if row.at_private_place || members.len() < 2 {
+    /// Shows everyone concerned the gathering `user_id` is in again, after
+    /// who sees whom changed without anyone moving.
+    pub(crate) async fn refresh_gathering_of(&self, user_id: Uuid) -> AppResult<()> {
+        let gathering_id: Option<Uuid> =
+            sqlx::query_scalar("SELECT gathering_id FROM geo_gathering_members WHERE user_id = $1 AND left_at IS NULL")
+                .bind(user_id)
+                .fetch_optional(&self.core.db)
+                .await?;
+        let Some(gathering_id) = gathering_id else { return Ok(()) };
+        let Some((row, members)) = self.gathering(gathering_id).await? else { return Ok(()) };
+        let scene = self.scene(&row, &members).await?;
+        self.push_scene(&scene, Utc::now()).await
+    }
+
+    /// Notifies friends that two (or more) of their friends are together —
+    /// unless the two were announced together a short while ago. Each
+    /// recipient is told about the members they see, and nobody else.
+    async fn announce_gathering(&self, scene: &Scene, now: DateTime<Utc>) -> AppResult<()> {
+        if scene.members.len() < 2 {
             return Ok(());
         }
-        let ids: Vec<Uuid> = members.iter().map(|(id, _)| *id).collect();
-        let (first, second) = (ids[0].min(ids[1]), ids[0].max(ids[1]));
+        let (a, b) = (scene.members[0].id, scene.members[1].id);
+        let (first, second) = (a.min(b), a.max(b));
         if !self
             .core
             .cache
@@ -433,63 +679,69 @@ impl Geo {
         {
             return Ok(());
         }
-        // Friends of at least two members, who may see at least two of them precisely.
-        let mut seen_by: HashMap<Uuid, usize> = HashMap::new();
-        let contexts = self.ctx_many(&ids).await?;
-        let now = Utc::now();
-        for member in &ids {
-            let Some(ctx) = contexts.get(member) else { continue };
-            for friend in graph::friend_ids(&self.core, *member).await? {
-                if !ids.contains(&friend) && visibility::sees_precisely(ctx, friend, now) {
-                    *seen_by.entry(friend).or_default() += 1;
-                }
-            }
-        }
-        let mut recipients: Vec<Uuid> =
-            seen_by.into_iter().filter(|(_, count)| *count >= 2).map(|(friend, _)| friend).collect();
+        let member_ids: HashSet<Uuid> = scene.members.iter().map(|member| member.id).collect();
+        let mut recipients: Vec<Uuid> = scene.candidates().into_iter().filter(|id| !member_ids.contains(id)).collect();
         recipients.sort();
-        recipients.truncate(MAX_ANNOUNCED);
-        if recipients.is_empty() {
+        let mut notifications = Vec::new();
+        for recipient in recipients {
+            if notifications.len() >= MAX_ANNOUNCED {
+                break;
+            }
+            let blocked = if scene.place.as_ref().is_some_and(|place| place.public) {
+                graph::blocked_ids_either(&self.core, recipient).await?
+            } else {
+                Vec::new()
+            };
+            let Some(view) = scene.view(recipient, &blocked, now) else { continue };
+            if view.at_private_place {
+                continue;
+            }
+            let ids: Vec<Uuid> = view.members.iter().map(|(id, _)| *id).collect();
+            let users = tokuly_identity::summaries(&self.core, &ids).await?;
+            let name = |id: &Uuid| users.get(id).map(|user| user.display_name.clone()).unwrap_or_default();
+            let title = if ids.len() == 2 {
+                Localized::new(
+                    format!("{}さんと{}さんが集合中!", name(&ids[0]), name(&ids[1])),
+                    format!("{} and {} are together!", name(&ids[0]), name(&ids[1])),
+                )
+            } else {
+                Localized::new(
+                    format!("{}さんたち{}人が集合中!", name(&ids[0]), ids.len()),
+                    format!("{} and {} others are together!", name(&ids[0]), ids.len() - 1),
+                )
+            };
+            let body = if view.place_name.is_empty() {
+                Localized::new("マップで見てみよう!", "See them on the map!")
+            } else {
+                Localized::new(format!("📍{}", view.place_name), format!("📍{}", view.place_name))
+            };
+            notifications.push(
+                NotificationRequest::new(
+                    recipient,
+                    "geo.gathering",
+                    title,
+                    body,
+                    format!("/map?gathering={}", scene.id),
+                )
+                .actor(ids[0])
+                .collapse(format!("geo.gathering:{}", scene.id))
+                .data(serde_json::json!({ "gathering_id": scene.id, "user_ids": ids })),
+            );
+        }
+        if notifications.is_empty() {
             return Ok(());
         }
-        let users = tokuly_identity::summaries(&self.core, &ids).await?;
-        let name = |id: &Uuid| users.get(id).map(|user| user.display_name.clone()).unwrap_or_default();
-        let title = if ids.len() == 2 {
-            Localized::new(
-                format!("{}さんと{}さんが集合中!", name(&ids[0]), name(&ids[1])),
-                format!("{} and {} are together!", name(&ids[0]), name(&ids[1])),
-            )
-        } else {
-            Localized::new(
-                format!("{}さんたち{}人が集合中!", name(&ids[0]), ids.len()),
-                format!("{} and {} others are together!", name(&ids[0]), ids.len() - 1),
-            )
-        };
-        let body = if row.place_name.is_empty() {
-            Localized::new("マップで見てみよう!", "See them on the map!")
-        } else {
-            Localized::new(format!("📍{}", row.place_name), format!("📍{}", row.place_name))
-        };
         let mut tx = self.core.db.begin().await?;
-        for recipient in recipients {
-            let notification = NotificationRequest::new(
-                recipient,
-                "geo.gathering",
-                title.clone(),
-                body.clone(),
-                format!("/map?gathering={}", row.id),
-            )
-            .actor(ids[0])
-            .collapse(format!("geo.gathering:{}", row.id))
-            .data(serde_json::json!({ "gathering_id": row.id, "user_ids": ids }));
-            outbound::notify(&mut *tx, &notification).await?;
+        for notification in &notifications {
+            outbound::notify(&mut *tx, notification).await?;
         }
         tx.commit().await?;
         Ok(())
     }
 
-    /// Reports time together to the social domain for every pair of members,
-    /// once per stretch (several workers may try; one wins).
+    /// Reports time together to the social domain for the pairs of members
+    /// who see each other's precise location, once per stretch (several
+    /// workers may try; one wins).
     async fn credit_gathering(
         &self,
         row: &GatheringRow,
@@ -509,20 +761,42 @@ impl Geo {
         if !won {
             return Ok(());
         }
+        let contexts = self.ctx_many(members).await?;
+        let sees = |owner: &Uuid, viewer: &Uuid| {
+            contexts.get(owner).is_some_and(|ctx| visibility::sees_precisely(ctx, *viewer, now))
+        };
+        let arrivals: std::collections::HashMap<Uuid, DateTime<Utc>> = sqlx::query_as(
+            "SELECT user_id, arrived_at FROM geo_gathering_members WHERE gathering_id = $1 AND user_id = ANY($2)",
+        )
+        .bind(row.id)
+        .bind(members)
+        .fetch_all(&self.core.db)
+        .await?
+        .into_iter()
+        .collect();
         for (index, a) in members.iter().enumerate() {
             for b in &members[index + 1..] {
+                // Time together is something both learn (it moves their
+                // ranking of each other): only for pairs who see each other,
+                // and only for the time the two of them were both there —
+                // not for how long the gathering had been going with others.
                 // (Pairs who are not friends are ignored by the social domain.)
-                graph::record_interaction(&self.core, *a.min(b), *a.max(b), InteractionKind::TimeTogether, minutes)
-                    .await?;
+                let both_since = arrivals.get(a).zip(arrivals.get(b)).map(|(a, b)| *a.max(b));
+                let shared =
+                    both_since.map_or(0, |since| (new_mark - since).num_minutes().clamp(0, minutes as i64)) as i32;
+                if shared > 0 && sees(a, b) && sees(b, a) {
+                    graph::record_interaction(&self.core, *a.min(b), *a.max(b), InteractionKind::TimeTogether, shared)
+                        .await?;
+                }
             }
         }
         Ok(())
     }
 
-    /// Confirms that `user_id` is still in their gathering and reports time
-    /// together when enough has passed. Called by the pipeline about once a
-    /// minute for members.
-    pub(crate) async fn gathering_heartbeat(&self, user_id: Uuid, at: DateTime<Utc>) -> AppResult<()> {
+    /// Confirms that `user_id` is still in their gathering (at `position`)
+    /// and reports time together when enough has passed. Called by the
+    /// pipeline about once a minute for members.
+    pub(crate) async fn gathering_heartbeat(&self, user_id: Uuid, position: Point, at: DateTime<Utc>) -> AppResult<()> {
         let gathering_id: Option<Uuid> =
             sqlx::query_scalar("UPDATE geo_gathering_members SET last_seen_at = $2 WHERE user_id = $1 AND left_at IS NULL RETURNING gathering_id")
                 .bind(user_id)
@@ -530,6 +804,14 @@ impl Geo {
                 .fetch_optional(&self.core.db)
                 .await?;
         let Some(gathering_id) = gathering_id else { return Ok(()) };
+        // A gathering on the move takes its (approximate) position along:
+        // membership changes are serialized by where it is.
+        sqlx::query("UPDATE geo_gatherings SET lat = $2, lng = $3 WHERE id = $1 AND ended_at IS NULL")
+            .bind(gathering_id)
+            .bind(position.0)
+            .bind(position.1)
+            .execute(&self.core.db)
+            .await?;
         if let Some((row, members)) = self.gathering(gathering_id).await? {
             let ids: Vec<Uuid> = members.iter().map(|(id, _)| *id).collect();
             self.credit_gathering(&row, &ids, Utc::now(), false).await?;
@@ -540,25 +822,35 @@ impl Geo {
     /// Takes out members who stopped reporting and ends what is left with
     /// fewer than two people. Returns how many gatherings ended.
     pub async fn expire_gatherings(&self) -> AppResult<u64> {
-        let stale: Vec<(Uuid, Uuid)> = sqlx::query_as(
-            "SELECT gathering_id, user_id FROM geo_gathering_members WHERE left_at IS NULL AND last_seen_at < now() - make_interval(mins => $1) LIMIT 500",
+        let stale: Vec<(Uuid, Uuid, f64, f64)> = sqlx::query_as(
+            "SELECT m.gathering_id, m.user_id, g.lat, g.lng FROM geo_gathering_members m JOIN geo_gatherings g ON g.id = m.gathering_id
+             WHERE m.left_at IS NULL AND m.last_seen_at < now() - make_interval(mins => $1) ORDER BY m.gathering_id LIMIT 500",
         )
         .bind(STALE_MINUTES)
         .fetch_all(&self.core.db)
         .await?;
-        if stale.is_empty() {
-            return Ok(0);
+        let mut ended = 0;
+        for (gathering_id, user_id, lat, lng) in stale {
+            let mut changes = Changes::default();
+            let mut tx = self.core.db.begin().await?;
+            lock_area(&mut tx, (lat, lng)).await?;
+            // (Under the lock: still silent?)
+            let still: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM geo_gathering_members WHERE gathering_id = $1 AND user_id = $2 AND left_at IS NULL
+                               AND last_seen_at < now() - make_interval(mins => $3))",
+            )
+            .bind(gathering_id)
+            .bind(user_id)
+            .bind(STALE_MINUTES)
+            .fetch_one(&mut *tx)
+            .await?;
+            if still {
+                leave(&mut tx, gathering_id, user_id, Utc::now(), &mut changes).await?;
+            }
+            tx.commit().await?;
+            ended += changes.ended.len() as u64;
+            self.publish_gathering_changes(changes).await?;
         }
-        let mut changes = Changes::default();
-        let mut tx = self.core.db.begin().await?;
-        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('geo:gatherings', 0))").execute(&mut *tx).await?;
-        let now = Utc::now();
-        for (gathering_id, user_id) in stale {
-            leave(&mut tx, gathering_id, user_id, now, &mut changes).await?;
-        }
-        tx.commit().await?;
-        let ended = changes.ended.len() as u64;
-        self.publish_gathering_changes(changes).await?;
         Ok(ended)
     }
 
@@ -568,10 +860,11 @@ impl Geo {
         self.publish_gathering_changes(changes).await
     }
 
-    /// The gatherings `viewer` can see: their own and their friends'.
+    /// The gatherings `viewer` can see: their own and their friends', each
+    /// as the viewer sees it.
     pub(crate) async fn list_gatherings(&self, viewer: Uuid) -> AppResult<Vec<Gathering>> {
-        let visible: HashSet<Uuid> = self.precise_friends(viewer).await?.into_iter().collect();
-        let people: Vec<Uuid> = visible.iter().copied().chain([viewer]).collect();
+        let mut people = self.precise_friends(viewer).await?;
+        people.push(viewer);
         let rows: Vec<GatheringRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "SELECT {GATHERING_COLUMNS} FROM geo_gatherings
              WHERE ended_at IS NULL AND id IN (SELECT gathering_id FROM geo_gathering_members WHERE left_at IS NULL AND user_id = ANY($1))
@@ -580,6 +873,11 @@ impl Geo {
         .bind(&people)
         .fetch_all(&self.core.db)
         .await?;
+        if rows.is_empty() {
+            return Ok(Vec::new());
+        }
+        let blocked = graph::blocked_ids_either(&self.core, viewer).await?;
+        let now = Utc::now();
         let mut out = Vec::new();
         for row in rows {
             let members: Vec<(Uuid, DateTime<Utc>)> =
@@ -587,15 +885,33 @@ impl Geo {
                     .bind(row.id)
                     .fetch_all(&self.core.db)
                     .await?;
-            let place = match row.place_id {
-                Some(place_id) => self.place_row(place_id).await?,
-                None => None,
-            };
-            if let Some(gathering) = self.gathering_for(viewer, &visible, &row, &members, place.as_ref()).await? {
-                out.push(gathering);
+            let scene = self.scene(&row, &members).await?;
+            if let Some(view) = scene.view(viewer, &blocked, now) {
+                self.mark_shown(row.id, viewer, &view).await?;
+                out.push(self.gathering_message(row.id, &view).await?);
             }
         }
         Ok(out)
+    }
+
+    /// The friends `user_id` was in a gathering with between `from` and
+    /// `to`, by their own proximity check (people who saw each other's
+    /// precise location at the time).
+    pub(crate) async fn met_in_gatherings(
+        &self,
+        user_id: Uuid,
+        from: DateTime<Utc>,
+        to: DateTime<Utc>,
+    ) -> AppResult<Vec<Uuid>> {
+        Ok(sqlx::query_scalar(
+            "SELECT DISTINCT unnest(with_user_ids) FROM geo_gathering_members
+             WHERE user_id = $1 AND arrived_at < $3 AND COALESCE(left_at, now()) >= $2",
+        )
+        .bind(user_id)
+        .bind(from)
+        .bind(to)
+        .fetch_all(&self.core.db)
+        .await?)
     }
 }
 
@@ -640,5 +956,98 @@ mod tests {
         changes.touch(id);
         assert_eq!(changes.updated, vec![id]);
         assert!(!changes.is_empty());
+    }
+
+    use crate::ctx::{GhostRule, OwnPlace};
+
+    fn member(id: Uuid, minutes_ago: i64, position: Point, friends: &[Uuid]) -> SceneMember {
+        SceneMember {
+            id,
+            arrived_at: Utc::now() - Duration::minutes(minutes_ago),
+            position: Some(position),
+            ctx: OwnerCtx { active: true, ..Default::default() },
+            friends: friends.iter().copied().collect(),
+        }
+    }
+
+    #[test]
+    fn a_viewer_gets_the_members_they_see_and_nothing_shaped_by_the_others() {
+        let (aoi, ren, kai, mio, stranger) =
+            (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+        let spot = (35.6595, 139.7005);
+        let (aois, rens, kais) =
+            (spot, math::destination(spot.0, spot.1, 90.0, 20.0), math::destination(spot.0, spot.1, 270.0, 25.0));
+        // Kai was there first, with Aoi; Ren came later. Kai is blurred for Mio.
+        let mut hidden = member(kai, 30, kais, &[aoi, ren, mio]);
+        hidden
+            .ctx
+            .ghost
+            .overrides
+            .insert(mio, GhostRule { mode: 2, since_ms: 0, until_ms: None, frozen: None, hidden_since_ms: 0 });
+        // The spot is inside Kai's home, and a café Kai shares with friends.
+        hidden.ctx.places.push(OwnPlace {
+            id: Uuid::now_v7(),
+            label: 1,
+            name: "うち".into(),
+            emoji: String::new(),
+            lat: kais.0,
+            lng: kais.1,
+            radius_m: 50.0,
+            visibility: 5,
+        });
+        let scene = Scene {
+            id: Uuid::now_v7(),
+            members: vec![hidden, member(aoi, 20, aois, &[ren, kai, mio]), member(ren, 5, rens, &[aoi, kai, mio])],
+            place: Some(ScenePlace {
+                name: "カイの店".into(),
+                center: spot,
+                radius_m: 60.0,
+                owner_id: kai,
+                public: false,
+            }),
+            radius_m: 30.0,
+        };
+        let now = Utc::now();
+
+        // A member sees everyone (all three are friends and precise for each other).
+        let full = scene.view(aoi, &[], now).unwrap();
+        assert_eq!(full.members.len(), 3);
+        assert_eq!(full.started_at, scene.members[1].arrived_at, "when the second of them arrived");
+        assert_eq!(full.members[0].1, full.started_at, "nobody is shown as there before it began");
+        assert!(full.at_private_place);
+        assert_eq!(full.place_name, "カイの店");
+
+        // Mio sees Aoi and Ren. Nothing in her view depends on Kai:
+        let seen = scene.view(mio, &[], now).unwrap();
+        assert_eq!(seen.members.iter().map(|(id, _)| *id).collect::<Vec<_>>(), vec![aoi, ren]);
+        // the centre is the middle of the two she sees,
+        assert_eq!(seen.center, ((aois.0 + rens.0) / 2.0, (aois.1 + rens.1) / 2.0));
+        assert_ne!(seen.center, full.center);
+        // it began when Ren joined Aoi, and Aoi was not "there before",
+        assert_eq!(seen.started_at, scene.members[2].arrived_at);
+        assert!(seen.members.iter().all(|(_, arrived)| *arrived == seen.started_at));
+        // and neither Kai's home nor Kai's friends-only place is hinted at.
+        assert!(!seen.at_private_place);
+        assert_eq!(seen.place_name, "");
+        // Take Kai out of the scene altogether: Mio's view is the same, field for field.
+        let without = Scene { members: scene.members[1..].to_vec(), ..scene.clone() };
+        assert_eq!(without.view(mio, &[], now), Some(seen));
+
+        // One visible member is no gathering; a stranger sees none at all.
+        let mut alone = scene.clone();
+        alone.members.truncate(2);
+        assert_eq!(alone.view(mio, &[], now), None);
+        assert_eq!(scene.view(stranger, &[], now), None);
+        // A member's home shows as "private" only if they share place labels.
+        let mut shy = scene.clone();
+        shy.members[0].ctx.privacy.share_place_labels = false;
+        assert!(!shy.view(aoi, &[], now).unwrap().at_private_place);
+        assert!(shy.view(kai, &[], now).unwrap().at_private_place, "one's own home is no secret to oneself");
+        // A public place is named unless its owner and the viewer are in a block.
+        let mut public = scene.clone();
+        public.place =
+            Some(ScenePlace { name: "駅前".into(), center: spot, radius_m: 60.0, owner_id: stranger, public: true });
+        assert_eq!(public.view(mio, &[], now).unwrap().place_name, "駅前");
+        assert_eq!(public.view(mio, &[stranger], now).unwrap().place_name, "");
     }
 }

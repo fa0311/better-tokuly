@@ -165,11 +165,24 @@ fn fold(text: &str) -> String {
         .collect()
 }
 
+static SHARED: OnceLock<Gazetteer> = OnceLock::new();
+
 impl Gazetteer {
     /// The process-wide gazetteer, loaded on first use (a few hundred milliseconds).
     pub fn shared() -> &'static Gazetteer {
-        static SHARED: OnceLock<Gazetteer> = OnceLock::new();
         SHARED.get_or_init(Gazetteer::load)
+    }
+
+    /// Makes sure the gazetteer is loaded without holding up the async
+    /// runtime: loading takes long enough (debug builds: seconds) for other
+    /// tasks' I/O to time out if it happened on their thread.
+    pub async fn ready() {
+        if SHARED.get().is_none() {
+            let _ = tokio::task::spawn_blocking(|| {
+                Gazetteer::shared();
+            })
+            .await;
+        }
     }
 
     fn load() -> Self {

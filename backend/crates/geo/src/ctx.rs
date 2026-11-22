@@ -98,10 +98,15 @@ pub struct GhostRule {
     pub until_ms: Option<i64>,
     /// Set for FROZEN rules made while a position was known.
     pub frozen: Option<FrozenPin>,
+    /// Since when the viewers of this rule have not seen the owner precisely
+    /// (earlier than `since_ms` when it replaced another non-precise rule).
+    /// What the owner did after this moment is not shown to them.
+    #[serde(default)]
+    pub hidden_since_ms: i64,
 }
 
 impl GhostRule {
-    fn active(&self, now_ms: i64) -> bool {
+    pub fn active(&self, now_ms: i64) -> bool {
         self.until_ms.is_none_or(|until| until > now_ms)
     }
 }
@@ -126,6 +131,15 @@ impl GhostConfig {
     /// The default rule, if it still applies.
     pub fn default_rule(&self, now_ms: i64) -> Option<&GhostRule> {
         self.everyone.as_ref().filter(|rule| rule.active(now_ms))
+    }
+
+    /// The rule that applies to `viewer` and the `viewer_id` of its row (the
+    /// nil UUID for the default).
+    pub fn applied(&self, viewer: Uuid, now_ms: i64) -> Option<(&GhostRule, Uuid)> {
+        match self.overrides.get(&viewer).filter(|rule| rule.active(now_ms)) {
+            Some(rule) => Some((rule, viewer)),
+            None => self.default_rule(now_ms).map(|rule| (rule, Uuid::nil())),
+        }
     }
 }
 
@@ -259,6 +273,7 @@ struct GhostRow {
     since: DateTime<Utc>,
     until: Option<DateTime<Utc>>,
     frozen: Option<serde_json::Value>,
+    hidden_since: DateTime<Utc>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -408,7 +423,7 @@ impl Geo {
         }
 
         let rules: Vec<GhostRow> = sqlx::query_as(
-            "SELECT owner_id, viewer_id, mode, since, until, frozen FROM geo_ghost_rules WHERE owner_id = ANY($1)",
+            "SELECT owner_id, viewer_id, mode, since, until, frozen, hidden_since FROM geo_ghost_rules WHERE owner_id = ANY($1)",
         )
         .bind(user_ids)
         .fetch_all(db)
@@ -420,6 +435,7 @@ impl Geo {
                 since_ms: millis(row.since),
                 until_ms: row.until.map(millis),
                 frozen: row.frozen.and_then(|value| serde_json::from_value(value).ok()),
+                hidden_since_ms: millis(row.hidden_since),
             };
             if row.viewer_id.is_nil() {
                 ctx.ghost.everyone = Some(rule);
@@ -491,14 +507,14 @@ impl Geo {
             }
         }
 
-        let shares: Vec<(Uuid, String, DateTime<Utc>)> = sqlx::query_as(
-            "SELECT user_id, token, expires_at FROM geo_live_shares WHERE user_id = ANY($1) AND ended_at IS NULL AND expires_at > now()",
+        let shares: Vec<(Uuid, Vec<u8>, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT user_id, token_sealed, expires_at FROM geo_live_shares WHERE user_id = ANY($1) AND ended_at IS NULL AND expires_at > now()",
         )
         .bind(user_ids)
         .fetch_all(db)
         .await?;
-        for (user_id, token, expires_at) in shares {
-            if let Some(ctx) = out.get_mut(&user_id) {
+        for (user_id, sealed, expires_at) in shares {
+            if let (Some(ctx), Some(token)) = (out.get_mut(&user_id), self.open_share_token(&sealed)) {
                 ctx.shares.push(ShareCtx { token, expires_ms: millis(expires_at) });
             }
         }
@@ -533,7 +549,7 @@ mod tests {
     use super::*;
 
     fn rule(mode: i32, until_ms: Option<i64>) -> GhostRule {
-        GhostRule { mode, since_ms: 0, until_ms, frozen: None }
+        GhostRule { mode, since_ms: 0, until_ms, frozen: None, hidden_since_ms: 0 }
     }
 
     #[test]

@@ -10,6 +10,10 @@ import "tokuly/identity/v1/identity.proto";
 
 // ───────────────────────────── Live locations ─────────────────────────────
 
+// Every RPC of this package that changes the caller's live state (uploads,
+// StopSharing, SetGhostMode, CheckIn, DeleteHistory) can answer LOCATION_BUSY
+// (unavailable) when another such request of the same account is still
+// being processed: retry.
 service LocationService {
   // Uploads one or more samples. Foreground clients normally stream samples
   // over the realtime gateway instead; this RPC is the path for background
@@ -18,7 +22,9 @@ service LocationService {
   // or older than the server accepts), duplicates and samples older than the
   // newest one already processed are skipped, not rejected: see
   // `accepted_count`.
-  // Errors: TOO_MANY_SAMPLES, RATE_LIMITED.
+  // Fixes less than a second after the previous one (device time) are
+  // skipped as well.
+  // Errors: TOO_MANY_SAMPLES, RATE_LIMITED, LOCATION_BUSY.
   rpc ReportLocations(ReportLocationsRequest) returns (ReportLocationsResponse);
   // Tells the server the device stopped sharing (permission revoked, signed
   // out, sharing paused) so friends see a stale pin right away.
@@ -38,7 +44,11 @@ service LocationService {
   // override for someone who is not a friend), INVALID_ID.
   rpc SetGhostMode(SetGhostModeRequest) returns (SetGhostModeResponse);
 
-  // Groups of friends currently in the same spot ("N人が集合中!").
+  // Groups of friends currently in the same spot ("N人が集合中!"), as the
+  // caller sees them: the members the caller is a friend of and sees
+  // precisely, the middle of those members, and the time two of them were
+  // first both there. Two friends are together only while each sees the
+  // other precisely.
   rpc ListGatherings(ListGatheringsRequest) returns (ListGatheringsResponse);
 
   // Live shares: a time-limited public link showing the caller's live
@@ -109,13 +119,23 @@ message StopSharingRequest {}
 message StopSharingResponse {}
 
 // How precisely a viewer sees someone.
+//
+// Everything derived from a person's true position (who is near them, their
+// gatherings, trips, visits to places, footprints, check-ins, the
+// notifications and activity entries about those) reaches a viewer only if
+// that viewer sees the person in PRECISE mode at that moment.
 enum GhostMode {
   GHOST_MODE_UNSPECIFIED = 0;
   // Exact, live position.
   GHOST_MODE_PRECISE = 1;
-  // A point randomly offset by up to ~1 km, visibly marked as approximate.
+  // A stand-in point for the ~5 km² area the person is in, visibly marked as
+  // approximate (`accuracy_meters` = 2000). It does not move while they stay
+  // inside that area and cannot be turned back into a position.
   GHOST_MODE_BLURRED = 2;
-  // The pin stays at the last position before freezing and looks merely stale.
+  // The pin stays at the last position before freezing and looks merely
+  // stale. Distances, directions and trips towards the person are answered
+  // from that pin, as for any phone that stopped reporting; footprints stay
+  // as they were.
   GHOST_MODE_FROZEN = 3;
 }
 
@@ -321,7 +341,10 @@ service PlaceService {
   rpc UpdatePlace(UpdatePlaceRequest) returns (UpdatePlaceResponse);
   // Errors: PLACE_NOT_FOUND.
   rpc DeletePlace(DeletePlaceRequest) returns (DeletePlaceResponse);
-  // Place card: details, the caller's visit stats, regulars and friends who have been.
+  // Place card: details, the caller's visit stats, regulars and friends who
+  // have been. Made of the caller's own visits and those visits of friends
+  // during which the friend let the caller see their precise location; the
+  // owner of a place learns nothing about anyone else's visits.
   // Errors: PLACE_NOT_FOUND (also for places the caller may not see).
   rpc GetPlace(GetPlaceRequest) returns (GetPlaceResponse);
   // Searches the caller's places, friends'/public places and the geocoder.
@@ -338,7 +361,9 @@ service PlaceService {
 
   // Errors: INVALID_LOCATION, RATE_LIMITED.
   rpc ReverseGeocode(ReverseGeocodeRequest) returns (ReverseGeocodeResponse);
-  // Manual "I'm here" with optional friend tags; notifies friends.
+  // Manual "I'm here" with optional friend tags; notifies the friends who
+  // see the caller's precise location (tagged or not), and becomes a story
+  // in friends' feeds only if that is every friend.
   // Errors: MISSING_TARGET, PLACE_NOT_FOUND, INVALID_LOCATION,
   // MESSAGE_TOO_LONG, TOO_MANY_USERS, NOT_FRIENDS (a tagged user is not a
   // friend), RATE_LIMITED.
@@ -422,6 +447,7 @@ message GetPlaceResponse {
   repeated PlaceRegular regulars = 2;
   // Friends who have been here.
   repeated tokuly.common.v1.UserSummary friends_visited = 3;
+  // Visits the caller knows about: their own and those of the people above.
   int32 total_visit_count = 4;
   // Tags such as GOOD_FOR_GROUPS, BEST_FRIENDS_HANG_HERE, LOYAL_REGULARS.
   repeated string badges = 5;
@@ -727,15 +753,20 @@ message DeleteHistoryResponse {}
 // The scratch map: every hexagon (H3 cell) a user has ever been in.
 service FootprintService {
   // Uncovered cells inside a viewport, for drawing fog of war.
+  // A caller who does not see the owner precisely gets the map as it was
+  // when that ended.
   // Errors: INVALID_BOUNDS, USER_NOT_FOUND, FOOTPRINTS_PRIVATE (the owner
-  // does not show their scratch map to the caller; stats stay available).
+  // does not show their scratch map to the caller).
   rpc GetCells(GetCellsRequest) returns (GetCellsResponse);
   // Percent explored per region (country / prefecture). City-level regions
   // are not bundled with the server, so REGION_KIND_CITY yields nothing.
-  // Errors: USER_NOT_FOUND, INVALID_LOCATION.
+  // Someone else's numbers follow the same rules as their cells.
+  // Errors: USER_NOT_FOUND, INVALID_LOCATION, FOOTPRINTS_PRIVATE.
   rpc GetStats(GetFootprintStatsRequest) returns (GetFootprintStatsResponse);
   // Ranks the caller's friends, or everyone who shows their scratch map
-  // publicly, by explored share of a region.
+  // publicly, by explored share of a region. Friends the caller does not see
+  // precisely rank with the totals they had when that ended; in the global
+  // ranking people whose default ghost mode is not precise are left out.
   // Errors: REGION_NOT_FOUND.
   rpc GetLeaderboard(GetLeaderboardRequest) returns (GetLeaderboardResponse);
   // What was newly uncovered since the caller last looked.
@@ -858,16 +889,18 @@ service TripService {
   // Errors: MISSING_DESTINATION, INVALID_LOCATION, PLACE_NOT_FOUND,
   // INVALID_NAME, NOT_FRIENDS (the destination friend or someone the trip is
   // shared with),
-  // DESTINATION_UNAVAILABLE (the friend has no position the caller may see),
+  // DESTINATION_UNAVAILABLE (the caller has no pin of the friend),
   // LOCATION_UNKNOWN (the server has no position for the caller),
   // TOO_MANY_USERS, RATE_LIMITED.
   rpc StartTrip(StartTripRequest) returns (StartTripResponse);
   // Cancels the caller's trip; a trip that already ended is returned as is.
   // Errors: TRIP_NOT_FOUND.
   rpc EndTrip(EndTripRequest) returns (EndTripResponse);
-  // Errors: TRIP_NOT_FOUND (also for trips not shared with the caller).
+  // Errors: TRIP_NOT_FOUND (also for trips the caller may not see: not
+  // shared with them, or of a friend whose precise location they do not see;
+  // a trip towards a friend is for that friend and for people who see both).
   rpc GetTrip(GetTripRequest) returns (GetTripResponse);
-  // The caller's active trip plus friends' trips shared with the caller.
+  // The caller's active trip plus friends' trips the caller may see (see GetTrip).
   rpc ListActiveTrips(ListActiveTripsRequest) returns (ListActiveTripsResponse);
   // `origin` defaults to the caller's current position.
   // Errors: MISSING_DESTINATION, INVALID_LOCATION, INVALID_NAME,
@@ -983,7 +1016,9 @@ message DirectionStep {
 service SafetyService {
   // One-time alerts take effect immediately and the friend is told; recurring
   // alerts need the friend's approval first. Alerts never fire while the
-  // friend hides their precise location from the caller (ghost mode).
+  // friend hides their precise location from the caller (ghost mode), and
+  // alerts on the friend's home, work or school not while the friend does
+  // not share place labels.
   // Errors: NOT_FRIENDS, MISSING_TARGET, PLACE_NOT_FOUND, INVALID_LOCATION,
   // INVALID_RADIUS (25-1000 m; 0 = default), INVALID_TRIGGER, INVALID_NAME,
   // SUBJECT_PLACE_UNAVAILABLE (the friend has no such labelled place, or
@@ -1001,7 +1036,9 @@ service SafetyService {
   // overriding ghost mode until resolved. Calling it again while an SOS is
   // active returns that SOS.
   // Errors: MESSAGE_TOO_LONG, TOO_MANY_USERS, NOT_FRIENDS, NO_RECIPIENTS (the
-  // caller has no friends to alert), RATE_LIMITED.
+  // caller has no friends to alert), RATE_LIMITED, SOS_BUSY (unavailable:
+  // another SOS of the caller was being created and resolved at the same
+  // moment; retry).
   rpc TriggerSos(TriggerSosRequest) returns (TriggerSosResponse);
   // Errors: SOS_NOT_FOUND.
   rpc ResolveSos(ResolveSosRequest) returns (ResolveSosResponse);

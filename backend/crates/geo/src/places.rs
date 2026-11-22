@@ -40,7 +40,7 @@ const MAX_EMOJI_CHARS: usize = 16;
 const MAX_CATEGORY_CHARS: usize = 32;
 pub(crate) const MAX_PLACES: i64 = 200;
 
-pub(crate) const PLACE_COLUMNS: &str = "id, owner_id, name, emoji, label, lat, lng, radius_m, visibility, address, category, auto_detected, photo, photo_asset_id, visit_count, created_at";
+pub(crate) const PLACE_COLUMNS: &str = "id, owner_id, name, emoji, label, lat, lng, radius_m, visibility, address, category, auto_detected, photo, photo_asset_id, created_at";
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub(crate) struct PlaceRow {
@@ -58,7 +58,6 @@ pub(crate) struct PlaceRow {
     pub auto_detected: bool,
     pub photo: Option<serde_json::Value>,
     pub photo_asset_id: Option<Uuid>,
-    pub visit_count: i32,
     pub created_at: DateTime<Utc>,
 }
 
@@ -204,7 +203,9 @@ fn search_doc(place: &PlaceRow) -> SearchDoc {
         image_url: image_from_json(place.photo.as_ref()).map(|image| image.url),
         path: format!("/places/{}", place.id),
         created_at: place.created_at.timestamp(),
-        score: place.visit_count as f64,
+        // Not how often people go there: a number everyone can see must not
+        // move when someone visits (it would say where they are).
+        score: 0.0,
         extra: serde_json::json!({ "emoji": place.emoji, "lat": place.lat, "lng": place.lng }),
     }
 }
@@ -439,11 +440,6 @@ impl Geo {
         .await?
         .rows_affected();
         if adopted > 0 {
-            sqlx::query("UPDATE geo_places SET visit_count = visit_count + $2 WHERE id = $1")
-                .bind(place.id)
-                .bind(adopted as i32)
-                .execute(&mut **tx)
-                .await?;
             sqlx::query(
                 "UPDATE geo_nights n SET place_id = v.place_id, place_name = v.place_name, at_home = $3
                  FROM geo_visits v WHERE n.visit_id = v.id AND v.place_id = $1 AND n.user_id = $2",
@@ -482,7 +478,7 @@ impl Geo {
             })
             .await?;
         if changed {
-            self.refresh_friends(owner).await?;
+            self.refresh_friends_live(owner).await?;
         }
         Ok(())
     }

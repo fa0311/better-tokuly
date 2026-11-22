@@ -18,7 +18,7 @@ use crate::{
     geocode::Gazetteer,
     math::Point,
     state::{Area, Pin, StayPlace},
-    visibility::{self, Sight, Subject, ViewEnv, Viewer},
+    visibility::{self, SeenPin, Sight, Subject, ViewEnv, Viewer},
 };
 
 /// Label under which the blur key is derived from the server secret.
@@ -35,7 +35,7 @@ pub(crate) fn frame(event: Event) -> Body {
 }
 
 /// Who a pin update goes to.
-pub(crate) enum Audience<'a> {
+pub(crate) enum Recipients<'a> {
     /// Every friend of the owner.
     Friends,
     /// These users (the caller made sure they are friends).
@@ -116,12 +116,12 @@ impl Geo {
         owner: Uuid,
         pin: Option<&Pin>,
         ctx: &OwnerCtx,
-        audience: Audience<'_>,
+        recipients: Recipients<'_>,
         refresh: bool,
     ) -> AppResult<()> {
-        let friends = match audience {
-            Audience::Friends => graph::friend_ids(&self.core, owner).await?,
-            Audience::Only(ids) => ids.to_vec(),
+        let friends = match recipients {
+            Recipients::Friends => graph::friend_ids(&self.core, owner).await?,
+            Recipients::Only(ids) => ids.to_vec(),
         };
         if friends.is_empty() || !ctx.active {
             return Ok(());
@@ -149,7 +149,18 @@ impl Geo {
         let ctx = self.ctx_of(owner).await?;
         let state = self.load_state(owner).await?;
         let pin = state.as_ref().filter(|state| state.located()).map(|state| &state.pin);
-        self.fan_out(owner, pin, &ctx, Audience::Friends, true).await
+        self.fan_out(owner, pin, &ctx, Recipients::Friends, true).await
+    }
+
+    /// Shows friends the owner's pin again after something that comes from
+    /// their whereabouts changed on it (a trip, the place they are at).
+    /// Friends who see a frozen pin get nothing: for them nothing changed,
+    /// and a push would tell them that something did.
+    pub(crate) async fn refresh_friends_live(&self, owner: Uuid) -> AppResult<()> {
+        let ctx = self.ctx_of(owner).await?;
+        let state = self.load_state(owner).await?;
+        let pin = state.as_ref().filter(|state| state.located()).map(|state| &state.pin);
+        self.fan_out(owner, pin, &ctx, Recipients::Friends, false).await
     }
 
     /// Re-sends some friends their current view of the owner's pin.
@@ -160,7 +171,7 @@ impl Geo {
         let ctx = self.ctx_of(owner).await?;
         let state = self.load_state(owner).await?;
         let pin = state.as_ref().filter(|state| state.located()).map(|state| &state.pin);
-        self.fan_out(owner, pin, &ctx, Audience::Only(viewers), true).await
+        self.fan_out(owner, pin, &ctx, Recipients::Only(viewers), true).await
     }
 
     /// Publishes the owner's pin on the topic of each of their live shares.
@@ -269,14 +280,25 @@ impl Geo {
         Ok((visibility::own_view(&self.view_env(Utc::now()), &subject), sharing))
     }
 
-    /// Where `viewer` believes their friend `owner` is (see
-    /// [`visibility::seen_position`]): the point, and whether it is exact.
-    pub(crate) async fn seen_position(&self, owner: Uuid, viewer: Uuid) -> AppResult<Option<(Point, bool)>> {
+    /// Where `viewer` has their friend `owner` on the map (see
+    /// [`visibility::seen_pin`]).
+    pub(crate) async fn seen_pin(&self, owner: Uuid, viewer: Uuid) -> AppResult<Option<SeenPin>> {
         let ctx = self.ctx_of(owner).await?;
         let state = self.load_state(owner).await?;
         let pin = state.as_ref().filter(|state| state.located()).map(|state| &state.pin);
         let subject = Subject { id: owner, pin, ctx: &ctx, online: false, weather: None };
-        Ok(visibility::seen_position(&self.view_env(Utc::now()), &subject, viewer))
+        Ok(visibility::seen_pin(&self.view_env(Utc::now()), &subject, viewer))
+    }
+
+    /// The friends of `owner` who see their precise, live position right
+    /// now: the only people who may be told anything derived from it.
+    pub(crate) async fn precise_viewers(&self, owner: Uuid, ctx: &OwnerCtx) -> AppResult<Vec<Uuid>> {
+        let audience = visibility::Audience::of(ctx, Utc::now());
+        Ok(graph::friend_ids(&self.core, owner)
+            .await?
+            .into_iter()
+            .filter(|friend| audience.includes(*friend))
+            .collect())
     }
 
     /// The friends of `viewer` whose precise, live location `viewer` sees:

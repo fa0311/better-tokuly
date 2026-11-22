@@ -43,6 +43,14 @@ fn setting(mode: i32, since: Option<DateTime<Utc>>, until: Option<DateTime<Utc>>
     GhostSetting { mode: mode.into(), since: opt_ts(since), until: opt_ts(until), ..Default::default() }
 }
 
+/// What one new rule is built from.
+struct NewRule {
+    /// The friend it is for; `None` = the default for everyone.
+    viewer: Option<Uuid>,
+    mode: i32,
+    until: Option<DateTime<Utc>>,
+}
+
 impl Geo {
     /// The caller's ghost settings as stored (rules past their end left out).
     pub(crate) async fn ghost_settings(&self, owner: Uuid) -> AppResult<GetGhostSettingsResponse> {
@@ -66,6 +74,70 @@ impl Geo {
             overrides: overrides.into_iter().collect(),
             ..Default::default()
         })
+    }
+
+    /// Stores a non-precise rule. The viewers it applies to keep what they
+    /// have: a rule that follows another non-precise one inherits its
+    /// watermark and footprint snapshot (and, for FROZEN, its copy of the
+    /// pin), so replacing one ghost mode by another never shows anything new.
+    async fn store_hidden_rule(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        owner: Uuid,
+        ctx: &OwnerCtx,
+        pin: Option<&Pin>,
+        rule: &NewRule,
+        now: DateTime<Utc>,
+    ) -> AppResult<()> {
+        let now_ms = now.timestamp_millis();
+        let row_viewer = rule.viewer.unwrap_or(Uuid::nil());
+        // What these viewers are under right now, and the row it is stored in.
+        let before = match rule.viewer {
+            Some(viewer) => ctx.ghost.applied(viewer, now_ms),
+            None => ctx.ghost.default_rule(now_ms).map(|rule| (rule, Uuid::nil())),
+        }
+        .filter(|(before, _)| before.mode != PRECISE);
+        let frozen = if rule.mode == FROZEN { frozen_copy(ctx, rule.viewer, pin, now) } else { None };
+        let frozen = frozen.and_then(|frozen| serde_json::to_value(frozen).ok());
+        match before {
+            Some((before, inherited_row)) => {
+                sqlx::query(
+                    "INSERT INTO geo_ghost_rules (owner_id, viewer_id, mode, since, until, frozen, hidden_since, footprint)
+                     SELECT $1, $2, $3, $4, $5, $6, $7, (SELECT footprint FROM geo_ghost_rules WHERE owner_id = $1 AND viewer_id = $8)
+                     ON CONFLICT (owner_id, viewer_id) DO UPDATE SET mode = EXCLUDED.mode, since = EXCLUDED.since, until = EXCLUDED.until,
+                         frozen = EXCLUDED.frozen, hidden_since = EXCLUDED.hidden_since, footprint = EXCLUDED.footprint",
+                )
+                .bind(owner)
+                .bind(row_viewer)
+                .bind(rule.mode as i16)
+                .bind(now)
+                .bind(rule.until)
+                .bind(frozen)
+                .bind(DateTime::from_timestamp_millis(before.hidden_since_ms).unwrap_or(now))
+                .bind(inherited_row)
+                .execute(&mut **tx)
+                .await?;
+            }
+            None => {
+                let footprint = self.footprint_snapshot(tx, owner, None).await?;
+                sqlx::query(
+                    "INSERT INTO geo_ghost_rules (owner_id, viewer_id, mode, since, until, frozen, hidden_since, footprint)
+                     VALUES ($1, $2, $3, $4, $5, $6, $4, $7)
+                     ON CONFLICT (owner_id, viewer_id) DO UPDATE SET mode = EXCLUDED.mode, since = EXCLUDED.since, until = EXCLUDED.until,
+                         frozen = EXCLUDED.frozen, hidden_since = EXCLUDED.hidden_since, footprint = EXCLUDED.footprint",
+                )
+                .bind(owner)
+                .bind(row_viewer)
+                .bind(rule.mode as i16)
+                .bind(now)
+                .bind(rule.until)
+                .bind(frozen)
+                .bind(sqlx::types::Json(footprint))
+                .execute(&mut **tx)
+                .await?;
+            }
+        }
+        Ok(())
     }
 
     /// Sets the default ghost mode (`viewers` empty) or overrides for some friends.
@@ -108,7 +180,8 @@ impl Geo {
         }
 
         // Under the owner's pipeline lock: the frozen copy must be exactly the
-        // pin friends were last shown, not one a concurrent sample replaces.
+        // pin friends were last shown, not one a concurrent sample replaces,
+        // and the footprint snapshot exactly the totals of that moment.
         let lock = self.lock_user(owner).await?;
         let stored: AppResult<()> = async {
             let now = Utc::now();
@@ -116,9 +189,6 @@ impl Geo {
             let ctx = self.ctx_of(owner).await?;
             let state = self.load_state(owner).await?;
             let pin = state.as_ref().filter(|state| state.located()).map(|state| &state.pin);
-            let frozen_json = |frozen: Option<FrozenPin>| frozen.and_then(|frozen| serde_json::to_value(frozen).ok());
-            const UPSERT: &str = "INSERT INTO geo_ghost_rules (owner_id, viewer_id, mode, since, until, frozen) VALUES ($1, $2, $3, $4, $5, $6)
-                 ON CONFLICT (owner_id, viewer_id) DO UPDATE SET mode = EXCLUDED.mode, since = EXCLUDED.since, until = EXCLUDED.until, frozen = EXCLUDED.frozen";
             let mut tx = self.core.db.begin().await?;
             if viewers.is_empty() {
                 if mode == PRECISE {
@@ -130,17 +200,29 @@ impl Geo {
                         .execute(&mut *tx)
                         .await?;
                 } else {
-                    let frozen = if mode == FROZEN { frozen_copy(&ctx, None, pin, now) } else { None };
-                    sqlx::query(UPSERT).bind(owner).bind(Uuid::nil()).bind(mode as i16).bind(now).bind(until).bind(frozen_json(frozen)).execute(&mut *tx).await?;
+                    self.store_hidden_rule(&mut tx, owner, &ctx, pin, &NewRule { viewer: None, mode, until }, now).await?;
                 }
             } else {
                 let strict_default = ctx.ghost.default_rule(now.timestamp_millis()).is_some_and(|rule| rule.mode != PRECISE);
                 for viewer in &viewers {
-                    if mode == PRECISE && !strict_default {
-                        sqlx::query("DELETE FROM geo_ghost_rules WHERE owner_id = $1 AND viewer_id = $2").bind(owner).bind(viewer).execute(&mut *tx).await?;
+                    if mode != PRECISE {
+                        self.store_hidden_rule(&mut tx, owner, &ctx, pin, &NewRule { viewer: Some(*viewer), mode, until }, now).await?;
+                    } else if strict_default {
+                        // An exception to a stricter default.
+                        sqlx::query(
+                            "INSERT INTO geo_ghost_rules (owner_id, viewer_id, mode, since, until, hidden_since) VALUES ($1, $2, $3, $4, $5, $4)
+                             ON CONFLICT (owner_id, viewer_id) DO UPDATE SET mode = EXCLUDED.mode, since = EXCLUDED.since, until = EXCLUDED.until,
+                                 frozen = NULL, hidden_since = EXCLUDED.hidden_since, footprint = NULL",
+                        )
+                        .bind(owner)
+                        .bind(viewer)
+                        .bind(PRECISE as i16)
+                        .bind(now)
+                        .bind(until)
+                        .execute(&mut *tx)
+                        .await?;
                     } else {
-                        let frozen = if mode == FROZEN { frozen_copy(&ctx, Some(*viewer), pin, now) } else { None };
-                        sqlx::query(UPSERT).bind(owner).bind(viewer).bind(mode as i16).bind(now).bind(until).bind(frozen_json(frozen)).execute(&mut *tx).await?;
+                        sqlx::query("DELETE FROM geo_ghost_rules WHERE owner_id = $1 AND viewer_id = $2").bind(owner).bind(viewer).execute(&mut *tx).await?;
                     }
                 }
             }
@@ -152,6 +234,9 @@ impl Geo {
         self.unlock_user(lock).await;
         stored?;
 
+        // Who sees the owner precisely changed: what they share with people
+        // who no longer do ends now, whatever the owner does next.
+        self.sight_changed(owner).await?;
         // Show the people affected their new view at once — except when
         // freezing: a frozen pin must not so much as twitch.
         if mode != FROZEN {
@@ -167,16 +252,74 @@ impl Geo {
     /// Removes ghost rules whose time is up and shows the viewers concerned
     /// the pin they see now. Returns how many rules ended.
     pub async fn expire_ghost_rules(&self) -> AppResult<u64> {
-        let ended: Vec<(Uuid, Uuid)> =
-            sqlx::query_as("DELETE FROM geo_ghost_rules WHERE until <= now() RETURNING owner_id, viewer_id")
-                .fetch_all(&self.core.db)
-                .await?;
+        let due: Vec<(Uuid, Uuid)> = sqlx::query_as(
+            "SELECT owner_id, viewer_id FROM geo_ghost_rules WHERE until <= now() ORDER BY owner_id LIMIT 500",
+        )
+        .fetch_all(&self.core.db)
+        .await?;
         let mut by_owner: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
-        for (owner, viewer) in &ended {
+        for (owner, viewer) in &due {
             by_owner.entry(*owner).or_default().push(*viewer);
         }
+        let mut ended = 0;
         for (owner, viewers) in by_owner {
-            let default_ended = viewers.iter().any(Uuid::is_nil);
+            match self.end_ghost_rules(owner, &viewers).await {
+                Ok(count) => ended += count,
+                Err(e) => tracing::warn!(%owner, error = %e, "could not end ghost rules; will retry"),
+            }
+        }
+        Ok(ended)
+    }
+
+    /// Ends the rules of `owner` for `viewers` (the nil UUID = the default)
+    /// whose time is up.
+    async fn end_ghost_rules(&self, owner: Uuid, viewers: &[Uuid]) -> AppResult<u64> {
+        let default_ended = viewers.iter().any(Uuid::is_nil);
+        let lock = self.lock_user(owner).await?;
+        let stored: AppResult<u64> = async {
+            let now = Utc::now();
+            let ctx = self.ctx_of(owner).await?;
+            let state = self.load_state(owner).await?;
+            let pin = state.as_ref().filter(|state| state.located()).map(|state| &state.pin);
+            let default = ctx.ghost.default_rule(now.timestamp_millis()).filter(|rule| rule.mode != PRECISE);
+            let mut tx = self.core.db.begin().await?;
+            let mut ended = 0;
+            for viewer in viewers {
+                let expired = ctx.ghost.overrides.get(viewer).filter(|rule| rule.mode != PRECISE);
+                match (viewer.is_nil(), expired, default) {
+                    // A timed override ends under a stricter default: the friend
+                    // falls under the default's mode, but stays where the
+                    // override left them. Its watermark is the older one, and
+                    // nothing from in between may come to light.
+                    (false, Some(expired), Some(default)) => {
+                        let frozen = match (default.mode == FROZEN, &expired.frozen) {
+                            (false, _) => None,
+                            (true, Some(copy)) if expired.mode == FROZEN => Some(copy.clone()),
+                            (true, _) => pin.map(|pin| FrozenPin { pin: pin.clone(), base: BLURRED }),
+                        };
+                        ended += sqlx::query(
+                            "UPDATE geo_ghost_rules SET mode = $3, since = $4, until = $5, frozen = $6 WHERE owner_id = $1 AND viewer_id = $2 AND until <= now()",
+                        )
+                        .bind(owner)
+                        .bind(viewer)
+                        .bind(default.mode as i16)
+                        .bind(now)
+                        .bind(default.until_ms.and_then(DateTime::from_timestamp_millis))
+                        .bind(frozen.and_then(|frozen| serde_json::to_value(frozen).ok()))
+                        .execute(&mut *tx)
+                        .await?
+                        .rows_affected();
+                    }
+                    _ => {
+                        ended += sqlx::query("DELETE FROM geo_ghost_rules WHERE owner_id = $1 AND viewer_id = $2 AND until <= now()")
+                            .bind(owner)
+                            .bind(viewer)
+                            .execute(&mut *tx)
+                            .await?
+                            .rows_affected();
+                    }
+                }
+            }
             if default_ended {
                 // With the default back to precise, "precise" exceptions are redundant.
                 sqlx::query(
@@ -186,20 +329,24 @@ impl Geo {
                 .bind(owner)
                 .bind(PRECISE as i16)
                 .bind(Uuid::nil())
-                .execute(&self.core.db)
+                .execute(&mut *tx)
                 .await?;
             }
-            self.invalidate_ctx(&[owner]).await;
-            let refreshed = if default_ended {
-                self.refresh_friends(owner).await
-            } else {
-                self.refresh_viewers(owner, &viewers).await
-            };
-            if let Err(e) = refreshed {
-                tracing::warn!(%owner, error = %e, "could not refresh pins after a ghost rule ended");
-            }
+            tx.commit().await?;
+            Ok(ended)
         }
-        Ok(ended.len() as u64)
+        .await;
+        self.invalidate_ctx(&[owner]).await;
+        self.unlock_user(lock).await;
+        let ended = stored?;
+
+        self.sight_changed(owner).await?;
+        let refreshed =
+            if default_ended { self.refresh_friends(owner).await } else { self.refresh_viewers(owner, viewers).await };
+        if let Err(e) = refreshed {
+            tracing::warn!(%owner, error = %e, "could not refresh pins after a ghost rule ended");
+        }
+        Ok(ended)
     }
 
     /// Forgets the overrides two users had for each other (they are no longer friends).
@@ -223,7 +370,7 @@ mod tests {
     }
 
     fn rule(mode: i32, frozen: Option<FrozenPin>) -> GhostRule {
-        GhostRule { mode, since_ms: 0, until_ms: None, frozen }
+        GhostRule { mode, since_ms: 0, until_ms: None, frozen, hidden_since_ms: 0 }
     }
 
     fn ctx(ghost: GhostConfig) -> OwnerCtx {
@@ -265,8 +412,13 @@ mod tests {
     fn an_expired_frozen_rule_does_not_carry_over() {
         let now = Utc::now();
         let stale = FrozenPin { pin: pin(35.0), base: PRECISE };
-        let expired =
-            GhostRule { mode: FROZEN, since_ms: 0, until_ms: Some(now.timestamp_millis() - 1), frozen: Some(stale) };
+        let expired = GhostRule {
+            mode: FROZEN,
+            since_ms: 0,
+            until_ms: Some(now.timestamp_millis() - 1),
+            frozen: Some(stale),
+            hidden_since_ms: 0,
+        };
         let config = ctx(GhostConfig { everyone: Some(expired), ..Default::default() });
         let fresh = frozen_copy(&config, None, Some(&pin(36.0)), now).unwrap();
         assert_eq!(fresh.pin.lat, 36.0);

@@ -273,19 +273,31 @@ impl Geo {
 
     /// Removes everything this domain holds about a deleted account.
     async fn forget_user(&self, user_id: Uuid) -> AppResult<()> {
+        // First the cached context: from here on the pipeline finds the
+        // account gone and accepts nothing more for it. Then the rest under
+        // the account's pipeline lock, so a sample that was already being
+        // processed has finished and cannot write anything back afterwards.
+        self.invalidate_ctx(&[user_id]).await;
+        let lock = self.lock_user(user_id).await?;
+        let forgotten = self.forget_user_locked(user_id).await;
+        self.unlock_user(lock).await;
+        forgotten
+    }
+
+    async fn forget_user_locked(&self, user_id: Uuid) -> AppResult<()> {
         let db = &self.core.db;
         // Out of the live picture first.
         self.leave_gathering(user_id).await?;
-        let shares: Vec<String> =
-            sqlx::query_scalar("SELECT token FROM geo_live_shares WHERE user_id = $1 AND ended_at IS NULL")
+        let shares: Vec<Vec<u8>> =
+            sqlx::query_scalar("SELECT token_sealed FROM geo_live_shares WHERE user_id = $1 AND ended_at IS NULL")
                 .bind(user_id)
                 .fetch_all(db)
                 .await?;
-        for token in &shares {
+        for token in shares.iter().filter_map(|sealed| self.open_share_token(sealed)) {
             self.core
                 .rt
                 .notify_topic(
-                    &crate::shares::topic(token),
+                    &crate::shares::topic(&token),
                     crate::fanout::frame(Push::LocationRemovedUserId(user_id.to_string())),
                 )
                 .await;

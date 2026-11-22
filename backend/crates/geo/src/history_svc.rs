@@ -353,19 +353,10 @@ impl HistoryService for Geo {
             .bind(to)
             .fetch_all(db)
             .await?;
-            // People met: named on a visit, or in the same gathering at the same time.
-            let together: Vec<Uuid> = sqlx::query_scalar(
-                "SELECT DISTINCT other.user_id
-                 FROM geo_gathering_members mine
-                 JOIN geo_gathering_members other ON other.gathering_id = mine.gathering_id AND other.user_id <> mine.user_id
-                 WHERE mine.user_id = $1 AND mine.arrived_at < $3 AND COALESCE(mine.left_at, now()) >= $2
-                   AND other.arrived_at < LEAST(COALESCE(mine.left_at, now()), $3) AND COALESCE(other.left_at, now()) > GREATEST(mine.arrived_at, $2)",
-            )
-            .bind(user_id)
-            .bind(from)
-            .bind(to)
-            .fetch_all(db)
-            .await?;
+            // People met: named on a visit, or together with the user in a
+            // gathering by the user's own proximity check (never someone who
+            // was merely in the same gathering without the two seeing each other).
+            let together = self.met_in_gatherings(user_id, from, to).await?;
             let friends: HashSet<Uuid> = graph::friend_ids(&self.core, user_id).await?.into_iter().collect();
             let mut met: Vec<Uuid> =
                 visits.iter().flat_map(|visit| visit.with_user_ids.iter().copied()).chain(together).filter(|id| friends.contains(id)).collect::<HashSet<_>>().into_iter().collect();
@@ -645,20 +636,34 @@ impl HistoryService for Geo {
             self.with_state(user_id, async |state| {
                 self.delete_points(user_id, from, to).await?;
                 let mut tx = self.core.db.begin().await?;
-                sqlx::query(
-                    "WITH gone AS (
-                         DELETE FROM geo_visits WHERE user_id = $1 AND arrived_at >= $2 AND arrived_at < $3 RETURNING place_id
-                     )
-                     UPDATE geo_places p SET visit_count = GREATEST(p.visit_count - g.n, 0)
-                     FROM (SELECT place_id, count(*)::int AS n FROM gone WHERE place_id IS NOT NULL GROUP BY place_id) g
-                     WHERE p.id = g.place_id",
-                )
-                .bind(user_id)
-                .bind(from)
-                .bind(to)
-                .execute(&mut *tx)
-                .await?;
-                sqlx::query("DELETE FROM geo_nights WHERE user_id = $1 AND started_at >= $2 AND started_at < $3").bind(user_id).bind(from).bind(to).execute(&mut *tx).await?;
+                // Everything that touches the range goes, also what began before it.
+                sqlx::query("DELETE FROM geo_visits WHERE user_id = $1 AND arrived_at < $3 AND COALESCE(departed_at, now()) >= $2")
+                    .bind(user_id)
+                    .bind(from)
+                    .bind(to)
+                    .execute(&mut *tx)
+                    .await?;
+                sqlx::query("DELETE FROM geo_nights WHERE user_id = $1 AND started_at < $3 AND ended_at >= $2").bind(user_id).bind(from).bind(to).execute(&mut *tx).await?;
+                // Gatherings the user was in (over ones; a running one ends with the visit below),
+                // bumps and finished trips of that time.
+                sqlx::query("DELETE FROM geo_gathering_members WHERE user_id = $1 AND left_at IS NOT NULL AND arrived_at < $3 AND left_at >= $2")
+                    .bind(user_id)
+                    .bind(from)
+                    .bind(to)
+                    .execute(&mut *tx)
+                    .await?;
+                sqlx::query("DELETE FROM geo_bumps WHERE (user_a = $1 OR user_b = $1) AND created_at >= $2 AND created_at < $3")
+                    .bind(user_id)
+                    .bind(from)
+                    .bind(to)
+                    .execute(&mut *tx)
+                    .await?;
+                sqlx::query("DELETE FROM geo_trips WHERE user_id = $1 AND status <> 1 AND started_at < $3 AND COALESCE(ended_at, started_at) >= $2")
+                    .bind(user_id)
+                    .bind(from)
+                    .bind(to)
+                    .execute(&mut *tx)
+                    .await?;
                 sqlx::query("DELETE FROM geo_activity_hours WHERE user_id = $1 AND hour >= date_trunc('hour', $2::timestamptz) AND hour < $3")
                     .bind(user_id)
                     .bind(from)

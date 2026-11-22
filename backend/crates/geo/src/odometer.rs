@@ -35,6 +35,10 @@ pub struct ActivityTotals {
 pub struct HourBucket {
     /// Start of the hour, Unix milliseconds.
     pub hour_ms: i64,
+    /// Time of the last sample counted in here. Storing a bucket twice (the
+    /// same samples processed again) must not add it twice: the store keeps
+    /// this mark per row and skips what it already has.
+    pub until_ms: i64,
     pub totals: Vec<ActivityTotals>,
 }
 
@@ -119,7 +123,7 @@ impl Odometer {
         if self.pending.is_empty() {
             return None;
         }
-        Some(HourBucket { hour_ms: self.hour_ms, totals: std::mem::take(&mut self.pending) })
+        Some(HourBucket { hour_ms: self.hour_ms, until_ms: self.last_ms, totals: std::mem::take(&mut self.pending) })
     }
 
     /// Whether pending totals have waited long enough (in sample time) to be stored.

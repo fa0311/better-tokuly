@@ -29,22 +29,81 @@ A user who switched off `record_history` still shares live (pin, time on the
 spot, place badge) but gets no visits, nights, distance, footprints or raw
 points.
 
-## What a viewer sees (ghost mode)
+## What a viewer may learn (ghost mode)
 
-One function decides (`tokuly_geo::visibility`), for `ListFriendLocations`,
-`WatchFriendLocations`, every `GeoEvent.location` push, trips towards a
-friend, profile distances, gatherings, place cards and place alerts:
+**The rule.** Anything derived from a person's true position — the pin, who
+is near them, the gatherings and trips they are part of, the places they
+visit and how often, the cells they uncover, map stories, notifications,
+activity entries — reaches a viewer only if that viewer is a friend who sees
+that person's precise, live position at that moment. The rule lives in one
+place, `tokuly_geo::visibility` (`Audience`, `sees_precisely`, `friend_view`,
+`seen_pin`), and every path that tells someone about someone else goes
+through it. `tests/ghost_property.rs` checks it as a property: with Aoi frozen
+for Ren, everything Ren can observe (every RPC, push, notification and
+activity entry) is the same whether Aoi stays put or goes anywhere and does
+anything.
 
 | Mode | The viewer gets |
 |---|---|
 | PRECISE | the true pin, minus what `share_battery`, `share_activity`, `share_online_status`, `share_place_labels` withhold |
-| BLURRED | a point 300 m–1.2 km away that depends only on (owner, viewer, the surrounding ~5 km² cell): still during a stay, the same on every visit, different per viewer; no speed, heading, activity, time on the spot, place or trip; area name and time zone of the blurred point |
-| FROZEN | the pin as it was when freezing began, with its original `recorded_at` and battery — the same message a phone that stopped reporting would produce; only the online halo and status stay live; nothing is pushed |
+| BLURRED | a stand-in point for the ~5 km² cell (H3 resolution 7) the person is in. It depends only on (owner, viewer, that cell): it does not move inside the cell, is the same on every visit, differs per viewer, and cannot be turned back into a position — also not by someone who knew where the person was when blurring began. `accuracy_meters` is 2000. No speed, heading, activity, sleep, time on the spot, place, trip or weather; area name and time zone of the stand-in |
+| FROZEN | the pin as it was when freezing began, with its original `recorded_at` and battery — the same message a phone that stopped reporting would produce; only the online halo and status stay live; nothing is pushed. What is computed for the viewer afterwards (profile distance, directions, a trip towards the person) is answered from that copy, as for any stale pin |
 | SOS active | the people alerted get the precise live pin with nothing withheld, whatever the rules say |
 
 Rules are a default for everyone plus per-friend overrides, optionally timed.
 An override saying PRECISE is kept as an exception while the default is not
 PRECISE. Home, work and school are a badge for friends, never a name.
+
+What follows from the rule, path by path:
+
+- **Proximity, companions, gatherings.** Two friends count as near each other
+  only while each sees the other precisely. Visit companions
+  (`Visit.with_friends`, `GetDay.friends_met`), time together reported to
+  the social domain and gatherings are built from that alone. A gathering is
+  shown per viewer: the members they see precisely (and themselves), the
+  middle of those members, the moment two of those were first both there, a
+  place name and the "private place" flag only if they follow from those
+  members. Fewer than two visible members: no gathering for that viewer.
+  `gathering_updated` is pushed only when a viewer's own view changed,
+  `gathering_ended_id` only to viewers who were shown the gathering.
+- **Trips** are shown (RPCs, `trip_updated`, `geo.trip_started`,
+  `geo.trip_arrived`, the `trip_id` on the pin) to the friends they are shared
+  with who see the traveller precisely. A trip towards a friend also says
+  where that friend is: besides the friend, only viewers who see both
+  precisely get it, and only while the traveller sees the friend precisely.
+- **Footprints** of someone else are shown to the audience of their
+  `footprints_visible_to` setting — cells, statistics, leaderboard entries and
+  the numbers on the profile alike. A viewer under a non-precise rule
+  (strangers are under the default rule) gets them as of the moment that rule
+  chain began (`geo_ghost_rules.hidden_since` and the totals kept in
+  `footprint`). While someone's default rule is not PRECISE they are not in
+  the global ranking for strangers; friends keep seeing them with the kept
+  totals.
+- **Places.** Every visit records who saw the visitor precisely when it began
+  (`geo_visits.audience`). A place card shows the caller's own visits and
+  those visits of friends they were in the audience of: regulars, "friends
+  visited" and `total_visit_count` are per viewer, and the owner of a place
+  learns nothing about visitors they do not see. No number anyone can see
+  moves when someone visits a place (the search score of a place is 0).
+- **Activity entries** (`geo.visit`, `geo.new_region`) can only go to all
+  friends or none, so they go to friends only while every friend sees the
+  person precisely; otherwise they are private. Check-in notifications go to
+  the friends who see the pin, tagged or not.
+- **Place alerts** fire only while the owner sees the subject precisely, and
+  alerts on the subject's home, work or school only while the subject shares
+  place labels.
+
+When who sees whom changes (a rule is set or ends, an SOS ends), links that
+are no longer allowed end at once and without looking at anyone's position:
+the two leave each other's proximity tracker and the gathering views are
+recomputed.
+
+Known limit: a rule that starts while the viewer is in the same gathering as
+the person, or is following their trip, takes the person out of that
+gathering as the viewer sees it and stops the trip's updates at that moment.
+That can tell the viewer that something was switched off — not where the
+person is or goes. Making it indistinguishable from a phone that went silent
+would need a per-viewer simulation of what silence would have looked like.
 
 ## Events emitted
 
@@ -110,11 +169,11 @@ All through `tokuly_core::outbound::notify`; the actor is the other person.
 | Kind | Recipient | Notes |
 |---|---|---|
 | `geo.gathering` | friends of at least two members who see both precisely | "AさんとBさんが集合中!" — when a gathering forms, not at a member's home/work/school, at most once per pair every 3 hours, to at most 100 people. `data = { gathering_id, user_ids }`. |
-| `geo.checkin_tagged` | friends tagged in a check-in | |
+| `geo.checkin_tagged` | friends tagged in a check-in who see the precise pin | |
 | `geo.checkin` | other friends who see the precise pin (at most 200) | Collapsed per user. Not sent under ghost mode. |
 | `geo.new_region` | the user themselves (no actor) | First time in a country or first-level subdivision, except the ones the account starts in. Collapsed per region. |
-| `geo.trip_started` | friends a trip was explicitly shared with | Not sent for trips shared with all friends. |
-| `geo.trip_arrived` | the trip's audience | Only when `notify_on_arrival` was set. |
+| `geo.trip_started` | friends a trip was explicitly shared with, as far as they may see it (see "Trips" above) | Not sent for trips shared with all friends. |
+| `geo.trip_arrived` | the friends who may see the trip | Only when `notify_on_arrival` was set. Written in the transaction that ends the trip: exactly once. |
 | `geo.place_alert_set` | subject | A one-time alert about them is active. |
 | `geo.place_alert_request` | subject | A recurring alert awaits their approval. |
 | `geo.place_alert_response` | owner | Approved or declined; `data = { alert_id, approved }`. |
@@ -126,8 +185,8 @@ All through `tokuly_core::outbound::notify`; the actor is the other person.
 
 | Kind | Audience | Notes |
 |---|---|---|
-| `geo.visit` | friends, with location — private and without location while the default ghost mode is not PRECISE | A check-in (visits found by stay detection are never published). `with_user_ids` = tagged friends; subject = the place unless it is private; `data = { visit_id, message, place_name, check_in: true }` (`place_name` in the user's language: the place, or the area when the place is private) |
-| `geo.new_region` | friends — private for a user whose footprints are visible to nobody | location = region center; `data = { region_id, region_code, region_name, kind, country_code }` (`region_code` = the region ID such as `JP-14`; `region_name` in the user's language) |
+| `geo.visit` | friends, with location — private and without location unless every friend sees the precise pin (no ghost rule of any kind in force) | A check-in (visits found by stay detection are never published). `with_user_ids` = tagged friends; subject = the place unless it is private; `data = { visit_id, message, place_name, check_in: true }` (`place_name` in the user's language: the place, or the area when the place is private) |
+| `geo.new_region` | friends — private for a user whose footprints are visible to nobody, and unless every friend sees the precise pin | location = region center; `data = { region_id, region_code, region_name, kind, country_code }` (`region_code` = the region ID such as `JP-14`; `region_name` in the user's language) |
 
 `place_name`, `region_code` and `region_name` are the fields the feed domain's recaps read (`docs/events/feed.md`).
 
@@ -162,9 +221,12 @@ No job-queue jobs. `Geo::spawn_workers` starts:
 | `geo:pos`, `geo:pos:ts` | `tokuly_core::geoindex` | True latest positions for other domains (written here on every accepted sample, removed on StopSharing / ban / deletion). |
 | `geo:wx:<lat>:<lng>`, `geo:wx:fetch:…` | JSON 30 min / marker 5 min | Weather per 0.1° cell and the "already fetching" marker. |
 | `geo:gathering:announced:<lo>:<hi>` | marker, 3 h | Throttles "A and B are together". |
+| `geo:gathering:shown:<gathering>` | hash viewer → view, 7 days | What each viewer was last shown of a gathering: updates are pushed only when it changes, the end only to viewers in here. |
+| `geo:history:deleted:<user>` | JSON, 6 h | Ranges of raw history the user deleted: every process drops matching points still waiting in its buffer. |
 | `geo:share:seen:<share>:<ip>` | marker, 1 h | Counts each visitor of a share link once. |
 
-Rate limits (`rl:` keys): uploads 240/min; watch streams 30/min; ghost changes
+Rate limits (`rl:` keys): uploads 60/min (and the pipeline drops fixes less
+than a second after the previous one, by device time, on either path); watch streams 30/min; ghost changes
 60/min; place creation 60/h; place search 120/min; reverse geocoding 240/min;
 check-ins 30/h; live shares 20/h, link lookups 120/min and streams 30/min per
 IP; trips 30/h; directions 60/min; place alerts 30/h; SOS 10/h; history
@@ -275,5 +337,24 @@ percentages.
 - `geo_activity_hours` holds distance and time per user, UTC hour and
   activity; days are cut in whatever time zone a request asks for.
   `DeleteHistory` removes whole hour buckets that overlap the range.
+- The pipeline's writes are idempotent, because a batch can be processed a
+  second time (the stream redelivers after a failure, and the live state is
+  saved last): a visit is keyed by `(user_id, arrived_at)`, an hour's totals
+  carry `counted_until` and skip what they already contain, cells and nights
+  are upserts, an alert fires only on a change of side, a trip's arrival is
+  announced in the transaction that ends it.
+- `geo_visits.audience` / `audience_ids` record who saw the visitor precisely
+  when the visit began (0 all friends, 1 all but the listed, 2 only the
+  listed; backlog uploads: nobody). Place cards read it.
+- `geo_ghost_rules.hidden_since` is when the rule's viewers stopped seeing
+  the owner precisely (inherited when one non-precise rule replaces another,
+  also when a timed override ends under a stricter default); `footprint` holds
+  the footprint totals of that moment.
+- `geo_live_shares` stores no token: `token_hash` (keyed hash, for lookups)
+  and `token_sealed` (sealed with the server secret, opened to publish on the
+  share's topic and to show the owner their links).
+- Gathering membership changes are serialized per neighbourhood (advisory
+  locks on the H3 resolution-5 cell of the spot and its neighbours), not
+  globally.
 - Reverse geocoding uses the bundled GeoNames gazetteer (attribution required:
   "Place names © GeoNames, CC BY 4.0"); time zones come from `tzf-rs`.
