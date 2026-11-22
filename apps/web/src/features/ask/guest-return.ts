@@ -1,11 +1,17 @@
 /**
  * Someone who arrives on a public question box without an account writes
- * their question first and signs up second. What they were doing is kept in
- * this browser for an hour, so the app can bring them back to the box, with
- * their words still there, once they are signed in.
+ * their question first and signs up second. What they wrote is kept for a
+ * quarter of an hour in this tab only (`sessionStorage`), so the app can
+ * bring them back to the box, with their words still there, once they are
+ * signed in.
+ *
+ * It is a question meant to be anonymous, so it must not reach anyone else
+ * who uses the device: it never leaves the tab it was written in, nothing is
+ * kept when nothing was written, and it is removed when it was used and
+ * whenever someone signs out.
  */
 const KEY = "tokuly.ask.return";
-const LIFETIME_MS = 60 * 60_000;
+const LIFETIME_MS = 15 * 60_000;
 
 export interface PendingAsk {
   handle: string;
@@ -14,7 +20,8 @@ export interface PendingAsk {
 
 export function rememberPendingAsk(pending: PendingAsk, now: number = Date.now()): void {
   try {
-    window.localStorage.setItem(KEY, JSON.stringify({ ...pending, at: now }));
+    if (!pending.text.trim()) window.sessionStorage.removeItem(KEY);
+    else window.sessionStorage.setItem(KEY, JSON.stringify({ ...pending, at: now }));
   } catch {
     // Storage is full or switched off: the person simply starts over.
   }
@@ -26,8 +33,9 @@ export function parsePendingAsk(raw: string | null, now: number): PendingAsk | n
   try {
     const value = JSON.parse(raw) as Partial<PendingAsk & { at: number }>;
     if (typeof value.handle !== "string" || !/^[A-Za-z0-9_.-]{1,64}$/.test(value.handle)) return null;
+    if (typeof value.text !== "string" || !value.text.trim()) return null;
     if (typeof value.at !== "number" || now - value.at > LIFETIME_MS || now < value.at) return null;
-    return { handle: value.handle, text: typeof value.text === "string" ? value.text : "" };
+    return { handle: value.handle, text: value.text };
   } catch {
     return null;
   }
@@ -36,8 +44,8 @@ export function parsePendingAsk(raw: string | null, now: number): PendingAsk | n
 /** Takes the pending question out of storage: it is acted on once. */
 export function takePendingAsk(now: number = Date.now()): PendingAsk | null {
   try {
-    const pending = parsePendingAsk(window.localStorage.getItem(KEY), now);
-    window.localStorage.removeItem(KEY);
+    const pending = parsePendingAsk(window.sessionStorage.getItem(KEY), now);
+    window.sessionStorage.removeItem(KEY);
     return pending;
   } catch {
     return null;
@@ -57,4 +65,14 @@ export function takeDraft(handle: string): string {
   const text = draft.text;
   draft = null;
   return text;
+}
+
+/** Drops everything a visitor wrote: when someone signs out, the next person on this device starts clean. */
+export function forgetPendingAsk(): void {
+  draft = null;
+  try {
+    window.sessionStorage.removeItem(KEY);
+  } catch {
+    // Nothing was stored then.
+  }
 }

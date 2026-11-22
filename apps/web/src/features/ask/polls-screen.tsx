@@ -15,6 +15,7 @@ import { cn } from "#/lib/cn";
 import { askKeys, complimentClient } from "./api";
 import { countdownClock, localized } from "./model";
 import { askError, toastError } from "./parts";
+import { serverNow } from "./server-clock";
 
 /** Tile colours of the four choices, in order. */
 const TINTS = ["bg-sky", "bg-pink", "bg-lime", "bg-sun"] as const;
@@ -22,15 +23,22 @@ const TINTS = ["bg-sky", "bg-pink", "bg-lime", "bg-sun"] as const;
 /** How long the pick is celebrated before the next poll comes in, at ドパガキ度 3. */
 const PICK_HOLD_MS = 650;
 
-/** The time, ticking once a second while `active` (for a countdown on screen). */
-function useNow(active: boolean): number {
-  const [now, setNow] = useState(() => Date.now());
+/** After the server answered "still cooling down" to a start, the clock stays up at least this long before start is offered again. */
+const STILL_COOLING_MS = 3000;
+
+/** The server's time, ticking once a second until `until` has passed (for a countdown on screen). */
+function useServerNow(until: number): number {
+  const [now, setNow] = useState(() => serverNow());
   useEffect(() => {
-    if (!active) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 1000);
+    setNow(serverNow());
+    if (until <= serverNow()) return;
+    const timer = setInterval(() => {
+      const current = serverNow();
+      setNow(current);
+      if (current >= until) clearInterval(timer);
+    }, 1000);
     return () => clearInterval(timer);
-  }, [active]);
+  }, [until]);
   return now;
 }
 
@@ -45,6 +53,13 @@ export function PollsScreen() {
   const query = useQuery({ queryKey: askKeys.round, queryFn: async () => (await complimentClient().getRound({})).round!, staleTime: 0, gcTime: 0 });
   // Set when this visit finished a round: the reward is celebrated once.
   const [finishedNow, setFinishedNow] = useState(false);
+  // Server time until which the countdown stays, whatever this device believes: set when a start was answered with "not yet".
+  const [coolingUntil, setCoolingUntil] = useState(0);
+  const start = async () => {
+    setFinishedNow(false);
+    const answer = await query.refetch();
+    if (answer.data?.state === ask.RoundState.COOLDOWN) setCoolingUntil(Math.max(toMillis(answer.data.nextRoundAt), serverNow() + STILL_COOLING_MS));
+  };
   const round = query.data;
   const reason = query.isError ? errorReason(query.error) : undefined;
 
@@ -101,10 +116,7 @@ export function PollsScreen() {
       ) : round.state === ask.RoundState.ACTIVE && round.poll ? (
         <PollView key={round.poll.id} round={round} poll={round.poll} onRound={apply} onStale={() => query.refetch()} />
       ) : (
-        <Cooldown round={round} celebrate={finishedNow} onStart={() => {
-            setFinishedNow(false);
-            void query.refetch();
-          }} starting={query.isFetching} />
+        <Cooldown round={round} celebrate={finishedNow} coolingUntil={coolingUntil} onStart={start} starting={query.isFetching} />
       )}
     </Page>
   );
@@ -221,11 +233,11 @@ function ChoiceTile({ user, tint, state, disabled, onPick }: { user: common.User
 }
 
 /** Between rounds: what the finished one paid, and the clock until the next. */
-function Cooldown({ round, celebrate, onStart, starting }: { round: ask.Round; celebrate: boolean; onStart(): void; starting: boolean }) {
+function Cooldown({ round, celebrate, coolingUntil, onStart, starting }: { round: ask.Round; celebrate: boolean; /** Server time before which start is not offered. */ coolingUntil: number; onStart(): void; starting: boolean }) {
   const { t } = useTranslation("ask");
-  const opensAt = toMillis(round.nextRoundAt);
-  const now = useNow(opensAt > Date.now());
-  const left = opensAt - now;
+  // Counted against the server's clock: the round opens when the server says so, not when this device thinks it is time.
+  const opensAt = Math.max(toMillis(round.nextRoundAt), coolingUntil);
+  const left = opensAt - useServerNow(opensAt);
   const reward = round.rewardCoins;
   const { fire, burst } = useBurst(["🎉", "✨", "🪙", "🔥"]);
   // Once, when the round was finished on this visit.

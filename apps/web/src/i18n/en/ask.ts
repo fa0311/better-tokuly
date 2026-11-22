@@ -337,6 +337,7 @@ export default {
       short: "You are {{count}} coins short",
       toWallet: "Get coins",
       bought: "Hint unlocked!",
+      boughtFor: "Hint unlocked! {{count}} coins spent",
     },
   },
   profile: {

@@ -144,6 +144,18 @@ function FlameRow({ flame }: { flame: ask.Flame }) {
     onError: toastError,
   });
 
+  // The price shown in the confirmation is the one the server has now, not the one this list was loaded with.
+  const [checking, setChecking] = useState(false);
+  const openPurchase = async () => {
+    setChecking(true);
+    try {
+      await queryClient.refetchQueries({ queryKey: askKeys.flames });
+      setDialog("buy");
+    } finally {
+      setChecking(false);
+    }
+  };
+
   return (
     <article className="sticker rounded-card bg-surface px-4 pt-3.5 pb-3" data-testid="flame-row">
       <div className="flex items-start gap-3">
@@ -180,7 +192,7 @@ function FlameRow({ flame }: { flame: ask.Flame }) {
       )}
       <div className="mt-3 flex items-center gap-2">
         {flame.nextHintPrice > 0n ? (
-          <Button size="sm" variant="secondary" icon={<Lightbulb className="size-4" />} onClick={() => setDialog("buy")}>
+          <Button size="sm" variant="secondary" icon={<Lightbulb className="size-4" />} loading={checking} onClick={openPurchase}>
             {t("flames.buyHint")}
             <Coins amount={flame.nextHintPrice} size="sm" />
           </Button>
@@ -189,7 +201,7 @@ function FlameRow({ flame }: { flame: ask.Flame }) {
         )}
       </div>
 
-      {dialog === "buy" && <HintPurchase flame={flame} onClose={() => setDialog(null)} />}
+      {dialog === "buy" && flame.nextHintPrice > 0n && <HintPurchase flame={flame} onClose={() => setDialog(null)} />}
       <ConfirmDialog
         open={dialog === "block"}
         onOpenChange={() => setDialog(null)}
@@ -219,7 +231,8 @@ function HintPurchase({ flame, onClose }: { flame: ask.Flame; onClose(): void })
     onSuccess: (response) => {
       if (response.flame) rememberFlame(queryClient, response.flame);
       void balance.refresh();
-      toast.success(t("flames.purchase.bought"));
+      // What was actually charged, from the server: nothing when this purchase had already gone through.
+      toast.success(response.coinsSpent > 0n ? t("flames.purchase.boughtFor", { count: Number(response.coinsSpent) }) : t("flames.purchase.bought"));
       onClose();
     },
     onError: (error) => {

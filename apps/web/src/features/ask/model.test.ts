@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parsePendingAsk } from "./guest-return";
 import { answerShareUrl, boxShareUrl, charCount, countdownClock, localized, parseMutedWords, wrapText } from "./model";
+import { noteServerTime, serverNow } from "./server-clock";
 
 describe("charCount", () => {
   it("counts characters the way the server does, not UTF-16 units", () => {
@@ -77,14 +78,37 @@ describe("parsePendingAsk", () => {
   it("reads a fresh entry", () => {
     expect(parsePendingAsk(stored({ handle: "alice", text: "好きな色は?", at: now - 60_000 }), now)).toEqual({ handle: "alice", text: "好きな色は?" });
   });
-  it("forgets an entry after an hour, and one from the future", () => {
-    expect(parsePendingAsk(stored({ handle: "alice", text: "", at: now - 61 * 60_000 }), now)).toBeNull();
-    expect(parsePendingAsk(stored({ handle: "alice", text: "", at: now + 1000 }), now)).toBeNull();
+  it("forgets an entry after a quarter of an hour, and one from the future", () => {
+    expect(parsePendingAsk(stored({ handle: "alice", text: "まだ?", at: now - 14 * 60_000 }), now)).not.toBeNull();
+    expect(parsePendingAsk(stored({ handle: "alice", text: "まだ?", at: now - 16 * 60_000 }), now)).toBeNull();
+    expect(parsePendingAsk(stored({ handle: "alice", text: "まだ?", at: now + 1000 }), now)).toBeNull();
+  });
+  it("has nothing to bring back when nothing was written", () => {
+    expect(parsePendingAsk(stored({ handle: "alice", text: "", at: now }), now)).toBeNull();
+    expect(parsePendingAsk(stored({ handle: "alice", text: "  \n", at: now }), now)).toBeNull();
+    expect(parsePendingAsk(stored({ handle: "alice", at: now }), now)).toBeNull();
   });
   it("refuses anything that is not a handle (the value becomes part of an address)", () => {
-    expect(parsePendingAsk(stored({ handle: "../admin", text: "", at: now }), now)).toBeNull();
-    expect(parsePendingAsk(stored({ handle: 42, at: now }), now)).toBeNull();
+    expect(parsePendingAsk(stored({ handle: "../admin", text: "x", at: now }), now)).toBeNull();
+    expect(parsePendingAsk(stored({ handle: 42, text: "x", at: now }), now)).toBeNull();
     expect(parsePendingAsk("not json", now)).toBeNull();
     expect(parsePendingAsk(null, now)).toBeNull();
+  });
+});
+
+describe("the server clock", () => {
+  it("is the device clock until the server said what time it is", () => {
+    expect(serverNow(5000)).toBe(5000);
+  });
+  it("follows the server when the device is ahead or behind", () => {
+    noteServerTime(1_000_000, 1_600_000); // the device is ten minutes ahead
+    expect(serverNow(1_660_000)).toBe(1_060_000);
+    noteServerTime(2_000_000, 1_000_000); // the device is behind
+    expect(serverNow(1_000_500)).toBe(2_000_500);
+  });
+  it("ignores a frame without a time", () => {
+    noteServerTime(3000, 3000);
+    noteServerTime(0, 9000);
+    expect(serverNow(4000)).toBe(4000);
   });
 });

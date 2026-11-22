@@ -337,6 +337,7 @@ export default {
       short: "コインが{{count}}たりないよ",
       toWallet: "コインを買いにいく",
       bought: "ヒントをゲット!",
+      boughtFor: "ヒントをゲット! {{count}}コインつかったよ",
     },
   },
   profile: {

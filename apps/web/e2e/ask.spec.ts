@@ -418,6 +418,40 @@ test("blocking a sender keeps their next question out, without saying who it was
   await expect(page.getByText("ブロックした送り主はいないよ")).toBeVisible();
 });
 
+test("a question its sender took back can still be blocked and reported", async ({ page, request, me }) => {
+  const troll = await createAccount(request, "arashi");
+  await openBox(request, me);
+  const question = await ask(request, troll, me, "やっぱりなし");
+  await delivered(request, me, "やっぱりなし");
+  await open(page, "/ask/inbox");
+  const row = questionRow(page, "やっぱりなし");
+  await expect(row).toBeVisible();
+
+  // The sender withdraws it while it is on the owner's screen.
+  await rpc(request, `${BOX}/WithdrawQuestion`, { questionId: question.id }, troll);
+  expect((await inboxOf(request, me)).map((item) => item.text)).not.toContain("やっぱりなし");
+
+  await row.getByRole("button", { name: "その他" }).click();
+  await page.getByRole("menuitem", { name: "通報する" }).click();
+  const report = page.getByRole("dialog");
+  await report.getByRole("radio", { name: /スパム/ }).click();
+  await report.getByRole("button", { name: "通報する" }).click();
+  await expect(page.getByText("通報を受け付けたよ")).toBeVisible();
+
+  await row.getByRole("button", { name: "その他" }).click();
+  await page.getByRole("menuitem", { name: "この送り主をブロック" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "ブロックする" }).click();
+  await expect(page.getByText("この送り主をブロックしたよ")).toBeVisible();
+  const blocks = (await rpc<{ blocks?: { preview: string }[] }>(request, `${BOX}/ListSenderBlocks`, {}, me)).blocks ?? [];
+  expect(blocks.map((block) => block.preview)).toEqual(["やっぱりなし"]);
+
+  // The block holds: what they send next does not arrive.
+  await ask(request, troll, me, "もういっかい");
+  await ask(request, await createAccount(request, "yasashii"), me, "こんにちは!");
+  await delivered(request, me, "こんにちは!");
+  expect((await inboxOf(request, me)).map((item) => item.text)).not.toContain("もういっかい");
+});
+
 test("a question can be archived, brought back and deleted from its menu", async ({ page, request, me }) => {
   const asker = await createAccount(request, "asker");
   await openBox(request, me);
@@ -599,7 +633,8 @@ test("buying a hint about a flame is confirmed and lowers the coin balance", asy
   await expect(dialog.getByTestId("hint-after").getByText(coins(70))).toBeVisible();
   await dialog.getByRole("button", { name: "コインをつかう" }).click();
 
-  await expect(page.getByText("ヒントをゲット!")).toBeVisible();
+  // The toast says what the server charged.
+  await expect(page.getByText("ヒントをゲット! 30コインつかったよ")).toBeVisible();
   await expect(flame.getByTestId("flame-hints").getByRole("listitem")).toHaveCount(1);
   await expect(page.getByRole("link", { name: /70/ })).toBeVisible();
   expect(await coinsOf(request, me)).toBe("70");
@@ -645,6 +680,42 @@ test("the hub tile, a friend's profile and a visitor's draft all lead to a box",
     await expect(visitor.getByPlaceholder("質問を書いてね")).toHaveValue("はじめまして!");
   } finally {
     await guest.close();
+  }
+});
+
+test("what a visitor wrote stays in their tab: the next person to sign in on the device does not get it", async ({ page, request, me, browser, baseURL }) => {
+  const owner = await createAccount(request, "hakonushi");
+  await openBox(request, owner);
+
+  // A writes a question as a visitor, heads for sign-up, and leaves.
+  const first = await browser.newContext({ baseURL, locale: "ja-JP", viewport: page.viewportSize() });
+  let shared: Awaited<ReturnType<typeof first.storageState>>;
+  try {
+    const visitor = await first.newPage();
+    await visitor.goto(`/q/${owner.handle}`);
+    await visitor.getByPlaceholder("質問を書いてね").fill("だれにも言わないでね");
+    await visitor.getByRole("button", { name: "はじめる（無料）" }).click();
+    await expect(visitor).toHaveURL(/\/signup/);
+    // Nothing of it is in the storage every tab of this browser shares.
+    expect(await visitor.evaluate(() => JSON.stringify(window.localStorage))).not.toContain("だれにも言わないでね");
+    shared = await first.storageState();
+  } finally {
+    await first.close();
+  }
+
+  // B signs in on the same browser (same cookies and local storage, another tab).
+  const second = await browser.newContext({ baseURL, locale: "ja-JP", viewport: page.viewportSize(), storageState: shared });
+  try {
+    const other = await second.newPage();
+    await signInAs(other, me);
+    await other.goto("/me");
+    await expect(other.getByRole("heading", { name: "じぶん" })).toBeVisible({ timeout: 45_000 });
+    await expect(other).toHaveURL(/\/me$/);
+    await other.goto(`/ask/u/${owner.handle}`);
+    await expect(other.getByPlaceholder("質問を書いてね")).toHaveValue("");
+    await expect(other.getByRole("main")).not.toContainText("だれにも言わないでね");
+  } finally {
+    await second.close();
   }
 });
 
