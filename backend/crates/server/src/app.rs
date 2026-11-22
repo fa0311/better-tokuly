@@ -5,13 +5,19 @@ use axum::{Json, extract::State, http::StatusCode, routing::get};
 use clap::Args;
 use http::{HeaderName, HeaderValue, Method, header};
 use tokuly_admin::{Admin, AdminConfig};
+use tokuly_chat::{Chat, ChatConfig};
 use tokuly_core::{Core, analytics, auth::auth_middleware, events};
+use tokuly_engagement::{Engagement, EngagementConfig};
+use tokuly_feed::{Feed, FeedConfig};
 use tokuly_identity::{Identity, IdentityConfig};
 use tokuly_media::{Media, MediaConfig};
+use tokuly_notes::{Notes, NotesConfig};
 use tokuly_notify::{Notify, NotifyConfig};
 use tokuly_realtime::{Gateway, RealtimeConfig};
+use tokuly_search::{Search, SearchConfig};
 use tokuly_social::{Social, SocialConfig};
 use tokuly_stamp::{Stamp, StampConfig};
+use tokuly_video::{Video, VideoConfig};
 use tokuly_wallet::{Wallet, WalletConfig};
 use tower_http::{
     cors::{AllowOrigin, CorsLayer},
@@ -36,6 +42,18 @@ pub struct DomainConfigs {
     #[command(flatten)]
     pub admin: AdminConfig,
     #[command(flatten)]
+    pub feed: FeedConfig,
+    #[command(flatten)]
+    pub chat: ChatConfig,
+    #[command(flatten)]
+    pub notes: NotesConfig,
+    #[command(flatten)]
+    pub video: VideoConfig,
+    #[command(flatten)]
+    pub search: SearchConfig,
+    #[command(flatten)]
+    pub engagement: EngagementConfig,
+    #[command(flatten)]
     pub realtime: RealtimeConfig,
 }
 
@@ -49,6 +67,12 @@ pub struct Domains {
     pub wallet: Wallet,
     pub notify: Notify,
     pub admin: Admin,
+    pub feed: Feed,
+    pub chat: Chat,
+    pub notes: Notes,
+    pub video: Video,
+    pub search: Search,
+    pub engagement: Engagement,
     pub gateway: Gateway,
 }
 
@@ -63,8 +87,18 @@ impl Domains {
         let stamp = Stamp::new(core.clone(), identity.clone(), cfg.stamp)?;
         let notify = Notify::new(core.clone(), identity.clone(), cfg.notify)?;
         let admin = Admin::new(core.clone(), identity.clone(), cfg.admin)?;
-        let gateway = Gateway::new(core, cfg.realtime)?;
-        Ok(Self { media, identity, social, stamp, wallet, notify, admin, gateway })
+        let feed = Feed::new(core.clone(), identity.clone(), cfg.feed)?;
+        let chat = Chat::new(core.clone(), identity.clone(), cfg.chat)?;
+        let notes = Notes::new(core.clone(), identity.clone(), cfg.notes)?;
+        let video = Video::new(core.clone(), identity.clone(), cfg.video)?;
+        let search = Search::new(core.clone(), identity.clone(), cfg.search)?;
+        // After every domain that owns subjects: engagement only fills in the
+        // subject types nobody else registered a resolver for.
+        let engagement = Engagement::new(core.clone(), identity.clone(), cfg.engagement)?;
+        let gateway = Gateway::new(core.clone(), cfg.realtime)?;
+        let domains = Self { media, identity, social, stamp, wallet, notify, admin, feed, chat, notes, video, search, engagement, gateway };
+        crate::bridges::connect(&core, &domains);
+        Ok(domains)
     }
 
     /// Every RPC service of every domain on one Connect router.
@@ -77,6 +111,12 @@ impl Domains {
         router = self.wallet.register(router);
         router = self.notify.register(router);
         router = self.admin.register(router);
+        router = self.feed.register(router);
+        router = self.chat.register(router);
+        router = self.notes.register(router);
+        router = self.video.register(router);
+        router = self.search.register(router);
+        router = self.engagement.register(router);
         router = self.gateway.register(router);
         router
     }
@@ -101,6 +141,11 @@ pub async fn migrate(core: &Core, domains: &Domains) -> anyhow::Result<()> {
         // Analytics is not required to serve users; keep going and say so.
         Err(e) => tracing::warn!(error = %e, "analytics schema not applied; dashboards will be empty until ClickHouse is reachable"),
     }
+    match domains.search.setup().await {
+        Ok(()) => tracing::info!("search indexes ready"),
+        // Search is not required to serve users; the indexer creates the indexes when the engine is back.
+        Err(e) => tracing::warn!(error = %e, "search indexes not prepared; search stays empty until Meilisearch is reachable"),
+    }
     // The account named by TOKULY_ADMIN_USER, if it already exists; otherwise
     // the admin worker promotes it when it signs up.
     if let Err(e) = domains.admin.grant_bootstrap_admin().await {
@@ -122,6 +167,12 @@ pub fn spawn_workers(core: &Core, domains: &Domains) {
     domains.wallet.spawn_workers();
     domains.notify.spawn_workers();
     domains.admin.spawn_workers();
+    domains.feed.spawn_workers();
+    domains.chat.spawn_workers();
+    domains.notes.spawn_workers();
+    domains.video.spawn_workers();
+    domains.search.spawn_workers();
+    domains.engagement.spawn_workers();
     tracing::info!("workers started");
 }
 

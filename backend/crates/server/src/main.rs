@@ -15,6 +15,7 @@ use clap::{Args, Parser, Subcommand};
 use tokuly_core::{Core, config::Config, telemetry};
 
 mod app;
+mod bridges;
 mod healthcheck;
 
 #[derive(Parser)]
