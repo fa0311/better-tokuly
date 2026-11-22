@@ -99,7 +99,9 @@ How the stack does it: `infra/caddy/Caddyfile` answers `404` for `/api/hooks`,
 8081 nor 9997; and `tools/ci/smoke.sh` asks for all of them from outside.
 
 **In the Compose stack.** `tools/init-env.sh` generates the two secrets
-(`TOKULY_LIVE_HOOK_SECRET`, `TOKULY_MEDIAMTX_API_SECRET`). MediaMTX runs as
+(`TOKULY_LIVE_HOOK_SECRET`, `TOKULY_MEDIAMTX_API_SECRET`); run again on a
+deployment that has a `.env` already, it adds just these and changes nothing
+else. MediaMTX runs as
 the backend's user (10001) and records into the `recordings` volume, which
 the worker mounts at `/recordings`; the backend image owns that directory,
 and the worker starts first, so a fresh volume belongs to that user and the
