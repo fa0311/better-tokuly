@@ -479,14 +479,12 @@ impl Live {
         // Counted and announced once per person and stream: the event may
         // be delivered twice, and someone who subscribes, leaves and
         // subscribes again must not get an alert on air each time.
-        let first = match streams::current_of_channel(core, subscribed.channel_id)
-            .await?
-            .filter(|stream| stream.is_live())
-        {
-            None => false,
-            Some(stream) => {
-                let mut tx = core.db.begin().await?;
-                let first = sqlx::query(
+        let first =
+            match streams::current_of_channel(core, subscribed.channel_id).await?.filter(|stream| stream.is_live()) {
+                None => false,
+                Some(stream) => {
+                    let mut tx = core.db.begin().await?;
+                    let first = sqlx::query(
                     "INSERT INTO live_stream_subscribers (stream_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
                 )
                 .bind(stream.id)
@@ -495,16 +493,16 @@ impl Live {
                 .await?
                 .rows_affected()
                     == 1;
-                if first {
-                    sqlx::query("UPDATE live_streams SET new_subscribers = new_subscribers + 1 WHERE id = $1")
-                        .bind(stream.id)
-                        .execute(&mut *tx)
-                        .await?;
+                    if first {
+                        sqlx::query("UPDATE live_streams SET new_subscribers = new_subscribers + 1 WHERE id = $1")
+                            .bind(stream.id)
+                            .execute(&mut *tx)
+                            .await?;
+                    }
+                    tx.commit().await?;
+                    first
                 }
-                tx.commit().await?;
-                first
-            }
-        };
+            };
         // Subscriber goals follow the channel's count whether or not it is on air.
         overlays::push_goal_progress(self, subscribed.channel_id).await;
         let has_alert_box = overlays::topics(self, subscribed.channel_id)

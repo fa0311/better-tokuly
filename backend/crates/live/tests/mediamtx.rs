@@ -1,0 +1,275 @@
+//! The whole path with the real media server: MediaMTX started with
+//! `infra/mediamtx/mediamtx.yml`, an encoder (ffmpeg) publishing over RTMP,
+//! the auth hook, the reconciler, playback, the viewer count, the end and
+//! the archive.
+//!
+//! Skipped (with a message) when `mediamtx` or `ffmpeg` is not installed.
+//! The binary is looked for in `TOKULY_MEDIAMTX_BIN`, in
+//! `$TOKULY_DEV_HOME/bin` (default `~/tokuly-dev/bin`) and on the PATH; the
+//! ports come from `P_MEDIAMTX_*` (environment, or `ports.env` in the dev
+//! home), falling back to MediaMTX's defaults.
+mod common;
+
+use std::{
+    path::PathBuf,
+    process::{Child, Command, Stdio},
+    time::Duration,
+};
+
+use common::*;
+use tokuly_live::{LiveConfig, events::ArchiveJob};
+use tokuly_proto::live::*;
+
+const SECRET: &str = "e2e-hook-secret-0123456789abcdef";
+
+/// Kills the process when the test ends, however it ends.
+struct Process(Child);
+
+impl Drop for Process {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+fn dev_home() -> PathBuf {
+    std::env::var_os("TOKULY_DEV_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("tokuly-dev"))
+}
+
+fn runs(program: &std::path::Path, arg: &str) -> bool {
+    Command::new(program)
+        .arg(arg)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+fn mediamtx_binary() -> Option<PathBuf> {
+    let candidates = [
+        std::env::var_os("TOKULY_MEDIAMTX_BIN").map(PathBuf::from),
+        Some(dev_home().join("bin/mediamtx")),
+        Some(PathBuf::from("mediamtx")),
+    ];
+    candidates.into_iter().flatten().find(|candidate| runs(candidate, "--version"))
+}
+
+/// A port of the sandbox layout, or MediaMTX's default.
+fn port(name: &str, default: u16) -> u16 {
+    let from_file = || {
+        let file = std::fs::read_to_string(dev_home().join("ports.env")).ok()?;
+        file.lines().find_map(|line| line.strip_prefix(&format!("{name}=")).map(str::to_owned))
+    };
+    std::env::var(name).ok().or_else(from_file).and_then(|value| value.trim().parse().ok()).unwrap_or(default)
+}
+
+fn encoder(url: &str, seconds: u32) -> Command {
+    let mut command = Command::new("ffmpeg");
+    command
+        .args([
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-re",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=640x360:rate=30",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine",
+        ])
+        .args(["-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency", "-g", "30", "-c:a", "aac"])
+        .args(["-t", &seconds.to_string(), "-f", "flv", url])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    command
+}
+
+/// Tries `check` until it says yes or `seconds` have passed.
+async fn eventually<F, Fut>(seconds: u64, mut check: F) -> bool
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = bool>,
+{
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(seconds);
+    loop {
+        if check().await {
+            return true;
+        }
+        if tokio::time::Instant::now() > deadline {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+}
+
+#[tokio::test]
+async fn a_stream_goes_from_encoder_to_archive_through_the_real_media_server() {
+    let Some(mediamtx) = mediamtx_binary() else {
+        eprintln!(
+            "skipped: no mediamtx binary (set TOKULY_MEDIAMTX_BIN or install it into the dev home's bin directory)"
+        );
+        return;
+    };
+    if !runs(std::path::Path::new("ffmpeg"), "-version") {
+        eprintln!("skipped: ffmpeg is not installed, so nothing can publish a test stream");
+        return;
+    }
+    let (rtmp, hls, webrtc, api) = (
+        port("P_MEDIAMTX_RTMP", 1935),
+        port("P_MEDIAMTX_HLS", 8888),
+        port("P_MEDIAMTX_WEBRTC", 8889),
+        port("P_MEDIAMTX_API", 9997),
+    );
+    let (srt, ice, playback) =
+        (port("P_MEDIAMTX_SRT", 8890), port("P_MEDIAMTX_ICE", 8189), port("P_MEDIAMTX_PLAYBACK", api - 1));
+    let recordings = tempfile::tempdir().unwrap();
+    let ctx = start_with(LiveConfig {
+        mediamtx_api_url: format!("http://127.0.0.1:{api}"),
+        hook_secret: SECRET.into(),
+        rtmp_url: format!("rtmp://127.0.0.1:{rtmp}"),
+        srt_url: format!("srt://127.0.0.1:{srt}"),
+        whip_url: format!("http://127.0.0.1:{webrtc}"),
+        whep_url: format!("http://127.0.0.1:{webrtc}"),
+        hls_url: format!("http://127.0.0.1:{hls}"),
+        playback_url: format!("http://127.0.0.1:{playback}"),
+        recordings_dir: recordings.path().to_string_lossy().into_owned(),
+        ..test_config()
+    })
+    .await;
+
+    // The hook, served the way the server mounts it.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let hook_port = listener.local_addr().unwrap().port();
+    let app = axum::Router::new().nest("/hooks/live", ctx.live.http_routes());
+    tokio::spawn(async move { axum::serve(listener, app).await });
+
+    // MediaMTX with the configuration the stack ships, moved onto this machine's ports.
+    let config = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../infra/mediamtx/mediamtx.yml");
+    let log = std::fs::File::create(recordings.path().join("mediamtx.log")).unwrap();
+    let _server = Process(
+        Command::new(&mediamtx)
+            .arg(&config)
+            .env("MTX_AUTHHTTPADDRESS", format!("http://127.0.0.1:{hook_port}/hooks/live/auth?secret={SECRET}"))
+            .env("MTX_APIADDRESS", format!("127.0.0.1:{api}"))
+            .env("MTX_PLAYBACKADDRESS", format!("127.0.0.1:{playback}"))
+            .env("MTX_RTMPADDRESS", format!("127.0.0.1:{rtmp}"))
+            .env("MTX_SRTADDRESS", format!("127.0.0.1:{srt}"))
+            .env("MTX_HLSADDRESS", format!("127.0.0.1:{hls}"))
+            .env("MTX_WEBRTCADDRESS", format!("127.0.0.1:{webrtc}"))
+            .env("MTX_WEBRTCLOCALUDPADDRESS", format!("127.0.0.1:{ice}"))
+            .env("MTX_PATHDEFAULTS_RECORDPATH", format!("{}/%path/%s-%f", recordings.path().display()))
+            .stdin(Stdio::null())
+            .stdout(log.try_clone().unwrap())
+            .stderr(log)
+            .spawn()
+            .expect("mediamtx starts"),
+    );
+    // Its control API answers the worker (and, through the hook, nobody else).
+    assert!(
+        eventually(20, || async { ctx.live.media_paths().await.is_ok() }).await,
+        "MediaMTX did not come up on port {api} (is another one running?)"
+    );
+    let unauthenticated = reqwest::get(format!("http://127.0.0.1:{api}/v3/paths/list")).await.unwrap();
+    assert_eq!(unauthenticated.status().as_u16(), 401);
+
+    let alice = ctx.app.user("alice").await;
+    let channel = ctx.channel(&alice, "本番ch").await;
+    let stream = ctx.stream(&alice, &channel, "本物の配信").await;
+    let info: GetIngestInfoResponse = ctx
+        .call(
+            STREAMS,
+            "GetIngestInfo",
+            Some(&alice),
+            &GetIngestInfoRequest { stream_id: card(&stream).id.clone(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    let ingest = info.ingest.as_option().unwrap();
+
+    // A wrong key is refused by the media server, and the stream stays off air.
+    let wrong = format!("rtmp://127.0.0.1:{rtmp}/live/{}?token=not-the-key", ingest.stream_name);
+    let refused = tokio::task::spawn_blocking(move || encoder(&wrong, 3).status().unwrap()).await.unwrap();
+    assert!(!refused.success(), "publishing with a wrong key must fail");
+    ctx.live.reconcile().await.unwrap();
+    assert!(ctx.row(&stream).await.is_upcoming());
+
+    // The right key: the encoder connects and the next looks at the media server put the stream on air.
+    let _publisher = Process(encoder(&ingest.rtmp_url, 60).spawn().expect("ffmpeg starts"));
+    let on_air = eventually(30, || async {
+        ctx.live.reconcile().await.unwrap();
+        ctx.row(&stream).await.is_live()
+    })
+    .await;
+    assert!(on_air, "the stream did not go on air");
+    let row = ctx.row(&stream).await;
+    assert!(row.encoder_connected && row.encoder_protocol == "rtmp");
+
+    // Playback: the HLS URL of the page answers with a playlist.
+    let page = ctx.get_stream(None, &card(&stream).id).await.unwrap();
+    let playback = page.playback.as_option().expect("a stream on air plays");
+    let client = reqwest::Client::new();
+    let hls_url = playback.hls_url.clone();
+    let playlist = eventually(20, || {
+        let (client, hls_url) = (client.clone(), hls_url.clone());
+        async move {
+            match client.get(&hls_url).send().await {
+                Ok(response) if response.status().is_success() => {
+                    response.text().await.is_ok_and(|body| body.contains("#EXTM3U"))
+                }
+                _ => false,
+            }
+        }
+    })
+    .await;
+    assert!(playlist, "the HLS playlist did not answer at {}", playback.hls_url);
+    // That reader is a viewer: the media server reports it and the count follows.
+    let counted = eventually(15, || async {
+        ctx.live.reconcile().await.unwrap();
+        ctx.row(&stream).await.viewer_count >= 1
+    })
+    .await;
+    assert!(counted, "the HLS reader was not counted as a viewer");
+    assert!(ctx.row(&stream).await.peak_viewer_count >= 1);
+    // The recording is being written, and the DVR lists it.
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    assert!(!tokuly_live::recordings::segments(&ctx.live.cfg, &row.short_id).await.is_empty(), "nothing was recorded");
+    let listed = client.get(&playback.dvr_list_url).send().await.unwrap();
+    assert!(listed.status().is_success(), "the DVR list answered {}", listed.status());
+
+    // The end: the encoder is disconnected and the path goes away.
+    let ended = ctx.end(&alice, &stream).await;
+    assert_eq!(card(&ended).status, StreamStatus::STREAM_STATUS_ENDED);
+    let name = row.media_path();
+    let gone =
+        eventually(15, || async { !ctx.live.media_path(&name).await.unwrap().is_some_and(|path| path.online) }).await;
+    assert!(gone, "the encoder was not disconnected");
+    // Publishing into a stream that is over is refused.
+    let late_url = ingest.rtmp_url.clone();
+    let late = tokio::task::spawn_blocking(move || encoder(&late_url, 3).status().unwrap()).await.unwrap();
+    assert!(!late.success());
+
+    // The archive job turns the recording into a video on the channel and removes the segments.
+    ctx.live.archive(ArchiveJob { stream_id: row.id }).await.unwrap();
+    let archived = ctx.get_stream(Some(&alice), &card(&stream).id).await.unwrap();
+    assert_eq!(
+        archived.archive_status,
+        ArchiveStatus::ARCHIVE_STATUS_READY,
+        "{}",
+        archived.studio.as_option().unwrap().archive_error
+    );
+    let video = tokuly_video::videos::find_ref(&ctx.app.core, &archived.archive_video_id)
+        .await
+        .unwrap()
+        .expect("the archive video");
+    ctx.media.process_now(video.asset_id).await.unwrap();
+    let asset = tokuly_media::assets::find(&ctx.app.core, video.asset_id).await.unwrap().unwrap();
+    assert!(asset.is_ready(), "the archive could not be processed: {}", asset.error);
+    assert!(asset.video().unwrap().duration_seconds > 3.0);
+    assert!(tokuly_live::recordings::segments(&ctx.live.cfg, &row.short_id).await.is_empty());
+}
