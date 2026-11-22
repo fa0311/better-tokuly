@@ -8,10 +8,9 @@ import { Button } from "#/components/ui/button";
 import { Page } from "#/components/ui/page";
 import { SchoolHubTile } from "#/features/school";
 import { useAskBadge } from "#/features/ask";
-import { api } from "#/lib/api";
 import { cn } from "#/lib/cn";
 import { type BadgeKey, useBadges } from "#/stores/badges";
-import { useMe } from "#/stores/session";
+import { signOut as signOutOfApp, useMe } from "#/stores/session";
 
 interface Tile {
   to:
@@ -77,7 +76,7 @@ export function MeScreen() {
   const isStaff = me.roles.some((role) => role === "admin" || role === "moderator" || role === "staff");
   const tiles = isStaff ? [...TILES, STAFF_TILE] : TILES;
   const signOut = async () => {
-    await api().session.signOut();
+    await signOutOfApp();
     await navigate({ to: "/" });
   };
 

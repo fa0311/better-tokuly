@@ -4,8 +4,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
-import { api } from "#/lib/api";
-import { useMe } from "#/stores/session";
+import { signOut as signOutOfApp, useMe } from "#/stores/session";
 import { useFreshMe } from "../data";
 import { Group, SettingsPage } from "../shell/settings-page";
 import { DeletionCard } from "./deletion-card";
@@ -34,7 +33,7 @@ function SignOutCard() {
 
   const signOut = async (everywhere: boolean) => {
     setBusy(everywhere ? "everywhere" : "here");
-    await api().session.signOut(everywhere);
+    await signOutOfApp(everywhere);
     await navigate({ to: "/" });
   };
 

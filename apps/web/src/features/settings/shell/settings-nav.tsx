@@ -4,9 +4,8 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
-import { api } from "#/lib/api";
 import { cn } from "#/lib/cn";
-import { useMe } from "#/stores/session";
+import { signOut as signOutOfApp, useMe } from "#/stores/session";
 import { SECTIONS, type SectionId } from "./sections";
 
 /** Who is signed in, leading to their public profile (to check how an edit looks). */
@@ -76,7 +75,7 @@ export function SignOutButton({ className }: { className?: string }) {
   const [busy, setBusy] = useState(false);
   const signOut = async () => {
     setBusy(true);
-    await api().session.signOut();
+    await signOutOfApp();
     await navigate({ to: "/" });
   };
   return (
