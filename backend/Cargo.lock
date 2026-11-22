@@ -6569,8 +6569,36 @@ dependencies = [
 name = "tokuly-shorts"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "async-trait",
+ "buffa",
+ "chrono",
+ "chrono-tz",
+ "clap",
+ "clickhouse",
+ "connectrpc",
+ "futures",
+ "hex",
+ "parking_lot 0.13.0",
+ "redis",
+ "reqwest 0.13.5",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tempfile",
+ "tokio",
  "tokuly-core",
+ "tokuly-identity",
+ "tokuly-media",
  "tokuly-proto",
+ "tokuly-social",
+ "tokuly-testkit",
+ "tokuly-video",
+ "tracing",
+ "tracing-subscriber",
+ "unicode-normalization",
+ "unicode-segmentation",
+ "uuid",
 ]
 
 [[package]]
