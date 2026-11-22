@@ -84,7 +84,7 @@ Domains must not move coins to or from a deleted user afterwards.
 
 ## Realtime
 
-`ServerFrame.wallet` (`WalletEvent`), always user-scoped:
+`WalletEvent`, always user-scoped:
 
 | Event | Sent when |
 |---|---|

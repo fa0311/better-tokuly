@@ -28,7 +28,6 @@ use async_trait::async_trait;
 use tokuly_core::{prelude::*, realtime::TopicGuard};
 use tokuly_proto::{
     common::StampRef,
-    realtime::server_frame::Body,
     video::{
         PartyEndReason, PartyEnded, PartyLeaveReason, PartyMember, PartyMemberLeft, PartyMessage, PartyPlayback,
         PartyRole, VideoEvent as VideoPush, video_event::Event as Push,
@@ -410,10 +409,10 @@ pub(crate) async fn audiences_of_video_in(tx: &mut Tx<'_>, video_id: Uuid) -> Ap
 
 /// Publishes an event to everyone in a party.
 pub async fn push(core: &Core, audience: &Audience, event: Push) {
-    let frame = VideoPush { event: Some(event), ..Default::default() };
-    core.rt.notify_topic(&member_topic(audience.party_id), Body::from(frame.clone())).await;
+    let event = VideoPush { event: Some(event), ..Default::default() };
+    core.rt.notify_topic(&member_topic(audience.party_id), &event).await;
     for key in &audience.guest_keys {
-        core.rt.notify_topic(&guest_topic(audience.party_id, key), Body::from(frame.clone())).await;
+        core.rt.notify_topic(&guest_topic(audience.party_id, key), &event).await;
     }
 }
 

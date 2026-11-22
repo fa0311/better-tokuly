@@ -1077,7 +1077,7 @@ message SetPollQuestionEnabledResponse {
 
 // ───────────────────────────── Realtime ─────────────────────────────
 
-// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.ask),
+// Pushed over the realtime gateway (as a tokuly.realtime.v1.Event),
 // always to one user. Nothing here names an anonymous sender.
 message AskEvent {
   oneof event {

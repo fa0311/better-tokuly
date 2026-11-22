@@ -1,5 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
-import type { notes, realtime as rt } from "@tokuly/api";
+import type { notes } from "@tokuly/api";
+import type { ServerFrame } from "@tokuly/realtime";
 import { markNoteDeleted, notesKeys, patchNote, type TimelineData, withCounters } from "./api";
 
 /**
@@ -38,7 +39,7 @@ function cachedCounters(queryClient: QueryClient, noteId: string): notes.NoteCou
 const NOTE_KINDS = new Set(["notes.reply", "notes.quote", "notes.mention", "notes.renote"]);
 
 /** Applies one realtime frame to the cached notes. Returns nothing; unrelated frames are ignored. */
-export function applyNotesFrame(queryClient: QueryClient, frame: rt.ServerFrame): void {
+export function applyNotesFrame(queryClient: QueryClient, frame: ServerFrame): void {
   if (frame.body.case === "notify") {
     const event = frame.body.value.event;
     if (event.case === "received" && NOTE_KINDS.has(event.value.notification?.kind ?? "")) hintTimelines();

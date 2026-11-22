@@ -143,7 +143,7 @@ wrote it, a moderator looks the sender up with
 
 ## Realtime pushes
 
-`ServerFrame.ask` (`AskEvent`), always user-scoped, never naming an anonymous
+`AskEvent`, always user-scoped, never naming an anonymous
 sender:
 
 | Event | Sent to | When |

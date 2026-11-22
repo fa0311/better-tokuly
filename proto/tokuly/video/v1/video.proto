@@ -1612,7 +1612,7 @@ message GetRealtimeAnalyticsResponse {
 
 // ───────────────────────────── Realtime ─────────────────────────────
 
-// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.video).
+// Pushed over the realtime gateway (as a tokuly.realtime.v1.Event).
 //
 // `video_updated` is sent to the owner (user-scoped). The `party_*` events
 // are sent on the party's topic (see WatchPartyService).

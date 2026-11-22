@@ -21,7 +21,7 @@ use futures::{StreamExt as _, stream};
 use parking_lot::Mutex;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
-use tokuly_core::{AppResult, Core, presence};
+use tokuly_core::{AppResult, Core, presence, realtime::topic_subject};
 
 use crate::{
     frames,
@@ -133,7 +133,7 @@ impl Audience {
             known.last_total = Some(total);
         }
         if total > 0 {
-            self.core.rt.to_topic(topic, frames::topic_stats(total)).await?;
+            self.core.bus.publish(topic_subject(topic), frames::topic_stats(topic, total)).await?;
         }
         Ok(())
     }

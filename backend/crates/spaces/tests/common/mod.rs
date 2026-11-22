@@ -20,13 +20,12 @@ use tokuly_core::{
 use tokuly_identity::settings;
 use tokuly_proto::{
     identity::{PrivacySettings, UpdateSettingsRequest},
-    realtime::{ServerFrame, server_frame::Body},
     social::{BlockUserRequest, SendFriendRequestRequest, send_friend_request_request::Target},
     spaces::{spaces_event::Event as Push, *},
 };
 use tokuly_social::{Social, SocialConfig};
 use tokuly_spaces::{Spaces, SpacesConfig, Venue};
-use tokuly_testkit::{FrameListener, RpcError, TestApp, TestUser};
+use tokuly_testkit::{FrameListener, RpcError, ServerFrame, TestApp, TestUser};
 use uuid::Uuid;
 
 pub const MIGRATIONS: &[&str] = &["0001", "0100", "0200", "0400", "2200"];
@@ -91,13 +90,7 @@ async fn build(cfg: SpacesConfig, livekit: Option<LiveKit>) -> Ctx {
 
 /// The spaces events among realtime frames, in order.
 pub fn pushes(frames: Vec<ServerFrame>) -> Vec<Push> {
-    frames
-        .into_iter()
-        .filter_map(|frame| match frame.body {
-            Some(Body::Spaces(event)) => event.event,
-            _ => None,
-        })
-        .collect()
+    frames.iter().filter_map(|frame| frame.event::<SpacesEvent>()?.event).collect()
 }
 
 /// A signalling connection to LiveKit: while it is held, its participant

@@ -60,7 +60,7 @@ Set `TOKULY_MEDIA_UNATTACHED_TTL_HOURS=0` to switch collection off.
 
 ## Realtime
 
-`MediaEvent.asset_updated` (`ServerFrame.media`) carries the whole `Asset` on
+`MediaEvent.asset_updated` carries the whole `Asset` on
 every progress step and state change:
 
 - to the owner (all devices), in the owner's view;

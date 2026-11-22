@@ -91,7 +91,7 @@ data stays; lifting the suspension brings it all back.
 
 ## Realtime pushes
 
-`ServerFrame.school` (`SchoolEvent`).
+`SchoolEvent`.
 
 User-scoped (every device of the user):
 

@@ -53,10 +53,7 @@ use std::{ops::Deref, sync::Arc};
 
 use tokuly_core::prelude::*;
 use tokuly_identity::{Identity, UserRow, users};
-use tokuly_proto::{
-    ask::{AskEvent, ask_event::Event as Push},
-    realtime::server_frame::Body,
-};
+use tokuly_proto::ask::{AskEvent, ask_event::Event as Push};
 use tokuly_social::graph;
 
 mod answers;
@@ -144,10 +141,7 @@ impl Ask {
 
     /// Pushes an ask event to every connected device of one user.
     pub(crate) async fn push(&self, user_id: Uuid, event: Push) {
-        self.core
-            .rt
-            .notify_user(user_id, Body::Ask(Box::new(AskEvent { event: Some(event), ..Default::default() })))
-            .await;
+        self.core.rt.notify_user(user_id, &AskEvent { event: Some(event), ..Default::default() }).await;
     }
 
     /// The account named by `reference` (a user ID or a handle), as far as

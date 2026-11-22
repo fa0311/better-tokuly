@@ -4,7 +4,7 @@ mod common;
 use std::time::Duration;
 
 use common::*;
-use tokuly_proto::{realtime::server_frame::Body, wallet::*};
+use tokuly_proto::wallet::*;
 use tokuly_testkit::{RpcError, TestApp, TestUser};
 use tokuly_wallet::ledger;
 
@@ -166,7 +166,7 @@ async fn a_payout_is_requested_approved_and_paid() {
     assert_eq!(approved.reviewer.as_option().unwrap().id, moderator.id.to_string());
     assert!(approved.reviewed_at.as_option().is_some());
     let frame = frames.next(Duration::from_secs(2)).await.expect("payout pushed");
-    let Some(Body::Wallet(event)) = frame.body else { panic!("not a wallet frame") };
+    let event: WalletEvent = frame.event().expect("not a wallet frame");
     let Some(wallet_event::Event::PayoutUpdated(pushed)) = event.event else { panic!("not a payout update") };
     assert_eq!((pushed.id.as_str(), pushed.status.as_known()), (payout.id.as_str(), APPROVED));
     assert!(pushed.user.as_option().is_none(), "staff-only fields are not pushed to the requester");

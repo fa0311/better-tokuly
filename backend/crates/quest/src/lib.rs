@@ -42,10 +42,7 @@ use async_trait::async_trait;
 use chrono_tz::Tz;
 use tokuly_core::prelude::*;
 use tokuly_identity::Identity;
-use tokuly_proto::{
-    quest::{QuestEvent, quest_event::Event as Push},
-    realtime::server_frame::Body,
-};
+use tokuly_proto::quest::{QuestEvent, quest_event::Event as Push};
 
 pub mod badges;
 pub mod clock;
@@ -242,7 +239,7 @@ impl Quest {
 /// Pushes a quest event to every connected device of `user_id`.
 pub(crate) async fn push(core: &Core, user_id: Uuid, event: Push) {
     let event = QuestEvent { event: Some(event), ..Default::default() };
-    core.rt.notify_user(user_id, Body::Quest(Box::new(event))).await;
+    core.rt.notify_user(user_id, &event).await;
 }
 
 /// A short, stable name for "this database on this bus": FNV-1a over both,

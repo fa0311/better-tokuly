@@ -10,10 +10,7 @@ use std::{collections::HashMap, time::Duration};
 
 use sqlx::PgConnection;
 use tokuly_core::prelude::*;
-use tokuly_proto::{
-    engagement::{CountersChanged, EmojiCount, EngagementEvent, Reaction, ReactionSummary},
-    realtime::server_frame::Body,
-};
+use tokuly_proto::engagement::{CountersChanged, EmojiCount, EngagementEvent, Reaction, ReactionSummary};
 
 use crate::{Engagement, subjects::SubjectKey};
 
@@ -321,7 +318,7 @@ impl Engagement {
             ),
             ..Default::default()
         };
-        self.core.rt.notify_topic(&key.topic(), Body::from(event)).await;
+        self.core.rt.notify_topic(&key.topic(), &event).await;
     }
 }
 

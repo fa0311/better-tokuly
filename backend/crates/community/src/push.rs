@@ -3,10 +3,7 @@
 use std::time::Duration;
 
 use tokuly_core::prelude::*;
-use tokuly_proto::{
-    community::{self as pb, MemberRole, community_event::Event as Push},
-    realtime::server_frame::Body,
-};
+use tokuly_proto::community::{self as pb, MemberRole, community_event::Event as Push};
 
 use crate::{
     Community,
@@ -14,19 +11,19 @@ use crate::{
     model::{self, CommunityRow},
 };
 
-fn frame(event: Push) -> Body {
-    Body::Community(Box::new(pb::CommunityEvent { event: Some(event), ..Default::default() }))
+fn community_event(event: Push) -> pb::CommunityEvent {
+    pb::CommunityEvent { event: Some(event), ..Default::default() }
 }
 
 impl Community {
     /// Pushes an event to everyone following the community's topic.
     pub(crate) async fn push_topic(&self, community_id: Uuid, event: impl Into<Push>) {
-        self.core.rt.notify_topic(&model::topic(community_id), frame(event.into())).await;
+        self.core.rt.notify_topic(&model::topic(community_id), &community_event(event.into())).await;
     }
 
     /// Pushes an event to every connected device of some users.
     pub(crate) async fn push_users(&self, user_ids: impl IntoIterator<Item = Uuid>, event: impl Into<Push>) {
-        self.core.rt.notify_users(user_ids, frame(event.into())).await;
+        self.core.rt.notify_users(user_ids, &community_event(event.into())).await;
     }
 
     /// Tells `user_id` what they now are to the community (after a join,

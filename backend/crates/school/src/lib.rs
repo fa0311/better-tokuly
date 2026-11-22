@@ -30,10 +30,7 @@ use std::{
 use chrono::{DateTime, Utc};
 use tokuly_core::prelude::*;
 use tokuly_identity::Identity;
-use tokuly_proto::{
-    realtime::server_frame::Body,
-    school::{SchoolEvent, school_event::Event as Push},
-};
+use tokuly_proto::school::{SchoolEvent, school_event::Event as Push};
 
 mod assignments;
 mod cleanup;
@@ -146,22 +143,22 @@ impl School {
 
     /// Pushes a school event to every connected device of one user.
     pub(crate) async fn push(&self, user_id: Uuid, event: Push) {
-        self.core.rt.notify_user(user_id, frame(event)).await;
+        self.core.rt.notify_user(user_id, &school_event(event)).await;
     }
 
     /// Pushes the same school event to several users.
     pub(crate) async fn push_many(&self, user_ids: impl IntoIterator<Item = Uuid>, event: Push) {
-        self.core.rt.notify_users(user_ids, frame(event)).await;
+        self.core.rt.notify_users(user_ids, &school_event(event)).await;
     }
 
     /// Pushes a school event to everyone following a study room.
     pub(crate) async fn push_room(&self, room_id: Uuid, event: Push) {
-        self.core.rt.notify_topic(&rooms::topic(room_id), frame(event)).await;
+        self.core.rt.notify_topic(&rooms::topic(room_id), &school_event(event)).await;
     }
 }
 
-fn frame(event: Push) -> Body {
-    Body::School(Box::new(SchoolEvent { event: Some(event), ..Default::default() }))
+fn school_event(event: Push) -> SchoolEvent {
+    SchoolEvent { event: Some(event), ..Default::default() }
 }
 
 /// SQL condition: the account in `column` is neither deleted nor suspended.

@@ -11,7 +11,7 @@ workspace = true
 
 [dependencies]
 tokuly-core.workspace = true
-tokuly-proto.workspace = true
+tokuly-proto = { workspace = true, features = ["common", "feed"] }
 tokuly-identity.workspace = true
 tokuly-social.workspace = true
 tokio.workspace = true
@@ -40,5 +40,7 @@ feed-rs = "3.0.0"
 quick-xml = { version = "0.42.0", features = ["encoding"] }
 
 [dev-dependencies]
+# API packages only the tests name.
+tokuly-proto = { workspace = true, features = ["social"] }
 tokuly-testkit.workspace = true
 axum.workspace = true

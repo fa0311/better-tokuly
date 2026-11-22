@@ -143,10 +143,10 @@ async fn image_upload_becomes_webp_variants_without_metadata() {
     let payload: AssetEvent = ready[0].data().unwrap();
     assert_eq!((payload.owner_id, payload.purpose, payload.kind), (alice.id, AssetPurpose::ASSET_PURPOSE_CHAT_IMAGE as i32, AssetKind::ASSET_KIND_IMAGE as i32));
 
-    let last_status = |frames| pushed_assets(frames).into_iter().rfind(|pushed| pushed.id == asset.id);
-    let to_owner = last_status(owner_frames.drain(Duration::from_millis(300)).await).expect("pushed to the owner");
+    let last_status = |events| pushed_assets(events).into_iter().rfind(|pushed| pushed.id == asset.id);
+    let to_owner = last_status(owner_frames.events(Duration::from_millis(300)).await).expect("pushed to the owner");
     assert_eq!((to_owner.status, to_owner.file_name.as_str()), (AssetStatus::ASSET_STATUS_READY.into(), "IMG_0001.JPG"));
-    let to_topic = last_status(topic_frames.drain(Duration::from_millis(300)).await).expect("pushed to the asset topic");
+    let to_topic = last_status(topic_frames.events(Duration::from_millis(300)).await).expect("pushed to the asset topic");
     assert_eq!(to_topic.status, AssetStatus::ASSET_STATUS_READY);
     assert_eq!(to_topic.file_name, "", "topic subscribers get the public view");
 }

@@ -222,6 +222,19 @@ impl Ask {
                     .fetch_one(&self.core.db)
                     .await?;
                 let position = bought as usize;
+                // The same request may have stored its hint between the
+                // look above and this count (several copies arrive at
+                // once): counting after it would sell this key the next
+                // hint as well. Whoever stored it before the count is seen
+                // here; whoever stores it later counted the same position
+                // and shares its charge.
+                if let Some(hint) = self.hint_bought_with(flame_id, key).await? {
+                    let mut flames = self.render_flames(std::slice::from_ref(&flame)).await?;
+                    let flame = flames
+                        .pop()
+                        .ok_or_else(|| AppError::internal(anyhow::anyhow!("a rendered flame went missing")))?;
+                    return Ok((flame, hint.to_proto(), 0));
+                }
                 let price = self.next_hint_price(position, on_offer);
                 ensure!(price > 0, precondition, "NO_MORE_HINTS", "there are no more hints for this flame");
                 let (kind, value): (i16, String) = sqlx::query_as(

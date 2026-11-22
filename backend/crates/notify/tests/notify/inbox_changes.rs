@@ -1,10 +1,7 @@
 //! `InboxService`: changing the inbox (mark read, delete, clear).
 use std::time::Duration;
 
-use tokuly_proto::{
-    notify::{mark_read_request::Target, *},
-    realtime::server_frame::Body,
-};
+use tokuly_proto::notify::{mark_read_request::Target, *};
 use uuid::Uuid;
 
 use crate::common::*;
@@ -44,7 +41,7 @@ async fn mark_read_by_ids_touches_only_the_callers_entries() {
     );
 
     // Her other devices hear about it.
-    let Some(Body::Notify(event)) = frames.next(WAIT).await.unwrap().body else {
+    let Some(event) = frames.next(WAIT).await.unwrap().event::<NotifyEvent>() else {
         panic!("expected a notify frame")
     };
     let Some(notify_event::Event::Read(read)) = event.event else {
@@ -267,7 +264,7 @@ async fn delete_removes_only_the_callers_entries() {
         "someone else's entry is out of reach"
     );
 
-    let Some(Body::Notify(event)) = frames.next(WAIT).await.unwrap().body else {
+    let Some(event) = frames.next(WAIT).await.unwrap().event::<NotifyEvent>() else {
         panic!("expected a notify frame")
     };
     let Some(notify_event::Event::Removed(removed)) = event.event else {
@@ -373,7 +370,7 @@ async fn clear_empties_the_inbox_by_category_or_read_state() {
         (1, 0)
     );
     assert!(ctx.inbox(&alice).await.notifications.is_empty());
-    let Some(Body::Notify(event)) = frames.next(WAIT).await.unwrap().body else {
+    let Some(event) = frames.next(WAIT).await.unwrap().event::<NotifyEvent>() else {
         panic!("expected a notify frame")
     };
     assert!(matches!(event.event, Some(notify_event::Event::Removed(_))));

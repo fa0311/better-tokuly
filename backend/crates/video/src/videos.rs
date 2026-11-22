@@ -29,7 +29,6 @@ use tokuly_media::assets::{self, AssetRow, image_from_json};
 use tokuly_proto::{
     common::{Image, SubjectType, Visibility},
     media::{AssetKind, AssetStatus, VideoInfo},
-    realtime::server_frame::Body,
     video::{
         Chapter, PlaybackBlock, ProcessingState, Rating, Video, VideoEvent as VideoPush, VideoOrigin, VideoStatus,
         VideoStudioInfo, VideoSummary, VideoViewerState, video_event,
@@ -376,7 +375,7 @@ pub async fn push_updated(core: &Core, row: &VideoRow) {
         Ok(summary) => {
             let event =
                 VideoPush { event: Some(video_event::Event::VideoUpdated(Box::new(summary))), ..Default::default() };
-            core.rt.notify_user(row.owner_id, Body::from(event)).await;
+            core.rt.notify_user(row.owner_id, &event).await;
         }
         Err(error) => tracing::warn!(video_id = %row.id, %error, "could not push a video update"),
     }

@@ -127,7 +127,7 @@ async fn video_becomes_hls_with_poster_storyboard_preview_and_mp4() {
     }
 
     // ── progress was pushed along the way, ending with READY ──
-    let pushed: Vec<Asset> = pushed_assets(frames.drain(Duration::from_millis(300)).await).into_iter().filter(|pushed| pushed.id == asset.id).collect();
+    let pushed: Vec<Asset> = pushed_assets(frames.events(Duration::from_millis(300)).await).into_iter().filter(|pushed| pushed.id == asset.id).collect();
     assert!(pushed.len() >= 2, "expected progress pushes, got {}", pushed.len());
     assert!(pushed.windows(2).all(|pair| pair[0].progress <= pair[1].progress));
     assert!(pushed.iter().any(|a| a.status == AssetStatus::ASSET_STATUS_PROCESSING && a.progress > 0));

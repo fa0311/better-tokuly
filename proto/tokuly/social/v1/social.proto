@@ -550,7 +550,7 @@ message GetMapViewsResponse {
 
 // ───────────────────────────── Realtime events ─────────────────────────────
 
-// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.social).
+// Pushed over the realtime gateway (as a tokuly.realtime.v1.Event).
 message SocialEvent {
   oneof event {
     FriendRequest friend_request_received = 1;

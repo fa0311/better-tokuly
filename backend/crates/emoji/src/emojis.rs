@@ -29,7 +29,6 @@ use tokuly_media::assets;
 use tokuly_proto::{
     common::SubjectType,
     emoji::{EmojiDetail, EmojiEvent, ReviewRecord},
-    realtime::server_frame::Body,
 };
 
 use crate::{
@@ -91,7 +90,7 @@ impl Emoji {
                 let Some(author_id) = row.author_id else { continue };
                 let detail = self.detail(&row, Viewer::user(author_id)).await?;
                 let event = EmojiEvent { event: Some(detail.into()), ..Default::default() };
-                self.core.rt.notify_user(author_id, Body::Emoji(Box::new(event))).await;
+                self.core.rt.notify_user(author_id, &event).await;
             }
             Ok(())
         }
