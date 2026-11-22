@@ -7,13 +7,19 @@ name: Stack
 
 on:
   workflow_dispatch:
-  # Every night (04:00 JST), so `edge` follows the code without a long build on every push.
+  # Every night (04:00 JST), in case a base image moved.
   schedule:
     - cron: "0 19 * * *"
-  # At once when the stack definition itself changes.
+  # Whenever something that ends up in an image changes, so `edge` follows main
+  # (a newer push replaces a run that is still going).
   push:
     branches: [main]
     paths:
+      - backend/**
+      - proto/**
+      - apps/web/**
+      - packages/**
+      - pnpm-lock.yaml
       - compose.yaml
       - infra/**
       - .env.example

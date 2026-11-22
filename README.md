@@ -59,7 +59,8 @@ docker compose up -d     # http://localhost
 アプリのイメージは GitHub Container Registry のビルド済みのもの（`edge` = 通し検証を通った最新ビルド、
 またはリリース版）を取得します。手元のソースからビルドする場合は `docker compose up -d --build`。
 スタック全体の起動確認は GitHub Actions の [Stack](.github/workflows/stack.yml) ワークフローが
-`tools/ci/smoke.sh`（サインアップ、メール、アップロード、地図、リアルタイム接続）で行っています。
+`tools/ci/smoke.sh`（サインアップ、メール、アップロード、地図、リアルタイム接続）で行い、
+画面の操作は [Browser tests](.github/workflows/e2e.yml) が同じスタックの上で Playwright を走らせて確かめています。
 
 開発（インフラだけ Docker で、または Docker なしでネイティブに起動）:
 
