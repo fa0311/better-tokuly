@@ -13,6 +13,7 @@ import { ProfileAnswers, ProfileAskButton } from "#/features/ask";
 import { ReportButton } from "#/features/engagement";
 import { ProfileNotes } from "#/features/notes";
 import { ProfilePlans } from "#/features/plans";
+import { SchoolProfileCards } from "#/features/school";
 import { forgetUser, ProfileHighlights, StoryRing } from "#/features/stories";
 import { api, profileClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
@@ -108,6 +109,9 @@ export function ProfileScreen({ handle }: { handle: string }) {
           </p>
         )}
         {profile.bio && <p className="mt-4 leading-relaxed whitespace-pre-wrap">{profile.bio}</p>}
+
+        {/* 勉強中, the class that is on, テスト期間: what the school domain says about the person right now. */}
+        <SchoolProfileCards cards={profile.cards} user={user} isSelf={isSelf} />
 
         <div className="mt-5 flex flex-wrap gap-2">
           {isSelf ? (
