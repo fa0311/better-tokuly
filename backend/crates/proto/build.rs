@@ -66,8 +66,14 @@ fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let descriptor = out_dir.join("tokuly.binpb");
 
+    // What this script reads: buf.yaml, the directories of the enabled
+    // packages (below) and a few variables. Nothing else may be declared: see
+    // `emit_rerun_directives` at the end.
     println!("cargo:rerun-if-changed={}", repo_root.join("buf.yaml").display());
     println!("cargo:rerun-if-env-changed=TOKULY_PROTO_ROOT");
+    println!("cargo:rerun-if-env-changed=BUF");
+    // The generator's limit on descriptor size (for very large schemas).
+    println!("cargo:rerun-if-env-changed=BUFFA_ELEMENT_MEMORY_LIMIT");
 
     let packages = enabled_packages();
     let mut files = Vec::new();
@@ -108,6 +114,11 @@ fn main() {
 
     connectrpc_build::Config::new()
         .descriptor_set(&descriptor)
+        // The generator would declare the descriptor set as an input of the
+        // build. This script has just written it, so cargo would find it
+        // newer than the build on every run, and recompile this crate and
+        // everything above it each time cargo is invoked.
+        .emit_rerun_directives(false)
         .files(&files)
         .emit_descriptor_set("tokuly_descriptor.bin")
         .include_file("_tokuly.rs")
