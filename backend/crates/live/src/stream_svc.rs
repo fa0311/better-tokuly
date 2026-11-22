@@ -26,7 +26,7 @@ const SUBSCRIBED_CANDIDATES: i64 = 1000;
 const ON_AIR_OR_SCHEDULED: &str =
     "(s.status = 2 OR (s.status = 1 AND s.scheduled_at IS NOT NULL AND s.scheduled_at > now() - interval '1 hour'))";
 /// SQL: on air first (most viewers first), then the scheduled ones (soonest first).
-const ON_AIR_FIRST: &str = "s.status DESC, s.viewer_count DESC, s.scheduled_at NULLS LAST, s.id";
+const ON_AIR_FIRST: &str = "s.status DESC, s.ranked_viewer_count DESC, s.scheduled_at NULLS LAST, s.id";
 
 /// Keyset of the "live now" directory.
 #[derive(Debug, Serialize, Deserialize)]
@@ -123,7 +123,7 @@ impl Live {
             auto_archive: row.auto_archive,
             gifts_enabled: row.gifts_enabled,
             chat: Some(settings).into(),
-            playback: playable.then(|| self.playback(row)).into(),
+            playback: playable.then(|| self.playback(row, viewer.user_id)).into(),
             pinned_message: pinned.into(),
             highlighted_gifts: highlighted,
             active_poll: poll.into(),
@@ -238,6 +238,13 @@ impl LiveStreamService for Live {
             let updated = streams::update(core, &stream, edit).await?;
             if !updated.is_ended() {
                 self.push_stream_updated(&updated).await;
+            }
+            // Narrower than before: whoever may no longer watch is cut off now, not when their token runs out.
+            if updated.visibility != stream.visibility
+                && (updated.is_live() || updated.encoder_connected)
+                && let Err(error) = self.enforce_access(&updated).await
+            {
+                tracing::warn!(stream_id = %updated.id, %error, "could not cut viewers after a visibility change");
             }
             ok(UpdateStreamResponse {
                 stream: Some(self.own_stream_proto(user_id, &updated).await?).into(),
@@ -360,8 +367,8 @@ impl LiveStreamService for Live {
                   WHERE s.status = 2 AND ",
                 public_stream!("1"),
                 " AND ($2 = 0 OR s.category = $2) AND ($3 = '' OR lower(s.game) = lower($3))
-                    AND ($4::bigint IS NULL OR (s.viewer_count, s.id) < ($4, $5))
-                  ORDER BY s.viewer_count DESC, s.id DESC LIMIT $6"
+                    AND ($4::bigint IS NULL OR (s.ranked_viewer_count, s.id) < ($4, $5))
+                  ORDER BY s.ranked_viewer_count DESC, s.id DESC LIMIT $6"
             ))
             .bind(&viewer.blocked)
             .bind(category)
@@ -371,7 +378,7 @@ impl LiveStreamService for Live {
             .bind(page.fetch())
             .fetch_all(&core.db)
             .await?;
-            let info = page.finish(&mut rows, |row| LiveCursor { viewers: row.viewer_count, id: row.id });
+            let info = page.finish(&mut rows, |row| LiveCursor { viewers: row.ranked_viewer_count, id: row.id });
             ok(ListLiveStreamsResponse {
                 streams: streams::summaries(core, &rows).await?,
                 page: info.into(),
@@ -655,37 +662,42 @@ impl LiveStreamService for Live {
                     // The streamer's own player is their dashboard, not an audience.
                     audience::mark_dashboard_open(core, stream.id, interval).await?;
                 } else {
-                    let since_last = audience::heartbeat(core, stream.id, &key, interval).await?;
-                    if since_last.is_none() && user_id.is_none() {
-                        // A guest is whatever client ID the request names: one
-                        // address may add only so many of them to an
-                        // audience, or anyone could inflate a viewer count.
-                        let limit = core
-                            .cache
-                            .rate_limit(&format!("live-guests:{}", ctx.client().ip), 60, Duration::from_secs(600))
-                            .await;
-                        if let Err(error) = limit {
-                            audience::forget(core, stream.id, &key).await?;
-                            return Err(error);
-                        }
-                    }
-                    let props = serde_json::json!({ "channel_id": stream.channel_id, "viewer": key.analytics_name() });
-                    let event = match since_last {
-                        None => AnalyticsEvent::new("live.view").value(1.0),
-                        Some(seconds) => AnalyticsEvent::new("live.watch").value(seconds as f64),
+                    // A guest is whatever client ID the request names, so only so
+                    // many per address count; the rest watch without being counted.
+                    let counted = match user_id {
+                        Some(_) => true,
+                        None => audience::admit_guest(core, stream.id, &ctx.client().ip, &key, interval).await?,
                     };
-                    core.analytics
-                        .track(
-                            event.user(user_id).subject("live_stream", stream.id).owner(stream.owner_id).props(props),
-                        )
-                        .await;
+                    if counted {
+                        let since_last = audience::heartbeat(core, stream.id, &key, interval).await?;
+                        let props =
+                            serde_json::json!({ "channel_id": stream.channel_id, "viewer": key.analytics_name() });
+                        let event = match since_last {
+                            None => AnalyticsEvent::new("live.view").value(1.0),
+                            Some(seconds) => AnalyticsEvent::new("live.watch").value(seconds as f64),
+                        };
+                        core.analytics
+                            .track(
+                                event
+                                    .user(user_id)
+                                    .subject("live_stream", stream.id)
+                                    .owner(stream.owner_id)
+                                    .props(props),
+                            )
+                            .await;
+                    }
                 }
             }
+            // Playback tokens are short-lived: every heartbeat brings the next one,
+            // as long as the viewer may still watch (which was just checked).
+            let playable = self.cfg.media_server_configured()
+                && (stream.is_live() || (viewer.is(stream.owner_id) && stream.encoder_connected && !stream.is_ended()));
             ok(ReportWatchingResponse {
                 viewer_count: if stream.is_live() { stream.viewer_count } else { 0 },
                 like_count: stream.like_count,
                 status: stream.status.into(),
                 report_interval_seconds: interval as i32,
+                playback: playable.then(|| self.playback(&stream, user_id)).into(),
                 ..Default::default()
             })
         })

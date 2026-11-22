@@ -5,7 +5,7 @@
 # Written for MediaMTX 1.21 (the keys change between versions; the reference
 # is mediamtx.yml in the release). Every setting can be overridden with an
 # environment variable named MTX_<UPPERCASE KEY>, which is how compose.yaml
-# and the tests adapt this file (ports, the hook address with its secret).
+# and the tests adapt this file (ports, the hook address with its credentials).
 #
 # Who may do what is decided by the Tokuly API, never here: MediaMTX asks
 # `POST /hooks/live/auth` for every publisher, every viewer, every download
@@ -27,11 +27,17 @@ writeQueueSize: 1024
 # Authentication: ask the Tokuly API
 
 authMethod: http
-# The API server inside the stack. The shared secret travels in the query:
-# set MTX_AUTHHTTPADDRESS to this address plus `?secret=<TOKULY_LIVE_HOOK_SECRET>`.
+# The API server inside the stack. MediaMTX proves who it is with the hook
+# secret, as the password of HTTP Basic credentials in this address (never in
+# the query, which ends up in access logs): set
+# MTX_AUTHHTTPADDRESS=http://mediamtx:<TOKULY_LIVE_HOOK_SECRET>@api:8081/hooks/live/auth
+# The user name is ignored. Without the secret the hook answers 403 and
+# nothing can be published or watched.
 authHTTPAddress: http://api:8081/hooks/live/auth
 # Nothing is excluded: the control API is answered only to callers that
-# present the hook secret (the Tokuly worker does), metrics and pprof are off.
+# present the control API secret (TOKULY_MEDIAMTX_API_SECRET, user `tokuly`;
+# the Tokuly worker does). It is a different secret from the hook's, which
+# MediaMTX itself holds. Metrics and pprof are off.
 authHTTPExclude: []
 
 ###############################################

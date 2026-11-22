@@ -156,6 +156,13 @@ impl LiveChatService for Live {
                 "NOT_A_MODERATOR",
                 "only the streamer and moderators can delete this message"
             );
+            // Moderators answer to the streamer: what the streamer wrote is not theirs to remove.
+            ensure!(
+                standing.is_owner || own || message.user_id != Some(stream.owner_id),
+                denied,
+                "CANNOT_MODERATE_STREAMER",
+                "moderators cannot remove the streamer's messages"
+            );
             self.limit_moderation(user_id).await?;
             self.remove_chat_message(&stream, &message).await?;
             ok(DeleteChatMessageResponse::default())
@@ -213,7 +220,14 @@ impl LiveChatService for Live {
             let req = request.to_owned_message();
             let viewer = Viewer::load(core, Some(user_id)).await?;
             let stream = streams::find_watchable(core, &viewer, &req.stream_id).await?;
-            access::require_moderator(core, stream.channel_id, stream.owner_id, user_id).await?;
+            // Who may write, how fast and whether at all is the streamer's
+            // call alone; moderators act on messages and people, not on the chat.
+            ensure!(
+                viewer.is(stream.owner_id),
+                denied,
+                "NOT_THE_STREAMER",
+                "only the streamer changes the chat's rules"
+            );
             let settings = req
                 .chat
                 .as_option()

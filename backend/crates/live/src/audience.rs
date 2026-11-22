@@ -101,6 +101,65 @@ pub async fn heartbeat(
     Ok(previous.map(|at| now - at as i64).filter(|elapsed| (0..=ttl).contains(elapsed)))
 }
 
+/// Anonymous viewers one address may have in one audience at a time.
+/// Guests are whatever client ID a request names, so without a cap one
+/// machine could be a crowd. (People behind one shared address beyond
+/// this number are not counted unless they sign in.)
+pub const MAX_GUESTS_PER_ADDRESS: i64 = 5;
+
+fn guests_key(stream_id: Uuid, group: &str) -> String {
+    format!("live:guests:{stream_id}:{group}")
+}
+
+/// The group an address is capped with: the address itself for IPv4, its
+/// /64 network for IPv6 (one subscriber usually has a whole /64).
+pub fn address_group(ip: &str) -> String {
+    match ip.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V6(v6)) => match v6.to_ipv4_mapped() {
+            Some(v4) => v4.to_string(),
+            None => {
+                let s = v6.segments();
+                format!("{:x}:{:x}:{:x}:{:x}::/64", s[0], s[1], s[2], s[3])
+            }
+        },
+        Ok(std::net::IpAddr::V4(v4)) => v4.to_string(),
+        Err(_) => "unknown".to_owned(),
+    }
+}
+
+/// Decides in one step whether a guest may be (or stay) in the audience:
+/// already counted for its address group, or the group has room.
+const ADMIT_GUEST: &str = r#"
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', '(' .. ARGV[1])
+if redis.call('ZSCORE', KEYS[1], ARGV[3]) or redis.call('ZCARD', KEYS[1]) < tonumber(ARGV[4]) then
+  redis.call('ZADD', KEYS[1], ARGV[2], ARGV[3])
+  redis.call('EXPIRE', KEYS[1], 600)
+  return 1
+end
+return 0
+"#;
+
+/// Whether the guest `viewer` at `ip` counts towards the audience: at most
+/// [`MAX_GUESTS_PER_ADDRESS`] guests per address group and stream do.
+pub async fn admit_guest(
+    core: &Core,
+    stream_id: Uuid,
+    ip: &str,
+    viewer: &ViewerKey,
+    report_interval_seconds: u32,
+) -> AppResult<bool> {
+    let now = now().timestamp();
+    let admitted: i64 = redis::Script::new(ADMIT_GUEST)
+        .key(guests_key(stream_id, &address_group(ip)))
+        .arg(now - ttl_seconds(report_interval_seconds))
+        .arg(now)
+        .arg(viewer.member())
+        .arg(MAX_GUESTS_PER_ADDRESS)
+        .invoke_async(&mut core.cache.conn())
+        .await?;
+    Ok(admitted == 1)
+}
+
 /// Takes a viewer out of the audience again.
 pub async fn forget(core: &Core, stream_id: Uuid, viewer: &ViewerKey) -> AppResult<()> {
     redis::cmd("ZREM")
@@ -183,5 +242,15 @@ mod tests {
         assert_eq!(guest.member(), "g:abc123");
         assert_eq!(guest.analytics_name(), "guest:abc123");
         assert_eq!(ttl_seconds(15), 45);
+    }
+
+    #[test]
+    fn addresses_are_capped_per_host_or_per_ipv6_network() {
+        assert_eq!(address_group("203.0.113.7"), "203.0.113.7");
+        assert_eq!(address_group("2001:db8:1:2:aaaa:bbbb:cccc:dddd"), "2001:db8:1:2::/64");
+        assert_eq!(address_group("2001:db8:1:2::1"), address_group("2001:db8:1:2:ffff::9"));
+        assert_ne!(address_group("2001:db8:1:3::1"), address_group("2001:db8:1:2::1"));
+        assert_eq!(address_group("::ffff:203.0.113.7"), "203.0.113.7");
+        assert_eq!(address_group(""), "unknown");
     }
 }

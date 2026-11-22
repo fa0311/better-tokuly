@@ -70,8 +70,8 @@ service LiveStreamService {
   // else what is listed for them. Anonymous callers allowed.
   // Errors: CHANNEL_NOT_FOUND.
   rpc ListChannelStreams(ListChannelStreamsRequest) returns (ListChannelStreamsResponse);
-  // Public streams that are on air, most viewers first. Anonymous callers
-  // allowed.
+  // Public streams that are on air, most signed-in viewers first (guests
+  // do not move the ranking). Anonymous callers allowed.
   rpc ListLiveStreams(ListLiveStreamsRequest) returns (ListLiveStreamsResponse);
   // Public streams that are scheduled, soonest first. Anonymous callers
   // allowed.
@@ -102,9 +102,10 @@ service LiveStreamService {
   // starts. Errors: STREAM_NOT_FOUND, STREAM_ALREADY_STARTED, RATE_LIMITED.
   rpc SetReminder(SetReminderRequest) returns (SetReminderResponse);
   // Heartbeat of a viewer's player, every `report_interval_seconds`: keeps
-  // the viewer in the audience (viewer count, the streamer's viewer list)
-  // and measures watch time. Anonymous callers allowed (pass a stable
-  // `client_id`). Errors: STREAM_NOT_FOUND, RATE_LIMITED.
+  // the viewer in the audience (viewer count, the streamer's viewer list),
+  // measures watch time and renews the playback token. Anonymous callers
+  // allowed (pass a stable `client_id`); only a few guests per network
+  // address are counted. Errors: STREAM_NOT_FOUND, RATE_LIMITED.
   rpc ReportWatching(ReportWatchingRequest) returns (ReportWatchingResponse);
   // Signed-in viewers watching right now, for the streamer and the
   // channel's moderators. Errors: STREAM_NOT_FOUND, NOT_A_MODERATOR.
@@ -236,7 +237,8 @@ message Playback {
   int32 dvr_window_seconds = 5;
   // The token inside the URLs above (empty for streams anyone may watch),
   // for players that send `Authorization: Bearer` instead, and when the
-  // URLs stop working. Fetch the stream again before then.
+  // URLs stop working. It is made for the caller alone and short-lived;
+  // ReportWatching returns the next one.
   string token = 6;
   google.protobuf.Timestamp expires_at = 7;
 }
@@ -500,6 +502,10 @@ message ReportWatchingResponse {
   StreamStatus status = 3;
   // When to report again.
   int32 report_interval_seconds = 4;
+  // Fresh playback URLs while the caller may play the stream. The token of
+  // a restricted stream lasts a quarter of an hour: switch to these before
+  // the ones in use run out.
+  Playback playback = 5;
 }
 
 // A signed-in viewer in the audience.
@@ -555,17 +561,19 @@ service LiveChatService {
   // REPLAY_RANGE_INVALID.
   rpc ListChatReplay(ListChatReplayRequest) returns (ListChatReplayResponse);
   // Deletes a message: its author, the streamer or a moderator. Gift
-  // messages can only be removed by the streamer or a moderator. A deleted
-  // message leaves the chat but can still be reported.
-  // Errors: MESSAGE_NOT_FOUND, NOT_A_MODERATOR, RATE_LIMITED.
+  // messages can only be removed by the streamer or a moderator, and the
+  // streamer's own messages only by the streamer. A deleted message leaves
+  // the chat but can still be reported. Errors: MESSAGE_NOT_FOUND,
+  // NOT_A_MODERATOR, CANNOT_MODERATE_STREAMER, RATE_LIMITED.
   rpc DeleteChatMessage(DeleteChatMessageRequest) returns (DeleteChatMessageResponse);
   // Pins a message at the top of the chat (replacing the pinned one).
   // Streamer and moderators. Errors: MESSAGE_NOT_FOUND, NOT_A_MODERATOR.
   rpc PinChatMessage(PinChatMessageRequest) returns (PinChatMessageResponse);
   // Removes the pinned message. Errors: STREAM_NOT_FOUND, NOT_A_MODERATOR.
   rpc UnpinChatMessage(UnpinChatMessageRequest) returns (UnpinChatMessageResponse);
-  // Changes the chat rules of a stream. Streamer and moderators.
-  // Errors: STREAM_NOT_FOUND, NOT_A_MODERATOR, CHAT_SETTINGS_INVALID.
+  // Changes the chat rules of a stream (closing it included). Streamer
+  // only. Errors: STREAM_NOT_FOUND, NOT_THE_STREAMER, CHAT_SETTINGS_INVALID,
+  // RATE_LIMITED.
   rpc UpdateChatSettings(UpdateChatSettingsRequest) returns (UpdateChatSettingsResponse);
   // The words that may not appear in the chat of a channel's streams.
   // Streamer and moderators. Errors: CHANNEL_NOT_FOUND, NOT_A_MODERATOR.
@@ -915,8 +923,13 @@ service LiveGiftService {
   // by repeating it. Errors: STREAM_NOT_FOUND, STREAM_NOT_LIVE, GIFTS_DISABLED,
   // GIFT_OWN_STREAM, GIFT_AMOUNT_INVALID, GIFT_MESSAGE_TOO_LONG,
   // GIFT_MESSAGE_INVALID, MESSAGE_BLOCKED, IDEMPOTENCY_KEY_INVALID,
-  // CHAT_NOT_ALLOWED, CHAT_BANNED, CHAT_TIMED_OUT, INSUFFICIENT_COINS,
-  // RATE_LIMITED.
+  // LINKS_NOT_ALLOWED, CHAT_NOT_ALLOWED, CHAT_BANNED, CHAT_TIMED_OUT,
+  // INSUFFICIENT_COINS, RATE_LIMITED, and GIFT_RETURNED (failed_precondition)
+  // when the stream was deleted while the gift was being paid: the coins
+  // are back in the caller's wallet and there is no gift.
+  //
+  // The caller's wallet history shows the payment without naming the
+  // account behind the channel (`LedgerEntry.counterpart_hidden`).
   rpc SendGift(SendGiftRequest) returns (SendGiftResponse);
   // Gifts the caller sent, newest first.
   rpc ListSentGifts(ListSentGiftsRequest) returns (ListSentGiftsResponse);
@@ -1039,11 +1052,14 @@ message ListTopSupportersResponse {
 // Short cuts of streams and videos.
 service ClipService {
   // Cuts 0.1-60 s out of a stream that is on air (within its DVR window)
-  // or out of a video the caller may watch (an archive included). The clip
+  // or out of a video (an archive included) that anyone with the link may
+  // watch. The clip
   // is produced in the background: PROCESSING → READY or FAILED, announced
   // to the creator with `LiveEvent.clip_updated`. Errors: STREAM_NOT_FOUND,
   // VIDEO_NOT_FOUND, CLIP_SOURCE_REQUIRED, CLIP_SOURCE_NOT_READY,
-  // CLIP_RANGE_INVALID, CLIP_TITLE_INVALID, DVR_DISABLED, RATE_LIMITED.
+  // CLIP_SOURCE_NOT_PUBLIC (friends-only and private sources cannot be
+  // clipped), CLIP_RANGE_INVALID, CLIP_TITLE_INVALID, DVR_DISABLED,
+  // RATE_LIMITED.
   rpc CreateClip(CreateClipRequest) returns (CreateClipResponse);
   // One clip. Its visibility follows its source. Anonymous callers
   // allowed. Errors: CLIP_NOT_FOUND.
@@ -1165,7 +1181,9 @@ service OverlayService {
   rpc ListOverlays(ListOverlaysRequest) returns (ListOverlaysResponse);
   // Adds a widget (at most 20 per channel). Errors: CHANNEL_NOT_FOUND,
   // OVERLAY_LIMIT_REACHED, OVERLAY_KIND_INVALID, OVERLAY_NAME_INVALID,
-  // OVERLAY_PRESET_UNKNOWN, OVERLAY_CSS_TOO_LONG, OVERLAY_SETTINGS_INVALID.
+  // OVERLAY_PRESET_UNKNOWN, OVERLAY_CSS_TOO_LONG, OVERLAY_CSS_UNSAFE (custom
+  // CSS that would load images, fonts or stylesheets, or uses escapes),
+  // OVERLAY_SETTINGS_INVALID.
   rpc CreateOverlay(CreateOverlayRequest) returns (CreateOverlayResponse);
   // Changes a widget; open widgets reload. Unset fields stay. Errors:
   // OVERLAY_NOT_FOUND, plus the validation errors of CreateOverlay.
@@ -1266,7 +1284,8 @@ message Overlay {
   string name = 4;
   // ID of a built-in style (ListOverlayPresets).
   string preset = 5;
-  // Appended after the preset's CSS; up to 50 000 characters.
+  // Appended after the preset's CSS; up to 50 000 characters. It may not
+  // load anything (`@import`, `url()`, fonts) or contain escapes.
   string custom_css = 6;
   OverlaySettings settings = 7;
   // The secret, and the page to add to OBS as a browser source.

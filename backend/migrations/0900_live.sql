@@ -59,6 +59,9 @@ CREATE TABLE live_streams (
 
     -- Viewers at the last sample, and the most there ever were.
     viewer_count       bigint      NOT NULL DEFAULT 0,
+    -- Signed-in viewers at the last sample: what "live now" is ranked by.
+    -- Guests are not counted here, since anyone can pretend to be many.
+    ranked_viewer_count bigint     NOT NULL DEFAULT 0,
     peak_viewer_count  bigint      NOT NULL DEFAULT 0,
     like_count         bigint      NOT NULL DEFAULT 0,
     chat_message_count bigint      NOT NULL DEFAULT 0,
@@ -96,7 +99,7 @@ CREATE TABLE live_streams (
 CREATE INDEX live_streams_channel ON live_streams (channel_id, id DESC);
 CREATE INDEX live_streams_owner ON live_streams (owner_id, id DESC);
 -- "Live now", most viewers first.
-CREATE INDEX live_streams_on_air ON live_streams (viewer_count DESC, id DESC) WHERE status = 2;
+CREATE INDEX live_streams_on_air ON live_streams (ranked_viewer_count DESC, id DESC) WHERE status = 2;
 -- Upcoming streams by planned start.
 CREATE INDEX live_streams_scheduled ON live_streams (scheduled_at, id) WHERE status = 1 AND scheduled_at IS NOT NULL;
 -- What the reconciler looks at: streams with an encoder, or on air.
@@ -358,6 +361,10 @@ CREATE TABLE live_overlays (
     -- The token: hashed for lookups, encrypted to show its URL again.
     token_hash   text        NOT NULL UNIQUE,
     token_sealed bytea       NOT NULL,
+    -- Name of the widget's realtime topic (`overlay:<topic_key>`): derived
+    -- from the token with a key, so the token itself never becomes a topic
+    -- name (those travel through the bus and into logs).
+    topic_key    text        NOT NULL UNIQUE,
     created_at   timestamptz NOT NULL DEFAULT now(),
     updated_at   timestamptz NOT NULL DEFAULT now()
 );

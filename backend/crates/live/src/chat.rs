@@ -585,10 +585,12 @@ impl Live {
 
         let role = role_of(core, stream, user_id, standing).await?;
         let mut tx = core.db.begin().await?;
-        if !privileged {
+        if !standing.is_owner {
             // A timeout or ban imposed since the check above (or right now)
             // wins: under the lock, either this message is in the chat
-            // before the restriction, or it is refused.
+            // before the restriction, or it is refused. This goes for
+            // moderators too: one the streamer restricts while they write
+            // has lost their seat with it.
             lock_chatter(&mut tx, stream.channel_id, user_id).await?;
             let restricted: Option<Option<Time>> = sqlx::query_scalar(
                 "SELECT expires_at FROM live_chat_restrictions

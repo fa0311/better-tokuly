@@ -15,11 +15,15 @@
 //! The media server asks [`crate::hooks`] about every one of these. Streams
 //! that anyone with the link may watch need no token; friends-only and
 //! private streams, and the owner's preview before going on air, do. A
-//! playback token is a keyed hash of the stream's name and an expiry, so
-//! checking it needs no storage.
+//! playback token is a keyed hash of the stream's name, the viewer it was
+//! made for and an expiry a quarter of an hour ahead, so checking it needs
+//! no storage; players get a fresh one with every heartbeat
+//! (`ReportWatching`). Because a token names its viewer, the session it
+//! opened can be cut when that viewer loses access ([`Live::enforce_access`]).
 //!
-//! The control API is called with the hook secret as basic-auth password,
-//! which the media server in turn has checked by the hook (action `api`).
+//! The control API is called with its own secret as basic-auth password
+//! (`TOKULY_MEDIAMTX_API_SECRET`, not the hook's), which the media server
+//! in turn has checked by the hook (action `api`).
 use chrono::Duration;
 use serde::Deserialize;
 use tokuly_core::{
@@ -30,14 +34,14 @@ use tokuly_proto::live::{IngestInfo, Playback};
 
 use crate::{
     Live,
-    access::open_to_everyone,
+    access::{Viewer, open_to_everyone},
     streams::{self, StreamRow},
 };
 
 /// User name the worker presents to the control API.
 pub const API_USER: &str = "tokuly";
 /// How long playback URLs of restricted streams stay valid.
-pub const PLAYBACK_TOKEN_TTL_HOURS: i64 = 6;
+pub const PLAYBACK_TOKEN_TTL_MINUTES: i64 = 15;
 /// Paths asked for per page of the control API.
 const PAGE_SIZE: usize = 500;
 
@@ -54,6 +58,8 @@ pub struct MediaPath {
     pub source_id: String,
     /// Connections reading the path (each HLS viewer is one).
     pub readers: i64,
+    /// Those connections as `(type, ID)`, for cutting them.
+    pub reader_ids: Vec<(String, String)>,
 }
 
 impl MediaPath {
@@ -80,6 +86,7 @@ fn kick_endpoint(source_type: &str) -> Option<&'static str> {
         "rtmpsConn" => Some("rtmps/conns"),
         "srtConn" => Some("srt/conns"),
         "webRTCSession" => Some("webrtc/sessions"),
+        "hlsSession" => Some("hls/sessions"),
         _ => None,
     }
 }
@@ -100,7 +107,7 @@ struct PathItem {
     #[serde(default)]
     source: Option<PathSource>,
     #[serde(default)]
-    readers: Vec<serde_json::Value>,
+    readers: Vec<PathSource>,
 }
 
 #[derive(Deserialize)]
@@ -114,7 +121,16 @@ struct PathSource {
 impl From<PathItem> for MediaPath {
     fn from(item: PathItem) -> Self {
         let (source_type, source_id) = item.source.map(|s| (s.kind, s.id)).unwrap_or_default();
-        Self { name: item.name, online: item.online, source_type, source_id, readers: item.readers.len() as i64 }
+        let reader_ids: Vec<(String, String)> =
+            item.readers.into_iter().map(|reader| (reader.kind, reader.id)).collect();
+        Self {
+            name: item.name,
+            online: item.online,
+            source_type,
+            source_id,
+            readers: reader_ids.len() as i64,
+            reader_ids,
+        }
     }
 }
 
@@ -150,7 +166,7 @@ impl Live {
                 .http
                 .get(self.api_url("paths/list"))
                 .query(&[("page", page.to_string()), ("itemsPerPage", PAGE_SIZE.to_string())])
-                .basic_auth(API_USER, Some(&self.cfg.hook_secret))
+                .basic_auth(API_USER, Some(&self.cfg.mediamtx_api_secret))
                 .send()
                 .await
                 .map_err(unreachable)?;
@@ -173,7 +189,7 @@ impl Live {
             .core
             .http
             .get(self.api_url(&format!("paths/get/{name}")))
-            .basic_auth(API_USER, Some(&self.cfg.hook_secret))
+            .basic_auth(API_USER, Some(&self.cfg.mediamtx_api_secret))
             .send()
             .await
             .map_err(unreachable)?;
@@ -195,12 +211,17 @@ impl Live {
     }
 
     pub(crate) async fn kick(&self, path: &MediaPath) -> AppResult<bool> {
-        let Some(endpoint) = kick_endpoint(&path.source_type) else { return Ok(false) };
+        self.kick_connection(&path.source_type, &path.source_id).await
+    }
+
+    /// Disconnects one connection or session (a publisher or a reader).
+    pub(crate) async fn kick_connection(&self, kind: &str, id: &str) -> AppResult<bool> {
+        let Some(endpoint) = kick_endpoint(kind) else { return Ok(false) };
         let response = self
             .core
             .http
-            .post(self.api_url(&format!("{endpoint}/kick/{}", path.source_id)))
-            .basic_auth(API_USER, Some(&self.cfg.hook_secret))
+            .post(self.api_url(&format!("{endpoint}/kick/{id}")))
+            .basic_auth(API_USER, Some(&self.cfg.mediamtx_api_secret))
             .send()
             .await
             .map_err(unreachable)?;
@@ -221,34 +242,88 @@ impl Live {
 
     // ───────────────────────────── playback ─────────────────────────────
 
-    /// A token that opens the playback URLs of `short_id` until `expires`.
-    pub fn playback_token(&self, short_id: &str, expires: Time) -> String {
+    /// A token that opens the playback URLs of `short_id` for `viewer`
+    /// until `expires`. It names the viewer it was made for, so the media
+    /// session it opens can be cut when that viewer loses access.
+    pub fn playback_token(&self, short_id: &str, viewer: Uuid, expires: Time) -> String {
         let expiry = expires.timestamp();
-        format!("{expiry}.{}", self.playback_signature(short_id, expiry))
+        format!("{expiry}.{}.{}", viewer.simple(), self.playback_signature(short_id, viewer, expiry))
     }
 
-    fn playback_signature(&self, short_id: &str, expiry: i64) -> String {
-        let mac = self.core.keys.mac("live/playback", format!("{short_id}.{expiry}").as_bytes());
+    fn playback_signature(&self, short_id: &str, viewer: Uuid, expiry: i64) -> String {
+        let mac = self.core.keys.mac("live/playback", format!("{short_id}.{}.{expiry}", viewer.simple()).as_bytes());
         b64url(&mac[..16])
     }
 
-    /// Whether `token` opens `short_id` right now.
-    pub fn playback_token_valid(&self, short_id: &str, token: &str) -> bool {
-        let Some((expiry, signature)) = token.split_once('.') else { return false };
-        let Ok(expiry) = expiry.parse::<i64>() else { return false };
-        expiry > now().timestamp()
-            && secure_eq(self.playback_signature(short_id, expiry).as_bytes(), signature.as_bytes())
+    /// The viewer `token` was made for, if it opens `short_id` right now.
+    pub fn playback_token_viewer(&self, short_id: &str, token: &str) -> Option<Uuid> {
+        let mut parts = token.splitn(3, '.');
+        let expiry: i64 = parts.next()?.parse().ok()?;
+        let viewer = Uuid::parse_str(parts.next()?).ok()?;
+        let signature = parts.next()?;
+        let valid = expiry > now().timestamp()
+            && secure_eq(self.playback_signature(short_id, viewer, expiry).as_bytes(), signature.as_bytes());
+        valid.then_some(viewer)
+    }
+
+    /// Cuts the media sessions of everyone who may not (or no longer)
+    /// watch a restricted stream: readers that came in without a token
+    /// (before the stream was restricted) and readers whose token was made
+    /// for someone who has since been blocked, unfriended or shut out by a
+    /// change of visibility. Tokens are short-lived, so a cut viewer cannot
+    /// come back with the one they have. Returns how many were cut.
+    pub async fn enforce_access(&self, stream: &StreamRow) -> AppResult<u32> {
+        if !self.cfg.media_server_configured() || (stream.is_live() && open_to_everyone(stream.visibility)) {
+            return Ok(0);
+        }
+        let Some(path) = self.media_path(&stream.media_path()).await? else { return Ok(0) };
+        let sessions = self.token_sessions(stream.id).await?;
+        let mut allowed: std::collections::HashMap<Uuid, bool> = std::collections::HashMap::new();
+        let mut cut = 0;
+        let mut gone = Vec::new();
+        for (kind, id) in &path.reader_ids {
+            let may_stay = match sessions.get(id) {
+                None => false,
+                Some(viewer_id) => match allowed.get(viewer_id) {
+                    Some(known) => *known,
+                    None => {
+                        let viewer = Viewer::load(&self.core, Some(*viewer_id)).await?;
+                        // Before the stream is on air only its owner previews.
+                        let may = if stream.is_live() {
+                            crate::access::can_watch(&viewer, &stream.facts())
+                        } else {
+                            viewer.is(stream.owner_id)
+                        };
+                        allowed.insert(*viewer_id, may);
+                        may
+                    }
+                },
+            };
+            if !may_stay {
+                if self.kick_connection(kind, id).await? {
+                    cut += 1;
+                }
+                gone.push(id.clone());
+            }
+        }
+        self.forget_sessions(stream.id, &gone).await?;
+        Ok(cut)
     }
 
     /// The URLs a player needs for a stream the caller may play.
-    pub fn playback(&self, stream: &StreamRow) -> Playback {
+    /// `viewer` is who the URLs are for: a restricted stream's token is bound to them.
+    pub fn playback(&self, stream: &StreamRow, viewer: Option<Uuid>) -> Playback {
         let cfg = &self.cfg;
         let path = stream.media_path();
         // On air and open to everyone: plain URLs that can be shared with
         // any player. Otherwise the URLs carry a token.
         let restricted = !(stream.is_live() && open_to_everyone(stream.visibility));
-        let expires = now() + Duration::hours(PLAYBACK_TOKEN_TTL_HOURS);
-        let token = if restricted { self.playback_token(&stream.short_id, expires) } else { String::new() };
+        let expires = now() + Duration::minutes(PLAYBACK_TOKEN_TTL_MINUTES);
+        let token = match viewer.filter(|_| restricted) {
+            Some(viewer) => self.playback_token(&stream.short_id, viewer, expires),
+            None => String::new(),
+        };
+        let restricted = !token.is_empty();
         let (first, more) =
             if restricted { (format!("?t={token}"), format!("&t={token}")) } else { (String::new(), String::new()) };
         let dvr = stream.dvr_enabled;
@@ -309,6 +384,7 @@ mod tests {
         assert_eq!(kick_endpoint("rtmpConn"), Some("rtmp/conns"));
         assert_eq!(kick_endpoint("webRTCSession"), Some("webrtc/sessions"));
         assert_eq!(kick_endpoint("redirect"), None);
+        assert_eq!(kick_endpoint("hlsSession"), Some("hls/sessions"));
     }
 
     #[test]

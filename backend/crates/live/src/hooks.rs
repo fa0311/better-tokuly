@@ -9,8 +9,8 @@
 //! |---|---|
 //! | `publish` | the path is a stream that is not over or suspended, and the credential is its stream key |
 //! | `read` | the stream is on air and open to everyone with the link, or the request carries a valid playback token |
-//! | `playback` | as `read`, DVR is on, and the requested start lies inside the DVR window |
-//! | `api`, `metrics`, `pprof` | the caller presents the hook secret (the worker does) |
+//! | `playback` | as `read`; the stream is on air with DVR on, and the requested start lies after the stream went on air and inside the DVR window |
+//! | `api`, `metrics`, `pprof` | the caller presents the control API secret (the worker does) |
 //!
 //! Credentials arrive differently per protocol: RTMP puts `?token=` into
 //! `token`, SRT its stream ID password into `password` (and `token`), WHIP
@@ -18,13 +18,32 @@
 //! parameter (HLS, WHEP and the playback server pass the query along) or as
 //! a bearer token.
 //!
-//! The route itself is protected by the shared secret
-//! (`TOKULY_LIVE_HOOK_SECRET`): in the `secret` query parameter, as the
-//! media server's `authHTTPAddress` carries it, or as a bearer token. It
-//! must not be published through the edge; it is for the media server only.
+//! Everything the encoder sends is recorded, also what it sends before the
+//! stream goes on air (the owner's preview). Rewinding therefore never
+//! reaches before `started_at`: the preview is not part of the broadcast.
+//!
+//! A read that was let in by a playback token is remembered with the viewer
+//! the token was made for (`live:sessions:<stream>` in Valkey), so that the
+//! session can be cut when that viewer loses access
+//! ([`Live::enforce_access`]).
+//!
+//! # Who may call the hook
+//!
+//! Only the media server. It proves it with the hook secret
+//! (`TOKULY_LIVE_HOOK_SECRET`) in the `Authorization` header: MediaMTX
+//! sends `Basic` credentials when they are part of `authHTTPAddress`
+//! (`http://mediamtx:<secret>@api:8081/hooks/live/auth`); `Bearer <secret>`
+//! is accepted too. The secret is never read from the URL, which ends up in
+//! access logs. An address that presents a wrong secret ten times in a
+//! minute is refused outright for the rest of it. The hook secret is not
+//! the control API's (`TOKULY_MEDIAMTX_API_SECRET`): whoever learns one
+//! does not have the other. The route must not be published through the
+//! edge.
+use std::net::SocketAddr;
+
 use axum::{
-    Json, Router,
-    extract::{Query, State},
+    Extension, Json, Router,
+    extract::{ConnectInfo, State},
     http::{HeaderMap, StatusCode, header::AUTHORIZATION},
     routing::post,
 };
@@ -42,6 +61,8 @@ use crate::{
 /// A start this much before the DVR window is still served (clock skew,
 /// a player that asks a moment late).
 const DVR_SLACK_SECONDS: i64 = 30;
+/// Wrong secrets one address may present per minute before it is refused outright.
+const MAX_FAILURES_PER_MINUTE: i64 = 10;
 
 /// What the media server asks.
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -56,6 +77,8 @@ pub struct AuthRequest {
     /// `live/<short_id>` for stream actions.
     pub path: String,
     pub protocol: String,
+    /// The media server's ID of the connection or session that asks.
+    pub id: Option<String>,
     /// The request's query string.
     pub query: String,
 }
@@ -75,10 +98,30 @@ pub enum Refusal {
     UnknownAction,
 }
 
-#[derive(Deserialize)]
-struct HookQuery {
-    #[serde(default)]
-    secret: String,
+fn sessions_key(stream_id: Uuid) -> String {
+    format!("live:sessions:{stream_id}")
+}
+
+/// The secret in an `Authorization` header: the password of `Basic`
+/// credentials, or a `Bearer` token.
+fn presented_secret(headers: &HeaderMap) -> Option<String> {
+    let value = headers.get(AUTHORIZATION)?.to_str().ok()?;
+    if let Some(token) = value.strip_prefix("Bearer ") {
+        return Some(token.trim().to_owned());
+    }
+    let encoded = value.strip_prefix("Basic ")?.trim();
+    // Standard base64, as HTTP uses it, read with the URL-safe decoder.
+    let url_safe: String = encoded
+        .trim_end_matches('=')
+        .chars()
+        .map(|c| match c {
+            '+' => '-',
+            '/' => '_',
+            other => other,
+        })
+        .collect();
+    let decoded = String::from_utf8(tokuly_core::keys::b64url_decode(&url_safe)?).ok()?;
+    decoded.split_once(':').map(|(_, password)| password.to_owned())
 }
 
 impl Live {
@@ -88,7 +131,7 @@ impl Live {
         Router::new().route("/auth", post(auth)).with_state(self.clone())
     }
 
-    /// Whether a request to the hook presents the shared secret.
+    /// Whether a request to the hook presents the hook secret.
     fn hook_secret_matches(&self, presented: &str) -> bool {
         let secret = &self.cfg.hook_secret;
         !secret.is_empty() && secure_eq(secret.as_bytes(), presented.as_bytes())
@@ -101,7 +144,10 @@ impl Live {
             "read" => self.authorize_read(request, false).await,
             "playback" => self.authorize_read(request, true).await,
             "api" | "metrics" | "pprof" => {
-                let ours = request.user == API_USER && self.hook_secret_matches(&request.password);
+                let secret = &self.cfg.mediamtx_api_secret;
+                let ours = request.user == API_USER
+                    && !secret.is_empty()
+                    && secure_eq(secret.as_bytes(), request.password.as_bytes());
                 Ok(if ours { Ok(()) } else { Err(Refusal::NotTheWorker) })
             }
             _ => Ok(Err(Refusal::UnknownAction)),
@@ -137,11 +183,9 @@ impl Live {
         let query = parse_query(&request.query);
         let param = |name: &str| query.iter().find(|(key, _)| key == name).map(|(_, value)| value.as_str());
         let presented = [param("t"), Some(request.token.as_str()), Some(request.password.as_str())];
-        let has_token = presented
-            .into_iter()
-            .flatten()
-            .any(|token| !token.is_empty() && self.playback_token_valid(&stream.short_id, token));
-        if !has_token {
+        let viewer =
+            presented.into_iter().flatten().find_map(|token| self.playback_token_viewer(&stream.short_id, token));
+        if viewer.is_none() {
             // Without a token only what everyone may watch, and only on air.
             if !open_to_everyone(stream.visibility) {
                 return Ok(Err(Refusal::NoToken));
@@ -154,15 +198,76 @@ impl Live {
             if !stream.dvr_enabled {
                 return Ok(Err(Refusal::DvrOff));
             }
+            // Only the broadcast can be rewound: not the preview before it
+            // (which is recorded too), and never further than the window.
+            let Some(started_at) = stream.started_at.filter(|_| stream.is_live()) else {
+                return Ok(Err(Refusal::NotOnAir));
+            };
             if let Some(start) = param("start") {
-                let earliest = now() - Duration::seconds(self.cfg.dvr_window_seconds + DVR_SLACK_SECONDS);
+                let earliest =
+                    started_at.max(now() - Duration::seconds(self.cfg.dvr_window_seconds + DVR_SLACK_SECONDS));
                 match DateTime::parse_from_rfc3339(start) {
                     Ok(start) if start.with_timezone(&Utc) >= earliest => {}
                     _ => return Ok(Err(Refusal::OutsideDvrWindow)),
                 }
             }
         }
+        // Remember whose session this is, so it can be cut when they lose access.
+        if let (Some(viewer), Some(session), false) = (viewer, request.id.as_deref().filter(|id| !id.is_empty()), dvr) {
+            let key = sessions_key(stream.id);
+            redis::pipe()
+                .cmd("HSET")
+                .arg(&key)
+                .arg(session)
+                .arg(viewer.to_string())
+                .ignore()
+                .cmd("EXPIRE")
+                .arg(&key)
+                .arg(86_400)
+                .ignore()
+                .query_async::<()>(&mut self.core.cache.conn())
+                .await?;
+        }
         Ok(Ok(()))
+    }
+
+    /// The viewers behind the media sessions of a stream that were let in
+    /// by a playback token, by session ID.
+    pub(crate) async fn token_sessions(&self, stream_id: Uuid) -> AppResult<std::collections::HashMap<String, Uuid>> {
+        let entries: Vec<(String, String)> =
+            redis::cmd("HGETALL").arg(sessions_key(stream_id)).query_async(&mut self.core.cache.conn()).await?;
+        Ok(entries.into_iter().filter_map(|(session, viewer)| Some((session, viewer.parse().ok()?))).collect())
+    }
+
+    pub(crate) async fn forget_sessions(&self, stream_id: Uuid, sessions: &[String]) -> AppResult<()> {
+        if sessions.is_empty() {
+            return Ok(());
+        }
+        redis::cmd("HDEL")
+            .arg(sessions_key(stream_id))
+            .arg(sessions)
+            .query_async::<()>(&mut self.core.cache.conn())
+            .await?;
+        Ok(())
+    }
+
+    /// Whether `peer` has presented too many wrong secrets lately.
+    async fn locked_out(&self, peer: &str) -> bool {
+        let count: Option<i64> = redis::cmd("GET")
+            .arg(format!("live:hook-failures:{peer}"))
+            .query_async(&mut self.core.cache.conn())
+            .await
+            .unwrap_or(None);
+        count.unwrap_or(0) >= MAX_FAILURES_PER_MINUTE
+    }
+
+    async fn note_failure(&self, peer: &str) {
+        let key = format!("live:hook-failures:{peer}");
+        let mut conn = self.core.cache.conn();
+        let counted: Result<i64, _> = redis::cmd("INCR").arg(&key).query_async(&mut conn).await;
+        if counted.is_ok_and(|count| count == 1) {
+            let _: Result<(), _> = redis::cmd("EXPIRE").arg(&key).arg(60).query_async(&mut conn).await;
+        }
     }
 }
 
@@ -210,16 +315,18 @@ fn percent_decode(input: &str) -> String {
 
 async fn auth(
     State(live): State<Live>,
-    Query(hook): Query<HookQuery>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     Json(request): Json<AuthRequest>,
 ) -> StatusCode {
-    let bearer = headers
-        .get(AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "))
-        .unwrap_or_default();
-    if !live.hook_secret_matches(&hook.secret) && !live.hook_secret_matches(bearer) {
+    let peer =
+        peer.map(|Extension(ConnectInfo(address))| address.ip().to_string()).unwrap_or_else(|| "unknown".to_owned());
+    if live.locked_out(&peer).await {
+        return StatusCode::TOO_MANY_REQUESTS;
+    }
+    let authentic = presented_secret(&headers).is_some_and(|secret| live.hook_secret_matches(&secret));
+    if !authentic {
+        live.note_failure(&peer).await;
         return StatusCode::FORBIDDEN;
     }
     match live.authorize_media(&request).await {
@@ -257,5 +364,20 @@ mod tests {
         assert_eq!(parse_query("a=100%&b=%zz&c=%4")[1].1, "%zz");
         assert_eq!(parse_query("a=100%&b=%zz&c=%4")[2].1, "%4");
         assert_eq!(parse_query("?q=a+b")[0].1, "a b");
+    }
+
+    #[test]
+    fn the_secret_is_read_from_the_authorization_header() {
+        let with = |value: &str| {
+            let mut headers = HeaderMap::new();
+            headers.insert(AUTHORIZATION, value.parse().unwrap());
+            presented_secret(&headers)
+        };
+        // "mediamtx:s3cret-hook", as MediaMTX sends credentials from its hook URL.
+        assert_eq!(with("Basic bWVkaWFtdHg6czNjcmV0LWhvb2s=").as_deref(), Some("s3cret-hook"));
+        assert_eq!(with("Bearer abc").as_deref(), Some("abc"));
+        assert_eq!(with("Basic !!!"), None);
+        assert_eq!(with("Digest x"), None);
+        assert_eq!(presented_secret(&HeaderMap::new()), None);
     }
 }

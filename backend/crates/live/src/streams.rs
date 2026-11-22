@@ -76,6 +76,8 @@ pub struct StreamRow {
     pub ended_at: Option<Time>,
     pub end_reason: i32,
     pub viewer_count: i64,
+    /// Signed-in viewers at the last sample (the ranking of "live now").
+    pub ranked_viewer_count: i64,
     pub peak_viewer_count: i64,
     pub like_count: i64,
     pub chat_message_count: i64,
@@ -103,7 +105,7 @@ macro_rules! stream_columns {
          s.thumbnail_asset_id, s.visibility, s.status, s.scheduled_at, s.low_latency, s.dvr_enabled, s.auto_archive, \
          s.auto_start, s.gifts_enabled, s.chat, s.stream_key_sealed, s.stream_key_hash, s.key_rotated_at, \
          s.encoder_connected, s.encoder_protocol, s.encoder_lost_at, s.started_at, s.ended_at, s.end_reason, \
-         s.viewer_count, s.peak_viewer_count, s.like_count, s.chat_message_count, s.gift_coins, s.gift_net_coins, \
+         s.viewer_count, s.ranked_viewer_count, s.peak_viewer_count, s.like_count, s.chat_message_count, s.gift_coins, s.gift_net_coins, \
          s.gift_count, s.new_subscribers, s.pinned_message_id, s.archive_status, s.archive_asset_id, \
          s.archive_video_id, s.archive_error, s.raid_target_id, s.announced_at, s.suspended, s.deleted_at, s.created_at, \
          s.updated_at"
@@ -658,10 +660,13 @@ pub async fn delete_in(tx: &mut Tx<'_>, stream: &StreamRow, actor: Option<Uuid>)
     assets::detach_holder(&mut **tx, &holder(stream.id)).await?;
     sqlx::query("DELETE FROM live_reminders WHERE stream_id = $1").bind(stream.id).execute(&mut **tx).await?;
     sqlx::query(
-        "UPDATE live_streams SET deleted_at = now(), thumbnail = NULL, thumbnail_asset_id = NULL, pinned_message_id = NULL
+        "UPDATE live_streams SET deleted_at = now(), thumbnail = NULL, thumbnail_asset_id = NULL, pinned_message_id = NULL,
+                -- A deleted stream is not archived any more (an archive that exists stays, as a video).
+                archive_status = CASE WHEN archive_video_id IS NULL THEN $2 ELSE archive_status END
          WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(stream.id)
+    .bind(ARCHIVE_NONE)
     .execute(&mut **tx)
     .await?;
     outbound::unindex(&mut **tx, "live", stream.id).await?;

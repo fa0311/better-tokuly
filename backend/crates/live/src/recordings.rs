@@ -251,6 +251,15 @@ impl Live {
             }
         };
 
+        // Assembling and uploading took a while. The stream is read again:
+        // one that was deleted meanwhile must not come back as a video, and
+        // the video gets the stream's title and visibility as they are now.
+        let Some(stream) = streams::find_by_id(core, stream.id).await? else {
+            assets::delete(core, asset_id, None).await?;
+            return Ok(());
+        };
+        let stream = &stream;
+
         let visibility = buffa::EnumValue::<Visibility>::from(stream.visibility)
             .as_known()
             .unwrap_or(Visibility::VISIBILITY_PRIVATE);
@@ -282,15 +291,25 @@ impl Live {
         .await?;
 
         let mut tx = core.db.begin().await?;
-        sqlx::query(
+        let recorded = sqlx::query(
             "UPDATE live_streams SET archive_status = $2, archive_video_id = $3, archive_error = '', archive_changed_at = now()
-             WHERE id = $1",
+             WHERE id = $1 AND deleted_at IS NULL",
         )
         .bind(stream.id)
         .bind(ARCHIVE_READY)
         .bind(video_id)
         .execute(&mut *tx)
-        .await?;
+        .await?
+        .rows_affected()
+            == 1;
+        if !recorded {
+            // Deleted in the last moment: the video that was just made goes too.
+            drop(tx);
+            if let Some(video) = videos::find_by_id(core, video_id).await? {
+                videos::delete(core, &video, None, true).await?;
+            }
+            return Ok(());
+        }
         // Clips cut while the stream was on air now also belong to the video.
         sqlx::query("UPDATE live_clips SET video_id = $2 WHERE stream_id = $1 AND video_id IS NULL")
             .bind(stream.id)
@@ -439,7 +458,7 @@ impl Live {
         // Archives whose job was lost.
         let stuck: Vec<Uuid> = sqlx::query_scalar(
             "SELECT id FROM live_streams
-             WHERE archive_status IN (2, 3) AND archive_changed_at < now() - make_interval(mins => $1)",
+             WHERE archive_status IN (2, 3) AND deleted_at IS NULL AND archive_changed_at < now() - make_interval(mins => $1)",
         )
         .bind(ARCHIVE_STUCK_MINUTES)
         .fetch_all(&core.db)

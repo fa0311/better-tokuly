@@ -79,6 +79,8 @@ pub struct LiveInner {
     pub wallet: Wallet,
     /// The widgets of the channels that were recently pushed to.
     pub(crate) overlay_topics: overlays::TopicCache,
+    /// How often this process has looked at the media server.
+    pub(crate) reconcile_runs: std::sync::atomic::AtomicU64,
 }
 
 /// The live domain. Cheap to clone.
@@ -108,7 +110,14 @@ impl Live {
                 "no media server configured (TOKULY_MEDIAMTX_API_URL): streams can be managed but not go on air"
             );
         }
-        Ok(Self(Arc::new(LiveInner { core, identity, cfg, wallet, overlay_topics: Default::default() })))
+        Ok(Self(Arc::new(LiveInner {
+            core,
+            identity,
+            cfg,
+            wallet,
+            overlay_topics: Default::default(),
+            reconcile_runs: Default::default(),
+        })))
     }
 
     /// Registers the live services on the Connect router.

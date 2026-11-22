@@ -136,7 +136,7 @@ impl OverlayService for Live {
                 overlay: Some(row.to_proto(core, false)?).into(),
                 css: row.css(),
                 channel: channel.into(),
-                realtime_topic: overlays::topic_of(token),
+                realtime_topic: row.topic(),
                 goal: overlays::goal_progress(core, &row).await?.into(),
                 ..Default::default()
             };

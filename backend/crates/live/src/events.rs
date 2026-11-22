@@ -25,6 +25,7 @@ pub const USER_DELETED: &str = "identity.user.deleted";
 pub const USER_BANNED: &str = "identity.user.banned";
 pub const USER_UNBANNED: &str = "identity.user.unbanned";
 pub const USER_BLOCKED: &str = "social.user.blocked";
+pub const FRIEND_REMOVED: &str = "social.friend.removed";
 pub const CONTENT_REMOVED: &str = "admin.content.removed";
 pub const ASSET_READY: &str = tokuly_media::events::ASSET_READY;
 pub const ASSET_FAILED: &str = tokuly_media::events::ASSET_FAILED;
@@ -94,6 +95,13 @@ pub struct ClipEvent {
 pub struct UserBlocked {
     pub user_id: Uuid,
     pub blocked_id: Uuid,
+}
+
+/// Payload of `social.friend.removed`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FriendRemoved {
+    pub user_id: Uuid,
+    pub friend_id: Uuid,
 }
 
 /// Payload of `admin.content.removed`.

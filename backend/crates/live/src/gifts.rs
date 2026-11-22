@@ -1,8 +1,11 @@
 //! Gifts (super chat): coins from a viewer to the streamer, with a message
 //! highlighted in chat according to the gift's tier ([`crate::tiers`]).
 //!
-//! The coins move through the wallet (`Wallet::transfer_with_fee`: the
-//! payer's coins become the streamer's earnings, minus the platform fee).
+//! The coins move through the wallet: the payer's coins become the
+//! earnings of the channel's owner, minus the platform fee. The transfer
+//! hides its recipient (`Wallet::transfer_with_fee_hiding_recipient`): the
+//! sender's wallet history shows what was paid (the memo names the channel
+//! and the stream), never the account behind the channel.
 //!
 //! # Exactly once, and never lost
 //!
@@ -324,6 +327,15 @@ impl Live {
                 "this message contains a word the streamer does not allow"
             );
         }
+        if !standing.can_moderate() {
+            ensure!(
+                stream.chat_settings().link_policy != tokuly_proto::live::LinkPolicy::LINK_POLICY_BLOCK
+                    || !chat::contains_link(&message),
+                invalid,
+                "LINKS_NOT_ALLOWED",
+                "links are not allowed in this chat"
+            );
+        }
         core.cache.rate_limit(&format!("live-gift:{sender_id}"), 30, Duration::from_secs(60)).await?;
 
         // Written down before any coin moves, with everything the gift contains.
@@ -379,7 +391,7 @@ impl Live {
         let ledger_key = format!("live.gift:{}", gift.id);
         let receipt = match self
             .wallet
-            .transfer_with_fee(sender_id, recipient_id, gift.coins, "live.gift", &ledger_key, memo)
+            .transfer_with_fee_hiding_recipient(sender_id, recipient_id, gift.coins, "live.gift", &ledger_key, memo)
             .await
         {
             Ok(receipt) => receipt,
@@ -396,6 +408,23 @@ impl Live {
             Some(stream_id) => streams::find_by_id(core, stream_id).await?,
             None => None,
         };
+        if stream.is_none() {
+            // The stream was deleted while the gift was on its way: there is
+            // no chat to show it in and nothing it was given for. The coins
+            // go back and the gift is dropped. (If they cannot go back any
+            // more, the gift stands as bookkeeping.)
+            match tokuly_wallet::ledger::refund(core, receipt.entry_id, "live.gift.returned").await {
+                Ok(()) => {
+                    cancel().await?;
+                    return Err(AppError::precondition(
+                        "GIFT_RETURNED",
+                        "the stream is gone; your coins were returned",
+                    ));
+                }
+                Err(error) if error.reason == "REFUND_IMPOSSIBLE" => {}
+                Err(error) => return Err(error),
+            }
+        }
         let sender = tokuly_identity::summary(core, sender_id).await?;
         let sender_name =
             if sender.display_name.is_empty() { sender.handle.clone() } else { sender.display_name.clone() };

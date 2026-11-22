@@ -75,11 +75,13 @@ pub struct OverlayRow {
     pub settings: serde_json::Value,
     pub goal_baseline: i64,
     pub token_sealed: Vec<u8>,
+    /// Names the widget's realtime topic; derived from the token.
+    pub topic_key: String,
     pub created_at: Time,
     pub updated_at: Time,
 }
 
-const OVERLAY_COLUMNS: &str = "id, channel_id, owner_id, kind, name, preset, custom_css, settings, goal_baseline, token_sealed, created_at, updated_at";
+const OVERLAY_COLUMNS: &str = "id, channel_id, owner_id, kind, name, preset, custom_css, settings, goal_baseline, token_sealed, topic_key, created_at, updated_at";
 
 impl OverlayRow {
     pub fn settings(&self) -> OverlaySettings {
@@ -119,6 +121,11 @@ impl OverlayRow {
         })
     }
 
+    /// The realtime topic of this widget.
+    pub fn topic(&self) -> String {
+        topic_name(&self.topic_key)
+    }
+
     /// The preset's CSS followed by the owner's.
     pub fn css(&self) -> String {
         let base = preset(self.kind, &self.preset).map(|preset| preset.css).unwrap_or_default();
@@ -130,16 +137,24 @@ fn not_found() -> AppError {
     AppError::not_found("OVERLAY_NOT_FOUND", "overlay not found")
 }
 
-/// The topic that carries a widget's events.
-pub fn topic_of(token: &str) -> String {
-    format!("overlay:{token}")
+/// The topic that carries the events of the widget with this topic key.
+pub fn topic_name(topic_key: &str) -> String {
+    format!("overlay:{topic_key}")
 }
 
-fn new_token(core: &Core) -> (String, Vec<u8>, String) {
+/// The topic key of a token: a keyed hash, so the topic's name says
+/// nothing about the token and cannot be turned back into it.
+fn topic_key_of(core: &Core, token: &str) -> String {
+    core.keys.mac("live/overlay-topic", token.as_bytes())[..16].iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// A new token: sealed, hashed, and its topic key.
+fn new_token(core: &Core) -> (Vec<u8>, String, String) {
     let token = tokuly_core::keys::random_token(24);
     let sealed = core.keys.seal(TOKEN_LABEL, token.as_bytes());
     let hash = core.keys.token_hash(&token);
-    (token, sealed, hash)
+    let topic_key = topic_key_of(core, &token);
+    (sealed, hash, topic_key)
 }
 
 // ───────────────────────────── presets ─────────────────────────────
@@ -345,12 +360,21 @@ pub fn validate_css(input: &str) -> AppResult<String> {
         "OVERLAY_CSS_TOO_LONG",
         "custom CSS is at most {MAX_CSS} characters"
     );
+    let lower = input.to_ascii_lowercase();
     // A stylesheet cannot close its own <style> element.
+    ensure!(!lower.contains("</style"), invalid, "OVERLAY_SETTINGS_INVALID", "custom CSS cannot contain markup");
+    // The widget runs inside the streamer's OBS and, by its URL, carries
+    // their token: custom CSS may style it but not make it load anything
+    // from elsewhere (which would tell that server who is streaming, and
+    // leak the URL as a referrer). Escapes are refused because they can
+    // spell any of the words below.
+    const LOADERS: [&str; 7] = ["@import", "url(", "image-set(", "@font-face", "src:", "expression(", "\\"];
+    let compact: String = lower.split_whitespace().collect();
     ensure!(
-        !input.to_ascii_lowercase().contains("</style"),
+        !LOADERS.iter().any(|loader| compact.contains(loader)),
         invalid,
-        "OVERLAY_SETTINGS_INVALID",
-        "custom CSS cannot contain markup"
+        "OVERLAY_CSS_UNSAFE",
+        "custom CSS cannot load images, fonts or other stylesheets, or use escapes"
     );
     Ok(input.to_owned())
 }
@@ -488,11 +512,7 @@ pub async fn topics(live: &Live, channel_id: Uuid) -> AppResult<Arc<Vec<(i32, St
         return Ok(cached.clone());
     }
     let rows = of_channel(&live.core, channel_id).await?;
-    let mut widgets = Vec::with_capacity(rows.len());
-    for row in &rows {
-        widgets.push((row.kind, topic_of(&row.token(&live.core)?)));
-    }
-    let widgets = Arc::new(widgets);
+    let widgets: Arc<Vec<(i32, String)>> = Arc::new(rows.iter().map(|row| (row.kind, row.topic())).collect());
     let mut cache = live.overlay_topics.lock();
     // Channels come and go; do not remember them forever.
     cache.retain(|_, (read_at, _)| read_at.elapsed() < TOPICS_TTL);
@@ -519,7 +539,7 @@ pub async fn goal_progress(core: &Core, row: &OverlayRow) -> AppResult<Option<Go
         _ => {
             let since = goal.started_at.as_option().map(tokuly_core::time::from_ts).unwrap_or(row.created_at);
             sqlx::query_scalar(
-                "SELECT COALESCE(sum(coins), 0)::bigint FROM live_gifts WHERE channel_id = $1 AND created_at >= $2",
+                "SELECT COALESCE(sum(coins), 0)::bigint FROM live_gifts WHERE channel_id = $1 AND status = 2 AND created_at >= $2",
             )
             .bind(row.channel_id)
             .bind(since)
@@ -542,7 +562,7 @@ pub async fn push_goal_progress(live: &Live, channel_id: Uuid) {
     let pushed = async {
         for row in of_channel(&live.core, channel_id).await?.iter().filter(|row| row.kind == KIND_GOAL) {
             if let Some(progress) = goal_progress(&live.core, row).await? {
-                let topic = topic_of(&row.token(&live.core)?);
+                let topic = row.topic();
                 let event = tokuly_proto::live::LiveEvent {
                     event: Some(Event::GoalProgress(Box::new(progress))),
                     ..Default::default()
@@ -582,7 +602,7 @@ impl Live {
         let css = validate_css(edit.custom_css.as_deref().unwrap_or_default())?;
         let settings = validate_settings(kind, edit.settings.as_ref(), None)?;
         let baseline = if kind == KIND_GOAL { subscriber_count(core, channel.id).await? } else { 0 };
-        let (_, sealed, hash) = new_token(core);
+        let (sealed, hash, topic_key) = new_token(core);
         let mut tx = core.db.begin().await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
             .bind(format!("live:overlays:{}", channel.id.simple()))
@@ -599,8 +619,8 @@ impl Live {
             "a channel has at most {MAX_OVERLAYS} overlays"
         );
         let row: OverlayRow = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "INSERT INTO live_overlays (channel_id, owner_id, kind, name, preset, custom_css, settings, goal_baseline, token_hash, token_sealed)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING {OVERLAY_COLUMNS}"
+            "INSERT INTO live_overlays (channel_id, owner_id, kind, name, preset, custom_css, settings, goal_baseline, token_hash, token_sealed, topic_key)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING {OVERLAY_COLUMNS}"
         )))
         .bind(channel.id)
         .bind(channel.owner_id)
@@ -612,6 +632,7 @@ impl Live {
         .bind(baseline)
         .bind(&hash)
         .bind(&sealed)
+        .bind(&topic_key)
         .fetch_one(&mut *tx)
         .await?;
         tx.commit().await?;
@@ -664,43 +685,43 @@ impl Live {
         .fetch_optional(&core.db)
         .await?
         .ok_or_else(not_found)?;
-        self.push_overlay_changed(&updated, &updated.token(core)?, false).await;
+        self.push_overlay_changed(&updated, false).await;
         Ok(updated)
     }
 
-    async fn push_overlay_changed(&self, row: &OverlayRow, token: &str, revoked: bool) {
+    /// Tells the page behind `row`'s topic (as it was when `row` was read).
+    async fn push_overlay_changed(&self, row: &OverlayRow, revoked: bool) {
         let change = OverlayChanged { overlay_id: row.id.to_string(), revoked, ..Default::default() };
         let event = tokuly_proto::live::LiveEvent {
             event: Some(Event::OverlayChanged(Box::new(change))),
             ..Default::default()
         };
-        self.core.rt.notify_topic(&topic_of(token), Body::from(event)).await;
+        self.core.rt.notify_topic(&row.topic(), Body::from(event)).await;
     }
 
     pub async fn remove_overlay(&self, row: &OverlayRow) -> AppResult<()> {
-        let token = row.token(&self.core)?;
         sqlx::query("DELETE FROM live_overlays WHERE id = $1").bind(row.id).execute(&self.core.db).await?;
         forget_topics(self, row.channel_id);
-        self.push_overlay_changed(row, &token, true).await;
+        self.push_overlay_changed(row, true).await;
         Ok(())
     }
 
     /// Gives a widget a new token; the page behind the old one is told to stop.
     pub async fn renew_overlay_token(&self, row: &OverlayRow) -> AppResult<OverlayRow> {
         let core = &self.core;
-        let old = row.token(core)?;
-        let (_, sealed, hash) = new_token(core);
+        let (sealed, hash, topic_key) = new_token(core);
         let updated: OverlayRow = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "UPDATE live_overlays SET token_hash = $2, token_sealed = $3 WHERE id = $1 RETURNING {OVERLAY_COLUMNS}"
+            "UPDATE live_overlays SET token_hash = $2, token_sealed = $3, topic_key = $4 WHERE id = $1 RETURNING {OVERLAY_COLUMNS}"
         )))
         .bind(row.id)
         .bind(&hash)
         .bind(&sealed)
+        .bind(&topic_key)
         .fetch_optional(&core.db)
         .await?
         .ok_or_else(not_found)?;
         forget_topics(self, row.channel_id);
-        self.push_overlay_changed(row, &old, true).await;
+        self.push_overlay_changed(row, true).await;
         Ok(updated)
     }
 
@@ -745,8 +766,11 @@ struct OverlayGuard {
 #[async_trait]
 impl TopicGuard for OverlayGuard {
     async fn may_subscribe(&self, _subscriber: Option<Uuid>, topic: &str) -> AppResult<bool> {
-        let Some(token) = topic.strip_prefix("overlay:") else { return Ok(false) };
-        Ok(find_by_token(&self.core, token).await?.is_some())
+        let Some(topic_key) = topic.strip_prefix("overlay:") else { return Ok(false) };
+        Ok(sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM live_overlays WHERE topic_key = $1)")
+            .bind(topic_key)
+            .fetch_one(&self.core.db)
+            .await?)
     }
 }
 
@@ -856,6 +880,25 @@ mod tests {
         assert!(validate_css(".chat-message { color: red; }").is_ok());
         assert_eq!(validate_css(&"a".repeat(MAX_CSS + 1)).unwrap_err().reason, "OVERLAY_CSS_TOO_LONG");
         assert_eq!(validate_css("x {} </STYLE><script>").unwrap_err().reason, "OVERLAY_SETTINGS_INVALID");
-        assert_eq!(topic_of("abc"), "overlay:abc");
+        assert_eq!(topic_name("abc"), "overlay:abc");
+        // Remote loads and escapes that could hide them are refused.
+        for css in [
+            "@import url(https://evil.example/x.css);",
+            "@IMPORT 'https://evil.example/x.css';",
+            ".chat-body { background: url(https://evil.example/pixel.png); }",
+            ".chat-body { background: URL( 'https://evil.example/pixel.png' ); }",
+            ".chat-body { background: image-set('https://evil.example/a.png' 1x); }",
+            ".a { background: \\75rl(https://evil.example/x); }",
+            "@font-face { font-family: x; src: local(x); }",
+            ".a { behavior: expression(alert(1)); }",
+        ] {
+            assert_eq!(validate_css(css).unwrap_err().reason, "OVERLAY_CSS_UNSAFE", "{css}");
+        }
+        assert!(
+            validate_css(
+                ".chat-message-text { color: #fff; font-size: 20px; } /* ok */ @keyframes in { from { opacity: 0 } }"
+            )
+            .is_ok()
+        );
     }
 }

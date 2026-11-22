@@ -16,7 +16,11 @@
 //!
 //! The shorts domain makes shorts from clips: [`find`] resolves a clip by
 //! UUID or short ID, and [`ClipRow`] names its upload (`asset_id`, a READY
-//! video asset owned by `creator_id` once `status` is READY).
+//! video asset once `status` is READY). The upload belongs to the owner of
+//! the channel the clip was cut from (`owner_id`), not to whoever cut it:
+//! the cutter gets a clip, not a file of someone else's broadcast among
+//! their own uploads to reuse as they like. Whether a short may be made
+//! from a clip is for the shorts domain to decide with [`source_of`].
 use std::{collections::HashMap, time::Duration};
 
 use tokuly_core::{events as core_events, ids::Ref, outbound, prelude::*, storage::Bucket};
@@ -376,7 +380,7 @@ pub async fn delete_in(
     core_events::emit(&mut **tx, CLIP_DELETED, actor, &clip.event()).await?;
     Ok(clip
         .asset_id
-        .map(|asset_id| AssetRemoval { asset_id, owner_id: if force { None } else { Some(clip.creator_id) } }))
+        .map(|asset_id| AssetRemoval { asset_id, owner_id: if force { None } else { Some(clip.owner_id) } }))
 }
 
 /// The URL of a processed media file as this process reaches it: files in
@@ -414,6 +418,19 @@ impl Live {
         let title = validate_title(title)?;
         validate_range(start_seconds, duration_seconds)?;
         let out_of_range = || AppError::invalid("CLIP_RANGE_INVALID", "the clip lies outside what can be cut");
+        // A clip is a copy that outlives the moment: only what anyone with
+        // the link may watch can be clipped. Friends-only and private
+        // streams and videos stay with their audience.
+        let source_visibility = match &source {
+            NewSource::Stream(stream) => stream.visibility,
+            NewSource::Video { video, .. } => video.visibility,
+        };
+        ensure!(
+            access::open_to_everyone(source_visibility),
+            precondition,
+            "CLIP_SOURCE_NOT_PUBLIC",
+            "friends-only and private streams and videos cannot be clipped"
+        );
         let (channel_id, owner_id, stream_id, video_id) = match &source {
             NewSource::Stream(stream) => {
                 ensure!(
@@ -614,7 +631,8 @@ impl Live {
 
         let asset = tokuly_media::create_asset_from_file(
             core,
-            clip.creator_id,
+            // The channel's owner, not the cutter: see the module documentation.
+            clip.owner_id,
             AssetPurpose::ASSET_PURPOSE_SHORT,
             &out,
             &format!("clip-{}.mp4", clip.short_id),

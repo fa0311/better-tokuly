@@ -31,9 +31,9 @@ use crate::{
     Live, chat, clips,
     events::{
         ASSET_DELETED, ASSET_FAILED, ASSET_READY, AnnounceJob, ArchiveJob, CHANNEL_DELETED, CHANNEL_SUBSCRIBED,
-        CONTENT_REMOVED, ClipJob, ContentRemoved, JOB_ANNOUNCE, JOB_ARCHIVE, JOB_CLIP, STREAM_ENDED, STREAM_STARTED,
-        StreamEvent, USER_BANNED, USER_BLOCKED, USER_DELETED, USER_UNBANNED, UserBlocked, UserRef, VIDEO_DELETED,
-        VIDEO_PUBLISHED, VIDEO_UNPUBLISHED,
+        CONTENT_REMOVED, ClipJob, ContentRemoved, FRIEND_REMOVED, FriendRemoved, JOB_ANNOUNCE, JOB_ARCHIVE, JOB_CLIP,
+        STREAM_ENDED, STREAM_STARTED, StreamEvent, USER_BANNED, USER_BLOCKED, USER_DELETED, USER_UNBANNED, UserBlocked,
+        UserRef, VIDEO_DELETED, VIDEO_PUBLISHED, VIDEO_UNPUBLISHED,
     },
     overlays, search,
     streams::{self, ARCHIVE_FAILED, ARCHIVE_NONE, ARCHIVE_PENDING, Aftermath, StreamRow, stream_columns},
@@ -59,6 +59,7 @@ impl Live {
                     USER_BANNED,
                     USER_UNBANNED,
                     USER_BLOCKED,
+                    FRIEND_REMOVED,
                     CONTENT_REMOVED,
                     ASSET_READY,
                     ASSET_FAILED,
@@ -196,6 +197,10 @@ impl Live {
             USER_BLOCKED => {
                 let blocked: UserBlocked = event.data()?;
                 self.on_user_blocked(blocked.user_id, blocked.blocked_id).await
+            }
+            FRIEND_REMOVED => {
+                let removed: FriendRemoved = event.data()?;
+                self.cut_lost_viewers(&[removed.user_id, removed.friend_id]).await
             }
             CONTENT_REMOVED => self.on_content_removed(event.data()?).await,
             CHANNEL_DELETED => self.on_channel_deleted(event.data::<ChannelEvent>()?.channel_id).await,
@@ -434,6 +439,27 @@ impl Live {
             .bind(other)
             .execute(&core.db)
             .await?;
+        }
+        self.cut_lost_viewers(&[user_id, blocked_id]).await
+    }
+
+    /// Two people stopped being friends or blocked each other: on the
+    /// restricted streams either of them has on air, whoever may no longer
+    /// watch is cut off now instead of when their playback token runs out.
+    async fn cut_lost_viewers(&self, owners: &[Uuid]) -> AppResult<()> {
+        if !self.cfg.media_server_configured() {
+            return Ok(());
+        }
+        let on_air: Vec<StreamRow> = sqlx::query_as(concat!(
+            "SELECT ",
+            stream_columns!(),
+            " FROM live_streams s WHERE s.owner_id = ANY($1) AND s.status = 2 AND s.visibility IN (4, 5)"
+        ))
+        .bind(owners)
+        .fetch_all(&self.core.db)
+        .await?;
+        for stream in &on_air {
+            self.enforce_access(stream).await?;
         }
         Ok(())
     }

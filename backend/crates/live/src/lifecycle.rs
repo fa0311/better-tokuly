@@ -55,6 +55,9 @@ use crate::{
 pub const OUTAGE_GRACE_SECONDS: i64 = 300;
 
 const MEDIA_DOWN_KEY: &str = "live:media-down-since";
+/// Every this many looks at the media server, the readers of restricted
+/// streams are checked against who may watch.
+const ENFORCE_EVERY: u64 = 10;
 
 /// What one look at the media server changed.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -209,7 +212,7 @@ impl Live {
         let archive = stream.auto_archive && stream.started_at.is_some() && reason != EndReason::END_REASON_REMOVED;
         sqlx::query(
             "UPDATE live_streams SET status = 3, ended_at = now(), end_reason = $2, encoder_connected = false,
-                    encoder_protocol = '', encoder_lost_at = NULL, viewer_count = 0, archive_status = $3,
+                    encoder_protocol = '', encoder_lost_at = NULL, viewer_count = 0, ranked_viewer_count = 0, archive_status = $3,
                     archive_changed_at = now(), raid_target_id = $4
              WHERE id = $1",
         )
@@ -237,9 +240,11 @@ impl Live {
             self.push_poll(&ended, &poll).await;
         }
         self.push_stream_updated(&ended).await;
-        if stream.encoder_connected || stream.is_live() {
-            // The encoder must not keep sending into a stream that is over.
-            // Not awaited: a slow media server should not hold up the caller.
+        {
+            // The encoder must not keep sending into a stream that is over,
+            // whether or not we had noticed it connect (an upcoming stream
+            // deleted moments after its encoder came). Not awaited: a slow
+            // media server should not hold up the caller.
             let live = self.clone();
             let kicked = ended.clone();
             tokio::spawn(async move { live.kick_quietly(&kicked).await });
@@ -316,7 +321,29 @@ impl Live {
         match self.media_paths().await {
             Ok(paths) => {
                 cache.del(MEDIA_DOWN_KEY).await?;
-                self.apply_media_state(Some(&paths)).await
+                let report = self.apply_media_state(Some(&paths)).await?;
+                // Every so often, look whether everyone reading a restricted
+                // stream may still do so (the events that take access away
+                // are acted on at once; this catches what they missed).
+                let run = self.reconcile_runs.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if run % ENFORCE_EVERY == ENFORCE_EVERY - 1 {
+                    let restricted: Vec<StreamRow> = sqlx::query_as(concat!(
+                        "SELECT ",
+                        stream_columns!(),
+                        " FROM live_streams s WHERE (s.status = 2 AND s.visibility IN (4, 5)) OR (s.status = 1 AND s.encoder_connected)"
+                    ))
+                    .fetch_all(&self.core.db)
+                    .await?;
+                    for stream in restricted
+                        .iter()
+                        .filter(|stream| paths.iter().any(|path| path.name == stream.media_path() && path.readers > 0))
+                    {
+                        if let Err(error) = self.enforce_access(stream).await {
+                            tracing::warn!(stream_id = %stream.id, %error, "could not check who is reading a restricted stream");
+                        }
+                    }
+                }
+                Ok(report)
             }
             Err(error) => {
                 let now = now().timestamp();
@@ -452,12 +479,17 @@ impl Live {
         for (stream_id, previous) in on_air {
             let readers = media_readers.get(&stream_id).copied().unwrap_or(0);
             let viewers = audience::viewers(core, stream_id, readers, self.cfg.report_interval_seconds).await?;
+            // The ranking of "live now" only counts people who are signed in.
+            let signed_in =
+                audience::watching_users(core, stream_id, self.cfg.report_interval_seconds).await?.len() as i64;
             let updated: Option<(i64, i64)> = sqlx::query_as(
-                "UPDATE live_streams SET viewer_count = $2, peak_viewer_count = GREATEST(peak_viewer_count, $2)
+                "UPDATE live_streams SET viewer_count = $2, ranked_viewer_count = $3,
+                        peak_viewer_count = GREATEST(peak_viewer_count, $2)
                  WHERE id = $1 AND status = 2 RETURNING peak_viewer_count, like_count",
             )
             .bind(stream_id)
             .bind(viewers)
+            .bind(signed_in)
             .fetch_optional(&core.db)
             .await?;
             let Some((peak, likes)) = updated else { continue };
@@ -487,9 +519,7 @@ impl Live {
             if let Err(error) = audience::clear(core, stream.id).await {
                 tracing::warn!(stream_id = %stream.id, %error, "could not clear the audience of a deleted stream");
             }
-            if stream.is_live() || stream.encoder_connected {
-                self.kick_quietly(stream).await;
-            }
+            self.kick_quietly(stream).await;
         }
         for removal in &aftermath.assets {
             match tokuly_media::assets::delete(core, removal.asset_id, removal.owner_id).await {

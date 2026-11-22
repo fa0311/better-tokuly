@@ -17,9 +17,9 @@ pub struct LiveConfig {
     #[arg(id = "mediamtx_api_url", long = "mediamtx-api-url", env = "TOKULY_MEDIAMTX_API_URL", default_value = "")]
     pub mediamtx_api_url: String,
 
-    /// Secret shared with the media server: it sends it with every question
-    /// to `/hooks/live/auth`, and the worker sends it to the control API.
-    /// Required when the media server is configured.
+    /// Secret the media server presents with every question to
+    /// `/hooks/live/auth` (in the `Authorization` header). Required when
+    /// the media server is configured.
     #[arg(
         id = "live_hook_secret",
         long = "live-hook-secret",
@@ -28,6 +28,18 @@ pub struct LiveConfig {
         hide_env_values = true
     )]
     pub hook_secret: String,
+
+    /// Password the worker presents to the media server's control API
+    /// (which has the hook confirm it). Not the hook secret: one must not
+    /// open the other. Required when the media server is configured.
+    #[arg(
+        id = "mediamtx_api_secret",
+        long = "mediamtx-api-secret",
+        env = "TOKULY_MEDIAMTX_API_SECRET",
+        default_value = "",
+        hide_env_values = true
+    )]
+    pub mediamtx_api_secret: String,
 
     /// Where encoders publish over RTMP, as they reach it.
     #[arg(
@@ -192,6 +204,7 @@ impl Default for LiveConfig {
         Self {
             mediamtx_api_url: String::new(),
             hook_secret: String::new(),
+            mediamtx_api_secret: String::new(),
             rtmp_url: "rtmp://localhost:1935".to_owned(),
             srt_url: "srt://localhost:8890".to_owned(),
             whip_url: "http://localhost:8889".to_owned(),
@@ -225,6 +238,14 @@ impl LiveConfig {
             anyhow::ensure!(
                 self.hook_secret.len() >= 16,
                 "TOKULY_LIVE_HOOK_SECRET must be set (at least 16 characters) when TOKULY_MEDIAMTX_API_URL is"
+            );
+            anyhow::ensure!(
+                self.mediamtx_api_secret.len() >= 16,
+                "TOKULY_MEDIAMTX_API_SECRET must be set (at least 16 characters) when TOKULY_MEDIAMTX_API_URL is"
+            );
+            anyhow::ensure!(
+                self.mediamtx_api_secret != self.hook_secret,
+                "TOKULY_MEDIAMTX_API_SECRET and TOKULY_LIVE_HOOK_SECRET must be two different secrets"
             );
         }
         for (name, url, schemes) in [
@@ -273,6 +294,10 @@ mod tests {
         let mut cfg = LiveConfig { mediamtx_api_url: "http://mediamtx:9997".into(), ..Default::default() };
         assert!(cfg.validate().is_err());
         cfg.hook_secret = "0123456789abcdef".into();
+        assert!(cfg.validate().is_err(), "the control API needs its own secret");
+        cfg.mediamtx_api_secret = "0123456789abcdef".into();
+        assert!(cfg.validate().is_err(), "and not the same one");
+        cfg.mediamtx_api_secret = "fedcba9876543210".into();
         cfg.validate().unwrap();
         cfg.hls_url = "localhost:8888".into();
         assert!(cfg.validate().is_err());
