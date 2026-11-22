@@ -5,15 +5,19 @@ use axum::{Json, extract::State, http::StatusCode, routing::get};
 use clap::Args;
 use http::{HeaderName, HeaderValue, Method, header};
 use tokuly_admin::{Admin, AdminConfig};
+use tokuly_ask::{Ask, AskConfig};
 use tokuly_chat::{Chat, ChatConfig};
 use tokuly_core::{Core, analytics, auth::auth_middleware, events};
+use tokuly_emoji::{Emoji, EmojiConfig};
 use tokuly_engagement::{Engagement, EngagementConfig};
 use tokuly_feed::{Feed, FeedConfig};
 use tokuly_identity::{Identity, IdentityConfig};
 use tokuly_media::{Media, MediaConfig};
 use tokuly_notes::{Notes, NotesConfig};
 use tokuly_notify::{Notify, NotifyConfig};
+use tokuly_plans::{Plans, PlansConfig};
 use tokuly_realtime::{Gateway, RealtimeConfig};
+use tokuly_school::{School, SchoolConfig};
 use tokuly_search::{Search, SearchConfig};
 use tokuly_social::{Social, SocialConfig};
 use tokuly_stamp::{Stamp, StampConfig};
@@ -52,6 +56,14 @@ pub struct DomainConfigs {
     #[command(flatten)]
     pub search: SearchConfig,
     #[command(flatten)]
+    pub emoji: EmojiConfig,
+    #[command(flatten)]
+    pub ask: AskConfig,
+    #[command(flatten)]
+    pub plans: PlansConfig,
+    #[command(flatten)]
+    pub school: SchoolConfig,
+    #[command(flatten)]
     pub engagement: EngagementConfig,
     #[command(flatten)]
     pub realtime: RealtimeConfig,
@@ -72,6 +84,10 @@ pub struct Domains {
     pub notes: Notes,
     pub video: Video,
     pub search: Search,
+    pub emoji: Emoji,
+    pub ask: Ask,
+    pub plans: Plans,
+    pub school: School,
     pub engagement: Engagement,
     pub gateway: Gateway,
 }
@@ -92,11 +108,15 @@ impl Domains {
         let notes = Notes::new(core.clone(), identity.clone(), cfg.notes)?;
         let video = Video::new(core.clone(), identity.clone(), cfg.video)?;
         let search = Search::new(core.clone(), identity.clone(), cfg.search)?;
+        let emoji = Emoji::new(core.clone(), identity.clone(), cfg.emoji)?;
+        let ask = Ask::new(core.clone(), identity.clone(), cfg.ask)?;
+        let plans = Plans::new(core.clone(), identity.clone(), cfg.plans, social.clone())?;
+        let school = School::new(core.clone(), identity.clone(), cfg.school)?;
         // After every domain that owns subjects: engagement only fills in the
         // subject types nobody else registered a resolver for.
         let engagement = Engagement::new(core.clone(), identity.clone(), cfg.engagement)?;
         let gateway = Gateway::new(core.clone(), cfg.realtime)?;
-        let domains = Self { media, identity, social, stamp, wallet, notify, admin, feed, chat, notes, video, search, engagement, gateway };
+        let domains = Self { media, identity, social, stamp, wallet, notify, admin, feed, chat, notes, video, search, emoji, ask, plans, school, engagement, gateway };
         crate::bridges::connect(&core, &domains);
         Ok(domains)
     }
@@ -116,6 +136,10 @@ impl Domains {
         router = self.notes.register(router);
         router = self.video.register(router);
         router = self.search.register(router);
+        router = self.emoji.register(router);
+        router = self.ask.register(router);
+        router = self.plans.register(router);
+        router = self.school.register(router);
         router = self.engagement.register(router);
         router = self.gateway.register(router);
         router
@@ -172,6 +196,10 @@ pub fn spawn_workers(core: &Core, domains: &Domains) {
     domains.notes.spawn_workers();
     domains.video.spawn_workers();
     domains.search.spawn_workers();
+    domains.emoji.spawn_workers();
+    domains.ask.spawn_workers();
+    domains.plans.spawn_workers();
+    domains.school.spawn_workers();
     domains.engagement.spawn_workers();
     tracing::info!("workers started");
 }
