@@ -290,8 +290,8 @@ No domain events of its own. Through `tokuly_core::outbound`:
 Losing a streak sends no notification on purpose: the only thing to do about
 it costs coins.
 
-The notify domain files kinds by prefix; `quest.` is not in its list and
-falls into `system` (see "Requests").
+The notify domain files these under its `quest` category ("クエスト・連続記録"),
+which players can switch off in the notification settings.
 
 ### Activity entries
 
@@ -531,17 +531,9 @@ quest.spawn_workers();                                                 // worker
 
 ## Requests
 
-- **notify**: a `quest` preference category (kind prefix `quest.`), so
-  players can switch streak reminders and badge pushes off in the
-  notification settings; today they fall into `system`, whose inbox toggle
-  is locked on.
-- **chat**: a lookup of a direct conversation's two members (for example
-  `tokuly_chat::…::direct_members(core, conversation_id)`), wired to
-  `Quest::set_direct_chats` in `bridges.rs`. Without it, messages count
-  towards a streak only in conversations opened while this domain was
-  listening (it learns them from `chat.conversation.created`; a new consumer
-  starts with the 7 days the stream keeps). Naming the recipient in the
-  props of `chat.message.send` would do as well.
+- Done: notify has a `quest` category, and the server bridges
+  `DirectChats` to `tokuly_chat::direct_members` (`bridges.rs`), so messages
+  in conversations older than this domain's consumer count towards streaks.
 - **geo**: an event (or activity entry) for scratch-map cells uncovered and
   for first visits to a place, saying whether the player shows their
   footprints, would bring back the `area` and `places` badges.

@@ -366,23 +366,23 @@ migration `2300` to the server.
 
 ## Gaps and requests
 
-- **Search kinds.** The search domain has no `community` and `thread`
-  kinds yet; the documents are emitted and wait for them.
-- **Notify category.** `community.*` kinds fall into notify's `system`
-  category until a `community` category exists.
+- **Search kinds, notify category: done.** Search has the kinds `community`
+  and `thread`; notify files `community.*` under its `community` category.
 - **Upload purposes.** There is no `ASSET_PURPOSE_COMMUNITY_*`. Icons accept
   `AVATAR` / `CHANNEL_ICON`, banners `BANNER` / `CHANNEL_BANNER`, post
   images `NOTE_IMAGE` / `CHAT_IMAGE`, event covers additionally
   `THUMBNAIL`. Stamps in posts are recorded as `SendContext::Note`.
-- **Reports about anonymous posts (admin, server).** These subjects
+- **Reports about anonymous posts (admin, server): done.** These subjects
   resolve without an owner, so `engagement.report.created.subject_owner_id`
-  is nil for them. To act on the author, the admin domain needs a link to
-  `Community::author_for_moderation` — a bridge in
-  `crates/server/src/bridges.rs`, since admin and community must not depend
-  on each other — and should call it only for site moderators. Until that
-  bridge exists, site moderation uses `RevealAuthor` (which is logged and
-  announced to the community's staff). `GetContentHistory` is the matching
-  read for removed or edited content named in a report.
+  is nil for them. The server bridges `Community::author_for_moderation` to
+  the admin domain (`tokuly_admin::HiddenOwners`, `bridges.rs`), which asks
+  it when such a report arrives and when a moderator takes the post down by
+  reference: the case in the moderation queue names the author, so site
+  moderators can warn, suspend or ban them. Only the moderation queue and
+  log get the answer; `RevealAuthor` (logged and announced to the
+  community's staff) stays the way for a community's own staff.
+  `GetContentHistory` is the matching read for removed or edited content
+  named in a report.
 - **Reusing an upload after posting anonymously.** This domain refuses an
   upload that is already used elsewhere; it cannot stop the author from
   attaching the same upload to a named post in another domain afterwards.
