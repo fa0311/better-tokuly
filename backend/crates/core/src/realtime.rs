@@ -81,7 +81,13 @@ pub fn user_subject(user_id: Uuid) -> String {
 pub fn topic_subject(topic: &str) -> String {
     let safe: String = topic
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, ':' | '-' | '_') { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, ':' | '-' | '_') {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     format!("rt.t.{safe}")
 }

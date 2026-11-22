@@ -64,14 +64,12 @@ pub async fn suggest(core: &Core, user_id: Uuid, suggested_id: Uuid, reason: Sug
     if user_id == suggested_id {
         return Ok(());
     }
-    sqlx::query(
-        "INSERT INTO friend_suggestions (user_id, suggested_id, reason) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
-    )
-    .bind(user_id)
-    .bind(suggested_id)
-    .bind(reason.as_str())
-    .execute(&core.db)
-    .await?;
+    sqlx::query("INSERT INTO friend_suggestions (user_id, suggested_id, reason) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING")
+        .bind(user_id)
+        .bind(suggested_id)
+        .bind(reason.as_str())
+        .execute(&core.db)
+        .await?;
     Ok(())
 }
 
@@ -91,8 +89,7 @@ fn normalize_contact_hash(hash: &str) -> AppResult<String> {
 /// friends they share with the user, then by ID for a stable result.
 fn rank_candidates(candidates: &mut [(Uuid, SuggestionReason)], mutual_counts: &HashMap<Uuid, usize>) {
     candidates.sort_by(|(a, reason_a), (b, reason_b)| {
-        let (mutual_a, mutual_b) =
-            (mutual_counts.get(a).copied().unwrap_or(0), mutual_counts.get(b).copied().unwrap_or(0));
+        let (mutual_a, mutual_b) = (mutual_counts.get(a).copied().unwrap_or(0), mutual_counts.get(b).copied().unwrap_or(0));
         reason_a.cmp(reason_b).then(mutual_b.cmp(&mutual_a)).then(a.cmp(b))
     });
 }
@@ -110,13 +107,12 @@ impl Social {
         let mut consider = |candidate: Uuid, reason: SuggestionReason| {
             reasons.entry(candidate).and_modify(|current| *current = (*current).min(reason)).or_insert(reason);
         };
-        let hints: Vec<(Uuid, String)> = sqlx::query_as(
-            "SELECT suggested_id, reason FROM friend_suggestions WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2",
-        )
-        .bind(user_id)
-        .bind(CANDIDATES_PER_SOURCE)
-        .fetch_all(&core.db)
-        .await?;
+        let hints: Vec<(Uuid, String)> =
+            sqlx::query_as("SELECT suggested_id, reason FROM friend_suggestions WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2")
+                .bind(user_id)
+                .bind(CANDIDATES_PER_SOURCE)
+                .fetch_all(&core.db)
+                .await?;
         for (candidate, reason) in hints {
             if let Some(reason) = SuggestionReason::from_stored(&reason) {
                 consider(candidate, reason);
@@ -145,8 +141,7 @@ impl Social {
         // 2. Drop everyone who should not be suggested.
         let candidate_ids: Vec<Uuid> = reasons.keys().copied().collect();
         let suggestable = self.suggestable_among(user_id, &candidate_ids).await?;
-        let mut candidates: Vec<(Uuid, SuggestionReason)> =
-            reasons.into_iter().filter(|(id, _)| suggestable.contains(id)).collect();
+        let mut candidates: Vec<(Uuid, SuggestionReason)> = reasons.into_iter().filter(|(id, _)| suggestable.contains(id)).collect();
 
         // 3. Rank, cut, and decorate with mutual friends.
         let ids: Vec<Uuid> = candidates.iter().map(|(id, _)| *id).collect();
@@ -168,11 +163,7 @@ impl Social {
                     user: users::pick(&summaries, id).into(),
                     reason: reason.as_str().to_owned(),
                     mutual_friend_count: shared.len() as i32,
-                    mutual_friends: shared
-                        .iter()
-                        .take(MUTUAL_PREVIEW)
-                        .map(|friend| users::pick(&summaries, *friend))
-                        .collect(),
+                    mutual_friends: shared.iter().take(MUTUAL_PREVIEW).map(|friend| users::pick(&summaries, *friend)).collect(),
                     ..Default::default()
                 }
             })
@@ -235,22 +226,16 @@ impl Social {
             return Ok(());
         }
         let mut tx = self.core.db.begin().await?;
-        sqlx::query(
-            "INSERT INTO friend_suggestion_dismissals (user_id, dismissed_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-        )
-        .bind(user_id)
-        .bind(dismissed)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| {
-            let e = AppError::from(e);
-            if e.is_not_found() { AppError::not_found("USER_NOT_FOUND", "user not found") } else { e }
-        })?;
-        sqlx::query("DELETE FROM friend_suggestions WHERE user_id = $1 AND suggested_id = $2")
+        sqlx::query("INSERT INTO friend_suggestion_dismissals (user_id, dismissed_id) VALUES ($1, $2) ON CONFLICT DO NOTHING")
             .bind(user_id)
             .bind(dismissed)
             .execute(&mut *tx)
-            .await?;
+            .await
+            .map_err(|e| {
+                let e = AppError::from(e);
+                if e.is_not_found() { AppError::not_found("USER_NOT_FOUND", "user not found") } else { e }
+            })?;
+        sqlx::query("DELETE FROM friend_suggestions WHERE user_id = $1 AND suggested_id = $2").bind(user_id).bind(dismissed).execute(&mut *tx).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -260,12 +245,7 @@ impl Social {
     /// hashes themselves are not kept; matches become `CONTACT` suggestions.
     pub(crate) async fn match_contacts(&self, user_id: Uuid, hashes: &[&str]) -> AppResult<Vec<ContactMatch>> {
         let core = &self.core;
-        ensure!(
-            hashes.len() <= MAX_CONTACT_HASHES,
-            invalid,
-            "TOO_MANY_CONTACTS",
-            "at most {MAX_CONTACT_HASHES} contacts per request"
-        );
+        ensure!(hashes.len() <= MAX_CONTACT_HASHES, invalid, "TOO_MANY_CONTACTS", "at most {MAX_CONTACT_HASHES} contacts per request");
         let mut wanted = hashes.iter().map(|hash| normalize_contact_hash(hash)).collect::<AppResult<Vec<String>>>()?;
         wanted.sort_unstable();
         wanted.dedup();
@@ -279,15 +259,12 @@ impl Social {
 
         // Identity owns the lookup (verified, active accounts by email hash);
         // which of them the caller gets to see is decided here.
-        let found: Vec<(Uuid, String)> =
-            users::find_by_contact_hashes(core, &wanted).await?.into_iter().filter(|(id, _)| *id != user_id).collect();
+        let found: Vec<(Uuid, String)> = users::find_by_contact_hashes(core, &wanted).await?.into_iter().filter(|(id, _)| *id != user_id).collect();
         let found_ids: Vec<Uuid> = found.iter().map(|(id, _)| *id).collect();
         let privacy = settings::privacy_of_many(core, &found_ids).await?;
         let hidden: HashSet<Uuid> = graph::blocked_ids_either(core, user_id).await?.into_iter().collect();
-        let matches: Vec<(Uuid, String)> = found
-            .into_iter()
-            .filter(|(id, _)| !hidden.contains(id) && privacy.get(id).is_some_and(|p| p.discoverable))
-            .collect();
+        let matches: Vec<(Uuid, String)> =
+            found.into_iter().filter(|(id, _)| !hidden.contains(id) && privacy.get(id).is_some_and(|p| p.discoverable)).collect();
 
         let matched_ids: Vec<Uuid> = matches.iter().map(|(id, _)| *id).collect();
         sqlx::query("INSERT INTO friend_suggestions (user_id, suggested_id, reason) SELECT $1, id, $3 FROM unnest($2::uuid[]) AS m(id) ON CONFLICT DO NOTHING")
@@ -303,11 +280,7 @@ impl Social {
             .map(|(id, hash)| ContactMatch {
                 contact_hash: hash,
                 user: users::pick(&summaries, id).into(),
-                relationship: relationships
-                    .get(&id)
-                    .copied()
-                    .unwrap_or(tokuly_proto::identity::Relationship::RELATIONSHIP_NONE)
-                    .into(),
+                relationship: relationships.get(&id).copied().unwrap_or(tokuly_proto::identity::Relationship::RELATIONSHIP_NONE).into(),
                 ..Default::default()
             })
             .collect())

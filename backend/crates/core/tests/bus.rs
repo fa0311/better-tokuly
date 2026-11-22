@@ -12,8 +12,7 @@ const ACK_WAIT: Duration = Duration::from_secs(30);
 /// the streams of other tests or of a running server.
 async fn isolated_bus() -> Bus {
     let url = std::env::var("TOKULY_NATS_URL").unwrap_or_else(|_| "nats://localhost:4222".to_owned());
-    let bus =
-        Bus::connect(&url, &format!("bustest_{}", uuid::Uuid::now_v7().simple())).await.expect("NATS is reachable");
+    let bus = Bus::connect(&url, &format!("bustest_{}", uuid::Uuid::now_v7().simple())).await.expect("NATS is reachable");
     bus.ensure_streams().await.expect("streams are created");
     bus
 }
@@ -26,8 +25,7 @@ async fn remove_streams(bus: &Bus) {
 
 /// Everything waiting for the consumer right now, acknowledged, as text.
 async fn drain(consumer: &Consumer<pull::Config>) -> Vec<String> {
-    let mut messages =
-        consumer.fetch().max_messages(20).expires(Duration::from_millis(400)).messages().await.expect("fetch");
+    let mut messages = consumer.fetch().max_messages(20).expires(Duration::from_millis(400)).messages().await.expect("fetch");
     let mut received = Vec::new();
     while let Some(message) = messages.next().await {
         let message = message.expect("message");
@@ -42,8 +40,7 @@ async fn a_durable_consumer_follows_its_topic_list_across_releases() {
     let bus = isolated_bus().await;
 
     // The first release of a worker listens to one topic.
-    let consumer =
-        bus.durable_consumer(STREAM_EVENTS, "worker", vec!["evt.user.created".to_owned()], ACK_WAIT, 5).await.unwrap();
+    let consumer = bus.durable_consumer(STREAM_EVENTS, "worker", vec!["evt.user.created".to_owned()], ACK_WAIT, 5).await.unwrap();
     bus.publish_durable("evt.user.created", "first", None).await.unwrap();
     assert_eq!(drain(&consumer).await, ["first"]);
 

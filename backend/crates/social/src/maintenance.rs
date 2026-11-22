@@ -87,10 +87,7 @@ impl Social {
     /// makes the account disappear from its former friends' apps.
     async fn forget_user(&self, user_id: Uuid) -> AppResult<()> {
         let core = &self.core;
-        let friends: Vec<Uuid> = sqlx::query_scalar("SELECT friend_id FROM friendships WHERE user_id = $1")
-            .bind(user_id)
-            .fetch_all(&core.db)
-            .await?;
+        let friends: Vec<Uuid> = sqlx::query_scalar("SELECT friend_id FROM friendships WHERE user_id = $1").bind(user_id).fetch_all(&core.db).await?;
         let in_a_block: Vec<Uuid> = sqlx::query_scalar(
             "SELECT blocked_id FROM user_blocks WHERE blocker_id = $1 UNION SELECT blocker_id FROM user_blocks WHERE blocked_id = $1",
         )
@@ -146,10 +143,7 @@ impl Social {
             .bind(DECLINED_REQUEST_RETENTION_DAYS)
             .execute(&core.db)
             .await?;
-        sqlx::query("DELETE FROM friend_interaction_days WHERE day < current_date - $1::int")
-            .bind(INTERACTION_RETENTION_DAYS as i32)
-            .execute(&core.db)
-            .await?;
+        sqlx::query("DELETE FROM friend_interaction_days WHERE day < current_date - $1::int").bind(INTERACTION_RETENTION_DAYS as i32).execute(&core.db).await?;
         // Views are shown for 24 hours; a second day covers clock edges.
         sqlx::query("DELETE FROM map_views WHERE viewed_at < now() - interval '48 hours'").execute(&core.db).await?;
         sqlx::query("DELETE FROM map_reactions WHERE created_at < now() - make_interval(days => $1)")
@@ -185,14 +179,10 @@ impl DataExporter for SocialExporter {
     }
 
     async fn export(&self, user_id: Uuid) -> AppResult<serde_json::Value> {
-        let invite_code: Option<String> = sqlx::query_scalar("SELECT code FROM friend_invites WHERE user_id = $1")
-            .bind(user_id)
-            .fetch_optional(&self.core.db)
-            .await?;
-        let invited_by: Option<Uuid> = sqlx::query_scalar("SELECT inviter_id FROM friend_intros WHERE invitee_id = $1")
-            .bind(user_id)
-            .fetch_optional(&self.core.db)
-            .await?;
+        let invite_code: Option<String> =
+            sqlx::query_scalar("SELECT code FROM friend_invites WHERE user_id = $1").bind(user_id).fetch_optional(&self.core.db).await?;
+        let invited_by: Option<Uuid> =
+            sqlx::query_scalar("SELECT inviter_id FROM friend_intros WHERE invitee_id = $1").bind(user_id).fetch_optional(&self.core.db).await?;
         Ok(serde_json::json!({
             "friends": self.list(
                 "SELECT COALESCE(jsonb_agg(jsonb_build_object(

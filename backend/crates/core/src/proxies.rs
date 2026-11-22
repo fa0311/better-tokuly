@@ -37,17 +37,11 @@ impl FromStr for Network {
             Some((address, prefix)) => (address, Some(prefix)),
             None => (text, None),
         };
-        let address: IpAddr =
-            address.trim().parse().map_err(|_| format!("`{text}` is not an IP address or CIDR range"))?;
+        let address: IpAddr = address.trim().parse().map_err(|_| format!("`{text}` is not an IP address or CIDR range"))?;
         let address = address.to_canonical();
         let bits = if address.is_ipv4() { 32 } else { 128 };
         let prefix = match prefix {
-            Some(prefix) => prefix
-                .trim()
-                .parse::<u8>()
-                .ok()
-                .filter(|prefix| *prefix <= bits)
-                .ok_or_else(|| format!("`{text}` has an invalid prefix length"))?,
+            Some(prefix) => prefix.trim().parse::<u8>().ok().filter(|prefix| *prefix <= bits).ok_or_else(|| format!("`{text}` has an invalid prefix length"))?,
             None => bits,
         };
         Ok(Self { base: masked(address, prefix), prefix })
@@ -57,12 +51,8 @@ impl FromStr for Network {
 /// `address` with everything after the first `prefix` bits cleared.
 pub fn masked(address: IpAddr, prefix: u8) -> IpAddr {
     match address {
-        IpAddr::V4(v4) => {
-            IpAddr::V4((u32::from(v4) & u32::MAX.checked_shl(32 - u32::from(prefix)).unwrap_or(0)).into())
-        }
-        IpAddr::V6(v6) => {
-            IpAddr::V6((u128::from(v6) & u128::MAX.checked_shl(128 - u32::from(prefix)).unwrap_or(0)).into())
-        }
+        IpAddr::V4(v4) => IpAddr::V4((u32::from(v4) & u32::MAX.checked_shl(32 - u32::from(prefix)).unwrap_or(0)).into()),
+        IpAddr::V6(v6) => IpAddr::V6((u128::from(v6) & u128::MAX.checked_shl(128 - u32::from(prefix)).unwrap_or(0)).into()),
     }
 }
 
@@ -73,13 +63,7 @@ pub struct TrustedProxies(Vec<Network>);
 impl TrustedProxies {
     /// Parses addresses and CIDR ranges; empty entries are skipped.
     pub fn parse(entries: &[String]) -> Result<Self, String> {
-        entries
-            .iter()
-            .map(|entry| entry.trim())
-            .filter(|entry| !entry.is_empty())
-            .map(Network::from_str)
-            .collect::<Result<_, _>>()
-            .map(Self)
+        entries.iter().map(|entry| entry.trim()).filter(|entry| !entry.is_empty()).map(Network::from_str).collect::<Result<_, _>>().map(Self)
     }
 
     fn trusts(&self, address: IpAddr) -> bool {
@@ -102,10 +86,7 @@ impl TrustedProxies {
             }
             let hop = hop.trim();
             // Some proxies add the port.
-            let Ok(address) = hop.parse::<IpAddr>().or_else(|_| hop.parse::<SocketAddr>().map(|socket| socket.ip()))
-            else {
-                break;
-            };
+            let Ok(address) = hop.parse::<IpAddr>().or_else(|_| hop.parse::<SocketAddr>().map(|socket| socket.ip())) else { break };
             client = address.to_canonical();
         }
         client

@@ -79,8 +79,7 @@ async fn load_presence(core: &Core, user_ids: &[Uuid]) -> AppResult<Presence> {
         return Ok(Presence::default());
     }
     let privacy = settings::privacy_of_many(core, user_ids).await?;
-    let sharing: Vec<Uuid> =
-        user_ids.iter().copied().filter(|id| privacy.get(id).is_some_and(|p| p.share_online_status)).collect();
+    let sharing: Vec<Uuid> = user_ids.iter().copied().filter(|id| privacy.get(id).is_some_and(|p| p.share_online_status)).collect();
     let online: HashSet<Uuid> = presence::online_among(&core.cache, &sharing).await?.into_iter().collect();
     let offline: Vec<Uuid> = sharing.into_iter().filter(|id| !online.contains(id)).collect();
     let seen = futures::future::join_all(offline.iter().map(|id| presence::last_seen(&core.cache, *id))).await;

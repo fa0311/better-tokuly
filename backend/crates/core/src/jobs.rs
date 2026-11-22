@@ -33,7 +33,11 @@ pub struct JobOptions {
 
 impl Default for JobOptions {
     fn default() -> Self {
-        Self { concurrency: 4, lease: Duration::from_secs(60), max_deliver: 5 }
+        Self {
+            concurrency: 4,
+            lease: Duration::from_secs(60),
+            max_deliver: 5,
+        }
     }
 }
 
@@ -64,14 +68,22 @@ impl Jobs {
         payload: &T,
         dedupe_id: Option<&str>,
     ) -> AppResult<()> {
-        let body = serde_json::to_vec(payload).map_err(|e| AppError::internal(anyhow::anyhow!("job encode: {e}")))?;
+        let body = serde_json::to_vec(payload)
+            .map_err(|e| AppError::internal(anyhow::anyhow!("job encode: {e}")))?;
         let dedupe = dedupe_id.map(|id| format!("{name}:{id}"));
-        self.bus.publish_durable(format!("job.{name}"), body, dedupe.as_deref()).await
+        self.bus
+            .publish_durable(format!("job.{name}"), body, dedupe.as_deref())
+            .await
     }
 
     /// Processes jobs named `name` until cancelled.
-    pub async fn run<T, F, Fut>(&self, name: &str, options: JobOptions, cancel: CancellationToken, handler: F)
-    where
+    pub async fn run<T, F, Fut>(
+        &self,
+        name: &str,
+        options: JobOptions,
+        cancel: CancellationToken,
+        handler: F,
+    ) where
         T: DeserializeOwned + Send + 'static,
         F: Fn(T) -> Fut + Send + Sync + Clone + 'static,
         Fut: Future<Output = AppResult<()>> + Send + 'static,
@@ -84,7 +96,13 @@ impl Jobs {
             }
             let consumer = match self
                 .bus
-                .durable_consumer(STREAM_JOBS, &durable, vec![subject.clone()], options.lease, options.max_deliver)
+                .durable_consumer(
+                    STREAM_JOBS,
+                    &durable,
+                    vec![subject.clone()],
+                    options.lease,
+                    options.max_deliver,
+                )
                 .await
             {
                 Ok(c) => c,
@@ -102,7 +120,11 @@ impl Jobs {
                     continue;
                 }
             };
-            tracing::info!(job = name, concurrency = options.concurrency, "job worker started");
+            tracing::info!(
+                job = name,
+                concurrency = options.concurrency,
+                "job worker started"
+            );
             let limiter = Arc::new(tokio::sync::Semaphore::new(options.concurrency.max(1)));
             loop {
                 // Take a slot first so we never hold more leases than we can work on.
@@ -135,8 +157,12 @@ impl Jobs {
     }
 }
 
-async fn run_one<T, F, Fut>(message: jetstream::Message, name: &str, options: &JobOptions, handler: F)
-where
+async fn run_one<T, F, Fut>(
+    message: jetstream::Message,
+    name: &str,
+    options: &JobOptions,
+    handler: F,
+) where
     T: DeserializeOwned,
     F: Fn(T) -> Fut,
     Fut: Future<Output = AppResult<()>>,
@@ -165,7 +191,11 @@ where
     };
     match result {
         Ok(()) => {
-            tracing::debug!(job = name, elapsed_ms = started.elapsed().as_millis() as u64, "job done");
+            tracing::debug!(
+                job = name,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                "job done"
+            );
             if let Err(e) = message.ack().await {
                 tracing::warn!(job = name, error = %e, "job ack failed");
             }

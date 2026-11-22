@@ -52,10 +52,7 @@ async fn a_request_notifies_the_recipient_and_is_idempotent() {
         .friends(
             "SendFriendRequest",
             &carol,
-            &SendFriendRequestRequest {
-                target: Some(send_friend_request_request::Target::Handle(format!("@{}", bob.handle))),
-                ..Default::default()
-            },
+            &SendFriendRequestRequest { target: Some(send_friend_request_request::Target::Handle(format!("@{}", bob.handle))), ..Default::default() },
         )
         .await
         .unwrap();
@@ -75,25 +72,16 @@ async fn request_validation_and_authorization() {
     assert_eq!(send(request_to(alice.id)).await.reason, "CANNOT_FRIEND_SELF");
     let ghost = send(request_to(Uuid::now_v7())).await;
     assert_eq!((ghost.status, ghost.reason.as_str()), (404, "USER_NOT_FOUND"));
-    let unknown_handle = SendFriendRequestRequest {
-        target: Some(send_friend_request_request::Target::Handle("nobody-here-000".into())),
-        ..Default::default()
-    };
+    let unknown_handle =
+        SendFriendRequestRequest { target: Some(send_friend_request_request::Target::Handle("nobody-here-000".into())), ..Default::default() };
     assert_eq!(send(unknown_handle).await.reason, "USER_NOT_FOUND");
-    let bad_id = SendFriendRequestRequest {
-        target: Some(send_friend_request_request::Target::UserId("nope".into())),
-        ..Default::default()
-    };
+    let bad_id = SendFriendRequestRequest { target: Some(send_friend_request_request::Target::UserId("nope".into())), ..Default::default() };
     assert_eq!(send(bad_id).await.reason, "INVALID_ID");
     let mut wordy = request_to(bob.id);
     wordy.message = "あ".repeat(141);
     assert_eq!(send(wordy).await.reason, "MESSAGE_TOO_LONG");
 
-    let anonymous = ctx
-        .app
-        .call::<_, SendFriendRequestResponse>(&format!("{FRIENDS}/SendFriendRequest"), None, &request_to(bob.id))
-        .await
-        .unwrap_err();
+    let anonymous = ctx.app.call::<_, SendFriendRequestResponse>(&format!("{FRIENDS}/SendFriendRequest"), None, &request_to(bob.id)).await.unwrap_err();
     assert_eq!((anonymous.status, anonymous.reason.as_str()), (401, "SIGN_IN_REQUIRED"));
 
     ctx.befriend(&alice, &bob).await;
@@ -113,18 +101,8 @@ async fn crossed_requests_make_friends_immediately() {
     assert!(crossed.request.is_unset());
     assert!(graph::are_friends(&ctx.app.core, alice.id, bob.id).await.unwrap());
     // No request is left over in either direction.
-    assert!(
-        list_requests(&ctx, &alice, FriendRequestDirection::FRIEND_REQUEST_DIRECTION_OUTGOING)
-            .await
-            .requests
-            .is_empty()
-    );
-    assert!(
-        list_requests(&ctx, &alice, FriendRequestDirection::FRIEND_REQUEST_DIRECTION_INCOMING)
-            .await
-            .requests
-            .is_empty()
-    );
+    assert!(list_requests(&ctx, &alice, FriendRequestDirection::FRIEND_REQUEST_DIRECTION_OUTGOING).await.requests.is_empty());
+    assert!(list_requests(&ctx, &alice, FriendRequestDirection::FRIEND_REQUEST_DIRECTION_INCOMING).await.requests.is_empty());
     // Alice asked first, so she is the one told "accepted".
     match next_push(&mut alice_devices).await {
         Some(Push::FriendRequestAccepted(friend)) => assert_eq!(id_of(friend.user.as_option().unwrap()), bob.id),
@@ -136,28 +114,18 @@ async fn crossed_requests_make_friends_immediately() {
 #[tokio::test]
 async fn privacy_decides_who_may_send_requests() {
     let ctx = start().await;
-    let (picky, friend, friend_of_friend, stranger) = (
-        ctx.app.user("picky").await,
-        ctx.app.user("friend").await,
-        ctx.app.user("fof").await,
-        ctx.app.user("stranger").await,
-    );
+    let (picky, friend, friend_of_friend, stranger) =
+        (ctx.app.user("picky").await, ctx.app.user("friend").await, ctx.app.user("fof").await, ctx.app.user("stranger").await);
     ctx.befriend(&picky, &friend).await;
     ctx.befriend(&friend, &friend_of_friend).await;
 
     ctx.set_privacy(&picky, |p| p.friend_requests_from = Audience::AUDIENCE_FRIENDS_OF_FRIENDS.into()).await;
-    let denied = ctx
-        .friends::<_, SendFriendRequestResponse>("SendFriendRequest", &stranger, &request_to(picky.id))
-        .await
-        .unwrap_err();
+    let denied = ctx.friends::<_, SendFriendRequestResponse>("SendFriendRequest", &stranger, &request_to(picky.id)).await.unwrap_err();
     assert_eq!((denied.status, denied.reason.as_str()), (403, "FRIEND_REQUESTS_RESTRICTED"));
     assert_eq!(ctx.request(&friend_of_friend, &picky).await.relationship, Relationship::RELATIONSHIP_REQUEST_SENT);
 
     ctx.set_privacy(&picky, |p| p.friend_requests_from = Audience::AUDIENCE_NOBODY.into()).await;
-    let denied = ctx
-        .friends::<_, SendFriendRequestResponse>("SendFriendRequest", &stranger, &request_to(picky.id))
-        .await
-        .unwrap_err();
+    let denied = ctx.friends::<_, SendFriendRequestResponse>("SendFriendRequest", &stranger, &request_to(picky.id)).await.unwrap_err();
     assert_eq!(denied.reason, "FRIEND_REQUESTS_RESTRICTED");
     // Picky can still reach out, and an existing request to them can still be answered by them.
     assert_eq!(ctx.request(&picky, &stranger).await.relationship, Relationship::RELATIONSHIP_REQUEST_SENT);
@@ -171,30 +139,15 @@ async fn friend_limit_applies_to_both_sides() {
     ctx.befriend(&alice, &bob).await;
 
     // Alice is full: she can neither ask nor accept.
-    let full = ctx
-        .friends::<_, SendFriendRequestResponse>(
-            "SendFriendRequest",
-            &alice,
-            &request_to(ctx.app.user("dave").await.id),
-        )
-        .await
-        .unwrap_err();
+    let full = ctx.friends::<_, SendFriendRequestResponse>("SendFriendRequest", &alice, &request_to(ctx.app.user("dave").await.id)).await.unwrap_err();
     assert_eq!(full.reason, "FRIEND_LIMIT_REACHED");
     let full = ctx
-        .friends::<_, RespondFriendRequestResponse>(
-            "RespondFriendRequest",
-            &alice,
-            &RespondFriendRequestRequest { request_id: pending.id.clone(), accept: true, ..Default::default() },
-        )
+        .friends::<_, RespondFriendRequestResponse>("RespondFriendRequest", &alice, &RespondFriendRequestRequest { request_id: pending.id.clone(), accept: true, ..Default::default() })
         .await
         .unwrap_err();
     assert_eq!(full.reason, "FRIEND_LIMIT_REACHED");
     assert!(!graph::are_friends(&ctx.app.core, alice.id, carol.id).await.unwrap());
-    assert_eq!(
-        list_requests(&ctx, &alice, FriendRequestDirection::FRIEND_REQUEST_DIRECTION_INCOMING).await.requests.len(),
-        1,
-        "the request survives"
-    );
+    assert_eq!(list_requests(&ctx, &alice, FriendRequestDirection::FRIEND_REQUEST_DIRECTION_INCOMING).await.requests.len(), 1, "the request survives");
 }
 
 #[tokio::test]
@@ -205,14 +158,7 @@ async fn accepting_creates_the_friendship_with_events_and_activity() {
     let mut alice_devices = ctx.app.listen_user(alice.id).await;
     let respond = |user: &TestUser, accept: bool| {
         let (ctx, user, request_id) = (&ctx, user.clone(), request_id.clone());
-        async move {
-            ctx.friends::<_, RespondFriendRequestResponse>(
-                "RespondFriendRequest",
-                &user,
-                &RespondFriendRequestRequest { request_id, accept, ..Default::default() },
-            )
-            .await
-        }
+        async move { ctx.friends::<_, RespondFriendRequestResponse>("RespondFriendRequest", &user, &RespondFriendRequestRequest { request_id, accept, ..Default::default() }).await }
     };
 
     // Only the recipient can answer.
@@ -227,10 +173,7 @@ async fn accepting_creates_the_friendship_with_events_and_activity() {
 
     assert_eq!(ctx.app.events_by("social.friend.accepted", bob.id).await.len(), 1);
     assert_eq!(ctx.notifications_for(alice.id, "social.friend_accepted").await.len(), 1);
-    assert!(
-        ctx.notifications_for(bob.id, "social.friend_accepted").await.is_empty(),
-        "the accepter needs no notification"
-    );
+    assert!(ctx.notifications_for(bob.id, "social.friend_accepted").await.is_empty(), "the accepter needs no notification");
     for (user, friend) in [(&alice, &bob), (&bob, &alice)] {
         let activity = ctx.activities_of(user.id, "social.friend_added").await;
         assert_eq!(activity.len(), 1);
@@ -249,21 +192,12 @@ async fn declining_is_silent_and_cancelling_withdraws() {
     let (alice, bob, carol) = (ctx.app.user("alice").await, ctx.app.user("bob").await, ctx.app.user("carol").await);
     let to_bob = ctx.request(&alice, &bob).await.request.into_option().unwrap().id;
     let to_carol = ctx.request(&alice, &carol).await.request.into_option().unwrap().id;
-    assert_eq!(
-        list_requests(&ctx, &bob, FriendRequestDirection::FRIEND_REQUEST_DIRECTION_UNSPECIFIED).await.incoming_count,
-        1
-    );
+    assert_eq!(list_requests(&ctx, &bob, FriendRequestDirection::FRIEND_REQUEST_DIRECTION_UNSPECIFIED).await.incoming_count, 1);
 
     // Bob declines: nothing for Alice to see, nothing left for Bob.
     let mut alice_devices = ctx.app.listen_user(alice.id).await;
-    let declined: RespondFriendRequestResponse = ctx
-        .friends(
-            "RespondFriendRequest",
-            &bob,
-            &RespondFriendRequestRequest { request_id: to_bob.clone(), accept: false, ..Default::default() },
-        )
-        .await
-        .unwrap();
+    let declined: RespondFriendRequestResponse =
+        ctx.friends("RespondFriendRequest", &bob, &RespondFriendRequestRequest { request_id: to_bob.clone(), accept: false, ..Default::default() }).await.unwrap();
     assert!(declined.friend.is_unset());
     assert!(pushes(&mut alice_devices, QUIET).await.is_empty());
     let incoming = list_requests(&ctx, &bob, FriendRequestDirection::FRIEND_REQUEST_DIRECTION_INCOMING).await;
@@ -276,14 +210,7 @@ async fn declining_is_silent_and_cancelling_withdraws() {
     let mut carol_devices = ctx.app.listen_user(carol.id).await;
     let cancel = |user: &TestUser| {
         let (ctx, user, request_id) = (&ctx, user.clone(), to_carol.clone());
-        async move {
-            ctx.friends::<_, CancelFriendRequestResponse>(
-                "CancelFriendRequest",
-                &user,
-                &CancelFriendRequestRequest { request_id, ..Default::default() },
-            )
-            .await
-        }
+        async move { ctx.friends::<_, CancelFriendRequestResponse>("CancelFriendRequest", &user, &CancelFriendRequestRequest { request_id, ..Default::default() }).await }
     };
     assert_eq!(cancel(&carol).await.unwrap_err().reason, "REQUEST_NOT_FOUND");
     cancel(&alice).await.unwrap();
@@ -291,24 +218,12 @@ async fn declining_is_silent_and_cancelling_withdraws() {
         Some(Push::FriendRequestCancelledId(id)) => assert_eq!(id, to_carol),
         other => panic!("expected a cancellation push, got {other:?}"),
     }
-    assert!(
-        list_requests(&ctx, &carol, FriendRequestDirection::FRIEND_REQUEST_DIRECTION_INCOMING)
-            .await
-            .requests
-            .is_empty()
-    );
+    assert!(list_requests(&ctx, &carol, FriendRequestDirection::FRIEND_REQUEST_DIRECTION_INCOMING).await.requests.is_empty());
     assert_eq!(cancel(&alice).await.unwrap_err().reason, "REQUEST_NOT_FOUND");
 
     // Withdrawing the declined one tells nobody: Bob no longer had it on screen.
     let mut bob_devices = ctx.app.listen_user(bob.id).await;
-    let _: CancelFriendRequestResponse = ctx
-        .friends(
-            "CancelFriendRequest",
-            &alice,
-            &CancelFriendRequestRequest { request_id: to_bob, ..Default::default() },
-        )
-        .await
-        .unwrap();
+    let _: CancelFriendRequestResponse = ctx.friends("CancelFriendRequest", &alice, &CancelFriendRequestRequest { request_id: to_bob, ..Default::default() }).await.unwrap();
     assert!(pushes(&mut bob_devices, QUIET).await.is_empty());
 }
 
@@ -338,10 +253,7 @@ async fn requests_are_listed_per_direction_with_pagination_and_mutual_friends() 
         .await
         .unwrap();
     assert_eq!(first.incoming_count, 3);
-    assert_eq!(
-        first.requests.iter().map(|r| id_of(r.from.as_option().unwrap())).collect::<Vec<_>>(),
-        vec![fans[2].id, fans[1].id]
-    );
+    assert_eq!(first.requests.iter().map(|r| id_of(r.from.as_option().unwrap())).collect::<Vec<_>>(), vec![fans[2].id, fans[1].id]);
     assert_eq!(first.requests[0].mutual_friend_count, 1);
     assert_eq!(first.requests[1].mutual_friend_count, 0);
     let page = first.page.as_option().unwrap();
@@ -361,16 +273,8 @@ async fn requests_are_listed_per_direction_with_pagination_and_mutual_friends() 
     assert_eq!(rest.requests.iter().map(|r| id_of(r.from.as_option().unwrap())).collect::<Vec<_>>(), vec![fans[0].id]);
     assert!(!rest.page.as_option().unwrap().has_more);
 
-    assert_eq!(
-        list_requests(&ctx, &fans[0], FriendRequestDirection::FRIEND_REQUEST_DIRECTION_OUTGOING).await.requests.len(),
-        1
-    );
-    assert!(
-        list_requests(&ctx, &fans[0], FriendRequestDirection::FRIEND_REQUEST_DIRECTION_INCOMING)
-            .await
-            .requests
-            .is_empty()
-    );
+    assert_eq!(list_requests(&ctx, &fans[0], FriendRequestDirection::FRIEND_REQUEST_DIRECTION_OUTGOING).await.requests.len(), 1);
+    assert!(list_requests(&ctx, &fans[0], FriendRequestDirection::FRIEND_REQUEST_DIRECTION_INCOMING).await.requests.is_empty());
 }
 
 #[tokio::test]
@@ -380,11 +284,7 @@ async fn new_friendships_are_announced_only_by_those_who_show_their_friend_list(
     ctx.set_privacy(&private, |p| p.friend_list_visible_to = Audience::AUDIENCE_NOBODY.into()).await;
     ctx.befriend(&open, &private).await;
     assert_eq!(ctx.activities_of(open.id, "social.friend_added").await[0].data["audience"], "friends");
-    assert_eq!(
-        ctx.activities_of(private.id, "social.friend_added").await[0].data["audience"],
-        "private",
-        "a hidden friend list stays hidden"
-    );
+    assert_eq!(ctx.activities_of(private.id, "social.friend_added").await[0].data["audience"], "private", "a hidden friend list stays hidden");
 }
 
 #[tokio::test]
@@ -397,14 +297,7 @@ async fn request_limits_stop_pestering_and_hoarding() {
         match ctx.friends::<_, SendFriendRequestResponse>("SendFriendRequest", &pest, &request_to(target.id)).await {
             Ok(sent) => {
                 let request_id = sent.request.into_option().unwrap().id;
-                let _: CancelFriendRequestResponse = ctx
-                    .friends(
-                        "CancelFriendRequest",
-                        &pest,
-                        &CancelFriendRequestRequest { request_id, ..Default::default() },
-                    )
-                    .await
-                    .unwrap();
+                let _: CancelFriendRequestResponse = ctx.friends("CancelFriendRequest", &pest, &CancelFriendRequestRequest { request_id, ..Default::default() }).await.unwrap();
             }
             Err(e) => refusal = Some(e),
         }
@@ -415,17 +308,12 @@ async fn request_limits_stop_pestering_and_hoarding() {
     // Nobody can sit on hundreds of unanswered requests.
     let hoarder = ctx.app.user("hoarder").await;
     let crowd = ctx.crowd(500).await;
-    sqlx::query(
-        "INSERT INTO friend_requests (from_user_id, to_user_id) SELECT $1, id FROM unnest($2::uuid[]) AS c(id)",
-    )
-    .bind(hoarder.id)
-    .bind(&crowd)
-    .execute(&ctx.app.core.db)
-    .await
-    .unwrap();
-    let full = ctx
-        .friends::<_, SendFriendRequestResponse>("SendFriendRequest", &hoarder, &request_to(target.id))
+    sqlx::query("INSERT INTO friend_requests (from_user_id, to_user_id) SELECT $1, id FROM unnest($2::uuid[]) AS c(id)")
+        .bind(hoarder.id)
+        .bind(&crowd)
+        .execute(&ctx.app.core.db)
         .await
-        .unwrap_err();
+        .unwrap();
+    let full = ctx.friends::<_, SendFriendRequestResponse>("SendFriendRequest", &hoarder, &request_to(target.id)).await.unwrap_err();
     assert_eq!(full.reason, "TOO_MANY_PENDING_REQUESTS");
 }

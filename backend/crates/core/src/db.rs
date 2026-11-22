@@ -17,7 +17,10 @@ pub async fn connect(url: &str, max_connections: u32) -> anyhow::Result<PgPool> 
 /// Applies pending migrations from `migrator` (embedded by the server binary). Safe to run from several processes at once
 /// (sqlx takes an advisory lock).
 pub async fn migrate(pool: &PgPool, migrator: &sqlx::migrate::Migrator) -> anyhow::Result<()> {
-    migrator.run(pool).await.map_err(|e| anyhow::anyhow!("database migration failed: {e}"))?;
+    migrator
+        .run(pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("database migration failed: {e}"))?;
     Ok(())
 }
 

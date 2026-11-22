@@ -47,23 +47,14 @@ impl Social {
                 .push_only(),
         )
         .await?;
-        self.push(
-            friend_id,
-            Push::Buzz(Box::new(BuzzEvent { from: me.into(), created_at: ts(Utc::now()), ..Default::default() })),
-        )
-        .await;
+        self.push(friend_id, Push::Buzz(Box::new(BuzzEvent { from: me.into(), created_at: ts(Utc::now()), ..Default::default() }))).await;
         Ok(())
     }
 
     /// Knocks on a friend's map screen `count` times.
     pub(crate) async fn knock(&self, user_id: Uuid, friend_id: Uuid, count: i32) -> AppResult<()> {
         let core = &self.core;
-        ensure!(
-            (1..=MAX_KNOCKS).contains(&count),
-            invalid,
-            "INVALID_KNOCK_COUNT",
-            "knock between 1 and {MAX_KNOCKS} times"
-        );
+        ensure!((1..=MAX_KNOCKS).contains(&count), invalid, "INVALID_KNOCK_COUNT", "knock between 1 and {MAX_KNOCKS} times");
         self.require_friend(user_id, friend_id).await?;
         core.cache.rate_limit(&format!("knock:{user_id}:{friend_id}"), 20, Duration::from_secs(60)).await?;
 
@@ -77,16 +68,7 @@ impl Social {
                 .data(serde_json::json!({ "count": count })),
         )
         .await?;
-        self.push(
-            friend_id,
-            Push::Knock(Box::new(KnockEvent {
-                from: me.into(),
-                count,
-                created_at: ts(Utc::now()),
-                ..Default::default()
-            })),
-        )
-        .await;
+        self.push(friend_id, Push::Knock(Box::new(KnockEvent { from: me.into(), count, created_at: ts(Utc::now()), ..Default::default() }))).await;
         Ok(())
     }
 }

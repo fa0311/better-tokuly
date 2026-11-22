@@ -61,26 +61,14 @@ fn cell_and_neighbours(cell: (i64, i64)) -> impl Iterator<Item = (i64, i64)> {
 
 impl Social {
     /// Opens a nearby-discovery session for `user_id` at the given position.
-    pub(crate) async fn discover_nearby(
-        &self,
-        user_id: Uuid,
-        lat: f64,
-        lng: f64,
-        accuracy_meters: f64,
-    ) -> AppResult<ServiceStream<DiscoverNearbyResponse>> {
+    pub(crate) async fn discover_nearby(&self, user_id: Uuid, lat: f64, lng: f64, accuracy_meters: f64) -> AppResult<ServiceStream<DiscoverNearbyResponse>> {
         let core = &self.core;
         ensure!(geoindex::valid_coordinates(lat, lng), invalid, "INVALID_LOCATION", "a valid location is required");
         let privacy = settings::privacy_of(core, user_id).await?;
-        ensure!(
-            privacy.nearby_discoverable,
-            precondition,
-            "NEARBY_DISCOVERY_DISABLED",
-            "turn on nearby discovery in your privacy settings first"
-        );
+        ensure!(privacy.nearby_discoverable, precondition, "NEARBY_DISCOVERY_DISABLED", "turn on nearby discovery in your privacy settings first");
         core.cache.rate_limit(&format!("nearby:{user_id}"), 30, Duration::from_secs(60)).await?;
 
-        let allowance =
-            if accuracy_meters.is_finite() { accuracy_meters.clamp(0.0, MAX_ACCURACY_ALLOWANCE) } else { 0.0 };
+        let allowance = if accuracy_meters.is_finite() { accuracy_meters.clamp(0.0, MAX_ACCURACY_ALLOWANCE) } else { 0.0 };
         let spot = Spot { user_id, lat, lng, radius_meters: self.cfg.nearby_radius_meters + allowance };
 
         // Listen before showing up, so nobody arriving after our first look
@@ -135,10 +123,7 @@ impl Social {
             if last_sent.as_ref() == Some(&seen_now) {
                 continue;
             }
-            let response = DiscoverNearbyResponse {
-                users: users.into_iter().map(|(_, user)| user).collect(),
-                ..Default::default()
-            };
+            let response = DiscoverNearbyResponse { users: users.into_iter().map(|(_, user)| user).collect(), ..Default::default() };
             if sender.send(response).await.is_err() {
                 break;
             }
@@ -180,17 +165,8 @@ impl Social {
             .filter_map(|(id, distance)| {
                 // Unknown or deleted accounts can linger in Valkey for a moment.
                 let user = summaries.get(&id).filter(|user| !user.deleted)?.clone();
-                let relationship =
-                    relationships.get(&id).copied().unwrap_or(tokuly_proto::identity::Relationship::RELATIONSHIP_NONE);
-                Some((
-                    id,
-                    NearbyUser {
-                        user: user.into(),
-                        distance_meters: distance.round(),
-                        relationship: relationship.into(),
-                        ..Default::default()
-                    },
-                ))
+                let relationship = relationships.get(&id).copied().unwrap_or(tokuly_proto::identity::Relationship::RELATIONSHIP_NONE);
+                Some((id, NearbyUser { user: user.into(), distance_meters: distance.round(), relationship: relationship.into(), ..Default::default() }))
             })
             .collect())
     }

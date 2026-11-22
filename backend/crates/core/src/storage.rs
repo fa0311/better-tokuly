@@ -40,7 +40,8 @@ pub struct Storage {
 }
 
 fn client(endpoint: &str, cfg: &Config) -> Client {
-    let credentials = Credentials::new(&cfg.s3_access_key, &cfg.s3_secret_key, None, None, "tokuly");
+    let credentials =
+        Credentials::new(&cfg.s3_access_key, &cfg.s3_secret_key, None, None, "tokuly");
     let conf = aws_sdk_s3::Config::builder()
         .behavior_version(BehaviorVersion::latest())
         .region(Region::new(cfg.s3_region.clone()))
@@ -81,10 +82,19 @@ impl Storage {
     /// Creates both buckets and makes the media bucket world-readable. Idempotent.
     pub async fn ensure_buckets(&self) -> anyhow::Result<()> {
         for name in [&self.media_bucket, &self.private_bucket] {
-            if self.internal.head_bucket().bucket(name).send().await.is_err() {
+            if self
+                .internal
+                .head_bucket()
+                .bucket(name)
+                .send()
+                .await
+                .is_err()
+            {
                 if let Err(e) = self.internal.create_bucket().bucket(name).send().await {
                     let text = format!("{e:?}");
-                    if !text.contains("BucketAlreadyOwnedByYou") && !text.contains("BucketAlreadyExists") {
+                    if !text.contains("BucketAlreadyOwnedByYou")
+                        && !text.contains("BucketAlreadyExists")
+                    {
                         anyhow::bail!("cannot create bucket {name}: {text}");
                     }
                 }
@@ -105,7 +115,12 @@ impl Storage {
             .policy(policy.to_string())
             .send()
             .await
-            .map_err(|e| anyhow::anyhow!("cannot set public-read policy on {}: {e:?}", self.media_bucket))?;
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "cannot set public-read policy on {}: {e:?}",
+                    self.media_bucket
+                )
+            })?;
         self.allow_browser_uploads().await
     }
 
@@ -128,7 +143,13 @@ impl Storage {
             .cors_rules(rule)
             .build()
             .map_err(|e| anyhow::anyhow!("invalid CORS configuration: {e}"))?;
-        let result = self.internal.put_bucket_cors().bucket(&self.private_bucket).cors_configuration(cors).send().await;
+        let result = self
+            .internal
+            .put_bucket_cors()
+            .bucket(&self.private_bucket)
+            .cors_configuration(cors)
+            .send()
+            .await;
         if let Err(e) = result {
             // Some S3-compatible stores configure CORS globally instead; direct
             // browser uploads then depend on that setting.
@@ -137,8 +158,15 @@ impl Storage {
         Ok(())
     }
 
-    pub async fn put(&self, bucket: Bucket, key: &str, body: impl Into<Bytes>, content_type: &str) -> AppResult<()> {
-        self.put_with_cache(bucket, key, body, content_type, None).await
+    pub async fn put(
+        &self,
+        bucket: Bucket,
+        key: &str,
+        body: impl Into<Bytes>,
+        content_type: &str,
+    ) -> AppResult<()> {
+        self.put_with_cache(bucket, key, body, content_type, None)
+            .await
     }
 
     /// Uploads an object, optionally with a `Cache-Control` header (e.g.
@@ -161,7 +189,9 @@ impl Storage {
         if let Some(cc) = cache_control {
             req = req.cache_control(cc);
         }
-        req.send().await.map_err(|e| s3_err("put", format!("{e:?}")))?;
+        req.send()
+            .await
+            .map_err(|e| s3_err("put", format!("{e:?}")))?;
         Ok(())
     }
 
@@ -174,13 +204,22 @@ impl Storage {
         content_type: &str,
         cache_control: Option<&str>,
     ) -> AppResult<()> {
-        let body = ByteStream::from_path(path).await.map_err(|e| s3_err("read file", e))?;
-        let mut req =
-            self.internal.put_object().bucket(self.bucket_name(bucket)).key(key).content_type(content_type).body(body);
+        let body = ByteStream::from_path(path)
+            .await
+            .map_err(|e| s3_err("read file", e))?;
+        let mut req = self
+            .internal
+            .put_object()
+            .bucket(self.bucket_name(bucket))
+            .key(key)
+            .content_type(content_type)
+            .body(body);
         if let Some(cc) = cache_control {
             req = req.cache_control(cc);
         }
-        req.send().await.map_err(|e| s3_err("put file", format!("{e:?}")))?;
+        req.send()
+            .await
+            .map_err(|e| s3_err("put file", format!("{e:?}")))?;
         Ok(())
     }
 
@@ -198,7 +237,12 @@ impl Storage {
     }
 
     /// Downloads an object to a local file (streamed).
-    pub async fn download(&self, bucket: Bucket, key: &str, path: &std::path::Path) -> AppResult<u64> {
+    pub async fn download(
+        &self,
+        bucket: Bucket,
+        key: &str,
+        path: &std::path::Path,
+    ) -> AppResult<u64> {
         use tokio::io::AsyncWriteExt as _;
         let out = self
             .internal
@@ -209,11 +253,15 @@ impl Storage {
             .await
             .map_err(|e| s3_err("get", format!("{e:?}")))?;
         let mut body = out.body;
-        let mut file = tokio::fs::File::create(path).await.map_err(|e| s3_err("create file", e))?;
+        let mut file = tokio::fs::File::create(path)
+            .await
+            .map_err(|e| s3_err("create file", e))?;
         let mut total = 0u64;
         while let Some(chunk) = body.try_next().await.map_err(|e| s3_err("read", e))? {
             total += chunk.len() as u64;
-            file.write_all(&chunk).await.map_err(|e| s3_err("write file", e))?;
+            file.write_all(&chunk)
+                .await
+                .map_err(|e| s3_err("write file", e))?;
         }
         file.flush().await.map_err(|e| s3_err("flush file", e))?;
         Ok(total)
@@ -221,7 +269,14 @@ impl Storage {
 
     /// Size in bytes, or `None` when the object does not exist.
     pub async fn head(&self, bucket: Bucket, key: &str) -> AppResult<Option<i64>> {
-        match self.internal.head_object().bucket(self.bucket_name(bucket)).key(key).send().await {
+        match self
+            .internal
+            .head_object()
+            .bucket(self.bucket_name(bucket))
+            .key(key)
+            .send()
+            .await
+        {
             Ok(out) => Ok(Some(out.content_length().unwrap_or(0))),
             Err(e) => {
                 if e.as_service_error().is_some_and(|s| s.is_not_found()) {
@@ -297,7 +352,13 @@ impl Storage {
     }
 
     /// Browser-usable URL for a single-request upload.
-    pub async fn presign_put(&self, bucket: Bucket, key: &str, content_type: &str, ttl: Duration) -> AppResult<String> {
+    pub async fn presign_put(
+        &self,
+        bucket: Bucket,
+        key: &str,
+        content_type: &str,
+        ttl: Duration,
+    ) -> AppResult<String> {
         let req = self
             .public
             .put_object()
@@ -326,7 +387,12 @@ impl Storage {
     // ── multipart uploads ──
 
     /// Starts a multipart upload and returns its storage upload ID.
-    pub async fn create_multipart(&self, bucket: Bucket, key: &str, content_type: &str) -> AppResult<String> {
+    pub async fn create_multipart(
+        &self,
+        bucket: Bucket,
+        key: &str,
+        content_type: &str,
+    ) -> AppResult<String> {
         let out = self
             .internal
             .create_multipart_upload()
@@ -336,7 +402,9 @@ impl Storage {
             .send()
             .await
             .map_err(|e| s3_err("create multipart", format!("{e:?}")))?;
-        out.upload_id().map(str::to_owned).ok_or_else(|| s3_err("create multipart", "no upload id returned"))
+        out.upload_id()
+            .map(str::to_owned)
+            .ok_or_else(|| s3_err("create multipart", "no upload id returned"))
     }
 
     pub async fn presign_part(
@@ -361,7 +429,12 @@ impl Storage {
     }
 
     /// Part numbers (with ETags) the store already holds for an upload.
-    pub async fn list_parts(&self, bucket: Bucket, key: &str, upload_id: &str) -> AppResult<Vec<(i32, String)>> {
+    pub async fn list_parts(
+        &self,
+        bucket: Bucket,
+        key: &str,
+        upload_id: &str,
+    ) -> AppResult<Vec<(i32, String)>> {
         let mut parts = Vec::new();
         let mut marker: Option<String> = None;
         loop {
@@ -417,7 +490,12 @@ impl Storage {
         Ok(())
     }
 
-    pub async fn abort_multipart(&self, bucket: Bucket, key: &str, upload_id: &str) -> AppResult<()> {
+    pub async fn abort_multipart(
+        &self,
+        bucket: Bucket,
+        key: &str,
+        upload_id: &str,
+    ) -> AppResult<()> {
         self.internal
             .abort_multipart_upload()
             .bucket(self.bucket_name(bucket))

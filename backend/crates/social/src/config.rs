@@ -13,12 +13,7 @@ pub struct SocialConfig {
     pub best_friend_count: i32,
 
     /// Seconds between runs of the best-friend ranking worker.
-    #[arg(
-        id = "social_ranking_interval_seconds",
-        long = "social-ranking-interval-seconds",
-        env = "TOKULY_SOCIAL_RANKING_INTERVAL_SECONDS",
-        default_value_t = 300
-    )]
+    #[arg(id = "social_ranking_interval_seconds", long = "social-ranking-interval-seconds", env = "TOKULY_SOCIAL_RANKING_INTERVAL_SECONDS", default_value_t = 300)]
     pub ranking_interval_seconds: u64,
 
     /// Radius of nearby discovery, in meters.

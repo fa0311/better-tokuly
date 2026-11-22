@@ -24,7 +24,14 @@ pub trait CtxExt {
     /// The caller, who must hold `role` (admins hold every role).
     fn require_role(&self, role: &str) -> AppResult<&AuthContext> {
         let auth = self.auth()?;
-        if auth.has_role(role) { Ok(auth) } else { Err(AppError::denied("FORBIDDEN", format!("requires role {role}"))) }
+        if auth.has_role(role) {
+            Ok(auth)
+        } else {
+            Err(AppError::denied(
+                "FORBIDDEN",
+                format!("requires role {role}"),
+            ))
+        }
     }
     fn client(&self) -> ClientMeta;
 }
@@ -33,20 +40,32 @@ impl CtxExt for RequestContext {
     fn auth(&self) -> AppResult<&AuthContext> {
         match self.extensions().get::<AuthState>() {
             Some(AuthState::Authenticated(ctx)) => Ok(ctx),
-            Some(AuthState::Invalid(reason)) => Err(AppError::unauthenticated(*reason, "access token is not valid")),
-            _ => Err(AppError::unauthenticated("SIGN_IN_REQUIRED", "sign in required")),
+            Some(AuthState::Invalid(reason)) => Err(AppError::unauthenticated(
+                *reason,
+                "access token is not valid",
+            )),
+            _ => Err(AppError::unauthenticated(
+                "SIGN_IN_REQUIRED",
+                "sign in required",
+            )),
         }
     }
 
     fn maybe_auth(&self) -> AppResult<Option<&AuthContext>> {
         match self.extensions().get::<AuthState>() {
             Some(AuthState::Authenticated(ctx)) => Ok(Some(ctx)),
-            Some(AuthState::Invalid(reason)) => Err(AppError::unauthenticated(*reason, "access token is not valid")),
+            Some(AuthState::Invalid(reason)) => Err(AppError::unauthenticated(
+                *reason,
+                "access token is not valid",
+            )),
             _ => Ok(None),
         }
     }
 
     fn client(&self) -> ClientMeta {
-        self.extensions().get::<ClientMeta>().cloned().unwrap_or_default()
+        self.extensions()
+            .get::<ClientMeta>()
+            .cloned()
+            .unwrap_or_default()
     }
 }

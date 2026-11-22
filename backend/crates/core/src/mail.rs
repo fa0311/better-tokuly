@@ -15,8 +15,9 @@ pub struct Mailer {
 impl Mailer {
     /// `smtp_url` empty disables sending; mails are logged instead.
     pub fn new(smtp_url: &str, from: &str) -> anyhow::Result<Self> {
-        let from: Mailbox =
-            from.parse().map_err(|e| anyhow::anyhow!("TOKULY_MAIL_FROM is not a valid mailbox: {e}"))?;
+        let from: Mailbox = from
+            .parse()
+            .map_err(|e| anyhow::anyhow!("TOKULY_MAIL_FROM is not a valid mailbox: {e}"))?;
         let transport = if smtp_url.is_empty() {
             None
         } else {
@@ -36,17 +37,30 @@ impl Mailer {
     /// Sends a mail with both plain-text and HTML bodies.
     pub async fn send(&self, to: &str, subject: &str, text: &str, html: &str) -> AppResult<()> {
         let Some(transport) = &self.transport else {
-            tracing::info!(to, subject, body = text, "mail delivery disabled; message logged");
+            tracing::info!(
+                to,
+                subject,
+                body = text,
+                "mail delivery disabled; message logged"
+            );
             return Ok(());
         };
-        let to: Mailbox = to.parse().map_err(|_| AppError::invalid("INVALID_EMAIL", "invalid email address"))?;
+        let to: Mailbox = to
+            .parse()
+            .map_err(|_| AppError::invalid("INVALID_EMAIL", "invalid email address"))?;
         let message = Message::builder()
             .from(self.from.clone())
             .to(to)
             .subject(subject)
-            .multipart(MultiPart::alternative_plain_html(text.to_owned(), html.to_owned()))
+            .multipart(MultiPart::alternative_plain_html(
+                text.to_owned(),
+                html.to_owned(),
+            ))
             .map_err(|e| AppError::internal(anyhow::anyhow!("mail build: {e}")))?;
-        transport.send(message).await.map_err(|e| AppError::internal(anyhow::anyhow!("mail send: {e}")))?;
+        transport
+            .send(message)
+            .await
+            .map_err(|e| AppError::internal(anyhow::anyhow!("mail send: {e}")))?;
         Ok(())
     }
 }

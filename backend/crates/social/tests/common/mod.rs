@@ -84,11 +84,7 @@ impl Ctx {
             return;
         };
         let _: RespondFriendRequestResponse = self
-            .friends(
-                "RespondFriendRequest",
-                b,
-                &RespondFriendRequestRequest { request_id: request.id.clone(), accept: true, ..Default::default() },
-            )
+            .friends("RespondFriendRequest", b, &RespondFriendRequestRequest { request_id: request.id.clone(), accept: true, ..Default::default() })
             .await
             .expect("accept");
     }
@@ -99,11 +95,7 @@ impl Ctx {
         change(&mut privacy);
         let _: UpdateSettingsResponse = self
             .app
-            .call(
-                "tokuly.identity.v1.AccountService/UpdateSettings",
-                Some(user),
-                &UpdateSettingsRequest { privacy: privacy.into(), ..Default::default() },
-            )
+            .call("tokuly.identity.v1.AccountService/UpdateSettings", Some(user), &UpdateSettingsRequest { privacy: privacy.into(), ..Default::default() })
             .await
             .expect("update settings");
     }
@@ -132,28 +124,13 @@ impl Ctx {
 
     /// Activity entries (`activity.recorded`) of `user`, by kind.
     pub async fn activities_of(&self, user: Uuid, kind: &str) -> Vec<Event> {
-        self.app
-            .events_by("activity.recorded", user)
-            .await
-            .into_iter()
-            .filter(|e| e.data["kind"] == serde_json::json!(kind))
-            .collect()
+        self.app.events_by("activity.recorded", user).await.into_iter().filter(|e| e.data["kind"] == serde_json::json!(kind)).collect()
     }
 }
 
 /// The pending requests to (or, for `OUTGOING`, from) a user.
-pub async fn list_requests(
-    ctx: &Ctx,
-    user: &TestUser,
-    direction: FriendRequestDirection,
-) -> ListFriendRequestsResponse {
-    ctx.friends(
-        "ListFriendRequests",
-        user,
-        &ListFriendRequestsRequest { direction: direction.into(), ..Default::default() },
-    )
-    .await
-    .unwrap()
+pub async fn list_requests(ctx: &Ctx, user: &TestUser, direction: FriendRequestDirection) -> ListFriendRequestsResponse {
+    ctx.friends("ListFriendRequests", user, &ListFriendRequestsRequest { direction: direction.into(), ..Default::default() }).await.unwrap()
 }
 
 pub fn request_to(user_id: Uuid) -> SendFriendRequestRequest {

@@ -123,24 +123,13 @@ impl Social {
         recipients.sort_unstable();
         recipients.dedup();
         ensure!(!recipients.is_empty(), invalid, "NO_RECIPIENTS", "choose at least one friend");
-        ensure!(
-            recipients.len() <= MAX_RECIPIENTS,
-            invalid,
-            "TOO_MANY_RECIPIENTS",
-            "at most {MAX_RECIPIENTS} friends per reaction"
-        );
-        let friends: i64 =
-            sqlx::query_scalar("SELECT count(*) FROM friendships WHERE user_id = $1 AND friend_id = ANY($2)")
-                .bind(user_id)
-                .bind(&recipients)
-                .fetch_one(&core.db)
-                .await?;
-        ensure!(
-            friends as usize == recipients.len(),
-            precondition,
-            "NOT_FRIENDS",
-            "map reactions can only be sent to friends"
-        );
+        ensure!(recipients.len() <= MAX_RECIPIENTS, invalid, "TOO_MANY_RECIPIENTS", "at most {MAX_RECIPIENTS} friends per reaction");
+        let friends: i64 = sqlx::query_scalar("SELECT count(*) FROM friendships WHERE user_id = $1 AND friend_id = ANY($2)")
+            .bind(user_id)
+            .bind(&recipients)
+            .fetch_one(&core.db)
+            .await?;
+        ensure!(friends as usize == recipients.len(), precondition, "NOT_FRIENDS", "map reactions can only be sent to friends");
         core.cache.rate_limit(&format!("map-reaction:{user_id}"), 120, Duration::from_secs(60)).await?;
 
         let me = tokuly_identity::summary(core, user_id).await?;
@@ -162,15 +151,9 @@ impl Social {
         for recipient in &recipients {
             outbound::notify(
                 &mut *tx,
-                &NotificationRequest::new(
-                    *recipient,
-                    "social.map_reaction",
-                    text.title.clone(),
-                    text.body.clone(),
-                    "/map",
-                )
-                .actor(user_id)
-                .collapse(format!("social.map_reaction:{user_id}")),
+                &NotificationRequest::new(*recipient, "social.map_reaction", text.title.clone(), text.body.clone(), "/map")
+                    .actor(user_id)
+                    .collapse(format!("social.map_reaction:{user_id}")),
             )
             .await?;
         }
@@ -223,13 +206,11 @@ impl Social {
     /// people's reactions (or unknown ones) are ignored.
     pub(crate) async fn ack_map_reactions(&self, user_id: Uuid, reaction_ids: &[Uuid]) -> AppResult<()> {
         ensure!(reaction_ids.len() <= MAX_ACKS, invalid, "TOO_MANY_IDS", "at most {MAX_ACKS} reactions per request");
-        sqlx::query(
-            "UPDATE map_reactions SET acked_at = now() WHERE to_user_id = $1 AND id = ANY($2) AND acked_at IS NULL",
-        )
-        .bind(user_id)
-        .bind(reaction_ids)
-        .execute(&self.core.db)
-        .await?;
+        sqlx::query("UPDATE map_reactions SET acked_at = now() WHERE to_user_id = $1 AND id = ANY($2) AND acked_at IS NULL")
+            .bind(user_id)
+            .bind(reaction_ids)
+            .execute(&self.core.db)
+            .await?;
         Ok(())
     }
 }
@@ -243,20 +224,14 @@ mod tests {
     #[test]
     fn plain_kinds_ignore_emoji_and_stamp() {
         let reaction = Reaction::parse(Some(MAP_REACTION_KIND_HEARTS), "🍜", "not-an-id", 0).unwrap();
-        assert_eq!(
-            reaction,
-            Reaction { kind: MAP_REACTION_KIND_HEARTS, emoji: String::new(), stamp_id: None, intensity: 1 }
-        );
+        assert_eq!(reaction, Reaction { kind: MAP_REACTION_KIND_HEARTS, emoji: String::new(), stamp_id: None, intensity: 1 });
     }
 
     #[test]
     fn emoji_reactions_need_a_real_emoji() {
         assert_eq!(Reaction::parse(Some(MAP_REACTION_KIND_EMOJI), " 🍜 ", "", 3).unwrap().emoji, "🍜");
         assert!(Reaction::parse(Some(MAP_REACTION_KIND_EMOJI), "👨‍👩‍👧🎉🔥", "", 1).is_ok(), "three grapheme clusters");
-        assert!(
-            Reaction::parse(Some(MAP_REACTION_KIND_EMOJI), "1️⃣", "", 1).is_ok(),
-            "keycap emoji start with an ASCII digit"
-        );
+        assert!(Reaction::parse(Some(MAP_REACTION_KIND_EMOJI), "1️⃣", "", 1).is_ok(), "keycap emoji start with an ASCII digit");
         for bad in ["", "   ", "hello", "🍜🍜🍜🍜", "🍜 🍜", "a", "123", "a🍜"] {
             let err = Reaction::parse(Some(MAP_REACTION_KIND_EMOJI), bad, "", 1).unwrap_err();
             assert_eq!(err.reason, "INVALID_EMOJI", "{bad:?}");
@@ -266,20 +241,14 @@ mod tests {
     #[test]
     fn stamp_reactions_need_a_stamp_id() {
         let stamp = Uuid::now_v7();
-        assert_eq!(
-            Reaction::parse(Some(MAP_REACTION_KIND_STAMP), "", &stamp.to_string(), 2).unwrap().stamp_id,
-            Some(stamp)
-        );
+        assert_eq!(Reaction::parse(Some(MAP_REACTION_KIND_STAMP), "", &stamp.to_string(), 2).unwrap().stamp_id, Some(stamp));
         assert_eq!(Reaction::parse(Some(MAP_REACTION_KIND_STAMP), "", "", 2).unwrap_err().reason, "INVALID_ID");
     }
 
     #[test]
     fn kind_and_intensity_are_checked() {
         assert_eq!(Reaction::parse(None, "", "", 1).unwrap_err().reason, "INVALID_REACTION_KIND");
-        assert_eq!(
-            Reaction::parse(Some(MAP_REACTION_KIND_UNSPECIFIED), "", "", 1).unwrap_err().reason,
-            "INVALID_REACTION_KIND"
-        );
+        assert_eq!(Reaction::parse(Some(MAP_REACTION_KIND_UNSPECIFIED), "", "", 1).unwrap_err().reason, "INVALID_REACTION_KIND");
         assert_eq!(Reaction::parse(Some(MAP_REACTION_KIND_EYES), "", "", 6).unwrap_err().reason, "INVALID_INTENSITY");
         assert_eq!(Reaction::parse(Some(MAP_REACTION_KIND_EYES), "", "", -1).unwrap_err().reason, "INVALID_INTENSITY");
         assert_eq!(Reaction::parse(Some(MAP_REACTION_KIND_DRINKS), "", "", 5).unwrap().intensity, 5);

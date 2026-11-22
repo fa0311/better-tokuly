@@ -79,25 +79,13 @@ fn topic_key(topic: &str) -> String {
 /// connect, on foreground transitions and on every heartbeat.
 pub async fn mark_online(cache: &Cache, user_id: Uuid) -> AppResult<()> {
     cache.set_string(&online_key(user_id), "1", Some(std::time::Duration::from_secs(ONLINE_TTL_SECONDS))).await?;
-    cache
-        .set_string(
-            &last_seen_key(user_id),
-            &Utc::now().timestamp().to_string(),
-            Some(std::time::Duration::from_secs(90 * 24 * 3600)),
-        )
-        .await
+    cache.set_string(&last_seen_key(user_id), &Utc::now().timestamp().to_string(), Some(std::time::Duration::from_secs(90 * 24 * 3600))).await
 }
 
 /// Marks a user offline (last foreground connection went away).
 pub async fn mark_offline(cache: &Cache, user_id: Uuid) -> AppResult<()> {
     cache.del(&online_key(user_id)).await?;
-    cache
-        .set_string(
-            &last_seen_key(user_id),
-            &Utc::now().timestamp().to_string(),
-            Some(std::time::Duration::from_secs(90 * 24 * 3600)),
-        )
-        .await
+    cache.set_string(&last_seen_key(user_id), &Utc::now().timestamp().to_string(), Some(std::time::Duration::from_secs(90 * 24 * 3600))).await
 }
 
 /// Whether the user has the app open right now.
@@ -117,11 +105,7 @@ pub async fn online_among(cache: &Cache, user_ids: &[Uuid]) -> AppResult<Vec<Uui
 
 /// When the user was last seen online (now, if they are online).
 pub async fn last_seen(cache: &Cache, user_id: Uuid) -> AppResult<Option<DateTime<Utc>>> {
-    Ok(cache
-        .get_string(&last_seen_key(user_id))
-        .await?
-        .and_then(|s| s.parse::<i64>().ok())
-        .and_then(|s| DateTime::from_timestamp(s, 0)))
+    Ok(cache.get_string(&last_seen_key(user_id)).await?.and_then(|s| s.parse::<i64>().ok()).and_then(|s| DateTime::from_timestamp(s, 0)))
 }
 
 /// Publishes a presence transition for the social domain to fan out.
@@ -151,15 +135,8 @@ pub async fn set_topic_audience(cache: &Cache, topic: &str, instance: &str, coun
         // Each report carries its own timestamp so readers can ignore stale instances.
         let value = format!("{count}:{}", Utc::now().timestamp());
         redis::pipe()
-            .cmd("HSET")
-            .arg(&key)
-            .arg(instance)
-            .arg(value)
-            .ignore()
-            .cmd("EXPIRE")
-            .arg(&key)
-            .arg(AUDIENCE_TTL_SECONDS * 2)
-            .ignore()
+            .cmd("HSET").arg(&key).arg(instance).arg(value).ignore()
+            .cmd("EXPIRE").arg(&key).arg(AUDIENCE_TTL_SECONDS * 2).ignore()
             .query_async::<()>(&mut conn)
             .await?;
     }

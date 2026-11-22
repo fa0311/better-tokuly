@@ -108,17 +108,8 @@ pub async fn set(cache: &Cache, user_id: Uuid, lat: f64, lng: f64, recorded_at: 
     let member = user_id.simple().to_string();
     let mut conn = cache.conn();
     redis::pipe()
-        .cmd("GEOADD")
-        .arg(POSITIONS)
-        .arg(lng)
-        .arg(lat)
-        .arg(&member)
-        .ignore()
-        .cmd("HSET")
-        .arg(TIMESTAMPS)
-        .arg(&member)
-        .arg(recorded_at.timestamp_millis())
-        .ignore()
+        .cmd("GEOADD").arg(POSITIONS).arg(lng).arg(lat).arg(&member).ignore()
+        .cmd("HSET").arg(TIMESTAMPS).arg(&member).arg(recorded_at.timestamp_millis()).ignore()
         .query_async::<()>(&mut conn)
         .await?;
     Ok(())
@@ -129,17 +120,9 @@ pub async fn remove(cache: &Cache, user_id: Uuid) -> AppResult<()> {
     let member = user_id.simple().to_string();
     let mut conn = cache.conn();
     redis::pipe()
-        .cmd("ZREM")
-        .arg(POSITIONS)
-        .arg(&member)
-        .ignore()
-        .cmd("HDEL")
-        .arg(TIMESTAMPS)
-        .arg(&member)
-        .ignore()
-        .cmd("DEL")
-        .arg(sight_key(user_id))
-        .ignore()
+        .cmd("ZREM").arg(POSITIONS).arg(&member).ignore()
+        .cmd("HDEL").arg(TIMESTAMPS).arg(&member).ignore()
+        .cmd("DEL").arg(sight_key(user_id)).ignore()
         .query_async::<()>(&mut conn)
         .await?;
     Ok(())
@@ -150,12 +133,8 @@ pub async fn get(cache: &Cache, user_id: Uuid) -> AppResult<Option<Position>> {
     let member = user_id.simple().to_string();
     let mut conn = cache.conn();
     let (positions, millis): (Vec<Option<(f64, f64)>>, Option<i64>) = redis::pipe()
-        .cmd("GEOPOS")
-        .arg(POSITIONS)
-        .arg(&member)
-        .cmd("HGET")
-        .arg(TIMESTAMPS)
-        .arg(&member)
+        .cmd("GEOPOS").arg(POSITIONS).arg(&member)
+        .cmd("HGET").arg(TIMESTAMPS).arg(&member)
         .query_async(&mut conn)
         .await?;
     let Some(Some((lng, lat))) = positions.into_iter().next() else { return Ok(None) };
@@ -184,25 +163,14 @@ pub async fn distance_between(cache: &Cache, a: Uuid, b: Uuid, max_age: std::tim
 /// [`get`] when freshness matters. These are true positions of whoever is
 /// there: before telling one user anything about another found here, check
 /// [`mutually_precise`].
-pub async fn nearby(
-    cache: &Cache,
-    lat: f64,
-    lng: f64,
-    radius_meters: f64,
-    limit: usize,
-) -> AppResult<Vec<(Uuid, f64)>> {
+pub async fn nearby(cache: &Cache, lat: f64, lng: f64, radius_meters: f64, limit: usize) -> AppResult<Vec<(Uuid, f64)>> {
     let mut conn = cache.conn();
     let hits: Vec<(String, f64)> = redis::cmd("GEOSEARCH")
         .arg(POSITIONS)
-        .arg("FROMLONLAT")
-        .arg(lng)
-        .arg(lat)
-        .arg("BYRADIUS")
-        .arg(radius_meters)
-        .arg("m")
+        .arg("FROMLONLAT").arg(lng).arg(lat)
+        .arg("BYRADIUS").arg(radius_meters).arg("m")
         .arg("ASC")
-        .arg("COUNT")
-        .arg(limit.max(1))
+        .arg("COUNT").arg(limit.max(1))
         .arg("WITHDIST")
         .query_async(&mut conn)
         .await?;

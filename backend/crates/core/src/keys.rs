@@ -18,21 +18,25 @@ pub struct Keys {
 
 impl Keys {
     pub fn new(secret: &str) -> Self {
-        Self { master: secret.as_bytes().to_vec() }
+        Self {
+            master: secret.as_bytes().to_vec(),
+        }
     }
 
     /// Derives a 32-byte key for a purpose label, e.g. `"jwt/ed25519"`.
     pub fn derive(&self, label: &str) -> [u8; 32] {
         let hk = Hkdf::<Sha256>::new(Some(SALT), &self.master);
         let mut out = [0u8; 32];
-        hk.expand(label.as_bytes(), &mut out).expect("32 bytes is a valid HKDF output length");
+        hk.expand(label.as_bytes(), &mut out)
+            .expect("32 bytes is a valid HKDF output length");
         out
     }
 
     /// HMAC-SHA256 of `data` under the key derived for `label`.
     pub fn mac(&self, label: &str, data: &[u8]) -> [u8; 32] {
         let key = self.derive(label);
-        let mut mac = <Hmac<Sha256> as hmac::KeyInit>::new_from_slice(&key).expect("HMAC accepts any key length");
+        let mut mac = <Hmac<Sha256> as hmac::KeyInit>::new_from_slice(&key)
+            .expect("HMAC accepts any key length");
         mac.update(data);
         mac.finalize().into_bytes().into()
     }
@@ -55,7 +59,11 @@ impl Keys {
         let mut nonce = [0u8; 24];
         rand::rng().fill(&mut nonce[..]);
         let mut out = nonce.to_vec();
-        out.extend(cipher.encrypt(&XNonce::from(nonce), plaintext).expect("encryption cannot fail"));
+        out.extend(
+            cipher
+                .encrypt(&XNonce::from(nonce), plaintext)
+                .expect("encryption cannot fail"),
+        );
         out
     }
 
@@ -83,7 +91,9 @@ pub fn b64url(data: &[u8]) -> String {
 }
 
 pub fn b64url_decode(data: &str) -> Option<Vec<u8>> {
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(data).ok()
+    base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(data)
+        .ok()
 }
 
 /// A random URL-safe secret with `bytes` bytes of entropy.
@@ -109,19 +119,29 @@ mod tests {
         let keys = Keys::new("0123456789abcdef0123456789abcdef");
         assert_eq!(keys.derive("a"), keys.derive("a"));
         assert_ne!(keys.derive("a"), keys.derive("b"));
-        assert_ne!(Keys::new("another-secret-another-secret-123").derive("a"), keys.derive("a"));
+        assert_ne!(
+            Keys::new("another-secret-another-secret-123").derive("a"),
+            keys.derive("a")
+        );
     }
 
     #[test]
     fn seal_roundtrips_and_rejects_tampering() {
         let keys = Keys::new("0123456789abcdef0123456789abcdef");
         let sealed = keys.seal("totp", b"JBSWY3DPEHPK3PXP");
-        assert_eq!(keys.open("totp", &sealed).as_deref(), Some(b"JBSWY3DPEHPK3PXP".as_slice()));
+        assert_eq!(
+            keys.open("totp", &sealed).as_deref(),
+            Some(b"JBSWY3DPEHPK3PXP".as_slice())
+        );
         assert!(keys.open("other", &sealed).is_none());
         let mut bad = sealed.clone();
         *bad.last_mut().unwrap() ^= 1;
         assert!(keys.open("totp", &bad).is_none());
-        assert_ne!(sealed, keys.seal("totp", b"JBSWY3DPEHPK3PXP"), "nonces are random");
+        assert_ne!(
+            sealed,
+            keys.seal("totp", b"JBSWY3DPEHPK3PXP"),
+            "nonces are random"
+        );
     }
 
     #[test]

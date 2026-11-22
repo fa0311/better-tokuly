@@ -92,8 +92,7 @@ impl Social {
 
     async fn push_presence(&self, user_id: Uuid, online: bool, at: Option<DateTime<Utc>>) -> AppResult<()> {
         let friends = graph::friend_ids(&self.core, user_id).await?;
-        let event =
-            PresenceEvent { user_id: user_id.to_string(), online, last_seen_at: opt_ts(at), ..Default::default() };
+        let event = PresenceEvent { user_id: user_id.to_string(), online, last_seen_at: opt_ts(at), ..Default::default() };
         self.core.rt.presence_to_users(friends, event).await
     }
 }

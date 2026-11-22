@@ -9,7 +9,11 @@ use clap::Args;
 #[derive(Debug, Clone, Args)]
 pub struct Config {
     /// Public origin of the web app (scheme + host [+ port], no trailing slash).
-    #[arg(long, env = "TOKULY_PUBLIC_URL", default_value = "http://localhost:8080")]
+    #[arg(
+        long,
+        env = "TOKULY_PUBLIC_URL",
+        default_value = "http://localhost:8080"
+    )]
     pub public_url: String,
 
     /// Path prefix under which the edge proxy exposes the API to browsers
@@ -54,11 +58,21 @@ pub struct Config {
     pub database_max_connections: u32,
 
     // ── Valkey ──
-    #[arg(long, env = "TOKULY_VALKEY_URL", default_value = "redis://localhost:6379", hide_env_values = true)]
+    #[arg(
+        long,
+        env = "TOKULY_VALKEY_URL",
+        default_value = "redis://localhost:6379",
+        hide_env_values = true
+    )]
     pub valkey_url: String,
 
     // ── NATS ──
-    #[arg(long, env = "TOKULY_NATS_URL", default_value = "nats://localhost:4222", hide_env_values = true)]
+    #[arg(
+        long,
+        env = "TOKULY_NATS_URL",
+        default_value = "nats://localhost:4222",
+        hide_env_values = true
+    )]
     pub nats_url: String,
 
     /// Namespace for NATS subjects and streams, so several deployments can
@@ -68,7 +82,11 @@ pub struct Config {
 
     // ── Object storage (S3 API) ──
     /// Endpoint the backend uses to reach the object store.
-    #[arg(long, env = "TOKULY_S3_ENDPOINT", default_value = "http://localhost:9000")]
+    #[arg(
+        long,
+        env = "TOKULY_S3_ENDPOINT",
+        default_value = "http://localhost:9000"
+    )]
     pub s3_endpoint: String,
     /// Endpoint browsers and apps use for presigned uploads/downloads.
     /// Defaults to `TOKULY_S3_ENDPOINT`.
@@ -76,15 +94,29 @@ pub struct Config {
     pub s3_public_endpoint: Option<String>,
     #[arg(long, env = "TOKULY_S3_REGION", default_value = "us-east-1")]
     pub s3_region: String,
-    #[arg(long, env = "TOKULY_S3_ACCESS_KEY", default_value = "tokuly", hide_env_values = true)]
+    #[arg(
+        long,
+        env = "TOKULY_S3_ACCESS_KEY",
+        default_value = "tokuly",
+        hide_env_values = true
+    )]
     pub s3_access_key: String,
-    #[arg(long, env = "TOKULY_S3_SECRET_KEY", default_value = "tokuly-secret", hide_env_values = true)]
+    #[arg(
+        long,
+        env = "TOKULY_S3_SECRET_KEY",
+        default_value = "tokuly-secret",
+        hide_env_values = true
+    )]
     pub s3_secret_key: String,
     /// Bucket for processed, publicly served media.
     #[arg(long, env = "TOKULY_S3_MEDIA_BUCKET", default_value = "tokuly-media")]
     pub s3_media_bucket: String,
     /// Bucket for original uploads and private files (presigned access only).
-    #[arg(long, env = "TOKULY_S3_PRIVATE_BUCKET", default_value = "tokuly-private")]
+    #[arg(
+        long,
+        env = "TOKULY_S3_PRIVATE_BUCKET",
+        default_value = "tokuly-private"
+    )]
     pub s3_private_bucket: String,
     /// Base URL under which the media bucket is served to clients.
     /// Defaults to `{public_url}/media`.
@@ -92,27 +124,54 @@ pub struct Config {
     pub media_url: Option<String>,
 
     // ── ClickHouse ──
-    #[arg(long, env = "TOKULY_CLICKHOUSE_URL", default_value = "http://localhost:8123")]
+    #[arg(
+        long,
+        env = "TOKULY_CLICKHOUSE_URL",
+        default_value = "http://localhost:8123"
+    )]
     pub clickhouse_url: String,
     #[arg(long, env = "TOKULY_CLICKHOUSE_USER", default_value = "tokuly")]
     pub clickhouse_user: String,
-    #[arg(long, env = "TOKULY_CLICKHOUSE_PASSWORD", default_value = "tokuly", hide_env_values = true)]
+    #[arg(
+        long,
+        env = "TOKULY_CLICKHOUSE_PASSWORD",
+        default_value = "tokuly",
+        hide_env_values = true
+    )]
     pub clickhouse_password: String,
     #[arg(long, env = "TOKULY_CLICKHOUSE_DATABASE", default_value = "tokuly")]
     pub clickhouse_database: String,
 
     // ── Meilisearch ──
-    #[arg(long, env = "TOKULY_MEILI_URL", default_value = "http://localhost:7700")]
+    #[arg(
+        long,
+        env = "TOKULY_MEILI_URL",
+        default_value = "http://localhost:7700"
+    )]
     pub meili_url: String,
-    #[arg(long, env = "TOKULY_MEILI_KEY", default_value = "tokuly-meili-key", hide_env_values = true)]
+    #[arg(
+        long,
+        env = "TOKULY_MEILI_KEY",
+        default_value = "tokuly-meili-key",
+        hide_env_values = true
+    )]
     pub meili_key: String,
 
     // ── Mail ──
     /// SMTP URL, e.g. `smtp://mailpit:1025` or `smtps://user:pass@smtp.example.com`.
     /// Empty disables outgoing mail (messages are logged instead).
-    #[arg(long, env = "TOKULY_SMTP_URL", default_value = "", hide_env_values = true)]
+    #[arg(
+        long,
+        env = "TOKULY_SMTP_URL",
+        default_value = "",
+        hide_env_values = true
+    )]
     pub smtp_url: String,
-    #[arg(long, env = "TOKULY_MAIL_FROM", default_value = "Tokuly <no-reply@tokuly.localhost>")]
+    #[arg(
+        long,
+        env = "TOKULY_MAIL_FROM",
+        default_value = "Tokuly <no-reply@tokuly.localhost>"
+    )]
     pub mail_from: String,
 
     // ── LiveKit (voice and video) ──
@@ -177,8 +236,7 @@ impl Config {
 
     /// The parsed `TOKULY_TRUSTED_PROXIES`.
     pub fn trusted_proxies(&self) -> anyhow::Result<crate::proxies::TrustedProxies> {
-        crate::proxies::TrustedProxies::parse(&self.trusted_proxies)
-            .map_err(|e| anyhow::anyhow!("TOKULY_TRUSTED_PROXIES: {e}"))
+        crate::proxies::TrustedProxies::parse(&self.trusted_proxies).map_err(|e| anyhow::anyhow!("TOKULY_TRUSTED_PROXIES: {e}"))
     }
 
     pub fn validate(&self) -> anyhow::Result<()> {
@@ -187,7 +245,8 @@ impl Config {
             self.secret.len() >= 32,
             "TOKULY_SECRET must be at least 32 characters (generate one with `openssl rand -hex 32`)"
         );
-        url::Url::parse(self.public_url()).map_err(|e| anyhow::anyhow!("TOKULY_PUBLIC_URL is not a valid URL: {e}"))?;
+        url::Url::parse(self.public_url())
+            .map_err(|e| anyhow::anyhow!("TOKULY_PUBLIC_URL is not a valid URL: {e}"))?;
         Ok(())
     }
 }

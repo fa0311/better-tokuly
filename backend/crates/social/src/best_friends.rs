@@ -84,12 +84,7 @@ impl Social {
         let mut days: HashMap<Pair, Vec<DayBucket>> = HashMap::new();
         for (lo, hi, day, kind, lo_weight, hi_weight) in day_rows {
             let Some(bucket) = Bucket::from_code(kind) else { continue };
-            days.entry(Pair { lo, hi }).or_default().push(DayBucket {
-                age_days: ranking::age_days(day, today),
-                bucket,
-                lo: lo_weight,
-                hi: hi_weight,
-            });
+            days.entry(Pair { lo, hi }).or_default().push(DayBucket { age_days: ranking::age_days(day, today), bucket, lo: lo_weight, hi: hi_weight });
         }
 
         let users: Vec<Uuid> = pairs.iter().flat_map(|p| [p.lo, p.hi]).collect::<HashSet<_>>().into_iter().collect();

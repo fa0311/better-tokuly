@@ -21,8 +21,15 @@ impl Page {
     pub const DEFAULT_LIMIT: i64 = 30;
 
     pub fn new(limit: i32, cursor: &str, default: i64, max: i64) -> Self {
-        let limit = if limit <= 0 { default } else { (limit as i64).min(max) };
-        Self { limit, cursor: (!cursor.is_empty()).then(|| cursor.to_owned()) }
+        let limit = if limit <= 0 {
+            default
+        } else {
+            (limit as i64).min(max)
+        };
+        Self {
+            limit,
+            cursor: (!cursor.is_empty()).then(|| cursor.to_owned()),
+        }
     }
 
     /// From an optional request field with the standard default (30) and a maximum.
@@ -65,7 +72,11 @@ impl Page {
             (true, Some(last)) => encode_cursor(&key(last)),
             _ => String::new(),
         };
-        PageInfo { next_cursor, has_more, ..Default::default() }
+        PageInfo {
+            next_cursor,
+            has_more,
+            ..Default::default()
+        }
     }
 }
 

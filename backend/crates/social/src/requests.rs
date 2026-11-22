@@ -157,14 +157,7 @@ fn normalize_message(input: &str) -> AppResult<String> {
 impl Social {
     /// Requests a friendship from `from` to `to`, or completes one when `to`
     /// had already asked. Sending the same request twice is harmless.
-    pub(crate) async fn request_friendship(
-        &self,
-        from: Uuid,
-        to: Uuid,
-        source: FriendSource,
-        message: &str,
-        via: RequestVia,
-    ) -> AppResult<RequestOutcome> {
+    pub(crate) async fn request_friendship(&self, from: Uuid, to: Uuid, source: FriendSource, message: &str, via: RequestVia) -> AppResult<RequestOutcome> {
         ensure!(from != to, invalid, "CANNOT_FRIEND_SELF", "you cannot befriend yourself");
         let message = normalize_message(message)?;
         let core = &self.core;
@@ -239,23 +232,16 @@ impl Social {
             }
         };
         if is_news {
-            let requested =
-                FriendRequested { request_id: row.id, from_user_id: from, to_user_id: to, source: source as i32 };
+            let requested = FriendRequested { request_id: row.id, from_user_id: from, to_user_id: to, source: source as i32 };
             events::emit(&mut *tx, FRIEND_REQUESTED, Some(from), &requested).await?;
             let sender = &parties.accepter.summary; // `from`, see above
             let text = copy::friend_request(&people::name_of(sender), source);
             outbound::notify(
                 &mut *tx,
-                &NotificationRequest::new(
-                    to,
-                    "social.friend_request",
-                    text.title,
-                    text.body,
-                    format!("/u/{}", sender.handle),
-                )
-                .actor(from)
-                .subject(SubjectType::SUBJECT_TYPE_USER, from)
-                .collapse(format!("social.friend_request:{from}")),
+                &NotificationRequest::new(to, "social.friend_request", text.title, text.body, format!("/u/{}", sender.handle))
+                    .actor(from)
+                    .subject(SubjectType::SUBJECT_TYPE_USER, from)
+                    .collapse(format!("social.friend_request:{from}")),
             )
             .await?;
         }
@@ -277,29 +263,11 @@ impl Social {
         if via == RequestVia::User {
             let privacy = settings::privacy_of(core, to).await?;
             let allowed = graph::allows(core, to, Some(from), people::audience(&privacy.friend_requests_from)).await?;
-            ensure!(
-                allowed,
-                denied,
-                "FRIEND_REQUESTS_RESTRICTED",
-                "this user does not accept friend requests from you"
-            );
+            ensure!(allowed, denied, "FRIEND_REQUESTS_RESTRICTED", "this user does not accept friend requests from you");
         }
-        ensure!(
-            graph::friend_count(core, from).await? < self.cfg.max_friends,
-            precondition,
-            "FRIEND_LIMIT_REACHED",
-            "you have reached the friend limit"
-        );
-        let pending: i64 = sqlx::query_scalar("SELECT count(*) FROM friend_requests WHERE from_user_id = $1")
-            .bind(from)
-            .fetch_one(&core.db)
-            .await?;
-        ensure!(
-            pending < MAX_PENDING_OUTGOING,
-            precondition,
-            "TOO_MANY_PENDING_REQUESTS",
-            "too many friend requests are waiting for an answer"
-        );
+        ensure!(graph::friend_count(core, from).await? < self.cfg.max_friends, precondition, "FRIEND_LIMIT_REACHED", "you have reached the friend limit");
+        let pending: i64 = sqlx::query_scalar("SELECT count(*) FROM friend_requests WHERE from_user_id = $1").bind(from).fetch_one(&core.db).await?;
+        ensure!(pending < MAX_PENDING_OUTGOING, precondition, "TOO_MANY_PENDING_REQUESTS", "too many friend requests are waiting for an answer");
         if via == RequestVia::User {
             let hour = Duration::from_secs(3600);
             core.cache.rate_limit(&format!("friend-request:{from}"), 60, hour).await?;
@@ -314,24 +282,11 @@ impl Social {
     /// more requests between them, the event, the requester's notification
     /// and both activity entries. Call [`Self::after_befriended`] once the
     /// transaction has committed.
-    async fn befriend(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        source: FriendSource,
-        parties: &Introductions,
-    ) -> AppResult<()> {
+    async fn befriend(&self, tx: &mut Transaction<'_, Postgres>, source: FriendSource, parties: &Introductions) -> AppResult<()> {
         let (accepter, requester) = (&parties.accepter, &parties.requester);
         for party in [accepter, requester] {
-            let friends: i64 = sqlx::query_scalar("SELECT count(*) FROM friendships WHERE user_id = $1")
-                .bind(party.id)
-                .fetch_one(&mut **tx)
-                .await?;
-            ensure!(
-                friends < self.cfg.max_friends,
-                precondition,
-                "FRIEND_LIMIT_REACHED",
-                "one of you has reached the friend limit"
-            );
+            let friends: i64 = sqlx::query_scalar("SELECT count(*) FROM friendships WHERE user_id = $1").bind(party.id).fetch_one(&mut **tx).await?;
+            ensure!(friends < self.cfg.max_friends, precondition, "FRIEND_LIMIT_REACHED", "one of you has reached the friend limit");
         }
         sqlx::query("INSERT INTO friendships (user_id, friend_id, source) VALUES ($1, $2, $3), ($2, $1, $3)")
             .bind(accepter.id)
@@ -350,29 +305,18 @@ impl Social {
         let text = copy::friend_accepted(&people::name_of(&accepter.summary));
         outbound::notify(
             &mut **tx,
-            &NotificationRequest::new(
-                requester.id,
-                "social.friend_accepted",
-                text.title,
-                text.body,
-                format!("/u/{}", accepter.summary.handle),
-            )
-            .actor(accepter.id)
-            .subject(SubjectType::SUBJECT_TYPE_USER, accepter.id),
+            &NotificationRequest::new(requester.id, "social.friend_accepted", text.title, text.body, format!("/u/{}", accepter.summary.handle))
+                .actor(accepter.id)
+                .subject(SubjectType::SUBJECT_TYPE_USER, accepter.id),
         )
         .await?;
         for (user, friend) in [(accepter, requester), (requester, accepter)] {
             outbound::activity(
                 &mut **tx,
-                &ActivityEntry::new(
-                    user.id,
-                    "social.friend_added",
-                    user.announce_to,
-                    copy::became_friends(&people::name_of(&friend.summary)),
-                )
-                .subject(SubjectType::SUBJECT_TYPE_USER, friend.id)
-                .with([friend.id])
-                .path(format!("/u/{}", friend.summary.handle)),
+                &ActivityEntry::new(user.id, "social.friend_added", user.announce_to, copy::became_friends(&people::name_of(&friend.summary)))
+                    .subject(SubjectType::SUBJECT_TYPE_USER, friend.id)
+                    .with([friend.id])
+                    .path(format!("/u/{}", friend.summary.handle)),
             )
             .await?;
         }
@@ -385,20 +329,13 @@ impl Social {
         idcache::FRIENDS.invalidate(&self.core, &[accepter, requester]).await;
         match self.friend_as_seen_by(requester, accepter).await {
             Ok(friend) => self.push(requester, Push::FriendRequestAccepted(Box::new(friend))).await,
-            Err(e) => {
-                tracing::warn!(error = %e, "could not push the accepted friendship; clients catch up on their next refresh")
-            }
+            Err(e) => tracing::warn!(error = %e, "could not push the accepted friendship; clients catch up on their next refresh"),
         }
     }
 
     /// Accepts or (silently) declines a request addressed to `user_id`.
     /// Returns the new friend when accepted.
-    pub(crate) async fn respond_to_request(
-        &self,
-        user_id: Uuid,
-        request_id: Uuid,
-        accept: bool,
-    ) -> AppResult<Option<Friend>> {
+    pub(crate) async fn respond_to_request(&self, user_id: Uuid, request_id: Uuid, accept: bool) -> AppResult<Option<Friend>> {
         let core = &self.core;
         let pending: Option<(Uuid, i32)> =
             sqlx::query_as("SELECT from_user_id, source FROM friend_requests WHERE id = $1 AND to_user_id = $2 AND declined_at IS NULL")
@@ -412,23 +349,17 @@ impl Social {
         let mut tx = core.db.begin().await?;
         graph::lock_pair(&mut tx, user_id, requester).await?;
         // Under the lock: it may have been cancelled or answered meanwhile.
-        let still_pending: bool =
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM friend_requests WHERE id = $1 AND declined_at IS NULL)")
-                .bind(request_id)
-                .fetch_one(&mut *tx)
-                .await?;
+        let still_pending: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM friend_requests WHERE id = $1 AND declined_at IS NULL)")
+            .bind(request_id)
+            .fetch_one(&mut *tx)
+            .await?;
         ensure!(still_pending, not_found, "REQUEST_NOT_FOUND", "friend request not found");
         if !accept {
-            sqlx::query("UPDATE friend_requests SET declined_at = now() WHERE id = $1")
-                .bind(request_id)
-                .execute(&mut *tx)
-                .await?;
+            sqlx::query("UPDATE friend_requests SET declined_at = now() WHERE id = $1").bind(request_id).execute(&mut *tx).await?;
             tx.commit().await?;
             return Ok(None);
         }
-        let source = buffa::EnumValue::<FriendSource>::from(source)
-            .as_known()
-            .unwrap_or(FriendSource::FRIEND_SOURCE_UNSPECIFIED);
+        let source = buffa::EnumValue::<FriendSource>::from(source).as_known().unwrap_or(FriendSource::FRIEND_SOURCE_UNSPECIFIED);
         self.befriend(&mut tx, source, &parties).await?;
         tx.commit().await?;
         self.after_befriended(user_id, requester).await;
@@ -453,12 +384,7 @@ impl Social {
 
     /// One page of requests to (`INCOMING`, the default) or from `user_id`,
     /// newest first, and the number of requests waiting for their answer.
-    pub(crate) async fn list_requests(
-        &self,
-        user_id: Uuid,
-        direction: FriendRequestDirection,
-        page: &Page,
-    ) -> AppResult<(Vec<FriendRequest>, PageInfo, i32)> {
+    pub(crate) async fn list_requests(&self, user_id: Uuid, direction: FriendRequestDirection, page: &Page) -> AppResult<(Vec<FriendRequest>, PageInfo, i32)> {
         let before: Option<Uuid> = page.decode()?;
         let outgoing = direction == FriendRequestDirection::FRIEND_REQUEST_DIRECTION_OUTGOING;
         // Outgoing requests include declined ones: the sender is not told.
@@ -475,14 +401,12 @@ impl Social {
                 " FROM friend_requests WHERE to_user_id = $1 AND declined_at IS NULL AND ($2::uuid IS NULL OR id < $2) ORDER BY id DESC LIMIT $3"
             )
         };
-        let mut rows: Vec<RequestRow> =
-            sqlx::query_as(sql).bind(user_id).bind(before).bind(page.fetch()).fetch_all(&self.core.db).await?;
+        let mut rows: Vec<RequestRow> = sqlx::query_as(sql).bind(user_id).bind(before).bind(page.fetch()).fetch_all(&self.core.db).await?;
         let info = page.finish(&mut rows, |r| r.id);
-        let incoming_count: i64 =
-            sqlx::query_scalar("SELECT count(*) FROM friend_requests WHERE to_user_id = $1 AND declined_at IS NULL")
-                .bind(user_id)
-                .fetch_one(&self.core.db)
-                .await?;
+        let incoming_count: i64 = sqlx::query_scalar("SELECT count(*) FROM friend_requests WHERE to_user_id = $1 AND declined_at IS NULL")
+            .bind(user_id)
+            .fetch_one(&self.core.db)
+            .await?;
         Ok((self.requests_to_proto(user_id, rows).await?, info, incoming_count as i32))
     }
 

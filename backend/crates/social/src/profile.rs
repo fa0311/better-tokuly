@@ -36,13 +36,12 @@ impl ProfileExtension for Social {
         profile.mutual_friends = tokuly_identity::summaries_ordered(core, &preview).await?;
 
         if relationship == Relationship::RELATIONSHIP_FRIENDS {
-            let friendship: Option<(DateTime<Utc>, i32, bool)> = sqlx::query_as(
-                "SELECT created_at, best_friend_rank, favorite FROM friendships WHERE user_id = $1 AND friend_id = $2",
-            )
-            .bind(viewer)
-            .bind(owner)
-            .fetch_optional(&core.db)
-            .await?;
+            let friendship: Option<(DateTime<Utc>, i32, bool)> =
+                sqlx::query_as("SELECT created_at, best_friend_rank, favorite FROM friendships WHERE user_id = $1 AND friend_id = $2")
+                    .bind(viewer)
+                    .bind(owner)
+                    .fetch_optional(&core.db)
+                    .await?;
             if let Some((since, rank, favorite)) = friendship {
                 profile.friends_since = ts(since);
                 profile.best_friend = rank > 0 || favorite;
@@ -55,10 +54,7 @@ impl ProfileExtension for Social {
         let core = &self.core;
         let relationships = graph::relationships(core, viewer, user_ids).await?;
         let mutual = graph::mutual_friend_counts(core, viewer, user_ids).await?;
-        Ok(relationships
-            .into_iter()
-            .map(|(id, relationship)| (id, (relationship, mutual.get(&id).copied().unwrap_or(0))))
-            .collect())
+        Ok(relationships.into_iter().map(|(id, relationship)| (id, (relationship, mutual.get(&id).copied().unwrap_or(0)))).collect())
     }
 
     /// A block in either direction hides the two from each other.

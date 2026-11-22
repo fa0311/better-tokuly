@@ -17,8 +17,7 @@ use tokuly_testkit::{RpcError, TestUser};
 use uuid::Uuid;
 
 async fn suggestions_for(ctx: &Ctx, user: &TestUser, limit: i32) -> Vec<Suggestion> {
-    let response: ListSuggestionsResponse =
-        ctx.friends("ListSuggestions", user, &ListSuggestionsRequest { limit, ..Default::default() }).await.unwrap();
+    let response: ListSuggestionsResponse = ctx.friends("ListSuggestions", user, &ListSuggestionsRequest { limit, ..Default::default() }).await.unwrap();
     response.suggestions
 }
 
@@ -56,10 +55,7 @@ async fn friends_of_friends_are_suggested_until_related_or_dismissed() {
     ctx.befriend(&f2, &dismissed).await;
     ctx.set_privacy(&private, |p| p.discoverable = false).await;
     ctx.request(&me, &requested).await;
-    let _: BlockUserResponse = ctx
-        .friends("BlockUser", &blocker, &BlockUserRequest { user_id: me.id.to_string(), ..Default::default() })
-        .await
-        .unwrap();
+    let _: BlockUserResponse = ctx.friends("BlockUser", &blocker, &BlockUserRequest { user_id: me.id.to_string(), ..Default::default() }).await.unwrap();
 
     let found = suggestions_for(&ctx, &me, 0).await;
     assert_eq!(found[0].reason, "FRIEND_OF_FRIEND");
@@ -78,25 +74,11 @@ async fn friends_of_friends_are_suggested_until_related_or_dismissed() {
 
     assert_eq!(suggestions_for(&ctx, &me, 1).await.len(), 1);
 
-    let _: DismissSuggestionResponse = ctx
-        .friends(
-            "DismissSuggestion",
-            &me,
-            &DismissSuggestionRequest { user_id: dismissed.id.to_string(), ..Default::default() },
-        )
-        .await
-        .unwrap();
+    let _: DismissSuggestionResponse = ctx.friends("DismissSuggestion", &me, &DismissSuggestionRequest { user_id: dismissed.id.to_string(), ..Default::default() }).await.unwrap();
     let after = suggestions_for(&ctx, &me, 0).await;
     assert_eq!(suggested(&after).len(), 2);
     assert!(after.iter().all(|s| id_of(s.user.as_option().unwrap()) != dismissed.id));
-    let err = ctx
-        .friends::<_, DismissSuggestionResponse>(
-            "DismissSuggestion",
-            &me,
-            &DismissSuggestionRequest { user_id: Uuid::now_v7().to_string(), ..Default::default() },
-        )
-        .await
-        .unwrap_err();
+    let err = ctx.friends::<_, DismissSuggestionResponse>("DismissSuggestion", &me, &DismissSuggestionRequest { user_id: Uuid::now_v7().to_string(), ..Default::default() }).await.unwrap_err();
     assert_eq!(err.reason, "USER_NOT_FOUND");
 
     // Becoming friends removes a suggestion as well.
@@ -107,50 +89,26 @@ async fn friends_of_friends_are_suggested_until_related_or_dismissed() {
 #[tokio::test]
 async fn hints_from_other_domains_rank_above_friends_of_friends() {
     let ctx = start().await;
-    let (me, friend, fof, regular) = (
-        ctx.app.user("me").await,
-        ctx.app.user("friend").await,
-        ctx.app.user("fof").await,
-        ctx.app.user("regular").await,
-    );
+    let (me, friend, fof, regular) = (ctx.app.user("me").await, ctx.app.user("friend").await, ctx.app.user("fof").await, ctx.app.user("regular").await);
     ctx.befriend(&me, &friend).await;
     ctx.befriend(&friend, &fof).await;
     suggestions::suggest(&ctx.app.core, me.id, regular.id, SuggestionReason::NearbyOften).await.unwrap();
     suggestions::suggest(&ctx.app.core, me.id, regular.id, SuggestionReason::NearbyOften).await.unwrap(); // repeat is harmless
     suggestions::suggest(&ctx.app.core, me.id, me.id, SuggestionReason::NearbyOften).await.unwrap(); // ignored
-    assert_eq!(
-        suggested(&suggestions_for(&ctx, &me, 0).await),
-        vec![(regular.id, "NEARBY_OFTEN"), (fof.id, "FRIEND_OF_FRIEND")]
-    );
+    assert_eq!(suggested(&suggestions_for(&ctx, &me, 0).await), vec![(regular.id, "NEARBY_OFTEN"), (fof.id, "FRIEND_OF_FRIEND")]);
 }
 
 #[tokio::test]
 async fn contacts_match_verified_discoverable_accounts_by_email_hash() {
     let ctx = start().await;
     let me = ctx.app.user("me").await;
-    let (known, friend, hidden, unverified) = (
-        ctx.app.user("known").await,
-        ctx.app.user("friend").await,
-        ctx.app.user("hidden").await,
-        ctx.app.user("unverified").await,
-    );
+    let (known, friend, hidden, unverified) = (ctx.app.user("known").await, ctx.app.user("friend").await, ctx.app.user("hidden").await, ctx.app.user("unverified").await);
     ctx.befriend(&me, &friend).await;
     ctx.set_privacy(&hidden, |p| p.discoverable = false).await;
-    sqlx::query("UPDATE users SET email_verified_at = NULL WHERE id = $1")
-        .bind(unverified.id)
-        .execute(&ctx.app.core.db)
-        .await
-        .unwrap();
+    sqlx::query("UPDATE users SET email_verified_at = NULL WHERE id = $1").bind(unverified.id).execute(&ctx.app.core.db).await.unwrap();
     let match_contacts = |hashes: Vec<String>| {
         let (ctx, me) = (&ctx, me.clone());
-        async move {
-            ctx.friends::<_, MatchContactsResponse>(
-                "MatchContacts",
-                &me,
-                &MatchContactsRequest { contact_hashes: hashes, ..Default::default() },
-            )
-            .await
-        }
+        async move { ctx.friends::<_, MatchContactsResponse>("MatchContacts", &me, &MatchContactsRequest { contact_hashes: hashes, ..Default::default() }).await }
     };
 
     let known_hash = contact_hash(&email_of(&known));
@@ -164,17 +122,12 @@ async fn contacts_match_verified_discoverable_accounts_by_email_hash() {
         contact_hash("+819012345678"),
     ];
     let matched = match_contacts(hashes).await.unwrap().matches;
-    let mut found: Vec<(Uuid, Relationship)> =
-        matched.iter().map(|m| (id_of(m.user.as_option().unwrap()), m.relationship.as_known().unwrap())).collect();
+    let mut found: Vec<(Uuid, Relationship)> = matched.iter().map(|m| (id_of(m.user.as_option().unwrap()), m.relationship.as_known().unwrap())).collect();
     found.sort_by_key(|(id, _)| *id);
-    let mut expected =
-        vec![(known.id, Relationship::RELATIONSHIP_NONE), (friend.id, Relationship::RELATIONSHIP_FRIENDS)];
+    let mut expected = vec![(known.id, Relationship::RELATIONSHIP_NONE), (friend.id, Relationship::RELATIONSHIP_FRIENDS)];
     expected.sort_by_key(|(id, _)| *id);
     assert_eq!(found, expected, "only verified, discoverable accounts other than the caller match");
-    assert_eq!(
-        matched.iter().find(|m| id_of(m.user.as_option().unwrap()) == known.id).unwrap().contact_hash,
-        known_hash
-    );
+    assert_eq!(matched.iter().find(|m| id_of(m.user.as_option().unwrap()) == known.id).unwrap().contact_hash, known_hash);
 
     // A match becomes a suggestion (friends are filtered out as usual).
     assert_eq!(suggested(&suggestions_for(&ctx, &me, 0).await), vec![(known.id, "CONTACT")]);
@@ -190,13 +143,7 @@ async fn my_invite(ctx: &Ctx, user: &TestUser) -> Invite {
 }
 
 async fn resolve(ctx: &Ctx, viewer: Option<&TestUser>, code: &str) -> Result<ResolveInviteResponse, RpcError> {
-    ctx.app
-        .call(
-            &format!("{FRIENDS}/ResolveInvite"),
-            viewer,
-            &ResolveInviteRequest { code: code.to_owned(), ..Default::default() },
-        )
-        .await
+    ctx.app.call(&format!("{FRIENDS}/ResolveInvite"), viewer, &ResolveInviteRequest { code: code.to_owned(), ..Default::default() }).await
 }
 
 /// The event identity emits when someone signs up with an invite code.
@@ -224,14 +171,8 @@ async fn invite_codes_are_stable_resolvable_and_resettable() {
     let anonymous = resolve(&ctx, None, &invite.code).await.unwrap();
     assert_eq!(id_of(anonymous.inviter.as_option().unwrap()), inviter.id);
     assert_eq!(anonymous.relationship, Relationship::RELATIONSHIP_UNSPECIFIED);
-    assert_eq!(
-        resolve(&ctx, Some(&visitor), &invite.code).await.unwrap().relationship,
-        Relationship::RELATIONSHIP_NONE
-    );
-    assert_eq!(
-        resolve(&ctx, Some(&inviter), &invite.code).await.unwrap().relationship,
-        Relationship::RELATIONSHIP_SELF
-    );
+    assert_eq!(resolve(&ctx, Some(&visitor), &invite.code).await.unwrap().relationship, Relationship::RELATIONSHIP_NONE);
+    assert_eq!(resolve(&ctx, Some(&inviter), &invite.code).await.unwrap().relationship, Relationship::RELATIONSHIP_SELF);
     assert!(resolve(&ctx, None, &invite.url).await.is_ok(), "a pasted link works like the code");
     for bad in ["", "nope", "zzzzzzzzzz", "' OR 1=1 --"] {
         let err = resolve(&ctx, None, bad).await.unwrap_err();
@@ -239,37 +180,24 @@ async fn invite_codes_are_stable_resolvable_and_resettable() {
     }
 
     // A block hides the invite like everything else.
-    let _: BlockUserResponse = ctx
-        .friends("BlockUser", &inviter, &BlockUserRequest { user_id: visitor.id.to_string(), ..Default::default() })
-        .await
-        .unwrap();
+    let _: BlockUserResponse = ctx.friends("BlockUser", &inviter, &BlockUserRequest { user_id: visitor.id.to_string(), ..Default::default() }).await.unwrap();
     assert_eq!(resolve(&ctx, Some(&visitor), &invite.code).await.unwrap_err().reason, "INVITE_NOT_FOUND");
 
-    let reset: ResetMyInviteResponse =
-        ctx.friends("ResetMyInvite", &inviter, &ResetMyInviteRequest::default()).await.unwrap();
+    let reset: ResetMyInviteResponse = ctx.friends("ResetMyInvite", &inviter, &ResetMyInviteRequest::default()).await.unwrap();
     let fresh = reset.invite.into_option().unwrap();
     assert_ne!(fresh.code, invite.code);
-    assert_eq!(
-        resolve(&ctx, None, &invite.code).await.unwrap_err().reason,
-        "INVITE_NOT_FOUND",
-        "the old link stops working"
-    );
+    assert_eq!(resolve(&ctx, None, &invite.code).await.unwrap_err().reason, "INVITE_NOT_FOUND", "the old link stops working");
     assert!(resolve(&ctx, None, &fresh.code).await.is_ok());
     assert_eq!(my_invite(&ctx, &inviter).await.code, fresh.code);
 
-    let err = ctx
-        .app
-        .call::<_, GetMyInviteResponse>(&format!("{FRIENDS}/GetMyInvite"), None, &GetMyInviteRequest::default())
-        .await
-        .unwrap_err();
+    let err = ctx.app.call::<_, GetMyInviteResponse>(&format!("{FRIENDS}/GetMyInvite"), None, &GetMyInviteRequest::default()).await.unwrap_err();
     assert_eq!(err.reason, "SIGN_IN_REQUIRED");
 }
 
 #[tokio::test]
 async fn signing_up_through_an_invite_counts_as_an_intro() {
     let ctx = start().await;
-    let (inviter, newcomer, another) =
-        (ctx.app.user("inviter").await, ctx.app.user("newcomer").await, ctx.app.user("another").await);
+    let (inviter, newcomer, another) = (ctx.app.user("inviter").await, ctx.app.user("newcomer").await, ctx.app.user("another").await);
     let invite = my_invite(&ctx, &inviter).await;
 
     // Sign-ups without a code, with an unknown code or with one's own code change nothing.
@@ -287,8 +215,7 @@ async fn signing_up_through_an_invite_counts_as_an_intro() {
     assert_eq!(recorded[0].data["inviter_id"], serde_json::json!(inviter.id));
 
     // The newcomer's friend request is waiting for the inviter, worded accordingly.
-    let incoming: ListFriendRequestsResponse =
-        ctx.friends("ListFriendRequests", &inviter, &ListFriendRequestsRequest::default()).await.unwrap();
+    let incoming: ListFriendRequestsResponse = ctx.friends("ListFriendRequests", &inviter, &ListFriendRequestsRequest::default()).await.unwrap();
     assert_eq!(incoming.requests.len(), 1);
     assert_eq!(id_of(incoming.requests[0].from.as_option().unwrap()), newcomer.id);
     assert_eq!(incoming.requests[0].source, FriendSource::FRIEND_SOURCE_INVITE_LINK);
@@ -302,10 +229,7 @@ async fn signing_up_through_an_invite_counts_as_an_intro() {
         .call(
             "tokuly.identity.v1.ProfileService/GetProfile",
             None,
-            &GetProfileRequest {
-                by: Some(get_profile_request::By::UserId(inviter.id.to_string())),
-                ..Default::default()
-            },
+            &GetProfileRequest { by: Some(get_profile_request::By::UserId(inviter.id.to_string())), ..Default::default() },
         )
         .await
         .unwrap();
@@ -314,14 +238,8 @@ async fn signing_up_through_an_invite_counts_as_an_intro() {
     assert_eq!((intros.total, intros.users.iter().map(id_of).collect::<Vec<_>>()), (1, vec![newcomer.id]));
 
     // If the request is withdrawn, the two stay suggested to each other.
-    let _: CancelFriendRequestResponse = ctx
-        .friends(
-            "CancelFriendRequest",
-            &newcomer,
-            &CancelFriendRequestRequest { request_id: incoming.requests[0].id.clone(), ..Default::default() },
-        )
-        .await
-        .unwrap();
+    let _: CancelFriendRequestResponse =
+        ctx.friends("CancelFriendRequest", &newcomer, &CancelFriendRequestRequest { request_id: incoming.requests[0].id.clone(), ..Default::default() }).await.unwrap();
     assert_eq!(suggested(&suggestions_for(&ctx, &newcomer, 0).await), vec![(inviter.id, "INVITED_BY")]);
     assert_eq!(suggested(&suggestions_for(&ctx, &inviter, 0).await), vec![(newcomer.id, "INVITED")]);
 }
@@ -329,8 +247,7 @@ async fn signing_up_through_an_invite_counts_as_an_intro() {
 #[tokio::test]
 async fn intro_lists_follow_friend_list_privacy() {
     let ctx = start().await;
-    let (inviter, friend, stranger) =
-        (ctx.app.user("inviter").await, ctx.app.user("friend").await, ctx.app.user("stranger").await);
+    let (inviter, friend, stranger) = (ctx.app.user("inviter").await, ctx.app.user("friend").await, ctx.app.user("stranger").await);
     ctx.befriend(&inviter, &friend).await;
     let invite = my_invite(&ctx, &inviter).await;
     let mut newcomers = Vec::new();
@@ -341,23 +258,12 @@ async fn intro_lists_follow_friend_list_privacy() {
     }
     let intros_of_inviter = |viewer: &TestUser, page: PageRequest| {
         let (ctx, viewer, user_id) = (&ctx, viewer.clone(), inviter.id.to_string());
-        async move {
-            ctx.friends::<_, ListIntrosResponse>(
-                "ListIntros",
-                &viewer,
-                &ListIntrosRequest { user_id, page: page.into(), ..Default::default() },
-            )
-            .await
-        }
+        async move { ctx.friends::<_, ListIntrosResponse>("ListIntros", &viewer, &ListIntrosRequest { user_id, page: page.into(), ..Default::default() }).await }
     };
 
     let first = intros_of_inviter(&friend, PageRequest { limit: 2, ..Default::default() }).await.unwrap();
     assert_eq!(first.total, 3);
-    assert_eq!(
-        first.users.iter().map(id_of).collect::<Vec<_>>(),
-        vec![newcomers[2].id, newcomers[1].id],
-        "newest first"
-    );
+    assert_eq!(first.users.iter().map(id_of).collect::<Vec<_>>(), vec![newcomers[2].id, newcomers[1].id], "newest first");
     let cursor = first.page.as_option().unwrap().next_cursor.clone();
     let rest = intros_of_inviter(&friend, PageRequest { limit: 2, cursor, ..Default::default() }).await.unwrap();
     assert_eq!(rest.users.iter().map(id_of).collect::<Vec<_>>(), vec![newcomers[0].id]);
@@ -381,49 +287,30 @@ fn seen(snapshot: &DiscoverNearbyResponse) -> Vec<(Uuid, Relationship)> {
 #[tokio::test]
 async fn nearby_stream_reports_arrivals_and_departures() {
     let ctx = start().await;
-    let (alice, bob, blocked, far) = (
-        ctx.app.user("alice").await,
-        ctx.app.user("bob").await,
-        ctx.app.user("blocked").await,
-        ctx.app.user("far").await,
-    );
+    let (alice, bob, blocked, far) = (ctx.app.user("alice").await, ctx.app.user("bob").await, ctx.app.user("blocked").await, ctx.app.user("far").await);
     ctx.request(&alice, &bob).await;
-    let _: BlockUserResponse = ctx
-        .friends("BlockUser", &alice, &BlockUserRequest { user_id: blocked.id.to_string(), ..Default::default() })
-        .await
-        .unwrap();
+    let _: BlockUserResponse = ctx.friends("BlockUser", &alice, &BlockUserRequest { user_id: blocked.id.to_string(), ..Default::default() }).await.unwrap();
     let spot = somewhere();
     let app = &ctx.app;
 
     // Alice opens the add-friend screen first and stays; the others arrive
     // half a second later and leave after four seconds.
     let alice_request = nearby_at(spot);
-    let alice_stream =
-        app.stream::<_, DiscoverNearbyResponse>(NEARBY, Some(&alice), &alice_request, 3, Duration::from_secs(20));
+    let alice_stream = app.stream::<_, DiscoverNearbyResponse>(NEARBY, Some(&alice), &alice_request, 3, Duration::from_secs(20));
     let visit = |user: &TestUser, at: (f64, f64)| {
         let user = user.clone();
         async move {
             tokio::time::sleep(Duration::from_millis(500)).await;
-            app.stream::<_, DiscoverNearbyResponse>(NEARBY, Some(&user), &nearby_at(at), 2, Duration::from_secs(4))
-                .await
-                .unwrap()
+            app.stream::<_, DiscoverNearbyResponse>(NEARBY, Some(&user), &nearby_at(at), 2, Duration::from_secs(4)).await.unwrap()
         }
     };
-    let (alice_saw, bob_saw, blocked_saw, far_saw) = tokio::join!(
-        alice_stream,
-        visit(&bob, north_of(spot, 20.0)),
-        visit(&blocked, north_of(spot, 10.0)),
-        visit(&far, north_of(spot, 400.0))
-    );
+    let (alice_saw, bob_saw, blocked_saw, far_saw) =
+        tokio::join!(alice_stream, visit(&bob, north_of(spot, 20.0)), visit(&blocked, north_of(spot, 10.0)), visit(&far, north_of(spot, 400.0)));
     let alice_saw = alice_saw.unwrap();
 
     assert_eq!(alice_saw.len(), 3, "an empty start, Bob arriving, Bob leaving");
     assert!(alice_saw[0].users.is_empty());
-    assert_eq!(
-        seen(&alice_saw[1]),
-        vec![(bob.id, Relationship::RELATIONSHIP_REQUEST_SENT)],
-        "the blocked and the far-away user never show up"
-    );
+    assert_eq!(seen(&alice_saw[1]), vec![(bob.id, Relationship::RELATIONSHIP_REQUEST_SENT)], "the blocked and the far-away user never show up");
     let distance = alice_saw[1].users[0].distance_meters;
     assert!((18.0..=22.0).contains(&distance), "{distance}");
     assert!(alice_saw[2].users.is_empty());
@@ -433,10 +320,7 @@ async fn nearby_stream_reports_arrivals_and_departures() {
     let bob_last = seen(bob_saw.last().expect("Bob got a snapshot"));
     assert!(bob_last.contains(&(alice.id, Relationship::RELATIONSHIP_REQUEST_RECEIVED)), "{bob_last:?}");
     assert!(bob_last.iter().all(|(id, _)| *id != far.id));
-    assert!(
-        blocked_saw.iter().all(|snapshot| seen(snapshot).iter().all(|(id, _)| *id != alice.id)),
-        "blocks hide in both directions"
-    );
+    assert!(blocked_saw.iter().all(|snapshot| seen(snapshot).iter().all(|(id, _)| *id != alice.id)), "blocks hide in both directions");
     assert_eq!(far_saw.len(), 1);
     assert!(far_saw[0].users.is_empty());
 }
@@ -447,9 +331,7 @@ async fn nearby_stream_rejects_bad_input_and_opted_out_users() {
     let (user, hermit) = (ctx.app.user("user").await, ctx.app.user("hermit").await);
     let open = |user: Option<&TestUser>, request: DiscoverNearbyRequest| {
         let (app, user) = (&ctx.app, user.cloned());
-        async move {
-            app.stream::<_, DiscoverNearbyResponse>(NEARBY, user.as_ref(), &request, 1, Duration::from_secs(3)).await
-        }
+        async move { app.stream::<_, DiscoverNearbyResponse>(NEARBY, user.as_ref(), &request, 1, Duration::from_secs(3)).await }
     };
 
     assert_eq!(open(Some(&user), DiscoverNearbyRequest::default()).await.unwrap_err().reason, "INVALID_LOCATION");

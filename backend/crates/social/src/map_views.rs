@@ -24,18 +24,11 @@ impl Social {
         let core = &self.core;
         self.require_friend(viewer, viewed).await?;
         // Opening and closing a pin repeatedly is one look, not twenty.
-        let first_in_a_while = core
-            .cache
-            .set_nx(&format!("social:map-view:{}:{}", viewer.simple(), viewed.simple()), "1", VIEW_DEDUPE)
-            .await?;
+        let first_in_a_while = core.cache.set_nx(&format!("social:map-view:{}:{}", viewer.simple(), viewed.simple()), "1", VIEW_DEDUPE).await?;
         if !first_in_a_while {
             return Ok(());
         }
-        sqlx::query("INSERT INTO map_views (viewed_id, viewer_id) VALUES ($1, $2)")
-            .bind(viewed)
-            .bind(viewer)
-            .execute(&core.db)
-            .await?;
+        sqlx::query("INSERT INTO map_views (viewed_id, viewer_id) VALUES ($1, $2)").bind(viewed).bind(viewer).execute(&core.db).await?;
         if let Err(e) = graph::record_interaction(core, viewer, viewed, InteractionKind::MapView, 1).await {
             tracing::warn!(error = %e, "map view not counted towards the best-friend ranking");
         }
@@ -45,20 +38,8 @@ impl Social {
                 .bind(viewed)
                 .fetch_one(&core.db)
                 .await?;
-        let named = if settings::privacy_of(core, viewer).await?.share_views {
-            Some(tokuly_identity::summary(core, viewer).await?)
-        } else {
-            None
-        };
-        self.push(
-            viewed,
-            Push::MapView(Box::new(MapViewEvent {
-                viewer: named.into(),
-                viewer_count_24h: viewer_count as i32,
-                ..Default::default()
-            })),
-        )
-        .await;
+        let named = if settings::privacy_of(core, viewer).await?.share_views { Some(tokuly_identity::summary(core, viewer).await?) } else { None };
+        self.push(viewed, Push::MapView(Box::new(MapViewEvent { viewer: named.into(), viewer_count_24h: viewer_count as i32, ..Default::default() }))).await;
         Ok(())
     }
 
@@ -86,8 +67,7 @@ impl Social {
         .fetch_all(&core.db)
         .await?;
         let privacy = settings::privacy_of_many(core, &recent).await?;
-        let sharing: Vec<Uuid> =
-            recent.into_iter().filter(|id| privacy.get(id).is_some_and(|p| p.share_views)).collect();
+        let sharing: Vec<Uuid> = recent.into_iter().filter(|id| privacy.get(id).is_some_and(|p| p.share_views)).collect();
         Ok(GetMapViewsResponse {
             viewer_count: viewer_count as i32,
             view_count: view_count as i32,

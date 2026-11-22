@@ -247,7 +247,11 @@ pub async fn apply_schema(cfg: &Config, statements: &[(&str, &str)]) -> anyhow::
         .map_err(|e| anyhow::anyhow!("cannot create ClickHouse database: {e}"))?;
     let database = server.with_database(&cfg.clickhouse_database);
     for (name, sql) in statements {
-        database.query(sql).execute().await.map_err(|e| anyhow::anyhow!("ClickHouse schema {name} failed: {e}"))?;
+        database
+            .query(sql)
+            .execute()
+            .await
+            .map_err(|e| anyhow::anyhow!("ClickHouse schema {name} failed: {e}"))?;
     }
     Ok(())
 }

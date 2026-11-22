@@ -305,8 +305,7 @@ mod tests {
     #[test]
     fn notification_builder_sets_delivery_channels() {
         let user = Uuid::now_v7();
-        let n = NotificationRequest::new(user, "social.buzz", Localized::same("t"), Localized::same("b"), "/map")
-            .push_only();
+        let n = NotificationRequest::new(user, "social.buzz", Localized::same("t"), Localized::same("b"), "/map").push_only();
         assert!(n.push && !n.inbox);
         let n = NotificationRequest::new(user, "x.y", Localized::same("t"), Localized::same("b"), "/").inbox_only();
         assert!(!n.push && n.inbox);
