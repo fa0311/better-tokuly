@@ -1,36 +1,308 @@
 /*
  * Tokuly service worker. Plain JavaScript, no imports, no build step.
  *
- *   1. Lifecycle             take over as soon as a new version is installed
- *   2. Push                  show the notification the server sent
- *   3. Notification click    focus or open the app at the notification's path
- *   4. Subscription change   tell open pages to register the new subscription
- *
- * There is no `fetch` handler: every request goes straight to the network.
- * Offline support would add one as its own section, with its own cache names,
- * and leave `/api/`, `/media/` and `/tiles/` alone.
+ *   1. Lifecycle             a new version waits until the person says "update"
+ *   2. Offline               caches for static files, the offline page for navigations
+ *   3. Push                  show the notification the server sent
+ *   4. Notification click    focus or open the app at the notification's path
+ *   5. Subscription change   tell open pages to register the new subscription
+ *   6. Messages from pages   update now, clear the offline data
  *
  * Messages to pages (received on `navigator.serviceWorker`):
  *   { type: "tokuly:notification-click", id, path }   answered through the message port
  *   { type: "tokuly:push-subscription-change" }
+ *
+ * Messages from pages (`postMessage` on the worker):
+ *   { type: "tokuly:skip-waiting" }          sent to a waiting worker: take over now
+ *   { type: "tokuly:clear-offline-data" }    answered through the message port with { ok }
  */
 
-const APP_ICON = "/icon.svg";
+const APP_ICON = "/icons/icon-192.png";
+/** The small single-colour image next to a notification in the status bar (Android). */
+const APP_BADGE = "/icons/badge-96.png";
 /** Where a click goes when no open page takes it: resolves `path` inside the app and marks `id` read. */
 const OPEN_ROUTE = "/notifications/open";
 const INBOX_PATH = "/notifications";
 
 // ── 1. Lifecycle ────────────────────────────────────────────────────
 
-self.addEventListener("install", () => {
-  self.skipWaiting();
+/*
+ * No `skipWaiting` here. The first worker of a browser activates by itself
+ * and takes the open pages (`claim`). A later version stays "waiting" while a
+ * page of the old one is open: the app shows "新しいバージョンがあるよ" and sends
+ * `tokuly:skip-waiting` when the person taps it (section 6), so nobody's page
+ * changes its worker underneath them.
+ */
+self.addEventListener("install", (event) => {
+  bypassWorker(event);
+  // Not fatal: push must work even where the offline page cannot be fetched right now.
+  event.waitUntil(storeOfflinePage().catch(() => {}));
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    (async () => {
+      await enableNavigationPreload().catch(() => {});
+      await self.clients.claim();
+      // Housekeeping after the pages are taken, so it never holds up their requests.
+      await Promise.allSettled([dropForeignCaches(), storeOfflinePage(), ...RUNTIME_CACHES.map(trim)]);
+    })(),
+  );
 });
 
-// ── 2. Push ─────────────────────────────────────────────────────────
+/**
+ * Tells the browser which requests never concern this worker, so they go to
+ * the network directly instead of waiting for it to wake up: API calls,
+ * media and tiles stay exactly as fast as without a worker. Where the browser
+ * cannot be told (no static routing), the `fetch` listener ignores the same
+ * requests itself.
+ */
+function bypassWorker(event) {
+  if (!event.addRoutes) return;
+  try {
+    const routes = UNTOUCHED.map((prefix) => ({ condition: { urlPattern: new URLPattern({ pathname: `${prefix}*` }) }, source: "network" }));
+    event.waitUntil(event.addRoutes(routes).catch(() => {}));
+  } catch {
+    // The listener's own check covers it.
+  }
+}
+
+// ── 2. Offline ──────────────────────────────────────────────────────
+
+/*
+ * What is kept, and only this:
+ *
+ *   tokuly-shell    /offline.html, stored when the worker installs
+ *   tokuly-assets   /assets/*: the app's scripts, styles and fonts. Their names
+ *                   carry a content hash, so a stored file never goes stale:
+ *                   cache first.
+ *   tokuly-map      /map-assets/*: map fonts and sprites. Answered from the
+ *                   cache while a fresh copy is fetched for next time.
+ *
+ * Navigations go to the network; `/offline.html` answers when it cannot be
+ * reached. Everything else is not touched at all: `/api/`, `/media/` and
+ * `/tiles/`, other origins, anything that is not a GET, and every path that
+ * is not listed above. That includes all modules of the development server
+ * (`/src/`, `/@vite/`, `/node_modules/`), so development never sees a cached
+ * module. Nothing is stored by name at install time except the offline page:
+ * what a build needs is learned as it is used.
+ *
+ * Cache names start with `tokuly-` (the app's "clear offline data" relies on
+ * it); bump the version when what is stored changes shape.
+ */
+const CACHE_PREFIX = "tokuly-";
+const SHELL_CACHE = `${CACHE_PREFIX}shell-v1`;
+const OFFLINE_URL = "/offline.html";
+const DAY_MS = 24 * 60 * 60_000;
+
+const RUNTIME_CACHES = [
+  {
+    cache: `${CACHE_PREFIX}assets-v1`,
+    // `name-<hash>.ext`, as the build writes it. Anything else under /assets/ is not known to be immutable.
+    matches: (url) => url.pathname.startsWith("/assets/") && /-[\w-]{8,}\.[a-z0-9]+$/i.test(url.pathname),
+    strategy: cacheFirst,
+    // A visit uses around a hundred of a build's files (most are font slices); this holds a few builds.
+    maxEntries: 500,
+    maxAgeMs: 45 * DAY_MS,
+  },
+  {
+    cache: `${CACHE_PREFIX}map-v1`,
+    matches: (url) => url.pathname.startsWith("/map-assets/"),
+    strategy: staleWhileRevalidate,
+    // Glyph ranges are around 100 KB each, and Japanese labels need many of them.
+    maxEntries: 150,
+    maxAgeMs: 30 * DAY_MS,
+  },
+];
+const KNOWN_CACHES = [SHELL_CACHE, ...RUNTIME_CACHES.map((rule) => rule.cache)];
+
+/** Paths the worker never answers, not even for a navigation: they carry credentials or people's uploads. */
+const UNTOUCHED = ["/api/", "/media/", "/tiles/", "/rt/"];
+
+/** Here a URL names one file, whatever headers ask for it: `Vary` is not allowed to cause a miss. */
+const SAME_FILE = { ignoreVary: true };
+/** Response header added to stored copies: when they were stored (ms since epoch). */
+const STORED_AT = "x-tokuly-stored-at";
+/** Sweep a cache after this many additions (and once when the worker activates). */
+const TRIM_EVERY = 30;
+
+self.addEventListener("fetch", (event) => {
+  const request = event.request;
+  if (request.method !== "GET") return;
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
+  if (UNTOUCHED.some((prefix) => url.pathname.startsWith(prefix))) {
+    // A page load that is not the app's (a file opened by its address): the browser has already
+    // asked for it (navigation preload), so that answer is used instead of asking a second time.
+    if (request.mode === "navigate") event.respondWith(passThrough(event));
+    return;
+  }
+
+  if (request.mode === "navigate") {
+    event.respondWith(navigate(event));
+    return;
+  }
+  // Signed requests and partial content are never stored.
+  if (request.headers.has("authorization") || request.headers.has("range")) return;
+  const rule = RUNTIME_CACHES.find((candidate) => candidate.matches(url));
+  if (rule) event.respondWith(rule.strategy(event, rule));
+});
+
+/** The network's answer, untouched and never stored. */
+async function passThrough(event) {
+  return (await event.preloadResponse) || fetch(event.request);
+}
+
+/** A page load: always from the network, so nobody is served an old app; the offline page when there is none. */
+async function navigate(event) {
+  try {
+    // With navigation preload the browser started the request while the worker was waking up.
+    const response = (await event.preloadResponse) || (await fetch(event.request));
+    // Catches up when the offline page could not be stored at install time.
+    event.waitUntil(storeOfflinePage().catch(() => {}));
+    return response;
+  } catch {
+    const cache = await caches.open(SHELL_CACHE);
+    return (await cache.match(OFFLINE_URL)) || bareOfflinePage();
+  }
+}
+
+/** Last resort when even the offline page is missing (it could never be fetched). */
+function bareOfflinePage() {
+  const html =
+    '<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+    "<title>Tokuly</title><body style=\"font-family:system-ui,sans-serif;text-align:center;padding:4rem 1.5rem\">" +
+    "<h1>オフラインみたい</h1><p>You are offline.</p><p><button onclick=\"location.reload()\">もう一度ためす / Try again</button></p>";
+  return new Response(html, { status: 503, headers: { "content-type": "text/html; charset=utf-8" } });
+}
+
+/** When this worker last made sure the offline page is stored and recent (it forgets when it is stopped). */
+let offlinePageCheckedAt = 0;
+/**
+ * Stores the offline page, and fetches it again when the stored copy is more
+ * than a day old: a changed page reaches people without a new worker. Fails
+ * when it cannot be fetched; whatever was stored before stays.
+ */
+async function storeOfflinePage() {
+  if (Date.now() - offlinePageCheckedAt < DAY_MS) return;
+  const cache = await caches.open(SHELL_CACHE);
+  const stored = await cache.match(OFFLINE_URL);
+  if (!stored || !fresh(stored, { maxAgeMs: DAY_MS })) {
+    // `reload`: the copy that is kept must come from the server, not from the browser's HTTP cache.
+    const response = await fetch(new Request(OFFLINE_URL, { cache: "reload" }));
+    if (!storable(response)) throw new Error(`offline page: ${response.status}`);
+    await cache.put(OFFLINE_URL, await stamped(response));
+  }
+  offlinePageCheckedAt = Date.now();
+}
+
+async function enableNavigationPreload() {
+  if (self.registration.navigationPreload) await self.registration.navigationPreload.enable();
+}
+
+/** Caches of earlier versions of this worker. */
+async function dropForeignCaches() {
+  const names = await caches.keys();
+  await Promise.all(names.filter((name) => name.startsWith(CACHE_PREFIX) && !KNOWN_CACHES.includes(name)).map((name) => caches.delete(name)));
+}
+
+/** The stored copy if there is one, the network (storing the answer) otherwise. */
+async function cacheFirst(event, rule) {
+  const cache = await caches.open(rule.cache);
+  const stored = await cache.match(event.request, SAME_FILE);
+  if (stored && fresh(stored, rule)) return stored;
+  try {
+    return await fetchAndStore(event, cache, rule);
+  } catch (error) {
+    // Too old to keep, but better than nothing on a bad connection.
+    if (stored) return stored;
+    throw error;
+  }
+}
+
+/** The stored copy at once, refreshed in the background for next time; the network when there is none. */
+async function staleWhileRevalidate(event, rule) {
+  const cache = await caches.open(rule.cache);
+  const stored = await cache.match(event.request, SAME_FILE);
+  const refreshed = fetchAndStore(event, cache, rule);
+  if (stored && fresh(stored, rule)) {
+    event.waitUntil(refreshed.catch(() => {}));
+    return stored;
+  }
+  try {
+    return await refreshed;
+  } catch (error) {
+    if (stored) return stored;
+    throw error;
+  }
+}
+
+async function fetchAndStore(event, cache, rule) {
+  const response = await fetch(event.request);
+  if (storable(response)) {
+    event.waitUntil(
+      stamped(response.clone())
+        .then((copy) => cache.put(event.request, copy))
+        .then(() => trimSometimes(rule))
+        // A full disk must not fail the request that is being answered.
+        .catch(() => {}),
+    );
+  }
+  return response;
+}
+
+/** Whether a response may be kept: a complete, public answer from this origin. */
+function storable(response) {
+  if (response.status !== 200 || response.type !== "basic") return false;
+  if (/no-store|private/i.test(response.headers.get("cache-control") || "")) return false;
+  if (/\*|cookie|authorization/i.test(response.headers.get("vary") || "")) return false;
+  // A server that answers a missing file with the app's page (200, HTML) must not poison the cache.
+  const expectsPage = new URL(response.url).pathname.endsWith(".html");
+  return expectsPage || !(response.headers.get("content-type") || "").includes("text/html");
+}
+
+/** A copy of `response` that remembers when it was stored. */
+async function stamped(response) {
+  const headers = new Headers(response.headers);
+  headers.set(STORED_AT, String(Date.now()));
+  return new Response(await response.blob(), { status: response.status, statusText: response.statusText, headers });
+}
+
+function fresh(response, rule) {
+  const storedAt = Number(response.headers.get(STORED_AT));
+  return Number.isFinite(storedAt) && Date.now() - storedAt < rule.maxAgeMs;
+}
+
+const additions = new Map();
+async function trimSometimes(rule) {
+  const count = (additions.get(rule.cache) || 0) + 1;
+  additions.set(rule.cache, count % TRIM_EVERY);
+  if (count >= TRIM_EVERY) await trim(rule);
+}
+
+/** Keeps a cache within its limits: drops what is too old, then the oldest entries beyond `maxEntries`. */
+async function trim(rule) {
+  const cache = await caches.open(rule.cache);
+  const kept = [];
+  // `keys()` lists entries in the order they were stored: oldest first.
+  for (const request of await cache.keys()) {
+    const response = await cache.match(request);
+    if (response && fresh(response, rule)) kept.push(request);
+    else await cache.delete(request);
+  }
+  for (const request of kept.slice(0, Math.max(0, kept.length - rule.maxEntries))) await cache.delete(request);
+}
+
+/** Forgets everything stored for offline use, then stores the offline page again. */
+async function clearOfflineData() {
+  const names = await caches.keys();
+  await Promise.all(names.filter((name) => name.startsWith(CACHE_PREFIX)).map((name) => caches.delete(name)));
+  additions.clear();
+  offlinePageCheckedAt = 0;
+  await storeOfflinePage().catch(() => {});
+}
+
+// ── 3. Push ─────────────────────────────────────────────────────────
 
 /*
  * The payload is a declarative push message (docs/events/notify.md):
@@ -58,6 +330,7 @@ async function showPush(data) {
   const options = {
     body: typeof details.body === "string" ? details.body : "",
     icon: APP_ICON,
+    badge: APP_BADGE,
     data: { ...(details.data || {}), url: details.navigate || "" },
   };
   if (details.lang) options.lang = details.lang;
@@ -85,7 +358,7 @@ async function setAppBadge(count) {
   }
 }
 
-// ── 3. Notification click ───────────────────────────────────────────
+// ── 4. Notification click ───────────────────────────────────────────
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
@@ -126,7 +399,7 @@ function delivered(client, message, timeoutMs = 1500) {
   });
 }
 
-// ── 4. Subscription change ──────────────────────────────────────────
+// ── 5. Subscription change ──────────────────────────────────────────
 
 // The browser replaced or dropped the push subscription. Registering it needs
 // the signed-in session, which only pages have; a closed app catches up on its
@@ -137,4 +410,17 @@ self.addEventListener("pushsubscriptionchange", (event) => {
       for (const page of pages) page.postMessage({ type: "tokuly:push-subscription-change" });
     }),
   );
+});
+
+// ── 6. Messages from pages ──────────────────────────────────────────
+
+self.addEventListener("message", (event) => {
+  const type = event.data?.type;
+  if (type === "tokuly:skip-waiting") {
+    // The person tapped "update": activate now; every open page gets `controllerchange`.
+    event.waitUntil(self.skipWaiting());
+  } else if (type === "tokuly:clear-offline-data") {
+    const reply = (ok) => event.ports[0]?.postMessage({ ok });
+    event.waitUntil(clearOfflineData().then(() => reply(true), () => reply(false)));
+  }
 });

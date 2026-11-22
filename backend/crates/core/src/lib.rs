@@ -7,6 +7,8 @@
 //!   [`api_tokens`] establish it from a session token or an API token.
 //! - [`events`] / [`jobs`] / [`realtime`] are the three ways domains talk to
 //!   each other and to clients asynchronously.
+//! - [`livekit`] mints access tokens for voice and video rooms and talks to
+//!   LiveKit's room service.
 pub mod analytics;
 pub mod api_access;
 pub mod api_tokens;
@@ -25,6 +27,7 @@ pub mod geoindex;
 pub mod ids;
 pub mod jobs;
 pub mod keys;
+pub mod livekit;
 pub mod mail;
 pub mod outbound;
 pub mod page;

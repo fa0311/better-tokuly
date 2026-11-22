@@ -13,6 +13,7 @@ use crate::{
     auth::{AuthLayer, Tokens},
     bus::Bus, cache::Cache, config::Config, db,
     error::AppResult, events, export::Exporters, flags::Flags, jobs::Jobs, keys::Keys,
+    livekit::LiveKit,
     mail::Mailer,
     realtime::{Realtime, TopicGuards},
     storage::Storage,
@@ -39,6 +40,9 @@ pub struct CoreInner {
     pub analytics: Analytics,
     pub search: meilisearch_sdk::client::Client,
     pub http: reqwest::Client,
+    /// Voice and video rooms; not configured unless the `TOKULY_LIVEKIT_*`
+    /// settings are present.
+    pub livekit: LiveKit,
     pub subjects: Subjects,
     pub topic_guards: TopicGuards,
     pub exporters: Exporters,
@@ -86,6 +90,7 @@ impl Core {
             .timeout(std::time::Duration::from_secs(20))
             .build()
             .map_err(|e| anyhow::anyhow!("http client: {e}"))?;
+        let livekit = LiveKit::from_config(&cfg)?;
         let core = Self(Arc::new(CoreInner {
             rt: Realtime::new(bus.clone()),
             jobs: Jobs::new(bus.clone()),
@@ -105,6 +110,7 @@ impl Core {
             analytics,
             search,
             http,
+            livekit,
             subjects: Subjects::default(),
             shutdown: CancellationToken::new(),
         }));

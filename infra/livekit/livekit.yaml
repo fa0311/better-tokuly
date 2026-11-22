@@ -7,5 +7,21 @@ rtc:
   # On a server with a public address set this to true so clients are told
   # that address; on a laptop or LAN the container's view of itself is enough.
   use_external_ip: false
+# Webhook (not enabled here): LiveKit can tell the API the moment someone
+# connects to or leaves a room, so that a connection without a seat (a
+# banned or removed person coming back on a token that has not expired yet)
+# is cut at once rather than at the next comparison (every 20 s).
+#
+# It cannot be switched on in this file: LiveKit refuses to start unless
+# `api_key` names one of its keys, and the keys come from LIVEKIT_KEYS,
+# which differs between compose.yaml and compose.dev.yaml. Whoever sets
+# LIVEKIT_KEYS has to add the block, with the same key:
+#
+#   webhook:
+#     api_key: <the key in LIVEKIT_KEYS>
+#     urls:
+#       - http://api:8081/spaces/livekit/webhook
+#
+# (tools/dev/infra.sh, which knows its key, does.)
 logging:
   level: info

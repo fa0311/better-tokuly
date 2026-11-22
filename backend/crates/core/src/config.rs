@@ -174,6 +174,20 @@ pub struct Config {
     )]
     pub mail_from: String,
 
+    // ── LiveKit (voice and video) ──
+    /// LiveKit server API (Twirp) endpoint, e.g. `http://livekit:7880`.
+    /// Voice and video are off unless this, the public URL, the key and the
+    /// secret are all set (see `tokuly_core::livekit`).
+    #[arg(long, env = "TOKULY_LIVEKIT_URL", default_value = "")]
+    pub livekit_url: String,
+    /// LiveKit URL clients connect to (`ws://` / `wss://`).
+    #[arg(long, env = "TOKULY_LIVEKIT_PUBLIC_URL", default_value = "")]
+    pub livekit_public_url: String,
+    #[arg(long, env = "TOKULY_LIVEKIT_API_KEY", default_value = "", hide_env_values = true)]
+    pub livekit_api_key: String,
+    #[arg(long, env = "TOKULY_LIVEKIT_API_SECRET", default_value = "", hide_env_values = true)]
+    pub livekit_api_secret: String,
+
     // ── Telemetry ──
     /// OTLP gRPC endpoint (e.g. `http://otel:4317`). Empty disables export.
     #[arg(long, env = "TOKULY_OTLP_ENDPOINT", default_value = "")]
