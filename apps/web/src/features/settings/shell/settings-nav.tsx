@@ -43,6 +43,7 @@ export function SettingsNav({ activeId }: { activeId?: SectionId }) {
           const Icon = section.icon;
           const active = section.id === activeId;
           const note = attention[section.id];
+          const strings = section.strings ?? `sections.${section.id}`;
           return (
             <li key={section.id}>
               <Link
@@ -54,8 +55,8 @@ export function SettingsNav({ activeId }: { activeId?: SectionId }) {
                   <Icon className="size-5" />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate font-black">{t(`sections.${section.id}.title`)}</span>
-                  <span className={cn("block truncate text-sm", note ? "font-bold text-danger" : "text-ink-soft")}>{note ?? t(`sections.${section.id}.hint`)}</span>
+                  <span className="block truncate font-black">{t(`${strings}.title`)}</span>
+                  <span className={cn("block truncate text-sm", note ? "font-bold text-danger" : "text-ink-soft")}>{note ?? t(`${strings}.hint`)}</span>
                 </span>
                 {note && <span aria-hidden className="size-2.5 shrink-0 rounded-full bg-pink" />}
                 <ChevronRight className="size-5 shrink-0 text-ink-faint" />

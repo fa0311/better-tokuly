@@ -3,6 +3,7 @@ import { createRootRouteWithContext, HeadContent, Outlet, Scripts } from "@tanst
 import { type ReactNode, useEffect } from "react";
 import { I18nextProvider } from "react-i18next";
 import { Toaster } from "sonner";
+import { PWA_LINKS, PWA_META } from "#/features/pwa/head";
 import { BOOT_SCRIPT } from "#/lib/appearance";
 import i18n, { createI18n, type Language, normalizeLanguage } from "#/lib/i18n";
 import { getRequestLanguage } from "#/lib/request-language";
@@ -20,12 +21,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { title: "Tokuly — 友達と位置情報共有を楽しもう!" },
       { name: "description", content: "位置情報共有、チャット、ノート、動画、ライブ、ショートがひとつになったアプリ。Your now to your friends." },
-      { name: "theme-color", content: "#7c5cff" },
+      // Theme colour and the tags that make the installed app look like one.
+      ...PWA_META,
     ],
     links: [
       { rel: "stylesheet", href: appCss },
-      { rel: "icon", type: "image/svg+xml", href: "/icon.svg" },
-      { rel: "manifest", href: "/manifest.webmanifest" },
+      // Icons, the manifest and the launch images.
+      ...PWA_LINKS,
     ],
   }),
   shellComponent: RootDocument,
