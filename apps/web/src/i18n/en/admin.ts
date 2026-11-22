@@ -9,6 +9,8 @@ export default {
     audit: "Audit log",
     stamps: "Stamp review",
     wallet: "Payouts & coins",
+    search: "Search",
+    news: "News",
   },
   gate: {
     title: "This area is for staff",

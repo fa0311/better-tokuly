@@ -9,6 +9,8 @@ export default {
     audit: "監査ログ",
     stamps: "スタンプ審査",
     wallet: "出金・コイン",
+    search: "検索",
+    news: "ニュース管理",
   },
   gate: {
     title: "ここはスタッフ専用だよ",
