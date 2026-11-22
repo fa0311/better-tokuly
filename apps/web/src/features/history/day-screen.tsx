@@ -15,7 +15,7 @@ import { cn } from "#/lib/cn";
 import { compactDuration, formatDistance, kmh } from "#/lib/format";
 import { activityMeta } from "./activity";
 import { historyClient, historyKeys } from "./api";
-import { dayRange, formatDay, parseDay, shiftDay } from "./dates";
+import { dayRange, parseDay, shiftDay } from "./dates";
 import { DayMap, type DayStop } from "./day-map";
 import { DeleteHistoryDialog } from "./delete-history";
 import { DayMemoEditor } from "./memo";

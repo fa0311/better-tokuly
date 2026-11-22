@@ -70,7 +70,7 @@ export function PlaylistQueue({
 
   // Keep the playing entry in view inside the list, without moving the page.
   const loadedCount = queue.items.length;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-centre when the playing video or the loaded list changes.
+  // re-centre when the playing video or the loaded list changes.
   useEffect(() => {
     const row = current.current;
     const box = list.current;

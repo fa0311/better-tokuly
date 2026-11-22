@@ -10,7 +10,7 @@ import { useAccountTimeZone, useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
 import { formatDistance } from "#/lib/format";
 import { historyClient, historyKeys } from "./api";
-import { formatDay, type Month, monthGrid, monthOfDay, parseDay, shiftMonth } from "./dates";
+import { type Month, monthGrid, monthOfDay, parseDay, shiftMonth } from "./dates";
 
 /** The month at a glance: active days stand out, and each leads to its diary page. */
 export function HistoryCalendar() {

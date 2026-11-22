@@ -117,7 +117,7 @@ export function PartyRoomView({
 
   // Every change of the party's playback is applied at once; a slow check catches drift and late-loading players.
   const sequence = state.playback.sequence;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-run for each new playback state and each new video.
+  // re-run for each new playback state and each new video.
   useEffect(() => {
     syncRef.current();
     const timer = setInterval(() => syncRef.current(), SYNC_INTERVAL_MS);

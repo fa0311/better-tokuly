@@ -1125,3 +1125,45 @@ test("the hub leads to the studio, the history and the playlists", async ({ page
     );
   }
 });
+
+// ───────────────────────────── Sharing and reporting ─────────────────────────────
+
+test("a video is reported from its card's menu and from the watch page, and sent to a friend in chat", async ({
+  page,
+  me,
+  request,
+}) => {
+  const creator = await makeCreator(request, `通報される動画 ${suffix()}`);
+  const friend = await createAccount(request, "friend");
+  await befriend(request, me, friend);
+
+  // The card's menu ends with send in chat, copy link and report.
+  await page.goto(`/c/${creator.channel.handle}/videos`);
+  await page.getByRole("button", { name: `「${creator.video.title}」のメニュー` }).click();
+  await page.getByRole("menuitem", { name: "通報する" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText(creator.video.title);
+  await dialog.getByRole("radio", { name: /スパム/ }).click();
+  await dialog.getByRole("button", { name: "通報する" }).click();
+  await expect(page.getByText("通報を受け付けたよ")).toBeVisible();
+  const mine = await rpc<{ reports: { subject: { type: string; id: string } }[] }>(
+    request,
+    "tokuly.engagement.v1.ReportService/ListMyReports",
+    {},
+    me,
+  );
+  expect(mine.reports.map((entry) => entry.subject.type)).toContain("SUBJECT_TYPE_VIDEO");
+
+  // The watch page has the same entries behind its "more" button; the channel can be reported too.
+  await page.goto(`/watch/${creator.video.shortId}`);
+  await page.getByRole("button", { name: "シェア・通報" }).click();
+  await page.getByRole("menuitem", { name: "チャットで送る" }).click();
+  const sheet = page.getByRole("dialog", { name: "ともだちに送る" });
+  await sheet.getByRole("button", { name: friend.displayName }).click();
+  await sheet.getByRole("button", { name: "送る（1）" }).click();
+  await expect(page.getByText("1件のトークに送りました！")).toBeVisible();
+
+  await page.goto(`/c/${creator.channel.handle}`);
+  await page.getByRole("button", { name: "シェア・通報" }).click();
+  await expect(page.getByRole("menuitem", { name: "通報する" })).toBeVisible();
+});

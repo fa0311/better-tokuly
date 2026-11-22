@@ -11,7 +11,7 @@ import { placeKeys } from "#/features/places";
 import { accountTimeZone, useAccountToday } from "#/lib/account-time";
 import { errorMessage } from "#/lib/errors";
 import { historyClient, historyKeys } from "./api";
-import { dayRange, formatDay } from "./dates";
+import { dayRange } from "./dates";
 
 type Scope = "range" | "all";
 

@@ -39,7 +39,7 @@ export function SettingsMenu({
   const root = useRef<HTMLDivElement>(null);
 
   // Opening the menu (or one of its pages) moves the focus into it.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: refocus when the page of the menu changes.
+  // refocus when the page of the menu changes.
   useEffect(() => {
     root.current?.querySelector<HTMLElement>("button:not(:disabled)")?.focus();
   }, [panel]);

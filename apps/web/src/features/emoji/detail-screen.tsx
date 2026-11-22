@@ -34,7 +34,6 @@ import { StateChip, ThemePreview, ThemeSwatch } from "./parts";
 import { EmojiPicker } from "./picker";
 import { useShowSensitive } from "./prefs";
 import { completeShortcode, EmojiSuggestBar } from "./suggest-bar";
-import { recordEmojiUse } from "./use";
 
 /** An emoji's page: the picture large, how it is written, who made it, and a place to try it in a sentence. */
 export function DetailScreen({ name }: { name: string }) {

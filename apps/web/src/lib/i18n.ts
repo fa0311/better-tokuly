@@ -40,6 +40,7 @@ const i18n = createI18n(
 );
 
 export function setLanguage(language: Language): void {
+  // biome-ignore lint/suspicious/noDocumentCookie: the Cookie Store API is not in every browser the app supports.
   document.cookie = `${LANGUAGE_COOKIE}=${language}; Path=/; Max-Age=31536000; SameSite=Lax`;
   document.documentElement.lang = language;
   void i18n.changeLanguage(language);

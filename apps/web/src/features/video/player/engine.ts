@@ -118,7 +118,7 @@ export function useMediaEngine(
   const startVolume = useRef({ volume: state.volume, muted: state.muted });
 
   const { hlsUrl, mp4Url, durationSeconds } = source;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` restarts loading after a failure.
+  // `attempt` restarts loading after a failure.
   useEffect(() => {
     const element = video.current;
     if (!element) return;

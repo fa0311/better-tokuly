@@ -1,4 +1,4 @@
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   Bell,
   Clapperboard,
@@ -71,14 +71,21 @@ function Rail({ current }: { current: PrimaryNav }) {
   const { t } = useTranslation("common");
   const me = useMe();
   const launcherOpen = useLauncherOpen();
+  const navigate = useNavigate();
   return (
     <nav
       aria-label="main"
       className="z-30 hidden w-[76px] shrink-0 flex-col items-center gap-1.5 overflow-y-auto border-r-2 border-line bg-surface py-4 md:flex"
     >
-      <Link to="/map" className="mb-3" aria-label="Tokuly">
+      {/* Not a link: the router would mark it as the current page on the map, next to the map item. */}
+      <button
+        type="button"
+        className="mb-3 shrink-0"
+        aria-label="Tokuly"
+        onClick={() => void navigate({ to: "/map" })}
+      >
         <LogoMark className="size-11" />
-      </Link>
+      </button>
       {PRIMARY.map((item) => (
         <Link
           key={item.id}

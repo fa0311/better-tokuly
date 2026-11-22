@@ -53,11 +53,17 @@ let lastUpdateCheck = 0;
 
 function refresh(): void {
   if (!registration) return;
-  useWorker.setState({
-    status: registration.active ? "active" : "starting",
-    // A worker that waits while another one runs is an update; the very first one never waits.
-    updateReady: Boolean(registration.waiting && registration.active),
-  });
+  const active = Boolean(registration.active);
+  // A worker that waits while another one runs is an update; the very first one never waits.
+  const waiting = Boolean(registration.waiting && active);
+  useWorker.setState((state) => ({
+    status: active ? "active" : "starting",
+    updateReady: waiting,
+    // An update that stopped waiting was let in, here or in another tab, and this page is
+    // still the old app. Saying so at once (not only when the takeover is announced a moment
+    // later) keeps the page "behind" without a gap, so its offer to reload never flickers away.
+    replaced: state.replaced || (state.updateReady && !waiting),
+  }));
 }
 
 function follow(worker: ServiceWorker | null): void {

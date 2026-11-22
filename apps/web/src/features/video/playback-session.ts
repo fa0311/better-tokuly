@@ -70,7 +70,7 @@ export function usePlaybackSession({
   };
 
   // One reporter per viewing. Leaving ends it — also a session that was still being opened.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `position` reads live refs; the reporter is rebuilt per video only.
+  // `position` reads live refs; the reporter is rebuilt per video only.
   useEffect(() => {
     if (!videoId) return;
     const current = new PlaybackReporter(videoId, source, {

@@ -98,7 +98,7 @@ function RootDocument({ children }: { children: ReactNode }) {
   return (
     <html lang={language} suppressHydrationWarning>
       <head>
-        {/* biome-ignore lint/security/noDangerouslySetInnerHtml: static boot script, no user input */}
+        {/* static boot script, no user input */}
         <script dangerouslySetInnerHTML={{ __html: BOOT_SCRIPT }} />
         <HeadContent />
       </head>

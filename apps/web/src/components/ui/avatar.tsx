@@ -82,6 +82,7 @@ export function Avatar({ user, size = "md", outlined, online, className }: Avata
       {online && (
         <span
           className="absolute -right-0.5 -bottom-0.5 size-3 rounded-full border-2 border-surface bg-success"
+          role="img"
           aria-label="online"
         />
       )}

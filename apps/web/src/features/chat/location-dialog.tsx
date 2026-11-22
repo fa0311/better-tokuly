@@ -56,7 +56,7 @@ export function LocationShareDialog({
   onOpenChange(open: boolean): void;
   onShare(location: { lat: number; lng: number; name: string; address: string }): void;
 }) {
-  const { t, i18n } = useTranslation("chat");
+  const { t } = useTranslation("chat");
   const device = useDevicePosition(open);
   const [chosen, setChosen] = useState<Position | null>(null);
   const [name, setName] = useState("");
@@ -131,7 +131,7 @@ export function LocationViewDialog({
   location: chat.LocationShare | null;
   onClose(): void;
 }) {
-  const { t, i18n } = useTranslation("chat");
+  const { t } = useTranslation("chat");
   // The last place stays while the dialog animates out.
   const [shown, setShown] = useState(location);
   if (location && location !== shown) setShown(location);

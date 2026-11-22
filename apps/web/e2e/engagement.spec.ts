@@ -319,3 +319,40 @@ test("a profile can be reported from its page", async ({ page, me, request }) =>
   );
   expect(mine.reports[0]?.subject).toMatchObject({ type: "SUBJECT_TYPE_USER", id: other.userId });
 });
+
+test("a note is sent to a friend in chat from its share menu", async ({ page, me, request }) => {
+  const text = `e2e チャットで送るノート ${tag()}`;
+  const { friend, noteId } = await friendWithNote(request, me, text);
+
+  await page.goto(`/notes/${noteId}`);
+  await card(page, text).getByRole("button", { name: "シェアする" }).click();
+  await page.getByRole("menuitem", { name: "チャットで送る" }).click();
+
+  const sheet = page.getByRole("dialog", { name: "ともだちに送る" });
+  await sheet.getByRole("button", { name: friend.displayName }).click();
+  await sheet.getByLabel("ひとこと添える（なくてもOK）").fill("これ見て！");
+  await sheet.getByRole("button", { name: "送る（1）" }).click();
+  await expect(page.getByText("1件のトークに送りました！")).toBeVisible();
+  await expect(sheet).toBeHidden();
+
+  // The friend has the link in the conversation, and the note counts one share.
+  const { conversation } = await rpc<{ conversation: { id: string } }>(
+    request,
+    "tokuly.chat.v1.ConversationService/OpenDirect",
+    { userId: me.userId },
+    friend,
+  );
+  const { messages } = await rpc<{ messages: { text?: string }[] }>(
+    request,
+    "tokuly.chat.v1.MessageService/ListMessages",
+    { conversationId: conversation.id },
+    friend,
+  );
+  expect(messages.map((message) => message.text ?? "").join("\n")).toContain(`/notes/${noteId}`);
+  expect(messages.map((message) => message.text ?? "").join("\n")).toContain("これ見て！");
+  await expect.poll(async () => (await engagementOf(request, noteId, me)).shareCount).toBe("1");
+
+  // In the conversation the note shows as its preview.
+  await page.goto(`/chat/${conversation.id}`);
+  await expect(page.getByTestId("message").filter({ hasText: "これ見て！" })).toBeVisible();
+});

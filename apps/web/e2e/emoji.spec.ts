@@ -1,6 +1,15 @@
 import zlib from "node:zlib";
 import type { APIRequestContext, Browser, Page, TestInfo } from "@playwright/test";
-import { type Account, adminAccount, createAccount, expect, rpc, signInAs, test } from "./support";
+import {
+  type Account,
+  adminAccount,
+  befriend,
+  createAccount,
+  expect,
+  rpc,
+  signInAs,
+  test,
+} from "./support";
 
 // These tests upload pictures and wait for the server to process them.
 test.describe.configure({ timeout: 120_000 });
@@ -817,4 +826,104 @@ test("the catalogue page filters by category and search, and someone without a s
   await page.goto("/admin/emoji");
   await expect(page.getByRole("button", { name: "承認" })).toHaveCount(0);
   await expect(page.getByRole("tab", { name: "審査" })).toHaveCount(0);
+});
+
+// ───────────────────────────── Emoji across the app ─────────────────────────────
+
+test("a custom emoji is drawn in a chat message and in a note, and `:` suggests it while writing", async ({
+  page,
+  request,
+  me,
+}) => {
+  const emoji = await catalogEmoji(request, { label: "kani", color: [240, 120, 40] });
+  const friend = await createAccount(request, "friend");
+  await befriend(request, me, friend);
+
+  // A message a friend sent with the shortcode shows the picture, in the conversation.
+  const { conversation } = await rpc<{ conversation: { id: string } }>(
+    request,
+    "tokuly.chat.v1.ConversationService/OpenDirect",
+    { userId: me.userId },
+    friend,
+  );
+  await rpc(
+    request,
+    "tokuly.chat.v1.MessageService/SendMessage",
+    {
+      conversationId: conversation.id,
+      clientId: crypto.randomUUID(),
+      text: `やっほー ${emoji.code}`,
+    },
+    friend,
+  );
+  await page.goto(`/chat/${conversation.id}`);
+  const message = page.locator('[data-testid="message"]', { hasText: "やっほー" });
+  await expect(message.locator(`img[alt="${emoji.code}"]`)).toBeVisible();
+
+  // Typing a colon and the start of the name offers it; a tap writes the shortcode.
+  const composer = page.getByRole("textbox", { name: "メッセージを入力" });
+  await composer.pressSequentially(`おつかれ :${emoji.name.slice(0, 8)}`);
+  await page
+    .getByRole("list", { name: "絵文字の候補" })
+    .getByRole("button", { name: emoji.code })
+    .click();
+  await expect(composer).toHaveValue(`おつかれ ${emoji.code} `);
+  await composer.press("Enter");
+  // On a phone Enter is a new line: the send button sends.
+  const send = page.getByRole("button", { name: "送信", exact: true });
+  if (await send.isVisible().catch(() => false)) await send.click();
+  await expect(
+    page
+      .locator('[data-testid="message"]', { hasText: "おつかれ" })
+      .locator(`img[alt="${emoji.code}"]`),
+  ).toBeVisible();
+
+  // The same emoji in a note.
+  const NOTES = "tokuly.notes.v1.NoteService";
+  const rules = await rpc<{ version: number }>(request, `${NOTES}/GetNoteRules`, {}, friend);
+  await rpc(request, `${NOTES}/AgreeToNoteRules`, { version: rules.version }, friend);
+  const text = `かにだよ ${unique("note")}`;
+  const created = await rpc<{ note: { id: string } }>(
+    request,
+    `${NOTES}/CreateNote`,
+    { text: `${text} ${emoji.code}` },
+    friend,
+  );
+  await page.goto(`/notes/${created.note.id}`);
+  const note = page.locator('[data-testid="note"]', { hasText: text });
+  await expect(note.locator(`img[alt="${emoji.code}"]`)).toBeVisible();
+});
+
+test("reactions use the app's emoji picker, without custom emoji the server would refuse", async ({
+  page,
+  request,
+  me,
+}) => {
+  const emoji = await catalogEmoji(request, { label: "ebi", color: [240, 80, 120] });
+  const friend = await createAccount(request, "friend");
+  await befriend(request, me, friend);
+  const NOTES = "tokuly.notes.v1.NoteService";
+  const rules = await rpc<{ version: number }>(request, `${NOTES}/GetNoteRules`, {}, friend);
+  await rpc(request, `${NOTES}/AgreeToNoteRules`, { version: rules.version }, friend);
+  const text = `リアクションして ${unique("note")}`;
+  const created = await rpc<{ note: { id: string } }>(
+    request,
+    `${NOTES}/CreateNote`,
+    { text },
+    friend,
+  );
+
+  await page.goto(`/notes/${created.note.id}`);
+  const note = page.locator('[data-testid="note"]', { hasText: text });
+  await note.getByRole("button", { name: "リアクションする" }).click();
+  const picker = page.getByTestId("emoji-picker");
+  // The search of the full picker is there, and finds Unicode emoji by name…
+  await picker.getByRole("searchbox").fill("tada");
+  await expect(picker.getByRole("button", { name: /^🎉/ }).first()).toBeVisible();
+  // …but not the custom one: a reaction is one Unicode emoji.
+  await picker.getByRole("searchbox").fill(emoji.name);
+  await expect(picker.getByRole("button", { name: emoji.code })).toHaveCount(0);
+  await picker.getByRole("searchbox").fill("tada");
+  await picker.getByRole("button", { name: /^🎉/ }).first().click();
+  await expect(note.getByRole("button", { name: /^🎉/ })).toHaveAttribute("aria-pressed", "true");
 });

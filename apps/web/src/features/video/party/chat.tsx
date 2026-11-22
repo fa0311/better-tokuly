@@ -71,7 +71,7 @@ export function PartyChat({
   ].sort((a, b) => a.atMs - b.atMs);
 
   const count = entries.length;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: follow the newest entry whenever one is added.
+  // follow the newest entry whenever one is added.
   useEffect(() => {
     const box = list.current;
     if (box && pinned.current) box.scrollTop = box.scrollHeight;

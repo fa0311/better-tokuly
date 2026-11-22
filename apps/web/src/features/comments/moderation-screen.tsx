@@ -65,7 +65,7 @@ export function CommentModerationScreen({
   useReviewQueueRealtime();
   // Five tabs do not fit a phone: the open one is brought into view.
   const tabs = useRef<HTMLDivElement>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-run whenever another tab opens.
+  // re-run whenever another tab opens.
   useEffect(() => {
     tabs.current
       ?.querySelector('[aria-selected="true"]')

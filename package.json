@@ -17,6 +17,8 @@
     "test": "turbo run test",
     "lint": "biome check .",
     "format": "biome check --write .",
+    "lint:web": "biome ci apps/web packages",
+    "format:web": "biome check --write apps/web packages",
     "proto:lint": "buf lint",
     "proto:format": "buf format -w",
     "proto:gen": "pnpm --filter @tokuly/api run generate",

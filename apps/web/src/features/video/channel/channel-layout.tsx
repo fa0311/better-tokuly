@@ -34,7 +34,7 @@ export function ChannelLayout({ handle }: { handle: string }) {
   const summary = channel?.summary;
   // The tabs can outgrow a phone (more so once shorts and live join them): the open one is brought into view.
   const tabBar = useRef<HTMLDivElement>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-run whenever another tab opens.
+  // re-run whenever another tab opens.
   useEffect(() => {
     tabBar.current
       ?.querySelector('[aria-selected="true"]')
