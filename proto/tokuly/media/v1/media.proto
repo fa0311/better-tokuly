@@ -129,6 +129,7 @@ enum AssetStatus {
 
 message Asset {
   string id = 1;
+  // Who uploaded it. Only the owner is told; empty for everyone else.
   string owner_id = 2;
   AssetPurpose purpose = 3;
   AssetKind kind = 4;

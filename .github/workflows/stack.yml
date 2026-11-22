@@ -10,7 +10,7 @@ on:
   schedule:
     - cron: "0 19 * * *"
   # Whenever something that ends up in an image changes, so `edge` follows main
-  # (a newer push replaces a run that is still going).
+  # (a run that has started finishes; of the pushes that arrive meanwhile, the newest runs next).
   push:
     branches: [main]
     paths:
@@ -29,9 +29,11 @@ on:
       - .github/workflows/stack.yml
       - .github/workflows/images.yml
 
+# A newer push to a pull request replaces its run. On main a run that has started
+# finishes, so every result is seen; only runs still waiting are replaced.
 concurrency:
   group: stack-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

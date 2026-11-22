@@ -30,8 +30,12 @@ export function QuietHoursCard({ preferences }: { preferences: notify.Preference
   const end = draft.end ?? minutesToTime(quiet.endMinute);
   const sameTime = timeToMinutes(start) !== null && timeToMinutes(start) === timeToMinutes(end);
 
+  // Flipping the switch and then typing a time can both happen before the next render.
+  const latest = () => actions.latestQuietHours() ?? quiet;
+
   const change = (edge: "start" | "end", value: string) => {
-    const next = { start, end, [edge]: value };
+    const saved = latest();
+    const next = { start: draft.start ?? minutesToTime(saved.startMinute), end: draft.end ?? minutesToTime(saved.endMinute), [edge]: value };
     const startMinute = timeToMinutes(next.start);
     const endMinute = timeToMinutes(next.end);
     // The window needs two different, complete times; until then nothing is sent.
@@ -40,7 +44,7 @@ export function QuietHoursCard({ preferences }: { preferences: notify.Preference
       return;
     }
     setDraft({});
-    actions.setQuietHours.mutate({ enabled: quiet.enabled, startMinute, endMinute });
+    actions.setQuietHours.mutate({ enabled: saved.enabled, startMinute, endMinute });
   };
 
   return (
@@ -53,7 +57,7 @@ export function QuietHoursCard({ preferences }: { preferences: notify.Preference
           {t("quiet.title")}
           {preferences.quietNow && <Chip className="bg-brand-soft text-brand-strong">{t("quiet.now")}</Chip>}
         </h2>
-        <Toggle label={t("quiet.title")} checked={quiet.enabled} onChange={(enabled) => actions.setQuietHours.mutate({ ...quiet, enabled })} />
+        <Toggle label={t("quiet.title")} checked={quiet.enabled} onChange={(enabled) => actions.setQuietHours.mutate({ ...latest(), enabled })} />
       </div>
       <p className="mt-3 text-sm leading-relaxed text-ink-soft">{t("quiet.lead")}</p>
 

@@ -10,15 +10,13 @@ name: Browser tests
 
 on:
   workflow_dispatch:
+  # Pull requests that change what runs in the browser. (A backend-only change is covered by
+  # its own tests in the CI workflow; the stack as a whole by the Stack workflow on main.)
   pull_request:
     paths:
       - apps/web/**
       - packages/**
-      - proto/**
       - pnpm-lock.yaml
-      - compose.yaml
-      - infra/**
-      - tools/ci/**
       - .github/workflows/e2e.yml
   push:
     branches: [main]
@@ -28,9 +26,11 @@ on:
       - pnpm-lock.yaml
       - .github/workflows/e2e.yml
 
+# A newer push to a pull request replaces its run. On main a run that has started
+# finishes, so every result is seen; only runs still waiting are replaced.
 concurrency:
   group: e2e-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
