@@ -46,7 +46,7 @@ export function StudioPackScreen({ packId }: { packId: string }) {
   const fileInput = useRef<HTMLInputElement>(null);
 
   const summary = pack?.summary;
-  const onError = (error: unknown) => toast.error(errorMessage(error));
+  const onError = (error: unknown) => toast.error(errorMessage(error, { namespace: "stamps" }));
 
   /** Shows the pack as the server now has it, and lets every list that includes it catch up. */
   const apply = (next: stamp.Pack | undefined) => {
@@ -456,7 +456,7 @@ function StampEditor({
   const ref = item.stampRef!;
   const [meta, setMeta] = useState<StampMeta>({ name: ref.name, emoji: item.emoji, keywords: item.keywords.join(" ") });
   const [confirmRemove, setConfirmRemove] = useState(false);
-  const onError = (error: unknown) => toast.error(errorMessage(error));
+  const onError = (error: unknown) => toast.error(errorMessage(error, { namespace: "stamps" }));
 
   const save = useMutation({
     mutationFn: () => studioClient().updateStamp({ stampId: ref.id, name: meta.name.trim(), emoji: meta.emoji, keywords: { keywords: parseKeywords(meta.keywords) } }),
