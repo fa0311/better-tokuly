@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Bell, Bookmark, ChevronRight, Clapperboard, History, ListVideo, LogOut, Megaphone, Newspaper, Settings, ShieldCheck, Smile, SmilePlus, UserRound, Users, Wallet } from "lucide-react";
+import { Bell, Bookmark, CalendarDays, ChevronRight, Clapperboard, Footprints, History, ListVideo, LogOut, MapPinned, Megaphone, Newspaper, Settings, ShieldCheck, Smile, SmilePlus, UserRound, Users, Wallet } from "lucide-react";
 import type { ComponentType } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
@@ -26,7 +26,10 @@ interface Tile {
     | "/activity"
     | "/studio"
     | "/watch/history"
-    | "/watch/playlists";
+    | "/watch/playlists"
+    | "/footprints"
+    | "/history"
+    | "/places";
   /** A key of the `me` strings, or `<namespace>:<key>` for a tile whose feature names it. */
   labelKey: string;
   icon: ComponentType<{ className?: string }>;
@@ -38,6 +41,9 @@ interface Tile {
 const TILES: Tile[] = [
   { to: "/friends", labelKey: "tiles.friends", icon: Users, tint: "bg-sky", badge: "friends" },
   { to: "/notifications", labelKey: "tiles.notifications", icon: Bell, tint: "bg-pink", badge: "notifications" },
+  { to: "/footprints", labelKey: "footprints:tile", icon: Footprints, tint: "bg-lime" },
+  { to: "/history", labelKey: "history:tile", icon: CalendarDays, tint: "bg-sun" },
+  { to: "/places", labelKey: "places:tile", icon: MapPinned, tint: "bg-mint" },
   { to: "/bookmarks", labelKey: "engagement:tile", icon: Bookmark, tint: "bg-sky" },
   { to: "/activity", labelKey: "notes:activityTile", icon: History, tint: "bg-brand" },
   { to: "/stamps", labelKey: "tiles.stamps", icon: Smile, tint: "bg-sun" },
