@@ -44,6 +44,22 @@ pub(crate) fn pair_of(a: Uuid, b: Uuid) -> (Uuid, Uuid) {
     if a < b { (a, b) } else { (b, a) }
 }
 
+/// The two people of a direct conversation, whether or not both are still
+/// members; `None` for groups and for conversations that do not exist.
+///
+/// For domains that hear about a message with its conversation and need to
+/// know who it went to (the server bridges it to them; they do not depend
+/// on this crate).
+pub async fn direct_members(core: &Core, conversation_id: Uuid) -> AppResult<Option<(Uuid, Uuid)>> {
+    let pair: Option<(Option<Uuid>, Option<Uuid>)> =
+        sqlx::query_as("SELECT user_lo, user_hi FROM chat_conversations WHERE id = $1 AND kind = $2")
+            .bind(conversation_id)
+            .bind(kind::DIRECT)
+            .fetch_optional(&core.db)
+            .await?;
+    Ok(pair.and_then(|(lo, hi)| lo.zip(hi)))
+}
+
 #[derive(sqlx::FromRow)]
 pub(crate) struct ListedConversation {
     #[sqlx(flatten)]

@@ -313,7 +313,10 @@ impl Admin {
         if self.core.subjects.is_registered(subject_type) {
             match self.core.subjects.resolve(subject_type, reference, Some(staff.id)).await {
                 Ok(info) => {
-                    let owner_id = self.existing_user(info.owner_id).await?;
+                    let owner_id = match self.existing_user(info.owner_id).await? {
+                        Some(owner_id) => Some(owner_id),
+                        None => self.existing_hidden_owner(subject_type, info.id).await?,
+                    };
                     return Ok(LocatedSubject { id: info.id, owner_id, title: info.title });
                 }
                 // Private content is hidden from the resolver's viewer check;
@@ -333,7 +336,20 @@ impl Admin {
                 .fetch_optional(&self.core.db)
                 .await?;
         let (owner_id, title) = known.unwrap_or_default();
+        let owner_id = match owner_id {
+            Some(owner_id) => Some(owner_id),
+            None => self.existing_hidden_owner(subject_type, id).await?,
+        };
         Ok(LocatedSubject { id, owner_id, title })
+    }
+
+    /// The owner of content that names none (see `owners.rs`), if that
+    /// account still exists.
+    async fn existing_hidden_owner(&self, subject_type: SubjectType, subject_id: Uuid) -> AppResult<Option<Uuid>> {
+        match self.hidden_owner(subject_type as i32, subject_id).await? {
+            Some(owner_id) => self.existing_user(owner_id).await,
+            None => Ok(None),
+        }
     }
 
     /// `user_id` if that account exists and is not deleted.

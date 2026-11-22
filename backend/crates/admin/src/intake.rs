@@ -20,6 +20,14 @@ impl Admin {
         let title = truncate_chars(report.subject_title.trim(), SUBJECT_TITLE_MAX_CHARS);
         let path = truncate_chars(report.subject_path.trim(), SUBJECT_PATH_MAX_CHARS);
 
+        // Content that hides its author is reported without an owner; whoever
+        // keeps it says who answers for it. Asked before the transaction, so
+        // this handler never waits for a second connection while holding one.
+        let owner_id = match report.subject_owner_id.filter(|owner_id| !owner_id.is_nil()) {
+            Some(owner_id) => Some(owner_id),
+            None => self.hidden_owner(report.subject_type, report.subject_id).await?,
+        };
+
         let mut tx = self.core.db.begin().await?;
         let known: bool =
             sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM moderation_reports WHERE id = $1)").bind(report.report_id).fetch_one(&mut *tx).await?;
@@ -43,7 +51,7 @@ impl Admin {
         )
         .bind(report.subject_type)
         .bind(report.subject_id)
-        .bind(report.subject_owner_id)
+        .bind(owner_id)
         .bind(&title)
         .bind(&path)
         .bind(category)

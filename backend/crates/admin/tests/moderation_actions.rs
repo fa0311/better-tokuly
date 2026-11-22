@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use common::*;
+use tokuly_admin::HiddenOwners;
 use tokuly_core::{
     AppResult,
     subject::{SubjectInfo, SubjectResolver},
@@ -337,6 +338,61 @@ async fn resolved_cases_can_be_reopened_unless_superseded() {
     assert_eq!(open_now[0].report_count, 1);
     let superseded = reopen(case.id.clone()).await.unwrap_err();
     assert_eq!((superseded.code.as_str(), superseded.reason.as_str()), ("failed_precondition", "CASE_SUPERSEDED"));
+}
+
+/// Stands in for the community domain: knows who wrote one anonymous thread.
+struct FakeAnonymousPosts {
+    thread_id: Uuid,
+    author_id: Uuid,
+}
+
+#[async_trait]
+impl HiddenOwners for FakeAnonymousPosts {
+    async fn owner_for_moderation(&self, subject_type: SubjectType, subject_id: Uuid) -> AppResult<Option<Uuid>> {
+        Ok((subject_type == SubjectType::SUBJECT_TYPE_COMMUNITY_THREAD && subject_id == self.thread_id).then_some(self.author_id))
+    }
+}
+
+#[tokio::test]
+async fn content_reported_without_an_owner_gets_one_from_the_domain_that_keeps_it() {
+    const THREAD: SubjectType = SubjectType::SUBJECT_TYPE_COMMUNITY_THREAD;
+    let (app, admin) = start().await;
+    let moderator = app.user_with_roles("mod", &["moderator"]).await;
+    // The author of the anonymous post happens to be a moderator too.
+    let author = app.user_with_roles("author", &["moderator"]).await;
+    let reporter = app.user("rep").await;
+    let (thread, other_thread) = (Uuid::now_v7(), Uuid::now_v7());
+    admin.set_hidden_owners(Arc::new(FakeAnonymousPosts { thread_id: thread, author_id: author.id }));
+
+    // Engagement names nobody for an anonymous post: the nil ID.
+    admin.handle_event(report_event(reporter.id, (THREAD, thread), Uuid::nil(), "HARASSMENT", "ひどい")).await.unwrap();
+    let case = case_of_owner(&app, &moderator, author.id).await.remove(0);
+    assert_eq!(case.subject.id, thread.to_string());
+    assert_eq!(case.subject_owner.id, author.id.to_string());
+
+    // The author cannot judge their own anonymous post; someone else's warning reaches them.
+    let own = resolve(&app, &author, resolution(&case, DISMISS, "問題なし")).await.unwrap_err();
+    assert_eq!((own.code.as_str(), own.reason.as_str()), ("permission_denied", "CONFLICT_OF_INTEREST"));
+    let admin_user = app.user_with_roles("boss", &["admin"]).await;
+    resolve(&app, &admin_user, ResolveCaseRequest { remove_content: true, ..resolution(&case, WARN, "嫌がらせ") }).await.unwrap();
+    let kinds: Vec<String> = notifications_for(&app, author.id).await.into_iter().map(|n| n.kind).collect();
+    assert!(kinds.contains(&"system.warning".to_owned()) && kinds.contains(&"system.content_removed".to_owned()), "{kinds:?}");
+
+    // What the lookup does not know stays without an owner, as before.
+    admin.handle_event(report_event(reporter.id, (THREAD, other_thread), Uuid::nil(), "SPAM", "")).await.unwrap();
+    let orphan_id: Uuid =
+        sqlx::query_scalar("SELECT id FROM moderation_cases WHERE subject_id = $1").bind(other_thread).fetch_one(&app.core.db).await.unwrap();
+    assert!(get_case(&app, &moderator, &orphan_id.to_string()).await.moderation_case.into_option().unwrap().subject_owner.is_unset());
+
+    // A takedown by reference finds the author the same way, with no report at all.
+    let (app2, admin2) = start().await;
+    let (moderator, writer) = (app2.user_with_roles("mod", &["moderator"]).await, app2.user("writer").await);
+    let post = Uuid::now_v7();
+    admin2.set_hidden_owners(Arc::new(FakeAnonymousPosts { thread_id: post, author_id: writer.id }));
+    let request = TakedownContentRequest { subject: subject_ref(THREAD, post).into(), reason: "違法な内容".into(), ..Default::default() };
+    let done: TakedownContentResponse = app2.call(&format!("{MODERATION}/TakedownContent"), Some(&moderator), &request).await.unwrap();
+    assert_eq!(done.action.target_user.id, writer.id.to_string());
+    assert_eq!(notifications_for(&app2, writer.id).await.len(), 1);
 }
 
 /// Stands in for a content domain: knows one video by UUID and short ID.

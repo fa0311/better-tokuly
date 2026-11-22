@@ -30,6 +30,17 @@ WARN, SUSPEND and BAN can take the content down in the same resolution
 reference without a report; if an open case exists for the subject it is
 resolved through the same path.
 
+**Content reported without an owner.** A post in an anonymous channel
+resolves with nobody as its owner, so `engagement.report.created` names
+none. When a report arrives that way, and when a moderator takes such content
+down by reference, the owner is asked from `HiddenOwners`, a lookup the
+server hands in (`Admin::set_hidden_owners`; today the community domain's
+`author_for_moderation`). The answer is stored as the case's owner, which
+only moderators read: it lets a case warn, suspend or ban the author, tells
+the author about a takedown, and makes `CONFLICT_OF_INTEREST` apply to a
+moderator's own anonymous post. Without a lookup such cases stay ownerless
+and cannot sanction anyone.
+
 Everything a resolution does (case update, events, notifications, both logs)
 commits in one transaction. The account lock itself is committed by identity
 (`set_banned`) just before; see `sanctions.rs` for why that order is safe.
@@ -146,6 +157,7 @@ let admin = Admin::new(core.clone(), identity.clone(), cfg.admin)?;   // also re
 let router = admin.register(router);
 admin.spawn_workers();                                                 // worker processes
 admin.grant_bootstrap_admin().await?;                                  // at startup: `TOKULY_ADMIN_USER`, if that account exists already
+admin.set_hidden_owners(Arc<dyn tokuly_admin::HiddenOwners>);          // bridge: owners of content that is reported without one
 ```
 
 `grant_bootstrap_admin` (and `ensure_admin(handle_or_email)`, which it calls)
