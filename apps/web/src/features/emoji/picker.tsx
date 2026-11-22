@@ -143,7 +143,6 @@ function PickerPanel({ onPick, autoFocusSearch }: { onPick(choice: EmojiChoice):
   const catalog = useCatalog();
   const unicode = useUnicodeTable();
   const deck = useDeck();
-  // What was used since the picker was last open belongs in "recently used".
   const recent = useRecentEmoji();
   const [tab, setTab] = useState(HOME);
   const [text, setText] = useState("");

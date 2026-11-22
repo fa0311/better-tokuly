@@ -42,7 +42,6 @@ export default function EmojiBackground() {
         void queryClient.invalidateQueries({ queryKey: emojiKeys.submitter });
         void queryClient.invalidateQueries({ queryKey: emojiKeys.details });
       } else if (event.case === "importUpdated") {
-        queryClient.setQueryData(emojiKeys.adminImport(event.value.id), (current: { import?: unknown } | undefined) => (current ? { ...current, import: event.value } : current));
         void queryClient.invalidateQueries({ queryKey: emojiKeys.adminImport(event.value.id) });
         void queryClient.invalidateQueries({ queryKey: emojiKeys.adminImports });
       } else if (event.case === "exportUpdated") {

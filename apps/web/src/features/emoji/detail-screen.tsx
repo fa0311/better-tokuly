@@ -74,7 +74,7 @@ export function DetailScreen({ name }: { name: string }) {
             </ThemeSwatch>
           ))}
         </div>
-        <div className="flex flex-wrap items-center justify-center gap-1.5">
+        <div className="flex flex-wrap items-center justify-center gap-1.5 empty:hidden">
           {!approved && <StateChip state={data.state} />}
           {entry.animated && <Chip>{t("flags.animated")}</Chip>}
           {entry.sensitive && <Chip className="bg-coral text-[#17122b]">{t("flags.sensitive")}</Chip>}

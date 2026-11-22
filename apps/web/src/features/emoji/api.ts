@@ -31,13 +31,17 @@ export const emojiKeys = {
 };
 
 /** The caller's reaction deck: the emoji they pinned, in their order (the server's default until they save one). */
-export function useDeck(enabled = true) {
-  return useQuery({ queryKey: emojiKeys.deck, queryFn: () => emojiClient().getDeck({}), staleTime: 5 * 60_000, enabled });
+export function useDeck() {
+  return useQuery({ queryKey: emojiKeys.deck, queryFn: () => emojiClient().getDeck({}), staleTime: 5 * 60_000 });
 }
 
-/** The emoji the caller used last, most recent first. */
-export function useRecentEmoji(enabled = true) {
-  return useQuery({ queryKey: emojiKeys.recent, queryFn: async () => (await emojiClient().listRecentEmoji({})).items, enabled });
+/**
+ * The emoji the caller used last, most recent first. Read again whenever a
+ * screen that shows them opens: other features record uses on the server
+ * (a message sent, a reaction given) without this cache hearing of it.
+ */
+export function useRecentEmoji() {
+  return useQuery({ queryKey: emojiKeys.recent, queryFn: async () => (await emojiClient().listRecentEmoji({})).items, refetchOnMount: "always" });
 }
 
 /** One emoji with author, licence and review state; `nameOrId` may carry colons. */
