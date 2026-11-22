@@ -4,6 +4,7 @@ description = "Integration test harness: an isolated database, a wired-up Core a
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 publish.workspace = true
 
 [lints]

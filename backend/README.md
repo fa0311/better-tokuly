@@ -15,36 +15,37 @@ backend/crates/<domain>                   one crate per domain
 backend/crates/server                     the binary; wires domains together
 ```
 
-Domains and their migration numbers:
+Domains, their migration numbers, and whether the binary serves them
+(`crates/server/src/app.rs`):
 
-| crate | migration | depends on (crates) |
-|---|---|---|
-| core | 0001 | — |
-| identity | 0100 | media |
-| social | 0200 | identity |
-| geo | 0300 | social |
-| media | 0400 | — |
-| stamp | 0500 | identity, media |
-| chat | 0600 | social, stamp, media |
-| notes | 0700 | social, stamp, media |
-| video | 0800 | social, media |
-| live | 0900 | video, wallet, stamp |
-| shorts | 1000 | social, media, video |
-| engagement | 1100 | identity, stamp |
-| notify | 1200 | identity |
-| feed | 1300 | identity |
-| wallet | 1400 | identity |
-| search | 1500 | identity, social |
-| admin | 1600 | identity |
-| emoji | 1700 | identity, media |
-| ask | 1800 | social, media, stamp, wallet |
-| quest | 1900 | social, wallet |
-| plans | 2000 | social |
-| school | 2100 | social |
-| spaces | 2200 | social |
-| community | 2300 | social, media, stamp |
-| dev | 2400 | identity |
-| realtime | — | identity |
+| crate | migration | depends on (crates) | served |
+|---|---|---|---|
+| core | 0001 | — | — |
+| identity | 0100 | media | yes |
+| social | 0200 | identity | yes |
+| geo | 0300 | social, media | not yet (still being finished) |
+| media | 0400 | — | yes |
+| stamp | 0500 | identity, media, wallet | yes |
+| chat | 0600 | social, stamp, media | yes |
+| notes | 0700 | social, stamp, media | yes |
+| video | 0800 | social, media | yes |
+| live | 0900 | video, wallet, stamp | not yet (the crate is a placeholder) |
+| shorts | 1000 | social, media, video | yes |
+| engagement | 1100 | identity, social, media, stamp | yes |
+| notify | 1200 | identity | yes |
+| feed | 1300 | identity, social | yes |
+| wallet | 1400 | identity | yes |
+| search | 1500 | identity, social | yes |
+| admin | 1600 | identity | yes |
+| emoji | 1700 | identity, media | yes |
+| ask | 1800 | social, media, stamp, wallet | yes |
+| quest | 1900 | social, wallet | yes |
+| plans | 2000 | social | yes |
+| school | 2100 | social | yes |
+| spaces | 2200 | social | yes |
+| community | 2300 | social, media, stamp | yes |
+| dev | 2400 | identity | yes |
+| realtime | — | — | yes (`tokuly realtime`) |
 
 A crate may only depend on crates listed for it (plus `core`, `proto`,
 `identity`). Everything else goes through events (below), so the graph stays
@@ -134,7 +135,14 @@ be unique across domains: give a setting whose field name could collide an
 explicit `id = "<domain>_<field>"` (the server's `command_line_is_consistent`
 test catches clashes).
 
-The server crate wires domains in `crates/server/src/app.rs`.
+The server crate wires domains in `crates/server/src/app.rs`: the config in
+`DomainConfigs`, construction in `Domains::new` (in dependency order, and
+before `Engagement` when the domain registers a subject resolver),
+`register`, `spawn_workers`, and plain HTTP routes in `api_router` when the
+domain has any. What a domain needs from one it must not depend on is a
+small trait of its own that `crates/server/src/bridges.rs` implements. Every
+new RPC also gets a line in `crates/core/src/api_access.rs` (what an API
+token needs to call it; a test in `tokuly-dev` fails without it).
 
 ### Handlers
 

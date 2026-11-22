@@ -4,6 +4,7 @@ description = "Channels, videos, playlists, subtitles, watch history and watch p
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 publish.workspace = true
 
 [lints]

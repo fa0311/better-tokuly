@@ -4,6 +4,7 @@ description = "Generated protobuf messages and Connect RPC service stubs for the
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 publish.workspace = true
 
 [lints]
