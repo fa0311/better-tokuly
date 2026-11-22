@@ -6494,7 +6494,7 @@ dependencies = [
  "clap",
  "connectrpc",
  "futures",
- "http 1.5.0",
+ "http",
  "http-body-util",
  "serde",
  "serde_json",
