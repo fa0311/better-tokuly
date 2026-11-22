@@ -94,7 +94,7 @@ async fn a_share_link_shows_the_live_pin_to_anyone_who_has_it() {
     ctx.at(&aoi, moved).await;
     let frame = topic.next(SOON).await.expect("a frame on the share topic");
     assert_eq!(frame.topic, format!("share:{token}"));
-    let Some(tokuly_proto::realtime::server_frame::Body::Geo(event)) = frame.body else { panic!("a geo event") };
+    let event = frame.event::<GeoEvent>().expect("a geo event");
     assert!(matches!(event.event, Some(Push::Location(pin)) if at(pin_point(&pin), moved)));
 
     // Revoking ends it for everyone, at once.
@@ -102,7 +102,7 @@ async fn a_share_link_shows_the_live_pin_to_anyone_who_has_it() {
     assert_eq!(revoke(&ctx, &aoi, "x").await.unwrap_err().reason, "INVALID_ID");
     revoke(&ctx, &aoi, &share.id).await.unwrap();
     let frame = topic.next(SOON).await.expect("the end of the share on its topic");
-    let Some(tokuly_proto::realtime::server_frame::Body::Geo(event)) = frame.body else { panic!("a geo event") };
+    let event = frame.event::<GeoEvent>().expect("a geo event");
     assert!(matches!(event.event, Some(Push::LocationRemovedUserId(id)) if id == aoi.id.to_string()));
     let gone = open_link(&ctx, &token).await.unwrap_err();
     assert_eq!((gone.code.as_str(), gone.reason.as_str()), ("not_found", "SHARE_NOT_FOUND"));
@@ -219,7 +219,7 @@ async fn shares_are_limited_validated_and_expire() {
     assert_eq!(my_shares(&ctx, &aoi).await.len(), 9);
     assert!(ctx.geo.expire_live_shares().await.unwrap() >= 1);
     let frame = topic.next(SOON).await.expect("the end of the share on its topic");
-    let Some(tokuly_proto::realtime::server_frame::Body::Geo(event)) = frame.body else { panic!("a geo event") };
+    let event = frame.event::<GeoEvent>().expect("a geo event");
     assert!(matches!(event.event, Some(Push::LocationRemovedUserId(_))));
     // A slot is free again.
     create_share(&ctx, &aoi, 600, "").await.unwrap();

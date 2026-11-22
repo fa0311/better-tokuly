@@ -183,7 +183,7 @@ impl Geo {
     /// `ReportLocations` end up in the same place. Raw history is buffered:
     /// a process that does not run [`Geo::spawn_workers`] calls
     /// [`Geo::flush_history`] when it is done.
-    pub async fn ingest(&self, report: LocationReport) -> AppResult<()> {
+    pub async fn ingest(&self, report: LocationReport<LocationSample>) -> AppResult<()> {
         self.ingest_batch(report.user_id, report.received_at, std::slice::from_ref(&report.sample)).await.map(|_| ())
     }
 

@@ -298,7 +298,7 @@ impl Geo {
                 .rt
                 .notify_topic(
                     &crate::shares::topic(&token),
-                    crate::fanout::frame(Push::LocationRemovedUserId(user_id.to_string())),
+                    &crate::fanout::frame(Push::LocationRemovedUserId(user_id.to_string())),
                 )
                 .await;
         }

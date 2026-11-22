@@ -84,6 +84,10 @@ async fn make_region(
     center: Point,
     half_deg: f64,
 ) -> f64 {
+    // Loading the bundled regions removes regions it does not know: make
+    // sure that has happened (in whichever test gets here first) before a
+    // made-up one exists.
+    ctx.geo.seed_regions().await.expect("seed regions");
     let area: f64 = sqlx::query_scalar(
         "INSERT INTO geo_regions (id, kind, name, name_ja, country_code, area_km2, center_lat, center_lng, geom)
          SELECT $1, $2, $3, $4, $5, ST_Area(g::geography) / 1000000.0, $7, $6, g

@@ -6,10 +6,7 @@ use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use tokuly_core::{prelude::*, presence};
-use tokuly_proto::{
-    geo::{FriendLocation, GeoEvent, VisitEvent, geo_event::Event},
-    realtime::server_frame::Body,
-};
+use tokuly_proto::geo::{FriendLocation, GeoEvent, VisitEvent, geo_event::Event};
 use tokuly_social::graph;
 
 use crate::{
@@ -30,8 +27,8 @@ fn area_lookup(lat: f64, lng: f64) -> Area {
 
 static AREA_LOOKUP: fn(f64, f64) -> Area = area_lookup;
 
-pub(crate) fn frame(event: Event) -> Body {
-    Body::Geo(Box::new(GeoEvent { event: Some(event), ..Default::default() }))
+pub(crate) fn frame(event: Event) -> GeoEvent {
+    GeoEvent { event: Some(event), ..Default::default() }
 }
 
 /// Who a pin update goes to.
@@ -63,12 +60,12 @@ impl Geo {
 
     /// Pushes a geo event to every connected device of one user.
     pub(crate) async fn push(&self, user_id: Uuid, event: Event) {
-        self.core.rt.notify_user(user_id, frame(event)).await;
+        self.core.rt.notify_user(user_id, &frame(event)).await;
     }
 
     /// Pushes the same geo event to several users.
     pub(crate) async fn push_many(&self, user_ids: impl IntoIterator<Item = Uuid>, event: Event) {
-        self.core.rt.notify_users(user_ids, frame(event)).await;
+        self.core.rt.notify_users(user_ids, &frame(event)).await;
     }
 
     /// Whether each user's account language is Japanese (cached for a few minutes).
@@ -191,7 +188,7 @@ impl Geo {
         for token in live {
             self.core
                 .rt
-                .notify_topic(&crate::shares::topic(token), frame(Event::Location(Box::new(view.clone()))))
+                .notify_topic(&crate::shares::topic(token), &frame(Event::Location(Box::new(view.clone()))))
                 .await;
         }
     }

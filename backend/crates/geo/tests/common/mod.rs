@@ -12,7 +12,6 @@ use tokuly_proto::{
     common::LatLng,
     geo::{geo_event::Event as Push, *},
     identity::{PrivacySettings, UpdateSettingsRequest, UpdateSettingsResponse},
-    realtime::server_frame::Body,
     social::{
         FriendSource, RemoveFriendRequest, RemoveFriendResponse, RespondFriendRequestRequest,
         RespondFriendRequestResponse, SendFriendRequestRequest, SendFriendRequestResponse, send_friend_request_request,
@@ -365,8 +364,8 @@ pub async fn next_push(listener: &mut FrameListener) -> Option<Push> {
     let deadline = tokio::time::Instant::now() + SOON;
     loop {
         let left = deadline.checked_duration_since(tokio::time::Instant::now())?;
-        match listener.next(left).await?.body {
-            Some(Body::Geo(event)) => return event.event,
+        match listener.next(left).await?.event::<GeoEvent>() {
+            Some(event) => return event.event,
             _ => continue,
         }
     }
@@ -378,10 +377,7 @@ pub async fn pushes(listener: &mut FrameListener, window: Duration) -> Vec<Push>
         .drain(window)
         .await
         .into_iter()
-        .filter_map(|frame| match frame.body {
-            Some(Body::Geo(event)) => event.event,
-            _ => None,
-        })
+        .filter_map(|frame| frame.event::<GeoEvent>().and_then(|event| event.event))
         .collect()
 }
 
@@ -390,13 +386,10 @@ pub async fn next_pin(listener: &mut FrameListener) -> Option<FriendLocation> {
     let deadline = tokio::time::Instant::now() + SOON;
     loop {
         let left = deadline.checked_duration_since(tokio::time::Instant::now())?;
-        match listener.next(left).await?.body {
-            Some(Body::Geo(event)) => {
-                if let Some(Push::Location(location)) = event.event {
-                    return Some(*location);
-                }
-            }
-            _ => continue,
+        if let Some(Push::Location(location)) =
+            listener.next(left).await?.event::<GeoEvent>().and_then(|event| event.event)
+        {
+            return Some(*location);
         }
     }
 }

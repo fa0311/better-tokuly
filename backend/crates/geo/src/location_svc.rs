@@ -12,7 +12,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokuly_core::{prelude::*, realtime};
 use tokuly_proto::{
     geo::{geo_event::Event, watch_friend_locations_response::Update, *},
-    realtime::{ServerFrame, server_frame::Body},
+    realtime::ServerFrame,
 };
 
 use crate::Geo;
@@ -124,7 +124,7 @@ impl LocationService for Geo {
                     };
                     let Some(frame) = frame else { return };
                     let Ok(frame) = ServerFrame::decode_from_slice(&frame.payload) else { continue };
-                    let Some(Body::Geo(event)) = frame.body else { continue };
+                    let Some(event) = frame.event::<GeoEvent>() else { continue };
                     let update = match event.event {
                         Some(Event::Location(location)) => Update::Location(location),
                         Some(Event::LocationRemovedUserId(user_id)) => Update::RemovedUserId(user_id),
