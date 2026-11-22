@@ -10,15 +10,13 @@ name: Browser tests
 
 on:
   workflow_dispatch:
+  # Pull requests that change what runs in the browser. (A backend-only change is covered by
+  # its own tests in the CI workflow; the stack as a whole by the Stack workflow on main.)
   pull_request:
     paths:
       - apps/web/**
       - packages/**
-      - proto/**
       - pnpm-lock.yaml
-      - compose.yaml
-      - infra/**
-      - tools/ci/**
       - .github/workflows/e2e.yml
   push:
     branches: [main]

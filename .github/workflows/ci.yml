@@ -52,6 +52,7 @@ jobs:
             web:
               - 'apps/web/**'
               - 'packages/**'
+              - 'proto/**'
               - 'package.json'
               - 'pnpm-lock.yaml'
               - 'pnpm-workspace.yaml'
