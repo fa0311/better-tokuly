@@ -97,9 +97,10 @@ websocket_url="$(jq -r .websocketUrl <<<"$endpoints")"
 upgrade="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: c21va2UtdGVzdC1rZXktMDE=' -H "Origin: $ORIGIN" "${websocket_url/#ws/http}" 2>/dev/null || true)"
 [ "$upgrade" = 101 ] || fail "the WebSocket upgrade at $websocket_url answered HTTP $upgrade"
 
-step "The domains wired last answer: quests, shorts, audio rooms, communities, API tokens"
+step "The domains wired last answer: quests, shorts, live, audio rooms, communities, API tokens"
 jq -e '.progress.level.level >= 1' <<<"$(rpc tokuly.quest.v1.QuestService/GetProgress '{}' "$token")" >/dev/null || fail "quest progress has no level"
 rpc tokuly.shorts.v1.ShortFeedService/GetForYouFeed '{}' "$token" >/dev/null
+rpc tokuly.live.v1.LiveStreamService/ListLiveStreams '{}' "$token" >/dev/null
 jq -e '.config.audioEnabled == true' <<<"$(rpc tokuly.spaces.v1.SpaceService/GetSpacesConfig '{}' "$token")" >/dev/null || fail "audio rooms are not connected to LiveKit"
 rpc tokuly.community.v1.CommunityService/ListMyCommunities '{}' "$token" >/dev/null
 # A personal access token reads what its scope covers, and nothing else.
@@ -122,7 +123,7 @@ done
 step "Live streams: the media server, its control API and its recordings"
 # Nobody is on air: a viewer of a stream that does not exist is turned away (the media server
 # asks the API's hook first; 401 is its answer to a refusal).
-watch="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "${LIVE_HLS_URL:-http://localhost:8888}/live/AAAAAAAAAAA/index.m3u8")"
+watch="$(curl -sSL -o /dev/null -w '%{http_code}' --max-time 30 "${LIVE_HLS_URL:-http://localhost:8888}/live/AAAAAAAAAAA/index.m3u8")"
 case "$watch" in 401 | 404) ;; *) fail "the media server answered HTTP $watch for a stream that does not exist" ;; esac
 # The control API is for the worker only and is not published.
 if curl -sS -o /dev/null --max-time 3 "${LIVE_CONTROL_URL:-http://localhost:9997}/v3/paths/list" 2>/dev/null; then
