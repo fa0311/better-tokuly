@@ -1,7 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { parseSearchParams } from "#/features/search/params";
+import { SearchScreen } from "#/features/search/search-screen";
 
-export const Route = createFileRoute("/_app/search")({ component: Page });
+// `/search?q=…&kind=…&sort=…&owner=…`: the address says everything the page shows.
+export const Route = createFileRoute("/_app/search")({
+  validateSearch: (search: Record<string, unknown>) => parseSearchParams(search),
+  component: SearchPage,
+});
 
-function Page() {
-  return <div className="p-6 text-xl font-black">search</div>;
+function SearchPage() {
+  return <SearchScreen params={Route.useSearch()} />;
 }
