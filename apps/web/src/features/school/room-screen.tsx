@@ -250,12 +250,12 @@ export function RoomScreen({ roomId }: { roomId: string }) {
                 </Button>
               )}
               {pomodoro && view.state === school.TimerState.RUNNING && (
-                <Button variant="ghost" size="icon" aria-label={t("timer.skip")} onClick={() => control.mutate(school.TimerAction.SKIP)}>
+                <Button variant="ghost" size="icon" aria-label={t("timer.skip")} disabled={control.isPending} onClick={() => control.mutate(school.TimerAction.SKIP)}>
                   <SkipForward className="size-5" />
                 </Button>
               )}
               {view.state !== school.TimerState.IDLE && (
-                <Button variant="ghost" size="icon" aria-label={t("rooms.timer.reset")} onClick={() => control.mutate(school.TimerAction.RESET)}>
+                <Button variant="ghost" size="icon" aria-label={t("rooms.timer.reset")} disabled={control.isPending} onClick={() => control.mutate(school.TimerAction.RESET)}>
                   <RotateCcw className="size-5" />
                 </Button>
               )}

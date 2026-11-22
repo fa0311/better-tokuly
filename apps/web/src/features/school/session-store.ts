@@ -1,4 +1,4 @@
-import { school } from "@tokuly/api";
+import { school, toMillis } from "@tokuly/api";
 import { create } from "zustand";
 import { syncClock } from "./timer";
 
@@ -7,8 +7,12 @@ interface ActiveSession {
   session: school.StudySession | undefined;
   /** False until the server said whether there is one (after a reload). */
   loaded: boolean;
+  /** The server could not be asked whether there is one; the timer offers to try again. */
+  failed: boolean;
   /** How often the server wants to hear "still here". */
   heartbeatSeconds: number;
+  /** Counts every accepted change, so an answer that was asked for before one can be told apart. */
+  revision: number;
 }
 
 /**
@@ -16,21 +20,61 @@ interface ActiveSession {
  * the timer keeps its heartbeat whichever page is open; `background.tsx`
  * keeps it current from the API and the realtime connection.
  */
-export const useActiveSession = create<ActiveSession>(() => ({ session: undefined, loaded: false, heartbeatSeconds: 60 }));
+export const useActiveSession = create<ActiveSession>(() => ({ session: undefined, loaded: false, failed: false, heartbeatSeconds: 60, revision: 0 }));
 
-/** Takes a session the server returned or pushed: an ended one clears the timer. */
-export function setActiveSession(session: school.StudySession | undefined, heartbeatSeconds?: number): void {
+const serverTime = (session: school.StudySession | undefined) => toMillis(session?.timer?.serverTime);
+
+/**
+ * Takes a session the server returned or pushed: an ended one clears the
+ * timer, `undefined` means the server has none.
+ *
+ * Copies of a session arrive by several roads (an answer to a tap, a
+ * heartbeat, a realtime push) and not always in the order they were made.
+ * Each carries the server's clock, so an older copy never replaces a newer
+ * one, and the end of an earlier session never clears the one that followed
+ * it. Returns whether the session was taken.
+ */
+export function setActiveSession(session: school.StudySession | undefined, heartbeatSeconds?: number): boolean {
+  const state = useActiveSession.getState();
+  const stored = state.session;
+  if (session && stored) {
+    const ended = session.state === school.SessionState.ENDED;
+    if (ended && session.id !== stored.id) return false;
+    const at = serverTime(session);
+    if (!ended && at > 0 && at < serverTime(stored)) return false;
+  }
   syncClock(session?.timer);
   const active = session && session.state !== school.SessionState.ENDED ? session : undefined;
-  useActiveSession.setState((state) => ({ session: active, loaded: true, heartbeatSeconds: heartbeatSeconds || state.heartbeatSeconds }));
+  useActiveSession.setState({ session: active, loaded: true, failed: false, heartbeatSeconds: heartbeatSeconds || state.heartbeatSeconds, revision: state.revision + 1 });
+  return true;
 }
 
-/** A room's timer changed: the session of someone inside follows it. */
+/** A room's timer changed: the session of someone inside follows it (unless it already has a newer one). */
 export function setActiveTimer(roomId: string, timer: school.TimerSnapshot): void {
+  const state = useActiveSession.getState();
+  if (!state.session || state.session.roomId !== roomId || toMillis(timer.serverTime) < serverTime(state.session)) return;
   syncClock(timer);
-  useActiveSession.setState((state) => (state.session && state.session.roomId === roomId ? { session: { ...state.session, timer } } : state));
+  useActiveSession.setState({ session: { ...state.session, timer }, revision: state.revision + 1 });
+}
+
+/**
+ * Asks the server for the caller's session (after a reload, when the
+ * connection comes back, on "try again"). An answer of "none" that was
+ * overtaken by a change made in the meantime is dropped; a failure is
+ * remembered so the timer can say so instead of waiting forever.
+ */
+export async function loadActiveSession(fetchCurrent: () => Promise<{ session?: school.StudySession; heartbeatIntervalSeconds: number }>): Promise<void> {
+  const before = useActiveSession.getState().revision;
+  try {
+    const response = await fetchCurrent();
+    if (!response.session && useActiveSession.getState().revision !== before) return;
+    setActiveSession(response.session, response.heartbeatIntervalSeconds);
+  } catch {
+    // Something known beats a failed question; only a timer that knows nothing says it could not load.
+    if (!useActiveSession.getState().loaded) useActiveSession.setState({ failed: true });
+  }
 }
 
 export function resetActiveSession(): void {
-  useActiveSession.setState({ session: undefined, loaded: false });
+  useActiveSession.setState({ session: undefined, loaded: false, failed: false, revision: 0 });
 }

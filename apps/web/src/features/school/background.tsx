@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { realtime } from "#/lib/realtime";
 import { useSessionStore } from "#/stores/session";
 import { keys, refresh, studyClient } from "./api";
-import { resetActiveSession, setActiveSession, setActiveTimer, useActiveSession } from "./session-store";
+import { loadActiveSession, resetActiveSession, setActiveSession, setActiveTimer, useActiveSession } from "./session-store";
 
 /**
  * Runs while someone is signed in: restores their study timer after a
@@ -26,11 +26,7 @@ export default function SchoolBackground() {
 
   // The timer as the server has it: on sign-in, and whenever the connection comes back.
   useEffect(() => {
-    const load = () =>
-      studyClient()
-        .getCurrentStudySession({})
-        .then((response) => setActiveSession(response.session, response.heartbeatIntervalSeconds))
-        .catch(() => {});
+    const load = () => loadActiveSession(() => studyClient().getCurrentStudySession({}));
     void load();
     let connectedBefore = false;
     const client = realtime();

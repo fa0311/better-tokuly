@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { school, toDate } from "@tokuly/api";
-import { DoorOpen, Pause, Play, SkipForward, Square } from "lucide-react";
+import { DoorOpen, Pause, Play, RotateCw, SkipForward, Square } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -15,7 +15,7 @@ import { keys, refresh, studyClient, toastError, useSchoolSettings } from "./api
 import { studyTime, timerText } from "./dates";
 import { Segmented, SubjectPill, useNow } from "./parts";
 import { SubjectSelect } from "./subject-select";
-import { setActiveSession, useActiveSession } from "./session-store";
+import { loadActiveSession, setActiveSession, useActiveSession } from "./session-store";
 import { isBreak, studiedSecondsAt, type TimerView, timerAt } from "./timer";
 
 /** The words for a timer's phase: 集中, 休憩, 長い休憩. */
@@ -78,6 +78,7 @@ export function TimerCard() {
   const { t } = useTranslation("school");
   const session = useActiveSession((state) => state.session);
   const loaded = useActiveSession((state) => state.loaded);
+  const failed = useActiveSession((state) => state.failed);
   const settings = useSchoolSettings();
   const [mode, setMode] = useState<school.StudyMode>(school.StudyMode.STOPWATCH);
   const [subjectId, setSubjectId] = useState("");
@@ -93,6 +94,7 @@ export function TimerCard() {
     },
     onError: toastError,
   });
+  const retry = useMutation({ mutationFn: () => loadActiveSession(() => studyClient().getCurrentStudySession({})) });
   const control = useMutation({
     mutationFn: async (action: "pause" | "resume" | "skip") => {
       const client = studyClient();
@@ -103,6 +105,17 @@ export function TimerCard() {
     onError: toastError,
   });
 
+  if (!loaded && failed) {
+    return (
+      <section aria-label={t("timer.title")} className="sticker flex flex-col items-center gap-3 rounded-card bg-surface p-6 text-center">
+        <span className="text-4xl">🫠</span>
+        <p className="font-black">{t("timer.loadFailed")}</p>
+        <Button variant="secondary" icon={<RotateCw className="size-4" />} loading={retry.isPending} onClick={() => retry.mutate()}>
+          {t("common:actions.retry")}
+        </Button>
+      </section>
+    );
+  }
   if (!loaded) return <Skeleton className="h-80" />;
 
   if (!session) {
@@ -170,11 +183,11 @@ export function TimerCard() {
             </Button>
           )}
           {session.timer?.mode === school.StudyMode.POMODORO && session.state === school.SessionState.RUNNING && (
-            <Button variant="ghost" size="icon" aria-label={t("timer.skip")} onClick={() => control.mutate("skip")}>
+            <Button variant="ghost" size="icon" aria-label={t("timer.skip")} disabled={control.isPending} onClick={() => control.mutate("skip")}>
               <SkipForward className="size-5" />
             </Button>
           )}
-          <Button variant="danger" icon={<Square className="size-4" />} onClick={() => setStopping(true)}>
+          <Button variant="danger" icon={<Square className="size-4" />} disabled={control.isPending} onClick={() => setStopping(true)}>
             {t("timer.stop")}
           </Button>
         </div>

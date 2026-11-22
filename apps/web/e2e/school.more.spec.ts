@@ -154,3 +154,72 @@ test("an exam gets its subjects, scope and a private result; the daily goal show
   await page.goto("/school/study");
   await expect(page.getByRole("region", { name: "今日のようす" })).toContainText("目標 45分 まで");
 });
+
+test("a paint or an erase can be undone, and a tap the server refuses is taken back", async ({ page, request, me }) => {
+  const japanese = await createSubject(request, me, "国語");
+  await createSubject(request, me, "理科");
+  const { term } = await rpc<{ term: { id: string } }>(
+    request,
+    `${TIMETABLE}/CreateTerm`,
+    { name: "やり直し", startDate: tokyoDate(-30), endDate: tokyoDate(90), layout: { preset: "LAYOUT_PRESET_HIGH_SCHOOL_6", weekdays: ALL_WEEKDAYS }, observePublicHolidays: false },
+    me,
+  );
+  await rpc(request, `${TIMETABLE}/PutTimetableEntries`, { termId: term.id, entries: ALL_WEEKDAYS.map((weekday) => ({ weekday, period: 1, subjectId: japanese, room: "3-B", memo: "漢字テスト" })) }, me);
+  const saved = async () => {
+    const { entries } = await rpc<{ entries: { weekday: string; period: number; subject: { name: string }; room?: string; memo?: string }[] }>(request, `${TIMETABLE}/GetTerm`, { termId: term.id }, me);
+    return entries;
+  };
+
+  await page.goto("/school/timetable");
+  const grid = page.getByRole("table", { name: "時間割" });
+  const first = `${tokyoWeekday()} 1限`;
+  const second = `${tokyoWeekday()} 2限`;
+  await page.getByRole("button", { name: "編集", exact: true }).click();
+
+  // Painting over a class replaces it; undo brings the old class back with its room and memo.
+  await page.getByRole("radio", { name: "理科" }).click();
+  await grid.getByRole("button", { name: `${first} 国語` }).click();
+  await expect(grid.getByRole("button", { name: `${first} 理科` })).toBeVisible();
+  await expect(page.getByText("理科を入れたよ")).toBeVisible();
+  await page.getByRole("button", { name: "元にもどす" }).click();
+  await expect(grid.getByRole("button", { name: `${first} 国語` })).toBeVisible();
+  await expect(page.getByText("元にもどしたよ")).toBeVisible();
+  await expect(async () => {
+    const entries = await saved();
+    expect(entries).toHaveLength(7);
+    expect(entries.every((entry) => entry.subject.name === "国語" && entry.room === "3-B" && entry.memo === "漢字テスト")).toBe(true);
+  }).toPass();
+
+  // Erasing can be undone too.
+  await page.getByRole("radio", { name: "消しゴム" }).click();
+  await grid.getByRole("button", { name: `${first} 国語` }).click();
+  await expect(grid.getByRole("button", { name: `${first} 空き` })).toBeVisible();
+  await expect(page.getByText("コマを空にしたよ")).toBeVisible();
+  await page.getByRole("button", { name: "元にもどす" }).click();
+  await expect(grid.getByRole("button", { name: `${first} 国語` })).toBeVisible();
+  await expect(async () => expect(await saved()).toHaveLength(7)).toPass();
+
+  // A tap that does not reach the server leaves the grid as it was.
+  await page.route("**/tokuly.school.v1.TimetableService/PutTimetableEntries", (route) => route.abort());
+  await page.getByRole("radio", { name: "理科" }).click();
+  await grid.getByRole("button", { name: `${second} 空き` }).click();
+  await expect(page.getByText("通信できませんでした。接続を確認してね")).toBeVisible();
+  await expect(grid.getByRole("button", { name: `${second} 空き` })).toBeVisible();
+  await grid.getByRole("button", { name: `${first} 国語` }).click();
+  await expect(grid.getByRole("button", { name: `${first} 国語` })).toBeVisible();
+  await expect(grid.getByRole("button", { name: `${first} 理科` })).toHaveCount(0);
+  await page.unroute("**/tokuly.school.v1.TimetableService/PutTimetableEntries");
+  expect(await saved()).toHaveLength(7);
+});
+
+test("a timer that could not be restored says so and offers to try again", async ({ page, me: _me }) => {
+  let failing = true;
+  await page.route("**/tokuly.school.v1.StudyService/GetCurrentStudySession", (route) => (failing ? route.abort() : route.continue()));
+  await page.goto("/school/study");
+  const timer = page.getByRole("region", { name: "勉強タイマー" });
+  await expect(timer.getByText("タイマーのようすを読み込めなかったよ")).toBeVisible();
+
+  failing = false;
+  await timer.getByRole("button", { name: "もう一度" }).click();
+  await expect(timer.getByRole("button", { name: "スタート!" })).toBeVisible();
+});
