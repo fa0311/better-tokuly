@@ -5962,8 +5962,29 @@ dependencies = [
 name = "tokuly-community"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "async-trait",
+ "buffa",
+ "chrono",
+ "clap",
+ "connectrpc",
+ "futures",
+ "parking_lot 0.13.0",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
  "tokuly-core",
+ "tokuly-identity",
+ "tokuly-media",
  "tokuly-proto",
+ "tokuly-social",
+ "tokuly-stamp",
+ "tokuly-testkit",
+ "tracing",
+ "unicode-normalization",
+ "unicode-segmentation",
+ "uuid",
 ]
 
 [[package]]
