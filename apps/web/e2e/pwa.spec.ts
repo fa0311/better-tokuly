@@ -191,6 +191,17 @@ base("every page links the manifest, the icons, and an iPhone launch image per s
   }
 });
 
+test("the bars around the page follow the theme the app is set to, not only the device's", async ({ page, me: _me }) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await openApp(page, "/settings/appearance");
+  const themeColors = () => page.locator('meta[name="theme-color" i]').evaluateAll((tags) => tags.map((tag) => tag.getAttribute("content")));
+  await expect.poll(themeColors).toEqual(["#0d0b14", "#0d0b14"]);
+
+  // A light app on a dark device: the bars go with the app.
+  await page.getByRole("radio", { name: "ライト" }).click();
+  await expect.poll(themeColors).toEqual(["#f4f1ff", "#f4f1ff"]);
+});
+
 // ── Service worker ──────────────────────────────────────────────────
 
 test("the service worker takes over the app and keeps only public, static files", async ({ page, me: _me }) => {
@@ -305,7 +316,12 @@ test("the offer to install waits for a calm page, and one tap opens the browser'
   await expect(installBanner(page)).toHaveCount(0);
 
   await mainNav(page).getByRole("link", { name: "じぶん" }).click();
+  await expect(page.getByRole("heading", { name: "じぶん" })).toBeVisible();
+  // It floats above the page: nothing moves when it comes.
+  const placed = () => page.evaluate(() => [...document.querySelectorAll("main a, main h1")].map((element) => JSON.stringify(element.getBoundingClientRect())));
+  const before = await placed();
   await expect(installBanner(page)).toBeVisible();
+  expect(await placed()).toEqual(before);
   await installBanner(page).getByRole("button", { name: "追加する" }).click();
   await expect.poll(() => page.evaluate(() => window.__installPrompts)).toBe(1);
   // Installed: nothing left to offer.

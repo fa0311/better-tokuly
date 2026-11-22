@@ -34,6 +34,7 @@ const INBOX_PATH = "/notifications";
  * changes its worker underneath them.
  */
 self.addEventListener("install", (event) => {
+  bypassWorker(event);
   // Not fatal: push must work even where the offline page cannot be fetched right now.
   event.waitUntil(storeOfflinePage().catch(() => {}));
 });
@@ -41,11 +42,30 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     (async () => {
-      await Promise.allSettled([dropForeignCaches(), enableNavigationPreload(), storeOfflinePage(), ...RUNTIME_CACHES.map(trim)]);
+      await enableNavigationPreload().catch(() => {});
       await self.clients.claim();
+      // Housekeeping after the pages are taken, so it never holds up their requests.
+      await Promise.allSettled([dropForeignCaches(), storeOfflinePage(), ...RUNTIME_CACHES.map(trim)]);
     })(),
   );
 });
+
+/**
+ * Tells the browser which requests never concern this worker, so they go to
+ * the network directly instead of waiting for it to wake up: API calls,
+ * media and tiles stay exactly as fast as without a worker. Where the browser
+ * cannot be told (no static routing), the `fetch` listener ignores the same
+ * requests itself.
+ */
+function bypassWorker(event) {
+  if (!event.addRoutes) return;
+  try {
+    const routes = UNTOUCHED.map((prefix) => ({ condition: { urlPattern: new URLPattern({ pathname: `${prefix}*` }) }, source: "network" }));
+    event.waitUntil(event.addRoutes(routes).catch(() => {}));
+  } catch {
+    // The listener's own check covers it.
+  }
+}
 
 // ── 2. Offline ──────────────────────────────────────────────────────
 
@@ -97,8 +117,10 @@ const RUNTIME_CACHES = [
 const KNOWN_CACHES = [SHELL_CACHE, ...RUNTIME_CACHES.map((rule) => rule.cache)];
 
 /** Paths the worker never answers, not even for a navigation: they carry credentials or people's uploads. */
-const UNTOUCHED = ["/api/", "/media/", "/tiles/"];
+const UNTOUCHED = ["/api/", "/media/", "/tiles/", "/rt/"];
 
+/** Here a URL names one file, whatever headers ask for it: `Vary` is not allowed to cause a miss. */
+const SAME_FILE = { ignoreVary: true };
 /** Response header added to stored copies: when they were stored (ms since epoch). */
 const STORED_AT = "x-tokuly-stored-at";
 /** Sweep a cache after this many additions (and once when the worker activates). */
@@ -144,17 +166,24 @@ function bareOfflinePage() {
   return new Response(html, { status: 503, headers: { "content-type": "text/html; charset=utf-8" } });
 }
 
-let offlinePageStored = false;
+/** When this worker last made sure the offline page is stored and recent (it forgets when it is stopped). */
+let offlinePageCheckedAt = 0;
+/**
+ * Stores the offline page, and fetches it again when the stored copy is more
+ * than a day old: a changed page reaches people without a new worker. Fails
+ * when it cannot be fetched; whatever was stored before stays.
+ */
 async function storeOfflinePage() {
-  if (offlinePageStored) return;
+  if (Date.now() - offlinePageCheckedAt < DAY_MS) return;
   const cache = await caches.open(SHELL_CACHE);
-  if (!(await cache.match(OFFLINE_URL))) {
+  const stored = await cache.match(OFFLINE_URL);
+  if (!stored || !fresh(stored, { maxAgeMs: DAY_MS })) {
     // `reload`: the copy that is kept must come from the server, not from the browser's HTTP cache.
     const response = await fetch(new Request(OFFLINE_URL, { cache: "reload" }));
     if (!storable(response)) throw new Error(`offline page: ${response.status}`);
-    await cache.put(OFFLINE_URL, response);
+    await cache.put(OFFLINE_URL, await stamped(response));
   }
-  offlinePageStored = true;
+  offlinePageCheckedAt = Date.now();
 }
 
 async function enableNavigationPreload() {
@@ -170,7 +199,7 @@ async function dropForeignCaches() {
 /** The stored copy if there is one, the network (storing the answer) otherwise. */
 async function cacheFirst(event, rule) {
   const cache = await caches.open(rule.cache);
-  const stored = await cache.match(event.request);
+  const stored = await cache.match(event.request, SAME_FILE);
   if (stored && fresh(stored, rule)) return stored;
   try {
     return await fetchAndStore(event, cache, rule);
@@ -184,7 +213,7 @@ async function cacheFirst(event, rule) {
 /** The stored copy at once, refreshed in the background for next time; the network when there is none. */
 async function staleWhileRevalidate(event, rule) {
   const cache = await caches.open(rule.cache);
-  const stored = await cache.match(event.request);
+  const stored = await cache.match(event.request, SAME_FILE);
   const refreshed = fetchAndStore(event, cache, rule);
   if (stored && fresh(stored, rule)) {
     event.waitUntil(refreshed.catch(() => {}));
@@ -259,7 +288,7 @@ async function clearOfflineData() {
   const names = await caches.keys();
   await Promise.all(names.filter((name) => name.startsWith(CACHE_PREFIX)).map((name) => caches.delete(name)));
   additions.clear();
-  offlinePageStored = false;
+  offlinePageCheckedAt = 0;
   await storeOfflinePage().catch(() => {});
 }
 
