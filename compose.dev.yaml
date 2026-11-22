@@ -99,6 +99,12 @@ services:
     command: ["--config", "/etc/livekit.yaml"]
     environment:
       LIVEKIT_KEYS: "tokulydev: tokuly-livekit-dev-secret-0123456789"
+      # Signs the webhook declared in infra/livekit/livekit.yaml; must name the key above.
+      LIVEKIT_WEBHOOK_API_KEY: tokulydev
+    # The webhook goes to `api:8081`: here that is the API on the host
+    # (`cargo run -p tokuly-server`, TOKULY_API_LISTEN's default port). While
+    # no API runs, LiveKit logs a failed delivery and carries on.
+    extra_hosts: ["api:host-gateway"]
     ports: ["7880:7880", "7881:7881", "7882:7882/udp"]
     volumes:
       - ./infra/livekit/livekit.yaml:/etc/livekit.yaml:ro

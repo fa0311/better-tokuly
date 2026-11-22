@@ -97,4 +97,22 @@ websocket_url="$(jq -r .websocketUrl <<<"$endpoints")"
 upgrade="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: c21va2UtdGVzdC1rZXktMDE=' -H "Origin: $ORIGIN" "${websocket_url/#ws/http}" 2>/dev/null || true)"
 [ "$upgrade" = 101 ] || fail "the WebSocket upgrade at $websocket_url answered HTTP $upgrade"
 
+step "The domains wired last answer: quests, shorts, audio rooms, communities, API tokens"
+jq -e '.progress.level.level >= 1' <<<"$(rpc tokuly.quest.v1.QuestService/GetProgress '{}' "$token")" >/dev/null || fail "quest progress has no level"
+rpc tokuly.shorts.v1.ShortFeedService/GetForYouFeed '{}' "$token" >/dev/null
+jq -e '.config.audioEnabled == true' <<<"$(rpc tokuly.spaces.v1.SpaceService/GetSpacesConfig '{}' "$token")" >/dev/null || fail "audio rooms are not connected to LiveKit"
+rpc tokuly.community.v1.CommunityService/ListMyCommunities '{}' "$token" >/dev/null
+# A personal access token reads what its scope covers, and nothing else.
+pat="$(jq -r .secret <<<"$(rpc tokuly.dev.v1.TokenService/CreateToken '{"name":"smoke","scopes":["quest:read"]}' "$token")")"
+case "$pat" in tkl_pat_*) ;; *) fail "CreateToken returned no personal access token" ;; esac
+rpc tokuly.quest.v1.QuestService/GetProgress '{}' "$pat" >/dev/null
+refused="$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$ORIGIN/api/tokuly.spaces.v1.SpaceService/GetSpacesConfig" -H 'content-type: application/json' -H "authorization: Bearer $pat" -d '{}')"
+[ "$refused" = 403 ] || fail "a token without spaces:read reached the spaces API (HTTP $refused)"
+jq -e '.token_endpoint | endswith("/oauth/token")' <<<"$(curl -fsS "$ORIGIN/api/.well-known/oauth-authorization-server")" >/dev/null || fail "the OAuth metadata is not served"
+
+step "LiveKit's webhook is not reachable from outside"
+# LiveKit calls the API inside the stack; the edge must not pass the route on.
+webhook="$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$ORIGIN/api/spaces/livekit/webhook" -d '{}')"
+[ "$webhook" = 404 ] || fail "the edge passed /api/spaces/livekit/webhook on (HTTP $webhook)"
+
 printf '\nAll checks passed.\n'

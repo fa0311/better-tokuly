@@ -19,7 +19,7 @@
 #                 └─ everything else▶ web        TanStack Start server
 #   browser ══▶ realtime :4433/udp   WebTransport (QUIC), straight to the gateway
 #   browser ──▶ storage  :9000       uploads with presigned URLs
-#   browser ══▶ livekit  :7880-7882  voice and video calls (WebRTC)
+#   browser ══▶ livekit  :7880-7882  voice and video calls, audio rooms (WebRTC)
 #
 # Outgoing mail is caught by Mailpit (http://localhost:8025) until TOKULY_SMTP_URL
 # points at a real mail server.
@@ -274,6 +274,9 @@ services:
     command: ["--config", "/etc/livekit.yaml"]
     environment:
       LIVEKIT_KEYS: "${LIVEKIT_API_KEY:-tokuly}: ${LIVEKIT_API_SECRET:?run tools/init-env.sh first}"
+      # Signs the webhook declared in infra/livekit/livekit.yaml (the API's
+      # /spaces/livekit/webhook); must name the key above.
+      LIVEKIT_WEBHOOK_API_KEY: ${LIVEKIT_API_KEY:-tokuly}
     ports:
       - "${TOKULY_LIVEKIT_PORT:-7880}:7880"
       - "7881:7881"
