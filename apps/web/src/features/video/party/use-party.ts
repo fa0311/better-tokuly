@@ -1,5 +1,6 @@
 import { errorReason, type Timestamp, toMillis, video } from "@tokuly/api";
 import { useEffect, useRef, useState } from "react";
+import { API_PATH, api } from "#/lib/api";
 import { realtime } from "#/lib/realtime";
 import { partyClient } from "../api";
 import type { SharedPlayback } from "./sync";
@@ -67,6 +68,12 @@ function fromSession(session: video.PartySession, previous?: PartyRoomState): Pa
 }
 
 const HEARTBEAT_MS = 20_000;
+/** A long party's chat keeps its latest entries only; what scrolled away hours ago is let go. */
+export const CHAT_LIMIT = 200;
+
+function latest<T>(entries: T[]): T[] {
+  return entries.length > CHAT_LIMIT ? entries.slice(-CHAT_LIMIT) : entries;
+}
 
 /**
  * A seat in a watch party, kept alive and current: the party's realtime
@@ -81,9 +88,9 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
   const topic = initial.realtimeTopic;
   const gone = state.exit !== undefined;
   // The latest state for callbacks that outlive a render.
-  const latest = useRef(state);
+  const latestState = useRef(state);
   useEffect(() => {
-    latest.current = state;
+    latestState.current = state;
   });
 
   const applyPlayback = (playback: video.PartyPlayback | undefined, serverTime?: Timestamp) =>
@@ -136,7 +143,7 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
               ...current,
               members,
               party: { ...current.party, memberCount: members.length },
-              notices: known ? current.notices : [...current.notices, { id: `joined:${member.id}:${Date.now()}`, kind: "joined", name: member.name, atMs: Date.now() + current.clockOffsetMs }],
+              notices: known ? current.notices : latest([...current.notices, { id: `joined:${member.id}:${Date.now()}`, kind: "joined" as const, name: member.name, atMs: Date.now() + current.clockOffsetMs }]),
             };
           });
           break;
@@ -153,7 +160,7 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
               ...current,
               members: current.members.filter((member) => member.id !== memberId),
               party: { ...current.party, memberCount },
-              notices: leaver ? [...current.notices, { id: `left:${memberId}:${Date.now()}`, kind: reason === PartyLeaveReason.REMOVED ? "removed" : "left", name: leaver.name, atMs: Date.now() + current.clockOffsetMs }] : current.notices,
+              notices: leaver ? latest([...current.notices, { id: `left:${memberId}:${Date.now()}`, kind: reason === PartyLeaveReason.REMOVED ? ("removed" as const) : ("left" as const), name: leaver.name, atMs: Date.now() + current.clockOffsetMs }]) : current.notices,
             };
           });
           break;
@@ -165,7 +172,7 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
         }
         case "partyMessage": {
           const message = event.value;
-          setState((current) => (current.messages.some((existing) => existing.id === message.id) ? current : { ...current, messages: [...current.messages, message] }));
+          setState((current) => (current.messages.some((existing) => existing.id === message.id) ? current : { ...current, messages: latest([...current.messages, message]) }));
           break;
         }
         case "partyUpdated":
@@ -208,9 +215,39 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
     return () => clearInterval(timer);
   }, [partyId, guestToken, gone]);
 
+  // Going elsewhere gives the seat up at once, so the others do not watch a ghost for a minute.
+  // Inside the app that is an ordinary call; a page that is closing sends one that outlives it.
+  const departure = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => {
+    // (Development mounts every effect twice: a departure scheduled by the first pass is called off.)
+    clearTimeout(departure.current);
+    const present = () => !latestState.current.exit;
+    const onPageHide = () => {
+      if (!present()) return;
+      const token = api().session.peekAccessToken();
+      void fetch(`${API_PATH}/tokuly.video.v1.WatchPartyService/LeaveParty`, {
+        method: "POST",
+        keepalive: true,
+        credentials: "include",
+        headers: { "content-type": "application/json", "x-tokuly-client": "web", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ partyId, guestToken }),
+      }).catch(() => {});
+    };
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      departure.current = setTimeout(() => {
+        if (present())
+          void partyClient()
+            .leaveParty({ partyId, guestToken })
+            .catch(() => {});
+      }, 0);
+    };
+  }, [partyId, guestToken]);
+
   return {
     state,
-    latest,
+    latest: latestState,
     selfId,
     /** Reads the party again (after changing its video, a role, or the guest setting). */
     reload,
@@ -222,7 +259,7 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
     async sendMessage(message: { text?: string; stampId?: string }) {
       const response = await partyClient().sendPartyMessage({ partyId, guestToken, text: message.text ?? "", stampId: message.stampId ?? "" });
       const sent = response.message;
-      if (sent) setState((current) => (current.messages.some((existing) => existing.id === sent.id) ? current : { ...current, messages: [...current.messages, sent] }));
+      if (sent) setState((current) => (current.messages.some((existing) => existing.id === sent.id) ? current : { ...current, messages: latest([...current.messages, sent]) }));
     },
     async leave() {
       setState((current) => ({ ...current, exit: current.exit ?? { kind: "left" } }));
