@@ -9,8 +9,10 @@ import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Card } from "#/components/ui/card";
 import { EmptyState, Skeleton } from "#/components/ui/page";
+import { ProfileAnswers, ProfileAskButton } from "#/features/ask";
 import { ReportButton } from "#/features/engagement";
 import { ProfileNotes } from "#/features/notes";
+import { ProfilePlans } from "#/features/plans";
 import { SchoolProfileCards } from "#/features/school";
 import { forgetUser, ProfileHighlights, StoryRing } from "#/features/stories";
 import { api, profileClient } from "#/lib/api";
@@ -118,6 +120,7 @@ export function ProfileScreen({ handle }: { handle: string }) {
                 <Settings className="size-4" />
                 {t("actions.settings")}
               </Link>
+              <ProfileAskButton user={user} isSelf />
               <Button variant="secondary" icon={<LogOut className="size-4" />} onClick={signOut}>
                 {t("actions.signOut")}
               </Button>
@@ -138,6 +141,7 @@ export function ProfileScreen({ handle }: { handle: string }) {
                   {profile.relationship === identity.Relationship.REQUEST_RECEIVED ? t("actions.accept") : t("actions.add")}
                 </Button>
               )}
+              <ProfileAskButton user={user} isSelf={false} />
               {isFriend && (
                 <Button
                   variant="ghost"
@@ -154,6 +158,9 @@ export function ProfileScreen({ handle }: { handle: string }) {
             </>
           )}
         </div>
+
+        {/* ひま right now, pinned countdowns, a couple counter. */}
+        <ProfilePlans cards={profile.cards} user={user} isSelf={isSelf} className="mt-5" />
 
         <ProfileHighlights user={user} isSelf={isSelf} />
 
@@ -206,6 +213,7 @@ export function ProfileScreen({ handle }: { handle: string }) {
         </div>
 
         {/* Nothing of a blocked person is shown, and the server would not hand it out. */}
+        {profile.relationship !== identity.Relationship.BLOCKED && <ProfileAnswers user={user} />}
         {profile.relationship !== identity.Relationship.BLOCKED && <ProfileNotes userId={user.id} isSelf={isSelf} />}
       </div>
     </div>
