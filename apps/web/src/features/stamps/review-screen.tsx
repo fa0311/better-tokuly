@@ -108,7 +108,7 @@ function useTrust() {
       toast.success(input.trusted ? t("toast.trusted") : t("toast.untrusted"));
       return queryClient.invalidateQueries({ queryKey: stampKeys.review });
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "stamps" })),
   });
 }
 
@@ -130,7 +130,7 @@ function ReviewCard({ item }: { item: stamp.ReviewItem }) {
 
   const decided = () => Promise.all([queryClient.invalidateQueries({ queryKey: stampKeys.review }), queryClient.invalidateQueries({ queryKey: stampKeys.store })]);
   const onError = (error: unknown) => {
-    toast.error(errorMessage(error));
+    toast.error(errorMessage(error, { namespace: "stamps" }));
     // Someone else may have decided meanwhile: show the queue as it is.
     void queryClient.invalidateQueries({ queryKey: stampKeys.review });
   };
@@ -364,7 +364,7 @@ function ShelfCard({ pack }: { pack: stamp.PackSummary }) {
     },
     onError: (error, featured) => {
       patchPack(queryClient, pack.id, (summary) => ({ ...summary, featured: !featured }));
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "stamps" }));
     },
   });
 
