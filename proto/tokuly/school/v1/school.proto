@@ -1,15 +1,1950 @@
 syntax = "proto3";
 
-// Timetables, study sessions and rooms, exams and assignments.
+// School life: timetables (時間割), study sessions and study rooms
+// (もくもく部屋), exams and assignments.
 //
-// SKELETON: the owning domain implements this file. Keep the package name
-// and the realtime event message name stable; everything else is yours.
+// Conventions of this package:
+// - Every RPC needs a signed-in caller.
+// - A calendar date is a `YYYY-MM-DD` string and a time of day is a number of
+//   minutes after local midnight, both in the account's time zone
+//   (`AccountService.UpdateProfile`, Asia/Tokyo unless changed). Anything
+//   "per day" (totals, streaks, countdowns, today's classes) uses that zone.
+// - Weeks start on Monday.
+// - The server keeps the time. Timers are described by `TimerSnapshot`, which
+//   carries the server's clock, so clients only correct for their own clock
+//   offset and never report elapsed time themselves.
+// - Reasons every RPC may return besides its own: INVALID_ID, INVALID_DATE
+//   (not a `YYYY-MM-DD` date, or outside 2000-2100), RATE_LIMITED.
 package tokuly.school.v1;
 
+import "google/protobuf/timestamp.proto";
 import "tokuly/common/v1/common.proto";
 
+// ───────────────────────────── Settings ─────────────────────────────
+
+// Per-account settings of the school features.
+service SchoolService {
+  // The caller's settings (the defaults until they are changed).
+  rpc GetSchoolSettings(GetSchoolSettingsRequest) returns (GetSchoolSettingsResponse);
+  // Changes the settings present in the request; the others keep their value.
+  // Errors: SETTINGS_INVALID.
+  rpc UpdateSchoolSettings(UpdateSchoolSettingsRequest) returns (UpdateSchoolSettingsResponse);
+}
+
+// Who sees that the user is studying.
+enum StudyVisibility {
+  STUDY_VISIBILITY_UNSPECIFIED = 0;
+  // Friends see "勉強中" with the subject and the elapsed time (the default).
+  STUDY_VISIBILITY_FRIENDS = 1;
+  STUDY_VISIBILITY_NOBODY = 2;
+}
+
+message SchoolSettings {
+  // Minutes before the first class of the day at which the
+  // `school.class_soon` notification is sent (1-120). 0, the default, never
+  // sends it: timetable notifications are opt-in.
+  int32 class_soon_minutes = 1;
+  // Who sees the user studying: on their profile, in `ListStudyingFriends`,
+  // in the heatmap of `GetStudyHeatmap`. Default: friends.
+  StudyVisibility study_visibility = 2;
+  // Finished sessions appear in friends' activity feeds (default true; also
+  // needs `study_visibility` to be friends and the account-wide activity
+  // sharing of the identity settings).
+  bool share_study_activity = 3;
+  // Takes part in the weekly ranking among friends (default false). Only
+  // participants see the ranking.
+  bool join_ranking = 4;
+  // Cheers also arrive as a notification (default false: a cheer is a quiet
+  // realtime event).
+  bool cheer_notifications = 5;
+  // Daily study goal in minutes (0 = no goal, up to 1440).
+  int32 daily_goal_minutes = 6;
+  // Pomodoro lengths used when a session or room is started without any.
+  PomodoroConfig pomodoro = 7;
+  // Reminders for assignments (`school.assignment_due`), default true.
+  bool assignment_reminders = 8;
+}
+
+message GetSchoolSettingsRequest {}
+
+message GetSchoolSettingsResponse {
+  SchoolSettings settings = 1;
+}
+
+message UpdateSchoolSettingsRequest {
+  optional int32 class_soon_minutes = 1;
+  optional StudyVisibility study_visibility = 2;
+  optional bool share_study_activity = 3;
+  optional bool join_ranking = 4;
+  optional bool cheer_notifications = 5;
+  optional int32 daily_goal_minutes = 6;
+  // Replaces the default pomodoro lengths when set.
+  PomodoroConfig pomodoro = 7;
+  optional bool assignment_reminders = 8;
+}
+
+message UpdateSchoolSettingsResponse {
+  SchoolSettings settings = 1;
+}
+
+// ───────────────────────────── Timetable ─────────────────────────────
+
+// Timetables: subjects, terms with their period layout and weekly grid,
+// one-off changes, days off, what actually happens on a day, and sharing
+// with friends.
+//
+// A user's own data is private. A term is visible to other people only
+// through its audience (`Term.audience`); to everyone else it does not exist
+// (TERM_NOT_FOUND / TIMETABLE_NOT_SHARED). Memos are never shown to anyone
+// but the owner.
+service TimetableService {
+  // The ready-made period layouts (high school 50-minute periods, university
+  // 90 / 100 / 105-minute コマ...) to start a term from.
+  rpc ListLayoutPresets(ListLayoutPresetsRequest) returns (ListLayoutPresetsResponse);
+
+  // The caller's subjects, by name.
+  rpc ListSubjects(ListSubjectsRequest) returns (ListSubjectsResponse);
+  // Adds a subject to the caller's list. Without a colour one is picked from
+  // the palette. Errors: SUBJECT_NAME_INVALID, SUBJECT_NAME_TAKEN,
+  // COLOR_INVALID, TEXT_TOO_LONG, SUBJECT_LIMIT_REACHED.
+  rpc CreateSubject(CreateSubjectRequest) returns (CreateSubjectResponse);
+  // Changes a subject everywhere it is used. Errors: SUBJECT_NOT_FOUND,
+  // SUBJECT_NAME_INVALID, SUBJECT_NAME_TAKEN, COLOR_INVALID, TEXT_TOO_LONG.
+  rpc UpdateSubject(UpdateSubjectRequest) returns (UpdateSubjectResponse);
+  // Removes a subject from the caller's list and from every timetable. Study
+  // sessions, exams and assignments keep their subject: when any of them use
+  // it, the subject is archived (hidden from pickers) instead of erased.
+  // Errors: SUBJECT_NOT_FOUND.
+  rpc DeleteSubject(DeleteSubjectRequest) returns (DeleteSubjectResponse);
+
+  // The caller's terms, newest first.
+  rpc ListTerms(ListTermsRequest) returns (ListTermsResponse);
+  // One term with its weekly grid, changes and day overrides.
+  // Errors: TERM_NOT_FOUND.
+  rpc GetTerm(GetTermRequest) returns (GetTermResponse);
+  // Creates a term. The first term of an account becomes the current one.
+  // Errors: TERM_NAME_INVALID, DATE_RANGE_INVALID (end before start, or
+  // longer than 400 days), LAYOUT_INVALID, WEEK_A_DATE_REQUIRED,
+  // AUDIENCE_INVALID, NOT_FRIENDS (a chosen person is not a friend),
+  // TOO_MANY_SHARES, TERM_LIMIT_REACHED.
+  rpc CreateTerm(CreateTermRequest) returns (CreateTermResponse);
+  // Changes a term: name, dates, layout, A/B weeks, public holidays, the
+  // audience, or which term is current. Shrinking the layout removes the
+  // classes that no longer fit. Errors: TERM_NOT_FOUND and those of CreateTerm.
+  rpc UpdateTerm(UpdateTermRequest) returns (UpdateTermResponse);
+  // Deletes a term with its grid, changes and day overrides. When it was the
+  // current one, the newest remaining term becomes current.
+  // Errors: TERM_NOT_FOUND.
+  rpc DeleteTerm(DeleteTermRequest) returns (DeleteTermResponse);
+
+  // Puts classes into slots of the weekly grid. A slot holds either one class
+  // every week or one for week A and/or one for week B: whatever a new class
+  // collides with is replaced. All or nothing.
+  // Errors: TERM_NOT_FOUND, NO_ENTRIES, TOO_MANY_ENTRIES, SLOT_INVALID (weekday
+  // or period outside the term's layout), WEEK_PATTERN_INVALID (A/B in a term
+  // without alternating weeks), SUBJECT_NOT_FOUND, COLOR_INVALID, TEXT_TOO_LONG.
+  rpc PutTimetableEntries(PutTimetableEntriesRequest) returns (PutTimetableEntriesResponse);
+  // Empties slots of the weekly grid. Unknown IDs are ignored.
+  // Errors: TERM_NOT_FOUND.
+  rpc DeleteTimetableEntries(DeleteTimetableEntriesRequest) returns (DeleteTimetableEntriesResponse);
+
+  // Records a one-off change for a date: a class is cancelled (休講), moved to
+  // another slot, replaced, or an extra class takes place (補講). A slot has
+  // at most one change per date: a new one replaces the old.
+  // Errors: TERM_NOT_FOUND, CHANGE_KIND_REQUIRED, DATE_OUTSIDE_TERM,
+  // SLOT_INVALID, NO_CLASS_IN_SLOT (cancelling, moving or replacing where
+  // nothing is scheduled), SUBJECT_REQUIRED (an extra class), MOVE_TARGET_REQUIRED,
+  // SUBJECT_NOT_FOUND, TEXT_TOO_LONG, CHANGE_LIMIT_REACHED.
+  rpc CreateTimetableChange(CreateTimetableChangeRequest) returns (CreateTimetableChangeResponse);
+  // Withdraws a one-off change. Errors: CHANGE_NOT_FOUND.
+  rpc DeleteTimetableChange(DeleteTimetableChangeRequest) returns (DeleteTimetableChangeResponse);
+
+  // Marks dates as a holiday, as a class day (despite a public holiday or a
+  // weekday without classes, optionally following another weekday's
+  // timetable: 「月曜授業」), or pins them to week A or B.
+  // Errors: TERM_NOT_FOUND, OVERRIDE_KIND_REQUIRED, DATE_RANGE_INVALID,
+  // DATE_OUTSIDE_TERM, WEEK_PATTERN_INVALID, TEXT_TOO_LONG, OVERRIDE_LIMIT_REACHED.
+  rpc CreateDayOverride(CreateDayOverrideRequest) returns (CreateDayOverrideResponse);
+  // Removes a day override. Errors: OVERRIDE_NOT_FOUND.
+  rpc DeleteDayOverride(DeleteDayOverrideRequest) returns (DeleteDayOverrideResponse);
+
+  // What actually happens on one day: the weekly grid with A/B weeks,
+  // holidays and one-off changes applied. The caller's own day, or a friend's
+  // when their term for that date is shared with the caller.
+  // Errors: TIMETABLE_NOT_SHARED.
+  rpc GetDay(GetDayRequest) returns (GetDayResponse);
+  // `GetDay` for a range of up to 62 days (a week view, a month calendar).
+  // Errors: DATE_RANGE_INVALID, TIMETABLE_NOT_SHARED.
+  rpc ListDays(ListDaysRequest) returns (ListDaysResponse);
+  // The class taking place right now and the next one (today, or on the
+  // next day with classes within two weeks). The caller's, or a friend's.
+  // Errors: TIMETABLE_NOT_SHARED.
+  rpc GetNow(GetNowRequest) returns (GetNowResponse);
+
+  // Friends whose current term is shared with the caller, with what they
+  // are in right now.
+  rpc ListFriendTimetables(ListFriendTimetablesRequest) returns (ListFriendTimetablesResponse);
+  // A friend's term as shared with the caller: their current term unless
+  // another one is asked for. Errors: TIMETABLE_NOT_SHARED.
+  rpc GetFriendTimetable(GetFriendTimetableRequest) returns (GetFriendTimetableResponse);
+  // Copies a friend's shared term into the caller's account as a starting
+  // point (classmates): a new term, or the empty slots of an existing one.
+  // Subjects are matched to the caller's by name and created when missing;
+  // memos and one-off changes are not copied; a new term also gets the
+  // friend's day overrides (the school's holidays and class days). The copy
+  // is the caller's own from then on.
+  // Errors: TIMETABLE_NOT_SHARED, TERM_NOT_FOUND (the target),
+  // TERM_NAME_INVALID, TERM_LIMIT_REACHED, SUBJECT_LIMIT_REACHED.
+  rpc CopyFriendTimetable(CopyFriendTimetableRequest) returns (CopyFriendTimetableResponse);
+  // 空きコマ: the caller's free periods on up to seven days, each with the
+  // friends who are free at the same time. Only friends whose timetable is
+  // shared with the caller can be compared.
+  // Errors: DATE_RANGE_INVALID, TOO_MANY_USERS.
+  rpc FindCommonFreePeriods(FindCommonFreePeriodsRequest) returns (FindCommonFreePeriodsResponse);
+}
+
+enum Weekday {
+  WEEKDAY_UNSPECIFIED = 0;
+  WEEKDAY_MONDAY = 1;
+  WEEKDAY_TUESDAY = 2;
+  WEEKDAY_WEDNESDAY = 3;
+  WEEKDAY_THURSDAY = 4;
+  WEEKDAY_FRIDAY = 5;
+  WEEKDAY_SATURDAY = 6;
+  WEEKDAY_SUNDAY = 7;
+}
+
+// In which weeks a class of the weekly grid takes place.
+enum WeekPattern {
+  WEEK_PATTERN_UNSPECIFIED = 0;
+  WEEK_PATTERN_EVERY = 1;
+  // A週 only.
+  WEEK_PATTERN_A = 2;
+  // B週 only.
+  WEEK_PATTERN_B = 3;
+}
+
+// Who may see a term.
+enum TimetableAudience {
+  TIMETABLE_AUDIENCE_UNSPECIFIED = 0;
+  // Only the owner (the default).
+  TIMETABLE_AUDIENCE_NOBODY = 1;
+  // The friends listed in `Term.shared_with`.
+  TIMETABLE_AUDIENCE_CHOSEN = 2;
+  // Every friend.
+  TIMETABLE_AUDIENCE_FRIENDS = 3;
+}
+
+// Ready-made period layouts.
+enum LayoutPreset {
+  LAYOUT_PRESET_UNSPECIFIED = 0;
+  // The periods were entered by hand.
+  LAYOUT_PRESET_CUSTOM = 1;
+  // High school: six 50-minute periods from 8:50, lunch after the fourth.
+  LAYOUT_PRESET_HIGH_SCHOOL_6 = 2;
+  // High school: seven 50-minute periods.
+  LAYOUT_PRESET_HIGH_SCHOOL_7 = 3;
+  // High school: seven 45-minute periods.
+  LAYOUT_PRESET_HIGH_SCHOOL_7_SHORT = 4;
+  // University: five 90-minute コマ from 9:00.
+  LAYOUT_PRESET_UNIVERSITY_90 = 5;
+  // University: five 100-minute コマ from 9:00.
+  LAYOUT_PRESET_UNIVERSITY_100 = 6;
+  // University: five 105-minute コマ from 8:30.
+  LAYOUT_PRESET_UNIVERSITY_105 = 7;
+}
+
+// A subject of the caller's list, reused by every term, study session, exam
+// and assignment.
+message Subject {
+  string id = 1;
+  // "数学Ⅱ". Unique per account, ignoring case; 1-40 characters.
+  string name = 2;
+  // Short form for narrow grid cells ("数Ⅱ"), up to 8 characters; optional.
+  string short_name = 3;
+  // `#rrggbb`.
+  string color = 4;
+  // One optional emoji.
+  string emoji = 5;
+  // Usual teacher and room; a timetable entry may say otherwise.
+  string teacher = 6;
+  string room = 7;
+  // Hidden from pickers; kept because sessions, exams or assignments use it.
+  bool archived = 8;
+  tokuly.common.v1.Timestamps timestamps = 9;
+}
+
+// What other people get to see of someone's subject.
+message SubjectLabel {
+  string name = 1;
+  string emoji = 2;
+  string color = 3;
+}
+
+// One period (コマ) of a school day.
+message Period {
+  // 1-based position in the day.
+  int32 number = 1;
+  // Minutes after local midnight; the end is after the start and periods do
+  // not overlap.
+  int32 start_minute = 2;
+  int32 end_minute = 3;
+  // Optional name ("1限", "LHR"); clients show the number when empty.
+  string label = 4;
+}
+
+// The shape of a school week: the periods of a day and the weekdays with classes.
+message PeriodLayout {
+  // The preset this layout comes from. When creating or updating a term with
+  // a preset and no `periods`, the preset's periods are filled in.
+  LayoutPreset preset = 1;
+  // 1 to 12 periods, numbered 1..n in order of time.
+  repeated Period periods = 2;
+  // Weekdays with classes; Monday to Friday when empty. Add Saturday for
+  // schools with Saturday classes.
+  repeated Weekday weekdays = 3;
+}
+
+message LayoutPresetInfo {
+  LayoutPreset preset = 1;
+  tokuly.common.v1.LocalizedText name = 2;
+  tokuly.common.v1.LocalizedText description = 3;
+  PeriodLayout layout = 4;
+}
+
+// A term (学期): 前期 / 後期, 1学期..3学期, a quarter.
+message Term {
+  string id = 1;
+  string owner_id = 2;
+  // "2026年度 前期"; 1-40 characters.
+  string name = 3;
+  // First and last day, inclusive. Days outside every term have no classes;
+  // where terms overlap, the current one wins, then the one starting later.
+  string start_date = 4;
+  string end_date = 5;
+  // The term the timetable screen opens with. At most one per account.
+  bool current = 6;
+  PeriodLayout layout = 7;
+  // The timetable alternates between week A and week B.
+  bool alternating_weeks = 8;
+  // Any date inside a week that runs as week A; weeks alternate from there.
+  // Single weeks can be pinned with a day override.
+  string week_a_date = 9;
+  // Japanese public holidays (祝日, 振替休日) are days off unless a day
+  // override says otherwise. Default true.
+  bool observe_public_holidays = 10;
+  TimetableAudience audience = 11;
+  // The chosen friends of a CHOSEN audience. Owner only.
+  repeated tokuly.common.v1.UserSummary shared_with = 12;
+  // The classmate this term was copied from, if any. Owner only.
+  tokuly.common.v1.UserSummary copied_from = 13;
+  // Classes in the weekly grid.
+  int32 entry_count = 14;
+  tokuly.common.v1.Timestamps timestamps = 15;
+}
+
+// A class in the weekly grid of a term.
+message TimetableEntry {
+  string id = 1;
+  string term_id = 2;
+  Weekday weekday = 3;
+  int32 period = 4;
+  WeekPattern week_pattern = 5;
+  Subject subject = 6;
+  // Set when this class differs from the subject's usual teacher, room or
+  // colour; empty means "as the subject says".
+  string teacher = 7;
+  string room = 8;
+  string color = 9;
+  // Private note; never shown to friends.
+  string memo = 10;
+}
+
+enum ChangeKind {
+  CHANGE_KIND_UNSPECIFIED = 0;
+  // 休講: the class in this slot does not take place.
+  CHANGE_KIND_CANCELLED = 1;
+  // The class in this slot takes place at `to_date` / `to_period` instead.
+  CHANGE_KIND_MOVED = 2;
+  // Another subject takes the slot; or, without a subject, the same class
+  // with a different teacher or room (教室変更).
+  CHANGE_KIND_REPLACED = 3;
+  // 補講: an additional class in a slot that may be empty otherwise.
+  CHANGE_KIND_EXTRA = 4;
+}
+
+// A one-off change of the timetable on one date.
+message TimetableChange {
+  string id = 1;
+  string term_id = 2;
+  string date = 3;
+  int32 period = 4;
+  ChangeKind kind = 5;
+  // REPLACED / EXTRA: the subject taking place.
+  Subject subject = 6;
+  // REPLACED / EXTRA: teacher and room of that class, when not the subject's usual ones.
+  string teacher = 7;
+  string room = 8;
+  // Private note.
+  string memo = 9;
+  // MOVED: where the class goes.
+  string to_date = 10;
+  int32 to_period = 11;
+}
+
+enum DayOverrideKind {
+  DAY_OVERRIDE_KIND_UNSPECIFIED = 0;
+  // No regular classes: 夏休み, 文化祭, 創立記念日.
+  DAY_OVERRIDE_KIND_HOLIDAY = 1;
+  // Classes are held even on a public holiday or a weekday without classes
+  // (登校日), optionally with another weekday's timetable (振替授業).
+  DAY_OVERRIDE_KIND_CLASS_DAY = 2;
+  // The dates run as week A or B whatever the alternation says.
+  DAY_OVERRIDE_KIND_WEEK_PATTERN = 3;
+}
+
+// A rule for a date or a range of dates of a term. Where several apply to
+// the same date, the shortest range wins, then the newest.
+message DayOverride {
+  string id = 1;
+  string term_id = 2;
+  // First and last date, inclusive.
+  string start_date = 3;
+  string end_date = 4;
+  DayOverrideKind kind = 5;
+  // "夏休み", "月曜授業"; optional, up to 40 characters.
+  string name = 6;
+  // CLASS_DAY: the weekday whose timetable is followed; unset = the date's own.
+  Weekday follows_weekday = 7;
+  // WEEK_PATTERN: A or B. CLASS_DAY: optionally A or B.
+  WeekPattern week_pattern = 8;
+}
+
+enum DayKind {
+  DAY_KIND_UNSPECIFIED = 0;
+  // Classes take place as the timetable says.
+  DAY_KIND_SCHOOL_DAY = 1;
+  // A weekday without classes in this term (usually the weekend).
+  DAY_KIND_DAY_OFF = 2;
+  // A public holiday or a holiday set with a day override.
+  DAY_KIND_HOLIDAY = 3;
+  // No term covers the date.
+  DAY_KIND_OUT_OF_TERM = 4;
+}
+
+enum ClassStatus {
+  CLASS_STATUS_UNSPECIFIED = 0;
+  // Takes place as in the weekly grid.
+  CLASS_STATUS_SCHEDULED = 1;
+  // Does not take place (休講).
+  CLASS_STATUS_CANCELLED = 2;
+  // Takes place with another subject, teacher or room than usual.
+  CLASS_STATUS_REPLACED = 3;
+  // An extra class (補講).
+  CLASS_STATUS_EXTRA = 4;
+  // Does not take place here: moved to `other_date` / `other_period`.
+  CLASS_STATUS_MOVED_AWAY = 5;
+  // Takes place here instead of `other_date` / `other_period`.
+  CLASS_STATUS_MOVED_HERE = 6;
+}
+
+// A class on a concrete date.
+message ScheduledClass {
+  string date = 1;
+  int32 period = 2;
+  google.protobuf.Timestamp starts_at = 3;
+  google.protobuf.Timestamp ends_at = 4;
+  int32 start_minute = 5;
+  int32 end_minute = 6;
+  // CANCELLED and MOVED_AWAY classes are listed so the day shows what
+  // changed; they do not take place.
+  ClassStatus status = 7;
+  Subject subject = 8;
+  // Teacher, room and colour that apply (the entry's or change's own, else
+  // the subject's).
+  string teacher = 9;
+  string room = 10;
+  string color = 11;
+  // The owner's private note; empty for everyone else.
+  string memo = 12;
+  // The grid entry and the change this class comes from, when any.
+  string entry_id = 13;
+  string change_id = 14;
+  // MOVED_AWAY: where the class went. MOVED_HERE: where it came from.
+  string other_date = 15;
+  int32 other_period = 16;
+  // REPLACED: the subject that would have taken place.
+  Subject original_subject = 17;
+}
+
+// One day of someone's timetable, resolved.
+message TimetableDay {
+  string date = 1;
+  Weekday weekday = 2;
+  DayKind kind = 3;
+  // The term covering the date; empty when out of term.
+  string term_id = 4;
+  string term_name = 5;
+  // Name of the holiday or day override in effect ("海の日", "月曜授業").
+  string label = 6;
+  // A or B in a term with alternating weeks, EVERY otherwise.
+  WeekPattern week_pattern = 7;
+  // The weekday whose timetable the day follows.
+  Weekday follows_weekday = 8;
+  // By period, then start time.
+  repeated ScheduledClass classes = 9;
+  // The periods of the term, to draw the day with its free slots.
+  repeated Period periods = 10;
+}
+
+message ListLayoutPresetsRequest {}
+
+message ListLayoutPresetsResponse {
+  repeated LayoutPresetInfo presets = 1;
+}
+
+message ListSubjectsRequest {
+  // Also return archived subjects.
+  bool include_archived = 1;
+}
+
+message ListSubjectsResponse {
+  repeated Subject subjects = 1;
+}
+
+message CreateSubjectRequest {
+  string name = 1;
+  string short_name = 2;
+  string color = 3;
+  string emoji = 4;
+  string teacher = 5;
+  string room = 6;
+}
+
+message CreateSubjectResponse {
+  Subject subject = 1;
+}
+
+message UpdateSubjectRequest {
+  string subject_id = 1;
+  optional string name = 2;
+  optional string short_name = 3;
+  optional string color = 4;
+  optional string emoji = 5;
+  optional string teacher = 6;
+  optional string room = 7;
+  // Brings an archived subject back, or hides one from pickers.
+  optional bool archived = 8;
+}
+
+message UpdateSubjectResponse {
+  Subject subject = 1;
+}
+
+message DeleteSubjectRequest {
+  string subject_id = 1;
+}
+
+message DeleteSubjectResponse {
+  // True when the subject is still used by sessions, exams or assignments
+  // and was archived instead of erased.
+  bool archived = 1;
+  // Classes removed from weekly grids.
+  int32 removed_entry_count = 2;
+}
+
+message ListTermsRequest {}
+
+message ListTermsResponse {
+  repeated Term terms = 1;
+}
+
+message GetTermRequest {
+  string term_id = 1;
+}
+
+message GetTermResponse {
+  Term term = 1;
+  repeated TimetableEntry entries = 2;
+  // By date.
+  repeated TimetableChange changes = 3;
+  // By start date.
+  repeated DayOverride day_overrides = 4;
+}
+
+message CreateTermRequest {
+  string name = 1;
+  string start_date = 2;
+  string end_date = 3;
+  // A preset, custom periods, or nothing (HIGH_SCHOOL_6, Monday to Friday).
+  PeriodLayout layout = 4;
+  bool alternating_weeks = 5;
+  // Required with `alternating_weeks`.
+  string week_a_date = 6;
+  // Default true.
+  optional bool observe_public_holidays = 7;
+  // Default NOBODY.
+  TimetableAudience audience = 8;
+  // The chosen friends of a CHOSEN audience (up to 200).
+  repeated string shared_with_user_ids = 9;
+  // Make it the current term (always true for the first term).
+  bool current = 10;
+}
+
+message CreateTermResponse {
+  Term term = 1;
+}
+
+// Wrapper so "replace the list" can be told from "leave it alone".
+message UserIdList {
+  repeated string user_ids = 1;
+}
+
+message UpdateTermRequest {
+  string term_id = 1;
+  optional string name = 2;
+  optional string start_date = 3;
+  optional string end_date = 4;
+  // Replaces the layout when set.
+  PeriodLayout layout = 5;
+  optional bool alternating_weeks = 6;
+  optional string week_a_date = 7;
+  optional bool observe_public_holidays = 8;
+  // Unset (UNSPECIFIED) keeps the audience.
+  TimetableAudience audience = 9;
+  // Replaces the chosen friends when set.
+  UserIdList shared_with = 10;
+  // True makes this the current term. A term stops being current only when
+  // another one becomes current.
+  optional bool current = 11;
+}
+
+message UpdateTermResponse {
+  Term term = 1;
+  // Classes removed because the new layout has no slot for them.
+  int32 removed_entry_count = 2;
+}
+
+message DeleteTermRequest {
+  string term_id = 1;
+}
+
+message DeleteTermResponse {}
+
+// A class to put into a slot.
+message TimetableEntryInput {
+  Weekday weekday = 1;
+  int32 period = 2;
+  // EVERY when unset.
+  WeekPattern week_pattern = 3;
+  string subject_id = 4;
+  string teacher = 5;
+  string room = 6;
+  string color = 7;
+  string memo = 8;
+}
+
+message PutTimetableEntriesRequest {
+  string term_id = 1;
+  // 1 to 100 classes; no two for the same slot and week.
+  repeated TimetableEntryInput entries = 2;
+}
+
+message PutTimetableEntriesResponse {
+  repeated TimetableEntry entries = 1;
+  // Entries that were in the way and are gone now.
+  repeated string replaced_entry_ids = 2;
+}
+
+message DeleteTimetableEntriesRequest {
+  string term_id = 1;
+  repeated string entry_ids = 2;
+}
+
+message DeleteTimetableEntriesResponse {
+  int32 deleted_count = 1;
+}
+
+message CreateTimetableChangeRequest {
+  string term_id = 1;
+  string date = 2;
+  int32 period = 3;
+  ChangeKind kind = 4;
+  // REPLACED (optional) / EXTRA (required).
+  string subject_id = 5;
+  string teacher = 6;
+  string room = 7;
+  string memo = 8;
+  // MOVED: the new slot, inside the term.
+  string to_date = 9;
+  int32 to_period = 10;
+}
+
+message CreateTimetableChangeResponse {
+  TimetableChange change = 1;
+}
+
+message DeleteTimetableChangeRequest {
+  string change_id = 1;
+}
+
+message DeleteTimetableChangeResponse {}
+
+message CreateDayOverrideRequest {
+  string term_id = 1;
+  string start_date = 2;
+  // The start date when empty.
+  string end_date = 3;
+  DayOverrideKind kind = 4;
+  string name = 5;
+  Weekday follows_weekday = 6;
+  WeekPattern week_pattern = 7;
+}
+
+message CreateDayOverrideResponse {
+  DayOverride day_override = 1;
+}
+
+message DeleteDayOverrideRequest {
+  string day_override_id = 1;
+}
+
+message DeleteDayOverrideResponse {}
+
+message GetDayRequest {
+  // Today when empty.
+  string date = 1;
+  // A friend; the caller when empty.
+  string user_id = 2;
+}
+
+message GetDayResponse {
+  TimetableDay day = 1;
+}
+
+message ListDaysRequest {
+  string start_date = 1;
+  // Inclusive; at most 62 days after the start.
+  string end_date = 2;
+  // A friend; the caller when empty.
+  string user_id = 3;
+}
+
+message ListDaysResponse {
+  repeated TimetableDay days = 1;
+}
+
+message GetNowRequest {
+  // A friend; the caller when empty.
+  string user_id = 1;
+}
+
+// The class in progress and the one after it.
+message ClassNow {
+  // Unset between and outside classes.
+  ScheduledClass current = 1;
+  // The next class that takes place; unset when there is none within two weeks.
+  ScheduledClass next = 2;
+  google.protobuf.Timestamp server_time = 3;
+}
+
+message GetNowResponse {
+  ClassNow now = 1;
+}
+
+message ListFriendTimetablesRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+// A friend who shares their current term with the caller.
+message FriendTimetable {
+  tokuly.common.v1.UserSummary user = 1;
+  Term term = 2;
+  ClassNow now = 3;
+}
+
+message ListFriendTimetablesResponse {
+  repeated FriendTimetable timetables = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message GetFriendTimetableRequest {
+  string user_id = 1;
+  // Their current term when empty.
+  string term_id = 2;
+}
+
+message GetFriendTimetableResponse {
+  Term term = 1;
+  // Without memos.
+  repeated TimetableEntry entries = 2;
+  // The friend's other terms the caller may see, newest first.
+  repeated Term other_terms = 3;
+}
+
+message CopyFriendTimetableRequest {
+  string user_id = 1;
+  // The friend's term to copy; their current term when empty.
+  string term_id = 2;
+  // Copy into this term of the caller's (its layout is kept and classes that
+  // do not fit are skipped); a new term is created when empty.
+  string target_term_id = 3;
+  // Name of the new term; the friend's name for it when empty.
+  string name = 4;
+  // Copying into an existing term: also replace the slots the caller filled
+  // already. False keeps the caller's own classes.
+  bool overwrite = 5;
+}
+
+message CopyFriendTimetableResponse {
+  Term term = 1;
+  repeated TimetableEntry entries = 2;
+  int32 copied_entry_count = 3;
+  // Classes left out because the caller's slot was taken or does not exist.
+  int32 skipped_entry_count = 4;
+  // Subjects added to the caller's list.
+  int32 created_subject_count = 5;
+}
+
+message FindCommonFreePeriodsRequest {
+  // Today when empty.
+  string start_date = 1;
+  // 1 to 7 days from the start date; 1 when zero.
+  int32 days = 2;
+  // Friends to compare with (up to 50); every friend sharing a timetable
+  // with the caller when empty.
+  repeated string user_ids = 3;
+}
+
+// A period in which the caller has no class.
+message FreePeriod {
+  string date = 1;
+  int32 period = 2;
+  google.protobuf.Timestamp starts_at = 3;
+  google.protobuf.Timestamp ends_at = 4;
+  int32 start_minute = 5;
+  int32 end_minute = 6;
+  // The caller has classes both before and after it that day (a true 空きコマ).
+  bool between_classes = 7;
+  // Friends with no class during this time on a day they have school or a day off.
+  repeated tokuly.common.v1.UserSummary free_friends = 8;
+}
+
+message FindCommonFreePeriodsResponse {
+  // The caller's free periods on school days, by date and period.
+  repeated FreePeriod periods = 1;
+  // Asked-for people who could not be compared: not friends, or their
+  // timetable is not shared with the caller.
+  repeated string not_shared_user_ids = 2;
+}
+
+// ───────────────────────────── Study sessions ─────────────────────────────
+
+// The focus timer and the study log.
+//
+// A user has at most one active session. While it is active the client sends
+// `HeartbeatStudySession` at least every `heartbeat_interval_seconds`; the
+// server counts study time up to the last heartbeat only. A session that
+// stays silent for the idle limit is stopped by the server and keeps the
+// time counted until its last heartbeat.
+service StudyService {
+  // Starts the timer: a stopwatch or a pomodoro. Joining a study room starts
+  // a session too (`StudyRoomService.JoinStudyRoom`).
+  // Errors: SESSION_ALREADY_ACTIVE, STUDY_MODE_REQUIRED, POMODORO_INVALID,
+  // SUBJECT_NOT_FOUND, TEXT_TOO_LONG.
+  rpc StartStudySession(StartStudySessionRequest) returns (StartStudySessionResponse);
+  // Pauses the caller's timer. Errors: NO_ACTIVE_SESSION, SESSION_NOT_RUNNING,
+  // ROOM_SESSION (the room's host controls a room's timer).
+  rpc PauseStudySession(PauseStudySessionRequest) returns (PauseStudySessionResponse);
+  // Continues a paused timer. Errors: NO_ACTIVE_SESSION, SESSION_NOT_PAUSED,
+  // ROOM_SESSION.
+  rpc ResumeStudySession(ResumeStudySessionRequest) returns (ResumeStudySessionResponse);
+  // Ends the caller's session and logs it. A session in a study room ends by
+  // leaving the room, which this does too. Errors: NO_ACTIVE_SESSION.
+  rpc StopStudySession(StopStudySessionRequest) returns (StopStudySessionResponse);
+  // "Still here": counts the time since the last heartbeat. Returns the
+  // session; `state` is ENDED with `auto_stopped` when the server gave up on
+  // it in the meantime. Errors: NO_ACTIVE_SESSION.
+  rpc HeartbeatStudySession(HeartbeatStudySessionRequest) returns (HeartbeatStudySessionResponse);
+  // Pomodoro: ends the current work or break phase now.
+  // Errors: NO_ACTIVE_SESSION, NOT_POMODORO, SESSION_NOT_RUNNING, ROOM_SESSION.
+  rpc SkipStudyPhase(SkipStudyPhaseRequest) returns (SkipStudyPhaseResponse);
+  // The caller's active session, if any (to restore the timer on another
+  // device). Not a heartbeat.
+  rpc GetCurrentStudySession(GetCurrentStudySessionRequest) returns (GetCurrentStudySessionResponse);
+
+  // Logs study time after the fact. Errors: TIME_RANGE_INVALID (not in the
+  // past, end before start, longer than 24 hours, older than 2 years),
+  // SESSION_OVERLAPS (study time is already logged in that window),
+  // SUBJECT_NOT_FOUND, TEXT_TOO_LONG.
+  rpc LogStudySession(LogStudySessionRequest) returns (LogStudySessionResponse);
+  // Changes the subject or memo of a session, or the start and end of a
+  // finished one. Errors: SESSION_NOT_FOUND, SESSION_ACTIVE (times of a
+  // session that is still running), ROOM_SESSION (the subject of a stay in a
+  // study room changes with `SetStudyRoomSubject`), TIME_RANGE_INVALID,
+  // SESSION_OVERLAPS, SUBJECT_NOT_FOUND, TEXT_TOO_LONG.
+  rpc UpdateStudySession(UpdateStudySessionRequest) returns (UpdateStudySessionResponse);
+  // Deletes a finished session from the log. Errors: SESSION_NOT_FOUND,
+  // SESSION_ACTIVE.
+  rpc DeleteStudySession(DeleteStudySessionRequest) returns (DeleteStudySessionResponse);
+  // The caller's study log, newest first.
+  rpc ListStudySessions(ListStudySessionsRequest) returns (ListStudySessionsResponse);
+
+  // Study time of a day, week or month: the total, each day and each
+  // subject. A session across midnight counts towards both days.
+  // Errors: STATS_PERIOD_REQUIRED.
+  rpc GetStudySummary(GetStudySummaryRequest) returns (GetStudySummaryResponse);
+  // Today against the daily goal, and the streak.
+  rpc GetStudyProgress(GetStudyProgressRequest) returns (GetStudyProgressResponse);
+  // Study time per day for a year, for a contribution-graph calendar. The
+  // caller's, or a friend's who shows their studying to friends.
+  // Errors: STUDY_NOT_SHARED.
+  rpc GetStudyHeatmap(GetStudyHeatmapRequest) returns (GetStudyHeatmapResponse);
+
+  // Friends who are studying right now and show it, longest session first.
+  rpc ListStudyingFriends(ListStudyingFriendsRequest) returns (ListStudyingFriendsResponse);
+  // This week's (or another week's) study time among the caller and the
+  // friends who joined the ranking. Only time the server timed counts (the
+  // timer and study rooms): sessions logged by hand (`SessionSource.MANUAL`)
+  // show in one's own totals and are left out here. Empty with
+  // `joined = false` until the caller joins (`SchoolSettings.join_ranking`).
+  rpc GetStudyRanking(GetStudyRankingRequest) returns (GetStudyRankingResponse);
+  // Sends "がんばれ!" to a friend who is studying. Quiet: a realtime event,
+  // and a notification only if the friend asked for those.
+  // Errors: NOT_STUDYING (not a friend, not studying, or not showing it),
+  // CANNOT_CHEER_SELF, RATE_LIMITED (one cheer per friend every few minutes).
+  rpc CheerStudy(CheerStudyRequest) returns (CheerStudyResponse);
+  // Cheers received during one of the caller's sessions, newest first.
+  // Errors: SESSION_NOT_FOUND.
+  rpc ListStudyCheers(ListStudyCheersRequest) returns (ListStudyCheersResponse);
+}
+
+enum StudyMode {
+  STUDY_MODE_UNSPECIFIED = 0;
+  // Counts up until stopped.
+  STUDY_MODE_STOPWATCH = 1;
+  // Work phases separated by breaks; only the work counts as study time.
+  STUDY_MODE_POMODORO = 2;
+}
+
+// Lengths of a pomodoro cycle.
+message PomodoroConfig {
+  // 1-180; 25 when zero.
+  int32 work_minutes = 1;
+  // 1-60; 5 when zero.
+  int32 break_minutes = 2;
+  // The break after every `rounds` work phases, 1-120; 15 when zero.
+  int32 long_break_minutes = 3;
+  // Work phases before the long break, 1-12; 4 when zero.
+  int32 rounds = 4;
+}
+
+enum TimerState {
+  TIMER_STATE_UNSPECIFIED = 0;
+  // Not started yet (study rooms only).
+  TIMER_STATE_IDLE = 1;
+  TIMER_STATE_RUNNING = 2;
+  TIMER_STATE_PAUSED = 3;
+}
+
+enum TimerPhase {
+  TIMER_PHASE_UNSPECIFIED = 0;
+  // Study time. A stopwatch is always in this phase.
+  TIMER_PHASE_WORK = 1;
+  TIMER_PHASE_BREAK = 2;
+  TIMER_PHASE_LONG_BREAK = 3;
+}
+
+// A timer as the server sees it at `server_time`. Clients compute their
+// offset to the server clock from `server_time` and render the countdown
+// from `phase_ends_at`; while RUNNING the phases follow each other by
+// themselves according to `pomodoro`.
+message TimerSnapshot {
+  StudyMode mode = 1;
+  // Set for pomodoro timers.
+  PomodoroConfig pomodoro = 2;
+  TimerState state = 3;
+  TimerPhase phase = 4;
+  // 1-based count of work phases, including the current or upcoming one.
+  int32 round = 5;
+  // RUNNING pomodoro: when the current phase began (shifted by pauses) and ends.
+  google.protobuf.Timestamp phase_started_at = 6;
+  google.protobuf.Timestamp phase_ends_at = 7;
+  // Pomodoro: time left in the current phase.
+  int32 phase_remaining_seconds = 8;
+  // Position on the timer's timeline: the time it has been running, pauses
+  // excluded and breaks included (skipping a phase jumps ahead).
+  int32 elapsed_seconds = 9;
+  // The server's clock when this snapshot was taken.
+  google.protobuf.Timestamp server_time = 10;
+}
+
+enum SessionState {
+  SESSION_STATE_UNSPECIFIED = 0;
+  SESSION_STATE_RUNNING = 1;
+  SESSION_STATE_PAUSED = 2;
+  SESSION_STATE_ENDED = 3;
+}
+
+enum SessionSource {
+  SESSION_SOURCE_UNSPECIFIED = 0;
+  // The caller's own timer.
+  SESSION_SOURCE_TIMER = 1;
+  // Time spent in a study room, following the room's timer.
+  SESSION_SOURCE_ROOM = 2;
+  // Logged afterwards by hand.
+  SESSION_SOURCE_MANUAL = 3;
+}
+
+// One stretch of studying.
+message StudySession {
+  string id = 1;
+  SessionState state = 2;
+  SessionSource source = 3;
+  // Unset for "no subject".
+  Subject subject = 4;
+  // Private note ("p.42-58").
+  string memo = 5;
+  google.protobuf.Timestamp started_at = 6;
+  google.protobuf.Timestamp ended_at = 7;
+  // Study time counted so far: pauses and pomodoro breaks excluded. For an
+  // active session this is the value at `timer.server_time`.
+  int32 studied_seconds = 8;
+  // Active sessions: the timer to render. A room session shows the room's timer.
+  TimerSnapshot timer = 9;
+  // The study room the session takes place in, if any.
+  string room_id = 10;
+  // The server ended the session because heartbeats stopped (or the pause
+  // or the session ran too long).
+  bool auto_stopped = 11;
+  // Cheers received during the session.
+  int32 cheer_count = 12;
+}
+
+message StartStudySessionRequest {
+  StudyMode mode = 1;
+  // Pomodoro lengths; the caller's defaults when unset.
+  PomodoroConfig pomodoro = 2;
+  // Optional.
+  string subject_id = 3;
+  string memo = 4;
+}
+
+message StartStudySessionResponse {
+  StudySession session = 1;
+  // Send a heartbeat at least this often.
+  int32 heartbeat_interval_seconds = 2;
+  // Silence after which the server stops the session.
+  int32 idle_timeout_seconds = 3;
+}
+
+message PauseStudySessionRequest {}
+
+message PauseStudySessionResponse {
+  StudySession session = 1;
+}
+
+message ResumeStudySessionRequest {}
+
+message ResumeStudySessionResponse {
+  StudySession session = 1;
+}
+
+message StopStudySessionRequest {
+  // Replaces the memo when set.
+  optional string memo = 1;
+}
+
+message StopStudySessionResponse {
+  StudySession session = 1;
+  // The day's progress after this session.
+  StudyProgress progress = 2;
+}
+
+message HeartbeatStudySessionRequest {}
+
+message HeartbeatStudySessionResponse {
+  StudySession session = 1;
+  int32 heartbeat_interval_seconds = 2;
+}
+
+message SkipStudyPhaseRequest {}
+
+message SkipStudyPhaseResponse {
+  StudySession session = 1;
+}
+
+message GetCurrentStudySessionRequest {}
+
+message GetCurrentStudySessionResponse {
+  // Unset when the caller is not studying.
+  StudySession session = 1;
+  int32 heartbeat_interval_seconds = 2;
+  int32 idle_timeout_seconds = 3;
+}
+
+message LogStudySessionRequest {
+  google.protobuf.Timestamp started_at = 1;
+  google.protobuf.Timestamp ended_at = 2;
+  string subject_id = 3;
+  string memo = 4;
+}
+
+message LogStudySessionResponse {
+  StudySession session = 1;
+}
+
+message UpdateStudySessionRequest {
+  string session_id = 1;
+  // An empty string clears the subject.
+  optional string subject_id = 2;
+  optional string memo = 3;
+  // Finished sessions only; both together. A session logged by hand then
+  // counts as one uninterrupted stretch between them. A session the server
+  // timed can only be shortened: the new start and end must lie within the
+  // time it counted (TIME_RANGE_INVALID otherwise), and pauses and breaks
+  // inside stay uncounted.
+  google.protobuf.Timestamp started_at = 4;
+  google.protobuf.Timestamp ended_at = 5;
+}
+
+message UpdateStudySessionResponse {
+  StudySession session = 1;
+}
+
+message DeleteStudySessionRequest {
+  string session_id = 1;
+}
+
+message DeleteStudySessionResponse {}
+
+message ListStudySessionsRequest {
+  tokuly.common.v1.PageRequest page = 1;
+  // Only sessions of this subject.
+  string subject_id = 2;
+  // Only sessions started on or after / on or before these dates.
+  string from_date = 3;
+  string to_date = 4;
+}
+
+message ListStudySessionsResponse {
+  repeated StudySession sessions = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+enum StatsPeriod {
+  STATS_PERIOD_UNSPECIFIED = 0;
+  STATS_PERIOD_DAY = 1;
+  // Monday to Sunday.
+  STATS_PERIOD_WEEK = 2;
+  STATS_PERIOD_MONTH = 3;
+}
+
+message DayTotal {
+  string date = 1;
+  int32 seconds = 2;
+}
+
+message SubjectTotal {
+  // Unset for time without a subject.
+  Subject subject = 1;
+  int32 seconds = 2;
+}
+
+message GetStudySummaryRequest {
+  StatsPeriod period = 1;
+  // Any date inside the period; today when empty.
+  string anchor_date = 2;
+}
+
+message GetStudySummaryResponse {
+  // First and last day of the period, inclusive.
+  string start_date = 1;
+  string end_date = 2;
+  int32 total_seconds = 3;
+  // The period before, for "先週より+2時間".
+  int32 previous_total_seconds = 4;
+  // Every day of the period, including days without study.
+  repeated DayTotal days = 5;
+  // Most studied first.
+  repeated SubjectTotal subjects = 6;
+}
+
+// Today against the goal, and the streak.
+message StudyProgress {
+  string date = 1;
+  int32 today_seconds = 2;
+  // The daily goal (0 = none).
+  int32 goal_minutes = 3;
+  bool goal_reached = 4;
+  // Consecutive days, ending today or yesterday, on which the goal was
+  // reached — or, without a goal, on which the user studied at all.
+  int32 streak_days = 5;
+  int32 longest_streak_days = 6;
+  // Monday until today.
+  int32 week_seconds = 7;
+  // Everything ever logged.
+  int64 total_seconds = 8;
+}
+
+message GetStudyProgressRequest {}
+
+message GetStudyProgressResponse {
+  StudyProgress progress = 1;
+}
+
+message GetStudyHeatmapRequest {
+  // A friend; the caller when empty.
+  string user_id = 1;
+  // Last day of the calendar; today when empty.
+  string end_date = 2;
+  // Days covered, ending at `end_date`: 1-371, 365 when zero.
+  int32 days = 3;
+}
+
+message GetStudyHeatmapResponse {
+  string start_date = 1;
+  string end_date = 2;
+  // Days with study time only.
+  repeated DayTotal days = 3;
+  // The busiest day's time, to scale the colours.
+  int32 max_seconds = 4;
+  int32 total_seconds = 5;
+}
+
+// A friend who is studying right now.
+message StudyingFriend {
+  tokuly.common.v1.UserSummary user = 1;
+  string session_id = 2;
+  // RUNNING or PAUSED.
+  SessionState state = 3;
+  // Unset when they study without a subject.
+  SubjectLabel subject = 4;
+  google.protobuf.Timestamp started_at = 5;
+  // Study time of this session at `server_time`.
+  int32 studied_seconds = 6;
+  // WORK, or a break of their pomodoro.
+  TimerPhase phase = 7;
+  // The study room they are in, when the caller may enter it.
+  string room_id = 8;
+  string room_title = 9;
+  google.protobuf.Timestamp server_time = 10;
+}
+
+message ListStudyingFriendsRequest {}
+
+message ListStudyingFriendsResponse {
+  repeated StudyingFriend friends = 1;
+}
+
+message GetStudyRankingRequest {
+  // Any date inside the week; today when empty.
+  string anchor_date = 1;
+}
+
+message RankingEntry {
+  // 1-based; equal times share a rank.
+  int32 rank = 1;
+  tokuly.common.v1.UserSummary user = 2;
+  int32 seconds = 3;
+  bool me = 4;
+}
+
+message GetStudyRankingResponse {
+  // Whether the caller takes part. False: `entries` is empty.
+  bool joined = 1;
+  string start_date = 2;
+  string end_date = 3;
+  // Most study time first; up to 100.
+  repeated RankingEntry entries = 4;
+}
+
+message CheerStudyRequest {
+  string user_id = 1;
+}
+
+// "がんばれ!" from a friend.
+message StudyCheer {
+  string id = 1;
+  tokuly.common.v1.UserSummary from = 2;
+  string session_id = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+message CheerStudyResponse {
+  StudyCheer cheer = 1;
+}
+
+message ListStudyCheersRequest {
+  string session_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListStudyCheersResponse {
+  repeated StudyCheer cheers = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// ───────────────────────────── Study rooms ─────────────────────────────
+
+// もくもく部屋: rooms for studying side by side. Everyone in a room follows
+// one shared timer, sees who is there and what they study, and can send a
+// few fixed reactions — there is no chat, on purpose.
+//
+// Being in a room is a study session (`SessionSource.ROOM`): members send
+// `StudyService.HeartbeatStudySession` like for any session, are removed
+// when they fall silent, and the time the room's timer spends in a work
+// phase while they are present counts as their study time. A user is in at
+// most one room.
+//
+// A room that the caller may not enter does not exist for them
+// (ROOM_NOT_FOUND). Live updates arrive as `SchoolEvent` on the realtime
+// topic `study:{room_id}`, which the same people may subscribe to.
+//
+// Rooms can be reported (`SUBJECT_TYPE_STUDY_ROOM`) by anyone who may enter
+// them, and by anyone they were put in front of — invited, inside, removed
+// — also after the invitation was withdrawn or the room closed.
+service StudyRoomService {
+  // Opens a room and puts the caller in it as its host. The timer waits for
+  // the host to start it. An active session of the caller's ends first (it
+  // is logged), and a room of theirs that stands empty closes.
+  // Errors: ROOM_TITLE_INVALID, AUDIENCE_INVALID, MEMBER_CAP_INVALID,
+  // POMODORO_INVALID, STUDY_MODE_REQUIRED, SUBJECT_NOT_FOUND, NOT_FRIENDS
+  // (an invitee), ALREADY_HOSTING (one open room per host), RATE_LIMITED.
+  rpc CreateStudyRoom(CreateStudyRoomRequest) returns (CreateStudyRoomResponse);
+  // A room with its members. Errors: ROOM_NOT_FOUND.
+  rpc GetStudyRoom(GetStudyRoomRequest) returns (GetStudyRoomResponse);
+  // Host: changes the title, the audience, the member cap or the timer's
+  // lengths (which restarts the cycle). Narrowing the audience removes
+  // nobody who is already inside.
+  // Errors: ROOM_NOT_FOUND, NOT_HOST, ROOM_CLOSED and those of CreateStudyRoom.
+  rpc UpdateStudyRoom(UpdateStudyRoomRequest) returns (UpdateStudyRoomResponse);
+  // Host: closes the room for everyone; their sessions end and are logged.
+  // Errors: ROOM_NOT_FOUND, NOT_HOST.
+  rpc CloseStudyRoom(CloseStudyRoomRequest) returns (CloseStudyRoomResponse);
+  // Open rooms: public ones, the ones of friends and invitations, or the
+  // one the caller is in or hosts. Fullest first.
+  // Errors: ROOM_SCOPE_REQUIRED.
+  rpc ListStudyRooms(ListStudyRoomsRequest) returns (ListStudyRoomsResponse);
+
+  // Enters a room. An active session of the caller's ends first (it is
+  // logged), as does their stay in another room. Entering the room one is
+  // in already changes nothing.
+  // Errors: ROOM_NOT_FOUND, ROOM_CLOSED, ROOM_FULL, SUBJECT_NOT_FOUND,
+  // SESSION_ALREADY_ACTIVE (another request of the caller's started a session
+  // at the same moment; try again).
+  rpc JoinStudyRoom(JoinStudyRoomRequest) returns (JoinStudyRoomResponse);
+  // Leaves the room; the session ends and is logged. The room stays open
+  // for the others, and closes by itself after being empty for a while.
+  // Errors: NOT_IN_ROOM.
+  rpc LeaveStudyRoom(LeaveStudyRoomRequest) returns (LeaveStudyRoomResponse);
+  // Says what the caller studies now. The time so far is logged under the
+  // previous subject. Errors: NOT_IN_ROOM, SUBJECT_NOT_FOUND.
+  rpc SetStudyRoomSubject(SetStudyRoomSubjectRequest) returns (SetStudyRoomSubjectResponse);
+
+  // Host: starts, pauses, resumes or resets the shared timer, or skips to
+  // the next phase. Errors: ROOM_NOT_FOUND, NOT_HOST, ROOM_CLOSED,
+  // TIMER_ACTION_REQUIRED, TIMER_ACTION_INVALID (pausing a timer that is not
+  // running, skipping in a room without phases...).
+  rpc ControlStudyRoomTimer(ControlStudyRoomTimerRequest) returns (ControlStudyRoomTimerResponse);
+  // Sends one of the fixed reactions to the room, or to one member.
+  // Errors: NOT_IN_ROOM, REACTION_REQUIRED, USER_NOT_IN_ROOM, RATE_LIMITED.
+  rpc SendStudyRoomReaction(SendStudyRoomReactionRequest) returns (SendStudyRoomReactionResponse);
+
+  // Host: invites friends. They are notified and may enter whatever the
+  // audience is. Errors: ROOM_NOT_FOUND, NOT_HOST, ROOM_CLOSED, NO_USERS,
+  // TOO_MANY_USERS, NOT_FRIENDS, RATE_LIMITED.
+  rpc InviteToStudyRoom(InviteToStudyRoomRequest) returns (InviteToStudyRoomResponse);
+  // Host: withdraws an invitation. Someone already inside stays. (The
+  // invitee can still report the room they were invited to.)
+  // Errors: ROOM_NOT_FOUND, NOT_HOST.
+  rpc UninviteFromStudyRoom(UninviteFromStudyRoomRequest) returns (UninviteFromStudyRoomResponse);
+  // Host: removes someone who is in the room, or was in it earlier; they
+  // cannot come (back) in. Errors: ROOM_NOT_FOUND, NOT_HOST, USER_NOT_IN_ROOM
+  // (never was), CANNOT_REMOVE_SELF.
+  rpc RemoveStudyRoomMember(RemoveStudyRoomMemberRequest) returns (RemoveStudyRoomMemberResponse);
+}
+
+// Who may find and enter a room.
+enum RoomAudience {
+  ROOM_AUDIENCE_UNSPECIFIED = 0;
+  // Anyone signed in; listed publicly.
+  ROOM_AUDIENCE_PUBLIC = 1;
+  // Friends of the host, and people the host invited.
+  ROOM_AUDIENCE_FRIENDS = 2;
+  // Only people the host invited.
+  ROOM_AUDIENCE_INVITED = 3;
+}
+
+// The reactions a room allows instead of chat.
+enum RoomReaction {
+  ROOM_REACTION_UNSPECIFIED = 0;
+  // がんばれ!
+  ROOM_REACTION_CHEER = 1;
+  // おつかれ!
+  ROOM_REACTION_CLAP = 2;
+  // 集中!
+  ROOM_REACTION_FIRE = 3;
+  // 休憩しよ
+  ROOM_REACTION_COFFEE = 4;
+  // やっほー / またね
+  ROOM_REACTION_WAVE = 5;
+}
+
+// Someone present in a room.
+message RoomMember {
+  tokuly.common.v1.UserSummary user = 1;
+  // What they are studying; unset when they did not say.
+  SubjectLabel subject = 2;
+  google.protobuf.Timestamp joined_at = 3;
+  // Study time of their current session in this room, at the room timer's `server_time`.
+  int32 studied_seconds = 4;
+  bool host = 5;
+}
+
+message StudyRoom {
+  string id = 1;
+  // 1-40 characters.
+  string title = 2;
+  tokuly.common.v1.UserSummary host = 3;
+  RoomAudience audience = 4;
+  // The shared timer every member's client follows.
+  TimerSnapshot timer = 5;
+  // People inside, as far as the caller may know of them (see `members`).
+  int32 member_count = 6;
+  // 2-50.
+  int32 member_cap = 7;
+  // Everyone present (`GetStudyRoom`, join, create); the first few in lists.
+  // People in a block with the caller are left out.
+  repeated RoomMember members = 8;
+  // The caller is in the room.
+  bool joined = 9;
+  // The host is in the room. While they are away the timer keeps running.
+  bool host_present = 10;
+  // The caller holds an invitation.
+  bool invited = 11;
+  // Host only: everyone invited.
+  repeated tokuly.common.v1.UserSummary invitees = 12;
+  // Realtime topic of the room: `study:{id}`.
+  string topic = 13;
+  google.protobuf.Timestamp created_at = 14;
+  // Set once the room is closed.
+  google.protobuf.Timestamp closed_at = 15;
+}
+
+message CreateStudyRoomRequest {
+  string title = 1;
+  // FRIENDS when unset.
+  RoomAudience audience = 2;
+  // POMODORO when unset. STOPWATCH is an open-ended timer.
+  StudyMode mode = 3;
+  // Pomodoro lengths; the host's defaults when unset.
+  PomodoroConfig pomodoro = 4;
+  // 2-50; the server's default when zero.
+  int32 member_cap = 5;
+  // What the host studies; optional.
+  string subject_id = 6;
+  // Friends to invite right away.
+  repeated string invite_user_ids = 7;
+}
+
+message CreateStudyRoomResponse {
+  StudyRoom room = 1;
+  // The host's session in the room.
+  StudySession session = 2;
+  int32 heartbeat_interval_seconds = 3;
+}
+
+message GetStudyRoomRequest {
+  string room_id = 1;
+}
+
+message GetStudyRoomResponse {
+  StudyRoom room = 1;
+}
+
+message UpdateStudyRoomRequest {
+  string room_id = 1;
+  optional string title = 2;
+  // Unset (UNSPECIFIED) keeps the audience.
+  RoomAudience audience = 3;
+  optional int32 member_cap = 4;
+  // Unset (UNSPECIFIED) keeps the mode.
+  StudyMode mode = 5;
+  // Replaces the pomodoro lengths when set.
+  PomodoroConfig pomodoro = 6;
+}
+
+message UpdateStudyRoomResponse {
+  StudyRoom room = 1;
+}
+
+message CloseStudyRoomRequest {
+  string room_id = 1;
+}
+
+message CloseStudyRoomResponse {}
+
+enum RoomScope {
+  ROOM_SCOPE_UNSPECIFIED = 0;
+  // Public rooms.
+  ROOM_SCOPE_PUBLIC = 1;
+  // Rooms hosted by friends that the caller may enter, and rooms the caller is invited to.
+  ROOM_SCOPE_FRIENDS = 2;
+  // The room the caller is in and the one they host.
+  ROOM_SCOPE_MINE = 3;
+}
+
+message ListStudyRoomsRequest {
+  RoomScope scope = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListStudyRoomsResponse {
+  repeated StudyRoom rooms = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message JoinStudyRoomRequest {
+  string room_id = 1;
+  // What the caller is going to study; optional.
+  string subject_id = 2;
+}
+
+message JoinStudyRoomResponse {
+  StudyRoom room = 1;
+  StudySession session = 2;
+  int32 heartbeat_interval_seconds = 3;
+}
+
+message LeaveStudyRoomRequest {}
+
+message LeaveStudyRoomResponse {
+  // The finished session.
+  StudySession session = 1;
+}
+
+message SetStudyRoomSubjectRequest {
+  // Empty: no subject.
+  string subject_id = 1;
+}
+
+message SetStudyRoomSubjectResponse {
+  // The new session under the new subject.
+  StudySession session = 1;
+}
+
+enum TimerAction {
+  TIMER_ACTION_UNSPECIFIED = 0;
+  // Starts an idle timer.
+  TIMER_ACTION_START = 1;
+  TIMER_ACTION_PAUSE = 2;
+  TIMER_ACTION_RESUME = 3;
+  // Pomodoro: ends the current phase now.
+  TIMER_ACTION_SKIP = 4;
+  // Back to the first work phase, idle.
+  TIMER_ACTION_RESET = 5;
+}
+
+message ControlStudyRoomTimerRequest {
+  string room_id = 1;
+  TimerAction action = 2;
+}
+
+message ControlStudyRoomTimerResponse {
+  TimerSnapshot timer = 1;
+}
+
+message SendStudyRoomReactionRequest {
+  RoomReaction reaction = 1;
+  // A member to address; the whole room when empty.
+  string to_user_id = 2;
+}
+
+message SendStudyRoomReactionResponse {}
+
+message InviteToStudyRoomRequest {
+  string room_id = 1;
+  // 1 to 50 friends.
+  repeated string user_ids = 2;
+}
+
+message InviteToStudyRoomResponse {
+  // Everyone invited to the room now.
+  repeated tokuly.common.v1.UserSummary invitees = 1;
+}
+
+message UninviteFromStudyRoomRequest {
+  string room_id = 1;
+  string user_id = 2;
+}
+
+message UninviteFromStudyRoomResponse {}
+
+message RemoveStudyRoomMemberRequest {
+  string room_id = 1;
+  string user_id = 2;
+}
+
+message RemoveStudyRoomMemberResponse {}
+
+// ───────────────────────────── Exams ─────────────────────────────
+
+// Exam periods (定期テスト) with their subjects, countdowns and private
+// results. Everything here is private to the caller except the optional
+// "テスト期間" marker on the profile (`Exam.show_on_profile`), which friends see.
+service ExamService {
+  // The caller's exams: upcoming and ongoing ones first (soonest first),
+  // then finished ones (latest first).
+  rpc ListExams(ListExamsRequest) returns (ListExamsResponse);
+  // One exam with its subjects. Errors: EXAM_NOT_FOUND.
+  rpc GetExam(GetExamRequest) returns (GetExamResponse);
+  // Creates an exam period. Errors: EXAM_NAME_INVALID, DATE_RANGE_INVALID
+  // (end before start, or longer than 60 days), TEXT_TOO_LONG, EXAM_LIMIT_REACHED.
+  rpc CreateExam(CreateExamRequest) returns (CreateExamResponse);
+  // Errors: EXAM_NOT_FOUND and those of CreateExam.
+  rpc UpdateExam(UpdateExamRequest) returns (UpdateExamResponse);
+  // Deletes an exam with its subjects and results. Errors: EXAM_NOT_FOUND.
+  rpc DeleteExam(DeleteExamRequest) returns (DeleteExamResponse);
+  // Adds a subject to an exam, or changes one (date, period, what is covered).
+  // An exam has each subject once.
+  // Errors: EXAM_NOT_FOUND, EXAM_SUBJECT_NOT_FOUND, SUBJECT_NOT_FOUND,
+  // EXAM_SUBJECT_EXISTS, DATE_OUTSIDE_EXAM, PERIOD_INVALID, TEXT_TOO_LONG,
+  // EXAM_SUBJECT_LIMIT_REACHED.
+  rpc PutExamSubject(PutExamSubjectRequest) returns (PutExamSubjectResponse);
+  // Removes a subject and its result from an exam.
+  // Errors: EXAM_SUBJECT_NOT_FOUND.
+  rpc DeleteExamSubject(DeleteExamSubjectRequest) returns (DeleteExamSubjectResponse);
+  // Records (or clears) the private result of one subject.
+  // Errors: EXAM_SUBJECT_NOT_FOUND, RESULT_INVALID, TEXT_TOO_LONG.
+  rpc SetExamResult(SetExamResultRequest) returns (SetExamResultResponse);
+}
+
+enum ExamStatus {
+  EXAM_STATUS_UNSPECIFIED = 0;
+  EXAM_STATUS_UPCOMING = 1;
+  EXAM_STATUS_ONGOING = 2;
+  EXAM_STATUS_FINISHED = 3;
+}
+
+// The caller's private note of how a test went.
+message ExamResult {
+  optional int32 score = 1;
+  // 100 when zero.
+  int32 max_score = 2;
+  // Class or year average, when known.
+  optional double average = 3;
+  // Rank in the class or year, when known.
+  optional int32 rank = 4;
+  string memo = 5;
+}
+
+// One test of an exam period.
+message ExamSubject {
+  string id = 1;
+  string exam_id = 2;
+  Subject subject = 3;
+  // The day of the test; empty until it is announced.
+  string date = 4;
+  // The period it takes place in (0 = not known).
+  int32 period = 5;
+  // What it covers (テスト範囲).
+  string scope = 6;
+  // Unset until a result is recorded.
+  ExamResult result = 7;
+}
+
+// An exam period: 中間テスト, 期末テスト, 模試.
+message Exam {
+  string id = 1;
+  // 1-40 characters.
+  string name = 2;
+  // First and last day, inclusive.
+  string start_date = 3;
+  string end_date = 4;
+  ExamStatus status = 5;
+  // Days until the first day (0 once it has begun).
+  int32 days_until_start = 6;
+  // Days until the last day is over, today included (0 once finished).
+  int32 days_left = 7;
+  // Shows "テスト期間" with the countdown on the profile to friends, from
+  // two weeks before the first day until the last. Default false.
+  bool show_on_profile = 8;
+  string memo = 9;
+  // By date, then period.
+  repeated ExamSubject subjects = 10;
+  tokuly.common.v1.Timestamps timestamps = 11;
+}
+
+message ListExamsRequest {}
+
+message ListExamsResponse {
+  repeated Exam exams = 1;
+}
+
+message GetExamRequest {
+  string exam_id = 1;
+}
+
+message GetExamResponse {
+  Exam exam = 1;
+}
+
+message CreateExamRequest {
+  string name = 1;
+  string start_date = 2;
+  // The start date when empty.
+  string end_date = 3;
+  bool show_on_profile = 4;
+  string memo = 5;
+}
+
+message CreateExamResponse {
+  Exam exam = 1;
+}
+
+message UpdateExamRequest {
+  string exam_id = 1;
+  optional string name = 2;
+  optional string start_date = 3;
+  optional string end_date = 4;
+  optional bool show_on_profile = 5;
+  optional string memo = 6;
+}
+
+message UpdateExamResponse {
+  Exam exam = 1;
+}
+
+message DeleteExamRequest {
+  string exam_id = 1;
+}
+
+message DeleteExamResponse {}
+
+message PutExamSubjectRequest {
+  string exam_id = 1;
+  // Change this exam subject; add a new one when empty.
+  string exam_subject_id = 2;
+  string subject_id = 3;
+  string date = 4;
+  int32 period = 5;
+  string scope = 6;
+}
+
+message PutExamSubjectResponse {
+  ExamSubject exam_subject = 1;
+}
+
+message DeleteExamSubjectRequest {
+  string exam_subject_id = 1;
+}
+
+message DeleteExamSubjectResponse {}
+
+message SetExamResultRequest {
+  string exam_subject_id = 1;
+  // Unset clears the result.
+  ExamResult result = 2;
+}
+
+message SetExamResultResponse {
+  ExamSubject exam_subject = 1;
+}
+
+// ───────────────────────────── Assignments ─────────────────────────────
+
+// Homework and reports with due times. Private to the caller. Unless
+// switched off (`SchoolSettings.assignment_reminders`, `Assignment.remind`),
+// `school.assignment_due` reminds on the evening before and one hour before
+// an assignment is due.
+service AssignmentService {
+  // The caller's assignments by urgency: open ones first, soonest (and
+  // overdue) first; finished ones after them, most recently finished first.
+  rpc ListAssignments(ListAssignmentsRequest) returns (ListAssignmentsResponse);
+  // Errors: ASSIGNMENT_TITLE_INVALID, DUE_REQUIRED, DUE_INVALID (more than
+  // two years away), SUBJECT_NOT_FOUND, TEXT_TOO_LONG, ASSIGNMENT_LIMIT_REACHED.
+  rpc CreateAssignment(CreateAssignmentRequest) returns (CreateAssignmentResponse);
+  // Changes an assignment or ticks it off. Errors: ASSIGNMENT_NOT_FOUND and
+  // those of CreateAssignment.
+  rpc UpdateAssignment(UpdateAssignmentRequest) returns (UpdateAssignmentResponse);
+  // Errors: ASSIGNMENT_NOT_FOUND.
+  rpc DeleteAssignment(DeleteAssignmentRequest) returns (DeleteAssignmentResponse);
+}
+
+// How pressing an assignment is, by the caller's calendar.
+enum AssignmentUrgency {
+  ASSIGNMENT_URGENCY_UNSPECIFIED = 0;
+  // Past due and not done.
+  ASSIGNMENT_URGENCY_OVERDUE = 1;
+  ASSIGNMENT_URGENCY_TODAY = 2;
+  ASSIGNMENT_URGENCY_TOMORROW = 3;
+  // Due within seven days.
+  ASSIGNMENT_URGENCY_THIS_WEEK = 4;
+  ASSIGNMENT_URGENCY_LATER = 5;
+  ASSIGNMENT_URGENCY_DONE = 6;
+}
+
+message Assignment {
+  string id = 1;
+  // 1-80 characters.
+  string title = 2;
+  // Optional.
+  Subject subject = 3;
+  google.protobuf.Timestamp due_at = 4;
+  bool done = 5;
+  google.protobuf.Timestamp done_at = 6;
+  string memo = 7;
+  AssignmentUrgency urgency = 8;
+  // Send reminders for this assignment (default true).
+  bool remind = 9;
+  tokuly.common.v1.Timestamps timestamps = 10;
+}
+
+enum AssignmentFilter {
+  // Same as OPEN.
+  ASSIGNMENT_FILTER_UNSPECIFIED = 0;
+  ASSIGNMENT_FILTER_OPEN = 1;
+  ASSIGNMENT_FILTER_DONE = 2;
+  ASSIGNMENT_FILTER_ALL = 3;
+}
+
+message ListAssignmentsRequest {
+  AssignmentFilter filter = 1;
+  // Only assignments of this subject.
+  string subject_id = 2;
+  tokuly.common.v1.PageRequest page = 3;
+}
+
+message ListAssignmentsResponse {
+  repeated Assignment assignments = 1;
+  tokuly.common.v1.PageInfo page = 2;
+  // Open assignments in total, and how many of them are overdue.
+  int32 open_count = 3;
+  int32 overdue_count = 4;
+}
+
+message CreateAssignmentRequest {
+  string title = 1;
+  string subject_id = 2;
+  google.protobuf.Timestamp due_at = 3;
+  string memo = 4;
+  // Default true.
+  optional bool remind = 5;
+}
+
+message CreateAssignmentResponse {
+  Assignment assignment = 1;
+}
+
+message UpdateAssignmentRequest {
+  string assignment_id = 1;
+  optional string title = 2;
+  // An empty string clears the subject.
+  optional string subject_id = 3;
+  // Replaces the due time when set.
+  google.protobuf.Timestamp due_at = 4;
+  optional string memo = 5;
+  optional bool done = 6;
+  optional bool remind = 7;
+}
+
+message UpdateAssignmentResponse {
+  Assignment assignment = 1;
+}
+
+message DeleteAssignmentRequest {
+  string assignment_id = 1;
+}
+
+message DeleteAssignmentResponse {}
+
+// ───────────────────────────── Realtime ─────────────────────────────
+
 // Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.school).
+//
+// User-scoped (every device of the user): `session`, `friend_studying`,
+// `cheer`, `room_invitation`, `room_left`.
+// Topic `study:{room_id}`: `room_timer`, `room_member_joined`,
+// `room_member_left`, `room_member_updated`, `room_reaction`, `room_updated`,
+// `room_closed`.
 message SchoolEvent {
-  // Placeholder so the realtime envelope compiles; replace with a oneof of real events.
-  tokuly.common.v1.SubjectRef subject = 1;
+  oneof event {
+    // The user's own session changed: started, paused, resumed, a phase was
+    // skipped, stopped (possibly by the server), or re-labelled.
+    StudySession session = 1;
+    // A friend started or stopped studying, or paused or resumed.
+    FriendStudying friend_studying = 2;
+    // A friend cheered the user on.
+    StudyCheer cheer = 3;
+    // The user was invited to a study room.
+    StudyRoom room_invitation = 4;
+    // The user is no longer in a room without having left it themselves.
+    RoomLeft room_left = 5;
+
+    // The shared timer changed: the host acted, or a phase ended.
+    TimerSnapshot room_timer = 10;
+    RoomMember room_member_joined = 11;
+    RoomMemberLeft room_member_left = 12;
+    // A member changed what they study.
+    RoomMember room_member_updated = 13;
+    RoomReactionSent room_reaction = 14;
+    // Title, audience or member cap changed (`members` is not filled).
+    StudyRoom room_updated = 15;
+    RoomClosed room_closed = 16;
+  }
+}
+
+message FriendStudying {
+  string user_id = 1;
+  // False: they stopped; `friend` is unset.
+  bool studying = 2;
+  StudyingFriend friend = 3;
+}
+
+enum RoomLeaveReason {
+  ROOM_LEAVE_REASON_UNSPECIFIED = 0;
+  // They left.
+  ROOM_LEAVE_REASON_LEFT = 1;
+  // Their client stopped sending heartbeats.
+  ROOM_LEAVE_REASON_IDLE = 2;
+  // The host removed them (or a block or unfriending made them leave).
+  ROOM_LEAVE_REASON_REMOVED = 3;
+  // The room closed.
+  ROOM_LEAVE_REASON_CLOSED = 4;
+}
+
+message RoomLeft {
+  string room_id = 1;
+  RoomLeaveReason reason = 2;
+  // The session that ended with it.
+  StudySession session = 3;
+}
+
+message RoomMemberLeft {
+  string user_id = 1;
+  RoomLeaveReason reason = 2;
+  int32 member_count = 3;
+}
+
+message RoomReactionSent {
+  tokuly.common.v1.UserSummary from = 1;
+  RoomReaction reaction = 2;
+  // The member it is addressed to; empty for the whole room.
+  string to_user_id = 3;
+}
+
+enum RoomCloseReason {
+  ROOM_CLOSE_REASON_UNSPECIFIED = 0;
+  // The host closed it.
+  ROOM_CLOSE_REASON_HOST = 1;
+  // Nobody was in it for a while.
+  ROOM_CLOSE_REASON_EMPTY = 2;
+  // Taken down by moderation, or the host's account is gone.
+  ROOM_CLOSE_REASON_REMOVED = 3;
+}
+
+message RoomClosed {
+  string room_id = 1;
+  RoomCloseReason reason = 2;
 }

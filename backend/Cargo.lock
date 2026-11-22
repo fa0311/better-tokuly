@@ -6356,8 +6356,26 @@ dependencies = [
 name = "tokuly-school"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "async-trait",
+ "buffa",
+ "chrono",
+ "chrono-tz",
+ "clap",
+ "connectrpc",
+ "futures",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
  "tokuly-core",
+ "tokuly-identity",
  "tokuly-proto",
+ "tokuly-social",
+ "tokuly-testkit",
+ "tracing",
+ "unicode-segmentation",
+ "uuid",
 ]
 
 [[package]]
