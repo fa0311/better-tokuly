@@ -139,6 +139,9 @@ async fn defaults_are_everything_on() {
             "engagement",
             "stamp",
             "wallet",
+            "ask",
+            "plans",
+            "school",
             "feed",
             "system"
         ]
