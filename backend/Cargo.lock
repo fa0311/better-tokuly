@@ -6580,6 +6580,7 @@ dependencies = [
  "tokuly-engagement",
  "tokuly-feed",
  "tokuly-identity",
+ "tokuly-live",
  "tokuly-media",
  "tokuly-notes",
  "tokuly-notify",

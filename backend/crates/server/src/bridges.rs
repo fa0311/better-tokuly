@@ -19,8 +19,9 @@ use tokuly_proto::{
     media::AssetPurpose,
 };
 use tokuly_quest::DirectChats;
+use tokuly_shorts::{ClipDirectory, ClipMedia};
 use tokuly_stamp::SendContext;
-use tokuly_video::PartyStamps;
+use tokuly_video::{PartyStamps, access::Viewer};
 
 use crate::app::Domains;
 
@@ -31,9 +32,7 @@ pub fn connect(core: &Core, domains: &Domains) {
     domains.quest.set_direct_chats(Arc::new(DirectChatsForStreaks { core: core.clone() }));
     domains.dev.set_images(Arc::new(ImagesForDevelopers { core: core.clone() }));
     domains.admin.set_hidden_owners(Arc::new(AnonymousAuthors { community: domains.community.clone() }));
-    // Not connected: `Shorts::set_clip_directory`. Clips belong to the live
-    // domain, which this binary does not serve yet; until it does, a short
-    // can only be made from the caller's own upload.
+    domains.shorts.set_clip_directory(Arc::new(ClipsForShorts { core: core.clone() }));
 }
 
 /// Stamps in watch-party chat: the video domain asks, the stamp domain decides.
@@ -125,5 +124,32 @@ struct AnonymousAuthors {
 impl HiddenOwners for AnonymousAuthors {
     async fn owner_for_moderation(&self, subject_type: SubjectType, subject_id: Uuid) -> AppResult<Option<Uuid>> {
         self.community.author_for_moderation(subject_type, subject_id).await
+    }
+}
+
+/// Making a short from a clip: shorts asks, the live domain owns clips.
+struct ClipsForShorts {
+    core: Core,
+}
+
+#[async_trait]
+impl ClipDirectory for ClipsForShorts {
+    async fn clip_of(&self, user_id: Uuid, clip_id: &str) -> AppResult<Option<ClipMedia>> {
+        let Some(clip) = tokuly_live::clips::find_ref(&self.core, clip_id).await? else { return Ok(None) };
+        let (true, Some(asset_id)) = (clip.is_ready() && clip.creator_id == user_id, clip.asset_id) else {
+            return Ok(None);
+        };
+        // A short has an audience of its own. Whoever cut a clip from someone
+        // else's stream or video may post it only while everyone may watch
+        // that source: a clip of a friends-only stream must not leave its
+        // audience this way.
+        if clip.owner_id != user_id {
+            let viewer = Viewer { user_id: Some(user_id), ..Default::default() };
+            let source = tokuly_live::clips::source_of(&self.core, &viewer, &clip).await?;
+            if !source.is_some_and(|source| source.public) {
+                return Ok(None);
+            }
+        }
+        Ok(Some(ClipMedia { clip_id: clip.id, asset_id }))
     }
 }

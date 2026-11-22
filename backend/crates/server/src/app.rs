@@ -14,6 +14,7 @@ use tokuly_emoji::{Emoji, EmojiConfig};
 use tokuly_engagement::{Engagement, EngagementConfig};
 use tokuly_feed::{Feed, FeedConfig};
 use tokuly_identity::{Identity, IdentityConfig};
+use tokuly_live::{Live, LiveConfig};
 use tokuly_media::{Media, MediaConfig};
 use tokuly_notes::{Notes, NotesConfig};
 use tokuly_notify::{Notify, NotifyConfig};
@@ -71,6 +72,8 @@ pub struct DomainConfigs {
     #[command(flatten)]
     pub quest: QuestConfig,
     #[command(flatten)]
+    pub live: LiveConfig,
+    #[command(flatten)]
     pub shorts: ShortsConfig,
     #[command(flatten)]
     pub spaces: SpacesConfig,
@@ -104,6 +107,7 @@ pub struct Domains {
     pub plans: Plans,
     pub school: School,
     pub quest: Quest,
+    pub live: Live,
     pub shorts: Shorts,
     pub spaces: Spaces,
     pub community: Community,
@@ -133,6 +137,7 @@ impl Domains {
         let plans = Plans::new(core.clone(), identity.clone(), cfg.plans, social.clone())?;
         let school = School::new(core.clone(), identity.clone(), cfg.school)?;
         let quest = Quest::new(core.clone(), identity.clone(), cfg.quest)?;
+        let live = Live::new(core.clone(), identity.clone(), cfg.live, wallet.clone())?;
         let shorts = Shorts::new(core.clone(), identity.clone(), cfg.shorts)?;
         let spaces = Spaces::new(core.clone(), identity.clone(), cfg.spaces)?;
         let community = Community::new(core.clone(), identity.clone(), cfg.community)?;
@@ -160,6 +165,7 @@ impl Domains {
             plans,
             school,
             quest,
+            live,
             shorts,
             spaces,
             community,
@@ -191,6 +197,7 @@ impl Domains {
         router = self.plans.register(router);
         router = self.school.register(router);
         router = self.quest.register(router);
+        router = self.live.register(router);
         router = self.shorts.register(router);
         router = self.spaces.register(router);
         router = self.community.register(router);
@@ -260,6 +267,7 @@ pub fn spawn_workers(core: &Core, domains: &Domains) {
     domains.plans.spawn_workers();
     domains.school.spawn_workers();
     domains.quest.spawn_workers();
+    domains.live.spawn_workers();
     domains.shorts.spawn_workers();
     domains.spaces.spawn_workers();
     domains.community.spawn_workers();
@@ -347,9 +355,13 @@ pub fn api_router(core: Core, domains: &Domains, cors_origins: Vec<String>) -> a
         .merge(domains.dev.http_routes())
         .fallback_service(connect.into_axum_service())
         .layer(axum::middleware::from_fn_with_state(core.auth_layer.clone(), auth_middleware))
-        // LiveKit's webhook signs itself in `Authorization` with a token that
-        // is not one of ours, so it stays outside the auth middleware.
+        // Our own infrastructure calling in. Both prove who they are in
+        // `Authorization` with something that is not a token of ours, so they
+        // stay outside the auth middleware; the edge does not pass them on.
+        // LiveKit's webhook for audio rooms:
         .merge(domains.spaces.http_routes())
+        // The media server asking who may publish and watch a live stream:
+        .nest("/hooks/live", domains.live.http_routes())
         .layer(TraceLayer::new_for_http())
         .layer(cors_layer(&core, cors_origins))
 }
