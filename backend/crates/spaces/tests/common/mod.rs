@@ -62,6 +62,11 @@ pub async fn start_with(cfg: SpacesConfig) -> Ctx {
     ctx
 }
 
+/// The domain on a LiveKit deployment of the test's own.
+pub async fn start_on(cfg: SpacesConfig, livekit: LiveKit) -> Ctx {
+    build(cfg, Some(livekit)).await
+}
+
 /// The domain on a server that has no LiveKit.
 pub async fn start_without_audio() -> Ctx {
     build(SpacesConfig::default(), Some(LiveKit::disabled())).await

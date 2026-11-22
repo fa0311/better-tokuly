@@ -38,7 +38,6 @@ struct ViewerFacts {
     stage_invited: bool,
     reminder_set: bool,
     invited: bool,
-    banned: bool,
 }
 
 /// A hangout member with whether they are in the voice room.
@@ -141,8 +140,7 @@ impl Spaces {
                         (p.left_at IS NULL AND p.stage_invited_at IS NOT NULL) AS stage_invited,
                         EXISTS (SELECT 1 FROM space_reminders r WHERE r.space_id = s.id AND r.user_id = $2) AS reminder_set,
                         EXISTS (SELECT 1 FROM space_invites i
-                                WHERE i.space_id = s.id AND i.user_id = $2 AND i.revoked_at IS NULL) AS invited,
-                        EXISTS (SELECT 1 FROM space_bans b WHERE b.space_id = s.id AND b.user_id = $2) AS banned
+                                WHERE i.space_id = s.id AND i.user_id = $2 AND i.revoked_at IS NULL) AS invited
                  FROM unnest($1::uuid[]) AS s(id)
                  LEFT JOIN space_participants p ON p.space_id = s.id AND p.user_id = $2",
             )
@@ -186,7 +184,6 @@ impl Spaces {
                         stage_invited: facts.is_some_and(|facts| facts.stage_invited),
                         reminder_set: facts.is_some_and(|facts| facts.reminder_set),
                         invited: facts.is_some_and(|facts| facts.invited),
-                        banned: facts.is_some_and(|facts| facts.banned),
                         ..Default::default()
                     }
                 });
@@ -300,7 +297,12 @@ impl Spaces {
                             owner: member.user_id == hangout.owner_id,
                             inside: member.inside_since.is_some(),
                             inside_since: opt_ts(member.inside_since),
-                            invited_by_id: member.invited_by.map(|id| id.to_string()).unwrap_or_default(),
+                            // Who brought whom in is the members' business.
+                            invited_by_id: member
+                                .invited_by
+                                .filter(|_| sees_invitations)
+                                .map(|id| id.to_string())
+                                .unwrap_or_default(),
                             joined_at: ts(member.joined_at.unwrap_or(member.created_at)),
                             ..Default::default()
                         })

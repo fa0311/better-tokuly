@@ -31,8 +31,10 @@ use crate::{
     rules::{self, Sighting, Standing, Verdict},
 };
 
-/// Venues compared with LiveKit in one pass.
-const MAX_VENUES_PER_PASS: i64 = 2000;
+/// Venues fetched at a time by a pass over all of them.
+const VENUES_PER_PAGE: i64 = 500;
+/// Seconds the tokens LiveKit itself hands to connected clients are valid.
+const LIVEKIT_REFRESH_TTL_SECONDS: u64 = 600;
 /// Rooms settled, nudged or cancelled in one pass.
 const MAX_ROOMS_PER_SWEEP: i64 = 500;
 /// An ended room is given this long before its LiveKit room is closed
@@ -122,6 +124,7 @@ impl Spaces {
                 has.can_publish != wanted.can_publish
                     || has.can_publish_data != wanted.can_publish_data
                     || has.can_subscribe != wanted.can_subscribe
+                    || has.hidden != wanted.hidden
             });
             if differs || participant.metadata != audio::metadata(role) {
                 self.apply_role(venue, user_id, role).await;
@@ -259,6 +262,18 @@ impl Spaces {
         Ok(changed)
     }
 
+    /// [`Self::reconcile_venue`] for a pass over many venues: a failure is
+    /// logged and the pass goes on.
+    async fn reconcile_quietly(&self, venue: Venue) -> Reconciled {
+        match self.reconcile_venue(venue).await {
+            Ok(changed) => changed,
+            Err(e) => {
+                tracing::warn!(?venue, error = %e, "venue could not be reconciled");
+                Reconciled::default()
+            }
+        }
+    }
+
     /// Compares every venue in use with LiveKit: live rooms, hangouts with
     /// somebody inside, and — for as long as an old token could still open
     /// a connection — rooms that just ended and hangouts that just emptied.
@@ -268,33 +283,49 @@ impl Spaces {
             return Ok(total);
         }
         let db = &self.core.db;
-        // How long a token handed out before the end can still be used.
-        let token_window = (self.cfg.token_ttl_seconds + 60) as f64;
-        let rooms: Vec<Uuid> = sqlx::query_scalar(
-            "SELECT id FROM spaces
-             WHERE state = $1 OR (state = $2 AND ended_at > now() - make_interval(secs => $3))
-             ORDER BY id LIMIT $4",
-        )
-        .bind(state::LIVE)
-        .bind(state::ENDED)
-        .bind(token_window)
-        .bind(MAX_VENUES_PER_PASS)
-        .fetch_all(db)
-        .await?;
-        let hangouts: Vec<Uuid> = sqlx::query_scalar(
-            "SELECT id FROM hangouts
-             WHERE deleted_at IS NULL AND (inside_count > 0 OR last_active_at > now() - make_interval(secs => $1))
-             ORDER BY id LIMIT $2",
-        )
-        .bind(token_window)
-        .bind(MAX_VENUES_PER_PASS)
-        .fetch_all(db)
-        .await?;
-        let venues = rooms.into_iter().map(Venue::Space).chain(hangouts.into_iter().map(Venue::Hangout));
-        for venue in venues {
-            match self.reconcile_venue(venue).await {
-                Ok(changed) => total.add(changed),
-                Err(e) => tracing::warn!(?venue, error = %e, "venue could not be reconciled"),
+        // How long after the end someone can still open a connection. Our
+        // own tokens live `token_ttl_seconds`, but LiveKit hands every
+        // connected client tokens of its own (on joining, on a permission
+        // change and every five minutes), each valid for ten minutes.
+        let token_window = (self.cfg.token_ttl_seconds.max(LIVEKIT_REFRESH_TTL_SECONDS) + 60) as f64;
+        // Page by page, so that no venue waits behind a limit.
+        let mut after = Uuid::nil();
+        loop {
+            let rooms: Vec<Uuid> = sqlx::query_scalar(
+                "SELECT id FROM spaces
+                 WHERE id > $1 AND (state = $2 OR (state = $3 AND ended_at > now() - make_interval(secs => $4)))
+                 ORDER BY id LIMIT $5",
+            )
+            .bind(after)
+            .bind(state::LIVE)
+            .bind(state::ENDED)
+            .bind(token_window)
+            .bind(VENUES_PER_PAGE)
+            .fetch_all(db)
+            .await?;
+            let Some(last) = rooms.last().copied() else { break };
+            after = last;
+            for space_id in rooms {
+                total.add(self.reconcile_quietly(Venue::Space(space_id)).await);
+            }
+        }
+        let mut after = Uuid::nil();
+        loop {
+            let hangouts: Vec<Uuid> = sqlx::query_scalar(
+                "SELECT id FROM hangouts
+                 WHERE id > $1 AND deleted_at IS NULL
+                   AND (inside_count > 0 OR last_active_at > now() - make_interval(secs => $2))
+                 ORDER BY id LIMIT $3",
+            )
+            .bind(after)
+            .bind(token_window)
+            .bind(VENUES_PER_PAGE)
+            .fetch_all(db)
+            .await?;
+            let Some(last) = hangouts.last().copied() else { break };
+            after = last;
+            for hangout_id in hangouts {
+                total.add(self.reconcile_quietly(Venue::Hangout(hangout_id)).await);
             }
         }
         Ok(total)

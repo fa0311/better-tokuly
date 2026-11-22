@@ -202,11 +202,11 @@ async fn a_ban_racing_a_join_keeps_the_person_out() {
         );
         banned.expect("the ban goes through either way");
         if let Err(error) = &joined {
-            assert_eq!(error.reason, "BANNED_FROM_SPACE");
+            assert!(matches!(error.reason.as_str(), "BANNED_FROM_SPACE" | "SPACE_NOT_FOUND"), "{error}");
         }
         // Whichever came first: they are not inside, and they stay out.
         assert_eq!(ctx.role_of(&host, &target, &room.id).await, None, "round {round}");
-        assert_eq!(ctx.reason("Space", "JoinSpace", &target, &join_request(&room.id)).await, "BANNED_FROM_SPACE");
+        assert_eq!(ctx.reason("Space", "JoinSpace", &target, &join_request(&room.id)).await, "SPACE_NOT_FOUND");
     }
     assert_eq!(ctx.get(&host, &room.id).await.listener_count, 1);
 }
@@ -338,6 +338,8 @@ async fn webhooks_twice_and_out_of_order_change_nothing_they_should_not() {
     let joined = webhook("participant_joined", &credentials.room, &identity);
     let statuses = join_all([&left, &left, &joined, &left, &joined].map(|body| post_webhook(&ctx, body))).await;
     assert_eq!(statuses, [200; 5]);
+    // (The comparison the webhooks asked for runs a moment later.)
+    tokio::time::sleep(Duration::from_millis(2500)).await;
     assert_eq!(ctx.get(&host, &room.id).await.listener_count, 2, "still inside");
 
     // Now they really are gone. The same news arrives twice, and an old
@@ -347,10 +349,9 @@ async fn webhooks_twice_and_out_of_order_change_nothing_they_should_not() {
     let mut listener_events = ctx.listen(&listener).await;
     let statuses = join_all([&left, &left, &joined].map(|body| post_webhook(&ctx, body))).await;
     assert_eq!(statuses, [200; 3]);
+    let frames = listener_events.drain(Duration::from_millis(2500)).await;
     assert_eq!(ctx.get(&host, &room.id).await.listener_count, 1);
-    let told = ctx
-        .events(&mut listener_events)
-        .await
+    let told = pushes(frames)
         .iter()
         .filter(|event| matches!(event, Push::ParticipantLeft(left) if left.reason == SpaceLeaveReason::SPACE_LEAVE_REASON_DISCONNECTED))
         .count();

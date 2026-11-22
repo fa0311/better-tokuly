@@ -43,15 +43,20 @@ fn audio_not_configured() -> AppError {
 }
 
 /// What the role of a participant means on a LiveKit connection: everyone
-/// hears the room, the stage may publish its microphone and data.
+/// hears the room, the stage may publish its microphone. Nobody publishes
+/// data (nothing here uses LiveKit's data channel).
+///
+/// Listeners are hidden: LiveKit tells the other clients in a room who is
+/// connected, and who is merely listening is not everybody's to know (see
+/// `list_participants`). Coming on stage lifts it.
 pub(crate) fn permission(role: i16) -> Permission {
     let stage = rules::on_stage(role);
     Permission {
         can_subscribe: true,
         can_publish: stage,
-        can_publish_data: stage,
+        can_publish_data: false,
         can_publish_sources: vec![TrackSource::Microphone],
-        hidden: false,
+        hidden: !stage,
         can_update_metadata: false,
     }
 }
@@ -71,6 +76,7 @@ pub(crate) fn token_options(room: &str, user_id: Uuid, name: &str, role: i16, tt
         .subscribe(permission.can_subscribe)
         .publish_data(permission.can_publish_data)
         .sources(&permission.can_publish_sources)
+        .hidden(permission.hidden)
         .ttl(ttl)
 }
 
@@ -226,6 +232,7 @@ mod tests {
                 can_subscribe: Some(true),
                 can_publish_data: Some(false),
                 can_publish_sources: vec!["microphone".into()],
+                hidden: true,
                 ..Default::default()
             }
         );
@@ -238,7 +245,7 @@ mod tests {
             assert_eq!(claims.metadata, format!(r#"{{"role":"{name}"}}"#));
             assert_eq!(claims.video.can_publish, Some(true), "{name}");
             assert_eq!(claims.video.can_subscribe, Some(true), "{name}");
-            assert_eq!(claims.video.can_publish_data, Some(true), "{name}");
+            assert_eq!(claims.video.can_publish_data, Some(false), "nothing uses the data channel: {name}");
             assert_eq!(claims.video.can_publish_sources, ["microphone"], "audio only: {name}");
             // Moderation goes through this API, never through LiveKit.
             assert!(

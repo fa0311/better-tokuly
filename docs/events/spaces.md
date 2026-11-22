@@ -78,9 +78,40 @@ would be a change there.
 `Spaces::http_routes()` → `POST /spaces/livekit/webhook`: LiveKit's webhook,
 verified with `core.livekit.verify_webhook`. Any event about one of this
 domain's LiveKit rooms (`tokuly-space-<id>`, `tokuly-hangout-<id>`) triggers
-a comparison of that venue with LiveKit; the event itself is never trusted,
-so duplicates and reordering are harmless. LiveKit configuration:
-`webhook: { api_key: <key>, urls: [https://<api>/spaces/livekit/webhook] }`.
+a comparison of that venue with LiveKit one second later (events about the
+same venue in that second share it); the event itself is never trusted, so
+duplicates and reordering are harmless. The `webhook:` block is declared in
+`infra/livekit/livekit.yaml` (Compose) and in `tools/dev/infra.sh` (native
+dev infrastructure; restart LiveKit to pick it up). Calls of the chat domain
+are not affected: events about other rooms are answered `200` and ignored.
+
+## Who can see who is inside
+
+- The stage is visible to everyone who may see the room. The audience is
+  listed only to people inside and to moderators, the past only to people
+  who were inside. Non-moderators do not get people on either side of a
+  block with them, and listeners who hide their online status are counted
+  (`hidden_count`), not named.
+- On LiveKit, listeners connect as hidden participants; the stage is
+  visible. Promotion and demotion switch it on the open connection.
+- A ban hides the room from the banned person (`SPACE_NOT_FOUND`, no
+  listing, no new subscription to `space:<id>`). **Known gap:** a
+  subscription to the topic that already exists is not dropped; that needs
+  the shared realtime layer (issue #51).
+
+## Tokens and how long a kicked person can come back
+
+Tokens minted here live `TOKULY_SPACES_TOKEN_TTL_SECONDS` (120 s). LiveKit
+itself also hands every connected client a token — on joining, on every
+permission change and every five minutes — valid for ten minutes and
+carrying the permissions of that moment; the open-source server has no
+revocation. So someone who was removed, banned or demoted can reconnect for
+up to ten minutes with what they held. That is why (a) the webhook cuts a
+connection without a seat about a second after it becomes active, (b) the
+timer does the same for whatever the webhook missed, and corrects
+permissions that do not match the role, and (c) rooms that ended and
+hangouts that emptied stay under comparison for ten minutes plus a margin,
+not for the lifetime of our own tokens.
 
 ## Background work
 
@@ -115,7 +146,7 @@ per 10 s (the rest is thinned out).
 | `TOKULY_SPACES_CONNECT_GRACE_SECONDS` | `45` | Time to connect after entering. |
 | `TOKULY_SPACES_RECONNECT_GRACE_SECONDS` | `20` | Time to reconnect after dropping off. |
 | `TOKULY_SPACES_RECONCILE_INTERVAL_SECONDS` | `20` | Pause between comparisons with LiveKit. |
-| `TOKULY_SPACES_TOKEN_TTL_SECONDS` | `600` | Lifetime of access tokens. |
+| `TOKULY_SPACES_TOKEN_TTL_SECONDS` | `120` | Lifetime of the access tokens this domain mints (entering again gives a fresh one). |
 | `TOKULY_SPACES_MAX_SCHEDULE_DAYS` | `30` | How far ahead a room can be scheduled. |
 | `TOKULY_SPACES_MAX_SCHEDULED` | `10` | Upcoming rooms per host. |
 | `TOKULY_SPACES_NEVER_STARTED_HOURS` | `24` | When an unstarted room is cancelled. |

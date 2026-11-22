@@ -264,12 +264,13 @@ impl Spaces {
             return Ok(access);
         }
         access.blocked = graph::is_blocked_either(core, viewer, space.host_id).await?;
-        if access.blocked || space.is_public() {
+        if access.blocked {
             return Ok(access);
         }
-        (access.inside, access.invited) = sqlx::query_as(
+        (access.inside, access.invited, access.banned) = sqlx::query_as(
             "SELECT EXISTS (SELECT 1 FROM space_participants WHERE space_id = $1 AND user_id = $2 AND left_at IS NULL),
-                    EXISTS (SELECT 1 FROM space_invites WHERE space_id = $1 AND user_id = $2 AND revoked_at IS NULL)",
+                    EXISTS (SELECT 1 FROM space_invites WHERE space_id = $1 AND user_id = $2 AND revoked_at IS NULL),
+                    EXISTS (SELECT 1 FROM space_bans WHERE space_id = $1 AND user_id = $2)",
         )
         .bind(space.id)
         .bind(viewer)

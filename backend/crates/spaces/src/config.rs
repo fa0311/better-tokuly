@@ -83,12 +83,15 @@ pub struct SpacesConfig {
     )]
     pub reconcile_interval_seconds: u64,
 
-    /// Seconds an access token can be used to connect.
+    /// Seconds an access token can be used to connect. Short on purpose:
+    /// a token outlives a ban, and entering again hands out a fresh one.
+    /// (A connected client is also given tokens by LiveKit itself, valid
+    /// ten minutes; see `presence`.)
     #[arg(
         id = "spaces_token_ttl_seconds",
         long = "spaces-token-ttl-seconds",
         env = "TOKULY_SPACES_TOKEN_TTL_SECONDS",
-        default_value_t = 600
+        default_value_t = 120
     )]
     pub token_ttl_seconds: u64,
 
@@ -208,7 +211,7 @@ impl Default for SpacesConfig {
             connect_grace_seconds: 45,
             reconnect_grace_seconds: 20,
             reconcile_interval_seconds: 20,
-            token_ttl_seconds: 600,
+            token_ttl_seconds: 120,
             max_schedule_days: 30,
             max_scheduled: 10,
             never_started_hours: 24,

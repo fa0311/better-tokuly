@@ -223,7 +223,9 @@ async fn a_raised_hand_is_answered_and_the_connection_follows() {
     let _connection = ctx.connect(credentials).await;
     let identity = listener.id.to_string();
     let connected = ctx.connected(&credentials.room, &identity).await.unwrap();
-    assert!(!connected.permission.as_ref().unwrap().can_publish, "LiveKit took the listener's token at its word");
+    let as_listener = connected.permission.as_ref().unwrap();
+    assert!(!as_listener.can_publish, "LiveKit took the listener's token at its word");
+    assert!(as_listener.hidden, "LiveKit does not tell the other clients who is listening");
 
     assert_eq!(ctx.reason("Space", "SetHandRaised", &outsider, &hand(&room.id, true)).await, "NOT_IN_SPACE");
     assert_eq!(ctx.reason("Space", "SetHandRaised", &host, &hand(&room.id, true)).await, "ALREADY_ON_STAGE");
@@ -273,7 +275,8 @@ async fn a_raised_hand_is_answered_and_the_connection_follows() {
     // The role change reached the open connection: they may talk now, without reconnecting.
     let connected = ctx.connected(&credentials.room, &identity).await.unwrap();
     let permission = connected.permission.unwrap();
-    assert!(permission.can_publish && permission.can_publish_data && permission.can_subscribe);
+    assert!(permission.can_publish && permission.can_subscribe && !permission.hidden, "on stage, for all to see");
+    assert!(!permission.can_publish_data, "nothing uses the data channel");
     assert_eq!(connected.metadata, r#"{"role":"speaker"}"#);
     assert_eq!(ctx.reason("Space", "InviteToStage", &host, &to_stage(&room.id, &listener)).await, "ALREADY_ON_STAGE");
 
@@ -282,7 +285,8 @@ async fn a_raised_hand_is_answered_and_the_connection_follows() {
         ctx.call("Space", "MoveToAudience", &listener, &to_audience(&room.id, None)).await.unwrap();
     assert_eq!(stepped.participant.role, SpaceRole::SPACE_ROLE_LISTENER);
     let connected = ctx.connected(&credentials.room, &identity).await.unwrap();
-    assert!(!connected.permission.unwrap().can_publish);
+    let back_in_the_audience = connected.permission.unwrap();
+    assert!(!back_in_the_audience.can_publish && back_in_the_audience.hidden);
     assert_eq!(connected.metadata, r#"{"role":"listener"}"#);
     assert_eq!(ctx.get(&host, &room.id).await.speaker_count, 1);
 }
@@ -532,12 +536,17 @@ async fn speakers_are_muted_and_people_removed_and_banned() {
     // Banning: out for good.
     let _: RemoveParticipantResponse =
         ctx.call("Space", "RemoveParticipant", &host, &remove(&room.id, &heckler, true)).await.unwrap();
-    assert_eq!(ctx.reason("Space", "JoinSpace", &heckler, &id_request(&room.id)).await, "BANNED_FROM_SPACE");
-    assert!(ctx.get(&heckler, &room.id).await.viewer.banned);
+    // …and from then on the room is not there for them: not to enter, not to
+    // look at, not to follow.
+    assert_eq!(ctx.reason("Space", "JoinSpace", &heckler, &id_request(&room.id)).await, "SPACE_NOT_FOUND");
+    assert_eq!(ctx.reason("Space", "GetSpace", &heckler, &id_request(&room.id)).await, "SPACE_NOT_FOUND");
+    let list = ListParticipantsRequest { space_id: room.id.clone(), ..Default::default() };
+    assert_eq!(ctx.reason("Space", "ListParticipants", &heckler, &list).await, "SPACE_NOT_FOUND");
+    assert!(!ctx.app.core.topic_guards.may_subscribe(Some(heckler.id), &format!("space:{}", room.id)).await.unwrap());
     // Someone who is not inside can be banned ahead of time.
     let _: RemoveParticipantResponse =
         ctx.call("Space", "RemoveParticipant", &host, &remove(&room.id, &outsider, true)).await.unwrap();
-    assert_eq!(ctx.reason("Space", "JoinSpace", &outsider, &id_request(&room.id)).await, "BANNED_FROM_SPACE");
+    assert_eq!(ctx.reason("Space", "JoinSpace", &outsider, &id_request(&room.id)).await, "SPACE_NOT_FOUND");
 
     let bans = ListBansRequest { space_id: room.id.clone(), ..Default::default() };
     assert_eq!(ctx.reason("Space", "ListBans", &speaker, &bans).await, "NOT_MODERATOR");
@@ -831,5 +840,90 @@ async fn friends_are_told_about_one_room_not_about_every_room() {
         told.iter().filter(|n| n.kind == "spaces.started").count(),
         1,
         "the second room within half an hour starts quietly"
+    );
+}
+
+#[tokio::test]
+async fn who_is_listening_is_not_for_everyone() {
+    let ctx = start().await;
+    let host = ctx.app.user("host").await;
+    let (open, shy, watcher) = (ctx.app.user("open").await, ctx.app.user("shy").await, ctx.app.user("watcher").await);
+    let room = ctx.public_room(&host, "だれがいる?").await;
+    for user in [&open, &shy] {
+        ctx.join(user, &room.id).await;
+    }
+    ctx.set_privacy(&shy, |privacy| privacy.share_online_status = false).await;
+    let list = |filter: ParticipantFilter| ListParticipantsRequest {
+        space_id: room.id.clone(),
+        filter: filter.into(),
+        ..Default::default()
+    };
+
+    // From outside, a room shows its stage and nothing of its audience: a
+    // list of listeners would say where each of them is right now.
+    let seen = participants(&ctx, &watcher, &room.id, ParticipantFilter::PARTICIPANT_FILTER_UNSPECIFIED).await;
+    assert_eq!(names(&seen), ["host"]);
+    assert_eq!(
+        names(&participants(&ctx, &watcher, &room.id, ParticipantFilter::PARTICIPANT_FILTER_STAGE).await),
+        ["host"]
+    );
+    for filter in [
+        ParticipantFilter::PARTICIPANT_FILTER_AUDIENCE,
+        ParticipantFilter::PARTICIPANT_FILTER_HANDS,
+        ParticipantFilter::PARTICIPANT_FILTER_PAST,
+    ] {
+        assert_eq!(
+            ctx.reason("Space", "ListParticipants", &watcher, &list(filter)).await,
+            "NOT_IN_SPACE",
+            "{filter:?}"
+        );
+    }
+
+    // From inside, the audience shows — except who keeps their presence to
+    // themselves, who is only counted.
+    ctx.join(&watcher, &room.id).await;
+    let audience: ListParticipantsResponse = ctx
+        .call("Space", "ListParticipants", &watcher, &list(ParticipantFilter::PARTICIPANT_FILTER_AUDIENCE))
+        .await
+        .unwrap();
+    assert_eq!(names(&audience.participants), ["open", "watcher"]);
+    assert_eq!(audience.hidden_count, 1);
+    // They see themselves, of course.
+    let own: ListParticipantsResponse = ctx
+        .call("Space", "ListParticipants", &shy, &list(ParticipantFilter::PARTICIPANT_FILTER_AUDIENCE))
+        .await
+        .unwrap();
+    assert_eq!(names(&own.participants), ["open", "shy", "watcher"]);
+    assert_eq!(own.hidden_count, 0);
+    // Moderators see everyone: they answer for the room.
+    let all: ListParticipantsResponse = ctx
+        .call("Space", "ListParticipants", &host, &list(ParticipantFilter::PARTICIPANT_FILTER_AUDIENCE))
+        .await
+        .unwrap();
+    assert_eq!(names(&all.participants), ["open", "shy", "watcher"]);
+    assert_eq!(all.hidden_count, 0);
+    // On stage there is nothing left to hide.
+    ctx.bring_on_stage(&host, &shy, &room.id).await;
+    let everyone = participants(&ctx, &watcher, &room.id, ParticipantFilter::PARTICIPANT_FILTER_UNSPECIFIED).await;
+    assert_eq!(names(&everyone), ["host", "shy", "open", "watcher"]);
+
+    // People on either side of a block do not show up in each other's lists,
+    // in someone else's room either.
+    ctx.block(&open, &watcher).await;
+    for (viewer, other) in [(&watcher, "open"), (&open, "watcher")] {
+        let seen = participants(&ctx, viewer, &room.id, ParticipantFilter::PARTICIPANT_FILTER_UNSPECIFIED).await;
+        assert!(!names(&seen).contains(&other), "{:?}", names(&seen));
+        assert_eq!(seen.len(), 3);
+    }
+    assert_eq!(participants(&ctx, &host, &room.id, ParticipantFilter::PARTICIPANT_FILTER_UNSPECIFIED).await.len(), 4);
+
+    // Someone who left can still look up who was on stage, not who is listening now.
+    ctx.leave(&watcher, &room.id).await;
+    ctx.leave(&shy, &room.id).await;
+    let past = participants(&ctx, &watcher, &room.id, ParticipantFilter::PARTICIPANT_FILTER_PAST).await;
+    assert_eq!(names(&past), ["shy"]);
+    assert_eq!(
+        ctx.reason("Space", "ListParticipants", &watcher, &list(ParticipantFilter::PARTICIPANT_FILTER_AUDIENCE)).await,
+        "NOT_IN_SPACE"
     );
 }

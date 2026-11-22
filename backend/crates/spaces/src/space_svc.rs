@@ -193,7 +193,7 @@ impl SpaceService for Spaces {
     ) -> ServiceResult<ListParticipantsResponse> {
         handle(async {
             let page = Page::from_view(request.page.as_option(), MAX_PEOPLE_PAGE);
-            let (participants, page) = Spaces::list_participants(
+            let (participants, page, hidden_count) = Spaces::list_participants(
                 self,
                 ctx.user_id()?,
                 parse_id(request.space_id)?,
@@ -201,7 +201,7 @@ impl SpaceService for Spaces {
                 &page,
             )
             .await?;
-            ok(ListParticipantsResponse { participants, page: page.into(), ..Default::default() })
+            ok(ListParticipantsResponse { participants, page: page.into(), hidden_count, ..Default::default() })
         })
         .await
     }

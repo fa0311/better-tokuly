@@ -52,8 +52,8 @@ service SpaceService {
   // Errors: INVALID_TITLE, INVALID_TAGS, INVALID_LANGUAGE, INVALID_AUDIENCE,
   // INVALID_SCHEDULE (in the past, or too far ahead), TOO_MANY_SPACES (too
   // many upcoming rooms), ALREADY_HOSTING, NOT_FRIENDS / TOO_MANY_INVITES (see
-  // InviteToSpace), AUDIO_NOT_CONFIGURED / AUDIO_UNAVAILABLE (instant rooms
-  // only), RATE_LIMITED.
+  // InviteToSpace), AUDIO_NOT_CONFIGURED / AUDIO_UNAVAILABLE / ENTERING_ELSEWHERE
+  // (instant rooms only; see JoinSpace), RATE_LIMITED.
   rpc CreateSpace(CreateSpaceRequest) returns (CreateSpaceResponse);
   // Changes a room's title, tags and language (any time before it ends) or
   // its audience and schedule (only while it is upcoming). Host only.
@@ -65,8 +65,8 @@ service SpaceService {
   // who asked to be reminded are told, as are the host's friends when it is
   // a friends room.
   // Errors: SPACE_NOT_FOUND, NOT_HOST, SPACE_NOT_SCHEDULED, ALREADY_HOSTING,
-  // AUDIO_NOT_CONFIGURED, AUDIO_UNAVAILABLE, RATE_LIMITED (a host takes a few
-  // rooms live per hour).
+  // AUDIO_NOT_CONFIGURED, AUDIO_UNAVAILABLE, ENTERING_ELSEWHERE (see JoinSpace),
+  // RATE_LIMITED (a host takes a few rooms live per hour).
   rpc StartSpace(StartSpaceRequest) returns (StartSpaceResponse);
   // Calls an upcoming room off. Host only.
   // Errors: SPACE_NOT_FOUND, NOT_HOST, SPACE_NOT_SCHEDULED.
@@ -90,8 +90,13 @@ service SpaceService {
   // comes in with the role they hold: the host as host, a co-host as
   // co-host, everyone else as a listener. Joining again (a reconnect,
   // another device) returns fresh credentials for the current role.
+  // Someone who is banned from the room does not see it any more
+  // (SPACE_NOT_FOUND); BANNED_FROM_SPACE is only the answer to a ban that
+  // lands while they are on their way in.
   // Errors: SPACE_NOT_FOUND, SPACE_NOT_LIVE, BANNED_FROM_SPACE, SPACE_FULL,
-  // AUDIO_NOT_CONFIGURED, AUDIO_UNAVAILABLE, RATE_LIMITED.
+  // ENTERING_ELSEWHERE (unavailable: the caller is entering another room or
+  // hangout at this very moment; try again), AUDIO_NOT_CONFIGURED,
+  // AUDIO_UNAVAILABLE, RATE_LIMITED.
   rpc JoinSpace(JoinSpaceRequest) returns (JoinSpaceResponse);
   // Leaves a room. A speaker returns as a listener; the host keeps the room
   // for a while (see `SpacesConfig.host_grace_seconds`). Leaving a room one
@@ -101,7 +106,14 @@ service SpaceService {
   // The people inside a live room: the stage first (host, co-hosts,
   // speakers), then raised hands in the order they went up, then the rest
   // of the audience. PARTICIPANT_FILTER_PAST lists who is gone instead.
-  // Errors: SPACE_NOT_FOUND, RATE_LIMITED.
+  // The stage is for everyone who may see the room. Who is listening is
+  // only listed to people who are inside themselves and to moderators (to
+  // anyone else the unfiltered list is the stage), and who is gone only to
+  // people who were inside. Except for moderators, people on either side of
+  // a block with the caller are left out, and listeners who do not share
+  // their online status are only counted (`hidden_count`).
+  // Errors: SPACE_NOT_FOUND, NOT_IN_SPACE (audience, hands or past asked for
+  // from outside), RATE_LIMITED.
   rpc ListParticipants(ListParticipantsRequest) returns (ListParticipantsResponse);
 
   // Raises or lowers the caller's hand to ask for the stage.
@@ -276,7 +288,9 @@ service HangoutService {
   // inside at once, and friends among them are notified when the caller is
   // the first one in. Joining again returns fresh credentials. Members only.
   // Errors: HANGOUT_NOT_FOUND, NOT_A_MEMBER (invited, not yet accepted),
-  // AUDIO_NOT_CONFIGURED, AUDIO_UNAVAILABLE, RATE_LIMITED.
+  // ENTERING_ELSEWHERE (unavailable: the caller is entering another room or
+  // hangout at this very moment; try again), AUDIO_NOT_CONFIGURED,
+  // AUDIO_UNAVAILABLE, RATE_LIMITED.
   rpc JoinHangout(JoinHangoutRequest) returns (JoinHangoutResponse);
   // Leaves the voice room; the membership stays. Leaving when not inside
   // succeeds.
@@ -423,8 +437,6 @@ message SpaceViewer {
   bool reminder_set = 5;
   // The caller holds an invitation to the room.
   bool invited = 6;
-  // The caller is banned and cannot enter.
-  bool banned = 7;
 }
 
 // Someone inside a room.
@@ -606,6 +618,9 @@ message ListParticipantsRequest {
 message ListParticipantsResponse {
   repeated SpaceParticipant participants = 1;
   tokuly.common.v1.PageInfo page = 2;
+  // Listeners left out of this page because they do not share their online
+  // status. Always 0 for moderators, who see everyone.
+  int32 hidden_count = 3;
 }
 
 message SetHandRaisedRequest {

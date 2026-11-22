@@ -47,6 +47,16 @@ fn target_not_a_member() -> AppError {
     AppError::precondition("TARGET_NOT_A_MEMBER", "this person is not part of the hangout")
 }
 
+/// A hangout as someone who is only invited may see it: who they would be
+/// joining, not who else was asked, nor who brought whom in.
+pub(crate) fn for_invitees(mut hangout: pb::Hangout) -> pb::Hangout {
+    hangout.members.retain(|member| member.state == pb::HangoutMemberState::HANGOUT_MEMBER_STATE_MEMBER);
+    for member in &mut hangout.members {
+        member.invited_by_id.clear();
+    }
+    hangout
+}
+
 const MEMBER: &str = "m.state, m.invited_by";
 
 /// Locks a hangout for the rest of the transaction. One that was closed
@@ -165,12 +175,18 @@ impl Spaces {
         .await?)
     }
 
-    /// Tells members and invitees how the hangout looks now.
+    /// Tells members and invitees how the hangout looks now — each what
+    /// they may see: members everything, invitees the members only (see
+    /// [`for_invitees`]).
     pub(crate) async fn push_hangout(&self, hangout_id: Uuid) {
         let pushed: AppResult<()> = async {
             let Some((_, proto)) = self.hangout_snapshot(hangout_id).await? else { return Ok(()) };
-            let people = self.hangout_people(hangout_id, true).await?;
-            self.push_users(people, pb::HangoutUpdated { hangout: proto.into(), ..Default::default() }).await;
+            let members = self.hangout_people(hangout_id, false).await?;
+            let mut invitees = self.hangout_people(hangout_id, true).await?;
+            invitees.retain(|user_id| !members.contains(user_id));
+            let narrowed = for_invitees(proto.clone());
+            self.push_users(members, pb::HangoutUpdated { hangout: proto.into(), ..Default::default() }).await;
+            self.push_users(invitees, pb::HangoutUpdated { hangout: narrowed.into(), ..Default::default() }).await;
             Ok(())
         }
         .await;
@@ -262,7 +278,7 @@ impl Spaces {
         let pushed: AppResult<()> = async {
             let Some((_, proto)) = self.hangout_snapshot(hangout_id).await? else { return Ok(()) };
             let invitation = pb::HangoutInvitation {
-                hangout: proto.into(),
+                hangout: for_invitees(proto).into(),
                 invited_by: inviter.clone().into(),
                 ..Default::default()
             };
@@ -468,6 +484,10 @@ impl Spaces {
         hangout_id: Uuid,
         accept: bool,
     ) -> AppResult<Option<HangoutRow>> {
+        // Before anything is locked: only someone who is part of the hangout
+        // gets to queue for its row.
+        self.my_hangout(user_id, hangout_id).await?;
+        self.limit(Limit::ManageHangout, user_id).await?;
         let mut tx = self.core.db.begin().await?;
         if accept {
             lock_person(&mut tx, user_id).await?;
@@ -527,6 +547,9 @@ impl Spaces {
         target: Uuid,
     ) -> AppResult<HangoutRow> {
         self.limit(Limit::ManageHangout, actor).await?;
+        // Before anything is locked: only someone who is part of the hangout
+        // gets to queue for its row.
+        self.my_hangout(actor, hangout_id).await?;
         let mut tx = self.core.db.begin().await?;
         let hangout = lock_hangout(&mut tx, hangout_id).await?;
         member_in_tx(&mut tx, hangout_id, actor).await?.ok_or_else(hangout_not_found)?;
@@ -566,6 +589,10 @@ impl Spaces {
 
     /// Stops being a member.
     pub(crate) async fn quit_hangout(&self, user_id: Uuid, hangout_id: Uuid) -> AppResult<()> {
+        // Before anything is locked: only someone who is part of the hangout
+        // gets to queue for its row.
+        self.my_hangout(user_id, hangout_id).await?;
+        self.limit(Limit::ManageHangout, user_id).await?;
         let mut tx = self.core.db.begin().await?;
         let hangout = lock_hangout(&mut tx, hangout_id).await?;
         member_in_tx(&mut tx, hangout_id, user_id).await?.ok_or_else(hangout_not_found)?;
@@ -590,6 +617,9 @@ impl Spaces {
         target: Uuid,
     ) -> AppResult<HangoutRow> {
         self.limit(Limit::ManageHangout, user_id).await?;
+        // Before anything is locked: only someone who is part of the hangout
+        // gets to queue for its row.
+        self.my_hangout(user_id, hangout_id).await?;
         let mut tx = self.core.db.begin().await?;
         lock_person(&mut tx, target).await?;
         let hangout = lock_hangout(&mut tx, hangout_id).await?;

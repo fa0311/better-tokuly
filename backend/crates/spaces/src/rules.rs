@@ -229,17 +229,19 @@ pub struct Access {
     pub friend_of_host: bool,
     /// The viewer and the host are on either side of a block.
     pub blocked: bool,
+    /// The viewer is banned from the room.
+    pub banned: bool,
 }
 
 impl Access {
-    /// A block hides the room; otherwise public rooms are open, the host,
-    /// invited people and those inside always get in, and a friends room
-    /// admits the host's friends.
+    /// A block or a ban hides the room; otherwise public rooms are open,
+    /// the host, invited people and those inside always get in, and a
+    /// friends room admits the host's friends.
     pub fn may_see(&self) -> bool {
         if self.host {
             return true;
         }
-        if self.blocked {
+        if self.blocked || self.banned {
             return false;
         }
         self.audience == audience::PUBLIC
@@ -474,6 +476,11 @@ mod tests {
         };
         assert!(!blocked.may_see());
         assert!(Access { audience: audience::INVITED, host: true, ..Default::default() }.may_see());
+        // So does a ban from the room, public or not.
+        assert!(!Access { audience: audience::PUBLIC, banned: true, ..Default::default() }.may_see());
+        assert!(
+            !Access { audience: audience::FRIENDS, banned: true, friend_of_host: true, ..Default::default() }.may_see()
+        );
     }
 
     #[test]

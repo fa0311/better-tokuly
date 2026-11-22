@@ -8,8 +8,9 @@
 use std::time::Duration;
 
 use tokuly_core::{events, outbound, prelude::*};
-use tokuly_identity::users;
+use tokuly_identity::{settings, users};
 use tokuly_proto::{common::PageInfo, spaces as pb};
+use tokuly_social::graph;
 
 use crate::{
     Spaces,
@@ -352,21 +353,54 @@ impl Spaces {
     /// The people inside a room: stage, raised hands, the rest. Or, with
     /// the PAST filter, the people who are gone — the way to find someone
     /// to report or block after they left.
+    ///
+    /// Who is on stage is for everyone who may see the room. Who is
+    /// listening is not: a list of listeners tells where a person is right
+    /// now. So the audience is listed only to people who are inside
+    /// themselves and to moderators, the past only to people who were
+    /// inside; and except for moderators, people on either side of a block
+    /// with the viewer are left out, and so are listeners who do not share
+    /// their online status (they are counted, see `hidden_count`).
     pub(crate) async fn list_participants(
         &self,
         viewer: Uuid,
         space_id: Uuid,
         filter: Option<pb::ParticipantFilter>,
         page: &Page,
-    ) -> AppResult<(Vec<pb::SpaceParticipant>, PageInfo)> {
+    ) -> AppResult<(Vec<pb::SpaceParticipant>, PageInfo, i32)> {
+        use pb::ParticipantFilter as Filter;
+        let core = &self.core;
         let space = self.visible_space(Some(viewer), space_id).await?;
         self.limit(Limit::Discover, viewer).await?;
         let moderates = self.is_moderator(&space, viewer).await?;
+        // `Some(true)`: inside now; `Some(false)`: was inside; `None`: never.
+        let presence: Option<bool> =
+            sqlx::query_scalar("SELECT left_at IS NULL FROM space_participants WHERE space_id = $1 AND user_id = $2")
+                .bind(space_id)
+                .bind(viewer)
+                .fetch_optional(&core.db)
+                .await?;
+        let inside = moderates || presence == Some(true);
+        let filter = match filter {
+            Some(Filter::PARTICIPANT_FILTER_STAGE) => Filter::PARTICIPANT_FILTER_STAGE,
+            Some(Filter::PARTICIPANT_FILTER_PAST) if moderates || presence.is_some() => Filter::PARTICIPANT_FILTER_PAST,
+            Some(filter @ (Filter::PARTICIPANT_FILTER_HANDS | Filter::PARTICIPANT_FILTER_AUDIENCE)) if inside => filter,
+            Some(
+                Filter::PARTICIPANT_FILTER_HANDS
+                | Filter::PARTICIPANT_FILTER_AUDIENCE
+                | Filter::PARTICIPANT_FILTER_PAST,
+            ) => {
+                return Err(not_in_space());
+            }
+            // "Everyone", as far as the viewer gets to see everyone.
+            _ if inside => Filter::PARTICIPANT_FILTER_UNSPECIFIED,
+            _ => Filter::PARTICIPANT_FILTER_STAGE,
+        };
         // The order moves with every hand and arrival, so pages are cut by position.
         let offset = page.decode::<i64>()?.unwrap_or(0).max(0);
-        let mut rows: Vec<ParticipantRow> = if filter == Some(pb::ParticipantFilter::PARTICIPANT_FILTER_PAST) {
-            // Who was on stage is everyone's to know; who merely listened
-            // is for the moderators.
+        let mut rows: Vec<ParticipantRow> = if filter == Filter::PARTICIPANT_FILTER_PAST {
+            // Who was on stage is for everyone who was there; who merely
+            // listened is for the moderators.
             sqlx::query_as(sqlx::AssertSqlSafe(format!(
                 "SELECT {PARTICIPANT} FROM space_participants p
                  WHERE p.space_id = $1 AND p.left_at IS NOT NULL AND ($2 OR p.top_role >= $3)
@@ -378,13 +412,13 @@ impl Spaces {
             .bind(role::SPEAKER)
             .bind(page.fetch())
             .bind(offset)
-            .fetch_all(&self.core.db)
+            .fetch_all(&core.db)
             .await?
         } else {
             let (min_role, max_role, hands_only) = match filter {
-                Some(pb::ParticipantFilter::PARTICIPANT_FILTER_STAGE) => (role::SPEAKER, role::HOST, false),
-                Some(pb::ParticipantFilter::PARTICIPANT_FILTER_HANDS) => (role::LISTENER, role::LISTENER, true),
-                Some(pb::ParticipantFilter::PARTICIPANT_FILTER_AUDIENCE) => (role::LISTENER, role::LISTENER, false),
+                Filter::PARTICIPANT_FILTER_STAGE => (role::SPEAKER, role::HOST, false),
+                Filter::PARTICIPANT_FILTER_HANDS => (role::LISTENER, role::LISTENER, true),
+                Filter::PARTICIPANT_FILTER_AUDIENCE => (role::LISTENER, role::LISTENER, false),
                 _ => (role::LISTENER, role::HOST, false),
             };
             sqlx::query_as(sqlx::AssertSqlSafe(format!(
@@ -402,11 +436,33 @@ impl Spaces {
             .bind(hands_only)
             .bind(page.fetch())
             .bind(offset)
-            .fetch_all(&self.core.db)
+            .fetch_all(&core.db)
             .await?
         };
         let info = page.finish(&mut rows, |_| offset + page.limit);
-        Ok((self.render_participants(&rows, viewer, moderates).await?, info))
+
+        let mut hidden_count = 0;
+        if !moderates {
+            let blocked = graph::blocked_ids_either(core, viewer).await?;
+            rows.retain(|row| !blocked.contains(&row.user_id));
+            // Someone on stage is there for all to see; a listener only if
+            // they let people see that they are around.
+            let listeners: Vec<Uuid> = rows
+                .iter()
+                .filter(|row| {
+                    row.user_id != viewer && !rules::on_stage(if row.is_inside() { row.role } else { row.top_role })
+                })
+                .map(|row| row.user_id)
+                .collect();
+            let privacy = settings::privacy_of_many(core, &listeners).await?;
+            let before = rows.len();
+            rows.retain(|row| {
+                !listeners.contains(&row.user_id)
+                    || privacy.get(&row.user_id).is_none_or(|privacy| privacy.share_online_status)
+            });
+            hidden_count = (before - rows.len()) as i32;
+        }
+        Ok((self.render_participants(&rows, viewer, moderates).await?, info, hidden_count))
     }
 
     // ───────────────────────────── hands and the stage ─────────────────────────────

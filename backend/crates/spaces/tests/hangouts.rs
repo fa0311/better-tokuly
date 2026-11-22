@@ -90,7 +90,10 @@ async fn a_hangout_is_created_and_friends_are_invited() {
     assert_eq!(notification.path, format!("/hangouts/{}", hangout.id));
     assert!(ctx.events(&mut first_events).await.iter().any(|event| matches!(
         event,
-        Push::HangoutInvitation(invitation) if invitation.hangout.id == hangout.id && invitation.invited_by.id == owner.id.to_string()
+        Push::HangoutInvitation(invitation)
+            if invitation.hangout.id == hangout.id
+                && invitation.invited_by.id == owner.id.to_string()
+                && member_names(&invitation.hangout) == ["taro"]
     )));
     let waiting = listed(&ctx, &first).await;
     assert!(waiting.hangouts.is_empty());
@@ -99,6 +102,26 @@ async fn a_hangout_is_created_and_friends_are_invited() {
     assert_eq!(member_names(&waiting.invitations[0]), ["taro"]);
     assert_eq!(waiting.invitations[0].viewer.state, HangoutMemberState::HANGOUT_MEMBER_STATE_INVITED);
     assert!(!waiting.invitations[0].viewer.can_invite);
+
+    // What reaches an invitee over realtime says no more than that: a later
+    // change of the group is pushed to them without the other invitations.
+    let mut second_events = ctx.listen(&second).await;
+    let update =
+        UpdateHangoutRequest {
+            hangout_id: hangout.id.clone(), name: Some("いつメン".into()), ..Default::default()
+        };
+    let _: UpdateHangoutResponse = ctx.call("Hangout", "UpdateHangout", &owner, &update).await.unwrap();
+    let pushed = ctx.events(&mut second_events).await;
+    let seen_by_invitee: Vec<&Hangout> = pushed
+        .iter()
+        .filter_map(|event| match event {
+            Push::HangoutUpdated(updated) => updated.hangout.as_option(),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(seen_by_invitee.len(), 1);
+    assert_eq!(member_names(seen_by_invitee[0]), ["taro"], "not who else was asked");
+    assert!(seen_by_invitee[0].members.iter().all(|member| member.invited_by_id.is_empty()));
 
     // Not a member yet: no voice, no invitations of their own.
     let join = JoinHangoutRequest { hangout_id: hangout.id.clone(), ..Default::default() };

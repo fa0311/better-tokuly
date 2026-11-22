@@ -16,6 +16,8 @@
 //! header is a token signed with the API secret that carries the SHA-256
 //! of the body. The webhook is an accelerator, not a dependency: without
 //! it the timer in [`crate::workers`] finds the same things a little later.
+use std::time::Duration;
+
 use axum::{
     Router,
     body::Bytes,
@@ -26,7 +28,10 @@ use axum::{
 use connectrpc::ErrorCode;
 use tokuly_core::{livekit::WebhookEvent, prelude::*};
 
-use crate::{Reconciled, Spaces, model::Venue};
+use crate::{Spaces, model::Venue};
+
+/// Webhooks about one venue within this time lead to one comparison.
+const COALESCE: Duration = Duration::from_secs(1);
 
 /// Path of the webhook endpoint in [`Spaces::http_routes`].
 pub const WEBHOOK_PATH: &str = "/spaces/livekit/webhook";
@@ -39,10 +44,16 @@ impl Spaces {
     }
 
     /// Reacts to a verified webhook event: anything about who is connected
-    /// to one of this domain's LiveKit rooms triggers a comparison of that
-    /// venue. Events about other rooms (calls, other applications on the
-    /// same LiveKit server) and other kinds of events are ignored.
-    pub async fn handle_webhook(&self, event: &WebhookEvent) -> AppResult<Reconciled> {
+    /// to one of this domain's LiveKit rooms asks for a comparison of that
+    /// venue a moment later. Events about other rooms (calls, other
+    /// applications on the same LiveKit server) and other kinds of events
+    /// are ignored.
+    ///
+    /// The comparison is not run inline: a room filling up sends an event
+    /// per person, and one look a second later sees them all. Events that
+    /// arrive while a look is pending are covered by it. Returns whether
+    /// this event scheduled one.
+    pub async fn handle_webhook(&self, event: &WebhookEvent) -> AppResult<bool> {
         let relevant = matches!(
             event.event.as_str(),
             "participant_joined"
@@ -51,11 +62,20 @@ impl Spaces {
                 | "room_started"
                 | "room_finished"
         );
-        let venue = event.room.as_ref().and_then(|room| Venue::of_room(&room.name));
-        match venue {
-            Some(venue) if relevant => self.reconcile_venue(venue).await,
-            _ => Ok(Reconciled::default()),
+        let Some(venue) = event.room.as_ref().and_then(|room| Venue::of_room(&room.name)).filter(|_| relevant) else {
+            return Ok(false);
+        };
+        if !self.core.cache.set_nx(&format!("spaces:compare:{}", venue.room()), "1", COALESCE).await? {
+            return Ok(false);
         }
+        let spaces = self.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(COALESCE).await;
+            if let Err(e) = spaces.reconcile_venue(venue).await {
+                tracing::warn!(?venue, error = %e, "comparison after a LiveKit webhook failed; the timer will catch up");
+            }
+        });
+        Ok(true)
     }
 }
 

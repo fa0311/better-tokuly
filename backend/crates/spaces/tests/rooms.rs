@@ -61,7 +61,7 @@ async fn an_instant_room_goes_live_with_the_host_inside() {
     assert_eq!(space.stage[0].user.id, host.id.to_string());
     assert_eq!(space.stage[0].role, SpaceRole::SPACE_ROLE_HOST);
     let viewer = space.viewer.as_option().unwrap();
-    assert!(viewer.inside && !viewer.banned && !viewer.hand_raised);
+    assert!(viewer.inside && !viewer.hand_raised);
     assert_eq!(viewer.role, SpaceRole::SPACE_ROLE_HOST);
 
     // What a LiveKit client connects with: the host may talk.
