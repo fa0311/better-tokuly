@@ -185,13 +185,16 @@ export function useOwnLocationReporting(): void {
 
   useEffect(() => {
     if (!active) return;
+    const startedAt = Date.now();
     let lastReport: { at: number; position: OwnPosition } | null = null;
     let lastTimestamp = 0;
+    /** The newest fix, until it has been sent. */
+    let unsent: OwnPosition | null = null;
 
-    const accept = (result: GeolocationPosition, force = false) => {
-      const position = toOwnPosition(result);
-      useLocations.getState().setOwn(position);
-      useSharing.getState().setPermission("granted");
+    /** Sends the newest fix if it is time: at once for the first, then at the server's pace. */
+    const flush = (force = false) => {
+      if (!unsent) return;
+      const position = unsent;
       const cadence = realtime().cadence;
       const now = Date.now();
       const moving =
@@ -201,17 +204,38 @@ export function useOwnLocationReporting(): void {
             Math.max(MOVED_METERS, position.accuracyMeters));
       const interval = (moving ? cadence.movingSeconds : cadence.stationarySeconds) * 1000;
       if (!force && lastReport && now - lastReport.at < interval) return;
-      // A sample must be newer than the one before it, or the server skips it as a duplicate.
-      const recordedAt = Math.min(now, Math.max(position.recordedAt, lastTimestamp + 1000));
+      // A sample must be newer than the one before it (the server skips duplicates), and a
+      // cached fix from before sharing (re)started still says where the device is now.
+      const recordedAt = Math.min(
+        now,
+        Math.max(position.recordedAt, lastTimestamp + 1000, startedAt),
+      );
+      if (recordedAt <= lastTimestamp) return;
       lastTimestamp = recordedAt;
       lastReport = { at: now, position };
+      unsent = null;
       void report({ ...position, recordedAt });
+    };
+
+    const accept = (result: GeolocationPosition, force = false) => {
+      const position = toOwnPosition(result);
+      useLocations.getState().setOwn(position);
+      useSharing.getState().setPermission("granted");
+      unsent = position;
+      flush(force);
     };
     const fail = (error: GeolocationPositionError) => {
       const denied = error.code === error.PERMISSION_DENIED;
       if (denied) useSharing.getState().setPermission("denied");
       useLocations.getState().setOwn(null, denied ? "denied" : "unavailable");
     };
+    const refresh = (maximumAge: number) =>
+      navigator.geolocation.getCurrentPosition(
+        (result) =>
+          accept({ coords: result.coords, timestamp: Date.now() } as GeolocationPosition, true),
+        () => undefined,
+        { enableHighAccuracy: true, maximumAge, timeout: 15_000 },
+      );
 
     const watchId = navigator.geolocation.watchPosition((result) => accept(result), fail, {
       enableHighAccuracy: true,
@@ -219,27 +243,17 @@ export function useOwnLocationReporting(): void {
       timeout: 20_000,
     });
 
-    // Standing still produces no new readings: look again when the stationary interval is up.
     const heartbeat = setInterval(() => {
-      if (document.visibilityState !== "visible" || !lastReport) return;
-      if (Date.now() - lastReport.at < realtime().cadence.stationarySeconds * 1000) return;
-      navigator.geolocation.getCurrentPosition(
-        (result) =>
-          accept({ coords: result.coords, timestamp: Date.now() } as GeolocationPosition, true),
-        () => undefined,
-        { enableHighAccuracy: true, maximumAge: 0, timeout: 15_000 },
-      );
-    }, 5_000);
+      // A fix that arrived too soon after the last report goes out when its turn comes.
+      flush();
+      // Standing still produces no new readings: look again when the stationary interval is up.
+      if (document.visibilityState !== "visible" || !lastReport || unsent) return;
+      if (Date.now() - lastReport.at >= realtime().cadence.stationarySeconds * 1000) refresh(0);
+    }, 1000);
 
     // Coming back to the tab: friends get a fresh pin at once.
     const onVisible = () => {
-      if (document.visibilityState !== "visible" || !lastReport) return;
-      navigator.geolocation.getCurrentPosition(
-        (result) =>
-          accept({ coords: result.coords, timestamp: Date.now() } as GeolocationPosition, true),
-        () => undefined,
-        { enableHighAccuracy: true, maximumAge: 10_000, timeout: 15_000 },
-      );
+      if (document.visibilityState === "visible" && lastReport) refresh(10_000);
     };
     document.addEventListener("visibilitychange", onVisible);
 
