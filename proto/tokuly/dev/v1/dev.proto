@@ -1,14 +1,990 @@
 syntax = "proto3";
 
-// Developer platform: access tokens, OAuth apps, bots and webhooks.
+// Developer platform: the whole API, open to the people who use it.
 //
-// SKELETON: the owning domain implements this file. Keep the package name
-// stable; everything else is yours.
+// Four ways to act through the API without a signed-in session:
+//
+// - a personal access token (`tkl_pat_…`): your own account, from a script;
+// - an OAuth 2.1 application: somebody else's program, acting for the users
+//   who agreed to it (access tokens `tkl_oat_…`);
+// - a bot (`tkl_bot_…`): an account of its own, owned by a person;
+// - a webhook: Tokuly calls your server when something happens to you.
+//
+// Every token is sent as `Authorization: Bearer <token>` and limited to its
+// scopes. A scope is `<domain>:read` or `<domain>:write` (writing includes
+// reading), where the domain is the package of the RPC (`tokuly.geo.v1` →
+// `geo`). An RPC is "read" when its name starts with Get, List, Search,
+// Watch, Batch, Check, Resolve, Count or Evaluate; `ReferenceService` lists
+// what each RPC needs. A token without the scope gets `permission_denied`
+// with reason `INSUFFICIENT_SCOPE` (and the scope in `x-tokuly-scope`).
+// Some RPCs can never be called with a token (signing in, changing
+// credentials, deleting the account, everything that mints tokens): reason
+// `SESSION_REQUIRED`. Tokens are rate limited per minute (`RATE_LIMITED`,
+// with `x-ratelimit-limit` / `-remaining` / `-reset` on every response).
+//
+// The OAuth endpoints that libraries expect are plain HTTP, next to the
+// RPCs: `POST /oauth/token`, `POST /oauth/revoke`,
+// `POST /oauth/device_authorization` and
+// `GET /.well-known/oauth-authorization-server`. The authorization endpoint
+// is the web app's consent page, which is driven by `AuthorizationService`.
 package tokuly.dev.v1;
 
+import "google/protobuf/timestamp.proto";
 import "tokuly/common/v1/common.proto";
 
-// Placeholder message so the file is a valid module member.
-message DevPlaceholder {
-  tokuly.common.v1.SubjectRef subject = 1;
+// ───────────────────────────── scopes and tokens ─────────────────────────────
+
+// Personal access tokens, and what any token can learn about itself.
+//
+// Except for `GetCurrentToken` and `ListScopes`, these RPCs need a signed-in
+// session: a token cannot mint or revoke tokens.
+service TokenService {
+  // Every scope a token can hold, with the wording shown to people.
+  rpc ListScopes(ListScopesRequest) returns (ListScopesResponse);
+  // Creates a personal access token. The secret is in the response and
+  // nowhere else, ever. The account gets a notification and a security
+  // event. Reasons: `TOKEN_NAME_INVALID`, `SCOPES_REQUIRED`, `SCOPE_UNKNOWN`,
+  // `EXPIRY_INVALID`, `TOO_MANY_TOKENS`.
+  rpc CreateToken(CreateTokenRequest) returns (CreateTokenResponse);
+  // The caller's personal access tokens, newest first. Revoked ones are gone.
+  rpc ListTokens(ListTokensRequest) returns (ListTokensResponse);
+  // Revokes one of the caller's tokens at once. Reason: `TOKEN_NOT_FOUND`.
+  rpc RevokeToken(RevokeTokenRequest) returns (RevokeTokenResponse);
+  // What the credential making this call is and may do. Works with any
+  // token whatever its scopes, and with a session.
+  rpc GetCurrentToken(GetCurrentTokenRequest) returns (GetCurrentTokenResponse);
+}
+
+// One scope, as shown on the token form and the consent screen.
+message ScopeInfo {
+  // `<domain>:read` or `<domain>:write`.
+  string scope = 1;
+  string domain = 2;
+  // True for `:write` (which includes `:read`).
+  bool write = 3;
+  // What the scope lets a program do, in plain words.
+  tokuly.common.v1.LocalizedText description = 4;
+  // Scopes over location, private messages, money and the account itself;
+  // clients set them apart on the consent screen.
+  bool sensitive = 5;
+}
+
+message ListScopesRequest {}
+
+message ListScopesResponse {
+  repeated ScopeInfo scopes = 1;
+}
+
+// How long a token lives.
+enum TokenExpiry {
+  // Treated as 30 days.
+  TOKEN_EXPIRY_UNSPECIFIED = 0;
+  TOKEN_EXPIRY_7_DAYS = 1;
+  TOKEN_EXPIRY_30_DAYS = 2;
+  TOKEN_EXPIRY_90_DAYS = 3;
+  TOKEN_EXPIRY_1_YEAR = 4;
+  // Valid until revoked.
+  TOKEN_EXPIRY_NEVER = 5;
+}
+
+// A personal access token or a bot token. The secret itself is only ever
+// returned by the RPC that created it.
+message AccessToken {
+  string id = 1;
+  // What the owner called it, e.g. "backup script".
+  string name = 2;
+  repeated string scopes = 3;
+  // Enough of the secret to recognise it: `tkl_pat_…x7Qd`.
+  string hint = 4;
+  google.protobuf.Timestamp created_at = 5;
+  // Unset for tokens that do not expire.
+  google.protobuf.Timestamp expires_at = 6;
+  // Unset until the token is first used. Updated at most once a minute.
+  google.protobuf.Timestamp last_used_at = 7;
+  // Address of the last request made with it.
+  string last_used_ip = 8;
+  bool expired = 9;
+}
+
+message CreateTokenRequest {
+  // 1-60 characters.
+  string name = 1;
+  // At least one, from `ListScopes`.
+  repeated string scopes = 2;
+  TokenExpiry expiry = 3;
+}
+
+message CreateTokenResponse {
+  AccessToken token = 1;
+  // The token itself (`tkl_pat_…`). Shown once.
+  string secret = 2;
+}
+
+message ListTokensRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListTokensResponse {
+  repeated AccessToken tokens = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message RevokeTokenRequest {
+  string token_id = 1;
+}
+
+message RevokeTokenResponse {}
+
+// What kind of credential made a request.
+enum CredentialKind {
+  CREDENTIAL_KIND_UNSPECIFIED = 0;
+  // A signed-in session: no scopes, may do everything its user may.
+  CREDENTIAL_KIND_SESSION = 1;
+  CREDENTIAL_KIND_PERSONAL_TOKEN = 2;
+  // An OAuth access token of an application.
+  CREDENTIAL_KIND_APP = 3;
+  CREDENTIAL_KIND_BOT = 4;
+}
+
+message GetCurrentTokenRequest {}
+
+message GetCurrentTokenResponse {
+  CredentialKind kind = 1;
+  // The account the credential acts as (the bot, for a bot token).
+  tokuly.common.v1.UserSummary user = 2;
+  // Empty for a session.
+  repeated string scopes = 3;
+  // Unset for a session and for tokens that do not expire.
+  google.protobuf.Timestamp expires_at = 4;
+  // The application, for an OAuth access token.
+  PublicApp app = 5;
+  // Requests per minute this credential may make; 0 = not limited.
+  int32 rate_limit_per_minute = 6;
+  // The personal or bot token's ID; for an application, the authorization.
+  string credential_id = 7;
+}
+
+// ───────────────────────────── OAuth applications ─────────────────────────────
+
+// Registering OAuth 2.1 applications (the developer's side). Session only.
+service AppService {
+  // Registers an application. A confidential client gets its client secret
+  // in the response, once. Reasons: `APP_NAME_INVALID`,
+  // `DESCRIPTION_TOO_LONG`, `URL_INVALID`, `REDIRECT_URI_REQUIRED`,
+  // `REDIRECT_URI_INVALID`, `TOO_MANY_REDIRECT_URIS`, `SCOPES_REQUIRED`,
+  // `SCOPE_UNKNOWN`, `CLIENT_TYPE_REQUIRED`, `TOO_MANY_APPS`,
+  // `ICONS_UNAVAILABLE`, plus the media reasons for a bad icon.
+  rpc CreateApp(CreateAppRequest) returns (CreateAppResponse);
+  // Replaces the editable fields of an application the caller owns. Removing
+  // a scope does not shrink authorizations users already gave. Reasons: as
+  // `CreateApp`, `APP_NOT_FOUND`.
+  rpc UpdateApp(UpdateAppRequest) returns (UpdateAppResponse);
+  rpc GetApp(GetAppRequest) returns (GetAppResponse);
+  // The caller's applications, newest first.
+  rpc ListApps(ListAppsRequest) returns (ListAppsResponse);
+  // Deletes an application: every authorization and token of it stops
+  // working at once. Reasons: `APP_NOT_FOUND`, `APP_DISABLED` (an
+  // application disabled by moderation stays on record).
+  rpc DeleteApp(DeleteAppRequest) returns (DeleteAppResponse);
+  // Issues a new client secret. The previous one keeps working for a day
+  // unless `revoke_previous` is set. Reasons: `APP_NOT_FOUND`,
+  // `CLIENT_IS_PUBLIC`.
+  rpc RotateClientSecret(RotateClientSecretRequest) returns (RotateClientSecretResponse);
+  // Who authorized the application, most recently active first.
+  rpc ListAppUsers(ListAppUsersRequest) returns (ListAppUsersResponse);
+}
+
+enum AppClientType {
+  APP_CLIENT_TYPE_UNSPECIFIED = 0;
+  // Runs on a server and can keep a client secret.
+  APP_CLIENT_TYPE_CONFIDENTIAL = 1;
+  // Runs on the user's device (native app, single-page app, CLI): no
+  // secret, PKCE only.
+  APP_CLIENT_TYPE_PUBLIC = 2;
+}
+
+enum AppStatus {
+  APP_STATUS_UNSPECIFIED = 0;
+  APP_STATUS_ACTIVE = 1;
+  // Taken down by moderation: nothing of it works until it is restored.
+  APP_STATUS_DISABLED = 2;
+}
+
+// An application as its owner sees it.
+message App {
+  // Also the OAuth `client_id`.
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  tokuly.common.v1.Image icon = 4;
+  string homepage_url = 5;
+  string privacy_policy_url = 6;
+  // Compared exactly with the `redirect_uri` of an authorization request.
+  // For loopback addresses (`http://127.0.0.1/…`, `http://[::1]/…`) the port
+  // is ignored, as native apps pick one at run time.
+  repeated string redirect_uris = 7;
+  // The scopes the application may ask users for.
+  repeated string scopes = 8;
+  AppClientType client_type = 9;
+  // Last characters of the current client secret; empty for public clients.
+  string client_secret_hint = 10;
+  AppStatus status = 11;
+  // Why moderation disabled it.
+  string disabled_reason = 12;
+  // Users with a live authorization.
+  int32 user_count = 13;
+  google.protobuf.Timestamp created_at = 14;
+  google.protobuf.Timestamp updated_at = 15;
+  // Until when the secret replaced by the last rotation still works.
+  google.protobuf.Timestamp previous_secret_expires_at = 16;
+}
+
+// An application as everyone else sees it (consent screen, authorized apps).
+message PublicApp {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  tokuly.common.v1.Image icon = 4;
+  string homepage_url = 5;
+  string privacy_policy_url = 6;
+  // Who registered it.
+  tokuly.common.v1.UserSummary owner = 7;
+  google.protobuf.Timestamp created_at = 8;
+  int32 user_count = 9;
+}
+
+message CreateAppRequest {
+  // 1-60 characters.
+  string name = 1;
+  // Up to 500 characters.
+  string description = 2;
+  // https URL, or empty.
+  string homepage_url = 3;
+  string privacy_policy_url = 4;
+  // 1-10 URIs: https, http on a loopback address, or (public clients) a
+  // private-use scheme such as `com.example.app:/callback`. No fragments.
+  repeated string redirect_uris = 5;
+  repeated string scopes = 6;
+  AppClientType client_type = 7;
+  // An image the caller uploaded (media domain); empty for no icon.
+  string icon_asset_id = 8;
+}
+
+message CreateAppResponse {
+  App app = 1;
+  // `tkl_cs_…`; shown once. Empty for public clients.
+  string client_secret = 2;
+}
+
+message UpdateAppRequest {
+  string app_id = 1;
+  string name = 2;
+  string description = 3;
+  string homepage_url = 4;
+  string privacy_policy_url = 5;
+  repeated string redirect_uris = 6;
+  repeated string scopes = 7;
+  // Unset keeps the icon, empty removes it.
+  optional string icon_asset_id = 8;
+}
+
+message UpdateAppResponse {
+  App app = 1;
+}
+
+message GetAppRequest {
+  string app_id = 1;
+}
+
+message GetAppResponse {
+  App app = 1;
+}
+
+message ListAppsRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListAppsResponse {
+  repeated App apps = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message DeleteAppRequest {
+  string app_id = 1;
+}
+
+message DeleteAppResponse {}
+
+message RotateClientSecretRequest {
+  string app_id = 1;
+  // Stop honouring the previous secret now (it leaked).
+  bool revoke_previous = 2;
+}
+
+message RotateClientSecretResponse {
+  App app = 1;
+  string client_secret = 2;
+}
+
+message ListAppUsersRequest {
+  string app_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+// One user's authorization of an application, as the owner sees it.
+message AppUser {
+  tokuly.common.v1.UserSummary user = 1;
+  repeated string scopes = 2;
+  google.protobuf.Timestamp authorized_at = 3;
+  // Last request made with a token of this authorization.
+  google.protobuf.Timestamp last_used_at = 4;
+}
+
+message ListAppUsersResponse {
+  repeated AppUser users = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// ───────────────────────────── authorizing applications ─────────────────────────────
+
+// The user's side of OAuth: the consent screen, the device page and the
+// list of applications that have access. Session only, except
+// `GetPublicApp`, which anyone may call.
+//
+// Authorization code flow: the application sends the browser to the web
+// app's consent page with the standard query parameters. The page passes
+// them to `GetConsent`, shows what comes back, and navigates to the
+// `redirect_url` returned by `ApproveAuthorization` / `DenyAuthorization`.
+// PKCE with `S256` is required for every client.
+service AuthorizationService {
+  // An application's public card. Reason: `APP_NOT_FOUND`.
+  rpc GetPublicApp(GetPublicAppRequest) returns (GetPublicAppResponse);
+  // Checks an authorization request and describes it for the consent
+  // screen. A request that names no usable client (unknown, or disabled) or
+  // a redirect URI that is not registered fails here and must be shown to
+  // the user, never redirected: `CLIENT_NOT_FOUND`, `REDIRECT_URI_MISMATCH`.
+  // Also `RATE_LIMITED`.
+  // Every other problem comes back as `redirect_url`, carrying the OAuth
+  // error (`invalid_request`, `unsupported_response_type`, `invalid_scope`)
+  // to the application.
+  rpc GetConsent(GetConsentRequest) returns (GetConsentResponse);
+  // The user agrees: records the authorization and returns the redirect
+  // with a one-time `code` (valid for a minute or so) and `state`.
+  // Reasons: as `GetConsent`, plus `AUTHORIZATION_REQUEST_INVALID` when the
+  // request would have been answered with an error redirect.
+  rpc ApproveAuthorization(ApproveAuthorizationRequest) returns (ApproveAuthorizationResponse);
+  // The user refuses: the redirect carries `error=access_denied`.
+  rpc DenyAuthorization(DenyAuthorizationRequest) returns (DenyAuthorizationResponse);
+  // Device flow (RFC 8628): what the code typed on the device page stands
+  // for. Reasons: `DEVICE_CODE_INVALID` (unknown, expired or already
+  // answered), `RATE_LIMITED`.
+  rpc GetDeviceConsent(GetDeviceConsentRequest) returns (GetDeviceConsentResponse);
+  // Lets the waiting device in. Reason: `DEVICE_CODE_INVALID`.
+  rpc ApproveDevice(ApproveDeviceRequest) returns (ApproveDeviceResponse);
+  // Turns the waiting device away.
+  rpc DenyDevice(DenyDeviceRequest) returns (DenyDeviceResponse);
+  // Applications that have access to the caller's account.
+  rpc ListAuthorizedApps(ListAuthorizedAppsRequest) returns (ListAuthorizedAppsResponse);
+  // Withdraws an application's access: its tokens stop working at once.
+  // Reason: `AUTHORIZATION_NOT_FOUND`.
+  rpc RevokeAuthorizedApp(RevokeAuthorizedAppRequest) returns (RevokeAuthorizedAppResponse);
+}
+
+message GetPublicAppRequest {
+  string app_id = 1;
+}
+
+message GetPublicAppResponse {
+  PublicApp app = 1;
+}
+
+// The query parameters of an OAuth authorization request, as received.
+message AuthorizationRequest {
+  string client_id = 1;
+  // May be empty when the application registered exactly one.
+  string redirect_uri = 2;
+  // Must be `code`.
+  string response_type = 3;
+  // Space separated; empty asks for everything the application registered.
+  string scope = 4;
+  // Opaque value handed back to the application.
+  string state = 5;
+  // PKCE (RFC 7636): base64url(SHA-256(verifier)), 43 characters.
+  string code_challenge = 6;
+  // Must be `S256`.
+  string code_challenge_method = 7;
+}
+
+// What the consent screen shows.
+message Consent {
+  // Who is asking.
+  PublicApp app = 1;
+  // What it asks for, in order of sensitivity.
+  repeated ScopeInfo scopes = 2;
+  // The user already gave this application all of it: the screen may say
+  // so (it still has to ask).
+  bool already_granted = 3;
+  // Where the browser goes afterwards (host of the redirect URI), so the
+  // user sees where the code is sent.
+  string redirect_host = 4;
+}
+
+message GetConsentRequest {
+  AuthorizationRequest request = 1;
+}
+
+message GetConsentResponse {
+  oneof result {
+    Consent consent = 1;
+    // Send the browser here: the request cannot be granted and the
+    // application is told why.
+    string redirect_url = 2;
+  }
+}
+
+message ApproveAuthorizationRequest {
+  AuthorizationRequest request = 1;
+}
+
+message ApproveAuthorizationResponse {
+  string redirect_url = 1;
+}
+
+message DenyAuthorizationRequest {
+  AuthorizationRequest request = 1;
+}
+
+message DenyAuthorizationResponse {
+  string redirect_url = 1;
+}
+
+message GetDeviceConsentRequest {
+  // As shown by the device, with or without the dash, any case.
+  string user_code = 1;
+}
+
+message GetDeviceConsentResponse {
+  Consent consent = 1;
+}
+
+message ApproveDeviceRequest {
+  string user_code = 1;
+}
+
+message ApproveDeviceResponse {}
+
+message DenyDeviceRequest {
+  string user_code = 1;
+}
+
+message DenyDeviceResponse {}
+
+message ListAuthorizedAppsRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message AuthorizedApp {
+  PublicApp app = 1;
+  repeated ScopeInfo scopes = 2;
+  google.protobuf.Timestamp authorized_at = 3;
+  google.protobuf.Timestamp last_used_at = 4;
+}
+
+message ListAuthorizedAppsResponse {
+  repeated AuthorizedApp apps = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message RevokeAuthorizedAppRequest {
+  string app_id = 1;
+}
+
+message RevokeAuthorizedAppResponse {}
+
+// ───────────────────────────── bots ─────────────────────────────
+
+// Bots: accounts of their own that act through the API, each owned by the
+// person who created it. Session only. Every RPC that names a bot fails
+// with `BOT_NOT_FOUND` unless the caller owns it.
+service BotService {
+  // Creates a bot account. Reasons: `HANDLE_INVALID`, `HANDLE_RESERVED`,
+  // `HANDLE_TAKEN`, `DISPLAY_NAME_INVALID`, `BIO_TOO_LONG`, `TOO_MANY_BOTS`.
+  rpc CreateBot(CreateBotRequest) returns (CreateBotResponse);
+  rpc GetBot(GetBotRequest) returns (GetBotResponse);
+  // The caller's bots, oldest first.
+  rpc ListBots(ListBotsRequest) returns (ListBotsResponse);
+  // Renames a bot, edits its bio or changes its avatar. Reasons: as
+  // `CreateBot`, `ICONS_UNAVAILABLE`.
+  rpc UpdateBot(UpdateBotRequest) returns (UpdateBotResponse);
+  // Switches a bot off (its tokens are refused and its webhooks stop) or
+  // back on.
+  rpc SetBotDisabled(SetBotDisabledRequest) returns (SetBotDisabledResponse);
+  // Deletes the bot account for good, with its tokens and webhooks. Who
+  // owned it stays on record for moderation for a while. Reason:
+  // `BOT_SUSPENDED` (a bot suspended by moderation cannot be deleted).
+  rpc DeleteBot(DeleteBotRequest) returns (DeleteBotResponse);
+  // Creates a token that acts as the bot (`tkl_bot_…`, shown once).
+  // Reasons: as `TokenService.CreateToken`.
+  rpc CreateBotToken(CreateBotTokenRequest) returns (CreateBotTokenResponse);
+  rpc ListBotTokens(ListBotTokensRequest) returns (ListBotTokensResponse);
+  // Reason: `TOKEN_NOT_FOUND`.
+  rpc RevokeBotToken(RevokeBotTokenRequest) returns (RevokeBotTokenResponse);
+}
+
+message Bot {
+  // The bot's account; its `id` is the bot ID.
+  tokuly.common.v1.UserSummary user = 1;
+  string bio = 2;
+  bool disabled = 3;
+  google.protobuf.Timestamp created_at = 4;
+  // Live tokens.
+  int32 token_count = 5;
+  // Last request made with one of its tokens.
+  google.protobuf.Timestamp last_used_at = 6;
+  tokuly.common.v1.UserSummary owner = 7;
+  // Suspended by moderation: its tokens are refused, and it cannot be
+  // deleted while the suspension lasts.
+  bool suspended = 8;
+}
+
+message CreateBotRequest {
+  // The bot's unique handle (same rules as for people).
+  string handle = 1;
+  string display_name = 2;
+  string bio = 3;
+}
+
+message CreateBotResponse {
+  Bot bot = 1;
+}
+
+message GetBotRequest {
+  string bot_id = 1;
+}
+
+message GetBotResponse {
+  Bot bot = 1;
+}
+
+message ListBotsRequest {}
+
+message ListBotsResponse {
+  repeated Bot bots = 1;
+  // How many bots one person may have.
+  int32 max_bots = 2;
+}
+
+message UpdateBotRequest {
+  string bot_id = 1;
+  optional string display_name = 2;
+  optional string handle = 3;
+  optional string bio = 4;
+  // An image the caller uploaded; empty removes the avatar.
+  optional string avatar_asset_id = 5;
+}
+
+message UpdateBotResponse {
+  Bot bot = 1;
+}
+
+message SetBotDisabledRequest {
+  string bot_id = 1;
+  bool disabled = 2;
+}
+
+message SetBotDisabledResponse {
+  Bot bot = 1;
+}
+
+message DeleteBotRequest {
+  string bot_id = 1;
+}
+
+message DeleteBotResponse {}
+
+message CreateBotTokenRequest {
+  string bot_id = 1;
+  string name = 2;
+  repeated string scopes = 3;
+  TokenExpiry expiry = 4;
+}
+
+message CreateBotTokenResponse {
+  AccessToken token = 1;
+  string secret = 2;
+}
+
+message ListBotTokensRequest {
+  string bot_id = 1;
+}
+
+message ListBotTokensResponse {
+  repeated AccessToken tokens = 1;
+}
+
+message RevokeBotTokenRequest {
+  string token_id = 1;
+}
+
+message RevokeBotTokenResponse {}
+
+// ───────────────────────────── webhooks ─────────────────────────────
+
+// Webhooks: Tokuly posts the events of an account to a URL of its owner.
+//
+// A delivery is `POST <url>` with a JSON body
+// `{ "id", "type", "time", "data" }` and the headers `Tokuly-Event` (the
+// type), `Tokuly-Delivery` (delivery ID) and
+// `Tokuly-Signature: t=<unix seconds>,v1=<hex>` where `v1` is
+// HMAC-SHA256(secret, "<t>.<body>"). Check the signature and refuse old
+// timestamps. Any 2xx answer within the timeout counts as delivered;
+// redirects are not followed. Failed deliveries are retried with growing
+// pauses, and an endpoint that keeps failing is disabled. One person's
+// webhooks (their bots' included) send a limited number of events per
+// minute to the same host; events beyond that are dropped, not queued.
+//
+// The account is the caller, or a bot the caller owns (`bot_id`). Called
+// with a token, an event type may only be subscribed if the token holds
+// the scope the type needs. Every RPC naming a webhook or delivery fails
+// with `WEBHOOK_NOT_FOUND` / `DELIVERY_NOT_FOUND` for other people's.
+service WebhookService {
+  // The catalogue of event types.
+  rpc ListEventTypes(ListEventTypesRequest) returns (ListEventTypesResponse);
+  // Subscribes a URL. The signing secret is in the response, once.
+  // Reasons: `WEBHOOK_URL_INVALID` (not https, credentials in it, or a
+  // host that is not public), `EVENT_TYPES_REQUIRED`, `EVENT_TYPE_UNKNOWN`,
+  // `DESCRIPTION_TOO_LONG`, `TOO_MANY_WEBHOOKS`, `INSUFFICIENT_SCOPE`,
+  // `BOT_NOT_FOUND`.
+  rpc CreateWebhook(CreateWebhookRequest) returns (CreateWebhookResponse);
+  // Replaces URL, description and event types, and pauses or resumes.
+  // Resuming a disabled webhook gives it a fresh start.
+  rpc UpdateWebhook(UpdateWebhookRequest) returns (UpdateWebhookResponse);
+  rpc GetWebhook(GetWebhookRequest) returns (GetWebhookResponse);
+  rpc ListWebhooks(ListWebhooksRequest) returns (ListWebhooksResponse);
+  rpc DeleteWebhook(DeleteWebhookRequest) returns (DeleteWebhookResponse);
+  // Issues a new signing secret. For a day, deliveries are signed with
+  // both (two `v1=` values) so the receiver can switch over.
+  rpc RotateWebhookSecret(RotateWebhookSecretRequest) returns (RotateWebhookSecretResponse);
+  // Sends a `ping` event now and returns how the endpoint answered. Works
+  // on paused and disabled webhooks too. Reason: `RATE_LIMITED`.
+  rpc PingWebhook(PingWebhookRequest) returns (PingWebhookResponse);
+  // The delivery log of a webhook, newest first.
+  rpc ListDeliveries(ListDeliveriesRequest) returns (ListDeliveriesResponse);
+  // One delivery with its payload and every attempt.
+  rpc GetDelivery(GetDeliveryRequest) returns (GetDeliveryResponse);
+  // Sends the same event again as a new delivery. Reasons:
+  // `DELIVERY_NOT_FOUND`, `WEBHOOK_NOT_ACTIVE`, `RATE_LIMITED`.
+  rpc ReplayDelivery(ReplayDeliveryRequest) returns (ReplayDeliveryResponse);
+}
+
+// A kind of event a webhook can subscribe to.
+message WebhookEventType {
+  // E.g. `friend.request_received`.
+  string type = 1;
+  tokuly.common.v1.LocalizedText description = 2;
+  // The scope a token needs to subscribe to it.
+  string scope = 3;
+  // What `data` holds: the name of the domain event whose payload it is
+  // (documented in `docs/events`), or `notification` for a notification.
+  string payload = 4;
+}
+
+message ListEventTypesRequest {}
+
+message ListEventTypesResponse {
+  repeated WebhookEventType event_types = 1;
+}
+
+enum WebhookStatus {
+  WEBHOOK_STATUS_UNSPECIFIED = 0;
+  WEBHOOK_STATUS_ACTIVE = 1;
+  // Switched off by its owner.
+  WEBHOOK_STATUS_PAUSED = 2;
+  // Switched off by Tokuly because deliveries kept failing.
+  WEBHOOK_STATUS_DISABLED = 3;
+}
+
+message Webhook {
+  string id = 1;
+  // The account whose events it receives: the owner or one of their bots.
+  string account_id = 2;
+  string url = 3;
+  string description = 4;
+  repeated string event_types = 5;
+  WebhookStatus status = 6;
+  // Why it was disabled, in words for the owner.
+  string disabled_reason = 7;
+  // Last characters of the signing secret.
+  string secret_hint = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
+  google.protobuf.Timestamp last_success_at = 11;
+  google.protobuf.Timestamp last_failure_at = 12;
+  // Failed attempts since the last success.
+  int32 consecutive_failures = 13;
+  // Until when deliveries also carry a signature of the previous secret.
+  google.protobuf.Timestamp previous_secret_expires_at = 14;
+}
+
+message CreateWebhookRequest {
+  // https URL, up to 2000 characters.
+  string url = 1;
+  // Up to 200 characters.
+  string description = 2;
+  repeated string event_types = 3;
+  // Receive a bot's events instead of the caller's own.
+  string bot_id = 4;
+}
+
+message CreateWebhookResponse {
+  Webhook webhook = 1;
+  // `tkl_whs_…`; shown once.
+  string secret = 2;
+}
+
+message UpdateWebhookRequest {
+  string webhook_id = 1;
+  string url = 2;
+  string description = 3;
+  repeated string event_types = 4;
+  bool paused = 5;
+}
+
+message UpdateWebhookResponse {
+  Webhook webhook = 1;
+}
+
+message GetWebhookRequest {
+  string webhook_id = 1;
+}
+
+message GetWebhookResponse {
+  Webhook webhook = 1;
+}
+
+message ListWebhooksRequest {
+  // List a bot's webhooks instead of the caller's own.
+  string bot_id = 1;
+}
+
+message ListWebhooksResponse {
+  repeated Webhook webhooks = 1;
+}
+
+message DeleteWebhookRequest {
+  string webhook_id = 1;
+}
+
+message DeleteWebhookResponse {}
+
+message RotateWebhookSecretRequest {
+  string webhook_id = 1;
+}
+
+message RotateWebhookSecretResponse {
+  Webhook webhook = 1;
+  string secret = 2;
+}
+
+message PingWebhookRequest {
+  string webhook_id = 1;
+}
+
+message PingWebhookResponse {
+  Delivery delivery = 1;
+}
+
+enum DeliveryStatus {
+  DELIVERY_STATUS_UNSPECIFIED = 0;
+  // Waiting for its first attempt.
+  DELIVERY_STATUS_PENDING = 1;
+  DELIVERY_STATUS_SUCCEEDED = 2;
+  // The last attempt failed; another is scheduled (`next_attempt_at`).
+  DELIVERY_STATUS_RETRYING = 3;
+  // Given up.
+  DELIVERY_STATUS_FAILED = 4;
+}
+
+// One try at delivering an event.
+message DeliveryAttempt {
+  google.protobuf.Timestamp at = 1;
+  // HTTP status of the answer; 0 when there was none.
+  int32 status_code = 2;
+  int32 latency_ms = 3;
+  // The first few hundred characters of the response body.
+  string response_snippet = 4;
+  // Why it failed when there was no answer (`timeout`, `connection failed`,
+  // `address not allowed`…).
+  string error = 5;
+}
+
+// An event sent (or being sent) to a webhook.
+message Delivery {
+  string id = 1;
+  string webhook_id = 2;
+  // The `id` of the event; stays the same across retries and replays.
+  string event_id = 3;
+  string event_type = 4;
+  DeliveryStatus status = 5;
+  int32 attempt_count = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp next_attempt_at = 8;
+  google.protobuf.Timestamp completed_at = 9;
+  // The delivery this one replays, if any.
+  string replay_of = 10;
+  // The last attempt (all of them in `GetDelivery`).
+  repeated DeliveryAttempt attempts = 11;
+  // The JSON body that is sent. Only set by `GetDelivery` and `PingWebhook`.
+  string payload = 12;
+}
+
+message ListDeliveriesRequest {
+  string webhook_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+  // Only deliveries in this state; unspecified = all.
+  DeliveryStatus status = 3;
+}
+
+message ListDeliveriesResponse {
+  repeated Delivery deliveries = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message GetDeliveryRequest {
+  string delivery_id = 1;
+}
+
+message GetDeliveryResponse {
+  Delivery delivery = 1;
+}
+
+message ReplayDeliveryRequest {
+  string delivery_id = 1;
+}
+
+message ReplayDeliveryResponse {
+  // The new delivery.
+  Delivery delivery = 1;
+}
+
+// ───────────────────────────── API reference and usage ─────────────────────────────
+
+// The API described by the server that serves it: what an API explorer and
+// code generators need. Public: no sign-in, any token. The raw descriptor
+// set (`google.protobuf.FileDescriptorSet`, with comments) is served at
+// `GET /reference/descriptor.binpb`.
+service ReferenceService {
+  // Every service and method with its documentation and what a token
+  // needs to call it.
+  rpc ListServices(ListServicesRequest) returns (ListServicesResponse);
+  // One method with the JSON Schemas of its request and response.
+  // Reason: `METHOD_NOT_FOUND`.
+  rpc GetMethod(GetMethodRequest) returns (GetMethodResponse);
+}
+
+// How an RPC can be called with a token.
+enum ApiAccess {
+  API_ACCESS_UNSPECIFIED = 0;
+  // Needs the scope in `ApiMethod.scope`.
+  API_ACCESS_SCOPE = 1;
+  // Any valid token, whatever its scopes.
+  API_ACCESS_ANY_TOKEN = 2;
+  // Tokens cannot call it: it takes a signed-in session.
+  API_ACCESS_SESSION_ONLY = 3;
+}
+
+message ApiMethod {
+  string name = 1;
+  // `tokuly.notes.v1.NoteService`.
+  string service = 2;
+  // What to POST to: `/tokuly.notes.v1.NoteService/CreateNote`.
+  string path = 3;
+  // The comment on the RPC in the proto file.
+  string description = 4;
+  // Full message names, e.g. `tokuly.notes.v1.CreateNoteRequest`.
+  string request_type = 5;
+  string response_type = 6;
+  bool client_streaming = 7;
+  bool server_streaming = 8;
+  ApiAccess access = 9;
+  // `<domain>:read` or `<domain>:write` when `access` is SCOPE.
+  string scope = 10;
+  // JSON Schema (2020-12) of the request and response in their JSON form,
+  // with the comments of the proto file as descriptions. Only `GetMethod`
+  // fills these.
+  string request_schema = 11;
+  string response_schema = 12;
+}
+
+message ApiService {
+  // `tokuly.notes.v1.NoteService`.
+  string name = 1;
+  // `notes`.
+  string domain = 2;
+  string description = 3;
+  repeated ApiMethod methods = 4;
+}
+
+message ListServicesRequest {
+  // Only this domain (`notes`); empty = all.
+  string domain = 1;
+}
+
+message ListServicesResponse {
+  repeated ApiService services = 1;
+}
+
+message GetMethodRequest {
+  // `/tokuly.notes.v1.NoteService/CreateNote`, with or without the slash.
+  string path = 1;
+}
+
+message GetMethodResponse {
+  ApiMethod method = 1;
+}
+
+// How much a token, application or bot uses the API.
+service UsageService {
+  // Requests and errors of one credential over the last days, by day and
+  // by method. Reasons: `TOKEN_NOT_FOUND`, `APP_NOT_FOUND`, `BOT_NOT_FOUND`,
+  // `USAGE_SUBJECT_REQUIRED`, `ANALYTICS_UNAVAILABLE`.
+  rpc GetUsage(GetUsageRequest) returns (GetUsageResponse);
+}
+
+message GetUsageRequest {
+  oneof subject {
+    // One of the caller's personal access tokens.
+    string token_id = 1;
+    // An application the caller owns (all of its users together).
+    string app_id = 2;
+    // A bot the caller owns (all of its tokens together).
+    string bot_id = 3;
+  }
+  // 1-90; 0 = 30.
+  int32 days = 4;
+}
+
+message UsageDay {
+  // `YYYY-MM-DD` (UTC).
+  string date = 1;
+  int64 requests = 2;
+  int64 errors = 3;
+}
+
+message UsageMethod {
+  // `tokuly.notes.v1.NoteService/CreateNote`.
+  string procedure = 1;
+  int64 requests = 2;
+  int64 errors = 3;
+  // Mean time to answer, in milliseconds.
+  int32 average_ms = 4;
+}
+
+message GetUsageResponse {
+  int64 requests = 1;
+  int64 errors = 2;
+  // One entry per day with traffic, oldest first.
+  repeated UsageDay days = 3;
+  // Busiest first; at most 100.
+  repeated UsageMethod methods = 4;
 }
