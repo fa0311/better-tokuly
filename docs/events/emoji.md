@@ -77,7 +77,7 @@ topic `emoji:catalog` announces a newer version or the app starts.
 | `emoji:<epoch>:catalog:version` | the current version |
 | `emoji:<epoch>:catalog:data` | the serialized catalogue at that version (JSON, 1 h TTL, rewritten on demand) |
 | `emoji:<epoch>:catalog:announced` / `:gate` | the last version announced; a 1 s gate between announcements |
-| `emoji:<epoch>:uses`, `:uses:draining` | use counters waiting for / being written by the usage worker (hash: emoji ID → uses) |
+| `emoji:<epoch>:uses`, `:uses:draining` | counters waiting for / being written by the usage worker: one hash with the fields `u:<yyyymmdd>:<emoji>` (uses) and `p:<yyyymmdd>:<emoji>` (people who used it for the first time that day) |
 | `emoji:<epoch>:uses:<yyyymmdd>:<user>` | one user's counted uses of the day (2 days TTL) |
 
 `<epoch>` is an ID created with the database (`emoji_catalog.epoch`), so a
@@ -108,6 +108,12 @@ transaction as the change they describe.
 `author_id` is `null` for imported emoji, uncredited additions and emoji
 whose author's account is gone. Using an emoji emits no event.
 
+Nothing here follows the state of an author's account except its deletion:
+when an author is suspended, their emoji stay in the catalogue, in decks, in
+search and in `ListAuthorEmoji` exactly as they were (the domain does not
+consume `identity.user.banned`). An emoji that came and went with its
+author's account would tell everyone about that account.
+
 ## Events consumed
 
 Durable consumer `emoji` (`tokuly_emoji::Emoji::handle_event`). Every handler
@@ -115,8 +121,8 @@ is idempotent.
 
 | Topic | Reaction |
 |---|---|
-| `identity.user.deleted` `{ user_id }` | The user's PENDING and REJECTED emoji are deleted (their uploads released), as are their deck, their recently used list and their trusted flag. Their APPROVED and DISABLED emoji stay, with the credit cleared and the search document rewritten without owner. Moderation history, imports, exports and trust flags they set keep their rows with the user reference nulled. |
-| `admin.content.removed` `{ subject_type, subject_id, reason, moderator_id }` | `SUBJECT_TYPE_CUSTOM_EMOJI`: an approved emoji becomes DISABLED (out of the catalogue and the search index, name kept), with the reason as review note and a `TAKEN_DOWN` history entry. No notification: the admin domain tells the owner. Unknown emoji, emoji that are not approved and other subject types are ignored. A moderator can enable the emoji again. |
+| `identity.user.deleted` `{ user_id }` | The user's PENDING and REJECTED emoji are deleted (their uploads released), as are their deck, their recently used list and their trusted flag. Their APPROVED and DISABLED emoji stay, with the credit cleared. Moderation history, imports, exports and trust flags they set keep their rows with the user reference nulled. |
+| `admin.content.removed` `{ subject_type, subject_id, reason, moderator_id }` | `SUBJECT_TYPE_CUSTOM_EMOJI`: an approved emoji becomes DISABLED (out of the catalogue and the search index, name kept), with the reason as review note and a `TAKEN_DOWN` history entry that remembers the event's ID. No notification: the admin domain tells the owner. Unknown emoji, emoji that are not approved and other subject types are ignored. A moderator can enable the emoji again; the same event delivered once more after that changes nothing (a new takedown does). |
 | `media.asset.ready` / `media.asset.failed` `{ asset_id, purpose, … }` | If the upload is the picture of an import entry that waits for it, the entry is settled: READY → the emoji is created, FAILED → the entry fails with media's reason. Uploads of other purposes are skipped without a query. |
 | `media.asset.deleted` `{ asset_id, … }` | Safety net for forced deletions. An emoji holds its upload, so its uploader's `DeleteAsset` is refused and the janitor leaves it alone; when a domain deletes the upload regardless, every emoji showing it is deleted (in any state) so nothing is left with a broken picture. |
 
@@ -201,23 +207,31 @@ actor: authors are not told which moderator decided.
 | `emoji.trusted` | submitter | `/emoji/submissions` | A moderator flagged them as trusted. |
 
 Emoji notifications carry the subject `(SUBJECT_TYPE_CUSTOM_EMOJI, emoji_id)`,
-the emoji's picture as image and `data = { emoji_id, name }`. The notify
-domain has no category for the `emoji.` prefix yet, so they land in `system`.
+the emoji's picture as image, `data = { emoji_id, name }` and the collapse
+key `emoji:<emoji_id>`: a later decision on the same emoji replaces the
+earlier notice. The notify domain has no category for the `emoji.` prefix
+yet, so they land in `system`.
+
+Authors never learn which moderator decided: `EmojiDetail.history` is for
+moderators only and is left out for the emoji's own author, also when that
+author is (or later becomes) a moderator.
 
 ## Activity entries
 
 | Kind | Audience | When |
 |---|---|---|
-| `emoji.added` | public | An emoji with a credited author joins the catalogue for the first time (not when it is enabled again). Subject `(SUBJECT_TYPE_CUSTOM_EMOJI, emoji_id)`, path `/emoji/<name>`, image = the emoji. |
+| `emoji.added` | public | An emoji its author submitted joins the catalogue (approved by a moderator, or at once for trusted submitters). Not when a moderator added it with a credit, and not when it is enabled again: the entry speaks in the author's voice. Subject `(SUBJECT_TYPE_CUSTOM_EMOJI, emoji_id)`, path `/emoji/<name>`, image = the emoji. |
 
 ## Search documents
 
 Kind `emoji`, one per approved emoji: `title` = name, `text` = category,
-`tags` = aliases, `owner_id` = author (absent when uncredited), `image_url`,
-`path` = `/emoji/<name>`, `created_at` = when it joined the catalogue,
-`extra` = `{ name, category, animated, sensitive }`. Rewritten on every
-change to an approved emoji (including a rename of its category and the
-deletion of its author's account), removed when it is disabled or deleted.
+`tags` = aliases, `image_url`, `path` = `/emoji/<name>`, `created_at` = when
+it joined the catalogue, `extra` = `{ name, category, animated, sensitive }`.
+There is deliberately no `owner_id`: search hides documents whose owner is
+suspended, deleted or blocked by the searcher, and an emoji in the catalogue
+must not come and go with its author. Rewritten on every change to an
+approved emoji (including a rename of its category), removed when it is
+disabled or deleted.
 The search domain does not know the kind yet (it needs a `SEARCH_KIND_EMOJI`
 and a kind spec); until then these changes are ignored there. `SearchEmoji`
 does not depend on it: it searches the cached catalogue.
@@ -250,12 +264,26 @@ recently used list and whether they are a trusted submitter.
 |---|---|---|
 | event consumer `emoji` | — | See "Events consumed". |
 | jobs `emoji.import`, `emoji.export` | — | See "Jobs". |
-| usage worker | `TOKULY_EMOJI_USAGE_FLUSH_SECONDS` | Moves the use counters from Valkey into `emoji_usage_daily` and `emoji_stats` in batches that are applied exactly once (`emoji_usage_batches`), then recomputes popularity: the uses of the last `TOKULY_EMOJI_POPULAR_DAYS` days, each day weighing 0.85 of the day after it. |
-| maintenance | every minute | Reconciles the catalogue cache and its announcements with the database; settles import entries whose upload finished without its event being handled; fails entries and imports stuck for six hours; deletes expired export files. |
+| usage worker | `TOKULY_EMOJI_USAGE_FLUSH_SECONDS` | Moves the use counters from Valkey into `emoji_usage_daily` (uses and distinct users per day) and `emoji_stats` in batches that are applied exactly once (`emoji_usage_batches`), then recomputes popularity: the uses of the last `TOKULY_EMOJI_POPULAR_DAYS` days, each day weighing 0.85 of the day after it, for emoji that enough people used. |
+| maintenance | every minute | Reconciles the catalogue cache and its announcements with the database; settles import entries whose upload finished without its event being handled; gives up on work that got stuck; deletes expired export files. |
 | pruning | hourly | Forgets removals past their retention (raising the floor version), daily counters older than 400 days and batch markers older than a day. |
 
-Statistics days are counted in Japan time (`Asia/Tokyo`). One user counts at
-most 20 times per emoji and day towards "popular".
+"Stuck" counts from when the waiting began, never from creation: an entry
+whose picture media has not finished six hours after it was handed over, an
+entry the job has not unpacked six hours after it last started, an import
+or export whose job started six hours ago and did not get through. Work
+that only waits for a worker (QUEUED) is left alone however old it is.
+
+Statistics days are counted in Japan time (`Asia/Tokyo`). Two rules keep
+the numbers about the crowd and not about a person: one user counts at most
+20 times per emoji and day, and an emoji has no popularity (it is not in
+`ListPopularEmoji`, and gets no boost in `SearchEmoji`) until at least three
+different people used it on one day of the window. Emoji are used in private
+chats; a list that moved when one person used an emoji would tell the others
+what that person does there. For the same reason `EmojiDetail.use_count` is
+filled for moderators only. Several worker processes
+may run the usage worker at once: a batch of counters is written exactly
+once, and only one process at a time recomputes popularity.
 
 ## Configuration
 
@@ -290,10 +318,13 @@ Emoji pictures are the media domain's renditions; nothing else is stored.
 | `emoji-catalog:<user or ip>` | 60 / minute (`GetCatalog`) |
 | `emoji-changes:<user or ip>` | 240 / minute (`GetCatalogChanges`) |
 | `emoji-search:<user or ip>` | 300 / minute (`SearchEmoji`) |
-| `emoji-deck:<user>` | 60 / minute (`SetDeck`) |
-| `emoji-use:<user>` | 120 / minute (`RecordUse`) |
+| `emoji-read:<user or ip>` | 600 / minute (`GetEmoji`, `ListAuthorEmoji`) |
+| `emoji-deck:<user>` | 60 / minute (`SetDeck`, `ResetDeck`) |
+| `emoji-use:<user>` | 120 / minute (`RecordUse`, `ClearRecentEmoji`) |
 | `emoji-name:<user>` | 120 / minute (`CheckName`) |
 | `emoji-submit:<user>` | 20 / hour (`SubmitEmoji`) |
 | `emoji-edit:<user>` | 60 / hour (`UpdateSubmission`) |
+| `emoji-decide:<emoji>` | 30 / hour (`ApproveEmoji`, `RejectEmoji`, `DisableEmoji`, `EnableEmoji`: every decision tells the author) |
+| `emoji-trust:<user>` | 10 / hour (`SetSubmitterTrusted`, per user whose flag changes) |
 | `emoji-import:<moderator>` | 20 / hour (`StartImport`) |
 | `emoji-export:<moderator>` | 20 / hour (`StartExport`) |

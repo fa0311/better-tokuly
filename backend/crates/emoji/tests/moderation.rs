@@ -95,10 +95,9 @@ async fn moderators_add_emoji_straight_to_the_catalogue() {
     assert!(catalog::exists(&ctx.app.core, &reserved).await.unwrap());
     let events = ctx.emoji_events("emoji.emoji.added", &added.emoji.id).await;
     assert_eq!((events.len(), events[0]["via"].as_str()), (1, Some("staff")));
-    assert_eq!(
-        ctx.app.events_by("activity.recorded", artist.id).await.len(),
-        1,
-        "the credited artist's friends hear of it"
+    assert!(
+        ctx.app.events_by("activity.recorded", artist.id).await.is_empty(),
+        "a credit given by staff is not the artist's own activity"
     );
     assert!(ctx.search_changes(&added.emoji.id).await.last().unwrap().is_some());
 
@@ -503,4 +502,95 @@ async fn moderators_list_every_emoji_in_any_state() {
     assert_eq!(ctx.reason("Admin", "ListEmoji", Some(&moderator), &too_long).await, "QUERY_TOO_LONG");
     let bad_author = ListEmojiRequest { author_id: "nope".to_owned(), ..Default::default() };
     assert_eq!(ctx.reason("Admin", "ListEmoji", Some(&moderator), &bad_author).await, "INVALID_ID");
+}
+
+#[tokio::test]
+async fn who_decided_is_not_for_the_author_to_know_even_as_a_moderator() {
+    let ctx = start().await;
+    let (moderator, author, someone) =
+        (ctx.moderator().await, ctx.app.user("author").await, ctx.app.user("someone").await);
+    let own = ctx.submit(&author, &unique("mine")).await.emoji.id.clone();
+    ctx.reject(&moderator, &own, "もうすこしがんばって").await;
+    let theirs = ctx.submit(&someone, &unique("theirs")).await.emoji.id.clone();
+    ctx.reject(&moderator, &theirs, "だめ").await;
+
+    // The author becomes a moderator later on.
+    sqlx::query("UPDATE users SET roles = '{moderator}' WHERE id = $1")
+        .bind(author.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    let promoted = ctx.app.sign_in(author.id).await;
+
+    // They see the history of other people's emoji, like any moderator…
+    let other = ctx.get(Some(&promoted), &theirs).await.unwrap();
+    assert_eq!(other.history.len(), 2);
+    assert_eq!(other.history[0].actor.id, moderator.id.to_string());
+    // …and of their own emoji what every author sees: the note, not who wrote it.
+    let mine = ctx.get(Some(&promoted), &own).await.unwrap();
+    assert!(mine.history.is_empty());
+    assert_eq!(mine.review_note, "もうすこしがんばって");
+    // No other way in: not the listing, not the queue, not deciding on it themselves.
+    let listed =
+        list(&ctx, &promoted, ListEmojiRequest { author_id: author.id.to_string(), ..Default::default() }).await;
+    assert_eq!(listed.emojis.len(), 1);
+    assert!(listed.emojis[0].history.is_empty());
+    let everything = list(
+        &ctx,
+        &promoted,
+        ListEmojiRequest { state: EmojiState::EMOJI_STATE_REJECTED.into(), ..Default::default() },
+    )
+    .await;
+    assert!(
+        everything
+            .emojis
+            .iter()
+            .find(|detail| detail.emoji.id == theirs)
+            .is_some_and(|detail| detail.history.len() == 2)
+    );
+    assert!(
+        everything.emojis.iter().find(|detail| detail.emoji.id == own).is_some_and(|detail| detail.history.is_empty())
+    );
+    let approved = ctx.approve(&promoted, &own).await;
+    assert!(approved.history.is_empty());
+
+    // Their colleagues still see all of it.
+    assert_eq!(actions(&ctx.get(Some(&moderator), &own).await.unwrap()).len(), 3);
+}
+
+#[tokio::test]
+async fn decisions_that_tell_someone_cannot_be_repeated_without_end() {
+    let ctx = start().await;
+    let (moderator, author) = (ctx.moderator().await, ctx.app.user("author").await);
+    let id = ctx.submit(&author, &unique("toggled")).await.emoji.id.clone();
+    ctx.approve(&moderator, &id).await;
+
+    // Thirty decisions on one emoji in an hour, then no more.
+    for _ in 0..14 {
+        ctx.disable(&moderator, &id, "やっぱりやめた").await;
+        ctx.enable(&moderator, &id).await;
+    }
+    ctx.disable(&moderator, &id, "やっぱりやめた").await;
+    let enable = EnableEmojiRequest { emoji_id: id.clone(), ..Default::default() };
+    assert_eq!(ctx.reason("Admin", "EnableEmoji", Some(&moderator), &enable).await, "RATE_LIMITED");
+    let approve = ApproveEmojiRequest { emoji_id: id.clone(), ..Default::default() };
+    assert_eq!(ctx.reason("Admin", "ApproveEmoji", Some(&moderator), &approve).await, "RATE_LIMITED");
+    // What did reach the author is one notice that was replaced each time,
+    // not a pile: every notice about an emoji shares its key.
+    let notices = ctx.notifications(&author).await;
+    assert_eq!(notices.len(), 16);
+    assert!(notices.iter().all(|notice| notice["collapse_key"] == format!("emoji:{id}")));
+    // Other emoji are not affected.
+    let other = ctx.submit(&author, &unique("other")).await;
+    assert_eq!(ctx.approve(&moderator, &other.emoji.id).await.state, EmojiState::EMOJI_STATE_APPROVED);
+
+    // The trusted flag: ten changes for one user in an hour.
+    for _ in 0..5 {
+        ctx.trust(&moderator, &author, true).await;
+        ctx.trust(&moderator, &author, false).await;
+    }
+    let again = SetSubmitterTrustedRequest { user_id: author.id.to_string(), trusted: true, ..Default::default() };
+    assert_eq!(ctx.reason("Admin", "SetSubmitterTrusted", Some(&moderator), &again).await, "RATE_LIMITED");
+    assert_eq!(ctx.notification_kinds(&author).await.iter().filter(|kind| *kind == "emoji.trusted").count(), 5);
+    ctx.trust(&moderator, &ctx.app.user("another").await, true).await;
 }

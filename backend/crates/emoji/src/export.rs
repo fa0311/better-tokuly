@@ -214,7 +214,7 @@ impl Emoji {
     /// FAILED rather than retried: the moderator sees it and starts another.
     pub async fn run_export(&self, export_id: Uuid) -> AppResult<()> {
         let claimed: Option<ExportRow> = sqlx::query_as(concat!(
-            "UPDATE emoji_exports x SET status = 2 WHERE x.id = $1 AND x.status IN (1, 2) RETURNING ",
+            "UPDATE emoji_exports x SET status = 2, started_at = now() WHERE x.id = $1 AND x.status IN (1, 2) RETURNING ",
             export_columns!()
         ))
         .bind(export_id)
@@ -333,9 +333,11 @@ impl Emoji {
                 .execute(db)
                 .await?;
         }
+        // An export whose job started six hours ago and never finished is
+        // given up. One that only waits for a worker is left to wait.
         sqlx::query(
             "UPDATE emoji_exports SET status = 4, error = 'INTERNAL', completed_at = now()
-             WHERE status IN (1, 2) AND created_at < now() - interval '6 hours'",
+             WHERE status = 2 AND started_at < now() - interval '6 hours'",
         )
         .execute(db)
         .await?;

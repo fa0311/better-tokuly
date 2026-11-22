@@ -148,19 +148,21 @@ async fn used_emoji_move_to_the_top_of_recently_used() {
 /// the whole database, and a second test flushing them at the same time
 /// would make "written yet?" a race.
 #[tokio::test]
-async fn use_is_counted_in_batches_and_decides_what_is_popular() {
+async fn use_is_counted_in_batches_and_popular_is_what_several_people_use() {
     let ctx = start().await;
+    let db = &ctx.app.core.db;
     let moderator = ctx.moderator().await;
     let token = unique("pop");
     let (loved, liked, unused) = (format!("{token}_loved"), format!("{token}_liked"), format!("{token}_unused"));
     let loved_id = ctx.add(&moderator, &loved).await.emoji.id.clone();
     let liked_id = ctx.add(&moderator, &liked).await.emoji.id.clone();
     ctx.add(&moderator, &unused).await;
+    let use_count = async |name: &str| ctx.get(Some(&moderator), name).await.unwrap().use_count;
     // Equal matches are ordered by name length, then name, while nothing is used.
     assert_eq!(positions(&ctx.search(&token, None).await, &[&liked, &loved, &unused]), [0, 1, 2]);
 
-    // Three people use one, one person the other; a use listed twice in one
-    // report counts once.
+    // Three people use one emoji, one person the other; a use listed twice
+    // in one report counts once.
     for n in 0..3 {
         let fan = ctx.app.user(&format!("fan{n}")).await;
         ctx.record_use(&fan, &[&loved, &loved, "👍"]).await;
@@ -168,42 +170,50 @@ async fn use_is_counted_in_batches_and_decides_what_is_popular() {
     let casual = ctx.app.user("casual").await;
     catalog::record_use(&ctx.app.core, casual.id, std::slice::from_ref(&liked)).await.unwrap();
     // Nothing is in the database until the worker runs.
-    assert_eq!(ctx.get(None, &loved).await.unwrap().use_count, 0);
+    assert_eq!(use_count(&loved).await, 0);
 
     assert!(ctx.emoji.aggregate_usage().await.unwrap() >= 4);
-    assert_eq!(ctx.get(None, &loved).await.unwrap().use_count, 3);
-    assert_eq!(ctx.get(None, &liked).await.unwrap().use_count, 1);
+    assert_eq!((use_count(&loved).await, use_count(&liked).await), (3, 1));
     assert_eq!(ctx.emoji.aggregate_usage().await.unwrap(), 0, "a batch is written once");
-    assert_eq!(ctx.get(None, &loved).await.unwrap().use_count, 3);
+    assert_eq!(use_count(&loved).await, 3);
+    // The exact count is for staff: it moves with every single use, and that
+    // use may be one person's in a private chat.
+    assert_eq!(ctx.get(None, &loved).await.unwrap().use_count, 0);
+    assert_eq!(ctx.get(Some(&casual), &loved).await.unwrap().use_count, 0);
 
+    // Popular is what several people use. One person's emoji is not in it…
     let list = popular(&ctx).await;
-    assert_eq!(
-        positions(&list, &[&loved, &liked]).windows(2).filter(|pair| pair[0] < pair[1]).count(),
-        1,
-        "most used first"
-    );
-    assert!(named(&list, &unused).is_none(), "an emoji nobody used is not popular");
+    assert!(named(&list, &loved).is_some());
+    assert!(named(&list, &liked).is_none(), "one person using an emoji does not show");
+    assert!(named(&list, &unused).is_none());
     let top: ListPopularEmojiResponse = ctx
         .call("", "ListPopularEmoji", None, &ListPopularEmojiRequest { limit: 1, ..Default::default() })
         .await
         .unwrap();
     assert_eq!(top.emojis.len(), 1);
-    // Among equal matches the more used emoji now leads the search.
+    // …and among equal matches the popular emoji leads the search.
     assert_eq!(positions(&ctx.search(&token, None).await, &[&loved, &liked, &unused]), [0, 1, 2]);
 
-    // One account cannot push an emoji up alone: 20 uses a day count.
+    // Nor can an account push an emoji into the list alone: 20 uses a day
+    // count, and they are still one person's.
     let spammer = ctx.app.user("spammer").await;
     for _ in 0..25 {
         ctx.record_use(&spammer, &[&liked]).await;
     }
     assert_eq!(ctx.emoji.aggregate_usage().await.unwrap(), 20);
-    assert_eq!(ctx.get(None, &liked).await.unwrap().use_count, 21);
-    let today: i64 = sqlx::query_scalar("SELECT uses FROM emoji_usage_daily WHERE emoji_id = $1::uuid")
+    assert_eq!(use_count(&liked).await, 21);
+    let today: (i64, i64) = sqlx::query_as("SELECT uses, users FROM emoji_usage_daily WHERE emoji_id = $1::uuid")
         .bind(&liked_id)
-        .fetch_one(&ctx.app.core.db)
+        .fetch_one(db)
         .await
         .unwrap();
-    assert_eq!(today, 21);
+    assert_eq!(today, (21, 2));
+    assert!(named(&popular(&ctx).await, &liked).is_none(), "two people are not a crowd either");
+    // With a third person it is, and its use counts.
+    ctx.record_use(&ctx.app.user("third").await, &[&liked]).await;
+    ctx.emoji.aggregate_usage().await.unwrap();
+    let order = positions(&popular(&ctx).await, &[&liked, &loved]);
+    assert!(order[0] < order[1], "now that three people use it, its 22 uses lead");
 
     // Popularity looks at recent days only, older ones weighing less.
     sqlx::query(
@@ -211,21 +221,19 @@ async fn use_is_counted_in_batches_and_decides_what_is_popular() {
          VALUES ($1::uuid, (now() AT TIME ZONE 'Asia/Tokyo')::date - 3, 10), ($1::uuid, (now() AT TIME ZONE 'Asia/Tokyo')::date - 30, 1000)",
     )
     .bind(&loved_id)
-    .execute(&ctx.app.core.db)
+    .execute(db)
     .await
     .unwrap();
     ctx.emoji.aggregate_usage().await.unwrap();
     let score: f64 = sqlx::query_scalar("SELECT popularity FROM emoji_stats WHERE emoji_id = $1::uuid")
         .bind(&loved_id)
-        .fetch_one(&ctx.app.core.db)
+        .fetch_one(db)
         .await
         .unwrap();
     let expected = 3.0 + 10.0 * 0.85f64.powi(3);
     assert!((score - expected).abs() < 1e-6, "{score} vs {expected}: a month-old day is out of the window");
-    assert_eq!(
-        positions(&popular(&ctx).await, &[&liked, &loved]).windows(2).filter(|pair| pair[0] < pair[1]).count(),
-        1
-    );
+    let order = positions(&popular(&ctx).await, &[&liked, &loved]);
+    assert!(order[0] < order[1], "22 uses today outweigh 3 today and 10 three days ago");
 
     // A deleted emoji takes its numbers along, and uses reported for it
     // afterwards are dropped.

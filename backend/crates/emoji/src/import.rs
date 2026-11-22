@@ -206,7 +206,8 @@ struct EntryMeta {
 macro_rules! import_columns {
     () => {
         "i.id, i.requested_by, i.asset_id, i.conflict_policy, i.category, i.status, i.error, i.source_host, \
-         i.total_count, i.imported_count, i.skipped_count, i.failed_count, i.created_at, i.planned_at, i.completed_at"
+         i.total_count, i.imported_count, i.skipped_count, i.failed_count, i.created_at, i.started_at, i.planned_at, \
+         i.completed_at"
     };
 }
 
@@ -225,6 +226,8 @@ struct ImportRow {
     skipped_count: i32,
     failed_count: i32,
     created_at: Time,
+    /// When a worker last took the import up.
+    started_at: Option<Time>,
     planned_at: Option<Time>,
     completed_at: Option<Time>,
 }
@@ -248,11 +251,10 @@ struct EntryRow {
     status: i16,
     reason: String,
     meta: serde_json::Value,
-    asset_id: Option<Uuid>,
     emoji_id: Option<Uuid>,
 }
 
-const ENTRY_COLUMNS: &str = "position, source_name, file_name, name, status, reason, meta, asset_id, emoji_id";
+const ENTRY_COLUMNS: &str = "position, source_name, file_name, name, status, reason, meta, emoji_id";
 
 impl EntryRow {
     fn to_proto(&self) -> ImportEntry {
@@ -508,7 +510,7 @@ impl Emoji {
     /// where an earlier run stopped, and does nothing once the import ended.
     pub async fn run_import(&self, import_id: Uuid) -> AppResult<()> {
         let claimed: Option<ImportRow> = sqlx::query_as(concat!(
-            "UPDATE emoji_imports i SET status = 2 WHERE i.id = $1 AND i.status IN (1, 2) RETURNING ",
+            "UPDATE emoji_imports i SET status = 2, started_at = now() WHERE i.id = $1 AND i.status IN (1, 2) RETURNING ",
             import_columns!()
         ))
         .bind(import_id)
@@ -690,15 +692,23 @@ impl Emoji {
                 Err(error) => Some(error.reason().to_owned()),
                 Ok(_) => match create_asset_from_file(core, owner_id, PICTURE_PURPOSE, &image_path, &file_name).await {
                     Ok(upload) => {
-                        sqlx::query(
+                        let stored = sqlx::query(
                             "UPDATE emoji_import_entries SET asset_id = $3, extracted_at = now()
-                             WHERE import_id = $1 AND position = $2 AND status = 1",
+                             WHERE import_id = $1 AND position = $2 AND status = 1 AND asset_id IS NULL",
                         )
                         .bind(import.id)
                         .bind(position)
                         .bind(upload.id)
                         .execute(&core.db)
-                        .await?;
+                        .await?
+                        .rows_affected()
+                            == 1;
+                        // A second run of the job (a redelivery) may have
+                        // unpacked the entry meanwhile: its upload is the
+                        // entry's, this one is surplus.
+                        if !stored && let Err(e) = assets::delete(core, upload.id, None).await {
+                            tracing::debug!(upload = %upload.id, error = %e, "surplus import picture left to the media janitor");
+                        }
                         None
                     }
                     // What the media domain refuses about the file is the
@@ -787,35 +797,55 @@ impl Emoji {
     /// while the picture is still being processed, or when the entry was
     /// settled already.
     async fn settle_entry(&self, import_id: Uuid, position: i32) -> AppResult<()> {
+        // What became of the picture is read before the transaction starts.
+        // A transaction that held its locks while asking the pool for a
+        // second connection would wait for the very connections that the
+        // settles queued behind it are holding.
+        let waiting: Option<Option<Uuid>> = sqlx::query_scalar(
+            "SELECT asset_id FROM emoji_import_entries WHERE import_id = $1 AND position = $2 AND status = 1",
+        )
+        .bind(import_id)
+        .bind(position)
+        .fetch_optional(&self.core.db)
+        .await?;
+        let Some(Some(asset_id)) = waiting else { return Ok(()) };
+        // READY and FAILED are final, so what is read here still holds
+        // under the locks taken below.
+        let developed = match assets::find(&self.core, asset_id).await? {
+            None => Err("FILE_UNREADABLE".to_owned()),
+            Some(upload) if upload.has_status(AssetStatus::ASSET_STATUS_FAILED) => Err(Some(upload.error)
+                .filter(|reason| !reason.is_empty())
+                .unwrap_or_else(|| "PROCESSING_FAILED".to_owned())),
+            Some(upload) if !upload.is_ready() => return Ok(()),
+            Some(upload) => match Picture::of(&upload, self.cfg.max_image_bytes()) {
+                Ok(picture) => Ok(picture),
+                // A ZIP inside the pack, or anything else that is no image.
+                Err(error) if error.reason == "ASSET_NOT_IMAGE" => Err("UNSUPPORTED_CONTENT".to_owned()),
+                Err(error) => Err(error.reason.into_owned()),
+            },
+        };
+
         let mut tx = self.core.db.begin().await?;
         let mut fx = Effects::default();
         // Entries of one import settle one after the other: the counters and
         // the "is this the last one" check need a stable view.
         let Some(import) = lock_import(&mut tx, import_id).await? else { return Ok(()) };
+        // Only an entry that still waits for this very upload: a second
+        // delivery of the event finds it settled.
         let entry: Option<EntryRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "SELECT {ENTRY_COLUMNS} FROM emoji_import_entries WHERE import_id = $1 AND position = $2 AND status = 1 FOR UPDATE"
+            "SELECT {ENTRY_COLUMNS} FROM emoji_import_entries
+             WHERE import_id = $1 AND position = $2 AND status = 1 AND asset_id = $3
+             FOR UPDATE"
         )))
         .bind(import_id)
         .bind(position)
+        .bind(asset_id)
         .fetch_optional(&mut *tx)
         .await?;
         let Some(entry) = entry else { return Ok(()) };
-        let Some(asset_id) = entry.asset_id else { return Ok(()) };
-
-        let outcome = match assets::find(&self.core, asset_id).await? {
-            None => Outcome::Failed("FILE_UNREADABLE".to_owned()),
-            Some(upload) if upload.has_status(AssetStatus::ASSET_STATUS_FAILED) => Outcome::Failed(
-                Some(upload.error)
-                    .filter(|reason| !reason.is_empty())
-                    .unwrap_or_else(|| "PROCESSING_FAILED".to_owned()),
-            ),
-            Some(upload) if !upload.is_ready() => return Ok(()),
-            Some(upload) => match Picture::of(&upload, self.cfg.max_image_bytes()) {
-                Ok(picture) => self.admit(&mut tx, &mut fx, &import, &entry, picture).await?,
-                // A ZIP inside the pack, or anything else that is no image.
-                Err(error) if error.reason == "ASSET_NOT_IMAGE" => Outcome::Failed("UNSUPPORTED_CONTENT".to_owned()),
-                Err(error) => Outcome::Failed(error.reason.into_owned()),
-            },
+        let outcome = match developed {
+            Ok(picture) => self.admit(&mut tx, &mut fx, &import, &entry, picture).await?,
+            Err(reason) => Outcome::Failed(reason),
         };
 
         let (entry_state, name, reason, emoji_id, counter) = match &outcome {
@@ -921,26 +951,30 @@ impl Emoji {
             self.settle_import(import_id).await?;
         }
 
-        // Pictures the media domain never finished, and entries whose job
-        // died for good before unpacking them.
+        // Entries that have waited too long: for a picture the media domain
+        // never finished (counted from when it was handed over), or for a
+        // job that died for good before unpacking them (counted from when
+        // it last started). An import that only waited for a worker is not
+        // stuck, however old it is.
         let stuck: Vec<Uuid> = sqlx::query_scalar(
-            "SELECT id FROM emoji_imports
-             WHERE status = 2 AND planned_at IS NOT NULL AND created_at < now() - interval '6 hours'",
+            "SELECT DISTINCT i.id FROM emoji_imports i JOIN emoji_import_entries e ON e.import_id = i.id
+             WHERE i.status = 2 AND e.status = 1
+               AND CASE WHEN e.asset_id IS NULL THEN i.started_at ELSE e.extracted_at END < now() - interval '6 hours'",
         )
         .fetch_all(db)
         .await?;
         for import_id in stuck {
             let mut tx = db.begin().await?;
             let mut fx = Effects::default();
-            if lock_import(&mut tx, import_id).await?.is_none() {
-                continue;
-            }
+            let Some(import) = lock_import(&mut tx, import_id).await? else { continue };
             let abandoned: Vec<Option<Uuid>> = sqlx::query_scalar(
                 "UPDATE emoji_import_entries SET status = 5, reason = 'PROCESSING_TIMEOUT'
                  WHERE import_id = $1 AND status = 1
+                   AND CASE WHEN asset_id IS NULL THEN $2::timestamptz ELSE extracted_at END < now() - interval '6 hours'
                  RETURNING asset_id",
             )
             .bind(import_id)
+            .bind(import.started_at)
             .fetch_all(&mut *tx)
             .await?;
             sqlx::query("UPDATE emoji_imports SET failed_count = failed_count + $2 WHERE id = $1")
@@ -954,10 +988,10 @@ impl Emoji {
             self.push_import(import_id, finished).await;
         }
 
-        // Imports whose job never read the pack.
+        // Imports whose job started and never got as far as reading the pack.
         let lost: Vec<Uuid> = sqlx::query_scalar(
             "SELECT id FROM emoji_imports
-             WHERE status IN (1, 2) AND planned_at IS NULL AND created_at < now() - interval '6 hours'",
+             WHERE status = 2 AND planned_at IS NULL AND started_at < now() - interval '6 hours'",
         )
         .fetch_all(db)
         .await?;

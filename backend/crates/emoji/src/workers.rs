@@ -137,7 +137,7 @@ impl Emoji {
                 Ok(())
             }
             ASSET_DELETED => self.on_asset_deleted(event.data::<AssetEvent>()?.asset_id).await,
-            CONTENT_REMOVED => self.on_content_removed(event.data()?).await,
+            CONTENT_REMOVED => self.on_content_removed(event.id, event.data()?).await,
             _ => Ok(()),
         }
     }
@@ -188,13 +188,7 @@ impl Emoji {
         for emoji in &unpublished {
             emojis::delete(&mut tx, &mut fx, emoji, RemovedBecause::Deleted, None).await?;
         }
-        let kept: Vec<Uuid> =
-            sqlx::query_scalar("UPDATE emojis SET author_id = NULL WHERE author_id = $1 RETURNING id")
-                .bind(user_id)
-                .fetch_all(&mut *tx)
-                .await?;
-        // Search hides documents of deleted owners; these have none now.
-        emojis::reindex(&mut tx, &kept).await?;
+        sqlx::query("UPDATE emojis SET author_id = NULL WHERE author_id = $1").bind(user_id).execute(&mut *tx).await?;
 
         for table in ["emoji_decks", "emoji_recents", "emoji_submitters"] {
             sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM {table} WHERE user_id = $1")))
@@ -246,7 +240,7 @@ impl Emoji {
     /// emoji is disabled — out of the catalogue, its name kept so nothing
     /// else can pass for it. An emoji that is unknown or already out of the
     /// catalogue is left as it is: the event may arrive twice.
-    pub(crate) async fn on_content_removed(&self, removed: ContentRemoved) -> AppResult<()> {
+    pub(crate) async fn on_content_removed(&self, event_id: Uuid, removed: ContentRemoved) -> AppResult<()> {
         if removed.subject_type != SubjectType::SUBJECT_TYPE_CUSTOM_EMOJI as i32 {
             return Ok(());
         }
@@ -258,11 +252,16 @@ impl Emoji {
                 .fetch_optional(&mut *tx)
                 .await?;
         let Some(emoji) = target.filter(EmojiRow::is_approved) else { return Ok(()) };
+        // The same takedown delivered again: if a moderator has put the
+        // emoji back since, it stays.
+        if emojis::event_applied(&mut tx, event_id).await? {
+            return Ok(());
+        }
         let reason: String = match removed.reason.trim() {
             "" => TAKEDOWN_WITHOUT_REASON.to_owned(),
             reason => reason.chars().take(REASON_MAX_CHARS).collect(),
         };
-        emojis::disable(&mut tx, &mut fx, &emoji, removed.moderator_id, &reason, true).await?;
+        emojis::disable(&mut tx, &mut fx, &emoji, removed.moderator_id, &reason, Some(event_id)).await?;
         self.commit(tx, fx).await
     }
 }

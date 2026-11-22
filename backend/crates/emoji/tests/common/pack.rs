@@ -11,6 +11,7 @@ use tokuly_proto::{
     media::{AssetKind, AssetPurpose},
 };
 use tokuly_testkit::TestUser;
+use uuid::Uuid;
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
 use super::{Ctx, page};
@@ -117,6 +118,38 @@ pub async fn start_import(
 pub async fn get_import(ctx: &Ctx, moderator: &TestUser, import_id: &str) -> GetImportResponse {
     let request = GetImportRequest { import_id: import_id.to_owned(), page: page(500, ""), ..Default::default() };
     ctx.call("Admin", "GetImport", Some(moderator), &request).await.unwrap()
+}
+
+pub async fn run_import(ctx: &Ctx, import_id: &str) {
+    ctx.emoji.run_import(import_id.parse().unwrap()).await.expect("the import job");
+}
+
+/// The uploads made from an import's pictures so far.
+pub async fn picture_uploads(ctx: &Ctx, import_id: &str) -> Vec<Uuid> {
+    sqlx::query_scalar("SELECT asset_id FROM emoji_import_entries WHERE import_id = $1::uuid AND asset_id IS NOT NULL ORDER BY position")
+        .bind(import_id)
+        .fetch_all(&ctx.app.core.db)
+        .await
+        .unwrap()
+}
+
+/// What the media worker does with an import's pictures: processes each.
+pub async fn process_pictures(ctx: &Ctx, import_id: &str) -> Vec<Uuid> {
+    let uploads = picture_uploads(ctx, import_id).await;
+    for upload in &uploads {
+        ctx.media.process_now(*upload).await.expect("media processing");
+    }
+    uploads
+}
+
+/// Delivers the events the media domain emitted for these uploads.
+pub async fn deliver_media_events(ctx: &Ctx, uploads: &[Uuid]) {
+    for event in ctx.app.events("media.asset.").await {
+        let about = event.data["asset_id"].as_str().and_then(|id| id.parse::<Uuid>().ok());
+        if about.is_some_and(|id| uploads.contains(&id)) {
+            ctx.emoji.handle_event(event).await.expect("media event");
+        }
+    }
 }
 
 pub fn entry<'a>(import: &'a GetImportResponse, source_name: &str) -> &'a ImportEntry {

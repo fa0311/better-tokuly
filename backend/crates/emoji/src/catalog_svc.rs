@@ -139,6 +139,7 @@ impl EmojiService for Emoji {
     ) -> ServiceResult<GetEmojiResponse> {
         handle(async {
             let viewer = viewer(&ctx)?;
+            self.core.cache.rate_limit(&format!("emoji-read:{}", caller(&ctx)?), 600, MINUTE).await?;
             let emoji = emojis::require(&self.core, request.emoji).await?;
             // An emoji the caller may not see does not exist for them.
             ensure!(viewer.can_see(&emoji), not_found, "EMOJI_NOT_FOUND", "emoji not found");
@@ -165,11 +166,12 @@ impl EmojiService for Emoji {
 
     async fn list_author_emoji(
         &self,
-        _ctx: RequestContext,
+        ctx: RequestContext,
         request: ServiceRequest<'_, ListAuthorEmojiRequest>,
     ) -> ServiceResult<ListAuthorEmojiResponse> {
         handle(async {
             let author_id = parse_id(request.user_id)?;
+            self.core.cache.rate_limit(&format!("emoji-read:{}", caller(&ctx)?), 600, MINUTE).await?;
             let page = Page::from_view(request.page.as_option(), 100);
             let cursor: Option<(Time, Uuid)> = page.decode()?;
             let (before_at, before_id) = cursor.unzip();
@@ -254,6 +256,7 @@ impl EmojiService for Emoji {
     ) -> ServiceResult<ResetDeckResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
+            self.core.cache.rate_limit(&format!("emoji-deck:{user_id}"), 60, MINUTE).await?;
             deck::reset(&self.core, user_id).await?;
             let snapshot = catalog::snapshot(&self.core).await?;
             ok(ResetDeckResponse {
@@ -309,6 +312,7 @@ impl EmojiService for Emoji {
     ) -> ServiceResult<ClearRecentEmojiResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
+            self.core.cache.rate_limit(&format!("emoji-use:{user_id}"), 120, MINUTE).await?;
             usage::clear_recent(&self.core, user_id).await?;
             ok(ClearRecentEmojiResponse::default())
         })

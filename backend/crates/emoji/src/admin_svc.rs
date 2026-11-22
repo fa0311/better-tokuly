@@ -22,6 +22,10 @@ use crate::{
 };
 
 const HOUR: Duration = Duration::from_secs(3600);
+/// Decisions (approve, reject, disable, enable) on one emoji per hour.
+const DECISIONS_PER_EMOJI_AN_HOUR: u32 = 30;
+/// Changes of one user's trusted flag per hour.
+const TRUST_CHANGES_PER_USER_AN_HOUR: u32 = 10;
 
 /// The moderator calling an RPC of this service (`FORBIDDEN` for anyone else).
 fn moderator(ctx: &RequestContext) -> AppResult<Uuid> {
@@ -107,6 +111,9 @@ impl Emoji {
         F: AsyncFnOnce(&mut Tx<'_>, &mut Effects, &EmojiRow) -> AppResult<EmojiRow>,
     {
         let found = emojis::require(&self.core, reference).await?;
+        // Every decision tells the author. Nobody decides on one emoji
+        // dozens of times an hour except to pester its author.
+        self.core.cache.rate_limit(&format!("emoji-decide:{}", found.id), DECISIONS_PER_EMOJI_AN_HOUR, HOUR).await?;
         let mut tx = self.core.db.begin().await?;
         let mut fx = Effects::default();
         let current = emojis::lock(&mut tx, found.id).await?;
@@ -339,7 +346,7 @@ impl EmojiAdminService for Emoji {
             let reason = validate::reason(request.reason)?;
             let emoji = self
                 .decide(moderator_id, request.emoji_id, async |tx, fx, emoji| {
-                    emojis::disable(tx, fx, emoji, Some(moderator_id), &reason, false).await
+                    emojis::disable(tx, fx, emoji, Some(moderator_id), &reason, None).await
                 })
                 .await?;
             ok(DisableEmojiResponse { emoji: emoji.into(), ..Default::default() })
@@ -452,6 +459,9 @@ impl EmojiAdminService for Emoji {
             let trusted = request.trusted;
             let active = tokuly_identity::users::filter_active(&self.core, &[user_id]).await?;
             ensure!(active.contains(&user_id), not_found, "USER_NOT_FOUND", "user not found");
+            // Being trusted is announced to the user; flipping the flag back
+            // and forth must not become a way to flood them.
+            self.core.cache.rate_limit(&format!("emoji-trust:{user_id}"), TRUST_CHANGES_PER_USER_AN_HOUR, HOUR).await?;
 
             let mut tx = self.core.db.begin().await?;
             let changed = if trusted {

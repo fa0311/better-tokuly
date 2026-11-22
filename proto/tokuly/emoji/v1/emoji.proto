@@ -117,7 +117,9 @@ message EmojiDetail {
   tokuly.common.v1.UserSummary author = 3;
   // Licence and credits, as free text.
   string license = 4;
-  // Times it was used, all time. Refreshed about once a minute.
+  // Times it was used, all time; refreshed about once a minute. Only for
+  // moderators (0 for everyone else): emoji are used in private chats, and
+  // an exact count would let people watch each other's use.
   int64 use_count = 5;
   google.protobuf.Timestamp created_at = 6;
   google.protobuf.Timestamp updated_at = 7;
@@ -125,7 +127,8 @@ message EmojiDetail {
   string review_note = 8;
   // When a moderator last decided on it. Only for its author and moderators.
   google.protobuf.Timestamp reviewed_at = 9;
-  // Newest first. Only for moderators.
+  // Newest first. Only for moderators, and never for the emoji's own
+  // author: who decided on an emoji is not for its author to know.
   repeated ReviewRecord history = 10;
   // The caller may change it with `UpdateSubmission` and remove it with
   // `WithdrawSubmission`: its author, while it is PENDING or REJECTED.
@@ -171,21 +174,25 @@ service EmojiService {
   rpc GetCatalogChanges(GetCatalogChangesRequest) returns (GetCatalogChangesResponse);
   // Finds approved emoji by name, alias and category. Exact matches come
   // first, then names and aliases starting with the query, then those
-  // containing it; among equals the more used emoji wins. Matching ignores
+  // containing it; among equals the more popular emoji wins. Matching ignores
   // case, width and the difference between hiragana and katakana. Without a
   // query it lists a category. Errors: `QUERY_TOO_LONG`, `RATE_LIMITED`.
   rpc SearchEmoji(SearchEmojiRequest) returns (SearchEmojiResponse);
-  // The emoji used the most over the last days, most used first.
+  // The emoji used the most over the last days, most used first. An emoji
+  // is listed once at least three different people used it on one day, so
+  // the list says what the crowd likes, never what one person does.
   rpc ListPopularEmoji(ListPopularEmojiRequest) returns (ListPopularEmojiResponse);
   // The emoji that joined the catalogue last, newest first.
   rpc ListNewestEmoji(ListNewestEmojiRequest) returns (ListNewestEmojiResponse);
   // One emoji with author, licence and usage. Approved emoji are public; an
   // emoji in another state is visible to its author and to moderators.
-  // Errors: `EMOJI_NOT_FOUND`.
+  // Errors: `EMOJI_NOT_FOUND`, `RATE_LIMITED`.
   rpc GetEmoji(GetEmojiRequest) returns (GetEmojiResponse);
   // The categories in display order, with how many approved emoji each holds.
   rpc ListCategories(ListCategoriesRequest) returns (ListCategoriesResponse);
-  // The approved emoji credited to one user, newest first.
+  // The approved emoji credited to one user, newest first. An emoji stays
+  // listed whatever becomes of its author's account, until the account is
+  // deleted and the credit with it. Errors: `RATE_LIMITED`.
   rpc ListAuthorEmoji(ListAuthorEmojiRequest) returns (ListAuthorEmojiResponse);
 
   // The caller's reaction deck: the emoji they pinned, in their order. A
@@ -196,6 +203,7 @@ service EmojiService {
   // Errors: `DECK_TOO_LONG`, `DECK_ITEM_INVALID`, `EMOJI_NOT_FOUND`, `RATE_LIMITED`.
   rpc SetDeck(SetDeckRequest) returns (SetDeckResponse);
   // Forgets the caller's deck: they are back on the default one.
+  // Errors: `RATE_LIMITED`.
   rpc ResetDeck(ResetDeckRequest) returns (ResetDeckResponse);
 
   // Reports emoji the caller just used (in a message, a reaction, a name),
@@ -206,7 +214,7 @@ service EmojiService {
   rpc RecordUse(RecordUseRequest) returns (RecordUseResponse);
   // The emoji the caller used last, most recent first (at most 64 are kept).
   rpc ListRecentEmoji(ListRecentEmojiRequest) returns (ListRecentEmojiResponse);
-  // Empties the caller's recently used list.
+  // Empties the caller's recently used list. Errors: `RATE_LIMITED`.
   rpc ClearRecentEmoji(ClearRecentEmojiRequest) returns (ClearRecentEmojiResponse);
 }
 
@@ -478,15 +486,22 @@ message ListMySubmissionsResponse {
 //
 // `emoji_id` fields accept an emoji ID or the name of an emoji that is not
 // REJECTED.
+//
+// Decisions that tell the author (approve, reject, disable, enable) are
+// limited to 30 an hour per emoji, and changes of one user's trusted flag
+// to 10 an hour (`RATE_LIMITED`): a moderator's tools must not become a way
+// to flood someone with notifications.
 service EmojiAdminService {
   // Emoji waiting for review, oldest submission first, with their history.
   rpc ListReviewQueue(ListReviewQueueRequest) returns (ListReviewQueueResponse);
   // Puts a PENDING emoji into the catalogue and tells its author. A REJECTED
   // emoji can be approved too (a moderator changed their mind) if its name is
-  // still free. Errors: `EMOJI_NOT_FOUND`, `EMOJI_NOT_REVIEWABLE`, `NAME_TAKEN`.
+  // still free. Errors: `EMOJI_NOT_FOUND`, `EMOJI_NOT_REVIEWABLE`,
+  // `NAME_TAKEN`, `RATE_LIMITED`.
   rpc ApproveEmoji(ApproveEmojiRequest) returns (ApproveEmojiResponse);
   // Declines a PENDING emoji and tells its author why.
-  // Errors: `EMOJI_NOT_FOUND`, `EMOJI_NOT_REVIEWABLE`, `REASON_INVALID`.
+  // Errors: `EMOJI_NOT_FOUND`, `EMOJI_NOT_REVIEWABLE`, `REASON_INVALID`,
+  // `RATE_LIMITED`.
   rpc RejectEmoji(RejectEmojiRequest) returns (RejectEmojiResponse);
 
   // Every emoji, in any state, newest first; filtered by state, category,
@@ -504,10 +519,10 @@ service EmojiAdminService {
   rpc UpdateEmoji(UpdateEmojiRequest) returns (UpdateEmojiResponse);
   // Takes an APPROVED emoji out of the catalogue. It keeps its name and can
   // be enabled again. Errors: `EMOJI_NOT_FOUND`, `EMOJI_NOT_APPROVED`,
-  // `REASON_INVALID`.
+  // `REASON_INVALID`, `RATE_LIMITED`.
   rpc DisableEmoji(DisableEmojiRequest) returns (DisableEmojiResponse);
   // Puts a DISABLED emoji back into the catalogue.
-  // Errors: `EMOJI_NOT_FOUND`, `EMOJI_NOT_DISABLED`.
+  // Errors: `EMOJI_NOT_FOUND`, `EMOJI_NOT_DISABLED`, `RATE_LIMITED`.
   rpc EnableEmoji(EnableEmojiRequest) returns (EnableEmojiResponse);
   // Deletes an emoji in any state for good; its name becomes free and its
   // upload is released. Errors: `EMOJI_NOT_FOUND`.
@@ -520,7 +535,7 @@ service EmojiAdminService {
   rpc BulkDeleteEmoji(BulkDeleteEmojiRequest) returns (BulkDeleteEmojiResponse);
 
   // Flags a user as a trusted submitter (their emoji are approved without
-  // review) or removes the flag. Errors: `USER_NOT_FOUND`.
+  // review) or removes the flag. Errors: `USER_NOT_FOUND`, `RATE_LIMITED`.
   rpc SetSubmitterTrusted(SetSubmitterTrustedRequest) returns (SetSubmitterTrustedResponse);
   // The trusted submitters, most recently trusted first.
   rpc ListTrustedSubmitters(ListTrustedSubmittersRequest) returns (ListTrustedSubmittersResponse);

@@ -77,15 +77,99 @@ async fn the_workers_carry_imports_exports_and_use_counts_through() {
     assert!(ready.emoji_count >= 2 && !ready.download_url.is_empty());
 
     // Use: counted in the cache, written by the usage worker.
-    let fan = ctx.app.user("fan").await;
-    ctx.record_use(&fan, &[&still]).await;
-    eventually("the use to be counted", async || (ctx.get(None, &still).await.unwrap().use_count == 1).then_some(()))
-        .await;
-    let popular: ListPopularEmojiResponse = ctx
-        .call("", "ListPopularEmoji", None, &ListPopularEmojiRequest { limit: 100, ..Default::default() })
-        .await
-        .unwrap();
-    assert!(named(&popular.emojis, &still).is_some());
+    for n in 0..3 {
+        ctx.record_use(&ctx.app.user(&format!("fan{n}")).await, &[&still]).await;
+    }
+    eventually("the uses to be counted", async || {
+        (ctx.get(Some(&moderator), &still).await.unwrap().use_count == 3).then_some(())
+    })
+    .await;
+    eventually("the emoji to become popular", async || {
+        let request = ListPopularEmojiRequest { limit: 100, ..Default::default() };
+        let popular: ListPopularEmojiResponse = ctx.call("", "ListPopularEmoji", None, &request).await.unwrap();
+        named(&popular.emojis, &still).is_some().then_some(())
+    })
+    .await;
 
     core.shutdown.cancel();
+}
+
+/// The Valkey key holding the catalogue's `what` for this test database.
+async fn catalog_key(ctx: &Ctx, what: &str) -> String {
+    let epoch: uuid::Uuid =
+        sqlx::query_scalar("SELECT epoch FROM emoji_catalog").fetch_one(&ctx.app.core.db).await.unwrap();
+    format!("emoji:{}:catalog:{what}", epoch.simple())
+}
+
+#[tokio::test]
+async fn removals_are_forgotten_after_their_retention() {
+    let ctx = start().await;
+    let moderator = ctx.moderator().await;
+    let (gone, stays) = (ctx.add(&moderator, &unique("gone")).await, ctx.add(&moderator, &unique("stays")).await);
+    let before = ctx.catalog().await.version;
+    ctx.delete(&moderator, &gone.emoji.id).await;
+    let after_removal = ctx.catalog().await.version;
+    assert!(ctx.changes(before).await.removed_ids.contains(&gone.emoji.id));
+
+    // Within the retention nothing is forgotten.
+    ctx.emoji.prune().await.unwrap();
+    ctx.add(&moderator, &unique("fresh")).await;
+    let remembered = ctx.changes(before).await;
+    assert!(!remembered.full && remembered.removed_ids.contains(&gone.emoji.id));
+
+    // Past it, the removal goes; a client from before it starts over.
+    sqlx::query("UPDATE emoji_catalog_removals SET removed_at = now() - interval '91 days' WHERE emoji_id = $1::uuid")
+        .bind(&gone.emoji.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    ctx.emoji.prune().await.unwrap();
+    let later = ctx.add(&moderator, &unique("later")).await;
+    let restart = ctx.changes(before).await;
+    assert!(restart.full, "a difference could no longer say that the emoji is gone");
+    assert!(
+        named(&restart.upserted, &stays.emoji.name).is_some() && named(&restart.upserted, &gone.emoji.name).is_none()
+    );
+    // A client that had already seen the removal still gets a difference.
+    let recent = ctx.changes(after_removal).await;
+    assert!(!recent.full && named(&recent.upserted, &later.emoji.name).is_some());
+    assert!(!recent.removed_ids.contains(&gone.emoji.id));
+}
+
+#[tokio::test]
+async fn a_cache_ahead_of_a_restored_database_is_taken_back() {
+    let ctx = start().await;
+    let core = &ctx.app.core;
+    let moderator = ctx.moderator().await;
+    ctx.add(&moderator, &unique("before")).await;
+    let version: i64 = sqlx::query_scalar("SELECT version FROM emoji_catalog").fetch_one(&core.db).await.unwrap();
+
+    // Valkey remembers versions this database does not have (any more).
+    let mut valkey = core.cache.conn();
+    for what in ["version", "announced"] {
+        redis::cmd("SET")
+            .arg(catalog_key(&ctx, what).await)
+            .arg(version + 1000)
+            .query_async::<()>(&mut valkey)
+            .await
+            .unwrap();
+    }
+    // Readers are not fooled meanwhile: what they serve is the database's.
+    assert!(ctx.catalog().await.version < version + 1000);
+
+    ctx.emoji.maintain().await.unwrap();
+    let cached: i64 = redis::cmd("GET").arg(catalog_key(&ctx, "version").await).query_async(&mut valkey).await.unwrap();
+    assert!(cached < version + 1000, "the cache is back at the database's version");
+    // And changes are announced again, although Valkey claimed to have
+    // announced far later versions.
+    let mut topic = ctx.app.listen_topic(catalog::TOPIC).await;
+    let added = ctx.add(&moderator, &unique("after")).await;
+    let announced = next_matching(&mut topic, |frame| match emoji_event(frame)? {
+        tokuly_proto::emoji::__buffa::oneof::emoji_event::Event::CatalogChanged(changed) => Some(changed.version),
+        _ => None,
+    })
+    .await
+    .expect("the change is announced");
+    assert!(announced < version + 1000);
+    assert!(named(&ctx.catalog().await.emojis, &added.emoji.name).is_some());
 }

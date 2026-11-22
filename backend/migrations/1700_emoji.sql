@@ -105,10 +105,15 @@ CREATE TABLE emoji_reviews (
     actor_id   uuid REFERENCES users (id) ON DELETE SET NULL,
     action     smallint    NOT NULL,
     note       text        NOT NULL DEFAULT '',
+    -- The event that asked for the action, for actions taken on behalf of
+    -- another domain (a takedown). An event delivered again finds its ID
+    -- here and is not applied a second time.
+    event_id   uuid,
     created_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE INDEX emoji_reviews_emoji ON emoji_reviews (emoji_id, id DESC);
+CREATE UNIQUE INDEX emoji_reviews_event ON emoji_reviews (event_id) WHERE event_id IS NOT NULL;
 
 -- People a moderator flagged: trusted submitters skip the review.
 CREATE TABLE emoji_submitters (
@@ -144,6 +149,9 @@ CREATE TABLE emoji_usage_daily (
     emoji_id uuid   NOT NULL REFERENCES emojis (id) ON DELETE CASCADE,
     day      date   NOT NULL,
     uses     bigint NOT NULL DEFAULT 0,
+    -- Different people who used it that day. Popularity only counts emoji
+    -- that several people used on one day.
+    users    bigint NOT NULL DEFAULT 0,
     PRIMARY KEY (emoji_id, day)
 );
 
@@ -204,12 +212,17 @@ CREATE TABLE emoji_imports (
     skipped_count   integer     NOT NULL DEFAULT 0,
     failed_count    integer     NOT NULL DEFAULT 0,
     created_at      timestamptz NOT NULL DEFAULT now(),
+    -- When a worker last took the import up. Giving up on an import counts
+    -- from here, not from its creation: one that waited long for a worker
+    -- is not stuck.
+    started_at      timestamptz,
     -- When the entries were read from the pack.
     planned_at      timestamptz,
     completed_at    timestamptz
 );
 
-CREATE INDEX emoji_imports_open ON emoji_imports (created_at) WHERE status IN (1, 2);
+-- The imports a worker is on; the sweep looks for the ones that got stuck.
+CREATE INDEX emoji_imports_running ON emoji_imports (started_at) WHERE status = 2;
 
 CREATE TABLE emoji_import_entries (
     import_id   uuid     NOT NULL REFERENCES emoji_imports (id) ON DELETE CASCADE,
@@ -250,6 +263,8 @@ CREATE TABLE emoji_exports (
     emoji_count  integer     NOT NULL DEFAULT 0,
     error        text        NOT NULL DEFAULT '',
     created_at   timestamptz NOT NULL DEFAULT now(),
+    -- When a worker last took the export up (see emoji_imports.started_at).
+    started_at   timestamptz,
     completed_at timestamptz,
     expires_at   timestamptz
 );

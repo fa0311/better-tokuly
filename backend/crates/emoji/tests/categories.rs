@@ -4,6 +4,7 @@
 mod common;
 
 use common::*;
+use futures::future::join_all;
 use tokuly_proto::emoji::*;
 use tokuly_testkit::TestUser;
 
@@ -137,6 +138,14 @@ async fn moderators_keep_the_list_of_categories() {
     let listed: ListCategoriesResponse =
         ctx.call("", "ListCategories", None, &ListCategoriesRequest::default()).await.unwrap();
     assert_eq!(listed.uncategorized_count, 3);
+    // The same category added by many at once exists once.
+    let results = join_all((0..8).map(|_| create(&ctx, &moderator, "どうじ"))).await;
+    assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+    assert!(results.iter().filter_map(|result| result.as_ref().err()).all(|reason| reason == "CATEGORY_EXISTS"));
+    let listed: ListCategoriesResponse =
+        ctx.call("", "ListCategories", None, &ListCategoriesRequest::default()).await.unwrap();
+    assert_eq!(shelf(&listed.categories), [("たべもの / おかし", 0), ("どうじ", 0)]);
+
     // A deleted category cannot be named any more.
     let request =
         AddEmojiRequest { category: "ミーム".to_owned(), ..ctx.add_request(&moderator, &unique("late")).await };

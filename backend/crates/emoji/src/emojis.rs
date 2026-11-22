@@ -119,6 +119,9 @@ impl Emoji {
                 .into_iter()
                 .collect();
         let mut history = if viewer.moderator { self.history(&ids).await? } else { HashMap::new() };
+        // Who decided on an emoji is not for its author to know — not even
+        // when the author is a moderator (now, or by the time they look).
+        history.retain(|emoji_id, _| !rows.iter().any(|row| row.id == *emoji_id && viewer.is_author_of(row)));
 
         Ok(rows
             .iter()
@@ -129,7 +132,9 @@ impl Emoji {
                     state: i32::from(row.state).into(),
                     author: row.author_id.and_then(|id| authors.get(&id).cloned()).into(),
                     license: row.license.clone(),
-                    use_count: use_counts.get(&row.id).copied().unwrap_or(0),
+                    // An exact count moves with every single use, which
+                    // may be one person's in a private chat: staff only.
+                    use_count: use_counts.get(&row.id).copied().filter(|_| viewer.moderator).unwrap_or(0),
                     created_at: ts(row.created_at),
                     updated_at: ts(row.updated_at),
                     review_note: if sees_review { row.review_note.clone() } else { String::new() },
@@ -291,14 +296,37 @@ fn name_taken(error: AppError) -> AppError {
 }
 
 async fn record(tx: &mut Tx<'_>, emoji_id: Uuid, actor_id: Option<Uuid>, action: i16, note: &str) -> AppResult<()> {
-    sqlx::query("INSERT INTO emoji_reviews (emoji_id, actor_id, action, note) VALUES ($1, $2, $3, $4)")
+    record_for(tx, emoji_id, actor_id, action, note, None).await
+}
+
+/// Like [`record`], noting the event of another domain that asked for the action.
+async fn record_for(
+    tx: &mut Tx<'_>,
+    emoji_id: Uuid,
+    actor_id: Option<Uuid>,
+    action: i16,
+    note: &str,
+    event_id: Option<Uuid>,
+) -> AppResult<()> {
+    sqlx::query("INSERT INTO emoji_reviews (emoji_id, actor_id, action, note, event_id) VALUES ($1, $2, $3, $4, $5)")
         .bind(emoji_id)
         .bind(actor_id)
         .bind(action)
         .bind(note)
+        .bind(event_id)
         .execute(&mut **tx)
         .await?;
     Ok(())
+}
+
+/// Whether the action an event asked for was carried out already. Events
+/// are delivered at least once; a second delivery must not undo what
+/// happened to the emoji since the first.
+pub async fn event_applied(tx: &mut Tx<'_>, event_id: Uuid) -> AppResult<bool> {
+    Ok(sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM emoji_reviews WHERE event_id = $1)")
+        .bind(event_id)
+        .fetch_one(&mut **tx)
+        .await?)
 }
 
 /// Notes a moderator's edit in the emoji's history.
@@ -313,7 +341,10 @@ fn search_doc(emoji: &EmojiRow) -> SearchDoc {
         title: emoji.name.clone(),
         text: emoji.category.clone().unwrap_or_default(),
         tags: emoji.aliases.clone(),
-        owner_id: emoji.author_id,
+        // An emoji in the catalogue belongs to everyone who uses it. Search
+        // hides documents whose owner is suspended, deleted or blocked by
+        // the searcher; an emoji must not come and go with its author.
+        owner_id: None,
         public: emoji.is_approved(),
         image_url: Some(emoji.image().url).filter(|url| !url.is_empty()),
         path: emoji.path(),
@@ -339,8 +370,10 @@ async fn notify_author(
     path: String,
 ) -> AppResult<()> {
     let Some(author_id) = emoji.author_id else { return Ok(()) };
+    // One notice per emoji: a later decision replaces the earlier one.
     let mut notice = NotificationRequest::new(author_id, kind, title, body, path)
         .subject(SubjectType::SUBJECT_TYPE_CUSTOM_EMOJI, emoji.id)
+        .collapse(format!("emoji:{}", emoji.id))
         .data(serde_json::json!({ "emoji_id": emoji.id, "name": emoji.name }));
     let image = emoji.image();
     if !image.url.is_empty() {
@@ -361,9 +394,11 @@ async fn joined_catalog(
     let added = EmojiAdded { emoji_id: emoji.id, name: emoji.name.clone(), author_id: emoji.author_id, via };
     events::emit(&mut **tx, EMOJI_ADDED, actor_id, &added).await?;
     outbound::index(&mut **tx, search_doc(emoji)).await?;
-    // Friends hear about an emoji when it first becomes usable, not when a
-    // moderator switches it back on.
-    if via != AddedVia::Enabled
+    // Friends hear that someone made an emoji when that person submitted it
+    // and it becomes usable. A credit a moderator gave (or an emoji switched
+    // back on) puts nothing into anybody's feed: the activity log speaks in
+    // the user's voice, and here the user did nothing.
+    if matches!(via, AddedVia::Review | AddedVia::Trusted)
         && let Some(author_id) = emoji.author_id
     {
         let summary = Localized::new(
@@ -571,17 +606,18 @@ pub async fn reject(
 }
 
 /// Takes an approved emoji out of the catalogue; it keeps its name. A
-/// takedown (`taken_down`) is the outcome of a report: the admin domain
-/// tells the author itself, so no second notification goes out.
-/// Errors: `EMOJI_NOT_APPROVED`.
+/// takedown is the outcome of a report (`takedown` is the event that
+/// carried it): the admin domain tells the author itself, so no second
+/// notification goes out. Errors: `EMOJI_NOT_APPROVED`.
 pub async fn disable(
     tx: &mut Tx<'_>,
     fx: &mut Effects,
     emoji: &EmojiRow,
     moderator_id: Option<Uuid>,
     reason: &str,
-    taken_down: bool,
+    takedown: Option<Uuid>,
 ) -> AppResult<EmojiRow> {
+    let taken_down = takedown.is_some();
     ensure!(emoji.is_approved(), precondition, "EMOJI_NOT_APPROVED", "only an approved emoji can be disabled");
     let disabled = set_state(tx, emoji.id, state::DISABLED, reason, true).await?;
     let (noted, because) = if taken_down {
@@ -589,7 +625,7 @@ pub async fn disable(
     } else {
         (action::DISABLED, RemovedBecause::Disabled)
     };
-    record(tx, disabled.id, moderator_id, noted, reason).await?;
+    record_for(tx, disabled.id, moderator_id, noted, reason, takedown).await?;
     left_catalog(tx, fx, &disabled, because, moderator_id).await?;
     if !taken_down {
         notify_author(

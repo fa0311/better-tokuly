@@ -270,6 +270,20 @@ async fn trusted_submitters_and_moderators_skip_the_review() {
     assert_eq!(actions, [ReviewAction::REVIEW_ACTION_APPROVED, ReviewAction::REVIEW_ACTION_SUBMITTED]);
     assert!(!history[0].actor.is_set(), "approved by the rule, not by a person");
 
+    // What is in the catalogue is no longer the author's to change or take
+    // back, trusted or not: others may want to report it.
+    let withdraw = WithdrawSubmissionRequest { emoji_id: emoji.emoji.id.clone(), ..Default::default() };
+    assert_eq!(
+        ctx.reason("Submission", "WithdrawSubmission", Some(&author), &withdraw).await,
+        "EMOJI_NOT_WITHDRAWABLE"
+    );
+    let change = UpdateSubmissionRequest {
+        emoji_id: emoji.emoji.id.clone(),
+        name: Some(unique("renamed")),
+        ..Default::default()
+    };
+    assert_eq!(update(&ctx, &author, change).await.unwrap_err(), "EMOJI_NOT_EDITABLE");
+
     // Trust does not unlock reserved names; being a moderator does.
     let request = ctx.submit_request(&author, &reserved).await;
     assert_eq!(ctx.reason("Submission", "SubmitEmoji", Some(&author), &request).await, "NAME_RESERVED");
@@ -470,7 +484,10 @@ async fn moderators_work_through_the_review_queue() {
         (doc["title"].as_str(), doc["path"].as_str()),
         (Some(older.emoji.name.as_str()), Some(notice["path"].as_str().unwrap()))
     );
-    assert_eq!(doc["owner_id"], serde_json::json!(author.id));
+    assert!(
+        doc["owner_id"].is_null(),
+        "an emoji in the catalogue is everyone's: search must not hide it with its author"
+    );
     let activity = ctx.app.events_by("activity.recorded", author.id).await;
     assert_eq!(activity.len(), 1);
     assert_eq!(

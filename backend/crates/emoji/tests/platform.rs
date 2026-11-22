@@ -60,8 +60,9 @@ async fn an_erased_account_leaves_its_published_emoji_behind_uncredited() {
     assert!(!kept.author.is_set());
     assert!(catalog::exists(&ctx.app.core, &published.emoji.name).await.unwrap());
     assert_eq!(ctx.holders(&kept_upload).await, 1, "and keeps its picture");
-    let doc = ctx.search_changes(&published.emoji.id).await.last().unwrap().clone().expect("still searchable");
-    assert!(doc["owner_id"].is_null(), "search would hide a deleted owner's documents");
+    let changes = ctx.search_changes(&published.emoji.id).await;
+    assert_eq!(changes.len(), 1, "nothing about the emoji changed for search");
+    assert!(changes[0].as_ref().expect("still searchable")["owner_id"].is_null());
     let still_disabled = ctx.get(Some(&moderator), &disabled.emoji.id).await.unwrap();
     assert_eq!(still_disabled.state, EmojiState::EMOJI_STATE_DISABLED);
     assert!(!still_disabled.author.is_set());
@@ -166,6 +167,20 @@ async fn emoji_can_be_reported_and_an_upheld_report_disables_them() {
     assert!(subjects.resolve(kind, &id, Some(author.id)).await.is_ok());
     ctx.approve(&moderator, &id).await;
 
+    // The author cannot take a published emoji away from under a report,
+    // nor turn it into something else.
+    let withdraw = WithdrawSubmissionRequest { emoji_id: id.clone(), ..Default::default() };
+    assert_eq!(
+        ctx.reason("Submission", "WithdrawSubmission", Some(&author), &withdraw).await,
+        "EMOJI_NOT_WITHDRAWABLE"
+    );
+    let change = UpdateSubmissionRequest {
+        emoji_id: id.clone(),
+        asset_id: Some(ctx.picture(&author).await),
+        ..Default::default()
+    };
+    assert_eq!(ctx.reason("Submission", "UpdateSubmission", Some(&author), &change).await, "EMOJI_NOT_EDITABLE");
+
     for reference in [id.as_str(), name.as_str()] {
         let subject = subjects.resolve(kind, reference, Some(stranger.id)).await.unwrap();
         assert_eq!(subject.id.to_string(), id);
@@ -219,9 +234,16 @@ async fn emoji_can_be_reported_and_an_upheld_report_disables_them() {
     assert_eq!(ctx.reason("Submission", "SubmitEmoji", Some(&stranger), &squat).await, "NAME_TAKEN");
 
     // The event may arrive twice; and a moderator can put the emoji back.
-    ctx.emoji.handle_event(upheld).await.unwrap();
+    ctx.emoji.handle_event(upheld.clone()).await.unwrap();
     assert_eq!(ctx.get(Some(&moderator), &id).await.unwrap().history.len(), taken_down.history.len());
     assert_eq!(ctx.enable(&moderator, &id).await.state, EmojiState::EMOJI_STATE_APPROVED);
+    // The same takedown arriving once more, late, does not undo that…
+    ctx.emoji.handle_event(upheld).await.unwrap();
+    assert_eq!(ctx.get(None, &id).await.unwrap().state, EmojiState::EMOJI_STATE_APPROVED);
+    assert!(catalog::exists(&ctx.app.core, &name).await.unwrap());
+    // …while a new report that is upheld does take the emoji out again.
+    ctx.emoji.handle_event(content_removed(kind, &id, "またほうこくがあったよ", &moderator)).await.unwrap();
+    assert_eq!(ctx.get(Some(&moderator), &id).await.unwrap().state, EmojiState::EMOJI_STATE_DISABLED);
 
     // A takedown without a stated reason still leaves a note.
     ctx.emoji.handle_event(content_removed(kind, &official.emoji.id, "  ", &moderator)).await.unwrap();
@@ -292,4 +314,42 @@ async fn emoji_show_up_in_data_exports_and_on_their_authors_profile() {
     assert_eq!(data["trusted_submitter"], false);
     let nothing = exporter.export(visitor.id).await.unwrap();
     assert!(nothing["emojis"].as_array().unwrap().is_empty() && nothing["deck"].is_null());
+}
+
+#[tokio::test]
+async fn a_suspended_author_changes_nothing_for_everyone_else() {
+    let ctx = start().await;
+    let (moderator, author, fan) = (ctx.moderator().await, ctx.app.user("author").await, ctx.app.user("fan").await);
+    let name = unique("theirs");
+    let emoji = ctx.submit(&author, &name).await;
+    ctx.approve(&moderator, &emoji.emoji.id).await;
+    let waiting = ctx.submit(&author, &unique("waiting")).await;
+    let pinned = SetDeckRequest { emojis: vec![format!(":{name}:")], ..Default::default() };
+    let _: SetDeckResponse = ctx.call("", "SetDeck", Some(&fan), &pinned).await.unwrap();
+    let authored = async || -> Vec<String> {
+        let request = ListAuthorEmojiRequest { user_id: author.id.to_string(), ..Default::default() };
+        let response: ListAuthorEmojiResponse = ctx.call("", "ListAuthorEmoji", Some(&fan), &request).await.unwrap();
+        response.emojis.into_iter().map(|emoji| emoji.id).collect()
+    };
+    let before = (ctx.get(Some(&fan), &name).await.unwrap(), authored().await, ctx.search(&name, None).await);
+    let search_changes = ctx.search_changes(&emoji.emoji.id).await.len();
+
+    sqlx::query("UPDATE users SET banned_at = now() WHERE id = $1")
+        .bind(author.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+
+    // The emoji is where it was, for everyone: an emoji that vanished from
+    // pickers, decks or search would tell people about its author's account.
+    let after = (ctx.get(Some(&fan), &name).await.unwrap(), authored().await, ctx.search(&name, None).await);
+    assert_eq!(after, before);
+    assert!(named(&ctx.catalog().await.emojis, &name).is_some());
+    assert!(catalog::exists(&ctx.app.core, &name).await.unwrap());
+    let deck: GetDeckResponse = ctx.call("", "GetDeck", Some(&fan), &GetDeckRequest::default()).await.unwrap();
+    assert_eq!(deck.items[0].custom.id, emoji.emoji.id);
+    assert_eq!(ctx.search_changes(&emoji.emoji.id).await.len(), search_changes);
+    assert!(ctx.emoji_events("emoji.emoji.removed", &emoji.emoji.id).await.is_empty());
+    // Their waiting submission is still the moderators' to decide.
+    assert_eq!(ctx.approve(&moderator, &waiting.emoji.id).await.state, EmojiState::EMOJI_STATE_APPROVED);
 }

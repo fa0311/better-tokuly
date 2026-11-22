@@ -15,38 +15,6 @@ use tokuly_testkit::TestUser;
 use uuid::Uuid;
 use zip::ZipArchive;
 
-async fn run_import(ctx: &Ctx, import_id: &str) {
-    ctx.emoji.run_import(import_id.parse().unwrap()).await.expect("the import job");
-}
-
-/// The uploads made from an import's pictures so far.
-async fn picture_uploads(ctx: &Ctx, import_id: &str) -> Vec<Uuid> {
-    sqlx::query_scalar("SELECT asset_id FROM emoji_import_entries WHERE import_id = $1::uuid AND asset_id IS NOT NULL ORDER BY position")
-        .bind(import_id)
-        .fetch_all(&ctx.app.core.db)
-        .await
-        .unwrap()
-}
-
-/// What the media worker does with an import's pictures: processes each.
-async fn process_pictures(ctx: &Ctx, import_id: &str) -> Vec<Uuid> {
-    let uploads = picture_uploads(ctx, import_id).await;
-    for upload in &uploads {
-        ctx.media.process_now(*upload).await.expect("media processing");
-    }
-    uploads
-}
-
-/// Delivers the events the media domain emitted for these uploads.
-async fn deliver_media_events(ctx: &Ctx, uploads: &[Uuid]) {
-    for event in ctx.app.events("media.asset.").await {
-        let about = event.data["asset_id"].as_str().and_then(|id| id.parse::<Uuid>().ok());
-        if about.is_some_and(|id| uploads.contains(&id)) {
-            ctx.emoji.handle_event(event).await.expect("media event");
-        }
-    }
-}
-
 #[tokio::test]
 async fn a_misskey_pack_becomes_emoji_entry_by_entry() {
     let ctx = start().await;
@@ -555,4 +523,117 @@ async fn the_catalogue_is_exported_as_a_pack_that_can_be_imported_again() {
     assert!(expired.download_url.is_empty());
     assert_eq!(ctx.app.core.storage.head(Bucket::Private, &key).await.unwrap(), None);
     assert_eq!(get_export(&ctx, &moderator, &everything.id).await.status, ExportStatus::EXPORT_STATUS_READY);
+}
+
+#[tokio::test]
+async fn work_that_got_stuck_is_given_up_but_waiting_for_a_worker_is_not() {
+    let ctx = start().await;
+    ctx.app.core.storage.ensure_buckets().await.unwrap();
+    let db = &ctx.app.core.db;
+    let moderator = ctx.moderator().await;
+    let t = unique("");
+    let pack = |names: &[&String]| {
+        let records = names.iter().map(|name| record(name, "a.png", serde_json::json!({}))).collect();
+        zip_of(&[("meta.json", &meta(records)), ("a.png", &png(40))])
+    };
+    let skip = ImportConflictPolicy::IMPORT_CONFLICT_POLICY_SKIP;
+    let age = async |table: &str, set: &str, id: &str| {
+        sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE {table} SET {set} WHERE id = $1::uuid")))
+            .bind(id)
+            .execute(db)
+            .await
+            .unwrap();
+    };
+
+    // Stuck: one picture media never finished, one entry the job never got
+    // to unpack before it died for good.
+    let (unfinished, unpacked_never) = (format!("unfinished{t}"), format!("never{t}"));
+    let stuck_archive = upload_archive(&ctx, &moderator, pack(&[&unfinished, &unpacked_never])).await;
+    let stuck = start_import(&ctx, &moderator, &stuck_archive, skip, "").await;
+    run_import(&ctx, &stuck.id).await;
+    let abandoned_picture = picture_uploads(&ctx, &stuck.id).await[0];
+    sqlx::query(
+        "UPDATE emoji_import_entries
+         SET asset_id = CASE WHEN position = 0 THEN asset_id END,
+             extracted_at = CASE WHEN position = 0 THEN now() - interval '7 hours' END
+         WHERE import_id = $1::uuid",
+    )
+    .bind(&stuck.id)
+    .execute(db)
+    .await
+    .unwrap();
+    age("emoji_imports", "started_at = now() - interval '7 hours'", &stuck.id).await;
+
+    // Lost: jobs that started long ago and never got anywhere.
+    let lost_archive = upload_archive(&ctx, &moderator, pack(&[&unique("lost")])).await;
+    let lost = start_import(&ctx, &moderator, &lost_archive, skip, "").await;
+    age("emoji_imports", "status = 2, started_at = now() - interval '7 hours'", &lost.id).await;
+    let lost_export = start_export(&ctx, &moderator, None).await;
+    age("emoji_exports", "status = 2, started_at = now() - interval '7 hours'", &lost_export.id).await;
+
+    // Waiting: created long ago, but no worker has taken them up yet.
+    let patient = format!("patient{t}");
+    let waiting_archive = upload_archive(&ctx, &moderator, pack(&[&patient])).await;
+    let waiting = start_import(&ctx, &moderator, &waiting_archive, skip, "").await;
+    age("emoji_imports", "created_at = now() - interval '7 hours'", &waiting.id).await;
+    let waiting_export = start_export(&ctx, &moderator, None).await;
+    age("emoji_exports", "created_at = now() - interval '7 hours'", &waiting_export.id).await;
+
+    // Young: running right now.
+    let young_name = format!("young{t}");
+    let young_archive = upload_archive(&ctx, &moderator, pack(&[&young_name])).await;
+    let young = start_import(&ctx, &moderator, &young_archive, skip, "").await;
+    run_import(&ctx, &young.id).await;
+
+    ctx.emoji.maintain().await.unwrap();
+
+    let given_up = get_import(&ctx, &moderator, &stuck.id).await;
+    assert_eq!(given_up.import.status, ImportStatus::IMPORT_STATUS_COMPLETED, "every entry has an outcome");
+    assert_eq!((given_up.import.imported_count, given_up.import.failed_count), (0, 2));
+    for name in [&unfinished, &unpacked_never] {
+        let entry = entry(&given_up, name);
+        assert_eq!(
+            (entry.status, entry.reason.as_str()),
+            (ImportEntryStatus::IMPORT_ENTRY_STATUS_FAILED.into(), "PROCESSING_TIMEOUT")
+        );
+    }
+    assert_eq!(ctx.holders(&stuck_archive).await, 0);
+    let deleted: Option<chrono::DateTime<chrono::Utc>> =
+        sqlx::query_scalar("SELECT deleted_at FROM media_assets WHERE id = $1")
+            .bind(abandoned_picture)
+            .fetch_one(db)
+            .await
+            .unwrap();
+    assert!(deleted.is_some(), "the picture nobody will use is deleted");
+
+    let never_read = get_import(&ctx, &moderator, &lost.id).await;
+    assert_eq!(
+        (never_read.import.status, never_read.import.error.as_str()),
+        (ImportStatus::IMPORT_STATUS_FAILED.into(), "INTERNAL")
+    );
+    assert_eq!(ctx.holders(&lost_archive).await, 0);
+    let export = get_export(&ctx, &moderator, &lost_export.id).await;
+    assert_eq!((export.status, export.error.as_str()), (ExportStatus::EXPORT_STATUS_FAILED.into(), "INTERNAL"));
+    // A job arriving after that finds nothing left to do.
+    run_import(&ctx, &lost.id).await;
+    ctx.emoji.run_export(lost_export.id.parse().unwrap()).await.unwrap();
+    assert_eq!(get_import(&ctx, &moderator, &lost.id).await.import.status, ImportStatus::IMPORT_STATUS_FAILED);
+    assert_eq!(get_export(&ctx, &moderator, &lost_export.id).await.status, ExportStatus::EXPORT_STATUS_FAILED);
+
+    // What only waited is untouched, however old, and runs when its turn comes.
+    assert_eq!(get_import(&ctx, &moderator, &waiting.id).await.import.status, ImportStatus::IMPORT_STATUS_QUEUED);
+    assert_eq!(get_export(&ctx, &moderator, &waiting_export.id).await.status, ExportStatus::EXPORT_STATUS_QUEUED);
+    assert_eq!(get_import(&ctx, &moderator, &young.id).await.import.status, ImportStatus::IMPORT_STATUS_RUNNING);
+    run_import(&ctx, &waiting.id).await;
+    ctx.emoji.maintain().await.unwrap();
+    for (import, name) in [(&waiting, &patient), (&young, &young_name)] {
+        assert_eq!(get_import(&ctx, &moderator, &import.id).await.import.status, ImportStatus::IMPORT_STATUS_RUNNING);
+        let uploads = process_pictures(&ctx, &import.id).await;
+        deliver_media_events(&ctx, &uploads).await;
+        let done = get_import(&ctx, &moderator, &import.id).await;
+        assert_eq!((done.import.status, done.import.imported_count), (ImportStatus::IMPORT_STATUS_COMPLETED.into(), 1));
+        assert!(catalog::exists(&ctx.app.core, name).await.unwrap());
+    }
+    ctx.emoji.run_export(waiting_export.id.parse().unwrap()).await.unwrap();
+    assert_eq!(get_export(&ctx, &moderator, &waiting_export.id).await.status, ExportStatus::EXPORT_STATUS_READY);
 }
