@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Bell, Bookmark, CalendarHeart, ChevronRight, Clapperboard, History, ListVideo, LogOut, MailQuestionMark, Megaphone, Newspaper, Settings, ShieldCheck, Smile, SmilePlus, UserRound, Users, Wallet } from "lucide-react";
+import { Bell, Bookmark, CalendarDays, CalendarHeart, ChevronRight, Clapperboard, Footprints, History, ListVideo, LogOut, MailQuestionMark, MapPinned, Megaphone, Newspaper, Settings, ShieldCheck, Smile, SmilePlus, UserRound, Users, Wallet } from "lucide-react";
 import type { ComponentType } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
@@ -8,10 +8,9 @@ import { Button } from "#/components/ui/button";
 import { Page } from "#/components/ui/page";
 import { SchoolHubTile } from "#/features/school";
 import { useAskBadge } from "#/features/ask";
-import { api } from "#/lib/api";
 import { cn } from "#/lib/cn";
 import { type BadgeKey, useBadges } from "#/stores/badges";
-import { useMe } from "#/stores/session";
+import { signOut as signOutOfApp, useMe } from "#/stores/session";
 
 interface Tile {
   to:
@@ -30,7 +29,10 @@ interface Tile {
     | "/activity"
     | "/studio"
     | "/watch/history"
-    | "/watch/playlists";
+    | "/watch/playlists"
+    | "/footprints"
+    | "/history"
+    | "/places";
   /** A key of the `me` strings, or `<namespace>:<key>` for a tile whose feature names it. */
   labelKey: string;
   icon: ComponentType<{ className?: string }>;
@@ -43,6 +45,9 @@ interface Tile {
 const TILES: Tile[] = [
   { to: "/friends", labelKey: "tiles.friends", icon: Users, tint: "bg-sky", badge: "friends" },
   { to: "/notifications", labelKey: "tiles.notifications", icon: Bell, tint: "bg-pink", badge: "notifications" },
+  { to: "/footprints", labelKey: "footprints:tile", icon: Footprints, tint: "bg-lime" },
+  { to: "/history", labelKey: "history:tile", icon: CalendarDays, tint: "bg-sun" },
+  { to: "/places", labelKey: "places:tile", icon: MapPinned, tint: "bg-mint" },
   { to: "/plans", labelKey: "plans:tile", icon: CalendarHeart, tint: "bg-lime" },
   { to: "/ask", labelKey: "ask:tile", icon: MailQuestionMark, tint: "bg-sun", badge: "ask" },
   { to: "/bookmarks", labelKey: "engagement:tile", icon: Bookmark, tint: "bg-sky" },
@@ -71,7 +76,7 @@ export function MeScreen() {
   const isStaff = me.roles.some((role) => role === "admin" || role === "moderator" || role === "staff");
   const tiles = isStaff ? [...TILES, STAFF_TILE] : TILES;
   const signOut = async () => {
-    await api().session.signOut();
+    await signOutOfApp();
     await navigate({ to: "/" });
   };
 

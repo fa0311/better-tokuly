@@ -1,0 +1,263 @@
+import { geo, toMillis } from "@tokuly/api";
+import { distanceMeters } from "#/lib/format";
+
+/** Positions older than this are shown as stale (dimmed, with their age). */
+export const STALE_AFTER_MS = 10 * 60_000;
+/**
+ * A blurred pin's time is rounded down to ten-minute steps and only sent when
+ * the step changes, so it needs a longer leash before it counts as stale.
+ */
+export const BLURRED_STALE_AFTER_MS = 30 * 60_000;
+/** Faster than this counts as moving. */
+export const MOVING_SPEED_MPS = 0.8;
+/** Buzz only works this close together (the server's default radius). */
+export const BUZZ_RADIUS_M = 200;
+/**
+ * A bump needs two shakes this close together: the server's 30 m plus up to
+ * 30 m of combined GPS error. The button and its explanation both go by it.
+ */
+export const BUMP_RADIUS_M = 60;
+
+/**
+ * How fresh a pin is. A frozen pin is never told apart from a phone that
+ * stopped reporting: it simply goes stale.
+ */
+export type PinState = "live" | "stale" | "paused";
+
+/**
+ * Whether the pin is a stand-in for an area, not a position. That stays true
+ * however old the pin is: a blurred pin is always drawn as an area.
+ */
+export function isBlurred(location: geo.FriendLocation): boolean {
+  return location.precision === geo.GhostMode.BLURRED;
+}
+
+export function pinState(location: geo.FriendLocation, now: number): PinState {
+  if (location.sharingPaused) return "paused";
+  const age = now - toMillis(location.recordedAt);
+  return age > (isBlurred(location) ? BLURRED_STALE_AFTER_MS : STALE_AFTER_MS) ? "stale" : "live";
+}
+
+export function isMoving(location: geo.FriendLocation, now: number): boolean {
+  return (
+    !isBlurred(location) &&
+    pinState(location, now) === "live" &&
+    location.speedMps >= MOVING_SPEED_MPS
+  );
+}
+
+/** How long someone has been on the spot, when that is worth showing (five minutes or more). */
+export function stayMillis(location: geo.FriendLocation, now: number): number | null {
+  const since = toMillis(location.stationarySince);
+  if (!since || isMoving(location, now)) return null;
+  const stay = now - since;
+  return stay >= 5 * 60_000 ? stay : null;
+}
+
+/** The rule a friend is under right now: their override if it is still running, else the default. */
+export function ghostRuleFor(
+  settings: geo.GetGhostSettingsResponse | undefined,
+  userId: string,
+  now: number,
+): geo.GhostMode {
+  const running = (setting: geo.GhostSetting | undefined) => {
+    if (!setting || setting.mode === geo.GhostMode.UNSPECIFIED) return undefined;
+    const until = toMillis(setting.until);
+    return until && until <= now ? undefined : setting.mode;
+  };
+  return (
+    running(settings?.overrides[userId]) ?? running(settings?.everyone) ?? geo.GhostMode.PRECISE
+  );
+}
+
+/** The strictest thing the settings do to anyone, for the indicator on the map. */
+export function ghostSummary(
+  settings: geo.GetGhostSettingsResponse | undefined,
+  now: number,
+): {
+  mode: geo.GhostMode;
+  scope: "everyone" | "some";
+  hiddenCount: number;
+  until: number | null;
+} | null {
+  if (!settings) return null;
+  const everyone = ghostRuleFor(
+    { ...settings, overrides: {} } as geo.GetGhostSettingsResponse,
+    "",
+    now,
+  );
+  if (everyone !== geo.GhostMode.PRECISE) {
+    return {
+      mode: everyone,
+      scope: "everyone",
+      hiddenCount: 0,
+      until: toMillis(settings.everyone?.until) || null,
+    };
+  }
+  const hidden = Object.entries(settings.overrides).filter(
+    ([userId]) => ghostRuleFor(settings, userId, now) !== geo.GhostMode.PRECISE,
+  );
+  if (hidden.length === 0) return null;
+  const frozen = hidden.some(([, setting]) => setting.mode === geo.GhostMode.FROZEN);
+  const untils = hidden.map(([, setting]) => toMillis(setting.until));
+  return {
+    mode: frozen ? geo.GhostMode.FROZEN : geo.GhostMode.BLURRED,
+    scope: "some",
+    hiddenCount: hidden.length,
+    // A shared end time is worth showing; mixed ones are not.
+    until: untils.every((until) => until && until === untils[0]) ? (untils[0] ?? null) : null,
+  };
+}
+
+/**
+ * Whether the two see each other precisely and live, as far as this client
+ * can know: their pin is precise and fresh, and my rule for them is precise.
+ * Distances, travel times, trips, bumps and buzzes only exist for such pairs.
+ */
+export function seeEachOther(
+  location: geo.FriendLocation | undefined,
+  myRule: geo.GhostMode,
+  now: number,
+): boolean {
+  return (
+    Boolean(location?.position) &&
+    !isBlurred(location as geo.FriendLocation) &&
+    pinState(location as geo.FriendLocation, now) === "live" &&
+    myRule === geo.GhostMode.PRECISE
+  );
+}
+
+export interface ScreenPoint {
+  id: string;
+  x: number;
+  y: number;
+}
+
+/**
+ * Groups pins whose screen positions are within `radius` pixels of each
+ * other, transitively. Returns the groups with two or more members, each as
+ * sorted ids, so the same crowd always gives the same key.
+ *
+ * Pins are bucketed into a grid whose cells are small enough that everything
+ * in one cell is within `radius`, so a pin is only compared with the few
+ * cells around it: the cost grows with the number of pins, not its square.
+ */
+export function clusterOnScreen(points: ScreenPoint[], radius: number): string[][] {
+  const parent = points.map((_, index) => index);
+  const find = (i: number): number => {
+    while (parent[i] !== i) {
+      parent[i] = parent[parent[i] as number] as number;
+      i = parent[i] as number;
+    }
+    return i;
+  };
+  const cell = radius / Math.SQRT2;
+  const grid = new Map<string, number[]>();
+  const cellOf = (point: ScreenPoint): [number, number] => [
+    Math.floor(point.x / cell),
+    Math.floor(point.y / cell),
+  ];
+  points.forEach((point, index) => {
+    const [cx, cy] = cellOf(point);
+    const key = `${cx},${cy}`;
+    const bucket = grid.get(key);
+    if (bucket) {
+      // Same cell: within `radius` by construction.
+      parent[find(index)] = find(bucket[0] as number);
+      bucket.push(index);
+    } else grid.set(key, [index]);
+  });
+  const r2 = radius * radius;
+  points.forEach((point, index) => {
+    const [cx, cy] = cellOf(point);
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dy = -2; dy <= 2; dy++) {
+        if (dx === 0 && dy === 0) continue;
+        const bucket = grid.get(`${cx + dx},${cy + dy}`);
+        if (!bucket || find(bucket[0] as number) === find(index)) continue;
+        for (const other of bucket) {
+          const candidate = points[other] as ScreenPoint;
+          if ((point.x - candidate.x) ** 2 + (point.y - candidate.y) ** 2 <= r2) {
+            // One link joins the two cells' crowds; the rest of the cell adds nothing.
+            parent[find(index)] = find(other);
+            break;
+          }
+        }
+      }
+    }
+  });
+  const buckets = new Map<number, string[]>();
+  points.forEach((point, index) => {
+    const root = find(index);
+    const bucket = buckets.get(root);
+    if (bucket) bucket.push(point.id);
+    else buckets.set(root, [point.id]);
+  });
+  return [...buckets.values()].filter((ids) => ids.length >= 2).map((ids) => ids.sort());
+}
+
+/**
+ * Where member `index` of `count` sits when a stack of pins fans out: two
+ * side by side, more on a ring starting at the top.
+ */
+export function fanOffset(index: number, count: number): [number, number] {
+  if (count === 2) return [index === 0 ? -44 : 44, 0];
+  const radius = Math.max(58, (count * 62) / (2 * Math.PI));
+  const angle = (index / count) * 2 * Math.PI - Math.PI / 2;
+  return [Math.round(Math.cos(angle) * radius), Math.round(Math.sin(angle) * radius)];
+}
+
+/** A circle around a point as a GeoJSON ring (for accuracy and "somewhere around here" areas). */
+export function circleRing(
+  center: { lat: number; lng: number },
+  radiusMeters: number,
+  steps = 48,
+): [number, number][] {
+  const ring: [number, number][] = [];
+  const latRadius = radiusMeters / 111_320;
+  const lngRadius = latRadius / Math.max(0.01, Math.cos((center.lat * Math.PI) / 180));
+  for (let i = 0; i <= steps; i++) {
+    const angle = (i / steps) * 2 * Math.PI;
+    ring.push([center.lng + Math.cos(angle) * lngRadius, center.lat + Math.sin(angle) * latRadius]);
+  }
+  return ring;
+}
+
+/** Decodes a Google encoded polyline (precision 5) into `[lng, lat]` pairs. */
+export function decodePolyline(encoded: string): [number, number][] {
+  const points: [number, number][] = [];
+  let index = 0;
+  let lat = 0;
+  let lng = 0;
+  const next = () => {
+    let result = 0;
+    let shift = 0;
+    let byte: number;
+    do {
+      byte = encoded.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20 && index < encoded.length);
+    return result & 1 ? ~(result >> 1) : result >> 1;
+  };
+  while (index < encoded.length) {
+    lat += next();
+    lng += next();
+    points.push([lng / 1e5, lat / 1e5]);
+  }
+  return points;
+}
+
+/** Order for the friend list: nearest first, people without a known distance last. */
+export function byDistance<T extends { distance: number | null }>(a: T, b: T): number {
+  return (a.distance ?? Number.POSITIVE_INFINITY) - (b.distance ?? Number.POSITIVE_INFINITY);
+}
+
+/** Distance between me and a pin, only when it means something (a precise pin). */
+export function distanceTo(
+  own: { lat: number; lng: number } | null,
+  location: geo.FriendLocation | undefined,
+): number | null {
+  if (!own || !location?.position || isBlurred(location)) return null;
+  return distanceMeters(own, location.position);
+}

@@ -11,6 +11,7 @@ import { Card } from "#/components/ui/card";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { ProfileAnswers, ProfileAskButton } from "#/features/ask";
 import { ReportButton } from "#/features/engagement";
+import { formatPercent } from "#/features/footprints";
 import { ProfileNotes } from "#/features/notes";
 import { ProfilePlans } from "#/features/plans";
 import { SchoolProfileCards } from "#/features/school";
@@ -18,6 +19,7 @@ import { forgetUser, ProfileHighlights, StoryRing } from "#/features/stories";
 import { api, profileClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { formatDistance } from "#/lib/format";
+import { signOut as signOutOfApp } from "#/stores/session";
 
 const friendClient = () => api().service(social.FriendService);
 
@@ -68,7 +70,7 @@ export function ProfileScreen({ handle }: { handle: string }) {
     onError,
   });
   const signOut = async () => {
-    await api().session.signOut();
+    await signOutOfApp();
     await navigate({ to: "/" });
   };
 
@@ -174,8 +176,13 @@ export function ProfileScreen({ handle }: { handle: string }) {
             <Stat value={stats.introCount} label={t("stats.intros")} />
             <Stat value={Number(stats.profileViewCount)} label={t("stats.views")} />
             <Stat value={stats.bumpCount} label={t("stats.bumps")} />
-            <Stat value={`${stats.exploredPercent.toFixed(stats.exploredPercent < 10 ? 2 : 1)}%`} label={t("stats.explored")} />
-            <Stat value={stats.visitedCountryCount} label={t("stats.countries")} />
+            {/* The footprint numbers lead to the scratch map they come from: my own, or as much of theirs as they show. */}
+            <Link to="/footprints" search={isSelf ? {} : { user: user.id }} className="rounded-2xl transition-colors hover:bg-surface-2" aria-label={t("footprints:profile.explored", { percent: formatPercent(stats.exploredPercent) })}>
+              <Stat value={formatPercent(stats.exploredPercent)} label={t("stats.explored")} />
+            </Link>
+            <Link to="/footprints" search={isSelf ? {} : { user: user.id }} className="rounded-2xl transition-colors hover:bg-surface-2" aria-label={t("footprints:profile.countries", { count: stats.visitedCountryCount })}>
+              <Stat value={stats.visitedCountryCount} label={t("stats.countries")} />
+            </Link>
           </Card>
         )}
 
