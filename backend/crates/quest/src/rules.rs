@@ -270,9 +270,9 @@ use Source as S;
 
 /// The table. Every topic and kind in it is one a domain on `main` emits
 /// (`a_consumed_topic_is_one_its_domain_emits` below reads their sources).
-/// Rules for domains that do not exist yet (shorts, live, spaces,
-/// community) are not written ahead of them: a guessed topic is a rule
-/// that silently never fires.
+/// Rules are not written ahead of a domain's events (shorts, live and
+/// spaces have none yet): a guessed topic is a rule that silently never
+/// fires.
 pub const RULES: &[Rule] = &[
     // ── showing up ──
     Rule::event("daily.joined", "identity.user.created", payloads::joined)
@@ -626,17 +626,15 @@ mod tests {
 
     #[test]
     fn topics_nobody_emits_are_noticed() {
-        // The guesses this table once held.
+        // Names nobody emits: in crates that exist (one of them a guess
+        // this table once held), and in a crate that does not.
         for (guess, is_topic) in [
             ("school.session.completed", true),
-            ("geo.footprint.expanded", true),
-            ("geo.visit.started", true),
-            ("shorts.short.published", true),
-            ("live.stream.started", true),
-            ("spaces.room.joined", true),
-            ("community.thread.created", true),
+            ("geo.nothing.happened", true),
+            ("identity.nothing.happened", true),
             ("nowhere.thing.happened", true),
             ("geo.teleported", false),
+            ("note.teleported", false),
         ] {
             let caught = std::panic::catch_unwind(|| assert_emitted(guess, is_topic)).is_err();
             assert!(caught, "{guess} is emitted by nobody, and that went unnoticed");

@@ -177,14 +177,16 @@ the crate it is named after, each analytics name and activity /
 notification kind must be written out there. A renamed event fails that
 test instead of silently stopping a rule.
 
-**Parked.** There are no rules yet for domains without events: shorts,
-live, spaces and community (their crates are stubs), and geo's scratch-map
-cells and first visits to a place (geo emits neither; check-ins and new
-regions arrive as activity entries and are counted). Their rules, missions,
-badge lines (`area`, `places`, `shorts`, `streamer`, `host`, `familiar`,
-`threads`) and metrics were removed rather than left waiting on guessed
-topics; each comes back as a row in `rules.rs` plus its missions and badges
-once the domain documents an event.
+**Parked.** There are no rules yet for shorts, live and spaces (their
+crates emit nothing), for geo's scratch-map cells and first visits to a
+place (geo emits neither; check-ins and new regions arrive as activity
+entries and are counted), and for community threads: `community.thread.created`
+exists since the community domain landed, but threads can be anonymous and
+are re-announced when restored, so its rule is a follow-up of its own
+rather than a row added in passing. The rules, missions, badge lines
+(`area`, `places`, `shorts`, `streamer`, `host`, `familiar`, `threads`) and
+metrics that waited on guessed topics were removed; each comes back as a
+row in `rules.rs` plus its missions and badges.
 
 Two things earn nothing on purpose. Asking a question: questions are
 anonymous, the ask domain does not say who asked, and anything a rule gave
@@ -543,5 +545,5 @@ quest.spawn_workers();                                                 // worker
 - **geo**: an event (or activity entry) for scratch-map cells uncovered and
   for first visits to a place, saying whether the player shows their
   footprints, would bring back the `area` and `places` badges.
-- **shorts, live, spaces, community**: one documented event each for
-  "published", "went live", "opened / joined a room", "started a thread".
+- **shorts, live, spaces**: one documented event each for "published",
+  "went live", "opened / joined a room".
