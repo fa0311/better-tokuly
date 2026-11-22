@@ -111,7 +111,7 @@ The feed domain has no events of its own. It uses the outbound requests of
 
 ## Realtime
 
-None. (`tokuly.realtime.v1.ServerFrame` has no feed event.) Viewing a map
+None. (There is no feed event message.) Viewing a map
 story is private: `MarkMapStorySeen` emits nothing and tells nobody.
 
 ## News

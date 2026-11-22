@@ -62,7 +62,7 @@ is idempotent.
 
 ## Realtime pushes
 
-`ServerFrame.notes` (`NotesEvent`).
+`NotesEvent`.
 
 Topic `subject:3:<note_id>` (3 = `SUBJECT_TYPE_NOTE`; the topic kind `subject`
 is the engagement domain's, whose guard lets a client subscribe only to a note

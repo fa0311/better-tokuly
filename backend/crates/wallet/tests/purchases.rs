@@ -4,7 +4,7 @@ mod common;
 use std::time::Duration;
 
 use common::*;
-use tokuly_proto::{realtime::server_frame::Body, wallet::*};
+use tokuly_proto::wallet::*;
 use tokuly_testkit::{TestApp, TestUser};
 use tokuly_wallet::{PaymentState, WalletConfig};
 
@@ -70,7 +70,7 @@ async fn development_purchase_completes_on_the_spot() {
     assert_eq!(notices[0]["body"]["en"], "1,060 coins were added to your wallet.");
     // ...and the buyer's other devices hear about the purchase.
     let frame = frames.next(Duration::from_secs(2)).await.expect("purchase pushed");
-    let Some(Body::Wallet(event)) = frame.body else { panic!("not a wallet frame") };
+    let event: WalletEvent = frame.event().expect("not a wallet frame");
     let Some(wallet_event::Event::PurchaseUpdated(pushed)) = event.event else { panic!("not a purchase update") };
     assert_eq!((pushed.id.as_str(), pushed.status.as_known()), (purchase.id.as_str(), COMPLETED));
 

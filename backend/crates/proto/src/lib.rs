@@ -8,6 +8,8 @@
 
 include!(concat!(env!("OUT_DIR"), "/_tokuly.rs"));
 
+mod envelope;
+
 /// Serialized `FileDescriptorSet` of the whole API (for gRPC reflection).
 pub const FILE_DESCRIPTOR_SET: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/tokuly_descriptor.bin"));

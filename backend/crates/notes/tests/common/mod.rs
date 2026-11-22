@@ -15,7 +15,6 @@ use tokuly_proto::{
     common::{PageRequest, Visibility},
     media::{AssetKind, AssetPurpose},
     notes::{notes_event::Event as Push, *},
-    realtime::server_frame::Body,
     social::{
         BlockUserRequest, BlockUserResponse, FriendSource, RespondFriendRequestRequest, RespondFriendRequestResponse,
         SendFriendRequestRequest, SendFriendRequestResponse, send_friend_request_request::Target,
@@ -348,25 +347,10 @@ impl Ctx {
 
 /// The next notes event pushed to a listener (other frames are skipped).
 pub async fn next_push(listener: &mut FrameListener) -> Option<Push> {
-    let deadline = tokio::time::Instant::now() + SOON;
-    loop {
-        let left = deadline.checked_duration_since(tokio::time::Instant::now())?;
-        match listener.next(left).await?.body {
-            Some(Body::Notes(event)) => return event.event,
-            _ => continue,
-        }
-    }
+    listener.next_event::<NotesEvent>(SOON).await?.event
 }
 
 /// Every notes event pushed to a listener within `window`.
 pub async fn pushes(listener: &mut FrameListener, window: Duration) -> Vec<Push> {
-    listener
-        .drain(window)
-        .await
-        .into_iter()
-        .filter_map(|frame| match frame.body {
-            Some(Body::Notes(event)) => event.event,
-            _ => None,
-        })
-        .collect()
+    listener.events::<NotesEvent>(window).await.into_iter().filter_map(|event| event.event).collect()
 }

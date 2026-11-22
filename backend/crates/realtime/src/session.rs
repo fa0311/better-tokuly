@@ -17,10 +17,7 @@ use tokuly_core::{
     presence::{self, CONVERSATION_PRESENCE_SUBJECT, ConversationPresenceSignal, LocationReport, TYPING_SUBJECT, TypingSignal},
     time::{now, ts},
 };
-use tokuly_proto::{
-    geo::LocationSample,
-    realtime::{ClientFrame, Hello, Welcome, client_frame::Body},
-};
+use tokuly_proto::realtime::{ClientFrame, Hello, Welcome, client_frame::Body};
 use uuid::Uuid;
 
 use crate::{
@@ -242,7 +239,7 @@ impl<'g> Session<'g> {
             }
             _ if !self.welcomed => self.answer(id, Err(HELLO_REQUIRED)),
             Body::Location(sample) => {
-                let result = self.on_location(*sample).await;
+                let result = self.on_location(&sample).await;
                 self.answer(id, result);
             }
             Body::Subscribe(subscribe) => {
@@ -464,13 +461,15 @@ impl<'g> Session<'g> {
         self.auth.as_ref().map(|auth| auth.user_id).ok_or(SIGN_IN_REQUIRED)
     }
 
-    async fn on_location(&mut self, sample: LocationSample) -> Result<(), Rejection> {
+    /// Passes a location sample (an encoded `LocationSample`) on to the geo
+    /// pipeline.
+    async fn on_location(&mut self, sample: &[u8]) -> Result<(), Rejection> {
         let user_id = self.user_id()?;
         if !self.location_limit.allow() {
             return Err(RATE_LIMITED);
         }
         let received_at = Utc::now();
-        let sample = location::validate(sample, received_at)?;
+        let sample = location::decode(sample, received_at)?;
         presence::submit_location(&self.gateway.core.bus, &LocationReport { user_id, received_at, sample }).await.map_err(|_| BUS_UNAVAILABLE)?;
         self.gateway.counters.locations_forwarded.incr();
         Ok(())

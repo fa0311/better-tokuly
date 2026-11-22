@@ -15,13 +15,13 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokuly_core::{ids, prelude::*, realtime};
 use tokuly_proto::{
-    geo::{FriendLocation, GetLiveShareResponse, LiveShare, WatchLiveShareResponse, geo_event::Event},
-    realtime::{ServerFrame, server_frame::Body},
+    geo::{FriendLocation, GeoEvent, GetLiveShareResponse, LiveShare, WatchLiveShareResponse, geo_event::Event},
+    realtime::ServerFrame,
 };
 
 use crate::{
     Geo,
-    fanout::frame,
+    fanout::geo_event,
     visibility::{self, Subject},
 };
 
@@ -133,7 +133,7 @@ impl Geo {
 
     /// Tells whoever follows a share that it is over.
     async fn announce_share_end(&self, owner: Uuid, token: &str) {
-        self.core.rt.notify_topic(&topic(token), frame(Event::LocationRemovedUserId(owner.to_string()))).await;
+        self.core.rt.notify_topic(&topic(token), &geo_event(Event::LocationRemovedUserId(owner.to_string()))).await;
     }
 
     /// Ends shares whose time is up. Returns how many ended.
@@ -221,7 +221,7 @@ impl Geo {
                     message = updates.next() => {
                         let Some(message) = message else { return };
                         let Ok(frame) = ServerFrame::decode_from_slice(&message.payload) else { continue };
-                        let Some(Body::Geo(event)) = frame.body else { continue };
+                        let Some(event) = frame.event::<GeoEvent>() else { continue };
                         match event.event {
                             Some(Event::Location(location)) => {
                                 if sender.send(WatchLiveShareResponse { location: Some(*location).into(), ..Default::default() }).await.is_err() {

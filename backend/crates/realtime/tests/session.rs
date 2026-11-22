@@ -8,7 +8,7 @@ use tokuly_core::{AppResult, presence, realtime::TopicGuard};
 use tokuly_proto::{
     common::LatLng,
     geo::{FriendLocation, GeoEvent, geo_event::Event as GeoEventKind},
-    realtime::{PresenceEvent, server_frame::Body},
+    realtime::server_frame::Body,
 };
 use tokuly_realtime::RealtimeConfig;
 use uuid::Uuid;
@@ -16,14 +16,14 @@ use uuid::Uuid;
 mod support;
 use support::*;
 
-/// A small pushed event that is easy to recognise.
-fn marker(text: &str) -> Body {
-    Body::Presence(Box::new(PresenceEvent { user_id: text.to_owned(), online: true, ..Default::default() }))
+/// A small pushed event that is easy to recognise (and must not be lost).
+fn marker(text: &str) -> GeoEvent {
+    GeoEvent { event: Some(GeoEventKind::LocationRemovedUserId(text.to_owned())), ..Default::default() }
 }
 
-fn marker_text(frame: &tokuly_proto::realtime::ServerFrame) -> Option<&str> {
-    match &frame.body {
-        Some(Body::Presence(event)) => Some(event.user_id.as_str()),
+fn marker_text(frame: &tokuly_proto::realtime::ServerFrame) -> Option<String> {
+    match frame.event::<GeoEvent>()?.event {
+        Some(GeoEventKind::LocationRemovedUserId(text)) => Some(text),
         _ => None,
     }
 }
@@ -115,14 +115,14 @@ async fn a_connection_can_sign_in_later_but_not_change_user() {
     let bob = harness.app.user("bob").await;
 
     let mut client = harness.ws_as(None, true).await;
-    harness.app.core.rt.to_user(alice.id, marker("before sign-in")).await.unwrap();
+    harness.app.core.rt.to_user(alice.id, &marker("before sign-in")).await.unwrap();
     assert!(client.stays_quiet().await);
 
     // Anonymous → signed in, on the same connection.
     let welcome = client.hello(&alice.token, true).await;
     assert_eq!(welcome.user_id, alice.id.to_string());
-    harness.app.core.rt.to_user(alice.id, marker("after sign-in")).await.unwrap();
-    assert_eq!(marker_text(&client.next().await), Some("after sign-in"));
+    harness.app.core.rt.to_user(alice.id, &marker("after sign-in")).await.unwrap();
+    assert_eq!(marker_text(&client.next().await).as_deref(), Some("after sign-in"));
 
     // Presenting the same user again (a refreshed token) is fine.
     let again = harness.app.sign_in(alice.id).await;
@@ -176,14 +176,14 @@ async fn an_expired_token_can_be_replaced_on_the_same_connection() {
     assert_eq!(frame.reply_to, 0);
 
     // During the grace period events still flow.
-    harness.app.core.rt.to_user(alice.id, marker("during grace")).await.unwrap();
-    assert_eq!(marker_text(&client.next().await), Some("during grace"));
+    harness.app.core.rt.to_user(alice.id, &marker("during grace")).await.unwrap();
+    assert_eq!(marker_text(&client.next().await).as_deref(), Some("during grace"));
 
     // A fresh token settles it: well past the grace period the connection lives.
     client.hello(&alice.token, true).await;
     tokio::time::sleep(Duration::from_millis(2500)).await;
-    harness.app.core.rt.to_user(alice.id, marker("after refresh")).await.unwrap();
-    assert_eq!(marker_text(&client.next().await), Some("after refresh"));
+    harness.app.core.rt.to_user(alice.id, &marker("after refresh")).await.unwrap();
+    assert_eq!(marker_text(&client.next().await).as_deref(), Some("after refresh"));
 }
 
 #[tokio::test]
@@ -231,10 +231,10 @@ async fn user_events_reach_every_connection_of_that_user_only() {
     let mut bobs = harness.ws_as(Some(&bob), true).await;
     let mut anonymous = harness.ws_as(None, true).await;
 
-    harness.app.core.rt.to_user(alice.id, marker("for alice")).await.unwrap();
+    harness.app.core.rt.to_user(alice.id, &marker("for alice")).await.unwrap();
     for client in [&mut phone, &mut laptop] {
         let frame = client.next().await;
-        assert_eq!(marker_text(&frame), Some("for alice"));
+        assert_eq!(marker_text(&frame).as_deref(), Some("for alice"));
         assert_eq!((frame.reply_to, frame.topic.as_str()), (0, ""));
     }
     assert!(bobs.stays_quiet().await);
@@ -258,19 +258,19 @@ async fn topic_events_follow_subscriptions() {
     let mut bystander = harness.ws_as(None, true).await;
 
     assert!(is_ack(&viewer.request(subscribe_body(&[&topic])).await));
-    harness.app.core.rt.to_topic(&topic, marker("on air")).await.unwrap();
+    harness.app.core.rt.to_topic(&topic, &marker("on air")).await.unwrap();
     let frame = viewer.next_where(|frame| !is_topic_stats(frame)).await;
-    assert_eq!((marker_text(&frame), frame.topic.as_str()), (Some("on air"), topic.as_str()));
+    assert_eq!((marker_text(&frame).as_deref(), frame.topic.as_str()), (Some("on air"), topic.as_str()));
     assert!(bystander.stays_quiet().await);
 
     // Subscribing twice changes nothing: one copy per event.
     assert!(is_ack(&viewer.request(subscribe_body(&[&topic])).await));
-    harness.app.core.rt.to_topic(&topic, marker("once")).await.unwrap();
-    assert_eq!(marker_text(&viewer.next_where(|frame| !is_topic_stats(frame)).await), Some("once"));
+    harness.app.core.rt.to_topic(&topic, &marker("once")).await.unwrap();
+    assert_eq!(marker_text(&viewer.next_where(|frame| !is_topic_stats(frame)).await).as_deref(), Some("once"));
     assert!(viewer.stays_quiet().await);
 
     assert!(is_ack(&viewer.request(unsubscribe_body(&[&topic])).await));
-    harness.app.core.rt.to_topic(&topic, marker("missed")).await.unwrap();
+    harness.app.core.rt.to_topic(&topic, &marker("missed")).await.unwrap();
     assert!(viewer.stays_quiet().await);
     eventually("the topic's bus subscription is dropped", async || { harness.gateway.stats().topic_subscriptions == 0 }).await;
 }
@@ -283,8 +283,8 @@ async fn hello_can_subscribe_right_away() {
     let reply = client.request(hello_body("", true, &[&first, &second])).await;
     assert!(matches!(reply.body, Some(Body::Welcome(_))));
 
-    harness.app.core.rt.to_topic(&second, marker("party time")).await.unwrap();
-    assert_eq!(marker_text(&client.next_where(|frame| !is_topic_stats(frame)).await), Some("party time"));
+    harness.app.core.rt.to_topic(&second, &marker("party time")).await.unwrap();
+    assert_eq!(marker_text(&client.next_where(|frame| !is_topic_stats(frame)).await).as_deref(), Some("party time"));
 
     // A Hello with a bad topic is refused as a whole, but may be corrected.
     let mut client = harness.ws().await;
@@ -314,7 +314,7 @@ async fn subscriptions_are_validated_and_limited() {
     // One bad name spoils the request: nothing of it is subscribed.
     let reply = client.request(subscribe_body(&[names[0], "nope"])).await;
     assert_eq!(error_of(&reply).message, "TOPIC_INVALID");
-    harness.app.core.rt.to_topic(names[0], marker("unheard")).await.unwrap();
+    harness.app.core.rt.to_topic(names[0], &marker("unheard")).await.unwrap();
     assert!(client.stays_quiet().await);
 
     // More than the limit in one request, or in total.
@@ -354,7 +354,7 @@ async fn guarded_topics_are_only_open_to_those_the_domain_admits() {
         let reply = client.request(subscribe_body(&[&topic])).await;
         let error = error_of(&reply);
         assert_eq!((error.code.as_str(), error.message.as_str(), error.fatal), ("permission_denied", "TOPIC_FORBIDDEN", false));
-        harness.app.core.rt.to_topic(&topic, marker("members only")).await.unwrap();
+        harness.app.core.rt.to_topic(&topic, &marker("members only")).await.unwrap();
         assert!(client.stays_quiet().await);
         // Other kinds of topics are unaffected.
         assert!(is_ack(&client.request(subscribe_body(&[&unique_topic("live")])).await));
@@ -510,14 +510,14 @@ async fn the_per_address_limit_can_be_switched_off() {
 
 /// A friend's position, padded so that a few hundred of them fill the
 /// socket buffers of a client that is not reading.
-fn bulky_location(sequence: u32) -> Body {
+fn bulky_location(sequence: u32) -> GeoEvent {
     let location = FriendLocation {
         user_id: sequence.to_string(),
         position: LatLng { lat: 35.6595, lng: 139.7005, ..Default::default() }.into(),
         place_name: "x".repeat(48 * 1024),
         ..Default::default()
     };
-    Body::Geo(Box::new(GeoEvent { event: Some(GeoEventKind::Location(Box::new(location))), ..Default::default() }))
+    GeoEvent { event: Some(GeoEventKind::Location(Box::new(location))), ..Default::default() }
 }
 
 #[tokio::test]
@@ -537,9 +537,9 @@ async fn a_stalled_client_loses_positions_then_its_connection_without_slowing_ot
     let mut sent = 0u32;
     while harness.gateway.stats().frames_dropped == 0 {
         assert!(sent < 2000, "the stalled client never fell behind");
-        harness.app.core.rt.to_user(alice.id, bulky_location(sent)).await.unwrap();
+        harness.app.core.rt.to_user(alice.id, &bulky_location(sent)).await.unwrap();
         let frame = healthy.next().await;
-        let Some(Body::Geo(event)) = frame.body else { panic!("expected the position") };
+        let Some(event) = frame.event::<GeoEvent>() else { panic!("expected the position") };
         let Some(GeoEventKind::Location(location)) = event.event else { panic!("expected a location") };
         assert_eq!(location.user_id, sent.to_string(), "the healthy client misses nothing");
         sent += 1;
@@ -550,9 +550,9 @@ async fn a_stalled_client_loses_positions_then_its_connection_without_slowing_ot
     // Reliable frames cannot be shed: a backlog over the limit ends the
     // stalled connection. The healthy one keeps receiving in order.
     for sequence in 0..12 {
-        harness.app.core.rt.to_user(alice.id, marker(&format!("reliable {sequence}"))).await.unwrap();
+        harness.app.core.rt.to_user(alice.id, &marker(&format!("reliable {sequence}"))).await.unwrap();
         let frame = healthy.next_where(|frame| marker_text(frame).is_some()).await;
-        assert_eq!(marker_text(&frame), Some(format!("reliable {sequence}").as_str()));
+        assert_eq!(marker_text(&frame), Some(format!("reliable {sequence}")));
     }
     eventually("the stalled client is disconnected", async || {
         let stats = harness.gateway.stats();

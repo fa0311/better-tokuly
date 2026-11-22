@@ -76,8 +76,11 @@ cargo test -p tokuly-<domain>         # needs the infrastructure and the env abo
 - Every RPC, message and non-obvious field gets a comment saying what it is
   for. Enum values are `TYPE_NAME_VALUE` with `..._UNSPECIFIED = 0`.
 - Realtime pushes for a domain are a `oneof` inside its `<Domain>Event`
-  message (already referenced by `tokuly.realtime.v1.ServerFrame`; keep the
-  name).
+  message. The gateway carries it by its full name
+  (`tokuly.realtime.v1.Event { type, payload }`), so `realtime.proto` does
+  not import it: keep the name, and when a domain gets its first event
+  message add it to the list in `realtime.proto` and to the table in
+  `packages/realtime/src/events.ts`, which is how clients come to know it.
 - Errors: Connect code plus a SCREAMING_SNAKE reason in the `x-tokuly-error`
   header. Document the reasons an RPC can return in its proto comment.
 
@@ -191,7 +194,7 @@ Everything else is asynchronous, through `tokuly_core`:
 | Notify a user (inbox + push) | `outbound::notify(&mut *tx, &NotificationRequest::new(user, "chat.message", title, body, "/chat/…").actor(me))` |
 | Activity log / friends feed entry | `outbound::activity(&mut *tx, &ActivityEntry::new(user, "note.posted", ActivityAudience::Friends, summary))` |
 | Make something searchable | `outbound::index(&mut *tx, SearchDoc { kind: "video".into(), … })` / `outbound::unindex` |
-| Push to connected clients | `core.rt.notify_user(user, Body::Chat(event)).await` / `notify_users` / `notify_topic("live:<id>", …)` |
+| Push to connected clients | `core.rt.notify_user(user, &event).await` / `notify_users` / `notify_topic("live:<id>", &event)`, where `event` is your `<Domain>Event` (see below) |
 | Background work | `core.jobs.enqueue("media.transcode", &payload)`, handled with `core.jobs.run(...)` in `spawn_workers` |
 | Product analytics | `core.analytics.track(AnalyticsEvent::new("video.view").user(..).subject("video", id))` |
 | Comments/likes/reports on your content | register a `SubjectResolver` for your `SubjectType` in `core.subjects` |
@@ -200,6 +203,22 @@ Everything else is asynchronous, through `tokuly_core`:
 
 Every domain must handle `identity.user.deleted` (payload `{ "user_id": … }`)
 by deleting or anonymizing that user's data.
+
+Realtime pushes: hand `core.rt` your own event message and nothing else. It
+wraps the message in the gateway's envelope, and the clients unwrap it again.
+
+```rust
+let event = ChatEvent { event: Some(typing.into()), ..Default::default() };
+core.rt.notify_users(member_ids, &event).await;       // every device of these users
+core.rt.notify_topic("live:<id>", &event).await;      // whoever subscribed to the topic
+core.rt.to_user(user_id, &event).await?;              // the same, but a failure is yours to handle
+```
+
+Any generated message works (`buffa::Message + buffa::MessageName`); clients
+only understand the types listed in `realtime.proto`. The `notify_*` methods
+log a failed publish instead of returning it: a push is an optimization on
+top of state that is already committed. Code that follows the bus itself (a
+streaming RPC) reads a frame with `frame.event::<ChatEvent>()`.
 
 User-facing text created on the server (notification titles, activity
 summaries) is always given in Japanese and English via `Localized::new(ja, en)`.
@@ -221,8 +240,13 @@ assert_eq!(err.reason, "NOT_A_MEMBER");
 - List exactly the migrations you need (yours + dependencies).
 - All tests in one binary share a database: create fresh users per test.
 - `app.events_by("chat.message.", alice.id)` inspects emitted events;
-  `app.listen_user(id)` / `listen_topic` capture realtime frames;
   `app.stream(...)` reads server-streaming RPCs.
+- `app.listen_user(id)` / `listen_topic("live:<id>")` capture what is pushed
+  (listen *before* the action). Read it as your event type:
+  `pushes.next_event::<ChatEvent>(wait).await` (the next one, skipping other
+  frames), `pushes.events::<ChatEvent>(window).await` (all of them), or
+  `frame.event::<ChatEvent>()` on a frame from `pushes.next(wait)` /
+  `pushes.drain(window)` when the envelope or the order of frames matters.
 - Test event consumers by calling the handler function with a constructed
   `Event`; no relay runs in tests.
 - Cover every RPC: the happy path, authorization (someone else's data,

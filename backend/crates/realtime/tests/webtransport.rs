@@ -2,50 +2,50 @@
 //! length-prefixed frames on the stream, datagrams, certificate rotation.
 use std::time::Duration;
 
-use tokuly_core::presence::{LOCATION_SUBJECT_PREFIX, LocationReport};
+use buffa::Message as _;
+use tokuly_core::presence::LOCATION_SUBJECT_PREFIX;
 use tokuly_proto::{
     common::LatLng,
     geo::{FriendLocation, GeoEvent, LocationSample, geo_event::Event as GeoEventKind},
-    realtime::{PresenceEvent, ServerFrame, client_frame::Body as ClientBody, server_frame::Body},
+    realtime::{ServerFrame, client_frame::Body as ClientBody, server_frame::Body},
 };
 use tokuly_realtime::RealtimeConfig;
 
 mod support;
 use support::*;
 
-fn marker(text: &str) -> Body {
-    Body::Presence(Box::new(PresenceEvent { user_id: text.to_owned(), online: true, ..Default::default() }))
+/// A small pushed event that is easy to recognise (and must not be lost).
+fn marker(text: &str) -> GeoEvent {
+    GeoEvent { event: Some(GeoEventKind::LocationRemovedUserId(text.to_owned())), ..Default::default() }
 }
 
-fn marker_text(frame: &ServerFrame) -> Option<&str> {
-    match &frame.body {
-        Some(Body::Presence(event)) => Some(event.user_id.as_str()),
+fn marker_text(frame: &ServerFrame) -> Option<String> {
+    match frame.event::<GeoEvent>()?.event {
+        Some(GeoEventKind::LocationRemovedUserId(text)) => Some(text),
         _ => None,
     }
 }
 
-fn friend_location(friend: &str, place_name: &str) -> Body {
+fn friend_location(friend: &str, place_name: &str) -> GeoEvent {
     let location = FriendLocation {
         user_id: friend.to_owned(),
         position: LatLng { lat: 35.6595, lng: 139.7005, ..Default::default() }.into(),
         place_name: place_name.to_owned(),
         ..Default::default()
     };
-    Body::Geo(Box::new(GeoEvent { event: Some(GeoEventKind::Location(Box::new(location))), ..Default::default() }))
+    GeoEvent { event: Some(GeoEventKind::Location(Box::new(location))), ..Default::default() }
 }
 
-fn located_friend(frame: &ServerFrame) -> Option<&str> {
-    match &frame.body {
-        Some(Body::Geo(event)) => match &event.event {
-            Some(GeoEventKind::Location(location)) => Some(location.user_id.as_str()),
-            _ => None,
-        },
+fn located_friend(frame: &ServerFrame) -> Option<String> {
+    match frame.event::<GeoEvent>()?.event {
+        Some(GeoEventKind::Location(location)) => Some(location.user_id),
         _ => None,
     }
 }
 
 fn location_body(lat: f64, lng: f64) -> ClientBody {
-    ClientBody::Location(Box::new(LocationSample { position: LatLng { lat, lng, ..Default::default() }.into(), accuracy_meters: 5.0, ..Default::default() }))
+    let sample = LocationSample { position: LatLng { lat, lng, ..Default::default() }.into(), accuracy_meters: 5.0, ..Default::default() };
+    ClientBody::Location(sample.encode_to_vec())
 }
 
 // ───────────────────────────── The stream ─────────────────────────────
@@ -63,23 +63,23 @@ async fn hello_and_delivery_over_the_stream() {
 
     // User-scoped events arrive on the stream, in order.
     for text in ["one", "two", "three"] {
-        harness.app.core.rt.to_user(alice.id, marker(text)).await.unwrap();
+        harness.app.core.rt.to_user(alice.id, &marker(text)).await.unwrap();
     }
     for text in ["one", "two", "three"] {
-        assert_eq!(marker_text(&client.next().await), Some(text));
+        assert_eq!(marker_text(&client.next().await).as_deref(), Some(text));
     }
 
     // So do topic events, after subscribing.
     let topic = unique_topic("live");
     assert!(is_ack(&client.request(subscribe_body(&[&topic])).await));
-    harness.app.core.rt.to_topic(&topic, marker("on air")).await.unwrap();
+    harness.app.core.rt.to_topic(&topic, &marker("on air")).await.unwrap();
     let frame = loop {
         let frame = client.next().await;
         if !is_topic_stats(&frame) {
             break frame;
         }
     };
-    assert_eq!((marker_text(&frame), frame.topic.as_str()), (Some("on air"), topic.as_str()));
+    assert_eq!((marker_text(&frame).as_deref(), frame.topic.as_str()), (Some("on air"), topic.as_str()));
 
     let reply = client.request(ping_body(42)).await;
     assert!(matches!(reply.body, Some(Body::Pong(ref pong)) if pong.nonce == 42));
@@ -130,18 +130,17 @@ async fn locations_travel_as_datagrams_in_both_directions() {
     assert_eq!(report.sample.position.as_option().map(|p| (p.lat, p.lng)), Some((35.6595, 139.7005)));
 
     // Down: a friend's position arrives as a datagram, not on the stream.
-    core.rt.to_user(alice.id, friend_location("friend-1", "")).await.unwrap();
-    assert_eq!(located_friend(&client.next_datagram().await), Some("friend-1"));
+    core.rt.to_user(alice.id, &friend_location("friend-1", "")).await.unwrap();
+    assert_eq!(located_friend(&client.next_datagram().await).as_deref(), Some("friend-1"));
     assert!(client.next_within(QUIET).await.is_none(), "nothing on the stream");
 
     // Everything else stays on the stream, even other geo events.
-    let removed = GeoEvent { event: Some(GeoEventKind::LocationRemovedUserId("friend-1".into())), ..Default::default() };
-    core.rt.to_user(alice.id, Body::Geo(Box::new(removed))).await.unwrap();
-    assert!(matches!(client.next().await.body, Some(Body::Geo(_))));
+    core.rt.to_user(alice.id, &marker("friend-1")).await.unwrap();
+    assert_eq!(marker_text(&client.next().await).as_deref(), Some("friend-1"));
 
     // A position too large for a datagram falls back to the stream.
-    core.rt.to_user(alice.id, friend_location("friend-2", &"x".repeat(4000))).await.unwrap();
-    assert_eq!(located_friend(&client.next().await), Some("friend-2"));
+    core.rt.to_user(alice.id, &friend_location("friend-2", &"x".repeat(4000))).await.unwrap();
+    assert_eq!(located_friend(&client.next().await).as_deref(), Some("friend-2"));
 
     let stats = harness.gateway.stats();
     assert_eq!((stats.datagrams_in, stats.datagrams_out, stats.locations_forwarded), (1, 1, 1));
@@ -183,8 +182,8 @@ async fn websocket_clients_get_positions_on_their_only_channel() {
     let harness = Harness::start().await;
     let alice = harness.app.user("alice").await;
     let mut client = harness.ws_as(Some(&alice), true).await;
-    harness.app.core.rt.to_user(alice.id, friend_location("friend-1", "")).await.unwrap();
-    assert_eq!(located_friend(&client.next().await), Some("friend-1"));
+    harness.app.core.rt.to_user(alice.id, &friend_location("friend-1", "")).await.unwrap();
+    assert_eq!(located_friend(&client.next().await).as_deref(), Some("friend-1"));
     assert_eq!(harness.gateway.stats().datagrams_out, 0);
 }
 

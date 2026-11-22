@@ -4,10 +4,13 @@
 //! verbatim. The only thing the gateway needs to know about them is whether
 //! losing one is acceptable; [`delivery_of`] finds that out by reading a few
 //! tag bytes instead of decoding the whole message.
-use buffa::Message as _;
+use buffa::{Message as _, MessageName as _};
 use bytes::Bytes;
 use tokuly_core::time::{now, ts};
-use tokuly_proto::realtime::{Error, Pong, ServerFrame, TopicStats, Welcome, server_frame::Body};
+use tokuly_proto::{
+    geo::GeoEvent,
+    realtime::{Error, Pong, ServerFrame, TopicStats, Welcome, server_frame::Body},
+};
 
 /// How a frame may be treated on its way to a client.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,14 +82,20 @@ pub(crate) fn error(reply_to: u64, rejection: Rejection, fatal: bool) -> Bytes {
     encode(reply_to, Body::Error(Box::new(error)))
 }
 
-/// The body of a `TopicStats` push (published through the normal topic path).
-pub(crate) fn topic_stats(subscriber_count: i64) -> Body {
-    Body::TopicStats(Box::new(TopicStats { subscriber_count, ..Default::default() }))
+/// A `TopicStats` push for the subscribers of `topic`. It travels the way
+/// the domains' events do: published on the topic's subject and forwarded
+/// by every gateway that has subscribers.
+pub(crate) fn topic_stats(topic: &str, subscriber_count: i64) -> Bytes {
+    let stats = TopicStats { subscriber_count, ..Default::default() };
+    let frame = ServerFrame { topic: topic.to_owned(), body: Some(Body::TopicStats(Box::new(stats))), ..Default::default() };
+    Bytes::from(frame.encode_to_vec())
 }
 
 // Field numbers the classifier looks for. `classification_follows_the_schema`
 // below fails if the proto files are renumbered without updating these.
-const SERVER_FRAME_GEO: u32 = 10;
+const SERVER_FRAME_EVENT: u32 = 9;
+const EVENT_TYPE: u32 = 1;
+const EVENT_PAYLOAD: u32 = 2;
 const GEO_EVENT_LOCATION: u32 = 1;
 const WIRE_VARINT: u8 = 0;
 const WIRE_FIXED64: u8 = 1;
@@ -94,8 +103,8 @@ const WIRE_LEN: u8 = 2;
 const WIRE_FIXED32: u8 = 5;
 
 /// Decides how an encoded `ServerFrame` may be delivered. Only a friend's
-/// position (`geo.location`) is droppable; anything unreadable is treated as
-/// reliable so that nothing is ever lost by mistake.
+/// position (a `GeoEvent` with `location`) is droppable; anything unreadable
+/// is treated as reliable so that nothing is ever lost by mistake.
 pub(crate) fn delivery_of(frame: &[u8]) -> Delivery {
     match geo_event(frame).and_then(first_field_number) {
         Some(GEO_EVENT_LOCATION) => Delivery::Droppable,
@@ -103,14 +112,23 @@ pub(crate) fn delivery_of(frame: &[u8]) -> Delivery {
     }
 }
 
-/// The encoded `GeoEvent` inside a `ServerFrame`, if that is its body.
-fn geo_event(mut frame: &[u8]) -> Option<&[u8]> {
-    while !frame.is_empty() {
-        let (field, wire) = read_tag(&mut frame)?;
-        if field == SERVER_FRAME_GEO && wire == WIRE_LEN {
-            return read_len_delimited(&mut frame);
+/// The encoded `GeoEvent` a `ServerFrame` carries, if that is its event.
+fn geo_event(frame: &[u8]) -> Option<&[u8]> {
+    let event = len_field(frame, SERVER_FRAME_EVENT)?;
+    if len_field(event, EVENT_TYPE)? != GeoEvent::FULL_NAME.as_bytes() {
+        return None;
+    }
+    len_field(event, EVENT_PAYLOAD)
+}
+
+/// The first length-delimited field `number` of an encoded message.
+fn len_field(mut message: &[u8], number: u32) -> Option<&[u8]> {
+    while !message.is_empty() {
+        let (field, wire) = read_tag(&mut message)?;
+        if field == number && wire == WIRE_LEN {
+            return read_len_delimited(&mut message);
         }
-        skip_value(&mut frame, wire)?;
+        skip_value(&mut message, wire)?;
     }
     None
 }
@@ -165,13 +183,19 @@ fn skip_bytes(buf: &mut &[u8], count: usize) -> Option<()> {
 mod tests {
     use tokuly_proto::{
         common::LatLng,
-        geo::{FriendLocation, GeoEvent, geo_event::Event},
+        geo::{FriendLocation, geo_event::Event},
+        realtime::Event as Envelope,
     };
 
     use super::*;
 
     fn frame(reply_to: u64, topic: &str, body: Body) -> Vec<u8> {
         ServerFrame { reply_to, topic: topic.to_owned(), body: Some(body), ..Default::default() }.encode_to_vec()
+    }
+
+    /// A frame that carries a domain's event, as `tokuly_core::realtime` publishes it.
+    fn event_frame(reply_to: u64, topic: &str, event: &(impl buffa::Message + buffa::MessageName)) -> Vec<u8> {
+        frame(reply_to, topic, Body::Event(Box::new(Envelope::pack(event))))
     }
 
     fn location_event() -> GeoEvent {
@@ -185,25 +209,27 @@ mod tests {
 
     #[test]
     fn classification_follows_the_schema() {
-        let location = frame(0, "", Body::Geo(Box::new(location_event())));
+        let location = event_frame(0, "", &location_event());
         assert_eq!(delivery_of(&location), Delivery::Droppable);
         // Envelope fields in front of the body do not confuse the scanner.
-        let on_topic = frame(u64::MAX, "share:abc", Body::Geo(Box::new(location_event())));
+        let on_topic = event_frame(u64::MAX, "share:abc", &location_event());
         assert_eq!(delivery_of(&on_topic), Delivery::Droppable);
 
         let removed = GeoEvent { event: Some(Event::LocationRemovedUserId("someone".into())), ..Default::default() };
-        assert_eq!(delivery_of(&frame(0, "", Body::Geo(Box::new(removed)))), Delivery::Reliable);
-        assert_eq!(delivery_of(&frame(0, "", Body::Geo(Box::default()))), Delivery::Reliable);
-        assert_eq!(delivery_of(&frame(0, "", Body::Chat(Box::default()))), Delivery::Reliable);
-        assert_eq!(delivery_of(&frame(7, "live:1", topic_stats(3))), Delivery::Reliable);
+        assert_eq!(delivery_of(&event_frame(0, "", &removed)), Delivery::Reliable);
+        assert_eq!(delivery_of(&event_frame(0, "", &GeoEvent::default())), Delivery::Reliable);
+        // Another domain's event whose first field happens to have the same number.
+        let lookalike = Envelope { r#type: "tokuly.chat.v1.ChatEvent".into(), payload: location_event().encode_to_vec(), ..Default::default() };
+        assert_eq!(delivery_of(&frame(0, "", Body::Event(Box::new(lookalike)))), Delivery::Reliable);
+        assert_eq!(delivery_of(&topic_stats("live:1", 3)), Delivery::Reliable);
     }
 
     #[test]
     fn garbage_is_treated_as_reliable() {
         assert_eq!(delivery_of(&[]), Delivery::Reliable);
         assert_eq!(delivery_of(&[0xff; 16]), Delivery::Reliable);
-        // A geo field whose declared length runs past the end of the buffer.
-        assert_eq!(delivery_of(&[0x52, 0x7f, 0x0a]), Delivery::Reliable);
+        // An event field whose declared length runs past the end of the buffer.
+        assert_eq!(delivery_of(&[0x4a, 0x7f, 0x0a]), Delivery::Reliable);
         // Truncated in the middle of a varint.
         assert_eq!(delivery_of(&[0x08, 0x80]), Delivery::Reliable);
     }

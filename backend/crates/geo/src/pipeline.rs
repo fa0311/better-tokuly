@@ -17,7 +17,7 @@
 use std::hash::{Hash as _, Hasher as _};
 
 use chrono::{DateTime, Duration, Utc};
-use tokuly_core::{geoindex, prelude::*, presence::LocationReport};
+use tokuly_core::{geoindex, prelude::*, presence};
 use tokuly_proto::geo::{Activity, FootprintProgress, LocationSample, geo_event::Event};
 use tokuly_social::graph;
 
@@ -171,6 +171,9 @@ struct Effects {
     footprints: Vec<Uncovered>,
     gatherings: Option<Changes>,
 }
+
+/// A location sample as the realtime gateway hands it over.
+pub type LocationReport = presence::LocationReport<LocationSample>;
 
 impl Geo {
     /// Processes one location report directly, as if it had arrived from the

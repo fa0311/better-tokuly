@@ -238,7 +238,7 @@ impl Geo {
         self.leave_gathering(user_id).await?;
         let shares: Vec<String> = sqlx::query_scalar("SELECT token FROM geo_live_shares WHERE user_id = $1 AND ended_at IS NULL").bind(user_id).fetch_all(db).await?;
         for token in &shares {
-            self.core.rt.notify_topic(&crate::shares::topic(token), crate::fanout::frame(Push::LocationRemovedUserId(user_id.to_string()))).await;
+            self.core.rt.notify_topic(&crate::shares::topic(token), &crate::fanout::geo_event(Push::LocationRemovedUserId(user_id.to_string()))).await;
         }
         // People whose cached context mentions this user: alert subjects, SOS senders.
         let mut affected: Vec<Uuid> = sqlx::query_scalar("SELECT subject_id FROM geo_place_alerts WHERE owner_id = $1").bind(user_id).fetch_all(db).await?;

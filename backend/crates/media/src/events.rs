@@ -11,7 +11,7 @@
 //! [`asset_topic`].
 use serde::{Deserialize, Serialize};
 use tokuly_core::prelude::*;
-use tokuly_proto::{media::MediaEvent, realtime::server_frame::Body};
+use tokuly_proto::media::MediaEvent;
 
 use crate::assets::AssetRow;
 
@@ -48,7 +48,7 @@ pub fn asset_topic(asset_id: Uuid) -> String {
 /// message whose attachment is still processing), so they get the public view.
 pub(crate) async fn push_update(core: &Core, row: &AssetRow) {
     let owner_view = MediaEvent { event: Some(row.to_proto().into()), ..Default::default() };
-    core.rt.notify_user(row.owner_id, Body::from(owner_view)).await;
+    core.rt.notify_user(row.owner_id, &owner_view).await;
     let public_view = MediaEvent { event: Some(row.to_public_proto().into()), ..Default::default() };
-    core.rt.notify_topic(&asset_topic(row.id), Body::from(public_view)).await;
+    core.rt.notify_topic(&asset_topic(row.id), &public_view).await;
 }

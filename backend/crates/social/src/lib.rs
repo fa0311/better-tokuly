@@ -13,10 +13,7 @@ use std::{ops::Deref, sync::Arc, time::Duration};
 
 use tokuly_core::prelude::*;
 use tokuly_identity::Identity;
-use tokuly_proto::{
-    realtime::server_frame::Body,
-    social::{SocialEvent, social_event::Event as Push},
-};
+use tokuly_proto::social::{SocialEvent, social_event::Event as Push};
 
 mod best_friends;
 mod blocks;
@@ -139,12 +136,12 @@ impl Social {
 
     /// Pushes a social event to every connected device of one user.
     pub(crate) async fn push(&self, user_id: Uuid, event: Push) {
-        self.core.rt.notify_user(user_id, social_frame(event)).await;
+        self.core.rt.notify_user(user_id, &social_event(event)).await;
     }
 
     /// Pushes the same social event to several users.
     pub(crate) async fn push_many(&self, user_ids: impl IntoIterator<Item = Uuid>, event: Push) {
-        self.core.rt.notify_users(user_ids, social_frame(event)).await;
+        self.core.rt.notify_users(user_ids, &social_event(event)).await;
     }
 
     /// Fails with `NOT_FRIENDS` unless `other` is a friend of `user_id`.
@@ -160,6 +157,6 @@ pub(crate) fn not_friends() -> AppError {
     AppError::precondition("NOT_FRIENDS", "you are not friends with this user")
 }
 
-fn social_frame(event: Push) -> Body {
-    Body::Social(Box::new(SocialEvent { event: Some(event), ..Default::default() }))
+fn social_event(event: Push) -> SocialEvent {
+    SocialEvent { event: Some(event), ..Default::default() }
 }

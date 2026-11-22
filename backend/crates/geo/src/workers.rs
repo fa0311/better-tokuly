@@ -15,11 +15,11 @@ use tokuly_core::{
     bus::STREAM_LOCATIONS,
     events::{self, ConsumeOptions},
     prelude::*,
-    presence::{LOCATION_SUBJECT_PREFIX, LocationReport},
+    presence::LOCATION_SUBJECT_PREFIX,
 };
 use tokuly_identity::settings;
 
-use crate::{Geo, consumers};
+use crate::{Geo, consumers, pipeline::LocationReport};
 
 /// Durable name of the location stream consumer; worker processes share it.
 const LOCATION_CONSUMER: &str = "geo-pipeline";
