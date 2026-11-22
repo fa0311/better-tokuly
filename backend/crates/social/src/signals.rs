@@ -22,6 +22,13 @@ impl Social {
     pub(crate) async fn buzz(&self, user_id: Uuid, friend_id: Uuid) -> AppResult<()> {
         let core = &self.core;
         self.require_friend(user_id, friend_id).await?;
+        // A buzz is a burst by design, but not an endless one — and the
+        // limit comes first: "not nearby" is an answer about where the
+        // friend is, and nobody gets to ask that as often as they like.
+        core.cache.rate_limit(&format!("buzz:{user_id}:{friend_id}"), 10, Duration::from_secs(60)).await?;
+        core.cache.rate_limit(&format!("buzz:{user_id}"), 60, Duration::from_secs(600)).await?;
+        // (No distance for a pair one of whom hides their precise location
+        // from the other: ghost mode holds here as on the map.)
         let apart = geoindex::distance_between(&core.cache, user_id, friend_id, BUZZ_POSITION_MAX_AGE).await?;
         ensure!(
             apart.is_some_and(|meters| meters <= self.cfg.buzz_radius_meters),
@@ -29,9 +36,6 @@ impl Social {
             "NOT_NEARBY",
             "you can only buzz a friend who is right around you"
         );
-        // A buzz is a burst by design, but not an endless one.
-        core.cache.rate_limit(&format!("buzz:{user_id}:{friend_id}"), 10, Duration::from_secs(60)).await?;
-        core.cache.rate_limit(&format!("buzz:{user_id}"), 60, Duration::from_secs(600)).await?;
 
         let me = tokuly_identity::summary(core, user_id).await?;
         let text = copy::buzz(&people::name_of(&me));

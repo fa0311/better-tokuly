@@ -132,7 +132,10 @@ impl Geo {
 
     /// Registers this domain's RPC services on the Connect router.
     pub fn register(&self, router: connectrpc::Router) -> connectrpc::Router {
-        use tokuly_proto::geo::{FootprintServiceExt, HistoryServiceExt, LocationServiceExt, PlaceServiceExt, SafetyServiceExt, TripServiceExt};
+        use tokuly_proto::geo::{
+            FootprintServiceExt, HistoryServiceExt, LocationServiceExt, PlaceServiceExt, SafetyServiceExt,
+            TripServiceExt,
+        };
         let me = Arc::new(self.clone());
         let router = LocationServiceExt::register(me.clone(), router);
         let router = PlaceServiceExt::register(me.clone(), router);

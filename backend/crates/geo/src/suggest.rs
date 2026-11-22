@@ -77,7 +77,11 @@ pub fn clusters(stays: &[Stay], zone_at: impl Fn(Point) -> Tz) -> Vec<Cluster> {
         .into_iter()
         .map(|(center, members)| {
             let zone = zone_at(center);
-            let mut nights: Vec<NaiveDate> = members.iter().filter_map(|stay| night_of(stay.arrived, stay.departed, zone)).map(|night| night.date).collect();
+            let mut nights: Vec<NaiveDate> = members
+                .iter()
+                .filter_map(|stay| night_of(stay.arrived, stay.departed, zone))
+                .map(|night| night.date)
+                .collect();
             nights.sort();
             nights.dedup();
             let mut workdays: Vec<NaiveDate> = members
@@ -118,7 +122,10 @@ pub fn label_for(cluster: &Cluster, rules: Rules) -> Option<PlaceLabel> {
 /// school, then other frequent spots by time spent. Each of home, work and
 /// school is suggested at most once (the strongest candidate).
 pub fn suggestions(stays: &[Stay], rules: Rules, zone_at: impl Fn(Point) -> Tz, limit: usize) -> Vec<Suggestion> {
-    let mut found: Vec<Suggestion> = clusters(stays, zone_at).into_iter().filter_map(|cluster| label_for(&cluster, rules).map(|label| Suggestion { cluster, label })).collect();
+    let mut found: Vec<Suggestion> = clusters(stays, zone_at)
+        .into_iter()
+        .filter_map(|cluster| label_for(&cluster, rules).map(|label| Suggestion { cluster, label }))
+        .collect();
     let priority = |label: PlaceLabel| match label {
         PlaceLabel::PLACE_LABEL_HOME => 0,
         PlaceLabel::PLACE_LABEL_WORK | PlaceLabel::PLACE_LABEL_SCHOOL => 1,
@@ -253,7 +260,15 @@ mod tests {
     #[test]
     fn nights_are_counted_in_the_local_time_of_the_spot() {
         // 12:00–21:00 UTC is 21:00–06:00 in Tokyo: a night there, an afternoon in London.
-        let stays: Vec<Stay> = (16..19).map(|day| stay(HOME, Utc.with_ymd_and_hms(2026, 11, day, 12, 0, 0).unwrap(), Utc.with_ymd_and_hms(2026, 11, day, 21, 0, 0).unwrap())).collect();
+        let stays: Vec<Stay> = (16..19)
+            .map(|day| {
+                stay(
+                    HOME,
+                    Utc.with_ymd_and_hms(2026, 11, day, 12, 0, 0).unwrap(),
+                    Utc.with_ymd_and_hms(2026, 11, day, 21, 0, 0).unwrap(),
+                )
+            })
+            .collect();
         assert_eq!(clusters(&stays, |_| Tokyo)[0].nights, 3);
         assert_eq!(clusters(&stays, |_| chrono_tz::Europe::London)[0].nights, 0);
     }

@@ -10,7 +10,10 @@ use std::{collections::HashMap, time::Duration};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tokuly_core::prelude::*;
+use tokuly_core::{
+    geoindex::{self, Sight, SightRule},
+    prelude::*,
+};
 use tokuly_identity::settings;
 use tokuly_proto::identity::Status;
 
@@ -98,10 +101,15 @@ pub struct GhostRule {
     pub until_ms: Option<i64>,
     /// Set for FROZEN rules made while a position was known.
     pub frozen: Option<FrozenPin>,
+    /// Since when the viewers of this rule have not seen the owner precisely
+    /// (earlier than `since_ms` when it replaced another non-precise rule).
+    /// What the owner did after this moment is not shown to them.
+    #[serde(default)]
+    pub hidden_since_ms: i64,
 }
 
 impl GhostRule {
-    fn active(&self, now_ms: i64) -> bool {
+    pub fn active(&self, now_ms: i64) -> bool {
         self.until_ms.is_none_or(|until| until > now_ms)
     }
 }
@@ -110,6 +118,11 @@ impl GhostRule {
 pub struct GhostConfig {
     pub everyone: Option<GhostRule>,
     pub overrides: HashMap<Uuid, GhostRule>,
+    /// What a timed, non-precise override turns into when it ends while the
+    /// default is not precise either (see [`GhostConfig::lapse`]): the
+    /// default's mode, but the override's copy of the pin and its watermark.
+    #[serde(default)]
+    pub lapsed: HashMap<Uuid, GhostRule>,
 }
 
 impl GhostConfig {
@@ -117,14 +130,69 @@ impl GhostConfig {
     /// default. Rules past their end no longer apply even if the sweeper has
     /// not removed them yet.
     pub fn rule_for(&self, viewer: Uuid, now_ms: i64) -> Option<&GhostRule> {
-        self.overrides.get(&viewer).filter(|rule| rule.active(now_ms)).or_else(|| self.everyone.as_ref().filter(|rule| rule.active(now_ms)))
+        self.applied(viewer, now_ms).map(|(rule, _)| rule)
+    }
+
+    /// Works out, for every timed override that hides the owner, what
+    /// applies to that friend from the moment it ends, if the default hides
+    /// the owner too. The friend goes on under the default's mode, but must
+    /// not be handed the default's (newer) copy of the pin or its (later)
+    /// watermark: both are from a time the friend was already shut out.
+    /// The sweeper stores the same thing when it gets to the expired row;
+    /// this makes it true from the first millisecond.
+    pub fn lapse(&mut self) {
+        self.lapsed.clear();
+        let Some(default) = self.everyone.as_ref().filter(|rule| rule.mode != PRECISE) else { return };
+        for (viewer, rule) in &self.overrides {
+            let Some(until_ms) = rule.until_ms.filter(|_| rule.mode != PRECISE) else { continue };
+            let frozen = if default.mode == FROZEN && rule.mode == FROZEN { rule.frozen.clone() } else { None };
+            self.lapsed.insert(
+                *viewer,
+                GhostRule {
+                    mode: default.mode,
+                    since_ms: until_ms,
+                    until_ms: default.until_ms,
+                    frozen,
+                    hidden_since_ms: rule.hidden_since_ms,
+                },
+            );
+        }
     }
 
     /// The default rule, if it still applies.
     pub fn default_rule(&self, now_ms: i64) -> Option<&GhostRule> {
         self.everyone.as_ref().filter(|rule| rule.active(now_ms))
     }
+
+    /// Of the rules hiding the owner from someone right now, the one that
+    /// has been doing so the longest, with the `viewer_id` of its row. Its
+    /// watermark is the last moment every friend saw the owner precisely.
+    pub fn longest_hidden(&self, now_ms: i64) -> Option<(&GhostRule, Uuid)> {
+        let default = self.default_rule(now_ms).map(|rule| (rule, Uuid::nil()));
+        let overrides = self.overrides.keys().filter_map(|viewer| self.applied(*viewer, now_ms));
+        default
+            .into_iter()
+            .chain(overrides)
+            .filter(|(rule, _)| rule.mode != PRECISE)
+            .min_by_key(|(rule, _)| rule.hidden_since_ms)
+    }
+
+    /// The rule that applies to `viewer` and the `viewer_id` of its row (the
+    /// nil UUID for the default).
+    pub fn applied(&self, viewer: Uuid, now_ms: i64) -> Option<(&GhostRule, Uuid)> {
+        if let Some(rule) = self.overrides.get(&viewer).filter(|rule| rule.active(now_ms)) {
+            return Some((rule, viewer));
+        }
+        // An override that ran out under a default that hides the owner as well.
+        if let Some(rule) = self.lapsed.get(&viewer).filter(|rule| rule.active(now_ms)) {
+            return Some((rule, viewer));
+        }
+        self.default_rule(now_ms).map(|rule| (rule, Uuid::nil()))
+    }
 }
+
+const PRECISE: i32 = tokuly_proto::geo::GhostMode::GHOST_MODE_PRECISE as i32;
+const FROZEN: i32 = tokuly_proto::geo::GhostMode::GHOST_MODE_FROZEN as i32;
 
 /// One of the user's own places, for matching stays.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -217,6 +285,22 @@ impl OwnerCtx {
         self.sos.as_ref().is_some_and(|sos| sos.notify.contains(&viewer))
     }
 
+    /// Who sees this user's precise location, in the form the shared
+    /// position index keeps (so that what other domains ask it about a pair
+    /// of users follows ghost mode too).
+    pub fn sight(&self) -> Sight {
+        if !self.active {
+            // Nobody sees an account that is gone or banned.
+            return Sight { everyone: Some(SightRule { precise: false, until_ms: None }), ..Default::default() };
+        }
+        let rule = |rule: &GhostRule| SightRule { precise: rule.mode == PRECISE, until_ms: rule.until_ms };
+        Sight {
+            everyone: self.ghost.everyone.as_ref().map(rule),
+            overrides: self.ghost.overrides.iter().map(|(viewer, ghost)| (*viewer, rule(ghost))).collect(),
+            alerted: self.sos.as_ref().map(|sos| sos.notify.clone()).unwrap_or_default(),
+        }
+    }
+
     /// The user's own place with a label (home, work, school).
     pub fn labelled_place(&self, label: i32) -> Option<&OwnPlace> {
         self.places.iter().find(|place| place.label == label)
@@ -256,6 +340,7 @@ struct GhostRow {
     since: DateTime<Utc>,
     until: Option<DateTime<Utc>>,
     frozen: Option<serde_json::Value>,
+    hidden_since: DateTime<Utc>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -346,6 +431,9 @@ impl Geo {
         let dirty: Vec<Option<String>> = redis::cmd("MGET").arg(&dirty_keys).query_async(&mut cache.conn()).await?;
         for (user_id, dirty) in missing.iter().zip(dirty) {
             let ctx = loaded.get(user_id).cloned().unwrap_or_default();
+            // The shared position index answers questions about pairs of
+            // users by the same rules: it gets them whenever they are read anew.
+            geoindex::set_sight(cache, *user_id, &ctx.sight()).await?;
             // A change committed while we were reading: serve what we read, but do not cache it.
             if dirty.is_none() {
                 cache.set_json(&ctx_key(*user_id), &ctx, Some(CTX_TTL)).await?;
@@ -370,6 +458,11 @@ impl Geo {
                 // The entry expires by itself; until then readers may see the old rules.
                 tracing::warn!(%user_id, error = %e, "could not drop a cached location context");
             }
+        }
+        // Read them again at once: that is what hands the new rules to the
+        // position index, which other domains ask without coming through here.
+        if let Err(e) = self.ctx_many(user_ids).await {
+            tracing::warn!(error = %e, "could not refresh location contexts after a change");
         }
     }
 
@@ -404,8 +497,12 @@ impl Geo {
             );
         }
 
-        let rules: Vec<GhostRow> =
-            sqlx::query_as("SELECT owner_id, viewer_id, mode, since, until, frozen FROM geo_ghost_rules WHERE owner_id = ANY($1)").bind(user_ids).fetch_all(db).await?;
+        let rules: Vec<GhostRow> = sqlx::query_as(
+            "SELECT owner_id, viewer_id, mode, since, until, frozen, hidden_since FROM geo_ghost_rules WHERE owner_id = ANY($1)",
+        )
+        .bind(user_ids)
+        .fetch_all(db)
+        .await?;
         for row in rules {
             let Some(ctx) = out.get_mut(&row.owner_id) else { continue };
             let rule = GhostRule {
@@ -413,12 +510,16 @@ impl Geo {
                 since_ms: millis(row.since),
                 until_ms: row.until.map(millis),
                 frozen: row.frozen.and_then(|value| serde_json::from_value(value).ok()),
+                hidden_since_ms: millis(row.hidden_since),
             };
             if row.viewer_id.is_nil() {
                 ctx.ghost.everyone = Some(rule);
             } else {
                 ctx.ghost.overrides.insert(row.viewer_id, rule);
             }
+        }
+        for ctx in out.values_mut() {
+            ctx.ghost.lapse();
         }
 
         let places: Vec<PlaceBits> = sqlx::query_as(
@@ -449,7 +550,12 @@ impl Geo {
                 .await?;
         for sos in alarms {
             if let Some(ctx) = out.get_mut(&sos.user_id) {
-                ctx.sos = Some(SosCtx { id: sos.id, message: sos.message, notify: sos.notify_user_ids, started_ms: millis(sos.started_at) });
+                ctx.sos = Some(SosCtx {
+                    id: sos.id,
+                    message: sos.message,
+                    notify: sos.notify_user_ids,
+                    started_ms: millis(sos.started_at),
+                });
             }
         }
 
@@ -479,14 +585,14 @@ impl Geo {
             }
         }
 
-        let shares: Vec<(Uuid, String, DateTime<Utc>)> = sqlx::query_as(
-            "SELECT user_id, token, expires_at FROM geo_live_shares WHERE user_id = ANY($1) AND ended_at IS NULL AND expires_at > now()",
+        let shares: Vec<(Uuid, Vec<u8>, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT user_id, token_sealed, expires_at FROM geo_live_shares WHERE user_id = ANY($1) AND ended_at IS NULL AND expires_at > now()",
         )
         .bind(user_ids)
         .fetch_all(db)
         .await?;
-        for (user_id, token, expires_at) in shares {
-            if let Some(ctx) = out.get_mut(&user_id) {
+        for (user_id, sealed, expires_at) in shares {
+            if let (Some(ctx), Some(token)) = (out.get_mut(&user_id), self.open_share_token(&sealed)) {
                 ctx.shares.push(ShareCtx { token, expires_ms: millis(expires_at) });
             }
         }
@@ -521,7 +627,7 @@ mod tests {
     use super::*;
 
     fn rule(mode: i32, until_ms: Option<i64>) -> GhostRule {
-        GhostRule { mode, since_ms: 0, until_ms, frozen: None }
+        GhostRule { mode, since_ms: 0, until_ms, frozen: None, hidden_since_ms: 0 }
     }
 
     #[test]
@@ -541,7 +647,8 @@ mod tests {
 
     #[test]
     fn expired_statuses_are_not_shown() {
-        let status = StatusLite { emoji: "🍜".into(), text: "ラーメン".into(), set_ms: Some(0), expires_ms: Some(10_000) };
+        let status =
+            StatusLite { emoji: "🍜".into(), text: "ラーメン".into(), set_ms: Some(0), expires_ms: Some(10_000) };
         let before = DateTime::from_timestamp_millis(9_000).unwrap();
         let after = DateTime::from_timestamp_millis(10_000).unwrap();
         assert_eq!(status.current(before).unwrap().emoji, "🍜");
@@ -553,7 +660,13 @@ mod tests {
     #[test]
     fn privacy_defaults_match_identity() {
         let privacy = Privacy::default();
-        assert!(privacy.share_battery && privacy.share_activity && privacy.share_online_status && privacy.share_place_labels && privacy.record_history);
+        assert!(
+            privacy.share_battery
+                && privacy.share_activity
+                && privacy.share_online_status
+                && privacy.share_place_labels
+                && privacy.record_history
+        );
         assert_eq!(privacy.history_days, 0);
         assert_eq!(privacy.footprints_audience, tokuly_proto::identity::Audience::AUDIENCE_FRIENDS as i32);
     }

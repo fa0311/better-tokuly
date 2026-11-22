@@ -18,6 +18,7 @@ use tokuly_core::{
     presence::{LOCATION_SUBJECT_PREFIX, LocationReport},
 };
 use tokuly_identity::settings;
+use tokuly_proto::geo::LocationSample;
 
 use crate::{Geo, consumers};
 
@@ -53,10 +54,17 @@ impl Geo {
         let geo = self.clone();
         tokio::spawn(async move {
             let handler = geo.clone();
-            events::consume(geo.core.bus.clone(), "geo", consumers::TOPICS, ConsumeOptions::default(), geo.core.shutdown.clone(), move |event| {
-                let geo = handler.clone();
-                async move { geo.handle_event(&event).await }
-            })
+            events::consume(
+                geo.core.bus.clone(),
+                "geo",
+                consumers::TOPICS,
+                ConsumeOptions::default(),
+                geo.core.shutdown.clone(),
+                move |event| {
+                    let geo = handler.clone();
+                    async move { geo.handle_event(&event).await }
+                },
+            )
             .await;
         });
 
@@ -186,9 +194,9 @@ impl Geo {
     /// are processed in order while different users proceed in parallel.
     async fn run_location_consumer(&self) {
         let shutdown = self.core.shutdown.clone();
-        let lanes: Vec<mpsc::Sender<(Message, LocationReport)>> = (0..self.cfg.pipeline_lanes)
+        let lanes: Vec<mpsc::Sender<(Message, LocationReport<LocationSample>)>> = (0..self.cfg.pipeline_lanes)
             .map(|_| {
-                let (sender, mut receiver) = mpsc::channel::<(Message, LocationReport)>(LANE_DEPTH);
+                let (sender, mut receiver) = mpsc::channel::<(Message, LocationReport<LocationSample>)>(LANE_DEPTH);
                 let geo = self.clone();
                 tokio::spawn(async move {
                     while let Some((message, report)) = receiver.recv().await {
@@ -200,7 +208,18 @@ impl Geo {
             .collect();
         let filter = format!("{LOCATION_SUBJECT_PREFIX}.>");
         while !shutdown.is_cancelled() {
-            let consumer = match self.core.bus.durable_consumer(STREAM_LOCATIONS, LOCATION_CONSUMER, vec![filter.clone()], LOCATION_ACK_WAIT, LOCATION_MAX_DELIVER).await {
+            let consumer = match self
+                .core
+                .bus
+                .durable_consumer(
+                    STREAM_LOCATIONS,
+                    LOCATION_CONSUMER,
+                    vec![filter.clone()],
+                    LOCATION_ACK_WAIT,
+                    LOCATION_MAX_DELIVER,
+                )
+                .await
+            {
                 Ok(consumer) => consumer,
                 Err(e) => {
                     tracing::error!(error = %e, "location consumer setup failed; retrying");
@@ -230,7 +249,7 @@ impl Geo {
                     }
                     None => break,
                 };
-                let report: LocationReport = match serde_json::from_slice(&message.payload) {
+                let report: LocationReport<LocationSample> = match serde_json::from_slice(&message.payload) {
                     Ok(report) => report,
                     Err(e) => {
                         tracing::warn!(error = %e, "undecodable location sample dropped");
@@ -247,7 +266,7 @@ impl Geo {
         }
     }
 
-    async fn process_stream_sample(&self, message: Message, report: LocationReport) {
+    async fn process_stream_sample(&self, message: Message, report: LocationReport<LocationSample>) {
         let user_id = report.user_id;
         let delivered = message.info().map(|info| info.delivered).unwrap_or(1);
         match self.ingest(report).await {

@@ -40,8 +40,7 @@ const MAX_EMOJI_CHARS: usize = 16;
 const MAX_CATEGORY_CHARS: usize = 32;
 pub(crate) const MAX_PLACES: i64 = 200;
 
-pub(crate) const PLACE_COLUMNS: &str =
-    "id, owner_id, name, emoji, label, lat, lng, radius_m, visibility, address, category, auto_detected, photo, photo_asset_id, visit_count, created_at";
+pub(crate) const PLACE_COLUMNS: &str = "id, owner_id, name, emoji, label, lat, lng, radius_m, visibility, address, category, auto_detected, photo, photo_asset_id, created_at";
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub(crate) struct PlaceRow {
@@ -59,7 +58,6 @@ pub(crate) struct PlaceRow {
     pub auto_detected: bool,
     pub photo: Option<serde_json::Value>,
     pub photo_asset_id: Option<Uuid>,
-    pub visit_count: i32,
     pub created_at: DateTime<Utc>,
 }
 
@@ -69,7 +67,14 @@ impl PlaceRow {
     }
 
     pub fn stay_place(&self) -> StayPlace {
-        StayPlace { id: self.id, owner_id: self.owner_id, label: self.label as i32, name: self.name.clone(), emoji: self.emoji.clone(), visibility: self.visibility as i32 }
+        StayPlace {
+            id: self.id,
+            owner_id: self.owner_id,
+            label: self.label as i32,
+            name: self.name.clone(),
+            emoji: self.emoji.clone(),
+            visibility: self.visibility as i32,
+        }
     }
 
     /// The place without anything specific to who is asking.
@@ -105,14 +110,20 @@ pub(crate) fn place_not_found() -> AppError {
 
 pub(crate) fn clean_name(input: &str) -> AppResult<String> {
     let name = input.trim();
-    ensure!(!name.is_empty() && name.chars().count() <= MAX_NAME_CHARS && !name.chars().any(char::is_control), invalid, "INVALID_NAME", "a place name has 1-{MAX_NAME_CHARS} characters");
+    ensure!(
+        !name.is_empty() && name.chars().count() <= MAX_NAME_CHARS && !name.chars().any(char::is_control),
+        invalid,
+        "INVALID_NAME",
+        "a place name has 1-{MAX_NAME_CHARS} characters"
+    );
     Ok(name.to_owned())
 }
 
 pub(crate) fn clean_emoji(input: &str) -> AppResult<String> {
     let emoji = input.trim();
     ensure!(
-        emoji.chars().count() <= MAX_EMOJI_CHARS && !emoji.chars().any(|c| c.is_control() || c.is_whitespace() || c.is_ascii_alphanumeric()),
+        emoji.chars().count() <= MAX_EMOJI_CHARS
+            && !emoji.chars().any(|c| c.is_control() || c.is_whitespace() || c.is_ascii_alphanumeric()),
         invalid,
         "INVALID_EMOJI",
         "the place icon must be a single emoji"
@@ -122,7 +133,12 @@ pub(crate) fn clean_emoji(input: &str) -> AppResult<String> {
 
 pub(crate) fn clean_category(input: &str) -> AppResult<String> {
     let category = input.trim();
-    ensure!(category.chars().count() <= MAX_CATEGORY_CHARS && !category.chars().any(char::is_control), invalid, "INVALID_CATEGORY", "a category has at most {MAX_CATEGORY_CHARS} characters");
+    ensure!(
+        category.chars().count() <= MAX_CATEGORY_CHARS && !category.chars().any(char::is_control),
+        invalid,
+        "INVALID_CATEGORY",
+        "a category has at most {MAX_CATEGORY_CHARS} characters"
+    );
     Ok(category.to_owned())
 }
 
@@ -140,7 +156,12 @@ pub(crate) fn clean_radius(radius_m: f64) -> AppResult<f64> {
     if radius_m == 0.0 {
         return Ok(DEFAULT_RADIUS_M);
     }
-    ensure!(radius_m.is_finite() && (MIN_RADIUS_M..=MAX_RADIUS_M).contains(&radius_m), invalid, "INVALID_RADIUS", "the radius must be {MIN_RADIUS_M}-{MAX_RADIUS_M} meters");
+    ensure!(
+        radius_m.is_finite() && (MIN_RADIUS_M..=MAX_RADIUS_M).contains(&radius_m),
+        invalid,
+        "INVALID_RADIUS",
+        "the radius must be {MIN_RADIUS_M}-{MAX_RADIUS_M} meters"
+    );
     Ok(radius_m)
 }
 
@@ -162,20 +183,29 @@ pub(crate) fn clean_point(point: Option<&tokuly_proto::common::LatLng>) -> AppRe
     Ok((point.lat, point.lng))
 }
 
+/// Places republished per transaction when the search index is rebuilt.
+const REINDEX_PAGE: i64 = 200;
+
 /// The search document of a public place.
 fn search_doc(place: &PlaceRow) -> SearchDoc {
     SearchDoc {
         kind: "place".into(),
         id: place.id,
         title: place.name.clone(),
-        text: [place.address.as_str(), place.category.as_str()].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" "),
+        text: [place.address.as_str(), place.category.as_str()]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join(" "),
         tags: if place.category.is_empty() { Vec::new() } else { vec![place.category.clone()] },
         owner_id: Some(place.owner_id),
         public: place.visibility == PUBLIC,
         image_url: image_from_json(place.photo.as_ref()).map(|image| image.url),
         path: format!("/places/{}", place.id),
         created_at: place.created_at.timestamp(),
-        score: place.visit_count as f64,
+        // Not how often people go there: a number everyone can see must not
+        // move when someone visits (it would say where they are).
+        score: 0.0,
         extra: serde_json::json!({ "emoji": place.emoji, "lat": place.lat, "lng": place.lng }),
     }
 }
@@ -190,12 +220,22 @@ pub(crate) fn match_own_place(owner: Uuid, ctx: &OwnerCtx, at: Point) -> Option<
             (distance <= place.radius_m + MATCH_ALLOWANCE_M).then(|| (distance / place.radius_m.max(1.0), place))
         })
         .min_by(|a, b| a.0.total_cmp(&b.0))
-        .map(|(_, place)| StayPlace { id: place.id, owner_id: owner, label: place.label, name: place.name.clone(), emoji: place.emoji.clone(), visibility: place.visibility })
+        .map(|(_, place)| StayPlace {
+            id: place.id,
+            owner_id: owner,
+            label: place.label,
+            name: place.name.clone(),
+            emoji: place.emoji.clone(),
+            visibility: place.visibility,
+        })
 }
 
 impl Geo {
     pub(crate) async fn place_row(&self, place_id: Uuid) -> AppResult<Option<PlaceRow>> {
-        Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {PLACE_COLUMNS} FROM geo_places WHERE id = $1"))).bind(place_id).fetch_optional(&self.core.db).await?)
+        Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {PLACE_COLUMNS} FROM geo_places WHERE id = $1")))
+            .bind(place_id)
+            .fetch_optional(&self.core.db)
+            .await?)
     }
 
     /// Whether `viewer` may see a place: their own, a public one (unless they
@@ -236,12 +276,14 @@ impl Geo {
                 .bind(&ids)
                 .fetch_all(&self.core.db)
                 .await?;
-        let visits: HashMap<Uuid, (i64, Option<DateTime<Utc>>)> = visits.into_iter().map(|(id, count, last)| (id, (count, last))).collect();
-        let saved: Vec<Uuid> = sqlx::query_scalar("SELECT place_id FROM geo_saved_places WHERE user_id = $1 AND place_id = ANY($2)")
-            .bind(viewer)
-            .bind(&ids)
-            .fetch_all(&self.core.db)
-            .await?;
+        let visits: HashMap<Uuid, (i64, Option<DateTime<Utc>>)> =
+            visits.into_iter().map(|(id, count, last)| (id, (count, last))).collect();
+        let saved: Vec<Uuid> =
+            sqlx::query_scalar("SELECT place_id FROM geo_saved_places WHERE user_id = $1 AND place_id = ANY($2)")
+                .bind(viewer)
+                .bind(&ids)
+                .fetch_all(&self.core.db)
+                .await?;
         Ok(rows
             .iter()
             .map(|row| {
@@ -314,9 +356,14 @@ impl Geo {
     }
 
     /// Resolves a photo upload for a place into the stored image.
-    pub(crate) async fn place_photo(&self, owner: Uuid, asset_id: &str) -> AppResult<Option<(Uuid, serde_json::Value)>> {
+    pub(crate) async fn place_photo(
+        &self,
+        owner: Uuid,
+        asset_id: &str,
+    ) -> AppResult<Option<(Uuid, serde_json::Value)>> {
         let Some(asset_id) = parse_opt_id(asset_id)? else { return Ok(None) };
-        let image = assets::require_image_json(&self.core, asset_id, owner, &[AssetPurpose::ASSET_PURPOSE_PLACE_PHOTO]).await?;
+        let image =
+            assets::require_image_json(&self.core, asset_id, owner, &[AssetPurpose::ASSET_PURPOSE_PLACE_PHOTO]).await?;
         Ok(Some((asset_id, image)))
     }
 
@@ -327,7 +374,12 @@ impl Geo {
 
     /// Keeps the search index in line with a place: public places are
     /// indexed, everything else is removed.
-    pub(crate) async fn index_place(&self, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, place: &PlaceRow, was_public: bool) -> AppResult<()> {
+    pub(crate) async fn index_place(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        place: &PlaceRow,
+        was_public: bool,
+    ) -> AppResult<()> {
         if place.visibility == PUBLIC {
             outbound::index(&mut **tx, search_doc(place)).await
         } else if was_public {
@@ -337,10 +389,42 @@ impl Geo {
         }
     }
 
+    /// Publishes the search document of every public place again (an
+    /// administrator asked for the kind to be rebuilt; documents that did not
+    /// change cost the search domain nothing). Returns how many there were.
+    pub(crate) async fn reindex_places(&self) -> AppResult<u64> {
+        let mut published = 0;
+        let mut after = Uuid::nil();
+        loop {
+            // Read and publish under a row lock: a place that stops being
+            // public meanwhile is unpublished after this, not before.
+            let mut tx = self.core.db.begin().await?;
+            let page: Vec<PlaceRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+                "SELECT {PLACE_COLUMNS} FROM geo_places WHERE visibility = $1 AND id > $2 ORDER BY id LIMIT {REINDEX_PAGE} FOR SHARE"
+            )))
+            .bind(PUBLIC)
+            .bind(after)
+            .fetch_all(&mut *tx)
+            .await?;
+            let Some(last) = page.last() else { break };
+            after = last.id;
+            for place in &page {
+                outbound::index(&mut *tx, search_doc(place)).await?;
+            }
+            tx.commit().await?;
+            published += page.len() as u64;
+        }
+        Ok(published)
+    }
+
     /// Past stays of the owner inside a new or moved place become visits to
     /// it, so its visit count starts with the truth and it stops being
     /// suggested.
-    pub(crate) async fn adopt_visits(&self, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, place: &PlaceRow) -> AppResult<()> {
+    pub(crate) async fn adopt_visits(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        place: &PlaceRow,
+    ) -> AppResult<()> {
         let adopted = sqlx::query(
             "UPDATE geo_visits v SET place_id = $1, place_name = $2
              WHERE v.user_id = $3 AND v.place_id IS NULL
@@ -356,7 +440,6 @@ impl Geo {
         .await?
         .rows_affected();
         if adopted > 0 {
-            sqlx::query("UPDATE geo_places SET visit_count = visit_count + $2 WHERE id = $1").bind(place.id).bind(adopted as i32).execute(&mut **tx).await?;
             sqlx::query(
                 "UPDATE geo_nights n SET place_id = v.place_id, place_name = v.place_name, at_home = $3
                  FROM geo_visits v WHERE n.visit_id = v.id AND v.place_id = $1 AND n.user_id = $2",
@@ -395,13 +478,17 @@ impl Geo {
             })
             .await?;
         if changed {
-            self.refresh_friends(owner).await?;
+            self.refresh_friends_live(owner).await?;
         }
         Ok(())
     }
 
     /// Removes a place for good (by its owner, a moderator, or account deletion).
-    pub(crate) async fn remove_place(&self, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, place: &PlaceRow) -> AppResult<()> {
+    pub(crate) async fn remove_place(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        place: &PlaceRow,
+    ) -> AppResult<()> {
         assets::detach_holder(&mut **tx, &photo_holder(place.id)).await?;
         sqlx::query("DELETE FROM geo_places WHERE id = $1").bind(place.id).execute(&mut **tx).await?;
         if place.visibility == PUBLIC {
@@ -446,7 +533,10 @@ mod tests {
         assert_eq!(clean_visibility(Visibility::VISIBILITY_UNSPECIFIED.into(), custom).unwrap(), PRIVATE);
         assert_eq!(clean_visibility(Visibility::VISIBILITY_PUBLIC.into(), custom).unwrap(), PUBLIC);
         assert_eq!(clean_visibility(Visibility::VISIBILITY_FRIENDS.into(), custom).unwrap(), FRIENDS);
-        assert_eq!(clean_visibility(Visibility::VISIBILITY_UNLISTED.into(), custom).unwrap_err().reason, "INVALID_VISIBILITY");
+        assert_eq!(
+            clean_visibility(Visibility::VISIBILITY_UNLISTED.into(), custom).unwrap_err().reason,
+            "INVALID_VISIBILITY"
+        );
         // Home is private whatever was asked.
         assert_eq!(clean_visibility(Visibility::VISIBILITY_PUBLIC.into(), LABEL_HOME as i16).unwrap(), PRIVATE);
     }
@@ -459,17 +549,32 @@ mod tests {
     }
 
     fn own(label: i32, name: &str, at: Point, radius_m: f64) -> OwnPlace {
-        OwnPlace { id: Uuid::now_v7(), label, name: name.into(), emoji: String::new(), lat: at.0, lng: at.1, radius_m, visibility: 5 }
+        OwnPlace {
+            id: Uuid::now_v7(),
+            label,
+            name: name.into(),
+            emoji: String::new(),
+            lat: at.0,
+            lng: at.1,
+            radius_m,
+            visibility: 5,
+        }
     }
 
     #[test]
     fn a_stay_matches_the_own_place_it_is_deepest_inside() {
         let home_at = (35.6595, 139.7005);
         let park_at = math::destination(home_at.0, home_at.1, 90.0, 150.0);
-        let ctx = OwnerCtx { places: vec![own(1, "うち", home_at, 80.0), own(4, "公園", park_at, 300.0)], ..Default::default() };
+        let ctx = OwnerCtx {
+            places: vec![own(1, "うち", home_at, 80.0), own(4, "公園", park_at, 300.0)],
+            ..Default::default()
+        };
         let owner = Uuid::now_v7();
         // At home: inside both, but relatively closer to home's center.
-        assert_eq!(match_own_place(owner, &ctx, math::destination(home_at.0, home_at.1, 0.0, 10.0)).unwrap().name, "うち");
+        assert_eq!(
+            match_own_place(owner, &ctx, math::destination(home_at.0, home_at.1, 0.0, 10.0)).unwrap().name,
+            "うち"
+        );
         // In the park, outside home's radius.
         let in_park = math::destination(park_at.0, park_at.1, 90.0, 100.0);
         let matched = match_own_place(owner, &ctx, in_park).unwrap();
@@ -478,7 +583,10 @@ mod tests {
         assert!(match_own_place(owner, &ctx, (35.0, 139.0)).is_none());
         // Just outside a radius the allowance for GPS error still matches; beyond it nothing does.
         let home_only = OwnerCtx { places: vec![own(1, "うち", home_at, 80.0)], ..Default::default() };
-        assert_eq!(match_own_place(owner, &home_only, math::destination(home_at.0, home_at.1, 270.0, 95.0)).unwrap().name, "うち");
+        assert_eq!(
+            match_own_place(owner, &home_only, math::destination(home_at.0, home_at.1, 270.0, 95.0)).unwrap().name,
+            "うち"
+        );
         assert!(match_own_place(owner, &home_only, math::destination(home_at.0, home_at.1, 270.0, 105.0)).is_none());
     }
 }

@@ -105,7 +105,9 @@ impl Default for Regions {
 
 /// Fingerprint of the bundled boundary data: reseeding happens when it changes.
 fn data_version() -> String {
-    let hash = REGIONS_GZ.iter().fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| (hash ^ *byte as u64).wrapping_mul(0x0100_0000_01b3));
+    let hash = REGIONS_GZ
+        .iter()
+        .fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| (hash ^ *byte as u64).wrapping_mul(0x0100_0000_01b3));
     format!("{}-{hash:016x}", REGIONS_GZ.len())
 }
 
@@ -130,8 +132,9 @@ impl Geo {
     /// version. Call it at startup (after migrations) and from tests.
     pub async fn seed_regions(&self) -> AppResult<()> {
         let version = data_version();
-        let stored: Option<String> =
-            sqlx::query_scalar("SELECT value FROM geo_meta WHERE key = 'regions_version'").fetch_optional(&self.core.db).await?;
+        let stored: Option<String> = sqlx::query_scalar("SELECT value FROM geo_meta WHERE key = 'regions_version'")
+            .fetch_optional(&self.core.db)
+            .await?;
         if stored.as_deref() == Some(version.as_str()) {
             return Ok(());
         }
@@ -150,13 +153,18 @@ impl Geo {
         let mut tx = self.core.db.begin().await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('geo:seed_regions', 0))").execute(&mut *tx).await?;
         // Another process may have seeded while we waited for the lock.
-        let current: Option<String> = sqlx::query_scalar("SELECT value FROM geo_meta WHERE key = 'regions_version'").fetch_optional(&mut *tx).await?;
+        let current: Option<String> = sqlx::query_scalar("SELECT value FROM geo_meta WHERE key = 'regions_version'")
+            .fetch_optional(&mut *tx)
+            .await?;
         if current.as_deref() == Some(version.as_str()) {
             return Ok(());
         }
         for batch in regions.chunks(SEED_BATCH) {
             let ids: Vec<&str> = batch.iter().map(|r| r.id.as_str()).collect();
-            let kinds: Vec<i16> = batch.iter().map(|r| if r.kind == "country" { KIND_COUNTRY as i16 } else { KIND_ADMIN1 as i16 }).collect();
+            let kinds: Vec<i16> = batch
+                .iter()
+                .map(|r| if r.kind == "country" { KIND_COUNTRY as i16 } else { KIND_ADMIN1 as i16 })
+                .collect();
             let names: Vec<&str> = batch.iter().map(|r| r.name.as_str()).collect();
             let names_ja: Vec<&str> = batch.iter().map(|r| r.name_ja.as_str()).collect();
             let countries: Vec<&str> = batch.iter().map(|r| r.cc.as_str()).collect();
@@ -204,7 +212,11 @@ impl Geo {
             .await?;
         tx.commit().await?;
         self.reload_regions();
-        tracing::info!(regions = regions.len(), elapsed_ms = started.elapsed().as_millis() as u64, "footprint regions seeded");
+        tracing::info!(
+            regions = regions.len(),
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "footprint regions seeded"
+        );
         Ok(())
     }
 
@@ -220,21 +232,26 @@ impl Geo {
         if let Some(index) = self.regions.index.read().clone() {
             return Ok(index);
         }
-        let rows: Vec<(String, i16, String, String, String, String, f64, f64, f64)> =
-            sqlx::query_as("SELECT id, kind, name, name_ja, country_code, gn_code, area_km2, center_lat, center_lng FROM geo_regions")
-                .fetch_all(&self.core.db)
-                .await?;
-        let world_area_km2: f64 = sqlx::query_scalar::<_, String>("SELECT value FROM geo_meta WHERE key = 'world_area_km2'")
-            .fetch_optional(&self.core.db)
-            .await?
-            .and_then(|value| value.parse().ok())
-            .unwrap_or_else(|| rows.iter().filter(|row| row.1 as i32 == KIND_COUNTRY).map(|row| row.6).sum());
+        let rows: Vec<(String, i16, String, String, String, String, f64, f64, f64)> = sqlx::query_as(
+            "SELECT id, kind, name, name_ja, country_code, gn_code, area_km2, center_lat, center_lng FROM geo_regions",
+        )
+        .fetch_all(&self.core.db)
+        .await?;
+        let world_area_km2: f64 =
+            sqlx::query_scalar::<_, String>("SELECT value FROM geo_meta WHERE key = 'world_area_km2'")
+                .fetch_optional(&self.core.db)
+                .await?
+                .and_then(|value| value.parse().ok())
+                .unwrap_or_else(|| rows.iter().filter(|row| row.1 as i32 == KIND_COUNTRY).map(|row| row.6).sum());
         let mut index = RegionIndex { world_area_km2, ..Default::default() };
         for (id, kind, name, name_ja, country_code, gn_code, area_km2, lat, lng) in rows {
             if !gn_code.is_empty() {
                 index.by_gn.insert(gn_code, id.clone());
             }
-            index.by_id.insert(id.clone(), RegionMeta { id, kind: kind as i32, name, name_ja, country_code, area_km2, center: (lat, lng) });
+            index.by_id.insert(
+                id.clone(),
+                RegionMeta { id, kind: kind as i32, name, name_ja, country_code, area_km2, center: (lat, lng) },
+            );
         }
         let index = Arc::new(index);
         // An empty table means "not seeded yet": look again next time.
@@ -327,8 +344,13 @@ fn fill_from_gazetteer(region: &mut RegionRef, index: &RegionIndex, lat: f64, ln
     if !region.country_id.is_empty() && !region.admin1_id.is_empty() {
         return;
     }
-    let Some(place) = Gazetteer::shared().nearest(lat, lng).filter(|place| place.distance_m <= ISLAND_TOLERANCE_M) else { return };
-    if region.country_id.is_empty() && index.get(&place.country_code).is_some_and(|country| country.kind == KIND_COUNTRY) {
+    let Some(place) = Gazetteer::shared().nearest(lat, lng).filter(|place| place.distance_m <= ISLAND_TOLERANCE_M)
+    else {
+        return;
+    };
+    if region.country_id.is_empty()
+        && index.get(&place.country_code).is_some_and(|country| country.kind == KIND_COUNTRY)
+    {
         region.country_id = place.country_code.clone();
     }
     if region.admin1_id.is_empty() && region.country_id == place.country_code {
@@ -358,14 +380,27 @@ mod tests {
         assert!((200..300).contains(&countries), "{countries}");
         assert!(regions.len() > 4000);
         let tokyo = regions.iter().find(|r| r.id == "JP-13").expect("Tokyo");
-        assert_eq!((tokyo.name.as_str(), tokyo.name_ja.as_str(), tokyo.cc.as_str(), tokyo.gn.as_str()), ("Tokyo", "東京都", "JP", "JP.40"));
+        assert_eq!(
+            (tokyo.name.as_str(), tokyo.name_ja.as_str(), tokyo.cc.as_str(), tokyo.gn.as_str()),
+            ("Tokyo", "東京都", "JP", "JP.40")
+        );
         let japan = regions.iter().find(|r| r.id == "JP").expect("Japan");
         assert_eq!((japan.kind.as_str(), japan.name_ja.as_str()), ("country", "日本"));
-        assert!(regions.iter().all(|r| !r.id.is_empty() && !r.name.is_empty() && r.geometry.get("coordinates").is_some()));
+        assert!(
+            regions.iter().all(|r| !r.id.is_empty() && !r.name.is_empty() && r.geometry.get("coordinates").is_some())
+        );
     }
 
     fn meta(id: &str, kind: i32, country: &str) -> RegionMeta {
-        RegionMeta { id: id.into(), kind, name: id.into(), name_ja: String::new(), country_code: country.into(), area_km2: 1.0, center: (0.0, 0.0) }
+        RegionMeta {
+            id: id.into(),
+            kind,
+            name: id.into(),
+            name_ja: String::new(),
+            country_code: country.into(),
+            area_km2: 1.0,
+            center: (0.0, 0.0),
+        }
     }
 
     #[test]
@@ -390,7 +425,8 @@ mod tests {
 
     #[test]
     fn region_messages_carry_the_local_name_only_when_asked() {
-        let tokyo = RegionMeta { name: "Tokyo".into(), name_ja: "東京都".into(), ..meta("JP-13", KIND_ADMIN1, "JP") };
+        let tokyo =
+            RegionMeta { name: "Tokyo".into(), name_ja: "東京都".into(), ..meta("JP-13", KIND_ADMIN1, "JP") };
         assert_eq!(tokyo.to_proto(true).local_name, "東京都");
         assert_eq!(tokyo.to_proto(false).local_name, "");
         assert_eq!((tokyo.display_name(true), tokyo.display_name(false)), ("東京都", "Tokyo"));

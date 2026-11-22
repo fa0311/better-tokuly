@@ -10,15 +10,12 @@ use chrono_tz::Tz;
 use connectrpc::{RequestContext, ServiceRequest, ServiceResult};
 use tokuly_core::prelude::*;
 use tokuly_media::assets::{self, image_from_json};
-use tokuly_proto::{
-    common::Image,
-    geo::*,
-    media::AssetPurpose,
-};
+use tokuly_proto::{common::Image, geo::*, media::AssetPurpose};
 use tokuly_social::graph;
 
 use crate::{
     Geo,
+    history::PointRow,
     math::{self, Point},
     odometer::MAX_SPEED_MPS,
     places::{PLACE_COLUMNS, PlaceRow},
@@ -42,7 +39,8 @@ fn memo_holder(user_id: Uuid, day: NaiveDate) -> String {
 }
 
 fn parse_date(input: &str) -> AppResult<NaiveDate> {
-    NaiveDate::parse_from_str(input, "%Y-%m-%d").map_err(|_| AppError::invalid("INVALID_DATE", "dates look like 2026-11-20"))
+    NaiveDate::parse_from_str(input, "%Y-%m-%d")
+        .map_err(|_| AppError::invalid("INVALID_DATE", "dates look like 2026-11-20"))
 }
 
 /// The instant a local calendar day begins (the first valid instant when
@@ -56,7 +54,10 @@ fn day_start(zone: Tz, day: NaiveDate) -> DateTime<Utc> {
 }
 
 /// An optional `[from, to)` range from a request; when both ends are given they must be in order.
-fn optional_range(from: Option<&tokuly_proto::Timestamp>, to: Option<&tokuly_proto::Timestamp>) -> AppResult<(Option<DateTime<Utc>>, Option<DateTime<Utc>>)> {
+fn optional_range(
+    from: Option<&tokuly_proto::Timestamp>,
+    to: Option<&tokuly_proto::Timestamp>,
+) -> AppResult<(Option<DateTime<Utc>>, Option<DateTime<Utc>>)> {
     let (from, to) = (from.map(from_ts), to.map(from_ts));
     if let (Some(from), Some(to)) = (from, to) {
         ensure!(from < to, invalid, "INVALID_RANGE", "the range must end after it starts");
@@ -77,7 +78,12 @@ impl MemoRow {
     }
 
     fn to_proto(&self) -> DayMemo {
-        DayMemo { text: self.text.clone(), photos: self.images(), updated_at: ts(self.updated_at), ..Default::default() }
+        DayMemo {
+            text: self.text.clone(),
+            photos: self.images(),
+            updated_at: ts(self.updated_at),
+            ..Default::default()
+        }
     }
 }
 
@@ -111,12 +117,22 @@ impl Geo {
 
     /// Summaries of the days in `[first, end)` (local dates in `zone`) on
     /// which something was recorded, keyed by date.
-    async fn day_summaries(&self, user_id: Uuid, zone: Tz, first: NaiveDate, end: NaiveDate, ja: bool) -> AppResult<BTreeMap<NaiveDate, DaySummary>> {
+    async fn day_summaries(
+        &self,
+        user_id: Uuid,
+        zone: Tz,
+        first: NaiveDate,
+        end: NaiveDate,
+        ja: bool,
+    ) -> AppResult<BTreeMap<NaiveDate, DaySummary>> {
         let db = &self.core.db;
         let (from, to) = (day_start(zone, first), day_start(zone, end));
         let zone_name = zone.name();
         let mut days: BTreeMap<NaiveDate, DaySummary> = BTreeMap::new();
-        let mut day = |date: NaiveDate| -> &mut DaySummary { days.entry(date).or_insert_with(|| DaySummary { date: date.to_string(), ..Default::default() }) };
+        /// The summary of one date, created on first use.
+        fn day(days: &mut BTreeMap<NaiveDate, DaySummary>, date: NaiveDate) -> &mut DaySummary {
+            days.entry(date).or_insert_with(|| DaySummary { date: date.to_string(), ..Default::default() })
+        }
 
         let moved: Vec<(NaiveDate, f64, Option<String>, Option<String>)> = sqlx::query_as(
             "SELECT (hour AT TIME ZONE $4)::date AS day, sum(distance_m)::float8,
@@ -135,7 +151,7 @@ impl Geo {
             if date < first || date >= end {
                 continue;
             }
-            let summary = day(date);
+            let summary = day(&mut days, date);
             summary.distance_meters = distance;
             summary.top_locality = if ja { locality_ja.or(locality) } else { locality }.unwrap_or_default();
         }
@@ -148,7 +164,7 @@ impl Geo {
                 .fetch_all(db)
                 .await?;
         for (date, count) in visited {
-            day(date).visit_count = count as i32;
+            day(&mut days, date).visit_count = count as i32;
         }
         let uncovered: Vec<(NaiveDate, i64)> = sqlx::query_as(
             "SELECT (first_at AT TIME ZONE $4)::date AS day, count(*) FROM geo_cells WHERE user_id = $1 AND res = 9 AND first_at >= $2 AND first_at < $3 GROUP BY 1",
@@ -160,13 +176,18 @@ impl Geo {
         .fetch_all(db)
         .await?;
         for (date, count) in uncovered {
-            day(date).new_cell_count = count as i32;
+            day(&mut days, date).new_cell_count = count as i32;
         }
         // Memos belong to calendar dates as their author wrote them.
         let memos: Vec<(NaiveDate, serde_json::Value)> =
-            sqlx::query_as("SELECT day, photos FROM geo_day_memos WHERE user_id = $1 AND day >= $2 AND day < $3").bind(user_id).bind(first).bind(end).fetch_all(db).await?;
+            sqlx::query_as("SELECT day, photos FROM geo_day_memos WHERE user_id = $1 AND day >= $2 AND day < $3")
+                .bind(user_id)
+                .bind(first)
+                .bind(end)
+                .fetch_all(db)
+                .await?;
         for (date, photos) in memos {
-            let summary = day(date);
+            let summary = day(&mut days, date);
             summary.has_memo = true;
             summary.thumbnail = photos.get(0).and_then(|photo| image_from_json(Some(photo))).into();
         }
@@ -175,20 +196,30 @@ impl Geo {
 
     /// Night rows as messages, like [`Geo::visits_for`] does for visits.
     async fn nights_for(&self, user_id: Uuid, rows: &[NightRow], ja: bool) -> AppResult<Vec<Night>> {
-        let place_ids: Vec<Uuid> = rows.iter().filter_map(|row| row.place_id).collect::<HashSet<_>>().into_iter().collect();
-        let place_rows: Vec<PlaceRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {PLACE_COLUMNS} FROM geo_places WHERE id = ANY($1)")))
-            .bind(&place_ids)
-            .fetch_all(&self.core.db)
-            .await?;
+        let place_ids: Vec<Uuid> =
+            rows.iter().filter_map(|row| row.place_id).collect::<HashSet<_>>().into_iter().collect();
+        let place_rows: Vec<PlaceRow> =
+            sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {PLACE_COLUMNS} FROM geo_places WHERE id = ANY($1)")))
+                .bind(&place_ids)
+                .fetch_all(&self.core.db)
+                .await?;
         let mut visible = Vec::new();
         for place in place_rows {
             if self.can_see_place(user_id, &place).await? {
                 visible.push(place);
             }
         }
-        let places: std::collections::HashMap<Uuid, Place> = visible.iter().map(|row| row.id).zip(self.places_for(user_id, &visible).await?).collect();
+        let places: std::collections::HashMap<Uuid, Place> =
+            visible.iter().map(|row| row.id).zip(self.places_for(user_id, &visible).await?).collect();
         let friends: HashSet<Uuid> = graph::friend_ids(&self.core, user_id).await?.into_iter().collect();
-        let companions: Vec<Uuid> = rows.iter().flat_map(|row| &row.with_user_ids).filter(|id| friends.contains(id)).copied().collect::<HashSet<_>>().into_iter().collect();
+        let companions: Vec<Uuid> = rows
+            .iter()
+            .flat_map(|row| &row.with_user_ids)
+            .filter(|id| friends.contains(id))
+            .copied()
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
         let users = tokuly_identity::summaries(&self.core, &companions).await?;
         Ok(rows
             .iter()
@@ -201,7 +232,13 @@ impl Geo {
                     center: math::lat_lng(row.lat, row.lng).into(),
                     from: ts(row.started_at),
                     to: ts(row.ended_at),
-                    with_friends: row.with_user_ids.iter().filter_map(|id| users.get(id)).filter(|user| !user.deleted).cloned().collect(),
+                    with_friends: row
+                        .with_user_ids
+                        .iter()
+                        .filter_map(|id| users.get(id))
+                        .filter(|user| !user.deleted)
+                        .cloned()
+                        .collect(),
                     at_home: row.at_home,
                     ..Default::default()
                 }
@@ -211,7 +248,11 @@ impl Geo {
 }
 
 impl HistoryService for Geo {
-    async fn list_visits(&self, ctx: RequestContext, request: ServiceRequest<'_, ListVisitsRequest>) -> ServiceResult<ListVisitsResponse> {
+    async fn list_visits(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, ListVisitsRequest>,
+    ) -> ServiceResult<ListVisitsResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let req = request.to_owned_message();
@@ -238,19 +279,31 @@ impl HistoryService for Geo {
             .await?;
             let info = page.finish(&mut rows, |row| (row.arrived_at, row.id));
             let ja = self.speaks_japanese(user_id).await?;
-            ok(ListVisitsResponse { visits: self.visits_for(user_id, &rows, ja).await?, page: info.into(), ..Default::default() })
+            ok(ListVisitsResponse {
+                visits: self.visits_for(user_id, &rows, ja).await?,
+                page: info.into(),
+                ..Default::default()
+            })
         })
         .await
     }
 
-    async fn list_active_days(&self, ctx: RequestContext, request: ServiceRequest<'_, ListActiveDaysRequest>) -> ServiceResult<ListActiveDaysResponse> {
+    async fn list_active_days(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, ListActiveDaysRequest>,
+    ) -> ServiceResult<ListActiveDaysResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let first = NaiveDate::from_ymd_opt(request.year, request.month.max(0) as u32, 1)
                 .filter(|date| (2000..=2100).contains(&date.year()))
                 .ok_or_else(|| AppError::invalid("INVALID_DATE", "year and month (1-12) are required"))?;
-            let next = if first.month() == 12 { NaiveDate::from_ymd_opt(first.year() + 1, 1, 1) } else { NaiveDate::from_ymd_opt(first.year(), first.month() + 1, 1) }
-                .expect("the first of a month exists");
+            let next = if first.month() == 12 {
+                NaiveDate::from_ymd_opt(first.year() + 1, 1, 1)
+            } else {
+                NaiveDate::from_ymd_opt(first.year(), first.month() + 1, 1)
+            }
+            .expect("the first of a month exists");
             let zone = self.day_zone(user_id, request.time_zone).await?;
             self.settle_odometer(user_id).await?;
             let ja = self.speaks_japanese(user_id).await?;
@@ -260,7 +313,11 @@ impl HistoryService for Geo {
         .await
     }
 
-    async fn get_day(&self, ctx: RequestContext, request: ServiceRequest<'_, GetDayRequest>) -> ServiceResult<GetDayResponse> {
+    async fn get_day(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, GetDayRequest>,
+    ) -> ServiceResult<GetDayResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let date = parse_date(request.date)?;
@@ -268,13 +325,21 @@ impl HistoryService for Geo {
             let zone = self.day_zone(user_id, request.time_zone).await?;
             let (from, to) = (day_start(zone, date), day_start(zone, next));
             self.settle_odometer(user_id).await?;
-            // Points still buffered here would be missing from today's path otherwise.
-            self.flush_history().await?;
             let ja = self.speaks_japanese(user_id).await?;
             let db = &self.core.db;
 
             let summary = self.day_summaries(user_id, zone, date, next, ja).await?.remove(&date).unwrap_or_else(|| DaySummary { date: date.to_string(), ..Default::default() });
-            let points = self.points(user_id, from, to, DAY_POINTS).await?;
+            let raw: AppResult<Vec<PointRow>> = async {
+                // Points still buffered here would be missing from today's path otherwise.
+                self.flush_history().await?;
+                self.points(user_id, from, to, DAY_POINTS).await
+            }
+            .await;
+            // The raw history holds the path only: without it the day still has its visits, totals and memo.
+            let points = raw.unwrap_or_else(|e| {
+                tracing::warn!(%user_id, error = %e, "raw history unavailable; the day comes without its path");
+                Vec::new()
+            });
             let path: Vec<Point> = points.iter().filter(|point| point.accuracy <= PATH_ACCURACY_M).map(|point| (point.lat, point.lng)).collect();
             let max_speed_mps = points.iter().map(|point| point.speed as f64).filter(|speed| speed.is_finite() && *speed <= MAX_SPEED_MPS).fold(0.0, f64::max);
             let simplified = math::simplify(&path, PATH_TOLERANCE_M);
@@ -288,19 +353,10 @@ impl HistoryService for Geo {
             .bind(to)
             .fetch_all(db)
             .await?;
-            // People met: named on a visit, or in the same gathering at the same time.
-            let together: Vec<Uuid> = sqlx::query_scalar(
-                "SELECT DISTINCT other.user_id
-                 FROM geo_gathering_members mine
-                 JOIN geo_gathering_members other ON other.gathering_id = mine.gathering_id AND other.user_id <> mine.user_id
-                 WHERE mine.user_id = $1 AND mine.arrived_at < $3 AND COALESCE(mine.left_at, now()) >= $2
-                   AND other.arrived_at < LEAST(COALESCE(mine.left_at, now()), $3) AND COALESCE(other.left_at, now()) > GREATEST(mine.arrived_at, $2)",
-            )
-            .bind(user_id)
-            .bind(from)
-            .bind(to)
-            .fetch_all(db)
-            .await?;
+            // People met: named on a visit, or together with the user in a
+            // gathering by the user's own proximity check (never someone who
+            // was merely in the same gathering without the two seeing each other).
+            let together = self.met_in_gatherings(user_id, from, to).await?;
             let friends: HashSet<Uuid> = graph::friend_ids(&self.core, user_id).await?.into_iter().collect();
             let mut met: Vec<Uuid> =
                 visits.iter().flat_map(|visit| visit.with_user_ids.iter().copied()).chain(together).filter(|id| friends.contains(id)).collect::<HashSet<_>>().into_iter().collect();
@@ -323,15 +379,25 @@ impl HistoryService for Geo {
         .await
     }
 
-    async fn get_route(&self, ctx: RequestContext, request: ServiceRequest<'_, GetRouteRequest>) -> ServiceResult<GetRouteResponse> {
+    async fn get_route(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, GetRouteRequest>,
+    ) -> ServiceResult<GetRouteResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let req = request.to_owned_message();
             let (Some(from), Some(to)) = (req.from.as_option().map(from_ts), req.to.as_option().map(from_ts)) else {
                 bail!(invalid, "INVALID_RANGE", "both ends of the range are required");
             };
-            ensure!(from < to && to - from <= Duration::days(MAX_ROUTE_DAYS), invalid, "INVALID_RANGE", "a route covers at most {MAX_ROUTE_DAYS} days");
-            let max_points = if req.max_points <= 0 { DEFAULT_ROUTE_POINTS } else { req.max_points.clamp(10, MAX_ROUTE_POINTS) };
+            ensure!(
+                from < to && to - from <= Duration::days(MAX_ROUTE_DAYS),
+                invalid,
+                "INVALID_RANGE",
+                "a route covers at most {MAX_ROUTE_DAYS} days"
+            );
+            let max_points =
+                if req.max_points <= 0 { DEFAULT_ROUTE_POINTS } else { req.max_points.clamp(10, MAX_ROUTE_POINTS) };
             self.flush_history().await?;
             let points = self.points(user_id, from, to, max_points as usize).await?;
             ok(GetRouteResponse {
@@ -351,7 +417,11 @@ impl HistoryService for Geo {
         .await
     }
 
-    async fn set_day_memo(&self, ctx: RequestContext, request: ServiceRequest<'_, SetDayMemoRequest>) -> ServiceResult<SetDayMemoResponse> {
+    async fn set_day_memo(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, SetDayMemoRequest>,
+    ) -> ServiceResult<SetDayMemoResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let req = request.to_owned_message();
@@ -409,7 +479,11 @@ impl HistoryService for Geo {
         .await
     }
 
-    async fn list_nights(&self, ctx: RequestContext, request: ServiceRequest<'_, ListNightsRequest>) -> ServiceResult<ListNightsResponse> {
+    async fn list_nights(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, ListNightsRequest>,
+    ) -> ServiceResult<ListNightsResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let page = Page::from_view(request.page.as_option(), 100);
@@ -430,7 +504,11 @@ impl HistoryService for Geo {
         .await
     }
 
-    async fn get_stats(&self, ctx: RequestContext, request: ServiceRequest<'_, GetStatsRequest>) -> ServiceResult<GetStatsResponse> {
+    async fn get_stats(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, GetStatsRequest>,
+    ) -> ServiceResult<GetStatsResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let req = request.to_owned_message();
@@ -538,7 +616,11 @@ impl HistoryService for Geo {
         .await
     }
 
-    async fn delete_history(&self, ctx: RequestContext, request: ServiceRequest<'_, DeleteHistoryRequest>) -> ServiceResult<DeleteHistoryResponse> {
+    async fn delete_history(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, DeleteHistoryRequest>,
+    ) -> ServiceResult<DeleteHistoryResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let req = request.to_owned_message();
@@ -554,20 +636,34 @@ impl HistoryService for Geo {
             self.with_state(user_id, async |state| {
                 self.delete_points(user_id, from, to).await?;
                 let mut tx = self.core.db.begin().await?;
-                sqlx::query(
-                    "WITH gone AS (
-                         DELETE FROM geo_visits WHERE user_id = $1 AND arrived_at >= $2 AND arrived_at < $3 RETURNING place_id
-                     )
-                     UPDATE geo_places p SET visit_count = GREATEST(p.visit_count - g.n, 0)
-                     FROM (SELECT place_id, count(*)::int AS n FROM gone WHERE place_id IS NOT NULL GROUP BY place_id) g
-                     WHERE p.id = g.place_id",
-                )
-                .bind(user_id)
-                .bind(from)
-                .bind(to)
-                .execute(&mut *tx)
-                .await?;
-                sqlx::query("DELETE FROM geo_nights WHERE user_id = $1 AND started_at >= $2 AND started_at < $3").bind(user_id).bind(from).bind(to).execute(&mut *tx).await?;
+                // Everything that touches the range goes, also what began before it.
+                sqlx::query("DELETE FROM geo_visits WHERE user_id = $1 AND arrived_at < $3 AND COALESCE(departed_at, now()) >= $2")
+                    .bind(user_id)
+                    .bind(from)
+                    .bind(to)
+                    .execute(&mut *tx)
+                    .await?;
+                sqlx::query("DELETE FROM geo_nights WHERE user_id = $1 AND started_at < $3 AND ended_at >= $2").bind(user_id).bind(from).bind(to).execute(&mut *tx).await?;
+                // Gatherings the user was in (over ones; a running one ends with the visit below),
+                // bumps and finished trips of that time.
+                sqlx::query("DELETE FROM geo_gathering_members WHERE user_id = $1 AND left_at IS NOT NULL AND arrived_at < $3 AND left_at >= $2")
+                    .bind(user_id)
+                    .bind(from)
+                    .bind(to)
+                    .execute(&mut *tx)
+                    .await?;
+                sqlx::query("DELETE FROM geo_bumps WHERE (user_a = $1 OR user_b = $1) AND created_at >= $2 AND created_at < $3")
+                    .bind(user_id)
+                    .bind(from)
+                    .bind(to)
+                    .execute(&mut *tx)
+                    .await?;
+                sqlx::query("DELETE FROM geo_trips WHERE user_id = $1 AND status <> 1 AND started_at < $3 AND COALESCE(ended_at, started_at) >= $2")
+                    .bind(user_id)
+                    .bind(from)
+                    .bind(to)
+                    .execute(&mut *tx)
+                    .await?;
                 sqlx::query("DELETE FROM geo_activity_hours WHERE user_id = $1 AND hour >= date_trunc('hour', $2::timestamptz) AND hour < $3")
                     .bind(user_id)
                     .bind(from)
@@ -650,6 +746,9 @@ mod tests {
     #[test]
     fn memo_holders_are_per_user_and_day() {
         let user = Uuid::nil();
-        assert_eq!(memo_holder(user, NaiveDate::from_ymd_opt(2026, 11, 20).unwrap()), "geo:day-memo:00000000-0000-0000-0000-000000000000:2026-11-20");
+        assert_eq!(
+            memo_holder(user, NaiveDate::from_ymd_opt(2026, 11, 20).unwrap()),
+            "geo:day-memo:00000000-0000-0000-0000-000000000000:2026-11-20"
+        );
     }
 }

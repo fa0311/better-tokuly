@@ -20,6 +20,7 @@ tokuly-proto = { workspace = true, features = ["common"] }
 tokuly-media.workspace = true
 tokuly-identity.workspace = true
 tokuly-social.workspace = true
+tokuly-geo.workspace = true
 tokuly-stamp.workspace = true
 tokuly-wallet.workspace = true
 tokuly-notify.workspace = true

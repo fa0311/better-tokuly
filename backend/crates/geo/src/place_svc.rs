@@ -25,7 +25,7 @@ use crate::{
     math::{self, Point},
     places::{self, FRIENDS, LABEL_CUSTOM, MAX_PLACES, PLACE_COLUMNS, PRIVATE, PUBLIC, PlaceRow, photo_holder},
     suggest,
-    visibility,
+    visibility::Audience,
     visits::{VISIT_COLUMNS, VisitRow},
 };
 
@@ -69,7 +69,9 @@ impl PhotonHit {
 
 /// Reads the features of a Photon (GeoJSON) answer.
 fn parse_photon(body: &serde_json::Value) -> Vec<PhotonHit> {
-    let text = |properties: &serde_json::Value, key: &str| properties.get(key).and_then(|v| v.as_str()).unwrap_or_default().to_owned();
+    let text = |properties: &serde_json::Value, key: &str| {
+        properties.get(key).and_then(|v| v.as_str()).unwrap_or_default().to_owned()
+    };
     body.get("features")
         .and_then(|features| features.as_array())
         .into_iter()
@@ -78,7 +80,9 @@ fn parse_photon(body: &serde_json::Value) -> Vec<PhotonHit> {
             let coordinates = feature.pointer("/geometry/coordinates")?.as_array()?;
             let (lng, lat) = (coordinates.first()?.as_f64()?, coordinates.get(1)?.as_f64()?);
             let properties = feature.get("properties")?;
-            let first_of = |keys: &[&str]| keys.iter().map(|key| text(properties, key)).find(|value| !value.is_empty()).unwrap_or_default();
+            let first_of = |keys: &[&str]| {
+                keys.iter().map(|key| text(properties, key)).find(|value| !value.is_empty()).unwrap_or_default()
+            };
             let locality = first_of(&["city", "district", "locality", "county"]);
             let name = first_of(&["name", "district", "city", "county", "state"]);
             (math::valid_coordinates(lat, lng) && !name.is_empty()).then(|| PhotonHit {
@@ -121,7 +125,8 @@ impl Geo {
         if !ja {
             request = request.query(&[("lang", "en")]);
         }
-        let answer: Result<serde_json::Value, reqwest::Error> = async { request.send().await?.error_for_status()?.json().await }.await;
+        let answer: Result<serde_json::Value, reqwest::Error> =
+            async { request.send().await?.error_for_status()?.json().await }.await;
         match answer {
             Ok(body) => Some(parse_photon(&body)),
             Err(e) => {
@@ -146,11 +151,22 @@ impl Geo {
             return Ok(Vec::new());
         }
         let now = Utc::now();
-        let stays: Vec<suggest::Stay> = stays.into_iter().map(|(lat, lng, arrived, departed)| suggest::Stay { position: (lat, lng), arrived, departed: departed.unwrap_or(now) }).collect();
+        let stays: Vec<suggest::Stay> = stays
+            .into_iter()
+            .map(|(lat, lng, arrived, departed)| suggest::Stay {
+                position: (lat, lng),
+                arrived,
+                departed: departed.unwrap_or(now),
+            })
+            .collect();
         let ctx = self.ctx_of(user_id).await?;
         // Students get "school" where others get "work".
         let (age, school): (Option<i32>, String) =
-            sqlx::query_as("SELECT date_part('year', age(birthdate))::int, school_name FROM users WHERE id = $1").bind(user_id).fetch_optional(&self.core.db).await?.unwrap_or_default();
+            sqlx::query_as("SELECT date_part('year', age(birthdate))::int, school_name FROM users WHERE id = $1")
+                .bind(user_id)
+                .fetch_optional(&self.core.db)
+                .await?
+                .unwrap_or_default();
         let rules = suggest::Rules {
             has_home: ctx.labelled_place(PlaceLabel::PLACE_LABEL_HOME as i32).is_some(),
             has_work: ctx.labelled_place(PlaceLabel::PLACE_LABEL_WORK as i32).is_some(),
@@ -161,18 +177,27 @@ impl Geo {
         Ok(suggest::suggestions(&stays, rules, Geo::zone_at, 10))
     }
 
-    /// Friends of the viewer (whose precise location the viewer may see) who have been to each place.
-    async fn friends_visited(&self, viewer: Uuid, place_ids: &[Uuid]) -> AppResult<HashMap<Uuid, Vec<tokuly_proto::common::UserSummary>>> {
+    /// Friends of the viewer who have been to each place, as far as the viewer saw them there.
+    async fn friends_visited(
+        &self,
+        viewer: Uuid,
+        place_ids: &[Uuid],
+    ) -> AppResult<HashMap<Uuid, Vec<tokuly_proto::common::UserSummary>>> {
         let mut out: HashMap<Uuid, Vec<tokuly_proto::common::UserSummary>> = HashMap::new();
         if place_ids.is_empty() {
             return Ok(out);
         }
-        let friends = self.precise_friends(viewer).await?;
-        let rows: Vec<(Uuid, Uuid)> = sqlx::query_as(
-            "SELECT place_id, user_id FROM geo_visits WHERE place_id = ANY($1) AND user_id = ANY($2) GROUP BY place_id, user_id ORDER BY count(*) DESC",
-        )
+        let friends = graph::friend_ids(&self.core, viewer).await?;
+        // Visits the viewer was in the audience of when they began (see
+        // `visibility::Audience`): those are the only ones they ever hear of.
+        let rows: Vec<(Uuid, Uuid)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT place_id, user_id FROM geo_visits WHERE place_id = ANY($1) AND user_id = ANY($2) AND {}
+             GROUP BY place_id, user_id ORDER BY count(*) DESC",
+            Audience::sql_includes("audience", "audience_ids", "$3")
+        )))
         .bind(place_ids)
         .bind(&friends)
+        .bind(viewer)
         .fetch_all(&self.core.db)
         .await?;
         let users = tokuly_identity::summaries(&self.core, &rows.iter().map(|row| row.1).collect::<Vec<_>>()).await?;
@@ -189,20 +214,30 @@ impl Geo {
 }
 
 impl PlaceService for Geo {
-    async fn list_my_places(&self, ctx: RequestContext, _request: ServiceRequest<'_, ListMyPlacesRequest>) -> ServiceResult<ListMyPlacesResponse> {
+    async fn list_my_places(
+        &self,
+        ctx: RequestContext,
+        _request: ServiceRequest<'_, ListMyPlacesRequest>,
+    ) -> ServiceResult<ListMyPlacesResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             // Home, work and school first, then the rest in the order they were made.
-            let rows: Vec<PlaceRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {PLACE_COLUMNS} FROM geo_places WHERE owner_id = $1 ORDER BY label, created_at")))
-                .bind(user_id)
-                .fetch_all(&self.core.db)
-                .await?;
+            let rows: Vec<PlaceRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+                "SELECT {PLACE_COLUMNS} FROM geo_places WHERE owner_id = $1 ORDER BY label, created_at"
+            )))
+            .bind(user_id)
+            .fetch_all(&self.core.db)
+            .await?;
             ok(ListMyPlacesResponse { places: self.places_for(user_id, &rows).await?, ..Default::default() })
         })
         .await
     }
 
-    async fn create_place(&self, ctx: RequestContext, request: ServiceRequest<'_, CreatePlaceRequest>) -> ServiceResult<CreatePlaceResponse> {
+    async fn create_place(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, CreatePlaceRequest>,
+    ) -> ServiceResult<CreatePlaceResponse> {
         handle(async {
             let owner = ctx.user_id()?;
             let req = request.to_owned_message();
@@ -261,7 +296,11 @@ impl PlaceService for Geo {
         .await
     }
 
-    async fn update_place(&self, ctx: RequestContext, request: ServiceRequest<'_, UpdatePlaceRequest>) -> ServiceResult<UpdatePlaceResponse> {
+    async fn update_place(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, UpdatePlaceRequest>,
+    ) -> ServiceResult<UpdatePlaceResponse> {
         handle(async {
             let owner = ctx.user_id()?;
             let req = request.to_owned_message();
@@ -348,7 +387,11 @@ impl PlaceService for Geo {
         .await
     }
 
-    async fn delete_place(&self, ctx: RequestContext, request: ServiceRequest<'_, DeletePlaceRequest>) -> ServiceResult<DeletePlaceResponse> {
+    async fn delete_place(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, DeletePlaceRequest>,
+    ) -> ServiceResult<DeletePlaceResponse> {
         handle(async {
             let owner = ctx.user_id()?;
             let place = self.own_place(owner, request.place_id).await?;
@@ -361,18 +404,29 @@ impl PlaceService for Geo {
         .await
     }
 
-    async fn get_place(&self, ctx: RequestContext, request: ServiceRequest<'_, GetPlaceRequest>) -> ServiceResult<GetPlaceResponse> {
+    async fn get_place(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, GetPlaceRequest>,
+    ) -> ServiceResult<GetPlaceResponse> {
         handle(async {
             let viewer = ctx.user_id()?;
             let place = self.visible_place(viewer, request.place_id).await?;
-            // Only people whose whereabouts the caller may know appear by name.
-            let friends = self.precise_friends(viewer).await?;
-            let known: Vec<Uuid> = friends.iter().copied().chain([viewer]).collect();
-            let visitors: Vec<(Uuid, i64)> = sqlx::query_as(
-                "SELECT user_id, count(*) FROM geo_visits WHERE place_id = $1 AND user_id = ANY($2) GROUP BY user_id ORDER BY count(*) DESC, user_id LIMIT 50",
-            )
+            // The card is made of the caller's own visits and the visits of
+            // friends who let the caller see where they were at the time
+            // (the audience recorded on each visit). Nobody else's stay ever
+            // shows here — not by name and not in a number — whoever owns the
+            // place: a place must not work as a tripwire.
+            let friends = graph::friend_ids(&self.core, viewer).await?;
+            let visitors: Vec<(Uuid, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+                "SELECT user_id, count(*) FROM geo_visits
+                 WHERE place_id = $1 AND (user_id = $3 OR (user_id = ANY($2) AND {}))
+                 GROUP BY user_id ORDER BY count(*) DESC, user_id LIMIT 50",
+                Audience::sql_includes("audience", "audience_ids", "$3")
+            )))
             .bind(place.id)
-            .bind(&known)
+            .bind(&friends)
+            .bind(viewer)
             .fetch_all(&self.core.db)
             .await?;
             let users = tokuly_identity::summaries(&self.core, &visitors.iter().map(|v| v.0).collect::<Vec<_>>()).await?;
@@ -386,7 +440,12 @@ impl PlaceService for Geo {
             let friends_visited: Vec<_> = visitors.iter().filter(|(id, _)| *id != viewer).take(20).filter_map(|(id, _)| users.get(id).cloned()).collect();
 
             let mut badges = Vec::new();
-            let groups: i64 = sqlx::query_scalar("SELECT count(*) FROM geo_gatherings WHERE place_id = $1 AND peak_size >= 3").bind(place.id).fetch_one(&self.core.db).await?;
+            // The caller's own visits here in company of two or more friends.
+            let groups: i64 = sqlx::query_scalar("SELECT count(*) FROM geo_visits WHERE place_id = $1 AND user_id = $2 AND cardinality(with_user_ids) >= 2")
+                .bind(place.id)
+                .bind(viewer)
+                .fetch_one(&self.core.db)
+                .await?;
             if groups >= 2 {
                 badges.push("GOOD_FOR_GROUPS".to_owned());
             }
@@ -400,7 +459,7 @@ impl PlaceService for Geo {
                 place: self.place_for(viewer, &place).await?.into(),
                 regulars,
                 friends_visited,
-                total_visit_count: place.visit_count,
+                total_visit_count: visitors.iter().map(|(_, count)| *count as i32).sum(),
                 badges,
                 ..Default::default()
             })
@@ -408,7 +467,11 @@ impl PlaceService for Geo {
         .await
     }
 
-    async fn search_places(&self, ctx: RequestContext, request: ServiceRequest<'_, SearchPlacesRequest>) -> ServiceResult<SearchPlacesResponse> {
+    async fn search_places(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, SearchPlacesRequest>,
+    ) -> ServiceResult<SearchPlacesResponse> {
         handle(async {
             let viewer = ctx.user_id()?;
             let req = request.to_owned_message();
@@ -436,7 +499,7 @@ impl PlaceService for Geo {
                    AND ($4 <> '' OR ST_DWithin(p.geog, ST_SetSRID(ST_MakePoint($7, $6), 4326)::geography, $8))
                  ORDER BY (p.owner_id = $1) DESC,
                           CASE WHEN $6::float8 IS NULL THEN 0 ELSE ST_Distance(p.geog, ST_SetSRID(ST_MakePoint($7, $6), 4326)::geography) END,
-                          p.visit_count DESC, p.id
+                          p.created_at, p.id
                  LIMIT $9"
             )))
             .bind(viewer)
@@ -496,7 +559,11 @@ impl PlaceService for Geo {
         .await
     }
 
-    async fn list_place_suggestions(&self, ctx: RequestContext, _request: ServiceRequest<'_, ListPlaceSuggestionsRequest>) -> ServiceResult<ListPlaceSuggestionsResponse> {
+    async fn list_place_suggestions(
+        &self,
+        ctx: RequestContext,
+        _request: ServiceRequest<'_, ListPlaceSuggestionsRequest>,
+    ) -> ServiceResult<ListPlaceSuggestionsResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let ja = self.speaks_japanese(user_id).await?;
@@ -506,7 +573,10 @@ impl PlaceService for Geo {
                 .into_iter()
                 .map(|suggestion| {
                     let center = suggestion.cluster.center;
-                    let locality = Gazetteer::shared().nearest(center.0, center.1).map(|found| found.locality(ja).to_owned()).unwrap_or_default();
+                    let locality = Gazetteer::shared()
+                        .nearest(center.0, center.1)
+                        .map(|found| found.locality(ja).to_owned())
+                        .unwrap_or_default();
                     PlaceSuggestion {
                         center: math::lat_lng(center.0, center.1).into(),
                         suggested_name: suggestion_name(suggestion.label, &locality, ja),
@@ -522,28 +592,51 @@ impl PlaceService for Geo {
         .await
     }
 
-    async fn save_place(&self, ctx: RequestContext, request: ServiceRequest<'_, SavePlaceRequest>) -> ServiceResult<SavePlaceResponse> {
+    async fn save_place(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, SavePlaceRequest>,
+    ) -> ServiceResult<SavePlaceResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let place = self.visible_place(user_id, request.place_id).await?;
-            let saved: i64 = sqlx::query_scalar("SELECT count(*) FROM geo_saved_places WHERE user_id = $1").bind(user_id).fetch_one(&self.core.db).await?;
+            let saved: i64 = sqlx::query_scalar("SELECT count(*) FROM geo_saved_places WHERE user_id = $1")
+                .bind(user_id)
+                .fetch_one(&self.core.db)
+                .await?;
             ensure!(saved < MAX_SAVED, precondition, "TOO_MANY_SAVED", "at most {MAX_SAVED} saved places");
-            sqlx::query("INSERT INTO geo_saved_places (user_id, place_id) VALUES ($1, $2) ON CONFLICT DO NOTHING").bind(user_id).bind(place.id).execute(&self.core.db).await?;
+            sqlx::query("INSERT INTO geo_saved_places (user_id, place_id) VALUES ($1, $2) ON CONFLICT DO NOTHING")
+                .bind(user_id)
+                .bind(place.id)
+                .execute(&self.core.db)
+                .await?;
             ok(SavePlaceResponse::default())
         })
         .await
     }
 
-    async fn unsave_place(&self, ctx: RequestContext, request: ServiceRequest<'_, UnsavePlaceRequest>) -> ServiceResult<UnsavePlaceResponse> {
+    async fn unsave_place(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, UnsavePlaceRequest>,
+    ) -> ServiceResult<UnsavePlaceResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
-            sqlx::query("DELETE FROM geo_saved_places WHERE user_id = $1 AND place_id = $2").bind(user_id).bind(parse_id(request.place_id)?).execute(&self.core.db).await?;
+            sqlx::query("DELETE FROM geo_saved_places WHERE user_id = $1 AND place_id = $2")
+                .bind(user_id)
+                .bind(parse_id(request.place_id)?)
+                .execute(&self.core.db)
+                .await?;
             ok(UnsavePlaceResponse::default())
         })
         .await
     }
 
-    async fn list_saved_places(&self, ctx: RequestContext, request: ServiceRequest<'_, ListSavedPlacesRequest>) -> ServiceResult<ListSavedPlacesResponse> {
+    async fn list_saved_places(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, ListSavedPlacesRequest>,
+    ) -> ServiceResult<ListSavedPlacesResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let page = Page::from_view(request.page.as_option(), 100);
@@ -577,7 +670,11 @@ impl PlaceService for Geo {
         .await
     }
 
-    async fn reverse_geocode(&self, ctx: RequestContext, request: ServiceRequest<'_, ReverseGeocodeRequest>) -> ServiceResult<ReverseGeocodeResponse> {
+    async fn reverse_geocode(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, ReverseGeocodeRequest>,
+    ) -> ServiceResult<ReverseGeocodeResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let req = request.to_owned_message();
@@ -588,7 +685,10 @@ impl PlaceService for Geo {
                 language => language.to_ascii_lowercase().starts_with("ja"),
             };
             let gazetteer = Gazetteer::shared();
-            let external = self.photon("reverse", &[("lat", lat.to_string()), ("lon", lng.to_string())], ja).await.and_then(|hits| hits.into_iter().next());
+            let external = self
+                .photon("reverse", &[("lat", lat.to_string()), ("lon", lng.to_string())], ja)
+                .await
+                .and_then(|hits| hits.into_iter().next());
             let result = match external {
                 Some(hit) => GeocodeResult {
                     name: hit.name,
@@ -606,7 +706,11 @@ impl PlaceService for Geo {
         .await
     }
 
-    async fn check_in(&self, ctx: RequestContext, request: ServiceRequest<'_, CheckInRequest>) -> ServiceResult<CheckInResponse> {
+    async fn check_in(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, CheckInRequest>,
+    ) -> ServiceResult<CheckInResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
             let req = request.to_owned_message();
@@ -633,6 +737,10 @@ impl PlaceService for Geo {
             self.core.cache.rate_limit(&format!("geo-checkin:{user_id}"), 30, Duration::from_secs(3600)).await?;
             let area = Gazetteer::shared().area(center.0, center.1);
             let ja = owner_ctx.ja;
+            // Who sees the user's precise pin right now: the only friends this
+            // check-in is for, now and whenever the place card is opened.
+            let precise = Audience::of(&owner_ctx, Utc::now());
+            let (audience_kind, audience_ids) = precise.to_stored();
 
             // At the spot of the ongoing stay the check-in belongs to that
             // visit; anywhere else it is a visit of its own.
@@ -659,8 +767,8 @@ impl PlaceService for Geo {
                     }
                     let mut tx = self.core.db.begin().await?;
                     let row: VisitRow = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-                        "INSERT INTO geo_visits (user_id, place_id, place_name, lat, lng, arrived_at, departed_at, with_user_ids, check_in, message, locality, locality_ja, country_code)
-                         VALUES ($1, $2, $3, $4, $5, now(), now(), $6, true, $7, $8, $9, $10) RETURNING {VISIT_COLUMNS}"
+                        "INSERT INTO geo_visits (user_id, place_id, place_name, lat, lng, arrived_at, departed_at, with_user_ids, check_in, message, locality, locality_ja, country_code, audience, audience_ids)
+                         VALUES ($1, $2, $3, $4, $5, now(), now(), $6, true, $7, $8, $9, $10, $11, $12) RETURNING {VISIT_COLUMNS}"
                     )))
                     .bind(user_id)
                     .bind(place.as_ref().map(|p| p.id))
@@ -672,11 +780,10 @@ impl PlaceService for Geo {
                     .bind(&area.locality)
                     .bind(&area.locality_ja)
                     .bind(&area.country_code)
+                    .bind(audience_kind)
+                    .bind(audience_ids)
                     .fetch_one(&mut *tx)
                     .await?;
-                    if let Some(place) = &place {
-                        sqlx::query("UPDATE geo_places SET visit_count = visit_count + 1 WHERE id = $1").bind(place.id).execute(&mut *tx).await?;
-                    }
                     tx.commit().await?;
                     Ok(row)
                 })
@@ -690,12 +797,14 @@ impl PlaceService for Geo {
                 None => (area.label(true), area.label(false)),
             };
             let name = tokuly_identity::summary(&self.core, user_id).await?.display_name;
-            let now = Utc::now();
-            // Friends who see the precise pin anyway; under ghost mode a check-in stays between the user and the people tagged.
-            let audience: HashSet<Uuid> = friends.iter().copied().filter(|friend| visibility::sees_precisely(&owner_ctx, *friend, now)).collect();
-            let open = owner_ctx.ghost.default_rule(now.timestamp_millis()).is_none();
+            // A check-in says where the user is: it is for the friends who see
+            // the precise pin anyway, tagged or not. It becomes a story in
+            // friends' feeds (with the spot on the map) only if that is every
+            // friend — an activity entry cannot be kept from some of them.
+            let audience: HashSet<Uuid> = friends.iter().copied().filter(|friend| precise.includes(*friend)).collect();
+            let open = precise.is_all_friends();
             let mut tx = self.core.db.begin().await?;
-            for friend in &tagged {
+            for friend in tagged.iter().filter(|friend| audience.contains(friend)) {
                 let notification = NotificationRequest::new(
                     *friend,
                     "geo.checkin_tagged",
@@ -723,10 +832,12 @@ impl PlaceService for Geo {
                 outbound::notify(&mut *tx, &notification).await?;
             }
             let summary = Localized::new(format!("{where_ja}にチェックイン!"), format!("Checked in at {where_en}"));
-            let mut entry = ActivityEntry::new(user_id, "geo.checkin", if open { ActivityAudience::Friends } else { ActivityAudience::Private }, summary)
+            // `place_name` is what the feed's recaps read.
+            let place_name = shareable.map_or_else(|| area.label(ja), |place| place.name.clone());
+            let mut entry = ActivityEntry::new(user_id, "geo.visit", if open { ActivityAudience::Friends } else { ActivityAudience::Private }, summary)
                 .with(tagged.iter().copied())
                 .path("/map")
-                .data(serde_json::json!({ "visit_id": row.id, "message": message }));
+                .data(serde_json::json!({ "visit_id": row.id, "message": message, "place_name": place_name, "check_in": true }));
             if open {
                 entry = entry.at(center.0, center.1);
             }
@@ -735,7 +846,7 @@ impl PlaceService for Geo {
             }
             outbound::activity(&mut *tx, &entry).await?;
             tx.commit().await?;
-            self.push_visit_news(user_id, &owner_ctx, &[VisitNews { arrived: true, at: now, place }]).await?;
+            self.push_visit_news(user_id, &owner_ctx, &[VisitNews { arrived: true, at: Utc::now(), place }]).await?;
             let visit = self.visits_for(user_id, std::slice::from_ref(&row), ja).await?.pop();
             ok(CheckInResponse { visit: visit.into(), ..Default::default() })
         })
@@ -777,7 +888,10 @@ mod tests {
         let hits = parse_photon(&body);
         assert_eq!(hits.len(), 2);
         assert_eq!(hits[0].name, "渋谷スクランブル交差点");
-        assert_eq!((hits[0].locality.as_str(), hits[0].region.as_str(), hits[0].country_code.as_str()), ("渋谷区", "東京都", "JP"));
+        assert_eq!(
+            (hits[0].locality.as_str(), hits[0].region.as_str(), hits[0].country_code.as_str()),
+            ("渋谷区", "東京都", "JP")
+        );
         assert_eq!(hits[0].position, (35.6595, 139.7005));
         assert_eq!(hits[0].address(), "渋谷区, 東京都, 日本");
         assert_eq!(hits[1].address(), "Île-de-France, France", "the name is not repeated in the address");

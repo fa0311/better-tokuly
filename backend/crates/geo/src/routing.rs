@@ -63,13 +63,22 @@ pub fn estimate(origin: Point, destination: Point, mode: TravelMode, ja: bool) -
     let distance_m = math::distance(origin, destination);
     let duration_s = typical_duration(mode, distance_m).round() as i32;
     let line = math::great_circle_line(origin, destination, 50_000.0, 64);
-    let instruction = if ja { "目的地へ向かう(直線距離からの推定)" } else { "Head to the destination (estimated from the straight-line distance)" };
+    let instruction = if ja {
+        "目的地へ向かう(直線距離からの推定)"
+    } else {
+        "Head to the destination (estimated from the straight-line distance)"
+    };
     Route {
         distance_m,
         duration_s,
         polyline: math::encode_polyline(&line),
         provider: "estimate",
-        steps: vec![DirectionStep { instruction: instruction.to_owned(), distance_meters: distance_m, duration_seconds: duration_s, ..Default::default() }],
+        steps: vec![DirectionStep {
+            instruction: instruction.to_owned(),
+            distance_meters: distance_m,
+            duration_seconds: duration_s,
+            ..Default::default()
+        }],
     }
 }
 
@@ -164,7 +173,13 @@ impl Geo {
         }
     }
 
-    async fn valhalla_route(&self, origin: Point, destination: Point, mode: TravelMode, ja: bool) -> AppResult<Option<Route>> {
+    async fn valhalla_route(
+        &self,
+        origin: Point,
+        destination: Point,
+        mode: TravelMode,
+        ja: bool,
+    ) -> AppResult<Option<Route>> {
         let url = format!("{}/route", self.cfg.routing_url.trim_end_matches('/'));
         let body = serde_json::json!({
             "locations": [{ "lat": origin.0, "lon": origin.1 }, { "lat": destination.0, "lon": destination.1 }],
@@ -204,14 +219,24 @@ mod tests {
         let drive = estimate(SHIBUYA, TOKYO_STATION, TravelMode::TRAVEL_MODE_DRIVE, true);
         let bike = estimate(SHIBUYA, TOKYO_STATION, TravelMode::TRAVEL_MODE_BICYCLE, true);
         let transit = estimate(SHIBUYA, TOKYO_STATION, TravelMode::TRAVEL_MODE_TRANSIT, true);
-        assert!(drive.duration_s < transit.duration_s && transit.duration_s < bike.duration_s && bike.duration_s < walk.duration_s);
+        assert!(
+            drive.duration_s < transit.duration_s
+                && transit.duration_s < bike.duration_s
+                && bike.duration_s < walk.duration_s
+        );
         assert!(drive.steps[0].instruction.contains("目的地"));
     }
 
     #[test]
     fn long_trips_are_faster_per_kilometer() {
-        assert!(typical_speed(TravelMode::TRAVEL_MODE_DRIVE, 300_000.0) > typical_speed(TravelMode::TRAVEL_MODE_DRIVE, 3_000.0));
-        assert_eq!(typical_speed(TravelMode::TRAVEL_MODE_WALK, 300_000.0), typical_speed(TravelMode::TRAVEL_MODE_WALK, 300.0));
+        assert!(
+            typical_speed(TravelMode::TRAVEL_MODE_DRIVE, 300_000.0)
+                > typical_speed(TravelMode::TRAVEL_MODE_DRIVE, 3_000.0)
+        );
+        assert_eq!(
+            typical_speed(TravelMode::TRAVEL_MODE_WALK, 300_000.0),
+            typical_speed(TravelMode::TRAVEL_MODE_WALK, 300.0)
+        );
         assert_eq!(typical_duration(TravelMode::TRAVEL_MODE_TRANSIT, 0.0), 0.0);
         assert!(typical_duration(TravelMode::TRAVEL_MODE_TRANSIT, 1000.0) > TRANSIT_OVERHEAD_S);
     }
@@ -228,14 +253,21 @@ mod tests {
         assert_eq!(travel_mode(TravelMode::TRAVEL_MODE_UNSPECIFIED.into()), TravelMode::TRAVEL_MODE_WALK);
         assert_eq!(travel_mode(buffa::EnumValue::from(99)), TravelMode::TRAVEL_MODE_WALK);
         assert_eq!(travel_mode(TravelMode::TRAVEL_MODE_DRIVE.into()), TravelMode::TRAVEL_MODE_DRIVE);
-        assert_eq!((costing(TravelMode::TRAVEL_MODE_DRIVE), costing(TravelMode::TRAVEL_MODE_WALK)), ("auto", "pedestrian"));
+        assert_eq!(
+            (costing(TravelMode::TRAVEL_MODE_DRIVE), costing(TravelMode::TRAVEL_MODE_WALK)),
+            ("auto", "pedestrian")
+        );
     }
 
     #[test]
     fn valhalla_answers_become_routes() {
         // Two legs sharing a joint; shapes are precision-6 polylines.
-        let first = polyline::encode_coordinates([geo::Coord { x: 139.70, y: 35.65 }, geo::Coord { x: 139.72, y: 35.66 }], 6).unwrap();
-        let second = polyline::encode_coordinates([geo::Coord { x: 139.72, y: 35.66 }, geo::Coord { x: 139.75, y: 35.68 }], 6).unwrap();
+        let first =
+            polyline::encode_coordinates([geo::Coord { x: 139.70, y: 35.65 }, geo::Coord { x: 139.72, y: 35.66 }], 6)
+                .unwrap();
+        let second =
+            polyline::encode_coordinates([geo::Coord { x: 139.72, y: 35.66 }, geo::Coord { x: 139.75, y: 35.68 }], 6)
+                .unwrap();
         let body = serde_json::json!({
             "trip": {
                 "legs": [

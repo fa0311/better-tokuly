@@ -23,11 +23,12 @@ const EXPORT_CELLS: i64 = 100_000;
 #[async_trait]
 impl ProfileExtension for Geo {
     /// Adds the explored share of the home country and the number of
-    /// countries visited to every profile, and for friends the distance to
-    /// the viewer — to where the viewer is allowed to see the owner: the true
-    /// position, or the blurred point; never to a frozen pin.
+    /// countries visited (for the audience the owner shows footprints to),
+    /// and for friends the distance to the viewer — to the pin the viewer
+    /// has of the owner: the true position, the blurred point, or the copy a
+    /// FROZEN rule left them with.
     async fn enrich_profile(&self, viewer: Option<Uuid>, owner: Uuid, profile: &mut Profile) -> AppResult<()> {
-        let (explored_percent, country_count) = self.explored_summary(owner).await?;
+        let (explored_percent, country_count) = self.explored_summary(viewer, owner).await?;
         let stats = profile.stats.get_or_insert_default();
         stats.explored_percent = explored_percent;
         stats.visited_country_count = country_count;
@@ -36,12 +37,16 @@ impl ProfileExtension for Geo {
         if !graph::are_friends(&self.core, viewer, owner).await? {
             return Ok(());
         }
-        // Both must be sharing: a paused or unknown pin on either side gives no distance.
-        let states = self.load_states(&[viewer, owner]).await?;
-        let sharing = |index: usize| states[index].as_ref().filter(|state| state.located() && state.pin.sharing).map(|state| state.pin.position());
-        let (Some(mine), Some(_)) = (sharing(0), sharing(1)) else { return Ok(()) };
-        if let Some((theirs, _)) = self.seen_position(owner, viewer).await? {
-            profile.distance_meters = Some(math::distance(mine, theirs).round());
+        // Both must be sharing: a paused or unknown pin on either side gives
+        // no distance. The owner's side is the pin the viewer has of them
+        // (under FROZEN the copy they were left with), never the live state.
+        let mine = self
+            .load_state(viewer)
+            .await?
+            .filter(|state| state.located() && state.pin.sharing)
+            .map(|state| state.pin.position());
+        if let (Some(mine), Some(theirs)) = (mine, self.seen_pin(owner, viewer).await?.filter(|seen| seen.sharing)) {
+            profile.distance_meters = Some(math::distance(mine, theirs.position).round());
         }
         Ok(())
     }
@@ -98,12 +103,17 @@ impl DataExporter for GeoExporter {
                 "locality": state.pin.area.locality, "country_code": state.pin.area.country_code,
             })
         });
-        let cells: Vec<i64> = sqlx::query_scalar("SELECT cell FROM geo_cells WHERE user_id = $1 AND res = 9 ORDER BY first_at LIMIT $2")
-            .bind(user_id)
-            .bind(EXPORT_CELLS)
-            .fetch_all(&geo.core.db)
-            .await?;
-        let totals: Option<(i64, f64)> = sqlx::query_as("SELECT cell_count, explored_km2 FROM geo_users WHERE user_id = $1").bind(user_id).fetch_optional(&geo.core.db).await?;
+        let cells: Vec<i64> =
+            sqlx::query_scalar("SELECT cell FROM geo_cells WHERE user_id = $1 AND res = 9 ORDER BY first_at LIMIT $2")
+                .bind(user_id)
+                .bind(EXPORT_CELLS)
+                .fetch_all(&geo.core.db)
+                .await?;
+        let totals: Option<(i64, f64)> =
+            sqlx::query_as("SELECT cell_count, explored_km2 FROM geo_users WHERE user_id = $1")
+                .bind(user_id)
+                .fetch_optional(&geo.core.db)
+                .await?;
         // Raw history: the newest points, oldest first. A failing ClickHouse must not fail the whole export.
         let now = Utc::now();
         let (point_count, points) = match geo.point_count(user_id, DateTime::UNIX_EPOCH, now).await {
@@ -115,7 +125,9 @@ impl DataExporter for GeoExporter {
                     .collect();
                 (serde_json::json!(count), serde_json::json!(points))
             }
-            Err(_) => (serde_json::Value::Null, serde_json::json!({ "error": "raw history is temporarily unavailable" })),
+            Err(_) => {
+                (serde_json::Value::Null, serde_json::json!({ "error": "raw history is temporarily unavailable" }))
+            }
         };
         Ok(serde_json::json!({
             "last_position": last_position,
