@@ -385,8 +385,14 @@ async fn friends_who_asked_are_told_once_per_window() {
         ends_at: timestamp(Utc::now() + Duration::days(days) + Duration::hours(4)).into(),
         ..now_for(audience)
     };
+    // ...but not right away: however many windows Mika sets, Yui hears from
+    // her at most once an hour.
     set_status(&ctx, mika, later(3, FreeAudience::FREE_AUDIENCE_FRIENDS)).await;
+    assert_eq!(told().await.len(), 1);
+    ctx.sql("UPDATE free_alerts SET notified_at = now() - interval '61 minutes' WHERE user_id = $1", yui.id).await;
+    set_status(&ctx, mika, later(12, FreeAudience::FREE_AUDIENCE_FRIENDS)).await;
     assert_eq!(told().await.len(), 2);
+    ctx.sql("UPDATE free_alerts SET notified_at = now() - interval '61 minutes' WHERE user_id = $1", yui.id).await;
 
     // A status the friend may not see is not announced to them.
     set_status(

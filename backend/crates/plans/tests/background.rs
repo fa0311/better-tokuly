@@ -719,7 +719,14 @@ async fn an_ended_friendship_or_a_block_separates_two_people() {
             .await,
         "POLL_NOT_FOUND"
     );
-    assert!(ctx.get_poll(yui, &answered_poll.id).await.answered_by_me);
+    // She leaves Mika's polls altogether, her answers with her: a poll is among friends.
+    assert_eq!(
+        ctx.refusal(POLLS, "GetPoll", yui, &GetPollRequest { poll_id: answered_poll.id.clone(), ..Default::default() })
+            .await,
+        "POLL_NOT_FOUND"
+    );
+    let poll = ctx.get_poll(mika, &answered_poll.id).await;
+    assert_eq!((poll.participant_count, poll.slots[0].yes_count), (2, 1));
     let seen = pushes(&mut yuis_phone, QUIET).await;
     assert!(seen.iter().any(|push| matches!(push, Push::PlanChanged(change) if change.change == PlanChange::PLAN_CHANGE_REMOVED && change.plan_id == unanswered.id)));
     assert!(
@@ -736,7 +743,7 @@ async fn an_ended_friendship_or_a_block_separates_two_people() {
         ctx.call(ANNIVERSARIES, "ListAnniversaries", yui, &ListAnniversariesRequest::default()).await.unwrap();
     assert!(yuis.anniversaries.is_empty());
 
-    // Sota blocks Mika: on top of all that, he leaves her polls even where he answered.
+    // Sota blocks Mika: exactly the same happens.
     ctx.block(sota, mika).await;
     let blocked =
         event("social.user.blocked", sota.id, serde_json::json!({ "user_id": sota.id, "blocked_id": mika.id }));
@@ -752,7 +759,7 @@ async fn an_ended_friendship_or_a_block_separates_two_people() {
         "POLL_NOT_FOUND"
     );
     let poll = ctx.get_poll(mika, &answered_poll.id).await;
-    assert_eq!((poll.participant_count, poll.slots[0].yes_count), (2, 1));
+    assert_eq!((poll.participant_count, poll.slots[0].yes_count), (1, 0));
     assert_eq!(
         ctx.refusal(PLANS, "GetPlan", sota, &GetPlanRequest { plan_id: unanswered.id.clone(), ..Default::default() })
             .await,
@@ -765,11 +772,14 @@ async fn an_ended_friendship_or_a_block_separates_two_people() {
         ctx.call(FREE, "GetFreeStatus", mika, &GetFreeStatusRequest::default()).await.unwrap();
     assert!(own.status.as_option().unwrap().chosen.is_empty());
 
-    // The plan the two share keeps both, each without the other's details.
+    // The plan the two share keeps both, listed like everyone else.
     let shared = ctx.get_plan(sota, &answered.id).await;
     assert_eq!(shared.participants.len(), 3);
-    assert!(participant(&shared, mika).hidden && !participant(&shared, yui).hidden);
-    assert!(participant(&ctx.get_plan(mika, &answered.id).await, sota).hidden);
+    assert_eq!(participant(&shared, mika).user.as_option().unwrap().display_name, "Mika");
+    assert_eq!(
+        participant(&ctx.get_plan(mika, &answered.id).await, sota).user.as_option().unwrap().display_name,
+        "Sota"
+    );
 }
 
 #[tokio::test]
@@ -825,6 +835,7 @@ async fn the_export_holds_what_the_domain_knows_about_a_user() {
     };
     let _: SetFreeStatusResponse = ctx.call(FREE, "SetFreeStatus", mika, &status).await.unwrap();
     let plan = ctx.create_plan(mika, plan_at("カラオケ", in_days(3), &[yui])).await;
+    ctx.rsvp(yui, &plan.id, Rsvp::RSVP_GOING).await;
     let expense = ExpenseInput {
         title: "部屋代".into(),
         amount: 3000,

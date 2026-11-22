@@ -889,7 +889,7 @@ async fn the_checklist_is_shared_by_everyone_going() {
 }
 
 #[tokio::test]
-async fn a_block_hides_the_person_but_keeps_the_plan() {
+async fn a_block_is_silent_in_a_shared_plan() {
     let ctx = start().await;
     let users = ctx.group(&["Mika", "Yui", "Sota"]).await;
     let (mika, yui, sota) = (&users[0], &users[1], &users[2]);
@@ -902,28 +902,28 @@ async fn a_block_hides_the_person_but_keeps_the_plan() {
     };
     let _: RespondToPlanResponse = ctx.call(PLANS, "RespondToPlan", yui, &going("行きます")).await.unwrap();
     let _: RespondToPlanResponse = ctx.call(PLANS, "RespondToPlan", sota, &going("おれも")).await.unwrap();
+    let before = ctx.get_plan(sota, &plan.id).await;
 
     ctx.block(yui, sota).await;
 
-    // Each of the two still sees that someone is there, and nothing more.
-    for (viewer, hidden) in [(yui, sota), (sota, yui)] {
-        let seen = ctx.get_plan(viewer, &plan.id).await;
-        assert_eq!(seen.participants.len(), 3);
-        let entry = participant(&seen, hidden);
-        let user = entry.user.as_option().unwrap();
-        assert!(entry.hidden && entry.comment.is_empty());
-        assert!(user.handle.is_empty() && user.display_name.is_empty() && user.avatar.is_unset());
-        // The answer itself is part of the plan.
-        assert_eq!(entry.rsvp, Rsvp::RSVP_GOING);
-        assert!(!participant(&seen, mika).hidden);
-    }
-    // Everyone else sees both as before.
-    let seen = ctx.get_plan(mika, &plan.id).await;
-    assert!(!participant(&seen, yui).hidden && !participant(&seen, sota).hidden);
-    assert_eq!(participant(&seen, sota).comment, "おれも");
+    // Nothing in the plan tells Sota that Yui blocked him, and nothing tells
+    // Yui apart from anyone else either: both are listed as before, the way
+    // a shared group shows its people.
+    let seen = ctx.get_plan(sota, &plan.id).await;
+    assert_eq!(seen.participants, before.participants);
+    let entry = participant(&seen, yui);
+    assert_eq!(
+        (entry.user.as_option().unwrap().display_name.as_str(), entry.comment.as_str(), entry.rsvp.as_known()),
+        ("Yui", "行きます", Some(Rsvp::RSVP_GOING))
+    );
+    let seen = ctx.get_plan(yui, &plan.id).await;
+    assert_eq!(seen.participants.len(), 3);
+    assert_eq!(participant(&seen, sota).user.as_option().unwrap().display_name, "Sota");
+    assert_eq!(participant(&ctx.get_plan(mika, &plan.id).await, sota).comment, "おれも");
 
-    // Nothing one of the two does reaches the other. Sota blocks the host:
-    // her changes are no longer announced to him, nor his answers to her.
+    // No notification goes between two people in a block, in either
+    // direction. Sota blocks the host: her changes are no longer announced
+    // to him, nor his answers to her.
     ctx.block(sota, mika).await;
     let heard_before = ctx.notifications_for(mika.id, "plans.rsvp").await.len();
     let moved = UpdatePlanRequest {
@@ -935,8 +935,6 @@ async fn a_block_hides_the_person_but_keeps_the_plan() {
     update(&ctx, mika, moved).await;
     assert_eq!(ctx.notifications_for(yui.id, "plans.updated").await.len(), 1);
     assert!(ctx.notifications_for(sota.id, "plans.updated").await.is_empty());
-    assert_eq!(ctx.rsvp(sota, &plan.id, Rsvp::RSVP_MAYBE).await, Rsvp::RSVP_MAYBE);
-    assert_eq!(ctx.notifications_for(mika.id, "plans.rsvp").await.len(), heard_before);
     // The cost split still works between them — the numbers are the plan's — but silently.
     let expense = ExpenseInput {
         title: "会費".into(),
@@ -964,8 +962,10 @@ async fn a_block_hides_the_person_but_keeps_the_plan() {
         amount: 500,
         ..Default::default()
     };
-    let _: SettleTransferResponse = ctx.call(PLANS, "SettleTransfer", sota, &paid).await.unwrap();
-    assert!(ctx.notifications_for(mika.id, "plans.settled").await.is_empty());
+    let _: SettleTransferResponse = ctx.call(PLANS, "SettleTransfer", mika, &paid).await.unwrap();
+    assert!(ctx.notifications_for(sota.id, "plans.settled").await.is_empty());
+    assert_eq!(ctx.rsvp(sota, &plan.id, Rsvp::RSVP_MAYBE).await, Rsvp::RSVP_MAYBE);
+    assert_eq!(ctx.notifications_for(mika.id, "plans.rsvp").await.len(), heard_before);
     let cancel = CancelPlanRequest { plan_id: plan.id.clone(), ..Default::default() };
     let _: CancelPlanResponse = ctx.call(PLANS, "CancelPlan", mika, &cancel).await.unwrap();
     assert_eq!(ctx.notifications_for(yui.id, "plans.cancelled").await.len(), 1);

@@ -126,7 +126,8 @@ async fn who_paid_what_and_who_owes_whom() {
     assert_eq!(transfers(yen), expected);
     assert!(before.settlements.is_empty());
 
-    // Sota hands Mika the money and marks it as done. Only the two of them can.
+    // Sota hands Mika the money. Mika, who received it, marks it: saying
+    // "I paid" settles nothing, neither for Sota nor for anyone else.
     let settle = |from: &TestUser, to: &TestUser, amount: i64| SettleTransferRequest {
         plan_id: plan.id.clone(),
         from_user_id: from.id.to_string(),
@@ -134,17 +135,27 @@ async fn who_paid_what_and_who_owes_whom() {
         amount,
         ..Default::default()
     };
+    assert_eq!(ctx.refusal(PLANS, "SettleTransfer", sota, &settle(sota, mika, 1600)).await, "NOT_ALLOWED");
     assert_eq!(ctx.refusal(PLANS, "SettleTransfer", yui, &settle(sota, mika, 1600)).await, "NOT_ALLOWED");
+    // Nor can more be marked than is owed, or a debt be invented.
+    assert_eq!(ctx.refusal(PLANS, "SettleTransfer", mika, &settle(sota, mika, 1601)).await, "AMOUNT_EXCEEDS_BALANCE");
+    assert_eq!(ctx.refusal(PLANS, "SettleTransfer", sota, &settle(mika, sota, 500)).await, "AMOUNT_EXCEEDS_BALANCE");
     let done: SettleTransferResponse =
-        ctx.call(PLANS, "SettleTransfer", sota, &settle(sota, mika, 1600)).await.unwrap();
+        ctx.call(PLANS, "SettleTransfer", mika, &settle(sota, mika, 1600)).await.unwrap();
     let done = done.settlement.as_option().cloned().unwrap();
     assert_eq!(
         (done.amount, done.currency.as_str(), done.recorded_by_user_id.clone()),
-        (1600, "JPY", sota.id.to_string())
+        (1600, "JPY", mika.id.to_string())
     );
-    let told = ctx.notifications_for(mika.id, "plans.settled").await;
-    assert_eq!(told.len(), 1);
-    assert_eq!(told[0].data["body"]["ja"], serde_json::json!("Sotaさんが1,600円を渡したと記録したよ(「打ち上げ」)"));
+    let told = ctx.notifications_for(sota.id, "plans.settled").await;
+    assert_eq!((told.len(), told[0].actor_id), (1, Some(mika.id)));
+    assert_eq!(
+        told[0].data["body"]["ja"],
+        serde_json::json!("Mikaさんが1,600円を受け取ったと記録したよ(「打ち上げ」)")
+    );
+    assert!(ctx.notifications_for(mika.id, "plans.settled").await.is_empty());
+    // Once: the debt is gone.
+    assert_eq!(ctx.refusal(PLANS, "SettleTransfer", mika, &settle(sota, mika, 1600)).await, "AMOUNT_EXCEEDS_BALANCE");
 
     let after = split(&ctx, mika, &plan).await;
     let yen = &after.splits[0];
@@ -157,13 +168,13 @@ async fn who_paid_what_and_who_owes_whom() {
     // What is not a transfer.
     let outsider = ctx.app.user("Outsider").await;
     assert_eq!(ctx.refusal(PLANS, "SettleTransfer", yui, &settle(yui, yui, 400)).await, "SAME_USER");
-    assert_eq!(ctx.refusal(PLANS, "SettleTransfer", yui, &settle(yui, &outsider, 400)).await, "USER_NOT_IN_PLAN");
-    assert_eq!(ctx.refusal(PLANS, "SettleTransfer", yui, &settle(yui, mika, 0)).await, "AMOUNT_INVALID");
+    assert_eq!(ctx.refusal(PLANS, "SettleTransfer", mika, &settle(&outsider, mika, 400)).await, "USER_NOT_IN_PLAN");
+    assert_eq!(ctx.refusal(PLANS, "SettleTransfer", mika, &settle(yui, mika, 0)).await, "AMOUNT_INVALID");
     assert_eq!(
         ctx.refusal(
             PLANS,
             "SettleTransfer",
-            yui,
+            mika,
             &SettleTransferRequest { currency: "円".into(), ..settle(yui, mika, 400) }
         )
         .await,
@@ -186,9 +197,10 @@ async fn who_paid_what_and_who_owes_whom() {
         "PLAN_NOT_FOUND"
     );
 
-    // Either of the two can take a recorded transfer back.
+    // Mika can take back what she marked; nobody else can, and it leaves a trace.
     let take_back = RemoveSettlementRequest { settlement_id: done.id.clone(), ..Default::default() };
     assert_eq!(ctx.refusal(PLANS, "RemoveSettlement", yui, &take_back).await, "NOT_ALLOWED");
+    assert_eq!(ctx.refusal(PLANS, "RemoveSettlement", sota, &take_back).await, "NOT_ALLOWED");
     assert_eq!(ctx.refusal(PLANS, "RemoveSettlement", &outsider, &take_back).await, "SETTLEMENT_NOT_FOUND");
     assert_eq!(
         ctx.refusal(
@@ -204,6 +216,25 @@ async fn who_paid_what_and_who_owes_whom() {
     let restored = split(&ctx, mika, &plan).await;
     assert_eq!(net_of(&restored.splits[0], sota), -1600);
     assert!(restored.settlements.is_empty());
+    // The record stays for everyone in the plan: who took it back, and when.
+    for viewer in [mika, yui, sota] {
+        let seen = split(&ctx, viewer, &plan).await;
+        assert_eq!(seen.removed_settlements.len(), 1);
+        let gone = &seen.removed_settlements[0];
+        assert_eq!(
+            (gone.id.as_str(), gone.amount, gone.removed_by_user_id.as_str(), gone.removed_at.is_set()),
+            (done.id.as_str(), 1600, mika.id.to_string().as_str(), true)
+        );
+    }
+    // Sota, whose debt is open again, is told.
+    let told = ctx.notifications_for(sota.id, "plans.settlement_removed").await;
+    assert_eq!((told.len(), told[0].actor_id), (1, Some(mika.id)));
+    assert_eq!(
+        told[0].data["body"]["ja"],
+        serde_json::json!("Mikaさんが1,600円の受け取りを取り消したよ(「打ち上げ」)")
+    );
+    // Taken back once.
+    assert_eq!(ctx.refusal(PLANS, "RemoveSettlement", mika, &take_back).await, "SETTLEMENT_NOT_FOUND");
 }
 
 #[tokio::test]
@@ -367,9 +398,18 @@ async fn expenses_that_do_not_add_up_are_rejected() {
     assert_eq!(ctx.refusal(PLANS, "AddExpense", &outsider, &request(both())).await, "PLAN_NOT_FOUND");
     assert!(split(&ctx, mika, &plan).await.splits.is_empty());
 
-    // Someone who has not answered can still be given a share (they came after all)...
+    // Someone who has not answered is not charged: nobody can put a debt
+    // on a person who never said they would come.
+    assert_eq!(
+        ctx.refusal(PLANS, "AddExpense", mika, &request(equal("たこ", 900, &[mika, yui, hana]))).await,
+        "SHARE_NOT_GOING"
+    );
+    let hana_paid = ExpenseInput { paid_by_user_id: hana.id.to_string(), ..equal("たこ", 900, &[mika, yui]) };
+    assert_eq!(ctx.refusal(PLANS, "AddExpense", mika, &request(hana_paid)).await, "PAYER_NOT_GOING");
+    // Once she says she is going she can be given a share, and from then on
+    // she is part of the split: she cannot leave or be removed.
+    ctx.rsvp(hana, &plan.id, Rsvp::RSVP_GOING).await;
     add(&ctx, mika, &plan, equal("たこ", 900, &[mika, yui, hana])).await;
-    // ...and from then on they are part of the split: they cannot leave or be removed.
     assert_eq!(
         ctx.refusal(PLANS, "LeavePlan", hana, &LeavePlanRequest { plan_id: plan.id.clone(), ..Default::default() })
             .await,
@@ -413,7 +453,7 @@ async fn currencies_do_not_mix() {
         currency: "USD".into(),
         ..Default::default()
     };
-    // The receiver may record it as well as the payer.
+    // The receiver records it.
     let _: SettleTransferResponse = ctx.call(PLANS, "SettleTransfer", yui, &request).await.unwrap();
     let state = split(&ctx, yui, &plan).await;
     assert!(state.splits[1].transfers.is_empty());

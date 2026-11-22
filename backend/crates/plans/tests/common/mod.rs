@@ -210,6 +210,20 @@ impl Ctx {
         self.plans.run_due_work().await.expect("worker pass")
     }
 
+    /// [`Ctx::make_due`] with several passes of the worker running at the
+    /// same moment, as when several server processes are up.
+    pub async fn make_due_for_workers(&self, statement: &'static str, ids: &[Uuid], workers: usize) -> Vec<WorkDone> {
+        let _one_at_a_time = WORKER.lock().await;
+        for id in ids {
+            self.sql(statement, *id).await;
+        }
+        futures::future::join_all((0..workers).map(|_| self.plans.run_due_work()))
+            .await
+            .into_iter()
+            .map(|pass| pass.expect("worker pass"))
+            .collect()
+    }
+
     pub async fn set_time_zone(&self, user: &TestUser, zone: &str) {
         sqlx::query("UPDATE users SET time_zone = $2 WHERE id = $1")
             .bind(user.id)
