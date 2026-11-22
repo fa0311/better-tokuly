@@ -188,6 +188,12 @@ message Welcome {
   // Suggested location report cadence.
   int32 moving_interval_seconds = 6;
   int32 stationary_interval_seconds = 7;
+  // Version of this protocol the gateway speaks. It goes up when a client
+  // built for the previous one would no longer understand what it is sent
+  // (2: domain events travel in `Event`; servers before that sent 0). A
+  // client that sees a higher number than it was built for keeps its
+  // connection and asks to be reloaded.
+  uint32 protocol_version = 8;
 }
 
 message Pong {

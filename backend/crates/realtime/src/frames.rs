@@ -12,6 +12,12 @@ use tokuly_proto::{
     realtime::{Error, Pong, ServerFrame, TopicStats, Welcome, server_frame::Body},
 };
 
+/// What `Welcome.protocol_version` says. Raise it together with
+/// `PROTOCOL_VERSION` in `packages/realtime/src/protocol.ts` when clients
+/// built for the current version would no longer understand what they are
+/// sent: clients that see a higher number ask to be reloaded.
+pub(crate) const PROTOCOL_VERSION: u32 = 2;
+
 /// How a frame may be treated on its way to a client.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Delivery {

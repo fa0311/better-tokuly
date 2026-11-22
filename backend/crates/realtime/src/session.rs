@@ -380,6 +380,7 @@ impl<'g> Session<'g> {
             transport: self.client.transport.as_str().to_owned(),
             moving_interval_seconds: seconds(cfg.moving_interval),
             stationary_interval_seconds: seconds(cfg.stationary_interval),
+            protocol_version: frames::PROTOCOL_VERSION,
             ..Default::default()
         }
     }

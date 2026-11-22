@@ -40,6 +40,7 @@ async fn anonymous_hello_is_welcomed() {
     assert!(Uuid::parse_str(&welcome.connection_id).is_ok());
     assert!(welcome.server_time.is_set());
     assert_eq!(welcome.ping_interval_seconds, 25);
+    assert_eq!(welcome.protocol_version, 2, "the version clients compare with the one they were built for");
     assert_eq!((welcome.moving_interval_seconds, welcome.stationary_interval_seconds), (5, 60));
 
     let stats = harness.gateway.stats();

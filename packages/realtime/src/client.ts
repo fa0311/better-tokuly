@@ -1,6 +1,7 @@
 import { create, toBinary } from "@bufbuild/protobuf";
 import { type common, geo, realtime } from "@tokuly/api";
 import { decodeServerFrame, type ServerFrame } from "./events.js";
+import { clientIsOutdated } from "./protocol.js";
 import {
   connectWebSocket,
   connectWebTransport,
@@ -55,6 +56,8 @@ export class RealtimeClient {
   private foreground = true;
   private readonly frameListeners = new Set<FrameListener>();
   private readonly statusListeners = new Set<StatusListener>();
+  private readonly outdatedListeners = new Set<() => void>();
+  private outdated = false;
   /** topic → number of active subscribers in this app. */
   private readonly topics = new Map<string, number>();
   /** Server-suggested location report cadence, from the last Welcome. */
@@ -79,6 +82,17 @@ export class RealtimeClient {
   onStatus(listener: StatusListener): () => void {
     this.statusListeners.add(listener);
     return () => this.statusListeners.delete(listener);
+  }
+
+  /**
+   * Tells the app that the server speaks a newer protocol than this client
+   * was built for: the page has to be loaded again. Called at most once per
+   * listener, right away if it is already known.
+   */
+  onOutdated(listener: () => void): () => void {
+    if (this.outdated) listener();
+    else this.outdatedListeners.add(listener);
+    return () => this.outdatedListeners.delete(listener);
   }
 
   private setStatus(status: ConnectionStatus): void {
@@ -220,6 +234,11 @@ export class RealtimeClient {
       movingSeconds: welcome.movingIntervalSeconds || 5,
       stationarySeconds: welcome.stationaryIntervalSeconds || 60,
     };
+    if (!this.outdated && clientIsOutdated(welcome.protocolVersion)) {
+      this.outdated = true;
+      for (const listener of this.outdatedListeners) listener();
+      this.outdatedListeners.clear();
+    }
     const intervalMs = Math.max(5, welcome.pingIntervalSeconds || 25) * 1000;
     if (this.pingTimer) clearInterval(this.pingTimer);
     this.pingTimer = setInterval(() => {
