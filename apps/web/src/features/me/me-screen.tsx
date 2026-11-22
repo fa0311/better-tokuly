@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Bell, ChevronRight, LogOut, Megaphone, Settings, ShieldCheck, Smile, UserRound, Users, Wallet } from "lucide-react";
+import { Bell, ChevronRight, LogOut, Megaphone, Newspaper, Settings, ShieldCheck, Smile, UserRound, Users, Wallet } from "lucide-react";
 import type { ComponentType } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
@@ -12,7 +12,7 @@ import { type BadgeKey, useBadges } from "#/stores/badges";
 import { useMe } from "#/stores/session";
 
 interface Tile {
-  to: "/friends" | "/stamps" | "/wallet" | "/notifications" | "/settings" | "/announcements" | "/admin";
+  to: "/friends" | "/stamps" | "/wallet" | "/notifications" | "/settings" | "/announcements" | "/news" | "/admin";
   labelKey: string;
   icon: ComponentType<{ className?: string }>;
   /** Background of the icon bubble. */
@@ -25,6 +25,8 @@ const TILES: Tile[] = [
   { to: "/notifications", labelKey: "tiles.notifications", icon: Bell, tint: "bg-pink", badge: "notifications" },
   { to: "/stamps", labelKey: "tiles.stamps", icon: Smile, tint: "bg-sun" },
   { to: "/wallet", labelKey: "tiles.wallet", icon: Wallet, tint: "bg-lime" },
+  // The news tile takes its name from the shared navigation strings.
+  { to: "/news", labelKey: "common:nav.news", icon: Newspaper, tint: "bg-coral" },
   { to: "/settings", labelKey: "tiles.settings", icon: Settings, tint: "bg-mint" },
   { to: "/announcements", labelKey: "tiles.announcements", icon: Megaphone, tint: "bg-brand-soft" },
 ];
