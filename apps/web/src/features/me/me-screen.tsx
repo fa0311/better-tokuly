@@ -1,11 +1,12 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Bell, Bookmark, ChevronRight, Clapperboard, History, ListVideo, LogOut, Megaphone, Newspaper, Settings, ShieldCheck, Smile, UserRound, Users, Wallet } from "lucide-react";
+import { Bell, Bookmark, ChevronRight, Clapperboard, History, ListVideo, LogOut, MailQuestionMark, Megaphone, Newspaper, Settings, ShieldCheck, Smile, UserRound, Users, Wallet } from "lucide-react";
 import type { ComponentType } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { CountBadge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Page } from "#/components/ui/page";
+import { useAskBadge } from "#/features/ask";
 import { api } from "#/lib/api";
 import { cn } from "#/lib/cn";
 import { type BadgeKey, useBadges } from "#/stores/badges";
@@ -14,6 +15,7 @@ import { useMe } from "#/stores/session";
 interface Tile {
   to:
     | "/friends"
+    | "/ask"
     | "/stamps"
     | "/wallet"
     | "/notifications"
@@ -31,12 +33,14 @@ interface Tile {
   icon: ComponentType<{ className?: string }>;
   /** Background of the icon bubble. */
   tint: string;
-  badge?: BadgeKey;
+  /** `"ask"`: unread questions and unseen flames, which the question-box feature counts itself. */
+  badge?: BadgeKey | "ask";
 }
 
 const TILES: Tile[] = [
   { to: "/friends", labelKey: "tiles.friends", icon: Users, tint: "bg-sky", badge: "friends" },
   { to: "/notifications", labelKey: "tiles.notifications", icon: Bell, tint: "bg-pink", badge: "notifications" },
+  { to: "/ask", labelKey: "ask:tile", icon: MailQuestionMark, tint: "bg-sun", badge: "ask" },
   { to: "/bookmarks", labelKey: "engagement:tile", icon: Bookmark, tint: "bg-sky" },
   { to: "/activity", labelKey: "notes:activityTile", icon: History, tint: "bg-brand" },
   { to: "/stamps", labelKey: "tiles.stamps", icon: Smile, tint: "bg-sun" },
@@ -98,7 +102,9 @@ export function MeScreen() {
 
 function HubTile({ tile, label }: { tile: Tile; label: string }) {
   const Icon = tile.icon;
-  const count = useBadges((badges) => (tile.badge ? badges[tile.badge] : 0));
+  const navigationCount = useBadges((badges) => (tile.badge && tile.badge !== "ask" ? badges[tile.badge] : 0));
+  const askCount = useAskBadge(tile.badge === "ask");
+  const count = tile.badge === "ask" ? askCount : navigationCount;
   return (
     <Link to={tile.to} className="pressable sticker flex h-28 flex-col justify-between rounded-card bg-surface p-4">
       <span className="flex items-start justify-between">
