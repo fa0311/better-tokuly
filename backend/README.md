@@ -8,7 +8,7 @@ Rust workspace. One binary (`tokuly`, crate `crates/server`) runs every role:
 ```
 proto/tokuly/<domain>/v1/<domain>.proto   API contract (repo root), one package per domain
 backend/migrations/NNNN_<domain>.sql      schema, one numbered file per domain
-backend/crates/proto                      generated messages + Connect service traits (do not edit)
+backend/crates/proto                      generated messages + Connect service traits, one Cargo feature per package
 backend/crates/core                       shared foundation (see below)
 backend/crates/testkit                    integration test harness
 backend/crates/<domain>                   one crate per domain
@@ -49,6 +49,35 @@ Domains and their migration numbers:
 A crate may only depend on crates listed for it (plus `core`, `proto`,
 `identity`). Everything else goes through events (below), so the graph stays
 acyclic and domains stay replaceable.
+
+### API packages
+
+`tokuly-proto` compiles only the proto packages a build asks for: every
+package is a Cargo feature of the same name (`chat` is `proto/tokuly/chat`,
+`tokuly_proto::chat`), and nothing is on by default. A crate lists the
+packages it names in its own code, and in `[dev-dependencies]` the ones only
+its tests name:
+
+```toml
+[dependencies]
+tokuly-proto = { workspace = true, features = ["chat", "common", "media"] }
+
+[dev-dependencies]
+tokuly-proto = { workspace = true, features = ["social"] }
+```
+
+So `cargo test -p tokuly-wallet` compiles `common`, `wallet` and what `core`,
+`identity` and the testkit need, not the other twenty packages, and a change
+to another domain's `.proto` does not rebuild it at all. The price is one
+error to know: an unresolved import of `tokuly_proto::chat` means the `chat`
+feature is missing from your `Cargo.toml`.
+
+When a `.proto` starts importing another package, add that package to its
+feature in `backend/crates/proto/Cargo.toml` (the build says so, and
+`cargo test -p tokuly-proto` checks the whole table). A new package needs a
+feature there and an alias in `backend/crates/proto/src/lib.rs`. The
+generated Connect clients are behind the `client` feature, which nothing
+enables today.
 
 ## Running
 

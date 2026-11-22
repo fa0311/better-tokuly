@@ -11,4 +11,4 @@ workspace = true
 
 [dependencies]
 tokuly-core.workspace = true
-tokuly-proto.workspace = true
+tokuly-proto = { workspace = true, features = ["ask", "common"] }

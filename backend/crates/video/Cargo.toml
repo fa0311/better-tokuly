@@ -11,7 +11,7 @@ workspace = true
 
 [dependencies]
 tokuly-core.workspace = true
-tokuly-proto.workspace = true
+tokuly-proto = { workspace = true, features = ["common", "media", "video"] }
 tokuly-identity.workspace = true
 tokuly-social.workspace = true
 tokuly-media.workspace = true
@@ -35,6 +35,8 @@ hex.workspace = true
 unicode-segmentation.workspace = true
 
 [dev-dependencies]
+# API packages only the tests name.
+tokuly-proto = { workspace = true, features = ["social"] }
 tokuly-testkit.workspace = true
 reqwest.workspace = true
 tempfile.workspace = true

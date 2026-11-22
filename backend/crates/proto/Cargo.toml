@@ -9,6 +9,40 @@ publish.workspace = true
 [lints]
 workspace = true
 
+# One feature per proto package (`proto/tokuly/<package>`), listing the
+# packages its `.proto` files import. A crate enables the packages it names in
+# its own code; there is no default, so nothing compiles an API it does not use.
+# `tests/features.rs` keeps this table in step with the proto tree.
+[features]
+admin = ["common"]
+ask = ["common"]
+chat = ["common", "media"]
+common = []
+community = ["common"]
+dev = ["common"]
+emoji = ["common"]
+engagement = ["common"]
+feed = ["common"]
+geo = ["common", "identity"]
+identity = ["common"]
+live = ["common"]
+media = ["common"]
+notes = ["common", "media"]
+notify = ["common"]
+plans = ["common"]
+quest = ["common"]
+realtime = ["common"]
+school = ["common"]
+search = ["common"]
+shorts = ["common"]
+social = ["common", "identity"]
+spaces = ["common"]
+stamp = ["common"]
+video = ["common", "media"]
+wallet = ["common"]
+# The generated `<Service>Client` types, for calling the API over Connect.
+client = []
+
 [dependencies]
 connectrpc.workspace = true
 buffa.workspace = true

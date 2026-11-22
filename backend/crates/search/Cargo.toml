@@ -11,7 +11,7 @@ workspace = true
 
 [dependencies]
 tokuly-core.workspace = true
-tokuly-proto.workspace = true
+tokuly-proto = { workspace = true, features = ["common", "search"] }
 tokuly-identity.workspace = true
 tokuly-social.workspace = true
 tokio.workspace = true
@@ -32,5 +32,7 @@ anyhow.workspace = true
 unicode-normalization.workspace = true
 
 [dev-dependencies]
+# API packages only the tests name.
+tokuly-proto = { workspace = true, features = ["social"] }
 tokuly-testkit.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
