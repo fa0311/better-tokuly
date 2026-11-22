@@ -55,7 +55,7 @@ export function StudioScreen() {
       toast.success(t("toast.packCreated"));
       if (pack?.summary) await navigate({ to: "/stamps/studio/$packId", params: { packId: pack.summary.shortId || pack.summary.id } });
     } catch (error) {
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "stamps" }));
       throw error;
     }
   };
