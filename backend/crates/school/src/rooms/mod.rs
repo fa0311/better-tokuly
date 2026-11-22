@@ -218,6 +218,16 @@ impl School {
     /// unless the host removed them, or they are in a block with the host
     /// or with someone inside.
     pub(crate) async fn may_see(&self, room: &RoomRow, viewer: Uuid) -> AppResult<bool> {
+        self.has_access(room, viewer, true).await
+    }
+
+    /// Whether `viewer` would be let into the room now, were they not in it
+    /// already: what entering is checked against, before and after.
+    pub(crate) async fn may_come_in(&self, room: &RoomRow, viewer: Uuid) -> AppResult<bool> {
+        self.has_access(room, viewer, false).await
+    }
+
+    async fn has_access(&self, room: &RoomRow, viewer: Uuid, being_inside_counts: bool) -> AppResult<bool> {
         let core = &self.core;
         if viewer == room.host_id {
             return Ok(true);
@@ -235,7 +245,7 @@ impl School {
             return Ok(false);
         }
         // Someone inside keeps seeing the room they are in.
-        if inside {
+        if inside && being_inside_counts {
             return Ok(true);
         }
         let allowed = room.is_public()
@@ -267,7 +277,7 @@ impl School {
         Ok(sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM school_room_invites WHERE room_id = $1 AND user_id = $2)
                  OR EXISTS(SELECT 1 FROM school_room_bans WHERE room_id = $1 AND user_id = $2)
-                 OR EXISTS(SELECT 1 FROM school_study_sessions WHERE room_id = $1 AND user_id = $2)",
+                 OR EXISTS(SELECT 1 FROM school_room_visits WHERE room_id = $1 AND user_id = $2)",
         )
         .bind(room.id)
         .bind(viewer)

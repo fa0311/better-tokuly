@@ -128,7 +128,7 @@ async fn rows(ctx: &Ctx, table: &str, column: &str, user: &TestUser) -> i64 {
         .unwrap()
 }
 
-const TABLES: [(&str, &str); 17] = [
+const TABLES: [(&str, &str); 18] = [
     ("school_settings", "user_id"),
     ("school_subjects", "user_id"),
     ("school_terms", "user_id"),
@@ -139,6 +139,7 @@ const TABLES: [(&str, &str); 17] = [
     ("school_rooms", "host_id"),
     ("school_room_invites", "user_id"),
     ("school_room_bans", "user_id"),
+    ("school_room_visits", "user_id"),
     ("school_study_sessions", "user_id"),
     ("school_study_segments", "user_id"),
     ("school_study_cheers", "from_user_id"),

@@ -82,6 +82,10 @@ data stays; lifting the suspension brings it all back.
   no `school.studied` entry is recorded either.
 - In a room, people in a block with the viewer are neither listed nor counted
   in `member_count`.
+- The weekly ranking counts only time the server timed. Hand-logged
+  sessions (`SessionSource.MANUAL`) appear in a user's own totals and
+  heatmap, labelled by their source, and never in the ranking; a timed
+  session can be edited shorter, never longer.
 - There are no anonymous aggregates in this domain: the ranking, cheers and
   room presence all name people who chose to take part.
 

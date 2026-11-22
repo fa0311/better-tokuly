@@ -599,6 +599,15 @@ impl School {
         }
         let mut room = lock(&mut tx, room_id).await?.ok_or_else(not_found)?;
         ensure_open(&room)?;
+        // The host may have removed the caller since the check above:
+        // removals are made under this lock, so this answer stands.
+        let banned: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM school_room_bans WHERE room_id = $1 AND user_id = $2)")
+                .bind(room.id)
+                .bind(user_id)
+                .fetch_one(&mut *tx)
+                .await?;
+        ensure!(!banned, not_found, "ROOM_NOT_FOUND", "study room not found");
         let members = member_sessions(&mut tx, room.id, false).await?;
         ensure!(
             (members.len() as i32) < room.member_cap || room.host_id == user_id,
@@ -616,6 +625,11 @@ impl School {
             at,
         };
         let session = sessions::insert(&mut tx, &new).await?;
+        sqlx::query("INSERT INTO school_room_visits (room_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING")
+            .bind(room.id)
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
         room.member_count = members.len() as i32 + 1;
         room.empty_since = None;
         sqlx::query("UPDATE school_rooms SET member_count = $2, empty_since = NULL WHERE id = $1")
@@ -634,6 +648,15 @@ impl School {
             store_timer(&mut tx, &mut room, &timer, at).await?;
         }
         tx.commit().await?;
+
+        // A block or an ended friendship is not decided under the room's
+        // lock: if one landed while the caller was on their way in, its
+        // cleanup may have looked before they were inside. Look again now
+        // that they are, and show them out if they no longer belong.
+        if !self.may_come_in(&room, user_id).await? {
+            self.remove_from_room(room.id, user_id, false, at).await?;
+            return Err(not_found());
+        }
 
         self.announce_entered(&room, &session, at).await;
         if timer != before {
@@ -752,14 +775,22 @@ impl School {
     pub(crate) async fn remove_member(&self, user_id: Uuid, room_id: Uuid, target: Uuid) -> AppResult<()> {
         let room = self.hosted_room(room_id, user_id).await?;
         ensure!(target != user_id, invalid, "CANNOT_REMOVE_SELF", "leave the room instead of removing yourself");
-        let removed = self.remove_from_room(room.id, target, true, self.now()).await?;
-        ensure!(removed, not_found, "USER_NOT_IN_ROOM", "this person is not in the room");
+        let visited: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM school_room_visits WHERE room_id = $1 AND user_id = $2)")
+                .bind(room.id)
+                .bind(target)
+                .fetch_one(&self.core.db)
+                .await?;
+        // Someone who is inside, or was (everyone who enters leaves a visit):
+        // out if they are in, and kept out from now on.
+        ensure!(visited, not_found, "USER_NOT_IN_ROOM", "this person has not been in the room");
+        self.remove_from_room(room.id, target, true, self.now()).await?;
         Ok(())
     }
 
     /// Takes `target` out of a room if they are in it, and withdraws their
-    /// invitation. With `ban` they cannot come back. Returns whether they
-    /// were inside.
+    /// invitation. With `ban` they cannot come (back) in. Returns whether
+    /// they were inside.
     pub(crate) async fn remove_from_room(&self, room_id: Uuid, target: Uuid, ban: bool, at: Time) -> AppResult<bool> {
         let mut tx = self.core.db.begin().await?;
         let Some(mut room) = lock(&mut tx, room_id).await? else { return Ok(false) };
@@ -779,7 +810,7 @@ impl School {
             }
             None => None,
         };
-        if ban && gone.is_some() {
+        if ban {
             sqlx::query("INSERT INTO school_room_bans (room_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING")
                 .bind(room_id)
                 .bind(target)

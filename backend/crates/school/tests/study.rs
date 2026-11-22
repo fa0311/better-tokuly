@@ -856,13 +856,21 @@ async fn the_weekly_ranking_is_among_friends_who_joined() {
     for friend in [&top, &tied, &outsider] {
         ctx.befriend(&me, friend).await;
     }
+    // Timed study (the ranking counts nothing else): `top` 100 minutes last
+    // week and 90 this week, `tied` and `me` an hour each, the two who are
+    // not in the ranking five hours each.
+    for (user, (month, day), minutes) in [
+        (&top, (4, 2), 100),
+        (&tied, (4, 7), 60),
+        (&outsider, (4, 7), 300),
+        (&stranger, (4, 7), 300),
+        (&me, (4, 8), 60),
+        (&top, (4, 9), 90),
+    ] {
+        ctx.at(2026, month, day, 10, 0);
+        ctx.study_for(user, minutes).await;
+    }
     ctx.at(2026, 4, 10, 12, 0); // a Friday
-    ctx.log(&me, tokyo(2026, 4, 8, 18, 0), tokyo(2026, 4, 8, 19, 0), None).await.unwrap();
-    ctx.log(&top, tokyo(2026, 4, 9, 18, 0), tokyo(2026, 4, 9, 19, 30), None).await.unwrap();
-    ctx.log(&top, tokyo(2026, 4, 2, 18, 0), tokyo(2026, 4, 2, 19, 40), None).await.unwrap();
-    ctx.log(&tied, tokyo(2026, 4, 7, 18, 0), tokyo(2026, 4, 7, 19, 0), None).await.unwrap();
-    ctx.log(&outsider, tokyo(2026, 4, 7, 10, 0), tokyo(2026, 4, 7, 15, 0), None).await.unwrap();
-    ctx.log(&stranger, tokyo(2026, 4, 7, 10, 0), tokyo(2026, 4, 7, 15, 0), None).await.unwrap();
     let ranking = |anchor: &str| GetStudyRankingRequest { anchor_date: anchor.into(), ..Default::default() };
 
     // Until the caller joins there is nothing to see.
@@ -885,6 +893,14 @@ async fn the_weekly_ranking_is_among_friends_who_joined() {
         open.entries[1..].iter().map(|e| (name(e), e.rank, e.seconds, e.me)).collect();
     second.sort();
     assert_eq!(second, vec![("me".to_owned(), 2, 3600, true), ("tied".to_owned(), 2, 3600, false)]);
+
+    // Hours typed in by hand do not move anyone up: ten of them for `tied`
+    // show in their own totals and leave the ranking as it was.
+    let typed = ctx.log(&tied, tokyo(2026, 4, 9, 8, 0), tokyo(2026, 4, 9, 18, 0), None).await.unwrap();
+    assert_eq!(typed.source, SessionSource::SESSION_SOURCE_MANUAL);
+    assert_eq!(summary(&ctx, &tied, StatsPeriod::STATS_PERIOD_WEEK, "").await.total_seconds, 3600 + 36_000);
+    let after: GetStudyRankingResponse = ctx.ok(STUDY, "GetStudyRanking", &me, &ranking("")).await;
+    assert_eq!(after.entries, open.entries);
 
     // Last week only `top` studied.
     let last_week: GetStudyRankingResponse = ctx.ok(STUDY, "GetStudyRanking", &me, &ranking("2026-04-02")).await;
@@ -1008,4 +1024,58 @@ async fn hidden_studying_stays_out_of_friends_feeds() {
     // The log and the event for other domains do not depend on any of it.
     assert_eq!(ctx.sessions(&hidden).await.len(), 1);
     assert_eq!(ctx.app.events_by("school.study.session_ended", hidden.id).await.len(), 1);
+}
+
+#[tokio::test]
+async fn a_timed_session_can_be_edited_shorter_never_longer() {
+    let ctx = start().await;
+    let me = ctx.app.user("me").await;
+    ctx.at(2026, 4, 13, 18, 0);
+    // A pomodoro from 18:00: work until 18:25, break until 18:30, work until 18:40.
+    let classic =
+        PomodoroConfig { work_minutes: 25, break_minutes: 5, long_break_minutes: 15, rounds: 4, ..Default::default() };
+    let request = StartStudySessionRequest {
+        mode: StudyMode::STUDY_MODE_POMODORO.into(),
+        pomodoro: classic.into(),
+        ..Default::default()
+    };
+    let _: StartStudySessionResponse = ctx.ok(STUDY, "StartStudySession", &me, &request).await;
+    for _ in 0..4 {
+        ctx.pass(10);
+        ctx.heartbeat(&me).await;
+    }
+    let session = ctx.stop(&me).await.session.as_option().cloned().unwrap();
+    assert_eq!(session.studied_seconds, 35 * 60);
+    ctx.pass(60);
+    let at = |hour: u32, minute: u32| tokyo(2026, 4, 13, hour, minute);
+    let edit = |from, to| UpdateStudySessionRequest {
+        session_id: session.id.clone(),
+        started_at: stamp(from),
+        ended_at: stamp(to),
+        ..Default::default()
+    };
+
+    // Not longer, not moved, not re-saved as one stretch that swallows the break.
+    for (from, to) in
+        [(at(17, 0), at(18, 40)), (at(18, 0), at(19, 0)), (at(17, 30), at(18, 10)), (at(18, 41), at(19, 10))]
+    {
+        assert_eq!(ctx.reason(STUDY, "UpdateStudySession", &me, &edit(from, to)).await, "TIME_RANGE_INVALID");
+    }
+    let same: UpdateStudySessionResponse = ctx.ok(STUDY, "UpdateStudySession", &me, &edit(at(18, 0), at(18, 40))).await;
+    assert_eq!(same.session.as_option().unwrap().studied_seconds, 35 * 60, "the break is still not study time");
+    // Nothing was counted during the break, so that is not a session.
+    assert_eq!(ctx.reason(STUDY, "UpdateStudySession", &me, &edit(at(18, 26), at(18, 29))).await, "TIME_RANGE_INVALID");
+
+    // Shorter: from 18:10 to 18:35 is 15 minutes of work, the break, and 5 more.
+    let shorter: UpdateStudySessionResponse =
+        ctx.ok(STUDY, "UpdateStudySession", &me, &edit(at(18, 10), at(18, 35))).await;
+    let shorter = shorter.session.as_option().cloned().unwrap();
+    assert_eq!(
+        (shorter.studied_seconds, shorter.source.as_known().unwrap()),
+        (20 * 60, SessionSource::SESSION_SOURCE_TIMER)
+    );
+    assert_eq!((instant(&shorter.started_at), instant(&shorter.ended_at)), (at(18, 10), at(18, 35)));
+    // What was cut is gone: it cannot be edited back in.
+    assert_eq!(ctx.reason(STUDY, "UpdateStudySession", &me, &edit(at(18, 0), at(18, 40))).await, "TIME_RANGE_INVALID");
+    assert_eq!(summary(&ctx, &me, StatsPeriod::STATS_PERIOD_DAY, "2026-04-13").await.total_seconds, 20 * 60);
 }

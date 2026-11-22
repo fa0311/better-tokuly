@@ -183,6 +183,7 @@ impl School {
             "DELETE FROM school_study_sessions WHERE user_id = $1",
             "DELETE FROM school_room_invites WHERE user_id = $1",
             "DELETE FROM school_room_bans WHERE user_id = $1",
+            "DELETE FROM school_room_visits WHERE user_id = $1",
             "DELETE FROM school_rooms WHERE host_id = $1",
             "DELETE FROM school_exams WHERE user_id = $1",
             "DELETE FROM school_assignments WHERE user_id = $1",

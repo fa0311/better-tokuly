@@ -66,7 +66,58 @@ async fn check_free(
     Ok(())
 }
 
-/// Makes a finished session one uninterrupted stretch between two instants.
+/// Shortens a finished session the server timed to the part of it between
+/// two instants. Its segments are only ever cut, never added to: time the
+/// server did not see — before, after, or during a break — stays uncounted,
+/// so an edit cannot make a session longer than it was.
+async fn trim_to(
+    tx: &mut Transaction<'_, Postgres>,
+    session: &mut SessionRow,
+    start: Time,
+    end: Time,
+) -> AppResult<()> {
+    let bounds: (Option<Time>, Option<Time>) =
+        sqlx::query_as("SELECT min(started_at), max(ended_at) FROM school_study_segments WHERE session_id = $1")
+            .bind(session.id)
+            .fetch_one(&mut **tx)
+            .await?;
+    let within = matches!(bounds, (Some(first), Some(last)) if first <= start && end <= last);
+    ensure!(within, invalid, "TIME_RANGE_INVALID", "a timed session can be shortened, not moved or made longer");
+    sqlx::query("DELETE FROM school_study_segments WHERE session_id = $1 AND (ended_at <= $2 OR started_at >= $3)")
+        .bind(session.id)
+        .bind(start)
+        .bind(end)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query(
+        "UPDATE school_study_segments SET started_at = GREATEST(started_at, $2), ended_at = LEAST(ended_at, $3) WHERE session_id = $1",
+    )
+    .bind(session.id)
+    .bind(start)
+    .bind(end)
+    .execute(&mut **tx)
+    .await?;
+    let counted: i32 = sqlx::query_scalar(
+        "SELECT COALESCE(floor(sum(EXTRACT(EPOCH FROM ended_at - started_at))), 0)::int FROM school_study_segments WHERE session_id = $1",
+    )
+    .bind(session.id)
+    .fetch_one(&mut **tx)
+    .await?;
+    ensure!(counted > 0, invalid, "TIME_RANGE_INVALID", "no study time was counted in that part of the session");
+    session.started_at = start;
+    session.ended_at = Some(end);
+    session.counted_seconds = counted;
+    sqlx::query("UPDATE school_study_sessions SET started_at = $2, ended_at = $3, counted_seconds = $4 WHERE id = $1")
+        .bind(session.id)
+        .bind(start)
+        .bind(end)
+        .bind(counted)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+/// Makes a hand-logged session one uninterrupted stretch between two instants.
 async fn set_stretch(
     tx: &mut Transaction<'_, Postgres>,
     session: &mut SessionRow,
@@ -193,8 +244,12 @@ impl School {
                 "SESSION_ACTIVE",
                 "the times of a session can be changed once it has ended"
             );
-            check_free(&mut tx, user_id, start, end, Some(session.id)).await?;
-            set_stretch(&mut tx, &mut session, start, end).await?;
+            if session.source == SOURCE_MANUAL {
+                check_free(&mut tx, user_id, start, end, Some(session.id)).await?;
+                set_stretch(&mut tx, &mut session, start, end).await?;
+            } else {
+                trim_to(&mut tx, &mut session, start, end).await?;
+            }
         }
         tx.commit().await?;
 

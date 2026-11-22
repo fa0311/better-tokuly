@@ -904,8 +904,10 @@ service StudyService {
   // Friends who are studying right now and show it, longest session first.
   rpc ListStudyingFriends(ListStudyingFriendsRequest) returns (ListStudyingFriendsResponse);
   // This week's (or another week's) study time among the caller and the
-  // friends who joined the ranking. Empty with `joined = false` until the
-  // caller joins (`SchoolSettings.join_ranking`).
+  // friends who joined the ranking. Only time the server timed counts (the
+  // timer and study rooms): sessions logged by hand (`SessionSource.MANUAL`)
+  // show in one's own totals and are left out here. Empty with
+  // `joined = false` until the caller joins (`SchoolSettings.join_ranking`).
   rpc GetStudyRanking(GetStudyRankingRequest) returns (GetStudyRankingResponse);
   // Sends "がんばれ!" to a friend who is studying. Quiet: a realtime event,
   // and a notification only if the friend asked for those.
@@ -1097,8 +1099,11 @@ message UpdateStudySessionRequest {
   // An empty string clears the subject.
   optional string subject_id = 2;
   optional string memo = 3;
-  // Finished sessions only; both together. The session then counts as one
-  // uninterrupted stretch between them.
+  // Finished sessions only; both together. A session logged by hand then
+  // counts as one uninterrupted stretch between them. A session the server
+  // timed can only be shortened: the new start and end must lie within the
+  // time it counted (TIME_RANGE_INVALID otherwise), and pauses and breaks
+  // inside stay uncounted.
   google.protobuf.Timestamp started_at = 4;
   google.protobuf.Timestamp ended_at = 5;
 }
@@ -1354,8 +1359,9 @@ service StudyRoomService {
   // invitee can still report the room they were invited to.)
   // Errors: ROOM_NOT_FOUND, NOT_HOST.
   rpc UninviteFromStudyRoom(UninviteFromStudyRoomRequest) returns (UninviteFromStudyRoomResponse);
-  // Host: removes a member, who cannot come back to this room.
-  // Errors: ROOM_NOT_FOUND, NOT_HOST, USER_NOT_IN_ROOM, CANNOT_REMOVE_SELF.
+  // Host: removes someone who is in the room, or was in it earlier; they
+  // cannot come (back) in. Errors: ROOM_NOT_FOUND, NOT_HOST, USER_NOT_IN_ROOM
+  // (never was), CANNOT_REMOVE_SELF.
   rpc RemoveStudyRoomMember(RemoveStudyRoomMemberRequest) returns (RemoveStudyRoomMemberResponse);
 }
 

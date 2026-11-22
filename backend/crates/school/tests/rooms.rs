@@ -786,3 +786,64 @@ async fn a_room_is_changed_reacted_in_and_closed() {
     // The host is free to open another.
     ctx.create_room(&host, |_| {}).await;
 }
+
+#[tokio::test]
+async fn the_host_can_keep_out_someone_who_came_and_went() {
+    let ctx = start().await;
+    let (host, visitor, never) =
+        (ctx.app.user("host").await, ctx.app.user("visitor").await, ctx.app.user("never").await);
+    ctx.at(2026, 4, 13, 18, 0);
+    let room = room_of(&ctx.create_room(&host, |room| room.audience = RoomAudience::ROOM_AUDIENCE_PUBLIC.into()).await);
+    // In and out again before the timer ever ran: no session is left of the visit.
+    ctx.join(&visitor, &room.id).await.unwrap();
+    leave(&ctx, &visitor).await;
+    assert!(ctx.sessions(&visitor).await.is_empty());
+
+    let remove = |user: &TestUser| RemoveStudyRoomMemberRequest {
+        room_id: room.id.clone(),
+        user_id: user.id.to_string(),
+        ..Default::default()
+    };
+    assert_eq!(ctx.reason(ROOMS, "RemoveStudyRoomMember", &host, &remove(&never)).await, "USER_NOT_IN_ROOM");
+    assert!(
+        ctx.join(&never, &room.id).await.is_ok(),
+        "someone who never was in the room is not kept out by the attempt"
+    );
+    let _: RemoveStudyRoomMemberResponse = ctx.ok(ROOMS, "RemoveStudyRoomMember", &host, &remove(&visitor)).await;
+    assert_eq!(ctx.join(&visitor, &room.id).await.unwrap_err().reason, "ROOM_NOT_FOUND");
+    assert_eq!(ctx.room(&visitor, &room.id).await.unwrap_err().reason, "ROOM_NOT_FOUND");
+}
+
+#[tokio::test]
+async fn entering_while_being_removed_does_not_get_past_the_removal() {
+    let ctx = start().await;
+    let host = ctx.app.user("host").await;
+    ctx.at(2026, 4, 13, 18, 0);
+    let room = room_of(&ctx.create_room(&host, |room| room.audience = RoomAudience::ROOM_AUDIENCE_PUBLIC.into()).await);
+    // Several people, each entering again and again while the host removes them.
+    for n in 0..4 {
+        let guest = ctx.app.user(&format!("guest{n}")).await;
+        ctx.join(&guest, &room.id).await.unwrap();
+        leave(&ctx, &guest).await;
+        let remove = RemoveStudyRoomMemberRequest {
+            room_id: room.id.clone(),
+            user_id: guest.id.to_string(),
+            ..Default::default()
+        };
+        let (removed, joins) = tokio::join!(
+            ctx.call::<_, RemoveStudyRoomMemberResponse>(ROOMS, "RemoveStudyRoomMember", &host, &remove),
+            futures::future::join_all((0..6).map(|_| ctx.join(&guest, &room.id))),
+        );
+        removed.unwrap();
+        for join in &joins {
+            if let Err(error) = join {
+                assert_eq!(error.reason, "ROOM_NOT_FOUND", "{error}");
+            }
+        }
+        // Whoever won the race, the removal holds afterwards.
+        let seen = ctx.room(&host, &room.id).await.unwrap();
+        assert_eq!((seen.member_count, member_names(&seen)), (1, vec!["host".to_owned()]), "guest{n}");
+        assert_eq!(ctx.join(&guest, &room.id).await.unwrap_err().reason, "ROOM_NOT_FOUND");
+        assert_eq!(ctx.reason(ROOMS, "LeaveStudyRoom", &guest, &LeaveStudyRoomRequest::default()).await, "NOT_IN_ROOM");
+    }
+}

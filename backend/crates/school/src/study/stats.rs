@@ -66,6 +66,16 @@ pub(crate) async fn day_totals(
     Ok(rows.into_iter().collect())
 }
 
+/// Which study time a total is about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Counted {
+    /// Everything in the log, hand-logged time included: a user's own totals.
+    Everything,
+    /// Only time the server timed (the user's timer, study rooms): what is
+    /// compared between people. Nobody leads a ranking by typing in hours.
+    ServerTimed,
+}
+
 /// Seconds each of `user_ids` studied between two instants. Users without
 /// study time are absent.
 pub(crate) async fn window_totals(
@@ -73,11 +83,19 @@ pub(crate) async fn window_totals(
     user_ids: &[Uuid],
     from: Time,
     to: Time,
+    counted: Counted,
 ) -> AppResult<HashMap<Uuid, i64>> {
+    let timed_only = match counted {
+        Counted::Everything => "",
+        Counted::ServerTimed => {
+            "AND NOT EXISTS (SELECT 1 FROM school_study_sessions ss WHERE ss.id = session_id AND ss.source = 3)"
+        }
+    };
     let rows: Vec<(Uuid, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT user_id, floor(sum(EXTRACT(EPOCH FROM LEAST(ended_at, $3) - GREATEST(started_at, $2))))::bigint
          FROM school_study_segments
          WHERE user_id = ANY($1) AND started_at >= $2::timestamptz - {SEGMENT_REACH} AND started_at < $3 AND ended_at > $2
+           {timed_only}
          GROUP BY user_id"
     )))
     .bind(user_ids)
@@ -204,7 +222,7 @@ impl School {
         let (from, to) = window(start, end);
         let by_subject = subject_totals(&mut conn, user_id, from, to).await?;
         let (previous_from, previous_to) = window(previous_start, previous_end);
-        let previous = window_totals(&mut conn, &[user_id], previous_from, previous_to).await?;
+        let previous = window_totals(&mut conn, &[user_id], previous_from, previous_to, Counted::Everything).await?;
         drop(conn);
 
         let subject_ids: Vec<Uuid> = by_subject.iter().filter_map(|(id, _)| *id).collect();
@@ -305,6 +323,7 @@ impl School {
             &participants,
             local::day_start(start, tz),
             local::day_start(end + Duration::days(1), tz),
+            Counted::ServerTimed,
         )
         .await?;
         let users = tokuly_identity::summaries(core, &participants).await?;

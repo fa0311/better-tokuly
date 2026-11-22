@@ -243,6 +243,18 @@ CREATE TABLE school_room_invites (
 
 CREATE INDEX school_room_invites_user ON school_room_invites (user_id);
 
+-- Everyone who was ever inside a room. A stay that counted no study time
+-- leaves no session behind, and the host must still be able to keep someone
+-- out who came and went (and that person to report the room).
+CREATE TABLE school_room_visits (
+    room_id    uuid        NOT NULL REFERENCES school_rooms (id) ON DELETE CASCADE,
+    user_id    uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (room_id, user_id)
+);
+
+CREATE INDEX school_room_visits_user ON school_room_visits (user_id);
+
 -- People the host removed; they cannot come back to that room.
 CREATE TABLE school_room_bans (
     room_id    uuid        NOT NULL REFERENCES school_rooms (id) ON DELETE CASCADE,
