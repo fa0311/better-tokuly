@@ -355,6 +355,39 @@ browser fetch anything: `@import`, `url(…)`, `image-set(…)`, `@font-face`,
 `src:`, `expression(…)` and backslash escapes (which can spell any of those)
 are refused with `OVERLAY_CSS_UNSAFE`, as is `</style`.
 
+## API tokens
+
+What a token of the developer platform needs for each of the 57 RPCs is listed
+in `tokuly_core::api_access`; the scopes are `live:read` and `live:write`
+(marked sensitive: `live:read` shows who is watching and who is restricted in
+which chat).
+
+| What | Needs |
+|---|---|
+| reading streams, chat, replay, polls, clips, gift tiers, top supporters, presets | `live:read` |
+| `ListViewers`, `ListModerators`, `ListChatRestrictions`, `GetBannedWords`, the analytics RPCs | `live:read` |
+| `ListFriendStreams` | `live:read` + `social:read` |
+| `ListSentGifts`, `ListReceivedGifts` | `live:read` + `wallet:read` |
+| creating, editing, ending and deleting streams, reminders, `ReportWatching`, chat, polls, clips, `SendTestAlert` | `live:write` |
+| chat moderation: delete, pin, restrict, banned words, chat settings | `live:write` |
+| `SendGift` | `live:write` + `wallet:write` |
+| `GetOverlay` | `live:read` (and the widget's token, which the request carries) |
+| `GetIngestInfo`, `RotateStreamKey`, `StartStream`, `RaidStream` | a session |
+| `AddModerator`, `RemoveModerator` | a session |
+| `ListOverlays`, `CreateOverlay`, `UpdateOverlay`, `DeleteOverlay`, `RotateOverlayToken` | a session |
+
+A session, because: the stream key and the ingest URLs are the credential to
+broadcast as the channel; going on air and raiding speak to an audience in the
+streamer's name and cannot be taken back; appointing a moderator hands power
+to another account that outlasts the token; and a widget's token is a secret
+that every overlay-management answer contains.
+
+Playback tokens never go to an API token either. `GetStream`, `ReportWatching`
+and the answers of the owner's RPCs carry `playback` for a token caller only
+when the stream is on air and open to everyone (plain URLs); for a restricted
+stream, and for the owner's preview, `playback` is unset
+(`Live::playback_for`).
+
 ## Follow-ups for the web app
 
 Things this domain relies on the web client (or the edge) to do:

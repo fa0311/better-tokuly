@@ -59,7 +59,10 @@ fn status_filter(value: buffa::EnumValue<StreamStatus>) -> AppResult<i32> {
 impl Live {
     /// The stream page as `viewer` sees it, who must already have been
     /// allowed to open it.
-    pub(crate) async fn stream_proto(&self, viewer: &Viewer, row: &StreamRow) -> AppResult<Stream> {
+    ///
+    /// `session` says whether the caller is signed in with a session. An
+    /// API token is never handed a playback token (see [`Live::playback_for`]).
+    pub(crate) async fn stream_proto(&self, viewer: &Viewer, row: &StreamRow, session: bool) -> AppResult<Stream> {
         let core = &self.core;
         let is_owner = viewer.is(row.owner_id);
         let settings = row.chat_settings();
@@ -123,7 +126,7 @@ impl Live {
             auto_archive: row.auto_archive,
             gifts_enabled: row.gifts_enabled,
             chat: Some(settings).into(),
-            playback: playable.then(|| self.playback(row, viewer.user_id)).into(),
+            playback: playable.then(|| self.playback_for(row, viewer.user_id, session)).flatten().into(),
             pinned_message: pinned.into(),
             highlighted_gifts: highlighted,
             active_poll: poll.into(),
@@ -139,9 +142,9 @@ impl Live {
     }
 
     /// The page of a stream of `owner_id`, as they see it.
-    async fn own_stream_proto(&self, owner_id: Uuid, row: &StreamRow) -> AppResult<Stream> {
-        let viewer = Viewer { user_id: Some(owner_id), ..Default::default() };
-        self.stream_proto(&viewer, row).await
+    async fn own_stream_proto(&self, owner: &AuthContext, row: &StreamRow) -> AppResult<Stream> {
+        let viewer = Viewer { user_id: Some(owner.user_id), ..Default::default() };
+        self.stream_proto(&viewer, row, owner.is_session()).await
     }
 }
 
@@ -190,7 +193,7 @@ impl LiveStreamService for Live {
             core.cache.rate_limit(&format!("live-create:{user_id}"), 30, Duration::from_secs(3600)).await?;
             let row = streams::create(core, &channel, self.cfg.max_open_streams, edit).await?;
             ok(CreateStreamResponse {
-                stream: Some(self.own_stream_proto(user_id, &row).await?).into(),
+                stream: Some(self.own_stream_proto(ctx.auth()?, &row).await?).into(),
                 ..Default::default()
             })
         })
@@ -250,7 +253,7 @@ impl LiveStreamService for Live {
                 }
             }
             ok(UpdateStreamResponse {
-                stream: Some(self.own_stream_proto(user_id, &updated).await?).into(),
+                stream: Some(self.own_stream_proto(ctx.auth()?, &updated).await?).into(),
                 ..Default::default()
             })
         })
@@ -285,9 +288,10 @@ impl LiveStreamService for Live {
     ) -> ServiceResult<GetStreamResponse> {
         handle(async {
             let viewer = Viewer::load(&self.core, ctx.maybe_user_id()?).await?;
+            let session = ctx.maybe_auth()?.is_none_or(|auth| auth.is_session());
             let stream = streams::find_watchable(&self.core, &viewer, request.stream_id).await?;
             ok(GetStreamResponse {
-                stream: Some(self.stream_proto(&viewer, &stream).await?).into(),
+                stream: Some(self.stream_proto(&viewer, &stream, session).await?).into(),
                 ..Default::default()
             })
         })
@@ -575,7 +579,7 @@ impl LiveStreamService for Live {
                 stream = streams::find_by_id(core, stream.id).await?.ok_or_else(streams::not_found)?;
             }
             ok(StartStreamResponse {
-                stream: Some(self.own_stream_proto(user_id, &stream).await?).into(),
+                stream: Some(self.own_stream_proto(ctx.auth()?, &stream).await?).into(),
                 ..Default::default()
             })
         })
@@ -594,7 +598,7 @@ impl LiveStreamService for Live {
             self.finish_stream(stream.id, EndReason::END_REASON_STREAMER, None, Some(user_id)).await?;
             let ended = streams::find_by_id(core, stream.id).await?.ok_or_else(streams::not_found)?;
             ok(EndStreamResponse {
-                stream: Some(self.own_stream_proto(user_id, &ended).await?).into(),
+                stream: Some(self.own_stream_proto(ctx.auth()?, &ended).await?).into(),
                 ..Default::default()
             })
         })
@@ -644,6 +648,7 @@ impl LiveStreamService for Live {
         handle(async {
             let core = &self.core;
             let user_id = ctx.maybe_user_id()?;
+            let session = ctx.maybe_auth()?.is_none_or(|auth| auth.is_session());
             let viewer = Viewer::load(core, user_id).await?;
             let stream = streams::find_watchable(core, &viewer, request.stream_id).await?;
             ensure!(
@@ -700,7 +705,7 @@ impl LiveStreamService for Live {
                 like_count: stream.like_count,
                 status: stream.status.into(),
                 report_interval_seconds: interval as i32,
-                playback: playable.then(|| self.playback(&stream, user_id)).into(),
+                playback: playable.then(|| self.playback_for(&stream, user_id, session)).flatten().into(),
                 ..Default::default()
             })
         })
@@ -839,7 +844,7 @@ impl LiveStreamService for Live {
             .await;
             let ended = streams::find_by_id(core, stream.id).await?.ok_or_else(streams::not_found)?;
             ok(RaidStreamResponse {
-                stream: Some(self.own_stream_proto(user_id, &ended).await?).into(),
+                stream: Some(self.own_stream_proto(ctx.auth()?, &ended).await?).into(),
                 target: Some(target_summary).into(),
                 viewer_count: viewers,
                 ..Default::default()

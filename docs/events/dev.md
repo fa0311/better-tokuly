@@ -34,7 +34,14 @@ Authorization: Bearer tkl_…  ──▶ core auth middleware (tokuly_core::api_
   and payouts, SOS, revealing an anonymous author, everything staff, and in this domain everything except
   reading webhooks, deliveries, usage and the reference.
 - The catalogue with the wording shown to people is `tokuly_dev::scopes`; it
-  offers exactly the scopes some listed RPC needs (none yet for live, which has no RPCs).
+  offers exactly the scopes some listed RPC needs.
+- Live streams: the stream key and ingest URLs (`GetIngestInfo`,
+  `RotateStreamKey`), going on air (`StartStream`), raiding, appointing
+  moderators and everything that manages overlay widgets (their tokens are
+  secrets) take a session, and no token is ever handed a playback token for
+  a restricted stream. `live:read` shows who is watching and is marked
+  sensitive; `ListFriendStreams` also needs `social:read`, gift history
+  `wallet:read`, and `SendGift` `wallet:write`.
 - Audio rooms: whatever returns LiveKit credentials (`CreateSpace`,
   `StartSpace`, `JoinSpace`, `RespondToStageInvite`, `JoinHangout`) takes a
   session, so no token can sit in a room. `spaces:read` shows who is inside

@@ -138,6 +138,11 @@ async fn a_stream_without_auto_start_goes_on_air_when_its_owner_says_so() {
     let playback = preview.playback.as_option().expect("the owner previews");
     assert!(!playback.token.is_empty() && playback.hls_url.contains("?t="));
     assert!(!ctx.get_stream(Some(&bob), &card(&stream).id).await.unwrap().playback.is_set());
+    // A playback token is a credential for the media server: a caller with an API token is
+    // not handed one, not even the owner's own.
+    let row = ctx.row(&stream).await;
+    assert!(ctx.live.playback_for(&row, Some(alice.id), true).is_some_and(|playback| !playback.token.is_empty()));
+    assert!(ctx.live.playback_for(&row, Some(alice.id), false).is_none());
     let read = AuthRequest {
         action: "read".into(),
         path: format!("live/{}", card(&stream).short_id),
@@ -167,6 +172,9 @@ async fn a_stream_without_auto_start_goes_on_air_when_its_owner_says_so() {
         playback.token.is_empty()
             && playback.hls_url.ends_with(&format!("/live/{}/index.m3u8", card(&stream).short_id))
     );
+    // What anyone may watch, an API token may be told the URLs of.
+    let row = ctx.row(&stream).await;
+    assert!(ctx.live.playback_for(&row, Some(bob.id), false).is_some_and(|playback| playback.token.is_empty()));
     assert!(
         playback.whep_url.ends_with("/whep")
             && playback.dvr_window_seconds == 3600

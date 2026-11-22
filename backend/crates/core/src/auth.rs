@@ -715,7 +715,7 @@ mod tests {
     #[tokio::test]
     async fn an_rpc_nobody_classified_is_closed_to_tokens() {
         let app = TokenApp::new([("tkl_pat_all", Ok(api_token(&["notes:write", "live:write", "wallet:write"])))]);
-        // Names a prefix rule would have waved through as reads, and a domain without a table.
+        // Names a prefix rule would have waved through as reads, and a service that does not exist.
         for path in ["/tokuly.notes.v1.NoteService/BatchDeleteNotes", "/tokuly.wallet.v1.WalletService/CheckoutCart", "/tokuly.live.v1.LiveService/GetStreamKey"] {
             let (status, reason, _) = app.unary(path, Some("tkl_pat_all")).await;
             assert_eq!((status, reason.as_str()), (403, "TOKEN_NOT_ALLOWED"), "{path}");

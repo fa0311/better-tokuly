@@ -317,6 +317,15 @@ impl Live {
         Ok(cut)
     }
 
+    /// [`Self::playback`] for the caller of an RPC. A playback token is a
+    /// credential for the media server, and those are handed to signed-in
+    /// sessions only: a caller with an API token gets the URLs of a stream
+    /// anyone may watch, and nothing for one that needs a token.
+    pub fn playback_for(&self, stream: &StreamRow, viewer: Option<Uuid>, session: bool) -> Option<Playback> {
+        let playback = self.playback(stream, viewer);
+        (session || playback.token.is_empty()).then_some(playback)
+    }
+
     /// The URLs a player needs for a stream the caller may play.
     /// `viewer` is who the URLs are for: a restricted stream's token is bound to them.
     pub fn playback(&self, stream: &StreamRow, viewer: Option<Uuid>) -> Playback {

@@ -121,6 +121,19 @@ const DOMAINS: &[Domain] = &[
         )),
     },
     Domain {
+        name: "live",
+        // Who watches which stream, and who is in whose chat.
+        sensitive: true,
+        read: (
+            "ライブ配信・チャット・アンケート・クリップと、あなたの配信の視聴者リストや分析を見る（配信キーの取得や限定公開の配信の再生はできません。ギフトの履歴にはコインの許可も必要です）",
+            "See live streams, their chat, polls and clips, and who is watching your own streams and how they did (never your stream key, and it cannot play a restricted stream; gift history also takes the coin permission)",
+        ),
+        write: Some((
+            "配信の作成・編集・終了・削除、あなたとしてチャットに投稿、チャットのモデレーション、アンケート、クリップの作成（配信の開始、配信キーやオーバーレイの管理、モデレーターの任命はできません。ギフトを送るにはコインの許可も必要です）",
+            "Create, edit, end and delete your streams, chat as you, moderate chats, run polls and cut clips (cannot go on air, get your stream key, manage overlays or appoint moderators; sending gifts also takes the coin permission)",
+        )),
+    },
+    Domain {
         name: "feed",
         sensitive: false,
         read: (
@@ -410,7 +423,7 @@ mod tests {
             .collect();
         let offered: std::collections::BTreeSet<String> = catalogue().into_iter().map(|scope| scope.scope).collect();
         assert_eq!(offered, needed);
-        for gone in ["live:read", "dev:write", "admin:read", "spaces:join"] {
+        for gone in ["live:admin", "dev:write", "admin:read", "spaces:join"] {
             assert!(find(gone).is_none(), "{gone}");
         }
     }
