@@ -1064,6 +1064,23 @@ async fn groups_count_readers() {
 }
 
 #[tokio::test]
+async fn other_domains_can_ask_who_a_direct_conversation_is_between() {
+    let ctx = start().await;
+    let (taro, hana) = (ctx.app.user("taro").await, ctx.app.user("hana").await);
+    let direct = ctx.chat.open_direct(taro.id, hana.id).await.unwrap();
+    let pair = tokuly_chat::direct_members(&ctx.app.core, direct)
+        .await
+        .unwrap()
+        .expect("a direct conversation has two people");
+    assert!(pair == (taro.id, hana.id) || pair == (hana.id, taro.id));
+
+    // Groups have no pair, and neither has a conversation that does not exist.
+    let (group, _, _) = ctx.group_of("班", 2).await;
+    assert_eq!(tokuly_chat::direct_members(&ctx.app.core, group.id.parse().unwrap()).await.unwrap(), None);
+    assert_eq!(tokuly_chat::direct_members(&ctx.app.core, Uuid::now_v7()).await.unwrap(), None);
+}
+
+#[tokio::test]
 async fn the_server_can_open_conversations_and_post_in_them() {
     let ctx = start().await;
     let (shop, customer) = (ctx.app.user("shop").await, ctx.app.user("customer").await);

@@ -9,6 +9,19 @@
 {$TOKULY_SITE_ADDRESS::80} {
 	encode zstd gzip
 
+	# Calls of our own infrastructure reach the API inside the stack
+	# (http://api:8081), never through the edge: from outside, these routes
+	# do not exist. LiveKit's webhook for audio rooms:
+	handle /api/spaces/livekit/webhook {
+		respond 404
+	}
+	# The media server's questions about live streams. `/hooks/*` is not
+	# forwarded to the API today; it is refused here so it never will be.
+	@hooks path /api/hooks /api/hooks/* /hooks /hooks/*
+	handle @hooks {
+		respond 404
+	}
+
 	# Connect RPC, gRPC and gRPC-Web. The API speaks cleartext HTTP/2, so
 	# streaming calls pass through unbuffered.
 	handle_path /api/* {

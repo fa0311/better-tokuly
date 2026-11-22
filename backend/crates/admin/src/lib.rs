@@ -19,11 +19,17 @@
 //! `moderator` or `admin` role (`staff.rs`), and every change is written to
 //! the audit log in the transaction that makes it.
 //!
+//! Content that is reported without an owner (posts in anonymous channels)
+//! gets one from a lookup the server hands in (`owners.rs`).
+//!
 //! Other domains never call into this crate. They hear about takedowns
 //! through the `admin.content.removed` event ([`events::ContentRemoved`]) and
 //! about account locks through identity's own events. See
 //! `docs/events/admin.md`.
-use std::{ops::Deref, sync::Arc};
+use std::{
+    ops::Deref,
+    sync::{Arc, OnceLock},
+};
 
 use tokuly_core::prelude::*;
 use tokuly_identity::Identity;
@@ -41,6 +47,7 @@ mod flags_svc;
 mod intake;
 mod moderation_svc;
 mod notices;
+mod owners;
 mod resolution;
 mod sanctions;
 mod staff;
@@ -50,6 +57,7 @@ mod users_svc;
 mod workers;
 
 pub use config::AdminConfig;
+pub use owners::HiddenOwners;
 
 /// The first `limit` rows of a listing, for previews embedded in other responses.
 pub(crate) fn first_page(limit: i64) -> Page {
@@ -60,6 +68,8 @@ pub struct AdminInner {
     pub core: Core,
     pub identity: Identity,
     pub cfg: AdminConfig,
+    /// Asked about content that is reported without an owner.
+    hidden_owners: OnceLock<Arc<dyn HiddenOwners>>,
 }
 
 /// The admin domain. Cheap to clone.
@@ -78,7 +88,7 @@ impl Admin {
     pub fn new(core: Core, identity: Identity, cfg: AdminConfig) -> anyhow::Result<Self> {
         cfg.validate()?;
         core.exporters.register(Arc::new(cleanup::ModerationExporter { core: core.clone() }));
-        Ok(Self(Arc::new(AdminInner { core, identity, cfg })))
+        Ok(Self(Arc::new(AdminInner { core, identity, cfg, hidden_owners: OnceLock::new() })))
     }
 
     /// Registers this domain's RPC services on the Connect router.

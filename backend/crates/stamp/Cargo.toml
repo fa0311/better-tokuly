@@ -4,6 +4,7 @@ description = "Stamp (sticker) packs: creation, store, installs and usage."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 publish.workspace = true
 
 [lints]

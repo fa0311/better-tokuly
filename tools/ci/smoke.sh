@@ -97,4 +97,50 @@ websocket_url="$(jq -r .websocketUrl <<<"$endpoints")"
 upgrade="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: c21va2UtdGVzdC1rZXktMDE=' -H "Origin: $ORIGIN" "${websocket_url/#ws/http}" 2>/dev/null || true)"
 [ "$upgrade" = 101 ] || fail "the WebSocket upgrade at $websocket_url answered HTTP $upgrade"
 
+step "The domains wired last answer: quests, shorts, live, audio rooms, communities, API tokens"
+jq -e '.progress.level.level >= 1' <<<"$(rpc tokuly.quest.v1.QuestService/GetProgress '{}' "$token")" >/dev/null || fail "quest progress has no level"
+rpc tokuly.shorts.v1.ShortFeedService/GetForYouFeed '{}' "$token" >/dev/null
+rpc tokuly.live.v1.LiveStreamService/ListLiveStreams '{}' "$token" >/dev/null
+jq -e '.config.audioEnabled == true' <<<"$(rpc tokuly.spaces.v1.SpaceService/GetSpacesConfig '{}' "$token")" >/dev/null || fail "audio rooms are not connected to LiveKit"
+rpc tokuly.community.v1.CommunityService/ListMyCommunities '{}' "$token" >/dev/null
+# A personal access token reads what its scope covers, and nothing else.
+pat="$(jq -r .secret <<<"$(rpc tokuly.dev.v1.TokenService/CreateToken '{"name":"smoke","scopes":["quest:read"]}' "$token")")"
+case "$pat" in tkl_pat_*) ;; *) fail "CreateToken returned no personal access token" ;; esac
+rpc tokuly.quest.v1.QuestService/GetProgress '{}' "$pat" >/dev/null
+refused="$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$ORIGIN/api/tokuly.spaces.v1.SpaceService/GetSpacesConfig" -H 'content-type: application/json' -H "authorization: Bearer $pat" -d '{}')"
+[ "$refused" = 403 ] || fail "a token without spaces:read reached the spaces API (HTTP $refused)"
+jq -e '.token_endpoint | endswith("/oauth/token")' <<<"$(curl -fsS "$ORIGIN/api/.well-known/oauth-authorization-server")" >/dev/null || fail "the OAuth metadata is not served"
+
+step "What our own infrastructure calls is not reachable from outside"
+# LiveKit and the media server call the API inside the stack; the edge must not pass these routes on.
+for route in /api/spaces/livekit/webhook /api/hooks/live/auth /hooks/live/auth /api/hooks/anything; do
+  for method in POST GET; do
+    refused="$(curl -sS -o /dev/null -w '%{http_code}' -X "$method" "$ORIGIN$route" -H 'content-type: application/json' -d '{}')"
+    case "$refused" in 403 | 404) ;; *) fail "the edge passed $method $route on (HTTP $refused)" ;; esac
+  done
+done
+
+step "Live streams: the media server, its control API and its recordings"
+# Nobody is on air: a viewer of a stream that does not exist is turned away (the media server
+# asks the API's hook first; 401 is its answer to a refusal).
+watch="$(curl -sSL -o /dev/null -w '%{http_code}' --max-time 30 "${LIVE_HLS_URL:-http://localhost:8888}/live/AAAAAAAAAAA/index.m3u8")"
+case "$watch" in 401 | 404) ;; *) fail "the media server answered HTTP $watch for a stream that does not exist" ;; esac
+# The control API is for the worker only and is not published.
+if curl -sS -o /dev/null --max-time 3 "${LIVE_CONTROL_URL:-http://localhost:9997}/v3/paths/list" 2>/dev/null; then
+  fail "the media server's control API (9997) is reachable from outside"
+fi
+# Run next to the stack itself (CI), look inside as well.
+if docker compose ps --status running worker 2>/dev/null | grep -q worker; then
+  # The worker deletes what the media server records, so both must own the volume.
+  docker compose exec -T worker sh -c 'touch /recordings/.smoke && rm /recordings/.smoke' || fail "the worker cannot write to the recordings volume"
+  # The worker reads the control API every few seconds. Each call is let in by the hook, so a
+  # quiet log means both secrets are in place: the media server's for the hook, the worker's for the API.
+  sleep 10
+  if docker compose logs --no-color --since 10s worker | grep -q 'the media server cannot be reached'; then
+    docker compose logs --no-color --tail 20 mediamtx; fail "the worker cannot use the media server's control API"
+  fi
+else
+  echo "(not next to the Compose stack: skipping the checks inside the containers)"
+fi
+
 printf '\nAll checks passed.\n'

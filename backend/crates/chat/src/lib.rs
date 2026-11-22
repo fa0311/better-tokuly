@@ -63,6 +63,7 @@ mod workers;
 
 pub use calls::{CONNECT_GRACE_SECONDS, MAX_RINGING_GROUP_MEMBERS};
 pub use config::ChatConfig;
+pub use conversations::direct_members;
 pub use send::{JOB_LINK_PREVIEW, LinkPreviewJob};
 pub use signals::PRESENCE_TTL_SECONDS;
 

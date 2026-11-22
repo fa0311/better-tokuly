@@ -19,6 +19,12 @@ Chat::open_direct(&self, a: Uuid, b: Uuid) -> AppResult<Uuid>            // conv
 // and rate limits. Fails with CONVERSATION_NOT_FOUND (not a member),
 // MESSAGE_EMPTY, TEXT_TOO_LONG, CONVERSATION_READ_ONLY (block, deleted account).
 Chat::post_text(&self, conversation_id: Uuid, sender: Uuid, text: &str) -> AppResult<Uuid>   // message ID
+
+// The two people of a direct conversation (still members or not); None for
+// groups and unknown conversations. `chat.message.created` names the
+// conversation, not the recipient: this is how a consumer learns who a
+// direct message went to (the server bridges it to the quest domain).
+tokuly_chat::direct_members(core, conversation_id) -> AppResult<Option<(Uuid, Uuid)>>
 ```
 
 Also public, as worker entry points and for tests: `Chat::handle_event`,

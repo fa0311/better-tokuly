@@ -135,6 +135,7 @@ async fn defaults_are_everything_on() {
             "notes",
             "video",
             "live",
+            "spaces",
             "shorts",
             "engagement",
             "stamp",
@@ -142,6 +143,8 @@ async fn defaults_are_everything_on() {
             "ask",
             "plans",
             "school",
+            "community",
+            "quest",
             "feed",
             "system"
         ]

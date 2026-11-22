@@ -15,7 +15,8 @@ backend/crates/<domain>                   one crate per domain
 backend/crates/server                     the binary; wires domains together
 ```
 
-Domains and their migration numbers:
+Domains and their migration numbers. The binary serves all of them
+(`crates/server/src/app.rs`):
 
 | crate | migration | depends on (crates) |
 |---|---|---|
@@ -24,15 +25,15 @@ Domains and their migration numbers:
 | social | 0200 | identity |
 | geo | 0300 | social, media |
 | media | 0400 | — |
-| stamp | 0500 | identity, media |
+| stamp | 0500 | identity, media, wallet |
 | chat | 0600 | social, stamp, media |
 | notes | 0700 | social, stamp, media |
 | video | 0800 | social, media |
-| live | 0900 | video, wallet, stamp |
+| live | 0900 | social, media, stamp, wallet, video |
 | shorts | 1000 | social, media, video |
-| engagement | 1100 | identity, stamp |
+| engagement | 1100 | identity, social, media, stamp |
 | notify | 1200 | identity |
-| feed | 1300 | identity |
+| feed | 1300 | identity, social |
 | wallet | 1400 | identity |
 | search | 1500 | identity, social |
 | admin | 1600 | identity |
@@ -44,7 +45,7 @@ Domains and their migration numbers:
 | spaces | 2200 | social |
 | community | 2300 | social, media, stamp |
 | dev | 2400 | identity |
-| realtime | — | identity |
+| realtime | — | — |
 
 A crate may only depend on crates listed for it (plus `core`, `proto`,
 `identity`). Everything else goes through events (below), so the graph stays
@@ -134,7 +135,14 @@ be unique across domains: give a setting whose field name could collide an
 explicit `id = "<domain>_<field>"` (the server's `command_line_is_consistent`
 test catches clashes).
 
-The server crate wires domains in `crates/server/src/app.rs`.
+The server crate wires domains in `crates/server/src/app.rs`: the config in
+`DomainConfigs`, construction in `Domains::new` (in dependency order, and
+before `Engagement` when the domain registers a subject resolver),
+`register`, `spawn_workers`, and plain HTTP routes in `api_router` when the
+domain has any. What a domain needs from one it must not depend on is a
+small trait of its own that `crates/server/src/bridges.rs` implements. Every
+new RPC also gets a line in `crates/core/src/api_access.rs` (what an API
+token needs to call it; a test in `tokuly-dev` fails without it).
 
 ### Handlers
 

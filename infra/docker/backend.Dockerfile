@@ -36,7 +36,10 @@ LABEL org.opencontainers.image.source="https://github.com/fa0311/better-tokuly" 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates tini \
  && rm -rf /var/lib/apt/lists/* \
- && useradd --system --uid 10001 --home-dir /var/lib/tokuly --create-home tokuly
+ && useradd --system --uid 10001 --home-dir /var/lib/tokuly --create-home tokuly \
+ # Where the media server's recordings are mounted (worker). Owned by our
+ # user so that a fresh volume mounted here is too.
+ && install -d -o tokuly -g tokuly /recordings
 COPY --from=ffmpeg /ffmpeg /ffprobe /usr/local/bin/
 COPY --from=build /usr/local/bin/tokuly /usr/local/bin/tokuly
 USER tokuly

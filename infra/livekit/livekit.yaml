@@ -1,5 +1,5 @@
-# LiveKit carries voice and video calls. The API key and secret come from the
-# LIVEKIT_KEYS environment variable (see compose.yaml).
+# LiveKit carries voice and video calls and audio rooms. The API key and
+# secret come from the LIVEKIT_KEYS environment variable (see compose.yaml).
 port: 7880
 rtc:
   tcp_port: 7881
@@ -7,21 +7,22 @@ rtc:
   # On a server with a public address set this to true so clients are told
   # that address; on a laptop or LAN the container's view of itself is enough.
   use_external_ip: false
-# Webhook (not enabled here): LiveKit can tell the API the moment someone
-# connects to or leaves a room, so that a connection without a seat (a
-# banned or removed person coming back on a token that has not expired yet)
-# is cut at once rather than at the next comparison (every 20 s).
+# Webhook: LiveKit tells the API the moment someone connects to or leaves a
+# room, so that a connection without a seat (a banned or removed person
+# coming back on a token that has not expired yet) is cut at once rather
+# than at the next comparison (every 20 s). Calls of the chat domain share
+# the endpoint and are ignored by it.
 #
-# It cannot be switched on in this file: LiveKit refuses to start unless
-# `api_key` names one of its keys, and the keys come from LIVEKIT_KEYS,
-# which differs between compose.yaml and compose.dev.yaml. Whoever sets
-# LIVEKIT_KEYS has to add the block, with the same key:
+# The key that signs the calls is not named here: LiveKit refuses to start
+# unless `api_key` is one of its keys, and the keys differ between
+# compose.yaml and compose.dev.yaml. Whoever sets LIVEKIT_KEYS sets
+# LIVEKIT_WEBHOOK_API_KEY next to it, to the same key. (Without it LiveKit
+# does not start: "api_key is required to use webhooks".)
 #
-#   webhook:
-#     api_key: <the key in LIVEKIT_KEYS>
-#     urls:
-#       - http://api:8081/spaces/livekit/webhook
-#
-# (tools/dev/infra.sh, which knows its key, does.)
+# `api` is the API container in compose.yaml and the host in
+# compose.dev.yaml, where the API runs outside Docker.
+webhook:
+  urls:
+    - http://api:8081/spaces/livekit/webhook
 logging:
   level: info

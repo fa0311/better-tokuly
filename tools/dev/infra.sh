@@ -12,6 +12,11 @@
 # manager; everything else is downloaded into $TOKULY_DEV_HOME/bin.
 # Ports can be overridden by exporting the P_* variables below or by putting
 # them in $TOKULY_DEV_HOME/ports.env.
+#
+# The media server for live streams (MediaMTX) is started on request only:
+#   TOKULY_DEV_MEDIAMTX=1 tools/dev/infra.sh up
+# because the live domain's own test starts one on the same ports. While it
+# runs, `env` also prints the TOKULY_LIVE_* settings that point the API at it.
 set -euo pipefail
 
 DEV_HOME="${TOKULY_DEV_HOME:-$HOME/tokuly-dev}"
@@ -28,6 +33,8 @@ mkdir -p "$BIN" "$DATA" "$LOGS" "$RUN"
 : "${P_MEILI:=7700}" "${P_SMTP:=1025}" "${P_MAILPIT:=8025}"
 : "${P_MEDIAMTX_RTMP:=1935}" "${P_MEDIAMTX_HLS:=8888}" "${P_MEDIAMTX_WEBRTC:=8889}" "${P_MEDIAMTX_API:=9997}"
 : "${P_MEDIAMTX_SRT:=8890}" "${P_MEDIAMTX_ICE:=8189}" "${P_MEDIAMTX_RTSP:=8554}"
+# The rewinding (DVR) server sits one below the control API, as in mediamtx.yml.
+: "${P_MEDIAMTX_PLAYBACK:=$((P_MEDIAMTX_API - 1))}"
 : "${P_LIVEKIT:=7880}" "${P_LIVEKIT_TCP:=7881}" "${P_LIVEKIT_UDP:=7882}"
 # Where the API listens (TOKULY_API_LISTEN): LiveKit posts its webhook there.
 : "${P_API:=8081}"
@@ -47,6 +54,12 @@ S3_SECRET_KEY="${TOKULY_S3_SECRET_KEY:-tokuly-secret}"
 MEILI_KEY="${TOKULY_MEILI_KEY:-tokuly-meili-key}"
 LIVEKIT_KEY="${TOKULY_LIVEKIT_API_KEY:-tokulydev}"
 LIVEKIT_SECRET="${TOKULY_LIVEKIT_API_SECRET:-tokuly-livekit-dev-secret-0123456789}"
+# Two different secrets: what MediaMTX presents to the API's hook, and what
+# the worker presents to MediaMTX's control API.
+LIVE_HOOK_SECRET="${TOKULY_LIVE_HOOK_SECRET:-tokuly-live-hook-dev-secret-0123456789}"
+MEDIAMTX_API_SECRET="${TOKULY_MEDIAMTX_API_SECRET:-tokuly-mediamtx-api-dev-secret-0123456789}"
+RECORDINGS="$DATA/mediamtx/recordings"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 fetch() { # url dest
   echo "  downloading $(basename "$2")"
@@ -153,8 +166,16 @@ up() {
   start meili "$BIN/meilisearch" --http-addr "127.0.0.1:$P_MEILI" --master-key "$MEILI_KEY" \
     --db-path "$DATA/meili/data.ms" --dump-dir "$DATA/meili/dumps" --no-analytics --env development
   start mailpit "$BIN/mailpit" --smtp "127.0.0.1:$P_SMTP" --listen "127.0.0.1:$P_MAILPIT" --database "$DATA/mailpit.db"
-  if [ -f "${TOKULY_MEDIAMTX_CONFIG:-}" ]; then
-    start mediamtx "$BIN/mediamtx" "$TOKULY_MEDIAMTX_CONFIG"
+  if [ "${TOKULY_DEV_MEDIAMTX:-0}" = "1" ] || [ -f "${TOKULY_MEDIAMTX_CONFIG:-}" ]; then
+    # The configuration the Compose stack ships, moved onto this machine: its
+    # ports, the hook of the API running here, and a local recordings folder.
+    mkdir -p "$RECORDINGS"
+    MTX_AUTHHTTPADDRESS="http://mediamtx:$LIVE_HOOK_SECRET@127.0.0.1:$P_API/hooks/live/auth" \
+      MTX_APIADDRESS="127.0.0.1:$P_MEDIAMTX_API" MTX_PLAYBACKADDRESS="127.0.0.1:$P_MEDIAMTX_PLAYBACK" \
+      MTX_RTMPADDRESS="127.0.0.1:$P_MEDIAMTX_RTMP" MTX_SRTADDRESS="127.0.0.1:$P_MEDIAMTX_SRT" \
+      MTX_HLSADDRESS="127.0.0.1:$P_MEDIAMTX_HLS" MTX_WEBRTCADDRESS="127.0.0.1:$P_MEDIAMTX_WEBRTC" \
+      MTX_WEBRTCLOCALUDPADDRESS="127.0.0.1:$P_MEDIAMTX_ICE" MTX_PATHDEFAULTS_RECORDPATH="$RECORDINGS/%path/%s-%f" \
+      start mediamtx "$BIN/mediamtx" "${TOKULY_MEDIAMTX_CONFIG:-$REPO/infra/mediamtx/mediamtx.yml}"
   fi
   if [ "${TOKULY_DEV_LIVEKIT:-1}" = "1" ]; then
     start livekit "$BIN/livekit-server" --config-body "$(printf 'port: %s\nbind_addresses: ["127.0.0.1"]\nrtc:\n  tcp_port: %s\n  udp_port: %s\n  use_external_ip: false\nkeys:\n  %s: %s\nwebhook:\n  api_key: %s\n  urls:\n    - http://127.0.0.1:%s/spaces/livekit/webhook\nlogging:\n  level: info\n' \
@@ -204,6 +225,22 @@ export TOKULY_LIVEKIT_API_KEY="$LIVEKIT_KEY"
 export TOKULY_LIVEKIT_API_SECRET="$LIVEKIT_SECRET"
 export TOKULY_SECRET="\${TOKULY_SECRET:-dev-secret-dev-secret-dev-secret-dev-secret}"
 EOF
+  # Live streams, only while a media server is there to follow (started here
+  # with TOKULY_DEV_MEDIAMTX=1, or the `live` profile of compose.dev.yaml).
+  if [ "${TOKULY_DEV_MEDIAMTX:-0}" = "1" ] || running mediamtx; then
+    cat <<EOF
+export TOKULY_MEDIAMTX_API_URL="http://127.0.0.1:$P_MEDIAMTX_API"
+export TOKULY_LIVE_HOOK_SECRET="$LIVE_HOOK_SECRET"
+export TOKULY_MEDIAMTX_API_SECRET="$MEDIAMTX_API_SECRET"
+export TOKULY_LIVE_RTMP_URL="rtmp://127.0.0.1:$P_MEDIAMTX_RTMP"
+export TOKULY_LIVE_SRT_URL="srt://127.0.0.1:$P_MEDIAMTX_SRT"
+export TOKULY_LIVE_WHIP_URL="http://127.0.0.1:$P_MEDIAMTX_WEBRTC"
+export TOKULY_LIVE_WHEP_URL="http://127.0.0.1:$P_MEDIAMTX_WEBRTC"
+export TOKULY_LIVE_HLS_URL="http://127.0.0.1:$P_MEDIAMTX_HLS"
+export TOKULY_LIVE_PLAYBACK_URL="http://127.0.0.1:$P_MEDIAMTX_PLAYBACK"
+export TOKULY_LIVE_RECORDINGS_DIR="$RECORDINGS"
+EOF
+  fi
 }
 
 case "${1:-}" in

@@ -70,6 +70,16 @@ enum SearchKind {
   SEARCH_KIND_PLACE = 10;
   SEARCH_KIND_HASHTAG = 11;
   SEARCH_KIND_NEWS = 12;
+  // A public answer in someone's question box, found by the question or the
+  // answer.
+  SEARCH_KIND_ANSWER = 13;
+  // A custom emoji of the catalogue.
+  SEARCH_KIND_EMOJI = 14;
+  SEARCH_KIND_COMMUNITY = 15;
+  // A thread in a public community.
+  SEARCH_KIND_THREAD = 16;
+  // A public audio room that is upcoming or live.
+  SEARCH_KIND_SPACE = 17;
 }
 
 // Result order.

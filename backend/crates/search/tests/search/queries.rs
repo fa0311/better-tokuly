@@ -2,6 +2,7 @@
 use tokuly_proto::{common::PageRequest, search::*};
 use tokuly_search::SearchConfig;
 use tokuly_testkit::TestUser;
+use uuid::Uuid;
 
 use crate::common::*;
 
@@ -114,6 +115,79 @@ async fn tabs_narrow_the_hits_while_counts_cover_every_kind() {
         .await;
     assert!(lives.hits.is_empty() && lives.total == 0);
     assert_eq!(count_of(&lives, SearchKind::SEARCH_KIND_VIDEO), 2);
+}
+
+/// The documents the ask, emoji, community and spaces domains publish, in
+/// the shape each of them sends.
+#[tokio::test]
+async fn answers_emoji_communities_threads_and_rooms_have_tabs_of_their_own() {
+    let ctx = start().await;
+    let (owner, host) = (ctx.app.user("owner").await, ctx.app.user("host").await);
+    let word = unique("wired");
+
+    let mut answer = doc("answer", Some(owner.id), &format!("{word} 好きな食べ物は?"));
+    answer.text = "ラーメン!".into();
+    answer.extra = serde_json::json!({ "anonymous": true, "comment_count": 2 });
+    // An emoji belongs to nobody: it must not come and go with its author.
+    let mut emoji = doc("emoji", None, &format!("{word}_party"));
+    emoji.tags = vec!["パーティー".into()];
+    emoji.extra =
+        serde_json::json!({ "name": format!("{word}_party"), "category": null, "animated": false, "sensitive": false });
+    let mut community = doc("community", Some(owner.id), &format!("{word} 写真部"));
+    community.extra = serde_json::json!({ "handle": format!("{word}club"), "category": 3, "visibility": 1, "member_count": 12, "school_name": null });
+    // A thread of an anonymous channel names no owner.
+    let mut thread = doc("thread", None, &format!("{word} 文化祭どうする?"));
+    thread.extra =
+        serde_json::json!({ "community_handle": format!("{word}club"), "anonymous": true, "reply_count": 4 });
+    let mut space = doc("space", Some(host.id), &format!("{word} 雑談ルーム"));
+    space.extra =
+        serde_json::json!({ "state": 2, "language": "ja", "scheduled_at": null, "started_at": 1_750_000_000 });
+    let docs = [answer, emoji, community, thread, space];
+    ctx.index(&docs).await;
+
+    let all = ctx.find(None, &word).await;
+    assert_eq!(all.total, 5);
+    let tabs = [
+        SearchKind::SEARCH_KIND_ANSWER,
+        SearchKind::SEARCH_KIND_EMOJI,
+        SearchKind::SEARCH_KIND_COMMUNITY,
+        SearchKind::SEARCH_KIND_THREAD,
+        SearchKind::SEARCH_KIND_SPACE,
+    ];
+    for (kind, doc) in tabs.into_iter().zip(&docs) {
+        assert_eq!(count_of(&all, kind), 1, "{kind:?} in the all tab");
+        let tab =
+            ctx.search(None, &SearchRequest { query: word.clone(), kind: kind.into(), ..Default::default() }).await;
+        assert_eq!(hit_ids(&tab.hits), vec![doc.id.to_string()], "{kind:?} tab");
+        let hit = &tab.hits[0];
+        assert_eq!(kind_of(hit), kind);
+        assert_eq!(
+            hit.owner.as_option().map(|owner| owner.id.clone()),
+            doc.owner_id.map(|id| id.to_string()),
+            "{kind:?} owner"
+        );
+        let extra: serde_json::Value = serde_json::from_str(&hit.extra_json).unwrap();
+        assert_eq!(extra, doc.extra, "{kind:?} extra");
+    }
+
+    // A community is found by its handle, like an account or a channel.
+    let by_handle = ctx.find(None, &format!("{word}club")).await;
+    assert!(hit_ids(&by_handle.hits).contains(&docs[2].id.to_string()));
+
+    // A takedown removes the document at once, by the subject it names.
+    use tokuly_proto::common::SubjectType;
+    for (subject_type, doc) in [
+        (SubjectType::SUBJECT_TYPE_QUESTION, &docs[0]),
+        (SubjectType::SUBJECT_TYPE_CUSTOM_EMOJI, &docs[1]),
+        (SubjectType::SUBJECT_TYPE_COMMUNITY, &docs[2]),
+        (SubjectType::SUBJECT_TYPE_COMMUNITY_THREAD, &docs[3]),
+        (SubjectType::SUBJECT_TYPE_SPACE, &docs[4]),
+    ] {
+        let removed = serde_json::json!({ "subject_type": subject_type as i32, "subject_id": doc.id, "reason": "x", "moderator_id": Uuid::now_v7() });
+        ctx.deliver(event("admin.content.removed", removed)).await;
+    }
+    ctx.flush().await;
+    assert_eq!(ctx.find(None, &word).await.total, 0);
 }
 
 /// Walks every page of a query and returns the IDs in order.

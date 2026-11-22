@@ -58,11 +58,23 @@ async function grantCoins(request: APIRequestContext, to: Account): Promise<void
   const hundred = shop.packages.find((candidate) => candidate.sku === "coins_100");
   expect(hundred, "the seeded coins_100 package").toBeTruthy();
   await rpc(request, `${WALLET}/StartPurchase`, { packageId: hundred?.id }, to);
-  await expect.poll(() => coinsOf(request, to), { timeout: 20_000 }).toBe("100");
+  await expect.poll(async () => (await movementsOf(request, to, "purchase")).map((entry) => entry.coinsDelta), { timeout: 20_000 }).toEqual(["100"]);
 }
 
 async function coinsOf(request: APIRequestContext, account: Account): Promise<string> {
   return (await rpc<{ balance: { coins?: string } }>(request, `${WALLET}/GetBalance`, {}, account)).balance.coins ?? "0";
+}
+
+/**
+ * The movements of an account's coins made for `reason`, newest first.
+ *
+ * What an action pays or costs is read here, not from the balance: other
+ * things move coins too (levelling up in quests grants some, whenever the XP
+ * happens to arrive), so the balance at a given moment says little about one action.
+ */
+async function movementsOf(request: APIRequestContext, account: Account, reason: string): Promise<{ reason: string; coinsDelta?: string }[]> {
+  const ledger = await rpc<{ entries?: { reason: string; coinsDelta?: string }[] }>(request, `${WALLET}/ListLedgerEntries`, { page: { limit: 100 } }, account);
+  return (ledger.entries ?? []).filter((entry) => entry.reason === reason);
 }
 
 interface Round {
@@ -608,7 +620,8 @@ test("a compliment round: pick a friend, they get a flame, and finishing pays th
   await expect(cooldown).toBeVisible({ timeout: 15_000 });
   await expect(cooldown.getByTestId("poll-reward").getByText(coins(11))).toBeVisible();
   await expect(cooldown.getByTestId("poll-countdown")).toHaveText(/^\d{2}:\d{2}$/);
-  await expect.poll(() => coinsOf(request, me), { timeout: 20_000 }).toBe("11");
+  // The round paid its reward, once.
+  await expect.poll(async () => (await movementsOf(request, me, "ask.round")).map((entry) => entry.coinsDelta), { timeout: 20_000 }).toEqual(["11"]);
 });
 
 test("someone without enough friends is sent to find some instead of a poll", async ({ page, me: _me }) => {
@@ -629,18 +642,24 @@ test("buying a hint about a flame is confirmed and lowers the coin balance", asy
   await expect(page.getByTestId("flame-total")).toHaveText("🔥1");
   await expect(page.getByRole("main")).not.toContainText(voter!.displayName);
 
+  // The dialog shows the price, what there is, and what will be left.
+  const before = Number(await coinsOf(request, me));
+  expect(before).toBeGreaterThanOrEqual(100);
   await flame.getByRole("button", { name: /ヒントを見る/ }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByTestId("hint-price").getByText(coins(30))).toBeVisible();
-  await expect(dialog.getByTestId("hint-balance").getByText(coins(100))).toBeVisible();
-  await expect(dialog.getByTestId("hint-after").getByText(coins(70))).toBeVisible();
+  await expect(dialog.getByTestId("hint-balance").getByText(coins(before))).toBeVisible();
+  await expect(dialog.getByTestId("hint-after").getByText(coins(before - 30))).toBeVisible();
   await dialog.getByRole("button", { name: "コインをつかう" }).click();
 
-  // The toast says what the server charged.
+  // The toast says what the server charged, and the balance drops by exactly that.
   await expect(page.getByText("ヒントをゲット! 30コインつかったよ")).toBeVisible();
   await expect(flame.getByTestId("flame-hints").getByRole("listitem")).toHaveCount(1);
-  await expect(page.getByRole("link", { name: /70/ })).toBeVisible();
-  expect(await coinsOf(request, me)).toBe("70");
+  expect((await movementsOf(request, me, "ask.hint")).map((entry) => entry.coinsDelta)).toEqual(["-30"]);
+  const after = Number(await coinsOf(request, me));
+  // Nothing but the hint took coins away (a level-up in between could only add some).
+  expect(after).toBeGreaterThanOrEqual(before - 30);
+  await expect(page.getByRole("link", { name: new RegExp(String(after)) })).toBeVisible();
 });
 
 test("someone short on coins is sent to the wallet instead of being charged", async ({ page, request, me }) => {

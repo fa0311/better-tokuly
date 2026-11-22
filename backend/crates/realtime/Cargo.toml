@@ -4,6 +4,7 @@ description = "Realtime gateway: WebTransport + WebSocket fan-out of live events
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 publish.workspace = true
 
 [lints]

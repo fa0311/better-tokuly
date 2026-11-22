@@ -289,10 +289,18 @@ pub fn activity(event: &Event) -> Vec<Deed> {
     shown_activity(event).map(|(user, activity)| activity_deed(user, &activity)).into_iter().collect()
 }
 
-/// `activity.recorded`, kind `geo.checkin`: a check-in the user shows their
-/// friends, aimed at the friends tagged. One place counts once a day.
+/// `activity.recorded`, kind `geo.visit` with `data.check_in`: a check-in
+/// the user shows their friends, aimed at the friends tagged. One place
+/// counts once a day.
+///
+/// Geo records only check-ins under this kind today (stays it detects by
+/// itself are not published). The flag is asked for all the same: a visit
+/// nobody checked in to is not something the player did.
 pub fn check_in(event: &Event) -> Vec<Deed> {
     let Some((user, activity)) = shown_activity(event) else { return Vec::new() };
+    if activity.data.get("check_in").and_then(|flag| flag.as_bool()) != Some(true) {
+        return Vec::new();
+    }
     let place = activity.subject.map(|(_, id)| id.to_string()).unwrap_or_else(|| "somewhere".to_owned());
     vec![activity_deed(user, &activity).once_a_day(format!("checkin:{place}"))]
 }
@@ -1088,9 +1096,16 @@ mod tests {
             event(
                 "activity.recorded",
                 Some(user),
-                json!({ "user_id": user, "kind": "geo.checkin", "audience": audience, "subject": [15, place], "with_user_ids": with, "summary": { "ja": "a", "en": "b" } }),
+                json!({ "user_id": user, "kind": "geo.visit", "audience": audience, "subject": [15, place], "with_user_ids": with, "data": { "visit_id": Uuid::now_v7(), "check_in": true }, "summary": { "ja": "a", "en": "b" } }),
             )
         };
+        // A visit that is not a check-in is nothing the player did.
+        let passing_by = event(
+            "activity.recorded",
+            Some(user),
+            json!({ "user_id": user, "kind": "geo.visit", "audience": "friends", "subject": [15, place], "data": { "visit_id": Uuid::now_v7() }, "summary": { "ja": "a", "en": "b" } }),
+        );
+        assert!(check_in(&passing_by).is_empty());
         let deeds = check_in(&entry("friends", vec![friend, user]));
         assert_eq!(deeds[0].towards, vec![Target::User(friend)]);
         assert_eq!(deeds[0].once, Some(Once { key: format!("checkin:{place}"), daily: true, about: None }));

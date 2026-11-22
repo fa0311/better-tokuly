@@ -381,7 +381,7 @@ pub const RULES: &[Rule] = &[
         .text("シェアする", "Share something"),
     // ── map ──
     Rule::event("map.checkin", "activity.recorded", payloads::check_in)
-        .kind("geo.checkin")
+        .kind("geo.visit")
         .earns(S::Map, 10)
         .counts(&[One(M::CheckIns)])
         .towards_friend()

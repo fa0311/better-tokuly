@@ -30,6 +30,45 @@ WARN, SUSPEND and BAN can take the content down in the same resolution
 reference without a report; if an open case exists for the subject it is
 resolved through the same path.
 
+**Content reported without an owner.** A post in an anonymous channel
+resolves with nobody as its owner, so `engagement.report.created` names
+none. When a report arrives that way, and when a moderator takes such content
+down by reference, the owner is asked from `HiddenOwners`, a lookup the
+server hands in (`Admin::set_hidden_owners`; today the community domain).
+The answer is stored as the case's owner and marked
+(`moderation_cases.owner_hidden`), which lets a case warn, suspend or ban the
+author and tells the author about a takedown. Without a lookup such cases
+stay ownerless and cannot sanction anyone.
+
+A hidden owner is handled the way the community handles it:
+
+| | |
+|---|---|
+| Lists (`ListCases`) and the answers to changes (`AssignCase`, `ResolveCase`, `ReopenCase`, `TakedownContent`) | never name a hidden owner: `owner_withheld`, no `subject_owner`, and `target_withheld` without `target_user` on the actions. `ListCases` by `owner_id` leaves these cases out. |
+| `GetCase` by a moderator who is **not involved** | names the owner and returns their moderation record, and writes `case.author_revealed` (actor, case, owner, time) to the audit log, every time. |
+| `GetCase` by a moderator who **is involved** | `owner_withheld` and `conflict_of_interest`: another moderator has to handle the case. |
+| `ResolveCase`, `TakedownContent` by a moderator who is involved | `CONFLICT_OF_INTEREST`, whatever the action. |
+
+Involved means: the moderator reported the subject to site moderation (any
+case about it), or the lookup says so (`HiddenOwners::is_party`; in the
+community: wrote in that thread, is mentioned or answered by its author
+there, reported it to the community's staff, or wrote the post). A case
+marked hidden on a server without a lookup is withheld from everyone.
+
+The moderation log follows the same rule. An entry about an anonymous post
+is marked (`moderation_actions.target_hidden`). `ListModerationActions` and
+the actions in `GetCase` show it to an involved moderator without the account
+it hit (`target_withheld`); in the history of one account
+(`ListModerationActions` by `user_id`, the staff view `GetUser`) such a
+moderator does not get the entry at all, because there the entry itself would
+say whose post it was. A moderator who is not involved reads the log as it
+is. The answers to `ResolveCase` and `TakedownContent` never name the target
+of such an entry.
+
+What this does not cover: the numbers in an account's moderation record
+(`UserModerationSummary`) count these cases and sanctions for every reader,
+and the audit log (admins only) names the owner of every case it mentions.
+
 Everything a resolution does (case update, events, notifications, both logs)
 commits in one transaction. The account lock itself is committed by identity
 (`set_banned`) just before; see `sanctions.rs` for why that order is safe.
@@ -146,6 +185,7 @@ let admin = Admin::new(core.clone(), identity.clone(), cfg.admin)?;   // also re
 let router = admin.register(router);
 admin.spawn_workers();                                                 // worker processes
 admin.grant_bootstrap_admin().await?;                                  // at startup: `TOKULY_ADMIN_USER`, if that account exists already
+admin.set_hidden_owners(Arc<dyn tokuly_admin::HiddenOwners>);          // bridge: owners of content that is reported without one, and who is involved in it
 ```
 
 `grant_bootstrap_admin` (and `ensure_admin(handle_or_email)`, which it calls)

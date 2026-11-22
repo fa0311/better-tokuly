@@ -62,8 +62,8 @@ Topic `space:<space id>`, guarded: whoever may see the room may follow it
 | `spaces.invited` | invitee of a room or hangout | actor: inviter; at most 3 a day per inviter → invitee, later invitations arrive silently; `data.space_id` or `data.hangout_id` |
 | `spaces.hangout_joined` | members who are friends of the first person inside and did not mute the hangout | actor: that person; collapsed per hangout; at most once per `TOKULY_SPACES_HANGOUT_ANNOUNCE_SECONDS`; never urgent |
 
-The notify domain files unknown prefixes under `system`; a `spaces` category
-would be a change there.
+The notify domain files these under its `spaces` category ("ルーム", high
+delivery priority: a room is happening now).
 
 ## Other outputs
 
@@ -80,10 +80,22 @@ verified with `core.livekit.verify_webhook`. Any event about one of this
 domain's LiveKit rooms (`tokuly-space-<id>`, `tokuly-hangout-<id>`) triggers
 a comparison of that venue with LiveKit one second later (events about the
 same venue in that second share it); the event itself is never trusted, so
-duplicates and reordering are harmless. The `webhook:` block is declared in
-`infra/livekit/livekit.yaml` (Compose) and in `tools/dev/infra.sh` (native
-dev infrastructure; restart LiveKit to pick it up). Calls of the chat domain
-are not affected: events about other rooms are answered `200` and ignored.
+duplicates and reordering are harmless. Calls of the chat domain are not
+affected: events about other rooms are answered `200` and ignored.
+
+Where LiveKit is told about it:
+
+- **Compose** (`compose.yaml`, `compose.dev.yaml`): the URL is in
+  `infra/livekit/livekit.yaml` (`http://api:8081/spaces/livekit/webhook`),
+  the key that signs the calls in `LIVEKIT_WEBHOOK_API_KEY`, set next to
+  `LIVEKIT_KEYS` because LiveKit refuses to start unless it names one of its
+  keys. In `compose.dev.yaml` the name `api` is the host, where the API runs.
+- **Native dev infrastructure** (`tools/dev/infra.sh`): in the configuration
+  it starts LiveKit with (restart LiveKit to pick it up).
+
+The server merges the route outside the auth middleware, and the edge
+(`infra/caddy/Caddyfile`) answers `404` for `/api/spaces/livekit/webhook`:
+LiveKit reaches the API inside the stack, nobody else needs to.
 
 ## Who can see who is inside
 
