@@ -144,7 +144,7 @@ Domain events (`EVENTS`):
 | `reactions.share` | `engagement.share.recorded` `{ user_id, subject_id }` | `user_id` | 2 | reactions | `shares` | |
 | `together.answer` | `ask.answer.published` `{ question_id, owner_id, audience, first }`, only with `first: true` and not private (`audience = 3`) | `owner_id` | 5 | together | `questions_answered` | |
 | `together.vote` | `ask.round.completed` `{ user_id, round_id, votes }`, at least one vote | `user_id` | 5 | together | `compliment_votes` (+votes, at most 50) | |
-| `map.checkin` | `activity.recorded`, kind `geo.checkin`, not private | `user_id` | 10 | map | `check_ins` | towards the tagged `with_user_ids` (up to 8) |
+| `map.checkin` | `activity.recorded`, kind `geo.visit` with `data.check_in`, not private | `user_id` | 10 | map | `check_ins` | towards the tagged `with_user_ids` (up to 8) |
 | `map.new_region` | `activity.recorded`, kind `geo.new_region` (`data.region_id`), not private | `user_id` | 30 | map | `regions_explored` | |
 | `study.session` | `activity.recorded`, kind `school.studied` (`data = { session_id, minutes }`), at most 12 h | `user_id` | 1 per minute | study | `study_minutes` (+minutes), `study_sessions` | |
 | `together.plan` | `plans.plan.created` `{ host_id }` | `host_id` | 10 | together | `plans_created` | |

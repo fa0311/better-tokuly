@@ -8,7 +8,7 @@ use crate::common::*;
 
 async fn check_in(ctx: &Ctx, user: &TestUser, audience: &str, with: &[&TestUser]) {
     let data = json!({
-        "user_id": user.id, "kind": "geo.checkin", "audience": audience,
+        "user_id": user.id, "kind": "geo.visit", "audience": audience, "data": { "visit_id": Uuid::now_v7(), "check_in": true },
         "with_user_ids": with.iter().map(|friend| friend.id).collect::<Vec<_>>(),
         "summary": { "ja": "チェックイン!", "en": "Checked in" }, "path": "/map",
     });
