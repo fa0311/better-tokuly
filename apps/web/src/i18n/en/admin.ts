@@ -11,6 +11,7 @@ export default {
     wallet: "Payouts & coins",
     search: "Search",
     news: "News",
+    emoji: "Emoji",
   },
   gate: {
     title: "This area is for staff",
