@@ -34,8 +34,13 @@ Authorization: Bearer tkl_…  ──▶ core auth middleware (tokuly_core::api_
   and payouts, SOS, revealing an anonymous author, everything staff, and in this domain everything except
   reading webhooks, deliveries, usage and the reference.
 - The catalogue with the wording shown to people is `tokuly_dev::scopes`; it
-  offers exactly the scopes some listed RPC needs (no scopes yet for live,
-  shorts, quest, spaces).
+  offers exactly the scopes some listed RPC needs (none yet for live, which has no RPCs).
+- Audio rooms: whatever returns LiveKit credentials (`CreateSpace`,
+  `StartSpace`, `JoinSpace`, `RespondToStageInvite`, `JoinHangout`) takes a
+  session, so no token can sit in a room. `spaces:read` shows who is inside
+  which room and is marked sensitive; `ListFriendsInRooms` also needs
+  `social:read`. Claiming a mission and restoring a streak also need
+  `wallet:write`.
 - A response that keeps streaming is cut off when its token is revoked or
   expires (re-verified every 30 s).
 - A verified token is cached for up to 60 s (`dev:tok:<hash>`). Revocation,

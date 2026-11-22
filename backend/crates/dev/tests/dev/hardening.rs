@@ -444,7 +444,7 @@ async fn an_rpc_without_a_line_in_the_table_is_closed_to_tokens() {
         assert_eq!((refused.status, refused.reason.as_str()), (403, "TOKEN_NOT_ALLOWED"), "{procedure}");
     }
     // Scopes for domains that are not classified cannot even be asked for.
-    for scope in ["live:read", "shorts:write", "quest:write", "dev:write"] {
+    for scope in ["live:read", "admin:read", "dev:write"] {
         let request = CreateTokenRequest { name: "x".into(), scopes: vec![scope.into()], ..Default::default() };
         let refused = ctx
             .app

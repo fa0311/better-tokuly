@@ -109,6 +109,18 @@ const DOMAINS: &[Domain] = &[
         )),
     },
     Domain {
+        name: "spaces",
+        sensitive: true,
+        read: (
+            "スペースとたまり場、そして今だれが中にいるかを見る",
+            "See audio rooms and hangouts, and who is inside them right now",
+        ),
+        write: Some((
+            "スペースの予定の変更・終了・進行、たまり場の作成と管理、招待（入室して聞く・話すことはできません）",
+            "Change, end and moderate your rooms, create and manage hangouts, invite people (cannot enter a room to listen or talk)",
+        )),
+    },
+    Domain {
         name: "feed",
         sensitive: false,
         read: (
@@ -205,6 +217,30 @@ const DOMAINS: &[Domain] = &[
         write: Some((
             "コミュニティへの参加・投稿・イベント参加・管理（匿名投稿の投稿者を明かすことはできません）",
             "Join communities, post, attend events and moderate (never reveals who wrote an anonymous post)",
+        )),
+    },
+    Domain {
+        name: "shorts",
+        sensitive: false,
+        read: (
+            "ショートのフィード、保存・いいねしたショート、自分のショートとその分析を見る",
+            "See short video feeds, the shorts you saved or liked, your own shorts and their analytics",
+        ),
+        write: Some((
+            "ショートの投稿・編集・削除・保存、視聴の記録、「興味なし」の設定",
+            "Post, edit, delete and save shorts, record what you watched, mark shorts as not interesting",
+        )),
+    },
+    Domain {
+        name: "quest",
+        sensitive: false,
+        read: (
+            "レベル・XP・ミッション・バッジ・ストリーク・ランキングを見る",
+            "See your level, XP, missions, badges, streaks and leaderboards",
+        ),
+        write: Some((
+            "ミッションの入れ替え、バッジと称号の表示設定（報酬の受け取りとストリーク復活にはコインの許可も必要です）",
+            "Reroll missions, choose the badges and title you show (claiming rewards and restoring a streak also need the coin permission)",
         )),
     },
     Domain {
@@ -374,7 +410,7 @@ mod tests {
             .collect();
         let offered: std::collections::BTreeSet<String> = catalogue().into_iter().map(|scope| scope.scope).collect();
         assert_eq!(offered, needed);
-        for gone in ["live:read", "shorts:read", "quest:write", "spaces:read", "dev:write", "admin:read"] {
+        for gone in ["live:read", "dev:write", "admin:read", "spaces:join"] {
             assert!(find(gone).is_none(), "{gone}");
         }
     }

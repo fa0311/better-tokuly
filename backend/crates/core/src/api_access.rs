@@ -1060,6 +1060,144 @@ const TABLE: &[(&str, &[(&str, Rule)])] = &[
     ("tokuly.plans.v1.CalendarService", &[
         ("GetCalendar", Read),
     ]),
+    ("tokuly.quest.v1.QuestService", &[
+        // Also hands over level-up coins that were earned but not paid yet;
+        // nothing is decided here, so it stays a read.
+        ("GetProgress", Read),
+        ("ListXpHistory", Read),
+        ("ListEarningRules", Read),
+        ("GetProfile", Read),
+        ("GetPreferences", Read),
+        ("UpdatePreferences", Write),
+    ]),
+    ("tokuly.quest.v1.MissionService", &[
+        // Draws today's missions and pays claims already made, if needed.
+        ("ListMissions", Read),
+        // Puts the reward's coins into the wallet.
+        ("ClaimMission", With(&["quest:write", "wallet:write"])),
+        ("RerollMission", Write),
+    ]),
+    ("tokuly.quest.v1.BadgeService", &[
+        ("ListBadgeCatalog", Read),
+        ("GetBadge", Read),
+        ("ListUserBadges", Read),
+        ("SetShowcase", Write),
+        ("SetTitle", Write),
+    ]),
+    ("tokuly.quest.v1.StreakService", &[
+        ("ListStreaks", Read),
+        ("GetStreak", Read),
+        // Costs coins.
+        ("RestoreStreak", With(&["quest:write", "wallet:write"])),
+    ]),
+    ("tokuly.quest.v1.LeaderboardService", &[
+        ("ListLeaderboards", Read),
+        ("GetLeaderboard", Read),
+        ("GetSeason", Read),
+        ("ListSeasonResults", Read),
+    ]),
+    ("tokuly.quest.v1.QuestAdminService", &[
+        ("AwardBadge", Session),
+        ("RevokeBadge", Session),
+        ("ListBadgeActions", Session),
+    ]),
+    // Whatever returns audio credentials takes a session: they put a
+    // listener (or a microphone) into a room of people, and that is a person
+    // at a device, not a script. `spaces:read` shows who is in which room
+    // right now and is offered as a sensitive scope.
+    ("tokuly.spaces.v1.SpaceService", &[
+        ("GetSpacesConfig", Read),
+        // Goes live at once with the caller inside, unless scheduled.
+        ("CreateSpace", Session),
+        ("UpdateSpace", Write),
+        ("StartSpace", Session),
+        ("CancelSpace", Write),
+        ("EndSpace", Write),
+        ("DeleteSpace", Write),
+        ("GetSpace", Read),
+        ("JoinSpace", Session),
+        ("LeaveSpace", Write),
+        ("ListParticipants", Read),
+        ("SetHandRaised", Write),
+        ("InviteToStage", Write),
+        // Makes the caller a speaker and returns credentials for it.
+        ("RespondToStageInvite", Session),
+        ("MoveToAudience", Write),
+        ("SetCohost", Write),
+        ("TransferHost", Write),
+        ("MuteSpeaker", Write),
+        ("RemoveParticipant", Write),
+        ("UnbanUser", Write),
+        ("ListBans", Read),
+        ("SendReaction", Write),
+        ("SetPin", Write),
+        ("InviteToSpace", Write),
+        ("RevokeSpaceInvite", Write),
+        ("ListSpaceInvites", Read),
+        ("SetReminder", Write),
+        ("ListLiveSpaces", Read),
+        ("ListUpcomingSpaces", Read),
+        ("ListMySpaces", Read),
+        ("ListPopularTags", Read),
+        // Which friends are in a room right now, across the friend list.
+        ("ListFriendsInRooms", With(&["spaces:read", "social:read"])),
+    ]),
+    ("tokuly.spaces.v1.HangoutService", &[
+        ("CreateHangout", Write),
+        ("UpdateHangout", Write),
+        ("DeleteHangout", Write),
+        ("GetHangout", Read),
+        ("ListHangouts", Read),
+        ("InviteToHangout", Write),
+        ("RespondToHangoutInvite", Write),
+        ("RemoveHangoutMember", Write),
+        ("QuitHangout", Write),
+        ("TransferHangout", Write),
+        ("SetHangoutMuted", Write),
+        ("JoinHangout", Session),
+        ("LeaveHangout", Write),
+    ]),
+    ("tokuly.shorts.v1.ShortService", &[
+        ("CreateShort", Write),
+        ("UpdateShort", Write),
+        ("DeleteShort", Write),
+        ("GetShort", Read),
+        ("BatchGetShorts", Read),
+        ("ListMyShorts", Read),
+        ("PinShort", Write),
+        ("UnpinShort", Write),
+        ("SaveShort", Write),
+        ("UnsaveShort", Write),
+        ("ListSavedShorts", Read),
+        ("ListLikedShorts", Read),
+        // Counts a share.
+        ("ShareShort", Write),
+        ("ListRemixes", Read),
+    ]),
+    ("tokuly.shorts.v1.ShortFeedService", &[
+        ("GetForYouFeed", Read),
+        ("GetFollowingFeed", Read),
+        ("GetFriendsFeed", Read),
+        // Counts views and marks shorts as seen.
+        ("ReportPlayback", Write),
+        ("MarkNotInterested", Write),
+        ("UndoNotInterested", Write),
+    ]),
+    ("tokuly.shorts.v1.ShortDiscoveryService", &[
+        ("ListChannelShorts", Read),
+        ("GetHashtag", Read),
+        ("ListHashtagShorts", Read),
+        ("ListTrendingHashtags", Read),
+        ("SuggestHashtags", Read),
+        ("GetSound", Read),
+        ("ListSoundShorts", Read),
+        ("SuggestSounds", Read),
+    ]),
+    // The handlers answer only for the caller's own shorts and channels.
+    ("tokuly.shorts.v1.ShortAnalyticsService", &[
+        ("GetShortAnalytics", Read),
+        ("GetChannelShortsAnalytics", Read),
+    ]),
 ];
 
 #[cfg(test)]
@@ -1084,6 +1222,35 @@ mod tests {
         assert_eq!(scopes("/tokuly.geo.v1.PlaceService/CheckIn"), ["geo:write"]);
         assert_eq!(scopes("/tokuly.media.v1.MediaService/GetUploadParts"), ["media:write"]);
         assert_eq!(scopes("/tokuly.chat.v1.ConversationService/MarkRead"), ["chat:write"]);
+    }
+
+    #[test]
+    fn quest_spaces_and_shorts_follow_the_same_rules() {
+        // Coins move only with the wallet scope.
+        assert_eq!(scopes("/tokuly.quest.v1.MissionService/ClaimMission"), ["quest:write", "wallet:write"]);
+        assert_eq!(scopes("/tokuly.quest.v1.StreakService/RestoreStreak"), ["quest:write", "wallet:write"]);
+        assert_eq!(scopes("/tokuly.quest.v1.MissionService/RerollMission"), ["quest:write"]);
+        // Staff.
+        for method in ["AwardBadge", "RevokeBadge", "ListBadgeActions"] {
+            let path = format!("/tokuly.quest.v1.QuestAdminService/{method}");
+            assert_eq!(access_for(&path), Some(Access::SessionOnly), "{method}");
+        }
+        // Audio credentials are not for tokens.
+        for path in [
+            "/tokuly.spaces.v1.SpaceService/CreateSpace",
+            "/tokuly.spaces.v1.SpaceService/StartSpace",
+            "/tokuly.spaces.v1.SpaceService/JoinSpace",
+            "/tokuly.spaces.v1.SpaceService/RespondToStageInvite",
+            "/tokuly.spaces.v1.HangoutService/JoinHangout",
+        ] {
+            assert_eq!(access_for(path), Some(Access::SessionOnly), "{path}");
+        }
+        assert_eq!(scopes("/tokuly.spaces.v1.SpaceService/ListParticipants"), ["spaces:read"]);
+        assert_eq!(scopes("/tokuly.spaces.v1.SpaceService/ListFriendsInRooms"), ["spaces:read", "social:read"]);
+        assert_eq!(scopes("/tokuly.spaces.v1.SpaceService/RemoveParticipant"), ["spaces:write"]);
+        assert_eq!(scopes("/tokuly.shorts.v1.ShortFeedService/ReportPlayback"), ["shorts:write"]);
+        assert_eq!(scopes("/tokuly.shorts.v1.ShortDiscoveryService/SuggestSounds"), ["shorts:read"]);
+        assert_eq!(scopes("/tokuly.shorts.v1.ShortAnalyticsService/GetShortAnalytics"), ["shorts:read"]);
     }
 
     #[test]
