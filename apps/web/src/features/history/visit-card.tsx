@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { placeEmoji } from "#/features/places";
+import { accountTimeZone, zonedDate } from "#/lib/account-time";
 import { compactDuration } from "#/lib/format";
 
 /** The emoji a visit is drawn with: its place's, a tick for a check-in, footprints otherwise. */
@@ -15,7 +16,11 @@ export const visitName = (visit: geo.Visit): string =>
   visit.place?.name || visit.name || visit.locality;
 
 const clock = (date: Date | undefined, language: string) =>
-  date?.toLocaleTimeString(language, { hour: "2-digit", minute: "2-digit" }) ?? "";
+  date?.toLocaleTimeString(language, {
+    timeZone: accountTimeZone(),
+    hour: "2-digit",
+    minute: "2-digit",
+  }) ?? "";
 
 /** "17:16–17:25・9分", "17:33〜 いまここ" or just the time of a check-in. */
 export function useVisitTimes(): (visit: geo.Visit) => string {
@@ -24,8 +29,12 @@ export function useVisitTimes(): (visit: geo.Visit) => string {
     const arrivedAt = toDate(visit.arrivedAt);
     const departed = toDate(visit.departedAt);
     // A stay that began on an earlier day (a night at home) says which day.
-    const overnight = arrivedAt && departed && arrivedAt.toDateString() !== departed.toDateString();
-    const arrived = `${overnight ? `${arrivedAt.toLocaleDateString(i18n.language, { month: "numeric", day: "numeric" })} ` : ""}${clock(arrivedAt, i18n.language)}`;
+    const overnight =
+      arrivedAt &&
+      departed &&
+      zonedDate(arrivedAt.getTime(), accountTimeZone()) !==
+        zonedDate(departed.getTime(), accountTimeZone());
+    const arrived = `${overnight ? `${arrivedAt.toLocaleDateString(i18n.language, { timeZone: accountTimeZone(), month: "numeric", day: "numeric" })} ` : ""}${clock(arrivedAt, i18n.language)}`;
     const seconds = Number(visit.durationSeconds);
     if (departed)
       return seconds >= 60

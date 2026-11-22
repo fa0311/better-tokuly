@@ -8,6 +8,7 @@ import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
 import { GazetteerCredit } from "#/features/places";
+import { accountTimeZone } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
 import { historyClient, historyKeys } from "./api";
 import { parseDay } from "./dates";
@@ -26,7 +27,11 @@ export function NightsList() {
   const all = query.data?.pages.flatMap((page) => page.nights) ?? [];
   const nights = awayOnly ? all.filter((night) => !night.atHome) : all;
   const clock = (date: Date | undefined) =>
-    date?.toLocaleTimeString(i18n.language, { hour: "2-digit", minute: "2-digit" }) ?? "";
+    date?.toLocaleTimeString(i18n.language, {
+      timeZone: accountTimeZone(),
+      hour: "2-digit",
+      minute: "2-digit",
+    }) ?? "";
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -75,6 +80,7 @@ export function NightsList() {
                         <span className="block truncate font-black">{name}</span>
                         <span className="block truncate text-sm text-ink-soft tabular-nums">
                           {date?.toLocaleDateString(i18n.language, {
+                            timeZone: accountTimeZone(),
                             month: "short",
                             day: "numeric",
                             weekday: "short",

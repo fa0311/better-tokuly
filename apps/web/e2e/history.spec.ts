@@ -14,22 +14,39 @@ interface Point {
   lng: number;
 }
 
-/**
- * The browser runs in a time zone where it is about noon right now, so the
- * track of the last half hour never straddles midnight and "today" is the
- * same day for the whole test.
- */
-function middayZone(): string {
-  let offset = 12 - new Date().getUTCHours();
-  if (offset > 12) offset -= 24;
-  // POSIX signs: "Etc/GMT-9" is nine hours ahead of UTC.
-  return offset === 0 ? "Etc/GMT" : `Etc/GMT${offset > 0 ? "-" : "+"}${Math.abs(offset)}`;
+/** UTC offset (hours) of the zone where it is about noon right now. */
+function middayOffset(): number {
+  const offset = 12 - new Date().getUTCHours();
+  return offset > 12 ? offset - 24 : offset;
 }
 
-const ZONE = middayZone();
-test.use({ timezoneId: ZONE });
+// POSIX signs: "Etc/GMT-9" is nine hours ahead of UTC.
+const zoneAt = (offset: number) =>
+  offset === 0 ? "Etc/GMT" : `Etc/GMT${offset > 0 ? "-" : "+"}${Math.abs(offset)}`;
 
-/** Today's date (`YYYY-MM-DD`) where the browser is. */
+/**
+ * History days are days on the account's calendar: its time zone, wherever
+ * the device is. The account lives where it is about noon right now, so the
+ * track of the last half hour never straddles its midnight and "today" is
+ * the same day for the whole test.
+ */
+const ZONE = zoneAt(middayOffset());
+
+/**
+ * The browser is thirteen hours away from the account, on another calendar
+ * day: whatever the app shows must come from the account's clock, not the
+ * device's. (`TOKULY_E2E_TIMEZONE` puts the device somewhere else still.)
+ */
+const DEVICE_ZONE =
+  process.env.TOKULY_E2E_TIMEZONE ??
+  zoneAt(middayOffset() <= 1 ? middayOffset() + 13 : middayOffset() - 13);
+test.use({ timezoneId: DEVICE_ZONE });
+
+test.beforeEach(async ({ request, me }) => {
+  await rpc(request, "tokuly.identity.v1.AccountService/UpdateProfile", { timeZone: ZONE }, me);
+});
+
+/** Today's date (`YYYY-MM-DD`) on the account's calendar. */
 const today = () => new Intl.DateTimeFormat("sv-SE", { timeZone: ZONE }).format(new Date());
 
 const somewhereInTokyo = (): Point => ({

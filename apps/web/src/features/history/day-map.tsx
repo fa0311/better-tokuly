@@ -5,6 +5,7 @@ import { Avatar } from "#/components/ui/avatar";
 import { Slider } from "#/components/ui/slider";
 import { cameraMs, FitTo, GeoLayer, MapFrame, Pin, useIsDark, useMap } from "#/features/map";
 import { DEFAULT_CENTER, type LatLng } from "#/features/places";
+import { accountTimeZone } from "#/lib/account-time";
 import { dopamineFactor } from "#/lib/appearance";
 import { cn } from "#/lib/cn";
 import { useMe } from "#/stores/session";
@@ -241,6 +242,7 @@ function Route({ track, path }: { track: TrackPoint[]; path: LatLng[] }) {
                 max={SCRUB_STEPS}
                 label={t("replay.scrub")}
                 valueText={new Date(at).toLocaleTimeString(i18n.language, {
+                  timeZone: accountTimeZone(),
                   hour: "2-digit",
                   minute: "2-digit",
                 })}
@@ -254,6 +256,7 @@ function Route({ track, path }: { track: TrackPoint[]; path: LatLng[] }) {
                 data-testid="replay-time"
               >
                 {new Date(at).toLocaleTimeString(i18n.language, {
+                  timeZone: accountTimeZone(),
                   hour: "2-digit",
                   minute: "2-digit",
                 })}

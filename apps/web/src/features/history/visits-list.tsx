@@ -9,7 +9,13 @@ import { EmptyState, Skeleton } from "#/components/ui/page";
 import { SelectField } from "#/components/ui/select";
 import { Tabs } from "#/components/ui/tabs";
 import { GazetteerCredit, placeClient, placeEmoji, placeKeys } from "#/features/places";
-import { shiftDate, useAccountTimeZone, useAccountToday, zonedMoment } from "#/lib/account-time";
+import {
+  accountTimeZone,
+  shiftDate,
+  useAccountTimeZone,
+  useAccountToday,
+  zonedMoment,
+} from "#/lib/account-time";
 import { historyClient, historyKeys } from "./api";
 import { dayRange, formatDay } from "./dates";
 import { VisitCard } from "./visit-card";
@@ -131,6 +137,7 @@ export function VisitsList() {
                     <VisitCard
                       visit={visit}
                       dateLabel={arrived?.toLocaleDateString(i18n.language, {
+                        timeZone: accountTimeZone(),
                         month: "short",
                         day: "numeric",
                         weekday: "short",

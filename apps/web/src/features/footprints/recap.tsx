@@ -9,6 +9,7 @@ import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { EmptyState } from "#/components/ui/page";
 import { GazetteerCredit } from "#/features/places";
+import { accountTimeZone } from "#/lib/account-time";
 import { errorMessage } from "#/lib/errors";
 import { formatDistance } from "#/lib/format";
 import { useMe } from "#/stores/session";
@@ -145,7 +146,11 @@ function sinceText(recap: geo.GetRecapResponse, language: string, t: Translate):
   const since = toDate(recap.since);
   return since
     ? t("recap.since", {
-        date: since.toLocaleDateString(language, { month: "short", day: "numeric" }),
+        date: since.toLocaleDateString(language, {
+          timeZone: accountTimeZone(),
+          month: "short",
+          day: "numeric",
+        }),
       })
     : "";
 }

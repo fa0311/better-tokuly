@@ -29,6 +29,7 @@ import {
   useEngagement,
 } from "#/features/engagement";
 import { circlePolygon, GeoLayer, MapFrame, Pin, useIsDark, zoomForRadius } from "#/features/map";
+import { accountTimeZone } from "#/lib/account-time";
 import { api } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { compactAge, compactDuration, distanceMeters } from "#/lib/format";
@@ -300,11 +301,13 @@ export function PlaceScreen({ placeId }: { placeId: string }) {
                           <span aria-hidden>{visit.checkIn ? "✅" : "👣"}</span>
                           <span className="min-w-0 flex-1 truncate font-bold">
                             {arrived.toLocaleDateString(i18n.language, {
+                              timeZone: accountTimeZone(),
                               month: "short",
                               day: "numeric",
                               weekday: "short",
                             })}{" "}
                             {arrived.toLocaleTimeString(i18n.language, {
+                              timeZone: accountTimeZone(),
                               hour: "2-digit",
                               minute: "2-digit",
                             })}
