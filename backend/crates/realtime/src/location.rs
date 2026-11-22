@@ -3,6 +3,7 @@
 //! The gateway only rejects what is plainly unusable (impossible
 //! coordinates, non-numbers, absurd timestamps); judging plausibility — mock
 //! locations, jumps, accuracy — is the geo domain's business.
+use buffa::Message as _;
 use chrono::{DateTime, Duration, Utc};
 use tokuly_core::{geoindex::valid_coordinates, time::ts};
 use tokuly_proto::geo::LocationSample;
@@ -17,9 +18,16 @@ const MAX_CLOCK_SKEW: Duration = Duration::minutes(2);
 /// and the bus keeps samples for a day anyway.
 const MAX_AGE: Duration = Duration::hours(24);
 
+/// Reads the sample out of a `ClientFrame.location` (the frame carries it
+/// encoded, see the proto) and checks it with [`validate`].
+pub(crate) fn decode(encoded: &[u8], received_at: DateTime<Utc>) -> Result<LocationSample, Rejection> {
+    let sample = LocationSample::decode_from_slice(encoded).map_err(|_| INVALID)?;
+    validate(sample, received_at)
+}
+
 /// Checks a sample received at `received_at` and fills in a missing
 /// `recorded_at` with the time of receipt.
-pub(crate) fn validate(mut sample: LocationSample, received_at: DateTime<Utc>) -> Result<LocationSample, Rejection> {
+fn validate(mut sample: LocationSample, received_at: DateTime<Utc>) -> Result<LocationSample, Rejection> {
     let position = sample.position.as_option().ok_or(INVALID)?;
     if !valid_coordinates(position.lat, position.lng) {
         return Err(INVALID);
@@ -102,6 +110,17 @@ mod tests {
         let mut bad_heading = sample(35.0, 139.0);
         bad_heading.heading_degrees = Some(f64::NAN);
         assert!(rejected(bad_heading));
+    }
+
+    #[test]
+    fn the_encoded_sample_of_a_frame_is_read_and_checked() {
+        let now = Utc::now();
+        let decoded = decode(&sample(35.6595, 139.7005).encode_to_vec(), now).unwrap();
+        assert_eq!(decoded.position.as_option().map(|position| position.lat), Some(35.6595));
+        assert_eq!(decode(&sample(91.0, 0.0).encode_to_vec(), now), Err(INVALID));
+        // Bytes that are no location sample at all, and no bytes (a sample without a position).
+        assert_eq!(decode(&[0xff; 8], now), Err(INVALID));
+        assert_eq!(decode(&[], now), Err(INVALID));
     }
 
     #[test]

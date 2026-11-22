@@ -190,7 +190,7 @@ Both happen in the transaction that stores or deletes the reference.
 
 ## Realtime pushes
 
-`EmojiEvent` (`ServerFrame.emoji`):
+`EmojiEvent`:
 
 | Event | To | When |
 |---|---|---|

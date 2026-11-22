@@ -334,7 +334,7 @@ message Attachment {
   AssetStatus status = 10;
 }
 
-// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.media).
+// Pushed over the realtime gateway (as a tokuly.realtime.v1.Event).
 message MediaEvent {
   oneof event {
     // Processing progress or completion of one of the recipient's assets.

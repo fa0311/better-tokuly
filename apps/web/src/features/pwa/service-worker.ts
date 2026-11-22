@@ -29,9 +29,16 @@ interface WorkerState {
   updateReady: boolean;
   /** Another tab accepted an update: the new worker runs, but this page is still the old app. */
   replaced: boolean;
+  /** The server speaks a newer realtime protocol than this page was built for (see `protocol.ts`). */
+  outdated: boolean;
 }
 
-export const useWorker = create<WorkerState>(() => ({ status: "starting", updateReady: false, replaced: false }));
+export const useWorker = create<WorkerState>(() => ({ status: "starting", updateReady: false, replaced: false, outdated: false }));
+
+/** Whether this page runs an older app than the one it could be running: a reload is due. */
+export function pageIsBehind(state: WorkerState): boolean {
+  return state.updateReady || state.replaced || state.outdated;
+}
 
 let registration: ServiceWorkerRegistration | null = null;
 let started = false;

@@ -11,7 +11,7 @@ workspace = true
 
 [dependencies]
 tokuly-core.workspace = true
-tokuly-proto.workspace = true
+tokuly-proto = { workspace = true, features = ["chat", "common", "identity", "media"] }
 tokuly-identity.workspace = true
 tokuly-social.workspace = true
 tokuly-stamp.workspace = true
@@ -38,6 +38,8 @@ sha2.workspace = true
 hex.workspace = true
 
 [dev-dependencies]
+# API packages only the tests name.
+tokuly-proto = { workspace = true, features = ["social", "stamp"] }
 tokuly-testkit.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 axum.workspace = true

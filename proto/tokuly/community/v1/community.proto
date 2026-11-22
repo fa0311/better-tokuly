@@ -2015,7 +2015,7 @@ message ListPopularTagsResponse {
 
 // ───────────────────────────── Realtime ─────────────────────────────
 
-// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.community).
+// Pushed over the realtime gateway (as a tokuly.realtime.v1.Event).
 //
 // Board and calendar events travel on the topic `community:<community id>`,
 // which members may follow (anyone, for a public community). Membership and

@@ -3,11 +3,12 @@
 //! audiences.
 use std::time::Duration;
 
+use buffa::Message as _;
 use chrono::Utc;
 use tokuly_core::{
     presence::{
-        self, CONVERSATION_PRESENCE_SUBJECT, ConversationPresenceSignal, LOCATION_SUBJECT_PREFIX, LocationReport, PRESENCE_SUBJECT, PresenceChange,
-        TYPING_SUBJECT, TypingSignal,
+        self, CONVERSATION_PRESENCE_SUBJECT, ConversationPresenceSignal, LOCATION_SUBJECT_PREFIX, PRESENCE_SUBJECT, PresenceChange, TYPING_SUBJECT,
+        TypingSignal,
     },
     time::from_ts,
 };
@@ -22,8 +23,8 @@ use uuid::Uuid;
 mod support;
 use support::*;
 
-fn location_body(lat: f64, lng: f64) -> ClientBody {
-    ClientBody::Location(Box::new(LocationSample {
+fn location_sample(lat: f64, lng: f64) -> LocationSample {
+    LocationSample {
         position: LatLng { lat, lng, ..Default::default() }.into(),
         accuracy_meters: 8.5,
         speed_mps: Some(1.4),
@@ -31,7 +32,12 @@ fn location_body(lat: f64, lng: f64) -> ClientBody {
         activity: Activity::ACTIVITY_WALKING.into(),
         foreground: true,
         ..Default::default()
-    }))
+    }
+}
+
+/// A `ClientFrame.location` body: the frame carries the sample encoded.
+fn location_body(lat: f64, lng: f64) -> ClientBody {
+    ClientBody::Location(location_sample(lat, lng).encode_to_vec())
 }
 
 fn typing_body(conversation_id: &str, typing: bool) -> ClientBody {
@@ -206,11 +212,13 @@ async fn unusable_or_unauthorized_samples_are_refused() {
         let error = error_of(&reply);
         assert_eq!((error.code.as_str(), error.message.as_str(), error.fatal), ("invalid_argument", "LOCATION_INVALID", false));
     }
-    let mut from_the_future = location_body(35.0, 139.0);
-    if let ClientBody::Location(sample) = &mut from_the_future {
-        sample.recorded_at = tokuly_core::time::ts(Utc::now() + chrono::Duration::hours(1));
-    }
-    assert_eq!(error_of(&client.request(from_the_future).await).message, "LOCATION_INVALID");
+    let mut from_the_future = location_sample(35.0, 139.0);
+    from_the_future.recorded_at = tokuly_core::time::ts(Utc::now() + chrono::Duration::hours(1));
+    let reply = client.request(ClientBody::Location(from_the_future.encode_to_vec())).await;
+    assert_eq!(error_of(&reply).message, "LOCATION_INVALID");
+    // Bytes that are no sample at all are refused the same way, and the connection goes on.
+    let reply = client.request(ClientBody::Location(vec![0xff; 12])).await;
+    assert_eq!(error_of(&reply).message, "LOCATION_INVALID");
     assert!(next_on_bus::<LocationReport>(&mut samples, QUIET, |_| true).await.is_none(), "nothing reaches the pipeline");
 
     let mut anonymous = harness.ws_as(None, true).await;

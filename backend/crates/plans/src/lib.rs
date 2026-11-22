@@ -28,7 +28,6 @@ use tokuly_identity::Identity;
 use tokuly_proto::{
     common::SubjectType,
     plans::{PlansEvent, plans_event::Event as Push},
-    realtime::server_frame::Body,
 };
 use tokuly_social::Social;
 
@@ -137,9 +136,6 @@ impl Plans {
 
     /// Pushes a plans event to every connected device of the given users.
     pub(crate) async fn push(&self, user_ids: impl IntoIterator<Item = Uuid>, event: Push) {
-        self.core
-            .rt
-            .notify_users(user_ids, Body::Plans(Box::new(PlansEvent { event: Some(event), ..Default::default() })))
-            .await;
+        self.core.rt.notify_users(user_ids, &PlansEvent { event: Some(event), ..Default::default() }).await;
     }
 }

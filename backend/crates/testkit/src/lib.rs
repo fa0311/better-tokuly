@@ -41,7 +41,8 @@ use serde::{Serialize, de::DeserializeOwned};
 use sqlx::{Connection as _, PgConnection};
 use tokuly_core::{Core, auth::ClientMeta, config::Config, events::Event};
 use tokuly_identity::{Identity, IdentityConfig, UserRow};
-use tokuly_proto::realtime::ServerFrame;
+pub use tokuly_proto::realtime::ServerFrame;
+use tokuly_proto::RealtimeEvent;
 use tower::ServiceExt as _;
 use uuid::Uuid;
 
@@ -210,6 +211,21 @@ impl std::fmt::Display for RpcError {
 }
 
 /// Collects realtime frames published to one user or topic.
+///
+/// A domain's pushes are read as its own event message, whatever else
+/// travels to the same user or topic:
+///
+/// ```ignore
+/// let mut pushes = app.listen_user(alice.id).await;
+/// // ... the action ...
+/// let event: WalletEvent = pushes.next_event(WAIT).await.expect("a wallet event");
+/// let all: Vec<ChatEvent> = pushes.events(WAIT).await;
+/// ```
+///
+/// [`Self::next`] and [`Self::drain`] return the frames themselves, for
+/// tests that care about the envelope (the topic, the gateway's own
+/// messages) or about what else was sent; `frame.event::<WalletEvent>()`
+/// reads the event out of one.
 pub struct FrameListener {
     subscriber: async_nats::Subscriber,
 }
@@ -231,6 +247,23 @@ impl FrameListener {
             }
         }
         frames
+    }
+
+    /// The next event of type `E`, skipping frames that carry something
+    /// else; `None` if none arrives within `timeout`.
+    pub async fn next_event<E: RealtimeEvent>(&mut self, timeout: Duration) -> Option<E> {
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            let message = tokio::time::timeout_at(deadline, self.subscriber.next()).await.ok()??;
+            if let Some(event) = ServerFrame::decode_from_slice(&message.payload).ok().and_then(|frame| frame.event()) {
+                return Some(event);
+            }
+        }
+    }
+
+    /// Every event of type `E` that arrives within `window`.
+    pub async fn events<E: RealtimeEvent>(&mut self, window: Duration) -> Vec<E> {
+        self.drain(window).await.iter().filter_map(ServerFrame::event).collect()
     }
 }
 

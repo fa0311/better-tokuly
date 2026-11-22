@@ -108,7 +108,7 @@ video removes the prefix.
 
 ## Realtime pushes
 
-`ServerFrame.video` (`VideoEvent`):
+`VideoEvent`:
 
 | Event | Sent to | When |
 |---|---|---|

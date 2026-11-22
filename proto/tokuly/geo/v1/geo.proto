@@ -1118,7 +1118,7 @@ message GetActiveSosResponse {
 
 // ───────────────────────────── Realtime events ─────────────────────────────
 
-// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.geo).
+// Pushed over the realtime gateway (as a tokuly.realtime.v1.Event).
 message GeoEvent {
   oneof event {
     FriendLocation location = 1;

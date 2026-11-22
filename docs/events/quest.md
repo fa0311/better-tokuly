@@ -302,7 +302,7 @@ falls into `system` (see "Requests").
 
 ## Realtime pushes
 
-`ServerFrame.quest` (`QuestEvent`), always to the player concerned:
+`QuestEvent`, always to the player concerned:
 
 | Event | When |
 |---|---|

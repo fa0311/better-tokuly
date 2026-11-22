@@ -3,12 +3,9 @@
 mod common;
 
 use common::*;
-use tokuly_proto::{
-    engagement::{
-        __buffa::oneof::{block_commenter_request::Target, engagement_event::Event as Pushed},
-        *,
-    },
-    realtime::server_frame::Body,
+use tokuly_proto::engagement::{
+    __buffa::oneof::{block_commenter_request::Target, engagement_event::Event as Pushed},
+    *,
 };
 use uuid::Uuid;
 
@@ -75,12 +72,9 @@ async fn held_comments_wait_in_the_owners_review_queue() {
     assert!(ctx.notification_kinds(carol.id).await.is_empty());
     // The owner's badge moved, and they got one "waiting for review" entry.
     let badge = owner_frames.next(std::time::Duration::from_secs(10)).await.expect("a review queue push");
-    match badge.body {
-        Some(Body::Engagement(event)) => match &event.event {
-            Some(Pushed::ReviewQueueChanged(queue)) => assert_eq!(queue.held_count, 1),
-            other => panic!("unexpected event {other:?}"),
-        },
-        other => panic!("unexpected frame {other:?}"),
+    match badge.event::<EngagementEvent>().and_then(|event| event.event) {
+        Some(Pushed::ReviewQueueChanged(queue)) => assert_eq!(queue.held_count, 1),
+        other => panic!("unexpected event {other:?} in {badge:?}"),
     }
     let notices = ctx.notifications(owner.id, "engagement.comment").await;
     assert_eq!(notices.len(), 1);

@@ -1057,7 +1057,7 @@ message LeaveHangoutResponse {}
 
 // ───────────────────────────── realtime ─────────────────────────────
 
-// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.spaces).
+// Pushed over the realtime gateway (as a tokuly.realtime.v1.Event).
 //
 // Events about a room go to the topic `space:<space id>`, which may be
 // followed by anyone who may see the room (public rooms: anyone, signed in

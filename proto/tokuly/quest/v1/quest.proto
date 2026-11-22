@@ -842,7 +842,7 @@ message ListBadgeActionsResponse {
 
 // ──────────────────────────────── Realtime ───────────────────────────────
 
-// Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.quest),
+// Pushed over the realtime gateway (as a tokuly.realtime.v1.Event),
 // always to the player concerned. Clients celebrate in proportion to the
 // account's ドパガキ度.
 message QuestEvent {

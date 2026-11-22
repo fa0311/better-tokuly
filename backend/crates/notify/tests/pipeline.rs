@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use tokuly_core::outbound;
 use tokuly_notify::events::{FRIEND_PREFS_CHANGED_TOPIC, FriendPrefsChanged};
-use tokuly_proto::{notify::*, realtime::server_frame::Body};
+use tokuly_proto::notify::*;
 
 #[allow(dead_code)]
 #[path = "notify/common.rs"]
@@ -66,11 +66,11 @@ async fn a_notification_requested_by_another_domain_reaches_the_inbox_and_the_br
         message["notification"]["data"]["id"],
         inbox.notifications[0].id
     );
-    let Some(Body::Notify(event)) = frames
+    let Some(event) = frames
         .next(Duration::from_secs(5))
         .await
         .expect("a realtime frame")
-        .body
+        .event::<NotifyEvent>()
     else {
         panic!("expected a notify frame")
     };

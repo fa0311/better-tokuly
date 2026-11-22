@@ -6,6 +6,7 @@ import { useInstall } from "./install";
 import { InstallBanner } from "./install-banner";
 import { InstallGuide } from "./install-guide";
 import { OfflineIndicator } from "./offline-indicator";
+import { useProtocolWatch } from "./protocol";
 import { startServiceWorker } from "./service-worker";
 import "./standalone.css";
 import { useThemeColor } from "./theme-color";
@@ -25,6 +26,7 @@ export default function PwaBackground() {
   useAppBadge();
   useThemeColor();
   useUpdateToast();
+  useProtocolWatch();
 
   useEffect(() => {
     if (justInstalled) toast.success(t("install.installedToast"));

@@ -19,9 +19,8 @@ use tokuly_proto::{
     common::PageRequest,
     emoji::{__buffa::oneof::emoji_event, *},
     media::{AssetKind, AssetPurpose},
-    realtime::{ServerFrame, server_frame::Body},
 };
-use tokuly_testkit::{FrameListener, RpcError, TestApp, TestUser};
+use tokuly_testkit::{FrameListener, RpcError, ServerFrame, TestApp, TestUser};
 use uuid::Uuid;
 
 pub const MIGRATIONS: &[&str] = &["0001", "0100", "0400", "1700"];
@@ -92,11 +91,8 @@ pub fn positions(emojis: &[CustomEmoji], names: &[&str]) -> Vec<usize> {
 }
 
 /// What an `EmojiEvent` frame carries.
-pub fn emoji_event(frame: &ServerFrame) -> Option<&emoji_event::Event> {
-    match frame.body.as_ref()? {
-        Body::Emoji(event) => event.event.as_ref(),
-        _ => None,
-    }
+pub fn emoji_event(frame: &ServerFrame) -> Option<emoji_event::Event> {
+    frame.event::<EmojiEvent>()?.event
 }
 
 /// Waits for a frame that `pick` accepts; other frames are skipped.

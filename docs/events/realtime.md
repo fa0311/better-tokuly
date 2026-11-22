@@ -5,6 +5,27 @@ events. It connects clients to the bus: frames published by the domains go
 down, what clients say goes up. Protocol: `proto/tokuly/realtime/v1/realtime.proto`;
 contracts towards the domains: `tokuly_core::presence`, `tokuly_core::realtime`.
 
+## The envelope
+
+The protocol knows the gateway's own messages (`Welcome`, `Pong`, `Ack`,
+`Error`, `PresenceEvent`, `TopicStats`) and nothing of the domains. What a
+domain pushes travels as `ServerFrame { topic, event: Event { type, payload } }`:
+`type` is the full name of the domain's event message
+(`tokuly.chat.v1.ChatEvent`) and `payload` that message, encoded. The types
+in use are listed at `Event` in the proto file.
+
+- A domain publishes with `core.rt.notify_user(user_id, &event)` and its
+  siblings (`backend/README.md`, "Talking to other domains") and never
+  builds a frame; tests read one back with `frame.event::<ChatEvent>()`.
+- `@tokuly/realtime` decodes `Event` by a table from type name to message
+  (`packages/realtime/src/events.ts`) and hands listeners
+  `frame.body.case === "chat"` with the `ChatEvent` as `value`.
+- Clients skip events whose type they do not know, so a server may start
+  sending a new type before every client understands it.
+- Upwards, `ClientFrame.location` carries an encoded
+  `tokuly.geo.v1.LocationSample` as bytes — on the wire the same as a field
+  of that type.
+
 ## Running it
 
 ```rust
@@ -41,8 +62,9 @@ a typing/presence signal; the chat domain must.
 
 ## Frame delivery
 
-- Frames are forwarded verbatim. The gateway only peeks at the body tag:
-  `geo.location` (a friend's position) is *droppable* — sent as a datagram
+- Frames are forwarded verbatim. The gateway only peeks at the event's
+  type and first tag: a `GeoEvent` with `location` (a friend's position) is
+  *droppable* — sent as a datagram
   over WebTransport when it fits, and the oldest queued one is discarded
   when a client reads too slowly. Everything else is *reliable*: a client
   whose backlog exceeds `TOKULY_RT_QUEUE_FRAMES` / `TOKULY_RT_QUEUE_BYTES`

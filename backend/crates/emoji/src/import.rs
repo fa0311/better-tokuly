@@ -38,7 +38,6 @@ use tokuly_proto::{
     common::PageInfo,
     emoji::{EmojiEvent, Import, ImportEntry},
     media::{AssetPurpose, AssetStatus},
-    realtime::server_frame::Body,
 };
 
 use crate::{
@@ -472,7 +471,7 @@ impl Emoji {
             let Some(requester) = row.requested_by else { return Ok(()) };
             if finished || row.settled_count() % PROGRESS_EVERY == 0 {
                 let event = EmojiEvent { event: Some(self.import_proto(&row).await?.into()), ..Default::default() };
-                self.core.rt.notify_user(requester, Body::Emoji(Box::new(event))).await;
+                self.core.rt.notify_user(requester, &event).await;
             }
             Ok(())
         }

@@ -54,7 +54,6 @@ use tokuly_core::prelude::*;
 use tokuly_proto::{
     common::Image,
     emoji::{CatalogChanged, Category, CustomEmoji, EmojiEvent},
-    realtime::server_frame::Body,
 };
 
 use crate::{
@@ -705,7 +704,7 @@ async fn claim_announcement(core: &Core, keys: &Keys) -> AppResult<i64> {
 async fn push(core: &Core, keys: &Keys, version: i64) -> AppResult<()> {
     let event =
         EmojiEvent { event: Some(CatalogChanged { version, ..Default::default() }.into()), ..Default::default() };
-    core.rt.to_topic(TOPIC, Body::Emoji(Box::new(event))).await?;
+    core.rt.to_topic(TOPIC, &event).await?;
     ANNOUNCED.key(keys.announced()).arg(version).invoke_async::<i64>(&mut core.cache.conn()).await?;
     Ok(())
 }

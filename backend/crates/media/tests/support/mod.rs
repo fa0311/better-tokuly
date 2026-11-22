@@ -150,16 +150,9 @@ impl Harness {
     }
 }
 
-/// The assets pushed in `MediaEvent.asset_updated` frames, in order.
-pub fn pushed_assets(frames: Vec<tokuly_proto::realtime::ServerFrame>) -> Vec<Asset> {
-    use tokuly_proto::realtime::server_frame::Body;
-    frames
-        .into_iter()
-        .filter_map(|frame| match frame.body {
-            Some(Body::Media(event)) => event.event.map(|media_event::Event::AssetUpdated(asset)| *asset),
-            _ => None,
-        })
-        .collect()
+/// The assets pushed as `MediaEvent.asset_updated`, in order.
+pub fn pushed_assets(events: Vec<MediaEvent>) -> Vec<Asset> {
+    events.into_iter().filter_map(|event| event.event.map(|media_event::Event::AssetUpdated(asset)| *asset)).collect()
 }
 
 // ── image fixtures ──

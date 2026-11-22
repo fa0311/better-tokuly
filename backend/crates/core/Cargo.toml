@@ -10,7 +10,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-tokuly-proto.workspace = true
+tokuly-proto = { workspace = true, features = ["common", "realtime"] }
 tokio.workspace = true
 tokio-util.workspace = true
 futures.workspace = true
@@ -58,3 +58,7 @@ dashmap.workspace = true
 parking_lot.workspace = true
 moka.workspace = true
 lettre.workspace = true
+
+[dev-dependencies]
+# The realtime tests publish and read back real event messages.
+tokuly-proto = { workspace = true, features = ["notify", "wallet"] }

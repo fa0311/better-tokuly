@@ -11,7 +11,9 @@ workspace = true
 
 [dependencies]
 tokuly-core.workspace = true
-tokuly-proto.workspace = true
+# `geo`: location samples are checked before they enter the pipeline, and a
+# friend's position is the one event that may be dropped under pressure.
+tokuly-proto = { workspace = true, features = ["common", "geo", "realtime"] }
 tokio.workspace = true
 tokio-util.workspace = true
 futures.workspace = true

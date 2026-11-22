@@ -35,7 +35,7 @@ current state, so late news of a lifted suspension or block does nothing.
 | `social.user.blocked` | In what the blocker runs, the blocked person is removed (room, invitation, kept co-host role, hangout). In what the blocked person runs, the blocker just leaves — nothing else changes there, so the block stays silent. Open hangout invitations between the two go. Reminders are left alone and never fire. |
 | `admin.content.removed` | `SUBJECT_TYPE_SPACE`: a live room ends (`MODERATION`), an upcoming one is cancelled, a hangout is closed. |
 
-## Realtime (`ServerFrame.spaces`)
+## Realtime (`SpacesEvent`)
 
 Topic `space:<space id>`, guarded: whoever may see the room may follow it
 (public rooms: anyone, also without signing in).
