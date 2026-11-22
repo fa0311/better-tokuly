@@ -70,6 +70,22 @@ function paint(
   });
 }
 
+/** The hidden map is taken down again once nothing has asked for a picture for this long. */
+const PAINTER_IDLE_MS = 20_000;
+let pendingPictures = 0;
+let idleTimer: ReturnType<typeof setTimeout> | undefined;
+
+function releasePainterWhenIdle(): void {
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => {
+    if (pendingPictures > 0 || !painter) return;
+    const container = painter.map.getContainer();
+    painter.map.remove();
+    container.remove();
+    painter = null;
+  }, PAINTER_IDLE_MS);
+}
+
 function mapPicture(
   lat: number,
   lng: number,
@@ -80,7 +96,15 @@ function mapPicture(
   const key = `${lat.toFixed(5)},${lng.toFixed(5)},${zoom},${dark},${language}`;
   const cached = cache.get(key);
   if (cached) return cached;
-  const picture = queue.then(() => paint(lat, lng, zoom, dark, language));
+  pendingPictures += 1;
+  clearTimeout(idleTimer);
+  const picture = queue
+    .then(() => paint(lat, lng, zoom, dark, language))
+    .finally(() => {
+      pendingPictures -= 1;
+      // The pictures are kept; the map (and its WebGL context) is not needed between them.
+      if (pendingPictures === 0) releasePainterWhenIdle();
+    });
   queue = picture.catch(() => undefined);
   cache.set(key, picture);
   picture.catch(() => cache.delete(key));

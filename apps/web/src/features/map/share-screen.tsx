@@ -1,11 +1,13 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type geo, isNotFound, toMillis } from "@tokuly/api";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
+import { Button } from "#/components/ui/button";
 import { LogoMark } from "#/components/ui/logo";
 import { PaneSpinner } from "#/components/ui/spinner";
+import { errorMessage } from "#/lib/errors";
 import { compactAge, compactDuration, kmh } from "#/lib/format";
 import { locationClient, useNow } from "./data";
 import { MapPin, MapView, useMap } from "./map-view";
@@ -28,9 +30,11 @@ function Follow({ lat, lng }: { lat: number; lng: number }) {
  */
 export function ShareScreen({ token }: { token: string }) {
   const { t } = useTranslation("map");
+  const queryClient = useQueryClient();
   const now = useNow(10_000);
+  const queryKey = ["geo", "liveShare", token];
   const share = useQuery({
-    queryKey: ["geo", "liveShare", token],
+    queryKey,
     queryFn: () => locationClient().getLiveShare({ token }),
     retry: (count, error) => !isNotFound(error) && count < 2,
     staleTime: Number.POSITIVE_INFINITY,
@@ -42,6 +46,12 @@ export function ShareScreen({ token }: { token: string }) {
   // The moving pin: a stream that stays open for as long as the share runs.
   useEffect(() => {
     if (!found) return;
+    // Once a share is over nothing of it stays behind: not the last position, not the cached answer.
+    const end = () => {
+      setEnded(true);
+      setLive(null);
+      queryClient.removeQueries({ queryKey: ["geo", "liveShare", token], exact: true });
+    };
     const abort = new AbortController();
     let retry: ReturnType<typeof setTimeout> | undefined;
     const watch = async () => {
@@ -52,7 +62,7 @@ export function ShareScreen({ token }: { token: string }) {
         )) {
           if (update.location) setLive(update.location);
           if (update.ended) {
-            setEnded(true);
+            end();
             return;
           }
         }
@@ -60,7 +70,7 @@ export function ShareScreen({ token }: { token: string }) {
         if (!abort.signal.aborted) retry = setTimeout(watch, 3000);
       } catch (error) {
         if (abort.signal.aborted) return;
-        if (isNotFound(error)) setEnded(true);
+        if (isNotFound(error)) end();
         else retry = setTimeout(watch, 5000);
       }
     };
@@ -69,18 +79,45 @@ export function ShareScreen({ token }: { token: string }) {
       abort.abort();
       clearTimeout(retry);
     };
-  }, [found, token]);
+  }, [found, token, queryClient]);
 
-  if (share.isPending) {
+  // The link's end time by this device's clock is only a reason to ask the server again.
+  const expiresAt = toMillis(share.data?.expiresAt);
+  const expired = expiresAt > 0 && expiresAt <= now;
+  const refetch = share.refetch;
+  useEffect(() => {
+    if (expired) void refetch();
+  }, [expired, refetch]);
+
+  const over = ended || (share.isError && isNotFound(share.error));
+  if (!over && share.isPending) {
     return (
       <div className="grid h-dvh place-items-center bg-bg">
         <PaneSpinner />
       </div>
     );
   }
-
-  const expiresAt = toMillis(share.data?.expiresAt);
-  const over = ended || share.isError || (expiresAt > 0 && expiresAt <= now);
+  if (!over && share.isError && !share.data) {
+    // Not "ended": the page could not ask. Saying the share is over would be a guess.
+    return (
+      <main className="grid h-dvh place-items-center bg-bg p-6">
+        <div
+          className="sticker-lg flex max-w-sm flex-col items-center gap-3 rounded-[2rem] bg-surface p-8 text-center"
+          data-testid="share-error"
+          role="alert"
+        >
+          <span className="text-6xl" aria-hidden>
+            📡
+          </span>
+          <h1 className="text-2xl font-black">{t("public.errorTitle")}</h1>
+          <p className="text-sm leading-relaxed text-ink-soft">{errorMessage(share.error)}</p>
+          <Button onClick={() => void share.refetch()} loading={share.isFetching}>
+            {t("public.retry")}
+          </Button>
+        </div>
+      </main>
+    );
+  }
   if (over) {
     return (
       <main className="grid h-dvh place-items-center bg-bg p-6">

@@ -15,6 +15,7 @@ import { forgetUser, ProfileHighlights, StoryRing } from "#/features/stories";
 import { api, profileClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { formatDistance } from "#/lib/format";
+import { signOut as signOutOfApp } from "#/stores/session";
 
 const friendClient = () => api().service(social.FriendService);
 
@@ -65,7 +66,7 @@ export function ProfileScreen({ handle }: { handle: string }) {
     onError,
   });
   const signOut = async () => {
-    await api().session.signOut();
+    await signOutOfApp();
     await navigate({ to: "/" });
   };
 

@@ -120,6 +120,7 @@ export default {
     recapMany: "While you were away: {{count}} from {{name}} and {{others}} more!",
   },
   gathering: {
+    label: "{{count}} together: {{names}}",
     count: "{{count}} together!",
     members: "Who is here",
     since: "for {{duration}}",
@@ -167,6 +168,17 @@ export default {
     offShort: "Off",
   },
   sharing: {
+    turnedOn: "Sharing your location now. You are on your friends' maps",
+    stoppedToast: "Sharing stopped. Your friends have been told",
+    tellAgain: "Tell them again",
+    needsConsent: {
+      title: "Share where you are!",
+      body: "Turn it on and you appear on your friends' maps while the app is open. You can stop any time.",
+    },
+    stopFailed: {
+      title: "The server has not been told that you stopped.",
+      body: "This device sends nothing any more, but friends may still see you as live.",
+    },
     stop: "Stop sharing",
     resume: "Resume",
     turnOn: "Turn on",
@@ -314,6 +326,9 @@ export default {
     firedLeft: "{{name}} left {{place}}!",
   },
   sos: {
+    failedTitle: "The SOS was not sent",
+    failedBody: "Nobody has been alerted yet. Send it again.",
+    retry: "Send again",
     title: "SOS",
     hold: "Hold for SOS",
     keepHolding: "Keep holding…",
@@ -362,6 +377,8 @@ export default {
     emptyBody: "Handy for meeting up, or for family and teachers",
   },
   public: {
+    errorTitle: "Could not load this share",
+    retry: "Try again",
     title: "Where {{name}} is now",
     endsIn: "ends in {{time}}",
     live: "live",

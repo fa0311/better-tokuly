@@ -16,6 +16,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Skeleton } from "#/components/ui/page";
+import { Spinner } from "#/components/ui/spinner";
 import { openDirectChat } from "#/features/chat";
 import { ReportDialog } from "#/features/engagement";
 import { cn } from "#/lib/cn";
@@ -40,6 +41,7 @@ import {
   BUZZ_RADIUS_M,
   distanceTo,
   ghostRuleFor,
+  isBlurred,
   isMoving,
   pinState,
   seeEachOther,
@@ -127,6 +129,7 @@ export function FriendSheet({ userId }: { userId: string }) {
 
   const name = friendName(friend, user);
   const state = location ? pinState(location, now) : null;
+  const blurred = Boolean(location && isBlurred(location));
   const place = placeText(location);
   const stay = location ? stayMillis(location, now) : null;
   const status = location?.status ?? friend.status;
@@ -160,7 +163,7 @@ export function FriendSheet({ userId }: { userId: string }) {
                 </span>
               )}
             </p>
-            {state === "blurred" && (
+            {blurred && (
               <p className="mt-1 text-xs leading-relaxed font-bold text-ink-soft">
                 {t("friend.blurred")}
               </p>
@@ -280,7 +283,7 @@ export function FriendSheet({ userId }: { userId: string }) {
               </Fact>
             )}
           <Fact>
-            {state === "blurred"
+            {blurred
               ? t("lastSeenAbout", { age: compactAge(toMillis(location.recordedAt), now) })
               : t("lastSeen", { age: compactAge(toMillis(location.recordedAt), now) })}
           </Fact>
@@ -426,12 +429,12 @@ function NudgeRow({
   useEffect(() => () => clearTimeout(knockTimer.current), []);
 
   const near = (radius: number) => mutual && distance !== null && distance <= radius;
-  const farText = (radius: number) =>
+  const farText = () =>
     !mutual
       ? t("rules.needPrecise")
       : distance === null
         ? t("rules.needLocation")
-        : t("rules.tooFar", { distance: formatDistance(distance), radius });
+        : t("rules.tooFar", { distance: formatDistance(distance) });
 
   const buzz = useMutation({
     mutationFn: () => interactionClient().buzz({ userId }),
@@ -465,25 +468,21 @@ function NudgeRow({
         testId="nudge-bump"
         icon={<Zap className="size-5 text-sun" />}
         label={t("nudge.bump")}
-        hint={bumpOk ? t("nudge.bumpHint") : `${t("nudge.bumpRule")} ${farText(30)}`}
+        hint={bumpOk ? t("nudge.bumpHint") : `${t("nudge.bumpRule")} ${farText()}`}
         unavailable={!bumpOk}
         onClick={() =>
-          bumpOk
-            ? void tryBump(myId)
-            : toast(`${t("nudge.bumpRule")} ${farText(30)}`, { icon: "⚡" })
+          bumpOk ? void tryBump(myId) : toast(`${t("nudge.bumpRule")} ${farText()}`, { icon: "⚡" })
         }
       />
       <NudgeTile
         testId="nudge-buzz"
         icon={<Vibrate className="size-5 text-brand" />}
         label={t("nudge.buzz")}
-        hint={buzzOk ? t("nudge.buzzHint") : `${t("nudge.buzzRule")} ${farText(BUZZ_RADIUS_M)}`}
+        hint={buzzOk ? t("nudge.buzzHint") : `${t("nudge.buzzRule")} ${farText()}`}
         unavailable={!buzzOk}
         busy={buzz.isPending}
         onClick={() =>
-          buzzOk
-            ? buzz.mutate()
-            : toast(`${t("nudge.buzzRule")} ${farText(BUZZ_RADIUS_M)}`, { icon: "📳" })
+          buzzOk ? buzz.mutate() : toast(`${t("nudge.buzzRule")} ${farText()}`, { icon: "📳" })
         }
       />
       <NudgeTile
@@ -587,9 +586,15 @@ export function GhostQuickPick({
         id: "ghost-set",
       });
     },
-    onError: (error) => toast.error(errorMessage(error, { namespace: "map" })),
+    onError: (error) => {
+      toast.error(errorMessage(error, { namespace: "map" }));
+      // Whatever happened, show what the server has now.
+      void queryClient.invalidateQueries({ queryKey: mapKeys.ghost });
+    },
   });
-  const shown = set.isPending && set.variables !== undefined ? set.variables : current;
+  // The selected card is what the server has. A change in flight shows as "working" on its
+  // card and only becomes the selection once the server agreed.
+  const pending = set.isPending ? set.variables : undefined;
   return (
     <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label={t("ghost.title")}>
       {GHOST_MODES.map(({ mode, key, emoji }) => (
@@ -598,15 +603,18 @@ export function GhostQuickPick({
           key={key}
           type="button"
           role="radio"
-          aria-checked={shown === mode}
+          aria-checked={current === mode}
+          aria-busy={pending === mode || undefined}
           data-testid={`ghost-${key}`}
           disabled={set.isPending}
-          onClick={() => shown !== mode && set.mutate(mode)}
+          onClick={() => current !== mode && set.mutate(mode)}
           className={cn(
-            "pressable flex flex-col items-center gap-0.5 rounded-2xl px-1 py-2 text-center",
-            shown === mode ? "sticker-sm bg-brand text-on-brand" : "bg-surface-2",
+            "pressable relative flex flex-col items-center gap-0.5 rounded-2xl px-1 py-2 text-center disabled:opacity-100",
+            current === mode ? "sticker-sm bg-brand text-on-brand" : "bg-surface-2",
+            pending === mode && "outline-2 outline-brand outline-dashed",
           )}
         >
+          {pending === mode && <Spinner className="absolute top-1.5 right-1.5 size-3.5" />}
           <span className="text-xl" aria-hidden>
             {emoji}
           </span>

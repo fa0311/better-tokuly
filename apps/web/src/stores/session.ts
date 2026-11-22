@@ -42,3 +42,22 @@ export function useMe(): identity.Me | null {
 export function useSessionStatus(): SessionState["status"] {
   return useSessionStore((s) => s.state.status);
 }
+
+type BeforeSignOut = () => Promise<void> | void;
+const beforeSignOut = new Set<BeforeSignOut>();
+
+/**
+ * Registers something to finish while the session still exists (telling the
+ * server that this device stopped sharing its location, for example).
+ * Returns the function that takes it out again.
+ */
+export function onBeforeSignOut(hook: BeforeSignOut): () => void {
+  beforeSignOut.add(hook);
+  return () => beforeSignOut.delete(hook);
+}
+
+/** Signs out, after giving the registered hooks their moment. A failing hook never keeps anyone signed in. */
+export async function signOut(allSessions = false): Promise<void> {
+  await Promise.allSettled([...beforeSignOut].map((hook) => hook()));
+  await api().session.signOut(allSessions);
+}

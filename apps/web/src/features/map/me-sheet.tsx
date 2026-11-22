@@ -25,7 +25,7 @@ import { type Panel, useMapUi } from "./ui-store";
 export function SharingStatus() {
   const { t } = useTranslation("map");
   const state = useSharingState();
-  const { start, stop } = useSharing();
+  const { start, stop, confirmStop, stopFailed } = useSharing();
   return (
     <div className="rounded-2xl bg-surface-2 p-3" data-testid="sharing-status" data-state={state}>
       <p className="flex items-center gap-2 text-sm font-black">
@@ -48,12 +48,25 @@ export function SharingStatus() {
           size="sm"
           variant="secondary"
           icon={<MapPinOff className="size-4" />}
-          onClick={stop}
+          onClick={() => void stop()}
         >
           {t("sharing.stop")}
         </Button>
       )}
-      {(state === "stopped" || state === "needsPermission" || state === "unavailable") && (
+      {state === "stopped" && stopFailed && (
+        <div className="mt-2 rounded-xl bg-danger/15 p-2.5" role="alert" data-testid="stop-failed">
+          <p className="text-xs leading-relaxed font-bold text-danger">
+            {t("sharing.stopFailed.title")} {t("sharing.stopFailed.body")}
+          </p>
+          <Button className="mt-2" size="sm" variant="danger" onClick={() => void confirmStop()}>
+            {t("sharing.tellAgain")}
+          </Button>
+        </div>
+      )}
+      {(state === "stopped" ||
+        state === "needsConsent" ||
+        state === "needsPermission" ||
+        state === "unavailable") && (
         <Button className="mt-2" size="sm" variant="lime" onClick={start}>
           {state === "stopped"
             ? t("sharing.resume")

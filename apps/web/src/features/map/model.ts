@@ -12,25 +12,38 @@ export const BLURRED_STALE_AFTER_MS = 30 * 60_000;
 export const MOVING_SPEED_MPS = 0.8;
 /** Buzz only works this close together (the server's default radius). */
 export const BUZZ_RADIUS_M = 200;
-/** Two shakes match within this distance. */
+/**
+ * A bump needs two shakes this close together: the server's 30 m plus up to
+ * 30 m of combined GPS error. The button and its explanation both go by it.
+ */
 export const BUMP_RADIUS_M = 60;
 
 /**
- * How a pin is drawn. A frozen pin is never told apart from a phone that
+ * How fresh a pin is. A frozen pin is never told apart from a phone that
  * stopped reporting: it simply goes stale.
  */
-export type PinState = "live" | "blurred" | "stale" | "paused";
+export type PinState = "live" | "stale" | "paused";
+
+/**
+ * Whether the pin is a stand-in for an area, not a position. That stays true
+ * however old the pin is: a blurred pin is always drawn as an area.
+ */
+export function isBlurred(location: geo.FriendLocation): boolean {
+  return location.precision === geo.GhostMode.BLURRED;
+}
 
 export function pinState(location: geo.FriendLocation, now: number): PinState {
   if (location.sharingPaused) return "paused";
   const age = now - toMillis(location.recordedAt);
-  if (location.precision === geo.GhostMode.BLURRED)
-    return age > BLURRED_STALE_AFTER_MS ? "stale" : "blurred";
-  return age > STALE_AFTER_MS ? "stale" : "live";
+  return age > (isBlurred(location) ? BLURRED_STALE_AFTER_MS : STALE_AFTER_MS) ? "stale" : "live";
 }
 
 export function isMoving(location: geo.FriendLocation, now: number): boolean {
-  return pinState(location, now) === "live" && location.speedMps >= MOVING_SPEED_MPS;
+  return (
+    !isBlurred(location) &&
+    pinState(location, now) === "live" &&
+    location.speedMps >= MOVING_SPEED_MPS
+  );
 }
 
 /** How long someone has been on the spot, when that is worth showing (five minutes or more). */
@@ -108,6 +121,7 @@ export function seeEachOther(
 ): boolean {
   return (
     Boolean(location?.position) &&
+    !isBlurred(location as geo.FriendLocation) &&
     pinState(location as geo.FriendLocation, now) === "live" &&
     myRule === geo.GhostMode.PRECISE
   );
@@ -123,6 +137,10 @@ export interface ScreenPoint {
  * Groups pins whose screen positions are within `radius` pixels of each
  * other, transitively. Returns the groups with two or more members, each as
  * sorted ids, so the same crowd always gives the same key.
+ *
+ * Pins are bucketed into a grid whose cells are small enough that everything
+ * in one cell is within `radius`, so a pin is only compared with the few
+ * cells around it: the cost grows with the number of pins, not its square.
  */
 export function clusterOnScreen(points: ScreenPoint[], radius: number): string[][] {
   const parent = points.map((_, index) => index);
@@ -133,14 +151,41 @@ export function clusterOnScreen(points: ScreenPoint[], radius: number): string[]
     }
     return i;
   };
+  const cell = radius / Math.SQRT2;
+  const grid = new Map<string, number[]>();
+  const cellOf = (point: ScreenPoint): [number, number] => [
+    Math.floor(point.x / cell),
+    Math.floor(point.y / cell),
+  ];
+  points.forEach((point, index) => {
+    const [cx, cy] = cellOf(point);
+    const key = `${cx},${cy}`;
+    const bucket = grid.get(key);
+    if (bucket) {
+      // Same cell: within `radius` by construction.
+      parent[find(index)] = find(bucket[0] as number);
+      bucket.push(index);
+    } else grid.set(key, [index]);
+  });
   const r2 = radius * radius;
-  for (let a = 0; a < points.length; a++) {
-    for (let b = a + 1; b < points.length; b++) {
-      const pa = points[a] as ScreenPoint;
-      const pb = points[b] as ScreenPoint;
-      if ((pa.x - pb.x) ** 2 + (pa.y - pb.y) ** 2 <= r2) parent[find(a)] = find(b);
+  points.forEach((point, index) => {
+    const [cx, cy] = cellOf(point);
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dy = -2; dy <= 2; dy++) {
+        if (dx === 0 && dy === 0) continue;
+        const bucket = grid.get(`${cx + dx},${cy + dy}`);
+        if (!bucket || find(bucket[0] as number) === find(index)) continue;
+        for (const other of bucket) {
+          const candidate = points[other] as ScreenPoint;
+          if ((point.x - candidate.x) ** 2 + (point.y - candidate.y) ** 2 <= r2) {
+            // One link joins the two cells' crowds; the rest of the cell adds nothing.
+            parent[find(index)] = find(other);
+            break;
+          }
+        }
+      }
     }
-  }
+  });
   const buckets = new Map<number, string[]>();
   points.forEach((point, index) => {
     const root = find(index);
@@ -213,6 +258,6 @@ export function distanceTo(
   own: { lat: number; lng: number } | null,
   location: geo.FriendLocation | undefined,
 ): number | null {
-  if (!own || !location?.position || location.precision === geo.GhostMode.BLURRED) return null;
+  if (!own || !location?.position || isBlurred(location)) return null;
   return distanceMeters(own, location.position);
 }

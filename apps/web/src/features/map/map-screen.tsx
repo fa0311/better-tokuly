@@ -30,6 +30,7 @@ import {
   useActiveSos,
   useFriendsById,
   useGatherings,
+  useGhostExpiryRefetch,
   useGhostSettings,
   useMapSync,
   useNow,
@@ -47,6 +48,7 @@ import {
   fanOffset,
   ghostRuleFor,
   ghostSummary,
+  isBlurred,
   pinState,
   seeEachOther,
 } from "./model";
@@ -68,6 +70,10 @@ import { useFocusedUserId, useMapUi } from "./ui-store";
 const LAST_VIEW_KEY = "tokuly.map.view";
 /** Pins closer than this on screen are drawn as one stack. */
 const CLUSTER_PIXELS = 46;
+/** Pins this far outside the screen are still drawn, so they are there when the map pans. */
+const OFFSCREEN_MARGIN = 160;
+/** How often, at most, the pins are laid out again while the map moves. */
+const LAYOUT_EVERY_MS = 120;
 /** A crowd up to this size fans out on tap; a bigger one zooms in instead. */
 const FAN_LIMIT = 8;
 /** Names appear under pins from this zoom. */
@@ -102,6 +108,7 @@ function loadSavedView(): SavedView {
  */
 export function MapScreen({ focusUserId }: { focusUserId?: string }) {
   useMapSync();
+  useGhostExpiryRefetch();
   useShakeToBump();
   const [view] = useState(loadSavedView);
 
@@ -248,9 +255,11 @@ function FriendLayer() {
   const focusedId = useFocusedUserId();
   const flyTo = useFlyTo();
   const flyToUser = useFlyToUser();
-  const now = useNow(30_000);
   const showNames = useMapValue((instance) => instance.getZoom() >= NAME_ZOOM, "zoom");
-  const [clusters, setClusters] = useState<string[][]>([]);
+  const [layout, setLayout] = useState<{ clusters: string[][]; onScreen: string[] }>({
+    clusters: [],
+    onScreen: [],
+  });
   const [expanded, setExpanded] = useState<string | null>(null);
   const { open } = useMapUi();
 
@@ -271,33 +280,46 @@ function FriendLayer() {
     )
     .join("|");
 
-  // Which pins overlap depends on the zoom: look again whenever the map or a pin moves.
+  // Which pins are on screen and which of them overlap depends on the camera: look again
+  // when a pin moves and while the map does — a few times a second, not on every frame.
   useEffect(() => {
-    let frame = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const compute = () => {
-      frame = 0;
-      const points = visible
+      timer = undefined;
+      const box = map.getContainer();
+      const points: { id: string; x: number; y: number }[] = [];
+      const onScreen: string[] = [];
+      for (const location of visible) {
+        const point = map.project([location.position?.lng ?? 0, location.position?.lat ?? 0]);
+        const near =
+          point.x > -OFFSCREEN_MARGIN &&
+          point.y > -OFFSCREEN_MARGIN &&
+          point.x < box.clientWidth + OFFSCREEN_MARGIN &&
+          point.y < box.clientHeight + OFFSCREEN_MARGIN;
         // The friend whose sheet is open always keeps a pin of their own.
-        .filter((location) => location.userId !== focusedId)
-        .map((location) => {
-          const point = map.project([location.position?.lng ?? 0, location.position?.lat ?? 0]);
-          return { id: location.userId, x: point.x, y: point.y };
-        });
-      const next = clusterOnScreen(points, CLUSTER_PIXELS);
-      setClusters((current) => (JSON.stringify(current) === JSON.stringify(next) ? current : next));
+        if (location.userId === focusedId) onScreen.push(location.userId);
+        else if (near) {
+          onScreen.push(location.userId);
+          points.push({ id: location.userId, x: point.x, y: point.y });
+        }
+      }
+      const next = { clusters: clusterOnScreen(points, CLUSTER_PIXELS), onScreen: onScreen.sort() };
+      setLayout((current) => (JSON.stringify(current) === JSON.stringify(next) ? current : next));
     };
     const schedule = () => {
-      if (!frame) frame = requestAnimationFrame(compute);
+      timer ??= setTimeout(compute, LAYOUT_EVERY_MS);
     };
     compute();
-    map.on("zoom", schedule);
+    map.on("move", schedule);
     map.on("moveend", schedule);
     return () => {
-      cancelAnimationFrame(frame);
-      map.off("zoom", schedule);
+      clearTimeout(timer);
+      map.off("move", schedule);
       map.off("moveend", schedule);
     };
   }, [map, signature, focusedId]);
+  const { clusters } = layout;
+  const onScreen = new Set(layout.onScreen);
 
   // A fanned-out crowd folds back when the map itself is tapped.
   useEffect(() => {
@@ -341,7 +363,8 @@ function FriendLayer() {
       (location) =>
         location.position &&
         friends[location.userId]?.user &&
-        pinState(location, now) === "blurred",
+        // Whatever its age: a stand-in point must never be read as a position.
+        isBlurred(location),
     )
     .map((location) => ({
       id: location.userId,
@@ -353,8 +376,11 @@ function FriendLayer() {
   return (
     <>
       <ApproximateAreas areas={areas} />
+      {/* The areas are drawn by the map itself; this says how many, for assistive tools and tests. */}
+      <span hidden data-testid="approximate-areas" data-count={areas.length} />
+      {/* Only pins on (or just off) the screen exist as elements: hundreds of friends stay cheap. */}
       {visible
-        .filter((location) => !clusterOf.has(location.userId))
+        .filter((location) => onScreen.has(location.userId) && !clusterOf.has(location.userId))
         .map((location) => marker(location))}
       {clusters.map((ids) => {
         const key = ids.join("+");
@@ -557,10 +583,14 @@ function MapTitle() {
 function SharingNotice() {
   const { t } = useTranslation("map");
   const state = useSharingState();
-  const { start } = useSharing();
+  const { start, confirmStop, stopFailed } = useSharing();
   if (state === "sharing" || state === "starting") return null;
-  const action =
-    state === "needsPermission"
+  // Sharing stopped here but the server never heard: that outranks everything else.
+  const failed = state === "stopped" && stopFailed;
+  const copy = failed ? "stopFailed" : state;
+  const action = failed
+    ? t("sharing.tellAgain")
+    : state === "needsConsent" || state === "needsPermission"
       ? t("sharing.turnOn")
       : state === "stopped"
         ? t("sharing.resume")
@@ -569,22 +599,33 @@ function SharingNotice() {
           : null;
   return (
     <div
-      className="glass sticker-sm pointer-events-auto flex w-full max-w-md items-center gap-3 rounded-2xl px-4 py-2.5"
+      className={cn(
+        "sticker-sm pointer-events-auto flex w-full max-w-md flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl px-4 py-2.5",
+        failed ? "bg-danger text-white" : "glass",
+      )}
+      role={failed ? "alert" : undefined}
       data-testid="sharing-notice"
-      data-state={state}
+      data-state={copy}
     >
       <span className="text-2xl" aria-hidden>
-        {state === "stopped" ? "⏸️" : state === "blocked" ? "🚫" : "📍"}
+        {failed ? "⚠️" : state === "stopped" ? "⏸️" : state === "blocked" ? "🚫" : "📍"}
       </span>
-      <p className="min-w-0 flex-1 text-xs leading-relaxed font-bold text-ink-soft">
-        <span className="block text-sm font-black text-ink">{t(`sharing.${state}.title`)}</span>
-        {t(`sharing.${state}.body`)}
+      <p
+        className={cn(
+          "min-w-[11rem] flex-1 text-xs leading-relaxed font-bold",
+          failed ? "text-white" : "text-ink-soft",
+        )}
+      >
+        <span className={cn("block text-sm font-black", !failed && "text-ink")}>
+          {t(`sharing.${copy}.title`)}
+        </span>
+        {t(`sharing.${copy}.body`)}
       </p>
       {action && (
         <button
           type="button"
-          onClick={start}
-          className="pressable sticker-sm h-9 shrink-0 rounded-full bg-lime px-3.5 text-xs font-black text-[#17122b]"
+          onClick={failed ? () => void confirmStop() : start}
+          className="pressable sticker-sm ml-auto h-9 shrink-0 rounded-full bg-lime px-3.5 text-xs font-black text-[#17122b]"
         >
           {action}
         </button>
@@ -807,9 +848,7 @@ function BottomChrome() {
             }}
             className={cn(
               "pressable flex w-16 shrink-0 flex-col items-center gap-1",
-              pinState(location, now) !== "live" &&
-                pinState(location, now) !== "blurred" &&
-                "opacity-70",
+              pinState(location, now) !== "live" && "opacity-70",
             )}
           >
             <Avatar user={user} size="lg" outlined online={online[user.id]} />

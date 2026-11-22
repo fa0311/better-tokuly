@@ -18,7 +18,7 @@ import { cn } from "#/lib/cn";
 import { compactAge, compactDuration, kmh } from "#/lib/format";
 import { useNow } from "./data";
 import { type MapGeoJson, MapPin, useMap, useMapLayer } from "./map-view";
-import { circleRing, isMoving, pinState, stayMillis } from "./model";
+import { circleRing, isBlurred, isMoving, pinState, stayMillis } from "./model";
 
 export const PLACE_ICONS = {
   [geo.PlaceLabel.HOME]: House,
@@ -114,9 +114,12 @@ export function usePinCaption(
   const { t } = useTranslation("map");
   const state = pinState(location, now);
   const recordedAt = toMillis(location.recordedAt);
-  if (state === "paused") return { text: t("pin.paused"), tone: "stale" };
-  if (state === "stale") return { text: compactAge(recordedAt, now), tone: "stale" };
-  if (state === "blurred") return { text: t("pin.around"), tone: "blurred" };
+  // A blurred pin keeps its dashed look whatever its age: it never turns into a point.
+  const blurred = isBlurred(location);
+  if (state === "paused") return { text: t("pin.paused"), tone: blurred ? "blurred" : "stale" };
+  if (state === "stale")
+    return { text: compactAge(recordedAt, now), tone: blurred ? "blurred" : "stale" };
+  if (blurred) return { text: t("pin.around"), tone: "blurred" };
   if (isMoving(location, now))
     return {
       text: `${ACTIVITY_EMOJI[location.activity] ?? ""} ${kmh(location.speedMps)} km/h`.trim(),
@@ -160,7 +163,7 @@ export function FriendMarker({
   const state = pinState(location, now);
   const faded = state === "stale" || state === "paused";
   const moving = isMoving(location, now);
-  const blurred = state === "blurred";
+  const blurred = isBlurred(location);
   const PlaceIcon = blurred
     ? undefined
     : PLACE_ICONS[location.placeLabel as keyof typeof PLACE_ICONS];
@@ -180,6 +183,7 @@ export function FriendMarker({
         data-testid="friend-pin"
         data-user-id={user.id}
         data-state={state}
+        data-precision={blurred ? "blurred" : "precise"}
         className={cn(
           "group flex flex-col items-center outline-none",
           faded && "opacity-70 saturate-50",
@@ -351,6 +355,10 @@ export function GatheringMarker({
       <button
         type="button"
         onClick={onSelect}
+        aria-label={t("gathering.label", {
+          count: members.length,
+          names: members.map((member) => member.displayName).join("、"),
+        })}
         data-testid="gathering-pin"
         className="group flex flex-col items-center outline-none"
       >

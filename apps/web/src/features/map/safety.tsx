@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { geo, toMillis } from "@tokuly/api";
+import { create, geo, toMillis } from "@tokuly/api";
 import { BellPlus, Check, Siren, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -328,16 +328,24 @@ function SosTrigger() {
 
   const trigger = useMutation({
     mutationFn: () => safetyClient().triggerSos({ message: message.trim() }),
-    onSuccess: () => {
+    onSuccess: (response) => {
+      // The banner goes up from what the server answered, not from a second request that might fail.
+      queryClient.setQueryData<geo.GetActiveSosResponse>(mapKeys.sos, (current) =>
+        create(geo.GetActiveSosResponseSchema, {
+          friends: current?.friends ?? [],
+          mine: response.sos,
+        }),
+      );
       void queryClient.invalidateQueries({ queryKey: mapKeys.sos });
       setCounting(null);
       setMessage("");
     },
-    onError: (error) => {
-      setCounting(null);
-      toast.error(errorMessage(error, { namespace: "map" }));
-    },
+    // A failed SOS stays on screen (see the dialog): nobody may think help is on the way when it is not.
   });
+  const cancel = () => {
+    setCounting(null);
+    trigger.reset();
+  };
 
   const stopHold = () => {
     if (hold.current) cancelAnimationFrame(hold.current.frame);
@@ -389,6 +397,8 @@ function SosTrigger() {
           (event.key === " " || event.key === "Enter") && !event.repeat && startHold()
         }
         onKeyUp={stopHold}
+        // Tabbing away with the key still down must not finish the hold.
+        onBlur={stopHold}
         onContextMenu={(event) => event.preventDefault()}
         className="relative flex h-16 w-full touch-none items-center justify-center gap-2 overflow-hidden rounded-2xl border-2 border-danger bg-danger/10 font-black text-danger select-none"
       >
@@ -406,31 +416,42 @@ function SosTrigger() {
 
       <Dialog
         open={counting !== null}
-        onOpenChange={(open) => !open && !trigger.isPending && setCounting(null)}
-        title={t("sos.countdownTitle")}
-        description={t("sos.countdownBody")}
+        onOpenChange={(open) => !open && !trigger.isPending && cancel()}
+        title={trigger.isError ? t("sos.failedTitle") : t("sos.countdownTitle")}
+        description={trigger.isError ? undefined : t("sos.countdownBody")}
         footer={
           <>
-            <Button
-              variant="secondary"
-              onClick={() => setCounting(null)}
-              disabled={trigger.isPending}
-            >
+            <Button variant="secondary" onClick={cancel} disabled={trigger.isPending}>
               {t("sos.cancel")}
             </Button>
-            <Button variant="danger" onClick={() => setCounting(0)} loading={trigger.isPending}>
-              {t("sos.sendNow")}
+            <Button
+              variant="danger"
+              onClick={() => (counting === 0 ? trigger.mutate() : setCounting(0))}
+              loading={trigger.isPending}
+            >
+              {trigger.isError ? t("sos.retry") : t("sos.sendNow")}
             </Button>
           </>
         }
       >
-        <p
-          className="text-center text-7xl font-black text-danger tabular-nums"
-          data-testid="sos-countdown"
-          aria-live="assertive"
-        >
-          {Math.max(0, counting ?? 0)}
-        </p>
+        {trigger.isError ? (
+          <div
+            role="alert"
+            data-testid="sos-failed"
+            className="rounded-2xl border-2 border-danger bg-danger/10 p-4 text-sm leading-relaxed font-bold text-danger"
+          >
+            <p className="font-black">{t("sos.failedBody")}</p>
+            <p className="mt-1">{errorMessage(trigger.error, { namespace: "map" })}</p>
+          </div>
+        ) : (
+          <p
+            className="text-center text-7xl font-black text-danger tabular-nums"
+            data-testid="sos-countdown"
+            aria-live="assertive"
+          >
+            {Math.max(0, counting ?? 0)}
+          </p>
+        )}
         <TextField
           className="mt-4"
           label={t("sos.messageLabel")}

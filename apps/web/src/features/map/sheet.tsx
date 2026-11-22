@@ -66,6 +66,9 @@ export function useCoveredInset<T extends HTMLElement>(
   return ref;
 }
 
+/** The control that opened the sheet, to give the focus back to when it closes. */
+let opener: HTMLElement | null = null;
+
 export interface MapSheetProps {
   title: ReactNode;
   subtitle?: ReactNode;
@@ -97,13 +100,46 @@ export function MapSheet({
   const { t } = useTranslation("common");
   const wide = useIsWide();
   const ref = useCoveredInset<HTMLElement>(wide ? "left" : "bottom");
+  const dismiss = onClose ?? onBack;
+  // A sheet someone opened takes the focus, like a dialog would; the always-there
+  // friend list on wide screens (nothing to close) leaves it where it is.
+  const takesFocus = Boolean(onClose);
+
+  useEffect(() => {
+    const sheet = ref.current;
+    if (!takesFocus || !sheet) return;
+    const active = document.activeElement as HTMLElement | null;
+    // Remember what opened the first sheet; sheets opened from inside a sheet keep that origin.
+    if (active && active !== document.body && !active.closest("[data-map-sheet]")) opener = active;
+    sheet.focus({ preventScroll: true });
+    return () => {
+      // Once the last sheet is gone the focus goes back to where it came from.
+      setTimeout(() => {
+        if (document.querySelector("[data-map-sheet]")) return;
+        const lost = !document.activeElement || document.activeElement === document.body;
+        if (lost && opener?.isConnected) opener.focus({ preventScroll: true });
+        opener = null;
+      }, 0);
+    };
+  }, [takesFocus, ref]);
+
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex px-2 pb-[5.25rem] md:inset-y-0 md:right-auto md:w-[25.5rem] md:p-4">
       <section
         ref={ref}
         data-testid={testId ?? "map-sheet"}
+        data-map-sheet
+        tabIndex={-1}
         aria-label={typeof title === "string" ? title : undefined}
-        className="glass sticker-lg pointer-events-auto flex max-h-[52dvh] w-full animate-slide-up flex-col overflow-hidden rounded-[2rem] md:max-h-none md:h-full"
+        onKeyDown={(event) => {
+          // Esc closes the sheet — unless it was meant for a dialog or menu opened from it,
+          // whose key events bubble here through React although they live elsewhere in the page.
+          if (event.key !== "Escape" || !dismiss || event.defaultPrevented) return;
+          if (!event.currentTarget.contains(event.target as Node)) return;
+          event.stopPropagation();
+          dismiss();
+        }}
+        className="glass sticker-lg pointer-events-auto flex max-h-[52dvh] outline-none w-full animate-slide-up flex-col overflow-hidden rounded-[2rem] md:max-h-none md:h-full"
       >
         <header className="flex items-center gap-2 px-4 pt-4 pb-2">
           {onBack && (

@@ -1,13 +1,16 @@
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type common, feed, geo, social } from "@tokuly/api";
-import { useEffect, useState } from "react";
+import { type common, feed, geo, social, toMillis } from "@tokuly/api";
+import { useEffect } from "react";
 import { toast } from "sonner";
 import { api } from "#/lib/api";
 import i18n from "#/lib/i18n";
 import { realtime } from "#/lib/realtime";
 import { useLocations } from "#/stores/locations";
 import { useMe } from "#/stores/session";
+import { serverNow, setServerTime } from "./clock";
 import { emitEffect } from "./effects";
+
+export { useNow } from "./clock";
 
 export const locationClient = () => api().service(geo.LocationService);
 export const tripClient = () => api().service(geo.TripService);
@@ -126,16 +129,6 @@ export const useStoryTray = () =>
     staleTime: 60_000,
   });
 
-/** Re-renders on an interval so "NOW" / "12分" / countdowns stay current. */
-export function useNow(intervalMs: number): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), intervalMs);
-    return () => clearInterval(timer);
-  }, [intervalMs]);
-  return now;
-}
-
 function upsertById<T extends { id: string }>(list: T[] | undefined, item: T): T[] {
   const rest = (list ?? []).filter((entry) => entry.id !== item.id);
   return [...rest, item];
@@ -150,9 +143,6 @@ function applyGeoEvent(
   switch (event.case) {
     case "location":
       locations.upsert(event.value);
-      break;
-    case "locationRemovedUserId":
-      locations.remove(event.value);
       break;
     case "gatheringUpdated":
       queryClient.setQueryData<geo.Gathering[]>(mapKeys.gatherings, (list) =>
@@ -292,10 +282,6 @@ function applySocialEvent(
       );
       void queryClient.invalidateQueries({ queryKey: mapKeys.mapViews });
       break;
-    case "friendRemovedUserId":
-      useLocations.getState().remove(event.value);
-      void queryClient.invalidateQueries({ queryKey: mapKeys.friends });
-      break;
     case "friendRequestAccepted":
       void queryClient.invalidateQueries({ queryKey: mapKeys.friends });
       break;
@@ -320,7 +306,9 @@ export function useMapSync(): void {
     const loadSnapshot = async () => {
       try {
         const response = await locationClient().listFriendLocations({});
-        if (!cancelled) useLocations.getState().setSnapshot(response.locations);
+        if (cancelled) return;
+        setServerTime(toMillis(response.serverTime));
+        useLocations.getState().setSnapshot(response.locations);
       } catch {
         // The live stream still delivers updates; the next reconnect retries.
       }
@@ -356,4 +344,66 @@ export function useMapSync(): void {
       offFrame();
     };
   }, [queryClient, myId]);
+}
+
+/**
+ * Runs on every page while someone is signed in, so that a position never
+ * stays in memory longer than its reason for being there:
+ * - someone who stops being visible to me (unfriended, blocked, banned)
+ *   leaves the store at once, whatever page is open;
+ * - the store is emptied when the account signs out or another one signs in,
+ *   so the next account never sees the previous one's friends.
+ * It also keeps the server clock in step from the connection's welcome frame.
+ */
+export function useFriendPositionsHousekeeping(): void {
+  const queryClient = useQueryClient();
+  const myId = useMe()?.user?.id;
+  useEffect(() => {
+    const client = realtime();
+    const forget = (userId: string) => {
+      useLocations.getState().remove(userId);
+      void queryClient.invalidateQueries({ queryKey: mapKeys.friends });
+    };
+    const offFrame = client.onFrame((frame) => {
+      if (frame.topic) return;
+      if (frame.body.case === "welcome") setServerTime(toMillis(frame.body.value.serverTime));
+      else if (frame.body.case === "geo" && frame.body.value.event.case === "locationRemovedUserId")
+        forget(frame.body.value.event.value);
+      else if (
+        frame.body.case === "social" &&
+        frame.body.value.event.case === "friendRemovedUserId"
+      )
+        forget(frame.body.value.event.value);
+    });
+    client.start();
+    return () => {
+      offFrame();
+      const locations = useLocations.getState();
+      locations.setSnapshot([]);
+      locations.setOwn(null);
+    };
+  }, [queryClient, myId]);
+}
+
+/**
+ * Asks the server for the ghost settings again the moment a timed rule ends
+ * (by the server's clock), so the indicator and the pickers never show a
+ * rule that is already over — or drop one early because this device's clock
+ * runs ahead.
+ */
+export function useGhostExpiryRefetch(): void {
+  const queryClient = useQueryClient();
+  const { data } = useGhostSettings();
+  const ends = [data?.everyone, ...Object.values(data?.overrides ?? {})]
+    .map((setting) => toMillis(setting?.until))
+    .filter((until) => until > serverNow());
+  const next = ends.length ? Math.min(...ends) : 0;
+  useEffect(() => {
+    if (!next) return;
+    const timer = setTimeout(
+      () => void queryClient.invalidateQueries({ queryKey: mapKeys.ghost }),
+      Math.min(Math.max(0, next - serverNow()) + 500, 2 ** 31 - 1),
+    );
+    return () => clearTimeout(timer);
+  }, [next, queryClient]);
 }

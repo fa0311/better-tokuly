@@ -11,7 +11,7 @@ import { useLocations } from "#/stores/locations";
 import { useFlyToUser } from "./camera";
 import { friendName, useFriendsById, useGhostSettings, useNow } from "./data";
 import { usePlaceText } from "./friend-sheet";
-import { distanceTo, ghostRuleFor, pinState, seeEachOther } from "./model";
+import { distanceTo, ghostRuleFor, isBlurred, seeEachOther } from "./model";
 import { BatteryBadge, usePinCaption } from "./pins";
 import { MapSheet } from "./sheet";
 import { useMapUi } from "./ui-store";
@@ -37,7 +37,7 @@ function FriendRow({
   const online = useLocations((state) => state.online[entry.user.id]);
   const caption = usePinCaption(entry.location, now);
   const placeText = usePlaceText();
-  const blurred = pinState(entry.location, now) === "blurred";
+  const blurred = isBlurred(entry.location);
   return (
     <li>
       <button

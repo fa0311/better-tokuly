@@ -87,7 +87,10 @@ export function GhostPanel() {
       locationClient().setGhostMode({ userIds: [userId], mode, durationSeconds: timer }),
     onSuccess: (response) =>
       response.settings && queryClient.setQueryData(mapKeys.ghost, response.settings),
-    onError: (error) => toast.error(errorMessage(error, { namespace: "map" })),
+    onError: (error) => {
+      toast.error(errorMessage(error, { namespace: "map" }));
+      void queryClient.invalidateQueries({ queryKey: mapKeys.ghost });
+    },
   });
 
   const everyone = ghostRuleFor(

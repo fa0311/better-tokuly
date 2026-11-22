@@ -48,7 +48,19 @@ async function seenLocation(
 /** Opens the map and waits until the browser's own position is on it (so it has been reported, too). */
 async function openMap(page: Page, path = "/map") {
   await page.goto(path);
-  await expect(page.getByTestId("own-pin")).toBeVisible({ timeout: 30_000 });
+  await shareHere(page);
+}
+
+/**
+ * Says yes to sharing when the account has not decided in this browser yet
+ * (every fresh account is asked once), then waits for the own pin.
+ */
+async function shareHere(page: Page) {
+  const pin = page.getByTestId("own-pin");
+  const turnOn = page.getByTestId("sharing-notice").getByRole("button", { name: "オンにする" });
+  await expect(pin.or(turnOn)).toBeVisible({ timeout: 30_000 });
+  if (await turnOn.isVisible()) await turnOn.click();
+  await expect(pin).toBeVisible({ timeout: 30_000 });
 }
 
 const pinOf = (page: Page, account: Account) =>
@@ -171,7 +183,8 @@ test("a blurred friend is drawn as an area, without distance, route or trip", as
 
   await openMap(page, `/map?friend=${mio.userId}`);
   const pin = pinOf(page, mio);
-  await expect(pin).toHaveAttribute("data-state", "blurred");
+  await expect(pin).toHaveAttribute("data-precision", "blurred");
+  await expect(page.getByTestId("approximate-areas")).toHaveAttribute("data-count", "1");
   await expect(pin.getByTestId("pin-caption")).toHaveText("このへん");
 
   const sheet = page.getByTestId("friend-sheet");
@@ -643,7 +656,7 @@ test("a live share link shows my moving pin to someone signed out, until it is r
   await outside.close();
 });
 
-test("sharing can be stopped and resumed", async ({ page, me, request }) => {
+test("sharing can be stopped and resumed", async ({ page, context, me, request }) => {
   const aoi = await friendAt(request, me, "Aoi", 0.001, 0.001);
   await openMap(page);
   await expect
@@ -661,6 +674,8 @@ test("sharing can be stopped and resumed", async ({ page, me, request }) => {
 
   await page.getByTestId("sharing-notice").getByRole("button", { name: "再開する" }).click();
   await expect(page.getByTestId("own-pin")).toBeVisible();
+  // The next fresh reading of the device goes out (a reading from before the stop is not sent again).
+  await context.setGeolocation({ latitude: HERE.lat + 0.0005, longitude: HERE.lng, accuracy: 12 });
   await expect
     .poll(async () => (await seenLocation(request, aoi, me))?.sharingPaused ?? false, {
       timeout: 20_000,
@@ -704,7 +719,8 @@ test("with location blocked the map says how to allow it, and starts once it is 
   );
   await page.goto("/map");
   const notice = page.getByTestId("sharing-notice");
-  await expect(notice).toContainText("位置情報がブロックされてるよ", { timeout: 30_000 });
+  await notice.getByRole("button", { name: "オンにする" }).click({ timeout: 30_000 });
+  await expect(notice).toContainText("位置情報がブロックされてるよ");
   await expect(notice).toContainText("「位置情報」を許可して");
   await expect(page.getByTestId("own-pin")).toHaveCount(0);
 
@@ -840,4 +856,201 @@ test("map controls work from the keyboard", async ({ page, me: _me }) => {
   await expect(page.getByTestId("ghost-panel")).toHaveCount(0);
   await toolbar.getByRole("button", { name: "現在地へ" }).press("Enter");
   await expect(page.getByTestId("own-pin")).toBeVisible();
+});
+
+/**
+ * Signs out and signs in as someone else through the app itself, without a
+ * page load in between: whatever the first account left in memory is still
+ * there if nothing cleared it.
+ */
+async function switchAccount(page: Page, to: Account) {
+  await page.evaluate(() => {
+    (window as unknown as { samePage: boolean }).samePage = true;
+  });
+  await page.getByRole("link", { name: "じぶん" }).first().click();
+  await page.getByRole("button", { name: "ログアウト" }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await page
+    .getByRole("link", { name: /ログイン/ })
+    .first()
+    .click();
+  await page.locator('input[autocomplete~="username"]').fill(to.handle);
+  await page.locator('input[type="password"]').fill(PASSWORD);
+  await page.locator('form button[type="submit"]').click();
+  await expect(page).toHaveURL(/\/map/);
+  expect(await page.evaluate(() => (window as unknown as { samePage?: boolean }).samePage)).toBe(
+    true,
+  );
+}
+
+const myLocation = async (request: APIRequestContext, who: Account) =>
+  rpc<{ location?: FriendLocation; sharing?: boolean }>(
+    request,
+    "tokuly.geo.v1.LocationService/GetMyLocation",
+    {},
+    who,
+  );
+
+test("a second account on the same browser shares nothing until it says yes", async ({
+  page,
+  me,
+  request,
+}) => {
+  const ren = await friendAt(request, me, "Ren", 0.001, 0.001);
+  const aoi = await createAccount(request, "Aoi");
+  await openMap(page);
+  await expect
+    .poll(async () => Boolean((await seenLocation(request, ren, me))?.position), {
+      timeout: 20_000,
+    })
+    .toBe(true);
+
+  await switchAccount(page, aoi);
+  // The first account's sign-out told its friends that this device stopped.
+  await expect.poll(async () => (await seenLocation(request, ren, me))?.sharingPaused).toBe(true);
+
+  // The browser still allows location, but Aoi never agreed: she is asked, and nothing goes out.
+  const notice = page.getByTestId("sharing-notice");
+  await expect(notice).toContainText("いまどこ？をシェアしよう！");
+  await expect(page.getByTestId("own-pin")).toHaveCount(0);
+  await page.waitForTimeout(7000);
+  expect((await myLocation(request, aoi)).location).toBeUndefined();
+  await expect(page.getByTestId("own-pin")).toHaveCount(0);
+
+  // One tap: she is told it is on, and it is.
+  await notice.getByRole("button", { name: "オンにする" }).click();
+  await expect(page.getByText("いまの場所の共有をはじめたよ")).toBeVisible();
+  await expect(page.getByTestId("own-pin")).toBeVisible({ timeout: 20_000 });
+  await expect
+    .poll(async () => Boolean((await myLocation(request, aoi)).location?.position), {
+      timeout: 20_000,
+    })
+    .toBe(true);
+});
+
+test("signing out empties the map of the previous account's friends", async ({
+  page,
+  me,
+  request,
+}) => {
+  const aoi = await friendAt(request, me, "Aoi", 0.001, 0.001);
+  const ren = await createAccount(request, "Ren");
+  await openMap(page);
+  await expect(pinOf(page, aoi)).toBeVisible();
+
+  await switchAccount(page, ren);
+  await shareHere(page);
+  await expect(page.getByTestId("friend-pin")).toHaveCount(0);
+  await expect(page.getByTestId("friend-carousel")).toHaveCount(0);
+  // "Show everyone" has nobody else to frame: the map stays on the own pin.
+  await page.getByRole("button", { name: "みんなを表示" }).click();
+  await page.getByRole("button", { name: "ともだち", exact: true }).click();
+  await expect(page.getByTestId("friend-list").getByTestId("friend-row")).toHaveCount(0);
+});
+
+test("stopping in one tab stops every tab", async ({ page, context, me, request }) => {
+  const aoi = await friendAt(request, me, "Aoi", 0.001, 0.001);
+  await openMap(page);
+  const second = await context.newPage();
+  await second.goto("/map");
+  await expect(second.getByTestId("own-pin")).toBeVisible({ timeout: 30_000 });
+  await expect
+    .poll(async () => Boolean((await seenLocation(request, aoi, me))?.position), {
+      timeout: 20_000,
+    })
+    .toBe(true);
+
+  await page.getByTestId("own-pin").click();
+  await page.getByTestId("me-sheet").getByRole("button", { name: "共有をやめる" }).click();
+  await expect(page.getByText("共有を止めたよ")).toBeVisible();
+  // The other tab follows without being touched.
+  await expect(second.getByTestId("own-pin")).toHaveCount(0);
+  await expect(second.getByTestId("sharing-notice")).toContainText("共有をお休み中");
+  await expect.poll(async () => (await seenLocation(request, aoi, me))?.sharingPaused).toBe(true);
+
+  // Moving afterwards changes nothing for the friend: neither tab sends any more.
+  await context.setGeolocation({
+    latitude: HERE.lat + 0.01,
+    longitude: HERE.lng + 0.01,
+    accuracy: 12,
+  });
+  await second.bringToFront();
+  await second.waitForTimeout(7000);
+  const seen = await seenLocation(request, aoi, me);
+  expect(seen?.sharingPaused).toBe(true);
+  expect(Math.abs((seen?.position?.lat ?? 0) - HERE.lat)).toBeLessThan(0.0005);
+  await second.close();
+});
+
+test("a failed stop is shown, not swallowed", async ({ page, me: _me }) => {
+  await openMap(page);
+  await page.route("**/tokuly.geo.v1.LocationService/StopSharing", (route) => route.abort());
+  await page.getByTestId("own-pin").click();
+  await page.getByTestId("me-sheet").getByRole("button", { name: "共有をやめる" }).click();
+  const warning = page.getByTestId("me-sheet").getByTestId("stop-failed");
+  await expect(warning).toContainText("まだ伝えられていないよ");
+  await expect(page.getByTestId("sharing-notice")).toHaveAttribute("data-state", "stopFailed");
+
+  await page.unroute("**/tokuly.geo.v1.LocationService/StopSharing");
+  await warning.getByRole("button", { name: "もう一度伝える" }).click();
+  await expect(warning).toHaveCount(0);
+  await expect(page.getByTestId("sharing-notice")).toHaveAttribute("data-state", "stopped");
+});
+
+test("an old blurred pin is still drawn as an area, never as a point", async ({
+  page,
+  me,
+  request,
+}) => {
+  const mio = await createAccount(request, "Mio");
+  await befriend(request, me, mio);
+  await report(request, mio, sample(HERE.lat + 0.02, HERE.lng - 0.02, 50));
+  await rpc(
+    request,
+    "tokuly.geo.v1.LocationService/SetGhostMode",
+    { userIds: [me.userId], mode: "GHOST_MODE_BLURRED" },
+    mio,
+  );
+
+  await openMap(page, `/map?friend=${mio.userId}`);
+  const pin = pinOf(page, mio);
+  await expect(pin).toHaveAttribute("data-state", "stale");
+  await expect(pin).toHaveAttribute("data-precision", "blurred");
+  await expect(page.getByTestId("approximate-areas")).toHaveAttribute("data-count", "1");
+  const where = page.getByTestId("friend-sheet").getByTestId("friend-where");
+  await expect(where).toContainText("おおよその場所だけ見えてるよ");
+  await expect(where).not.toContainText("m先");
+});
+
+test("a failed SOS stays on screen with a retry", async ({ page, me, request }) => {
+  const aoi = await friendAt(request, me, "Aoi", 0.02, 0.02);
+  await openMap(page);
+  await openFromMore(page, "みまもり");
+  await page.route("**/tokuly.geo.v1.SafetyService/TriggerSos", (route) => route.abort());
+
+  const hold = page.getByTestId("sos-hold");
+  await hold.dispatchEvent("pointerdown");
+  await expect(page.getByTestId("sos-countdown")).toBeVisible({ timeout: 5000 });
+  await hold.dispatchEvent("pointerup");
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: "いますぐ送る" }).click();
+
+  // Nothing went out, and the dialog says so instead of closing.
+  await expect(dialog.getByTestId("sos-failed")).toContainText("まだだれにも届いていないよ");
+  await expect(page.getByTestId("sos-mine")).toHaveCount(0);
+  const active = async () =>
+    (
+      await rpc<{ friends?: unknown[] }>(
+        request,
+        "tokuly.geo.v1.SafetyService/GetActiveSos",
+        {},
+        aoi,
+      )
+    ).friends?.length ?? 0;
+  expect(await active()).toBe(0);
+
+  await page.unroute("**/tokuly.geo.v1.SafetyService/TriggerSos");
+  await dialog.getByRole("button", { name: "もう一度送る" }).click();
+  await expect(page.getByTestId("sos-mine")).toContainText("SOS発信中");
+  await expect.poll(active).toBe(1);
 });

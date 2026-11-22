@@ -6,6 +6,7 @@ import {
   fanOffset,
   ghostRuleFor,
   ghostSummary,
+  isBlurred,
   pinState,
   seeEachOther,
   stayMillis,
@@ -27,11 +28,18 @@ describe("pinState", () => {
   });
   it("gives a blurred pin longer, because its time is coarse", () => {
     expect(pinState(pin({ recordedAt: at(19), precision: geo.GhostMode.BLURRED }), NOW)).toBe(
-      "blurred",
+      "live",
     );
     expect(pinState(pin({ recordedAt: at(45), precision: geo.GhostMode.BLURRED }), NOW)).toBe(
       "stale",
     );
+  });
+  it("keeps a blurred pin an area however old or paused it is", () => {
+    expect(isBlurred(pin({ recordedAt: at(600), precision: geo.GhostMode.BLURRED }))).toBe(true);
+    expect(
+      isBlurred(pin({ recordedAt: at(0), precision: geo.GhostMode.BLURRED, sharingPaused: true })),
+    ).toBe(true);
+    expect(isBlurred(pin({ recordedAt: at(0) }))).toBe(false);
   });
   it("is paused when the device said it stopped sharing, whatever the time", () => {
     expect(pinState(pin({ recordedAt: at(0), sharingPaused: true }), NOW)).toBe("paused");
@@ -108,6 +116,42 @@ describe("clusterOnScreen", () => {
       40,
     );
     expect(groups).toEqual([["a", "b", "c"]]);
+  });
+});
+
+describe("clusterOnScreen at scale", () => {
+  it("agrees with comparing every pair, for a few hundred scattered pins", () => {
+    let seed = 42;
+    const random = () => {
+      seed = (seed * 1664525 + 1013904223) % 4294967296;
+      return seed / 4294967296;
+    };
+    const points = Array.from({ length: 400 }, (_, i) => ({
+      id: `p${i}`,
+      x: random() * 1500,
+      y: random() * 900,
+    }));
+    const radius = 46;
+    const parent = points.map((_, i) => i);
+    const find = (i: number): number => {
+      let root = i;
+      while (parent[root] !== root) root = parent[root] as number;
+      return root;
+    };
+    for (let a = 0; a < points.length; a++)
+      for (let b = a + 1; b < points.length; b++) {
+        const pa = points[a] as { x: number; y: number };
+        const pb = points[b] as { x: number; y: number };
+        if ((pa.x - pb.x) ** 2 + (pa.y - pb.y) ** 2 <= radius * radius) parent[find(a)] = find(b);
+      }
+    const expected = new Map<number, string[]>();
+    points.forEach((point, i) => {
+      expected.set(find(i), [...(expected.get(find(i)) ?? []), point.id]);
+    });
+    const normalize = (groups: string[][]) => groups.map((ids) => [...ids].sort().join(",")).sort();
+    expect(normalize(clusterOnScreen(points, radius))).toEqual(
+      normalize([...expected.values()].filter((ids) => ids.length >= 2)),
+    );
   });
 });
 

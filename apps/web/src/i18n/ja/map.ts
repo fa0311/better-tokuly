@@ -119,6 +119,7 @@ export default {
     recapMany: "るすの間に{{name}}とほか{{others}}人から{{count}}件とどいてたよ！",
   },
   gathering: {
+    label: "{{count}}人が集合中: {{names}}",
     count: "{{count}}人が集合中!",
     members: "いっしょにいるメンバー",
     since: "{{duration}}まえから",
@@ -160,6 +161,17 @@ export default {
     offShort: "オフ",
   },
   sharing: {
+    turnedOn: "いまの場所の共有をはじめたよ！ともだちのマップに出るよ",
+    stoppedToast: "共有を止めたよ。ともだちにも伝えたよ",
+    tellAgain: "もう一度伝える",
+    needsConsent: {
+      title: "いまどこ？をシェアしよう！",
+      body: "オンにすると、アプリを開いている間ともだちのマップに出るよ。いつでも止められるよ。",
+    },
+    stopFailed: {
+      title: "共有を止めたことを、まだ伝えられていないよ。",
+      body: "この端末からはもう送っていないけど、ともだちにはまだ動いているように見えるかも。",
+    },
     stop: "共有をやめる",
     resume: "再開する",
     turnOn: "オンにする",
@@ -306,6 +318,9 @@ export default {
     firedLeft: "{{name}}が{{place}}を出たよ！",
   },
   sos: {
+    failedTitle: "SOSを送れませんでした",
+    failedBody: "まだだれにも届いていないよ。もう一度送ってね。",
+    retry: "もう一度送る",
     title: "SOS",
     hold: "長押しでSOS",
     keepHolding: "そのまま押しつづけて…",
@@ -354,6 +369,8 @@ export default {
     emptyBody: "待ち合わせのとき、家族や先生にも送れるよ",
   },
   public: {
+    errorTitle: "うまく読み込めませんでした",
+    retry: "もう一度",
     title: "{{name}}のいま",
     endsIn: "あと{{time}}でおわり",
     live: "ライブ中",
