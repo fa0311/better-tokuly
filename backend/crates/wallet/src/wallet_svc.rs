@@ -6,7 +6,7 @@ use connectrpc::{RequestContext, ServiceRequest, ServiceResult};
 use tokuly_core::prelude::*;
 use tokuly_proto::wallet::*;
 
-use crate::{Wallet, entries::Scope};
+use crate::{Wallet, entries::{Reader, Scope}};
 
 /// Largest page of any wallet list.
 pub(crate) const MAX_PAGE: i64 = 100;
@@ -25,7 +25,7 @@ impl WalletService for Wallet {
             let user_id = ctx.user_id()?;
             let page = Page::from_view(request.page.as_option(), MAX_PAGE);
             let locale = self.user_prefs(user_id).await?.locale;
-            let (entries, page) = self.list_entries(user_id, Scope::from_filter(request.account.as_known()), &page, &locale).await?;
+            let (entries, page) = self.list_entries(user_id, Reader::Owner, Scope::from_filter(request.account.as_known()), &page, &locale).await?;
             ok(ListLedgerEntriesResponse { entries, page: page.into(), ..Default::default() })
         })
         .await

@@ -46,6 +46,8 @@ impl DataExporter for WalletExporter {
             .iter()
             .take(MAX_EXPORTED_ENTRIES as usize)
             .map(|entry| {
+                // An account the entry keeps from this user stays out of their export too.
+                let (from_user_id, to_user_id) = entry.parties_for(user_id);
                 serde_json::json!({
                     "id": entry.id,
                     "kind": entry.kind,
@@ -54,8 +56,8 @@ impl DataExporter for WalletExporter {
                     "earnings_delta": entry.earnings_delta,
                     "amount": entry.amount,
                     "fee": entry.fee,
-                    "from_user_id": entry.from_user_id,
-                    "to_user_id": entry.to_user_id,
+                    "from_user_id": from_user_id,
+                    "to_user_id": to_user_id,
                     "refunded": entry.refunded,
                     "refund_of": entry.refund_of,
                     "memo": entry.memo,

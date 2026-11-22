@@ -432,7 +432,7 @@ async fn an_rpc_without_a_line_in_the_table_is_closed_to_tokens() {
     let alice = ctx.app.user("alice").await;
     let (_, secret) = personal_token(&ctx, &alice, &["notes:write", "wallet:write", "identity:write"]).await;
     let caller = with_token(&alice, &secret);
-    // Names that sound like reading, a domain that has no RPCs yet, an RPC that does not exist.
+    // Names that sound like reading, a service that does not exist, an RPC that does not exist.
     for procedure in [
         "tokuly.notes.v1.NoteService/BatchDeleteNotes",
         "tokuly.wallet.v1.WalletService/CheckoutCart",
@@ -444,7 +444,7 @@ async fn an_rpc_without_a_line_in_the_table_is_closed_to_tokens() {
         assert_eq!((refused.status, refused.reason.as_str()), (403, "TOKEN_NOT_ALLOWED"), "{procedure}");
     }
     // Scopes for domains that are not classified cannot even be asked for.
-    for scope in ["live:read", "admin:read", "dev:write"] {
+    for scope in ["live:admin", "admin:read", "dev:write"] {
         let request = CreateTokenRequest { name: "x".into(), scopes: vec![scope.into()], ..Default::default() };
         let refused = ctx
             .app

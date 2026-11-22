@@ -11,7 +11,7 @@ use tokuly_proto::wallet::*;
 use crate::{
     Wallet,
     adjustments::validate_adjustment,
-    entries::Scope,
+    entries::{Reader, Scope},
     packages::validate_package,
     payouts::{Decision, status_filter},
     wallet_svc::MAX_PAGE,
@@ -113,7 +113,8 @@ impl WalletAdminService for Wallet {
             let page = Page::from_view(request.page.as_option(), MAX_PAGE);
             // Worded in the language of the person reading it, not the account owner's.
             let locale = self.user_prefs(staff_id).await?.locale;
-            let (entries, page) = self.list_entries(user_id, Scope::from_filter(request.account.as_known()), &page, &locale).await?;
+            // Staff trace payments: they are shown both parties, also a counterpart the owner is not told.
+            let (entries, page) = self.list_entries(user_id, Reader::Staff, Scope::from_filter(request.account.as_known()), &page, &locale).await?;
             ok(ListUserLedgerEntriesResponse { entries, page: page.into(), ..Default::default() })
         })
         .await

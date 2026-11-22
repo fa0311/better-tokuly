@@ -1,0 +1,124 @@
+# MediaMTX carries live streams: encoders publish over RTMP, SRT or WebRTC
+# (WHIP), viewers watch over Low-Latency HLS or WebRTC (WHEP), and everything
+# that is published is recorded for rewinding (DVR), clips and the archive.
+#
+# Written for MediaMTX 1.21 (the keys change between versions; the reference
+# is mediamtx.yml in the release). Every setting can be overridden with an
+# environment variable named MTX_<UPPERCASE KEY>, which is how compose.yaml
+# and the tests adapt this file (ports, the hook address with its credentials).
+#
+# Who may do what is decided by the Tokuly API, never here: MediaMTX asks
+# `POST /hooks/live/auth` for every publisher, every viewer, every download
+# from the playback server and every call to its own control API. The live
+# domain answers from its database (`backend/crates/live/src/hooks.rs`,
+# `docs/events/live.md`).
+
+###############################################
+# General
+
+logLevel: info
+logDestinations: [stdout]
+readTimeout: 10s
+writeTimeout: 10s
+# Viewers on slow links queue up to this many packets before they are dropped.
+writeQueueSize: 1024
+
+###############################################
+# Authentication: ask the Tokuly API
+
+authMethod: http
+# The API server inside the stack. MediaMTX proves who it is with the hook
+# secret, as the password of HTTP Basic credentials in this address (never in
+# the query, which ends up in access logs): set
+# MTX_AUTHHTTPADDRESS=http://mediamtx:<TOKULY_LIVE_HOOK_SECRET>@api:8081/hooks/live/auth
+# The user name is ignored. Without the secret the hook answers 403 and
+# nothing can be published or watched.
+authHTTPAddress: http://api:8081/hooks/live/auth
+# Nothing is excluded: the control API is answered only to callers that
+# present the control API secret (TOKULY_MEDIAMTX_API_SECRET, user `tokuly`;
+# the Tokuly worker does). It is a different secret from the hook's, which
+# MediaMTX itself holds. Metrics and pprof are off.
+authHTTPExclude: []
+
+###############################################
+# Control API (read by the live worker: who is on air, who is watching)
+
+api: yes
+apiAddress: :9997
+
+metrics: no
+pprof: no
+
+###############################################
+# Playback server (DVR: rewinding a stream that is on air)
+
+playback: yes
+playbackAddress: :9996
+playbackAllowOrigins: ["*"]
+
+###############################################
+# Ingest and delivery protocols
+
+# RTSP is not offered.
+rtsp: no
+
+# RTMP ingest (OBS and most encoders): rtmp://<host>:1935/live/<stream>?token=<stream key>
+rtmp: yes
+rtmpAddress: :1935
+
+# SRT ingest: srt://<host>:8890?streamid=publish:live/<stream>:tokuly:<stream key>
+srt: yes
+srtAddress: :8890
+srtMinLatency: 120ms
+
+# Low-Latency HLS playback: http://<host>:8888/live/<stream>/index.m3u8
+hls: yes
+hlsAddress: :8888
+hlsAllowOrigins: ["*"]
+# Mux as soon as a stream is published, so the first viewer does not wait.
+hlsAlwaysRemux: yes
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+hlsSegmentMaxSize: 50M
+hlsMuxerCloseAfter: 60s
+
+# WebRTC: publishing from the browser (WHIP) and sub-second playback (WHEP).
+#   http://<host>:8889/live/<stream>/whip   Authorization: Bearer <stream key>
+#   http://<host>:8889/live/<stream>/whep
+webrtc: yes
+webrtcAddress: :8889
+webrtcAllowOrigins: ["*"]
+webrtcLocalUDPAddress: :8189
+webrtcIPsFromInterfaces: yes
+# Addresses clients can reach when the server sits behind NAT or in a
+# container: set MTX_WEBRTCADDITIONALHOSTS to the public host name or IP.
+webrtcAdditionalHosts: []
+
+moq: no
+
+###############################################
+# Paths: every stream is `live/<stream short ID>`
+
+pathDefaults:
+  source: publisher
+  # A reconnecting encoder replaces its own stale connection.
+  overridePublisher: yes
+
+  # Everything published is recorded as fragmented MP4 into the directory the
+  # Tokuly worker shares (TOKULY_LIVE_RECORDINGS_DIR): one folder per stream,
+  # one file per segment, named after the moment the segment starts (Unix
+  # seconds and microseconds). The worker builds archives and clips from
+  # these files and deletes them; MediaMTX itself never does.
+  record: yes
+  recordPath: /recordings/%path/%s-%f
+  recordFormat: fmp4
+  recordPartDuration: 1s
+  recordMaxPartSize: 50M
+  recordSegmentDuration: 10m
+  recordDeleteAfter: 0s
+
+paths:
+  # Only stream paths exist; anything else is refused before the API is asked.
+  "~^live/[0-9A-Za-z]{11}$":
