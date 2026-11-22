@@ -1,15 +1,2153 @@
 syntax = "proto3";
 
-// Communities with boards, events and announcements.
+// Communities (コミュニティ): places for a class, a club, a game, an 推し, a
+// neighbourhood, a study group or a tech topic. A community has members with
+// roles, boards (channels holding threads and replies), events with RSVP and
+// check-in, announcements, and its own safety tools.
 //
-// SKELETON: the owning domain implements this file. Keep the package name
-// and the realtime event message name stable; everything else is yours.
+// Conventions of this package:
+// - `community_id` accepts the community's UUID or its handle everywhere.
+// - `thread_id` accepts the thread's UUID or its 11-character short ID.
+// - Likes, emoji reactions, bookmarks, comments and reports on communities,
+//   threads, replies and events go through tokuly.engagement.v1 with the
+//   subject types COMMUNITY, COMMUNITY_THREAD, COMMUNITY_REPLY and
+//   COMMUNITY_EVENT. Replies to threads are part of this package.
+// - Who may do what is one table (see `Permission`); every response that
+//   carries a `viewer` block tells the client what the caller may do, so
+//   clients never copy the table.
+// - A community the caller may not know about (hidden, deleted) answers
+//   COMMUNITY_NOT_FOUND. Content of a community the caller may see from the
+//   outside but not read (restricted) answers NOT_A_MEMBER.
+// - Accounts with the site-wide `moderator` or `admin` role may read every
+//   community and reveal anonymous authors; that is how reports are handled.
+// - A removed thread, reply or event keeps its content for a retention
+//   period (30 days by default), counted from its removal. Members no
+//   longer see it; it can still be reported, and the staff and site
+//   moderation can still read it (GetContentHistory) and look up its
+//   author. Deleting or editing a post does not take back what was posted.
 package tokuly.community.v1;
 
+import "google/protobuf/timestamp.proto";
 import "tokuly/common/v1/common.proto";
 
+// ───────────────────────────── Communities ─────────────────────────────
+
+// Communities, membership, invites and roles.
+//
+// Reading the front page of a public or restricted community works
+// anonymously; everything else needs a signed-in caller.
+service CommunityService {
+  // Creates a community owned by the caller, with a first channel
+  // ("general"). The caller becomes its owner and first member.
+  // Errors: NAME_INVALID, HANDLE_INVALID, HANDLE_RESERVED, HANDLE_TAKEN,
+  // DESCRIPTION_TOO_LONG, CATEGORY_INVALID, VISIBILITY_INVALID,
+  // LANGUAGE_INVALID, TOO_MANY_TAGS, TAG_INVALID, TOO_MANY_RULES,
+  // RULE_INVALID, TOO_MANY_QUESTIONS, QUESTION_INVALID, SCHOOL_NAME_INVALID,
+  // ASSET_NOT_FOUND, ASSET_NOT_READY, ASSET_NOT_IMAGE, ASSET_WRONG_PURPOSE,
+  // COMMUNITY_LIMIT_REACHED (the caller owns as many as one account may),
+  // RATE_LIMITED.
+  rpc CreateCommunity(CreateCommunityRequest) returns (CreateCommunityResponse);
+  // One community as the caller sees it. A hidden community exists only for
+  // its members. Works anonymously. Errors: COMMUNITY_NOT_FOUND.
+  rpc GetCommunity(GetCommunityRequest) returns (GetCommunityResponse);
+  // Changes the community's profile and settings. Needs MANAGE_COMMUNITY.
+  // Errors: COMMUNITY_NOT_FOUND, PERMISSION_DENIED, plus the validation
+  // errors of CreateCommunity.
+  rpc UpdateCommunity(UpdateCommunityRequest) returns (UpdateCommunityResponse);
+  // Closes the community for good: it disappears for everyone, its handle
+  // becomes free again. Owner only.
+  // Errors: COMMUNITY_NOT_FOUND, PERMISSION_DENIED.
+  rpc DeleteCommunity(DeleteCommunityRequest) returns (DeleteCommunityResponse);
+  // Whether a handle is well-formed and free, for the creation form.
+  rpc CheckHandle(CheckHandleRequest) returns (CheckHandleResponse);
+  // Hands the community to another member, who becomes owner; the caller
+  // stays as an admin. Owner only.
+  // Errors: COMMUNITY_NOT_FOUND, PERMISSION_DENIED, MEMBER_NOT_FOUND,
+  // CANNOT_TARGET_SELF, COMMUNITY_LIMIT_REACHED (the new owner owns as many
+  // as one account may).
+  rpc TransferOwnership(TransferOwnershipRequest) returns (TransferOwnershipResponse);
+  // The communities the caller is a member of, most recently active first,
+  // followed on the first page by the caller's pending join requests.
+  rpc ListMyCommunities(ListMyCommunitiesRequest) returns (ListMyCommunitiesResponse);
+  // The public communities another user chose to show on their profile.
+  // Errors: USER_NOT_FOUND (also when either side blocked the other).
+  rpc ListUserCommunities(ListUserCommunitiesRequest) returns (ListUserCommunitiesResponse);
+
+  // Joins a community. A public community is joined at once. A restricted
+  // one is joined at once with a valid invite code; without one the caller
+  // files a request (answering the join questions) that the staff approves
+  // or declines. A hidden community is joined by invite code only.
+  // Joining again while a member returns the membership.
+  // Errors: COMMUNITY_NOT_FOUND, INVITE_INVALID (unknown, expired, revoked
+  // or used up), BANNED, COMMUNITY_FULL, JOIN_LIMIT_REACHED (the caller is in
+  // as many communities as one account may), ANSWERS_REQUIRED,
+  // ANSWER_TOO_LONG, RATE_LIMITED.
+  rpc JoinCommunity(JoinCommunityRequest) returns (JoinCommunityResponse);
+  // What an invite leads to: the community's front page, even when it is
+  // hidden. Errors: INVITE_INVALID, RATE_LIMITED.
+  rpc PreviewInvite(PreviewInviteRequest) returns (PreviewInviteResponse);
+  // Leaves a community. The owner must transfer ownership (or delete the
+  // community) first. Errors: COMMUNITY_NOT_FOUND, NOT_A_MEMBER,
+  // OWNER_CANNOT_LEAVE.
+  rpc LeaveCommunity(LeaveCommunityRequest) returns (LeaveCommunityResponse);
+  // Withdraws the caller's pending join request.
+  // Errors: COMMUNITY_NOT_FOUND, REQUEST_NOT_FOUND.
+  rpc CancelJoinRequest(CancelJoinRequestRequest) returns (CancelJoinRequestResponse);
+  // Pending join requests, oldest first. Needs MANAGE_MEMBERS.
+  // Errors: COMMUNITY_NOT_FOUND, PERMISSION_DENIED.
+  rpc ListJoinRequests(ListJoinRequestsRequest) returns (ListJoinRequestsResponse);
+  // Approves or declines a join request. Approval makes the requester a
+  // member and tells them; declining is silent (the requester keeps seeing
+  // the request as pending and may ask again a week later).
+  // Needs MANAGE_MEMBERS. Errors: COMMUNITY_NOT_FOUND, PERMISSION_DENIED,
+  // REQUEST_NOT_FOUND, COMMUNITY_FULL, JOIN_LIMIT_REACHED, BANNED.
+  rpc RespondJoinRequest(RespondJoinRequestRequest) returns (RespondJoinRequestResponse);
+
+  // The member directory: staff first, then by join date; `query` searches
+  // names and handles. Members only (the member count is public).
+  // Errors: COMMUNITY_NOT_FOUND, NOT_A_MEMBER, QUERY_TOO_LONG.
+  rpc ListMembers(ListMembersRequest) returns (ListMembersResponse);
+  // One member. Members only.
+  // Errors: COMMUNITY_NOT_FOUND, NOT_A_MEMBER, MEMBER_NOT_FOUND.
+  rpc GetMember(GetMemberRequest) returns (GetMemberResponse);
+  // Makes a member a moderator, an admin, or a plain member again. Admins
+  // appoint and dismiss moderators; only the owner appoints and dismisses
+  // admins. Ownership moves with TransferOwnership.
+  // Errors: COMMUNITY_NOT_FOUND, PERMISSION_DENIED, MEMBER_NOT_FOUND,
+  // ROLE_INVALID, CANNOT_TARGET_SELF.
+  rpc SetMemberRole(SetMemberRoleRequest) returns (SetMemberRoleResponse);
+  // The caller's own settings in a community: notification level and
+  // whether the membership shows on their profile.
+  // Errors: COMMUNITY_NOT_FOUND, NOT_A_MEMBER, LEVEL_INVALID.
+  rpc UpdateMembership(UpdateMembershipRequest) returns (UpdateMembershipResponse);
+
+  // Creates an invite: one token usable as a code, a link and a QR code,
+  // with an optional expiry and use limit. Needs CREATE_INVITE.
+  // Errors: COMMUNITY_NOT_FOUND, PERMISSION_DENIED, EXPIRY_INVALID,
+  // MAX_USES_INVALID, NOTE_TOO_LONG, TOO_MANY_INVITES, RATE_LIMITED.
+  rpc CreateInvite(CreateInviteRequest) returns (CreateInviteResponse);
+  // The community's invites that can still be used, newest first. Staff see
+  // all of them, other members their own. Needs CREATE_INVITE.
+  // Errors: COMMUNITY_NOT_FOUND, PERMISSION_DENIED.
+  rpc ListInvites(ListInvitesRequest) returns (ListInvitesResponse);
+  // Makes an invite unusable. Its creator, or anyone with MANAGE_MEMBERS.
+  // Errors: INVITE_NOT_FOUND, PERMISSION_DENIED.
+  rpc RevokeInvite(RevokeInviteRequest) returns (RevokeInviteResponse);
+}
+
+// What a community is about.
+enum CommunityCategory {
+  COMMUNITY_CATEGORY_UNSPECIFIED = 0;
+  // A class, a grade, a whole school.
+  COMMUNITY_CATEGORY_SCHOOL = 1;
+  // A club or circle (部活・サークル).
+  COMMUNITY_CATEGORY_CLUB = 2;
+  COMMUNITY_CATEGORY_GAME = 3;
+  // A fandom (推し活).
+  COMMUNITY_CATEGORY_OSHI = 4;
+  // A neighbourhood, a town.
+  COMMUNITY_CATEGORY_LOCAL = 5;
+  COMMUNITY_CATEGORY_STUDY = 6;
+  COMMUNITY_CATEGORY_TECH = 7;
+  COMMUNITY_CATEGORY_OTHER = 8;
+}
+
+// Who finds, reads and joins a community.
+enum CommunityVisibility {
+  COMMUNITY_VISIBILITY_UNSPECIFIED = 0;
+  // Listed; anyone reads and joins.
+  COMMUNITY_VISIBILITY_PUBLIC = 1;
+  // Listed; anyone sees the front page, only members read. Joining needs
+  // approval or an invite.
+  COMMUNITY_VISIBILITY_RESTRICTED = 2;
+  // Not listed anywhere; exists only for its members. Invite only.
+  COMMUNITY_VISIBILITY_HIDDEN = 3;
+}
+
+// Roles, lowest to highest. A member acts only on members of a lower role.
+enum MemberRole {
+  MEMBER_ROLE_UNSPECIFIED = 0;
+  MEMBER_ROLE_MEMBER = 1;
+  MEMBER_ROLE_MODERATOR = 2;
+  MEMBER_ROLE_ADMIN = 3;
+  MEMBER_ROLE_OWNER = 4;
+}
+
+// What the caller is to a community.
+enum MembershipStatus {
+  MEMBERSHIP_STATUS_UNSPECIFIED = 0;
+  MEMBERSHIP_STATUS_NONE = 1;
+  MEMBERSHIP_STATUS_MEMBER = 2;
+  // A join request is waiting (or was declined: declining is silent).
+  MEMBERSHIP_STATUS_REQUESTED = 3;
+  MEMBERSHIP_STATUS_BANNED = 4;
+}
+
+// What a member is notified about.
+enum NotificationLevel {
+  NOTIFICATION_LEVEL_UNSPECIFIED = 0;
+  // Announcements, mentions, replies to the member's threads and to threads
+  // they follow, and event notices.
+  NOTIFICATION_LEVEL_ALL = 1;
+  // Mentions and announcements only.
+  NOTIFICATION_LEVEL_MENTIONS = 2;
+  // Nothing (moderation notices about the member's own posts still arrive).
+  NOTIFICATION_LEVEL_NONE = 3;
+}
+
+// The permission table. Member: POST, plus CREATE_INVITE / CREATE_EVENT when
+// the community's settings open them to members. Moderator: everything a
+// member may, plus CREATE_INVITE, CREATE_EVENT, MODERATE_CONTENT,
+// MANAGE_MEMBERS, ANNOUNCE, REVEAL_AUTHOR, VIEW_MODERATION_LOG and
+// MANAGE_SAFETY. Admin: everything a moderator may, plus MANAGE_CHANNELS,
+// MANAGE_COMMUNITY and MANAGE_ROLES. Owner: everything, plus
+// TRANSFER_OWNERSHIP and DELETE_COMMUNITY.
+enum Permission {
+  PERMISSION_UNSPECIFIED = 0;
+  // Start threads, reply, vote in polls, RSVP (where the channel allows it).
+  PERMISSION_POST = 1;
+  PERMISSION_CREATE_INVITE = 2;
+  PERMISSION_CREATE_EVENT = 3;
+  // Delete other members' posts, pin and lock threads, work the review
+  // queue, edit and cancel other members' events.
+  PERMISSION_MODERATE_CONTENT = 4;
+  // Approve and decline join requests; remove, time out and ban members of
+  // a lower role; revoke invites.
+  PERMISSION_MANAGE_MEMBERS = 5;
+  // Mark a thread as an announcement.
+  PERMISSION_ANNOUNCE = 6;
+  // Reveal who wrote an anonymous post (logged and announced to the staff).
+  PERMISSION_REVEAL_AUTHOR = 7;
+  PERMISSION_VIEW_MODERATION_LOG = 8;
+  // Muted words, the auto-hide threshold, slow mode.
+  PERMISSION_MANAGE_SAFETY = 9;
+  // Create, edit, order and delete channels.
+  PERMISSION_MANAGE_CHANNELS = 10;
+  // Edit the community's profile, rules, join questions, visibility and settings.
+  PERMISSION_MANAGE_COMMUNITY = 11;
+  // Appoint and dismiss moderators (admins) and admins (owner).
+  PERMISSION_MANAGE_ROLES = 12;
+  PERMISSION_TRANSFER_OWNERSHIP = 13;
+  PERMISSION_DELETE_COMMUNITY = 14;
+}
+
+// One rule of a community.
+message Rule {
+  // 1-80 characters.
+  string title = 1;
+  // At most 500 characters.
+  string body = 2;
+}
+
+// Wrapper so an update can tell "leave the rules alone" from "no rules".
+message RuleList {
+  repeated Rule rules = 1;
+}
+
+// Wrapper so an update can tell "leave the list alone" from "empty list".
+message StringList {
+  repeated string values = 1;
+}
+
+// Switches the staff can flip.
+message CommunitySettings {
+  // Plain members may create invites (otherwise moderators and up).
+  bool members_can_invite = 1;
+  // Plain members may create events (otherwise moderators and up).
+  bool members_can_create_events = 2;
+}
+
+message Community {
+  string id = 1;
+  // Unique among communities (a namespace of its own, same format as user
+  // handles), without a leading '+'.
+  string handle = 2;
+  string name = 3;
+  string description = 4;
+  tokuly.common.v1.Image icon = 5;
+  tokuly.common.v1.Image banner = 6;
+  // In display order.
+  repeated Rule rules = 7;
+  // Normalized (lowercase, no '#'), at most 10.
+  repeated string tags = 8;
+  CommunityCategory category = 9;
+  // Main language as a locale tag, e.g. "ja".
+  string language = 10;
+  CommunityVisibility visibility = 11;
+  // The school a SCHOOL or CLUB community belongs to; empty otherwise.
+  string school_name = 12;
+  int32 member_count = 13;
+  // Threads that are visible to members.
+  int32 thread_count = 14;
+  tokuly.common.v1.UserSummary owner = 15;
+  // Asked of people who request to join a restricted community.
+  repeated string join_questions = 16;
+  CommunitySettings settings = 17;
+  google.protobuf.Timestamp created_at = 18;
+  // When something was last posted.
+  google.protobuf.Timestamp last_activity_at = 19;
+  // How many members the community may have.
+  int32 max_members = 20;
+  // The caller's relation to the community. Unset for anonymous callers.
+  CommunityViewer viewer = 21;
+}
+
+// The caller's relation to a community.
+message CommunityViewer {
+  MembershipStatus status = 1;
+  // Set for members.
+  MemberRole role = 2;
+  // What the caller may do here, per the permission table. Empty for non-members.
+  repeated Permission permissions = 3;
+  NotificationLevel notification_level = 4;
+  // The membership shows on the caller's profile (public communities only).
+  bool show_on_profile = 5;
+  google.protobuf.Timestamp joined_at = 6;
+  // Set while the caller is timed out: no posting, voting or RSVP until then.
+  google.protobuf.Timestamp timeout_until = 7;
+  // Something was posted that the caller has not read.
+  bool has_unread = 8;
+  // Join requests waiting for a decision. Only for callers with MANAGE_MEMBERS.
+  int32 pending_request_count = 9;
+  // Hidden posts waiting for review. Only for callers with MODERATE_CONTENT.
+  int32 review_queue_count = 10;
+  // Set when the caller is banned.
+  string ban_reason = 11;
+  // When the ban ends; unset for a permanent ban.
+  google.protobuf.Timestamp ban_expires_at = 12;
+}
+
+message Member {
+  tokuly.common.v1.UserSummary user = 1;
+  MemberRole role = 2;
+  google.protobuf.Timestamp joined_at = 3;
+  // Set while the member is timed out. Shown to the staff and to the member.
+  google.protobuf.Timestamp timeout_until = 4;
+  // Shown to the staff and to the member.
+  string timeout_reason = 5;
+}
+
+// An answer to one of the community's join questions.
+message JoinAnswer {
+  string question = 1;
+  // At most 500 characters.
+  string answer = 2;
+}
+
+message JoinRequest {
+  string id = 1;
+  string community_id = 2;
+  tokuly.common.v1.UserSummary user = 3;
+  repeated JoinAnswer answers = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+// An invite: a code, the link that carries it, and the QR code clients draw
+// from the link.
+message Invite {
+  string id = 1;
+  string community_id = 2;
+  // 10 characters, case-sensitive.
+  string code = 3;
+  // Link into the web app that opens the invite; also the QR payload.
+  string url = 4;
+  tokuly.common.v1.UserSummary creator = 5;
+  // Unset = never expires.
+  google.protobuf.Timestamp expires_at = 6;
+  // 0 = unlimited.
+  int32 max_uses = 7;
+  int32 use_count = 8;
+  // A label for the staff ("文化祭のポスター用"), at most 100 characters.
+  string note = 9;
+  google.protobuf.Timestamp created_at = 10;
+}
+
+message CreateCommunityRequest {
+  // 1-50 characters.
+  string name = 1;
+  // 3-24 characters: a-z, 0-9, _ and -.
+  string handle = 2;
+  // At most 1000 characters.
+  string description = 3;
+  CommunityCategory category = 4;
+  CommunityVisibility visibility = 5;
+  // Locale tag; empty = the creator's language.
+  string language = 6;
+  // At most 10, each at most 30 characters.
+  repeated string tags = 7;
+  // At most 20.
+  repeated Rule rules = 8;
+  // At most 5, each at most 200 characters.
+  repeated string join_questions = 9;
+  // Image upload (purpose AVATAR or CHANNEL_ICON); empty = no icon.
+  string icon_asset_id = 10;
+  // Image upload (purpose BANNER or CHANNEL_BANNER); empty = no banner.
+  string banner_asset_id = 11;
+  // For SCHOOL and CLUB communities; empty = the creator's school.
+  string school_name = 12;
+  CommunitySettings settings = 13;
+}
+
+message CreateCommunityResponse {
+  Community community = 1;
+}
+
+message GetCommunityRequest {
+  string community_id = 1;
+}
+
+message GetCommunityResponse {
+  Community community = 1;
+}
+
+message UpdateCommunityRequest {
+  string community_id = 1;
+  optional string name = 2;
+  optional string handle = 3;
+  optional string description = 4;
+  optional CommunityCategory category = 5;
+  optional CommunityVisibility visibility = 6;
+  optional string language = 7;
+  StringList tags = 8;
+  RuleList rules = 9;
+  StringList join_questions = 10;
+  // Empty string removes the icon.
+  optional string icon_asset_id = 11;
+  // Empty string removes the banner.
+  optional string banner_asset_id = 12;
+  optional string school_name = 13;
+  CommunitySettings settings = 14;
+}
+
+message UpdateCommunityResponse {
+  Community community = 1;
+}
+
+message DeleteCommunityRequest {
+  string community_id = 1;
+}
+
+message DeleteCommunityResponse {}
+
+message CheckHandleRequest {
+  string handle = 1;
+}
+
+message CheckHandleResponse {
+  bool available = 1;
+  // Why not, when not: HANDLE_INVALID, HANDLE_RESERVED or HANDLE_TAKEN.
+  string reason = 2;
+  // The handle as it would be stored (lowercased).
+  string normalized = 3;
+}
+
+message TransferOwnershipRequest {
+  string community_id = 1;
+  // The member who becomes owner.
+  string user_id = 2;
+}
+
+message TransferOwnershipResponse {
+  Community community = 1;
+}
+
+message ListMyCommunitiesRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListMyCommunitiesResponse {
+  repeated Community communities = 1;
+  // Communities the caller asked to join and waits for (first page only).
+  repeated Community requested = 2;
+  tokuly.common.v1.PageInfo page = 3;
+  // How many communities one account may own.
+  int32 max_owned = 4;
+  // How many of them the caller owns.
+  int32 owned_count = 5;
+}
+
+message ListUserCommunitiesRequest {
+  string user_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListUserCommunitiesResponse {
+  repeated Community communities = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message JoinCommunityRequest {
+  // The community to join; may be empty when `invite_code` is given.
+  string community_id = 1;
+  string invite_code = 2;
+  // Answers to the community's join questions, in their order. Needed when
+  // the join becomes a request.
+  repeated string answers = 3;
+}
+
+message JoinCommunityResponse {
+  // MEMBER when the caller is in, REQUESTED when a request was filed.
+  MembershipStatus status = 1;
+  Community community = 2;
+}
+
+message PreviewInviteRequest {
+  string invite_code = 1;
+}
+
+message PreviewInviteResponse {
+  Community community = 1;
+  // Who created the invite.
+  tokuly.common.v1.UserSummary inviter = 2;
+}
+
+message LeaveCommunityRequest {
+  string community_id = 1;
+}
+
+message LeaveCommunityResponse {}
+
+message CancelJoinRequestRequest {
+  string community_id = 1;
+}
+
+message CancelJoinRequestResponse {}
+
+message ListJoinRequestsRequest {
+  string community_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListJoinRequestsResponse {
+  repeated JoinRequest requests = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message RespondJoinRequestRequest {
+  string request_id = 1;
+  bool approve = 2;
+}
+
+message RespondJoinRequestResponse {
+  // The new member, when approved.
+  Member member = 1;
+}
+
+message ListMembersRequest {
+  string community_id = 1;
+  // Matches display names and handles; at most 64 characters.
+  string query = 2;
+  // Only members of this role; unspecified = everyone.
+  MemberRole role = 3;
+  tokuly.common.v1.PageRequest page = 4;
+}
+
+message ListMembersResponse {
+  repeated Member members = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message GetMemberRequest {
+  string community_id = 1;
+  string user_id = 2;
+}
+
+message GetMemberResponse {
+  Member member = 1;
+}
+
+message SetMemberRoleRequest {
+  string community_id = 1;
+  string user_id = 2;
+  // MEMBER, MODERATOR or ADMIN.
+  MemberRole role = 3;
+}
+
+message SetMemberRoleResponse {
+  Member member = 1;
+}
+
+message UpdateMembershipRequest {
+  string community_id = 1;
+  optional NotificationLevel notification_level = 2;
+  // Only has an effect in public communities.
+  optional bool show_on_profile = 3;
+}
+
+message UpdateMembershipResponse {
+  CommunityViewer viewer = 1;
+}
+
+message CreateInviteRequest {
+  string community_id = 1;
+  // Seconds until the invite expires: 0 = never, at most 30 days.
+  int32 expires_in_seconds = 2;
+  // 0 = unlimited, at most 10000.
+  int32 max_uses = 3;
+  string note = 4;
+}
+
+message CreateInviteResponse {
+  Invite invite = 1;
+}
+
+message ListInvitesRequest {
+  string community_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListInvitesResponse {
+  repeated Invite invites = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message RevokeInviteRequest {
+  string invite_id = 1;
+}
+
+message RevokeInviteResponse {}
+
+// ───────────────────────────── Boards ─────────────────────────────
+
+// Channels, threads, replies and polls.
+//
+// Reading follows the community: a public community's boards are open to
+// everyone (anonymous callers included), any other community's to members
+// only. Posts by users in a block with the caller are left out of lists —
+// except in anonymous channels, where hiding them would tell who wrote what.
+//
+// Anonymous channels: posts carry a `Pseudonym` instead of an author. The
+// pseudonym is stable for one author within one thread and unrelated across
+// threads. No response of this service names the author of an anonymous
+// post to anyone but the author (`viewer.mine`); the staff unmasks through
+// CommunityModerationService.RevealAuthor, which is logged.
+// So that nothing else gives an author away, an anonymous channel
+// - takes posts only while enough members could have written them
+//   (TOO_FEW_MEMBERS below that);
+// - treats the staff like everyone else: slow mode, the word filter and
+//   auto-hide on reports apply to them too;
+// - takes only stamps anyone could send (from published packs:
+//   STAMP_NOT_ALLOWED otherwise) and only uploads that are used nowhere
+//   else (ASSET_ALREADY_USED otherwise).
+service CommunityBoardService {
+  // Adds a channel at the end of the list. Needs MANAGE_CHANNELS.
+  // Errors: COMMUNITY_NOT_FOUND, PERMISSION_DENIED, CHANNEL_NAME_INVALID,
+  // DESCRIPTION_TOO_LONG, EMOJI_INVALID, POSTING_INVALID, TOO_MANY_CHANNELS.
+  rpc CreateChannel(CreateChannelRequest) returns (CreateChannelResponse);
+  // Edits a channel. Anonymous mode cannot be changed once the channel has
+  // threads. Needs MANAGE_CHANNELS.
+  // Errors: CHANNEL_NOT_FOUND, PERMISSION_DENIED, CHANNEL_NOT_EMPTY, plus
+  // the validation errors of CreateChannel.
+  rpc UpdateChannel(UpdateChannelRequest) returns (UpdateChannelResponse);
+  // Deletes a channel with everything in it. A community keeps at least one
+  // channel. Needs MANAGE_CHANNELS.
+  // Errors: CHANNEL_NOT_FOUND, PERMISSION_DENIED, LAST_CHANNEL.
+  rpc DeleteChannel(DeleteChannelRequest) returns (DeleteChannelResponse);
+  // Sets the order of the channels; every channel must be named once.
+  // Needs MANAGE_CHANNELS.
+  // Errors: COMMUNITY_NOT_FOUND, PERMISSION_DENIED, CHANNEL_ORDER_MISMATCH.
+  rpc ReorderChannels(ReorderChannelsRequest) returns (ReorderChannelsResponse);
+  // The channels of a community in display order.
+  // Errors: COMMUNITY_NOT_FOUND, NOT_A_MEMBER.
+  rpc ListChannels(ListChannelsRequest) returns (ListChannelsResponse);
+
+  // Starts a thread. A thread needs a title and at least one of body,
+  // images, stamp or poll. `@handle` mentions notify members. The author
+  // follows the thread. A post containing one of the community's muted words
+  // is stored hidden and waits for the staff's review.
+  // Errors: CHANNEL_NOT_FOUND, NOT_A_MEMBER, POSTING_RESTRICTED (the channel
+  // is for moderators), TIMED_OUT, SLOW_MODE, TITLE_INVALID, BODY_TOO_LONG,
+  // THREAD_EMPTY, TOO_MANY_IMAGES, ASSET_NOT_FOUND, ASSET_NOT_READY,
+  // ASSET_NOT_IMAGE, ASSET_WRONG_PURPOSE, STAMP_NOT_USABLE, POLL_INVALID,
+  // TOO_MANY_TAGS, TAG_INVALID, RATE_LIMITED; in anonymous channels also
+  // TOO_FEW_MEMBERS, STAMP_NOT_ALLOWED, ASSET_ALREADY_USED.
+  rpc CreateThread(CreateThreadRequest) returns (CreateThreadResponse);
+  // One thread. Errors: THREAD_NOT_FOUND, NOT_A_MEMBER.
+  rpc GetThread(GetThreadRequest) returns (GetThreadResponse);
+  // Edits title, body and tags; the thread shows as edited. Author only.
+  // What the thread said before stays on file for the staff, and a thread
+  // can be edited 30 times.
+  // Errors: THREAD_NOT_FOUND, PERMISSION_DENIED, TIMED_OUT, THREAD_LOCKED,
+  // TITLE_INVALID, BODY_TOO_LONG, THREAD_EMPTY, TOO_MANY_TAGS, TAG_INVALID,
+  // TOO_MANY_EDITS, RATE_LIMITED.
+  rpc UpdateThread(UpdateThreadRequest) returns (UpdateThreadResponse);
+  // Deletes a thread with its replies. The author, or a member with
+  // MODERATE_CONTENT, who must give a reason that lands in the moderation
+  // log and is told to the author.
+  // Errors: THREAD_NOT_FOUND, PERMISSION_DENIED, REASON_REQUIRED,
+  // REASON_TOO_LONG.
+  rpc DeleteThread(DeleteThreadRequest) returns (DeleteThreadResponse);
+  // Threads of a community or of one channel. Pinned threads come
+  // separately, on the first page; `threads` holds the rest in the chosen
+  // order. The hot order moves while it is read (scores are recomputed
+  // every few minutes): a later page may repeat a thread, which clients
+  // drop. Errors: COMMUNITY_NOT_FOUND, CHANNEL_NOT_FOUND, NOT_A_MEMBER,
+  // SORT_INVALID, TAG_INVALID.
+  rpc ListThreads(ListThreadsRequest) returns (ListThreadsResponse);
+  // The community's announcements, newest first.
+  // Errors: COMMUNITY_NOT_FOUND, NOT_A_MEMBER.
+  rpc ListAnnouncements(ListAnnouncementsRequest) returns (ListAnnouncementsResponse);
+  // Threads the caller follows, most recently active first, optionally
+  // within one community.
+  rpc ListFollowedThreads(ListFollowedThreadsRequest) returns (ListFollowedThreadsResponse);
+  // Pins a thread to the top of its channel, or unpins it. At most 5 pinned
+  // threads per channel. Needs MODERATE_CONTENT.
+  // Errors: THREAD_NOT_FOUND, PERMISSION_DENIED, TOO_MANY_PINNED.
+  rpc PinThread(PinThreadRequest) returns (PinThreadResponse);
+  // Locks a thread (no new replies, no edits), or unlocks it.
+  // Needs MODERATE_CONTENT. Errors: THREAD_NOT_FOUND, PERMISSION_DENIED.
+  rpc LockThread(LockThreadRequest) returns (LockThreadResponse);
+  // Marks a thread as an announcement, or takes the mark back. The first
+  // time a thread becomes an announcement the members are notified, each
+  // according to their notification level. Needs ANNOUNCE.
+  // Errors: THREAD_NOT_FOUND, PERMISSION_DENIED, THREAD_HIDDEN, RATE_LIMITED.
+  rpc SetAnnouncement(SetAnnouncementRequest) returns (SetAnnouncementResponse);
+  // Follows a thread (notifications about new replies) or stops following.
+  // Members only. Errors: THREAD_NOT_FOUND, NOT_A_MEMBER.
+  rpc SetThreadFollow(SetThreadFollowRequest) returns (SetThreadFollowResponse);
+  // Marks a thread, a whole channel or a whole community as read.
+  // Errors: THREAD_NOT_FOUND, CHANNEL_NOT_FOUND, COMMUNITY_NOT_FOUND,
+  // NOT_A_MEMBER, TARGET_REQUIRED.
+  rpc MarkRead(MarkReadRequest) returns (MarkReadResponse);
+
+  // Votes in a thread's poll, replacing the caller's earlier vote; no
+  // options takes the vote back. Results show once the caller has voted.
+  // Errors: THREAD_NOT_FOUND, NOT_A_MEMBER, TIMED_OUT, POLL_NOT_FOUND,
+  // POLL_CLOSED, OPTION_NOT_FOUND, SINGLE_CHOICE (several options chosen in
+  // a single-choice poll).
+  rpc VotePoll(VotePollRequest) returns (VotePollResponse);
+  // Ends a poll before its deadline. The thread's author or a member with
+  // MODERATE_CONTENT. Errors: THREAD_NOT_FOUND, PERMISSION_DENIED,
+  // POLL_NOT_FOUND.
+  rpc ClosePoll(ClosePollRequest) returns (ClosePollResponse);
+
+  // Replies to a thread, optionally to another reply of it (shown with a
+  // quoted excerpt). Needs body, images or a stamp. The author starts
+  // following the thread. Notifies the thread's author and followers
+  // (once per thread until they read it) and mentioned members.
+  // Errors: THREAD_NOT_FOUND, NOT_A_MEMBER, POSTING_RESTRICTED, TIMED_OUT,
+  // THREAD_LOCKED, THREAD_HIDDEN (the thread waits for review), SLOW_MODE,
+  // BODY_TOO_LONG, REPLY_EMPTY, TOO_MANY_IMAGES, ASSET_NOT_FOUND,
+  // ASSET_NOT_READY, ASSET_NOT_IMAGE, ASSET_WRONG_PURPOSE, STAMP_NOT_USABLE,
+  // REPLY_NOT_FOUND (`reply_to_id` is not a reply of this thread),
+  // RATE_LIMITED; in anonymous channels also TOO_FEW_MEMBERS,
+  // STAMP_NOT_ALLOWED, ASSET_ALREADY_USED.
+  rpc CreateReply(CreateReplyRequest) returns (CreateReplyResponse);
+  // One reply. Errors: REPLY_NOT_FOUND, NOT_A_MEMBER.
+  rpc GetReply(GetReplyRequest) returns (GetReplyResponse);
+  // Edits a reply's body; it shows as edited. Author only. What the reply
+  // said before stays on file for the staff, and a reply can be edited 30
+  // times. Errors: REPLY_NOT_FOUND, PERMISSION_DENIED, TIMED_OUT,
+  // THREAD_LOCKED, BODY_TOO_LONG, REPLY_EMPTY, TOO_MANY_EDITS, RATE_LIMITED.
+  rpc UpdateReply(UpdateReplyRequest) returns (UpdateReplyResponse);
+  // Deletes a reply. The author, or a member with MODERATE_CONTENT, who
+  // must give a reason that lands in the moderation log.
+  // Errors: REPLY_NOT_FOUND, PERMISSION_DENIED, REASON_REQUIRED,
+  // REASON_TOO_LONG.
+  rpc DeleteReply(DeleteReplyRequest) returns (DeleteReplyResponse);
+  // The replies of a thread, oldest first (or newest first).
+  // Errors: THREAD_NOT_FOUND, NOT_A_MEMBER.
+  rpc ListReplies(ListRepliesRequest) returns (ListRepliesResponse);
+}
+
+// Who may start threads and reply in a channel.
+enum PostingPolicy {
+  POSTING_POLICY_UNSPECIFIED = 0;
+  POSTING_POLICY_EVERYONE = 1;
+  // Moderators and up; everyone else reads.
+  POSTING_POLICY_MODERATORS = 2;
+}
+
+// Order of a thread list.
+enum ThreadSort {
+  THREAD_SORT_UNSPECIFIED = 0;
+  // Activity (replies, likes, comments) decayed by age; recomputed by a
+  // worker every few minutes. The default.
+  THREAD_SORT_HOT = 1;
+  // Newest first.
+  THREAD_SORT_NEW = 2;
+  // Most liked within `window`.
+  THREAD_SORT_TOP = 3;
+}
+
+// How far back THREAD_SORT_TOP looks.
+enum TopWindow {
+  TOP_WINDOW_UNSPECIFIED = 0;
+  TOP_WINDOW_DAY = 1;
+  TOP_WINDOW_WEEK = 2;
+  TOP_WINDOW_MONTH = 3;
+  TOP_WINDOW_YEAR = 4;
+  // The default.
+  TOP_WINDOW_ALL = 5;
+}
+
+// Whether a post is in public view.
+enum PostState {
+  POST_STATE_UNSPECIFIED = 0;
+  POST_STATE_VISIBLE = 1;
+  // Hidden pending the staff's review: only its author and members with
+  // MODERATE_CONTENT see it.
+  POST_STATE_HIDDEN = 2;
+}
+
+// Why a post is hidden.
+enum HiddenReason {
+  HIDDEN_REASON_UNSPECIFIED = 0;
+  // Enough different members reported it.
+  HIDDEN_REASON_REPORTS = 1;
+  // It contains one of the community's muted words.
+  HIDDEN_REASON_MUTED_WORD = 2;
+}
+
+message Channel {
+  string id = 1;
+  string community_id = 2;
+  // 1-30 characters.
+  string name = 3;
+  // At most 200 characters.
+  string description = 4;
+  // One emoji shown next to the name; may be empty.
+  string emoji = 5;
+  // Position in the list, from 0.
+  int32 position = 6;
+  PostingPolicy posting = 7;
+  // Posts in this channel show a pseudonym instead of the author.
+  bool anonymous = 8;
+  // Seconds a member waits between two posts here; 0 = off. Staff are
+  // exempt, except in anonymous channels (two quick posts under one
+  // pseudonym would say "staff").
+  int32 slow_mode_seconds = 9;
+  int32 thread_count = 10;
+  google.protobuf.Timestamp last_activity_at = 11;
+  // The caller has unread threads here. Members only.
+  bool has_unread = 12;
+  // The caller may post here right now.
+  bool can_post = 13;
+}
+
+// The name an author goes by in one thread of an anonymous channel: an
+// animal in a colour plus a short tag, e.g. "あおいペンギン #k3f9". Derived
+// with a server-side key from the thread and the author, so it cannot be
+// turned back into an account and tells nothing about other threads.
+message Pseudonym {
+  tokuly.common.v1.LocalizedText name = 1;
+  string emoji = 2;
+  // Avatar colour as #rrggbb.
+  string color = 3;
+  // 4 characters telling apart two authors who drew the same animal.
+  string tag = 4;
+}
+
+// A member mentioned in a post.
+message Mention {
+  string handle = 1;
+  string user_id = 2;
+}
+
+message PollOption {
+  string id = 1;
+  string text = 2;
+  // Filled in only when the poll's results are visible to the caller.
+  int32 vote_count = 3;
+}
+
+message Poll {
+  repeated PollOption options = 1;
+  // Voters may choose several options.
+  bool multiple_choice = 2;
+  // Deadline; unset = open until closed by hand.
+  google.protobuf.Timestamp closes_at = 3;
+  bool closed = 4;
+  // How many members voted. Always shown.
+  int32 voter_count = 5;
+  // Whether `vote_count` is filled in: after the caller voted, once the poll
+  // is closed, and for the thread's author.
+  bool results_visible = 6;
+  // What the caller chose.
+  repeated string my_option_ids = 7;
+}
+
+// A poll as written with a new thread.
+message PollInput {
+  // 2-6 options, each 1-80 characters, all different.
+  repeated string options = 1;
+  bool multiple_choice = 2;
+  // Optional deadline, between 5 minutes and 30 days from now.
+  google.protobuf.Timestamp closes_at = 3;
+}
+
+message Thread {
+  string id = 1;
+  // 11 characters, for links.
+  string short_id = 2;
+  string community_id = 3;
+  string channel_id = 4;
+  // Unset in anonymous channels.
+  tokuly.common.v1.UserSummary author = 5;
+  // Set in anonymous channels.
+  Pseudonym pseudonym = 6;
+  // 1-100 characters.
+  string title = 7;
+  // At most 5000 characters.
+  string body = 8;
+  repeated Mention mentions = 9;
+  // Up to 4.
+  repeated tokuly.common.v1.Image images = 10;
+  // Unset when the thread has no stamp or the stamp is no longer available.
+  tokuly.common.v1.StampRef stamp = 11;
+  Poll poll = 12;
+  // Normalized (lowercase, no '#'), at most 5.
+  repeated string tags = 13;
+  bool pinned = 14;
+  bool locked = 15;
+  bool announcement = 16;
+  PostState state = 17;
+  // Set while the thread is hidden.
+  HiddenReason hidden_reason = 18;
+  // Visible replies.
+  int32 reply_count = 19;
+  int64 like_count = 20;
+  // Comments written through the engagement API.
+  int32 comment_count = 21;
+  google.protobuf.Timestamp created_at = 22;
+  // Set once the thread was edited.
+  google.protobuf.Timestamp edited_at = 23;
+  // Creation or the latest reply.
+  google.protobuf.Timestamp last_activity_at = 24;
+  // Path of the thread in the web app.
+  string path = 25;
+  // The caller's state. Unset for anonymous callers and in realtime pushes.
+  ThreadViewer viewer = 26;
+}
+
+// What the caller is to a thread and may do with it.
+message ThreadViewer {
+  // The caller wrote it (the only way an anonymous post names its author:
+  // to the author).
+  bool mine = 1;
+  bool following = 2;
+  // Something happened in the thread since the caller last read it.
+  bool unread = 3;
+  // Replies written since the caller last read it.
+  int32 unread_reply_count = 4;
+  bool can_edit = 5;
+  bool can_delete = 6;
+  // The caller may pin, lock and review it.
+  bool can_moderate = 7;
+  bool can_reply = 8;
+}
+
+// The reply another reply answers, as shown above it.
+message QuotedReply {
+  string reply_id = 1;
+  // Unset in anonymous channels and when the reply is gone.
+  tokuly.common.v1.UserSummary author = 2;
+  Pseudonym pseudonym = 3;
+  // The first 120 characters of its body. Empty when the reply is gone.
+  string excerpt = 4;
+  // The quoted reply was deleted, is hidden, or was written by someone in a
+  // block with the caller.
+  bool unavailable = 5;
+}
+
+message Reply {
+  string id = 1;
+  string thread_id = 2;
+  string community_id = 3;
+  // Unset in anonymous channels.
+  tokuly.common.v1.UserSummary author = 4;
+  // Set in anonymous channels. Equal to the thread's pseudonym when the
+  // thread's author replies.
+  Pseudonym pseudonym = 5;
+  // At most 2000 characters.
+  string body = 6;
+  repeated Mention mentions = 7;
+  // Up to 4.
+  repeated tokuly.common.v1.Image images = 8;
+  tokuly.common.v1.StampRef stamp = 9;
+  // Set when the reply answers another reply.
+  QuotedReply reply_to = 10;
+  PostState state = 11;
+  HiddenReason hidden_reason = 12;
+  int64 like_count = 13;
+  int32 comment_count = 14;
+  // Position in the thread, counting from 1 (gaps where replies were deleted).
+  int32 number = 15;
+  // Written by the thread's author.
+  bool by_thread_author = 16;
+  google.protobuf.Timestamp created_at = 17;
+  google.protobuf.Timestamp edited_at = 18;
+  // Unset for anonymous callers and in realtime pushes.
+  ReplyViewer viewer = 19;
+}
+
+message ReplyViewer {
+  bool mine = 1;
+  bool can_edit = 2;
+  bool can_delete = 3;
+}
+
+message CreateChannelRequest {
+  string community_id = 1;
+  string name = 2;
+  string description = 3;
+  string emoji = 4;
+  // Unspecified = EVERYONE.
+  PostingPolicy posting = 5;
+  bool anonymous = 6;
+}
+
+message CreateChannelResponse {
+  Channel channel = 1;
+}
+
+message UpdateChannelRequest {
+  string channel_id = 1;
+  optional string name = 2;
+  optional string description = 3;
+  optional string emoji = 4;
+  optional PostingPolicy posting = 5;
+  optional bool anonymous = 6;
+}
+
+message UpdateChannelResponse {
+  Channel channel = 1;
+}
+
+message DeleteChannelRequest {
+  string channel_id = 1;
+}
+
+message DeleteChannelResponse {}
+
+message ReorderChannelsRequest {
+  string community_id = 1;
+  // Every channel of the community, in the new order.
+  repeated string channel_ids = 2;
+}
+
+message ReorderChannelsResponse {
+  repeated Channel channels = 1;
+}
+
+message ListChannelsRequest {
+  string community_id = 1;
+}
+
+message ListChannelsResponse {
+  repeated Channel channels = 1;
+}
+
+message CreateThreadRequest {
+  string channel_id = 1;
+  string title = 2;
+  string body = 3;
+  // Image uploads (purpose NOTE_IMAGE or CHAT_IMAGE), at most 4.
+  repeated string asset_ids = 4;
+  // Empty = no stamp.
+  string stamp_id = 5;
+  PollInput poll = 6;
+  repeated string tags = 7;
+}
+
+message CreateThreadResponse {
+  Thread thread = 1;
+}
+
+message GetThreadRequest {
+  string thread_id = 1;
+}
+
+message GetThreadResponse {
+  Thread thread = 1;
+}
+
+message UpdateThreadRequest {
+  string thread_id = 1;
+  optional string title = 2;
+  optional string body = 3;
+  StringList tags = 4;
+}
+
+message UpdateThreadResponse {
+  Thread thread = 1;
+}
+
+message DeleteThreadRequest {
+  string thread_id = 1;
+  // Required when deleting someone else's thread; at most 300 characters.
+  string reason = 2;
+}
+
+message DeleteThreadResponse {}
+
+message ListThreadsRequest {
+  string community_id = 1;
+  // Only this channel; empty = all channels of the community.
+  string channel_id = 2;
+  // Unspecified = HOT.
+  ThreadSort sort = 3;
+  // For TOP; unspecified = ALL.
+  TopWindow window = 4;
+  // Only threads carrying this tag; empty = all.
+  string tag = 5;
+  tokuly.common.v1.PageRequest page = 6;
+}
+
+message ListThreadsResponse {
+  // Pinned threads in the order they were pinned, newest pin first. First
+  // page only.
+  repeated Thread pinned = 1;
+  repeated Thread threads = 2;
+  tokuly.common.v1.PageInfo page = 3;
+}
+
+message ListAnnouncementsRequest {
+  string community_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListAnnouncementsResponse {
+  repeated Thread threads = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListFollowedThreadsRequest {
+  // Empty = every community.
+  string community_id = 1;
+  // Only threads with something unread.
+  bool unread_only = 2;
+  tokuly.common.v1.PageRequest page = 3;
+}
+
+message ListFollowedThreadsResponse {
+  repeated Thread threads = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message PinThreadRequest {
+  string thread_id = 1;
+  bool pinned = 2;
+}
+
+message PinThreadResponse {
+  Thread thread = 1;
+}
+
+message LockThreadRequest {
+  string thread_id = 1;
+  bool locked = 2;
+}
+
+message LockThreadResponse {
+  Thread thread = 1;
+}
+
+message SetAnnouncementRequest {
+  string thread_id = 1;
+  bool announcement = 2;
+}
+
+message SetAnnouncementResponse {
+  Thread thread = 1;
+}
+
+message SetThreadFollowRequest {
+  string thread_id = 1;
+  bool following = 2;
+}
+
+message SetThreadFollowResponse {
+  bool following = 1;
+}
+
+message MarkReadRequest {
+  oneof target {
+    string thread_id = 1;
+    string channel_id = 2;
+    string community_id = 3;
+  }
+}
+
+message MarkReadResponse {}
+
+message VotePollRequest {
+  string thread_id = 1;
+  repeated string option_ids = 2;
+}
+
+message VotePollResponse {
+  Poll poll = 1;
+}
+
+message ClosePollRequest {
+  string thread_id = 1;
+}
+
+message ClosePollResponse {
+  Poll poll = 1;
+}
+
+message CreateReplyRequest {
+  string thread_id = 1;
+  string body = 2;
+  // Image uploads (purpose NOTE_IMAGE or CHAT_IMAGE), at most 4.
+  repeated string asset_ids = 3;
+  string stamp_id = 4;
+  // A reply of the same thread this one answers; empty = the thread itself.
+  string reply_to_id = 5;
+}
+
+message CreateReplyResponse {
+  Reply reply = 1;
+}
+
+message GetReplyRequest {
+  string reply_id = 1;
+}
+
+message GetReplyResponse {
+  Reply reply = 1;
+}
+
+message UpdateReplyRequest {
+  string reply_id = 1;
+  string body = 2;
+}
+
+message UpdateReplyResponse {
+  Reply reply = 1;
+}
+
+message DeleteReplyRequest {
+  string reply_id = 1;
+  // Required when deleting someone else's reply; at most 300 characters.
+  string reason = 2;
+}
+
+message DeleteReplyResponse {}
+
+message ListRepliesRequest {
+  string thread_id = 1;
+  bool newest_first = 2;
+  tokuly.common.v1.PageRequest page = 3;
+}
+
+message ListRepliesResponse {
+  repeated Reply replies = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// ───────────────────────────── Safety tools ─────────────────────────────
+
+// The staff's tools: sanctions, the review queue, word filters, slow mode,
+// the moderation log and unmasking anonymous authors.
+//
+// Every RPC needs a signed-in member holding the permission it names; a
+// member only ever acts on members of a lower role. Everything done here
+// is written to the community's moderation log.
+//
+// Nobody judges their own case: reviewing one's own hidden post, or looking
+// up the author of an anonymous post one is involved in, is refused with
+// CONFLICT_OF_INTEREST and left to another member of the staff (or to site
+// moderation).
+service CommunityModerationService {
+  // Removes a member (they may join again). Needs MANAGE_MEMBERS.
+  // Errors: COMMUNITY_NOT_FOUND, PERMISSION_DENIED, MEMBER_NOT_FOUND,
+  // CANNOT_TARGET_SELF, REASON_TOO_LONG.
+  rpc RemoveMember(RemoveMemberRequest) returns (RemoveMemberResponse);
+  // Bans a user: removes them if they are a member and keeps them from
+  // joining, for good or until `expires_at`. Needs MANAGE_MEMBERS.
+  // Errors: COMMUNITY_NOT_FOUND, PERMISSION_DENIED, USER_NOT_FOUND,
+  // CANNOT_TARGET_SELF, REASON_REQUIRED, REASON_TOO_LONG, EXPIRY_INVALID.
+  rpc BanMember(BanMemberRequest) returns (BanMemberResponse);
+  // Lifts a ban. Needs MANAGE_MEMBERS.
+  // Errors: COMMUNITY_NOT_FOUND, PERMISSION_DENIED, BAN_NOT_FOUND.
+  rpc UnbanMember(UnbanMemberRequest) returns (UnbanMemberResponse);
+  // Bans in force, newest first. Needs MANAGE_MEMBERS.
+  // Errors: COMMUNITY_NOT_FOUND, PERMISSION_DENIED.
+  rpc ListBans(ListBansRequest) returns (ListBansResponse);
+  // Times a member out: they keep reading but cannot post, vote or RSVP
+  // until the timeout ends (at most 28 days). Needs MANAGE_MEMBERS.
+  // Errors: COMMUNITY_NOT_FOUND, PERMISSION_DENIED, MEMBER_NOT_FOUND,
+  // CANNOT_TARGET_SELF, DURATION_INVALID, REASON_TOO_LONG.
+  rpc TimeoutMember(TimeoutMemberRequest) returns (TimeoutMemberResponse);
+  // Ends a timeout early. Needs MANAGE_MEMBERS.
+  // Errors: COMMUNITY_NOT_FOUND, PERMISSION_DENIED, MEMBER_NOT_FOUND.
+  rpc ClearTimeout(ClearTimeoutRequest) returns (ClearTimeoutResponse);
+
+  // Muted words and the auto-hide threshold. Needs MANAGE_SAFETY.
+  // Errors: COMMUNITY_NOT_FOUND, PERMISSION_DENIED.
+  rpc GetSafetySettings(GetSafetySettingsRequest) returns (GetSafetySettingsResponse);
+  // Changes muted words and the auto-hide threshold. Needs MANAGE_SAFETY.
+  // Errors: COMMUNITY_NOT_FOUND, PERMISSION_DENIED, TOO_MANY_MUTED_WORDS,
+  // MUTED_WORD_INVALID, THRESHOLD_INVALID.
+  rpc UpdateSafetySettings(UpdateSafetySettingsRequest) returns (UpdateSafetySettingsResponse);
+  // Sets a channel's slow mode (0 = off, at most 6 hours).
+  // Needs MANAGE_SAFETY. Errors: CHANNEL_NOT_FOUND, PERMISSION_DENIED,
+  // DURATION_INVALID.
+  rpc SetSlowMode(SetSlowModeRequest) returns (SetSlowModeResponse);
+
+  // Hidden posts waiting for a decision, oldest first: posts hidden after
+  // reports and posts held for a muted word. Needs MODERATE_CONTENT.
+  // Errors: COMMUNITY_NOT_FOUND, PERMISSION_DENIED.
+  rpc ListReviewQueue(ListReviewQueueRequest) returns (ListReviewQueueResponse);
+  // Decides about a hidden post: restore it to public view (its reports are
+  // cleared) or remove it for good. Needs MODERATE_CONTENT; not for the
+  // post's own author.
+  // Errors: POST_REQUIRED, THREAD_NOT_FOUND, REPLY_NOT_FOUND,
+  // PERMISSION_DENIED, CONFLICT_OF_INTEREST, POST_NOT_HIDDEN,
+  // DECISION_INVALID, REASON_TOO_LONG.
+  rpc ReviewPost(ReviewPostRequest) returns (ReviewPostResponse);
+  // Names the author of a post in an anonymous channel — also of one that
+  // was removed, for as long as it is retained. The use is written to the
+  // moderation log (without the author's name) and announced to the rest
+  // of the staff. Needs REVEAL_AUTHOR, or the site-wide moderator role.
+  // Refused for anyone involved in the post: its author, someone it
+  // mentions or answers, the author of the thread it replies in, and
+  // whoever reported it.
+  // Errors: POST_REQUIRED, THREAD_NOT_FOUND, REPLY_NOT_FOUND,
+  // PERMISSION_DENIED, CONFLICT_OF_INTEREST, POST_NOT_ANONYMOUS,
+  // REASON_REQUIRED, REASON_TOO_LONG, RATE_LIMITED.
+  rpc RevealAuthor(RevealAuthorRequest) returns (RevealAuthorResponse);
+  // A thread, a reply or an event as the staff may read it: what it says
+  // now — also after it was removed, for as long as it is retained — and
+  // what it said before each edit. This is what makes a report about an
+  // edited or deleted post something that can be acted on. Authors of
+  // anonymous posts stay pseudonyms. Needs MODERATE_CONTENT, or the
+  // site-wide moderator role (which it takes for a closed community).
+  // Errors: CONTENT_REQUIRED, THREAD_NOT_FOUND, REPLY_NOT_FOUND,
+  // EVENT_NOT_FOUND, PERMISSION_DENIED.
+  rpc GetContentHistory(GetContentHistoryRequest) returns (GetContentHistoryResponse);
+  // The moderation log, newest first. Needs VIEW_MODERATION_LOG.
+  // Errors: COMMUNITY_NOT_FOUND, PERMISSION_DENIED.
+  rpc ListModerationLog(ListModerationLogRequest) returns (ListModerationLogResponse);
+}
+
+// What a moderation log entry records.
+enum ModerationAction {
+  MODERATION_ACTION_UNSPECIFIED = 0;
+  MODERATION_ACTION_MEMBER_REMOVED = 1;
+  MODERATION_ACTION_MEMBER_BANNED = 2;
+  MODERATION_ACTION_MEMBER_UNBANNED = 3;
+  MODERATION_ACTION_MEMBER_TIMED_OUT = 4;
+  MODERATION_ACTION_TIMEOUT_CLEARED = 5;
+  // details: `from`, `to` (role names).
+  MODERATION_ACTION_ROLE_CHANGED = 6;
+  MODERATION_ACTION_OWNERSHIP_TRANSFERRED = 7;
+  MODERATION_ACTION_JOIN_REQUEST_APPROVED = 8;
+  MODERATION_ACTION_JOIN_REQUEST_DECLINED = 9;
+  // A moderator deleted someone else's thread.
+  MODERATION_ACTION_THREAD_DELETED = 10;
+  // A moderator deleted someone else's reply.
+  MODERATION_ACTION_REPLY_DELETED = 11;
+  // A post was hidden automatically; details: `cause` (`reports` or
+  // `muted_word`), `reports`.
+  MODERATION_ACTION_POST_HIDDEN = 12;
+  // A hidden post went back into public view after review.
+  MODERATION_ACTION_POST_RESTORED = 13;
+  // A hidden post was removed after review.
+  MODERATION_ACTION_POST_REMOVED = 14;
+  MODERATION_ACTION_THREAD_PINNED = 15;
+  MODERATION_ACTION_THREAD_UNPINNED = 16;
+  MODERATION_ACTION_THREAD_LOCKED = 17;
+  MODERATION_ACTION_THREAD_UNLOCKED = 18;
+  MODERATION_ACTION_ANNOUNCEMENT_SET = 19;
+  MODERATION_ACTION_ANNOUNCEMENT_CLEARED = 20;
+  // Someone looked up the author of an anonymous post.
+  MODERATION_ACTION_AUTHOR_REVEALED = 21;
+  MODERATION_ACTION_SAFETY_SETTINGS_CHANGED = 22;
+  // details: `seconds`.
+  MODERATION_ACTION_SLOW_MODE_CHANGED = 23;
+  MODERATION_ACTION_CHANNEL_CREATED = 24;
+  MODERATION_ACTION_CHANNEL_UPDATED = 25;
+  MODERATION_ACTION_CHANNEL_DELETED = 26;
+  MODERATION_ACTION_COMMUNITY_UPDATED = 27;
+  // Site moderation took content down (a thread, a reply or an event).
+  MODERATION_ACTION_CONTENT_TAKEN_DOWN = 28;
+  // A moderator removed or cancelled someone else's event.
+  MODERATION_ACTION_EVENT_REMOVED = 29;
+  MODERATION_ACTION_INVITE_REVOKED = 30;
+}
+
+// A decision about a hidden post.
+enum ReviewDecision {
+  REVIEW_DECISION_UNSPECIFIED = 0;
+  REVIEW_DECISION_RESTORE = 1;
+  REVIEW_DECISION_REMOVE = 2;
+}
+
+// A thread or a reply.
+message PostRef {
+  oneof post {
+    string thread_id = 1;
+    string reply_id = 2;
+  }
+}
+
+message Ban {
+  tokuly.common.v1.UserSummary user = 1;
+  string reason = 2;
+  tokuly.common.v1.UserSummary banned_by = 3;
+  // Unset = permanent.
+  google.protobuf.Timestamp expires_at = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message SafetySettings {
+  // Words and phrases (at most 200, each at most 40 characters). A post
+  // containing one is held for review. Matching ignores case and width.
+  repeated string muted_words = 1;
+  // Different members whose reports hide a post until reviewed; 0 = the
+  // server's default.
+  int32 auto_hide_reports = 2;
+  // The number in force (the community's, or the server's default).
+  int32 effective_auto_hide_reports = 3;
+}
+
+// A hidden post in the review queue.
+message ReviewItem {
+  oneof post {
+    Thread thread = 1;
+    Reply reply = 2;
+  }
+  HiddenReason reason = 3;
+  // Different members who reported it.
+  int32 report_count = 4;
+  google.protobuf.Timestamp hidden_at = 5;
+  // Title of the thread the post is, or belongs to.
+  string thread_title = 6;
+}
+
+message ModerationLogEntry {
+  string id = 1;
+  ModerationAction action = 2;
+  // Who did it; unset for automatic actions.
+  tokuly.common.v1.UserSummary actor = 3;
+  // The actor acted as site moderation, not as a member of the staff.
+  bool site_moderation = 4;
+  // The member it was done to. Unset when the action concerns an anonymous
+  // post: the log never unmasks an author.
+  tokuly.common.v1.UserSummary target_user = 5;
+  // The pseudonym of the author when the action concerns an anonymous post.
+  Pseudonym target_pseudonym = 6;
+  string thread_id = 7;
+  string reply_id = 8;
+  string channel_id = 9;
+  string event_id = 10;
+  string reason = 11;
+  // Action-specific values (see ModerationAction).
+  map<string, string> details = 12;
+  google.protobuf.Timestamp created_at = 13;
+}
+
+message RemoveMemberRequest {
+  string community_id = 1;
+  string user_id = 2;
+  // Told to the member; at most 300 characters.
+  string reason = 3;
+}
+
+message RemoveMemberResponse {}
+
+message BanMemberRequest {
+  string community_id = 1;
+  string user_id = 2;
+  // Required; told to the user; at most 300 characters.
+  string reason = 3;
+  // Unset = permanent. Must be in the future.
+  google.protobuf.Timestamp expires_at = 4;
+}
+
+message BanMemberResponse {
+  Ban ban = 1;
+}
+
+message UnbanMemberRequest {
+  string community_id = 1;
+  string user_id = 2;
+}
+
+message UnbanMemberResponse {}
+
+message ListBansRequest {
+  string community_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListBansResponse {
+  repeated Ban bans = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message TimeoutMemberRequest {
+  string community_id = 1;
+  string user_id = 2;
+  // 60 seconds to 28 days.
+  int32 duration_seconds = 3;
+  // Told to the member; at most 300 characters.
+  string reason = 4;
+}
+
+message TimeoutMemberResponse {
+  Member member = 1;
+}
+
+message ClearTimeoutRequest {
+  string community_id = 1;
+  string user_id = 2;
+}
+
+message ClearTimeoutResponse {
+  Member member = 1;
+}
+
+message GetSafetySettingsRequest {
+  string community_id = 1;
+}
+
+message GetSafetySettingsResponse {
+  SafetySettings settings = 1;
+}
+
+message UpdateSafetySettingsRequest {
+  string community_id = 1;
+  StringList muted_words = 2;
+  // 0 = the server's default, otherwise 2-50.
+  optional int32 auto_hide_reports = 3;
+}
+
+message UpdateSafetySettingsResponse {
+  SafetySettings settings = 1;
+}
+
+message SetSlowModeRequest {
+  string channel_id = 1;
+  // 0 = off, at most 21600.
+  int32 seconds = 2;
+}
+
+message SetSlowModeResponse {
+  Channel channel = 1;
+}
+
+message ListReviewQueueRequest {
+  string community_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListReviewQueueResponse {
+  repeated ReviewItem items = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ReviewPostRequest {
+  PostRef post = 1;
+  ReviewDecision decision = 2;
+  // Told to the author when the post is removed; at most 300 characters.
+  string reason = 3;
+}
+
+message ReviewPostResponse {}
+
+message RevealAuthorRequest {
+  PostRef post = 1;
+  // Why the author must be known; required, at most 300 characters.
+  string reason = 2;
+}
+
+message RevealAuthorResponse {
+  tokuly.common.v1.UserSummary author = 1;
+  // Their role in the community; unspecified when they are no longer a member.
+  MemberRole role = 2;
+}
+
+// A thread, a reply or an event.
+message ContentRef {
+  oneof content {
+    string thread_id = 1;
+    string reply_id = 2;
+    string event_id = 3;
+  }
+}
+
+// What a post or an event said before one of its edits.
+message ContentRevision {
+  // Empty for replies.
+  string title = 1;
+  // The body of a post. For an event: its description, then its place
+  // (name, address) and link, each on a line of its own.
+  string body = 2;
+  // When this version was replaced.
+  google.protobuf.Timestamp replaced_at = 3;
+}
+
+message GetContentHistoryRequest {
+  ContentRef content = 1;
+}
+
+message GetContentHistoryResponse {
+  // What it says now (for a removed one: what it said when it was removed).
+  oneof current {
+    Thread thread = 1;
+    Reply reply = 2;
+    CalendarEvent event = 3;
+  }
+  // Set when it was removed.
+  google.protobuf.Timestamp removed_at = 4;
+  // Earlier versions, oldest first.
+  repeated ContentRevision revisions = 5;
+}
+
+message ListModerationLogRequest {
+  string community_id = 1;
+  // Only entries of this action; unspecified = all.
+  ModerationAction action = 2;
+  tokuly.common.v1.PageRequest page = 3;
+}
+
+message ListModerationLogResponse {
+  repeated ModerationLogEntry entries = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// ───────────────────────────── Events ─────────────────────────────
+
+// Events of a community: a time, a place (or online), a capacity with a
+// waitlist, RSVP, reminders and check-in.
+//
+// Reading follows the community (public: everyone; otherwise members).
+service CommunityEventService {
+  // Creates an event; the caller is its organiser and is going.
+  // Needs CREATE_EVENT.
+  // Errors: COMMUNITY_NOT_FOUND, PERMISSION_DENIED, TIMED_OUT, TITLE_INVALID,
+  // DESCRIPTION_TOO_LONG, TIME_INVALID (start in the past, end before start,
+  // longer than 31 days), PLACE_INVALID, URL_INVALID, CAPACITY_INVALID,
+  // ASSET_NOT_FOUND, ASSET_NOT_READY, ASSET_NOT_IMAGE, ASSET_WRONG_PURPOSE,
+  // RATE_LIMITED.
+  rpc CreateEvent(CreateEventRequest) returns (CreateEventResponse);
+  // Edits an event. Raising the capacity lets people off the waitlist;
+  // moving the start tells everyone who answered. What the title, the
+  // description, the place and the link said before stays on file for the
+  // staff, and they can be reworded 30 times. The organiser, or a member
+  // with MODERATE_CONTENT.
+  // Errors: EVENT_NOT_FOUND, PERMISSION_DENIED, EVENT_CANCELLED,
+  // TOO_MANY_EDITS, RATE_LIMITED, plus the validation errors of CreateEvent.
+  rpc UpdateEvent(UpdateEventRequest) returns (UpdateEventResponse);
+  // Calls an event off; it stays visible as cancelled and everyone who
+  // answered is told. The organiser, or a member with MODERATE_CONTENT.
+  // Errors: EVENT_NOT_FOUND, PERMISSION_DENIED, REASON_TOO_LONG.
+  rpc CancelEvent(CancelEventRequest) returns (CancelEventResponse);
+  // Removes an event. The organiser, or a member with MODERATE_CONTENT.
+  // Errors: EVENT_NOT_FOUND, PERMISSION_DENIED.
+  rpc DeleteEvent(DeleteEventRequest) returns (DeleteEventResponse);
+  // One event. Errors: EVENT_NOT_FOUND, NOT_A_MEMBER.
+  rpc GetEvent(GetEventRequest) returns (GetEventResponse);
+  // The community's calendar: events overlapping a time range, earliest
+  // first. Without a range: upcoming and running events (or past ones,
+  // latest first). Errors: COMMUNITY_NOT_FOUND, NOT_A_MEMBER, RANGE_INVALID.
+  rpc ListEvents(ListEventsRequest) returns (ListEventsResponse);
+  // The caller's calendar across communities: upcoming and running events
+  // they are going to, waitlisted for or interested in, earliest first.
+  rpc ListMyEvents(ListMyEventsRequest) returns (ListMyEventsResponse);
+  // Answers an event: going, interested or not going. When the event is
+  // full, "going" puts the caller on the waitlist; whoever is first on it
+  // moves up automatically when a place frees. Members only.
+  // Errors: EVENT_NOT_FOUND, NOT_A_MEMBER, TIMED_OUT, EVENT_CANCELLED,
+  // EVENT_ENDED, ANSWER_INVALID.
+  rpc Rsvp(RsvpRequest) returns (RsvpResponse);
+  // Who answered, by answer. Members see who is going, waitlisted and
+  // interested; check-in times are for the organiser and the staff.
+  // Errors: EVENT_NOT_FOUND, NOT_A_MEMBER.
+  rpc ListAttendees(ListAttendeesRequest) returns (ListAttendeesResponse);
+  // The code the organiser shows at the venue. It changes every minute or
+  // so; attendees enter the one on screen. The organiser, or a member with
+  // MODERATE_CONTENT. Errors: EVENT_NOT_FOUND, PERMISSION_DENIED,
+  // EVENT_CANCELLED, CHECK_IN_CLOSED (opens 1 hour before the start, closes
+  // 6 hours after the end).
+  rpc GetCheckInCode(GetCheckInCodeRequest) returns (GetCheckInCodeResponse);
+  // Checks the caller in with the code on the organiser's screen. Anyone
+  // who is going may check in; checking in twice changes nothing.
+  // Errors: EVENT_NOT_FOUND, NOT_A_MEMBER, NOT_GOING, EVENT_CANCELLED,
+  // CHECK_IN_CLOSED, CODE_INVALID, RATE_LIMITED.
+  rpc CheckIn(CheckInRequest) returns (CheckInResponse);
+  // Checks an attendee in by hand (a dead phone): a member who answered
+  // that they are going. The organiser confirms that answer and cannot
+  // give one for the member. The organiser, or a member with
+  // MODERATE_CONTENT. Errors: EVENT_NOT_FOUND, PERMISSION_DENIED,
+  // MEMBER_NOT_FOUND, NOT_GOING, EVENT_CANCELLED, CHECK_IN_CLOSED,
+  // RATE_LIMITED.
+  rpc CheckInAttendee(CheckInAttendeeRequest) returns (CheckInAttendeeResponse);
+}
+
+// An answer to an event.
+enum RsvpAnswer {
+  RSVP_ANSWER_UNSPECIFIED = 0;
+  RSVP_ANSWER_GOING = 1;
+  RSVP_ANSWER_INTERESTED = 2;
+  RSVP_ANSWER_NOT_GOING = 3;
+}
+
+// Where a member stands with an event.
+enum AttendanceStatus {
+  ATTENDANCE_STATUS_UNSPECIFIED = 0;
+  ATTENDANCE_STATUS_GOING = 1;
+  // Wants to go; the event is full.
+  ATTENDANCE_STATUS_WAITLISTED = 2;
+  ATTENDANCE_STATUS_INTERESTED = 3;
+  ATTENDANCE_STATUS_NOT_GOING = 4;
+}
+
+// Where an event takes place.
+message EventPlace {
+  // 1-100 characters, e.g. "第2体育館".
+  string name = 1;
+  // Optional address, at most 200 characters.
+  string address = 2;
+  // Optional pin on the map.
+  tokuly.common.v1.LatLng location = 3;
+}
+
+// An event on a community's calendar.
+message CalendarEvent {
+  string id = 1;
+  string community_id = 2;
+  tokuly.common.v1.UserSummary organizer = 3;
+  // 1-100 characters.
+  string title = 4;
+  // At most 3000 characters.
+  string description = 5;
+  google.protobuf.Timestamp starts_at = 6;
+  google.protobuf.Timestamp ends_at = 7;
+  // Unset for online events.
+  EventPlace place = 8;
+  // The event happens online.
+  bool online = 9;
+  // Where to join an online event (https). Shown to members who are going.
+  string online_url = 10;
+  tokuly.common.v1.Image cover = 11;
+  // Places; 0 = unlimited.
+  int32 capacity = 12;
+  int32 going_count = 13;
+  int32 waitlist_count = 14;
+  int32 interested_count = 15;
+  // Members who checked in.
+  int32 attended_count = 16;
+  bool cancelled = 17;
+  // Why it was called off.
+  string cancel_reason = 18;
+  int64 like_count = 19;
+  int32 comment_count = 20;
+  google.protobuf.Timestamp created_at = 21;
+  // Path of the event in the web app.
+  string path = 22;
+  // Unset for anonymous callers.
+  CalendarEventViewer viewer = 23;
+}
+
+message CalendarEventViewer {
+  // Unspecified when the caller has not answered.
+  AttendanceStatus status = 1;
+  // Position on the waitlist from 1; 0 when not waitlisted.
+  int32 waitlist_position = 2;
+  google.protobuf.Timestamp checked_in_at = 3;
+  // The caller may edit, cancel and run check-in.
+  bool can_manage = 4;
+}
+
+message Attendee {
+  tokuly.common.v1.UserSummary user = 1;
+  AttendanceStatus status = 2;
+  google.protobuf.Timestamp responded_at = 3;
+  // Only for the organiser and the staff.
+  google.protobuf.Timestamp checked_in_at = 4;
+}
+
+message CreateEventRequest {
+  string community_id = 1;
+  string title = 2;
+  string description = 3;
+  google.protobuf.Timestamp starts_at = 4;
+  // Unset = two hours after the start.
+  google.protobuf.Timestamp ends_at = 5;
+  // Required unless `online`.
+  EventPlace place = 6;
+  bool online = 7;
+  string online_url = 8;
+  // Image upload (purpose BANNER, CHANNEL_BANNER, NOTE_IMAGE or THUMBNAIL).
+  string cover_asset_id = 9;
+  // 0 = unlimited, at most 100000.
+  int32 capacity = 10;
+}
+
+message CreateEventResponse {
+  CalendarEvent event = 1;
+}
+
+message UpdateEventRequest {
+  string event_id = 1;
+  optional string title = 2;
+  optional string description = 3;
+  google.protobuf.Timestamp starts_at = 4;
+  google.protobuf.Timestamp ends_at = 5;
+  // Setting a place makes the event an in-person one.
+  EventPlace place = 6;
+  // True makes it an online event (the place is dropped).
+  optional bool online = 7;
+  optional string online_url = 8;
+  // Empty string removes the cover.
+  optional string cover_asset_id = 9;
+  optional int32 capacity = 10;
+}
+
+message UpdateEventResponse {
+  CalendarEvent event = 1;
+}
+
+message CancelEventRequest {
+  string event_id = 1;
+  // Told to everyone who answered; at most 300 characters.
+  string reason = 2;
+}
+
+message CancelEventResponse {
+  CalendarEvent event = 1;
+}
+
+message DeleteEventRequest {
+  string event_id = 1;
+}
+
+message DeleteEventResponse {}
+
+message GetEventRequest {
+  string event_id = 1;
+}
+
+message GetEventResponse {
+  CalendarEvent event = 1;
+}
+
+message ListEventsRequest {
+  string community_id = 1;
+  // Calendar range (both or neither); at most 92 days.
+  google.protobuf.Timestamp from = 2;
+  google.protobuf.Timestamp to = 3;
+  // Without a range: events that are over, latest first.
+  bool past = 4;
+  tokuly.common.v1.PageRequest page = 5;
+}
+
+message ListEventsResponse {
+  repeated CalendarEvent events = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListMyEventsRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListMyEventsResponse {
+  repeated CalendarEvent events = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message RsvpRequest {
+  string event_id = 1;
+  RsvpAnswer answer = 2;
+}
+
+message RsvpResponse {
+  CalendarEvent event = 1;
+}
+
+message ListAttendeesRequest {
+  string event_id = 1;
+  // Only this status; unspecified = going.
+  AttendanceStatus status = 2;
+  // Only members who checked in (organiser and staff).
+  bool checked_in_only = 3;
+  tokuly.common.v1.PageRequest page = 4;
+}
+
+message ListAttendeesResponse {
+  repeated Attendee attendees = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message GetCheckInCodeRequest {
+  string event_id = 1;
+}
+
+message GetCheckInCodeResponse {
+  // 6 digits.
+  string code = 1;
+  // When this code stops being shown; ask again then. (A code is accepted
+  // a little longer than it is shown.)
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+message CheckInRequest {
+  string event_id = 1;
+  string code = 2;
+}
+
+message CheckInResponse {
+  CalendarEvent event = 1;
+}
+
+message CheckInAttendeeRequest {
+  string event_id = 1;
+  string user_id = 2;
+}
+
+message CheckInAttendeeResponse {
+  Attendee attendee = 1;
+}
+
+// ───────────────────────────── Discovery ─────────────────────────────
+
+// Finding communities. Only listed communities (public and restricted) ever
+// appear; hidden ones are reached by invite. Works anonymously unless noted.
+service CommunityDiscoveryService {
+  // The directory: listed communities by category, tag, language and name.
+  // Errors: QUERY_TOO_LONG, TAG_INVALID, SORT_INVALID, RATE_LIMITED.
+  rpc ListDirectory(ListDirectoryRequest) returns (ListDirectoryResponse);
+  // Communities that are growing and busy right now, best first. The score
+  // (new members and posts of the last week, relative to size) is
+  // recomputed by a worker.
+  rpc ListTrending(ListTrendingRequest) returns (ListTrendingResponse);
+  // Public communities the caller's friends are in — only friends who show
+  // that membership on their profile — with those friends, most friends
+  // first. Communities the caller is in are left out. Signed-in only.
+  rpc ListFriendsCommunities(ListFriendsCommunitiesRequest) returns (ListFriendsCommunitiesResponse);
+  // SCHOOL and CLUB communities of the caller's school (the school name on
+  // their profile), largest first. Empty when the caller set no school.
+  // Signed-in only.
+  rpc ListSchoolCommunities(ListSchoolCommunitiesRequest) returns (ListSchoolCommunitiesResponse);
+  // The most used tags among listed communities, optionally of one category.
+  rpc ListPopularTags(ListPopularTagsRequest) returns (ListPopularTagsResponse);
+}
+
+// Order of the directory.
+enum DirectorySort {
+  DIRECTORY_SORT_UNSPECIFIED = 0;
+  // Most members first. The default.
+  DIRECTORY_SORT_MEMBERS = 1;
+  // Newest first.
+  DIRECTORY_SORT_NEW = 2;
+  // Most recently active first.
+  DIRECTORY_SORT_ACTIVE = 3;
+}
+
+message ListDirectoryRequest {
+  // Unspecified = every category.
+  CommunityCategory category = 1;
+  // Only communities carrying this tag.
+  string tag = 2;
+  // Only communities in this language (locale tag).
+  string language = 3;
+  // Matches names, handles and descriptions; at most 64 characters.
+  string query = 4;
+  DirectorySort sort = 5;
+  tokuly.common.v1.PageRequest page = 6;
+}
+
+message ListDirectoryResponse {
+  repeated Community communities = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListTrendingRequest {
+  CommunityCategory category = 1;
+  // At most 50; 0 = 20.
+  int32 limit = 2;
+}
+
+message ListTrendingResponse {
+  repeated Community communities = 1;
+}
+
+// A community some of the caller's friends are in.
+message FriendsCommunity {
+  Community community = 1;
+  // Up to 3 of the friends who are members.
+  repeated tokuly.common.v1.UserSummary friends = 2;
+  int32 friend_count = 3;
+}
+
+message ListFriendsCommunitiesRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListFriendsCommunitiesResponse {
+  repeated FriendsCommunity communities = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListSchoolCommunitiesRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListSchoolCommunitiesResponse {
+  repeated Community communities = 1;
+  tokuly.common.v1.PageInfo page = 2;
+  // The school the list is for; empty when the caller set none.
+  string school_name = 3;
+}
+
+message ListPopularTagsRequest {
+  CommunityCategory category = 1;
+  // At most 100; 0 = 30.
+  int32 limit = 2;
+}
+
+message TagCount {
+  string tag = 1;
+  int32 community_count = 2;
+}
+
+message ListPopularTagsResponse {
+  repeated TagCount tags = 1;
+}
+
+// ───────────────────────────── Realtime ─────────────────────────────
+
 // Pushed over the realtime gateway (tokuly.realtime.v1.ServerFrame.community).
+//
+// Board and calendar events travel on the topic `community:<community id>`,
+// which members may follow (anyone, for a public community). Membership and
+// staff events go straight to the users concerned.
+//
+// Posts on the topic carry no viewer state. A post is left out of its event
+// (only the IDs are sent) when its author has a block with anyone — clients
+// then fetch it with GetThread / GetReply, which apply the caller's blocks.
+// Hidden posts never appear on the topic.
 message CommunityEvent {
-  // Placeholder so the realtime envelope compiles; replace with a oneof of real events.
-  tokuly.common.v1.SubjectRef subject = 1;
+  oneof event {
+    ThreadCreated thread_created = 1;
+    ThreadUpdated thread_updated = 2;
+    ThreadRemoved thread_removed = 3;
+    ReplyCreated reply_created = 4;
+    ReplyUpdated reply_updated = 5;
+    ReplyRemoved reply_removed = 6;
+    ThreadCountsChanged thread_counts_changed = 7;
+    ChannelsChanged channels_changed = 8;
+    CalendarEventChanged calendar_event_changed = 9;
+    CommunityChanged community_changed = 10;
+    MembershipChanged membership_changed = 11;
+    StaffQueueChanged staff_queue_changed = 12;
+    AuthorRevealed author_revealed = 13;
+  }
+}
+
+// A thread entered public view: posted, or restored after review.
+message ThreadCreated {
+  string community_id = 1;
+  string channel_id = 2;
+  string thread_id = 3;
+  // Unset when the thread must be fetched (see CommunityEvent).
+  Thread thread = 4;
+}
+
+// A thread was edited, pinned, locked, marked as an announcement, or its
+// poll changed.
+message ThreadUpdated {
+  string community_id = 1;
+  string thread_id = 2;
+  Thread thread = 3;
+}
+
+// A thread left public view: deleted, hidden or taken down.
+message ThreadRemoved {
+  string community_id = 1;
+  string channel_id = 2;
+  string thread_id = 3;
+}
+
+// A reply entered public view.
+message ReplyCreated {
+  string community_id = 1;
+  string thread_id = 2;
+  string reply_id = 3;
+  // Unset when the reply must be fetched (see CommunityEvent).
+  Reply reply = 4;
+  // The thread's reply count after it.
+  int32 reply_count = 5;
+}
+
+message ReplyUpdated {
+  string community_id = 1;
+  string thread_id = 2;
+  string reply_id = 3;
+  Reply reply = 4;
+}
+
+// A reply left public view.
+message ReplyRemoved {
+  string community_id = 1;
+  string thread_id = 2;
+  string reply_id = 3;
+  int32 reply_count = 4;
+}
+
+// Counters of a thread changed (likes and comments arrive at most about
+// once a second per thread).
+message ThreadCountsChanged {
+  string community_id = 1;
+  string thread_id = 2;
+  int32 reply_count = 3;
+  int64 like_count = 4;
+  int32 comment_count = 5;
+}
+
+// The channel list changed (created, edited, reordered, deleted, slow
+// mode): fetch it again.
+message ChannelsChanged {
+  string community_id = 1;
+}
+
+// An event was created, edited, cancelled, removed, or its counters moved.
+message CalendarEventChanged {
+  string community_id = 1;
+  string event_id = 2;
+  // Unset when the event was removed.
+  CalendarEvent event = 3;
+}
+
+// The community's profile or member count changed.
+message CommunityChanged {
+  string community_id = 1;
+  int32 member_count = 2;
+  // The community was closed.
+  bool deleted = 3;
+}
+
+// To one user: their relation to a community changed (joined, request
+// approved, role changed, timed out, removed, banned).
+message MembershipChanged {
+  string community_id = 1;
+  MembershipStatus status = 2;
+  MemberRole role = 3;
+  google.protobuf.Timestamp timeout_until = 4;
+}
+
+// To the staff: the number of join requests or of posts waiting for review
+// changed.
+message StaffQueueChanged {
+  string community_id = 1;
+  int32 pending_request_count = 2;
+  int32 review_queue_count = 3;
+}
+
+// To the staff: someone looked up the author of an anonymous post. The
+// author is not named here.
+message AuthorRevealed {
+  string community_id = 1;
+  // Who looked.
+  tokuly.common.v1.UserSummary actor = 2;
+  string thread_id = 3;
+  // Set when the post is a reply.
+  string reply_id = 4;
+  string reason = 5;
 }
