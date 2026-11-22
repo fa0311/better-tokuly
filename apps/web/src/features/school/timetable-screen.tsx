@@ -4,6 +4,7 @@ import { school } from "@tokuly/api";
 import { CalendarOff, Check, Eraser, MoreHorizontal, Pencil, Plus, Share2, Shapes, SquarePen, Trash2, Users } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Chip } from "#/components/ui/card";
 import { Dialog } from "#/components/ui/dialog";
@@ -24,6 +25,18 @@ const ERASER = "eraser";
 const PAINT = ["school", "timetable", "paint"] as const;
 
 type TermData = school.GetTermResponse;
+
+/** What undoing a paint or an erase does: classes to take out again, classes to put back. */
+interface UndoInput {
+  termId: string;
+  removeIds: string[];
+  restore: school.TimetableEntry[];
+}
+
+const UNDO_TOAST = "school-timetable-undo";
+
+/** A class the server has (not one drawn ahead of its answer). */
+const isSaved = (entry: school.TimetableEntry) => !entry.id.startsWith("pending-");
 
 /**
  * The caller's weekly timetable. Looking at it, a class opens its details;
@@ -61,27 +74,71 @@ export function TimetableScreen({ termId, onTermChange }: { termId?: string; onT
     void queryClient.invalidateQueries({ queryKey: ["school", "timetable"], predicate: (query) => query.queryKey[2] !== "term" });
   };
 
+  /** Offers to take back the paint or erase that just went through (one toast: the last tap is the one that can be undone). */
+  const offerUndo = (message: string, input: UndoInput) =>
+    toast(message, { id: UNDO_TOAST, duration: 6000, action: { label: t("timetable.undo"), onClick: () => undo.mutate(input) } });
+
   const put = useMutation({
     mutationKey: PAINT,
     mutationFn: (input: { termId: string; weekday: school.Weekday; period: number; weekPattern: school.WeekPattern; subject: school.Subject }) =>
       timetableClient().putTimetableEntries({ termId: input.termId, entries: [{ weekday: input.weekday, period: input.period, weekPattern: input.weekPattern, subjectId: input.subject.id }] }),
-    onMutate: (input) => {
+    onMutate: async (input) => {
+      // A refetch that is on its way would paint the old grid over this tap.
+      await queryClient.cancelQueries({ queryKey: keys.term(input.termId) });
       const optimistic = { id: `pending-${input.weekday}-${input.period}-${input.weekPattern}`, termId: input.termId, weekday: input.weekday, period: input.period, weekPattern: input.weekPattern, subject: input.subject, teacher: "", room: "", color: "", memo: "" } as school.TimetableEntry;
-      patchEntries(input.termId, (current) => [...current.filter((entry) => !collides(entry, input.weekday, input.period, input.weekPattern)), optimistic]);
+      // What this tap pushes out of the slot: kept to put back if the server refuses, and for undo.
+      const displaced = (queryClient.getQueryData<TermData>(keys.term(input.termId))?.entries ?? []).filter((entry) => collides(entry, input.weekday, input.period, input.weekPattern));
+      patchEntries(input.termId, (current) => [...current.filter((entry) => !displaced.includes(entry)), optimistic]);
+      return { displaced, optimisticId: optimistic.id };
     },
     // The saved class takes the place of the one drawn ahead of the answer, so it can be tapped away at once.
-    onSuccess: (response, input) =>
+    onSuccess: (response, input, context) => {
       patchEntries(input.termId, (current) => [
         ...current.filter((entry) => !collides(entry, input.weekday, input.period, input.weekPattern) && !response.replacedEntryIds.includes(entry.id)),
         ...response.entries,
-      ]),
-    onError: toastError,
+      ]);
+      offerUndo(t("timetable.placed", { subject: input.subject.name }), { termId: input.termId, removeIds: response.entries.map((entry) => entry.id), restore: context.displaced.filter(isSaved) });
+    },
+    // Only this tap is taken back (the slot as it was), so taps made since stay on the grid.
+    onError: (error, input, context) => {
+      if (context) patchEntries(input.termId, (current) => [...current.filter((entry) => entry.id !== context.optimisticId), ...context.displaced.filter((entry) => !current.includes(entry))]);
+      toastError(error);
+    },
     onSettled: (_data, _error, input) => settle(input.termId),
   });
   const erase = useMutation({
     mutationKey: PAINT,
     mutationFn: (input: { termId: string; entryIds: string[] }) => timetableClient().deleteTimetableEntries(input),
-    onMutate: (input) => patchEntries(input.termId, (current) => current.filter((entry) => !input.entryIds.includes(entry.id))),
+    onMutate: async (input) => {
+      await queryClient.cancelQueries({ queryKey: keys.term(input.termId) });
+      const removed = (queryClient.getQueryData<TermData>(keys.term(input.termId))?.entries ?? []).filter((entry) => input.entryIds.includes(entry.id));
+      patchEntries(input.termId, (current) => current.filter((entry) => !removed.includes(entry)));
+      return { removed };
+    },
+    onSuccess: (_response, input, context) => offerUndo(t("timetable.cleared"), { termId: input.termId, removeIds: [], restore: context.removed }),
+    onError: (error, input, context) => {
+      if (context) patchEntries(input.termId, (current) => [...current, ...context.removed.filter((entry) => !current.some((other) => other.id === entry.id))]);
+      toastError(error);
+    },
+    onSettled: (_data, _error, input) => settle(input.termId),
+  });
+  /** Takes the last paint or erase back: what it added goes, what it removed returns with its room, teacher and memo. */
+  const undo = useMutation({
+    mutationKey: PAINT,
+    mutationFn: async (input: UndoInput) => {
+      if (input.removeIds.length > 0) await timetableClient().deleteTimetableEntries({ termId: input.termId, entryIds: input.removeIds });
+      if (input.restore.length > 0) {
+        await timetableClient().putTimetableEntries({
+          termId: input.termId,
+          entries: input.restore.map((entry) => ({ weekday: entry.weekday, period: entry.period, weekPattern: entry.weekPattern || school.WeekPattern.EVERY, subjectId: entry.subject?.id ?? "", teacher: entry.teacher, room: entry.room, color: entry.color, memo: entry.memo })),
+        });
+      }
+    },
+    onMutate: async (input) => {
+      await queryClient.cancelQueries({ queryKey: keys.term(input.termId) });
+      patchEntries(input.termId, (current) => [...current.filter((entry) => !input.removeIds.includes(entry.id)), ...input.restore]);
+    },
+    onSuccess: () => toast.success(t("timetable.undone"), { id: UNDO_TOAST }),
     onError: toastError,
     onSettled: (_data, _error, input) => settle(input.termId),
   });
