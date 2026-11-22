@@ -23,8 +23,9 @@ tokuly_live::access::can_watch(&viewer, &stream.facts()) -> bool
 ```
 
 A READY clip's `asset_id` is a READY video asset (`ASSET_PURPOSE_SHORT`)
-owned by `creator_id` and held by `live:clip:<clip_id>`; a domain that reuses
-it attaches its own holder.
+owned by the **owner of the channel** it was cut from (`owner_id`, not the
+person who cut it) and held by `live:clip:<clip_id>`; a domain that reuses it
+attaches its own holder.
 
 **Wiring the server has to do** (`crates/server/src/app.rs`):
 
@@ -32,17 +33,19 @@ it attaches its own holder.
   registers the guards of the `live:` and `overlay:` realtime topics, which
   the gateway needs), `register` it, `spawn_workers` in worker processes, add
   `LiveConfig` to `DomainConfigs`;
-- mount `live.http_routes()` at `/hooks/live` on the API listener. **This
-  route is for the media server only and must not be reachable through the
-  edge**: the Caddyfile forwards `/api/*` to the API with the prefix stripped,
-  so `/api/hooks/*` has to be refused there. The route also checks the shared
-  secret itself;
+- mount `live.http_routes()` at `/hooks/live` on the API listener, served
+  with `into_make_service_with_connect_info::<SocketAddr>()` (it is today):
+  the hook counts wrong secrets per peer address. **This route is for the
+  media server only** (see "Who may call the hook" below for what the edge
+  has to block);
 - add MediaMTX to `compose.yaml` with `infra/mediamtx/mediamtx.yml`, a volume
   for `/recordings` shared with the worker (`TOKULY_LIVE_RECORDINGS_DIR`),
-  `MTX_AUTHHTTPADDRESS=http://api:8081/hooks/live/auth?secret=<TOKULY_LIVE_HOOK_SECRET>`
+  `MTX_AUTHHTTPADDRESS=http://mediamtx:<TOKULY_LIVE_HOOK_SECRET>@api:8081/hooks/live/auth`
   and `MTX_WEBRTCADDITIONALHOSTS=<public host>`; publish 1935 (RTMP),
   8890/udp (SRT), 8888 (HLS), 8889 + 8189/udp (WebRTC) and 9996 (DVR), not
-  9997 (control API). The worker needs `ffmpeg` and `ffprobe`.
+  9997 (control API). The API and the worker get `TOKULY_LIVE_HOOK_SECRET`
+  and `TOKULY_MEDIAMTX_API_SECRET` (two different values). The worker needs
+  `ffmpeg` and `ffprobe`.
 
 ## The media server
 
@@ -54,13 +57,73 @@ uses the playback server or its control API:
 |---|---|
 | `publish` | the path is a stream that is not over, deleted or suspended, and the credential (`token`, or `password` for SRT) is its stream key |
 | `read` | the stream is on air and PUBLIC / NO_FEED / UNLISTED; otherwise the request carries a valid playback token (`?t=`, or as bearer token) |
-| `playback` | as `read`, DVR is on for the stream, and `start` lies within `TOKULY_LIVE_DVR_WINDOW_SECONDS` |
-| `api`, `metrics`, `pprof` | user `tokuly` with the hook secret as password (the worker) |
+| `playback` | as `read`; the stream is on air with DVR on, and `start` lies after `started_at` and within `TOKULY_LIVE_DVR_WINDOW_SECONDS` |
+| `api`, `metrics`, `pprof` | user `tokuly` with `TOKULY_MEDIAMTX_API_SECRET` as password (the worker) |
 
-Stream keys are stored encrypted and hashed; playback tokens are a keyed hash
-of the stream name and an expiry (6 h), handed out by `GetStream` to whoever
-may watch a restricted stream, and to the owner for the preview before going
-on air.
+MediaMTX records everything an encoder sends, also the owner's preview before
+the stream goes on air. Rewinding never reaches that: a `start` before
+`started_at` is refused, a stream that is not on air (not yet, or over) has no
+DVR at all, and clips and the archive are cut from `started_at` on.
+
+### Who may call the hook
+
+Only MediaMTX. It proves it with `TOKULY_LIVE_HOOK_SECRET` in the
+`Authorization` header: the credentials in `authHTTPAddress`
+(`http://mediamtx:<secret>@api:8081/hooks/live/auth`) are sent as HTTP Basic,
+and `Bearer <secret>` is accepted as well. The secret is **not** read from the
+URL any more (`?secret=` is refused), so it does not end up in access logs.
+
+- A peer address that presents a wrong secret 10 times within a minute gets
+  `429` for the rest of that minute, whatever it sends
+  (`live:hook-failures:<address>`). A wrong secret is `403`.
+- The hook secret and the control API secret are two secrets
+  (`LiveConfig::validate` refuses equal ones): whoever learns the one MediaMTX
+  holds cannot read or kick paths with it, and the hook does not accept the
+  API secret.
+
+**What the edge must block.** The hook answers on the API listener at
+`/hooks/live/auth`. The Caddyfile forwards `/api/*` to that listener with the
+prefix stripped, so the edge has to refuse, for every method:
+
+- `/api/hooks/*` (which would arrive as `/hooks/*`), and `/hooks/*` itself if
+  the edge ever forwards unprefixed paths to the API;
+
+and the stack must not publish the API listener's port (8081) or MediaMTX's
+control API (9997) to the outside. Behind the edge every request would also
+share the edge's address, so the per-address lockout would be one bucket for
+everyone: the block is what protects the hook, the lockout is the second line.
+
+### Playback tokens
+
+Stream keys are stored encrypted and hashed. A playback token is
+`<expiry>.<viewer>.<keyed hash of stream, viewer and expiry>`: it opens one
+stream, for 15 minutes, and names the account it was made for. `GetStream`
+hands it out to whoever may watch a restricted stream (and to the owner for
+the preview before going on air); every `ReportWatching` answer carries fresh
+playback URLs, so a player that keeps reporting always holds a valid token.
+A token is only needed to **open** a media session (an HLS session keeps its
+query, a WebRTC session stays connected), so the short life does not interrupt
+anyone who is watching.
+
+When a token opens a session the hook remembers `session → viewer`
+(`live:sessions:<stream>`). `Live::enforce_access(&stream)` then cuts, on the
+media server, every reader of a restricted stream that came in without a token
+or whose viewer may no longer watch. It runs
+
+- when `UpdateStream` changes the visibility,
+- on `social.friend.removed` and `social.user.blocked` (for the restricted
+  live streams of both people),
+- every tenth reconciler run for restricted streams with readers (the safety
+  net for anything missed).
+
+What MediaMTX allows and what it does not: sessions can be kicked by ID
+(`/v3/{hls/sessions,webrtc/sessions,rtmp/conns,srt/conns}/kick/<id>`), and the
+auth request carries that ID, which is what the binding rests on. A token
+cannot be bound to an IP address or a device (HLS segments are fetched with
+the same query from wherever the player is), so a token that is passed on
+works for someone else for up to 15 minutes, as that viewer, and is cut
+together with them. The DVR (playback server) has no sessions: each request is
+authorized on its own, so there a lost access ends with the token (15 min).
 
 Lifecycle comes from the control API, not from hooks: the reconciler reads
 `/v3/paths/list` every `TOKULY_LIVE_RECONCILE_INTERVAL_SECONDS` and compares.
@@ -75,6 +138,17 @@ Viewer count = the largest of: readers of the path (each HLS session,
 WebRTC session, RTMP/SRT reader), connections subscribed to `live:<id>`
 (`presence::topic_audience`), and players reporting with `ReportWatching`.
 One person is usually in all three, so they are not added up.
+
+Guests are whatever `client_id` a request names, so they are capped: at most
+5 anonymous viewers per address (IPv4 address, IPv6 /64) count in one
+stream's audience at a time (`live:guests:<stream>:<address group>`); further
+ones are answered normally and not counted. And the directories ("live now",
+by game, by category) do **not** rank by this number: they order by
+`ranked_viewer_count`, the signed-in accounts among the heartbeats, which
+costs a real account per viewer to move. Known limit: the *displayed*
+`viewer_count` of a public stream can still be raised by opening many media
+sessions or realtime connections (from many addresses); it no longer buys a
+place in any list.
 
 Recording: MediaMTX writes fMP4 segments to
 `<recordings dir>/live/<short_id>/<unix seconds>-<microseconds>.mp4`
@@ -117,7 +191,8 @@ arrives twice, late, or after what it names is gone.
 | `admin.content.removed` | `LIVE_STREAM`: ended (no archive) and deleted. `CLIP`: deleted, its upload removed by force. `LIVE_CHAT_MESSAGE`: removed from the chat. |
 | `identity.user.deleted` | The user's streams are erased (not kept), the clips they cut or that were cut from their channels deleted, their chat messages, votes, reminders, moderator seats, restrictions, overlays and banned words removed. Gifts stay as bookkeeping with the user's ID nulled; unpaid ones are dropped. |
 | `identity.user.banned` / `.unbanned` | Only a signal to look: `live_streams.suspended` follows whether the account is banned *now* (the two can arrive in any order). A stream on air ends; streams leave or return to search. |
-| `social.user.blocked` | Moderator appointments and reminders between the two are removed. (A blocked user does not see the blocker's streams at all, immediately.) |
+| `social.user.blocked` | Moderator appointments and reminders between the two are removed, and the blocked person's media sessions on the blocker's restricted live streams are cut (`enforce_access`). (A blocked user does not see the blocker's streams at all, immediately.) |
+| `social.friend.removed` | The media sessions either of the two holds on the other's restricted (friends-only) live streams are cut. |
 
 ## Deleting, and what stays reportable
 
@@ -143,6 +218,24 @@ by an interrupted request is finished by the sender's next `SendGift` /
 `ListSentGifts` and by the sweep; one the wallet refuses is removed. The row
 is unique per sender and idempotency key.
 
+A gift whose stream was deleted while it was PENDING is not kept: when the
+payment went through, it is refunded (`ledger::refund`, reason
+`live.gift.returned`), the row is removed and the sender gets
+`failed_precondition` `GIFT_RETURNED`; the streamer earns nothing from it.
+Only when the refund is no longer possible (`REFUND_IMPOSSIBLE`) does the gift
+stand, as bookkeeping without a chat line.
+
+The transfer hides its recipient
+(`Wallet::transfer_with_fee_hiding_recipient`): a channel does not tell which
+account runs it, so the sender's wallet history, live balance update, data
+export and a later refund show the entry with `counterpart_hidden` and no
+counterpart; the memo names the channel and the stream. The streamer sees the
+sender (the chat showed the gift to everyone).
+
+Only SETTLED gifts count anywhere: totals, top supporters, goal widgets.
+Gift messages obey the chat's rules like any message: banned words, a ban or
+timeout, and `LINK_POLICY_BLOCK` (`LINKS_NOT_ALLOWED`).
+
 The wallet also sends its own `wallet.received` notification for the
 transfer; `live.gift` is additional and only sent while the streamer's
 dashboard is closed.
@@ -152,7 +245,24 @@ dashboard is closed.
 | Holder | Asset |
 |---|---|
 | `live:stream:<stream_id>` | the stream's thumbnail (`ASSET_PURPOSE_THUMBNAIL`) |
-| `live:clip:<clip_id>` | the clip's upload (`ASSET_PURPOSE_SHORT`, owned by the creator, created with `create_asset_from_file`) |
+| `live:clip:<clip_id>` | the clip's upload (`ASSET_PURPOSE_SHORT`, owned by the owner of the channel it was cut from, created with `create_asset_from_file`) |
+
+Clips and what they may expose:
+
+- A clip can only be cut from a source that is PUBLIC, NO_FEED or UNLISTED
+  (`CLIP_SOURCE_NOT_PUBLIC` otherwise, also for the owner and for friends who
+  may watch). A clip is made to be passed on; friends-only and private
+  broadcasts are not.
+- The upload belongs to the channel's owner, so the person who cut the clip
+  cannot attach it to a post, a short or a message of their own through the
+  media domain's "my uploads".
+- Not enforced here, because it needs a change in the media domain: a
+  dedicated asset purpose for clips (it is `ASSET_PURPOSE_SHORT` today, so
+  the *channel owner* could attach a clip's upload wherever a short's upload
+  is accepted, which is their own broadcast anyway).
+- A source that becomes restricted after a clip was cut hides the clip (it
+  follows its source's visibility); the upload stays until the clip is
+  deleted.
 
 The archive upload (`ASSET_PURPOSE_LIVE_ARCHIVE`, owned by the channel's
 owner) is held by the video it becomes.
@@ -178,14 +288,59 @@ Topics and their guards (registered in `Live::new`):
 
 - `live:<stream id>`: whoever may open the stream (guests for PUBLIC,
   NO_FEED and UNLISTED streams).
-- `overlay:<token>`: whoever presents a widget's token. After a rotation
-  nothing is published to the old topic any more (other processes notice
-  within 5 s).
+- `overlay:<topic key>`: a widget's topic. The topic key is derived from the
+  widget's token with a keyed hash (`live_overlays.topic_key`) and returned by
+  `GetOverlay.realtime_topic`; the token itself never appears in a topic name
+  (topic names travel in frames and logs), and the raw token is not a valid
+  topic. After a rotation the key changes with the token and nothing is
+  published to the old topic any more (other processes notice within 5 s).
 
 Known limits: the gateway checks a subscription once, so someone who is
 blocked or loses access keeps an open subscription until they reconnect; and
 a chat push goes to the whole topic, so two viewers who blocked each other
 still receive each other's lines live (lists and history filter them).
+
+## Moderators
+
+An appointed moderator acts on messages and people: delete, pin, time out,
+ban, banned words, end a poll. They answer to the streamer:
+
+- they cannot delete the streamer's messages (`CANNOT_MODERATE_STREAMER`);
+- chat-wide settings (`UpdateChatSettings`: on/off, audience, slow mode, link
+  policy, stamps) are the streamer's alone (`NOT_THE_STREAMER`), so a
+  moderator cannot close the chat on its owner;
+- they cannot restrict the streamer or each other, and a moderator who is
+  timed out or banned by the streamer is checked under the same lock as
+  anyone else: a message sent at the moment of the ban does not get through.
+
+## Overlay widgets
+
+A widget page is opened by its token (`/overlay/<token>`) inside the
+streamer's OBS. The token opens `GetOverlay`; the realtime topic is derived
+from it (above). Custom CSS may style the widget but must not make that
+browser fetch anything: `@import`, `url(…)`, `image-set(…)`, `@font-face`,
+`src:`, `expression(…)` and backslash escapes (which can spell any of those)
+are refused with `OVERLAY_CSS_UNSAFE`, as is `</style`.
+
+## Follow-ups for the web app
+
+Things this domain relies on the web client (or the edge) to do:
+
+- **The overlay page (`/overlay/<token>`) must send
+  `Referrer-Policy: no-referrer`** (and should not load third-party
+  resources at all): its URL is the widget's secret.
+- Subscribe to the topic in `GetOverlay.realtime_topic`; do not build a topic
+  name from the token (that topic does not exist).
+- Take new playback URLs from every `ReportWatching` answer (`playback`) and
+  use them the next time a media session is opened (reconnect, quality
+  switch, rewind): tokens of restricted streams live 15 minutes.
+- When a restricted stream's media session ends unexpectedly, call
+  `GetStream` before reconnecting: the viewer may have lost access.
+- Show `GIFT_RETURNED` as "the stream is gone, your coins are back", not as
+  a failure to retry.
+- Wallet history: an entry with `counterpart_hidden` has no counterpart to
+  show; label it from `reason` and `memo_json` (the channel).
+- The edge must refuse `/api/hooks/*` (see "Who may call the hook").
 
 ## Notification kinds
 
@@ -254,6 +409,9 @@ heartbeats are not tracked. No ClickHouse table of its own.
 | `live:archive:<stream>` | lock | one archive attempt at a time |
 | `live:reconcile` | lock, TTL 60 s | one reconciler at a time |
 | `live:media-down-since` | timestamp | since when MediaMTX does not answer |
+| `live:sessions:<stream>` | hash, TTL 1 day | media session ID → the viewer whose playback token opened it |
+| `live:guests:<stream>:<address group>` | sorted set, TTL 10 min | the (at most 5) anonymous viewers of one address counted in the audience |
+| `live:hook-failures:<address>` | counter, TTL 1 min | wrong hook secrets presented by a peer |
 
 ## Data export
 
@@ -266,7 +424,8 @@ chat restrictions, reminders, poll votes.
 | Variable (flag) | Default | Meaning |
 |---|---|---|
 | `TOKULY_MEDIAMTX_API_URL` (`--mediamtx-api-url`) | empty | MediaMTX control API, e.g. `http://mediamtx:9997`. Empty: streams can be managed but `GetIngestInfo` / `StartStream` answer `unavailable` `MEDIA_SERVER_NOT_CONFIGURED`. |
-| `TOKULY_LIVE_HOOK_SECRET` (`--live-hook-secret`) | empty | Shared with MediaMTX; required (16+ characters) when the API URL is set. |
+| `TOKULY_LIVE_HOOK_SECRET` (`--live-hook-secret`) | empty | What MediaMTX presents to the hook (in `authHTTPAddress`); required (16+ characters) when the API URL is set. |
+| `TOKULY_MEDIAMTX_API_SECRET` (`--mediamtx-api-secret`) | empty | What the worker presents to MediaMTX's control API; required (16+ characters, different from the hook secret) when the API URL is set. |
 | `TOKULY_LIVE_RTMP_URL` | `rtmp://localhost:1935` | Public RTMP ingest. |
 | `TOKULY_LIVE_SRT_URL` | `srt://localhost:8890` | Public SRT ingest. |
 | `TOKULY_LIVE_WHIP_URL` / `TOKULY_LIVE_WHEP_URL` | `http://localhost:8889` | Public WebRTC publish / playback. |
@@ -300,11 +459,11 @@ most 366 days ahead.
 | `live-start:<user>` | 30 / minute |
 | `live-reminder:<user>` | 60 / minute |
 | `live-watch:<stream>:<viewer>` | 20 / minute |
-| `live-guests:<ip>` | 60 new anonymous viewers / 10 minutes |
 | `live-lists:<user>` | 60 / minute (`ListSubscribedStreams`, `ListViewers`) |
 | `live-raid:<user>` | 5 / hour |
 | `live-chat:<stream>:<user>` | 8 / 10 seconds (plus slow mode) |
 | `live-moderate:<user>` | 120 / minute (delete, pin, settings, banned words, restrict, end poll) |
+| hook failures per peer address | 10 wrong secrets / minute, then `429` |
 | `live-appoint:<user>` | 20 / hour |
 | `live-replay:<user or ip>` | 240 / minute |
 | `live-poll:<user>` / `live-vote:<user>` | 30 / hour, 60 / minute |

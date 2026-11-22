@@ -22,11 +22,15 @@ use tokuly_proto::{
 };
 use tower::ServiceExt as _;
 
+const HOOK_SECRET: &str = "test-hook-secret-0123456789";
+const API_SECRET: &str = "test-api-secret-9876543210";
+
 /// A media server that is configured (but, here, never reachable).
 fn with_media_server() -> LiveConfig {
     LiveConfig {
         mediamtx_api_url: "http://127.0.0.1:9".into(),
-        hook_secret: "test-hook-secret-0123456789".into(),
+        hook_secret: HOOK_SECRET.into(),
+        mediamtx_api_secret: API_SECRET.into(),
         ..test_config()
     }
 }
@@ -55,29 +59,45 @@ async fn the_media_server_is_answered_through_the_hook() {
         info.ingest.as_option().unwrap().stream_key.clone()
     };
     let router = ctx.live.http_routes();
-    let ask = |secret: &str, body: serde_json::Value| {
+    // One question to the hook: from `peer`, with this `Authorization` header (if any).
+    let send = |uri: &str, authorization: Option<String>, peer: &str, body: serde_json::Value| {
         let router = router.clone();
-        let uri = format!("/auth?secret={secret}");
+        let peer: std::net::IpAddr = peer.parse().unwrap();
+        let mut request = http::Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header("content-type", "application/json")
+            .extension(axum::extract::ConnectInfo(std::net::SocketAddr::new(peer, 40_000)));
+        if let Some(authorization) = authorization {
+            request = request.header("authorization", authorization);
+        }
+        let request = request.body(Body::from(body.to_string())).unwrap();
         async move {
-            let request = http::Request::builder()
-                .method("POST")
-                .uri(uri)
-                .header("content-type", "application/json")
-                .body(Body::from(body.to_string()))
-                .unwrap();
             let response = router.oneshot(request).await.unwrap();
             let status = response.status().as_u16();
             let _ = response.into_body().collect().await;
             status
         }
     };
-    let secret = "test-hook-secret-0123456789";
+    // The media server's own address, presenting `secret` as a bearer token.
+    let ask = |secret: &str, body: serde_json::Value| {
+        let authorization = (!secret.is_empty()).then(|| format!("Bearer {secret}"));
+        send("/auth", authorization, "198.51.100.7", body)
+    };
+    let secret = HOOK_SECRET;
     let path = |stream: &Stream| format!("live/{}", card(stream).short_id);
     let publish = |token: &str| serde_json::json!({ "action": "publish", "path": path(&public), "protocol": "rtmp", "token": token, "ip": "203.0.113.5", "id": "c1", "query": format!("token={token}") });
 
     // Without the shared secret nothing is answered.
     assert_eq!(ask("wrong", publish(&key)).await, 403);
     assert_eq!(ask("", publish(&key)).await, 403);
+    // The secret is read from the header only: not from the URL (which ends up in access logs),
+    // and the control API's secret is not the hook's.
+    assert_eq!(send(&format!("/auth?secret={secret}"), None, "198.51.100.7", publish(&key)).await, 403);
+    assert_eq!(ask(API_SECRET, publish(&key)).await, 403);
+    // MediaMTX sends the credentials of its `authHTTPAddress` as HTTP Basic ("mediamtx:<secret>").
+    let basic = "Basic bWVkaWFtdHg6dGVzdC1ob29rLXNlY3JldC0wMTIzNDU2Nzg5".to_owned();
+    assert_eq!(send("/auth", Some(basic), "198.51.100.7", publish(&key)).await, 200);
     // Publishing: the stream key and nothing else, however it arrives (RTMP token, SRT password).
     assert_eq!(ask(secret, publish(&key)).await, 200);
     assert_eq!(ask(secret, publish("wrong-key")).await, 401);
@@ -108,6 +128,42 @@ async fn the_media_server_is_answered_through_the_hook() {
         .clone();
     assert!(!token.is_empty());
     assert_eq!(ask(secret, read(&friends_only, &format!("session=abc&t={token}"))).await, 200);
+    // The token names who it was made for, and does not live long: the heartbeat brings the next one.
+    assert_eq!(ctx.live.playback_token_viewer(&card(&friends_only).short_id, &token), Some(friend.id));
+    let expires = ctx
+        .get_stream(Some(&friend), &card(&friends_only).id)
+        .await
+        .unwrap()
+        .playback
+        .as_option()
+        .unwrap()
+        .expires_at
+        .as_option()
+        .map(|t| t.seconds)
+        .unwrap();
+    assert!(expires - now().timestamp() <= 15 * 60 + 5, "a playback token lives a quarter of an hour");
+    let beat: ReportWatchingResponse = ctx
+        .call(
+            STREAMS,
+            "ReportWatching",
+            Some(&friend),
+            &ReportWatchingRequest { stream_id: card(&friends_only).id.clone(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    let renewed = beat.playback.as_option().expect("a heartbeat renews the playback URLs").token.clone();
+    assert_eq!(ctx.live.playback_token_viewer(&card(&friends_only).short_id, &renewed), Some(friend.id));
+    // The session a token opened is remembered with its viewer, so it can be cut later.
+    let mut tracked = read(&friends_only, &format!("t={token}"));
+    tracked["id"] = "hls-session-1".into();
+    assert_eq!(ask(secret, tracked).await, 200);
+    let remembered: Option<String> = redis::cmd("HGET")
+        .arg(format!("live:sessions:{}", sid(&friends_only)))
+        .arg("hls-session-1")
+        .query_async(&mut ctx.app.core.cache.conn())
+        .await
+        .unwrap();
+    assert_eq!(remembered, Some(friend.id.to_string()));
     assert_eq!(ask(secret, read(&friends_only, &format!("t={token}x"))).await, 401);
     // A token of one stream opens no other; a bearer token works like the query.
     assert_eq!(ask(secret, read(&no_dvr, &format!("t={token}"))).await, 200, "public anyway");
@@ -123,7 +179,8 @@ async fn the_media_server_is_answered_through_the_hook() {
         200
     );
     // An expired token is worth nothing.
-    let expired = ctx.live.playback_token(&card(&friends_only).short_id, now() - chrono::Duration::seconds(5));
+    let expired =
+        ctx.live.playback_token(&card(&friends_only).short_id, friend.id, now() - chrono::Duration::seconds(5));
     assert_eq!(ask(secret, read(&friends_only, &format!("t={expired}"))).await, 401);
 
     // Rewinding: only with DVR, and only inside the window.
@@ -131,7 +188,25 @@ async fn the_media_server_is_answered_through_the_hook() {
         let start = start.to_rfc3339().replace(':', "%3A").replace('+', "%2B");
         serde_json::json!({ "action": "playback", "path": path(stream), "query": format!("path={}&start={start}&duration=30", path(stream)) })
     };
+    // The stream went on air 45 minutes ago; its encoder was connected (and recorded) before that.
+    sqlx::query("UPDATE live_streams SET started_at = now() - interval '45 minutes' WHERE id = $1")
+        .bind(sid(&public))
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
     assert_eq!(ask(secret, dvr(&public, now() - chrono::Duration::minutes(30))).await, 200);
+    assert_eq!(
+        ask(secret, dvr(&public, now() - chrono::Duration::minutes(50))).await,
+        401,
+        "the preview before the broadcast is inside the window but not part of it"
+    );
+    // A stream that is not on air yet has nothing to rewind, even for its owner's token.
+    let upcoming = ctx.stream(&alice, &channel, "まだ").await;
+    let owner_token =
+        ctx.live.playback_token(&card(&upcoming).short_id, alice.id, now() + chrono::Duration::minutes(5));
+    let mut preview = dvr(&upcoming, now() - chrono::Duration::seconds(10));
+    preview["query"] = format!("{}&t={owner_token}", preview["query"].as_str().unwrap()).into();
+    assert_eq!(ask(secret, preview).await, 401);
     assert_eq!(ask(secret, dvr(&public, now() - chrono::Duration::hours(2))).await, 401);
     assert_eq!(ask(secret, dvr(&no_dvr, now() - chrono::Duration::minutes(1))).await, 401);
     assert_eq!(
@@ -141,7 +216,15 @@ async fn the_media_server_is_answered_through_the_hook() {
     );
 
     // The control API belongs to the worker.
-    assert_eq!(ask(secret, serde_json::json!({ "action": "api", "user": "tokuly", "password": secret })).await, 200);
+    assert_eq!(
+        ask(secret, serde_json::json!({ "action": "api", "user": "tokuly", "password": API_SECRET })).await,
+        200
+    );
+    assert_eq!(
+        ask(secret, serde_json::json!({ "action": "api", "user": "tokuly", "password": secret })).await,
+        401,
+        "the hook secret does not open the control API"
+    );
     assert_eq!(ask(secret, serde_json::json!({ "action": "api", "user": "", "password": "" })).await, 401);
     assert_eq!(ask(secret, serde_json::json!({ "action": "something-else" })).await, 401);
 
@@ -149,6 +232,14 @@ async fn the_media_server_is_answered_through_the_hook() {
     ctx.end(&alice, &public).await;
     assert_eq!(ask(secret, publish(&key)).await, 401);
     assert_eq!(ask(secret, read(&public, "")).await, 401);
+
+    // An address that keeps guessing is refused outright, even once it guesses right. Others are not.
+    for _ in 0..10 {
+        assert_eq!(send("/auth", Some("Bearer guess".into()), "198.51.100.99", publish(&key)).await, 403);
+    }
+    let right = Some(format!("Bearer {secret}"));
+    assert_eq!(send("/auth", right.clone(), "198.51.100.99", read(&friends_only, "")).await, 429);
+    assert_eq!(send("/auth", right, "198.51.100.7", read(&friends_only, "")).await, 401);
 }
 
 #[tokio::test]
@@ -333,6 +424,14 @@ async fn other_domains_events_are_followed() {
         "social.user.blocked",
         Some(alice.id),
         serde_json::json!({ "user_id": alice.id, "blocked_id": bob.id }),
+    )
+    .await;
+    // The end of a friendship is followed too: it is what cuts a friends-only stream's playback
+    // (proven against the real media server in `tests/mediamtx.rs`).
+    ctx.deliver_event(
+        "social.friend.removed",
+        Some(alice.id),
+        serde_json::json!({ "user_id": alice.id, "friend_id": bob.id }),
     )
     .await;
     let left: (i64, i64) = sqlx::query_as("SELECT (SELECT count(*) FROM live_moderators WHERE user_id = $1), (SELECT count(*) FROM live_reminders WHERE user_id = $1)")
@@ -637,6 +736,8 @@ async fn the_recording_of_an_ended_stream_becomes_a_video() {
     let ctx =
         start_with(LiveConfig { recordings_dir: recordings.path().to_string_lossy().into_owned(), ..test_config() })
             .await;
+    // Uploads need their buckets; a fresh object store has none.
+    ctx.app.core.storage.ensure_buckets().await.unwrap();
     let alice = ctx.app.user("alice").await;
     let bob = ctx.app.user("bob").await;
     let channel = ctx.channel(&alice, "アーカイブch").await;
@@ -676,17 +777,21 @@ async fn the_recording_of_an_ended_stream_becomes_a_video() {
     ctx.live.cut_clip(tokuly_live::events::ClipJob { clip_id }).await.unwrap();
     let cut = tokuly_live::clips::find_by_id(&ctx.app.core, clip_id).await.unwrap().unwrap();
     let asset_id = cut.asset_id.unwrap_or_else(|| panic!("the clip was cut into an upload ({})", cut.error));
+    // The upload belongs to the channel's owner, not to whoever cut the clip: the cutter
+    // cannot attach a piece of someone's stream to their own posts.
+    let upload = tokuly_media::assets::find(&ctx.app.core, asset_id).await.unwrap().unwrap();
+    assert_eq!(upload.owner_id, alice.id);
     ctx.media.process_now(asset_id).await.unwrap();
     ctx.deliver_event(
         "media.asset.ready",
         None,
-        serde_json::json!({ "asset_id": asset_id, "owner_id": bob.id, "purpose": 13, "kind": 2 }),
+        serde_json::json!({ "asset_id": asset_id, "owner_id": alice.id, "purpose": 13, "kind": 2 }),
     )
     .await;
     ctx.deliver_event(
         "media.asset.ready",
         None,
-        serde_json::json!({ "asset_id": asset_id, "owner_id": bob.id, "purpose": 13, "kind": 2 }),
+        serde_json::json!({ "asset_id": asset_id, "owner_id": alice.id, "purpose": 13, "kind": 2 }),
     )
     .await;
     let ready: GetClipResponse = ctx
@@ -776,6 +881,44 @@ async fn the_recording_of_an_ended_stream_becomes_a_video() {
         ctx.get_stream(Some(&alice), &card(&stream).id).await.unwrap().archive_status,
         ArchiveStatus::ARCHIVE_STATUS_NONE
     );
+
+    // A stream deleted before its archive is made leaves no video behind, and no archive
+    // that would wait (and be queued again) forever.
+    let gone = ctx.on_air(&alice, &channel, "消す配信").await;
+    let gone_row = ctx.row(&gone).await;
+    let gone_dir = recordings.path().join("live").join(&gone_row.short_id);
+    std::fs::create_dir_all(&gone_dir).unwrap();
+    let gone_started = gone_row.started_at.unwrap();
+    record(
+        &gone_dir.join(format!("{}-{:06}.mp4", gone_started.timestamp(), gone_started.timestamp_subsec_micros())),
+        2,
+    );
+    assert_eq!(ctx.end(&alice, &gone).await.archive_status, ArchiveStatus::ARCHIVE_STATUS_PENDING);
+    let _: DeleteStreamResponse = ctx
+        .call(
+            STREAMS,
+            "DeleteStream",
+            Some(&alice),
+            &DeleteStreamRequest { stream_id: card(&gone).id.clone(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    ctx.live.archive(ArchiveJob { stream_id: gone_row.id }).await.unwrap();
+    let after = ctx.row(&gone).await;
+    assert_eq!((after.archive_status, after.archive_video_id), (tokuly_live::streams::ARCHIVE_NONE, None));
+    let videos: i64 = sqlx::query_scalar("SELECT count(*) FROM videos WHERE origin_id = $1")
+        .bind(gone_row.id)
+        .fetch_one(&ctx.app.core.db)
+        .await
+        .unwrap();
+    assert_eq!(videos, 0, "nothing is published from a deleted stream");
+    sqlx::query("UPDATE live_streams SET archive_changed_at = now() - interval '1 day' WHERE id = $1")
+        .bind(gone_row.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    ctx.live.sweep_recordings().await.unwrap();
+    assert_eq!(ctx.row(&gone).await.archive_status, tokuly_live::streams::ARCHIVE_NONE);
 }
 
 #[tokio::test]

@@ -169,6 +169,7 @@ pub fn online_path(short_id: &str, readers: i64) -> MediaPath {
         source_type: "rtmpConn".to_owned(),
         source_id: Uuid::now_v7().to_string(),
         readers,
+        reader_ids: (0..readers).map(|i| ("hlsSession".to_owned(), format!("reader-{i}"))).collect(),
     }
 }
 
@@ -413,10 +414,17 @@ impl Ctx {
         response.stream.as_option().cloned().expect("the ended stream")
     }
 
-    /// Puts `guests` anonymous viewers into a stream's audience and takes a
-    /// sample, so the stream's viewer count is that number (and stays it
-    /// when another test's sample comes by).
-    pub async fn audience(&self, stream: &Stream, guests: usize) {
+    /// Gives a stream `viewers` signed-in viewers (their heartbeats) and samples the audience.
+    pub async fn audience(&self, stream: &Stream, viewers: usize) {
+        for _ in 0..viewers {
+            let key = tokuly_live::audience::ViewerKey::User(Uuid::now_v7());
+            tokuly_live::audience::heartbeat(&self.app.core, sid(stream), &key, 15).await.expect("heartbeat");
+        }
+        self.live.sample_viewers(&Default::default()).await.expect("viewer sample");
+    }
+
+    /// Adds `guests` anonymous viewers to a stream's audience, as if they came from as many addresses.
+    pub async fn guests(&self, stream: &Stream, guests: usize) {
         for i in 0..guests {
             let key = tokuly_live::audience::ViewerKey::Guest(format!("fixture-{i}"));
             tokuly_live::audience::heartbeat(&self.app.core, sid(stream), &key, 15).await.expect("heartbeat");

@@ -62,6 +62,37 @@ async fn a_gift_moves_coins_once_and_shows_up_highlighted() {
     assert_eq!(ctx.balance(&alice).await.1, net);
     let row = ctx.row(&stream).await;
     assert_eq!((row.gift_coins, row.gift_net_coins, row.gift_count), (500, net, 1));
+    // The sender's wallet shows what was paid, not the account behind the channel:
+    // a gift does not tell who runs a channel.
+    let history = |user: &TestUser| {
+        let user = user.clone();
+        let ctx = &ctx;
+        async move {
+            let listed: tokuly_proto::wallet::ListLedgerEntriesResponse = ctx
+                .call(
+                    "tokuly.wallet.v1.WalletService",
+                    "ListLedgerEntries",
+                    Some(&user),
+                    &tokuly_proto::wallet::ListLedgerEntriesRequest::default(),
+                )
+                .await
+                .unwrap();
+            listed
+        }
+    };
+    let paid = history(&bob).await;
+    let entry =
+        paid.entries.iter().find(|entry| entry.reason == "live.gift").expect("the gift in the sender's history");
+    assert!(entry.counterpart_hidden && !entry.counterpart.is_set());
+    assert!(entry.memo_json.contains(&channel.summary.id), "the entry names the channel");
+    let everything = serde_json::to_string(&paid).unwrap();
+    assert!(!everything.contains(&alice.id.to_string()) && !everything.contains(&alice.handle));
+    // The streamer sees who gave (the chat showed it to everyone anyway).
+    let earned = history(&alice).await;
+    let entry =
+        earned.entries.iter().find(|entry| entry.reason == "live.gift").expect("the gift in the streamer's history");
+    assert!(!entry.counterpart_hidden);
+    assert_eq!(entry.counterpart.as_option().unwrap().id, bob.id.to_string());
     // The page shows the gift while it is highlighted.
     assert_eq!(ctx.get_stream(None, &card(&stream).id).await.unwrap().highlighted_gifts.len(), 1);
     // The streamer was not looking at the dashboard: they are told.
@@ -100,6 +131,24 @@ async fn a_gift_moves_coins_once_and_shows_up_highlighted() {
     ] {
         assert_eq!(ctx.gift(&bob, &stream, coins, message, key).await.unwrap_err().reason, reason);
     }
+    assert_eq!(ctx.balance(&bob).await.0, 490);
+    // A chat that takes no links takes none in gift messages either.
+    let no_links = UpdateChatSettingsRequest {
+        stream_id: card(&stream).id.clone(),
+        chat: Some(ChatSettings {
+            enabled: true,
+            stamps_enabled: true,
+            link_policy: LinkPolicy::LINK_POLICY_BLOCK.into(),
+            ..Default::default()
+        })
+        .into(),
+        ..Default::default()
+    };
+    let _: UpdateChatSettingsResponse = ctx.call(CHAT, "UpdateChatSettings", Some(&alice), &no_links).await.unwrap();
+    assert_eq!(
+        ctx.gift(&bob, &stream, 100, "見てね https://example.com/x", "gift-key-link").await.unwrap_err().reason,
+        "LINKS_NOT_ALLOWED"
+    );
     assert_eq!(ctx.balance(&bob).await.0, 490);
     assert_eq!(ctx.gift(&alice, &stream, 50, "", "gift-key-self").await.unwrap_err().reason, "GIFT_OWN_STREAM");
     let request = SendGiftRequest {
@@ -243,6 +292,45 @@ async fn gifts_settle_exactly_once_even_when_requests_race_or_die() {
         .await
         .unwrap();
     assert_eq!(left, 0);
+
+    // A gift that was on its way when the stream was deleted: the coins come back, nothing is
+    // kept for a stream that is gone, and the streamer earns nothing from it.
+    let short_lived = ctx.on_air(&alice, &channel, "すぐ消える配信").await;
+    let lost: Uuid = sqlx::query_scalar(
+        "INSERT INTO live_gifts (stream_id, channel_id, recipient_id, sender_id, coins, tier, message, highlight_seconds, client_key, created_at)
+         VALUES ($1, $2, $3, $4, 100, 3, 'まにあわなかった', 120, 'gift-lost-00001', now() - interval '1 minute') RETURNING id",
+    )
+    .bind(sid(&short_lived))
+    .bind(id(&channel.summary.id))
+    .bind(alice.id)
+    .bind(bob.id)
+    .fetch_one(db)
+    .await
+    .unwrap();
+    ctx.end(&alice, &short_lived).await;
+    let _: DeleteStreamResponse = ctx
+        .call(
+            STREAMS,
+            "DeleteStream",
+            Some(&alice),
+            &DeleteStreamRequest { stream_id: card(&short_lived).id.clone(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    let (coins_before, earnings_before) = (ctx.balance(&bob).await.0, ctx.balance(&alice).await.1);
+    assert_eq!(ctx.live.settle_gift(lost).await.unwrap_err().reason, "GIFT_RETURNED");
+    assert!(gifts::find_by_id(&ctx.app.core, lost).await.unwrap().is_none());
+    assert_eq!((ctx.balance(&bob).await.0, ctx.balance(&alice).await.1), (coins_before, earnings_before));
+    // The sweep finds nothing left to do, and the payment and its return are both in the sender's history.
+    assert_eq!(ctx.live.settle_pending_gifts(None).await, 0);
+    let returned: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM wallet_entries WHERE reason = 'live.gift.returned' AND to_user_id = $1",
+    )
+    .bind(bob.id)
+    .fetch_one(db)
+    .await
+    .unwrap();
+    assert_eq!(returned, 1);
 }
 
 // ───────────────────────────── clips ─────────────────────────────
@@ -304,6 +392,31 @@ async fn clips_follow_their_source_and_belong_to_their_creator() {
         ctx.reason(CLIPS, "CreateClip", None, &cut(public.short_id.clone(), "ゲスト", 0.0, 5.0)).await,
         "SIGN_IN_REQUIRED"
     );
+    // What is shown to a chosen few cannot be cut out and passed on: not by a friend who may
+    // watch it, and not by the owner either (a clip is made to be shared).
+    ctx.befriend(&alice, &carol).await;
+    let for_friends = video(&ctx, &alice, &channel, Visibility::VISIBILITY_FRIENDS).await;
+    for user in [&carol, &alice] {
+        assert_eq!(
+            ctx.reason(CLIPS, "CreateClip", Some(user), &cut(for_friends.short_id.clone(), "友達だけの", 0.0, 5.0))
+                .await,
+            "CLIP_SOURCE_NOT_PUBLIC"
+        );
+    }
+    let friends_stream = ctx
+        .on_air_with(&alice, &channel, "友達だけの配信", |r| {
+            r.visibility = Visibility::VISIBILITY_FRIENDS.into()
+        })
+        .await;
+    let from_stream = CreateClipRequest {
+        stream_id: card(&friends_stream).id.clone(),
+        title: "友達だけの".into(),
+        start_seconds: 0.0,
+        duration_seconds: 5.0,
+        ..Default::default()
+    };
+    assert_eq!(ctx.reason(CLIPS, "CreateClip", Some(&carol), &from_stream).await, "CLIP_SOURCE_NOT_PUBLIC");
+    ctx.end(&alice, &friends_stream).await;
 
     let created: CreateClipResponse =
         ctx.call(CLIPS, "CreateClip", Some(&bob), &cut(public.id.to_string(), "  神回 ", 2.5, 6.0)).await.unwrap();
@@ -489,6 +602,21 @@ async fn overlays_are_configured_by_the_owner_and_opened_with_their_token() {
             CreateOverlayRequest { custom_css: "a".repeat(50_001), ..create(OverlayKind::OVERLAY_KIND_CHAT_BOX, "x") },
             "OVERLAY_CSS_TOO_LONG",
         ),
+        // Custom CSS styles the widget; it does not make the streamer's OBS fetch anything.
+        (
+            CreateOverlayRequest {
+                custom_css: "@import 'https://example.com/a.css';".into(),
+                ..create(OverlayKind::OVERLAY_KIND_CHAT_BOX, "x")
+            },
+            "OVERLAY_CSS_UNSAFE",
+        ),
+        (
+            CreateOverlayRequest {
+                custom_css: ".chat { background: URL ( https://example.com/pixel.gif ) }".into(),
+                ..create(OverlayKind::OVERLAY_KIND_CHAT_BOX, "x")
+            },
+            "OVERLAY_CSS_UNSAFE",
+        ),
         (
             CreateOverlayRequest {
                 settings: Some(OverlaySettings { widget: Some(Widget::Poll(Box::default())), ..Default::default() })
@@ -578,15 +706,27 @@ async fn overlays_are_configured_by_the_owner_and_opened_with_their_token() {
     assert!(widget.css.contains(".chat-message"));
     assert_eq!(widget.channel.as_option().unwrap().id, channel.summary.id);
     assert_eq!(widget.stream.as_option().unwrap().id, card(&stream).id);
-    assert_eq!(widget.realtime_topic, format!("overlay:{}", chat_box.token));
+    // The topic is derived from the token, never the token itself: topic names are logged
+    // and travel in frames, the token is what opens the widget.
+    assert!(widget.realtime_topic.starts_with("overlay:") && !widget.realtime_topic.contains(&chat_box.token));
+    assert!(!guards.may_subscribe(None, &format!("overlay:{}", chat_box.token)).await.unwrap());
     assert_eq!(widget.recent_messages.iter().map(|m| m.text.as_str()).collect::<Vec<_>>(), vec!["うつってる?"]);
     assert!(guards.may_subscribe(None, &widget.realtime_topic).await.unwrap());
 
     // Each widget hears what concerns its kind.
-    let mut chat_topic = ctx.app.listen_topic(&format!("overlay:{}", chat_box.token)).await;
-    let mut alert_topic = ctx.app.listen_topic(&format!("overlay:{}", alerts.token)).await;
-    let mut goal_topic = ctx.app.listen_topic(&format!("overlay:{}", goal.token)).await;
-    let mut poll_topic = ctx.app.listen_topic(&format!("overlay:{}", polls.token)).await;
+    let topic_of = |token: &str| {
+        let request = open(token);
+        let ctx = &ctx;
+        async move {
+            let widget: GetOverlayResponse = ctx.call(OVERLAYS, "GetOverlay", None, &request).await.unwrap();
+            widget.realtime_topic
+        }
+    };
+    let old_chat_topic = widget.realtime_topic.clone();
+    let mut chat_topic = ctx.app.listen_topic(&old_chat_topic).await;
+    let mut alert_topic = ctx.app.listen_topic(&topic_of(&alerts.token).await).await;
+    let mut goal_topic = ctx.app.listen_topic(&topic_of(&goal.token).await).await;
+    let mut poll_topic = ctx.app.listen_topic(&topic_of(&polls.token).await).await;
     ctx.coins(&bob, 500).await;
     ctx.gift(&bob, &stream, 300, "目標の足しに", "gift-overlay-01").await.unwrap();
     let line = wait_for(&mut chat_topic, |push| match push {
@@ -632,6 +772,24 @@ async fn overlays_are_configured_by_the_owner_and_opened_with_their_token() {
     assert_eq!(poll_widget.poll.as_option().unwrap().question, "どっち?");
     let goal_widget: GetOverlayResponse = ctx.call(OVERLAYS, "GetOverlay", None, &open(&goal.token)).await.unwrap();
     assert_eq!(goal_widget.goal.as_option().unwrap().current, 300);
+    // A gift that is not paid for yet is no progress.
+    sqlx::query(
+        "INSERT INTO live_gifts (stream_id, channel_id, recipient_id, sender_id, coins, tier, message, highlight_seconds, client_key)
+         VALUES ($1, $2, $3, $4, 700, 5, '', 600, 'gift-unpaid-0001')",
+    )
+    .bind(sid(&stream))
+    .bind(id(&channel.summary.id))
+    .bind(alice.id)
+    .bind(bob.id)
+    .execute(&ctx.app.core.db)
+    .await
+    .unwrap();
+    let goal_widget: GetOverlayResponse = ctx.call(OVERLAYS, "GetOverlay", None, &open(&goal.token)).await.unwrap();
+    assert_eq!(goal_widget.goal.as_option().unwrap().current, 300);
+    sqlx::query("DELETE FROM live_gifts WHERE client_key = 'gift-unpaid-0001'")
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
     // The alert box did not get the chat.
     assert!(pushes(alert_topic.drain(QUIET).await).iter().all(|push| !matches!(push, Push::ChatMessage(_))));
 
@@ -697,7 +855,7 @@ async fn overlays_are_configured_by_the_owner_and_opened_with_their_token() {
     .await;
     assert!(revoked.revoked);
     assert_eq!(ctx.reason(OVERLAYS, "GetOverlay", None, &open(&chat_box.token)).await, "OVERLAY_NOT_FOUND");
-    assert!(!guards.may_subscribe(None, &format!("overlay:{}", chat_box.token)).await.unwrap());
+    assert!(!guards.may_subscribe(None, &old_chat_topic).await.unwrap(), "the old topic went with the old token");
     let _: GetOverlayResponse = ctx.call(OVERLAYS, "GetOverlay", None, &open(&new_token)).await.unwrap();
     ctx.say(&bob, &stream, "新しいほうへ").await.unwrap();
     assert!(pushes(chat_topic.drain(QUIET).await).is_empty(), "nothing is sent to the old token any more");

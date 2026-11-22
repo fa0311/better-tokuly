@@ -1,7 +1,8 @@
 //! The whole path with the real media server: MediaMTX started with
 //! `infra/mediamtx/mediamtx.yml`, an encoder (ffmpeg) publishing over RTMP,
-//! the auth hook, the reconciler, playback, the viewer count, the end and
-//! the archive.
+//! the auth hook, the reconciler, playback, the viewer count, a viewer
+//! being cut off when the stream is restricted, an encoder being
+//! disconnected when its stream is deleted, the end and the archive.
 //!
 //! Skipped (with a message) when `mediamtx` or `ffmpeg` is not installed.
 //! The binary is looked for in `TOKULY_MEDIAMTX_BIN`, in
@@ -21,6 +22,7 @@ use tokuly_live::{LiveConfig, events::ArchiveJob};
 use tokuly_proto::live::*;
 
 const SECRET: &str = "e2e-hook-secret-0123456789abcdef";
+const API_SECRET: &str = "e2e-api-secret-fedcba9876543210";
 
 /// Kills the process when the test ends, however it ends.
 struct Process(Child);
@@ -132,6 +134,7 @@ async fn a_stream_goes_from_encoder_to_archive_through_the_real_media_server() {
     let ctx = start_with(LiveConfig {
         mediamtx_api_url: format!("http://127.0.0.1:{api}"),
         hook_secret: SECRET.into(),
+        mediamtx_api_secret: API_SECRET.into(),
         rtmp_url: format!("rtmp://127.0.0.1:{rtmp}"),
         srt_url: format!("srt://127.0.0.1:{srt}"),
         whip_url: format!("http://127.0.0.1:{webrtc}"),
@@ -142,6 +145,7 @@ async fn a_stream_goes_from_encoder_to_archive_through_the_real_media_server() {
         ..test_config()
     })
     .await;
+    ctx.app.core.storage.ensure_buckets().await.unwrap();
 
     // The hook, served the way the server mounts it.
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -155,7 +159,7 @@ async fn a_stream_goes_from_encoder_to_archive_through_the_real_media_server() {
     let _server = Process(
         Command::new(&mediamtx)
             .arg(&config)
-            .env("MTX_AUTHHTTPADDRESS", format!("http://127.0.0.1:{hook_port}/hooks/live/auth?secret={SECRET}"))
+            .env("MTX_AUTHHTTPADDRESS", format!("http://mediamtx:{SECRET}@127.0.0.1:{hook_port}/hooks/live/auth"))
             .env("MTX_APIADDRESS", format!("127.0.0.1:{api}"))
             .env("MTX_PLAYBACKADDRESS", format!("127.0.0.1:{playback}"))
             .env("MTX_RTMPADDRESS", format!("127.0.0.1:{rtmp}"))
@@ -177,6 +181,14 @@ async fn a_stream_goes_from_encoder_to_archive_through_the_real_media_server() {
     );
     let unauthenticated = reqwest::get(format!("http://127.0.0.1:{api}/v3/paths/list")).await.unwrap();
     assert_eq!(unauthenticated.status().as_u16(), 401);
+    // The secret the media server calls the hook with does not open its control API.
+    let with_hook_secret = reqwest::Client::new()
+        .get(format!("http://127.0.0.1:{api}/v3/paths/list"))
+        .basic_auth("tokuly", Some(SECRET))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(with_hook_secret.status().as_u16(), 401);
 
     let alice = ctx.app.user("alice").await;
     let channel = ctx.channel(&alice, "本番ch").await;
@@ -198,6 +210,41 @@ async fn a_stream_goes_from_encoder_to_archive_through_the_real_media_server() {
     assert!(!refused.success(), "publishing with a wrong key must fail");
     ctx.live.reconcile().await.unwrap();
     assert!(ctx.row(&stream).await.is_upcoming());
+
+    // An encoder that is connected to a stream which is then deleted (before it ever went on
+    // air) is disconnected: nothing keeps sending into, and being recorded for, a stream that is gone.
+    let preview = ctx.stream_with(&alice, &channel, "消すプレビュー", |r| r.auto_start = Some(false)).await;
+    let preview_info: GetIngestInfoResponse = ctx
+        .call(
+            STREAMS,
+            "GetIngestInfo",
+            Some(&alice),
+            &GetIngestInfoRequest { stream_id: card(&preview).id.clone(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    let _preview_encoder =
+        Process(encoder(&preview_info.ingest.as_option().unwrap().rtmp_url, 60).spawn().expect("ffmpeg starts"));
+    let connected = eventually(30, || async {
+        ctx.live.reconcile().await.unwrap();
+        ctx.row(&preview).await.encoder_connected
+    })
+    .await;
+    assert!(connected, "the preview encoder did not connect");
+    let preview_path = ctx.row(&preview).await.media_path();
+    let _: DeleteStreamResponse = ctx
+        .call(
+            STREAMS,
+            "DeleteStream",
+            Some(&alice),
+            &DeleteStreamRequest { stream_id: card(&preview).id.clone(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    let kicked =
+        eventually(15, || async { !ctx.live.media_path(&preview_path).await.unwrap().is_some_and(|path| path.online) })
+            .await;
+    assert!(kicked, "the encoder of a deleted stream was left connected");
 
     // The right key: the encoder connects and the next looks at the media server put the stream on air.
     let _publisher = Process(encoder(&ingest.rtmp_url, 60).spawn().expect("ffmpeg starts"));
@@ -241,6 +288,33 @@ async fn a_stream_goes_from_encoder_to_archive_through_the_real_media_server() {
     assert!(!tokuly_live::recordings::segments(&ctx.live.cfg, &row.short_id).await.is_empty(), "nothing was recorded");
     let listed = client.get(&playback.dvr_list_url).send().await.unwrap();
     assert!(listed.status().is_success(), "the DVR list answered {}", listed.status());
+
+    // The stream becomes private while that viewer is watching: their session is cut, the plain
+    // URL opens nothing any more, and the owner's own (token-carrying) URL still plays.
+    let restrict = UpdateStreamRequest {
+        stream_id: card(&stream).id.clone(),
+        visibility: Some(tokuly_proto::common::Visibility::VISIBILITY_PRIVATE.into()),
+        ..Default::default()
+    };
+    let _: UpdateStreamResponse = ctx.call(STREAMS, "UpdateStream", Some(&alice), &restrict).await.unwrap();
+    let cut = eventually(15, || async {
+        ctx.live.media_path(&row.media_path()).await.unwrap().is_some_and(|path| path.reader_ids.is_empty())
+    })
+    .await;
+    assert!(cut, "the viewer of a stream that became private was not cut off");
+    let shut_out = client.get(&hls_url).send().await.unwrap();
+    assert!(!shut_out.status().is_success(), "the plain URL still plays a private stream ({})", shut_out.status());
+    let own = ctx.get_stream(Some(&alice), &card(&stream).id).await.unwrap();
+    let own_url = own.playback.as_option().unwrap().hls_url.clone();
+    assert!(own_url.contains("?t="));
+    let own_plays = eventually(20, || {
+        let (client, own_url) = (client.clone(), own_url.clone());
+        async move { client.get(&own_url).send().await.is_ok_and(|response| response.status().is_success()) }
+    })
+    .await;
+    assert!(own_plays, "the owner can no longer watch their own private stream");
+    // The owner's session came in with their token, so it is theirs to keep.
+    assert_eq!(ctx.live.enforce_access(&ctx.row(&stream).await).await.unwrap(), 0);
 
     // The end: the encoder is disconnected and the path goes away.
     let ended = ctx.end(&alice, &stream).await;

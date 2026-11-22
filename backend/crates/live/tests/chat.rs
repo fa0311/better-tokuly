@@ -110,8 +110,13 @@ async fn chat_rules_decide_who_may_write_what_and_how_fast() {
     };
     let _: AddModeratorResponse = ctx.call(CHAT, "AddModerator", Some(&alice), &add).await.unwrap();
 
-    // Only the streamer and moderators change the rules.
-    assert_eq!(ctx.reason(CHAT, "UpdateChatSettings", Some(&bob), &settings(|_| {})).await, "NOT_A_MODERATOR");
+    // The rules of the chat are the streamer's: not a viewer's, and not a moderator's either
+    // (a moderator acts on messages and people, and cannot close the chat on its owner).
+    assert_eq!(ctx.reason(CHAT, "UpdateChatSettings", Some(&bob), &settings(|_| {})).await, "NOT_THE_STREAMER");
+    assert_eq!(
+        ctx.reason(CHAT, "UpdateChatSettings", Some(&moderator), &settings(|c| c.enabled = false)).await,
+        "NOT_THE_STREAMER"
+    );
     assert_eq!(
         ctx.reason(CHAT, "UpdateChatSettings", Some(&alice), &settings(|c| c.slow_mode_seconds = 301)).await,
         "CHAT_SETTINGS_INVALID"
@@ -123,7 +128,7 @@ async fn chat_rules_decide_who_may_write_what_and_how_fast() {
         .call(
             CHAT,
             "UpdateChatSettings",
-            Some(&moderator),
+            Some(&alice),
             &settings(|c| c.audience = ChatAudience::CHAT_AUDIENCE_SUBSCRIBERS.into()),
         )
         .await
@@ -278,6 +283,14 @@ async fn moderators_delete_pin_and_restrict() {
     let _: DeleteChatMessageResponse =
         ctx.call(CHAT, "DeleteChatMessage", Some(&moderator), &delete(&rude)).await.unwrap();
     assert!(ctx.chat(None, &stream).await.is_empty());
+    // What the streamer wrote is not a moderator's to remove; the streamer removes their own.
+    let hosts = ctx.say(&alice, &stream, "配信者のことば").await.unwrap();
+    assert_eq!(
+        ctx.reason(CHAT, "DeleteChatMessage", Some(&moderator), &delete(&hosts)).await,
+        "CANNOT_MODERATE_STREAMER"
+    );
+    let _: DeleteChatMessageResponse =
+        ctx.call(CHAT, "DeleteChatMessage", Some(&alice), &delete(&hosts)).await.unwrap();
 
     // Pinning.
     let good = ctx.say(&bob, &stream, "名言").await.unwrap();
@@ -440,6 +453,16 @@ async fn a_ban_and_a_message_cannot_pass_each_other() {
     let stream = ctx.on_air(&alice, &channel, "競争の配信").await;
     for round in 0..8 {
         let troll = ctx.app.user("troll").await;
+        // Every other round the troll is a moderator: being one is no way around the ban.
+        if round % 2 == 1 {
+            ctx.befriend(&alice, &troll).await;
+            let add = AddModeratorRequest {
+                channel_id: channel.summary.id.clone(),
+                user_id: troll.id.to_string(),
+                ..Default::default()
+            };
+            let _: AddModeratorResponse = ctx.call(CHAT, "AddModerator", Some(&alice), &add).await.unwrap();
+        }
         let text = format!("すべりこみ{round}");
         let (said, banned) =
             tokio::join!(ctx.say(&troll, &stream, &text), ctx.restrict(&alice, &channel, &troll, 0, true));

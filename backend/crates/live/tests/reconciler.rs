@@ -21,6 +21,7 @@ fn with_media_server() -> LiveConfig {
     LiveConfig {
         mediamtx_api_url: "http://127.0.0.1:9".into(),
         hook_secret: "test-hook-secret-0123456789".into(),
+        mediamtx_api_secret: "test-api-secret-9876543210".into(),
         ..test_config()
     }
 }

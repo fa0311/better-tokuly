@@ -299,11 +299,14 @@ async fn the_directories_list_what_is_on_air_and_what_is_coming() {
     for (stream, viewers) in [(&quiet, 3), (&busy, 40), (&other, 7)] {
         ctx.audience(stream, viewers).await;
     }
-    // By game (case-insensitive): most viewers first.
+    // Anonymous viewers are shown in the count, but they do not move a stream up the list:
+    // whoever can make up guests cannot make up a ranking.
+    ctx.guests(&quiet, 60).await;
+    // By game (case-insensitive): most signed-in viewers first.
     let by_game = ListLiveStreamsRequest { game: game.to_uppercase(), ..Default::default() };
     let listed: ListLiveStreamsResponse = ctx.call(STREAMS, "ListLiveStreams", None, &by_game).await.unwrap();
     assert_eq!(titles(&listed.streams), vec!["人気の配信", "静かな配信"]);
-    assert_eq!(listed.streams[0].viewer_count, 40);
+    assert_eq!((listed.streams[0].viewer_count, listed.streams[1].viewer_count), (40, 63));
     // Paged.
     let first: ListLiveStreamsResponse = ctx
         .call(
@@ -477,6 +480,7 @@ fn with_media_server() -> LiveConfig {
     LiveConfig {
         mediamtx_api_url: "http://127.0.0.1:9".into(),
         hook_secret: "test-hook-secret-0123456789".into(),
+        mediamtx_api_secret: "test-api-secret-9876543210".into(),
         rtmp_url: "rtmp://live.example.test:1935".into(),
         srt_url: "srt://live.example.test:8890".into(),
         whip_url: "https://live.example.test/rtc".into(),
@@ -658,20 +662,29 @@ async fn one_address_cannot_inflate_an_audience_with_made_up_guests() {
     let alice = ctx.app.user("alice").await;
     let channel = ctx.channel(&alice, "水増しch").await;
     let stream = ctx.on_air(&alice, &channel, "水増し").await;
-    let mut refused = 0;
     for i in 0..70 {
         let request = ReportWatchingRequest {
             stream_id: card(&stream).id.clone(),
             client_id: format!("fake-{i}"),
             ..Default::default()
         };
-        if let Err(error) = ctx.call::<_, ReportWatchingResponse>(STREAMS, "ReportWatching", None, &request).await {
-            assert_eq!(error.reason, "RATE_LIMITED");
-            refused += 1;
-        }
+        // Nobody is turned away (they may really be seventy people behind one address) ...
+        let _: ReportWatchingResponse = ctx.call(STREAMS, "ReportWatching", None, &request).await.unwrap();
     }
-    assert_eq!(refused, 10, "sixty new guests per address and ten minutes");
-    assert_eq!(audience::heartbeat_count(&ctx.app.core, sid(&stream), 15).await.unwrap(), 60);
+    // ... but one address is at most five guests in the audience.
+    assert_eq!(
+        audience::heartbeat_count(&ctx.app.core, sid(&stream), 15).await.unwrap(),
+        audience::MAX_GUESTS_PER_ADDRESS
+    );
+    // A guest that is already counted stays counted.
+    let again =
+        ReportWatchingRequest { stream_id: card(&stream).id.clone(), client_id: "fake-0".into(), ..Default::default() };
+    let _: ReportWatchingResponse = ctx.call(STREAMS, "ReportWatching", None, &again).await.unwrap();
+    assert_eq!(audience::heartbeat_count(&ctx.app.core, sid(&stream), 15).await.unwrap(), 5);
+    // And guests never reach the number the directories rank by.
+    ctx.live.sample_viewers(&Default::default()).await.unwrap();
+    let row = ctx.row(&stream).await;
+    assert_eq!((row.viewer_count, row.ranked_viewer_count), (5, 0));
 }
 
 #[tokio::test]
