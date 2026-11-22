@@ -426,6 +426,9 @@ test("a question its sender took back can still be blocked and reported", async 
   await open(page, "/ask/inbox");
   const row = questionRow(page, "やっぱりなし");
   await expect(row).toBeVisible();
+  // Let the page finish what it reads when its connection comes up: a list read after the withdrawal no longer has the question.
+  await live(page);
+  await page.waitForLoadState("networkidle");
 
   // The sender withdraws it while it is on the owner's screen.
   await rpc(request, `${BOX}/WithdrawQuestion`, { questionId: question.id }, troll);

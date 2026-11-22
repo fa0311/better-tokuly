@@ -172,7 +172,7 @@ function PollView({ round, poll, onRound, onStale }: { round: ask.Round; poll: a
         </span>
       </div>
 
-      <div className="sticker mt-4 animate-pop-in rounded-card bg-brand px-5 py-7 text-center text-on-brand" data-testid="poll-question">
+      <div className="sticker mt-4 animate-pop-in rounded-card bg-brand px-5 py-5 text-center sm:py-7 text-on-brand" data-testid="poll-question">
         <div className="animate-float text-6xl">{poll.question?.emoji || "🔥"}</div>
         <p className="mt-3 text-2xl leading-snug font-black">{localized(poll.question?.text, i18n.language)}</p>
       </div>
@@ -212,7 +212,7 @@ function ChoiceTile({ user, tint, state, disabled, onPick }: { user: common.User
           onPick();
         }}
         className={cn(
-          "pressable sticker flex h-36 w-full flex-col items-center justify-center gap-2 rounded-card px-2 text-[#17122b] disabled:cursor-default",
+          "pressable sticker flex h-32 w-full flex-col sm:h-36 items-center justify-center gap-2 rounded-card px-2 text-[#17122b] disabled:cursor-default",
           tint,
           "transition-[transform,opacity,filter] duration-[calc(260ms*var(--dopa))] ease-bounce",
           state === "picked" && "z-10 scale-[1.08] -rotate-2",
