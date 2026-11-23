@@ -10,6 +10,7 @@
 //! | reconciliation of live calls with LiveKit | 30 s |
 //! | POV expiry (unanswered requests, unsaved answers) | 60 s |
 //! | link previews whose job was lost | 5 min |
+//! | texts kept for reports after an edit or unsend, past their 30 days | 1 h |
 use std::time::Duration;
 
 use tokuly_core::{
@@ -32,6 +33,7 @@ const RINGING_SWEEP_INTERVAL: Duration = Duration::from_secs(5);
 const CALL_RECONCILE_INTERVAL: Duration = Duration::from_secs(30);
 const POV_SWEEP_INTERVAL: Duration = Duration::from_secs(60);
 const LINK_SWEEP_INTERVAL: Duration = Duration::from_secs(300);
+const REMOVED_TEXT_PURGE_INTERVAL: Duration = Duration::from_secs(3600);
 
 impl Chat {
     /// Starts the chat workers. Call once, in worker processes.
@@ -101,6 +103,9 @@ impl Chat {
         );
         self.spawn_periodic("link preview sweep", LINK_SWEEP_INTERVAL, |chat| async move {
             chat.sweep_link_previews().await.map(|_| ())
+        });
+        self.spawn_periodic("removed text purge", REMOVED_TEXT_PURGE_INTERVAL, |chat| async move {
+            chat.purge_removed_texts().await.map(|_| ())
         });
     }
 

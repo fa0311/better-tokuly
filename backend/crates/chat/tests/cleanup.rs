@@ -415,14 +415,67 @@ async fn messages_are_subjects_for_the_members_who_can_see_them() {
             "Message",
             "DeleteMessage",
             &owner,
-            &DeleteMessageRequest { message_id: message.id.clone(), ..Default::default() },
+            &DeleteMessageRequest { message_id: with_photo.message.id.clone(), ..Default::default() },
         )
         .await
         .unwrap();
+    let info = subjects.resolve(chat_message, &with_photo.message.id, Some(member.id)).await.unwrap();
+    assert_eq!(info.title, "📷 写真を送信しました");
+    assert!(info.image_url.is_none(), "the upload itself is released");
+}
+
+#[tokio::test]
+async fn what_was_unsent_or_edited_can_still_be_reported() {
+    let ctx = start().await;
+    let (taro, hanako) = ctx.friends("taro", "hanako").await;
+    let direct = ctx.direct(&taro, &hanako).await;
+    let subjects = &ctx.app.core.subjects;
+    let chat_message = SubjectType::SUBJECT_TYPE_CHAT_MESSAGE;
+    let delete = |message_id: &str| DeleteMessageRequest { message_id: message_id.to_owned(), ..Default::default() };
+
+    // Unsending does not take away the recipient's way to report what they received.
+    let insult = ctx.text(&taro, &direct.id, "おまえなんか大嫌いだ").await;
+    let _: DeleteMessageResponse = ctx.call("Message", "DeleteMessage", &taro, &delete(&insult.id)).await.unwrap();
+    assert!(ctx.message(&hanako, &insult.id).await.text.is_empty(), "gone from the conversation");
+    let info = subjects.resolve(chat_message, &insult.id, Some(hanako.id)).await.unwrap();
+    assert_eq!((info.owner_id, info.title.as_str()), (taro.id, "おまえなんか大嫌いだ"));
+    let outsider = ctx.app.user("outsider").await;
     assert_eq!(
-        subjects.resolve(chat_message, &message.id, Some(member.id)).await.unwrap_err().reason,
+        subjects.resolve(chat_message, &insult.id, Some(outsider.id)).await.unwrap_err().reason,
+        "SUBJECT_NOT_FOUND",
+        "only for the people it reached"
+    );
+
+    // Nor does editing it into something harmless.
+    let edited = ctx.text(&taro, &direct.id, "ばか！死ね").await;
+    let edit = EditMessageRequest { message_id: edited.id.clone(), text: "なんでもない".into(), ..Default::default() };
+    let _: EditMessageResponse = ctx.call("Message", "EditMessage", &taro, &edit).await.unwrap();
+    let info = subjects.resolve(chat_message, &edited.id, Some(hanako.id)).await.unwrap();
+    assert!(info.title.contains("ばか！死ね") && info.title.contains("なんでもない"), "{}", info.title);
+
+    // What was kept for reports is not kept forever, counted from the removal.
+    sqlx::query("UPDATE chat_messages SET created_at = now() - interval '90 days' WHERE id = $1::uuid")
+        .bind(&insult.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    assert!(subjects.resolve(chat_message, &insult.id, Some(hanako.id)).await.is_ok(), "removed just now");
+    sqlx::query("UPDATE chat_removed_texts SET removed_at = now() - interval '31 days' WHERE message_id = $1::uuid")
+        .bind(&insult.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    assert_eq!(
+        subjects.resolve(chat_message, &insult.id, Some(hanako.id)).await.unwrap_err().reason,
         "SUBJECT_NOT_FOUND"
     );
+    ctx.chat.purge_removed_texts().await.unwrap();
+    let kept: i64 = sqlx::query_scalar("SELECT count(*) FROM chat_removed_texts WHERE message_id = $1::uuid")
+        .bind(&insult.id)
+        .fetch_one(&ctx.app.core.db)
+        .await
+        .unwrap();
+    assert_eq!(kept, 0);
 }
 
 #[tokio::test]

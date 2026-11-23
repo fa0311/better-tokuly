@@ -161,6 +161,22 @@ CREATE TABLE chat_pins (
 
 CREATE INDEX chat_pins_conversation ON chat_pins (conversation_id, created_at DESC, message_id DESC);
 
+-- What a message said before its sender edited or unsent it, kept only so
+-- that the people it reached can still report it: the subject resolver is
+-- the one reader. Purged 30 days after the removal.
+CREATE TABLE chat_removed_texts (
+    id         uuid PRIMARY KEY     DEFAULT uuidv7(),
+    message_id uuid        NOT NULL REFERENCES chat_messages (id) ON DELETE CASCADE,
+    -- The text; for a message without one, the line notifications describe it with.
+    text       text        NOT NULL,
+    -- 1 replaced by an edit, 2 deleted for everyone.
+    reason     smallint    NOT NULL,
+    removed_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX chat_removed_texts_message ON chat_removed_texts (message_id, removed_at);
+CREATE INDEX chat_removed_texts_removed ON chat_removed_texts (removed_at);
+
 -- ───────────────────────────── POV requests ─────────────────────────────
 
 CREATE TABLE chat_pov_requests (

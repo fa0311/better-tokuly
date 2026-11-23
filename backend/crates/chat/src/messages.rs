@@ -17,9 +17,10 @@ use crate::{
     access::{self, Access, Content, message_not_found},
     content,
     events::{MESSAGE_DELETED, MessageDeleted},
-    model::{ConversationRow, MSG, MentionRef, MessageRow, msg, request},
+    model::{ConversationRow, MSG, MentionRef, MessageRow, msg, removed, request},
     render::View,
     send::{Draft, JOB_LINK_PREVIEW, LinkPreviewJob, message_holder},
+    subjects,
 };
 
 /// Uploads a chat message may carry.
@@ -312,6 +313,16 @@ impl Chat {
         let link_url = content::first_url(&text);
         let mentions =
             serde_json::to_value(&mentions).map_err(|e| AppError::internal(anyhow::anyhow!("mentions encode: {e}")))?;
+        let mut tx = self.core.db.begin().await?;
+        // What it said before stays reportable (see `subjects`).
+        sqlx::query(
+            "INSERT INTO chat_removed_texts (message_id, text, reason)
+             SELECT id, text, $2 FROM chat_messages WHERE id = $1 AND deleted_at IS NULL AND text <> ''",
+        )
+        .bind(message_id)
+        .bind(removed::EDITED)
+        .execute(&mut *tx)
+        .await?;
         // The preview is kept when the link is the same, and fetched again otherwise.
         let updated: MessageRow = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "UPDATE chat_messages x SET
@@ -326,9 +337,10 @@ impl Chat {
         .bind(mentions)
         .bind(mention_all)
         .bind(&link_url)
-        .fetch_optional(&self.core.db)
+        .fetch_optional(&mut *tx)
         .await?
         .ok_or_else(message_not_found)?;
+        tx.commit().await?;
         self.push_message_updated(&updated, pb::MessageUpdateReason::MESSAGE_UPDATE_REASON_EDITED).await;
         if updated.link_url.is_some() && updated.link_checked_at.is_none() {
             let job = LinkPreviewJob { message_id };
@@ -380,6 +392,17 @@ impl Chat {
         .fetch_optional(&mut *tx)
         .await?;
         let Some(row) = row.filter(|row| !row.is_deleted()) else { return Ok(None) };
+        // Unsending must not take the recipients' way to report what they
+        // received: what it said is kept for that (see `subjects`). Not for
+        // takedowns, which already acted on a report.
+        if deleted_by.is_some() && !moderated && row.sender_id.is_some() {
+            sqlx::query("INSERT INTO chat_removed_texts (message_id, text, reason) VALUES ($1, $2, $3)")
+                .bind(message_id)
+                .bind(subjects::reported_text(&row))
+                .bind(removed::DELETED)
+                .execute(&mut *tx)
+                .await?;
+        }
         if row.counts_as_unread() {
             let mentioned: Vec<Uuid> = row.mentions().iter().map(|mention| mention.user_id).collect();
             sqlx::query(

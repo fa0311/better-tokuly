@@ -73,6 +73,12 @@ pub(crate) mod party {
     pub const MISSED: i16 = 5;
 }
 
+/// `chat_removed_texts.reason`: how a text left its message.
+pub(crate) mod removed {
+    pub const EDITED: i16 = 1;
+    pub const DELETED: i16 = 2;
+}
+
 pub(crate) const CONV: &str = "c.id, c.kind, c.user_lo, c.user_hi, c.name, c.icon, c.icon_asset_id, \
      c.member_count, c.last_seq, c.last_message_id, c.last_activity_at, c.read_only, c.created_at";
 

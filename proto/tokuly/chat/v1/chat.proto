@@ -473,7 +473,8 @@ service MessageService {
   // Replaces the text of one of the caller's own text messages or the
   // caption of a media message (which may be emptied), within
   // `Capabilities.edit_window_seconds` of sending. The message is marked as
-  // edited; mentions and the link preview are worked out again.
+  // edited; mentions and the link preview are worked out again. The text it
+  // replaced stays reportable by the members for 30 days.
   // Errors: MESSAGE_NOT_FOUND, NOT_ALLOWED (someone else's message),
   // MESSAGE_NOT_EDITABLE (not text/media, deleted, forwarded, or the answer
   // to a POV request), EDIT_WINDOW_CLOSED, MESSAGE_EMPTY, TEXT_TOO_LONG,
@@ -482,6 +483,8 @@ service MessageService {
   // Deletes a message for everyone. It stays in the conversation as an empty
   // tombstone (`deleted = true`). The sender may delete their own messages;
   // a group's owner and admins may delete anyone's. Deleting twice succeeds.
+  // The members it reached can still report it for 30 days: what it said is
+  // kept for that and for nothing else.
   // Errors: MESSAGE_NOT_FOUND, NOT_ALLOWED, MESSAGE_NOT_DELETABLE (system,
   // call and POV request messages).
   rpc DeleteMessage(DeleteMessageRequest) returns (DeleteMessageResponse);

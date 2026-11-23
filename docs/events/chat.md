@@ -126,6 +126,7 @@ other user (the notify domain applies per-person mutes). Path `/chat/<conversati
 | call reconciliation | 30 s | Lists the participants of each live call's LiveKit room (calls older than a minute); someone marked as joined but not connected 60 s after joining (`CONNECT_GRACE_SECONDS`) has left, which may end the call. Skipped while LiveKit is unreachable. LiveKit webhooks are not used. |
 | POV expiry | 60 s | Open requests past their 2 h become `EXPIRED`; unsaved answers past their 24 h lose their content (attachments and caption removed, uploads released). |
 | link preview sweep | 5 min | Re-queues links nobody looked up for 2 minutes (a lost job) and gives up on those older than a day. |
+| removed text purge | 1 h | Forgets what edited and unsent messages said (`chat_removed_texts`, kept for reports) 30 days after the edit or deletion. |
 
 ## Media assets
 
@@ -142,7 +143,14 @@ links of private files are renewed on every read.
 
 | Subject type | Resolves when | Owner | Notes |
 |---|---|---|---|
-| `SUBJECT_TYPE_CHAT_MESSAGE` | the viewer is a member of the conversation and can see the message (not deleted, not from before they joined or cleared their history) | the sender (nil UUID for system messages) | For reports only (`interactions_enabled` is false). Path `/chat/<conversation>?message=<id>`; title is the text (or a description of the content). Anonymous viewers and non-members never resolve it. |
+| `SUBJECT_TYPE_CHAT_MESSAGE` | the viewer is a member of the conversation and can see the message (not from before they joined or cleared their history; not declined); a message its sender (or a group manager) deleted still resolves for 30 days after the deletion | the sender (nil UUID for system messages) | For reports only (`interactions_enabled` is false). Path `/chat/<conversation>?message=<id>`; title is the text (or a description of the content), for an edited message `<first text> → <current text>`, for a deleted one what it said last. Anonymous viewers and non-members never resolve it. |
+
+Unsending or editing must not take away the recipients' way to report what
+they received. So the text a message had before an edit, and what it said
+when its sender (or a group manager) deleted it, is kept in
+`chat_removed_texts` for 30 days from that change and read by nothing but
+the subject resolver; a takedown keeps nothing (the report it acted on has
+the text). It is not part of the data export.
 
 ## Analytics events
 

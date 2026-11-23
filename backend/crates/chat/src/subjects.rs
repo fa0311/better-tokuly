@@ -11,8 +11,8 @@ use tokuly_core::{
 use tokuly_proto::common::SubjectType;
 
 use crate::{
-    access, content,
-    model::{msg, request},
+    Chat, access, content,
+    model::{MessageRow, msg, removed, request},
     notices, render,
 };
 
@@ -28,26 +28,69 @@ pub(crate) fn register(core: &Core) {
 /// `SUBJECT_TYPE_CHAT_MESSAGE`: a message resolves only for members of its
 /// conversation who can see it. Messages can be reported, not liked or
 /// commented on.
+///
+/// Its sender editing or unsending it does not take the recipients' way to
+/// report what they received: for [`REMOVED_TEXT_RETENTION_DAYS`] after the
+/// change a deleted message still resolves, with what it said, and an edited
+/// one names what it said first as well.
 struct MessageSubjects {
     core: Core,
+}
+
+/// Days the text an edit or an unsend removed is kept for reports, counted
+/// from the removal.
+pub(crate) const REMOVED_TEXT_RETENTION_DAYS: i32 = 30;
+
+/// Characters of each text in a subject's title.
+const TITLE_CHARS: usize = 80;
+
+/// What a message says, as a report is filed with it: its text, or the line
+/// notifications describe it with.
+pub(crate) fn reported_text(row: &MessageRow) -> String {
+    match row.kind {
+        msg::TEXT => row.text.clone(),
+        _ => notices::teaser(row).ja,
+    }
 }
 
 #[async_trait]
 impl SubjectResolver for MessageSubjects {
     async fn resolve(&self, id: &str, viewer: Option<Uuid>) -> AppResult<Option<SubjectInfo>> {
         let (Ok(message_id), Some(viewer)) = (Uuid::parse_str(id), viewer) else { return Ok(None) };
-        let Some(row) = access::find_message(&self.core, message_id).await?.filter(|row| !row.is_deleted()) else {
-            return Ok(None);
-        };
+        let Some(row) = access::find_message(&self.core, message_id).await? else { return Ok(None) };
         let member = access::find_member(&self.core, row.conversation_id, viewer).await?;
         let visible =
             member.is_some_and(|member| member.request_state != request::DECLINED && row.seq > member.history_from_seq);
         if !visible {
             return Ok(None);
         }
-        let title = match row.kind {
-            msg::TEXT => content::snippet(&row.text, 80),
-            _ => notices::teaser(&row).ja,
+        let earlier: Vec<(String, i16)> = sqlx::query_as(
+            "SELECT text, reason FROM chat_removed_texts
+             WHERE message_id = $1 AND removed_at > now() - make_interval(days => $2)
+             ORDER BY removed_at, id",
+        )
+        .bind(row.id)
+        .bind(REMOVED_TEXT_RETENTION_DAYS)
+        .fetch_all(&self.core.db)
+        .await?;
+        let latest = if row.is_deleted() {
+            match earlier.iter().rev().find(|(_, reason)| *reason == removed::DELETED) {
+                Some((text, _)) => text.clone(),
+                // Taken down, or unsent too long ago.
+                None => return Ok(None),
+            }
+        } else {
+            reported_text(&row)
+        };
+        let latest = content::snippet(&latest, TITLE_CHARS);
+        let first = earlier
+            .iter()
+            .find(|(_, reason)| *reason == removed::EDITED)
+            .map(|(text, _)| content::snippet(text, TITLE_CHARS))
+            .filter(|first| *first != latest);
+        let title = match first {
+            Some(first) => format!("{first} → {latest}"),
+            None => latest,
         };
         Ok(Some(SubjectInfo {
             id: row.id,
@@ -57,6 +100,18 @@ impl SubjectResolver for MessageSubjects {
             image_url: render::thumbnail_of(&row, &Default::default()),
             interactions_enabled: false,
         }))
+    }
+}
+
+impl Chat {
+    /// Forgets the texts edits and unsends removed once they are older than
+    /// [`REMOVED_TEXT_RETENTION_DAYS`]. Returns how many went.
+    pub async fn purge_removed_texts(&self) -> AppResult<u64> {
+        Ok(sqlx::query("DELETE FROM chat_removed_texts WHERE removed_at <= now() - make_interval(days => $1)")
+            .bind(REMOVED_TEXT_RETENTION_DAYS)
+            .execute(&self.core.db)
+            .await?
+            .rows_affected())
     }
 }
 
