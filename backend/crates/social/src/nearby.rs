@@ -9,6 +9,10 @@
 //! whoever joins or leaves publishes a wake-up on the bus for their map cell
 //! and its neighbours, and every session listens on its own cell. A slow
 //! heartbeat covers lost wake-ups and members that vanished without leaving.
+//!
+//! A user has one session at a time: opening a new one ends the previous
+//! one (on whichever server it runs), so nobody looks from several made-up
+//! positions at once.
 use std::time::Duration;
 
 use connectrpc::{ConnectError, ServiceStream};
@@ -50,6 +54,13 @@ fn coarse_distance(meters: f64) -> f64 {
 
 pub(crate) const NEARBY: LiveGeoSet = LiveGeoSet::new("social:nearby:geo", "social:nearby:seen", PRESENCE_TTL);
 
+/// Holds the ID of a user's current session; older sessions end when they
+/// see it changed. Outlives the longest session a little.
+fn session_key(user_id: Uuid) -> String {
+    format!("social:nearby:session:{}", user_id.simple())
+}
+const SESSION_KEY_TTL: Duration = Duration::from_secs(MAX_SESSION.as_secs() + 60);
+
 /// Where one session stands and how far it looks.
 #[derive(Debug, Clone, Copy)]
 struct Spot {
@@ -84,6 +95,10 @@ impl Social {
         ensure!(privacy.nearby_discoverable, precondition, "NEARBY_DISCOVERY_DISABLED", "turn on nearby discovery in your privacy settings first");
         core.cache.rate_limit(&format!("nearby:{user_id}"), MAX_SESSIONS, SESSION_WINDOW).await?;
 
+        // This session takes over from any earlier one of the user's.
+        let session = new_id().to_string();
+        core.cache.set_string(&session_key(user_id), &session, Some(SESSION_KEY_TTL)).await?;
+
         let allowance = if accuracy_meters.is_finite() { accuracy_meters.clamp(0.0, MAX_ACCURACY_ALLOWANCE) } else { 0.0 };
         let spot = Spot { user_id, lat, lng, radius_meters: self.cfg.nearby_radius_meters + allowance };
 
@@ -95,13 +110,14 @@ impl Social {
 
         let (sender, receiver) = mpsc::channel(4);
         let social = self.clone();
-        tokio::spawn(async move { social.run_nearby_session(spot, wakeups, sender).await });
+        tokio::spawn(async move { social.run_nearby_session(spot, session, wakeups, sender).await });
         Ok(Box::pin(ReceiverStream::new(receiver).map(Ok::<_, ConnectError>)))
     }
 
-    /// Feeds one session until the client goes away, the session times out or
-    /// the server shuts down, then takes the user off the map.
-    async fn run_nearby_session<W, M>(&self, spot: Spot, mut wakeups: W, sender: mpsc::Sender<DiscoverNearbyResponse>)
+    /// Feeds one session until the client goes away, the session times out,
+    /// a newer session of the user takes over or the server shuts down, then
+    /// takes the user off the map (unless a newer session keeps them there).
+    async fn run_nearby_session<W, M>(&self, spot: Spot, session: String, mut wakeups: W, sender: mpsc::Sender<DiscoverNearbyResponse>)
     where
         W: Stream<Item = M> + Unpin,
     {
@@ -128,6 +144,11 @@ impl Social {
                     }
                 }
             }
+            match cache.get_string(&session_key(spot.user_id)).await {
+                Ok(current) if current.as_deref() != Some(session.as_str()) => break, // taken over
+                Ok(_) => {}
+                Err(e) => tracing::warn!(error = %e, "nearby session check failed"),
+            }
             let users = match self.nearby_users(&spot).await {
                 Ok(users) => users,
                 Err(e) => {
@@ -145,7 +166,7 @@ impl Social {
             }
             last_sent = Some(seen_now);
         }
-        if let Err(e) = NEARBY.leave(cache, spot.user_id).await {
+        if let Err(e) = NEARBY.leave_unless_taken_over(cache, spot.user_id, &session_key(spot.user_id), &session).await {
             tracing::warn!(error = %e, "could not leave nearby discovery; the entry expires by itself");
         }
         self.announce_nearby_change(spot.lat, spot.lng).await;

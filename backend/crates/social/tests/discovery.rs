@@ -348,3 +348,28 @@ async fn nearby_stream_rejects_bad_input_and_opted_out_users() {
     }
     assert_eq!(open(Some(&scanner), nearby_at(somewhere())).await.unwrap_err().reason, "RATE_LIMITED");
 }
+
+#[tokio::test]
+async fn a_new_nearby_session_takes_over_from_the_previous_one() {
+    let ctx = start().await;
+    let (alice, bob) = (ctx.app.user("alice").await, ctx.app.user("bob").await);
+    let (here, there) = (somewhere(), somewhere());
+    let app = &ctx.app;
+    let started = std::time::Instant::now();
+    let first = async {
+        app.stream::<_, DiscoverNearbyResponse>(NEARBY, Some(&alice), &nearby_at(here), 100, Duration::from_secs(15)).await.unwrap();
+        started.elapsed()
+    };
+    let second = async {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        app.stream::<_, DiscoverNearbyResponse>(NEARBY, Some(&alice), &nearby_at(there), 100, Duration::from_secs(10)).await.unwrap()
+    };
+    // Bob arrives where Alice's newer session is, after the older one ended.
+    let watcher = async {
+        tokio::time::sleep(Duration::from_secs(7)).await;
+        app.stream::<_, DiscoverNearbyResponse>(NEARBY, Some(&bob), &nearby_at(north_of(there, 5.0)), 1, Duration::from_secs(3)).await.unwrap()
+    };
+    let (first_lasted, _, bob_saw) = tokio::join!(first, second, watcher);
+    assert!(first_lasted < Duration::from_secs(7), "one session at a time: the older one ran for {first_lasted:?}");
+    assert_eq!(seen(&bob_saw[0]), vec![(alice.id, Relationship::RELATIONSHIP_NONE)], "ending the older session leaves the newer one on the map");
+}

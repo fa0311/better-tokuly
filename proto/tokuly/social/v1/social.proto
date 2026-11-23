@@ -88,7 +88,8 @@ service FriendService {
   // and receives, other users with the add-friend screen open within ~50 m.
   // The first message arrives immediately (possibly empty). The server ends
   // the stream after 10 minutes; reopen it to keep going or after moving
-  // (at most 20 streams per 10 minutes).
+  // (at most 20 streams per 10 minutes). A user has one stream at a time:
+  // opening a new one ends the previous one.
   // Errors: INVALID_LOCATION, NEARBY_DISCOVERY_DISABLED (the caller switched
   // off `nearby_discoverable`), RATE_LIMITED.
   rpc DiscoverNearby(DiscoverNearbyRequest) returns (stream DiscoverNearbyResponse);
