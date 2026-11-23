@@ -304,6 +304,16 @@ function Loaded({ hangout }: { hangout: spaces.Hangout }) {
               {t("room.reconnecting")}
             </p>
           )}
+          {active?.paused && (
+            <p
+              role="status"
+              className="flex items-center gap-2 rounded-2xl bg-sky px-4 py-3 text-sm font-bold text-[#17122b]"
+              data-testid="room-paused"
+            >
+              <span aria-hidden>📞</span>
+              {t("room.pausedForCall")}
+            </p>
+          )}
           {active?.audioBlocked && (
             <button
               type="button"
@@ -321,7 +331,7 @@ function Loaded({ hangout }: { hangout: spaces.Hangout }) {
                   type="button"
                   aria-pressed={active.micOn}
                   aria-label={t(active.micOn ? "room.mute" : "room.unmute")}
-                  disabled={active.phase !== "connected"}
+                  disabled={active.phase !== "connected" || active.paused}
                   onClick={() => void toggleMicrophone(queryClient)}
                   className={cn(
                     "pressable sticker inline-flex h-12 items-center gap-2 rounded-full px-5 font-black disabled:opacity-50",

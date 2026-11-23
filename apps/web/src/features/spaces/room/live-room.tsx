@@ -200,7 +200,11 @@ export function LiveRoom({ space }: { space: spaces.Space }) {
 
   const hiddenListeners = everyone.hiddenCount;
   return (
-    <div className="relative flex h-full flex-col" data-testid="live-room">
+    <div
+      className="relative flex h-full flex-col"
+      data-testid="live-room"
+      data-mic-published={active ? String(active.micPublished) : undefined}
+    >
       <header className="glass z-20 border-b-2 border-line">
         <div className="mx-auto flex h-16 max-w-5xl items-center gap-2 px-4">
           <Link
@@ -252,6 +256,16 @@ export function LiveRoom({ space }: { space: spaces.Space }) {
               >
                 <Spinner className="size-4" />
                 {t("room.reconnecting")}
+              </p>
+            )}
+            {active?.paused && (
+              <p
+                role="status"
+                className="flex items-center gap-2 rounded-2xl bg-sky px-4 py-3 text-sm font-bold text-[#17122b]"
+                data-testid="room-paused"
+              >
+                <span aria-hidden>📞</span>
+                {t("room.pausedForCall")}
               </p>
             )}
             {active?.audioBlocked && (
@@ -364,6 +378,7 @@ export function LiveRoom({ space }: { space: spaces.Space }) {
                         <AudienceTile
                           key={entry.user?.id}
                           participant={entry}
+                          voices={voices}
                           onOpen={() => setSelected(entry)}
                         />
                       ))}
@@ -407,7 +422,7 @@ export function LiveRoom({ space }: { space: spaces.Space }) {
                     type="button"
                     aria-pressed={active.micOn}
                     aria-label={t(active.micOn ? "room.mute" : "room.unmute")}
-                    disabled={active.phase !== "connected"}
+                    disabled={active.phase !== "connected" || active.paused}
                     onClick={() => void toggleMicrophone(queryClient)}
                     className={cn(
                       "pressable sticker inline-flex h-12 items-center gap-2 rounded-full px-5 font-black disabled:opacity-50",

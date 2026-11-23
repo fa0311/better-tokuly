@@ -5,6 +5,8 @@ import { toast } from "sonner";
 import { create } from "zustand";
 import { errorMessage } from "#/lib/errors";
 import i18n from "#/lib/i18n";
+import { realtime } from "#/lib/realtime";
+import { audioFocusHolder, claimAudioFocus, releaseAudioFocus } from "#/stores/audio-focus";
 import {
   hangoutClient,
   keys,
@@ -31,9 +33,15 @@ export interface ActiveVenue {
   /** The hangout's emoji; empty for rooms. */
   emoji: string;
   phase: "connecting" | "connected" | "reconnecting";
+  /** The role the person holds in a room, as this session last heard; hangouts: speaker. */
+  role: spaces.SpaceRole;
   /** The connection may send a microphone (LiveKit's word, which follows the role). */
   canPublish: boolean;
   micOn: boolean;
+  /** A microphone track is published (open or muted). */
+  micPublished: boolean;
+  /** A chat call has the microphone and the speakers: the room is silent until it ends. */
+  paused: boolean;
   /** The browser refuses to play sound until the person taps. */
   audioBlocked: boolean;
   /** Bumped whenever who is talking or muted changes. */
@@ -70,9 +78,6 @@ const fail = (error: unknown) => toast.error(errorMessage(error, { namespace: "s
 let room: Room | null = null;
 /** Counts every entering and leaving, so work that finishes late can tell it is stale. */
 let generation = 0;
-/** Automatic re-entries since the connection was last stable. */
-let rejoins = 0;
-let stableTimer: ReturnType<typeof setTimeout> | undefined;
 let promoteTimer: ReturnType<typeof setTimeout> | undefined;
 
 /** When each person was last heard talking, by user ID. */
@@ -81,7 +86,8 @@ let quietTimer: ReturnType<typeof setTimeout> | undefined;
 /** A face stays lit this long after its voice went quiet, so it does not flicker between words. */
 const SPEAKING_LINGER_MS = 1200;
 
-const MAX_REJOINS = 2;
+/** Tries to get back in after LiveKit gave a connection up, before calling it lost. */
+const MAX_REJOINS = 6;
 const MIC_KEY = "tokuly.spaces.microphone";
 const SPEAKER_KEY = "tokuly.spaces.speaker";
 
@@ -128,25 +134,32 @@ function sink(): HTMLElement {
 /** Lets go of the connection and the microphone. */
 async function close(exit: Exit | null = null): Promise<void> {
   generation++;
-  clearTimeout(stableTimer);
   clearTimeout(promoteTimer);
   clearTimeout(quietTimer);
   lastSpoke.clear();
   const leaving = room;
   room = null;
   useAudioSession.setState({ active: null, exit });
+  releaseAudioFocus("room");
   document.getElementById("spaces-audio")?.replaceChildren();
   await leaving?.disconnect().catch(() => {});
 }
 
-function begin(venue: Pick<ActiveVenue, "kind" | "id" | "title" | "emoji">): number {
-  rejoins = 0;
+function begin(
+  venue: Pick<ActiveVenue, "kind" | "id" | "title" | "emoji">,
+  role: spaces.SpaceRole,
+): number {
+  // A room or hangout has the microphone to itself; a call that is still on ends (the person agreed).
+  claimAudioFocus({ holder: "room", yield: pauseForCall, resume: resumeAfterCall });
   useAudioSession.setState({
     active: {
       ...venue,
+      role,
       phase: "connecting",
       canPublish: false,
       micOn: false,
+      micPublished: false,
+      paused: false,
       audioBlocked: false,
       revision: 0,
     },
@@ -200,7 +213,10 @@ async function connect(
   });
   session.on(RoomEvent.TrackSubscribed, (track) => {
     if (!current() || track.kind !== Track.Kind.Audio) return;
-    sink().appendChild(track.attach());
+    const element = track.attach();
+    // During a call the room stays silent.
+    element.muted = Boolean(useAudioSession.getState().active?.paused);
+    sink().appendChild(element);
     touch();
   });
   session.on(RoomEvent.TrackUnsubscribed, (track) => {
@@ -216,7 +232,12 @@ async function connect(
   ] as const) {
     session.on(
       event,
-      () => current() && update({ micOn: session.localParticipant.isMicrophoneEnabled }),
+      () =>
+        current() &&
+        update({
+          micOn: session.localParticipant.isMicrophoneEnabled,
+          micPublished: session.localParticipant.audioTrackPublications.size > 0,
+        }),
     );
   }
   session.on(RoomEvent.ParticipantPermissionsChanged, (_previous, participant) => {
@@ -245,11 +266,7 @@ async function connect(
     canPublish: session.localParticipant.permissions?.canPublish ?? credentials.canPublish,
     audioBlocked: !session.canPlaybackAudio,
   });
-  clearTimeout(stableTimer);
-  stableTimer = setTimeout(() => {
-    rejoins = 0;
-  }, 60_000);
-  if (options.microphone) await setMicrophone(true);
+  if (options.microphone && !useAudioSession.getState().active?.paused) await setMicrophone(true);
 }
 
 /** Fresh credentials for whatever the person holds now, from the venue they are inside. */
@@ -260,6 +277,7 @@ async function freshCredentials(
   if (venue.kind === "space") {
     const response = await spaceClient().joinSpace({ spaceId: venue.id });
     rememberSpace(queryClient, response.space);
+    if (response.me) update({ role: response.me.role });
     return response.credentials;
   }
   const response = await hangoutClient().joinHangout({ hangoutId: venue.id });
@@ -270,9 +288,33 @@ async function freshCredentials(
 let client: QueryClient | null = null;
 
 /**
- * LiveKit gave the connection up. Before anything is tried again the server
- * is asked what is true: someone who was removed, banned or left behind by a
- * room that ended lands on that state and is not reconnected.
+ * Waits before trying again: for the network to come back (`online`, or the
+ * realtime connection's welcome), or a moment that grows with every try.
+ */
+function backOnline(attempt: number): Promise<void> {
+  return new Promise((resolve) => {
+    const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+    let offFrame = () => {};
+    const done = () => {
+      clearTimeout(timer);
+      window.removeEventListener("online", done);
+      offFrame();
+      resolve();
+    };
+    const timer = setTimeout(done, offline ? 60_000 : Math.min(1000 * 2 ** attempt, 15_000));
+    window.addEventListener("online", done);
+    offFrame = realtime().onFrame((frame) => {
+      if (frame.body.case === "welcome") done();
+    });
+  });
+}
+
+/**
+ * LiveKit gave the connection up. The server decides what is true: someone
+ * who was removed, banned or left behind by a room that ended lands on that
+ * state and is not reconnected. Anyone else is still welcome, so the session
+ * shows "reconnecting", waits for the network and enters again, a bounded
+ * number of times.
  */
 async function disconnected(mine: number, reason: DisconnectReason | undefined): Promise<void> {
   const active = useAudioSession.getState().active;
@@ -284,23 +326,28 @@ async function disconnected(mine: number, reason: DisconnectReason | undefined):
     return void close({ ...venue, reason: "elsewhere" });
   const cut =
     reason === DisconnectReason.PARTICIPANT_REMOVED || reason === DisconnectReason.ROOM_DELETED;
-  update({ phase: "reconnecting" });
-  try {
-    const exit = await whyOutside(client, venue, cut);
+  const microphone = active.micOn;
+  update({ phase: "reconnecting", micOn: false, micPublished: false });
+  for (let attempt = 0; attempt < MAX_REJOINS; attempt++) {
+    if (attempt > 0) await backOnline(attempt);
     if (mine !== generation) return;
-    if (exit) return void close({ ...venue, reason: exit });
-    if (rejoins >= MAX_REJOINS) throw new Error("gave up");
-    rejoins++;
-    const microphone = active.micOn;
-    const credentials = await freshCredentials(client, venue);
-    if (mine !== generation) return;
-    await connect(credentials, mine, { microphone });
-  } catch (error) {
-    if (mine !== generation) return;
-    // Entering again was refused: the room is gone for this person, or full, or the network is.
-    const gone = isNotFound(error) || errorReason(error) === "BANNED_FROM_SPACE";
-    void close({ ...venue, reason: gone ? "removed" : "lost" });
+    try {
+      const exit = await whyOutside(client, venue, cut);
+      if (mine !== generation) return;
+      if (exit) return void close({ ...venue, reason: exit });
+      const credentials = await freshCredentials(client, venue);
+      if (mine !== generation) return;
+      await connect(credentials, mine, { microphone });
+      return;
+    } catch (error) {
+      if (mine !== generation) return;
+      // Entering again was refused for good: the room is gone for this person.
+      if (isNotFound(error) || errorReason(error) === "BANNED_FROM_SPACE")
+        return void close({ ...venue, reason: venue.kind === "space" ? "removed" : "closed" });
+      // The network, the API or LiveKit is not there yet: wait and try again.
+    }
   }
+  if (mine === generation) void close({ ...venue, reason: "lost" });
 }
 
 /** Asks the server whether the person is still inside; the reason they are not, otherwise. */
@@ -315,13 +362,13 @@ async function whyOutside(
       rememberSpace(queryClient, space);
       if (!space) return "removed";
       if (space.state !== spaces.SpaceState.LIVE) return "ended";
-      if (!space.viewer?.inside) return cut ? "removed" : "lost";
+      // Out on the server without a moderator's cut: the connection was gone too long. They may come back.
+      if (!space.viewer?.inside && cut) return "removed";
       return null;
     }
     const { hangout } = await hangoutClient().getHangout({ hangoutId: venue.id });
     rememberHangout(queryClient, hangout);
     if (hangout?.viewer?.state !== spaces.HangoutMemberState.MEMBER) return "closed";
-    if (!hangout.viewer.inside) return "lost";
     return null;
   } catch (error) {
     if (isNotFound(error)) return venue.kind === "space" ? "removed" : "closed";
@@ -335,12 +382,19 @@ export async function enterSpace(
   space: Pick<spaces.Space, "id" | "title">,
 ): Promise<boolean> {
   client = queryClient;
+  if (!(await ensureAudioFocus())) return false;
   await close();
-  const mine = begin({ kind: "space", id: space.id, title: space.title, emoji: "" });
+  const mine = begin(
+    { kind: "space", id: space.id, title: space.title, emoji: "" },
+    spaces.SpaceRole.LISTENER,
+  );
   try {
     const response = await spaceClient().joinSpace({ spaceId: space.id });
     rememberSpace(queryClient, response.space);
-    if (response.space) update({ title: response.space.title });
+    update({
+      title: response.space?.title ?? space.title,
+      role: response.me?.role ?? response.space?.viewer?.role ?? spaces.SpaceRole.LISTENER,
+    });
     await connect(response.credentials, mine);
     return mine === generation;
   } catch (error) {
@@ -365,7 +419,10 @@ export async function adoptSpace(
 ): Promise<void> {
   client = queryClient;
   await close();
-  const mine = begin({ kind: "space", id: space.id, title: space.title, emoji: "" });
+  const mine = begin(
+    { kind: "space", id: space.id, title: space.title, emoji: "" },
+    space.viewer?.role ?? spaces.SpaceRole.HOST,
+  );
   rememberSpace(queryClient, space);
   try {
     await connect(credentials, mine);
@@ -383,13 +440,12 @@ export async function enterHangout(
   hangout: Pick<spaces.Hangout, "id" | "name" | "emoji">,
 ): Promise<boolean> {
   client = queryClient;
+  if (!(await ensureAudioFocus())) return false;
   await close();
-  const mine = begin({
-    kind: "hangout",
-    id: hangout.id,
-    title: hangout.name,
-    emoji: hangout.emoji,
-  });
+  const mine = begin(
+    { kind: "hangout", id: hangout.id, title: hangout.name, emoji: hangout.emoji },
+    spaces.SpaceRole.SPEAKER,
+  );
   try {
     const response = await hangoutClient().joinHangout({ hangoutId: hangout.id });
     rememberHangout(queryClient, response.hangout);
@@ -467,11 +523,9 @@ export function roleChanged(queryClient: QueryClient, spaceId: string, role: spa
   client = queryClient;
   clearTimeout(promoteTimer);
   const stage = onStage(role);
-  if (!stage) {
-    // Back in the audience: the microphone goes at once, whatever LiveKit has heard so far.
-    void room.localParticipant.setMicrophoneEnabled(false).catch(() => {});
-    update({ micOn: false });
-  }
+  update({ role });
+  // Back in the audience: the microphone goes at once, whatever LiveKit has heard so far.
+  if (!stage) void dropMicrophone();
   const mine = generation;
   promoteTimer = setTimeout(() => {
     if (mine !== generation || !room) return;
@@ -495,8 +549,74 @@ async function reconnectWithFreshToken(queryClient: QueryClient): Promise<boolea
   }
 }
 
+/** Takes the microphone off the connection altogether (not just muted). */
+async function dropMicrophone(): Promise<void> {
+  const session = room;
+  if (!session) return;
+  update({ micOn: false });
+  for (const publication of [...session.localParticipant.audioTrackPublications.values()]) {
+    if (publication.track)
+      await session.localParticipant.unpublishTrack(publication.track).catch(() => {});
+  }
+  if (room === session) update({ micOn: false, micPublished: false });
+}
+
+/** A chat call took the microphone and the speakers: the room goes silent and the person off stage. */
+function pauseForCall(): void {
+  const active = useAudioSession.getState().active;
+  if (!active) return;
+  update({ paused: true });
+  for (const element of sink().querySelectorAll("audio")) element.muted = true;
+  void dropMicrophone();
+  // A speaker (or co-host) goes back to the audience; the host keeps the room, muted.
+  if (active.kind === "space" && onStage(active.role) && active.role !== spaces.SpaceRole.HOST) {
+    update({ role: spaces.SpaceRole.LISTENER });
+    void spaceClient()
+      .moveToAudience({ spaceId: active.id, userId: "" })
+      .catch(() => {});
+  }
+  toast(t("toast.pausedForCall"), { icon: "📞" });
+}
+
+/** The call ended: the room can be heard again (the microphone stays off until the person turns it on). */
+function resumeAfterCall(): void {
+  if (!useAudioSession.getState().active) return;
+  update({ paused: false });
+  for (const element of sink().querySelectorAll("audio")) element.muted = false;
+  toast(t("toast.resumedAfterCall"), { icon: "🎧" });
+}
+
+interface CallPrompt {
+  resolve(endCall: boolean): void;
+}
+
+/** The question "end the call and come in?", while it is asked. */
+export const useCallPrompt = create<{ prompt: CallPrompt | null }>(() => ({ prompt: null }));
+
+/** Answers the question (`EndCallPrompt` calls this). */
+export function answerCallPrompt(endCall: boolean): void {
+  const prompt = useCallPrompt.getState().prompt;
+  useCallPrompt.setState({ prompt: null });
+  prompt?.resolve(endCall);
+}
+
+/**
+ * Before entering a room or hangout: a chat call that is on keeps the
+ * microphone unless the person agrees to end it. Resolves to whether entering
+ * may go ahead (the call itself ends when the room claims the microphone).
+ */
+export function ensureAudioFocus(): Promise<boolean> {
+  if (audioFocusHolder() !== "call") return Promise.resolve(true);
+  useCallPrompt.getState().prompt?.resolve(false);
+  return new Promise((resolve) => useCallPrompt.setState({ prompt: { resolve } }));
+}
+
 async function setMicrophone(on: boolean): Promise<void> {
   if (!room) return;
+  if (on && useAudioSession.getState().active?.paused) {
+    toast(t("toast.micDuringCall"), { icon: "📞" });
+    return;
+  }
   try {
     await room.localParticipant.setMicrophoneEnabled(on);
     update({ micOn: room.localParticipant.isMicrophoneEnabled });

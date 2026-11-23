@@ -186,6 +186,10 @@ test("a raised hand is brought on stage: the listener becomes a speaker and can 
   await expect(stage(page)).toHaveCount(1);
   await expect(theirs.getByTestId("hand-toggle")).toBeVisible();
   await expect(theirs.getByTestId("mic-toggle")).toHaveCount(0);
+  // Their microphone is off the connection, not just muted: nobody hears it any more.
+  await expect(theirs.getByTestId("live-room")).toHaveAttribute("data-mic-published", "false");
+  await expect(page.getByTestId("stage").locator('[data-mic="on"]')).toHaveCount(0);
+  await expect(audience(page).filter({ hasText: "ren" })).not.toHaveAttribute("data-mic", "on");
   await theirs.context().close();
 });
 
@@ -507,6 +511,112 @@ test("an upcoming room can be changed and called off by its host", async ({
     me,
   );
   expect(after.space.state).toBe("SPACE_STATE_CANCELLED");
+});
+
+// ───────────────────────────── Rooms and chat calls ─────────────────────────────
+
+/** The direct conversation of two friends. */
+async function conversationOf(request: APIRequestContext, a: Account, b: Account): Promise<string> {
+  const { conversation } = await rpc<{ conversation: { id: string } }>(
+    request,
+    "tokuly.chat.v1.ConversationService/OpenDirect",
+    { userId: b.userId },
+    a,
+  );
+  return conversation.id;
+}
+
+test("taking a chat call while on stage: the room pauses and the speaker goes back to the audience", async ({
+  page,
+  request,
+  me,
+  browser,
+}, testInfo) => {
+  const host = await createAccount(request, "host");
+  const caller = await friendOf(request, me, "kana");
+  const conversationId = await conversationOf(request, caller, me);
+  const space = await liveRoom(request, host, { title: "通話とルーム" });
+  await enter(page, space);
+  await page.getByTestId("hand-toggle").click();
+  await expect(page.getByTestId("hand-toggle")).toHaveAttribute("aria-pressed", "true");
+  await rpc(request, `${SPACES}/InviteToStage`, { spaceId: space.id, userId: me.userId }, host);
+  const mic = page.getByTestId("mic-toggle");
+  await mic.click();
+  await expect(mic).toHaveAttribute("aria-pressed", "true", { timeout: 20_000 });
+  await expect(page.getByTestId("live-room")).toHaveAttribute("data-mic-published", "true");
+
+  const theirs = await browserOf(browser, testInfo, caller);
+  await theirs.goto(`/chat/${conversationId}`);
+  await theirs.getByRole("button", { name: "音声通話" }).click();
+  await page.getByTestId("incoming-call").getByRole("button", { name: "応答する" }).click();
+  await expect(page.getByTestId("call-screen")).toBeVisible();
+
+  // The private call never reaches the stage: the room is silent, the microphone is off it,
+  // and the speaker is back in the audience.
+  await expect(page.getByTestId("room-paused")).toBeAttached();
+  await expect(page.getByTestId("live-room")).toHaveAttribute("data-mic-published", "false");
+  await expect(stage(page)).toHaveCount(1);
+  await expect(async () => {
+    const { participants } = await rpc<{ participants?: { user: { id: string } }[] }>(
+      request,
+      `${SPACES}/ListParticipants`,
+      { spaceId: space.id, filter: "PARTICIPANT_FILTER_STAGE" },
+      host,
+    );
+    expect(participants?.map((entry) => entry.user.id)).toEqual([host.userId]);
+  }).toPass({ timeout: 10_000 });
+
+  // The call ends: the room is heard again, still inside, as a listener.
+  await theirs.getByRole("button", { name: "通話を終了" }).click();
+  await expect(page.getByTestId("call-screen")).toHaveCount(0);
+  await expect(page.getByTestId("room-paused")).toHaveCount(0);
+  await expect(page.getByText("通話がおわったから、ルームの音声を戻したよ")).toBeVisible();
+  await expect(page.getByTestId("hand-toggle")).toBeVisible();
+  await theirs.context().close();
+});
+
+test("joining a room during a chat call asks first, and ends the call only when agreed", async ({
+  page,
+  request,
+  me,
+  browser,
+}, testInfo) => {
+  const host = await createAccount(request, "host");
+  const friend = await friendOf(request, me, "yui");
+  const conversationId = await conversationOf(request, friend, me);
+  const space = await liveRoom(request, host, { title: `通話中に見つけた部屋 ${Date.now()}` });
+
+  const theirs = await browserOf(browser, testInfo, friend);
+  await theirs.goto("/friends");
+  await page.goto(`/chat/${conversationId}`);
+  await page.getByRole("button", { name: "音声通話" }).click();
+  await theirs.getByTestId("incoming-call").getByRole("button", { name: "応答する" }).click();
+  await expect(page.getByTestId("call-status")).not.toHaveText("呼び出し中…", { timeout: 20_000 });
+  await page.getByRole("button", { name: "小さくする" }).click();
+  await expect(page.getByTestId("call-pill")).toBeVisible();
+
+  // Over to the room without leaving the app (a reload would end the call by itself).
+  // A phone's conversation hides the tab bar: back to the chat list first.
+  const toChats = page.locator('a[href="/chat"]').filter({ visible: true });
+  if ((await toChats.count()) > 0) await toChats.first().click();
+  await page.getByRole("link", { name: "じぶん", exact: true }).filter({ visible: true }).click();
+  await page.getByRole("link", { name: "ルーム", exact: true }).first().click();
+  await page.getByRole("link", { name: space.title }).click();
+  await page.getByTestId("join-room").click();
+
+  const ask = page.getByRole("dialog");
+  await expect(ask).toContainText("通話を終了して参加する？");
+  // Not now: the call goes on and the room waits.
+  await ask.getByRole("button", { name: "キャンセル" }).click();
+  await expect(page.getByTestId("call-pill")).toBeVisible();
+  await expect(page.getByTestId("join-room")).toBeVisible();
+
+  await page.getByTestId("join-room").click();
+  await page.getByRole("dialog").getByRole("button", { name: "通話を終了して参加する" }).click();
+  await expect(page.getByTestId("leave-room")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId("call-pill")).toHaveCount(0);
+  await expect(theirs.getByTestId("call-screen")).toHaveCount(0);
+  await theirs.context().close();
 });
 
 // ───────────────────────────── たまり場 ─────────────────────────────

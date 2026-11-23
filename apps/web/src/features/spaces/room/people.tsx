@@ -108,9 +108,11 @@ export function StageTile({
 /** Someone in the audience: a small face, a raised hand when it is up. */
 export function AudienceTile({
   participant,
+  voices,
   onOpen,
 }: {
   participant: spaces.SpaceParticipant;
+  voices: Voices;
   onOpen(): void;
 }) {
   const { t } = useTranslation("spaces");
@@ -122,6 +124,7 @@ export function AudienceTile({
         onClick={onOpen}
         className="flex w-full flex-col items-center gap-1 rounded-2xl p-1.5 hover:bg-surface-2"
         data-testid="audience-person"
+        data-mic={voices.open.has(participant.user?.id ?? "") ? "on" : undefined}
         aria-label={t("room.personLabel.listener", { name: nameOf(participant.user) })}
       >
         <span className="relative">

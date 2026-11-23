@@ -7,12 +7,15 @@ import { toast } from "sonner";
 import { realtime } from "#/lib/realtime";
 import { useMe } from "#/stores/session";
 import { keys } from "./api";
+import { EndCallPrompt } from "./end-call-prompt";
 import { applySpacesEvent, useSpaceTopic } from "./live";
 import { MiniPlayer } from "./mini-player";
 import { onStage } from "./model";
 import { type ExitReason, putOutside, roleChanged, useAudioSession } from "./session";
 
 const Leave = spaces.SpaceLeaveReason;
+/** How recent an entry elsewhere must be to explain being out of this venue. */
+const ELSEWHERE_WINDOW_MS = 15_000;
 
 /** Why the server says the person is outside, in this app's words. */
 function exitReasonOf(reason: spaces.SpaceLeaveReason): ExitReason {
@@ -45,6 +48,8 @@ export default function SpacesBackground() {
     if (!myId) return;
     const client = realtime();
     let connectedBefore = false;
+    /** When this person was last seen entering a room or hangout other than this session's. */
+    let enteredElsewhereAt = 0;
     const off = client.onFrame((frame) => {
       if (frame.body.case === "welcome") {
         // Whatever changed while the connection was down was not announced.
@@ -61,15 +66,19 @@ export default function SpacesBackground() {
         case "participantUpdated": {
           const { spaceId, participant } = event.value;
           if (participant?.user?.id !== myId) break;
-          const before = queryClient.getQueryData<spaces.Space | null>(keys.space(spaceId));
-          const was = onStage(before?.viewer?.role ?? spaces.SpaceRole.LISTENER);
+          // Inside another room on another device: this one is about to be left.
+          if (active?.kind !== "space" || active.id !== spaceId) {
+            enteredElsewhereAt = Date.now();
+            break;
+          }
+          // The role this session holds is the one to compare with; caches come and go.
+          const was = onStage(active.role);
           const now = onStage(participant.role);
           if (was === now) break;
           roleChanged(queryClient, spaceId, participant.role);
-          if (active?.kind === "space" && active.id === spaceId)
-            toast(t(now ? "toast.youAreOnStage" : "toast.backToAudience"), {
-              icon: now ? "🎤" : "🪑",
-            });
+          toast(t(now ? "toast.youAreOnStage" : "toast.backToAudience"), {
+            icon: now ? "🎤" : "🪑",
+          });
           break;
         }
         case "participantLeft":
@@ -105,11 +114,19 @@ export default function SpacesBackground() {
         case "hangoutRemoved":
           putOutside("hangout", event.value.hangoutId, "closed");
           break;
-        case "hangoutPresence":
-          // Out of the voice room without having left here: another device did, or the connection was given up on.
-          if (event.value.user?.id === myId && !event.value.inside)
-            putOutside("hangout", event.value.hangoutId, "elsewhere");
+        case "hangoutPresence": {
+          if (event.value.user?.id !== myId) break;
+          if (event.value.inside) {
+            if (active?.kind !== "hangout" || active.id !== event.value.hangoutId)
+              enteredElsewhereAt = Date.now();
+            break;
+          }
+          // Out of the voice room without having left here: the server gave the connection up,
+          // unless this person was just seen entering somewhere else.
+          const elsewhere = Date.now() - enteredElsewhereAt < ELSEWHERE_WINDOW_MS;
+          putOutside("hangout", event.value.hangoutId, elsewhere ? "elsewhere" : "lost");
           break;
+        }
         default:
           break;
       }
@@ -132,5 +149,10 @@ export default function SpacesBackground() {
     [t],
   );
 
-  return <MiniPlayer />;
+  return (
+    <>
+      <MiniPlayer />
+      <EndCallPrompt />
+    </>
+  );
 }

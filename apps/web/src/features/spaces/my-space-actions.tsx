@@ -9,7 +9,7 @@ import { Button, type ButtonProps } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
 import { errorMessage } from "#/lib/errors";
 import { keys, rememberSpace, spaceClient } from "./api";
-import { adoptSpace } from "./session";
+import { adoptSpace, ensureAudioFocus } from "./session";
 import { SpaceForm } from "./space-form";
 
 /**
@@ -36,8 +36,10 @@ export function MySpaceActions({
   const refreshLists = () => void queryClient.invalidateQueries({ queryKey: keys.lists });
 
   const start = useMutation({
-    mutationFn: () => spaceClient().startSpace({ spaceId: space.id }),
+    mutationFn: async () =>
+      (await ensureAudioFocus()) ? spaceClient().startSpace({ spaceId: space.id }) : null,
     onSuccess: async (response) => {
+      if (!response) return;
       refreshLists();
       if (!response.space) return;
       void navigate({ to: "/spaces/$spaceId", params: { spaceId: space.id } });

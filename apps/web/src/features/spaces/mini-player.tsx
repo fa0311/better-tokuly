@@ -78,7 +78,7 @@ function Pill({ active }: { active: ActiveVenue }) {
           type="button"
           aria-pressed={active.micOn}
           aria-label={t(active.micOn ? "room.mute" : "room.unmute")}
-          disabled={active.phase !== "connected"}
+          disabled={active.phase !== "connected" || active.paused}
           onClick={() => void toggleMicrophone(queryClient)}
           className={cn(
             round,
@@ -122,13 +122,15 @@ function PillTitle({ active, talking }: { active: ActiveVenue; talking: boolean 
         </span>
         <span className="text-[11px] leading-tight font-bold opacity-70">
           {t(
-            active.phase === "connected"
-              ? talking
-                ? "mini.talking"
-                : "mini.listening"
-              : active.phase === "connecting"
-                ? "room.connecting"
-                : "mini.reconnecting",
+            active.paused
+              ? "mini.paused"
+              : active.phase === "connected"
+                ? talking
+                  ? "mini.talking"
+                  : "mini.listening"
+                : active.phase === "connecting"
+                  ? "room.connecting"
+                  : "mini.reconnecting",
           )}
         </span>
       </span>

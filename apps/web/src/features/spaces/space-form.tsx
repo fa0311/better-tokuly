@@ -18,7 +18,7 @@ import { keys, rememberSpace, spaceClient, useSpacesConfig } from "./api";
 import { FriendPicker } from "./friend-picker";
 import { parseTags } from "./model";
 import { AudienceLabel, PersonName } from "./parts";
-import { adoptSpace } from "./session";
+import { adoptSpace, ensureAudioFocus } from "./session";
 import { inputsOf, minuteOf, suggestedStart } from "./when";
 
 const AUDIENCES = [
@@ -102,6 +102,8 @@ function Fields({
 
   const save = useMutation({
     mutationFn: async () => {
+      // Going live takes the microphone: a running call ends first, if the person agrees.
+      if (!space && mode === "now" && !(await ensureAudioFocus())) return null;
       const when = scheduledAt ? fromDate(new Date(scheduledAt)) : undefined;
       const shared = {
         title: title.trim(),
@@ -124,13 +126,13 @@ function Fields({
       });
     },
     onSuccess: async (response) => {
-      const saved = response.space;
+      const saved = response?.space;
       if (!saved) return;
       rememberSpace(queryClient, saved);
       void queryClient.invalidateQueries({ queryKey: keys.lists });
       onDone();
       if (space) return void toast.success(t("toast.saved"));
-      if ("credentials" in response && saved.state === spaces.SpaceState.LIVE) {
+      if (response && "credentials" in response && saved.state === spaces.SpaceState.LIVE) {
         void navigate({ to: "/spaces/$spaceId", params: { spaceId: saved.id } });
         await adoptSpace(queryClient, saved, response.credentials);
       } else {

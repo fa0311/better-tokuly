@@ -75,6 +75,8 @@ export default {
     remove: "{{name}}をはずす",
   },
   room: {
+    pausedForCall:
+      "通話中だから、ルームの音声を止めてるよ。マイクもオフにしたよ。通話がおわったら戻るよ",
     back: "ルーム一覧へ",
     minimize: "ルームを小さくして一覧へ",
     more: "その他",
@@ -284,11 +286,17 @@ export default {
     pickInvitees: "だれをさそう？",
     create: "つくる！",
   },
+  callFocus: {
+    title: "通話を終了して参加する？",
+    body: "通話とルームはいっしょに使えないよ。参加すると、今の通話はおわるよ。",
+    confirm: "通話を終了して参加する",
+  },
   presence: {
     title: "今ルームにいるともだち",
     label: "{{name}}は「{{title}}」にいるよ",
   },
   mini: {
+    paused: "通話中・一時停止",
     open: "「{{title}}」を開く",
     leave: "抜ける",
     listening: "聴いてるよ",
@@ -318,6 +326,9 @@ export default {
     hangoutTransferBody: "あなたはふつうのメンバーになるよ。",
   },
   toast: {
+    pausedForCall: "通話に出たから、ルームはいったん止めてるよ",
+    resumedAfterCall: "通話がおわったから、ルームの音声を戻したよ",
+    micDuringCall: "通話中はルームのマイクを使えないよ",
     open: "見る",
     saved: "保存したよ",
     scheduled: "ルームを予約したよ！",

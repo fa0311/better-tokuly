@@ -75,6 +75,8 @@ export default {
     remove: "Remove {{name}}",
   },
   room: {
+    pausedForCall:
+      "You're on a call, so the room is paused and your mic is off. It comes back when the call ends",
     back: "Back to rooms",
     minimize: "Shrink the room and go to the list",
     more: "More",
@@ -284,11 +286,17 @@ export default {
     pickInvitees: "Who's invited?",
     create: "Create!",
   },
+  callFocus: {
+    title: "End the call and join?",
+    body: "A call and a room can't run together. Joining ends your current call.",
+    confirm: "End the call and join",
+  },
   presence: {
     title: "Friends in a room right now",
     label: "{{name}} is in “{{title}}”",
   },
   mini: {
+    paused: "On a call · paused",
     open: "Open “{{title}}”",
     leave: "Leave",
     listening: "Listening",
@@ -318,6 +326,9 @@ export default {
     hangoutTransferBody: "You become a regular member.",
   },
   toast: {
+    pausedForCall: "You took a call, so the room is paused",
+    resumedAfterCall: "The call ended, so the room is back",
+    micDuringCall: "You can't use the room's mic during a call",
     open: "Open",
     saved: "Saved",
     scheduled: "Room scheduled!",
