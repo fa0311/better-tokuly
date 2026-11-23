@@ -427,3 +427,47 @@ async fn destinations_of_long_closed_requests_are_erased() {
     assert_eq!(destination(&recent.id), BANK, "recently closed requests keep them for follow-up questions");
     assert_eq!(destination(&still_open.id), BANK, "open requests always keep them");
 }
+
+async fn set_suspended(app: &TestApp, user: &TestUser, suspended: bool) {
+    let sql = if suspended { "UPDATE users SET banned_at = now() WHERE id = $1" } else { "UPDATE users SET banned_at = NULL WHERE id = $1" };
+    sqlx::query(sql).bind(user.id).execute(&app.core.db).await.unwrap();
+}
+
+/// No money goes to a suspended account: its payout request can be
+/// neither approved nor paid while the suspension lasts (it can still be
+/// rejected), and staff see why in the request itself.
+#[tokio::test]
+async fn a_suspended_requester_is_neither_approved_nor_paid() {
+    let (app, _) = app().await;
+    let moderator = app.user_with_roles("mod", &["moderator"]).await;
+    let creator = creator_with_earnings(&app, 2100).await;
+    let payout = open(&app, &creator, 1000).await;
+    let staff_view = |payout_id: String| {
+        let (app, moderator) = (&app, &moderator);
+        async move {
+            let response: GetPayoutRequestResponse = app.call(&format!("{ADMIN}/GetPayoutRequest"), Some(moderator), &GetPayoutRequestRequest { payout_id, ..Default::default() }).await.unwrap();
+            response.payout.into_option().unwrap()
+        }
+    };
+    assert!(!staff_view(payout.id.clone()).await.user_suspended);
+
+    set_suspended(&app, &creator, true).await;
+    assert!(staff_view(payout.id.clone()).await.user_suspended, "the staff view says why");
+    let queue: ListPayoutQueueResponse = app.call(&format!("{ADMIN}/ListPayoutQueue"), Some(&moderator), &ListPayoutQueueRequest::default()).await.unwrap();
+    assert!(queue.payouts.iter().find(|p| p.id == payout.id).unwrap().user_suspended);
+    let err = approve(&app, &moderator, &payout.id).await.unwrap_err();
+    assert_eq!((err.code.as_str(), err.reason.as_str()), ("failed_precondition", "ACCOUNT_SUSPENDED"));
+
+    set_suspended(&app, &creator, false).await;
+    approve(&app, &moderator, &payout.id).await.unwrap();
+    set_suspended(&app, &creator, true).await;
+    assert_eq!(mark_paid(&app, &moderator, &payout.id).await.unwrap_err().reason, "ACCOUNT_SUSPENDED");
+    assert_eq!(staff_view(payout.id.clone()).await.status.as_known(), APPROVED, "still waiting, coins still held");
+    // Rejecting returns the coins to the (suspended) account's earnings.
+    reject(&app, &moderator, &payout.id, "利用停止中のため").await.unwrap();
+    assert_eq!(ledger::balance(&app.core, creator.id).await.unwrap().earnings, 2100);
+    // The requester's own view does not carry the staff flag.
+    set_suspended(&app, &creator, false).await;
+    let own: ListPayoutRequestsResponse = app.call(&format!("{EARNINGS}/ListPayoutRequests"), Some(&creator), &ListPayoutRequestsRequest::default()).await.unwrap();
+    assert!(own.payouts.iter().all(|p| !p.user_suspended));
+}

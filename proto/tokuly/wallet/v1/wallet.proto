@@ -491,6 +491,10 @@ message PayoutRequest {
   tokuly.common.v1.UserSummary user = 14;
   // Who approved or rejected. Only set in staff views.
   tokuly.common.v1.UserSummary reviewer = 15;
+  // The requester's account is suspended right now: the request can be
+  // rejected, but not approved or paid until the suspension is lifted. Only
+  // set in staff views.
+  bool user_suspended = 16;
 }
 
 message RequestPayoutRequest {
@@ -546,7 +550,8 @@ service WalletAdminService {
   rpc GetPayoutRequest(GetPayoutRequestRequest) returns (GetPayoutRequestResponse);
   // PENDING → APPROVED. The requester is notified.
   // Errors: PAYOUT_NOT_FOUND, PAYOUT_NOT_PENDING, SELF_REVIEW (staff cannot
-  // review their own request), REVIEW_NOTE_TOO_LONG.
+  // review their own request), ACCOUNT_SUSPENDED (the requester is
+  // suspended), REVIEW_NOTE_TOO_LONG.
   rpc ApprovePayout(ApprovePayoutRequest) returns (ApprovePayoutResponse);
   // PENDING or APPROVED → REJECTED; the coins return to the requester's
   // earnings and they are notified with the reason.
@@ -555,7 +560,7 @@ service WalletAdminService {
   rpc RejectPayout(RejectPayoutRequest) returns (RejectPayoutResponse);
   // APPROVED → PAID, once the money was sent. The requester is notified.
   // Errors: PAYOUT_NOT_FOUND, PAYOUT_NOT_APPROVED, SELF_REVIEW,
-  // PAYMENT_REFERENCE_TOO_LONG.
+  // ACCOUNT_SUSPENDED (the requester is suspended), PAYMENT_REFERENCE_TOO_LONG.
   rpc MarkPayoutPaid(MarkPayoutPaidRequest) returns (MarkPayoutPaidResponse);
 
   // A user's wallet at a glance, for support.

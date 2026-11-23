@@ -162,7 +162,10 @@ money involved).
 | `admin` | the above plus `AdjustBalance`, `ListAdjustments`, `ListAllCoinPackages`, `SaveCoinPackage` |
 
 Staff cannot approve, reject or pay their own payout request (`SELF_REVIEW`),
-and admins cannot adjust their own balance (`SELF_ADJUSTMENT`).
+and admins cannot adjust their own balance (`SELF_ADJUSTMENT`). No money
+goes to a suspended account (`users.banned_at`): its payout request can be
+rejected but not approved or paid (`ACCOUNT_SUSPENDED`) until the
+suspension is lifted; staff views flag it (`PayoutRequest.user_suspended`).
 
 ## Configuration
 

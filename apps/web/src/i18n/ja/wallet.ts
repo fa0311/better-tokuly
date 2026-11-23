@@ -290,6 +290,9 @@ export default {
       empty: "この状態の申請はありません",
       copyDestination: "受け取り先をコピー",
       destinationErased: "保存期間をすぎたため消去されました",
+      suspended: "利用停止中",
+      suspendedNotice:
+        "このアカウントは利用停止中です。停止が解除されるまで承認・支払いはできません（却下はできます）",
       requesterNote: "申請者のメッセージ",
       requestedAt: "申請日時",
       reviewedAt: "審査日時",
@@ -478,6 +481,7 @@ export default {
     PAYOUT_NOT_APPROVED: "承認済みの申請だけを支払い済みにできます",
     SELF_REVIEW: "自分の出金申請は審査できません",
     SELF_ADJUSTMENT: "自分の残高は調整できません",
+    ACCOUNT_SUSPENDED: "申請者のアカウントは利用停止中です",
     REVIEW_NOTE_REQUIRED: "却下の理由を入力してください",
     REVIEW_NOTE_TOO_LONG: "メッセージは500文字以内にしてください",
     PAYMENT_REFERENCE_TOO_LONG: "支払いの控えは200文字以内にしてください",

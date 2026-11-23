@@ -245,6 +245,7 @@ impl Wallet {
         let new_status = match decision {
             Decision::Approve => {
                 ensure!(payout.status == "pending", precondition, "PAYOUT_NOT_PENDING", "only a pending request can be approved");
+                self.ensure_not_suspended(&mut tx, &payout).await?;
                 "approved"
             }
             Decision::Reject => {
@@ -278,6 +279,7 @@ impl Wallet {
         let payout = self.lock_payout(&mut tx, payout_id).await?.or_not_found("PAYOUT_NOT_FOUND", "payout request not found")?;
         ensure!(payout.user_id != Some(staff_id), denied, "SELF_REVIEW", "you cannot pay out your own request");
         ensure!(payout.status == "approved", precondition, "PAYOUT_NOT_APPROVED", "only an approved request can be marked as paid");
+        self.ensure_not_suspended(&mut tx, &payout).await?;
         let memo = serde_json::json!({ "payout_id": payout.id, "paid_by": staff_id });
         ledger_tx::settle_payout(&mut tx, payout.hold_entry_id, &memo).await?;
         let payout: PayoutRow = sqlx::query_as(concat!(
@@ -294,6 +296,15 @@ impl Wallet {
         tracing::info!(payout_id = %payout.id, %staff_id, "payout paid");
         self.push_payout(&payout).await;
         Ok(payout)
+    }
+
+    /// No money goes to a suspended account: `ACCOUNT_SUSPENDED` while the
+    /// requester is suspended (`users.banned_at`). Rejecting stays possible.
+    async fn ensure_not_suspended(&self, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, payout: &PayoutRow) -> AppResult<()> {
+        let Some(user_id) = payout.user_id else { return Ok(()) };
+        let suspended: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM users WHERE id = $1 AND banned_at IS NOT NULL)").bind(user_id).fetch_one(&mut **tx).await?;
+        ensure!(!suspended, precondition, "ACCOUNT_SUSPENDED", "the requester's account is suspended; reject the request or wait until the suspension is lifted");
+        Ok(())
     }
 
     /// Reads a request and locks its row until the transaction ends.
@@ -360,15 +371,19 @@ impl Wallet {
         Ok((rows, info))
     }
 
-    /// Requests as staff sees them: with the requester and the reviewer.
+    /// Requests as staff sees them: with the requester (and whether they are
+    /// suspended) and the reviewer.
     pub(crate) async fn payouts_for_staff(&self, rows: &[PayoutRow]) -> AppResult<Vec<PayoutRequest>> {
         let people: Vec<Uuid> = rows.iter().flat_map(|row| [row.user_id, row.reviewed_by]).flatten().collect();
         let users = tokuly_identity::summaries(&self.core, &people).await?;
+        let requesters: Vec<Uuid> = rows.iter().filter_map(|row| row.user_id).collect();
+        let suspended: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM users WHERE id = ANY($1) AND banned_at IS NOT NULL").bind(&requesters).fetch_all(&self.core.db).await?;
         Ok(rows
             .iter()
             .map(|row| PayoutRequest {
                 user: row.user_id.map(|id| tokuly_identity::users::pick(&users, id)).into(),
                 reviewer: row.reviewed_by.map(|id| tokuly_identity::users::pick(&users, id)).into(),
+                user_suspended: row.user_id.is_some_and(|id| suspended.contains(&id)),
                 ..row.to_proto(&self.core)
             })
             .collect())
