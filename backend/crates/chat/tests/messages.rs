@@ -1075,6 +1075,54 @@ async fn reactions_are_counted_per_emoji() {
 }
 
 #[tokio::test]
+async fn a_burst_from_one_account_does_not_starve_the_connection_pool() {
+    let ctx = start().await;
+    let (group, owner, members) = ctx.group_of("部活", 2).await;
+    let direct = ctx.direct(&owner, &members[0]).await;
+    let pinned = ctx.text(&owner, &group.id, "ピン留めしてね").await;
+    let mut targets = vec![pinned.id.clone()];
+    for index in 0..4 {
+        targets.push(ctx.text(&owner, &group.id, &format!("その{index}")).await.id);
+    }
+
+    // Several times as many requests as the test pool has connections (5),
+    // all of them taking the conversation lock, from one account at once.
+    let send_requests: Vec<SendMessageRequest> =
+        (0..10).map(|index| text_request(&group.id, &format!("連投{index}"))).collect();
+    let pin_requests: Vec<PinMessageRequest> = targets
+        .iter()
+        .map(|message_id| PinMessageRequest { message_id: message_id.clone(), ..Default::default() })
+        .collect();
+    let forward_requests: Vec<ForwardMessagesRequest> = (0..5)
+        .map(|index| ForwardMessagesRequest {
+            message_ids: vec![pinned.id.clone()],
+            conversation_ids: vec![direct.id.clone(), group.id.clone()],
+            client_id: format!("burst-{index}-{}", client_id()),
+            ..Default::default()
+        })
+        .collect();
+    let started = std::time::Instant::now();
+    let sends = send_requests.iter().map(|request| ctx.send(&owner, request));
+    let pins = pin_requests
+        .iter()
+        .map(|request| ctx.call::<_, PinMessageResponse>("Message", "PinMessage", &owner, request));
+    let forwards = forward_requests
+        .iter()
+        .map(|request| ctx.call::<_, ForwardMessagesResponse>("Message", "ForwardMessages", &owner, request));
+    let (sends, pins, forwards) = tokio::join!(
+        futures::future::join_all(sends),
+        futures::future::join_all(pins),
+        futures::future::join_all(forwards)
+    );
+    assert!(sends.iter().all(Result::is_ok), "{sends:?}");
+    assert!(pins.iter().all(Result::is_ok), "{pins:?}");
+    assert!(forwards.iter().all(Result::is_ok), "{forwards:?}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(8), "took {:?}", started.elapsed());
+    // Everyone else is still served.
+    ctx.text(&members[1], &group.id, "まだ使える？").await;
+}
+
+#[tokio::test]
 async fn toggling_a_reaction_does_not_notify_again_and_again() {
     let ctx = start().await;
     let (taro, hanako) = ctx.friends("taro", "hanako").await;
