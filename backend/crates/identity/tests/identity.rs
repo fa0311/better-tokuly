@@ -706,6 +706,55 @@ async fn password_confirmations_are_capped_per_day() {
     assert_eq!(err.reason, "RATE_LIMITED");
 }
 
+/// Blocks answered for a whole list at once, counting how it is asked.
+#[derive(Default)]
+struct BatchedBlocks {
+    blocked: std::sync::Mutex<Vec<uuid::Uuid>>,
+    pair_checks: std::sync::atomic::AtomicUsize,
+    list_checks: std::sync::atomic::AtomicUsize,
+}
+
+#[async_trait::async_trait]
+impl tokuly_identity::ProfileExtension for BatchedBlocks {
+    async fn can_view(&self, _viewer: uuid::Uuid, owner: uuid::Uuid) -> tokuly_core::error::AppResult<bool> {
+        self.pair_checks.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(!self.blocked.lock().unwrap().contains(&owner))
+    }
+
+    async fn hidden_among(&self, _viewer: uuid::Uuid, user_ids: &[uuid::Uuid]) -> tokuly_core::error::AppResult<std::collections::HashSet<uuid::Uuid>> {
+        self.list_checks.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let blocked = self.blocked.lock().unwrap();
+        Ok(user_ids.iter().copied().filter(|id| blocked.contains(id)).collect())
+    }
+}
+
+#[tokio::test]
+async fn profile_viewers_are_checked_for_blocks_in_one_batch() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let blocks = std::sync::Arc::new(BatchedBlocks::default());
+    let extension = blocks.clone();
+    let app = TestApp::start(MIGRATIONS, move |_core, identity, router| {
+        identity.add_profile_extension(extension);
+        identity.register(router)
+    })
+    .await;
+    let owner = app.user("popular").await;
+    let mut viewers = Vec::new();
+    for i in 0..6 {
+        let viewer = app.user(&format!("fan{i}")).await;
+        let _: RecordProfileViewResponse = app
+            .call("tokuly.identity.v1.ProfileService/RecordProfileView", Some(&viewer), &RecordProfileViewRequest { user_id: owner.id.to_string(), ..Default::default() })
+            .await
+            .unwrap();
+        viewers.push(viewer);
+    }
+    blocks.blocked.lock().unwrap().push(viewers[0].id);
+    let pair_checks = blocks.pair_checks.load(SeqCst);
+    let views: GetProfileViewsResponse = app.call("tokuly.identity.v1.ProfileService/GetProfileViews", Some(&owner), &GetProfileViewsRequest::default()).await.unwrap();
+    assert_eq!(views.viewers.len(), 5);
+    assert_eq!((blocks.pair_checks.load(SeqCst) - pair_checks, blocks.list_checks.load(SeqCst)), (0, 1), "one question for the whole list, not one per viewer");
+}
+
 #[tokio::test]
 async fn device_login_flow_issues_tokens_once() {
     let app = app().await;

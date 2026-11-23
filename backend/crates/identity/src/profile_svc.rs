@@ -29,6 +29,20 @@ impl Identity {
         Ok(true)
     }
 
+    /// Those among `user_ids` that `viewer` may not see, per every registered
+    /// domain: [`Self::can_view`] for a whole list, one question per domain.
+    pub async fn hidden_among(&self, viewer: Uuid, user_ids: &[Uuid]) -> AppResult<std::collections::HashSet<Uuid>> {
+        let mut hidden = std::collections::HashSet::new();
+        if user_ids.is_empty() {
+            return Ok(hidden);
+        }
+        for extension in self.profile_extensions() {
+            hidden.extend(extension.hidden_among(viewer, user_ids).await?);
+        }
+        hidden.remove(&viewer);
+        Ok(hidden)
+    }
+
     /// The profile of `user` as `viewer` sees it.
     pub async fn profile_of(&self, user: &UserRow, viewer: Option<Uuid>) -> AppResult<Profile> {
         let days = (Utc::now() - user.created_at).num_days().max(0) as i32;
@@ -197,11 +211,15 @@ impl ProfileService for Identity {
 
         let ids: Vec<Uuid> = rows.iter().map(|r| r.id).collect();
         let relationships = self.relationships(viewer, &ids).await?;
+        let hidden = match viewer {
+            Some(viewer) => self.hidden_among(viewer, &ids).await?,
+            None => Default::default(),
+        };
         let mut results = Vec::with_capacity(rows.len());
         for row in rows {
             let (relationship, mutual) = relationships.get(&row.id).copied().unwrap_or((Relationship::RELATIONSHIP_NONE, 0));
             // People who blocked the searcher (or were blocked) do not show up.
-            if relationship == Relationship::RELATIONSHIP_BLOCKED || !self.can_view(viewer, row.id).await? {
+            if relationship == Relationship::RELATIONSHIP_BLOCKED || hidden.contains(&row.id) {
                 continue;
             }
             results.push(UserSearchResult {
@@ -297,16 +315,13 @@ impl ProfileService for Identity {
         let ids: Vec<Uuid> = recent.iter().map(|(id, _)| *id).collect();
         let privacy = settings::privacy_of_many(&self.core, &ids).await?;
         let active: std::collections::HashSet<Uuid> = users::filter_active(&self.core, &ids).await?.into_iter().collect();
+        let hidden = self.hidden_among(user_id, &ids).await?;
         let summaries = users::summaries(&self.core, &ids).await?;
-        let mut viewers = Vec::new();
-        for (id, at) in recent {
-            if !active.contains(&id) || !privacy.get(&id).is_some_and(|p| p.share_views) || !self.can_view(Some(user_id), id).await? {
-                continue;
-            }
-            if let Some(user) = summaries.get(&id) {
-                viewers.push(ProfileViewer { user: user.clone().into(), viewed_at: ts(at), ..Default::default() });
-            }
-        }
+        let viewers = recent
+            .into_iter()
+            .filter(|(id, _)| active.contains(id) && !hidden.contains(id) && privacy.get(id).is_some_and(|p| p.share_views))
+            .filter_map(|(id, at)| Some(ProfileViewer { user: summaries.get(&id)?.clone().into(), viewed_at: ts(at), ..Default::default() }))
+            .collect();
         ok(GetProfileViewsResponse { total, last_24h: last_24h as i32, viewers, ..Default::default() })
         })
         .await
