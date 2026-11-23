@@ -415,3 +415,36 @@ async fn minors_and_adults_do_not_find_each_other_nearby() {
     assert!(!everyone(&kid_saw).contains(&adult.id), "nor a minor adults");
     assert!(everyone(&kid_saw).contains(&other_kid.id), "minors find each other");
 }
+
+#[tokio::test]
+async fn counts_leave_out_whom_the_lists_leave_out() {
+    let ctx = start().await;
+    let (owner, viewer, newcomer) = (ctx.app.user("owner").await, ctx.app.user("viewer").await, ctx.app.user("newcomer").await);
+    let invite = my_invite(&ctx, &owner).await;
+    ctx.social.handle_event(&signed_up(&newcomer, &invite.code)).await.unwrap();
+    ctx.befriend(&owner, &viewer).await;
+    ctx.befriend(&owner, &newcomer).await;
+    // The newcomer blocks the viewer: from then on, to the viewer, the
+    // newcomer looks like an account that does not exist, in lists and in
+    // the numbers next to them alike.
+    let _: BlockUserResponse = ctx.friends("BlockUser", &newcomer, &BlockUserRequest { user_id: viewer.id.to_string(), ..Default::default() }).await.unwrap();
+
+    let stats_for = |viewer: &TestUser| {
+        let (ctx, viewer, owner) = (&ctx, viewer.clone(), owner.id.to_string());
+        async move {
+            let response: GetProfileResponse = ctx
+                .app
+                .call("tokuly.identity.v1.ProfileService/GetProfile", Some(&viewer), &GetProfileRequest { by: Some(get_profile_request::By::UserId(owner)), ..Default::default() })
+                .await
+                .unwrap();
+            let stats = response.profile.into_option().unwrap().stats.into_option().unwrap();
+            (stats.friend_count, stats.intro_count)
+        }
+    };
+    let friends: ListFriendsResponse = ctx.friends("ListFriends", &viewer, &ListFriendsRequest { user_id: owner.id.to_string(), ..Default::default() }).await.unwrap();
+    let intros: ListIntrosResponse = ctx.friends("ListIntros", &viewer, &ListIntrosRequest { user_id: owner.id.to_string(), ..Default::default() }).await.unwrap();
+    assert_eq!((friends.friends.len(), friends.total), (1, 1));
+    assert_eq!((intros.users.len(), intros.total), (0, 0));
+    assert_eq!(stats_for(&viewer).await, (1, 0));
+    assert_eq!(stats_for(&owner).await, (2, 1), "the owner's own numbers are complete");
+}

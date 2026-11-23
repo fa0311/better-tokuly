@@ -100,6 +100,21 @@ pub(crate) async fn friend_count(core: &Core, user_id: Uuid) -> AppResult<i64> {
     Ok(sqlx::query_scalar("SELECT count(*) FROM friendships WHERE user_id = $1").bind(user_id).fetch_one(&core.db).await?)
 }
 
+/// How many friends of `owner` a viewer gets to see: active accounts other
+/// than `hidden` (the viewer's [`blocked_ids_either`]). The count a viewer
+/// is shown must match the list they are shown, or the difference tells
+/// them who blocked them.
+pub(crate) async fn visible_friend_count(core: &Core, owner: Uuid, hidden: &[Uuid]) -> AppResult<i64> {
+    Ok(sqlx::query_scalar(
+        "SELECT count(*) FROM friendships f JOIN users u ON u.id = f.friend_id
+         WHERE f.user_id = $1 AND u.deleted_at IS NULL AND NOT (f.friend_id = ANY($2))",
+    )
+    .bind(owner)
+    .bind(hidden)
+    .fetch_one(&core.db)
+    .await?)
+}
+
 pub async fn are_friends(core: &Core, a: Uuid, b: Uuid) -> AppResult<bool> {
     Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM friendships WHERE user_id = $1 AND friend_id = $2)")
         .bind(a)

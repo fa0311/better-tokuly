@@ -50,6 +50,19 @@ pub(crate) async fn intro_count(core: &Core, user_id: Uuid) -> AppResult<i64> {
     Ok(sqlx::query_scalar("SELECT count(*) FROM friend_intros WHERE inviter_id = $1").bind(user_id).fetch_one(&core.db).await?)
 }
 
+/// [`intro_count`] as a viewer gets to see it: active accounts other than
+/// `hidden` (see [`graph::visible_friend_count`]).
+pub(crate) async fn visible_intro_count(core: &Core, user_id: Uuid, hidden: &[Uuid]) -> AppResult<i64> {
+    Ok(sqlx::query_scalar(
+        "SELECT count(*) FROM friend_intros i JOIN users u ON u.id = i.invitee_id
+         WHERE i.inviter_id = $1 AND u.deleted_at IS NULL AND NOT (i.invitee_id = ANY($2))",
+    )
+    .bind(user_id)
+    .bind(hidden)
+    .fetch_one(&core.db)
+    .await?)
+}
+
 impl Social {
     fn invite(&self, code: String, intro_count: i64) -> Invite {
         Invite { url: self.core.web_url(&format!("invite/{code}")), code, intro_count: intro_count as i32, ..Default::default() }
@@ -139,7 +152,7 @@ impl Social {
         .await?;
         let info = page.finish(&mut rows, |(id, at)| (*at, *id));
         let ids: Vec<Uuid> = rows.iter().map(|(id, _)| *id).collect();
-        let total = intro_count(core, owner).await?;
+        let total = visible_intro_count(core, owner, &hidden).await?;
         Ok((tokuly_identity::summaries_ordered(core, &ids).await?, info, total as i32))
     }
 

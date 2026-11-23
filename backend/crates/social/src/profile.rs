@@ -20,9 +20,15 @@ const MUTUAL_PREVIEW: i64 = 6;
 impl ProfileExtension for Social {
     async fn enrich_profile(&self, viewer: Option<Uuid>, owner: Uuid, profile: &mut Profile) -> AppResult<()> {
         let core = &self.core;
+        // Counts leave out whom the viewer's lists leave out (people in a
+        // block with the viewer), so comparing the two reveals nothing.
+        let hidden = match viewer.filter(|viewer| *viewer != owner) {
+            Some(viewer) => graph::blocked_ids_either(core, viewer).await?,
+            None => Vec::new(),
+        };
         let stats = profile.stats.get_or_insert_default();
-        stats.friend_count = graph::friend_count(core, owner).await? as i32;
-        stats.intro_count = invites::intro_count(core, owner).await? as i32;
+        stats.friend_count = graph::visible_friend_count(core, owner, &hidden).await? as i32;
+        stats.intro_count = invites::visible_intro_count(core, owner, &hidden).await? as i32;
         stats.bump_count = bumps::bump_count(core, owner).await? as i32;
 
         let Some(viewer) = viewer.filter(|viewer| *viewer != owner) else {
