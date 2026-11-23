@@ -433,7 +433,7 @@ service InteractionService {
   rpc AckMapReactions(AckMapReactionsRequest) returns (AckMapReactionsResponse);
 
   // Records that the caller opened a friend's pin ("eyes" / map views).
-  // Repeats within a minute count once. Errors: NOT_FRIENDS.
+  // Repeats within a minute count once. Errors: NOT_FRIENDS, RATE_LIMITED.
   rpc RecordMapView(RecordMapViewRequest) returns (RecordMapViewResponse);
   // Who looked at my location in the last 24 h (count only unless shared).
   rpc GetMapViews(GetMapViewsRequest) returns (GetMapViewsResponse);

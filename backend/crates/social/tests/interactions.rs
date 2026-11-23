@@ -463,3 +463,58 @@ async fn map_views_count_everyone_but_name_only_those_who_share() {
     let views: GetMapViewsResponse = ctx.interact("GetMapViews", &owner, &GetMapViewsRequest::default()).await.unwrap();
     assert_eq!((views.viewer_count, views.viewers.len()), (1, 0));
 }
+
+#[tokio::test]
+async fn knocks_reactions_and_views_have_limits_per_sender_and_recipient() {
+    let ctx = start().await;
+    let alice = ctx.app.user("alice").await;
+    let mut friends = Vec::new();
+    for i in 0..4 {
+        let friend = ctx.app.user(&format!("f{i}")).await;
+        ctx.befriend(&alice, &friend).await;
+        friends.push(friend);
+    }
+
+    // Knocks: 20 a minute per friend, and 60 per 10 minutes in all.
+    let knock = |to: &TestUser| {
+        let (ctx, alice, user_id) = (&ctx, alice.clone(), to.id.to_string());
+        async move { ctx.interact::<_, KnockResponse>("Knock", &alice, &KnockRequest { user_id, count: 1, ..Default::default() }).await }
+    };
+    for friend in &friends[..3] {
+        for _ in 0..20 {
+            knock(friend).await.unwrap();
+        }
+    }
+    assert_eq!(knock(&friends[3]).await.unwrap_err().reason, "RATE_LIMITED");
+
+    // Map reactions: 60 a minute to the same friend.
+    let react = |to: &TestUser| {
+        let (ctx, alice) = (&ctx, alice.clone());
+        let request = reaction_to(&[to], MapReactionKind::MAP_REACTION_KIND_HEARTS);
+        async move { ctx.interact::<_, SendMapReactionResponse>("SendMapReaction", &alice, &request).await }
+    };
+    for _ in 0..60 {
+        react(&friends[0]).await.unwrap();
+    }
+    assert_eq!(react(&friends[0]).await.unwrap_err().reason, "RATE_LIMITED");
+    react(&friends[1]).await.unwrap();
+
+    // Map views: 120 different pins a minute.
+    let viewer = ctx.app.user("viewer").await;
+    let crowd = ctx.crowd(121).await;
+    sqlx::query("INSERT INTO friendships (user_id, friend_id) SELECT $1, id FROM unnest($2::uuid[]) AS c(id) UNION ALL SELECT id, $1 FROM unnest($2::uuid[]) AS c(id)")
+        .bind(viewer.id)
+        .bind(&crowd)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    let view = |user_id: Uuid| {
+        let (ctx, viewer) = (&ctx, viewer.clone());
+        async move { ctx.interact::<_, RecordMapViewResponse>("RecordMapView", &viewer, &RecordMapViewRequest { user_id: user_id.to_string(), ..Default::default() }).await }
+    };
+    for friend in &crowd[..120] {
+        view(*friend).await.unwrap();
+    }
+    view(crowd[0]).await.unwrap(); // the same pin again is the same look
+    assert_eq!(view(crowd[120]).await.unwrap_err().reason, "RATE_LIMITED");
+}

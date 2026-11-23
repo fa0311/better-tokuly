@@ -151,7 +151,7 @@ Rate limits (`rl:` keys): friend requests 60/h and 200/day per sender and
 5/day per sender→recipient; contact matching 6/h and 30/day and 5000 distinct hashes a day (counted in a HyperLogLog, `rl:match-contacts-distinct:<user>`, so no hash is kept); blocks 100/h; invite
 resets 10/day; invite lookups 60/min per user or IP; suggestions 60/min;
 nearby sessions 20 per 10 min; bumps 30/min; buzz 10/min per pair and 60/10 min per
-sender; knocks 20/min per pair; map reactions 120/min.
+sender; knocks 20/min per pair and 60/10 min per sender; map reactions 120 calls/min per sender and 60/min per sender→recipient; map views 120 new views/min per viewer.
 
 ## Configuration
 

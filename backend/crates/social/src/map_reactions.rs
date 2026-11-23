@@ -26,6 +26,9 @@ use crate::{
 
 /// Friends one reaction can be thrown at (a whole gathering).
 const MAX_RECIPIENTS: usize = 50;
+/// Reactions one friend can receive from the same sender per minute. The
+/// sender's own limit counts calls, and one call can reach 50 friends.
+const MAX_PER_RECIPIENT_PER_MINUTE: u32 = 60;
 /// Unplayed reactions returned at once; older ones follow after an ack.
 const MAX_PENDING: i64 = 200;
 const MAX_ACKS: usize = 500;
@@ -131,6 +134,11 @@ impl Social {
             .await?;
         ensure!(friends as usize == recipients.len(), precondition, "NOT_FRIENDS", "map reactions can only be sent to friends");
         core.cache.rate_limit(&format!("map-reaction:{user_id}"), 120, Duration::from_secs(60)).await?;
+        futures::future::try_join_all(recipients.iter().map(|recipient| {
+            let key = format!("map-reaction:{user_id}:{recipient}");
+            async move { core.cache.rate_limit(&key, MAX_PER_RECIPIENT_PER_MINUTE, Duration::from_secs(60)).await }
+        }))
+        .await?;
 
         let me = tokuly_identity::summary(core, user_id).await?;
         let text = copy::map_reaction(&people::name_of(&me), reaction.kind, &reaction.emoji);

@@ -15,6 +15,8 @@ use crate::{
 
 /// Repeated views of the same pin within this time count once.
 const VIEW_DEDUPE: Duration = Duration::from_secs(60);
+/// Distinct pins one user may open per minute (a whole map of friends).
+const MAX_VIEWS_PER_MINUTE: u32 = 120;
 /// Named viewers returned by `GetMapViews`.
 const MAX_VIEWERS: i64 = 100;
 
@@ -28,6 +30,8 @@ impl Social {
         if !first_in_a_while {
             return Ok(());
         }
+        // Every new look is a row and a push to the friend looked at.
+        core.cache.rate_limit(&format!("map-view:{viewer}"), MAX_VIEWS_PER_MINUTE, Duration::from_secs(60)).await?;
         sqlx::query("INSERT INTO map_views (viewed_id, viewer_id) VALUES ($1, $2)").bind(viewed).bind(viewer).execute(&core.db).await?;
         if let Err(e) = graph::record_interaction(core, viewer, viewed, InteractionKind::MapView, 1).await {
             tracing::warn!(error = %e, "map view not counted towards the best-friend ranking");
