@@ -36,10 +36,23 @@ export function isStaff(c: Pick<community.Community, "viewer"> | undefined): boo
   return STAFF_PERMISSIONS.some((permission) => can(c, permission));
 }
 
-/** Whether the community's boards, events and members can be read by the caller. */
-export function canRead(c: community.Community | undefined): boolean {
+/**
+ * Whether the account's site-wide roles let it read every community (the
+ * server's rule: `admin` and `moderator` handle reports anywhere).
+ */
+export function isSiteModerator(roles: readonly string[] | undefined): boolean {
+  return roles?.some((role) => role === "admin" || role === "moderator") ?? false;
+}
+
+/**
+ * Whether the community's boards, events and members can be read by the
+ * caller: anyone in a public community, its members, and site moderation.
+ */
+export function canRead(c: community.Community | undefined, roles?: readonly string[]): boolean {
   if (!c) return false;
-  return c.visibility === community.CommunityVisibility.PUBLIC || isMember(c);
+  return (
+    c.visibility === community.CommunityVisibility.PUBLIC || isMember(c) || isSiteModerator(roles)
+  );
 }
 
 /** The caller is timed out until this moment (epoch ms), or 0. */

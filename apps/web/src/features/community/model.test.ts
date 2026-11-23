@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   appPathOf,
   assignableRoles,
+  canRead,
   checkInOpen,
   eventPhase,
   inviteCodeOf,
@@ -91,5 +92,23 @@ describe("events", () => {
     expect(placesLeft({ capacity: 0, goingCount: 9 })).toBeUndefined();
     expect(placesLeft({ capacity: 3, goingCount: 1 })).toBe(2);
     expect(placesLeft({ capacity: 3, goingCount: 5 })).toBe(0);
+  });
+});
+
+describe("canRead", () => {
+  const V = community.CommunityVisibility;
+  const S = community.MembershipStatus;
+  const of = (visibility: community.CommunityVisibility, status = S.NONE) =>
+    ({ visibility, viewer: { status } }) as unknown as community.Community;
+  it("opens public communities to everyone and closed ones to members", () => {
+    expect(canRead(of(V.PUBLIC))).toBe(true);
+    expect(canRead(of(V.RESTRICTED))).toBe(false);
+    expect(canRead(of(V.HIDDEN, S.MEMBER))).toBe(true);
+    expect(canRead(of(V.RESTRICTED, S.REQUESTED), ["staff"])).toBe(false);
+  });
+  it("lets site moderators and admins read every community", () => {
+    expect(canRead(of(V.RESTRICTED), ["moderator"])).toBe(true);
+    expect(canRead(of(V.HIDDEN), ["admin"])).toBe(true);
+    expect(canRead(undefined, ["admin"])).toBe(false);
   });
 });
