@@ -138,7 +138,7 @@ No job-queue jobs. `Social::spawn_workers` starts:
 | Key | Type, TTL | Purpose |
 |---|---|---|
 | `social:friends:<user>` / `social:hidden:<user>` | bytes (16 per ID), 10 min | Cached friend IDs / IDs hidden by a block. Dropped on every change. |
-| `social:friends:dirty:<user>` / `social:hidden:dirty:<user>` | marker, 5 s | Keeps a reader that raced a writer from re-caching a stale list. |
+| `social:friends:gen:<user>` / `social:hidden:gen:<user>` | counter, 1 h after the last change | Bumped by every change. A reader stores the list it loaded only if the counter has not moved since it started, so one that raced a writer cannot re-cache a stale list. |
 | `social:nearby:geo`, `social:nearby:seen` | GEO set + last check-in times | Users with a `DiscoverNearby` stream open (visible for 15 s after their last heartbeat). |
 | `social:bump:geo`, `social:bump:seen` | GEO set + last check-in times | Users who just shook their phone. |
 | `social:bump:attempt:<user>` | JSON, match window + 2 s | The latest shake of a user. |
