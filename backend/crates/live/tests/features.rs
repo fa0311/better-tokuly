@@ -509,6 +509,23 @@ async fn clips_follow_their_source_and_belong_to_their_creator() {
     let seen = seen.clip.as_option().unwrap();
     assert_eq!((seen.visibility, seen.can_delete), (Visibility::VISIBILITY_PUBLIC.into(), false));
     assert_eq!(seen.source_title, "元動画");
+    // Its media, which posting it as a short takes, is told to its creator only.
+    let media = Uuid::now_v7();
+    sqlx::query("UPDATE live_clips SET asset_id = COALESCE(asset_id, $2) WHERE id = $1")
+        .bind(id(&clip.id))
+        .bind(media)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    let media: Uuid = sqlx::query_scalar("SELECT asset_id FROM live_clips WHERE id = $1")
+        .bind(id(&clip.id))
+        .fetch_one(&ctx.app.core.db)
+        .await
+        .unwrap();
+    for (viewer, expected) in [(Some(&bob), media.to_string()), (Some(&carol), String::new()), (None, String::new())] {
+        let got: GetClipResponse = ctx.call(CLIPS, "GetClip", viewer, &get).await.unwrap();
+        assert_eq!(got.clip.as_option().unwrap().asset_id, expected);
+    }
 
     // Listed by video, channel and creator.
     let list = |filter: Filter| ListClipsRequest { filter: Some(filter), ..Default::default() };

@@ -310,7 +310,9 @@ Clips and what they may expose:
   broadcasts are not.
 - The upload belongs to the channel's owner, so the person who cut the clip
   cannot attach it to a post, a short or a message of their own through the
-  media domain's "my uploads".
+  media domain's "my uploads". Its ID (`Clip.asset_id`) is given to the
+  clip's creator once it is READY, for `CreateShort` (which checks through
+  the clip, not the upload's owner); everyone else gets it empty.
 - Not enforced here, because it needs a change in the media domain: a
   dedicated asset purpose for clips (it is `ASSET_PURPOSE_SHORT` today, so
   the *channel owner* could attach a clip's upload wherever a short's upload
