@@ -175,6 +175,36 @@ async fn profile_updates_and_handle_uniqueness() {
 }
 
 #[tokio::test]
+async fn a_released_handle_is_kept_for_its_previous_owner() {
+    let app = app().await;
+    let (famous, squatter) = (app.user("famous").await, app.user("squatter").await);
+    let rename = |user: &TestUser, handle: String| {
+        let (app, user) = (&app, user.clone());
+        async move {
+            app.call::<_, UpdateProfileResponse>("tokuly.identity.v1.AccountService/UpdateProfile", Some(&user), &UpdateProfileRequest { handle: Some(handle), ..Default::default() })
+                .await
+        }
+    };
+    // Links, mentions and screenshots still say @famous: whoever took the
+    // handle the moment it was let go would receive all of it.
+    let old = famous.handle.clone();
+    rename(&famous, unique("famous")).await.unwrap();
+    assert_eq!(rename(&squatter, old.clone()).await.unwrap_err().reason, "HANDLE_TAKEN");
+    let check: CheckHandleResponse = app.call("tokuly.identity.v1.AuthService/CheckHandle", None, &CheckHandleRequest { handle: old.clone(), ..Default::default() }).await.unwrap();
+    assert_eq!((check.available, check.reason.as_str()), (false, "TAKEN"));
+    let err = app.call::<_, AuthResponse>("tokuly.identity.v1.AuthService/SignUp", None, &sign_up_request(&old)).await.unwrap_err();
+    assert_eq!(err.reason, "HANDLE_TAKEN");
+    // The previous owner can still go back to it.
+    rename(&famous, old.clone()).await.unwrap();
+
+    // A purged account's handle is not up for grabs either.
+    let leaving = app.user("leaving").await;
+    sqlx::query("UPDATE users SET deletion_scheduled_at = now() - interval '1 minute' WHERE id = $1").bind(leaving.id).execute(&app.core.db).await.unwrap();
+    app.identity.purge_deleted_accounts().await.unwrap();
+    assert_eq!(rename(&squatter, leaving.handle.clone()).await.unwrap_err().reason, "HANDLE_TAKEN");
+}
+
+#[tokio::test]
 async fn settings_default_then_persist() {
     let app = app().await;
     let user = app.user("set").await;

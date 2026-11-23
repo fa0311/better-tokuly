@@ -256,6 +256,8 @@ impl AuthService for Identity {
         .fetch_one(&core.db)
         .await?;
         ensure!(!handle_taken, already_exists, "HANDLE_TAKEN", "this handle is already in use");
+        let handle_held = users::handle_held_from(core, &handle, None).await?;
+        ensure!(!handle_held, already_exists, "HANDLE_TAKEN", "this handle is already in use");
         ensure!(!email_taken, already_exists, "EMAIL_TAKEN", "an account with this email already exists");
 
         let password_hash = crate::password::hash(&req.password).await?;
@@ -505,7 +507,8 @@ impl AuthService for Identity {
                     .bind(&normalized)
                     .fetch_one(&self.core.db)
                     .await
-                    .map_err(AppError::from)?;
+                    .map_err(AppError::from)?
+                    || users::handle_held_from(&self.core, &normalized, None).await?;
             ok(CheckHandleResponse {
                 available: !taken,
                 normalized,

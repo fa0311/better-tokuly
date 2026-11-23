@@ -296,6 +296,28 @@ pub fn validate_school_name(input: &str) -> AppResult<String> {
     Ok(name.to_owned())
 }
 
+// ───────────────────────────── released handles ─────────────────────────────
+
+/// How long a handle that was let go (renamed away from, or freed by an
+/// account purge) stays with its previous owner. Links, mentions and
+/// screenshots still carry it; whoever took it at once would receive them.
+const HANDLE_HOLD: std::time::Duration = std::time::Duration::from_secs(30 * 24 * 3600);
+
+pub(crate) fn held_handle_key(handle: &str) -> String {
+    format!("id:handle:held:{}", handle.to_ascii_lowercase())
+}
+
+/// Keeps `handle` for `owner` for [`HANDLE_HOLD`].
+pub(crate) async fn hold_handle(core: &Core, handle: &str, owner: Uuid) -> AppResult<()> {
+    core.cache.set_string(&held_handle_key(handle), &owner.to_string(), Some(HANDLE_HOLD)).await
+}
+
+/// Whether `handle` was recently let go by someone other than `claimant`.
+pub(crate) async fn handle_held_from(core: &Core, handle: &str, claimant: Option<Uuid>) -> AppResult<bool> {
+    let holder = core.cache.get_string(&held_handle_key(handle)).await?;
+    Ok(holder.is_some_and(|holder| Some(holder.as_str()) != claimant.map(|c| c.to_string()).as_deref()))
+}
+
 // ───────────────────────────── validation ─────────────────────────────
 
 const RESERVED_HANDLES: &[&str] = &[

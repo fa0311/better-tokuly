@@ -328,6 +328,9 @@ message GetMeResponse {
 
 message UpdateProfileRequest {
   optional string display_name = 1;
+  // At most 3 changes a week. The handle given up stays reserved for this
+  // account for 30 days (HANDLE_TAKEN for everyone else), as does the
+  // handle of a purged account.
   optional string handle = 2;
   optional string bio = 3;
   // Media asset IDs from tokuly.media.v1.MediaService uploads. Empty string clears.

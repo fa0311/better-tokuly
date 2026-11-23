@@ -88,6 +88,10 @@ impl Identity {
         let mut purged = 0;
         for user_id in due {
             let mut tx = self.core.db.begin().await?;
+            let handle: Option<String> = sqlx::query_scalar("SELECT handle::text FROM users WHERE id = $1 FOR UPDATE")
+                .bind(user_id)
+                .fetch_optional(&mut *tx)
+                .await?;
             let done = sqlx::query(
                 "UPDATE users SET
                     deleted_at = now(), handle = ('deleted-' || replace(id::text, '-', ''))::citext, display_name = '',
@@ -133,6 +137,10 @@ impl Identity {
                 &UserRef { user_id },
             )
             .await?;
+            if let Some(handle) = &handle {
+                // Nobody gets to answer to the departed account's handle right away.
+                crate::users::hold_handle(&self.core, handle, user_id).await?;
+            }
             tx.commit().await?;
             purged += 1;
         }

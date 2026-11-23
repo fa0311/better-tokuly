@@ -91,6 +91,8 @@ impl AccountService for Identity {
                         .await
                         .map_err(AppError::from)?;
                     ensure!(!taken, already_exists, "HANDLE_TAKEN", "this handle is already in use");
+                    let held = users::handle_held_from(core, &handle, Some(user_id)).await?;
+                    ensure!(!held, already_exists, "HANDLE_TAKEN", "this handle is already in use");
                     Some(handle)
                 }
             }
@@ -136,7 +138,7 @@ impl AccountService for Identity {
         ))
         .bind(user_id)
         .bind(display_name)
-        .bind(handle)
+        .bind(&handle)
         .bind(bio)
         .bind(locale)
         .bind(time_zone)
@@ -169,7 +171,15 @@ impl AccountService for Identity {
             }
         }
         events::emit(&mut *tx, "identity.user.updated", Some(user_id), &UserRef { user_id }).await?;
-        tx.commit().await?;
+        if let Some(handle) = &handle {
+            // Before the commit, so nobody can grab the old one in between.
+            users::hold_handle(core, &current.handle, user_id).await?;
+            tx.commit().await?;
+            // Taking a held handle back ends its hold.
+            core.cache.del(&users::held_handle_key(handle)).await?;
+        } else {
+            tx.commit().await?;
+        }
         ok(UpdateProfileResponse { me: self.me(&user).await?.into(), ..Default::default() })
         })
         .await
