@@ -1,7 +1,7 @@
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { chat } from "@tokuly/api";
 import { chatKeys, conversationClient, messageClient } from "./api";
-import { applyUnread, patchConversation } from "./conversations";
+import { applyUnread, patchConversation, unreadVersion } from "./conversations";
 import { useLive } from "./live";
 import { laterSeq } from "./model";
 import {
@@ -236,9 +236,10 @@ export async function markRead(
   conversationId: string,
   messageId = "",
 ): Promise<void> {
+  const askedAt = unreadVersion();
   const response = await conversationClient().markRead({ conversationId, messageId });
   storeOwnRead(queryClient, conversationId, response.readSeq, response.unreadCount);
-  applyUnread(queryClient, response.unread);
+  applyUnread(queryClient, response.unread, askedAt);
 }
 
 /** Adds or removes the viewer's reaction, showing it at once and settling on the server's answer. */
