@@ -86,6 +86,7 @@ service FriendService {
 
   // Nearby discovery: while a client keeps this stream open it is visible to,
   // and receives, other users with the add-friend screen open within ~50 m.
+  // Minors and adults never see each other here.
   // The first message arrives immediately (possibly empty). The server ends
   // the stream after 10 minutes; reopen it to keep going or after moving
   // (at most 20 streams per 10 minutes). A user has one stream at a time:
@@ -395,7 +396,8 @@ service InteractionService {
   // Call when the phone detects a shake. Two attempts within a few seconds and
   // ~30 m of each other become a bump; mutual friends are told
   // "A and B bumped!". Bumping a non-friend creates a friend request; two
-  // strangers only bump when both have `nearby_discoverable` on. The
+  // strangers only bump when both have `nearby_discoverable` on and both
+  // are minors or both adults (by their birthdates). The
   // other participant learns about the bump through SocialEvent.bump.
   // Calling again within a few seconds returns the same bump, not a new one.
   // Errors: INVALID_LOCATION, RATE_LIMITED.

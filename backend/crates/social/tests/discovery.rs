@@ -373,3 +373,25 @@ async fn a_new_nearby_session_takes_over_from_the_previous_one() {
     assert!(first_lasted < Duration::from_secs(7), "one session at a time: the older one ran for {first_lasted:?}");
     assert_eq!(seen(&bob_saw[0]), vec![(alice.id, Relationship::RELATIONSHIP_NONE)], "ending the older session leaves the newer one on the map");
 }
+
+#[tokio::test]
+async fn minors_and_adults_do_not_find_each_other_nearby() {
+    let ctx = start().await;
+    let (adult, kid, other_kid) = (ctx.app.user("adult").await, ctx.app.user("kid").await, ctx.app.user("kid2").await);
+    ctx.make_minor(&kid).await;
+    ctx.make_minor(&other_kid).await;
+    let spot = somewhere();
+    let app = &ctx.app;
+    let open = |user: &TestUser, delay: u64| {
+        let user = user.clone();
+        async move {
+            tokio::time::sleep(Duration::from_millis(delay)).await;
+            app.stream::<_, DiscoverNearbyResponse>(NEARBY, Some(&user), &nearby_at(north_of(spot, 5.0)), 10, Duration::from_secs(5)).await.unwrap()
+        }
+    };
+    let (adult_saw, kid_saw, _) = tokio::join!(open(&adult, 0), open(&kid, 500), open(&other_kid, 0));
+    let everyone = |snapshots: &[DiscoverNearbyResponse]| snapshots.iter().flat_map(seen).map(|(id, _)| id).collect::<Vec<Uuid>>();
+    assert!(everyone(&adult_saw).is_empty(), "an adult is never shown minors nearby");
+    assert!(!everyone(&kid_saw).contains(&adult.id), "nor a minor adults");
+    assert!(everyone(&kid_saw).contains(&other_kid.id), "minors find each other");
+}

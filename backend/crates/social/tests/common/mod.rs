@@ -100,6 +100,11 @@ impl Ctx {
             .expect("update settings");
     }
 
+    /// Makes a user 15 years old.
+    pub async fn make_minor(&self, user: &TestUser) {
+        sqlx::query("UPDATE users SET birthdate = current_date - interval '15 years' WHERE id = $1").bind(user.id).execute(&self.app.core.db).await.expect("set birthdate");
+    }
+
     /// Creates `count` bare accounts straight in the database, for tests
     /// that need a crowd rather than people who do things.
     pub async fn crowd(&self, count: i32) -> Vec<Uuid> {

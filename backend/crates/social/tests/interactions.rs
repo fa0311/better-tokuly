@@ -179,6 +179,25 @@ async fn strangers_bump_only_when_both_can_be_found_nearby() {
 }
 
 #[tokio::test]
+async fn minors_bump_adults_only_when_they_are_friends() {
+    let ctx = start().await;
+    let (kid, adult, other_kid, parent) = (ctx.app.user("kid").await, ctx.app.user("adult").await, ctx.app.user("kid2").await, ctx.app.user("parent").await);
+    ctx.make_minor(&kid).await;
+    ctx.make_minor(&other_kid).await;
+    ctx.befriend(&kid, &parent).await;
+
+    let spot = somewhere();
+    assert!(shake(&ctx, &kid, spot).await.unwrap().is_empty());
+    assert!(shake(&ctx, &adult, north_of(spot, 3.0)).await.unwrap().is_empty(), "an adult stranger never bumps a minor");
+    let spot = somewhere();
+    assert!(shake(&ctx, &kid, spot).await.unwrap().is_empty());
+    assert_eq!(shake(&ctx, &other_kid, north_of(spot, 3.0)).await.unwrap().len(), 1, "two minors may");
+    let spot = somewhere();
+    assert!(shake(&ctx, &kid, spot).await.unwrap().is_empty());
+    assert_eq!(shake(&ctx, &parent, north_of(spot, 3.0)).await.unwrap().len(), 1, "friends always may");
+}
+
+#[tokio::test]
 async fn a_bump_puts_a_declined_request_back_on_the_table() {
     let ctx = start().await;
     let (asker, decliner) = (ctx.app.user("asker").await, ctx.app.user("decliner").await);

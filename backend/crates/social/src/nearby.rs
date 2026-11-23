@@ -23,7 +23,7 @@ use tokuly_core::{geoindex, prelude::*};
 use tokuly_identity::settings;
 use tokuly_proto::social::{DiscoverNearbyResponse, NearbyUser};
 
-use crate::{Social, graph, livegeo::LiveGeoSet};
+use crate::{Social, graph, livegeo::LiveGeoSet, people};
 
 /// How often a session re-announces itself and re-reads its surroundings.
 const HEARTBEAT: Duration = Duration::from_secs(4);
@@ -65,6 +65,9 @@ const SESSION_KEY_TTL: Duration = Duration::from_secs(MAX_SESSION.as_secs() + 60
 #[derive(Debug, Clone, Copy)]
 struct Spot {
     user_id: Uuid,
+    /// The user is a minor: they only meet other minors (see
+    /// [`people::minors_among`]).
+    minor: bool,
     lat: f64,
     lng: f64,
     radius_meters: f64,
@@ -100,7 +103,8 @@ impl Social {
         core.cache.set_string(&session_key(user_id), &session, Some(SESSION_KEY_TTL)).await?;
 
         let allowance = if accuracy_meters.is_finite() { accuracy_meters.clamp(0.0, MAX_ACCURACY_ALLOWANCE) } else { 0.0 };
-        let spot = Spot { user_id, lat, lng, radius_meters: self.cfg.nearby_radius_meters + allowance };
+        let minor = people::minors_among(core, &[user_id]).await?.contains(&user_id);
+        let spot = Spot { user_id, minor, lat, lng, radius_meters: self.cfg.nearby_radius_meters + allowance };
 
         // Listen before showing up, so nobody arriving after our first look
         // goes unnoticed.
@@ -183,17 +187,20 @@ impl Social {
     }
 
     /// Everyone else in discovery around `spot`, nearest first. People in a
-    /// block with the user are left out, in both directions.
+    /// block with the user are left out, in both directions, and so is
+    /// everyone of the other age group (minors and adults).
     async fn nearby_users(&self, spot: &Spot) -> AppResult<Vec<(Uuid, NearbyUser)>> {
         let core = &self.core;
         let hidden = graph::blocked_ids_either(core, spot.user_id).await?;
-        let found: Vec<(Uuid, f64)> = NEARBY
+        let mut found: Vec<(Uuid, f64)> = NEARBY
             .within(&core.cache, spot.lat, spot.lng, spot.radius_meters, MAX_NEARBY + 1)
             .await?
             .into_iter()
             .filter(|(id, _)| *id != spot.user_id && !hidden.contains(id))
-            .take(MAX_NEARBY)
             .collect();
+        let minors = people::minors_among(core, &found.iter().map(|(id, _)| *id).collect::<Vec<_>>()).await?;
+        found.retain(|(id, _)| minors.contains(id) == spot.minor);
+        found.truncate(MAX_NEARBY);
         let ids: Vec<Uuid> = found.iter().map(|(id, _)| *id).collect();
         let summaries = tokuly_identity::summaries(core, &ids).await?;
         let relationships = graph::relationships(core, spot.user_id, &ids).await?;
