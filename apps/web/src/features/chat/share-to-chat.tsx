@@ -22,9 +22,13 @@ export interface ShareToChatProps {
   /**
    * What to send: a link (`{ url }`), or something of the app by reference
    * (`{ subject }`: a note, a video, a place…), which is sent as its link and
-   * counted as a share of it. Chat shows either with its preview.
+   * counted as a share of it (`{ subject, url }`: counted, but sent as `url`,
+   * for a subject whose page here is not where the server's link points).
+   * Chat shows either with its preview.
    */
-  share: { url: string } | { subject: Pick<common.SubjectRef, "type" | "id"> };
+  share:
+    | { url: string; subject?: undefined }
+    | { subject: Pick<common.SubjectRef, "type" | "id">; url?: string };
   /** Reminds the person what they are sending ("ノート: 放課後の空"); optional. */
   title?: string;
   /** Called once it was sent, with the conversations it went to. */
@@ -33,11 +37,11 @@ export interface ShareToChatProps {
 
 /** The link to send: the URL itself, or the subject's page (recording the share). */
 async function linkOf(share: ShareToChatProps["share"]): Promise<string> {
-  if ("url" in share) return share.url;
+  if (!share.subject) return share.url;
   const response = await api()
     .service(engagement.EngagementService)
     .recordShare({ subject: share.subject, target: engagement.ShareTarget.CHAT });
-  return response.url;
+  return share.url ?? response.url;
 }
 
 /**

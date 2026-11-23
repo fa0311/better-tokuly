@@ -1,4 +1,5 @@
 import { type AnyRouter, useRouter } from "@tanstack/react-router";
+import { appPathOf } from "#/features/community";
 
 /** Where a server-sent "path in the app" leads. */
 export type Target =
@@ -15,6 +16,16 @@ export type Target =
 const ALIASES: Record<string, string> = {
   "/settings/notifications": "/notifications/settings",
 };
+
+/**
+ * Where a notification of `kind` points in this app. The community domain
+ * publishes its pages as `/c/…`, which names a video channel here: its
+ * notifications go to the community pages (`/g/…`) instead.
+ */
+export function notificationPath(kind: string | undefined, path: string): string {
+  if (kind?.startsWith("community.")) return appPathOf(path) ?? path;
+  return path;
+}
 
 /**
  * Reads a notification's `path` (or any target the server hands out: `/chat/42`,

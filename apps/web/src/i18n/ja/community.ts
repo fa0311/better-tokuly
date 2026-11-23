@@ -51,11 +51,8 @@ export default {
     days: "{{count}}日",
   },
   share: {
-    chat: "チャットで送る",
-    copy: "リンクをコピー",
     copied: "コピーしたよ！",
     copyFailed: "コピーできませんでした",
-    report: "通報する",
   },
   discover: {
     my: "マイコミュニティ",

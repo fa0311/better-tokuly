@@ -3,7 +3,7 @@ import { useRouter } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { PaneSpinner } from "#/components/ui/spinner";
 import { markRead } from "./inbox-actions";
-import { resolveTargetPath } from "./target";
+import { notificationPath, resolveTargetPath } from "./target";
 
 const INBOX_PATH = "/notifications";
 
@@ -12,13 +12,22 @@ const INBOX_PATH = "/notifications";
  * notification becomes read and this page is replaced by its target (the
  * inbox when it has none).
  */
-export function OpenNotification({ path, id }: { path: string; id: string }) {
+export function OpenNotification({
+  path,
+  id,
+  kind,
+}: {
+  path: string;
+  id: string;
+  /** The notification's kind, when known: some kinds' paths lead elsewhere here (see `notificationPath`). */
+  kind?: string;
+}) {
   const queryClient = useQueryClient();
   const router = useRouter();
 
   useEffect(() => {
     if (id) void markRead(queryClient, [id]).catch(() => {});
-    const target = resolveTargetPath(path);
+    const target = resolveTargetPath(notificationPath(kind, path));
     if (target?.type === "external") {
       // No tap to open a new tab with: leave for the link in this one.
       window.location.replace(target.url);
@@ -27,7 +36,7 @@ export function OpenNotification({ path, id }: { path: string; id: string }) {
     // A target that points back here would never arrive anywhere.
     const href = target && !target.href.startsWith(`${INBOX_PATH}/open`) ? target.href : INBOX_PATH;
     void router.navigate({ href, replace: true });
-  }, [queryClient, router, path, id]);
+  }, [queryClient, router, path, id, kind]);
 
   return <PaneSpinner />;
 }

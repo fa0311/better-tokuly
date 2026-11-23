@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { errorMessage } from "#/lib/errors";
 import { applyUnread, inboxClient, rereadInbox, updateInboxLists } from "./api";
 import { type InboxFilter, type InboxPages, withRead, withRemoved } from "./inbox-cache";
-import { openTargetPath } from "./target";
+import { notificationPath, openTargetPath } from "./target";
 
 /**
  * Runs a write to the inbox with its effect on the lists shown at once.
@@ -53,12 +53,12 @@ export async function markRead(queryClient: QueryClient, ids: string[]): Promise
 export function openNotification(
   queryClient: QueryClient,
   router: AnyRouter,
-  entry: { id: string; path: string; read?: boolean },
+  entry: { id: string; kind?: string; path: string; read?: boolean },
   options?: { replace?: boolean },
 ): boolean {
   // Reading is best effort: a failure leaves the entry unread, which the re-read lists show.
   if (entry.id && !entry.read) void markRead(queryClient, [entry.id]).catch(() => {});
-  return openTargetPath(router, entry.path, options);
+  return openTargetPath(router, notificationPath(entry.kind, entry.path), options);
 }
 
 /** The inbox's write actions, with their toasts. */

@@ -81,22 +81,38 @@ export const eventHref = (handle: string, eventId: string): string =>
   `${communityHref(handle)}/events/${segment(eventId)}`;
 export const inviteHref = (code: string): string => `/join/${segment(code)}`;
 
+/** The staff pages the community domain links to (`/c/<handle>/<page>`), by their section here. */
+const STAFF_PAGES: Record<string, string> = {
+  requests: "manage/requests",
+  review: "manage/queue",
+  log: "manage/log",
+};
+
 /**
  * A path the community domain published (`/c/<handle>`, `/c/<handle>/t/<id>`,
- * `/c/<handle>/events/<id>`, `/c/join/<code>`) as this app's address for the
- * same page; `undefined` for anything else.
+ * `/c/<handle>/events/<id>`, `/c/<handle>/requests|review|log`, `/c/join/<code>`)
+ * as this app's address for the same page, query and fragment kept (`?reply=…`);
+ * `undefined` for anything else.
  */
 export function appPathOf(published: string): string | undefined {
-  let path = published.trim();
+  const text = published.trim();
+  // A protocol-relative address names another site.
+  if (text.startsWith("//")) return undefined;
+  let url: URL;
   try {
-    if (/^https?:\/\//.test(path)) path = new URL(path).pathname;
+    url = new URL(text, "http://app.invalid");
   } catch {
     return undefined;
   }
-  const invite = /^\/c\/join\/([^/?#]+)$/.exec(path);
-  if (invite) return `/join/${invite[1]}`;
-  const page = /^\/c\/([^/?#]+)((?:\/t\/[^/?#]+)|(?:\/events\/[^/?#]+))?$/.exec(path);
-  return page ? `/g/${page[1]}${page[2] ?? ""}` : undefined;
+  const rest = url.search + url.hash;
+  const path = url.pathname;
+  const invite = /^\/c\/join\/([^/]+)$/.exec(path);
+  if (invite) return `/join/${invite[1]}${rest}`;
+  const page = /^\/c\/([^/]+)((?:\/t\/[^/]+)|(?:\/events\/[^/]+))?$/.exec(path);
+  if (page) return `/g/${page[1]}${page[2] ?? ""}${rest}`;
+  const staff = /^\/c\/([^/]+)\/([a-z]+)$/.exec(path);
+  const section = staff?.[2] && STAFF_PAGES[staff[2]];
+  return staff && section ? `/g/${staff[1]}/${section}${rest}` : undefined;
 }
 
 /** The code inside whatever someone pasted: a bare code, or an invite link of either shape. */

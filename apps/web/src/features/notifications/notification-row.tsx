@@ -7,7 +7,7 @@ import { Chip } from "#/components/ui/card";
 import { Menu } from "#/components/ui/menu";
 import { cn } from "#/lib/cn";
 import { NotificationFace } from "./notification-face";
-import { resolveTargetPath } from "./target";
+import { notificationPath, resolveTargetPath } from "./target";
 import { formatWhen } from "./when";
 
 /** One inbox entry: tap to open, swipe left (touch) or use the menu to delete. */
@@ -27,7 +27,7 @@ export function NotificationRow({
 }) {
   const { t, i18n } = useTranslation("notifications");
   const swipe = useSwipeAway(onDelete);
-  const target = resolveTargetPath(entry.path);
+  const target = resolveTargetPath(notificationPath(entry.kind, entry.path));
   const more = entry.groupCount - 1;
 
   const body: ReactNode = (

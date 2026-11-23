@@ -24,6 +24,14 @@ describe("appPathOf", () => {
     expect(appPathOf("/c/neko/events/0199-ab")).toBe("/g/neko/events/0199-ab");
     expect(appPathOf("https://tokuly.example/c/join/UwVvf0F6yd")).toBe("/join/UwVvf0F6yd");
   });
+  it("keeps what follows the path, and finds the staff pages notifications link to", () => {
+    expect(appPathOf("/c/neko/t/bXou6FpLkfK?reply=0199-cd")).toBe(
+      "/g/neko/t/bXou6FpLkfK?reply=0199-cd",
+    );
+    expect(appPathOf("/c/neko/requests")).toBe("/g/neko/manage/requests");
+    expect(appPathOf("/c/neko/review")).toBe("/g/neko/manage/queue");
+    expect(appPathOf("/c/neko/log")).toBe("/g/neko/manage/log");
+  });
   it("leaves everything else alone", () => {
     expect(appPathOf("/notes/1")).toBeUndefined();
     expect(appPathOf("/c/neko/videos/extra/deep")).toBeUndefined();

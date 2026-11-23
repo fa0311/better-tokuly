@@ -16,6 +16,12 @@ export interface SubjectMenuOptions {
   share?: boolean;
   /** Leave the report entry out (the viewer's own content). */
   report?: boolean;
+  /**
+   * This app's path of the subject's page, when the link the server hands out
+   * leads elsewhere here (a community is published as `/c/…`, which is a video
+   * channel in this app; its pages are `/g/…`). Shares are recorded all the same.
+   */
+  path?: string;
 }
 
 /**
@@ -31,11 +37,11 @@ export interface SubjectMenuOptions {
  */
 export function useSubjectMenu(
   subject: Subject,
-  { title, label, share = true, report = true }: SubjectMenuOptions = {},
+  { title, label, share = true, report = true, path }: SubjectMenuOptions = {},
 ): { actions: MenuAction[]; dialogs: ReactNode } {
   const { t } = useTranslation("engagement");
-  const copyLink = useCopySubjectLink(subject);
-  const toChat = useShareToChat(subject, title);
+  const copyLink = useCopySubjectLink(subject, path);
+  const toChat = useShareToChat(subject, title, path);
   const [reporting, setReporting] = useState(false);
   const actions: MenuAction[] = [
     ...(share
