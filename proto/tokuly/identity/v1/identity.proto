@@ -275,8 +275,11 @@ service AccountService {
   // Security log: sign-ins, password changes, new devices, etc.
   rpc ListSecurityEvents(ListSecurityEventsRequest) returns (ListSecurityEventsResponse);
 
-  // Account deletion has a 30 day grace period during which signing in
-  // cancels it.
+  // Account deletion has a 30 day grace period. The account keeps working
+  // meanwhile (`Me.deletion_scheduled_at` says when it ends) and
+  // CancelAccountDeletion calls it off; signing in does not. When the period
+  // ends the account is erased, its devices are signed out at once and its
+  // handle stays unclaimable for 30 days.
   rpc RequestAccountDeletion(RequestAccountDeletionRequest) returns (RequestAccountDeletionResponse);
   rpc CancelAccountDeletion(CancelAccountDeletionRequest) returns (CancelAccountDeletionResponse);
 
