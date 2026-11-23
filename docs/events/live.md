@@ -352,7 +352,9 @@ Topics and their guards (registered in `Live::new`):
   `GetOverlay.realtime_topic`; the token itself never appears in a topic name
   (topic names travel in frames and logs), and the raw token is not a valid
   topic. After a rotation the key changes with the token and nothing is
-  published to the old topic any more (other processes notice within 5 s).
+  published to the old topic any more (other processes notice within 5 s);
+  after `overlay_changed { revoked }` the old topic is closed, so the page
+  behind it is let go (`ServerFrame.unsubscribed`).
 
 Chat lines and blocks: a chat line (and a pin, for the pinned line) is
 one publish to `live:<id>` carrying an exception list
@@ -379,12 +381,13 @@ line); nothing is read per viewer. A line whose list cannot be read is not
 pushed live. Lists, history and replay filter by the reader's blocks as
 before.
 
-Known limits: the gateway checks a subscription once. Someone who loses
-access after subscribing keeps an open subscription to everything on the
-topic until they reconnect — a stream narrowed to friends or members, an
-unfriending, and a block between them and the streamer made after they
-subscribed; ending such subscriptions from the server is the
-forced-unsubscribe issue #51. Other events on the topic (`stream_updated`,
+Someone who loses access after subscribing loses the subscription too
+(`ServerFrame.unsubscribed`, see `docs/events/realtime.md`): a block
+between them and the streamer and an unfriending (both re-check the two
+people's `live:` subscriptions), a stream narrowed to friends or members
+(not a widening, nor a move between the visibilities open to everyone)
+or suspended (every subscriber re-checked), a deleted stream (the topic
+closes). Known limits: other events on the topic (`stream_updated`,
 `stats`, polls) are not filtered by blocks. A block made between reading the
 lists and the publication (milliseconds) can let that one line through.
 

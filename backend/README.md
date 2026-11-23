@@ -256,7 +256,18 @@ passing a `ChatMessage`, or a value of the event's `oneof`, does not compile,
 because no client would understand it. A domain that gets its first event
 message adds it in three places, which tests keep in step: the list at
 `Event` in `realtime.proto`, `backend/crates/proto/src/events.rs` and the
-table in `packages/realtime/src/events.ts`. The `notify_*` methods
+table in `packages/realtime/src/events.ts`.
+
+A topic's guard (`core.topic_guards`) runs when someone subscribes. When
+access ends later, end the subscriptions too, after the change is
+committed: `core.rt.revoke(user, topic)` / `revoke_prefix(user, "live")`
+(that user's subscriptions are checked against the guard again on every
+gateway and dropped where it refuses — harmless when nothing changed, so
+call it on anything that *might* end access: bans, removals, leaving,
+blocks and unfriendings), `core.rt.recheck_topic(topic)` (every subscriber,
+for an audience narrowed to members) and `core.rt.close_topic(topic)`
+(everyone, for a deleted room or an ended share). See
+`docs/events/realtime.md`, "Ending subscriptions". The `notify_*` methods
 log a failed publish instead of returning it: a push is an optimization on
 top of state that is already committed. Code that follows the bus itself (a
 streaming RPC) reads a frame with `frame.event::<ChatEvent>()`.

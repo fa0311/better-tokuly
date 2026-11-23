@@ -113,6 +113,10 @@ impl Engagement {
         reports::resolve_for_subject(&mut tx, key).await?;
         tx.commit().await?;
         self.apply(effects).await;
+        if !key.is_comment() {
+            // The subject is gone: whoever followed its counters stops.
+            self.core.rt.close_topic(&key.topic()).await;
+        }
         Ok(())
     }
 
@@ -132,7 +136,22 @@ impl Engagement {
         lifecycle::hide_comments_of(&mut tx, &mut effects, blocker_id, blocked_id, None).await?;
         tx.commit().await?;
         self.apply(effects).await;
+        self.recheck_subject_topics(blocker_id, blocked_id).await;
         Ok(())
+    }
+
+    /// `social.friend.removed`: friends-only subjects of either are no
+    /// longer the other's to follow.
+    pub(crate) async fn on_friend_removed(&self, user_id: Uuid, friend_id: Uuid) {
+        self.recheck_subject_topics(user_id, friend_id).await;
+    }
+
+    /// Each of the two may follow `subject:` topics of the other's things;
+    /// whether they still may is the subject's owner domain's call, which
+    /// the gateway asks through the guard.
+    async fn recheck_subject_topics(&self, a: Uuid, b: Uuid) {
+        self.core.rt.revoke_prefix(a, crate::subjects::TOPIC_KIND).await;
+        self.core.rt.revoke_prefix(b, crate::subjects::TOPIC_KIND).await;
     }
 
     /// `media.asset.deleted`: the picture of a comment is gone. A comment

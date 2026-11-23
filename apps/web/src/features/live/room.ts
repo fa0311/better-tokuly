@@ -205,7 +205,11 @@ export function useLiveRoom(stream: live.Stream): LiveRoom {
         applyLiveEvent(queryClient, streamId, event);
       }
     });
-    const release = client.subscribe(topic);
+    // Blocked by the streamer, unfriended, narrowed to members, deleted: the page reads the
+    // stream again and lands where a stranger would (as when a watching report says so).
+    const release = client.subscribe(topic, {
+      onRevoked: () => refreshStream(queryClient, streamId),
+    });
     client.start();
     return () => {
       offFrame();

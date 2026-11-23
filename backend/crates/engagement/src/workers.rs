@@ -6,18 +6,20 @@ use tokuly_core::{
     prelude::*,
 };
 use tokuly_identity::maintenance::UserRef;
-use tokuly_social::events::BlockChanged;
+use tokuly_social::events::{BlockChanged, FriendRemoved};
 
 use crate::{
     Engagement,
-    events::{ASSET_DELETED, AssetDeleted, CONTENT_REMOVED, REPORT_RESOLVED, USER_BLOCKED, USER_DELETED},
+    events::{
+        ASSET_DELETED, AssetDeleted, CONTENT_REMOVED, FRIEND_REMOVED, REPORT_RESOLVED, USER_BLOCKED, USER_DELETED,
+    },
 };
 
 impl Engagement {
     /// Starts the engagement workers (worker processes only): the durable
     /// consumer `engagement` of `identity.user.deleted`,
-    /// `social.user.blocked`, `media.asset.deleted`, `admin.content.removed`
-    /// and `admin.report.resolved`.
+    /// `social.user.blocked`, `social.friend.removed`, `media.asset.deleted`,
+    /// `admin.content.removed` and `admin.report.resolved`.
     pub fn spawn_workers(&self) {
         let engagement = self.clone();
         tokio::spawn(async move {
@@ -25,7 +27,7 @@ impl Engagement {
             events::consume(
                 engagement.core.bus.clone(),
                 "engagement",
-                &[USER_DELETED, USER_BLOCKED, ASSET_DELETED, CONTENT_REMOVED, REPORT_RESOLVED],
+                &[USER_DELETED, USER_BLOCKED, FRIEND_REMOVED, ASSET_DELETED, CONTENT_REMOVED, REPORT_RESOLVED],
                 // Erasing an account or purging a busy subject takes a while.
                 ConsumeOptions { ack_wait: std::time::Duration::from_secs(120), ..Default::default() },
                 engagement.core.shutdown.clone(),
@@ -46,6 +48,11 @@ impl Engagement {
             USER_BLOCKED => {
                 let block: BlockChanged = event.data()?;
                 self.on_user_blocked(block.user_id, block.blocked_id).await
+            }
+            FRIEND_REMOVED => {
+                let removed: FriendRemoved = event.data()?;
+                self.on_friend_removed(removed.user_id, removed.friend_id).await;
+                Ok(())
             }
             ASSET_DELETED => self.on_asset_deleted(event.data::<AssetDeleted>()?.asset_id).await,
             CONTENT_REMOVED => self.on_content_removed(event.data()?).await,

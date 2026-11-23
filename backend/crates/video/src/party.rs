@@ -427,6 +427,27 @@ pub async fn push_to_party(core: &Core, party_id: Uuid, event: Push) {
 pub async fn push_ended(core: &Core, audience: &Audience, reason: PartyEndReason) {
     let ended = PartyEnded { party_id: audience.party_id.to_string(), reason: reason.into(), ..Default::default() };
     push(core, audience, Push::PartyEnded(Box::new(ended))).await;
+    // After `party_ended`, which travels on the same topics: they are over.
+    close_topics(core, audience).await;
+}
+
+/// Ends the party's member topic and every guest topic for everyone.
+async fn close_topics(core: &Core, audience: &Audience) {
+    core.rt.close_topic(&member_topic(audience.party_id)).await;
+    for key in &audience.guest_keys {
+        core.rt.close_topic(&guest_topic(audience.party_id, key)).await;
+    }
+}
+
+/// Ends what the member who left followed of the party: a signed-in
+/// member's subscription to the member topic (on all their devices), a
+/// guest's own topic.
+async fn revoke_seat(core: &Core, left: &MemberRow) {
+    match (&left.user_id, &left.topic_key) {
+        (Some(user_id), _) => core.rt.revoke(*user_id, &member_topic(left.party_id)).await,
+        (None, Some(key)) => core.rt.close_topic(&guest_topic(left.party_id, key)).await,
+        (None, None) => {}
+    }
 }
 
 /// Admits subscribers to `party:` topics: signed-in members by user ID,
@@ -548,6 +569,8 @@ pub async fn announce_departure(core: &Core, departure: &Departure, reason: Part
     }
     if departure.ended {
         push_ended(core, &departure.audience, PartyEndReason::PARTY_END_REASON_EMPTY).await;
+    } else {
+        revoke_seat(core, &departure.left).await;
     }
 }
 

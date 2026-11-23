@@ -97,7 +97,10 @@ export function RoomScreen({ roomId }: { roomId: string }) {
   useEffect(() => {
     const client = realtime();
     const topic = `study:${roomId}`;
-    const unsubscribe = client.subscribe(topic);
+    // Removed, uninvited, unfriended or the room closed: reading it again shows where things stand.
+    const unsubscribe = client.subscribe(topic, {
+      onRevoked: () => void queryClient.invalidateQueries({ queryKey: keys.room(roomId) }),
+    });
     const off = client.onFrame((frame) => {
       if (frame.body.case === "welcome") {
         void queryClient.invalidateQueries({ queryKey: keys.room(roomId) });

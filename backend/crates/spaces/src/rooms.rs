@@ -524,6 +524,16 @@ impl Spaces {
         }
         tx.commit().await?;
         self.push_space(&space).await;
+        // Public > friends > invited only: only a narrower audience leaves someone out.
+        let reach = |value: i16| match value {
+            audience::PUBLIC => 2,
+            audience::FRIENDS => 1,
+            _ => 0,
+        };
+        if reach(space.audience) < reach(locked.audience) {
+            // A narrower audience: whoever is no longer in it stops following the room.
+            self.core.rt.recheck_topic(&crate::model::space_topic(space.id)).await;
+        }
         Ok(space)
     }
 
@@ -723,6 +733,7 @@ impl Spaces {
         ensure!(locked.is_over(), precondition, "SPACE_NOT_ENDED", "end or cancel the room before deleting it");
         sqlx::query("UPDATE spaces SET deleted_at = now() WHERE id = $1").bind(space_id).execute(&mut *tx).await?;
         tx.commit().await?;
+        self.core.rt.close_topic(&crate::model::space_topic(space_id)).await;
         Ok(())
     }
 }

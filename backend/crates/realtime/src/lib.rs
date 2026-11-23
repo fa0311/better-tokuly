@@ -55,6 +55,8 @@ mod peer;
 mod presence;
 mod session;
 mod stats;
+#[cfg(feature = "testing")]
+pub mod testing;
 mod topics;
 mod ws;
 mod wt;
@@ -63,14 +65,8 @@ pub use config::RealtimeConfig;
 pub use stats::GatewayStats;
 
 use crate::{
-    audience::Audience,
-    certs::Certificates,
-    hub::Hub,
-    origin::OriginPolicy,
-    peer::IpLimiter,
-    presence::Presence,
-    stats::Counters,
-    wt::WtListener,
+    audience::Audience, certs::Certificates, hub::Hub, origin::OriginPolicy, peer::IpLimiter, presence::Presence,
+    stats::Counters, wt::WtListener,
 };
 
 /// How long the background loops get to withdraw shared state on shutdown.
@@ -98,6 +94,8 @@ pub struct GatewayInner {
     origins: OriginPolicy,
     trusted_proxies: TrustedProxies,
     ip_limiter: Arc<IpLimiter>,
+    /// Periodic guard checks of this gateway, over all connections.
+    recheck_limit: parking_lot::Mutex<limits::TokenBucket>,
     /// Cancelled on shutdown: every session says goodbye and ends.
     closing: CancellationToken,
     /// The connection tasks, so shutdown can wait for them.
@@ -132,13 +130,17 @@ impl Gateway {
         let public_wt_url = endpoints::webtransport_url(&core.cfg, &cfg);
         let public_ws_url = endpoints::websocket_url(&core.cfg, &cfg);
         let origins = OriginPolicy::new(
-            [core.cfg.public_url(), public_wt_url.as_str(), public_ws_url.as_str()].into_iter().chain(cfg.allowed_origins.iter().map(String::as_str)),
+            [core.cfg.public_url(), public_wt_url.as_str(), public_ws_url.as_str()]
+                .into_iter()
+                .chain(cfg.allowed_origins.iter().map(String::as_str)),
             !core.cfg.is_production(),
         );
         // Self-signed certificates name the public host, although clients
         // pinning the hash do not check it.
         let mut certificate_names = certs::local_names();
-        if let Some(host) = url::Url::parse(&public_wt_url).ok().and_then(|url| url.host_str().map(|host| host.trim_matches(['[', ']']).to_owned()))
+        if let Some(host) = url::Url::parse(&public_wt_url)
+            .ok()
+            .and_then(|url| url.host_str().map(|host| host.trim_matches(['[', ']']).to_owned()))
             && !certificate_names.contains(&host)
         {
             certificate_names.insert(0, host);
@@ -146,11 +148,21 @@ impl Gateway {
 
         Ok(Self(Arc::new(GatewayInner {
             presence: Presence::new(core.clone(), instance.clone(), cfg.presence_lease, cfg.presence_heartbeat),
-            audience: Audience::new(core.clone(), instance.clone(), hub.clone(), cfg.topic_stats_interval, cfg.audience_refresh),
+            audience: Audience::new(
+                core.clone(),
+                instance.clone(),
+                hub.clone(),
+                cfg.topic_stats_interval,
+                cfg.audience_refresh,
+            ),
             certificates: Certificates::new(core.clone(), cfg.tls_files()?, cfg.cert_validity, certificate_names),
             origins,
             trusted_proxies: cfg.trusted_proxies()?,
             ip_limiter: IpLimiter::new(cfg.max_connections_per_ip),
+            recheck_limit: parking_lot::Mutex::new(limits::TokenBucket::new(
+                cfg.recheck_rate.ceil().min(f64::from(u32::MAX)) as u32,
+                cfg.recheck_rate,
+            )),
             closing: CancellationToken::new(),
             connections: TaskTracker::new(),
             listening: watch::Sender::new(None),
@@ -218,8 +230,9 @@ impl Gateway {
         anyhow::ensure!(!self.started.swap(true, Ordering::SeqCst), "Gateway::run was already called");
         let cfg = &self.cfg;
 
-        let ws_listener =
-            TcpListener::bind(cfg.ws_listen).await.map_err(|e| anyhow::anyhow!("cannot listen for WebSocket on tcp/{}: {e}", cfg.ws_listen))?;
+        let ws_listener = TcpListener::bind(cfg.ws_listen)
+            .await
+            .map_err(|e| anyhow::anyhow!("cannot listen for WebSocket on tcp/{}: {e}", cfg.ws_listen))?;
         let ws_addr = ws_listener.local_addr()?;
         let wt_listener = match cfg.wt_listen_addr()? {
             Some(addr) => {
@@ -230,7 +243,10 @@ impl Gateway {
             }
             None => None,
         };
-        let addrs = ListenAddrs { websocket: ws_addr, webtransport: wt_listener.as_ref().map(|listener| listener.local_addr()) };
+        let addrs = ListenAddrs {
+            websocket: ws_addr,
+            webtransport: wt_listener.as_ref().map(|listener| listener.local_addr()),
+        };
         tracing::info!(
             instance = self.instance,
             websocket = %addrs.websocket,
@@ -261,12 +277,19 @@ impl Gateway {
             }),
         };
 
-        tracing::info!(instance = self.instance, connections = self.counters.open_connections(), "realtime gateway shutting down");
+        tracing::info!(
+            instance = self.instance,
+            connections = self.counters.open_connections(),
+            "realtime gateway shutting down"
+        );
         accepting.cancel();
         self.closing.cancel();
         self.connections.close();
         if tokio::time::timeout(cfg.shutdown_grace, self.connections.wait()).await.is_err() {
-            tracing::warn!(connections = self.counters.open_connections(), "connections still open after the shutdown grace period");
+            tracing::warn!(
+                connections = self.counters.open_connections(),
+                "connections still open after the shutdown grace period"
+            );
         }
         if let Some(listener) = &wt_listener {
             listener.close(cfg.shutdown_grace).await;
@@ -304,7 +327,9 @@ impl Gateway {
         let (gateway, token) = (self.clone(), stop.clone());
         tasks.push(tokio::spawn(async move { gateway.audience.run(token).await }));
         let (gateway, token) = (self.clone(), stop.clone());
-        tasks.push(tokio::spawn(async move { gateway.counters.log_periodically(&gateway.instance, gateway.cfg.stats_interval, token).await }));
+        tasks.push(tokio::spawn(async move {
+            gateway.counters.log_periodically(&gateway.instance, gateway.cfg.stats_interval, token).await
+        }));
         if let Some(listener) = wt_listener {
             let (gateway, token) = (self.clone(), stop.clone());
             tasks.push(tokio::spawn(async move { gateway.certificates.run(&listener, token).await }));

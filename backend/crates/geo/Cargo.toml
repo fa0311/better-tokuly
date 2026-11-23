@@ -49,6 +49,8 @@ tzf-rs.workspace = true
 flate2 = "1.1"
 
 [dev-dependencies]
+# A gateway and a WebSocket client, to see subscriptions end.
+tokuly-realtime = { workspace = true, features = ["testing"] }
 tokuly-proto = { workspace = true, features = ["social"] }
 tokuly-testkit.workspace = true
 tokio = { workspace = true, features = ["test-util"] }

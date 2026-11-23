@@ -122,6 +122,10 @@ impl School {
                 self.remove_from_room(room_id, blocked, false, at).await?;
             }
         }
+        // Friends rooms of either, and rooms either follows without being
+        // inside: the guard decides for each subscription.
+        core.rt.revoke_prefix(a, "study").await;
+        core.rt.revoke_prefix(b, "study").await;
         Ok(())
     }
 

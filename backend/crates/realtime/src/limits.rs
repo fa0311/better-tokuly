@@ -1,4 +1,4 @@
-//! Per-connection rate limiting.
+//! Rate limiting (per connection, and for the periodic re-check per gateway).
 use std::time::Instant;
 
 /// A token bucket: `burst` frames at once, refilled at `per_second`.

@@ -231,9 +231,21 @@ pub struct FrameListener {
 }
 
 impl FrameListener {
+    /// The next bus message within `deadline` that is a frame: revocations
+    /// for the gateways (`tokuly_core::realtime::CONTROL_HEADER`) travel on
+    /// the same subjects and are skipped, as gateways never forward them.
+    async fn next_message(&mut self, deadline: tokio::time::Instant) -> Option<async_nats::Message> {
+        loop {
+            let message = tokio::time::timeout_at(deadline, self.subscriber.next()).await.ok()??;
+            if tokuly_core::realtime::control_of(message.headers.as_ref()).is_none() {
+                return Some(message);
+            }
+        }
+    }
+
     /// The next frame, or `None` if nothing arrives within `timeout`.
     pub async fn next(&mut self, timeout: Duration) -> Option<ServerFrame> {
-        let message = tokio::time::timeout(timeout, self.subscriber.next()).await.ok()??;
+        let message = self.next_message(tokio::time::Instant::now() + timeout).await?;
         ServerFrame::decode_from_slice(&message.payload).ok()
     }
 
@@ -241,7 +253,7 @@ impl FrameListener {
     pub async fn drain(&mut self, window: Duration) -> Vec<ServerFrame> {
         let deadline = tokio::time::Instant::now() + window;
         let mut frames = Vec::new();
-        while let Ok(Some(message)) = tokio::time::timeout_at(deadline, self.subscriber.next()).await {
+        while let Some(message) = self.next_message(deadline).await {
             if let Ok(frame) = ServerFrame::decode_from_slice(&message.payload) {
                 frames.push(frame);
             }
@@ -254,7 +266,7 @@ impl FrameListener {
     pub async fn next_event<E: RealtimeEvent>(&mut self, timeout: Duration) -> Option<E> {
         let deadline = tokio::time::Instant::now() + timeout;
         loop {
-            let message = tokio::time::timeout_at(deadline, self.subscriber.next()).await.ok()??;
+            let message = self.next_message(deadline).await?;
             if let Some(event) = ServerFrame::decode_from_slice(&message.payload).ok().and_then(|frame| frame.event()) {
                 return Some(event);
             }

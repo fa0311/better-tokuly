@@ -520,6 +520,8 @@ impl Live {
                 tracing::warn!(stream_id = %stream.id, %error, "could not clear the audience of a deleted stream");
             }
             self.kick_quietly(stream).await;
+            // The stream is gone: its topic ends for everyone.
+            core.rt.close_topic(&stream.topic()).await;
         }
         for removal in &aftermath.assets {
             match tokuly_media::assets::delete(core, removal.asset_id, removal.owner_id).await {

@@ -248,7 +248,13 @@ their place came up).
 
 `CommunityEvent` on topic `community:<community uuid>`. The topic kind
 `community` is guarded: anyone for a public community, members (and site
-moderation) otherwise.
+moderation) otherwise. Subscriptions end when access does
+(`ServerFrame.unsubscribed`, see `docs/events/realtime.md`): every
+membership change (removal, ban, leaving, a timeout or role change)
+re-checks that person's subscription, and their `subject:` subscriptions
+(comments and counters of threads, replies and events); a community that stops being public
+re-checks every subscriber; a closed community closes the topic after
+`community_changed { deleted }`.
 
 | Event | When |
 |---|---|
@@ -263,10 +269,10 @@ moderation) otherwise.
 
 Posts on the topic carry no viewer state. **In a community that is not
 public the topic carries IDs only** — no thread, reply or event content:
-the guard runs when a topic is followed, so someone kicked or banned
-afterwards (or who followed while the community was still public) may
-still be listening until the gateway can drop subscriptions (issue #51).
-Clients fetch by ID, and the fetch checks access. In a public community a
+someone kicked or banned loses the subscription at once (every
+membership change re-checks theirs, and a community that stops being
+public re-checks every subscriber), but a push already on its way can
+still reach them. Clients fetch by ID, and the fetch checks access. In a public community a
 named post whose author has a block with anyone also travels as IDs only
 (the fetch applies the caller's blocks). Hidden posts never appear on the
 topic.

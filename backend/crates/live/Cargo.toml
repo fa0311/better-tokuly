@@ -41,6 +41,8 @@ unicode-segmentation.workspace = true
 reqwest.workspace = true
 
 [dev-dependencies]
+# A gateway and a WebSocket client, to see subscriptions end.
+tokuly-realtime = { workspace = true, features = ["testing"] }
 tokuly-proto = { workspace = true, features = ["realtime", "social", "stamp", "wallet"] }
 tokuly-testkit.workspace = true
 futures.workspace = true

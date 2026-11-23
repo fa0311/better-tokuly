@@ -1,4 +1,4 @@
-import type { QueryClient } from "@tanstack/react-query";
+import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { fromDate, spaces } from "@tokuly/api";
 import { useEffect } from "react";
 import { realtime } from "#/lib/realtime";
@@ -16,12 +16,17 @@ type Event = spaces.SpacesEvent["event"];
 
 /** Follows a room's realtime topic for as long as the calling component is mounted. */
 export function useSpaceTopic(spaceId: string | undefined): void {
+  const queryClient = useQueryClient();
   useEffect(() => {
     if (!spaceId) return;
-    const release = realtime().subscribe(`space:${spaceId}`);
+    // Banned, removed, blocked, the room deleted: reading it again shows what is left to see
+    // (for a ban, "not found").
+    const release = realtime().subscribe(`space:${spaceId}`, {
+      onRevoked: () => void queryClient.invalidateQueries({ queryKey: keys.space(spaceId) }),
+    });
     realtime().start();
     return release;
-  }, [spaceId]);
+  }, [queryClient, spaceId]);
 }
 
 /** An emoji someone sent into a room. Bursts do not say who sent them. */

@@ -301,6 +301,7 @@ impl Geo {
                     &crate::fanout::frame(Push::LocationRemovedUserId(user_id.to_string())),
                 )
                 .await;
+            self.core.rt.close_topic(&crate::shares::topic(&token)).await;
         }
         // People whose cached context mentions this user: alert subjects, SOS senders.
         let mut affected: Vec<Uuid> = sqlx::query_scalar("SELECT subject_id FROM geo_place_alerts WHERE owner_id = $1")

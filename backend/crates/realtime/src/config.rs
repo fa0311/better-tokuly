@@ -139,6 +139,23 @@ pub struct RealtimeConfig {
     #[arg(long = "rt-topic-stats-interval", env = "TOKULY_RT_TOPIC_STATS_INTERVAL", default_value = "2s", value_parser = parse_duration)]
     pub topic_stats_interval: Duration,
 
+    // ── Re-checking subscriptions ──
+    /// How old a topic subscription may get before the gateway asks the
+    /// topic's guard again. A safety net under the revocations the domains
+    /// publish (`tokuly_core::realtime::Realtime::revoke`): one that got lost
+    /// heals within this time.
+    #[arg(long = "rt-recheck-interval", env = "TOKULY_RT_RECHECK_INTERVAL", default_value = "5m", value_parser = parse_duration)]
+    pub recheck_interval: Duration,
+    /// The most subscriptions one connection re-checks at once; the rest
+    /// follow a second later.
+    #[arg(long = "rt-recheck-batch", env = "TOKULY_RT_RECHECK_BATCH", default_value_t = 8)]
+    pub recheck_batch: usize,
+    /// The most periodic guard checks per second on one gateway, over all
+    /// connections. With more subscriptions than `rate × interval` the
+    /// cycle stretches instead of the database load growing.
+    #[arg(long = "rt-recheck-rate", env = "TOKULY_RT_RECHECK_RATE", default_value_t = 200.0)]
+    pub recheck_rate: f64,
+
     // ── Observability ──
     /// How often connection and frame counters are logged.
     #[arg(long = "rt-stats-interval", env = "TOKULY_RT_STATS_INTERVAL", default_value = "60s", value_parser = parse_duration)]
@@ -179,6 +196,9 @@ impl Default for RealtimeConfig {
             presence_lease: Duration::from_secs(ONLINE_TTL_SECONDS),
             audience_refresh: Duration::from_secs(30),
             topic_stats_interval: Duration::from_secs(2),
+            recheck_interval: Duration::from_secs(300),
+            recheck_batch: 8,
+            recheck_rate: 200.0,
             stats_interval: Duration::from_secs(60),
         }
     }
@@ -237,10 +257,19 @@ impl RealtimeConfig {
             "TOKULY_RT_LOCATION_RATE and TOKULY_RT_LOCATION_BURST must be positive"
         );
         anyhow::ensure!(
-            self.max_topics > 0 && self.queue_frames > 0 && self.queue_bytes > 0 && self.queue_droppable_frames > 0 && self.max_frame_bytes >= 1024,
+            self.max_topics > 0
+                && self.queue_frames > 0
+                && self.queue_bytes > 0
+                && self.queue_droppable_frames > 0
+                && self.max_frame_bytes >= 1024,
             "realtime queue, topic and frame limits must be positive (frames at least 1024 bytes)"
         );
+        anyhow::ensure!(
+            self.recheck_rate.is_finite() && self.recheck_rate > 0.0 && self.recheck_batch > 0,
+            "TOKULY_RT_RECHECK_RATE and TOKULY_RT_RECHECK_BATCH must be positive"
+        );
         for (name, value) in [
+            ("TOKULY_RT_RECHECK_INTERVAL", self.recheck_interval),
             ("TOKULY_RT_HELLO_TIMEOUT", self.hello_timeout),
             ("TOKULY_RT_PING_INTERVAL", self.ping_interval),
             ("TOKULY_RT_REVOCATION_CHECK", self.revocation_check),
@@ -261,7 +290,8 @@ pub fn parse_duration(text: &str) -> Result<Duration, String> {
     let text = text.trim();
     let split = text.find(|c: char| !(c.is_ascii_digit() || c == '.')).unwrap_or(text.len());
     let (number, unit) = text.split_at(split);
-    let value: f64 = number.parse().map_err(|_| format!("`{text}` is not a duration (examples: 500ms, 25s, 2m, 1h, 13d)"))?;
+    let value: f64 =
+        number.parse().map_err(|_| format!("`{text}` is not a duration (examples: 500ms, 25s, 2m, 1h, 13d)"))?;
     let seconds = match unit.trim() {
         "ms" => value / 1000.0,
         "" | "s" => value,
@@ -323,6 +353,8 @@ mod tests {
         assert!(invalid(|c| c.presence_lease = c.presence_heartbeat));
         assert!(invalid(|c| c.location_rate = 0.0));
         assert!(invalid(|c| c.max_topics = 0));
+        assert!(invalid(|c| c.recheck_batch = 0));
+        assert!(invalid(|c| c.recheck_interval = Duration::ZERO));
         assert!(invalid(|c| c.audience_refresh = Duration::from_secs(60)));
         assert!(invalid(|c| c.trusted_proxies = vec!["10.0.0.0/40".into()]));
 

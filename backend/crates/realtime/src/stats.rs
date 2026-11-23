@@ -41,6 +41,11 @@ pub struct GatewayStats {
     pub user_subscriptions: u64,
     /// Topics with at least one subscriber here (= topic bus subscriptions).
     pub topic_subscriptions: u64,
+    /// Subscriptions checked against their guard again (after a revocation
+    /// or by the periodic re-check).
+    pub topic_rechecks: u64,
+    /// Subscriptions the server ended (`Unsubscribed` sent).
+    pub topics_revoked: u64,
 }
 
 /// A value that only grows.
@@ -103,6 +108,8 @@ pub(crate) struct Counters {
     pub locations_forwarded: Counter,
     pub user_subscriptions: Gauge,
     pub topic_subscriptions: Gauge,
+    pub topic_rechecks: Counter,
+    pub topics_revoked: Counter,
 }
 
 impl Counters {
@@ -127,6 +134,8 @@ impl Counters {
             locations_forwarded: self.locations_forwarded.get(),
             user_subscriptions: self.user_subscriptions.get(),
             topic_subscriptions: self.topic_subscriptions.get(),
+            topic_rechecks: self.topic_rechecks.get(),
+            topics_revoked: self.topics_revoked.get(),
         }
     }
 
@@ -163,6 +172,8 @@ impl Counters {
                 locations = stats.locations_forwarded,
                 users = stats.user_subscriptions,
                 topics = stats.topic_subscriptions,
+                rechecks = stats.topic_rechecks,
+                revoked = stats.topics_revoked,
                 "realtime gateway stats"
             );
             previous = stats;
@@ -184,7 +195,10 @@ mod tests {
         counters.frames_in.add(3);
         counters.frames_dropped.incr();
         let stats = counters.snapshot();
-        assert_eq!((stats.websocket_connections, stats.webtransport_connections, stats.frames_in, stats.frames_dropped), (1, 1, 3, 1));
+        assert_eq!(
+            (stats.websocket_connections, stats.webtransport_connections, stats.frames_in, stats.frames_dropped),
+            (1, 1, 3, 1)
+        );
         assert_eq!(counters.open_connections(), 2);
     }
 

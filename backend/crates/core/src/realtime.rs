@@ -22,6 +22,33 @@
 //! frame and never inside it, and each gateway skips the connections signed
 //! in as one of them. This is how a live chat line stays away from people
 //! in a block relation with its author, at the cost of one publish.
+//!
+//! ## Ending subscriptions
+//!
+//! A topic's guard runs when a connection subscribes. When access ends later
+//! (a ban, a removal, a block, an unfriending, leaving, an audience narrowed
+//! to members, a deleted room), the owning domain tells the gateways, after
+//! its change is committed:
+//!
+//! - [`Realtime::revoke`] / [`Realtime::revoke_prefix`]: one user's
+//!   subscriptions to a topic (or to every topic under a prefix) are checked
+//!   against the guard again, on all of that user's connections, and dropped
+//!   where the guard now refuses. Calling it when access did not change is
+//!   harmless, so a domain may call it on every event that *might* end
+//!   access, and twice.
+//! - [`Realtime::recheck_topic`]: the same for every subscriber of a topic,
+//!   anonymous ones included (an audience narrowed to friends or members).
+//! - [`Realtime::close_topic`]: every subscriber is dropped without asking
+//!   the guard (the room is gone, the stream or share is over).
+//!
+//! Each connection hears `ServerFrame.unsubscribed { topic, reason }` for a
+//! dropped subscription. These are control messages on the same bus
+//! subjects as the frames (`rt.u.<user>` and `rt.t.<topic>`), told apart by
+//! the [`CONTROL_HEADER`] and carrying an empty payload, so whoever else
+//! follows those subjects (a streaming RPC, the testkit) decodes them as an
+//! empty frame and skips them. They are best-effort like every push: the
+//! gateway also re-checks long-lived subscriptions against their guards
+//! periodically, which heals a revocation that got lost.
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -50,6 +77,70 @@ pub const EXCEPT_HEADER: &str = "Tokuly-Except";
 /// under 33 KB, well inside a bus message; a publish that would need more
 /// is refused (`TOO_MANY_EXCEPTIONS`) rather than sent to everyone.
 pub const MAX_EXCEPT: usize = 1000;
+
+/// Bus header that makes a message on `rt.u.<user>` / `rt.t.<topic>` an
+/// instruction for the gateways instead of a frame for the clients. Values:
+/// `recheck` (with [`CONTROL_TOPIC_HEADER`] on a user subject: that topic;
+/// on a topic subject: the whole topic), `recheck-prefix` (user subject,
+/// every topic under the prefix in [`CONTROL_TOPIC_HEADER`]) and `close`
+/// (topic subject).
+pub const CONTROL_HEADER: &str = "Tokuly-Control";
+
+/// Bus header of a control message on a user subject: the topic, or the
+/// prefix, it is about.
+pub const CONTROL_TOPIC_HEADER: &str = "Tokuly-Topic";
+
+/// Which subscriptions a user-scoped control message is about.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TopicPattern {
+    /// Exactly this topic.
+    Exact(String),
+    /// This topic and every topic below it (`party:<id>` covers
+    /// `party:<id>:<key>`; `live` covers every `live:` topic; the empty
+    /// prefix covers everything).
+    Prefix(String),
+}
+
+impl TopicPattern {
+    pub fn matches(&self, topic: &str) -> bool {
+        match self {
+            TopicPattern::Exact(exact) => topic == exact,
+            TopicPattern::Prefix(prefix) => {
+                prefix.is_empty()
+                    || topic.strip_prefix(prefix.as_str()).is_some_and(|rest| rest.is_empty() || rest.starts_with(':'))
+            }
+        }
+    }
+}
+
+/// What a control message asks the gateways to do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Control {
+    /// Re-run the guard for the user's subscriptions matching the pattern
+    /// (only on a user subject).
+    Recheck(TopicPattern),
+    /// Re-run the guard for every subscriber of the topic (only on a topic
+    /// subject).
+    RecheckTopic,
+    /// Drop every subscriber of the topic (only on a topic subject).
+    CloseTopic,
+}
+
+/// The instruction a bus message carries, if it is a control message.
+/// Unknown or malformed instructions read as `Some(None)`: a control
+/// message all the same (never forwarded), but nothing to do.
+pub fn control_of(headers: Option<&async_nats::HeaderMap>) -> Option<Option<Control>> {
+    let headers = headers?;
+    let kind = headers.get(CONTROL_HEADER)?.as_str();
+    let topic = headers.get(CONTROL_TOPIC_HEADER).map(|value| value.as_str().to_owned());
+    Some(match (kind, topic) {
+        ("recheck", Some(topic)) => Some(Control::Recheck(TopicPattern::Exact(topic))),
+        ("recheck", None) => Some(Control::RecheckTopic),
+        ("recheck-prefix", Some(prefix)) => Some(Control::Recheck(TopicPattern::Prefix(prefix))),
+        ("close", None) => Some(Control::CloseTopic),
+        _ => None,
+    })
+}
 
 /// The users a bus message's [`EXCEPT_HEADER`] names (empty without one).
 /// Malformed entries are ignored.
@@ -111,13 +202,7 @@ pub fn user_subject(user_id: Uuid) -> String {
 pub fn topic_subject(topic: &str) -> String {
     let safe: String = topic
         .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, ':' | '-' | '_') {
-                c
-            } else {
-                '_'
-            }
-        })
+        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, ':' | '-' | '_') { c } else { '_' })
         .collect();
     format!("rt.t.{safe}")
 }
@@ -213,6 +298,57 @@ impl Realtime {
         }
     }
 
+    /// Publishes a control message (see [`CONTROL_HEADER`]). Never fails
+    /// the caller: a lost one is healed by the gateways' periodic re-check.
+    async fn control(&self, subject: String, kind: &str, topic: Option<&str>) {
+        let mut headers = async_nats::HeaderMap::new();
+        headers.insert(CONTROL_HEADER, kind);
+        if let Some(topic) = topic {
+            headers.insert(CONTROL_TOPIC_HEADER, topic);
+        }
+        if let Err(e) = self.bus.publish_with_headers(subject, headers, Bytes::new()).await {
+            tracing::warn!(kind, topic, error = %e, "realtime control publish failed");
+        }
+    }
+
+    /// Ends `user_id`'s subscriptions to `topic`, on every connection and
+    /// gateway, unless the topic's guard still admits them. Call it after
+    /// the change that ends access is committed; calling it when nothing
+    /// changed costs one guard check per affected connection and drops
+    /// nothing.
+    pub async fn revoke(&self, user_id: Uuid, topic: &str) {
+        self.control(user_subject(user_id), "recheck", Some(topic)).await;
+    }
+
+    /// [`Self::revoke`] for every topic under `prefix`: `"live"` for all of
+    /// the user's `live:` subscriptions, `"party:<id>"` for a party's
+    /// member and guest topics. Use it when the change may affect topics the
+    /// domain cannot list cheaply (a block between two people and every
+    /// stream of one of them).
+    pub async fn revoke_prefix(&self, user_id: Uuid, prefix: &str) {
+        self.control(user_subject(user_id), "recheck-prefix", Some(prefix)).await;
+    }
+
+    /// [`Self::revoke`] for several users.
+    pub async fn revoke_users(&self, user_ids: impl IntoIterator<Item = Uuid>, topic: &str) {
+        for user_id in user_ids {
+            self.revoke(user_id, topic).await;
+        }
+    }
+
+    /// Re-checks every subscriber of `topic` (anonymous connections too)
+    /// against its guard and drops those it refuses: for an audience
+    /// narrowed to friends or members.
+    pub async fn recheck_topic(&self, topic: &str) {
+        self.control(topic_subject(topic), "recheck", None).await;
+    }
+
+    /// Drops every subscriber of `topic` without asking the guard: the room
+    /// was deleted, the stream or share is over.
+    pub async fn close_topic(&self, topic: &str) {
+        self.control(topic_subject(topic), "close", None).await;
+    }
+
     /// Tells users that someone they follow came online or went offline.
     /// Presence is part of the gateway's own protocol (`ServerFrame.presence`)
     /// rather than a domain's event, so it has its own way out.
@@ -256,6 +392,45 @@ mod tests {
         assert_eq!(except_of(Some(&headers)), HashSet::from([a, b]));
         assert!(except_of(None).is_empty());
         assert!(except_of(Some(&async_nats::HeaderMap::new())).is_empty());
+    }
+
+    #[test]
+    fn patterns_match_whole_segments() {
+        let exact = TopicPattern::Exact("party:1".into());
+        assert!(exact.matches("party:1"));
+        assert!(!exact.matches("party:1:key") && !exact.matches("party:12"));
+        let prefix = TopicPattern::Prefix("party:1".into());
+        assert!(prefix.matches("party:1") && prefix.matches("party:1:key"));
+        assert!(!prefix.matches("party:12") && !prefix.matches("live:1"));
+        assert!(TopicPattern::Prefix("live".into()).matches("live:abc"));
+        assert!(!TopicPattern::Prefix("live".into()).matches("liver:abc"));
+        assert!(TopicPattern::Prefix(String::new()).matches("anything:at-all"));
+    }
+
+    #[test]
+    fn control_headers_read_back() {
+        let headers = |kind: &str, topic: Option<&str>| {
+            let mut headers = async_nats::HeaderMap::new();
+            headers.insert(CONTROL_HEADER, kind);
+            if let Some(topic) = topic {
+                headers.insert(CONTROL_TOPIC_HEADER, topic);
+            }
+            headers
+        };
+        assert_eq!(
+            control_of(Some(&headers("recheck", Some("live:1")))),
+            Some(Some(Control::Recheck(TopicPattern::Exact("live:1".into()))))
+        );
+        assert_eq!(
+            control_of(Some(&headers("recheck-prefix", Some("live")))),
+            Some(Some(Control::Recheck(TopicPattern::Prefix("live".into()))))
+        );
+        assert_eq!(control_of(Some(&headers("recheck", None))), Some(Some(Control::RecheckTopic)));
+        assert_eq!(control_of(Some(&headers("close", None))), Some(Some(Control::CloseTopic)));
+        // A control message from a newer server: not a frame, but nothing to do.
+        assert_eq!(control_of(Some(&headers("evict", None))), Some(None));
+        assert_eq!(control_of(Some(&async_nats::HeaderMap::new())), None);
+        assert_eq!(control_of(None), None);
     }
 
     #[test]

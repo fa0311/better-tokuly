@@ -198,6 +198,13 @@ Durable consumer `geo` (`Geo::handle_event`). Every handler is idempotent.
 | `sos_updated` | the sender and the people alerted | Triggered, resolved, auto-resolved. |
 | `footprint_progress` | the user themselves | New cells; one extra event per region entered for the first time. |
 
+When a share ends (revoked, expired, the account deleted) its topic
+`share:<token>` is closed after `location_removed_user_id`
+(`Realtime::close_topic`): every follower gets
+`ServerFrame.unsubscribed { reason: TOPIC_CLOSED }` and hears nothing more.
+Friends' positions are user-scoped, so an unfriending or a block ends them
+by itself: `location_removed_user_id` to both, and no further `location`.
+
 Topic `share:<token>` is deliberately unguarded: the 32-character token is the
 capability.
 

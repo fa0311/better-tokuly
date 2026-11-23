@@ -17,7 +17,7 @@ use tokuly_core::{
 
 use crate::{
     Spaces,
-    events::{CONTENT_REMOVED, ROOM_STARTED, USER_BANNED, USER_BLOCKED, USER_DELETED},
+    events::{CONTENT_REMOVED, FRIEND_REMOVED, ROOM_STARTED, USER_BANNED, USER_BLOCKED, USER_DELETED},
 };
 
 const SWEEP_INTERVAL: Duration = Duration::from_secs(60);
@@ -31,7 +31,7 @@ impl Spaces {
             events::consume(
                 spaces.core.bus.clone(),
                 "spaces",
-                &[USER_DELETED, USER_BANNED, USER_BLOCKED, CONTENT_REMOVED, ROOM_STARTED],
+                &[USER_DELETED, USER_BANNED, USER_BLOCKED, FRIEND_REMOVED, CONTENT_REMOVED, ROOM_STARTED],
                 // Telling a thousand friends that a room started takes a moment.
                 ConsumeOptions { ack_wait: Duration::from_secs(120), ..Default::default() },
                 spaces.core.shutdown.clone(),
