@@ -13,7 +13,8 @@
 //!   protocol: authorization requests, codes with PKCE, token issue and
 //!   rotation, the device flow; `consent_svc.rs` is the user's side over
 //!   RPC, `oauth_http.rs` the endpoints OAuth libraries call).
-//! - **Bots** (`bots.rs`): accounts owned by a person.
+//! - **Bots** (`bots.rs`): accounts owned by a person; `transfers.rs`
+//!   hands one over to another person.
 //! - **Webhooks** (`webhooks.rs` subscriptions and the event catalogue,
 //!   `fanout.rs` from domain events to deliveries, `delivery.rs` sending,
 //!   signing, retries and the guard against requests into private networks).
@@ -47,6 +48,7 @@ pub mod reference;
 pub mod scopes;
 pub mod secrets;
 mod tokens;
+mod transfers;
 mod usage;
 mod verify;
 pub mod webhooks;

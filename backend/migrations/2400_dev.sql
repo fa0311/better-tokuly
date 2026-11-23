@@ -27,7 +27,7 @@ CREATE TABLE dev_tokens (
     last_used_at  timestamptz,
     last_used_ip  text        NOT NULL DEFAULT '',
     revoked_at    timestamptz,
-    -- 'owner' | 'password_changed' | 'banned' | 'bot_deleted'
+    -- 'owner' | 'password_changed' | 'banned' | 'bot_deleted' | 'bot_transferred'
     revoked_reason text       NOT NULL DEFAULT '',
     created_at    timestamptz NOT NULL DEFAULT now()
 );
@@ -125,6 +125,28 @@ CREATE TABLE dev_bots (
 
 CREATE INDEX dev_bots_owner ON dev_bots (owner_id, created_at) WHERE deleted_at IS NULL;
 CREATE INDEX dev_bots_deleted ON dev_bots (deleted_at) WHERE deleted_at IS NOT NULL;
+
+-- Handing a bot over: the owner offers it to another person, who accepts
+-- (the bot is theirs from then on) or declines. An accepted row stays, as
+-- the record of who owned the bot before, for TOKULY_DEV_BOT_RECORD_DAYS
+-- counted from the hand-over; an offer that is declined, withdrawn or out of
+-- time is deleted.
+CREATE TABLE dev_bot_transfers (
+    id          uuid PRIMARY KEY DEFAULT uuidv7(),
+    bot_id      uuid        NOT NULL REFERENCES dev_bots (user_id) ON DELETE CASCADE,
+    from_id     uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    to_id       uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    expires_at  timestamptz NOT NULL,
+    accepted_at timestamptz,
+    CHECK (from_id <> to_id)
+);
+
+-- One open offer per bot.
+CREATE UNIQUE INDEX dev_bot_transfers_open ON dev_bot_transfers (bot_id) WHERE accepted_at IS NULL;
+CREATE INDEX dev_bot_transfers_to ON dev_bot_transfers (to_id, created_at) WHERE accepted_at IS NULL;
+CREATE INDEX dev_bot_transfers_from ON dev_bot_transfers (from_id) WHERE accepted_at IS NULL;
+CREATE INDEX dev_bot_transfers_history ON dev_bot_transfers (bot_id, accepted_at) WHERE accepted_at IS NOT NULL;
 
 CREATE TABLE dev_webhooks (
     id                         uuid PRIMARY KEY DEFAULT uuidv7(),

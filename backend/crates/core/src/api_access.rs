@@ -260,6 +260,11 @@ const TABLE: &[(&str, &[(&str, Rule)])] = &[
         ("CreateBotToken", Session),
         ("ListBotTokens", Session),
         ("RevokeBotToken", Session),
+        // Handing an account over is not for a token, as minting its credentials is not.
+        ("OfferBotTransfer", Session),
+        ("ListBotTransfers", Session),
+        ("AcceptBotTransfer", Session),
+        ("CancelBotTransfer", Session),
     ]),
     ("tokuly.dev.v1.WebhookService", &[
         ("ListEventTypes", Any),

@@ -105,6 +105,8 @@ struct TokenLookup {
     creator_gone: bool,
     creator_password_hash: Option<String>,
     bot_disabled: bool,
+    /// A bot token made by someone who no longer owns the bot (it was handed over).
+    creator_not_owner: bool,
 }
 
 #[derive(sqlx::FromRow)]
@@ -137,7 +139,8 @@ impl Dev {
                     (u.banned_at IS NOT NULL OR u.deleted_at IS NOT NULL) AS account_gone,
                     (c.banned_at IS NOT NULL OR c.deleted_at IS NOT NULL) AS creator_gone,
                     c.password_hash AS creator_password_hash,
-                    COALESCE(b.disabled_at IS NOT NULL, false) AS bot_disabled
+                    COALESCE(b.disabled_at IS NOT NULL, false) AS bot_disabled,
+                    COALESCE(t.kind = 'bot' AND b.owner_id <> t.created_by, false) AS creator_not_owner
              FROM dev_tokens t
              JOIN users u ON u.id = t.user_id
              JOIN users c ON c.id = t.created_by
@@ -148,7 +151,7 @@ impl Dev {
         .fetch_optional(&self.core.db)
         .await?;
         let Some(row) = row else { return Ok(Verdict::Invalid) };
-        if row.revoked || row.account_gone || row.creator_gone || row.bot_disabled {
+        if row.revoked || row.account_gone || row.creator_gone || row.bot_disabled || row.creator_not_owner {
             return Ok(Verdict::Revoked);
         }
         if row.expires_at.is_some_and(|at| at <= Utc::now()) {

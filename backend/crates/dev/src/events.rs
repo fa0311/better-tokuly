@@ -44,6 +44,15 @@ pub struct BotEvent {
     pub owner_id: Uuid,
 }
 
+/// `dev.bot.transferred`: a bot was handed over (`from_id` to `to_id`).
+/// Actor: the receiver, who accepted.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BotTransferEvent {
+    pub bot_id: Uuid,
+    pub from_id: Uuid,
+    pub to_id: Uuid,
+}
+
 /// `dev.webhook.disabled`: deliveries kept failing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebhookDisabled {

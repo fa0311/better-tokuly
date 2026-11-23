@@ -16,6 +16,7 @@ import { SwitchRow } from "#/components/ui/switch";
 import { EmojiText } from "#/features/emoji";
 import { errorMessage } from "#/lib/errors";
 import { botClient, type dev, keys } from "./api";
+import { BotTransferInbox, HandOverSection } from "./bot-transfers";
 import { ImageField } from "./image-field";
 import { Notice, type RevealedSecret, SecretDialog, Section, useSecretAction } from "./parts";
 import { allowedForBots } from "./scopes";
@@ -81,6 +82,7 @@ export function BotsScreen() {
   return (
     <Page title={t("bots.title")} back="/developers" actions={newButton}>
       <p className="mb-4 px-1 text-sm leading-relaxed text-ink-soft">{t("bots.lead")}</p>
+      <BotTransferInbox />
       {bots.isPending ? (
         <Skeleton className="h-40" />
       ) : bots.isError ? (
@@ -351,6 +353,8 @@ function BotDetail({ bot }: { bot: dev.Bot }) {
           <UsagePanel subject={{ kind: "bot", id: botId }} />
         </Card>
       </Section>
+
+      <HandOverSection bot={bot} />
 
       <Section title={t("bots.danger")}>
         <Card className="flex flex-wrap items-center gap-3 p-4">

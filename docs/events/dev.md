@@ -69,12 +69,13 @@ Payload structs: `tokuly_dev::events`.
 | Topic | Payload | When |
 |---|---|---|
 | `dev.token.created` | `TokenEvent { token_id, user_id, kind, reason }` | A personal (`kind: "pat"`) or bot (`"bot"`) token was created. `user_id` is the account it acts as. Actor: the creator. |
-| `dev.token.revoked` | `TokenEvent` | A token was revoked. `reason`: `owner`, `password_changed`, `banned`, `bot_deleted`. Actor: the owner, or none. |
+| `dev.token.revoked` | `TokenEvent` | A token was revoked. `reason`: `owner`, `password_changed`, `banned`, `bot_deleted`, `bot_transferred`. Actor: the owner, or none. |
 | `dev.app.created` / `.updated` / `.deleted` | `AppEvent { app_id, owner_id }` | An OAuth application was registered, edited or deleted (deletion also when its owner's account is deleted; then without actor). |
 | `dev.app.disabled` | `AppEvent` | Moderation took an application down. |
 | `dev.authorization.granted` | `AuthorizationEvent { app_id, user_id, scopes, reason }` | A user approved an application (consent screen or device page). `scopes` are the ones just approved. Actor: the user. |
 | `dev.authorization.revoked` | `AuthorizationEvent` | A user's authorization of an application was withdrawn. `reason`: `user`, `banned`. Not emitted for a token family revoked on its own (replayed code or refresh token), nor per user when an application is deleted. |
 | `dev.bot.created` / `.updated` / `.deleted` | `BotEvent { bot_id, owner_id }` | A bot account was created, its profile edited, or it was deleted. |
+| `dev.bot.transferred` | `BotTransferEvent { bot_id, from_id, to_id }` | A bot was handed over to `to_id`, who accepted. Actor: the receiver. |
 | `dev.webhook.disabled` | `WebhookDisabled { webhook_id, account_id }` | A webhook was disabled because its deliveries kept failing. |
 
 No event is emitted in identity's name: a bot is not announced as `identity.user.created`, and a bot's profile change not as `identity.user.updated`.
@@ -183,6 +184,37 @@ moderation cannot be deleted by its owner (`BOT_SUSPENDED`) and keeps its
 place in the owner's allowance; likewise an application disabled by moderation
 cannot be deleted (`APP_DISABLED`).
 
+### Handing a bot over
+
+The owner offers a bot to one person (`OfferBotTransfer`), who is told in
+their inbox and accepts (`AcceptBotTransfer`) or declines
+(`CancelBotTransfer`, which also withdraws an offer). An offer lasts 7 days;
+a new offer of the same bot replaces the open one under a new ID. An offer
+is refused as `RECIPIENT_NOT_FOUND` towards the owner themselves, a bot, a
+suspended account and anyone in a block relation with the owner (asked
+through identity's profile extensions, which is where the social domain
+answers), so it cannot reach someone who shut the owner out.
+
+On acceptance, in one transaction under the receiver's allowance lock: the
+offer is claimed exactly once, the bot must still be the offerer's and not
+suspended (`BOT_SUSPENDED`), the receiver must have room (`TOO_MANY_BOTS`);
+then the owner changes and the bot's webhooks are deleted (they point at the
+previous owner's servers and are signed with secrets they know). After the
+commit every token of the bot is revoked (`bot_transferred`): they were made
+by the previous owner and shown to them. The verifier also refuses any bot
+token whose creator is not the bot's owner, so a token minted at the moment
+of the hand-over, or a revocation that failed after the commit, does not
+leave the previous owner in control. The profile, avatar, followers and
+everything the bot posted stay with the bot. Mutations of a bot re-check its
+owner under a row lock, so a previous owner's request in flight cannot
+delete, switch or edit the bot once it changed hands.
+
+Accepted offers are the record of who owned a bot before
+(`Dev::bot_owner_at(bot, time)`), kept for `TOKULY_DEV_BOT_RECORD_DAYS` from
+the hand-over: a report about something the bot did leads to whoever ran it
+then. Open offers to or from a deleted account, and of a deleted bot, are
+dropped.
+
 ## Notification kinds
 
 All are system notices (no actor), inbox + push.
@@ -193,6 +225,7 @@ All are system notices (no actor), inbox + push.
 | `dev.app_authorized` | the user | They gave an application access for the first time. `data = { app_id, scopes }`. |
 | `dev.app_disabled` | the application's owner | Moderation disabled the application. Subject: the application. |
 | `dev.webhook_disabled` | the webhook's owner (a bot's owner) | Deliveries kept failing and the webhook was disabled. `data = { webhook_id }`. |
+| `dev.bot_transfer_offered` | the person a bot is offered to | Somebody offers them a bot (`AcceptBotTransfer`). Actor: the owner. `data = { transfer_id, bot_id }`. |
 
 Security events written to the account's security log (through identity):
 `API_TOKEN_CREATED`, `API_TOKEN_REVOKED`, `BOT_TOKEN_CREATED`,
@@ -219,6 +252,7 @@ Besides the per-token request limit of the auth middleware (`RATE_LIMITED`):
 | OAuth HTTP endpoints; of which starting device flows | 120 / min; 20 / min per address |
 | Device polling | the flow's interval (`slow_down`, growing by 5 s) |
 | Creating bots; editing a bot; changing a bot's handle; switching bots | 10 / day; 30 / hour; 5 / week per bot; 60 / hour |
+| Offering bots to other people | 20 / day per person |
 | Creating webhooks; editing; rotating a secret | 30 / hour; 120 / hour; 10 / hour per webhook |
 | Test pings; replays | 20 / min; 60 / hour per person |
 | Usage statistics | 60 / min per person |
@@ -298,7 +332,7 @@ tokuly_dev::webhooks::{EVENT_TYPES, event_type, EventType, Source}
 | `TOKULY_DEV_WEBHOOK_DISABLE_AFTER_HOURS` | `48` | ...once it has been failing this long |
 | `TOKULY_DEV_WEBHOOK_RATE_PER_MINUTE` | `120` | Deliveries per minute one person's webhooks may send to one host (0 = unlimited) |
 | `TOKULY_DEV_WEBHOOK_LOG_DAYS` | `30` | Retention of the delivery log |
-| `TOKULY_DEV_BOT_RECORD_DAYS` | `180` | How long the record of who owned a deleted bot is kept |
+| `TOKULY_DEV_BOT_RECORD_DAYS` | `180` | How long the record of who owned a deleted bot, or a bot before it was handed over, is kept |
 | `TOKULY_DEV_WEBHOOK_ALLOW_PRIVATE` | `false` | Development/tests: allow `http://` and private addresses. Startup fails if set in production |
 
 Requests made with tokens are also subject to `TOKULY_RATE_LIMITS`

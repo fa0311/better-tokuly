@@ -34,6 +34,21 @@ use crate::{
     tokens::{NewToken, TokenRow},
 };
 
+/// Locks the `dev_bots` row of a bot that must still be `owner`'s (and not
+/// deleted) for the rest of the transaction: `BOT_NOT_FOUND` otherwise. What
+/// was checked before the transaction may be stale by then, after a hand-over.
+async fn lock_owned_bot(tx: &mut PgConnection, bot_id: Uuid, owner: Uuid) -> AppResult<()> {
+    sqlx::query_scalar::<_, i32>(
+        "SELECT 1 FROM dev_bots WHERE user_id = $1 AND owner_id = $2 AND deleted_at IS NULL FOR UPDATE",
+    )
+    .bind(bot_id)
+    .bind(owner)
+    .fetch_optional(&mut *tx)
+    .await?
+    .or_not_found("BOT_NOT_FOUND", "bot not found")?;
+    Ok(())
+}
+
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub(crate) struct BotRow {
     pub user_id: Uuid,
@@ -152,11 +167,17 @@ impl Dev {
     pub(crate) async fn delete_bot(&self, bot_id: Uuid, owner_id: Uuid, actor: Option<Uuid>) -> AppResult<()> {
         self.revoke_tokens_of(bot_id, "bot_deleted", None).await?;
         let mut tx = self.core.db.begin().await?;
+        // Still theirs: a hand-over accepted in the meantime is not undone by the previous owner.
+        lock_owned_bot(&mut tx, bot_id, owner_id).await?;
         if let Ok(images) = self.images() {
             images.release(&mut tx, &bot_avatar_holder(bot_id)).await?;
         }
         sqlx::query("DELETE FROM dev_webhooks WHERE account_id = $1").bind(bot_id).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM dev_tokens WHERE user_id = $1").bind(bot_id).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM dev_bot_transfers WHERE bot_id = $1 AND accepted_at IS NULL")
+            .bind(bot_id)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("UPDATE dev_bots SET deleted_at = COALESCE(deleted_at, now()), disabled_at = COALESCE(disabled_at, now()) WHERE user_id = $1")
             .bind(bot_id)
             .execute(&mut *tx)
@@ -172,13 +193,22 @@ impl Dev {
         Ok(())
     }
 
-    /// Drops the ownership records of bots deleted longer ago than the retention.
+    /// Drops the ownership records of bots deleted, and the records of
+    /// hand-overs made, longer ago than the retention, and offers that ran out.
     pub async fn purge_bot_records(&self) -> AppResult<u64> {
+        let days = self.cfg.bot_record_days as i32;
+        let transfers = sqlx::query(
+            "DELETE FROM dev_bot_transfers
+             WHERE (accepted_at IS NULL AND expires_at < now()) OR accepted_at < now() - make_interval(days => $1)",
+        )
+        .bind(days)
+        .execute(&self.core.db)
+        .await?;
         let done = sqlx::query("DELETE FROM dev_bots WHERE deleted_at < now() - make_interval(days => $1)")
-            .bind(self.cfg.bot_record_days as i32)
+            .bind(days)
             .execute(&self.core.db)
             .await?;
-        Ok(done.rows_affected())
+        Ok(done.rows_affected() + transfers.rows_affected())
     }
 }
 
@@ -268,6 +298,7 @@ impl BotService for Dev {
             // Looked up before the transaction: it reads through the pool.
             let avatar = ImageChange::resolve(self, owner, request.avatar_asset_id).await?;
             let mut tx = self.core.db.begin().await?;
+            lock_owned_bot(&mut tx, bot.user_id, owner).await?;
             if let Some(handle) = &handle {
                 let taken: bool =
                     sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE handle = $1::citext AND id <> $2)").bind(handle).bind(bot.user_id).fetch_one(&mut *tx).await?;
@@ -308,11 +339,15 @@ impl BotService for Dev {
             let owner = ctx.require_session()?.user_id;
             let bot = self.owned_bot(parse_id(request.bot_id)?, owner).await?;
             self.core.cache.rate_limit(&format!("dev-bot-switch:{owner}"), 60, Duration::from_secs(3600)).await?;
-            sqlx::query("UPDATE dev_bots SET disabled_at = CASE WHEN $2 THEN COALESCE(disabled_at, now()) END WHERE user_id = $1")
-                .bind(bot.user_id)
-                .bind(request.disabled)
-                .execute(&self.core.db)
-                .await?;
+            let done = sqlx::query(
+                "UPDATE dev_bots SET disabled_at = CASE WHEN $2 THEN COALESCE(disabled_at, now()) END WHERE user_id = $1 AND owner_id = $3",
+            )
+            .bind(bot.user_id)
+            .bind(request.disabled)
+            .bind(owner)
+            .execute(&self.core.db)
+            .await?;
+            ensure!(done.rows_affected() == 1, not_found, "BOT_NOT_FOUND", "bot not found");
             // Its tokens are judged afresh on their next request.
             self.forget_account_tokens(bot.user_id).await?;
             ok(SetBotDisabledResponse { bot: self.bot_proto(bot.user_id, owner).await?.into(), ..Default::default() })
@@ -384,6 +419,64 @@ impl BotService for Dev {
             let token = self.owned_token(parse_id(request.token_id)?, owner, "bot").await?;
             self.revoke_token(token.id, owner).await?;
             ok(RevokeBotTokenResponse::default())
+        })
+        .await
+    }
+
+    async fn offer_bot_transfer(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, OfferBotTransferRequest>,
+    ) -> ServiceResult<OfferBotTransferResponse> {
+        handle(async {
+            let owner = ctx.require_session()?.user_id;
+            let transfer = self.offer_bot_transfer(owner, parse_id(request.bot_id)?, request.user_id).await?;
+            ok(OfferBotTransferResponse { transfer: transfer.into(), ..Default::default() })
+        })
+        .await
+    }
+
+    async fn list_bot_transfers(
+        &self,
+        ctx: RequestContext,
+        _request: ServiceRequest<'_, ListBotTransfersRequest>,
+    ) -> ServiceResult<ListBotTransfersResponse> {
+        handle(async {
+            let user_id = ctx.require_session()?.user_id;
+            let (outgoing, incoming) = self.bot_transfers_of(user_id).await?;
+            ok(ListBotTransfersResponse { outgoing, incoming, ..Default::default() })
+        })
+        .await
+    }
+
+    async fn accept_bot_transfer(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, AcceptBotTransferRequest>,
+    ) -> ServiceResult<AcceptBotTransferResponse> {
+        handle(async {
+            let user_id = ctx.require_session()?.user_id;
+            let transfer_id = Uuid::parse_str(request.transfer_id.trim())
+                .map_err(|_| AppError::not_found("TRANSFER_NOT_FOUND", "no such offer"))?;
+            let bot_id = self.accept_bot_transfer(user_id, transfer_id).await?;
+            let attrs = serde_json::json!({ "bot_id": bot_id, "transfer_id": transfer_id });
+            self.identity.log_security_event(user_id, "BOT_TRANSFER_ACCEPTED", &ctx.client(), "", attrs).await;
+            ok(AcceptBotTransferResponse { bot: self.bot_proto(bot_id, user_id).await?.into(), ..Default::default() })
+        })
+        .await
+    }
+
+    async fn cancel_bot_transfer(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, CancelBotTransferRequest>,
+    ) -> ServiceResult<CancelBotTransferResponse> {
+        handle(async {
+            let user_id = ctx.require_session()?.user_id;
+            let transfer_id = Uuid::parse_str(request.transfer_id.trim())
+                .map_err(|_| AppError::not_found("TRANSFER_NOT_FOUND", "no such offer"))?;
+            self.cancel_bot_transfer(user_id, transfer_id).await?;
+            ok(CancelBotTransferResponse::default())
         })
         .await
     }

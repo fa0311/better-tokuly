@@ -33,7 +33,7 @@ async fn the_server_describes_its_own_api() {
     assert_eq!(dev.services.len(), 7);
     assert!(dev.services.iter().all(|s| s.domain == "dev" && !s.description.is_empty()));
     let methods: usize = dev.services.iter().map(|s| s.methods.len()).sum();
-    assert_eq!(methods, 44, "every RPC of this domain is listed");
+    assert_eq!(methods, 48, "every RPC of this domain is listed");
 
     // What the reference says a token needs is what the middleware enforces.
     let identity: ListServicesResponse = ctx
