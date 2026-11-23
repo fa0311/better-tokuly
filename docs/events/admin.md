@@ -99,7 +99,7 @@ Durable consumer `admin` (`tokuly_admin::Admin::handle_event`).
 | Topic | Payload | Effect |
 |---|---|---|
 | `engagement.report.created` | `{ report_id, reporter_id, subject_type, subject_id, subject_owner_id, category, text, subject_title, subject_path }` (`tokuly_admin::events::ReportCreated`) | Files the report into the subject's open case, opening one if needed. Idempotent on `report_id`. `category` is one of `SPAM`, `HARASSMENT`, `HATE`, `SEXUAL`, `VIOLENCE`, `SELF_HARM`, `ILLEGAL`, `IMPERSONATION`, `COPYRIGHT`, `OTHER`; anything else is stored as `OTHER`. Reporter or owner IDs that match no live account are stored as unknown. |
-| `identity.user.created` | not read | Grants `admin` to the `TOKULY_ADMIN_USER` account if it now exists. |
+| `identity.user.created`, `identity.user.email_verified` | not read | Grants `admin` to the account whose verified address is `TOKULY_ADMIN_USER`, if it now exists and the bootstrap has not happened yet. |
 | `identity.user.deleted` | `{ user_id }` | Reports they filed lose reporter and text; cases about them or their content lose owner, title and path, and open ones are closed ("account deleted"); the moderation log and the audit log keep their rows with the user reference nulled (as target, moderator or actor); their suspension rows are deleted; they are removed from feature-flag allow-lists. |
 
 ## Notification kinds
@@ -161,6 +161,7 @@ action or by a prefix ending in a dot (`user.`).
 | `user.suspension_expired` | user (no actor) | lifted suspension |
 | `user.verified_changed` | user | verified |
 | `user.roles_changed` | user (no actor when from the `TOKULY_ADMIN_USER` bootstrap) | roles |
+| `admin.bootstrapped` | `bootstrap` / the configured address (no actor; target user: who was promoted) | — recorded once per address before the grant; while it exists the bootstrap never runs again |
 | `user.sessions_revoked` | user | number revoked |
 | `flag.created`, `flag.updated`, `flag.deleted` | flag (its name) | full flag snapshot |
 | `announcement.created`, `.updated`, `.published`, `.unpublished`, `.deleted` | announcement | titles, category, pinned, publish time, notify |
@@ -169,7 +170,7 @@ action or by a prefix ending in a dot (`user.`).
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `TOKULY_ADMIN_USER` | *(empty)* | Handle or email address of the account that runs the deployment. It gets the `admin` role at startup or, when it does not exist yet, the moment it signs up (the role shows up in its next access token, at the latest 15 minutes later). |
+| `TOKULY_ADMIN_USER` | *(empty)* | E-mail address of the account that runs the deployment. The account holding it gets the `admin` role once the address is verified (at startup, or the moment it is; the role shows up in its next access token, at the latest 15 minutes later), and only once per deployment and address: a later holder of the address, or a demoted bootstrap admin, is not promoted. A handle promotes nobody (whoever signed up first would hold it). |
 | `TOKULY_ADMIN_STATS_TIME_ZONE` | `Asia/Tokyo` | Time zone whose midnight starts "today" in `GetServerStats` (new accounts today, DAU). |
 | `TOKULY_ANNOUNCEMENT_NOTIFY_ACTIVE_DAYS` | `30` | A broadcast reaches accounts with a signed-in device active within this many days. |
 | `TOKULY_ANNOUNCEMENT_NOTIFY_CHUNK` | `500` | Users notified per transaction during a broadcast (1–5000). |
@@ -184,14 +185,15 @@ minute per client address; `GetServerStats` 30 a minute per admin.
 let admin = Admin::new(core.clone(), identity.clone(), cfg.admin)?;   // also registers the "moderation" data exporter
 let router = admin.register(router);
 admin.spawn_workers();                                                 // worker processes
-admin.grant_bootstrap_admin().await?;                                  // at startup: `TOKULY_ADMIN_USER`, if that account exists already
+admin.grant_bootstrap_admin().await?;                                  // at startup: `TOKULY_ADMIN_USER`, if that verified address exists already
 admin.set_hidden_owners(Arc<dyn tokuly_admin::HiddenOwners>);          // bridge: owners of content that is reported without one, and who is involved in it
 ```
 
-`grant_bootstrap_admin` (and `ensure_admin(handle_or_email)`, which it calls)
-returns `true` when it granted the role, `false` when the account already was
-an admin or does not exist yet. An account that does not exist yet is
-promoted by the worker when it signs up.
+`grant_bootstrap_admin` returns `true` when it granted the role, `false`
+when the bootstrap already happened, the account already was an admin, or
+no account holds the address verified yet; the worker tries again when an
+account signs up or confirms an address. `ensure_admin(handle_or_email)`
+promotes a named account unconditionally (for tools and tests).
 
 ## Notes for other domains
 
