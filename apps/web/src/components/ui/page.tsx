@@ -1,7 +1,14 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { ChevronLeft } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "#/lib/cn";
+
+/**
+ * Where the header's "back" goes: a route, or `{ fallback }` for a page that
+ * is opened from many places — it returns to wherever the person came from,
+ * and to `fallback` when the page was opened directly (a shared link, a reload).
+ */
+export type BackTarget = string | { fallback: string };
 
 /**
  * Standard scrolling page inside the app shell: a sticky header and a
@@ -15,7 +22,7 @@ export function Page({
   wide,
 }: {
   title: ReactNode;
-  back?: string;
+  back?: BackTarget;
   actions?: ReactNode;
   children: ReactNode;
   wide?: boolean;
@@ -29,15 +36,7 @@ export function Page({
             wide ? "max-w-6xl" : "max-w-2xl",
           )}
         >
-          {back && (
-            <Link
-              to={back}
-              aria-label="back"
-              className="grid size-9 place-items-center rounded-full hover:bg-surface-2"
-            >
-              <ChevronLeft className="size-6" />
-            </Link>
-          )}
+          {back !== undefined && <BackButton to={back} />}
           <h1 className="min-w-0 flex-1 truncate text-xl font-black">{title}</h1>
           {actions}
         </div>
@@ -47,6 +46,33 @@ export function Page({
         {children}
       </div>
     </div>
+  );
+}
+
+const BACK_CLASS = "grid size-9 place-items-center rounded-full hover:bg-surface-2";
+
+/** The header's way back (see `BackTarget`). */
+export function BackButton({ to }: { to: BackTarget }) {
+  const router = useRouter();
+  const navigate = useNavigate();
+  if (typeof to === "string") {
+    return (
+      <Link to={to} aria-label="back" className={BACK_CLASS}>
+        <ChevronLeft className="size-6" />
+      </Link>
+    );
+  }
+  return (
+    <button
+      type="button"
+      aria-label="back"
+      onClick={() =>
+        router.history.canGoBack() ? router.history.back() : void navigate({ to: to.fallback })
+      }
+      className={BACK_CLASS}
+    >
+      <ChevronLeft className="size-6" />
+    </button>
   );
 }
 

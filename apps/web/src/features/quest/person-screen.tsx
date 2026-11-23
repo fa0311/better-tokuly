@@ -1,12 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link, useNavigate, useRouter } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { identity, type quest, toMillis } from "@tokuly/api";
-import { ChevronLeft, EyeOff, MessageCircle } from "lucide-react";
-import type { ReactNode } from "react";
+import { EyeOff, MessageCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
-import { EmptyState, Skeleton } from "#/components/ui/page";
+import { type BackTarget, EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { openDirectChat } from "#/features/chat";
 import { EmojiText } from "#/features/emoji";
 import { useAccountNow, useAccountTimeZone, zonedDate } from "#/lib/account-time";
@@ -14,6 +13,12 @@ import { profileClient } from "#/lib/api";
 import { useLocalized, useQuestProfile, useUserBadges } from "./api";
 import { formatDay, streakRuns, streakStatus } from "./model";
 import { BadgeMedal, LevelPill, SectionTitle, TitlePill, useBadgeName } from "./parts";
+
+/**
+ * The page is opened from rankings, badges, profiles and leaderboards alike: "back" returns to
+ * wherever the person came from, and to the rankings when it was opened directly.
+ */
+const PERSON_BACK: BackTarget = { fallback: "/quest/ranking" };
 
 /**
  * `/quest/u/<handle>`: what a person shows of their quest progress — level,
@@ -39,17 +44,17 @@ export function PersonScreen({ handle }: { handle: string }) {
 
   if (person.isPending || (user && questProfile.isPending))
     return (
-      <PersonPage title={t("person.title")}>
+      <Page title={t("person.title")} back={PERSON_BACK}>
         <Skeleton className="h-44" />
         <Skeleton className="mt-4 h-40" />
-      </PersonPage>
+      </Page>
     );
   const shown = questProfile.data;
   if (!user || !shown)
     return (
-      <PersonPage title={t("person.title")}>
+      <Page title={t("person.title")} back={PERSON_BACK}>
         <EmptyState emoji="🧭" title={t("person.notFound")} />
-      </PersonPage>
+      </Page>
     );
 
   const title = text(shown.title?.text);
@@ -60,7 +65,7 @@ export function PersonScreen({ handle }: { handle: string }) {
   const seesAll = isSelf || isFriend;
 
   return (
-    <PersonPage title={t("person.titleOf", { name: user.displayName })}>
+    <Page title={t("person.titleOf", { name: user.displayName })} back={PERSON_BACK}>
       <section className="sticker rounded-card bg-surface p-5">
         <div className="flex items-center gap-4">
           <Link to="/u/$handle" params={{ handle: user.handle }} className="shrink-0">
@@ -156,7 +161,7 @@ export function PersonScreen({ handle }: { handle: string }) {
           )}
         </>
       )}
-    </PersonPage>
+    </Page>
   );
 }
 
@@ -190,38 +195,5 @@ function BadgeGrid({ badges, dated }: { badges: quest.Badge[]; dated?: boolean }
         );
       })}
     </ul>
-  );
-}
-
-/**
- * The page frame of a person's quest page. It is opened from rankings, badges,
- * profiles and leaderboards alike, so "back" returns to wherever the person
- * came from, and to the rankings when the page was opened directly.
- */
-function PersonPage({ title, children }: { title: ReactNode; children: ReactNode }) {
-  const router = useRouter();
-  const navigate = useNavigate();
-  return (
-    <div className="h-full overflow-y-auto">
-      <header className="glass sticky top-0 z-20 border-b-2 border-line">
-        <div className="mx-auto flex h-16 max-w-2xl items-center gap-3 px-4">
-          <button
-            type="button"
-            aria-label="back"
-            onClick={() =>
-              router.history.canGoBack()
-                ? router.history.back()
-                : void navigate({ to: "/quest/ranking" })
-            }
-            className="grid size-9 place-items-center rounded-full hover:bg-surface-2"
-          >
-            <ChevronLeft className="size-6" />
-          </button>
-          <h1 className="min-w-0 flex-1 truncate text-xl font-black">{title}</h1>
-        </div>
-      </header>
-      {/* The same column and room for the tab bar as every `<Page>`. */}
-      <div className="mx-auto max-w-2xl px-4 pt-4 pb-44 md:pb-10">{children}</div>
-    </div>
   );
 }
