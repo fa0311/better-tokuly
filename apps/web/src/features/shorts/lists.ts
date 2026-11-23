@@ -99,21 +99,44 @@ export function listQuery(context: FeedContext, options: ListOptions = {}) {
           .then(fromItems);
     }
   };
+  const queryKey = [
+    "shorts",
+    isFeed || context.kind === "link" ? "feed" : "list",
+    context.kind === "link" ? "forYou" : context.kind,
+    key,
+    sort,
+    skipSeen,
+  ] as const;
+  const swipeOnly = isFeed || context.kind === "link";
+  // The cursor each page was asked with, by the cursor of the page after it: what pages
+  // dropped from the front are read again with when the viewer scrolls back.
+  const cursorKey = JSON.stringify(queryKey);
+  const before = previousCursors.get(cursorKey) ?? new Map<string, string>();
+  previousCursors.set(cursorKey, before);
   return infiniteQueryOptions({
-    queryKey: [
-      "shorts",
-      isFeed || context.kind === "link" ? "feed" : "list",
-      context.kind === "link" ? "forYou" : context.kind,
-      key,
-      sort,
-      skipSeen,
-    ] as const,
+    queryKey,
     queryFn: ({ pageParam }) => load(pageParam),
     initialPageParam: "",
-    getNextPageParam: nextCursor,
-    // A feed is a list being walked through: it must not rearrange itself under the viewer.
-    ...(isFeed || context.kind === "link"
-      ? { staleTime: Number.POSITIVE_INFINITY, refetchOnWindowFocus: false as const }
+    getNextPageParam: (last: Page, _all: Page[], lastParam: string) => {
+      const next = nextCursor(last);
+      if (next) before.set(next, lastParam);
+      return next;
+    },
+    ...(swipeOnly
+      ? {
+          // A feed is a list being walked through: it must not rearrange itself under the viewer.
+          staleTime: Number.POSITIVE_INFINITY,
+          refetchOnWindowFocus: false as const,
+          // And it must not grow for ever: what lies far behind is let go, and read again on the way back.
+          maxPages: FEED_MAX_PAGES,
+          getPreviousPageParam: (_first: Page, _all: Page[], firstParam: string) =>
+            firstParam ? before.get(firstParam) : undefined,
+        }
       : {}),
   });
 }
+
+/** Pages of 10 a swipe feed keeps in memory. */
+export const FEED_MAX_PAGES = 5;
+
+const previousCursors = new Map<string, Map<string, string>>();

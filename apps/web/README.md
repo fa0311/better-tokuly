@@ -59,6 +59,7 @@ touching the same file.
 | `settings-section.ts`          | `SettingsSection` (`#/seams/settings`)  | a row of `/settings`                                                                  |
 | `admin-section.ts`             | `AdminSection` (`#/seams/admin`)        | an entry of the staff console's navigation                                            |
 | `channel-tab.tsx`              | `ChannelTab` (`features/video`)         | a tab on every channel page                                                           |
+| `forget-user.ts`               | `ForgetUser` (`#/seams/forget-user`)    | after an unfriend or a block: that person's content leaves the area's cached queries  |
 
 ```tsx
 // src/features/plans/hub.tsx — a tile. `section` is one of the hub's groups:
@@ -82,6 +83,12 @@ export default [
 // src/features/ask/badges.ts — `useBadge("ask")` is then this hook's result everywhere.
 export default { ask: () => useAskBadge() } satisfies BadgeSources;
 ```
+
+**Forgetting a person.** Unfriending and blocking call `forgetUser(queryClient, userId)`
+from `#/seams/forget-user`, which runs every feature's `forget-user.ts`. A feature that
+caches other people's content (timelines, trays, feeds) takes theirs out there, so
+nothing of a blocked person keeps showing from the cache; one that cannot tell whose
+an item is drops its lists and lets them load again.
 
 Badges are counts by key (`#/stores/badges`). A feature that already listens
 for the events that change its count calls `setBadge("chat", n)` from its

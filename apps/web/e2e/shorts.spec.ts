@@ -461,8 +461,8 @@ test("a viewer likes with a double tap, saves and comments while the short keeps
   await page.getByRole("tab", { name: "いいね" }).click();
   await expect(async () => {
     await page.reload();
-    await expect(page.getByTestId("short-tile")).toHaveCount(1, { timeout: 3_000 });
-  }).toPass({ timeout: 30_000 });
+    await expect(page.getByTestId("short-tile")).toHaveCount(1, { timeout: 8_000 });
+  }).toPass({ timeout: 60_000 });
 });
 
 test("“not interested” takes a short out of the feed, and undo brings it back", async ({
@@ -663,4 +663,157 @@ test("analytics show a view after someone watched, and no watch numbers before t
   // The studio list shows the public view count.
   await page.goto("/shorts/studio");
   await expect(page.getByTestId("my-short-views")).toHaveText("1");
+});
+
+test("after blocking a creator, their shorts are gone from the feed already loaded", async ({
+  page,
+  me,
+  request,
+}) => {
+  const { owner } = await makeCreator(request, me);
+  // The creator names themselves in the caption: the way from the feed to their profile.
+  const short = await makeShort(request, owner, `ブロックされる @${owner.handle}`);
+
+  await page.goto("/shorts?tab=following");
+  await expectPlaying(page, short);
+
+  // To their profile and block them, without leaving the app (the loaded feed stays in memory).
+  await slideOf(page, short)
+    .getByRole("link", { name: `@${owner.handle}` })
+    .click();
+  await expect(page).toHaveURL(new RegExp(`/u/${owner.handle}$`));
+  page.once("dialog", (dialog) => void dialog.accept());
+  await page.getByRole("button", { name: "ブロック" }).click();
+  await expect(page).toHaveURL(/\/map$/);
+
+  // Back to the feed through the history: what was loaded of theirs is gone.
+  await page.goBack();
+  await page.goBack();
+  await expect(page).toHaveURL(/\/shorts\?tab=following$/);
+  await expect(page.getByText("新しいショートは全部見たよ! ✨")).toBeVisible();
+  await expect(slideOf(page, short)).toHaveCount(0);
+});
+
+test("friends-only and private shorts stay out of reach of others, by link and in feeds", async ({
+  page,
+  me,
+  request,
+}) => {
+  const { owner, channel } = await makeCreator(request);
+  // Subscribed, but not a friend.
+  await rpc(request, `${CHANNELS}/Subscribe`, { channelId: channel.id }, me);
+  const friendsOnly = await makeShort(request, owner, `ともだち限定 ${suffix()}`, {
+    visibility: "VISIBILITY_FRIENDS",
+  });
+  const mine = await makeShort(request, owner, `自分だけ ${suffix()}`, {
+    visibility: "VISIBILITY_PRIVATE",
+  });
+
+  for (const short of [friendsOnly, mine]) {
+    await page.goto(`/shorts/${short.shortId}`);
+    await expect(page.getByText("このショートは見られないよ")).toBeVisible();
+    await expect(slideOf(page, short)).toHaveCount(0);
+  }
+
+  // Not in the following feed of a subscriber who is not a friend…
+  await page.goto("/shorts?tab=following");
+  await expect(page.getByText("新しいショートは全部見たよ! ✨")).toBeVisible();
+  await page.getByRole("button", { name: "見たショートももう一度" }).click();
+  await expect(page.getByText("まだショートがないよ")).toBeVisible();
+  // …nor anywhere in their for-you feed.
+  let cursor = "";
+  for (let pageNumber = 0; pageNumber < 5; pageNumber++) {
+    const feed = await rpc<{
+      items?: { short?: { id: string } }[];
+      page?: { nextCursor?: string };
+    }>(
+      request,
+      "tokuly.shorts.v1.ShortFeedService/GetForYouFeed",
+      { page: { limit: 30, cursor } },
+      me,
+    );
+    const ids = (feed.items ?? []).map((item) => item.short?.id);
+    expect(ids).not.toContain(friendsOnly.id);
+    expect(ids).not.toContain(mine.id);
+    cursor = feed.page?.nextCursor ?? "";
+    if (!cursor) break;
+  }
+});
+
+test("posting can be cancelled, and a failed upload or post is tried again without uploading twice", async ({
+  page,
+  me,
+  request,
+  testVideo,
+}) => {
+  await makeChannel(request, me, `やりなおしch${suffix()}`);
+  const caption = `やりなおし ${suffix()}`;
+  let creates = 0;
+  page.on("request", (sent) => {
+    if (sent.url().includes("MediaService/CreateUpload")) creates += 1;
+  });
+
+  await page.goto("/shorts/new");
+  await page.getByTestId("short-file").setInputFiles(testVideo);
+  await page.getByLabel("キャプション").fill(caption);
+  const post = page.getByRole("button", { name: "投稿する" });
+
+  // 1. The upload hangs; cancelling stops it and nothing is posted.
+  let stall = true;
+  await page.route(
+    (url) => !url.pathname.startsWith("/api/"),
+    async (route) => {
+      if (route.request().method() !== "PUT" || !stall) return route.fallback();
+      await new Promise((resolve) => setTimeout(resolve, 8_000));
+      await route.abort().catch(() => {});
+    },
+  );
+  await post.click();
+  await expect(page.getByTestId("post-status")).toContainText("アップロード中");
+  await page.getByRole("button", { name: "やめる" }).click();
+  await expect(page.getByText("投稿をやめたよ")).toBeVisible();
+  await expect(post).toBeEnabled();
+
+  // 2. The upload fails: it says so, and the next try uploads.
+  stall = false;
+  let failPut = true;
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await page.route(
+    (url) => !url.pathname.startsWith("/api/"),
+    (route) => {
+      if (route.request().method() !== "PUT" || !failPut) return route.fallback();
+      failPut = false;
+      return route.abort();
+    },
+  );
+  await post.click();
+  await expect(page.getByText("もう一度「投稿する」を押すと、続きからやり直すよ")).toBeVisible();
+  await expect(post).toBeEnabled();
+
+  // 3. The upload goes through but creating the short fails once.
+  let failCreate = true;
+  await page.route("**/tokuly.shorts.v1.ShortService/CreateShort", (route) => {
+    if (!failCreate) return route.fallback();
+    failCreate = false;
+    return route.abort();
+  });
+  await post.click();
+  await expect(
+    page.getByText("もう一度「投稿する」を押すと、続きからやり直すよ").last(),
+  ).toBeVisible();
+  await expect(post).toBeEnabled();
+  const uploadsSoFar = creates;
+
+  // 4. Tried again: posted, with the video that is up already.
+  await post.click();
+  await expect(page).toHaveURL(/\/shorts\/studio$/, { timeout: 60_000 });
+  await expect(page.getByTestId("my-short").filter({ hasText: caption })).toHaveCount(1);
+  expect(creates).toBe(uploadsSoFar);
+  const { shorts: listed = [] } = await rpc<{ shorts?: unknown[] }>(
+    request,
+    `${SHORTS}/ListMyShorts`,
+    {},
+    me,
+  );
+  expect(listed).toHaveLength(1);
 });

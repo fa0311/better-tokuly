@@ -18,26 +18,37 @@ function isTyping(target: EventTarget | null): boolean {
   );
 }
 
+/** Slides kept as boxes behind the one on screen; further back is one spacer. */
+const KEEP_BEHIND = 3;
+
 /**
  * The swipe feed's scroller: one short per page, snapping. Only the short
- * on screen plays; it and the next one hold a `<video>`, everything further
- * away is an empty box, so a long feed costs no more than a short one.
+ * on screen plays; it and the next one hold a `<video>`, the few around it
+ * are boxes, and everything further back is a single spacer as tall as the
+ * slides it stands for, so a long feed costs no more than a short one.
+ *
+ * Indexes are positions in the whole feed. `entries` is the part that is
+ * loaded, starting at `offset`: pages the feed let go of lie in the spacer.
+ * Scrolling back into it shows black until the feed has read them again.
  *
  * Touch scrolls natively. The wheel turns one page per flick; the arrow
  * keys, Page Up/Down and J/K turn pages, Space pauses, M mutes.
  */
 export function ShortPager({
   entries,
+  offset,
   source,
   startIndex,
   onIndexChange,
   end,
 }: {
   entries: FeedEntry[];
+  /** Position of `entries[0]` in the whole feed. */
+  offset: number;
   source: shorts.PlaybackSource;
-  /** The entry to open on. Read once. */
+  /** The position to open on. Read once. */
   startIndex: number;
-  /** The entry on screen changed (`entries.length` = the end slide). */
+  /** The position on screen changed (`offset + entries.length` = the end slide). */
   onIndexChange(index: number): void;
   /** The slide after the last short: "loading more", "that was all", an invitation. */
   end: ReactNode;
@@ -45,7 +56,7 @@ export function ShortPager({
   const { t } = useTranslation("shorts");
   const scroller = useRef<HTMLDivElement>(null);
   const [current, setCurrent] = useState(startIndex);
-  const count = entries.length;
+  const count = offset + entries.length;
 
   // Open on the right short before the first paint.
   const first = useRef(startIndex);
@@ -54,35 +65,44 @@ export function ShortPager({
     if (element && first.current > 0) element.scrollTop = first.current * element.clientHeight;
   }, []);
 
-  // Which slide is on screen: the one most of the viewport shows. An observer, so the swipe itself does no layout work.
+  // Which slide is on screen: the scroll position in slide heights, read once a frame while it moves.
   useEffect(() => {
     const element = scroller.current;
     if (!element) return;
-    const observer = new IntersectionObserver(
-      (observed) => {
-        for (const entry of observed) {
-          if (!entry.isIntersecting) continue;
-          setCurrent(Number((entry.target as HTMLElement).dataset.index));
-        }
-      },
-      { root: element, threshold: 0.6 },
-    );
-    for (const child of element.children) observer.observe(child);
-    return () => observer.disconnect();
-    // The end slide is one more child.
-  }, [count]);
+    let height = element.clientHeight;
+    const resize = new ResizeObserver(() => {
+      height = element.clientHeight;
+    });
+    resize.observe(element);
+    let frame = 0;
+    const onScroll = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        if (height > 0) setCurrent(Math.round(element.scrollTop / height));
+      });
+    };
+    element.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      element.removeEventListener("scroll", onScroll);
+      resize.disconnect();
+      cancelAnimationFrame(frame);
+    };
+  }, []);
 
   useEffect(() => onIndexChange(current), [current, onIndexChange]);
 
   const go = (delta: number) => {
     const element = scroller.current;
-    const target = element?.children[Math.min(Math.max(0, current + delta), count)];
-    if (!target) return;
+    if (!element) return;
+    const target = Math.min(Math.max(0, current + delta), count);
     const calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    target.scrollIntoView({ behavior: calm ? "auto" : "smooth", block: "start" });
+    element.scrollTo({ top: target * element.clientHeight, behavior: calm ? "auto" : "smooth" });
   };
   const togglePlayback = () =>
-    scroller.current?.children[current]?.querySelector<HTMLElement>("[data-surface]")?.click();
+    scroller.current
+      ?.querySelector<HTMLElement>(`[data-index="${current}"] [data-surface]`)
+      ?.click();
   const goRef = useRef(go);
   const toggleRef = useRef(togglePlayback);
   useEffect(() => {
@@ -134,17 +154,25 @@ export function ShortPager({
   }, []);
 
   const seen = new Map<string, number>();
+  // The first slide drawn as a box; the ones before it are the spacer.
+  const firstDrawn = Math.max(offset, Math.min(current, count) - KEEP_BEHIND);
   return (
     <>
       <div
         ref={scroller}
         data-testid="short-pager"
-        className="scrollbar-none absolute inset-0 snap-y snap-mandatory overflow-y-auto overscroll-y-contain bg-black md:rounded-[2rem] md:border-[3px] md:border-ink"
+        // Heights before the slide on screen are kept exact by hand: the browser must not move it.
+        className="scrollbar-none absolute inset-0 snap-y snap-mandatory overflow-y-auto overscroll-y-contain bg-black [overflow-anchor:none] md:rounded-[2rem] md:border-[3px] md:border-ink"
       >
-        {entries.map((entry, index) => {
+        {firstDrawn > 0 && (
+          <div aria-hidden style={{ height: `${firstDrawn * 100}%` }} data-testid="pager-spacer" />
+        )}
+        {entries.map((entry, local) => {
           // The for-you feed may bring a short round again: the key tells the visits apart.
           const visit = seen.get(entry.short.id) ?? 0;
           seen.set(entry.short.id, visit + 1);
+          const index = offset + local;
+          if (index < firstDrawn) return null;
           const load = slideLoad(index, current);
           return (
             <div

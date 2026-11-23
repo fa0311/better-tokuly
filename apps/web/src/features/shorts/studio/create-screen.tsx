@@ -64,7 +64,16 @@ type Source =
 type Phase =
   | { step: "idle" }
   | { step: "trimming" | "uploading"; progress: number }
-  | { step: "creating" };
+  | { step: "cover" | "creating" };
+
+/** What a file or a part of one was uploaded as: kept so that a retry after a failure does not upload it again. */
+interface Uploaded {
+  key: string;
+  assetId: string;
+}
+
+const fileKey = (file: File, ...extra: number[]) =>
+  [file.name, file.size, file.lastModified, ...extra].join(":");
 
 /**
  * `/shorts/new`: pick a vertical video (or a clip), cut it to at most three
@@ -83,6 +92,8 @@ export function CreateScreen({ search }: { search: CreateSearch }) {
 
   const input = useRef<HTMLInputElement>(null);
   const abort = useRef<AbortController | null>(null);
+  const uploadedVideo = useRef<Uploaded | null>(null);
+  const uploadedCover = useRef<Uploaded | null>(null);
   const [source, setSource] = useState<Source | null>(null);
   const [range, setRange] = useState<[number, number]>([0, 0]);
   const [cover, setCover] = useState<CoverChoice>({ kind: "poster" });
@@ -195,7 +206,13 @@ export function CreateScreen({ search }: { search: CreateSearch }) {
       if (source.kind === "clip") {
         // A clip's media is the asset its pictures belong to.
         assetId = source.clip.playback?.poster?.assetId ?? source.clip.thumbnail?.assetId ?? "";
+      } else if (
+        uploadedVideo.current?.key === fileKey(source.file, trimmed ? from : 0, trimmed ? to : 0)
+      ) {
+        // Up already, from an attempt that failed later on.
+        assetId = uploadedVideo.current.assetId;
       } else {
+        const key = fileKey(source.file, trimmed ? from : 0, trimmed ? to : 0);
         let file: File = source.file;
         if (trimmed) {
           setPhase({ step: "trimming", progress: 0 });
@@ -211,7 +228,25 @@ export function CreateScreen({ search }: { search: CreateSearch }) {
           onProgress: (progress) => setPhase({ step: "uploading", progress }),
         });
         assetId = asset.id;
+        uploadedVideo.current = { key, assetId };
       }
+      let coverAssetId = "";
+      if (cover.kind === "image") {
+        const key = fileKey(cover.file);
+        if (uploadedCover.current?.key === key) {
+          coverAssetId = uploadedCover.current.assetId;
+        } else {
+          setPhase({ step: "cover" });
+          coverAssetId = (
+            await uploadAndProcess(cover.file, {
+              purpose: media.AssetPurpose.THUMBNAIL,
+              signal: controller.signal,
+            })
+          ).id;
+          uploadedCover.current = { key, assetId: coverAssetId };
+        }
+      }
+      if (controller.signal.aborted) throw new DOMException("posting cancelled", "AbortError");
       setPhase({ step: "creating" });
       const coverInput =
         cover.kind === "frame"
@@ -222,17 +257,7 @@ export function CreateScreen({ search }: { search: CreateSearch }) {
               },
             }
           : cover.kind === "image"
-            ? {
-                cover: {
-                  case: "assetId" as const,
-                  value: (
-                    await uploadAndProcess(cover.file, {
-                      purpose: media.AssetPurpose.THUMBNAIL,
-                      signal: controller.signal,
-                    })
-                  ).id,
-                },
-              }
+            ? { cover: { case: "assetId" as const, value: coverAssetId } }
             : undefined;
       const { short } = await shortClient().createShort({
         channelId: channel.summary.id,
@@ -265,14 +290,17 @@ export function CreateScreen({ search }: { search: CreateSearch }) {
       void navigate({ to: "/shorts/studio" });
     } catch (error) {
       setPhase({ step: "idle" });
-      if (controller.signal.aborted) return;
-      toast.error(errorMessage(error, { namespace: "shorts" }));
+      if (controller.signal.aborted) {
+        toast.message(t("create.cancelled"));
+        return;
+      }
+      // Pressing "post" again tries once more, without uploading what is up already.
+      toast.error(errorMessage(error, { namespace: "shorts" }), {
+        description: t("create.retryHint"),
+      });
     }
   };
-  const cancel = () => {
-    abort.current?.abort();
-    setPhase({ step: "idle" });
-  };
+  const cancel = () => abort.current?.abort();
 
   if (channelsQuery.isPending) {
     return (
@@ -507,7 +535,9 @@ export function CreateScreen({ search }: { search: CreateSearch }) {
                     ? t("create.trimming", { percent })
                     : phase.step === "uploading"
                       ? t("create.uploading", { percent })
-                      : t("create.creating")}
+                      : phase.step === "cover"
+                        ? t("create.coverUploading")
+                        : t("create.creating")}
                 </p>
                 <div
                   className="mt-3 h-3 overflow-hidden rounded-full border-2 border-ink bg-surface-3"

@@ -24,6 +24,7 @@ import { type FeedEntry, listQuery } from "../lists";
 import { type FeedContext, playbackSource } from "../model";
 import { ShortPager } from "./pager";
 import { setFeedMuted, useFeedSound } from "./use-short-video";
+import { type FeedWindow, moveWindow, type PageInWindow } from "./window";
 
 export const FEED_TABS = ["forYou", "following", "friends"] as const;
 export type FeedTab = (typeof FEED_TABS)[number];
@@ -38,6 +39,9 @@ export function validateFeedSearch(search: Record<string, unknown>): FeedSearch 
 
 /** Where the viewer was in each feed, so coming back from a hashtag page lands on the same short. */
 const positions = new Map<string, number>();
+
+/** Each feed's feedWindow, so coming back to a feed whose front pages were let go keeps its positions. */
+const windows = new Map<string, FeedWindow>();
 
 /** A link that looks like the lime button, on the dark message slides. */
 const pill =
@@ -263,9 +267,16 @@ function Feed({ context, startId }: { context: FeedContext; startId?: string }) 
       start={start.data}
       entries={entries}
       positionKey={positionKey}
+      pages={(query.data?.pages ?? []).map((page, index) => ({
+        param: query.data?.pageParams[index] as string,
+        length: page.entries.length,
+      }))}
       hasMore={query.hasNextPage}
       loadingMore={query.isFetchingNextPage || query.isPending}
       loadMore={() => void query.fetchNextPage()}
+      hasEarlier={query.hasPreviousPage}
+      loadingEarlier={query.isFetchingPreviousPage}
+      loadEarlier={() => void query.fetchPreviousPage()}
       skipSeen={skipSeen}
       onShowSeen={canSkipSeen ? () => setSkipSeen(false) : undefined}
     />
@@ -277,9 +288,13 @@ function ReadyFeed({
   start,
   entries: listEntries,
   positionKey,
+  pages,
   hasMore,
   loadingMore,
   loadMore,
+  hasEarlier,
+  loadingEarlier,
+  loadEarlier,
   skipSeen,
   onShowSeen,
 }: {
@@ -287,27 +302,51 @@ function ReadyFeed({
   start?: shorts.Short;
   entries: FeedEntry[];
   positionKey: string;
+  /** The loaded pages, by the cursor each was asked with, and how many entries each holds now. */
+  pages: PageInWindow[];
   hasMore: boolean;
   loadingMore: boolean;
   loadMore(): void;
+  hasEarlier: boolean;
+  loadingEarlier: boolean;
+  loadEarlier(): void;
   skipSeen: boolean;
   onShowSeen?: () => void;
 }) {
   const { t } = useTranslation("shorts");
   const queryClient = useQueryClient();
+  // Where the loaded pages sit in the whole feed: they move on as pages far behind are let go.
+  const [feedWindow, setFeedWindow] = useState<FeedWindow>(() => {
+    const kept = windows.get(positionKey);
+    return kept && kept.pages[0]?.param === pages[0]?.param ? kept : { pages, offset: 0 };
+  });
+  const moved = moveWindow(feedWindow, pages);
+  if (moved !== feedWindow) setFeedWindow(moved);
+  useEffect(() => {
+    windows.set(positionKey, feedWindow);
+  }, [positionKey, feedWindow]);
+
   // Decided once, when the feed opens: a list that moved under the viewer would be a different feed.
   const [arrangement] = useState(() => {
     if (!start) {
       const remembered = positions.get(positionKey) ?? 0;
-      return { pin: false, index: Math.min(remembered, Math.max(0, listEntries.length - 1)) };
+      const first = feedWindow.offset;
+      return {
+        pin: false,
+        index: Math.min(Math.max(remembered, first), first + Math.max(0, listEntries.length - 1)),
+      };
     }
     const found =
       context.kind === "link" ? -1 : listEntries.findIndex((entry) => entry.short.id === start.id);
     // In the list it was tapped in, the short keeps its place (and what comes before it); otherwise it leads.
     return found >= 0 ? { pin: false, index: found } : { pin: true, index: 0 };
   });
+  // A short opened by its link leads the feed, until the pages after it are let go too.
+  const pinned = arrangement.pin && start && feedWindow.offset === 0;
+  const offset =
+    arrangement.pin && feedWindow.offset > 0 ? feedWindow.offset + 1 : feedWindow.offset;
   const entries =
-    arrangement.pin && start
+    pinned && start
       ? [
           ...(start.viewer?.notInterested ? [] : [{ short: start }]),
           ...listEntries.filter((entry) => entry.short.id !== start.id),
@@ -319,11 +358,15 @@ function ReadyFeed({
     if (!start) positions.set(positionKey, current);
   }, [start, positionKey, current]);
 
-  // The next page is asked for a few shorts before the end, so the swipe never waits.
-  const nearEnd = current >= entries.length - 3;
+  // The next page is asked for a few shorts before the end, so the swipe never waits; the same going back.
+  const nearEnd = current >= offset + entries.length - 3;
   useEffect(() => {
     if (nearEnd && hasMore && !loadingMore) loadMore();
   }, [nearEnd, hasMore, loadingMore, loadMore]);
+  const nearStart = current < offset + 2;
+  useEffect(() => {
+    if (nearStart && hasEarlier && !loadingEarlier && !loadingMore) loadEarlier();
+  }, [nearStart, hasEarlier, loadingEarlier, loadingMore, loadEarlier]);
 
   const toForYou = (
     <Link to="/shorts" className={pill}>
@@ -346,7 +389,7 @@ function ReadyFeed({
         </Button>
         {toForYou}
       </Message>
-    ) : entries.length === 0 ? (
+    ) : entries.length === 0 && offset === 0 ? (
       context.kind === "following" ? (
         <Message emoji="📡" title={t("feed.emptyFollowing")} body={t("feed.emptyFollowingBody")}>
           {toForYou}
@@ -382,6 +425,7 @@ function ReadyFeed({
   return (
     <ShortPager
       entries={entries}
+      offset={offset}
       source={playbackSource(context)}
       startIndex={arrangement.index}
       onIndexChange={setCurrent}
