@@ -282,3 +282,41 @@ async fn a_hidden_recipient_is_not_shown_to_the_payer() {
     assert_eq!(entry.counterpart.as_option().unwrap().id, streamer_id);
     assert!(!entry.counterpart_hidden);
 }
+
+/// The staff view names hidden recipients, but not to a staff member who is
+/// the payer: a moderator who sent a channel a gift learns who runs the
+/// channel neither from their own wallet nor by looking through other
+/// people's wallets for the gift.
+#[tokio::test]
+async fn staff_do_not_unmask_the_recipient_of_their_own_gift() {
+    let (app, wallet) = app().await;
+    let (moderator, streamer, colleague) = (app.user_with_roles("mod", &["moderator"]).await, app.user("streamer").await, app.user_with_roles("mod2", &["moderator"]).await);
+    fund(&app, &moderator, 1000).await;
+    let memo = serde_json::json!({ "channel_id": "c1" });
+    let gift = wallet.transfer_with_fee_hiding_recipient(moderator.id, streamer.id, 300, "live.gift", &key("gift"), memo).await.unwrap();
+    let streamer_id = streamer.id.to_string();
+
+    // Their own wallet, through the staff tool, reads as it does for any payer.
+    let own = staff_view(&app, &moderator, &moderator).await;
+    let sent = own.iter().find(|entry| entry.id == gift.entry_id.to_string()).expect("the gift is in their history");
+    assert!(sent.counterpart.as_option().is_none() && sent.counterpart_hidden);
+    assert!(!serde_json::to_string(&own).unwrap().contains(&streamer_id));
+    // The recipient's wallet does not show them their own gift.
+    let theirs = staff_view(&app, &moderator, &streamer).await;
+    assert!(theirs.iter().all(|entry| entry.id != gift.entry_id.to_string()), "the gift would say whose channel it was");
+    // ...nor its refund.
+    ledger::refund(&app.core, gift.entry_id, "live.gift.returned").await.unwrap();
+    assert!(staff_view(&app, &moderator, &streamer).await.is_empty());
+    assert!(!serde_json::to_string(&staff_view(&app, &moderator, &moderator).await).unwrap().contains(&streamer_id));
+
+    // Any other staff member still traces both sides.
+    let traced = staff_view(&app, &colleague, &moderator).await;
+    assert!(traced.iter().any(|entry| entry.counterpart.as_option().is_some_and(|c| c.id == streamer_id) && entry.counterpart_hidden));
+    assert_eq!(staff_view(&app, &colleague, &streamer).await.len(), 2, "the gift and its refund");
+}
+
+async fn staff_view(app: &tokuly_testkit::TestApp, caller: &tokuly_testkit::TestUser, owner: &tokuly_testkit::TestUser) -> Vec<LedgerEntry> {
+    let request = ListUserLedgerEntriesRequest { user_id: owner.id.to_string(), ..Default::default() };
+    let response: ListUserLedgerEntriesResponse = app.call(&format!("{ADMIN}/ListUserLedgerEntries"), Some(caller), &request).await.unwrap();
+    response.entries
+}

@@ -101,6 +101,12 @@ impl EntryRow {
         [self.from_user_id, self.to_user_id].into_iter().flatten().any(|party| self.hides(party, viewer))
     }
 
+    /// Whether `user_id` is a party of this entry from whom its other party
+    /// is hidden (the payer of a gift to a channel).
+    fn keeps_party_from(&self, user_id: Uuid) -> bool {
+        self.other_party(user_id).is_some() && self.counterpart_hidden(user_id)
+    }
+
     /// The entry's payer and recipient as `viewer` may know them.
     pub(crate) fn parties_for(&self, viewer: Uuid) -> (Option<Uuid>, Option<Uuid>) {
         let shown = |party: Option<Uuid>| party.filter(|party| !self.hides(*party, viewer));
@@ -236,6 +242,23 @@ impl Wallet {
         let mut rows = fetch_entries(&self.core.db, user_id, scope, page.decode()?, page.fetch()).await?;
         let info = page.finish(&mut rows, |row| row.position);
         Ok((self.entries_to_proto(&rows, user_id, reader, locale).await?, info))
+    }
+
+    /// One page of `user_id`'s history as staff member `staff_id` sees it
+    /// (`Reader::Staff`: every party named) — except what the staff member
+    /// would learn about a payment of their own that hides its other party.
+    /// Their own wallet reads as it does for its owner, and in anyone
+    /// else's wallet the entries of such a payment are left out: finding
+    /// their gift there would tell them whose channel it went to.
+    pub(crate) async fn list_entries_for_staff(&self, staff_id: Uuid, user_id: Uuid, scope: Scope, page: &Page, locale: &str) -> AppResult<(Vec<LedgerEntry>, PageInfo)> {
+        if staff_id == user_id {
+            return self.list_entries(user_id, Reader::Owner, scope, page, locale).await;
+        }
+        let mut rows = fetch_entries(&self.core.db, user_id, scope, page.decode()?, page.fetch()).await?;
+        // The cursor is taken before filtering, so the next page starts after every row read.
+        let info = page.finish(&mut rows, |row| row.position);
+        rows.retain(|row| !row.keeps_party_from(staff_id));
+        Ok((self.entries_to_proto(&rows, user_id, Reader::Staff, locale).await?, info))
     }
 
     /// One entry as `user_id` sees it; `None` when it does not exist.

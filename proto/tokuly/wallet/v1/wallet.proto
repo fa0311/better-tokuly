@@ -561,7 +561,10 @@ service WalletAdminService {
   rpc GetUserWallet(GetUserWalletRequest) returns (GetUserWalletResponse);
   // A user's ledger history, newest first. Unlike the user's own view it
   // names both parties of every transfer, also a counterpart that is hidden
-  // from the user (`LedgerEntry.counterpart_hidden`).
+  // from the user (`LedgerEntry.counterpart_hidden`) — but not to the staff
+  // member it is hidden from: their own wallet reads as it does for them,
+  // and the entries of their own payments to a hidden recipient are left
+  // out of anyone else's (a page may then hold fewer entries than asked).
   // Errors: USER_NOT_FOUND, INVALID_CURSOR.
   rpc ListUserLedgerEntries(ListUserLedgerEntriesRequest) returns (ListUserLedgerEntriesResponse);
 
