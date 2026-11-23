@@ -38,7 +38,9 @@ Conventions for callers of the ledger:
   (`applied: false`; a transfer's receipt gives the fee and net of the
   original). A call that uses the key for anything else — another payer,
   recipient, amount or kind — fails with `IDEMPOTENCY_KEY_REUSED`
-  (`already_exists`) and moves nothing. Build keys from the ID of the thing
+  (`already_exists`) and moves nothing. A retry of a movement that was
+  refunded since fails with `ENTRY_REFUNDED` (`failed_precondition`): the
+  coins are back, so treat it as not paid. Build keys from the ID of the thing
   being paid for, and when a price can change between attempts, retry with
   the amount of the first attempt.
 

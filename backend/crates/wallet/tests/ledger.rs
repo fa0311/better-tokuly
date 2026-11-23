@@ -190,3 +190,26 @@ async fn opposite_transfers_and_refunds_at_once_neither_deadlock_nor_starve() {
     assert_eq!(a_after.coins + a_after.earnings + b_after.coins + b_after.earnings + fees, 2000, "every coin is somewhere");
     assert_eq!(postings_sum(&app).await, 0);
 }
+
+/// A retry of a movement that was refunded since is not answered "done":
+/// the coins are back with the payer, and a caller that took the answer as
+/// "paid" would hand out what it sells for nothing.
+#[tokio::test]
+async fn a_retry_of_a_refunded_movement_is_refused() {
+    let app = TestApp::start(MIGRATIONS, |_, _, router| router).await;
+    let (fan, streamer) = (app.user("fan").await, app.user("streamer").await);
+    ledger::grant(&app.core, fan.id, 1000, "purchase", &key("grant"), serde_json::json!({})).await.unwrap();
+    let (pack_key, gift_key) = (key("pack"), key("gift"));
+    let (spent, _) = ledger::spend(&app.core, fan.id, 100, "stamp.pack", &pack_key, serde_json::json!({})).await.unwrap();
+    let gift = ledger::transfer(&app.core, fan.id, streamer.id, 300, 30, "live.gift", &gift_key, serde_json::json!({})).await.unwrap();
+    ledger::refund(&app.core, spent, "stamp.pack.refund").await.unwrap();
+    ledger::refund(&app.core, gift.entry_id, "live.gift.returned").await.unwrap();
+
+    let err = ledger::spend(&app.core, fan.id, 100, "stamp.pack", &pack_key, serde_json::json!({})).await.unwrap_err();
+    assert_eq!((err.code, err.reason.as_ref()), (connectrpc::ErrorCode::FailedPrecondition, "ENTRY_REFUNDED"));
+    let err = ledger::transfer(&app.core, fan.id, streamer.id, 300, 30, "live.gift", &gift_key, serde_json::json!({})).await.unwrap_err();
+    assert_eq!(err.reason, "ENTRY_REFUNDED");
+    assert_eq!(ledger::balance(&app.core, fan.id).await.unwrap(), Balance { coins: 1000, earnings: 0 }, "nothing moved again");
+    // A different movement under the key is still a reuse, refunded or not.
+    assert_eq!(ledger::spend(&app.core, streamer.id, 100, "stamp.pack", &pack_key, serde_json::json!({})).await.unwrap_err().reason, "IDEMPOTENCY_KEY_REUSED");
+}

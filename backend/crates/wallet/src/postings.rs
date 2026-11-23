@@ -86,6 +86,8 @@ pub(crate) struct ExistingEntry {
     pub amount: i64,
     /// Platform fee the entry withheld (transfers; 0 otherwise).
     pub fee: i64,
+    /// The entry was reversed since (`refunded_at`).
+    pub refunded: bool,
 }
 
 impl ExistingEntry {
@@ -94,9 +96,17 @@ impl ExistingEntry {
     /// key names one movement — kind, payer, recipient, amount — so a
     /// different movement under the same key must not be answered as if it
     /// had already happened: its caller would get what it pays for for free.
+    ///
+    /// A retry of a movement that was refunded since fails with
+    /// `ENTRY_REFUNDED`: answering "done" would let its caller deliver what
+    /// was paid for although the coins are back with the payer.
     pub fn retry_of(self, kind: &str, from: Option<Uuid>, to: Option<Uuid>, amount: i64) -> AppResult<Self> {
         let same = self.kind == kind && self.from == from && self.to == to && self.amount == amount;
-        if same { Ok(self) } else { Err(key_reused()) }
+        if !same {
+            return Err(key_reused());
+        }
+        ensure!(!self.refunded, precondition, "ENTRY_REFUNDED", "this movement was refunded; it is not made again under the same key");
+        Ok(self)
     }
 }
 
@@ -109,7 +119,7 @@ pub(crate) fn key_reused() -> AppError {
 /// (and is found here) or has not posted yet. (A call with the same key for
 /// other accounts is not held back by the lock; [`post`] refuses it.)
 pub(crate) async fn existing_entry(tx: &mut Transaction<'_, Postgres>, key: &str) -> AppResult<Option<ExistingEntry>> {
-    Ok(sqlx::query_as("SELECT id, kind, from_user_id, to_user_id, amount, fee FROM wallet_entries WHERE idempotency_key = $1")
+    Ok(sqlx::query_as("SELECT id, kind, from_user_id, to_user_id, amount, fee, refunded_at IS NOT NULL AS refunded FROM wallet_entries WHERE idempotency_key = $1")
         .bind(key)
         .fetch_optional(&mut **tx)
         .await?)
