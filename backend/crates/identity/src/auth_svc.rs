@@ -198,7 +198,14 @@ impl Identity {
         });
     }
 
-    async fn device_login_by_user_code(&self, user_code: &str) -> AppResult<(String, DeviceLogin)> {
+    /// The pending login behind a user code that `user_id` typed in. Lookups
+    /// are limited per account (20 per 10 minutes): approving a code someone
+    /// else is waiting on would sign their device into this account.
+    async fn device_login_by_user_code(&self, user_id: Uuid, user_code: &str) -> AppResult<(String, DeviceLogin)> {
+        self.core
+            .cache
+            .rate_limit(&format!("devcode:user:{user_id}"), 20, Duration::from_secs(600))
+            .await?;
         let code = normalize_user_code(user_code);
         let not_found =
             || AppError::not_found("DEVICE_CODE_INVALID", "this code is invalid or has expired");
@@ -905,8 +912,8 @@ impl AuthService for Identity {
         request: ServiceRequest<'_, GetDeviceLoginRequest>,
     ) -> ServiceResult<GetDeviceLoginResponse> {
         handle(async {
-            ctx.auth()?;
-            let (_, login) = self.device_login_by_user_code(request.user_code).await?;
+            let user_id = ctx.user_id()?;
+            let (_, login) = self.device_login_by_user_code(user_id, request.user_code).await?;
             ok(GetDeviceLoginResponse {
                 client: login.client().into(),
                 status: login.status().into(),
@@ -924,7 +931,7 @@ impl AuthService for Identity {
     ) -> ServiceResult<ApproveDeviceLoginResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
-            let (key, mut login) = self.device_login_by_user_code(request.user_code).await?;
+            let (key, mut login) = self.device_login_by_user_code(user_id, request.user_code).await?;
             ensure!(
                 login.status == "pending",
                 precondition,

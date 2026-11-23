@@ -44,6 +44,8 @@ service AuthService {
   // travel through URLs.
   rpc StartDeviceLogin(StartDeviceLoginRequest) returns (StartDeviceLoginResponse);
   rpc PollDeviceLogin(PollDeviceLoginRequest) returns (PollDeviceLoginResponse);
+  // Get and Approve: DEVICE_CODE_INVALID, DEVICE_CODE_USED (Approve), and
+  // RATE_LIMITED past 20 codes per account in 10 minutes.
   rpc GetDeviceLogin(GetDeviceLoginRequest) returns (GetDeviceLoginResponse);
   rpc ApproveDeviceLogin(ApproveDeviceLoginRequest) returns (ApproveDeviceLoginResponse);
 }

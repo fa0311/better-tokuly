@@ -606,6 +606,29 @@ async fn device_login_flow_issues_tokens_once() {
 }
 
 #[tokio::test]
+async fn device_codes_cannot_be_guessed_without_limit() {
+    let app = app().await;
+    let guesser = app.user("guesser").await;
+    // Approving a code someone else is waiting on signs their device into
+    // the guesser's account (their uploads, their messages). Codes are hard
+    // to hit, but nothing stopped trying them all day.
+    let mut reasons = Vec::new();
+    for _ in 0..40 {
+        let err = app
+            .call::<_, GetDeviceLoginResponse>("tokuly.identity.v1.AuthService/GetDeviceLogin", Some(&guesser), &GetDeviceLoginRequest { user_code: tokuly_core::ids::random_base62(8), ..Default::default() })
+            .await
+            .unwrap_err();
+        reasons.push(err.reason);
+    }
+    assert!(reasons.iter().any(|r| r == "RATE_LIMITED"), "{reasons:?}");
+    let err = app
+        .call::<_, ApproveDeviceLoginResponse>("tokuly.identity.v1.AuthService/ApproveDeviceLogin", Some(&guesser), &ApproveDeviceLoginRequest { user_code: "ABCD-2345".into(), approve: true, ..Default::default() })
+        .await
+        .unwrap_err();
+    assert_eq!(err.reason, "RATE_LIMITED", "approving counts against the same limit");
+}
+
+#[tokio::test]
 async fn profiles_search_and_views() {
     let app = app().await;
     let name = unique("Zephyrine");
