@@ -9,7 +9,7 @@
 //! do, a `SET NX` on the pair decides who records the bump; the other caller
 //! (and any retry during the cool-down) is handed that same bump. The
 //! participant who was not calling learns of it through `SocialEvent.bump`.
-use std::time::Duration;
+use std::{collections::HashSet, time::Duration};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -18,7 +18,7 @@ use tokuly_core::{
     outbound::{self, ActivityAudience, ActivityEntry, NotificationRequest},
     prelude::*,
 };
-use tokuly_identity::users;
+use tokuly_identity::{settings, users};
 use tokuly_proto::{
     common::{LatLng, PageInfo, SubjectType, UserSummary},
     social::{Bump, FriendSource, social_event::Event as Push},
@@ -220,7 +220,8 @@ impl Social {
     }
 
     /// Other people's attempts that match `mine`, best partner first. People
-    /// in a block with the user never match.
+    /// in a block with the user never match, and strangers only match when
+    /// both are open to being found nearby.
     async fn matching_attempts(&self, user_id: Uuid, mine: &Attempt) -> AppResult<Vec<(Uuid, Attempt)>> {
         let core = &self.core;
         let rules = self.bump_rules();
@@ -244,8 +245,41 @@ impl Social {
             .filter_map(|(id, json)| Some((id, serde_json::from_str::<Attempt>(&json?).ok()?)))
             .filter(|(id, theirs)| !hidden.contains(id) && rules.is_match(mine, theirs))
             .collect();
+        let candidates: Vec<Uuid> = matches.iter().map(|(id, _)| *id).collect();
+        let allowed = self.may_bump(user_id, &candidates).await?;
+        matches.retain(|(id, _)| allowed.contains(id));
         rank_matches(mine, &mut matches);
         Ok(matches)
+    }
+
+    /// Who among `candidates` `user_id` may bump: friends always; strangers
+    /// only when both of them have nearby discovery on. A bump with a
+    /// stranger tells each who the other is and sends a friend request, so
+    /// it is a way of being found nearby, and the position it is matched on
+    /// is the client's word.
+    async fn may_bump(&self, user_id: Uuid, candidates: &[Uuid]) -> AppResult<HashSet<Uuid>> {
+        let core = &self.core;
+        if candidates.is_empty() {
+            return Ok(HashSet::new());
+        }
+        let friends: HashSet<Uuid> = sqlx::query_scalar::<_, Uuid>("SELECT friend_id FROM friendships WHERE user_id = $1 AND friend_id = ANY($2)")
+            .bind(user_id)
+            .bind(candidates)
+            .fetch_all(&core.db)
+            .await?
+            .into_iter()
+            .collect();
+        let strangers: Vec<Uuid> = candidates.iter().copied().filter(|id| !friends.contains(id)).collect();
+        if strangers.is_empty() {
+            return Ok(friends);
+        }
+        let privacy = settings::privacy_of_many(core, &[strangers.as_slice(), &[user_id]].concat()).await?;
+        let discoverable = |id: &Uuid| privacy.get(id).is_some_and(|p| p.nearby_discoverable);
+        let mut allowed = friends;
+        if discoverable(&user_id) {
+            allowed.extend(strangers.into_iter().filter(|id| discoverable(id)));
+        }
+        Ok(allowed)
     }
 
     /// Turns one matched pair of attempts into a bump, exactly once however

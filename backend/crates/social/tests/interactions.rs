@@ -156,6 +156,29 @@ async fn strangers_who_bump_get_a_friend_request_and_blocked_users_never_match()
 }
 
 #[tokio::test]
+async fn strangers_bump_only_when_both_can_be_found_nearby() {
+    let ctx = start().await;
+    let (hermit, stranger, friend) = (ctx.app.user("hermit").await, ctx.app.user("stranger").await, ctx.app.user("friend").await);
+    ctx.set_privacy(&hermit, |p| p.nearby_discoverable = false).await;
+    ctx.befriend(&hermit, &friend).await;
+
+    // A bump tells a stranger who you are: not for someone who keeps out of
+    // nearby discovery, whichever of the two shakes first.
+    let spot = somewhere();
+    assert!(shake(&ctx, &hermit, spot).await.unwrap().is_empty());
+    assert!(shake(&ctx, &stranger, north_of(spot, 3.0)).await.unwrap().is_empty());
+    let spot = somewhere();
+    assert!(shake(&ctx, &stranger, spot).await.unwrap().is_empty());
+    assert!(shake(&ctx, &hermit, north_of(spot, 3.0)).await.unwrap().is_empty());
+    assert_eq!(graph::relationship(&ctx.app.core, hermit.id, stranger.id).await.unwrap(), Relationship::RELATIONSHIP_NONE, "no friend request either");
+
+    // Friends bump regardless.
+    let spot = somewhere();
+    assert!(shake(&ctx, &hermit, spot).await.unwrap().is_empty());
+    assert_eq!(shake(&ctx, &friend, north_of(spot, 3.0)).await.unwrap().len(), 1);
+}
+
+#[tokio::test]
 async fn a_bump_puts_a_declined_request_back_on_the_table() {
     let ctx = start().await;
     let (asker, decliner) = (ctx.app.user("asker").await, ctx.app.user("decliner").await);
