@@ -73,6 +73,14 @@ pub fn today() -> NaiveDate {
     today_in("Asia/Tokyo")
 }
 
+/// A fixed-offset zone in which it is `hour` o'clock right now.
+pub fn zone_at_hour(hour: i32) -> String {
+    use chrono::Timelike as _;
+    let utc_hour = Utc::now().hour() as i32;
+    let offset = (hour - utc_hour + 12).rem_euclid(24) - 12;
+    if offset >= 0 { format!("Etc/GMT-{offset}") } else { format!("Etc/GMT+{}", -offset) }
+}
+
 /// A fixed-offset zone in which it is ten in the evening right now: two
 /// hours (give or take the minutes) before midnight.
 pub fn evening_zone() -> String {
