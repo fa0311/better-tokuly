@@ -324,6 +324,18 @@ async fn a_totp_code_is_accepted_only_once() {
 }
 
 #[tokio::test]
+async fn totp_guesses_are_capped_per_day_not_only_per_five_minutes() {
+    let app = app().await;
+    let (tag, user, secret) = user_with_totp(&app, "guess").await;
+    // 8 guesses per 5 minutes alone allow ~2300 a day: with three codes
+    // valid at any time, someone who has the password gets in within a month
+    // about one time in five. Pretend today's budget is already spent.
+    app.core.cache.set_string(&format!("rl:totp-day:{}", user.id), "30", Some(std::time::Duration::from_secs(600))).await.unwrap();
+    let err = sign_in_with_code(&app, &tag, totp_now(&secret)).await.unwrap_err();
+    assert_eq!(err.reason, "RATE_LIMITED");
+}
+
+#[tokio::test]
 async fn device_login_flow_issues_tokens_once() {
     let app = app().await;
     let approver = app.user("phone").await;

@@ -495,7 +495,7 @@ impl AccountService for Identity {
         let key = format!("id:totp:setup:{user_id}");
         let sealed = self.core.cache.get_string(&key).await?.or_not_found("TOTP_SETUP_EXPIRED", "start the setup again")?;
         let secret = totp::open_secret(&self.core.keys, &sealed).or_not_found("TOTP_SETUP_EXPIRED", "start the setup again")?;
-        self.core.cache.rate_limit(&format!("totp:{user_id}"), 8, Duration::from_secs(300)).await?;
+        self.limit_totp_attempts(user_id).await?;
         ensure!(self.accept_totp(user_id, &secret, request.code).await?, invalid, "INVALID_TOTP", "wrong authentication code");
         let codes = totp::generate_recovery_codes();
         let hashes: Vec<String> = codes.iter().map(|c| totp::hash_recovery_code(&self.core.keys, c)).collect();
@@ -521,7 +521,7 @@ impl AccountService for Identity {
         handle(async {
         let user = users::get(&self.core, ctx.user_id()?).await?;
         ensure!(user.totp_enabled_at.is_some(), precondition, "TOTP_NOT_ENABLED", "two-factor authentication is not on");
-        self.core.cache.rate_limit(&format!("totp:{}", user.id), 8, Duration::from_secs(300)).await?;
+        self.limit_totp_attempts(user.id).await?;
         let secret = user.totp_secret.as_deref().and_then(|s| totp::open_secret(&self.core.keys, s));
         let code_ok = match secret.as_deref() {
             Some(secret) => self.accept_totp(user.id, secret, request.code).await?,

@@ -355,9 +355,7 @@ impl AuthService for Identity {
                         ..Default::default()
                     });
                 }
-                core.cache
-                    .rate_limit(&format!("totp:{}", user.id), 8, Duration::from_secs(300))
-                    .await?;
+                self.limit_totp_attempts(user.id).await?;
                 let secret = user
                     .totp_secret
                     .as_deref()

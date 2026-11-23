@@ -42,6 +42,17 @@ pub fn check(secret_base32: &str, code: &str) -> Option<u64> {
 }
 
 impl Identity {
+    /// Counts one attempt at a code (or recovery code) for `user_id`; fails
+    /// with `RATE_LIMITED` past 8 per 5 minutes or 30 per day. The burst
+    /// limit alone would allow ~2300 guesses a day, and with three codes
+    /// valid at any moment someone who has the password would get in within
+    /// a month about one time in five.
+    pub(crate) async fn limit_totp_attempts(&self, user_id: Uuid) -> AppResult<()> {
+        let cache = &self.core.cache;
+        cache.rate_limit(&format!("totp:{user_id}"), 8, Duration::from_secs(300)).await?;
+        cache.rate_limit(&format!("totp-day:{user_id}"), 30, Duration::from_secs(24 * 3600)).await
+    }
+
     /// Whether `code` is a valid, unspent TOTP code for `secret`, spending it
     /// if so: RFC 6238 §5.2 — the same code is never accepted twice, so one
     /// that was seen (over a shoulder, through a phishing proxy) is worthless.
