@@ -49,7 +49,9 @@ service FriendService {
   rpc UpdateFriendPrefs(UpdateFriendPrefsRequest) returns (UpdateFriendPrefsResponse);
 
   // Automatically ranked closest friends plus manually starred ones.
-  // Errors: NOT_FRIENDS (someone else's list is shown to their friends only).
+  // Someone else's list is shown to their friends only, and only to those
+  // their friend list privacy lets see it.
+  // Errors: NOT_FRIENDS, FRIEND_LIST_PRIVATE.
   rpc ListBestFriends(ListBestFriendsRequest) returns (ListBestFriendsResponse);
   // "もしかして、友達!?" — friends of friends, contacts, and people met via invites.
   rpc ListSuggestions(ListSuggestionsRequest) returns (ListSuggestionsResponse);
@@ -256,7 +258,8 @@ message UpdateFriendPrefsResponse {
 }
 
 message ListBestFriendsRequest {
-  // Empty = the caller. Other users' best friends are visible to their friends.
+  // Empty = the caller. Other users' best friends are visible to their
+  // friends, within the owner's friend list privacy.
   string user_id = 1;
 }
 
