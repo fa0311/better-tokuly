@@ -189,7 +189,10 @@ export function OverlayScreen({ token }: { token: string }) {
     });
     const release = client.subscribe(topic);
     // Already connected, so no welcome follows: the subscription starts now, after the
-    // widget was read, and a line sent in between is only in a second read.
+    // widget was read, and a line sent in between is only in a second read. Not airtight:
+    // `subscribe()` is not acknowledged, so this re-read (HTTP) can still reach the server
+    // before the subscription (realtime) does, and a line sent in that gap is missed until
+    // the next read. Closing it needs a subscribe acknowledgement in the realtime protocol.
     if (client.connectionStatus === "connected") setVersion((value) => value + 1);
     client.start();
     return () => {

@@ -576,3 +576,61 @@ test("search results for a community and its thread land on the community's page
     new RegExp(`/g/${community.handle}/t/${thread.shortId}$`),
   );
 });
+
+test("a reply notification opens the thread at that reply, even past the first page", async ({
+  page,
+  me,
+  request,
+}) => {
+  test.slow();
+  const member = await createAccount(request, "member");
+  const community = await createCommunity(request, me);
+  await join(request, community, me, member);
+  const thread = await createThread(
+    request,
+    await firstChannelId(request, community, me),
+    me,
+    `ながいスレッド ${unique()}`,
+  );
+  // More replies than the first page shows (30), then the one that is linked.
+  for (let index = 1; index <= 34; index++)
+    await rpc(request, `${BOARD}/CreateReply`, { threadId: thread.id, body: `メモ ${index}` }, me);
+  const answer = `とどいたよ ${unique()}`;
+  const { reply } = await rpc<{ reply: { id: string } }>(
+    request,
+    `${BOARD}/CreateReply`,
+    { threadId: thread.id, body: answer },
+    member,
+  );
+
+  // The thread's author is told; the server's link points at the reply.
+  let entry: { title: string; path: string } | undefined;
+  await expect
+    .poll(
+      async () => {
+        const { notifications = [] } = await rpc<{
+          notifications?: { kind: string; title: string; path: string }[];
+        }>(request, "tokuly.notify.v1.InboxService/ListNotifications", {}, me);
+        entry = notifications.find((each) => each.kind === "community.reply");
+        return entry?.path ?? "";
+      },
+      { timeout: 20_000 },
+    )
+    .toContain(`reply=${reply.id}`);
+
+  // From the inbox: the community's page (not a video channel), scrolled to the reply, highlighted.
+  await page.goto("/notifications");
+  await page
+    .getByRole("listitem")
+    .filter({ hasText: entry?.title ?? "" })
+    .first()
+    .getByRole("link")
+    .click();
+  await expect(page).toHaveURL(
+    new RegExp(`/g/${community.handle}/t/${thread.shortId}\\?reply=${reply.id}$`),
+  );
+  const focused = page.locator('[data-testid="community-reply"][data-focused]');
+  await expect(focused).toHaveCount(1);
+  await expect(focused).toContainText(answer);
+  await expect(focused).toBeInViewport();
+});

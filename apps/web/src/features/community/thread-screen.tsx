@@ -18,7 +18,7 @@ import {
   Trash2,
   Unlock,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
@@ -65,7 +65,14 @@ import { ThreadFlags } from "./thread-card";
 const P = community.Permission;
 
 /** A thread with its poll, its replies and the box to answer. */
-export function ThreadScreen({ threadId }: { threadId: string }) {
+export function ThreadScreen({
+  threadId,
+  focusReplyId,
+}: {
+  threadId: string;
+  /** A reply to bring into view and highlight: the `?reply=<id>` of a notification link. */
+  focusReplyId?: string;
+}) {
   const { t } = useTranslation(NS);
   const c = useCurrentCommunity();
   const queryClient = useQueryClient();
@@ -118,7 +125,7 @@ export function ThreadScreen({ threadId }: { threadId: string }) {
   }
   return (
     <Page title={<EmojiText text={c.name} />} back={back}>
-      <ThreadBody community={c} thread={thread} />
+      <ThreadBody community={c} thread={thread} focusReplyId={focusReplyId} />
     </Page>
   );
 }
@@ -126,9 +133,11 @@ export function ThreadScreen({ threadId }: { threadId: string }) {
 function ThreadBody({
   community: c,
   thread,
+  focusReplyId,
 }: {
   community: community.Community;
   thread: community.Thread;
+  focusReplyId?: string;
 }) {
   const { t } = useTranslation(NS);
   const [newestFirst, setNewestFirst] = useState(false);
@@ -137,6 +146,12 @@ function ThreadBody({
   const channels = useChannels(c.id);
   const channel = channels.data?.find((each) => each.id === thread.channelId);
   const replies = useReplies(thread.id, newestFirst);
+  // A linked reply further down than the first page: the pages before it are read until it is there.
+  const focusLoaded = !focusReplyId || Boolean(replies.items?.some((r) => r.id === focusReplyId));
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = replies;
+  useEffect(() => {
+    if (!focusLoaded && hasNextPage && !isFetchingNextPage) void fetchNextPage();
+  }, [focusLoaded, hasNextPage, isFetchingNextPage, fetchNextPage]);
   const viewer = thread.viewer;
   const timedOut = timeoutUntilMs(c.viewer, Date.now()) > 0;
   const subject = { type: common.SubjectType.COMMUNITY_THREAD, id: thread.id };
@@ -230,6 +245,7 @@ function ThreadBody({
                 community={c}
                 thread={thread}
                 reply={reply}
+                focused={reply.id === focusReplyId}
                 onReplyTo={viewer?.canReply ? () => setReplyTo(reply) : undefined}
                 onOpenStamp={setStampId}
               />
@@ -539,10 +555,13 @@ function ReplyItem({
   reply,
   onReplyTo,
   onOpenStamp,
+  focused,
 }: {
   community: community.Community;
   thread: community.Thread;
   reply: community.Reply;
+  /** The reply a link pointed at: scrolled to and highlighted. */
+  focused?: boolean;
   onReplyTo?: () => void;
   onOpenStamp(stampId: string): void;
 }) {
@@ -554,6 +573,10 @@ function ReplyItem({
   const [history, setHistory] = useState(false);
   const viewer = reply.viewer;
   const subject = { type: common.SubjectType.COMMUNITY_REPLY, id: reply.id };
+  const root = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (focused) root.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [focused]);
   const share = useShareMenu({
     path: threadHref(c.handle, thread.shortId || thread.id),
     title: reply.body.slice(0, 60) || thread.title,
@@ -609,9 +632,13 @@ function ReplyItem({
   const quoted = reply.replyTo;
   return (
     <article
+      ref={root}
+      data-testid="community-reply"
+      data-focused={focused || undefined}
       className={cn(
         "rounded-card bg-surface p-4",
         reply.state === community.PostState.HIDDEN && "border-2 border-dashed border-coral",
+        focused && "bg-brand-soft/60 ring-2 ring-brand",
       )}
     >
       <div className="flex items-start gap-2">
