@@ -52,6 +52,10 @@ export default {
     done: "Your email is confirmed!",
     failed: "This link is invalid or has expired",
     toApp: "Open Tokuly",
+    reverted: "Your email address is back!",
+    revertedLead:
+      "To be safe, every device was signed out. If you did not make that change, reset your password now.",
+    toReset: "Reset password",
   },
   reset: {
     requestTitle: "Reset your password",

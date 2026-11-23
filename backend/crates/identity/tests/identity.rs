@@ -755,6 +755,194 @@ async fn profile_viewers_are_checked_for_blocks_in_one_batch() {
     assert_eq!((blocks.pair_checks.load(SeqCst) - pair_checks, blocks.list_checks.load(SeqCst)), (0, 1), "one question for the whole list, not one per viewer");
 }
 
+/// A minimal SMTP server that keeps what it is sent: `(recipient, message)`.
+#[derive(Clone, Default)]
+struct MailSink(std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>>);
+
+impl MailSink {
+    async fn start() -> (Self, String) {
+        use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
+        let sink = Self::default();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("smtp://{}", listener.local_addr().unwrap());
+        let kept = sink.clone();
+        tokio::spawn(async move {
+            while let Ok((socket, _)) = listener.accept().await {
+                let kept = kept.clone();
+                tokio::spawn(async move {
+                    let (read, mut write) = socket.into_split();
+                    let mut lines = BufReader::new(read).lines();
+                    write.write_all(b"220 sink\r\n").await.ok();
+                    let mut recipients = Vec::new();
+                    while let Ok(Some(line)) = lines.next_line().await {
+                        let verb = line.get(..4).unwrap_or_default().to_ascii_uppercase();
+                        let reply: &[u8] = match verb.as_str() {
+                            "RCPT" => {
+                                recipients.push(line.split(['<', '>']).nth(1).unwrap_or_default().to_ascii_lowercase());
+                                b"250 ok\r\n"
+                            }
+                            "DATA" => {
+                                write.write_all(b"354 go on\r\n").await.ok();
+                                let mut message = String::new();
+                                while let Ok(Some(line)) = lines.next_line().await {
+                                    if line == "." {
+                                        break;
+                                    }
+                                    message.push_str(&line);
+                                    message.push('\n');
+                                }
+                                for to in recipients.drain(..) {
+                                    kept.0.lock().unwrap().push((to, message.clone()));
+                                }
+                                b"250 kept\r\n"
+                            }
+                            "QUIT" => {
+                                write.write_all(b"221 bye\r\n").await.ok();
+                                break;
+                            }
+                            _ => b"250 ok\r\n",
+                        };
+                        write.write_all(reply).await.ok();
+                    }
+                });
+            }
+        });
+        (sink, url)
+    }
+
+    /// The messages sent to `to` so far, waiting up to 5 s for `count` of them.
+    async fn to(&self, to: &str, count: usize) -> Vec<String> {
+        for _ in 0..100 {
+            let found: Vec<String> = self.0.lock().unwrap().iter().filter(|(rcpt, _)| rcpt == &to.to_ascii_lowercase()).map(|(_, m)| m.clone()).collect();
+            if found.len() >= count {
+                return found;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        panic!("expected {count} mail(s) to {to}, got {:?}", self.0.lock().unwrap().iter().map(|(rcpt, m)| (rcpt.clone(), subject(m))).collect::<Vec<_>>());
+    }
+}
+
+/// The subject line of a raw message (English mails have plain ASCII subjects).
+fn subject(message: &str) -> String {
+    message.lines().find_map(|l| l.strip_prefix("Subject: ")).unwrap_or_default().to_owned()
+}
+
+/// The token of the first `verify-email?token=` link in a raw message
+/// (undoing quoted-printable soft breaks and escapes).
+fn mailed_link_token(message: &str) -> String {
+    let decoded = message.replace("=\n", "").replace("=3D", "=");
+    let start = decoded.find("verify-email?token=").expect("a link in the mail") + "verify-email?token=".len();
+    decoded[start..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect()
+}
+
+/// An app whose identity really sends mail, into the returned sink.
+async fn mailing_app() -> (TestApp, MailSink) {
+    let (sink, url) = MailSink::start().await;
+    let plain = app().await;
+    let mut cfg = plain.core.cfg.clone();
+    cfg.smtp_url = url;
+    let core = tokuly_core::Core::connect(cfg).await.unwrap();
+    let app = TestApp::start(MIGRATIONS, move |_core, _identity, router| {
+        tokuly_identity::Identity::new(core.clone(), tokuly_identity::IdentityConfig::default()).unwrap().register(router)
+    })
+    .await;
+    (app, sink)
+}
+
+/// Signs up an account whose mails are in English; returns it signed in.
+async fn english_account(app: &TestApp, prefix: &str) -> (String, TestUser) {
+    let tag = unique(prefix);
+    let mut request = sign_up_request(&tag);
+    request.client = ClientInfo { locale: "en".into(), ..Default::default() }.into();
+    let auth: AuthResponse = app.call("tokuly.identity.v1.AuthService/SignUp", None, &request).await.unwrap();
+    let user_id: uuid::Uuid = auth.me.as_option().unwrap().user.as_option().unwrap().id.parse().unwrap();
+    (tag, app.sign_in(user_id).await)
+}
+
+async fn live_sessions(app: &TestApp, user_id: uuid::Uuid) -> Vec<uuid::Uuid> {
+    sqlx::query_scalar("SELECT id FROM sessions WHERE user_id = $1 AND revoked_at IS NULL ORDER BY id").bind(user_id).fetch_all(&app.core.db).await.unwrap()
+}
+
+#[tokio::test]
+async fn a_changed_address_is_told_to_the_old_one_which_can_undo_it() {
+    let (app, mail) = mailing_app().await;
+    let (tag, owner) = english_account(&app, "moved").await;
+    let elsewhere = app.sign_in(owner.id).await;
+    let old = format!("{tag}@example.com");
+    let reset = mailed_token(&app, owner.id, "reset", &old).await;
+
+    // The change is confirmed from the new address (by whoever holds it).
+    let (first, second) = (format!("{tag}@first.example"), format!("{tag}@second.example"));
+    let change = mailed_token(&app, owner.id, "change", &first).await;
+    let done: VerifyEmailResponse = app.call("tokuly.identity.v1.AuthService/VerifyEmail", Some(&owner), &VerifyEmailRequest { token: change, ..Default::default() }).await.unwrap();
+    assert!(!done.email_change_reverted);
+    // The person who opened the link stays signed in; every other device is out,
+    // and a reset link to the old address is void.
+    assert_eq!(live_sessions(&app, owner.id).await, [owner.session_id]);
+    assert_ne!(elsewhere.session_id, owner.session_id);
+    let err = app.call::<_, ResetPasswordResponse>("tokuly.identity.v1.AuthService/ResetPassword", None, &ResetPasswordRequest { token: reset, new_password: "a much better secret".into(), ..Default::default() }).await.unwrap_err();
+    assert_eq!(err.reason, "TOKEN_INVALID");
+
+    // The old address is told, with an undo link.
+    let notice = mail.to(&old, 2).await.pop().unwrap();
+    assert_eq!(subject(&notice), "The email of your Tokuly account was changed");
+    let undo_to_old = mailed_link_token(&notice);
+
+    // A second change mails an undo link to the first new address; using
+    // that one must not take the owner's undo away.
+    let change = mailed_token(&app, owner.id, "change", &second).await;
+    let _: VerifyEmailResponse = app.call("tokuly.identity.v1.AuthService/VerifyEmail", None, &VerifyEmailRequest { token: change, ..Default::default() }).await.unwrap();
+    let undo_to_first = mailed_link_token(&mail.to(&first, 1).await.pop().unwrap());
+    let back: VerifyEmailResponse = app.call("tokuly.identity.v1.AuthService/VerifyEmail", None, &VerifyEmailRequest { token: undo_to_first, ..Default::default() }).await.unwrap();
+    assert!(back.email_change_reverted);
+
+    let back: VerifyEmailResponse = app.call("tokuly.identity.v1.AuthService/VerifyEmail", None, &VerifyEmailRequest { token: undo_to_old.clone(), ..Default::default() }).await.unwrap();
+    assert!(back.email_change_reverted);
+    let account = tokuly_identity::users::get(&app.core, owner.id).await.unwrap();
+    assert_eq!((account.email.as_deref(), account.email_verified_at.is_some()), (Some(old.as_str()), true));
+    assert!(live_sessions(&app, owner.id).await.is_empty(), "an undo signs out every device");
+    let again = app.call::<_, VerifyEmailResponse>("tokuly.identity.v1.AuthService/VerifyEmail", None, &VerifyEmailRequest { token: undo_to_old, ..Default::default() }).await.unwrap_err();
+    assert_eq!(again.reason, "TOKEN_INVALID", "an undo link works once");
+    assert_eq!(app.events_by("identity.user.email_verified", owner.id).await.len(), 4);
+}
+
+#[tokio::test]
+async fn security_changes_are_told_to_the_address_on_file() {
+    let (app, mail) = mailing_app().await;
+    let (tag, user) = english_account(&app, "noticed").await;
+    let address = format!("{tag}@example.com");
+    let _: ChangePasswordResponse = app
+        .call(
+            "tokuly.identity.v1.AccountService/ChangePassword",
+            Some(&user),
+            &ChangePasswordRequest { current_password: "correct horse battery".into(), new_password: "a much better secret".into(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    let setup: BeginTotpSetupResponse = app.call("tokuly.identity.v1.AccountService/BeginTotpSetup", Some(&user), &BeginTotpSetupRequest::default()).await.unwrap();
+    let _: EnableTotpResponse = app
+        .call("tokuly.identity.v1.AccountService/EnableTotp", Some(&user), &EnableTotpRequest { code: totp_at(&setup.secret, -1), current_password: "a much better secret".into(), ..Default::default() })
+        .await
+        .unwrap();
+    let _: DisableTotpResponse = app
+        .call("tokuly.identity.v1.AccountService/DisableTotp", Some(&user), &DisableTotpRequest { code: totp_now(&setup.secret), ..Default::default() })
+        .await
+        .unwrap();
+    // The sign-up verification mail, then one notice per change.
+    let mut subjects: Vec<String> = mail.to(&address, 4).await.iter().map(|m| subject(m)).collect();
+    subjects.sort();
+    assert_eq!(
+        subjects,
+        [
+            "Confirm your email for Tokuly",
+            "Two-step verification is off for your Tokuly account",
+            "Two-step verification is on for your Tokuly account",
+            "Your Tokuly password was changed",
+        ]
+    );
+}
+
 #[tokio::test]
 async fn device_login_flow_issues_tokens_once() {
     let app = app().await;

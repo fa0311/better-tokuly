@@ -18,6 +18,8 @@ use crate::{
 };
 
 const VERIFY_TTL_HOURS: i64 = 24;
+/// How long the previous address can undo an e-mail change.
+const REVERT_TTL_DAYS: i64 = 7;
 const RESET_TTL_MINUTES: i64 = 60;
 const DEVICE_LOGIN_TTL: Duration = Duration::from_secs(600);
 const DEVICE_POLL_INTERVAL_SECONDS: i32 = 3;
@@ -166,6 +168,40 @@ impl Identity {
         .fetch_optional(&self.core.db)
         .await?;
         row.ok_or_else(|| AppError::invalid("TOKEN_INVALID", "this link is invalid or has expired"))
+    }
+
+    /// Mails a security notice to the account's address, without blocking
+    /// the caller; a failure is logged.
+    pub(crate) fn notify_security_change(&self, user: &UserRow, notice: crate::mailer::SecurityNotice) {
+        let Some(email) = user.email.clone() else { return };
+        let (identity, locale, user_id) = (self.clone(), user.locale.clone(), user.id);
+        tokio::spawn(async move {
+            if let Err(e) = identity.send_security_notice(&email, &locale, notice).await {
+                tracing::warn!(%user_id, ?notice, error = %e, "security notice mail failed");
+            }
+        });
+    }
+
+    /// The address of `user_id` changed from `previous` to `current`: the
+    /// previous address gets a link that moves the account back (7 days,
+    /// once). Older such links stay valid, so a second change cannot take
+    /// the first undo away.
+    async fn offer_email_revert(&self, user_id: Uuid, previous: &str, current: &str, locale: &str) -> AppResult<()> {
+        let token = random_token(32);
+        sqlx::query("INSERT INTO email_tokens (token_hash, user_id, purpose, email, expires_at) VALUES ($1, $2, 'revert', $3::citext, $4)")
+            .bind(self.core.keys.token_hash(&token))
+            .bind(user_id)
+            .bind(previous)
+            .bind(Utc::now() + chrono::Duration::days(REVERT_TTL_DAYS))
+            .execute(&self.core.db)
+            .await?;
+        let (identity, previous, current, locale) = (self.clone(), previous.to_owned(), current.to_owned(), locale.to_owned());
+        tokio::spawn(async move {
+            if let Err(e) = identity.send_email_changed_mail(&previous, &locale, &current, &token).await {
+                tracing::warn!(%user_id, error = %e, "email changed mail failed");
+            }
+        });
+        Ok(())
     }
 
     /// Sends (or re-sends) the address verification mail without blocking the caller.
@@ -577,6 +613,8 @@ impl AuthService for Identity {
                 serde_json::json!({ "name": passkey.name }),
             )
             .await;
+            let user = users::get(&self.core, user_id).await?;
+            self.notify_security_change(&user, crate::mailer::SecurityNotice::PasskeyAdded);
             ok(FinishPasskeyRegistrationResponse {
                 passkey: passkey.into(),
                 ..Default::default()
@@ -676,12 +714,19 @@ impl AuthService for Identity {
 
     async fn verify_email(
         &self,
-        _ctx: RequestContext,
+        ctx: RequestContext,
         request: ServiceRequest<'_, VerifyEmailRequest>,
     ) -> ServiceResult<VerifyEmailResponse> {
         handle(async {
-        let (user_id, purpose, email) = self.consume_email_token(request.token, &["verify", "change"]).await?;
-        if purpose == "change" {
+        let meta = ctx.client();
+        let token_hash = self.core.keys.token_hash(request.token);
+        let (user_id, purpose, email) = self.consume_email_token(request.token, &["verify", "change", "revert"]).await?;
+        // The person opening the link may be signed in on this device; that
+        // session survives a change (not an undo).
+        let opener = ctx.maybe_auth().ok().flatten().filter(|auth| auth.user_id == user_id).map(|auth| auth.session_id);
+        let mut reverted = false;
+        if purpose == "change" || purpose == "revert" {
+            let before = users::get(&self.core, user_id).await?;
             let taken: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE email = $1::citext AND id <> $2)")
                 .bind(&email)
                 .bind(user_id)
@@ -689,22 +734,55 @@ impl AuthService for Identity {
                 .await
                 .map_err(AppError::from)?;
             ensure!(!taken, already_exists, "EMAIL_TAKEN", "an account with this email already exists");
+            let mut tx = self.core.db.begin().await?;
             sqlx::query("UPDATE users SET email = $2::citext, email_verified_at = now() WHERE id = $1")
                 .bind(user_id)
                 .bind(&email)
-                .execute(&self.core.db)
+                .execute(&mut *tx)
                 .await
                 .map_err(AppError::from)?;
-            self.log_security_event(user_id, "EMAIL_CHANGED", &ClientMeta::default(), "", serde_json::json!({})).await;
+            if purpose == "revert" {
+                // Undo links issued after this one point at addresses the
+                // account only had since; they go.
+                sqlx::query(
+                    "DELETE FROM email_tokens WHERE user_id = $1 AND purpose = 'revert'
+                     AND created_at > (SELECT created_at FROM email_tokens WHERE token_hash = $2)",
+                )
+                .bind(user_id)
+                .bind(&token_hash)
+                .execute(&mut *tx)
+                .await?;
+            }
+            events::emit(&mut *tx, "identity.user.email_verified", Some(user_id), &crate::maintenance::UserRef { user_id }).await?;
+            tx.commit().await?;
+            // Whoever had the account under the other address loses it:
+            // pending reset and change links die, and devices sign out.
+            self.drop_account_links(user_id).await?;
+            if purpose == "revert" {
+                reverted = true;
+                self.revoke_all_sessions(user_id, None).await?;
+                self.log_security_event(user_id, "EMAIL_CHANGE_REVERTED", &meta, "", serde_json::json!({})).await;
+            } else {
+                self.revoke_all_sessions(user_id, opener).await?;
+                self.log_security_event(user_id, "EMAIL_CHANGED", &meta, "", serde_json::json!({})).await;
+                if let Some(previous) = before.email.as_deref().filter(|previous| !previous.eq_ignore_ascii_case(&email)) {
+                    self.offer_email_revert(user_id, previous, &email, &before.locale).await?;
+                }
+            }
         } else {
-            sqlx::query("UPDATE users SET email_verified_at = now() WHERE id = $1 AND email = $2::citext")
+            let mut tx = self.core.db.begin().await?;
+            let done = sqlx::query("UPDATE users SET email_verified_at = now() WHERE id = $1 AND email = $2::citext AND email_verified_at IS NULL")
                 .bind(user_id)
                 .bind(&email)
-                .execute(&self.core.db)
+                .execute(&mut *tx)
                 .await
                 .map_err(AppError::from)?;
+            if done.rows_affected() == 1 {
+                events::emit(&mut *tx, "identity.user.email_verified", Some(user_id), &crate::maintenance::UserRef { user_id }).await?;
+            }
+            tx.commit().await?;
         }
-        ok(VerifyEmailResponse::default())
+        ok(VerifyEmailResponse { email_change_reverted: reverted, ..Default::default() })
         })
         .await
     }

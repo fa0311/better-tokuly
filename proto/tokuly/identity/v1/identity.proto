@@ -34,6 +34,10 @@ service AuthService {
   rpc FinishPasskeySignIn(FinishPasskeySignInRequest) returns (AuthResponse);
 
   rpc RequestEmailVerification(RequestEmailVerificationRequest) returns (RequestEmailVerificationResponse);
+  // Opens a mailed link: confirms an address, completes an address change,
+  // or undoes one. A completed change signs out every other device, voids
+  // pending reset links and mails the previous address an undo link (7
+  // days, once). TOKEN_INVALID, EMAIL_TAKEN.
   rpc VerifyEmail(VerifyEmailRequest) returns (VerifyEmailResponse);
   rpc RequestPasswordReset(RequestPasswordResetRequest) returns (RequestPasswordResetResponse);
   rpc ResetPassword(ResetPasswordRequest) returns (ResetPasswordResponse);
@@ -173,7 +177,12 @@ message VerifyEmailRequest {
   string token = 1;
 }
 
-message VerifyEmailResponse {}
+message VerifyEmailResponse {
+  // The link was the undo of an address change: the account is back on this
+  // address and every device was signed out (the owner should reset the
+  // password next).
+  bool email_change_reverted = 1;
+}
 
 message RequestPasswordResetRequest {
   string email = 1;
@@ -449,6 +458,8 @@ message UpdateSettingsResponse {
   Settings settings = 1;
 }
 
+// Password changes, new passkeys and turning TOTP on or off are also told to
+// the account's address by mail.
 message ChangePasswordRequest {
   // Empty when the account has no password yet (passkey-only).
   string current_password = 1;

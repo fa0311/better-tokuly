@@ -83,12 +83,17 @@ async function mailpitIsUp(request: APIRequestContext): Promise<boolean> {
   }
 }
 
-/** The token of the newest verification link mailed to `to`. */
-async function mailedVerificationToken(request: APIRequestContext, to: string): Promise<string> {
+/** The token of the newest verification link mailed to `to` (in a mail with `subject`, when given). */
+async function mailedVerificationToken(
+  request: APIRequestContext,
+  to: string,
+  subject?: string,
+): Promise<string> {
   let token = "";
+  const query = subject ? `to:${to} subject:"${subject}"` : `to:${to}`;
   await expect(async () => {
     const found = (await (
-      await request.get(`${MAILPIT}/api/v1/search`, { params: { query: `to:${to}`, limit: 5 } })
+      await request.get(`${MAILPIT}/api/v1/search`, { params: { query, limit: 5 } })
     ).json()) as { messages: { ID: string }[] };
     for (const { ID } of found.messages) {
       const message = (await (await request.get(`${MAILPIT}/api/v1/message/${ID}`)).json()) as {
@@ -353,12 +358,25 @@ test("a new email address takes over once its verification link is opened", asyn
   // Until the link is opened the old address stays.
   await expect(page.getByTestId("account-email")).toHaveText(me.email);
 
-  await rpc(request, `${AUTH}/VerifyEmail`, {
-    token: await mailedVerificationToken(request, newEmail),
-  });
-  await page.reload();
+  // Opened in this browser, where the account is signed in: this session
+  // stays (every other device is signed out by the change).
+  const change = await mailedVerificationToken(request, newEmail);
+  await page.goto(`/verify-email?token=${encodeURIComponent(change)}`);
+  await expect(page.getByText("メールアドレスを確認しました！")).toBeVisible();
+  await page.goto("/settings/account");
   await expect(page.getByTestId("account-email")).toHaveText(newEmail);
   await expect(page.getByText("確認済み", { exact: true })).toBeVisible();
+
+  // The old address is told, and its link moves the account back, signing out everywhere.
+  const undo = await mailedVerificationToken(request, me.email, "メールアドレスが変更されました");
+  await page.goto(`/verify-email?token=${encodeURIComponent(undo)}`);
+  await expect(page.getByText("メールアドレスを元に戻したよ！")).toBeVisible();
+  await expect(page.getByRole("link", { name: "パスワードを再設定する" })).toBeVisible();
+  const account = await rpc<{ me: { email: string } }>(request, `${AUTH}/SignIn`, {
+    identifier: me.handle,
+    password: PASSWORD,
+  });
+  expect(account.me.email).toBe(me.email);
 });
 
 test("the language switches at once, survives a reload and is stored on the account", async ({

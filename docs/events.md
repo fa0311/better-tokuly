@@ -24,6 +24,7 @@ Emits:
 | `identity.user.status_changed` | `{ user_id }` |
 | `identity.user.privacy_changed` | `{ user_id }` |
 | `identity.user.deletion_requested` | `{ user_id }` |
+| `identity.user.email_verified` | `{ user_id }` — the account's address was confirmed (verification, change or undo of a change) |
 | `identity.user.deleted` | `{ user_id }` — every domain removes that user's data |
 | `identity.user.banned` / `identity.user.unbanned` | `{ user_id }` |
 | `identity.export.ready` | `{ user_id, export_id }` |

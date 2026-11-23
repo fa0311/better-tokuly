@@ -4,7 +4,7 @@
 //! - `identity.user.created` — [`UserCreated`]
 //! - `identity.user.updated`, `identity.user.status_changed`,
 //!   `identity.user.privacy_changed`, `identity.user.deletion_requested`,
-//!   `identity.user.deleted` — [`UserRef`]
+//!   `identity.user.email_verified`, `identity.user.deleted` — [`UserRef`]
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};

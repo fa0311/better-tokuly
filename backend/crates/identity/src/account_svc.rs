@@ -10,6 +10,7 @@ use unicode_segmentation::UnicodeSegmentation as _;
 
 use crate::{
     Identity,
+    mailer::SecurityNotice,
     maintenance::{ExportJob, UserRef},
     settings, totp,
     users::{self, UserRow},
@@ -319,6 +320,7 @@ impl AccountService for Identity {
                 serde_json::json!({}),
             )
             .await;
+            self.notify_security_change(&user, SecurityNotice::PasswordChanged);
             ok(ChangePasswordResponse::default())
         })
         .await
@@ -534,6 +536,7 @@ impl AccountService for Identity {
             .map_err(AppError::from)?;
         self.core.cache.del(&key).await?;
         self.log_security_event(user_id, "TOTP_ENABLED", &ctx.client(), "", serde_json::json!({})).await;
+        self.notify_security_change(&user, SecurityNotice::TotpEnabled);
         ok(EnableTotpResponse { recovery_codes: codes, ..Default::default() })
         })
         .await
@@ -571,6 +574,7 @@ impl AccountService for Identity {
             .await
             .map_err(AppError::from)?;
         self.log_security_event(user.id, "TOTP_DISABLED", &ctx.client(), "", serde_json::json!({})).await;
+        self.notify_security_change(&user, SecurityNotice::TotpDisabled);
         ok(DisableTotpResponse::default())
         })
         .await
