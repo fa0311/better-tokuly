@@ -311,8 +311,7 @@ async fn nearby_stream_reports_arrivals_and_departures() {
     assert_eq!(alice_saw.len(), 3, "an empty start, Bob arriving, Bob leaving");
     assert!(alice_saw[0].users.is_empty());
     assert_eq!(seen(&alice_saw[1]), vec![(bob.id, Relationship::RELATIONSHIP_REQUEST_SENT)], "the blocked and the far-away user never show up");
-    let distance = alice_saw[1].users[0].distance_meters;
-    assert!((18.0..=22.0).contains(&distance), "{distance}");
+    assert_eq!(alice_saw[1].users[0].distance_meters, 25.0, "Bob, 20 m away, is 'within 25 m': never an exact distance");
     assert!(alice_saw[2].users.is_empty());
 
     // Bob sees Alice from his side of the pending request (and possibly the
@@ -340,4 +339,12 @@ async fn nearby_stream_rejects_bad_input_and_opted_out_users() {
 
     ctx.set_privacy(&hermit, |p| p.nearby_discoverable = false).await;
     assert_eq!(open(Some(&hermit), nearby_at(somewhere())).await.unwrap_err().reason, "NEARBY_DISCOVERY_DISABLED");
+
+    // Every session is a look at a point of the client's choosing: there are
+    // only so many of them.
+    let scanner = ctx.app.user("scanner").await;
+    for _ in 0..20 {
+        open(Some(&scanner), nearby_at(somewhere())).await.unwrap();
+    }
+    assert_eq!(open(Some(&scanner), nearby_at(somewhere())).await.unwrap_err().reason, "RATE_LIMITED");
 }

@@ -31,6 +31,22 @@ const MAX_SESSION: Duration = Duration::from_secs(600);
 const MAX_ACCURACY_ALLOWANCE: f64 = 25.0;
 /// Most users reported at once (a crowded venue).
 const MAX_NEARBY: usize = 50;
+/// Sessions one user may open per [`SESSION_WINDOW`]. The position is the
+/// client's word, so every session is a look at some point of the map: few
+/// of them keep it from becoming a way to scan places or close in on
+/// someone.
+const MAX_SESSIONS: u32 = 20;
+const SESSION_WINDOW: Duration = Duration::from_secs(600);
+/// What a distance is reported as: the smallest of these it does not exceed
+/// (anything beyond the last is reported as the last).
+const DISTANCE_BANDS: [f64; 4] = [10.0, 25.0, 50.0, 75.0];
+
+/// A distance as shown to the other user: "within 10 / 25 / 50 / 75 m",
+/// never the exact figure. Exact distances from a few self-chosen points
+/// would pin anyone down to the meter.
+fn coarse_distance(meters: f64) -> f64 {
+    DISTANCE_BANDS.into_iter().find(|band| meters <= *band).unwrap_or(DISTANCE_BANDS[DISTANCE_BANDS.len() - 1])
+}
 
 pub(crate) const NEARBY: LiveGeoSet = LiveGeoSet::new("social:nearby:geo", "social:nearby:seen", PRESENCE_TTL);
 
@@ -66,7 +82,7 @@ impl Social {
         ensure!(geoindex::valid_coordinates(lat, lng), invalid, "INVALID_LOCATION", "a valid location is required");
         let privacy = settings::privacy_of(core, user_id).await?;
         ensure!(privacy.nearby_discoverable, precondition, "NEARBY_DISCOVERY_DISABLED", "turn on nearby discovery in your privacy settings first");
-        core.cache.rate_limit(&format!("nearby:{user_id}"), 30, Duration::from_secs(60)).await?;
+        core.cache.rate_limit(&format!("nearby:{user_id}"), MAX_SESSIONS, SESSION_WINDOW).await?;
 
         let allowance = if accuracy_meters.is_finite() { accuracy_meters.clamp(0.0, MAX_ACCURACY_ALLOWANCE) } else { 0.0 };
         let spot = Spot { user_id, lat, lng, radius_meters: self.cfg.nearby_radius_meters + allowance };
@@ -166,7 +182,7 @@ impl Social {
                 // Unknown or deleted accounts can linger in Valkey for a moment.
                 let user = summaries.get(&id).filter(|user| !user.deleted)?.clone();
                 let relationship = relationships.get(&id).copied().unwrap_or(tokuly_proto::identity::Relationship::RELATIONSHIP_NONE);
-                Some((id, NearbyUser { user: user.into(), distance_meters: distance.round(), relationship: relationship.into(), ..Default::default() }))
+                Some((id, NearbyUser { user: user.into(), distance_meters: coarse_distance(distance), relationship: relationship.into(), ..Default::default() }))
             })
             .collect())
     }
@@ -175,6 +191,16 @@ impl Social {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn distances_are_reported_in_bands() {
+        assert_eq!(coarse_distance(0.0), 10.0);
+        assert_eq!(coarse_distance(10.0), 10.0);
+        assert_eq!(coarse_distance(10.4), 25.0);
+        assert_eq!(coarse_distance(49.0), 50.0);
+        assert_eq!(coarse_distance(51.0), 75.0);
+        assert_eq!(coarse_distance(400.0), 75.0);
+    }
 
     #[test]
     fn cells_are_a_hundredth_of_a_degree() {

@@ -87,7 +87,8 @@ service FriendService {
   // Nearby discovery: while a client keeps this stream open it is visible to,
   // and receives, other users with the add-friend screen open within ~50 m.
   // The first message arrives immediately (possibly empty). The server ends
-  // the stream after 10 minutes; reopen it to keep going or after moving.
+  // the stream after 10 minutes; reopen it to keep going or after moving
+  // (at most 20 streams per 10 minutes).
   // Errors: INVALID_LOCATION, NEARBY_DISCOVERY_DISABLED (the caller switched
   // off `nearby_discoverable`), RATE_LIMITED.
   rpc DiscoverNearby(DiscoverNearbyRequest) returns (stream DiscoverNearbyResponse);
@@ -378,6 +379,8 @@ message DiscoverNearbyResponse {
 
 message NearbyUser {
   tokuly.common.v1.UserSummary user = 1;
+  // How far away they are, in bands: 10, 25, 50 or 75 ("within N m").
+  // Never the exact distance.
   double distance_meters = 2;
   tokuly.identity.v1.Relationship relationship = 3;
 }

@@ -149,7 +149,7 @@ No job-queue jobs. `Social::spawn_workers` starts:
 Rate limits (`rl:` keys): friend requests 60/h and 200/day per sender and
 5/day per sender→recipient; contact matching 6/h and 30/day; blocks 100/h; invite
 resets 10/day; invite lookups 60/min per user or IP; suggestions 60/min;
-nearby sessions 30/min; bumps 30/min; buzz 10/min per pair and 60/10 min per
+nearby sessions 20 per 10 min; bumps 30/min; buzz 10/min per pair and 60/10 min per
 sender; knocks 20/min per pair; map reactions 120/min.
 
 ## Configuration
