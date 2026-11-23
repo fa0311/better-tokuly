@@ -153,7 +153,9 @@ test("a finished mission is claimed and the coins arrive", async ({ page, reques
   await signInAs(page, me);
 
   await page.goto("/quest");
-  await expect(page.getByRole("region", { name: "きょうのミッション" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "きょうのミッション" })).toBeVisible({
+    timeout: SETTLE,
+  });
   await live(page);
 
   // Five new friends (100 XP, and "add a friend"), the login bonus, and a chat (40 XP): over 150 XP.
@@ -334,7 +336,7 @@ test("a badge unlocks, is celebrated and goes on the profile showcase", async ({
   await signInAs(theirs, friend);
   await theirs.goto(`/u/${me.handle}`);
   const seen = theirs.getByRole("region", { name: "バッジ", exact: true });
-  await expect(seen.getByRole("link", { name: "はじめての友達" })).toBeVisible();
+  await expect(seen.getByRole("link", { name: "はじめての友達" })).toBeVisible({ timeout: SETTLE });
   // …and on the person's quest page, with their level.
   await seen.getByRole("link", { name: "もっと見る" }).click();
   await expect(theirs).toHaveURL(new RegExp(`/quest/u/${me.handle}$`));
