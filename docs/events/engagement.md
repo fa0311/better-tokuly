@@ -23,6 +23,11 @@ get comments, likes, saves, shares and reports on your content.
   comments are listed for the owner only. Bookmarks, shares and reports do
   not depend on it. `id` may be a UUID or a short ID; engagement stores the
   UUID you return.
+- `resolve_for_report(id, viewer)` (optional, defaults to `resolve`) is what
+  `CreateReport` asks instead. A domain whose content can be withdrawn after
+  it reached someone (an unsent chat message) answers here with what the
+  viewer received, so the withdrawal does not prevent the report; nothing
+  else ever sees that answer.
 - `counter_changed(id, counter, delta)` is called after the change committed
   (best effort, never retried — treat it as a hint for denormalized copies;
   the exact numbers are `EngagementService.GetEngagement`):

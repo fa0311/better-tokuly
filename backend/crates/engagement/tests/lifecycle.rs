@@ -30,6 +30,30 @@ fn report(subject: SubjectRef) -> CreateReportRequest {
 }
 
 #[tokio::test]
+async fn only_a_report_sees_what_its_owner_withdrew() {
+    let ctx = start().await;
+    let (owner, bob) = (ctx.app.user("Owner").await, ctx.app.user("Bob").await);
+    let video = ctx.video(&owner, "取り消された中身");
+    let _: AddBookmarkResponse =
+        ctx.call("BookmarkService", "AddBookmark", Some(&bob), &save(video.subject_ref())).await.unwrap();
+    ctx.videos.update(video.id, |subject| subject.withdrawn = true);
+
+    // Withdrawn content can still be reported, with what it said…
+    let reported: CreateReportResponse =
+        ctx.call("ReportService", "CreateReport", Some(&bob), &report(video.subject_ref())).await.unwrap();
+    assert_eq!(reported.report.subject_title, "取り消された中身");
+    // …but nothing else gets at it: not a bookmark, not its preview.
+    let refused = ctx
+        .call::<_, AddBookmarkResponse>("BookmarkService", "AddBookmark", Some(&bob), &save(video.subject_ref()))
+        .await
+        .unwrap_err();
+    assert_eq!(refused.reason, "SUBJECT_NOT_FOUND");
+    let saved: ListBookmarksResponse =
+        ctx.call("BookmarkService", "ListBookmarks", Some(&bob), &ListBookmarksRequest::default()).await.unwrap();
+    assert!(saved.bookmarks.iter().all(|bookmark| !bookmark.subject.title.contains("取り消された")));
+}
+
+#[tokio::test]
 async fn a_takedown_removes_a_comment_or_everything_on_a_subject() {
     let ctx = start().await;
     let (owner, bob, carol, moderator) = (

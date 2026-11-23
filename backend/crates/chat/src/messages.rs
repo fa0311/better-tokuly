@@ -314,13 +314,21 @@ impl Chat {
         let mentions =
             serde_json::to_value(&mentions).map_err(|e| AppError::internal(anyhow::anyhow!("mentions encode: {e}")))?;
         let mut tx = self.core.db.begin().await?;
-        // What it said before stays reportable (see `subjects`).
+        // What it said before stays reportable (see `subjects`), for a
+        // bounded number of edits. The row lock orders concurrent edits.
+        sqlx::query("SELECT 1 FROM chat_messages WHERE id = $1 FOR UPDATE")
+            .bind(message_id)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query(
             "INSERT INTO chat_removed_texts (message_id, text, reason)
-             SELECT id, text, $2 FROM chat_messages WHERE id = $1 AND deleted_at IS NULL AND text <> ''",
+             SELECT id, text, $2 FROM chat_messages
+             WHERE id = $1 AND deleted_at IS NULL AND text <> ''
+               AND (SELECT count(*) FROM chat_removed_texts WHERE message_id = $1 AND reason = $2) < $3",
         )
         .bind(message_id)
         .bind(removed::EDITED)
+        .bind(subjects::MAX_EDITED_TEXTS)
         .execute(&mut *tx)
         .await?;
         // The preview is kept when the link is the same, and fetched again otherwise.
@@ -391,11 +399,22 @@ impl Chat {
         .bind(message_id)
         .fetch_optional(&mut *tx)
         .await?;
-        let Some(row) = row.filter(|row| !row.is_deleted()) else { return Ok(None) };
         // Unsending must not take the recipients' way to report what they
-        // received: what it said is kept for that (see `subjects`). Not for
-        // takedowns, which already acted on a report.
-        if deleted_by.is_some() && !moderated && row.sender_id.is_some() {
+        // received: what it said is kept for that (see `subjects`). A
+        // takedown (moderation, a removed upload) keeps nothing, and forgets
+        // what was kept before: the report it acted on has the text.
+        let takedown = moderated || deleted_by.is_none();
+        if takedown {
+            sqlx::query("DELETE FROM chat_removed_texts WHERE message_id = $1")
+                .bind(message_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        let Some(row) = row.filter(|row| !row.is_deleted()) else {
+            tx.commit().await?;
+            return Ok(None);
+        };
+        if !takedown && row.sender_id.is_some() {
             sqlx::query("INSERT INTO chat_removed_texts (message_id, text, reason) VALUES ($1, $2, $3)")
                 .bind(message_id)
                 .bind(subjects::reported_text(&row))

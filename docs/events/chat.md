@@ -143,14 +143,17 @@ links of private files are renewed on every read.
 
 | Subject type | Resolves when | Owner | Notes |
 |---|---|---|---|
-| `SUBJECT_TYPE_CHAT_MESSAGE` | the viewer is a member of the conversation and can see the message (not from before they joined or cleared their history; not declined); a message its sender (or a group manager) deleted still resolves for 30 days after the deletion | the sender (nil UUID for system messages) | For reports only (`interactions_enabled` is false). Path `/chat/<conversation>?message=<id>`; title is the text (or a description of the content), for an edited message `<first text> → <current text>`, for a deleted one what it said last. Anonymous viewers and non-members never resolve it. |
+| `SUBJECT_TYPE_CHAT_MESSAGE` | the viewer is a member of the conversation and can see the message (not from before they joined or cleared their history; not declined) and it is not deleted. **For a report** (`resolve_for_report`) a message its sender (or a group manager) deleted still resolves for 30 days after the deletion | the sender (nil UUID for system messages) | For reports only (`interactions_enabled` is false). Path `/chat/<conversation>?message=<id>`; title is the current text (or a description of the content). For a report of a message that was edited or deleted: `[N版] <v1> → <v2> → … → <current or last text>`, each version cut to 80 characters. Anonymous viewers and non-members never resolve it. |
 
 Unsending or editing must not take away the recipients' way to report what
-they received. So the text a message had before an edit, and what it said
-when its sender (or a group manager) deleted it, is kept in
-`chat_removed_texts` for 30 days from that change and read by nothing but
-the subject resolver; a takedown keeps nothing (the report it acted on has
-the text). It is not part of the data export.
+they received. So the text a message had before each edit (the first 20
+edits; later ones keep nothing and the report title says so), and what it
+said when its sender (or a group manager) deleted it, is kept in
+`chat_removed_texts` for 30 days from that change. Only the report path of
+the subject resolver reads it: bookmarks, previews and everything else see
+the message as it is now. A takedown (moderation, a removed upload) deletes
+every kept version (the report it acted on has the text). The sender's data
+export lists their kept versions (`removed_texts`).
 
 ## Analytics events
 

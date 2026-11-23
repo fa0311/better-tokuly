@@ -50,6 +50,9 @@ pub struct FakeSubject {
     pub path: String,
     pub audience: Audience,
     pub interactions_enabled: bool,
+    /// Withdrawn by its owner after it reached people: it resolves only for
+    /// a report (`resolve_for_report`), titled with what they received.
+    pub withdrawn: bool,
 }
 
 impl FakeSubject {
@@ -98,6 +101,7 @@ impl FakeDomain {
             title: title.to_owned(),
             audience: Audience::Everyone,
             interactions_enabled: true,
+            withdrawn: false,
         };
         self.subjects.lock().insert(id, subject.clone());
         subject
@@ -126,6 +130,12 @@ impl FakeDomain {
 #[async_trait]
 impl SubjectResolver for FakeDomain {
     async fn resolve(&self, id: &str, viewer: Option<Uuid>) -> AppResult<Option<SubjectInfo>> {
+        let resolved = self.resolve_for_report(id, viewer).await?;
+        let withdrawn = |info: &SubjectInfo| self.subjects.lock().get(&info.id).is_some_and(|subject| subject.withdrawn);
+        Ok(resolved.filter(|info| !withdrawn(info)))
+    }
+
+    async fn resolve_for_report(&self, id: &str, viewer: Option<Uuid>) -> AppResult<Option<SubjectInfo>> {
         let subjects = self.subjects.lock();
         let Some(subject) = subjects.values().find(|subject| subject.id.to_string() == id || subject.short_id == id)
         else {
