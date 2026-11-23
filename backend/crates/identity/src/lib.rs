@@ -138,17 +138,6 @@ impl Identity {
         ProfileServiceExt::register(me, router)
     }
 
-    /// [`users::claimable_handle`] for an account's own handle; the
-    /// deployment's operator account may take its configured handle even
-    /// when that looks official.
-    pub(crate) fn claimable_handle(&self, input: &str) -> Result<String, &'static str> {
-        let operator = self.cfg.operator_account.trim().trim_start_matches('@');
-        match users::normalize_handle(input) {
-            Ok(handle) if !operator.is_empty() && handle.eq_ignore_ascii_case(operator) => Ok(handle),
-            _ => users::claimable_handle(input),
-        }
-    }
-
     /// The account as its owner sees it.
     pub async fn me(&self, user: &UserRow) -> AppResult<Me> {
         let passkeys: i64 = sqlx::query_scalar("SELECT count(*) FROM passkeys WHERE user_id = $1")

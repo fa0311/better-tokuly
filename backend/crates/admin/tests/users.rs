@@ -524,7 +524,7 @@ fn user_created(user: &TestUser) -> Event {
 #[tokio::test]
 async fn the_configured_owner_becomes_admin_when_they_sign_up() {
     let owner_email = format!("owner-{}@deploy.test", Uuid::now_v7().simple());
-    let (app, admin) = start_with(AdminConfig { bootstrap_admin: owner_email.clone(), ..Default::default() }).await;
+    let (app, admin) = start_with(AdminConfig { bootstrap_admin: owner_email.to_uppercase(), ..Default::default() }).await;
     let roles_of = async |user_id: Uuid| -> Vec<String> {
         sqlx::query_scalar("SELECT roles FROM users WHERE id = $1").bind(user_id).fetch_one(&app.core.db).await.unwrap()
     };
@@ -547,4 +547,47 @@ async fn the_configured_owner_becomes_admin_when_they_sign_up() {
     // Without the setting nothing is ever granted.
     let (_, unconfigured) = start().await;
     assert!(!unconfigured.grant_bootstrap_admin().await.unwrap());
+}
+
+/// `identity.user.email_verified` as identity emits it.
+fn email_verified(user: &TestUser) -> Event {
+    Event { topic: "identity.user.email_verified".into(), data: serde_json::json!({ "user_id": user.id }), ..user_created(user) }
+}
+
+#[tokio::test]
+async fn the_bootstrap_admin_needs_the_verified_address_and_happens_once() {
+    let address = format!("founder-{}@deploy.test", Uuid::now_v7().simple());
+    let (app, admin) = start_with(AdminConfig { bootstrap_admin: address.clone(), ..Default::default() }).await;
+    let roles_of = async |user_id: Uuid| -> Vec<String> {
+        sqlx::query_scalar("SELECT roles FROM users WHERE id = $1").bind(user_id).fetch_one(&app.core.db).await.unwrap()
+    };
+    // Someone signs up with the address but cannot open its mail: no admin.
+    let squatter = app.user("squatter").await;
+    sqlx::query("UPDATE users SET email = $2::citext, email_verified_at = NULL WHERE id = $1").bind(squatter.id).bind(&address).execute(&app.core.db).await.unwrap();
+    admin.handle_event(user_created(&squatter)).await.unwrap();
+    assert!(!admin.grant_bootstrap_admin().await.unwrap());
+    assert!(roles_of(squatter.id).await.is_empty());
+
+    // The real owner gets the address and confirms it.
+    sqlx::query("UPDATE users SET email = NULL WHERE id = $1").bind(squatter.id).execute(&app.core.db).await.unwrap();
+    let owner = app.user("founder").await;
+    sqlx::query("UPDATE users SET email = $2::citext, email_verified_at = NULL WHERE id = $1").bind(owner.id).bind(&address).execute(&app.core.db).await.unwrap();
+    admin.handle_event(user_created(&owner)).await.unwrap();
+    assert!(roles_of(owner.id).await.is_empty(), "not before the address is verified");
+    sqlx::query("UPDATE users SET email_verified_at = now() WHERE id = $1").bind(owner.id).execute(&app.core.db).await.unwrap();
+    admin.handle_event(email_verified(&owner)).await.unwrap();
+    assert_eq!(roles_of(owner.id).await, vec!["admin"]);
+
+    // Demoted, and the address passes to someone else: nobody is promoted again.
+    sqlx::query("UPDATE users SET roles = '{}', email = NULL WHERE id = $1").bind(owner.id).execute(&app.core.db).await.unwrap();
+    let next = app.user("next").await;
+    sqlx::query("UPDATE users SET email = $2::citext WHERE id = $1").bind(next.id).bind(&address).execute(&app.core.db).await.unwrap();
+    admin.handle_event(email_verified(&next)).await.unwrap();
+    assert!(!admin.grant_bootstrap_admin().await.unwrap());
+    assert!(roles_of(next.id).await.is_empty() && roles_of(owner.id).await.is_empty());
+
+    // A handle is not an address anyone proved: it promotes nobody.
+    let (_, by_handle) = start_with(AdminConfig { bootstrap_admin: next.handle.clone(), ..Default::default() }).await;
+    assert!(!by_handle.grant_bootstrap_admin().await.unwrap());
+    assert!(roles_of(next.id).await.is_empty());
 }

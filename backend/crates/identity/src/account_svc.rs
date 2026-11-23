@@ -95,7 +95,7 @@ impl AccountService for Identity {
                     let handle = if users::handle_holder(core, &normalized).await? == Some(user_id) {
                         normalized
                     } else {
-                        users::handle_error(self.claimable_handle(h))?
+                        users::handle_error(users::claimable_handle(h))?
                     };
                     core.cache.rate_limit(&format!("handle-change:{user_id}"), 3, Duration::from_secs(7 * 24 * 3600)).await?;
                     let taken: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE handle = $1::citext AND id <> $2)")

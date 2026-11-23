@@ -19,17 +19,6 @@ pub struct IdentityConfig {
     #[arg(long, env = "TOKULY_DELETION_GRACE_DAYS", default_value_t = 30)]
     pub deletion_grace_days: i64,
 
-    /// The deployment's own account (the same setting as the admin domain's
-    /// bootstrap admin). Its handle may look official (`tokuly_admin`); every
-    /// other account is refused handles that pass for Tokuly or its staff.
-    #[arg(
-        long = "identity-operator-account",
-        id = "identity_operator_account",
-        env = "TOKULY_ADMIN_USER",
-        default_value = ""
-    )]
-    pub operator_account: String,
-
     /// Spotify application credentials for the "now playing" connection.
     /// Leave empty to disable the integration.
     #[arg(long, env = "TOKULY_SPOTIFY_CLIENT_ID", default_value = "")]
@@ -50,7 +39,6 @@ impl Default for IdentityConfig {
             min_age: 13,
             session_days: 60,
             deletion_grace_days: 30,
-            operator_account: String::new(),
             spotify_client_id: String::new(),
             spotify_client_secret: String::new(),
         }

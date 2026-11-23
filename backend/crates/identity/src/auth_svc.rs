@@ -277,7 +277,7 @@ impl AuthService for Identity {
 
         let email = users::validate_email(&req.email)?;
         users::validate_password(&req.password)?;
-        let handle = users::handle_error(self.claimable_handle(&req.handle))?;
+        let handle = users::handle_error(users::claimable_handle(&req.handle))?;
         let display_name = users::validate_display_name(&req.display_name)?;
         let birthdate = users::validate_birthdate(&req.birthdate, self.cfg.min_age)?;
         let client = req.client.as_option();
@@ -541,7 +541,7 @@ impl AuthService for Identity {
         request: ServiceRequest<'_, CheckHandleRequest>,
     ) -> ServiceResult<CheckHandleResponse> {
         handle(async {
-            let normalized = match self.claimable_handle(request.handle) {
+            let normalized = match users::claimable_handle(request.handle) {
                 Ok(h) => h,
                 Err(reason) => {
                     return ok(CheckHandleResponse {

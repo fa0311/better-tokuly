@@ -665,24 +665,16 @@ async fn profile_views_leave_out_blocked_and_suspended_people() {
 }
 
 #[tokio::test]
-async fn only_the_operator_account_gets_an_official_looking_handle() {
-    let operator = unique("tokuly_");
-    let cfg = tokuly_identity::IdentityConfig { operator_account: format!("@{}", operator.to_uppercase()), ..Default::default() };
-    let app = TestApp::start(MIGRATIONS, move |core, _identity, router| tokuly_identity::Identity::new(core.clone(), cfg).unwrap().register(router)).await;
-    let check = |handle: String| {
-        let app = &app;
-        async move {
-            app.call::<_, CheckHandleResponse>("tokuly.identity.v1.AuthService/CheckHandle", None, &CheckHandleRequest { handle, ..Default::default() }).await.unwrap()
-        }
-    };
-    let impostor = unique("t0kuly_official");
-    let answer = check(impostor.clone()).await;
-    assert_eq!((answer.available, answer.reason.as_str()), (false, "RESERVED"));
-    let err = app.call::<_, AuthResponse>("tokuly.identity.v1.AuthService/SignUp", None, &sign_up_request(&impostor)).await.unwrap_err();
-    assert_eq!(err.reason, "HANDLE_RESERVED");
-
-    assert!(check(operator.clone()).await.available);
-    let _: AuthResponse = app.call("tokuly.identity.v1.AuthService/SignUp", None, &sign_up_request(&operator)).await.unwrap();
+async fn nobody_signs_up_with_an_official_looking_handle() {
+    let app = app().await;
+    // Not even the one a deployment names as its admin: whoever came first
+    // would hold it (the admin is bootstrapped by verified e-mail instead).
+    for impostor in [unique("t0kuly_official"), "tokuly_admin".to_owned()] {
+        let answer: CheckHandleResponse = app.call("tokuly.identity.v1.AuthService/CheckHandle", None, &CheckHandleRequest { handle: impostor.clone(), ..Default::default() }).await.unwrap();
+        assert_eq!((answer.available, answer.reason.as_str()), (false, "RESERVED"), "{impostor}");
+        let err = app.call::<_, AuthResponse>("tokuly.identity.v1.AuthService/SignUp", None, &sign_up_request(&impostor)).await.unwrap_err();
+        assert_eq!(err.reason, "HANDLE_RESERVED", "{impostor}");
+    }
 }
 
 #[tokio::test]

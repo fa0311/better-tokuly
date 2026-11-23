@@ -1,7 +1,16 @@
 import { createHmac } from "node:crypto";
 import { crc32, deflateSync } from "node:zlib";
 import type { APIRequestContext, Page } from "@playwright/test";
-import { type Account, expect as baseExpect, createAccount, PASSWORD, rpc, test } from "./support";
+import {
+  type Account,
+  expect as baseExpect,
+  createAccount,
+  mailedVerificationToken,
+  mailpitIsUp,
+  PASSWORD,
+  rpc,
+  test,
+} from "./support";
 
 // These flows hash passwords, process images and reload pages; on a busy
 // machine that takes a while, so they get more room than the defaults.
@@ -11,9 +20,6 @@ const expect = baseExpect.configure({ timeout: 25_000 });
 const AUTH = "tokuly.identity.v1.AuthService";
 const ACCOUNT = "tokuly.identity.v1.AccountService";
 const FRIENDS = "tokuly.social.v1.FriendService";
-
-/** Where the development stack delivers mail (Mailpit); tests that read mail skip without it. */
-const MAILPIT = process.env.TOKULY_MAILPIT_URL ?? "http://127.0.0.1:58025";
 
 /** From this width the section list sits beside the open section. */
 const isWide = (page: Page) => (page.viewportSize()?.width ?? 0) >= 1024;
@@ -73,41 +79,6 @@ function png(width: number, height: number): Buffer {
     chunk("IDAT", deflateSync(pixels)),
     chunk("IEND", Buffer.alloc(0)),
   ]);
-}
-
-async function mailpitIsUp(request: APIRequestContext): Promise<boolean> {
-  try {
-    return (await request.get(`${MAILPIT}/api/v1/info`, { timeout: 3000 })).ok();
-  } catch {
-    return false;
-  }
-}
-
-/** The token of the newest verification link mailed to `to` (in a mail with `subject`, when given). */
-async function mailedVerificationToken(
-  request: APIRequestContext,
-  to: string,
-  subject?: string,
-): Promise<string> {
-  let token = "";
-  const query = subject ? `to:${to} subject:"${subject}"` : `to:${to}`;
-  await expect(async () => {
-    const found = (await (
-      await request.get(`${MAILPIT}/api/v1/search`, { params: { query, limit: 5 } })
-    ).json()) as { messages: { ID: string }[] };
-    for (const { ID } of found.messages) {
-      const message = (await (await request.get(`${MAILPIT}/api/v1/message/${ID}`)).json()) as {
-        Text?: string;
-      };
-      const link = /\/verify-email\?token=([\w.~%-]+)/.exec(message.Text ?? "");
-      if (link?.[1]) {
-        token = decodeURIComponent(link[1]);
-        return;
-      }
-    }
-    expect(token, `a verification mail to ${to}`).not.toBe("");
-  }).toPass({ timeout: 20_000 });
-  return token;
 }
 
 /**

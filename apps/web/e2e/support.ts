@@ -11,8 +11,12 @@ export { expect };
 /** Every test account uses this password. */
 export const PASSWORD = "correct horse battery";
 
-/** Handle of the account the server promotes to admin (`TOKULY_ADMIN_USER`). */
-const ADMIN_HANDLE = process.env.TOKULY_E2E_ADMIN ?? "tokuly_admin";
+/**
+ * Address of the account the server promotes to admin once it is verified
+ * (`TOKULY_ADMIN_USER` of the server under test).
+ */
+const ADMIN_EMAIL = process.env.TOKULY_E2E_ADMIN_EMAIL ?? "e2e-admin@e2e.tokuly.test";
+const ADMIN_HANDLE = "e2e_admin";
 
 /** An account created for a test, with a token for calling the API as it. */
 export interface Account {
@@ -121,14 +125,15 @@ export async function refreshAccount(
 }
 
 /**
- * The deployment's admin account. The server grants the role when the
- * account named by `TOKULY_ADMIN_USER` signs up, a moment after the fact, so
- * this waits until a sign-in carries it.
+ * The deployment's admin account. The server grants the role once the
+ * address named by `TOKULY_ADMIN_USER` is verified, so this signs up with it,
+ * opens the verification link from Mailpit and waits until a sign-in
+ * carries the role.
  */
 export async function adminAccount(request: APIRequestContext): Promise<Account> {
   try {
     await rpc(request, "tokuly.identity.v1.AuthService/SignUp", {
-      email: `${ADMIN_HANDLE}@e2e.tokuly.test`,
+      email: ADMIN_EMAIL,
       password: PASSWORD,
       handle: ADMIN_HANDLE,
       displayName: "Admin",
@@ -139,17 +144,73 @@ export async function adminAccount(request: APIRequestContext): Promise<Account>
     // Another test (or an earlier run) created it already.
     if (!(error instanceof RpcError) || !/TAKEN|EXISTS/.test(error.reason)) throw error;
   }
-  let account: Account | undefined;
-  await expect(async () => {
-    account = toAccount(
+  const signIn = async () =>
+    toAccount(
       await rpc<AuthResponse>(request, "tokuly.identity.v1.AuthService/SignIn", {
-        identifier: ADMIN_HANDLE,
+        identifier: ADMIN_EMAIL,
         password: PASSWORD,
       }),
     );
+  let account = await signIn();
+  if (!account.roles.includes("admin")) {
+    const { me } = await rpc<{ me: { emailVerified?: boolean } }>(
+      request,
+      "tokuly.identity.v1.AccountService/GetMe",
+      {},
+      account,
+    );
+    if (!me.emailVerified) {
+      // Tests running at once may race to open the link; one of them wins.
+      await rpc(request, "tokuly.identity.v1.AuthService/VerifyEmail", {
+        token: await mailedVerificationToken(request, ADMIN_EMAIL),
+      }).catch((error) => {
+        if (!(error instanceof RpcError) || error.reason !== "TOKEN_INVALID") throw error;
+      });
+    }
+  }
+  await expect(async () => {
+    account = await signIn();
     expect(account.roles).toContain("admin");
   }).toPass({ timeout: 20_000 });
-  return account as Account;
+  return account;
+}
+
+/** Where the development stack delivers mail (Mailpit); tests that read mail skip without it. */
+const MAILPIT = process.env.TOKULY_MAILPIT_URL ?? "http://127.0.0.1:58025";
+
+export async function mailpitIsUp(request: APIRequestContext): Promise<boolean> {
+  try {
+    return (await request.get(`${MAILPIT}/api/v1/info`, { timeout: 3000 })).ok();
+  } catch {
+    return false;
+  }
+}
+
+/** The token of the newest verification link mailed to `to` (in a mail with `subject`, when given). */
+export async function mailedVerificationToken(
+  request: APIRequestContext,
+  to: string,
+  subject?: string,
+): Promise<string> {
+  let token = "";
+  const query = subject ? `to:${to} subject:"${subject}"` : `to:${to}`;
+  await expect(async () => {
+    const found = (await (
+      await request.get(`${MAILPIT}/api/v1/search`, { params: { query, limit: 5 } })
+    ).json()) as { messages: { ID: string }[] };
+    for (const { ID } of found.messages) {
+      const message = (await (await request.get(`${MAILPIT}/api/v1/message/${ID}`)).json()) as {
+        Text?: string;
+      };
+      const link = /\/verify-email\?token=([\w.~%-]+)/.exec(message.Text ?? "");
+      if (link?.[1]) {
+        token = decodeURIComponent(link[1]);
+        return;
+      }
+    }
+    expect(token, `a verification mail to ${to}`).not.toBe("");
+  }).toPass({ timeout: 20_000 });
+  return token;
 }
 
 /** Makes two accounts friends (each requests the other; the second request accepts the first). */
