@@ -58,6 +58,11 @@ impl DeviceLogin {
     }
 }
 
+/// Valkey key holding when the address behind an undo link was verified.
+fn revert_verified_key(token_hash: &str) -> String {
+    format!("id:revert:verified:{token_hash}")
+}
+
 /// `ABCD-2345`: uppercase without look-alike characters.
 fn new_user_code() -> String {
     use rand::RngExt as _;
@@ -182,17 +187,27 @@ impl Identity {
         });
     }
 
-    /// The address of `user_id` changed from `previous` to `current`: the
-    /// previous address gets a link that moves the account back (7 days,
-    /// once). Older such links stay valid, so a second change cannot take
-    /// the first undo away.
-    async fn offer_email_revert(&self, user_id: Uuid, previous: &str, current: &str, locale: &str) -> AppResult<()> {
+    /// The address of `user_id` changed from `previous`, verified at
+    /// `verified_at`, to `current`: the previous address gets a link that
+    /// moves the account back (7 days, once), and stays reserved for it
+    /// meanwhile ([`users::email_unavailable`]). Older such links stay valid,
+    /// so a second change cannot take the first undo away. Only a verified
+    /// address is offered one: an undo must not hand an account an address it
+    /// never proved.
+    async fn offer_email_revert(&self, user_id: Uuid, previous: &str, verified_at: DateTime<Utc>, current: &str, locale: &str) -> AppResult<()> {
         let token = random_token(32);
+        let token_hash = self.core.keys.token_hash(&token);
+        let ttl = chrono::Duration::days(REVERT_TTL_DAYS);
+        // The undo restores the address as it was, verified when it was.
+        self.core
+            .cache
+            .set_string(&revert_verified_key(&token_hash), &verified_at.to_rfc3339(), ttl.to_std().ok())
+            .await?;
         sqlx::query("INSERT INTO email_tokens (token_hash, user_id, purpose, email, expires_at) VALUES ($1, $2, 'revert', $3::citext, $4)")
-            .bind(self.core.keys.token_hash(&token))
+            .bind(&token_hash)
             .bind(user_id)
             .bind(previous)
-            .bind(Utc::now() + chrono::Duration::days(REVERT_TTL_DAYS))
+            .bind(Utc::now() + ttl)
             .execute(&self.core.db)
             .await?;
         let (identity, previous, current, locale) = (self.clone(), previous.to_owned(), current.to_owned(), locale.to_owned());
@@ -291,13 +306,11 @@ impl AuthService for Identity {
             .and_then(|c| users::validate_time_zone(&c.time_zone).ok())
             .unwrap_or_else(|| "Asia/Tokyo".to_owned());
 
-        let (handle_taken, email_taken): (bool, bool) = sqlx::query_as(
-            "SELECT EXISTS(SELECT 1 FROM users WHERE handle = $1::citext), EXISTS(SELECT 1 FROM users WHERE email = $2::citext)",
-        )
-        .bind(&handle)
-        .bind(&email)
-        .fetch_one(&core.db)
-        .await?;
+        let handle_taken: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE handle = $1::citext)")
+            .bind(&handle)
+            .fetch_one(&core.db)
+            .await?;
+        let email_taken = users::email_unavailable(core, &email, None).await?;
         ensure!(!handle_taken, already_exists, "HANDLE_TAKEN", "this handle is already in use");
         let handle_held = users::handle_held_from(core, &handle, None).await?;
         ensure!(!handle_held, already_exists, "HANDLE_TAKEN", "this handle is already in use");
@@ -720,6 +733,21 @@ impl AuthService for Identity {
         handle(async {
         let meta = ctx.client();
         let token_hash = self.core.keys.token_hash(request.token);
+        // Look before spending the link: a change or undo to an address that
+        // cannot be had fails without using it up.
+        let pending: Option<(Uuid, String, String)> = sqlx::query_as(
+            "SELECT user_id, purpose, email::text FROM email_tokens
+             WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now() AND purpose IN ('verify', 'change', 'revert')",
+        )
+        .bind(&token_hash)
+        .fetch_optional(&self.core.db)
+        .await?;
+        if let Some((owner, purpose, email)) = &pending
+            && purpose != "verify"
+        {
+            let unavailable = users::email_unavailable(&self.core, email, Some(*owner)).await?;
+            ensure!(!unavailable, already_exists, "EMAIL_TAKEN", "an account with this email already exists");
+        }
         let (user_id, purpose, email) = self.consume_email_token(request.token, &["verify", "change", "revert"]).await?;
         // The person opening the link may be signed in on this device; that
         // session survives a change (not an undo).
@@ -727,17 +755,21 @@ impl AuthService for Identity {
         let mut reverted = false;
         if purpose == "change" || purpose == "revert" {
             let before = users::get(&self.core, user_id).await?;
-            let taken: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE email = $1::citext AND id <> $2)")
-                .bind(&email)
-                .bind(user_id)
-                .fetch_one(&self.core.db)
-                .await
-                .map_err(AppError::from)?;
-            ensure!(!taken, already_exists, "EMAIL_TAKEN", "an account with this email already exists");
+            // A change is proven by its link now; an undo puts back the
+            // address as it was, verified when it was (never "now").
+            let verified_at = if purpose == "change" {
+                Some(Utc::now())
+            } else {
+                let key = revert_verified_key(&token_hash);
+                let stored = self.core.cache.get_string(&key).await?;
+                self.core.cache.del(&key).await?;
+                stored.and_then(|t| DateTime::parse_from_rfc3339(&t).ok()).map(|t| t.with_timezone(&Utc))
+            };
             let mut tx = self.core.db.begin().await?;
-            sqlx::query("UPDATE users SET email = $2::citext, email_verified_at = now() WHERE id = $1")
+            sqlx::query("UPDATE users SET email = $2::citext, email_verified_at = $3 WHERE id = $1")
                 .bind(user_id)
                 .bind(&email)
+                .bind(verified_at)
                 .execute(&mut *tx)
                 .await
                 .map_err(AppError::from)?;
@@ -753,7 +785,9 @@ impl AuthService for Identity {
                 .execute(&mut *tx)
                 .await?;
             }
-            events::emit(&mut *tx, "identity.user.email_verified", Some(user_id), &crate::maintenance::UserRef { user_id }).await?;
+            if verified_at.is_some() {
+                events::emit(&mut *tx, "identity.user.email_verified", Some(user_id), &crate::maintenance::UserRef { user_id }).await?;
+            }
             tx.commit().await?;
             // Whoever had the account under the other address loses it:
             // pending reset and change links die, and devices sign out.
@@ -765,8 +799,12 @@ impl AuthService for Identity {
             } else {
                 self.revoke_all_sessions(user_id, opener).await?;
                 self.log_security_event(user_id, "EMAIL_CHANGED", &meta, "", serde_json::json!({})).await;
-                if let Some(previous) = before.email.as_deref().filter(|previous| !previous.eq_ignore_ascii_case(&email)) {
-                    self.offer_email_revert(user_id, previous, &email, &before.locale).await?;
+                // An unverified previous address is not told and gets no undo:
+                // it was never shown to belong to this account.
+                if let (Some(previous), Some(verified_at)) = (before.email.as_deref(), before.email_verified_at)
+                    && !previous.eq_ignore_ascii_case(&email)
+                {
+                    self.offer_email_revert(user_id, previous, verified_at, &email, &before.locale).await?;
                 }
             }
         } else {

@@ -35,9 +35,12 @@ service AuthService {
 
   rpc RequestEmailVerification(RequestEmailVerificationRequest) returns (RequestEmailVerificationResponse);
   // Opens a mailed link: confirms an address, completes an address change,
-  // or undoes one. A completed change signs out every other device, voids
-  // pending reset links and mails the previous address an undo link (7
-  // days, once). TOKEN_INVALID, EMAIL_TAKEN.
+  // or undoes one. A completed change signs out every other device and voids
+  // pending reset links; when the previous address was verified it is mailed
+  // an undo link (7 days, once) and stays reserved for it until then
+  // (sign-up and ChangeEmail treat it as taken). The undo restores the
+  // address with its original verification. TOKEN_INVALID, EMAIL_TAKEN (the
+  // link stays usable).
   rpc VerifyEmail(VerifyEmailRequest) returns (VerifyEmailResponse);
   rpc RequestPasswordReset(RequestPasswordResetRequest) returns (RequestPasswordResetResponse);
   rpc ResetPassword(ResetPasswordRequest) returns (ResetPasswordResponse);

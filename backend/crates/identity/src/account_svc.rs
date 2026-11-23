@@ -353,12 +353,7 @@ impl AccountService for Identity {
             // Someone else's address gets the same answer as a free one, so
             // this cannot be used to find out who has an account; it just
             // never receives a link (and VerifyEmail checks again).
-            let taken: bool =
-                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE email = $1::citext)")
-                    .bind(&email)
-                    .fetch_one(&self.core.db)
-                    .await
-                    .map_err(AppError::from)?;
+            let taken = users::email_unavailable(&self.core, &email, Some(user.id)).await?;
             if !taken {
                 // The address only changes once the new one is verified.
                 self.spawn_verification_mail(user.id, email, user.locale.clone(), "change");

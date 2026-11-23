@@ -824,7 +824,7 @@ fn subject(message: &str) -> String {
 /// (undoing quoted-printable soft breaks and escapes).
 fn mailed_link_token(message: &str) -> String {
     let decoded = message.replace("=\n", "").replace("=3D", "=");
-    let start = decoded.find("verify-email?token=").expect("a link in the mail") + "verify-email?token=".len();
+    let start = decoded.find("?token=").expect("a link in the mail") + "?token=".len();
     decoded[start..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect()
 }
 
@@ -862,6 +862,9 @@ async fn a_changed_address_is_told_to_the_old_one_which_can_undo_it() {
     let (tag, owner) = english_account(&app, "moved").await;
     let elsewhere = app.sign_in(owner.id).await;
     let old = format!("{tag}@example.com");
+    // The owner had proven the address long ago.
+    let proven_at = chrono::DateTime::parse_from_rfc3339("2026-01-02T03:04:05Z").unwrap().with_timezone(&chrono::Utc);
+    sqlx::query("UPDATE users SET email_verified_at = $2 WHERE id = $1").bind(owner.id).bind(proven_at).execute(&app.core.db).await.unwrap();
     let reset = mailed_token(&app, owner.id, "reset", &old).await;
 
     // The change is confirmed from the new address (by whoever holds it).
@@ -892,11 +895,66 @@ async fn a_changed_address_is_told_to_the_old_one_which_can_undo_it() {
     let back: VerifyEmailResponse = app.call("tokuly.identity.v1.AuthService/VerifyEmail", None, &VerifyEmailRequest { token: undo_to_old.clone(), ..Default::default() }).await.unwrap();
     assert!(back.email_change_reverted);
     let account = tokuly_identity::users::get(&app.core, owner.id).await.unwrap();
-    assert_eq!((account.email.as_deref(), account.email_verified_at.is_some()), (Some(old.as_str()), true));
+    assert_eq!((account.email.as_deref(), account.email_verified_at), (Some(old.as_str()), Some(proven_at)), "back as it was, verified when it was");
     assert!(live_sessions(&app, owner.id).await.is_empty(), "an undo signs out every device");
     let again = app.call::<_, VerifyEmailResponse>("tokuly.identity.v1.AuthService/VerifyEmail", None, &VerifyEmailRequest { token: undo_to_old, ..Default::default() }).await.unwrap_err();
     assert_eq!(again.reason, "TOKEN_INVALID", "an undo link works once");
     assert_eq!(app.events_by("identity.user.email_verified", owner.id).await.len(), 4);
+}
+
+#[tokio::test]
+async fn an_undo_never_hands_out_an_address_nobody_proved() {
+    let (app, mail) = mailing_app().await;
+    // Someone signs up with the owner's address, which they cannot read...
+    let owners_address = format!("{}@victim.example", unique("owner"));
+    let mut request = sign_up_request(&unique("squat"));
+    request.email = owners_address.clone();
+    request.client = ClientInfo { locale: "en".into(), ..Default::default() }.into();
+    let auth: AuthResponse = app.call("tokuly.identity.v1.AuthService/SignUp", None, &request).await.unwrap();
+    let squatter: uuid::Uuid = auth.me.as_option().unwrap().user.as_option().unwrap().id.parse().unwrap();
+    // ...then moves the account to their own and confirms it.
+    let change = mailed_token(&app, squatter, "change", &format!("{}@attacker.example", unique("own"))).await;
+    let _: VerifyEmailResponse = app.call("tokuly.identity.v1.AuthService/VerifyEmail", None, &VerifyEmailRequest { token: change, ..Default::default() }).await.unwrap();
+    // The owner of the address gets no "move it back" link: pressing it would
+    // give the squatter's account the owner's address, verified.
+    let undo: i64 = sqlx::query_scalar("SELECT count(*) FROM email_tokens WHERE user_id = $1 AND purpose = 'revert'").bind(squatter).fetch_one(&app.core.db).await.unwrap();
+    assert_eq!(undo, 0);
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let told: Vec<String> = mail.to(&owners_address, 1).await.iter().map(|m| subject(m)).collect();
+    assert_eq!(told, ["Confirm your email for Tokuly"], "only the sign-up mail ever went there");
+}
+
+#[tokio::test]
+async fn an_address_waiting_for_its_undo_cannot_be_taken() {
+    let app = app().await;
+    let tag = unique("undo");
+    let auth: AuthResponse = app.call("tokuly.identity.v1.AuthService/SignUp", None, &sign_up_request(&tag)).await.unwrap();
+    let owner: uuid::Uuid = auth.me.as_option().unwrap().user.as_option().unwrap().id.parse().unwrap();
+    let old = format!("{tag}@example.com");
+    // The account moved away from `old`; its undo link is out.
+    sqlx::query("UPDATE users SET email = $2::citext, email_verified_at = now() WHERE id = $1").bind(owner).bind(format!("{tag}@moved.example")).execute(&app.core.db).await.unwrap();
+    let undo = mailed_token(&app, owner, "revert", &old).await;
+
+    // Taking the freed address would burn the owner's undo: refused like any taken address.
+    let mut grab = sign_up_request(&unique("grab"));
+    grab.email = old.clone();
+    let err = app.call::<_, AuthResponse>("tokuly.identity.v1.AuthService/SignUp", None, &grab).await.unwrap_err();
+    assert_eq!(err.reason, "EMAIL_TAKEN");
+    let other = app.user("other").await;
+    let _: ChangeEmailResponse = app
+        .call("tokuly.identity.v1.AccountService/ChangeEmail", Some(&other), &ChangeEmailRequest { new_email: old.clone(), ..Default::default() })
+        .await
+        .unwrap();
+    let links: i64 = sqlx::query_scalar("SELECT count(*) FROM email_tokens WHERE user_id = $1 AND purpose = 'change'").bind(other.id).fetch_one(&app.core.db).await.unwrap();
+    assert_eq!(links, 0, "no link is sent for a reserved address");
+
+    // Should the address be taken anyway, the undo fails without being spent.
+    sqlx::query("UPDATE users SET email = $2::citext WHERE id = $1").bind(other.id).bind(&old).execute(&app.core.db).await.unwrap();
+    let err = app.call::<_, VerifyEmailResponse>("tokuly.identity.v1.AuthService/VerifyEmail", None, &VerifyEmailRequest { token: undo.clone(), ..Default::default() }).await.unwrap_err();
+    assert_eq!(err.reason, "EMAIL_TAKEN");
+    sqlx::query("UPDATE users SET email = NULL WHERE id = $1").bind(other.id).execute(&app.core.db).await.unwrap();
+    let back: VerifyEmailResponse = app.call("tokuly.identity.v1.AuthService/VerifyEmail", None, &VerifyEmailRequest { token: undo, ..Default::default() }).await.unwrap();
+    assert!(back.email_change_reverted);
 }
 
 #[tokio::test]

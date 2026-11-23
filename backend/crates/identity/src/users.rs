@@ -169,6 +169,23 @@ pub async fn find_by_handle(core: &Core, handle: &str) -> AppResult<Option<UserR
     .await?)
 }
 
+/// Whether `email` cannot be given to an account (other than `for_user`):
+/// another account has it, or it is reserved for an unused undo link of
+/// another account (whose owner must be able to move back to it; a fresh
+/// sign-up with it would burn that undo). Callers answer as for a taken
+/// address, without saying why.
+pub(crate) async fn email_unavailable(core: &Core, email: &str, for_user: Option<Uuid>) -> AppResult<bool> {
+    Ok(sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM users WHERE email = $1::citext AND ($2::uuid IS NULL OR id <> $2))
+             OR EXISTS(SELECT 1 FROM email_tokens WHERE purpose = 'revert' AND email = $1::citext AND used_at IS NULL
+                       AND expires_at > now() AND ($2::uuid IS NULL OR user_id <> $2))",
+    )
+    .bind(email)
+    .bind(for_user)
+    .fetch_one(&core.db)
+    .await?)
+}
+
 /// The one spelling of a sign-in identifier: an address lowercased, a
 /// handle without any leading `@` and lowercased. Rate limits key on it, so
 /// `@h`, `@@h` and `H` are the same name.
