@@ -94,7 +94,7 @@ conversation receive nothing from it.
 | `reaction_changed` | members | A reaction was added or removed (with the new count of that emoji). |
 | `read_receipt` | accepted members | A read cursor moved forward (also the sender's, when sending skipped unread messages). A member reading a message *request* only tells their own devices. |
 | `typing` | other accepted members | See bus subjects. |
-| `presence` | accepted members | The set of members shown as present changed (signal, leaving the group, expiry). |
+| `presence` | accepted members, each without the members in a block with them (and nothing at all to someone in a block with whoever changed) | The set of members shown as present changed (signal, leaving the group, expiry). |
 | `conversation_updated` | all members (shared fields, no `viewer`, no `last_message`) or one member (with `viewer`) | Rename, icon, members, read-only; or the recipient's own state: added to a group, role, request accepted, preferences changed on another device. |
 | `conversation_removed` | the member | They left, were removed, hid the conversation or declined the request. |
 | `call` | accepted members | A call started ringing, was answered, gained or lost a participant, or ended. |
