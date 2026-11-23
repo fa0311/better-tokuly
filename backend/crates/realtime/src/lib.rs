@@ -55,6 +55,8 @@ mod peer;
 mod presence;
 mod session;
 mod stats;
+#[cfg(feature = "testing")]
+pub mod testing;
 mod topics;
 mod ws;
 mod wt;
@@ -92,6 +94,8 @@ pub struct GatewayInner {
     origins: OriginPolicy,
     trusted_proxies: TrustedProxies,
     ip_limiter: Arc<IpLimiter>,
+    /// Periodic guard checks of this gateway, over all connections.
+    recheck_limit: parking_lot::Mutex<limits::TokenBucket>,
     /// Cancelled on shutdown: every session says goodbye and ends.
     closing: CancellationToken,
     /// The connection tasks, so shutdown can wait for them.
@@ -155,6 +159,10 @@ impl Gateway {
             origins,
             trusted_proxies: cfg.trusted_proxies()?,
             ip_limiter: IpLimiter::new(cfg.max_connections_per_ip),
+            recheck_limit: parking_lot::Mutex::new(limits::TokenBucket::new(
+                cfg.recheck_rate.ceil().min(f64::from(u32::MAX)) as u32,
+                cfg.recheck_rate,
+            )),
             closing: CancellationToken::new(),
             connections: TaskTracker::new(),
             listening: watch::Sender::new(None),

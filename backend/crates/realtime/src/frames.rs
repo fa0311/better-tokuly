@@ -9,7 +9,7 @@ use bytes::Bytes;
 use tokuly_core::time::{now, ts};
 use tokuly_proto::{
     geo::GeoEvent,
-    realtime::{Error, Pong, ServerFrame, TopicStats, Welcome, server_frame::Body},
+    realtime::{Error, Pong, ServerFrame, TopicStats, Unsubscribed, Welcome, server_frame::Body},
 };
 
 /// What `Welcome.protocol_version` says. Raise it together with
@@ -91,6 +91,14 @@ pub(crate) fn error(reply_to: u64, rejection: Rejection, fatal: bool) -> Bytes {
         ..Default::default()
     };
     encode(reply_to, Body::Error(Box::new(error)))
+}
+
+/// Tells a connection that the server dropped its subscription to `topic`.
+pub(crate) fn unsubscribed(topic: &str, reason: &str) -> Bytes {
+    let body = Unsubscribed { topic: topic.to_owned(), reason: reason.to_owned(), ..Default::default() };
+    let frame =
+        ServerFrame { topic: topic.to_owned(), body: Some(Body::Unsubscribed(Box::new(body))), ..Default::default() };
+    Bytes::from(frame.encode_to_vec())
 }
 
 /// A `TopicStats` push for the subscribers of `topic`. It travels the way

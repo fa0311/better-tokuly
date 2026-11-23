@@ -15,19 +15,24 @@ use crate::frames::{Code, Rejection};
 pub(crate) const MAX_TOPIC_LEN: usize = 128;
 
 const INVALID: Rejection = Rejection::new(Code::InvalidArgument, "TOPIC_INVALID");
+/// The guard refused.
+pub(crate) const FORBIDDEN: Rejection = Rejection::new(Code::PermissionDenied, "TOPIC_FORBIDDEN");
+/// The guard could not decide.
+pub(crate) const CHECK_FAILED: Rejection = Rejection::new(Code::Unavailable, "TOPIC_CHECK_FAILED");
 
 /// Asks the owning domain's guard whether `subscriber` (`None` = anonymous
-/// connection) may follow a (valid) topic. The check runs once, when a
-/// connection subscribes.
+/// connection) may follow a (valid) topic. The check runs when a connection
+/// subscribes, again when a domain revokes the subscription, and
+/// periodically while it lasts.
 pub(crate) async fn authorize(guards: &TopicGuards, subscriber: Option<Uuid>, topic: &str) -> Result<(), Rejection> {
     match guards.may_subscribe(subscriber, topic).await {
         Ok(true) => Ok(()),
-        Ok(false) => Err(Rejection::new(Code::PermissionDenied, "TOPIC_FORBIDDEN")),
+        Ok(false) => Err(FORBIDDEN),
         // The guard could not decide (its database is down, say): refuse
         // for now rather than let someone in unchecked.
         Err(error) => {
             tracing::warn!(topic, %error, "topic guard failed");
-            Err(Rejection::new(Code::Unavailable, "TOPIC_CHECK_FAILED"))
+            Err(CHECK_FAILED)
         }
     }
 }

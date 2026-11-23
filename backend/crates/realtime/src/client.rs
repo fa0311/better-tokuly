@@ -5,6 +5,9 @@ use std::sync::{
 };
 
 use bytes::Bytes;
+use parking_lot::Mutex;
+use tokio::sync::Notify;
+use tokuly_core::realtime::{Control, TopicPattern};
 use uuid::Uuid;
 
 use crate::{
@@ -31,6 +34,35 @@ impl Transport {
 
 static NEXT_KEY: AtomicU64 = AtomicU64::new(1);
 
+/// The most control messages one connection queues; beyond that they are
+/// folded into a single "re-check everything".
+const MAX_QUEUED_CONTROLS: usize = 256;
+
+/// An instruction for a connection's session about its subscriptions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SessionControl {
+    /// Ask the guard again for the subscriptions matching the pattern.
+    Recheck(TopicPattern),
+    /// Drop this topic without asking.
+    Close(String),
+}
+
+impl SessionControl {
+    /// What a control message received on a route means for its members.
+    /// `topic` is the route's topic (`None` for a user route).
+    pub(crate) fn from_bus(control: Control, topic: Option<&str>) -> Option<Self> {
+        match (control, topic) {
+            (Control::Recheck(pattern), None) => Some(SessionControl::Recheck(pattern)),
+            (Control::RecheckTopic, Some(topic)) => {
+                Some(SessionControl::Recheck(TopicPattern::Exact(topic.to_owned())))
+            }
+            (Control::CloseTopic, Some(topic)) => Some(SessionControl::Close(topic.to_owned())),
+            // An instruction sent to the wrong kind of subject.
+            _ => None,
+        }
+    }
+}
+
 /// One connected client, as seen by fan-out: an identity and an outbox.
 pub(crate) struct Client {
     /// Told to the client in `Welcome.connection_id`; also in every log line.
@@ -43,6 +75,10 @@ pub(crate) struct Client {
     /// connection may sign in late but not become someone else). Topic
     /// frames that name this user in their exception list skip it.
     pub user: OnceLock<Uuid>,
+    /// Instructions for the session, in arrival order (see [`Self::control`]).
+    controls: Mutex<Vec<SessionControl>>,
+    /// Wakes the session when `controls` gained an entry.
+    controls_ready: Notify,
     counters: Arc<Counters>,
 }
 
@@ -54,6 +90,8 @@ impl Client {
             transport,
             outbox: Outbox::new(limits),
             user: OnceLock::new(),
+            controls: Mutex::new(Vec::new()),
+            controls_ready: Notify::new(),
             counters,
         })
     }
@@ -69,6 +107,41 @@ impl Client {
                 tracing::info!(connection = %self.id, transport = self.transport.as_str(), "disconnecting slow consumer");
             }
         }
+    }
+
+    /// Hands an instruction to the session, which applies it between two
+    /// client frames: so a revocation that arrives while a `Subscribe` is
+    /// being checked is applied after that subscription exists. Never
+    /// blocks; a flood is folded into one re-check of every subscription.
+    pub(crate) fn control(&self, control: SessionControl) {
+        let mut controls = self.controls.lock();
+        if controls.contains(&control) {
+            return;
+        }
+        if controls.len() >= MAX_QUEUED_CONTROLS {
+            let everything = SessionControl::Recheck(TopicPattern::Prefix(String::new()));
+            // Closing is decided without the guard; keep those, re-check the rest.
+            controls.retain(|queued| matches!(queued, SessionControl::Close(_)));
+            if matches!(control, SessionControl::Close(_)) && controls.len() < MAX_QUEUED_CONTROLS {
+                controls.push(control);
+            }
+            controls.truncate(MAX_QUEUED_CONTROLS - 1);
+            controls.push(everything);
+        } else {
+            controls.push(control);
+        }
+        drop(controls);
+        self.controls_ready.notify_one();
+    }
+
+    /// Resolves when an instruction may be waiting.
+    pub(crate) async fn controls_ready(&self) {
+        self.controls_ready.notified().await;
+    }
+
+    /// Takes the queued instructions.
+    pub(crate) fn take_controls(&self) -> Vec<SessionControl> {
+        std::mem::take(&mut *self.controls.lock())
     }
 
     /// Queues one of the gateway's own replies (always reliable).

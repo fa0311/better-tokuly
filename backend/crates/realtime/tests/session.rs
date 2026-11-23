@@ -424,10 +424,22 @@ async fn guarded_topics_are_only_open_to_those_the_domain_admits() {
 
     let mut client = harness.ws_as(Some(&member), true).await;
     assert!(is_ack(&client.request(subscribe_body(&[&topic])).await));
-    // The guard also covers topics named in Hello.
+    // The guard also covers topics named in Hello. A refusal there does not
+    // refuse the Hello (a client reconnecting with a topic it lost access to
+    // would never be welcomed again): it is welcomed and told.
     let mut anonymous = harness.ws().await;
-    let reply = anonymous.request(hello_body("", true, &[&topic])).await;
-    assert_eq!(error_of(&reply).message, "TOPIC_FORBIDDEN");
+    let open = unique_topic("live");
+    let reply = anonymous.request(hello_body("", true, &[&topic, &open])).await;
+    assert!(matches!(reply.body, Some(Body::Welcome(_))));
+    let told = anonymous.next_where(|frame| matches!(frame.body, Some(Body::Unsubscribed(_)))).await;
+    let Some(Body::Unsubscribed(unsubscribed)) = told.body else { unreachable!() };
+    assert_eq!(
+        (told.topic.as_str(), unsubscribed.topic.as_str(), unsubscribed.reason.as_str()),
+        (topic.as_str(), topic.as_str(), "TOPIC_FORBIDDEN")
+    );
+    harness.app.core.rt.to_topic(&topic, &marker("members only")).await.unwrap();
+    harness.app.core.rt.to_topic(&open, &marker("open")).await.unwrap();
+    assert_eq!(marker_text(&anonymous.next_where(|frame| marker_text(frame).is_some()).await).as_deref(), Some("open"));
 }
 
 // ───────────────────────────── Malformed input ─────────────────────────────
