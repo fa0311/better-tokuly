@@ -42,8 +42,9 @@ Topic `space:<space id>`, guarded: whoever may see the room may follow it
 that does (`ServerFrame.unsubscribed`, see `docs/events/realtime.md`):
 whoever leaves the room for any reason, is banned (also while away), or
 loses an invitation is re-checked; a block and an unfriending re-check the
-two people's `space:` subscriptions; a narrower audience re-checks every
-subscriber; a deleted room closes the topic.
+two people's `space:` subscriptions; a narrower audience and a hand-over
+(a friends room follows the new host's friendships and blocks) re-check
+every subscriber; a deleted room closes the topic.
 
 | Event | To | When |
 |---|---|---|

@@ -251,7 +251,8 @@ their place came up).
 moderation) otherwise. Subscriptions end when access does
 (`ServerFrame.unsubscribed`, see `docs/events/realtime.md`): every
 membership change (removal, ban, leaving, a timeout or role change)
-re-checks that person's subscription; a community that stops being public
+re-checks that person's subscription, and their `subject:` subscriptions
+(comments and counters of threads, replies and events); a community that stops being public
 re-checks every subscriber; a closed community closes the topic after
 `community_changed { deleted }`.
 

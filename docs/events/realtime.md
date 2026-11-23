@@ -107,7 +107,7 @@ gateways once its change is committed (`tokuly_core::realtime`):
 |---|---|---|
 | `rt.revoke(user, topic)` | `rt.u.<user>`, `Tokuly-Control: recheck`, `Tokuly-Topic: <topic>` | each connection of the user that follows the topic asks the guard again and drops it if refused |
 | `rt.revoke_prefix(user, prefix)` | the same with `recheck-prefix` | as above, for every topic equal to the prefix or below it (`party:<id>` covers `party:<id>:<key>`; `live` covers every `live:` topic; whole segments only) |
-| `rt.recheck_topic(topic)` | `rt.t.<topic>`, `Tokuly-Control: recheck` | every subscriber, anonymous ones included, is asked about again |
+| `rt.recheck_topic(topic)` | `rt.t.<topic>`, `Tokuly-Control: recheck` | every subscriber, anonymous ones included, is asked about again — within the gateway's re-check budget (below), so a big audience is gone through over seconds rather than with every guard query at once. Call it only when an audience narrows |
 | `rt.close_topic(topic)` | `rt.t.<topic>`, `Tokuly-Control: close` | every subscriber is dropped without asking (the room was deleted, the share or stream is over) |
 
 A dropped subscription is announced to its connection with
@@ -119,20 +119,25 @@ again. Clients do not subscribe again by themselves.
 - **The guard decides.** A revocation is "ask again", so a domain calls it
   on any change that *might* end access (leaving a room one may still see
   drops nothing), and twice is the same as once. A guard that fails on the
-  re-check keeps the subscription and is asked again 10 s later.
+  re-check — or on the second look while subscribing — keeps the
+  subscription and is asked again 10 s later: an outage is not a revocation,
+  and clients treat only `TOPIC_FORBIDDEN` and `TOPIC_CLOSED` as one.
 - **No race with subscribing.** Revocations wait in the connection's
   queue and are applied between two client frames, so one that arrives
   while a `Subscribe` is being checked is applied to the subscription that
-  check made. A revocation this gateway could not hear yet — published while
-  the topic's bus subscription was being made here, or while the guard was
-  being asked — makes the gateway ask the guard again after joining, before
-  it answers. Signed-in connections join their user subject before the
+  check made. A revocation for that topic this gateway could not hear yet —
+  published while the topic's bus subscription was being made here, or
+  while the guard was being asked (each route counts the control messages
+  it receives) — makes the gateway ask the guard again after joining,
+  before it answers. Signed-in connections join their user subject before the
   guards of their Hello topics are asked.
 - **Safety net.** Revocations are best-effort like every push. Each
   connection also re-checks every subscription that is older than
   `TOKULY_RT_RECHECK_INTERVAL` (5 min), at most `TOKULY_RT_RECHECK_BATCH`
   (8) at once, and the whole gateway at most `TOKULY_RT_RECHECK_RATE`
-  (200) per second; what does not fit waits a second. 5 minutes bounds how
+  (200) per second; what does not fit waits about a second (spread by
+  ±50 %, so the sessions turned away do not all come back at once).
+  Topic-wide re-checks (`recheck_topic`) use the same budget. 5 minutes bounds how
   long a lost revocation can leave someone listening; 200 checks a second
   (one indexed query each) keep 60,000 subscriptions per gateway on that
   cycle, and beyond that the cycle stretches rather than the database load

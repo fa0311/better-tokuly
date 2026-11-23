@@ -128,7 +128,10 @@ once.
 whom the subject resolves (and who are not in a block with its owner) may
 subscribe. A block and an unfriending re-check both people's `subject:`
 subscriptions (`Realtime::revoke_prefix`); a subject a moderator removed
-closes its topic. Deleted notes close theirs (notes domain). Other changes
+closes its topic. Deleted notes close theirs, and a note whose audience
+narrows re-checks its followers (notes domain); a removal from a
+community re-checks the person's `subject:` subscriptions (community
+domain). Other changes
 of a subject's visibility in its owning domain are caught by the gateway's
 periodic re-check.
 

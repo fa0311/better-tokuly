@@ -385,6 +385,7 @@ Someone who loses access after subscribing loses the subscription too
 (`ServerFrame.unsubscribed`, see `docs/events/realtime.md`): a block
 between them and the streamer and an unfriending (both re-check the two
 people's `live:` subscriptions), a stream narrowed to friends or members
+(not a widening, nor a move between the visibilities open to everyone)
 or suspended (every subscriber re-checked), a deleted stream (the topic
 closes). Known limits: other events on the topic (`stream_updated`,
 `stats`, polls) are not filtered by blocks. A block made between reading the

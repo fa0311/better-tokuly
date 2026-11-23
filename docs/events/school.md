@@ -108,7 +108,9 @@ room can subscribe (`TopicGuard` registered for the `study` kind). The
 subscription ends when that does (`ServerFrame.unsubscribed`, see
 `docs/events/realtime.md`): leaving, removal, a ban and a withdrawn
 invitation re-check the person; a block or an unfriending re-checks both
-people's `study:` subscriptions; a new audience re-checks every subscriber;
+people's `study:` subscriptions; a narrower audience, and someone with
+blocks entering (blocks hide people from each other in rooms), re-check
+every subscriber;
 a closed room closes the topic after `room_closed`.
 
 | Event | When |
