@@ -154,3 +154,39 @@ async fn coins_do_not_move_to_or_from_a_deleted_account() {
     assert_eq!(ledger::balance(&app.core, leaver.id).await.unwrap(), Balance { coins: 800, earnings: 0 }, "left for the clean-up to forfeit");
     assert_eq!(postings_sum(&app).await, 0);
 }
+
+/// Transfers both ways between the same two accounts, and refunds of
+/// them, all at once and more of them than the pool has connections: no
+/// deadlock, no request left waiting for a connection, and every coin
+/// accounted for.
+#[tokio::test]
+async fn opposite_transfers_and_refunds_at_once_neither_deadlock_nor_starve() {
+    let app = TestApp::start(MIGRATIONS, |_, _, router| router).await;
+    let (a, b) = (app.user("a").await, app.user("b").await);
+    for user in [&a, &b] {
+        ledger::grant(&app.core, user.id, 1000, "purchase", &key("grant"), serde_json::json!({})).await.unwrap();
+    }
+    let earlier = ledger::transfer(&app.core, a.id, b.id, 100, 0, "live.gift", &key("gift"), serde_json::json!({})).await.unwrap();
+    let moves = (0..12).map(|i| {
+        let core = app.core.clone();
+        let (from, to) = if i % 2 == 0 { (a.id, b.id) } else { (b.id, a.id) };
+        async move {
+            if i % 4 == 3 {
+                ledger::refund(&core, earlier.entry_id, "live.gift.returned").await.map(|_| ())
+            } else {
+                ledger::transfer(&core, from, to, 10, 30, "live.gift", &key("gift"), serde_json::json!({})).await.map(|_| ())
+            }
+        }
+    });
+    let results = tokio::time::timeout(std::time::Duration::from_secs(8), futures::future::join_all(moves)).await.expect("no request waits out the pool");
+    assert!(results.iter().all(Result::is_ok), "{:?}", results.iter().filter_map(|r| r.as_ref().err()).collect::<Vec<_>>());
+    let (a_after, b_after) = (ledger::balance(&app.core, a.id).await.unwrap(), ledger::balance(&app.core, b.id).await.unwrap());
+    let fees: i64 = sqlx::query_scalar("SELECT COALESCE(sum(delta), 0)::bigint FROM wallet_postings p JOIN wallet_entries e ON e.id = p.entry_id WHERE p.account = 'system:fees' AND (e.from_user_id IN ($1, $2) OR e.to_user_id IN ($1, $2))")
+        .bind(a.id)
+        .bind(b.id)
+        .fetch_one(&app.core.db)
+        .await
+        .unwrap();
+    assert_eq!(a_after.coins + a_after.earnings + b_after.coins + b_after.earnings + fees, 2000, "every coin is somewhere");
+    assert_eq!(postings_sum(&app).await, 0);
+}
