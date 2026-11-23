@@ -664,6 +664,34 @@ async fn group_managers_delete_anyones_messages_but_not_the_story() {
 }
 
 #[tokio::test]
+async fn deleting_others_messages_follows_the_role_order() {
+    let ctx = start().await;
+    let (group, owner, members) = ctx.group_of("部活", 3).await;
+    let (admin, other_admin, plain) = (&members[0], &members[1], &members[2]);
+    for member in [admin, other_admin] {
+        let request = SetMemberRoleRequest {
+            conversation_id: group.id.clone(),
+            user_id: member.id.to_string(),
+            role: MemberRole::MEMBER_ROLE_ADMIN.into(),
+            ..Default::default()
+        };
+        let _: SetMemberRoleResponse = ctx.call("Conversation", "SetMemberRole", &owner, &request).await.unwrap();
+    }
+    let delete = |message_id: &str| DeleteMessageRequest { message_id: message_id.to_owned(), ..Default::default() };
+    let by_owner = ctx.text(&owner, &group.id, "オーナーより").await;
+    let by_admin = ctx.text(other_admin, &group.id, "管理者より").await;
+    let by_plain = ctx.text(plain, &group.id, "メンバーより").await;
+
+    // An admin can tidy up after plain members, not after their equals or the owner.
+    assert_eq!(ctx.reason("Message", "DeleteMessage", admin, &delete(&by_owner.id)).await, "NOT_ALLOWED");
+    assert_eq!(ctx.reason("Message", "DeleteMessage", admin, &delete(&by_admin.id)).await, "NOT_ALLOWED");
+    let _: DeleteMessageResponse = ctx.call("Message", "DeleteMessage", admin, &delete(&by_plain.id)).await.unwrap();
+    // The owner can delete anyone's.
+    let _: DeleteMessageResponse = ctx.call("Message", "DeleteMessage", &owner, &delete(&by_admin.id)).await.unwrap();
+    assert!(!ctx.message(&owner, &by_owner.id).await.deleted);
+}
+
+#[tokio::test]
 async fn messages_page_in_both_directions() {
     let ctx = start().await;
     let (taro, hanako) = ctx.friends("taro", "hanako").await;

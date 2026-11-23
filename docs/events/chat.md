@@ -42,7 +42,7 @@ transaction of the change they describe.
 | `chat.conversation.created` | `{ conversation_id, kind, member_ids }` | A direct conversation was opened or a group created. `kind` is `ConversationKind` as its number. Actor: who did it (none for `Chat::open_direct`). |
 | `chat.member.joined` | `{ conversation_id, user_id, added_by }` | A user was added to a group (also once per initial member of a new group). |
 | `chat.member.left` | `{ conversation_id, user_id, removed_by }` | A user left a group (`removed_by` null), was removed, or lost the membership with their account. |
-| `chat.message.deleted` | `{ message_id, conversation_id, sender_id, deleted_by, moderated }` | A message was deleted for everyone: by its sender, a group owner/admin, moderation (`moderated: true`) or because its last upload was taken down (`deleted_by` null). |
+| `chat.message.deleted` | `{ message_id, conversation_id, sender_id, deleted_by, moderated }` | A message was deleted for everyone: by its sender, a group manager above them (the owner: anyone; an admin: plain members), moderation (`moderated: true`) or because its last upload was taken down (`deleted_by` null). |
 | `chat.call.started` | `{ call_id, conversation_id, started_by, video }` | A call began ringing. |
 | `chat.call.ended` | `{ call_id, conversation_id, end_reason, duration_seconds, participant_ids }` | A call ended. `end_reason` is `CallEndReason` as its number; `participant_ids` are the users who were connected at some point. |
 

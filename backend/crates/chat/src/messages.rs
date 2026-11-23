@@ -17,7 +17,7 @@ use crate::{
     access::{self, Access, Content, message_not_found},
     content,
     events::{MESSAGE_DELETED, MessageDeleted},
-    model::{ConversationRow, MSG, MentionRef, MessageRow, msg, removed, request},
+    model::{ConversationRow, MSG, MentionRef, MessageRow, msg, removed, request, role},
     render::View,
     send::{Draft, JOB_LINK_PREVIEW, LinkPreviewJob, message_holder},
     subjects,
@@ -363,12 +363,17 @@ impl Chat {
     pub(crate) async fn delete_message(&self, user_id: Uuid, message_id: Uuid) -> AppResult<(Access, MessageRow)> {
         let (access, row) = self.message_access(user_id, message_id).await?;
         let own = row.sender_id == Some(user_id);
-        ensure!(
-            own || (access.conv.is_group() && access.me.manages()),
-            denied,
-            "NOT_ALLOWED",
-            "you can only delete your own messages"
-        );
+        // In a group, managers delete the messages of those below them, as
+        // with removing members: the owner anyone's, admins plain members'
+        // (and of people no longer in the group).
+        let outranks = access.conv.is_group() && access.me.manages() && {
+            let author_role = match row.sender_id {
+                Some(author) => access::find_member(&self.core, row.conversation_id, author).await?.map(|m| m.role),
+                None => None,
+            };
+            access.me.role > author_role.unwrap_or(role::MEMBER)
+        };
+        ensure!(own || outranks, denied, "NOT_ALLOWED", "you can only delete your own messages");
         ensure!(
             !matches!(row.kind, msg::SYSTEM | msg::CALL | msg::POV_REQUEST),
             precondition,

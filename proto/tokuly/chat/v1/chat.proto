@@ -137,7 +137,7 @@ enum MemberRole {
   MEMBER_ROLE_UNSPECIFIED = 0;
   MEMBER_ROLE_MEMBER = 1;
   // May rename the group, change its icon, remove plain members and delete
-  // any message.
+  // their messages.
   MEMBER_ROLE_ADMIN = 2;
   // Everything an admin may do, plus removing admins, changing roles and
   // handing the group over. Exactly one per group.
@@ -482,7 +482,8 @@ service MessageService {
   rpc EditMessage(EditMessageRequest) returns (EditMessageResponse);
   // Deletes a message for everyone. It stays in the conversation as an empty
   // tombstone (`deleted = true`). The sender may delete their own messages;
-  // a group's owner and admins may delete anyone's. Deleting twice succeeds.
+  // in a group, the owner may delete anyone's and admins those of plain
+  // members (and of people who left). Deleting twice succeeds.
   // The members it reached can still report it for 30 days: what it said is
   // kept for that and for nothing else.
   // Errors: MESSAGE_NOT_FOUND, NOT_ALLOWED, MESSAGE_NOT_DELETABLE (system,
