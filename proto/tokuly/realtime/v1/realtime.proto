@@ -139,6 +139,8 @@ message ServerFrame {
     TopicStats topic_stats = 8;
     // Something a domain pushes: a chat message, a friend's position...
     Event event = 9;
+    // The server ended one of this connection's topic subscriptions.
+    Unsubscribed unsubscribed = 27;
   }
 }
 
@@ -216,6 +218,21 @@ message PresenceEvent {
   string user_id = 1;
   bool online = 2;
   google.protobuf.Timestamp last_seen_at = 3;
+}
+
+// The server dropped a subscription: the subscriber lost access to the
+// topic (banned, removed, blocked, unfriended, left, the audience was
+// narrowed) or the topic itself is gone. Nothing more of the topic arrives
+// on this connection. The client should stop treating the topic as live and
+// must not subscribe again by itself: a new `Subscribe` runs the topic's
+// guard again and is answered with `TOPIC_FORBIDDEN` while access stays
+// lost. `ServerFrame.topic` is the same topic.
+message Unsubscribed {
+  string topic = 1;
+  // `TOPIC_FORBIDDEN`: the topic's guard no longer admits the subscriber.
+  // `TOPIC_CLOSED`: the topic ended for everyone (room deleted, stream or
+  // share over).
+  string reason = 2;
 }
 
 // Audience size of a subscribed topic (e.g. live viewer count).
