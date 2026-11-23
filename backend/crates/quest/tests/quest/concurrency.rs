@@ -362,6 +362,60 @@ async fn a_restore_that_stopped_half_way_is_finished_from_wherever_the_player_lo
     assert_eq!(left, 0, "and so did the month's restore");
 }
 
+/// A settle that refunded an undeliverable restore and stopped before
+/// withdrawing the order leaves an order whose charge is refunded. The next
+/// settle finishes the withdrawal once — without charging again, even though
+/// the streak could be restored now — and nothing keeps retrying it.
+#[tokio::test]
+async fn a_restore_interrupted_between_refund_and_withdrawal_settles_once() {
+    let ctx = start().await;
+    let (erin, frank) = (ctx.app.user("erin").await, ctx.app.user("frank").await);
+    ctx.befriend(&erin, &frank).await;
+    ctx.seed_streak(&erin, &frank, 5, 2).await;
+    ctx.fund(&erin, 100).await;
+    let (lo, hi) = if erin.id < frank.id { (erin.id, frank.id) } else { (frank.id, erin.id) };
+    let lost_at: chrono::DateTime<chrono::Utc> =
+        sqlx::query_scalar("UPDATE quest_streaks SET count = 0, expires_at = NULL, lost_count = 5, lost_at = now() - interval '1 hour' WHERE user_lo = $1 AND user_hi = $2 RETURNING lost_at")
+            .bind(lo)
+            .bind(hi)
+            .fetch_one(&ctx.app.core.db)
+            .await
+            .unwrap();
+    let order: Uuid = sqlx::query_scalar("INSERT INTO quest_streak_restores (user_id, month, friend_id, cost, lost_at, created_at) VALUES ($1, date_trunc('month', $2::date)::date, $3, 100, $4, now() - interval '5 minutes') RETURNING id")
+        .bind(erin.id)
+        .bind(today())
+        .bind(frank.id)
+        .bind(lost_at)
+        .fetch_one(&ctx.app.core.db)
+        .await
+        .unwrap();
+    // The half that ran before the stop: charged, then refunded — but the order was not withdrawn.
+    let (entry, _) = tokuly_wallet::ledger::spend(&ctx.app.core, erin.id, 100, "quest.streak_restore", &format!("quest.streak_restore:{order}"), json!({}))
+        .await
+        .unwrap();
+    tokuly_wallet::ledger::refund(&ctx.app.core, entry, "quest.streak_restore.refund").await.unwrap();
+    assert_eq!(ctx.coins(&erin).await, 100);
+
+    // Erin looks at her streaks: the order is finished as undone, not charged again.
+    let streak = ctx.streak(&erin, &frank).await;
+    assert_eq!(streak.state.as_known(), Some(StreakState::STREAK_STATE_LOST), "an undone restore restores nothing");
+    assert_eq!(ctx.coins(&erin).await, 100, "and charges nothing");
+    let left: i64 = sqlx::query_scalar("SELECT count(*) FROM quest_streak_restores WHERE id = $1").bind(order).fetch_one(&ctx.app.core.db).await.unwrap();
+    assert_eq!(left, 0, "the withdrawal was finished");
+    // Nothing is left for the background settle to retry.
+    let pending: i64 = sqlx::query_scalar("SELECT count(*) FROM quest_streak_restores WHERE user_id = $1 AND applied_at IS NULL").bind(erin.id).fetch_one(&ctx.app.core.db).await.unwrap();
+    assert_eq!(pending, 0);
+    ctx.quest.settle_pending_restores().await.unwrap();
+    assert_eq!(ctx.coins(&erin).await, 100);
+    let charges: i64 = sqlx::query_scalar("SELECT count(*) FROM wallet_entries WHERE from_user_id = $1 AND kind = 'spend'").bind(erin.id).fetch_one(&ctx.app.core.db).await.unwrap();
+    assert_eq!(charges, 1, "the one charge that was refunded");
+
+    // The month's restore is free again, as after any withdrawn order: asking for it is a new, paid restore.
+    let restored = ctx.restore(&erin, &frank).await.unwrap();
+    assert_eq!((restored.coins_spent, restored.streak.as_option().unwrap().days), (100, 5));
+    assert_eq!(ctx.coins(&erin).await, 0);
+}
+
 #[tokio::test]
 async fn a_season_finalized_by_several_workers_at_once_awards_once() {
     let ctx = start().await;
