@@ -408,7 +408,10 @@ enum HandEnd {
     Dismissed,
     /// The host had invited the person on stage; they decline, and the hand
     /// goes down with the invitation. (The invitation comes first: inviting
-    /// someone whose hand is up brings them on stage at once.)
+    /// someone whose hand is up brings them on stage at once.) A sequential
+    /// regression test of the declined path only: it does not exercise the
+    /// race of hiding between the commit and the announcement, which has no
+    /// hook to be timed from a test.
     Declined,
     Left,
 }
