@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AuthLayout } from "#/components/auth-layout";
 import { Button } from "#/components/ui/button";
@@ -16,6 +16,9 @@ export function MailLinkPage({ token, kind }: { token?: string; kind: "verify" |
   const [state, setState] = useState<"ready" | "working" | "done" | "reverted" | "failed">(
     token ? "ready" : "failed",
   );
+  // The page is server-rendered: the button only works once the app runs.
+  const [interactive, setInteractive] = useState(false);
+  useEffect(() => setInteractive(true), []);
 
   const use = () => {
     if (!token || state !== "ready") return;
@@ -45,7 +48,7 @@ export function MailLinkPage({ token, kind }: { token?: string; kind: "verify" |
             {kind === "undo" && (
               <p className="text-sm leading-relaxed text-ink-soft">{t("verify.undoLead")}</p>
             )}
-            <Button size="lg" loading={state === "working"} onClick={use}>
+            <Button size="lg" loading={state === "working"} disabled={!interactive} onClick={use}>
               {kind === "undo" ? t("verify.undoConfirm") : t("verify.confirm")}
             </Button>
           </>
