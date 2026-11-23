@@ -313,6 +313,10 @@ test("a new email address takes over once its verification link is opened", asyn
 }) => {
   test.skip(!(await mailpitIsUp(request)), "needs the development mail catcher (Mailpit)");
   const newEmail = `new-${me.handle}@e2e.tokuly.test`;
+  // Only a verified address is offered an undo when the account moves away.
+  await rpc(request, `${AUTH}/VerifyEmail`, {
+    token: await mailedVerificationToken(request, me.email),
+  });
   await page.goto("/settings/account");
   await page.getByRole("button", { name: "メールアドレスを変える" }).click();
   const dialog = page.getByRole("dialog", { name: "メールアドレスを変える" });
@@ -331,16 +335,31 @@ test("a new email address takes over once its verification link is opened", asyn
 
   // Opened in this browser, where the account is signed in: this session
   // stays (every other device is signed out by the change).
+  // The link waits for a press (mail scanners open links by themselves).
   const change = await mailedVerificationToken(request, newEmail);
   await page.goto(`/verify-email?token=${encodeURIComponent(change)}`);
+  await page.getByRole("button", { name: "メールアドレスを確認する" }).click();
   await expect(page.getByText("メールアドレスを確認しました！")).toBeVisible();
   await page.goto("/settings/account");
   await expect(page.getByTestId("account-email")).toHaveText(newEmail);
   await expect(page.getByText("確認済み", { exact: true })).toBeVisible();
 
   // The old address is told, and its link moves the account back, signing out everywhere.
-  const undo = await mailedVerificationToken(request, me.email, "メールアドレスが変更されました");
-  await page.goto(`/verify-email?token=${encodeURIComponent(undo)}`);
+  const undo = await mailedVerificationToken(
+    request,
+    me.email,
+    "メールアドレスが変更されました",
+    "undo-email-change",
+  );
+  await page.goto(`/undo-email-change?token=${encodeURIComponent(undo)}`);
+  await expect(page.getByText("メールアドレスを元に戻す？")).toBeVisible();
+  // Opening the page did nothing yet.
+  const unchanged = await rpc<{ me: { email: string } }>(request, `${AUTH}/SignIn`, {
+    identifier: me.handle,
+    password: PASSWORD,
+  });
+  expect(unchanged.me.email).toBe(newEmail);
+  await page.getByRole("button", { name: "元のアドレスに戻す" }).click();
   await expect(page.getByText("メールアドレスを元に戻したよ！")).toBeVisible();
   await expect(page.getByRole("link", { name: "パスワードを再設定する" })).toBeVisible();
   const account = await rpc<{ me: { email: string } }>(request, `${AUTH}/SignIn`, {

@@ -200,7 +200,7 @@ impl Identity {
     /// Tells the previous address that the account moved to `new_email`,
     /// with a link that moves it back and signs out every device.
     pub(crate) async fn send_email_changed_mail(&self, to: &str, locale: &str, new_email: &str, revert_token: &str) -> AppResult<()> {
-        let url = self.core.web_url(&format!("verify-email?token={revert_token}"));
+        let url = self.core.web_url(&format!("undo-email-change?token={revert_token}"));
         let mail = if japanese(locale) {
             Mail {
                 subject: "【Tokuly】メールアドレスが変更されました".into(),

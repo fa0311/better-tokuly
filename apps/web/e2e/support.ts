@@ -186,11 +186,15 @@ export async function mailpitIsUp(request: APIRequestContext): Promise<boolean> 
   }
 }
 
-/** The token of the newest verification link mailed to `to` (in a mail with `subject`, when given). */
+/**
+ * The token of the newest link to `path` (a verification link unless told
+ * otherwise) mailed to `to`, in a mail with `subject` when given.
+ */
 export async function mailedVerificationToken(
   request: APIRequestContext,
   to: string,
   subject?: string,
+  path = "verify-email",
 ): Promise<string> {
   let token = "";
   const query = subject ? `to:${to} subject:"${subject}"` : `to:${to}`;
@@ -202,7 +206,7 @@ export async function mailedVerificationToken(
       const message = (await (await request.get(`${MAILPIT}/api/v1/message/${ID}`)).json()) as {
         Text?: string;
       };
-      const link = /\/verify-email\?token=([\w.~%-]+)/.exec(message.Text ?? "");
+      const link = new RegExp(`/${path}\\?token=([\\w.~%-]+)`).exec(message.Text ?? "");
       if (link?.[1]) {
         token = decodeURIComponent(link[1]);
         return;

@@ -48,6 +48,13 @@ export default {
     toSignIn: "Sign in",
   },
   verify: {
+    ask: "Confirm your email",
+    confirm: "Confirm email",
+    undoAsk: "Move your email back?",
+    undoLead:
+      "The email of your Tokuly account was changed. If that wasn't you, move it back to this address and sign out every device.",
+    undoConfirm: "Move it back",
+    undoWorking: "Moving your email back...",
     working: "Confirming your email...",
     done: "Your email is confirmed!",
     failed: "This link is invalid or has expired",
