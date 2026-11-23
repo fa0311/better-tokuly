@@ -25,14 +25,19 @@ export function CommunityLayout({ handle }: { handle: string }) {
   const roles = useMe()?.roles;
   const readable = canRead(community ?? undefined, roles);
   const communityId = community?.id;
+  const refetch = query.refetch;
 
   // Board and calendar events of this community arrive while one of its pages is open.
   useEffect(() => {
     if (!communityId || !readable) return;
-    const unsubscribe = realtime().subscribe(`community:${communityId}`);
+    // Removed, banned, or the community closed: read it again, which shows the front door
+    // (or "not found") instead of the board.
+    const unsubscribe = realtime().subscribe(`community:${communityId}`, {
+      onRevoked: () => void refetch(),
+    });
     realtime().start();
     return unsubscribe;
-  }, [communityId, readable]);
+  }, [communityId, readable, refetch]);
 
   if (query.isPending) return <PaneSpinner />;
   if (!community) {

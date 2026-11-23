@@ -187,7 +187,13 @@ export function OverlayScreen({ token }: { token: string }) {
           break;
       }
     });
-    const release = client.subscribe(topic);
+    // The widget was deleted or its token renewed while this page was not listening.
+    const release = client.subscribe(topic, {
+      onRevoked: () => {
+        setState(null);
+        setGone(true);
+      },
+    });
     // Already connected, so no welcome follows: the subscription starts now, after the
     // widget was read, and a line sent in between is only in a second read. Not airtight:
     // `subscribe()` is not acknowledged, so this re-read (HTTP) can still reach the server

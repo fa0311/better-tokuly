@@ -27,6 +27,24 @@ export interface RealtimeOptions {
 }
 
 type FrameListener = (frame: ServerFrame) => void;
+type RevokedListener = (topic: string, reason: string) => void;
+
+export interface SubscribeOptions {
+  /**
+   * The server ended this subscription: the viewer lost access (banned,
+   * removed, blocked, unfriended, left, the audience was narrowed) or the
+   * topic is gone. `reason` is `TOPIC_FORBIDDEN` or `TOPIC_CLOSED`. The
+   * topic is not subscribed again by itself; a feature typically reloads
+   * what it shows, which then answers as it would for a stranger.
+   */
+  onRevoked?(reason: string): void;
+}
+
+/** The app's interest in one topic: who holds it and who wants to hear when it ends. */
+interface TopicInterest {
+  holders: number;
+  readonly revokedListeners: Set<(reason: string) => void>;
+}
 type StatusListener = (status: ConnectionStatus, transport: FrameTransport["kind"] | null) => void;
 
 const CONNECT_TIMEOUT_MS = 5_000;
@@ -57,9 +75,12 @@ export class RealtimeClient {
   private readonly frameListeners = new Set<FrameListener>();
   private readonly statusListeners = new Set<StatusListener>();
   private readonly outdatedListeners = new Set<() => void>();
+  private readonly revokedListeners = new Set<RevokedListener>();
   private outdated = false;
-  /** topic → number of active subscribers in this app. */
-  private readonly topics = new Map<string, number>();
+  /** topic → the components that follow it in this app. */
+  private readonly topics = new Map<string, TopicInterest>();
+  /** `Subscribe` frames waiting for their answer: frame ID → topic. */
+  private readonly pendingSubscribes = new Map<bigint, string>();
   /** Server-suggested location report cadence, from the last Welcome. */
   cadence = { movingSeconds: 5, stationarySeconds: 60 };
 
@@ -93,6 +114,20 @@ export class RealtimeClient {
     if (this.outdated) listener();
     else this.outdatedListeners.add(listener);
     return () => this.outdatedListeners.delete(listener);
+  }
+
+  /**
+   * Hears every subscription the server ended (see
+   * {@link SubscribeOptions.onRevoked}). Returns an unsubscribe function.
+   */
+  onRevoked(listener: RevokedListener): () => void {
+    this.revokedListeners.add(listener);
+    return () => this.revokedListeners.delete(listener);
+  }
+
+  /** Whether the app currently follows `topic` (it was subscribed and not revoked). */
+  isSubscribed(topic: string): boolean {
+    return this.topics.has(topic);
   }
 
   private setStatus(status: ConnectionStatus): void {
@@ -137,6 +172,8 @@ export class RealtimeClient {
 
   private async connect(): Promise<void> {
     const generation = ++this.generation;
+    // Answers to frames of an earlier connection will not come.
+    this.pendingSubscribes.clear();
     this.setStatus(this.attempt === 0 ? "connecting" : "reconnecting");
     try {
       const endpoints = await this.options.getEndpoints();
@@ -219,7 +256,14 @@ export class RealtimeClient {
         this.lastPongAt = Date.now();
         break;
       case "error":
+        this.onSubscribeRefused(frame.replyTo, frame.body.value);
         void this.onServerError(frame.body.value);
+        break;
+      case "ack":
+        this.pendingSubscribes.delete(frame.replyTo);
+        break;
+      case "unsubscribed":
+        this.revoke(frame.body.value.topic, frame.body.value.reason);
         break;
       default:
         break;
@@ -255,6 +299,28 @@ export class RealtimeClient {
     this.setStatus("connected");
   }
 
+  /** A `Subscribe` refused because the guard said no ends the interest the same way. */
+  private onSubscribeRefused(replyTo: bigint, error: realtime.Error): void {
+    const topic = this.pendingSubscribes.get(replyTo);
+    if (topic === undefined) return;
+    this.pendingSubscribes.delete(replyTo);
+    if (error.code === "permission_denied") this.revoke(topic, error.message);
+  }
+
+  /**
+   * The server will send nothing more of `topic`: the app stops treating it
+   * as live (it is not named in the next Hello either, so a reconnect does
+   * not ask for it again) and its followers are told once.
+   */
+  private revoke(topic: string, reason: string): void {
+    const interest = this.topics.get(topic);
+    if (!interest) return;
+    this.topics.delete(topic);
+    console.info(`realtime: the server ended the subscription to ${topic} (${reason})`);
+    for (const listener of interest.revokedListeners) listener(reason);
+    for (const listener of this.revokedListeners) listener(topic, reason);
+  }
+
   private async onServerError(error: realtime.Error): Promise<void> {
     if (error.code !== "unauthenticated") return;
     // The token expired or was rejected: refresh and say hello again.
@@ -277,9 +343,10 @@ export class RealtimeClient {
     }
   }
 
-  private sendFrame(body: realtime.ClientFrame["body"], withId = true, unreliable = false): void {
+  /** Sends a frame; returns its ID (0 when none was asked for or nothing was sent). */
+  private sendFrame(body: realtime.ClientFrame["body"], withId = true, unreliable = false): bigint {
     const transport = this.transport;
-    if (!transport) return;
+    if (!transport) return 0n;
     const frame = create(realtime.ClientFrameSchema, {
       id: withId ? this.nextFrameId++ : 0n,
       body,
@@ -287,36 +354,45 @@ export class RealtimeClient {
     const bytes = toBinary(realtime.ClientFrameSchema, frame);
     if (unreliable) transport.sendUnreliable(bytes);
     else transport.send(bytes);
+    return frame.id;
   }
 
   /**
    * Subscribes to a topic (e.g. `live:<id>`). Subscriptions are counted, so
    * several components may share one topic; the returned function releases
-   * this caller's interest.
+   * this caller's interest. When the server ends the subscription,
+   * `options.onRevoked` is called and the topic is not asked for again
+   * until somebody subscribes anew.
    */
-  subscribe(topic: string): () => void {
-    const count = this.topics.get(topic) ?? 0;
-    this.topics.set(topic, count + 1);
-    if (count === 0) {
-      this.sendFrame({
+  subscribe(topic: string, options: SubscribeOptions = {}): () => void {
+    let interest = this.topics.get(topic);
+    if (!interest) {
+      interest = { holders: 0, revokedListeners: new Set() };
+      this.topics.set(topic, interest);
+      const id = this.sendFrame({
         case: "subscribe",
         value: create(realtime.SubscribeSchema, { topics: [topic] }),
       });
+      if (id !== 0n) this.pendingSubscribes.set(id, topic);
     }
+    interest.holders++;
+    const onRevoked = options.onRevoked;
+    if (onRevoked) interest.revokedListeners.add(onRevoked);
+    const held = interest;
     let released = false;
     return () => {
       if (released) return;
       released = true;
-      const remaining = (this.topics.get(topic) ?? 1) - 1;
-      if (remaining > 0) {
-        this.topics.set(topic, remaining);
-      } else {
-        this.topics.delete(topic);
-        this.sendFrame({
-          case: "unsubscribe",
-          value: create(realtime.UnsubscribeSchema, { topics: [topic] }),
-        });
-      }
+      if (onRevoked) held.revokedListeners.delete(onRevoked);
+      // Revoked meanwhile (and maybe subscribed anew by someone else): nothing of ours is left.
+      if (this.topics.get(topic) !== held) return;
+      held.holders--;
+      if (held.holders > 0) return;
+      this.topics.delete(topic);
+      this.sendFrame({
+        case: "unsubscribe",
+        value: create(realtime.UnsubscribeSchema, { topics: [topic] }),
+      });
     };
   }
 

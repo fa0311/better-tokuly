@@ -252,7 +252,18 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
           break;
       }
     });
-    const release = client.subscribe(topic);
+    // The seat went (removed, timed out) or the party ended without this page hearing why.
+    const release = client.subscribe(topic, {
+      onRevoked: (reason) =>
+        setState((current) => ({
+          ...current,
+          exit:
+            current.exit ??
+            (reason === "TOPIC_CLOSED"
+              ? { kind: "ended", reason: video.PartyEndReason.UNSPECIFIED }
+              : { kind: "removed" }),
+        })),
+    });
     client.start();
     return () => {
       offFrame();
