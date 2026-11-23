@@ -167,7 +167,7 @@ impl Wallet {
     /// See `EarningsService.RequestPayout`.
     pub(crate) async fn open_payout(&self, user_id: Uuid, input: &PayoutInput) -> AppResult<PayoutRow> {
         if let Some(existing) = self.payout_by_key(&self.core.db, user_id, &input.idempotency_key).await? {
-            return Ok(existing);
+            return self.retry_of(existing, input);
         }
         self.core.cache.rate_limit(&format!("wallet:payout-request:{user_id}"), 10, std::time::Duration::from_secs(24 * 3600)).await?;
 
@@ -177,7 +177,7 @@ impl Wallet {
         // below cannot be raced by a second request.
         postings::lock_account(&mut tx, user_id).await?;
         if let Some(existing) = self.payout_by_key(&mut *tx, user_id, &input.idempotency_key).await? {
-            return Ok(existing);
+            return self.retry_of(existing, input);
         }
         let has_open: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM wallet_payout_requests WHERE user_id = $1 AND status IN ('pending', 'approved'))")
             .bind(user_id)
@@ -207,6 +207,17 @@ impl Wallet {
         tx.commit().await?;
         tracing::info!(payout_id = %payout.id, %user_id, coins = payout.coins, "payout requested");
         Ok(payout)
+    }
+
+    /// Answers a request that reused an earlier request's idempotency key:
+    /// that request when this is a retry of it, `IDEMPOTENCY_KEY_REUSED` when
+    /// it asks for something else (another amount, method or destination).
+    fn retry_of(&self, existing: PayoutRow, input: &PayoutInput) -> AppResult<PayoutRow> {
+        // A destination erased after the request closed cannot be compared; the amount and method still are.
+        let destination = existing.destination(&self.core.keys);
+        let same = existing.coins == input.coins && existing.method == input.method as i32 && (destination.is_empty() || destination == input.destination);
+        ensure!(same, already_exists, "IDEMPOTENCY_KEY_REUSED", "this idempotency key was used for a different payout request");
+        Ok(existing)
     }
 
     /// The requester withdraws a request that nobody reviewed yet.

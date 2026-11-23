@@ -355,7 +355,8 @@ service EarningsService {
   // or cancelled request returns them. One open request per user.
   // Errors: AMOUNT_INVALID, PAYOUT_BELOW_MINIMUM, INSUFFICIENT_EARNINGS,
   // PAYOUT_ALREADY_OPEN, PAYOUT_METHOD_INVALID, PAYOUT_DESTINATION_INVALID,
-  // PAYOUT_NOTE_TOO_LONG, IDEMPOTENCY_KEY_INVALID, RATE_LIMITED.
+  // PAYOUT_NOTE_TOO_LONG, IDEMPOTENCY_KEY_INVALID, IDEMPOTENCY_KEY_REUSED
+  // (same key, different amount, method or destination), RATE_LIMITED.
   rpc RequestPayout(RequestPayoutRequest) returns (RequestPayoutResponse);
   // Withdraws the caller's own request while it is still PENDING.
   // Errors: PAYOUT_NOT_FOUND, PAYOUT_NOT_PENDING.
@@ -501,8 +502,9 @@ message RequestPayoutRequest {
   // Optional, up to 500 characters.
   string note = 4;
   // Client-generated key (up to 200 chars) making retries safe: requesting
-  // again with the same key returns the same request. Empty = no
-  // de-duplication.
+  // again with the same key returns the same request; the same key with
+  // another amount, method or destination is IDEMPOTENCY_KEY_REUSED. Empty =
+  // no de-duplication.
   string idempotency_key = 5;
 }
 

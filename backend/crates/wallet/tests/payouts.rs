@@ -287,6 +287,11 @@ async fn one_open_request_at_a_time_and_retries_are_safe() {
     let retried: RequestPayoutResponse = app.call(&format!("{EARNINGS}/RequestPayout"), Some(&creator), &keyed).await.unwrap();
     assert_eq!(first.payout.as_option().unwrap().id, retried.payout.as_option().unwrap().id);
     assert_eq!(balance(&app, &creator).await.earnings, 2500, "the retry locked nothing more");
+    // The key names that request: asking for something else with it is refused, not answered with the old one.
+    for different in [RequestPayoutRequest { coins: 2000, ..keyed.clone() }, RequestPayoutRequest { destination: "PayPal tokuly@example.com".into(), ..keyed.clone() }] {
+        let err = app.call::<_, RequestPayoutResponse>(&format!("{EARNINGS}/RequestPayout"), Some(&creator), &different).await.unwrap_err();
+        assert_eq!((err.code.as_str(), err.reason.as_str()), ("already_exists", "IDEMPOTENCY_KEY_REUSED"));
+    }
 
     let err = request(&app, &creator, 1000).await.unwrap_err();
     assert_eq!((err.code.as_str(), err.reason.as_str()), ("failed_precondition", "PAYOUT_ALREADY_OPEN"));
