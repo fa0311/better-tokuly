@@ -191,6 +191,10 @@ pub struct Rule {
     /// Doing this towards a friend counts as the doer's part of the streak
     /// day (and as a friend reached).
     pub streak: bool,
+    /// The deed is something the player did at its hour of the day, which
+    /// is what the hour badges (early bird) look at. False for what merely
+    /// happens to an account (signing up).
+    pub timed: bool,
     /// "How to earn XP" line.
     pub text: Text,
     /// What one unit is, for `Xp::PerUnit` rules.
@@ -209,6 +213,7 @@ impl Rule {
             xp: Xp::Flat(0),
             counts: &[],
             streak: false,
+            timed: true,
             text: Text::EMPTY,
             unit: Text::EMPTY,
         }
@@ -222,6 +227,12 @@ impl Rule {
     /// A rule fed by an analytics event.
     const fn tracked(key: &'static str, name: &'static str, read: Reader) -> Rule {
         Rule::on(Feed::Analytics, key, name, read)
+    }
+
+    /// Not activity at an hour of the day (see [`Rule::timed`]).
+    const fn untimed(mut self) -> Rule {
+        self.timed = false;
+        self
     }
 
     /// Only payloads of this `kind` (generic requests).
@@ -275,9 +286,12 @@ use Source as S;
 /// fires.
 pub const RULES: &[Rule] = &[
     // ── showing up ──
+    // Signing up is not being active at that hour: a new account earns no
+    // hour badge (and gets no notification) for the time it was made.
     Rule::event("daily.joined", "identity.user.created", payloads::joined)
         .earns(S::Daily, 10)
         .counts(&[One(M::Joined)])
+        .untimed()
         .text("Tokulyをはじめる", "Join Tokuly"),
     Rule::event("daily.bonus", "wallet.balance.changed", payloads::daily_bonus)
         .earns(S::Daily, 10)

@@ -754,3 +754,36 @@ async fn badges_a_player_already_qualifies_for_are_caught_up() {
     assert!(!find(&catalog, "chatter_silver").owned);
     assert!(ctx.badge_keys(&alice).await.contains(&"chatter_bronze".to_owned()));
 }
+
+/// A zone where it is 6 in the morning right now, so that "now" falls in
+/// the early-bird hours (5-7).
+fn zone_where_it_is_six_am() -> String {
+    use chrono::Timelike;
+    let offset = (6 - chrono::Utc::now().hour() as i32).rem_euclid(24);
+    let offset = if offset > 14 { offset - 24 } else { offset };
+    // Etc/GMT names are sign-inverted: Etc/GMT-9 is UTC+9.
+    if offset == 0 { "Etc/GMT".to_owned() } else { format!("Etc/GMT{:+}", -offset) }
+}
+
+/// Signing up is not being active at an hour of the day: an account made
+/// at 6 in the morning does not get the (notifying) early-bird badge for
+/// it, so a new account's inbox stays empty whatever the time. Doing
+/// something at that hour still earns it.
+#[tokio::test]
+async fn signing_up_early_in_the_morning_is_not_being_an_early_bird() {
+    let ctx = start().await;
+    let (alice, bob) = (ctx.app.user("alice").await, ctx.app.user("bob").await);
+    let zone = zone_where_it_is_six_am();
+    sqlx::query("UPDATE users SET time_zone = $2 WHERE id = ANY($1)").bind(vec![alice.id, bob.id]).bind(&zone).execute(&ctx.app.core.db).await.unwrap();
+
+    ctx.feed(event("identity.user.created", Some(alice.id), json!({ "user_id": alice.id, "handle": alice.handle, "invite_code": "" }))).await;
+    ctx.flush(&[&alice]).await;
+    let owned = ctx.badge_keys(&alice).await;
+    assert!(owned.contains(&"welcome".to_owned()), "{owned:?}");
+    assert!(!owned.contains(&"early_bird".to_owned()), "signing up at 6 ({zone}) is not early activity: {owned:?}");
+    assert!(ctx.notifications(&alice, "quest.badge").await.is_empty(), "a new account gets no notification");
+
+    ctx.friend_accepted(&alice, &bob).await;
+    ctx.flush(&[&alice]).await;
+    assert!(ctx.badge_keys(&alice).await.contains(&"early_bird".to_owned()), "something done at 6 is");
+}
