@@ -19,7 +19,7 @@ impl Identity {
     /// Confirms the caller knows the account password. Accounts without a
     /// password (passkey-only) pass, since a signed-in passkey session is the
     /// strongest proof they can give.
-    async fn confirm_password(&self, user: &UserRow, password: &str) -> AppResult<()> {
+    pub(crate) async fn confirm_password(&self, user: &UserRow, password: &str) -> AppResult<()> {
         if user.password_hash.is_none() {
             return Ok(());
         }
@@ -493,7 +493,9 @@ impl AccountService for Identity {
         request: ServiceRequest<'_, EnableTotpRequest>,
     ) -> ServiceResult<EnableTotpResponse> {
         handle(async {
-        let user_id = ctx.user_id()?;
+        let user = users::get(&self.core, ctx.user_id()?).await?;
+        let user_id = user.id;
+        self.confirm_password(&user, request.current_password).await?;
         let key = format!("id:totp:setup:{user_id}");
         let sealed = self.core.cache.get_string(&key).await?.or_not_found("TOTP_SETUP_EXPIRED", "start the setup again")?;
         let secret = totp::open_secret(&self.core.keys, &sealed).or_not_found("TOTP_SETUP_EXPIRED", "start the setup again")?;

@@ -407,8 +407,16 @@ test("two-step verification is set up with a code from the secret, and signing i
   await expect(setup.getByRole("img", { name: "認証アプリ用のQRコード" })).toBeVisible();
   const secret = ((await setup.getByTestId("totp-secret").textContent()) ?? "").trim();
 
-  // A wrong code is refused and the setup stays open.
+  // It takes the password, so a session alone cannot turn it on.
   const code = setup.getByLabel(/6桁のコードを入力/);
+  const password = setup.getByLabel("いまのパスワード");
+  await code.fill(totpCode(secret));
+  await password.fill("not the password");
+  await setup.getByRole("button", { name: "オンにする" }).click();
+  await expect(setup.getByText("いまのパスワードがちがいます")).toBeVisible();
+
+  // A wrong code is refused and the setup stays open.
+  await password.fill(PASSWORD);
   await code.fill(totpCode(secret) === "000000" ? "111111" : "000000");
   await setup.getByRole("button", { name: "オンにする" }).click();
   await expect(setup.getByText("認証コードがちがいます")).toBeVisible();
@@ -421,20 +429,26 @@ test("two-step verification is set up with a code from the secret, and signing i
   await expect(page.getByText("オン", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "オフにする" })).toBeVisible();
 
-  // Sign out, then back in: the password alone is no longer enough.
+  // Sign out, then back in: the password alone is no longer enough. Every
+  // code works once, so this takes the next one (the server allows a step of skew).
   await page.goto("/settings/data");
   await page.getByRole("button", { name: "このデバイスからログアウト" }).click();
   await expect(page).toHaveURL(/\/$/);
   await submitLoginForm(page, me.handle, PASSWORD);
   await expect(page.getByRole("heading", { name: "認証コードを入力" })).toBeVisible();
-  await page.getByLabel("認証コード").fill(totpCode(secret));
+  await page.getByLabel("認証コード").fill(totpCode(secret, Date.now() + 30_000));
   await page.getByRole("button", { name: "ログイン", exact: true }).click();
   await expect(page).toHaveURL(/\/map$/);
 });
 
 test("two-step verification is turned off with a current code", async ({ page, me, request }) => {
   const { secret } = await rpc<{ secret: string }>(request, `${ACCOUNT}/BeginTotpSetup`, {}, me);
-  await rpc(request, `${ACCOUNT}/EnableTotp`, { code: totpCode(secret) }, me);
+  await rpc(
+    request,
+    `${ACCOUNT}/EnableTotp`,
+    { code: totpCode(secret), currentPassword: PASSWORD },
+    me,
+  );
 
   await page.goto("/settings/security");
   await page.getByRole("button", { name: "オフにする" }).click();
@@ -443,7 +457,8 @@ test("two-step verification is turned off with a current code", async ({ page, m
   await dialog.getByRole("button", { name: "オフにする" }).click();
   await expect(dialog.getByText("認証コードがちがいます")).toBeVisible();
 
-  await dialog.getByLabel("認証コード").fill(totpCode(secret));
+  // The code that turned it on is spent; the next one is good.
+  await dialog.getByLabel("認証コード").fill(totpCode(secret, Date.now() + 30_000));
   await dialog.getByRole("button", { name: "オフにする" }).click();
   await expect(toast(page, "2段階認証をオフにしました")).toBeVisible();
   await expect(page.getByRole("button", { name: "オンにする" })).toBeVisible();
@@ -470,6 +485,11 @@ test("a passkey is added with a name, listed, and removed", async ({ page, me })
   await page.getByRole("button", { name: "パスキーを追加" }).click();
   const dialog = page.getByRole("dialog", { name: "パスキーを追加" });
   await dialog.getByLabel("パスキーのなまえ").fill("テスト用のキー");
+  // A new way to sign in takes the password, not just this session.
+  await dialog.getByLabel("いまのパスワード").fill("not the password");
+  await dialog.getByRole("button", { name: "登録する" }).click();
+  await expect(dialog.getByText("いまのパスワードがちがいます")).toBeVisible();
+  await dialog.getByLabel("いまのパスワード").fill(PASSWORD);
   await dialog.getByRole("button", { name: "登録する" }).click();
   await expect(toast(page, "パスキーを追加しました！")).toBeVisible();
   await expect(page.getByRole("main").getByText("テスト用のキー")).toBeVisible();

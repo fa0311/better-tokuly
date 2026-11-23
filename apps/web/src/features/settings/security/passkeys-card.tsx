@@ -1,6 +1,6 @@
 import { browserSupportsWebAuthn, startRegistration } from "@simplewebauthn/browser";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type identity, toDate } from "@tokuly/api";
+import { errorReason, type identity, toDate } from "@tokuly/api";
 import { KeyRound, Plus, Trash2 } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -12,6 +12,7 @@ import { TextField } from "#/components/ui/field";
 import { ListRow, Skeleton } from "#/components/ui/page";
 import { accountClient, authClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
+import { PasswordField } from "../account/password-field";
 import { keys, refreshMe } from "../data";
 import { Group } from "../shell/settings-page";
 
@@ -35,7 +36,7 @@ function suggestedName(fallback: string): string {
 }
 
 /** Passkeys of the account: list, add one for this device, remove. */
-export function PasskeysCard() {
+export function PasskeysCard({ me }: { me: identity.Me }) {
   const { t, i18n } = useTranslation("settings");
   const queryClient = useQueryClient();
   const { data, isPending } = useQuery({
@@ -129,7 +130,7 @@ export function PasskeysCard() {
         )}
       </div>
 
-      {adding && <AddPasskeyDialog onClose={() => setAdding(false)} onAdded={changed} />}
+      {adding && <AddPasskeyDialog me={me} onClose={() => setAdding(false)} onAdded={changed} />}
       <ConfirmDialog
         open={removing.open}
         onOpenChange={(open) => !open && setRemoving((current) => ({ ...current, open: false }))}
@@ -144,15 +145,29 @@ export function PasskeysCard() {
   );
 }
 
-function AddPasskeyDialog({ onClose, onAdded }: { onClose(): void; onAdded(): Promise<unknown> }) {
+function AddPasskeyDialog({
+  me,
+  onClose,
+  onAdded,
+}: {
+  me: identity.Me;
+  onClose(): void;
+  onAdded(): Promise<unknown>;
+}) {
   const { t } = useTranslation(["settings", "common"]);
   const [name, setName] = useState(() =>
     suggestedName(t("settings:security.passkeys.defaultName")),
   );
+  // A new way to sign in takes the password, not just this session.
+  const [password, setPassword] = useState("");
+  const [passwordError, setPasswordError] = useState<string | null>(null);
 
   const add = useMutation({
     mutationFn: async () => {
-      const begin = await authClient().beginPasskeyRegistration({ name: name.trim() });
+      const begin = await authClient().beginPasskeyRegistration({
+        name: name.trim(),
+        currentPassword: password,
+      });
       const credential = await startRegistration({ optionsJSON: JSON.parse(begin.optionsJson) });
       return authClient().finishPasskeyRegistration({
         challengeId: begin.challengeId,
@@ -171,8 +186,10 @@ function AddPasskeyDialog({ onClose, onAdded }: { onClose(): void; onAdded(): Pr
         (error.name === "NotAllowedError" || error.name === "AbortError")
       )
         return;
+      if (errorReason(error) === "INVALID_CREDENTIALS")
+        setPasswordError(t("settings:account.password.wrongCurrent"));
       // The authenticator already holds a passkey for this account.
-      if (error instanceof Error && error.name === "InvalidStateError")
+      else if (error instanceof Error && error.name === "InvalidStateError")
         toast.error(t("settings:errors.PASSKEY_EXISTS"));
       else toast.error(errorMessage(error));
     },
@@ -180,6 +197,7 @@ function AddPasskeyDialog({ onClose, onAdded }: { onClose(): void; onAdded(): Pr
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    setPasswordError(null);
     add.mutate();
   };
 
@@ -201,6 +219,16 @@ function AddPasskeyDialog({ onClose, onAdded }: { onClose(): void; onAdded(): Pr
           autoFocus
           required
         />
+        {me.hasPassword && (
+          <PasswordField
+            label={t("settings:account.password.current")}
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            error={passwordError ?? undefined}
+            autoComplete="current-password"
+            required
+          />
+        )}
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose} disabled={add.isPending}>
             {t("common:actions.cancel")}

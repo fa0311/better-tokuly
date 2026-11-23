@@ -25,6 +25,9 @@ service AuthService {
 
   // Passkeys (WebAuthn). Option/response payloads are the standard WebAuthn
   // JSON objects, passed through as strings.
+  //
+  // BeginPasskeyRegistration: INVALID_CREDENTIALS (wrong `current_password`),
+  // TOO_MANY_PASSKEYS, RATE_LIMITED.
   rpc BeginPasskeyRegistration(BeginPasskeyRegistrationRequest) returns (BeginPasskeyRegistrationResponse);
   rpc FinishPasskeyRegistration(FinishPasskeyRegistrationRequest) returns (FinishPasskeyRegistrationResponse);
   rpc BeginPasskeySignIn(BeginPasskeySignInRequest) returns (BeginPasskeySignInResponse);
@@ -119,6 +122,9 @@ message CheckHandleResponse {
 message BeginPasskeyRegistrationRequest {
   // Label shown in the passkey list, e.g. "MacBook Touch ID".
   string name = 1;
+  // The account password (ignored when the account has none). A new way to
+  // sign in is never added on the strength of a session alone.
+  string current_password = 2;
 }
 
 message BeginPasskeyRegistrationResponse {
@@ -250,9 +256,13 @@ service AccountService {
   rpc ListPasskeys(ListPasskeysRequest) returns (ListPasskeysResponse);
   rpc DeletePasskey(DeletePasskeyRequest) returns (DeletePasskeyResponse);
 
-  // TOTP two-factor authentication.
+  // TOTP two-factor authentication. Every code is accepted once; attempts
+  // are limited to 8 per 5 minutes and 30 a day (RATE_LIMITED).
   rpc BeginTotpSetup(BeginTotpSetupRequest) returns (BeginTotpSetupResponse);
+  // INVALID_CREDENTIALS (wrong `current_password`), INVALID_TOTP,
+  // TOTP_SETUP_EXPIRED, RATE_LIMITED.
   rpc EnableTotp(EnableTotpRequest) returns (EnableTotpResponse);
+  // INVALID_TOTP (wrong or already used code), TOTP_NOT_ENABLED, RATE_LIMITED.
   rpc DisableTotp(DisableTotpRequest) returns (DisableTotpResponse);
 
   // Security log: sign-ins, password changes, new devices, etc.
@@ -495,6 +505,9 @@ message BeginTotpSetupResponse {
 
 message EnableTotpRequest {
   string code = 1;
+  // The account password (ignored when the account has none), so a session
+  // alone cannot put the account behind an authenticator someone else holds.
+  string current_password = 2;
 }
 
 message EnableTotpResponse {

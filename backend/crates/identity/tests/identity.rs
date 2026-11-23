@@ -232,13 +232,13 @@ async fn totp_setup_then_sign_in_requires_code_and_recovery_code_works_once() {
 
     let setup: BeginTotpSetupResponse = app.call("tokuly.identity.v1.AccountService/BeginTotpSetup", Some(&user), &BeginTotpSetupRequest::default()).await.unwrap();
     assert!(setup.otpauth_url.starts_with("otpauth://totp/"));
-    let err = app.call::<_, EnableTotpResponse>("tokuly.identity.v1.AccountService/EnableTotp", Some(&user), &EnableTotpRequest { code: "000000".into(), ..Default::default() }).await;
+    let err = app.call::<_, EnableTotpResponse>("tokuly.identity.v1.AccountService/EnableTotp", Some(&user), &EnableTotpRequest { code: "000000".into(), current_password: "correct horse battery".into(), ..Default::default() }).await;
     // (000000 could be the right code once in a million runs; only assert on the common case.)
     if let Err(err) = err {
         assert_eq!(err.reason, "INVALID_TOTP");
     }
     let code = totp_at(&setup.secret, -1);
-    let enabled: EnableTotpResponse = app.call("tokuly.identity.v1.AccountService/EnableTotp", Some(&user), &EnableTotpRequest { code, ..Default::default() }).await.unwrap();
+    let enabled: EnableTotpResponse = app.call("tokuly.identity.v1.AccountService/EnableTotp", Some(&user), &EnableTotpRequest { code, current_password: "correct horse battery".into(), ..Default::default() }).await.unwrap();
     assert_eq!(enabled.recovery_codes.len(), 10);
     assert!(me(&app, &user).await.totp_enabled);
 
@@ -289,7 +289,7 @@ async fn user_with_totp(app: &TestApp, prefix: &str) -> (String, TestUser, Strin
     let user = app.sign_in(user_id).await;
     let setup: BeginTotpSetupResponse = app.call("tokuly.identity.v1.AccountService/BeginTotpSetup", Some(&user), &BeginTotpSetupRequest::default()).await.unwrap();
     let _: EnableTotpResponse = app
-        .call("tokuly.identity.v1.AccountService/EnableTotp", Some(&user), &EnableTotpRequest { code: totp_at(&setup.secret, -1), ..Default::default() })
+        .call("tokuly.identity.v1.AccountService/EnableTotp", Some(&user), &EnableTotpRequest { code: totp_at(&setup.secret, -1), current_password: "correct horse battery".into(), ..Default::default() })
         .await
         .unwrap();
     (tag, user, setup.secret)
@@ -386,6 +386,62 @@ async fn securing_the_password_kills_a_pending_email_change() {
         let owner = app.sign_in(user_id).await;
         assert_eq!(me(&app, &owner).await.email, format!("{tag}@example.com"));
     }
+}
+
+#[tokio::test]
+async fn a_new_sign_in_credential_takes_the_password() {
+    let app = app().await;
+    let tag = unique("cred");
+    let auth: AuthResponse = app.call("tokuly.identity.v1.AuthService/SignUp", None, &sign_up_request(&tag)).await.unwrap();
+    let user_id: uuid::Uuid = auth.me.as_option().unwrap().user.as_option().unwrap().id.parse().unwrap();
+    // Someone holding only an access token (15 minutes, from an unlocked
+    // phone or a script on the page) must not be able to add a passkey of
+    // their own (it signs in without the second factor and survives a
+    // password reset) or lock the owner out behind an authenticator they hold.
+    let stolen = app.sign_in(user_id).await;
+    for password in ["", "wrong wrong wrong"] {
+        let err = app
+            .call::<_, BeginPasskeyRegistrationResponse>(
+                "tokuly.identity.v1.AuthService/BeginPasskeyRegistration",
+                Some(&stolen),
+                &BeginPasskeyRegistrationRequest { name: "mine now".into(), current_password: password.into(), ..Default::default() },
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(err.reason, "INVALID_CREDENTIALS", "passkey with password {password:?}");
+
+        let setup: BeginTotpSetupResponse = app.call("tokuly.identity.v1.AccountService/BeginTotpSetup", Some(&stolen), &BeginTotpSetupRequest::default()).await.unwrap();
+        let err = app
+            .call::<_, EnableTotpResponse>(
+                "tokuly.identity.v1.AccountService/EnableTotp",
+                Some(&stolen),
+                &EnableTotpRequest { code: totp_now(&setup.secret), current_password: password.into(), ..Default::default() },
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(err.reason, "INVALID_CREDENTIALS", "TOTP with password {password:?}");
+    }
+    assert!(!me(&app, &stolen).await.totp_enabled);
+
+    // With the password both go ahead.
+    let begun: BeginPasskeyRegistrationResponse = app
+        .call(
+            "tokuly.identity.v1.AuthService/BeginPasskeyRegistration",
+            Some(&stolen),
+            &BeginPasskeyRegistrationRequest { name: "Laptop".into(), current_password: "correct horse battery".into(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    assert!(!begun.challenge_id.is_empty());
+    let setup: BeginTotpSetupResponse = app.call("tokuly.identity.v1.AccountService/BeginTotpSetup", Some(&stolen), &BeginTotpSetupRequest::default()).await.unwrap();
+    let _: EnableTotpResponse = app
+        .call(
+            "tokuly.identity.v1.AccountService/EnableTotp",
+            Some(&stolen),
+            &EnableTotpRequest { code: totp_at(&setup.secret, 1), current_password: "correct horse battery".into(), ..Default::default() },
+        )
+        .await
+        .unwrap();
 }
 
 #[tokio::test]

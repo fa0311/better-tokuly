@@ -527,6 +527,7 @@ impl AuthService for Identity {
     ) -> ServiceResult<BeginPasskeyRegistrationResponse> {
         handle(async {
             let user = users::get(&self.core, ctx.user_id()?).await?;
+            self.confirm_password(&user, request.current_password).await?;
             let (challenge_id, options_json) =
                 Identity::begin_passkey_registration(self, &user, request.name).await?;
             ok(BeginPasskeyRegistrationResponse {
