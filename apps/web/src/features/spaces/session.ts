@@ -5,6 +5,13 @@ import { toast } from "sonner";
 import { create } from "zustand";
 import { errorMessage } from "#/lib/errors";
 import i18n from "#/lib/i18n";
+import {
+  audioSink,
+  clearAudioSink,
+  loadLiveKit,
+  sessionWriters,
+  startRoomAudio,
+} from "#/lib/livekit";
 import { realtime } from "#/lib/realtime";
 import { audioFocusHolder, claimAudioFocus, releaseAudioFocus } from "#/stores/audio-focus";
 import {
@@ -107,29 +114,11 @@ function store(key: string, value: string): void {
   }
 }
 
-function update(change: Partial<ActiveVenue>): void {
-  useAudioSession.setState((state) =>
-    state.active ? { active: { ...state.active, ...change } } : state,
-  );
-}
+const { update, touch } = sessionWriters(useAudioSession);
 
-function touch(): void {
-  useAudioSession.setState((state) =>
-    state.active ? { active: { ...state.active, revision: state.active.revision + 1 } } : state,
-  );
-}
-
-/** The hidden element the others' voices play through, kept outside React so navigation never interrupts them. */
-function sink(): HTMLElement {
-  let element = document.getElementById("spaces-audio");
-  if (!element) {
-    element = document.createElement("div");
-    element.id = "spaces-audio";
-    element.hidden = true;
-    document.body.appendChild(element);
-  }
-  return element;
-}
+/** The id of the hidden element the others' voices play through (see `audioSink`). */
+const SINK_ID = "spaces-audio";
+const sink = () => audioSink(SINK_ID);
 
 /** Lets go of the connection and the microphone. */
 async function close(exit: Exit | null = null): Promise<void> {
@@ -141,7 +130,7 @@ async function close(exit: Exit | null = null): Promise<void> {
   room = null;
   useAudioSession.setState({ active: null, exit });
   releaseAudioFocus("room");
-  document.getElementById("spaces-audio")?.replaceChildren();
+  clearAudioSink(SINK_ID);
   await leaving?.disconnect().catch(() => {});
 }
 
@@ -174,7 +163,7 @@ async function connect(
   options: { microphone?: boolean } = {},
 ): Promise<void> {
   if (!credentials) throw new Error("no audio credentials");
-  const { Room, RoomEvent, Track } = await import("livekit-client");
+  const { Room, RoomEvent, Track } = await loadLiveKit();
   // The person left while the client was loading.
   if (mine !== generation) return;
   const session = new Room({
@@ -319,7 +308,7 @@ function backOnline(attempt: number): Promise<void> {
 async function disconnected(mine: number, reason: DisconnectReason | undefined): Promise<void> {
   const active = useAudioSession.getState().active;
   if (!active || !client) return;
-  const { DisconnectReason } = await import("livekit-client");
+  const { DisconnectReason } = await loadLiveKit();
   if (mine !== generation) return;
   const venue = { kind: active.kind, id: active.id };
   if (reason === DisconnectReason.DUPLICATE_IDENTITY)
@@ -639,8 +628,7 @@ export async function toggleMicrophone(queryClient: QueryClient): Promise<void> 
 
 /** After a tap: lets the browser play the others' sound. */
 export async function unblockAudio(): Promise<void> {
-  await room?.startAudio().catch(() => {});
-  update({ audioBlocked: room ? !room.canPlaybackAudio : false });
+  update({ audioBlocked: await startRoomAudio(() => room) });
 }
 
 export interface AudioDevices {
@@ -652,7 +640,7 @@ export interface AudioDevices {
 
 /** The microphones and speakers this browser offers, and the ones in use. */
 export async function listAudioDevices(): Promise<AudioDevices> {
-  const { Room } = await import("livekit-client");
+  const { Room } = await loadLiveKit();
   const [microphones, speakers] = await Promise.all([
     Room.getLocalDevices("audioinput", false).catch(() => []),
     Room.getLocalDevices("audiooutput", false).catch(() => []),

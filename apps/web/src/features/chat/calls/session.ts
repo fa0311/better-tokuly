@@ -4,6 +4,7 @@ import type { Room } from "livekit-client";
 import { toast } from "sonner";
 import { create } from "zustand";
 import i18n from "#/lib/i18n";
+import { loadLiveKit, sessionWriters, startRoomAudio } from "#/lib/livekit";
 import { claimAudioFocus, releaseAudioFocus } from "#/stores/audio-focus";
 import { callClient } from "../api";
 import { patchConversation, readConversation } from "../conversations";
@@ -45,17 +46,7 @@ export function currentRoom(): Room | null {
 
 const t = (key: string) => i18n.t(key, { ns: "chat" });
 
-function update(change: Partial<ActiveCall>): void {
-  useCallSession.setState((state) =>
-    state.active ? { active: { ...state.active, ...change } } : state,
-  );
-}
-
-function touch(): void {
-  useCallSession.setState((state) =>
-    state.active ? { active: { ...state.active, revision: state.active.revision + 1 } } : state,
-  );
-}
+const { update, touch } = sessionWriters(useCallSession);
 
 function noteCall(queryClient: QueryClient, call: chat.Call): void {
   useLive.getState().setCall(call);
@@ -80,7 +71,7 @@ async function connect(
   video: boolean,
 ): Promise<void> {
   if (!credentials) throw new Error("no call credentials");
-  const { Room, RoomEvent } = await import("livekit-client");
+  const { Room, RoomEvent } = await loadLiveKit();
   // The person hung up while the client was loading.
   if (!useCallSession.getState().active) return;
   const session = new Room({ adaptiveStream: true, dynacast: true });
@@ -304,6 +295,5 @@ export async function toggleScreenShare(): Promise<void> {
 
 /** After a tap: lets the browser play the others' sound. */
 export async function unblockAudio(): Promise<void> {
-  await room?.startAudio().catch(() => {});
-  update({ audioBlocked: room ? !room.canPlaybackAudio : false });
+  update({ audioBlocked: await startRoomAudio(() => room) });
 }
