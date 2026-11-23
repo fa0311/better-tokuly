@@ -115,11 +115,17 @@ export default function NotificationsBackground() {
     if (!("serviceWorker" in navigator)) return;
     void serviceWorker();
     const onMessage = (event: MessageEvent) => {
-      const message = event.data as { type?: string; id?: string; path?: string } | null;
+      const message = event.data as {
+        type?: string;
+        id?: string;
+        kind?: string;
+        path?: string;
+      } | null;
       if (message?.type === "tokuly:notification-click") {
         event.ports[0]?.postMessage("ok");
         openNotification(queryClient, router, {
           id: message.id ?? "",
+          kind: message.kind,
           path: message.path || INBOX_PATH,
         });
       } else if (message?.type === "tokuly:push-subscription-change" && userId) {

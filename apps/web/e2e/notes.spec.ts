@@ -188,7 +188,7 @@ test("new notes wait behind a pill while the reader is further down", async ({
 test("the home tab mixes notes with what else friends did", async ({ page, me, request }) => {
   const friend = await friendOf(request, me);
   const text = `e2e フィードのノート ${tag()}`;
-  await post(request, friend, { text });
+  const note = await post(request, friend, { text });
 
   await page.goto("/notes");
   await expect(page.getByRole("tab", { name: "ホーム" })).toHaveAttribute("aria-selected", "true");
@@ -199,10 +199,36 @@ test("the home tab mixes notes with what else friends did", async ({ page, me, r
     feed.locator('[data-testid="feed-card"]', { hasText: "友達になったよ" }).first(),
   ).toBeVisible();
 
+  // Everyone's public notes, and nothing but notes.
   await page.getByRole("tab", { name: "みんな" }).click();
   await expect(page).toHaveURL(/tab=global/);
-  await expect(card(page, text)).toBeVisible();
+  await expect(page.getByTestId("timeline").getByTestId("note").first()).toBeVisible();
+  await expect(page.getByTestId("home-feed")).toHaveCount(0);
+  await expect(page.getByTestId("feed-card")).toHaveCount(0);
+  // The friend's public note is one of them. The global timeline is shared with every test
+  // running at the same time, and a burst of their notes can push this one past the first page
+  // the tab shows: it is looked for in the timeline itself, page by page.
+  expect(await inGlobalTimeline(request, me, note.id)).toBe(true);
 });
+
+/** Whether the global timeline holds `noteId`, reading it from the newest note back. */
+async function inGlobalTimeline(
+  request: APIRequestContext,
+  as: Account,
+  noteId: string,
+): Promise<boolean> {
+  let cursor = "";
+  for (let pages = 0; pages < 20; pages++) {
+    const { entries = [], page } = await rpc<{
+      entries?: { note?: { id: string } }[];
+      page?: { nextCursor?: string };
+    }>(request, `${NOTES}/GetGlobalTimeline`, { page: { cursor, limit: 50 } }, as);
+    if (entries.some((entry) => entry.note?.id === noteId)) return true;
+    cursor = page?.nextCursor ?? "";
+    if (!cursor) return false;
+  }
+  return false;
+}
 
 test("likes, renotes, quotes and replies move the counters, live for everyone looking", async ({
   page,

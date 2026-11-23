@@ -15,6 +15,7 @@ export function ConfirmDialog({
   confirmLabel,
   danger,
   loading,
+  confirmDisabled,
   onConfirm,
   children,
 }: {
@@ -26,6 +27,8 @@ export function ConfirmDialog({
   /** Styles the confirm button as destructive. */
   danger?: boolean;
   loading?: boolean;
+  /** Keeps the confirm button from being pressed (say why in `children`). */
+  confirmDisabled?: boolean;
   onConfirm(): void;
   /** Extra content between the description and the buttons (a summary, a reason field). */
   children?: ReactNode;
@@ -42,7 +45,12 @@ export function ConfirmDialog({
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={loading}>
             {t("actions.cancel")}
           </Button>
-          <Button variant={danger ? "danger" : "primary"} onClick={onConfirm} loading={loading}>
+          <Button
+            variant={danger ? "danger" : "primary"}
+            onClick={onConfirm}
+            loading={loading}
+            disabled={confirmDisabled}
+          >
             {confirmLabel}
           </Button>
         </>

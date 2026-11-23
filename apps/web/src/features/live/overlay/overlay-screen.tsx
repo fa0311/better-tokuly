@@ -61,14 +61,19 @@ export function OverlayScreen({ token }: { token: string }) {
   const showing = useRef(false);
   /** Changing it reads the widget again (its configuration or its stream changed). */
   const [version, setVersion] = useState(0);
+  /** Chat lines pushed while the widget is being read (`null` otherwise): the answer may predate them. */
+  const pushed = useRef<live.ChatMessage[] | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     let retry: ReturnType<typeof setTimeout> | undefined;
     const load = async (delay: number) => {
       try {
+        pushed.current = [];
         const next = toState(await overlayClient().getOverlay({ token }));
         if (cancelled) return;
+        if (next) next.messages = addChatMessages(next.messages, pushed.current ?? [], 60);
+        pushed.current = null;
         setState(next);
         setGone(next === null);
       } catch (error) {
@@ -108,7 +113,6 @@ export function OverlayScreen({ token }: { token: string }) {
     if (!topic) return;
     const client = realtime();
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let welcomed = false;
     const next = () => {
       const upcoming = queue.current.shift();
       if (!upcoming) {
@@ -126,9 +130,10 @@ export function OverlayScreen({ token }: { token: string }) {
     };
     const offFrame = client.onFrame((frame) => {
       if (frame.body.case === "welcome") {
-        // Back after a gap: whatever was pushed meanwhile is read in one go.
-        if (welcomed) setVersion((value) => value + 1);
-        welcomed = true;
+        // The connection is up with the topic subscribed (the first time, or back after a
+        // gap): whatever was pushed before that, including while the widget was first
+        // being read, is read in one go.
+        setVersion((value) => value + 1);
         return;
       }
       if (frame.body.case !== "live" || frame.topic !== topic) return;
@@ -137,6 +142,7 @@ export function OverlayScreen({ token }: { token: string }) {
         setState((current) => (current ? update(current) : current));
       switch (event.case) {
         case "chatMessage":
+          pushed.current?.push(event.value);
           patch((current) => ({
             ...current,
             messages: addChatMessages(current.messages, [event.value], 60),
@@ -182,6 +188,12 @@ export function OverlayScreen({ token }: { token: string }) {
       }
     });
     const release = client.subscribe(topic);
+    // Already connected, so no welcome follows: the subscription starts now, after the
+    // widget was read, and a line sent in between is only in a second read. Not airtight:
+    // `subscribe()` is not acknowledged, so this re-read (HTTP) can still reach the server
+    // before the subscription (realtime) does, and a line sent in that gap is missed until
+    // the next read. Closing it needs a subscribe acknowledgement in the realtime protocol.
+    if (client.connectionStatus === "connected") setVersion((value) => value + 1);
     client.start();
     return () => {
       clearTimeout(timer);

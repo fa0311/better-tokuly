@@ -510,6 +510,22 @@ test("someone who is not a friend sees the showcase, but not every badge or the 
       { timeout: SETTLE },
     )
     .toBe(1);
+  // The first-friend badge is awarded a moment after the friendship, like the streak after the
+  // messages: the quest page shows what was earned when it opened.
+  await expect
+    .poll(
+      async () => {
+        const { badges } = await rpc<{ badges?: { key: string }[] }>(
+          request,
+          `${QUEST}.BadgeService/ListUserBadges`,
+          { userId: owner.userId },
+          me,
+        );
+        return badges?.map((badge) => badge.key) ?? [];
+      },
+      { timeout: SETTLE },
+    )
+    .toContain("first_friend");
 
   // The friend: the streak on the profile, and every badge on the quest page.
   await page.goto(`/u/${owner.handle}`);

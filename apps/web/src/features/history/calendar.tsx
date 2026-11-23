@@ -76,7 +76,11 @@ export function HistoryCalendar() {
             </span>
           ))}
         </div>
-        <div className="mt-1 grid grid-cols-7 gap-1.5" data-testid="history-calendar">
+        <div
+          className="mt-1 grid grid-cols-7 gap-1.5"
+          data-testid="history-calendar"
+          aria-busy={isPending}
+        >
           {monthGrid(month)
             .flat()
             .map((date, index) => {

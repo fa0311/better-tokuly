@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Coins } from "#/components/ui/coins";
-import { Dialog } from "#/components/ui/dialog";
+import { ConfirmDialog } from "#/components/ui/confirm";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { openDirectChat } from "#/features/chat";
@@ -179,7 +179,8 @@ export function StreaksScreen() {
         </>
       )}
 
-      <Dialog
+      {/* Coins are only spent when they are there: short of them, the way is to buy more. */}
+      <ConfirmDialog
         open={restoring !== null}
         onOpenChange={(open) => !open && setRestoring(null)}
         title={t("streaks.restoreConfirm.title", {
@@ -187,21 +188,10 @@ export function StreaksScreen() {
           count: restoring?.lostDays ?? 0,
         })}
         description={t("streaks.restoreConfirm.body")}
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setRestoring(null)} disabled={restore.isPending}>
-              {t("common:actions.cancel")}
-            </Button>
-            {/* Coins are only spent when they are there: short of them, the way is to buy more. */}
-            <Button
-              loading={restore.isPending}
-              disabled={confirm !== "ready"}
-              onClick={() => restoring && restore.mutate(restoring)}
-            >
-              {t("streaks.restoreConfirm.action", { coins: cost })}
-            </Button>
-          </>
-        }
+        confirmLabel={t("streaks.restoreConfirm.action", { coins: cost })}
+        loading={restore.isPending}
+        confirmDisabled={confirm !== "ready"}
+        onConfirm={() => restoring && restore.mutate(restoring)}
       >
         <dl className="flex flex-col gap-2 rounded-2xl bg-surface-2 p-4 text-sm font-bold">
           <div className="flex items-center justify-between">
@@ -228,7 +218,7 @@ export function StreaksScreen() {
             {t(confirm === "used" ? "errors.RESTORE_ALREADY_USED" : "errors.RESTORE_WINDOW_OVER")}
           </p>
         )}
-      </Dialog>
+      </ConfirmDialog>
     </Page>
   );
 }

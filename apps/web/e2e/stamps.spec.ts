@@ -455,8 +455,9 @@ test.describe("store", () => {
     await page.getByTestId("pack-card").filter({ hasText: pack.name }).click();
     await expect(page).toHaveURL(new RegExp(`/stamps/${pack.shortId}$`));
 
-    // The creator's own page lists it too.
-    await page.getByRole("link", { name: "creator" }).click();
+    // The creator's own page lists it too. (Exactly the creator's link: the cards of packs that
+    // other tests' creators published, also named "creator", may be on the page as well.)
+    await page.getByRole("link", { name: "creator", exact: true }).click();
     await expect(page.getByRole("heading", { name: "クリエイター" })).toBeVisible();
     await expect(page.getByTestId("pack-card").filter({ hasText: pack.name })).toBeVisible();
   });

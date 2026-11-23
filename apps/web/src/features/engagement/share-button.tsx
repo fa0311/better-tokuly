@@ -24,15 +24,21 @@ const ShareToChat = lazy(() =>
   import("#/features/chat").then((module) => ({ default: module.ShareToChat })),
 );
 
+/** The full address of a page of this app (see `SubjectMenuOptions.path`). */
+function appLink(path: string): string {
+  return new URL(path, window.location.origin).href;
+}
+
 /**
  * "Send to a friend" for any subject, for menus that have their own share
- * entry: render `sheet` once and call `open()` from the menu item.
+ * entry: render `sheet` once and call `open()` from the menu item. `path`:
+ * this app's page of the subject, when the server's link points elsewhere.
  *
  *   const toChat = useShareToChat(subject, video.title);
  *   …{ label: t("engagement:share.chat"), onSelect: toChat.open }…
  *   {toChat.sheet}
  */
-export function useShareToChat(subject: Subject, title?: string) {
+export function useShareToChat(subject: Subject, title?: string, path?: string) {
   const [open, setOpen] = useState(false);
   // Kept mounted after the first opening, so the sheet can animate out.
   const [used, setUsed] = useState(false);
@@ -43,7 +49,12 @@ export function useShareToChat(subject: Subject, title?: string) {
     },
     sheet: used ? (
       <Suspense fallback={null}>
-        <ShareToChat open={open} onOpenChange={setOpen} share={{ subject }} title={title} />
+        <ShareToChat
+          open={open}
+          onOpenChange={setOpen}
+          share={path ? { subject, url: appLink(path) } : { subject }}
+          title={title}
+        />
       </Suspense>
     ) : null,
   };
@@ -68,14 +79,17 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
-/** Records a share of `subject` and copies its link. For menus that offer "copy link" themselves. */
-export function useCopySubjectLink(subject: Subject): () => Promise<void> {
+/**
+ * Records a share of `subject` and copies its link (this app's `path` for it, when given).
+ * For menus that offer "copy link" themselves.
+ */
+export function useCopySubjectLink(subject: Subject, path?: string): () => Promise<void> {
   const { t } = useTranslation("engagement");
   const queryClient = useQueryClient();
   return async () => {
     try {
       const url = await recordShare(queryClient, subject, engagement.ShareTarget.LINK_COPY);
-      if (await copyText(url)) toast.success(t("share.copied"));
+      if (await copyText(path ? appLink(path) : url)) toast.success(t("share.copied"));
       else toast.error(t("share.copyFailed"));
     } catch (error) {
       toast.error(errorMessage(error));

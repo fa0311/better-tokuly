@@ -773,9 +773,17 @@ test("the service worker shows a pushed notification, and a tap on it opens the 
     },
     app_badge: 1,
   };
-  await worker.evaluate(
-    `self.dispatchEvent(new PushEvent("push", { data: ${JSON.stringify(JSON.stringify(payload))} }))`,
-  );
+  // Delivered as the browser would, and waited for: the handler's work (showing the notification)
+  // is what the event's `waitUntil` receives, so a failure there fails here, with its reason.
+  await worker.evaluate(`new Promise((resolve, reject) => {
+    const event = new PushEvent("push", { data: ${JSON.stringify(JSON.stringify(payload))} });
+    const waitUntil = event.waitUntil.bind(event);
+    event.waitUntil = (work) => {
+      Promise.resolve(work).then(resolve, (error) => reject(String(error)));
+      try { waitUntil(work); } catch {}
+    };
+    self.dispatchEvent(event);
+  })`);
   const shown = () =>
     page.evaluate(async () =>
       (await (await navigator.serviceWorker.ready).getNotifications()).map((notification) => ({

@@ -9,7 +9,7 @@
  *   6. Messages from pages   update now, clear the offline data
  *
  * Messages to pages (received on `navigator.serviceWorker`):
- *   { type: "tokuly:notification-click", id, path }   answered through the message port
+ *   { type: "tokuly:notification-click", id, kind, path }   answered through the message port
  *   { type: "tokuly:push-subscription-change" }
  *
  * Messages from pages (`postMessage` on the worker):
@@ -395,11 +395,14 @@ async function openTarget(data) {
   const click = {
     type: "tokuly:notification-click",
     id: typeof data.id === "string" ? data.id : "",
+    // The app knows where some kinds' paths lead in it (community pages, for one).
+    kind: typeof data.kind === "string" ? data.kind : "",
     path: typeof data.path === "string" && data.path ? data.path : INBOX_PATH,
   };
   const fallback = new URL(OPEN_ROUTE, self.location.origin);
   fallback.searchParams.set("path", click.path);
   if (click.id) fallback.searchParams.set("id", click.id);
+  if (click.kind) fallback.searchParams.set("kind", click.kind);
 
   const pages = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
   const page =

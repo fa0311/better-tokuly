@@ -48,9 +48,34 @@ function toUnread(unread: chat.UnreadCounts | undefined): Unread {
     : NO_UNREAD;
 }
 
-/** Stores the unread totals the server just reported (list, mark-read and count responses carry them). */
-export function applyUnread(queryClient: QueryClient, unread: chat.UnreadCounts | undefined): void {
+/**
+ * How many realtime adjustments the unread totals have had. An answer from the server
+ * reflects the moment it was asked: one asked before an adjustment may predate the
+ * message behind it, and replacing the adjusted totals with it would lose that message.
+ */
+let adjustments = 0;
+
+/** Taken before asking the server for anything that carries unread totals; see `applyUnread`. */
+export function unreadVersion(): number {
+  return adjustments;
+}
+
+/**
+ * Stores the unread totals the server just reported (list, mark-read and count responses
+ * carry them). `askedAt` is `unreadVersion()` from before the request: when realtime
+ * events adjusted the totals meanwhile, the answer may be older than what is held, so the
+ * totals are read again instead.
+ */
+export function applyUnread(
+  queryClient: QueryClient,
+  unread: chat.UnreadCounts | undefined,
+  askedAt: number,
+): void {
   if (!unread) return;
+  if (askedAt !== adjustments) {
+    refreshUnread(queryClient);
+    return;
+  }
   queryClient.setQueryData<Unread>(chatKeys.unread, toUnread(unread));
   // A count request still under way was asked before this answer and must not replace it.
   void queryClient.cancelQueries({ queryKey: chatKeys.unread, exact: true });
@@ -60,6 +85,7 @@ export function applyUnread(queryClient: QueryClient, unread: chat.UnreadCounts 
 export function adjustUnread(queryClient: QueryClient, change: (unread: Unread) => Unread): void {
   queryClient.setQueryData<Unread>(chatKeys.unread, (unread) => {
     if (!unread) return unread;
+    adjustments += 1;
     const next = change(unread);
     return {
       badge: Math.max(0, next.badge),
@@ -76,9 +102,18 @@ export function refreshUnread(queryClient: QueryClient): void {
 
 /** The unread totals: fetched once, then kept current by responses and realtime events. */
 export function useUnread(): Unread {
+  const queryClient = useQueryClient();
   const { data } = useQuery({
     queryKey: chatKeys.unread,
-    queryFn: async () => toUnread((await conversationClient().getUnreadCounts({})).unread),
+    queryFn: async () => {
+      const askedAt = adjustments;
+      const fresh = toUnread((await conversationClient().getUnreadCounts({})).unread);
+      const held = queryClient.getQueryData<Unread>(chatKeys.unread);
+      if (askedAt === adjustments || !held) return fresh;
+      // A message arrived while this was asked: keep what counts it and ask once more.
+      setTimeout(() => refreshUnread(queryClient));
+      return held;
+    },
     staleTime: Number.POSITIVE_INFINITY,
   });
   return data ?? NO_UNREAD;
@@ -90,11 +125,12 @@ export function useConversationList(filter: ListFilter) {
   return useInfiniteQuery({
     queryKey: chatKeys.list(filter),
     queryFn: async ({ pageParam }): Promise<ListPage> => {
+      const askedAt = unreadVersion();
       const response = await conversationClient().listConversations({
         filter: LIST_FILTERS[filter],
         page: { cursor: pageParam, limit: PAGE_SIZE },
       });
-      applyUnread(queryClient, response.unread);
+      applyUnread(queryClient, response.unread, askedAt);
       return { conversations: response.conversations, nextCursor: response.page?.nextCursor ?? "" };
     },
     initialPageParam: "",

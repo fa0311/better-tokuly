@@ -2,7 +2,14 @@ import { QueryClient } from "@tanstack/react-query";
 import { chat, create, fromDate, type MessageInitShape } from "@tokuly/api";
 import { beforeEach, describe, expect, it } from "vitest";
 import { chatKeys } from "./api";
-import { type ListPage, NO_UNREAD, readConversation, type Unread } from "./conversations";
+import {
+  applyUnread,
+  type ListPage,
+  NO_UNREAD,
+  readConversation,
+  type Unread,
+  unreadVersion,
+} from "./conversations";
 import { applyChatEvent } from "./events";
 import { useLive } from "./live";
 import { make } from "./test-support";
@@ -100,6 +107,22 @@ describe("chat events", () => {
     // A second one: one more message, still one conversation with unread messages.
     applyChatEvent(queryClient, created(message(4, "aoi")), context);
     expect(unreadOf(queryClient)).toMatchObject({ badge: 2, unreadConversations: 1 });
+  });
+
+  it("keeps a count that an answer asked for before the message would undo, and asks again", () => {
+    const queryClient = client([conversation("c1")]);
+    const askedAt = unreadVersion();
+    // The message arrives while a list (or a mark-read) is on its way back…
+    applyChatEvent(queryClient, created(message(3, "aoi")), context);
+    // …and the answer, counted before the message, says there is nothing unread.
+    const unread = create(chat.UnreadCountsSchema, { badge: 0 });
+    applyUnread(queryClient, unread, askedAt);
+    expect(unreadOf(queryClient)).toMatchObject({ badge: 1 });
+    expect(queryClient.getQueryState(chatKeys.unread)?.isInvalidated).toBe(true);
+
+    // An answer asked for after the message is the truth.
+    applyUnread(queryClient, create(chat.UnreadCountsSchema, { badge: 5 }), unreadVersion());
+    expect(unreadOf(queryClient)).toMatchObject({ badge: 5 });
   });
 
   it("does not count a message twice when it is announced twice", () => {

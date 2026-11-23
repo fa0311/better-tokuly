@@ -51,11 +51,8 @@ export default {
     days: "{{count}} d",
   },
   share: {
-    chat: "Send in chat",
-    copy: "Copy link",
     copied: "Copied!",
     copyFailed: "Couldn't copy",
-    report: "Report",
   },
   discover: {
     my: "My communities",
