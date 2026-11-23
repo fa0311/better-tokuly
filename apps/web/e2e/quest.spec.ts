@@ -245,7 +245,9 @@ test("one mission a day can be swapped for another", async ({ page, request, me 
   ) as MissionJson;
 
   await page.goto("/quest");
-  await expect(page.getByText("ミッションの入れ替え: きょうはあと1回できるよ")).toBeVisible();
+  await expect(page.getByText("ミッションの入れ替え: きょうはあと1回できるよ")).toBeVisible({
+    timeout: SETTLE,
+  });
   await missionCard(page, first.title.ja)
     .getByRole("button", { name: `「${first.title.ja}」を入れ替える` })
     .click();
