@@ -98,7 +98,12 @@ Postings keep their account names (`user:<id>:…`), so the closed account
 stays auditable by ID through `WalletAdminService.ListUserLedgerEntries`;
 the ID belongs to identity's anonymous tombstone by then.
 
-Domains must not move coins to or from a deleted user afterwards.
+Once identity has erased the account (`users.deleted_at`), the ledger
+refuses every new movement that names it — grant, spend, transfer in
+either direction — with `ACCOUNT_CLOSED` (`failed_precondition`), and a
+refund to or from it with `REFUND_IMPOSSIBLE`, whether or not the consumer
+above has run yet. A retry of a movement that happened before is still
+answered as a retry.
 
 ## Realtime
 

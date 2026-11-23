@@ -122,3 +122,35 @@ async fn a_key_cannot_be_reused_for_another_movement() {
     assert_eq!(paid, 2000 - 100 - 300 - 1, "exactly one of the two paid");
     assert_eq!(postings_sum(&app).await, 0);
 }
+
+/// Once identity has erased an account (`users.deleted_at`), its wallet is
+/// closed for good: nothing moves into it or out of it, whether or not the
+/// wallet's own clean-up has run yet. Otherwise a late gift or refund
+/// re-opens the closed account and strands the coins on a tombstone.
+#[tokio::test]
+async fn coins_do_not_move_to_or_from_a_deleted_account() {
+    let app = TestApp::start(MIGRATIONS, |_, _, router| router).await;
+    let (fan, leaver) = (app.user("fan").await, app.user("leaver").await);
+    ledger::grant(&app.core, fan.id, 1000, "purchase", &key("grant"), serde_json::json!({})).await.unwrap();
+    ledger::grant(&app.core, leaver.id, 1000, "purchase", &key("grant"), serde_json::json!({})).await.unwrap();
+    let sent = ledger::transfer(&app.core, leaver.id, fan.id, 100, 0, "live.gift", &key("gift"), serde_json::json!({})).await.unwrap();
+    let pack_key = key("pack");
+    let (spent, _) = ledger::spend(&app.core, leaver.id, 100, "stamp.pack", &pack_key, serde_json::json!({})).await.unwrap();
+    sqlx::query("UPDATE users SET deleted_at = now() WHERE id = $1").bind(leaver.id).execute(&app.core.db).await.unwrap();
+    // A retry of what did happen before is still answered as a retry.
+    assert_eq!(ledger::spend(&app.core, leaver.id, 100, "stamp.pack", &pack_key, serde_json::json!({})).await.unwrap(), (spent, false));
+
+    let gift = ledger::transfer(&app.core, fan.id, leaver.id, 300, 30, "live.gift", &key("gift"), serde_json::json!({})).await;
+    assert_eq!(gift.unwrap_err().reason, "ACCOUNT_CLOSED", "a gift to a deleted account");
+    assert_eq!(ledger::balance(&app.core, fan.id).await.unwrap().coins, 1000, "the fan keeps the coins");
+    let grant = ledger::grant(&app.core, leaver.id, 50, "quest.mission", &key("reward"), serde_json::json!({})).await;
+    assert_eq!(grant.unwrap_err().reason, "ACCOUNT_CLOSED");
+    let spend = ledger::spend(&app.core, leaver.id, 50, "stamp.pack", &key("pack"), serde_json::json!({})).await;
+    assert_eq!(spend.unwrap_err().reason, "ACCOUNT_CLOSED");
+    // Refunds cannot go back to a deleted payer, or take back what a deleted recipient earned.
+    assert_eq!(ledger::refund(&app.core, sent.entry_id, "live.gift.returned").await.unwrap_err().reason, "REFUND_IMPOSSIBLE");
+    assert_eq!(ledger::refund(&app.core, spent, "stamp.pack.refund").await.unwrap_err().reason, "REFUND_IMPOSSIBLE");
+    assert_eq!(ledger::balance(&app.core, fan.id).await.unwrap(), Balance { coins: 1000, earnings: 100 });
+    assert_eq!(ledger::balance(&app.core, leaver.id).await.unwrap(), Balance { coins: 800, earnings: 0 }, "left for the clean-up to forfeit");
+    assert_eq!(postings_sum(&app).await, 0);
+}

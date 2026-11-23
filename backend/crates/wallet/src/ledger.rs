@@ -179,8 +179,16 @@ async fn transfer_inner(
 }
 
 /// Reverses a spend or transfer. Idempotent: refunding twice is a no-op.
-/// Fails with `REFUND_IMPOSSIBLE` when the recipient already used the earnings.
+/// Fails with `REFUND_IMPOSSIBLE` when the recipient already used the
+/// earnings, or when either side's account was deleted.
 pub async fn refund(core: &Core, entry_id: Uuid, reason: &str) -> AppResult<()> {
+    refund_inner(core, entry_id, reason).await.map_err(|e| {
+        // Coins cannot go back to, or be taken back from, a deleted account.
+        if e.reason == "ACCOUNT_CLOSED" { AppError::precondition("REFUND_IMPOSSIBLE", "an account of this movement was deleted") } else { e }
+    })
+}
+
+async fn refund_inner(core: &Core, entry_id: Uuid, reason: &str) -> AppResult<()> {
     let mut tx = core.db.begin().await?;
     let row: Option<(String, Option<Uuid>, Option<Uuid>, i64, i64, bool)> = sqlx::query_as(
         "SELECT kind, from_user_id, to_user_id, amount, fee, refunded_at IS NOT NULL FROM wallet_entries WHERE id = $1 FOR UPDATE",

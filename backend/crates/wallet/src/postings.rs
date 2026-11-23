@@ -164,9 +164,21 @@ pub(crate) struct NewEntry<'a> {
 /// Writes an entry and its postings, given as `(account, delta)` pairs.
 /// Refuses postings that do not sum to zero: an unbalanced entry would
 /// silently create or destroy coins.
+///
+/// Fails with `ACCOUNT_CLOSED` when a user the entry names was erased by
+/// identity (`users.deleted_at`): that wallet is closed, or about to be by
+/// the `identity.user.deleted` consumer, and coins moved into it now would
+/// re-open it on a tombstone where nobody can use them. Checked here, after
+/// the caller looked its key up, so that the retry of a movement that did
+/// happen is still answered as a retry.
 pub(crate) async fn post(tx: &mut Transaction<'_, Postgres>, entry: NewEntry<'_>, postings: &[(String, i64)]) -> AppResult<Uuid> {
     if postings.iter().map(|(_, delta)| delta).sum::<i64>() != 0 {
         return Err(AppError::internal(anyhow::anyhow!("unbalanced postings for a `{}` entry", entry.kind)));
+    }
+    let parties: Vec<Uuid> = [entry.from, entry.to].into_iter().flatten().collect();
+    if !parties.is_empty() {
+        let closed: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM users WHERE id = ANY($1) AND deleted_at IS NOT NULL)").bind(&parties).fetch_one(&mut **tx).await?;
+        ensure!(!closed, precondition, "ACCOUNT_CLOSED", "this account was deleted");
     }
     let inserted: Result<Uuid, sqlx::Error> = sqlx::query_scalar(
         "INSERT INTO wallet_entries (kind, reason, idempotency_key, from_user_id, to_user_id, amount, fee, refund_of, memo)
