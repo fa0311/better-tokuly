@@ -524,7 +524,13 @@ impl Spaces {
         }
         tx.commit().await?;
         self.push_space(&space).await;
-        if space.audience != locked.audience {
+        // Public > friends > invited only: only a narrower audience leaves someone out.
+        let reach = |value: i16| match value {
+            audience::PUBLIC => 2,
+            audience::FRIENDS => 1,
+            _ => 0,
+        };
+        if reach(space.audience) < reach(locked.audience) {
             // A narrower audience: whoever is no longer in it stops following the room.
             self.core.rt.recheck_topic(&crate::model::space_topic(space.id)).await;
         }

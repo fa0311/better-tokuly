@@ -661,6 +661,11 @@ impl Notes {
         )
         .await?;
         tx.commit().await?;
+        if narrower(updated.visibility, note.visibility) == updated.visibility {
+            // A smaller audience: whoever follows the note's counters and
+            // comments without being in it stops.
+            self.core.rt.recheck_topic(&note_topic(updated.id)).await;
+        }
         Ok(updated)
     }
 
@@ -722,9 +727,11 @@ impl Notes {
                 ..Default::default()
             }))
         };
-        // Who may follow the topic is checked once, when a client
-        // subscribes, so only a public note's preview goes there; the author
-        // gets it either way.
+        // Only a public note's preview goes to the topic: the guard admits
+        // more than the note's audience for a moment after the audience
+        // narrows (the gateways ask every follower again within their
+        // re-check budget), and a preview is content. The author gets it
+        // either way.
         self.push_user(author_id, event()).await;
         if note_visibility == visibility::PUBLIC {
             self.push_topic(&note_topic(note_id), event()).await;

@@ -7,7 +7,10 @@ use std::time::Duration;
 use common::*;
 use tokuly_proto::{
     common::Visibility,
-    live::{LiveEvent, UpdateStreamRequest, UpdateStreamResponse},
+    live::{
+        CreateOverlayRequest, CreateOverlayResponse, GetOverlayRequest, GetOverlayResponse, LiveEvent, OverlayKind,
+        RotateOverlayTokenRequest, RotateOverlayTokenResponse, UpdateStreamRequest, UpdateStreamResponse,
+    },
 };
 use tokuly_realtime::testing::TestGateway;
 
@@ -69,4 +72,34 @@ async fn a_stream_narrowed_to_friends_lets_the_others_go() {
     ctx.unfriend(&streamer, &friend).await;
     assert_eq!(friends.unsubscribed(&topic, PROMPTLY).await.as_deref(), Some("TOPIC_FORBIDDEN"));
     assert_eq!(friends.subscribe(&[&topic]).await, Err("TOPIC_FORBIDDEN".into()));
+}
+
+#[tokio::test]
+async fn a_widget_whose_token_is_renewed_lets_the_old_page_go() {
+    let ctx = start().await;
+    let gateway = TestGateway::start(&ctx.app.core).await;
+    let streamer = ctx.app.user("streamer").await;
+    let channel = ctx.channel(&streamer, "ウィジェット").await;
+    let request = CreateOverlayRequest {
+        channel_id: channel.summary.id.clone(),
+        kind: OverlayKind::OVERLAY_KIND_CHAT_BOX.into(),
+        name: "チャット".into(),
+        ..Default::default()
+    };
+    let made: CreateOverlayResponse = ctx.call(OVERLAYS, "CreateOverlay", Some(&streamer), &request).await.unwrap();
+    let overlay = made.overlay.as_option().cloned().unwrap();
+    let opened: GetOverlayResponse = ctx
+        .call(OVERLAYS, "GetOverlay", None, &GetOverlayRequest { token: overlay.token.clone(), ..Default::default() })
+        .await
+        .unwrap();
+    let topic = opened.realtime_topic.clone();
+    // The page in OBS: not signed in, the token is its key.
+    let mut page = gateway.client(None).await;
+    page.subscribe(&[&topic]).await.unwrap();
+
+    let rotate = RotateOverlayTokenRequest { overlay_id: overlay.id.clone(), ..Default::default() };
+    let _: RotateOverlayTokenResponse =
+        ctx.call(OVERLAYS, "RotateOverlayToken", Some(&streamer), &rotate).await.unwrap();
+    assert_eq!(page.unsubscribed(&topic, PROMPTLY).await.as_deref(), Some("TOPIC_CLOSED"));
+    assert_eq!(page.subscribe(&[&topic]).await, Err("TOPIC_FORBIDDEN".into()), "the old topic admits nobody");
 }

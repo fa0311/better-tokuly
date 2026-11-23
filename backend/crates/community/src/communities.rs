@@ -416,8 +416,9 @@ impl Community {
         if !changes.is_empty() {
             self.push_community_changed(updated.id).await;
         }
-        if visibility_changed {
+        if current.is_public() && !updated.is_public() {
             // No longer public: whoever followed it without being a member stops.
+            // (Between the other two, only members follow it either way.)
             self.core.rt.recheck_topic(&crate::model::topic(updated.id)).await;
         }
         Ok(updated)

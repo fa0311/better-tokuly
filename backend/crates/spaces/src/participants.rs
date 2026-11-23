@@ -916,6 +916,9 @@ impl Spaces {
         let venue = Venue::Space(space.id);
         self.apply_role(venue, space.host_id, role::HOST).await;
         self.apply_role(venue, previous_host, role::COHOST).await;
+        // A friends room is the new host's friends' now, and blocks with the
+        // new host count: whoever only followed it through the old host goes.
+        self.core.rt.recheck_topic(&space_topic(space.id)).await;
     }
 
     /// Hands the room to someone inside.

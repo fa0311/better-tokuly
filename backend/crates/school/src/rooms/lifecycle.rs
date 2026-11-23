@@ -436,6 +436,17 @@ impl School {
 
     /// Tells the newcomer's devices, the room and their friends that they are in.
     async fn announce_entered(&self, room: &RoomRow, session: &SessionRow, at: Time) {
+        // Blocks hide people from each other in rooms too: someone who follows
+        // the room from outside and is in a block with the newcomer may no
+        // longer follow it. Only worth asking everyone when there is a block.
+        match graph::blocked_ids_either(&self.core, session.user_id).await {
+            Ok(hidden) if hidden.is_empty() => {}
+            Ok(_) => self.core.rt.recheck_topic(&topic(room.id)).await,
+            Err(e) => {
+                tracing::warn!(error = %e, "blocks of a newcomer unknown; asking the room's followers again");
+                self.core.rt.recheck_topic(&topic(room.id)).await;
+            }
+        }
         match self.session_proto(session, Some(room), at).await {
             Ok(proto) => self.push(session.user_id, Push::Session(Box::new(proto))).await,
             Err(e) => tracing::warn!(error = %e, "announcing a study session failed"),
@@ -519,7 +530,13 @@ impl School {
         if replanned {
             self.push_room(room.id, Push::RoomTimer(Box::new(room.timer().snapshot(at)))).await;
         }
-        if room.audience != current.audience {
+        // Public > friends > invited only: only a narrower audience leaves someone out.
+        let reach = |audience: i16| match audience {
+            AUDIENCE_PUBLIC => 2,
+            AUDIENCE_FRIENDS => 1,
+            _ => 0,
+        };
+        if reach(room.audience) < reach(current.audience) {
             // Whoever the new audience leaves out stops following the room.
             self.core.rt.recheck_topic(&topic(room.id)).await;
         }

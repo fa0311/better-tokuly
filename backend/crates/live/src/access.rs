@@ -105,6 +105,17 @@ pub fn sees_listed(viewer: &Viewer, stream: &StreamFacts) -> bool {
     }
 }
 
+/// Whether a stream going from visibility `before` to `after` may leave
+/// someone who could watch it out: open to everyone > friends > the rest.
+pub fn narrower(before: i32, after: i32) -> bool {
+    let reach = |visibility: i32| match visibility {
+        _ if open_to_everyone(visibility) => 2,
+        FRIENDS => 1,
+        _ => 0,
+    };
+    reach(after) < reach(before)
+}
+
 /// Whether anyone who knows the stream's name may play it without a token:
 /// true for the visibilities that are open to everyone with the link.
 pub fn open_to_everyone(visibility: i32) -> bool {

@@ -31,9 +31,14 @@ impl Community {
     ///
     /// A change that ended their access (removed, banned, left a community
     /// that is not public) also ends their subscription to its topic: the
-    /// guard is asked again, so one that changed nothing drops nothing.
+    /// guard is asked again, so one that changed nothing drops nothing. The
+    /// same goes for the `subject:` topics (comments and counters) of the
+    /// community's threads, replies and events they follow: topic names do
+    /// not say which community a subject belongs to, so all of the person's
+    /// `subject:` subscriptions are asked about (64 at most per connection).
     pub(crate) async fn push_membership(&self, community: &CommunityRow, user_id: Uuid) {
         self.core.rt.revoke(user_id, &model::topic(community.id)).await;
+        self.core.rt.revoke_prefix(user_id, "subject").await;
         let access = match self.stance(&Caller::user(user_id), community.clone()).await {
             Ok(access) => access,
             Err(error) => {
