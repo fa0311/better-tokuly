@@ -140,6 +140,18 @@ impl Spaces {
         Ok(settings::privacy_of(&self.core, user_id).await?.share_online_status)
     }
 
+    /// Whether a change of `user_id`'s hand may still be announced to the
+    /// whole room: it was going to be (`public`, decided under the lock from
+    /// the setting read before it) and its owner still shares their status
+    /// now, after the commit. The setting cannot be read under the room's
+    /// lock, so someone who hides while their hand is being dismissed or
+    /// lowered would otherwise be named; read again right before the
+    /// announcement, a change in between only narrows it to the moderators
+    /// and the person. A failed read counts as hidden.
+    async fn hand_still_public(&self, public: bool, user_id: Uuid) -> bool {
+        public && self.shares_status(user_id).await.unwrap_or(false)
+    }
+
     /// The host and the co-hosts inside: who answers raised hands.
     async fn moderator_ids(&self, space: &SpaceRow) -> AppResult<Vec<Uuid>> {
         let mut ids: Vec<Uuid> = sqlx::query_scalar(
@@ -621,6 +633,7 @@ impl Spaces {
         if self.room_budget(space_id, RoomFanout::Hands).await {
             // Lowering is announced only while the owner is still visible.
             let public = if raised { row.hand_public } else { me.hand_public && visible };
+            let public = self.hand_still_public(public, user_id).await;
             self.announce_hand(&space, &row, public).await;
         }
         self.push_counts(&space).await;
@@ -707,8 +720,9 @@ impl Spaces {
         accept: bool,
     ) -> AppResult<ParticipantRow> {
         self.visible_space(Some(user_id), space_id).await?;
-        // Read before the room is locked: whether a hand that goes down
-        // with a declined invitation may be announced to the room.
+        // Read before the room is locked, and again before announcing:
+        // whether a hand that goes down with a declined invitation may be
+        // announced to the room.
         let visible = self.shares_status(user_id).await?;
         let mut tx = self.core.db.begin().await?;
         let space = lock_space(&mut tx, space_id).await?;
@@ -723,7 +737,8 @@ impl Spaces {
             tx.commit().await?;
             if me.hand_raised_at.is_some() {
                 // Declining also takes the hand down.
-                self.announce_hand(&space, &row, me.hand_public && visible).await;
+                let public = self.hand_still_public(me.hand_public && visible, user_id).await;
+                self.announce_hand(&space, &row, public).await;
                 self.push_counts(&space).await;
             }
             return Ok(row);
@@ -751,8 +766,8 @@ impl Spaces {
         if target.is_some_and(|target| target != actor) {
             self.limit(Limit::Moderate, actor).await?;
         }
-        // Read before the room is locked: whether a dismissed hand may be
-        // announced to the room.
+        // Read before the room is locked, and again before announcing:
+        // whether a dismissed hand may be announced to the room.
         let visible = self.shares_status(target.unwrap_or(actor)).await?;
         let mut tx = self.core.db.begin().await?;
         let space = lock_space(&mut tx, space_id).await?;
@@ -791,7 +806,8 @@ impl Spaces {
         if rules::on_stage(before.role) {
             self.after_role_change(&space, &row).await;
         } else if before.hand_raised_at.is_some() {
-            self.announce_hand(&space, &row, before.hand_public && visible).await;
+            let public = self.hand_still_public(before.hand_public && visible, before.user_id).await;
+            self.announce_hand(&space, &row, public).await;
             self.push_counts(&space).await;
         }
         if before.stage_invited_at.is_some() && before.user_id != actor {

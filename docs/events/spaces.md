@@ -121,7 +121,11 @@ LiveKit reaches the API inside the stack, nobody else needs to.
     when it happens: only if the hand went up in plain view (`hand_public`)
     *and* its owner still shares their status. So a hand raised while
     hidden stays private after the person stops hiding, and a hand raised
-    in view names nobody once its owner hides;
+    in view names nobody once its owner hides. The setting cannot be read
+    under the room's lock, so it is read before the lock and once more
+    after the commit, right before the announcement: someone who hides
+    while their hand is being raised, lowered, dismissed or declined is
+    announced only to the moderators and themselves;
   - emoji bursts never name their sender, from anyone: the sender's client
     recognises its own by the random `nonce` it sent;
   - to non-moderators a participant's `joined_at` is the time they came

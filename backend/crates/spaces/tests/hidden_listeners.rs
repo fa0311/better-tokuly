@@ -406,17 +406,32 @@ fn cast(world: &World, shy_acts: bool) -> (&TestUser, &TestUser) {
 enum HandEnd {
     Lowered,
     Dismissed,
+    /// The host had invited the person on stage; they decline, and the hand
+    /// goes down with the invitation. (The invitation comes first: inviting
+    /// someone whose hand is up brings them on stage at once.)
+    Declined,
     Left,
 }
 
 #[tokio::test]
 async fn a_hand_raised_in_view_names_nobody_once_its_owner_hides() {
     let ctx = start().await;
-    for end in [HandEnd::Lowered, HandEnd::Dismissed, HandEnd::Left] {
+    for end in [HandEnd::Lowered, HandEnd::Dismissed, HandEnd::Declined, HandEnd::Left] {
         let mut worlds = Vec::new();
         for shy_acts in [true, false] {
             // Both raise a hand while visible (the room sees that), then both hide.
             let mut world = World::with(&ctx, false).await;
+            if let HandEnd::Declined = end {
+                for user in [&world.shy, &world.quiet] {
+                    let invite = InviteToStageRequest {
+                        space_id: world.room.id.clone(),
+                        user_id: user.id.to_string(),
+                        ..Default::default()
+                    };
+                    let _: InviteToStageResponse =
+                        ctx.call("Space", "InviteToStage", &world.host, &invite).await.unwrap();
+                }
+            }
             for user in [&world.shy, &world.quiet] {
                 let _: SetHandRaisedResponse =
                     ctx.call("Space", "SetHandRaised", user, &hand(&world.room.id, true)).await.unwrap();
@@ -443,6 +458,11 @@ async fn a_hand_raised_in_view_names_nobody_once_its_owner_hides() {
                         MoveToAudienceRequest { space_id: room, user_id: actor.id.to_string(), ..Default::default() };
                     let _: MoveToAudienceResponse =
                         ctx.call("Space", "MoveToAudience", &world.host, &dismiss).await.unwrap();
+                }
+                HandEnd::Declined => {
+                    let decline = RespondToStageInviteRequest { space_id: room, accept: false, ..Default::default() };
+                    let _: RespondToStageInviteResponse =
+                        ctx.call("Space", "RespondToStageInvite", actor, &decline).await.unwrap();
                 }
                 HandEnd::Left => ctx.leave(actor, &room).await,
             }
