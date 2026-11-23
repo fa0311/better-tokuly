@@ -1172,18 +1172,24 @@ async fn toggling_a_reaction_does_not_notify_again_and_again() {
     let reactions = ctx.notifications(&taro).await.into_iter().filter(|n| n.kind == "chat.reaction").count();
     assert_eq!(reactions, 1, "one person reacting to one message is told once");
 
+    // Reacting to message after message does not buzz the author each time either.
+    for text in ["二つ目", "三つ目"] {
+        let other = ctx.text(&taro, &conversation.id, text).await;
+        let request = AddReactionRequest { message_id: other.id.clone(), emoji: "😂".into(), ..Default::default() };
+        let _: AddReactionResponse = ctx.call("Message", "AddReaction", &hanako, &request).await.unwrap();
+    }
+    let reactions = ctx.notifications(&taro).await.into_iter().filter(|n| n.kind == "chat.reaction").count();
+    assert_eq!(reactions, 1, "one notice per person every few minutes");
+
     // Someone else reacting is news again.
     let jiro = ctx.app.user("jiro").await;
     ctx.befriend(&taro, &jiro).await;
     let group = ctx.group(&taro, "三人", &[&hanako, &jiro]).await;
     let in_group = ctx.text(&taro, &group.id, "集合！").await;
-    for reactor in [&hanako, &jiro] {
-        let request =
-            AddReactionRequest { message_id: in_group.id.clone(), emoji: "🙌".into(), ..Default::default() };
-        let _: AddReactionResponse = ctx.call("Message", "AddReaction", reactor, &request).await.unwrap();
-    }
+    let request = AddReactionRequest { message_id: in_group.id.clone(), emoji: "🙌".into(), ..Default::default() };
+    let _: AddReactionResponse = ctx.call("Message", "AddReaction", &jiro, &request).await.unwrap();
     let reactions = ctx.notifications(&taro).await.into_iter().filter(|n| n.kind == "chat.reaction").count();
-    assert_eq!(reactions, 3);
+    assert_eq!(reactions, 2);
 }
 
 #[tokio::test]
