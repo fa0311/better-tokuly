@@ -1103,9 +1103,8 @@ async fn a_burst_from_one_account_does_not_starve_the_connection_pool() {
         .collect();
     let started = std::time::Instant::now();
     let sends = send_requests.iter().map(|request| ctx.send(&owner, request));
-    let pins = pin_requests
-        .iter()
-        .map(|request| ctx.call::<_, PinMessageResponse>("Message", "PinMessage", &owner, request));
+    let pins =
+        pin_requests.iter().map(|request| ctx.call::<_, PinMessageResponse>("Message", "PinMessage", &owner, request));
     let forwards = forward_requests
         .iter()
         .map(|request| ctx.call::<_, ForwardMessagesResponse>("Message", "ForwardMessages", &owner, request));
@@ -1133,8 +1132,7 @@ async fn toggling_a_reaction_does_not_notify_again_and_again() {
         emoji: emoji.to_owned(),
         ..Default::default()
     };
-    let unreact =
-        RemoveReactionRequest { message_id: message.id.clone(), emoji: "😂".into(), ..Default::default() };
+    let unreact = RemoveReactionRequest { message_id: message.id.clone(), emoji: "😂".into(), ..Default::default() };
 
     // Every push counts against the author's per-minute push budget: a
     // reaction switched on and off must not drown out everybody else.
@@ -1152,7 +1150,8 @@ async fn toggling_a_reaction_does_not_notify_again_and_again() {
     let group = ctx.group(&taro, "三人", &[&hanako, &jiro]).await;
     let in_group = ctx.text(&taro, &group.id, "集合！").await;
     for reactor in [&hanako, &jiro] {
-        let request = AddReactionRequest { message_id: in_group.id.clone(), emoji: "🙌".into(), ..Default::default() };
+        let request =
+            AddReactionRequest { message_id: in_group.id.clone(), emoji: "🙌".into(), ..Default::default() };
         let _: AddReactionResponse = ctx.call("Message", "AddReaction", reactor, &request).await.unwrap();
     }
     let reactions = ctx.notifications(&taro).await.into_iter().filter(|n| n.kind == "chat.reaction").count();

@@ -674,15 +674,19 @@ impl Chat {
     ) -> AppResult<Option<CallChange>> {
         let Some(call) = self.lock_live_call(tx, conv.id).await? else { return Ok(None) };
         let was_joined = mark_left(tx, call.id, user_id).await?;
-        let was_rung = !was_joined && {
-            let withdrawn = sqlx::query("UPDATE chat_call_participants SET state = $3, rung = false WHERE call_id = $1 AND user_id = $2 AND state = $4")
+        // Someone still being rung is no longer waited for.
+        let was_rung = if was_joined {
+            false
+        } else {
+            sqlx::query("UPDATE chat_call_participants SET state = $3, rung = false WHERE call_id = $1 AND user_id = $2 AND state = $4")
                 .bind(call.id)
                 .bind(user_id)
                 .bind(party::LEFT)
                 .bind(party::RINGING)
                 .execute(&mut **tx)
-                .await?;
-            withdrawn.rows_affected() > 0
+                .await?
+                .rows_affected()
+                > 0
         };
         let mut change =
             if was_joined || was_rung { self.settle_call(tx, call).await? } else { CallChange::new(call, false) };
@@ -850,7 +854,8 @@ impl Chat {
                     continue;
                 }
             };
-            let connected: Vec<Uuid> = identities.iter().filter_map(|identity| Uuid::parse_str(identity).ok()).collect();
+            let connected: Vec<Uuid> =
+                identities.iter().filter_map(|identity| Uuid::parse_str(identity).ok()).collect();
             let mut tx = self.core.db.begin().await?;
             let call = lock_call(&mut tx, call.id).await?;
             if !call.is_live() {

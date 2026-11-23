@@ -192,7 +192,9 @@ async fn a_burst_of_sends_cannot_stretch_a_request_allowance() {
     let outcomes = futures::future::join_all(burst.iter().map(|request| ctx.send(&stranger, request))).await;
     let delivered = outcomes.iter().filter(|outcome| outcome.is_ok()).count();
     assert_eq!(delivered, 3, "the allowance holds under concurrent sends: {outcomes:?}");
-    assert!(outcomes.iter().filter_map(|outcome| outcome.as_ref().err()).all(|error| error.reason == "REQUEST_PENDING"));
+    assert!(
+        outcomes.iter().filter_map(|outcome| outcome.as_ref().err()).all(|error| error.reason == "REQUEST_PENDING")
+    );
     assert_eq!(ctx.latest(&hanako, &conversation.id).await.len(), 3);
     assert_eq!(ctx.conversation(&stranger, &conversation.id).await.conversation.viewer.request_messages_left, 0);
 }
@@ -209,7 +211,12 @@ async fn a_request_notification_does_not_quote_the_stranger() {
     // The request lands in the notification inbox, which outlives the
     // message: unsending it (or a takedown) must not leave its text there.
     let _: DeleteMessageResponse = ctx
-        .call("Message", "DeleteMessage", &stranger, &DeleteMessageRequest { message_id: message.id, ..Default::default() })
+        .call(
+            "Message",
+            "DeleteMessage",
+            &stranger,
+            &DeleteMessageRequest { message_id: message.id, ..Default::default() },
+        )
         .await
         .unwrap();
     let notifications = ctx.notifications(&hanako).await;

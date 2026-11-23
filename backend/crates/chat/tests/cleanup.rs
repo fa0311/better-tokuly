@@ -448,7 +448,8 @@ async fn what_was_unsent_or_edited_can_still_be_reported() {
 
     // Nor does editing it into something harmless.
     let edited = ctx.text(&taro, &direct.id, "ばか！死ね").await;
-    let edit = EditMessageRequest { message_id: edited.id.clone(), text: "なんでもない".into(), ..Default::default() };
+    let edit =
+        EditMessageRequest { message_id: edited.id.clone(), text: "なんでもない".into(), ..Default::default() };
     let _: EditMessageResponse = ctx.call("Message", "EditMessage", &taro, &edit).await.unwrap();
     let info = subjects.resolve(chat_message, &edited.id, Some(hanako.id)).await.unwrap();
     assert!(info.title.contains("ばか！死ね") && info.title.contains("なんでもない"), "{}", info.title);

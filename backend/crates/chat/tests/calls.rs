@@ -10,7 +10,11 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use axum::{Json, Router, extract::{Path, State}, routing::post};
+use axum::{
+    Json, Router,
+    extract::{Path, State},
+    routing::post,
+};
 use common::*;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use tokuly_chat::{ChatConfig, livekit::Claims};
@@ -680,7 +684,8 @@ async fn room_service(
         "CreateRoom" => serde_json::json!({ "sid": "RM_stub", "name": room }),
         "ListParticipants" => {
             let connected = stub.connected.lock().unwrap().get(&room).cloned().unwrap_or_default();
-            let participants: Vec<_> = connected.iter().map(|identity| serde_json::json!({ "identity": identity })).collect();
+            let participants: Vec<_> =
+                connected.iter().map(|identity| serde_json::json!({ "identity": identity })).collect();
             serde_json::json!({ "participants": participants })
         }
         _ => serde_json::json!({}),
@@ -692,7 +697,8 @@ async fn start_with_room_service() -> (Ctx, RoomService) {
     let stub = RoomService::default();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind stub");
     let address = listener.local_addr().unwrap();
-    let router = Router::new().route("/twirp/livekit.RoomService/{method}", post(room_service)).with_state(stub.clone());
+    let router =
+        Router::new().route("/twirp/livekit.RoomService/{method}", post(room_service)).with_state(stub.clone());
     tokio::spawn(async move { axum::serve(listener, router).await.expect("stub server") });
     let cfg = ChatConfig {
         livekit_url: format!("http://{address}"),
