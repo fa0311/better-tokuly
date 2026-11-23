@@ -169,6 +169,13 @@ pub async fn find_by_handle(core: &Core, handle: &str) -> AppResult<Option<UserR
     .await?)
 }
 
+/// The one spelling of a sign-in identifier: an address lowercased, a
+/// handle without any leading `@` and lowercased. Rate limits key on it, so
+/// `@h`, `@@h` and `H` are the same name.
+pub fn normalize_identifier(identifier: &str) -> String {
+    identifier.trim().trim_start_matches('@').trim().to_ascii_lowercase()
+}
+
 /// Looks a user up by email address or handle (sign-in identifier).
 pub async fn find_by_identifier(core: &Core, identifier: &str) -> AppResult<Option<UserRow>> {
     let identifier = identifier.trim();

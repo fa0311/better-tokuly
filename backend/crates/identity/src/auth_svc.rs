@@ -316,7 +316,7 @@ impl AuthService for Identity {
             let req = request.to_owned_message();
             let meta = ctx.client();
             let core = &self.core;
-            let identifier = req.identifier.trim().to_ascii_lowercase();
+            let identifier = users::normalize_identifier(&req.identifier);
             ensure!(
                 !identifier.is_empty() && !req.password.is_empty(),
                 invalid,
@@ -339,6 +339,12 @@ impl AuthService for Identity {
                 .await?;
 
             let user = users::find_by_identifier(core, &identifier).await?;
+            if let Some(user) = &user {
+                // However the account was named (handle, address), one budget.
+                core.cache
+                    .rate_limit(&format!("signin:user:{}", user.id), 10, Duration::from_secs(300))
+                    .await?;
+            }
             let password_ok = crate::password::verify(
                 &req.password,
                 user.as_ref().and_then(|u| u.password_hash.as_deref()),

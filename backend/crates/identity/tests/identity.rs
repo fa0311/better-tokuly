@@ -98,6 +98,46 @@ async fn sign_in_with_email_or_handle_and_reject_wrong_password() {
 }
 
 #[tokio::test]
+async fn password_guesses_are_limited_per_account_however_it_is_named() {
+    let app = app().await;
+    let tag = unique("guessed");
+    let _: AuthResponse = app.call("tokuly.identity.v1.AuthService/SignUp", None, &sign_up_request(&tag)).await.unwrap();
+    // `@h`, `@@h`, `H` and the address all name the same account: every
+    // spelling must draw from one budget, not a fresh one each.
+    let spellings = (0..20).map(|i| match i % 4 {
+        0 => format!("{}{tag}", "@".repeat(i + 1)),
+        1 => tag.to_uppercase(),
+        2 => format!(" {tag}@EXAMPLE.com "),
+        _ => format!("@{}", tag.to_uppercase()),
+    });
+    let mut reasons = Vec::new();
+    for identifier in spellings {
+        let err = app
+            .call::<_, AuthResponse>("tokuly.identity.v1.AuthService/SignIn", None, &SignInRequest { identifier, password: "wrong wrong wrong".into(), ..Default::default() })
+            .await
+            .unwrap_err();
+        reasons.push(err.reason);
+    }
+    assert!(reasons.iter().any(|r| r == "RATE_LIMITED"), "{reasons:?}");
+    let err = sign_in_with_code(&app, &format!("{}{tag}", "@".repeat(30)), String::new()).await.unwrap_err();
+    assert_eq!(err.reason, "RATE_LIMITED", "the right password is not let through while the account is limited");
+
+    // Unknown names are limited too, by their normalized form (from another
+    // address, so the per-address limit does not hide it).
+    let app = self::app().await;
+    let ghost = unique("ghost");
+    let mut reasons = Vec::new();
+    for i in 0..15 {
+        let err = app
+            .call::<_, AuthResponse>("tokuly.identity.v1.AuthService/SignIn", None, &SignInRequest { identifier: format!("{}{ghost}", "@".repeat(i)), password: "whatever it is".into(), ..Default::default() })
+            .await
+            .unwrap_err();
+        reasons.push(err.reason);
+    }
+    assert!(reasons.iter().any(|r| r == "RATE_LIMITED"), "{reasons:?}");
+}
+
+#[tokio::test]
 async fn refresh_rotates_and_detects_replay() {
     let app = app().await;
     let auth: AuthResponse = app.call("tokuly.identity.v1.AuthService/SignUp", None, &sign_up_request(&unique("rf"))).await.unwrap();
