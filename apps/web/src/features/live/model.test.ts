@@ -7,6 +7,7 @@ import {
   clampClipRange,
   countdownParts,
   fillAlertTemplate,
+  giftAttempt,
   maskSecret,
   maskUrl,
   mergePoll,
@@ -15,6 +16,7 @@ import {
   pollShares,
   removeChatMessage,
   removeChatUser,
+  sameGift,
   slowModeWait,
   tierFor,
   tierStyle,
@@ -61,6 +63,22 @@ describe("gift tiers", () => {
     expect(parseCoins("0")).toBeNull();
     expect(parseCoins("12.5")).toBeNull();
     expect(parseCoins("abc")).toBeNull();
+  });
+
+  it("keeps the key only for a repeat of exactly the same gift", () => {
+    let counter = 0;
+    const next = () => `key-${++counter}-abcdefgh`;
+    const first = giftAttempt(null, 10n, "がんばれ", next);
+    expect(giftAttempt(first, 10n, "がんばれ", next)).toBe(first);
+    expect(giftAttempt(first, 20n, "がんばれ", next).key).not.toBe(first.key);
+    expect(giftAttempt(first, 10n, "ちがう", next).key).not.toBe(first.key);
+    expect(giftAttempt(null, 10n, "がんばれ", next).key).not.toBe(first.key);
+  });
+
+  it("notices when the server answers with another gift", () => {
+    const attempt = { key: "k", coins: 20n, message: "b" };
+    expect(sameGift(attempt, { coins: 20n, message: "b" })).toBe(true);
+    expect(sameGift(attempt, { coins: 10n, message: "a" })).toBe(false);
   });
 
   it("makes idempotency keys the server accepts", () => {

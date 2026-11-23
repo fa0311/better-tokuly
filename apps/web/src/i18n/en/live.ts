@@ -283,6 +283,10 @@ export default {
     confirmLead: "Coins you send can't be taken back.",
     confirm: "Send {{coins}} coins",
     sent: "Gift sent to {{name}}. Thank you!",
+    otherSent:
+      "Your earlier gift of {{coins}} coins reached {{name}} before the connection dropped. This one was not sent",
+    retryHint:
+      "We couldn't tell whether your gift went through. Confirm the same gift again and it won't be sent twice",
     coinsLabel: "{{coins}} coins",
     highlights: "Highlighted gifts",
     highlightBy: "Show {{name}}'s gift",

@@ -4,6 +4,7 @@ import {
   expect as baseExpect,
   befriend,
   createAccount,
+  RpcError,
   rpc,
   signInAs,
   test,
@@ -248,6 +249,84 @@ test("the archive link appears once the recording of an ended stream is a video"
   await expect(page.getByTestId("archive-link").first()).toBeVisible({ timeout: 120_000 });
 });
 
+// ───────────────────────────── Who may watch ─────────────────────────────
+
+async function reasonOf(work: Promise<unknown>): Promise<string> {
+  return work.then(
+    () => "",
+    (error: unknown) => (error instanceof RpcError ? error.reason : String(error)),
+  );
+}
+
+test("a friends-only stream: a stranger cannot play it, and a friend who is unfriended leaves the player", async ({
+  page,
+  request,
+  me,
+  browser,
+}, testInfo) => {
+  await createChannel(request, me);
+  const stream = await createStream(request, me, { visibility: "VISIBILITY_FRIENDS" });
+  const friend = await createAccount(request, "closefan");
+  const stranger = await createAccount(request, "stranger");
+  await befriend(request, me, friend);
+  await goLiveFromBrowser(page, request, me, stream);
+
+  // A stranger gets what any missing stream gets: no page, no playback URLs.
+  baseExpect(await reasonOf(getStream(request, stream.id, stranger))).toBe("STREAM_NOT_FOUND");
+  const outsider = await browserOf(browser, testInfo, stranger);
+  await outsider.goto(`/live/${stream.shortId}`);
+  await expect(outsider.getByText("この配信は見つかりません")).toBeVisible();
+  await expect(outsider.getByTestId("live-player")).toHaveCount(0);
+  await outsider.context().close();
+
+  const viewer = await browserOf(browser, testInfo, friend);
+  await viewer.goto(`/live/${stream.shortId}`);
+  await expect(viewer.getByTestId("live-player")).toHaveAttribute("data-playing", "true", {
+    timeout: 45_000,
+  });
+
+  // The friendship ends: the media server cuts the session and the page lands where a stranger's does.
+  await rpc(request, "tokuly.social.v1.FriendService/RemoveFriend", { userId: friend.userId }, me);
+  await expect(viewer.getByText("この配信は見つかりません")).toBeVisible({ timeout: 40_000 });
+  await expect(viewer.getByTestId("live-player")).toHaveCount(0);
+  await viewer.context().close();
+});
+
+test("only the owner ever receives the stream key and ingest addresses", async ({
+  page,
+  request,
+  me,
+}) => {
+  const owner = await createAccount(request, "keyowner");
+  await createChannel(request, owner);
+  const stream = await createStream(request, owner);
+  const { ingest } = await rpc<{ ingest: { streamKey: string } }>(
+    request,
+    `${STREAMS}/GetIngestInfo`,
+    { streamId: stream.id },
+    owner,
+  );
+  baseExpect(ingest.streamKey.length).toBeGreaterThan(8);
+  baseExpect(
+    await reasonOf(rpc(request, `${STREAMS}/GetIngestInfo`, { streamId: stream.id }, me)),
+  ).toBe("STREAM_NOT_FOUND");
+
+  // Everything the browser receives on the watch page and the control room, as someone else.
+  const bodies: Promise<string>[] = [];
+  page.on("response", (response) => {
+    if (response.url().includes("/api/")) bodies.push(response.text().catch(() => ""));
+  });
+  await page.goto(`/live/${stream.shortId}`);
+  await expect(page.getByTestId("live-room")).toBeVisible();
+  await page.goto(`/studio/live/${stream.shortId}`);
+  await expect(page.getByText("この配信のコントロールルームは開けません")).toBeVisible();
+  await expect(page.getByTestId("secret-field")).toHaveCount(0);
+  await expect(page.getByTestId("ingest-panel")).toHaveCount(0);
+  const html = await page.content();
+  baseExpect(html).not.toContain(ingest.streamKey);
+  for (const body of await Promise.all(bodies)) baseExpect(body).not.toContain(ingest.streamKey);
+});
+
 // ───────────────────────────── Chat ─────────────────────────────
 
 test("chat lines arrive live, the streamer deletes one, and slow mode holds a second message back", async ({
@@ -303,6 +382,17 @@ test("chat lines arrive live, the streamer deletes one, and slow mode holds a se
   await expect(viewer.getByTestId("slow-mode-wait")).toBeVisible();
   await expect(viewer.getByRole("button", { name: "送信" })).toBeDisabled();
   await expect(chatLines(page).filter({ hasText: "ふたつめ" })).toHaveCount(0);
+  // Not only the button: the server refuses a second line within the window, with its own reason.
+  const refused = await rpc(
+    request,
+    `${CHAT}/SendChatMessage`,
+    { streamId: stream.id, text: "すりぬけ" },
+    fan,
+  ).then(
+    () => "",
+    (error: unknown) => (error instanceof RpcError ? error.reason : String(error)),
+  );
+  baseExpect(refused).toBe("SLOW_MODE");
   await viewer.context().close();
 });
 

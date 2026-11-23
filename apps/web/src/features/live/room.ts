@@ -1,8 +1,15 @@
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
-import { live } from "@tokuly/api";
+import { errorReason, live } from "@tokuly/api";
 import { useEffect, useRef, useState } from "react";
 import { deviceId, realtime } from "#/lib/realtime";
-import { chatClient, liveKeys, patchStream, refreshStream, streamClient } from "./api";
+import {
+  chatClient,
+  liveKeys,
+  patchStream,
+  refreshStream,
+  streamClient,
+  useBlockedIds,
+} from "./api";
 import { addChatMessages, mergePoll, removeChatMessage, removeChatUser } from "./model";
 
 const { ChatMessageKind, StreamStatus } = live;
@@ -54,6 +61,12 @@ export function applyLiveEvent(
   streamId: string,
   event: live.LiveEvent["event"],
 ): void {
+  // Pushes reach the whole topic, also lines from people the viewer blocked: those stay out.
+  if (event.case === "chatMessage") {
+    const blocked = queryClient.getQueryData<Set<string>>(liveKeys.blocked);
+    const authorId = event.value.author?.user?.id;
+    if (authorId && blocked?.has(authorId)) return;
+  }
   switch (event.case) {
     case "streamUpdated": {
       const summary = event.value;
@@ -137,6 +150,8 @@ export function useLiveRoom(stream: live.Stream): LiveRoom {
   const streamId = stream.summary?.id ?? "";
   const topic = stream.realtimeTopic;
   const [raid, setRaid] = useState<live.Raid | null>(null);
+  // Signed-in viewers: whom they blocked, so the room can leave those lines out.
+  useBlockedIds(Boolean(stream.viewer));
 
   useEffect(() => {
     if (!topic || !streamId) return;
@@ -153,6 +168,12 @@ export function useLiveRoom(stream: live.Stream): LiveRoom {
           });
         }
         welcomed = true;
+        return;
+      }
+      if (frame.body.case === "social") {
+        // A block (or an ended friendship) on this account: read the block list again.
+        if (frame.body.value.event.case === "friendRemovedUserId")
+          void queryClient.invalidateQueries({ queryKey: liveKeys.blocked });
         return;
       }
       if (frame.body.case !== "live") return;
@@ -223,8 +244,13 @@ export function useWatchingReport(stream: live.Stream, enabled: boolean): void {
           },
         }));
         if (answer.status !== StreamStatus.LIVE) refreshStream(queryClient, streamId);
-      } catch {
-        // A missed heartbeat is made up for by the next one.
+      } catch (error) {
+        // Gone for this viewer (unfriended, blocked, made private, deleted): the page reads the
+        // stream again and lands where a stranger would. Anything else is made up for next time.
+        if (errorReason(error) === "STREAM_NOT_FOUND") {
+          refreshStream(queryClient, streamId);
+          return;
+        }
       }
       if (!stopped) timer = setTimeout(report, interval.current * 1000);
     };

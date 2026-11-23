@@ -15,7 +15,7 @@ import { errorMessage } from "#/lib/errors";
 import { useMe } from "#/stores/session";
 import { giftClient, liveKeys, useGiftTiers } from "../api";
 import { GiftBubble } from "../chat/chat-line";
-import { newIdempotencyKey, parseCoins, tierFor, tierStyle } from "../model";
+import { type GiftAttempt, giftAttempt, parseCoins, sameGift, tierFor, tierStyle } from "../model";
 import { formatCount } from "../parts";
 import { addOwnMessage } from "../room";
 
@@ -41,8 +41,12 @@ export function GiftDialog({
   const [amountText, setAmountText] = useState("100");
   const [message, setMessage] = useState("");
   const [confirming, setConfirming] = useState(false);
-  /** One key per gift: a retry after a lost answer must not pay twice. */
-  const [attemptKey, setAttemptKey] = useState(() => newIdempotencyKey());
+  /**
+   * The gift whose answer was lost, if any: confirming exactly that gift again
+   * repeats it under its key (nothing is paid twice). Changing the amount or
+   * the message, going back or closing makes the next send a new gift.
+   */
+  const [lost, setLost] = useState<GiftAttempt | null>(null);
 
   const tiers = tiersQuery.data?.tiers ?? [];
   const minCoins = tiersQuery.data?.minCoins ?? 10n;
@@ -58,24 +62,39 @@ export function GiftDialog({
   const reset = () => {
     setConfirming(false);
     setMessage("");
-    setAttemptKey(newIdempotencyKey());
+    setLost(null);
+  };
+  const back = () => {
+    setConfirming(false);
+    setLost(null);
   };
   const send = useMutation({
-    mutationFn: () =>
-      giftClient().sendGift({
+    mutationFn: async (attempt: GiftAttempt) => ({
+      attempt,
+      response: await giftClient().sendGift({
         streamId: stream.summary?.id ?? "",
-        coins: coins ?? 0n,
-        message: text,
-        idempotencyKey: attemptKey,
+        coins: attempt.coins,
+        message: attempt.message,
+        idempotencyKey: attempt.key,
       }),
-    onSuccess: (response) => {
+    }),
+    onMutate: (attempt) => setLost(attempt),
+    onSuccess: ({ attempt, response }) => {
       if (response.message) addOwnMessage(queryClient, response.message);
       void balance.refresh();
       void queryClient.invalidateQueries({ queryKey: liveKeys.gifts });
       void queryClient.invalidateQueries({
         queryKey: liveKeys.supporters(stream.summary?.id ?? ""),
       });
-      toast.success(t("gift.sent", { name: channelName }));
+      // Never claim a gift that was not the one sent: an earlier attempt can come back instead.
+      if (response.gift && !sameGift(attempt, response.gift))
+        toast.warning(
+          t("gift.otherSent", {
+            coins: formatCount(response.gift.coins, i18n.language),
+            name: channelName,
+          }),
+        );
+      else toast.success(t("gift.sent", { name: channelName }));
       reset();
       onOpenChange(false);
     },
@@ -83,7 +102,7 @@ export function GiftDialog({
       toast.error(errorMessage(error, { namespace: "live" }));
       // A refusal settles the attempt (nothing was paid); only a lost answer is retried under the same key.
       if (isApiError(error) && errorReason(error)) {
-        setAttemptKey(newIdempotencyKey());
+        setLost(null);
         setConfirming(false);
         if (errorReason(error) === "GIFT_RETURNED" || errorReason(error) === "INSUFFICIENT_COINS")
           void balance.refresh();
@@ -103,7 +122,7 @@ export function GiftDialog({
       open={open}
       onOpenChange={(next) => {
         if (send.isPending) return;
-        if (!next) setConfirming(false);
+        if (!next) back();
         onOpenChange(next);
       }}
       title={confirming ? t("gift.confirmTitle") : t("gift.title", { name: channelName })}
@@ -111,10 +130,13 @@ export function GiftDialog({
       footer={
         confirming ? (
           <>
-            <Button variant="ghost" onClick={() => setConfirming(false)} disabled={send.isPending}>
+            <Button variant="ghost" onClick={back} disabled={send.isPending}>
               {t("gift.back")}
             </Button>
-            <Button loading={send.isPending} onClick={() => send.mutate()}>
+            <Button
+              loading={send.isPending}
+              onClick={() => send.mutate(giftAttempt(lost, coins ?? 0n, text))}
+            >
               {t("gift.confirm", { coins: formatCount(coins ?? 0n, i18n.language) })}
             </Button>
           </>
@@ -133,6 +155,11 @@ export function GiftDialog({
       }
     >
       <div className="flex flex-col gap-4">
+        {confirming && lost && !send.isPending && (
+          <p className="rounded-2xl bg-sun px-4 py-3 text-sm font-bold text-[#17122b]" role="alert">
+            {t("gift.retryHint")}
+          </p>
+        )}
         {!confirming && (
           <>
             <div className="flex items-center justify-between gap-3 rounded-2xl bg-surface-2 px-4 py-2.5">

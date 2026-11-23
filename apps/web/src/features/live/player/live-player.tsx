@@ -45,6 +45,12 @@ type Transport = "webrtc" | "hls";
 /** Past this many seconds behind, the slider means "rewind" rather than "live". */
 const LIVE_EDGE_SECONDS = 4;
 const RETRY_MS = 2000;
+const MAX_RETRY_MS = 30_000;
+
+/** How long to wait before the next attempt after `failures` failed ones in a row. */
+export function retryDelay(failures: number): number {
+  return Math.min(MAX_RETRY_MS, RETRY_MS * 2 ** Math.max(0, failures));
+}
 
 /**
  * Plays a stream that is on air: WebRTC (WHEP) for sub-second latency where
@@ -77,6 +83,8 @@ export function LivePlayer({
   const [rewindFromMs, setRewindFromMs] = useState<number | null>(null);
   /** Changing it opens a new media session (a retry after the last one broke). */
   const [attempt, setAttempt] = useState(0);
+  /** Media sessions that failed in a row; playing resets it. Spaces the retries out. */
+  const failures = useRef(0);
   const [waiting, setWaiting] = useState(true);
   const [paused, setPaused] = useState(false);
   const [muted, setMuted] = useState(startMuted);
@@ -124,7 +132,8 @@ export function LivePlayer({
     const again = (lost: boolean) => {
       if (abort.signal.aborted) return;
       if (lost) latest.current.onSessionLost?.();
-      retry = setTimeout(() => setAttempt((value) => value + 1), RETRY_MS);
+      retry = setTimeout(() => setAttempt((value) => value + 1), retryDelay(failures.current));
+      failures.current += 1;
     };
 
     if (rewindFromMs !== null) {
@@ -185,11 +194,16 @@ export function LivePlayer({
         hls = player;
         player.on(HlsPlayer.Events.MANIFEST_PARSED, start);
         player.on(HlsPlayer.Events.ERROR, (_event, data) => {
-          if (!data.fatal) return;
+          // Refused by the media server: the viewer may have lost access (unfriended, blocked,
+          // the stream made private). The page reads the stream again to find out.
+          const status = data.response?.code ?? 0;
+          const refused = status === 401 || status === 403;
+          if (!data.fatal && !refused) return;
           player.destroy();
           hls = null;
-          // The playlist of a stream that just went on air takes a moment to exist.
-          again(data.type !== HlsPlayer.ErrorTypes.NETWORK_ERROR);
+          // The playlist of a stream that just went on air takes a moment to exist: a plain
+          // network error is retried, anything else asks the page.
+          again(refused || data.type !== HlsPlayer.ErrorTypes.NETWORK_ERROR);
         });
         player.loadSource(urls.hlsUrl);
         player.attachMedia(element);
@@ -215,6 +229,7 @@ export function LivePlayer({
     const element = video.current;
     if (!element) return;
     const onPlaying = () => {
+      failures.current = 0;
       setWaiting(false);
       setPaused(false);
     };

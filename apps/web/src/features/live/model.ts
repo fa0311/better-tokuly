@@ -45,6 +45,34 @@ export function newIdempotencyKey(random: () => string = () => crypto.randomUUID
   return `gift-${random()}`.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64);
 }
 
+/** One gift attempt: the key the server deduplicates by, and what it was sent with. */
+export interface GiftAttempt {
+  key: string;
+  coins: bigint;
+  message: string;
+}
+
+/**
+ * The attempt a send goes out under. Repeating exactly the gift whose answer
+ * was lost keeps its key, so the server finishes that one and nothing is paid
+ * twice; any other amount or message is a new gift with a new key (the
+ * server would otherwise answer with the first gift).
+ */
+export function giftAttempt(
+  previous: GiftAttempt | null,
+  coins: bigint,
+  message: string,
+  newKey: () => string = newIdempotencyKey,
+): GiftAttempt {
+  if (previous && previous.coins === coins && previous.message === message) return previous;
+  return { key: newKey(), coins, message };
+}
+
+/** Whether the gift the server answered with is the one that was asked for. */
+export function sameGift(attempt: GiftAttempt, gift: { coins: bigint; message: string }): boolean {
+  return gift.coins === attempt.coins && gift.message === attempt.message;
+}
+
 // ───────────────────────────── Chat ─────────────────────────────
 
 /** How many lines a chat keeps in memory; older ones scroll away for good. */

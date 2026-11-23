@@ -283,6 +283,10 @@ export default {
     confirmLead: "贈ったコインは戻せません。",
     confirm: "{{coins}}コインを贈る",
     sent: "{{name}} にギフトを贈ったよ！ありがとう！",
+    otherSent:
+      "通信が切れる前の {{coins}}コインのギフトが {{name}} に届いていました。今回の内容は贈られていません",
+    retryHint:
+      "さっきのギフトは届いたかわからないみたい。同じ内容でもう一度押すと、二重には贈られません",
     coinsLabel: "{{coins}}コイン",
     highlights: "ハイライト中のギフト",
     highlightBy: "{{name}} のギフトを見る",

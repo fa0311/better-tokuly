@@ -1,5 +1,5 @@
 import { type QueryClient, useQuery } from "@tanstack/react-query";
-import { errorReason, live, video } from "@tokuly/api";
+import { errorReason, live, social, video } from "@tokuly/api";
 import { api } from "#/lib/api";
 
 export const streamClient = () => api().service(live.LiveStreamService);
@@ -42,6 +42,8 @@ export const liveKeys = {
   realtimeStats: (streamId: string) => ["live", "stats", "realtime", streamId] as const,
   analytics: (streamId: string) => ["live", "stats", "report", streamId] as const,
   reports: (channelId: string) => ["live", "stats", "reports", channelId] as const,
+  /** IDs of the people the viewer blocked (pushed chat lines from them are dropped). */
+  blocked: ["live", "blocked"] as const,
   overlays: (channelId: string) => ["live", "overlays", channelId] as const,
   presets: ["live", "overlays", "presets"] as const,
   moderation: (channelId: string) => ["live", "moderation", channelId] as const,
@@ -118,5 +120,34 @@ export function refreshStream(queryClient: QueryClient, streamId: string): void 
         stream?.summary?.shortId === streamId
       );
     },
+  });
+}
+
+/**
+ * The IDs of the people the signed-in viewer blocked. Chat history comes
+ * filtered from the server, but pushes go to the whole topic: the room drops
+ * pushed lines from these authors.
+ */
+export async function fetchBlockedIds(): Promise<Set<string>> {
+  const ids = new Set<string>();
+  let cursor = "";
+  // A handful of pages is plenty; a viewer with more blocks than that still gets the newest ones.
+  for (let page = 0; page < 5; page++) {
+    const response = await api()
+      .service(social.FriendService)
+      .listBlockedUsers({ page: { cursor, limit: 100 } });
+    for (const user of response.users) ids.add(user.id);
+    cursor = response.page?.nextCursor ?? "";
+    if (!cursor) break;
+  }
+  return ids;
+}
+
+export function useBlockedIds(enabled: boolean) {
+  return useQuery({
+    queryKey: liveKeys.blocked,
+    queryFn: fetchBlockedIds,
+    enabled,
+    staleTime: 5 * 60_000,
   });
 }
