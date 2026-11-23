@@ -237,7 +237,11 @@ impl RealtimeConfig {
             "TOKULY_RT_LOCATION_RATE and TOKULY_RT_LOCATION_BURST must be positive"
         );
         anyhow::ensure!(
-            self.max_topics > 0 && self.queue_frames > 0 && self.queue_bytes > 0 && self.queue_droppable_frames > 0 && self.max_frame_bytes >= 1024,
+            self.max_topics > 0
+                && self.queue_frames > 0
+                && self.queue_bytes > 0
+                && self.queue_droppable_frames > 0
+                && self.max_frame_bytes >= 1024,
             "realtime queue, topic and frame limits must be positive (frames at least 1024 bytes)"
         );
         for (name, value) in [
@@ -261,7 +265,8 @@ pub fn parse_duration(text: &str) -> Result<Duration, String> {
     let text = text.trim();
     let split = text.find(|c: char| !(c.is_ascii_digit() || c == '.')).unwrap_or(text.len());
     let (number, unit) = text.split_at(split);
-    let value: f64 = number.parse().map_err(|_| format!("`{text}` is not a duration (examples: 500ms, 25s, 2m, 1h, 13d)"))?;
+    let value: f64 =
+        number.parse().map_err(|_| format!("`{text}` is not a duration (examples: 500ms, 25s, 2m, 1h, 13d)"))?;
     let seconds = match unit.trim() {
         "ms" => value / 1000.0,
         "" | "s" => value,

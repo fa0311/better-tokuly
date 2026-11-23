@@ -14,7 +14,9 @@ use chrono::Utc;
 use serde::Serialize;
 use tokio::time::Instant;
 use tokuly_core::{
-    presence::{self, CONVERSATION_PRESENCE_SUBJECT, ConversationPresenceSignal, LocationReport, TYPING_SUBJECT, TypingSignal},
+    presence::{
+        self, CONVERSATION_PRESENCE_SUBJECT, ConversationPresenceSignal, LocationReport, TYPING_SUBJECT, TypingSignal,
+    },
     time::{now, ts},
 };
 use tokuly_proto::realtime::{ClientFrame, Hello, Welcome, client_frame::Body};
@@ -152,7 +154,8 @@ impl<'g> Session<'g> {
     /// The next moment something has to happen without a frame arriving.
     fn next_deadline(&self) -> Instant {
         let cfg = &self.gateway.cfg;
-        let mut deadline = if self.welcomed { self.last_inbound + cfg.idle_timeout } else { self.connected_at + cfg.hello_timeout };
+        let mut deadline =
+            if self.welcomed { self.last_inbound + cfg.idle_timeout } else { self.connected_at + cfg.hello_timeout };
         if let Some(auth) = &self.auth {
             deadline = deadline.min(auth.next_revocation_check).min(auth.grace_until.unwrap_or(auth.expires_at));
         }
@@ -255,20 +258,24 @@ impl<'g> Session<'g> {
                 self.answer(id, Ok(()));
             }
             Body::Typing(typing) => {
-                let result = self
-                    .forward_signal(TYPING_SUBJECT, &typing.conversation_id, |user_id, conversation_id| TypingSignal {
-                        user_id,
-                        conversation_id,
-                        typing: typing.typing,
+                let result =
+                    self.forward_signal(TYPING_SUBJECT, &typing.conversation_id, |user_id, conversation_id| {
+                        TypingSignal { user_id, conversation_id, typing: typing.typing }
                     })
                     .await;
                 self.answer(id, result);
             }
             Body::ConversationPresence(presence) => {
                 let result = self
-                    .forward_signal(CONVERSATION_PRESENCE_SUBJECT, &presence.conversation_id, |user_id, conversation_id| {
-                        ConversationPresenceSignal { user_id, conversation_id, present: presence.present }
-                    })
+                    .forward_signal(
+                        CONVERSATION_PRESENCE_SUBJECT,
+                        &presence.conversation_id,
+                        |user_id, conversation_id| ConversationPresenceSignal {
+                            user_id,
+                            conversation_id,
+                            present: presence.present,
+                        },
+                    )
                     .await;
                 self.answer(id, result);
             }
@@ -410,7 +417,11 @@ impl<'g> Session<'g> {
 
     /// Validates a subscription request as a whole and returns the topics it
     /// would add. Nothing is changed yet.
-    async fn plan_subscriptions(&self, requested: &[String], subscriber: Option<Uuid>) -> Result<Vec<String>, Rejection> {
+    async fn plan_subscriptions(
+        &self,
+        requested: &[String],
+        subscriber: Option<Uuid>,
+    ) -> Result<Vec<String>, Rejection> {
         let max_topics = self.gateway.cfg.max_topics;
         if requested.len() > max_topics {
             return Err(TOO_MANY_TOPICS);
@@ -473,7 +484,9 @@ impl<'g> Session<'g> {
         }
         let received_at = Utc::now();
         let sample = location::decode(sample, received_at)?;
-        presence::submit_location(&self.gateway.core.bus, &LocationReport { user_id, received_at, sample }).await.map_err(|_| BUS_UNAVAILABLE)?;
+        presence::submit_location(&self.gateway.core.bus, &LocationReport { user_id, received_at, sample })
+            .await
+            .map_err(|_| BUS_UNAVAILABLE)?;
         self.gateway.counters.locations_forwarded.incr();
         Ok(())
     }

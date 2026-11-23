@@ -84,7 +84,12 @@ pub(crate) fn ack(reply_to: u64) -> Bytes {
 }
 
 pub(crate) fn error(reply_to: u64, rejection: Rejection, fatal: bool) -> Bytes {
-    let error = Error { code: rejection.code.as_str().to_owned(), message: rejection.reason.to_owned(), fatal, ..Default::default() };
+    let error = Error {
+        code: rejection.code.as_str().to_owned(),
+        message: rejection.reason.to_owned(),
+        fatal,
+        ..Default::default()
+    };
     encode(reply_to, Body::Error(Box::new(error)))
 }
 
@@ -93,7 +98,8 @@ pub(crate) fn error(reply_to: u64, rejection: Rejection, fatal: bool) -> Bytes {
 /// by every gateway that has subscribers.
 pub(crate) fn topic_stats(topic: &str, subscriber_count: i64) -> Bytes {
     let stats = TopicStats { subscriber_count, ..Default::default() };
-    let frame = ServerFrame { topic: topic.to_owned(), body: Some(Body::TopicStats(Box::new(stats))), ..Default::default() };
+    let frame =
+        ServerFrame { topic: topic.to_owned(), body: Some(Body::TopicStats(Box::new(stats))), ..Default::default() };
     Bytes::from(frame.encode_to_vec())
 }
 
@@ -225,7 +231,11 @@ mod tests {
         assert_eq!(delivery_of(&event_frame(0, "", &removed)), Delivery::Reliable);
         assert_eq!(delivery_of(&event_frame(0, "", &GeoEvent::default())), Delivery::Reliable);
         // Another domain's event whose first field happens to have the same number.
-        let lookalike = Envelope { r#type: "tokuly.chat.v1.ChatEvent".into(), payload: location_event().encode_to_vec(), ..Default::default() };
+        let lookalike = Envelope {
+            r#type: "tokuly.chat.v1.ChatEvent".into(),
+            payload: location_event().encode_to_vec(),
+            ..Default::default()
+        };
         assert_eq!(delivery_of(&frame(0, "", Body::Event(Box::new(lookalike)))), Delivery::Reliable);
         assert_eq!(delivery_of(&topic_stats("live:1", 3)), Delivery::Reliable);
     }
@@ -242,10 +252,15 @@ mod tests {
 
     #[test]
     fn replies_echo_the_request_id() {
-        let decoded = ServerFrame::decode_from_slice(&error(42, Rejection::new(Code::Unauthenticated, "TOKEN_EXPIRED"), true)).unwrap();
+        let decoded =
+            ServerFrame::decode_from_slice(&error(42, Rejection::new(Code::Unauthenticated, "TOKEN_EXPIRED"), true))
+                .unwrap();
         assert_eq!(decoded.reply_to, 42);
         let Some(Body::Error(error)) = decoded.body else { panic!("expected an error body") };
-        assert_eq!((error.code.as_str(), error.message.as_str(), error.fatal), ("unauthenticated", "TOKEN_EXPIRED", true));
+        assert_eq!(
+            (error.code.as_str(), error.message.as_str(), error.fatal),
+            ("unauthenticated", "TOKEN_EXPIRED", true)
+        );
 
         let decoded = ServerFrame::decode_from_slice(&pong(0, 99)).unwrap();
         let Some(Body::Pong(pong)) = decoded.body else { panic!("expected a pong body") };

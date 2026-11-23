@@ -184,7 +184,10 @@ mod tests {
         counters.frames_in.add(3);
         counters.frames_dropped.incr();
         let stats = counters.snapshot();
-        assert_eq!((stats.websocket_connections, stats.webtransport_connections, stats.frames_in, stats.frames_dropped), (1, 1, 3, 1));
+        assert_eq!(
+            (stats.websocket_connections, stats.webtransport_connections, stats.frames_in, stats.frames_dropped),
+            (1, 1, 3, 1)
+        );
         assert_eq!(counters.open_connections(), 2);
     }
 

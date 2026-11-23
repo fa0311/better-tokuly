@@ -90,7 +90,10 @@ async fn only_ping_works_before_hello() {
 
     let reply = client.request(subscribe_body(&["live:1"])).await;
     let error = error_of(&reply);
-    assert_eq!((error.code.as_str(), error.message.as_str(), error.fatal), ("failed_precondition", "HELLO_REQUIRED", false));
+    assert_eq!(
+        (error.code.as_str(), error.message.as_str(), error.fatal),
+        ("failed_precondition", "HELLO_REQUIRED", false)
+    );
 
     let reply = client.request(ping_body(7)).await;
     assert!(matches!(reply.body, Some(Body::Pong(ref pong)) if pong.nonce == 7));
@@ -101,7 +104,8 @@ async fn only_ping_works_before_hello() {
 
 #[tokio::test]
 async fn a_connection_that_never_says_hello_is_closed() {
-    let harness = Harness::start_with(RealtimeConfig { hello_timeout: Duration::from_millis(300), ..test_config() }).await;
+    let harness =
+        Harness::start_with(RealtimeConfig { hello_timeout: Duration::from_millis(300), ..test_config() }).await;
     let mut client = harness.ws().await;
     let frame = client.next().await;
     let error = error_of(&frame);
@@ -133,14 +137,21 @@ async fn a_connection_can_sign_in_later_but_not_change_user() {
     // Becoming someone else is not.
     let reply = client.request(hello_body(&bob.token, true, &[])).await;
     let error = error_of(&reply);
-    assert_eq!((error.code.as_str(), error.message.as_str(), error.fatal), ("permission_denied", "USER_MISMATCH", true));
+    assert_eq!(
+        (error.code.as_str(), error.message.as_str(), error.fatal),
+        ("permission_denied", "USER_MISMATCH", true)
+    );
 }
 
 // ───────────────────────────── Liveness ─────────────────────────────
 
 #[tokio::test]
 async fn pings_keep_a_connection_alive_and_silence_ends_it() {
-    let cfg = RealtimeConfig { ping_interval: Duration::from_millis(200), idle_timeout: Duration::from_millis(700), ..test_config() };
+    let cfg = RealtimeConfig {
+        ping_interval: Duration::from_millis(200),
+        idle_timeout: Duration::from_millis(700),
+        ..test_config()
+    };
     let harness = Harness::start_with(cfg).await;
     let mut client = harness.ws_as(None, true).await;
 
@@ -158,7 +169,8 @@ async fn pings_keep_a_connection_alive_and_silence_ends_it() {
     let error = error_of(&frame);
     assert_eq!((error.message.as_str(), error.fatal), ("IDLE_TIMEOUT", true));
     assert_eq!(u16::from(client.closed().await.expect("close frame").code), 4003);
-    eventually("the connection is gone from the stats", async || { harness.gateway.stats().websocket_connections == 0 }).await;
+    eventually("the connection is gone from the stats", async || harness.gateway.stats().websocket_connections == 0)
+        .await;
 }
 
 // ───────────────────────────── Token lifetime ─────────────────────────────
@@ -213,7 +225,10 @@ async fn revoking_a_session_ends_its_connections() {
     harness.app.core.revoke_session(alice.session_id).await;
     let frame = revoked.next().await;
     let error = error_of(&frame);
-    assert_eq!((error.code.as_str(), error.message.as_str(), error.fatal), ("unauthenticated", "SESSION_REVOKED", true));
+    assert_eq!(
+        (error.code.as_str(), error.message.as_str(), error.fatal),
+        ("unauthenticated", "SESSION_REVOKED", true)
+    );
     revoked.closed().await;
 
     // The user's other session is untouched.
@@ -248,7 +263,7 @@ async fn user_events_reach_every_connection_of_that_user_only() {
     // The subscription goes when the last connection of the user does.
     phone.close().await;
     laptop.close().await;
-    eventually("alice's bus subscription is dropped", async || { harness.gateway.stats().user_subscriptions == 1 }).await;
+    eventually("alice's bus subscription is dropped", async || harness.gateway.stats().user_subscriptions == 1).await;
 }
 
 #[tokio::test]
@@ -273,7 +288,8 @@ async fn topic_events_follow_subscriptions() {
     assert!(is_ack(&viewer.request(unsubscribe_body(&[&topic])).await));
     harness.app.core.rt.to_topic(&topic, &marker("missed")).await.unwrap();
     assert!(viewer.stays_quiet().await);
-    eventually("the topic's bus subscription is dropped", async || { harness.gateway.stats().topic_subscriptions == 0 }).await;
+    eventually("the topic's bus subscription is dropped", async || harness.gateway.stats().topic_subscriptions == 0)
+        .await;
 }
 
 #[tokio::test]
@@ -326,7 +342,10 @@ async fn hello_can_subscribe_right_away() {
     let mut client = harness.ws().await;
     let reply = client.request(hello_body("", true, &[&first, "not a topic"])).await;
     let error = error_of(&reply);
-    assert_eq!((error.code.as_str(), error.message.as_str(), error.fatal), ("invalid_argument", "TOPIC_INVALID", false));
+    assert_eq!(
+        (error.code.as_str(), error.message.as_str(), error.fatal),
+        ("invalid_argument", "TOPIC_INVALID", false)
+    );
     let reply = client.request(ping_body(1)).await;
     assert!(matches!(reply.body, Some(Body::Pong(_))));
     let reply = client.request(subscribe_body(&[&first])).await;
@@ -344,7 +363,11 @@ async fn subscriptions_are_validated_and_limited() {
     for invalid in ["live", "live:", "LIVE:1", "live:a b", "live:*", "live:>", "live:a.b"] {
         let reply = client.request(subscribe_body(&[invalid])).await;
         let error = error_of(&reply);
-        assert_eq!((error.code.as_str(), error.message.as_str(), error.fatal), ("invalid_argument", "TOPIC_INVALID", false), "{invalid}");
+        assert_eq!(
+            (error.code.as_str(), error.message.as_str(), error.fatal),
+            ("invalid_argument", "TOPIC_INVALID", false),
+            "{invalid}"
+        );
     }
 
     // One bad name spoils the request: nothing of it is subscribed.
@@ -389,7 +412,10 @@ async fn guarded_topics_are_only_open_to_those_the_domain_admits() {
         let mut client = harness.ws_as(outsider, true).await;
         let reply = client.request(subscribe_body(&[&topic])).await;
         let error = error_of(&reply);
-        assert_eq!((error.code.as_str(), error.message.as_str(), error.fatal), ("permission_denied", "TOPIC_FORBIDDEN", false));
+        assert_eq!(
+            (error.code.as_str(), error.message.as_str(), error.fatal),
+            ("permission_denied", "TOPIC_FORBIDDEN", false)
+        );
         harness.app.core.rt.to_topic(&topic, &marker("members only")).await.unwrap();
         assert!(client.stays_quiet().await);
         // Other kinds of topics are unaffected.
@@ -415,7 +441,10 @@ async fn malformed_frames_are_answered_not_crashed_on() {
     client.send_raw(Message::Binary(vec![0xff; 12].into())).await;
     let frame = client.next().await;
     let error = error_of(&frame);
-    assert_eq!((frame.reply_to, error.code.as_str(), error.message.as_str(), error.fatal), (0, "invalid_argument", "FRAME_INVALID", false));
+    assert_eq!(
+        (frame.reply_to, error.code.as_str(), error.message.as_str(), error.fatal),
+        (0, "invalid_argument", "FRAME_INVALID", false)
+    );
 
     // A frame without a body.
     client.send_frame(tokuly_proto::realtime::ClientFrame { id: 77, ..Default::default() }).await;
@@ -446,14 +475,20 @@ async fn foreign_origins_are_refused() {
     let harness = Harness::start().await;
     let addr = harness.addrs.websocket;
 
-    let refused = WsClient::connect_with(addr, WsOptions { origin: Some("https://evil.example"), ..Default::default() }).await.err().expect("refused");
+    let refused =
+        WsClient::connect_with(addr, WsOptions { origin: Some("https://evil.example"), ..Default::default() })
+            .await
+            .err()
+            .expect("refused");
     assert!(refused.contains("403"), "{refused}");
     assert_eq!(harness.gateway.stats().connections_refused, 1);
 
     // The app's own origin, local dev servers (development mode) and
     // clients without an Origin header (native apps) are fine.
     for origin in [Some("http://localhost:8080"), Some("http://localhost:5173"), Some("tauri://localhost"), None] {
-        let mut client = WsClient::connect_with(addr, WsOptions { origin, ..Default::default() }).await.unwrap_or_else(|e| panic!("{origin:?}: {e}"));
+        let mut client = WsClient::connect_with(addr, WsOptions { origin, ..Default::default() })
+            .await
+            .unwrap_or_else(|e| panic!("{origin:?}: {e}"));
         client.hello("", true).await;
     }
     // React Native makes up an Origin from the address it connects to.
@@ -466,7 +501,9 @@ async fn healthz_answers_and_other_paths_do_not_upgrade() {
     let harness = Harness::start().await;
     let get = |path: &'static str| async move {
         let mut tcp = tokio::net::TcpStream::connect(harness.addrs.websocket).await.unwrap();
-        tcp.write_all(format!("GET {path} HTTP/1.1\r\nHost: gateway\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
+        tcp.write_all(format!("GET {path} HTTP/1.1\r\nHost: gateway\r\nConnection: close\r\n\r\n").as_bytes())
+            .await
+            .unwrap();
         let mut response = String::new();
         tcp.read_to_string(&mut response).await.unwrap();
         response
@@ -487,7 +524,7 @@ async fn connections_beyond_the_limit_are_refused() {
     assert!(refused.contains("503"), "{refused}");
 
     second.close().await;
-    eventually("a slot is free again", async || { harness.gateway.stats().websocket_connections == 1 }).await;
+    eventually("a slot is free again", async || harness.gateway.stats().websocket_connections == 1).await;
     harness.ws_as(None, true).await;
 }
 
@@ -506,7 +543,9 @@ async fn one_address_may_only_hold_so_many_connections() {
 
     // The test connects from loopback, where the gateway expects its edge
     // proxy: clients the proxy names are counted on their own...
-    let via_proxy = |forwarded_for: &'static str| WsClient::connect_with(addr, WsOptions { forwarded_for: Some(forwarded_for), ..Default::default() });
+    let via_proxy = |forwarded_for: &'static str| {
+        WsClient::connect_with(addr, WsOptions { forwarded_for: Some(forwarded_for), ..Default::default() })
+    };
     let _third = via_proxy("203.0.113.7").await.expect("another client address");
     // ...by the address the proxy saw, not by what the client claims to the left of it.
     let _fourth = via_proxy("198.51.100.1, 203.0.113.7").await.expect("second connection of that address");
@@ -516,7 +555,8 @@ async fn one_address_may_only_hold_so_many_connections() {
 
     // A closed connection frees its slot.
     second.close().await;
-    eventually("the slot is free again", async || WsClient::connect_with(addr, WsOptions::default()).await.is_ok()).await;
+    eventually("the slot is free again", async || WsClient::connect_with(addr, WsOptions::default()).await.is_ok())
+        .await;
 }
 
 #[tokio::test]
@@ -525,7 +565,10 @@ async fn forwarded_addresses_from_untrusted_peers_are_ignored() {
     let cfg = RealtimeConfig { max_connections_per_ip: 1, trusted_proxies: Vec::new(), ..test_config() };
     let harness = Harness::start_with(cfg).await;
     let claiming = |forwarded_for: &'static str| {
-        WsClient::connect_with(harness.addrs.websocket, WsOptions { forwarded_for: Some(forwarded_for), ..Default::default() })
+        WsClient::connect_with(
+            harness.addrs.websocket,
+            WsOptions { forwarded_for: Some(forwarded_for), ..Default::default() },
+        )
     };
     let _held = claiming("203.0.113.7").await.expect("the first connection");
     let refused = claiming("203.0.113.8").await.err().expect("posing as someone else does not get around the limit");
@@ -565,7 +608,10 @@ async fn a_stalled_client_loses_positions_then_its_connection_without_slowing_ot
     // Two devices of one user: one reads, the other has a tiny receive
     // buffer and never reads, so the gateway's writes to it stall.
     let mut healthy = harness.ws_as(Some(&alice), true).await;
-    let mut stalled = WsClient::connect_with(harness.addrs.websocket, WsOptions { receive_buffer: Some(4096), ..Default::default() }).await.unwrap();
+    let mut stalled =
+        WsClient::connect_with(harness.addrs.websocket, WsOptions { receive_buffer: Some(4096), ..Default::default() })
+            .await
+            .unwrap();
     stalled.hello(&alice.token, true).await;
 
     // Positions are droppable: once the stalled client's socket is full its
@@ -581,7 +627,11 @@ async fn a_stalled_client_loses_positions_then_its_connection_without_slowing_ot
         sent += 1;
     }
     let stats = harness.gateway.stats();
-    assert_eq!((stats.slow_consumer_disconnects, stats.websocket_connections), (0, 2), "dropping positions never disconnects");
+    assert_eq!(
+        (stats.slow_consumer_disconnects, stats.websocket_connections),
+        (0, 2),
+        "dropping positions never disconnects"
+    );
 
     // Reliable frames cannot be shed: a backlog over the limit ends the
     // stalled connection. The healthy one keeps receiving in order.
@@ -610,7 +660,8 @@ async fn shutdown_says_goodbye_and_cleans_up() {
     assert!(is_ack(&client.request(subscribe_body(&[&topic])).await));
     let cache = harness.app.core.cache.clone();
     eventually("alice is online and counted", async || {
-        presence::is_online(&cache, alice.id).await.unwrap() && presence::topic_audience(&cache, &topic).await.unwrap() == 1
+        presence::is_online(&cache, alice.id).await.unwrap()
+            && presence::topic_audience(&cache, &topic).await.unwrap() == 1
     })
     .await;
 
