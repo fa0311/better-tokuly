@@ -738,6 +738,16 @@ test("friends-only and private shorts stay out of reach of others, by link and i
     cursor = feed.page?.nextCursor ?? "";
     if (!cursor) break;
   }
+
+  // The creator's profile shows what is public, and opens it in the list of their shorts.
+  const caption = `みんなに ${suffix()}`;
+  const open = await makeShort(request, owner, caption);
+  await page.goto(`/u/${owner.handle}`);
+  const tiles = page.getByTestId("profile-shorts").getByTestId("short-tile");
+  await expect(tiles).toHaveCount(1);
+  await expect(tiles).toContainText(caption);
+  await tiles.click();
+  await expect(page).toHaveURL(new RegExp(`/shorts/${open.shortId}\\?.*list=user`));
 });
 
 test("posting can be cancelled, and a failed upload or post is tried again without uploading twice", async ({

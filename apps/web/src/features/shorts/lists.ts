@@ -73,6 +73,10 @@ export function listQuery(context: FeedContext, options: ListOptions = {}) {
         return discoveryClient()
           .listChannelShorts({ channelId: key, sort, page: { limit: 24, cursor } })
           .then(fromShorts);
+      case "user":
+        return discoveryClient()
+          .listUserShorts({ userId: key, page: { limit: 24, cursor } })
+          .then(fromShorts);
       case "hashtag":
         return discoveryClient()
           .listHashtagShorts({ tag: key, sort, page: { limit: 24, cursor } })

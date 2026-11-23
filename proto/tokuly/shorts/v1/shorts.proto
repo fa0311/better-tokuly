@@ -689,6 +689,13 @@ service ShortDiscoveryService {
   // shorts open the first page.
   // Errors: CHANNEL_NOT_FOUND, INVALID_CURSOR.
   rpc ListChannelShorts(ListChannelShortsRequest) returns (ListChannelShortsResponse);
+  // A person's shorts across their channels, as the caller may see them
+  // listed (the rules of ListChannelShorts: public and feed-hidden ones,
+  // friends-only ones for friends, everything published for the person
+  // themselves), newest first, without pins. For a profile.
+  // Errors: USER_NOT_FOUND (also for a suspended account and for someone in
+  // a block relation with the caller), INVALID_CURSOR.
+  rpc ListUserShorts(ListUserShortsRequest) returns (ListUserShortsResponse);
 
   // A hashtag with the number of public shorts carrying it.
   // Errors: HASHTAG_INVALID, HASHTAG_NOT_FOUND (nothing public carries it).
@@ -731,6 +738,17 @@ message ListChannelShortsRequest {
 }
 
 message ListChannelShortsResponse {
+  repeated Short shorts = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListUserShortsRequest {
+  // The person's UUID.
+  string user_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListUserShortsResponse {
   repeated Short shorts = 1;
   tokuly.common.v1.PageInfo page = 2;
 }

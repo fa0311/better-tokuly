@@ -1269,6 +1269,7 @@ const TABLE: &[(&str, &[(&str, Rule)])] = &[
     ]),
     ("tokuly.shorts.v1.ShortDiscoveryService", &[
         ("ListChannelShorts", Read),
+        ("ListUserShorts", Read),
         ("GetHashtag", Read),
         ("ListHashtagShorts", Read),
         ("ListTrendingHashtags", Read),

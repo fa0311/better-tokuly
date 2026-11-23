@@ -92,6 +92,8 @@ export type FeedContext =
   | { kind: "following" }
   | { kind: "friends" }
   | { kind: "channel"; key: string }
+  /** A person's shorts across their channels (their profile); `key` is their user ID. */
+  | { kind: "user"; key: string }
   | { kind: "hashtag"; key: string }
   | { kind: "sound"; key: string }
   | { kind: "remixes"; key: string }
@@ -103,7 +105,7 @@ export type FeedContext =
 export type FeedKind = FeedContext["kind"];
 
 /** The grids a short can be opened from, as they appear in the address (`?list=tag&key=…`). */
-export const LISTS = ["channel", "tag", "sound", "remixes", "saved", "liked"] as const;
+export const LISTS = ["channel", "user", "tag", "sound", "remixes", "saved", "liked"] as const;
 export type ListName = (typeof LISTS)[number];
 
 export interface ShortSearch {
@@ -125,6 +127,8 @@ export function contextOfSearch(search: ShortSearch): FeedContext {
   switch (search.list) {
     case "channel":
       return { kind: "channel", key: search.key ?? "" };
+    case "user":
+      return { kind: "user", key: search.key ?? "" };
     case "tag":
       return { kind: "hashtag", key: search.key ?? "" };
     case "sound":
@@ -145,6 +149,8 @@ export function searchOfContext(context: FeedContext): ShortSearch {
   switch (context.kind) {
     case "channel":
       return { list: "channel", key: context.key };
+    case "user":
+      return { list: "user", key: context.key };
     case "hashtag":
       return { list: "tag", key: context.key };
     case "sound":
@@ -170,6 +176,7 @@ export function playbackSource(context: FeedContext): shorts.PlaybackSource {
     case "friends":
       return PlaybackSource.FRIENDS;
     case "channel":
+    case "user":
       return PlaybackSource.PROFILE;
     case "hashtag":
       return PlaybackSource.HASHTAG;

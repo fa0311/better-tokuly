@@ -236,8 +236,8 @@ const DOMAINS: &[Domain] = &[
         name: "shorts",
         sensitive: false,
         read: (
-            "ショートのフィード、保存・いいねしたショート、自分のショートとその分析を見る",
-            "See short video feeds, the shorts you saved or liked, your own shorts and their analytics",
+            "ショートのフィード、みんなのショート、保存・いいねしたショート、自分のショートとその分析を見る",
+            "See short video feeds, people's shorts, the shorts you saved or liked, your own shorts and their analytics",
         ),
         write: Some((
             "ショートの投稿・編集・削除・保存、視聴の記録、「興味なし」の設定",
