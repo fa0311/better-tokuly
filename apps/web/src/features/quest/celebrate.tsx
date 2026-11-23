@@ -10,7 +10,7 @@ import { celebrate as rainGlyphs } from "#/features/footprints";
 import { dopamineFactor } from "#/lib/appearance";
 import { cn } from "#/lib/cn";
 import { useLocalized } from "./api";
-import { type Loudness, loudness } from "./model";
+import { enqueue, type Loudness, loudness } from "./model";
 import { BadgeMedal, useBadgeName } from "./parts";
 
 /**
@@ -61,7 +61,7 @@ export function reveal(item: Reveal): Loudness {
   const loud = loudness(motionFactor());
   if (loud === "toast") return loud;
   useReveals.setState(({ queue }) => ({
-    queue: [...queue, { id: ++nextId, reveal: item, loud }].slice(-QUEUE_LIMIT),
+    queue: enqueue(queue, { id: ++nextId, reveal: item, loud }, QUEUE_LIMIT),
   }));
   return loud;
 }

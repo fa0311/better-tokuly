@@ -9,6 +9,8 @@ import {
   loudness,
   nextInLine,
   remaining,
+  restoreFailure,
+  restoreState,
   streakRuns,
   streakStatus,
 } from "./model";
@@ -147,5 +149,40 @@ describe("loudness", () => {
     expect(loudness(0.5)).toBe("toast");
     expect(loudness(1)).toBe("card");
     expect(loudness(1.6)).toBe("full");
+  });
+});
+
+describe("restoreState", () => {
+  const now = 1_000_000;
+  const offer = { cost: 100, available: true, restorableUntilMs: now + 60_000, nowMs: now };
+  it("can be confirmed only when the balance covers the cost", () => {
+    expect(restoreState({ ...offer, coins: 100n })).toBe("ready");
+    expect(restoreState({ ...offer, coins: 99n })).toBe("short");
+    expect(restoreState({ ...offer, coins: undefined })).toBe("checking");
+  });
+  it("says why it cannot be done at all", () => {
+    expect(restoreState({ ...offer, coins: 500n, available: false })).toBe("used");
+    expect(restoreState({ ...offer, coins: 500n, restorableUntilMs: now })).toBe("over");
+  });
+  it("sends people who were short to buy coins", () => {
+    expect(restoreFailure("INSUFFICIENT_COINS")).toBe("buy");
+    expect(restoreFailure("RESTORE_ALREADY_USED")).toBe("explain");
+    expect(restoreFailure(undefined)).toBe("explain");
+  });
+});
+
+describe("loudness steps", () => {
+  it("changes exactly at the ドパガキ度 levels", () => {
+    // Levels 0–5 give --dopa 0, 0.5, 0.75, 1, 1.3, 1.6.
+    expect([0, 0.5, 0.75, 1, 1.3, 1.6].map(loudness)).toEqual([
+      "toast",
+      "toast",
+      "card",
+      "card",
+      "full",
+      "full",
+    ]);
+    expect(loudness(0.74)).toBe("toast");
+    expect(loudness(1.29)).toBe("card");
   });
 });

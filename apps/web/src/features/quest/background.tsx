@@ -59,11 +59,16 @@ export default function QuestBackground() {
 
       switch (event.event.case) {
         case "xpGained": {
-          pendingXp += event.event.value.xp;
-          if (pendingXp <= 0) return;
-          // Earning is constant while chatting: only the quest pages (and lively settings, now and then) say it.
-          const due = loud !== "toast" && Date.now() - lastXpToast >= XP_TOAST_EVERY_MS;
-          if (!onQuest && !due) return;
+          const gained = event.event.value.xp;
+          if (gained <= 0) return;
+          // Earning is constant while chatting: only the quest pages say it, and lively settings
+          // now and then elsewhere. XP nobody will be told about is not saved up for later.
+          if (!onQuest && loud === "toast") {
+            pendingXp = 0;
+            return;
+          }
+          pendingXp += gained;
+          if (!onQuest && Date.now() - lastXpToast < XP_TOAST_EVERY_MS) return;
           lastXpToast = Date.now();
           toast(t("live.xp", { xp: pendingXp }), { id: "quest-xp", icon: "⚡", duration: 2500 });
           pendingXp = 0;

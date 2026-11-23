@@ -276,7 +276,9 @@ test("a badge unlocks, is celebrated and goes on the profile showcase", async ({
   test.slow();
   await page.goto("/quest/badges");
   // The badge every account starts with; secret ones stay secret.
-  await expect(page.getByTestId("quest-badge-count")).toHaveText(/^1 \/ \d+ こ$/);
+  await expect(page.getByTestId("quest-badge-count")).toHaveText(/^1 \/ \d+ こ$/, {
+    timeout: SETTLE,
+  });
   await expect(page.getByRole("link", { name: "ようこそ!(ゲットずみ)" })).toBeVisible();
   await expect(page.getByRole("link", { name: "はじめての友達(まだ)" })).toBeVisible();
   const secrets = page.getByRole("region", { name: "シークレット" });
@@ -345,6 +347,9 @@ test("a badge unlocks, is celebrated and goes on the profile showcase", async ({
   await expect(
     theirs.getByRole("region", { name: "かざってるバッジ" }).getByRole("link"),
   ).toHaveText([/ようこそ!/, /はじめての友達/]);
+  // Back returns to where the person page was opened from.
+  await theirs.getByRole("button", { name: "back" }).click();
+  await expect(theirs).toHaveURL(new RegExp(`/u/${me.handle}$`));
   await viewer.close();
 });
 
@@ -455,4 +460,88 @@ test("a streak starts when two friends write to each other, and the friend is on
       { timeout: SETTLE },
     )
     .toBe(false);
+});
+
+test("with reduced motion a badge is a toast, not a reveal", async ({ page, request, me }) => {
+  test.slow();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/quest");
+  await expect(page.getByRole("region", { name: "いまのレベル" })).toBeVisible({ timeout: SETTLE });
+  await live(page);
+
+  const admin = await adminAccount(request);
+  await rpc(
+    request,
+    `${QUEST}.QuestAdminService/AwardBadge`,
+    { userId: me.userId, badgeKey: "event_winner", reason: "e2e: reduced motion" },
+    admin,
+  );
+  // Matched by its text: a notification toast may announce the badge as well.
+  await expect(page.getByText("🎉 バッジ「イベント入賞」をゲット!")).toBeVisible({
+    timeout: SETTLE,
+  });
+  await expect(page.getByTestId("quest-reveal")).toHaveCount(0);
+});
+
+test("someone who is not a friend sees the showcase, but not every badge or the streak", async ({
+  page,
+  request,
+  browser,
+  baseURL,
+  me,
+}) => {
+  test.slow();
+  // `owner` has two badges (welcome, first friend), shows none, and has a streak with `me`.
+  const owner = await createAccount(request, "owner");
+  await befriend(request, me, owner);
+  await message(request, me, owner);
+  await message(request, owner, me);
+  await expect
+    .poll(
+      async () => {
+        const { streak } = await rpc<{ streak?: { days?: number } }>(
+          request,
+          `${QUEST}.StreakService/GetStreak`,
+          { userId: owner.userId },
+          me,
+        );
+        return streak?.days ?? 0;
+      },
+      { timeout: SETTLE },
+    )
+    .toBe(1);
+
+  // The friend: the streak on the profile, and every badge on the quest page.
+  await page.goto(`/u/${owner.handle}`);
+  await expect(page.getByTestId("quest-profile-status")).toContainText("1日連続", {
+    timeout: SETTLE,
+  });
+  await page.goto(`/quest/u/${owner.handle}`);
+  await expect(page.getByRole("region", { name: "ほかのバッジ" })).toContainText("はじめての友達", {
+    timeout: SETTLE,
+  });
+
+  // A stranger: the level, but neither the streak nor the badges that are only for friends.
+  const stranger = await createAccount(request, "stranger");
+  const context = await browser.newContext({
+    baseURL,
+    locale: "ja-JP",
+    viewport: page.viewportSize(),
+    hasTouch: (page.viewportSize()?.width ?? 1000) < 600,
+  });
+  const theirs = await context.newPage();
+  await signInAs(theirs, stranger);
+  await theirs.goto(`/u/${owner.handle}`);
+  const status = theirs.getByTestId("quest-profile-status");
+  await expect(status).toContainText("Lv.1", { timeout: SETTLE });
+  await expect(status).not.toContainText("日連続");
+  await theirs.goto(`/quest/u/${owner.handle}`);
+  await expect(theirs.getByRole("region", { name: "かざってるバッジ" })).toContainText(
+    "まだ何もかざってないみたい",
+    { timeout: SETTLE },
+  );
+  await expect(theirs.getByText("バッジ 2こ")).toBeVisible();
+  await expect(theirs.getByRole("region", { name: "ほかのバッジ" })).toHaveCount(0);
+  await expect(theirs.getByRole("region", { name: "ふたりのストリーク" })).toHaveCount(0);
+  await context.close();
 });

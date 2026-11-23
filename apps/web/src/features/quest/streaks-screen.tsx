@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Coins } from "#/components/ui/coins";
-import { ConfirmDialog } from "#/components/ui/confirm";
+import { Dialog } from "#/components/ui/dialog";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { openDirectChat } from "#/features/chat";
@@ -18,7 +18,14 @@ import { useAccountNow, useAccountTimeZone } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { questKeys, STREAK_PAGE_SIZE, streakClient } from "./api";
-import { formatDay, fraction, type StreakStatus, streakStatus } from "./model";
+import {
+  formatDay,
+  fraction,
+  restoreFailure,
+  restoreState,
+  type StreakStatus,
+  streakStatus,
+} from "./model";
 import { ProgressBar, QuestNav, SectionTitle, useRemainingText } from "./parts";
 
 const MILESTONES = [3, 7, 30, 100, 365, 500, 1000];
@@ -64,7 +71,7 @@ export function StreaksScreen() {
     onError: (error) => {
       setRestoring(null);
       void queryClient.invalidateQueries({ queryKey: questKeys.streaks });
-      if (errorReason(error) === "INSUFFICIENT_COINS")
+      if (restoreFailure(errorReason(error)) === "buy")
         toast.error(t("errors.INSUFFICIENT_COINS"), {
           action: {
             label: t("streaks.buyCoins"),
@@ -82,7 +89,13 @@ export function StreaksScreen() {
   const lost = rows.filter((row) => row.status === "lost");
   const running = rows.filter((row) => row.status !== "lost" && row.status !== "none");
   const cost = offer?.costCoins ?? 0;
-  const short = balance.coins !== undefined && balance.coins < BigInt(cost);
+  const confirm = restoreState({
+    cost,
+    coins: balance.coins,
+    available: Boolean(offer?.available),
+    restorableUntilMs: restoring?.restorableUntil ? toMillis(restoring.restorableUntil) : 0,
+    nowMs: now,
+  });
 
   return (
     <Page title={t("streaks.title")} back="/quest" actions={<BalancePill />}>
@@ -166,7 +179,7 @@ export function StreaksScreen() {
         </>
       )}
 
-      <ConfirmDialog
+      <Dialog
         open={restoring !== null}
         onOpenChange={(open) => !open && setRestoring(null)}
         title={t("streaks.restoreConfirm.title", {
@@ -174,9 +187,21 @@ export function StreaksScreen() {
           count: restoring?.lostDays ?? 0,
         })}
         description={t("streaks.restoreConfirm.body")}
-        confirmLabel={t("streaks.restoreConfirm.action", { coins: cost })}
-        loading={restore.isPending}
-        onConfirm={() => restoring && restore.mutate(restoring)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setRestoring(null)} disabled={restore.isPending}>
+              {t("common:actions.cancel")}
+            </Button>
+            {/* Coins are only spent when they are there: short of them, the way is to buy more. */}
+            <Button
+              loading={restore.isPending}
+              disabled={confirm !== "ready"}
+              onClick={() => restoring && restore.mutate(restoring)}
+            >
+              {t("streaks.restoreConfirm.action", { coins: cost })}
+            </Button>
+          </>
+        }
       >
         <dl className="flex flex-col gap-2 rounded-2xl bg-surface-2 p-4 text-sm font-bold">
           <div className="flex items-center justify-between">
@@ -190,7 +215,7 @@ export function StreaksScreen() {
             <dd>{balance.coins === undefined ? "…" : <Coins amount={balance.coins} />}</dd>
           </div>
         </dl>
-        {short && (
+        {confirm === "short" && (
           <p className="mt-3 text-sm font-bold text-danger">
             {t("streaks.restoreConfirm.short")}{" "}
             <Link to="/wallet/buy" className="underline">
@@ -198,7 +223,12 @@ export function StreaksScreen() {
             </Link>
           </p>
         )}
-      </ConfirmDialog>
+        {(confirm === "used" || confirm === "over") && (
+          <p className="mt-3 text-sm font-bold text-danger">
+            {t(confirm === "used" ? "errors.RESTORE_ALREADY_USED" : "errors.RESTORE_WINDOW_OVER")}
+          </p>
+        )}
+      </Dialog>
     </Page>
   );
 }
