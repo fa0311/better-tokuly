@@ -173,6 +173,31 @@ async fn a_message_request_waits_until_it_is_accepted() {
 }
 
 #[tokio::test]
+async fn a_burst_of_sends_cannot_stretch_a_request_allowance() {
+    let ctx = start().await;
+    let stranger = ctx.app.user("stranger").await;
+    let hanako = ctx.app.user("hanako").await;
+    ctx.open_to_everyone(&hanako).await;
+    let conversation = ctx.direct(&stranger, &hanako).await;
+
+    // Eight messages at once, each judged before any of them is stored.
+    let burst: Vec<SendMessageRequest> = (0..8)
+        .map(|index| SendMessageRequest {
+            conversation_id: conversation.id.clone(),
+            client_id: client_id(),
+            text: format!("ねえ{index}"),
+            ..Default::default()
+        })
+        .collect();
+    let outcomes = futures::future::join_all(burst.iter().map(|request| ctx.send(&stranger, request))).await;
+    let delivered = outcomes.iter().filter(|outcome| outcome.is_ok()).count();
+    assert_eq!(delivered, 3, "the allowance holds under concurrent sends: {outcomes:?}");
+    assert!(outcomes.iter().filter_map(|outcome| outcome.as_ref().err()).all(|error| error.reason == "REQUEST_PENDING"));
+    assert_eq!(ctx.latest(&hanako, &conversation.id).await.len(), 3);
+    assert_eq!(ctx.conversation(&stranger, &conversation.id).await.conversation.viewer.request_messages_left, 0);
+}
+
+#[tokio::test]
 async fn declining_a_request_is_silent_and_answering_one_accepts_it() {
     let ctx = start().await;
     let hanako = ctx.app.user("hanako").await;

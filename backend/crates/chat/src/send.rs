@@ -325,6 +325,14 @@ impl Chat {
             }
             None => None,
         };
+        // The allowance was judged before the lock was taken; concurrent
+        // sends all passed that check, so it is settled here, on the
+        // sender's locked row (failing rolls the message back).
+        if draft.is_request
+            && before.as_ref().is_some_and(|before| before.request_messages >= self.cfg.request_message_limit)
+        {
+            return Err(access::request_pending());
+        }
 
         if let (Notify::Standard(context), Some(sender_id)) = (&draft.notify, draft.sender_id) {
             let first_request = draft.is_request && before.as_ref().is_some_and(|before| before.request_messages == 0);
