@@ -4,6 +4,7 @@ import type { Room } from "livekit-client";
 import { toast } from "sonner";
 import { create } from "zustand";
 import i18n from "#/lib/i18n";
+import { claimAudioFocus, releaseAudioFocus } from "#/stores/audio-focus";
 import { callClient } from "../api";
 import { patchConversation, readConversation } from "../conversations";
 import { errorMessage } from "../errors";
@@ -70,6 +71,7 @@ async function close(): Promise<void> {
   const leaving = room;
   room = null;
   useCallSession.setState({ active: null });
+  releaseAudioFocus("call");
   await leaving?.disconnect().catch(() => {});
 }
 
@@ -146,6 +148,8 @@ function begin(conversationId: string, video: boolean, startedByMe: boolean, cal
     toast.error(t("call.toast.busy"));
     return false;
   }
+  // A call has the microphone to itself: an audio room the person is in pauses until it ends.
+  claimAudioFocus({ holder: "call", yield: () => void hangUp() });
   useCallSession.setState({
     active: {
       callId,
