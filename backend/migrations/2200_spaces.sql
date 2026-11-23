@@ -93,6 +93,17 @@ CREATE TABLE space_participants (
     seen_at          timestamptz,
     missing_since    timestamptz,
     hand_raised_at   timestamptz,
+    -- The raised hand may be shown to everyone in the room: it went up
+    -- while its owner was visible. A hand raised by a listener who hides
+    -- their online status is for the moderators only, also if they stop
+    -- hiding later.
+    hand_public      boolean     NOT NULL DEFAULT false,
+    -- When they last came on stage; NULL off stage. What people other than
+    -- the moderators see instead of `joined_at`, which may fall in a time
+    -- the person was hidden.
+    stage_since      timestamptz,
+    -- The last departure was from the stage (in plain view).
+    left_on_stage    boolean     NOT NULL DEFAULT false,
     stage_invited_at timestamptz,
     stage_invited_by uuid,
     -- Seconds spent inside, summed over every stay that ended.
