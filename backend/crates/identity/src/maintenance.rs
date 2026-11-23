@@ -108,8 +108,11 @@ impl Identity {
             if done.rows_affected() == 0 {
                 continue; // cancelled in the meantime
             }
+            let sessions: Vec<Uuid> = sqlx::query_scalar("DELETE FROM sessions WHERE user_id = $1 RETURNING id")
+                .bind(user_id)
+                .fetch_all(&mut *tx)
+                .await?;
             for table in [
-                "sessions",
                 "passkeys",
                 "email_tokens",
                 "security_events",
@@ -142,6 +145,11 @@ impl Identity {
                 crate::users::hold_handle(&self.core, handle, user_id).await?;
             }
             tx.commit().await?;
+            // Devices still open are signed out now, not when their access
+            // token runs out: it would keep writing to the erased account.
+            for session_id in sessions {
+                self.core.revoke_session(session_id).await;
+            }
             purged += 1;
         }
         Ok(purged)

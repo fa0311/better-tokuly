@@ -699,6 +699,14 @@ async fn account_deletion_is_scheduled_cancellable_and_purged_when_due() {
         .await
         .unwrap_err();
     assert_eq!(gone.status, 404);
+
+    // A device still open at that moment is signed out at once: its access
+    // token must not keep writing data back after every domain purged it.
+    let err = app
+        .call::<_, UpdateProfileResponse>("tokuly.identity.v1.AccountService/UpdateProfile", Some(&user), &UpdateProfileRequest { display_name: Some("still here".into()), ..Default::default() })
+        .await
+        .unwrap_err();
+    assert_eq!((err.status, err.reason.as_str()), (401, "SESSION_REVOKED"));
 }
 
 #[tokio::test]
