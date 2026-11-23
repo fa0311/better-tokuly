@@ -93,6 +93,21 @@ CREATE TABLE space_participants (
     seen_at          timestamptz,
     missing_since    timestamptz,
     hand_raised_at   timestamptz,
+    -- The raised hand may be shown to everyone in the room: it went up
+    -- while its owner was visible. A hand raised by a listener who hides
+    -- their online status is for the moderators only, also if they stop
+    -- hiding later.
+    hand_public      boolean     NOT NULL DEFAULT false,
+    -- When they last came on stage; NULL off stage. What people other than
+    -- the moderators see instead of `joined_at`, which may fall in a time
+    -- the person was hidden.
+    stage_since      timestamptz,
+    -- When they last left the room from the stage (in plain view). Kept
+    -- through later stays, so nothing about a later, perhaps hidden, stay
+    -- changes what others see of it.
+    left_stage_at    timestamptz,
+    -- tokuly.spaces.v1.SpaceLeaveReason of that departure.
+    left_stage_reason smallint   NOT NULL DEFAULT 0,
     stage_invited_at timestamptz,
     stage_invited_by uuid,
     -- Seconds spent inside, summed over every stay that ended.

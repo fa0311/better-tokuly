@@ -59,10 +59,10 @@ impl Spaces {
         if friends.is_empty() {
             return Ok((Vec::new(), HashMap::new()));
         }
-        let inside: Vec<(Uuid, Uuid, i16, Time)> = sqlx::query_as(
-            "SELECT p.space_id, p.user_id, p.role, p.joined_at FROM space_participants p
+        let inside: Vec<(Uuid, Uuid, i16, Time, Option<Time>)> = sqlx::query_as(
+            "SELECT p.space_id, p.user_id, p.role, p.joined_at, p.stage_since FROM space_participants p
              WHERE p.user_id = ANY($1) AND p.left_at IS NULL
-             ORDER BY p.role DESC, p.joined_at, p.user_id",
+             ORDER BY p.role DESC, p.user_id",
         )
         .bind(&friends)
         .fetch_all(&core.db)
@@ -70,13 +70,19 @@ impl Spaces {
         if inside.is_empty() {
             return Ok((Vec::new(), HashMap::new()));
         }
-        let quiet: Vec<Uuid> =
-            inside.iter().filter(|(_, _, role, _)| !rules::on_stage(*role)).map(|(_, user, _, _)| *user).collect();
-        let privacy = settings::privacy_of_many(core, &quiet).await?;
+        let everyone: Vec<Uuid> = inside.iter().map(|(_, user, _, _, _)| *user).collect();
+        let privacy = settings::privacy_of_many(core, &everyone).await?;
         let mut by_room: HashMap<Uuid, Vec<(Uuid, i16, Time)>> = HashMap::new();
-        for (space_id, friend, role, since) in inside {
-            let shown = rules::on_stage(role) || privacy.get(&friend).is_none_or(|privacy| privacy.share_online_status);
-            if shown {
+        for (space_id, friend, role, joined_at, stage_since) in inside {
+            let open = privacy.get(&friend).is_none_or(|privacy| privacy.share_online_status);
+            // Someone who hides their presence shows from when they came on
+            // stage, not from when they quietly entered.
+            let since = match (open, rules::on_stage(role)) {
+                (true, _) => Some(joined_at),
+                (false, true) => Some(stage_since.unwrap_or(joined_at)),
+                (false, false) => None,
+            };
+            if let Some(since) = since {
                 by_room.entry(space_id).or_default().push((friend, role, since));
             }
         }

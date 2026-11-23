@@ -43,10 +43,10 @@ Topic `space:<space id>`, guarded: whoever may see the room may follow it
 | Event | To | When |
 |---|---|---|
 | `space_updated` | topic | started, ended, handed over, title / tags / audience / schedule / pin changed |
-| `participant_updated` | topic | someone came on stage, changed role, raised or lowered a hand |
-| `participant_left` | topic (stage and raised hands), and the person when it was not their doing | left, removed, banned, dropped off, room ended |
+| `participant_updated` | topic; for the hand of a hidden listener only the moderators and the person (users) | someone came on stage, changed role, raised or lowered a hand |
+| `participant_left` | topic (stage and announced hands), the moderators (users) for a hand only they saw, and the person when it was not their doing | left, removed, banned, dropped off, room ended |
 | `counts` | topic | head count; every change up to 150 people, then at most every 2 s |
-| `reaction` | topic | emoji burst (not stored; at most 300 per room and 10 s) |
+| `reaction` | topic | emoji burst without its sender, with the sender's `nonce` (not stored; at most 300 per room and 10 s) |
 | `speaker_muted` | topic | a moderator muted a speaker |
 | `stage_invitation` | user | invited on stage / invitation withdrawn |
 | `space_invitation` | user | invited to a room |
@@ -99,11 +99,45 @@ LiveKit reaches the API inside the stack, nobody else needs to.
 
 ## Who can see who is inside
 
-- The stage is visible to everyone who may see the room. The audience is
-  listed only to people inside and to moderators, the past only to people
-  who were inside. Non-moderators do not get people on either side of a
+- The stage is visible to everyone who may see the room, ordered by role
+  and by when people came on it. The audience is listed only to people
+  inside and to moderators, the past only to people who were inside: to
+  moderators everyone who left, to the others whoever left the room from
+  the stage (`left_stage_at`, `left_stage_reason`, kept through later stays,
+  so a quiet return or a departure from the audience changes nothing). Non-moderators do not get people on either side of a
   block with them, and listeners who hide their online status are counted
   (`hidden_count`), not named.
+- **Hidden listeners** (in the audience, not sharing their online status)
+  are named only to the room's moderators (host and co-hosts) and to
+  themselves. Everyone else — including anyone following `space:<id>`,
+  which needs no sign-in for a public room — learns at most that somebody
+  did something, and nothing that says which hidden listener:
+  - a hand raised while hidden is pushed to the moderators and the person
+    (`participant_updated` to users); the topic only sees
+    `counts.hand_count` move (the web app then reloads the hands list).
+    Lowering it, a dismissal, a declined stage invitation and leaving with
+    it up follow the same path (the departure as `participant_left` to the
+    moderators). Whether such an end is announced to the room is decided
+    when it happens: only if the hand went up in plain view (`hand_public`)
+    *and* its owner still shares their status. So a hand raised while
+    hidden stays private after the person stops hiding, and a hand raised
+    in view names nobody once its owner hides;
+  - emoji bursts never name their sender, from anyone: the sender's client
+    recognises its own by the random `nonce` it sent;
+  - to non-moderators a participant's `joined_at` is the time they came
+    on stage (`stage_since`) and unset for listeners, a hand shows only if
+    it is `hand_public`, the audience is ordered by ID and hands by when
+    they went up in view, the stage (also `Space.stage`) by when people
+    came on it; the past is only departures from the stage, with their own
+    time and reason. "Friends in rooms" and the profile card show a hidden
+    friend on stage since they came on stage, and the friends preview is
+    ordered without arrival times. So nothing from a hidden time comes out later, when the
+    person comes on stage or stops hiding.
+  - From the moment someone is on stage, or shares their status, the normal
+    events apply. Stepping down is announced (`participant_updated` with
+    the listener role): it happens in plain view; what follows does not.
+  - Not hidden by design: inviting a friend into a room (`spaces.invited`,
+    `space_invitation` name the inviter to the invitee they chose).
 - On LiveKit, listeners connect as hidden participants; the stage is
   visible. Promotion and demotion switch it on the open connection.
 - A ban hides the room from the banned person (`SPACE_NOT_FOUND`, no

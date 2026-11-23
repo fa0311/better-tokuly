@@ -115,6 +115,19 @@ pub fn emoji(input: &str) -> AppResult<String> {
     Ok(emoji.to_owned())
 }
 
+/// The sender's tag on an emoji burst (`SendReactionRequest.nonce`): empty,
+/// or up to 64 ASCII letters, digits, `-` and `_`. Everyone following the
+/// room sees it, so nothing but such a token gets through.
+pub fn nonce(input: &str) -> AppResult<String> {
+    ensure!(
+        input.len() <= 64 && input.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'),
+        invalid,
+        "INVALID_NONCE",
+        "a nonce has at most 64 letters, digits, - and _"
+    );
+    Ok(input.to_owned())
+}
+
 /// A hangout name: 1–40 characters on one line.
 pub fn hangout_name(input: &str) -> AppResult<String> {
     let name = input.trim();

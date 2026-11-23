@@ -109,14 +109,24 @@ service SpaceService {
   // The stage is for everyone who may see the room. Who is listening is
   // only listed to people who are inside themselves and to moderators (to
   // anyone else the unfiltered list is the stage), and who is gone only to
-  // people who were inside. Except for moderators, people on either side of
+  // people who were inside: to moderators everyone who left, to the others
+  // the people who left the room from the stage (with that departure, also
+  // while they are back in the audience). Except for moderators, people on either side of
   // a block with the caller are left out, and listeners who do not share
-  // their online status are only counted (`hidden_count`).
+  // their online status are only counted (`hidden_count`). Except for
+  // moderators and the person themselves, a raised hand shows only when it
+  // went up while its owner was visible (and they still are), `joined_at`
+  // is only set for people on stage, as the time they came on stage, and
+  // the order says nothing of when listeners arrived: nothing from a time
+  // someone was hidden comes out later.
   // Errors: SPACE_NOT_FOUND, NOT_IN_SPACE (audience, hands or past asked for
   // from outside), RATE_LIMITED.
   rpc ListParticipants(ListParticipantsRequest) returns (ListParticipantsResponse);
 
-  // Raises or lowers the caller's hand to ask for the stage.
+  // Raises or lowers the caller's hand to ask for the stage. The hand of a
+  // listener who does not share their online status is announced only to
+  // the moderators and to themselves; everyone else just sees
+  // `SpaceCounts.hand_count` move.
   // Errors: SPACE_NOT_FOUND, SPACE_NOT_LIVE, NOT_IN_SPACE, ALREADY_ON_STAGE,
   // RATE_LIMITED.
   rpc SetHandRaised(SetHandRaisedRequest) returns (SetHandRaisedResponse);
@@ -174,10 +184,10 @@ service SpaceService {
   rpc ListBans(ListBansRequest) returns (ListBansResponse);
 
   // Sends an emoji burst to everyone in the room. Not stored; delivered
-  // over realtime only, and thinned out when a large room sends more than
-  // anyone could watch. Callers must be inside.
+  // over realtime only, without saying who sent it, and thinned out when a
+  // large room sends more than anyone could watch. Callers must be inside.
   // Errors: SPACE_NOT_FOUND, SPACE_NOT_LIVE, NOT_IN_SPACE, INVALID_EMOJI,
-  // RATE_LIMITED.
+  // INVALID_NONCE, RATE_LIMITED.
   rpc SendReaction(SendReactionRequest) returns (SendReactionResponse);
   // Pins a note, a link or both at the top of the room; empty `text` and
   // `url` unpin. Moderators only.
@@ -443,15 +453,22 @@ message SpaceViewer {
 message SpaceParticipant {
   tokuly.common.v1.UserSummary user = 1;
   SpaceRole role = 2;
-  // Set while their hand is up.
+  // Set while their hand is up. For anyone but moderators and the person
+  // themselves only when the hand went up while they were visible (on
+  // stage, or sharing their online status).
   google.protobuf.Timestamp hand_raised_at = 3;
   // A stage invitation is waiting for their answer. Only shown to
   // moderators and to the person themselves; never set in realtime pushes.
   bool stage_invited = 4;
-  // When they entered (this time).
+  // For moderators and the person themselves: when they entered (this
+  // time). For everyone else: when they came on stage, and unset for
+  // listeners, so a listener who was hidden for a while does not show
+  // since when they are inside.
   google.protobuf.Timestamp joined_at = 5;
-  // PARTICIPANT_FILTER_PAST only: when and why they are no longer inside.
-  // `role` is then the highest role they held in the room.
+  // PARTICIPANT_FILTER_PAST only: when and why they are no longer inside
+  // (for anyone but moderators and the person: when and why they last left
+  // the room from the stage). `role` is then the highest role they held in
+  // the room.
   google.protobuf.Timestamp left_at = 6;
   SpaceLeaveReason leave_reason = 7;
 }
@@ -732,6 +749,11 @@ message SendReactionRequest {
   string space_id = 1;
   // One emoji, or a custom emoji as `:shortcode:`.
   string emoji = 2;
+  // Optional, at most 64 letters, digits, `-` and `_`: handed back in
+  // `SpaceReaction.nonce` so the sender's client can tell its own burst
+  // from the others. Everyone following the room sees it, so pick a fresh
+  // random value for every burst.
+  string nonce = 3;
 }
 
 message SendReactionResponse {}
@@ -1070,15 +1092,18 @@ message SpacesEvent {
     SpaceUpdated space_updated = 1;
     // Topic: someone came on stage, changed role, or raised or lowered a
     // hand. Listeners entering quietly are not announced one by one; see
-    // `counts`.
+    // `counts`. The hand of a listener who does not share their online
+    // status goes to the moderators and the person only (User), never to
+    // the topic.
     SpaceParticipantUpdated participant_updated = 2;
-    // Topic, when the person was on stage or had a hand up; and always to
-    // the person themselves when it was not their own doing.
+    // Topic, when the person was on stage or had an announced hand up; the
+    // moderators (User) when they had a hand up that only they saw; and
+    // always to the person themselves when it was not their own doing.
     SpaceParticipantLeft participant_left = 3;
     // Topic: how many people are inside. Sent on every change in small
     // rooms and every few seconds at most in large ones.
     SpaceCounts counts = 4;
-    // Topic: an emoji burst.
+    // Topic: an emoji burst, without its sender.
     SpaceReaction reaction = 5;
     // Topic: a moderator muted a speaker.
     SpeakerMuted speaker_muted = 6;
@@ -1122,10 +1147,15 @@ message SpaceCounts {
   int32 peak_listeners = 5;
 }
 
+// An emoji burst. It does not say who sent it: a listener who hides their
+// presence would be named to everyone following the room otherwise.
 message SpaceReaction {
+  reserved 2;
+  reserved "user_id";
   string space_id = 1;
-  string user_id = 2;
   string emoji = 3;
+  // `SendReactionRequest.nonce` as the sender gave it (often empty).
+  string nonce = 4;
 }
 
 message SpeakerMuted {

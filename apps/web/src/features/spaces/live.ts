@@ -24,12 +24,30 @@ export function useSpaceTopic(spaceId: string | undefined): void {
   }, [spaceId]);
 }
 
-/** An emoji someone sent into a room. */
+/** An emoji someone sent into a room. Bursts do not say who sent them. */
 export interface Burst {
   spaceId: string;
-  userId: string;
   /** One emoji, or a custom emoji as `:shortcode:`. */
   emoji: string;
+}
+
+/** Nonces of the bursts this browser sent and has not heard back yet. */
+const sentNonces = new Set<string>();
+const MAX_SENT_NONCES = 64;
+
+/**
+ * A fresh tag for a burst this browser is about to send, so the copy that
+ * comes back over realtime is recognised and not drawn twice. It is random
+ * for every burst: everyone in the room sees it.
+ */
+export function newBurstNonce(): string {
+  const nonce = crypto.randomUUID();
+  sentNonces.add(nonce);
+  if (sentNonces.size > MAX_SENT_NONCES) {
+    const oldest = sentNonces.values().next().value;
+    if (oldest !== undefined) sentNonces.delete(oldest);
+  }
+  return nonce;
 }
 
 const reactionListeners = new Set<(reaction: Burst) => void>();
@@ -101,15 +119,23 @@ export function applySpacesEvent(queryClient: QueryClient, event: Event, myId: s
       const counts = event.value;
       const loaded = queryClient.getQueryData<spaces.Space | null>(keys.space(counts.spaceId));
       patchSpace(queryClient, counts.spaceId, (space) => withCounts(space, counts));
-      // Listeners come and go without being announced one by one.
-      if (loaded && loaded.listenerCount !== counts.listenerCount)
+      // Listeners come and go without being announced one by one, and so
+      // do the hands of listeners who keep their presence to themselves (or
+      // stopped sharing it): the count is all the room hears of those.
+      if (
+        loaded &&
+        (loaded.listenerCount !== counts.listenerCount || loaded.handCount !== counts.handCount)
+      )
         refreshPeople(queryClient, counts.spaceId);
       return;
     }
-    case "reaction":
+    case "reaction": {
+      const { spaceId, emoji, nonce } = event.value;
       // The sender drew their own burst when they tapped.
-      if (event.value.userId !== myId) emitReaction(event.value);
+      if (nonce && sentNonces.delete(nonce)) return;
+      emitReaction({ spaceId, emoji });
       return;
+    }
     case "stageInvitation": {
       const { spaceId, invited } = event.value;
       patchSpace(queryClient, spaceId, (space) =>
