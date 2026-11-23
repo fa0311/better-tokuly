@@ -317,18 +317,6 @@ impl AccountService for Identity {
                 "EMAIL_UNCHANGED",
                 "this is already your email address"
             );
-            let taken: bool =
-                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE email = $1::citext)")
-                    .bind(&email)
-                    .fetch_one(&self.core.db)
-                    .await
-                    .map_err(AppError::from)?;
-            ensure!(
-                !taken,
-                already_exists,
-                "EMAIL_TAKEN",
-                "an account with this email already exists"
-            );
             self.core
                 .cache
                 .rate_limit(
@@ -337,8 +325,19 @@ impl AccountService for Identity {
                     Duration::from_secs(3600),
                 )
                 .await?;
-            // The address only changes once the new one is verified.
-            self.spawn_verification_mail(user.id, email, user.locale.clone(), "change");
+            // Someone else's address gets the same answer as a free one, so
+            // this cannot be used to find out who has an account; it just
+            // never receives a link (and VerifyEmail checks again).
+            let taken: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE email = $1::citext)")
+                    .bind(&email)
+                    .fetch_one(&self.core.db)
+                    .await
+                    .map_err(AppError::from)?;
+            if !taken {
+                // The address only changes once the new one is verified.
+                self.spawn_verification_mail(user.id, email, user.locale.clone(), "change");
+            }
             ok(ChangeEmailResponse::default())
         })
         .await

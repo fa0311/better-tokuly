@@ -445,6 +445,29 @@ async fn a_new_sign_in_credential_takes_the_password() {
 }
 
 #[tokio::test]
+async fn changing_the_email_does_not_tell_whose_address_is_registered() {
+    let app = app().await;
+    let (taken, free) = (unique("known"), unique("unknown"));
+    let _: AuthResponse = app.call("tokuly.identity.v1.AuthService/SignUp", None, &sign_up_request(&taken)).await.unwrap();
+    let curious = app.user("curious").await;
+    // Asking for someone else's address and for an unused one must look the
+    // same, or ChangeEmail answers "is this person on Tokuly?" for free.
+    for address in [format!("{taken}@example.com"), format!("{free}@example.com")] {
+        let answer = app
+            .call::<_, ChangeEmailResponse>("tokuly.identity.v1.AccountService/ChangeEmail", Some(&curious), &ChangeEmailRequest { new_email: address.clone(), ..Default::default() })
+            .await;
+        assert!(answer.is_ok(), "{address}: {answer:?}");
+    }
+    // Nothing was sent for the registered address, so it cannot be taken over either.
+    let pending: Vec<String> = sqlx::query_scalar("SELECT email::text FROM email_tokens WHERE user_id = $1 AND purpose = 'change'")
+        .bind(curious.id)
+        .fetch_all(&app.core.db)
+        .await
+        .unwrap();
+    assert!(!pending.contains(&format!("{taken}@example.com")), "{pending:?}");
+}
+
+#[tokio::test]
 async fn device_login_flow_issues_tokens_once() {
     let app = app().await;
     let approver = app.user("phone").await;

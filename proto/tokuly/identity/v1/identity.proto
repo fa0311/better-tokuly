@@ -248,6 +248,9 @@ service AccountService {
   rpc UpdateSettings(UpdateSettingsRequest) returns (UpdateSettingsResponse);
 
   rpc ChangePassword(ChangePasswordRequest) returns (ChangePasswordResponse);
+  // INVALID_CREDENTIALS, EMAIL_INVALID, EMAIL_UNCHANGED, RATE_LIMITED. An
+  // address that belongs to another account is answered like any other (so
+  // the RPC does not reveal who is registered) but is sent no link.
   rpc ChangeEmail(ChangeEmailRequest) returns (ChangeEmailResponse);
 
   rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
