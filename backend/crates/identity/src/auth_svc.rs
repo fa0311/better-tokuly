@@ -139,6 +139,17 @@ impl Identity {
         Ok(token)
     }
 
+    /// Invalidates the mailed links of a user that change the address or the
+    /// password. Called when the password changes: a link someone requested
+    /// while they knew the old password must not outlive it.
+    pub(crate) async fn drop_account_links(&self, user_id: Uuid) -> AppResult<()> {
+        sqlx::query("DELETE FROM email_tokens WHERE user_id = $1 AND purpose IN ('change', 'reset')")
+            .bind(user_id)
+            .execute(&self.core.db)
+            .await?;
+        Ok(())
+    }
+
     /// Marks an email token used and returns `(user_id, purpose, email)`.
     async fn consume_email_token(
         &self,
@@ -730,6 +741,7 @@ impl AuthService for Identity {
             .execute(&self.core.db)
             .await
             .map_err(AppError::from)?;
+        self.drop_account_links(user_id).await?;
         self.revoke_all_sessions(user_id, None).await?;
         self.log_security_event(user_id, "PASSWORD_RESET", &ctx.client(), "", serde_json::json!({})).await;
         ok(ResetPasswordResponse::default())

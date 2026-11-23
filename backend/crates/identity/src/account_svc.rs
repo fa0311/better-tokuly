@@ -283,7 +283,9 @@ impl AccountService for Identity {
                 .execute(&self.core.db)
                 .await
                 .map_err(AppError::from)?;
-            // Other devices must sign in again with the new password.
+            // Other devices must sign in again with the new password, and a
+            // pending address change requested with the old one is void.
+            self.drop_account_links(user.id).await?;
             self.revoke_all_sessions(user.id, Some(auth.session_id))
                 .await?;
             self.log_security_event(

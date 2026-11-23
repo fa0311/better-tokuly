@@ -335,6 +335,59 @@ async fn totp_guesses_are_capped_per_day_not_only_per_five_minutes() {
     assert_eq!(err.reason, "RATE_LIMITED");
 }
 
+/// Stores a mailed token as `ChangeEmail` / `RequestPasswordReset` would and
+/// returns it (the real ones only travel by mail).
+async fn mailed_token(app: &TestApp, user_id: uuid::Uuid, purpose: &str, email: &str) -> String {
+    let token = tokuly_core::keys::random_token(32);
+    sqlx::query("INSERT INTO email_tokens (token_hash, user_id, purpose, email, expires_at) VALUES ($1, $2, $3, $4::citext, now() + interval '1 hour')")
+        .bind(app.core.keys.token_hash(&token))
+        .bind(user_id)
+        .bind(purpose)
+        .bind(email)
+        .execute(&app.core.db)
+        .await
+        .unwrap();
+    token
+}
+
+#[tokio::test]
+async fn securing_the_password_kills_a_pending_email_change() {
+    let app = app().await;
+    for securing in ["ChangePassword", "ResetPassword"] {
+        let tag = unique("hijack");
+        let auth: AuthResponse = app.call("tokuly.identity.v1.AuthService/SignUp", None, &sign_up_request(&tag)).await.unwrap();
+        let user_id: uuid::Uuid = auth.me.as_option().unwrap().user.as_option().unwrap().id.parse().unwrap();
+        let owner = app.sign_in(user_id).await;
+        // Someone who learned the password asks to move the account to their
+        // address; the confirmation link lands in their own inbox.
+        let change = mailed_token(&app, user_id, "change", &format!("{tag}@attacker.example")).await;
+        // The owner notices and secures the account.
+        if securing == "ChangePassword" {
+            let _: ChangePasswordResponse = app
+                .call(
+                    "tokuly.identity.v1.AccountService/ChangePassword",
+                    Some(&owner),
+                    &ChangePasswordRequest { current_password: "correct horse battery".into(), new_password: "a much better secret".into(), ..Default::default() },
+                )
+                .await
+                .unwrap();
+        } else {
+            let reset = mailed_token(&app, user_id, "reset", &format!("{tag}@example.com")).await;
+            let _: ResetPasswordResponse = app
+                .call("tokuly.identity.v1.AuthService/ResetPassword", None, &ResetPasswordRequest { token: reset, new_password: "a much better secret".into(), ..Default::default() })
+                .await
+                .unwrap();
+        }
+        let err = app
+            .call::<_, VerifyEmailResponse>("tokuly.identity.v1.AuthService/VerifyEmail", None, &VerifyEmailRequest { token: change, ..Default::default() })
+            .await
+            .unwrap_err();
+        assert_eq!(err.reason, "TOKEN_INVALID", "{securing} must end the pending address change");
+        let owner = app.sign_in(user_id).await;
+        assert_eq!(me(&app, &owner).await.email, format!("{tag}@example.com"));
+    }
+}
+
 #[tokio::test]
 async fn device_login_flow_issues_tokens_once() {
     let app = app().await;
