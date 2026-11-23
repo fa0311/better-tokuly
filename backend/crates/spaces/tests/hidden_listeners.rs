@@ -151,8 +151,10 @@ async fn step(ctx: &Ctx, world: &World, actor: &TestUser, number: usize) {
             let _: SetHandRaisedResponse = ctx.call("Space", "SetHandRaised", actor, &hand(room, true)).await.unwrap();
         }
         1 => {
-            let _: SendReactionResponse = ctx.call("Space", "SendReaction", actor, &react(room, "🔥", "burst-1")).await.unwrap();
-            let _: SendReactionResponse = ctx.call("Space", "SendReaction", actor, &react(room, "👏", "")).await.unwrap();
+            let _: SendReactionResponse =
+                ctx.call("Space", "SendReaction", actor, &react(room, "🔥", "burst-1")).await.unwrap();
+            let _: SendReactionResponse =
+                ctx.call("Space", "SendReaction", actor, &react(room, "👏", "")).await.unwrap();
         }
         2 => {
             let _: SetHandRaisedResponse = ctx.call("Space", "SetHandRaised", actor, &hand(room, false)).await.unwrap();
@@ -160,11 +162,8 @@ async fn step(ctx: &Ctx, world: &World, actor: &TestUser, number: usize) {
         3 => {
             let _: SetHandRaisedResponse = ctx.call("Space", "SetHandRaised", actor, &hand(room, true)).await.unwrap();
             // The host dismisses the hand.
-            let dismiss = MoveToAudienceRequest {
-                space_id: room.clone(),
-                user_id: actor.id.to_string(),
-                ..Default::default()
-            };
+            let dismiss =
+                MoveToAudienceRequest { space_id: room.clone(), user_id: actor.id.to_string(), ..Default::default() };
             let _: MoveToAudienceResponse = ctx.call("Space", "MoveToAudience", &world.host, &dismiss).await.unwrap();
         }
         4 => {
@@ -342,7 +341,11 @@ async fn nothing_from_the_hidden_time_comes_out_later() {
     // A hand raised now, visible, is announced as always.
     let _: SetHandRaisedResponse = ctx.call("Space", "SetHandRaised", &shy, &raise).await.unwrap();
     let pushed = ctx.events(&mut topic).await;
-    assert!(pushed.iter().any(|event| matches!(event, Push::ParticipantUpdated(u) if u.participant.user.id == shy.id.to_string())));
+    assert!(
+        pushed
+            .iter()
+            .any(|event| matches!(event, Push::ParticipantUpdated(u) if u.participant.user.id == shy.id.to_string()))
+    );
 
     // On stage she shows from when she came up, not from when she entered.
     ctx.set_privacy(&shy, |privacy| privacy.share_online_status = false).await;
@@ -365,10 +368,8 @@ async fn nothing_from_the_hidden_time_comes_out_later() {
         .unwrap();
     let gone = past.participants.iter().find(|p| p.user.id == shy.id.to_string()).expect("she was on stage");
     assert!(gone.left_at.is_unset() && gone.joined_at.is_unset(), "{gone:?}");
-    let for_host: ListParticipantsResponse = ctx
-        .call("Space", "ListParticipants", &host, &list(ParticipantFilter::PARTICIPANT_FILTER_PAST))
-        .await
-        .unwrap();
+    let for_host: ListParticipantsResponse =
+        ctx.call("Space", "ListParticipants", &host, &list(ParticipantFilter::PARTICIPANT_FILTER_PAST)).await.unwrap();
     let gone = for_host.participants.iter().find(|p| p.user.id == shy.id.to_string()).unwrap();
     assert!(gone.left_at.is_set(), "moderators see when");
 }

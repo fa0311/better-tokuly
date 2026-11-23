@@ -70,8 +70,7 @@ impl Spaces {
         if inside.is_empty() {
             return Ok((Vec::new(), HashMap::new()));
         }
-        let everyone: Vec<Uuid> =
-            inside.iter().map(|(_, user, _, _, _)| *user).collect();
+        let everyone: Vec<Uuid> = inside.iter().map(|(_, user, _, _, _)| *user).collect();
         let privacy = settings::privacy_of_many(core, &everyone).await?;
         let mut by_room: HashMap<Uuid, Vec<(Uuid, i16, Time)>> = HashMap::new();
         for (space_id, friend, role, joined_at, stage_since) in inside {

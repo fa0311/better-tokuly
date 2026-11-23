@@ -97,7 +97,11 @@ fn participant_proto(row: &ParticipantRow, users: &HashMap<Uuid, UserSummary>, s
 
 impl Spaces {
     /// One participant, as `sight` allows.
-    pub(crate) async fn render_participant(&self, row: &ParticipantRow, sight: Sight) -> AppResult<pb::SpaceParticipant> {
+    pub(crate) async fn render_participant(
+        &self,
+        row: &ParticipantRow,
+        sight: Sight,
+    ) -> AppResult<pb::SpaceParticipant> {
         let users = tokuly_identity::summaries(&self.core, &[row.user_id]).await?;
         Ok(participant_proto(row, &users, sight))
     }

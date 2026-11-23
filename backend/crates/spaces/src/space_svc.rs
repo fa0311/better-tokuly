@@ -215,7 +215,10 @@ impl SpaceService for Spaces {
     ) -> ServiceResult<SetHandRaisedResponse> {
         handle(async {
             let me = Spaces::set_hand_raised(self, ctx.user_id()?, parse_id(request.space_id)?, request.raised).await?;
-            ok(SetHandRaisedResponse { me: self.render_participant(&me, Sight::Full).await?.into(), ..Default::default() })
+            ok(SetHandRaisedResponse {
+                me: self.render_participant(&me, Sight::Full).await?.into(),
+                ..Default::default()
+            })
         })
         .await
     }
