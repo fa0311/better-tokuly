@@ -316,10 +316,7 @@ impl Chat {
         let mut tx = self.core.db.begin().await?;
         // What it said before stays reportable (see `subjects`), for a
         // bounded number of edits. The row lock orders concurrent edits.
-        sqlx::query("SELECT 1 FROM chat_messages WHERE id = $1 FOR UPDATE")
-            .bind(message_id)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query("SELECT 1 FROM chat_messages WHERE id = $1 FOR UPDATE").bind(message_id).execute(&mut *tx).await?;
         sqlx::query(
             "INSERT INTO chat_removed_texts (message_id, text, reason)
              SELECT id, text, $2 FROM chat_messages

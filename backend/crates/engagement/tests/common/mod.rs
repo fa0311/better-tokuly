@@ -131,7 +131,8 @@ impl FakeDomain {
 impl SubjectResolver for FakeDomain {
     async fn resolve(&self, id: &str, viewer: Option<Uuid>) -> AppResult<Option<SubjectInfo>> {
         let resolved = self.resolve_for_report(id, viewer).await?;
-        let withdrawn = |info: &SubjectInfo| self.subjects.lock().get(&info.id).is_some_and(|subject| subject.withdrawn);
+        let withdrawn =
+            |info: &SubjectInfo| self.subjects.lock().get(&info.id).is_some_and(|subject| subject.withdrawn);
         Ok(resolved.filter(|info| !withdrawn(info)))
     }
 

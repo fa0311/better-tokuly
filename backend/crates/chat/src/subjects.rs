@@ -73,11 +73,7 @@ pub(crate) fn report_title(versions: &[String], truncated: bool) -> String {
     if truncated && count > 1 {
         distinct.insert(count - 1, format!("（{MAX_EDITED_TEXTS}回目より後の編集は記録なし）"));
     }
-    if count > 1 {
-        format!("[{count}版] {}", distinct.join(" → "))
-    } else {
-        distinct.pop().unwrap_or_default()
-    }
+    if count > 1 { format!("[{count}版] {}", distinct.join(" → ")) } else { distinct.pop().unwrap_or_default() }
 }
 
 impl MessageSubjects {
