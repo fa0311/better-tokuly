@@ -11,10 +11,11 @@ import { Card } from "#/components/ui/card";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { EmojiText } from "#/features/emoji";
 import { ReportButton } from "#/features/engagement";
-import { forgetUser, StoryRing } from "#/features/stories";
+import { StoryRing } from "#/features/stories";
 import { api, profileClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { formatDistance } from "#/lib/format";
+import { forgetUser } from "#/seams/forget-user";
 import { type ProfileSectionProps, ProfileSlotView, ProfileStat } from "#/seams/profile";
 import { signOut as signOutOfApp } from "#/stores/session";
 
@@ -62,7 +63,7 @@ export function ProfileScreen({ handle }: { handle: string }) {
   const removeFriend = useMutation({
     mutationFn: () => friendClient().removeFriend({ userId: user!.id }),
     onSuccess: () => {
-      // Their notes and stories leave what is already loaded.
+      // What every feature loaded of theirs leaves the screen.
       forgetUser(queryClient, user!.id);
       return refresh();
     },
