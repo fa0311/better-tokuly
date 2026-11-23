@@ -27,6 +27,14 @@ export interface RealtimeOptions {
 }
 
 type FrameListener = (frame: ServerFrame) => void;
+
+/**
+ * The reasons that mean access to a topic is over. Anything else the server
+ * may say about a topic (`TOPIC_CHECK_FAILED`: its guard could not decide
+ * right now) is not a revocation: the topic stays wanted and is asked for
+ * again on the next connection.
+ */
+const REVOCATION_REASONS: ReadonlySet<string> = new Set(["TOPIC_FORBIDDEN", "TOPIC_CLOSED"]);
 type RevokedListener = (topic: string, reason: string) => void;
 
 export interface SubscribeOptions {
@@ -305,6 +313,9 @@ export class RealtimeClient {
     if (topic === undefined) return;
     this.pendingSubscribes.delete(replyTo);
     if (error.code === "permission_denied") this.revoke(topic, error.message);
+    // Any other refusal (the guard could not decide, the bus was away) is
+    // not the end of access: the topic stays wanted and the next Hello asks
+    // for it again.
   }
 
   /**
@@ -313,6 +324,7 @@ export class RealtimeClient {
    * not ask for it again) and its followers are told once.
    */
   private revoke(topic: string, reason: string): void {
+    if (!REVOCATION_REASONS.has(reason)) return;
     const interest = this.topics.get(topic);
     if (!interest) return;
     this.topics.delete(topic);

@@ -76,6 +76,8 @@ struct Route {
     subscribed: watch::Sender<bool>,
     /// Cancelled when the last member left.
     stop: CancellationToken,
+    /// Control messages this route received (see [`Hub::controls_mark`]).
+    controls_seen: AtomicU64,
 }
 
 impl Route {
@@ -84,6 +86,7 @@ impl Route {
             members: RwLock::new(HashMap::from([(client.key, client.clone())])),
             subscribed: watch::Sender::new(false),
             stop: CancellationToken::new(),
+            controls_seen: AtomicU64::new(0),
         })
     }
 
@@ -117,13 +120,15 @@ pub(crate) struct Hub {
     bus: Bus,
     routes: DashMap<RouteKey, Arc<Route>>,
     counters: Arc<Counters>,
-    /// Goes up with every control message any route receives. A session
-    /// that checked a guard and then joined a route compares it before and
-    /// after, and asks the guard again if a revocation went by in between
-    /// (it might have been about the subscription just made).
-    controls_seen: AtomicU64,
     /// Cancelled when the gateway stops: every route ends.
     shutdown: CancellationToken,
+}
+
+/// See [`Hub::controls_mark`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ControlsMark {
+    route: usize,
+    seen: u64,
 }
 
 /// How a connection got onto a route.
@@ -138,13 +143,7 @@ pub(crate) enum Joined {
 
 impl Hub {
     pub(crate) fn new(bus: Bus, counters: Arc<Counters>) -> Arc<Self> {
-        Arc::new(Self {
-            bus,
-            routes: DashMap::new(),
-            counters,
-            controls_seen: AtomicU64::new(0),
-            shutdown: CancellationToken::new(),
-        })
+        Arc::new(Self { bus, routes: DashMap::new(), counters, shutdown: CancellationToken::new() })
     }
 
     /// Adds a connection to a route, creating the route (and its bus
@@ -191,9 +190,16 @@ impl Hub {
         }
     }
 
-    /// How many control messages this gateway's routes received so far.
-    pub(crate) fn controls_seen(&self) -> u64 {
-        self.controls_seen.load(Ordering::SeqCst)
+    /// Where a route stands with control messages: which route it is (a
+    /// route torn down and made again is another) and how many it received.
+    /// A session that asked a guard and then joined the route compares the
+    /// mark from before with the one after, and asks the guard again when a
+    /// revocation for that topic went by in between. `None`: no route here.
+    pub(crate) fn controls_mark(&self, key: &RouteKey) -> Option<ControlsMark> {
+        self.routes.get(key).map(|route| ControlsMark {
+            route: Arc::as_ptr(route.value()) as usize,
+            seen: route.controls_seen.load(Ordering::SeqCst),
+        })
     }
 
     /// Connections on this gateway that are members of a route.
@@ -244,7 +250,7 @@ impl Hub {
                                 Some(message) => match control_of(message.headers.as_ref()) {
                                     None => route.deliver(message.payload, &except_of(message.headers.as_ref())),
                                     Some(control) => {
-                                        self.controls_seen.fetch_add(1, Ordering::SeqCst);
+                                        route.controls_seen.fetch_add(1, Ordering::SeqCst);
                                         if let Some(control) = control.and_then(|control| SessionControl::from_bus(control, key.topic())) {
                                             route.control(&control);
                                         }

@@ -33,7 +33,7 @@ use crate::{
     client::{Client, SessionControl},
     connection::{FrameSource, Inbound, RecvError},
     frames::{self, Code, Delivery, Rejection},
-    hub::{Joined, RouteKey},
+    hub::{ControlsMark, Joined, RouteKey},
     limits::TokenBucket,
     location,
     outbox::CloseReason,
@@ -63,7 +63,9 @@ const REVOKED_FORBIDDEN: &str = "TOPIC_FORBIDDEN";
 const REVOKED_CLOSED: &str = "TOPIC_CLOSED";
 /// When a re-check could not be decided (the guard failed), the next try.
 const RECHECK_RETRY: Duration = Duration::from_secs(10);
-/// When the gateway's re-check budget is spent, the next try.
+/// When the gateway's re-check budget is spent, the next try: on average
+/// this long, spread by ±50 % so the sessions that were turned away do not
+/// all come back in the same instant.
 const RECHECK_POSTPONE: Duration = Duration::from_secs(1);
 
 /// Frames of any kind per connection: far above what an honest client
@@ -99,12 +101,15 @@ pub(crate) struct Session<'g> {
     /// Subscribed topics and when each is due for its periodic re-check.
     topics: HashMap<String, Instant>,
     frame_limit: TokenBucket,
+    /// State of the cheap generator that spreads postponed re-checks.
+    jitter: u64,
     location_limit: TokenBucket,
     signal_limit: TokenBucket,
 }
 
 impl<'g> Session<'g> {
     pub(crate) fn new(gateway: &'g GatewayInner, client: Arc<Client>) -> Self {
+        let jitter = client.key.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
         let now = Instant::now();
         Self {
             gateway,
@@ -117,6 +122,7 @@ impl<'g> Session<'g> {
             counted_online: false,
             topics: HashMap::new(),
             frame_limit: TokenBucket::new(FRAME_BURST, FRAME_RATE),
+            jitter,
             location_limit: TokenBucket::new(gateway.cfg.location_burst, gateway.cfg.location_rate),
             signal_limit: TokenBucket::new(SIGNAL_BURST, SIGNAL_RATE),
         }
@@ -354,7 +360,7 @@ impl<'g> Session<'g> {
         {
             return Some(self.fatal(id, BUS_UNAVAILABLE));
         }
-        let controls_seen = self.gateway.hub.controls_seen();
+        let marks = self.controls_marks(&hello.topics);
         // A topic the guard refuses does not refuse the Hello: a client that
         // reconnects with a topic it lost access to meanwhile would never be
         // welcomed again. It hears `Unsubscribed` for that topic instead.
@@ -379,7 +385,7 @@ impl<'g> Session<'g> {
             }
             self.auth = Some(claimed);
         }
-        let mut refused = match self.admit(new_topics, subscriber, controls_seen).await {
+        let mut refused = match self.admit(new_topics, subscriber, &marks).await {
             Ok(refused) => refused,
             Err(rejection) => return Some(self.fatal(id, rejection)),
         };
@@ -452,43 +458,63 @@ impl<'g> Session<'g> {
 
     async fn subscribe(&mut self, requested: &[String]) -> Result<(), Rejection> {
         let subscriber = self.auth.as_ref().map(|auth| auth.user_id);
-        let controls_seen = self.gateway.hub.controls_seen();
+        let marks = self.controls_marks(requested);
         let (new_topics, _) = self.plan_subscriptions(requested, subscriber, true).await?;
         let added = new_topics.clone();
-        let refused = self.admit(new_topics, subscriber, controls_seen).await?;
-        if let Some((_, reason)) = refused.first() {
+        let refused = self.admit(new_topics, subscriber, &marks).await?;
+        if !refused.is_empty() {
             // All or nothing, as when the first check refuses.
             self.unsubscribe(&added);
-            return Err(if *reason == REVOKED_FORBIDDEN { topics::FORBIDDEN } else { topics::CHECK_FAILED });
+            return Err(topics::FORBIDDEN);
         }
         Ok(())
     }
 
-    /// Joins topics whose guards admitted the subscriber when
-    /// `controls_seen` was the hub's count of control messages. A
-    /// revocation that went by since, or one this gateway could not hear
-    /// because a route was only just made, may have been about these
-    /// topics: those are asked again, after the join, so the answer reflects
-    /// everything committed before the subscription was in place. Returns
-    /// the topics that were refused then (already left again) with the
-    /// reason.
+    /// Where each topic's route stands with control messages, before its
+    /// guard is asked (see [`Self::admit`]).
+    fn controls_marks(&self, topics: &[String]) -> HashMap<String, Option<ControlsMark>> {
+        topics
+            .iter()
+            .map(|topic| (topic.clone(), self.gateway.hub.controls_mark(&RouteKey::Topic(topic.clone()))))
+            .collect()
+    }
+
+    /// Joins topics whose guards admitted the subscriber, `marks` being
+    /// where each topic's route stood with control messages before the
+    /// guard was asked. A revocation for the topic that went by since — or
+    /// one this gateway could not hear because the route was only just made
+    /// — may have been about this very subscription: those topics are asked
+    /// about again, after the join, so the answer reflects everything
+    /// committed before the subscription was in place. (One user's own
+    /// revocations need no such care: they wait in the queue and are applied
+    /// once the topic is subscribed.) Returns the topics refused then
+    /// (already left again). A guard that fails then keeps the topic and is
+    /// asked again soon: an outage is not a revocation.
     async fn admit(
         &mut self,
         new_topics: Vec<String>,
         subscriber: Option<Uuid>,
-        controls_seen: u64,
+        marks: &HashMap<String, Option<ControlsMark>>,
     ) -> Result<Vec<(String, &'static str)>, Rejection> {
         let joined = self.join_topics(new_topics).await?;
-        let revocation_went_by = self.gateway.hub.controls_seen() != controls_seen;
         let mut refused = Vec::new();
         for (topic, how) in joined {
-            if !revocation_went_by && how == Joined::Existing {
+            let before = marks.get(&topic).copied().flatten();
+            let after = self.gateway.hub.controls_mark(&RouteKey::Topic(topic.clone()));
+            if how == Joined::Existing && before.is_some() && before == after {
                 continue;
             }
-            if let Err(rejection) = topics::authorize(&self.gateway.core.topic_guards, subscriber, &topic).await {
-                let reason = if rejection == topics::FORBIDDEN { REVOKED_FORBIDDEN } else { rejection.reason };
-                self.leave_topic(&topic);
-                refused.push((topic, reason));
+            match topics::authorize(&self.gateway.core.topic_guards, subscriber, &topic).await {
+                Ok(()) => {}
+                Err(rejection) if rejection == topics::FORBIDDEN => {
+                    self.leave_topic(&topic);
+                    refused.push((topic, REVOKED_FORBIDDEN));
+                }
+                Err(_) => {
+                    if let Some(due) = self.topics.get_mut(&topic) {
+                        *due = Instant::now() + RECHECK_RETRY;
+                    }
+                }
             }
         }
         Ok(refused)
@@ -585,6 +611,13 @@ impl<'g> Session<'g> {
         for control in self.client.take_controls() {
             match control {
                 SessionControl::Close(topic) => self.revoke(&topic, REVOKED_CLOSED),
+                SessionControl::RecheckSoon(topic) => {
+                    // Due now: the periodic re-check takes it within the budget.
+                    let now = Instant::now();
+                    if let Some(due) = self.topics.get_mut(&topic) {
+                        *due = (*due).min(now);
+                    }
+                }
                 SessionControl::Recheck(pattern) => {
                     let matching: Vec<String> =
                         self.topics.keys().filter(|topic| pattern.matches(topic)).cloned().collect();
@@ -618,6 +651,16 @@ impl<'g> Session<'g> {
         }
     }
 
+    /// [`RECHECK_POSTPONE`] spread by ±50 % (xorshift; nothing here needs
+    /// more than an even spread).
+    fn postponement(&mut self) -> Duration {
+        self.jitter ^= self.jitter << 13;
+        self.jitter ^= self.jitter >> 7;
+        self.jitter ^= self.jitter << 17;
+        let fraction = (self.jitter % 1000) as f64 / 1000.0;
+        RECHECK_POSTPONE.mul_f64(0.5 + fraction)
+    }
+
     /// The periodic safety net: re-checks the subscriptions that are due, at
     /// most `recheck_batch` at once and within the gateway's budget.
     async fn recheck_due(&mut self, now: Instant) {
@@ -630,10 +673,11 @@ impl<'g> Session<'g> {
         let batch = self.gateway.cfg.recheck_batch;
         for (index, (topic, _)) in due.iter().enumerate() {
             if index >= batch || !self.gateway.recheck_limit.lock().allow() {
-                // The rest wait for the next round.
+                // The rest wait for a later round, each at its own moment.
                 for (topic, _) in &due[index..] {
+                    let wait = self.postponement();
                     if let Some(at) = self.topics.get_mut(topic) {
-                        *at = now + RECHECK_POSTPONE;
+                        *at = now + wait;
                     }
                 }
                 return;

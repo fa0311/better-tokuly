@@ -16,8 +16,8 @@ use tokio_tungstenite::{
 };
 use tokuly_core::keys::b64url;
 use tokuly_proto::realtime::{
-    AppState, ClientFrame, Error as ErrorFrame, GetEndpointsRequest, GetEndpointsResponse, Hello, Ping, ServerFrame, Subscribe, Unsubscribe, Welcome,
-    client_frame::Body as ClientBody, server_frame::Body,
+    AppState, ClientFrame, Error as ErrorFrame, GetEndpointsRequest, GetEndpointsResponse, Hello, Ping, ServerFrame,
+    Subscribe, Unsubscribe, Welcome, client_frame::Body as ClientBody, server_frame::Body,
 };
 use tokuly_realtime::{Gateway, ListenAddrs, RealtimeConfig};
 use tokuly_testkit::{TestApp, TestUser};
@@ -96,12 +96,18 @@ impl Harness {
     }
 
     pub async fn endpoints(&self) -> GetEndpointsResponse {
-        self.app.call("tokuly.realtime.v1.RealtimeService/GetEndpoints", None, &GetEndpointsRequest::default()).await.expect("GetEndpoints")
+        self.app
+            .call("tokuly.realtime.v1.RealtimeService/GetEndpoints", None, &GetEndpointsRequest::default())
+            .await
+            .expect("GetEndpoints")
     }
 
     /// Waits for `Gateway::run` to return (after `core.shutdown` was cancelled).
     pub async fn stopped(&mut self) -> anyhow::Result<()> {
-        tokio::time::timeout(WAIT * 2, &mut self.running).await.expect("Gateway::run returns after shutdown").expect("Gateway::run does not panic")
+        tokio::time::timeout(WAIT * 2, &mut self.running)
+            .await
+            .expect("Gateway::run returns after shutdown")
+            .expect("Gateway::run does not panic")
     }
 
     pub fn wt_url(&self) -> String {
@@ -139,7 +145,11 @@ pub async fn eventually(what: &str, mut check: impl AsyncFnMut() -> bool) {
 }
 
 /// The next JSON message on a bus subscription that satisfies `wanted`.
-pub async fn next_on_bus<T: DeserializeOwned>(subscriber: &mut async_nats::Subscriber, wait: Duration, wanted: impl Fn(&T) -> bool) -> Option<T> {
+pub async fn next_on_bus<T: DeserializeOwned>(
+    subscriber: &mut async_nats::Subscriber,
+    wait: Duration,
+    wanted: impl Fn(&T) -> bool,
+) -> Option<T> {
     let deadline = tokio::time::Instant::now() + wait;
     loop {
         let message = tokio::time::timeout_at(deadline, subscriber.next()).await.ok()??;
@@ -183,11 +193,17 @@ pub fn hello_body(token: &str, foreground: bool, topics: &[&str]) -> ClientBody 
 }
 
 pub fn subscribe_body(topics: &[&str]) -> ClientBody {
-    ClientBody::Subscribe(Box::new(Subscribe { topics: topics.iter().map(|topic| topic.to_string()).collect(), ..Default::default() }))
+    ClientBody::Subscribe(Box::new(Subscribe {
+        topics: topics.iter().map(|topic| topic.to_string()).collect(),
+        ..Default::default()
+    }))
 }
 
 pub fn unsubscribe_body(topics: &[&str]) -> ClientBody {
-    ClientBody::Unsubscribe(Box::new(Unsubscribe { topics: topics.iter().map(|topic| topic.to_string()).collect(), ..Default::default() }))
+    ClientBody::Unsubscribe(Box::new(Unsubscribe {
+        topics: topics.iter().map(|topic| topic.to_string()).collect(),
+        ..Default::default()
+    }))
 }
 
 pub fn ping_body(nonce: u64) -> ClientBody {
@@ -342,7 +358,10 @@ impl WsClient {
     pub async fn closed(&mut self) -> Option<CloseFrame> {
         let deadline = tokio::time::Instant::now() + WAIT;
         loop {
-            match tokio::time::timeout_at(deadline, self.stream.next()).await.expect("the gateway closes the connection") {
+            match tokio::time::timeout_at(deadline, self.stream.next())
+                .await
+                .expect("the gateway closes the connection")
+            {
                 Some(Ok(Message::Close(frame))) => return frame,
                 Some(Ok(_)) => {}
                 Some(Err(_)) | None => return None,
@@ -368,10 +387,18 @@ impl WtClient {
     /// Connects the way a browser does with `serverCertificateHashes`:
     /// only a certificate with one of these hashes is accepted.
     pub async fn connect(url: &str, cert_hashes: &[Vec<u8>]) -> Result<Self, String> {
-        let hashes = cert_hashes.iter().map(|hash| Sha256Digest::new(hash.as_slice().try_into().expect("a SHA-256 hash is 32 bytes")));
-        let config = ClientConfig::builder().with_bind_address("127.0.0.1:0".parse().unwrap()).with_server_certificate_hashes(hashes).build();
+        let hashes = cert_hashes
+            .iter()
+            .map(|hash| Sha256Digest::new(hash.as_slice().try_into().expect("a SHA-256 hash is 32 bytes")));
+        let config = ClientConfig::builder()
+            .with_bind_address("127.0.0.1:0".parse().unwrap())
+            .with_server_certificate_hashes(hashes)
+            .build();
         let endpoint = Endpoint::client(config).map_err(|e| e.to_string())?;
-        let connection = tokio::time::timeout(WAIT, endpoint.connect(url)).await.map_err(|_| "timed out".to_owned())?.map_err(|e| e.to_string())?;
+        let connection = tokio::time::timeout(WAIT, endpoint.connect(url))
+            .await
+            .map_err(|_| "timed out".to_owned())?
+            .map_err(|e| e.to_string())?;
         // The one bidirectional stream that carries reliable frames.
         let (send, recv) = connection.open_bi().await.map_err(|e| e.to_string())?.await.map_err(|e| e.to_string())?;
         Ok(Self { connection, send, recv, next_id: 1 })
@@ -397,7 +424,9 @@ impl WtClient {
     }
 
     pub fn send_datagram(&self, id: u64, body: ClientBody) {
-        self.connection.send_datagram(encode(&ClientFrame { id, body: Some(body), ..Default::default() })).expect("datagram send");
+        self.connection
+            .send_datagram(encode(&ClientFrame { id, body: Some(body), ..Default::default() }))
+            .expect("datagram send");
     }
 
     /// The next frame on the stream within `wait`.

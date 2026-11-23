@@ -348,3 +348,82 @@ async fn the_periodic_recheck_keeps_within_the_gateway_budget() {
     let checks = harness.gateway.stats().topic_rechecks;
     assert!((1..=4).contains(&checks), "about one check per second, not {checks}");
 }
+
+/// Says yes once, then fails: a database that gives out in a reconnect storm.
+struct YesThenBroken(AtomicUsize);
+
+#[async_trait::async_trait]
+impl TopicGuard for YesThenBroken {
+    async fn may_subscribe(&self, _subscriber: Option<Uuid>, _topic: &str) -> AppResult<bool> {
+        if self.0.fetch_add(1, Ordering::SeqCst) == 0 {
+            Ok(true)
+        } else {
+            Err(tokuly_core::AppError::unavailable("DB_DOWN", "cannot check"))
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_guard_that_fails_on_the_second_look_keeps_the_subscription() {
+    let harness = Harness::start().await;
+    let member = harness.app.user("member").await;
+    harness.app.core.topic_guards.register("room", Arc::new(YesThenBroken(AtomicUsize::new(0))));
+    // The first subscriber of a topic on this gateway: the guard is asked
+    // again after the join, and fails then.
+    let topic = unique_topic("room");
+    let mut client = harness.ws().await;
+    let reply = client.request(hello_body(&member.token, true, &[&topic])).await;
+    assert!(matches!(reply.body, Some(Body::Welcome(_))));
+    harness.app.core.rt.to_topic(&topic, &marker("still subscribed")).await.unwrap();
+    let frame = client
+        .next_where(|frame| marker_text(frame).is_some() || matches!(frame.body, Some(Body::Unsubscribed(_))))
+        .await;
+    assert_eq!(marker_text(&frame).as_deref(), Some("still subscribed"), "an outage is not a revocation: {frame:?}");
+
+    // The same through Subscribe.
+    let other = unique_topic("room");
+    harness.app.core.topic_guards.register("room", Arc::new(YesThenBroken(AtomicUsize::new(0))));
+    assert!(is_ack(&client.request(subscribe_body(&[&other])).await));
+    harness.app.core.rt.to_topic(&other, &marker("also kept")).await.unwrap();
+    assert!(receives(&mut client, "also kept").await);
+}
+
+#[tokio::test]
+async fn a_topic_wide_recheck_keeps_within_the_gateway_budget() {
+    // Ten checks a second for the whole gateway (and a burst of ten).
+    let cfg = RealtimeConfig { recheck_rate: 10.0, ..test_config() };
+    let harness = Harness::start_with(cfg).await;
+    let mut users = Vec::new();
+    for i in 0..30 {
+        users.push(harness.app.user(&format!("viewer{i}")).await);
+    }
+    let ids: Vec<Uuid> = users.iter().map(|user| user.id).collect();
+    let guard = Members::of(&ids);
+    harness.app.core.topic_guards.register("room", guard.clone());
+    let topic = unique_topic("room");
+    let mut clients = Vec::new();
+    for user in &users {
+        let mut client = harness.ws_as(Some(user), true).await;
+        assert!(is_ack(&client.request(subscribe_body(&[&topic])).await));
+        clients.push(client);
+    }
+
+    // The audience narrows to nobody: everyone is to be asked again.
+    guard.admitted.lock().clear();
+    let before = guard.calls.load(Ordering::SeqCst);
+    harness.app.core.rt.recheck_topic(&topic).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let first_half_second = guard.calls.load(Ordering::SeqCst) - before;
+    assert!(first_half_second <= 17, "the burst and half a second's worth, not all at once: {first_half_second}");
+    // All of them are let go in the end.
+    for client in &mut clients {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(6);
+        loop {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            let frame = client.next_within(remaining).await.expect("everyone is let go within a few seconds");
+            if matches!(frame.body, Some(Body::Unsubscribed(_))) {
+                break;
+            }
+        }
+    }
+}

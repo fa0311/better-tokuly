@@ -41,8 +41,13 @@ const MAX_QUEUED_CONTROLS: usize = 256;
 /// An instruction for a connection's session about its subscriptions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SessionControl {
-    /// Ask the guard again for the subscriptions matching the pattern.
+    /// Ask the guard again, now, for the subscriptions matching the pattern
+    /// (one user's: a handful of topics at most).
     Recheck(TopicPattern),
+    /// Ask the guard again about this topic soon, within the gateway's
+    /// re-check budget: a topic-wide re-check reaches every subscriber at
+    /// once, which for a big audience must not mean every guard query at once.
+    RecheckSoon(String),
     /// Drop this topic without asking.
     Close(String),
 }
@@ -53,9 +58,7 @@ impl SessionControl {
     pub(crate) fn from_bus(control: Control, topic: Option<&str>) -> Option<Self> {
         match (control, topic) {
             (Control::Recheck(pattern), None) => Some(SessionControl::Recheck(pattern)),
-            (Control::RecheckTopic, Some(topic)) => {
-                Some(SessionControl::Recheck(TopicPattern::Exact(topic.to_owned())))
-            }
+            (Control::RecheckTopic, Some(topic)) => Some(SessionControl::RecheckSoon(topic.to_owned())),
             (Control::CloseTopic, Some(topic)) => Some(SessionControl::Close(topic.to_owned())),
             // An instruction sent to the wrong kind of subject.
             _ => None,

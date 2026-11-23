@@ -156,3 +156,38 @@ describe("subscriptions the server ends", () => {
     expect(sentFrames().filter((frame) => frame.body.case === "unsubscribe")).toHaveLength(1);
   });
 });
+
+describe("refusals that are not revocations", () => {
+  beforeEach(() => {
+    wire.sent.length = 0;
+    vi.spyOn(console, "info").mockImplementation(() => {});
+  });
+
+  it("keeps a topic whose guard could not decide, and asks for it again on reconnect", async () => {
+    const client = await connectedClient();
+    const revoked = vi.fn();
+    client.subscribe("overlay:k", { onRevoked: revoked });
+    const [subscribe] = subscribeFrames("overlay:k");
+    serverSends({
+      replyTo: subscribe?.id ?? 0n,
+      body: {
+        case: "error",
+        value: { code: "unavailable", message: "TOPIC_CHECK_FAILED", fatal: false },
+      },
+    });
+    // An unknown reason in an Unsubscribed frame is not taken for one either.
+    serverSends({
+      topic: "overlay:k",
+      body: { case: "unsubscribed", value: { topic: "overlay:k", reason: "TOPIC_CHECK_FAILED" } },
+    });
+    expect(revoked).not.toHaveBeenCalled();
+    expect(client.isSubscribed("overlay:k")).toBe(true);
+    wire.close?.("gone");
+    await vi.waitFor(
+      () => expect(sentFrames().some((frame) => frame.body.case === "hello")).toBe(true),
+      { timeout: 3_000 },
+    );
+    const hello = sentFrames().find((frame) => frame.body.case === "hello");
+    expect(hello?.body.case === "hello" && hello.body.value.topics).toContain("overlay:k");
+  });
+});
