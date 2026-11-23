@@ -7,7 +7,7 @@ import { EmptyState, Skeleton } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
 import { authorizationClient } from "../api";
 import { Notice } from "../parts";
-import { ConsentDetails, OAuthPage } from "./parts";
+import { AnswerButtons, ConsentDetails, OAuthPage } from "./parts";
 
 /**
  * `/oauth/device`: the device flow (RFC 8628). A program without a browser
@@ -128,26 +128,7 @@ function DeviceRequest({ code, onOtherCode }: { code: string; onOtherCode(): voi
       </Notice>
       <ConsentDetails consent={consent.data} />
       {problem && <Notice tone="danger">{problem}</Notice>}
-      <div className="flex flex-col gap-2.5">
-        <Button
-          size="lg"
-          block
-          loading={busy === "approve"}
-          disabled={busy !== null}
-          onClick={() => void answer("approve")}
-        >
-          {t("oauth.allow")}
-        </Button>
-        <Button
-          variant="secondary"
-          block
-          loading={busy === "deny"}
-          disabled={busy !== null}
-          onClick={() => void answer("deny")}
-        >
-          {t("oauth.deny")}
-        </Button>
-      </div>
+      <AnswerButtons busy={busy} onAnswer={(choice) => void answer(choice)} />
     </div>
   );
 }

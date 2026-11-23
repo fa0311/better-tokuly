@@ -93,18 +93,10 @@ export function searchMethods<T extends SearchableMethod>(
 interface ReferenceState {
   /** What is typed into the search box (shared by the sidebar and the phone page). */
   query: string;
-  /**
-   * The token the "try it" panel sends. It is typed or pasted by the person
-   * and kept in memory only while the page is open: never in browser storage.
-   */
-  token: string;
   setQuery(query: string): void;
-  setToken(token: string): void;
 }
 
 export const useReference = create<ReferenceState>((set) => ({
   query: "",
-  token: "",
   setQuery: (query) => set({ query }),
-  setToken: (token) => set({ token }),
 }));

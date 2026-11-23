@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { referenceHead } from "#/features/dev/reference/head";
 import { ReferenceLayout } from "#/features/dev/reference/reference-screen";
 
 /**
@@ -7,7 +8,7 @@ import { ReferenceLayout } from "#/features/dev/reference/reference-screen";
  * itself, in the browser.
  */
 export const Route = createFileRoute("/docs/api")({
-  ssr: false,
-  head: () => ({ meta: [{ title: "Tokuly API" }] }),
+  ssr: "data-only",
+  head: () => referenceHead(),
   component: ReferenceLayout,
 });

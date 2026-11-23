@@ -8,7 +8,7 @@ import { TextField } from "#/components/ui/field";
 import { cn } from "#/lib/cn";
 import { Notice } from "../parts";
 import { CodeBlock } from "./code-block";
-import { methodUrl, useReference } from "./data";
+import { methodUrl } from "./data";
 
 /** What came back from a call made by the panel. */
 interface Answer {
@@ -37,8 +37,9 @@ const SHOWN_HEADERS = [
  */
 export function TryIt({ path, initialBody }: { path: string; initialBody: string }) {
   const { t } = useTranslation("dev");
-  const token = useReference((state) => state.token);
-  const setToken = useReference((state) => state.setToken);
+  // The pasted token lives in this panel only: it is gone when the panel is (another method,
+  // another page, signing out), and never reaches browser storage or a shared store.
+  const [token, setToken] = useState("");
   const [body, setBody] = useState(initialBody);
   const [answer, setAnswer] = useState<Answer | null>(null);
   const [problem, setProblem] = useState<string | null>(null);

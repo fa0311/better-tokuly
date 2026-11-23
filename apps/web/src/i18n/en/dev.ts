@@ -354,7 +354,7 @@ export default {
       title: "Try it",
       lead: "This calls the real API. Methods that write really do it, so take care!",
       token: "Token",
-      tokenHint: "Remembered only while this page is open. Never saved.",
+      tokenHint: "Kept only in this panel while it is open. Never saved.",
       makeToken: "Create a token",
       body: "Request (JSON)",
       send: "Send",

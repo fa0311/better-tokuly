@@ -119,6 +119,12 @@ function authorizeUrl(clientId: string, challenge: string, extra: Record<string,
   return `/oauth/authorize?${query}`;
 }
 
+/**
+ * The first load of a page outside the signed-in layout can take a while on a development
+ * server (it compiles the modules on demand), so the first look waits longer.
+ */
+const FIRST_LOAD = { timeout: 30_000 };
+
 /** Counts the calls that would approve something, so a test can show there were none. */
 function watchApprovals(page: Page): { count(): number } {
   let approvals = 0;
@@ -268,7 +274,7 @@ test("the consent page never approves by itself and only leaves when a button is
       prompt: "none",
     }),
   );
-  await expect(page.getByRole("button", { name: "許可する", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "許可する", exact: true })).toBeVisible(FIRST_LOAD);
   await page.waitForTimeout(1500);
   expect(approvals.count()).toBe(0);
   expect(new URL(page.url()).pathname).toBe("/oauth/authorize");
@@ -311,7 +317,7 @@ test("a redirect address the app never registered is shown as an error, not foll
   );
   await expect(
     page.getByText("もどり先のアドレスが、アプリに登録されたものとちがいます"),
-  ).toBeVisible();
+  ).toBeVisible(FIRST_LOAD);
   await expect(page.getByRole("button", { name: "許可する", exact: true })).toHaveCount(0);
   expect(new URL(page.url()).pathname).toBe("/oauth/authorize");
   expect(leftForElsewhere).toBe(false);
@@ -337,7 +343,7 @@ test("a visitor signs in first and comes back to the same consent request", asyn
   const approvals = watchApprovals(page);
   const state = "9e9";
   await page.goto(authorizeUrl(app.id, challenge, { state }));
-  await expect(page.getByRole("heading", { name: "ログインして続ける" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "ログインして続ける" })).toBeVisible(FIRST_LOAD);
   await page.getByRole("link", { name: "ログイン", exact: true }).click();
 
   await page.getByLabel("メールアドレス または ハンドル").fill(visitor.handle);
@@ -382,7 +388,7 @@ test("the device flow: the code is typed, checked against the device, and approv
   const response = await page.goto(`/oauth/device?user_code=${device.user_code}`);
   expect(response?.headers()["x-frame-options"]).toBe("DENY");
   // The code from the address only fills the field: nothing is looked up or approved yet.
-  await expect(page.getByLabel("コード")).toHaveValue(device.user_code);
+  await expect(page.getByLabel("コード")).toHaveValue(device.user_code, FIRST_LOAD);
   await page.getByRole("button", { name: "確認する" }).click();
 
   await expect(page.getByText(app.name)).toBeVisible();
@@ -655,4 +661,56 @@ test("the hub and the settings lead to the developer pages", async ({ page, me: 
     "href",
     "/developers/authorized",
   );
+});
+
+test("allow works only after the consent page has been in front for a moment, again after losing focus", async ({
+  page,
+  request,
+  me,
+}) => {
+  // A hostile page asking for a double click must not get its second click onto "allow".
+  const app = await createApp(request, me);
+  const { challenge } = pkce();
+  await page.clock.install();
+  await page.goto(authorizeUrl(app.id, challenge, { state: "armed" }));
+  const allow = page.getByRole("button", { name: "許可する", exact: true });
+  await expect(allow).toBeVisible(FIRST_LOAD);
+  await expect(allow).toBeDisabled();
+  // Refusing is never held back.
+  await expect(page.getByRole("button", { name: "許可しない" })).toBeEnabled();
+
+  await page.clock.runFor(700);
+  await expect(allow).toBeEnabled();
+
+  // Losing focus disarms it; coming back starts the wait again.
+  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+  await expect(allow).toBeDisabled();
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await page.clock.runFor(300);
+  await expect(allow).toBeDisabled();
+  await page.clock.runFor(400);
+  await expect(allow).toBeEnabled();
+});
+
+test("no page of the app can be framed by another site", async ({ page, request, baseURL }) => {
+  for (const path of ["/", "/login", "/developers/authorized", "/docs/api", "/oauth/authorize"]) {
+    const response = await request.get(path, { maxRedirects: 0 });
+    expect(response.headers()["x-frame-options"], path).toBe("DENY");
+    expect(response.headers()["content-security-policy"], path).toContain("frame-ancestors 'none'");
+  }
+
+  // A page on another origin that puts the login page in a frame gets nothing.
+  await page.route("http://framer.test/", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `<iframe name="victim" src="${baseURL}/login"></iframe>`,
+    }),
+  );
+  await page.goto("http://framer.test/");
+  await page.waitForTimeout(1500);
+  const victim = page.frame({ name: "victim" });
+  const framedText = victim
+    ? await victim.evaluate(() => document.body?.innerText ?? "").catch(() => "")
+    : "";
+  expect(framedText).not.toContain("ログイン");
 });

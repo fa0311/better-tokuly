@@ -6,7 +6,7 @@ import { Skeleton } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
 import { authorizationClient, type dev } from "../api";
 import { Notice } from "../parts";
-import { ConsentDetails, OAuthPage } from "./parts";
+import { AnswerButtons, ConsentDetails, OAuthPage } from "./parts";
 import {
   type AuthorizationParams,
   authorizationParams,
@@ -118,26 +118,7 @@ function ConsentRequest({ request }: { request: AuthorizationParams }) {
         {t("oauth.consent.redirectHost", { host: details.redirectHost })}
       </p>
       {problem && <Notice tone="danger">{problem}</Notice>}
-      <div className="flex flex-col gap-2.5">
-        <Button
-          size="lg"
-          block
-          loading={busy === "approve"}
-          disabled={busy !== null}
-          onClick={() => void answer("approve")}
-        >
-          {t("oauth.allow")}
-        </Button>
-        <Button
-          variant="secondary"
-          block
-          loading={busy === "deny"}
-          disabled={busy !== null}
-          onClick={() => void answer("deny")}
-        >
-          {t("oauth.deny")}
-        </Button>
-      </div>
+      <AnswerButtons busy={busy} onAnswer={(choice) => void answer(choice)} />
       <p className="text-center text-xs leading-relaxed text-ink-faint">
         {t("oauth.consent.revokeHint")}
       </p>

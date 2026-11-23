@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { AuthLayout } from "#/components/auth-layout";
 import { Avatar } from "#/components/ui/avatar";
+import { Button } from "#/components/ui/button";
 import { LogoMark } from "#/components/ui/logo";
 import { EmojiText } from "#/features/emoji";
 import { useMe, useSessionStatus } from "#/stores/session";
@@ -10,6 +11,7 @@ import type { dev } from "../api";
 import { SquareImage } from "../image-field";
 import { Notice } from "../parts";
 import { ScopeMeanings } from "../scope-picker";
+import { useArmed } from "./armed";
 import { isFramed } from "./redirect";
 
 const buttonLink =
@@ -151,6 +153,43 @@ export function ConsentDetails({ consent }: { consent: dev.Consent }) {
       </div>
 
       {consent.alreadyGranted && <Notice>{t("oauth.alreadyGranted")}</Notice>}
+    </div>
+  );
+}
+
+/**
+ * Allow and refuse. "Allow" stays disabled until the page has been in
+ * front for a moment (see `useArmed`); refusing is never held back.
+ */
+export function AnswerButtons({
+  busy,
+  onAnswer,
+}: {
+  busy: "approve" | "deny" | null;
+  onAnswer(choice: "approve" | "deny"): void;
+}) {
+  const { t } = useTranslation("dev");
+  const armed = useArmed();
+  return (
+    <div className="flex flex-col gap-2.5">
+      <Button
+        size="lg"
+        block
+        loading={busy === "approve"}
+        disabled={busy !== null || !armed}
+        onClick={() => armed && onAnswer("approve")}
+      >
+        {t("oauth.allow")}
+      </Button>
+      <Button
+        variant="secondary"
+        block
+        loading={busy === "deny"}
+        disabled={busy !== null}
+        onClick={() => onAnswer("deny")}
+      >
+        {t("oauth.deny")}
+      </Button>
     </div>
   );
 }
