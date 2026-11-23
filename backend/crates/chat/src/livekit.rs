@@ -16,8 +16,10 @@ use tokuly_core::prelude::*;
 use crate::ChatConfig;
 
 /// How long a join token can be used to connect. Once connected, LiveKit
-/// keeps the session alive by itself.
-pub const JOIN_TOKEN_TTL: Duration = Duration::from_secs(600);
+/// keeps the session alive by itself. A token cannot be revoked, so this is
+/// also how long someone who lost their place in a call could connect again
+/// before the reconciliation puts them out: clients connect right away.
+pub const JOIN_TOKEN_TTL: Duration = Duration::from_secs(120);
 /// Lifetime of the tokens the server signs for its own API calls.
 const API_TOKEN_TTL: Duration = Duration::from_secs(60);
 /// A LiveKit API call that takes longer than this has failed.
@@ -269,6 +271,18 @@ impl LiveKit {
         }
     }
 
+    /// Disconnects one participant from a room. Someone who is not connected
+    /// (or a room that is gone) is not an error.
+    pub async fn remove_participant(&self, room: &str, identity: &str) -> Result<(), LiveKitError> {
+        let grant = VideoGrant { room: room.to_owned(), room_admin: true, ..Default::default() };
+        let body = serde_json::json!({ "room": room, "identity": identity });
+        match self.call::<serde_json::Value>("RemoveParticipant", grant, body).await {
+            Ok(_) => Ok(()),
+            Err(e) if e.is_not_found() => Ok(()),
+            Err(e) => Err(e),
+        }
+    }
+
     /// Closes a room, disconnecting everyone in it. A room that is already
     /// gone is not an error.
     pub async fn delete_room(&self, room: &str) -> Result<(), LiveKitError> {
@@ -342,7 +356,7 @@ mod tests {
         let lifetime = claims.exp - jsonwebtoken::get_current_timestamp();
         assert!(
             (JOIN_TOKEN_TTL.as_secs() - 5..=JOIN_TOKEN_TTL.as_secs()).contains(&lifetime),
-            "expires in ten minutes, got {lifetime}s"
+            "expires in two minutes, got {lifetime}s"
         );
     }
 
