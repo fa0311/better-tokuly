@@ -31,6 +31,11 @@ impl Identity {
                 Duration::from_secs(300),
             )
             .await?;
+        // The burst limit alone allows ~2900 guesses a day.
+        self.core
+            .cache
+            .rate_limit(&format!("confirm-pw-day:{}", user.id), 30, Duration::from_secs(24 * 3600))
+            .await?;
         ensure!(
             crate::password::verify(password, user.password_hash.as_deref()).await,
             unauthenticated,

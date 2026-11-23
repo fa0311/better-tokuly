@@ -686,6 +686,27 @@ async fn only_the_operator_account_gets_an_official_looking_handle() {
 }
 
 #[tokio::test]
+async fn password_confirmations_are_capped_per_day() {
+    let app = app().await;
+    let tag = unique("confirm");
+    let auth: AuthResponse = app.call("tokuly.identity.v1.AuthService/SignUp", None, &sign_up_request(&tag)).await.unwrap();
+    let user_id: uuid::Uuid = auth.me.as_option().unwrap().user.as_option().unwrap().id.parse().unwrap();
+    let session = app.sign_in(user_id).await;
+    // 10 per 5 minutes alone is ~2900 guesses a day for whoever holds a
+    // session. Pretend today's budget is spent.
+    app.core.cache.set_string(&format!("rl:confirm-pw-day:{user_id}"), "30", Some(std::time::Duration::from_secs(600))).await.unwrap();
+    let err = app
+        .call::<_, ChangePasswordResponse>(
+            "tokuly.identity.v1.AccountService/ChangePassword",
+            Some(&session),
+            &ChangePasswordRequest { current_password: "correct horse battery".into(), new_password: "a much better secret".into(), ..Default::default() },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.reason, "RATE_LIMITED");
+}
+
+#[tokio::test]
 async fn device_login_flow_issues_tokens_once() {
     let app = app().await;
     let approver = app.user("phone").await;
