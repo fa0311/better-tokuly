@@ -120,6 +120,11 @@ impl Dev {
             // The account may have been a bot.
             images.release(&mut tx, &crate::images::bot_avatar_holder(user_id)).await?;
         }
+        // Open offers to or from the account; hand-overs already made stay on record.
+        sqlx::query("DELETE FROM dev_bot_transfers WHERE accepted_at IS NULL AND (from_id = $1 OR to_id = $1)")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
         for table in [
             "dev_authorizations WHERE user_id",
             "dev_webhooks WHERE account_id",

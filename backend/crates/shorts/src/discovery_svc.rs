@@ -52,6 +52,54 @@ impl Shorts {
 }
 
 impl ShortDiscoveryService for Shorts {
+    async fn list_user_shorts(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, ListUserShortsRequest>,
+    ) -> ServiceResult<ListUserShortsResponse> {
+        handle(async {
+            let core = &self.core;
+            let viewer = self.viewer(&ctx).await?;
+            let gone = || AppError::not_found("USER_NOT_FOUND", "user not found");
+            let user_id = Uuid::parse_str(request.user_id.trim()).map_err(|_| gone())?;
+            let user = tokuly_identity::users::find_by_id(core, user_id).await?.ok_or_else(gone)?;
+            // As their channels: a suspended account, or one in a block
+            // relation with the caller, reads as not there.
+            ensure!(
+                user.deleted_at.is_none() && viewer.may_see_owner(user.id, user.banned_at.is_some()),
+                not_found,
+                "USER_NOT_FOUND",
+                "user not found"
+            );
+            let page = Page::from_view(request.page.as_option(), MAX_PAGE);
+            let before: Option<(Time, Uuid)> = page.decode()?;
+            let mut rows: Vec<ShortRow> = sqlx::query_as(concat!(
+                "SELECT ",
+                short_columns!(),
+                " FROM shorts s WHERE s.owner_id = $4 AND ",
+                access::listed!(1, 2, 3),
+                " AND ($5::timestamptz IS NULL OR (s.published_at, s.id) < ($5, $6))
+                  ORDER BY s.published_at DESC, s.id DESC LIMIT $7"
+            ))
+            .bind(viewer.user_id)
+            .bind(&viewer.friends)
+            .bind(&viewer.blocked)
+            .bind(user.id)
+            .bind(before.map(|(at, _)| at))
+            .bind(before.map(|(_, id)| id))
+            .bind(page.fetch())
+            .fetch_all(&core.db)
+            .await?;
+            let info = page.finish(&mut rows, |row| (row.published_at.unwrap_or(row.created_at), row.id));
+            ok(ListUserShortsResponse {
+                shorts: hydrate::shorts(core, &viewer, &rows).await?,
+                page: info.into(),
+                ..Default::default()
+            })
+        })
+        .await
+    }
+
     async fn list_channel_shorts(
         &self,
         ctx: RequestContext,

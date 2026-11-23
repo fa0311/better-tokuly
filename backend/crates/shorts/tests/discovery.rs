@@ -366,3 +366,62 @@ async fn the_grid_can_be_sorted_by_views() {
     let nowhere = ListChannelShortsRequest { channel_id: unique("nochannel"), ..Default::default() };
     assert_eq!(ctx.reason(DISCOVERY, "ListChannelShorts", None, &nowhere).await, "CHANNEL_NOT_FOUND");
 }
+
+#[tokio::test]
+async fn a_profile_lists_a_persons_shorts_as_the_viewer_may_see_them() {
+    let ctx = start().await;
+    let alice = ctx.app.user("alice").await;
+    let friend = ctx.app.user("friend").await;
+    let stranger = ctx.app.user("stranger").await;
+    let blocker = ctx.app.user("blocker").await;
+    ctx.befriend(&alice, &friend).await;
+    let games = ctx.channel(&alice, "ゲームch").await;
+    let daily = ctx.channel(&alice, "日常ch").await;
+    ctx.short(&alice, &games, "はじめての").await;
+    let for_friends = ctx.short(&alice, &daily, "友達だけ").await;
+    ctx.set_visibility(&alice, &for_friends.id, Visibility::VISIBILITY_FRIENDS).await;
+    let private = ctx.short(&alice, &daily, "ないしょ").await;
+    ctx.set_visibility(&alice, &private.id, Visibility::VISIBILITY_PRIVATE).await;
+    let unlisted = ctx.short(&alice, &games, "限定公開").await;
+    ctx.set_visibility(&alice, &unlisted.id, Visibility::VISIBILITY_UNLISTED).await;
+    ctx.short(&alice, &games, "さいしん").await;
+    let elsewhere = ctx.channel(&stranger, "べつの人").await;
+    ctx.short(&stranger, &elsewhere, "ほかの人の").await;
+
+    let list = |viewer: Option<&TestUser>, user_id: String, limit: i32, cursor: String| {
+        let ctx = &ctx;
+        let viewer = viewer.cloned();
+        async move {
+            let request = ListUserShortsRequest { user_id, page: page(limit, &cursor), ..Default::default() };
+            ctx.call::<_, ListUserShortsResponse>(DISCOVERY, "ListUserShorts", viewer.as_ref(), &request).await
+        }
+    };
+    let of_alice = alice.id.to_string();
+    // Across both channels, newest first; friends-only for friends; everything for herself.
+    let seen = list(None, of_alice.clone(), 0, String::new()).await.unwrap();
+    assert_eq!(captions(&seen.shorts), ["さいしん", "はじめての"]);
+    let seen = list(Some(&stranger), of_alice.clone(), 0, String::new()).await.unwrap();
+    assert_eq!(captions(&seen.shorts), ["さいしん", "はじめての"]);
+    let seen = list(Some(&friend), of_alice.clone(), 0, String::new()).await.unwrap();
+    assert_eq!(captions(&seen.shorts), ["さいしん", "友達だけ", "はじめての"]);
+    let seen = list(Some(&alice), of_alice.clone(), 0, String::new()).await.unwrap();
+    assert_eq!(captions(&seen.shorts), ["さいしん", "限定公開", "ないしょ", "友達だけ", "はじめての"]);
+
+    // Paged.
+    let one = list(Some(&friend), of_alice.clone(), 2, String::new()).await.unwrap();
+    assert_eq!(captions(&one.shorts), ["さいしん", "友達だけ"]);
+    let cursor = one.page.as_option().unwrap().next_cursor.clone();
+    let two = list(Some(&friend), of_alice.clone(), 2, cursor).await.unwrap();
+    assert_eq!(captions(&two.shorts), ["はじめての"]);
+    assert!(two.page.as_option().unwrap().next_cursor.is_empty());
+    assert_eq!(list(None, of_alice.clone(), 2, "garbage".into()).await.unwrap_err().reason, "INVALID_CURSOR");
+
+    // A block either way hides the person, as an unknown one.
+    ctx.block(&blocker, &alice).await;
+    assert_eq!(list(Some(&blocker), of_alice.clone(), 0, String::new()).await.unwrap_err().reason, "USER_NOT_FOUND");
+    let of_blocker = blocker.id.to_string();
+    assert_eq!(list(Some(&alice), of_blocker, 0, String::new()).await.unwrap_err().reason, "USER_NOT_FOUND");
+    for nobody in [uuid::Uuid::now_v7().to_string(), "not-a-uuid".to_owned()] {
+        assert_eq!(list(None, nobody, 0, String::new()).await.unwrap_err().reason, "USER_NOT_FOUND");
+    }
+}

@@ -541,7 +541,76 @@ service BotService {
   rpc ListBotTokens(ListBotTokensRequest) returns (ListBotTokensResponse);
   // Reason: `TOKEN_NOT_FOUND`.
   rpc RevokeBotToken(RevokeBotTokenRequest) returns (RevokeBotTokenResponse);
+
+  // Offers a bot to another person, who has to accept it (they are told in
+  // their inbox). A new offer of the same bot replaces the open one. The
+  // offer lasts 7 days. Reasons: `BOT_SUSPENDED`, `RECIPIENT_NOT_FOUND` (no
+  // such person, the caller, a bot, a suspended account, or someone in a
+  // block relation with the caller), `RATE_LIMITED`.
+  rpc OfferBotTransfer(OfferBotTransferRequest) returns (OfferBotTransferResponse);
+  // Open offers: those the caller made and those made to them.
+  rpc ListBotTransfers(ListBotTransfersRequest) returns (ListBotTransfersResponse);
+  // Takes an offered bot over. Every token of the bot is revoked (they were
+  // made by, and shown to, the previous owner) and its webhooks deleted (they
+  // point at the previous owner's servers, signed with secrets they know);
+  // its profile, followers and what it posted stay, and so does what it
+  // received (direct messages, inbox, shared notes), which the new owner can
+  // read from then on. Who owned it before stays on record for moderation.
+  // Reasons: `TRANSFER_NOT_FOUND` (also when it ran out, was withdrawn, the
+  // offerer no longer owns the bot, or the two are in a block relation),
+  // `BOT_SUSPENDED`, `TOO_MANY_BOTS`.
+  rpc AcceptBotTransfer(AcceptBotTransferRequest) returns (AcceptBotTransferResponse);
+  // Declines an offer made to the caller, or withdraws one the caller made.
+  // Reason: `TRANSFER_NOT_FOUND`.
+  rpc CancelBotTransfer(CancelBotTransferRequest) returns (CancelBotTransferResponse);
 }
+
+// An open offer to hand a bot over.
+message BotTransfer {
+  string id = 1;
+  // The bot as it is now.
+  tokuly.common.v1.UserSummary bot = 2;
+  // Who offers it (its owner).
+  tokuly.common.v1.UserSummary from = 3;
+  // Who is to take it.
+  tokuly.common.v1.UserSummary to = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp expires_at = 6;
+}
+
+message OfferBotTransferRequest {
+  string bot_id = 1;
+  // The person to hand it to.
+  string user_id = 2;
+}
+
+message OfferBotTransferResponse {
+  BotTransfer transfer = 1;
+}
+
+message ListBotTransfersRequest {}
+
+message ListBotTransfersResponse {
+  // Offers of the caller's bots, newest first.
+  repeated BotTransfer outgoing = 1;
+  // Offers made to the caller, newest first.
+  repeated BotTransfer incoming = 2;
+}
+
+message AcceptBotTransferRequest {
+  string transfer_id = 1;
+}
+
+message AcceptBotTransferResponse {
+  // The bot, now the caller's.
+  Bot bot = 1;
+}
+
+message CancelBotTransferRequest {
+  string transfer_id = 1;
+}
+
+message CancelBotTransferResponse {}
 
 message Bot {
   // The bot's account; its `id` is the bot ID.

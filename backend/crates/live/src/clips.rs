@@ -318,6 +318,12 @@ pub async fn to_protos(core: &Core, viewer: &Viewer, rows: &[ClipRow]) -> AppRes
             like_count: row.like_count,
             created_at: ts(row.created_at),
             can_delete: viewer.is(row.creator_id) || viewer.is(row.owner_id),
+            // What posting it as a short takes; that is the creator's alone.
+            asset_id: row
+                .asset_id
+                .filter(|_| row.is_ready() && viewer.is(row.creator_id))
+                .map(|id| id.to_string())
+                .unwrap_or_default(),
             ..Default::default()
         })
         .collect())

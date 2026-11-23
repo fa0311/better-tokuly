@@ -125,8 +125,8 @@ export function refreshStream(queryClient: QueryClient, streamId: string): void 
 
 /**
  * The IDs of the people the signed-in viewer blocked. Chat history comes
- * filtered from the server, but pushes go to the whole topic: the room drops
- * pushed lines from these authors.
+ * filtered from the server, and so do pushed lines; the room still drops
+ * pushed lines from these authors, as a second line of defence.
  */
 export async function fetchBlockedIds(): Promise<Set<string>> {
   const ids = new Set<string>();

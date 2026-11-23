@@ -32,6 +32,8 @@ export const keys = {
   bots: ["dev", "bots"] as const,
   bot: (botId: string) => ["dev", "bot", botId] as const,
   botTokens: (botId: string) => ["dev", "bot", botId, "tokens"] as const,
+  /** Open offers to hand a bot over, made by and to the caller. */
+  botTransfers: ["dev", "bot-transfers"] as const,
   eventTypes: ["dev", "event-types"] as const,
   /** The caller's own webhooks under the empty bot ID. */
   webhooks: (botId: string) => ["dev", "webhooks", botId] as const,

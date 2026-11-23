@@ -16,7 +16,16 @@
 //!
 //! Reading a frame back (tests, a streaming RPC that follows the bus):
 //! `frame.event::<WalletEvent>()`.
-use std::{collections::HashMap, sync::Arc};
+//!
+//! A topic frame can leave some users out ([`Realtime::to_topic_except`]):
+//! the list travels in the [`EXCEPT_HEADER`] of the bus message, beside the
+//! frame and never inside it, and each gateway skips the connections signed
+//! in as one of them. This is how a live chat line stays away from people
+//! in a block relation with its author, at the cost of one publish.
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use async_trait::async_trait;
 use buffa::Message as _;
@@ -28,7 +37,28 @@ use tokuly_proto::{
 };
 use uuid::Uuid;
 
-use crate::{bus::Bus, error::AppResult};
+use crate::{
+    bus::Bus,
+    error::{AppError, AppResult},
+};
+
+/// Bus header of a topic frame: the users (simple UUIDs, comma-separated)
+/// whose connections must not get it.
+pub const EXCEPT_HEADER: &str = "Tokuly-Except";
+
+/// The most users one topic frame can leave out. The header then stays
+/// under 33 KB, well inside a bus message; a publish that would need more
+/// is refused (`TOO_MANY_EXCEPTIONS`) rather than sent to everyone.
+pub const MAX_EXCEPT: usize = 1000;
+
+/// The users a bus message's [`EXCEPT_HEADER`] names (empty without one).
+/// Malformed entries are ignored.
+pub fn except_of(headers: Option<&async_nats::HeaderMap>) -> HashSet<Uuid> {
+    headers
+        .and_then(|headers| headers.get(EXCEPT_HEADER))
+        .map(|value| value.as_str().split(',').filter_map(|id| Uuid::parse_str(id.trim()).ok()).collect())
+        .unwrap_or_default()
+}
 
 /// Decides who may subscribe to a kind of realtime topic.
 ///
@@ -134,6 +164,33 @@ impl Realtime {
         self.bus.publish(topic_subject(topic), encode_event(topic, event)).await
     }
 
+    /// Sends an event to every connection subscribed to `topic`, except the
+    /// connections signed in as one of `except` (at most [`MAX_EXCEPT`];
+    /// duplicates count once). One bus message, whatever the list holds.
+    pub async fn to_topic_except<E: RealtimeEvent>(&self, topic: &str, event: &E, except: &[Uuid]) -> AppResult<()> {
+        let except: HashSet<&Uuid> = except.iter().collect();
+        if except.is_empty() {
+            return self.to_topic(topic, event).await;
+        }
+        if except.len() > MAX_EXCEPT {
+            return Err(AppError::precondition(
+                "TOO_MANY_EXCEPTIONS",
+                format!("a topic frame can leave out at most {MAX_EXCEPT} users"),
+            ));
+        }
+        let list: Vec<String> = except.iter().map(|id| id.simple().to_string()).collect();
+        let mut headers = async_nats::HeaderMap::new();
+        headers.insert(EXCEPT_HEADER, list.join(",").as_str());
+        self.bus.publish_with_headers(topic_subject(topic), headers, encode_event(topic, event)).await
+    }
+
+    /// Like [`Self::to_topic_except`] but never fails the caller.
+    pub async fn notify_topic_except<E: RealtimeEvent>(&self, topic: &str, event: &E, except: &[Uuid]) {
+        if let Err(e) = self.to_topic_except(topic, event, except).await {
+            tracing::warn!(topic, error = %e, "realtime publish failed");
+        }
+    }
+
     /// Like [`Self::to_user`] but never fails the caller: realtime delivery is
     /// an optimization on top of state that is already committed.
     pub async fn notify_user<E: RealtimeEvent>(&self, user_id: Uuid, event: &E) {
@@ -189,6 +246,16 @@ mod tests {
         assert!(frame.event::<WalletEvent>().is_none());
         let presence = encode("", Body::Presence(Box::new(PresenceEvent::default())));
         assert!(ServerFrame::decode_from_slice(&presence).unwrap().event::<NotifyEvent>().is_none());
+    }
+
+    #[test]
+    fn the_except_header_reads_back_as_the_users_it_names() {
+        let (a, b) = (Uuid::now_v7(), Uuid::now_v7());
+        let mut headers = async_nats::HeaderMap::new();
+        headers.insert(EXCEPT_HEADER, format!("{},{}, nonsense", a.simple(), b.simple()).as_str());
+        assert_eq!(except_of(Some(&headers)), HashSet::from([a, b]));
+        assert!(except_of(None).is_empty());
+        assert!(except_of(Some(&async_nats::HeaderMap::new())).is_empty());
     }
 
     #[test]

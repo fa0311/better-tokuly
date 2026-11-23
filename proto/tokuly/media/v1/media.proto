@@ -312,7 +312,10 @@ message LinkPreview {
   // Spotify (`track/…`, `album/…`, `playlist/…`, `episode/…`, `show/…`,
   // `artist/…`) and for this instance's own pages (`video/…`, `short/…`,
   // `live/…`, `clip/…`, `note/…`, `playlist/…`, `stamps/…`, `user/…`,
-  // `channel/…`), which clients render natively through the API.
+  // `channel/…`, `community/<handle>`, `community_thread/…`,
+  // `community_event/…`), which clients render natively through the API
+  // with the viewer's own permissions: the server resolves nothing of them,
+  // so a preview says nothing about content the viewer may not see.
   string embed_id = 8;
   // Pixel size of `image_url` when the page declares it; 0 when unknown.
   int32 image_width = 9;

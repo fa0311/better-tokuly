@@ -467,6 +467,56 @@ test("a bot gets an account and a read-only token of its own, and can be switche
   expect(bots ?? []).toHaveLength(0);
 });
 
+test("a bot offered to me is taken over, and offered on to someone else", async ({
+  page,
+  request,
+  me,
+}) => {
+  const owner = await createAccount(request, "owner");
+  const handle = `gift_${randomBytes(4).toString("hex")}`;
+  const { bot } = await rpc<{ bot: { user: { id: string } } }>(
+    request,
+    `${BOTS}/CreateBot`,
+    { handle, displayName: "おさがりBot" },
+    owner,
+  );
+  const { secret } = await rpc<{ secret: string }>(
+    request,
+    `${BOTS}/CreateBotToken`,
+    { botId: bot.user.id, name: "前の持ち主", scopes: ["notes:read"] },
+    owner,
+  );
+  await rpc(request, `${BOTS}/OfferBotTransfer`, { botId: bot.user.id, userId: me.userId }, owner);
+
+  await page.goto("/developers/bots");
+  const offer = page.getByTestId("bot-transfer");
+  await expect(offer).toContainText("おさがりBot");
+  await offer.getByRole("button", { name: "受け取る" }).click();
+  await expect(page.getByText("Botを受け取ったよ!")).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/developers/bots/${bot.user.id}$`));
+  await expect(page.getByRole("link", { name: `@${handle}` })).toBeVisible();
+  // The previous owner's token does not come along.
+  expect((await callWithToken(request, `${TOKENS}/GetCurrentToken`, secret)).status).not.toBe(200);
+  await expect(
+    page.getByText("トークンをつくると、Botとして APIを呼べるようになるよ。"),
+  ).toBeVisible();
+
+  // And on to someone else, who has to say yes first.
+  await page.getByLabel("相手のハンドル").fill(`@${owner.handle}`);
+  await page.getByRole("button", { name: "引き継ぎをお願いする" }).click();
+  await expect(page.getByText("引き継ぎをお願いしたよ! 相手の返事を待とう")).toBeVisible();
+  await expect(page.getByTestId("bot-transfer-pending")).toBeVisible();
+  const { incoming } = await rpc<{ incoming?: { id: string }[] }>(
+    request,
+    `${BOTS}/ListBotTransfers`,
+    {},
+    owner,
+  );
+  expect(incoming ?? []).toHaveLength(1);
+  await page.getByTestId("bot-transfer-pending").getByRole("button", { name: "取り消す" }).click();
+  await expect(page.getByLabel("相手のハンドル")).toBeVisible();
+});
+
 test("a webhook is added, a test delivery shows in the log with its payload, and replay sends it again", async ({
   page,
   me: _me,

@@ -310,7 +310,9 @@ Clips and what they may expose:
   broadcasts are not.
 - The upload belongs to the channel's owner, so the person who cut the clip
   cannot attach it to a post, a short or a message of their own through the
-  media domain's "my uploads".
+  media domain's "my uploads". Its ID (`Clip.asset_id`) is given to the
+  clip's creator once it is READY, for `CreateShort` (which checks through
+  the clip, not the upload's owner); everyone else gets it empty.
 - Not enforced here, because it needs a change in the media domain: a
   dedicated asset purpose for clips (it is `ASSET_PURPOSE_SHORT` today, so
   the *channel owner* could attach a clip's upload wherever a short's upload
@@ -330,8 +332,10 @@ owner) is held by the video it becomes.
 |---|---|---|
 | `stream_updated` | `live:<id>`, the owner, the channel's widgets | went on air, ended, was edited; archive finished (owner only) |
 | `stats` | `live:<id>` | the viewer count changed at a sample; a like |
-| `chat_message`, `chat_message_deleted`, `chat_user_cleared` | `live:<id>`, chat boxes | chat |
-| `chat_pin_changed`, `chat_settings_changed` | `live:<id>` | moderation |
+| `chat_message` | `live:<id>` but the people in a block relation with its author (below), chat boxes | chat |
+| `chat_message_deleted`, `chat_user_cleared` | `live:<id>`, chat boxes | chat |
+| `chat_pin_changed` | `live:<id>` but the people in a block relation with the pinned line's author | moderation |
+| `chat_settings_changed` | `live:<id>` | moderation |
 | `poll_updated` | `live:<id>`, poll widgets | opened, votes (at most once a second), closed |
 | `raid` | `live:<id>` of the raiding stream | it ended with a raid |
 | `chat_restriction_changed` | the restricted user | timeout, ban, lifted |
@@ -350,10 +354,39 @@ Topics and their guards (registered in `Live::new`):
   topic. After a rotation the key changes with the token and nothing is
   published to the old topic any more (other processes notice within 5 s).
 
-Known limits: the gateway checks a subscription once, so someone who is
-blocked or loses access keeps an open subscription until they reconnect; and
-a chat push goes to the whole topic, so two viewers who blocked each other
-still receive each other's lines live (lists and history filter them).
+Chat lines and blocks: a chat line (and a pin, for the pinned line) is
+one publish to `live:<id>` carrying an exception list
+(`Live::chat_exceptions`). The list travels in the bus message's
+`Tokuly-Except` header, never in the frame; every realtime gateway skips the
+connections signed in as one of those people
+(`tokuly_core::realtime::to_topic_except`). It holds at most
+`tokuly_core::realtime::MAX_EXCEPT` (1000) people, filled in this order:
+
+- **The people the author blocked** — always. This part is the author's own
+  doing, so it fails closed: an author who blocked more than 1000 people
+  gets no live push at all; their lines appear on the next read.
+- **The people who blocked the author** — while the whole list fits.
+  Anybody can add to this part (throw-away accounts blocking someone), so it
+  never stops delivery: past the cap they are left out and the line is
+  still published. Then the second line of defence is what keeps them from
+  seeing it: the web app drops pushed lines and pins of people the viewer
+  blocked (and hides such a pin when the page loads with it).
+- **Not the streamer's relations**: the topic guard refuses anyone in a block
+  relation with the streamer when they subscribe.
+
+The lists come from the social domain (who blocked whom, read once per
+line); nothing is read per viewer. A line whose list cannot be read is not
+pushed live. Lists, history and replay filter by the reader's blocks as
+before.
+
+Known limits: the gateway checks a subscription once. Someone who loses
+access after subscribing keeps an open subscription to everything on the
+topic until they reconnect — a stream narrowed to friends or members, an
+unfriending, and a block between them and the streamer made after they
+subscribed; ending such subscriptions from the server is the
+forced-unsubscribe issue #51. Other events on the topic (`stream_updated`,
+`stats`, polls) are not filtered by blocks. A block made between reading the
+lists and the publication (milliseconds) can let that one line through.
 
 ## Moderators
 

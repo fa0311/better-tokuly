@@ -326,6 +326,8 @@ impl<'g> Session<'g> {
         };
 
         if let Some(claimed) = claimed {
+            // Before any topic is joined: topic frames that leave this user out must skip it.
+            let _ = self.client.user.set(claimed.user_id);
             if self.auth.is_none() {
                 // Before `Welcome` goes out, so that a client which then
                 // fetches a snapshot cannot miss an event in between.

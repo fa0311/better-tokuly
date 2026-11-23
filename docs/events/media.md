@@ -93,6 +93,18 @@ FAILED assets after 7 days, deletes READY assets that nothing has held for
 re-queues PROCESSING assets whose worker died, drops link preview cache rows
 older than 30 days.
 
+## Link previews of this instance
+
+A link to one of this instance's own pages is never fetched: its preview is
+`embed_provider = "tokuly"` and an `embed_id` of `<kind>/<id>` (see
+`LinkPreview` in the proto; `/g/<handle>` is `community/<handle>`, a thread
+under it `community_thread/<id>`, an event `community_event/<id>`). Nothing
+about the page itself is resolved here, because a preview is stored once
+and shown to everyone in the conversation: the client asks the owning
+domain with the viewer's own permissions, so a hidden community, a private
+note or a friends-only video previews as a plain link to whoever may not
+read it.
+
 ## Configuration (`MediaConfig`)
 
 | Variable | Default | Meaning |

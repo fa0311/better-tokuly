@@ -153,6 +153,24 @@ impl Dev {
         made_before: Option<Time>,
     ) -> AppResult<Vec<TokenRow>> {
         let mut tx = self.core.db.begin().await?;
+        let rows = Self::revoke_tokens_in(&mut tx, filter, id, reason, actor, made_before).await?;
+        tx.commit().await?;
+        let (hashes, tokens): (Vec<String>, Vec<TokenRow>) = rows.into_iter().unzip();
+        self.forget_tokens(&hashes).await?;
+        Ok(tokens)
+    }
+
+    /// The revocation of [`Self::revoke_tokens_where`] on a transaction of
+    /// the caller's, with its events; returns each token's hash and row. The
+    /// caller forgets the hashes ([`Self::forget_tokens`]) after the commit.
+    pub(crate) async fn revoke_tokens_in(
+        tx: &mut sqlx::PgConnection,
+        filter: &'static str,
+        id: Uuid,
+        reason: &str,
+        actor: Option<Uuid>,
+        made_before: Option<Time>,
+    ) -> AppResult<Vec<(String, TokenRow)>> {
         let rows: Vec<(String, TokenRow)> = sqlx::query_as::<_, RevokedRow>(sqlx::AssertSqlSafe(format!(
             "UPDATE dev_tokens SET revoked_at = now(), revoked_reason = $2
              WHERE {filter} AND revoked_at IS NULL AND ($3::timestamptz IS NULL OR created_at <= $3) RETURNING token_hash, {}",
@@ -175,10 +193,7 @@ impl Dev {
             };
             events::emit(&mut *tx, "dev.token.revoked", actor, &event).await?;
         }
-        tx.commit().await?;
-        let (hashes, tokens): (Vec<String>, Vec<TokenRow>) = rows.into_iter().unzip();
-        self.forget_tokens(&hashes).await?;
-        Ok(tokens)
+        Ok(rows)
     }
 
     /// Revokes one token on its owner's say-so.

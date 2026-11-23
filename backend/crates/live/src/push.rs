@@ -23,6 +23,12 @@ impl Live {
         self.core.rt.notify_user(user_id, &wrap(event)).await;
     }
 
+    /// Pushes an event to everyone following a stream but the connections
+    /// of `except` (one publish; the gateways leave them out).
+    pub(crate) async fn push_to_stream_except(&self, stream_id: Uuid, event: Event, except: &[Uuid]) -> AppResult<()> {
+        self.core.rt.to_topic_except(&topic(stream_id), &wrap(event), except).await
+    }
+
     /// Pushes an event to the channel's widgets of the given kinds.
     pub(crate) async fn push_to_overlays(&self, channel_id: Uuid, kinds: &[OverlayKind], event: Event) {
         match overlays::topics(self, channel_id).await {

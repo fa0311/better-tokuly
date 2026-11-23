@@ -299,7 +299,9 @@ message Stream {
   string raid_target_stream_id = 14;
   StreamViewerState viewer = 15;
   StreamStudioInfo studio = 16;
-  // Topic carrying this stream's `LiveEvent`s.
+  // Topic carrying this stream's `LiveEvent`s. Chat lines (and pins) on it
+  // do not reach the connections of people in a block relation with their
+  // author or with the streamer.
   string realtime_topic = 17;
   // How often players call ReportWatching.
   int32 report_interval_seconds = 18;
@@ -1110,6 +1112,11 @@ message Clip {
   google.protobuf.Timestamp created_at = 16;
   // Whether the caller may delete it.
   bool can_delete = 17;
+  // The clip's media asset (a video), for its creator once it is READY:
+  // what `tokuly.shorts.v1.CreateShortRequest.asset_id` takes to post the
+  // clip as a short (with `source` naming the clip). Empty for everyone
+  // else and before then.
+  string asset_id = 18;
 }
 
 message CreateClipRequest {

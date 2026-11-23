@@ -73,6 +73,8 @@ tokuly-proto = { workspace = true, features = [
     "wallet",
 ] }
 tokuly-testkit.workspace = true
+# Blocks: an offer and its acceptance are refused across one.
+tokuly-social.workspace = true
 tower.workspace = true
 bytes.workspace = true
 http-body-util.workspace = true

@@ -13,7 +13,7 @@
 //! never the account, so a channel does not reveal who is behind it.
 use std::{collections::HashMap, time::Duration};
 
-use tokuly_core::{outbound, prelude::*};
+use tokuly_core::{outbound, prelude::*, realtime::MAX_EXCEPT};
 use tokuly_proto::{
     common::{Author, ChannelSummary, StampRef, UserSummary},
     live::{
@@ -504,16 +504,72 @@ async fn lock_chatter(tx: &mut Tx<'_>, channel_id: Uuid, user_id: Uuid) -> AppRe
 }
 
 impl Live {
-    /// Pushes a new chat line to the stream and the channel's chat boxes.
-    pub(crate) async fn push_chat_message(&self, stream: &StreamRow, row: &ChatRow) {
-        match to_proto_one(&self.core, stream, row).await {
-            Ok(message) => {
-                let event = Event::ChatMessage(Box::new(message));
-                self.push_to_stream(stream.id, event.clone()).await;
-                self.push_to_overlays(stream.channel_id, &[OverlayKind::OVERLAY_KIND_CHAT_BOX], event).await;
-            }
-            Err(error) => tracing::warn!(message_id = %row.id, %error, "could not push a chat message"),
+    /// Who must not get a chat line by `author` (`None`: a notice of the
+    /// server) live, as an exception list of at most
+    /// `tokuly_core::realtime::MAX_EXCEPT` people.
+    ///
+    /// - The people the author blocked are always on it. That part is the
+    ///   author's own doing, so it fails closed: when it alone is longer than
+    ///   the cap, the line is not pushed live (`TOO_MANY_EXCEPTIONS`).
+    /// - The people who blocked the author are on it while the whole list
+    ///   fits. Anybody can add to that part (throw-away accounts blocking
+    ///   someone), so it must never stop delivery: past the cap they are
+    ///   left out and the line is still published; their own clients drop
+    ///   lines and pins of people they blocked.
+    /// - The streamer's relations are not on it: the topic guard refuses
+    ///   anyone in a block relation with the streamer when they subscribe.
+    pub(crate) async fn chat_exceptions(&self, author: Option<Uuid>) -> AppResult<Vec<Uuid>> {
+        let Some(author) = author else { return Ok(Vec::new()) };
+        let mut except = graph::blocked_by(&self.core, author).await?;
+        except.sort_unstable();
+        except.dedup();
+        ensure!(
+            except.len() <= MAX_EXCEPT,
+            precondition,
+            "TOO_MANY_EXCEPTIONS",
+            "the author blocked more people than a live line can leave out"
+        );
+        let mut blockers: Vec<Uuid> = graph::blocked_ids_either(&self.core, author)
+            .await?
+            .into_iter()
+            .filter(|user| except.binary_search(user).is_err())
+            .collect();
+        blockers.sort_unstable();
+        blockers.dedup();
+        if except.len() + blockers.len() <= MAX_EXCEPT {
+            except.extend(blockers);
         }
+        Ok(except)
+    }
+
+    /// Pushes a chat event about a line by `author` to the stream's topic,
+    /// leaving out the people in a block relation with the author
+    /// ([`Self::chat_exceptions`]): one publish, whose exception list each
+    /// realtime gateway applies on delivery (see
+    /// `tokuly_core::realtime::to_topic_except`). When the list cannot be
+    /// read, or the author blocked more people than it may hold, nothing is
+    /// pushed: the line is in the chat for the next read.
+    pub(crate) async fn push_chat_event(&self, stream: &StreamRow, author: Option<Uuid>, event: Event) {
+        let pushed = async {
+            let except = self.chat_exceptions(author).await?;
+            self.push_to_stream_except(stream.id, event, &except).await
+        };
+        if let Err(error) = pushed.await {
+            tracing::warn!(stream_id = %stream.id, %error, "a chat push was not sent");
+        }
+    }
+
+    /// Pushes a new chat line to the people watching (see
+    /// [`Self::push_chat_event`]) and to the channel's chat boxes, which are
+    /// the streamer's own.
+    pub(crate) async fn push_chat_message(&self, stream: &StreamRow, row: &ChatRow) {
+        let message = match to_proto_one(&self.core, stream, row).await {
+            Ok(message) => message,
+            Err(error) => return tracing::warn!(message_id = %row.id, %error, "could not push a chat message"),
+        };
+        let event = Event::ChatMessage(Box::new(message));
+        self.push_to_overlays(stream.channel_id, &[OverlayKind::OVERLAY_KIND_CHAT_BOX], event.clone()).await;
+        self.push_chat_event(stream, row.user_id, event).await;
     }
 
     /// Posts a text message or a stamp for `user_id`.
@@ -671,14 +727,16 @@ impl Live {
             self.push_to_overlays(stream.channel_id, &[OverlayKind::OVERLAY_KIND_CHAT_BOX], event).await;
         }
         if unpinned {
-            self.push_pin(stream, None).await;
+            self.push_pin(stream, None, None).await;
         }
         Ok(())
     }
 
-    async fn push_pin(&self, stream: &StreamRow, message: Option<ChatMessage>) {
+    /// Tells the stream what is pinned now; a pinned line stays away from
+    /// the people in a block relation with its author, as the line did.
+    async fn push_pin(&self, stream: &StreamRow, message: Option<ChatMessage>, author: Option<Uuid>) {
         let change = ChatPinChanged { stream_id: stream.id.to_string(), message: message.into(), ..Default::default() };
-        self.push_to_stream(stream.id, Event::ChatPinChanged(Box::new(change))).await;
+        self.push_chat_event(stream, author, Event::ChatPinChanged(Box::new(change))).await;
     }
 
     /// Pins a message (`Some`) or clears the pin (`None`).
@@ -696,7 +754,7 @@ impl Live {
             Some(message) => Some(to_proto_one(&self.core, stream, message).await?),
             None => None,
         };
-        self.push_pin(stream, proto.clone()).await;
+        self.push_pin(stream, proto.clone(), message.and_then(|m| m.user_id)).await;
         Ok(proto)
     }
 

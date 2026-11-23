@@ -48,3 +48,5 @@ tower.workspace = true
 http.workspace = true
 http-body-util.workspace = true
 tracing-subscriber.workspace = true
+# Reading the realtime bus itself: how many messages a chat line costs, and whom each leaves out.
+async-nats.workspace = true

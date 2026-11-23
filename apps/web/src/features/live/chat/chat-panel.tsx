@@ -11,7 +11,7 @@ import { StampSheet } from "#/features/stamps";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { useMe } from "#/stores/session";
-import { chatClient, useGiftTiers } from "../api";
+import { chatClient, useBlockedIds, useGiftTiers } from "../api";
 import { GiftDialog } from "../gifts/gift-dialog";
 import { activeHighlights } from "../model";
 import { useNow } from "../parts";
@@ -29,7 +29,10 @@ const { StreamStatus } = live;
 /** The message a streamer or moderator pinned to the top of the chat. */
 function PinnedMessage({ stream }: { stream: live.Stream }) {
   const { t } = useTranslation("live");
-  const pinned = stream.pinnedMessage;
+  // A pinned line of someone the viewer blocked stays hidden (also when the page was loaded with it).
+  const blocked = useBlockedIds(Boolean(stream.viewer)).data;
+  const pinnedBy = stream.pinnedMessage?.author?.user?.id ?? "";
+  const pinned = pinnedBy && blocked?.has(pinnedBy) ? undefined : stream.pinnedMessage;
   const unpin = useMutation({
     mutationFn: () => chatClient().unpinChatMessage({ streamId: stream.summary?.id ?? "" }),
     onError: (error) => toast.error(errorMessage(error, { namespace: "live" })),

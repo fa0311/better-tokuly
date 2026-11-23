@@ -76,6 +76,7 @@ describe("the address of a short", () => {
   it("round-trips lists through the address", () => {
     for (const search of [
       { list: "channel", key: "tokuly" },
+      { list: "user", key: "0190a1b2-0000-7000-8000-000000000001" },
       { list: "tag", key: "ねこ" },
       { list: "sound", key: "abc" },
       { list: "remixes", key: "abc" },
@@ -91,6 +92,7 @@ describe("the address of a short", () => {
     expect(playbackSource({ kind: "forYou" })).toBe(PlaybackSource.FOR_YOU);
     expect(playbackSource({ kind: "hashtag", key: "ねこ" })).toBe(PlaybackSource.HASHTAG);
     expect(playbackSource({ kind: "channel", key: "tokuly" })).toBe(PlaybackSource.PROFILE);
+    expect(playbackSource({ kind: "user", key: "someone" })).toBe(PlaybackSource.PROFILE);
     expect(playbackSource({ kind: "link" })).toBe(PlaybackSource.SHARE_LINK);
     expect(playbackSource({ kind: "link", via: "notification" })).toBe(PlaybackSource.NOTIFICATION);
     expect(playbackSource({ kind: "saved" })).toBe(PlaybackSource.OTHER);

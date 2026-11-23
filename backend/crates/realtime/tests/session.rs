@@ -277,6 +277,41 @@ async fn topic_events_follow_subscriptions() {
 }
 
 #[tokio::test]
+async fn a_topic_frame_skips_the_users_it_leaves_out() {
+    let harness = Harness::start().await;
+    let topic = unique_topic("live");
+    let (blocked, banned, fan) =
+        (harness.app.user("blocked").await, harness.app.user("banned").await, harness.app.user("fan").await);
+    let mut viewers = Vec::new();
+    for user in [&blocked, &banned, &fan] {
+        let mut viewer = harness.ws_as(Some(user), true).await;
+        assert!(is_ack(&viewer.request(subscribe_body(&[&topic])).await));
+        viewers.push(viewer);
+    }
+    let mut guest = harness.ws_as(None, true).await;
+    assert!(is_ack(&guest.request(subscribe_body(&[&topic])).await));
+
+    let except = [blocked.id, banned.id, blocked.id];
+    harness.app.core.rt.to_topic_except(&topic, &marker("hello"), &except).await.unwrap();
+    let [to_blocked, to_banned, to_fan] = &mut viewers[..] else { unreachable!() };
+    assert_eq!(marker_text(&to_fan.next_where(|frame| !is_topic_stats(frame)).await).as_deref(), Some("hello"));
+    assert_eq!(marker_text(&guest.next_where(|frame| !is_topic_stats(frame)).await).as_deref(), Some("hello"));
+    for left_out in [to_blocked, to_banned] {
+        assert!(left_out.stays_quiet().await, "a left-out user gets nothing");
+    }
+    // An empty list is an ordinary publish.
+    harness.app.core.rt.to_topic_except(&topic, &marker("everyone"), &[]).await.unwrap();
+    for viewer in &mut viewers {
+        let frame = viewer.next_where(|frame| !is_topic_stats(frame)).await;
+        assert_eq!(marker_text(&frame).as_deref(), Some("everyone"));
+    }
+    // Bounded: a longer list is refused, not sent to everyone.
+    let many: Vec<Uuid> = (0..=tokuly_core::realtime::MAX_EXCEPT).map(|_| Uuid::now_v7()).collect();
+    let refused = harness.app.core.rt.to_topic_except(&topic, &marker("too many"), &many).await.unwrap_err();
+    assert_eq!(refused.reason, "TOO_MANY_EXCEPTIONS");
+}
+
+#[tokio::test]
 async fn hello_can_subscribe_right_away() {
     let harness = Harness::start().await;
     let (first, second) = (unique_topic("live"), unique_topic("party"));

@@ -204,8 +204,8 @@ export function CreateScreen({ search }: { search: CreateSearch }) {
     try {
       let assetId: string;
       if (source.kind === "clip") {
-        // A clip's media is the asset its pictures belong to.
-        assetId = source.clip.playback?.poster?.assetId ?? source.clip.thumbnail?.assetId ?? "";
+        // The clip's own media (set for its creator once it is ready).
+        assetId = source.clip.assetId;
       } else if (
         uploadedVideo.current?.key === fileKey(source.file, trimmed ? from : 0, trimmed ? to : 0)
       ) {
