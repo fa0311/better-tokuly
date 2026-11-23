@@ -709,6 +709,20 @@ async fn staff_award_and_revoke_badges_by_hand() {
 }
 
 #[tokio::test]
+async fn a_badge_of_the_hour_on_the_first_day_comes_without_a_notification() {
+    let ctx = start().await;
+    // Six in the morning where Alice lives, on the day she signed up: whatever she does
+    // first earns the early-bird badge, but she did nothing to be told about.
+    let alice = ctx.app.user("alice").await;
+    ctx.set_zone(&alice, &zone_at_hour(6)).await;
+    ctx.send_stamps(&alice, 1).await;
+    ctx.flush(&[&alice]).await;
+    assert!(ctx.badge_keys(&alice).await.contains(&"early_bird".to_owned()));
+    let notices = ctx.notifications(&alice, "quest.badge").await;
+    assert!(notices.iter().all(|notice| notice["data"]["badge_key"] != "early_bird"), "{notices:?}");
+}
+
+#[tokio::test]
 async fn a_birthday_earns_its_secret_badge() {
     let ctx = start().await;
     let alice = ctx.app.user("alice").await;

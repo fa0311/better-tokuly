@@ -167,6 +167,20 @@ pub(crate) async fn award_tx(
     badge: &BadgeDef,
     data: serde_json::Value,
 ) -> AppResult<bool> {
+    award_tx_as(tx, user_id, badge, data, badge.quiet).await
+}
+
+/// [`award_tx`], but `quiet` decides whether the player is notified: a badge
+/// earned on the account's very first active day by what signing up and
+/// looking around brings (the time of day, the date) is as quiet as the
+/// sign-up badges themselves.
+pub(crate) async fn award_tx_as(
+    tx: &mut PgConnection,
+    user_id: Uuid,
+    badge: &BadgeDef,
+    data: serde_json::Value,
+    quiet: bool,
+) -> AppResult<bool> {
     let data = if data.is_null() { serde_json::json!({}) } else { data };
     let inserted = sqlx::query(
         "INSERT INTO quest_badges (user_id, badge_key, data)
@@ -180,7 +194,7 @@ pub(crate) async fn award_tx(
     .await?
     .rows_affected()
         > 0;
-    if inserted {
+    if inserted && !quiet {
         notify_unlocked(tx, user_id, badge).await?;
     }
     Ok(inserted)
