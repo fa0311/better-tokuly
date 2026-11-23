@@ -112,12 +112,12 @@ pub(crate) fn message(
     let sender_name = name_of(sender);
     let said = teaser(row);
     let (title, body) = match kind {
+        // A request is kept in the inbox, which outlives the message (an
+        // unsend, a takedown) and is shown before the recipient chose to
+        // hear from this person at all: it does not quote them.
         KIND_REQUEST => (
             Localized::same(sender_name.clone()),
-            Localized::new(
-                format!("メッセージリクエストが届きました！「{}」", said.ja),
-                format!("Message request: {}", said.en),
-            ),
+            Localized::new("メッセージリクエストが届きました！", "Message request: sent you a message"),
         ),
         KIND_MENTION => (
             Localized::same(conv.name.clone()),
@@ -134,9 +134,10 @@ pub(crate) fn message(
         .subject(SubjectType::SUBJECT_TYPE_CHAT_MESSAGE, row.id)
         .collapse(conversation_collapse_key(conv.id))
         .data(serde_json::json!({ "conversation_id": conv.id, "message_id": row.id, "seq": row.seq }));
-    if kind != KIND_REQUEST {
-        request = request.push_only();
+    if kind == KIND_REQUEST {
+        return request;
     }
+    request = request.push_only();
     if let Some(url) = image_url {
         request = request.image(url);
     }
@@ -401,6 +402,7 @@ mod tests {
             message(recipient, KIND_REQUEST, &sender, sender_id, &conversation(kind::DIRECT, ""), &text, None);
         assert!(request.inbox && request.push);
         assert!(request.body.en.starts_with("Message request"));
+        assert!(!request.body.ja.contains("やっほー"), "a request does not quote the stranger");
     }
 
     #[test]

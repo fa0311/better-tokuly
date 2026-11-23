@@ -198,6 +198,31 @@ async fn a_burst_of_sends_cannot_stretch_a_request_allowance() {
 }
 
 #[tokio::test]
+async fn a_request_notification_does_not_quote_the_stranger() {
+    let ctx = start().await;
+    let stranger = ctx.app.user("stranger").await;
+    let hanako = ctx.app.user("hanako").await;
+    ctx.open_to_everyone(&hanako).await;
+    let conversation = ctx.direct(&stranger, &hanako).await;
+    let message = ctx.text(&stranger, &conversation.id, "ひみつの悪口だよ").await;
+
+    // The request lands in the notification inbox, which outlives the
+    // message: unsending it (or a takedown) must not leave its text there.
+    let _: DeleteMessageResponse = ctx
+        .call("Message", "DeleteMessage", &stranger, &DeleteMessageRequest { message_id: message.id, ..Default::default() })
+        .await
+        .unwrap();
+    let notifications = ctx.notifications(&hanako).await;
+    assert_eq!(notifications.len(), 1);
+    let request = &notifications[0];
+    assert_eq!(request.kind, "chat.request");
+    assert!(request.inbox, "a request is kept in the inbox");
+    for text in [&request.title.ja, &request.title.en, &request.body.ja, &request.body.en] {
+        assert!(!text.contains("悪口"), "the inbox entry quotes the message: {text}");
+    }
+}
+
+#[tokio::test]
 async fn declining_a_request_is_silent_and_answering_one_accepts_it() {
     let ctx = start().await;
     let hanako = ctx.app.user("hanako").await;
