@@ -193,8 +193,9 @@ impl Chat {
         .await?)
     }
 
-    /// A call the caller may know about: they took part in it, or they are
-    /// a member of its conversation.
+    /// A call the caller may know about: they are an accepted member of its
+    /// conversation, or they took part in it and it is over. (Someone who
+    /// left or was removed from a group does not watch its live call go on.)
     pub(crate) async fn call_for(&self, user_id: Uuid, call_id: Uuid) -> AppResult<CallRow> {
         let call: CallRow =
             sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {CALL} FROM chat_calls k WHERE k.id = $1")))
@@ -203,13 +204,14 @@ impl Chat {
                 .await?
                 .ok_or_else(call_not_found)?;
         let visible: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM chat_call_participants WHERE call_id = $1 AND user_id = $2)
+            "SELECT ($5 AND EXISTS (SELECT 1 FROM chat_call_participants WHERE call_id = $1 AND user_id = $2))
                  OR EXISTS (SELECT 1 FROM chat_members WHERE conversation_id = $3 AND user_id = $2 AND request_state = $4)",
         )
         .bind(call_id)
         .bind(user_id)
         .bind(call.conversation_id)
         .bind(request::ACCEPTED)
+        .bind(!call.is_live())
         .fetch_one(&self.core.db)
         .await?;
         if visible { Ok(call) } else { Err(call_not_found()) }
@@ -271,7 +273,8 @@ impl Chat {
             .collect())
     }
 
-    /// The caller's call history, newest first.
+    /// The caller's call history, newest first: the calls they took part
+    /// in, a live one only while they are still in its conversation.
     pub(crate) async fn list_calls(
         &self,
         user_id: Uuid,
@@ -282,6 +285,8 @@ impl Chat {
         let mut rows: Vec<CallRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "SELECT {CALL} FROM chat_call_participants p JOIN chat_calls k ON k.id = p.call_id
              WHERE p.user_id = $1 AND (NOT $2 OR p.state = $3) AND ($4::uuid IS NULL OR p.call_id < $4)
+               AND (k.state = $6 OR EXISTS (
+                   SELECT 1 FROM chat_members m WHERE m.conversation_id = k.conversation_id AND m.user_id = $1 AND m.request_state = $7))
              ORDER BY p.call_id DESC LIMIT $5"
         )))
         .bind(user_id)
@@ -289,6 +294,8 @@ impl Chat {
         .bind(party::MISSED)
         .bind(before)
         .bind(page.fetch())
+        .bind(call::ENDED)
+        .bind(request::ACCEPTED)
         .fetch_all(&self.core.db)
         .await?;
         let info = page.finish(&mut rows, |call| call.id);

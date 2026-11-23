@@ -740,3 +740,29 @@ async fn nobody_stays_connected_to_a_call_they_are_no_longer_part_of() {
     assert_eq!(call.state, CallState::CALL_STATE_ACTIVE, "the caller is still talking");
     assert_eq!(state_of(&call, &owner), Some(CallParticipantState::CALL_PARTICIPANT_STATE_JOINED));
 }
+
+#[tokio::test]
+async fn a_removed_member_does_not_watch_the_call_go_on() {
+    let (ctx, _livekit) = start_with_room_service().await;
+    let (group, owner, members) = ctx.group_of("部活", 2).await;
+    let (first, second) = (&members[0], &members[1]);
+    let call_id = start_call(&ctx, &owner, &group.id, false).await.call.id.clone();
+    join(&ctx, first, &call_id).await;
+    let remove =
+        RemoveMemberRequest { conversation_id: group.id.clone(), user_id: first.id.to_string(), ..Default::default() };
+    let _: RemoveMemberResponse = ctx.call("Conversation", "RemoveMember", &owner, &remove).await.unwrap();
+
+    // Who joins the group's call from now on is none of their business.
+    join(&ctx, second, &call_id).await;
+    let get = GetCallRequest { call_id: call_id.clone(), ..Default::default() };
+    assert_eq!(ctx.reason("Call", "GetCall", first, &get).await, "CALL_NOT_FOUND");
+    let history: ListCallsResponse = ctx.call("Call", "ListCalls", first, &ListCallsRequest::default()).await.unwrap();
+    assert!(history.calls.is_empty(), "the live call is not in their history yet");
+
+    // Once it is over it is part of their history like any call they were in.
+    leave(&ctx, second, &call_id).await;
+    assert_eq!(leave(&ctx, &owner, &call_id).await.state, CallState::CALL_STATE_ENDED);
+    let history: ListCallsResponse = ctx.call("Call", "ListCalls", first, &ListCallsRequest::default()).await.unwrap();
+    assert_eq!(history.calls.iter().map(|call| call.id.clone()).collect::<Vec<_>>(), vec![call_id.clone()]);
+    assert_eq!(get_call(&ctx, first, &call_id).await.state, CallState::CALL_STATE_ENDED);
+}
