@@ -340,3 +340,47 @@ async fn request_limits_stop_pestering_and_hoarding() {
     let full = ctx.friends::<_, SendFriendRequestResponse>("SendFriendRequest", &hoarder, &request_to(target.id)).await.unwrap_err();
     assert_eq!(full.reason, "TOO_MANY_PENDING_REQUESTS");
 }
+
+#[tokio::test]
+async fn one_account_cannot_starve_the_pool_through_the_pair_lock() {
+    // More concurrent calls on one pair than the test pool has connections:
+    // whoever holds the lock must finish without asking the pool for a
+    // second connection, or everyone waits out the acquire timeout.
+    let ctx = start().await;
+    let (alice, bob) = (ctx.app.user("alice").await, ctx.app.user("bob").await);
+    const CALLS: usize = 12;
+    let expected = |result: Result<(), tokuly_testkit::RpcError>, allowed: &[&str]| {
+        if let Err(e) = result {
+            assert!(allowed.contains(&e.reason.as_str()), "unexpected failure under contention: {e:?}");
+        }
+    };
+    let within = |label: &'static str| move |elapsed: std::time::Duration| assert!(elapsed < std::time::Duration::from_secs(10), "{label} took {elapsed:?}");
+
+    let started = std::time::Instant::now();
+    let send = request_to(bob.id);
+    let sends = futures::future::join_all((0..CALLS).map(|_| ctx.friends::<_, SendFriendRequestResponse>("SendFriendRequest", &alice, &send))).await;
+    within("requests")(started.elapsed());
+    for result in sends {
+        expected(result.map(drop), &["RATE_LIMITED"]);
+    }
+    let request_id = list_requests(&ctx, &bob, FriendRequestDirection::FRIEND_REQUEST_DIRECTION_INCOMING).await.requests[0].id.clone();
+
+    let started = std::time::Instant::now();
+    let accept = RespondFriendRequestRequest { request_id, accept: true, ..Default::default() };
+    let accepts = futures::future::join_all((0..CALLS).map(|_| ctx.friends::<_, RespondFriendRequestResponse>("RespondFriendRequest", &bob, &accept))).await;
+    within("accepts")(started.elapsed());
+    assert_eq!(accepts.iter().filter(|r| r.is_ok()).count(), 1, "one accept makes the friendship");
+    for result in accepts {
+        expected(result.map(drop), &["REQUEST_NOT_FOUND"]);
+    }
+
+    let started = std::time::Instant::now();
+    let block = BlockUserRequest { user_id: bob.id.to_string(), ..Default::default() };
+    let blocks = futures::future::join_all((0..CALLS).map(|_| ctx.friends::<_, BlockUserResponse>("BlockUser", &alice, &block))).await;
+    within("blocks")(started.elapsed());
+    for result in blocks {
+        expected(result.map(drop), &[]);
+    }
+    assert!(!graph::are_friends(&ctx.app.core, alice.id, bob.id).await.unwrap());
+    assert!(graph::is_blocked_either(&ctx.app.core, alice.id, bob.id).await.unwrap());
+}
