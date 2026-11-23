@@ -238,7 +238,9 @@ impl ProfileService for Identity {
         handle(async {
         let viewer = ctx.user_id()?;
         let viewed = parse_id(request.user_id)?;
-        if viewer != viewed {
+        // A blocked pair does not see each other, so a look is not recorded
+        // either (the answer is the same, so it does not tell about the block).
+        if viewer != viewed && self.can_view(Some(viewer), viewed).await? {
             // One counted view per viewer per day.
             let inserted = sqlx::query(
                 "INSERT INTO profile_views (viewed_id, viewer_id, day)
@@ -291,17 +293,20 @@ impl ProfileService for Identity {
         recent.sort_by_key(|(_, at)| std::cmp::Reverse(*at));
         recent.truncate(50);
         // Only viewers who share their views are named; the rest just count.
+        // Suspended accounts and anyone in a block with the owner are never named.
         let ids: Vec<Uuid> = recent.iter().map(|(id, _)| *id).collect();
         let privacy = settings::privacy_of_many(&self.core, &ids).await?;
+        let active: std::collections::HashSet<Uuid> = users::filter_active(&self.core, &ids).await?.into_iter().collect();
         let summaries = users::summaries(&self.core, &ids).await?;
-        let viewers = recent
-            .into_iter()
-            .filter(|(id, _)| privacy.get(id).is_some_and(|p| p.share_views))
-            .filter_map(|(id, at)| {
-                let user = summaries.get(&id)?.clone();
-                (!user.deleted).then(|| ProfileViewer { user: user.into(), viewed_at: ts(at), ..Default::default() })
-            })
-            .collect();
+        let mut viewers = Vec::new();
+        for (id, at) in recent {
+            if !active.contains(&id) || !privacy.get(&id).is_some_and(|p| p.share_views) || !self.can_view(Some(user_id), id).await? {
+                continue;
+            }
+            if let Some(user) = summaries.get(&id) {
+                viewers.push(ProfileViewer { user: user.clone().into(), viewed_at: ts(at), ..Default::default() });
+            }
+        }
         ok(GetProfileViewsResponse { total, last_24h: last_24h as i32, viewers, ..Default::default() })
         })
         .await

@@ -467,6 +467,55 @@ async fn changing_the_email_does_not_tell_whose_address_is_registered() {
     assert!(!pending.contains(&format!("{taken}@example.com")), "{pending:?}");
 }
 
+/// Stands in for the social domain's blocks: `can_view` is false for a
+/// blocked pair, either way round.
+#[derive(Default)]
+struct Blocks(std::sync::Mutex<Vec<(uuid::Uuid, uuid::Uuid)>>);
+
+#[async_trait::async_trait]
+impl tokuly_identity::ProfileExtension for Blocks {
+    async fn can_view(&self, viewer: uuid::Uuid, owner: uuid::Uuid) -> tokuly_core::error::AppResult<bool> {
+        Ok(!self.0.lock().unwrap().iter().any(|&(a, b)| (a, b) == (viewer, owner) || (a, b) == (owner, viewer)))
+    }
+}
+
+#[tokio::test]
+async fn profile_views_leave_out_blocked_and_suspended_people() {
+    let blocks = std::sync::Arc::new(Blocks::default());
+    let extension = blocks.clone();
+    let app = TestApp::start(MIGRATIONS, move |_core, identity, router| {
+        identity.add_profile_extension(extension);
+        identity.register(router)
+    })
+    .await;
+    let (owner, stalker, friend, spammer) = (app.user("owner").await, app.user("stalker").await, app.user("friend").await, app.user("spammer").await);
+    let view = |viewer: &TestUser| {
+        let (app, viewer, owner) = (&app, viewer.clone(), owner.id);
+        async move {
+            let _: RecordProfileViewResponse = app
+                .call("tokuly.identity.v1.ProfileService/RecordProfileView", Some(&viewer), &RecordProfileViewRequest { user_id: owner.to_string(), ..Default::default() })
+                .await
+                .unwrap();
+        }
+    };
+    // The owner blocked the stalker; blocking hides both from each other everywhere.
+    blocks.0.lock().unwrap().push((owner.id, stalker.id));
+    view(&stalker).await;
+    view(&friend).await;
+    view(&spammer).await;
+    app.identity.set_banned(spammer.id, Some("spam")).await.unwrap();
+
+    let views: GetProfileViewsResponse = app.call("tokuly.identity.v1.ProfileService/GetProfileViews", Some(&owner), &GetProfileViewsRequest::default()).await.unwrap();
+    let named: Vec<String> = views.viewers.iter().map(|v| v.user.as_option().unwrap().handle.clone()).collect();
+    assert_eq!(named, [friend.handle.clone()], "only people the owner may see are named");
+    assert_eq!(views.total, 2, "a blocked person's look is not even counted");
+
+    // Someone blocked after looking drops out of the list as well.
+    blocks.0.lock().unwrap().push((friend.id, owner.id));
+    let views: GetProfileViewsResponse = app.call("tokuly.identity.v1.ProfileService/GetProfileViews", Some(&owner), &GetProfileViewsRequest::default()).await.unwrap();
+    assert!(views.viewers.is_empty(), "{:?}", views.viewers);
+}
+
 #[tokio::test]
 async fn device_login_flow_issues_tokens_once() {
     let app = app().await;
