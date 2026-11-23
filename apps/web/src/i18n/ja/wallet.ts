@@ -477,6 +477,7 @@ export default {
     PAYOUT_NOT_OPEN: "この申請はすでに完了しています",
     PAYOUT_NOT_APPROVED: "承認済みの申請だけを支払い済みにできます",
     SELF_REVIEW: "自分の出金申請は審査できません",
+    SELF_ADJUSTMENT: "自分の残高は調整できません",
     REVIEW_NOTE_REQUIRED: "却下の理由を入力してください",
     REVIEW_NOTE_TOO_LONG: "メッセージは500文字以内にしてください",
     PAYMENT_REFERENCE_TOO_LONG: "支払いの控えは200文字以内にしてください",

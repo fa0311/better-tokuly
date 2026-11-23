@@ -155,7 +155,8 @@ money involved).
 | `moderator` | `ListPayoutQueue`, `GetPayoutRequest`, `ApprovePayout`, `RejectPayout`, `MarkPayoutPaid`, `GetUserWallet`, `ListUserLedgerEntries` |
 | `admin` | the above plus `AdjustBalance`, `ListAdjustments`, `ListAllCoinPackages`, `SaveCoinPackage` |
 
-Staff cannot approve, reject or pay their own payout request (`SELF_REVIEW`).
+Staff cannot approve, reject or pay their own payout request (`SELF_REVIEW`),
+and admins cannot adjust their own balance (`SELF_ADJUSTMENT`).
 
 ## Configuration
 

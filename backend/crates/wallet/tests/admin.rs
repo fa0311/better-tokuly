@@ -126,6 +126,22 @@ async fn adjustments_need_the_admin_role_and_valid_input() {
     assert_eq!(app.call::<_, ListAdjustmentsResponse>(&format!("{ADMIN}/ListAdjustments"), Some(&admin), &ListAdjustmentsRequest { user_id: "nope".into(), ..Default::default() }).await.unwrap_err().reason, "INVALID_ID");
 }
 
+/// Staff powers are not for one's own wallet: an admin who could credit
+/// their own earnings could have a colleague pay them out as money.
+#[tokio::test]
+async fn admins_cannot_adjust_their_own_balance() {
+    let (app, _) = app().await;
+    let (admin, other_admin) = (app.user_with_roles("boss", &["admin"]).await, app.user_with_roles("boss2", &["admin"]).await);
+    for account in [LedgerAccount::LEDGER_ACCOUNT_COINS, LedgerAccount::LEDGER_ACCOUNT_EARNINGS] {
+        let err = adjust(&app, &admin, &adjustment(&admin, account, 5000)).await.unwrap_err();
+        assert_eq!((err.code.as_str(), err.reason.as_str()), ("permission_denied", "SELF_ADJUSTMENT"));
+    }
+    assert_eq!((balance(&app, &admin).await.coins, balance(&app, &admin).await.earnings), (0, 0));
+    // Another admin can, and it is logged under their name.
+    let done = adjust(&app, &other_admin, &adjustment(&admin, LedgerAccount::LEDGER_ACCOUNT_COINS, 50)).await.unwrap();
+    assert_eq!(done.adjustment.as_option().unwrap().admin.as_option().unwrap().id, other_admin.id.to_string());
+}
+
 #[tokio::test]
 async fn support_can_look_into_a_wallet() {
     let (app, _) = app().await;

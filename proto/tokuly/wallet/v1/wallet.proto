@@ -568,7 +568,8 @@ service WalletAdminService {
   // Adds or removes coins or earnings by hand (role `admin`). Recorded in
   // the adjustment log with the admin and the reason; a balance can never
   // be pushed below zero.
-  // Errors: USER_NOT_FOUND, ACCOUNT_INVALID, AMOUNT_INVALID (zero or beyond
+  // Errors: USER_NOT_FOUND, SELF_ADJUSTMENT (an admin cannot adjust their
+  // own balance), ACCOUNT_INVALID, AMOUNT_INVALID (zero or beyond
   // ±100,000,000), REASON_REQUIRED, REASON_TOO_LONG, INSUFFICIENT_COINS,
   // INSUFFICIENT_EARNINGS, IDEMPOTENCY_KEY_INVALID, IDEMPOTENCY_KEY_REUSED
   // (same key, different adjustment).
