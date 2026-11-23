@@ -7,9 +7,8 @@ import { toast } from "sonner";
 import { EmojiPicker, EmojiText } from "#/features/emoji";
 import { dopamineFactor } from "#/lib/appearance";
 import { errorMessage } from "#/lib/errors";
-import { useMe } from "#/stores/session";
 import { spaceClient } from "../api";
-import { emitReaction, onReaction } from "../live";
+import { emitReaction, newBurstNonce, onReaction } from "../live";
 
 /** The emoji one tap away; the picker has every other one. */
 const QUICK = ["👏", "😂", "❤️", "🔥", "😮", "🎉"];
@@ -91,12 +90,11 @@ export function ReactionLayer({ spaceId }: { spaceId: string }) {
 /** The row of emoji to send into the room. */
 export function ReactionBar({ spaceId }: { spaceId: string }) {
   const { t } = useTranslation("spaces");
-  const myId = useMe()?.user?.id ?? "";
   const send = (emoji: string) => {
     // The sender sees their own burst at once; the others get it over realtime.
-    emitReaction({ spaceId, userId: myId, emoji });
+    emitReaction({ spaceId, emoji });
     spaceClient()
-      .sendReaction({ spaceId, emoji })
+      .sendReaction({ spaceId, emoji, nonce: newBurstNonce() })
       .catch((error: unknown) => {
         // Sent faster than the room takes them: the burst simply does not travel.
         if (errorReason(error) !== "RATE_LIMITED")

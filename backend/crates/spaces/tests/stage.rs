@@ -581,12 +581,12 @@ async fn emoji_bursts_reach_the_room_and_are_limited() {
     let bursts: Vec<(&str, &str)> = pushed
         .iter()
         .filter_map(|event| match event {
-            Push::Reaction(reaction) => Some((reaction.user_id.as_str(), reaction.emoji.as_str())),
+            Push::Reaction(reaction) => Some((reaction.space_id.as_str(), reaction.emoji.as_str())),
             _ => None,
         })
         .collect();
-    let listener_id = listener.id.to_string();
-    assert_eq!(bursts, [(listener_id.as_str(), "🔥"), (listener_id.as_str(), ":tokuly_wave:")]);
+    // Bursts do not say who sent them.
+    assert_eq!(bursts, [(room.id.as_str(), "🔥"), (room.id.as_str(), ":tokuly_wave:")]);
 
     assert_eq!(ctx.reason("Space", "SendReaction", &listener, &react("すごい")).await, "INVALID_EMOJI");
     assert_eq!(ctx.reason("Space", "SendReaction", &listener, &react("🔥🔥🔥")).await, "INVALID_EMOJI");
