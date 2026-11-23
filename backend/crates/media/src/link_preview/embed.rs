@@ -90,6 +90,12 @@ fn tokuly(url: &Url) -> Option<Embed> {
         ["stamps", id, ..] => ("stamps", *id),
         ["u" | "users", handle, ..] => ("user", *handle),
         ["channel" | "c", handle, ..] => ("channel", handle.trim_start_matches('@')),
+        // Communities: the front page, a thread, an event. The client asks
+        // the community domain with the viewer's own permissions, so a
+        // hidden community stays hidden from whoever may not read it.
+        ["g", _, "t", id, ..] => ("community_thread", *id),
+        ["g", _, "events", id, ..] => ("community_event", *id),
+        ["g", handle, ..] => ("community", handle.trim_start_matches('+')),
         _ => return None,
     };
     is_slug(id).then(|| Embed::new("tokuly", format!("{kind}/{id}")))
@@ -170,6 +176,14 @@ mod tests {
         assert_eq!(embed("https://tokuly.example/@tokuzou"), Some(("tokuly", "user/tokuzou".into())));
         assert_eq!(embed("https://tokuly.example/channel/@games"), Some(("tokuly", "channel/games".into())));
         assert_eq!(embed("https://tokuly.example/notes/abc/replies"), Some(("tokuly", "note/abc".into())));
+        assert_eq!(embed("https://tokuly.example/g/neko"), Some(("tokuly", "community/neko".into())));
+        assert_eq!(embed("https://tokuly.example/g/neko/manage"), Some(("tokuly", "community/neko".into())));
+        assert_eq!(embed("https://tokuly.example/g/neko/t/bXou6FpLkfK"), Some(("tokuly", "community_thread/bXou6FpLkfK".into())));
+        assert_eq!(
+            embed("https://tokuly.example/g/neko/events/0190a1b2-0000-7000-8000-000000000001"),
+            Some(("tokuly", "community_event/0190a1b2-0000-7000-8000-000000000001".into()))
+        );
+        assert_eq!(embed("https://tokuly.example/g/"), None);
         assert_eq!(embed("https://tokuly.example/settings"), None);
         assert_eq!(embed("https://tokuly.example/"), None);
         assert_eq!(embed("https://tokuly.example/video/%3Cscript%3E"), None);

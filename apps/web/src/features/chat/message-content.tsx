@@ -3,6 +3,7 @@ import { type chat, media } from "@tokuly/api";
 import { CornerUpRight, MapPin, Play } from "lucide-react";
 import { lazy, Suspense, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { CommunityLinkCard } from "#/features/community";
 import { EmojiText } from "#/features/emoji";
 import { resolveTargetPath, useOpenTargetPath } from "#/features/notifications";
 import { cn } from "#/lib/cn";
@@ -380,7 +381,7 @@ export function LinkPreviewCard({ preview, tone }: { preview: media.LinkPreview;
       </button>
     );
   }
-  return (
+  const link = (
     <a
       href={preview.url}
       target="_blank"
@@ -396,6 +397,15 @@ export function LinkPreviewCard({ preview, tone }: { preview: media.LinkPreview;
       {body}
     </a>
   );
+  // A community of this app: its card, as far as the viewer may see it.
+  const community =
+    preview.embedProvider === "tokuly" && preview.embedId.startsWith("community/")
+      ? preview.embedId.slice("community/".length)
+      : "";
+  if (community) {
+    return <CommunityLinkCard handle={community} onOpen={open} fallback={link} className="mt-2" />;
+  }
+  return link;
 }
 
 function hostOf(url: string): string {
