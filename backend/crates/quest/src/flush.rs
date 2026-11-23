@@ -125,9 +125,14 @@ impl Quest {
             let earned = self.unwritten(&mut tx, *entry, counters).await?;
             // The last active day before this one, for the comeback badge.
             let previous_active_day = profile.last_active_day.filter(|previous| *previous < entry.day);
+            // A day badge on the account's first active day comes from signing up at that hour
+            // or on that date, not from anything the player chose to do: no notification.
+            let first_day =
+                profile.last_active_day.is_none_or(|last| last >= entry.day) && previous_active_day.is_none();
             self.apply(&mut tx, &mut profile, entry.day, &earned, &mut effects).await?;
             for badge in badges::day_badges(entry.day, counters, birthdate, previous_active_day) {
-                if badges::award_tx(&mut tx, user, badge, serde_json::Value::Null).await? {
+                let quiet = badge.quiet || first_day;
+                if badges::award_tx_as(&mut tx, user, badge, serde_json::Value::Null, quiet).await? {
                     effects.badges.push(badge);
                 }
             }
