@@ -124,6 +124,12 @@ topic and to each guest's topic. `party_updated` carries the video card only
 when anyone with the link may watch the video; members of a friends-only
 party get theirs from `GetParty`.
 
+Subscriptions end with the seat (`ServerFrame.unsubscribed`, see
+`docs/events/realtime.md`): after `party_member_left`, a signed-in member's
+subscriptions to the member topic are re-checked on all their devices and a
+guest's own topic is closed; after `party_ended` every topic of the party is
+closed.
+
 Known limit: the gateway checks a subscription once. A signed-in member who
 is removed keeps an already open subscription to `party:<id>` until their
 connection resubscribes (a removed guest's topic is simply no longer

@@ -8,7 +8,7 @@ contracts towards the domains: `tokuly_core::presence`, `tokuly_core::realtime`.
 ## The envelope
 
 The protocol knows the gateway's own messages (`Welcome`, `Pong`, `Ack`,
-`Error`, `PresenceEvent`, `TopicStats`) and nothing of the domains. What a
+`Error`, `PresenceEvent`, `TopicStats`, `Unsubscribed`) and nothing of the domains. What a
 domain pushes travels as `ServerFrame { topic, event: Event { type, payload } }`:
 `type` is the full name of the domain's event message
 (`tokuly.chat.v1.ChatEvent`) and `payload` that message, encoded. The types
@@ -46,6 +46,7 @@ gateway, created by the first connection and dropped with the last:
 |---|---|---|
 | `rt.u.<user>` | encoded `ServerFrame` | every connection of the user |
 | `rt.t.<topic>` | encoded `ServerFrame`; optional header `Tokuly-Except` | every connection subscribed to the topic, except those signed in as a user the header names |
+| `rt.u.<user>`, `rt.t.<topic>` with header `Tokuly-Control` | empty | not forwarded: a revocation for the sessions (see "Ending subscriptions") |
 
 Published:
 
@@ -87,10 +88,56 @@ a typing/presence signal; the chat domain must.
 `tokuly_core::realtime::TopicGuard` with `core.topic_guards.register(kind, guard)`
 when it is constructed (so it is in place in every process, including the
 gateway's). The gateway asks `core.topic_guards.may_subscribe(subscriber, topic)`
-once per subscription — in `Subscribe` and for topics named in `Hello` — with
-the subscriber's user ID (`None` = anonymous). `Ok(false)` is answered with
-`TOPIC_FORBIDDEN`, an error with `TOPIC_CHECK_FAILED`; either way nothing of
-that request is subscribed.
+when a connection subscribes — in `Subscribe` and for topics named in
+`Hello` — with the subscriber's user ID (`None` = anonymous), again when a
+domain revokes the subscription, and periodically while it lasts (below).
+On `Subscribe`, `Ok(false)` is answered with `TOPIC_FORBIDDEN`, an error
+with `TOPIC_CHECK_FAILED`; either way nothing of that request is
+subscribed. In `Hello` a refused topic does not refuse the Hello (a client
+reconnecting with a topic it lost access to meanwhile would never be
+welcomed again): the connection is welcomed with the other topics and gets
+`Unsubscribed { topic, reason: TOPIC_FORBIDDEN }` for that one.
+
+## Ending subscriptions
+
+When access ends after someone subscribed, the owning domain tells the
+gateways once its change is committed (`tokuly_core::realtime`):
+
+| Call | Bus message | Effect on every gateway |
+|---|---|---|
+| `rt.revoke(user, topic)` | `rt.u.<user>`, `Tokuly-Control: recheck`, `Tokuly-Topic: <topic>` | each connection of the user that follows the topic asks the guard again and drops it if refused |
+| `rt.revoke_prefix(user, prefix)` | the same with `recheck-prefix` | as above, for every topic equal to the prefix or below it (`party:<id>` covers `party:<id>:<key>`; `live` covers every `live:` topic; whole segments only) |
+| `rt.recheck_topic(topic)` | `rt.t.<topic>`, `Tokuly-Control: recheck` | every subscriber, anonymous ones included, is asked about again |
+| `rt.close_topic(topic)` | `rt.t.<topic>`, `Tokuly-Control: close` | every subscriber is dropped without asking (the room was deleted, the share or stream is over) |
+
+A dropped subscription is announced to its connection with
+`ServerFrame { topic, unsubscribed: Unsubscribed { topic, reason } }`,
+`reason` `TOPIC_FORBIDDEN` (the guard refused) or `TOPIC_CLOSED`. Nothing
+more of the topic reaches the connection; a new `Subscribe` runs the guard
+again. Clients do not subscribe again by themselves.
+
+- **The guard decides.** A revocation is "ask again", so a domain calls it
+  on any change that *might* end access (leaving a room one may still see
+  drops nothing), and twice is the same as once. A guard that fails on the
+  re-check keeps the subscription and is asked again 10 s later.
+- **No race with subscribing.** Revocations wait in the connection's
+  queue and are applied between two client frames, so one that arrives
+  while a `Subscribe` is being checked is applied to the subscription that
+  check made. A revocation this gateway could not hear yet — published while
+  the topic's bus subscription was being made here, or while the guard was
+  being asked — makes the gateway ask the guard again after joining, before
+  it answers. Signed-in connections join their user subject before the
+  guards of their Hello topics are asked.
+- **Safety net.** Revocations are best-effort like every push. Each
+  connection also re-checks every subscription that is older than
+  `TOKULY_RT_RECHECK_INTERVAL` (5 min), at most `TOKULY_RT_RECHECK_BATCH`
+  (8) at once, and the whole gateway at most `TOKULY_RT_RECHECK_RATE`
+  (200) per second; what does not fit waits a second. 5 minutes bounds how
+  long a lost revocation can leave someone listening; 200 checks a second
+  (one indexed query each) keep 60,000 subscriptions per gateway on that
+  cycle, and beyond that the cycle stretches rather than the database load
+  growing.
+- Counted in the gateway stats as `topic_rechecks` and `topics_revoked`.
 
 ## Errors sent to clients (`Error.code` / `Error.message`)
 
@@ -168,6 +215,9 @@ Durations take a unit (`500ms`, `25s`, `2m`, `1h`, `13d`); a bare number is seco
 | `TOKULY_RT_PRESENCE_HEARTBEAT`, `TOKULY_RT_PRESENCE_LEASE` | `25s`, `75s` | online lease renewal / lifetime |
 | `TOKULY_RT_AUDIENCE_REFRESH` | `30s` | rewrite of topic audience reports; at most `45s` (reports expire after 90 s) |
 | `TOKULY_RT_TOPIC_STATS_INTERVAL` | `2s` | throttle of `TopicStats` pushes |
+| `TOKULY_RT_RECHECK_INTERVAL` | `5m` | age at which a topic subscription is checked against its guard again |
+| `TOKULY_RT_RECHECK_BATCH` | `8` | most periodic re-checks of one connection at once |
+| `TOKULY_RT_RECHECK_RATE` | `200` | most periodic re-checks per second on one gateway |
 | `TOKULY_RT_STATS_INTERVAL` | `60s` | stats log line |
 
 ## Deployment notes

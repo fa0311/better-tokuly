@@ -126,7 +126,11 @@ once.
 `EngagementEvent` on topic `subject:<type number>:<subject uuid>`
 (`SubjectKey::topic`). The topic kind `subject` is guarded: only viewers for
 whom the subject resolves (and who are not in a block with its owner) may
-subscribe.
+subscribe. A block and an unfriending re-check both people's `subject:`
+subscriptions (`Realtime::revoke_prefix`); a subject a moderator removed
+closes its topic. Deleted notes close theirs (notes domain). Other changes
+of a subject's visibility in its owning domain are caught by the gateway's
+periodic re-check.
 
 | Event | When |
 |---|---|

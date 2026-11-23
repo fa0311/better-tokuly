@@ -38,7 +38,12 @@ current state, so late news of a lifted suspension or block does nothing.
 ## Realtime (`SpacesEvent`)
 
 Topic `space:<space id>`, guarded: whoever may see the room may follow it
-(public rooms: anyone, also without signing in).
+(public rooms: anyone, also without signing in). Subscriptions end when
+that does (`ServerFrame.unsubscribed`, see `docs/events/realtime.md`):
+whoever leaves the room for any reason, is banned (also while away), or
+loses an invitation is re-checked; a block and an unfriending re-check the
+two people's `space:` subscriptions; a narrower audience re-checks every
+subscriber; a deleted room closes the topic.
 
 | Event | To | When |
 |---|---|---|
@@ -145,9 +150,8 @@ LiveKit reaches the API inside the stack, nobody else needs to.
 - On LiveKit, listeners connect as hidden participants; the stage is
   visible. Promotion and demotion switch it on the open connection.
 - A ban hides the room from the banned person (`SPACE_NOT_FOUND`, no
-  listing, no new subscription to `space:<id>`). **Known gap:** a
-  subscription to the topic that already exists is not dropped; that needs
-  the shared realtime layer (issue #51).
+  listing, no new subscription to `space:<id>`), and ends the subscription
+  they already had (`ServerFrame.unsubscribed`, see `docs/events/realtime.md`).
 
 ## Tokens and how long a kicked person can come back
 

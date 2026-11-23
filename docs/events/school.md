@@ -104,7 +104,12 @@ User-scoped (every device of the user):
 | `room_left` | a member who is out of a room without having left | Idle, removed (host, block, unfriending), room closed; carries the ended session. |
 
 Topic `study:{room_id}` — guarded: only signed-in people who may enter the
-room can subscribe (`TopicGuard` registered for the `study` kind):
+room can subscribe (`TopicGuard` registered for the `study` kind). The
+subscription ends when that does (`ServerFrame.unsubscribed`, see
+`docs/events/realtime.md`): leaving, removal, a ban and a withdrawn
+invitation re-check the person; a block or an unfriending re-checks both
+people's `study:` subscriptions; a new audience re-checks every subscriber;
+a closed room closes the topic after `room_closed`.
 
 | Event | When |
 |---|---|
