@@ -307,7 +307,17 @@ impl World {
                         .collect(),
                 )
             }
-            Value::Array(items) => Value::Array(items.iter().map(|item| self.normalize(item, ids)).collect()),
+            Value::Array(items) => {
+                let mut items: Vec<Value> = items.iter().map(|item| self.normalize(item, ids)).collect();
+                // Lists of people (the friends' pins) come in the order of the friend list,
+                // which the server does not define (an unordered query and a cached set), so
+                // the two worlds may list the same pins in a different order. That order says
+                // nothing about anyone's position; compare the lists by person instead.
+                if items.iter().all(|item| item.get("userId").is_some_and(Value::is_string)) {
+                    items.sort_by(|a, b| a["userId"].as_str().cmp(&b["userId"].as_str()));
+                }
+                Value::Array(items)
+            }
             Value::String(text) => Value::String(self.normalize_text(text, ids)),
             other => other.clone(),
         }
