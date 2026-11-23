@@ -1075,6 +1075,43 @@ async fn reactions_are_counted_per_emoji() {
 }
 
 #[tokio::test]
+async fn toggling_a_reaction_does_not_notify_again_and_again() {
+    let ctx = start().await;
+    let (taro, hanako) = ctx.friends("taro", "hanako").await;
+    let conversation = ctx.direct(&taro, &hanako).await;
+    let message = ctx.text(&taro, &conversation.id, "見て見て").await;
+    let react = |emoji: &str| AddReactionRequest {
+        message_id: message.id.clone(),
+        emoji: emoji.to_owned(),
+        ..Default::default()
+    };
+    let unreact =
+        RemoveReactionRequest { message_id: message.id.clone(), emoji: "😂".into(), ..Default::default() };
+
+    // Every push counts against the author's per-minute push budget: a
+    // reaction switched on and off must not drown out everybody else.
+    for _ in 0..5 {
+        let _: AddReactionResponse = ctx.call("Message", "AddReaction", &hanako, &react("😂")).await.unwrap();
+        let _: RemoveReactionResponse = ctx.call("Message", "RemoveReaction", &hanako, &unreact).await.unwrap();
+    }
+    let _: AddReactionResponse = ctx.call("Message", "AddReaction", &hanako, &react("👍")).await.unwrap();
+    let reactions = ctx.notifications(&taro).await.into_iter().filter(|n| n.kind == "chat.reaction").count();
+    assert_eq!(reactions, 1, "one person reacting to one message is told once");
+
+    // Someone else reacting is news again.
+    let jiro = ctx.app.user("jiro").await;
+    ctx.befriend(&taro, &jiro).await;
+    let group = ctx.group(&taro, "三人", &[&hanako, &jiro]).await;
+    let in_group = ctx.text(&taro, &group.id, "集合！").await;
+    for reactor in [&hanako, &jiro] {
+        let request = AddReactionRequest { message_id: in_group.id.clone(), emoji: "🙌".into(), ..Default::default() };
+        let _: AddReactionResponse = ctx.call("Message", "AddReaction", reactor, &request).await.unwrap();
+    }
+    let reactions = ctx.notifications(&taro).await.into_iter().filter(|n| n.kind == "chat.reaction").count();
+    assert_eq!(reactions, 3);
+}
+
+#[tokio::test]
 async fn messages_are_pinned_for_everyone() {
     let ctx = start().await;
     let (group, owner, members) = ctx.group_of("部活", 1).await;

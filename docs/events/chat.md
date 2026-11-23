@@ -79,7 +79,7 @@ Durable consumer `chat`. Every handler is idempotent.
 Everyone with the conversation open suppresses their own message
 notifications; only accepted members who share their online status
 (`share_online_status`) are *shown* as present. Other keys: `chat:translation:<message>:<language>:<text hash>`
-(cached translations, 24 h) and the rate limits below (`rl:chat-…`).
+(cached translations, 24 h), `chat:reaction-notified:<message>:<user>` (a reaction was notified, 24 h) and the rate limits below (`rl:chat-…`).
 
 ## Realtime pushes
 
@@ -109,7 +109,7 @@ other user (the notify domain applies per-person mutes). Path `/chat/<conversati
 | `chat.message` | other members | push only | Collapsed per conversation (`chat:<conversation>`). Not sent to members who muted the conversation, who have it open right now (co-presence), who are in a block with the sender (groups), or to a pending/declined message request. Subject `(SUBJECT_TYPE_CHAT_MESSAGE, message)`, `data = { conversation_id, message_id, seq }`, image for media. |
 | `chat.mention` | mentioned members | push only | Same collapse key. A mention by `@handle` gets through a conversation mute; `@all` does not. |
 | `chat.request` | recipient of a message request | inbox + push | Once per request (its first message), not for the following ones. Does not quote the message: the inbox entry outlives an unsend or a takedown. |
-| `chat.reaction` | author of the message | push only | Collapsed per message (`chat-reaction:<message>`); not when muted, present, or blocked. |
+| `chat.reaction` | author of the message | push only | Collapsed per message (`chat-reaction:<message>`); not when muted, present, or blocked. Once per reacting person and message within 24 h (`chat:reaction-notified:<message>:<user>`), so switching a reaction off and on does not push again. |
 | `chat.group` | users added to a group | inbox + push | Also for the initial members of a new group. |
 | `chat.call` | callees | push only, **urgent** while ringing | Collapsed per call (`chat-call:<call>`). Direct calls and groups of up to 8 members ring (urgent, `data.ringing = true`); larger groups get an ordinary, non-urgent push. Group members who muted the conversation get neither this nor the missed-call notice. A missed call replaces the ringing push with a non-urgent inbox + push notification (`data.missed = true`). |
 | `chat.pov` | the other side of a POV request | inbox + push | `data.event` = `requested` / `answered` / `saved`; collapsed per request (`chat-pov:<request>`). Not when muted or present. |
