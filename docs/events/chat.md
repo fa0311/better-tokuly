@@ -123,7 +123,7 @@ other user (the notify domain applies per-person mutes). Path `/chat/<conversati
 | job `chat.link_preview` (`LinkPreviewJob { message_id }`) | — | Fetches the preview of a message's first link through `tokuly_media::link_preview` (at most 30 per sender and minute; more links simply get none), stores it and pushes `message_updated` (`LINK_PREVIEW`). Queued when a message with a link is sent or edited. 8 in parallel, 3 attempts. |
 | co-presence sweep | 10 s | Announces members whose presence ran out without a goodbye. |
 | call ringing time-out | 5 s | After `TOKULY_CHAT_RING_SECONDS`: an unanswered direct call ends as `MISSED`; in a group the members who did not answer are marked missed (and notified) while the call stays open. |
-| call reconciliation | 30 s | Lists the participants of each live call's LiveKit room (calls older than a minute); someone marked as joined but not connected 60 s after joining (`CONNECT_GRACE_SECONDS`) has left, which may end the call, and anyone connected who is not a joined participant (hung up, removed from the group, back with an old token) is put out of the room. Skipped while LiveKit is unreachable. LiveKit webhooks are not used. |
+| call reconciliation | 30 s | Lists the participants of each live call's LiveKit room (calls older than a minute); someone marked as joined but not connected 60 s after joining (`CONNECT_GRACE_SECONDS`) has left, which may end the call, a participant still marked as joined who is no longer an accepted member has left, and anyone connected who is not a joined participant (hung up, removed from the group, back with an old token) is put out of the room. Skipped while LiveKit is unreachable. LiveKit webhooks are not used. |
 | POV expiry | 60 s | Open requests past their 2 h become `EXPIRED`; unsaved answers past their 24 h lose their content (attachments and caption removed, uploads released). |
 | link preview sweep | 5 min | Re-queues links nobody looked up for 2 minutes (a lost job) and gives up on those older than a day. |
 | removed text purge | 1 h | Forgets what edited and unsent messages said (`chat_removed_texts`, kept for reports) 30 days after the edit or deletion. |
@@ -244,6 +244,7 @@ translation cache, or when there is nothing to reply to. Transient failures
 | `chat-search:<user>` | 60 / minute |
 | `chat-pov:<user>` | 30 / hour |
 | `chat-call:<user>` | 20 / 10 minutes |
+| `chat-join:<user>` | 60 / 10 minutes (`JoinCall`) |
 | `chat-ai:<user>` | `TOKULY_AI_HOURLY_LIMIT` / hour |
 | `chat-link:<sender>` | 30 link previews / minute (silently none beyond) |
 | `chat-typing:<user>`, `chat-presence:<user>` | 120 signals / minute each (silently dropped beyond) |

@@ -1102,7 +1102,7 @@ service CallService {
   // returns fresh credentials.
   // Errors: CALLS_DISABLED, CALL_NOT_FOUND (also for people who are not, or
   // no longer, accepted members of the conversation), CALL_ENDED,
-  // CONVERSATION_READ_ONLY.
+  // CONVERSATION_READ_ONLY, RATE_LIMITED.
   rpc JoinCall(JoinCallRequest) returns (JoinCallResponse);
   // Declines a ringing call. A direct call ends; a group call goes on for
   // the others. Declining twice succeeds.

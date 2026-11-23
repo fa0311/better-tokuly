@@ -451,9 +451,21 @@ impl Chat {
             return Err(call_not_found());
         }
         self.ensure_writable(&access).await?;
+        // Every join hands out a token and tells the others.
+        self.core.cache.rate_limit(&format!("chat-join:{user_id}"), 60, Duration::from_secs(600)).await?;
         let me = tokuly_identity::summary(&self.core, user_id).await?;
 
         let mut tx = self.core.db.begin().await?;
+        // The lock removals take: someone removed while joining is either
+        // removed after joining (and put out) or finds themselves gone here.
+        let conv = access::lock_conversation(&mut tx, call.conversation_id).await?;
+        let still_member = access::member_in_tx(&mut tx, conv.id, user_id).await?.is_some_and(|me| me.is_accepted());
+        if !still_member {
+            return Err(call_not_found());
+        }
+        if conv.read_only {
+            return Err(access::read_only());
+        }
         let call = lock_call(&mut tx, call_id).await?;
         if !call.is_live() {
             return Err(call_ended());
@@ -861,6 +873,22 @@ impl Chat {
             if !call.is_live() {
                 continue;
             }
+            // Joined, but no longer an accepted member (a removal that raced
+            // with the join): out of the call.
+            let lost = sqlx::query(
+                "UPDATE chat_call_participants p SET
+                     state = $2, left_at = now(), seconds = seconds + GREATEST(extract(epoch FROM now() - joined_at)::int, 0)
+                 WHERE p.call_id = $1 AND p.state = $3 AND NOT EXISTS (
+                     SELECT 1 FROM chat_members m WHERE m.conversation_id = $4 AND m.user_id = p.user_id AND m.request_state = $5)",
+            )
+            .bind(call.id)
+            .bind(party::LEFT)
+            .bind(party::JOINED)
+            .bind(call.conversation_id)
+            .bind(request::ACCEPTED)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
             let joined: Vec<Uuid> =
                 sqlx::query_scalar("SELECT user_id FROM chat_call_participants WHERE call_id = $1 AND state = $2")
                     .bind(call.id)
@@ -883,7 +911,7 @@ impl Chat {
             .bind(&connected)
             .execute(&mut *tx)
             .await?;
-            if gone.rows_affected() == 0 {
+            if gone.rows_affected() + lost == 0 {
                 drop(tx);
                 for identity in &strangers {
                     if let Err(e) = livekit.remove_participant(&call.room, identity).await {

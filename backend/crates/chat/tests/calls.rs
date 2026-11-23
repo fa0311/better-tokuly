@@ -772,3 +772,60 @@ async fn a_removed_member_does_not_watch_the_call_go_on() {
     assert_eq!(history.calls.iter().map(|call| call.id.clone()).collect::<Vec<_>>(), vec![call_id.clone()]);
     assert_eq!(get_call(&ctx, first, &call_id).await.state, CallState::CALL_STATE_ENDED);
 }
+
+#[tokio::test]
+async fn a_member_removed_while_joining_does_not_stay_in_the_call() {
+    let (ctx, _livekit) = start_with_room_service().await;
+    let mut pairs = Vec::new();
+    for _ in 0..20 {
+        let (group, owner, members) = ctx.group_of("部活", 1).await;
+        let call_id = start_call(&ctx, &owner, &group.id, false).await.call.id.clone();
+        pairs.push((group, owner, members.into_iter().next().unwrap(), call_id));
+    }
+
+    // Each member joins while the owner removes them, at the same moment.
+    let ctx = &ctx;
+    let races = pairs.iter().map(|(group, owner, member, call_id)| async move {
+        let join_request = JoinCallRequest { call_id: call_id.clone(), ..Default::default() };
+        let remove_request = RemoveMemberRequest {
+            conversation_id: group.id.clone(),
+            user_id: member.id.to_string(),
+            ..Default::default()
+        };
+        let join = ctx.call::<_, JoinCallResponse>("Call", "JoinCall", member, &join_request);
+        let remove = ctx.call::<_, RemoveMemberResponse>("Conversation", "RemoveMember", owner, &remove_request);
+        let (_, removed) = tokio::join!(join, remove);
+        removed.expect("the removal goes through");
+    });
+    futures::future::join_all(races).await;
+
+    for (_, owner, member, call_id) in &pairs {
+        let call = get_call(ctx, owner, call_id).await;
+        assert_ne!(
+            state_of(&call, member),
+            Some(CallParticipantState::CALL_PARTICIPANT_STATE_JOINED),
+            "a non-member is in the call"
+        );
+    }
+
+    // Should one slip through anyway, the reconciliation takes them out.
+    let (_, owner, member, call_id) = &pairs[0];
+    let _sweeping = SWEEPS.lock().await;
+    sqlx::query(
+        "INSERT INTO chat_call_participants (call_id, user_id, state, joined_at, rung) VALUES ($1::uuid, $2, 2, now(), false)
+         ON CONFLICT (call_id, user_id) DO UPDATE SET state = 2, joined_at = now()",
+    )
+    .bind(call_id)
+    .bind(member.id)
+    .execute(&ctx.app.core.db)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE chat_calls SET created_at = now() - interval '2 minutes' WHERE id = $1::uuid")
+        .bind(call_id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    ctx.chat.reconcile_calls().await.unwrap();
+    let call = get_call(ctx, owner, call_id).await;
+    assert_eq!(state_of(&call, member), Some(CallParticipantState::CALL_PARTICIPANT_STATE_LEFT));
+}
