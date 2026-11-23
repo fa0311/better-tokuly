@@ -751,13 +751,83 @@ async fn a_chat_line_is_one_publish_that_leaves_out_the_people_in_a_block_relati
     let (lines, to_devices) = ours(published(&mut bus).await);
     assert_eq!((lines.len(), to_devices), (1, 0), "one publish for the line, nothing per follower: {lines:?}");
     assert_eq!(lines[0].2.as_deref(), Some(line.id.as_str()));
-    let left_out = std::collections::HashSet::from([carol.id, dave.id, erin.id]);
-    assert_eq!(lines[0].1, left_out, "the author's block relations both ways, and the streamer's");
+    let left_out = std::collections::HashSet::from([carol.id, dave.id]);
+    assert_eq!(lines[0].1, left_out, "the author's block relations both ways; the streamer's are the guard's");
 
-    // Another author: their own relations (none) and the streamer's.
+    // Another author without block relations: an ordinary publish.
     let other = ctx.say(&fan, &stream, "どうも").await.unwrap();
     let (lines, to_devices) = ours(published(&mut bus).await);
     assert_eq!((lines.len(), to_devices), (1, 0), "{lines:?}");
     assert_eq!(lines[0].2.as_deref(), Some(other.id.as_str()));
-    assert_eq!(lines[0].1, std::collections::HashSet::from([erin.id]));
+    assert!(lines[0].1.is_empty());
+}
+
+/// `count` fresh accounts, made straight in the database (a crowd of throw-away accounts).
+async fn crowd(ctx: &Ctx, count: usize) -> Vec<Uuid> {
+    sqlx::query_scalar(
+        "INSERT INTO users (handle, display_name)
+         SELECT $1 || n, 'crowd' FROM generate_series(1, $2::int) AS n RETURNING id",
+    )
+    .bind(format!("c{}_", tokuly_core::ids::random_base62(6).to_lowercase()))
+    .bind(count as i32)
+    .fetch_all(&ctx.app.core.db)
+    .await
+    .unwrap()
+}
+
+/// Every one of `blockers` blocks every one of `blocked`.
+async fn mass_block(ctx: &Ctx, blockers: &[Uuid], blocked: &[Uuid]) {
+    sqlx::query(
+        "INSERT INTO user_blocks (blocker_id, blocked_id) SELECT a, b FROM unnest($1::uuid[]) a, unnest($2::uuid[]) b",
+    )
+    .bind(blockers)
+    .bind(blocked)
+    .execute(&ctx.app.core.db)
+    .await
+    .unwrap();
+}
+
+/// The chat lines published on `topic` within `QUIET`, with whom each leaves out.
+async fn lines_on(bus: &mut async_nats::Subscriber, topic: &str) -> Vec<(String, std::collections::HashSet<Uuid>)> {
+    let subject = tokuly_core::realtime::topic_subject(topic);
+    published(bus)
+        .await
+        .into_iter()
+        .filter(|(on, _, line)| on.ends_with(&subject) && line.is_some())
+        .map(|(_, except, line)| (line.unwrap(), except))
+        .collect()
+}
+
+#[tokio::test]
+async fn a_crowd_of_blockers_cannot_stop_the_chat_but_an_author_who_blocked_too_many_goes_unheard() {
+    let cap = tokuly_core::realtime::MAX_EXCEPT;
+    let ctx = start().await;
+    let alice = ctx.app.user("alice").await;
+    let bob = ctx.app.user("bob").await;
+    let carol = ctx.app.user("carol").await;
+    let channel = ctx.channel(&alice, "人気ch").await;
+    let stream = ctx.on_air(&alice, &channel, "大人数").await;
+    // More throw-away accounts than a list can hold block the streamer, and the author.
+    mass_block(&ctx, &crowd(&ctx, cap + 1).await, &[alice.id]).await;
+    let blockers = crowd(&ctx, cap + 1).await;
+    mass_block(&ctx, &blockers, &[bob.id]).await;
+    let mut bus = ctx.app.core.bus.subscribe("rt.>").await.unwrap();
+
+    // The streamer's line and the author's line are still published.
+    let from_streamer = ctx.say(&alice, &stream, "ようこそ").await.unwrap();
+    let from_bob = ctx.say(&bob, &stream, "やあ").await.unwrap();
+    let lines = lines_on(&mut bus, &stream.realtime_topic).await;
+    let ids: Vec<&str> = lines.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(ids, [from_streamer.id.as_str(), from_bob.id.as_str()], "a crowd of blockers stops nothing");
+    assert!(lines.iter().all(|(_, except)| except.len() <= cap));
+    assert!(!lines[1].1.contains(&carol.id));
+
+    // An author who blocked more people than the cap is not pushed live; the others are.
+    let dave = ctx.app.user("dave").await;
+    mass_block(&ctx, &[dave.id], &crowd(&ctx, cap + 1).await).await;
+    let unheard = ctx.say(&dave, &stream, "だれにも届かない").await.unwrap();
+    let heard = ctx.say(&carol, &stream, "とどく").await.unwrap();
+    let lines = lines_on(&mut bus, &stream.realtime_topic).await;
+    let ids: Vec<&str> = lines.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(ids, [heard.id.as_str()], "{unheard:?} is in the chat, not pushed");
 }

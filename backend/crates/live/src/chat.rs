@@ -13,7 +13,7 @@
 //! never the account, so a channel does not reveal who is behind it.
 use std::{collections::HashMap, time::Duration};
 
-use tokuly_core::{outbound, prelude::*};
+use tokuly_core::{outbound, prelude::*, realtime::MAX_EXCEPT};
 use tokuly_proto::{
     common::{Author, ChannelSummary, StampRef, UserSummary},
     live::{
@@ -505,30 +505,53 @@ async fn lock_chatter(tx: &mut Tx<'_>, channel_id: Uuid, user_id: Uuid) -> AppRe
 
 impl Live {
     /// Who must not get a chat line by `author` (`None`: a notice of the
-    /// server) live: everyone in a block relation, either way, with the
-    /// author or with the streamer. Both lists are cached by the social
-    /// domain; nothing is read per viewer.
-    pub(crate) async fn chat_exceptions(&self, stream: &StreamRow, author: Option<Uuid>) -> AppResult<Vec<Uuid>> {
-        let mut except = graph::blocked_ids_either(&self.core, stream.owner_id).await?;
-        if let Some(author) = author.filter(|author| *author != stream.owner_id) {
-            except.extend(graph::blocked_ids_either(&self.core, author).await?);
-        }
+    /// server) live, as an exception list of at most
+    /// `tokuly_core::realtime::MAX_EXCEPT` people.
+    ///
+    /// - The people the author blocked are always on it. That part is the
+    ///   author's own doing, so it fails closed: when it alone is longer than
+    ///   the cap, the line is not pushed live (`TOO_MANY_EXCEPTIONS`).
+    /// - The people who blocked the author are on it while the whole list
+    ///   fits. Anybody can add to that part (throw-away accounts blocking
+    ///   someone), so it must never stop delivery: past the cap they are
+    ///   left out and the line is still published; their own clients drop
+    ///   lines and pins of people they blocked.
+    /// - The streamer's relations are not on it: the topic guard refuses
+    ///   anyone in a block relation with the streamer when they subscribe.
+    pub(crate) async fn chat_exceptions(&self, author: Option<Uuid>) -> AppResult<Vec<Uuid>> {
+        let Some(author) = author else { return Ok(Vec::new()) };
+        let mut except = graph::blocked_by(&self.core, author).await?;
         except.sort_unstable();
         except.dedup();
+        ensure!(
+            except.len() <= MAX_EXCEPT,
+            precondition,
+            "TOO_MANY_EXCEPTIONS",
+            "the author blocked more people than a live line can leave out"
+        );
+        let mut blockers: Vec<Uuid> = graph::blocked_ids_either(&self.core, author)
+            .await?
+            .into_iter()
+            .filter(|user| except.binary_search(user).is_err())
+            .collect();
+        blockers.sort_unstable();
+        blockers.dedup();
+        if except.len() + blockers.len() <= MAX_EXCEPT {
+            except.extend(blockers);
+        }
         Ok(except)
     }
 
     /// Pushes a chat event about a line by `author` to the stream's topic,
-    /// leaving out the people in a block relation with the author or the
-    /// streamer ([`Self::chat_exceptions`]): one publish, whose exception
-    /// list each realtime gateway applies on delivery (see
-    /// `tokuly_core::realtime::to_topic_except`; at most
-    /// `tokuly_core::realtime::MAX_EXCEPT` people). When the list cannot be
-    /// read or is too long, nothing is pushed: the line is in the chat for
-    /// the next read.
+    /// leaving out the people in a block relation with the author
+    /// ([`Self::chat_exceptions`]): one publish, whose exception list each
+    /// realtime gateway applies on delivery (see
+    /// `tokuly_core::realtime::to_topic_except`). When the list cannot be
+    /// read, or the author blocked more people than it may hold, nothing is
+    /// pushed: the line is in the chat for the next read.
     pub(crate) async fn push_chat_event(&self, stream: &StreamRow, author: Option<Uuid>, event: Event) {
         let pushed = async {
-            let except = self.chat_exceptions(stream, author).await?;
+            let except = self.chat_exceptions(author).await?;
             self.push_to_stream_except(stream.id, event, &except).await
         };
         if let Err(error) = pushed.await {

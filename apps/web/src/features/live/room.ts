@@ -61,12 +61,15 @@ export function applyLiveEvent(
   streamId: string,
   event: live.LiveEvent["event"],
 ): void {
-  // The server keeps lines of people the viewer blocked away; should one come anyway, it stays out.
-  if (event.case === "chatMessage") {
-    const blocked = queryClient.getQueryData<Set<string>>(liveKeys.blocked);
-    const authorId = event.value.author?.user?.id;
-    if (authorId && blocked?.has(authorId)) return;
-  }
+  // The server leaves out the viewer when they are on a line's exception list, but that list
+  // may drop the people who blocked its author (it is capped, and anyone can block anyone).
+  // So lines of people the viewer blocked stay out here, and so does such a pinned line.
+  const blocked = queryClient.getQueryData<Set<string>>(liveKeys.blocked);
+  const fromBlocked = (message: live.ChatMessage | undefined) => {
+    const authorId = message?.author?.user?.id;
+    return Boolean(authorId && blocked?.has(authorId));
+  };
+  if (event.case === "chatMessage" && fromBlocked(event.value)) return;
   switch (event.case) {
     case "streamUpdated": {
       const summary = event.value;
@@ -110,7 +113,7 @@ export function applyLiveEvent(
       break;
     }
     case "chatPinChanged": {
-      const pinnedMessage = event.value.message;
+      const pinnedMessage = fromBlocked(event.value.message) ? undefined : event.value.message;
       patchStream(queryClient, streamId, (stream) => ({ ...stream, pinnedMessage }));
       break;
     }

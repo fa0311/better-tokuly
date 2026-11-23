@@ -137,6 +137,16 @@ pub async fn blocked_ids_either(core: &Core, user_id: Uuid) -> AppResult<Vec<Uui
         .await
 }
 
+/// The users `user_id` blocked themselves: the part of
+/// [`blocked_ids_either`] that is theirs to decide (the rest is who blocked
+/// them, which anybody can add to). Read from PostgreSQL, not cached.
+pub async fn blocked_by(core: &Core, user_id: Uuid) -> AppResult<Vec<Uuid>> {
+    Ok(sqlx::query_scalar("SELECT blocked_id FROM user_blocks WHERE blocker_id = $1")
+        .bind(user_id)
+        .fetch_all(&core.db)
+        .await?)
+}
+
 /// What `viewer` is to `other`. Being blocked by `other` is deliberately not
 /// a relationship of its own: blocks are silent, so it reads as `NONE`.
 pub async fn relationship(core: &Core, viewer: Uuid, other: Uuid) -> AppResult<Relationship> {
