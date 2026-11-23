@@ -57,7 +57,9 @@ service FriendService {
   // Errors: USER_NOT_FOUND.
   rpc DismissSuggestion(DismissSuggestionRequest) returns (DismissSuggestionResponse);
   // Matches hashed emails from the address book against discoverable accounts
-  // with a verified email. The uploaded hashes are not stored.
+  // with a verified email. The uploaded hashes are not stored. A user can
+  // look up 5000 different hashes a day (sending the same ones again is
+  // free), in at most 6 calls an hour.
   // Errors: TOO_MANY_CONTACTS (more than 2000), INVALID_CONTACT_HASH, RATE_LIMITED.
   rpc MatchContacts(MatchContactsRequest) returns (MatchContactsResponse);
 

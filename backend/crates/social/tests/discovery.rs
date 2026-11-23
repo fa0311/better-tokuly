@@ -137,6 +137,26 @@ async fn contacts_match_verified_discoverable_accounts_by_email_hash() {
     assert_eq!(match_contacts(vec![known_hash; 2001]).await.unwrap_err().reason, "TOO_MANY_CONTACTS");
 }
 
+fn random_hashes(count: usize) -> Vec<String> {
+    (0..count).map(|_| contact_hash(&format!("{}@example.com", Uuid::new_v4()))).collect()
+}
+
+#[tokio::test]
+async fn contact_matching_cannot_test_address_lists() {
+    let ctx = start().await;
+    let me = ctx.app.user("me").await;
+    let call = |hashes: Vec<String>| {
+        let (ctx, me) = (&ctx, me.clone());
+        async move { ctx.friends::<_, MatchContactsResponse>("MatchContacts", &me, &MatchContactsRequest { contact_hashes: hashes, ..Default::default() }).await }
+    };
+    let (book, more, others) = (random_hashes(2000), random_hashes(2000), random_hashes(2000));
+    call(book.clone()).await.unwrap();
+    call(book).await.unwrap(); // syncing the same address book again costs nothing
+    call(more).await.unwrap();
+    let err = call(others).await.unwrap_err();
+    assert_eq!(err.reason, "RATE_LIMITED", "6000 different addresses in a day is a lookup, not an address book");
+}
+
 async fn my_invite(ctx: &Ctx, user: &TestUser) -> Invite {
     let response: GetMyInviteResponse = ctx.friends("GetMyInvite", user, &GetMyInviteRequest::default()).await.unwrap();
     response.invite.into_option().unwrap()

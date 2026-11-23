@@ -23,6 +23,12 @@ const CANDIDATES_PER_SOURCE: i64 = 100;
 const MUTUAL_PREVIEW: usize = 3;
 /// Most address-book hashes accepted per `MatchContacts` call.
 const MAX_CONTACT_HASHES: usize = 2000;
+/// Most distinct hashes one user may have looked up per day. An address
+/// book is a few hundred to a few thousand entries and does not change much
+/// from one sync to the next; tens of thousands of new ones a day is a list
+/// of addresses being tested.
+const MAX_DISTINCT_CONTACTS_PER_DAY: i64 = 5000;
+const DAY: Duration = Duration::from_secs(24 * 3600);
 
 /// Why a user is suggested. The order is the display priority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -70,6 +76,26 @@ pub async fn suggest(core: &Core, user_id: Uuid, suggested_id: Uuid, reason: Sug
         .bind(reason.as_str())
         .execute(&core.db)
         .await?;
+    Ok(())
+}
+
+/// Counts `hashes` towards the user's daily budget of distinct hashes and
+/// fails with `RATE_LIMITED` once it is spent. The same address book synced
+/// again costs nothing. Only an estimate of the count is kept (a
+/// HyperLogLog), never the hashes.
+async fn ensure_contact_budget(core: &Core, user_id: Uuid, hashes: &[String]) -> AppResult<()> {
+    if !core.cfg.rate_limits {
+        return Ok(());
+    }
+    let key = format!("rl:match-contacts-distinct:{user_id}");
+    let (distinct,): (i64,) = redis::pipe()
+        .atomic()
+        .cmd("PFADD").arg(&key).arg(hashes).ignore()
+        .cmd("EXPIRE").arg(&key).arg(DAY.as_secs()).arg("NX").ignore()
+        .cmd("PFCOUNT").arg(&key)
+        .query_async(&mut core.cache.conn())
+        .await?;
+    ensure!(distinct <= MAX_DISTINCT_CONTACTS_PER_DAY, rate_limited, "RATE_LIMITED", "too many different contacts today, try again tomorrow");
     Ok(())
 }
 
@@ -255,7 +281,8 @@ impl Social {
         // One call covers a whole address book, so a few per day is plenty;
         // more would turn this into a way to test lists of addresses.
         core.cache.rate_limit(&format!("match-contacts:{user_id}"), 6, Duration::from_secs(3600)).await?;
-        core.cache.rate_limit(&format!("match-contacts-day:{user_id}"), 30, Duration::from_secs(24 * 3600)).await?;
+        core.cache.rate_limit(&format!("match-contacts-day:{user_id}"), 30, DAY).await?;
+        ensure_contact_budget(core, user_id, &wanted).await?;
 
         // Identity owns the lookup (verified, active accounts by email hash);
         // which of them the caller gets to see is decided here.

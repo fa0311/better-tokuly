@@ -148,7 +148,7 @@ No job-queue jobs. `Social::spawn_workers` starts:
 | `social:map-view:<viewer>:<viewed>` | marker, 60 s | De-duplicates repeated map views. |
 
 Rate limits (`rl:` keys): friend requests 60/h and 200/day per sender and
-5/day per sender→recipient; contact matching 6/h and 30/day; blocks 100/h; invite
+5/day per sender→recipient; contact matching 6/h and 30/day and 5000 distinct hashes a day (counted in a HyperLogLog, `rl:match-contacts-distinct:<user>`, so no hash is kept); blocks 100/h; invite
 resets 10/day; invite lookups 60/min per user or IP; suggestions 60/min;
 nearby sessions 20 per 10 min; bumps 30/min; buzz 10/min per pair and 60/10 min per
 sender; knocks 20/min per pair; map reactions 120/min.
