@@ -60,8 +60,12 @@ Conventions for callers of the ledger:
   so does the refund of such a transfer. The recipient sees the payer as
   usual, and staff see both parties (`WalletAdminService.ListUserLedgerEntries`,
   with `counterpart_hidden` still set) — except a staff member who is the
-  payer: their own wallet reads as it does for any payer, and the entries
-  of that payment are left out of other wallets they look into. Say in `memo` what was paid.
+  payer: their own wallet reads as it does for any payer, and once they
+  have paid a hidden recipient (refunded or not) every other wallet is
+  refused to them (`GetUserWallet`, `ListUserLedgerEntries`:
+  `HIDDEN_PARTY`), whichever account they ask about, because refusing
+  only the account they paid would name it. Another staff member looks
+  into wallets for them. Say in `memo` what was paid.
 - Take the platform fee from `Wallet::transfer_with_fee` /
   `Wallet::platform_fee_percent` rather than hard-coding it.
 

@@ -483,6 +483,8 @@ export default {
     PAYOUT_NOT_APPROVED: "Only approved requests can be marked as paid",
     SELF_REVIEW: "You can't review your own payout request",
     SELF_ADJUSTMENT: "You can't adjust your own balance",
+    HIDDEN_PARTY:
+      "You have paid an account that is hidden from you, so you can't look into other wallets. Ask another staff member",
     ACCOUNT_SUSPENDED: "The requester's account is suspended",
     REVIEW_NOTE_REQUIRED: "Enter the reason for rejecting",
     REVIEW_NOTE_TOO_LONG: "Keep the message within 500 characters",

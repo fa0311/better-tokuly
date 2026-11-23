@@ -6,6 +6,7 @@ use tokuly_proto::{
     common::PageRequest,
     wallet::*,
 };
+use tokuly_testkit::TestUser;
 use tokuly_wallet::ledger;
 
 #[tokio::test]
@@ -285,38 +286,55 @@ async fn a_hidden_recipient_is_not_shown_to_the_payer() {
 
 /// The staff view names hidden recipients, but not to a staff member who is
 /// the payer: a moderator who sent a channel a gift learns who runs the
-/// channel neither from their own wallet nor by looking through other
-/// people's wallets for the gift.
+/// channel neither from their own wallet nor by probing other people's
+/// wallets (their history, a one-entry page, their balances). Such a
+/// moderator gets the same refusal for every other account, the one they
+/// paid and any other, now and after a refund; another staff member looks
+/// into those wallets.
 #[tokio::test]
 async fn staff_do_not_unmask_the_recipient_of_their_own_gift() {
     let (app, wallet) = app().await;
-    let (moderator, streamer, colleague) = (app.user_with_roles("mod", &["moderator"]).await, app.user("streamer").await, app.user_with_roles("mod2", &["moderator"]).await);
+    let (moderator, streamer, bystander) = (app.user_with_roles("mod", &["moderator"]).await, app.user("streamer").await, app.user("bystander").await);
+    let colleague = app.user_with_roles("mod2", &["moderator"]).await;
     fund(&app, &moderator, 1000).await;
-    let memo = serde_json::json!({ "channel_id": "c1" });
-    let gift = wallet.transfer_with_fee_hiding_recipient(moderator.id, streamer.id, 300, "live.gift", &key("gift"), memo).await.unwrap();
+    fund(&app, &bystander, 500).await;
+    let gift = wallet.transfer_with_fee_hiding_recipient(moderator.id, streamer.id, 300, "live.gift", &key("gift"), serde_json::json!({ "channel_id": "c1" })).await.unwrap();
     let streamer_id = streamer.id.to_string();
 
     // Their own wallet, through the staff tool, reads as it does for any payer.
-    let own = staff_view(&app, &moderator, &moderator).await;
+    let own = staff_view(&app, &moderator, &moderator).await.unwrap();
     let sent = own.iter().find(|entry| entry.id == gift.entry_id.to_string()).expect("the gift is in their history");
     assert!(sent.counterpart.as_option().is_none() && sent.counterpart_hidden);
     assert!(!serde_json::to_string(&own).unwrap().contains(&streamer_id));
-    // The recipient's wallet does not show them their own gift.
-    let theirs = staff_view(&app, &moderator, &streamer).await;
-    assert!(theirs.iter().all(|entry| entry.id != gift.entry_id.to_string()), "the gift would say whose channel it was");
-    // ...nor its refund.
+    let mine: GetUserWalletResponse = app.call(&format!("{ADMIN}/GetUserWallet"), Some(&moderator), &GetUserWalletRequest { user_id: moderator.id.to_string(), ..Default::default() }).await.unwrap();
+    assert_eq!(mine.balance.as_option().unwrap().coins, 700);
+
+    // Probing other wallets answers the same for the account they paid and for anyone else.
+    let probe = |owner: &TestUser| {
+        let (app, moderator, user_id) = (&app, &moderator, owner.id.to_string());
+        async move {
+            let page = ListUserLedgerEntriesRequest { user_id: user_id.clone(), page: PageRequest { limit: 1, ..Default::default() }.into(), ..Default::default() };
+            let entries = app.call::<_, ListUserLedgerEntriesResponse>(&format!("{ADMIN}/ListUserLedgerEntries"), Some(moderator), &page).await.unwrap_err();
+            let wallet = app.call::<_, GetUserWalletResponse>(&format!("{ADMIN}/GetUserWallet"), Some(moderator), &GetUserWalletRequest { user_id, ..Default::default() }).await.unwrap_err();
+            [(entries.code, entries.reason, entries.message), (wallet.code, wallet.reason, wallet.message)]
+        }
+    };
+    let paid = probe(&streamer).await;
+    assert_eq!((paid[0].0.as_str(), paid[0].1.as_str()), ("permission_denied", "HIDDEN_PARTY"));
+    assert_eq!(paid[1].1, "HIDDEN_PARTY");
+    assert_eq!(probe(&bystander).await, paid, "the refusal does not tell the paid account from any other");
     ledger::refund(&app.core, gift.entry_id, "live.gift.returned").await.unwrap();
-    assert!(staff_view(&app, &moderator, &streamer).await.is_empty());
-    assert!(!serde_json::to_string(&staff_view(&app, &moderator, &moderator).await).unwrap().contains(&streamer_id));
+    assert_eq!(probe(&streamer).await, paid, "nor does it change once the gift is refunded");
+    assert!(!serde_json::to_string(&staff_view(&app, &moderator, &moderator).await.unwrap()).unwrap().contains(&streamer_id));
 
     // Any other staff member still traces both sides.
-    let traced = staff_view(&app, &colleague, &moderator).await;
+    let traced = staff_view(&app, &colleague, &moderator).await.unwrap();
     assert!(traced.iter().any(|entry| entry.counterpart.as_option().is_some_and(|c| c.id == streamer_id) && entry.counterpart_hidden));
-    assert_eq!(staff_view(&app, &colleague, &streamer).await.len(), 2, "the gift and its refund");
+    assert_eq!(staff_view(&app, &colleague, &streamer).await.unwrap().len(), 2, "the gift and its refund");
 }
 
-async fn staff_view(app: &tokuly_testkit::TestApp, caller: &tokuly_testkit::TestUser, owner: &tokuly_testkit::TestUser) -> Vec<LedgerEntry> {
+async fn staff_view(app: &tokuly_testkit::TestApp, caller: &TestUser, owner: &TestUser) -> Result<Vec<LedgerEntry>, tokuly_testkit::RpcError> {
     let request = ListUserLedgerEntriesRequest { user_id: owner.id.to_string(), ..Default::default() };
-    let response: ListUserLedgerEntriesResponse = app.call(&format!("{ADMIN}/ListUserLedgerEntries"), Some(caller), &request).await.unwrap();
-    response.entries
+    let response: ListUserLedgerEntriesResponse = app.call(&format!("{ADMIN}/ListUserLedgerEntries"), Some(caller), &request).await?;
+    Ok(response.entries)
 }

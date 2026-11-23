@@ -104,12 +104,6 @@ impl EntryRow {
         self.hidden_user_id.is_some_and(|hidden| hidden != viewer)
     }
 
-    /// Whether `user_id` is a party of this entry from whom its other party
-    /// is hidden (the payer of a gift to a channel).
-    fn keeps_party_from(&self, user_id: Uuid) -> bool {
-        self.other_party(user_id).is_some() && self.counterpart_hidden(user_id)
-    }
-
     /// The entry's payer and recipient as `viewer` may know them.
     pub(crate) fn parties_for(&self, viewer: Uuid) -> (Option<Uuid>, Option<Uuid>) {
         let shown = |party: Option<Uuid>| party.filter(|party| !self.hides(*party, viewer));
@@ -176,8 +170,10 @@ impl Scope {
 
 /// Up to `limit` entries of `user_id`'s history that touched the balances in
 /// `scope`, newest first, starting below position `before` (`None` = from
-/// the newest).
-pub(crate) async fn fetch_entries(db: &sqlx::PgPool, user_id: Uuid, scope: Scope, before: Option<i64>, limit: i64) -> AppResult<Vec<EntryRow>> {
+/// the newest). With `kept_from`, entries in which that user is a party and
+/// the other party is hidden from them are left out, inside the query, so a
+/// page stays full and its cursor comes from rows that are returned.
+pub(crate) async fn fetch_entries(db: &sqlx::PgPool, user_id: Uuid, scope: Scope, before: Option<i64>, limit: i64, kept_from: Option<Uuid>) -> AppResult<Vec<EntryRow>> {
     // One index range scan per account (`wallet_postings_account`), newest
     // first, merged. An entry appears once, at its last posting within the
     // scope — the NOT EXISTS skips any earlier posting of the same entry.
@@ -189,12 +185,16 @@ pub(crate) async fn fetch_entries(db: &sqlx::PgPool, user_id: Uuid, scope: Scope
                WHERE $4 AND c.account = $1 AND c.id < $3
                  AND NOT EXISTS (SELECT 1 FROM wallet_postings later
                                  WHERE later.entry_id = c.entry_id AND later.id > c.id AND (later.account = $1 OR ($5 AND later.account = $2)))
+                 AND ($7::uuid IS NULL OR NOT EXISTS (SELECT 1 FROM wallet_entries x
+                                 WHERE x.id = c.entry_id AND x.hidden_user_id IS NOT NULL AND x.hidden_user_id <> $7 AND $7 IN (x.from_user_id, x.to_user_id)))
                ORDER BY c.id DESC LIMIT $6)
              UNION ALL
              (SELECT n.id AS position, n.entry_id FROM wallet_postings n
                WHERE $5 AND n.account = $2 AND n.id < $3
                  AND NOT EXISTS (SELECT 1 FROM wallet_postings later
                                  WHERE later.entry_id = n.entry_id AND later.id > n.id AND (later.account = $2 OR ($4 AND later.account = $1)))
+                 AND ($7::uuid IS NULL OR NOT EXISTS (SELECT 1 FROM wallet_entries x
+                                 WHERE x.id = n.entry_id AND x.hidden_user_id IS NOT NULL AND x.hidden_user_id <> $7 AND $7 IN (x.from_user_id, x.to_user_id)))
                ORDER BY n.id DESC LIMIT $6)
          )
          SELECT ",
@@ -212,6 +212,7 @@ pub(crate) async fn fetch_entries(db: &sqlx::PgPool, user_id: Uuid, scope: Scope
     .bind(scope.coins)
     .bind(scope.earnings)
     .bind(limit)
+    .bind(kept_from)
     .fetch_all(db)
     .await?)
 }
@@ -242,7 +243,7 @@ impl Wallet {
     /// One page of `user_id`'s history within `scope`, newest first, worded
     /// for `locale`.
     pub(crate) async fn list_entries(&self, user_id: Uuid, reader: Reader, scope: Scope, page: &Page, locale: &str) -> AppResult<(Vec<LedgerEntry>, PageInfo)> {
-        let mut rows = fetch_entries(&self.core.db, user_id, scope, page.decode()?, page.fetch()).await?;
+        let mut rows = fetch_entries(&self.core.db, user_id, scope, page.decode()?, page.fetch(), None).await?;
         let info = page.finish(&mut rows, |row| row.position);
         Ok((self.entries_to_proto(&rows, user_id, reader, locale).await?, info))
     }
@@ -250,18 +251,42 @@ impl Wallet {
     /// One page of `user_id`'s history as staff member `staff_id` sees it
     /// (`Reader::Staff`: every party named) — except what the staff member
     /// would learn about a payment of their own that hides its other party.
-    /// Their own wallet reads as it does for its owner, and in anyone
-    /// else's wallet the entries of such a payment are left out: finding
-    /// their gift there would tell them whose channel it went to.
+    /// Their own wallet reads as it does for its owner; other wallets are
+    /// refused to them altogether when they ever paid a hidden recipient
+    /// (the caller checks [`Self::ensure_staff_may_look_into`] first), and
+    /// the entries of such a payment are left out besides.
     pub(crate) async fn list_entries_for_staff(&self, staff_id: Uuid, user_id: Uuid, scope: Scope, page: &Page, locale: &str) -> AppResult<(Vec<LedgerEntry>, PageInfo)> {
         if staff_id == user_id {
             return self.list_entries(user_id, Reader::Owner, scope, page, locale).await;
         }
-        let mut rows = fetch_entries(&self.core.db, user_id, scope, page.decode()?, page.fetch()).await?;
-        // The cursor is taken before filtering, so the next page starts after every row read.
+        let mut rows = fetch_entries(&self.core.db, user_id, scope, page.decode()?, page.fetch(), Some(staff_id)).await?;
         let info = page.finish(&mut rows, |row| row.position);
-        rows.retain(|row| !row.keeps_party_from(staff_id));
         Ok((self.entries_to_proto(&rows, user_id, Reader::Staff, locale).await?, info))
+    }
+
+    /// Whether staff member `staff_id` may look into `user_id`'s wallet
+    /// (`GetUserWallet`, `ListUserLedgerEntries`): `HIDDEN_PARTY` when they
+    /// ever paid a hidden recipient (a gift to a channel), refunded or not,
+    /// and it is not their own wallet. The account they paid would show the
+    /// gift in its history and balance; refusing only that account would
+    /// itself say which one it is. So the refusal does not depend on the
+    /// account asked about, only on the caller: another staff member looks
+    /// into wallets for them.
+    pub(crate) async fn ensure_staff_may_look_into(&self, staff_id: Uuid, user_id: Uuid) -> AppResult<()> {
+        if staff_id == user_id {
+            return Ok(());
+        }
+        let paid_hidden: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM wallet_entries WHERE from_user_id = $1 AND kind = 'transfer' AND hidden_user_id IS NOT NULL)")
+            .bind(staff_id)
+            .fetch_one(&self.core.db)
+            .await?;
+        ensure!(
+            !paid_hidden,
+            denied,
+            "HIDDEN_PARTY",
+            "you have paid an account that is hidden from you; another staff member looks into wallets for you"
+        );
+        Ok(())
     }
 
     /// One entry as `user_id` sees it; `None` when it does not exist.

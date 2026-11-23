@@ -564,15 +564,18 @@ service WalletAdminService {
   rpc MarkPayoutPaid(MarkPayoutPaidRequest) returns (MarkPayoutPaidResponse);
 
   // A user's wallet at a glance, for support.
-  // Errors: USER_NOT_FOUND.
+  // Errors: USER_NOT_FOUND, HIDDEN_PARTY (see ListUserLedgerEntries).
   rpc GetUserWallet(GetUserWalletRequest) returns (GetUserWalletResponse);
   // A user's ledger history, newest first. Unlike the user's own view it
   // names both parties of every transfer, also a counterpart that is hidden
   // from the user (`LedgerEntry.counterpart_hidden`) — but not to the staff
-  // member it is hidden from: their own wallet reads as it does for them,
-  // and the entries of their own payments to a hidden recipient are left
-  // out of anyone else's (a page may then hold fewer entries than asked).
-  // Errors: USER_NOT_FOUND, INVALID_CURSOR.
+  // member it is hidden from. Their own wallet reads as it does for them.
+  // A staff member who ever paid a hidden recipient (a gift to a channel),
+  // refunded or not, is refused every other wallet with HIDDEN_PARTY, here
+  // and in GetUserWallet: the account they paid would show the gift, and a
+  // refusal of that account alone would name it. Another staff member looks
+  // into wallets for them.
+  // Errors: USER_NOT_FOUND, HIDDEN_PARTY, INVALID_CURSOR.
   rpc ListUserLedgerEntries(ListUserLedgerEntriesRequest) returns (ListUserLedgerEntriesResponse);
 
   // Adds or removes coins or earnings by hand (role `admin`). Recorded in

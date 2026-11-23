@@ -481,6 +481,8 @@ export default {
     PAYOUT_NOT_APPROVED: "承認済みの申請だけを支払い済みにできます",
     SELF_REVIEW: "自分の出金申請は審査できません",
     SELF_ADJUSTMENT: "自分の残高は調整できません",
+    HIDDEN_PARTY:
+      "あなたは匿名の受け取り先に支払ったことがあるため、ほかの人のウォレットは見られません。別のスタッフに依頼してください",
     ACCOUNT_SUSPENDED: "申請者のアカウントは利用停止中です",
     REVIEW_NOTE_REQUIRED: "却下の理由を入力してください",
     REVIEW_NOTE_TOO_LONG: "メッセージは500文字以内にしてください",
