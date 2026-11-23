@@ -79,7 +79,7 @@ impl AccountService for Identity {
         let school_name = request.school_name.map(users::validate_school_name).transpose()?;
         let handle = match request.handle {
             Some(h) => {
-                let handle = users::validate_handle(h)?;
+                let handle = users::handle_error(self.claimable_handle(h))?;
                 if handle == current.handle {
                     None
                 } else {

@@ -115,7 +115,9 @@ message CheckHandleResponse {
   bool available = 1;
   // Normalized form the server would store.
   string normalized = 2;
-  // INVALID_FORMAT | TAKEN | RESERVED when not available.
+  // INVALID_FORMAT | TAKEN | RESERVED when not available. RESERVED covers
+  // the reserved words and anything that passes for Tokuly or its staff once
+  // look-alike characters are folded (`t0kuly`, `tokuly_official`, `adm1n`).
   string reason = 3;
 }
 

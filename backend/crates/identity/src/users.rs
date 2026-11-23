@@ -365,8 +365,49 @@ pub fn normalize_handle(input: &str) -> Result<String, &'static str> {
     Ok(handle)
 }
 
+/// A handle someone may take as their own (or for a channel, community or
+/// bot): [`normalize_handle`] plus no passing for Tokuly or its staff. Any
+/// handle that reads "tokuly" once look-alikes are folded (`t0kuly`,
+/// `tokuly_official`) is reserved, and so are the reserved words spelled
+/// with look-alikes (`adm1n`, `supp0rt`). Lookups of existing handles use
+/// [`normalize_handle`] and are not affected.
+pub fn claimable_handle(input: &str) -> Result<String, &'static str> {
+    let handle = normalize_handle(input)?;
+    let folded = fold_lookalikes(&handle);
+    if folded.contains("tokuly") || RESERVED_HANDLES.iter().any(|word| fold_lookalikes(word) == folded) {
+        return Err("RESERVED");
+    }
+    Ok(handle)
+}
+
+/// A handle as it reads at a glance: separators dropped, digits and letters
+/// that pass for one another made the same (`0`/`o`, `1`/`i`/`l`, `rn`/`m`...).
+fn fold_lookalikes(handle: &str) -> String {
+    let folded: String = handle
+        .chars()
+        .filter(|c| !matches!(c, '_' | '-'))
+        .map(|c| match c {
+            '0' => 'o',
+            '1' | 'i' => 'l',
+            '3' => 'e',
+            '4' => 'a',
+            '5' => 's',
+            '7' => 't',
+            '8' => 'b',
+            '9' => 'g',
+            c => c,
+        })
+        .collect();
+    folded.replace("rn", "m").replace("vv", "w")
+}
+
 pub fn validate_handle(input: &str) -> AppResult<String> {
-    normalize_handle(input).map_err(|reason| match reason {
+    handle_error(claimable_handle(input))
+}
+
+/// The API error for a handle that [`claimable_handle`] refused.
+pub(crate) fn handle_error(result: Result<String, &'static str>) -> AppResult<String> {
+    result.map_err(|reason| match reason {
         "RESERVED" => AppError::invalid("HANDLE_RESERVED", "this handle is reserved"),
         _ => AppError::invalid(
             "HANDLE_INVALID",
@@ -509,6 +550,31 @@ mod tests {
         assert_eq!(normalize_handle("has space"), Err("INVALID_FORMAT"));
         assert_eq!(normalize_handle("Admin"), Err("RESERVED"));
         assert_eq!(normalize_handle(&"a".repeat(25)), Err("INVALID_FORMAT"));
+    }
+
+    #[test]
+    fn handles_that_pass_for_tokuly_or_staff_are_reserved() {
+        for lookalike in [
+            "tokuly_official",
+            "t0kuly",
+            "tokuIy",
+            "toku-ly",
+            "the_tokuly_team",
+            "adm1n",
+            "ad_min",
+            "supp0rt",
+            "m0derator",
+            "5taff",
+            "0fficial",
+        ] {
+            assert_eq!(claimable_handle(lookalike), Err("RESERVED"), "{lookalike}");
+            assert_eq!(validate_handle(lookalike).unwrap_err().reason, "HANDLE_RESERVED", "{lookalike}");
+        }
+        for fine in ["toku_zou", "badminton", "staffordshire", "kaito_2009", "admiral"] {
+            assert_eq!(claimable_handle(fine).as_deref(), Ok(fine), "{fine}");
+        }
+        // Lookups of existing handles are not affected.
+        assert_eq!(normalize_handle("tokuly_official").as_deref(), Ok("tokuly_official"));
     }
 
     #[test]
