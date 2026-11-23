@@ -285,3 +285,61 @@ async fn without_a_provider_coins_cannot_be_bought() {
         assert_eq!((err.code.as_str(), err.reason.as_str()), ("unimplemented", "PURCHASES_UNAVAILABLE"));
     }
 }
+
+/// A provider whose checkouts take a moment to open, recording every
+/// checkout it opened and every one it was asked to void.
+#[derive(Default)]
+struct SlowPay {
+    opened: std::sync::Mutex<Vec<String>>,
+    voided: std::sync::Mutex<Vec<String>>,
+}
+
+#[async_trait::async_trait]
+impl tokuly_wallet::PaymentProvider for SlowPay {
+    fn name(&self) -> &'static str {
+        "slowpay"
+    }
+
+    async fn create_checkout(&self, _order: &tokuly_wallet::PurchaseOrder) -> tokuly_core::AppResult<tokuly_wallet::Checkout> {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let reference = format!("sp_{}", tokuly_core::ids::random_base62(12));
+        self.opened.lock().unwrap().push(reference.clone());
+        Ok(tokuly_wallet::Checkout { checkout_url: Some(format!("https://pay.example/{reference}")), reference, state: PaymentState::Pending })
+    }
+
+    async fn confirm(&self, _order: &tokuly_wallet::PurchaseOrder, _reference: &str, _client_proof: &str) -> tokuly_core::AppResult<PaymentState> {
+        Ok(PaymentState::Pending)
+    }
+
+    async fn cancel_checkout(&self, _order: &tokuly_wallet::PurchaseOrder, reference: &str) -> tokuly_core::AppResult<()> {
+        self.voided.lock().unwrap().push(reference.to_owned());
+        Ok(())
+    }
+}
+
+/// A client that retries StartPurchase while its first call is still
+/// opening the checkout must not end up with two payable checkouts for one
+/// purchase: money paid into the one the purchase does not remember would
+/// never become coins.
+#[tokio::test]
+async fn a_retry_during_checkout_leaves_one_payable_checkout() {
+    let (app, wallet) = app().await;
+    let slowpay = std::sync::Arc::new(SlowPay::default());
+    wallet.add_payment_provider(slowpay.clone());
+    let buyer = app.user("impatient").await;
+    let coins_500 = package(&app, "coins_500").await;
+    let retry_key = key("buy");
+
+    let (first, second) = tokio::join!(start(&app, &buyer, &coins_500.id, "slowpay", &retry_key), start(&app, &buyer, &coins_500.id, "slowpay", &retry_key));
+    let (first, second) = (first.unwrap().purchase.into_option().unwrap(), second.unwrap().purchase.into_option().unwrap());
+    assert_eq!(first.id, second.id, "one purchase");
+    assert_eq!(first.checkout_url, second.checkout_url, "both calls send the buyer to the same checkout");
+    let kept = provider_ref(&app, &first.id).await;
+    assert!(first.checkout_url.ends_with(&kept));
+    let opened = slowpay.opened.lock().unwrap().clone();
+    let voided = slowpay.voided.lock().unwrap().clone();
+    for reference in opened.iter().filter(|reference| **reference != kept) {
+        assert!(voided.contains(reference), "checkout {reference} was opened, forgotten and left payable");
+    }
+    assert!(!voided.contains(&kept));
+}
