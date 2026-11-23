@@ -53,7 +53,7 @@ Durable consumer `social`. Every handler is idempotent.
 | `friend_request_accepted` | the user who had asked | They are friends now (accept, crossed request, bump or invite completing a request). |
 | `friend_removed_user_id` | both sides | Unfriend, block of a friend, or the friend's account was deleted. A block between non-friends pushes nothing (blocks are silent). |
 | `bump` | both participants | A bump was recorded. |
-| `friends_bumped` | mutual friends of two friends who bumped | At most once per pair every 10 minutes, to at most 200 friends. |
+| `friends_bumped` | mutual friends of two friends who bumped | At most once per pair every 10 minutes, to at most 200 friends. Without `location`: either of the two may hide their position from the recipient (ghost mode). |
 | `buzz`, `knock` | the friend | Buzz / knock. |
 | `map_reaction` | each recipient | A map reaction was sent. Also stored until acknowledged. |
 | `map_view` | the viewed user | A friend opened their pin (the viewer is named only if they share views). |
@@ -83,7 +83,7 @@ Through `tokuly_core::outbound::activity`:
 | Kind | Who | Audience | Notes |
 |---|---|---|---|
 | `social.friend_added` | each of the two new friends | friends — private for a user whose friend list is visible to nobody | `with_user_ids = [the new friend]` |
-| `social.bumped` | each of two friends who bumped | friends | `with_user_ids = [the other]`, location of the bump, `data = { bump_id }` |
+| `social.bumped` | each of two friends who bumped | friends | `with_user_ids = [the other]`, `data = { bump_id }`. No location: ghost mode is the geo domain's to apply. |
 
 ## Public Rust API
 

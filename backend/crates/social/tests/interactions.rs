@@ -66,7 +66,10 @@ async fn two_friends_shaking_together_bump_once() {
 
     // Mutual friends are told "A and B bumped!"; other friends are not.
     match next_push(&mut mutual_devices).await {
-        Some(Push::FriendsBumped(pushed)) => assert_eq!(pushed.id, bump.id),
+        Some(Push::FriendsBumped(pushed)) => {
+            assert_eq!(pushed.id, bump.id);
+            assert!(pushed.location.is_unset(), "who bumped, not where (ghost mode may hide either of them from this friend)");
+        }
         other => panic!("expected a friends-bumped push, got {other:?}"),
     }
     assert!(pushes(&mut bystander_devices, QUIET).await.is_empty());
@@ -75,7 +78,7 @@ async fn two_friends_shaking_together_bump_once() {
     assert_eq!(told[0].data["body"]["ja"], "ありすさんとぼぶさんがBumpしたよ!");
     assert!(ctx.notifications_for(bystander.id, "social.friends_bumped").await.is_empty());
 
-    // Both get an inbox entry and an activity entry at the place of the bump.
+    // Both get an inbox entry and an activity entry, without the position.
     for (user, partner) in [(&alice, &bob), (&bob, &alice)] {
         let notices = ctx.notifications_for(user.id, "social.bump").await;
         assert_eq!(notices.len(), 1);
@@ -83,7 +86,7 @@ async fn two_friends_shaking_together_bump_once() {
         let activity = ctx.activities_of(user.id, "social.bumped").await;
         assert_eq!(activity.len(), 1);
         assert_eq!(activity[0].data["with_user_ids"], serde_json::json!([partner.id]));
-        assert!(activity[0].data["location"].is_array());
+        assert!(activity[0].data["location"].is_null(), "{}", activity[0].data);
     }
     let created = ctx.app.events("social.bump.created").await.into_iter().filter(|e| e.data["bump_id"] == bump.id.as_str()).count();
     assert_eq!(created, 1);

@@ -364,7 +364,11 @@ impl Social {
         }
         let bump = self.find_bump(bump_id).await?.ok_or_else(|| AppError::internal(anyhow::anyhow!("bump {bump_id} vanished after commit")))?;
         self.push_many([first, second], Push::Bump(Box::new(bump.clone()))).await;
-        self.push_many(audience, Push::FriendsBumped(Box::new(bump.clone()))).await;
+        // Mutual friends hear that the two met, not where: each of the two
+        // may be hiding their position from some of them (ghost mode), which
+        // only the geo domain knows about.
+        let announced = Bump { location: Default::default(), ..bump.clone() };
+        self.push_many(audience, Push::FriendsBumped(Box::new(announced))).await;
         Ok(bump)
     }
 
@@ -429,7 +433,8 @@ impl Social {
                         .subject(SubjectType::SUBJECT_TYPE_USER, partner_id)
                         .with([partner_id])
                         .path(format!("/u/{}", partner.handle))
-                        .at(bump.lat, bump.lng)
+                        // No `.at(...)`: the friends reading this may be
+                        // kept from the user's position by ghost mode.
                         .data(serde_json::json!({ "bump_id": bump.id })),
                 )
                 .await?;

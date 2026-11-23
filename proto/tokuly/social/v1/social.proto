@@ -566,6 +566,8 @@ message SocialEvent {
     string friend_removed_user_id = 3;
     Bump bump = 4;
     // A bump between two of the recipient's friends ("A and B bumped!").
+    // Carries no location: either of the two may hide their position from
+    // the recipient.
     Bump friends_bumped = 5;
     BuzzEvent buzz = 6;
     KnockEvent knock = 7;
