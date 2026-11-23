@@ -237,7 +237,7 @@ async fn totp_setup_then_sign_in_requires_code_and_recovery_code_works_once() {
     if let Err(err) = err {
         assert_eq!(err.reason, "INVALID_TOTP");
     }
-    let code = totp_now(&setup.secret);
+    let code = totp_at(&setup.secret, -1);
     let enabled: EnableTotpResponse = app.call("tokuly.identity.v1.AccountService/EnableTotp", Some(&user), &EnableTotpRequest { code, ..Default::default() }).await.unwrap();
     assert_eq!(enabled.recovery_codes.len(), 10);
     assert!(me(&app, &user).await.totp_enabled);
@@ -261,15 +261,66 @@ async fn totp_setup_then_sign_in_requires_code_and_recovery_code_works_once() {
 
 /// Current TOTP code for a base32 secret (RFC 6238, SHA-1, 30 s, 6 digits).
 fn totp_now(secret_base32: &str) -> String {
+    totp_at(secret_base32, 0)
+}
+
+/// The TOTP code `steps` time steps away from now (the server accepts one
+/// step of clock skew either way, and every step only once).
+fn totp_at(secret_base32: &str, steps: i64) -> String {
     use totp_rs::{Builder, Secret};
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
     Builder::new()
         .with_secret(Secret::try_from_base32(secret_base32).unwrap())
         .with_account_name("test".to_owned())
         .with_issuer(Some("Tokuly"))
         .build()
         .unwrap()
-        .generate_current()
+        .generate((now + steps * 30) as u64)
         .to_string()
+}
+
+/// Signs up a fresh account with TOTP turned on; returns its handle, its
+/// signed-in test user and the TOTP secret. Enabling spends the code of the
+/// previous time step, so the current one is still unused.
+async fn user_with_totp(app: &TestApp, prefix: &str) -> (String, TestUser, String) {
+    let tag = unique(prefix);
+    let auth: AuthResponse = app.call("tokuly.identity.v1.AuthService/SignUp", None, &sign_up_request(&tag)).await.unwrap();
+    let user_id: uuid::Uuid = auth.me.as_option().unwrap().user.as_option().unwrap().id.parse().unwrap();
+    let user = app.sign_in(user_id).await;
+    let setup: BeginTotpSetupResponse = app.call("tokuly.identity.v1.AccountService/BeginTotpSetup", Some(&user), &BeginTotpSetupRequest::default()).await.unwrap();
+    let _: EnableTotpResponse = app
+        .call("tokuly.identity.v1.AccountService/EnableTotp", Some(&user), &EnableTotpRequest { code: totp_at(&setup.secret, -1), ..Default::default() })
+        .await
+        .unwrap();
+    (tag, user, setup.secret)
+}
+
+async fn sign_in_with_code(app: &TestApp, identifier: &str, totp_code: String) -> Result<AuthResponse, tokuly_testkit::RpcError> {
+    app.call(
+        "tokuly.identity.v1.AuthService/SignIn",
+        None,
+        &SignInRequest { identifier: identifier.to_owned(), password: "correct horse battery".into(), totp_code, ..Default::default() },
+    )
+    .await
+}
+
+#[tokio::test]
+async fn a_totp_code_is_accepted_only_once() {
+    let app = app().await;
+    let (tag, user, secret) = user_with_totp(&app, "replay").await;
+
+    // RFC 6238 §5.2: a code that was seen once (shoulder-surfed, phished
+    // through a proxy) must not sign anyone in a second time.
+    let code = totp_now(&secret);
+    assert!(!sign_in_with_code(&app, &tag, code.clone()).await.unwrap().access_token.is_empty());
+    assert_eq!(sign_in_with_code(&app, &tag, code.clone()).await.unwrap_err().reason, "INVALID_TOTP", "the same code again");
+    let err = app
+        .call::<_, DisableTotpResponse>("tokuly.identity.v1.AccountService/DisableTotp", Some(&user), &DisableTotpRequest { code, ..Default::default() })
+        .await
+        .unwrap_err();
+    assert_eq!(err.reason, "INVALID_TOTP", "a spent code cannot turn two-step verification off either");
+    // The code of the next step is still good.
+    assert!(!sign_in_with_code(&app, &tag, totp_at(&secret, 1)).await.unwrap().access_token.is_empty());
 }
 
 #[tokio::test]

@@ -1,6 +1,14 @@
 //! TOTP two-factor authentication helpers.
+use std::time::Duration;
+
 use tokuly_core::{keys::Keys, prelude::*};
 use totp_rs::{Builder, Secret, Totp};
+
+use crate::Identity;
+
+/// How long a spent time step is remembered: a code is accepted from one
+/// step before its own until one step after, so 90 s at most.
+const SPENT_STEP_TTL: Duration = Duration::from_secs(120);
 
 fn build(secret_base32: &str, account: &str) -> AppResult<Totp> {
     let secret = Secret::try_from_base32(secret_base32)
@@ -22,11 +30,30 @@ pub fn generate(account: &str) -> AppResult<(String, String)> {
     Ok((secret, url))
 }
 
-/// Checks a 6-digit code against the secret (allowing one step of clock skew).
-pub fn check(secret_base32: &str, code: &str) -> bool {
+/// Checks a 6-digit code against the secret (allowing one step of clock
+/// skew); returns the time step it belongs to. Use
+/// [`Identity::accept_totp`], which also makes sure a code works only once.
+pub fn check(secret_base32: &str, code: &str) -> Option<u64> {
     let code: String = code.chars().filter(|c| c.is_ascii_digit()).collect();
-    code.len() == 6
-        && build(secret_base32, "account").is_ok_and(|totp| totp.check_current(&code).is_some())
+    if code.len() != 6 {
+        return None;
+    }
+    build(secret_base32, "account").ok()?.check_current(&code)
+}
+
+impl Identity {
+    /// Whether `code` is a valid, unspent TOTP code for `secret`, spending it
+    /// if so: RFC 6238 §5.2 — the same code is never accepted twice, so one
+    /// that was seen (over a shoulder, through a phishing proxy) is worthless.
+    pub(crate) async fn accept_totp(&self, user_id: Uuid, secret: &str, code: &str) -> AppResult<bool> {
+        let Some(step) = check(secret, code) else {
+            return Ok(false);
+        };
+        self.core
+            .cache
+            .set_nx(&format!("id:totp:spent:{user_id}:{step}"), "1", SPENT_STEP_TTL)
+            .await
+    }
 }
 
 /// Ten single-use recovery codes like `k3f9-x2mq`.
@@ -66,14 +93,14 @@ mod tests {
         let (secret, url) = generate("toku@example.com").unwrap();
         assert!(url.starts_with("otpauth://totp/") && url.contains("issuer=Tokuly"));
         let code = build(&secret, "x").unwrap().generate_current().to_string();
-        assert!(check(&secret, &code));
+        assert!(check(&secret, &code).is_some());
         assert!(
-            check(&secret, &format!("{} {}", &code[..3], &code[3..])),
+            check(&secret, &format!("{} {}", &code[..3], &code[3..])).is_some(),
             "spaces are tolerated"
         );
-        assert!(!check(&secret, "abcdef"));
+        assert!(check(&secret, "abcdef").is_none());
         let wrong = if code == "000000" { "111111" } else { "000000" };
-        assert!(!check(&secret, wrong));
+        assert!(check(&secret, wrong).is_none());
     }
 
     #[test]

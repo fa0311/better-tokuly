@@ -362,9 +362,10 @@ impl AuthService for Identity {
                     .totp_secret
                     .as_deref()
                     .and_then(|s| totp::open_secret(&core.keys, s));
-                let code_ok = secret
-                    .as_deref()
-                    .is_some_and(|s| totp::check(s, &req.totp_code));
+                let code_ok = match secret.as_deref() {
+                    Some(secret) => self.accept_totp(user.id, secret, &req.totp_code).await?,
+                    None => false,
+                };
                 if !code_ok {
                     // A recovery code works once.
                     let used: Option<Uuid> = sqlx::query_scalar(
