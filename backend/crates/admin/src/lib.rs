@@ -103,13 +103,62 @@ impl Admin {
     }
 
     /// First-deployment bootstrap: grants the `admin` role to the account
-    /// named by `TOKULY_ADMIN_USER`. The server calls this at startup and the
-    /// worker calls it whenever somebody signs up, so the owner of a fresh
-    /// deployment only has to create their account.
+    /// whose **verified** e-mail address is `TOKULY_ADMIN_USER`. The server
+    /// calls this at startup and the worker whenever somebody signs up or
+    /// confirms an address, so the owner of a fresh deployment only has to
+    /// create their account and open the verification link.
+    ///
+    /// It happens once per deployment and address, recorded in the audit log
+    /// (`admin.bootstrapped`): whoever holds the address later (after the
+    /// owner moved to another one) is never promoted by it, and a demoted
+    /// bootstrap admin is not promoted again at the next start. A handle is
+    /// refused: an unverified name would go to whoever claimed it first.
     ///
     /// Returns `true` when the role was granted by this call.
     pub async fn grant_bootstrap_admin(&self) -> AppResult<bool> {
-        self.ensure_admin(&self.cfg.bootstrap_admin).await
+        let address = self.cfg.bootstrap_admin.trim().to_ascii_lowercase();
+        if address.is_empty() {
+            return Ok(false);
+        }
+        if !address.contains('@') || address.starts_with('@') {
+            tracing::warn!(value = %address, "TOKULY_ADMIN_USER must be an e-mail address; nobody is promoted");
+            return Ok(false);
+        }
+        // The record and the grant are one transaction: either the account is
+        // admin and that is on record, or neither (and a later call tries
+        // again). Everything here runs on that transaction's connection.
+        let mut tx = self.core.db.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
+            .bind(format!("admin.bootstrap:{address}"))
+            .execute(&mut *tx)
+            .await?;
+        let done: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM admin_audit_log WHERE target_type = 'bootstrap' AND target_id = $1 AND action = 'admin.bootstrapped')",
+        )
+        .bind(&address)
+        .fetch_one(&mut *tx)
+        .await?;
+        if done {
+            return Ok(false);
+        }
+        let owner: Option<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM users WHERE email = $1::citext AND email_verified_at IS NOT NULL AND deleted_at IS NULL AND banned_at IS NULL",
+        )
+        .bind(&address)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(owner) = owner else {
+            tracing::debug!("bootstrap admin: no verified account with that address yet");
+            return Ok(false);
+        };
+        audit::Audit::system("admin.bootstrapped")
+            .bootstrap(&address, owner)
+            .reason("first admin of this deployment, from TOKULY_ADMIN_USER")
+            .record(&mut *tx)
+            .await?;
+        let granted = self.grant_admin_on(&mut tx, owner, "bootstrap admin from server configuration").await?;
+        tx.commit().await?;
+        Ok(granted)
     }
 
     /// Grants the `admin` role to an existing account, identified by handle
@@ -123,23 +172,33 @@ impl Admin {
             return Ok(false);
         }
         let Some(user) = tokuly_identity::users::find_by_identifier(&self.core, identifier).await? else {
-            tracing::debug!(identifier, "bootstrap admin: no such account yet; it is promoted when it signs up");
+            tracing::debug!(identifier, "ensure admin: no such account");
             return Ok(false);
         };
-        if user.roles.iter().any(|r| r == "admin") {
+        self.ensure_admin_by_id(user.id).await
+    }
+
+    async fn ensure_admin_by_id(&self, user_id: Uuid) -> AppResult<bool> {
+        let mut tx = self.core.db.begin().await?;
+        let granted = self.grant_admin_on(&mut tx, user_id, "admin granted from the server (tokuly promote-admin)").await?;
+        tx.commit().await?;
+        Ok(granted)
+    }
+
+    /// Adds the `admin` role and its audit entry on `tx`; `false` when the
+    /// account already is an admin or is gone.
+    async fn grant_admin_on(&self, tx: &mut sqlx::PgConnection, user_id: Uuid, reason: &str) -> AppResult<bool> {
+        let Some((before, after)) = tokuly_identity::users::add_role(&mut *tx, user_id, "admin").await? else {
             return Ok(false);
-        }
-        let mut roles = user.roles.clone();
-        roles.push("admin".to_owned());
-        self.identity.set_roles(user.id, &roles).await?;
+        };
         audit::Audit::system("user.roles_changed")
-            .user(user.id)
-            .reason("bootstrap admin from server configuration")
-            .before(serde_json::json!({ "roles": user.roles }))
-            .after(serde_json::json!({ "roles": roles }))
-            .record(&self.core.db)
+            .user(user_id)
+            .reason(reason)
+            .before(serde_json::json!({ "roles": before }))
+            .after(serde_json::json!({ "roles": after }))
+            .record(&mut *tx)
             .await?;
-        tracing::info!(user_id = %user.id, handle = %user.handle, "bootstrap admin: admin role granted");
+        tracing::info!(%user_id, "admin role granted");
         Ok(true)
     }
 }

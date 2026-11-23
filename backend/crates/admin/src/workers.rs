@@ -2,7 +2,7 @@
 //!
 //! - an event consumer filing reports into the moderation queue, erasing
 //!   personal data of deleted accounts and promoting the configured
-//!   first-deployment admin when that account signs up;
+//!   first-deployment admin when that address is verified;
 //! - the `admin.announcement.broadcast` job;
 //! - a once-a-minute timer that lifts expired suspensions and queues the
 //!   broadcast of announcements whose publish time has come.
@@ -17,7 +17,7 @@ use tokuly_core::{
 use crate::{
     Admin,
     announcements::{BROADCAST_JOB, BroadcastJob},
-    events::{REPORT_CREATED, USER_CREATED, USER_DELETED},
+    events::{REPORT_CREATED, USER_CREATED, USER_DELETED, USER_EMAIL_VERIFIED},
 };
 
 /// Durable consumer name on the `EVENTS` stream.
@@ -31,7 +31,7 @@ impl Admin {
     pub async fn handle_event(&self, event: Event) -> AppResult<()> {
         match event.topic.as_str() {
             REPORT_CREATED => self.on_report_created(&event).await,
-            USER_CREATED => self.grant_bootstrap_admin().await.map(drop),
+            USER_CREATED | USER_EMAIL_VERIFIED => self.grant_bootstrap_admin().await.map(drop),
             USER_DELETED => self.on_user_deleted(&event).await,
             _ => Ok(()),
         }
@@ -60,7 +60,7 @@ impl Admin {
             core_events::consume(
                 admin.core.bus.clone(),
                 EVENT_CONSUMER,
-                &[REPORT_CREATED, USER_CREATED, USER_DELETED],
+                &[REPORT_CREATED, USER_CREATED, USER_EMAIL_VERIFIED, USER_DELETED],
                 ConsumeOptions::default(),
                 admin.core.shutdown.clone(),
                 move |event| {

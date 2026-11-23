@@ -3,9 +3,12 @@ use clap::Args;
 
 #[derive(Debug, Clone, Args)]
 pub struct AdminConfig {
-    /// Handle or email address of the account that runs this deployment. It
-    /// is given the `admin` role at startup or, when it does not exist yet,
-    /// the moment it signs up. Empty: nobody is promoted automatically.
+    /// E-mail address of the account that runs this deployment. The account
+    /// holding it is given the `admin` role once that address is verified
+    /// (at startup, or the moment it is), and only once per deployment and
+    /// address: whoever holds the address later is not promoted. A handle is
+    /// not accepted (whoever signed up first would hold it). Empty: nobody is
+    /// promoted automatically.
     #[arg(long, env = "TOKULY_ADMIN_USER", default_value = "")]
     pub bootstrap_admin: String,
 

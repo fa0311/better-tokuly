@@ -64,6 +64,20 @@ pub trait ProfileExtension: Send + Sync + 'static {
     async fn can_view(&self, _viewer: Uuid, _owner: Uuid) -> AppResult<bool> {
         Ok(true)
     }
+
+    /// Those among `user_ids` that `viewer` may not see, the same rule as
+    /// [`Self::can_view`] for a whole list at once (profile viewers, search
+    /// results). The default asks `can_view` per user; a domain that can
+    /// answer with one query should override it.
+    async fn hidden_among(&self, viewer: Uuid, user_ids: &[Uuid]) -> AppResult<std::collections::HashSet<Uuid>> {
+        let mut hidden = std::collections::HashSet::new();
+        for &user_id in user_ids {
+            if user_id != viewer && !self.can_view(viewer, user_id).await? {
+                hidden.insert(user_id);
+            }
+        }
+        Ok(hidden)
+    }
 }
 
 pub struct IdentityInner {

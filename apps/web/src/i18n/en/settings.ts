@@ -249,6 +249,7 @@ export default {
         PASSWORD_CHANGED: "Password changed",
         PASSWORD_RESET: "Password reset",
         EMAIL_CHANGED: "Email changed",
+        EMAIL_CHANGE_REVERTED: "Email change undone",
         PASSKEY_ADDED: "Passkey added",
         PASSKEY_REMOVED: "Passkey removed",
         TOTP_ENABLED: "Two-step verification turned on",

@@ -245,6 +245,7 @@ export default {
         PASSWORD_CHANGED: "パスワードを変更しました",
         PASSWORD_RESET: "パスワードをリセットしました",
         EMAIL_CHANGED: "メールアドレスを変更しました",
+        EMAIL_CHANGE_REVERTED: "メールアドレスの変更を取り消しました",
         PASSKEY_ADDED: "パスキーを追加しました",
         PASSKEY_REMOVED: "パスキーを削除しました",
         TOTP_ENABLED: "2段階認証をオンにしました",

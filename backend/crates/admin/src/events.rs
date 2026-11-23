@@ -8,8 +8,9 @@
 //!
 //! Consumed:
 //! - [`REPORT_CREATED`] — [`ReportCreated`], from the engagement domain.
-//! - [`USER_CREATED`], from identity: the first-deployment admin may have
-//!   just signed up (the payload is not needed).
+//! - [`USER_CREATED`] and [`USER_EMAIL_VERIFIED`], from identity: the
+//!   first-deployment admin may have just signed up or confirmed the
+//!   address (the payload is not needed).
 //! - [`USER_DELETED`] — [`UserRef`], from identity.
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -18,6 +19,7 @@ pub const CONTENT_REMOVED: &str = "admin.content.removed";
 pub const REPORT_RESOLVED: &str = "admin.report.resolved";
 pub const REPORT_CREATED: &str = "engagement.report.created";
 pub const USER_CREATED: &str = "identity.user.created";
+pub const USER_EMAIL_VERIFIED: &str = "identity.user.email_verified";
 pub const USER_DELETED: &str = "identity.user.deleted";
 
 /// A moderator took a piece of content down.

@@ -1,7 +1,16 @@
 import { createHmac } from "node:crypto";
 import { crc32, deflateSync } from "node:zlib";
 import type { APIRequestContext, Page } from "@playwright/test";
-import { type Account, expect as baseExpect, createAccount, PASSWORD, rpc, test } from "./support";
+import {
+  type Account,
+  expect as baseExpect,
+  createAccount,
+  mailedVerificationToken,
+  mailpitIsUp,
+  PASSWORD,
+  rpc,
+  test,
+} from "./support";
 
 // These flows hash passwords, process images and reload pages; on a busy
 // machine that takes a while, so they get more room than the defaults.
@@ -11,9 +20,6 @@ const expect = baseExpect.configure({ timeout: 25_000 });
 const AUTH = "tokuly.identity.v1.AuthService";
 const ACCOUNT = "tokuly.identity.v1.AccountService";
 const FRIENDS = "tokuly.social.v1.FriendService";
-
-/** Where the development stack delivers mail (Mailpit); tests that read mail skip without it. */
-const MAILPIT = process.env.TOKULY_MAILPIT_URL ?? "http://127.0.0.1:58025";
 
 /** From this width the section list sits beside the open section. */
 const isWide = (page: Page) => (page.viewportSize()?.width ?? 0) >= 1024;
@@ -73,36 +79,6 @@ function png(width: number, height: number): Buffer {
     chunk("IDAT", deflateSync(pixels)),
     chunk("IEND", Buffer.alloc(0)),
   ]);
-}
-
-async function mailpitIsUp(request: APIRequestContext): Promise<boolean> {
-  try {
-    return (await request.get(`${MAILPIT}/api/v1/info`, { timeout: 3000 })).ok();
-  } catch {
-    return false;
-  }
-}
-
-/** The token of the newest verification link mailed to `to`. */
-async function mailedVerificationToken(request: APIRequestContext, to: string): Promise<string> {
-  let token = "";
-  await expect(async () => {
-    const found = (await (
-      await request.get(`${MAILPIT}/api/v1/search`, { params: { query: `to:${to}`, limit: 5 } })
-    ).json()) as { messages: { ID: string }[] };
-    for (const { ID } of found.messages) {
-      const message = (await (await request.get(`${MAILPIT}/api/v1/message/${ID}`)).json()) as {
-        Text?: string;
-      };
-      const link = /\/verify-email\?token=([\w.~%-]+)/.exec(message.Text ?? "");
-      if (link?.[1]) {
-        token = decodeURIComponent(link[1]);
-        return;
-      }
-    }
-    expect(token, `a verification mail to ${to}`).not.toBe("");
-  }).toPass({ timeout: 20_000 });
-  return token;
 }
 
 /**
@@ -337,6 +313,10 @@ test("a new email address takes over once its verification link is opened", asyn
 }) => {
   test.skip(!(await mailpitIsUp(request)), "needs the development mail catcher (Mailpit)");
   const newEmail = `new-${me.handle}@e2e.tokuly.test`;
+  // Only a verified address is offered an undo when the account moves away.
+  await rpc(request, `${AUTH}/VerifyEmail`, {
+    token: await mailedVerificationToken(request, me.email),
+  });
   await page.goto("/settings/account");
   await page.getByRole("button", { name: "メールアドレスを変える" }).click();
   const dialog = page.getByRole("dialog", { name: "メールアドレスを変える" });
@@ -353,12 +333,40 @@ test("a new email address takes over once its verification link is opened", asyn
   // Until the link is opened the old address stays.
   await expect(page.getByTestId("account-email")).toHaveText(me.email);
 
-  await rpc(request, `${AUTH}/VerifyEmail`, {
-    token: await mailedVerificationToken(request, newEmail),
-  });
-  await page.reload();
+  // Opened in this browser, where the account is signed in: this session
+  // stays (every other device is signed out by the change).
+  // The link waits for a press (mail scanners open links by themselves).
+  const change = await mailedVerificationToken(request, newEmail);
+  await page.goto(`/verify-email?token=${encodeURIComponent(change)}`);
+  await page.getByRole("button", { name: "メールアドレスを確認する" }).click();
+  await expect(page.getByText("メールアドレスを確認しました！")).toBeVisible();
+  await page.goto("/settings/account");
   await expect(page.getByTestId("account-email")).toHaveText(newEmail);
   await expect(page.getByText("確認済み", { exact: true })).toBeVisible();
+
+  // The old address is told, and its link moves the account back, signing out everywhere.
+  const undo = await mailedVerificationToken(
+    request,
+    me.email,
+    "メールアドレスが変更されました",
+    "undo-email-change",
+  );
+  await page.goto(`/undo-email-change?token=${encodeURIComponent(undo)}`);
+  await expect(page.getByText("メールアドレスを元に戻す？")).toBeVisible();
+  // Opening the page did nothing yet.
+  const unchanged = await rpc<{ me: { email: string } }>(request, `${AUTH}/SignIn`, {
+    identifier: me.handle,
+    password: PASSWORD,
+  });
+  expect(unchanged.me.email).toBe(newEmail);
+  await page.getByRole("button", { name: "元のアドレスに戻す" }).click();
+  await expect(page.getByText("メールアドレスを元に戻したよ！")).toBeVisible();
+  await expect(page.getByRole("link", { name: "パスワードを再設定する" })).toBeVisible();
+  const account = await rpc<{ me: { email: string } }>(request, `${AUTH}/SignIn`, {
+    identifier: me.handle,
+    password: PASSWORD,
+  });
+  expect(account.me.email).toBe(me.email);
 });
 
 test("the language switches at once, survives a reload and is stored on the account", async ({
@@ -407,8 +415,16 @@ test("two-step verification is set up with a code from the secret, and signing i
   await expect(setup.getByRole("img", { name: "認証アプリ用のQRコード" })).toBeVisible();
   const secret = ((await setup.getByTestId("totp-secret").textContent()) ?? "").trim();
 
-  // A wrong code is refused and the setup stays open.
+  // It takes the password, so a session alone cannot turn it on.
   const code = setup.getByLabel(/6桁のコードを入力/);
+  const password = setup.getByLabel("いまのパスワード");
+  await code.fill(totpCode(secret));
+  await password.fill("not the password");
+  await setup.getByRole("button", { name: "オンにする" }).click();
+  await expect(setup.getByText("いまのパスワードがちがいます")).toBeVisible();
+
+  // A wrong code is refused and the setup stays open.
+  await password.fill(PASSWORD);
   await code.fill(totpCode(secret) === "000000" ? "111111" : "000000");
   await setup.getByRole("button", { name: "オンにする" }).click();
   await expect(setup.getByText("認証コードがちがいます")).toBeVisible();
@@ -421,20 +437,26 @@ test("two-step verification is set up with a code from the secret, and signing i
   await expect(page.getByText("オン", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "オフにする" })).toBeVisible();
 
-  // Sign out, then back in: the password alone is no longer enough.
+  // Sign out, then back in: the password alone is no longer enough. Every
+  // code works once, so this takes the next one (the server allows a step of skew).
   await page.goto("/settings/data");
   await page.getByRole("button", { name: "このデバイスからログアウト" }).click();
   await expect(page).toHaveURL(/\/$/);
   await submitLoginForm(page, me.handle, PASSWORD);
   await expect(page.getByRole("heading", { name: "認証コードを入力" })).toBeVisible();
-  await page.getByLabel("認証コード").fill(totpCode(secret));
+  await page.getByLabel("認証コード").fill(totpCode(secret, Date.now() + 30_000));
   await page.getByRole("button", { name: "ログイン", exact: true }).click();
   await expect(page).toHaveURL(/\/map$/);
 });
 
 test("two-step verification is turned off with a current code", async ({ page, me, request }) => {
   const { secret } = await rpc<{ secret: string }>(request, `${ACCOUNT}/BeginTotpSetup`, {}, me);
-  await rpc(request, `${ACCOUNT}/EnableTotp`, { code: totpCode(secret) }, me);
+  await rpc(
+    request,
+    `${ACCOUNT}/EnableTotp`,
+    { code: totpCode(secret), currentPassword: PASSWORD },
+    me,
+  );
 
   await page.goto("/settings/security");
   await page.getByRole("button", { name: "オフにする" }).click();
@@ -443,7 +465,8 @@ test("two-step verification is turned off with a current code", async ({ page, m
   await dialog.getByRole("button", { name: "オフにする" }).click();
   await expect(dialog.getByText("認証コードがちがいます")).toBeVisible();
 
-  await dialog.getByLabel("認証コード").fill(totpCode(secret));
+  // The code that turned it on is spent; the next one is good.
+  await dialog.getByLabel("認証コード").fill(totpCode(secret, Date.now() + 30_000));
   await dialog.getByRole("button", { name: "オフにする" }).click();
   await expect(toast(page, "2段階認証をオフにしました")).toBeVisible();
   await expect(page.getByRole("button", { name: "オンにする" })).toBeVisible();
@@ -470,6 +493,11 @@ test("a passkey is added with a name, listed, and removed", async ({ page, me })
   await page.getByRole("button", { name: "パスキーを追加" }).click();
   const dialog = page.getByRole("dialog", { name: "パスキーを追加" });
   await dialog.getByLabel("パスキーのなまえ").fill("テスト用のキー");
+  // A new way to sign in takes the password, not just this session.
+  await dialog.getByLabel("いまのパスワード").fill("not the password");
+  await dialog.getByRole("button", { name: "登録する" }).click();
+  await expect(dialog.getByText("いまのパスワードがちがいます")).toBeVisible();
+  await dialog.getByLabel("いまのパスワード").fill(PASSWORD);
   await dialog.getByRole("button", { name: "登録する" }).click();
   await expect(toast(page, "パスキーを追加しました！")).toBeVisible();
   await expect(page.getByRole("main").getByText("テスト用のキー")).toBeVisible();

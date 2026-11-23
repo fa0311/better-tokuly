@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { identity } from "@tokuly/api";
+import { errorReason, type identity } from "@tokuly/api";
 import { Copy, Download, ShieldCheck, ShieldOff } from "lucide-react";
 import QRCode from "qrcode";
 import { type FormEvent, useState } from "react";
@@ -12,6 +12,7 @@ import { Skeleton } from "#/components/ui/page";
 import { accountClient } from "#/lib/api";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { PasswordField } from "../account/password-field";
 import { keys, refreshMe } from "../data";
 import { Group, StateChip } from "../shell/settings-page";
 
@@ -54,7 +55,7 @@ export function TotpCard({ me }: { me: identity.Me }) {
       <p className="mt-3 text-sm leading-relaxed text-ink-soft">
         {me.totpEnabled ? t("security.totp.onHint") : t("security.totp.offHint")}
       </p>
-      {dialog === "setup" && <TotpSetupDialog onClose={() => setDialog(null)} />}
+      {dialog === "setup" && <TotpSetupDialog me={me} onClose={() => setDialog(null)} />}
       {dialog === "disable" && <TotpDisableDialog onClose={() => setDialog(null)} />}
     </Group>
   );
@@ -63,11 +64,14 @@ export function TotpCard({ me }: { me: identity.Me }) {
 /** Keeps a code field to what a code can be: digits, optionally spaced. */
 const digitsOnly = (value: string) => value.replace(/[^\d\s]/g, "").slice(0, 7);
 
-function TotpSetupDialog({ onClose }: { onClose(): void }) {
+function TotpSetupDialog({ me, onClose }: { me: identity.Me; onClose(): void }) {
   const { t } = useTranslation(["settings", "common"]);
   const queryClient = useQueryClient();
   const [code, setCode] = useState("");
   const [codeError, setCodeError] = useState<string | null>(null);
+  // Turning this on takes the password, so a session alone cannot lock the account.
+  const [password, setPassword] = useState("");
+  const [passwordError, setPasswordError] = useState<string | null>(null);
   const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
 
   // Starting the setup creates the secret; it stays valid for ten minutes.
@@ -90,18 +94,23 @@ function TotpSetupDialog({ onClose }: { onClose(): void }) {
   });
 
   const enable = useMutation({
-    mutationFn: () => accountClient().enableTotp({ code }),
+    mutationFn: () => accountClient().enableTotp({ code, currentPassword: password }),
     onSuccess: async (response) => {
       setRecoveryCodes(response.recoveryCodes);
       void queryClient.invalidateQueries({ queryKey: keys.securityEvents });
       await refreshMe().catch(() => {});
     },
-    onError: (error) => setCodeError(errorMessage(error)),
+    onError: (error) => {
+      if (errorReason(error) === "INVALID_CREDENTIALS")
+        setPasswordError(t("settings:account.password.wrongCurrent"));
+      else setCodeError(errorMessage(error));
+    },
   });
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
     setCodeError(null);
+    setPasswordError(null);
     enable.mutate();
   };
   const copySecret = async () => {
@@ -175,6 +184,16 @@ function TotpSetupDialog({ onClose }: { onClose(): void }) {
             placeholder="123456"
             required
           />
+          {me.hasPassword && (
+            <PasswordField
+              label={t("settings:account.password.current")}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              error={passwordError ?? undefined}
+              autoComplete="current-password"
+              required
+            />
+          )}
           <div className="flex justify-end gap-2">
             <Button variant="ghost" onClick={onClose} disabled={enable.isPending}>
               {t("common:actions.cancel")}

@@ -25,12 +25,22 @@ service AuthService {
 
   // Passkeys (WebAuthn). Option/response payloads are the standard WebAuthn
   // JSON objects, passed through as strings.
+  //
+  // BeginPasskeyRegistration: INVALID_CREDENTIALS (wrong `current_password`),
+  // TOO_MANY_PASSKEYS, RATE_LIMITED.
   rpc BeginPasskeyRegistration(BeginPasskeyRegistrationRequest) returns (BeginPasskeyRegistrationResponse);
   rpc FinishPasskeyRegistration(FinishPasskeyRegistrationRequest) returns (FinishPasskeyRegistrationResponse);
   rpc BeginPasskeySignIn(BeginPasskeySignInRequest) returns (BeginPasskeySignInResponse);
   rpc FinishPasskeySignIn(FinishPasskeySignInRequest) returns (AuthResponse);
 
   rpc RequestEmailVerification(RequestEmailVerificationRequest) returns (RequestEmailVerificationResponse);
+  // Opens a mailed link: confirms an address, completes an address change,
+  // or undoes one. A completed change signs out every other device and voids
+  // pending reset links; when the previous address was verified it is mailed
+  // an undo link (7 days, once) and stays reserved for it until then
+  // (sign-up and ChangeEmail treat it as taken). The undo restores the
+  // address with its original verification. TOKEN_INVALID, EMAIL_TAKEN (the
+  // link stays usable).
   rpc VerifyEmail(VerifyEmailRequest) returns (VerifyEmailResponse);
   rpc RequestPasswordReset(RequestPasswordResetRequest) returns (RequestPasswordResetResponse);
   rpc ResetPassword(ResetPasswordRequest) returns (ResetPasswordResponse);
@@ -41,6 +51,8 @@ service AuthService {
   // travel through URLs.
   rpc StartDeviceLogin(StartDeviceLoginRequest) returns (StartDeviceLoginResponse);
   rpc PollDeviceLogin(PollDeviceLoginRequest) returns (PollDeviceLoginResponse);
+  // Get and Approve: DEVICE_CODE_INVALID, DEVICE_CODE_USED (Approve), and
+  // RATE_LIMITED past 20 codes per account in 10 minutes.
   rpc GetDeviceLogin(GetDeviceLoginRequest) returns (GetDeviceLoginResponse);
   rpc ApproveDeviceLogin(ApproveDeviceLoginRequest) returns (ApproveDeviceLoginResponse);
 }
@@ -112,13 +124,18 @@ message CheckHandleResponse {
   bool available = 1;
   // Normalized form the server would store.
   string normalized = 2;
-  // INVALID_FORMAT | TAKEN | RESERVED when not available.
+  // INVALID_FORMAT | TAKEN | RESERVED when not available. RESERVED covers
+  // the reserved words and anything that passes for Tokuly or its staff once
+  // look-alike characters are folded (`t0kuly`, `tokuly_official`, `adm1n`).
   string reason = 3;
 }
 
 message BeginPasskeyRegistrationRequest {
   // Label shown in the passkey list, e.g. "MacBook Touch ID".
   string name = 1;
+  // The account password (ignored when the account has none). A new way to
+  // sign in is never added on the strength of a session alone.
+  string current_password = 2;
 }
 
 message BeginPasskeyRegistrationResponse {
@@ -163,7 +180,12 @@ message VerifyEmailRequest {
   string token = 1;
 }
 
-message VerifyEmailResponse {}
+message VerifyEmailResponse {
+  // The link was the undo of an address change: the account is back on this
+  // address and every device was signed out (the owner should reset the
+  // password next).
+  bool email_change_reverted = 1;
+}
 
 message RequestPasswordResetRequest {
   string email = 1;
@@ -242,6 +264,9 @@ service AccountService {
   rpc UpdateSettings(UpdateSettingsRequest) returns (UpdateSettingsResponse);
 
   rpc ChangePassword(ChangePasswordRequest) returns (ChangePasswordResponse);
+  // INVALID_CREDENTIALS, EMAIL_INVALID, EMAIL_UNCHANGED, RATE_LIMITED. An
+  // address that belongs to another account is answered like any other (so
+  // the RPC does not reveal who is registered) but is sent no link.
   rpc ChangeEmail(ChangeEmailRequest) returns (ChangeEmailResponse);
 
   rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
@@ -250,16 +275,23 @@ service AccountService {
   rpc ListPasskeys(ListPasskeysRequest) returns (ListPasskeysResponse);
   rpc DeletePasskey(DeletePasskeyRequest) returns (DeletePasskeyResponse);
 
-  // TOTP two-factor authentication.
+  // TOTP two-factor authentication. Every code is accepted once; attempts
+  // are limited to 8 per 5 minutes and 30 a day (RATE_LIMITED).
   rpc BeginTotpSetup(BeginTotpSetupRequest) returns (BeginTotpSetupResponse);
+  // INVALID_CREDENTIALS (wrong `current_password`), INVALID_TOTP,
+  // TOTP_SETUP_EXPIRED, RATE_LIMITED.
   rpc EnableTotp(EnableTotpRequest) returns (EnableTotpResponse);
+  // INVALID_TOTP (wrong or already used code), TOTP_NOT_ENABLED, RATE_LIMITED.
   rpc DisableTotp(DisableTotpRequest) returns (DisableTotpResponse);
 
   // Security log: sign-ins, password changes, new devices, etc.
   rpc ListSecurityEvents(ListSecurityEventsRequest) returns (ListSecurityEventsResponse);
 
-  // Account deletion has a 30 day grace period during which signing in
-  // cancels it.
+  // Account deletion has a 30 day grace period. The account keeps working
+  // meanwhile (`Me.deletion_scheduled_at` says when it ends) and
+  // CancelAccountDeletion calls it off; signing in does not. When the period
+  // ends the account is erased, its devices are signed out at once and its
+  // handle stays unclaimable for 30 days.
   rpc RequestAccountDeletion(RequestAccountDeletionRequest) returns (RequestAccountDeletionResponse);
   rpc CancelAccountDeletion(CancelAccountDeletionRequest) returns (CancelAccountDeletionResponse);
 
@@ -313,6 +345,9 @@ message GetMeResponse {
 
 message UpdateProfileRequest {
   optional string display_name = 1;
+  // At most 3 changes a week. The handle given up stays reserved for this
+  // account for 30 days (HANDLE_TAKEN for everyone else), as does the
+  // handle of a purged account.
   optional string handle = 2;
   optional string bio = 3;
   // Media asset IDs from tokuly.media.v1.MediaService uploads. Empty string clears.
@@ -426,6 +461,8 @@ message UpdateSettingsResponse {
   Settings settings = 1;
 }
 
+// Password changes, new passkeys and turning TOTP on or off are also told to
+// the account's address by mail.
 message ChangePasswordRequest {
   // Empty when the account has no password yet (passkey-only).
   string current_password = 1;
@@ -495,6 +532,9 @@ message BeginTotpSetupResponse {
 
 message EnableTotpRequest {
   string code = 1;
+  // The account password (ignored when the account has none), so a session
+  // alone cannot put the account behind an authenticator someone else holds.
+  string current_password = 2;
 }
 
 message EnableTotpResponse {

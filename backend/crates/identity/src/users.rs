@@ -169,6 +169,30 @@ pub async fn find_by_handle(core: &Core, handle: &str) -> AppResult<Option<UserR
     .await?)
 }
 
+/// Whether `email` cannot be given to an account (other than `for_user`):
+/// another account has it, or it is reserved for an unused undo link of
+/// another account (whose owner must be able to move back to it; a fresh
+/// sign-up with it would burn that undo). Callers answer as for a taken
+/// address, without saying why.
+pub(crate) async fn email_unavailable(core: &Core, email: &str, for_user: Option<Uuid>) -> AppResult<bool> {
+    Ok(sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM users WHERE email = $1::citext AND ($2::uuid IS NULL OR id <> $2))
+             OR EXISTS(SELECT 1 FROM email_tokens WHERE purpose = 'revert' AND email = $1::citext AND used_at IS NULL
+                       AND expires_at > now() AND ($2::uuid IS NULL OR user_id <> $2))",
+    )
+    .bind(email)
+    .bind(for_user)
+    .fetch_one(&core.db)
+    .await?)
+}
+
+/// The one spelling of a sign-in identifier: an address lowercased, a
+/// handle without any leading `@` and lowercased. Rate limits key on it, so
+/// `@h`, `@@h` and `H` are the same name.
+pub fn normalize_identifier(identifier: &str) -> String {
+    identifier.trim().trim_start_matches('@').trim().to_ascii_lowercase()
+}
+
 /// Looks a user up by email address or handle (sign-in identifier).
 pub async fn find_by_identifier(core: &Core, identifier: &str) -> AppResult<Option<UserRow>> {
     let identifier = identifier.trim();
@@ -249,6 +273,23 @@ pub fn pick(map: &HashMap<Uuid, UserSummary>, id: Uuid) -> UserSummary {
     map.get(&id).cloned().unwrap_or_else(|| deleted_summary(id))
 }
 
+/// Adds `role` (`admin`, `moderator` or `staff`) to an account, on the
+/// caller's connection or transaction so another domain can record why in
+/// the same transaction. Returns the roles before and after, or `None` when
+/// the account is deleted, unknown or already holds the role. Like
+/// [`crate::Identity::set_roles`], it takes effect at the next token refresh.
+pub async fn add_role<'e, E: sqlx::PgExecutor<'e>>(executor: E, user_id: Uuid, role: &str) -> AppResult<Option<(Vec<String>, Vec<String>)>> {
+    ensure!(matches!(role, "admin" | "moderator" | "staff"), invalid, "ROLE_INVALID", "unknown role {role}");
+    let after: Option<Vec<String>> = sqlx::query_scalar(
+        "UPDATE users SET roles = array_append(roles, $2) WHERE id = $1 AND deleted_at IS NULL AND NOT ($2 = ANY(roles)) RETURNING roles",
+    )
+    .bind(user_id)
+    .bind(role)
+    .fetch_optional(executor)
+    .await?;
+    Ok(after.map(|after| (after.iter().filter(|r| *r != role).cloned().collect(), after)))
+}
+
 /// IDs of active (not deleted, not banned) users among `ids`.
 pub async fn filter_active(core: &Core, ids: &[Uuid]) -> AppResult<Vec<Uuid>> {
     Ok(sqlx::query_scalar(
@@ -294,6 +335,46 @@ pub fn validate_school_name(input: &str) -> AppResult<String> {
     ensure!(name.graphemes(true).count() <= 60, invalid, "SCHOOL_NAME_INVALID", "school name must be at most 60 characters");
     ensure!(!name.chars().any(char::is_control), invalid, "SCHOOL_NAME_INVALID", "school name contains control characters");
     Ok(name.to_owned())
+}
+
+// ───────────────────────────── released handles ─────────────────────────────
+
+/// How long a handle that was let go (renamed away from, or freed by an
+/// account purge) stays with its previous owner. Links, mentions and
+/// screenshots still carry it; whoever took it at once would receive them.
+const HANDLE_HOLD: std::time::Duration = std::time::Duration::from_secs(30 * 24 * 3600);
+
+pub(crate) fn held_handle_key(handle: &str) -> String {
+    format!("id:handle:held:{}", handle.to_ascii_lowercase())
+}
+
+/// Keeps `handle` for `owner` for [`HANDLE_HOLD`]. Only the handle an
+/// account gave up last is held: the one before is released, so renaming in
+/// a cycle does not park a handle at every step.
+pub(crate) async fn hold_handle(core: &Core, handle: &str, owner: Uuid) -> AppResult<()> {
+    let last_key = format!("id:handle:last-held:{owner}");
+    if let Some(previous) = core.cache.get_string(&last_key).await?
+        && !previous.eq_ignore_ascii_case(handle)
+        && handle_holder(core, &previous).await? == Some(owner)
+    {
+        core.cache.del(&held_handle_key(&previous)).await?;
+    }
+    core.cache.set_string(&held_handle_key(handle), &owner.to_string(), Some(HANDLE_HOLD)).await?;
+    core.cache.set_string(&last_key, &handle.to_ascii_lowercase(), Some(HANDLE_HOLD)).await
+}
+
+/// The account a recently given-up `handle` is held for, if any.
+pub(crate) async fn handle_holder(core: &Core, handle: &str) -> AppResult<Option<Uuid>> {
+    Ok(core
+        .cache
+        .get_string(&held_handle_key(handle))
+        .await?
+        .and_then(|holder| Uuid::parse_str(&holder).ok()))
+}
+
+/// Whether `handle` was recently let go by someone other than `claimant`.
+pub(crate) async fn handle_held_from(core: &Core, handle: &str, claimant: Option<Uuid>) -> AppResult<bool> {
+    Ok(handle_holder(core, handle).await?.is_some_and(|holder| Some(holder) != claimant))
 }
 
 // ───────────────────────────── validation ─────────────────────────────
@@ -365,8 +446,49 @@ pub fn normalize_handle(input: &str) -> Result<String, &'static str> {
     Ok(handle)
 }
 
+/// A handle someone may take as their own (or for a channel, community or
+/// bot): [`normalize_handle`] plus no passing for Tokuly or its staff. Any
+/// handle that reads "tokuly" once look-alikes are folded (`t0kuly`,
+/// `tokuly_official`) is reserved, and so are the reserved words spelled
+/// with look-alikes (`adm1n`, `supp0rt`). Lookups of existing handles use
+/// [`normalize_handle`] and are not affected.
+pub fn claimable_handle(input: &str) -> Result<String, &'static str> {
+    let handle = normalize_handle(input)?;
+    let folded = fold_lookalikes(&handle);
+    if folded.contains("tokuly") || RESERVED_HANDLES.iter().any(|word| fold_lookalikes(word) == folded) {
+        return Err("RESERVED");
+    }
+    Ok(handle)
+}
+
+/// A handle as it reads at a glance: separators dropped, digits and letters
+/// that pass for one another made the same (`0`/`o`, `1`/`i`/`l`, `rn`/`m`...).
+fn fold_lookalikes(handle: &str) -> String {
+    let folded: String = handle
+        .chars()
+        .filter(|c| !matches!(c, '_' | '-'))
+        .map(|c| match c {
+            '0' => 'o',
+            '1' | 'i' => 'l',
+            '3' => 'e',
+            '4' => 'a',
+            '5' => 's',
+            '7' => 't',
+            '8' => 'b',
+            '9' => 'g',
+            c => c,
+        })
+        .collect();
+    folded.replace("rn", "m").replace("vv", "w")
+}
+
 pub fn validate_handle(input: &str) -> AppResult<String> {
-    normalize_handle(input).map_err(|reason| match reason {
+    handle_error(claimable_handle(input))
+}
+
+/// The API error for a handle that [`claimable_handle`] refused.
+pub(crate) fn handle_error(result: Result<String, &'static str>) -> AppResult<String> {
+    result.map_err(|reason| match reason {
         "RESERVED" => AppError::invalid("HANDLE_RESERVED", "this handle is reserved"),
         _ => AppError::invalid(
             "HANDLE_INVALID",
@@ -509,6 +631,31 @@ mod tests {
         assert_eq!(normalize_handle("has space"), Err("INVALID_FORMAT"));
         assert_eq!(normalize_handle("Admin"), Err("RESERVED"));
         assert_eq!(normalize_handle(&"a".repeat(25)), Err("INVALID_FORMAT"));
+    }
+
+    #[test]
+    fn handles_that_pass_for_tokuly_or_staff_are_reserved() {
+        for lookalike in [
+            "tokuly_official",
+            "t0kuly",
+            "tokuIy",
+            "toku-ly",
+            "the_tokuly_team",
+            "adm1n",
+            "ad_min",
+            "supp0rt",
+            "m0derator",
+            "5taff",
+            "0fficial",
+        ] {
+            assert_eq!(claimable_handle(lookalike), Err("RESERVED"), "{lookalike}");
+            assert_eq!(validate_handle(lookalike).unwrap_err().reason, "HANDLE_RESERVED", "{lookalike}");
+        }
+        for fine in ["toku_zou", "badminton", "staffordshire", "kaito_2009", "admiral"] {
+            assert_eq!(claimable_handle(fine).as_deref(), Ok(fine), "{fine}");
+        }
+        // Lookups of existing handles are not affected.
+        assert_eq!(normalize_handle("tokuly_official").as_deref(), Ok("tokuly_official"));
     }
 
     #[test]

@@ -18,6 +18,8 @@ use crate::{
 };
 
 const VERIFY_TTL_HOURS: i64 = 24;
+/// How long the previous address can undo an e-mail change.
+const REVERT_TTL_DAYS: i64 = 7;
 const RESET_TTL_MINUTES: i64 = 60;
 const DEVICE_LOGIN_TTL: Duration = Duration::from_secs(600);
 const DEVICE_POLL_INTERVAL_SECONDS: i32 = 3;
@@ -54,6 +56,11 @@ impl DeviceLogin {
             _ => DeviceLoginStatus::DEVICE_LOGIN_STATUS_PENDING,
         }
     }
+}
+
+/// Valkey key holding when the address behind an undo link was verified.
+fn revert_verified_key(token_hash: &str) -> String {
+    format!("id:revert:verified:{token_hash}")
 }
 
 /// `ABCD-2345`: uppercase without look-alike characters.
@@ -139,6 +146,17 @@ impl Identity {
         Ok(token)
     }
 
+    /// Invalidates the mailed links of a user that change the address or the
+    /// password. Called when the password changes: a link someone requested
+    /// while they knew the old password must not outlive it.
+    pub(crate) async fn drop_account_links(&self, user_id: Uuid) -> AppResult<()> {
+        sqlx::query("DELETE FROM email_tokens WHERE user_id = $1 AND purpose IN ('change', 'reset')")
+            .bind(user_id)
+            .execute(&self.core.db)
+            .await?;
+        Ok(())
+    }
+
     /// Marks an email token used and returns `(user_id, purpose, email)`.
     async fn consume_email_token(
         &self,
@@ -155,6 +173,50 @@ impl Identity {
         .fetch_optional(&self.core.db)
         .await?;
         row.ok_or_else(|| AppError::invalid("TOKEN_INVALID", "this link is invalid or has expired"))
+    }
+
+    /// Mails a security notice to the account's address, without blocking
+    /// the caller; a failure is logged.
+    pub(crate) fn notify_security_change(&self, user: &UserRow, notice: crate::mailer::SecurityNotice) {
+        let Some(email) = user.email.clone() else { return };
+        let (identity, locale, user_id) = (self.clone(), user.locale.clone(), user.id);
+        tokio::spawn(async move {
+            if let Err(e) = identity.send_security_notice(&email, &locale, notice).await {
+                tracing::warn!(%user_id, ?notice, error = %e, "security notice mail failed");
+            }
+        });
+    }
+
+    /// The address of `user_id` changed from `previous`, verified at
+    /// `verified_at`, to `current`: the previous address gets a link that
+    /// moves the account back (7 days, once), and stays reserved for it
+    /// meanwhile ([`users::email_unavailable`]). Older such links stay valid,
+    /// so a second change cannot take the first undo away. Only a verified
+    /// address is offered one: an undo must not hand an account an address it
+    /// never proved.
+    async fn offer_email_revert(&self, user_id: Uuid, previous: &str, verified_at: DateTime<Utc>, current: &str, locale: &str) -> AppResult<()> {
+        let token = random_token(32);
+        let token_hash = self.core.keys.token_hash(&token);
+        let ttl = chrono::Duration::days(REVERT_TTL_DAYS);
+        // The undo restores the address as it was, verified when it was.
+        self.core
+            .cache
+            .set_string(&revert_verified_key(&token_hash), &verified_at.to_rfc3339(), ttl.to_std().ok())
+            .await?;
+        sqlx::query("INSERT INTO email_tokens (token_hash, user_id, purpose, email, expires_at) VALUES ($1, $2, 'revert', $3::citext, $4)")
+            .bind(&token_hash)
+            .bind(user_id)
+            .bind(previous)
+            .bind(Utc::now() + ttl)
+            .execute(&self.core.db)
+            .await?;
+        let (identity, previous, current, locale) = (self.clone(), previous.to_owned(), current.to_owned(), locale.to_owned());
+        tokio::spawn(async move {
+            if let Err(e) = identity.send_email_changed_mail(&previous, &locale, &current, &token).await {
+                tracing::warn!(%user_id, error = %e, "email changed mail failed");
+            }
+        });
+        Ok(())
     }
 
     /// Sends (or re-sends) the address verification mail without blocking the caller.
@@ -187,7 +249,14 @@ impl Identity {
         });
     }
 
-    async fn device_login_by_user_code(&self, user_code: &str) -> AppResult<(String, DeviceLogin)> {
+    /// The pending login behind a user code that `user_id` typed in. Lookups
+    /// are limited per account (20 per 10 minutes): approving a code someone
+    /// else is waiting on would sign their device into this account.
+    async fn device_login_by_user_code(&self, user_id: Uuid, user_code: &str) -> AppResult<(String, DeviceLogin)> {
+        self.core
+            .cache
+            .rate_limit(&format!("devcode:user:{user_id}"), 20, Duration::from_secs(600))
+            .await?;
         let code = normalize_user_code(user_code);
         let not_found =
             || AppError::not_found("DEVICE_CODE_INVALID", "this code is invalid or has expired");
@@ -223,7 +292,7 @@ impl AuthService for Identity {
 
         let email = users::validate_email(&req.email)?;
         users::validate_password(&req.password)?;
-        let handle = users::validate_handle(&req.handle)?;
+        let handle = users::handle_error(users::claimable_handle(&req.handle))?;
         let display_name = users::validate_display_name(&req.display_name)?;
         let birthdate = users::validate_birthdate(&req.birthdate, self.cfg.min_age)?;
         let client = req.client.as_option();
@@ -237,14 +306,14 @@ impl AuthService for Identity {
             .and_then(|c| users::validate_time_zone(&c.time_zone).ok())
             .unwrap_or_else(|| "Asia/Tokyo".to_owned());
 
-        let (handle_taken, email_taken): (bool, bool) = sqlx::query_as(
-            "SELECT EXISTS(SELECT 1 FROM users WHERE handle = $1::citext), EXISTS(SELECT 1 FROM users WHERE email = $2::citext)",
-        )
-        .bind(&handle)
-        .bind(&email)
-        .fetch_one(&core.db)
-        .await?;
+        let handle_taken: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE handle = $1::citext)")
+            .bind(&handle)
+            .fetch_one(&core.db)
+            .await?;
+        let email_taken = users::email_unavailable(core, &email, None).await?;
         ensure!(!handle_taken, already_exists, "HANDLE_TAKEN", "this handle is already in use");
+        let handle_held = users::handle_held_from(core, &handle, None).await?;
+        ensure!(!handle_held, already_exists, "HANDLE_TAKEN", "this handle is already in use");
         ensure!(!email_taken, already_exists, "EMAIL_TAKEN", "an account with this email already exists");
 
         let password_hash = crate::password::hash(&req.password).await?;
@@ -296,7 +365,7 @@ impl AuthService for Identity {
             let req = request.to_owned_message();
             let meta = ctx.client();
             let core = &self.core;
-            let identifier = req.identifier.trim().to_ascii_lowercase();
+            let identifier = users::normalize_identifier(&req.identifier);
             ensure!(
                 !identifier.is_empty() && !req.password.is_empty(),
                 invalid,
@@ -319,6 +388,12 @@ impl AuthService for Identity {
                 .await?;
 
             let user = users::find_by_identifier(core, &identifier).await?;
+            if let Some(user) = &user {
+                // However the account was named (handle, address), one budget.
+                core.cache
+                    .rate_limit(&format!("signin:user:{}", user.id), 10, Duration::from_secs(300))
+                    .await?;
+            }
             let password_ok = crate::password::verify(
                 &req.password,
                 user.as_ref().and_then(|u| u.password_hash.as_deref()),
@@ -355,16 +430,15 @@ impl AuthService for Identity {
                         ..Default::default()
                     });
                 }
-                core.cache
-                    .rate_limit(&format!("totp:{}", user.id), 8, Duration::from_secs(300))
-                    .await?;
+                self.limit_totp_attempts(user.id).await?;
                 let secret = user
                     .totp_secret
                     .as_deref()
                     .and_then(|s| totp::open_secret(&core.keys, s));
-                let code_ok = secret
-                    .as_deref()
-                    .is_some_and(|s| totp::check(s, &req.totp_code));
+                let code_ok = match secret.as_deref() {
+                    Some(secret) => self.accept_totp(user.id, secret, &req.totp_code).await?,
+                    None => false,
+                };
                 if !code_ok {
                     // A recovery code works once.
                     let used: Option<Uuid> = sqlx::query_scalar(
@@ -480,7 +554,7 @@ impl AuthService for Identity {
         request: ServiceRequest<'_, CheckHandleRequest>,
     ) -> ServiceResult<CheckHandleResponse> {
         handle(async {
-            let normalized = match users::normalize_handle(request.handle) {
+            let normalized = match users::claimable_handle(request.handle) {
                 Ok(h) => h,
                 Err(reason) => {
                     return ok(CheckHandleResponse {
@@ -495,7 +569,8 @@ impl AuthService for Identity {
                     .bind(&normalized)
                     .fetch_one(&self.core.db)
                     .await
-                    .map_err(AppError::from)?;
+                    .map_err(AppError::from)?
+                    || users::handle_held_from(&self.core, &normalized, None).await?;
             ok(CheckHandleResponse {
                 available: !taken,
                 normalized,
@@ -517,6 +592,7 @@ impl AuthService for Identity {
     ) -> ServiceResult<BeginPasskeyRegistrationResponse> {
         handle(async {
             let user = users::get(&self.core, ctx.user_id()?).await?;
+            self.confirm_password(&user, request.current_password).await?;
             let (challenge_id, options_json) =
                 Identity::begin_passkey_registration(self, &user, request.name).await?;
             ok(BeginPasskeyRegistrationResponse {
@@ -550,6 +626,8 @@ impl AuthService for Identity {
                 serde_json::json!({ "name": passkey.name }),
             )
             .await;
+            let user = users::get(&self.core, user_id).await?;
+            self.notify_security_change(&user, crate::mailer::SecurityNotice::PasskeyAdded);
             ok(FinishPasskeyRegistrationResponse {
                 passkey: passkey.into(),
                 ..Default::default()
@@ -649,35 +727,100 @@ impl AuthService for Identity {
 
     async fn verify_email(
         &self,
-        _ctx: RequestContext,
+        ctx: RequestContext,
         request: ServiceRequest<'_, VerifyEmailRequest>,
     ) -> ServiceResult<VerifyEmailResponse> {
         handle(async {
-        let (user_id, purpose, email) = self.consume_email_token(request.token, &["verify", "change"]).await?;
-        if purpose == "change" {
-            let taken: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE email = $1::citext AND id <> $2)")
-                .bind(&email)
-                .bind(user_id)
-                .fetch_one(&self.core.db)
-                .await
-                .map_err(AppError::from)?;
-            ensure!(!taken, already_exists, "EMAIL_TAKEN", "an account with this email already exists");
-            sqlx::query("UPDATE users SET email = $2::citext, email_verified_at = now() WHERE id = $1")
-                .bind(user_id)
-                .bind(&email)
-                .execute(&self.core.db)
-                .await
-                .map_err(AppError::from)?;
-            self.log_security_event(user_id, "EMAIL_CHANGED", &ClientMeta::default(), "", serde_json::json!({})).await;
-        } else {
-            sqlx::query("UPDATE users SET email_verified_at = now() WHERE id = $1 AND email = $2::citext")
-                .bind(user_id)
-                .bind(&email)
-                .execute(&self.core.db)
-                .await
-                .map_err(AppError::from)?;
+        let meta = ctx.client();
+        let token_hash = self.core.keys.token_hash(request.token);
+        // Look before spending the link: a change or undo to an address that
+        // cannot be had fails without using it up.
+        let pending: Option<(Uuid, String, String)> = sqlx::query_as(
+            "SELECT user_id, purpose, email::text FROM email_tokens
+             WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now() AND purpose IN ('verify', 'change', 'revert')",
+        )
+        .bind(&token_hash)
+        .fetch_optional(&self.core.db)
+        .await?;
+        if let Some((owner, purpose, email)) = &pending
+            && purpose != "verify"
+        {
+            let unavailable = users::email_unavailable(&self.core, email, Some(*owner)).await?;
+            ensure!(!unavailable, already_exists, "EMAIL_TAKEN", "an account with this email already exists");
         }
-        ok(VerifyEmailResponse::default())
+        let (user_id, purpose, email) = self.consume_email_token(request.token, &["verify", "change", "revert"]).await?;
+        // The person opening the link may be signed in on this device; that
+        // session survives a change (not an undo).
+        let opener = ctx.maybe_auth().ok().flatten().filter(|auth| auth.user_id == user_id).map(|auth| auth.session_id);
+        let mut reverted = false;
+        if purpose == "change" || purpose == "revert" {
+            let before = users::get(&self.core, user_id).await?;
+            // A change is proven by its link now; an undo puts back the
+            // address as it was, verified when it was (never "now").
+            let verified_at = if purpose == "change" {
+                Some(Utc::now())
+            } else {
+                let key = revert_verified_key(&token_hash);
+                let stored = self.core.cache.get_string(&key).await?;
+                self.core.cache.del(&key).await?;
+                stored.and_then(|t| DateTime::parse_from_rfc3339(&t).ok()).map(|t| t.with_timezone(&Utc))
+            };
+            let mut tx = self.core.db.begin().await?;
+            sqlx::query("UPDATE users SET email = $2::citext, email_verified_at = $3 WHERE id = $1")
+                .bind(user_id)
+                .bind(&email)
+                .bind(verified_at)
+                .execute(&mut *tx)
+                .await
+                .map_err(AppError::from)?;
+            if purpose == "revert" {
+                // Undo links issued after this one point at addresses the
+                // account only had since; they go.
+                sqlx::query(
+                    "DELETE FROM email_tokens WHERE user_id = $1 AND purpose = 'revert'
+                     AND created_at > (SELECT created_at FROM email_tokens WHERE token_hash = $2)",
+                )
+                .bind(user_id)
+                .bind(&token_hash)
+                .execute(&mut *tx)
+                .await?;
+            }
+            if verified_at.is_some() {
+                events::emit(&mut *tx, "identity.user.email_verified", Some(user_id), &crate::maintenance::UserRef { user_id }).await?;
+            }
+            tx.commit().await?;
+            // Whoever had the account under the other address loses it:
+            // pending reset and change links die, and devices sign out.
+            self.drop_account_links(user_id).await?;
+            if purpose == "revert" {
+                reverted = true;
+                self.revoke_all_sessions(user_id, None).await?;
+                self.log_security_event(user_id, "EMAIL_CHANGE_REVERTED", &meta, "", serde_json::json!({})).await;
+            } else {
+                self.revoke_all_sessions(user_id, opener).await?;
+                self.log_security_event(user_id, "EMAIL_CHANGED", &meta, "", serde_json::json!({})).await;
+                // An unverified previous address is not told and gets no undo:
+                // it was never shown to belong to this account.
+                if let (Some(previous), Some(verified_at)) = (before.email.as_deref(), before.email_verified_at)
+                    && !previous.eq_ignore_ascii_case(&email)
+                {
+                    self.offer_email_revert(user_id, previous, verified_at, &email, &before.locale).await?;
+                }
+            }
+        } else {
+            let mut tx = self.core.db.begin().await?;
+            let done = sqlx::query("UPDATE users SET email_verified_at = now() WHERE id = $1 AND email = $2::citext AND email_verified_at IS NULL")
+                .bind(user_id)
+                .bind(&email)
+                .execute(&mut *tx)
+                .await
+                .map_err(AppError::from)?;
+            if done.rows_affected() == 1 {
+                events::emit(&mut *tx, "identity.user.email_verified", Some(user_id), &crate::maintenance::UserRef { user_id }).await?;
+            }
+            tx.commit().await?;
+        }
+        ok(VerifyEmailResponse { email_change_reverted: reverted, ..Default::default() })
         })
         .await
     }
@@ -731,6 +874,7 @@ impl AuthService for Identity {
             .execute(&self.core.db)
             .await
             .map_err(AppError::from)?;
+        self.drop_account_links(user_id).await?;
         self.revoke_all_sessions(user_id, None).await?;
         self.log_security_event(user_id, "PASSWORD_RESET", &ctx.client(), "", serde_json::json!({})).await;
         ok(ResetPasswordResponse::default())
@@ -890,8 +1034,8 @@ impl AuthService for Identity {
         request: ServiceRequest<'_, GetDeviceLoginRequest>,
     ) -> ServiceResult<GetDeviceLoginResponse> {
         handle(async {
-            ctx.auth()?;
-            let (_, login) = self.device_login_by_user_code(request.user_code).await?;
+            let user_id = ctx.user_id()?;
+            let (_, login) = self.device_login_by_user_code(user_id, request.user_code).await?;
             ok(GetDeviceLoginResponse {
                 client: login.client().into(),
                 status: login.status().into(),
@@ -909,7 +1053,7 @@ impl AuthService for Identity {
     ) -> ServiceResult<ApproveDeviceLoginResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
-            let (key, mut login) = self.device_login_by_user_code(request.user_code).await?;
+            let (key, mut login) = self.device_login_by_user_code(user_id, request.user_code).await?;
             ensure!(
                 login.status == "pending",
                 precondition,

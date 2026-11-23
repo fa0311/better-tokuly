@@ -17,7 +17,7 @@ export function SecuritySection() {
   if (!me) return null;
   return (
     <SettingsPage title={t("sections.security.title")}>
-      <PasskeysCard />
+      <PasskeysCard me={me} />
       <TotpCard me={me} />
       <SessionsCard />
       <Link

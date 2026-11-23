@@ -10,6 +10,7 @@ use unicode_segmentation::UnicodeSegmentation as _;
 
 use crate::{
     Identity,
+    mailer::SecurityNotice,
     maintenance::{ExportJob, UserRef},
     settings, totp,
     users::{self, UserRow},
@@ -19,7 +20,7 @@ impl Identity {
     /// Confirms the caller knows the account password. Accounts without a
     /// password (passkey-only) pass, since a signed-in passkey session is the
     /// strongest proof they can give.
-    async fn confirm_password(&self, user: &UserRow, password: &str) -> AppResult<()> {
+    pub(crate) async fn confirm_password(&self, user: &UserRow, password: &str) -> AppResult<()> {
         if user.password_hash.is_none() {
             return Ok(());
         }
@@ -30,6 +31,11 @@ impl Identity {
                 10,
                 Duration::from_secs(300),
             )
+            .await?;
+        // The burst limit alone allows ~2900 guesses a day.
+        self.core
+            .cache
+            .rate_limit(&format!("confirm-pw-day:{}", user.id), 30, Duration::from_secs(24 * 3600))
             .await?;
         ensure!(
             crate::password::verify(password, user.password_hash.as_deref()).await,
@@ -79,10 +85,18 @@ impl AccountService for Identity {
         let school_name = request.school_name.map(users::validate_school_name).transpose()?;
         let handle = match request.handle {
             Some(h) => {
-                let handle = users::validate_handle(h)?;
-                if handle == current.handle {
+                // Compare before the claim rules: an account sending its own
+                // handle back (a grandfathered one included) changes nothing,
+                // and the previous owner of a held handle may take it back.
+                let normalized = users::handle_error(users::normalize_handle(h))?;
+                if normalized.eq_ignore_ascii_case(&current.handle) {
                     None
                 } else {
+                    let handle = if users::handle_holder(core, &normalized).await? == Some(user_id) {
+                        normalized
+                    } else {
+                        users::handle_error(users::claimable_handle(h))?
+                    };
                     core.cache.rate_limit(&format!("handle-change:{user_id}"), 3, Duration::from_secs(7 * 24 * 3600)).await?;
                     let taken: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE handle = $1::citext AND id <> $2)")
                         .bind(&handle)
@@ -91,6 +105,8 @@ impl AccountService for Identity {
                         .await
                         .map_err(AppError::from)?;
                     ensure!(!taken, already_exists, "HANDLE_TAKEN", "this handle is already in use");
+                    let held = users::handle_held_from(core, &handle, Some(user_id)).await?;
+                    ensure!(!held, already_exists, "HANDLE_TAKEN", "this handle is already in use");
                     Some(handle)
                 }
             }
@@ -136,7 +152,7 @@ impl AccountService for Identity {
         ))
         .bind(user_id)
         .bind(display_name)
-        .bind(handle)
+        .bind(&handle)
         .bind(bio)
         .bind(locale)
         .bind(time_zone)
@@ -169,7 +185,15 @@ impl AccountService for Identity {
             }
         }
         events::emit(&mut *tx, "identity.user.updated", Some(user_id), &UserRef { user_id }).await?;
-        tx.commit().await?;
+        if let Some(handle) = &handle {
+            // Before the commit, so nobody can grab the old one in between.
+            users::hold_handle(core, &current.handle, user_id).await?;
+            tx.commit().await?;
+            // Taking a held handle back ends its hold.
+            core.cache.del(&users::held_handle_key(handle)).await?;
+        } else {
+            tx.commit().await?;
+        }
         ok(UpdateProfileResponse { me: self.me(&user).await?.into(), ..Default::default() })
         })
         .await
@@ -283,7 +307,9 @@ impl AccountService for Identity {
                 .execute(&self.core.db)
                 .await
                 .map_err(AppError::from)?;
-            // Other devices must sign in again with the new password.
+            // Other devices must sign in again with the new password, and a
+            // pending address change requested with the old one is void.
+            self.drop_account_links(user.id).await?;
             self.revoke_all_sessions(user.id, Some(auth.session_id))
                 .await?;
             self.log_security_event(
@@ -294,6 +320,7 @@ impl AccountService for Identity {
                 serde_json::json!({}),
             )
             .await;
+            self.notify_security_change(&user, SecurityNotice::PasswordChanged);
             ok(ChangePasswordResponse::default())
         })
         .await
@@ -315,18 +342,6 @@ impl AccountService for Identity {
                 "EMAIL_UNCHANGED",
                 "this is already your email address"
             );
-            let taken: bool =
-                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE email = $1::citext)")
-                    .bind(&email)
-                    .fetch_one(&self.core.db)
-                    .await
-                    .map_err(AppError::from)?;
-            ensure!(
-                !taken,
-                already_exists,
-                "EMAIL_TAKEN",
-                "an account with this email already exists"
-            );
             self.core
                 .cache
                 .rate_limit(
@@ -335,8 +350,14 @@ impl AccountService for Identity {
                     Duration::from_secs(3600),
                 )
                 .await?;
-            // The address only changes once the new one is verified.
-            self.spawn_verification_mail(user.id, email, user.locale.clone(), "change");
+            // Someone else's address gets the same answer as a free one, so
+            // this cannot be used to find out who has an account; it just
+            // never receives a link (and VerifyEmail checks again).
+            let taken = users::email_unavailable(&self.core, &email, Some(user.id)).await?;
+            if !taken {
+                // The address only changes once the new one is verified.
+                self.spawn_verification_mail(user.id, email, user.locale.clone(), "change");
+            }
             ok(ChangeEmailResponse::default())
         })
         .await
@@ -491,12 +512,14 @@ impl AccountService for Identity {
         request: ServiceRequest<'_, EnableTotpRequest>,
     ) -> ServiceResult<EnableTotpResponse> {
         handle(async {
-        let user_id = ctx.user_id()?;
+        let user = users::get(&self.core, ctx.user_id()?).await?;
+        let user_id = user.id;
+        self.confirm_password(&user, request.current_password).await?;
         let key = format!("id:totp:setup:{user_id}");
         let sealed = self.core.cache.get_string(&key).await?.or_not_found("TOTP_SETUP_EXPIRED", "start the setup again")?;
         let secret = totp::open_secret(&self.core.keys, &sealed).or_not_found("TOTP_SETUP_EXPIRED", "start the setup again")?;
-        self.core.cache.rate_limit(&format!("totp:{user_id}"), 8, Duration::from_secs(300)).await?;
-        ensure!(totp::check(&secret, request.code), invalid, "INVALID_TOTP", "wrong authentication code");
+        self.limit_totp_attempts(user_id).await?;
+        ensure!(self.accept_totp(user_id, &secret, request.code).await?, invalid, "INVALID_TOTP", "wrong authentication code");
         let codes = totp::generate_recovery_codes();
         let hashes: Vec<String> = codes.iter().map(|c| totp::hash_recovery_code(&self.core.keys, c)).collect();
         sqlx::query("UPDATE users SET totp_secret = $2, totp_enabled_at = now(), recovery_code_hashes = $3 WHERE id = $1")
@@ -508,6 +531,7 @@ impl AccountService for Identity {
             .map_err(AppError::from)?;
         self.core.cache.del(&key).await?;
         self.log_security_event(user_id, "TOTP_ENABLED", &ctx.client(), "", serde_json::json!({})).await;
+        self.notify_security_change(&user, SecurityNotice::TotpEnabled);
         ok(EnableTotpResponse { recovery_codes: codes, ..Default::default() })
         })
         .await
@@ -521,9 +545,12 @@ impl AccountService for Identity {
         handle(async {
         let user = users::get(&self.core, ctx.user_id()?).await?;
         ensure!(user.totp_enabled_at.is_some(), precondition, "TOTP_NOT_ENABLED", "two-factor authentication is not on");
-        self.core.cache.rate_limit(&format!("totp:{}", user.id), 8, Duration::from_secs(300)).await?;
+        self.limit_totp_attempts(user.id).await?;
         let secret = user.totp_secret.as_deref().and_then(|s| totp::open_secret(&self.core.keys, s));
-        let code_ok = secret.as_deref().is_some_and(|s| totp::check(s, request.code));
+        let code_ok = match secret.as_deref() {
+            Some(secret) => self.accept_totp(user.id, secret, request.code).await?,
+            None => false,
+        };
         let recovery_ok = if code_ok {
             false
         } else {
@@ -542,6 +569,7 @@ impl AccountService for Identity {
             .await
             .map_err(AppError::from)?;
         self.log_security_event(user.id, "TOTP_DISABLED", &ctx.client(), "", serde_json::json!({})).await;
+        self.notify_security_change(&user, SecurityNotice::TotpDisabled);
         ok(DisableTotpResponse::default())
         })
         .await

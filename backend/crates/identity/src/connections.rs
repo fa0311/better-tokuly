@@ -100,6 +100,21 @@ pub(crate) fn now_playing_from_spotify(body: &serde_json::Value) -> Option<NowPl
     })
 }
 
+/// Whether `redirect_uri` leads back to this instance's web app: the same
+/// origin as the public URL (a string prefix would also let
+/// `https://tokuly.example.evil.test` through) and below its path.
+fn is_own_redirect(public_url: &str, redirect_uri: &str) -> bool {
+    let (Ok(ours), Ok(target)) = (url::Url::parse(public_url), url::Url::parse(redirect_uri)) else {
+        return false;
+    };
+    let base = ours.path().trim_end_matches('/');
+    let below = target
+        .path()
+        .strip_prefix(base)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'));
+    ours.origin() == target.origin() && target.username().is_empty() && target.password().is_none() && below
+}
+
 impl Identity {
     pub(crate) fn available_providers(&self) -> Vec<String> {
         if self.cfg.spotify_enabled() {
@@ -151,7 +166,7 @@ impl Identity {
         self.require_provider(provider)?;
         // Only send users back to our own web app.
         ensure!(
-            redirect_uri.starts_with(self.core.cfg.public_url()),
+            is_own_redirect(self.core.cfg.public_url(), redirect_uri),
             invalid,
             "REDIRECT_INVALID",
             "redirect_uri must point at this Tokuly instance"
@@ -420,6 +435,23 @@ mod tests {
             (247000, 42000, true)
         );
         assert_eq!(np.track_url, "https://open.spotify.com/track/xyz");
+    }
+
+    #[test]
+    fn only_our_own_web_app_is_a_redirect_target() {
+        let ours = "https://tokuly.example";
+        assert!(is_own_redirect(ours, "https://tokuly.example/settings/connections/callback"));
+        assert!(is_own_redirect(ours, "https://tokuly.example"));
+        for theirs in [
+            "https://tokuly.example.evil.test/callback",
+            "https://tokuly.example@evil.test/callback",
+            "https://tokuly.examplex/callback",
+            "http://tokuly.example/callback",
+            "https://tokuly.example:8443/callback",
+            "not a url",
+        ] {
+            assert!(!is_own_redirect(ours, theirs), "{theirs}");
+        }
     }
 
     #[test]

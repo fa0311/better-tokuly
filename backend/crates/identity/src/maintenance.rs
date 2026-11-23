@@ -4,7 +4,7 @@
 //! - `identity.user.created` — [`UserCreated`]
 //! - `identity.user.updated`, `identity.user.status_changed`,
 //!   `identity.user.privacy_changed`, `identity.user.deletion_requested`,
-//!   `identity.user.deleted` — [`UserRef`]
+//!   `identity.user.email_verified`, `identity.user.deleted` — [`UserRef`]
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -88,6 +88,10 @@ impl Identity {
         let mut purged = 0;
         for user_id in due {
             let mut tx = self.core.db.begin().await?;
+            let handle: Option<String> = sqlx::query_scalar("SELECT handle::text FROM users WHERE id = $1 FOR UPDATE")
+                .bind(user_id)
+                .fetch_optional(&mut *tx)
+                .await?;
             let done = sqlx::query(
                 "UPDATE users SET
                     deleted_at = now(), handle = ('deleted-' || replace(id::text, '-', ''))::citext, display_name = '',
@@ -104,8 +108,11 @@ impl Identity {
             if done.rows_affected() == 0 {
                 continue; // cancelled in the meantime
             }
+            let sessions: Vec<Uuid> = sqlx::query_scalar("DELETE FROM sessions WHERE user_id = $1 RETURNING id")
+                .bind(user_id)
+                .fetch_all(&mut *tx)
+                .await?;
             for table in [
-                "sessions",
                 "passkeys",
                 "email_tokens",
                 "security_events",
@@ -133,7 +140,16 @@ impl Identity {
                 &UserRef { user_id },
             )
             .await?;
+            if let Some(handle) = &handle {
+                // Nobody gets to answer to the departed account's handle right away.
+                crate::users::hold_handle(&self.core, handle, user_id).await?;
+            }
             tx.commit().await?;
+            // Devices still open are signed out now, not when their access
+            // token runs out: it would keep writing to the erased account.
+            for session_id in sessions {
+                self.core.revoke_session(session_id).await;
+            }
             purged += 1;
         }
         Ok(purged)

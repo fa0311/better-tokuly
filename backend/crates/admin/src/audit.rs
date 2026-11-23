@@ -66,6 +66,15 @@ impl Audit {
         self
     }
 
+    /// The first-admin bootstrap for the configured `address`, which
+    /// promoted `user_id`.
+    pub fn bootstrap(mut self, address: &str, user_id: Uuid) -> Self {
+        self.target_type = "bootstrap";
+        self.target_id = address.to_owned();
+        self.target_user_id = Some(user_id);
+        self
+    }
+
     pub fn flag(mut self, name: &str) -> Self {
         self.target_type = "flag";
         self.target_id = name.to_owned();
