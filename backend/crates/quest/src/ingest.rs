@@ -160,7 +160,7 @@ impl Quest {
         {
             return Ok(());
         }
-        let hour = clock::local_hour(at, zone);
+        let hour = rule.timed.then(|| clock::local_hour(at, zone));
         let counts: Vec<(Metric, i64)> =
             rule.counts.iter().map(|count| (count.metric(), count.for_amount(deed.amount))).collect();
         let dedupe = format!("{}:{}:{}", event.id, rule.key, deed.user);

@@ -94,6 +94,8 @@ impl Wallet {
     /// Carries out an adjustment by `admin_id` and logs it.
     /// See `WalletAdminService.AdjustBalance`.
     pub(crate) async fn apply_adjustment(&self, admin_id: Uuid, input: &AdjustmentInput) -> AppResult<AdjustmentRow> {
+        // Staff powers are not for one's own wallet: credited earnings can be paid out as money.
+        ensure!(input.user_id != admin_id, denied, "SELF_ADJUSTMENT", "you cannot adjust your own balance");
         if let Some(existing) = self.adjustment_by_key(&self.core.db, admin_id, &input.idempotency_key).await? {
             return existing.answer_retry(input);
         }

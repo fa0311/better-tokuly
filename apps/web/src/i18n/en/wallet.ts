@@ -294,6 +294,9 @@ export default {
       empty: "No requests in this state",
       copyDestination: "Copy destination",
       destinationErased: "Erased after the retention period",
+      suspended: "Suspended",
+      suspendedNotice:
+        "This account is suspended. The request can't be approved or paid until the suspension is lifted; it can still be rejected.",
       requesterNote: "Requester's message",
       requestedAt: "Requested",
       reviewedAt: "Reviewed",
@@ -479,6 +482,10 @@ export default {
     PAYOUT_NOT_OPEN: "This request is already closed",
     PAYOUT_NOT_APPROVED: "Only approved requests can be marked as paid",
     SELF_REVIEW: "You can't review your own payout request",
+    SELF_ADJUSTMENT: "You can't adjust your own balance",
+    HIDDEN_PARTY:
+      "You have paid an account that is hidden from you, so you can't look into other wallets. Ask another staff member",
+    ACCOUNT_SUSPENDED: "The requester's account is suspended",
     REVIEW_NOTE_REQUIRED: "Enter the reason for rejecting",
     REVIEW_NOTE_TOO_LONG: "Keep the message within 500 characters",
     PAYMENT_REFERENCE_TOO_LONG: "Keep the payment reference within 200 characters",

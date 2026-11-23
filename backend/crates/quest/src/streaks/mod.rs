@@ -586,6 +586,16 @@ impl Quest {
         let (entry_id, paid) =
             match ledger::spend(&self.core, order.user_id, order.cost, "quest.streak_restore", &key, memo).await {
                 Ok(spent) => spent,
+                // Charged and refunded already (a settle that stopped between
+                // the refund and the withdrawal): this restore was undone.
+                // Finish the withdrawal; charging again is what the refund ruled out.
+                Err(e) if e.reason == "ENTRY_REFUNDED" => {
+                    sqlx::query("DELETE FROM quest_streak_restores WHERE id = $1 AND applied_at IS NULL")
+                        .bind(order.id)
+                        .execute(&self.core.db)
+                        .await?;
+                    return Ok(Settled::Undeliverable);
+                }
                 Err(e) => {
                     if e.reason == "INSUFFICIENT_COINS" {
                         // It cannot be paid for: the order is withdrawn, and the month's restore is free again.

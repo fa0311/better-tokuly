@@ -74,18 +74,55 @@ pub(crate) fn check_key(key: &str) -> AppResult<()> {
 }
 
 /// The entry an idempotency key was already used for.
+#[derive(Debug, Clone, sqlx::FromRow)]
 pub(crate) struct ExistingEntry {
+    #[sqlx(rename = "id")]
     pub entry_id: Uuid,
+    pub kind: String,
+    #[sqlx(rename = "from_user_id")]
+    pub from: Option<Uuid>,
+    #[sqlx(rename = "to_user_id")]
+    pub to: Option<Uuid>,
+    pub amount: i64,
     /// Platform fee the entry withheld (transfers; 0 otherwise).
     pub fee: i64,
+    /// The entry was reversed since (`refunded_at`).
+    pub refunded: bool,
+}
+
+impl ExistingEntry {
+    /// The entry, when the call that found it asks for the same movement
+    /// (a retry); `IDEMPOTENCY_KEY_REUSED` when it asks for another one. A
+    /// key names one movement — kind, payer, recipient, amount — so a
+    /// different movement under the same key must not be answered as if it
+    /// had already happened: its caller would get what it pays for for free.
+    ///
+    /// A retry of a movement that was refunded since fails with
+    /// `ENTRY_REFUNDED`: answering "done" would let its caller deliver what
+    /// was paid for although the coins are back with the payer.
+    pub fn retry_of(self, kind: &str, from: Option<Uuid>, to: Option<Uuid>, amount: i64) -> AppResult<Self> {
+        let same = self.kind == kind && self.from == from && self.to == to && self.amount == amount;
+        if !same {
+            return Err(key_reused());
+        }
+        ensure!(!self.refunded, precondition, "ENTRY_REFUNDED", "this movement was refunded; it is not made again under the same key");
+        Ok(self)
+    }
+}
+
+pub(crate) fn key_reused() -> AppError {
+    AppError::already_exists("IDEMPOTENCY_KEY_REUSED", "this idempotency key was used for a different movement")
 }
 
 /// Looks an idempotency key up. Call it after [`lock_account`]: under the
 /// account lock a concurrent call with the same key has either committed
-/// (and is found here) or has not posted yet.
+/// (and is found here) or has not posted yet. (A call with the same key for
+/// other accounts is not held back by the lock; [`post`] refuses it.)
 pub(crate) async fn existing_entry(tx: &mut Transaction<'_, Postgres>, key: &str) -> AppResult<Option<ExistingEntry>> {
-    let found: Option<(Uuid, i64)> = sqlx::query_as("SELECT id, fee FROM wallet_entries WHERE idempotency_key = $1").bind(key).fetch_optional(&mut **tx).await?;
-    Ok(found.map(|(entry_id, fee)| ExistingEntry { entry_id, fee }))
+    Ok(sqlx::query_as("SELECT id, kind, from_user_id, to_user_id, amount, fee, refunded_at IS NOT NULL AS refunded FROM wallet_entries WHERE idempotency_key = $1")
+        .bind(key)
+        .fetch_optional(&mut **tx)
+        .await?)
 }
 
 /// Locks (creating if needed) a user's account row and returns its balance.
@@ -137,11 +174,23 @@ pub(crate) struct NewEntry<'a> {
 /// Writes an entry and its postings, given as `(account, delta)` pairs.
 /// Refuses postings that do not sum to zero: an unbalanced entry would
 /// silently create or destroy coins.
+///
+/// Fails with `ACCOUNT_CLOSED` when a user the entry names was erased by
+/// identity (`users.deleted_at`): that wallet is closed, or about to be by
+/// the `identity.user.deleted` consumer, and coins moved into it now would
+/// re-open it on a tombstone where nobody can use them. Checked here, after
+/// the caller looked its key up, so that the retry of a movement that did
+/// happen is still answered as a retry.
 pub(crate) async fn post(tx: &mut Transaction<'_, Postgres>, entry: NewEntry<'_>, postings: &[(String, i64)]) -> AppResult<Uuid> {
     if postings.iter().map(|(_, delta)| delta).sum::<i64>() != 0 {
         return Err(AppError::internal(anyhow::anyhow!("unbalanced postings for a `{}` entry", entry.kind)));
     }
-    let entry_id: Uuid = sqlx::query_scalar(
+    let parties: Vec<Uuid> = [entry.from, entry.to].into_iter().flatten().collect();
+    if !parties.is_empty() {
+        let closed: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM users WHERE id = ANY($1) AND deleted_at IS NOT NULL)").bind(&parties).fetch_one(&mut **tx).await?;
+        ensure!(!closed, precondition, "ACCOUNT_CLOSED", "this account was deleted");
+    }
+    let inserted: Result<Uuid, sqlx::Error> = sqlx::query_scalar(
         "INSERT INTO wallet_entries (kind, reason, idempotency_key, from_user_id, to_user_id, amount, fee, refund_of, memo)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id",
     )
@@ -155,7 +204,15 @@ pub(crate) async fn post(tx: &mut Transaction<'_, Postgres>, entry: NewEntry<'_>
     .bind(entry.refund_of)
     .bind(entry.memo)
     .fetch_one(&mut **tx)
-    .await?;
+    .await;
+    let entry_id = match inserted.map_err(AppError::from) {
+        Ok(entry_id) => entry_id,
+        // The only unique column: the same key raced in for other accounts,
+        // whose lock this call does not hold. The same movement holds the
+        // same lock, so this is never a retry.
+        Err(e) if e.is_already_exists() => return Err(key_reused()),
+        Err(e) => return Err(e),
+    };
     let (accounts, deltas): (Vec<&str>, Vec<i64>) = postings.iter().map(|(account, delta)| (account.as_str(), *delta)).unzip();
     // One statement for all postings; `position` keeps their IDs in the order given.
     sqlx::query(

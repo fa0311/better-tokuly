@@ -33,6 +33,17 @@ their keys with their own reason (`live.gift:<id>`) to stay clear of these.
 
 Conventions for callers of the ledger:
 
+- An idempotency key names one movement: its kind, payer, recipient and
+  amount. Repeating the call with the same key returns the original entry
+  (`applied: false`; a transfer's receipt gives the fee and net of the
+  original). A call that uses the key for anything else — another payer,
+  recipient, amount or kind — fails with `IDEMPOTENCY_KEY_REUSED`
+  (`already_exists`) and moves nothing. A retry of a movement that was
+  refunded since fails with `ENTRY_REFUNDED` (`failed_precondition`): the
+  coins are back, so treat it as not paid. Build keys from the ID of the thing
+  being paid for, and when a price can change between attempts, retry with
+  the amount of the first attempt.
+
 - `reason` is `<domain>.<thing>[.<detail>]`. History wording is chosen from
   the first segment (`live` → live gift, `stamp` → stamp pack; see
   `describe.rs`); anything else gets a generic line, so new reasons work
@@ -48,7 +59,13 @@ Conventions for callers of the ledger:
   data export carry no counterpart and `LedgerEntry.counterpart_hidden`, and
   so does the refund of such a transfer. The recipient sees the payer as
   usual, and staff see both parties (`WalletAdminService.ListUserLedgerEntries`,
-  with `counterpart_hidden` still set). Say in `memo` what was paid.
+  with `counterpart_hidden` still set) — except a staff member who is the
+  payer: their own wallet reads as it does for any payer, and once they
+  have paid a hidden recipient (refunded or not) every other wallet is
+  refused to them (`GetUserWallet`, `ListUserLedgerEntries`:
+  `HIDDEN_PARTY`), whichever account they ask about, because refusing
+  only the account they paid would name it. Another staff member looks
+  into wallets for them. Say in `memo` what was paid.
 - Take the platform fee from `Wallet::transfer_with_fee` /
   `Wallet::platform_fee_percent` rather than hard-coding it.
 
@@ -77,7 +94,9 @@ Bookkeeping stays, unlinked; personal data goes. In one transaction:
 1. open payout requests are cancelled and their held coins forfeited;
 2. the user is removed from every ledger entry (`from_user_id` / `to_user_id`
    set to `NULL`, as the schema's `ON DELETE SET NULL` would) — counterparts
-   keep their side of a transfer, without a name; such transfers can no
+   keep their side of a transfer, without a name; where the user was the
+   hidden party, `hidden_user_id` becomes the nil UUID, so the payer's line
+   still reads `counterpart_hidden` exactly as before; such transfers can no
    longer be refunded (`REFUND_IMPOSSIBLE`);
 3. purchases, payout requests and adjustment records lose their `user_id`;
    payout destinations and notes are erased; unpaid purchases are cancelled;
@@ -89,7 +108,12 @@ Postings keep their account names (`user:<id>:…`), so the closed account
 stays auditable by ID through `WalletAdminService.ListUserLedgerEntries`;
 the ID belongs to identity's anonymous tombstone by then.
 
-Domains must not move coins to or from a deleted user afterwards.
+Once identity has erased the account (`users.deleted_at`), the ledger
+refuses every new movement that names it — grant, spend, transfer in
+either direction — with `ACCOUNT_CLOSED` (`failed_precondition`), and a
+refund to or from it with `REFUND_IMPOSSIBLE`, whether or not the consumer
+above has run yet. A retry of a movement that happened before is still
+answered as a retry.
 
 ## Realtime
 
@@ -141,7 +165,11 @@ money involved).
 | `moderator` | `ListPayoutQueue`, `GetPayoutRequest`, `ApprovePayout`, `RejectPayout`, `MarkPayoutPaid`, `GetUserWallet`, `ListUserLedgerEntries` |
 | `admin` | the above plus `AdjustBalance`, `ListAdjustments`, `ListAllCoinPackages`, `SaveCoinPackage` |
 
-Staff cannot approve, reject or pay their own payout request (`SELF_REVIEW`).
+Staff cannot approve, reject or pay their own payout request (`SELF_REVIEW`),
+and admins cannot adjust their own balance (`SELF_ADJUSTMENT`). No money
+goes to a suspended account (`users.banned_at`): its payout request can be
+rejected but not approved or paid (`ACCOUNT_SUSPENDED`) until the
+suspension is lifted; staff views flag it (`PayoutRequest.user_suspended`).
 
 ## Configuration
 

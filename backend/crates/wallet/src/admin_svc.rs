@@ -11,7 +11,7 @@ use tokuly_proto::wallet::*;
 use crate::{
     Wallet,
     adjustments::validate_adjustment,
-    entries::{Reader, Scope},
+    entries::Scope,
     packages::validate_package,
     payouts::{Decision, status_filter},
     wallet_svc::MAX_PAGE,
@@ -83,8 +83,9 @@ impl WalletAdminService for Wallet {
 
     async fn get_user_wallet(&self, ctx: RequestContext, request: ServiceRequest<'_, GetUserWalletRequest>) -> ServiceResult<GetUserWalletResponse> {
         handle(async {
-            ctx.require_role(MODERATOR)?;
+            let staff_id = ctx.require_role(MODERATOR)?.user_id;
             let user_id = parse_id(request.user_id)?;
+            self.ensure_staff_may_look_into(staff_id, user_id).await?;
             let user = tokuly_identity::summaries(&self.core, &[user_id]).await?.remove(&user_id).or_not_found("USER_NOT_FOUND", "user not found")?;
             let (pending_payout, lifetime_paid_out) = self.payout_totals(user_id).await?;
             let lifetime_purchased: i64 = sqlx::query_scalar("SELECT COALESCE(sum(coins + bonus_coins), 0)::bigint FROM wallet_purchases WHERE user_id = $1 AND status = 'completed'")
@@ -108,13 +109,16 @@ impl WalletAdminService for Wallet {
         handle(async {
             let staff_id = ctx.require_role(MODERATOR)?.user_id;
             let user_id = parse_id(request.user_id)?;
+            // Before anything that depends on the account asked about.
+            self.ensure_staff_may_look_into(staff_id, user_id).await?;
             let known: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)").bind(user_id).fetch_one(&self.core.db).await?;
             ensure!(known, not_found, "USER_NOT_FOUND", "user not found");
             let page = Page::from_view(request.page.as_option(), MAX_PAGE);
             // Worded in the language of the person reading it, not the account owner's.
             let locale = self.user_prefs(staff_id).await?.locale;
-            // Staff trace payments: they are shown both parties, also a counterpart the owner is not told.
-            let (entries, page) = self.list_entries(user_id, Reader::Staff, Scope::from_filter(request.account.as_known()), &page, &locale).await?;
+            // Staff trace payments: they are shown both parties, also a counterpart the owner is not told
+            // (unless it was kept from the staff member themselves).
+            let (entries, page) = self.list_entries_for_staff(staff_id, user_id, Scope::from_filter(request.account.as_known()), &page, &locale).await?;
             ok(ListUserLedgerEntriesResponse { entries, page: page.into(), ..Default::default() })
         })
         .await

@@ -97,8 +97,15 @@ export function PayoutQueue({
                     >
                       <Avatar user={payout.user} size="sm" />
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-black">
-                          {payout.user ? payout.user.displayName : t("staff.deletedUser")}
+                        <span className="flex items-center gap-1.5 text-sm font-black">
+                          <span className="truncate">
+                            {payout.user ? payout.user.displayName : t("staff.deletedUser")}
+                          </span>
+                          {payout.userSuspended && (
+                            <span className="shrink-0 rounded-full bg-danger/10 px-1.5 py-0.5 text-[10px] font-bold text-danger">
+                              {t("staff.payouts.suspended")}
+                            </span>
+                          )}
                         </span>
                         <span className="block truncate text-xs text-ink-soft">
                           {payout.user ? `@${payout.user.handle} · ` : ""}
@@ -235,6 +242,14 @@ function PayoutReview({
         <UserLine user={payout.user} />
         <PayoutStatusChip status={payout.status} />
       </div>
+      {payout.userSuspended && (
+        <p
+          role="note"
+          className="mt-3 rounded-xl bg-danger/10 px-3 py-2 text-sm font-bold text-danger"
+        >
+          {t("staff.payouts.suspendedNotice")}
+        </p>
+      )}
       <PayoutAmount payout={payout} large className="mt-3" />
 
       <dl className="mt-3 divide-y-2 divide-line">
@@ -285,7 +300,7 @@ function PayoutReview({
       </dl>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        {payout.status === wallet.PayoutStatus.PENDING && (
+        {payout.status === wallet.PayoutStatus.PENDING && !payout.userSuspended && (
           <Button
             variant="lime"
             icon={<Check className="size-4" />}
@@ -294,7 +309,7 @@ function PayoutReview({
             {t("staff.payouts.approve")}
           </Button>
         )}
-        {payout.status === wallet.PayoutStatus.APPROVED && (
+        {payout.status === wallet.PayoutStatus.APPROVED && !payout.userSuspended && (
           <Button
             variant="lime"
             icon={<BadgeCheck className="size-4" />}

@@ -40,7 +40,7 @@ impl DataExporter for WalletExporter {
         let balance: Option<(i64, i64)> = sqlx::query_as("SELECT coins, earnings FROM wallet_accounts WHERE user_id = $1").bind(user_id).fetch_optional(&self.db).await?;
         let (coins, earnings) = balance.unwrap_or((0, 0));
 
-        let entries = fetch_entries(&self.db, user_id, Scope::ALL, None, MAX_EXPORTED_ENTRIES + 1).await?;
+        let entries = fetch_entries(&self.db, user_id, Scope::ALL, None, MAX_EXPORTED_ENTRIES + 1, None).await?;
         let truncated = entries.len() as i64 > MAX_EXPORTED_ENTRIES;
         let ledger: Vec<serde_json::Value> = entries
             .iter()

@@ -297,7 +297,10 @@ celebrate) but sends no `quest.badge`, in the inbox or by push, and the 10 XP
 of `daily.joined` and the first level never did. A brand-new account's inbox
 stays empty, and no toast lands on whatever it is doing, until something
 happens that it or someone else did. A catalogue test keeps it that way:
-every badge the sign-up alone earns is quiet, and no other is.
+every badge the sign-up alone earns is quiet, and no other is. Signing up is
+also no activity at an hour of the day (`daily.joined` is untimed), so an
+account made between 5 and 7 in the morning does not earn the notifying
+`early_bird` badge for it.
 
 The notify domain files these under its `quest` category ("クエスト・連続記録"),
 which players can switch off in the notification settings.

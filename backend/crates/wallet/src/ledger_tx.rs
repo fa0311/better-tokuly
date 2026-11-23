@@ -43,9 +43,13 @@ pub struct Posted {
     pub applied: bool,
 }
 
-/// What to answer when `key` was used before: the original entry, not applied again.
-async fn replay_of(tx: &mut Transaction<'_, Postgres>, key: &str) -> AppResult<Option<Posted>> {
-    Ok(existing_entry(tx, key).await?.map(|existing| Posted { entry_id: existing.entry_id, applied: false }))
+/// What to answer when `key` was used before: the original entry, not
+/// applied again — or `IDEMPOTENCY_KEY_REUSED` when it was another movement.
+async fn replay_of(tx: &mut Transaction<'_, Postgres>, key: &str, kind: &str, from: Option<Uuid>, to: Option<Uuid>, amount: i64) -> AppResult<Option<Posted>> {
+    match existing_entry(tx, key).await? {
+        Some(existing) => Ok(Some(Posted { entry_id: existing.retry_of(kind, from, to, amount)?.entry_id, applied: false })),
+        None => Ok(None),
+    }
 }
 
 /// Issues new coins to a user as part of the caller's transaction.
@@ -54,7 +58,7 @@ pub async fn grant(tx: &mut Transaction<'_, Postgres>, user_id: Uuid, amount: i6
     check_amount(amount)?;
     check_key(key)?;
     lock_account(tx, user_id).await?;
-    if let Some(replay) = replay_of(tx, key).await? {
+    if let Some(replay) = replay_of(tx, key, "grant", None, Some(user_id), amount).await? {
         return Ok(replay);
     }
     let postings = [(system::ISSUED.to_owned(), -amount), (Account::Coins.of(user_id), amount)];
@@ -73,7 +77,7 @@ pub async fn hold_payout(tx: &mut Transaction<'_, Postgres>, user_id: Uuid, amou
     check_amount(amount)?;
     check_key(key)?;
     let before = lock_account(tx, user_id).await?;
-    if let Some(replay) = replay_of(tx, key).await? {
+    if let Some(replay) = replay_of(tx, key, "payout", Some(user_id), None, amount).await? {
         return Ok(replay);
     }
     ensure!(before.earnings >= amount, precondition, "INSUFFICIENT_EARNINGS", "not enough earnings");
@@ -152,7 +156,7 @@ pub async fn settle_payout(tx: &mut Transaction<'_, Postgres>, hold_entry_id: Uu
     let hold = lock_hold(tx, hold_entry_id).await?;
     ensure!(!hold.returned, precondition, "PAYOUT_ALREADY_RETURNED", "this payout hold was already returned to the user");
     let key = settlement_key(hold_entry_id);
-    if let Some(replay) = replay_of(tx, &key).await? {
+    if let Some(replay) = replay_of(tx, &key, "payout_settlement", None, None, hold.amount).await? {
         return Ok(replay);
     }
     let postings = [(system::PAYOUT_HOLD.to_owned(), -hold.amount), (system::PAID_OUT.to_owned(), hold.amount)];
@@ -171,18 +175,19 @@ pub async fn adjust(tx: &mut Transaction<'_, Postgres>, user_id: Uuid, account: 
     check_amount(amount)?;
     check_key(key)?;
     let before = lock_account(tx, user_id).await?;
-    if let Some(replay) = replay_of(tx, key).await? {
+    let (from, to) = if delta > 0 { (None, Some(user_id)) } else { (Some(user_id), None) };
+    if let Some(replay) = replay_of(tx, key, "adjustment", from, to, amount).await? {
         return Ok(replay);
     }
     let user_account = account.of(user_id);
-    let (from, to, postings) = if delta > 0 {
-        (None, Some(user_id), [(system::ADJUSTMENTS.to_owned(), -amount), (user_account, amount)])
+    let postings = if delta > 0 {
+        [(system::ADJUSTMENTS.to_owned(), -amount), (user_account, amount)]
     } else {
         match account {
             Account::Coins => ensure!(before.coins >= amount, precondition, "INSUFFICIENT_COINS", "not enough coins"),
             Account::Earnings => ensure!(before.earnings >= amount, precondition, "INSUFFICIENT_EARNINGS", "not enough earnings"),
         }
-        (Some(user_id), None, [(user_account, -amount), (system::ADJUSTMENTS.to_owned(), amount)])
+        [(user_account, -amount), (system::ADJUSTMENTS.to_owned(), amount)]
     };
     let entry = NewEntry { kind: "adjustment", reason: "adjustment", key, from, to, amount, fee: 0, refund_of: None, memo };
     let entry_id = post(tx, entry, &postings).await?;
@@ -194,6 +199,10 @@ pub async fn adjust(tx: &mut Transaction<'_, Postgres>, user_id: Uuid, account: 
     Ok(Posted { entry_id, applied: true })
 }
 
+/// `wallet_entries.hidden_user_id` of an entry whose hidden party was
+/// deleted: still hidden from the other party, no longer naming anyone.
+pub const UNLINKED_HIDDEN_PARTY: Uuid = Uuid::nil();
+
 /// Unlinks a deleted user from every ledger entry, doing by hand what the
 /// schema's `ON DELETE SET NULL` would do if the user row were removed. The
 /// entries stay for accounting but no longer say whose they were;
@@ -203,7 +212,13 @@ pub async fn adjust(tx: &mut Transaction<'_, Postgres>, user_id: Uuid, account: 
 /// transaction locks an account row (see the lock order in the module docs).
 pub async fn unlink_user(tx: &mut Transaction<'_, Postgres>, user_id: Uuid) -> AppResult<()> {
     // A hidden party is always one of the entry's two users, so this finds every entry that names the user as hidden.
-    sqlx::query("UPDATE wallet_entries SET hidden_user_id = NULL WHERE hidden_user_id = $1 AND (from_user_id = $1 OR to_user_id = $1)").bind(user_id).execute(&mut **tx).await?;
+    // The mark stays, unlinked: the other side's line must read as before, or it would tell them the account behind
+    // it was just deleted.
+    sqlx::query("UPDATE wallet_entries SET hidden_user_id = $2 WHERE hidden_user_id = $1 AND (from_user_id = $1 OR to_user_id = $1)")
+        .bind(user_id)
+        .bind(UNLINKED_HIDDEN_PARTY)
+        .execute(&mut **tx)
+        .await?;
     sqlx::query("UPDATE wallet_entries SET from_user_id = NULL WHERE from_user_id = $1").bind(user_id).execute(&mut **tx).await?;
     sqlx::query("UPDATE wallet_entries SET to_user_id = NULL WHERE to_user_id = $1").bind(user_id).execute(&mut **tx).await?;
     Ok(())

@@ -355,7 +355,8 @@ service EarningsService {
   // or cancelled request returns them. One open request per user.
   // Errors: AMOUNT_INVALID, PAYOUT_BELOW_MINIMUM, INSUFFICIENT_EARNINGS,
   // PAYOUT_ALREADY_OPEN, PAYOUT_METHOD_INVALID, PAYOUT_DESTINATION_INVALID,
-  // PAYOUT_NOTE_TOO_LONG, IDEMPOTENCY_KEY_INVALID, RATE_LIMITED.
+  // PAYOUT_NOTE_TOO_LONG, IDEMPOTENCY_KEY_INVALID, IDEMPOTENCY_KEY_REUSED
+  // (same key, different amount, method or destination), RATE_LIMITED.
   rpc RequestPayout(RequestPayoutRequest) returns (RequestPayoutResponse);
   // Withdraws the caller's own request while it is still PENDING.
   // Errors: PAYOUT_NOT_FOUND, PAYOUT_NOT_PENDING.
@@ -490,6 +491,10 @@ message PayoutRequest {
   tokuly.common.v1.UserSummary user = 14;
   // Who approved or rejected. Only set in staff views.
   tokuly.common.v1.UserSummary reviewer = 15;
+  // The requester's account is suspended right now: the request can be
+  // rejected, but not approved or paid until the suspension is lifted. Only
+  // set in staff views.
+  bool user_suspended = 16;
 }
 
 message RequestPayoutRequest {
@@ -501,8 +506,9 @@ message RequestPayoutRequest {
   // Optional, up to 500 characters.
   string note = 4;
   // Client-generated key (up to 200 chars) making retries safe: requesting
-  // again with the same key returns the same request. Empty = no
-  // de-duplication.
+  // again with the same key returns the same request; the same key with
+  // another amount, method or destination is IDEMPOTENCY_KEY_REUSED. Empty =
+  // no de-duplication.
   string idempotency_key = 5;
 }
 
@@ -544,7 +550,8 @@ service WalletAdminService {
   rpc GetPayoutRequest(GetPayoutRequestRequest) returns (GetPayoutRequestResponse);
   // PENDING → APPROVED. The requester is notified.
   // Errors: PAYOUT_NOT_FOUND, PAYOUT_NOT_PENDING, SELF_REVIEW (staff cannot
-  // review their own request), REVIEW_NOTE_TOO_LONG.
+  // review their own request), ACCOUNT_SUSPENDED (the requester is
+  // suspended), REVIEW_NOTE_TOO_LONG.
   rpc ApprovePayout(ApprovePayoutRequest) returns (ApprovePayoutResponse);
   // PENDING or APPROVED → REJECTED; the coins return to the requester's
   // earnings and they are notified with the reason.
@@ -553,22 +560,29 @@ service WalletAdminService {
   rpc RejectPayout(RejectPayoutRequest) returns (RejectPayoutResponse);
   // APPROVED → PAID, once the money was sent. The requester is notified.
   // Errors: PAYOUT_NOT_FOUND, PAYOUT_NOT_APPROVED, SELF_REVIEW,
-  // PAYMENT_REFERENCE_TOO_LONG.
+  // ACCOUNT_SUSPENDED (the requester is suspended), PAYMENT_REFERENCE_TOO_LONG.
   rpc MarkPayoutPaid(MarkPayoutPaidRequest) returns (MarkPayoutPaidResponse);
 
   // A user's wallet at a glance, for support.
-  // Errors: USER_NOT_FOUND.
+  // Errors: USER_NOT_FOUND, HIDDEN_PARTY (see ListUserLedgerEntries).
   rpc GetUserWallet(GetUserWalletRequest) returns (GetUserWalletResponse);
   // A user's ledger history, newest first. Unlike the user's own view it
   // names both parties of every transfer, also a counterpart that is hidden
-  // from the user (`LedgerEntry.counterpart_hidden`).
-  // Errors: USER_NOT_FOUND, INVALID_CURSOR.
+  // from the user (`LedgerEntry.counterpart_hidden`) — but not to the staff
+  // member it is hidden from. Their own wallet reads as it does for them.
+  // A staff member who ever paid a hidden recipient (a gift to a channel),
+  // refunded or not, is refused every other wallet with HIDDEN_PARTY, here
+  // and in GetUserWallet: the account they paid would show the gift, and a
+  // refusal of that account alone would name it. Another staff member looks
+  // into wallets for them.
+  // Errors: USER_NOT_FOUND, HIDDEN_PARTY, INVALID_CURSOR.
   rpc ListUserLedgerEntries(ListUserLedgerEntriesRequest) returns (ListUserLedgerEntriesResponse);
 
   // Adds or removes coins or earnings by hand (role `admin`). Recorded in
   // the adjustment log with the admin and the reason; a balance can never
   // be pushed below zero.
-  // Errors: USER_NOT_FOUND, ACCOUNT_INVALID, AMOUNT_INVALID (zero or beyond
+  // Errors: USER_NOT_FOUND, SELF_ADJUSTMENT (an admin cannot adjust their
+  // own balance), ACCOUNT_INVALID, AMOUNT_INVALID (zero or beyond
   // ±100,000,000), REASON_REQUIRED, REASON_TOO_LONG, INSUFFICIENT_COINS,
   // INSUFFICIENT_EARNINGS, IDEMPOTENCY_KEY_INVALID, IDEMPOTENCY_KEY_REUSED
   // (same key, different adjustment).

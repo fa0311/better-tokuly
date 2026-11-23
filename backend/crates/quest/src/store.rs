@@ -57,9 +57,11 @@ if xp > 0 then
 end
 for i = 9, #ARGV, 2 do redis.call('HINCRBY', KEYS[2], ARGV[i], ARGV[i + 1]) end
 redis.call('HSET', KEYS[2], 'm:active_days', 1)
-local hours = tonumber(redis.call('HGET', KEYS[2], 'h') or '0')
-local bit = 2 ^ tonumber(ARGV[8])
-if math.floor(hours / bit) % 2 == 0 then redis.call('HSET', KEYS[2], 'h', string.format('%d', hours + bit)) end
+if tonumber(ARGV[8]) >= 0 then
+  local hours = tonumber(redis.call('HGET', KEYS[2], 'h') or '0')
+  local bit = 2 ^ tonumber(ARGV[8])
+  if math.floor(hours / bit) % 2 == 0 then redis.call('HSET', KEYS[2], 'h', string.format('%d', hours + bit)) end
+end
 redis.call('HINCRBY', KEYS[2], 'v', 1)
 redis.call('EXPIRE', KEYS[2], ARGV[2])
 redis.call('ZADD', KEYS[3], 'NX', ARGV[7], ARGV[6])
@@ -108,8 +110,9 @@ impl Scripts {
 pub(crate) struct Credit<'a> {
     pub user: Uuid,
     pub day: NaiveDate,
-    /// Local hour of the deed (0-23).
-    pub hour: u32,
+    /// Local hour of the deed (0-23); `None` when the deed is no activity
+    /// at an hour of the day (`Rule::timed`).
+    pub hour: Option<u32>,
     /// Identifies the deed; a second credit with the same ID does nothing.
     pub dedupe: &'a str,
     pub source: Source,
@@ -216,7 +219,7 @@ impl Quest {
                 .arg(def.daily_cap)
                 .arg(&member)
                 .arg(due)
-                .arg(credit.hour.min(23));
+                .arg(credit.hour.map_or(-1, |hour| i64::from(hour.min(23))));
             for (metric, amount) in credit.counts {
                 invocation.arg(format!("m:{}", metric.key())).arg(*amount);
             }

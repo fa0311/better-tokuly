@@ -83,7 +83,7 @@ pub async fn spend(core: &Core, user_id: Uuid, amount: i64, reason: &str, idempo
     let mut tx = core.db.begin().await?;
     let before = lock_account(&mut tx, user_id).await?;
     if let Some(existing) = existing_entry(&mut tx, idempotency_key).await? {
-        return Ok((existing.entry_id, false));
+        return Ok((existing.retry_of("spend", Some(user_id), None, amount)?.entry_id, false));
     }
     ensure!(before.coins >= amount, precondition, "INSUFFICIENT_COINS", "not enough coins");
     let postings = [(Account::Coins.of(user_id), -amount), (system::SPENT.to_owned(), amount)];
@@ -155,7 +155,9 @@ async fn transfer_inner(
     let first_balance = lock_account(&mut tx, first).await?;
     let second_balance = lock_account(&mut tx, second).await?;
     if let Some(existing) = existing_entry(&mut tx, idempotency_key).await? {
-        return Ok(TransferReceipt { entry_id: existing.entry_id, fee: existing.fee, net: amount - existing.fee, applied: false });
+        // What the original moved, even if the fee setting changed since.
+        let existing = existing.retry_of("transfer", Some(from_user), Some(to_user), amount)?;
+        return Ok(TransferReceipt { entry_id: existing.entry_id, fee: existing.fee, net: existing.amount - existing.fee, applied: false });
     }
     let payer = if first == from_user { first_balance } else { second_balance };
     ensure!(payer.coins >= amount, precondition, "INSUFFICIENT_COINS", "not enough coins");
@@ -177,8 +179,16 @@ async fn transfer_inner(
 }
 
 /// Reverses a spend or transfer. Idempotent: refunding twice is a no-op.
-/// Fails with `REFUND_IMPOSSIBLE` when the recipient already used the earnings.
+/// Fails with `REFUND_IMPOSSIBLE` when the recipient already used the
+/// earnings, or when either side's account was deleted.
 pub async fn refund(core: &Core, entry_id: Uuid, reason: &str) -> AppResult<()> {
+    refund_inner(core, entry_id, reason).await.map_err(|e| {
+        // Coins cannot go back to, or be taken back from, a deleted account.
+        if e.reason == "ACCOUNT_CLOSED" { AppError::precondition("REFUND_IMPOSSIBLE", "an account of this movement was deleted") } else { e }
+    })
+}
+
+async fn refund_inner(core: &Core, entry_id: Uuid, reason: &str) -> AppResult<()> {
     let mut tx = core.db.begin().await?;
     let row: Option<(String, Option<Uuid>, Option<Uuid>, i64, i64, bool)> = sqlx::query_as(
         "SELECT kind, from_user_id, to_user_id, amount, fee, refunded_at IS NOT NULL FROM wallet_entries WHERE id = $1 FOR UPDATE",

@@ -165,8 +165,21 @@ impl Wallet {
         let package = self.package_on_sale(package_id).await?;
         match self.insert_purchase(user_id, &package, provider.name(), idempotency_key).await? {
             Some(purchase) => self.open_checkout(purchase, provider).await,
-            // An identical start with the same key won the race; hand back its purchase.
-            None => self.purchase_by_key(user_id, idempotency_key).await?.or_not_found("PURCHASE_NOT_FOUND", "purchase not found"),
+            // An identical start with the same key won the race; carry on with its purchase as a retry would
+            // (it may not have its checkout yet).
+            None => {
+                let existing = self.purchase_by_key(user_id, idempotency_key).await?.or_not_found("PURCHASE_NOT_FOUND", "purchase not found")?;
+                ensure!(
+                    existing.package_id == package_id && existing.provider == provider.name(),
+                    already_exists,
+                    "IDEMPOTENCY_KEY_REUSED",
+                    "this idempotency key was used for a different purchase"
+                );
+                if existing.is_pending() && existing.provider_ref.is_empty() {
+                    return self.open_checkout(existing, provider).await;
+                }
+                Ok(existing)
+            }
         }
     }
 
@@ -204,17 +217,31 @@ impl Wallet {
                 return Err(provider_error("create a checkout", error));
             }
         };
-        let saved: Result<PurchaseRow, sqlx::Error> = sqlx::query_as(concat!(
-            "UPDATE wallet_purchases SET provider_ref = $2, checkout_url = $3 WHERE id = $1 RETURNING ",
+        // Only the first checkout is kept: a retry that ran while another
+        // call was still opening one must not replace it, or a payment into
+        // the replaced checkout would never find its purchase.
+        let saved: Result<Option<PurchaseRow>, sqlx::Error> = sqlx::query_as(concat!(
+            "UPDATE wallet_purchases SET provider_ref = $2, checkout_url = $3 WHERE id = $1 AND provider_ref = '' RETURNING ",
             purchase_columns!()
         ))
         .bind(purchase.id)
         .bind(&checkout.reference)
         .bind(checkout.checkout_url.as_deref().unwrap_or_default())
-        .fetch_one(&self.core.db)
+        .fetch_optional(&self.core.db)
         .await;
         let purchase = match saved.map_err(AppError::from) {
-            Ok(purchase) => purchase,
+            Ok(Some(purchase)) => purchase,
+            Ok(None) => {
+                // Another call saved its checkout first: void ours and answer with that one.
+                if let Err(e) = provider.cancel_checkout(&order, &checkout.reference).await {
+                    tracing::warn!(purchase_id = %purchase.id, error = %e, "provider could not void a duplicate checkout");
+                }
+                let current: PurchaseRow = sqlx::query_as(concat!("SELECT ", purchase_columns!(), " FROM wallet_purchases WHERE id = $1"))
+                    .bind(purchase.id)
+                    .fetch_one(&self.core.db)
+                    .await?;
+                return Ok(current);
+            }
             // The unique index on (provider, provider_ref): the provider reused a reference.
             Err(e) if e.is_already_exists() => return Err(provider_error("return a unique checkout reference", e)),
             Err(e) => return Err(e),
