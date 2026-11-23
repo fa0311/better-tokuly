@@ -314,15 +314,33 @@ pub(crate) fn held_handle_key(handle: &str) -> String {
     format!("id:handle:held:{}", handle.to_ascii_lowercase())
 }
 
-/// Keeps `handle` for `owner` for [`HANDLE_HOLD`].
+/// Keeps `handle` for `owner` for [`HANDLE_HOLD`]. Only the handle an
+/// account gave up last is held: the one before is released, so renaming in
+/// a cycle does not park a handle at every step.
 pub(crate) async fn hold_handle(core: &Core, handle: &str, owner: Uuid) -> AppResult<()> {
-    core.cache.set_string(&held_handle_key(handle), &owner.to_string(), Some(HANDLE_HOLD)).await
+    let last_key = format!("id:handle:last-held:{owner}");
+    if let Some(previous) = core.cache.get_string(&last_key).await?
+        && !previous.eq_ignore_ascii_case(handle)
+        && handle_holder(core, &previous).await? == Some(owner)
+    {
+        core.cache.del(&held_handle_key(&previous)).await?;
+    }
+    core.cache.set_string(&held_handle_key(handle), &owner.to_string(), Some(HANDLE_HOLD)).await?;
+    core.cache.set_string(&last_key, &handle.to_ascii_lowercase(), Some(HANDLE_HOLD)).await
+}
+
+/// The account a recently given-up `handle` is held for, if any.
+pub(crate) async fn handle_holder(core: &Core, handle: &str) -> AppResult<Option<Uuid>> {
+    Ok(core
+        .cache
+        .get_string(&held_handle_key(handle))
+        .await?
+        .and_then(|holder| Uuid::parse_str(&holder).ok()))
 }
 
 /// Whether `handle` was recently let go by someone other than `claimant`.
 pub(crate) async fn handle_held_from(core: &Core, handle: &str, claimant: Option<Uuid>) -> AppResult<bool> {
-    let holder = core.cache.get_string(&held_handle_key(handle)).await?;
-    Ok(holder.is_some_and(|holder| Some(holder.as_str()) != claimant.map(|c| c.to_string()).as_deref()))
+    Ok(handle_holder(core, handle).await?.is_some_and(|holder| Some(holder) != claimant))
 }
 
 // ───────────────────────────── validation ─────────────────────────────

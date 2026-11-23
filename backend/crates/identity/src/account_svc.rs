@@ -79,10 +79,18 @@ impl AccountService for Identity {
         let school_name = request.school_name.map(users::validate_school_name).transpose()?;
         let handle = match request.handle {
             Some(h) => {
-                let handle = users::handle_error(self.claimable_handle(h))?;
-                if handle == current.handle {
+                // Compare before the claim rules: an account sending its own
+                // handle back (a grandfathered one included) changes nothing,
+                // and the previous owner of a held handle may take it back.
+                let normalized = users::handle_error(users::normalize_handle(h))?;
+                if normalized.eq_ignore_ascii_case(&current.handle) {
                     None
                 } else {
+                    let handle = if users::handle_holder(core, &normalized).await? == Some(user_id) {
+                        normalized
+                    } else {
+                        users::handle_error(self.claimable_handle(h))?
+                    };
                     core.cache.rate_limit(&format!("handle-change:{user_id}"), 3, Duration::from_secs(7 * 24 * 3600)).await?;
                     let taken: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE handle = $1::citext AND id <> $2)")
                         .bind(&handle)

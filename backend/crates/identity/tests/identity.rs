@@ -270,6 +270,50 @@ async fn one_account_cannot_tie_up_the_database_pool() {
 }
 
 #[tokio::test]
+async fn an_account_keeps_and_gets_back_its_own_handle() {
+    let app = app().await;
+    let user = app.user("oldtimer").await;
+    let rename = |handle: String| {
+        let (app, user) = (&app, user.clone());
+        async move {
+            app.call::<_, UpdateProfileResponse>("tokuly.identity.v1.AccountService/UpdateProfile", Some(&user), &UpdateProfileRequest { handle: Some(handle), ..Default::default() })
+                .await
+        }
+    };
+    // A handle from before the look-alike rule (clients send the whole
+    // profile form back, handle included).
+    let grandfathered = unique("t0kuly_");
+    sqlx::query("UPDATE users SET handle = $2::citext WHERE id = $1").bind(user.id).bind(&grandfathered).execute(&app.core.db).await.unwrap();
+    rename(grandfathered.to_uppercase()).await.expect("sending one's own handle back is no change");
+    // Given up, it can still be taken back while it is held.
+    rename(unique("plain")).await.unwrap();
+    rename(format!("@{grandfathered}")).await.expect("the previous owner takes it back");
+}
+
+#[tokio::test]
+async fn only_the_handle_given_up_last_is_held() {
+    let app = app().await;
+    let (cycler, other) = (app.user("cycler").await, app.user("other").await);
+    let rename = |user: &TestUser, handle: &str| {
+        let (app, user, handle) = (&app, user.clone(), handle.to_owned());
+        async move {
+            app.call::<_, UpdateProfileResponse>("tokuly.identity.v1.AccountService/UpdateProfile", Some(&user), &UpdateProfileRequest { handle: Some(handle), ..Default::default() })
+                .await
+        }
+    };
+    // Renaming in a cycle must not park a handle at every step.
+    let names: Vec<String> = (0..3).map(|_| unique("cyc")).collect();
+    let first = cycler.handle.clone();
+    for name in &names {
+        rename(&cycler, name).await.unwrap();
+    }
+    for released in [&first, &names[0]] {
+        rename(&other, released).await.unwrap_or_else(|e| panic!("{released} should be free again: {e:?}"));
+    }
+    assert_eq!(rename(&other, &names[1]).await.unwrap_err().reason, "HANDLE_TAKEN", "the last one given up is held");
+}
+
+#[tokio::test]
 async fn settings_default_then_persist() {
     let app = app().await;
     let user = app.user("set").await;
