@@ -299,18 +299,12 @@ message Stream {
   string raid_target_stream_id = 14;
   StreamViewerState viewer = 15;
   StreamStudioInfo studio = 16;
-  // Topic carrying this stream's `LiveEvent`s. A chat line whose author is
-  // in a block relation with someone who may be following the topic is not
-  // on it: signed-in viewers get such a line pushed to their own devices
-  // (a `LiveEvent.chat_message` without a topic), anonymous ones on
-  // `guest_topic`.
+  // Topic carrying this stream's `LiveEvent`s. Chat lines (and pins) on it
+  // do not reach the connections of people in a block relation with their
+  // author or with the streamer.
   string realtime_topic = 17;
   // How often players call ReportWatching.
   int32 report_interval_seconds = 18;
-  // For anonymous callers: the second topic to follow, carrying the chat
-  // lines that are kept off `realtime_topic`. Empty for signed-in callers,
-  // who may not follow it.
-  string guest_topic = 19;
 }
 
 message TagList {

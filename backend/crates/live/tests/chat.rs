@@ -700,69 +700,64 @@ async fn polls_take_one_vote_per_viewer_and_close_by_themselves() {
     assert_eq!(ctx.reason(POLLS, "CreatePoll", Some(&alice), &create("おわり", &["a", "b"], 60)).await, "STREAM_ENDED");
 }
 
-/// The IDs of the chat lines among what a listener got within `QUIET` after the last one.
-async fn lines(listener: &mut tokuly_testkit::FrameListener) -> Vec<String> {
-    pushes(listener.drain(QUIET).await)
-        .into_iter()
-        .filter_map(|push| match push {
-            Push::ChatMessage(message) => Some(message.id),
+/// Every realtime message published within `QUIET`: its subject, the users
+/// it leaves out, and the chat line it carries, if any.
+async fn published(bus: &mut async_nats::Subscriber) -> Vec<(String, std::collections::HashSet<Uuid>, Option<String>)> {
+    use futures::StreamExt as _;
+    let mut seen = Vec::new();
+    while let Ok(Some(message)) = tokio::time::timeout(QUIET, bus.next()).await {
+        let frame = <tokuly_proto::realtime::ServerFrame as buffa::Message>::decode_from_slice(&message.payload).ok();
+        let line = frame.and_then(|frame| frame.event::<LiveEvent>()).and_then(|event| match event.event {
+            Some(Push::ChatMessage(line)) => Some(line.id),
             _ => None,
-        })
-        .collect()
+        });
+        seen.push((message.subject.to_string(), tokuly_core::realtime::except_of(message.headers.as_ref()), line));
+    }
+    seen
 }
 
 #[tokio::test]
-async fn a_chat_line_does_not_reach_whom_its_author_blocked_or_was_blocked_by() {
+async fn a_chat_line_is_one_publish_that_leaves_out_the_people_in_a_block_relation() {
     let ctx = start().await;
     let alice = ctx.app.user("alice").await;
     let bob = ctx.app.user("bob").await;
     let carol = ctx.app.user("carol").await;
     let dave = ctx.app.user("dave").await;
     let erin = ctx.app.user("erin").await;
+    let fan = ctx.app.user("fan").await;
     let channel = ctx.channel(&alice, "ブロックch").await;
     let stream = ctx.on_air(&alice, &channel, "みんなの配信").await;
-    let guards = &ctx.app.core.topic_guards;
-
-    // Signed-in viewers follow the stream's topic (the gateway asks the guard,
-    // which remembers them); the guest topic is for anonymous connections only.
-    let guest_topic = ctx.get_stream(None, &card(&stream).id).await.unwrap().guest_topic;
-    assert_eq!(guest_topic, format!("{}:guests", stream.realtime_topic));
-    assert!(ctx.get_stream(Some(&erin), &card(&stream).id).await.unwrap().guest_topic.is_empty());
-    for viewer in [&carol, &dave, &erin] {
-        assert!(guards.may_subscribe(Some(viewer.id), &stream.realtime_topic).await.unwrap());
-        assert!(!guards.may_subscribe(Some(viewer.id), &guest_topic).await.unwrap());
-    }
-    assert!(guards.may_subscribe(None, &guest_topic).await.unwrap());
-    assert!(!guards.may_subscribe(None, &format!("live:{}:other", card(&stream).id)).await.unwrap());
-
-    let mut topic = ctx.app.listen_topic(&stream.realtime_topic).await;
-    let mut guests = ctx.app.listen_topic(&guest_topic).await;
-    let mut devices = Vec::new();
-    for user in [&alice, &bob, &carol, &dave, &erin] {
-        devices.push(ctx.app.listen_user(user.id).await);
-    }
-
-    // Without blocks, a line goes to the topic.
-    let before = ctx.say(&bob, &stream, "やあ").await.unwrap();
-    assert_eq!(lines(&mut topic).await, [before.id.clone()]);
-    assert!(lines(&mut guests).await.is_empty());
-
-    // Carol blocks Bob, Bob blocks Dave: Bob's lines leave the topic. Whoever else follows
-    // the stream gets them on their devices, and anonymous viewers on the guest topic.
+    // Carol blocked the author, the author blocked Dave, the streamer blocked Erin.
     ctx.block(&carol, &bob).await;
     ctx.block(&bob, &dave).await;
-    let after = ctx.say(&bob, &stream, "こんにちは").await.unwrap();
-    assert!(lines(&mut topic).await.is_empty(), "the topic does not carry it");
-    assert_eq!(lines(&mut guests).await, [after.id.clone()]);
-    let [to_alice, to_bob, to_carol, to_dave, to_erin] = &mut devices[..] else { unreachable!() };
-    assert_eq!(lines(to_alice).await, [after.id.clone()], "the streamer");
-    assert_eq!(lines(to_bob).await, [after.id.clone()], "the author");
-    assert_eq!(lines(to_erin).await, [after.id.clone()], "a viewer with no block");
-    assert!(lines(to_carol).await.is_empty(), "who blocked the author");
-    assert!(lines(to_dave).await.is_empty(), "whom the author blocked");
+    ctx.block(&alice, &erin).await;
+    let mut bus = ctx.app.core.bus.subscribe("rt.>").await.unwrap();
 
-    // Everyone else's lines still go to the topic.
-    let other = ctx.say(&erin, &stream, "どうも").await.unwrap();
-    assert_eq!(lines(&mut topic).await, [other.id]);
-    assert!(lines(to_erin).await.is_empty());
+    // Other tests share the bus: look at this stream's topic and these people's devices only.
+    let topic = tokuly_core::realtime::topic_subject(&stream.realtime_topic);
+    let devices: Vec<String> = [&alice, &bob, &carol, &dave, &erin, &fan]
+        .iter()
+        .map(|user| tokuly_core::realtime::user_subject(user.id))
+        .collect();
+    let ours = |seen: Vec<(String, std::collections::HashSet<Uuid>, Option<String>)>| {
+        let lines: Vec<_> =
+            seen.iter().filter(|(subject, _, line)| subject.ends_with(&topic) && line.is_some()).cloned().collect();
+        let to_devices =
+            seen.iter().filter(|(subject, ..)| devices.iter().any(|device| subject.ends_with(device))).count();
+        (lines, to_devices)
+    };
+
+    let line = ctx.say(&bob, &stream, "こんにちは").await.unwrap();
+    let (lines, to_devices) = ours(published(&mut bus).await);
+    assert_eq!((lines.len(), to_devices), (1, 0), "one publish for the line, nothing per follower: {lines:?}");
+    assert_eq!(lines[0].2.as_deref(), Some(line.id.as_str()));
+    let left_out = std::collections::HashSet::from([carol.id, dave.id, erin.id]);
+    assert_eq!(lines[0].1, left_out, "the author's block relations both ways, and the streamer's");
+
+    // Another author: their own relations (none) and the streamer's.
+    let other = ctx.say(&fan, &stream, "どうも").await.unwrap();
+    let (lines, to_devices) = ours(published(&mut bus).await);
+    assert_eq!((lines.len(), to_devices), (1, 0), "{lines:?}");
+    assert_eq!(lines[0].2.as_deref(), Some(other.id.as_str()));
+    assert_eq!(lines[0].1, std::collections::HashSet::from([erin.id]));
 }

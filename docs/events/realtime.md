@@ -45,7 +45,7 @@ gateway, created by the first connection and dropped with the last:
 | Subject | Payload | Forwarded to |
 |---|---|---|
 | `rt.u.<user>` | encoded `ServerFrame` | every connection of the user |
-| `rt.t.<topic>` | encoded `ServerFrame` | every connection subscribed to the topic |
+| `rt.t.<topic>` | encoded `ServerFrame`; optional header `Tokuly-Except` | every connection subscribed to the topic, except those signed in as a user the header names |
 
 Published:
 
@@ -69,6 +69,12 @@ a typing/presence signal; the chat domain must.
   when a client reads too slowly. Everything else is *reliable*: a client
   whose backlog exceeds `TOKULY_RT_QUEUE_FRAMES` / `TOKULY_RT_QUEUE_BYTES`
   is disconnected and resynchronizes on reconnect.
+- A topic frame may leave some users out: its bus message carries
+  `Tokuly-Except: <simple uuid>,…` (at most 1000, `tokuly_core::realtime::MAX_EXCEPT`;
+  published with `Realtime::to_topic_except`), and the gateway skips every
+  connection signed in as one of them. The header is never forwarded; an
+  anonymous connection is never left out. One publish serves the whole
+  topic whatever the list holds (live chat uses it for blocks).
 - `Welcome` is sent after the user's subscription is in place: a client
   that fetches a snapshot after `Welcome` misses no event.
 - Delivery is at most once. Anything that must not be lost has to be

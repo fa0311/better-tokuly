@@ -39,7 +39,7 @@ use unicode_segmentation::UnicodeSegmentation as _;
 use crate::{
     Live,
     access::{self, Viewer},
-    audience, streams, tiers,
+    streams, tiers,
 };
 
 pub const MAX_OVERLAYS: i64 = 20;
@@ -774,14 +774,7 @@ impl TopicGuard for OverlayGuard {
 }
 
 /// Guard of `live:<stream id>` topics: whoever may watch the stream may
-/// follow it (guests included for streams open to everyone). A signed-in
-/// subscriber is remembered as one of the stream's followers, which is how
-/// a chat line knows whether it may go to the whole topic
-/// ([`crate::Live::push_chat_message`]); the record is written before the
-/// subscription is allowed, so it never misses anyone.
-///
-/// `live:<stream id>:guests` ([`streams::guest_topic`]) is for anonymous
-/// connections only.
+/// follow it (guests included for streams open to everyone).
 struct StreamGuard {
     core: Core,
 }
@@ -789,24 +782,12 @@ struct StreamGuard {
 #[async_trait]
 impl TopicGuard for StreamGuard {
     async fn may_subscribe(&self, subscriber: Option<Uuid>, topic: &str) -> AppResult<bool> {
-        let Some(rest) = topic.strip_prefix("live:") else { return Ok(false) };
-        let (id, guests) = match rest.strip_suffix(":guests") {
-            Some(id) => (id, true),
-            None => (rest, false),
-        };
-        let Ok(stream_id) = Uuid::parse_str(id) else { return Ok(false) };
-        if guests && subscriber.is_some() {
+        let Some(stream_id) = topic.strip_prefix("live:").and_then(|id| Uuid::parse_str(id).ok()) else {
             return Ok(false);
-        }
+        };
         let Some(stream) = streams::find_by_id(&self.core, stream_id).await? else { return Ok(false) };
         let viewer = Viewer::load(&self.core, subscriber).await?;
-        if !access::can_watch(&viewer, &stream.facts()) {
-            return Ok(false);
-        }
-        if let Some(user_id) = subscriber {
-            audience::note_follower(&self.core, stream_id, user_id).await?;
-        }
-        Ok(true)
+        Ok(access::can_watch(&viewer, &stream.facts()))
     }
 }
 

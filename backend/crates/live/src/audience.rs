@@ -19,7 +19,6 @@
 //! |---|---|---|
 //! | `live:watching:<stream>` | sorted set, TTL 10 min | viewers by last heartbeat |
 //! | `live:dashboard:<stream>` | marker, TTL 3 heartbeats | the streamer has their dashboard open |
-//! | `live:followers:<stream>` | set, TTL 7 days | signed-in accounts that subscribed to the stream's topic |
 use std::time::Duration;
 
 use tokuly_core::{prelude::*, presence};
@@ -35,53 +34,6 @@ fn watching_key(stream_id: Uuid) -> String {
 
 fn dashboard_key(stream_id: Uuid) -> String {
     format!("live:dashboard:{stream_id}")
-}
-
-fn followers_key(stream_id: Uuid) -> String {
-    format!("live:followers:{stream_id}")
-}
-
-/// How long the record of who followed a stream's topic lasts after the
-/// last subscription to it. Longer than any stream is on air.
-const FOLLOWERS_TTL_SECONDS: i64 = 7 * 24 * 3600;
-
-/// Remembers that `user_id` subscribed to the stream's topic. The gateway
-/// does not report unsubscribes, so this is everyone who may still be
-/// following it: a superset, which is what keeps [`any_follower`] safe.
-pub async fn note_follower(core: &Core, stream_id: Uuid, user_id: Uuid) -> AppResult<()> {
-    let key = followers_key(stream_id);
-    redis::pipe()
-        .cmd("SADD")
-        .arg(&key)
-        .arg(user_id.to_string())
-        .ignore()
-        .cmd("EXPIRE")
-        .arg(&key)
-        .arg(FOLLOWERS_TTL_SECONDS)
-        .ignore()
-        .query_async::<()>(&mut core.cache.conn())
-        .await?;
-    Ok(())
-}
-
-/// Whether any of `users` may be following the stream's topic.
-pub async fn any_follower(core: &Core, stream_id: Uuid, users: &[Uuid]) -> AppResult<bool> {
-    if users.is_empty() {
-        return Ok(false);
-    }
-    let found: Vec<i64> = redis::cmd("SMISMEMBER")
-        .arg(followers_key(stream_id))
-        .arg(users.iter().map(Uuid::to_string).collect::<Vec<_>>())
-        .query_async(&mut core.cache.conn())
-        .await?;
-    Ok(found.contains(&1))
-}
-
-/// Every signed-in account that may be following the stream's topic.
-pub async fn followers(core: &Core, stream_id: Uuid) -> AppResult<Vec<Uuid>> {
-    let members: Vec<String> =
-        redis::cmd("SMEMBERS").arg(followers_key(stream_id)).query_async(&mut core.cache.conn()).await?;
-    Ok(members.iter().filter_map(|member| Uuid::parse_str(member).ok()).collect())
 }
 
 /// A viewer as the audience set names them.

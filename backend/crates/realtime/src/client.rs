@@ -1,6 +1,6 @@
 //! The handle through which the rest of the gateway reaches one connection.
 use std::sync::{
-    Arc,
+    Arc, OnceLock,
     atomic::{AtomicU64, Ordering},
 };
 
@@ -39,6 +39,10 @@ pub(crate) struct Client {
     pub key: u64,
     pub transport: Transport,
     pub outbox: Outbox,
+    /// The user the connection signed in as; set once, never changed (a
+    /// connection may sign in late but not become someone else). Topic
+    /// frames that name this user in their exception list skip it.
+    pub user: OnceLock<Uuid>,
     counters: Arc<Counters>,
 }
 
@@ -49,6 +53,7 @@ impl Client {
             key: NEXT_KEY.fetch_add(1, Ordering::Relaxed),
             transport,
             outbox: Outbox::new(limits),
+            user: OnceLock::new(),
             counters,
         })
     }

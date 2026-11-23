@@ -5,7 +5,11 @@
 //! connection. Routes are created by the first member and torn down when the
 //! last one leaves, so the number of bus subscriptions follows the number of
 //! distinct users and topics, not the number of connections.
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 
 use bytes::Bytes;
 use dashmap::{DashMap, Entry};
@@ -15,7 +19,7 @@ use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 use tokuly_core::{
     bus::Bus,
-    realtime::{topic_subject, user_subject},
+    realtime::{except_of, topic_subject, user_subject},
 };
 use uuid::Uuid;
 
@@ -65,11 +69,16 @@ impl Route {
         })
     }
 
-    /// Copies one frame to every member. Never blocks on a client: each copy
-    /// is a push into that client's bounded outbox.
-    fn deliver(&self, frame: Bytes) {
+    /// Copies one frame to every member but those signed in as one of
+    /// `except` (the frame's exception list, see
+    /// `tokuly_core::realtime::Realtime::to_topic_except`). Never blocks on
+    /// a client: each copy is a push into that client's bounded outbox.
+    fn deliver(&self, frame: Bytes, except: &HashSet<Uuid>) {
         let delivery = delivery_of(&frame);
         for client in self.members.read().values() {
+            if client.user.get().is_some_and(|user| except.contains(user)) {
+                continue;
+            }
             client.send(delivery, frame.clone());
         }
     }
@@ -178,7 +187,7 @@ impl Hub {
                             _ = route.stop.cancelled() => return,
                             _ = self.shutdown.cancelled() => return,
                             message = subscriber.next() => match message {
-                                Some(message) => route.deliver(message.payload),
+                                Some(message) => route.deliver(message.payload, &except_of(message.headers.as_ref())),
                                 None => break,
                             },
                         }

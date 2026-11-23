@@ -332,9 +332,10 @@ owner) is held by the video it becomes.
 |---|---|---|
 | `stream_updated` | `live:<id>`, the owner, the channel's widgets | went on air, ended, was edited; archive finished (owner only) |
 | `stats` | `live:<id>` | the viewer count changed at a sample; a like |
-| `chat_message` | `live:<id>`, chat boxes; for a line kept off the topic (below) the followers it may reach (users) and `live:<id>:guests` instead of `live:<id>` | chat |
+| `chat_message` | `live:<id>` but the people in a block relation with its author or the streamer (below), chat boxes | chat |
 | `chat_message_deleted`, `chat_user_cleared` | `live:<id>`, chat boxes | chat |
-| `chat_pin_changed`, `chat_settings_changed` | `live:<id>` | moderation |
+| `chat_pin_changed` | `live:<id>` but the people in a block relation with the pinned line's author or the streamer | moderation |
+| `chat_settings_changed` | `live:<id>` | moderation |
 | `poll_updated` | `live:<id>`, poll widgets | opened, votes (at most once a second), closed |
 | `raid` | `live:<id>` of the raiding stream | it ended with a raid |
 | `chat_restriction_changed` | the restricted user | timeout, ban, lifted |
@@ -345,11 +346,7 @@ owner) is held by the video it becomes.
 Topics and their guards (registered in `Live::new`):
 
 - `live:<stream id>`: whoever may open the stream (guests for PUBLIC,
-  NO_FEED and UNLISTED streams). A signed-in subscriber is remembered as a
-  follower of the stream (`live:followers:<stream>`) before the guard says
-  yes.
-- `live:<stream id>:guests` (`Stream.guest_topic`, given to anonymous
-  callers): the same, for anonymous connections only.
+  NO_FEED and UNLISTED streams).
 - `overlay:<topic key>`: a widget's topic. The topic key is derived from the
   widget's token with a keyed hash (`live_overlays.topic_key`) and returned by
   `GetOverlay.realtime_topic`; the token itself never appears in a topic name
@@ -357,29 +354,27 @@ Topics and their guards (registered in `Live::new`):
   topic. After a rotation the key changes with the token and nothing is
   published to the old topic any more (other processes notice within 5 s).
 
-Chat lines and blocks: the gateway hands a topic's frames to every
-subscriber alike and cannot leave one out, so the choice is made per line.
-Nearly every line goes to `live:<id>`. A line whose author is in a block
-relation (either way) with an account recorded as a follower of the stream
-is kept off it: it is pushed to every recorded follower who is not hidden
-from the author, to the author and the streamer (to their devices, as a
-frame without a topic), and to `live:<id>:guests` for anonymous viewers.
-Deciding costs one cached read of the author's blocks and, when there are
-any, one `SMISMEMBER`; there is no query per viewer. The follower record is
-a superset of who may be subscribed (unsubscribes are not reported; it
-expires 7 days after the last subscription), so a recorded follower who
-left still gets such lines on their devices, which clients drop when the
-stream is not open. If the decision cannot be made (Valkey down) the line
-is not pushed at all; it is in the chat for the next read. Lists, history
-and replay filter by the reader's blocks as before, and the web app keeps
-dropping pushed lines of people the viewer blocked as a second line of
-defence.
+Chat lines and blocks: a chat line (and a pin, for the pinned line) is
+one publish to `live:<id>` carrying an exception list: everyone in a block
+relation, either way, with the line's author, and everyone in one with the
+streamer (`Live::chat_exceptions`; both lists come cached from the social
+domain, nothing is read per viewer). The list travels in the bus message's
+`Tokuly-Except` header, never in the frame, and every realtime gateway skips
+the connections signed in as one of those people
+(`tokuly_core::realtime::to_topic_except`). It holds at most
+`tokuly_core::realtime::MAX_EXCEPT` (1000) people; a line whose list would be
+longer, or whose list cannot be read, is not pushed live at all and appears
+on the next read. Lists, history and replay filter by the reader's blocks as
+before, and the web app still drops pushed lines of people the viewer
+blocked, as a second line of defence.
 
-Known limits: the gateway checks a subscription once, so someone who is
-blocked or loses access keeps an open subscription until they reconnect; a
-block made between the check of a line and its publication (milliseconds)
-can let that one line through; and a pinned message (`chat_pin_changed`)
-still goes to the whole topic.
+Known limits: the gateway checks a subscription once. Someone who loses
+access for another reason than a block — a stream narrowed to friends or
+members, an unfriending — keeps an open subscription to everything on the
+topic until they reconnect; ending such subscriptions from the server is the
+forced-unsubscribe issue #51. Other events on the topic (`stream_updated`,
+`stats`, polls) are not filtered by blocks. A block made between reading the
+lists and the publication (milliseconds) can let that one line through.
 
 ## Moderators
 
@@ -518,7 +513,6 @@ heartbeats are not tracked. No ClickHouse table of its own.
 |---|---|---|
 | `live:watching:<stream>` | sorted set, TTL 10 min | viewers by last heartbeat |
 | `live:dashboard:<stream>` | marker, TTL 3 report intervals | the streamer has their dashboard open |
-| `live:followers:<stream>` | set, TTL 7 days from the last subscription | signed-in accounts that subscribed to `live:<stream>` (who a chat line could reach on the topic) |
 | `live:slow:<stream>:<user>` | marker, TTL slow mode | slow mode |
 | `live:poll-push:<poll>`, `live:polls:dirty` | marker 1 s, set | vote pushes at most once a second |
 | `live:archive:<stream>` | lock | one archive attempt at a time |

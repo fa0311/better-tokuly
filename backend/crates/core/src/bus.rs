@@ -134,6 +134,22 @@ impl Bus {
             })
     }
 
+    /// Like [`Self::publish`], with headers (read by the receiver, never
+    /// passed on with the payload).
+    pub async fn publish_with_headers(
+        &self,
+        subject: impl Into<String>,
+        headers: async_nats::HeaderMap,
+        payload: impl Into<Bytes>,
+    ) -> AppResult<()> {
+        self.client
+            .publish_with_headers(self.subject(&subject.into()), headers, payload.into())
+            .await
+            .map_err(|e| {
+                AppError::unavailable("BUS_UNAVAILABLE", format!("bus publish failed: {e}"))
+            })
+    }
+
     /// Core NATS subscription (every subscriber receives every message).
     pub async fn subscribe(&self, subject: impl Into<String>) -> AppResult<async_nats::Subscriber> {
         self.client.subscribe(self.subject(&subject.into())).await.map_err(|e| {

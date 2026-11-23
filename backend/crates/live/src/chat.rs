@@ -30,7 +30,7 @@ use unicode_segmentation::UnicodeSegmentation as _;
 use crate::{
     Live,
     access::{self, Standing},
-    audience, lifecycle,
+    lifecycle,
     streams::{StreamRow, Tx},
 };
 
@@ -503,43 +503,42 @@ async fn lock_chatter(tx: &mut Tx<'_>, channel_id: Uuid, user_id: Uuid) -> AppRe
     Ok(())
 }
 
-/// How a chat line reaches the people watching, live.
-#[derive(Debug, PartialEq, Eq)]
-enum Delivery {
-    /// The stream's topic: nobody who may be following it is in a block
-    /// relation with the author.
-    Topic,
-    /// Each of these accounts directly, and the guest topic; the stream's
-    /// topic does not carry the line.
-    Direct(Vec<Uuid>),
-}
-
-/// Who gets a line by `author` directly when the topic will not do: the
-/// accounts that may follow the stream, the author and the streamer, less
-/// everyone hidden from the author (blocked by them or blocking them).
-fn direct_recipients(author: Uuid, owner: Uuid, hidden: &[Uuid], mut followers: Vec<Uuid>) -> Vec<Uuid> {
-    followers.extend([author, owner]);
-    followers.sort_unstable();
-    followers.dedup();
-    followers.retain(|user| !hidden.contains(user));
-    followers
-}
-
 impl Live {
-    /// Pushes a new chat line to the people watching and to the channel's
-    /// chat boxes.
-    ///
-    /// The realtime gateway hands a topic's frames to every subscriber
-    /// alike; it cannot leave one out. So a line whose author is in a block
-    /// relation with someone who may be following the stream (who opened
-    /// it signed in: [`audience::note_follower`]) does not go to the topic:
-    /// it is sent to each of those followers that are not hidden from the
-    /// author, the author and the streamer, and to the guest topic that only
-    /// anonymous connections follow. Every other line — nearly all of them —
-    /// goes to the topic as before. Deciding costs one cached look at the
-    /// author's blocks and, when they have any, one set lookup; nothing per
-    /// viewer. The chat boxes are the streamer's, who is never in a block
-    /// relation with someone allowed to write.
+    /// Who must not get a chat line by `author` (`None`: a notice of the
+    /// server) live: everyone in a block relation, either way, with the
+    /// author or with the streamer. Both lists are cached by the social
+    /// domain; nothing is read per viewer.
+    pub(crate) async fn chat_exceptions(&self, stream: &StreamRow, author: Option<Uuid>) -> AppResult<Vec<Uuid>> {
+        let mut except = graph::blocked_ids_either(&self.core, stream.owner_id).await?;
+        if let Some(author) = author.filter(|author| *author != stream.owner_id) {
+            except.extend(graph::blocked_ids_either(&self.core, author).await?);
+        }
+        except.sort_unstable();
+        except.dedup();
+        Ok(except)
+    }
+
+    /// Pushes a chat event about a line by `author` to the stream's topic,
+    /// leaving out the people in a block relation with the author or the
+    /// streamer ([`Self::chat_exceptions`]): one publish, whose exception
+    /// list each realtime gateway applies on delivery (see
+    /// `tokuly_core::realtime::to_topic_except`; at most
+    /// `tokuly_core::realtime::MAX_EXCEPT` people). When the list cannot be
+    /// read or is too long, nothing is pushed: the line is in the chat for
+    /// the next read.
+    pub(crate) async fn push_chat_event(&self, stream: &StreamRow, author: Option<Uuid>, event: Event) {
+        let pushed = async {
+            let except = self.chat_exceptions(stream, author).await?;
+            self.push_to_stream_except(stream.id, event, &except).await
+        };
+        if let Err(error) = pushed.await {
+            tracing::warn!(stream_id = %stream.id, %error, "a chat push was not sent");
+        }
+    }
+
+    /// Pushes a new chat line to the people watching (see
+    /// [`Self::push_chat_event`]) and to the channel's chat boxes, which are
+    /// the streamer's own.
     pub(crate) async fn push_chat_message(&self, stream: &StreamRow, row: &ChatRow) {
         let message = match to_proto_one(&self.core, stream, row).await {
             Ok(message) => message,
@@ -547,27 +546,7 @@ impl Live {
         };
         let event = Event::ChatMessage(Box::new(message));
         self.push_to_overlays(stream.channel_id, &[OverlayKind::OVERLAY_KIND_CHAT_BOX], event.clone()).await;
-        match self.chat_delivery(stream, row).await {
-            Ok(Delivery::Topic) => self.push_to_stream(stream.id, event).await,
-            Ok(Delivery::Direct(users)) => {
-                self.push_to_users(users, event.clone()).await;
-                self.push_to_guests(stream.id, event).await;
-            }
-            // Not knowing who may see it, nobody is told: the line is in the chat for the next read.
-            Err(error) => tracing::warn!(message_id = %row.id, %error, "could not decide who hears a chat message"),
-        }
-    }
-
-    async fn chat_delivery(&self, stream: &StreamRow, row: &ChatRow) -> AppResult<Delivery> {
-        // Notices of the server have no author to be hidden from.
-        let Some(author) = row.user_id else { return Ok(Delivery::Topic) };
-        let core = &self.core;
-        let hidden = graph::blocked_ids_either(core, author).await?;
-        if !audience::any_follower(core, stream.id, &hidden).await? {
-            return Ok(Delivery::Topic);
-        }
-        let followers = audience::followers(core, stream.id).await?;
-        Ok(Delivery::Direct(direct_recipients(author, stream.owner_id, &hidden, followers)))
+        self.push_chat_event(stream, row.user_id, event).await;
     }
 
     /// Posts a text message or a stamp for `user_id`.
@@ -725,14 +704,16 @@ impl Live {
             self.push_to_overlays(stream.channel_id, &[OverlayKind::OVERLAY_KIND_CHAT_BOX], event).await;
         }
         if unpinned {
-            self.push_pin(stream, None).await;
+            self.push_pin(stream, None, None).await;
         }
         Ok(())
     }
 
-    async fn push_pin(&self, stream: &StreamRow, message: Option<ChatMessage>) {
+    /// Tells the stream what is pinned now; a pinned line stays away from
+    /// the people in a block relation with its author, as the line did.
+    async fn push_pin(&self, stream: &StreamRow, message: Option<ChatMessage>, author: Option<Uuid>) {
         let change = ChatPinChanged { stream_id: stream.id.to_string(), message: message.into(), ..Default::default() };
-        self.push_to_stream(stream.id, Event::ChatPinChanged(Box::new(change))).await;
+        self.push_chat_event(stream, author, Event::ChatPinChanged(Box::new(change))).await;
     }
 
     /// Pins a message (`Some`) or clears the pin (`None`).
@@ -750,7 +731,7 @@ impl Live {
             Some(message) => Some(to_proto_one(&self.core, stream, message).await?),
             None => None,
         };
-        self.push_pin(stream, proto.clone()).await;
+        self.push_pin(stream, proto.clone(), message.and_then(|m| m.user_id)).await;
         Ok(proto)
     }
 
@@ -1007,16 +988,6 @@ mod tests {
         assert_eq!(normalize_banned_words(&["x".repeat(31)]).unwrap_err().reason, "BANNED_WORDS_INVALID");
         let many: Vec<String> = (0..201).map(|i| format!("w{i}")).collect();
         assert_eq!(normalize_banned_words(&many).unwrap_err().reason, "BANNED_WORDS_INVALID");
-    }
-
-    #[test]
-    fn lines_withheld_from_the_topic_reach_everyone_but_the_hidden() {
-        let [author, owner, fan, blocker, blocked] = [(); 5].map(|_| Uuid::now_v7());
-        let mut got = direct_recipients(author, owner, &[blocker, blocked], vec![fan, blocker, author, blocked, fan]);
-        got.sort_unstable();
-        let mut want = vec![author, owner, fan];
-        want.sort_unstable();
-        assert_eq!(got, want, "each once; the author and the streamer even when not recorded as followers");
     }
 
     #[test]

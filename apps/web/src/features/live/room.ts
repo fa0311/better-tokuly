@@ -149,9 +149,6 @@ export function useLiveRoom(stream: live.Stream): LiveRoom {
   const queryClient = useQueryClient();
   const streamId = stream.summary?.id ?? "";
   const topic = stream.realtimeTopic;
-  // Anonymous viewers: lines kept off the stream's topic (their author is in a block relation
-  // with someone following it) come on this one; signed-in viewers get them on their devices.
-  const guestTopic = stream.guestTopic;
   const [raid, setRaid] = useState<live.Raid | null>(null);
   // Signed-in viewers: whom they blocked, so the room can leave those lines out.
   useBlockedIds(Boolean(stream.viewer));
@@ -186,15 +183,9 @@ export function useLiveRoom(stream: live.Stream): LiveRoom {
         applyLiveEvent(queryClient, streamId, event);
         return;
       }
-      if (guestTopic && frame.topic === guestTopic) {
-        if (event.case === "chatMessage") applyLiveEvent(queryClient, streamId, event);
-        return;
-      }
       if (frame.topic) return;
-      // Sent to this person alone: a chat line kept off the topic, their standing in the chat, their encoder.
-      if (event.case === "chatMessage") {
-        if (event.value.streamId === streamId) applyLiveEvent(queryClient, streamId, event);
-      } else if (event.case === "chatRestrictionChanged") {
+      // Sent to this person alone: their standing in the chat, their encoder.
+      if (event.case === "chatRestrictionChanged") {
         refreshStream(queryClient, streamId);
       } else if (event.case === "encoderState" && event.value.streamId === streamId) {
         const { connected, protocol } = event.value;
@@ -212,14 +203,12 @@ export function useLiveRoom(stream: live.Stream): LiveRoom {
       }
     });
     const release = client.subscribe(topic);
-    const releaseGuests = guestTopic ? client.subscribe(guestTopic) : undefined;
     client.start();
     return () => {
       offFrame();
       release();
-      releaseGuests?.();
     };
-  }, [queryClient, topic, guestTopic, streamId]);
+  }, [queryClient, topic, streamId]);
 
   return { raid };
 }

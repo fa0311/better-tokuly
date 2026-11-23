@@ -137,7 +137,6 @@ impl Live {
             studio: studio.into(),
             realtime_topic: row.topic(),
             report_interval_seconds: self.cfg.report_interval_seconds as i32,
-            guest_topic: if viewer.user_id.is_none() { streams::guest_topic(row.id) } else { String::new() },
             ..Default::default()
         })
     }
