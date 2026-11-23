@@ -23,6 +23,16 @@ impl Live {
         self.core.rt.notify_user(user_id, &wrap(event)).await;
     }
 
+    /// Pushes an event to the devices of each of these users.
+    pub(crate) async fn push_to_users(&self, user_ids: Vec<Uuid>, event: Event) {
+        self.core.rt.notify_users(user_ids, &wrap(event)).await;
+    }
+
+    /// Pushes an event to the anonymous viewers of a stream (its guest topic).
+    pub(crate) async fn push_to_guests(&self, stream_id: Uuid, event: Event) {
+        self.core.rt.notify_topic(&streams::guest_topic(stream_id), &wrap(event)).await;
+    }
+
     /// Pushes an event to the channel's widgets of the given kinds.
     pub(crate) async fn push_to_overlays(&self, channel_id: Uuid, kinds: &[OverlayKind], event: Event) {
         match overlays::topics(self, channel_id).await {

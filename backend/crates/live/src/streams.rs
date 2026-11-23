@@ -220,6 +220,15 @@ pub fn topic(stream_id: Uuid) -> String {
     format!("live:{stream_id}")
 }
 
+/// Topic that anonymous viewers follow besides [`topic`]: it carries the
+/// chat lines that are withheld from the stream's topic because someone
+/// following it is in a block relation with their author (see
+/// [`crate::Live::push_chat_message`]). Signed-in connections may not
+/// follow it.
+pub fn guest_topic(stream_id: Uuid) -> String {
+    format!("live:{stream_id}:guests")
+}
+
 /// Holder under which a stream keeps its thumbnail upload alive.
 pub fn holder(stream_id: Uuid) -> String {
     format!("live:stream:{stream_id}")
