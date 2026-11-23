@@ -224,8 +224,14 @@ test("deleting a day's history empties the day", async ({ page, request, me }) =
   await expect(page.getByText(/今日はまだどこにも行ってないみたい/)).toBeVisible();
   expect((await listVisits(request, me)).visits ?? []).toHaveLength(0);
 
+  // The footprints of the day stay (they go only when asked for), so the calendar still marks
+  // the day for them, but with no distance and no visits. (Looked at once the month is loaded:
+  // before that, no day is marked at all.)
   await page.goto("/history");
-  await expect(page.getByTestId("history-calendar").locator("[data-active]")).toHaveCount(0);
+  const calendar = page.getByTestId("history-calendar");
+  await expect(calendar).toHaveAttribute("aria-busy", "false");
+  await expect(calendar.locator("[data-active]")).toHaveCount(1);
+  await expect(calendar.locator("[data-active]")).toHaveAttribute("aria-label", /: 0 m、0か所$/);
 });
 
 test("everything can be deleted at once, footprints included", async ({ page, request, me }) => {

@@ -1,4 +1,10 @@
-import { type APIRequestContext, test as base, expect, type Page } from "@playwright/test";
+import {
+  type APIRequestContext,
+  type BrowserContext,
+  test as base,
+  expect,
+  type Page,
+} from "@playwright/test";
 
 export { expect };
 
@@ -167,10 +173,52 @@ export async function signInAs(page: Page, account: Account): Promise<void> {
 }
 
 /**
+ * Lets a toast that landed under the pointer leave again. Toasts from any
+ * feature can appear at any moment (a badge for the first friend, a message
+ * from another test's account), and one may slide in right where a test is
+ * about to press. Playwright then keeps its pointer resting on the toast while
+ * it retries, and sonner keeps a hovered toast on screen (so that it can be
+ * read), so it never leaves and the press times out. A person would look
+ * elsewhere: here the pointer moves off the toast and the toast times out.
+ * Pressing a toast's own buttons still works: the press moves the pointer back.
+ */
+export async function letHoveredToastsGo(page: Page): Promise<void> {
+  await page.addLocatorHandler(
+    page.locator("[data-sonner-toast]:hover"),
+    async () => {
+      await page.mouse.move(0, 0);
+    },
+    { noWaitAfter: true },
+  );
+}
+
+function guardPages(context: BrowserContext): void {
+  context.on("page", (page) => void letHoveredToastsGo(page));
+}
+
+/**
  * `test` with a signed-in browser: `me` is a fresh account and `page` is
- * already signed in as it.
+ * already signed in as it. Every page it opens, in its own context or in one
+ * a test makes with `browser.newContext()`, lets hovered toasts go (see
+ * `letHoveredToastsGo`).
  */
 export const test = base.extend<{ me: Account }>({
+  context: async ({ context }, use) => {
+    guardPages(context);
+    await use(context);
+  },
+  browser: [
+    async ({ browser }, use) => {
+      const newContext = browser.newContext.bind(browser);
+      browser.newContext = async (options) => {
+        const context = await newContext(options);
+        guardPages(context);
+        return context;
+      };
+      await use(browser);
+    },
+    { scope: "worker" },
+  ],
   me: async ({ page, request }, use) => {
     const account = await createAccount(request, "me");
     await signInAs(page, account);

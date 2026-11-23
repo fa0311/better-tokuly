@@ -199,9 +199,14 @@ test("the home tab mixes notes with what else friends did", async ({ page, me, r
     feed.locator('[data-testid="feed-card"]', { hasText: "友達になったよ" }).first(),
   ).toBeVisible();
 
+  // Everyone's public notes, and nothing but notes. (Not looked for by text: the global timeline
+  // is shared with every test running at the same time, and a burst of their notes can push this
+  // one past the first page.)
   await page.getByRole("tab", { name: "みんな" }).click();
   await expect(page).toHaveURL(/tab=global/);
-  await expect(card(page, text)).toBeVisible();
+  await expect(page.getByTestId("timeline").getByTestId("note").first()).toBeVisible();
+  await expect(page.getByTestId("home-feed")).toHaveCount(0);
+  await expect(page.getByTestId("feed-card")).toHaveCount(0);
 });
 
 test("likes, renotes, quotes and replies move the counters, live for everyone looking", async ({
