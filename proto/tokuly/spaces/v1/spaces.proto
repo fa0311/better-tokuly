@@ -109,12 +109,15 @@ service SpaceService {
   // The stage is for everyone who may see the room. Who is listening is
   // only listed to people who are inside themselves and to moderators (to
   // anyone else the unfiltered list is the stage), and who is gone only to
-  // people who were inside. Except for moderators, people on either side of
+  // people who were inside: to moderators everyone who left, to the others
+  // the people who left the room from the stage (with that departure, also
+  // while they are back in the audience). Except for moderators, people on either side of
   // a block with the caller are left out, and listeners who do not share
   // their online status are only counted (`hidden_count`). Except for
   // moderators and the person themselves, a raised hand shows only when it
-  // went up while its owner was visible, and `joined_at` is only set for
-  // people on stage, as the time they came on stage: nothing from a time
+  // went up while its owner was visible (and they still are), `joined_at`
+  // is only set for people on stage, as the time they came on stage, and
+  // the order says nothing of when listeners arrived: nothing from a time
   // someone was hidden comes out later.
   // Errors: SPACE_NOT_FOUND, NOT_IN_SPACE (audience, hands or past asked for
   // from outside), RATE_LIMITED.
@@ -462,8 +465,10 @@ message SpaceParticipant {
   // listeners, so a listener who was hidden for a while does not show
   // since when they are inside.
   google.protobuf.Timestamp joined_at = 5;
-  // PARTICIPANT_FILTER_PAST only: when and why they are no longer inside.
-  // `role` is then the highest role they held in the room.
+  // PARTICIPANT_FILTER_PAST only: when and why they are no longer inside
+  // (for anyone but moderators and the person: when and why they last left
+  // the room from the stage). `role` is then the highest role they held in
+  // the room.
   google.protobuf.Timestamp left_at = 6;
   SpaceLeaveReason leave_reason = 7;
 }

@@ -35,13 +35,20 @@ struct World {
 }
 
 impl World {
+    /// Shy and Quiet hide from the start.
     async fn new(ctx: &Ctx) -> World {
+        World::with(ctx, true).await
+    }
+
+    async fn with(ctx: &Ctx, hidden_from_start: bool) -> World {
         let host = ctx.app.user("host").await;
         let observer = ctx.app.user("observer").await;
         let shy = ctx.app.user("shy").await;
         let quiet = ctx.app.user("quiet").await;
-        for hidden in [&shy, &quiet] {
-            ctx.set_privacy(hidden, |privacy| privacy.share_online_status = false).await;
+        if hidden_from_start {
+            for hidden in [&shy, &quiet] {
+                ctx.set_privacy(hidden, |privacy| privacy.share_online_status = false).await;
+            }
         }
         let room = ctx.public_room(&host, "ひみつのラジオ").await;
         for user in [&observer, &shy, &quiet] {
@@ -358,18 +365,139 @@ async fn nothing_from_the_hidden_time_comes_out_later() {
     assert!(since.seconds >= before_stage.timestamp() - 1, "joined_at is the time she came on stage");
 
     // Stepping down makes her hidden again; when she then leaves, the past
-    // list says she was on stage but not when she left.
+    // list does not change for others: it lists departures from the stage.
     let down = MoveToAudienceRequest { space_id: room.id.clone(), ..Default::default() };
     let _: MoveToAudienceResponse = ctx.call("Space", "MoveToAudience", &shy, &down).await.unwrap();
+    let past = || async {
+        let past: ListParticipantsResponse = ctx
+            .call("Space", "ListParticipants", &observer, &list(ParticipantFilter::PARTICIPANT_FILTER_PAST))
+            .await
+            .unwrap();
+        past.participants
+    };
+    assert!(past().await.is_empty());
     ctx.leave(&shy, &room.id).await;
-    let past: ListParticipantsResponse = ctx
-        .call("Space", "ListParticipants", &observer, &list(ParticipantFilter::PARTICIPANT_FILTER_PAST))
-        .await
-        .unwrap();
-    let gone = past.participants.iter().find(|p| p.user.id == shy.id.to_string()).expect("she was on stage");
-    assert!(gone.left_at.is_unset() && gone.joined_at.is_unset(), "{gone:?}");
+    assert!(past().await.is_empty(), "her departure from the audience is not for others to see");
     let for_host: ListParticipantsResponse =
         ctx.call("Space", "ListParticipants", &host, &list(ParticipantFilter::PARTICIPANT_FILTER_PAST)).await.unwrap();
     let gone = for_host.participants.iter().find(|p| p.user.id == shy.id.to_string()).unwrap();
     assert!(gone.left_at.is_set(), "moderators see when");
+
+    // Leaving from the stage is in plain view, and stays listed, with its
+    // time, also while she is back inside quietly.
+    ctx.join(&shy, &room.id).await;
+    ctx.bring_on_stage(&host, &shy, &room.id).await;
+    ctx.leave(&shy, &room.id).await;
+    let listed = past().await;
+    assert_eq!(listed.len(), 1);
+    assert!(listed[0].left_at.is_set() && listed[0].joined_at.is_unset());
+    assert_eq!(listed[0].role, SpaceRole::SPACE_ROLE_SPEAKER);
+    ctx.join(&shy, &room.id).await;
+    assert_eq!(past().await, listed, "coming back quietly changes nothing");
+}
+
+/// Which of the two listeners acts in a world, and who stays put.
+fn cast(world: &World, shy_acts: bool) -> (&TestUser, &TestUser) {
+    if shy_acts { (&world.shy, &world.quiet) } else { (&world.quiet, &world.shy) }
+}
+
+/// What a hand that went up in view can end with.
+#[derive(Debug, Clone, Copy)]
+enum HandEnd {
+    Lowered,
+    Dismissed,
+    Left,
+}
+
+#[tokio::test]
+async fn a_hand_raised_in_view_names_nobody_once_its_owner_hides() {
+    let ctx = start().await;
+    for end in [HandEnd::Lowered, HandEnd::Dismissed, HandEnd::Left] {
+        let mut worlds = Vec::new();
+        for shy_acts in [true, false] {
+            // Both raise a hand while visible (the room sees that), then both hide.
+            let mut world = World::with(&ctx, false).await;
+            for user in [&world.shy, &world.quiet] {
+                let _: SetHandRaisedResponse =
+                    ctx.call("Space", "SetHandRaised", user, &hand(&world.room.id, true)).await.unwrap();
+            }
+            for user in [&world.shy, &world.quiet] {
+                ctx.set_privacy(user, |privacy| privacy.share_online_status = false).await;
+            }
+            let before = world.observe(&ctx).await.0;
+            worlds.push((world, shy_acts, before));
+        }
+        assert_eq!(worlds[0].2, worlds[1].2, "{end:?}: the worlds start out alike");
+
+        let mut seen = Vec::new();
+        for (world, shy_acts, _) in &mut worlds {
+            let (actor, _) = cast(world, *shy_acts);
+            let room = world.room.id.clone();
+            match end {
+                HandEnd::Lowered => {
+                    let _: SetHandRaisedResponse =
+                        ctx.call("Space", "SetHandRaised", actor, &hand(&room, false)).await.unwrap();
+                }
+                HandEnd::Dismissed => {
+                    let dismiss =
+                        MoveToAudienceRequest { space_id: room, user_id: actor.id.to_string(), ..Default::default() };
+                    let _: MoveToAudienceResponse =
+                        ctx.call("Space", "MoveToAudience", &world.host, &dismiss).await.unwrap();
+                }
+                HandEnd::Left => ctx.leave(actor, &room).await,
+            }
+        }
+        for (world, _, _) in &mut worlds {
+            seen.push(world.observe(&ctx).await);
+        }
+        assert_eq!(seen[0].0, seen[1].0, "{end:?}: the observer can tell who acted");
+        assert!(
+            seen[0].1.iter().all(|event| matches!(event, Push::Counts(_))),
+            "{end:?}: the topic hears the count and nothing else: {:?}",
+            seen[0].1
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_former_speaker_who_hides_again_leaves_unnoticed() {
+    let ctx = start().await;
+    let mut worlds = Vec::new();
+    for shy_acts in [true, false] {
+        let mut world = World::new(&ctx).await;
+        // Shy came in first; Quiet comes on stage first.
+        ctx.bring_on_stage(&world.host, &world.quiet, &world.room.id).await;
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        ctx.bring_on_stage(&world.host, &world.shy, &world.room.id).await;
+        let stage: Vec<String> = ctx
+            .get(&world.observer, &world.room.id)
+            .await
+            .stage
+            .iter()
+            .filter(|p| p.role == SpaceRole::SPACE_ROLE_SPEAKER)
+            .map(|p| p.user.display_name.clone())
+            .collect();
+        assert_eq!(stage, ["quiet", "shy"], "the stage in the order people came on it, not in the order they arrived");
+        for user in [&world.shy, &world.quiet] {
+            let down = MoveToAudienceRequest { space_id: world.room.id.clone(), ..Default::default() };
+            let _: MoveToAudienceResponse = ctx.call("Space", "MoveToAudience", user, &down).await.unwrap();
+        }
+        let before = world.observe(&ctx).await.0;
+        worlds.push((world, shy_acts, before));
+    }
+    assert_eq!(worlds[0].2, worlds[1].2, "the worlds start out alike");
+
+    // One of them leaves, the other stays: the observer cannot tell which.
+    for (world, shy_acts, _) in &worlds {
+        let (actor, _) = cast(world, *shy_acts);
+        ctx.leave(actor, &world.room.id).await;
+    }
+    let mut seen = Vec::new();
+    for (world, _, _) in &mut worlds {
+        seen.push(world.observe(&ctx).await);
+    }
+    assert_eq!(seen[0].0, seen[1].0, "the observer can tell who left");
+    // And it is not even visible that someone did, apart from the count.
+    assert_eq!(worlds[0].2["lists"][4], seen[0].0["lists"][4], "the past list did not move");
+    assert!(seen[0].1.iter().all(|event| matches!(event, Push::Counts(_))), "{:?}", seen[0].1);
 }

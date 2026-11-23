@@ -59,9 +59,12 @@ pub(crate) enum Sight {
     /// Anyone in or following the room. A listener may have been hidden
     /// (not sharing their online status) for part of their stay, so
     /// nothing timed from that part comes out: no `joined_at` but the time
-    /// they came on stage, no hand that went up while hidden, and of a
-    /// departure only one from the stage.
+    /// they came on stage, no hand that went up while hidden.
     Public,
+    /// The past as anyone but the moderators sees it: people who left the
+    /// room from the stage, with that departure's time and nothing of any
+    /// stay since (which may have been hidden, or may still go on).
+    PublicPast,
     /// The moderators and the person themselves: everything but a pending
     /// stage invitation (realtime pushes to them).
     Private,
@@ -82,15 +85,23 @@ fn participant_proto(row: &ParticipantRow, users: &HashMap<Uuid, UserSummary>, s
         leave_reason: i32::from(row.leave_reason).into(),
         ..Default::default()
     };
-    if sight == Sight::Public {
-        if !row.hand_public {
-            participant.hand_raised_at = Default::default();
-        }
-        participant.joined_at = opt_ts(row.stage_since.filter(|_| row.is_inside()));
-        if !row.is_inside() && !row.left_on_stage {
+    match sight {
+        Sight::Public => {
+            if !row.hand_public {
+                participant.hand_raised_at = Default::default();
+            }
+            participant.joined_at = opt_ts(row.stage_since.filter(|_| row.is_inside()));
             participant.left_at = Default::default();
             participant.leave_reason = Default::default();
         }
+        Sight::PublicPast => {
+            participant.role = i32::from(row.top_role).into();
+            participant.hand_raised_at = Default::default();
+            participant.joined_at = Default::default();
+            participant.left_at = opt_ts(row.left_stage_at);
+            participant.leave_reason = i32::from(row.left_stage_reason).into();
+        }
+        Sight::Private | Sight::Full => {}
     }
     participant
 }
@@ -111,13 +122,18 @@ impl Spaces {
         rows: &[ParticipantRow],
         viewer: Uuid,
         viewer_moderates: bool,
+        past: bool,
     ) -> AppResult<Vec<pb::SpaceParticipant>> {
         let ids: Vec<Uuid> = rows.iter().map(|row| row.user_id).collect();
         let users = tokuly_identity::summaries(&self.core, &ids).await?;
         Ok(rows
             .iter()
             .map(|row| {
-                let sight = if viewer_moderates || row.user_id == viewer { Sight::Full } else { Sight::Public };
+                let sight = match (viewer_moderates || row.user_id == viewer, past) {
+                    (true, _) => Sight::Full,
+                    (false, true) => Sight::PublicPast,
+                    (false, false) => Sight::Public,
+                };
                 participant_proto(row, &users, sight)
             })
             .collect())
@@ -146,7 +162,7 @@ impl Spaces {
 
         let stage: Vec<ParticipantRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "SELECT {PARTICIPANT} FROM (
-                 SELECT q.*, row_number() OVER (PARTITION BY q.space_id ORDER BY q.role DESC, q.joined_at, q.user_id) AS position
+                 SELECT q.*, row_number() OVER (PARTITION BY q.space_id ORDER BY q.role DESC, q.stage_since, q.user_id) AS position
                  FROM space_participants q
                  WHERE q.space_id = ANY($1) AND q.left_at IS NULL AND q.role >= $2
              ) p

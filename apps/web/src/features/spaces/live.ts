@@ -119,8 +119,13 @@ export function applySpacesEvent(queryClient: QueryClient, event: Event, myId: s
       const counts = event.value;
       const loaded = queryClient.getQueryData<spaces.Space | null>(keys.space(counts.spaceId));
       patchSpace(queryClient, counts.spaceId, (space) => withCounts(space, counts));
-      // Listeners come and go without being announced one by one.
-      if (loaded && loaded.listenerCount !== counts.listenerCount)
+      // Listeners come and go without being announced one by one, and so
+      // do the hands of listeners who keep their presence to themselves (or
+      // stopped sharing it): the count is all the room hears of those.
+      if (
+        loaded &&
+        (loaded.listenerCount !== counts.listenerCount || loaded.handCount !== counts.handCount)
+      )
         refreshPeople(queryClient, counts.spaceId);
       return;
     }

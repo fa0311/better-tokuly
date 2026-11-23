@@ -146,7 +146,7 @@ impl SpaceRow {
 
 /// Columns of [`ParticipantRow`], for a table aliased `p`.
 pub const PARTICIPANT: &str = "p.space_id, p.user_id, p.role, p.top_role, p.joined_at, p.left_at, p.leave_reason, \
-     p.hand_raised_at, p.hand_public, p.stage_since, p.left_on_stage, p.stage_invited_at";
+     p.hand_raised_at, p.hand_public, p.stage_since, p.left_stage_at, p.left_stage_reason, p.stage_invited_at";
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct ParticipantRow {
@@ -165,8 +165,10 @@ pub struct ParticipantRow {
     pub hand_public: bool,
     /// When they last came on stage; `None` off stage.
     pub stage_since: Option<Time>,
-    /// The last departure was from the stage.
-    pub left_on_stage: bool,
+    /// When they last left the room from the stage; kept through later stays.
+    pub left_stage_at: Option<Time>,
+    /// `leave::*` of that departure.
+    pub left_stage_reason: i16,
     pub stage_invited_at: Option<Time>,
 }
 

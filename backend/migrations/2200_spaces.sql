@@ -102,8 +102,12 @@ CREATE TABLE space_participants (
     -- the moderators see instead of `joined_at`, which may fall in a time
     -- the person was hidden.
     stage_since      timestamptz,
-    -- The last departure was from the stage (in plain view).
-    left_on_stage    boolean     NOT NULL DEFAULT false,
+    -- When they last left the room from the stage (in plain view). Kept
+    -- through later stays, so nothing about a later, perhaps hidden, stay
+    -- changes what others see of it.
+    left_stage_at    timestamptz,
+    -- tokuly.spaces.v1.SpaceLeaveReason of that departure.
+    left_stage_reason smallint   NOT NULL DEFAULT 0,
     stage_invited_at timestamptz,
     stage_invited_by uuid,
     -- Seconds spent inside, summed over every stay that ended.

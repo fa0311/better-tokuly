@@ -62,7 +62,7 @@ impl Spaces {
         let inside: Vec<(Uuid, Uuid, i16, Time, Option<Time>)> = sqlx::query_as(
             "SELECT p.space_id, p.user_id, p.role, p.joined_at, p.stage_since FROM space_participants p
              WHERE p.user_id = ANY($1) AND p.left_at IS NULL
-             ORDER BY p.role DESC, p.joined_at, p.user_id",
+             ORDER BY p.role DESC, p.user_id",
         )
         .bind(&friends)
         .fetch_all(&core.db)

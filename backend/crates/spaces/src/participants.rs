@@ -135,6 +135,11 @@ impl Spaces {
         }
     }
 
+    /// Whether `user_id` lets people see that they are around.
+    async fn shares_status(&self, user_id: Uuid) -> AppResult<bool> {
+        Ok(settings::privacy_of(&self.core, user_id).await?.share_online_status)
+    }
+
     /// The host and the co-hosts inside: who answers raised hands.
     async fn moderator_ids(&self, space: &SpaceRow) -> AppResult<Vec<Uuid>> {
         let mut ids: Vec<Uuid> = sqlx::query_scalar(
@@ -341,7 +346,22 @@ impl Spaces {
     /// leave by themselves are told, and LiveKit disconnects them.
     pub(crate) async fn after_departures(&self, space: &SpaceRow, departed: &[Departed], reason: i16) {
         let venue = Venue::Space(space.id);
-        let quiet_hands = departed.iter().any(|person| person.hand_raised && !person.hand_public);
+        // A hand everyone saw goes down in view only if its owner is still
+        // visible: someone who hid meanwhile must not be named now.
+        let public_hands: Vec<Uuid> =
+            departed.iter().filter(|person| person.hand_public).map(|person| person.user_id).collect();
+        let still_visible: Vec<Uuid> = match settings::privacy_of_many(&self.core, &public_hands).await {
+            Ok(privacy) => public_hands
+                .into_iter()
+                .filter(|id| privacy.get(id).is_none_or(|privacy| privacy.share_online_status))
+                .collect(),
+            Err(e) => {
+                tracing::warn!(space_id = %space.id, error = %e, "privacy not found; hands go to the moderators");
+                Vec::new()
+            }
+        };
+        let in_view = |person: &Departed| person.hand_public && still_visible.contains(&person.user_id);
+        let quiet_hands = departed.iter().any(|person| person.hand_raised && !in_view(person));
         let moderators = if quiet_hands {
             self.moderator_ids(space).await.unwrap_or_else(|e| {
                 tracing::warn!(space_id = %space.id, error = %e, "moderators not found");
@@ -357,7 +377,7 @@ impl Spaces {
                 reason: i32::from(reason).into(),
                 ..Default::default()
             };
-            if rules::on_stage(person.role) || person.hand_public {
+            if rules::on_stage(person.role) || in_view(person) {
                 self.push_topic(space.id, left.clone()).await;
             } else if person.hand_raised {
                 let to = moderators.iter().copied().filter(|id| *id != person.user_id);
@@ -463,25 +483,36 @@ impl Spaces {
         // Moderators see the room in the order things happened. Everyone
         // else gets an order that tells no time from when someone was
         // hidden: the stage by when they came on it, hands that everyone
-        // could see in the order they went up, then the rest (and of the
-        // past, who left the stage, newest first, then the rest) by ID.
-        let mut rows: Vec<ParticipantRow> = if filter == Filter::PARTICIPANT_FILTER_PAST {
-            // Who was on stage is for everyone who was there; who merely
-            // listened is for the moderators.
-            let order = if moderates {
-                "p.left_at DESC, p.user_id"
-            } else {
-                "p.left_on_stage DESC, CASE WHEN p.left_on_stage THEN p.left_at END DESC, p.user_id"
-            };
+        // could see in the order they went up, then the rest by ID.
+        let past = filter == Filter::PARTICIPANT_FILTER_PAST;
+        let mut rows: Vec<ParticipantRow> = if past && moderates {
+            // Moderators: everyone who is gone, newest first.
             sqlx::query_as(sqlx::AssertSqlSafe(format!(
                 "SELECT {PARTICIPANT} FROM space_participants p
-                 WHERE p.space_id = $1 AND p.left_at IS NOT NULL AND ($2 OR p.top_role >= $3)
-                 ORDER BY {order}
+                 WHERE p.space_id = $1 AND p.left_at IS NOT NULL
+                 ORDER BY p.left_at DESC, p.user_id
+                 LIMIT $2 OFFSET $3"
+            )))
+            .bind(space_id)
+            .bind(page.fetch())
+            .bind(offset)
+            .fetch_all(&core.db)
+            .await?
+        } else if past {
+            // Everyone else: who left the room from the stage, in plain
+            // view. Nothing a hidden listener does — stepping down, leaving
+            // from the audience, coming back quietly — adds or removes a
+            // row; only coming on stage again (in view anyway) does.
+            sqlx::query_as(sqlx::AssertSqlSafe(format!(
+                "SELECT {PARTICIPANT} FROM space_participants p
+                 WHERE p.space_id = $1 AND p.left_stage_at IS NOT NULL
+                   AND NOT (p.left_at IS NULL AND (p.role >= $2 OR p.user_id = $3))
+                 ORDER BY p.left_stage_at DESC, p.user_id
                  LIMIT $4 OFFSET $5"
             )))
             .bind(space_id)
-            .bind(moderates)
             .bind(role::SPEAKER)
+            .bind(viewer)
             .bind(page.fetch())
             .bind(offset)
             .fetch_all(&core.db)
@@ -527,12 +558,11 @@ impl Spaces {
             let blocked = graph::blocked_ids_either(core, viewer).await?;
             rows.retain(|row| !blocked.contains(&row.user_id));
             // Someone on stage is there for all to see; a listener only if
-            // they let people see that they are around.
+            // they let people see that they are around. (The past lists
+            // only departures from the stage, which were in view.)
             let listeners: Vec<Uuid> = rows
                 .iter()
-                .filter(|row| {
-                    row.user_id != viewer && !rules::on_stage(if row.is_inside() { row.role } else { row.top_role })
-                })
+                .filter(|row| !past && row.user_id != viewer && !rules::on_stage(row.role))
                 .map(|row| row.user_id)
                 .collect();
             let privacy = settings::privacy_of_many(core, &listeners).await?;
@@ -543,7 +573,7 @@ impl Spaces {
             });
             hidden_count = (before - rows.len()) as i32;
         }
-        Ok((self.render_participants(&rows, viewer, moderates).await?, info, hidden_count))
+        Ok((self.render_participants(&rows, viewer, moderates, past).await?, info, hidden_count))
     }
 
     // ───────────────────────────── hands and the stage ─────────────────────────────
@@ -589,7 +619,8 @@ impl Spaces {
         tx.commit().await?;
         // A large room waving its hands hears the count, not every hand.
         if self.room_budget(space_id, RoomFanout::Hands).await {
-            let public = if raised { row.hand_public } else { me.hand_public };
+            // Lowering is announced only while the owner is still visible.
+            let public = if raised { row.hand_public } else { me.hand_public && visible };
             self.announce_hand(&space, &row, public).await;
         }
         self.push_counts(&space).await;
@@ -676,6 +707,9 @@ impl Spaces {
         accept: bool,
     ) -> AppResult<ParticipantRow> {
         self.visible_space(Some(user_id), space_id).await?;
+        // Read before the room is locked: whether a hand that goes down
+        // with a declined invitation may be announced to the room.
+        let visible = self.shares_status(user_id).await?;
         let mut tx = self.core.db.begin().await?;
         let space = lock_space(&mut tx, space_id).await?;
         if !space.is_live() {
@@ -689,7 +723,7 @@ impl Spaces {
             tx.commit().await?;
             if me.hand_raised_at.is_some() {
                 // Declining also takes the hand down.
-                self.announce_hand(&space, &row, me.hand_public).await;
+                self.announce_hand(&space, &row, me.hand_public && visible).await;
                 self.push_counts(&space).await;
             }
             return Ok(row);
@@ -717,6 +751,9 @@ impl Spaces {
         if target.is_some_and(|target| target != actor) {
             self.limit(Limit::Moderate, actor).await?;
         }
+        // Read before the room is locked: whether a dismissed hand may be
+        // announced to the room.
+        let visible = self.shares_status(target.unwrap_or(actor)).await?;
         let mut tx = self.core.db.begin().await?;
         let space = lock_space(&mut tx, space_id).await?;
         if !space.is_live() {
@@ -754,7 +791,7 @@ impl Spaces {
         if rules::on_stage(before.role) {
             self.after_role_change(&space, &row).await;
         } else if before.hand_raised_at.is_some() {
-            self.announce_hand(&space, &row, before.hand_public).await;
+            self.announce_hand(&space, &row, before.hand_public && visible).await;
             self.push_counts(&space).await;
         }
         if before.stage_invited_at.is_some() && before.user_id != actor {

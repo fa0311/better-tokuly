@@ -194,7 +194,8 @@ pub(crate) async fn depart(
     let roles: Vec<i16> = inside.iter().map(|departed| rules::role_after_leaving(departed.role, reason)).collect();
     sqlx::query(
         "UPDATE space_participants p SET
-             left_at = now(), leave_reason = $2, role = gone.role, left_on_stage = p.role >= $5,
+             left_at = now(), leave_reason = $2, role = gone.role, left_stage_at = CASE WHEN p.role >= $5 THEN now() ELSE p.left_stage_at END,
+             left_stage_reason = CASE WHEN p.role >= $5 THEN $2 ELSE p.left_stage_reason END,
              hand_public = false, stage_since = NULL,
              seconds = p.seconds + GREATEST(extract(epoch FROM now() - p.joined_at)::int, 0),
              hand_raised_at = NULL, stage_invited_at = NULL, stage_invited_by = NULL, seen_at = NULL, missing_since = NULL
