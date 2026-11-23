@@ -177,6 +177,8 @@ impl Geo {
     async fn announce_share_end(&self, owner: Uuid, sealed: &[u8]) {
         let Some(token) = self.open_share_token(sealed) else { return };
         self.core.rt.notify_topic(&topic(&token), &frame(Event::LocationRemovedUserId(owner.to_string()))).await;
+        // Then the followers are let go: nothing more comes on this topic.
+        self.core.rt.close_topic(&topic(&token)).await;
     }
 
     /// Ends shares whose time is up. Returns how many ended.

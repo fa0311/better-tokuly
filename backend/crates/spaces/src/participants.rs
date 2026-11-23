@@ -16,7 +16,7 @@ use crate::{
     Spaces,
     events::{ROOM_JOINED, RoomJoined},
     limits::{Limit, RoomFanout},
-    model::{PARTICIPANT, ParticipantRow, SPACE, SpaceRow, Venue, leave, role},
+    model::{PARTICIPANT, ParticipantRow, SPACE, SpaceRow, Venue, leave, role, space_topic},
     notices,
     render::Sight,
     rooms::{
@@ -402,6 +402,10 @@ impl Spaces {
             if reason != leave::DISCONNECTED {
                 self.kick(venue, person.user_id).await;
             }
+            // Removed, banned, or out of a room they may only see from the
+            // inside: the topic goes too (the guard decides; leaving a room
+            // one may still see keeps it).
+            self.core.rt.revoke(person.user_id, &space_topic(space.id)).await;
         }
         self.push_counts(space).await;
     }
@@ -1063,8 +1067,10 @@ impl Spaces {
         let space = recount(&mut tx, space_id).await?;
         tx.commit().await?;
         if departed.is_empty() {
-            // Banned while away: a stale token must not let them back in.
+            // Banned while away: a stale token must not let them back in,
+            // nor a subscription to the topic keep them listening.
             self.kick(Venue::Space(space_id), target).await;
+            self.core.rt.revoke(target, &space_topic(space_id)).await;
         } else {
             self.after_departures(&space, &departed, reason).await;
         }

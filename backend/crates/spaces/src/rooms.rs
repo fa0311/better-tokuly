@@ -524,6 +524,10 @@ impl Spaces {
         }
         tx.commit().await?;
         self.push_space(&space).await;
+        if space.audience != locked.audience {
+            // A narrower audience: whoever is no longer in it stops following the room.
+            self.core.rt.recheck_topic(&crate::model::space_topic(space.id)).await;
+        }
         Ok(space)
     }
 
@@ -723,6 +727,7 @@ impl Spaces {
         ensure!(locked.is_over(), precondition, "SPACE_NOT_ENDED", "end or cancel the room before deleting it");
         sqlx::query("UPDATE spaces SET deleted_at = now() WHERE id = $1").bind(space_id).execute(&mut *tx).await?;
         tx.commit().await?;
+        self.core.rt.close_topic(&crate::model::space_topic(space_id)).await;
         Ok(())
     }
 }

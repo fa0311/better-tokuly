@@ -412,6 +412,10 @@ impl Live {
             for stream in owned.iter().filter(|stream| stream.encoder_connected && !stream.is_live()) {
                 self.kick_quietly(stream).await;
             }
+            // Nobody but the owner may follow a suspended stream.
+            for stream in owned.iter().filter(|stream| !stream.is_deleted()) {
+                core.rt.recheck_topic(&stream.topic()).await;
+            }
         }
         Ok(())
     }
@@ -449,6 +453,12 @@ impl Live {
     async fn cut_lost_viewers(&self, owners: &[Uuid]) -> AppResult<()> {
         // First of all the hook stops trusting what it remembers about these owners' streams.
         self.access_changed(owners).await?;
+        // Each of them may follow streams of the other (a block hides them
+        // from each other, a friends stream needs the friendship): the
+        // gateway asks the guard again about their `live:` topics.
+        for owner in owners {
+            self.core.rt.revoke_prefix(*owner, "live").await;
+        }
         if !self.cfg.media_server_configured() {
             return Ok(());
         }

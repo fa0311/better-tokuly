@@ -242,6 +242,10 @@ impl LiveStreamService for Live {
             if !updated.is_ended() {
                 self.push_stream_updated(&updated).await;
             }
+            if updated.visibility != stream.visibility {
+                // Whoever the new visibility leaves out stops following the stream.
+                core.rt.recheck_topic(&updated.topic()).await;
+            }
             // Narrower than before: whoever may no longer watch is cut off now, not when their token runs out.
             if updated.visibility != stream.visibility && (updated.is_live() || updated.encoder_connected) {
                 let cut = async {

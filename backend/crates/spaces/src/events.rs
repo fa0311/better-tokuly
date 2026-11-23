@@ -78,6 +78,7 @@ pub struct HangoutJoined {
 pub const USER_DELETED: &str = "identity.user.deleted";
 pub const USER_BANNED: &str = "identity.user.banned";
 pub const USER_BLOCKED: &str = "social.user.blocked";
+pub const FRIEND_REMOVED: &str = "social.friend.removed";
 pub const CONTENT_REMOVED: &str = "admin.content.removed";
 
 /// `identity.user.deleted` / `identity.user.banned`.
@@ -91,6 +92,13 @@ pub struct UserGone {
 pub struct UserBlocked {
     pub user_id: Uuid,
     pub blocked_id: Uuid,
+}
+
+/// `social.friend.removed`: a friendship ended.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FriendRemoved {
+    pub user_id: Uuid,
+    pub friend_id: Uuid,
 }
 
 /// `admin.content.removed`: a moderator took something down.

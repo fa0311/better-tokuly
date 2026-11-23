@@ -610,6 +610,8 @@ impl Notes {
     pub(crate) async fn announce_removed(&self, removed: Removed) {
         for note_id in removed.note_ids {
             self.push_topic(&note_topic(note_id), Push::NoteDeletedId(note_id.to_string())).await;
+            // Then the topic ends: nothing more comes for a deleted note.
+            self.core.rt.close_topic(&note_topic(note_id)).await;
         }
         self.push_counters(removed.touched).await;
     }

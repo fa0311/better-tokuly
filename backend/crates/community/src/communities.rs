@@ -416,6 +416,10 @@ impl Community {
         if !changes.is_empty() {
             self.push_community_changed(updated.id).await;
         }
+        if visibility_changed {
+            // No longer public: whoever followed it without being a member stops.
+            self.core.rt.recheck_topic(&crate::model::topic(updated.id)).await;
+        }
         Ok(updated)
     }
 
@@ -452,6 +456,8 @@ impl Community {
     pub(crate) async fn after_close(&self, community_id: Uuid) {
         self.queue_sweep(SweepJob { community_id, channel_id: None }).await;
         self.push_community_changed(community_id).await;
+        // After `community_changed { deleted }`, which travels the same way.
+        self.core.rt.close_topic(&crate::model::topic(community_id)).await;
     }
 
     /// Closes the community of `access` for good. Owner only.

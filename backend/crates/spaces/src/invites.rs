@@ -200,6 +200,8 @@ impl Spaces {
         .bind(target)
         .execute(&self.core.db)
         .await?;
+        // Someone who could only see the room by the invitation stops following it.
+        self.core.rt.revoke(target, &crate::model::space_topic(space_id)).await;
         Ok(())
     }
 

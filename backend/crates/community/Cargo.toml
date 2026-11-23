@@ -35,6 +35,8 @@ unicode-normalization.workspace = true
 parking_lot.workspace = true
 
 [dev-dependencies]
+# A gateway and a WebSocket client, to see subscriptions end.
+tokuly-realtime = { workspace = true, features = ["testing"] }
 # API packages only the tests name.
 tokuly-proto = { workspace = true, features = ["social", "stamp"] }
 tokuly-testkit.workspace = true

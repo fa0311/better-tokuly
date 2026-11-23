@@ -97,6 +97,7 @@ pub struct ShareRecorded {
 
 pub const USER_DELETED: &str = "identity.user.deleted";
 pub const USER_BLOCKED: &str = "social.user.blocked";
+pub const FRIEND_REMOVED: &str = "social.friend.removed";
 pub const ASSET_DELETED: &str = "media.asset.deleted";
 pub const CONTENT_REMOVED: &str = "admin.content.removed";
 /// A moderator resolved the case the reports were filed into. Payload:

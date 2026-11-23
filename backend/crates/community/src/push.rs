@@ -28,7 +28,12 @@ impl Community {
 
     /// Tells `user_id` what they now are to the community (after a join,
     /// an approval, a role change, a timeout, a removal or a ban).
+    ///
+    /// A change that ended their access (removed, banned, left a community
+    /// that is not public) also ends their subscription to its topic: the
+    /// guard is asked again, so one that changed nothing drops nothing.
     pub(crate) async fn push_membership(&self, community: &CommunityRow, user_id: Uuid) {
+        self.core.rt.revoke(user_id, &model::topic(community.id)).await;
         let access = match self.stance(&Caller::user(user_id), community.clone()).await {
             Ok(access) => access,
             Err(error) => {

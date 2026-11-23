@@ -20,7 +20,7 @@ use tokuly_social::graph;
 
 use super::{
     AUDIENCE_FRIENDS, AUDIENCE_PUBLIC, COLUMNS, Leave, MAX_MEMBER_CAP, MEMBER_PREVIEW, RoomExit, RoomRow, lock,
-    member_sessions, not_found, path, store_timer,
+    member_sessions, not_found, path, store_timer, topic,
 };
 use crate::{
     School,
@@ -149,6 +149,8 @@ impl School {
         let ended = self.close_locked(&mut tx, &room, reason, closer, at).await?;
         tx.commit().await?;
         self.announce_closed(&room, reason, &ended, at).await;
+        // After `room_closed`, which travels on the same topic and so arrives first.
+        self.core.rt.close_topic(&topic(room.id)).await;
         Ok(true)
     }
 
@@ -517,6 +519,10 @@ impl School {
         if replanned {
             self.push_room(room.id, Push::RoomTimer(Box::new(room.timer().snapshot(at)))).await;
         }
+        if room.audience != current.audience {
+            // Whoever the new audience leaves out stops following the room.
+            self.core.rt.recheck_topic(&topic(room.id)).await;
+        }
         Ok(room)
     }
 
@@ -684,6 +690,11 @@ impl School {
         };
         tx.commit().await?;
         self.announce_gone(&gone, at).await;
+        // Someone who may not come back in (a room they were let into by
+        // an invitation now used up, say) stops following it.
+        if let Some(room_id) = gone.exit.as_ref().map(|exit| exit.room_id) {
+            self.core.rt.revoke(user_id, &topic(room_id)).await;
+        }
         let session = &gone.ended.session;
         Ok(session.to_proto(gone.ended.subject.as_ref(), &session.own_timer(), at, self.idle_limit()))
     }
@@ -768,7 +779,9 @@ impl School {
     /// the room, and can still report it.
     pub(crate) async fn uninvite_from_room(&self, user_id: Uuid, room_id: Uuid, target: Uuid) -> AppResult<()> {
         let room = self.hosted_room(room_id, user_id).await?;
-        withdraw_invite(&self.core.db, room.id, target, self.now()).await
+        withdraw_invite(&self.core.db, room.id, target, self.now()).await?;
+        self.core.rt.revoke(target, &topic(room.id)).await;
+        Ok(())
     }
 
     /// Host: removes a member for good.
@@ -821,6 +834,8 @@ impl School {
         if let Some(gone) = &gone {
             self.announce_gone(gone, at).await;
         }
+        // Removed (and maybe banned), or invited no longer: the guard decides.
+        self.core.rt.revoke(target, &topic(room_id)).await;
         Ok(gone.is_some())
     }
 

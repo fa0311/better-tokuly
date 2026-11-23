@@ -696,6 +696,10 @@ impl Live {
             ..Default::default()
         };
         self.core.rt.notify_topic(&row.topic(), &event).await;
+        if revoked {
+            // After the event: the page behind the old token hears nothing more.
+            self.core.rt.close_topic(&row.topic()).await;
+        }
     }
 
     pub async fn remove_overlay(&self, row: &OverlayRow) -> AppResult<()> {

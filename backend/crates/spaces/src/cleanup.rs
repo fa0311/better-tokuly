@@ -16,8 +16,8 @@ use tokuly_social::graph;
 use crate::{
     Spaces,
     events::{
-        CONTENT_REMOVED, ContentRemoved, ROOM_STARTED, RoomStarted, USER_BANNED, USER_BLOCKED, USER_DELETED,
-        UserBlocked, UserGone,
+        CONTENT_REMOVED, ContentRemoved, FRIEND_REMOVED, FriendRemoved, ROOM_STARTED, RoomStarted, USER_BANNED,
+        USER_BLOCKED, USER_DELETED, UserBlocked, UserGone,
     },
     hangouts::lock_hangout,
     model::{audience, end, leave, member, role, state},
@@ -48,6 +48,14 @@ impl Spaces {
                 if graph::is_blocked_either(&self.core, block.user_id, block.blocked_id).await? {
                     self.on_user_blocked(block.user_id, block.blocked_id).await?;
                 }
+                Ok(())
+            }
+            FRIEND_REMOVED => {
+                // A friends room of either is no longer the other's to follow
+                // (unless they are inside or invited: the guard decides).
+                let removed: FriendRemoved = event.data()?;
+                self.core.rt.revoke_prefix(removed.user_id, "space").await;
+                self.core.rt.revoke_prefix(removed.friend_id, "space").await;
                 Ok(())
             }
             CONTENT_REMOVED => self.on_content_removed(event.data()?).await,
@@ -366,6 +374,10 @@ impl Spaces {
         for (hangout_id, invitee) in invitations {
             self.drop_from_hangout(hangout_id, invitee).await?;
         }
+        // Either may follow a room of the other without being inside (an
+        // upcoming room, a friends room): the guard decides for each.
+        self.core.rt.revoke_prefix(blocker, "space").await;
+        self.core.rt.revoke_prefix(blocked, "space").await;
         Ok(())
     }
 
