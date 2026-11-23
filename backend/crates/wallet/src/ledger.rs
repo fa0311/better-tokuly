@@ -83,7 +83,7 @@ pub async fn spend(core: &Core, user_id: Uuid, amount: i64, reason: &str, idempo
     let mut tx = core.db.begin().await?;
     let before = lock_account(&mut tx, user_id).await?;
     if let Some(existing) = existing_entry(&mut tx, idempotency_key).await? {
-        return Ok((existing.entry_id, false));
+        return Ok((existing.retry_of("spend", Some(user_id), None, amount)?.entry_id, false));
     }
     ensure!(before.coins >= amount, precondition, "INSUFFICIENT_COINS", "not enough coins");
     let postings = [(Account::Coins.of(user_id), -amount), (system::SPENT.to_owned(), amount)];
@@ -155,7 +155,9 @@ async fn transfer_inner(
     let first_balance = lock_account(&mut tx, first).await?;
     let second_balance = lock_account(&mut tx, second).await?;
     if let Some(existing) = existing_entry(&mut tx, idempotency_key).await? {
-        return Ok(TransferReceipt { entry_id: existing.entry_id, fee: existing.fee, net: amount - existing.fee, applied: false });
+        // What the original moved, even if the fee setting changed since.
+        let existing = existing.retry_of("transfer", Some(from_user), Some(to_user), amount)?;
+        return Ok(TransferReceipt { entry_id: existing.entry_id, fee: existing.fee, net: existing.amount - existing.fee, applied: false });
     }
     let payer = if first == from_user { first_balance } else { second_balance };
     ensure!(payer.coins >= amount, precondition, "INSUFFICIENT_COINS", "not enough coins");

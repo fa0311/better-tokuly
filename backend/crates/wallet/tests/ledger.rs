@@ -75,3 +75,50 @@ async fn concurrent_spends_never_overdraw() {
     assert_eq!(succeeded, 10, "exactly the affordable number of spends succeed");
     assert_eq!(ledger::balance(&app.core, user.id).await.unwrap().coins, 0);
 }
+
+/// An idempotency key names one movement: one kind, payer, recipient and
+/// amount. A call that reuses it for anything else is refused instead of
+/// being answered with the first movement as if it were a retry — that
+/// would hand the second caller whatever it pays for without paying.
+#[tokio::test]
+async fn a_key_cannot_be_reused_for_another_movement() {
+    let app = TestApp::start(MIGRATIONS, |_, _, router| router).await;
+    let (alice, bob, carol) = (app.user("alice").await, app.user("bob").await, app.user("carol").await);
+    for user in [&alice, &bob] {
+        ledger::grant(&app.core, user.id, 1000, "purchase", &key("grant"), serde_json::json!({})).await.unwrap();
+    }
+    let reused = |result: Result<(uuid::Uuid, bool), tokuly_core::error::AppError>| result.unwrap_err().reason;
+
+    let spend_key = key("pack");
+    let (spent, _) = ledger::spend(&app.core, alice.id, 100, "stamp.pack", &spend_key, serde_json::json!({})).await.unwrap();
+    assert_eq!(reused(ledger::spend(&app.core, bob.id, 100, "stamp.pack", &spend_key, serde_json::json!({})).await), "IDEMPOTENCY_KEY_REUSED", "another payer");
+    assert_eq!(ledger::balance(&app.core, bob.id).await.unwrap().coins, 1000, "bob was not charged, and got nothing for free");
+    assert_eq!(reused(ledger::spend(&app.core, alice.id, 500, "stamp.pack", &spend_key, serde_json::json!({})).await), "IDEMPOTENCY_KEY_REUSED", "another amount");
+    assert_eq!(reused(ledger::grant(&app.core, alice.id, 100, "purchase", &spend_key, serde_json::json!({})).await), "IDEMPOTENCY_KEY_REUSED", "another kind");
+    assert_eq!(ledger::spend(&app.core, alice.id, 100, "stamp.pack", &spend_key, serde_json::json!({})).await.unwrap(), (spent, false), "a true retry");
+
+    let gift_key = key("gift");
+    let gift = ledger::transfer(&app.core, alice.id, carol.id, 300, 30, "live.gift", &gift_key, serde_json::json!({})).await.unwrap();
+    let transfer = |from: &tokuly_testkit::TestUser, to: &tokuly_testkit::TestUser, amount: i64, fee_percent: u32| {
+        let (core, key, from, to) = (app.core.clone(), gift_key.clone(), from.id, to.id);
+        async move { ledger::transfer(&core, from, to, amount, fee_percent, "live.gift", &key, serde_json::json!({})).await }
+    };
+    assert_eq!(transfer(&alice, &bob, 300, 30).await.unwrap_err().reason, "IDEMPOTENCY_KEY_REUSED", "another recipient");
+    assert_eq!(transfer(&bob, &carol, 300, 30).await.unwrap_err().reason, "IDEMPOTENCY_KEY_REUSED", "another payer");
+    assert_eq!(transfer(&alice, &carol, 500, 30).await.unwrap_err().reason, "IDEMPOTENCY_KEY_REUSED", "another amount");
+    // A retry is answered with what the original moved, even if the fee setting changed since.
+    let retry = transfer(&alice, &carol, 300, 0).await.unwrap();
+    assert_eq!((retry.entry_id, retry.fee, retry.net, retry.applied), (gift.entry_id, 90, 210, false));
+
+    // Two payers racing with one key: one movement, one refusal.
+    let race_key = key("race");
+    let (a, b) = tokio::join!(
+        ledger::spend(&app.core, alice.id, 1, "race", &race_key, serde_json::json!({})),
+        ledger::spend(&app.core, bob.id, 1, "race", &race_key, serde_json::json!({})),
+    );
+    let refused: Vec<String> = [a, b].into_iter().filter_map(|result| result.err().map(|e| e.reason.into_owned())).collect();
+    assert_eq!(refused, vec!["IDEMPOTENCY_KEY_REUSED".to_owned()]);
+    let paid = ledger::balance(&app.core, alice.id).await.unwrap().coins + ledger::balance(&app.core, bob.id).await.unwrap().coins;
+    assert_eq!(paid, 2000 - 100 - 300 - 1, "exactly one of the two paid");
+    assert_eq!(postings_sum(&app).await, 0);
+}

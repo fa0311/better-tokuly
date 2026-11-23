@@ -33,6 +33,15 @@ their keys with their own reason (`live.gift:<id>`) to stay clear of these.
 
 Conventions for callers of the ledger:
 
+- An idempotency key names one movement: its kind, payer, recipient and
+  amount. Repeating the call with the same key returns the original entry
+  (`applied: false`; a transfer's receipt gives the fee and net of the
+  original). A call that uses the key for anything else — another payer,
+  recipient, amount or kind — fails with `IDEMPOTENCY_KEY_REUSED`
+  (`already_exists`) and moves nothing. Build keys from the ID of the thing
+  being paid for, and when a price can change between attempts, retry with
+  the amount of the first attempt.
+
 - `reason` is `<domain>.<thing>[.<detail>]`. History wording is chosen from
   the first segment (`live` → live gift, `stamp` → stamp pack; see
   `describe.rs`); anything else gets a generic line, so new reasons work
