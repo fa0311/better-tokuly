@@ -85,6 +85,22 @@ pub(crate) async fn lock_pair(tx: &mut Transaction<'_, Postgres>, a: Uuid, b: Uu
     Ok(())
 }
 
+/// Serializes, for the rest of the transaction, everything that adds
+/// friends to `a` or `b`, so that two friendships of the same user made at
+/// once (each under its own [`lock_pair`]) cannot both pass the friend
+/// limit. Take it after the pair lock; the two are locked in a fixed order
+/// so that transactions never wait on each other in a circle.
+pub(crate) async fn lock_friend_lists(tx: &mut Transaction<'_, Postgres>, a: Uuid, b: Uuid) -> AppResult<()> {
+    let pair = Pair::of(a, b);
+    for user_id in [pair.lo, pair.hi] {
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(format!("social:friends-of:{}", user_id.simple()))
+            .execute(&mut **tx)
+            .await?;
+    }
+    Ok(())
+}
+
 /// IDs of a user's friends. Hot path: served from Valkey, loaded from the
 /// database on a miss.
 pub async fn friend_ids(core: &Core, user_id: Uuid) -> AppResult<Vec<Uuid>> {

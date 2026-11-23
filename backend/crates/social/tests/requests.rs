@@ -151,6 +151,29 @@ async fn friend_limit_applies_to_both_sides() {
 }
 
 #[tokio::test]
+async fn accepting_two_requests_at_once_does_not_pass_the_friend_limit() {
+    let ctx = start_with(SocialConfig { max_friends: 2, ..Default::default() }).await;
+    // Each accept holds the lock of its own pair; the limit is per user.
+    for _ in 0..5 {
+        let (alice, first, second, third) = (ctx.app.user("alice").await, ctx.app.user("a").await, ctx.app.user("b").await, ctx.app.user("c").await);
+        ctx.befriend(&alice, &first).await;
+        let one = ctx.request(&second, &alice).await.request.into_option().unwrap();
+        let two = ctx.request(&third, &alice).await.request.into_option().unwrap();
+        let accept = |request_id: String| {
+            let (ctx, alice) = (&ctx, alice.clone());
+            async move {
+                ctx.friends::<_, RespondFriendRequestResponse>("RespondFriendRequest", &alice, &RespondFriendRequestRequest { request_id, accept: true, ..Default::default() })
+                    .await
+            }
+        };
+        let (one, two) = tokio::join!(accept(one.id), accept(two.id));
+        let refused: Vec<String> = [one, two].into_iter().filter_map(Result::err).map(|e| e.reason).collect();
+        assert_eq!(refused, vec!["FRIEND_LIMIT_REACHED".to_owned()], "exactly one of the two accepts fits");
+        assert_eq!(graph::friend_ids(&ctx.app.core, alice.id).await.unwrap().len(), 2);
+    }
+}
+
+#[tokio::test]
 async fn accepting_creates_the_friendship_with_events_and_activity() {
     let ctx = start().await;
     let (alice, bob, eve) = (ctx.app.user("alice").await, ctx.app.user("bob").await, ctx.app.user("eve").await);
