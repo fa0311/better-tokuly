@@ -549,6 +549,24 @@ async fn the_configured_owner_becomes_admin_when_they_sign_up() {
     assert!(!unconfigured.grant_bootstrap_admin().await.unwrap());
 }
 
+#[tokio::test]
+async fn racing_bootstraps_grant_and_record_once() {
+    let address = format!("racer-{}@deploy.test", Uuid::now_v7().simple());
+    let (app, admin) = start_with(AdminConfig { bootstrap_admin: address.clone(), ..Default::default() }).await;
+    let owner = app.user("racer").await;
+    sqlx::query("UPDATE users SET email = $2::citext WHERE id = $1").bind(owner.id).bind(&address).execute(&app.core.db).await.unwrap();
+    let results = futures::future::join_all((0..4).map(|_| admin.grant_bootstrap_admin())).await;
+    assert_eq!(results.iter().filter(|r| matches!(r, Ok(true))).count(), 1, "{results:?}");
+    let (records, grants): (i64, i64) = sqlx::query_as(
+        "SELECT count(*) FILTER (WHERE action = 'admin.bootstrapped'), count(*) FILTER (WHERE action = 'user.roles_changed') FROM admin_audit_log WHERE target_user_id = $1",
+    )
+    .bind(owner.id)
+    .fetch_one(&app.core.db)
+    .await
+    .unwrap();
+    assert_eq!((records, grants), (1, 1), "the record and the grant come together, once");
+}
+
 /// `identity.user.email_verified` as identity emits it.
 fn email_verified(user: &TestUser) -> Event {
     Event { topic: "identity.user.email_verified".into(), data: serde_json::json!({ "user_id": user.id }), ..user_created(user) }

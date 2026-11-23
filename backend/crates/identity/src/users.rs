@@ -273,6 +273,23 @@ pub fn pick(map: &HashMap<Uuid, UserSummary>, id: Uuid) -> UserSummary {
     map.get(&id).cloned().unwrap_or_else(|| deleted_summary(id))
 }
 
+/// Adds `role` (`admin`, `moderator` or `staff`) to an account, on the
+/// caller's connection or transaction so another domain can record why in
+/// the same transaction. Returns the roles before and after, or `None` when
+/// the account is deleted, unknown or already holds the role. Like
+/// [`crate::Identity::set_roles`], it takes effect at the next token refresh.
+pub async fn add_role<'e, E: sqlx::PgExecutor<'e>>(executor: E, user_id: Uuid, role: &str) -> AppResult<Option<(Vec<String>, Vec<String>)>> {
+    ensure!(matches!(role, "admin" | "moderator" | "staff"), invalid, "ROLE_INVALID", "unknown role {role}");
+    let after: Option<Vec<String>> = sqlx::query_scalar(
+        "UPDATE users SET roles = array_append(roles, $2) WHERE id = $1 AND deleted_at IS NULL AND NOT ($2 = ANY(roles)) RETURNING roles",
+    )
+    .bind(user_id)
+    .bind(role)
+    .fetch_optional(executor)
+    .await?;
+    Ok(after.map(|after| (after.iter().filter(|r| *r != role).cloned().collect(), after)))
+}
+
 /// IDs of active (not deleted, not banned) users among `ids`.
 pub async fn filter_active(core: &Core, ids: &[Uuid]) -> AppResult<Vec<Uuid>> {
     Ok(sqlx::query_scalar(

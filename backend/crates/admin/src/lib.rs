@@ -124,11 +124,19 @@ impl Admin {
             tracing::warn!(value = %address, "TOKULY_ADMIN_USER must be an e-mail address; nobody is promoted");
             return Ok(false);
         }
+        // The record and the grant are one transaction: either the account is
+        // admin and that is on record, or neither (and a later call tries
+        // again). Everything here runs on that transaction's connection.
+        let mut tx = self.core.db.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
+            .bind(format!("admin.bootstrap:{address}"))
+            .execute(&mut *tx)
+            .await?;
         let done: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM admin_audit_log WHERE target_type = 'bootstrap' AND target_id = $1 AND action = 'admin.bootstrapped')",
         )
         .bind(&address)
-        .fetch_one(&self.core.db)
+        .fetch_one(&mut *tx)
         .await?;
         if done {
             return Ok(false);
@@ -137,27 +145,20 @@ impl Admin {
             "SELECT id FROM users WHERE email = $1::citext AND email_verified_at IS NOT NULL AND deleted_at IS NULL AND banned_at IS NULL",
         )
         .bind(&address)
-        .fetch_optional(&self.core.db)
+        .fetch_optional(&mut *tx)
         .await?;
         let Some(owner) = owner else {
             tracing::debug!("bootstrap admin: no verified account with that address yet");
             return Ok(false);
         };
-        // The record comes first and is never retried: one address has one
-        // holder at a time, so a race can only repeat the same grant.
-        let recorded = sqlx::query(
-            "INSERT INTO admin_audit_log (action, target_type, target_id, target_user_id, reason)
-             SELECT 'admin.bootstrapped', 'bootstrap', $1, $2, 'first admin of this deployment, from TOKULY_ADMIN_USER'
-             WHERE NOT EXISTS (SELECT 1 FROM admin_audit_log WHERE target_type = 'bootstrap' AND target_id = $1 AND action = 'admin.bootstrapped')",
-        )
-        .bind(&address)
-        .bind(owner)
-        .execute(&self.core.db)
-        .await?;
-        if recorded.rows_affected() == 0 {
-            return Ok(false);
-        }
-        self.ensure_admin_by_id(owner).await
+        audit::Audit::system("admin.bootstrapped")
+            .bootstrap(&address, owner)
+            .reason("first admin of this deployment, from TOKULY_ADMIN_USER")
+            .record(&mut *tx)
+            .await?;
+        let granted = self.grant_admin_on(&mut tx, owner, "bootstrap admin from server configuration").await?;
+        tx.commit().await?;
+        Ok(granted)
     }
 
     /// Grants the `admin` role to an existing account, identified by handle
@@ -178,24 +179,26 @@ impl Admin {
     }
 
     async fn ensure_admin_by_id(&self, user_id: Uuid) -> AppResult<bool> {
-        let user = tokuly_identity::users::get(&self.core, user_id).await?;
-        if user.deleted_at.is_some() {
+        let mut tx = self.core.db.begin().await?;
+        let granted = self.grant_admin_on(&mut tx, user_id, "admin granted from the server (tokuly promote-admin)").await?;
+        tx.commit().await?;
+        Ok(granted)
+    }
+
+    /// Adds the `admin` role and its audit entry on `tx`; `false` when the
+    /// account already is an admin or is gone.
+    async fn grant_admin_on(&self, tx: &mut sqlx::PgConnection, user_id: Uuid, reason: &str) -> AppResult<bool> {
+        let Some((before, after)) = tokuly_identity::users::add_role(&mut *tx, user_id, "admin").await? else {
             return Ok(false);
-        }
-        if user.roles.iter().any(|r| r == "admin") {
-            return Ok(false);
-        }
-        let mut roles = user.roles.clone();
-        roles.push("admin".to_owned());
-        self.identity.set_roles(user.id, &roles).await?;
+        };
         audit::Audit::system("user.roles_changed")
-            .user(user.id)
-            .reason("bootstrap admin from server configuration")
-            .before(serde_json::json!({ "roles": user.roles }))
-            .after(serde_json::json!({ "roles": roles }))
-            .record(&self.core.db)
+            .user(user_id)
+            .reason(reason)
+            .before(serde_json::json!({ "roles": before }))
+            .after(serde_json::json!({ "roles": after }))
+            .record(&mut *tx)
             .await?;
-        tracing::info!(user_id = %user.id, handle = %user.handle, "bootstrap admin: admin role granted");
+        tracing::info!(%user_id, "admin role granted");
         Ok(true)
     }
 }

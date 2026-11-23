@@ -41,6 +41,12 @@ enum Command {
     Migrate,
     /// Run the API, the realtime gateway and the workers in one process (development).
     All(ApiArgs),
+    /// Give an existing account the `admin` role (the operator's way back in,
+    /// e.g. after the bootstrap admin lost access). Prints whether it changed.
+    PromoteAdmin {
+        /// Handle or e-mail address of the account.
+        account: String,
+    },
     /// Exit with 0 if a health endpoint of this container answers 200 (container health checks).
     Healthcheck {
         /// For example `http://127.0.0.1:8081/readyz`.
@@ -72,6 +78,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Worker => "tokuly-worker",
         Command::Migrate => "tokuly-migrate",
         Command::All(_) => "tokuly-all",
+        Command::PromoteAdmin { .. } => "tokuly-admin",
         Command::Healthcheck { .. } => unreachable!("handled above"),
     };
     let _telemetry = telemetry::init(&cli.core, service);
@@ -82,6 +89,14 @@ async fn main() -> anyhow::Result<()> {
     let domains = app::Domains::new(core.clone(), cli.domains)?;
     match cli.command {
         Command::Migrate => app::migrate(&core, &domains).await?,
+        Command::PromoteAdmin { account } => {
+            let granted = domains.admin.ensure_admin(&account).await.map_err(|e| anyhow::anyhow!("promote-admin: {e}"))?;
+            if granted {
+                println!("{account} is an admin now (from its next sign-in or token refresh)");
+            } else {
+                anyhow::bail!("{account}: no such account, or it already is an admin");
+            }
+        }
         Command::Api(args) => app::serve_api(core, domains, args.listen, args.cors_origins).await?,
         Command::Realtime => domains.gateway.run().await?,
         Command::Worker => {

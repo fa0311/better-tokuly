@@ -161,7 +161,7 @@ action or by a prefix ending in a dot (`user.`).
 | `user.suspension_expired` | user (no actor) | lifted suspension |
 | `user.verified_changed` | user | verified |
 | `user.roles_changed` | user (no actor when from the `TOKULY_ADMIN_USER` bootstrap) | roles |
-| `admin.bootstrapped` | `bootstrap` / the configured address (no actor; target user: who was promoted) | — recorded once per address before the grant; while it exists the bootstrap never runs again |
+| `admin.bootstrapped` | `bootstrap` / the configured address (no actor; target user: who was promoted) | — written in one transaction with the grant; while it exists the bootstrap never runs again |
 | `user.sessions_revoked` | user | number revoked |
 | `flag.created`, `flag.updated`, `flag.deleted` | flag (its name) | full flag snapshot |
 | `announcement.created`, `.updated`, `.published`, `.unpublished`, `.deleted` | announcement | titles, category, pinned, publish time, notify |
@@ -178,6 +178,25 @@ action or by a prefix ending in a dot (`user.`).
 
 Other rate limits (fixed): the public announcement RPCs allow 240 requests a
 minute per client address; `GetServerStats` 30 a minute per admin.
+
+## Getting back in
+
+The bootstrap happens once per address. To make an account admin later
+(the bootstrap admin lost access, or a second operator), run the binary's
+subcommand with the deployment's configuration:
+
+```sh
+docker compose exec api tokuly promote-admin you@example.com   # or a handle
+```
+
+It grants the role in one transaction with a `user.roles_changed` audit
+entry (no actor), and fails when there is no such account or it already is
+an admin. To let `TOKULY_ADMIN_USER` bootstrap again instead (for example
+after changing it to an address nobody holds yet), delete its record:
+
+```sql
+DELETE FROM admin_audit_log WHERE action = 'admin.bootstrapped' AND target_type = 'bootstrap' AND target_id = 'you@example.com';
+```
 
 ## For the server crate
 
