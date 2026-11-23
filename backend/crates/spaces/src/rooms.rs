@@ -101,6 +101,8 @@ pub(crate) struct Departed {
     /// The role they had inside.
     pub role: i16,
     pub hand_raised: bool,
+    /// The raised hand was one everyone in the room could see.
+    pub hand_public: bool,
 }
 
 /// A room that just ended, with the people it sent home.
@@ -175,7 +177,8 @@ pub(crate) async fn depart(
     reason: i16,
 ) -> AppResult<Vec<Departed>> {
     let inside: Vec<Departed> = sqlx::query_as(
-        "SELECT user_id, role, hand_raised_at IS NOT NULL AS hand_raised FROM space_participants
+        "SELECT user_id, role, hand_raised_at IS NOT NULL AS hand_raised, hand_raised_at IS NOT NULL AND hand_public AS hand_public
+         FROM space_participants
          WHERE space_id = $1 AND left_at IS NULL AND ($2::uuid[] IS NULL OR user_id = ANY($2))
          ORDER BY user_id
          FOR UPDATE",
@@ -191,7 +194,8 @@ pub(crate) async fn depart(
     let roles: Vec<i16> = inside.iter().map(|departed| rules::role_after_leaving(departed.role, reason)).collect();
     sqlx::query(
         "UPDATE space_participants p SET
-             left_at = now(), leave_reason = $2, role = gone.role,
+             left_at = now(), leave_reason = $2, role = gone.role, left_on_stage = p.role >= $5,
+             hand_public = false, stage_since = NULL,
              seconds = p.seconds + GREATEST(extract(epoch FROM now() - p.joined_at)::int, 0),
              hand_raised_at = NULL, stage_invited_at = NULL, stage_invited_by = NULL, seen_at = NULL, missing_since = NULL
          FROM unnest($3::uuid[], $4::smallint[]) AS gone(user_id, role)
@@ -201,6 +205,7 @@ pub(crate) async fn depart(
     .bind(reason)
     .bind(&ids)
     .bind(&roles)
+    .bind(role::SPEAKER)
     .execute(&mut **tx)
     .await?;
     Ok(inside)

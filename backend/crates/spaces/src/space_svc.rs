@@ -7,7 +7,9 @@ use tokuly_proto::spaces::*;
 use crate::{
     Spaces,
     model::{ParticipantRow, Venue},
-    notices, rules,
+    notices,
+    render::Sight,
+    rules,
 };
 
 /// Largest page of people (participants, bans, invitations).
@@ -167,7 +169,7 @@ impl SpaceService for Spaces {
             ok(JoinSpaceResponse {
                 space: self.render_space(&space, Some(user_id)).await?.into(),
                 credentials: credentials.into(),
-                me: self.render_participant(&me, true).await?.into(),
+                me: self.render_participant(&me, Sight::Full).await?.into(),
                 ..Default::default()
             })
         })
@@ -213,7 +215,7 @@ impl SpaceService for Spaces {
     ) -> ServiceResult<SetHandRaisedResponse> {
         handle(async {
             let me = Spaces::set_hand_raised(self, ctx.user_id()?, parse_id(request.space_id)?, request.raised).await?;
-            ok(SetHandRaisedResponse { me: self.render_participant(&me, true).await?.into(), ..Default::default() })
+            ok(SetHandRaisedResponse { me: self.render_participant(&me, Sight::Full).await?.into(), ..Default::default() })
         })
         .await
     }
@@ -228,7 +230,7 @@ impl SpaceService for Spaces {
                 Spaces::invite_to_stage(self, ctx.user_id()?, parse_id(request.space_id)?, parse_id(request.user_id)?)
                     .await?;
             ok(InviteToStageResponse {
-                participant: self.render_participant(&participant, true).await?.into(),
+                participant: self.render_participant(&participant, Sight::Full).await?.into(),
                 on_stage,
                 ..Default::default()
             })
@@ -246,7 +248,7 @@ impl SpaceService for Spaces {
                 .await?;
             ok(RespondToStageInviteResponse {
                 credentials: self.credentials_for(&me).await?.into(),
-                me: self.render_participant(&me, true).await?.into(),
+                me: self.render_participant(&me, Sight::Full).await?.into(),
                 ..Default::default()
             })
         })
@@ -263,7 +265,7 @@ impl SpaceService for Spaces {
             let participant =
                 Spaces::move_to_audience(self, ctx.user_id()?, parse_id(request.space_id)?, target).await?;
             ok(MoveToAudienceResponse {
-                participant: self.render_participant(&participant, true).await?.into(),
+                participant: self.render_participant(&participant, Sight::Full).await?.into(),
                 ..Default::default()
             })
         })
@@ -285,7 +287,7 @@ impl SpaceService for Spaces {
             )
             .await?;
             ok(SetCohostResponse {
-                participant: self.render_participant(&participant, true).await?.into(),
+                participant: self.render_participant(&participant, Sight::Full).await?.into(),
                 ..Default::default()
             })
         })
@@ -373,7 +375,8 @@ impl SpaceService for Spaces {
         request: ServiceRequest<'_, SendReactionRequest>,
     ) -> ServiceResult<SendReactionResponse> {
         handle(async {
-            Spaces::send_reaction(self, ctx.user_id()?, parse_id(request.space_id)?, request.emoji).await?;
+            Spaces::send_reaction(self, ctx.user_id()?, parse_id(request.space_id)?, request.emoji, request.nonce)
+                .await?;
             ok(SendReactionResponse::default())
         })
         .await

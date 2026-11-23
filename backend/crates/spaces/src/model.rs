@@ -146,7 +146,7 @@ impl SpaceRow {
 
 /// Columns of [`ParticipantRow`], for a table aliased `p`.
 pub const PARTICIPANT: &str = "p.space_id, p.user_id, p.role, p.top_role, p.joined_at, p.left_at, p.leave_reason, \
-     p.hand_raised_at, p.stage_invited_at";
+     p.hand_raised_at, p.hand_public, p.stage_since, p.left_on_stage, p.stage_invited_at";
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct ParticipantRow {
@@ -160,6 +160,13 @@ pub struct ParticipantRow {
     /// `leave::*` of the last departure; 0 while inside.
     pub leave_reason: i16,
     pub hand_raised_at: Option<Time>,
+    /// The raised hand went up while its owner was visible: everyone in
+    /// the room may see it. Otherwise only the moderators and the person.
+    pub hand_public: bool,
+    /// When they last came on stage; `None` off stage.
+    pub stage_since: Option<Time>,
+    /// The last departure was from the stage.
+    pub left_on_stage: bool,
     pub stage_invited_at: Option<Time>,
 }
 

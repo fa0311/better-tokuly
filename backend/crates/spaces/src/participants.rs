@@ -18,6 +18,7 @@ use crate::{
     limits::{Limit, RoomFanout},
     model::{PARTICIPANT, ParticipantRow, SPACE, SpaceRow, Venue, leave, role},
     notices,
+    render::Sight,
     rooms::{
         Departed, Tx, already_hosting, depart, ensure_nowhere_else, lock_presence, lock_space, not_host, not_live,
         participant_in_tx, recount, space_ended,
@@ -77,13 +78,15 @@ async fn target_inside(tx: &mut Tx<'_>, space_id: Uuid, user_id: Uuid) -> AppRes
 async fn set_role(tx: &mut Tx<'_>, space_id: Uuid, user_id: Uuid, role: i16) -> AppResult<ParticipantRow> {
     Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "UPDATE space_participants p SET role = $3, top_role = GREATEST(p.top_role, $3),
-             hand_raised_at = NULL, stage_invited_at = NULL, stage_invited_by = NULL
+             stage_since = CASE WHEN $3 >= $4 THEN COALESCE(CASE WHEN p.role >= $4 THEN p.stage_since END, now()) END,
+             hand_raised_at = NULL, hand_public = false, stage_invited_at = NULL, stage_invited_by = NULL
          WHERE p.space_id = $1 AND p.user_id = $2
          RETURNING {PARTICIPANT}"
     )))
     .bind(space_id)
     .bind(user_id)
     .bind(role)
+    .bind(role::SPEAKER)
     .fetch_one(&mut **tx)
     .await?)
 }
@@ -91,7 +94,7 @@ async fn set_role(tx: &mut Tx<'_>, space_id: Uuid, user_id: Uuid, role: i16) -> 
 impl Spaces {
     /// Announces someone on stage or with a raised hand to the room.
     pub(crate) async fn push_participant(&self, row: &ParticipantRow) {
-        match self.render_participant(row, false).await {
+        match self.render_participant(row, Sight::Public).await {
             Ok(participant) => {
                 let updated = pb::SpaceParticipantUpdated {
                     space_id: row.space_id.to_string(),
@@ -102,6 +105,49 @@ impl Spaces {
             }
             Err(e) => tracing::warn!(space_id = %row.space_id, error = %e, "participant push failed"),
         }
+    }
+
+    /// Announces a raised or lowered hand: to the room when the hand is
+    /// one everyone may see (`public`), otherwise only to the moderators
+    /// and the person themselves. A listener who hides their online status
+    /// must not be named to whoever follows the room; the others see
+    /// `SpaceCounts.hand_count` move, which says nobody in particular.
+    async fn announce_hand(&self, space: &SpaceRow, row: &ParticipantRow, public: bool) {
+        if public {
+            self.push_participant(row).await;
+            return;
+        }
+        let pushed: AppResult<()> = async {
+            let participant = self.render_participant(row, Sight::Private).await?;
+            let mut to = self.moderator_ids(space).await?;
+            to.push(row.user_id);
+            let updated = pb::SpaceParticipantUpdated {
+                space_id: row.space_id.to_string(),
+                participant: participant.into(),
+                ..Default::default()
+            };
+            self.push_users(to, updated).await;
+            Ok(())
+        }
+        .await;
+        if let Err(e) = pushed {
+            tracing::warn!(space_id = %space.id, error = %e, "hand push failed");
+        }
+    }
+
+    /// The host and the co-hosts inside: who answers raised hands.
+    async fn moderator_ids(&self, space: &SpaceRow) -> AppResult<Vec<Uuid>> {
+        let mut ids: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT user_id FROM space_participants
+             WHERE space_id = $1 AND left_at IS NULL AND role >= $2 AND user_id <> $3",
+        )
+        .bind(space.id)
+        .bind(role::COHOST)
+        .bind(space.host_id)
+        .fetch_all(&self.core.db)
+        .await?;
+        ids.push(space.host_id);
+        Ok(ids)
     }
 
     /// Whether `user_id` is the host, or inside as a co-host.
@@ -226,16 +272,19 @@ impl Spaces {
             // at a time.
             ensure_nowhere_else(&mut tx, user_id, venue).await?;
             let row: ParticipantRow = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-                "INSERT INTO space_participants AS p (space_id, user_id, role, top_role) VALUES ($1, $2, $3, $3)
+                "INSERT INTO space_participants AS p (space_id, user_id, role, top_role, stage_since)
+                 VALUES ($1, $2, $3, $3, CASE WHEN $3 >= $4 THEN now() END)
                  ON CONFLICT (space_id, user_id) DO UPDATE SET
                      role = EXCLUDED.role, top_role = GREATEST(p.top_role, EXCLUDED.role), joined_at = now(),
-                     left_at = NULL, leave_reason = 0, seen_at = NULL, missing_since = NULL, hand_raised_at = NULL,
+                     stage_since = EXCLUDED.stage_since, left_at = NULL, leave_reason = 0, seen_at = NULL,
+                     missing_since = NULL, hand_raised_at = NULL, hand_public = false,
                      stage_invited_at = NULL, stage_invited_by = NULL
                  RETURNING {PARTICIPANT}"
             )))
             .bind(space_id)
             .bind(user_id)
             .bind(role)
+            .bind(role::SPEAKER)
             .fetch_one(&mut *tx)
             .await?;
             let space = recount(&mut tx, space_id).await?;
@@ -287,10 +336,20 @@ impl Spaces {
     }
 
     /// What follows people leaving a room, once that is committed: the
-    /// room hears of those who were on stage or had a hand up, people who
-    /// did not leave by themselves are told, and LiveKit disconnects them.
+    /// room hears of those who were on stage or had a hand up that it saw,
+    /// the moderators of a hand that only they saw, people who did not
+    /// leave by themselves are told, and LiveKit disconnects them.
     pub(crate) async fn after_departures(&self, space: &SpaceRow, departed: &[Departed], reason: i16) {
         let venue = Venue::Space(space.id);
+        let quiet_hands = departed.iter().any(|person| person.hand_raised && !person.hand_public);
+        let moderators = if quiet_hands {
+            self.moderator_ids(space).await.unwrap_or_else(|e| {
+                tracing::warn!(space_id = %space.id, error = %e, "moderators not found");
+                Vec::new()
+            })
+        } else {
+            Vec::new()
+        };
         for person in departed {
             let left = pb::SpaceParticipantLeft {
                 space_id: space.id.to_string(),
@@ -298,8 +357,11 @@ impl Spaces {
                 reason: i32::from(reason).into(),
                 ..Default::default()
             };
-            if rules::on_stage(person.role) || person.hand_raised {
+            if rules::on_stage(person.role) || person.hand_public {
                 self.push_topic(space.id, left.clone()).await;
+            } else if person.hand_raised {
+                let to = moderators.iter().copied().filter(|id| *id != person.user_id);
+                self.push_users(to, left.clone()).await;
             }
             if reason != leave::LEFT {
                 self.push_user(person.user_id, left).await;
@@ -398,13 +460,23 @@ impl Spaces {
         };
         // The order moves with every hand and arrival, so pages are cut by position.
         let offset = page.decode::<i64>()?.unwrap_or(0).max(0);
+        // Moderators see the room in the order things happened. Everyone
+        // else gets an order that tells no time from when someone was
+        // hidden: the stage by when they came on it, hands that everyone
+        // could see in the order they went up, then the rest (and of the
+        // past, who left the stage, newest first, then the rest) by ID.
         let mut rows: Vec<ParticipantRow> = if filter == Filter::PARTICIPANT_FILTER_PAST {
             // Who was on stage is for everyone who was there; who merely
             // listened is for the moderators.
+            let order = if moderates {
+                "p.left_at DESC, p.user_id"
+            } else {
+                "p.left_on_stage DESC, CASE WHEN p.left_on_stage THEN p.left_at END DESC, p.user_id"
+            };
             sqlx::query_as(sqlx::AssertSqlSafe(format!(
                 "SELECT {PARTICIPANT} FROM space_participants p
                  WHERE p.space_id = $1 AND p.left_at IS NOT NULL AND ($2 OR p.top_role >= $3)
-                 ORDER BY p.left_at DESC, p.user_id
+                 ORDER BY {order}
                  LIMIT $4 OFFSET $5"
             )))
             .bind(space_id)
@@ -421,12 +493,19 @@ impl Spaces {
                 Filter::PARTICIPANT_FILTER_AUDIENCE => (role::LISTENER, role::LISTENER, false),
                 _ => (role::LISTENER, role::HOST, false),
             };
+            let order = if moderates {
+                "(p.hand_raised_at IS NULL), COALESCE(p.hand_raised_at, p.joined_at), p.joined_at, p.user_id"
+            } else {
+                "p.stage_since, (p.hand_raised_at IS NULL OR NOT p.hand_public),
+                 CASE WHEN p.hand_public THEN p.hand_raised_at END, p.user_id"
+            };
+            // A hand that went up while its owner was hidden is theirs and
+            // the moderators' to know.
             sqlx::query_as(sqlx::AssertSqlSafe(format!(
                 "SELECT {PARTICIPANT} FROM space_participants p
                  WHERE p.space_id = $1 AND p.left_at IS NULL AND p.role BETWEEN $2 AND $3
-                   AND (NOT $4 OR p.hand_raised_at IS NOT NULL)
-                 ORDER BY (p.role >= {speaker}) DESC, CASE WHEN p.role >= {speaker} THEN -p.role ELSE 0 END,
-                          (p.hand_raised_at IS NULL), COALESCE(p.hand_raised_at, p.joined_at), p.joined_at, p.user_id
+                   AND (NOT $4 OR (p.hand_raised_at IS NOT NULL AND ($7 OR p.hand_public OR p.user_id = $8)))
+                 ORDER BY (p.role >= {speaker}) DESC, CASE WHEN p.role >= {speaker} THEN -p.role ELSE 0 END, {order}
                  LIMIT $5 OFFSET $6",
                 speaker = role::SPEAKER
             )))
@@ -436,6 +515,8 @@ impl Spaces {
             .bind(hands_only)
             .bind(page.fetch())
             .bind(offset)
+            .bind(moderates)
+            .bind(viewer)
             .fetch_all(&core.db)
             .await?
         };
@@ -476,6 +557,11 @@ impl Spaces {
     ) -> AppResult<ParticipantRow> {
         self.visible_space(Some(user_id), space_id).await?;
         self.limit(Limit::Hand, user_id).await?;
+        // Read before the room is locked (nothing but the room's own
+        // transaction runs while the lock is held). A hand raised while
+        // hidden stays the moderators' business, also if the person stops
+        // hiding before lowering it.
+        let visible = settings::privacy_of(&self.core, user_id).await?.share_online_status;
         let mut tx = self.core.db.begin().await?;
         let space = lock_space(&mut tx, space_id).await?;
         if !space.is_live() {
@@ -489,20 +575,22 @@ impl Spaces {
             return Ok(me);
         }
         let row: ParticipantRow = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "UPDATE space_participants p SET hand_raised_at = CASE WHEN $3 THEN now() END
+            "UPDATE space_participants p SET hand_raised_at = CASE WHEN $3 THEN now() END, hand_public = $3 AND $4
              WHERE p.space_id = $1 AND p.user_id = $2
              RETURNING {PARTICIPANT}"
         )))
         .bind(space_id)
         .bind(user_id)
         .bind(raised)
+        .bind(visible)
         .fetch_one(&mut *tx)
         .await?;
         let space = recount(&mut tx, space_id).await?;
         tx.commit().await?;
         // A large room waving its hands hears the count, not every hand.
         if self.room_budget(space_id, RoomFanout::Hands).await {
-            self.push_participant(&row).await;
+            let public = if raised { row.hand_public } else { me.hand_public };
+            self.announce_hand(&space, &row, public).await;
         }
         self.push_counts(&space).await;
         Ok(row)
@@ -601,7 +689,7 @@ impl Spaces {
             tx.commit().await?;
             if me.hand_raised_at.is_some() {
                 // Declining also takes the hand down.
-                self.push_participant(&row).await;
+                self.announce_hand(&space, &row, me.hand_public).await;
                 self.push_counts(&space).await;
             }
             return Ok(row);
@@ -666,7 +754,7 @@ impl Spaces {
         if rules::on_stage(before.role) {
             self.after_role_change(&space, &row).await;
         } else if before.hand_raised_at.is_some() {
-            self.push_participant(&row).await;
+            self.announce_hand(&space, &row, before.hand_public).await;
             self.push_counts(&space).await;
         }
         if before.stage_invited_at.is_some() && before.user_id != actor {
@@ -982,9 +1070,13 @@ impl Spaces {
 
     // ───────────────────────────── reactions and the pin ─────────────────────────────
 
-    /// Sends an emoji burst to everyone following the room. Not stored.
-    pub(crate) async fn send_reaction(&self, user_id: Uuid, space_id: Uuid, emoji: &str) -> AppResult<()> {
+    /// Sends an emoji burst to everyone following the room. Not stored,
+    /// and it does not say who sent it: the topic is open to anyone who may
+    /// see the room, and a listener who hides their presence must not be
+    /// named there. The sender recognises their own by `nonce`.
+    pub(crate) async fn send_reaction(&self, user_id: Uuid, space_id: Uuid, emoji: &str, nonce: &str) -> AppResult<()> {
         let emoji = rules::emoji(emoji)?;
+        let nonce = rules::nonce(nonce)?;
         let space = self.visible_space(Some(user_id), space_id).await?;
         if !space.is_live() {
             return Err(not_live());
@@ -1002,12 +1094,7 @@ impl Spaces {
             .await?;
         // A room in full swing passes on what people can watch, not more.
         if self.room_budget(space_id, RoomFanout::Reactions).await {
-            let reaction = pb::SpaceReaction {
-                space_id: space_id.to_string(),
-                user_id: user_id.to_string(),
-                emoji,
-                ..Default::default()
-            };
+            let reaction = pb::SpaceReaction { space_id: space_id.to_string(), emoji, nonce, ..Default::default() };
             self.push_topic(space_id, reaction).await;
         }
         Ok(())
