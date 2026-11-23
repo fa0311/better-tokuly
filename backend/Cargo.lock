@@ -6073,6 +6073,7 @@ dependencies = [
  "tokuly-core",
  "tokuly-identity",
  "tokuly-proto",
+ "tokuly-social",
  "tokuly-testkit",
  "tower",
  "tracing",

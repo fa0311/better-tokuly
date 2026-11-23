@@ -208,3 +208,38 @@ async fn offers_accepted_at_once_respect_the_receivers_allowance() {
     .await;
     assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
 }
+
+async fn block(ctx: &Ctx, blocker: &TestUser, blocked: &TestUser) {
+    let request = tokuly_proto::social::BlockUserRequest { user_id: blocked.id.to_string(), ..Default::default() };
+    let _: tokuly_proto::social::BlockUserResponse =
+        ctx.app.call("tokuly.social.v1.FriendService/BlockUser", Some(blocker), &request).await.expect("block");
+}
+
+#[tokio::test]
+async fn a_block_either_way_stops_an_offer_and_its_acceptance() {
+    let ctx = start().await;
+    let (owen, rita, sam, tom) =
+        (ctx.app.user("owen").await, ctx.app.user("rita").await, ctx.app.user("sam").await, ctx.app.user("tom").await);
+    let bot = create_bot(&ctx, &owen, "Helper").await;
+
+    // Offering: to someone who blocked the owner, or whom the owner blocked.
+    block(&ctx, &rita, &owen).await;
+    block(&ctx, &owen, &sam).await;
+    for to in [&rita, &sam] {
+        assert_eq!(offer(&ctx, &owen, &bot, &to.id.to_string()).await.unwrap_err().reason, "RECIPIENT_NOT_FOUND");
+    }
+    assert!(ctx.notifications(rita.id, "dev.bot_transfer_offered").await.is_empty());
+
+    // Accepting: a block made after the offer, either way, ends it.
+    let offered = offer(&ctx, &owen, &bot, &tom.id.to_string()).await.unwrap();
+    block(&ctx, &tom, &owen).await;
+    assert_eq!(accept(&ctx, &tom, &offered.id).await.unwrap_err().reason, "TRANSFER_NOT_FOUND");
+    let other = create_bot(&ctx, &owen, "Other").await;
+    let lena = ctx.app.user("lena").await;
+    let offered = offer(&ctx, &owen, &other, &lena.id.to_string()).await.unwrap();
+    block(&ctx, &owen, &lena).await;
+    assert_eq!(accept(&ctx, &lena, &offered.id).await.unwrap_err().reason, "TRANSFER_NOT_FOUND");
+    let mine = ListBotsRequest::default();
+    let still: ListBotsResponse = ctx.app.call(&format!("{BOT_SERVICE}/ListBots"), Some(&owen), &mine).await.unwrap();
+    assert_eq!(still.bots.len(), 2, "both bots stay with their owner");
+}

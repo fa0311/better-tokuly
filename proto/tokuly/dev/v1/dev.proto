@@ -553,9 +553,11 @@ service BotService {
   // Takes an offered bot over. Every token of the bot is revoked (they were
   // made by, and shown to, the previous owner) and its webhooks deleted (they
   // point at the previous owner's servers, signed with secrets they know);
-  // its profile, followers and what it posted stay. Who owned it before
-  // stays on record for moderation. Reasons: `TRANSFER_NOT_FOUND` (also
-  // when it ran out, was withdrawn, or the offerer no longer owns the bot),
+  // its profile, followers and what it posted stay, and so does what it
+  // received (direct messages, inbox, shared notes), which the new owner can
+  // read from then on. Who owned it before stays on record for moderation.
+  // Reasons: `TRANSFER_NOT_FOUND` (also when it ran out, was withdrawn, the
+  // offerer no longer owns the bot, or the two are in a block relation),
   // `BOT_SUSPENDED`, `TOO_MANY_BOTS`.
   rpc AcceptBotTransfer(AcceptBotTransferRequest) returns (AcceptBotTransferResponse);
   // Declines an offer made to the caller, or withdraws one the caller made.

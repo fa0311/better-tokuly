@@ -193,7 +193,9 @@ a new offer of the same bot replaces the open one under a new ID. An offer
 is refused as `RECIPIENT_NOT_FOUND` towards the owner themselves, a bot, a
 suspended account and anyone in a block relation with the owner (asked
 through identity's profile extensions, which is where the social domain
-answers), so it cannot reach someone who shut the owner out.
+answers), so it cannot reach someone who shut the owner out. Accepting asks
+again: a block made since the offer, either way, answers
+`TRANSFER_NOT_FOUND`.
 
 On acceptance, in one transaction under the receiver's allowance lock: the
 offer is claimed exactly once, the bot must still be the offerer's and not
@@ -207,7 +209,15 @@ of the hand-over, or a revocation that failed after the commit, does not
 leave the previous owner in control. The profile, avatar, followers and
 everything the bot posted stay with the bot. Mutations of a bot re-check its
 owner under a row lock, so a previous owner's request in flight cannot
-delete, switch or edit the bot once it changed hands.
+delete, switch or edit the bot once it changed hands (a deletion revokes
+the bot's tokens only after that check, in the same transaction).
+
+**The new owner inherits what the bot received**: its direct messages, its
+notification inbox, notes and anything else shared with it, readable through
+the tokens they make with `*:read` scopes. The offer screen and the accept
+screen say so. The bot's conversations are not told that it changed hands:
+the chat domain has no way for another domain to post a notice into a
+conversation.
 
 Accepted offers are the record of who owned a bot before
 (`Dev::bot_owner_at(bot, time)`), kept for `TOKULY_DEV_BOT_RECORD_DAYS` from

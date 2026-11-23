@@ -165,10 +165,12 @@ impl Dev {
     /// stays with its recipients, who can still report it, and a report must
     /// lead to the person behind it ([`Dev::bot_owner`]).
     pub(crate) async fn delete_bot(&self, bot_id: Uuid, owner_id: Uuid, actor: Option<Uuid>) -> AppResult<()> {
-        self.revoke_tokens_of(bot_id, "bot_deleted", None).await?;
         let mut tx = self.core.db.begin().await?;
-        // Still theirs: a hand-over accepted in the meantime is not undone by the previous owner.
+        // Still theirs: a hand-over accepted in the meantime is not undone by
+        // the previous owner, whose request then touches nothing, not even the
+        // new owner's tokens.
         lock_owned_bot(&mut tx, bot_id, owner_id).await?;
+        let revoked = Self::revoke_tokens_in(&mut tx, "user_id = $1", bot_id, "bot_deleted", None, None).await?;
         if let Ok(images) = self.images() {
             images.release(&mut tx, &bot_avatar_holder(bot_id)).await?;
         }
@@ -189,6 +191,8 @@ impl Dev {
             .await?;
         events::emit(&mut *tx, "dev.bot.deleted", actor, &BotEvent { bot_id, owner_id }).await?;
         tx.commit().await?;
+        let hashes: Vec<String> = revoked.into_iter().map(|(hash, _)| hash).collect();
+        self.forget_tokens(&hashes).await?;
         self.subscribed.invalidate();
         Ok(())
     }

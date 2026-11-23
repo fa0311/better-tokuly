@@ -203,6 +203,10 @@ export default {
       withdraw: "Withdraw",
       title: "Hand it over",
       lead: "Give this bot to someone else. Once they accept, its current tokens stop working and its webhooks are deleted. Its profile and posts stay.",
+      inheritsOffer:
+        "Whatever the bot received (direct messages, notifications, notes shared with it) becomes readable by the new owner.",
+      inheritsAccept:
+        "If you accept, whatever this bot received (direct messages, notifications, notes shared with it) becomes readable by you. It may include conversations with its previous owner.",
       to: "Their handle",
       toHint: "With or without @",
       send: "Offer the bot",

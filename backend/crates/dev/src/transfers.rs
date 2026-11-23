@@ -17,7 +17,13 @@
 //!
 //! An offer reaches somebody's inbox, so it is refused (as an unknown
 //! person, `RECIPIENT_NOT_FOUND`) towards anyone in a block relation with the
-//! owner, and limited per owner.
+//! owner, and limited per owner. A block made after the offer ends it: the
+//! accept asks again and answers `TRANSFER_NOT_FOUND`.
+//!
+//! The new owner gets what the bot received: its direct messages, inbox,
+//! notes shared with it, readable with tokens they make. The offer and the
+//! accept screens say so. (The bot's conversations are not told: the chat
+//! domain has no way for another domain to post a notice into one.)
 use std::time::Duration;
 
 use tokuly_core::{
@@ -152,6 +158,20 @@ impl Dev {
 
     /// Takes the bot of an offer made to `user_id` over. Returns the bot's ID.
     pub(crate) async fn accept_bot_transfer(&self, user_id: Uuid, transfer_id: Uuid) -> AppResult<Uuid> {
+        // A block made since the offer ends it: neither side is handed anything by the other.
+        // Asked before the transaction (it reads through the pool, the social domain's way);
+        // the claim below names the same offerer, so the answer is about this very offer.
+        let offerer: Uuid = sqlx::query_scalar(
+            "SELECT from_id FROM dev_bot_transfers WHERE id = $1 AND to_id = $2 AND accepted_at IS NULL",
+        )
+        .bind(transfer_id)
+        .bind(user_id)
+        .fetch_optional(&self.core.db)
+        .await?
+        .ok_or_else(transfer_not_found)?;
+        if !self.identity.can_view(Some(offerer), user_id).await? {
+            return Err(transfer_not_found());
+        }
         let mut tx = self.core.db.begin().await?;
         // The same lock as creating a bot: the allowance cannot be raced past.
         // Everything until the commit runs on this transaction.
@@ -159,11 +179,12 @@ impl Dev {
         // Claimed exactly once: a second accept, a withdrawal or a new offer finds nothing.
         let (bot_id, from_id): (Uuid, Uuid) = sqlx::query_as(
             "UPDATE dev_bot_transfers SET accepted_at = now()
-             WHERE id = $1 AND to_id = $2 AND accepted_at IS NULL AND expires_at > now()
+             WHERE id = $1 AND to_id = $2 AND from_id = $3 AND accepted_at IS NULL AND expires_at > now()
              RETURNING bot_id, from_id",
         )
         .bind(transfer_id)
         .bind(user_id)
+        .bind(offerer)
         .fetch_optional(&mut *tx)
         .await?
         .ok_or_else(transfer_not_found)?;

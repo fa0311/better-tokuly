@@ -21,7 +21,7 @@ use tokuly_testkit::{TestApp, TestUser};
 use tower::ServiceExt as _;
 use uuid::Uuid;
 
-pub const MIGRATIONS: &[&str] = &["0001", "0100", "0400", "2400"];
+pub const MIGRATIONS: &[&str] = &["0001", "0100", "0200", "0400", "2400"];
 
 pub const TOKEN_SERVICE: &str = "tokuly.dev.v1.TokenService";
 pub const APP_SERVICE: &str = "tokuly.dev.v1.AppService";
@@ -52,8 +52,11 @@ pub async fn start() -> Ctx {
 pub async fn start_with(cfg: DevConfig) -> Ctx {
     let mut holder = None;
     let app = TestApp::start(MIGRATIONS, |core, identity, router| {
+        // The social domain answers identity's "may these two see each other" (blocks).
+        let social = tokuly_social::Social::new(core.clone(), identity.clone(), tokuly_social::SocialConfig::default())
+            .expect("social starts");
         let dev = Dev::new(core.clone(), identity.clone(), cfg).expect("dev starts");
-        let router = dev.register(identity.register(router));
+        let router = dev.register(social.register(identity.register(router)));
         holder = Some(dev);
         router
     })

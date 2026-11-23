@@ -12,7 +12,7 @@ import { useAccountTimeZone } from "#/lib/account-time";
 import { profileClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { botClient, type dev, keys } from "./api";
-import { formatDateTime, Section } from "./parts";
+import { formatDateTime, Notice, Section } from "./parts";
 
 const onError = (error: unknown) => toast.error(errorMessage(error, { namespace: "dev" }));
 
@@ -93,6 +93,7 @@ export function BotTransferInbox() {
     <>
       {incoming.length > 0 && (
         <Section title={t("bots.transfer.incoming")} className="mb-6">
+          <Notice className="mb-3">{t("bots.transfer.inheritsAccept")}</Notice>
           <Card className="p-1">
             <ul className="divide-y-2 divide-line">
               {incoming.map((transfer) =>
@@ -189,6 +190,7 @@ export function HandOverSection({ bot }: { bot: dev.Bot }) {
     <Section title={t("bots.transfer.title")}>
       <Card className="flex flex-col gap-3 p-4">
         <p className="text-sm leading-relaxed text-ink-soft">{t("bots.transfer.lead")}</p>
+        <Notice>{t("bots.transfer.inheritsOffer")}</Notice>
         {open ? (
           <div className="flex flex-wrap items-center gap-3" data-testid="bot-transfer-pending">
             <p className="min-w-0 flex-1 basis-48 text-sm font-bold">
