@@ -261,7 +261,7 @@ async fn closing_an_account_forfeits_what_is_left() {
     let linked: i64 = sqlx::query_scalar("SELECT count(*) FROM wallet_entries WHERE from_user_id = $1 OR to_user_id = $1").bind(leaver.id).fetch_one(&app.core.db).await.unwrap();
     assert_eq!(linked, 0);
     let still_hidden: Option<Uuid> = sqlx::query_scalar("SELECT hidden_user_id FROM wallet_entries WHERE id = $1").bind(hidden.entry_id).fetch_one(&app.core.db).await.unwrap();
-    assert_eq!(still_hidden, None, "the hidden mark does not keep the deleted user's ID either");
+    assert_eq!(still_hidden, Some(ledger_tx::UNLINKED_HIDDEN_PARTY), "the hidden mark stays, without the deleted user's ID");
 
     // Nothing left to close the second time; an account that never existed is fine too.
     let mut tx = app.core.db.begin().await.unwrap();

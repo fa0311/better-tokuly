@@ -88,7 +88,9 @@ Bookkeeping stays, unlinked; personal data goes. In one transaction:
 1. open payout requests are cancelled and their held coins forfeited;
 2. the user is removed from every ledger entry (`from_user_id` / `to_user_id`
    set to `NULL`, as the schema's `ON DELETE SET NULL` would) — counterparts
-   keep their side of a transfer, without a name; such transfers can no
+   keep their side of a transfer, without a name; where the user was the
+   hidden party, `hidden_user_id` becomes the nil UUID, so the payer's line
+   still reads `counterpart_hidden` exactly as before; such transfers can no
    longer be refunded (`REFUND_IMPOSSIBLE`);
 3. purchases, payout requests and adjustment records lose their `user_id`;
    payout destinations and notes are erased; unpaid purchases are cancelled;

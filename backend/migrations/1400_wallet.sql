@@ -31,6 +31,7 @@ CREATE TABLE wallet_entries (
     -- The party of this entry whose account is not shown to the other party
     -- (a channel's owner receiving a gift: the payer sees the channel named
     -- in the memo, never the account behind it). NULL: both see each other.
+    -- The nil UUID once that account was deleted: still hidden, naming nobody.
     hidden_user_id  uuid,
     created_at      timestamptz NOT NULL DEFAULT now()
 );

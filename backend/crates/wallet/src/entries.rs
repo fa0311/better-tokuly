@@ -96,9 +96,12 @@ impl EntryRow {
         self.hidden_user_id == Some(user_id) && viewer != user_id
     }
 
-    /// Whether the other side of this entry is kept from `viewer`.
+    /// Whether the other side of this entry is kept from `viewer`. The
+    /// hidden party is always one of the two, so anyone else in the entry
+    /// is the side it is kept from — also once the hidden account was
+    /// deleted and the mark no longer names it (`UNLINKED_HIDDEN_PARTY`).
     fn counterpart_hidden(&self, viewer: Uuid) -> bool {
-        [self.from_user_id, self.to_user_id].into_iter().flatten().any(|party| self.hides(party, viewer))
+        self.hidden_user_id.is_some_and(|hidden| hidden != viewer)
     }
 
     /// Whether `user_id` is a party of this entry from whom its other party

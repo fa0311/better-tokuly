@@ -199,6 +199,10 @@ pub async fn adjust(tx: &mut Transaction<'_, Postgres>, user_id: Uuid, account: 
     Ok(Posted { entry_id, applied: true })
 }
 
+/// `wallet_entries.hidden_user_id` of an entry whose hidden party was
+/// deleted: still hidden from the other party, no longer naming anyone.
+pub const UNLINKED_HIDDEN_PARTY: Uuid = Uuid::nil();
+
 /// Unlinks a deleted user from every ledger entry, doing by hand what the
 /// schema's `ON DELETE SET NULL` would do if the user row were removed. The
 /// entries stay for accounting but no longer say whose they were;
@@ -208,7 +212,13 @@ pub async fn adjust(tx: &mut Transaction<'_, Postgres>, user_id: Uuid, account: 
 /// transaction locks an account row (see the lock order in the module docs).
 pub async fn unlink_user(tx: &mut Transaction<'_, Postgres>, user_id: Uuid) -> AppResult<()> {
     // A hidden party is always one of the entry's two users, so this finds every entry that names the user as hidden.
-    sqlx::query("UPDATE wallet_entries SET hidden_user_id = NULL WHERE hidden_user_id = $1 AND (from_user_id = $1 OR to_user_id = $1)").bind(user_id).execute(&mut **tx).await?;
+    // The mark stays, unlinked: the other side's line must read as before, or it would tell them the account behind
+    // it was just deleted.
+    sqlx::query("UPDATE wallet_entries SET hidden_user_id = $2 WHERE hidden_user_id = $1 AND (from_user_id = $1 OR to_user_id = $1)")
+        .bind(user_id)
+        .bind(UNLINKED_HIDDEN_PARTY)
+        .execute(&mut **tx)
+        .await?;
     sqlx::query("UPDATE wallet_entries SET from_user_id = NULL WHERE from_user_id = $1").bind(user_id).execute(&mut **tx).await?;
     sqlx::query("UPDATE wallet_entries SET to_user_id = NULL WHERE to_user_id = $1").bind(user_id).execute(&mut **tx).await?;
     Ok(())

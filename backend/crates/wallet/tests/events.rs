@@ -242,3 +242,28 @@ async fn the_data_export_contains_the_users_wallet() {
     assert_eq!(other["ledger"].as_array().unwrap().len(), 2);
     assert!(other["payout_requests"].as_array().unwrap().is_empty() && other["daily_bonus"].is_null());
 }
+
+/// What the payer of a gift to a hidden recipient sees does not change when
+/// that recipient deletes their account: a "hidden" mark that disappeared
+/// would tell the payer that the person behind the channel just left.
+#[tokio::test]
+async fn a_hidden_recipient_stays_hidden_after_deleting_their_account() {
+    let (app, wallet) = app().await;
+    let (fan, owner) = (app.user("fan").await, app.user("owner").await);
+    fund(&app, &fan, 1000).await;
+    let gift = wallet.transfer_with_fee_hiding_recipient(fan.id, owner.id, 300, "live.gift", &key("gift"), serde_json::json!({ "channel_id": "c1" })).await.unwrap();
+    let seen = |entries: Vec<LedgerEntry>| {
+        let entry = entries.into_iter().find(|entry| entry.id == gift.entry_id.to_string()).unwrap();
+        (entry.counterpart.as_option().is_some(), entry.counterpart_hidden, entry.coins_delta)
+    };
+    let before = seen(history(&app, &fan).await);
+    assert_eq!(before, (false, true, -300));
+
+    wallet.handle_event(user_deleted(&owner)).await.unwrap();
+    assert_eq!(seen(history(&app, &fan).await), before, "the payer's line reads exactly as before");
+    let hidden: Option<uuid::Uuid> = sqlx::query_scalar("SELECT hidden_user_id FROM wallet_entries WHERE id = $1").bind(gift.entry_id).fetch_one(&app.core.db).await.unwrap();
+    assert_ne!(hidden, Some(owner.id), "the entry no longer names the deleted account");
+    assert_eq!(sqlx::query_scalar::<_, i64>("SELECT count(*) FROM wallet_entries WHERE hidden_user_id = $1").bind(owner.id).fetch_one(&app.core.db).await.unwrap(), 0);
+    let export = app.core.exporters.all().into_iter().find(|exporter| exporter.name() == "wallet").unwrap().export(fan.id).await.unwrap().to_string();
+    assert!(!export.contains(&owner.id.to_string()));
+}
