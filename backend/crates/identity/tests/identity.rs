@@ -205,6 +205,31 @@ async fn a_released_handle_is_kept_for_its_previous_owner() {
 }
 
 #[tokio::test]
+async fn one_account_cannot_tie_up_the_database_pool() {
+    let app = app().await;
+    let user = app.user("burst").await;
+    let current: GetSettingsResponse = app.call("tokuly.identity.v1.AccountService/GetSettings", Some(&user), &GetSettingsRequest::default()).await.unwrap();
+    let appearance = current.settings.as_option().unwrap().appearance.clone();
+    // Twice as many writes at once as the test pool has connections, all
+    // from one account, through every RPC that opens a transaction.
+    let calls = (0..10).map(|i| {
+        let (app, user, appearance) = (&app, user.clone(), appearance.clone());
+        async move {
+            match i % 3 {
+                0 => app.call::<_, UpdateProfileResponse>("tokuly.identity.v1.AccountService/UpdateProfile", Some(&user), &UpdateProfileRequest { bio: Some(format!("{i}")), ..Default::default() }).await.map(drop),
+                1 => app.call::<_, SetStatusResponse>("tokuly.identity.v1.AccountService/SetStatus", Some(&user), &SetStatusRequest { emoji: "🍜".into(), ..Default::default() }).await.map(drop),
+                _ => app
+                    .call::<_, UpdateSettingsResponse>("tokuly.identity.v1.AccountService/UpdateSettings", Some(&user), &UpdateSettingsRequest { appearance, ..Default::default() })
+                    .await
+                    .map(drop),
+            }
+        }
+    });
+    let results = tokio::time::timeout(std::time::Duration::from_secs(10), futures::future::join_all(calls)).await.expect("the burst finishes well within the pool's acquire timeout");
+    assert!(results.iter().all(Result::is_ok), "{results:?}");
+}
+
+#[tokio::test]
 async fn settings_default_then_persist() {
     let app = app().await;
     let user = app.user("set").await;
@@ -351,6 +376,15 @@ async fn a_totp_code_is_accepted_only_once() {
     assert_eq!(err.reason, "INVALID_TOTP", "a spent code cannot turn two-step verification off either");
     // The code of the next step is still good.
     assert!(!sign_in_with_code(&app, &tag, totp_at(&secret, 1)).await.unwrap().access_token.is_empty());
+}
+
+#[tokio::test]
+async fn two_sign_ins_racing_with_one_code_let_one_through() {
+    let app = app().await;
+    let (tag, _user, secret) = user_with_totp(&app, "race").await;
+    let code = totp_now(&secret);
+    let (a, b) = tokio::join!(sign_in_with_code(&app, &tag, code.clone()), sign_in_with_code(&app, &tag, code));
+    assert_eq!(a.is_ok() as u8 + b.is_ok() as u8, 1, "{a:?} / {b:?}");
 }
 
 #[tokio::test]
