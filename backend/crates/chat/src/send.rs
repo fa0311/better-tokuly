@@ -193,15 +193,32 @@ impl Chat {
         conv: &mut ConversationRow,
         draft: Draft,
     ) -> AppResult<Posted> {
-        if let (Some(sender_id), Some(client_id)) = (draft.sender_id, &draft.client_id) {
-            let existing: Option<MessageRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-                "SELECT {MSG} FROM chat_messages x WHERE x.conversation_id = $1 AND x.sender_id = $2 AND x.client_id = $3"
-            )))
-            .bind(conv.id)
-            .bind(sender_id)
-            .bind(client_id)
-            .fetch_optional(&mut **tx)
-            .await?;
+        if let Some(client_id) = &draft.client_id {
+            // System messages with a `client_id` (server notices) are unique
+            // the same way; the conversation lock serializes the check.
+            let existing: Option<MessageRow> = match draft.sender_id {
+                Some(sender_id) => {
+                    sqlx::query_as(sqlx::AssertSqlSafe(format!(
+                        "SELECT {MSG} FROM chat_messages x
+                         WHERE x.conversation_id = $1 AND x.sender_id = $2 AND x.client_id = $3"
+                    )))
+                    .bind(conv.id)
+                    .bind(sender_id)
+                    .bind(client_id)
+                    .fetch_optional(&mut **tx)
+                    .await?
+                }
+                None => {
+                    sqlx::query_as(sqlx::AssertSqlSafe(format!(
+                        "SELECT {MSG} FROM chat_messages x
+                         WHERE x.conversation_id = $1 AND x.sender_id IS NULL AND x.client_id = $2"
+                    )))
+                    .bind(conv.id)
+                    .bind(client_id)
+                    .fetch_optional(&mut **tx)
+                    .await?
+                }
+            };
             if let Some(row) = existing {
                 return Ok(Posted {
                     row,

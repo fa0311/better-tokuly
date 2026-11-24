@@ -4,7 +4,7 @@
 //! `chat_conversations`, `m` for `chat_members`, `x` for `chat_messages` —
 //! so the column lists below can be dropped into any of them.
 use serde::{Deserialize, Serialize};
-use tokuly_core::prelude::*;
+use tokuly_core::{outbound::Localized, prelude::*};
 use tokuly_proto::chat as pb;
 
 /// `tokuly.chat.v1.ConversationKind` as stored.
@@ -250,6 +250,9 @@ pub(crate) struct SystemPayload {
     pub text: String,
     #[serde(default)]
     pub message_id: Option<Uuid>,
+    /// `SYSTEM_EVENT_TYPE_NOTICE`: what the notice says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<Localized>,
 }
 
 impl SystemPayload {
@@ -270,6 +273,16 @@ impl SystemPayload {
     pub fn message(mut self, message_id: Uuid) -> Self {
         self.message_id = Some(message_id);
         self
+    }
+
+    pub fn notice(mut self, notice: Localized) -> Self {
+        self.notice = Some(notice);
+        self
+    }
+
+    /// A notice another domain posted (see [`crate::Chat::post_notice`]).
+    pub fn is_notice(&self) -> bool {
+        self.r#type == pb::SystemEventType::SYSTEM_EVENT_TYPE_NOTICE as i32
     }
 }
 

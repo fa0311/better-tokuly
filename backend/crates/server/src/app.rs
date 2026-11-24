@@ -508,6 +508,91 @@ mod tests {
         assert_eq!(open((spot.0 + 0.05, spot.1)).await.unwrap_err().reason, "LOCATION_NOT_VERIFIED", "5 km off the fix");
     }
 
+    /// A bot handed over: the server's bridge has chat queue the notice, and
+    /// chat's job posts it into the bot's direct conversations only.
+    #[tokio::test]
+    async fn a_bots_direct_conversations_hear_it_has_a_new_owner() {
+        let mut slot = None;
+        let app = TestApp::start(MIGRATIONS, |core, _identity, _router| {
+            let cfg = Settings::try_parse_from(["tokuly"]).expect("default settings").domains;
+            let domains = Domains::new(core.clone(), cfg).expect("domains");
+            let router = domains.connect_router();
+            slot = Some(domains);
+            router
+        })
+        .await;
+        let domains = slot.expect("domains were built");
+        let (owen, rita, alice) = (app.user("owen").await, app.user("rita").await, app.user("alice").await);
+        let handle = format!("helper_{}", tokuly_core::ids::random_base62(6).to_lowercase());
+        let request = tokuly_proto::dev::CreateBotRequest { handle, display_name: "Helper".into(), ..Default::default() };
+        let created: tokuly_proto::dev::CreateBotResponse =
+            app.call("tokuly.dev.v1.BotService/CreateBot", Some(&owen), &request).await.expect("a bot");
+        let bot: uuid::Uuid = created.bot.as_option().unwrap().user.as_option().unwrap().id.parse().unwrap();
+
+        // A direct conversation of the bot, and a group it is in.
+        let direct = domains.chat.open_direct(bot, alice.id).await.unwrap();
+        let group: uuid::Uuid = sqlx::query_scalar(
+            "INSERT INTO chat_conversations (kind, name, created_by, member_count) VALUES (2, 'bots', $1, 2) RETURNING id",
+        )
+        .bind(alice.id)
+        .fetch_one(&app.core.db)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO chat_members (conversation_id, user_id) VALUES ($1, $2), ($1, $3)")
+            .bind(group)
+            .bind(bot)
+            .bind(alice.id)
+            .execute(&app.core.db)
+            .await
+            .unwrap();
+
+        // The hand-over's event reaches the developer platform's consumer.
+        let event = tokuly_core::events::Event {
+            id: uuid::Uuid::now_v7(),
+            topic: "dev.bot.transferred".into(),
+            actor_id: Some(rita.id),
+            occurred_at: chrono::Utc::now(),
+            data: serde_json::json!({ "bot_id": bot, "from_id": owen.id, "to_id": rita.id }),
+        };
+        domains.dev.on_account_event(&event).await.expect("queued");
+
+        // Chat's job worker, as worker processes run it.
+        let stop = app.core.shutdown.child_token();
+        let (chat, jobs, cancel) = (domains.chat.clone(), app.core.jobs.clone(), stop.clone());
+        let worker = tokio::spawn(async move {
+            let options = tokuly_core::jobs::JobOptions { concurrency: 1, lease: Duration::from_secs(30), max_deliver: 3 };
+            jobs.run(tokuly_chat::JOB_NOTICES, options, cancel, move |batch: tokuly_chat::NoticeBatch| {
+                let chat = chat.clone();
+                async move { chat.post_notice_batch(batch).await }
+            })
+            .await;
+        });
+        let notices = |conversation: uuid::Uuid| {
+            let db = app.core.db.clone();
+            async move {
+                sqlx::query_scalar::<_, String>(
+                    "SELECT system->'notice'->>'ja' FROM chat_messages
+                     WHERE conversation_id = $1 AND sender_id IS NULL AND system->>'type' = '11'",
+                )
+                .bind(conversation)
+                .fetch_all(&db)
+                .await
+                .unwrap()
+            }
+        };
+        let started = std::time::Instant::now();
+        while notices(direct).await.is_empty() && started.elapsed() < Duration::from_secs(15) {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        // Delivered again: nothing new.
+        domains.dev.on_account_event(&event).await.expect("queued again");
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        stop.cancel();
+        let _ = worker.await;
+        assert_eq!(notices(direct).await, vec!["このボットの持ち主が変わったよ".to_owned()]);
+        assert!(notices(group).await.is_empty(), "groups are not told");
+    }
+
     /// A latitude offset per run (Valkey is shared with other test runs).
     fn rand_offset(id: uuid::Uuid) -> f64 {
         (id.as_u128() % 10_000) as f64 / 100_000.0

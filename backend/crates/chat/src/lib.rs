@@ -8,6 +8,9 @@
 //!   users for a flow the server itself starts (no privacy checks, no
 //!   message request).
 //! - [`Chat::post_text`] — post a text message as a member.
+//! - [`Chat::post_notice`] — post a notice from the server into a
+//!   conversation (no sender; see [`server_notices`]), and
+//!   [`direct_conversations_of`] a user.
 //! - [`events`] — the payloads of the `chat.*` domain events.
 //!
 //! # Map of the crate
@@ -26,6 +29,7 @@
 //! | [`calls`], [`livekit`] | calls and the LiveKit access tokens / API |
 //! | [`assist`] | the AI assistant (Anthropic Messages API) |
 //! | [`push`], [`notices`] | realtime pushes; notification requests and their wording |
+//! | [`server_notices`] | notices other domains post into conversations |
 //! | [`cleanup`], [`subjects`], [`workers`] | other domains' events; subject resolver and data export; background work |
 //! | `*_svc` | the five Connect services: thin handlers over the modules above |
 use std::{ops::Deref, sync::Arc};
@@ -56,6 +60,7 @@ mod push;
 mod reactions;
 mod render;
 mod send;
+mod server_notices;
 mod signals;
 mod state;
 mod subjects;
@@ -65,6 +70,7 @@ pub use calls::{CONNECT_GRACE_SECONDS, MAX_RINGING_GROUP_MEMBERS};
 pub use config::ChatConfig;
 pub use conversations::direct_members;
 pub use send::{JOB_LINK_PREVIEW, LinkPreviewJob};
+pub use server_notices::{JOB_NOTICES, NOTICE_BATCH, NOTICES_PER_CONVERSATION_PER_DAY, NoticeBatch, direct_conversations_of};
 pub use subjects::hold_message_media;
 pub use signals::PRESENCE_TTL_SECONDS;
 

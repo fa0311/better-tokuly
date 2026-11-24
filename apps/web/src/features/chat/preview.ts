@@ -24,6 +24,12 @@ function namesOf(users: common.UserSummary[], myId: string): string {
   });
 }
 
+/** A notice from the server, in the language the app is shown in (or whichever it has). */
+function noticeText(text: common.LocalizedText | undefined): string {
+  if (!text) return "";
+  return (i18n.language.startsWith("ja") ? text.ja : text.en) || text.ja || text.en;
+}
+
 /** The sentence of a system message ("Aoi added Ren"). */
 export function systemText(event: chat.SystemEvent | undefined, myId: string): string {
   if (!event) return "";
@@ -52,6 +58,8 @@ export function systemText(event: chat.SystemEvent | undefined, myId: string): s
       return t("system.adminRemoved", { actor, targets });
     case chat.SystemEventType.MESSAGE_PINNED:
       return t("system.pinned", { actor });
+    case chat.SystemEventType.NOTICE:
+      return noticeText(event.notice);
     default:
       return "";
   }

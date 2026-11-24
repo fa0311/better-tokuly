@@ -20,6 +20,24 @@ Chat::open_direct(&self, a: Uuid, b: Uuid) -> AppResult<Uuid>            // conv
 // MESSAGE_EMPTY, TEXT_TOO_LONG, CONVERSATION_READ_ONLY (block, deleted account).
 Chat::post_text(&self, conversation_id: Uuid, sender: Uuid, text: &str) -> AppResult<Uuid>   // message ID
 
+// Post a notice from the server into a conversation: a system message
+// (SYSTEM_EVENT_TYPE_NOTICE, the text in `SystemEvent.notice`) with no
+// sender. It moves no unread counter, brings no hidden conversation back,
+// requests no notification and cannot be reported or reacted to; it is
+// pushed as `message_created`. Posted once per `key` (stored as the
+// message's `client_id`, checked under the conversation lock), and at most
+// NOTICES_PER_CONVERSATION_PER_DAY (5) a day per conversation. Returns
+// false when it was there already or dropped by that limit. Fails with
+// CONVERSATION_NOT_FOUND, NOTICE_KEY_INVALID (empty, > 100 characters),
+// NOTICE_INVALID (no Japanese text, > 300 characters per language).
+// The rate limit is counted under the conversation lock, after the key was
+// found new. Used by the developer platform when a bot changes hands.
+Chat::post_notice(&self, conversation_id: Uuid, key: &str, notice: Localized) -> AppResult<bool>
+// The same for many conversations, queued as jobs `chat.notices` of 50
+// conversations each and posted in the background (returns at once).
+Chat::queue_notices(&self, conversation_ids: &[Uuid], key: &str, notice: &Localized) -> AppResult<()>
+tokuly_chat::direct_conversations_of(core, user_id) -> AppResult<Vec<Uuid>>    // where they are a member, any state
+
 // The two people of a direct conversation (still members or not); None for
 // groups and unknown conversations. `chat.message.created` names the
 // conversation, not the recipient: this is how a consumer learns who a
@@ -121,6 +139,7 @@ other user (the notify domain applies per-person mutes). Path `/chat/<conversati
 | event consumer `chat` | — | See "Events consumed". |
 | typing / co-presence fan-out | — | See "Bus subjects". |
 | job `chat.link_preview` (`LinkPreviewJob { message_id }`) | — | Fetches the preview of a message's first link through `tokuly_media::link_preview` (at most 30 per sender and minute; more links simply get none), stores it and pushes `message_updated` (`LINK_PREVIEW`). Queued when a message with a link is sent or edited. 8 in parallel, 3 attempts. |
+| job `chat.notices` (`NoticeBatch { conversation_ids, key, notice }`) | — | Posts a notice of `Chat::queue_notices` into up to 50 conversations (`Chat::post_notice` each; conversations that are gone are skipped, a retry posts only what is missing). 4 in parallel, 5 attempts. |
 | co-presence sweep | 10 s | Announces members whose presence ran out without a goodbye. |
 | call ringing time-out | 5 s | After `TOKULY_CHAT_RING_SECONDS`: an unanswered direct call ends as `MISSED`; in a group the members who did not answer are marked missed (and notified) while the call stays open. |
 | call reconciliation | 30 s | Lists the participants of each live call's LiveKit room (calls older than a minute); someone marked as joined but not connected 60 s after joining (`CONNECT_GRACE_SECONDS`) has left, which may end the call, a participant still marked as joined who is no longer an accepted member has left, and anyone connected who is not a joined participant (hung up, removed from the group, back with an old token) is put out of the room. Skipped while LiveKit is unreachable. LiveKit webhooks are not used. |
@@ -143,7 +162,7 @@ links of private files are renewed on every read.
 
 | Subject type | Resolves when | Owner | Notes |
 |---|---|---|---|
-| `SUBJECT_TYPE_CHAT_MESSAGE` | the viewer is a member of the conversation and can see the message (not from before they joined or cleared their history; not declined) and it is not deleted. **For a report** (`resolve_for_report`) a message its sender (or a group manager) deleted still resolves for 30 days after the deletion | the sender (nil UUID for system messages) | For reports only (`interactions_enabled` is false). Path `/chat/<conversation>?message=<id>`; title is the current text (or a description of the content). For a report of a message that was edited or deleted: `[N版] <v1> → <v2> → … → <current or last text>`, each version cut to 80 characters. Anonymous viewers and non-members never resolve it. |
+| `SUBJECT_TYPE_CHAT_MESSAGE` | the viewer is a member of the conversation and can see the message (not from before they joined or cleared their history; not declined) and it is not deleted. **For a report** (`resolve_for_report`) a message its sender (or a group manager) deleted still resolves for 30 days after the deletion | the sender (nil UUID for system messages; a notice from `Chat::post_notice` does not resolve at all: nobody is behind it) | For reports only (`interactions_enabled` is false). Path `/chat/<conversation>?message=<id>`; title is the current text (or a description of the content). For a report of a message that was edited or deleted: `[N版] <v1> → <v2> → … → <current or last text>`, each version cut to 80 characters. Anonymous viewers and non-members never resolve it. |
 
 Unsending or editing must not take away the recipients' way to report what
 they received. So the text a message had before each edit (the first 20
@@ -246,6 +265,7 @@ translation cache, or when there is nothing to reply to. Transient failures
 | `chat-react:<user>` | 120 / minute |
 | `chat-search:<user>` | 60 / minute |
 | `chat-pov:<user>` | 30 / hour |
+| `chat-notice:<conversation>` | 5 / day (`Chat::post_notice`; silently dropped beyond) |
 | `chat-call:<user>` | 20 / 10 minutes |
 | `chat-join:<user>` | 60 / 10 minutes (`JoinCall`) |
 | `chat-ai:<user>` | `TOKULY_AI_HOURLY_LIMIT` / hour |

@@ -15,7 +15,8 @@ use serde::Serialize;
 use sha2::{Digest as _, Sha256};
 use sqlx::PgConnection;
 use tokuly_core::{AppError, AppResult, events::Event};
-use tokuly_dev::{Dev, DevConfig, ImageStore};
+use tokuly_core::outbound::Localized;
+use tokuly_dev::{ConversationNotices, Dev, DevConfig, ImageStore};
 use tokuly_proto::dev::*;
 use tokuly_testkit::{TestApp, TestUser};
 use tower::ServiceExt as _;
@@ -36,6 +37,7 @@ pub struct Ctx {
     pub app: TestApp,
     pub dev: Dev,
     pub images: Arc<FakeImages>,
+    pub notices: Arc<FakeNotices>,
     http: axum::Router,
     ip: IpAddr,
 }
@@ -64,13 +66,15 @@ pub async fn start_with(cfg: DevConfig) -> Ctx {
     let dev = holder.expect("register ran");
     let images = Arc::new(FakeImages::default());
     dev.set_images(images.clone());
+    let notices = Arc::new(FakeNotices::default());
+    dev.set_conversation_notices(notices.clone());
     let http = dev
         .http_routes()
         .layer(axum::middleware::from_fn_with_state(app.core.auth_layer.clone(), tokuly_core::auth::auth_middleware));
     // An address of its own per app, so per-address limits never collide across tests.
     let bytes = Uuid::new_v4().into_bytes();
     let ip = IpAddr::from([10, bytes[0], bytes[1], bytes[2].max(1)]);
-    Ctx { app, dev, images, http, ip }
+    Ctx { app, dev, images, notices, http, ip }
 }
 
 /// The same person, calling with an API token instead of their session.
@@ -371,6 +375,23 @@ impl ImageStore for FakeImages {
 
     async fn release(&self, _tx: &mut PgConnection, holder: &str) -> AppResult<()> {
         self.holds.lock().remove(holder);
+        Ok(())
+    }
+}
+
+// ───────────────────────────── conversation notices ─────────────────────────────
+
+/// Stands in for the chat domain: remembers the notices it was asked to post
+/// as `(account, key, notice)`.
+#[derive(Default)]
+pub struct FakeNotices {
+    pub posted: parking_lot::Mutex<Vec<(Uuid, String, Localized)>>,
+}
+
+#[async_trait]
+impl ConversationNotices for FakeNotices {
+    async fn post_to_direct_conversations(&self, account: Uuid, key: &str, notice: Localized) -> AppResult<()> {
+        self.posted.lock().push((account, key.to_owned(), notice));
         Ok(())
     }
 }

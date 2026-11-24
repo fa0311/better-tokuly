@@ -5,15 +5,17 @@
 //! until when (`user_suspensions`), writes the moderation and audit logs, and
 //! lifts timed suspensions when they run out.
 //!
-//! Identity commits `set_banned` in its own transaction, so a suspension is
-//! applied in this order: take the per-account sanction lock, call identity,
-//! then record our rows. If recording fails the account is locked without a
-//! record, which a retry of the same request repairs (`set_banned` is
-//! idempotent). The opposite order could leave a record claiming a suspension
-//! that never took effect.
+//! The account lock is written on this domain's transaction
+//! (`tokuly_identity::moderation::set_banned_on`), together with the
+//! suspension record and the logs: either all of it commits or none of it,
+//! and the transaction never waits for a second connection while it holds
+//! the sanction lock. Signing the account out follows the commit
+//! ([`Admin::after_suspension`]), and identity repeats it from the
+//! `identity.user.banned` event until it has happened.
 use chrono::{DateTime, Utc};
 use sqlx::PgConnection;
 use tokuly_core::{outbound, prelude::*};
+use tokuly_identity::moderation::set_banned_on;
 use tokuly_proto::admin::ModerationActionKind;
 
 use crate::{
@@ -158,9 +160,8 @@ impl Admin {
     }
 
     /// Suspends an account until `expires_at`, or bans it when `None`, inside
-    /// the caller's transaction. An existing suspension is replaced. The
-    /// caller holds [`Admin::identity_slot`] from before it opened the
-    /// transaction. Call [`Self::mail_suspension`] once it has committed.
+    /// the caller's transaction. An existing suspension is replaced. Call
+    /// [`Self::after_suspension`] once it has committed.
     pub(crate) async fn suspend(
         &self,
         conn: &mut PgConnection,
@@ -173,7 +174,7 @@ impl Admin {
             guard_staff_sanction(conn, staff, target).await?;
         }
         lock_sanctions(conn, target.id).await?;
-        self.identity.set_banned(target.id, Some(sanction.reason)).await?;
+        set_banned_on(conn, target.id, Some(sanction.reason)).await?;
 
         let replaced: Option<Uuid> = sqlx::query_scalar(
             "UPDATE user_suspensions SET ended_at = now(), end_cause = $2, ended_by = $3 WHERE user_id = $1 AND ended_at IS NULL RETURNING id",
@@ -217,13 +218,12 @@ impl Admin {
 
     /// Lifts an account's suspension or ban on a staff member's request.
     pub(crate) async fn lift_suspension(&self, staff: &Staff, target: &Target, note: &str) -> AppResult<()> {
-        let slot = self.identity_slot().await?;
         let mut tx = self.core.db.begin().await?;
         lock_sanctions(&mut tx, target.id).await?;
         // Re-read under the lock: the expiry worker may have lifted it already.
         let banned: bool = sqlx::query_scalar("SELECT banned_at IS NOT NULL FROM users WHERE id = $1").bind(target.id).fetch_one(&mut *tx).await?;
         ensure!(banned, precondition, "USER_NOT_SUSPENDED", "this account is not suspended");
-        self.identity.set_banned(target.id, None).await?;
+        set_banned_on(&mut tx, target.id, None).await?;
         let ended: Option<Uuid> = sqlx::query_scalar(
             "UPDATE user_suspensions SET ended_at = now(), end_cause = $2, ended_by = $3 WHERE user_id = $1 AND ended_at IS NULL RETURNING id",
         )
@@ -241,7 +241,6 @@ impl Admin {
             .record(&mut *tx)
             .await?;
         tx.commit().await?;
-        drop(slot);
         self.send_mail(target.email.clone(), notices::suspension_lifted_mail(&target.locale));
         Ok(())
     }
@@ -269,7 +268,6 @@ impl Admin {
 
     /// Lifts one expired suspension unless it ended or was replaced meanwhile.
     async fn expire_suspension(&self, suspension_id: Uuid, user_id: Uuid) -> AppResult<bool> {
-        let slot = self.identity_slot().await?;
         let mut tx = self.core.db.begin().await?;
         lock_sanctions(&mut tx, user_id).await?;
         let still_due: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM user_suspensions WHERE id = $1 AND ended_at IS NULL AND expires_at <= now())")
@@ -279,7 +277,7 @@ impl Admin {
         if !still_due {
             return Ok(false);
         }
-        match self.identity.set_banned(user_id, None).await {
+        match set_banned_on(&mut tx, user_id, None).await {
             Ok(()) => {}
             // The account was deleted while suspended: nothing left to unlock.
             Err(e) if e.is_not_found() => {}
@@ -302,7 +300,6 @@ impl Admin {
             .record(&mut *tx)
             .await?;
         tx.commit().await?;
-        drop(slot);
         if let Ok(target) = self.target(user_id).await {
             self.send_mail(target.email, notices::suspension_lifted_mail(&target.locale));
         }
@@ -311,7 +308,15 @@ impl Admin {
 
     /// Tells a user by email that their account was suspended. Call after
     /// the suspension has committed.
-    pub(crate) fn mail_suspension(&self, target: &Target, reason: &str, expires_at: Option<DateTime<Utc>>) {
+    /// What follows a suspension once its transaction has committed: the
+    /// account is signed out everywhere, and its owner gets the mail.
+    pub(crate) async fn after_suspension(&self, target: &Target, reason: &str, expires_at: Option<DateTime<Utc>>) {
+        // At once, as a rule. Should it fail, identity's own consumer of
+        // `identity.user.banned` (committed with the suspension) signs the
+        // account out when the event arrives.
+        if let Err(e) = self.identity.revoke_all_sessions(target.id, None).await {
+            tracing::warn!(user_id = %target.id, error = %e, "signing a suspended account out failed");
+        }
         self.send_mail(target.email.clone(), notices::suspension_mail(&target.locale, &target.time_zone, reason, expires_at));
     }
 
