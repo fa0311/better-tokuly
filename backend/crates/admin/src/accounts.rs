@@ -4,6 +4,8 @@
 //! `sessions` tables: staff need to list and search every account, including
 //! suspended and deleted ones, which identity's public lookups hide. It is
 //! read-only; every change goes through `tokuly_identity::Identity`.
+use std::collections::HashSet;
+
 use chrono::{DateTime, Utc};
 use sqlx::{Postgres, QueryBuilder};
 use tokuly_core::prelude::*;
@@ -174,10 +176,14 @@ impl Admin {
     pub(crate) async fn accounts_to_proto(&self, rows: &[AdminUserRow]) -> AppResult<Vec<AdminUser>> {
         let ids: Vec<Uuid> = rows.iter().flat_map(|r| [Some(r.id), r.suspension_moderator_id]).flatten().collect();
         let people = tokuly_identity::summaries(&self.core, &ids).await?;
+        let hidden = self.hidden_suspension_cases(rows).await?;
         Ok(rows
             .iter()
             .map(|row| {
                 let state = row.state();
+                // A suspension imposed for an anonymous post does not say which
+                // post: that would name its author. It reads like a direct one.
+                let secret = row.suspension_case_id.is_some_and(|case_id| hidden.contains(&case_id));
                 // An account locked outside the console has no suspension row;
                 // identity's own columns still say when and why.
                 let suspension = (state == AccountState::ACCOUNT_STATE_SUSPENDED).then(|| Suspension {
@@ -187,7 +193,7 @@ impl Admin {
                     started_at: opt_ts(row.suspension_started_at.or(row.banned_at)),
                     expires_at: opt_ts(row.suspension_expires_at),
                     permanent: row.suspension_expires_at.is_none(),
-                    case_id: row.suspension_case_id.map(|id| id.to_string()).unwrap_or_default(),
+                    case_id: row.suspension_case_id.filter(|_| !secret).map(|id| id.to_string()).unwrap_or_default(),
                     ..Default::default()
                 });
                 AdminUser {
@@ -213,6 +219,18 @@ impl Admin {
     pub(crate) async fn admin_user(&self, user_id: Uuid) -> AppResult<AdminUser> {
         let row = self.account(user_id).await?;
         Ok(self.accounts_to_proto(std::slice::from_ref(&row)).await?.remove(0))
+    }
+
+    /// The cases behind these accounts' suspensions that are about an
+    /// anonymous post.
+    async fn hidden_suspension_cases(&self, rows: &[AdminUserRow]) -> AppResult<HashSet<Uuid>> {
+        let case_ids: Vec<Uuid> = rows.iter().filter_map(|row| row.suspension_case_id).collect();
+        if case_ids.is_empty() {
+            return Ok(HashSet::new());
+        }
+        let hidden: Vec<Uuid> =
+            sqlx::query_scalar("SELECT id FROM moderation_cases WHERE id = ANY($1) AND owner_hidden").bind(&case_ids).fetch_all(&self.core.db).await?;
+        Ok(hidden.into_iter().collect())
     }
 }
 

@@ -836,6 +836,62 @@ test.describe("moderation", () => {
       ).length,
     ).toBeGreaterThan(0);
   });
+
+  test("a moderator opening a case about themselves is told so, without reports or notes", async ({
+    page,
+    request,
+  }) => {
+    const admin = await adminAccount(request);
+    const account = await createAccount(request, "selfmod");
+    await rpc(
+      request,
+      `${USERS}/SetUserRoles`,
+      { userId: account.userId, roles: ["moderator"], note: "e2e" },
+      admin,
+    );
+    const moderator = await refreshAccount(request, account);
+    const reporter = await createAccount(request, "selfrep");
+    const text = `e2e: このモデレーターに絡まれた ${tag()}`;
+    try {
+      await rpc(
+        request,
+        "tokuly.engagement.v1.ReportService/CreateReport",
+        {
+          subject: { type: "SUBJECT_TYPE_USER", id: moderator.userId },
+          category: "REPORT_CATEGORY_HARASSMENT",
+          text,
+        },
+        reporter,
+      );
+    } catch (error) {
+      test.skip(
+        error instanceof RpcError && error.status === 404,
+        "the engagement domain (reports) is not served by this stack yet",
+      );
+      throw error;
+    }
+    let caseId = "";
+    await expect(async () => {
+      const queue = await rpc<{ cases?: { id: string }[] }>(
+        request,
+        `${MODERATION}/ListCases`,
+        { ownerId: moderator.userId },
+        admin,
+      );
+      caseId = queue.cases?.[0]?.id ?? "";
+      expect(caseId).not.toBe("");
+    }).toPass({ timeout: 20_000 });
+
+    await signInAs(page, moderator);
+    await page.goto(`/admin/moderation/${caseId}`);
+    await expect(page.getByTestId("case-conflict")).toContainText("あなた自身");
+    await expect(page.getByTestId("resolve-conflict")).toContainText("あなたについてのケース");
+    await expect(page.getByRole("region", { name: /^通報/ })).toHaveCount(0);
+    await expect(page.getByRole("region", { name: "メモ" })).toHaveCount(0);
+    await expect(page.getByRole("region", { name: "担当", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("main")).not.toContainText(text);
+    await expect(page.getByRole("main")).not.toContainText(`@${reporter.handle}`);
+  });
 });
 
 test.describe("audit log", () => {

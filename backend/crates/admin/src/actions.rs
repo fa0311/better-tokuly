@@ -41,7 +41,9 @@ pub(crate) struct ActionRow {
 pub(crate) enum Shown {
     /// Everything, the sanctioned account included.
     All,
-    /// The entry without the account it was taken against.
+    /// The entry without the account it was taken against, and without
+    /// anything that could be matched against that account's own record:
+    /// no expiry, no reason or note, only the day.
     WithoutTarget,
 }
 
@@ -56,6 +58,8 @@ impl ActionRow {
             (Some(subject_type), Some(id)) => Some(SubjectRef { r#type: subject_type.into(), id: id.to_string(), ..Default::default() }),
             _ => None,
         };
+        let opaque = shown == Shown::WithoutTarget;
+        let text = |text: &str| if opaque { String::new() } else { text.to_owned() };
         ModerationAction {
             id: self.id.to_string(),
             kind: self.kind.into(),
@@ -65,10 +69,10 @@ impl ActionRow {
             subject: subject.into(),
             subject_title: self.subject_title.clone(),
             case_id: self.case_id.map(|id| id.to_string()).unwrap_or_default(),
-            reason: self.reason.clone(),
-            note: self.note.clone(),
-            expires_at: opt_ts(self.expires_at),
-            created_at: ts(self.created_at),
+            reason: text(&self.reason),
+            note: text(&self.note),
+            expires_at: opt_ts(self.expires_at.filter(|_| !opaque)),
+            created_at: ts(if opaque { crate::day_of(self.created_at) } else { self.created_at }),
             ..Default::default()
         }
     }
@@ -212,38 +216,37 @@ impl Admin {
         Ok(self.actions_to_proto(std::slice::from_ref(row)).await?.remove(0))
     }
 
-    /// Log entries as `staff` may read them. An entry about anonymous
-    /// content names the sanctioned author only to a moderator who is not
-    /// involved in that content. To one who is, it comes without the target
-    /// — and in the history of one account (`about` is that account), where
-    /// the target is known anyway, it does not come at all: there the entry
-    /// itself would say whose post it was.
-    pub(crate) async fn actions_for(&self, staff: &Staff, rows: &[ActionRow], about: Option<Uuid>) -> AppResult<Vec<ModerationAction>> {
-        // One question per piece of content, however many entries are about it.
-        let mut involved: HashMap<(i32, Uuid), bool> = HashMap::new();
-        let mut kept = Vec::with_capacity(rows.len());
-        let mut shown = Vec::with_capacity(rows.len());
-        for row in rows {
-            let withheld = match (row.target_hidden, row.subject_type, row.subject_id) {
-                (false, _, _) => false,
-                (true, Some(subject_type), Some(subject_id)) => match involved.get(&(subject_type, subject_id)) {
-                    Some(involved) => *involved,
-                    None => {
-                        let answer = self.is_party_to_hidden(staff.id, subject_type, subject_id).await?;
-                        involved.insert((subject_type, subject_id), answer);
-                        answer
-                    }
-                },
-                // Nothing says what it was about: nobody can be cleared.
-                (true, _, _) => true,
-            };
-            if withheld && about.is_some() {
-                continue;
+    /// Log entries as a list or a history shows them. An entry about
+    /// anonymous content never names the account it hit, to anyone:
+    /// `GetCase` is the one place a hidden author is named (counted and on
+    /// record, `owners.rs`). In the history of one account (`about` is that
+    /// account) such an entry does not come at all: there the entry itself
+    /// would say whose post it was.
+    pub(crate) async fn actions_listed(&self, staff: &Staff, rows: &[ActionRow], about: Option<Uuid>) -> AppResult<Vec<ModerationAction>> {
+        let kept: Vec<ActionRow> = rows.iter().filter(|row| !(row.target_hidden && about.is_some())).cloned().collect();
+        let mut actions = self.actions_to_proto(&kept).await?;
+        Self::without_notes_about(staff, &kept, &mut actions);
+        Ok(actions)
+    }
+
+    /// The log entries of one case in `GetCase`: an anonymous post's author
+    /// is named only when the case view named them (`revealed`).
+    pub(crate) async fn case_actions(&self, staff: &Staff, rows: &[ActionRow], revealed: bool) -> AppResult<Vec<ModerationAction>> {
+        let shown: Vec<Shown> = rows.iter().map(|row| if row.target_hidden && !revealed { Shown::WithoutTarget } else { Shown::All }).collect();
+        let mut actions = self.actions_shown(rows, &shown).await?;
+        Self::without_notes_about(staff, rows, &mut actions);
+        Ok(actions)
+    }
+
+    /// Internal notes are about the account an action hit, written for
+    /// other staff: a staff member reads the reason of what was done to
+    /// them, not what colleagues noted about it.
+    fn without_notes_about(staff: &Staff, rows: &[ActionRow], actions: &mut [ModerationAction]) {
+        for (row, action) in rows.iter().zip(actions.iter_mut()) {
+            if row.target_user_id == Some(staff.id) {
+                action.note.clear();
             }
-            kept.push(row.clone());
-            shown.push(if withheld { Shown::WithoutTarget } else { Shown::All });
         }
-        self.actions_shown(&kept, &shown).await
     }
 
     async fn actions_shown(&self, rows: &[ActionRow], shown: &[Shown]) -> AppResult<Vec<ModerationAction>> {

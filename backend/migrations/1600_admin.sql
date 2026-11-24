@@ -35,6 +35,9 @@ CREATE TABLE moderation_cases (
     resolution_reason text        NOT NULL DEFAULT '',
     resolved_by       uuid REFERENCES users (id) ON DELETE SET NULL,
     resolved_at       timestamptz,
+    -- The uploads of the subject are held for the case (media holder
+    -- `admin:case:<id>`) until TOKULY_MODERATION_EVIDENCE_DAYS after it is resolved.
+    evidence_held     boolean     NOT NULL DEFAULT false,
     attrs             jsonb       NOT NULL DEFAULT '{}',
     created_at        timestamptz NOT NULL DEFAULT now(),
     updated_at        timestamptz NOT NULL DEFAULT now()
@@ -47,6 +50,7 @@ CREATE INDEX moderation_cases_oldest ON moderation_cases (status, created_at, id
 CREATE INDEX moderation_cases_most_reported ON moderation_cases (status, report_count DESC, id DESC);
 CREATE INDEX moderation_cases_owner ON moderation_cases (subject_owner_id, id DESC) WHERE subject_owner_id IS NOT NULL;
 CREATE INDEX moderation_cases_assignee ON moderation_cases (assignee_id) WHERE assignee_id IS NOT NULL AND status = 'open';
+CREATE INDEX moderation_cases_evidence_due ON moderation_cases (resolved_at) WHERE evidence_held AND status = 'resolved';
 
 CREATE TRIGGER moderation_cases_updated_at
     BEFORE UPDATE ON moderation_cases
@@ -189,6 +193,12 @@ CREATE TABLE admin_audit_log (
     target_id      text        NOT NULL DEFAULT '',
     -- The account affected, when there is one.
     target_user_id uuid REFERENCES users (id) ON DELETE SET NULL,
+    -- The entry is about content that hides its author (see
+    -- moderation_cases.owner_hidden), named here: the account above is that
+    -- author, and is not shown to an admin who is involved in the content.
+    target_hidden  boolean     NOT NULL DEFAULT false,
+    subject_type   integer,
+    subject_id     uuid,
     reason         text        NOT NULL DEFAULT '',
     before         jsonb,
     after          jsonb,

@@ -42,5 +42,7 @@ hex.workspace = true
 # API packages only the tests name.
 tokuly-proto = { workspace = true, features = ["social", "stamp"] }
 tokuly-testkit.workspace = true
+# The moderation queue holding a reported message's uploads (tests/evidence.rs).
+tokuly-admin.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 axum.workspace = true
