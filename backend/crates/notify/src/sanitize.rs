@@ -46,7 +46,8 @@ pub fn sanitize(mut request: NotificationRequest) -> Option<NotificationRequest>
     }
     request.image_url = request.image_url.filter(|url| {
         let web = url.starts_with("https://") || url.starts_with("http://") || is_app_path(url);
-        web && url.len() <= MAX_IMAGE_URL_LEN
+        // Browsers drop tabs and newlines from URLs: `/\t/evil` is `//evil`.
+        web && url.len() <= MAX_IMAGE_URL_LEN && !url.chars().any(char::is_control)
     });
     request.collapse_key = request
         .collapse_key
@@ -164,7 +165,7 @@ mod tests {
     fn protocol_relative_paths_and_images_do_not_leave_the_app() {
         // `//host` and `/\host` start with a slash but are another site to a
         // browser: a tap would open it, an image would be fetched from it.
-        for path in ["//evil.example/login", "/\\evil.example/login"] {
+        for path in ["//evil.example/login", "/\\evil.example/login", "/\t/evil.example/login", "/\n/evil.example"] {
             let mut raw = request();
             raw.path = path.into();
             raw.image_url = Some(path.into());
