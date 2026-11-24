@@ -29,6 +29,12 @@ Emits:
 | `identity.user.banned` / `identity.user.unbanned` | `{ user_id }` |
 | `identity.export.ready` | `{ user_id, export_id }` |
 
+Consumes (durable `identity-sessions`):
+
+| Topic | Effect |
+|---|---|
+| `identity.user.banned` | Its own event: every session the account had when it was banned is revoked and its access tokens refused at once (`Identity::sign_out_banned`). Whoever banned signs the account out right after the commit too; this makes it at least once. A redelivery repeats the cache revocation of sessions revoked shortly before the ban and leaves sessions made after the ban alone. |
+
 ## wallet (ledger)
 
 Emits:

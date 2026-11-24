@@ -8,7 +8,12 @@
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tokuly_core::{events, jobs::JobOptions, prelude::*, storage::Bucket};
+use tokuly_core::{
+    events::{self, ConsumeOptions, Event},
+    jobs::JobOptions,
+    prelude::*,
+    storage::Bucket,
+};
 
 use crate::Identity;
 
@@ -31,10 +36,36 @@ pub struct ExportJob {
     pub user_id: Uuid,
 }
 
+/// Topics identity's own consumer follows.
+pub const ACCOUNT_TOPICS: &[&str] = &["identity.user.banned"];
+
 impl Identity {
-    /// Starts the identity workers: the data-export job and the periodic
-    /// purge of accounts whose deletion grace period ran out.
+    /// Handles one of [`ACCOUNT_TOPICS`]; the same result when an event
+    /// arrives twice or late.
+    pub async fn on_account_event(&self, event: &Event) -> AppResult<()> {
+        match event.topic.as_str() {
+            "identity.user.banned" => {
+                self.sign_out_banned(event.data::<UserRef>()?.user_id, event.occurred_at).await?;
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Starts the identity workers: the data-export job, the consumer that
+    /// signs banned accounts out ([`Identity::on_account_event`]) and the
+    /// periodic purge of accounts whose deletion grace period ran out.
     pub fn spawn_workers(&self) {
+        let identity = self.clone();
+        let (bus, cancel) = (self.core.bus.clone(), self.core.shutdown.clone());
+        tokio::spawn(async move {
+            events::consume(bus, "identity-sessions", ACCOUNT_TOPICS, ConsumeOptions::default(), cancel, move |event| {
+                let identity = identity.clone();
+                async move { identity.on_account_event(&event).await }
+            })
+            .await;
+        });
+
         let identity = self.clone();
         tokio::spawn(async move {
             let handler_identity = identity.clone();

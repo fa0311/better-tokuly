@@ -1206,3 +1206,55 @@ async fn nearby_discovery_starts_off_for_an_account_signed_up_under_18() {
     assert!(nearby(born(18)).await, "18: on, the default");
     assert!(nearby(born(30)).await);
 }
+
+#[tokio::test]
+async fn a_ban_signs_the_account_out_even_when_the_banner_could_not() {
+    let mut domain = None;
+    let app = TestApp::start(MIGRATIONS, |_core, identity, router| {
+        domain = Some(identity.clone());
+        identity.register(router)
+    })
+    .await;
+    let identity = domain.expect("register ran");
+    let user = app.user("banned").await;
+    me(&app, &user).await;
+
+    // Banned on another domain's transaction, which then failed to sign the
+    // account out (it is meant to right after the commit).
+    let mut tx = app.core.db.begin().await.unwrap();
+    tokuly_identity::moderation::set_banned_on(&mut tx, user.id, Some("spam")).await.unwrap();
+    tx.commit().await.unwrap();
+    me(&app, &user).await;
+
+    // The ban's event signs it out, and delivering it again changes nothing.
+    let banned = app.events("identity.user.banned").await;
+    let event = banned.iter().find(|event| event.data["user_id"] == user.id.to_string()).expect("the ban's event");
+    identity.on_account_event(event).await.unwrap();
+    identity.on_account_event(event).await.unwrap();
+    let err = app.call::<_, GetMeResponse>("tokuly.identity.v1.AccountService/GetMe", Some(&user), &GetMeRequest::default()).await.unwrap_err();
+    assert_eq!(err.reason, "SESSION_REVOKED");
+    let live: i64 = sqlx::query_scalar("SELECT count(*) FROM sessions WHERE user_id = $1 AND revoked_at IS NULL")
+        .bind(user.id)
+        .fetch_one(&app.core.db)
+        .await
+        .unwrap();
+    assert_eq!(live, 0);
+
+    // A session made after the ban was lifted is not touched by a late copy.
+    identity.set_banned(user.id, None).await.unwrap();
+    sqlx::query(
+        "INSERT INTO sessions (user_id, refresh_hash, refresh_sealed, expires_at)
+         VALUES ($1, md5(random()::text), '\\x00', now() + interval '1 day')",
+    )
+    .bind(user.id)
+    .execute(&app.core.db)
+    .await
+    .unwrap();
+    identity.on_account_event(event).await.unwrap();
+    let live: i64 = sqlx::query_scalar("SELECT count(*) FROM sessions WHERE user_id = $1 AND revoked_at IS NULL")
+        .bind(user.id)
+        .fetch_one(&app.core.db)
+        .await
+        .unwrap();
+    assert_eq!(live, 1);
+}

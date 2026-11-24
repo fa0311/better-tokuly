@@ -120,7 +120,8 @@ Everything a resolution does (case update, events, notifications, both logs)
 commits in one transaction, and so does a suspension's account lock
 (`tokuly_identity::moderation::set_banned_on`, on admin's transaction):
 nothing in it asks the pool for a second connection. The account is signed
-out once that transaction has committed.
+out once that transaction has committed; should that fail, identity's own
+consumer of `identity.user.banned` signs it out when the event arrives.
 
 ## Events emitted
 

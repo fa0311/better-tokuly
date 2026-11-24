@@ -10,7 +10,8 @@
 //! suspension record and the logs: either all of it commits or none of it,
 //! and the transaction never waits for a second connection while it holds
 //! the sanction lock. Signing the account out follows the commit
-//! ([`Admin::after_suspension`]).
+//! ([`Admin::after_suspension`]), and identity repeats it from the
+//! `identity.user.banned` event until it has happened.
 use chrono::{DateTime, Utc};
 use sqlx::PgConnection;
 use tokuly_core::{outbound, prelude::*};
@@ -310,8 +311,9 @@ impl Admin {
     /// What follows a suspension once its transaction has committed: the
     /// account is signed out everywhere, and its owner gets the mail.
     pub(crate) async fn after_suspension(&self, target: &Target, reason: &str, expires_at: Option<DateTime<Utc>>) {
-        // Signed out at the latest when their access tokens expire: a
-        // suspended account can neither refresh one nor sign in.
+        // At once, as a rule. Should it fail, identity's own consumer of
+        // `identity.user.banned` (committed with the suspension) signs the
+        // account out when the event arrives.
         if let Err(e) = self.identity.revoke_all_sessions(target.id, None).await {
             tracing::warn!(user_id = %target.id, error = %e, "signing a suspended account out failed");
         }

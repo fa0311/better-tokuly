@@ -10,6 +10,10 @@ use tokuly_proto::identity::{ClientInfo, Session};
 
 use crate::{Identity, users::UserRow};
 
+/// How long an access token lives: a session revoked longer than this
+/// before a ban has no token left that the ban would need to stop.
+const ACCESS_TOKEN_WINDOW_SECONDS: f64 = tokuly_core::auth::ACCESS_TOKEN_TTL.as_secs() as f64;
+
 /// Name of the HttpOnly cookie holding the refresh token for web clients.
 pub const REFRESH_COOKIE: &str = "tokuly_rt";
 /// RPC path the cookie is scoped to (below the public API path prefix):
@@ -278,6 +282,32 @@ impl Identity {
             self.core.revoke_session(*id).await;
         }
         Ok(ids.len() as u64)
+    }
+
+    /// `identity.user.banned` (a suspension or a ban, from the admin domain
+    /// or [`Identity::set_banned`]): every session the account had when it was
+    /// banned is signed out, its access tokens refused at once. Whoever bans
+    /// signs the account out right after the commit too; this consumer makes
+    /// it happen at least once even when that step failed. Repeating it is
+    /// harmless: sessions revoked shortly before the ban are told to the
+    /// token cache again, sessions made after the ban (once it was lifted)
+    /// are left alone.
+    pub async fn sign_out_banned(&self, user_id: Uuid, banned_at: DateTime<Utc>) -> AppResult<usize> {
+        let ids: Vec<Uuid> = sqlx::query_scalar(
+            "UPDATE sessions SET revoked_at = COALESCE(revoked_at, now())
+             WHERE user_id = $1 AND created_at <= $2 AND expires_at > now()
+               AND (revoked_at IS NULL OR revoked_at > $2 - make_interval(secs => $3))
+             RETURNING id",
+        )
+        .bind(user_id)
+        .bind(banned_at)
+        .bind(ACCESS_TOKEN_WINDOW_SECONDS)
+        .fetch_all(&self.core.db)
+        .await?;
+        for id in &ids {
+            self.core.revoke_session(*id).await;
+        }
+        Ok(ids.len())
     }
 
     pub async fn list_sessions(&self, user_id: Uuid, current: Uuid) -> AppResult<Vec<Session>> {
