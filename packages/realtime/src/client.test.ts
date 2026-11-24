@@ -331,10 +331,13 @@ describe("the answer to a subscription", () => {
     expect(subscribed).toHaveBeenCalledTimes(1);
 
     welcome(hello.id);
-    expect(subscribed).toHaveBeenCalledTimes(2);
     expect(await stateOf(meanwhile.ready)).toBe("resolved");
+    // Told again, at a random moment within two seconds rather than with everyone else at once.
+    expect(subscribed).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(subscribed).toHaveBeenCalledTimes(2), { timeout: 2_500 });
     // Welcome again on the same connection (a refreshed token) is no new start.
     welcome(hello.id);
+    await new Promise((resolve) => setTimeout(resolve, 50));
     expect(subscribed).toHaveBeenCalledTimes(2);
   });
 
@@ -353,5 +356,108 @@ describe("the answer to a subscription", () => {
     serverSends({ replyTo: second?.id ?? 0n, body: { case: "ack", value: {} } });
     expect(await stateOf(renewed.ready)).toBe("resolved");
     expect(subscribed).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("answers that must not be taken for another subscription", () => {
+  beforeEach(() => {
+    wire.sent.length = 0;
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  it("does not take the Welcome of a Hello for a topic let go and followed anew since", async () => {
+    const client = newClient();
+    const old = client.subscribe("live:7");
+    client.start();
+    const hello = await nextHello();
+    expect(hello.body.value.topics).toEqual(["live:7"]);
+    // Let go and followed again before the Welcome: the new one is asked for on its own.
+    old.release();
+    const renewed = client.subscribe("live:7");
+    const [subscribe] = subscribeFrames("live:7");
+    expect(subscribe).toBeDefined();
+    welcome(hello.id);
+    expect(await stateOf(renewed.ready)).toBe("pending");
+    serverSends({ replyTo: subscribe?.id ?? 0n, body: { case: "ack", value: {} } });
+    expect(await stateOf(renewed.ready)).toBe("resolved");
+  });
+
+  it("drops the ready of a caller that let go, while the others still hear the answer", async () => {
+    const client = await connectedClient();
+    const leaving = client.subscribe("live:8");
+    const staying = client.subscribe("live:8");
+    leaving.release();
+    const [subscribe] = subscribeFrames("live:8");
+    serverSends({ replyTo: subscribe?.id ?? 0n, body: { case: "ack", value: {} } });
+    expect(await stateOf(staying.ready)).toBe("resolved");
+    expect(await stateOf(leaving.ready)).toBe("pending");
+  });
+});
+
+describe("listeners", () => {
+  beforeEach(() => {
+    wire.sent.length = 0;
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  it("one that throws does not stop the Welcome or the other followers", async () => {
+    const client = newClient();
+    const reached = vi.fn();
+    client.subscribe("live:9", {
+      onSubscribed: () => {
+        throw new Error("a broken feature");
+      },
+    });
+    client.subscribe("space:9", { onSubscribed: reached });
+    const statuses: string[] = [];
+    client.onStatus((status) => statuses.push(status));
+    client.onFrame(() => {
+      throw new Error("another broken feature");
+    });
+    client.start();
+    welcome((await nextHello()).id);
+    expect(reached).toHaveBeenCalledTimes(1);
+    expect(statuses).toContain("connected");
+    expect(console.error).toHaveBeenCalled();
+  });
+});
+
+describe("refusals that may go away", () => {
+  beforeEach(() => {
+    wire.sent.length = 0;
+    vi.spyOn(console, "info").mockImplementation(() => {});
+  });
+
+  it("asks again for a held topic whose guard could not decide, and stops once let go", async () => {
+    const client = await connectedClient();
+    const subscribed = vi.fn();
+    const held = client.subscribe("community:10", { onSubscribed: subscribed });
+    const refuse = (frame: realtime.ClientFrame | undefined) =>
+      serverSends({
+        replyTo: frame?.id ?? 0n,
+        body: {
+          case: "error",
+          value: { code: "unavailable", message: "TOPIC_CHECK_FAILED", fatal: false },
+        },
+      });
+    refuse(subscribeFrames("community:10")[0]);
+    await expect(held.ready).rejects.toMatchObject({ revoked: false });
+    // Within the first backoff (about a second), on the same connection.
+    await vi.waitFor(() => expect(subscribeFrames("community:10")).toHaveLength(2), {
+      timeout: 2_000,
+    });
+    serverSends({
+      replyTo: subscribeFrames("community:10")[1]?.id ?? 0n,
+      body: { case: "ack", value: {} },
+    });
+    expect(subscribed).toHaveBeenCalledTimes(1);
+
+    // Refused again for another holder, then let go: nothing more is sent.
+    const other = client.subscribe("space:10");
+    refuse(subscribeFrames("space:10")[0]);
+    other.release();
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    expect(subscribeFrames("space:10")).toHaveLength(1);
   });
 });

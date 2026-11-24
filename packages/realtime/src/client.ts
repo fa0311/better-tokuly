@@ -51,7 +51,9 @@ export interface SubscribeOptions {
    * published on the topic from now on is missed. Called once that is so
    * (right after `subscribe()` when the topic is already in effect), and
    * again whenever it is in effect anew after a reconnect, since what was
-   * published while the connection was down is gone. A feature that shows
+   * published while the connection was down is gone; that call comes at a
+   * random moment within two seconds, so that a whole gateway's audience
+   * does not read again in the same instant. A feature that shows
    * state the topic updates reads that state again here: a read that began
    * before this call may have missed a frame published in between.
    */
@@ -64,7 +66,8 @@ export interface Subscription {
    * Settles with the server's answer: resolves once the subscription is in
    * effect (at once when it already is), rejects with a
    * {@link SubscriptionRefused} when the server refused it. Waits across
-   * reconnects while the connection is down; never settles after `release`.
+   * reconnects while the connection is down. `release()` before the answer
+   * drops it: it then never settles.
    */
   readonly ready: Promise<void>;
   /** Ends this caller's interest; the last one out unsubscribes. Safe to call twice. */
@@ -98,11 +101,43 @@ interface TopicInterest {
   readonly revokedListeners: Set<(reason: string) => void>;
   readonly subscribedListeners: Set<() => void>;
   /** `ready` promises waiting for the answer. */
-  waiters: { resolve(): void; reject(error: SubscriptionRefused): void }[];
+  waiters: Waiter[];
+  /** It was in effect on an earlier connection (see `REREAD_SPREAD_MS`). */
+  confirmedBefore: boolean;
+  /** A `Subscribe` the server could not serve right now is sent again then. */
+  retry: { timer: ReturnType<typeof setTimeout> | null; attempts: number };
+}
+
+interface Waiter {
+  resolve(): void;
+  reject(error: SubscriptionRefused): void;
+}
+
+/** Runs a listener; one that throws is reported and does not stop the others. */
+function safely(listener: () => void): void {
+  try {
+    listener();
+  } catch (error) {
+    console.error("realtime: a listener failed", error);
+  }
 }
 type StatusListener = (status: ConnectionStatus, transport: FrameTransport["kind"] | null) => void;
 
 const CONNECT_TIMEOUT_MS = 5_000;
+/**
+ * After a reconnect, the followers of a topic read again within this long,
+ * at a random moment: a gateway that restarts drops every connection at
+ * once, and their reads should not reach the API in the same second. (The
+ * first confirmation is told at once: nothing is synchronized about it.)
+ */
+const REREAD_SPREAD_MS = 2_000;
+/** After `SHUTTING_DOWN`, the next connection waits a random moment up to this long. */
+const SHUTDOWN_RECONNECT_SPREAD_MS = 10_000;
+/** A `Subscribe` the server could not serve right now: first retry, doubling up to the cap. */
+const SUBSCRIBE_RETRY_MIN_MS = 1_000;
+const SUBSCRIBE_RETRY_MAX_MS = 30_000;
+/** The refusals that may go away by themselves, so a held topic is asked for again. */
+const RETRIED_CODES: ReadonlySet<string> = new Set(["unavailable", "resource_exhausted"]);
 const MAX_BACKOFF_MS = 30_000;
 /** After a WebTransport failure, stay on WebSocket for this long before trying again. */
 const WEBTRANSPORT_RETRY_AFTER_MS = 5 * 60_000;
@@ -138,8 +173,10 @@ export class RealtimeClient {
   private readonly pendingSubscribes = new Map<bigint, TopicInterest>();
   /** A Hello went out on the current connection: new topics are asked for with `Subscribe`. */
   private helloSent = false;
-  /** The topics named in the Hello that awaits its Welcome. */
-  private helloTopics: string[] | null = null;
+  /** The subscriptions named in the Hello that awaits its Welcome. */
+  private helloInterests: TopicInterest[] | null = null;
+  /** The gateway said it is going away: everyone it dropped reconnects, spread out. */
+  private gatewayShutDown = false;
   /** Server-suggested location report cadence, from the last Welcome. */
   cadence = { movingSeconds: 5, stationarySeconds: 60 };
 
@@ -191,7 +228,7 @@ export class RealtimeClient {
 
   private setStatus(status: ConnectionStatus): void {
     this.status = status;
-    for (const listener of this.statusListeners) listener(status, this.transportKind);
+    for (const listener of this.statusListeners) safely(() => listener(status, this.transportKind));
   }
 
   /** Starts (and keeps) the connection. Safe to call repeatedly. */
@@ -235,8 +272,12 @@ export class RealtimeClient {
     // is in effect on the next one until the server says so.
     this.pendingSubscribes.clear();
     this.helloSent = false;
-    this.helloTopics = null;
-    for (const interest of this.topics.values()) interest.active = false;
+    this.helloInterests = null;
+    for (const interest of this.topics.values()) {
+      interest.active = false;
+      // The Hello asks for every topic again.
+      this.stopRetry(interest);
+    }
     this.setStatus(this.attempt === 0 ? "connecting" : "reconnecting");
     try {
       const endpoints = await this.options.getEndpoints();
@@ -288,7 +329,8 @@ export class RealtimeClient {
    * all, except those the server refuses with `Unsubscribed` before it.
    */
   private sendHello(token: string | null): void {
-    const topics = [...this.topics.keys()];
+    const interests = [...this.topics.values()];
+    const topics = interests.map((interest) => interest.topic);
     const id = this.sendFrame({
       case: "hello",
       value: create(realtime.HelloSchema, {
@@ -302,7 +344,7 @@ export class RealtimeClient {
     });
     if (id === 0n) return;
     this.helloSent = true;
-    this.helloTopics = topics;
+    this.helloInterests = interests;
   }
 
   private handleClose(): void {
@@ -315,7 +357,10 @@ export class RealtimeClient {
   private scheduleReconnect(): void {
     this.setStatus("reconnecting");
     const backoff = Math.min(MAX_BACKOFF_MS, 500 * 2 ** this.attempt);
-    const delay = backoff / 2 + Math.random() * (backoff / 2);
+    let delay = backoff / 2 + Math.random() * (backoff / 2);
+    // Everyone on a gateway that shut down reconnects at once otherwise.
+    if (this.gatewayShutDown) delay = Math.max(delay, Math.random() * SHUTDOWN_RECONNECT_SPREAD_MS);
+    this.gatewayShutDown = false;
     this.attempt++;
     this.reconnectTimer = setTimeout(() => void this.connect(), delay);
   }
@@ -344,7 +389,7 @@ export class RealtimeClient {
       default:
         break;
     }
-    for (const listener of this.frameListeners) listener(frame);
+    for (const listener of this.frameListeners) safely(() => listener(frame));
   }
 
   private onWelcome(welcome: realtime.Welcome): void {
@@ -356,15 +401,15 @@ export class RealtimeClient {
     };
     if (!this.outdated && clientIsOutdated(welcome.protocolVersion)) {
       this.outdated = true;
-      for (const listener of this.outdatedListeners) listener();
+      for (const listener of this.outdatedListeners) safely(listener);
       this.outdatedListeners.clear();
     }
-    // Every topic of the Hello that the server did not refuse before this Welcome is in effect.
-    const confirmed = this.helloTopics ?? [];
-    this.helloTopics = null;
-    for (const topic of confirmed) {
-      const interest = this.topics.get(topic);
-      if (interest && !interest.active) this.activate(interest);
+    // Every subscription of the Hello that the server did not refuse before this Welcome is in
+    // effect, unless it was let go meanwhile (a topic followed anew since waits for its own Ack).
+    const confirmed = this.helloInterests ?? [];
+    this.helloInterests = null;
+    for (const interest of confirmed) {
+      if (this.topics.get(interest.topic) === interest && !interest.active) this.activate(interest);
     }
     const intervalMs = Math.max(5, welcome.pingIntervalSeconds || 25) * 1000;
     if (this.pingTimer) clearInterval(this.pingTimer);
@@ -397,28 +442,73 @@ export class RealtimeClient {
     this.pendingSubscribes.delete(replyTo);
     if (this.topics.get(interest.topic) !== interest) return;
     if (error.code === "permission_denied") this.revoke(interest.topic, error.message);
+    if (this.topics.get(interest.topic) !== interest) return;
     // Any other refusal (the guard could not decide, the bus was away) is
-    // not the end of access: the topic stays wanted and the next Hello asks
-    // for it again. Whoever waits hears the refusal now.
-    if (this.topics.get(interest.topic) === interest)
-      this.settle(interest, new SubscriptionRefused(interest.topic, error.message, false));
+    // not the end of access: the topic stays wanted, is asked for again
+    // shortly when that may help, and with the next Hello anyway. Whoever
+    // waits hears the refusal now.
+    this.settle(interest, new SubscriptionRefused(interest.topic, error.message, false));
+    if (RETRIED_CODES.has(error.code)) this.retryLater(interest);
+  }
+
+  /** Sends the `Subscribe` of a held topic again after a backoff. */
+  private retryLater(interest: TopicInterest): void {
+    if (interest.retry.timer) return;
+    const backoff = Math.min(
+      SUBSCRIBE_RETRY_MAX_MS,
+      SUBSCRIBE_RETRY_MIN_MS * 2 ** interest.retry.attempts,
+    );
+    interest.retry.attempts++;
+    const generation = this.generation;
+    interest.retry.timer = setTimeout(
+      () => {
+        interest.retry.timer = null;
+        if (generation !== this.generation || !this.helloSent) return;
+        if (this.topics.get(interest.topic) !== interest || interest.active) return;
+        this.sendSubscribe(interest);
+      },
+      backoff / 2 + Math.random() * (backoff / 2),
+    );
+  }
+
+  private stopRetry(interest: TopicInterest): void {
+    if (interest.retry.timer) clearTimeout(interest.retry.timer);
+    interest.retry.timer = null;
+  }
+
+  private sendSubscribe(interest: TopicInterest): void {
+    const id = this.sendFrame({
+      case: "subscribe",
+      value: create(realtime.SubscribeSchema, { topics: [interest.topic] }),
+    });
+    if (id !== 0n) this.pendingSubscribes.set(id, interest);
   }
 
   /** The server confirmed the topic: waiting callers resolve, followers read again. */
   private activate(interest: TopicInterest): void {
     interest.active = true;
+    interest.retry.attempts = 0;
+    this.stopRetry(interest);
     this.settle(interest);
-    for (const listener of [...interest.subscribedListeners]) listener();
+    const again = interest.confirmedBefore;
+    interest.confirmedBefore = true;
+    const tell = () => {
+      for (const listener of [...interest.subscribedListeners]) {
+        // Let go of, or out of effect again, by the time its turn came.
+        if (!interest.active || !interest.subscribedListeners.has(listener)) continue;
+        safely(listener);
+      }
+    };
+    if (again) setTimeout(tell, Math.random() * REREAD_SPREAD_MS);
+    else tell();
   }
 
   /** Resolves (or, given a refusal, rejects) every `ready` waiting on the interest. */
   private settle(interest: TopicInterest, refusal?: SubscriptionRefused): void {
     const waiters = interest.waiters;
     interest.waiters = [];
-    for (const waiter of waiters) {
-      if (refusal) waiter.reject(refusal);
-      else waiter.resolve();
-    }
+    for (const waiter of waiters)
+      safely(() => (refusal ? waiter.reject(refusal) : waiter.resolve()));
   }
 
   /**
@@ -431,13 +521,15 @@ export class RealtimeClient {
     const interest = this.topics.get(topic);
     if (!interest) return;
     this.topics.delete(topic);
+    this.stopRetry(interest);
     console.info(`realtime: the server ended the subscription to ${topic} (${reason})`);
     this.settle(interest, new SubscriptionRefused(topic, reason, true));
-    for (const listener of interest.revokedListeners) listener(reason);
-    for (const listener of this.revokedListeners) listener(topic, reason);
+    for (const listener of [...interest.revokedListeners]) safely(() => listener(reason));
+    for (const listener of [...this.revokedListeners]) safely(() => listener(topic, reason));
   }
 
   private async onServerError(error: realtime.Error): Promise<void> {
+    if (error.message === "SHUTTING_DOWN") this.gatewayShutDown = true;
     if (error.code !== "unauthenticated") return;
     // The token expired or was rejected: refresh and say hello again.
     const refreshed = (await this.options.refreshAccessToken?.()) ?? false;
@@ -482,16 +574,12 @@ export class RealtimeClient {
         revokedListeners: new Set(),
         subscribedListeners: new Set(),
         waiters: [],
+        confirmedBefore: false,
+        retry: { timer: null, attempts: 0 },
       };
       this.topics.set(topic, interest);
       // Before the Hello, the topic goes out with it; after, it is asked for on its own.
-      if (this.helloSent) {
-        const id = this.sendFrame({
-          case: "subscribe",
-          value: create(realtime.SubscribeSchema, { topics: [topic] }),
-        });
-        if (id !== 0n) this.pendingSubscribes.set(id, interest);
-      }
+      if (this.helloSent) this.sendSubscribe(interest);
     }
     const held = interest;
     held.holders++;
@@ -500,10 +588,14 @@ export class RealtimeClient {
     const onSubscribed = options.onSubscribed && (() => options.onSubscribed?.());
     if (onRevoked) held.revokedListeners.add(onRevoked);
     let ready: Promise<void>;
+    let waiter: Waiter | undefined;
     if (held.active) {
       ready = Promise.resolve();
     } else {
-      ready = new Promise<void>((resolve, reject) => held.waiters.push({ resolve, reject }));
+      ready = new Promise<void>((resolve, reject) => {
+        waiter = { resolve, reject };
+        held.waiters.push(waiter);
+      });
       // A caller that does not wait for the answer must not see an unhandled rejection.
       ready.catch(() => {});
     }
@@ -521,11 +613,13 @@ export class RealtimeClient {
       released = true;
       if (onRevoked) held.revokedListeners.delete(onRevoked);
       if (onSubscribed) held.subscribedListeners.delete(onSubscribed);
+      if (waiter) held.waiters = held.waiters.filter((other) => other !== waiter);
       // Revoked meanwhile (and maybe subscribed anew by someone else): nothing of ours is left.
       if (this.topics.get(topic) !== held) return;
       held.holders--;
       if (held.holders > 0) return;
       this.topics.delete(topic);
+      this.stopRetry(held);
       this.sendFrame({
         case: "unsubscribe",
         value: create(realtime.UnsubscribeSchema, { topics: [topic] }),
