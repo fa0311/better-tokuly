@@ -94,6 +94,7 @@ impl Notes {
         .await?;
         for sql in [
             "DELETE FROM note_mentions WHERE user_id = $1",
+            "DELETE FROM note_recipients WHERE user_id = $1",
             "DELETE FROM story_audience WHERE user_id = $1",
             "DELETE FROM story_highlights WHERE owner_id = $1",
             "DELETE FROM note_rule_agreements WHERE user_id = $1",

@@ -117,6 +117,17 @@ CREATE TABLE note_mentions (
 
 CREATE INDEX note_mentions_user ON note_mentions (user_id, note_id DESC);
 
+-- The people a note was announced to (a reply, quote or mention
+-- notification). What reached someone stays reportable by them after the
+-- author hid it from them (made it private, or a block).
+CREATE TABLE note_recipients (
+    note_id uuid NOT NULL REFERENCES notes (id) ON DELETE CASCADE,
+    user_id uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    PRIMARY KEY (note_id, user_id)
+);
+
+CREATE INDEX note_recipients_user ON note_recipients (user_id);
+
 CREATE TABLE hashtags (
     id         uuid PRIMARY KEY DEFAULT uuidv7(),
     -- Normalized: NFKC, lowercase, without '#'.

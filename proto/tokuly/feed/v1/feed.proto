@@ -650,7 +650,8 @@ message RemoveNewsArticleResponse {}
 service RecapService {
   // The recap of the month or year containing `anchor_date`, in the caller's
   // time zone. A period that is still running is recapped so far.
-  // Errors: PERIOD_REQUIRED, INVALID_DATE, RECAP_IN_FUTURE.
+  // Errors: PERIOD_REQUIRED, INVALID_DATE, RECAP_IN_FUTURE, RATE_LIMITED (more
+  // than 20 recaps per minute that were not cached and had to be computed).
   rpc GetRecap(GetRecapRequest) returns (GetRecapResponse);
 }
 

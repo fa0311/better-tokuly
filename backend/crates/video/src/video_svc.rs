@@ -178,6 +178,7 @@ impl VideoService for Video {
             if thumbnail_changed && video.is_public() && row.is_public() {
                 playlists::sync_search_of_video_in(&mut tx, row.id).await?;
             }
+            videos::announce_visibility_in(&mut tx, &video, &row).await?;
             tx.commit().await?;
             // Nobody but the owner can follow a video that went private.
             if row.is_published() && row.visibility == access::PRIVATE && video.visibility != access::PRIVATE {
@@ -214,7 +215,8 @@ impl VideoService for Video {
             let row = videos::find_in(&mut tx, video.id).await?.ok_or_else(video_not_found)?;
             if row.is_published() {
                 // Already live: only the visibility may have changed.
-                videos::after_visible_change_in(&mut tx, video.is_public(), row, false).await?;
+                let row = videos::after_visible_change_in(&mut tx, video.is_public(), row, false).await?;
+                videos::announce_visibility_in(&mut tx, &video, &row).await?;
             } else {
                 videos::request_publish_in(&mut tx, &row, publish_at).await?;
             }

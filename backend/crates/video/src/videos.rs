@@ -38,7 +38,7 @@ use tokuly_proto::{
 use crate::{
     access::{self, PUBLIC, PUBLISHED, VideoFacts, Viewer},
     channels::{self, ChannelRow},
-    events::{VIDEO_CREATED, VIDEO_DELETED, VIDEO_PUBLISHED, VIDEO_UNPUBLISHED, VideoEvent},
+    events::{VIDEO_CREATED, VIDEO_DELETED, VIDEO_PUBLISHED, VIDEO_UNPUBLISHED, VIDEO_VISIBILITY_CHANGED, VideoEvent},
     games, party, playlists, search, subtitles, validate,
 };
 
@@ -680,6 +680,19 @@ async fn announce_activity_in(
         entry = entry.image(url);
     }
     outbound::activity(&mut **tx, &entry).await
+}
+
+/// Emits `video.video.visibility_changed` when a video that was and stays
+/// published got another visibility (`before` and `after` the change).
+pub(crate) async fn announce_visibility_in(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    before: &VideoRow,
+    after: &VideoRow,
+) -> AppResult<()> {
+    if before.is_published() && after.is_published() && before.visibility != after.visibility {
+        core_events::emit(&mut **tx, VIDEO_VISIBILITY_CHANGED, Some(after.owner_id), &after.event(false)).await?;
+    }
+    Ok(())
 }
 
 /// Takes a video back to DRAFT (cancelling a schedule).
