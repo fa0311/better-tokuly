@@ -9,9 +9,10 @@ import { moderationClient } from "../api";
 import { Section } from "../ui/console-page";
 
 /**
- * A reported account's プロフ帳 in full — fields and cards whatever their
- * audience, hidden cards included — for an open case about the account.
- * Opening it is written to the audit log first, so it takes a press.
+ * A reported account's プロフ帳 as far as it reaches anybody — fields and
+ * cards whatever their audience, with the audiences, but not what the owner
+ * keeps to themself — for an open case about the account. Opening it is
+ * written to the audit log first, so it takes a press.
  */
 export function ReportedProfile({ moderationCase }: { moderationCase: admin.ModerationCase }) {
   const { t } = useTranslation("admin");

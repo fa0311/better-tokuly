@@ -156,8 +156,9 @@ impl Identity {
         Ok(locked)
     }
 
-    /// The whole プロフ帳 of `user_id`, every field whatever its audience,
-    /// hidden cards included, with the audiences: for a moderator handling a
+    /// The プロフ帳 of `user_id` as far as it reaches anybody — every field
+    /// and card whatever its audience, with the audiences, but nothing the
+    /// owner keeps to themself ("only me", hidden cards): for a moderator handling a
     /// report about the account. Not an RPC: the admin domain calls it after
     /// checking that an open case is about this account and that the
     /// moderator is not a party to it, and records the look in its audit

@@ -79,7 +79,9 @@ pub struct AudienceTie {
 pub enum Viewer {
     Owner,
     /// A moderator reading a reported account (see
-    /// [`crate::Identity::extras_for_moderation`]).
+    /// [`crate::Identity::extras_for_moderation`]): everything that reaches
+    /// anybody, with its audience; not what the owner keeps to themself
+    /// ("only me" fields, hidden cards).
     Moderator,
     Audience(AudienceTie),
 }
@@ -98,7 +100,20 @@ impl Viewer {
 pub fn reaches(visibility: i32, circle: Option<Uuid>, viewer: &Viewer) -> bool {
     use buffa::Enumeration as _;
     let tie = match viewer {
-        Viewer::Owner | Viewer::Moderator => return true,
+        Viewer::Owner => return true,
+        // A moderator sees what reached somebody: every audience but "only me".
+        Viewer::Moderator => {
+            return Visibility::from_i32(visibility).is_some_and(|v| {
+                matches!(
+                    v,
+                    Visibility::VISIBILITY_PUBLIC
+                        | Visibility::VISIBILITY_FOLLOWERS
+                        | Visibility::VISIBILITY_FRIENDS
+                        | Visibility::VISIBILITY_CLOSE_FRIENDS
+                        | Visibility::VISIBILITY_CIRCLE
+                )
+            });
+        }
         Viewer::Audience(tie) => tie,
     };
     let tied = matches!(tie.tier, Tier::Friend | Tier::Follower);
@@ -585,7 +600,7 @@ impl Extras {
         extras.qa_cards = self
             .cards
             .iter()
-            .filter(|card| full || (!card.hidden && reaches(card.visibility, card.circle_id, viewer)))
+            .filter(|card| *viewer == Viewer::Owner || (!card.hidden && reaches(card.visibility, card.circle_id, viewer)))
             .map(|card| ProfileQaCard {
                 id: card.id.to_string(),
                 prompt_id: card.prompt_id.clone(),
@@ -598,7 +613,7 @@ impl Extras {
                         ..Default::default()
                     })
                     .into(),
-                hidden: full && card.hidden,
+                hidden: *viewer == Viewer::Owner && card.hidden,
                 ..Default::default()
             })
             .collect();
@@ -1193,16 +1208,38 @@ impl Identity {
     pub(crate) async fn suggest_tags(&self, category: i32, query: &str) -> AppResult<Vec<TagSuggestion>> {
         let key = tag_key(query);
         let pattern = format!("{}%", key.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_"));
-        // The candidates (bounded), then who counts among them.
+        // Counted in the database first: the tags enough people show, most
+        // shown first (a bound on rows read would cut off whatever sorts
+        // after a popular beginning). Locked accounts only lower a count, so
+        // a tag below the floor here stays below it.
+        const CANDIDATE_TAGS: i64 = 200;
+        let keys: Vec<String> = sqlx::query_scalar(
+            "SELECT t.name_key FROM profile_tags t
+             JOIN profile_extras e ON e.user_id = t.user_id AND e.tags_visibility = $3
+             JOIN users u ON u.id = t.user_id AND u.deleted_at IS NULL AND u.banned_at IS NULL AND NOT u.bot
+             WHERE t.category = $1 AND t.name_key LIKE $2
+             GROUP BY t.name_key HAVING count(DISTINCT t.user_id) >= $4
+             ORDER BY count(DISTINCT t.user_id) DESC, t.name_key LIMIT $5",
+        )
+        .bind(category)
+        .bind(&pattern)
+        .bind(Visibility::VISIBILITY_PUBLIC as i32)
+        .bind(TAG_SUGGESTION_MIN_PEOPLE as i64)
+        .bind(CANDIDATE_TAGS)
+        .fetch_all(&self.core.db)
+        .await?;
+        if keys.is_empty() {
+            return Ok(Vec::new());
+        }
+        // Who shows them, to take the locked accounts out.
         let rows: Vec<(Uuid, String, String)> = sqlx::query_as(
             "SELECT t.user_id, t.name_key, t.name FROM profile_tags t
              JOIN profile_extras e ON e.user_id = t.user_id AND e.tags_visibility = $3
              JOIN users u ON u.id = t.user_id AND u.deleted_at IS NULL AND u.banned_at IS NULL AND NOT u.bot
-             WHERE t.category = $1 AND t.name_key LIKE $2
-             ORDER BY t.name_key LIMIT 20000",
+             WHERE t.category = $1 AND t.name_key = ANY($2)",
         )
         .bind(category)
-        .bind(pattern)
+        .bind(&keys)
         .bind(Visibility::VISIBILITY_PUBLIC as i32)
         .fetch_all(&self.core.db)
         .await?;
@@ -1295,10 +1332,11 @@ mod tests {
         assert!(reaches(v(VISIBILITY_FOLLOWERS), None, &friend), "friends are inside followers");
         assert!(!reaches(v(VISIBILITY_FRIENDS), None, &follower) && reaches(v(VISIBILITY_FRIENDS), None, &friend));
         assert!(!reaches(v(VISIBILITY_PRIVATE), None, &friend));
-        assert!(
-            reaches(v(VISIBILITY_PRIVATE), None, &Viewer::Owner)
-                && reaches(v(VISIBILITY_PRIVATE), None, &Viewer::Moderator)
-        );
+        assert!(reaches(v(VISIBILITY_PRIVATE), None, &Viewer::Owner));
+        // A moderator sees what reached anybody, not what the owner keeps to themself.
+        assert!(!reaches(v(VISIBILITY_PRIVATE), None, &Viewer::Moderator));
+        assert!(reaches(v(VISIBILITY_CLOSE_FRIENDS), None, &Viewer::Moderator));
+        assert!(!reaches(0, None, &Viewer::Moderator));
         // A locked account's public parts reach followers and friends only.
         assert!(!reaches(v(VISIBILITY_PUBLIC), None, &tie(Tier::Other, true)));
         assert!(reaches(v(VISIBILITY_PUBLIC), None, &tie(Tier::Follower, true)));

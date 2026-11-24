@@ -161,21 +161,27 @@ async fn each_field_and_card_reaches_its_own_audience() {
 }
 
 #[tokio::test]
-async fn moderators_see_everything_and_others_may_not_ask() {
+async fn moderators_see_what_reached_anybody_and_nothing_kept_private() {
     let ext = start(IdentityConfig::default()).await;
     let owner = ext.app.user("Rin").await;
     let moderator = ext.app.user_with_roles("Mod", &["moderator"]).await;
     let nobody = ext.app.user("Nobody").await;
     let mut visibility = everything_public();
-    visibility.long_bio = vis(Visibility::VISIBILITY_PRIVATE);
+    visibility.long_bio = vis(Visibility::VISIBILITY_FRIENDS);
+    visibility.pronouns = vis(Visibility::VISIBILITY_PRIVATE);
     update(
         &ext,
         &owner,
         &UpdateProfileExtrasRequest {
-            long_bio: Some("ここだけの話".into()),
+            long_bio: Some("ともだちにだけ".into()),
+            pronouns: Some("ひみつ".into()),
             visibility: visibility.into(),
             qa_cards: ProfileQaCardList {
-                items: vec![card("hooked_on", "", "裏アカ運営", Visibility::VISIBILITY_PRIVATE, true)],
+                items: vec![
+                    card("hooked_on", "", "親しい友達むけ", Visibility::VISIBILITY_CLOSE_FRIENDS, false),
+                    card("dream", "", "自分だけの夢", Visibility::VISIBILITY_PRIVATE, false),
+                    card("club", "", "しまってある", Visibility::VISIBILITY_PUBLIC, true),
+                ],
                 ..Default::default()
             }
             .into(),
@@ -184,14 +190,15 @@ async fn moderators_see_everything_and_others_may_not_ask() {
     )
     .await
     .unwrap();
-    // Even across a block: what was written is what is judged. (The admin
+    // Even across a block: what reached people is what is judged. (The admin
     // domain calls this for an open case it is not a party to.)
     ext.social.block(owner.id, moderator.id);
     let extras = ext.identity.extras_for_moderation(owner.id).await.unwrap();
-    assert_eq!(extras.long_bio, "ここだけの話");
-    assert!(extras.qa_cards[0].hidden);
-    assert_eq!(extras.visibility.as_option().unwrap().long_bio, Visibility::VISIBILITY_PRIVATE);
-    assert_eq!(extras.qa_cards[0].audience.as_option().unwrap().visibility, Visibility::VISIBILITY_PRIVATE);
+    assert_eq!(extras.long_bio, "ともだちにだけ");
+    assert_eq!(extras.pronouns, "", "only-me fields stay with the owner");
+    assert_eq!(extras.qa_cards.iter().map(|c| c.answer.as_str()).collect::<Vec<_>>(), ["親しい友達むけ"]);
+    assert_eq!(extras.visibility.as_option().unwrap().pronouns, Visibility::VISIBILITY_PRIVATE, "audiences are shown");
+    assert_eq!(extras.qa_cards[0].audience.as_option().unwrap().visibility, Visibility::VISIBILITY_CLOSE_FRIENDS);
     // Through the public API nobody gets past the audiences, a moderator neither.
     let seen = profile(&ext, Some(&nobody), &owner).await.unwrap();
     assert_eq!(seen.extras.as_option().unwrap().long_bio, "");

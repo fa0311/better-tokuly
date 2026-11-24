@@ -255,3 +255,39 @@ async fn an_event_about_an_unknown_user_is_harmless() {
         .unwrap();
     assert_eq!(held, 0);
 }
+
+#[tokio::test]
+async fn locking_an_account_takes_its_profile_book_out_of_search_at_once() {
+    let ctx = start().await;
+    let user = ctx.app.user("oshikatsu").await;
+    let oshi = unique("oshi");
+    // A public 推し in the プロフ帳.
+    sqlx::query("INSERT INTO profile_extras (user_id) VALUES ($1)").bind(user.id).execute(&ctx.app.core.db).await.unwrap();
+    sqlx::query("INSERT INTO profile_oshi (user_id, position, name) VALUES ($1, 0, $2)")
+        .bind(user.id)
+        .bind(&oshi)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    ctx.index_user(&user).await;
+    ctx.flush().await;
+    assert_eq!(hit_ids(&find_users(&ctx, &oshi).await.hits), vec![user.id.to_string()]);
+
+    // Locked: the social domain announces it, and the 推し no longer finds the account.
+    sqlx::query("INSERT INTO follow_settings (user_id, locked) VALUES ($1, true)")
+        .bind(user.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    ctx.deliver(event("social.follow.settings_changed", serde_json::json!({ "user_id": user.id, "locked": true }))).await;
+    ctx.flush().await;
+    assert!(find_users(&ctx, &oshi).await.hits.is_empty());
+    // Still found by name.
+    assert_eq!(hit_ids(&find_users(&ctx, &user.handle).await.hits), vec![user.id.to_string()]);
+
+    // Unlocked: found by it again.
+    sqlx::query("UPDATE follow_settings SET locked = false WHERE user_id = $1").bind(user.id).execute(&ctx.app.core.db).await.unwrap();
+    ctx.deliver(event("social.follow.settings_changed", serde_json::json!({ "user_id": user.id, "locked": false }))).await;
+    ctx.flush().await;
+    assert_eq!(hit_ids(&find_users(&ctx, &oshi).await.hits), vec![user.id.to_string()]);
+}

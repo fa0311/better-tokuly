@@ -17,6 +17,9 @@ pub const USER_PRIVACY_CHANGED_TOPIC: &str = "identity.user.privacy_changed";
 pub const USER_BANNED_TOPIC: &str = "identity.user.banned";
 pub const USER_UNBANNED_TOPIC: &str = "identity.user.unbanned";
 pub const USER_DELETED_TOPIC: &str = "identity.user.deleted";
+/// `{ user_id, locked }`: an account was locked or unlocked; a locked
+/// account's プロフ帳 is not searchable.
+pub const FOLLOW_SETTINGS_CHANGED_TOPIC: &str = "social.follow.settings_changed";
 pub const CONTENT_REMOVED_TOPIC: &str = "admin.content.removed";
 pub const REINDEX_REQUESTED_TOPIC: &str = "search.reindex.requested";
 

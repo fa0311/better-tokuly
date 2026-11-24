@@ -4,6 +4,7 @@
 //! |---|---|
 //! | `search.changed` | the document is stored in or removed from the registry |
 //! | `identity.user.created` / `updated` / `privacy_changed` | the user's own document is rebuilt |
+//! | `social.follow.settings_changed` | the user's own document is rebuilt (a locked account is not found by its プロフ帳) |
 //! | `identity.user.banned` | the user's document is removed and everything they own leaves the indexes |
 //! | `identity.user.unbanned` | their document and everything they own come back |
 //! | `identity.user.deleted` | their documents are removed for good, their search history is deleted |
@@ -21,7 +22,7 @@ use tokuly_core::{
 use crate::{
     Search,
     events::{
-        CONTENT_REMOVED_TOPIC, ContentRemoved, USER_BANNED_TOPIC, USER_CREATED_TOPIC, USER_DELETED_TOPIC,
+        CONTENT_REMOVED_TOPIC, ContentRemoved, FOLLOW_SETTINGS_CHANGED_TOPIC, USER_BANNED_TOPIC, USER_CREATED_TOPIC, USER_DELETED_TOPIC,
         USER_PRIVACY_CHANGED_TOPIC, USER_UNBANNED_TOPIC, USER_UPDATED_TOPIC, UserRef,
     },
     kinds,
@@ -39,6 +40,7 @@ pub const TOPICS: &[&str] = &[
     USER_UNBANNED_TOPIC,
     USER_DELETED_TOPIC,
     CONTENT_REMOVED_TOPIC,
+    FOLLOW_SETTINGS_CHANGED_TOPIC,
 ];
 
 /// Reads an event's payload. A payload that does not parse will not parse on
@@ -62,7 +64,7 @@ impl Search {
                     self.apply_change(event.id, change).await?;
                 }
             }
-            USER_CREATED_TOPIC | USER_UPDATED_TOPIC | USER_PRIVACY_CHANGED_TOPIC => {
+            USER_CREATED_TOPIC | USER_UPDATED_TOPIC | USER_PRIVACY_CHANGED_TOPIC | FOLLOW_SETTINGS_CHANGED_TOPIC => {
                 if let Some(user) = payload::<UserRef>(&event) {
                     self.index_user(event.id, user.user_id).await?;
                 }

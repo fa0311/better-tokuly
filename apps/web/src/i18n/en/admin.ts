@@ -132,9 +132,9 @@ export default {
   },
   moderation: {
     profileBook: {
-      title: "Profile book (all of it)",
-      lead: "Every field and card whatever its audience, hidden cards included. Looking is written to the audit log.",
-      open: "Show the whole profile book",
+      title: "Profile book (what others can see)",
+      lead: "Every field and card that reaches anybody (friends-only included), with its audience; not what the owner keeps to themself. Looking is written to the audit log.",
+      open: "Show the profile book",
     },
     title: "Moderation",
     untitled: "(no title)",
