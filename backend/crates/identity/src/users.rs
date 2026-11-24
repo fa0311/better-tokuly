@@ -40,6 +40,8 @@ pub struct UserRow {
     pub privacy: serde_json::Value,
     pub appearance: serde_json::Value,
     pub profile_view_count: i64,
+    pub bot: bool,
+    pub bot_owner_id: Option<Uuid>,
     pub banned_at: Option<DateTime<Utc>>,
     pub deletion_scheduled_at: Option<DateTime<Utc>>,
     pub deleted_at: Option<DateTime<Utc>>,
@@ -51,7 +53,7 @@ macro_rules! user_columns {
         "id, handle::text AS handle, display_name, email::text AS email, email_verified_at, password_hash, bio, \
          avatar, avatar_video_url, banner, birthdate, locale, time_zone, roles, verified, school_name, \
          status_emoji, status_text, status_set_at, status_expires_at, totp_secret, totp_enabled_at, \
-         privacy, appearance, profile_view_count, banned_at, deletion_scheduled_at, deleted_at, created_at"
+         privacy, appearance, profile_view_count, bot, bot_owner_id, banned_at, deletion_scheduled_at, deleted_at, created_at"
     };
 }
 pub(crate) use user_columns;
@@ -62,12 +64,7 @@ impl UserRow {
     }
 
     pub fn status(&self) -> Option<Status> {
-        status_of(
-            &self.status_emoji,
-            &self.status_text,
-            self.status_set_at,
-            self.status_expires_at,
-        )
+        status_of(&self.status_emoji, &self.status_text, self.status_set_at, self.status_expires_at)
     }
 
     pub fn summary(&self) -> UserSummary {
@@ -104,6 +101,8 @@ impl UserRow {
             features: features.into_iter().collect(),
             locale: self.locale.clone(),
             time_zone: self.time_zone.clone(),
+            bot: self.bot,
+            school_name: self.school_name.clone(),
             ..Default::default()
         }
     }
@@ -132,29 +131,18 @@ pub fn status_of(
 }
 
 fn deleted_summary(id: Uuid) -> UserSummary {
-    UserSummary {
-        id: id.to_string(),
-        handle: "deleted".into(),
-        deleted: true,
-        ..Default::default()
-    }
+    UserSummary { id: id.to_string(), handle: "deleted".into(), deleted: true, ..Default::default() }
 }
 
 pub async fn find_by_id(core: &Core, id: Uuid) -> AppResult<Option<UserRow>> {
-    Ok(sqlx::query_as(concat!(
-        "SELECT ",
-        user_columns!(),
-        " FROM users WHERE id = $1"
-    ))
-    .bind(id)
-    .fetch_optional(&core.db)
-    .await?)
+    Ok(sqlx::query_as(concat!("SELECT ", user_columns!(), " FROM users WHERE id = $1"))
+        .bind(id)
+        .fetch_optional(&core.db)
+        .await?)
 }
 
 pub async fn get(core: &Core, id: Uuid) -> AppResult<UserRow> {
-    find_by_id(core, id)
-        .await?
-        .or_not_found("USER_NOT_FOUND", "user not found")
+    find_by_id(core, id).await?.or_not_found("USER_NOT_FOUND", "user not found")
 }
 
 pub async fn find_by_handle(core: &Core, handle: &str) -> AppResult<Option<UserRow>> {
@@ -262,10 +250,7 @@ pub async fn summaries_ordered(core: &Core, ids: &[Uuid]) -> AppResult<Vec<UserS
 
 /// One summary; a placeholder when the user is unknown.
 pub async fn summary(core: &Core, id: Uuid) -> AppResult<UserSummary> {
-    Ok(summaries(core, &[id])
-        .await?
-        .remove(&id)
-        .unwrap_or_else(|| deleted_summary(id)))
+    Ok(summaries(core, &[id]).await?.remove(&id).unwrap_or_else(|| deleted_summary(id)))
 }
 
 /// Picks a summary out of a prefetched map, with a placeholder fallback.
@@ -278,7 +263,11 @@ pub fn pick(map: &HashMap<Uuid, UserSummary>, id: Uuid) -> UserSummary {
 /// the same transaction. Returns the roles before and after, or `None` when
 /// the account is deleted, unknown or already holds the role. Like
 /// [`crate::Identity::set_roles`], it takes effect at the next token refresh.
-pub async fn add_role<'e, E: sqlx::PgExecutor<'e>>(executor: E, user_id: Uuid, role: &str) -> AppResult<Option<(Vec<String>, Vec<String>)>> {
+pub async fn add_role<'e, E: sqlx::PgExecutor<'e>>(
+    executor: E,
+    user_id: Uuid,
+    role: &str,
+) -> AppResult<Option<(Vec<String>, Vec<String>)>> {
     ensure!(matches!(role, "admin" | "moderator" | "staff"), invalid, "ROLE_INVALID", "unknown role {role}");
     let after: Option<Vec<String>> = sqlx::query_scalar(
         "UPDATE users SET roles = array_append(roles, $2) WHERE id = $1 AND deleted_at IS NULL AND NOT ($2 = ANY(roles)) RETURNING roles",
@@ -292,12 +281,10 @@ pub async fn add_role<'e, E: sqlx::PgExecutor<'e>>(executor: E, user_id: Uuid, r
 
 /// IDs of active (not deleted, not banned) users among `ids`.
 pub async fn filter_active(core: &Core, ids: &[Uuid]) -> AppResult<Vec<Uuid>> {
-    Ok(sqlx::query_scalar(
-        "SELECT id FROM users WHERE id = ANY($1) AND deleted_at IS NULL AND banned_at IS NULL",
-    )
-    .bind(ids)
-    .fetch_all(&core.db)
-    .await?)
+    Ok(sqlx::query_scalar("SELECT id FROM users WHERE id = ANY($1) AND deleted_at IS NULL AND banned_at IS NULL")
+        .bind(ids)
+        .fetch_all(&core.db)
+        .await?)
 }
 
 /// Active users whose verified email matches one of `hashes` (hex SHA-256 of
@@ -317,11 +304,11 @@ pub async fn find_by_contact_hashes(core: &Core, hashes: &[String]) -> AppResult
 }
 
 /// Other active users who set the same school as `user_id` (empty when the
-/// user has no school).
+/// user has no school). Bots are not schoolmates.
 pub async fn schoolmates(core: &Core, user_id: Uuid, limit: i64) -> AppResult<Vec<Uuid>> {
     Ok(sqlx::query_scalar(
         "SELECT mate.id FROM users me JOIN users mate ON mate.school_name = me.school_name AND mate.id <> me.id
-         WHERE me.id = $1 AND me.school_name <> '' AND mate.deleted_at IS NULL AND mate.banned_at IS NULL
+         WHERE me.id = $1 AND me.school_name <> '' AND mate.deleted_at IS NULL AND mate.banned_at IS NULL AND NOT mate.bot
          ORDER BY mate.id DESC LIMIT $2",
     )
     .bind(user_id)
@@ -332,8 +319,18 @@ pub async fn schoolmates(core: &Core, user_id: Uuid, limit: i64) -> AppResult<Ve
 
 pub fn validate_school_name(input: &str) -> AppResult<String> {
     let name = input.trim();
-    ensure!(name.graphemes(true).count() <= 60, invalid, "SCHOOL_NAME_INVALID", "school name must be at most 60 characters");
-    ensure!(!name.chars().any(char::is_control), invalid, "SCHOOL_NAME_INVALID", "school name contains control characters");
+    ensure!(
+        name.graphemes(true).count() <= 60,
+        invalid,
+        "SCHOOL_NAME_INVALID",
+        "school name must be at most 60 characters"
+    );
+    ensure!(
+        !name.chars().any(char::is_control),
+        invalid,
+        "SCHOOL_NAME_INVALID",
+        "school name contains control characters"
+    );
     Ok(name.to_owned())
 }
 
@@ -365,11 +362,7 @@ pub(crate) async fn hold_handle(core: &Core, handle: &str, owner: Uuid) -> AppRe
 
 /// The account a recently given-up `handle` is held for, if any.
 pub(crate) async fn handle_holder(core: &Core, handle: &str) -> AppResult<Option<Uuid>> {
-    Ok(core
-        .cache
-        .get_string(&held_handle_key(handle))
-        .await?
-        .and_then(|holder| Uuid::parse_str(&holder).ok()))
+    Ok(core.cache.get_string(&held_handle_key(handle)).await?.and_then(|holder| Uuid::parse_str(&holder).ok()))
 }
 
 /// Whether `handle` was recently let go by someone other than `claimant`.
@@ -436,9 +429,7 @@ const RESERVED_HANDLES: &[&str] = &[
 pub fn normalize_handle(input: &str) -> Result<String, &'static str> {
     let handle = input.trim().trim_start_matches('@').to_ascii_lowercase();
     let valid = (3..=24).contains(&handle.len())
-        && handle
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
+        && handle.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
         && handle.as_bytes()[0].is_ascii_alphanumeric();
     if !valid {
         return Err("INVALID_FORMAT");
@@ -502,22 +493,14 @@ pub async fn validate_unheld_handle(core: &Core, input: &str, claimant: Option<U
 pub(crate) fn handle_error(result: Result<String, &'static str>) -> AppResult<String> {
     result.map_err(|reason| match reason {
         "RESERVED" => AppError::invalid("HANDLE_RESERVED", "this handle is reserved"),
-        _ => AppError::invalid(
-            "HANDLE_INVALID",
-            "handles are 3-24 characters: a-z, 0-9, _ and -",
-        ),
+        _ => AppError::invalid("HANDLE_INVALID", "handles are 3-24 characters: a-z, 0-9, _ and -"),
     })
 }
 
 pub fn validate_display_name(input: &str) -> AppResult<String> {
     let name = input.trim();
     let len = name.graphemes(true).count();
-    ensure!(
-        (1..=40).contains(&len),
-        invalid,
-        "DISPLAY_NAME_INVALID",
-        "display name must be 1-40 characters"
-    );
+    ensure!((1..=40).contains(&len), invalid, "DISPLAY_NAME_INVALID", "display name must be 1-40 characters");
     ensure!(
         !name.chars().any(char::is_control),
         invalid,
@@ -529,12 +512,7 @@ pub fn validate_display_name(input: &str) -> AppResult<String> {
 
 pub fn validate_bio(input: &str) -> AppResult<String> {
     let bio = input.trim();
-    ensure!(
-        bio.graphemes(true).count() <= 300,
-        invalid,
-        "BIO_TOO_LONG",
-        "bio must be at most 300 characters"
-    );
+    ensure!(bio.graphemes(true).count() <= 300, invalid, "BIO_TOO_LONG", "bio must be at most 300 characters");
     Ok(bio.to_owned())
 }
 
@@ -547,9 +525,7 @@ pub fn validate_email(input: &str) -> AppResult<String> {
                 && domain.contains('.')
                 && !domain.starts_with('.')
                 && !domain.ends_with('.')
-                && domain
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
+                && domain.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
                 && local.bytes().all(|b| b.is_ascii_graphic() && b != b'@')
         });
     ensure!(ok, invalid, "EMAIL_INVALID", "enter a valid email address");
@@ -558,28 +534,10 @@ pub fn validate_email(input: &str) -> AppResult<String> {
 
 pub fn validate_password(password: &str) -> AppResult<()> {
     let len = password.chars().count();
-    ensure!(
-        len >= 8,
-        invalid,
-        "PASSWORD_TOO_SHORT",
-        "password must be at least 8 characters"
-    );
-    ensure!(
-        len <= 256,
-        invalid,
-        "PASSWORD_TOO_LONG",
-        "password must be at most 256 characters"
-    );
-    const WEAK: &[&str] = &[
-        "password",
-        "12345678",
-        "123456789",
-        "qwertyui",
-        "11111111",
-        "00000000",
-        "password1",
-        "iloveyou",
-    ];
+    ensure!(len >= 8, invalid, "PASSWORD_TOO_SHORT", "password must be at least 8 characters");
+    ensure!(len <= 256, invalid, "PASSWORD_TOO_LONG", "password must be at most 256 characters");
+    const WEAK: &[&str] =
+        &["password", "12345678", "123456789", "qwertyui", "11111111", "00000000", "password1", "iloveyou"];
     ensure!(
         !WEAK.contains(&password.to_ascii_lowercase().as_str()),
         invalid,
@@ -595,21 +553,13 @@ pub fn validate_birthdate(input: &str, min_age: u32) -> AppResult<NaiveDate> {
         .map_err(|_| AppError::invalid("BIRTHDATE_INVALID", "birthdate must be YYYY-MM-DD"))?;
     let today = Utc::now().date_naive();
     ensure!(
-        date <= today
-            && date
-                .years_since(NaiveDate::from_ymd_opt(1900, 1, 1).unwrap())
-                .is_some(),
+        date <= today && date.years_since(NaiveDate::from_ymd_opt(1900, 1, 1).unwrap()).is_some(),
         invalid,
         "BIRTHDATE_INVALID",
         "birthdate is out of range"
     );
     let age = today.years_since(date).unwrap_or(0);
-    ensure!(
-        age >= min_age,
-        denied,
-        "AGE_RESTRICTED",
-        "you must be at least {min_age} years old to use Tokuly"
-    );
+    ensure!(age >= min_age, denied, "AGE_RESTRICTED", "you must be at least {min_age} years old to use Tokuly");
     Ok(date)
 }
 
@@ -622,10 +572,7 @@ pub fn validate_time_zone(input: &str) -> AppResult<String> {
 
 pub fn validate_locale(input: &str) -> AppResult<String> {
     let locale = input.trim();
-    let ok = (2..=16).contains(&locale.len())
-        && locale
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-');
+    let ok = (2..=16).contains(&locale.len()) && locale.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-');
     ensure!(ok, invalid, "LOCALE_INVALID", "invalid locale");
     Ok(locale.to_owned())
 }
@@ -672,10 +619,7 @@ mod tests {
 
     #[test]
     fn display_names_count_graphemes_not_bytes() {
-        assert_eq!(
-            validate_display_name("  とくぞう👨‍👩‍👧  ").unwrap(),
-            "とくぞう👨‍👩‍👧"
-        );
+        assert_eq!(validate_display_name("  とくぞう👨‍👩‍👧  ").unwrap(), "とくぞう👨‍👩‍👧");
         assert!(validate_display_name("").is_err());
         assert!(validate_display_name(&"あ".repeat(41)).is_err());
         assert!(validate_display_name(&"あ".repeat(40)).is_ok());
@@ -683,19 +627,8 @@ mod tests {
 
     #[test]
     fn emails_are_lowercased_and_checked() {
-        assert_eq!(
-            validate_email(" Foo@Example.COM ").unwrap(),
-            "foo@example.com"
-        );
-        for bad in [
-            "",
-            "foo",
-            "foo@",
-            "@example.com",
-            "foo@example",
-            "a b@example.com",
-            "foo@.com",
-        ] {
+        assert_eq!(validate_email(" Foo@Example.COM ").unwrap(), "foo@example.com");
+        for bad in ["", "foo", "foo@", "@example.com", "foo@example", "a b@example.com", "foo@.com"] {
             assert!(validate_email(bad).is_err(), "{bad} should be rejected");
         }
     }
@@ -712,12 +645,7 @@ mod tests {
         let today = Utc::now().date_naive();
         let twelve = today.with_year(today.year() - 12).unwrap();
         let twenty = today.with_year(today.year() - 20).unwrap();
-        assert_eq!(
-            validate_birthdate(&twelve.to_string(), 13)
-                .unwrap_err()
-                .reason,
-            "AGE_RESTRICTED"
-        );
+        assert_eq!(validate_birthdate(&twelve.to_string(), 13).unwrap_err().reason, "AGE_RESTRICTED");
         assert!(validate_birthdate(&twenty.to_string(), 13).is_ok());
         assert!(validate_birthdate("not-a-date", 13).is_err());
         assert!(validate_birthdate("2999-01-01", 13).is_err());

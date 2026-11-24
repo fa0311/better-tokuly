@@ -1,18 +1,18 @@
 //! Bots: accounts of their own, owned by a person, acting through the API.
 //!
 //! A bot is a real row in identity's `users` table, so everything that
-//! takes a user takes a bot. Identity has no notion of bots yet: no API to
-//! create an account that nobody signs in to, no bot flag, no owner link.
-//! Until it has, this module is the interim, kept as small as is safe:
-//!
-//! - It writes the bot's `users` row itself — three statements: the insert
-//!   (no email, no password), the profile update, and marking the account
-//!   for deletion. Identity's own hourly purge then erases the account and
-//!   announces it; nothing here runs that purge.
+//! takes a user takes a bot. Identity keeps the account-level truth — the
+//! bot flag and the owner (`tokuly_identity::bots`): the account is made
+//! with `bots::create_bot_account` and handed over with `bots::set_bot_owner`.
+//! This module still writes two statements of the bot's `users` row itself:
+//! the profile update and marking the account for deletion. Identity's own
+//! hourly purge then erases the account and announces it; nothing here runs
+//! that purge.
 //! - It emits no event in identity's name. `identity.user.created` promises
 //!   consumers a person who signed up (invites, welcome rewards), which a
 //!   bot is not; what happens to a bot is announced as `dev.bot.*`.
-//! - The owner link lives in `dev_bots`, and outlives the bot for a while.
+//! - `dev_bots` keeps the developer platform's side of the owner link, which
+//!   outlives the bot for a while.
 //! - A bot can address nobody: its tokens get no write scope beyond its own
 //!   profile, uploads and inbox (`scopes::allowed_for_bots`), and no wallet
 //!   scope. Someone who blocked the owner must not be reachable through the
@@ -124,38 +124,6 @@ impl Dev {
         Ok(self.bot_protos(&[row]).await?.remove(0))
     }
 
-    /// Creates the account of a bot: the insert identity's sign-up makes,
-    /// without credentials, in the owner's language and time zone.
-    async fn create_bot_account(
-        tx: &mut PgConnection,
-        owner: Uuid,
-        handle: &str,
-        display_name: &str,
-        bio: &str,
-    ) -> AppResult<Uuid> {
-        let taken: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE handle = $1::citext)")
-            .bind(handle)
-            .fetch_one(&mut *tx)
-            .await?;
-        ensure!(!taken, already_exists, "HANDLE_TAKEN", "this handle is already in use");
-        let bot_id: Uuid = sqlx::query_scalar(
-            "INSERT INTO users (handle, display_name, bio, locale, time_zone, attrs)
-             SELECT $2::citext, $3, $4, o.locale, o.time_zone, jsonb_build_object('bot', true, 'bot_owner_id', o.id) FROM users o WHERE o.id = $1
-             RETURNING id",
-        )
-        .bind(owner)
-        .bind(handle)
-        .bind(display_name)
-        .bind(bio)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| {
-            let e = AppError::from(e);
-            if e.is_already_exists() { AppError::already_exists("HANDLE_TAKEN", "this handle is already in use") } else { e }
-        })?;
-        Ok(bot_id)
-    }
-
     /// Deletes a bot: its tokens and webhooks now; its account is marked
     /// for deletion and erased by identity's next purge (within the hour),
     /// which tells every domain to drop the rest.
@@ -238,7 +206,8 @@ impl BotService for Dev {
                     .fetch_one(&mut *tx)
                     .await?;
             ensure!(count < self.cfg.max_bots, precondition, "TOO_MANY_BOTS", "at most {} bots", self.cfg.max_bots);
-            let bot_id = Self::create_bot_account(&mut tx, owner, &handle, &display_name, &bio).await?;
+            let bot_id =
+                tokuly_identity::bots::create_bot_account(&mut tx, owner, &handle, &display_name, &bio).await?;
             sqlx::query("INSERT INTO dev_bots (user_id, owner_id) VALUES ($1, $2)")
                 .bind(bot_id)
                 .bind(owner)

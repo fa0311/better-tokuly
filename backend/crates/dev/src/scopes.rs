@@ -53,12 +53,12 @@ const DOMAINS: &[Domain] = &[
         name: "identity",
         sensitive: true,
         read: (
-            "プロフィール・メールアドレス・設定を見る、ユーザーを検索する。友達との距離を含むプロフィール詳細には位置情報の許可も必要です",
-            "See your profile, email address and settings; look up and search users. Full profiles, which show how far away a friend is, also take the location permission",
+            "プロフィール（プロフ帳を含む）・メールアドレス・設定を見る、ユーザーを検索する。友達との距離を含むプロフィール詳細には位置情報の許可も必要です",
+            "See your profile (プロフ帳 included), email address and settings; look up and search users. Full profiles, which show how far away a friend is, also take the location permission",
         ),
         write: Some((
-            "プロフィール・ステータス・プライバシー設定を変更する（パスワード・メールアドレス・外部サービス連携は変更できません）",
-            "Change your profile, status and privacy settings (never your password, email address or linked services)",
+            "プロフィール・プロフ帳・ステータス・プライバシー設定を変更する（パスワード・メールアドレス・外部サービス連携・この端末のアカウントは変更できません）",
+            "Change your profile, プロフ帳, status and privacy settings (never your password, email address, linked services or the accounts on your device)",
         )),
     },
     Domain {

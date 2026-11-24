@@ -36,9 +36,14 @@ totp-rs.workspace = true
 rand.workspace = true
 reqwest.workspace = true
 unicode-segmentation.workspace = true
+unicode-normalization.workspace = true
+regex.workspace = true
 anyhow.workspace = true
 http.workspace = true
 
 [dev-dependencies]
 tokuly-testkit.workspace = true
+axum.workspace = true
+tower.workspace = true
+http-body-util.workspace = true
 tokio = { workspace = true, features = ["test-util"] }

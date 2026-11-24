@@ -23,13 +23,26 @@ pub struct IdentityConfig {
     /// Leave empty to disable the integration.
     #[arg(long, env = "TOKULY_SPOTIFY_CLIENT_ID", default_value = "")]
     pub spotify_client_id: String,
-    #[arg(
-        long,
-        env = "TOKULY_SPOTIFY_CLIENT_SECRET",
-        default_value = "",
-        hide_env_values = true
-    )]
+    #[arg(long, env = "TOKULY_SPOTIFY_CLIENT_SECRET", default_value = "", hide_env_values = true)]
     pub spotify_client_secret: String,
+    /// Base URL of the Spotify Web API (a test double in tests).
+    #[arg(long, env = "TOKULY_SPOTIFY_API_URL", default_value = "https://api.spotify.com")]
+    pub spotify_api_url: String,
+
+    /// How many accounts one device may hold for quick switching.
+    #[arg(long, env = "TOKULY_DEVICE_ACCOUNT_LIMIT", default_value_t = 5)]
+    pub device_account_limit: i32,
+
+    /// A switch to an account with two-factor authentication asks for the
+    /// code again when its session on that device has not passed it within
+    /// this many hours.
+    #[arg(long, env = "TOKULY_ACCOUNT_SWITCH_MFA_HOURS", default_value_t = 12)]
+    pub switch_mfa_hours: i64,
+
+    /// Let the profile link check reach loopback addresses and other ports
+    /// (development and tests only; refused in production).
+    #[arg(long, env = "TOKULY_PROFILE_LINKS_ALLOW_LOOPBACK", default_value_t = false, action = clap::ArgAction::Set)]
+    pub profile_links_allow_loopback: bool,
 }
 
 impl Default for IdentityConfig {
@@ -41,6 +54,10 @@ impl Default for IdentityConfig {
             deletion_grace_days: 30,
             spotify_client_id: String::new(),
             spotify_client_secret: String::new(),
+            spotify_api_url: "https://api.spotify.com".to_owned(),
+            device_account_limit: 5,
+            switch_mfa_hours: 12,
+            profile_links_allow_loopback: false,
         }
     }
 }

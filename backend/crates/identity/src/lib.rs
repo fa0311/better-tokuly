@@ -4,6 +4,19 @@
 //! IDs into `UserSummary`) and [`settings::privacy_of`]. Domains that know
 //! more about a user than identity does (friendship, distance, counters)
 //! plug into profiles through [`ProfileExtension`].
+//!
+//! Modules:
+//! - `auth_svc`, `account_svc`, `profile_svc` — the three services' handlers;
+//! - [`users`] — account rows, summaries, handle rules and validation;
+//! - [`sessions`] — sessions and refresh-token rotation; [`device_accounts`]
+//!   — several accounts on one device and switching between them (with the
+//!   threat model);
+//! - [`extras`] — the プロフ帳 (profile extras, their audiences, prompts,
+//!   search terms) and [`link_check`] — verifying profile links by a link back;
+//! - [`birthdays`] — who sees a birthday, for every domain;
+//! - [`bots`] — which accounts are bots and whose, and [`bots::humans_only`];
+//! - [`settings`], `passkeys`, `totp`, `connections` (Spotify), [`moderation`],
+//!   [`maintenance`] (workers, purge, export, event payloads).
 use std::{collections::HashMap, ops::Deref, sync::Arc};
 
 use async_trait::async_trait;
@@ -14,8 +27,13 @@ use webauthn_rs::{Webauthn, WebauthnBuilder};
 
 mod account_svc;
 mod auth_svc;
+pub mod birthdays;
+pub mod bots;
 pub mod config;
 mod connections;
+pub mod device_accounts;
+pub mod extras;
+pub mod link_check;
 mod mailer;
 pub mod maintenance;
 pub mod moderation;
@@ -40,22 +58,13 @@ pub trait ProfileExtension: Send + Sync + 'static {
     /// `ProfileCard` onto `profile.cards` (kind `"<domain>.<thing>"`, text
     /// in both languages); respect the owner's privacy when deciding
     /// whether `viewer` gets to see it.
-    async fn enrich_profile(
-        &self,
-        _viewer: Option<Uuid>,
-        _owner: Uuid,
-        _profile: &mut Profile,
-    ) -> AppResult<()> {
+    async fn enrich_profile(&self, _viewer: Option<Uuid>, _owner: Uuid, _profile: &mut Profile) -> AppResult<()> {
         Ok(())
     }
 
     /// Relationship and mutual-friend count between `viewer` and each user.
     /// Users missing from the map are treated as unrelated.
-    async fn relationships(
-        &self,
-        _viewer: Uuid,
-        _user_ids: &[Uuid],
-    ) -> AppResult<HashMap<Uuid, (Relationship, i32)>> {
+    async fn relationships(&self, _viewer: Uuid, _user_ids: &[Uuid]) -> AppResult<HashMap<Uuid, (Relationship, i32)>> {
         Ok(HashMap::new())
     }
 
@@ -101,6 +110,10 @@ impl Deref for Identity {
 
 impl Identity {
     pub fn new(core: Core, cfg: IdentityConfig) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            !(core.cfg.is_production() && cfg.profile_links_allow_loopback),
+            "TOKULY_PROFILE_LINKS_ALLOW_LOOPBACK must not be set in production"
+        );
         let origin = url::Url::parse(core.cfg.public_url())?;
         let rp_id = core.cfg.public_host();
         let webauthn = WebauthnBuilder::new(&rp_id, &origin)
@@ -110,12 +123,7 @@ impl Identity {
             .allow_any_port(!core.cfg.is_production())
             .build()
             .map_err(|e| anyhow::anyhow!("webauthn configuration: {e}"))?;
-        Ok(Self(Arc::new(IdentityInner {
-            core,
-            cfg,
-            webauthn,
-            extensions: RwLock::new(Vec::new()),
-        })))
+        Ok(Self(Arc::new(IdentityInner { core, cfg, webauthn, extensions: RwLock::new(Vec::new()) })))
     }
 
     /// Registers a domain that enriches profiles. Call once at startup.
@@ -129,22 +137,26 @@ impl Identity {
 
     /// Registers this domain's RPC services on the Connect router.
     pub fn register(&self, router: connectrpc::Router) -> connectrpc::Router {
-        use tokuly_proto::identity::{
-            AccountServiceExt, AuthServiceExt, ProfileServiceExt,
-        };
+        use tokuly_proto::identity::{AccountServiceExt, AuthServiceExt, ProfileServiceExt};
         let me = Arc::new(self.clone());
         let router = AuthServiceExt::register(me.clone(), router);
         let router = AccountServiceExt::register(me.clone(), router);
         ProfileServiceExt::register(me, router)
     }
 
-    /// The account as its owner sees it.
+    /// The account as its owner sees it: everything the settings screens
+    /// need, the プロフ帳 with its audiences included.
     pub async fn me(&self, user: &UserRow) -> AppResult<Me> {
         let passkeys: i64 = sqlx::query_scalar("SELECT count(*) FROM passkeys WHERE user_id = $1")
             .bind(user.id)
             .fetch_one(&self.core.db)
             .await?;
         let features = self.core.flags.for_user(user.id).await;
-        Ok(user.to_me(passkeys as i32, features))
+        let mut me = user.to_me(passkeys as i32, features);
+        me.extras = self.own_extras(user.id, user.birthdate).await?.into();
+        if let Some(owner) = user.bot_owner_id {
+            me.bot_owner = users::summary(&self.core, owner).await?.into();
+        }
+        Ok(me)
     }
 }

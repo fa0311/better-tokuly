@@ -5,15 +5,12 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use connectrpc::{RequestContext, Response, ServiceRequest, ServiceResult};
 use serde::{Deserialize, Serialize};
-use tokuly_core::{
-    analytics::AnalyticsEvent, auth::ClientMeta, events, keys::random_token, prelude::*,
-};
+use tokuly_core::{analytics::AnalyticsEvent, auth::ClientMeta, events, keys::random_token, prelude::*};
 use tokuly_proto::identity::*;
 
 use crate::{
     Identity,
     sessions::{Issued, REFRESH_COOKIE, cookie_value},
-    totp,
     users::{self, UserRow},
 };
 
@@ -80,22 +77,14 @@ fn new_user_code() -> String {
 }
 
 fn normalize_user_code(input: &str) -> String {
-    let compact: String = input
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric())
-        .map(|c| c.to_ascii_uppercase())
-        .collect();
-    if compact.len() == 8 {
-        format!("{}-{}", &compact[..4], &compact[4..])
-    } else {
-        compact
-    }
+    let compact: String = input.chars().filter(|c| c.is_ascii_alphanumeric()).map(|c| c.to_ascii_uppercase()).collect();
+    if compact.len() == 8 { format!("{}-{}", &compact[..4], &compact[4..]) } else { compact }
 }
 
 impl Identity {
     /// Builds the response for a successful authentication. Web clients get
     /// the refresh token as an HttpOnly cookie instead of in the body.
-    async fn auth_response(
+    pub(crate) async fn auth_response(
         &self,
         issued: Issued,
         user: &UserRow,
@@ -103,11 +92,7 @@ impl Identity {
     ) -> AppResult<Response<AuthResponse>> {
         let body = AuthResponse {
             access_token: issued.access_token,
-            refresh_token: if meta.is_web {
-                String::new()
-            } else {
-                issued.refresh_token.clone()
-            },
+            refresh_token: if meta.is_web { String::new() } else { issued.refresh_token.clone() },
             access_token_expires_at: ts(issued.access_expires_at),
             me: self.me(user).await?.into(),
             session_id: issued.session_id.to_string(),
@@ -146,6 +131,44 @@ impl Identity {
         Ok(token)
     }
 
+    /// Signs `user` in on this device after their credentials were checked:
+    /// with `add_account`, beside the accounts already there (the active one
+    /// is parked, the cap applies) instead of in their place. Logs the
+    /// sign-in and builds the response.
+    async fn establish_session(
+        &self,
+        ctx: &RequestContext,
+        user: &UserRow,
+        client: Option<&ClientInfo>,
+        method: &str,
+        mfa: bool,
+        add_account: bool,
+    ) -> AppResult<Response<AuthResponse>> {
+        let meta = ctx.client();
+        let current = ctx.maybe_auth().ok().flatten().map(|auth| auth.session_id);
+        let device_id = client.map(|c| c.device_id.as_str()).unwrap_or_default();
+        let (parked, others) =
+            if add_account { self.make_room_for(user, &meta, current, device_id).await? } else { (Vec::new(), false) };
+        let origin = crate::sessions::SessionOrigin { mfa, added_by_switch: others };
+        let issued = self.create_session_with(user, client, &meta, origin).await?;
+        let kind = if method == "signup" { "SIGN_UP" } else { "SIGN_IN" };
+        let device_name = client.map(|c| c.device_name.as_str()).unwrap_or("");
+        self.log_security_event(
+            user.id,
+            kind,
+            &meta,
+            device_name,
+            serde_json::json!({ "method": method, "added_account": others }),
+        )
+        .await;
+        let response = self.auth_response(issued, user, &meta).await?;
+        Ok(if add_account && meta.is_web {
+            response.with_header("set-cookie", self.parked_cookie(&parked))
+        } else {
+            response
+        })
+    }
+
     /// Invalidates the mailed links of a user that change the address or the
     /// password. Called when the password changes: a link someone requested
     /// while they knew the old password must not outlive it.
@@ -158,11 +181,7 @@ impl Identity {
     }
 
     /// Marks an email token used and returns `(user_id, purpose, email)`.
-    async fn consume_email_token(
-        &self,
-        token: &str,
-        purposes: &[&str],
-    ) -> AppResult<(Uuid, String, String)> {
+    async fn consume_email_token(&self, token: &str, purposes: &[&str]) -> AppResult<(Uuid, String, String)> {
         let row: Option<(Uuid, String, String)> = sqlx::query_as(
             "UPDATE email_tokens SET used_at = now()
              WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now() AND purpose = ANY($2)
@@ -194,7 +213,14 @@ impl Identity {
     /// so a second change cannot take the first undo away. Only a verified
     /// address is offered one: an undo must not hand an account an address it
     /// never proved.
-    async fn offer_email_revert(&self, user_id: Uuid, previous: &str, verified_at: DateTime<Utc>, current: &str, locale: &str) -> AppResult<()> {
+    async fn offer_email_revert(
+        &self,
+        user_id: Uuid,
+        previous: &str,
+        verified_at: DateTime<Utc>,
+        current: &str,
+        locale: &str,
+    ) -> AppResult<()> {
         let token = random_token(32);
         let token_hash = self.core.keys.token_hash(&token);
         let ttl = chrono::Duration::days(REVERT_TTL_DAYS);
@@ -210,7 +236,8 @@ impl Identity {
             .bind(Utc::now() + ttl)
             .execute(&self.core.db)
             .await?;
-        let (identity, previous, current, locale) = (self.clone(), previous.to_owned(), current.to_owned(), locale.to_owned());
+        let (identity, previous, current, locale) =
+            (self.clone(), previous.to_owned(), current.to_owned(), locale.to_owned());
         tokio::spawn(async move {
             if let Err(e) = identity.send_email_changed_mail(&previous, &locale, &current, &token).await {
                 tracing::warn!(%user_id, error = %e, "email changed mail failed");
@@ -220,27 +247,14 @@ impl Identity {
     }
 
     /// Sends (or re-sends) the address verification mail without blocking the caller.
-    pub(crate) fn spawn_verification_mail(
-        &self,
-        user_id: Uuid,
-        email: String,
-        locale: String,
-        purpose: &'static str,
-    ) {
+    pub(crate) fn spawn_verification_mail(&self, user_id: Uuid, email: String, locale: String, purpose: &'static str) {
         let identity = self.clone();
         tokio::spawn(async move {
             let result = async {
                 let token = identity
-                    .create_email_token(
-                        user_id,
-                        purpose,
-                        &email,
-                        chrono::Duration::hours(VERIFY_TTL_HOURS),
-                    )
+                    .create_email_token(user_id, purpose, &email, chrono::Duration::hours(VERIFY_TTL_HOURS))
                     .await?;
-                identity
-                    .send_verification_mail(&email, &locale, &token, purpose == "change")
-                    .await
+                identity.send_verification_mail(&email, &locale, &token, purpose == "change").await
             }
             .await;
             if let Err(e) = result {
@@ -253,25 +267,12 @@ impl Identity {
     /// are limited per account (20 per 10 minutes): approving a code someone
     /// else is waiting on would sign their device into this account.
     async fn device_login_by_user_code(&self, user_id: Uuid, user_code: &str) -> AppResult<(String, DeviceLogin)> {
-        self.core
-            .cache
-            .rate_limit(&format!("devcode:user:{user_id}"), 20, Duration::from_secs(600))
-            .await?;
+        self.core.cache.rate_limit(&format!("devcode:user:{user_id}"), 20, Duration::from_secs(600)).await?;
         let code = normalize_user_code(user_code);
-        let not_found =
-            || AppError::not_found("DEVICE_CODE_INVALID", "this code is invalid or has expired");
-        let key = self
-            .core
-            .cache
-            .get_string(&format!("id:devcode:{code}"))
-            .await?
-            .ok_or_else(not_found)?;
-        let login: DeviceLogin = self
-            .core
-            .cache
-            .get_json(&format!("id:devlogin:{key}"))
-            .await?
-            .ok_or_else(not_found)?;
+        let not_found = || AppError::not_found("DEVICE_CODE_INVALID", "this code is invalid or has expired");
+        let key = self.core.cache.get_string(&format!("id:devcode:{code}")).await?.ok_or_else(not_found)?;
+        let login: DeviceLogin =
+            self.core.cache.get_json(&format!("id:devlogin:{key}")).await?.ok_or_else(not_found)?;
         Ok((key, login))
     }
 }
@@ -349,10 +350,8 @@ impl AuthService for Identity {
         tx.commit().await?;
 
         self.spawn_verification_mail(user.id, email, locale, "verify");
-        let issued = self.create_session(&user, client, &meta).await?;
-        self.log_security_event(user.id, "SIGN_UP", &meta, "", serde_json::json!({})).await;
         core.analytics.track(AnalyticsEvent::new("user.signup").user(Some(user.id))).await;
-        self.auth_response(issued, &user, &meta).await
+        self.establish_session(&ctx, &user, client, "signup", false, req.add_account).await
         })
         .await
     }
@@ -373,120 +372,37 @@ impl AuthService for Identity {
                 "INVALID_CREDENTIALS",
                 "enter your email or handle and password"
             );
-            core.cache
-                .rate_limit(
-                    &format!("signin:ip:{}", meta.ip),
-                    30,
-                    Duration::from_secs(300),
-                )
-                .await?;
-            core.cache
-                .rate_limit(
-                    &format!("signin:id:{identifier}"),
-                    10,
-                    Duration::from_secs(300),
-                )
-                .await?;
+            core.cache.rate_limit(&format!("signin:ip:{}", meta.ip), 30, Duration::from_secs(300)).await?;
+            core.cache.rate_limit(&format!("signin:id:{identifier}"), 10, Duration::from_secs(300)).await?;
 
             let user = users::find_by_identifier(core, &identifier).await?;
             if let Some(user) = &user {
                 // However the account was named (handle, address), one budget.
-                core.cache
-                    .rate_limit(&format!("signin:user:{}", user.id), 10, Duration::from_secs(300))
-                    .await?;
+                core.cache.rate_limit(&format!("signin:user:{}", user.id), 10, Duration::from_secs(300)).await?;
             }
-            let password_ok = crate::password::verify(
-                &req.password,
-                user.as_ref().and_then(|u| u.password_hash.as_deref()),
-            )
-            .await;
+            let password_ok =
+                crate::password::verify(&req.password, user.as_ref().and_then(|u| u.password_hash.as_deref())).await;
             let Some(user) = user.filter(|_| password_ok) else {
                 if let Ok(Some(existing)) = users::find_by_identifier(core, &identifier).await {
-                    self.log_security_event(
-                        existing.id,
-                        "SIGN_IN_FAILED",
-                        &meta,
-                        "",
-                        serde_json::json!({}),
-                    )
-                    .await;
+                    self.log_security_event(existing.id, "SIGN_IN_FAILED", &meta, "", serde_json::json!({})).await;
                 }
-                bail!(
-                    unauthenticated,
-                    "INVALID_CREDENTIALS",
-                    "wrong email, handle or password"
-                );
+                bail!(unauthenticated, "INVALID_CREDENTIALS", "wrong email, handle or password");
             };
-            ensure!(
-                user.banned_at.is_none(),
-                denied,
-                "ACCOUNT_BANNED",
-                "this account has been suspended"
-            );
+            ensure!(user.banned_at.is_none(), denied, "ACCOUNT_BANNED", "this account has been suspended");
 
-            if user.totp_enabled_at.is_some() {
+            let mfa = user.totp_enabled_at.is_some();
+            if mfa {
                 if req.totp_code.trim().is_empty() {
-                    return ok(AuthResponse {
-                        mfa_required: true,
-                        ..Default::default()
-                    });
+                    return ok(AuthResponse { mfa_required: true, ..Default::default() });
                 }
-                self.limit_totp_attempts(user.id).await?;
-                let secret = user
-                    .totp_secret
-                    .as_deref()
-                    .and_then(|s| totp::open_secret(&core.keys, s));
-                let code_ok = match secret.as_deref() {
-                    Some(secret) => self.accept_totp(user.id, secret, &req.totp_code).await?,
-                    None => false,
-                };
-                if !code_ok {
-                    // A recovery code works once.
-                    let used: Option<Uuid> = sqlx::query_scalar(
-                    "UPDATE users SET recovery_code_hashes = array_remove(recovery_code_hashes, $2)
-                     WHERE id = $1 AND $2 = ANY(recovery_code_hashes) RETURNING id",
-                )
-                .bind(user.id)
-                .bind(totp::hash_recovery_code(&core.keys, &req.totp_code))
-                .fetch_optional(&core.db)
-                .await?;
-                    if used.is_none() {
-                        self.log_security_event(
-                            user.id,
-                            "SIGN_IN_FAILED",
-                            &meta,
-                            "",
-                            serde_json::json!({ "factor": "totp" }),
-                        )
-                        .await;
-                        bail!(unauthenticated, "INVALID_TOTP", "wrong authentication code");
-                    }
-                    self.log_security_event(
-                        user.id,
-                        "RECOVERY_CODE_USED",
-                        &meta,
-                        "",
-                        serde_json::json!({}),
-                    )
-                    .await;
-                }
+                ensure!(
+                    self.second_factor(&user, &req.totp_code, &meta).await?,
+                    unauthenticated,
+                    "INVALID_TOTP",
+                    "wrong authentication code"
+                );
             }
-
-            let issued = self
-                .create_session(&user, req.client.as_option(), &meta)
-                .await?;
-            self.log_security_event(
-                user.id,
-                "SIGN_IN",
-                &meta,
-                req.client
-                    .as_option()
-                    .map(|c| c.device_name.as_str())
-                    .unwrap_or(""),
-                serde_json::json!({ "method": "password" }),
-            )
-            .await;
-            self.auth_response(issued, &user, &meta).await
+            self.establish_session(&ctx, &user, req.client.as_option(), "password", mfa, req.add_account).await
         })
         .await
     }
@@ -498,9 +414,7 @@ impl AuthService for Identity {
     ) -> ServiceResult<AuthResponse> {
         let meta = ctx.client();
         let presented = if request.refresh_token.is_empty() {
-            cookie_value(&meta.cookies, REFRESH_COOKIE)
-                .unwrap_or_default()
-                .to_owned()
+            cookie_value(&meta.cookies, REFRESH_COOKIE).unwrap_or_default().to_owned()
         } else {
             request.refresh_token.to_owned()
         };
@@ -525,26 +439,34 @@ impl AuthService for Identity {
         request: ServiceRequest<'_, SignOutRequest>,
     ) -> ServiceResult<SignOutResponse> {
         handle(async {
-        let meta = ctx.client();
-        // Signing out must work even when the access token already expired.
-        if let Ok(Some(auth)) = ctx.maybe_auth() {
-            if request.all_sessions {
-                self.revoke_all_sessions(auth.user_id, None).await?;
-            } else {
-                self.revoke_session(auth.user_id, auth.session_id).await?;
+            let meta = ctx.client();
+            // Signing out must work even when the access token already expired.
+            if let Ok(Some(auth)) = ctx.maybe_auth() {
+                if request.all_sessions {
+                    self.revoke_all_sessions(auth.user_id, None).await?;
+                } else {
+                    self.revoke_session(auth.user_id, auth.session_id).await?;
+                }
+                self.log_security_event(
+                    auth.user_id,
+                    "SIGN_OUT",
+                    &meta,
+                    "",
+                    serde_json::json!({ "all": request.all_sessions }),
+                )
+                .await;
+            } else if let Some(token) = cookie_value(&meta.cookies, REFRESH_COOKIE) {
+                let row: Option<(Uuid, Uuid)> =
+                    sqlx::query_as("SELECT id, user_id FROM sessions WHERE refresh_hash = $1 AND revoked_at IS NULL")
+                        .bind(self.core.keys.token_hash(token))
+                        .fetch_optional(&self.core.db)
+                        .await?;
+                if let Some((session_id, user_id)) = row {
+                    self.revoke_session(user_id, session_id).await?;
+                }
             }
-            self.log_security_event(auth.user_id, "SIGN_OUT", &meta, "", serde_json::json!({ "all": request.all_sessions })).await;
-        } else if let Some(token) = cookie_value(&meta.cookies, REFRESH_COOKIE) {
-            let row: Option<(Uuid, Uuid)> = sqlx::query_as("SELECT id, user_id FROM sessions WHERE refresh_hash = $1 AND revoked_at IS NULL")
-                .bind(self.core.keys.token_hash(token))
-                .fetch_optional(&self.core.db)
-                .await?;
-            if let Some((session_id, user_id)) = row {
-                self.revoke_session(user_id, session_id).await?;
-            }
-        }
-        let response = Response::new(SignOutResponse::default());
-        Ok(if meta.is_web { response.with_header("set-cookie", self.clear_refresh_cookie()) } else { response })
+            let response = Response::new(SignOutResponse::default());
+            Ok(if meta.is_web { response.with_header("set-cookie", self.clear_refresh_cookie()) } else { response })
         })
         .await
     }
@@ -565,21 +487,16 @@ impl AuthService for Identity {
                     });
                 }
             };
-            let taken: bool =
-                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE handle = $1::citext)")
-                    .bind(&normalized)
-                    .fetch_one(&self.core.db)
-                    .await
-                    .map_err(AppError::from)?
-                    || users::handle_held_from(&self.core, &normalized, None).await?;
+            let taken: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE handle = $1::citext)")
+                .bind(&normalized)
+                .fetch_one(&self.core.db)
+                .await
+                .map_err(AppError::from)?
+                || users::handle_held_from(&self.core, &normalized, None).await?;
             ok(CheckHandleResponse {
                 available: !taken,
                 normalized,
-                reason: if taken {
-                    "TAKEN".to_owned()
-                } else {
-                    String::new()
-                },
+                reason: if taken { "TAKEN".to_owned() } else { String::new() },
                 ..Default::default()
             })
         })
@@ -594,13 +511,8 @@ impl AuthService for Identity {
         handle(async {
             let user = users::get(&self.core, ctx.user_id()?).await?;
             self.confirm_password(&user, request.current_password).await?;
-            let (challenge_id, options_json) =
-                Identity::begin_passkey_registration(self, &user, request.name).await?;
-            ok(BeginPasskeyRegistrationResponse {
-                challenge_id,
-                options_json,
-                ..Default::default()
-            })
+            let (challenge_id, options_json) = Identity::begin_passkey_registration(self, &user, request.name).await?;
+            ok(BeginPasskeyRegistrationResponse { challenge_id, options_json, ..Default::default() })
         })
         .await
     }
@@ -612,13 +524,9 @@ impl AuthService for Identity {
     ) -> ServiceResult<FinishPasskeyRegistrationResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
-            let passkey = Identity::finish_passkey_registration(
-                self,
-                user_id,
-                request.challenge_id,
-                request.credential_json,
-            )
-            .await?;
+            let passkey =
+                Identity::finish_passkey_registration(self, user_id, request.challenge_id, request.credential_json)
+                    .await?;
             self.log_security_event(
                 user_id,
                 "PASSKEY_ADDED",
@@ -629,10 +537,7 @@ impl AuthService for Identity {
             .await;
             let user = users::get(&self.core, user_id).await?;
             self.notify_security_change(&user, crate::mailer::SecurityNotice::PasskeyAdded);
-            ok(FinishPasskeyRegistrationResponse {
-                passkey: passkey.into(),
-                ..Default::default()
-            })
+            ok(FinishPasskeyRegistrationResponse { passkey: passkey.into(), ..Default::default() })
         })
         .await
     }
@@ -645,18 +550,10 @@ impl AuthService for Identity {
         handle(async {
             self.core
                 .cache
-                .rate_limit(
-                    &format!("passkey:ip:{}", ctx.client().ip),
-                    60,
-                    Duration::from_secs(300),
-                )
+                .rate_limit(&format!("passkey:ip:{}", ctx.client().ip), 60, Duration::from_secs(300))
                 .await?;
             let (challenge_id, options_json) = Identity::begin_passkey_sign_in(self).await?;
-            ok(BeginPasskeySignInResponse {
-                challenge_id,
-                options_json,
-                ..Default::default()
-            })
+            ok(BeginPasskeySignInResponse { challenge_id, options_json, ..Default::default() })
         })
         .await
     }
@@ -668,29 +565,11 @@ impl AuthService for Identity {
     ) -> ServiceResult<AuthResponse> {
         handle(async {
             let req = request.to_owned_message();
-            let meta = ctx.client();
-            let user =
-                Identity::finish_passkey_sign_in(self, &req.challenge_id, &req.credential_json)
-                    .await?;
-            ensure!(
-                user.banned_at.is_none(),
-                denied,
-                "ACCOUNT_BANNED",
-                "this account has been suspended"
-            );
-            // A passkey is possession + user verification, so no TOTP step follows.
-            let issued = self
-                .create_session(&user, req.client.as_option(), &meta)
-                .await?;
-            self.log_security_event(
-                user.id,
-                "SIGN_IN",
-                &meta,
-                "",
-                serde_json::json!({ "method": "passkey" }),
-            )
-            .await;
-            self.auth_response(issued, &user, &meta).await
+            let user = Identity::finish_passkey_sign_in(self, &req.challenge_id, &req.credential_json).await?;
+            ensure!(user.banned_at.is_none(), denied, "ACCOUNT_BANNED", "this account has been suspended");
+            // A passkey is possession + user verification, so no TOTP step
+            // follows, and it counts as the second factor.
+            self.establish_session(&ctx, &user, req.client.as_option(), "passkey", true, req.add_account).await
         })
         .await
     }
@@ -708,18 +587,8 @@ impl AuthService for Identity {
                 "EMAIL_ALREADY_VERIFIED",
                 "your email is already verified"
             );
-            let email = user
-                .email
-                .clone()
-                .or_not_found("EMAIL_MISSING", "no email address on this account")?;
-            self.core
-                .cache
-                .rate_limit(
-                    &format!("verify-mail:{}", user.id),
-                    5,
-                    Duration::from_secs(3600),
-                )
-                .await?;
+            let email = user.email.clone().or_not_found("EMAIL_MISSING", "no email address on this account")?;
+            self.core.cache.rate_limit(&format!("verify-mail:{}", user.id), 5, Duration::from_secs(3600)).await?;
             self.spawn_verification_mail(user.id, email, user.locale.clone(), "verify");
             ok(RequestEmailVerificationResponse::default())
         })
@@ -832,28 +701,40 @@ impl AuthService for Identity {
         request: ServiceRequest<'_, RequestPasswordResetRequest>,
     ) -> ServiceResult<RequestPasswordResetResponse> {
         handle(async {
-        let meta = ctx.client();
-        self.core.cache.rate_limit(&format!("reset:ip:{}", meta.ip), 10, Duration::from_secs(3600)).await?;
-        // Always succeed so the response does not reveal whether the address is registered.
-        if let Ok(email) = users::validate_email(request.email) {
-            if let Some(user) = users::find_by_identifier(&self.core, &email).await? {
-                let limited = self.core.cache.rate_limit(&format!("reset:user:{}", user.id), 3, Duration::from_secs(3600)).await.is_err();
-                if !limited && user.banned_at.is_none() {
-                    let identity = self.clone();
-                    tokio::spawn(async move {
-                        let result = async {
-                            let token = identity.create_email_token(user.id, "reset", &email, chrono::Duration::minutes(RESET_TTL_MINUTES)).await?;
-                            identity.send_password_reset_mail(&email, &user.locale, &token).await
-                        }
-                        .await;
-                        if let Err(e) = result {
-                            tracing::warn!(user_id = %user.id, error = %e, "password reset mail failed");
-                        }
-                    });
+            let meta = ctx.client();
+            self.core.cache.rate_limit(&format!("reset:ip:{}", meta.ip), 10, Duration::from_secs(3600)).await?;
+            // Always succeed so the response does not reveal whether the address is registered.
+            if let Ok(email) = users::validate_email(request.email) {
+                if let Some(user) = users::find_by_identifier(&self.core, &email).await? {
+                    let limited = self
+                        .core
+                        .cache
+                        .rate_limit(&format!("reset:user:{}", user.id), 3, Duration::from_secs(3600))
+                        .await
+                        .is_err();
+                    if !limited && user.banned_at.is_none() {
+                        let identity = self.clone();
+                        tokio::spawn(async move {
+                            let result = async {
+                                let token = identity
+                                    .create_email_token(
+                                        user.id,
+                                        "reset",
+                                        &email,
+                                        chrono::Duration::minutes(RESET_TTL_MINUTES),
+                                    )
+                                    .await?;
+                                identity.send_password_reset_mail(&email, &user.locale, &token).await
+                            }
+                            .await;
+                            if let Err(e) = result {
+                                tracing::warn!(user_id = %user.id, error = %e, "password reset mail failed");
+                            }
+                        });
+                    }
                 }
             }
-        }
-        ok(RequestPasswordResetResponse::default())
+            ok(RequestPasswordResetResponse::default())
         })
         .await
     }
@@ -891,14 +772,7 @@ impl AuthService for Identity {
         handle(async {
             let req = request.to_owned_message();
             let meta = ctx.client();
-            self.core
-                .cache
-                .rate_limit(
-                    &format!("devlogin:ip:{}", meta.ip),
-                    20,
-                    Duration::from_secs(600),
-                )
-                .await?;
+            self.core.cache.rate_limit(&format!("devlogin:ip:{}", meta.ip), 20, Duration::from_secs(600)).await?;
             let client = req.client.as_option().cloned().unwrap_or_default();
             let device_code = random_token(32);
             let key = self.core.keys.token_hash(&device_code);
@@ -917,22 +791,8 @@ impl AuthService for Identity {
                 user_id: None,
                 expires_at: Utc::now() + chrono::Duration::from_std(DEVICE_LOGIN_TTL).unwrap(),
             };
-            self.core
-                .cache
-                .set_json(
-                    &format!("id:devlogin:{key}"),
-                    &login,
-                    Some(DEVICE_LOGIN_TTL),
-                )
-                .await?;
-            self.core
-                .cache
-                .set_string(
-                    &format!("id:devcode:{user_code}"),
-                    &key,
-                    Some(DEVICE_LOGIN_TTL),
-                )
-                .await?;
+            self.core.cache.set_json(&format!("id:devlogin:{key}"), &login, Some(DEVICE_LOGIN_TTL)).await?;
+            self.core.cache.set_string(&format!("id:devcode:{user_code}"), &key, Some(DEVICE_LOGIN_TTL)).await?;
             ok(StartDeviceLoginResponse {
                 device_code,
                 verification_url: self.core.web_url(&format!("device?code={user_code}")),
@@ -953,16 +813,8 @@ impl AuthService for Identity {
         handle(async {
             let meta = ctx.client();
             let key = self.core.keys.token_hash(request.device_code);
-            self.core
-                .cache
-                .rate_limit(&format!("devpoll:{key}"), 120, Duration::from_secs(600))
-                .await?;
-            let Some(login) = self
-                .core
-                .cache
-                .get_json::<DeviceLogin>(&format!("id:devlogin:{key}"))
-                .await?
-            else {
+            self.core.cache.rate_limit(&format!("devpoll:{key}"), 120, Duration::from_secs(600)).await?;
+            let Some(login) = self.core.cache.get_json::<DeviceLogin>(&format!("id:devlogin:{key}")).await? else {
                 return ok(PollDeviceLoginResponse {
                     status: DeviceLoginStatus::DEVICE_LOGIN_STATUS_EXPIRED.into(),
                     ..Default::default()
@@ -970,37 +822,20 @@ impl AuthService for Identity {
             };
             let status = login.status();
             if status != DeviceLoginStatus::DEVICE_LOGIN_STATUS_APPROVED {
-                return ok(PollDeviceLoginResponse {
-                    status: status.into(),
-                    ..Default::default()
-                });
+                return ok(PollDeviceLoginResponse { status: status.into(), ..Default::default() });
             }
             // Approved: this poll claims the login exactly once.
-            let claimed: Option<DeviceLogin> = self
-                .core
-                .cache
-                .take_json(&format!("id:devlogin:{key}"))
-                .await?;
+            let claimed: Option<DeviceLogin> = self.core.cache.take_json(&format!("id:devlogin:{key}")).await?;
             let Some(login) = claimed else {
                 return ok(PollDeviceLoginResponse {
                     status: DeviceLoginStatus::DEVICE_LOGIN_STATUS_EXPIRED.into(),
                     ..Default::default()
                 });
             };
-            self.core
-                .cache
-                .del(&format!("id:devcode:{}", login.user_code))
-                .await?;
-            let user_id = login
-                .user_id
-                .or_not_found("DEVICE_CODE_INVALID", "this code is invalid or has expired")?;
+            self.core.cache.del(&format!("id:devcode:{}", login.user_code)).await?;
+            let user_id = login.user_id.or_not_found("DEVICE_CODE_INVALID", "this code is invalid or has expired")?;
             let user = users::get(&self.core, user_id).await?;
-            ensure!(
-                user.is_active(),
-                denied,
-                "ACCOUNT_BANNED",
-                "this account cannot sign in"
-            );
+            ensure!(user.is_active(), denied, "ACCOUNT_BANNED", "this account cannot sign in");
             let client = login.client();
             let issued = self.create_session(&user, Some(&client), &meta).await?;
             self.log_security_event(
@@ -1055,39 +890,67 @@ impl AuthService for Identity {
         handle(async {
             let user_id = ctx.user_id()?;
             let (key, mut login) = self.device_login_by_user_code(user_id, request.user_code).await?;
-            ensure!(
-                login.status == "pending",
-                precondition,
-                "DEVICE_CODE_USED",
-                "this code was already answered"
-            );
-            login.status = if request.approve {
-                "approved".to_owned()
-            } else {
-                "denied".to_owned()
-            };
+            ensure!(login.status == "pending", precondition, "DEVICE_CODE_USED", "this code was already answered");
+            login.status = if request.approve { "approved".to_owned() } else { "denied".to_owned() };
             login.user_id = request.approve.then_some(user_id);
-            let remaining = (login.expires_at - Utc::now())
-                .to_std()
-                .unwrap_or(Duration::from_secs(1));
-            self.core
-                .cache
-                .set_json(&format!("id:devlogin:{key}"), &login, Some(remaining))
-                .await?;
-            let kind = if request.approve {
-                "DEVICE_LOGIN_APPROVED"
-            } else {
-                "DEVICE_LOGIN_DENIED"
-            };
-            self.log_security_event(
-                user_id,
-                kind,
-                &ctx.client(),
-                &login.device_name,
-                serde_json::json!({}),
-            )
-            .await;
+            let remaining = (login.expires_at - Utc::now()).to_std().unwrap_or(Duration::from_secs(1));
+            self.core.cache.set_json(&format!("id:devlogin:{key}"), &login, Some(remaining)).await?;
+            let kind = if request.approve { "DEVICE_LOGIN_APPROVED" } else { "DEVICE_LOGIN_DENIED" };
+            self.log_security_event(user_id, kind, &ctx.client(), &login.device_name, serde_json::json!({})).await;
             ok(ApproveDeviceLoginResponse::default())
+        })
+        .await
+    }
+
+    async fn list_device_accounts(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, ListDeviceAccountsRequest>,
+    ) -> ServiceResult<ListDeviceAccountsResponse> {
+        handle(async {
+            let meta = ctx.client();
+            let current = ctx.maybe_auth().ok().flatten().filter(|a| a.api_token.is_none()).map(|a| a.session_id);
+            let native: Vec<String> = request.refresh_tokens.iter().map(|t| t.to_string()).collect();
+            let (accounts, cookie) = self.device_accounts(&meta, current, &native).await?;
+            let response = Response::new(ListDeviceAccountsResponse {
+                accounts,
+                limit: self.cfg.device_account_limit,
+                ..Default::default()
+            });
+            Ok(match cookie {
+                Some(cookie) => response.with_header("set-cookie", cookie),
+                None => response,
+            })
+        })
+        .await
+    }
+
+    async fn switch_account(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, SwitchAccountRequest>,
+    ) -> ServiceResult<AuthResponse> {
+        handle(async {
+            let meta = ctx.client();
+            let current = ctx.maybe_auth().ok().flatten().filter(|a| a.api_token.is_none()).map(|a| a.session_id);
+            self.switch_account(&meta, current, request.session_id, request.refresh_token, request.totp_code).await
+        })
+        .await
+    }
+
+    async fn remove_device_account(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, RemoveDeviceAccountRequest>,
+    ) -> ServiceResult<RemoveDeviceAccountResponse> {
+        handle(async {
+            let meta = ctx.client();
+            let cookie = self.remove_device_account(&meta, request.session_id, request.refresh_token).await?;
+            let response = Response::new(RemoveDeviceAccountResponse::default());
+            Ok(match cookie {
+                Some(cookie) => response.with_header("set-cookie", cookie),
+                None => response,
+            })
         })
         .await
     }
@@ -1102,10 +965,7 @@ mod tests {
         let code = new_user_code();
         assert_eq!(code.len(), 9);
         assert_eq!(code.as_bytes()[4], b'-');
-        assert!(
-            code.chars()
-                .all(|c| c == '-' || (c.is_ascii_alphanumeric() && !"IO01".contains(c)))
-        );
+        assert!(code.chars().all(|c| c == '-' || (c.is_ascii_alphanumeric() && !"IO01".contains(c))));
         assert_eq!(normalize_user_code("abcd 2345"), "ABCD-2345");
         assert_eq!(normalize_user_code("ABCD-2345"), "ABCD-2345");
         assert_eq!(normalize_user_code("x"), "X");

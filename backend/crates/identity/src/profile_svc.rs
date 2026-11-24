@@ -8,7 +8,7 @@ use tokuly_media::assets::image_from_json;
 use tokuly_proto::{common::UserSummary, identity::*};
 
 use crate::{
-    Identity, settings,
+    Identity, birthdays, extras, settings,
     users::{self, UserRow},
 };
 
@@ -45,6 +45,17 @@ impl Identity {
 
     /// The profile of `user` as `viewer` sees it.
     pub async fn profile_of(&self, user: &UserRow, viewer: Option<Uuid>) -> AppResult<Profile> {
+        self.profile_as(user, viewer, false).await
+    }
+
+    /// [`Self::profile_of`]; `moderating` shows the whole プロフ帳 with its
+    /// audiences (the caller checked the role).
+    pub(crate) async fn profile_as(
+        &self,
+        user: &UserRow,
+        viewer: Option<Uuid>,
+        moderating: bool,
+    ) -> AppResult<Profile> {
         let days = (Utc::now() - user.created_at).num_days().max(0) as i32;
         let mut profile = Profile {
             user: user.summary().into(),
@@ -68,9 +79,7 @@ impl Identity {
             ..Default::default()
         };
         for extension in self.profile_extensions() {
-            extension
-                .enrich_profile(viewer, user.id, &mut profile)
-                .await?;
+            extension.enrich_profile(viewer, user.id, &mut profile).await?;
         }
         // Cards come from several domains; their own `order` decides the layout.
         profile.cards.sort_by_key(|card| card.order);
@@ -82,16 +91,54 @@ impl Identity {
         if close && settings::privacy_from_json(&user.privacy).share_now_playing {
             profile.now_playing = self.now_playing(user.id).await.into();
         }
+        // The プロフ帳, by what the viewer is to the owner (blocks never get
+        // here: such a viewer cannot see the profile at all).
+        let as_viewer = match profile.relationship.as_known() {
+            _ if moderating => extras::Viewer::Moderator,
+            Some(Relationship::RELATIONSHIP_SELF) => extras::Viewer::Owner,
+            Some(Relationship::RELATIONSHIP_FRIENDS) => extras::Viewer::Friend,
+            _ => extras::Viewer::Other,
+        };
+        profile.extras = extras::Extras::load(&self.core, user.id, user.birthdate).await?.view(as_viewer).into();
+        let closeness = match as_viewer {
+            extras::Viewer::Owner => birthdays::Closeness::Owner,
+            extras::Viewer::Friend => birthdays::Closeness::Friend,
+            _ => birthdays::Closeness::Other,
+        };
+        if let Some(birthdate) = user.birthdate
+            && let Some(shared) =
+                birthdays::share(user.id, birthdate, &settings::privacy_from_json(&user.privacy), closeness)
+        {
+            profile.birthday = BirthdayView {
+                month: shared.month as i32,
+                day: shared.day as i32,
+                year: shared.year.unwrap_or(0),
+                ..Default::default()
+            }
+            .into();
+        }
+        profile.bot = user.bot;
+        if let Some(owner) = user.bot_owner_id {
+            // The person behind a bot, unless they and the viewer are in a block.
+            let hidden = match viewer {
+                Some(viewer) => self.hidden_among(viewer, &[owner]).await?.contains(&owner),
+                None => false,
+            };
+            if !hidden {
+                profile.bot_owner = users::summary(&self.core, owner).await?.into();
+            }
+        }
         Ok(profile)
     }
 
-    async fn relationships(
+    /// Relationship and mutual-friend count of `viewer` to each of
+    /// `user_ids`, per the registered extensions (the viewer is SELF).
+    pub(crate) async fn relationships_of(
         &self,
-        viewer: Option<Uuid>,
+        viewer: Uuid,
         user_ids: &[Uuid],
     ) -> AppResult<std::collections::HashMap<Uuid, (Relationship, i32)>> {
         let mut out = std::collections::HashMap::new();
-        let Some(viewer) = viewer else { return Ok(out) };
         for extension in self.profile_extensions() {
             out.extend(extension.relationships(viewer, user_ids).await?);
         }
@@ -122,22 +169,40 @@ impl ProfileService for Identity {
             use tokuly_proto::identity::get_profile_request::By;
             let viewer = ctx.maybe_user_id()?;
             let req = request.to_owned_message();
+            let moderating = req.as_moderator;
+            if moderating {
+                let auth = ctx.auth()?;
+                ensure!(
+                    auth.api_token.is_none() && auth.has_role("moderator"),
+                    denied,
+                    "DENIED",
+                    "only moderators see a profile in full"
+                );
+            }
             let user = match req.by {
                 Some(By::UserId(id)) => users::find_by_id(&self.core, parse_id(&id)?).await?,
                 Some(By::Handle(handle)) => users::find_by_handle(&self.core, &handle).await?,
                 None => bail!(invalid, "MISSING_TARGET", "user_id or handle is required"),
             };
+            // Moderators also look at suspended accounts; nobody at erased ones.
             let user = user
-                .filter(|u| u.is_active())
+                .filter(|u| u.is_active() || (moderating && u.deleted_at.is_none()))
                 .or_not_found("USER_NOT_FOUND", "user not found")?;
-            ensure!(
-                self.can_view(viewer, user.id).await?,
-                not_found,
-                "USER_NOT_FOUND",
-                "user not found"
-            );
+            ensure!(moderating || self.can_view(viewer, user.id).await?, not_found, "USER_NOT_FOUND", "user not found");
+            if let (true, Some(moderator)) = (moderating, viewer) {
+                // A moderator's look past the audiences stays on record (in
+                // their own log: the owner is not told about a review).
+                self.log_security_event(
+                    moderator,
+                    "MODERATOR_PROFILE_VIEW",
+                    &ctx.client(),
+                    "",
+                    serde_json::json!({ "user_id": user.id }),
+                )
+                .await;
+            }
             ok(GetProfileResponse {
-                profile: self.profile_of(&user, viewer).await?.into(),
+                profile: self.profile_as(&user, viewer, moderating).await?.into(),
                 ..Default::default()
             })
         })
@@ -150,22 +215,10 @@ impl ProfileService for Identity {
         request: ServiceRequest<'_, BatchGetUsersRequest>,
     ) -> ServiceResult<BatchGetUsersResponse> {
         handle(async {
-            let ids: Vec<Uuid> = request
-                .user_ids
-                .iter()
-                .map(|id| parse_id(id))
-                .collect::<AppResult<_>>()?;
-            ensure!(
-                ids.len() <= 200,
-                invalid,
-                "TOO_MANY_IDS",
-                "at most 200 users per request"
-            );
+            let ids: Vec<Uuid> = request.user_ids.iter().map(|id| parse_id(id)).collect::<AppResult<_>>()?;
+            ensure!(ids.len() <= 200, invalid, "TOO_MANY_IDS", "at most 200 users per request");
             let users = users::summaries_ordered(&self.core, &ids).await?;
-            ok(BatchGetUsersResponse {
-                users,
-                ..Default::default()
-            })
+            ok(BatchGetUsersResponse { users, ..Default::default() })
         })
         .await
     }
@@ -176,20 +229,20 @@ impl ProfileService for Identity {
         request: ServiceRequest<'_, SearchUsersRequest>,
     ) -> ServiceResult<SearchUsersResponse> {
         handle(async {
-        let viewer = ctx.maybe_user_id()?;
-        let limiter = viewer.map(|u| u.to_string()).unwrap_or_else(|| ctx.client().ip);
-        self.core.cache.rate_limit(&format!("user-search:{limiter}"), 120, Duration::from_secs(60)).await?;
-        let query = request.query.trim().trim_start_matches('@');
-        if query.is_empty() {
-            return ok(SearchUsersResponse::default());
-        }
-        ensure!(query.chars().count() <= 64, invalid, "QUERY_TOO_LONG", "search query is too long");
-        let page = Page::from_view(request.page.as_option(), 50);
-        let offset: i64 = page.decode()?.unwrap_or(0);
-        // Exact handle first, then prefix matches, then fuzzy (trigram) matches.
-        let pattern = format!("%{}%", query.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_"));
-        let mut rows: Vec<SearchRow> = sqlx::query_as(
-            "SELECT id, handle::text AS handle, display_name, avatar, avatar_video_url, verified
+            let viewer = ctx.maybe_user_id()?;
+            let limiter = viewer.map(|u| u.to_string()).unwrap_or_else(|| ctx.client().ip);
+            self.core.cache.rate_limit(&format!("user-search:{limiter}"), 120, Duration::from_secs(60)).await?;
+            let query = request.query.trim().trim_start_matches('@');
+            if query.is_empty() {
+                return ok(SearchUsersResponse::default());
+            }
+            ensure!(query.chars().count() <= 64, invalid, "QUERY_TOO_LONG", "search query is too long");
+            let page = Page::from_view(request.page.as_option(), 50);
+            let offset: i64 = page.decode()?.unwrap_or(0);
+            // Exact handle first, then prefix matches, then fuzzy (trigram) matches.
+            let pattern = format!("%{}%", query.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_"));
+            let mut rows: Vec<SearchRow> = sqlx::query_as(
+                "SELECT id, handle::text AS handle, display_name, avatar, avatar_video_url, verified
              FROM users
              WHERE deleted_at IS NULL AND banned_at IS NULL
                AND (handle::text ILIKE $2 OR display_name ILIKE $2 OR handle::text % $1 OR display_name % $1)
@@ -198,52 +251,59 @@ impl ProfileService for Identity {
                       greatest(similarity(handle::text, $1), similarity(display_name, $1)) DESC,
                       id
              LIMIT $3 OFFSET $4",
-        )
-        .bind(query)
-        .bind(&pattern)
-        .bind(page.fetch())
-        .bind(offset)
-        .fetch_all(&self.core.db)
-        .await
-        .map_err(AppError::from)?;
-        let has_more = rows.len() as i64 > page.limit;
-        rows.truncate(page.limit as usize);
+            )
+            .bind(query)
+            .bind(&pattern)
+            .bind(page.fetch())
+            .bind(offset)
+            .fetch_all(&self.core.db)
+            .await
+            .map_err(AppError::from)?;
+            let has_more = rows.len() as i64 > page.limit;
+            rows.truncate(page.limit as usize);
 
-        let ids: Vec<Uuid> = rows.iter().map(|r| r.id).collect();
-        let relationships = self.relationships(viewer, &ids).await?;
-        let hidden = match viewer {
-            Some(viewer) => self.hidden_among(viewer, &ids).await?,
-            None => Default::default(),
-        };
-        let mut results = Vec::with_capacity(rows.len());
-        for row in rows {
-            let (relationship, mutual) = relationships.get(&row.id).copied().unwrap_or((Relationship::RELATIONSHIP_NONE, 0));
-            // People who blocked the searcher (or were blocked) do not show up.
-            if relationship == Relationship::RELATIONSHIP_BLOCKED || hidden.contains(&row.id) {
-                continue;
-            }
-            results.push(UserSearchResult {
-                user: UserSummary {
-                    id: row.id.to_string(),
-                    handle: row.handle,
-                    display_name: row.display_name,
-                    avatar: image_from_json(row.avatar.as_ref()).into(),
-                    avatar_video_url: row.avatar_video_url.unwrap_or_default(),
-                    verified: row.verified,
-                    ..Default::default()
+            let ids: Vec<Uuid> = rows.iter().map(|r| r.id).collect();
+            let relationships = match viewer {
+                Some(viewer) => self.relationships_of(viewer, &ids).await?,
+                None => Default::default(),
+            };
+            let bots = crate::bots::bots_among(&self.core, &ids).await?;
+            let hidden = match viewer {
+                Some(viewer) => self.hidden_among(viewer, &ids).await?,
+                None => Default::default(),
+            };
+            let mut results = Vec::with_capacity(rows.len());
+            for row in rows {
+                let (relationship, mutual) =
+                    relationships.get(&row.id).copied().unwrap_or((Relationship::RELATIONSHIP_NONE, 0));
+                // People who blocked the searcher (or were blocked) do not show up.
+                if relationship == Relationship::RELATIONSHIP_BLOCKED || hidden.contains(&row.id) {
+                    continue;
                 }
-                .into(),
-                relationship: relationship.into(),
-                mutual_friend_count: mutual,
+                results.push(UserSearchResult {
+                    user: UserSummary {
+                        id: row.id.to_string(),
+                        handle: row.handle,
+                        display_name: row.display_name,
+                        avatar: image_from_json(row.avatar.as_ref()).into(),
+                        avatar_video_url: row.avatar_video_url.unwrap_or_default(),
+                        verified: row.verified,
+                        ..Default::default()
+                    }
+                    .into(),
+                    relationship: relationship.into(),
+                    mutual_friend_count: mutual,
+                    bot: bots.contains(&row.id),
+                    ..Default::default()
+                });
+            }
+            let next_cursor =
+                if has_more { tokuly_core::page::encode_cursor(&(offset + page.limit)) } else { String::new() };
+            ok(SearchUsersResponse {
+                results,
+                page: tokuly_proto::common::PageInfo { next_cursor, has_more, ..Default::default() }.into(),
                 ..Default::default()
-            });
-        }
-        let next_cursor = if has_more { tokuly_core::page::encode_cursor(&(offset + page.limit)) } else { String::new() };
-        ok(SearchUsersResponse {
-            results,
-            page: tokuly_proto::common::PageInfo { next_cursor, has_more, ..Default::default() }.into(),
-            ..Default::default()
-        })
+            })
         })
         .await
     }
@@ -254,31 +314,31 @@ impl ProfileService for Identity {
         request: ServiceRequest<'_, RecordProfileViewRequest>,
     ) -> ServiceResult<RecordProfileViewResponse> {
         handle(async {
-        let viewer = ctx.user_id()?;
-        let viewed = parse_id(request.user_id)?;
-        // A blocked pair does not see each other, so a look is not recorded
-        // either (the answer is the same, so it does not tell about the block).
-        if viewer != viewed && self.can_view(Some(viewer), viewed).await? {
-            // One counted view per viewer per day.
-            let inserted = sqlx::query(
-                "INSERT INTO profile_views (viewed_id, viewer_id, day)
+            let viewer = ctx.user_id()?;
+            let viewed = parse_id(request.user_id)?;
+            // A blocked pair does not see each other, so a look is not recorded
+            // either (the answer is the same, so it does not tell about the block).
+            if viewer != viewed && self.can_view(Some(viewer), viewed).await? {
+                // One counted view per viewer per day.
+                let inserted = sqlx::query(
+                    "INSERT INTO profile_views (viewed_id, viewer_id, day)
                  SELECT $1, $2, current_date WHERE EXISTS (SELECT 1 FROM users WHERE id = $1 AND deleted_at IS NULL)
                  ON CONFLICT DO NOTHING",
-            )
-            .bind(viewed)
-            .bind(viewer)
-            .execute(&self.core.db)
-            .await
-            .map_err(AppError::from)?;
-            if inserted.rows_affected() == 1 {
-                sqlx::query("UPDATE users SET profile_view_count = profile_view_count + 1 WHERE id = $1")
-                    .bind(viewed)
-                    .execute(&self.core.db)
-                    .await
-                    .map_err(AppError::from)?;
+                )
+                .bind(viewed)
+                .bind(viewer)
+                .execute(&self.core.db)
+                .await
+                .map_err(AppError::from)?;
+                if inserted.rows_affected() == 1 {
+                    sqlx::query("UPDATE users SET profile_view_count = profile_view_count + 1 WHERE id = $1")
+                        .bind(viewed)
+                        .execute(&self.core.db)
+                        .await
+                        .map_err(AppError::from)?;
+                }
             }
-        }
-        ok(RecordProfileViewResponse::default())
+            ok(RecordProfileViewResponse::default())
         })
         .await
     }
@@ -323,6 +383,37 @@ impl ProfileService for Identity {
             .filter_map(|(id, at)| Some(ProfileViewer { user: summaries.get(&id)?.clone().into(), viewed_at: ts(at), ..Default::default() }))
             .collect();
         ok(GetProfileViewsResponse { total, last_24h: last_24h as i32, viewers, ..Default::default() })
+        })
+        .await
+    }
+
+    async fn list_profile_prompts(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, ListProfilePromptsRequest>,
+    ) -> ServiceResult<ListProfilePromptsResponse> {
+        handle(async { ok(ListProfilePromptsResponse { prompts: extras::prompt_messages(), ..Default::default() }) })
+            .await
+    }
+
+    async fn suggest_profile_tags(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, SuggestProfileTagsRequest>,
+    ) -> ServiceResult<SuggestProfileTagsResponse> {
+        handle(async {
+            let limiter = ctx.maybe_user_id()?.map(|u| u.to_string()).unwrap_or_else(|| ctx.client().ip);
+            self.core.cache.rate_limit(&format!("tag-suggest:{limiter}"), 120, Duration::from_secs(60)).await?;
+            let query = request.query.trim();
+            ensure!(query.chars().count() <= 24, invalid, "QUERY_TOO_LONG", "search query is too long");
+            let category = match request.category.as_known() {
+                Some(ProfileTagCategory::PROFILE_TAG_CATEGORY_UNSPECIFIED) | None => {
+                    bail!(invalid, "TAG_INVALID", "a category is required")
+                }
+                Some(category) => category as i32,
+            };
+            let suggestions = extras::suggest_tags(&self.core, category, query).await?;
+            ok(SuggestProfileTagsResponse { suggestions, ..Default::default() })
         })
         .await
     }

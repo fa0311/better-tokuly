@@ -501,6 +501,10 @@ const TABLE: &[(&str, &[(&str, Rule)])] = &[
         ("PollDeviceLogin", Session),
         ("GetDeviceLogin", Session),
         ("ApproveDeviceLogin", Session),
+        // Holding and switching the accounts of a device is credential handling.
+        ("ListDeviceAccounts", Session),
+        ("SwitchAccount", Session),
+        ("RemoveDeviceAccount", Session),
     ]),
     ("tokuly.identity.v1.AccountService", &[
         ("GetMe", Read),
@@ -525,6 +529,9 @@ const TABLE: &[(&str, &[(&str, Rule)])] = &[
         ("BeginConnection", Session),
         ("FinishConnection", Session),
         ("DeleteConnection", Session),
+        ("UpdateProfileExtras", Write),
+        ("PinSong", Write),
+        ("RecheckProfileLinks", Write),
     ]),
     ("tokuly.identity.v1.ProfileService", &[
         ("GetProfile", With(&["identity:read", "geo:read"])),
@@ -532,6 +539,8 @@ const TABLE: &[(&str, &[(&str, Rule)])] = &[
         ("SearchUsers", Read),
         ("RecordProfileView", Write),
         ("GetProfileViews", Read),
+        ("ListProfilePrompts", Read),
+        ("SuggestProfileTags", Read),
     ]),
     ("tokuly.media.v1.MediaService", &[
         ("CreateUpload", Write),

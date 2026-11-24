@@ -214,12 +214,8 @@ impl Dev {
             .bind(user_id)
             .execute(&mut *tx)
             .await?;
-        // The interim owner link on the account itself (see `bots`).
-        sqlx::query("UPDATE users SET attrs = attrs || jsonb_build_object('bot_owner_id', $2::uuid) WHERE id = $1")
-            .bind(bot_id)
-            .bind(user_id)
-            .execute(&mut *tx)
-            .await?;
+        // The owner on the account itself, which every domain reads.
+        tokuly_identity::bots::set_bot_owner(&mut tx, bot_id, user_id).await?;
         sqlx::query("DELETE FROM dev_webhooks WHERE account_id = $1").bind(bot_id).execute(&mut *tx).await?;
         let event = BotTransferEvent { bot_id, from_id, to_id: user_id };
         events::emit(&mut *tx, "dev.bot.transferred", Some(user_id), &event).await?;

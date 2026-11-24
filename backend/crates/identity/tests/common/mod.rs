@@ -1,0 +1,187 @@
+//! Helpers shared by the identity test binaries.
+#![allow(dead_code)]
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{Arc, Mutex, OnceLock},
+};
+
+use async_trait::async_trait;
+use axum::body::Body;
+use http_body_util::BodyExt as _;
+use tokuly_core::prelude::*;
+use tokuly_identity::{Identity, IdentityConfig, ProfileExtension};
+use tokuly_proto::identity::{Profile, Relationship};
+use tokuly_testkit::TestApp;
+use tower::ServiceExt as _;
+
+pub const MIGRATIONS: &[&str] = &["0001", "0100", "0400"];
+
+/// Friendships and blocks, standing in for the social domain.
+#[derive(Default)]
+pub struct FakeSocial {
+    friends: Mutex<HashSet<(Uuid, Uuid)>>,
+    blocks: Mutex<HashSet<(Uuid, Uuid)>>,
+}
+
+fn pair(a: Uuid, b: Uuid) -> (Uuid, Uuid) {
+    if a < b { (a, b) } else { (b, a) }
+}
+
+impl FakeSocial {
+    pub fn befriend(&self, a: Uuid, b: Uuid) {
+        self.friends.lock().unwrap().insert(pair(a, b));
+    }
+
+    pub fn block(&self, blocker: Uuid, blocked: Uuid) {
+        self.blocks.lock().unwrap().insert((blocker, blocked));
+    }
+
+    fn blocked_either(&self, a: Uuid, b: Uuid) -> bool {
+        let blocks = self.blocks.lock().unwrap();
+        blocks.contains(&(a, b)) || blocks.contains(&(b, a))
+    }
+
+    fn are_friends(&self, a: Uuid, b: Uuid) -> bool {
+        self.friends.lock().unwrap().contains(&pair(a, b))
+    }
+}
+
+#[async_trait]
+impl ProfileExtension for FakeSocial {
+    async fn enrich_profile(&self, viewer: Option<Uuid>, owner: Uuid, profile: &mut Profile) -> AppResult<()> {
+        if let Some(viewer) = viewer
+            && viewer != owner
+            && self.are_friends(viewer, owner)
+        {
+            profile.relationship = Relationship::RELATIONSHIP_FRIENDS.into();
+        }
+        Ok(())
+    }
+
+    async fn relationships(&self, viewer: Uuid, user_ids: &[Uuid]) -> AppResult<HashMap<Uuid, (Relationship, i32)>> {
+        Ok(user_ids
+            .iter()
+            .filter(|id| self.are_friends(viewer, **id))
+            .map(|id| (*id, (Relationship::RELATIONSHIP_FRIENDS, 0)))
+            .collect())
+    }
+
+    async fn can_view(&self, viewer: Uuid, owner: Uuid) -> AppResult<bool> {
+        Ok(!self.blocked_either(viewer, owner))
+    }
+}
+
+/// An app whose identity domain runs with `cfg` and a fake social domain.
+/// `app.identity` is the testkit's own instance; [`Ext::identity`] is the
+/// one serving the RPCs.
+pub struct Ext {
+    pub app: TestApp,
+    pub social: Arc<FakeSocial>,
+    pub identity: Identity,
+}
+
+pub async fn start(cfg: IdentityConfig) -> Ext {
+    let social = Arc::new(FakeSocial::default());
+    let served: Arc<OnceLock<Identity>> = Arc::new(OnceLock::new());
+    let (social_in, served_in) = (social.clone(), served.clone());
+    let app = TestApp::start(MIGRATIONS, move |core, _identity, router| {
+        let identity = Identity::new(core.clone(), cfg).expect("identity");
+        identity.add_profile_extension(social_in);
+        let _ = served_in.set(identity.clone());
+        identity.register(router)
+    })
+    .await;
+    let identity = served.get().expect("identity was built").clone();
+    Ext { app, social, identity }
+}
+
+pub fn unique(prefix: &str) -> String {
+    format!("{prefix}{}", tokuly_core::ids::random_base62(8).to_ascii_lowercase())
+}
+
+/// A raw answer of a call made like a browser (`x-tokuly-client: web`).
+pub struct WebAnswer {
+    pub status: u16,
+    pub reason: String,
+    pub cookies: Vec<String>,
+    pub body: serde_json::Value,
+}
+
+impl WebAnswer {
+    /// The value a `Set-Cookie` of this answer gives `name` (`Some("")` when it clears it).
+    pub fn cookie(&self, name: &str) -> Option<String> {
+        self.cookies.iter().find_map(|c| {
+            let first = c.split(';').next()?;
+            let (key, value) = first.split_once('=')?;
+            (key == name).then(|| value.to_owned())
+        })
+    }
+}
+
+/// A browser: a cookie jar in front of the identity router.
+pub struct Browser {
+    router: axum::Router,
+    pub jar: HashMap<String, String>,
+    ip: std::net::IpAddr,
+}
+
+impl Browser {
+    pub fn new(ext: &Ext) -> Self {
+        let router = axum::Router::new()
+            .fallback_service(ext.identity.register(connectrpc::Router::new()).into_axum_service())
+            .layer(axum::middleware::from_fn_with_state(
+                ext.app.core.auth_layer.clone(),
+                tokuly_core::auth::auth_middleware,
+            ));
+        use rand::RngExt as _;
+        let mut rng = rand::rng();
+        let ip = std::net::IpAddr::from([
+            10,
+            rng.random_range(0..255u8),
+            rng.random_range(0..255u8),
+            rng.random_range(1..255u8),
+        ]);
+        Self { router, jar: HashMap::new(), ip }
+    }
+
+    pub async fn call(&mut self, procedure: &str, access_token: Option<&str>, body: serde_json::Value) -> WebAnswer {
+        let cookie: Vec<String> = self.jar.iter().map(|(k, v)| format!("{k}={v}")).collect();
+        let mut request = http::Request::builder()
+            .method("POST")
+            .uri(format!("/{procedure}"))
+            .header("content-type", "application/json")
+            .header("x-tokuly-client", "web")
+            .header("user-agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/157.0.0.0 Safari/537.36")
+            .extension(axum::extract::ConnectInfo(std::net::SocketAddr::new(self.ip, 0)));
+        if !cookie.is_empty() {
+            request = request.header("cookie", cookie.join("; "));
+        }
+        if let Some(token) = access_token {
+            request = request.header("authorization", format!("Bearer {token}"));
+        }
+        let request = request.body(Body::from(serde_json::to_vec(&body).unwrap())).unwrap();
+        let response = self.router.clone().oneshot(request).await.unwrap();
+        let status = response.status().as_u16();
+        let reason =
+            response.headers().get("x-tokuly-error").and_then(|v| v.to_str().ok()).unwrap_or_default().to_owned();
+        let cookies: Vec<String> = response
+            .headers()
+            .get_all("set-cookie")
+            .iter()
+            .filter_map(|v| v.to_str().ok().map(str::to_owned))
+            .collect();
+        for c in &cookies {
+            let first = c.split(';').next().unwrap_or_default();
+            if let Some((key, value)) = first.split_once('=') {
+                if value.is_empty() || c.contains("Max-Age=0") {
+                    self.jar.remove(key);
+                } else {
+                    self.jar.insert(key.to_owned(), value.to_owned());
+                }
+            }
+        }
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let body = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+        WebAnswer { status, reason, cookies, body }
+    }
+}

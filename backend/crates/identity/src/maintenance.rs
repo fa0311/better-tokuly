@@ -2,6 +2,7 @@
 //!
 //! Events emitted (see `docs/events.md`):
 //! - `identity.user.created` — [`UserCreated`]
+//! - `identity.profile.updated` — [`crate::extras::ProfileUpdated`]
 //! - `identity.user.updated`, `identity.user.status_changed`,
 //!   `identity.user.privacy_changed`, `identity.user.deletion_requested`,
 //!   `identity.user.email_verified`, `identity.user.deleted` — [`UserRef`]
@@ -53,16 +54,24 @@ impl Identity {
     }
 
     /// Starts the identity workers: the data-export job, the consumer that
-    /// signs banned accounts out ([`Identity::on_account_event`]) and the
-    /// periodic purge of accounts whose deletion grace period ran out.
+    /// signs banned accounts out ([`Identity::on_account_event`]), the
+    /// profile link check (job and six-hourly sweep) and the periodic purge
+    /// of accounts whose deletion grace period ran out.
     pub fn spawn_workers(&self) {
         let identity = self.clone();
         let (bus, cancel) = (self.core.bus.clone(), self.core.shutdown.clone());
         tokio::spawn(async move {
-            events::consume(bus, "identity-sessions", ACCOUNT_TOPICS, ConsumeOptions::default(), cancel, move |event| {
-                let identity = identity.clone();
-                async move { identity.on_account_event(&event).await }
-            })
+            events::consume(
+                bus,
+                "identity-sessions",
+                ACCOUNT_TOPICS,
+                ConsumeOptions::default(),
+                cancel,
+                move |event| {
+                    let identity = identity.clone();
+                    async move { identity.on_account_event(&event).await }
+                },
+            )
             .await;
         });
 
@@ -74,11 +83,7 @@ impl Identity {
                 .jobs
                 .run(
                     "identity.export",
-                    JobOptions {
-                        concurrency: 2,
-                        lease: Duration::from_secs(120),
-                        max_deliver: 3,
-                    },
+                    JobOptions { concurrency: 2, lease: Duration::from_secs(120), max_deliver: 3 },
                     identity.core.shutdown.clone(),
                     move |job: ExportJob| {
                         let identity = handler_identity.clone();
@@ -86,6 +91,39 @@ impl Identity {
                     },
                 )
                 .await;
+        });
+
+        let identity = self.clone();
+        tokio::spawn(async move {
+            let handler_identity = identity.clone();
+            identity
+                .core
+                .jobs
+                .run(
+                    crate::extras::LINK_CHECK_JOB,
+                    JobOptions { concurrency: 4, lease: Duration::from_secs(120), max_deliver: 3 },
+                    identity.core.shutdown.clone(),
+                    move |job: crate::link_check::LinkCheckJob| {
+                        let identity = handler_identity.clone();
+                        async move { identity.check_profile_links(job.user_id).await.map(|_| ()) }
+                    },
+                )
+                .await;
+        });
+
+        let identity = self.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(crate::link_check::SWEEP_INTERVAL);
+            loop {
+                tokio::select! {
+                    _ = identity.core.shutdown.cancelled() => break,
+                    _ = tick.tick() => {
+                        if let Err(e) = identity.sweep_profile_links().await {
+                            tracing::error!(error = %e, "profile link sweep failed");
+                        }
+                    }
+                }
+            }
         });
 
         let identity = self.clone();
@@ -143,34 +181,22 @@ impl Identity {
                 .bind(user_id)
                 .fetch_all(&mut *tx)
                 .await?;
-            for table in [
-                "passkeys",
-                "email_tokens",
-                "security_events",
-                "connections",
-                "data_exports",
-            ] {
-                sqlx::query(sqlx::AssertSqlSafe(format!(
-                    "DELETE FROM {table} WHERE user_id = $1"
-                )))
-                .bind(user_id)
-                .execute(&mut *tx)
-                .await?;
+            for table in ["passkeys", "email_tokens", "security_events", "connections", "data_exports"] {
+                sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM {table} WHERE user_id = $1")))
+                    .bind(user_id)
+                    .execute(&mut *tx)
+                    .await?;
             }
+            crate::extras::erase(&mut tx, user_id).await?;
             for slot in ["avatar", "banner", "avatar-video"] {
-                tokuly_media::assets::detach_holder(&mut *tx, &crate::account_svc::profile_asset_holder(slot, user_id)).await?;
+                tokuly_media::assets::detach_holder(&mut *tx, &crate::account_svc::profile_asset_holder(slot, user_id))
+                    .await?;
             }
             sqlx::query("DELETE FROM profile_views WHERE viewed_id = $1 OR viewer_id = $1")
                 .bind(user_id)
                 .execute(&mut *tx)
                 .await?;
-            events::emit(
-                &mut *tx,
-                "identity.user.deleted",
-                Some(user_id),
-                &UserRef { user_id },
-            )
-            .await?;
+            events::emit(&mut *tx, "identity.user.deleted", Some(user_id), &UserRef { user_id }).await?;
             if let Some(handle) = &handle {
                 // Nobody gets to answer to the departed account's handle right away.
                 crate::users::hold_handle(&self.core, handle, user_id).await?;
@@ -195,7 +221,8 @@ impl Identity {
             let sessions = self.list_sessions(job.user_id, Uuid::nil()).await?;
             let settings = crate::settings::settings_from_json(&user.privacy, &user.appearance);
             let mut sections = serde_json::Map::new();
-            let to_json = |v: &dyn Fn() -> Result<serde_json::Value, serde_json::Error>| v().unwrap_or(serde_json::Value::Null);
+            let to_json =
+                |v: &dyn Fn() -> Result<serde_json::Value, serde_json::Error>| v().unwrap_or(serde_json::Value::Null);
             sections.insert("account".into(), to_json(&|| serde_json::to_value(&me)));
             sections.insert("settings".into(), to_json(&|| serde_json::to_value(&settings)));
             sections.insert("sessions".into(), to_json(&|| serde_json::to_value(&sessions)));
@@ -206,7 +233,10 @@ impl Identity {
                     }
                     Err(e) => {
                         tracing::warn!(section = exporter.name(), error = %e, "export section failed");
-                        sections.insert(exporter.name().to_owned(), serde_json::json!({ "error": "export of this section failed" }));
+                        sections.insert(
+                            exporter.name().to_owned(),
+                            serde_json::json!({ "error": "export of this section failed" }),
+                        );
                     }
                 }
             }
@@ -216,7 +246,8 @@ impl Identity {
                 "user_id": job.user_id,
                 "data": sections,
             });
-            let bytes = serde_json::to_vec_pretty(&archive).map_err(|e| AppError::internal(anyhow::anyhow!("export encode: {e}")))?;
+            let bytes = serde_json::to_vec_pretty(&archive)
+                .map_err(|e| AppError::internal(anyhow::anyhow!("export encode: {e}")))?;
             let size = bytes.len() as i64;
             let key = format!("exports/{}/{}.json", job.user_id, job.export_id);
             core.storage.put(Bucket::Private, &key, bytes, "application/json").await?;
@@ -244,12 +275,10 @@ impl Identity {
                 Ok(())
             }
             Err(e) => {
-                sqlx::query(
-                    "UPDATE data_exports SET status = 'failed', completed_at = now() WHERE id = $1",
-                )
-                .bind(job.export_id)
-                .execute(&core.db)
-                .await?;
+                sqlx::query("UPDATE data_exports SET status = 'failed', completed_at = now() WHERE id = $1")
+                    .bind(job.export_id)
+                    .execute(&core.db)
+                    .await?;
                 Err(e)
             }
         }
