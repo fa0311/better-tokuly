@@ -16,7 +16,7 @@ use crate::{
         ASSET_DELETED, AssetDeleted, CONTENT_REMOVED, FOLLOW_SETTINGS_CHANGED, STORY_EXPIRED, StoryExpired,
         USER_BLOCKED, USER_DELETED,
     },
-    posting::{JOB_LINK_PREVIEW, LinkPreviewJob},
+    posting::{AntennaMatchJob, JOB_ANTENNA_MATCH, JOB_LINK_PREVIEW, LinkPreviewJob},
 };
 
 /// Stories archived per pass of the expiry worker.
@@ -26,7 +26,7 @@ impl Notes {
     /// Starts the notes workers (worker processes only):
     /// - the consumer of `identity.user.deleted`, `social.user.blocked`,
     ///   `media.asset.deleted` and `admin.content.removed`;
-    /// - the `notes.link_preview` job;
+    /// - the `notes.link_preview` and `notes.antenna_match` jobs;
     /// - the story expiry pass, every `story_expiry_interval_seconds`;
     /// - the trending hashtags refresh, every `trend_interval_seconds`.
     pub fn spawn_workers(&self) {
@@ -62,6 +62,24 @@ impl Notes {
                     move |job: LinkPreviewJob| {
                         let notes = handler.clone();
                         async move { notes.resolve_link_preview(job.note_id).await }
+                    },
+                )
+                .await;
+        });
+
+        let notes = self.clone();
+        tokio::spawn(async move {
+            let handler = notes.clone();
+            notes
+                .core
+                .jobs
+                .run(
+                    JOB_ANTENNA_MATCH,
+                    JobOptions { concurrency: 4, lease: Duration::from_secs(60), max_deliver: 5 },
+                    notes.core.shutdown.clone(),
+                    move |job: AntennaMatchJob| {
+                        let notes = handler.clone();
+                        async move { notes.match_antennas(job.note_id).await.map(|_| ()) }
                     },
                 )
                 .await;

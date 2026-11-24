@@ -34,6 +34,7 @@ anyhow.workspace = true
 url.workspace = true
 unicode-segmentation.workspace = true
 unicode-normalization.workspace = true
+aho-corasick = "1.1.5"
 
 [dev-dependencies]
 # API packages only the tests name.
